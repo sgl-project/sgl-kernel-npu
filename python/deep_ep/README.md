@@ -14,8 +14,8 @@ Ascend Implementation of DeepEP
 Supported Hardware Models: Atlas A3 Series Products
 Platform: aarch64/x86
 Supporting Software
-- Driver firmware Ascend HDK 25.0.RC1.1, CANN Community Edition 8.2.RC1.alpha001 and later versions (refer to the "[CANN Software Installation Guide](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha001/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)" to install the CANN development kit package, as well as the supporting firmware and drivers)
-- Before installing CANN software, you need to install the relevant [dependency list](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha001/softwareinst/instg/instg_0045.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)
+- Driver Ascend HDK 25.0.RC1.1, CANN Community Edition 8.2.RC1.alpha003 and later versions (refer to the "[CANN Software Installation Guide](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha003/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)" to install the CANN development kit package, as well as the supporting firmware and drivers)
+- Before installing CANN software, you need to install the relevant [dependency list](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha003/softwareinst/instg/instg_0045.html)
 - Python >= 3.9
 - PyTorch >= 2.5.1, torch-npu >= 2.5.1-7.0.0
 
@@ -34,18 +34,13 @@ bash build.sh
 
 # Link to the deep_ep_cpp.*.so file based on your settings
 ln -s build/lib.linux-aarch64-cpython-39/deep_ep/deep_ep_cpp.cpython-39-aarch64-linux-gnu.so
-
-# Run test cases
-bash tests/run_test.sh
 ```
 
 ### Installation
-1. Run the installation script to install the `.whl` file into your Python environment
+1. Pip install the `.whl` file into your Python environment
 ```bash
-bash install.sh
+pip install output/deep_ep*.whl
 ```
-Install required environment variables:
-- `ASCEND_HOME_PATH`: CANN installation path
 
 2. Execute the environment variables for CANN (modify according to the installation path)
 ```bash

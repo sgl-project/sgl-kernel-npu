@@ -35,7 +35,7 @@ function build_deepep()
     cd -
 }
 
-function make_package()
+function make_deepep_package()
 {
     if pip3 show wheel;then
         echo "wheel has been installed"
@@ -44,45 +44,20 @@ function make_package()
     fi
 
     PYTHON_DIR="python"
-    cd "$PYTHON_DIR" || exit
+    cd "$PYTHON_DIR"/deep_ep || exit
 
-    cp -v ${OUTPUT_DIR}/lib/* "$CURRENT_DIR"/python/deep_ep/
-    rm -rf "$CURRENT_DIR"/python/dist
-    python3 setup.py build
+    cp -v ${OUTPUT_DIR}/lib/* "$CURRENT_DIR"/python/deep_ep/deep_ep/
+    rm -rf "$CURRENT_DIR"/python/deep_ep/dist
+    python3 setup.py bdist_wheel
+    mv -v "$CURRENT_DIR"/python/deep_ep/dist/deep_ep*.whl ${OUTPUT_DIR}/
+    rm -rf "$CURRENT_DIR"/python/deep_ep/dist
     cd -
 }
-
-function build_kernels()
-{
-    KERNEL_DIR="csrc/kernels"
-
-    CUSTOM_OPP_DIR="${CURRENT_DIR}/deep_ep"
-
-    cd "$KERNEL_DIR" || exit
-
-    chmod +x build.sh
-    chmod +x cmake/util/gen_ops_filter.sh
-    ./build.sh
-
-    custom_opp_file=$(find ./build_out -maxdepth 1 -type f -name "custom_opp*.run")
-    if [ -z "$custom_opp_file" ]; then
-        echo "can not find run package"
-        exit 1
-    else
-        echo "find run package: $custom_opp_file"
-        chmod +x "$custom_opp_file"
-    fi
-    # echo "./build_out/custom_opp_*.run --install-path=$CUSTOM_OPP_DIR"
-    ./build_out/custom_opp_*.run --install-path=$CUSTOM_OPP_DIR
-
-    cd -
-}
-
 
 function main()
 {
     build_deepep
-    make_package
+    make_deepep_package
 }
 
 main
