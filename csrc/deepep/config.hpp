@@ -1,6 +1,9 @@
 #pragma once
 #include <pybind11/pybind11.h>
 #include <pybind11/pytypes.h>
+#include <cstdlib>
+#include <cctype>
+#include <string>
 
 namespace deep_ep {
 
@@ -32,4 +35,5 @@ struct Config {
 
 size_t get_low_latency_rdma_size_hint(int num_max_dispatch_tokens_per_rank, int hidden, int num_ranks, int num_experts);
 
+int get_value_from_env(const std::string &name, int defaultValue);
 } // namespace deep_ep
