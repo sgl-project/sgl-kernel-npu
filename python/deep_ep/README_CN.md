@@ -16,8 +16,8 @@ DeepEP的ascend实现
 硬件型号支持：Atlas A3 系列产品
 平台：aarch64/x86
 配套软件
-- 驱动固件 Ascend HDK 25.0.RC1.1、CANN社区版8.2.RC1.alpha001及之后版本（参考《[CANN软件安装指南](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha001/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)》安装CANN开发套件包以及配套固件和驱动）
-- 安装CANN软件前需安装相关[依赖列表](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha001/softwareinst/instg/instg_0045.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)
+- 驱动 Ascend HDK 25.0.RC1.1、CANN社区版8.2.RC1.alpha003及之后版本（参考《[CANN软件安装指南](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha003/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)》安装CANN开发套件包以及配套固件和驱动）
+- 安装CANN软件前需安装相关[依赖列表](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha003/softwareinst/instg/instg_0045.html)
 - Python >= 3.9
 - PyTorch >= 2.5.1, torch-npu >= 2.5.1-7.0.0
 
@@ -36,18 +36,13 @@ bash build.sh
 
 # 根据你的设置软链接到 deep_ep_cpp.*.so 文件
 ln -s build/lib.linux-aarch64-cpython-39/deep_ep/deep_ep_cpp.cpython-39-aarch64-linux-gnu.so
-
-# 运行测试用例
-bash tests/run_test.sh
 ```
 
 ### 安装
-1、执行安装脚本，将`.whl`安装到你的python环境下
+1、执行pip安装命令，将`.whl`安装到你的python环境下
 ```bash
-bash install.sh
+pip install output/deep_ep*.whl
 ```
-安装需要的环境变量：
-- `ASCEND_HOME_PATH`: CANN的安装路径
 
 2、执行CANN的环境变量（根据安装路径修改）
 ```bash
