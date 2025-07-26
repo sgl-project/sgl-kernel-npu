@@ -33,15 +33,18 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 ```bash
 # 构建项目
 bash build.sh
-
-# 根据你的设置软链接到 deep_ep_cpp.*.so 文件
-ln -s build/lib.linux-aarch64-cpython-39/deep_ep/deep_ep_cpp.cpython-39-aarch64-linux-gnu.so
 ```
 
 ### 安装
 1、执行pip安装命令，将`.whl`安装到你的python环境下
 ```bash
 pip install output/deep_ep*.whl
+
+# 设置deep_ep_cpp*.so的软链接
+cd "$(pip show deep-ep | grep -E '^Location:' | awk '{print $2}')" && ln -s deep_ep/deep_ep_cpp*.so && cd -
+
+# （可选）确认是否可以成功导入
+python -c "import deep_ep; print(deep_ep.__path__)"
 ```
 
 2、执行CANN的环境变量（根据安装路径修改）

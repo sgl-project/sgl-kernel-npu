@@ -31,15 +31,18 @@ Before executing the engineering build script build.sh, modify `_ASCEND_INSTALL_
 ```bash
 # Building Project
 bash build.sh
-
-# Link to the deep_ep_cpp.*.so file based on your settings
-ln -s build/lib.linux-aarch64-cpython-39/deep_ep/deep_ep_cpp.cpython-39-aarch64-linux-gnu.so
 ```
 
 ### Installation
 1. Pip install the `.whl` file into your Python environment
 ```bash
 pip install output/deep_ep*.whl
+
+# Link to the deep_ep_cpp.*.so file
+cd "$(pip show deep-ep | grep -E '^Location:' | awk '{print $2}')" && ln -s deep_ep/deep_ep_cpp*.so && cd -
+
+# (Optional) Confirm whether the import can be successfully
+python -c "import deep_ep; print(deep_ep.__path__)"
 ```
 
 2. Execute the environment variables for CANN (modify according to the installation path)
