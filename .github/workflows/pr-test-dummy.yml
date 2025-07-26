@@ -1,0 +1,30 @@
+name: PR Test Dummy
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/pr-test-dummy.yml"
+  pull_request:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/pr-test-dummy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: pr-test-dummy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  unit-test-basic:
+    if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        github.event.pull_request.draft == false
+    runs-on: self-hosted
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Do test
+        run: |
+          sudo npu-smi info
+
