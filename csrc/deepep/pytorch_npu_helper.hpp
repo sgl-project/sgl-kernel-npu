@@ -118,8 +118,6 @@ inline void *GetOpApiFuncAddrInLib(void *handler, const char *libName,
 
 inline void *GetOpApiLibHandler(const char *libName) {
   auto handler = dlopen(libName, RTLD_LAZY);
-  std::cerr << "****************GetOpApiLibHandler****************" << std::endl;
-  std::cerr << "name:" << libName << std::endl << "handler:" << handler << std::endl;
 
   if (handler == nullptr) {
     ASCEND_LOGW("dlopen %s failed, error:%s.", libName, dlerror());
