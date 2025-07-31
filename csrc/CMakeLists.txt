@@ -66,7 +66,6 @@ message(STATUS "================")
 file(GLOB_RECURSE SOURCES_DEEPEP deepep/*.cpp)
 
 pybind11_add_module(deep_ep_cpp pybind_extension.cpp ${SOURCES_DEEPEP})
-add_definitions(-D_GLIBCXX_USE_CXX11_ABI=0)
 set_target_properties(deep_ep_cpp PROPERTIES CXX_STANDARD 17)
 target_include_directories( deep_ep_cpp PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/csrc
