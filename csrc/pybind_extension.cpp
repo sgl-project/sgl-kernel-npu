@@ -32,6 +32,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         .def(pybind11::init<int, int, int64_t, int64_t, bool, std::string>())
         .def("is_available", &deep_ep::Buffer::is_available)
         .def("get_rdma_rank", &deep_ep::Buffer::get_rdma_rank)
+        .def("get_dispatch_layout", &deep_ep::Buffer::get_dispatch_layout)
         .def("low_latency_dispatch", &deep_ep::Buffer::low_latency_dispatch)
         .def("low_latency_combine", &deep_ep::Buffer::low_latency_combine);
 }
