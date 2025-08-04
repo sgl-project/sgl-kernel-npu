@@ -28,6 +28,9 @@ struct Buffer {
     at::Tensor new_topk_idx;
     at::Tensor new_scales;
 
+    int64_t shared_expert_rank_num;
+    int64_t shared_expert_num = 1;
+
 private:
     std::string moe_all_to_all_group_name;
 
