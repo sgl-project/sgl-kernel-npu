@@ -5,13 +5,12 @@
 #include <tuple>
 #include <vector>
 #include <optional>
+
 #include "hccl/hccl.h"
 #include "hccl/hccl_types.h"
 
 #include "config.hpp"
 #include "event.hpp"
-
-
 
 namespace deep_ep {
 

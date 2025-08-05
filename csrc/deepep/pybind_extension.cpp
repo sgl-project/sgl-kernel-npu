@@ -3,9 +3,9 @@
 #include <pybind11/functional.h>
 #include <pybind11/stl.h>
 
-#include "deepep/deep_ep.hpp"
-#include "deepep/config.hpp"
-#include "deepep/event.hpp"
+#include "deep_ep.hpp"
+#include "config.hpp"
+#include "event.hpp"
 
 #ifndef TORCH_EXTENSION_NAME
 #define TORCH_EXTENSION_NAME deep_ep_cpp
