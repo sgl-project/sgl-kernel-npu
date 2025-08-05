@@ -31,6 +31,8 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
     } else {
         EP_HOST_ASSERT(moe_all_to_all_group_name.size() < 128);
     }
+
+    this->shared_expert_rank_num = get_value_from_env("MOE_SHARED_EXPERT_RANK_NUM", 0);
 }
 
 Buffer::~Buffer() noexcept(false) {
@@ -148,18 +150,22 @@ std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Te
 
     auto num_tokens = static_cast<int>(new_x.size(0)), hidden = static_cast<int>(new_x.size(1));
     auto num_scales = hidden / 128, num_topk = static_cast<int>(new_topk_idx.size(1));
-    auto num_local_experts = num_experts / num_ranks;
-    auto max_size = 
-        num_tokens * num_topk > num_local_experts * num_ranks * num_max_dispatch_tokens_per_rank * 128 ?
-        num_tokens * num_topk : num_local_experts * num_ranks * num_max_dispatch_tokens_per_rank * 128;
+
+    auto num_local_experts = num_experts / (num_ranks - shared_expert_rank_num);
+    auto num_max_tokens = 0;
+    if (rank < shared_expert_rank_num) {
+        num_max_tokens = num_max_dispatch_tokens_per_rank * num_ranks / shared_expert_rank_num;
+        num_local_experts = 1;
+    } else { // moe expert
+        num_max_tokens = num_max_dispatch_tokens_per_rank * num_ranks * num_local_experts;
+    }
+    auto max_size = num_tokens * num_topk > num_max_tokens * 128 ? num_tokens * num_topk : num_max_tokens * 128;
 
     // Allocate packed tensors
     auto device = new_x.device();
-    auto packed_recv_x = at::empty({num_local_experts * num_ranks * num_max_dispatch_tokens_per_rank, hidden},
-        new_x.options().dtype(use_fp8 ? at::kChar : at::kBFloat16));
-    auto packed_recv_x_scales = at::empty(
-        {num_local_experts * num_ranks * num_max_dispatch_tokens_per_rank}, at::dtype(at::kFloat).device(device));
-    auto assist_info_for_combine = at::empty({max_size}, at::dtype(at::kInt).device(device));
+    auto packed_recv_x = at::empty({num_max_tokens, hidden}, new_x.options().dtype(use_fp8 ? at::kChar : at::kBFloat16));
+    auto packed_recv_x_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
+    auto assist_info_for_combine = at::empty({num_tokens * num_topk}, at::dtype(at::kInt).device(device));
     auto packed_recv_count = at::empty({num_local_experts * num_ranks}, at::dtype(at::kInt).device(device));
     auto tp_recv_count = at::empty({1}, at::dtype(at::kInt).device(device));
     auto expertTokenNumsOut = at::empty({num_local_experts}, at::dtype(at::kLong).device(device));
@@ -171,12 +177,12 @@ std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Te
     int64_t tp_size = 1;
     int64_t tp_rank = 0;
     int64_t expert_shard_type = 0;
-    int64_t shared_expert_num = 1;
     int64_t expert_token_nums_type = 1;
     int64_t global_bs = num_max_dispatch_tokens_per_rank * num_ranks;
     int64_t shared_expert_rank_num = 0;
     std::string comm_log = "0";
     char *comm_log_ptr = const_cast<char *>(comm_log.c_str());
+
 
     // get ep & tp name
     char hcom_ep_name[128];
@@ -270,9 +276,7 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     int64_t tp_world_size = 1;
     int64_t tp_rankId = 0;
     int64_t expert_shared_type = 0;
-    int64_t shared_expert_num = 1;
     int64_t global_bs = num_max_dispatch_tokens_per_rank * num_ranks;
-    int64_t shared_expert_rank_num = 0;
     int64_t out_dtype = 0;
     int64_t comm_quant_mode = 0;
     int64_t group_list_type = 0;
