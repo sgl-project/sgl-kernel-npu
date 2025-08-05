@@ -24,6 +24,7 @@ struct Buffer {
 
     bool low_latency_mode = false;
     bool is_padding = false;
+    int padding_cnt = 0;
     at::Tensor ori_x;
     at::Tensor new_topk_idx;
     at::Tensor new_scales;
