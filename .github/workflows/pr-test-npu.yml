@@ -25,9 +25,10 @@ jobs:
   per-commit-1-ascend-npu:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false
-    runs-on: linux-arm64-npu-1
-    container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1.alpha003-910b-ubuntu22.04-py3.11
+    strategy:
+      matrix:
+        runner: [linux-aarch64-a3-node0, linux-aarch64-a3-node1, linux-aarch64-a3-node2, linux-aarch64-a3-node3]
+    runs-on: ${{matrix.runner}}
     steps:
       - name: Pre-config git access token
         run: |
@@ -51,7 +52,6 @@ jobs:
           SGLANG_USE_MODELSCOPE: true
           SGLANG_IS_IN_CI: true
           HF_ENDPOINT: https://hf-mirror.com
-          TORCH_EXTENSIONS_DIR: /tmp/torch_extensions
         run: |
           cd test/python/deepep
           bash run_test.sh
@@ -59,9 +59,10 @@ jobs:
   per-commit-2-ascend-npu:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false
-    runs-on: linux-arm64-npu-2
-    container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1.alpha003-910b-ubuntu22.04-py3.11
+    strategy:
+      matrix:
+        runner: [linux-aarch64-a3-node0, linux-aarch64-a3-node1, linux-aarch64-a3-node2, linux-aarch64-a3-node3]
+    runs-on: ${{matrix.runner}}
     steps:
       - name: Pre-config git access token
         run: |
@@ -85,7 +86,6 @@ jobs:
           SGLANG_USE_MODELSCOPE: true
           SGLANG_IS_IN_CI: true
           HF_ENDPOINT: https://hf-mirror.com
-          TORCH_EXTENSIONS_DIR: /tmp/torch_extensions
         run: |
           cd test/python
           python3 test_intranode.py
