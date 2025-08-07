@@ -1,0 +1,110 @@
+name: PR Test (Ascend NPU)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - "python/**"
+      - "csrc/**"
+      - "test/**"
+      - ".github/workflows/pr-test-npu.yml"
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "python/**"
+      - "csrc/**"
+      - "test/**"
+      - ".github/workflows/pr-test-npu.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: pr-test-npu-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  per-commit-1-ascend-npu:
+    if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        github.event.pull_request.draft == false
+    runs-on: linux-arm64-npu-1
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1.alpha003-910b-ubuntu22.04-py3.11
+    steps:
+      - name: Pre-config git access token
+        run: |
+          # as we use a proxy but checkout@v4 only set basic auth header for github.com
+          # so we set the extraheader manually
+          TOKEN=`echo -n "x-access-token:${{ secrets.GITHUB_TOKEN}}"|base64`
+          git config --global http.https://gh-proxy.test.osinfra.cn/.extraheader "AUTHORIZATION: basic $TOKEN"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          bash build.sh
+          python3 -m pip uninstall deepep
+          python3 -m pip install output/deep_ep-1.0.0+d96c62d0-cp310-cp310-linux_aarch64.whl
+
+      - name: Run test
+        timeout-minutes: 30
+        env:
+          SGLANG_USE_MODELSCOPE: true
+          SGLANG_IS_IN_CI: true
+          HF_ENDPOINT: https://hf-mirror.com
+          TORCH_EXTENSIONS_DIR: /tmp/torch_extensions
+        run: |
+          cd test/python/deepep
+          bash run_test.sh
+
+  per-commit-2-ascend-npu:
+    if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        github.event.pull_request.draft == false
+    runs-on: linux-arm64-npu-2
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1.alpha003-910b-ubuntu22.04-py3.11
+    steps:
+      - name: Pre-config git access token
+        run: |
+          # as we use a proxy but checkout@v4 only set basic auth header for github.com
+          # so we set the extraheader manually
+          TOKEN=`echo -n "x-access-token:${{ secrets.GITHUB_TOKEN}}"|base64`
+          git config --global http.https://gh-proxy.test.osinfra.cn/.extraheader "AUTHORIZATION: basic $TOKEN"
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          bash build.sh
+          python3 -m pip uninstall deepep
+          python3 -m pip install output/deep_ep-1.0.0+d96c62d0-cp310-cp310-linux_aarch64.whl
+
+      - name: Run test
+        timeout-minutes: 30
+        env:
+          SGLANG_USE_MODELSCOPE: true
+          SGLANG_IS_IN_CI: true
+          HF_ENDPOINT: https://hf-mirror.com
+          TORCH_EXTENSIONS_DIR: /tmp/torch_extensions
+        run: |
+          cd test/python
+          python3 test_intranode.py
+
+  finish:
+    if: always()
+    needs:
+      - per-commit-1-ascend-npu
+      - per-commit-2-ascend-npu
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all dependent job statuses
+        run: |
+          results=(${{ join(needs.*.result, ' ') }})
+          for result in "${results[@]}"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              echo "Job failed with result: $result"
+              exit 1
+            fi
+          done
+          echo "All jobs completed successfully"
+          exit 0
