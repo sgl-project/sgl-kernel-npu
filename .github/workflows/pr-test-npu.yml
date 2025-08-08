@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  per-commit-1-ascend-npu:
+  test-low-latency:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false
     runs-on: linux-aarch64-a3-node0
@@ -45,13 +45,16 @@ jobs:
           cd test/python/deepep
           bash run_test.sh
 
-  per-commit-2-ascend-npu:
+  test-intranode:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false
     runs-on: linux-aarch64-a3-node0
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Start CI container
+        run: bash scripts/npu_ci_a3_start_container.sh
 
       - name: Install dependencies
         run: |
@@ -71,8 +74,8 @@ jobs:
   finish:
     if: always()
     needs:
-      - per-commit-1-ascend-npu
-      - per-commit-2-ascend-npu
+      - test-low-latency
+      - test-intranode
     runs-on: ubuntu-latest
     steps:
       - name: Check all dependent job statuses
