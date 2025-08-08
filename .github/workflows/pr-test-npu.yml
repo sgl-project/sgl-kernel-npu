@@ -33,7 +33,7 @@ jobs:
       - name: Install dependencies
         run: |
           bash build.sh
-          python3 -m pip uninstall deepep
+          python3 -m pip uninstall -y deepep
           python3 -m pip install output/deep_ep-1.0.0+d96c62d0-cp310-cp310-linux_aarch64.whl
 
       - name: Run test
@@ -56,7 +56,7 @@ jobs:
       - name: Install dependencies
         run: |
           bash build.sh
-          python3 -m pip uninstall deepep
+          python3 -m pip uninstall -y deepep
           python3 -m pip install output/deep_ep-1.0.0+d96c62d0-cp310-cp310-linux_aarch64.whl
 
       - name: Run test
