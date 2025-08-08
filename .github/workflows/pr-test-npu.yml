@@ -25,18 +25,8 @@ jobs:
   per-commit-1-ascend-npu:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false
-    strategy:
-      matrix:
-        runner: [linux-aarch64-a3-node0, linux-aarch64-a3-node1, linux-aarch64-a3-node2, linux-aarch64-a3-node3]
-    runs-on: ${{matrix.runner}}
+    runs-on: linux-aarch64-a3-node0
     steps:
-      - name: Pre-config git access token
-        run: |
-          # as we use a proxy but checkout@v4 only set basic auth header for github.com
-          # so we set the extraheader manually
-          TOKEN=`echo -n "x-access-token:${{ secrets.GITHUB_TOKEN}}"|base64`
-          git config --global http.https://gh-proxy.test.osinfra.cn/.extraheader "AUTHORIZATION: basic $TOKEN"
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -51,7 +41,6 @@ jobs:
         env:
           SGLANG_USE_MODELSCOPE: true
           SGLANG_IS_IN_CI: true
-          HF_ENDPOINT: https://hf-mirror.com
         run: |
           cd test/python/deepep
           bash run_test.sh
@@ -59,18 +48,8 @@ jobs:
   per-commit-2-ascend-npu:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false
-    strategy:
-      matrix:
-        runner: [linux-aarch64-a3-node0, linux-aarch64-a3-node1, linux-aarch64-a3-node2, linux-aarch64-a3-node3]
-    runs-on: ${{matrix.runner}}
+    runs-on: linux-aarch64-a3-node0
     steps:
-      - name: Pre-config git access token
-        run: |
-          # as we use a proxy but checkout@v4 only set basic auth header for github.com
-          # so we set the extraheader manually
-          TOKEN=`echo -n "x-access-token:${{ secrets.GITHUB_TOKEN}}"|base64`
-          git config --global http.https://gh-proxy.test.osinfra.cn/.extraheader "AUTHORIZATION: basic $TOKEN"
-
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -85,7 +64,6 @@ jobs:
         env:
           SGLANG_USE_MODELSCOPE: true
           SGLANG_IS_IN_CI: true
-          HF_ENDPOINT: https://hf-mirror.com
         run: |
           cd test/python
           python3 test_intranode.py
