@@ -34,7 +34,7 @@ jobs:
       - name: Run test
         timeout-minutes: 10
         run: |
-          bash scripts/npu_ci_exec.sh bash $GITHUB_WORKSPACE/test/python/deepep/run_test.sh
+          bash scripts/npu_ci_exec.sh bash $GITHUB_WORKSPACE/tests/python/deepep/run_test.sh
 
   test-intranode:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
@@ -55,7 +55,7 @@ jobs:
       - name: Run test
         timeout-minutes: 10
         run: |
-          bash scripts/npu_ci_exec.sh python3 $GITHUB_WORKSPACE/test/python/test_intranode.py
+          bash scripts/npu_ci_exec.sh python3 $GITHUB_WORKSPACE/tests/python/test_intranode.py
 
   finish:
     if: always()
