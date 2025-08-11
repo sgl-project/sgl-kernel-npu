@@ -25,8 +25,14 @@ jobs:
           CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
           git config --global --unset "$CONFIG_KEY" || true
 
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          clean: true
 
       - name: Start CI container
         run: bash scripts/npu_ci_a3_start_container.sh
@@ -46,8 +52,14 @@ jobs:
           CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
           git config --global --unset "$CONFIG_KEY" || true
 
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          clean: true
 
       - name: Start CI container
         run: bash scripts/npu_ci_a3_start_container.sh
