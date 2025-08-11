@@ -1,13 +1,6 @@
 name: PR Test (Ascend NPU)
 
 on:
-  push:
-    branches: [ main ]
-    paths:
-      - "python/**"
-      - "csrc/**"
-      - "test/**"
-      - ".github/workflows/pr-test-npu.yml"
   pull_request:
     branches: [ main ]
     paths:
@@ -27,49 +20,38 @@ jobs:
         github.event.pull_request.draft == false
     runs-on: linux-aarch64-a3-node0
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: Clean git config
+        run: git config --global --unset http.https://gh-proxy.test.osinfra.cn/.extraheader
 
-      - name: Install dependencies
-        run: |
-          bash build.sh
-          python3 -m pip uninstall -y deepep
-          python3 -m pip install output/deep_ep-1.0.0+d96c62d0-cp310-cp310-linux_aarch64.whl
-
-      - name: Run test
-        timeout-minutes: 30
-        env:
-          SGLANG_USE_MODELSCOPE: true
-          SGLANG_IS_IN_CI: true
-        run: |
-          cd test/python/deepep
-          bash run_test.sh
-
-  test-intranode:
-    if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
-        github.event.pull_request.draft == false
-    runs-on: linux-aarch64-a3-node0
-    steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Start CI container
         run: bash scripts/npu_ci_a3_start_container.sh
 
-      - name: Install dependencies
+      - name: Run test
+        timeout-minutes: 10
         run: |
-          bash build.sh
-          python3 -m pip uninstall -y deepep
-          python3 -m pip install output/deep_ep-1.0.0+d96c62d0-cp310-cp310-linux_aarch64.whl
+          docker exec sglang_ci_a3 bash test/python/deepep/run_test.sh
+
+  test-intranode:
+    if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        github.event.pull_request.draft == false
+    runs-on: linux-aarch64-a3-node0
+    steps:
+      - name: Clean git config
+        run: git config --global --unset http.https://gh-proxy.test.osinfra.cn/.extraheader
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Start CI container
+        run: bash scripts/npu_ci_a3_start_container.sh
 
       - name: Run test
-        timeout-minutes: 30
-        env:
-          SGLANG_USE_MODELSCOPE: true
-          SGLANG_IS_IN_CI: true
+        timeout-minutes: 10
         run: |
-          cd test/python
-          python3 test_intranode.py
+          docker exec sglang_ci_a3 python3 test/python/test_intranode.py
 
   finish:
     if: always()
