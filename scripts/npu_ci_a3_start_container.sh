@@ -3,7 +3,7 @@ sudo chmod a+rw /var/run/docker.sock
 IMAGE_NAME="swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/sglang:main"
 sudo docker pull $IMAGE_NAME
 
-CONTAINER_NAME="sglang_ci_a3"
+CONTAINER_NAME="sglang_kernel_ci_a3"
 
 if docker ps -a --format '{{.Names}}' | grep -qw "^${CONTAINER_NAME}$"; then
     echo "Container '$CONTAINER_NAME' exists. Removing it..."
