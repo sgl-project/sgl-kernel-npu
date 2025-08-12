@@ -1,4 +1,4 @@
-name: PR Test (Ascend NPU)
+name: PR Test for SGL-KERNEL-NPU (Ascend NPU)
 
 on:
   pull_request:
