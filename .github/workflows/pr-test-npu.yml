@@ -42,6 +42,9 @@ jobs:
         run: |
           bash scripts/npu_ci_exec.sh bash $GITHUB_WORKSPACE/tests/python/deepep/run_test.sh
 
+      - name: Stop and remove container
+        run: bash scripts/npu_ci_a3_stop_container.sh
+
   test-intranode:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false
@@ -69,6 +72,9 @@ jobs:
         run: |
           bash scripts/npu_ci_exec.sh python3 $GITHUB_WORKSPACE/tests/python/test_intranode.py
 
+      - name: Stop and remove container
+        run: bash scripts/npu_ci_a3_stop_container.sh
+
   finish:
     if: always()
     needs:
@@ -76,9 +82,6 @@ jobs:
       - test-intranode
     runs-on: ubuntu-latest
     steps:
-      - name: Stop and remove container
-        run: bash scripts/npu_ci_a3_stop_container.sh
-
       - name: Check all dependent job statuses
         run: |
           results=(${{ join(needs.*.result, ' ') }})
