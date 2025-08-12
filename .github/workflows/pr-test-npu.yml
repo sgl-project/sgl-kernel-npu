@@ -76,6 +76,9 @@ jobs:
       - test-intranode
     runs-on: ubuntu-latest
     steps:
+      - name: Stop and remove container
+        run: bash scripts/npu_ci_a3_stop_container.sh
+
       - name: Check all dependent job statuses
         run: |
           results=(${{ join(needs.*.result, ' ') }})
