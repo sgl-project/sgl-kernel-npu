@@ -22,7 +22,7 @@ COMPILE_OPTIONS=""
 
 function build_deepep()
 {
-    CMAKE_DIR="csrc"
+    CMAKE_DIR=""
     BUILD_DIR="build"
 
     cd "$CMAKE_DIR" || exit
