@@ -20,7 +20,7 @@ echo "outpath: ${OUTPUT_DIR}"
 
 COMPILE_OPTIONS=""
 
-function build_deepep()
+function build_kernels()
 {
     CMAKE_DIR=""
     BUILD_DIR="build"
@@ -56,7 +56,7 @@ function make_deepep_package()
 
 function main()
 {
-    build_deepep
+    build_kernels
     make_deepep_package
 }
 
