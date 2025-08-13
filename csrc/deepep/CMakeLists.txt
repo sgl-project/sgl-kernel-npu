@@ -13,7 +13,7 @@ find_package(pybind11 REQUIRED)
 
 message(STATUS "CMAKE_PREFIX_PATH = ${CMAKE_PREFIX_PATH}")
 
-file(GLOB_RECURSE SOURCES_DEEPEP deepep/*.cpp)
+file(GLOB_RECURSE SOURCES_DEEPEP *.cpp)
 
 pybind11_add_module(deep_ep_cpp pybind_extension.cpp ${SOURCES_DEEPEP})
 set_target_properties(deep_ep_cpp PROPERTIES CXX_STANDARD 17)
