@@ -4,8 +4,8 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/python/sgl_kernel_npu/s
 # host side files
 FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/pytorch_extensions.cpp
-
     ${PROJECT_OP_SRC_BASE}/helloworld/op_host/helloworld.cpp
+    ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_host/cache_loc_assign.cpp
     )
 
 # set the so name
@@ -13,22 +13,23 @@ set(OP_PLUGIN_NAME sgl_kernel_npu)
 
 # kernel side files without workspace
 ascendc_library(no_workspace_kernel STATIC
-        ${PROJECT_OP_SRC_BASE}/helloworld/op_kernel/kernel_helloworld.cpp
+    ${PROJECT_OP_SRC_BASE}/helloworld/op_kernel/kernel_helloworld.cpp
 )
 
-#ascendc_library(workspace_kernel STATIC
-#        csrc/kernel/matmul_leakyrelu_custom.cpp
-#)
+ascendc_library(workspace_kernel STATIC
+    ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_kernel/cache_loc_assign_kernel_int32.cpp
+)
 
-#ascendc_compile_definitions(workspace_kernel PRIVATE
-#        -DHAVE_WORKSPACE
-#        -DHAVE_TILING
-#)
+ascendc_compile_definitions(workspace_kernel PRIVATE
+       -DHAVE_WORKSPACE
+       -DHAVE_TILING
+)
 
 # create shared library libsgl_kernel_npu.so
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
+        workspace_kernel
         no_workspace_kernel
         torch_npu
         ascendcl
