@@ -1,8 +1,6 @@
 import torch
 import torch_npu
-import sys
 import time
-sys.path.append("/home/zrx/sgl-kernel-npu/python/sgl_kernel_npu")
 
 import sgl_kernel_npu
 

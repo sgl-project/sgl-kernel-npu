@@ -8,8 +8,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef SGL_KERNEL_NPU_KERNEL_HELLOWORLD_H
-#define SGL_KERNEL_NPU_KERNEL_HELLOWORLD_H
+#ifndef SGL_KERNEL_NPU_KERNEL_CACHE_LOC_ASSIGN_H
+#define SGL_KERNEL_NPU_KERNEL_CACHE_LOC_ASSIGN_H
 
 /* include file of ascendc */
 #include "kernel_operator.h"
@@ -64,19 +64,19 @@ public:
 
         // 32 blk size
         this->syncGm.SetGlobalBuffer((__gm__ int32_t *)(workspace), tempTilingGM->workspaceSize);
-        pipe.InitBuffer(vecIn, 1, this->vcoreNum * sizeof(int32_t));
+        this->pipe.InitBuffer(this->vecIn, 1, this->vcoreNum * sizeof(int32_t));
 
         AscendC::TBuf<AscendC::TPosition::VECCALC> tmpBuff1, tmpBuff2, tmpBuff3, tmpBuff4;
-        pipe.InitBuffer(tmpBuff1, this->offsetColAlignInt32);
-        pipe.InitBuffer(tmpBuff2, this->offsetColAlignInt32);
-        pipe.InitBuffer(tmpBuff3, this->cacheLocAlignIn32);
-        pipe.InitBuffer(tmpBuff4, this->cacheLocIdxAlignIn32);
+        this->pipe.InitBuffer(tmpBuff1, this->offsetColAlignInt32);
+        this->pipe.InitBuffer(tmpBuff2, this->offsetColAlignInt32);
+        this->pipe.InitBuffer(tmpBuff3, this->cacheLocAlignIn32);
+        this->pipe.InitBuffer(tmpBuff4, this->cacheLocIdxAlignIn32);
         this->ubStartOffset = tmpBuff1.Get<int32_t>();
         this->ubEndOffset = tmpBuff2.Get<int32_t>();
         this->ubCacheLoc = tmpBuff3.Get<int32_t>();
         this->ubCacheLocIdx = tmpBuff4.Get<int32_t>();
 
-        pipe.InitBuffer(inQueue1, 1, this->tokenColAlignInt32);
+        this->pipe.InitBuffer(this->inQueue1, 1, this->tokenColAlignInt32);
     }
 
     __aicore__ inline void Process()
@@ -92,14 +92,14 @@ public:
 private:
     __aicore__ inline void CopyIn()
     {
-        AscendC::LocalTensor<int32_t> tokenPoolLocal = inQueue1.AllocTensor<int32_t>();
+        AscendC::LocalTensor<int32_t> tokenPoolLocal = this->inQueue1.AllocTensor<int32_t>();
         AscendC::DataCopy(tokenPoolLocal, tokenPoolGM, this->tokenCountAlignInt32);
-        inQueue1.EnQue(tokenPoolLocal);
+        this->inQueue1.EnQue(tokenPoolLocal);
     }
 
     __aicore__ inline void Compute()
     {
-        AscendC::LocalTensor<int32_t> tokenPoolLocal = inQueue1.DeQue<int32_t>();
+        AscendC::LocalTensor<int32_t> tokenPoolLocal = this->inQueue1.DeQue<int32_t>();
         for (int32_t i = 0; i < this->rowNum; i++) {
             int32_t start = this->ubStartOffset.GetValue(i);
             int32_t end = this->ubEndOffset.GetValue(i);
@@ -117,7 +117,7 @@ private:
             AscendC::IBSet(this->syncGm, syncBuf, 0, 0);
             this->vecIn.FreeTensor(syncBuf);
         } else {
-            auto syncBuf = vecIn.AllocTensor<int32_t>();
+            auto syncBuf = this->vecIn.AllocTensor<int32_t>();
             AscendC::IBWait(this->syncGm, syncBuf, this->coreId - 1, 0);
             AscendC::DataCopy(tokenPoolGM, tokenPoolLocal, this->tokenCountAlignInt32);
             if (this->coreId != this->vcoreNum - 1) {
@@ -125,7 +125,7 @@ private:
             }
             this->vecIn.FreeTensor(syncBuf);
         }
-        inQueue1.FreeTensor(tokenPoolLocal);
+        this->inQueue1.FreeTensor(tokenPoolLocal);
     }
 
 private:
@@ -176,4 +176,4 @@ extern "C" __global__ __aicore__ void cache_loc_assign(GM_ADDR tokenPool, GM_ADD
     }
 }
 
-#endif  // SGL_KERNEL_NPU_KERNEL_HELLOWORLD_H
+#endif  // SGL_KERNEL_NPU_KERNEL_CACHE_LOC_ASSIGN_H

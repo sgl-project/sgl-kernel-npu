@@ -39,14 +39,7 @@ function build_kernels()
 
 function make_deepep_package()
 {
-    if pip3 show wheel;then
-        echo "wheel has been installed"
-    else
-        pip3 install wheel
-    fi
-
-    PYTHON_DIR="python"
-    cd "$PYTHON_DIR"/deep_ep || exit
+    cd python/deep_ep || exit
 
     cp -v ${OUTPUT_DIR}/lib/* "$CURRENT_DIR"/python/deep_ep/deep_ep/
     rm -rf "$CURRENT_DIR"/python/deep_ep/dist
@@ -56,10 +49,29 @@ function make_deepep_package()
     cd -
 }
 
+function make_sgl_kernel_npu_package()
+{
+    cd python/sgl_kernel_npu || exit
+
+    rm -rf "$CURRENT_DIR"/python/sgl_kernel_npu/dist
+    python3 setup.py clean --all
+    python3 setup.py bdist_wheel
+    mv -v "$CURRENT_DIR"/python/sgl_kernel_npu/dist/sgl_kernel_npu*.whl ${OUTPUT_DIR}/
+    rm -rf "$CURRENT_DIR"/python/sgl_kernel_npu/dist
+    cd -
+}
+
 function main()
 {
     build_kernels
+
+    if pip3 show wheel;then
+        echo "wheel has been installed"
+    else
+        pip3 install wheel
+    fi
     make_deepep_package
+    make_sgl_kernel_npu_package
 }
 
 main
