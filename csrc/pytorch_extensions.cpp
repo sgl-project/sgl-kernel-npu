@@ -14,9 +14,7 @@
 #include "version.h"
 
 #include "torch_helper.h"
-#include "aclrtlaunch_helloworld.h"
 #include "helloworld.h"
-#include "aclrtlaunch_cache_loc_assign.h"
 #include "cache_loc_assign.h"
 
 namespace {
