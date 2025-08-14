@@ -1,6 +1,8 @@
 #!/bin/bash
 set -e
 
+SOC_VERSION ="${1:-Ascend910_9382}"
+
 if [ -n "$ASCEND_HOME_PATH" ]; then
     _ASCEND_INSTALL_PATH=$ASCEND_HOME_PATH
 else
@@ -30,7 +32,7 @@ function build_deepep()
     rm -rf $BUILD_DIR
     mkdir -p $BUILD_DIR
 
-    cmake $COMPILE_OPTIONS -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" -DASCEND_HOME_PATH=$ASCEND_HOME_PATH -B "$BUILD_DIR" -S .
+    cmake $COMPILE_OPTIONS -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" -DASCEND_HOME_PATH=$ASCEND_HOME_PATH -DSOC_VERSION=$SOC_VERSION -B "$BUILD_DIR" -S .
     cmake --build "$BUILD_DIR" -j8 && cmake --build "$BUILD_DIR" --target install
     cd -
 }
