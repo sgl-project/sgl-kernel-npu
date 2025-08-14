@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-SOC_VERSION ="${1:-Ascend910_9382}"
+SOC_VERSION="${1:-Ascend910_9382}"
 
 if [ -n "$ASCEND_HOME_PATH" ]; then
     _ASCEND_INSTALL_PATH=$ASCEND_HOME_PATH
