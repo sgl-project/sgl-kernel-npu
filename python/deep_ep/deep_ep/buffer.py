@@ -18,6 +18,8 @@ class Buffer:
         """
         Initialize the communication buffer.
 
+        ############ test build
+
         Arguments:
             group: the communication group.
             num_nvl_bytes: the buffer size for intranode NVLink communication.
