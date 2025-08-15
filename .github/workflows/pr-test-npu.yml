@@ -39,6 +39,9 @@ jobs:
       - name: Start CI container
         run: bash scripts/npu_ci_a3_start_container.sh
 
+      - name: Prepare Deepep
+        run: bash scripts/prepare_deepep_in_container.sh
+
       - name: Run test
         timeout-minutes: 10
         run: |
@@ -68,6 +71,9 @@ jobs:
 
       - name: Start CI container
         run: bash scripts/npu_ci_a3_start_container.sh
+
+      - name: Prepare Deepep
+        run: bash scripts/prepare_deepep_in_container.sh
 
       - name: Run test
         timeout-minutes: 10
