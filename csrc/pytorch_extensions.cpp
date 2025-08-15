@@ -16,6 +16,7 @@
 #include "torch_helper.h"
 #include "aclrtlaunch_helloworld.h"
 #include "helloworld.h"
+#include "assign_cache.h"
 
 namespace {
 TORCH_LIBRARY_FRAGMENT(npu, m)
@@ -24,6 +25,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
     m.def("sgl_kernel_npu_version() -> str", []() { return std::string("") + LIB_VERSION; });
 
     m.def("helloworld(Tensor x, Tensor y) -> Tensor");
+    m.def("assign_cache_op(Tensor! out, Tensor src, Tensor aStart, Tensor aEnd, Tensor bStart, Tensor bEnd) -> bool");
 }
 }
 
@@ -31,5 +33,6 @@ namespace {
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
     m.impl("helloworld", TORCH_FN(sglang::npu_kernel::helloworld));
+    m.impl("assign_cache_op", TORCH_FN(sglang::npu_kernel::RunCustomAssign));
 }
 }

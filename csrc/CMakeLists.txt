@@ -6,6 +6,7 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/pytorch_extensions.cpp
 
     ${PROJECT_OP_SRC_BASE}/helloworld/op_host/helloworld.cpp
+    ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_host/assign_cache.cpp
     )
 
 # set the so name
@@ -14,6 +15,7 @@ set(OP_PLUGIN_NAME sgl_kernel_npu)
 # kernel side files without workspace
 ascendc_library(no_workspace_kernel STATIC
         ${PROJECT_OP_SRC_BASE}/helloworld/op_kernel/kernel_helloworld.cpp
+        ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_kernel/assign_cache_op.cpp
 )
 
 #ascendc_library(workspace_kernel STATIC
