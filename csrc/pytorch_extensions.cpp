@@ -14,8 +14,7 @@
 #include "version.h"
 
 #include "torch_helper.h"
-#include "helloworld.h"
-#include "cache_loc_assign.h"
+#include "sgl_kenel_npu_ops.h"
 
 namespace {
 TORCH_LIBRARY_FRAGMENT(npu, m)

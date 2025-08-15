@@ -13,7 +13,7 @@
 #include "torch_helper.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "tiling/assign_cache_tiling.h"
-#include "cache_loc_assign.h"
+#include "aclrtlaunch_cache_loc_assign.h"
 
 namespace sglang {
 namespace npu_kernel {
