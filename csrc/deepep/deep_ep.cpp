@@ -165,7 +165,7 @@ std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Te
     auto device = new_x.device();
     auto packed_recv_x = at::empty({num_max_tokens, hidden}, new_x.options().dtype(use_fp8 ? at::kChar : at::kBFloat16));
     auto packed_recv_x_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
-    auto assist_info_for_combine = at::empty({num_tokens * num_topk}, at::dtype(at::kInt).device(device));
+    auto assist_info_for_combine = at::empty({max_size}, at::dtype(at::kInt).device(device));
     auto packed_recv_count = at::empty({num_local_experts * num_ranks}, at::dtype(at::kInt).device(device));
     auto tp_recv_count = at::empty({1}, at::dtype(at::kInt).device(device));
     auto expertTokenNumsOut = at::empty({num_local_experts}, at::dtype(at::kLong).device(device));
@@ -179,7 +179,6 @@ std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Te
     int64_t expert_shard_type = 0;
     int64_t expert_token_nums_type = 1;
     int64_t global_bs = num_max_dispatch_tokens_per_rank * num_ranks;
-    int64_t shared_expert_rank_num = 0;
     std::string comm_log = "0";
     char *comm_log_ptr = const_cast<char *>(comm_log.c_str());
 
