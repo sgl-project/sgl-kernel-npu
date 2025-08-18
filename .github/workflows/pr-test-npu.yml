@@ -1,0 +1,97 @@
+name: PR Test for SGL-KERNEL-NPU (Ascend NPU)
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "build.sh"
+      - "cmake/**"
+      - "python/**"
+      - "csrc/**"
+      - "test/**"
+      - ".github/workflows/pr-test-npu.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: pr-test-npu-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-low-latency:
+    if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        github.event.pull_request.draft == false
+    runs-on: linux-aarch64-a3-node0
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Start CI container
+        run: bash scripts/npu_ci_a3_start_container.sh
+
+      - name: Run test
+        timeout-minutes: 10
+        run: |
+          bash scripts/npu_ci_exec.sh bash $GITHUB_WORKSPACE/tests/python/deepep/run_test.sh
+
+      - name: Stop and remove container
+        run: bash scripts/npu_ci_a3_stop_container.sh
+
+  test-intranode:
+    if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        github.event.pull_request.draft == false
+    runs-on: linux-aarch64-a3-node0
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Start CI container
+        run: bash scripts/npu_ci_a3_start_container.sh
+
+      - name: Run test
+        timeout-minutes: 10
+        run: |
+          bash scripts/npu_ci_exec.sh python3 $GITHUB_WORKSPACE/tests/python/test_intranode.py
+
+      - name: Stop and remove container
+        run: bash scripts/npu_ci_a3_stop_container.sh
+
+  finish:
+    if: always()
+    needs:
+      - test-low-latency
+      - test-intranode
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all dependent job statuses
+        run: |
+          results=(${{ join(needs.*.result, ' ') }})
+          for result in "${results[@]}"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              echo "Job failed with result: $result"
+              exit 1
+            fi
+          done
+          echo "All jobs completed successfully"
+          exit 0
