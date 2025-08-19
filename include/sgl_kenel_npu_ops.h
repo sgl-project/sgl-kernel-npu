@@ -17,6 +17,11 @@ at::Tensor helloworld(const at::Tensor &x, const at::Tensor &y);
 
 at::Tensor cache_loc_assign(const at::Tensor &token_pool, const at::Tensor &start_offset, const at::Tensor &end_offset,
     const at::Tensor &out_cache_loc, const at::Tensor &out_cache_loc_idx, int64_t max_step);
+
+bool RunCustomAssign(at::Tensor &dstTensor, const at::Tensor &srcTensor,
+    const at::Tensor &dstStartIdx, const at::Tensor &dstEndIdx,
+    const at::Tensor &srcStartIdx, const at::Tensor &srcEndIdx
+);
 }
 }  // namespace sglang
 

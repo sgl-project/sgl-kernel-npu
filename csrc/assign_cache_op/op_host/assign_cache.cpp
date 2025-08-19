@@ -5,7 +5,7 @@
 #include "tiling_data.h"
 #include "defines.h"
 #include "torch_helper.h"
-#include "assign_cache.h"
+#include "aclrtlaunch_assign_cache_op.h"
 
 namespace sglang {
 namespace npu_kernel {
