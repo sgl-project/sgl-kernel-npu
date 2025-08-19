@@ -37,6 +37,13 @@ def init_dist(local_rank: int, num_local_ranks: int):
     return dist.get_rank(), dist.get_world_size(), group
 
 
+def calc_diff(x: torch.Tensor, y: torch.Tensor):
+    x, y = x.double() + 1, y.double() + 1
+    denominator = (x * x + y * y).sum()
+    sim = 2 * (x * y).sum() / denominator
+    return (1 - sim).item()
+    
+
 def inplace_unique(x: torch.Tensor, num_slots: int):
     assert x.dim() == 2
     mask = x < 0
@@ -86,3 +93,6 @@ def bench(fn, num_warmups: int = 50, num_tests: int = 50, post_fn=None):
 
     times = np.array(times[1:])  # Remove the first timing
     return np.average(times), np.min(times), np.max(times)
+
+def hash_tensor(t: torch.Tensor):
+    return t.view(torch.int8).sum().item()
