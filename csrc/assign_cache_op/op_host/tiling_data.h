@@ -9,6 +9,7 @@ struct CustomAssignTilingData {
     uint32_t tokenPoolLength;
     uint32_t typeBytes;
     uint32_t syncWorkspaceSize;
+    uint32_t ubSize;
 
     void SetToBuffer(uint8_t *dataPtr, size_t dataLen)
     {
@@ -38,6 +39,12 @@ struct CustomAssignTilingData {
             return;
         }
         *(uint32_t *)(dataPtr + offset) = syncWorkspaceSize;
+        offset += sizeof(uint32_t);
+
+        if (offset + sizeof(uint32_t) > dataLen) {
+            return;
+        }
+        *(uint32_t *)(dataPtr + offset) = ubSize;
     }
 };
 }

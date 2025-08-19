@@ -46,13 +46,16 @@ bool RunCustomAssign(at::Tensor &dstTensor, const at::Tensor &srcTensor,
 
     auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
     uint32_t blockDim = static_cast<uint32_t>(ascendcPlatform->GetCoreNumAiv());
+    uint64_t ubSize;
+    ascendcPlatform->GetCoreMemSize(platform_ascendc::CoreMemType::UB, ubSize);
     uint32_t eleBytes = GetElementByteSize(dstTensor);
     uint32_t syncWorkspaceSize = blockDim * 32 + blockDim * 32 + 32;
     struct CustomAssignTilingData tilingData = {
         .batchSize = static_cast<uint32_t>(dstShape[0]),
         .tokenPoolLength = static_cast<uint32_t>(dstShape[1]),
         .typeBytes = eleBytes,
-        .syncWorkspaceSize = syncWorkspaceSize
+        .syncWorkspaceSize = syncWorkspaceSize,
+        .ubSize = static_cast<uint32_t>(ubSize)
     };
     at::Tensor tiling = GetTilingTensor(tilingData, sizeof(tilingData));
 

@@ -3,7 +3,6 @@ namespace custom_assign {
 
 constexpr int32_t BLOCK_SIZE = 32;
 constexpr int32_t TYPEBYPE_ID = 2;
-constexpr int32_t UB_BUF_SIZE = 192 * 1024 / 4; // 48KB
 
 #define SET_FLAG(trigger, waiter, e) AscendC::SetFlag<AscendC::HardEvent::trigger##_##waiter>((e))
 #define WAIT_FLAG(trigger, waiter, e) AscendC::WaitFlag<AscendC::HardEvent::trigger##_##waiter>((e))
@@ -46,6 +45,8 @@ private:
     uint32_t batchSize_;
     uint32_t tokenPoolLength_;
     uint32_t syncWorkspaceSize_;
+    uint32_t ubSize_;
+    uint32_t ubUsedBufSize_;
 };
 
 template <typename T>
@@ -59,6 +60,7 @@ __aicore__ inline void AssignCacheOp<T>::Init(__gm__ uint8_t * dstPtr,
     __gm__ uint8_t * tilingPtr)
 {
     this->ParseTilingData(tilingPtr);
+    ubUsedBufSize_ = ubSize_ >> 2; // make sure not overflow
 
     dstGM_.SetGlobalBuffer((__gm__ T *)dstPtr);
     srcGM_.SetGlobalBuffer((__gm__ T *)srcPtr);
@@ -67,8 +69,8 @@ __aicore__ inline void AssignCacheOp<T>::Init(__gm__ uint8_t * dstPtr,
     srcStartIdxGm_.SetGlobalBuffer((__gm__ int64_t *)srcStartIdxPtr);
     srcEndIdxGm_.SetGlobalBuffer((__gm__ int64_t *)srcEndIdxPtr);
 
-    pipe_.InitBuffer(tmpBuf1_, UB_BUF_SIZE);
-    pipe_.InitBuffer(tmpBuf2_, UB_BUF_SIZE);
+    pipe_.InitBuffer(tmpBuf1_, ubUsedBufSize_);
+    pipe_.InitBuffer(tmpBuf2_, ubUsedBufSize_);
     tmpTensor1_ = tmpBuf1_.Get<T>();
     tmpTensor2_ = tmpBuf2_.Get<T>();
 
@@ -97,10 +99,10 @@ __aicore__ inline void AssignCacheOp<T>::Process()
         uint32_t srcEndIdx = srcEndIdxGm_.GetValue(batchId);
         uint32_t dstStartIdx = dstStartIdxGm_.GetValue(batchId);
         uint32_t dstEndIdx = dstEndIdxGm_.GetValue(batchId);
-        uint32_t ubLoopNum = ((srcEndIdx - srcStartIdx) * sizeof(T) + UB_BUF_SIZE - 1) / UB_BUF_SIZE;
-        uint32_t tailBytes = (srcEndIdx - srcStartIdx) * sizeof(T) % UB_BUF_SIZE;
+        uint32_t ubLoopNum = ((srcEndIdx - srcStartIdx) * sizeof(T) + ubUsedBufSize_ - 1) / ubUsedBufSize_;
+        uint32_t tailBytes = (srcEndIdx - srcStartIdx) * sizeof(T) % ubUsedBufSize_;
         uint32_t loopOffset = 0;
-        uint32_t ubDataNum = UB_BUF_SIZE / sizeof(T);
+        uint32_t ubDataNum = ubUsedBufSize_ / sizeof(T);
 
         // load src data & dst data from gm to ub, then copy to gm of dst data address
         for (uint32_t loopId = 0; loopId < ubLoopNum; loopId++) {
@@ -154,6 +156,8 @@ __aicore__ inline void AssignCacheOp<T>::ParseTilingData(__gm__ uint8_t * tiling
     // jump typeBytes field
     locId += 2;
     syncWorkspaceSize_ = (*(__gm__ uint32_t *)((__gm__ uint8_t *)tilingBuf + locId * sizeof(uint32_t)));
+    locId ++;
+    ubSize_ = (*(__gm__ uint32_t *)((__gm__ uint8_t *)tilingBuf + locId * sizeof(uint32_t)));
 }
 }
 
