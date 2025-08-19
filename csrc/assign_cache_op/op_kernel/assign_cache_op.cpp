@@ -67,7 +67,7 @@ __aicore__ inline void AssignCacheOp<T>::Init(__gm__ uint8_t * dstPtr,
     srcStartIdxGm_.SetGlobalBuffer((__gm__ int64_t *)srcStartIdxPtr);
     srcEndIdxGm_.SetGlobalBuffer((__gm__ int64_t *)srcEndIdxPtr);
 
-    pipe_.InitBuffer(tmpBuf1_, UB_BUF_SIZE); // ensure the size of one token less than 148kb
+    pipe_.InitBuffer(tmpBuf1_, UB_BUF_SIZE);
     pipe_.InitBuffer(tmpBuf2_, UB_BUF_SIZE);
     tmpTensor1_ = tmpBuf1_.Get<T>();
     tmpTensor2_ = tmpBuf2_.Get<T>();
@@ -192,4 +192,5 @@ extern "C" __global__ __aicore__ void assign_cache_op(
         }
     }
 }
+
 
