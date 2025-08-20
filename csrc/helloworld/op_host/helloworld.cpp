@@ -11,7 +11,7 @@
 #include "defines.h"
 #include "torch_helper.h"
 
-#include "helloworld.h"
+#include "aclrtlaunch_helloworld.h"
 
 namespace sglang {
 namespace npu_kernel {
