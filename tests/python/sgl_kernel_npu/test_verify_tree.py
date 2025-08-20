@@ -1,6 +1,6 @@
 import pytest
 import torch
-from sgl_kernel_npu.mtp import verify_tree_greedy_native
+from sgl_kernel_npu.speculative import verify_tree_greedy_native
 
 
 def test_verify_tree_greedy():
