@@ -7,7 +7,7 @@ from typing import List, Optional
 
 import torch
 
-from sgl_kernel_npu.mtp import build_tree_efficient_native
+from sgl_kernel_npu.speculative import build_tree_efficient_native
 
 logger = logging.getLogger(__name__)
 
