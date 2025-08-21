@@ -48,6 +48,7 @@ jobs:
           bash scripts/npu_ci_exec.sh bash $GITHUB_WORKSPACE/tests/python/deepep/run_test.sh
 
       - name: Stop and remove container
+        if: always()
         run: bash scripts/npu_ci_a3_stop_container.sh
 
   test-intranode:
@@ -81,6 +82,7 @@ jobs:
           bash scripts/npu_ci_exec.sh python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
 
       - name: Stop and remove container
+        if: always()
         run: bash scripts/npu_ci_a3_stop_container.sh
 
   finish:
