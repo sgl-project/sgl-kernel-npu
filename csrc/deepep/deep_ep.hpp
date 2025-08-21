@@ -79,12 +79,12 @@ public:
                         const at::Tensor &layout_range, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
                         const at::Tensor &ep_send_count, bool zero_copy, bool async, bool return_recv_hook,
                         const std::optional<at::Tensor> &out);
-    std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>> Buffer::fused_deep_moe(
-        const at::Tensor &x, const at::Tensor &expertIds, const at::Tensor &gmm1PermutedWeight,
-        const at::Tensor &gmm1PermutedWeightScale, const at::Tensor &gmm2Weight, const at::Tensor &gmm2WeightScale,
-        const at::Tensor &expertSmoothScalesOptional, const at::Tensor &expertScalesOptional, c10::string_view groupEp,
-        int64_t epRankSize, int64_t epRankId, int64_t moeExpertNum, int64_t shareExpertNum, int64_t shareExpertRankNum,
-        int64_t quantMode, int64_t globalBs);
+    std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>> 
+    fused_deep_moe(const at::Tensor &x, const at::Tensor &expertIds, const at::Tensor &gmm1PermutedWeight,
+                   const at::Tensor &gmm1PermutedWeightScale, const at::Tensor &gmm2Weight, const at::Tensor &gmm2WeightScale,
+                   const at::Tensor &expertSmoothScalesOptional, const at::Tensor &expertScalesOptional, c10::string_view groupEp,
+                   int64_t epRankSize, int64_t epRankId, int64_t moeExpertNum, int64_t shareExpertNum, int64_t shareExpertRankNum,
+                   int64_t quantMode, int64_t globalBs);
 };
 
 }  // namespace deep_ep
