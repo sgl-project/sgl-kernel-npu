@@ -37,5 +37,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
         .def("intranode_dispatch", &deep_ep::Buffer::intranode_dispatch)
         .def("intranode_combine", &deep_ep::Buffer::intranode_combine)
         .def("low_latency_dispatch", &deep_ep::Buffer::low_latency_dispatch)
-        .def("low_latency_combine", &deep_ep::Buffer::low_latency_combine);
+        .def("low_latency_combine", &deep_ep::Buffer::low_latency_combine)
+        .def("fused_deep_moe", &deep_ep::Buffer::fused_deep_moe);
 }
