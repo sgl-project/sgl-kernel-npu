@@ -104,7 +104,7 @@ def test_main(args: argparse.Namespace, num_sms: int, local_rank: int, num_ranks
 
         recv_x, recv_topk_idx, recv_topk_weights, recv_num_tokens_per_expert_list, handle, event = buffer.dispatch(**dispatch_args)
         recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
-
+        print(recv_x)
         # Checks
         rank_prefix_matrix = handle[0]
         # todo 1. Duplicate tansmission to experts of the same rank.
@@ -151,7 +151,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Test intranode EP kernels')
     parser.add_argument('--num-processes', type=int, default=16,
                        help='Number of processes to spawn (default: 16)')
-    parser.add_argument('--num-tokens', type=int, default=4096,
+    parser.add_argument('--num-tokens', type=int, default=64,
                        help='Number of tokens (default: 4096)')
     parser.add_argument('--hidden', type=int, default=7168,
                        help='Hidden dimension size (default: 7168)')
