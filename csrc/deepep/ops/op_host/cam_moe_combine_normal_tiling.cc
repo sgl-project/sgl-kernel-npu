@@ -18,7 +18,7 @@
 #include "error_log.h"
 #include "graph/utils/type_utils.h"
 #include "register/op_def_registry.h"
-#include "../kernels/cam_moe_combine_normal_tiling.h"
+#include "../op_kernel/cam_moe_combine_normal_tiling.h"
 
 using namespace AscendC;
 using namespace ge;

@@ -21,3 +21,6 @@ class EventOverlap:
         # NOTES: we use extra tensors to achieve stream recording, otherwise,
         # stream recording will be incompatible with CUDA graph.
         self.extra_tensors = extra_tensors
+    
+    def current_stream_wait(self) -> None:
+        pass

@@ -21,7 +21,6 @@ constexpr uint32_t MUL_256_ALIGN = 256U;
 constexpr uint64_t WIN_512_ALIGN = 512UL;
 constexpr uint32_t FLOAT_NUM_PER_ALIGN = 8U;
 constexpr uint8_t  DOUBLE_BUFFER = 2;
-constexpr uint8_t  STATUS_TENSOR_FLAG = 0x3F800000;
 
 template<AscendC::HardEvent event>
 __aicore__ inline void SyncFunc()
@@ -218,7 +217,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::CopyBufferToSha
     tpipe_->InitBuffer(localCopyQueue_, DOUBLE_BUFFER, h32AlignRecvXLen_);
     tpipe_->InitBuffer(srcInfoBuf_, blockLen);
     LocalTensor<uint32_t> statusTensor = stateBuf_.AllocTensor<uint32_t>();
-    Duplicate<uint32_t>(statusTensor, STATUS_TENSOR_FLAG, FLOAT_NUM_PER_ALIGN);
+    Duplicate<uint32_t>(statusTensor, 0x3F800000, FLOAT_NUM_PER_ALIGN);
 
     LocalTensor<SrcInfoType> srcInfoLocal = srcInfoBuf_.Get<SrcInfoType>();
     const DataCopyExtParams dataCopyParams{1U, blockLen, 0U, 0U, 0U};
