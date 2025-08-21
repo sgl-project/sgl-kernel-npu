@@ -72,6 +72,117 @@ def test_main(args: argparse.Namespace, num_sms: int, local_rank: int, num_ranks
 
     print(f'[layout] Kernel performance: {t * 1000:.3f} ms', flush=True)
     print('', flush=True)
+    dist.barrier()
+    time.sleep(1)
+
+    # Config
+    nvl_buffer_size = 256
+    config = deep_ep.Config(num_sms, 8, nvl_buffer_size)
+
+    # Random data
+    x = torch.ones((num_tokens, hidden), dtype=torch.bfloat16, device='npu') * rank
+    x_pure_rand = torch.randn((num_tokens, hidden), dtype=torch.bfloat16, device='npu')
+    topk_weights = torch.ones((num_tokens, num_topk), dtype=torch.bfloat32, device='npu') * rank
+    topk_weights_pure_rand = torch.randn((num_tokens, num_topk), dtype=torch.bfloat32, device='npu')
+
+    # Test dispatch
+    # noinspection PyShadowingNames
+    def check_data(check_x, rank_prefix_matrix):
+        assert torch.allclose(check_x.amin(dim=1), check_x.amax(dim=1))
+        check_start = 0
+        for i in range(num_ranks):
+            check_end = rank_prefix_matrix[i][rank].item()
+            assert (check_x[check_start:check_end, :].int() - i).sum().item() == 0
+            check_start = check_end
+
+    for previous_mode in (False, True):
+        for async_mode in (False, True):
+            for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x, x_e4m3)):
+                for with_topk in (False, True):
+                    if local_rank == 0:
+                        print(f'[testing] Running with {"FP8" if isinstance(current_x, tuple) else "BF16"}, {"with" if with_topk else "without"} top-k (async={async_mode}, previous={previous_mode}) ...', flush=True, end='')
+                    dispatch_args = {'x': current_x, 'num_tokens_per_rank': num_tokens_per_rank,  'is_token_in_rank': is_token_in_rank,
+                                     'num_tokens_per_expert': num_tokens_per_expert, 'config': config, 'async_finish': async_mode}
+                    if with_topk:
+                        dispatch_args.update({'topk_idx': topk_idx, 'topk_weights': topk_weights_pure_rand if current_x is x_pure_rand else topk_weights})
+                    if previous_mode:
+                        dispatch_args.update({'previous_event': buffer.capture()})
+                    recv_x, recv_topk_idx, recv_topk_weights, recv_num_tokens_per_expert_list, handle, event = buffer.dispatch(**dispatch_args)
+                    event.current_stream_wait() if async_mode else ()
+                    recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
+
+                    # Checks
+                    rank_prefix_matrix = handle[0]
+                    assert gbl_num_tokens_per_rank[rank].item() == recv_x.size(0), f'{gbl_num_tokens_per_rank[rank].item()} != {recv_x.size(0)}'
+                    assert gbl_num_tokens_per_expert.view(num_ranks, -1)[rank].tolist() == recv_num_tokens_per_expert_list
+                    if current_x is not x_pure_rand:
+                        check_data(recv_x, rank_prefix_matrix)
+                    recv_topk_weights_clone = None
+                    if with_topk:
+                        # Check `topk_idx`
+                        assert (recv_topk_idx.eq(-1) | ((recv_topk_idx >= 0) & (recv_topk_idx < (num_experts // num_ranks)))).sum().item() == recv_topk_idx.numel()
+                        for i, count in enumerate(recv_num_tokens_per_expert_list):
+                            assert recv_topk_idx.eq(i).sum().item() == count
+
+                        # Check `topk_weights`
+                        recv_topk_weights_clone = recv_topk_weights.clone()
+                        if current_x is not x_pure_rand:
+                            recv_topk_weights[recv_topk_idx.eq(-1)] = recv_topk_weights.amax(dim=1, keepdim=True).expand_as(recv_topk_weights)[recv_topk_idx.eq(-1)]
+                            check_data(recv_topk_weights, rank_prefix_matrix)
+
+                    # Test `num_worst_tokens != 0`
+                    if with_topk:
+                        num_worst_tokens = num_tokens * num_ranks
+                        dispatch_args.update({'num_worst_tokens': num_worst_tokens})
+                        recv_worst_x, recv_worst_topk_idx, recv_worst_topk_weights, empty_list, _, event = buffer.dispatch(**dispatch_args)
+                        event.current_stream_wait() if async_mode else ()
+                        recv_worst_x = per_token_cast_back(*recv_worst_x) if isinstance(recv_worst_x, tuple) else recv_worst_x
+                        assert len(empty_list) == 0
+                        assert num_worst_tokens == recv_worst_x.size(0)
+                        assert num_worst_tokens == recv_worst_topk_idx.size(0)
+                        assert num_worst_tokens == recv_worst_topk_weights.size(0)
+                        assert torch.equal(recv_x, recv_worst_x[:recv_x.size(0)])
+                        assert torch.equal(recv_topk_idx, recv_worst_topk_idx[:recv_x.size(0)])
+                        assert torch.equal(recv_topk_weights_clone, recv_worst_topk_weights[:recv_x.size(0)])
+                        assert torch.all(recv_worst_topk_idx[recv_x.size(0):] == -1).item()
+
+                    # Test cached dispatch (must without top-k staffs)
+                    if not with_topk:
+                        dispatch_args = {'x': current_x, 'handle': handle, 'config': config, 'async_finish': async_mode}
+                        if previous_mode:
+                            dispatch_args.update({'previous_event': buffer.capture()})
+                        recv_x, _, _, _, _, event = buffer.dispatch(**dispatch_args)
+                        event.current_stream_wait() if async_mode else ()
+                        recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
+                        if current_x is not x_pure_rand:
+                            check_data(recv_x, rank_prefix_matrix)
+
+                    # Test combine
+                    combine_args = {'x': recv_x, 'handle': handle, 'config': config, 'async_finish': async_mode}
+                    if with_topk:
+                        combine_args.update({'topk_weights': recv_topk_weights})
+                    if previous_mode:
+                        combine_args.update({'previous_event': buffer.capture()})
+                    combined_x, combined_topk_weights, event = buffer.combine(**combine_args)
+                    event.current_stream_wait() if async_mode else ()
+                    check_x = combined_x.float() / is_token_in_rank.sum(dim=1).unsqueeze(1)
+                    ref_x = x_pure_rand if current_x is x_pure_rand else x
+                    assert calc_diff(check_x, ref_x) < 5e-6
+                    if with_topk:
+                        check_topk_weights = combined_topk_weights if (current_x is x_pure_rand) else (combined_topk_weights / is_token_in_rank.sum(dim=1).unsqueeze(1))
+                        ref_topk_weights = topk_weights_pure_rand if current_x is x_pure_rand else topk_weights
+                        assert calc_diff(check_topk_weights, ref_topk_weights) < 1e-9
+
+                    # For later tuning
+                    dispatch_bf16_nvl_recv_bytes = recv_x.numel() * 2
+                    combine_bf16_nvl_send_bytes = dispatch_bf16_nvl_recv_bytes
+
+                    if local_rank == 0:
+                        print(' passed', flush=True)
+    if local_rank == 0:
+        print('', flush=True)
+
+    
 
 # noinspection PyUnboundLocalVariable,PyShadowingNames
 def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
