@@ -43,7 +43,8 @@ def test(num_tokens: int, hidden: int, num_experts: int, num_topk: int,
     combined_x, event, hook = buffer.low_latency_combine(simulated_gemm_x, topk_idx, topk_weights, handle,
                                                          async_finish=not return_recv_hook, zero_copy=False,
                                                          return_recv_hook=return_recv_hook, out=out)
-
+    # Check fused_deep_moe correctness
+    # output, event, hook = buffer.fused_deep_moe()
     return hash_value
 
 def test_main():
