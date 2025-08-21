@@ -78,7 +78,7 @@ jobs:
       - name: Run test
         timeout-minutes: 10
         run: |
-          bash scripts/npu_ci_exec.sh python3 $GITHUB_WORKSPACE/tests/python/test_intranode.py
+          bash scripts/npu_ci_exec.sh python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
 
       - name: Stop and remove container
         run: bash scripts/npu_ci_a3_stop_container.sh
