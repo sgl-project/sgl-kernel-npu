@@ -69,7 +69,6 @@ def test_main(args: argparse.Namespace, num_sms: int, local_rank: int, num_ranks
         print(f"An error occurred: {e}")
 
     t = bench(lambda: buffer.get_dispatch_layout(topk_idx, num_experts))[0]
-
     print(f'[layout] Kernel performance: {t * 1000:.3f} ms', flush=True)
     print('', flush=True)
     dist.barrier()
