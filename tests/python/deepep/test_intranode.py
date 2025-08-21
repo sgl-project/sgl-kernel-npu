@@ -93,9 +93,7 @@ def test_main(args: argparse.Namespace, num_sms: int, local_rank: int, num_ranks
             check_end = rank_prefix_matrix[i][rank].item()
             assert (check_x[check_start:check_end, :].int() - i).sum().item() == 0
             check_start = check_end
-    import os
-    print(os.environ.get('HCCL_BUFFSIZE'))
-    for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x_pure_rand)):
+    for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x)):
         if local_rank == 0:
             print(f'[testing] Running with {"FP8" if isinstance(current_x, tuple) else "BF16"}, with top-k ...', flush=True)
         dispatch_args = {'x': current_x, 'num_tokens_per_rank': num_tokens_per_rank,  'is_token_in_rank': is_token_in_rank,
@@ -104,7 +102,7 @@ def test_main(args: argparse.Namespace, num_sms: int, local_rank: int, num_ranks
 
         recv_x, recv_topk_idx, recv_topk_weights, recv_num_tokens_per_expert_list, handle, event = buffer.dispatch(**dispatch_args)
         recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
-        print(rank, recv_x)
+
         # Checks
         rank_prefix_matrix = handle[0]
         # todo 1. Duplicate tansmission to experts of the same rank.
@@ -118,8 +116,6 @@ def test_main(args: argparse.Namespace, num_sms: int, local_rank: int, num_ranks
         # Test combine
         combine_args = {'x': recv_x, 'handle': handle, 'config': config, 'async_finish': False, 'topk_weights': handle[7]}
         combined_x, combined_topk_weights, event = buffer.combine(**combine_args)
-        dist.barrier()
-        time.sleep(1)
         check_x = combined_x.float()
         ref_x = x_pure_rand if current_x is x_pure_rand else x
         assert calc_diff(check_x, ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)) < 5e-6
