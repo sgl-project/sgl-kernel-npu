@@ -94,7 +94,8 @@ def test_main(args: argparse.Namespace, num_sms: int, local_rank: int, num_ranks
             check_end = rank_prefix_matrix[i][rank].item()
             assert (check_x[check_start:check_end, :].int() - i).sum().item() == 0
             check_start = check_end
-
+    import os
+    print(os.environ.get('HCCL_BUFFSIZE'))
     for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x_pure_rand)):
         if local_rank == 0:
             print(f'[testing] Running with {"FP8" if isinstance(current_x, tuple) else "BF16"}, with top-k ...', flush=True)
