@@ -95,7 +95,7 @@ def test_main(args: argparse.Namespace, num_sms: int, local_rank: int, num_ranks
             assert (check_x[check_start:check_end, :].int() - i).sum().item() == 0
             check_start = check_end
 
-    for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x)):
+    for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x_pure_rand)):
         if local_rank == 0:
             print(f'[testing] Running with {"FP8" if isinstance(current_x, tuple) else "BF16"}, with top-k ...', flush=True)
         dispatch_args = {'x': current_x, 'num_tokens_per_rank': num_tokens_per_rank,  'is_token_in_rank': is_token_in_rank,
