@@ -87,7 +87,7 @@ class TestAssignCache(unittest.TestCase):
         for token_gap, seq_len in zip(token_gaps, seq_lens):
             time1 = 0
             time2 = 0
-            start_offset = torch.randint(low=0, high=seq_len - token_gap - 1, size=(self.batch_size,), device="npu", dtype=torch.int32)
+            start_offset = torch.randint(low=0, high=seq_len - token_gap - 1, size=(self.batch_size,), device="npu", dtype=torch.int64)
             end_offset = start_offset + token_gap
             req_to_token = torch.randint(32, (self.batch_size, seq_len), dtype=torch.int32, device='npu')
             req_to_token_dup = req_to_token.clone()

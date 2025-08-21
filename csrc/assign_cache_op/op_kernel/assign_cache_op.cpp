@@ -99,8 +99,12 @@ __aicore__ inline void AssignCacheOp<T>::Process()
         uint32_t srcEndIdx = srcEndIdxGm_.GetValue(batchId);
         uint32_t dstStartIdx = dstStartIdxGm_.GetValue(batchId);
         uint32_t dstEndIdx = dstEndIdxGm_.GetValue(batchId);
-        uint32_t ubLoopNum = ((srcEndIdx - srcStartIdx) * sizeof(T) + ubUsedBufSize_ - 1) / ubUsedBufSize_;
-        uint32_t tailBytes = (srcEndIdx - srcStartIdx) * sizeof(T) % ubUsedBufSize_;
+        uint32_t totalBytes = (srcEndIdx - srcStartIdx) * sizeof(T);
+        uint32_t ubLoopNum = (totalBytes + ubUsedBufSize_ - 1) / ubUsedBufSize_;
+        uint32_t tailBytes = totalBytes % ubUsedBufSize_;
+        if (totalBytes > 0 && tailBytes == 0) {
+            tailBytes = ubUsedBufSize_;
+        }
         uint32_t loopOffset = 0;
         uint32_t ubDataNum = ubUsedBufSize_ / sizeof(T);
 
@@ -179,7 +183,7 @@ extern "C" __global__ __aicore__ void assign_cache_op(
                     dstEndIdxPtr, srcStartIdxPtr, srcEndIdxPtr, sync, tilingPtr);
             op.Process();
         } else if (typeByte == 2) {
-            custom_assign::AssignCacheOp<half> op;
+            custom_assign::AssignCacheOp<int16_t> op;
             op.Init(dstPtr, srcPtr, dstStartIdxPtr,
                     dstEndIdxPtr, srcStartIdxPtr, srcEndIdxPtr, sync, tilingPtr);
             op.Process();

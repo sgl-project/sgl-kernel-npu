@@ -26,7 +26,8 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 
     m.def("cache_loc_assign(Tensor token_pool, Tensor start_offset, Tensor end_offset, Tensor out_cache_loc, Tensor "
           "out_cache_loc_idx, int max_step) -> Tensor");
-    m.def("assign_cache_op(Tensor! out, Tensor src, Tensor aStart, Tensor aEnd, Tensor bStart, Tensor bEnd) -> bool");
+    m.def("assign_cache_op(Tensor! out, Tensor src, Tensor dst_start_idx, Tensor dst_end_idx, Tensor src_start_idx, "
+            "Tensor src_end_idx) -> bool");
 }
 }  // namespace
 
