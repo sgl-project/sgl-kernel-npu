@@ -103,7 +103,6 @@ def test_main(args: argparse.Namespace, num_sms: int, local_rank: int, num_ranks
                             'topk_weights': topk_weights_pure_rand if current_x is x_pure_rand else topk_weights}
 
         recv_x, recv_topk_idx, recv_topk_weights, recv_num_tokens_per_expert_list, handle, event = buffer.dispatch(**dispatch_args)
-
         recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
 
         # Checks
