@@ -49,7 +49,7 @@ def test(num_tokens: int, hidden: int, num_experts: int, num_topk: int,
 def test_main():
     ip = os.getenv('MASTER_ADDR', '127.0.0.1')
     port = int(os.getenv('MASTER_PORT', '17621'))
-    world_size = int(os.getenv('WORLD_SIZE', 16))
+    world_size = int(os.getenv('WORLD_SIZE', 8))
     rank = int(os.getenv('RANK', 0))
     shared_expert_rank_num = int(os.getenv('MOE_SHARED_EXPERT_RANK_NUM', 0))
 
