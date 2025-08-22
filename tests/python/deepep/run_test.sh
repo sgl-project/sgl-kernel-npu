@@ -1,5 +1,5 @@
 #! /bin/bash
-nproc_per_node=16
+nproc_per_node=8
 master_addr=`hostname -I|awk -F " " '{print$1}'`
 SCRIPT_DIR=$(cd "$(dirname "$0")" && pwd)
 port=17621
