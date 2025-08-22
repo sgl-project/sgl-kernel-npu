@@ -384,48 +384,48 @@ class Buffer:
                         expertScalesOptional: torch.Tensor, groupEp: str, epRankSize: int, epRankId: int, moeExpertNum: int,
                         shareExpertNum: int, shareExpertRankNum: int, quantMode: int, globalBs: int) -> \
             Tuple[torch.Tensor, EventOverlap, Callable]:
-    """
-    A fused low-latency implementation for MoE expert forward and combination.
-
-    Arguments:
-        x: `[bs, hidden]` with `torch.bfloat16` (or supported precision),
-            the token representations to be processed by selected experts.
-        expertIds: `[bs, num_topk]` with `torch.int64`, the selected expert indices
-            for each token. `-1` indices are supported (meaning no expert selected).
-        gmm1PermutedWeight: weight tensor for the first stage (e.g., projection) with
-            a permuted layout according to grouped-matmul requirements.
-        gmm1PermutedWeightScale: quantization scale tensor corresponding to
-            `gmm1PermutedWeight`. Typically `torch.float32` or `torch.float16`,
-            depending on `quantMode`.
-        gmm2Weight: weight tensor for the second stage (e.g., projection or FFN output).
-        gmm2WeightScale: quantization scale tensor corresponding to `gmm2Weight`.
-        expertSmoothScalesOptional: optional expert smoothing scale tensor; pass an empty
-            tensor if unused.
-        expertScalesOptional: optional expert-specific scaling/normalization tensor; pass
-            an empty tensor if unused.
-        groupEp: `str`, the Expert Parallel (EP) communication group name or identifier
-            (maps to `c10::string_view` in C++).
-        epRankSize: number of ranks in the EP group.
-        epRankId: the current rank ID within the EP group.
-        moeExpertNum: total number of experts (including shared ones).
-        shareExpertNum: number of shared experts.
-        shareExpertRankNum: number of ranks that host shared experts.
-        quantMode: quantization mode (e.g., 0 = FP, 1 = INT8 per-tensor,
-            2 = INT8 per-channel; implementation-dependent).
-        globalBs: global batch size (used for scheduling and consistency).
-
-    Notes:
-        - The first dimension of `expertIds` defines the batch size `bs`.
-        - The second dimension of `x` defines the hidden dimension `hidden`.
-        - Exact shapes of weight/scale tensors depend on GMM permutation and sharding.
-        - If optional scale tensors are empty, the kernel skips those transforms.
-
-    Returns:
-        output: `torch.Tensor`, shape `[bs, hidden]` and usually `torch.bfloat16`,
-            the fused expert output.
-        event: `EventOverlap`, the event handle after kernel execution.
-        hook: `Callable`, the completion/receiving hook for delayed or staged execution.
-    """
+        """
+        A fused low-latency implementation for MoE expert forward and combination.
+    
+        Arguments:
+            x: `[bs, hidden]` with `torch.bfloat16` (or supported precision),
+                the token representations to be processed by selected experts.
+            expertIds: `[bs, num_topk]` with `torch.int64`, the selected expert indices
+                for each token. `-1` indices are supported (meaning no expert selected).
+            gmm1PermutedWeight: weight tensor for the first stage (e.g., projection) with
+                a permuted layout according to grouped-matmul requirements.
+            gmm1PermutedWeightScale: quantization scale tensor corresponding to
+                `gmm1PermutedWeight`. Typically `torch.float32` or `torch.float16`,
+                depending on `quantMode`.
+            gmm2Weight: weight tensor for the second stage (e.g., projection or FFN output).
+            gmm2WeightScale: quantization scale tensor corresponding to `gmm2Weight`.
+            expertSmoothScalesOptional: optional expert smoothing scale tensor; pass an empty
+                tensor if unused.
+            expertScalesOptional: optional expert-specific scaling/normalization tensor; pass
+                an empty tensor if unused.
+            groupEp: `str`, the Expert Parallel (EP) communication group name or identifier
+                (maps to `c10::string_view` in C++).
+            epRankSize: number of ranks in the EP group.
+            epRankId: the current rank ID within the EP group.
+            moeExpertNum: total number of experts (including shared ones).
+            shareExpertNum: number of shared experts.
+            shareExpertRankNum: number of ranks that host shared experts.
+            quantMode: quantization mode (e.g., 0 = FP, 1 = INT8 per-tensor,
+                2 = INT8 per-channel; implementation-dependent).
+            globalBs: global batch size (used for scheduling and consistency).
+    
+        Notes:
+            - The first dimension of `expertIds` defines the batch size `bs`.
+            - The second dimension of `x` defines the hidden dimension `hidden`.
+            - Exact shapes of weight/scale tensors depend on GMM permutation and sharding.
+            - If optional scale tensors are empty, the kernel skips those transforms.
+    
+        Returns:
+            output: `torch.Tensor`, shape `[bs, hidden]` and usually `torch.bfloat16`,
+                the fused expert output.
+            event: `EventOverlap`, the event handle after kernel execution.
+            hook: `Callable`, the completion/receiving hook for delayed or staged execution.
+        """
     output, event, hook = self.runtime.fused_deep_moe(x, expertIds, gmm1PermutedWeight, gmm1PermutedWeightScale, gmm2Weight, 
                                                       gmm2WeightScale, expertSmoothScalesOptional, expertScalesOptional,
                                                       groupEp, epRankSize, epRankId, moeExpertNum, shareExpertNum,
