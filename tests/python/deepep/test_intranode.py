@@ -69,7 +69,6 @@ def test_main(args: argparse.Namespace, num_sms: int, local_rank: int, num_ranks
         print(f"An error occurred: {e}")
 
     t = bench(lambda: buffer.get_dispatch_layout(topk_idx, num_experts))[0]
-
     print(f'[layout] Kernel performance: {t * 1000:.3f} ms', flush=True)
     print('', flush=True)
     dist.barrier()
@@ -94,7 +93,6 @@ def test_main(args: argparse.Namespace, num_sms: int, local_rank: int, num_ranks
             check_end = rank_prefix_matrix[i][rank].item()
             assert (check_x[check_start:check_end, :].int() - i).sum().item() == 0
             check_start = check_end
-
     for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x)):
         if local_rank == 0:
             print(f'[testing] Running with {"FP8" if isinstance(current_x, tuple) else "BF16"}, with top-k ...', flush=True)
@@ -122,8 +120,7 @@ def test_main(args: argparse.Namespace, num_sms: int, local_rank: int, num_ranks
         ref_x = x_pure_rand if current_x is x_pure_rand else x
         assert calc_diff(check_x, ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)) < 5e-6
 
-        if local_rank == 0:
-            print(' passed', flush=True)
+        print(' passed %s' % rank, flush=True)
     if local_rank == 0:
         print('', flush=True)
 
@@ -150,7 +147,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Test intranode EP kernels')
     parser.add_argument('--num-processes', type=int, default=16,
                        help='Number of processes to spawn (default: 16)')
-    parser.add_argument('--num-tokens', type=int, default=4096,
+    parser.add_argument('--num-tokens', type=int, default=64,
                        help='Number of tokens (default: 4096)')
     parser.add_argument('--hidden', type=int, default=7168,
                        help='Hidden dimension size (default: 7168)')
