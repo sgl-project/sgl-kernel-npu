@@ -19,15 +19,8 @@ namespace npu_kernel {
 constexpr uint32_t PADDING_BYTE = 32U;
 
 at::Tensor getTiling(int32_t &block_dim, int32_t &workspace_size, const int32_t &page_size, 
-    int32_t &batch_size, int32_t &total_extend_tokens)
+    int32_t &batch_size, int64_t &total_extend_tokens)
 {
-    auto paddingFunc = [](const uint32_t n, const uint32_t typeSize) -> uint32_t {
-        if (typeSize == 0) {
-            return 0;
-        }
-        return (n * typeSize + PADDING_BYTE - 1U) / PADDING_BYTE * PADDING_BYTE / typeSize;
-    };
-
     auto ascendc_platform = platform_ascendc::PlatformAscendCManager::GetInstance();
     int32_t max_aiv_core = static_cast<int32_t>(ascendc_platform->GetCoreNumAiv());
     block_dim = std::min(max_aiv_core, batch_size);
@@ -42,8 +35,6 @@ at::Tensor getTiling(int32_t &block_dim, int32_t &workspace_size, const int32_t 
     tilling_data->used_core_num = block_dim;
     tilling_data->total_extend_tokens = total_extend_tokens;
     
-    std::cout << "==> tiling size: " << tiling_size << ", batch_size: " << tilling_data->batch_size << ", page_size: " << tilling_data->page_size << ", max_aiv_core: " << max_aiv_core
-        << ", used_core_num: " << tilling_data->used_core_num << ", total_extend_tokens: " << tilling_data->total_extend_tokens << std::endl;
     auto tiling_tensor = TorchNpuHepler::CopyTensorHostToDevice(tiling_buffer);
     return tiling_tensor;
 }
@@ -59,7 +50,7 @@ HOST_API void alloc_extend(const at::Tensor &pre_lens, const at::Tensor &seq_len
     int32_t block_dim;
     int32_t workspace_size;
     int32_t batch_size = pre_lens.sizes()[0];
-    int32_t total_extend_tokens = out_indices.sizes()[0];
+    int64_t total_extend_tokens = out_indices.sizes()[0];  // 64k
 
     at::Tensor tiling_tensor = getTiling(block_dim, workspace_size, pages_size, batch_size, total_extend_tokens);
 

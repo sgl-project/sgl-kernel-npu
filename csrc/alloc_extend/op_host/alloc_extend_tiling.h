@@ -19,7 +19,7 @@ struct AllocExtendTilingData {
     int32_t batch_size;
     int32_t page_size;
     int32_t used_core_num;
-    int32_t total_extend_tokens;
+    int64_t total_extend_tokens;
 };
 
 }
