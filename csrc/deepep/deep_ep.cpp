@@ -668,5 +668,48 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     }
     return {combined_x, event, std::function<void()>([]{})};
 }
+std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>> Buffer::fused_deep_moe(
+  const at::Tensor &x, const at::Tensor &expertIds, const at::Tensor &gmm1PermutedWeight,
+  const at::Tensor &gmm1PermutedWeightScale, const at::Tensor &gmm2Weight, const at::Tensor &gmm2WeightScale,
+  const at::Tensor &expertSmoothScalesOptional, const at::Tensor &expertScalesOptional, c10::string_view groupEp,
+  int64_t epRankSize, int64_t epRankId, int64_t moeExpertNum, int64_t shareExpertNum, int64_t shareExpertRankNum,
+  int64_t quantMode, int64_t globalBs)
+{ 
+  auto xShape = x.sizes();
+  auto expertIdsShape = expertIds.sizes(); 
+  int h = xShape[1]; 
+  int bs = expertIdsShape[0]; 
+
+  at::Tensor output = at::empty({bs, h}, x.options());
+
+  vector<char> group_ep_chrs(groupEp.begin(), groupEp.end());
+  group_ep_chrs.push_back('\0');
+  char* group_ep_ptr = &group_ep_chrs[0];
+  std::optional<EventHandle> event;
+  EXEC_NPU_CMD(aclnnFusedDeepMoe,
+    // input 
+      x,
+      expertIds,
+      gmm1PermutedWeight,
+      gmm1PermutedWeightScale,
+      gmm2Weight,
+      gmm2WeightScale,
+      expertSmoothScalesOptional,
+      expertScalesOptional,
+    // attr
+      group_ep_ptr,
+      epRankSize,
+      epRankId, 
+      moeExpertNum,
+      shareExpertNum,
+      shareExpertRankNum,
+      quantMode,
+      globalBs,
+    // output 
+      output);
+  
+  return {output, event, std::function<void()>([]{})}; 
+}
+
 
 } // namespace deep_ep
