@@ -9,6 +9,9 @@
 
 namespace deep_ep {
 constexpr int PADDING_SIZE = 3;
+constexpr int NORMAL_MAX_BS_SIZE = 8000;
+constexpr uint32_t NO_SCALES = 0;
+constexpr uint32_t DYNAMIC_SCALES = 2;
 
 Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
                std::string moe_all_to_all_group_name)
@@ -145,6 +148,8 @@ Buffer::intranode_dispatch(const at::Tensor& x, const std::optional<at::Tensor>&
     // One channel use two blocks, even-numbered blocks for sending, odd-numbered blocks for receiving.
     EP_HOST_ASSERT(config.num_sms % 2 == 0);
     int num_channels = config.num_sms / 2;
+
+    bool quantize = true; // enable quant
 
     at::Tensor new_x = x;
     // for padding
@@ -308,18 +313,18 @@ Buffer::intranode_dispatch(const at::Tensor& x, const std::optional<at::Tensor>&
     at::Tensor expert_ids = new_topk_idx.to(at::kInt);
     int64_t tp_size = 1;
     int64_t tp_rank = 0;
-    int64_t quant_mode = 0;
+    int64_t quant_mode = quantize ? DYNAMIC_SCALES : NO_SCALES;
     int64_t global_bs = std::max(num_max_dispatch_tokens_per_rank * num_ranks, static_cast<int64_t>(num_worst_tokens));
+    EP_HOST_ASSERT(global_bs <= NORMAL_MAX_BS_SIZE * num_ranks); // prefill support max bs=8000
 
     auto send_token_idx = send_token_idx_cpu.to(x.device());
     auto recv_offset = recv_offset_cpu.to(x.device());
     auto recv_count = recv_count_cpu.to(x.device());
 
-    int total_cnt = total_recv_tokens;
-    if (total_cnt == 0) {
-        total_cnt = 1;
-    }
-    auto expandx_out = at::zeros({total_cnt, hidden}, x.options());
+    int64_t total_cnt = (total_recv_tokens == 0) ? 1 : total_recv_tokens;
+    EP_HOST_ASSERT(total_cnt <= NORMAL_MAX_BS_SIZE * num_ranks * std::min(num_topk, num_local_experts));
+    auto expandx_out = quantize ? at::zeros({total_cnt, hidden}, at::dtype(at::kChar).device(x.device()))
+                                : at::zeros({total_cnt, hidden}, x.options());
     auto dynamic_scales_out = at::zeros({total_cnt}, at::dtype(at::kFloat).device(x.device()));
     auto expand_idx_out = at::zeros({total_cnt * 3}, at::dtype(at::kInt).device(x.device()));
 
