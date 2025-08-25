@@ -98,6 +98,7 @@ jobs:
       - name: Run test
         timeout-minutes: 10
         env:
+          HCCL_BUFFSIZE: 2048
           SGLANG_USE_MODELSCOPE: true
           SGLANG_IS_IN_CI: true
           HF_ENDPOINT: https://hf-mirror.com
