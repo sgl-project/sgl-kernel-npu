@@ -38,7 +38,7 @@ jobs:
         with:
           clean: true
 
-      -name: Install dependencies
+      - name: Install dependencies
         run: |
           bash scripts/npu_ci_install_dependency.sh
 
@@ -76,7 +76,7 @@ jobs:
         with:
           clean: true
 
-      -name: Install dependencies
+      - name: Install dependencies
         run: |
           bash scripts/npu_ci_install_dependency.sh
 
@@ -111,3 +111,4 @@ jobs:
           done
           echo "All jobs completed successfully"
           exit 0
+
