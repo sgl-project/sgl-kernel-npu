@@ -6,6 +6,8 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/pytorch_extensions.cpp
     ${PROJECT_OP_SRC_BASE}/helloworld/op_host/helloworld.cpp
     ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_host/cache_loc_assign.cpp
+    ${PROJECT_OP_SRC_BASE}/alloc_extend/op_host/alloc_extend_tiling.cpp
+    ${PROJECT_OP_SRC_BASE}/alloc_extend/alloc_extend.cpp
     )
 
 # set the so name
@@ -18,6 +20,7 @@ ascendc_library(no_workspace_kernel STATIC
 
 ascendc_library(workspace_kernel STATIC
     ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_kernel/cache_loc_assign_kernel_int32.cpp
+    ${PROJECT_OP_SRC_BASE}/alloc_extend/op_kernel/alloc_extend_kernel.cpp
 )
 
 ascendc_compile_definitions(workspace_kernel PRIVATE
