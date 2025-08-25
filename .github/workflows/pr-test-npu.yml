@@ -40,10 +40,19 @@ jobs:
 
       - name: Install dependencies
         run: |
+          # speed up by using infra cache services
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Prepare Deepep
         run: bash scripts/prepare_deepep_in_container.sh
+
+      - name: Source Env
+        run: source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
       - name: Run test
         timeout-minutes: 10
@@ -53,7 +62,7 @@ jobs:
           HF_ENDPOINT: https://hf-mirror.com
           TORCH_EXTENSIONS_DIR: /tmp/torch_extensions
         run: |
-          bash scripts/npu_ci_exec.sh bash $GITHUB_WORKSPACE/tests/python/deepep/run_test.sh
+          bash $GITHUB_WORKSPACE/tests/python/deepep/run_test.sh
 
   test-intranode:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
@@ -78,10 +87,19 @@ jobs:
 
       - name: Install dependencies
         run: |
+          # speed up by using infra cache services
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Prepare Deepep
         run: bash scripts/prepare_deepep_in_container.sh
+
+      - name: Source Env
+        run: source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
       - name: Run test
         timeout-minutes: 10
@@ -91,7 +109,7 @@ jobs:
           HF_ENDPOINT: https://hf-mirror.com
           TORCH_EXTENSIONS_DIR: /tmp/torch_extensions
         run: |
-          bash scripts/npu_ci_exec.sh python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
 
   finish:
     if: always()
