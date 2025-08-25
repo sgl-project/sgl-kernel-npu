@@ -38,6 +38,10 @@ jobs:
         with:
           clean: true
 
+      -name: Install dependencies
+        run: |
+          bash scripts/npu_ci_install_dependency.sh
+
       - name: Prepare Deepep
         run: bash scripts/prepare_deepep_in_container.sh
 
@@ -71,6 +75,10 @@ jobs:
         uses: actions/checkout@v4
         with:
           clean: true
+
+      -name: Install dependencies
+        run: |
+          bash scripts/npu_ci_install_dependency.sh
 
       - name: Prepare Deepep
         run: bash scripts/prepare_deepep_in_container.sh
