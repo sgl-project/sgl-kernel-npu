@@ -103,7 +103,7 @@ jobs:
           HF_ENDPOINT: https://hf-mirror.com
           TORCH_EXTENSIONS_DIR: /tmp/torch_extensions
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
+          bash scripts/npu_ci_exec.sh python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
 
   finish:
     if: always()
