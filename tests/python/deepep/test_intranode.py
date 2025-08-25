@@ -211,8 +211,8 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Test intranode EP kernels')
-    parser.add_argument('--num-processes', type=int, default=8,
-                       help='Number of processes to spawn (default: 8)')
+    parser.add_argument('--num-processes', type=int, default=16,
+                       help='Number of processes to spawn (default: 16)')
     parser.add_argument('--num-tokens', type=int, default=4096,
                        help='Number of tokens (default: 4096)')
     parser.add_argument('--hidden', type=int, default=7168,
