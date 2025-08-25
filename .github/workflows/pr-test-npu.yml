@@ -20,7 +20,7 @@ jobs:
   test-low-latency:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false
-    runs-on: linux-arm64-npu-8
+    runs-on: linux-aarch64-a3-16
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/sglang:main
     steps:
@@ -58,7 +58,7 @@ jobs:
   test-intranode:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false
-    runs-on: linux-arm64-npu-8
+    runs-on: linux-aarch64-a3-16
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/sglang:main
     steps:
