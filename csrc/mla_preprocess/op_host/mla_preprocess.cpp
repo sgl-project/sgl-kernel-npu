@@ -82,7 +82,7 @@ struct MlaPreprocess {
         PER_TENSOR_ASYMM_QUANT = 0,
         PER_TOKEN_SYMM_QUANT,
         PER_TOKEN_ASYMM_QUANT,
-        NO_QUANT,
+        NO_QUANT
     };
 };
 using QuantMode = MlaPreprocess::QuantMode;
@@ -620,9 +620,9 @@ std::tuple<at::Tensor&, at::Tensor&, at::Tensor&, at::Tensor&> mla_preprocess(
     auto cacheMode = get_op_mode(cache_mode_map, cache_mode, "krope_ctkv", "cache_mode");
     auto quantMode = get_op_mode(quant_mode_map, quant_mode, "per_token_quant_symm", "quant_mode");
     at::Tensor CtkvScale = ctkv_scale.has_value() ? ctkv_scale.value() :
-                            at::empty({1}, at::TensorOptions.dtype(at::kHalf).device(hiddenState.options().device()));
+                            at::empty({1}, at::TensorOptions().dtype(at::kHalf).device(hiddenState.options().device()));
     at::Tensor QnopeScale = q_nope_scale.has_value() ? q_nope_scale.value() :
-                            at::empty({1}, at::TensorOptions.dtype(at::kHalf).device(hiddenState.options().device()));
+                            at::empty({1}, at::TensorOptions().dtype(at::kHalf).device(hiddenState.options().device()));
 
     platform_ascendc::PlatformAscendC *platformAscendC = platform_ascendc::PlatformAscendCManager::GetInstance();
 
@@ -644,7 +644,7 @@ std::tuple<at::Tensor&, at::Tensor&, at::Tensor&, at::Tensor&> mla_preprocess(
     opParam.N = N;
     opParam.headNum = headNum;
     opParam.cacheMode = static_cast<int32_t>(cacheMode);
-    opParam.quantMode = static_cast<int32_t>(quantMode);
+    opParam.quantMode = static_cast<QuantMode>(quantMode);
     opParam.inDtype = hiddenState.options().dtype();
 
     MlaTilingData tilingData;

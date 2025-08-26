@@ -88,6 +88,8 @@ struct l0c_to_gm<ArchType::ASCEND_V220, DataFormat::ND, half, int32_t> {
     };
 };
 
+#ifdef __DAV_C220_CUBE__
+
 template <>
 struct l0c_to_gm<ArchType::ASCEND_V220, DataFormat::ND, __bf16, float> {
     __aicore__ l0c_to_gm(AscendC::GlobalTensor<__bf16> gmTensor,
@@ -120,6 +122,9 @@ struct l0c_to_gm<ArchType::ASCEND_V220, DataFormat::ND, __bf16, float> {
 #endif
     };
 };
+
+#endif
+
 
 // Partial specialization ND, float
 template <>

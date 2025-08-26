@@ -155,9 +155,9 @@ extern "C" __global__ __aicore__ void mla_preprocess(
     MLAPO_FP16::MLAOperation<CACHE_MODE_KROPE_CTKV, DataFormat::NZ, DataFormat::NZ, DataFormat::ND>
         opFp16Cm1Qm0(mlaTilingData, tiling);
 
-    MLAPO_BP16::MLAOperation<__bf16, 0, DataFormat::NZ, DataFormat::NZ,
+    MLAPO_BF16::MLAOperation<__bf16, 0, DataFormat::NZ, DataFormat::NZ,
         DataFormat::ND, QuantMode::PER_TENSOR_ASYMM_QUANT> opBf16Cm0Qm0(mlaTilingData, tiling);
-    MLAPO_BP16::MLAOperation<__bf16, 1, DataFormat::NZ, DataFormat::NZ,
+    MLAPO_BF16::MLAOperation<__bf16, 1, DataFormat::NZ, DataFormat::NZ,
         DataFormat::ND, QuantMode::PER_TENSOR_ASYMM_QUANT> opBf16Cm1Qm0(mlaTilingData, tiling);
 
     switch(mlaTilingData.tilingKey) {

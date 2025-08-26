@@ -281,7 +281,7 @@ public:
                                 AscendC::GlobalTensor<int8_t> &quantOffsetGmTensor, GM_ADDR perTokenDescaleGm,
                                 GM_ADDR perChannelDescaleGm, GM_ADDR gmInput, GM_ADDR gmOutput, uint32_t stride,
                                 uint32_t num_col, uint64_t gm_offset, uint64_t gm_out_offset,
-                                uint32_t row_work_, const AtbOps::MlaTilingData &mlaParams_)
+                                uint32_t row_work_, const MlaTilingData &mlaParams_)
     {
         this->quantScaleGmTensor = quantScaleGmTensor;
         this->quantOffsetGmTensor = quantOffsetGmTensor;
@@ -329,10 +329,10 @@ public:
         AscendC::LocalTensor<float> sqx = buf[OFFSET_SQX * num_col_align_withStride_fp32];           // 1
         AscendC::LocalTensor<float> work = buf[OFFSET_SUM * num_col_align_withStride_fp32];          // 2
         AscendC::LocalTensor<float> abs = buf[OFFSET_ABS * num_col_align_withStride_fp32];           // 3
-        AscendC::LocalTensor<float> sum = buf[OFFSET_WORKSPACE * num_col_align_withStride_fp32];     // 4
-        AscendC::LocalTensor<float> max = buf[OFFSET_WORKSPACE * num_col_align_withStride_fp32 + 8]; // 5
+        AscendC::LocalTensor<float> sum = buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32];     // 4
+        AscendC::LocalTensor<float> max = buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32 + 8]; // 5
         AscendC::LocalTensor<float> perTokenDescaleTensor =
-            buf[OFFSET_WORKSPACE * num_col_align_withStride_fp32 + 16]; // 6
+            buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32 + 16]; // 6
 
         SET_FLAG(MTE2, V, EVENT_ID1);
         if constexpr (quantMode == QuantMode::PER_TENSOR_ASYMM_QUANT) {
@@ -341,9 +341,9 @@ public:
         }
 
         if constexpr (NEED_DEQUANT) {
-            mmTensor = buf.ReinterpretCast<int32_t>()[OFFSET_WORKSPACE * num_col_align_withStride_fp32 + 16];
-            deScaleTensor = buf[OFFSET_WORKSPACE * num_col_align_withStride_fp32 + 16 + MM1_OUT_SIZE];
-            perTokenDescaleTensor = buf[OFFSET_WORKSPACE * num_col_align_withStride_fp32 + 16 + MM1_OUT_SIZE * 2];
+            mmTensor = buf.ReinterpretCast<int32_t>()[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32 + 16];
+            deScaleTensor = buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32 + 16 + MM1_OUT_SIZE];
+            perTokenDescaleTensor = buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32 + 16 + MM1_OUT_SIZE * 2];
             AscendC::DataCopy(deScaleTensor, perChannelDescaleGmTensor, AscendC::DataCopyParams(1, num_col_ / 8, 0, 0));
         }
 
@@ -533,7 +533,7 @@ public:
                                 AscendC::GlobalTensor<int8_t> &quantOffsetGmTensor, GM_ADDR perTokenDescaleGm,
                                 GM_ADDR perChannelDescaleGm, GM_ADDR gmInput, GM_ADDR gmOutput, uint32_t stride,
                                 uint32_t num_col, float avg_factor, uint64_t gm_offset, uint64_t gm_out_offset,
-                                uint32_t row_work_, const AtbOps::MlaTilingData &mlaParams_)
+                                uint32_t row_work_, const MlaTilingData &mlaParams_)
     {
         this->gammaGmTensor = gammaGmTensor;
         this->betaGmTensor = betaGmTensor;
@@ -588,10 +588,10 @@ public:
         AscendC::LocalTensor<float> sqx = buf[OFFSET_SQX * num_col_align_withStride_fp32];           // 1
         AscendC::LocalTensor<float> work = buf[OFFSET_SUM * num_col_align_withStride_fp32];          // 2
         AscendC::LocalTensor<float> abs = buf[OFFSET_ABS * num_col_align_withStride_fp32];           // 3
-        AscendC::LocalTensor<float> sum = buf[OFFSET_WORKSPACE * num_col_align_withStride_fp32];     // 4
-        AscendC::LocalTensor<float> max = buf[OFFSET_WORKSPACE * num_col_align_withStride_fp32 + 8]; // 5
+        AscendC::LocalTensor<float> sum = buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32];     // 4
+        AscendC::LocalTensor<float> max = buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32 + 8]; // 5
         AscendC::LocalTensor<float> perTokenDescaleTensor =
-            buf[OFFSET_WORKSPACE * num_col_align_withStride_fp32 + 16]; // 6
+            buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32 + 16]; // 6
 
         AscendC::DataCopy(gammaTensor, gammaGmTensor,
                           AscendC::DataCopyParams(1, (num_col_ - input_stride_) / BLOCK_SIZE_16, 0, 0));
@@ -604,9 +604,9 @@ public:
         }
 
         if constexpr (NEED_DEQUANT) {
-            mmTensor = buf.ReinterpretCast<int32_t>()[OFFSET_WORKSPACE * num_col_align_withStride_fp32 + 16];
-            deScaleTensor = buf[OFFSET_WORKSPACE * num_col_align_withStride_fp32 + 16 + MM1_OUT_SIZE];
-            perTokenDescaleTensor = buf[OFFSET_WORKSPACE * num_col_align_withStride_fp32 + 16 + MM1_OUT_SIZE * 2];
+            mmTensor = buf.ReinterpretCast<int32_t>()[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32 + 16];
+            deScaleTensor = buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32 + 16 + MM1_OUT_SIZE];
+            perTokenDescaleTensor = buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32 + 16 + MM1_OUT_SIZE * 2];
             AscendC::DataCopy(deScaleTensor, perChannelDescaleGmTensor, AscendC::DataCopyParams(1, num_col_ / 8, 0, 0));
         }
 
@@ -882,9 +882,9 @@ public:
         // init local tensor
         scaleBrcbFp32_ = buf.GetBuffer<BufferType::ASCEND_UB, float>(0);
         inputTensor_ = buf.GetBuffer<BufferType::ASCEND_UB, InDtype>(scaleBrcbFp32DataSize);
-        inputFp32_ = buf.GetBuffer<BufferType::ASCEND_UB, float>(scaleBrcbFp32DataSize + inputDataSize * NUM_BUFFER);
+        inputFp32_ = buf.GetBuffer<BufferType::ASCEND_UB, float>(scaleBrcbFp32DataSize + inputDataSize * ROPE_CONCAT_NUM_BUFFER);
         int8OutTensor_ = buf.GetBuffer<BufferType::ASCEND_UB, int8_t>(
-            scaleBrcbFp32DataSize + (inputDataSize + inputFp32DataSize) * NUM_BUFFER);
+            scaleBrcbFp32DataSize + (inputDataSize + inputFp32DataSize) * ROPE_CONCAT_NUM_BUFFER);
 
         // scale copyin, cast, brcb[H, 1] --> [H, 8], use input ub space
         if (headNum == padLen) {
@@ -1117,7 +1117,7 @@ public:
     {
 #ifdef __DAV_C220_CUBE__
         if (block_idx >= num_core) {
-            WaitFlagDev(AIC_MM3_START);
+            WaitFlagDev(MM1QUANT);
             return;
         }
         using LocalTensor = AscendC::LocalTensor<InDtype>;
@@ -1151,7 +1151,7 @@ public:
             event_t event_id = ping_flag ? EVENT_ID0 : EVENT_ID1;
 
             if (loop_idx == core_idx) {
-                WaitFlagDev(AIC_MM3_START);
+                WaitFlagDev(MM1QUANT);
 
                 // Copy A from gm to l1 buffer
                 uint64_t offset_a = GetOffsetA(batch_idx, tidx.m, shuffle_k);
@@ -2373,7 +2373,7 @@ class MLAOperation {
     using K_NOPE_DTYPE = typename std::conditional_t<CACHE_MODE == CACHE_MODE_INT8_NZCACHE, int8_t, InDtype>;
 
 public:
-    __aicore__ inline MLAOperation(const AtbOps::MlaTilingData &mlaParams_, GM_ADDR tilingGm)
+    __aicore__ inline MLAOperation(const MlaTilingData &mlaParams_, GM_ADDR tilingGm)
     {
         blockIdx = AscendC::GetBlockIdx();
 #ifdef __DAV_C220_VEC__

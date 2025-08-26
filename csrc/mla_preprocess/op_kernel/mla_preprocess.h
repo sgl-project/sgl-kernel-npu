@@ -68,12 +68,10 @@ constexpr uint64_t CONST_32 = 32;
 constexpr uint64_t CONST_64 = 64;
 constexpr uint64_t CONST_128 = 128;
 
-constexpr uint64_t BLOCK_SIZE_INT8 = 32;
-
 // ropeConcat
 constexpr uint32_t ROPE_CONCAT_NUM_BUFFER = 2;
 
-// rmsNormQuant-
+// rmsNormQuant
 constexpr uint32_t OFFSET_ABS = 3;              // the offset of abs is 3
 constexpr uint32_t OFFSET_WORKSPACE_BF16 = 4;   // the offset of workspace is 4
 

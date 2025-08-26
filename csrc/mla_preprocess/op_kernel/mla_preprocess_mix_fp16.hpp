@@ -2588,8 +2588,8 @@ __aicore__ inline void MLAOperation<cacheMode, weightFormat1, weightFormat2, wei
                       res1_tensor,
                       res3_tensor);
     }
-    FftsCrossCoreSync<PIPE_MTE3, 0>(Quant1);
-    WaitFlagDev(Quant1);
+    FftsCrossCoreSync<PIPE_MTE3, 0>(QUANT1);
+    WaitFlagDev(QUANT1);
     AscendC::CrossCoreSetFlag<0x2, PIPE_MTE3>(MM1);
 
     WaitFlagDev(MM1QUANT);
