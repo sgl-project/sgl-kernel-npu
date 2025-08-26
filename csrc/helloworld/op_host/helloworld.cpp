@@ -8,10 +8,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "aclrtlaunch_helloworld.h"
 #include "defines.h"
 #include "torch_helper.h"
-
-#include "aclrtlaunch_helloworld.h"
 
 namespace sglang {
 namespace npu_kernel {
@@ -45,5 +44,5 @@ HOST_API void printVersion()
     printf("%s\n", LIB_VERSION_FULL);
 }
 
-}
-}
+}  // namespace npu_kernel
+}  // namespace sglang
