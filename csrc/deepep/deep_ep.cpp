@@ -9,6 +9,7 @@
 
 namespace deep_ep {
 constexpr int PADDING_SIZE = 3;
+constexpr size_t HCOMM_NAME_LEN = 128;
 
 Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
                std::string moe_all_to_all_group_name)
@@ -30,7 +31,7 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
         // ep domain
         HCCL_CHECK(HcclCommInitClusterInfo(ranktable_file, device_id, &ep_comm));
     } else {
-        EP_HOST_ASSERT(moe_all_to_all_group_name.size() < 128);
+        EP_HOST_ASSERT(moe_all_to_all_group_name.size() < HCOMM_NAME_LEN);
     }
 
     this->shared_expert_rank_num = get_value_from_env("MOE_SHARED_EXPERT_RANK_NUM", 0);
@@ -236,7 +237,7 @@ Buffer::intranode_dispatch(const at::Tensor& x, const std::optional<at::Tensor>&
     at::Tensor recv_data = at::zeros({num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
 
     // get ep name
-    char hcom_ep_name[128];
+    char hcom_ep_name[HCOMM_NAME_LEN];
     if (!moe_all_to_all_group_name.empty()) {
         std::memcpy(hcom_ep_name, moe_all_to_all_group_name.data(), moe_all_to_all_group_name.size() + 1);
     } else {
@@ -413,7 +414,7 @@ Buffer::intranode_combine(const torch::Tensor& x, const torch::Tensor& topk_idx,
     int64_t global_bs = topk_idx_p.size(0) * num_ranks;
 
     // get ep & tp name
-    char hcom_ep_name[128];
+    char hcom_ep_name[HCOMM_NAME_LEN];
     if (!moe_all_to_all_group_name.empty()) {
         std::memcpy(hcom_ep_name, moe_all_to_all_group_name.data(), moe_all_to_all_group_name.size() + 1);
     } else {
@@ -523,12 +524,13 @@ std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Te
     char *comm_log_ptr = comm_log_buf.data();
 
     // get ep & tp name
-    char hcom_ep_name[128];
+    char hcom_ep_name[HCOMM_NAME_LEN];
     if (!moe_all_to_all_group_name.empty()) {
         std::memcpy(hcom_ep_name, moe_all_to_all_group_name.data(), moe_all_to_all_group_name.size() + 1);
     } else {
         HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
     }
+    char hcom_tp_name[HCOMM_NAME_LEN] = {0};
 
     EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2,
         new_x,
@@ -540,7 +542,7 @@ std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Te
         num_ranks,      // rankSize
         rank,           // rankId
         num_experts,
-        hcom_ep_name,           // tp
+        hcom_tp_name,           // tp
         tp_size,               // tp_size
         tp_rank,               // tp_rank
         expert_shard_type,            // expert_shard_type
@@ -595,12 +597,13 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     // EP_HOST_ASSERT(x.size(0) == num_experts / num_ranks);
 
     // get ep & tp name
-    char hcom_ep_name[128];
+    char hcom_ep_name[HCOMM_NAME_LEN];
     if (!moe_all_to_all_group_name.empty()) {
         std::memcpy(hcom_ep_name, moe_all_to_all_group_name.data(), moe_all_to_all_group_name.size() + 1);
     } else {
         HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
     }
+    char hcom_tp_name[HCOMM_NAME_LEN] = {0};
 
     auto device = x.device();
     at::Tensor expand_x = x;
@@ -646,7 +649,7 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
         num_ranks,
         rank,
         num_experts,
-        hcom_ep_name,
+        hcom_tp_name,
         tp_world_size,
         tp_rankId,
         expert_shared_type,
