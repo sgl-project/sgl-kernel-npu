@@ -18,8 +18,8 @@ at::Tensor helloworld(const at::Tensor &x, const at::Tensor &y);
 at::Tensor cache_loc_assign(const at::Tensor &token_pool, const at::Tensor &start_offset, const at::Tensor &end_offset,
     const at::Tensor &out_cache_loc, const at::Tensor &out_cache_loc_idx);
 
-bool RunCustomAssign(at::Tensor &dstTensor, const at::Tensor &srcTensor, const at::Tensor &dstStartIdx,
-    const at::Tensor &dstEndIdx, const at::Tensor &srcStartIdx, const at::Tensor &srcEndIdx);
+bool assign_cache_op(at::Tensor &dst_tensor, const at::Tensor &src_tensor, const at::Tensor &dst_start_idx,
+    const at::Tensor &dst_end_idx, const at::Tensor &src_start_idx, const at::Tensor &src_end_idx);
 }  // namespace npu_kernel
 }  // namespace sglang
 
