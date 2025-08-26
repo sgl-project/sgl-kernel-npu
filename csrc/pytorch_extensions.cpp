@@ -28,7 +28,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
           "out_cache_loc_idx, int max_step) -> Tensor");
     
     m.def("alloc_extend(Tensor pre_lens, Tensor seq_lens, Tensor last_loc, Tensor free_pages, int page_size, Tensor(a!) out_indices, Tensor(b!) values) -> ()");
-          "out_cache_loc_idx) -> Tensor");
 }
 }  // namespace
 

@@ -420,6 +420,28 @@ class TestAllocExtend(unittest.TestCase):
             estimated_num_new_pages,
         )
 
+    def test_case10_big_batch_size(self):
+        prefix_lens = torch.tensor([0] * 100, dtype=self.dtype, device=self.device)
+        seq_lens = torch.tensor([2] * 100, dtype=self.dtype, device=self.device)
+        last_loc = torch.tensor([-1] * 100, dtype=self.dtype, device=self.device)
+        free_pages = torch.arange(1, 950, dtype=self.dtype, device=self.device)
+        page_size = 128
+        estimated_num_new_pages = (
+            (
+                (seq_lens + page_size - 1) // page_size
+                - (prefix_lens + page_size - 1) // page_size
+            )
+            .sum()
+            .item()
+        )
+        self.compute(
+            prefix_lens, 
+            seq_lens, 
+            last_loc, 
+            free_pages, 
+            page_size, 
+            estimated_num_new_pages,
+        )
 
 if __name__ == "__main__":
     unittest.main()

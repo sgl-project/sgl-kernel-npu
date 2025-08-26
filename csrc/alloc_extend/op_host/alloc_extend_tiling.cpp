@@ -12,28 +12,27 @@
 #include "tiling/platform/platform_ascendc.h"
 #include "aclrtlaunch_alloc_extend.h"
 #include "torch_helper.h"
-#include <iostream>
 
 namespace sglang {
 namespace npu_kernel {
 constexpr uint32_t PADDING_BYTE = 32U;
 
-at::Tensor getTiling(int32_t &block_dim, int32_t &workspace_size, const int32_t &page_size, 
+at::Tensor get_tiling(int32_t &block_dim, int32_t &workspace_size, const int64_t &page_size, 
     int32_t &batch_size, int64_t &total_extend_tokens)
 {
     auto ascendc_platform = platform_ascendc::PlatformAscendCManager::GetInstance();
     int32_t max_aiv_core = static_cast<int32_t>(ascendc_platform->GetCoreNumAiv());
     block_dim = std::min(max_aiv_core, batch_size);
-    workspace_size = static_cast<size_t>(ascendc_platform->GetLibApiWorkSpaceSize());
+    workspace_size = static_cast<int32_t>(ascendc_platform->GetLibApiWorkSpaceSize());
     
     int32_t tiling_size = (sizeof(AllocExtendTilingData) + PADDING_BYTE - 1) / PADDING_BYTE * PADDING_BYTE;
     auto tiling_buffer = at::empty({tiling_size}, at::TensorOptions().dtype(at::kByte).device(at::kCPU));
     
-    AllocExtendTilingData *tilling_data = reinterpret_cast<AllocExtendTilingData *>(tiling_buffer.data_ptr());
-    tilling_data->batch_size = batch_size;
-    tilling_data->page_size = page_size;
-    tilling_data->used_core_num = block_dim;
-    tilling_data->total_extend_tokens = total_extend_tokens;
+    AllocExtendTilingData *tiling_data = reinterpret_cast<AllocExtendTilingData *>(tiling_buffer.data_ptr());
+    tiling_data->batch_size = batch_size;
+    tiling_data->page_size =  static_cast<int32_t>(page_size);;
+    tiling_data->used_core_num = block_dim;
+    tiling_data->total_extend_tokens = total_extend_tokens;
     
     auto tiling_tensor = TorchNpuHepler::CopyTensorHostToDevice(tiling_buffer);
     return tiling_tensor;
@@ -52,13 +51,12 @@ HOST_API void alloc_extend(const at::Tensor &pre_lens, const at::Tensor &seq_len
     int32_t batch_size = pre_lens.sizes()[0];
     int64_t total_extend_tokens = out_indices.sizes()[0];  // 64k
 
-    at::Tensor tiling_tensor = getTiling(block_dim, workspace_size, pages_size, batch_size, total_extend_tokens);
+    at::Tensor tiling_tensor = get_tiling(block_dim, workspace_size, pages_size, batch_size, total_extend_tokens);
 
     auto workspace_tensor = 
         at::empty({workspace_size}, at::TensorOptions().dtype(at::kByte).device(pre_lens.options().device()));
     /* lauch the kernal function via torch */
     EXEC_KERNEL_CMD(alloc_extend, block_dim, pre_lens, seq_lens, last_loc, free_pages, out_indices, values, workspace_tensor, tiling_tensor);
-    return;
 }
 
 }

@@ -14,6 +14,7 @@
 /* tensor num for each queue */
 constexpr int32_t BUFFER_NUM = 1;
 constexpr int64_t byteAlign = 32;
+
 __aicore__ inline uint32_t ceil_div(int64_t a, int64_t b)
 {
     if (b == 0)
@@ -47,11 +48,11 @@ public:
         this->pipe.InitBuffer(this->seq_lens_que, BUFFER_NUM, this->total_size_aligned);
     }
     __aicore__ inline void Process() {
+        CopyIn();
         for (int32_t task_id = this->core_id; task_id < this->batch_size; task_id += this->block_num) {
-            CopyIn();
             Compute(task_id);
-            CopyOut();
         }
+        CopyOut();
     }
 private:
     __aicore__ inline void CopyIn() {
@@ -100,7 +101,7 @@ private:
         int64_t last_loc = this->last_loc_gm.GetValue(task_id);
         int64_t num_part1 = (min(cur_seq, (cur_pre_seq + this->page_size - 1) / this->page_size * this->page_size) - cur_pre_seq);
         AscendC::LocalTensor<int64_t> out_indices_ub = out_indices_que.AllocTensor<int64_t>();
-        for (int i=0; i<num_part1; i++) {
+        for (int i = 0; i < num_part1; i++) {
             out_indices_ub.SetValue(i, last_loc + 1 + i);
         }
         if (cur_pre_seq + num_part1 == cur_seq) {
@@ -110,8 +111,8 @@ private:
             return;
         }
         int64_t num_part2 = cur_seq / this->page_size * this->page_size - (cur_pre_seq + this->page_size - 1) / this->page_size * this->page_size;
+        int64_t out_offset = num_part1;
         if (num_part2 > 0) {
-            int64_t out_offset = num_part1;
             for (int page_i=0; page_i<num_part2 / this->page_size; page_i++) {
                 int64_t page_value = free_pages_gm.GetValue(new_pages_start_loc + page_i);
                 for (int i=0; i<this->page_size; i++) {
@@ -127,9 +128,9 @@ private:
         }
         int64_t num_part3 = cur_seq - cur_seq / this->page_size * this->page_size;
         int64_t start_page_loc = free_pages_gm.GetValue(new_pages_start_loc + cur_need_pages - 1);
-        int64_t out_offset = num_part1 + num_part2;
+        out_offset = num_part1 + num_part2;
 
-        for (int i=0; i<num_part3; i++) {
+        for (int i = 0; i < num_part3; i++) {
             out_indices_ub.SetValue(out_offset + i, start_page_loc * this->page_size + i);
         }
         out_indices_que.EnQue(out_indices_ub);

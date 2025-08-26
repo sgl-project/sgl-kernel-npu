@@ -23,7 +23,7 @@ bool RunCustomAssign(at::Tensor &dstTensor, const at::Tensor &srcTensor, const a
 
 void alloc_extend(const at::Tensor &pre_lens, const at::Tensor &seq_lens,
     const at::Tensor &last_loc, const at::Tensor &free_pages, int64_t pages_size, at::Tensor &out_indices, at::Tensor &values);
-    
+
 }  // namespace npu_kernel
 }  // namespace sglang
 
