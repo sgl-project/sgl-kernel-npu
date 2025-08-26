@@ -1117,7 +1117,7 @@ public:
     {
 #ifdef __DAV_C220_CUBE__
         if (block_idx >= num_core) {
-            WaitFlagDev(MM1QUANT);
+            WaitFlagDev(AIC_MM3_START);
             return;
         }
         using LocalTensor = AscendC::LocalTensor<InDtype>;
@@ -1151,7 +1151,7 @@ public:
             event_t event_id = ping_flag ? EVENT_ID0 : EVENT_ID1;
 
             if (loop_idx == core_idx) {
-                WaitFlagDev(MM1QUANT);
+                WaitFlagDev(AIC_MM3_START);
 
                 // Copy A from gm to l1 buffer
                 uint64_t offset_a = GetOffsetA(batch_idx, tidx.m, shuffle_k);
@@ -1755,9 +1755,9 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aic<withSyncAll, swizzleDir, format
     using LocalTensor = AscendC::LocalTensor<InDtype>;
     if (core_idx >= core_num) {
         if (MM1_MM2_mode == 0) {
-            WaitFlagDev(MM1);
+            WaitFlagDev(AIC_MM1_START);
         } else if (MM1_MM2_mode == 1) {
-            WaitFlagDev(MM2QUANT);
+            WaitFlagDev(AIC_MM2_START);
         }
         return;
     }
@@ -1806,9 +1806,9 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aic<withSyncAll, swizzleDir, format
         // Wait after Scalar
         if (loop_idx == core_idx) {
             if (MM1_MM2_mode == 0) {
-                WaitFlagDev(MM1);
+                WaitFlagDev(AIC_MM1_START);
             } else if (MM1_MM2_mode == 1) {
-                WaitFlagDev(MM2QUANT);
+                WaitFlagDev(AIC_MM2_START);
             }
         }
 
@@ -1957,9 +1957,9 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aic<withSyncAll, swizzleDir, format
                    n);             // dstStride_dst_D
         SET_FLAG(FIX, M, EVENT_ID0);
         if constexpr (!withSyncAll) {
-            FftsCrossCoreSync<PIPE_FIX, SYNC_MODE>(BMM3);
+            FftsCrossCoreSync<PIPE_FIX, SYNC_MODE>(MMAIC);
             if ((loop_idx / core_num + 1) % MAX_HW_SYNC_COUNTER == 0) {
-                WaitFlagDev(BMM3SPLIT);
+                WaitFlagDev(MMAIV);
             }
         }
     }
@@ -2121,9 +2121,9 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aiv<OutDtype, withSyncAll, quantMod
 
         if constexpr (!withSyncAll) {
             if (m_actual_per_vec == 0) {
-                WaitFlagDev(BMM3);
+                WaitFlagDev(MMAIC);
                 if ((loop_idx / core_num + 1) % MAX_HW_SYNC_COUNTER == 1) {
-                    FftsCrossCoreSync<PIPE_MTE3, SYNC_MODE>(BMM3SPLIT);
+                    FftsCrossCoreSync<PIPE_MTE3, SYNC_MODE>(MMAIV);
                 }
                 continue;
             }
@@ -2176,7 +2176,7 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aiv<OutDtype, withSyncAll, quantMod
         }
 
         if constexpr (!withSyncAll) {
-            WaitFlagDev(BMM3);
+            WaitFlagDev(MMAIC);
         }
         WAIT_FLAG(MTE3, MTE2, EVENT_ID0);
         if (aligned_s32) {
@@ -2353,7 +2353,7 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aiv<OutDtype, withSyncAll, quantMod
         SET_FLAG(MTE3, MTE2, EVENT_ID0);
         if constexpr (!withSyncAll) {
             if ((loop_idx / core_num + 1) % MAX_HW_SYNC_COUNTER == 1) {
-                FftsCrossCoreSync<PIPE_MTE3, SYNC_MODE>(BMM3SPLIT);
+                FftsCrossCoreSync<PIPE_MTE3, SYNC_MODE>(MMAIV);
             }
         }
     }
@@ -2774,9 +2774,9 @@ MLAOperation<InDtype, CACHE_MODE, weightFormat1, weightFormat2, weightFormat3, q
 #ifdef __DAV_C220_CUBE__
     mm_w8a8_aic_1.Process();
     if constexpr (quantMode == QuantMode::PER_TOKEN_SYMM_QUANT) {
-        FftsCrossCoreSync<PIPE_FIX, 0>(BMM3);
-        WaitFlagDev(BMM3);
-        FftsCrossCoreSync<PIPE_FIX, 2>(BMM3SPLIT);
+        FftsCrossCoreSync<PIPE_FIX, 0>(MMAIC);
+        WaitFlagDev(MMAIC);
+        FftsCrossCoreSync<PIPE_FIX, 2>(MMAIV);
     }
 
     mm_w8a8_aic_2.PreloadWeight();
@@ -2816,13 +2816,13 @@ MLAOperation<InDtype, CACHE_MODE, weightFormat1, weightFormat2, weightFormat3, q
     }
     FftsCrossCoreSync<PIPE_MTE3, 0>(QUANT1);
     WaitFlagDev(QUANT1);
-    AscendC::CrossCoreSetFlag<0x2, PIPE_MTE3>(MM1);
+    AscendC::CrossCoreSetFlag<0x2, PIPE_MTE3>(AIC_MM1_START);
     if constexpr (quantMode == QuantMode::PER_TENSOR_ASYMM_QUANT) {
         mm_w8a8_aiv_1.Process();
         FftsCrossCoreSync<PIPE_MTE3, 0>(RMSNORMQUANT2);
         WaitFlagDev(RMSNORMQUANT2);
     } else { // quantMode == QuantMode::PER_TOKEN_SYMM_QUANT
-        WaitFlagDev(BMM3SPLIT);
+        WaitFlagDev(MMAIV);
     }
     if (row_work_ != 0) {
         uint32_t num_col_align_int8 = (num_col_2 + REPEAT_TIME_256 - 1) / REPEAT_TIME_256 * REPEAT_TIME_256;
@@ -2848,7 +2848,7 @@ MLAOperation<InDtype, CACHE_MODE, weightFormat1, weightFormat2, weightFormat3, q
     }
     FftsCrossCoreSync<PIPE_MTE3, 0>(MM2);
     WaitFlagDev(MM2);
-    AscendC::CrossCoreSetFlag<0x2, PIPE_MTE3>(MM2QUANT);
+    AscendC::CrossCoreSetFlag<0x2, PIPE_MTE3>(AIC_MM2_START);
 
     if (row_work_ != 0) {
         AscendC::LocalTensor<InDtype> input_tensor = buf.GetBuffer<BufferType::ASCEND_UB, InDtype>(0);
@@ -2906,7 +2906,7 @@ MLAOperation<InDtype, CACHE_MODE, weightFormat1, weightFormat2, weightFormat3, q
     mm_w8a8_aiv_2.Process();
     FftsCrossCoreSync<PIPE_MTE3, 0>(MM2OUT);
     WaitFlagDev(MM2OUT);
-    AscendC::CrossCoreSetFlag<0x2, PIPE_MTE3>(MM1QUANT);
+    AscendC::CrossCoreSetFlag<0x2, PIPE_MTE3>(AIC_MM3_START);
     ropeFp16.Process();
 
     if constexpr (CACHE_MODE == CACHE_MODE_INT8_NZCACHE) {

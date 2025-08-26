@@ -75,6 +75,13 @@ constexpr uint32_t ROPE_CONCAT_NUM_BUFFER = 2;
 constexpr uint32_t OFFSET_ABS = 3;              // the offset of abs is 3
 constexpr uint32_t OFFSET_WORKSPACE_BF16 = 4;   // the offset of workspace is 4
 
+// sync bf16
+constexpr int32_t AIC_MM1_START = 2;
+constexpr int32_t AIC_MM3_START = 3;
+constexpr int32_t AIC_MM2_START = 6;
+constexpr int32_t MMAIC = 7;
+constexpr int32_t MMAIV = 8;
+
 constexpr uint32_t MAX_HW_SYNC_COUNTER = 5;
 constexpr uint32_t SYNC_MODE = 2;
 
