@@ -7,6 +7,7 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/helloworld/op_host/helloworld.cpp
     ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_host/cache_loc_assign.cpp
     ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_host/assign_cache.cpp
+    ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_host/mla_preprocess.cpp
     )
 
 # set the so name
@@ -20,6 +21,7 @@ ascendc_library(no_workspace_kernel STATIC
 
 ascendc_library(workspace_kernel STATIC
     ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_kernel/cache_loc_assign_kernel_int32.cpp
+    ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_kernel/mla_preprocess_kernel.cpp
 )
 
 ascendc_compile_definitions(workspace_kernel PRIVATE

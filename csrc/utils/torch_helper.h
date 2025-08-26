@@ -39,7 +39,8 @@ public:
 
     inline static void *ConvertType(const at::Tensor &at_tensor)
     {
-        return const_cast<void *>(at_tensor.storage().data());
+        return const_cast<void *>(at_tensor.data_ptr());
+        // return const_cast<void *>(at_tensor.storage().data());
     }
 
     template <typename T>
