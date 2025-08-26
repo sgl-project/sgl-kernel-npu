@@ -180,10 +180,10 @@ extern "C" __global__ __aicore__ void mla_preprocess(
                 quantScale2, quantOffset2, gamma3, sin1, cos1, sin2, cos2, keycache, slotMapping,
                 wuq, bias2, wuk, descale1, descale2, ctkvScale, qnopeScale,
                 q, keycacheOut, q2, keycacheOut2, s1, s2, s3);
-            if (ASCEND_IS_AIC) {
+            if ASCEND_IS_AIC {
                 opFp16Cm1Qm0.ProcessCube();
             }
-            if (ASCEND_IS_AIV) {
+            if ASCEND_IS_AIV {
                 opFp16Cm1Qm0.ProcessVector();
             }
             break;
