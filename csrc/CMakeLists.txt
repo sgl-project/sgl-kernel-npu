@@ -8,6 +8,7 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_host/cache_loc_assign.cpp
     ${PROJECT_OP_SRC_BASE}/alloc_extend/op_host/alloc_extend_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/alloc_extend/alloc_extend.cpp
+    ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_host/assign_cache.cpp
     )
 
 # set the so name
@@ -16,6 +17,7 @@ set(OP_PLUGIN_NAME sgl_kernel_npu)
 # kernel side files without workspace
 ascendc_library(no_workspace_kernel STATIC
     ${PROJECT_OP_SRC_BASE}/helloworld/op_kernel/kernel_helloworld.cpp
+    ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_kernel/assign_cache_op.cpp
 )
 
 ascendc_library(workspace_kernel STATIC

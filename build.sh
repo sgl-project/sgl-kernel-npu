@@ -37,12 +37,36 @@ function build_kernels()
     cd -
 }
 
+function build_deepep_kernels()
+{
+    KERNEL_DIR="csrc/deepep/ops"
+    CUSTOM_OPP_DIR="${CURRENT_DIR}/python/deep_ep/deep_ep"
+
+    cd "$KERNEL_DIR" || exit
+
+    chmod +x build.sh
+    chmod +x cmake/util/gen_ops_filter.sh
+    ./build.sh
+
+    custom_opp_file=$(find ./build_out -maxdepth 1 -type f -name "custom_opp*.run")
+    if [ -z "$custom_opp_file" ]; then
+        echo "can not find run package"
+        exit 1
+    else
+        echo "find run package: $custom_opp_file"
+        chmod +x "$custom_opp_file"
+    fi
+    ./build_out/custom_opp_*.run --install-path=$CUSTOM_OPP_DIR
+    cd -
+}
+
 function make_deepep_package()
 {
     cd python/deep_ep || exit
 
     cp -v ${OUTPUT_DIR}/lib/* "$CURRENT_DIR"/python/deep_ep/deep_ep/
-    rm -rf "$CURRENT_DIR"/python/deep_ep/dist
+    rm -rf "$CURRENT_DIR"/python/deep_ep/build
+    python3 setup.py clean --all
     python3 setup.py bdist_wheel
     mv -v "$CURRENT_DIR"/python/deep_ep/dist/deep_ep*.whl ${OUTPUT_DIR}/
     rm -rf "$CURRENT_DIR"/python/deep_ep/dist
@@ -64,6 +88,7 @@ function make_sgl_kernel_npu_package()
 function main()
 {
     build_kernels
+    build_deepep_kernels
 
     if pip3 show wheel;then
         echo "wheel has been installed"

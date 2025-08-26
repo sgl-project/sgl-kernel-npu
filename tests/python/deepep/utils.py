@@ -86,3 +86,19 @@ def bench(fn, num_warmups: int = 50, num_tests: int = 50, post_fn=None):
 
     times = np.array(times[1:])  # Remove the first timing
     return np.average(times), np.min(times), np.max(times)
+
+
+def per_token_cast_back(x_fp8: torch.Tensor, x_scales: torch.Tensor):
+    if x_scales.dtype == torch.int:
+        x_scales = x_scales.view(dtype=torch.int8).to(torch.int) << 23
+        x_scales = x_scales.view(dtype=torch.float)
+    x_fp32 = x_fp8.to(torch.float32).view(x_fp8.size(0), -1, 128)
+    x_scales = x_scales.view(x_fp8.size(0), -1, 1)
+    return (x_fp32 * x_scales).view(x_fp8.shape).to(torch.bfloat16)
+
+
+def calc_diff(x: torch.Tensor, y: torch.Tensor):
+    x, y = x.double() + 1, y.double() + 1
+    denominator = (x * x + y * y).sum()
+    sim = 2 * (x * y).sum() / denominator
+    return (1 - sim).item()

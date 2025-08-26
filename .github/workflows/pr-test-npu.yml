@@ -20,7 +20,9 @@ jobs:
   test-low-latency:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false
-    runs-on: linux-aarch64-a3-node0
+    runs-on: linux-aarch64-a3-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-a3-ubuntu22.04-py3.11
     steps:
       - name: Clean git config
         run: |
@@ -36,21 +38,30 @@ jobs:
         with:
           clean: true
 
-      - name: Start CI container
-        run: bash scripts/npu_ci_a3_start_container.sh
+      - name: Install dependencies
+        run: |
+          # speed up by using infra cache services
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+
+          bash scripts/npu_ci_install_dependency.sh
+
+      - name: Prepare Deepep
+        run: bash scripts/prepare_deepep_in_container.sh
 
       - name: Run test
         timeout-minutes: 10
         run: |
-          bash scripts/npu_ci_exec.sh bash $GITHUB_WORKSPACE/tests/python/deepep/run_test.sh
-
-      - name: Stop and remove container
-        run: bash scripts/npu_ci_a3_stop_container.sh
+          bash $GITHUB_WORKSPACE/tests/python/deepep/run_test.sh
 
   test-intranode:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false
-    runs-on: linux-aarch64-a3-node0
+    runs-on: linux-aarch64-a3-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-a3-ubuntu22.04-py3.11
     steps:
       - name: Clean git config
         run: |
@@ -66,16 +77,25 @@ jobs:
         with:
           clean: true
 
-      - name: Start CI container
-        run: bash scripts/npu_ci_a3_start_container.sh
+      - name: Install dependencies
+        run: |
+          # speed up by using infra cache services
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+
+          bash scripts/npu_ci_install_dependency.sh
+
+      - name: Prepare Deepep
+        run: bash scripts/prepare_deepep_in_container.sh
 
       - name: Run test
         timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2048
         run: |
-          bash scripts/npu_ci_exec.sh python3 $GITHUB_WORKSPACE/tests/python/test_intranode.py
-
-      - name: Stop and remove container
-        run: bash scripts/npu_ci_a3_stop_container.sh
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
 
   finish:
     if: always()

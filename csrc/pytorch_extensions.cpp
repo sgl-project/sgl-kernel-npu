@@ -28,6 +28,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
           "out_cache_loc_idx, int max_step) -> Tensor");
     
     m.def("alloc_extend(Tensor pre_lens, Tensor seq_lens, Tensor last_loc, Tensor free_pages, int page_size, Tensor(a!) out_indices, Tensor(b!) values) -> ()");
+          "out_cache_loc_idx) -> Tensor");
 }
 }  // namespace
 
@@ -39,5 +40,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("cache_loc_assign", TORCH_FN(sglang::npu_kernel::cache_loc_assign));
 
     m.impl("alloc_extend", TORCH_FN(sglang::npu_kernel::alloc_extend));
+    m.impl("assign_cache_op", TORCH_FN(sglang::npu_kernel::RunCustomAssign));
 }
 }  // namespace
