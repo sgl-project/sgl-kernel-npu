@@ -16,11 +16,12 @@ set(OP_PLUGIN_NAME sgl_kernel_npu)
 # kernel side files without workspace
 ascendc_library(no_workspace_kernel STATIC
     ${PROJECT_OP_SRC_BASE}/helloworld/op_kernel/kernel_helloworld.cpp
+    ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_kernel/cache_loc_assign_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_kernel/assign_cache_op.cpp
 )
 
+
 ascendc_library(workspace_kernel STATIC
-    ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_kernel/cache_loc_assign_kernel_int32.cpp
     ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_kernel/mla_preprocess_kernel.cpp
 )
 
