@@ -21,7 +21,7 @@ using namespace custom_assign;
 
 HOST_API at::Tensor GetTilingTensor(CustomAssignTilingData &tilingData, size_t tilingSize)
 {
-    auto buffer = at::empty({tilingSize}, at::kByte);
+    auto buffer = at::empty({static_cast<int64_t>(tilingSize)}, at::kByte);
     tilingData.SetToBuffer(buffer.data_ptr<uint8_t>(), tilingSize);
     auto tilingTensor = TorchNpuHepler::CopyTensorHostToDevice(buffer);
     return tilingTensor;
