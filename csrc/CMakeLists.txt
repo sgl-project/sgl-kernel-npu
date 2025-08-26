@@ -15,23 +15,14 @@ set(OP_PLUGIN_NAME sgl_kernel_npu)
 # kernel side files without workspace
 ascendc_library(no_workspace_kernel STATIC
     ${PROJECT_OP_SRC_BASE}/helloworld/op_kernel/kernel_helloworld.cpp
+    ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_kernel/cache_loc_assign_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_kernel/assign_cache_op.cpp
-)
-
-ascendc_library(workspace_kernel STATIC
-    ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_kernel/cache_loc_assign_kernel_int32.cpp
-)
-
-ascendc_compile_definitions(workspace_kernel PRIVATE
-       -DHAVE_WORKSPACE
-       -DHAVE_TILING
 )
 
 # create shared library libsgl_kernel_npu.so
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
-        workspace_kernel
         no_workspace_kernel
         torch_npu
         ascendcl
