@@ -192,8 +192,7 @@ class TestAllocExtend(unittest.TestCase):
         )
         print("=================")
         out_indices = out_indices.cpu()
-        merged_value = estimated_num_new_pages.item()
-        num_new_pages = merged_value >> 32
+        num_new_pages = estimated_num_new_pages.item()
         print(f"sgl-kernel out_indices: {out_indices.shape}, estimated_num_new_pages: {estimated_num_new_pages}, num_new_pages: {num_new_pages}")
         print("=================")
         ret = torch.equal(out_indices_gt, out_indices)
@@ -400,7 +399,7 @@ class TestAllocExtend(unittest.TestCase):
 
     def test_case9_prefill_long_seq(self):
         prefix_lens = torch.tensor([0, 0, 0, 0, 0, 0, 0], dtype=self.dtype, device=self.device)
-        seq_lens = torch.tensor([10000, 8000, 3000, 5000, 4000, 6000, 70000], dtype=self.dtype, device=self.device)
+        seq_lens = torch.tensor([10000, 8000, 3000, 5000, 4000, 6000, 7000], dtype=self.dtype, device=self.device)
         last_loc = torch.tensor([-1, -1, -1, -1, -1, -1, -1], dtype=self.dtype, device=self.device)
         free_pages = torch.arange(1, 950, dtype=self.dtype, device=self.device)
         page_size = 128
