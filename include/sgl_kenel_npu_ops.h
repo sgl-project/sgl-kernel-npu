@@ -15,8 +15,8 @@ namespace sglang {
 namespace npu_kernel {
 at::Tensor helloworld(const at::Tensor &x, const at::Tensor &y);
 
-at::Tensor cache_loc_assign(const at::Tensor &token_pool, const at::Tensor &start_offset, const at::Tensor &end_offset,
-    const at::Tensor &out_cache_loc, const at::Tensor &out_cache_loc_idx);
+at::Tensor cache_loc_assign(const at::Tensor &req_indices, const at::Tensor &token_pool,
+    const at::Tensor &start_offset, const at::Tensor &end_offset, const at::Tensor &out_cache_loc);
 
 bool assign_cache_op(at::Tensor &dst_tensor, const at::Tensor &src_tensor, const at::Tensor &dst_start_idx,
     const at::Tensor &dst_end_idx, const at::Tensor &src_start_idx, const at::Tensor &src_end_idx);
