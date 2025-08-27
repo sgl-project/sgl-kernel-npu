@@ -32,5 +32,13 @@ include(cmake/config_git_last_commit.cmake)
 include(cmake/config_envs.cmake)
 include(cmake/config_ascend.cmake)
 
-add_subdirectory(csrc)
+if (NOT DEFINED BUILD_TYPE)
+    set(BUILD_TYPE "0")
+endif ()
+
+message(STATUS "Build type: ${BUILD_TYPE}")
+
+if (BUILD_TYPE STREQUAL "0")
+    add_subdirectory(csrc)
+endif ()
 add_subdirectory(csrc/deepep)
