@@ -529,9 +529,6 @@ void MlaPreprocessTiling::SetTilingKey()
 
 void MlaPreprocessTiling::Init()
 {
-
-    (void)memset(tilingData, 0x00, sizeof(MlaTilingData));
-
     tilingData->numCore = platformInfo.coreNumAic;
     tilingData->n = opParam.N;
 
