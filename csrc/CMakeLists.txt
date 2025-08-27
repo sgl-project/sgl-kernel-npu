@@ -8,6 +8,7 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_host/cache_loc_assign.cpp
     ${PROJECT_OP_SRC_BASE}/alloc_extend/op_host/alloc_extend_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_host/assign_cache.cpp
+    ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_host/mla_preprocess.cpp
     )
 
 # set the so name
@@ -21,6 +22,7 @@ ascendc_library(no_workspace_kernel STATIC
 )
 
 ascendc_library(workspace_kernel STATIC
+    ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_kernel/mla_preprocess_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/alloc_extend/op_kernel/alloc_extend_kernel.cpp
 )
 
@@ -33,6 +35,7 @@ ascendc_compile_definitions(workspace_kernel PRIVATE
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
+        workspace_kernel
         no_workspace_kernel
         workspace_kernel
         torch_npu

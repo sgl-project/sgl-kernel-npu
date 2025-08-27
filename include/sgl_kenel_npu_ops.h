@@ -24,7 +24,23 @@ bool RunCustomAssign(at::Tensor &dstTensor, const at::Tensor &srcTensor, const a
 void alloc_extend(const at::Tensor &pre_lens, const at::Tensor &seq_lens,
     const at::Tensor &last_loc, const at::Tensor &free_pages, int64_t pages_size, at::Tensor &out_indices, at::Tensor &values);
 
+std::tuple<at::Tensor&, at::Tensor&, at::Tensor&, at::Tensor&> mla_preprocess(
+    const at::Tensor &hiddenState, const at::Tensor &gamma0, const at::Tensor &beta0, const at::Tensor &wdqkv,
+    const at::Tensor &descale0, const at::Tensor &gamma1, const at::Tensor &beta1,
+    const at::Tensor &wuq, const at::Tensor &descale1, const at::Tensor &gamma2,
+    const at::Tensor &cos, const at::Tensor &sin, const at::Tensor &wuk,
+    const at::Tensor &kv_cache, const at::Tensor &kv_cache_rope, const at::Tensor &slotmapping,
+    const at::Tensor &quant_scale0, const at::Tensor &quant_offset0, const at::Tensor &bias0,
+    const at::Tensor &quant_scale1, const at::Tensor &quant_offset1, const at::Tensor &bias1,
+    const c10::optional<at::Tensor> &ctkv_scale, const c10::optional<at::Tensor> &q_nope_scale,
+    c10::optional<c10::string_view> cache_mode, c10::optional<c10::string_view> quant_mode,
+    at::Tensor &q_out0,
+    at::Tensor &kv_cache_out0,
+    at::Tensor &q_out1,
+    at::Tensor &kv_cache_out1);
+
 }  // namespace npu_kernel
+
 }  // namespace sglang
 
 #endif  // SGL_KERNEL_NPU_OPS_H
