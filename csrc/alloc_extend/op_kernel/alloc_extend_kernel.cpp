@@ -34,7 +34,7 @@ public:
         this->used_core_num = tiling_gm->used_core_num;
         this->total_extend_tokens = tiling_gm->total_extend_tokens;
         this->core_id = AscendC::GetBlockIdx();
-        this->block_num = AscendC::GetBlockNum();
+        this->total_block_num = AscendC::GetBlockNum();
         
         this->pre_lens_gm.SetGlobalBuffer((__gm__ int64_t*)pre_lens_in, this->batch_size);  // total data
         this->seq_lens_gm.SetGlobalBuffer((__gm__ int64_t*)seq_lens_in, this->batch_size);
@@ -47,7 +47,7 @@ public:
         this->pipe.InitBuffer(this->input_que, BUFFER_NUM, this->total_size_aligned * 3);
     }
     __aicore__ inline void Process() {
-        for (int32_t task_id = this->core_id; task_id < this->batch_size; task_id += this->block_num) {
+        for (int32_t task_id = this->core_id; task_id < this->batch_size; task_id += this->total_block_num) {
             CopyIn();
             Compute(task_id);
             CopyOut();
@@ -167,7 +167,7 @@ private:
     AscendC::GlobalTensor<int64_t> values_gm;
 
     int32_t core_id;
-    int32_t block_num;
+    int32_t total_block_num;
     int32_t batch_size;
     int32_t total_size_aligned;
     int32_t page_size;
