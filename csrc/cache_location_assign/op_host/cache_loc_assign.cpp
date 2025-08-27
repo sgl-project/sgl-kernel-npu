@@ -10,6 +10,7 @@
 
 #include <stdexcept>
 #include "defines.h"
+#include "common.h"
 #include "torch_helper.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "tiling/cache_loc_assign.h"
@@ -18,25 +19,18 @@
 namespace sglang {
 namespace npu_kernel {
 
-constexpr uint32_t BLK_SIZE_ALIN_FOR_INT64 = 4;
-constexpr uint32_t BLK_SIZE_ALIN_FOR_INT32 = 8;
 constexpr uint32_t MAX_STEP = 5;
 
-uint64_t alinInt64Count(uint64_t count)
-{
-    return (count + BLK_SIZE_ALIN_FOR_INT64 - 1) / BLK_SIZE_ALIN_FOR_INT64 * BLK_SIZE_ALIN_FOR_INT64;
-}
-
-uint64_t alinInt32Count(uint64_t count)
-{
-    return (count + BLK_SIZE_ALIN_FOR_INT32 - 1) / BLK_SIZE_ALIN_FOR_INT32 * BLK_SIZE_ALIN_FOR_INT32;
-}
-
-at::Tensor getTiling(const at::Tensor &reqPoolIndices, uint64_t rowSize, uint64_t poolSize, uint32_t &blockDim)
+at::Tensor getTiling(const at::Tensor &reqPoolIndices, uint64_t rowSize, uint64_t poolSize, uint32_t &blockDim,
+                     bool isUpddate)
 {
     auto batchSize = reqPoolIndices.sizes()[0];
     auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
-    blockDim = ascendcPlatform->GetCoreNumAiv();
+    if (isUpddate) {
+        blockDim = 1;  // todo: support mulitcore caculate for update
+    } else {
+        blockDim = ascendcPlatform->GetCoreNumAiv();
+    }
 
     auto tilingBuffer =
         at::empty({sizeof(AssignCacheTillingData)}, at::TensorOptions().dtype(at::kByte).device(at::kCPU));
@@ -71,7 +65,7 @@ at::Tensor getTiling(const at::Tensor &reqPoolIndices, uint64_t rowSize, uint64_
     uint64_t ubSize;
     ascendcPlatform->GetCoreMemSize(platform_ascendc::CoreMemType::UB, ubSize);
     uint64_t ubBufferSizeToUse = tillingData->tokenColAlignInt32 + 3 * tillingData->offsetColAlignInt64 +
-                                 + 3 * batchSize * sizeof(int32_t) + tillingData->cacheLocAlignInt32;
+                                 3 * batchSize * sizeof(int32_t) + tillingData->cacheLocAlignInt32;
     if (ubBufferSizeToUse > ubSize) {
         throw std::invalid_argument("Batch size is too large, buffer is not enough to do calculate");
     }
@@ -80,8 +74,8 @@ at::Tensor getTiling(const at::Tensor &reqPoolIndices, uint64_t rowSize, uint64_
     return tilingTensor;
 }
 
-HOST_API at::Tensor cache_loc_assign(const at::Tensor &reqPoolIndices, const at::Tensor &tokenPool,
-    const at::Tensor &startOffset, const at::Tensor &endOffset, const at::Tensor &outCacheLoc)
+HOST_API void checkParams(const at::Tensor &reqPoolIndices, const at::Tensor &tokenPool, const at::Tensor &startOffset,
+                          const at::Tensor &endOffset, const at::Tensor &outCacheLoc)
 {
     auto reqIdxType = reqPoolIndices.options().dtype();
     if ((reqIdxType != at::kInt && reqIdxType != at::kLong) || tokenPool.options().dtype() != at::kInt ||
@@ -90,16 +84,34 @@ HOST_API at::Tensor cache_loc_assign(const at::Tensor &reqPoolIndices, const at:
         throw std::invalid_argument("Only support inputTensor combo1: int64, int32, int64, int64, int32; combo2: "
                                     "int32, int32, int64, int64, int32");
     }
+}
 
-    uint64_t poolSize = tokenPool.sizes()[0];
-    uint64_t rowSize = tokenPool.sizes()[1];
+HOST_API at::Tensor cache_loc_assign(const at::Tensor &reqPoolIndices, const at::Tensor &tokenPool,
+                                     const at::Tensor &startOffset, const at::Tensor &endOffset,
+                                     const at::Tensor &outCacheLoc)
+{
+    checkParams(reqPoolIndices, tokenPool, startOffset, endOffset, outCacheLoc);
     uint32_t blockDim;
-    at::Tensor tilingTensor = getTiling(reqPoolIndices, rowSize, poolSize, blockDim);
+    uint32_t cacheAssignMode = 0;
+    at::Tensor tilingTensor = getTiling(reqPoolIndices, tokenPool.sizes()[1], tokenPool.sizes()[0], blockDim, false);
 
-    /* lauch the kernal function via torch */
-    EXEC_KERNEL_CMD(
-        cache_loc_assign, blockDim, reqPoolIndices, tokenPool, startOffset, endOffset, outCacheLoc, tilingTensor);
+    EXEC_KERNEL_CMD(cache_loc_assign, blockDim, reqPoolIndices, tokenPool, startOffset, endOffset, outCacheLoc,
+                    tilingTensor, cacheAssignMode);
     return tokenPool;
+}
+
+HOST_API at::Tensor cache_loc_update(const at::Tensor &reqPoolIndices, const at::Tensor &tokenPool,
+                                     const at::Tensor &startOffset, const at::Tensor &endOffset,
+                                     const at::Tensor &outCacheLoc)
+{
+    checkParams(reqPoolIndices, tokenPool, startOffset, endOffset, outCacheLoc);
+    uint32_t blockDim;
+    uint32_t cacheAssignMode = 1;
+    at::Tensor tilingTensor = getTiling(reqPoolIndices, tokenPool.sizes()[1], tokenPool.sizes()[0], blockDim, true);
+
+    EXEC_KERNEL_CMD(cache_loc_assign, blockDim, reqPoolIndices, tokenPool, startOffset, endOffset, outCacheLoc,
+                    tilingTensor, cacheAssignMode);
+    return outCacheLoc;
 }
 
 }  // namespace npu_kernel
