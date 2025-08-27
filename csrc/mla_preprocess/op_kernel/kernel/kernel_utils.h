@@ -1,4 +1,6 @@
-/*
+/*  Adapted from
+ *      https://gitee.com/ascend/ascend-transformer-boost.git
+ *
  * Copyright (c) 2024 Huawei Technologies Co., Ltd.
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 1.0 (the "License").
@@ -203,7 +205,7 @@ __aicore__ inline void CastGAndIsGemmaMode(const AscendC::LocalTensor<float> &ou
             AscendC::PipeBarrier<PIPE_V>();
         }
     }
- 
+
 template <typename T, uint32_t precisionMode>
 __aicore__ inline void ComputeRmsNormFast(const AscendC::LocalTensor<T> &out, const AscendC::LocalTensor<float> &in,
     float rms, const AscendC::LocalTensor<T> &gamma, uint32_t count,
@@ -371,17 +373,12 @@ __aicore__ inline void CopyGmTilingToUb(__ubuf__ uint8_t *&tilingInUb, const __g
 
 template <typename T>
 __aicore__ inline uint32_t GetReduceSumWorkLocalSize(uint32_t sliceSize) {
-    // 根据数据类型定义两个单位
-    uint32_t elementsPerBlock = 32 / sizeof(T);       // 1个datablock存放的元素个数
-    uint32_t elementsPerRepeat = 256 / sizeof(T);     // 1次repeat可以处理的元素个数
+    uint32_t elementsPerBlock = 32 / sizeof(T);
+    uint32_t elementsPerRepeat = 256 / sizeof(T);
 
-    // 确定首次最大repeat值
     uint32_t firstMaxRepeat = sliceSize < elementsPerRepeat ? 1u : (sliceSize / elementsPerRepeat);
-    // 第一轮操作产生的元素个数
     uint32_t iter1OutputCount = firstMaxRepeat;
-    // 第一轮产生的元素个数做向上取整
     uint32_t iter1AlignEnd = RoundUp(iter1OutputCount, elementsPerBlock);
-    // 最终workLocal所需的elements空间大小就是第一轮操作产生元素做向上取整后的结果
     return iter1AlignEnd;
 }
 

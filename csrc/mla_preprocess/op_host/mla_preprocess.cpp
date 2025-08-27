@@ -1,3 +1,15 @@
+// Adapted from
+//   https://gitee.com/ascend/ascend-transformer-boost.git
+//   https://gitee.com/ascend/op-plugin.git
+//
+// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+// This file is a part of the CANN Open Software.
+// Licensed under CANN Open Software License Agreement Version 1.0 (the "License").
+// Please refer to the License for details. You may not use this file except in compliance with the License.
+// THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+// INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+// See LICENSE in the root of the software repository for the full text of the License.
+//
 
 #include <fstream>
 #include <iostream>
@@ -40,11 +52,11 @@ constexpr uint32_t HEADDIM = 64;
 constexpr uint32_t FP32_REPEAT_MASK = 64;
 constexpr uint32_t FP16_REPEAT_MASK = 128;
 
-const int32_t NUM1 = 1;
-const int32_t NUM2 = 2;
-const int32_t NUM3 = 3;
-const int32_t NUM4 = 4;
-const int32_t NUM8 = 8;
+constexpr int32_t NUM1 = 1;
+constexpr int32_t NUM2 = 2;
+constexpr int32_t NUM3 = 3;
+constexpr int32_t NUM4 = 4;
+constexpr int32_t NUM8 = 8;
 constexpr uint32_t INDEX_WDQKV = 5;
 constexpr uint32_t INDEX_WUQ = 18;
 constexpr uint32_t INDEX_WUK = 20;
@@ -385,19 +397,19 @@ void MlaPreprocessTiling::RopeConcatTiling()
     uint32_t allHeadNum = ntokens * headNumQ;
 
     uint32_t tempCore = (allHeadNum + maxCore - 1) / maxCore;
-    uint32_t realCore = (allHeadNum + tempCore - 1) / tempCore;  // 实际运算核数
-    uint32_t nlCoreRun = (allHeadNum + realCore - 1) / realCore; // 前核运算head数
-    uint32_t lCoreRun = allHeadNum - (realCore - 1) * nlCoreRun; // 尾核运算head数
+    uint32_t realCore = (allHeadNum + tempCore - 1) / tempCore;  // Actual number of the core for operation
+    uint32_t nlCoreRun = (allHeadNum + realCore - 1) / realCore; // The number of heads in the front core
+    uint32_t lCoreRun = allHeadNum - (realCore - 1) * nlCoreRun; // The number of heads in the tail core
 
     uint32_t dataTypeSize = 2;
 
-    // 计算一次能搬几行 q 4+2、reverseq 4、neg 4、sin 4+2、cos 4+2  + concat 2
-    uint32_t allSize = headDim * (3 * (4 + dataTypeSize) + 2 * 4) + concatSize * dataTypeSize; // rope内部升精度计算
-    uint32_t maxNPerLoopForUb = maxUbSize / allSize; // ub每次能载入最大行数（包括所有计算数据）
-    uint32_t preCoreLoopTime = (nlCoreRun + maxNPerLoopForUb - 1) / maxNPerLoopForUb;  // 前核循环次数
-    uint32_t preCoreLoopNLast = nlCoreRun - (preCoreLoopTime - 1) * maxNPerLoopForUb;  // 前核最后一批处理数据行数
-    uint32_t lastCoreLoopTime = (lCoreRun + maxNPerLoopForUb - 1) / maxNPerLoopForUb;  // 尾核循环次数
-    uint32_t lastCoreLoopNLast = lCoreRun - (lastCoreLoopTime - 1) * maxNPerLoopForUb; // 尾核最后一批处理数据行数
+    // Calculate how many lines can be moved at a time. q 4+2、reverseq 4、neg 4、sin 4+2、cos 4+2  + concat 2
+    uint32_t allSize = headDim * (3 * (4 + dataTypeSize) + 2 * 4) + concatSize * dataTypeSize; // lift precision calculation of ROPE
+    uint32_t maxNPerLoopForUb = maxUbSize / allSize; // the maximum number of rows at a time for UB
+    uint32_t preCoreLoopTime = (nlCoreRun + maxNPerLoopForUb - 1) / maxNPerLoopForUb;  // Number of cycles of front core
+    uint32_t preCoreLoopNLast = nlCoreRun - (preCoreLoopTime - 1) * maxNPerLoopForUb;  // rows of data processed in the last batch of the front core
+    uint32_t lastCoreLoopTime = (lCoreRun + maxNPerLoopForUb - 1) / maxNPerLoopForUb;  // Number of cycles of tail core
+    uint32_t lastCoreLoopNLast = lCoreRun - (lastCoreLoopTime - 1) * maxNPerLoopForUb; // rows of data processed in the last batch of the tail core
 
     tilingData->hiddenSizeQ = hiddenSizeQ;
     tilingData->headNumQ = headNumQ;
@@ -431,13 +443,13 @@ void MlaPreprocessTiling::EinSumQuantTiling()
     uint32_t esqFrontCoreBatch = CeilDiv(esqBatch, aivCore);
     uint32_t esqTailCoreBatch = esqBatch / aivCore;
 
-    // split ub --> calc H' <-- 一次ub循环中搬运处理的行数
+    // split ub --> calc H' <-- The number of rows handled in a UB cycle.
     uint32_t splitFactor = 0;
-    uint32_t esqHeadPerLoop = 0; // ub每次计算的head行数
+    uint32_t esqHeadPerLoop = 0; // The number of head rows per UB calculation
     uint32_t repeatMask = 0;
 
     if (opParam.inDtype == at::kBFloat16 || opParam.quantMode == QuantMode::PER_TOKEN_SYMM_QUANT) {
-        // 将scale一次性搬入、广播、缓存 H * 32bytes
+        // Move scales in at once, broadcast, and cache them all H * 32bytes
         uint32_t scaleUb = RoundUp(esqHeadNum) * CONST_32;
         // bf16 input [H', colNum](f16 + fp32 + int8), ub reuse
         splitFactor = esqColNum * (sizeof(uint16_t) + sizeof(float) + sizeof(uint8_t));
@@ -450,12 +462,12 @@ void MlaPreprocessTiling::EinSumQuantTiling()
             esqColNum * (NUM2 * sizeof(uint16_t) + sizeof(uint8_t)) + sizeof(uint16_t) + (CONST_16 * sizeof(uint16_t));
         esqHeadPerLoop = ubSize / splitFactor;
         repeatMask = FP16_REPEAT_MASK;
-        esqHeadPerLoop = RoundDown(esqHeadPerLoop);           // 向下16对齐
+        esqHeadPerLoop = RoundDown(esqHeadPerLoop);
     }
-    uint32_t esqUbHeadLoop = esqHeadNum / esqHeadPerLoop; // ub完整循环次数
-    uint32_t esqHeadTail = esqHeadNum % esqHeadPerLoop;   // ub最后一次处理head的行数
-    uint32_t esqColLoop = esqColNum / repeatMask;         // 每行按列计算要循环处理的次数
-    uint32_t esqColTail = esqColNum % repeatMask;         // colNum非64/128对齐时，最后一次计算列数
+    uint32_t esqUbHeadLoop = esqHeadNum / esqHeadPerLoop; // UB complete cycles
+    uint32_t esqHeadTail = esqHeadNum % esqHeadPerLoop;   // The number of rows that UB last processed the head.
+    uint32_t esqColLoop = esqColNum / repeatMask;         // Each row counts the number of times to cycle through columns.
+    uint32_t esqColTail = esqColNum % repeatMask;         // colNum is not 64/128 aligned, the number of columns is calculated last.
 
     tilingData->esqFrontCore = esqFrontCore;
     tilingData->esqTailCore = esqTailCore;
@@ -510,7 +522,7 @@ void MlaPreprocessTiling::SetTilingKey()
     uint64_t tilingKey = (static_cast<uint64_t>(opParam.inDtype == at::kBFloat16)) << 8;
 
     tilingKey |= static_cast<uint64_t>(opParam.cacheMode);
-    tilingKey |= static_cast<uint64_t>(opParam.quantMode);
+    tilingKey |= (static_cast<uint64_t>(opParam.quantMode) << 3);
 
     tilingData->tilingKey = tilingKey;
 }

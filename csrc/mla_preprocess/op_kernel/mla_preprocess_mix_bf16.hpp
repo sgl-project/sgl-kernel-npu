@@ -1,3 +1,15 @@
+// Adapted from
+//   https://gitee.com/ascend/ascend-transformer-boost
+//
+// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+// This file is a part of the CANN Open Software.
+// Licensed under CANN Open Software License Agreement Version 1.0 (the "License").
+// Please refer to the License for details. You may not use this file except in compliance with the License.
+// THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+// INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+// See LICENSE in the root of the software repository for the full text of the License.
+//
+
 #include "kernel/common.h"
 #include "kernel/iterator.h"
 #include "kernel/mem.h"
@@ -62,7 +74,7 @@ public:
         if (blockIdx_ >= realCore) {
             return;
         }
-        uint64_t startCoreLineIndex = this->blockIdx_ * this->nlCoreRun; // 当前核处理head起始位置
+        uint64_t startCoreLineIndex = this->blockIdx_ * this->nlCoreRun;
         // 生成 [maxNPerLoopForUb,head_dim] 的 neg
         AscendC::LocalTensor<float> negLocal =
             buf.GetBuffer<BufferType::ASCEND_UB, float>(dataSizeFp32 * 4 + dataSizeFp16 * 3);
@@ -90,7 +102,7 @@ public:
             uint64_t startSinCosHeadIndex = startHead;
             uint64_t headRemain = startHead % this->headNumQ;
             uint64_t localStartAddr = 0;
-            if (headRemain != 0) { // 需要前处理
+            if (headRemain != 0) {
                 uint64_t preProcessHeadNum = this->headNumQ - headRemain;
                 uint64_t needToProcesHead = preProcessHeadNum > loopN ? loopN : preProcessHeadNum;
                 CopyCosSin(inputCos, inputSin, localStartAddr, (startSinCosHeadIndex / this->headNumQ) * this->headDim,
@@ -98,12 +110,11 @@ public:
                 startSinCosHeadIndex += needToProcesHead;
                 localStartAddr += needToProcesHead * this->headDim;
             }
-            // 循环迭代处理剩余数据
+
             if (startSinCosHeadIndex < endHead) {
                 uint64_t startSinCosIndex = startSinCosHeadIndex / this->headNumQ;
                 uint64_t endSinCosIndex = (endHead + this->headNumQ - 1) / this->headNumQ;
                 for (uint32_t index = startSinCosIndex; index < endSinCosIndex; ++index) {
-                    // 尾数处理
                     uint32_t repeatNum =
                         index == endSinCosIndex - 1 ? endHead - index * this->headNumQ : this->headNumQ;
                     CopyCosSin(inputCos, inputSin, localStartAddr, index * this->headDim, repeatNum);
@@ -118,7 +129,6 @@ public:
             AscendC::Cast(inputSinCastFP32, inputSin, AscendC::RoundMode::CAST_NONE, loopN * this->headDim);
             AscendC::PipeBarrier<PIPE_V>();
 
-            // 计算rope结果
             uint32_t repeatTime = this->headDim * loopN;
             AscendC::Mul(inputQCastFP32, inputCosCastFP32, inputQCastFP32, repeatTime);
             AscendC::Mul(reverseQ, negLocal, reverseQ, repeatTime);
@@ -130,8 +140,6 @@ public:
             AscendC::Add(inputQCastFP32, reverseQ, inputQCastFP32, repeatTime);
             AscendC::PipeBarrier<PIPE_V>();
 
-            // // 搬出rope结果
-            // // cast fp16/bf16
             AscendC::Cast(inputQ, inputQCastFP32, AscendC::RoundMode::CAST_RINT, loopN * this->headDim);
             AscendC::PipeBarrier<PIPE_V>();
             uint64_t outQOffset = startHead * outLineOffset + this->concatSize;
@@ -147,7 +155,7 @@ public:
         }
         WAIT_FLAG(MTE3, MTE2, EVENT_ID1);
     }
-    // 构建tensor -1 -1 -1 1 1 1
+    // tensor -1 -1 -1 1 1 1
     template <typename BUF_TYPE>
     __aicore__ inline void ExpandNeg(const AscendC::LocalTensor<BUF_TYPE> &tempBuf, uint32_t headNumTemp)
     {
@@ -166,7 +174,7 @@ public:
     CopyQGenReverseQ(const AscendC::LocalTensor<BUF_TYPE> &tempBufQ, const AscendC::LocalTensor<float> &tempBufQCast,
                      const AscendC::LocalTensor<float> &tempBufRverseQ, uint64_t qOffset, uint16_t loopN)
     {
-        // 搬入数据Q
+        // move in Q
         WAIT_FLAG(MTE3, MTE2, EVENT_ID1);
         AscendC::DataCopy(tempBufQ, this->qGm_[qOffset], {loopN, headBlockLen, 128 / 16, 0});
         SET_FLAG(MTE2, V, EVENT_ID1);
@@ -174,7 +182,7 @@ public:
         // cast fp32
         AscendC::Cast(tempBufQCast, tempBufQ, AscendC::RoundMode::CAST_NONE, loopN * this->headDim);
         AscendC::PipeBarrier<PIPE_V>();
-        // 搬入数据reverseQ
+        // move out reverseQ
         AscendC::DataCopy(tempBufRverseQ, tempBufQCast[this->rotateStride_], {loopN, rotaryLen, rotaryLen, rotaryLen});
         AscendC::DataCopy(tempBufRverseQ[this->rotateStride_], tempBufQCast, {loopN, rotaryLen, rotaryLen, rotaryLen});
         AscendC::PipeBarrier<PIPE_V>();
@@ -205,8 +213,8 @@ private:
     AscendC::GlobalTensor<QOutDtype> outRopeConcatGm_;
     AscendC::GlobalTensor<QkDtype> outRopeConcatGm2_;
 
-    uint32_t repeatSize_{0};   // 一拍做几个元素
-    uint32_t rotateStride_{0}; // this->headDim / 旋转系数
+    uint32_t repeatSize_{0};
+    uint32_t rotateStride_{0}; // this->headDim / rope conf
     uint32_t headDim;
     uint32_t headNumQ;
     uint32_t rotaryCoeff;
@@ -221,8 +229,8 @@ private:
     uint32_t lastCoreLoopNLast;
     uint32_t concatSize;
     uint32_t blockIdx_;
-    uint32_t loopTime{0};  // 当前核批处理数据轮数
-    uint32_t lastLoopN{0}; // 当前核尾处理行数
+    uint32_t loopTime{0};
+    uint32_t lastLoopN{0};
 
     uint32_t dataSizeFp32;
     uint32_t dataSizeFp16;
@@ -495,19 +503,19 @@ private:
     AscendC::GlobalTensor<float> perChannelDescaleGmTensor;
     AscendC::GlobalTensor<int32_t> mmGmTensor;
 
-    uint32_t num_col_{0};       // 输入的列数
-    uint32_t num_row_{0};       // 输入的行数
-    uint32_t row_work_{0};      // 需要计算多少行
-    uint32_t row_work{0};       // 需要计算多少行
-    uint32_t row_step_{0};      // 除最后一次，每次搬入多少行
-    uint32_t row_tail_{0};      // 最后一次搬入多少行数据
-    uint64_t gm_offset_{0};     // GM数据起始位置偏移量
-    uint64_t gm_out_offset_{0}; // GM数据起始位置偏移量
-    float avg_factor_{1.0};     // num_col_的倒数
-    float input_scale_{1.0};    // 非对称量化系数
-    float input_offset_{0};     // 非对称量化偏移适配高精度
+    uint32_t num_col_{0};       // input columns
+    uint32_t num_row_{0};       // input rows
+    uint32_t row_work_{0};      // rows need process
+    uint32_t row_work{0};       // rows need process
+    uint32_t row_step_{0};      // rows move in once
+    uint32_t row_tail_{0};      // rows move in last time
+    uint64_t gm_offset_{0};     // GM data offset
+    uint64_t gm_out_offset_{0}; // GM data offset
+    float avg_factor_{1.0};     // 1/num_col_
+    float input_scale_{1.0};
+    float input_offset_{0};
     int32_t input_stride_{0};
-    float epsilon_{1e-12f}; // norm平滑参数
+    float epsilon_{1e-12f};
     uint32_t num_col_align_int8{0};
     uint32_t num_col_align_f16{0};
     uint32_t num_col_align_f32{0};
@@ -799,19 +807,19 @@ private:
     AscendC::GlobalTensor<float> perChannelDescaleGmTensor;
     AscendC::GlobalTensor<int32_t> mmGmTensor;
 
-    uint32_t num_col_{0};       // 输入的列数
-    uint32_t num_row_{0};       // 输入的行数
-    uint32_t row_work_{0};      // 需要计算多少行
-    uint32_t row_work{0};       // 需要计算多少行
-    uint32_t row_step_{0};      // 除最后一次，每次搬入多少行
-    uint32_t row_tail_{0};      // 最后一次搬入多少行数据
-    uint64_t gm_offset_{0};     // GM数据起始位置偏移量
-    uint64_t gm_out_offset_{0}; // GM数据起始位置偏移量
-    float avg_factor_{1.0};     // num_col_的倒数
-    float input_scale_{1.0};    // 非对称量化系数
-    float input_offset_{0};     // 非对称量化偏移适配高精度
+    uint32_t num_col_{0};
+    uint32_t num_row_{0};
+    uint32_t row_work_{0};
+    uint32_t row_work{0};
+    uint32_t row_step_{0};
+    uint32_t row_tail_{0};
+    uint64_t gm_offset_{0};
+    uint64_t gm_out_offset_{0};
+    float avg_factor_{1.0};
+    float input_scale_{1.0};
+    float input_offset_{0};
     int32_t input_stride_{0};
-    float epsilon_{1e-12f}; // norm平滑参数
+    float epsilon_{1e-12f};
     uint32_t num_col_align_int8{0};
     uint32_t num_col_align_f16{0};
     uint32_t num_col_align_f32{0};
@@ -1018,24 +1026,24 @@ private:
     AscendC::DataCopyExtParams scaleCopyParams;
     AscendC::DataCopyPadExtParams<InDtype> scalePadParams;
 
-    // 单核处理数据量[batchNum, headNum, colNum]
-    uint32_t batchNum; // 每个核处理的batch数量
-    uint32_t headNum;  // head数量
-    uint32_t colNum;   // 每行的列数
+    // data processed by a single core[batchNum, headNum, colNum]
+    uint32_t batchNum; // The number of batches per kernel processed
+    uint32_t headNum;
+    uint32_t colNum;   // Number of columns per row
     // ub loop
-    uint32_t ubHeadLoop;  // ub循环处理head的次数
-    uint32_t headPerLoop; // 每次ub循环处理的head数量
-    uint32_t headTail;    // 最后一次处理的head数量
+    uint32_t ubHeadLoop;  // The number of times the UB loops through the head.
+    uint32_t headPerLoop; // The number of heads processed per UB cycle
+    uint32_t headTail;    // The number of heads last processed
     // col loop
-    uint32_t colLoop; // col方向循环计算次数
-    uint32_t colTail; // 最后一次处理的col数量
+    uint32_t colLoop; // The number of calculations in the column direction cycle.
+    uint32_t colTail; // The number of cols last processed
 
     uint32_t currentIdx;
     uint64_t currentCoreStartOffset;
-    uint32_t inputDataSize; // 每次搬运输入的大小，bytes
+    uint32_t inputDataSize; // The size of each carry，bytes
     uint32_t inputFp32DataSize;
     uint32_t scaleBrcbFp32DataSize;
-    uint16_t inputDataBlock; // 每次搬运输入的block数，bytes
+    uint16_t inputDataBlock; // The number of blocks brought in per move，bytes
     uint16_t int8OutDataBlcok;
     uint16_t headTailDataBlock;
     uint16_t int8TailOutDataBlock;
@@ -1557,7 +1565,7 @@ public:
 
         core_idx = AscendC::GetBlockIdx();
         ping_flag = 1;
-        MM1_MM2_mode = mode;  // 区分MM1 or MM2
+        MM1_MM2_mode = mode;  // MM1 or MM2
 
         InitBuffer();
         return;
@@ -1830,7 +1838,7 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aic<withSyncAll, swizzleDir, format
         SET_FLAG(MTE2, MTE1, event_id);
 
         WAIT_FLAG(MTE1, MTE2, event_id + CONST_2);
-        // 首个权重矩阵块提前加载
+        // The first weight matrix block is loaded in advance.
         if (loop_idx != core_idx) {
             CopyTileB(l1_buf_b, gm_b[offset_b], k_actual, k_round, n_actual, n_round);
         }
@@ -1866,7 +1874,7 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aic<withSyncAll, swizzleDir, format
                 SET_FLAG(MTE2, MTE1, event_id_next);
 
                 WAIT_FLAG(MTE1, MTE2, event_id_next + CONST_2);
-                // 第二个权重矩阵预加载
+                // The second weight matrix is preloaded.
                 if (loop_idx != core_idx || k_idx != 0) {
                     CopyTileB(l1_buf_b_next, gm_b[offset_b_next], k_actual_next, k_round_next, n_actual, n_round);
                 }
@@ -2253,7 +2261,7 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aiv<OutDtype, withSyncAll, quantMod
             WAIT_FLAG(MTE2, V, EVENT_ID0);
         }
 
-        // //  CASTF32 * f32 tf16
+        //  CASTF32 * f32 tf16
         constexpr uint32_t maxRepeat = 255;
         constexpr uint32_t perRepeatNum = maxRepeat * 64;
         uint32_t loopCnt = (m_actual_per_vec * n_actual + perRepeatNum - 1) / perRepeatNum;

@@ -1,3 +1,15 @@
+// Adapted from
+//   https://gitee.com/ascend/ascend-transformer-boost
+//
+// Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+// This file is a part of the CANN Open Software.
+// Licensed under CANN Open Software License Agreement Version 1.0 (the "License").
+// Please refer to the License for details. You may not use this file except in compliance with the License.
+// THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+// INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+// See LICENSE in the root of the software repository for the full text of the License.
+//
+
 #ifndef __MLA_PREPROCESS_H__
 #define __MLA_PREPROCESS_H__
 
@@ -15,9 +27,9 @@ constexpr int32_t EINSUMOUT = 11;
 constexpr int32_t EINSUMQUANT = 12;
 
 // ropeConcat
-constexpr uint32_t ELE_NUM_FP16 = 16;           // 一个block fp16元素个数
-constexpr uint32_t ELE_NUM_FP32 = 8;            // 一个block字节数 fp32元素个数
-constexpr uint8_t DEFAULT_REPEAT_STRIDE = 8;    // 默认stride, 8 * 32 = 256
+constexpr uint32_t ELE_NUM_FP16 = 16;           // nums of fp16 elemnts in one block
+constexpr uint32_t ELE_NUM_FP32 = 8;            // nums of fp32 elemnts in one block
+constexpr uint8_t DEFAULT_REPEAT_STRIDE = 8;    // stride, 8 * 32 = 256
 
 // rmsNormQuant
 constexpr int32_t NUM_PER_REP_FP32 = 64;        // ONE_REPEAT_BYTE_SIZE / sizeof(float);
@@ -31,9 +43,9 @@ constexpr uint32_t REPEAT_TIME_256 = 256;       // 128 default stride
 constexpr uint32_t REPEAT_TIME_128 = 128;       // 128 default stride
 constexpr uint32_t REPEAT_TIME_64 = 64;         // 64 default stride
 
-constexpr uint8_t CACHE_MODE_KVCACHE = 0;       // 单入单出
-constexpr uint8_t CACHE_MODE_KROPE_CTKV = 1;    // 双入双出
-constexpr uint8_t CACHE_MODE_INT8_NZCACHE = 2;  // 高性能cache（双入双出、NZ存储、CTKV使用I8）
+constexpr uint8_t CACHE_MODE_KVCACHE = 0;       // single input single output
+constexpr uint8_t CACHE_MODE_KROPE_CTKV = 1;    // double in and double out
+constexpr uint8_t CACHE_MODE_INT8_NZCACHE = 2;  // high performance KV NZ format/quant int8
 constexpr uint8_t CACHE_MODE_NZCACHE = 3;
 
 // pp matmul
@@ -84,6 +96,12 @@ constexpr int32_t MMAIV = 8;
 
 constexpr uint32_t MAX_HW_SYNC_COUNTER = 5;
 constexpr uint32_t SYNC_MODE = 2;
+
+// TilingKey
+constexpr uint32_t KEY_FP16_CACHEMODE_0_QUANTMODE_0 = 0;
+constexpr uint32_t KEY_FP16_CACHEMODE_1_QUANTMODE_0 = 1;
+constexpr uint32_t KEY_BF16_CACHEMODE_0_QUANTMODE_0 = 256;
+constexpr uint32_t KEY_BF16_CACHEMODE_1_QUANTMODE_0 = 257;
 
 enum class QuantMode : int32_t {
     PER_TENSOR_ASYMM_QUANT = 0,

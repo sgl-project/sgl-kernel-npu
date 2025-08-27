@@ -1,4 +1,6 @@
-/*
+/*  Adapted from
+ *      https://gitee.com/ascend/ascend-transformer-boost.git
+ *
  * Copyright (c) 2024 Huawei Technologies Co., Ltd.
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 1.0 (the "License").
@@ -192,7 +194,7 @@ struct l1_to_l0_b<ArchTag, int8_t, true, DataFormat::NZ, DataFormat::ZN> {
     using HardwareParams = HardwareInfo<ArchTag>;
     using DataType = int8_t;
     static constexpr uint32_t BLOCK_SIZE = HardwareParams::l1l0BlockSize / sizeof(DataType);
- 
+
     __aicore__ l1_to_l0_b(AscendC::LocalTensor<DataType> l0Tensor,
                           AscendC::LocalTensor<DataType> l1Tensor,
                           uint32_t nTileCeil,
