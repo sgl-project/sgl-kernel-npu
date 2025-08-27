@@ -21,7 +21,6 @@ ascendc_library(no_workspace_kernel STATIC
 )
 
 ascendc_library(workspace_kernel STATIC
-    ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_kernel/cache_loc_assign_kernel_int32.cpp
     ${PROJECT_OP_SRC_BASE}/alloc_extend/op_kernel/alloc_extend_kernel.cpp
 )
 
