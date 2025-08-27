@@ -37,7 +37,6 @@ add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         workspace_kernel
         no_workspace_kernel
-        workspace_kernel
         torch_npu
         ascendcl
         tiling_api
