@@ -1,22 +1,23 @@
 #!/bin/bash
 set -e
 
+BUILD_TYPE=""
 
-BUILD_TYPE=0
-
-while getopts ":b:" opt; do
+while getopts ":a:" opt; do
     case ${opt} in
-        b )
-            # build_type 0: default mode, build all
-            # build_type 1: only build deep_ep
+        a )
             BUILD_TYPE=$OPTARG
+            if [[ "$BUILD_TYPE" != "deepep" ]]; then
+                echo "Error: Invalid value, only 'deepep' is allowed"
+                exit 1
+            fi
             ;;
         \? )
-            echo "unknown flag: -$OPTARG" 1>&2
+            echo "Error: unknown flag: -$OPTARG" 1>&2
             exit 1
             ;;
         : )
-            echo "-$OPTARG requires a value" 1>&2
+            echo "Error: -$OPTARG requires a value" 1>&2
             exit 1
             ;;
     esac
