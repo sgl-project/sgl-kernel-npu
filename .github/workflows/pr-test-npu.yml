@@ -93,7 +93,7 @@ jobs:
       - name: Run test
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 2048
+          HCCL_BUFFSIZE: 3000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
 
