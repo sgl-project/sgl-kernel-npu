@@ -15,29 +15,38 @@ namespace sglang {
 namespace npu_kernel {
 at::Tensor helloworld(const at::Tensor &x, const at::Tensor &y);
 
-at::Tensor cache_loc_assign(const at::Tensor &req_indices, const at::Tensor &token_pool,
-    const at::Tensor &start_offset, const at::Tensor &end_offset, const at::Tensor &out_cache_loc);
+at::Tensor cache_loc_assign(const at::Tensor &req_indices,
+                            const at::Tensor &token_pool,
+                            const at::Tensor &start_offset,
+                            const at::Tensor &end_offset,
+                            const at::Tensor &out_cache_loc);
 
-bool RunCustomAssign(at::Tensor &dstTensor, const at::Tensor &srcTensor, const at::Tensor &dstStartIdx,
-    const at::Tensor &dstEndIdx, const at::Tensor &srcStartIdx, const at::Tensor &srcEndIdx);
+bool RunCustomAssign(at::Tensor &dstTensor, const at::Tensor &srcTensor,
+                     const at::Tensor &dstStartIdx, const at::Tensor &dstEndIdx,
+                     const at::Tensor &srcStartIdx,
+                     const at::Tensor &srcEndIdx);
 
-std::tuple<at::Tensor&, at::Tensor&, at::Tensor&, at::Tensor&> mla_preprocess(
-    const at::Tensor &hiddenState, const at::Tensor &gamma0, const at::Tensor &beta0, const at::Tensor &wdqkv,
-    const at::Tensor &descale0, const at::Tensor &gamma1, const at::Tensor &beta1,
-    const at::Tensor &wuq, const at::Tensor &descale1, const at::Tensor &gamma2,
-    const at::Tensor &cos, const at::Tensor &sin, const at::Tensor &wuk,
-    const at::Tensor &kv_cache, const at::Tensor &kv_cache_rope, const at::Tensor &slotmapping,
-    const at::Tensor &quant_scale0, const at::Tensor &quant_offset0, const at::Tensor &bias0,
-    const at::Tensor &quant_scale1, const at::Tensor &quant_offset1, const at::Tensor &bias1,
-    const c10::optional<at::Tensor> &ctkv_scale, const c10::optional<at::Tensor> &q_nope_scale,
-    c10::optional<c10::string_view> cache_mode, c10::optional<c10::string_view> quant_mode,
-    at::Tensor &q_out0,
-    at::Tensor &kv_cache_out0,
-    at::Tensor &q_out1,
-    at::Tensor &kv_cache_out1);
+std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>
+mla_preprocess(const at::Tensor &hiddenState, const at::Tensor &gamma0,
+               const at::Tensor &beta0, const at::Tensor &wdqkv,
+               const at::Tensor &descale0, const at::Tensor &gamma1,
+               const at::Tensor &beta1, const at::Tensor &wuq,
+               const at::Tensor &descale1, const at::Tensor &gamma2,
+               const at::Tensor &cos, const at::Tensor &sin,
+               const at::Tensor &wuk, const at::Tensor &kv_cache,
+               const at::Tensor &kv_cache_rope, const at::Tensor &slotmapping,
+               const at::Tensor &quant_scale0, const at::Tensor &quant_offset0,
+               const at::Tensor &bias0, const at::Tensor &quant_scale1,
+               const at::Tensor &quant_offset1, const at::Tensor &bias1,
+               const c10::optional<at::Tensor> &ctkv_scale,
+               const c10::optional<at::Tensor> &q_nope_scale,
+               c10::optional<c10::string_view> cache_mode,
+               c10::optional<c10::string_view> quant_mode, at::Tensor &q_out0,
+               at::Tensor &kv_cache_out0, at::Tensor &q_out1,
+               at::Tensor &kv_cache_out1);
 
-}  // namespace npu_kernel
+} // namespace npu_kernel
 
-}  // namespace sglang
+} // namespace sglang
 
-#endif  // SGL_KERNEL_NPU_OPS_H
+#endif // SGL_KERNEL_NPU_OPS_H

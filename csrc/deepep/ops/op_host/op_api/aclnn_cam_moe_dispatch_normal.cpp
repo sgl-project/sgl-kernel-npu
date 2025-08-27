@@ -14,14 +14,30 @@ extern "C" void __attribute__((weak)) NnopbaseSetHcclServerType(void *executor, 
 extern "C" {
 #endif
 
-aclnnStatus aclnnCamMoeDispatchNormalGetWorkspaceSize(const aclTensor *x, const aclTensor *topkIdx,
-    const aclTensor *sendOffset, const aclTensor *sendTokenIdx, const aclTensor *recvOffset, const aclTensor *recvCount,
-    char *groupEp, int64_t epWorldSize, int64_t epRankId, char *groupTpOptional, int64_t tpWorldSize, int64_t tpRankId,
-    int64_t moeExpertNum, int64_t quantMode, int64_t globalBs, const aclTensor *recvX,
-    const aclTensor *recvXScales, const aclTensor *assistInfoForCombine, uint64_t *workspaceSize,
+aclnnStatus aclnnCamMoeDispatchNormalGetWorkspaceSize(
+    const aclTensor *x,
+    const aclTensor *topkIdx,
+    const aclTensor *sendOffset,
+    const aclTensor *sendTokenIdx,
+    const aclTensor *recvOffset,
+    const aclTensor *recvCount,
+    char *groupEp,
+    int64_t epWorldSize,
+    int64_t epRankId,
+    char *groupTpOptional,
+    int64_t tpWorldSize,
+    int64_t tpRankId,
+    int64_t moeExpertNum,
+    int64_t quantMode,
+    int64_t globalBs,
+    const aclTensor *recvX,
+    const aclTensor *recvXScales,
+    const aclTensor *assistInfoForCombine,
+    uint64_t *workspaceSize,
     aclOpExecutor **executor)
 {
-    return aclnnInnerCamMoeDispatchNormalGetWorkspaceSize(x,
+    return aclnnInnerCamMoeDispatchNormalGetWorkspaceSize(
+        x,
         topkIdx,
         sendOffset,
         sendTokenIdx,
@@ -43,8 +59,8 @@ aclnnStatus aclnnCamMoeDispatchNormalGetWorkspaceSize(const aclTensor *x, const 
         executor);
 }
 
-aclnnStatus aclnnCamMoeDispatchNormal(
-    void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream)
+aclnnStatus
+aclnnCamMoeDispatchNormal(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream)
 {
     if (NnopbaseSetHcclServerType) {
         NnopbaseSetHcclServerType(executor, NNOPBASE_HCCL_SERVER_TYPE_MTE);

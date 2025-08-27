@@ -23,5 +23,5 @@ struct CustomAssignTilingData {
     }
 };
 #pragma pack(pop)
-}
+}  // namespace custom_assign
 #endif

@@ -1,7 +1,8 @@
 #include "register/op_def_registry.h"
 
 namespace ops {
-class CamMoeDispatchNormal : public OpDef {
+class CamMoeDispatchNormal : public OpDef
+{
 public:
     explicit CamMoeDispatchNormal(const char *name) : OpDef(name)
     {

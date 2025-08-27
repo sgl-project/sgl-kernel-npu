@@ -162,15 +162,44 @@ extern "C" __global__ __aicore__ void mla_preprocess(
     GM_ADDR s4 = workspace + static_cast<uint64_t>(mlaTilingData.s4Offset);
     GM_ADDR s5 = workspace + static_cast<uint64_t>(mlaTilingData.s5Offset);
 
-    switch(mlaTilingData.tilingKey) {
-        case KEY_FP16_CACHEMODE_0_QUANTMODE_0:{
-            MLAPO_FP16::MLAOperation<CACHE_MODE_KVCACHE, DataFormat::NZ,
-                                     DataFormat::NZ, DataFormat::ND> opFp16Cm0Qm0(mlaTilingData, tiling);
+    switch (mlaTilingData.tilingKey) {
+        case KEY_FP16_CACHEMODE_0_QUANTMODE_0:
+        {
+            MLAPO_FP16::MLAOperation<CACHE_MODE_KVCACHE, DataFormat::NZ, DataFormat::NZ, DataFormat::ND> opFp16Cm0Qm0(
+                mlaTilingData, tiling);
             opFp16Cm0Qm0.Init(
-                hiddenState, gamma1, beta1, quantScale1, quantOffset1, wdqkv, bias1, gamma2, beta2,
-                quantScale2, quantOffset2, gamma3, sin1, cos1, sin2, cos2, keycache, slotMapping,
-                wuq, bias2, wuk, descale1, descale2, ctkvScale, qnopeScale,
-                q, keycacheOut, q2, keycacheOut2, s1, s2, s3);
+                hiddenState,
+                gamma1,
+                beta1,
+                quantScale1,
+                quantOffset1,
+                wdqkv,
+                bias1,
+                gamma2,
+                beta2,
+                quantScale2,
+                quantOffset2,
+                gamma3,
+                sin1,
+                cos1,
+                sin2,
+                cos2,
+                keycache,
+                slotMapping,
+                wuq,
+                bias2,
+                wuk,
+                descale1,
+                descale2,
+                ctkvScale,
+                qnopeScale,
+                q,
+                keycacheOut,
+                q2,
+                keycacheOut2,
+                s1,
+                s2,
+                s3);
             if ASCEND_IS_AIC {
                 opFp16Cm0Qm0.ProcessCube();
             }
@@ -179,14 +208,43 @@ extern "C" __global__ __aicore__ void mla_preprocess(
             }
             break;
         }
-        case KEY_FP16_CACHEMODE_1_QUANTMODE_0: {
-            MLAPO_FP16::MLAOperation<CACHE_MODE_KROPE_CTKV, DataFormat::NZ,
-                                     DataFormat::NZ, DataFormat::ND> opFp16Cm1Qm0(mlaTilingData, tiling);
+        case KEY_FP16_CACHEMODE_1_QUANTMODE_0:
+        {
+            MLAPO_FP16::MLAOperation<CACHE_MODE_KROPE_CTKV, DataFormat::NZ, DataFormat::NZ, DataFormat::ND>
+                opFp16Cm1Qm0(mlaTilingData, tiling);
             opFp16Cm1Qm0.Init(
-                hiddenState, gamma1, beta1, quantScale1, quantOffset1, wdqkv, bias1, gamma2, beta2,
-                quantScale2, quantOffset2, gamma3, sin1, cos1, sin2, cos2, keycache, slotMapping,
-                wuq, bias2, wuk, descale1, descale2, ctkvScale, qnopeScale,
-                q, keycacheOut, q2, keycacheOut2, s1, s2, s3);
+                hiddenState,
+                gamma1,
+                beta1,
+                quantScale1,
+                quantOffset1,
+                wdqkv,
+                bias1,
+                gamma2,
+                beta2,
+                quantScale2,
+                quantOffset2,
+                gamma3,
+                sin1,
+                cos1,
+                sin2,
+                cos2,
+                keycache,
+                slotMapping,
+                wuq,
+                bias2,
+                wuk,
+                descale1,
+                descale2,
+                ctkvScale,
+                qnopeScale,
+                q,
+                keycacheOut,
+                q2,
+                keycacheOut2,
+                s1,
+                s2,
+                s3);
             if ASCEND_IS_AIC {
                 opFp16Cm1Qm0.ProcessCube();
             }
@@ -195,14 +253,51 @@ extern "C" __global__ __aicore__ void mla_preprocess(
             }
             break;
         }
-        case KEY_BF16_CACHEMODE_0_QUANTMODE_0: {
-            MLAPO_BF16::MLAOperation<__bf16, 0, DataFormat::NZ, DataFormat::NZ, DataFormat::ND,
-                                     QuantMode::PER_TENSOR_ASYMM_QUANT> opBf16Cm0Qm0(mlaTilingData, tiling);
+        case KEY_BF16_CACHEMODE_0_QUANTMODE_0:
+        {
+            MLAPO_BF16::MLAOperation<
+                __bf16,
+                0,
+                DataFormat::NZ,
+                DataFormat::NZ,
+                DataFormat::ND,
+                QuantMode::PER_TENSOR_ASYMM_QUANT>
+                opBf16Cm0Qm0(mlaTilingData, tiling);
             opBf16Cm0Qm0.Init(
-                hiddenState, gamma1, beta1, quantScale1, quantOffset1, wdqkv, bias1, gamma2, beta2,
-                quantScale2, quantOffset2, gamma3, sin1, cos1, sin2, cos2, keycache, slotMapping,
-                wuq, bias2, wuk, descale1, descale2, ctkvScale, qnopeScale,
-                q, keycacheOut, q2, keycacheOut2, s1, s2, s3, s4, s5);
+                hiddenState,
+                gamma1,
+                beta1,
+                quantScale1,
+                quantOffset1,
+                wdqkv,
+                bias1,
+                gamma2,
+                beta2,
+                quantScale2,
+                quantOffset2,
+                gamma3,
+                sin1,
+                cos1,
+                sin2,
+                cos2,
+                keycache,
+                slotMapping,
+                wuq,
+                bias2,
+                wuk,
+                descale1,
+                descale2,
+                ctkvScale,
+                qnopeScale,
+                q,
+                keycacheOut,
+                q2,
+                keycacheOut2,
+                s1,
+                s2,
+                s3,
+                s4,
+                s5);
             if ASCEND_IS_AIC {
                 opBf16Cm0Qm0.ProcessCube();
             }
@@ -211,14 +306,51 @@ extern "C" __global__ __aicore__ void mla_preprocess(
             }
             break;
         }
-        case KEY_BF16_CACHEMODE_1_QUANTMODE_0: {
-            MLAPO_BF16::MLAOperation<__bf16, 1, DataFormat::NZ, DataFormat::NZ, DataFormat::ND,
-                                     QuantMode::PER_TENSOR_ASYMM_QUANT> opBf16Cm1Qm0(mlaTilingData, tiling);
+        case KEY_BF16_CACHEMODE_1_QUANTMODE_0:
+        {
+            MLAPO_BF16::MLAOperation<
+                __bf16,
+                1,
+                DataFormat::NZ,
+                DataFormat::NZ,
+                DataFormat::ND,
+                QuantMode::PER_TENSOR_ASYMM_QUANT>
+                opBf16Cm1Qm0(mlaTilingData, tiling);
             opBf16Cm1Qm0.Init(
-                hiddenState, gamma1, beta1, quantScale1, quantOffset1, wdqkv, bias1, gamma2, beta2,
-                quantScale2, quantOffset2, gamma3, sin1, cos1, sin2, cos2, keycache, slotMapping,
-                wuq, bias2, wuk, descale1, descale2, ctkvScale, qnopeScale,
-                q, keycacheOut, q2, keycacheOut2, s1, s2, s3, s4, s5);
+                hiddenState,
+                gamma1,
+                beta1,
+                quantScale1,
+                quantOffset1,
+                wdqkv,
+                bias1,
+                gamma2,
+                beta2,
+                quantScale2,
+                quantOffset2,
+                gamma3,
+                sin1,
+                cos1,
+                sin2,
+                cos2,
+                keycache,
+                slotMapping,
+                wuq,
+                bias2,
+                wuk,
+                descale1,
+                descale2,
+                ctkvScale,
+                qnopeScale,
+                q,
+                keycacheOut,
+                q2,
+                keycacheOut2,
+                s1,
+                s2,
+                s3,
+                s4,
+                s5);
             if ASCEND_IS_AIC {
                 opBf16Cm1Qm0.ProcessCube();
             }
@@ -227,7 +359,8 @@ extern "C" __global__ __aicore__ void mla_preprocess(
             }
             break;
         }
-        default:{
+        default:
+        {
             break;
         }
     }

@@ -6,17 +6,17 @@ from enum import IntEnum
 from typing import List, Optional
 
 import torch
-
 from sgl_kernel_npu.speculative import build_tree_efficient_native
 
 logger = logging.getLogger(__name__)
 
+
 def build_tree_kernel_efficient_preprocess(
-        verified_id: torch.Tensor,
-        score_list: List[torch.Tensor],
-        token_list: List[torch.Tensor],
-        parents_list: List[torch.Tensor],
-        num_verify_tokens: int,
+    verified_id: torch.Tensor,
+    score_list: List[torch.Tensor],
+    token_list: List[torch.Tensor],
+    parents_list: List[torch.Tensor],
+    num_verify_tokens: int,
 ):
     score_list = torch.cat(score_list, dim=1).flatten(
         1
@@ -46,18 +46,18 @@ class TreeMaskMode(IntEnum):
 
 
 def build_tree_kernel_efficient(
-        verified_id: torch.Tensor,
-        score_list: List[torch.Tensor],
-        token_list: List[torch.Tensor],
-        parents_list: List[torch.Tensor],
-        seq_lens: torch.Tensor,
-        seq_lens_sum: int,
-        topk: int,
-        spec_steps: int,
-        num_verify_tokens: int,
-        tree_mask_mode: TreeMaskMode = TreeMaskMode.FULL_MASK,
-        tree_mask_buf: Optional[torch.Tensor] = None,
-        position_buf: Optional[torch.Tensor] = None,
+    verified_id: torch.Tensor,
+    score_list: List[torch.Tensor],
+    token_list: List[torch.Tensor],
+    parents_list: List[torch.Tensor],
+    seq_lens: torch.Tensor,
+    seq_lens_sum: int,
+    topk: int,
+    spec_steps: int,
+    num_verify_tokens: int,
+    tree_mask_mode: TreeMaskMode = TreeMaskMode.FULL_MASK,
+    tree_mask_buf: Optional[torch.Tensor] = None,
+    position_buf: Optional[torch.Tensor] = None,
 ):
     parent_list, top_scores_index, draft_tokens = (
         build_tree_kernel_efficient_preprocess(

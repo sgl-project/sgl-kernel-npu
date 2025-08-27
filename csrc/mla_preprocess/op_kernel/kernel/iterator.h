@@ -23,14 +23,15 @@
 /////////////////////////////////////////////////////
 template <ArchType ArchTag, typename DataType, DataFormat FormatInGM, DataFormat FormatInL1>
 struct gm_to_l1 {
-    __aicore__ gm_to_l1(AscendC::LocalTensor<DataType> l1Tensor,
-                        AscendC::GlobalTensor<DataType> gmTensor,
-                        uint32_t nTileActual,
-                        uint32_t nTileCeil,
-                        uint32_t nVal,
-                        uint32_t dTileActual,
-                        uint32_t dTileCeil,
-                        uint32_t dVal) {};
+    __aicore__ gm_to_l1(
+        AscendC::LocalTensor<DataType> l1Tensor,
+        AscendC::GlobalTensor<DataType> gmTensor,
+        uint32_t nTileActual,
+        uint32_t nTileCeil,
+        uint32_t nVal,
+        uint32_t dTileActual,
+        uint32_t dTileCeil,
+        uint32_t dVal) {};
 };
 
 /////////////////////////////////////////////////////
@@ -38,14 +39,15 @@ struct gm_to_l1 {
 /////////////////////////////////////////////////////
 template <ArchType ArchTag, typename DataType, bool IsTransPose, DataFormat DFmtIn, DataFormat DFmtOut>
 struct l1_to_l0_a {
-    __aicore__ l1_to_l0_a(AscendC::LocalTensor<DataType> l0Tensor,
-                          AscendC::LocalTensor<DataType> l1Tensor,
-                          uint32_t mTileCeil,
-                          uint32_t kPartCeil,
-                          uint32_t mSrcStride,
-                          uint32_t kSrcStride,
-                          uint32_t mDstStride,
-                          uint32_t kDstStride) {};
+    __aicore__ l1_to_l0_a(
+        AscendC::LocalTensor<DataType> l0Tensor,
+        AscendC::LocalTensor<DataType> l1Tensor,
+        uint32_t mTileCeil,
+        uint32_t kPartCeil,
+        uint32_t mSrcStride,
+        uint32_t kSrcStride,
+        uint32_t mDstStride,
+        uint32_t kDstStride) {};
 };
 
 /////////////////////////////////////////////////////
@@ -53,14 +55,15 @@ struct l1_to_l0_a {
 /////////////////////////////////////////////////////
 template <ArchType ArchTag, typename DataType, bool IsTransPose, DataFormat DFmtIn, DataFormat DFmtOut>
 struct l1_to_l0_b {
-    __aicore__ l1_to_l0_b(AscendC::LocalTensor<DataType> l0Tensor,
-                          AscendC::LocalTensor<DataType> l1Tensor,
-                          uint32_t nTileCeil,
-                          uint32_t kPartCeil,
-                          uint32_t nSrcStride,
-                          uint32_t kSrcStride,
-                          uint32_t nDstStride,
-                          uint32_t kDstStride) {};
+    __aicore__ l1_to_l0_b(
+        AscendC::LocalTensor<DataType> l0Tensor,
+        AscendC::LocalTensor<DataType> l1Tensor,
+        uint32_t nTileCeil,
+        uint32_t kPartCeil,
+        uint32_t nSrcStride,
+        uint32_t kSrcStride,
+        uint32_t nDstStride,
+        uint32_t kDstStride) {};
 };
 
 /////////////////////////////////////////////////////
@@ -68,13 +71,14 @@ struct l1_to_l0_b {
 /////////////////////////////////////////////////////
 template <ArchType ArchTag, DataFormat OutFormatType, typename OutDataType, typename L0CDataType>
 struct l0c_to_gm {
-    __aicore__ l0c_to_gm(AscendC::GlobalTensor<OutDataType> gmTensor,
-                         AscendC::LocalTensor<L0CDataType> l0cTensor,
-                         uint32_t mTileActual,
-                         uint32_t nTileActual,
-                         uint32_t mTileCeil,
-                         uint32_t nActual,
-                         uint8_t  unitFlag = 0) {};
+    __aicore__ l0c_to_gm(
+        AscendC::GlobalTensor<OutDataType> gmTensor,
+        AscendC::LocalTensor<L0CDataType> l0cTensor,
+        uint32_t mTileActual,
+        uint32_t nTileActual,
+        uint32_t mTileCeil,
+        uint32_t nActual,
+        uint8_t unitFlag = 0) {};
 };
 
 /////////////////////////////////////////////////////
@@ -82,34 +86,37 @@ struct l0c_to_gm {
 /////////////////////////////////////////////////////
 template <ArchType ArchTag, DataFormat LayoutOut, typename ElementOut, typename ElementIn>
 struct l0c_to_l1 {
-    __aicore__ l0c_to_l1(AscendC::LocalTensor<ElementOut> l1Tensor,
-                         AscendC::LocalTensor<ElementIn> l0cTensor,
-                         AscendC::LocalTensor<uint64_t> deqTensor,
-                         uint32_t mTileActual,
-                         uint32_t nTileActual,
-                         uint32_t mTileCeil,
-                         uint32_t nActual) {};
+    __aicore__ l0c_to_l1(
+        AscendC::LocalTensor<ElementOut> l1Tensor,
+        AscendC::LocalTensor<ElementIn> l0cTensor,
+        AscendC::LocalTensor<uint64_t> deqTensor,
+        uint32_t mTileActual,
+        uint32_t nTileActual,
+        uint32_t mTileCeil,
+        uint32_t nActual) {};
 };
 
 template <ArchType ArchTag, typename DataType>
 struct l1_to_bt {
-    __aicore__ l1_to_bt(uint64_t dst,
-                        const AscendC::LocalTensor<DataType> &src,
-                        uint16_t convControl,
-                        uint16_t nBurst,
-                        uint16_t lenBurst,
-                        uint16_t srcGap,
-                        uint16_t dstGap) {};
+    __aicore__ l1_to_bt(
+        uint64_t dst,
+        const AscendC::LocalTensor<DataType> &src,
+        uint16_t convControl,
+        uint16_t nBurst,
+        uint16_t lenBurst,
+        uint16_t srcGap,
+        uint16_t dstGap) {};
 };
 
 template <ArchType ArchTag, typename DataType>
 struct l1_to_fb {
-    __aicore__ l1_to_fb(AscendC::LocalTensor<DataType> &dst,
-                        AscendC::LocalTensor<DataType> &src,
-                        uint16_t burstNum,
-                        uint16_t burstLen,
-                        uint16_t srcGap,
-                        uint16_t dstGap) {};
+    __aicore__ l1_to_fb(
+        AscendC::LocalTensor<DataType> &dst,
+        AscendC::LocalTensor<DataType> &src,
+        uint16_t burstNum,
+        uint16_t burstLen,
+        uint16_t srcGap,
+        uint16_t dstGap) {};
 };
 
 #include "iterators/gm_to_l1_iterator.inc"

@@ -6,7 +6,7 @@
 # Utility to create self-extracting tar.gz archives.
 # The resulting archive is a file holding the tar.gz archive with
 # a small Shell script stub that uncompresses the archive to a temporary
-# directory and then executes a given script from withing that directory.
+# directory and then executes a given script from within that directory.
 #
 # Makeself home page: https://makeself.io/
 #
@@ -20,13 +20,13 @@
 #         support for non-temporary archives. Ideas thanks to Francois Petitjean
 # - 1.3 : More patches from Bjarni R. Einarsson and Francois Petitjean:
 #         Support for no compression (--nocomp), script is no longer mandatory,
-#         automatic launch in an xterm, optional verbose output, and -target 
+#         automatic launch in an xterm, optional verbose output, and -target
 #         archive option to indicate where to extract the files.
 # - 1.4 : Improved UNIX compatibility (Francois Petitjean)
 #         Automatic integrity checking, support of LSM files (Francois Petitjean)
 # - 1.5 : Many bugfixes. Optionally disable xterm spawning.
 # - 1.5.1 : More bugfixes, added archive options -list and -check.
-# - 1.5.2 : Cosmetic changes to inform the user of what's going on with big 
+# - 1.5.2 : Cosmetic changes to inform the user of what's going on with big
 #           archives (Quake III demo)
 # - 1.5.3 : Check for validity of the DISPLAY variable before launching an xterm.
 #           More verbosity in xterms and check for embedded command's return value.
@@ -39,7 +39,7 @@
 # - 2.0.1 : Added --copy
 # - 2.1.0 : Allow multiple tarballs to be stored in one archive, and incremental updates.
 #           Added --nochown for archives
-#           Stopped doing redundant checksums when not necesary
+#           Stopped doing redundant checksums when not necessary
 # - 2.1.1 : Work around insane behavior from certain Linux distros with no 'uncompress' command
 #           Cleaned up the code to handle error codes from compress. Simplified the extraction code.
 # - 2.1.2 : Some bug fixes. Use head -n to avoid problems.
@@ -62,7 +62,7 @@
 #           Check for available disk space before extracting to the target directory (Andreas Schweitzer)
 #           Allow extraction to run asynchronously (patch by Peter Hatch)
 #           Use file descriptors internally to avoid error messages (patch by Kay Tiong Khoo)
-# - 2.1.6 : Replaced one dot per file progress with a realtime progress percentage and a spining cursor (Guy Baconniere)
+# - 2.1.6 : Replaced one dot per file progress with a realtime progress percentage and a spinning cursor (Guy Baconniere)
 #           Added --noprogress to prevent showing the progress during the decompression (Guy Baconniere)
 #           Added --target dir to allow extracting directly to a target directory (Guy Baconniere)
 # - 2.2.0 : Many bugfixes, updates and contributions from users. Check out the project page on Github for the details.
@@ -77,7 +77,7 @@
 #
 # This software is released under the terms of the GNU GPL version 2 and above
 # Please read the license at http://www.gnu.org/copyleft/gpl.html
-# Self-extracting archives created with this script are explictly NOT released under the term of the GPL
+# Self-extracting archives created with this script are explicitly NOT released under the term of the GPL
 #
 
 MS_VERSION=2.4.5
@@ -519,7 +519,7 @@ gzip)
     GZIP_CMD="gzip -c$COMPRESS_LEVEL"
     GUNZIP_CMD="gzip -cd"
     ;;
-pigz) 
+pigz)
     GZIP_CMD="pigz -$COMPRESS_LEVEL"
     if test $THREADS -ne $DEFAULT_THREADS; then # Leave as the default if threads not indicated
         GZIP_CMD="$GZIP_CMD --processes $THREADS"
@@ -547,7 +547,7 @@ bzip2)
 xz)
     GZIP_CMD="xz -c$COMPRESS_LEVEL"
     # Must opt-in by specifying a value since not all versions of xz support threads
-    if test $THREADS -ne $DEFAULT_THREADS; then 
+    if test $THREADS -ne $DEFAULT_THREADS; then
         GZIP_CMD="$GZIP_CMD --threads=$THREADS"
     fi
     GUNZIP_CMD="xz -d"
@@ -588,10 +588,10 @@ if test x"$ENCRYPT" = x"openssl"; then
     if test x"$APPEND" = x"y"; then
         echo "Appending to existing archive is not compatible with OpenSSL encryption." >&2
     fi
-    
+
     ENCRYPT_CMD="openssl enc -aes-256-cbc -salt"
     DECRYPT_CMD="openssl enc -aes-256-cbc -d"
-    
+
     if test x"$OPENSSL_NO_MD" != x"y"; then
         ENCRYPT_CMD="$ENCRYPT_CMD -md sha256"
         DECRYPT_CMD="$DECRYPT_CMD -md sha256"
@@ -599,7 +599,7 @@ if test x"$ENCRYPT" = x"openssl"; then
 
     if test -n "$PASSWD_SRC"; then
         ENCRYPT_CMD="$ENCRYPT_CMD -pass $PASSWD_SRC"
-    elif test -n "$PASSWD"; then 
+    elif test -n "$PASSWD"; then
         ENCRYPT_CMD="$ENCRYPT_CMD -pass pass:$PASSWD"
     fi
 fi

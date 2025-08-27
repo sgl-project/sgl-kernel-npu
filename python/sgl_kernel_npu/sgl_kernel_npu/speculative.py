@@ -1,6 +1,8 @@
-import torch
 import logging
 from enum import IntEnum
+
+import torch
+
 logger = logging.getLogger(__name__)
 
 tensor_one = None
@@ -130,17 +132,18 @@ def build_tree_efficient_native(
                 positions[bid * draft_token_num + tid] += position
     return positions, retrive_index, retrive_next_token, retrive_next_sibling, tree_mask
 
+
 def verify_tree_greedy_native(
-        candidates,
-        retrive_index,
-        retrive_next_token,
-        retrive_next_sibling,
-        target_predict,
-        accept_index,
-        accept_token_num,
-        predicts,
-        num_speculative_tokens,
-        topk,
+    candidates,
+    retrive_index,
+    retrive_next_token,
+    retrive_next_sibling,
+    target_predict,
+    accept_index,
+    accept_token_num,
+    predicts,
+    num_speculative_tokens,
+    topk,
 ):
     batch_size, num_draft_tokens = candidates.shape
 
@@ -208,5 +211,5 @@ def verify_tree_greedy_native(
         accept_token_num[bx] = num_accepted
         predicts[last_accepted_idx] = cur_target[
             last_accepted_idx - num_draft_tokens * bx
-            ]
+        ]
     return predicts, accept_index, accept_token_num

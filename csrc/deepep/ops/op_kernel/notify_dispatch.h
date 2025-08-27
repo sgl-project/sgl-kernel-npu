@@ -12,17 +12,17 @@
 using namespace AscendC;
 using namespace Moe;
 
-#define KERNELS_ARGS_FUN_ALL2ALL()                                                                        \
-    GM_ADDR input, GM_ADDR output, int64_t len, int op, int root, \
-        int cycleCount, GM_ADDR scale, int64_t scaleCount, GM_ADDR offset, int localRank, int localRankSize, \
-        GM_ADDR commArgs, int isCamComm, int magic
+#define KERNELS_ARGS_FUN_ALL2ALL()                                                                                   \
+    GM_ADDR input, GM_ADDR output, int64_t len, int op, int root, int cycleCount, GM_ADDR scale, int64_t scaleCount, \
+        GM_ADDR offset, int localRank, int localRankSize, GM_ADDR commArgs, int isCamComm, int magic
 
-#define KERNELS_ARGS_CALL_ALL2ALL()                                                                         \
-    input, output, len, op, root, cycleCount, scale, scaleCount, offset, localRank, \
-        localRankSize, commArgs, isCamComm, magic
+#define KERNELS_ARGS_CALL_ALL2ALL()                                                                          \
+    input, output, len, op, root, cycleCount, scale, scaleCount, offset, localRank, localRankSize, commArgs, \
+        isCamComm, magic
 
 template <typename T>
-class NotifyDispatch {
+class NotifyDispatch
+{
     constexpr static int INVALID_RANK_NUM = 0xFFFFFFFF;   // Invalid rank
     constexpr static int64_t CORE_NUMS_PER_STAGE_X = 24;  // Maximum number of cores provided by the producer stage
     constexpr static int64_t CORE_NUMS_PER_STAGE_Y = 16;  // Maximum number of cores provided by the consumer stage
@@ -36,8 +36,10 @@ class NotifyDispatch {
     constexpr static int64_t MAX_BUFFER_NUMBER = 10;
 
     constexpr static int64_t IDLER_CORE = 0;  // Idle core
-    constexpr static int64_t PRODUCER_CORE = 1;  // Producer group, responsible for writing data to shared memory, input->share, or share->share
-    constexpr static int64_t CONSUMER_CORE = 2;  // Consumer group, responsible for reading data from shared memory, share->output
+    constexpr static int64_t PRODUCER_CORE =
+        1;  // Producer group, responsible for writing data to shared memory, input->share, or share->share
+    constexpr static int64_t CONSUMER_CORE =
+        2;  // Consumer group, responsible for reading data from shared memory, share->output
     constexpr static int64_t CONSUMER_CORE2 = 3;
 
 public:
@@ -141,7 +143,8 @@ private:
             }
             sync.WaitSyncFlag(magic, 1, copyOffset, rank, copyLen);
             for (int i = 0; i < copyLen; i++) {
-                CpGM2GMPingPong<T>(perRankDataNum * sizeof(T),
+                CpGM2GMPingPong<T>(
+                    perRankDataNum * sizeof(T),
                     readGt1[i][rank * perRankDataNum],
                     outputGt[checkRank[i] * perRankDataNum],
                     COPYONLY);
@@ -157,11 +160,11 @@ private:
     template <typename F>
     FORCE_INLINE_AICORE void SetAtomic(int op);
     FORCE_INLINE_AICORE void UnsetAtomic(int op);
-    template<HardEvent eventType>
+    template <HardEvent eventType>
     FORCE_INLINE_AICORE void SetWaitEvent(event_t eventId);
     template <typename K, typename U = K>
-    FORCE_INLINE_AICORE void CpGM2GMPingPong(int64_t dataSizeRemain, const GlobalTensor<U>& inputGT,
-                                            const GlobalTensor<K>& outputGT, int op);
+    FORCE_INLINE_AICORE void
+    CpGM2GMPingPong(int64_t dataSizeRemain, const GlobalTensor<U> &inputGT, const GlobalTensor<K> &outputGT, int op);
 
     GlobalTensor<T> inputGt;
     GlobalTensor<T> outputGt;
@@ -248,11 +251,12 @@ __aicore__ inline GM_ADDR NotifyDispatch<T>::GetShareAddr(uint32_t isCamComm, co
     if (isCamComm) {
 #ifdef OPT_RANK_OFFSET
 #pragma message("use rank offset")
-            return (GM_ADDR)peerMemsAddrGm_.GetValue(rankId)  + rankId * OPT_RANK_OFFSET;
+        return (GM_ADDR)peerMemsAddrGm_.GetValue(rankId) + rankId * OPT_RANK_OFFSET;
 #else
-            return (GM_ADDR)peerMemsAddrGm_.GetValue(rankId) ;
+        return (GM_ADDR)peerMemsAddrGm_.GetValue(rankId);
 #endif
-    } else {
+    }
+    else {
         return GetWindAddrByRankId(ctxIdx, rankId);
     }
 }
@@ -267,7 +271,7 @@ __aicore__ inline GM_ADDR NotifyDispatch<T>::GetWindAddrByRankId(uint8_t ctxIdx,
         return (GM_ADDR)(winContext_[ctxIdx]->localWindowsIn) + rankId * OPT_RANK_OFFSET;
     }
     return (GM_ADDR)(((HcclRankRelationResV2 *)(winContext_[ctxIdx]->remoteRes[rankId].nextDevicePtr))->windowsIn) +
-            rankId * OPT_RANK_OFFSET;
+           rankId * OPT_RANK_OFFSET;
 #else
     if (curRankId == rankId) {
         return (GM_ADDR)(winContext_[ctxIdx]->localWindowsIn);
@@ -313,17 +317,18 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_A
         this->magic = magic;
         this->localRank = reinterpret_cast<__gm__ CommArgs *>(commArgs)->localRank;
         this->localRankSize = reinterpret_cast<__gm__ CommArgs *>(commArgs)->localRankSize;
-        peerMemsAddrGm_.SetGlobalBuffer(&(reinterpret_cast<__gm__ CommArgs *>(commArgs))->peerMems[0],
-                                        CAM_MAX_RANK_SIZE);
+        peerMemsAddrGm_.SetGlobalBuffer(
+            &(reinterpret_cast<__gm__ CommArgs *>(commArgs))->peerMems[0], CAM_MAX_RANK_SIZE);
         ctxIdx = 0;
-    } else {
+    }
+    else {
         winContext_[COMM_EP_IDX] = (__gm__ HcclOpResParam *)AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
         this->magic = GetMagicValue();
         ctxIdx = COMM_EP_IDX;
     }
 
-    shareAddrs[rank] = GetShareAddr(isCamComm, rank, ctxIdx) +
-                        (this->magic % PING_PONG_SIZE) * (IPC_BUFF_MAX_SIZE + IPC_DATA_OFFSET);
+    shareAddrs[rank] =
+        GetShareAddr(isCamComm, rank, ctxIdx) + (this->magic % PING_PONG_SIZE) * (IPC_BUFF_MAX_SIZE + IPC_DATA_OFFSET);
 
     int64_t rankNumPerCore = (rankSize + MAX_CORE_NUM - 1) / MAX_CORE_NUM;
     int64_t copyOffset = blockIdx * rankNumPerCore;
@@ -335,13 +340,18 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_A
         }
     }
 
-    // When the number of cores is more than the number of ranks, each core is responsible for fetching data from a specified rank
-    int coreNumPerRank = blockNum / rankSize;  // Calculate the number of cores assigned to read for each rank, e.g., 48 cores 4 ranks, each rank is assigned 12 cores
-    int maxCore = coreNumPerRank * rankSize;  // Calculate the maximum number of cores that can be used for reading, cores exceeding this number will not take action
+    // When the number of cores is more than the number of ranks, each core is responsible for fetching data from a
+    // specified rank
+    int coreNumPerRank = blockNum / rankSize;  // Calculate the number of cores assigned to read for each rank, e.g., 48
+                                               // cores 4 ranks, each rank is assigned 12 cores
+    int maxCore = coreNumPerRank * rankSize;   // Calculate the maximum number of cores that can be used for reading,
+                                               // cores exceeding this number will not take action
     if (blockIdx < maxCore) {
-        int readRank = blockIdx / coreNumPerRank;  // Calculate the rank to be read based on the block, 48 cores divided into 4 groups
+        int readRank =
+            blockIdx /
+            coreNumPerRank;  // Calculate the rank to be read based on the block, 48 cores divided into 4 groups
         shareAddrs[readRank] = GetShareAddr(isCamComm, readRank, ctxIdx) +
-                                (this->magic % PING_PONG_SIZE) * (IPC_BUFF_MAX_SIZE + IPC_DATA_OFFSET);
+                               (this->magic % PING_PONG_SIZE) * (IPC_BUFF_MAX_SIZE + IPC_DATA_OFFSET);
     }
 
     pipe.InitBuffer(tBuf, UB_SINGLE_TOTAL_SIZE_MAX);
@@ -364,11 +374,12 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_A
  */
 template <typename T>
 template <typename K, typename U>
-FORCE_INLINE_AICORE void NotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeRemain, const GlobalTensor<U>& inputGT,
-                                                                const GlobalTensor<K>& outputGT, int op)
+FORCE_INLINE_AICORE void NotifyDispatch<T>::CpGM2GMPingPong(
+    int64_t dataSizeRemain, const GlobalTensor<U> &inputGT, const GlobalTensor<K> &outputGT, int op)
 {
     // General case (U = K), input/output are the same, share one UB
-    // Only when conversion is needed (U->K), UB will be divided into two parts according to the ratio of sizeof(U):sizeof(K) and aligned to 32 bytes
+    // Only when conversion is needed (U->K), UB will be divided into two parts according to the ratio of
+    // sizeof(U):sizeof(K) and aligned to 32 bytes
     constexpr int32_t ubBlockSize = UB_SINGLE_PING_PONG_ADD_SIZE_MAX;
     constexpr int32_t ubAlignNum = ubBlockSize / (sizeof(K) + sizeof(U)) / UB_ALIGN_SIZE * UB_ALIGN_SIZE;
     constexpr int32_t inputUbBlockSize = std::is_same_v<K, U> ? ubBlockSize : ubAlignNum * sizeof(U);
@@ -376,11 +387,11 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeRema
 
     __gm__ U *input = const_cast<__gm__ U *>(inputGT.GetPhyAddr());
     __gm__ K *output = const_cast<__gm__ K *>(outputGT.GetPhyAddr());
-    __ubuf__ U* inputUB[2] = {(__ubuf__ U*)(UB_HEAD_OFFSET), (__ubuf__ U*)(UB_MID_OFFSET)};
-    __ubuf__ K* outputUB[2] = {(__ubuf__ K*)inputUB[0], (__ubuf__ K*)inputUB[1]};
+    __ubuf__ U *inputUB[2] = {(__ubuf__ U *)(UB_HEAD_OFFSET), (__ubuf__ U *)(UB_MID_OFFSET)};
+    __ubuf__ K *outputUB[2] = {(__ubuf__ K *)inputUB[0], (__ubuf__ K *)inputUB[1]};
     if constexpr (!std::is_same_v<K, U>) {
-        outputUB[0] = (__ubuf__ K*)(inputUB[0] + inputUbBlockSize / sizeof(U));
-        outputUB[1] = (__ubuf__ K*)(inputUB[1] + inputUbBlockSize / sizeof(U));
+        outputUB[0] = (__ubuf__ K *)(inputUB[0] + inputUbBlockSize / sizeof(U));
+        outputUB[1] = (__ubuf__ K *)(inputUB[1] + inputUbBlockSize / sizeof(U));
     }
     int inputOffsetNum = 0;
     int outputOffsetNum = 0;
@@ -390,8 +401,8 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeRema
 
     SetAtomic<K>(op);
 
-    AscendC::SetFlag<HardEvent::MTE3_MTE2>(EVENT_ID0); // MTE2 waits for MTE3
-    AscendC::SetFlag<HardEvent::MTE3_MTE2>(EVENT_ID1); // MTE2 waits for MTE3
+    AscendC::SetFlag<HardEvent::MTE3_MTE2>(EVENT_ID0);  // MTE2 waits for MTE3
+    AscendC::SetFlag<HardEvent::MTE3_MTE2>(EVENT_ID1);  // MTE2 waits for MTE3
     for (int64_t i = 0; dataSizeRemain > 0; i++) {
         // size and dataSizeRemain both refer to the output size
         uint32_t size = dataSizeRemain > outputUbBlockSize ? outputUbBlockSize : dataSizeRemain;
@@ -400,7 +411,10 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeRema
         CpGM2UB((i & 1) ? inputUB[0] : inputUB[1], input + inputOffsetNum, size / sizeof(K) * sizeof(U));
         if constexpr (!std::is_same_v<K, U>) {
             SetWaitEvent<HardEvent::MTE2_V>(eventId);
-            CastImpl((i & 1) ? outputUB[0] : outputUB[1], (i & 1) ? inputUB[0] : inputUB[1], RoundMode::CAST_NONE,
+            CastImpl(
+                (i & 1) ? outputUB[0] : outputUB[1],
+                (i & 1) ? inputUB[0] : inputUB[1],
+                RoundMode::CAST_NONE,
                 size / sizeof(K));
             SetWaitEvent<HardEvent::V_MTE3>(eventId);
         }
@@ -413,10 +427,10 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeRema
         inputOffsetNum += (size / sizeof(K));
         outputOffsetNum += (size / sizeof(K));
     }
-    AscendC::WaitFlag<HardEvent::MTE3_MTE2>(EVENT_ID0); // MTE2 waits for MTE3
-    AscendC::WaitFlag<HardEvent::MTE3_MTE2>(EVENT_ID1); // MTE2 waits for MTE3
+    AscendC::WaitFlag<HardEvent::MTE3_MTE2>(EVENT_ID0);  // MTE2 waits for MTE3
+    AscendC::WaitFlag<HardEvent::MTE3_MTE2>(EVENT_ID1);  // MTE2 waits for MTE3
 
-    AscendC::SetFlag<HardEvent::MTE3_S>(EVENT_ID3); // Scalar waits for MTE3
+    AscendC::SetFlag<HardEvent::MTE3_S>(EVENT_ID3);  // Scalar waits for MTE3
     AscendC::WaitFlag<HardEvent::MTE3_S>(EVENT_ID3);
 
     UnsetAtomic(op);
@@ -446,7 +460,7 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::UnsetAtomic(int op)
 }
 
 template <typename T>
-template<HardEvent eventType>
+template <HardEvent eventType>
 FORCE_INLINE_AICORE void NotifyDispatch<T>::SetWaitEvent(event_t eventId)
 {
     AscendC::SetFlag<eventType>(eventId);
