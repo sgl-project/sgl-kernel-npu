@@ -1,15 +1,16 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 
-import os
-import sys
-import subprocess
-import glob
 import argparse
+import glob
 import math
+import os
 import shutil
+import subprocess
+import sys
+
 import const_var
-from tbe.tikcpp.log_utils import LogUtil, AscendCLogLevel
+from tbe.tikcpp.log_utils import AscendCLogLevel, LogUtil
 
 
 class PackKernel:
@@ -23,45 +24,76 @@ class PackKernel:
         self.platform = args.platform
         self.op_info = {}
         self.file_info = {}
-        if (os.path.exists(self.copy_path)):
+        if os.path.exists(self.copy_path):
             try:
                 shutil.rmtree(self.copy_path)
             except OSError as e:
-                LogUtil.print_compile_log("", f"remove {self.copy_path} error!",
-                                          AscendCLogLevel.LOG_ERROR, LogUtil.Option.NON_SOC)
-        if (os.path.exists(self.out_path)):
+                LogUtil.print_compile_log(
+                    "",
+                    f"remove {self.copy_path} error!",
+                    AscendCLogLevel.LOG_ERROR,
+                    LogUtil.Option.NON_SOC,
+                )
+        if os.path.exists(self.out_path):
             try:
                 shutil.rmtree(self.out_path)
             except OSError as e:
-                LogUtil.print_compile_log("", f"remove {self.out_path} error!",
-                                          AscendCLogLevel.LOG_ERROR, LogUtil.Option.NON_SOC)
+                LogUtil.print_compile_log(
+                    "",
+                    f"remove {self.out_path} error!",
+                    AscendCLogLevel.LOG_ERROR,
+                    LogUtil.Option.NON_SOC,
+                )
         try:
             os.makedirs(self.copy_path, exist_ok=True)
         except Exception as e:
-            LogUtil.print_compile_log("", f"make {self.copy_path} error: {e}!",
-                                      AscendCLogLevel.LOG_ERROR, LogUtil.Option.NON_SOC)
+            LogUtil.print_compile_log(
+                "",
+                f"make {self.copy_path} error: {e}!",
+                AscendCLogLevel.LOG_ERROR,
+                LogUtil.Option.NON_SOC,
+            )
         try:
             os.makedirs(self.out_path, exist_ok=True)
         except Exception as e:
-            LogUtil.print_compile_log("", f"make {self.out_path} error: {e}!",
-                                      AscendCLogLevel.LOG_ERROR, LogUtil.Option.NON_SOC)
+            LogUtil.print_compile_log(
+                "",
+                f"make {self.out_path} error: {e}!",
+                AscendCLogLevel.LOG_ERROR,
+                LogUtil.Option.NON_SOC,
+            )
 
     def get_symbol(self: any, name: str):
         name = name.replace("/", "_")
         name = name.replace("-", "_")
         return name.replace(".", "_")
-    
+
     def ascendc_gen_object(self: any, in_file: str, path: str):
         sym = self.get_symbol("_binary_" + in_file)
         out_file = os.path.join(self.out_path, sym + ".o")
-        #ascend610lite only supoort aarch64
+        # ascend610lite only supoort aarch64
         if path.find("ascend610lite") != -1:
             try:
-                subprocess.run(['llvm-objcopy', '--input-target', 'binary', '--output-target', 'elf64-littleaarch64',
-                                '--binary-architecture', 'aarch64', in_file, out_file])
+                subprocess.run(
+                    [
+                        "llvm-objcopy",
+                        "--input-target",
+                        "binary",
+                        "--output-target",
+                        "elf64-littleaarch64",
+                        "--binary-architecture",
+                        "aarch64",
+                        in_file,
+                        out_file,
+                    ]
+                )
             except Exception as e:
-                LogUtil.print_compile_log("", " ascend610lite execute objcopy fail!",
-                                          AscendCLogLevel.LOG_ERROR, LogUtil.Option.NON_SOC)
+                LogUtil.print_compile_log(
+                    "",
+                    " ascend610lite execute objcopy fail!",
+                    AscendCLogLevel.LOG_ERROR,
+                    LogUtil.Option.NON_SOC,
+                )
                 return None
             return [sym + "_start", sym + "_end"]
 
@@ -72,19 +104,45 @@ class PackKernel:
             target_platform = uname
         try:
             if target_platform == "x86_64":
-                subprocess.run(['llvm-objcopy', '--input-target', 'binary', '--output-target', 'elf64-x86-64',
-                                '--binary-architecture', 'i386', in_file, out_file])
+                subprocess.run(
+                    [
+                        "llvm-objcopy",
+                        "--input-target",
+                        "binary",
+                        "--output-target",
+                        "elf64-x86-64",
+                        "--binary-architecture",
+                        "i386",
+                        in_file,
+                        out_file,
+                    ]
+                )
             elif target_platform == "aarch64":
-                subprocess.run(['llvm-objcopy', '--input-target', 'binary', '--output-target', 'elf64-littleaarch64',
-                                '--binary-architecture', 'aarch64', in_file, out_file])
+                subprocess.run(
+                    [
+                        "llvm-objcopy",
+                        "--input-target",
+                        "binary",
+                        "--output-target",
+                        "elf64-littleaarch64",
+                        "--binary-architecture",
+                        "aarch64",
+                        in_file,
+                        out_file,
+                    ]
+                )
             else:
-                subprocess.run(['echo', 'unsupported environment!'])
+                subprocess.run(["echo", "unsupported environment!"])
         except Exception as e:
-            LogUtil.print_compile_log("", f"{target_platform} execute objcopy error: {e}!",
-                                      AscendCLogLevel.LOG_ERROR, LogUtil.Option.NON_SOC)
+            LogUtil.print_compile_log(
+                "",
+                f"{target_platform} execute objcopy error: {e}!",
+                AscendCLogLevel.LOG_ERROR,
+                LogUtil.Option.NON_SOC,
+            )
             return None
         return [sym + "_start", sym + "_end"]
-    
+
     def ascendc_get_config(self: any):
         os.chdir(self.copy_path)
         current_directory = os.getcwd()
@@ -94,9 +152,13 @@ class PackKernel:
                 files_dict = {}
                 for root, _, files in os.walk(catalog):
                     for file in files:
-                        if (file.endswith(".json") or file.endswith(".so") or
-                            file.endswith(".cpp") or file.endswith(".py") or
-                            file.endswith(".o")):
+                        if (
+                            file.endswith(".json")
+                            or file.endswith(".so")
+                            or file.endswith(".cpp")
+                            or file.endswith(".py")
+                            or file.endswith(".o")
+                        ):
                             file_path = os.path.join(root, file)
                             file_name = os.path.basename(file_path)
                             files_dict[file_name] = file_path
@@ -111,14 +173,18 @@ class PackKernel:
                 op_info[file_name] = []
                 path, filename = os.path.split(op_cfgs[file_name])
                 op_info[file_name].append(os.path.join(self.vendor_name, path))
-                op_info[file_name].append(self.ascendc_gen_object(op_cfgs[file_name], path))
+                op_info[file_name].append(
+                    self.ascendc_gen_object(op_cfgs[file_name], path)
+                )
         self.op_info = op_info
-    
+
     def ascendc_gen_header(self: any):
         socs_res = []
         var_str = ""
-        macro_op = ("std::vector<std::tuple<ge::AscendString, ge::AscendString, "
-                    "const uint8_t *, const uint8_t *>> __ascendc_op_info = \n")
+        macro_op = (
+            "std::vector<std::tuple<ge::AscendString, ge::AscendString, "
+            "const uint8_t *, const uint8_t *>> __ascendc_op_info = \n"
+        )
         for file_name in self.op_info.keys():
             file_addr = self.op_info.get(file_name)
             soc_pairs = []
@@ -129,11 +195,13 @@ class PackKernel:
                 op_syms.append(pair_addr)
                 pair_addr1 = "&" + pair_addr
                 soc_pairs.append(pair_addr1)
-            soc_res += '{}, {}'.format(soc_pairs[0], soc_pairs[1])
+            soc_res += "{}, {}".format(soc_pairs[0], soc_pairs[1])
             soc_res += "}, \n"
             socs_res.append(soc_res)
             if len(op_syms) > 0:
-                var_str += "".join(["extern uint8_t {};\n".format(sym) for sym in op_syms])
+                var_str += "".join(
+                    ["extern uint8_t {};\n".format(sym) for sym in op_syms]
+                )
         macro_op += "{{\n{}}}; \n".format("".join(socs_res))
         head_file = os.path.join(self.out_path, "ge_table_op_resource.h")
         try:
@@ -147,14 +215,18 @@ class PackKernel:
                 fd.write('#include "graph/ascend_string.h"\n')
                 fd.write('#include "register/op_impl_registry.h"\n\n')
                 fd.write(var_str)
-                fd.write('\n')
+                fd.write("\n")
                 fd.write("namespace AscendC {\n")
                 fd.write(macro_op)
                 fd.write("}\n")
         except Exception as e:
-                LogUtil.print_compile_log("", f"ge_table_op_resource.h create error: {e}!",
-                                          AscendCLogLevel.LOG_ERROR, LogUtil.Option.NON_SOC)
-    
+            LogUtil.print_compile_log(
+                "",
+                f"ge_table_op_resource.h create error: {e}!",
+                AscendCLogLevel.LOG_ERROR,
+                LogUtil.Option.NON_SOC,
+            )
+
     def ascendc_gen_lib(self: any):
         out_lib = os.path.join(self.out_path, "libopregistry.a")
         if os.path.exists(out_lib):
@@ -166,11 +238,15 @@ class PackKernel:
             sub_objs = objs[start : start + batch_size]
             start += batch_size
             try:
-                subprocess.run(['ar', 'qc', out_lib] + sub_objs)
-                subprocess.run(['ranlib', out_lib])
+                subprocess.run(["ar", "qc", out_lib] + sub_objs)
+                subprocess.run(["ranlib", out_lib])
             except Exception as e:
-                LogUtil.print_compile_log("", f"execute ar/ranlib command error: {e}!",
-                                          AscendCLogLevel.LOG_ERROR, LogUtil.Option.NON_SOC)
+                LogUtil.print_compile_log(
+                    "",
+                    f"execute ar/ranlib command error: {e}!",
+                    AscendCLogLevel.LOG_ERROR,
+                    LogUtil.Option.NON_SOC,
+                )
 
     def ascendc_copy_dir(self: any, src_dir: str, target_dir: str):
         file_list = os.listdir(src_dir)
@@ -181,8 +257,12 @@ class PackKernel:
                 try:
                     shutil.copytree(source_file, target_file)
                 except Exception as e:
-                    LogUtil.print_compile_log("", f"copy {source_file} error: {e}!",
-                                              AscendCLogLevel.LOG_ERROR, LogUtil.Option.NON_SOC)
+                    LogUtil.print_compile_log(
+                        "",
+                        f"copy {source_file} error: {e}!",
+                        AscendCLogLevel.LOG_ERROR,
+                        LogUtil.Option.NON_SOC,
+                    )
 
     def ascendc_copy_file(self: any, src_dir: str, target_dir: str):
         file_list = os.listdir(src_dir)
@@ -192,19 +272,31 @@ class PackKernel:
                 try:
                     os.makedirs(target_dir, exist_ok=True)
                 except Exception as e:
-                    LogUtil.print_compile_log("", f"make {target_dir} error: {e}!",
-                                              AscendCLogLevel.LOG_ERROR, LogUtil.Option.NON_SOC)
+                    LogUtil.print_compile_log(
+                        "",
+                        f"make {target_dir} error: {e}!",
+                        AscendCLogLevel.LOG_ERROR,
+                        LogUtil.Option.NON_SOC,
+                    )
                 try:
                     shutil.copy(source_file, target_dir)
                 except Exception as e:
-                    LogUtil.print_compile_log("", f"copy {source_file} error: {e}!",
-                                              AscendCLogLevel.LOG_ERROR, LogUtil.Option.NON_SOC)
+                    LogUtil.print_compile_log(
+                        "",
+                        f"copy {source_file} error: {e}!",
+                        AscendCLogLevel.LOG_ERROR,
+                        LogUtil.Option.NON_SOC,
+                    )
 
     def ascendc_copy_func(self: any):
         os.chdir(self.in_path)
         framework_catalog = os.listdir("framework")
         for catalog_file in framework_catalog:
-            if catalog_file == "tf_plugin" or catalog_file == "caffe_plugin" or catalog_file == "onnx_plugin":
+            if (
+                catalog_file == "tf_plugin"
+                or catalog_file == "caffe_plugin"
+                or catalog_file == "onnx_plugin"
+            ):
                 source_dir = "op_kernel/tbe/op_info_cfg/ai_core"
                 dst_dir = os.path.join(self.copy_path, "framework", self.framework_type)
                 self.ascendc_copy_file(source_dir, dst_dir)
@@ -215,18 +307,24 @@ class PackKernel:
         dst_dir = os.path.join(self.copy_path, "op_impl/ai_core/tbe/config")
         self.ascendc_copy_dir(source_dir, dst_dir)
         source_dir = "op_kernel/binary/dynamic"
-        dst_dir = os.path.join(self.copy_path, "op_impl/ai_core/tbe", self.vendor_name + "_impl", "dynamic")
+        dst_dir = os.path.join(
+            self.copy_path, "op_impl/ai_core/tbe", self.vendor_name + "_impl", "dynamic"
+        )
         self.ascendc_copy_file(source_dir, dst_dir)
         for compute_unit in self.op_soc_ver:
             source_dir = os.path.join("op_kernel/binary", compute_unit)
-            dst_dir = os.path.join(self.copy_path, "op_impl/ai_core/tbe/kernel", compute_unit)
+            dst_dir = os.path.join(
+                self.copy_path, "op_impl/ai_core/tbe/kernel", compute_unit
+            )
             self.ascendc_copy_dir(source_dir, dst_dir)
         source_dir = "op_kernel/binary/config"
         dst_dir = os.path.join(self.copy_path, "op_impl/ai_core/tbe/kernel/config")
         self.ascendc_copy_dir(source_dir, dst_dir)
         so_file = "op_impl/ai_core/tbe/op_master_device/lib/libcust_opmaster.so"
         if os.path.exists(so_file):
-            dst_dir = os.path.join(self.copy_path, "op_impl/ai_core/tbe/op_master_device/lib")
+            dst_dir = os.path.join(
+                self.copy_path, "op_impl/ai_core/tbe/op_master_device/lib"
+            )
             os.makedirs(dst_dir, exist_ok=True)
             shutil.copy(so_file, dst_dir)
 
@@ -242,19 +340,20 @@ def args_parse():
     parser.add_argument(
         "-o", "--output-path", nargs="?", help="Output path of compile result."
     )
-    parser.add_argument(
-        "-n", "--vendor-name", nargs="?", help="Vendor name."
-    )
-    parser.add_argument(
-        "-u", "--compute-unit", nargs="?", help="Compute unit."
-    )
+    parser.add_argument("-n", "--vendor-name", nargs="?", help="Vendor name.")
+    parser.add_argument("-u", "--compute-unit", nargs="?", help="Compute unit.")
     parser.add_argument(
         "-t", "--framework-type", nargs="?", help="Framework type, eg:tensorflow."
     )
     parser.add_argument(
-        "-p", "--platform", nargs="?", default=None, help="target platform is x86_64 or aarch64."
+        "-p",
+        "--platform",
+        nargs="?",
+        default=None,
+        help="target platform is x86_64 or aarch64.",
     )
     return parser.parse_args()
+
 
 if __name__ == "__main__":
     args = args_parse()

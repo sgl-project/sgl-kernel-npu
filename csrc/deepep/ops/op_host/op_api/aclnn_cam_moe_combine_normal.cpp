@@ -32,17 +32,27 @@ aclnnStatus aclnnCamMoeCombineNormalGetWorkspaceSize(
     uint64_t *workspaceSize,
     aclOpExecutor **executor)
 {
-    return aclnnInnerCamMoeCombineNormalGetWorkspaceSize(recvX, tokenSrcInfo, epRecvCounts, recvTopkWeights,
-                                                         tpRecvCountsOptional, epGroupName, epWorldSize, epRankId,
-                                                         tpGroupNameOptional, tpWorldSize, tpRankId, moeExpertNum,
-                                                         globalBs, out, workspaceSize, executor);
+    return aclnnInnerCamMoeCombineNormalGetWorkspaceSize(
+        recvX,
+        tokenSrcInfo,
+        epRecvCounts,
+        recvTopkWeights,
+        tpRecvCountsOptional,
+        epGroupName,
+        epWorldSize,
+        epRankId,
+        tpGroupNameOptional,
+        tpWorldSize,
+        tpRankId,
+        moeExpertNum,
+        globalBs,
+        out,
+        workspaceSize,
+        executor);
 }
 
-aclnnStatus aclnnCamMoeCombineNormal(
-    void *workspace,
-    uint64_t workspaceSize,
-    aclOpExecutor *executor,
-    aclrtStream stream)
+aclnnStatus
+aclnnCamMoeCombineNormal(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream)
 {
     if (NnopbaseSetHcclServerType) {
         NnopbaseSetHcclServerType(executor, NNOPBASE_HCCL_SERVER_TYPE_MTE);

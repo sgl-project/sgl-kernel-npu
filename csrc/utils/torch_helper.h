@@ -22,7 +22,8 @@ namespace npu_kernel {
 
 #define DEVICE_TYPE c10::DeviceType::PrivateUse1
 
-class TorchNpuHepler {
+class TorchNpuHepler
+{
 public:
     inline static at::Tensor CopyTensorHostToDevice(const at::Tensor &cpu_tensor)
     {
@@ -76,7 +77,7 @@ public:
         };                                                                  \
         at_npu::native::OpCommand::RunOpApi(#kernel_name, acl_call);        \
     } while (false)
-}
-}
+}  // namespace npu_kernel
+}  // namespace sglang
 
-#endif  //SGL_KERNEL_NPU_TORCH_NPU_HELPER_H
+#endif  // SGL_KERNEL_NPU_TORCH_NPU_HELPER_H

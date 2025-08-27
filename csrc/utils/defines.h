@@ -18,7 +18,7 @@ namespace npu_kernel {
 
 #define HOST_API __attribute__((visibility("default")))
 
-}
-}
+}  // namespace npu_kernel
+}  // namespace sglang
 
-#endif //SGL_KERNEL_NPU_DEFINES_H
+#endif  // SGL_KERNEL_NPU_DEFINES_H

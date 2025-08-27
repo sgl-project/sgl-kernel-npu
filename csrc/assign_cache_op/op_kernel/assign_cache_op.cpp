@@ -8,21 +8,23 @@ constexpr int32_t TYPEBYPE_ID = 2;
 #define WAIT_FLAG(trigger, waiter, e) AscendC::WaitFlag<AscendC::HardEvent::trigger##_##waiter>((e))
 
 template <typename T>
-class AssignCacheOp {
+class AssignCacheOp
+{
 public:
-    __aicore__ inline AssignCacheOp() {};
-    __aicore__ inline void Init(__gm__ uint8_t * dstPtr,
-                            __gm__ uint8_t * srcPtr,
-                            __gm__ uint8_t * dstStartIdxPtr,
-                            __gm__ uint8_t * dstEndIdxPtr,
-                            __gm__ uint8_t * srcStartIdxPtr,
-                            __gm__ uint8_t * srcEndIdxPtr,
-                            __gm__ uint8_t * sync,
-                            __gm__ uint8_t * tilingPtr);
-    __aicore__ inline void CopyElement(AscendC::LocalTensor<T> &dstTensor,
-        AscendC::LocalTensor<T> &srcTensor, uint32_t bytes);
+    __aicore__ inline AssignCacheOp(){};
+    __aicore__ inline void Init(
+        __gm__ uint8_t *dstPtr,
+        __gm__ uint8_t *srcPtr,
+        __gm__ uint8_t *dstStartIdxPtr,
+        __gm__ uint8_t *dstEndIdxPtr,
+        __gm__ uint8_t *srcStartIdxPtr,
+        __gm__ uint8_t *srcEndIdxPtr,
+        __gm__ uint8_t *sync,
+        __gm__ uint8_t *tilingPtr);
+    __aicore__ inline void
+    CopyElement(AscendC::LocalTensor<T> &dstTensor, AscendC::LocalTensor<T> &srcTensor, uint32_t bytes);
     __aicore__ inline void Process();
-    __aicore__ inline void ParseTilingData(__gm__ uint8_t * tilingPtr);
+    __aicore__ inline void ParseTilingData(__gm__ uint8_t *tilingPtr);
 
 private:
     AscendC::TPipe pipe_;
@@ -50,17 +52,18 @@ private:
 };
 
 template <typename T>
-__aicore__ inline void AssignCacheOp<T>::Init(__gm__ uint8_t * dstPtr,
-    __gm__ uint8_t * srcPtr,
-    __gm__ uint8_t * dstStartIdxPtr,
-    __gm__ uint8_t * dstEndIdxPtr,
-    __gm__ uint8_t * srcStartIdxPtr,
-    __gm__ uint8_t * srcEndIdxPtr,
-    __gm__ uint8_t * sync,
-    __gm__ uint8_t * tilingPtr)
+__aicore__ inline void AssignCacheOp<T>::Init(
+    __gm__ uint8_t *dstPtr,
+    __gm__ uint8_t *srcPtr,
+    __gm__ uint8_t *dstStartIdxPtr,
+    __gm__ uint8_t *dstEndIdxPtr,
+    __gm__ uint8_t *srcStartIdxPtr,
+    __gm__ uint8_t *srcEndIdxPtr,
+    __gm__ uint8_t *sync,
+    __gm__ uint8_t *tilingPtr)
 {
     this->ParseTilingData(tilingPtr);
-    ubUsedBufSize_ = ubSize_ >> 2; // make sure not overflow
+    ubUsedBufSize_ = ubSize_ >> 2;  // make sure not overflow
 
     dstGM_.SetGlobalBuffer((__gm__ T *)dstPtr);
     srcGM_.SetGlobalBuffer((__gm__ T *)srcPtr);
@@ -79,8 +82,8 @@ __aicore__ inline void AssignCacheOp<T>::Init(__gm__ uint8_t * dstPtr,
 }
 
 template <typename T>
-__aicore__ inline void AssignCacheOp<T>::CopyElement(AscendC::LocalTensor<T> &dstTensor,
-    AscendC::LocalTensor<T> &srcTensor, uint32_t bytes)
+__aicore__ inline void
+AssignCacheOp<T>::CopyElement(AscendC::LocalTensor<T> &dstTensor, AscendC::LocalTensor<T> &srcTensor, uint32_t bytes)
 {
     for (uint32_t i = 0; i < bytes / sizeof(T); i++) {
         T tmp = srcTensor.GetValue(i);
@@ -91,8 +94,8 @@ __aicore__ inline void AssignCacheOp<T>::CopyElement(AscendC::LocalTensor<T> &ds
 template <typename T>
 __aicore__ inline void AssignCacheOp<T>::Process()
 {
-    int32_t vecIdx = AscendC::GetBlockIdx(); // current vector core id
-    int32_t coreNum = AscendC::GetBlockNum(); // total vector core number
+    int32_t vecIdx = AscendC::GetBlockIdx();   // current vector core id
+    int32_t coreNum = AscendC::GetBlockNum();  // total vector core number
 
     for (uint32_t batchId = vecIdx; batchId < batchSize_; batchId += coreNum) {
         uint32_t srcStartIdx = srcStartIdxGm_.GetValue(batchId);
@@ -149,7 +152,7 @@ __aicore__ inline void AssignCacheOp<T>::Process()
 }
 
 template <typename T>
-__aicore__ inline void AssignCacheOp<T>::ParseTilingData(__gm__ uint8_t * tilingPtr)
+__aicore__ inline void AssignCacheOp<T>::ParseTilingData(__gm__ uint8_t *tilingPtr)
 {
     auto tilingBuf = reinterpret_cast<__gm__ uint8_t *>(tilingPtr);
 
@@ -160,10 +163,10 @@ __aicore__ inline void AssignCacheOp<T>::ParseTilingData(__gm__ uint8_t * tiling
     // jump typeBytes field
     locId += 2;
     syncWorkspaceSize_ = (*(__gm__ uint32_t *)((__gm__ uint8_t *)tilingBuf + locId * sizeof(uint32_t)));
-    locId ++;
+    locId++;
     ubSize_ = (*(__gm__ uint32_t *)((__gm__ uint8_t *)tilingBuf + locId * sizeof(uint32_t)));
 }
-}
+}  // namespace custom_assign
 
 extern "C" __global__ __aicore__ void assign_cache_op(
     GM_ADDR dstPtr,
@@ -179,26 +182,23 @@ extern "C" __global__ __aicore__ void assign_cache_op(
     if ASCEND_IS_AIV {
         if (typeByte == 1) {
             custom_assign::AssignCacheOp<int8_t> op;
-            op.Init(dstPtr, srcPtr, dstStartIdxPtr,
-                    dstEndIdxPtr, srcStartIdxPtr, srcEndIdxPtr, sync, tilingPtr);
+            op.Init(dstPtr, srcPtr, dstStartIdxPtr, dstEndIdxPtr, srcStartIdxPtr, srcEndIdxPtr, sync, tilingPtr);
             op.Process();
-        } else if (typeByte == 2) {
+        }
+        else if (typeByte == 2) {
             custom_assign::AssignCacheOp<int16_t> op;
-            op.Init(dstPtr, srcPtr, dstStartIdxPtr,
-                    dstEndIdxPtr, srcStartIdxPtr, srcEndIdxPtr, sync, tilingPtr);
+            op.Init(dstPtr, srcPtr, dstStartIdxPtr, dstEndIdxPtr, srcStartIdxPtr, srcEndIdxPtr, sync, tilingPtr);
             op.Process();
-        } else if (typeByte == 4) {
+        }
+        else if (typeByte == 4) {
             custom_assign::AssignCacheOp<int32_t> op;
-            op.Init(dstPtr, srcPtr, dstStartIdxPtr,
-                    dstEndIdxPtr, srcStartIdxPtr, srcEndIdxPtr, sync, tilingPtr);
+            op.Init(dstPtr, srcPtr, dstStartIdxPtr, dstEndIdxPtr, srcStartIdxPtr, srcEndIdxPtr, sync, tilingPtr);
             op.Process();
-        } else if (typeByte == 8) {
+        }
+        else if (typeByte == 8) {
             custom_assign::AssignCacheOp<int64_t> op;
-            op.Init(dstPtr, srcPtr, dstStartIdxPtr,
-                    dstEndIdxPtr, srcStartIdxPtr, srcEndIdxPtr, sync, tilingPtr);
+            op.Init(dstPtr, srcPtr, dstStartIdxPtr, dstEndIdxPtr, srcStartIdxPtr, srcEndIdxPtr, sync, tilingPtr);
             op.Process();
         }
     }
 }
-
-

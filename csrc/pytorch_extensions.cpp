@@ -24,11 +24,13 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 
     m.def("helloworld(Tensor x, Tensor y) -> Tensor");
 
-    m.def("cache_loc_assign(Tensor req_indices, Tensor token_pool, Tensor start_offset, Tensor end_offset, Tensor "
-          "out_cache_loc) -> Tensor");
+    m.def(
+        "cache_loc_assign(Tensor req_indices, Tensor token_pool, Tensor start_offset, Tensor end_offset, Tensor "
+        "out_cache_loc) -> Tensor");
 
-    m.def("assign_cache_op(Tensor! out, Tensor src, Tensor dst_start_idx, Tensor dst_end_idx, Tensor src_start_idx, "
-            "Tensor src_end_idx) -> bool");
+    m.def(
+        "assign_cache_op(Tensor! out, Tensor src, Tensor dst_start_idx, Tensor dst_end_idx, Tensor src_start_idx, "
+        "Tensor src_end_idx) -> bool");
 }
 }  // namespace
 

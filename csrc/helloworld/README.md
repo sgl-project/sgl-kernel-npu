@@ -9,7 +9,7 @@ Let's take a close look the code of helloworld op, this op is to add two tensor
 
 Device part code:
 ```
-/* 
+/*
  * The following code runs on AICore and nothing to do with Torch:
  * a typical kernal major wrapped by a class and which have two major functions:
  * - Init(xxx), init everything first
@@ -71,7 +71,7 @@ private:
         inQueueX.FreeTensor(xLocal);
         inQueueY.FreeTensor(yLocal);
     }
-    
+
     __aicore__ inline void CopyOut(int32_t progress)
     {
         AscendC::LocalTensor<half> zLocal = outQueueZ.DeQue<half>();
@@ -101,7 +101,7 @@ extern "C" __global__ __aicore__ void helloworld(GM_ADDR x, GM_ADDR y, GM_ADDR z
 
 Host part code:
 ```
-/* 
+/*
  * Include this helper file located in utils,
  * this file includes the most importance MACRO 'EXEC_KERNAL_CMD'
  * which is tow launch the function with pytorch
@@ -120,15 +120,15 @@ at::Tensor helloworld(const at::Tensor &x, const at::Tensor &y)
 {
     /* create a result tensor */
     at::Tensor z = at::empty_like(x);
-    
+
     /* define the block dim */
     uint32_t blockDim = 8;
-    
+
     uint32_t totalLength = 1;
     for (uint32_t size : x.sizes()) {
         totalLength *= size;
     }
-    
+
     /* lauch the kernal function via torch */
     EXEC_KERNEL_CMD(add_custom, blockDim, x, y, z, totalLength);
     return z;

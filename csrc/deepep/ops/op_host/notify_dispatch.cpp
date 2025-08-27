@@ -1,7 +1,8 @@
 #include "register/op_def_registry.h"
 
 namespace ops {
-class NotifyDispatch : public OpDef {
+class NotifyDispatch : public OpDef
+{
 public:
     explicit NotifyDispatch(const char *name) : OpDef(name)
     {

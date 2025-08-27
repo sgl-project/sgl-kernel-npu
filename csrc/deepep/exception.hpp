@@ -5,7 +5,8 @@
 
 namespace deep_ep {
 
-class EPException : public std::exception {
+class EPException : public std::exception
+{
 private:
     std::string message = {};
 
@@ -22,28 +23,28 @@ public:
     }
 };
 
-}
+}  // namespace deep_ep
 
-#define EP_HOST_ASSERT(cond); \
-do { \
-    if (not (cond)) { \
-        throw EPException("Assertion", __FILE__, __LINE__, #cond); \
-    } \
-} while (0)
+#define EP_HOST_ASSERT(cond)                                           \
+    ;                                                                  \
+    do {                                                               \
+        if (not(cond)) {                                               \
+            throw EPException("Assertion", __FILE__, __LINE__, #cond); \
+        }                                                              \
+    } while (0)
 
+#define ACL_CHECK(ret)                                                                            \
+    ;                                                                                             \
+    do {                                                                                          \
+        if (ret != ACL_SUCCESS) {                                                                 \
+            throw deep_ep::EPException("ACL Assertion", __FILE__, __LINE__, std::to_string(ret)); \
+        }                                                                                         \
+    } while (0)
 
-#define ACL_CHECK(ret); \
-do { \
-    if(ret != ACL_SUCCESS)\
-    { \
-        throw deep_ep::EPException("ACL Assertion", __FILE__, __LINE__, std::to_string(ret));\
-    } \
-} while (0)
-
-#define HCCL_CHECK(ret); \
-do { \
-    if(ret != HCCL_SUCCESS) \
-    {   \
-        throw deep_ep::EPException("HCCL Assertion", __FILE__, __LINE__, std::to_string(ret)); \
-    } \
-} while (0)
+#define HCCL_CHECK(ret)                                                                            \
+    ;                                                                                              \
+    do {                                                                                           \
+        if (ret != HCCL_SUCCESS) {                                                                 \
+            throw deep_ep::EPException("HCCL Assertion", __FILE__, __LINE__, std::to_string(ret)); \
+        }                                                                                          \
+    } while (0)

@@ -56,4 +56,3 @@ chmod 640 "${dest_file}"
 echo -e "[INFO] Succed generated ${dest_file}"
 
 exit 0
-
