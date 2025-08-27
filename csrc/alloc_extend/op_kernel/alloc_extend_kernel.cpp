@@ -44,32 +44,31 @@ public:
         this->values_gm.SetGlobalBuffer((__gm__ int64_t*)values_in);
         
         this->total_size_aligned = ceil_div(this->batch_size * sizeof(int64_t), byteAlign) * byteAlign;
-        this->pipe.InitBuffer(this->pre_lens_que, BUFFER_NUM, this->total_size_aligned); // align
-        this->pipe.InitBuffer(this->seq_lens_que, BUFFER_NUM, this->total_size_aligned);
+        this->pipe.InitBuffer(this->input_que, BUFFER_NUM, this->total_size_aligned * 3);
     }
     __aicore__ inline void Process() {
-        CopyIn();
         for (int32_t task_id = this->core_id; task_id < this->batch_size; task_id += this->block_num) {
+            CopyIn();
             Compute(task_id);
+            CopyOut();
         }
-        CopyOut();
     }
 private:
     __aicore__ inline void CopyIn() {
         // pad align copy
-        AscendC::LocalTensor<int64_t> pre_lens_ub = this->pre_lens_que.AllocTensor<int64_t>();
+        AscendC::LocalTensor<int64_t> pre_lens_ub = this->input_que.AllocTensor<int64_t>();
         AscendC::DataCopyExtParams copyParams{1, static_cast<uint32_t>(this->batch_size * sizeof(int64_t)), 0, 0, 0};
         AscendC::DataCopyPadExtParams<int64_t> padParams{true, 0, 0, 0};
-        AscendC::DataCopyPad(pre_lens_ub, this->pre_lens_gm, copyParams, padParams);
-        this->pre_lens_que.EnQue(pre_lens_ub);
         
-        AscendC::LocalTensor<int64_t> seq_lens_ub = this->seq_lens_que.AllocTensor<int64_t>();
-        AscendC::DataCopyPad(seq_lens_ub, this->seq_lens_gm, copyParams, padParams);
-        this->seq_lens_que.EnQue(seq_lens_ub);
+        AscendC::DataCopyPad(pre_lens_ub, this->pre_lens_gm, copyParams, padParams);
+        AscendC::DataCopyPad(pre_lens_ub[this->total_size_aligned], this->seq_lens_gm, copyParams, padParams);
+        AscendC::DataCopyPad(pre_lens_ub[this->total_size_aligned * 2], this->last_loc_gm, copyParams, padParams);
+        this->input_que.EnQue(pre_lens_ub);
     }
     __aicore__ inline void Compute(int64_t task_id) {
-        AscendC::LocalTensor<int64_t> pre_lens_ub = pre_lens_que.DeQue<int64_t>();
-        AscendC::LocalTensor<int64_t> seq_lens_ub = seq_lens_que.DeQue<int64_t>();
+        AscendC::LocalTensor<int64_t> pre_lens_ub = input_que.DeQue<int64_t>();
+        AscendC::LocalTensor<int64_t> seq_lens_ub = pre_lens_ub[this->total_size_aligned];
+        AscendC::LocalTensor<int64_t> last_loc_ub = pre_lens_ub[this->total_size_aligned * 2];
     
         int64_t extend_lens_sum = 0;
         int64_t num_new_pages_sum = 0;
@@ -89,16 +88,22 @@ private:
         int64_t cur_tokens_align = ceil_div(cur_extend_len * sizeof(int64_t), byteAlign) * byteAlign;
         this->cur_extend_len = cur_extend_len;
         this->pipe.InitBuffer(this->out_indices_que, BUFFER_NUM, cur_tokens_align);  // 32 align, maybe >64k
-
+        
+        int64_t free_pages_align = ceil_div(num_new_pages_sum * sizeof(int64_t), byteAlign) * byteAlign;
+        this->pipe.InitBuffer(this->free_pages_que, BUFFER_NUM, free_pages_align);
+        AscendC::LocalTensor<int64_t> free_pages_ub = free_pages_que.AllocTensor<int64_t>();
+        AscendC::DataCopyExtParams copyParams{1, static_cast<uint32_t>(num_new_pages_sum * sizeof(int64_t)), 0, 0, 0};
+        AscendC::DataCopyPadExtParams<int64_t> padParams{true, 0, 0, 0};
+        AscendC::DataCopyPad(free_pages_ub, this->free_pages_gm, copyParams, padParams);
+        this->free_pages_que.EnQue(free_pages_ub);
+        AscendC::LocalTensor<int64_t> free_pages_ub_read = free_pages_que.DeQue<int64_t>();
+        
         int64_t output_start_loc = extend_lens_sum - cur_extend_len;
         this->output_start_loc = output_start_loc;
         int64_t new_pages_start_loc = num_new_pages_sum - cur_need_pages;
 
         // seq_lens, pre_lens // page_size
-        if (task_id == this->batch_size -1) {
-            values_gm.SetValue(0, num_new_pages_sum);
-        }
-        int64_t last_loc = this->last_loc_gm.GetValue(task_id);
+        int64_t last_loc = last_loc_ub.GetValue(task_id);
         int64_t num_part1 = (min(cur_seq, (cur_pre_seq + this->page_size - 1) / this->page_size * this->page_size) - cur_pre_seq);
         AscendC::LocalTensor<int64_t> out_indices_ub = out_indices_que.AllocTensor<int64_t>();
         for (int i = 0; i < num_part1; i++) {
@@ -106,15 +111,15 @@ private:
         }
         if (cur_pre_seq + num_part1 == cur_seq) {
             out_indices_que.EnQue(out_indices_ub);
-            pre_lens_que.FreeTensor(pre_lens_ub);
-            seq_lens_que.FreeTensor(seq_lens_ub);
+            this->input_que.FreeTensor(pre_lens_ub);
+            this->free_pages_que.FreeTensor(free_pages_ub);
             return;
         }
         int64_t num_part2 = cur_seq / this->page_size * this->page_size - (cur_pre_seq + this->page_size - 1) / this->page_size * this->page_size;
         int64_t out_offset = num_part1;
         if (num_part2 > 0) {
             for (int page_i=0; page_i<num_part2 / this->page_size; page_i++) {
-                int64_t page_value = free_pages_gm.GetValue(new_pages_start_loc + page_i);
+                int64_t page_value = free_pages_ub_read.GetValue(new_pages_start_loc + page_i);
                 for (int i=0; i<this->page_size; i++) {
                     out_indices_ub.SetValue(out_offset + page_i * this->page_size + i, page_value * this->page_size + i);
                 }
@@ -122,20 +127,25 @@ private:
         }
         if (cur_pre_seq + num_part1 + num_part2 == cur_seq) {
             out_indices_que.EnQue(out_indices_ub);
-            pre_lens_que.FreeTensor(pre_lens_ub);
-            seq_lens_que.FreeTensor(seq_lens_ub);
+            this->input_que.FreeTensor(pre_lens_ub);
+            this->free_pages_que.FreeTensor(free_pages_ub);
             return;
         }
         int64_t num_part3 = cur_seq - cur_seq / this->page_size * this->page_size;
-        int64_t start_page_loc = free_pages_gm.GetValue(new_pages_start_loc + cur_need_pages - 1);
+
+        int64_t start_page_loc = free_pages_ub_read.GetValue(new_pages_start_loc + cur_need_pages - 1);
         out_offset = num_part1 + num_part2;
 
         for (int i = 0; i < num_part3; i++) {
             out_indices_ub.SetValue(out_offset + i, start_page_loc * this->page_size + i);
         }
+
+        if (task_id == this->batch_size -1) {
+            values_gm.SetValue(0, num_new_pages_sum);
+        }
         out_indices_que.EnQue(out_indices_ub);
-        pre_lens_que.FreeTensor(pre_lens_ub);
-        seq_lens_que.FreeTensor(seq_lens_ub);
+        this->input_que.FreeTensor(pre_lens_ub);
+        this->free_pages_que.FreeTensor(free_pages_ub);
     }
     __aicore__ inline void CopyOut() {
         AscendC::LocalTensor<int64_t> out_ub = out_indices_que.DeQue<int64_t>();
@@ -146,9 +156,9 @@ private:
     }
 private:
     AscendC::TPipe pipe;
-    AscendC::TQue<AscendC::TPosition::VECIN, 1> pre_lens_que;  // 1 for que depth
-    AscendC::TQue<AscendC::TPosition::VECIN, 1> seq_lens_que;
+    AscendC::TQue<AscendC::TPosition::VECIN, 1> input_que; // 1 for que depth
     AscendC::TQue<AscendC::TPosition::VECIN, 1> out_indices_que;
+    AscendC::TQue<AscendC::TPosition::VECIN, 1> free_pages_que;
     AscendC::GlobalTensor<int64_t> pre_lens_gm;
     AscendC::GlobalTensor<int64_t> seq_lens_gm;
     AscendC::GlobalTensor<int64_t> last_loc_gm;
