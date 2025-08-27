@@ -23,11 +23,14 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
     m.def("sgl_kernel_npu_version() -> str", []() { return std::string("") + LIB_VERSION; });
 
     m.def("helloworld(Tensor x, Tensor y) -> Tensor");
-
-    m.def("cache_loc_assign(Tensor token_pool, Tensor start_offset, Tensor end_offset, Tensor out_cache_loc, Tensor "
-          "out_cache_loc_idx, int max_step) -> Tensor");
     
     m.def("alloc_extend(Tensor pre_lens, Tensor seq_lens, Tensor last_loc, Tensor free_pages, int page_size, Tensor(a!) out_indices, Tensor(b!) values) -> ()");
+
+    m.def("cache_loc_assign(Tensor req_indices, Tensor token_pool, Tensor start_offset, Tensor end_offset, Tensor "
+          "out_cache_loc) -> Tensor");
+
+    m.def("assign_cache_op(Tensor! out, Tensor src, Tensor dst_start_idx, Tensor dst_end_idx, Tensor src_start_idx, "
+            "Tensor src_end_idx) -> bool");
 }
 }  // namespace
 
@@ -39,6 +42,7 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("cache_loc_assign", TORCH_FN(sglang::npu_kernel::cache_loc_assign));
 
     m.impl("alloc_extend", TORCH_FN(sglang::npu_kernel::alloc_extend));
+
     m.impl("assign_cache_op", TORCH_FN(sglang::npu_kernel::RunCustomAssign));
 }
 }  // namespace
