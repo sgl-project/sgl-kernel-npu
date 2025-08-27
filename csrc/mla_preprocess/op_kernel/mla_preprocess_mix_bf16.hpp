@@ -75,18 +75,18 @@ public:
             return;
         }
         uint64_t startCoreLineIndex = this->blockIdx_ * this->nlCoreRun;
-        // 生成 [maxNPerLoopForUb,head_dim] 的 neg
+        // [maxNPerLoopForUb,head_dim] 的 neg
         AscendC::LocalTensor<float> negLocal =
             buf.GetBuffer<BufferType::ASCEND_UB, float>(dataSizeFp32 * 4 + dataSizeFp16 * 3);
         ExpandNeg(negLocal, this->maxNPerLoopForUb);
-        // 遍历处理每轮数据
+
         SET_FLAG(MTE3, MTE2, EVENT_ID1);
         for (uint32_t zz = 0; zz < this->loopTime; ++zz) {
             uint16_t loopN = (zz == this->loopTime - 1) ? this->lastLoopN : this->maxNPerLoopForUb;
             uint64_t startHead = startCoreLineIndex + zz * this->maxNPerLoopForUb;
             uint64_t endHead = startHead + loopN;
 
-            // 搬入数据Q
+            // move in Q
             AscendC::LocalTensor<QkDtype> inputQ = buf.GetBuffer<BufferType::ASCEND_UB, QkDtype>(0);
             AscendC::LocalTensor<float> inputQCastFP32 = buf.GetBuffer<BufferType::ASCEND_UB, float>(dataSizeFp16);
             AscendC::LocalTensor<float> reverseQ =
@@ -94,7 +94,7 @@ public:
             uint64_t qOffset = startHead * 192 + 128;
             CopyQGenReverseQ(inputQ, inputQCastFP32, reverseQ, qOffset, loopN);
 
-            // 搬入数据cos/sin
+            // move in cos/sin
             AscendC::LocalTensor<QkDtype> inputCos =
                 buf.GetBuffer<BufferType::ASCEND_UB, QkDtype>(dataSizeFp32 * 2 + dataSizeFp16);
             AscendC::LocalTensor<QkDtype> inputSin =

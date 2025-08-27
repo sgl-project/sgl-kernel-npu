@@ -135,7 +135,7 @@ public:
             AscendC::Cast(inputSinCastFP32, inputSin, AscendC::RoundMode::CAST_NONE, loopN * this->headDim);
             AscendC::PipeBarrier<PIPE_V>();
 
-            // 计算rope结果
+            // rope result
             uint32_t repeatTime = this->headDim * loopN;
             AscendC::Mul(inputQCastFP32, inputCosCastFP32, inputQCastFP32, repeatTime);
 
