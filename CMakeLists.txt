@@ -33,12 +33,12 @@ include(cmake/config_envs.cmake)
 include(cmake/config_ascend.cmake)
 
 if (NOT DEFINED BUILD_TYPE)
-    set(BUILD_TYPE "0")
+    set(BUILD_TYPE "")
 endif ()
 
 message(STATUS "Build type: ${BUILD_TYPE}")
 
-if (BUILD_TYPE STREQUAL "0")
+if (BUILD_TYPE STREQUAL "")
     add_subdirectory(csrc)
 endif ()
 add_subdirectory(csrc/deepep)
