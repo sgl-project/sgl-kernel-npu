@@ -6,7 +6,7 @@ AllowShortFunctionsOnASingleLine: Empty
 DerivePointerAlignment: false
 PointerAlignment: Right
 NamespaceIndentation: None
-SortIncludes: true
+SortIncludes: false
 AllowShortLoopsOnASingleLine: false
 BinPackParameters: false              # Prevents packing parameters in declarations
 BinPackArguments: false               # Prevents packing arguments in function calls
@@ -20,14 +20,14 @@ BraceWrapping:
   AfterCaseLabel: true
   AfterClass: true
   AfterControlStatement: Never
-  AfterEnum: true
+  AfterEnum: false
   AfterFunction: true
   AfterNamespace: false
   AfterObjCDeclaration: false
-  AfterStruct: true
-  AfterUnion: true
+  AfterStruct: false
+  AfterUnion: false
   AfterExternBlock: false
-  BeforeCatch: true
+  BeforeCatch: false
   BeforeElse: true
   IndentBraces: false
   SplitEmptyFunction: false

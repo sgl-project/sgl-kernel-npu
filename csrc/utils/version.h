@@ -32,7 +32,7 @@
 /*
  * global lib version string with build time
  */
-static const char *LIB_VERSION_FULL = "library version: " LIB_VERSION
-                                      ", commit: " STR2(GIT_LAST_COMMIT);
+[[maybe_unused]] static const char *LIB_VERSION_FULL =
+    "library version: " LIB_VERSION ", commit: " STR2(GIT_LAST_COMMIT);
 
 #endif  // SGL_KERNEL_NPU_VERSION_H
