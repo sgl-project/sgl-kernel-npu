@@ -77,7 +77,7 @@ public:
     std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>>
     low_latency_combine(const at::Tensor &x, const at::Tensor &topk_idx, const at::Tensor &topk_weights, const at::Tensor &src_info,
                         const at::Tensor &layout_range, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
-                        const at::Tensor &ep_send_count, bool zero_copy, bool async, bool return_recv_hook,
+                        const at::Tensor &packed_recv_count, bool zero_copy, bool async, bool return_recv_hook,
                         const std::optional<at::Tensor> &out);
 };
 

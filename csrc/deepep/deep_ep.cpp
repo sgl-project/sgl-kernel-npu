@@ -284,8 +284,10 @@ Buffer::intranode_dispatch(const at::Tensor& x, const std::optional<at::Tensor>&
     auto recv_offset_ptr = recv_offset_cpu.data_ptr<int>();
     int64_t total_recv_tokens = 0;
     int64_t num_max_dispatch_tokens_per_rank = 0;
+    std::vector<int> num_recv_tokens_per_expert_list;
 
     for (int64_t local_e = 0; local_e < num_local_experts; ++local_e) {
+        int64_t local_expert_recv_tokens = 0;
         for (int64_t src_rank = 0; src_rank < num_ranks; ++src_rank) {
             int64_t index = local_e * num_ranks + src_rank;
             int64_t pair_idx = send_per_group * (src_rank * num_local_experts + local_e);
@@ -298,12 +300,10 @@ Buffer::intranode_dispatch(const at::Tensor& x, const std::optional<at::Tensor>&
             recv_count_ptr[index] = total_recv_tokens;
             recv_offset_ptr[index] = recv_off;
             num_max_dispatch_tokens_per_rank = std::max(num_max_dispatch_tokens_per_rank, send_num_tokens);
-        }
-    }
 
-    std::vector<int> num_recv_tokens_per_expert_list;
-    for (int i = 0; i < num_local_experts; ++i) {
-        num_recv_tokens_per_expert_list.push_back(recv_count_ptr[(i + 1) * num_ranks - 1]);
+            local_expert_recv_tokens += recv_cnt;
+        }
+        num_recv_tokens_per_expert_list.push_back(local_expert_recv_tokens);
     }
 
     at::Tensor expert_ids = new_topk_idx.to(at::kInt);
@@ -505,9 +505,9 @@ std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Te
     auto packed_recv_x = at::empty({num_max_tokens, hidden}, new_x.options().dtype(use_fp8 ? at::kChar : at::kBFloat16));
     auto packed_recv_x_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
     auto expandIdx = at::empty({max_size}, at::dtype(at::kInt).device(device));
-    auto packed_recv_count = at::empty({num_local_experts * num_ranks}, at::dtype(at::kInt).device(device));
+    auto ep_recv_count = at::empty({num_local_experts * num_ranks}, at::dtype(at::kInt).device(device));
     auto tp_recv_count = at::empty({1}, at::dtype(at::kInt).device(device));
-    auto expertTokenNumsOut = at::empty({num_local_experts}, at::dtype(at::kLong).device(device));
+    auto packed_recv_count = at::empty({num_local_experts}, at::dtype(at::kLong).device(device));
     auto expandScales = at::empty({1}, at::dtype(at::kFloat).device(device));
     at::Tensor scales;
     at::Tensor activateMask;
@@ -555,8 +555,8 @@ std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Te
         packed_recv_x,
         packed_recv_x_scales,  // dynamicScalesOut
         expandIdx,
-        expertTokenNumsOut,
-        packed_recv_count,
+        packed_recv_count,      // expertTokenNumsOut
+        ep_recv_count,
         tp_recv_count,
         expandScales);
 
@@ -564,7 +564,7 @@ std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Te
     std::optional<EventHandle> event;
 
     // Return values
-    return {packed_recv_x, packed_recv_x_scales, packed_recv_count, expandIdx, expertTokenNumsOut, event, std::function<void()>([]{})};
+    return {packed_recv_x, packed_recv_x_scales, packed_recv_count, expandIdx, ep_recv_count, event, std::function<void()>([]{})};
 }
 
 int Buffer::get_rdma_rank() const {
@@ -574,7 +574,7 @@ int Buffer::get_rdma_rank() const {
 std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>> Buffer::low_latency_combine(
     const at::Tensor &x, const at::Tensor &topk_idx, const at::Tensor &topk_weights, const at::Tensor &src_info,
     const at::Tensor &layout_range, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
-    const at::Tensor &ep_send_count, bool zero_copy, bool async, bool return_recv_hook,
+    const at::Tensor &packed_recv_count, bool zero_copy, bool async, bool return_recv_hook,
     const std::optional<at::Tensor> &out)
 {
     at::Tensor new_idx = topk_idx;
@@ -609,7 +609,7 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     at::Tensor expand_x = x;
     at::Tensor expert_ids = new_idx;
     at::Tensor expand_idx = src_info; // handle[0] = src_info
-    at::Tensor ep_send_counts = ep_send_count;
+    at::Tensor ep_send_counts = layout_range;
     at::Tensor expert_scales = new_scales;
     at::Tensor tp_send_counts = at::empty({1}, at::dtype(at::kInt).device(device));
     at::Tensor x_active_mask, activation_scale, weight_scale, group_list, expand_scales;
