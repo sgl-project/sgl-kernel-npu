@@ -1,6 +1,29 @@
 #!/bin/bash
 set -e
 
+
+BUILD_TYPE=0
+
+while getopts ":b:" opt; do
+    case ${opt} in
+        b )
+            # build_type 0: default mode, build all
+            # build_type 1: only build deep_ep
+            BUILD_TYPE=$OPTARG
+            ;;
+        \? )
+            echo "unknown flag: -$OPTARG" 1>&2
+            exit 1
+            ;;
+        : )
+            echo "-$OPTARG requires a value" 1>&2
+            exit 1
+            ;;
+    esac
+done
+
+shift $((OPTIND -1))
+
 SOC_VERSION="${1:-Ascend910_9382}"
 
 if [ -n "$ASCEND_HOME_PATH" ]; then
@@ -32,7 +55,7 @@ function build_kernels()
     rm -rf $BUILD_DIR
     mkdir -p $BUILD_DIR
 
-    cmake $COMPILE_OPTIONS -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" -DASCEND_HOME_PATH=$ASCEND_HOME_PATH -DSOC_VERSION=$SOC_VERSION -B "$BUILD_DIR" -S .
+    cmake $COMPILE_OPTIONS -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" -DASCEND_HOME_PATH=$ASCEND_HOME_PATH -DSOC_VERSION=$SOC_VERSION -DBUILD_TYPE=$BUILD_TYPE -B "$BUILD_DIR" -S .
     cmake --build "$BUILD_DIR" -j8 && cmake --build "$BUILD_DIR" --target install
     cd -
 }
