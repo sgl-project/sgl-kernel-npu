@@ -21,6 +21,9 @@ at::Tensor cache_loc_assign(const at::Tensor &req_indices, const at::Tensor &tok
 bool RunCustomAssign(at::Tensor &dstTensor, const at::Tensor &srcTensor, const at::Tensor &dstStartIdx,
     const at::Tensor &dstEndIdx, const at::Tensor &srcStartIdx, const at::Tensor &srcEndIdx);
 
+void alloc_extend(const at::Tensor &pre_lens, const at::Tensor &seq_lens,
+    const at::Tensor &last_loc, const at::Tensor &free_pages, int64_t pages_size, at::Tensor &out_indices, at::Tensor &values);
+
 std::tuple<at::Tensor&, at::Tensor&, at::Tensor&, at::Tensor&> mla_preprocess(
     const at::Tensor &hiddenState, const at::Tensor &gamma0, const at::Tensor &beta0, const at::Tensor &wdqkv,
     const at::Tensor &descale0, const at::Tensor &gamma1, const at::Tensor &beta1,
