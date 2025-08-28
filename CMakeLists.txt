@@ -35,10 +35,10 @@ include(cmake/config_git_last_commit.cmake)
 include(cmake/config_envs.cmake)
 include(cmake/config_ascend.cmake)
 
-if (BUILD_KERNELS_MODULE STREQUAL "ON")
+if (BUILD_KERNELS_MODULE)
     add_subdirectory(csrc)
 endif ()
 
-if (BUILD_DEEPEP_MODULE STREQUAL "ON")
+if (BUILD_DEEPEP_MODULE)
     add_subdirectory(csrc/deepep)
 endif ()
