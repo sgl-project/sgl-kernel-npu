@@ -1,4 +1,5 @@
 #include <memory>
+#include <cmath>
 #include <pybind11/functional.h>
 
 #include "hccl/hccl.h"
@@ -9,6 +10,8 @@
 
 namespace deep_ep {
 constexpr int PADDING_SIZE = 3;
+constexpr size_t HCOMM_NAME_LEN = 128;
+constexpr double SCALE_SIZE = 1.5;
 
 Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
                std::string moe_all_to_all_group_name)
@@ -30,7 +33,7 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
         // ep domain
         HCCL_CHECK(HcclCommInitClusterInfo(ranktable_file, device_id, &ep_comm));
     } else {
-        EP_HOST_ASSERT(moe_all_to_all_group_name.size() < 128);
+        EP_HOST_ASSERT(moe_all_to_all_group_name.size() < HCOMM_NAME_LEN);
     }
 
     this->shared_expert_rank_num = get_value_from_env("MOE_SHARED_EXPERT_RANK_NUM", 0);
@@ -236,7 +239,7 @@ Buffer::intranode_dispatch(const at::Tensor& x, const std::optional<at::Tensor>&
     at::Tensor recv_data = at::zeros({num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
 
     // get ep name
-    char hcom_ep_name[128];
+    char hcom_ep_name[HCOMM_NAME_LEN];
     if (!moe_all_to_all_group_name.empty()) {
         std::memcpy(hcom_ep_name, moe_all_to_all_group_name.data(), moe_all_to_all_group_name.size() + 1);
     } else {
@@ -283,8 +286,10 @@ Buffer::intranode_dispatch(const at::Tensor& x, const std::optional<at::Tensor>&
     auto recv_offset_ptr = recv_offset_cpu.data_ptr<int>();
     int64_t total_recv_tokens = 0;
     int64_t num_max_dispatch_tokens_per_rank = 0;
+    std::vector<int> num_recv_tokens_per_expert_list;
 
     for (int64_t local_e = 0; local_e < num_local_experts; ++local_e) {
+        int64_t local_expert_recv_tokens = 0;
         for (int64_t src_rank = 0; src_rank < num_ranks; ++src_rank) {
             int64_t index = local_e * num_ranks + src_rank;
             int64_t pair_idx = send_per_group * (src_rank * num_local_experts + local_e);
@@ -297,19 +302,18 @@ Buffer::intranode_dispatch(const at::Tensor& x, const std::optional<at::Tensor>&
             recv_count_ptr[index] = total_recv_tokens;
             recv_offset_ptr[index] = recv_off;
             num_max_dispatch_tokens_per_rank = std::max(num_max_dispatch_tokens_per_rank, send_num_tokens);
-        }
-    }
 
-    std::vector<int> num_recv_tokens_per_expert_list;
-    for (int i = 0; i < num_local_experts; ++i) {
-        num_recv_tokens_per_expert_list.push_back(recv_count_ptr[(i + 1) * num_ranks - 1]);
+            local_expert_recv_tokens += recv_cnt;
+        }
+        num_recv_tokens_per_expert_list.push_back(local_expert_recv_tokens);
     }
 
     at::Tensor expert_ids = new_topk_idx.to(at::kInt);
     int64_t tp_size = 1;
     int64_t tp_rank = 0;
     int64_t quant_mode = 0;
-    int64_t global_bs = std::max(num_max_dispatch_tokens_per_rank * num_ranks, static_cast<int64_t>(num_worst_tokens));
+    int64_t global_bs = static_cast<int64_t>(std::ceil(
+        std::max(num_max_dispatch_tokens_per_rank * num_ranks, static_cast<int64_t>(num_worst_tokens)) * SCALE_SIZE));
 
     auto send_token_idx = send_token_idx_cpu.to(x.device());
     auto recv_offset = recv_offset_cpu.to(x.device());
@@ -413,7 +417,7 @@ Buffer::intranode_combine(const torch::Tensor& x, const torch::Tensor& topk_idx,
     int64_t global_bs = topk_idx_p.size(0) * num_ranks;
 
     // get ep & tp name
-    char hcom_ep_name[128];
+    char hcom_ep_name[HCOMM_NAME_LEN];
     if (!moe_all_to_all_group_name.empty()) {
         std::memcpy(hcom_ep_name, moe_all_to_all_group_name.data(), moe_all_to_all_group_name.size() + 1);
     } else {
@@ -504,9 +508,9 @@ std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Te
     auto packed_recv_x = at::empty({num_max_tokens, hidden}, new_x.options().dtype(use_fp8 ? at::kChar : at::kBFloat16));
     auto packed_recv_x_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
     auto expandIdx = at::empty({max_size}, at::dtype(at::kInt).device(device));
-    auto packed_recv_count = at::empty({num_local_experts * num_ranks}, at::dtype(at::kInt).device(device));
+    auto ep_recv_count = at::empty({num_local_experts * num_ranks}, at::dtype(at::kInt).device(device));
     auto tp_recv_count = at::empty({1}, at::dtype(at::kInt).device(device));
-    auto expertTokenNumsOut = at::empty({num_local_experts}, at::dtype(at::kLong).device(device));
+    auto packed_recv_count = at::empty({num_local_experts}, at::dtype(at::kLong).device(device));
     auto expandScales = at::empty({1}, at::dtype(at::kFloat).device(device));
     at::Tensor scales;
     at::Tensor activateMask;
@@ -523,12 +527,13 @@ std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Te
     char *comm_log_ptr = comm_log_buf.data();
 
     // get ep & tp name
-    char hcom_ep_name[128];
+    char hcom_ep_name[HCOMM_NAME_LEN];
     if (!moe_all_to_all_group_name.empty()) {
         std::memcpy(hcom_ep_name, moe_all_to_all_group_name.data(), moe_all_to_all_group_name.size() + 1);
     } else {
         HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
     }
+    char hcom_tp_name[HCOMM_NAME_LEN] = {0};
 
     EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2,
         new_x,
@@ -540,7 +545,7 @@ std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Te
         num_ranks,      // rankSize
         rank,           // rankId
         num_experts,
-        hcom_ep_name,           // tp
+        hcom_tp_name,           // tp
         tp_size,               // tp_size
         tp_rank,               // tp_rank
         expert_shard_type,            // expert_shard_type
@@ -553,8 +558,8 @@ std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Te
         packed_recv_x,
         packed_recv_x_scales,  // dynamicScalesOut
         expandIdx,
-        expertTokenNumsOut,
-        packed_recv_count,
+        packed_recv_count,      // expertTokenNumsOut
+        ep_recv_count,
         tp_recv_count,
         expandScales);
 
@@ -562,7 +567,7 @@ std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Te
     std::optional<EventHandle> event;
 
     // Return values
-    return {packed_recv_x, packed_recv_x_scales, packed_recv_count, expandIdx, expertTokenNumsOut, event, std::function<void()>([]{})};
+    return {packed_recv_x, packed_recv_x_scales, packed_recv_count, expandIdx, ep_recv_count, event, std::function<void()>([]{})};
 }
 
 int Buffer::get_rdma_rank() const {
@@ -572,7 +577,7 @@ int Buffer::get_rdma_rank() const {
 std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>> Buffer::low_latency_combine(
     const at::Tensor &x, const at::Tensor &topk_idx, const at::Tensor &topk_weights, const at::Tensor &src_info,
     const at::Tensor &layout_range, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
-    const at::Tensor &ep_send_count, bool zero_copy, bool async, bool return_recv_hook,
+    const at::Tensor &packed_recv_count, bool zero_copy, bool async, bool return_recv_hook,
     const std::optional<at::Tensor> &out)
 {
     at::Tensor new_idx = topk_idx;
@@ -595,18 +600,19 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     // EP_HOST_ASSERT(x.size(0) == num_experts / num_ranks);
 
     // get ep & tp name
-    char hcom_ep_name[128];
+    char hcom_ep_name[HCOMM_NAME_LEN];
     if (!moe_all_to_all_group_name.empty()) {
         std::memcpy(hcom_ep_name, moe_all_to_all_group_name.data(), moe_all_to_all_group_name.size() + 1);
     } else {
         HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
     }
+    char hcom_tp_name[HCOMM_NAME_LEN] = {0};
 
     auto device = x.device();
     at::Tensor expand_x = x;
     at::Tensor expert_ids = new_idx;
     at::Tensor expand_idx = src_info; // handle[0] = src_info
-    at::Tensor ep_send_counts = ep_send_count;
+    at::Tensor ep_send_counts = layout_range;
     at::Tensor expert_scales = new_scales;
     at::Tensor tp_send_counts = at::empty({1}, at::dtype(at::kInt).device(device));
     at::Tensor x_active_mask, activation_scale, weight_scale, group_list, expand_scales;
@@ -646,7 +652,7 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
         num_ranks,
         rank,
         num_experts,
-        hcom_ep_name,
+        hcom_tp_name,
         tp_world_size,
         tp_rankId,
         expert_shared_type,

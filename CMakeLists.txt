@@ -11,7 +11,7 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE RELEASE)
 endif()
 
-add_compile_options(-hno-unused-parameter -lno-unused-function -Wunused-variable -Wunused-value -Wcast-align)
+add_compile_options(-hno-unused-parameter -lno-unused-function -Wunused-value -Wcast-align)
 add_compile_options(-Wcast-qual -Winvalid-pch -Wwrite-strings -Wsign-compare -Wextra)
 
 if (${CMAKE_BUILD_TYPE} MATCHES "RELEASE")
@@ -32,5 +32,13 @@ include(cmake/config_git_last_commit.cmake)
 include(cmake/config_envs.cmake)
 include(cmake/config_ascend.cmake)
 
-add_subdirectory(csrc)
+if (NOT DEFINED BUILD_TYPE)
+    set(BUILD_TYPE "")
+endif ()
+
+message(STATUS "Build type: ${BUILD_TYPE}")
+
+if (BUILD_TYPE STREQUAL "")
+    add_subdirectory(csrc)
+endif ()
 add_subdirectory(csrc/deepep)
