@@ -4,6 +4,9 @@ project(sgl-kernel-npu LANGUAGES CXX)
 option(BUILD_PYTHON "build python SDK" ON)
 option(BUILD_TESTS  "build test or not" OFF)
 
+option(BUILD_DEEPEP_MODULE "build deepep" ON)
+option(BUILD_KERNELS_MODULE  "build kernels" OFF)
+
 set(CMAKE_CXX_STANDARD 17)
 #set(CMAKE_VERBOSE_MAKEFILE ON)
 
@@ -32,13 +35,10 @@ include(cmake/config_git_last_commit.cmake)
 include(cmake/config_envs.cmake)
 include(cmake/config_ascend.cmake)
 
-if (NOT DEFINED BUILD_TYPE)
-    set(BUILD_TYPE "")
-endif ()
-
-message(STATUS "Build type: ${BUILD_TYPE}")
-
-if (BUILD_TYPE STREQUAL "")
+if (BUILD_KERNELS_MODULE STREQUAL "ON")
     add_subdirectory(csrc)
 endif ()
-add_subdirectory(csrc/deepep)
+
+if (BUILD_DEEPEP_MODULE STREQUAL "ON")
+    add_subdirectory(csrc/deepep)
+endif ()
