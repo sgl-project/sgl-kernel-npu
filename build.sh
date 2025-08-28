@@ -1,16 +1,28 @@
 #!/bin/bash
 set -e
 
-BUILD_TYPE=""
+BUILD_DEEPEP_MODULE="ON"
+BUILD_KERNELS_MODULE="ON"
 
 while getopts ":a:" opt; do
     case ${opt} in
         a )
+            BUILD_DEEPEP_MODULE="OFF"
+            BUILD_KERNELS_MODULE="OFF"
             BUILD_TYPE=$OPTARG
-            if [[ "$BUILD_TYPE" != "deepep" ]]; then
-                echo "Error: Invalid value, only 'deepep' is allowed"
-                exit 1
-            fi
+            case "$OPTARG" in
+                deepep )
+                    BUILD_DEEPEP_MODULE="ON"
+                    ;;
+                kernels )
+                    BUILD_KERNELS_MODULE="ON"
+                    ;;
+                * )
+                    echo "Error: Invalid Value"
+                    echo "Allowed value: deepep, kernels"
+                    exit 1
+                    ;;
+            esac
             ;;
         \? )
             echo "Error: unknown flag: -$OPTARG" 1>&2
@@ -56,7 +68,7 @@ function build_kernels()
     rm -rf $BUILD_DIR
     mkdir -p $BUILD_DIR
 
-    cmake $COMPILE_OPTIONS -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" -DASCEND_HOME_PATH=$ASCEND_HOME_PATH -DSOC_VERSION=$SOC_VERSION -DBUILD_TYPE=$BUILD_TYPE -B "$BUILD_DIR" -S .
+    cmake $COMPILE_OPTIONS -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" -DASCEND_HOME_PATH=$ASCEND_HOME_PATH -DSOC_VERSION=$SOC_VERSION -DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE -DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE -B "$BUILD_DIR" -S .
     cmake --build "$BUILD_DIR" -j8 && cmake --build "$BUILD_DIR" --target install
     cd -
 }
