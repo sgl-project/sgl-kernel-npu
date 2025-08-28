@@ -5,7 +5,7 @@ option(BUILD_PYTHON "build python SDK" ON)
 option(BUILD_TESTS  "build test or not" OFF)
 
 option(BUILD_DEEPEP_MODULE "build deepep" ON)
-option(BUILD_KERNELS_MODULE  "build kernels" OFF)
+option(BUILD_KERNELS_MODULE  "build kernels" ON)
 
 set(CMAKE_CXX_STANDARD 17)
 #set(CMAKE_VERBOSE_MAKEFILE ON)
