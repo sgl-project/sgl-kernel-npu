@@ -19,20 +19,20 @@ using namespace custom_assign;
         } \
     } while (0)
 
-at::Tensor GetTilingTensor(CustomAssignTilingData &tilingData, size_t tilingSize)
+HOST_API at::Tensor GetTilingTensor(CustomAssignTilingData &tilingData, size_t tilingSize)
 {
-    auto buffer = at::empty({tilingSize}, at::kByte);
+    auto buffer = at::empty({static_cast<int64_t>(tilingSize)}, at::kByte);
     tilingData.SetToBuffer(buffer.data_ptr<uint8_t>(), tilingSize);
     auto tilingTensor = TorchNpuHepler::CopyTensorHostToDevice(buffer);
     return tilingTensor;
 }
 
-size_t GetElementByteSize(const at::Tensor& tensor) {
+HOST_API size_t GetElementByteSize(const at::Tensor& tensor) {
     at::ScalarType dtype = tensor.scalar_type();
     return at::elementSize(dtype);
 }
 
-bool RunCustomAssign(at::Tensor &dstTensor, const at::Tensor &srcTensor,
+HOST_API bool assign_cache_op(at::Tensor &dstTensor, const at::Tensor &srcTensor,
     const at::Tensor &dstStartIdx, const at::Tensor &dstEndIdx,
     const at::Tensor &srcStartIdx, const at::Tensor &srcEndIdx
     )

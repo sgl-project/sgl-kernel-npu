@@ -18,8 +18,8 @@ at::Tensor helloworld(const at::Tensor &x, const at::Tensor &y);
 at::Tensor cache_loc_assign(const at::Tensor &req_indices, const at::Tensor &token_pool,
     const at::Tensor &start_offset, const at::Tensor &end_offset, const at::Tensor &out_cache_loc);
 
-bool RunCustomAssign(at::Tensor &dstTensor, const at::Tensor &srcTensor, const at::Tensor &dstStartIdx,
-    const at::Tensor &dstEndIdx, const at::Tensor &srcStartIdx, const at::Tensor &srcEndIdx);
+bool assign_cache_op(at::Tensor &dst_tensor, const at::Tensor &src_tensor, const at::Tensor &dst_start_idx,
+    const at::Tensor &dst_end_idx, const at::Tensor &src_start_idx, const at::Tensor &src_end_idx);
 
 void alloc_extend(const at::Tensor &pre_lens, const at::Tensor &seq_lens,
     const at::Tensor &last_loc, const at::Tensor &free_pages, int64_t pages_size, at::Tensor &out_indices, at::Tensor &values);

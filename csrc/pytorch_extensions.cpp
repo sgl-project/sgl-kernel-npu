@@ -29,7 +29,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
     m.def("cache_loc_assign(Tensor req_indices, Tensor token_pool, Tensor start_offset, Tensor end_offset, Tensor "
           "out_cache_loc) -> Tensor");
 
-    m.def("assign_cache_op(Tensor! out, Tensor src, Tensor dst_start_idx, Tensor dst_end_idx, Tensor src_start_idx, "
+    m.def("assign_cache_op(Tensor! dst_tensor, Tensor src_tensor, Tensor dst_start_idx, Tensor dst_end_idx, Tensor src_start_idx, "
             "Tensor src_end_idx) -> bool");
 
     m.def("mla_preprocess(Tensor hiddenState, Tensor gamma0, Tensor beta0, Tensor wdqkv, "
@@ -54,8 +54,7 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("cache_loc_assign", TORCH_FN(sglang::npu_kernel::cache_loc_assign));
 
     m.impl("alloc_extend", TORCH_FN(sglang::npu_kernel::alloc_extend));
-
-    m.impl("assign_cache_op", TORCH_FN(sglang::npu_kernel::RunCustomAssign));
+    m.impl("assign_cache_op", TORCH_FN(sglang::npu_kernel::assign_cache_op));
     m.impl("mla_preprocess", TORCH_FN(sglang::npu_kernel::mla_preprocess));
 }
 }  // namespace
