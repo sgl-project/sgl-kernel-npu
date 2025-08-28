@@ -9,7 +9,6 @@ while getopts ":a:" opt; do
         a )
             BUILD_DEEPEP_MODULE="OFF"
             BUILD_KERNELS_MODULE="OFF"
-            BUILD_TYPE=$OPTARG
             case "$OPTARG" in
                 deepep )
                     BUILD_DEEPEP_MODULE="ON"
