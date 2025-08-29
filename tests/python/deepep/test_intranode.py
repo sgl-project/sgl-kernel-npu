@@ -8,7 +8,7 @@ import deep_ep
 from utils import init_dist, inplace_unique, bench, per_token_cast_back, calc_diff
 
 # noinspection PyShadowingNames
-def test_main(args: argparse.Namespace, num_sms: int, local_rank: int, num_ranks: int, rank: int,
+def test_main(args: argparse.Namespace, local_rank: int, num_ranks: int, rank: int,
               buffer: deep_ep.Buffer, group: dist.ProcessGroup):
     # Settings
     num_tokens, hidden = args.num_tokens, args.hidden
@@ -75,8 +75,8 @@ def test_main(args: argparse.Namespace, num_sms: int, local_rank: int, num_ranks
     time.sleep(1)
 
     # Config
-    nvl_buffer_size = 256
-    config = deep_ep.Config(num_sms, 8, nvl_buffer_size)
+    buffer_size = 256
+    config = deep_ep.Config(24, 8, buffer_size)
 
     # Random data
     x = torch.ones((num_tokens, hidden), dtype=torch.bfloat16, device='npu') * rank
@@ -121,8 +121,8 @@ def test_main(args: argparse.Namespace, num_sms: int, local_rank: int, num_ranks
         assert calc_diff(check_x, ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)) < 5e-6
 
         # For later tuning
-        dispatch_bf16_nvl_recv_bytes = recv_x.numel() * 2
-        combine_bf16_nvl_send_bytes = dispatch_bf16_nvl_recv_bytes
+        dispatch_bf16_recv_bytes = recv_x.numel() * 2
+        combine_bf16_send_bytes = dispatch_bf16_recv_bytes
 
         if local_rank == 0:
             print(' passed', flush=True)
@@ -131,16 +131,16 @@ def test_main(args: argparse.Namespace, num_sms: int, local_rank: int, num_ranks
 
     # Tune dispatch performance
     fp8_factor = (1 + 4 / 128) / 2
-    config = deep_ep.Config(num_sms, 8, nvl_buffer_size)
+    config = deep_ep.Config(24, 8, buffer_size)
     for current_x in filter(lambda elem: elem is not None, (x, )):
-        nvl_recv_bytes = (dispatch_bf16_nvl_recv_bytes * fp8_factor) if isinstance(current_x, tuple) else dispatch_bf16_nvl_recv_bytes
+        recv_bytes = (dispatch_bf16_recv_bytes * fp8_factor) if isinstance(current_x, tuple) else dispatch_bf16_recv_bytes
 
         tune_args = {'x': current_x, 'config': config, 'num_tokens_per_rank': num_tokens_per_rank,  'is_token_in_rank': is_token_in_rank,
                 'num_tokens_per_expert': num_tokens_per_expert, 'topk_idx': topk_idx, 'topk_weights': topk_weights}
 
         t = bench(lambda: buffer.dispatch(**tune_args))[0]
         if local_rank == 0:
-            print(f'[tuning] Dispatch ({"FP8" if isinstance(current_x, tuple) else "BF16"}) {nvl_recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us', flush=True)
+            print(f'[tuning] Dispatch ({"FP8" if isinstance(current_x, tuple) else "BF16"}) {recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us', flush=True)
             print('', flush=True)
 
     dispatch_args = {'x': x, 'num_tokens_per_rank': num_tokens_per_rank,
@@ -152,7 +152,7 @@ def test_main(args: argparse.Namespace, num_sms: int, local_rank: int, num_ranks
     tune_args = {'x': recv_x, 'handle': handle, 'config': config, 'async_finish': False, 'topk_weights': handle[7]}
     t = bench(lambda: buffer.combine(**tune_args))[0]
     if local_rank == 0:
-        print(f'[tuning] Combine {combine_bf16_nvl_send_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us', flush=True)
+        print(f'[tuning] Combine {combine_bf16_send_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us', flush=True)
         print('', flush=True)
 
 
@@ -165,10 +165,9 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     print(f"[Rank {rank}] Buffer created OK.", flush=True)
     torch.manual_seed(rank)
 
-    for i in (24, ):
-        test_main(args, i, local_rank, num_ranks, rank, buffer, group)
-        if local_rank == 0:
-            print('', flush=True)
+    test_main(args, local_rank, num_ranks, rank, buffer, group)
+    if local_rank == 0:
+        print('', flush=True)
 
     dist.barrier()
     dist.destroy_process_group()
