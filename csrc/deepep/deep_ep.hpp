@@ -17,7 +17,7 @@ struct Buffer {
     int64_t rank, rdma_rank;
     int64_t num_ranks;
 
-    int64_t num_nvl_bytes;
+    int64_t num_hccs_bytes;
     int64_t num_rdma_bytes;
 
     bool low_latency_mode = false;
@@ -40,7 +40,7 @@ private:
     bool available = false;
 
 public:
-    Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
+    Buffer(int64_t rank, int64_t num_ranks, int64_t num_hccs_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
            std::string moe_all_to_all_group_name);
 
     ~Buffer() noexcept(false);
