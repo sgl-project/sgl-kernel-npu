@@ -239,7 +239,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::CopyBufferToSha
                                                                                    uint32_t srcTopkId, uint32_t tkIndex)
 {
     uint32_t tokenOffset = tkIndex * axisH_;
-    GM_ADDR dstGM = GetBufferAddrByRankId(srcRankId) + (srcTopkId * axisK_ + srcTopkId) * h512AlignRecvXLen_;
+    GM_ADDR dstGM = GetBufferAddrByRankId(srcRankId) + (srcTokenId * axisK_ + srcTopkId) * h512AlignRecvXLen_;
     GlobalTensor<XType> dstWindow;
     dstWindow.SetGlobalBuffer((__gm__ XType*)dstGM);
     DataCopyExtParams xOutCopyParams{1U, static_cast<uint32_t>(hRecvXTypeLen_), 0U, 0U, 0U};
