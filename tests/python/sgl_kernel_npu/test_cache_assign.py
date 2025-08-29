@@ -63,9 +63,9 @@ def test_op(req_indx_type):
     ascendC_spend_time = 0
     start = 0
     iter = 20
-
+    
     for i in range(iter):
-        if i > 0:
+        if i == 1:
             start = time.time()
         assign_req_to_token_pool_golden(
             req_pool_indices, token_pool_copy, start_offset, end_offset, out_cache_loc, bs)
@@ -73,32 +73,33 @@ def test_op(req_indx_type):
     golden_spend_time += (time.time() - start) * 1000
 
     for j in range(iter):
-        if j > 0:
+        if j == 1:
             start = time.time()
         assign_req_to_token_pool_native(req_pool_indices, token_pool_copy2, start_offset, end_offset, out_cache_loc, bs)
     torch.npu.synchronize()
     torch_spend_time += (time.time() - start) * 1000
 
+
     for k in range(iter):
-        if k > 0:
+        if k == 1:
             start = time.time()
         torch.ops.npu.cache_loc_assign(req_pool_indices, token_pool, start_offset, end_offset, out_cache_loc)
     torch.npu.synchronize()
-    ascendC_spend_time += (time.time() - start) * 1000
+    ascendC_spend_time += (time.time() - start) * 1000 
 
     accuracy = (token_pool == token_pool_copy).all() and (token_pool == token_pool_copy2).all()
     diff_num = ((token_pool != token_pool_copy).sum()).cpu()
-    assert accuracy == True
-    assert diff_num == torch.tensor([0])
     print(f"{req_indx_type} accuracy: {accuracy}")
     print(f"{req_indx_type} diff_num: {diff_num}")
     print(f"{req_indx_type} golden spend time:  {golden_spend_time / iter} ms")
     print(f"{req_indx_type} torch native spend time:  {torch_spend_time / iter} ms")
     print(f"{req_indx_type} ascend C spend time:  {ascendC_spend_time / iter} ms")
+    assert accuracy == True
+    assert diff_num == torch.tensor([0])
 
 
 if __name__ == '__main__':
-    bs = 50
+    bs = 300
     max_seq_len = 16384
     max_cache_loc = 10000
 
