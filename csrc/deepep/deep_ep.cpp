@@ -11,7 +11,6 @@
 namespace deep_ep {
 constexpr int PADDING_SIZE = 3;
 constexpr size_t HCOMM_NAME_LEN = 128;
-constexpr double SCALE_SIZE = 1.5;
 
 Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
                std::string moe_all_to_all_group_name)
@@ -312,8 +311,8 @@ Buffer::intranode_dispatch(const at::Tensor& x, const std::optional<at::Tensor>&
     int64_t tp_size = 1;
     int64_t tp_rank = 0;
     int64_t quant_mode = 0;
-    int64_t global_bs = static_cast<int64_t>(std::ceil(
-        std::max(num_max_dispatch_tokens_per_rank * num_ranks, static_cast<int64_t>(num_worst_tokens)) * SCALE_SIZE));
+    int64_t global_bs = static_cast<int64_t>(
+        std::max(num_max_dispatch_tokens_per_rank * num_ranks, static_cast<int64_t>(num_worst_tokens)));
 
     auto send_token_idx = send_token_idx_cpu.to(x.device());
     auto recv_offset = recv_offset_cpu.to(x.device());
