@@ -10,9 +10,6 @@ namespace CamMoeCombineNormalImpl {
 constexpr uint32_t RANK_ID_OFFSET_IN_SRC_INFO = 0U;
 constexpr uint32_t TOKEN_IDX_OFFSET_IN_SRC_INFO = 1U;
 constexpr uint32_t TOPK_IDX_OFFSET_IN_SRC_INFO = 2U;
-constexpr uint32_t RANK_ID_OFFSET_IN_STATUS = 6U;
-constexpr uint32_t TOKEN_IDX_OFFSET_IN_STATUS = 7U;
-constexpr uint32_t STATUS_NUM = 6U;
 constexpr uint64_t COMBINE_STATE_WIN_OFFSET = 3UL * 1024UL * 1024UL;
 constexpr uint64_t MAGIC_WIN_OFFSET = 975UL * 1024UL;
 constexpr uint32_t TOKEN_SRC_INFO_LEN = 3U;
@@ -49,10 +46,10 @@ private:
     __aicore__ inline void InitTilingData(const CamMoeCombineNormalTilingData *tilingData);
     __aicore__ inline void InitBuffLen();
     __aicore__ inline void CopyBufferToShareAndSetStatus();
-    __aicore__ inline void CopyBufferToShare(uint32_t tkIndex);
+    __aicore__ inline void CopyBufferToShare(uint32_t srcRankId, uint32_t srcTokenId, uint32_t srcTopkId, uint32_t tkIndex);
     __aicore__ inline void ReadBufferFromRemote();
     __aicore__ inline void WaitBuffCopy(uint32_t tokenIndex);
-    __aicore__ inline void SetStatusBySrcInfo(uint32_t srcRankId, uint32_t srcTokenId, uint32_t srcTopkId, uint32_t tkIndex);
+    __aicore__ inline void SetStatusBySrcInfo(uint32_t srcRankId, uint32_t srcTokenId, uint32_t srcTopkId);
     __aicore__ inline void ReadBufferAndWeightedSum(uint32_t tokenIndex, uint32_t startTokenIndex);
 
     __aicore__ GM_ADDR GetStateAddrByRankId(const int32_t rankId)
@@ -226,24 +223,25 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::CopyBufferToSha
 
     SyncFunc<AscendC::HardEvent::MTE2_S>();
     for (uint32_t tokenIndex = startTokenId; tokenIndex < endTokenId; tokenIndex++) {
-        CopyBufferToShare(tokenIndex);
-        PipeBarrier<PIPE_ALL>();
         uint32_t index = (tokenIndex - startTokenId) * TOKEN_SRC_INFO_LEN;
         uint32_t srcRankId  = static_cast<uint32_t>(srcInfoLocal(index + RANK_ID_OFFSET_IN_SRC_INFO));
         uint32_t srcTokenId = static_cast<uint32_t>(srcInfoLocal(index + TOKEN_IDX_OFFSET_IN_SRC_INFO));
         uint32_t srcTopkId  = static_cast<uint32_t>(srcInfoLocal(index + TOPK_IDX_OFFSET_IN_SRC_INFO));
-        SetStatusBySrcInfo(srcRankId, srcTokenId, srcTopkId, tokenIndex);
+        CopyBufferToShare(srcRankId, srcTokenId, srcTopkId, tokenIndex);
+        PipeBarrier<PIPE_ALL>();
+        SetStatusBySrcInfo(srcRankId, srcTokenId, srcTopkId);
     }
     SyncFunc<AscendC::HardEvent::MTE3_S>();
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::CopyBufferToShare(uint32_t tkIndex)
+__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::CopyBufferToShare(uint32_t srcRankId, uint32_t srcTokenId,
+                                                                                   uint32_t srcTopkId, uint32_t tkIndex)
 {
     uint32_t tokenOffset = tkIndex * axisH_;
-    GM_ADDR rankGM = localRankGM_ + tkIndex * h512AlignRecvXLen_;
-    GlobalTensor<XType> localRankWindow;
-    localRankWindow.SetGlobalBuffer((__gm__ XType*)rankGM);
+    GM_ADDR dstGM = GetBufferAddrByRankId(srcRankId) + (srcTopkId * axisK_ + srcTopkId) * h512AlignRecvXLen_;
+    GlobalTensor<XType> dstWindow;
+    dstWindow.SetGlobalBuffer((__gm__ XType*)dstGM);
     DataCopyExtParams xOutCopyParams{1U, static_cast<uint32_t>(hRecvXTypeLen_), 0U, 0U, 0U};
     DataCopyPadExtParams<RecvXType> copyPadExtParams{false, 0U, 0U, 0U};
 
@@ -252,18 +250,16 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::CopyBufferToSha
     DataCopyPad(localCopyTensor, recvXGM_[tokenOffset], xOutCopyParams, copyPadExtParams);
     localCopyQueue_.EnQue(localCopyTensor);
     localCopyTensor = localCopyQueue_.DeQue<RecvXType>();
-    DataCopyPad(localRankWindow, localCopyTensor, xOutCopyParams);
+    DataCopyPad(dstWindow, localCopyTensor, xOutCopyParams);
     localCopyQueue_.FreeTensor<RecvXType>(localCopyTensor);
 }
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::SetStatusBySrcInfo(uint32_t srcRankId, uint32_t srcTokenId,
-                                                                                    uint32_t srcTopkId, uint32_t tkIndex)
+                                                                                    uint32_t srcTopkId)
 {
     LocalTensor<uint32_t> statusTensor = stateBuf_.AllocTensor<uint32_t>();
-    statusTensor.SetValue(RANK_ID_OFFSET_IN_STATUS, epRankId_);
-    statusTensor.SetValue(TOKEN_IDX_OFFSET_IN_STATUS, tkIndex);
-    GM_ADDR stateGM = GetStateAddrByRankId(srcRankId) + srcTokenId * axisK_ * UB_32_ALIGN + srcTopkId * UB_32_ALIGN;
+    GM_ADDR stateGM = GetStateAddrByRankId(srcRankId) + (srcTokenId * axisK_ + srcTopkId) * UB_32_ALIGN;
     GlobalTensor<uint32_t> stateGMTensor;
     stateGMTensor.SetGlobalBuffer((__gm__ uint32_t*)stateGM);
     DataCopy<uint32_t>(stateGMTensor, statusTensor, FLOAT_NUM_PER_ALIGN);
@@ -277,9 +273,8 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::WaitBuffCopy(ui
     GlobalTensor<float> stateGMTensor;
     stateGMTensor.SetGlobalBuffer((__gm__ float*)stateGM);
     float current = (float)0.0;
-    float target  = (float)1.0 * axisK_ * STATUS_NUM;
-    SumParams sumPerKParams{axisK_, FLOAT_NUM_PER_ALIGN, STATUS_NUM};
-    SumParams sumTokenParams{1, axisK_, axisK_};
+    float target  = (float)1.0 * axisK_ * FLOAT_NUM_PER_ALIGN;
+    SumParams sumPerKParams{1, calCount, calCount};
     LocalTensor<float> stateTensorLocal = stateBuf_.Get<float>();
     LocalTensor<float> tempStateTensorLocal = tempStateBuf_.Get<float>();
     while (current != target) {
@@ -287,8 +282,6 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::WaitBuffCopy(ui
         DataCopy<float>(stateTensorLocal, stateGMTensor, calCount);
         SyncFunc<AscendC::HardEvent::MTE2_V>();
         Sum(tempStateTensorLocal, stateTensorLocal, sumPerKParams);
-        SyncFunc<AscendC::HardEvent::V_V>();
-        Sum(tempStateTensorLocal, tempStateTensorLocal, sumTokenParams);
         SyncFunc<AscendC::HardEvent::V_S>();
         current = tempStateTensorLocal(0);
     }
@@ -311,16 +304,14 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::ReadBufferAndWe
     const DataCopyExtParams xOutCopyParams{1U, static_cast<uint32_t>(hRecvXTypeLen_), 0U, 0U, 0U};
 
     for (uint32_t topkId = 0U; topkId < axisK_; topkId++) {
-        uint32_t remoteRankId = stateTensorLocal.GetValue(topkId * FLOAT_NUM_PER_ALIGN + RANK_ID_OFFSET_IN_STATUS);
-        uint32_t remoteTokenIndex = stateTensorLocal.GetValue(topkId * FLOAT_NUM_PER_ALIGN + TOKEN_IDX_OFFSET_IN_STATUS);
         float scale = topkWeightsLocal.GetValue((tokenIndex - startTokenIndex) * axisK_ + topkId);
-        GM_ADDR remoteTokenAddr = (__gm__ uint8_t*)(GetBufferAddrByRankId(remoteRankId)) + remoteTokenIndex * h512AlignRecvXLen_;
-        GlobalTensor<XType> remoteTokenATensor;
-        remoteTokenATensor.SetGlobalBuffer((__gm__ XType*)remoteTokenAddr);
+        GM_ADDR localTokenAddr = localRankGM_ + (tokenIndex * axisK_ + topkId) * h512AlignRecvXLen_;
+        GlobalTensor<XType> localTokenTensor;
+        localTokenTensor.SetGlobalBuffer((__gm__ XType*)localTokenAddr);
 
         LocalTensor<XType> tmpToken = weightedSumQueue_.AllocTensor<XType>();
         const DataCopyPadExtParams<RecvXType> copyPadExtParams{false, 0U, 0U, 0U};
-        DataCopyPad(tmpToken, remoteTokenATensor, xOutCopyParams, copyPadExtParams);
+        DataCopyPad(tmpToken, localTokenTensor, xOutCopyParams, copyPadExtParams);
         weightedSumQueue_.EnQue(tmpToken);
         tmpToken = weightedSumQueue_.DeQue<XType>();
         Cast(tokenFloatLocal, tmpToken, AscendC::RoundMode::CAST_NONE, axisH_);
