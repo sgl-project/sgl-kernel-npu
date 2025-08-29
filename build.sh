@@ -123,15 +123,21 @@ function make_sgl_kernel_npu_package()
 function main()
 {
     build_kernels
-    build_deepep_kernels
 
+    if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
+        build_deepep_kernels
+    fi
     if pip3 show wheel;then
         echo "wheel has been installed"
     else
         pip3 install wheel
     fi
-    make_deepep_package
-    make_sgl_kernel_npu_package
+    if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
+        make_deepep_package
+    fi
+    if [[ "$BUILD_KERNELS_MODULE" == "ON" ]]; then
+        make_sgl_kernel_npu_package
+    fi
 }
 
 main
