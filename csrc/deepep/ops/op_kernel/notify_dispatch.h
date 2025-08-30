@@ -12,14 +12,14 @@
 using namespace AscendC;
 using namespace Moe;
 
-#define KERNELS_ARGS_FUN_ALL2ALL()                                                                        \
-    GM_ADDR input, GM_ADDR output, int64_t len, int op, int root, \
-        int cycleCount, GM_ADDR scale, int64_t scaleCount, GM_ADDR offset, int localRank, int localRankSize, \
-        GM_ADDR commArgs, int isCamComm, int magic
+#define KERNELS_ARGS_FUN_ALL2ALL()                                                                                  \
+    GM_ADDR sendDataInput, GM_ADDR tokenPerExpertDataInput, GM_ADDR sendDataOffsetOutput, GM_ADDR recvDataOutput,   \
+        int64_t len, int64_t numTokens, int op, int root, int cycleCount, GM_ADDR scale, int64_t scaleCount,        \
+        GM_ADDR offset, int localRank, int localRankSize, GM_ADDR commArgs, int magic
 
 #define KERNELS_ARGS_CALL_ALL2ALL()                                                                         \
-    input, output, len, op, root, cycleCount, scale, scaleCount, offset, localRank, \
-        localRankSize, commArgs, isCamComm, magic
+    sendDataInput, tokenPerExpertDataInput, sendDataOffsetOutput, recvDataOutput, len, numTokens, op, root, \
+    cycleCount, scale, scaleCount, offset, localRank, localRankSize, commArgs, magic
 
 template <typename T>
 class NotifyDispatch {
@@ -53,19 +53,32 @@ public:
         localNodeId = rank / localRankSize;
         perNodeDataNum = GetDataCount(len, nodeNum);   // 128K/4 = 32K
         perRankDataNum = GetDataCount(len, rankSize);  // 128K/64 = 2K
+
+        tokenPerExpertDataAlignLen = Ceil(numExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
+        sendDataOffsetAlignLen = Ceil(numExperts * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
+        sendDataAlignLen = Ceil(numExperts * sendPerGroup * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
+
         // Initialize core grouping
         InitCoreGroup();
         // Initialize data slicing
         InitDataSlice();
 
-        this->input = (__gm__ T *)input;
-        this->output = (__gm__ T *)output;
-        inputGt.SetGlobalBuffer((__gm__ T *)input);
-        outputGt.SetGlobalBuffer((__gm__ T *)output);
+        this->sendDataInput = (__gm__ T *)sendDataInput;
+        this->tokenPerExpertDataInput = (__gm__ int32_t *)tokenPerExpertDataInput;
+        this->sendDataOffsetOutput = (__gm__ T *)sendDataOffsetOutput;
+        this->recvDataOutput = (__gm__ T *)recvDataOutput;
+        sendDataInputGt.SetGlobalBuffer((__gm__ T *)sendDataInput);
+        tokenPerExpertDataInputGt.SetGlobalBuffer((__gm__ int32_t *)tokenPerExpertDataInput);
+        sendDataOffsetOutputGt.SetGlobalBuffer((__gm__ T *)sendDataOffsetOutput);
+        recvDataOutputGt.SetGlobalBuffer((__gm__ T *)recvDataOutput);
     }
 
     __aicore__ inline void Process()
     {
+        if (blockIdx < 1) {
+            AssembleSendData();
+        }
+        SyncAll<true>();
         if (blockIdx < coreNumPerStageX) {
             InputToShareSlice();
         }
@@ -96,6 +109,39 @@ private:
         writeGt.SetGlobalBuffer((__gm__ T *)(shareAddrs[rank] + IPC_DATA_OFFSET));
     }
 
+    __aicore__ inline void AssembleSendData()
+    {
+        pipe.InitBuffer(tokenPerExpertDataBuf, tokenPerExpertDataAlignLen);
+        pipe.InitBuffer(sendDataBuf, sendDataAlignLen);
+        pipe.InitBuffer(sendDataOffsetBuf, sendDataOffsetAlignLen);
+
+        __ubuf__ int32_t *tokenPerExpertUB = (__ubuf__ int32_t *)get_imm(96);
+        CpGM2UB(tokenPerExpertUB, (__gm__ int32_t *)tokenPerExpertDataInputGt.GetPhyAddr(), tokenPerExpertDataAlignLen);
+        AscendC::SetFlag<HardEvent::MTE2_S>(EVENT_ID0);
+        AscendC::WaitFlag<HardEvent::MTE2_S>(EVENT_ID0);
+
+        __ubuf__ T *sendDataOffsetUB = (__ubuf__ T *)get_imm(96 + tokenPerExpertDataAlignLen);
+        __ubuf__ T *sendDataUB = (__ubuf__ T *)get_imm(96 + tokenPerExpertDataAlignLen + sendDataOffsetAlignLen);
+
+        int prefixSum = 0;
+        for (int i = 0; i < numExperts; ++i) {
+            int numTokensExpert = tokenPerExpertUB[i];
+            sendDataUB[i * sendPerGroup] = numTokensExpert;
+            sendDataUB[i * sendPerGroup + 1] = prefixSum;
+            sendDataUB[i * sendPerGroup + 2] = numTokens;
+            sendDataOffsetUB[i] = prefixSum;
+
+            prefixSum += numTokensExpert;
+        }
+        AscendC::SetFlag<HardEvent::S_MTE3>(EVENT_ID0);
+        AscendC::WaitFlag<HardEvent::S_MTE3>(EVENT_ID0);
+
+        CpUB2GM((__gm__ T *)sendDataInputGt.GetPhyAddr(), sendDataUB, sendDataAlignLen);
+        CpUB2GM((__gm__ T *)sendDataOffsetOutputGt.GetPhyAddr(), sendDataOffsetUB, sendDataOffsetAlignLen);
+        AscendC::SetFlag<HardEvent::MTE3_S>(EVENT_ID0);
+        AscendC::WaitFlag<HardEvent::MTE3_S>(EVENT_ID0);
+    }
+
     // copy input to other rank share
     __aicore__ inline void InputToShareSlice()
     {
@@ -103,7 +149,7 @@ private:
         int64_t copyOffset = blockIdx * rankNumPerCore;
         copyLen = rankSize - copyOffset < rankNumPerCore ? rankSize - copyOffset : rankNumPerCore;
         if (copyLen > 0) {
-            readGt = inputGt[copyOffset * perRankDataNum];
+            readGt = sendDataInputGt[copyOffset * perRankDataNum];
             CpGM2GMPingPong<T>(
                 copyLen * perRankDataNum * sizeof(T), readGt, writeGt[copyOffset * perRankDataNum], COPYONLY);
             int64_t v = MergeMagicWithValue(magic, 1);
@@ -143,15 +189,14 @@ private:
             for (int i = 0; i < copyLen; i++) {
                 CpGM2GMPingPong<T>(perRankDataNum * sizeof(T),
                     readGt1[i][rank * perRankDataNum],
-                    outputGt[checkRank[i] * perRankDataNum],
+                    recvDataOutputGt[checkRank[i] * perRankDataNum],
                     COPYONLY);
             }
         }
     }
 
     FORCE_INLINE_AICORE int64_t GetDataCount(const int64_t dataLen, const int64_t useBlockNum);
-    __aicore__ inline GM_ADDR GetShareAddr(uint32_t isCamComm, const int32_t rankId, uint8_t ctxIdx);
-    __aicore__ inline GM_ADDR GetWindAddrByRankId(uint8_t ctxIdx, const int32_t rankId);
+    __aicore__ inline GM_ADDR GetWindAddrByRankId(const int32_t rankId, uint8_t ctxIdx);
     __aicore__ inline int32_t GetMagicValue(void);
     FORCE_INLINE_AICORE void InitSmallFullMesh(KERNELS_ARGS_FUN_ALL2ALL());
     template <typename F>
@@ -160,18 +205,22 @@ private:
     template<HardEvent eventType>
     FORCE_INLINE_AICORE void SetWaitEvent(event_t eventId);
     template <typename K, typename U = K>
-    FORCE_INLINE_AICORE void CpGM2GMPingPong(int64_t dataSizeRemain, const GlobalTensor<U>& inputGT,
-                                            const GlobalTensor<K>& outputGT, int op);
+    FORCE_INLINE_AICORE void CpGM2GMPingPong(int64_t dataSizeRemain, const GlobalTensor<U>& sendDataInputGt,
+                                            const GlobalTensor<K>& recvDataOutputGT, int op);
 
-    GlobalTensor<T> inputGt;
-    GlobalTensor<T> outputGt;
+    GlobalTensor<T> sendDataInputGt;
+    GlobalTensor<int> tokenPerExpertDataInputGt;
+    GlobalTensor<T> sendDataOffsetOutputGt;
+    GlobalTensor<T> recvDataOutputGt;
     GlobalTensor<T> readGt;
     GlobalTensor<T> writeGt;
     GlobalTensor<T> readGt1[MAX_BUFFER_NUMBER];
     GlobalTensor<T> ipcGT;
     GlobalTensor<int64_t> sendCountMatrixGm;
-    __gm__ T *input;
-    __gm__ T *output;
+    __gm__ T *sendDataInput;
+    __gm__ int *tokenPerExpertDataInput;
+    __gm__ T *sendDataOffsetOutput;
+    __gm__ T *recvDataOutput;
     int64_t isPad = 0;
     int64_t maxSliceNum;
     int64_t revLen = 0;
@@ -217,8 +266,11 @@ private:
     int xRankIdx = 0;
     int yRankIdx = 0;
     uint32_t extraFlag;
+    int numTokens;
+    int sendPerGroup = 3;
     int root;
     int64_t len;
+    int64_t numExperts;
     int64_t magic;
     int64_t blockIdx;  // Index of the current aicore
     int64_t blockNum;  // Total number of aicores for the current rank
@@ -233,6 +285,14 @@ private:
     GlobalTensor<int64_t> dfx;
     TPipe pipe;
     TBuf<QuePosition::VECCALC> tBuf;
+    TBuf<> tokenPerExpertDataBuf;
+    TBuf<> sendDataOffsetBuf;
+    TBuf<> sendDataBuf;
+
+    uint32_t sendDataAlignLen{0};
+    uint32_t tokenPerExpertDataAlignLen{0};
+    uint32_t sendDataOffsetAlignLen{0};
+
     SyncCollectives sync;
 };
 
@@ -243,22 +303,7 @@ FORCE_INLINE_AICORE int64_t NotifyDispatch<T>::GetDataCount(const int64_t dataLe
 }
 
 template <typename T>
-__aicore__ inline GM_ADDR NotifyDispatch<T>::GetShareAddr(uint32_t isCamComm, const int32_t rankId, uint8_t ctxIdx)
-{
-    if (isCamComm) {
-#ifdef OPT_RANK_OFFSET
-#pragma message("use rank offset")
-            return (GM_ADDR)peerMemsAddrGm_.GetValue(rankId)  + rankId * OPT_RANK_OFFSET;
-#else
-            return (GM_ADDR)peerMemsAddrGm_.GetValue(rankId) ;
-#endif
-    } else {
-        return GetWindAddrByRankId(ctxIdx, rankId);
-    }
-}
-
-template <typename T>
-__aicore__ inline GM_ADDR NotifyDispatch<T>::GetWindAddrByRankId(uint8_t ctxIdx, const int32_t rankId)
+__aicore__ inline GM_ADDR NotifyDispatch<T>::GetWindAddrByRankId(const int32_t rankId, uint8_t ctxIdx)
 {
     uint32_t curRankId = rank;
 #ifdef OPT_RANK_OFFSET
@@ -299,6 +344,8 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_A
 {
     this->root = root;
     this->len = len;
+    this->numExperts = len / sendPerGroup;
+    this->numTokens = numTokens;
     this->scale = scale;
     this->localRank = localRank;
     this->localRankSize = localRankSize;
@@ -309,20 +356,12 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_A
     blockIdx = GetBlockIdx();
     blockNum = GetBlockNum();
     uint8_t ctxIdx;
-    if (isCamComm) {
-        this->magic = magic;
-        this->localRank = reinterpret_cast<__gm__ CommArgs *>(commArgs)->localRank;
-        this->localRankSize = reinterpret_cast<__gm__ CommArgs *>(commArgs)->localRankSize;
-        peerMemsAddrGm_.SetGlobalBuffer(&(reinterpret_cast<__gm__ CommArgs *>(commArgs))->peerMems[0],
-                                        CAM_MAX_RANK_SIZE);
-        ctxIdx = 0;
-    } else {
-        winContext_[COMM_EP_IDX] = (__gm__ HcclOpResParam *)AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
-        this->magic = GetMagicValue();
-        ctxIdx = COMM_EP_IDX;
-    }
 
-    shareAddrs[rank] = GetShareAddr(isCamComm, rank, ctxIdx) +
+    winContext_[COMM_EP_IDX] = (__gm__ HcclOpResParam *)AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
+    this->magic = GetMagicValue();
+    ctxIdx = COMM_EP_IDX;
+
+    shareAddrs[rank] = GetWindAddrByRankId(rank, ctxIdx) +
                         (this->magic % PING_PONG_SIZE) * (IPC_BUFF_MAX_SIZE + IPC_DATA_OFFSET);
 
     int64_t rankNumPerCore = (rankSize + MAX_CORE_NUM - 1) / MAX_CORE_NUM;
@@ -330,7 +369,7 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_A
     int64_t copyLen = rankSize - copyOffset < rankNumPerCore ? rankSize - copyOffset : rankNumPerCore;
     if (copyLen > 0) {
         for (int i = copyOffset; i < copyOffset + copyLen; ++i) {
-            shareAddrs[i] = GetShareAddr(isCamComm, i, ctxIdx) +
+            shareAddrs[i] = GetWindAddrByRankId(i, ctxIdx) +
                             (this->magic % PING_PONG_SIZE) * (IPC_BUFF_MAX_SIZE + IPC_DATA_OFFSET);
         }
     }
@@ -340,7 +379,7 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_A
     int maxCore = coreNumPerRank * rankSize;  // Calculate the maximum number of cores that can be used for reading, cores exceeding this number will not take action
     if (blockIdx < maxCore) {
         int readRank = blockIdx / coreNumPerRank;  // Calculate the rank to be read based on the block, 48 cores divided into 4 groups
-        shareAddrs[readRank] = GetShareAddr(isCamComm, readRank, ctxIdx) +
+        shareAddrs[readRank] = GetWindAddrByRankId(readRank, ctxIdx) +
                                 (this->magic % PING_PONG_SIZE) * (IPC_BUFF_MAX_SIZE + IPC_DATA_OFFSET);
     }
 
@@ -354,8 +393,8 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_A
  * @tparam dataSizeRemain The remaining size of data to be copied.
  * @tparam K The type of output data.
  * @tparam U The type of input data.
- * @param inputGT The global tensor of input data.
- * @param outputGT The global tensor of output data.
+ * @param sendDataInputGt The global tensor of send data.
+ * @param recvDataOutputGT The global tensor of recv data.
  * @param op The operation to be performed during the copy.
  * @details This function copies data from global memory to global memory using a ping-pong method.
  * It first checks if the input and output types are the same. If they are, it uses a single buffer.
@@ -364,8 +403,8 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_A
  */
 template <typename T>
 template <typename K, typename U>
-FORCE_INLINE_AICORE void NotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeRemain, const GlobalTensor<U>& inputGT,
-                                                                const GlobalTensor<K>& outputGT, int op)
+FORCE_INLINE_AICORE void NotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeRemain, const GlobalTensor<U>& sendDataInputGt,
+                                                                const GlobalTensor<K>& recvDataOutputGT, int op)
 {
     // General case (U = K), input/output are the same, share one UB
     // Only when conversion is needed (U->K), UB will be divided into two parts according to the ratio of sizeof(U):sizeof(K) and aligned to 32 bytes
@@ -374,8 +413,8 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeRema
     constexpr int32_t inputUbBlockSize = std::is_same_v<K, U> ? ubBlockSize : ubAlignNum * sizeof(U);
     constexpr int32_t outputUbBlockSize = std::is_same_v<K, U> ? ubBlockSize : ubAlignNum * sizeof(K);
 
-    __gm__ U *input = const_cast<__gm__ U *>(inputGT.GetPhyAddr());
-    __gm__ K *output = const_cast<__gm__ K *>(outputGT.GetPhyAddr());
+    __gm__ U *input = const_cast<__gm__ U *>(sendDataInputGt.GetPhyAddr());
+    __gm__ K *output = const_cast<__gm__ K *>(recvDataOutputGT.GetPhyAddr());
     __ubuf__ U* inputUB[2] = {(__ubuf__ U*)(UB_HEAD_OFFSET), (__ubuf__ U*)(UB_MID_OFFSET)};
     __ubuf__ K* outputUB[2] = {(__ubuf__ K*)inputUB[0], (__ubuf__ K*)inputUB[1]};
     if constexpr (!std::is_same_v<K, U>) {

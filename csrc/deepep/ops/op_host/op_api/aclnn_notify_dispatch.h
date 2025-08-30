@@ -11,26 +11,32 @@ extern "C" {
 /* funtion: aclnnNotifyDispatchGetWorkspaceSize
  * parameters :
  * sendData : required
+ * tokenPerExpertData : required
  * sendCount : required
+ * numTokens : required
  * commGroup : required
  * rankSize : required
  * rankId : required
  * localRankSize : required
  * localRankId : required
- * out : required
+ * sendDataOffset : required
+ * recvData : required
  * workspaceSize : size of workspace(output).
  * executor : executor context(output).
  */
 __attribute__((visibility("default")))
 aclnnStatus aclnnNotifyDispatchGetWorkspaceSize(
     const aclTensor *sendData,
+    const aclTensor *tokenPerExpertData,
     int64_t sendCount,
+    int64_t numTokens,
     char *commGroup,
     int64_t rankSize,
     int64_t rankId,
     int64_t localRankSize,
     int64_t localRankId,
-    const aclTensor *out,
+    const aclTensor *sendDataOffset,
+    const aclTensor *recvData,
     uint64_t *workspaceSize,
     aclOpExecutor **executor);
 

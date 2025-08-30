@@ -216,26 +216,12 @@ Buffer::intranode_dispatch(const at::Tensor& x, const std::optional<at::Tensor>&
         scale_hidden_stride = static_cast<int>(x_scales->stride(1));
     }
 
-    auto options_cpu = torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU);
     int send_per_group = 3; // (send_to_expert_num, send_to_expert_offset, send_rank_tokens)
-    at::Tensor send_data_cpu = at::zeros({num_experts * send_per_group}, options_cpu);
-    at::Tensor num_tokens_per_expert_cpu = num_tokens_per_expert.value().to(torch::kCPU);
-    auto num_tokens_per_expert_ptr = num_tokens_per_expert_cpu.data_ptr<int>();
-    auto send_data_ptr = send_data_cpu.data_ptr<int>();
-    int32_t prefix_sum = 0;
-    at::Tensor send_data_offset_cpu = at::zeros({num_experts}, options_cpu);
-    auto send_data_offset_ptr = send_data_offset_cpu.data_ptr<int>();
-    for (int i = 0; i < num_experts; ++i) {
-        send_data_ptr[i * send_per_group] = num_tokens_per_expert_ptr[i];
-        send_data_ptr[i * send_per_group + 1] = prefix_sum;
-        send_data_ptr[i * send_per_group + 2] = num_tokens;
-        send_data_offset_ptr[i] = prefix_sum;
-        prefix_sum += num_tokens_per_expert_ptr[i];
-    }
+
+    auto send_data = at::zeros({num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
     int64_t send_count = send_per_group * num_local_experts * num_ranks;
 
-    auto send_data = send_data_cpu.to(x.device());
-    auto send_data_offset = send_data_offset_cpu.to(x.device());
+    auto send_data_offset = at::zeros({num_experts}, at::dtype(at::kInt).device(x.device()));
     at::Tensor recv_data = at::zeros({num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
 
     // get ep name
@@ -248,17 +234,22 @@ Buffer::intranode_dispatch(const at::Tensor& x, const std::optional<at::Tensor>&
 
     int64_t local_rank_size = num_ranks;
     int64_t local_rank_id = rank % local_rank_size;
+    auto new_num_tokens_per_expert = num_tokens_per_expert.value();
 
     EXEC_NPU_CMD(aclnnNotifyDispatch,
         send_data,
+        new_num_tokens_per_expert,
         send_count,
+        num_tokens,
         hcom_ep_name,       // commGroup
         num_ranks,          // rankSize
         rank,               // rankId
         local_rank_size,
         local_rank_id,
+        send_data_offset,
         recv_data);
 
+    auto options_cpu = torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU);
     std::vector<int32_t> local_expert_acc(num_experts, 0);
     auto send_token_idx_cpu = at::zeros({num_tokens, num_topk}, options_cpu);
     auto send_token_idx_ptr = send_token_idx_cpu.data_ptr<int>();

@@ -47,13 +47,18 @@ public:
 constexpr uint32_t OP_TYPE_ALL_TO_ALL = 8U;  // numeric representation of AlltoAll
 
 constexpr uint32_t INPUT_SEND_DATA_INDEX = 0;
+constexpr uint32_t INPUT_TOKEN_PER_EXPERT_INDEX = 1;
+
+constexpr uint32_t OUTPUT_SEND_DATA_OFFSET_INDEX = 0;
+constexpr uint32_t OUTPUT_RECV_DATA_INDEX = 1;
 
 constexpr uint32_t ATTR_SEND_COUNT_INDEX = 0;
-constexpr uint32_t ATTR_COMM_GROUP_INDEX = 1;
-constexpr uint32_t ATTR_RANK_SIZE_INDEX = 2;
-constexpr uint32_t ATTR_RANK_ID_INDEX = 3;
-constexpr uint32_t ATTR_LOCAL_RANK_SIZE_INDEX = 4;
-constexpr uint32_t ATTR_LOCAL_RANK_ID_INDEX = 5;
+constexpr uint32_t ATTR_NUM_TOKENS_INDEX = 1;
+constexpr uint32_t ATTR_COMM_GROUP_INDEX = 2;
+constexpr uint32_t ATTR_RANK_SIZE_INDEX = 3;
+constexpr uint32_t ATTR_RANK_ID_INDEX = 4;
+constexpr uint32_t ATTR_LOCAL_RANK_SIZE_INDEX = 5;
+constexpr uint32_t ATTR_LOCAL_RANK_ID_INDEX = 6;
 
 const size_t MAX_GROUP_NAME_LENGTH = 128UL;
 const int64_t MAX_COMM_WORLD_SIZE = 384;
@@ -81,6 +86,7 @@ static void PrintTilingDataInfo(const char *nodeName, NotifyDispatchTilingData &
     OP_LOGD(nodeName, "localRankSize is %u.", tilingData.notifyDispatchInfo.localRankSize);
     OP_LOGD(nodeName, "localRankId is %u.", tilingData.notifyDispatchInfo.localRankId);
     OP_LOGD(nodeName, "sendCount is %u.", tilingData.notifyDispatchInfo.sendCount);
+    OP_LOGD(nodeName, "numTokens is %u.", tilingData.notifyDispatchInfo.numTokens);
     OP_LOGD(nodeName, "aivNum is %u.", tilingData.notifyDispatchInfo.aivNum);
     OP_LOGD(nodeName, "totalUbSize is %lu.", tilingData.notifyDispatchInfo.totalUbSize);
 }
@@ -92,6 +98,7 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "attrs is nullptr."), return ge::GRAPH_FAILED);
 
     auto sendCountPtr = attrs->GetAttrPointer<int64_t>(ATTR_SEND_COUNT_INDEX);
+    auto numTokenPtr = attrs->GetAttrPointer<int64_t>(ATTR_NUM_TOKENS_INDEX);
     auto commGroupPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_COMM_GROUP_INDEX));
     auto rankSizePtr = attrs->GetAttrPointer<int64_t>(ATTR_RANK_SIZE_INDEX);
     auto rankIdPtr = attrs->GetAttrPointer<int64_t>(ATTR_RANK_ID_INDEX);
@@ -103,6 +110,7 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
         OP_LOGE(nodeName, "commGroupPtr is null."),
         return ge::GRAPH_FAILED);
     OP_TILING_CHECK(sendCountPtr == nullptr, OP_LOGE(nodeName, "sendCountPtr is null."), return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(numTokenPtr == nullptr, OP_LOGE(nodeName, "numTokenPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(rankSizePtr == nullptr, OP_LOGE(nodeName, "rankSizePtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(rankIdPtr == nullptr, OP_LOGE(nodeName, "rankIdPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(
@@ -121,6 +129,9 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     OP_TILING_CHECK((*sendCountPtr <= 0),
         OP_LOGE(nodeName, "sendCount is invalid, only support > 0, but got sendCount=%ld.", *sendCountPtr),
         return ge::GRAPH_FAILED);
+    OP_TILING_CHECK((*numTokenPtr <= 0),
+        OP_LOGE(nodeName, "numTokenPtr is invalid, only support > 0, but got numTokenPtr=%ld.", *numTokenPtr),
+        return ge::GRAPH_FAILED);
 
     commGroup = std::string(commGroupPtr);
     tilingData.notifyDispatchInfo.rankSize = static_cast<uint32_t>(*rankSizePtr);
@@ -128,6 +139,7 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     tilingData.notifyDispatchInfo.localRankSize = static_cast<uint32_t>(*localRankSizePtr);
     tilingData.notifyDispatchInfo.localRankId = static_cast<uint32_t>(*localRankIdPtr);
     tilingData.notifyDispatchInfo.sendCount = static_cast<uint32_t>(*sendCountPtr);
+    tilingData.notifyDispatchInfo.numTokens = static_cast<uint32_t>(*numTokenPtr);
 
     return ge::GRAPH_SUCCESS;
 }
@@ -156,20 +168,47 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext *context, const char *no
 static bool CheckTensorDataType(
     gert::TilingContext *context, const char *nodeName)
 {
-    auto inputData = context->GetInputDesc(INPUT_SEND_DATA_INDEX);
-    OP_TILING_CHECK(inputData == nullptr, OP_LOGE(nodeName, "sendData is null."), return false);
-    OP_TILING_CHECK((inputData->GetDataType() != ge::DT_BF16) && (inputData->GetDataType() != ge::DT_FLOAT16) &&
-                        (inputData->GetDataType() != ge::DT_FLOAT) && (inputData->GetDataType() != ge::DT_INT32),
+    auto sendData = context->GetInputDesc(INPUT_SEND_DATA_INDEX);
+    OP_TILING_CHECK(sendData == nullptr, OP_LOGE(nodeName, "sendData is null."), return false);
+    OP_TILING_CHECK((sendData->GetDataType() != ge::DT_BF16) && (sendData->GetDataType() != ge::DT_FLOAT16) &&
+                        (sendData->GetDataType() != ge::DT_FLOAT) && (sendData->GetDataType() != ge::DT_INT32),
         OP_LOGE(nodeName,
-            "x datatype is invalid, datatype should be bf16 or float16 or float or int, but is %d.",
-            static_cast<ge::DataType>(inputData->GetDataType())),
+            "sendData datatype is invalid, datatype should be bf16 or float16 or float or int, but is %d.",
+            static_cast<ge::DataType>(sendData->GetDataType())),
         return false);
     uint64_t dataSize;
-    if ((inputData->GetDataType() == ge::DT_BF16) || (inputData->GetDataType() == ge::DT_FLOAT16)) {
+    if ((sendData->GetDataType() == ge::DT_BF16) || (sendData->GetDataType() == ge::DT_FLOAT16)) {
         dataSize = 2;
     } else {
         dataSize = 4;
     }
+    auto tokenPerExpertData = context->GetInputDesc(INPUT_TOKEN_PER_EXPERT_INDEX);
+    OP_TILING_CHECK(tokenPerExpertData == nullptr, OP_LOGE(nodeName, "tokenPerExpertData is null."), return false);
+    OP_TILING_CHECK((tokenPerExpertData->GetDataType() != ge::DT_BF16) && (tokenPerExpertData->GetDataType() != ge::DT_FLOAT16) &&
+                        (tokenPerExpertData->GetDataType() != ge::DT_FLOAT) && (tokenPerExpertData->GetDataType() != ge::DT_INT32),
+        OP_LOGE(nodeName,
+            "tokenPerExpertData datatype is invalid, datatype should be bf16 or float16 or float or int, but is %d.",
+            static_cast<ge::DataType>(tokenPerExpertData->GetDataType())),
+        return false);
+    
+    auto sendDataOffset = context->GetInputDesc(OUTPUT_SEND_DATA_OFFSET_INDEX);
+    OP_TILING_CHECK(sendDataOffset == nullptr, OP_LOGE(nodeName, "sendDataOffset is null."), return false);
+    OP_TILING_CHECK((sendDataOffset->GetDataType() != ge::DT_BF16) && (sendDataOffset->GetDataType() != ge::DT_FLOAT16) &&
+                        (sendDataOffset->GetDataType() != ge::DT_FLOAT) && (sendDataOffset->GetDataType() != ge::DT_INT32),
+        OP_LOGE(nodeName,
+            "sendDataOffset datatype is invalid, datatype should be bf16 or float16 or float or int, but is %d.",
+            static_cast<ge::DataType>(sendDataOffset->GetDataType())),
+        return false);
+    
+    auto recvData = context->GetInputDesc(OUTPUT_RECV_DATA_INDEX);
+    OP_TILING_CHECK(recvData == nullptr, OP_LOGE(nodeName, "recvData is null."), return false);
+    OP_TILING_CHECK((recvData->GetDataType() != ge::DT_BF16) && (recvData->GetDataType() != ge::DT_FLOAT16) &&
+                        (recvData->GetDataType() != ge::DT_FLOAT) && (recvData->GetDataType() != ge::DT_INT32),
+        OP_LOGE(nodeName,
+            "recvData datatype is invalid, datatype should be bf16 or float16 or float or int, but is %d.",
+            static_cast<ge::DataType>(recvData->GetDataType())),
+        return false);
+
     // Verify the size of the win area
     NotifyDispatchTilingData *tilingData = context->GetTilingData<NotifyDispatchTilingData>();
     uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize();

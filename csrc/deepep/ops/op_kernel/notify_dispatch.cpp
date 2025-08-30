@@ -10,13 +10,11 @@
 #define KERNEL_USE_WORKSPACE (1 * 1024 * 1024)
 
 extern "C" __global__ __aicore__ void notify_dispatch(
-    GM_ADDR sendData, GM_ADDR recvData, GM_ADDR workspace, GM_ADDR tiling)
+    GM_ADDR sendData, GM_ADDR tokenPerExpertData, GM_ADDR sendDataOffset, GM_ADDR recvData, GM_ADDR workspace, GM_ADDR tiling)
 {
     REGISTER_TILING_DEFAULT(NotifyDispatchTilingData);
     GET_TILING_DATA_WITH_STRUCT(NotifyDispatchTilingData, tilingData, tiling);
 
-    // for op init
-    uint32_t isCamComm = 0;
     // hcomm will set magic later in init
     uint32_t magic = 1;
     GM_ADDR commArgs = nullptr;
@@ -26,9 +24,12 @@ extern "C" __global__ __aicore__ void notify_dispatch(
     int rank = tilingData.notifyDispatchInfo.rankId;
     int rankSize = tilingData.notifyDispatchInfo.rankSize;
     int64_t len = tilingData.notifyDispatchInfo.sendCount;
+    int64_t numTokens = tilingData.notifyDispatchInfo.numTokens;
 
-    GM_ADDR input = sendData;
-    GM_ADDR output = recvData;
+    GM_ADDR sendDataInput = sendData;
+    GM_ADDR tokenPerExpertDataInput = tokenPerExpertData;
+    GM_ADDR sendDataOffsetOutput = sendDataOffset;
+    GM_ADDR recvDataOutput = recvData;
 
     // fill in unused args
     uint32_t extraFlag = 0;
@@ -42,10 +43,6 @@ extern "C" __global__ __aicore__ void notify_dispatch(
 
     if (TILING_KEY_IS(TILING_KEY_FLOAT16)) {
         NotifyDispatch<float16_t> opKernel(rank, rankSize, extraFlag);
-        opKernel.Init(KERNELS_ARGS_CALL_ALL2ALL());
-        opKernel.Process();
-    } else if (TILING_KEY_IS(TILING_KEY_BFLOAT16)) {
-        NotifyDispatch<bfloat16_t> opKernel(rank, rankSize, extraFlag);
         opKernel.Init(KERNELS_ARGS_CALL_ALL2ALL());
         opKernel.Process();
     } else if (TILING_KEY_IS(TILING_KEY_FLOAT)) {
