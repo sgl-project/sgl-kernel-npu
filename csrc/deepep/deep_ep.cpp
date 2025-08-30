@@ -73,67 +73,30 @@ Buffer::get_dispatch_layout(const torch::Tensor& topk_idx, int num_experts,
     const int num_tokens = new_topk_idx.size(0);
     const int num_topk = new_topk_idx.size(1);
 
-    auto options_cpu = torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU);
-    auto num_tokens_per_expert_cpu = torch::zeros({num_experts}, options_cpu);
-    auto num_tokens_per_rank_cpu = torch::zeros({num_ranks}, options_cpu);
-    auto is_token_in_rank_cpu = torch::zeros({num_tokens, num_ranks}, torch::kBool);
+    auto device = new_topk_idx.device();
+    auto num_tokens_per_expert = at::zeros({num_experts}, at::dtype(at::kInt).device(device));
+    auto num_tokens_per_rank = at::zeros({num_ranks}, at::dtype(at::kInt).device(device));
+    auto is_token_in_rank = at::zeros({num_tokens, num_ranks}, at::dtype(at::kInt).device(device));
 
-    auto topk_cpu = new_topk_idx.to(torch::kCPU);
-    const int64_t* topk_data = topk_cpu.data_ptr<int64_t>();
-    int32_t* global_expert_acc = num_tokens_per_expert_cpu.data_ptr<int32_t>();
-    int32_t* global_rank_acc = num_tokens_per_rank_cpu.data_ptr<int32_t>();
-    bool* global_in_rank = is_token_in_rank_cpu.data_ptr<bool>();
+    EXEC_NPU_CMD(aclnnDispatchLayout,
+        new_topk_idx,
+        num_tokens,
+        num_ranks,
+        num_experts,
+        num_topk,
+        num_tokens_per_rank,
+        num_tokens_per_expert,
+        is_token_in_rank); 
 
     std::optional<torch::Tensor> num_tokens_per_rdma_rank = std::nullopt;
     std::optional<EventHandle> output_event = std::nullopt;
-
-    const int experts_per_rank = num_experts / num_ranks;
-
-    #pragma omp parallel
-    {
-        // Private buffer for each thread
-        std::vector<int32_t> local_expert_acc(num_experts, 0);
-        std::vector<int32_t> local_rank_acc(num_ranks, 0);
-        std::vector<uint8_t> local_in_rank(num_tokens * num_ranks, 0);
-
-        #pragma omp for nowait
-        for (int i = 0; i < num_tokens; ++i) {
-            std::vector<uint8_t> seen_rank(num_ranks, 0);
-            for (int j = 0; j < num_topk; ++j) {
-                int64_t expert_idx = topk_data[i * num_topk + j];
-                if (expert_idx >= 0) {
-                    local_expert_acc[expert_idx]++;
-                    int rank_id = expert_idx / experts_per_rank;
-                    if (!seen_rank[rank_id]) {
-                        local_rank_acc[rank_id]++;
-                        local_in_rank[i * num_ranks + rank_id] = 1;
-                        seen_rank[rank_id] = 1;
-                    }
-                }
-            }
-        }
-
-        #pragma omp critical
-        {
-            for (int i = 0; i < num_experts; ++i)
-                global_expert_acc[i] += local_expert_acc[i];
-            for (int i = 0; i < num_ranks; ++i)
-                global_rank_acc[i] += local_rank_acc[i];
-            for (int i = 0; i < num_tokens * num_ranks; ++i)
-                if (local_in_rank[i])
-                    global_in_rank[i] = true;
-        }
-    }
-
-    auto num_tokens_per_expert = num_tokens_per_expert_cpu.to(topk_idx.device());
-    auto num_tokens_per_rank = num_tokens_per_rank_cpu.to(topk_idx.device());
-    auto is_token_in_rank = is_token_in_rank_cpu.to(topk_idx.device());
+    auto is_token_in_rank_bool = is_token_in_rank.to(at::kBool);
 
     return std::make_tuple(
         num_tokens_per_rank,
         num_tokens_per_rdma_rank,
         num_tokens_per_expert,
-        is_token_in_rank,
+        is_token_in_rank_bool,
         output_event
     );
 }
