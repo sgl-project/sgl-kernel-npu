@@ -102,3 +102,6 @@ def calc_diff(x: torch.Tensor, y: torch.Tensor):
     denominator = (x * x + y * y).sum()
     sim = 2 * (x * y).sum() / denominator
     return (1 - sim).item()
+
+def hash_tensor(t: torch.Tensor):
+    return t.view(torch.int8).sum().item()
