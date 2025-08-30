@@ -26,8 +26,8 @@ def build_tree_efficient_native(
     bs: int,
 ):
     # Generate batch and token index ranges
-    bs_range = torch.arange(bs, device=parent_list.device).view(-1, 1)
-    draft_token_num_range = torch.arange(draft_token_num, device=parent_list.device)
+    bs_range = torch.arange(bs, device=tree_mask.device).view(-1, 1)
+    draft_token_num_range = torch.arange(draft_token_num, device=tree_mask.device)
 
     # Optimized common case for performance.
     if draft_token_num == 2 and topk == 1 and tree_mask_mode == TreeMaskMode.FULL_MASK:
@@ -47,13 +47,13 @@ def build_tree_efficient_native(
 
     # Precompute sequence tree indices
     draft_token_num_range1 = torch.arange(
-        draft_token_num - 1, device=parent_list.device
+        draft_token_num - 1, device=tree_mask.device
     )
     cum_seq_len = torch.cumsum(verified_seq_len * draft_token_num, dim=0)
-    cum_seq_len = torch.cat((torch.tensor([0], device=parent_list.device), cum_seq_len))
+    cum_seq_len = torch.cat((torch.tensor([0], device=tree_mask.device), cum_seq_len))
     cum_seq_len = cum_seq_len[:-1]
     seq_tree_idx = (
-        draft_token_num * draft_token_num * torch.arange(bs, device=parent_list.device)
+        draft_token_num * draft_token_num * torch.arange(bs, device=tree_mask.device)
         + cum_seq_len
     )
 
