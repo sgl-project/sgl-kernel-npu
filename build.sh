@@ -4,7 +4,10 @@ set -e
 BUILD_DEEPEP_MODULE="ON"
 BUILD_KERNELS_MODULE="ON"
 
-while getopts ":a:" opt; do
+ONLY_BUILD_DEEPEP_ADAPTER_MODULE="OFF"
+ONLY_BUILD_DEEPEP_KERNELs_MODULE="OFF"
+
+while getopts ":a:h" opt; do
     case ${opt} in
         a )
             BUILD_DEEPEP_MODULE="OFF"
@@ -15,13 +18,31 @@ while getopts ":a:" opt; do
                     ;;
                 kernels )
                     BUILD_KERNELS_MODULE="ON"
+                    ;;  
+                deepep-adapter )
+                    BUILD_DEEPEP_MODULE="ON"
+                    ONLY_BUILD_DEEPEP_ADAPTER_MODULE="ON"
+                    ;;
+                deepep-kernels )
+                    BUILD_DEEPEP_MODULE="ON"
+                    ONLY_BUILD_DEEPEP_KERNELs_MODULE="ON"
                     ;;
                 * )
                     echo "Error: Invalid Value"
-                    echo "Allowed value: deepep, kernels"
+                    echo "Allowed value: deepep|kernels|deepep-adapter|deepep-kernels"
                     exit 1
                     ;;
             esac
+            ;;
+        h )
+            echo "Use ./build.sh build all modules.\n"
+            echo "Use './build.sh -a <target>' to build specific parts of the project."
+            echo "    <target> can be: all, deepep, kernels, deepep-adapter, deepep-kernels"
+            echo "    deepep            Only build deep_ep."
+            echo "    kernels           Only build sgl_kernel_npu."
+            echo "    deepep-adapter    Only build deepep adapter layer and use old build of deepep kernels."
+            echo "    deepep-kernels    Only build deepep kernels and use old build of deepep adapter layer."
+            exit 1
             ;;
         \? )
             echo "Error: unknown flag: -$OPTARG" 1>&2
@@ -59,6 +80,8 @@ COMPILE_OPTIONS=""
 
 function build_kernels()
 {
+    if [[ "$ONLY_BUILD_DEEPEP_KERNELs_MODULE" == "ON" ]]; then return 0; fi
+
     CMAKE_DIR=""
     BUILD_DIR="build"
 
@@ -74,6 +97,9 @@ function build_kernels()
 
 function build_deepep_kernels()
 {
+    if [[ "$ONLY_BUILD_DEEPEP_ADAPTER_MODULE" == "ON" ]]; then return 0; fi
+    if [[ "$BUILD_DEEPEP_MODULE" != "ON" ]]; then return 0; fi
+
     KERNEL_DIR="csrc/deepep/ops"
     CUSTOM_OPP_DIR="${CURRENT_DIR}/python/deep_ep/deep_ep"
 
@@ -123,10 +149,7 @@ function make_sgl_kernel_npu_package()
 function main()
 {
     build_kernels
-
-    if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
-        build_deepep_kernels
-    fi
+    build_deepep_kernels
     if pip3 show wheel;then
         echo "wheel has been installed"
     else
