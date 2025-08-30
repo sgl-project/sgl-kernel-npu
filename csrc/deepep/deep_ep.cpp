@@ -13,11 +13,11 @@ constexpr int PADDING_SIZE = 3;
 constexpr size_t HCOMM_NAME_LEN = 128;
 constexpr double SCALE_SIZE = 1.5;
 
-Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_hccs_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
+Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
                std::string moe_all_to_all_group_name)
     : rank(rank),
       num_ranks(num_ranks),
-      num_hccs_bytes(num_hccs_bytes),
+      num_nvl_bytes(num_nvl_bytes),
       num_rdma_bytes(num_rdma_bytes),
       low_latency_mode(low_latency_mode),
       moe_all_to_all_group_name(moe_all_to_all_group_name)

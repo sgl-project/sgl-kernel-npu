@@ -18,9 +18,9 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     pybind11::class_<deep_ep::Config>(m, "Config")
         .def(pybind11::init<int, int, int, int, int>(),
              py::arg("num_sms") = 20,
-             py::arg("num_max_hccs_chunked_send_tokens") = 6, py::arg("num_max_hccs_chunked_recv_tokens") = 256,
+             py::arg("num_max_nvl_chunked_send_tokens") = 6, py::arg("num_max_nvl_chunked_recv_tokens") = 256,
              py::arg("num_max_rdma_chunked_send_tokens") = 6, py::arg("num_max_rdma_chunked_recv_tokens") = 256)
-        .def("get_hccs_buffer_size_hint", &deep_ep::Config::get_hccs_buffer_size_hint)
+        .def("get_nvl_buffer_size_hint", &deep_ep::Config::get_nvl_buffer_size_hint)
         .def("get_rdma_buffer_size_hint", &deep_ep::Config::get_rdma_buffer_size_hint);
     m.def("get_low_latency_rdma_size_hint", &deep_ep::get_low_latency_rdma_size_hint);
 

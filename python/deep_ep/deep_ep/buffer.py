@@ -13,23 +13,28 @@ class Buffer:
     num_sms: int = 20
 
     def __init__(self, group: dist.ProcessGroup,
-                 num_hccs_bytes: int = 0, num_rdma_bytes: int = 0,
-                 low_latency_mode: bool = False, num_qps_per_rank: int = 12) -> None:
+                 num_nvl_bytes: int = 0, num_rdma_bytes: int = 0,
+                 low_latency_mode: bool = False, num_qps_per_rank: int = 12,
+                 allow_nvlink_for_low_latency_mode: bool = True,
+                 allow_mnnvl: bool = False) -> None:
         """
         Initialize the communication buffer.
 
         Arguments:
             group: the communication group.
-            num_hccs_bytes: the buffer size for intranode HCCS communication.
+            num_nvl_bytes: the buffer size for intranode HCCS communication. Use this name
+                to ensure compatibility with DeepEP.
             num_rdma_bytes: the buffer size for internode (also for intranode with low-latency mode) RDMA communication.
             low_latency_mode: whether to enable low-latency mode.
             num_qps_per_rank: the number of QPs for RDMA, the low-latency mode requires that this number equals
                 to the number of local experts.
+            allow_nvlink_for_low_latency_mode: This parameter is deprecated and retained to ensure compatibility with DeepEP.
+            allow_mnnvl: This parameter is deprecated and retained to ensure compatibility with DeepEP.
         """
 
         self.rank = group.rank()
         self.group_size = group.size()
-        self.num_hccs_bytes = num_hccs_bytes
+        self.num_nvl_bytes = num_nvl_bytes
         self.num_rdma_bytes = num_rdma_bytes
         self.low_latency_mode = low_latency_mode
         try:
@@ -39,7 +44,7 @@ class Buffer:
             print("get_hccl_comm_name failed", e)
             moe_all_to_all_group_name = ""
         self.runtime = deep_ep_cpp.Buffer(
-            self.rank, self.group_size, num_hccs_bytes, num_rdma_bytes, low_latency_mode, moe_all_to_all_group_name)
+            self.rank, self.group_size, num_nvl_bytes, num_rdma_bytes, low_latency_mode, moe_all_to_all_group_name)
 
     @staticmethod
     def get_dispatch_config(num_ranks: int) -> Config:
