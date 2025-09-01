@@ -26,15 +26,15 @@ def build_tree_efficient_native(
     bs: int,
 ):
     # Generate batch and token index ranges
-    bs_range = torch.arange(bs, device=parent_list.device).view(-1, 1)
-    draft_token_num_range = torch.arange(draft_token_num, device=parent_list.device)
+    bs_range = torch.arange(bs, device=tree_mask.device)
+    draft_token_num_range = torch.arange(draft_token_num, device=tree_mask.device)
 
     # Optimized common case for performance.
     if draft_token_num == 2 and topk == 1 and tree_mask_mode == TreeMaskMode.FULL_MASK:
         positions = verified_seq_len.repeat_interleave(draft_token_num)
         positions = (positions.view(bs, -1) + draft_token_num_range).view(-1)
 
-        retrive_index[:] = bs_range * draft_token_num + draft_token_num_range
+        retrive_index[:] = bs_range.view(-1, 1) * draft_token_num + draft_token_num_range
         retrive_next_token[:, 0] = 1
         retrive_next_token[:, 1] = -1
         return (
@@ -47,13 +47,13 @@ def build_tree_efficient_native(
 
     # Precompute sequence tree indices
     draft_token_num_range1 = torch.arange(
-        draft_token_num - 1, device=parent_list.device
+        draft_token_num - 1, device=tree_mask.device
     )
     cum_seq_len = torch.cumsum(verified_seq_len * draft_token_num, dim=0)
-    cum_seq_len = torch.cat((torch.tensor([0], device=parent_list.device), cum_seq_len))
+    cum_seq_len = torch.cat((torch.tensor([0], device=tree_mask.device), cum_seq_len))
     cum_seq_len = cum_seq_len[:-1]
     seq_tree_idx = (
-        draft_token_num * draft_token_num * torch.arange(bs, device=parent_list.device)
+        draft_token_num * draft_token_num * bs_range
         + cum_seq_len
     )
 
@@ -66,7 +66,7 @@ def build_tree_efficient_native(
         token_tree_indices = token_tree_base + verified_seq_len.view(-1, 1) + 1
     else:
         token_tree_indices = (
-            bs_range * draft_token_num**2 + draft_token_num_range * draft_token_num + 1
+            bs_range.view(-1, 1) * draft_token_num**2 + draft_token_num_range * draft_token_num + 1
         )
 
     tree_mask[token_tree_indices.flatten() - 1] = True
@@ -75,7 +75,7 @@ def build_tree_efficient_native(
 
     positions = verified_seq_len.repeat_interleave(draft_token_num)
     parent_tb_indices = selected_index // topk
-    retrive_index[:] = bs_range * draft_token_num + draft_token_num_range
+    retrive_index[:] = bs_range.view(-1, 1) * draft_token_num + draft_token_num_range
     tree_mask[token_tree_indices.view(-1, 1) + draft_token_num_range1] = True
 
     # Process root and non-root nodes, update retrieve_next_token and retrive_next_sibling
