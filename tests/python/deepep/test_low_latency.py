@@ -89,7 +89,7 @@ def test(num_tokens: int, hidden: int, num_experts: int, num_topk: int,
                                                              zero_copy=zero_copy, return_recv_hook=return_recv_hook)
 
     # Calculate bandwidth
-    num_fp8_bytes, num_bf16_bytes = (hidden + hidden / 128 * 4 + 16), hidden * 2
+    num_fp8_bytes, num_bf16_bytes = (hidden + hidden // 128 * 4 + 16), hidden * 2
     num_dispatch_comm_bytes, num_combine_comm_bytes = 0, 0
     for i in range(num_tokens):
         num_selections = (topk_idx[i] != -1).sum().item()
@@ -112,7 +112,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     use_ranks = num_ranks - shared_expert_rank_num
     num_rdma_bytes = Buffer.get_low_latency_rdma_size_hint(num_tokens, hidden, num_ranks, num_experts)
     buffer = Buffer(group, num_rdma_bytes=num_rdma_bytes, low_latency_mode=True,
-                    num_qps_per_rank=num_experts // num_ranks)
+                    num_qps_per_rank=use_experts // use_ranks if use_ranks > 0 else 1)
 
     test(num_tokens, hidden, use_experts, num_topk, rank, use_ranks, group, buffer, seed=1)
 
