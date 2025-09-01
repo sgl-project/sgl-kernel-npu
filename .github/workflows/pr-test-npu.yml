@@ -56,7 +56,7 @@ jobs:
         env:
           HCCL_BUFFSIZE: 2000
         run: |
-          bash $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
 
   test-intranode:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
@@ -117,4 +117,5 @@ jobs:
           done
           echo "All jobs completed successfully"
           exit 0
+
 
