@@ -1,13 +1,14 @@
 import os
 import subprocess
+
 import setuptools
 from setuptools import find_namespace_packages, find_packages
 from setuptools.dist import Distribution
 
 # Eliminate timestamp differences in whl compressed packages
-os.environ['SOURCE_DATE_EPOCH'] = '0'
+os.environ["SOURCE_DATE_EPOCH"] = "0"
 
-current_version = os.getenv('VERSION', '1.0.0')
+current_version = os.getenv("VERSION", "1.0.0")
 
 
 class BinaryDistribution(Distribution):
@@ -16,12 +17,13 @@ class BinaryDistribution(Distribution):
     def has_ext_modules(self):
         return True
 
+
 try:
     cmd = ["git", "rev-parse", f"--short=8", "HEAD"]
-    revision = '+' + subprocess.check_output(cmd).strip().decode("utf-8")
+    revision = "+" + subprocess.check_output(cmd).strip().decode("utf-8")
 except Exception as _:
-    revision = ''
-print(f'revision: {revision}')
+    revision = ""
+print(f"revision: {revision}")
 
 setuptools.setup(
     name="deep_ep",
@@ -33,5 +35,5 @@ setuptools.setup(
     install_requires=["torch"],
     python_requires=">=3.7",
     package_data={"deep_ep": ["deep_ep_cpp.cpython*.so", "vendors", "vendors/**"]},
-    distclass=BinaryDistribution
+    distclass=BinaryDistribution,
 )

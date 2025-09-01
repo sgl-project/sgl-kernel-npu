@@ -17,29 +17,40 @@ namespace sglang {
 namespace npu_kernel {
 constexpr uint32_t PADDING_BYTE = 32U;
 
-at::Tensor get_tiling(int32_t &block_dim, int32_t &workspace_size, const int64_t &page_size, 
-    int32_t &batch_size, int64_t &total_extend_tokens)
+at::Tensor get_tiling(
+    int32_t &block_dim,
+    int32_t &workspace_size,
+    const int64_t &page_size,
+    int32_t &batch_size,
+    int64_t &total_extend_tokens)
 {
     auto ascendc_platform = platform_ascendc::PlatformAscendCManager::GetInstance();
     int32_t max_aiv_core = static_cast<int32_t>(ascendc_platform->GetCoreNumAiv());
     block_dim = std::min(max_aiv_core, batch_size);
     workspace_size = static_cast<int32_t>(ascendc_platform->GetLibApiWorkSpaceSize());
-    
+
     int32_t tiling_size = (sizeof(AllocExtendTilingData) + PADDING_BYTE - 1) / PADDING_BYTE * PADDING_BYTE;
     auto tiling_buffer = at::empty({tiling_size}, at::TensorOptions().dtype(at::kByte).device(at::kCPU));
-    
+
     AllocExtendTilingData *tiling_data = reinterpret_cast<AllocExtendTilingData *>(tiling_buffer.data_ptr());
     tiling_data->batch_size = batch_size;
-    tiling_data->page_size =  static_cast<int32_t>(page_size);;
+    tiling_data->page_size = static_cast<int32_t>(page_size);
+    ;
     tiling_data->used_core_num = block_dim;
     tiling_data->total_extend_tokens = total_extend_tokens;
-    
+
     auto tiling_tensor = TorchNpuHepler::CopyTensorHostToDevice(tiling_buffer);
     return tiling_tensor;
 }
 
-HOST_API void alloc_extend(const at::Tensor &pre_lens, const at::Tensor &seq_lens,
-    const at::Tensor &last_loc, const at::Tensor &free_pages, int64_t pages_size, at::Tensor &out_indices, at::Tensor &values)
+HOST_API void alloc_extend(
+    const at::Tensor &pre_lens,
+    const at::Tensor &seq_lens,
+    const at::Tensor &last_loc,
+    const at::Tensor &free_pages,
+    int64_t pages_size,
+    at::Tensor &out_indices,
+    at::Tensor &values)
 {
     if (pre_lens.options().dtype() != at::kLong || seq_lens.options().dtype() != at::kLong ||
         last_loc.options().dtype() != at::kLong || free_pages.options().dtype() != at::kLong ||
@@ -53,11 +64,21 @@ HOST_API void alloc_extend(const at::Tensor &pre_lens, const at::Tensor &seq_len
 
     at::Tensor tiling_tensor = get_tiling(block_dim, workspace_size, pages_size, batch_size, total_extend_tokens);
 
-    auto workspace_tensor = 
+    auto workspace_tensor =
         at::empty({workspace_size}, at::TensorOptions().dtype(at::kByte).device(pre_lens.options().device()));
-    /* lauch the kernal function via torch */
-    EXEC_KERNEL_CMD(alloc_extend, block_dim, pre_lens, seq_lens, last_loc, free_pages, out_indices, values, workspace_tensor, tiling_tensor);
+    /* launch the kernel function via torch */
+    EXEC_KERNEL_CMD(
+        alloc_extend,
+        block_dim,
+        pre_lens,
+        seq_lens,
+        last_loc,
+        free_pages,
+        out_indices,
+        values,
+        workspace_tensor,
+        tiling_tensor);
 }
 
-}
-}
+}  // namespace npu_kernel
+}  // namespace sglang

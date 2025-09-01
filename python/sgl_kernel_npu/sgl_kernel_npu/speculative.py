@@ -1,6 +1,8 @@
-import torch
 import logging
 from enum import IntEnum
+
+import torch
+
 logger = logging.getLogger(__name__)
 
 tensor_one = None
@@ -34,7 +36,9 @@ def build_tree_efficient_native(
         positions = verified_seq_len.repeat_interleave(draft_token_num)
         positions = (positions.view(bs, -1) + draft_token_num_range).view(-1)
 
-        retrive_index[:] = bs_range.view(-1, 1) * draft_token_num + draft_token_num_range
+        retrive_index[:] = (
+            bs_range.view(-1, 1) * draft_token_num + draft_token_num_range
+        )
         retrive_next_token[:, 0] = 1
         retrive_next_token[:, 1] = -1
         return (
@@ -46,16 +50,11 @@ def build_tree_efficient_native(
         )
 
     # Precompute sequence tree indices
-    draft_token_num_range1 = torch.arange(
-        draft_token_num - 1, device=tree_mask.device
-    )
+    draft_token_num_range1 = torch.arange(draft_token_num - 1, device=tree_mask.device)
     cum_seq_len = torch.cumsum(verified_seq_len * draft_token_num, dim=0)
     cum_seq_len = torch.cat((torch.tensor([0], device=tree_mask.device), cum_seq_len))
     cum_seq_len = cum_seq_len[:-1]
-    seq_tree_idx = (
-        draft_token_num * draft_token_num * bs_range
-        + cum_seq_len
-    )
+    seq_tree_idx = draft_token_num * draft_token_num * bs_range + cum_seq_len
 
     # Batch processing for tree mask
     if tree_mask_mode == TreeMaskMode.FULL_MASK:
@@ -66,7 +65,9 @@ def build_tree_efficient_native(
         token_tree_indices = token_tree_base + verified_seq_len.view(-1, 1) + 1
     else:
         token_tree_indices = (
-            bs_range.view(-1, 1) * draft_token_num**2 + draft_token_num_range * draft_token_num + 1
+            bs_range.view(-1, 1) * draft_token_num**2
+            + draft_token_num_range * draft_token_num
+            + 1
         )
 
     tree_mask[token_tree_indices.flatten() - 1] = True
@@ -130,17 +131,18 @@ def build_tree_efficient_native(
                 positions[bid * draft_token_num + tid] += position
     return positions, retrive_index, retrive_next_token, retrive_next_sibling, tree_mask
 
+
 def verify_tree_greedy_native(
-        candidates,
-        retrive_index,
-        retrive_next_token,
-        retrive_next_sibling,
-        target_predict,
-        accept_index,
-        accept_token_num,
-        predicts,
-        num_speculative_tokens,
-        topk,
+    candidates,
+    retrive_index,
+    retrive_next_token,
+    retrive_next_sibling,
+    target_predict,
+    accept_index,
+    accept_token_num,
+    predicts,
+    num_speculative_tokens,
+    topk,
 ):
     batch_size, num_draft_tokens = candidates.shape
 
@@ -208,5 +210,5 @@ def verify_tree_greedy_native(
         accept_token_num[bx] = num_accepted
         predicts[last_accepted_idx] = cur_target[
             last_accepted_idx - num_draft_tokens * bx
-            ]
+        ]
     return predicts, accept_index, accept_token_num

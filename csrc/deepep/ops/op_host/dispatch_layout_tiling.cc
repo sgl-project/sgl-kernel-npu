@@ -51,8 +51,8 @@ static void PrintTilingDataInfo(const char *nodeName, DispatchLayoutTilingData &
     OP_LOGD(nodeName, "totalUbSize is %lu.", tilingData.dispatchLayoutInfo.totalUbSize);
 }
 
-static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, const char *nodeName,
-    DispatchLayoutTilingData &tilingData)
+static ge::graphStatus
+GetAttrAndSetTilingData(gert::TilingContext *context, const char *nodeName, DispatchLayoutTilingData &tilingData)
 {
     auto attrs = context->GetAttrs();
     OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "attrs is nullptr."), return ge::GRAPH_FAILED);
@@ -67,13 +67,24 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     OP_TILING_CHECK(numExpertsPtr == nullptr, OP_LOGE(nodeName, "numExpertsPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(numTopkPtr == nullptr, OP_LOGE(nodeName, "numTopkPtr is null."), return ge::GRAPH_FAILED);
 
-    OP_TILING_CHECK((*numRanksPtr <= 0) || (*numRanksPtr > MAX_COMM_WORLD_SIZE),
-        OP_LOGE(nodeName, "rankSize is invalid, only support (0, %ld], but got rankSize=%ld.", MAX_COMM_WORLD_SIZE, *numRanksPtr),
+    OP_TILING_CHECK(
+        (*numRanksPtr <= 0) || (*numRanksPtr > MAX_COMM_WORLD_SIZE),
+        OP_LOGE(
+            nodeName,
+            "rankSize is invalid, only support (0, %ld], but got rankSize=%ld.",
+            MAX_COMM_WORLD_SIZE,
+            *numRanksPtr),
         return ge::GRAPH_FAILED);
-    OP_TILING_CHECK((*numExpertsPtr <= 0) || (*numExpertsPtr > MAX_MOE_EXPERTS_NUM),
-        OP_LOGE(nodeName, "numExperts is invalid, only support (0, %ld], but got numExperts=%ld.", MAX_MOE_EXPERTS_NUM, *numExpertsPtr),
+    OP_TILING_CHECK(
+        (*numExpertsPtr <= 0) || (*numExpertsPtr > MAX_MOE_EXPERTS_NUM),
+        OP_LOGE(
+            nodeName,
+            "numExperts is invalid, only support (0, %ld], but got numExperts=%ld.",
+            MAX_MOE_EXPERTS_NUM,
+            *numExpertsPtr),
         return ge::GRAPH_FAILED);
-    OP_TILING_CHECK((*numTopkPtr <= 0) || (*numTopkPtr > K_MAX),
+    OP_TILING_CHECK(
+        (*numTopkPtr <= 0) || (*numTopkPtr > K_MAX),
         OP_LOGE(nodeName, "numTopkPtr is invalid, only support (0, %u], but got numTopk=%ld.", K_MAX, *numTopkPtr),
         return ge::GRAPH_FAILED);
 
@@ -105,18 +116,34 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     OP_TILING_CHECK(numTokensPerExpert == nullptr, OP_LOGE(nodeName, "numTokensPerExpert is null."), return false);
     OP_TILING_CHECK(isTokenInRank == nullptr, OP_LOGE(nodeName, "isTokenInRank is null."), return false);
 
-    OP_TILING_CHECK((topkIdx->GetDataType() != ge::DT_INT64),
-        OP_LOGE(nodeName, "topkIdx datatype is invalid, datatype should be int, but is %d.",
-            static_cast<ge::DataType>(topkIdx->GetDataType())), return false);
-    OP_TILING_CHECK((numTokensPerRank->GetDataType() != ge::DT_INT32),
-        OP_LOGE(nodeName, "numTokensPerRank datatype is invalid, datatype should be int, but is %d.",
-            static_cast<ge::DataType>(numTokensPerRank->GetDataType())), return false);
-    OP_TILING_CHECK((numTokensPerExpert->GetDataType() != ge::DT_INT32),
-        OP_LOGE(nodeName, "numTokensPerExpert datatype is invalid, datatype should be int, but is %d.",
-            static_cast<ge::DataType>(numTokensPerExpert->GetDataType())), return false);
-    OP_TILING_CHECK((isTokenInRank->GetDataType() != ge::DT_INT32),
-        OP_LOGE(nodeName, "isTokenInRank datatype is invalid, datatype should be int, but is %d.",
-            static_cast<ge::DataType>(isTokenInRank->GetDataType())), return false);
+    OP_TILING_CHECK(
+        (topkIdx->GetDataType() != ge::DT_INT64),
+        OP_LOGE(
+            nodeName,
+            "topkIdx datatype is invalid, datatype should be int, but is %d.",
+            static_cast<ge::DataType>(topkIdx->GetDataType())),
+        return false);
+    OP_TILING_CHECK(
+        (numTokensPerRank->GetDataType() != ge::DT_INT32),
+        OP_LOGE(
+            nodeName,
+            "numTokensPerRank datatype is invalid, datatype should be int, but is %d.",
+            static_cast<ge::DataType>(numTokensPerRank->GetDataType())),
+        return false);
+    OP_TILING_CHECK(
+        (numTokensPerExpert->GetDataType() != ge::DT_INT32),
+        OP_LOGE(
+            nodeName,
+            "numTokensPerExpert datatype is invalid, datatype should be int, but is %d.",
+            static_cast<ge::DataType>(numTokensPerExpert->GetDataType())),
+        return false);
+    OP_TILING_CHECK(
+        (isTokenInRank->GetDataType() != ge::DT_INT32),
+        OP_LOGE(
+            nodeName,
+            "isTokenInRank datatype is invalid, datatype should be int, but is %d.",
+            static_cast<ge::DataType>(isTokenInRank->GetDataType())),
+        return false);
 
     return true;
 }
@@ -126,22 +153,27 @@ static bool CheckTensorShape(gert::TilingContext *context, const char *nodeName)
     const gert::StorageShape *topkIdxStorageShape = context->GetInputShape(INPUT_TOPK_IDX_INDEX);
     int64_t topkIdxDim0 = topkIdxStorageShape->GetStorageShape().GetDim(0);
     int64_t topkIdxDim1 = topkIdxStorageShape->GetStorageShape().GetDim(1);
-    
-    OP_TILING_CHECK((topkIdxStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS),
-        OP_LOGE(nodeName, "topkIdx must be 2-dimension, but get %lu dim.",
-            topkIdxStorageShape->GetStorageShape().GetDimNum()), return false);
+
+    OP_TILING_CHECK(
+        (topkIdxStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS),
+        OP_LOGE(
+            nodeName,
+            "topkIdx must be 2-dimension, but get %lu dim.",
+            topkIdxStorageShape->GetStorageShape().GetDimNum()),
+        return false);
 
     return true;
 }
 
-static ge::graphStatus TilingCheckTensor(
-    gert::TilingContext *context, const char *nodeName)
+static ge::graphStatus TilingCheckTensor(gert::TilingContext *context, const char *nodeName)
 {
-    OP_TILING_CHECK(!CheckTensorDataType(context, nodeName),
+    OP_TILING_CHECK(
+        !CheckTensorDataType(context, nodeName),
         OP_LOGE(nodeName, "params dataType is invalid."),
         return ge::GRAPH_FAILED);
 
-    OP_TILING_CHECK(!CheckTensorShape(context, nodeName),
+    OP_TILING_CHECK(
+        !CheckTensorShape(context, nodeName),
         OP_LOGE(nodeName, "params dataType is invalid."),
         return ge::GRAPH_FAILED);
 
@@ -155,15 +187,18 @@ static ge::graphStatus DispatchLayoutTilingFuncImpl(gert::TilingContext *context
     OP_TILING_CHECK(tilingData == nullptr, OP_LOGE(nodeName, "tilingData is nullptr."), return ge::GRAPH_FAILED);
     OP_LOGI(nodeName, "Enter NotifyDispatch tiling check func.");
 
-    OP_TILING_CHECK(GetAttrAndSetTilingData(context, nodeName, *tilingData) != ge::GRAPH_SUCCESS,
+    OP_TILING_CHECK(
+        GetAttrAndSetTilingData(context, nodeName, *tilingData) != ge::GRAPH_SUCCESS,
         OP_LOGE(nodeName, "Get attr and set tiling data failed."),
         return ge::GRAPH_FAILED);
 
-    OP_TILING_CHECK(TilingCheckTensor(context, nodeName) != ge::GRAPH_SUCCESS,
+    OP_TILING_CHECK(
+        TilingCheckTensor(context, nodeName) != ge::GRAPH_SUCCESS,
         OP_LOGE(nodeName, "Tiling check param failed."),
         return ge::GRAPH_FAILED);
 
-    OP_TILING_CHECK(SetWorkSpace(context, nodeName) != ge::GRAPH_SUCCESS,
+    OP_TILING_CHECK(
+        SetWorkSpace(context, nodeName) != ge::GRAPH_SUCCESS,
         OP_LOGE(nodeName, "Tiling set workspace failed."),
         return ge::GRAPH_FAILED);
 

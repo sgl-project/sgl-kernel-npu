@@ -96,7 +96,7 @@ makeself.sh [args] archive_dir file_name label startup_script [script_args]
     * **`--follow`** : Follow the symbolic links inside of the archive directory, i.e. store the files that are being pointed to instead of the links themselves.
     * **`--append`** _(new in 2.1.x)_: Append data to an existing archive, instead of creating a new one. In this mode, the settings from the original archive are reused (compression type, label, embedded script), and thus don't need to be specified again on the command line.
     * **`--header`** : Makeself uses a separate file to store the header stub, called `makeself-header.sh`. By default, it is assumed that it is stored in the same location as makeself.sh. This option can be used to specify its actual location if it is stored someplace else.
-    * **`--cleanup`** : Specify a script that is run when execution is interrupted or finishes successfully. The script is executed with the same environment and initial `script_args` as `startup_script`. 
+    * **`--cleanup`** : Specify a script that is run when execution is interrupted or finishes successfully. The script is executed with the same environment and initial `script_args` as `startup_script`.
     * **`--copy`** : Upon extraction, the archive will first extract itself to a temporary directory. The main application of this is to allow self-contained installers stored in a Makeself archive on a CD, when the installer program will later need to unmount the CD and allow a new one to be inserted. This prevents "Filesystem busy" errors for installers that span multiple CDs.
     * **`--nox11`** : Disable the automatic spawning of a new terminal in X11.
     * **`--nowait`** : When executed from a new X11 terminal, disable the user prompt at the end of the script execution.
@@ -150,9 +150,9 @@ Any subsequent arguments to the archive will be passed as additional arguments t
 
 ## Startup Script
 
-The startup script must be a regular Shell script. 
+The startup script must be a regular Shell script.
 
-Within the startup script, you can use the `$USER_PWD` variable to get the path of the folder from which the self-extracting script is executed. This is especially useful to access files that are located in the same folder as the script, as shown in the example below. 
+Within the startup script, you can use the `$USER_PWD` variable to get the path of the folder from which the self-extracting script is executed. This is especially useful to access files that are located in the same folder as the script, as shown in the example below.
 
 `my-self-extracting-script.sh --fooBarFileParameter foo.bar`
 
@@ -202,7 +202,7 @@ The latest development version can be grabbed from [GitHub][10]. Feel free to su
   * **v2.1.5:** Made the md5sum detection consistent with the header code. Check for the presence of the archive directory. Added `--encrypt` for symmetric encryption through gpg (Eric Windisch). Added support for the digest command on Solaris 10 for MD5 checksums. Check for available disk space before extracting to the target directory (Andreas Schweitzer). Allow extraction to run asynchronously (patch by Peter Hatch). Use file descriptors internally to avoid error messages (patch by Kay Tiong Khoo).
   * **v2.1.6:** Replaced one dot per file progress with a realtime progress percentage and a spinning cursor. Added `--noprogress` to prevent showing the progress during the decompression. Added `--target` dir to allow extracting directly to a target directory. (Guy Baconniere)
   * **v2.2.0:** First major new release in years! Includes many bugfixes and user contributions. Please look at the [project page on Github][10] for all the details.
-  * **v2.3.0:** Support for archive encryption via GPG or OpenSSL. Added LZO and LZ4 compression support. Options to set the packaging date and stop the umask from being overriden. Optionally ignore check for available disk space when extracting. New option to check for root permissions before extracting.
+  * **v2.3.0:** Support for archive encryption via GPG or OpenSSL. Added LZO and LZ4 compression support. Options to set the packaging date and stop the umask from being overridden. Optionally ignore check for available disk space when extracting. New option to check for root permissions before extracting.
   * **v2.3.1:** Various compatibility updates. Added unit tests for Travis CI in the GitHub repo. New `--tar-extra`, `--untar-extra`, `--gpg-extra`, `--gpg-asymmetric-encrypt-sign` options.
   * **v2.4.0:** Added optional support for SHA256 archive integrity checksums.
   * **v2.4.2:** New --cleanup and --cleanup-args arguments for cleanup scripts. Added threading support for supported compressors. Now supports zstd compression.

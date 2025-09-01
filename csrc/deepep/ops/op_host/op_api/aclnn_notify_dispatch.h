@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-/* funtion: aclnnNotifyDispatchGetWorkspaceSize
+/* function: aclnnNotifyDispatchGetWorkspaceSize
  * parameters :
  * sendData : required
  * tokenPerExpertData : required
@@ -24,8 +24,7 @@ extern "C" {
  * workspaceSize : size of workspace(output).
  * executor : executor context(output).
  */
-__attribute__((visibility("default")))
-aclnnStatus aclnnNotifyDispatchGetWorkspaceSize(
+__attribute__((visibility("default"))) aclnnStatus aclnnNotifyDispatchGetWorkspaceSize(
     const aclTensor *sendData,
     const aclTensor *tokenPerExpertData,
     int64_t sendCount,
@@ -40,19 +39,15 @@ aclnnStatus aclnnNotifyDispatchGetWorkspaceSize(
     uint64_t *workspaceSize,
     aclOpExecutor **executor);
 
-/* funtion: aclnnNotifyDispatch
+/* function: aclnnNotifyDispatch
  * parameters :
  * workspace : workspace memory addr(input).
  * workspaceSize : size of workspace(input).
  * executor : executor context(input).
  * stream : acl stream.
  */
-__attribute__((visibility("default")))
-aclnnStatus aclnnNotifyDispatch(
-    void *workspace,
-    uint64_t workspaceSize,
-    aclOpExecutor *executor,
-    aclrtStream stream);
+__attribute__((visibility("default"))) aclnnStatus
+aclnnNotifyDispatch(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream);
 
 #ifdef __cplusplus
 }

@@ -85,9 +85,17 @@ inline uint32_t RoundDown(const uint32_t val, const uint32_t align = 16)
     return val / align * align;
 }
 
-template <typename T = uint32_t> inline T Max(const T a, const T b) { return a > b ? a : b; }
+template <typename T = uint32_t>
+inline T Max(const T a, const T b)
+{
+    return a > b ? a : b;
+}
 
-template <typename T = uint32_t> inline T Min(const T a, const T b) { return a < b ? a : b; }
+template <typename T = uint32_t>
+inline T Min(const T a, const T b)
+{
+    return a < b ? a : b;
+}
 
 struct MlaPreprocess {
     enum class QuantMode : int32_t {
@@ -99,8 +107,7 @@ struct MlaPreprocess {
 };
 using QuantMode = MlaPreprocess::QuantMode;
 
-struct PlatformInfo
-{
+struct PlatformInfo {
     uint32_t coreNum;
     uint32_t coreNumAic;
     uint32_t coreNumAiv;
@@ -112,8 +119,7 @@ struct PlatformInfo
     uint64_t l0cSize;
 };
 
-struct OpParam
-{
+struct OpParam {
     uint32_t N;
     uint32_t headNum;
     int32_t cacheMode;
@@ -121,12 +127,28 @@ struct OpParam
     caffe2::TypeMeta inDtype;
 };
 
-class PpMatmulTilingApi {
+class PpMatmulTilingApi
+{
 public:
-    PpMatmulTilingApi(struct PlatformInfo &platformInfo, uint32_t numBatch,
-                        uint32_t m, uint32_t k, uint32_t n, bool transA, bool transB, bool enDequant, bool deqOnTheFly)
-        : platformInfo_(platformInfo), numBatch_(numBatch), m_(m), k_(k), n_(n), transA_(transA), transB_(transB),
-        enDequant_(enDequant), deqOnTheFly_(deqOnTheFly)
+    PpMatmulTilingApi(
+        struct PlatformInfo &platformInfo,
+        uint32_t numBatch,
+        uint32_t m,
+        uint32_t k,
+        uint32_t n,
+        bool transA,
+        bool transB,
+        bool enDequant,
+        bool deqOnTheFly)
+        : platformInfo_(platformInfo),
+          numBatch_(numBatch),
+          m_(m),
+          k_(k),
+          n_(n),
+          transA_(transA),
+          transB_(transB),
+          enDequant_(enDequant),
+          deqOnTheFly_(deqOnTheFly)
     {
         inDataSize_ = enDequant ? sizeof(uint8_t) : sizeof(uint16_t);
     }
@@ -249,7 +271,8 @@ uint32_t PpMatmulTilingApi::ComputeK0ForABpingpong(uint32_t l1AbSize)
     uint32_t tmpK0;
     if (enDequant_) {
         tmpK0 = k0Max < CONST_512 ? RoundDown(k0Max, CONST_32) : RoundDown(k0Max, CONST_512);
-    } else {
+    }
+    else {
         tmpK0 = k0Max < CONST_256 ? RoundDown(k0Max, CONST_16) : RoundDown(k0Max, CONST_256);
     }
     if (tmpK0 > CONST_512) {
@@ -331,14 +354,15 @@ void PpMatmulTilingApi::Swizzle()
         float cost;
         // B0 + A < A0 + B
         if (i * n0_ + m_ < m0_ * c + n_) {
-            swizzleDirect_ = 1; // Nz
+            swizzleDirect_ = 1;  // Nz
             cost = n0_ * i + m0_ * c;
             if (cost <= minCost) {
                 minCost = cost;
                 swizzleCount_ = i;
             }
-        } else {
-            swizzleDirect_ = 0; // Zn
+        }
+        else {
+            swizzleDirect_ = 0;  // Zn
             cost = m0_ * i + n0_ * c;
             if (cost < minCost) {
                 minCost = cost;
@@ -348,9 +372,9 @@ void PpMatmulTilingApi::Swizzle()
     }
 }
 
-class MlaPreprocessTiling {
+class MlaPreprocessTiling
+{
 public:
-
     MlaPreprocessTiling(struct PlatformInfo &platformInfo, struct OpParam &opParam, MlaTilingData *tilingData)
     {
         this->tilingData = tilingData;
@@ -397,19 +421,24 @@ void MlaPreprocessTiling::RopeConcatTiling()
     uint32_t allHeadNum = ntokens * headNumQ;
 
     uint32_t tempCore = (allHeadNum + maxCore - 1) / maxCore;
-    uint32_t realCore = (allHeadNum + tempCore - 1) / tempCore;  // Actual number of the core for operation
-    uint32_t nlCoreRun = (allHeadNum + realCore - 1) / realCore; // The number of heads in the front core
-    uint32_t lCoreRun = allHeadNum - (realCore - 1) * nlCoreRun; // The number of heads in the tail core
+    uint32_t realCore = (allHeadNum + tempCore - 1) / tempCore;   // Actual number of the core for operation
+    uint32_t nlCoreRun = (allHeadNum + realCore - 1) / realCore;  // The number of heads in the front core
+    uint32_t lCoreRun = allHeadNum - (realCore - 1) * nlCoreRun;  // The number of heads in the tail core
 
     uint32_t dataTypeSize = 2;
 
     // Calculate how many lines can be moved at a time. q 4+2、reverseq 4、neg 4、sin 4+2、cos 4+2  + concat 2
-    uint32_t allSize = headDim * (3 * (4 + dataTypeSize) + 2 * 4) + concatSize * dataTypeSize; // lift precision calculation of ROPE
-    uint32_t maxNPerLoopForUb = maxUbSize / allSize; // the maximum number of rows at a time for UB
+    uint32_t allSize =
+        headDim * (3 * (4 + dataTypeSize) + 2 * 4) + concatSize * dataTypeSize;  // lift precision calculation of ROPE
+    uint32_t maxNPerLoopForUb = maxUbSize / allSize;  // the maximum number of rows at a time for UB
     uint32_t preCoreLoopTime = (nlCoreRun + maxNPerLoopForUb - 1) / maxNPerLoopForUb;  // Number of cycles of front core
-    uint32_t preCoreLoopNLast = nlCoreRun - (preCoreLoopTime - 1) * maxNPerLoopForUb;  // rows of data processed in the last batch of the front core
+    uint32_t preCoreLoopNLast =
+        nlCoreRun -
+        (preCoreLoopTime - 1) * maxNPerLoopForUb;  // rows of data processed in the last batch of the front core
     uint32_t lastCoreLoopTime = (lCoreRun + maxNPerLoopForUb - 1) / maxNPerLoopForUb;  // Number of cycles of tail core
-    uint32_t lastCoreLoopNLast = lCoreRun - (lastCoreLoopTime - 1) * maxNPerLoopForUb; // rows of data processed in the last batch of the tail core
+    uint32_t lastCoreLoopNLast =
+        lCoreRun -
+        (lastCoreLoopTime - 1) * maxNPerLoopForUb;  // rows of data processed in the last batch of the tail core
 
     tilingData->hiddenSizeQ = hiddenSizeQ;
     tilingData->headNumQ = headNumQ;
@@ -435,7 +464,7 @@ void MlaPreprocessTiling::EinSumQuantTiling()
     // input shape
     uint32_t esqBatch = opParam.N;          // tokenNum
     uint32_t esqHeadNum = opParam.headNum;  // headNum
-    uint32_t esqColNum = AXES_ALIGN_SIZE; // 512
+    uint32_t esqColNum = AXES_ALIGN_SIZE;   // 512
 
     // split core
     uint32_t esqFrontCore = esqBatch % aivCore;
@@ -445,7 +474,7 @@ void MlaPreprocessTiling::EinSumQuantTiling()
 
     // split ub --> calc H' <-- The number of rows handled in a UB cycle.
     uint32_t splitFactor = 0;
-    uint32_t esqHeadPerLoop = 0; // The number of head rows per UB calculation
+    uint32_t esqHeadPerLoop = 0;  // The number of head rows per UB calculation
     uint32_t repeatMask = 0;
 
     if (opParam.inDtype == at::kBFloat16 || opParam.quantMode == QuantMode::PER_TOKEN_SYMM_QUANT) {
@@ -456,7 +485,8 @@ void MlaPreprocessTiling::EinSumQuantTiling()
         splitFactor *= NUM2;
         esqHeadPerLoop = (ubSize - scaleUb) / splitFactor;  // 26
         repeatMask = FP32_REPEAT_MASK;
-    } else {
+    }
+    else {
         // fp16 input [H', cloNum](fp16*2 + int8) + [H', 1](fp16) + [H', 16](fp16)
         splitFactor =
             esqColNum * (NUM2 * sizeof(uint16_t) + sizeof(uint8_t)) + sizeof(uint16_t) + (CONST_16 * sizeof(uint16_t));
@@ -464,10 +494,11 @@ void MlaPreprocessTiling::EinSumQuantTiling()
         repeatMask = FP16_REPEAT_MASK;
         esqHeadPerLoop = RoundDown(esqHeadPerLoop);
     }
-    uint32_t esqUbHeadLoop = esqHeadNum / esqHeadPerLoop; // UB complete cycles
-    uint32_t esqHeadTail = esqHeadNum % esqHeadPerLoop;   // The number of rows that UB last processed the head.
-    uint32_t esqColLoop = esqColNum / repeatMask;         // Each row counts the number of times to cycle through columns.
-    uint32_t esqColTail = esqColNum % repeatMask;         // colNum is not 64/128 aligned, the number of columns is calculated last.
+    uint32_t esqUbHeadLoop = esqHeadNum / esqHeadPerLoop;  // UB complete cycles
+    uint32_t esqHeadTail = esqHeadNum % esqHeadPerLoop;    // The number of rows that UB last processed the head.
+    uint32_t esqColLoop = esqColNum / repeatMask;  // Each row counts the number of times to cycle through columns.
+    uint32_t esqColTail =
+        esqColNum % repeatMask;  // colNum is not 64/128 aligned, the number of columns is calculated last.
 
     tilingData->esqFrontCore = esqFrontCore;
     tilingData->esqTailCore = esqTailCore;
@@ -485,10 +516,9 @@ void MlaPreprocessTiling::EinSumQuantTiling()
 void MlaPreprocessTiling::SetMlapoWorkSpace()
 {
     uint64_t s1wsFactor = static_cast<uint64_t>(
-        opParam.cacheMode == 2 ?
-        std::max(HIDDEN_STRATE * sizeof(int8_t), opParam.headNum * AXES_ALIGN_SIZE * sizeof(uint16_t)) :
-        HIDDEN_STRATE * sizeof(int8_t)
-    );
+        opParam.cacheMode == 2
+            ? std::max(HIDDEN_STRATE * sizeof(int8_t), opParam.headNum * AXES_ALIGN_SIZE * sizeof(uint16_t))
+            : HIDDEN_STRATE * sizeof(int8_t));
     uint64_t workSizeS1 = s1wsFactor;
     uint64_t workSizeS2 = opParam.headNum * HIDDEN_STRATE_ROPE * sizeof(uint16_t);
     uint64_t workSizeS3 = HIDDEN_STRATE_MM * sizeof(uint16_t);
@@ -505,7 +535,8 @@ void MlaPreprocessTiling::SetMlapoWorkSpace()
     uint64_t userWorkspaceSize;
     if (opParam.inDtype == at::kBFloat16 || opParam.quantMode == QuantMode::PER_TOKEN_SYMM_QUANT) {
         userWorkspaceSize = 4 * maxWorkspaceSize + pertokenWorkspace;
-    } else {
+    }
+    else {
         userWorkspaceSize = 3 * maxWorkspaceSize;
     }
 
@@ -539,38 +570,38 @@ void MlaPreprocessTiling::Init()
 
     PpMatmulTilingApi mm1TilingApi(
         platformInfo,
-        1,                                      // numBatch
-        opParam.N,                              // m
-        HIDDEN_STRATE,                          // k
-        HIDDEN_STRATE_MM,                       // n
-        false,                                  // transA
-        true,                                   // transB
-        true,                                   // enDequant
-        deqOnTheFly);                           // in bf16.cce?
+        1,                 // numBatch
+        opParam.N,         // m
+        HIDDEN_STRATE,     // k
+        HIDDEN_STRATE_MM,  // n
+        false,             // transA
+        true,              // transB
+        true,              // enDequant
+        deqOnTheFly);      // in bf16.cce?
     mm1TilingApi.GetTilingData(tilingData->mm1);
 
     PpMatmulTilingApi mm2TilingApi(
         platformInfo,
-        1,                                      // numBatch
-        opParam.N,                              // m
-        HIDDEN_STRATE_RMS,                      // k
-        opParam.headNum * HIDDEN_STRATE_ROPE,   // n
-        false,                                  // transA
-        true,                                   // transB
-        true,                                   // enDequant
-        deqOnTheFly);                           // in bf16.cce?
+        1,                                     // numBatch
+        opParam.N,                             // m
+        HIDDEN_STRATE_RMS,                     // k
+        opParam.headNum * HIDDEN_STRATE_ROPE,  // n
+        false,                                 // transA
+        true,                                  // transB
+        true,                                  // enDequant
+        deqOnTheFly);                          // in bf16.cce?
     mm2TilingApi.GetTilingData(tilingData->mm2);
 
     PpMatmulTilingApi mm3TilingApi(
         platformInfo,
-        opParam.headNum,                        // numBatch
-        opParam.N,                              // m
-        CONST_128,                              // k
-        CONCAT_SIZE,                            // n
-        false,                                  // transA
-        false,                                  // transB
-        false,                                  // enDequant
-        deqOnTheFly);                           // in bf16.cce?
+        opParam.headNum,  // numBatch
+        opParam.N,        // m
+        CONST_128,        // k
+        CONCAT_SIZE,      // n
+        false,            // transA
+        false,            // transB
+        false,            // enDequant
+        deqOnTheFly);     // in bf16.cce?
     mm3TilingApi.GetTilingData(tilingData->mm3);
 
     RmsNormQuantTiling();
@@ -584,21 +615,19 @@ void MlaPreprocessTiling::Init()
 }
 
 std::unordered_map<c10::string_view, uint16_t> cache_mode_map = {
-    {"krope_ctkv", 1},
-    {"int8_nzcache", 2},
-    {"nzcache", 3}
-};
+    {"krope_ctkv", 1}, {"int8_nzcache", 2}, {"nzcache", 3}};
 
 std::unordered_map<c10::string_view, uint16_t> quant_mode_map = {
     {"per_tensor_quant_asymm", 0},
     {"per_token_quant_symm", 1},
 };
 
-template<typename MapType>
-inline int get_op_mode(const MapType& mode_map,
-                       c10::optional<c10::string_view> mode_opt,
-                       c10::string_view default_mode,
-                       const char* mode_name)
+template <typename MapType>
+inline int get_op_mode(
+    const MapType &mode_map,
+    c10::optional<c10::string_view> mode_opt,
+    c10::string_view default_mode,
+    const char *mode_name)
 {
     c10::string_view mode_str = mode_opt.value_or(default_mode);
     auto it = mode_map.find(mode_str);
@@ -606,16 +635,33 @@ inline int get_op_mode(const MapType& mode_map,
     return it->second;
 }
 
-std::tuple<at::Tensor&, at::Tensor&, at::Tensor&, at::Tensor&> mla_preprocess(
-    const at::Tensor &hiddenState, const at::Tensor &gamma0, const at::Tensor &beta0, const at::Tensor &wdqkv,
-    const at::Tensor &descale0, const at::Tensor &gamma1, const at::Tensor &beta1,
-    const at::Tensor &wuq, const at::Tensor &descale1, const at::Tensor &gamma2,
-    const at::Tensor &cos, const at::Tensor &sin, const at::Tensor &wuk,
-    const at::Tensor &kv_cache, const at::Tensor &kv_cache_rope, const at::Tensor &slotmapping,
-    const at::Tensor &quant_scale0, const at::Tensor &quant_offset0, const at::Tensor &bias0,
-    const at::Tensor &quant_scale1, const at::Tensor &quant_offset1, const at::Tensor &bias1,
-    const c10::optional<at::Tensor> &ctkv_scale, const c10::optional<at::Tensor> &q_nope_scale,
-    c10::optional<c10::string_view> cache_mode, c10::optional<c10::string_view> quant_mode,
+std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &> mla_preprocess(
+    const at::Tensor &hiddenState,
+    const at::Tensor &gamma0,
+    const at::Tensor &beta0,
+    const at::Tensor &wdqkv,
+    const at::Tensor &descale0,
+    const at::Tensor &gamma1,
+    const at::Tensor &beta1,
+    const at::Tensor &wuq,
+    const at::Tensor &descale1,
+    const at::Tensor &gamma2,
+    const at::Tensor &cos,
+    const at::Tensor &sin,
+    const at::Tensor &wuk,
+    const at::Tensor &kv_cache,
+    const at::Tensor &kv_cache_rope,
+    const at::Tensor &slotmapping,
+    const at::Tensor &quant_scale0,
+    const at::Tensor &quant_offset0,
+    const at::Tensor &bias0,
+    const at::Tensor &quant_scale1,
+    const at::Tensor &quant_offset1,
+    const at::Tensor &bias1,
+    const c10::optional<at::Tensor> &ctkv_scale,
+    const c10::optional<at::Tensor> &q_nope_scale,
+    c10::optional<c10::string_view> cache_mode,
+    c10::optional<c10::string_view> quant_mode,
     at::Tensor &q_out0,
     at::Tensor &kv_cache_out0,
     at::Tensor &q_out1,
@@ -623,10 +669,14 @@ std::tuple<at::Tensor&, at::Tensor&, at::Tensor&, at::Tensor&> mla_preprocess(
 {
     auto cacheMode = get_op_mode(cache_mode_map, cache_mode, "krope_ctkv", "cache_mode");
     auto quantMode = get_op_mode(quant_mode_map, quant_mode, "per_token_quant_symm", "quant_mode");
-    at::Tensor CtkvScale = ctkv_scale.has_value() ? ctkv_scale.value() :
-                            at::empty({1}, at::TensorOptions().dtype(at::kHalf).device(hiddenState.options().device()));
-    at::Tensor QnopeScale = q_nope_scale.has_value() ? q_nope_scale.value() :
-                            at::empty({1}, at::TensorOptions().dtype(at::kHalf).device(hiddenState.options().device()));
+    at::Tensor CtkvScale =
+        ctkv_scale.has_value()
+            ? ctkv_scale.value()
+            : at::empty({1}, at::TensorOptions().dtype(at::kHalf).device(hiddenState.options().device()));
+    at::Tensor QnopeScale =
+        q_nope_scale.has_value()
+            ? q_nope_scale.value()
+            : at::empty({1}, at::TensorOptions().dtype(at::kHalf).device(hiddenState.options().device()));
 
     platform_ascendc::PlatformAscendC *platformAscendC = platform_ascendc::PlatformAscendCManager::GetInstance();
 
@@ -667,17 +717,43 @@ std::tuple<at::Tensor&, at::Tensor&, at::Tensor&, at::Tensor&> mla_preprocess(
     at::Tensor buffer = at::from_blob((uint8_t *)&tilingData, sizeof(MlaTilingData), at::kByte);
     at::Tensor tiling = TorchNpuHepler::CopyTensorHostToDevice(buffer);
 
-    EXEC_KERNEL_CMD(mla_preprocess, blockDim,
-                    hiddenState, gamma0, beta0,
-                    quant_scale0, quant_offset0, wdqkv, bias0, gamma1, beta1,
-                    quant_scale1, quant_offset1, gamma2, sin, cos, sin, cos,
-                    kv_cache, slotmapping, wuq, bias1, wuk, descale0, descale1,
-                    CtkvScale, QnopeScale,
-                    q_out0, kv_cache_out0, q_out1, kv_cache_out1,
-                    workspace_tensor, tiling);
+    EXEC_KERNEL_CMD(
+        mla_preprocess,
+        blockDim,
+        hiddenState,
+        gamma0,
+        beta0,
+        quant_scale0,
+        quant_offset0,
+        wdqkv,
+        bias0,
+        gamma1,
+        beta1,
+        quant_scale1,
+        quant_offset1,
+        gamma2,
+        sin,
+        cos,
+        sin,
+        cos,
+        kv_cache,
+        slotmapping,
+        wuq,
+        bias1,
+        wuk,
+        descale0,
+        descale1,
+        CtkvScale,
+        QnopeScale,
+        q_out0,
+        kv_cache_out0,
+        q_out1,
+        kv_cache_out1,
+        workspace_tensor,
+        tiling);
 
     return std::forward_as_tuple(q_out0, kv_cache_out0, q_out1, kv_cache_out1);
 }
 
-} // namespace npu_kernel
-} // namespace sglang
+}  // namespace npu_kernel
+}  // namespace sglang

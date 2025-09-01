@@ -54,9 +54,7 @@ def test_verify_tree_greedy():
     bs = candidates.shape[0]
     num_spec_step = 4
 
-    predicts = torch.full(
-        predict_shape, -1, dtype=torch.int32, device="npu"
-    )  # mutable
+    predicts = torch.full(predict_shape, -1, dtype=torch.int32, device="npu")  # mutable
     accept_index = torch.full(
         (bs, num_spec_step), -1, dtype=torch.int32, device="npu"
     )  # mutable
@@ -73,7 +71,7 @@ def test_verify_tree_greedy():
         predicts,
         candidates.shape[1],
         topk=4,
-        )
+    )
     # Check the expected output.
     assert predicts.tolist() == [3, -1, -1, 4, 5, 18, 11, -1, -1, -1, 12, 18]
     assert accept_index.tolist() == [

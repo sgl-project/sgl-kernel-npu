@@ -27,21 +27,21 @@ constexpr int32_t EINSUMOUT = 11;
 constexpr int32_t EINSUMQUANT = 12;
 
 // ropeConcat
-constexpr uint32_t ELE_NUM_FP16 = 16;           // nums of fp16 elemnts in one block
-constexpr uint32_t ELE_NUM_FP32 = 8;            // nums of fp32 elemnts in one block
-constexpr uint8_t DEFAULT_REPEAT_STRIDE = 8;    // stride, 8 * 32 = 256
+constexpr uint32_t ELE_NUM_FP16 = 16;         // nums of fp16 elements in one block
+constexpr uint32_t ELE_NUM_FP32 = 8;          // nums of fp32 elements in one block
+constexpr uint8_t DEFAULT_REPEAT_STRIDE = 8;  // stride, 8 * 32 = 256
 
 // rmsNormQuant
-constexpr int32_t NUM_PER_REP_FP32 = 64;        // ONE_REPEAT_BYTE_SIZE / sizeof(float);
+constexpr int32_t NUM_PER_REP_FP32 = 64;  // ONE_REPEAT_BYTE_SIZE / sizeof(float);
 constexpr float ZERO = 0;
-constexpr uint32_t BUF_FACTOR = 3;              // 1(g) + 1(sqx) + 1(sum) = 3
-constexpr uint32_t OFFSET_GAMMA = 0;            // the offset of gamma is 0
-constexpr uint32_t OFFSET_SQX = 1;              // the offset of sqx is 1
-constexpr uint32_t OFFSET_SUM = 2;              // the offset of sum is 2
-constexpr uint32_t OFFSET_WORKSPACE = 3;        // the offset of workspace is 3
-constexpr uint32_t REPEAT_TIME_256 = 256;       // 128 default stride
-constexpr uint32_t REPEAT_TIME_128 = 128;       // 128 default stride
-constexpr uint32_t REPEAT_TIME_64 = 64;         // 64 default stride
+constexpr uint32_t BUF_FACTOR = 3;         // 1(g) + 1(sqx) + 1(sum) = 3
+constexpr uint32_t OFFSET_GAMMA = 0;       // the offset of gamma is 0
+constexpr uint32_t OFFSET_SQX = 1;         // the offset of sqx is 1
+constexpr uint32_t OFFSET_SUM = 2;         // the offset of sum is 2
+constexpr uint32_t OFFSET_WORKSPACE = 3;   // the offset of workspace is 3
+constexpr uint32_t REPEAT_TIME_256 = 256;  // 128 default stride
+constexpr uint32_t REPEAT_TIME_128 = 128;  // 128 default stride
+constexpr uint32_t REPEAT_TIME_64 = 64;    // 64 default stride
 
 constexpr uint8_t CACHE_MODE_KVCACHE = 0;       // single input single output
 constexpr uint8_t CACHE_MODE_KROPE_CTKV = 1;    // double in and double out
@@ -61,14 +61,14 @@ constexpr uint32_t SPLIT_RMSNRORM_SIZE_TWO = 64;
 constexpr uint32_t ROPE_SPLIT_SIZE_ONE = 64;
 constexpr uint32_t ROPE_SPLIT_SIZE_TWO = 128;
 
-constexpr uint32_t MMSIZE1 = 128 * 192; // 24576
-constexpr uint32_t MMSIZE2 = 64 * 128;  // 8192
+constexpr uint32_t MMSIZE1 = 128 * 192;  // 24576
+constexpr uint32_t MMSIZE2 = 64 * 128;   // 8192
 
-constexpr uint64_t L0_PINGPONG_BUFFER_LEN = 32768;  // 32 KB
-constexpr uint64_t L1_PINGPONG_BUFFER_LEN = 262144; // 256 KB
+constexpr uint64_t L0_PINGPONG_BUFFER_LEN = 32768;   // 32 KB
+constexpr uint64_t L1_PINGPONG_BUFFER_LEN = 262144;  // 256 KB
 constexpr uint64_t BLOCK_SIZE_16 = 16;
 constexpr uint64_t BLOCK_SIZE_32 = 32;
-constexpr uint64_t CUBE_MATRIX_SIZE_512 = 16 * 32; // 16 * 23
+constexpr uint64_t CUBE_MATRIX_SIZE_512 = 16 * 32;  // 16 * 23
 constexpr uint64_t FB_BUFF_SIZE = 1024 * 7;
 constexpr uint64_t SCALE_L1_LEN = 4096;
 constexpr uint64_t BIAS_L1_LEN = 2048;
@@ -84,8 +84,8 @@ constexpr uint64_t CONST_128 = 128;
 constexpr uint32_t ROPE_CONCAT_NUM_BUFFER = 2;
 
 // rmsNormQuant
-constexpr uint32_t OFFSET_ABS = 3;              // the offset of abs is 3
-constexpr uint32_t OFFSET_WORKSPACE_BF16 = 4;   // the offset of workspace is 4
+constexpr uint32_t OFFSET_ABS = 3;             // the offset of abs is 3
+constexpr uint32_t OFFSET_WORKSPACE_BF16 = 4;  // the offset of workspace is 4
 
 // sync bf16
 constexpr int32_t AIC_MM1_START = 2;

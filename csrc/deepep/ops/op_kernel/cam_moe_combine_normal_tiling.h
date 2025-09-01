@@ -30,4 +30,4 @@ struct CamMoeCombineNormalTilingData {
     CamMoeCombineNormalInfo camMoeCombineNormalInfo;
 };
 
-#endif //CAM_MOE_COMBINE_NORMAL_TILING_H
+#endif  // CAM_MOE_COMBINE_NORMAL_TILING_H

@@ -30,7 +30,7 @@ HOST_API at::Tensor helloworld(const at::Tensor &x, const at::Tensor &y)
         totalLength *= size;
     }
 
-    /* lauch the kernal function via torch */
+    /* launch the kernel function via torch */
     EXEC_KERNEL_CMD(helloworld, blockDim, x, y, z, totalLength);
     return z;
 }

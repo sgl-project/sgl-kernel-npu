@@ -12,7 +12,6 @@
 #ifndef UTILS_COMMON_H
 #define UTILS_COMMON_H
 
-
 constexpr uint32_t BLK_SIZE_ALIN_FOR_INT64 = 4;
 constexpr uint32_t BLK_SIZE_ALIN_FOR_INT32 = 8;
 

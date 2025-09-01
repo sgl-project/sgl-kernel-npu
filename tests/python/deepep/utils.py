@@ -1,21 +1,22 @@
 import inspect
 import json
-import tempfile
-from pathlib import Path
-
-import numpy as np
 import os
 import sys
+import tempfile
+from pathlib import Path
+from typing import Optional, Union
+
+import numpy as np
 import torch
 import torch.distributed as dist
-from typing import Optional, Union
+
 
 def init_dist(local_rank: int, num_local_ranks: int):
     # NOTES: you may rewrite this function with your own cluster settings
-    ip = os.getenv('MASTER_ADDR', '127.0.0.1')
-    port = int(os.getenv('MASTER_PORT', '8361'))
-    num_nodes = int(os.getenv('WORLD_SIZE', 1))
-    node_rank = int(os.getenv('RANK', 0))
+    ip = os.getenv("MASTER_ADDR", "127.0.0.1")
+    port = int(os.getenv("MASTER_PORT", "8361"))
+    num_nodes = int(os.getenv("WORLD_SIZE", 1))
+    node_rank = int(os.getenv("RANK", 0))
 
     global_rank = node_rank * num_local_ranks + local_rank
     world_size = num_nodes * num_local_ranks
@@ -24,10 +25,10 @@ def init_dist(local_rank: int, num_local_ranks: int):
     device = torch.device(f"npu:{local_rank}")
 
     dist.init_process_group(
-        backend='hccl',
-        init_method=f'tcp://{ip}:{port}',
+        backend="hccl",
+        init_method=f"tcp://{ip}:{port}",
         world_size=world_size,
-        rank=global_rank
+        rank=global_rank,
     )
 
     torch.set_default_dtype(torch.bfloat16)
@@ -50,6 +51,7 @@ def inplace_unique(x: torch.Tensor, num_slots: int):
     x[:, :].fill_(-1)
     valid_len = min(num_slots, x.size(1))
     x[:, :valid_len] = sorted_bin_idx[:, :valid_len]
+
 
 def bench(fn, num_warmups: int = 50, num_tests: int = 50, post_fn=None):
     device = torch.device("npu")

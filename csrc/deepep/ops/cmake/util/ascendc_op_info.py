@@ -1,8 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 
-import sys
 import os
+import sys
+
 import opdesc_parser
 
 PYF_PATH = os.path.dirname(os.path.realpath(__file__))

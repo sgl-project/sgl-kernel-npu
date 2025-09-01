@@ -1,7 +1,8 @@
 #include "register/op_def_registry.h"
 
 namespace ops {
-class DispatchLayout : public OpDef {
+class DispatchLayout : public OpDef
+{
 public:
     explicit DispatchLayout(const char *name) : OpDef(name)
     {

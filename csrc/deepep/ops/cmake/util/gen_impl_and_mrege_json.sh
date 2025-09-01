@@ -4,7 +4,7 @@ project_path=$1
 build_path=$2
 vendor_name=customize
 if [[ ! -d "$project_path" ]]; then
-    echo "[ERROR] No projcet path is provided"
+    echo "[ERROR] No project path is provided"
     exit 1
 fi
 

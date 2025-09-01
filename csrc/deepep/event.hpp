@@ -4,14 +4,13 @@
 namespace deep_ep {
 
 struct EventHandle {
+    EventHandle() {}
 
-    EventHandle() {
-    }
+    EventHandle(const EventHandle &other) = default;
 
-    EventHandle(const EventHandle& other) = default;
-
-    void current_stream_wait() const {
+    void current_stream_wait() const
+    {
         return;
     }
 };
-} // namespace deep_ep
+}  // namespace deep_ep

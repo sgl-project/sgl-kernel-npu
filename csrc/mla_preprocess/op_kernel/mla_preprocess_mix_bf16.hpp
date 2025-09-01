@@ -24,15 +24,19 @@
 #include "../op_host/tiling/mla_preprocess_tiling.h"
 
 namespace MLAPO_BF16 {
-template <typename QkDtype, typename CosDtype, typename QOutDtype, int8_t CacheMode> class RopeFp16 {
+template <typename QkDtype, typename CosDtype, typename QOutDtype, int8_t CacheMode>
+class RopeFp16
+{
 public:
     __aicore__ inline RopeFp16() : blockIdx_(AscendC::GetBlockIdx()) {}
 
-    __aicore__ inline void RopeInit(GM_ADDR qGm, AscendC::GlobalTensor<CosDtype> &cosGm,
-                                    AscendC::GlobalTensor<CosDtype> &sinGm,
-                                    AscendC::GlobalTensor<QOutDtype> &outRopeConcatGm,
-                                    AscendC::GlobalTensor<QkDtype> &outRopeConcatGm2,
-                                    MlaTilingData &ropeConcatParams)
+    __aicore__ inline void RopeInit(
+        GM_ADDR qGm,
+        AscendC::GlobalTensor<CosDtype> &cosGm,
+        AscendC::GlobalTensor<CosDtype> &sinGm,
+        AscendC::GlobalTensor<QOutDtype> &outRopeConcatGm,
+        AscendC::GlobalTensor<QkDtype> &outRopeConcatGm2,
+        MlaTilingData &ropeConcatParams)
     {
         qGm_.SetGlobalBuffer(reinterpret_cast<__gm__ QkDtype *>(qGm));
         this->cosGm_ = cosGm;
@@ -56,7 +60,7 @@ public:
         blockIdx_ = (blockIdx_ / 2) * 2 + static_cast<uint64_t>(GetSubBlockidx());
         loopTime = (blockIdx_ == realCore - 1) ? lastCoreLoopTime : preCoreLoopTime;
         lastLoopN = (blockIdx_ == realCore - 1) ? lastCoreLoopNLast : preCoreLoopNLast;
-        this->repeatSize_ = 64; // 128 = 256B / sizeof(fp32)
+        this->repeatSize_ = 64;  // 128 = 256B / sizeof(fp32)
         this->rotateStride_ = this->headDim / this->rotaryCoeff;
         headBlockLen = static_cast<uint16_t>(this->headDim / ELE_NUM_FP16);
         headBlockLenFP32 = static_cast<uint16_t>(this->headDim / ELE_NUM_FP32);
@@ -105,8 +109,12 @@ public:
             if (headRemain != 0) {
                 uint64_t preProcessHeadNum = this->headNumQ - headRemain;
                 uint64_t needToProcesHead = preProcessHeadNum > loopN ? loopN : preProcessHeadNum;
-                CopyCosSin(inputCos, inputSin, localStartAddr, (startSinCosHeadIndex / this->headNumQ) * this->headDim,
-                           needToProcesHead);
+                CopyCosSin(
+                    inputCos,
+                    inputSin,
+                    localStartAddr,
+                    (startSinCosHeadIndex / this->headNumQ) * this->headDim,
+                    needToProcesHead);
                 startSinCosHeadIndex += needToProcesHead;
                 localStartAddr += needToProcesHead * this->headDim;
             }
@@ -148,7 +156,8 @@ public:
             WAIT_FLAG(V, MTE3, EVENT_ID1);
             if constexpr (CacheMode == CACHE_MODE_KVCACHE) {
                 AscendC::DataCopy(this->outRopeConcatGm_[outQOffset], inputQ, {loopN, headBlockLen, 0, concatBlockLen});
-            } else {
+            }
+            else {
                 AscendC::DataCopy(this->outRopeConcatGm2_[outQOffset2], inputQ, loopN * this->headDim);
             }
             SET_FLAG(MTE3, MTE2, EVENT_ID1);
@@ -170,9 +179,12 @@ public:
     }
 
     template <typename BUF_TYPE>
-    __aicore__ inline void
-    CopyQGenReverseQ(const AscendC::LocalTensor<BUF_TYPE> &tempBufQ, const AscendC::LocalTensor<float> &tempBufQCast,
-                     const AscendC::LocalTensor<float> &tempBufRverseQ, uint64_t qOffset, uint16_t loopN)
+    __aicore__ inline void CopyQGenReverseQ(
+        const AscendC::LocalTensor<BUF_TYPE> &tempBufQ,
+        const AscendC::LocalTensor<float> &tempBufQCast,
+        const AscendC::LocalTensor<float> &tempBufRverseQ,
+        uint64_t qOffset,
+        uint16_t loopN)
     {
         // move in Q
         WAIT_FLAG(MTE3, MTE2, EVENT_ID1);
@@ -189,18 +201,29 @@ public:
     }
 
     template <typename BUF_TYPE>
-    __aicore__ inline void CopyCosSin(const AscendC::LocalTensor<BUF_TYPE> &tempBufCos,
-                                      const AscendC::LocalTensor<BUF_TYPE> &tempBufSin, uint64_t localStartAddr,
-                                      uint64_t gmStartAddr, uint64_t repeatNum)
+    __aicore__ inline void CopyCosSin(
+        const AscendC::LocalTensor<BUF_TYPE> &tempBufCos,
+        const AscendC::LocalTensor<BUF_TYPE> &tempBufSin,
+        uint64_t localStartAddr,
+        uint64_t gmStartAddr,
+        uint64_t repeatNum)
     {
         AscendC::DataCopy(tempBufCos[localStartAddr], this->cosGm_[gmStartAddr], {1, headBlockLen, 0, 0});
         AscendC::DataCopy(tempBufSin[localStartAddr], this->sinGm_[gmStartAddr], {1, headBlockLen, 0, 0});
         SET_FLAG(MTE2, V, EVENT_ID1);
         WAIT_FLAG(MTE2, V, EVENT_ID1);
-        AscendC::Copy(tempBufCos[localStartAddr + this->headDim], tempBufCos[localStartAddr], this->headDim,
-                      repeatNum - 1, {1, 1, headBlockLen, 0});
-        AscendC::Copy(tempBufSin[localStartAddr + this->headDim], tempBufSin[localStartAddr], this->headDim,
-                      repeatNum - 1, {1, 1, headBlockLen, 0});
+        AscendC::Copy(
+            tempBufCos[localStartAddr + this->headDim],
+            tempBufCos[localStartAddr],
+            this->headDim,
+            repeatNum - 1,
+            {1, 1, headBlockLen, 0});
+        AscendC::Copy(
+            tempBufSin[localStartAddr + this->headDim],
+            tempBufSin[localStartAddr],
+            this->headDim,
+            repeatNum - 1,
+            {1, 1, headBlockLen, 0});
         AscendC::PipeBarrier<PIPE_V>();
     }
 
@@ -214,7 +237,7 @@ private:
     AscendC::GlobalTensor<QkDtype> outRopeConcatGm2_;
 
     uint32_t repeatSize_{0};
-    uint32_t rotateStride_{0}; // this->headDim / rope conf
+    uint32_t rotateStride_{0};  // this->headDim / rope conf
     uint32_t headDim;
     uint32_t headNumQ;
     uint32_t rotaryCoeff;
@@ -241,10 +264,11 @@ private:
     uint64_t outLineOffset{0};
 };
 
-__aicore__ inline void ReduceSumCustom(const AscendC::LocalTensor<float> &dst_local,
-                                       const AscendC::LocalTensor<float> &src_local,
-                                       const AscendC::LocalTensor<float> &work_local,
-                                       int32_t count)
+__aicore__ inline void ReduceSumCustom(
+    const AscendC::LocalTensor<float> &dst_local,
+    const AscendC::LocalTensor<float> &src_local,
+    const AscendC::LocalTensor<float> &work_local,
+    int32_t count)
 {
 #ifdef __DAV_C220_VEC__
     uint64_t mask = NUM_PER_REP_FP32;
@@ -269,27 +293,41 @@ __aicore__ inline void ReduceSumCustom(const AscendC::LocalTensor<float> &dst_lo
         AscendC::PipeBarrier<PIPE_V>();
     }
     AscendC::AscendCUtils::SetMask<float>(NUM_PER_REP_FP32);
-    cadd_v<ArchType::ASCEND_V220, float>(dst_local,  // dst
-                                         work_local, // src
-                                         1,          // repeat
-                                         0,          // dstRepeatStride
-                                         1,          // srcBlockStride
-                                         0);         // srcRepeatStride
+    cadd_v<ArchType::ASCEND_V220, float>(
+        dst_local,   // dst
+        work_local,  // src
+        1,           // repeat
+        0,           // dstRepeatStride
+        1,           // srcBlockStride
+        0);          // srcRepeatStride
     AscendC::PipeBarrier<PIPE_V>();
 #endif
 }
 
-template <typename T, bool WITH_BETA, bool FastComputeMode = false,
-          QuantMode quantMode = QuantMode::PER_TENSOR_ASYMM_QUANT, bool NEED_DEQUANT = false>
-class Quant {
+template <
+    typename T,
+    bool WITH_BETA,
+    bool FastComputeMode = false,
+    QuantMode quantMode = QuantMode::PER_TENSOR_ASYMM_QUANT,
+    bool NEED_DEQUANT = false>
+class Quant
+{
 public:
     __aicore__ inline Quant() {}
 
-    __aicore__ inline void Init(AscendC::GlobalTensor<T> &quantScaleGmTensor,
-                                AscendC::GlobalTensor<int8_t> &quantOffsetGmTensor, GM_ADDR perTokenDescaleGm,
-                                GM_ADDR perChannelDescaleGm, GM_ADDR gmInput, GM_ADDR gmOutput, uint32_t stride,
-                                uint32_t num_col, uint64_t gm_offset, uint64_t gm_out_offset,
-                                uint32_t row_work_, const MlaTilingData &mlaParams_)
+    __aicore__ inline void Init(
+        AscendC::GlobalTensor<T> &quantScaleGmTensor,
+        AscendC::GlobalTensor<int8_t> &quantOffsetGmTensor,
+        GM_ADDR perTokenDescaleGm,
+        GM_ADDR perChannelDescaleGm,
+        GM_ADDR gmInput,
+        GM_ADDR gmOutput,
+        uint32_t stride,
+        uint32_t num_col,
+        uint64_t gm_offset,
+        uint64_t gm_out_offset,
+        uint32_t row_work_,
+        const MlaTilingData &mlaParams_)
     {
         this->quantScaleGmTensor = quantScaleGmTensor;
         this->quantOffsetGmTensor = quantOffsetGmTensor;
@@ -297,7 +335,8 @@ public:
         this->perChannelDescaleGmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(perChannelDescaleGm));
         if constexpr (!NEED_DEQUANT) {
             inputGmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(gmInput));
-        } else {
+        }
+        else {
             mmGmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(gmInput));
         }
         outputGmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int8_t *>(gmOutput));
@@ -322,25 +361,27 @@ public:
             (num_col_ - input_stride_ + REPEAT_TIME_64 - 1) / REPEAT_TIME_64 * REPEAT_TIME_64;
     }
 
-    __aicore__ inline void
-    Launch(const AscendC::LocalTensor<int8_t> &dstTensor, const AscendC::LocalTensor<T> &srcTensor,
-           const AscendC::LocalTensor<T> &quantScaleTensor, const AscendC::LocalTensor<int8_t> &quantOffsetTensor,
-           const AscendC::LocalTensor<float> &res1Tensor, const AscendC::LocalTensor<float> &res3Tensor)
+    __aicore__ inline void Launch(
+        const AscendC::LocalTensor<int8_t> &dstTensor,
+        const AscendC::LocalTensor<T> &srcTensor,
+        const AscendC::LocalTensor<T> &quantScaleTensor,
+        const AscendC::LocalTensor<int8_t> &quantOffsetTensor,
+        const AscendC::LocalTensor<float> &res1Tensor,
+        const AscendC::LocalTensor<float> &res3Tensor)
     {
-
         this->dstTensor = dstTensor;
         this->srcTensor = srcTensor;
         this->fp32_xy = res1Tensor;
         this->buf = res3Tensor;
 
-        AscendC::LocalTensor<float> g = buf[OFFSET_GAMMA * num_col_align_withStride_fp32];           // 0
-        AscendC::LocalTensor<float> sqx = buf[OFFSET_SQX * num_col_align_withStride_fp32];           // 1
-        AscendC::LocalTensor<float> work = buf[OFFSET_SUM * num_col_align_withStride_fp32];          // 2
-        AscendC::LocalTensor<float> abs = buf[OFFSET_ABS * num_col_align_withStride_fp32];           // 3
-        AscendC::LocalTensor<float> sum = buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32];     // 4
-        AscendC::LocalTensor<float> max = buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32 + 8]; // 5
+        AscendC::LocalTensor<float> g = buf[OFFSET_GAMMA * num_col_align_withStride_fp32];                 // 0
+        AscendC::LocalTensor<float> sqx = buf[OFFSET_SQX * num_col_align_withStride_fp32];                 // 1
+        AscendC::LocalTensor<float> work = buf[OFFSET_SUM * num_col_align_withStride_fp32];                // 2
+        AscendC::LocalTensor<float> abs = buf[OFFSET_ABS * num_col_align_withStride_fp32];                 // 3
+        AscendC::LocalTensor<float> sum = buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32];      // 4
+        AscendC::LocalTensor<float> max = buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32 + 8];  // 5
         AscendC::LocalTensor<float> perTokenDescaleTensor =
-            buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32 + 16]; // 6
+            buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32 + 16];  // 6
 
         SET_FLAG(MTE2, V, EVENT_ID1);
         if constexpr (quantMode == QuantMode::PER_TENSOR_ASYMM_QUANT) {
@@ -364,7 +405,8 @@ public:
                 AscendC::WaitFlag<HardEvent::V_S>(EVENT_ID0);
                 input_scale_ = 1 / (float)(g.GetValue(0));
                 input_offset_ = (float)(quantOffsetTensor.GetValue(0));
-            } else {
+            }
+            else {
                 SET_FLAG(MTE2, S, EVENT_ID0);
                 WAIT_FLAG(MTE2, S, EVENT_ID0);
                 input_scale_ = 1 / (float)(quantScaleTensor.GetValue(0));
@@ -381,58 +423,81 @@ public:
             uint64_t outOffset = pid * (num_col_ - input_stride_);
             WAIT_FLAG(MTE3, MTE2, EVENT_ID0);
             if constexpr (!NEED_DEQUANT) {
-                AscendC::DataCopy(srcTensor, inputGmTensor[gm_offset_ + offset],
-                                  AscendC::DataCopyParams(1, num_col_ / BLOCK_SIZE_16, 0, 0));
+                AscendC::DataCopy(
+                    srcTensor,
+                    inputGmTensor[gm_offset_ + offset],
+                    AscendC::DataCopyParams(1, num_col_ / BLOCK_SIZE_16, 0, 0));
                 SET_FLAG(MTE2, V, EVENT_ID0);
                 WAIT_FLAG(MTE2, V, EVENT_ID0);
-            } else {
+            }
+            else {
                 /* Dequant start */
-                AscendC::DataCopy(mmTensor, mmGmTensor[gm_offset_ + offset],
-                                  AscendC::DataCopyParams(1, num_col_ / 8, 0, 0)); // 2112
+                AscendC::DataCopy(
+                    mmTensor, mmGmTensor[gm_offset_ + offset], AscendC::DataCopyParams(1, num_col_ / 8, 0, 0));  // 2112
                 SET_FLAG(MTE2, V, EVENT_ID0);
                 WAIT_FLAG(MTE2, V, EVENT_ID0);
                 AscendC::Cast(mmTensor.ReinterpretCast<float>(), mmTensor, AscendC::RoundMode::CAST_NONE, num_col_);
                 AscendC::PipeBarrier<PIPE_V>();
-                AscendC::Mul(mmTensor.ReinterpretCast<float>(), mmTensor.ReinterpretCast<float>(), deScaleTensor,
-                             num_col_);
+                AscendC::Mul(
+                    mmTensor.ReinterpretCast<float>(), mmTensor.ReinterpretCast<float>(), deScaleTensor, num_col_);
                 SET_FLAG(V, MTE2, EVENT_ID0);
                 WAIT_FLAG(V, MTE2, EVENT_ID0);
-                gm_to_ub_align<ArchType::ASCEND_V220, float>(perTokenDescaleTensor, perTokenDescaleGmTensor[pid],
-                                                             0,             // sid
-                                                             1,             // nBurst
-                                                             sizeof(float), // lenBurst
-                                                             0,             // leftPaddingNum
-                                                             0,             // rightPaddingNum
-                                                             0,             // srcGap
-                                                             0              // dstGap
+                gm_to_ub_align<ArchType::ASCEND_V220, float>(
+                    perTokenDescaleTensor,
+                    perTokenDescaleGmTensor[pid],
+                    0,              // sid
+                    1,              // nBurst
+                    sizeof(float),  // lenBurst
+                    0,              // leftPaddingNum
+                    0,              // rightPaddingNum
+                    0,              // srcGap
+                    0               // dstGap
                 );
                 SET_FLAG(MTE2, S, EVENT_ID0);
                 WAIT_FLAG(MTE2, S, EVENT_ID0);
                 float perTokenDescale = perTokenDescaleTensor.GetValue(0);
                 SET_FLAG(S, V, EVENT_ID0);
                 WAIT_FLAG(S, V, EVENT_ID0);
-                AscendC::Muls(mmTensor.ReinterpretCast<float>(), mmTensor.ReinterpretCast<float>(), perTokenDescale,
-                              num_col_);
+                AscendC::Muls(
+                    mmTensor.ReinterpretCast<float>(), mmTensor.ReinterpretCast<float>(), perTokenDescale, num_col_);
                 AscendC::PipeBarrier<PIPE_V>();
                 AscendC::Cast(srcTensor, mmTensor.ReinterpretCast<float>(), AscendC::RoundMode::CAST_RINT, num_col_);
                 AscendC::PipeBarrier<PIPE_V>();
             }
 
-            Cast(fp32_xy, srcTensor[input_stride_], AscendC::RoundMode::CAST_NONE, REPEAT_TIME_64,
-                 num_col_align_withStride_fp32 / REPEAT_TIME_64,
-                 {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE / OFFSET_SUM});
+            Cast(
+                fp32_xy,
+                srcTensor[input_stride_],
+                AscendC::RoundMode::CAST_NONE,
+                REPEAT_TIME_64,
+                num_col_align_withStride_fp32 / REPEAT_TIME_64,
+                {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE / OFFSET_SUM});
             AscendC::PipeBarrier<PIPE_V>();
 
             /* Quant start */
             if constexpr (quantMode == QuantMode::PER_TENSOR_ASYMM_QUANT) {
-                Muls(fp32_xy, fp32_xy, input_scale_, REPEAT_TIME_64, num_col_align_withStride_fp32 / REPEAT_TIME_64,
-                     {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE});
+                Muls(
+                    fp32_xy,
+                    fp32_xy,
+                    input_scale_,
+                    REPEAT_TIME_64,
+                    num_col_align_withStride_fp32 / REPEAT_TIME_64,
+                    {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE});
                 AscendC::PipeBarrier<PIPE_V>();
-                Adds(fp32_xy, fp32_xy, input_offset_, REPEAT_TIME_64, num_col_align_withStride_fp32 / REPEAT_TIME_64,
-                     {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE});
+                Adds(
+                    fp32_xy,
+                    fp32_xy,
+                    input_offset_,
+                    REPEAT_TIME_64,
+                    num_col_align_withStride_fp32 / REPEAT_TIME_64,
+                    {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE});
                 AscendC::PipeBarrier<PIPE_V>();
-            } else if constexpr (quantMode == QuantMode::PER_TOKEN_SYMM_QUANT) {
-                Abs(abs, fp32_xy, REPEAT_TIME_64, num_col_align_withStride_fp32 / REPEAT_TIME_64,
+            }
+            else if constexpr (quantMode == QuantMode::PER_TOKEN_SYMM_QUANT) {
+                Abs(abs,
+                    fp32_xy,
+                    REPEAT_TIME_64,
+                    num_col_align_withStride_fp32 / REPEAT_TIME_64,
                     {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE});
                 AscendC::PipeBarrier<PIPE_V>();
                 ReduceMax(max, abs, work, num_col_ - input_stride_);
@@ -440,31 +505,41 @@ public:
                 float scaleOut = max.GetValue(0) / 127;
                 SET_FLAG(S, V, EVENT_ID0);
                 WAIT_FLAG(S, V, EVENT_ID0);
-                Muls(fp32_xy, fp32_xy, (float)(1 / scaleOut), REPEAT_TIME_64,
-                     num_col_align_withStride_fp32 / REPEAT_TIME_64,
-                     {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE});
+                Muls(
+                    fp32_xy,
+                    fp32_xy,
+                    (float)(1 / scaleOut),
+                    REPEAT_TIME_64,
+                    num_col_align_withStride_fp32 / REPEAT_TIME_64,
+                    {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE});
                 AscendC::PipeBarrier<PIPE_V>();
                 perTokenDescaleTensor.SetValue(0, scaleOut);
                 SET_FLAG(S, MTE3, EVENT_ID0);
                 WAIT_FLAG(S, MTE3, EVENT_ID0);
                 if constexpr (!NEED_DEQUANT) {
-                    ub_to_gm_align<ArchType::ASCEND_V220, float>(perTokenDescaleGmTensor[pid], perTokenDescaleTensor, 0,
-                                                                 1,                 // nBurst
-                                                                 1 * sizeof(float), // lenBurst
-                                                                 0,                 // leftPaddingNum
-                                                                 0,                 // rightPaddingNum
-                                                                 0,                 // srcGap
-                                                                 0                  // dstGap
+                    ub_to_gm_align<ArchType::ASCEND_V220, float>(
+                        perTokenDescaleGmTensor[pid],
+                        perTokenDescaleTensor,
+                        0,
+                        1,                  // nBurst
+                        1 * sizeof(float),  // lenBurst
+                        0,                  // leftPaddingNum
+                        0,                  // rightPaddingNum
+                        0,                  // srcGap
+                        0                   // dstGap
                     );
-                } else {
-                    ub_to_gm_align<ArchType::ASCEND_V220, float>(perTokenDescaleGmTensor[num_row_ + pid],
-                                                                 perTokenDescaleTensor, 0,
-                                                                 1,                 // nBurst
-                                                                 1 * sizeof(float), // lenBurst
-                                                                 0,                 // leftPaddingNum
-                                                                 0,                 // rightPaddingNum
-                                                                 0,                 // srcGap
-                                                                 0                  // dstGap
+                }
+                else {
+                    ub_to_gm_align<ArchType::ASCEND_V220, float>(
+                        perTokenDescaleGmTensor[num_row_ + pid],
+                        perTokenDescaleTensor,
+                        0,
+                        1,                  // nBurst
+                        1 * sizeof(float),  // lenBurst
+                        0,                  // leftPaddingNum
+                        0,                  // rightPaddingNum
+                        0,                  // srcGap
+                        0                   // dstGap
                     );
                 }
                 SET_FLAG(MTE3, V, EVENT_ID0);
@@ -479,8 +554,10 @@ public:
             AscendC::PipeBarrier<PIPE_V>();
             SET_FLAG(V, MTE3, EVENT_ID0);
             WAIT_FLAG(V, MTE3, EVENT_ID0);
-            AscendC::DataCopy(outputGmTensor[gm_out_offset_ + outOffset], dstTensor,
-                              AscendC::DataCopyParams(1, (num_col_ - input_stride_) / 32, 0, 0));
+            AscendC::DataCopy(
+                outputGmTensor[gm_out_offset_ + outOffset],
+                dstTensor,
+                AscendC::DataCopyParams(1, (num_col_ - input_stride_) / 32, 0, 0));
             SET_FLAG(MTE3, MTE2, EVENT_ID0);
             ++pid;
         }
@@ -503,15 +580,15 @@ private:
     AscendC::GlobalTensor<float> perChannelDescaleGmTensor;
     AscendC::GlobalTensor<int32_t> mmGmTensor;
 
-    uint32_t num_col_{0};       // input columns
-    uint32_t num_row_{0};       // input rows
-    uint32_t row_work_{0};      // rows need process
-    uint32_t row_work{0};       // rows need process
-    uint32_t row_step_{0};      // rows move in once
-    uint32_t row_tail_{0};      // rows move in last time
-    uint64_t gm_offset_{0};     // GM data offset
-    uint64_t gm_out_offset_{0}; // GM data offset
-    float avg_factor_{1.0};     // 1/num_col_
+    uint32_t num_col_{0};        // input columns
+    uint32_t num_row_{0};        // input rows
+    uint32_t row_work_{0};       // rows need process
+    uint32_t row_work{0};        // rows need process
+    uint32_t row_step_{0};       // rows move in once
+    uint32_t row_tail_{0};       // rows move in last time
+    uint64_t gm_offset_{0};      // GM data offset
+    uint64_t gm_out_offset_{0};  // GM data offset
+    float avg_factor_{1.0};      // 1/num_col_
     float input_scale_{1.0};
     float input_offset_{0};
     int32_t input_stride_{0};
@@ -530,18 +607,33 @@ private:
     uint32_t tail_copy_{0};
 };
 
-template <typename T, bool WITH_BETA, bool FastComputeMode = false,
-          QuantMode quantMode = QuantMode::PER_TENSOR_ASYMM_QUANT, bool NEED_DEQUANT = false>
-class RmsNormQuant {
+template <
+    typename T,
+    bool WITH_BETA,
+    bool FastComputeMode = false,
+    QuantMode quantMode = QuantMode::PER_TENSOR_ASYMM_QUANT,
+    bool NEED_DEQUANT = false>
+class RmsNormQuant
+{
 public:
     __aicore__ inline RmsNormQuant() {}
 
-    __aicore__ inline void Init(AscendC::GlobalTensor<T> &gammaGmTensor, AscendC::GlobalTensor<T> &betaGmTensor,
-                                AscendC::GlobalTensor<T> &quantScaleGmTensor,
-                                AscendC::GlobalTensor<int8_t> &quantOffsetGmTensor, GM_ADDR perTokenDescaleGm,
-                                GM_ADDR perChannelDescaleGm, GM_ADDR gmInput, GM_ADDR gmOutput, uint32_t stride,
-                                uint32_t num_col, float avg_factor, uint64_t gm_offset, uint64_t gm_out_offset,
-                                uint32_t row_work_, const MlaTilingData &mlaParams_)
+    __aicore__ inline void Init(
+        AscendC::GlobalTensor<T> &gammaGmTensor,
+        AscendC::GlobalTensor<T> &betaGmTensor,
+        AscendC::GlobalTensor<T> &quantScaleGmTensor,
+        AscendC::GlobalTensor<int8_t> &quantOffsetGmTensor,
+        GM_ADDR perTokenDescaleGm,
+        GM_ADDR perChannelDescaleGm,
+        GM_ADDR gmInput,
+        GM_ADDR gmOutput,
+        uint32_t stride,
+        uint32_t num_col,
+        float avg_factor,
+        uint64_t gm_offset,
+        uint64_t gm_out_offset,
+        uint32_t row_work_,
+        const MlaTilingData &mlaParams_)
     {
         this->gammaGmTensor = gammaGmTensor;
         this->betaGmTensor = betaGmTensor;
@@ -551,7 +643,8 @@ public:
         this->perChannelDescaleGmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(perChannelDescaleGm));
         if constexpr (!NEED_DEQUANT) {
             inputGmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(gmInput));
-        } else {
+        }
+        else {
             mmGmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(gmInput));
         }
         outputGmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int8_t *>(gmOutput));
@@ -578,13 +671,16 @@ public:
             (num_col_ - input_stride_ + REPEAT_TIME_64 - 1) / REPEAT_TIME_64 * REPEAT_TIME_64;
     }
 
-    __aicore__ inline void
-    Launch(const AscendC::LocalTensor<int8_t> &dstTensor, const AscendC::LocalTensor<T> &srcTensor,
-           const AscendC::LocalTensor<T> &gammaTensor, const AscendC::LocalTensor<T> &betaTensor,
-           const AscendC::LocalTensor<T> &quantScaleTensor, const AscendC::LocalTensor<int8_t> &quantOffsetTensor,
-           const AscendC::LocalTensor<float> &res1Tensor, const AscendC::LocalTensor<float> &res3Tensor)
+    __aicore__ inline void Launch(
+        const AscendC::LocalTensor<int8_t> &dstTensor,
+        const AscendC::LocalTensor<T> &srcTensor,
+        const AscendC::LocalTensor<T> &gammaTensor,
+        const AscendC::LocalTensor<T> &betaTensor,
+        const AscendC::LocalTensor<T> &quantScaleTensor,
+        const AscendC::LocalTensor<int8_t> &quantOffsetTensor,
+        const AscendC::LocalTensor<float> &res1Tensor,
+        const AscendC::LocalTensor<float> &res3Tensor)
     {
-
         this->dstTensor = dstTensor;
         this->srcTensor = srcTensor;
         this->gammaTensor = gammaTensor;
@@ -592,19 +688,19 @@ public:
         this->fp32_xy = res1Tensor;
         this->buf = res3Tensor;
 
-        AscendC::LocalTensor<float> g = buf[OFFSET_GAMMA * num_col_align_withStride_fp32];           // 0
-        AscendC::LocalTensor<float> sqx = buf[OFFSET_SQX * num_col_align_withStride_fp32];           // 1
-        AscendC::LocalTensor<float> work = buf[OFFSET_SUM * num_col_align_withStride_fp32];          // 2
-        AscendC::LocalTensor<float> abs = buf[OFFSET_ABS * num_col_align_withStride_fp32];           // 3
-        AscendC::LocalTensor<float> sum = buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32];     // 4
-        AscendC::LocalTensor<float> max = buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32 + 8]; // 5
+        AscendC::LocalTensor<float> g = buf[OFFSET_GAMMA * num_col_align_withStride_fp32];                 // 0
+        AscendC::LocalTensor<float> sqx = buf[OFFSET_SQX * num_col_align_withStride_fp32];                 // 1
+        AscendC::LocalTensor<float> work = buf[OFFSET_SUM * num_col_align_withStride_fp32];                // 2
+        AscendC::LocalTensor<float> abs = buf[OFFSET_ABS * num_col_align_withStride_fp32];                 // 3
+        AscendC::LocalTensor<float> sum = buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32];      // 4
+        AscendC::LocalTensor<float> max = buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32 + 8];  // 5
         AscendC::LocalTensor<float> perTokenDescaleTensor =
-            buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32 + 16]; // 6
+            buf[OFFSET_WORKSPACE_BF16 * num_col_align_withStride_fp32 + 16];  // 6
 
-        AscendC::DataCopy(gammaTensor, gammaGmTensor,
-                          AscendC::DataCopyParams(1, (num_col_ - input_stride_) / BLOCK_SIZE_16, 0, 0));
-        AscendC::DataCopy(betaTensor, betaGmTensor,
-                          AscendC::DataCopyParams(1, (num_col_ - input_stride_) / BLOCK_SIZE_16, 0, 0));
+        AscendC::DataCopy(
+            gammaTensor, gammaGmTensor, AscendC::DataCopyParams(1, (num_col_ - input_stride_) / BLOCK_SIZE_16, 0, 0));
+        AscendC::DataCopy(
+            betaTensor, betaGmTensor, AscendC::DataCopyParams(1, (num_col_ - input_stride_) / BLOCK_SIZE_16, 0, 0));
         SET_FLAG(MTE2, V, EVENT_ID1);
         if constexpr (quantMode == QuantMode::PER_TENSOR_ASYMM_QUANT) {
             AscendC::DataCopy(quantScaleTensor, quantScaleGmTensor, AscendC::DataCopyParams(1, 1, 0, 0));
@@ -627,7 +723,8 @@ public:
                 AscendC::WaitFlag<HardEvent::V_S>(EVENT_ID0);
                 input_scale_ = 1 / (float)(g.GetValue(0));
                 input_offset_ = (float)(quantOffsetTensor.GetValue(0));
-            } else {
+            }
+            else {
                 SET_FLAG(MTE2, S, EVENT_ID0);
                 WAIT_FLAG(MTE2, S, EVENT_ID0);
                 input_scale_ = 1 / (float)(quantScaleTensor.GetValue(0));
@@ -637,9 +734,13 @@ public:
             AscendC::WaitFlag<HardEvent::S_V>(EVENT_ID0);
         }
         WAIT_FLAG(MTE2, V, EVENT_ID1);
-        Cast(buf[OFFSET_GAMMA * num_col_align_withStride_fp32], gammaTensor, AscendC::RoundMode::CAST_NONE,
-             REPEAT_TIME_64, num_col_align_withStride_fp32 / REPEAT_TIME_64,
-             {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE / OFFSET_SUM});
+        Cast(
+            buf[OFFSET_GAMMA * num_col_align_withStride_fp32],
+            gammaTensor,
+            AscendC::RoundMode::CAST_NONE,
+            REPEAT_TIME_64,
+            num_col_align_withStride_fp32 / REPEAT_TIME_64,
+            {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE / OFFSET_SUM});
         AscendC::PipeBarrier<PIPE_V>();
         uint64_t pid = 0;
         SET_FLAG(MTE3, MTE2, EVENT_ID0);
@@ -648,49 +749,66 @@ public:
             uint64_t outOffset = pid * (num_col_ - input_stride_);
             WAIT_FLAG(MTE3, MTE2, EVENT_ID0);
             if constexpr (!NEED_DEQUANT) {
-                AscendC::DataCopy(srcTensor, inputGmTensor[gm_offset_ + offset],
-                                  AscendC::DataCopyParams(1, num_col_ / BLOCK_SIZE_16, 0, 0));
+                AscendC::DataCopy(
+                    srcTensor,
+                    inputGmTensor[gm_offset_ + offset],
+                    AscendC::DataCopyParams(1, num_col_ / BLOCK_SIZE_16, 0, 0));
                 SET_FLAG(MTE2, V, EVENT_ID0);
                 WAIT_FLAG(MTE2, V, EVENT_ID0);
-            } else {
+            }
+            else {
                 /* Dequant start */
-                AscendC::DataCopy(mmTensor, mmGmTensor[gm_offset_ + offset],
-                                  AscendC::DataCopyParams(1, num_col_ / 8, 0, 0)); // 2112
+                AscendC::DataCopy(
+                    mmTensor, mmGmTensor[gm_offset_ + offset], AscendC::DataCopyParams(1, num_col_ / 8, 0, 0));  // 2112
                 SET_FLAG(MTE2, V, EVENT_ID0);
                 WAIT_FLAG(MTE2, V, EVENT_ID0);
                 AscendC::Cast(mmTensor.ReinterpretCast<float>(), mmTensor, AscendC::RoundMode::CAST_NONE, num_col_);
                 AscendC::PipeBarrier<PIPE_V>();
-                AscendC::Mul(mmTensor.ReinterpretCast<float>(), mmTensor.ReinterpretCast<float>(), deScaleTensor,
-                             num_col_);
+                AscendC::Mul(
+                    mmTensor.ReinterpretCast<float>(), mmTensor.ReinterpretCast<float>(), deScaleTensor, num_col_);
                 SET_FLAG(V, MTE2, EVENT_ID0);
                 WAIT_FLAG(V, MTE2, EVENT_ID0);
-                gm_to_ub_align<ArchType::ASCEND_V220, float>(perTokenDescaleTensor, perTokenDescaleGmTensor[pid],
-                                                             0,             // sid
-                                                             1,             // nBurst
-                                                             sizeof(float), // lenBurst
-                                                             0,             // leftPaddingNum
-                                                             0,             // rightPaddingNum
-                                                             0,             // srcGap
-                                                             0              // dstGap
+                gm_to_ub_align<ArchType::ASCEND_V220, float>(
+                    perTokenDescaleTensor,
+                    perTokenDescaleGmTensor[pid],
+                    0,              // sid
+                    1,              // nBurst
+                    sizeof(float),  // lenBurst
+                    0,              // leftPaddingNum
+                    0,              // rightPaddingNum
+                    0,              // srcGap
+                    0               // dstGap
                 );
                 SET_FLAG(MTE2, S, EVENT_ID0);
                 WAIT_FLAG(MTE2, S, EVENT_ID0);
                 float perTokenDescale = perTokenDescaleTensor.GetValue(0);
                 SET_FLAG(S, V, EVENT_ID0);
                 WAIT_FLAG(S, V, EVENT_ID0);
-                AscendC::Muls(mmTensor.ReinterpretCast<float>(), mmTensor.ReinterpretCast<float>(), perTokenDescale,
-                              num_col_);
+                AscendC::Muls(
+                    mmTensor.ReinterpretCast<float>(), mmTensor.ReinterpretCast<float>(), perTokenDescale, num_col_);
                 AscendC::PipeBarrier<PIPE_V>();
                 AscendC::Cast(srcTensor, mmTensor.ReinterpretCast<float>(), AscendC::RoundMode::CAST_RINT, num_col_);
                 AscendC::PipeBarrier<PIPE_V>();
             }
 
-            Cast(fp32_xy, srcTensor[input_stride_], AscendC::RoundMode::CAST_NONE, REPEAT_TIME_64,
-                 num_col_align_withStride_fp32 / REPEAT_TIME_64,
-                 {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE / OFFSET_SUM});
+            Cast(
+                fp32_xy,
+                srcTensor[input_stride_],
+                AscendC::RoundMode::CAST_NONE,
+                REPEAT_TIME_64,
+                num_col_align_withStride_fp32 / REPEAT_TIME_64,
+                {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE / OFFSET_SUM});
             AscendC::PipeBarrier<PIPE_V>();
-            Mul(sqx, fp32_xy, fp32_xy, REPEAT_TIME_64, num_col_align_withStride_fp32 / REPEAT_TIME_64,
-                {1, 1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE,
+            Mul(sqx,
+                fp32_xy,
+                fp32_xy,
+                REPEAT_TIME_64,
+                num_col_align_withStride_fp32 / REPEAT_TIME_64,
+                {1,
+                 1,
+                 1,
+                 AscendC::DEFAULT_REPEAT_STRIDE,
+                 AscendC::DEFAULT_REPEAT_STRIDE,
                  AscendC::DEFAULT_REPEAT_STRIDE});
             AscendC::PipeBarrier<PIPE_V>();
             Muls(sqx, sqx, avg_factor_, num_col_ - input_stride_);
@@ -705,34 +823,73 @@ public:
             float factor = 1 / sum.GetValue(0);
             SET_FLAG(S, V, EVENT_ID0);
             WAIT_FLAG(S, V, EVENT_ID0);
-            Muls(fp32_xy, fp32_xy, factor, REPEAT_TIME_64, num_col_align_withStride_fp32 / REPEAT_TIME_64,
-                 {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE});
+            Muls(
+                fp32_xy,
+                fp32_xy,
+                factor,
+                REPEAT_TIME_64,
+                num_col_align_withStride_fp32 / REPEAT_TIME_64,
+                {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE});
             AscendC::PipeBarrier<PIPE_V>();
-            Mul(fp32_xy, fp32_xy, g, REPEAT_TIME_64, num_col_align_withStride_fp32 / REPEAT_TIME_64,
-                {1, 1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE,
+            Mul(fp32_xy,
+                fp32_xy,
+                g,
+                REPEAT_TIME_64,
+                num_col_align_withStride_fp32 / REPEAT_TIME_64,
+                {1,
+                 1,
+                 1,
+                 AscendC::DEFAULT_REPEAT_STRIDE,
+                 AscendC::DEFAULT_REPEAT_STRIDE,
                  AscendC::DEFAULT_REPEAT_STRIDE});
             AscendC::PipeBarrier<PIPE_V>();
             if constexpr (WITH_BETA) {
                 AscendC::LocalTensor<T> b = this->betaTensor;
-                Cast(work, b, AscendC::RoundMode::CAST_NONE, REPEAT_TIME_64,
-                     num_col_align_withStride_fp32 / REPEAT_TIME_64,
-                     {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE / OFFSET_SUM});
+                Cast(
+                    work,
+                    b,
+                    AscendC::RoundMode::CAST_NONE,
+                    REPEAT_TIME_64,
+                    num_col_align_withStride_fp32 / REPEAT_TIME_64,
+                    {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE / OFFSET_SUM});
                 AscendC::PipeBarrier<PIPE_V>();
-                Add(fp32_xy, fp32_xy, work, REPEAT_TIME_64, num_col_align_withStride_fp32 / REPEAT_TIME_64,
-                    {1, 1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE,
+                Add(fp32_xy,
+                    fp32_xy,
+                    work,
+                    REPEAT_TIME_64,
+                    num_col_align_withStride_fp32 / REPEAT_TIME_64,
+                    {1,
+                     1,
+                     1,
+                     AscendC::DEFAULT_REPEAT_STRIDE,
+                     AscendC::DEFAULT_REPEAT_STRIDE,
                      AscendC::DEFAULT_REPEAT_STRIDE});
                 AscendC::PipeBarrier<PIPE_V>();
             }
             /* Quant start */
             if constexpr (quantMode == QuantMode::PER_TENSOR_ASYMM_QUANT) {
-                Muls(fp32_xy, fp32_xy, input_scale_, REPEAT_TIME_64, num_col_align_withStride_fp32 / REPEAT_TIME_64,
-                     {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE});
+                Muls(
+                    fp32_xy,
+                    fp32_xy,
+                    input_scale_,
+                    REPEAT_TIME_64,
+                    num_col_align_withStride_fp32 / REPEAT_TIME_64,
+                    {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE});
                 AscendC::PipeBarrier<PIPE_V>();
-                Adds(fp32_xy, fp32_xy, input_offset_, REPEAT_TIME_64, num_col_align_withStride_fp32 / REPEAT_TIME_64,
-                     {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE});
+                Adds(
+                    fp32_xy,
+                    fp32_xy,
+                    input_offset_,
+                    REPEAT_TIME_64,
+                    num_col_align_withStride_fp32 / REPEAT_TIME_64,
+                    {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE});
                 AscendC::PipeBarrier<PIPE_V>();
-            } else if constexpr (quantMode == QuantMode::PER_TOKEN_SYMM_QUANT) {
-                Abs(abs, fp32_xy, REPEAT_TIME_64, num_col_align_withStride_fp32 / REPEAT_TIME_64,
+            }
+            else if constexpr (quantMode == QuantMode::PER_TOKEN_SYMM_QUANT) {
+                Abs(abs,
+                    fp32_xy,
+                    REPEAT_TIME_64,
+                    num_col_align_withStride_fp32 / REPEAT_TIME_64,
                     {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE});
                 AscendC::PipeBarrier<PIPE_V>();
                 ReduceMax(max, abs, work, num_col_ - input_stride_);
@@ -740,31 +897,41 @@ public:
                 float scaleOut = max.GetValue(0) / 127;
                 SET_FLAG(S, V, EVENT_ID0);
                 WAIT_FLAG(S, V, EVENT_ID0);
-                Muls(fp32_xy, fp32_xy, (float)(1 / scaleOut), REPEAT_TIME_64,
-                     num_col_align_withStride_fp32 / REPEAT_TIME_64,
-                     {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE});
+                Muls(
+                    fp32_xy,
+                    fp32_xy,
+                    (float)(1 / scaleOut),
+                    REPEAT_TIME_64,
+                    num_col_align_withStride_fp32 / REPEAT_TIME_64,
+                    {1, 1, AscendC::DEFAULT_REPEAT_STRIDE, AscendC::DEFAULT_REPEAT_STRIDE});
                 AscendC::PipeBarrier<PIPE_V>();
                 perTokenDescaleTensor.SetValue(0, scaleOut);
                 SET_FLAG(S, MTE3, EVENT_ID0);
                 WAIT_FLAG(S, MTE3, EVENT_ID0);
                 if constexpr (!NEED_DEQUANT) {
-                    ub_to_gm_align<ArchType::ASCEND_V220, float>(perTokenDescaleGmTensor[pid], perTokenDescaleTensor, 0,
-                                                                 1,                 // nBurst
-                                                                 1 * sizeof(float), // lenBurst
-                                                                 0,                 // leftPaddingNum
-                                                                 0,                 // rightPaddingNum
-                                                                 0,                 // srcGap
-                                                                 0                  // dstGap
+                    ub_to_gm_align<ArchType::ASCEND_V220, float>(
+                        perTokenDescaleGmTensor[pid],
+                        perTokenDescaleTensor,
+                        0,
+                        1,                  // nBurst
+                        1 * sizeof(float),  // lenBurst
+                        0,                  // leftPaddingNum
+                        0,                  // rightPaddingNum
+                        0,                  // srcGap
+                        0                   // dstGap
                     );
-                } else {
-                    ub_to_gm_align<ArchType::ASCEND_V220, float>(perTokenDescaleGmTensor[num_row_ + pid],
-                                                                 perTokenDescaleTensor, 0,
-                                                                 1,                 // nBurst
-                                                                 1 * sizeof(float), // lenBurst
-                                                                 0,                 // leftPaddingNum
-                                                                 0,                 // rightPaddingNum
-                                                                 0,                 // srcGap
-                                                                 0                  // dstGap
+                }
+                else {
+                    ub_to_gm_align<ArchType::ASCEND_V220, float>(
+                        perTokenDescaleGmTensor[num_row_ + pid],
+                        perTokenDescaleTensor,
+                        0,
+                        1,                  // nBurst
+                        1 * sizeof(float),  // lenBurst
+                        0,                  // leftPaddingNum
+                        0,                  // rightPaddingNum
+                        0,                  // srcGap
+                        0                   // dstGap
                     );
                 }
                 SET_FLAG(MTE3, V, EVENT_ID0);
@@ -779,8 +946,10 @@ public:
             AscendC::PipeBarrier<PIPE_V>();
             SET_FLAG(V, MTE3, EVENT_ID0);
             WAIT_FLAG(V, MTE3, EVENT_ID0);
-            AscendC::DataCopy(outputGmTensor[gm_out_offset_ + outOffset], dstTensor,
-                              AscendC::DataCopyParams(1, (num_col_ - input_stride_) / 32, 0, 0));
+            AscendC::DataCopy(
+                outputGmTensor[gm_out_offset_ + outOffset],
+                dstTensor,
+                AscendC::DataCopyParams(1, (num_col_ - input_stride_) / 32, 0, 0));
             SET_FLAG(MTE3, MTE2, EVENT_ID0);
             ++pid;
         }
@@ -834,13 +1003,14 @@ private:
     uint32_t tail_copy_{0};
 };
 
-template <typename InDtype, typename ScaleDtype> class EinSumQuant {
-
+template <typename InDtype, typename ScaleDtype>
+class EinSumQuant
+{
 public:
     __aicore__ explicit EinSumQuant() {}
 
-    __aicore__ __force_inline__ void Init(GM_ADDR einSumOutGm, GM_ADDR scaleGm, GM_ADDR quantOutGm,
-                                          const MlaTilingData &tilingData)
+    __aicore__ __force_inline__ void
+    Init(GM_ADDR einSumOutGm, GM_ADDR scaleGm, GM_ADDR quantOutGm, const MlaTilingData &tilingData)
     {
         einSumOutGm_.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(einSumOutGm));
         scaleGm_.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(scaleGm));
@@ -858,7 +1028,8 @@ public:
         if (currentIdx < tilingData.esqFrontCore) {
             batchNum = tilingData.esqFrontCoreBatch;
             currentCoreStartOffset = currentIdx * tilingData.esqFrontCoreBatch * headNum * colNum;
-        } else {
+        }
+        else {
             batchNum = tilingData.esqTailCoreBatch;
             currentCoreStartOffset = (tilingData.esqFrontCore * tilingData.esqFrontCoreBatch +
                                       (currentIdx - tilingData.esqFrontCore) * tilingData.esqTailCoreBatch) *
@@ -868,7 +1039,7 @@ public:
         padLen = RoundUp(headNum, ELE_NUM_FP16);
         calcLength = headPerLoop * colNum;
 
-        // calc tensors' data szie(bytes) and block
+        // calc tensors' data size(bytes) and block
         scaleBrcbFp32DataSize = padLen * ELE_NUM_FP32 * sizeof(float);
         inputDataSize = calcLength * sizeof(InDtype);
         inputDataBlock = calcLength * sizeof(InDtype) / BLOCK_SIZE_32;
@@ -890,14 +1061,16 @@ public:
         // init local tensor
         scaleBrcbFp32_ = buf.GetBuffer<BufferType::ASCEND_UB, float>(0);
         inputTensor_ = buf.GetBuffer<BufferType::ASCEND_UB, InDtype>(scaleBrcbFp32DataSize);
-        inputFp32_ = buf.GetBuffer<BufferType::ASCEND_UB, float>(scaleBrcbFp32DataSize + inputDataSize * ROPE_CONCAT_NUM_BUFFER);
+        inputFp32_ =
+            buf.GetBuffer<BufferType::ASCEND_UB, float>(scaleBrcbFp32DataSize + inputDataSize * ROPE_CONCAT_NUM_BUFFER);
         int8OutTensor_ = buf.GetBuffer<BufferType::ASCEND_UB, int8_t>(
             scaleBrcbFp32DataSize + (inputDataSize + inputFp32DataSize) * ROPE_CONCAT_NUM_BUFFER);
 
-        // scale copyin, cast, brcb[H, 1] --> [H, 8], use input ub space
+        // scale copy in, cast, brcb[H, 1] --> [H, 8], use input ub space
         if (headNum == padLen) {
             AscendC::DataCopy(inputTensor_, scaleGm_, headNum);
-        } else {
+        }
+        else {
             AscendC::DataCopyPad(inputTensor_, scaleGm_, scaleCopyParams, scalePadParams);
         }
         SET_FLAG(MTE2, V, EVENT_ID0);
@@ -909,7 +1082,7 @@ public:
 
         uint8_t pingFlag = 0;
         // batch Loop
-        SET_FLAG(V, MTE2, EVENT_ID0);  // input copyin wait vector release ub
+        SET_FLAG(V, MTE2, EVENT_ID0);  // input copy in wait vector release ub
         SET_FLAG(V, MTE2, EVENT_ID1);
         SET_FLAG(MTE3, V, EVENT_ID0);  // quant calc wait last result copyout
         SET_FLAG(MTE3, V, EVENT_ID1);
@@ -924,38 +1097,42 @@ public:
 
                 // input CopyIn and Cast
                 WAIT_FLAG(V, MTE2, pingFlag);
-                AscendC::DataCopy(inputTensor_[calcTmpOffset], einSumOutGm_[calcStartOffset],
-                                  {1, inputDataBlock, 0, 0});
+                AscendC::DataCopy(
+                    inputTensor_[calcTmpOffset], einSumOutGm_[calcStartOffset], {1, inputDataBlock, 0, 0});
                 SET_FLAG(MTE2, V, pingFlag);
                 WAIT_FLAG(MTE2, V, pingFlag);
-                AscendC::Cast(inputFp32_[calcTmpOffset], inputTensor_[calcTmpOffset],
-                              AscendC::RoundMode::CAST_NONE, calcLength);
+                AscendC::Cast(
+                    inputFp32_[calcTmpOffset], inputTensor_[calcTmpOffset], AscendC::RoundMode::CAST_NONE, calcLength);
                 AscendC::PipeBarrier<PIPE_V>();
                 SET_FLAG(V, MTE2, pingFlag);
                 // quant calc
                 for (uint32_t colIdx = 0; colIdx < colLoop; colIdx++) {
                     colOffset = colIdx * CONST_64;
-                    AscendC::Mul(inputFp32_[calcTmpOffset + colOffset],
-                                 inputFp32_[calcTmpOffset + colOffset],
-                                 scaleBrcbFp32_[scaleBrcbOffset],
-                                 CONST_64, headPerLoop,
-                                 {1, 1, 0, calcRepeatStride, calcRepeatStride, 1});
+                    AscendC::Mul(
+                        inputFp32_[calcTmpOffset + colOffset],
+                        inputFp32_[calcTmpOffset + colOffset],
+                        scaleBrcbFp32_[scaleBrcbOffset],
+                        CONST_64,
+                        headPerLoop,
+                        {1, 1, 0, calcRepeatStride, calcRepeatStride, 1});
                 }
                 AscendC::PipeBarrier<PIPE_V>();
                 // quant fp32 --> fp16 --> int8
-                CastFrom32To16(inputFp32_[calcTmpOffset].template ReinterpretCast<half>(),
-                               inputFp32_[calcTmpOffset], calcLength);
+                CastFrom32To16(
+                    inputFp32_[calcTmpOffset].template ReinterpretCast<half>(), inputFp32_[calcTmpOffset], calcLength);
                 AscendC::PipeBarrier<PIPE_V>();
-                WAIT_FLAG(MTE3, V, pingFlag); // wait last result copy out
-                CastFromF16ToI8(int8OutTensor_[calcTmpOffset],
-                                inputFp32_[calcTmpOffset].template ReinterpretCast<half>(),
-                                quantMin_, calcLength);
+                WAIT_FLAG(MTE3, V, pingFlag);  // wait last result copy out
+                CastFromF16ToI8(
+                    int8OutTensor_[calcTmpOffset],
+                    inputFp32_[calcTmpOffset].template ReinterpretCast<half>(),
+                    quantMin_,
+                    calcLength);
                 AscendC::PipeBarrier<PIPE_V>();
                 SET_FLAG(V, MTE3, pingFlag);
                 WAIT_FLAG(V, MTE3, pingFlag);
                 // int8 CopyOut
-                AscendC::DataCopy(quantOutGm_[calcStartOffset], int8OutTensor_[calcTmpOffset],
-                                  {1, int8OutDataBlcok, 0, 0});
+                AscendC::DataCopy(
+                    quantOutGm_[calcStartOffset], int8OutTensor_[calcTmpOffset], {1, int8OutDataBlcok, 0, 0});
                 SET_FLAG(MTE3, V, pingFlag);
                 pingFlag = 1 - pingFlag;
             }
@@ -969,38 +1146,47 @@ public:
 
                 // input CopyIn and Cast
                 WAIT_FLAG(V, MTE2, pingFlag);
-                AscendC::DataCopy(inputTensor_[calcTmpOffset], einSumOutGm_[calcStartOffset],
-                                  {1, headTailDataBlock, 0, 0});
+                AscendC::DataCopy(
+                    inputTensor_[calcTmpOffset], einSumOutGm_[calcStartOffset], {1, headTailDataBlock, 0, 0});
                 SET_FLAG(MTE2, V, pingFlag);
                 WAIT_FLAG(MTE2, V, pingFlag);
-                AscendC::Cast(inputFp32_[calcTmpOffset], inputTensor_[calcTmpOffset],
-                              AscendC::RoundMode::CAST_NONE, headTail * colNum);
+                AscendC::Cast(
+                    inputFp32_[calcTmpOffset],
+                    inputTensor_[calcTmpOffset],
+                    AscendC::RoundMode::CAST_NONE,
+                    headTail * colNum);
                 AscendC::PipeBarrier<PIPE_V>();
                 SET_FLAG(V, MTE2, pingFlag);
                 // quant calc
                 for (uint32_t colIdx = 0; colIdx < colLoop; colIdx++) {
                     colOffset = colIdx * CONST_64;
-                    AscendC::Mul(inputFp32_[calcTmpOffset + colOffset],
-                                 inputFp32_[calcTmpOffset + colOffset],
-                                 scaleBrcbFp32_[scaleBrcbOffset],
-                                 CONST_64, headTail,
-                                 {1, 1, 0, calcRepeatStride, calcRepeatStride, 1});
+                    AscendC::Mul(
+                        inputFp32_[calcTmpOffset + colOffset],
+                        inputFp32_[calcTmpOffset + colOffset],
+                        scaleBrcbFp32_[scaleBrcbOffset],
+                        CONST_64,
+                        headTail,
+                        {1, 1, 0, calcRepeatStride, calcRepeatStride, 1});
                 }
                 AscendC::PipeBarrier<PIPE_V>();
                 // quant fp32 --> fp16 --> int8
-                CastFrom32To16(inputFp32_[calcTmpOffset].template ReinterpretCast<half>(),
-                               inputFp32_[calcTmpOffset], headTail * colNum);
+                CastFrom32To16(
+                    inputFp32_[calcTmpOffset].template ReinterpretCast<half>(),
+                    inputFp32_[calcTmpOffset],
+                    headTail * colNum);
                 AscendC::PipeBarrier<PIPE_V>();
-                WAIT_FLAG(MTE3, V, pingFlag); // wait last result copy out
-                CastFromF16ToI8(int8OutTensor_[calcTmpOffset],
-                                inputFp32_[calcTmpOffset].template ReinterpretCast<half>(),
-                                quantMin_, headTail * colNum);
+                WAIT_FLAG(MTE3, V, pingFlag);  // wait last result copy out
+                CastFromF16ToI8(
+                    int8OutTensor_[calcTmpOffset],
+                    inputFp32_[calcTmpOffset].template ReinterpretCast<half>(),
+                    quantMin_,
+                    headTail * colNum);
                 AscendC::PipeBarrier<PIPE_V>();
                 SET_FLAG(V, MTE3, pingFlag);
                 WAIT_FLAG(V, MTE3, pingFlag);
                 // int8 CopyOut
-                AscendC::DataCopy(quantOutGm_[calcStartOffset], int8OutTensor_[calcTmpOffset],
-                                  {1, int8TailOutDataBlock, 0, 0});
+                AscendC::DataCopy(
+                    quantOutGm_[calcStartOffset], int8OutTensor_[calcTmpOffset], {1, int8TailOutDataBlock, 0, 0});
                 SET_FLAG(MTE3, V, pingFlag);
                 pingFlag = 1 - pingFlag;
             }
@@ -1027,23 +1213,23 @@ private:
     AscendC::DataCopyPadExtParams<InDtype> scalePadParams;
 
     // data processed by a single core[batchNum, headNum, colNum]
-    uint32_t batchNum; // The number of batches per kernel processed
+    uint32_t batchNum;  // The number of batches per kernel processed
     uint32_t headNum;
-    uint32_t colNum;   // Number of columns per row
+    uint32_t colNum;  // Number of columns per row
     // ub loop
-    uint32_t ubHeadLoop;  // The number of times the UB loops through the head.
-    uint32_t headPerLoop; // The number of heads processed per UB cycle
-    uint32_t headTail;    // The number of heads last processed
+    uint32_t ubHeadLoop;   // The number of times the UB loops through the head.
+    uint32_t headPerLoop;  // The number of heads processed per UB cycle
+    uint32_t headTail;     // The number of heads last processed
     // col loop
-    uint32_t colLoop; // The number of calculations in the column direction cycle.
-    uint32_t colTail; // The number of cols last processed
+    uint32_t colLoop;  // The number of calculations in the column direction cycle.
+    uint32_t colTail;  // The number of cols last processed
 
     uint32_t currentIdx;
     uint64_t currentCoreStartOffset;
-    uint32_t inputDataSize; // The size of each carry，bytes
+    uint32_t inputDataSize;  // The size of each carry，bytes
     uint32_t inputFp32DataSize;
     uint32_t scaleBrcbFp32DataSize;
-    uint16_t inputDataBlock; // The number of blocks brought in per move，bytes
+    uint16_t inputDataBlock;  // The number of blocks brought in per move，bytes
     uint16_t int8OutDataBlcok;
     uint16_t headTailDataBlock;
     uint16_t int8TailOutDataBlock;
@@ -1069,9 +1255,16 @@ struct MatCoord {
     uint64_t n{0};
 };
 
-template <typename InDtype, typename OutDtype, DataFormat formatB, bool transB, uint32_t swizzleDirect,
-          uint64_t splitGapA, uint64_t splitGapC>
-class PpMatmulEinSum {
+template <
+    typename InDtype,
+    typename OutDtype,
+    DataFormat formatB,
+    bool transB,
+    uint32_t swizzleDirect,
+    uint64_t splitGapA,
+    uint64_t splitGapC>
+class PpMatmulEinSum
+{
     using AccumDtype = float;
 
     template <DataFormat srcFormat, DataFormat dstFormat>
@@ -1227,14 +1420,14 @@ public:
 
                     // Preload A from gm to l1 buffer.
                     WAIT_FLAG(MTE1, MTE2, event_id_next);
-                    CopyTileA(l1_buf_a_next, gm_a[offset_a_next], m_actual_next, m_round_next, k_actual_next,
-                              k_round_next);
+                    CopyTileA(
+                        l1_buf_a_next, gm_a[offset_a_next], m_actual_next, m_round_next, k_actual_next, k_round_next);
                     SET_FLAG(MTE2, MTE1, event_id_next);
 
                     // Preload B from gm to l1 buffer.
                     WAIT_FLAG(MTE1, MTE2, event_id_next + 2);
-                    CopyTileB(l1_buf_b_next, gm_b[offset_b_next], k_actual_next, k_round_next, n_actual_next,
-                              n_round_next);
+                    CopyTileB(
+                        l1_buf_b_next, gm_b[offset_b_next], k_actual_next, k_round_next, n_actual_next, n_round_next);
                     SET_FLAG(MTE2, MTE1, event_id_next + 2);
                 }
 
@@ -1255,23 +1448,25 @@ public:
                     WAIT_FLAG(M, MTE1, mte1_mad_event_id);
                     if ((m == 1) || (m_actual == 1)) {
                         l1_to_l0_a<ArchType::ASCEND_V220, InDtype, false, DataFormat::VECTOR, DataFormat::VECTOR>(
-                            l0a_buf,                       // dst
-                            l1_buf_a[fidx.k * k_part_len], // src
-                            0,                             // mTileCeil
-                            CeilDiv<CONST_256>(k0_round),  // kPartCeil
-                            0,                             // mSrcStride
-                            1,                             // kSrcStride
-                            0,                             // mDstStride
-                            0);                            // kDstStride
-                    } else {
-                        LoadCbufToCa(l0a_buf,                                 // l0Tensor
-                                     l1_buf_a[fidx.k * k_part_len * m_round], // l1Tensor
-                                     m_round,                                 // mTileCeil
-                                     k0_round,                                // kPartCeil
-                                     1,                                       // mSrcStride
-                                     m_round / CONST_16,                      // kSrcStride
-                                     k0_round / CONST_16,                     // mDstStride
-                                     1);                                      // kDstStride
+                            l0a_buf,                        // dst
+                            l1_buf_a[fidx.k * k_part_len],  // src
+                            0,                              // mTileCeil
+                            CeilDiv<CONST_256>(k0_round),   // kPartCeil
+                            0,                              // mSrcStride
+                            1,                              // kSrcStride
+                            0,                              // mDstStride
+                            0);                             // kDstStride
+                    }
+                    else {
+                        LoadCbufToCa(
+                            l0a_buf,                                  // l0Tensor
+                            l1_buf_a[fidx.k * k_part_len * m_round],  // l1Tensor
+                            m_round,                                  // mTileCeil
+                            k0_round,                                 // kPartCeil
+                            1,                                        // mSrcStride
+                            m_round / CONST_16,                       // kSrcStride
+                            k0_round / CONST_16,                      // mDstStride
+                            1);                                       // kDstStride
                     }
                     if (fidx.k == fdim.k - 1) {
                         SET_FLAG(MTE1, MTE2, event_id);
@@ -1282,23 +1477,26 @@ public:
                         WAIT_FLAG(MTE2, MTE1, event_id + 2);
                     }
                     if constexpr (transB) {
-                        LoadCbufToCb(l0b_buf,                                 // l0Tensor
-                                     l1_buf_b[fidx.k * k_part_len * n_round], // l1Tensor
-                                     n_round,                                 // nTileCeil
-                                     k0_round,                                // kPartCeil
-                                     1,                                       // nSrcStride
-                                     n_round / CONST_16,                      // kSrcStride
-                                     1,                                       // nDstStride
-                                     k0_round / CONST_16);                    // kDstStride
-                    } else {
-                        LoadCbufToCb(l0b_buf,                                  // l0Tensor
-                                     l1_buf_b[fidx.k * k_part_len * CONST_16], // l1Tensor
-                                     n_round,                                  // nTileCeil
-                                     k0_round,                                 // kPartCeil
-                                     k_round / CONST_16,                       // nSrcStride
-                                     1,                                        // kSrcStride
-                                     1,                                        // nDstStride
-                                     n_round / CONST_16);                      // kDstStride
+                        LoadCbufToCb(
+                            l0b_buf,                                  // l0Tensor
+                            l1_buf_b[fidx.k * k_part_len * n_round],  // l1Tensor
+                            n_round,                                  // nTileCeil
+                            k0_round,                                 // kPartCeil
+                            1,                                        // nSrcStride
+                            n_round / CONST_16,                       // kSrcStride
+                            1,                                        // nDstStride
+                            k0_round / CONST_16);                     // kDstStride
+                    }
+                    else {
+                        LoadCbufToCb(
+                            l0b_buf,                                   // l0Tensor
+                            l1_buf_b[fidx.k * k_part_len * CONST_16],  // l1Tensor
+                            n_round,                                   // nTileCeil
+                            k0_round,                                  // kPartCeil
+                            k_round / CONST_16,                        // nSrcStride
+                            1,                                         // kSrcStride
+                            1,                                         // nDstStride
+                            n_round / CONST_16);                       // kDstStride
                     }
                     if (fidx.k == fdim.k - 1) {
                         SET_FLAG(MTE1, MTE2, event_id + 2);
@@ -1312,13 +1510,13 @@ public:
                         WAIT_FLAG(FIX, M, EVENT_ID0);
                     }
 
-                    Mad(l0c_buf,   // c
-                        l0a_buf,   // a
-                        l0b_buf,   // b
-                        m_actual,  // mTileActual
-                        n_actual,  // nTileActual
-                        k0_actual, // kTileActual
-                        init_c);   // initC
+                    Mad(l0c_buf,    // c
+                        l0a_buf,    // a
+                        l0b_buf,    // b
+                        m_actual,   // mTileActual
+                        n_actual,   // nTileActual
+                        k0_actual,  // kTileActual
+                        init_c);    // initC
 
                     PIPE_BARRIER(M);
                     SET_FLAG(M, MTE1, mte1_mad_event_id);
@@ -1331,12 +1529,13 @@ public:
             WAIT_FLAG(M, FIX, EVENT_ID0);
 
             // copy from L0C to gm
-            CopyCcToGm(gm_c[offset_c],                // dst
-                       l0c_buf,                       // src
-                       m_actual,                      // mTileActual
-                       n_actual,                      // nTileActual
-                       m_round,                       // mTileCeil
-                       (n + splitGapC) * batch_size); // nActual
+            CopyCcToGm(
+                gm_c[offset_c],                 // dst
+                l0c_buf,                        // src
+                m_actual,                       // mTileActual
+                n_actual,                       // nTileActual
+                m_round,                        // mTileCeil
+                (n + splitGapC) * batch_size);  // nActual
             SET_FLAG(FIX, M, EVENT_ID0);
         }
 
@@ -1354,7 +1553,7 @@ private:
     __aicore__ __force_inline__ void GetBaseBlockIdx(uint64_t index, MatCoord &tidx)
     {
         uint64_t in_batch_idx = index % (tdim.m * tdim.n);
-        if constexpr (swizzleDirect == 0) { // Zn
+        if constexpr (swizzleDirect == 0) {  // Zn
             uint64_t tile_block_loop = (tdim.m + swizzle_cnt - 1) / swizzle_cnt;
             uint64_t tile_block_idx = in_batch_idx / (swizzle_cnt * tdim.n);
             uint64_t in_tile_block_idx = in_batch_idx % (swizzle_cnt * tdim.n);
@@ -1368,7 +1567,8 @@ private:
             if (tile_block_idx % 2 != 0) {
                 tidx.n = tdim.n - tidx.n - 1;
             }
-        } else if constexpr (swizzleDirect == 1) { // Nz
+        }
+        else if constexpr (swizzleDirect == 1) {  // Nz
             uint64_t tile_block_loop = (tdim.n + swizzle_cnt - 1) / swizzle_cnt;
             uint64_t tile_block_idx = in_batch_idx / (swizzle_cnt * tdim.m);
             uint64_t in_tile_block_idx = in_batch_idx % (swizzle_cnt * tdim.m);
@@ -1396,88 +1596,109 @@ private:
         if constexpr (formatB == DataFormat::ND) {
             if constexpr (transB) {
                 return bIdx * k * n + nIdx * n0 * k + kIdx * k0;
-            } else {
+            }
+            else {
                 return bIdx * k * n + kIdx * k0 * n + nIdx * n0;
             }
-        } else {
+        }
+        else {
             if constexpr (transB) {
                 return bIdx * RoundUp<CONST_16>(n) * RoundUp<CONST_16>(k) + kIdx * k0 * RoundUp<CONST_16>(n) +
                        nIdx * n0 * CONST_16;
-            } else {
+            }
+            else {
                 return bIdx * RoundUp<CONST_16>(k) * RoundUp<CONST_16>(n) + nIdx * n0 * RoundUp<CONST_16>(k) +
                        kIdx * k0 * CONST_16;
             }
         }
     }
 
-    __aicore__ __force_inline__ void CopyTileA(AscendC::LocalTensor<InDtype> &dstTensor,
-                                               const AscendC::GlobalTensor<InDtype> &srcTensor, const uint64_t m_actual,
-                                               const uint64_t m_round, const uint64_t k_actual, const uint64_t k_round)
+    __aicore__ __force_inline__ void CopyTileA(
+        AscendC::LocalTensor<InDtype> &dstTensor,
+        const AscendC::GlobalTensor<InDtype> &srcTensor,
+        const uint64_t m_actual,
+        const uint64_t m_round,
+        const uint64_t k_actual,
+        const uint64_t k_round)
     {
         if ((m == 1) || (m_actual == 1)) {
-            CopyGmToCbuf<DataFormat::ND, DataFormat::ND>(dstTensor, // dst
-                                                         srcTensor, // src
-                                                         1,         // nTileActual
-                                                         CONST_16,  // nTileCeil
-                                                         1,         // nVal
-                                                         k_actual,  // kTileActual
-                                                         k_round,   // kTileCeil
-                                                         k);        // dVal
-        } else {
-            CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(dstTensor,                     // dst
-                                                         srcTensor,                     // src
-                                                         m_actual,                      // nTileActual
-                                                         m_round,                       // nTileCeil
-                                                         m,                             // nVal
-                                                         k_actual,                      // dTileActual
-                                                         k_round,                       // dTileCeil
-                                                         (k + splitGapA) * batch_size); // dVal
+            CopyGmToCbuf<DataFormat::ND, DataFormat::ND>(
+                dstTensor,  // dst
+                srcTensor,  // src
+                1,          // nTileActual
+                CONST_16,   // nTileCeil
+                1,          // nVal
+                k_actual,   // kTileActual
+                k_round,    // kTileCeil
+                k);         // dVal
+        }
+        else {
+            CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(
+                dstTensor,                      // dst
+                srcTensor,                      // src
+                m_actual,                       // nTileActual
+                m_round,                        // nTileCeil
+                m,                              // nVal
+                k_actual,                       // dTileActual
+                k_round,                        // dTileCeil
+                (k + splitGapA) * batch_size);  // dVal
         }
     }
 
-    __aicore__ __force_inline__ void CopyTileB(AscendC::LocalTensor<InDtype> &dstTensor,
-                                               const AscendC::GlobalTensor<InDtype> &srcTensor, const uint64_t k_actual,
-                                               const uint64_t k_round, const uint64_t n_actual, const uint64_t n_round)
+    __aicore__ __force_inline__ void CopyTileB(
+        AscendC::LocalTensor<InDtype> &dstTensor,
+        const AscendC::GlobalTensor<InDtype> &srcTensor,
+        const uint64_t k_actual,
+        const uint64_t k_round,
+        const uint64_t n_actual,
+        const uint64_t n_round)
     {
         if constexpr (formatB == DataFormat::ND) {
             if constexpr (transB) {
-                CopyGmToCbuf<formatB, DataFormat::NZ>(dstTensor, // dst
-                                                      srcTensor, // src
-                                                      n_actual,  // nTileActual
-                                                      n_round,   // nTileCeil
-                                                      n,         // nVal
-                                                      k_actual,  // dTileActual
-                                                      k_round,   // dTileCeil
-                                                      k);        // dVal
-            } else {
-                CopyGmToCbuf<formatB, DataFormat::NZ>(dstTensor, // dst
-                                                      srcTensor, // src
-                                                      k_actual,  // nTileActual
-                                                      k_round,   // nTileCeil
-                                                      k,         // nVal
-                                                      n_actual,  // dTileActual
-                                                      n_round,   // dTileCeil
-                                                      n);        // dVal
+                CopyGmToCbuf<formatB, DataFormat::NZ>(
+                    dstTensor,  // dst
+                    srcTensor,  // src
+                    n_actual,   // nTileActual
+                    n_round,    // nTileCeil
+                    n,          // nVal
+                    k_actual,   // dTileActual
+                    k_round,    // dTileCeil
+                    k);         // dVal
             }
-        } else {
+            else {
+                CopyGmToCbuf<formatB, DataFormat::NZ>(
+                    dstTensor,  // dst
+                    srcTensor,  // src
+                    k_actual,   // nTileActual
+                    k_round,    // nTileCeil
+                    k,          // nVal
+                    n_actual,   // dTileActual
+                    n_round,    // dTileCeil
+                    n);         // dVal
+            }
+        }
+        else {
             if constexpr (transB) {
-                CopyGmToCbuf<formatB, DataFormat::NZ>(dstTensor,             // dst
-                                                      srcTensor,             // src
-                                                      n_actual,              // nTileActual
-                                                      n_round,               // nTileCeil
-                                                      RoundUp<CONST_16>(n),  // nVal
-                                                      k_actual,              // dTileActual
-                                                      k_round,               // dTileCeil
-                                                      RoundUp<CONST_16>(k)); // dVal
-            } else {
-                CopyGmToCbuf<formatB, DataFormat::NZ>(dstTensor,             // dst
-                                                      srcTensor,             // src
-                                                      k_actual,              // nTileActual
-                                                      k_round,               // nTileCeil
-                                                      RoundUp<CONST_16>(k),  // nVal
-                                                      n_actual,              // dTileActual
-                                                      n_round,               // dTileCeil
-                                                      RoundUp<CONST_16>(n)); // dVal
+                CopyGmToCbuf<formatB, DataFormat::NZ>(
+                    dstTensor,              // dst
+                    srcTensor,              // src
+                    n_actual,               // nTileActual
+                    n_round,                // nTileCeil
+                    RoundUp<CONST_16>(n),   // nVal
+                    k_actual,               // dTileActual
+                    k_round,                // dTileCeil
+                    RoundUp<CONST_16>(k));  // dVal
+            }
+            else {
+                CopyGmToCbuf<formatB, DataFormat::NZ>(
+                    dstTensor,              // dst
+                    srcTensor,              // src
+                    k_actual,               // nTileActual
+                    k_round,                // nTileCeil
+                    RoundUp<CONST_16>(k),   // nVal
+                    n_actual,               // dTileActual
+                    n_round,                // dTileCeil
+                    RoundUp<CONST_16>(n));  // dVal
             }
         }
     }
@@ -1509,11 +1730,13 @@ private:
     uint32_t ping_flag{0};
 };
 
-template <bool withSyncAll,
-          uint32_t swizzleDir,
-          DataFormat formatA = DataFormat::ND,
-          DataFormat formatB = DataFormat::NZ>
-class PpMatmulW8a8Aic {
+template <
+    bool withSyncAll,
+    uint32_t swizzleDir,
+    DataFormat formatA = DataFormat::ND,
+    DataFormat formatB = DataFormat::NZ>
+class PpMatmulW8a8Aic
+{
     using InDtype = int8_t;
     using OutDtype = int32_t;
     using AccumDtype = int32_t;
@@ -1580,64 +1803,73 @@ public:
     {
         if constexpr (formatB == DataFormat::ND) {
             return batchIdx * k * n + nIdx * n0 * k + kIdx * k0;
-        } else {
+        }
+        else {
             return batchIdx * RoundUp<16>(n) * RoundUp<32>(k) + kIdx * k0 * RoundUp<16>(n) + nIdx * n0 * CONST_32;
         }
     }
 
-    __aicore__ __force_inline__ void CopyTileA(AscendC::LocalTensor<InDtype> &dstTensor,
-                                               const AscendC::GlobalTensor<InDtype> &srcTensor,
-                                               const uint64_t m_actual,
-                                               const uint64_t m_round,
-                                               const uint64_t k_actual,
-                                               const uint64_t k_round)
+    __aicore__ __force_inline__ void CopyTileA(
+        AscendC::LocalTensor<InDtype> &dstTensor,
+        const AscendC::GlobalTensor<InDtype> &srcTensor,
+        const uint64_t m_actual,
+        const uint64_t m_round,
+        const uint64_t k_actual,
+        const uint64_t k_round)
     {
         if ((m == 1) || (m_actual == 1)) {
-            CopyGmToCbuf<formatA, DataFormat::ND>(dstTensor, // dst
-                                                  srcTensor, // src
-                                                  1,
-                                                  BLOCK_SIZE_16,
-                                                  1,
-                                                  k_actual,
-                                                  k_round,
-                                                  k);
-        } else {
-            CopyGmToCbuf<formatA, DataFormat::NZ>(dstTensor, // dst
-                                                  srcTensor, // src
-                                                  m_actual,  // nTileActual
-                                                  m_round,   // nTileCeil
-                                                  n,         // nVal
-                                                  k_actual,  // dTileActual
-                                                  k_round,   // dTileCeil
-                                                  k);        // dVal
+            CopyGmToCbuf<formatA, DataFormat::ND>(
+                dstTensor,  // dst
+                srcTensor,  // src
+                1,
+                BLOCK_SIZE_16,
+                1,
+                k_actual,
+                k_round,
+                k);
+        }
+        else {
+            CopyGmToCbuf<formatA, DataFormat::NZ>(
+                dstTensor,  // dst
+                srcTensor,  // src
+                m_actual,   // nTileActual
+                m_round,    // nTileCeil
+                n,          // nVal
+                k_actual,   // dTileActual
+                k_round,    // dTileCeil
+                k);         // dVal
         }
     }
 
-    __aicore__ __force_inline__ void CopyTileB(const AscendC::LocalTensor<InDtype> &dstTensor,
-                                               const AscendC::GlobalTensor<InDtype> &srcTensor,
-                                               const uint64_t k_actual,
-                                               const uint64_t k_round,
-                                               const uint64_t n_actual,
-                                               const uint64_t n_round)
+    __aicore__ __force_inline__ void CopyTileB(
+        const AscendC::LocalTensor<InDtype> &dstTensor,
+        const AscendC::GlobalTensor<InDtype> &srcTensor,
+        const uint64_t k_actual,
+        const uint64_t k_round,
+        const uint64_t n_actual,
+        const uint64_t n_round)
     {
         if constexpr (formatB == DataFormat::ND) {
-            CopyGmToCbuf<formatB, DataFormat::NZ>(dstTensor, // dst
-                                                  srcTensor, // src
-                                                  n_actual,  // nTileActual
-                                                  n_round,   // nTileCeil
-                                                  n,         // nVal
-                                                  k_actual,  // dTileActual
-                                                  k_round,   // dTileCeil
-                                                  k);        // dVal
-        } else {
-            CopyGmToCbuf<formatB, DataFormat::NZ>(dstTensor,       // dst
-                                                  srcTensor,       // src
-                                                  n_actual,        // nTileActual
-                                                  n_round,         // nTileCeil
-                                                  RoundUp<16>(n),  // nVal
-                                                  k_actual,        // dTileActual
-                                                  k_round,         // dTileCeil
-                                                  RoundUp<32>(k)); // dVal
+            CopyGmToCbuf<formatB, DataFormat::NZ>(
+                dstTensor,  // dst
+                srcTensor,  // src
+                n_actual,   // nTileActual
+                n_round,    // nTileCeil
+                n,          // nVal
+                k_actual,   // dTileActual
+                k_round,    // dTileCeil
+                k);         // dVal
+        }
+        else {
+            CopyGmToCbuf<formatB, DataFormat::NZ>(
+                dstTensor,        // dst
+                srcTensor,        // src
+                n_actual,         // nTileActual
+                n_round,          // nTileCeil
+                RoundUp<16>(n),   // nVal
+                k_actual,         // dTileActual
+                k_round,          // dTileCeil
+                RoundUp<32>(k));  // dVal
         }
     }
 
@@ -1692,7 +1924,7 @@ private:
     __aicore__ __force_inline__ void GetBaseBlockIdx(uint64_t index, uint64_t &m_idx, uint64_t &n_idx)
     {
         uint64_t in_batch_idx = index % (m_loop * n_loop);
-        if constexpr (swizzleDir == 0) { // Zn
+        if constexpr (swizzleDir == 0) {  // Zn
             uint64_t tile_block_loop = (m_loop + swizzle_cnt - 1) / swizzle_cnt;
             uint64_t tile_block_idx = in_batch_idx / (swizzle_cnt * n_loop);
             uint64_t in_tile_block_idx = in_batch_idx % (swizzle_cnt * n_loop);
@@ -1706,7 +1938,8 @@ private:
             if ((tile_block_idx & 0b1) != 0) {
                 n_idx = n_loop - n_idx - 1;
             }
-        } else { // Nz
+        }
+        else {  // Nz
             uint64_t tile_block_loop = (n_loop + swizzle_cnt - 1) / swizzle_cnt;
             uint64_t tile_block_idx = in_batch_idx / (swizzle_cnt * m_loop);
             uint64_t in_tile_block_idx = in_batch_idx % (swizzle_cnt * m_loop);
@@ -1764,7 +1997,8 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aic<withSyncAll, swizzleDir, format
     if (core_idx >= core_num) {
         if (MM1_MM2_mode == 0) {
             WaitFlagDev(AIC_MM1_START);
-        } else if (MM1_MM2_mode == 1) {
+        }
+        else if (MM1_MM2_mode == 1) {
             WaitFlagDev(AIC_MM2_START);
         }
         return;
@@ -1815,7 +2049,8 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aic<withSyncAll, swizzleDir, format
         if (loop_idx == core_idx) {
             if (MM1_MM2_mode == 0) {
                 WaitFlagDev(AIC_MM1_START);
-            } else if (MM1_MM2_mode == 1) {
+            }
+            else if (MM1_MM2_mode == 1) {
                 WaitFlagDev(AIC_MM2_START);
             }
         }
@@ -1831,7 +2066,8 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aic<withSyncAll, swizzleDir, format
                 uint64_t k_round_first = RoundUp<BLOCK_SIZE_32>(k_actual_first);
                 CopyTileA(l1_buf_a, gm_a[offset_a], m_actual, m_round, k_actual_first, k_round_first);
             }
-        } else {
+        }
+        else {
             offset_a = GetOffsetA(batch_idx, m_idx, shuffle_k);
             CopyTileA(l1_buf_a, gm_a[offset_a], m_actual, m_round, k_actual, k_round);
         }
@@ -1850,9 +2086,10 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aic<withSyncAll, swizzleDir, format
             uint32_t k_round = RoundUp<BLOCK_SIZE_32>(k_actual);
             uint32_t k_part_loop = (k_actual + k_part_len - 1) / k_part_len;
 
-            // --------- load whole A in l1a addr chanege -------------
-            LocalTensor l1_buf_a = load_all_Amat_flag ? (l1_base_a[k_idx * m0 * k0 * sizeof(int8_t)]) : (ping_flag ? l1_base_a : l1_base_a[L1_PINGPONG_BUFFER_LEN]) ;
-            LocalTensor l1_buf_b = ping_flag ? l1_base_b : l1_base_b[b0mat_pingpong_buffer_len] ;
+            // --------- load whole A in l1a addr change -------------
+            LocalTensor l1_buf_a = load_all_Amat_flag ? (l1_base_a[k_idx * m0 * k0 * sizeof(int8_t)])
+                                                      : (ping_flag ? l1_base_a : l1_base_a[L1_PINGPONG_BUFFER_LEN]);
+            LocalTensor l1_buf_b = ping_flag ? l1_base_b : l1_base_b[b0mat_pingpong_buffer_len];
             auto event_id = ping_flag ? EVENT_ID0 : EVENT_ID1;
 
             if (k_idx < k_loop - 1) {
@@ -1862,7 +2099,8 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aic<withSyncAll, swizzleDir, format
                 uint32_t k_actual_next = (shuffle_k_next == (k_loop - 1)) ? (k - shuffle_k_next * k0) : k0;
                 uint32_t k_round_next = RoundUp<BLOCK_SIZE_32>(k_actual_next);
 
-                LocalTensor l1_buf_a_next = load_all_Amat_flag ? l1_base_a : ((1 - ping_flag) ? l1_base_a : l1_base_a[L1_PINGPONG_BUFFER_LEN]);
+                LocalTensor l1_buf_a_next =
+                    load_all_Amat_flag ? l1_base_a : ((1 - ping_flag) ? l1_base_a : l1_base_a[L1_PINGPONG_BUFFER_LEN]);
                 LocalTensor l1_buf_b_next = (1 - ping_flag) ? l1_base_b : l1_base_b[b0mat_pingpong_buffer_len];
                 auto event_id_next = (1 - ping_flag) ? EVENT_ID0 : EVENT_ID1;
 
@@ -1897,22 +2135,25 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aic<withSyncAll, swizzleDir, format
                 WAIT_FLAG(M, MTE1, mte1_mad_event_id);
                 if ((m == 1) || (m_actual == 1)) {
                     l1_to_l0_a<ArchType::ASCEND_V220, InDtype, false, DataFormat::VECTOR, DataFormat::VECTOR>(
-                        l0a_buf, l1_buf_a[k_part_idx * k_part_len],
-                        0,                                       // mTileCeil
-                        CeilDiv<CUBE_MATRIX_SIZE_512>(k0_round), // kPartCeil
-                        0,                                       // mSrcStride
-                        1,                                       // kSrcStride
-                        0,                                       // mDstStride
-                        0);                                      // kDstStride
-                } else {
-                    LoadCbufToCa(l0a_buf,                                     // l0Tensor
-                                 l1_buf_a[k_part_idx * k_part_len * m_round], // l1Tensor
-                                 m_round,                                     // mTileCeil
-                                 k0_round,                                    // kPartCeil
-                                 1,                                           // mSrcStride
-                                 m_round / BLOCK_SIZE_16,                     // kSrcStride
-                                 k0_round / BLOCK_SIZE_32,                    // mDstStride
-                                 1);                                          // kDstStride
+                        l0a_buf,
+                        l1_buf_a[k_part_idx * k_part_len],
+                        0,                                        // mTileCeil
+                        CeilDiv<CUBE_MATRIX_SIZE_512>(k0_round),  // kPartCeil
+                        0,                                        // mSrcStride
+                        1,                                        // kSrcStride
+                        0,                                        // mDstStride
+                        0);                                       // kDstStride
+                }
+                else {
+                    LoadCbufToCa(
+                        l0a_buf,                                      // l0Tensor
+                        l1_buf_a[k_part_idx * k_part_len * m_round],  // l1Tensor
+                        m_round,                                      // mTileCeil
+                        k0_round,                                     // kPartCeil
+                        1,                                            // mSrcStride
+                        m_round / BLOCK_SIZE_16,                      // kSrcStride
+                        k0_round / BLOCK_SIZE_32,                     // mDstStride
+                        1);                                           // kDstStride
                 }
                 if (k_part_idx == k_part_loop - 1) {
                     SET_FLAG(MTE1, MTE2, event_id);
@@ -1922,14 +2163,15 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aic<withSyncAll, swizzleDir, format
                 if (k_part_idx == 0) {
                     WAIT_FLAG(MTE2, MTE1, event_id + CONST_2);
                 }
-                LoadCbufToCb(l0b_buf,                                     // l0Tensor
-                             l1_buf_b[k_part_idx * k_part_len * n_round], // l1Tensor
-                             n_round,                                     // nTileCeil
-                             k0_round,                                    // kPartCeil
-                             1,                                           // nSrcStride
-                             n_round / BLOCK_SIZE_16,                     // kSrcStride
-                             1,                                           // nDstStride
-                             k0_round / BLOCK_SIZE_32);                   // kDstStride
+                LoadCbufToCb(
+                    l0b_buf,                                      // l0Tensor
+                    l1_buf_b[k_part_idx * k_part_len * n_round],  // l1Tensor
+                    n_round,                                      // nTileCeil
+                    k0_round,                                     // kPartCeil
+                    1,                                            // nSrcStride
+                    n_round / BLOCK_SIZE_16,                      // kSrcStride
+                    1,                                            // nDstStride
+                    k0_round / BLOCK_SIZE_32);                    // kDstStride
                 if (k_part_idx == k_part_loop - 1) {
                     SET_FLAG(MTE1, MTE2, event_id + CONST_2);
                 }
@@ -1941,13 +2183,14 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aic<withSyncAll, swizzleDir, format
                 if (init_c) {
                     WAIT_FLAG(FIX, M, EVENT_ID0);
                 }
-                Mmad(l0c_buf,
-                     l0a_buf,
-                     l0b_buf,
-                     m_actual,  // m
-                     n_actual,  // n
-                     k0_actual, // k
-                     init_c);   // cmatrixInitVal
+                Mmad(
+                    l0c_buf,
+                    l0a_buf,
+                    l0b_buf,
+                    m_actual,   // m
+                    n_actual,   // n
+                    k0_actual,  // k
+                    init_c);    // cmatrixInitVal
                 PIPE_BARRIER(M);
                 SET_FLAG(M, MTE1, mte1_mad_event_id);
             }
@@ -1957,12 +2200,13 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aic<withSyncAll, swizzleDir, format
         SET_FLAG(M, FIX, EVENT_ID0);
         WAIT_FLAG(M, FIX, EVENT_ID0);
         // copy from L0C to gm
-        CopyCcToGm(gm_c[offset_c], // dst
-                   l0c_buf,        // src
-                   m_actual,       // MSize
-                   n_actual,       // NSize
-                   m_round_16,     // srcStride
-                   n);             // dstStride_dst_D
+        CopyCcToGm(
+            gm_c[offset_c],  // dst
+            l0c_buf,         // src
+            m_actual,        // MSize
+            n_actual,        // NSize
+            m_round_16,      // srcStride
+            n);              // dstStride_dst_D
         SET_FLAG(FIX, M, EVENT_ID0);
         if constexpr (!withSyncAll) {
             FftsCrossCoreSync<PIPE_FIX, SYNC_MODE>(MMAIC);
@@ -1988,7 +2232,8 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aic<withSyncAll, swizzleDir, format
 #if defined(__DAV_C220_VEC__)
 
 template <typename OutDtype, bool withSyncAll, QuantMode quantMode>
-class PpMatmulW8a8Aiv {
+class PpMatmulW8a8Aiv
+{
     using InDtype = int32_t;
     using ScaleDtype = float;
     using BiasDtype = int32_t;
@@ -1996,8 +2241,13 @@ class PpMatmulW8a8Aiv {
 public:
     __aicore__ PpMatmulW8a8Aiv() {};
 
-    __aicore__ __force_inline__ void Init(GM_ADDR gmInput, GM_ADDR gmOutput, GM_ADDR gmDescale, GM_ADDR gmPerTensorBias,
-                                          GM_ADDR gmPertokenDescale, const PpMatmulTilingData &gmTilingData)
+    __aicore__ __force_inline__ void Init(
+        GM_ADDR gmInput,
+        GM_ADDR gmOutput,
+        GM_ADDR gmDescale,
+        GM_ADDR gmPerTensorBias,
+        GM_ADDR gmPertokenDescale,
+        const PpMatmulTilingData &gmTilingData)
     {
         gmInput_.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(gmInput));
         gmOutput_.SetGlobalBuffer(reinterpret_cast<__gm__ OutDtype *>(gmOutput));
@@ -2034,7 +2284,7 @@ public:
     __aicore__ __force_inline__ void GetBlockIdx(uint32_t index, uint32_t &m_idx, uint32_t &n_idx)
     {
         uint32_t in_batch_idx = index % (m_loop * n_loop);
-        if (swizzlDirect == 0) { // Zn
+        if (swizzlDirect == 0) {  // Zn
             uint32_t tile_block_loop = (m_loop + swizzle_cnt - 1) / swizzle_cnt;
             uint32_t tile_block_idx = in_batch_idx / (swizzle_cnt * n_loop);
             uint32_t in_tile_block_idx = in_batch_idx % (swizzle_cnt * n_loop);
@@ -2048,7 +2298,8 @@ public:
             if (tile_block_idx % 2 != 0) {
                 n_idx = n_loop - n_idx - 1;
             }
-        } else { // Nz
+        }
+        else {  // Nz
             uint32_t tile_block_loop = (n_loop + swizzle_cnt - 1) / swizzle_cnt;
             uint32_t tile_block_idx = in_batch_idx / (swizzle_cnt * m_loop);
             uint32_t in_tile_block_idx = in_batch_idx % (swizzle_cnt * m_loop);
@@ -2138,48 +2389,55 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aiv<OutDtype, withSyncAll, quantMod
         }
 
         uint64_t offsetScale = batch_idx * n + n_idx * n0;
-        bool aligned_s32 = ((n & 0b111) == 0);          // 32B aligned
-        bool aligned_f16 = ((n & 0b1111) == 0);         // 32B aligned
+        bool aligned_s32 = ((n & 0b111) == 0);   // 32B aligned
+        bool aligned_f16 = ((n & 0b1111) == 0);  // 32B aligned
         WAIT_FLAG(V, MTE2, EVENT_ID0);
         if constexpr (quantMode == QuantMode::PER_TENSOR_ASYMM_QUANT) {
             if (aligned_s32) {
-                gm_to_ub<ArchType::ASCEND_V220, BiasDtype>(ubPerTensorScale_.ReinterpretCast<BiasDtype>(),
-                                                           gmPerTensorBias_[offsetScale],
-                                                           0,                                           // sid
-                                                           1,                                           // nBurst
-                                                           n_round * sizeof(BiasDtype) / BLOCK_SIZE_32, // lenBurst
-                                                           0,                                           // srcStride
-                                                           0);                                          // dstStride
-            } else {
-                gm_to_ub_align<ArchType::ASCEND_V220, BiasDtype>(ubPerTensorScale_.ReinterpretCast<BiasDtype>(),
-                                                                 gmPerTensorBias_[offsetScale],
-                                                                 0,                        // sid
-                                                                 1,                        // nBurst
-                                                                 n_actual * sizeof(float), // lenBurst
-                                                                 0,                        // leftPaddingNum
-                                                                 0,                        // rightPaddingNum
-                                                                 0,                        // srcGap
-                                                                 0);                       // dstGap
+                gm_to_ub<ArchType::ASCEND_V220, BiasDtype>(
+                    ubPerTensorScale_.ReinterpretCast<BiasDtype>(),
+                    gmPerTensorBias_[offsetScale],
+                    0,                                            // sid
+                    1,                                            // nBurst
+                    n_round * sizeof(BiasDtype) / BLOCK_SIZE_32,  // lenBurst
+                    0,                                            // srcStride
+                    0);                                           // dstStride
             }
-        } else {
+            else {
+                gm_to_ub_align<ArchType::ASCEND_V220, BiasDtype>(
+                    ubPerTensorScale_.ReinterpretCast<BiasDtype>(),
+                    gmPerTensorBias_[offsetScale],
+                    0,                         // sid
+                    1,                         // nBurst
+                    n_actual * sizeof(float),  // lenBurst
+                    0,                         // leftPaddingNum
+                    0,                         // rightPaddingNum
+                    0,                         // srcGap
+                    0);                        // dstGap
+            }
+        }
+        else {
             if (aligned_s32) {
-                gm_to_ub<ArchType::ASCEND_V220, float>(ubPerTensorScale_,
-                                                       gmPerTensorScale_[offsetScale],
-                                                       0,                           // sid
-                                                       1,                           // nBurst
-                                                       n_round * 4 / BLOCK_SIZE_32, // lenBurst
-                                                       0,                           // srcStride
-                                                       0);                          // dstStride
-            } else {
-                gm_to_ub_align<ArchType::ASCEND_V220, float>(ubPerTensorScale_,
-                                                             gmPerTensorScale_[offsetScale],
-                                                             0,                        // sid
-                                                             1,                        // nBurst
-                                                             n_actual * sizeof(float), // lenBurst
-                                                             0,                        // leftPaddingNum
-                                                             0,                        // rightPaddingNum
-                                                             0,                        // srcGap
-                                                             0);                       // dstGap
+                gm_to_ub<ArchType::ASCEND_V220, float>(
+                    ubPerTensorScale_,
+                    gmPerTensorScale_[offsetScale],
+                    0,                            // sid
+                    1,                            // nBurst
+                    n_round * 4 / BLOCK_SIZE_32,  // lenBurst
+                    0,                            // srcStride
+                    0);                           // dstStride
+            }
+            else {
+                gm_to_ub_align<ArchType::ASCEND_V220, float>(
+                    ubPerTensorScale_,
+                    gmPerTensorScale_[offsetScale],
+                    0,                         // sid
+                    1,                         // nBurst
+                    n_actual * sizeof(float),  // lenBurst
+                    0,                         // leftPaddingNum
+                    0,                         // rightPaddingNum
+                    0,                         // srcGap
+                    0);                        // dstGap
             }
         }
 
@@ -2188,22 +2446,27 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aiv<OutDtype, withSyncAll, quantMod
         }
         WAIT_FLAG(MTE3, MTE2, EVENT_ID0);
         if (aligned_s32) {
-            gm_to_ub<ArchType::ASCEND_V220, int32_t>(ubInput_, gmInput_[offsetC],
-                                                     0,                 // sid
-                                                     m_actual_per_vec,  // nBurst
-                                                     n_round / 8,       // lenBurst
-                                                     (n - n_round) / 8, // srcStride
-                                                     0                  // dstStride
+            gm_to_ub<ArchType::ASCEND_V220, int32_t>(
+                ubInput_,
+                gmInput_[offsetC],
+                0,                  // sid
+                m_actual_per_vec,   // nBurst
+                n_round / 8,        // lenBurst
+                (n - n_round) / 8,  // srcStride
+                0                   // dstStride
             );
-        } else {
-            gm_to_ub_align<ArchType::ASCEND_V220, int32_t>(ubInput_, gmInput_[offsetC],
-                                                           0,                                // sid
-                                                           m_actual_per_vec,                 // nBurst
-                                                           n_actual * sizeof(int32_t),       // lenBurst
-                                                           0,                                // leftPaddingNum
-                                                           0,                                // rightPaddingNum
-                                                           (n - n_actual) * sizeof(int32_t), // srcGap
-                                                           0                                 // dstGap
+        }
+        else {
+            gm_to_ub_align<ArchType::ASCEND_V220, int32_t>(
+                ubInput_,
+                gmInput_[offsetC],
+                0,                                 // sid
+                m_actual_per_vec,                  // nBurst
+                n_actual * sizeof(int32_t),        // lenBurst
+                0,                                 // leftPaddingNum
+                0,                                 // rightPaddingNum
+                (n - n_actual) * sizeof(int32_t),  // srcGap
+                0                                  // dstGap
             );
         }
         SET_FLAG(MTE2, V, EVENT_ID0);
@@ -2226,10 +2489,14 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aiv<OutDtype, withSyncAll, quantMod
                 //                                         (uint8_t)8,            // src0RepeatStride
                 //                                         (uint8_t)8             // src1RepeatStride
                 // );
-                AscendC::Add<BiasDtype, false>(ubInput_[i * n_round], ubInput_[i * n_round], ubPerTensorScale_.ReinterpretCast<BiasDtype>(),
-                                               AscendC::MASK_PLACEHOLDER, 1,
-                                               AscendC::BinaryRepeatParams((uint8_t)1, (uint8_t)1, (uint8_t)1, (uint8_t)8, (uint8_t)8, (uint8_t)8));
-
+                AscendC::Add<BiasDtype, false>(
+                    ubInput_[i * n_round],
+                    ubInput_[i * n_round],
+                    ubPerTensorScale_.ReinterpretCast<BiasDtype>(),
+                    AscendC::MASK_PLACEHOLDER,
+                    1,
+                    AscendC::BinaryRepeatParams(
+                        (uint8_t)1, (uint8_t)1, (uint8_t)1, (uint8_t)8, (uint8_t)8, (uint8_t)8));
             }
             AscendC::ResetMask();
             SetMasknorm();
@@ -2237,24 +2504,27 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aiv<OutDtype, withSyncAll, quantMod
             SET_FLAG(V, MTE2, EVENT_ID0);
             WAIT_FLAG(V, MTE2, EVENT_ID0);
             if (aligned_s32) {
-                gm_to_ub<ArchType::ASCEND_V220, ScaleDtype>(ubPerTensorScale_,
-                                                            gmPerTensorScale_[offsetScale],
-                                                            0,                                            // sid
-                                                            1,                                            // nBurst
-                                                            n_round * sizeof(ScaleDtype) / BLOCK_SIZE_32, // lenBurst
-                                                            0,                                            // srcStride
-                                                            0                                             // dstStride
+                gm_to_ub<ArchType::ASCEND_V220, ScaleDtype>(
+                    ubPerTensorScale_,
+                    gmPerTensorScale_[offsetScale],
+                    0,                                             // sid
+                    1,                                             // nBurst
+                    n_round * sizeof(ScaleDtype) / BLOCK_SIZE_32,  // lenBurst
+                    0,                                             // srcStride
+                    0                                              // dstStride
                 );
-            } else {
-                gm_to_ub_align<ArchType::ASCEND_V220, ScaleDtype>(ubPerTensorScale_,
-                                                                  gmPerTensorScale_[offsetScale],
-                                                                  0,                             // sid
-                                                                  1,                             // nBurst
-                                                                  n_actual * sizeof(ScaleDtype), // lenBurst
-                                                                  0,                             // leftPaddingNum
-                                                                  0,                             // rightPaddingNum
-                                                                  0,                             // srcGap
-                                                                  0                              // dstGap
+            }
+            else {
+                gm_to_ub_align<ArchType::ASCEND_V220, ScaleDtype>(
+                    ubPerTensorScale_,
+                    gmPerTensorScale_[offsetScale],
+                    0,                              // sid
+                    1,                              // nBurst
+                    n_actual * sizeof(ScaleDtype),  // lenBurst
+                    0,                              // leftPaddingNum
+                    0,                              // rightPaddingNum
+                    0,                              // srcGap
+                    0                               // dstGap
                 );
             }
             SET_FLAG(MTE2, V, EVENT_ID0);
@@ -2266,27 +2536,30 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aiv<OutDtype, withSyncAll, quantMod
         constexpr uint32_t perRepeatNum = maxRepeat * 64;
         uint32_t loopCnt = (m_actual_per_vec * n_actual + perRepeatNum - 1) / perRepeatNum;
         for (uint32_t i = 0; i < loopCnt; i++) {
-            conv_v<ArchType::ASCEND_V220, int32_t, float>(ubInput_.ReinterpretCast<float>()[perRepeatNum * i],
-                                                          ubInput_[perRepeatNum * i],
-                                                          (uint8_t)maxRepeat, // repeat
-                                                          (uint16_t)1,        // dstBlockStride
-                                                          (uint16_t)1,        // srcBlockStride
-                                                          (uint16_t)8,        // dstRepeatStride
-                                                          (uint16_t)8         // srcRepeatStride
+            conv_v<ArchType::ASCEND_V220, int32_t, float>(
+                ubInput_.ReinterpretCast<float>()[perRepeatNum * i],
+                ubInput_[perRepeatNum * i],
+                (uint8_t)maxRepeat,  // repeat
+                (uint16_t)1,         // dstBlockStride
+                (uint16_t)1,         // srcBlockStride
+                (uint16_t)8,         // dstRepeatStride
+                (uint16_t)8          // srcRepeatStride
             );
         }
         AscendC::PipeBarrier<PIPE_V>();
 
         for (uint32_t i = 0; i < m_actual_per_vec; ++i) {
-            mul_v<ArchType::ASCEND_V220, float>(ubTempFp32_[i * n_round], ubInput_.ReinterpretCast<float>()[i * n_round],
-                                                ubPerTensorScale_.ReinterpretCast<float>(),
-                                                (uint8_t)(nRepeatCnt), // repeat
-                                                (uint8_t)1,            // dstBlockStride
-                                                (uint8_t)1,            // src0BlockStride
-                                                (uint8_t)1,            // src1BlockStride
-                                                (uint8_t)8,            // dstRepeatStride
-                                                (uint8_t)8,            // src0RepeatStride
-                                                (uint8_t)8             // src1RepeatStride
+            mul_v<ArchType::ASCEND_V220, float>(
+                ubTempFp32_[i * n_round],
+                ubInput_.ReinterpretCast<float>()[i * n_round],
+                ubPerTensorScale_.ReinterpretCast<float>(),
+                (uint8_t)(nRepeatCnt),  // repeat
+                (uint8_t)1,             // dstBlockStride
+                (uint8_t)1,             // src0BlockStride
+                (uint8_t)1,             // src1BlockStride
+                (uint8_t)8,             // dstRepeatStride
+                (uint8_t)8,             // src0RepeatStride
+                (uint8_t)8              // src1RepeatStride
             );
             if constexpr (quantMode == QuantMode::PER_TOKEN_SYMM_QUANT) {
                 AscendC::PipeBarrier<PIPE_V>();
@@ -2302,59 +2575,75 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aiv<OutDtype, withSyncAll, quantMod
         if (n_actual % 16 > 8) {
             for (uint32_t i = 0; i < loopCnt; i++) {
                 if constexpr (std::is_same_v<OutDtype, __bf16>) {
-                    convr_v<ArchType::ASCEND_V220, float, OutDtype>(ubOutput_[perRepeatNum * i],
-                                                                    ubTempFp32_[perRepeatNum * i],
-                                                                    (uint8_t)maxRepeat, // repeat
-                                                                    (uint16_t)1,        // dstBlockStride
-                                                                    (uint16_t)1,        // srcBlockStride
-                                                                    (uint16_t)4,        // dstRepeatStride
-                                                                    (uint16_t)8);       // srcRepeatStride
-                } else {
-                    conv_v<ArchType::ASCEND_V220, float, OutDtype>(ubOutput_[perRepeatNum * i],
-                                                                   ubTempFp32_[perRepeatNum * i],
-                                                                   (uint8_t)maxRepeat, // repeat
-                                                                   (uint16_t)1,        // dstBlockStride
-                                                                   (uint16_t)1,        // srcBlockStride
-                                                                   (uint16_t)4,        // dstRepeatStride
-                                                                   (uint16_t)8);       // srcRepeatStride
+                    convr_v<ArchType::ASCEND_V220, float, OutDtype>(
+                        ubOutput_[perRepeatNum * i],
+                        ubTempFp32_[perRepeatNum * i],
+                        (uint8_t)maxRepeat,  // repeat
+                        (uint16_t)1,         // dstBlockStride
+                        (uint16_t)1,         // srcBlockStride
+                        (uint16_t)4,         // dstRepeatStride
+                        (uint16_t)8);        // srcRepeatStride
+                }
+                else {
+                    conv_v<ArchType::ASCEND_V220, float, OutDtype>(
+                        ubOutput_[perRepeatNum * i],
+                        ubTempFp32_[perRepeatNum * i],
+                        (uint8_t)maxRepeat,  // repeat
+                        (uint16_t)1,         // dstBlockStride
+                        (uint16_t)1,         // srcBlockStride
+                        (uint16_t)4,         // dstRepeatStride
+                        (uint16_t)8);        // srcRepeatStride
                 }
             }
-        } else {
+        }
+        else {
             for (uint32_t i = 0; i < m_actual_per_vec; i++) {
                 if constexpr (std::is_same_v<OutDtype, __bf16>) {
-                    convr_v<ArchType::ASCEND_V220, float, OutDtype>(ubOutput_[n_round_16 * i], ubTempFp32_[n_round * i],
-                                                                    (uint8_t)nRepeatCnt, // repeat
-                                                                    (uint16_t)1,         // dstBlockStride
-                                                                    (uint16_t)1,         // srcBlockStride
-                                                                    (uint16_t)4,         // dstRepeatStride
-                                                                    (uint16_t)8);        // srcRepeatStride
-                } else {
-                    conv_v<ArchType::ASCEND_V220, float, OutDtype>(ubOutput_[n_round_16 * i], ubTempFp32_[n_round * i],
-                                                                   (uint8_t)nRepeatCnt, // repeat
-                                                                   (uint16_t)1,         // dstBlockStride
-                                                                   (uint16_t)1,         // srcBlockStride
-                                                                   (uint16_t)4,         // dstRepeatStride
-                                                                   (uint16_t)8);        // srcRepeatStride
+                    convr_v<ArchType::ASCEND_V220, float, OutDtype>(
+                        ubOutput_[n_round_16 * i],
+                        ubTempFp32_[n_round * i],
+                        (uint8_t)nRepeatCnt,  // repeat
+                        (uint16_t)1,          // dstBlockStride
+                        (uint16_t)1,          // srcBlockStride
+                        (uint16_t)4,          // dstRepeatStride
+                        (uint16_t)8);         // srcRepeatStride
+                }
+                else {
+                    conv_v<ArchType::ASCEND_V220, float, OutDtype>(
+                        ubOutput_[n_round_16 * i],
+                        ubTempFp32_[n_round * i],
+                        (uint8_t)nRepeatCnt,  // repeat
+                        (uint16_t)1,          // dstBlockStride
+                        (uint16_t)1,          // srcBlockStride
+                        (uint16_t)4,          // dstRepeatStride
+                        (uint16_t)8);         // srcRepeatStride
                 }
             }
         }
         SET_FLAG(V, MTE3, EVENT_ID0);
         WAIT_FLAG(V, MTE3, EVENT_ID0);
         if (aligned_f16) {
-            ub_to_gm<ArchType::ASCEND_V220, OutDtype>(gmOutput_[offsetC], ubOutput_, 0,
-                                                      m_actual_per_vec,  // nBurst
-                                                      n_round / 16,      // lenBurst
-                                                      0,                 // srcStride
-                                                      (n - n_round) / 16 // dstStride
+            ub_to_gm<ArchType::ASCEND_V220, OutDtype>(
+                gmOutput_[offsetC],
+                ubOutput_,
+                0,
+                m_actual_per_vec,   // nBurst
+                n_round / 16,       // lenBurst
+                0,                  // srcStride
+                (n - n_round) / 16  // dstStride
             );
-        } else {
-            ub_to_gm_align<ArchType::ASCEND_V220, OutDtype>(gmOutput_[offsetC], ubOutput_, 0,
-                                                            m_actual_per_vec,                 // nBurst
-                                                            n_actual * sizeof(OutDtype),      // lenBurst
-                                                            0,                                // leftPaddingNum
-                                                            0,                                // rightPaddingNum
-                                                            0,                                // srcGap
-                                                            (n - n_actual) * sizeof(OutDtype) // dstGap
+        }
+        else {
+            ub_to_gm_align<ArchType::ASCEND_V220, OutDtype>(
+                gmOutput_[offsetC],
+                ubOutput_,
+                0,
+                m_actual_per_vec,                  // nBurst
+                n_actual * sizeof(OutDtype),       // lenBurst
+                0,                                 // leftPaddingNum
+                0,                                 // rightPaddingNum
+                0,                                 // srcGap
+                (n - n_actual) * sizeof(OutDtype)  // dstGap
             );
         }
         SET_FLAG(MTE3, V, EVENT_ID0);
@@ -2371,10 +2660,15 @@ __aicore__ __force_inline__ void PpMatmulW8a8Aiv<OutDtype, withSyncAll, quantMod
 }
 #endif
 
-template <typename InDtype, int8_t CACHE_MODE, DataFormat weightFormat1 = DataFormat::NZ,
-          DataFormat weightFormat2 = DataFormat::NZ, DataFormat weightFormat3 = DataFormat::ND,
-          QuantMode quantMode = QuantMode::PER_TENSOR_ASYMM_QUANT>
-class MLAOperation {
+template <
+    typename InDtype,
+    int8_t CACHE_MODE,
+    DataFormat weightFormat1 = DataFormat::NZ,
+    DataFormat weightFormat2 = DataFormat::NZ,
+    DataFormat weightFormat3 = DataFormat::ND,
+    QuantMode quantMode = QuantMode::PER_TENSOR_ASYMM_QUANT>
+class MLAOperation
+{
     static constexpr bool mm1WithSyncAll = (quantMode == QuantMode::PER_TOKEN_SYMM_QUANT);
     static constexpr uint64_t splitGapC = CACHE_MODE == CACHE_MODE_KVCACHE ? CONST_64 : CONST_0;
     using Q_OUT_DTYPE = typename std::conditional_t<CACHE_MODE == CACHE_MODE_INT8_NZCACHE, int8_t, InDtype>;
@@ -2397,14 +2691,41 @@ public:
         this->mlaParams = mlaParams_;
     }
 
-    __aicore__ inline void Init(GM_ADDR hiddenStateGm, GM_ADDR gamma1Gm, GM_ADDR beta1Gm, GM_ADDR quantScale1Gm,
-                                GM_ADDR quantOffset1Gm, GM_ADDR wdqkvGm, GM_ADDR bias1Gm, GM_ADDR gamma2Gm,
-                                GM_ADDR beta2Gm, GM_ADDR quantScale2Gm, GM_ADDR quantOffset2Gm, GM_ADDR gamma3Gm,
-                                GM_ADDR sin1Gm, GM_ADDR cos1Gm, GM_ADDR sin2Gm, GM_ADDR cos2Gm, GM_ADDR keycacheGm,
-                                GM_ADDR slotMappingGm, GM_ADDR wuqGm, GM_ADDR bias2Gm, GM_ADDR wukGm,
-                                GM_ADDR descale1Gm, GM_ADDR descale2Gm, GM_ADDR gmCtkvScale, GM_ADDR gmQnopeScale,
-                                GM_ADDR qGm, GM_ADDR keycacheOutGm, GM_ADDR qGm2, GM_ADDR keycacheOutGm2, GM_ADDR s1Gm,
-                                GM_ADDR s2Gm, GM_ADDR s3Gm, GM_ADDR s4Gm, GM_ADDR s5Gm)
+    __aicore__ inline void Init(
+        GM_ADDR hiddenStateGm,
+        GM_ADDR gamma1Gm,
+        GM_ADDR beta1Gm,
+        GM_ADDR quantScale1Gm,
+        GM_ADDR quantOffset1Gm,
+        GM_ADDR wdqkvGm,
+        GM_ADDR bias1Gm,
+        GM_ADDR gamma2Gm,
+        GM_ADDR beta2Gm,
+        GM_ADDR quantScale2Gm,
+        GM_ADDR quantOffset2Gm,
+        GM_ADDR gamma3Gm,
+        GM_ADDR sin1Gm,
+        GM_ADDR cos1Gm,
+        GM_ADDR sin2Gm,
+        GM_ADDR cos2Gm,
+        GM_ADDR keycacheGm,
+        GM_ADDR slotMappingGm,
+        GM_ADDR wuqGm,
+        GM_ADDR bias2Gm,
+        GM_ADDR wukGm,
+        GM_ADDR descale1Gm,
+        GM_ADDR descale2Gm,
+        GM_ADDR gmCtkvScale,
+        GM_ADDR gmQnopeScale,
+        GM_ADDR qGm,
+        GM_ADDR keycacheOutGm,
+        GM_ADDR qGm2,
+        GM_ADDR keycacheOutGm2,
+        GM_ADDR s1Gm,
+        GM_ADDR s2Gm,
+        GM_ADDR s3Gm,
+        GM_ADDR s4Gm,
+        GM_ADDR s5Gm)
     {
         quantScale3GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(gmCtkvScale));
         gamma3GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(gamma3Gm));
@@ -2423,44 +2744,47 @@ public:
         mm_w8a8_aic_1.PreloadWeight();
         if constexpr (quantMode == QuantMode::PER_TENSOR_ASYMM_QUANT) {
             mm_w8a8_aic_2.Init(s1Gm, wuqGm, s2Gm, mlaParams.mm2, 1);
-        } else {
+        }
+        else {
             // quantMode == QuantMode::PER_TOKEN_SYMM_QUANT
             mm_w8a8_aic_2.Init(s1Gm, wuqGm, s3Gm, mlaParams.mm2, 1);
         }
         if constexpr (CACHE_MODE == CACHE_MODE_INT8_NZCACHE) {
             mm_ein_sum.Init(s4Gm, wukGm, s1Gm, mlaParams);
-        } else {
+        }
+        else {
             mm_ein_sum.Init(s4Gm, wukGm, qGm, mlaParams);
         }
 #endif
 
-    hiddenStateGmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(hiddenStateGm));
-    gamma1GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(gamma1Gm));
-    quantScale1GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(quantScale1Gm));
-    quantOffset1GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int8_t *>(quantOffset1Gm));
-    wdqkvGmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int8_t *>(wdqkvGm));
-    gamma2GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(gamma2Gm));
-    quantScale2GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(quantScale2Gm));
-    quantOffset2GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int8_t *>(quantOffset2Gm));
-    sin2GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(sin2Gm));
-    cos2GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(cos2Gm));
-    wuqGmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int8_t *>(wuqGm));
-    wukGmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(wukGm));
-    descale2gmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(descale2Gm));
-    s1GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int8_t *>(s1Gm));
-    s4GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(s4Gm));
-    qGmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ Q_OUT_DTYPE *>(qGm));
-    qGmTensor2.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(qGm2));
-    bias1gmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(bias1Gm));
-    bias2gmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(bias2Gm));
-    beta1GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(beta1Gm));
-    beta2GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(beta2Gm));
+        hiddenStateGmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(hiddenStateGm));
+        gamma1GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(gamma1Gm));
+        quantScale1GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(quantScale1Gm));
+        quantOffset1GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int8_t *>(quantOffset1Gm));
+        wdqkvGmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int8_t *>(wdqkvGm));
+        gamma2GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(gamma2Gm));
+        quantScale2GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(quantScale2Gm));
+        quantOffset2GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int8_t *>(quantOffset2Gm));
+        sin2GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(sin2Gm));
+        cos2GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(cos2Gm));
+        wuqGmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int8_t *>(wuqGm));
+        wukGmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(wukGm));
+        descale2gmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(descale2Gm));
+        s1GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int8_t *>(s1Gm));
+        s4GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(s4Gm));
+        qGmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ Q_OUT_DTYPE *>(qGm));
+        qGmTensor2.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(qGm2));
+        bias1gmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(bias1Gm));
+        bias2gmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(bias2Gm));
+        beta1GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(beta1Gm));
+        beta2GmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ InDtype *>(beta2Gm));
 
 #ifdef __DAV_C220_VEC__
         if constexpr (quantMode == QuantMode::PER_TENSOR_ASYMM_QUANT) {
             mm_w8a8_aiv_1.Init(s2Gm, s3Gm, descale1Gm, bias1Gm, s5Gm, mlaParams.mm1);
             mm_w8a8_aiv_2.Init(s2Gm, s4Gm, descale2Gm, bias2Gm, s5Gm, mlaParams.mm2);
-        } else {
+        }
+        else {
             // quantMode == QuantMode::PER_TOKEN_SYMM_QUANT
             mm_w8a8_aiv_2.Init(s3Gm, s4Gm, descale2Gm, bias2Gm, s5Gm, mlaParams.mm2);
         }
@@ -2469,27 +2793,63 @@ public:
         uint32_t need_core = (num_row + row_work - 1) / row_work;
         if (vectorBlockIdx < need_core - 1) {
             row_work_ = row_work;
-        } else if (vectorBlockIdx == need_core - 1) {
+        }
+        else if (vectorBlockIdx == need_core - 1) {
             row_work_ = num_row - (need_core - 1) * row_work;
-        } else {
+        }
+        else {
             row_work_ = 0;
         }
         this->splitN = mlaParams.perTaskNum;
-        Quant1.Init(quantScale1GmTensor, quantOffset1GmTensor,
-                    s5Gm + row_work * vectorBlockIdx * sizeof(float), descale1Gm, hiddenStateGm, s1Gm, 0,
-                    num_col_1, vectorBlockIdx * static_cast<uint64_t>(row_work) * num_col_1,
-                    vectorBlockIdx * static_cast<uint64_t>(row_work) * num_col_1, row_work_, mlaParams);
+        Quant1.Init(
+            quantScale1GmTensor,
+            quantOffset1GmTensor,
+            s5Gm + row_work * vectorBlockIdx * sizeof(float),
+            descale1Gm,
+            hiddenStateGm,
+            s1Gm,
+            0,
+            num_col_1,
+            vectorBlockIdx * static_cast<uint64_t>(row_work) * num_col_1,
+            vectorBlockIdx * static_cast<uint64_t>(row_work) * num_col_1,
+            row_work_,
+            mlaParams);
         if constexpr (quantMode == QuantMode::PER_TENSOR_ASYMM_QUANT) {
-            rmsNormQuant2.Init(gamma2GmTensor, beta2GmTensor, quantScale2GmTensor, quantOffset2GmTensor,
-                               s5Gm + row_work * vectorBlockIdx * sizeof(float), descale1Gm, s3Gm, s1Gm, SPLIT_SIZE_ONE,
-                               num_col_2, 0.000651041666, vectorBlockIdx * static_cast<uint64_t>(row_work) * num_col_2,
-                               vectorBlockIdx * static_cast<uint64_t>(row_work) * SPLIT_SIZE_TWO, row_work_, mlaParams);
-        } else {
+            rmsNormQuant2.Init(
+                gamma2GmTensor,
+                beta2GmTensor,
+                quantScale2GmTensor,
+                quantOffset2GmTensor,
+                s5Gm + row_work * vectorBlockIdx * sizeof(float),
+                descale1Gm,
+                s3Gm,
+                s1Gm,
+                SPLIT_SIZE_ONE,
+                num_col_2,
+                0.000651041666,
+                vectorBlockIdx * static_cast<uint64_t>(row_work) * num_col_2,
+                vectorBlockIdx * static_cast<uint64_t>(row_work) * SPLIT_SIZE_TWO,
+                row_work_,
+                mlaParams);
+        }
+        else {
             // quantMode == QuantMode::PER_TOKEN_SYMM_QUANT
-            rmsNormQuant2.Init(gamma2GmTensor, beta2GmTensor, quantScale2GmTensor, quantOffset2GmTensor,
-                               s5Gm + row_work * vectorBlockIdx * sizeof(float), descale1Gm, s2Gm, s1Gm, SPLIT_SIZE_ONE,
-                               num_col_2, 0.000651041666, vectorBlockIdx * static_cast<uint64_t>(row_work) * num_col_2,
-                               vectorBlockIdx * static_cast<uint64_t>(row_work) * SPLIT_SIZE_TWO, row_work_, mlaParams);
+            rmsNormQuant2.Init(
+                gamma2GmTensor,
+                beta2GmTensor,
+                quantScale2GmTensor,
+                quantOffset2GmTensor,
+                s5Gm + row_work * vectorBlockIdx * sizeof(float),
+                descale1Gm,
+                s2Gm,
+                s1Gm,
+                SPLIT_SIZE_ONE,
+                num_col_2,
+                0.000651041666,
+                vectorBlockIdx * static_cast<uint64_t>(row_work) * num_col_2,
+                vectorBlockIdx * static_cast<uint64_t>(row_work) * SPLIT_SIZE_TWO,
+                row_work_,
+                mlaParams);
         }
         ropeFp16.RopeInit(s4Gm, cos2GmTensor, sin2GmTensor, qGmTensor, qGmTensor2, mlaParams);
         einSumQuant.Init(s1Gm, gmQnopeScale, qGm, mlaParams);
@@ -2506,22 +2866,32 @@ private:
 
     template <class T1>
     __aicore__ inline void RmsNormAndRopeConvergence1(
-        const AscendC::LocalTensor<T1> &srcTensor, const AscendC::LocalTensor<T1> &gammaTensor,
-        const AscendC::LocalTensor<T1> &sinTensor, const AscendC::LocalTensor<T1> &cosTensor,
-        const AscendC::LocalTensor<int32_t> &slotMappingTensor, const uint32_t sN,
-        const AscendC::LocalTensor<float> &rmsNormTensor, const AscendC::LocalTensor<float> &gammaFp32,
-        const AscendC::LocalTensor<float> &ropeKTensor, const AscendC::LocalTensor<float> &ropeKRevertTensor,
-        const AscendC::LocalTensor<float> &calTensor, const AscendC::LocalTensor<T1> &outTmpTensor,
-        AscendC::LocalTensor<half> &tmpfp16, AscendC::LocalTensor<int8_t> &int8OutTensor, float quantScale3)
+        const AscendC::LocalTensor<T1> &srcTensor,
+        const AscendC::LocalTensor<T1> &gammaTensor,
+        const AscendC::LocalTensor<T1> &sinTensor,
+        const AscendC::LocalTensor<T1> &cosTensor,
+        const AscendC::LocalTensor<int32_t> &slotMappingTensor,
+        const uint32_t sN,
+        const AscendC::LocalTensor<float> &rmsNormTensor,
+        const AscendC::LocalTensor<float> &gammaFp32,
+        const AscendC::LocalTensor<float> &ropeKTensor,
+        const AscendC::LocalTensor<float> &ropeKRevertTensor,
+        const AscendC::LocalTensor<float> &calTensor,
+        const AscendC::LocalTensor<T1> &outTmpTensor,
+        AscendC::LocalTensor<half> &tmpfp16,
+        AscendC::LocalTensor<int8_t> &int8OutTensor,
+        float quantScale3)
     {
         int64_t slotMapGmOffset = vectorBlockIdx * row_work;
         AscendC::DataCopy(gammaTensor, gamma3GmTensor, SPLIT_RMSNRORM_SIZE_ONE);
         SET_FLAG(MTE2, V, EVENT_ID1);
         WAIT_FLAG(MTE2, V, EVENT_ID1);
         Cast(gammaFp32, gammaTensor, AscendC::RoundMode::CAST_NONE, SPLIT_RMSNRORM_SIZE_ONE);
-        AscendC::DataCopyPad(slotMappingTensor, slotMappingGmTensor[slotMapGmOffset],
-                             AscendC::DataCopyExtParams(1, sN * sizeof(int32_t), 0, 0, 0),
-                             AscendC::DataCopyPadExtParams<int32_t>(false, 0, 8 - sN % 8, 0));
+        AscendC::DataCopyPad(
+            slotMappingTensor,
+            slotMappingGmTensor[slotMapGmOffset],
+            AscendC::DataCopyExtParams(1, sN * sizeof(int32_t), 0, 0, 0),
+            AscendC::DataCopyPadExtParams<int32_t>(false, 0, 8 - sN % 8, 0));
         if constexpr (quantMode == QuantMode::PER_TOKEN_SYMM_QUANT) {
             mmTensor = calTensor.ReinterpretCast<int32_t>()[SPLIT_SIZE_ONE];
             deScaleTensor = calTensor.ReinterpretCast<float>()[SPLIT_SIZE_ONE * 2];
@@ -2538,16 +2908,21 @@ private:
                 continue;
             }
             if constexpr (quantMode == QuantMode::PER_TENSOR_ASYMM_QUANT) {
-                AscendC::DataCopy(srcTensor, s3GmTensor[offset],
-                                  AscendC::DataCopyParams(1, MM1_OUT_SIZE / BLOCK_SIZE_16, 0, 0));
-            } else {
+                AscendC::DataCopy(
+                    srcTensor, s3GmTensor[offset], AscendC::DataCopyParams(1, MM1_OUT_SIZE / BLOCK_SIZE_16, 0, 0));
+            }
+            else {
                 // quantMode == QuantMode::PER_TOKEN_SYMM_QUANT
                 AscendC::DataCopy(mmTensor, s2GmTensor[offset], AscendC::DataCopyParams(1, SPLIT_SIZE_ONE / 8, 0, 0));
             }
-            AscendC::DataCopy(sinTensor, sin1GmTensor[(row_work * vectorBlockIdx + loop) * SPLIT_RMSNRORM_SIZE_TWO],
-                              SPLIT_RMSNRORM_SIZE_TWO);
-            AscendC::DataCopy(cosTensor, cos1GmTensor[(row_work * vectorBlockIdx + loop) * SPLIT_RMSNRORM_SIZE_TWO],
-                              SPLIT_RMSNRORM_SIZE_TWO);
+            AscendC::DataCopy(
+                sinTensor,
+                sin1GmTensor[(row_work * vectorBlockIdx + loop) * SPLIT_RMSNRORM_SIZE_TWO],
+                SPLIT_RMSNRORM_SIZE_TWO);
+            AscendC::DataCopy(
+                cosTensor,
+                cos1GmTensor[(row_work * vectorBlockIdx + loop) * SPLIT_RMSNRORM_SIZE_TWO],
+                SPLIT_RMSNRORM_SIZE_TWO);
             SET_FLAG(MTE2, V, EVENT_ID0);
             // ND
             uint64_t cacheStart = static_cast<uint64_t>(slotValue) * static_cast<uint64_t>(SPLIT_SIZE_ONE);
@@ -2562,28 +2937,37 @@ private:
             WAIT_FLAG(MTE2, V, EVENT_ID0);
             if constexpr (quantMode == QuantMode::PER_TOKEN_SYMM_QUANT) {
                 /* DeQuant */
-                AscendC::Cast(mmTensor.ReinterpretCast<float>(), mmTensor, AscendC::RoundMode::CAST_NONE,
-                              SPLIT_SIZE_ONE);
+                AscendC::Cast(
+                    mmTensor.ReinterpretCast<float>(), mmTensor, AscendC::RoundMode::CAST_NONE, SPLIT_SIZE_ONE);
                 AscendC::PipeBarrier<PIPE_V>();
-                AscendC::Mul(mmTensor.ReinterpretCast<float>(), mmTensor.ReinterpretCast<float>(), deScaleTensor,
-                             SPLIT_SIZE_ONE);
+                AscendC::Mul(
+                    mmTensor.ReinterpretCast<float>(),
+                    mmTensor.ReinterpretCast<float>(),
+                    deScaleTensor,
+                    SPLIT_SIZE_ONE);
                 AscendC::PipeBarrier<PIPE_V>();
                 float perTokenDescale = s5GmTensor.GetValue(row_work * vectorBlockIdx + loop);
                 SET_FLAG(S, V, EVENT_ID0);
                 WAIT_FLAG(S, V, EVENT_ID0);
-                AscendC::Muls(mmTensor.ReinterpretCast<float>(), mmTensor.ReinterpretCast<float>(), perTokenDescale,
-                              SPLIT_SIZE_ONE);
+                AscendC::Muls(
+                    mmTensor.ReinterpretCast<float>(),
+                    mmTensor.ReinterpretCast<float>(),
+                    perTokenDescale,
+                    SPLIT_SIZE_ONE);
                 AscendC::PipeBarrier<PIPE_V>();
-                AscendC::Cast(srcTensor, mmTensor.ReinterpretCast<float>(), AscendC::RoundMode::CAST_RINT,
-                              SPLIT_SIZE_ONE);
+                AscendC::Cast(
+                    srcTensor, mmTensor.ReinterpretCast<float>(), AscendC::RoundMode::CAST_RINT, SPLIT_SIZE_ONE);
                 AscendC::PipeBarrier<PIPE_V>();
             }
             Cast(rmsNormTensor, srcTensor, AscendC::RoundMode::CAST_NONE, SPLIT_RMSNRORM_SIZE_ONE);
             AscendC::PipeBarrier<PIPE_V>();
             Mul(calTensor, rmsNormTensor, rmsNormTensor, SPLIT_RMSNRORM_SIZE_ONE);
             AscendC::PipeBarrier<PIPE_V>();
-            ReduceSumCustom(calTensor[SPLIT_RMSNRORM_SIZE_ONE], calTensor, calTensor[SPLIT_RMSNRORM_SIZE_ONE * 2],
-                            SPLIT_RMSNRORM_SIZE_ONE);
+            ReduceSumCustom(
+                calTensor[SPLIT_RMSNRORM_SIZE_ONE],
+                calTensor,
+                calTensor[SPLIT_RMSNRORM_SIZE_ONE * 2],
+                SPLIT_RMSNRORM_SIZE_ONE);
             SET_FLAG(V, S, EVENT_ID1);
             WAIT_FLAG(V, S, EVENT_ID1);
             float rms = sqrt(calTensor.GetValue(SPLIT_RMSNRORM_SIZE_ONE) / SPLIT_RMSNRORM_SIZE_ONE + epsilon_);
@@ -2604,29 +2988,43 @@ private:
                 AscendC::PipeBarrier<PIPE_V>();
                 CastFromF16ToI8(int8OutTensor, tmpfp16, -128, SPLIT_RMSNRORM_SIZE_ONE);
                 AscendC::PipeBarrier<PIPE_V>();
-            } else {
+            }
+            else {
                 AscendC::PipeBarrier<PIPE_V>();
                 if (std::is_same<T1, __bf16>::value) {
                     Cast(outTmpTensor, rmsNormTensor, AscendC::RoundMode::CAST_RINT, SPLIT_RMSNRORM_SIZE_ONE);
-                } else {
+                }
+                else {
                     Cast(outTmpTensor, rmsNormTensor, AscendC::RoundMode::CAST_NONE, SPLIT_RMSNRORM_SIZE_ONE);
                 }
             }
             /* RmsNorm end */
             /* Rope K start */
             uint64_t revertOffset = SPLIT_RMSNRORM_SIZE_TWO / 2;
-            Cast(ropeKTensor, srcTensor[SPLIT_RMSNRORM_SIZE_ONE], AscendC::RoundMode::CAST_NONE,
-                 SPLIT_RMSNRORM_SIZE_TWO);
-            Cast(ropeKRevertTensor[revertOffset], srcTensor[SPLIT_RMSNRORM_SIZE_ONE], AscendC::RoundMode::CAST_NONE,
-                 revertOffset);
-            Cast(ropeKRevertTensor, srcTensor[SPLIT_RMSNRORM_SIZE_ONE + revertOffset], AscendC::RoundMode::CAST_NONE,
-                 revertOffset);
+            Cast(
+                ropeKTensor,
+                srcTensor[SPLIT_RMSNRORM_SIZE_ONE],
+                AscendC::RoundMode::CAST_NONE,
+                SPLIT_RMSNRORM_SIZE_TWO);
+            Cast(
+                ropeKRevertTensor[revertOffset],
+                srcTensor[SPLIT_RMSNRORM_SIZE_ONE],
+                AscendC::RoundMode::CAST_NONE,
+                revertOffset);
+            Cast(
+                ropeKRevertTensor,
+                srcTensor[SPLIT_RMSNRORM_SIZE_ONE + revertOffset],
+                AscendC::RoundMode::CAST_NONE,
+                revertOffset);
             Duplicate(calTensor, static_cast<float>(-1), revertOffset);
             Duplicate(calTensor[revertOffset], static_cast<float>(1), revertOffset);
             AscendC::PipeBarrier<PIPE_V>();
             Cast(calTensor[SPLIT_RMSNRORM_SIZE_TWO], cosTensor, AscendC::RoundMode::CAST_NONE, SPLIT_RMSNRORM_SIZE_TWO);
-            Cast(calTensor[SPLIT_RMSNRORM_SIZE_TWO * 2], sinTensor, AscendC::RoundMode::CAST_NONE,
-                 SPLIT_RMSNRORM_SIZE_TWO);
+            Cast(
+                calTensor[SPLIT_RMSNRORM_SIZE_TWO * 2],
+                sinTensor,
+                AscendC::RoundMode::CAST_NONE,
+                SPLIT_RMSNRORM_SIZE_TWO);
             AscendC::PipeBarrier<PIPE_V>();
             Mul(ropeKTensor, calTensor[SPLIT_RMSNRORM_SIZE_TWO], ropeKTensor, SPLIT_RMSNRORM_SIZE_TWO);
             Mul(ropeKRevertTensor, calTensor[SPLIT_RMSNRORM_SIZE_TWO * 2], ropeKRevertTensor, SPLIT_RMSNRORM_SIZE_TWO);
@@ -2636,11 +3034,18 @@ private:
             Add(ropeKRevertTensor, ropeKTensor, ropeKRevertTensor, SPLIT_RMSNRORM_SIZE_TWO);
             AscendC::PipeBarrier<PIPE_V>();
             if (std::is_same<T1, __bf16>::value) {
-                Cast(outTmpTensor[SPLIT_RMSNRORM_SIZE_ONE], ropeKRevertTensor, AscendC::RoundMode::CAST_RINT,
-                     SPLIT_RMSNRORM_SIZE_TWO);
-            } else {
-                Cast(outTmpTensor[SPLIT_RMSNRORM_SIZE_ONE], ropeKRevertTensor, AscendC::RoundMode::CAST_NONE,
-                     SPLIT_RMSNRORM_SIZE_TWO);
+                Cast(
+                    outTmpTensor[SPLIT_RMSNRORM_SIZE_ONE],
+                    ropeKRevertTensor,
+                    AscendC::RoundMode::CAST_RINT,
+                    SPLIT_RMSNRORM_SIZE_TWO);
+            }
+            else {
+                Cast(
+                    outTmpTensor[SPLIT_RMSNRORM_SIZE_ONE],
+                    ropeKRevertTensor,
+                    AscendC::RoundMode::CAST_NONE,
+                    SPLIT_RMSNRORM_SIZE_TWO);
             }
             AscendC::PipeBarrier<PIPE_V>();
             /* Rope K end */
@@ -2649,7 +3054,8 @@ private:
             WAIT_FLAG(S, MTE3, EVENT_ID0);
             if constexpr (CACHE_MODE == CACHE_MODE_KVCACHE) {
                 DataCopy(keycacheGmTensor1[cacheStart], outTmpTensor, SPLIT_SIZE_ONE);
-            } else if constexpr (CACHE_MODE == CACHE_MODE_INT8_NZCACHE) {
+            }
+            else if constexpr (CACHE_MODE == CACHE_MODE_INT8_NZCACHE) {
                 uint64_t cacheSatartI8Nz1 = outer_idx * 128 * 512 + inner_idx * I8_C0_SIZE;
                 uint64_t cacheSatartNz2 = outer_idx * 128 * 64 + inner_idx * C0_SIZE;
                 // nope:int8 nz
@@ -2665,7 +3071,8 @@ private:
                 outExt.srcStride = 0;
                 outExt.dstStride = (128 * C0_SIZE - C0_SIZE) * sizeof(T1);
                 DataCopyPad(keycacheGmTensor2[cacheSatartNz2], outTmpTensor[SPLIT_RMSNRORM_SIZE_ONE], outExt);
-            } else if constexpr (CACHE_MODE == CACHE_MODE_NZCACHE) {
+            }
+            else if constexpr (CACHE_MODE == CACHE_MODE_NZCACHE) {
                 uint64_t cacheSatartNz1 = outer_idx * 128 * 512 + inner_idx * C0_SIZE;
                 uint64_t cacheSatartNz2 = outer_idx * 128 * 64 + inner_idx * C0_SIZE;
                 // nope:T1 nz
@@ -2681,12 +3088,13 @@ private:
                 outExt.srcStride = 0;
                 outExt.dstStride = (128 * C0_SIZE - C0_SIZE) * sizeof(T1);
                 DataCopyPad(keycacheGmTensor2[cacheSatartNz2], outTmpTensor[SPLIT_RMSNRORM_SIZE_ONE], outExt);
-            } else {
+            }
+            else {
                 // keycache1
                 DataCopy(keycacheGmTensor1[cacheStart1], outTmpTensor, SPLIT_RMSNRORM_SIZE_ONE);
                 // keycache2
-                DataCopy(keycacheGmTensor2[cacheStart2], outTmpTensor[SPLIT_RMSNRORM_SIZE_ONE],
-                         SPLIT_RMSNRORM_SIZE_TWO);
+                DataCopy(
+                    keycacheGmTensor2[cacheStart2], outTmpTensor[SPLIT_RMSNRORM_SIZE_ONE], SPLIT_RMSNRORM_SIZE_TWO);
             }
             SET_FLAG(MTE3, MTE2, EVENT_ID1);
             WAIT_FLAG(MTE3, MTE2, EVENT_ID1);
@@ -2774,8 +3182,13 @@ private:
 #endif
 };
 
-template <typename InDtype, int8_t CACHE_MODE, DataFormat weightFormat1, DataFormat weightFormat2,
-          DataFormat weightFormat3, QuantMode quantMode>
+template <
+    typename InDtype,
+    int8_t CACHE_MODE,
+    DataFormat weightFormat1,
+    DataFormat weightFormat2,
+    DataFormat weightFormat3,
+    QuantMode quantMode>
 __aicore__ inline void
 MLAOperation<InDtype, CACHE_MODE, weightFormat1, weightFormat2, weightFormat3, quantMode>::ProcessCube()
 {
@@ -2798,8 +3211,13 @@ MLAOperation<InDtype, CACHE_MODE, weightFormat1, weightFormat2, weightFormat3, q
 #endif
 }
 
-template <typename InDtype, int8_t CACHE_MODE, DataFormat weightFormat1, DataFormat weightFormat2,
-          DataFormat weightFormat3, QuantMode quantMode>
+template <
+    typename InDtype,
+    int8_t CACHE_MODE,
+    DataFormat weightFormat1,
+    DataFormat weightFormat2,
+    DataFormat weightFormat3,
+    QuantMode quantMode>
 __aicore__ inline void
 MLAOperation<InDtype, CACHE_MODE, weightFormat1, weightFormat2, weightFormat3, quantMode>::ProcessVector()
 {
@@ -2829,7 +3247,8 @@ MLAOperation<InDtype, CACHE_MODE, weightFormat1, weightFormat2, weightFormat3, q
         mm_w8a8_aiv_1.Process();
         FftsCrossCoreSync<PIPE_MTE3, 0>(RMSNORMQUANT2);
         WaitFlagDev(RMSNORMQUANT2);
-    } else { // quantMode == QuantMode::PER_TOKEN_SYMM_QUANT
+    }
+    else {  // quantMode == QuantMode::PER_TOKEN_SYMM_QUANT
         WaitFlagDev(MMAIV);
     }
     if (row_work_ != 0) {
@@ -2851,8 +3270,15 @@ MLAOperation<InDtype, CACHE_MODE, weightFormat1, weightFormat2, weightFormat3, q
         AscendC::LocalTensor<int8_t> output_tensor = buf.GetBuffer<BufferType::ASCEND_UB, int8_t>(
             MM1_OUT_SIZE * 2 + SPLIT_SIZE_TWO * 2 + SPLIT_SIZE_TWO * 2 + 64 + num_col_align_f32 * 4 +
             BUF_FACTOR * num_col_align_f32 * 4 + 64 + MM1_OUT_SIZE * 4 * 2 + 32);
-        rmsNormQuant2.Launch(output_tensor, input_tensor, gamma_tensor, beta_tensor, scale_tensor, offset_tensor,
-                             res1_tensor, res3_tensor);
+        rmsNormQuant2.Launch(
+            output_tensor,
+            input_tensor,
+            gamma_tensor,
+            beta_tensor,
+            scale_tensor,
+            offset_tensor,
+            res1_tensor,
+            res3_tensor);
     }
     FftsCrossCoreSync<PIPE_MTE3, 0>(MM2);
     WaitFlagDev(MM2);
@@ -2886,8 +3312,8 @@ MLAOperation<InDtype, CACHE_MODE, weightFormat1, weightFormat2, weightFormat3, q
             AscendC::LocalTensor<float> floatQuantScaleTensor =
                 buf.GetBuffer<BufferType::ASCEND_UB, float>(rms3_ub_offset + 32);
             // int8out
-            tmpfp16 = buf.GetBuffer<BufferType::ASCEND_UB, half>(rms3_ub_offset +
-                                                                 SPLIT_RMSNRORM_SIZE_ONE * sizeof(float) * 2);
+            tmpfp16 = buf.GetBuffer<BufferType::ASCEND_UB, half>(
+                rms3_ub_offset + SPLIT_RMSNRORM_SIZE_ONE * sizeof(float) * 2);
             int8OutTensor = buf.GetBuffer<BufferType::ASCEND_UB, int8_t>(out_ub_offset);
             AscendC::DataCopy(quantScaleTensor, quantScale3GmTensor, AscendC::DataCopyParams(1, 1, 0, 0));
             SET_FLAG(MTE2, V, EVENT_ID1);
@@ -2899,17 +3325,22 @@ MLAOperation<InDtype, CACHE_MODE, weightFormat1, weightFormat2, weightFormat3, q
         }
 
         RmsNormAndRopeConvergence1<InDtype>(
-            input_tensor,       // n * 576
-            gamma_tensor,       // gamma
-            sin_tensor,         // sin
-            cos_tensor,         // cons
-            slotMapping_tensor, // slotMapping
-            row_work_, tmp32_tensor, tmp32_tensor[SPLIT_RMSNRORM_SIZE_ONE],
+            input_tensor,        // n * 576
+            gamma_tensor,        // gamma
+            sin_tensor,          // sin
+            cos_tensor,          // cons
+            slotMapping_tensor,  // slotMapping
+            row_work_,
+            tmp32_tensor,
+            tmp32_tensor[SPLIT_RMSNRORM_SIZE_ONE],
             tmp32_tensor[SPLIT_RMSNRORM_SIZE_ONE + SPLIT_RMSNRORM_SIZE_ONE],
             tmp32_tensor[SPLIT_RMSNRORM_SIZE_ONE + SPLIT_RMSNRORM_SIZE_ONE + SPLIT_RMSNRORM_SIZE_TWO],
-            tmp32_tensor[SPLIT_RMSNRORM_SIZE_ONE + SPLIT_RMSNRORM_SIZE_ONE + SPLIT_RMSNRORM_SIZE_TWO +
-                         SPLIT_RMSNRORM_SIZE_TWO],
-            temp_tensor, tmpfp16, int8OutTensor, scale3);
+            tmp32_tensor
+                [SPLIT_RMSNRORM_SIZE_ONE + SPLIT_RMSNRORM_SIZE_ONE + SPLIT_RMSNRORM_SIZE_TWO + SPLIT_RMSNRORM_SIZE_TWO],
+            temp_tensor,
+            tmpfp16,
+            int8OutTensor,
+            scale3);
     }
     mm_w8a8_aiv_2.Process();
     FftsCrossCoreSync<PIPE_MTE3, 0>(MM2OUT);
@@ -2924,4 +3355,4 @@ MLAOperation<InDtype, CACHE_MODE, weightFormat1, weightFormat2, weightFormat3, q
 #endif
 }
 
-}// namespace MLAPO_BF16
+}  // namespace MLAPO_BF16

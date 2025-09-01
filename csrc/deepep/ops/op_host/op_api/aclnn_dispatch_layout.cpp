@@ -26,15 +26,20 @@ aclnnStatus aclnnDispatchLayoutGetWorkspaceSize(
     uint64_t *workspaceSize,
     aclOpExecutor **executor)
 {
-    return aclnnInnerDispatchLayoutGetWorkspaceSize(topkIdx, numTokens, numRanks, numExperts, numTopk, numTokensPerRank,
-                                                    numTokensPerExpert, isTokenInRank, workspaceSize, executor);
+    return aclnnInnerDispatchLayoutGetWorkspaceSize(
+        topkIdx,
+        numTokens,
+        numRanks,
+        numExperts,
+        numTopk,
+        numTokensPerRank,
+        numTokensPerExpert,
+        isTokenInRank,
+        workspaceSize,
+        executor);
 }
 
-aclnnStatus aclnnDispatchLayout(
-    void *workspace,
-    uint64_t workspaceSize,
-    aclOpExecutor *executor,
-    aclrtStream stream)
+aclnnStatus aclnnDispatchLayout(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream)
 {
     if (NnopbaseSetHcclServerType) {
         NnopbaseSetHcclServerType(executor, NNOPBASE_HCCL_SERVER_TYPE_MTE);
