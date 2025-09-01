@@ -85,7 +85,7 @@ def test(num_tokens: int, hidden: int, num_experts: int, num_topk: int,
             buffer.low_latency_dispatch(x, topk_idx, num_tokens, num_experts,
                                         cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
                                         use_fp8=False, async_finish=False, return_recv_hook=return_recv_hook)
-        combined_x, event, hook = buffer.low_latency_combine(simulated_gemm_x, topk_idx, topk_weights, handle,
+        combined_x, event, hook = buffer.low_latency_combine(recv_x, topk_idx, topk_weights, handle,
                                                              zero_copy=zero_copy, return_recv_hook=return_recv_hook)
 
     # Calculate bandwidth
@@ -100,6 +100,19 @@ def test(num_tokens: int, hidden: int, num_experts: int, num_topk: int,
     avg_t, min_t, max_t = bench(partial(test_func, zero_copy=False, return_recv_hook=False))
     print(f'[rank {rank}] Dispatch + combine bandwidth: {(num_dispatch_comm_bytes + num_combine_comm_bytes) / 1e9 / avg_t:.2f} GB/s, '
           f'avg_t={avg_t * 1e6:.2f} us, min_t={min_t * 1e6:.2f} us, max_t={max_t * 1e6:.2f} us', flush=True)
+
+    # Separate profiling
+    dispatch_args = {'x': x, 'topk_idx': topk_idx, 'num_max_dispatch_tokens_per_rank': num_tokens,
+                     'num_experts': num_experts, 'cumulative_local_expert_recv_stats': cumulative_local_expert_recv_stats,
+                     'use_fp8': False, 'async_finish': False, 'return_recv_hook': return_recv_hook}
+
+    dispatch_t = bench(lambda: buffer.low_latency_dispatch(**dispatch_args))[0]
+    temp_recv_x, _, temp_handle, _, _ = buffer.low_latency_dispatch(**dispatch_args)
+    combine_args = {'x': temp_recv_x, 'topk_idx': topk_idx, 'topk_weights': topk_weights,
+                    'handle': temp_handle, 'zero_copy': False, 'async_finish': False, 'return_recv_hook': return_recv_hook}
+    combine_t = bench(lambda: buffer.low_latency_combine(**combine_args))[0]
+    print(f'[rank {rank}] Dispatch bandwidth: {(num_dispatch_comm_bytes) / 1e9 / dispatch_t:.2f} GB/s, avg_t={dispatch_t * 1e6:.2f} us | '
+          f'Combine bandwidth: {(num_combine_comm_bytes) / 1e9 / combine_t:.2f} GB/s, avg_t={combine_t * 1e6:.2f} us', flush=True)
 
     return hash_value
 
