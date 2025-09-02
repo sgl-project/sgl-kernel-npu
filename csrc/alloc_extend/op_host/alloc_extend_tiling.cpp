@@ -35,7 +35,6 @@ at::Tensor get_tiling(
     AllocExtendTilingData *tiling_data = reinterpret_cast<AllocExtendTilingData *>(tiling_buffer.data_ptr());
     tiling_data->batch_size = batch_size;
     tiling_data->page_size = static_cast<int32_t>(page_size);
-    ;
     tiling_data->used_core_num = block_dim;
     tiling_data->total_extend_tokens = total_extend_tokens;
 
