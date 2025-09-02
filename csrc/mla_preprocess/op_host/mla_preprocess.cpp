@@ -61,6 +61,8 @@ constexpr uint32_t INDEX_WDQKV = 5;
 constexpr uint32_t INDEX_WUQ = 18;
 constexpr uint32_t INDEX_WUK = 20;
 
+constexpr uint32_t MAX_SUPPORT_TOKEN_NUMS = 1024;
+
 inline uint32_t CeilDiv(const uint32_t dividend, const uint32_t divisor)
 {
     if (divisor == 0) {
@@ -664,8 +666,14 @@ std::tuple<at::Tensor&, at::Tensor&, at::Tensor&, at::Tensor&> mla_preprocess(
         at::empty({workspace_size}, at::TensorOptions().dtype(at::kByte).device(hiddenState.options().device()));
 
     // tiling
-    at::Tensor buffer = at::from_blob((uint8_t *)&tilingData, sizeof(MlaTilingData), at::kByte);
-    at::Tensor tiling = TorchNpuHepler::CopyTensorHostToDevice(buffer);
+    int32_t bIndex = N-1;
+    uint32_t tilingSize = sizeof(MlaTilingData);
+    static auto global_tiling_data = at::empty({tilingSize * MAX_SUPPORT_TOKEN_NUMS},
+                                        at::TensorOptions().dtype(at::kByte).device(hiddenState.options().device()));
+    aclrtMemcpy(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * bIndex), tilingSize,
+                &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    at::Tensor tiling = at::from_blob(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * bIndex),
+                                                tilingSize, at::kByte);
 
     EXEC_KERNEL_CMD(mla_preprocess, blockDim,
                     hiddenState, gamma0, beta0,
