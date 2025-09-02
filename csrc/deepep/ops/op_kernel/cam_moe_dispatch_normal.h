@@ -5,6 +5,7 @@
 #include "kernel_tiling/kernel_tiling.h"
 #include "moe_distribute_base.h"
 #include "cam_moe_dispatch_normal_tiling.h"
+#include "comm_args.h"
 
 namespace CamMoeDispatchNormalImpl {
 constexpr uint8_t BUFFER_NUM = 2;
@@ -57,10 +58,11 @@ private:
     {
         uint32_t curRankId = ((ctxIdx == COMM_EP_IDX) ? epRankId : tpRankId);
         if (curRankId == rankId) {
-            return (GM_ADDR)(winContext_[ctxIdx]->localWindowsIn) + winDataSizeOffset + COMBINE_STATE_WIN_OFFSET;
+            return (GM_ADDR)(winContext_[ctxIdx]->localWindowsIn) + winDataSizeOffset + COMBINE_STATE_WIN_OFFSET +
+                   Moe::NOTIFY_DISPATCH_BUFF_OFFSET;
         }
         return (GM_ADDR)(((HcclRankRelationResV2 *)(winContext_[ctxIdx]->remoteRes[rankId].nextDevicePtr))->windowsIn) +
-               winDataSizeOffset + COMBINE_STATE_WIN_OFFSET;
+               winDataSizeOffset + COMBINE_STATE_WIN_OFFSET + Moe::NOTIFY_DISPATCH_BUFF_OFFSET;
     }
 
     __aicore__ inline GM_ADDR GetWindStateAddrByRankId(uint8_t ctxIdx, const int32_t rankId)
