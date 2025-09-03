@@ -11,6 +11,8 @@
 namespace deep_ep {
 constexpr int PADDING_SIZE = 3;
 constexpr size_t HCOMM_NAME_LEN = 128;
+constexpr uint32_t NO_SCALES = 0;
+constexpr uint32_t DYNAMIC_SCALES = 2;
 
 Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
                std::string moe_all_to_all_group_name)
@@ -106,7 +108,7 @@ Buffer::intranode_dispatch(const at::Tensor& x, const std::optional<at::Tensor>&
                            const std::optional<at::Tensor>& num_tokens_per_rank, const at::Tensor& is_token_in_rank, const std::optional<at::Tensor>& num_tokens_per_expert,
                            int cached_num_recv_tokens, const std::optional<at::Tensor>& cached_rank_prefix_matrix, const std::optional<at::Tensor>& cached_channel_prefix_matrix,
                            int expert_alignment, int num_worst_tokens, const Config& config,
-                           std::optional<EventHandle>& previous_event, bool async, bool allocate_on_comm_stream) {
+                           std::optional<EventHandle>& previous_event, bool async, bool allocate_on_comm_stream, bool use_quant) {
     // One channel use two blocks, even-numbered blocks for sending, odd-numbered blocks for receiving.
     EP_HOST_ASSERT(config.num_sms % 2 == 0);
     int num_channels = config.num_sms / 2;
@@ -237,8 +239,8 @@ Buffer::intranode_dispatch(const at::Tensor& x, const std::optional<at::Tensor>&
     auto recv_data_ptr = recv_data_cpu.data_ptr<int>();
     auto recv_count_ptr = recv_count_cpu.data_ptr<int>();
     auto recv_offset_ptr = recv_offset_cpu.data_ptr<int>();
-    int64_t total_recv_tokens = 0;
-    int64_t num_max_dispatch_tokens_per_rank = 0;
+    int total_recv_tokens = 0;
+    int num_max_dispatch_tokens_per_rank = 0;
     std::vector<int> num_recv_tokens_per_expert_list;
 
     for (int64_t local_e = 0; local_e < num_local_experts; ++local_e) {
@@ -249,7 +251,7 @@ Buffer::intranode_dispatch(const at::Tensor& x, const std::optional<at::Tensor>&
 
             int recv_cnt = recv_data_ptr[pair_idx];        // count from this src_rank for this global_expert
             int recv_off = recv_data_ptr[pair_idx + 1];    // offset in that src_rank's window
-            int64_t send_num_tokens = recv_data_ptr[pair_idx + 2];   // all bs from rank
+            int send_num_tokens = recv_data_ptr[pair_idx + 2];   // all bs from rank
 
             total_recv_tokens += recv_cnt;
             recv_count_ptr[index] = total_recv_tokens;
@@ -264,7 +266,7 @@ Buffer::intranode_dispatch(const at::Tensor& x, const std::optional<at::Tensor>&
     at::Tensor expert_ids = new_topk_idx.to(at::kInt);
     int64_t tp_size = 1;
     int64_t tp_rank = 0;
-    int64_t quant_mode = 0;
+    int64_t quant_mode = use_quant ? DYNAMIC_SCALES : NO_SCALES;
     int64_t global_bs = static_cast<int64_t>(
         std::max(num_max_dispatch_tokens_per_rank * num_ranks, static_cast<int64_t>(num_worst_tokens)));
 
@@ -272,13 +274,11 @@ Buffer::intranode_dispatch(const at::Tensor& x, const std::optional<at::Tensor>&
     auto recv_offset = recv_offset_cpu.to(x.device());
     auto recv_count = recv_count_cpu.to(x.device());
 
-    int total_cnt = total_recv_tokens;
-    if (total_cnt == 0) {
-        total_cnt = 1;
-    }
-    auto expandx_out = at::zeros({total_cnt, hidden}, x.options());
-    auto dynamic_scales_out = at::zeros({total_cnt}, at::dtype(at::kFloat).device(x.device()));
-    auto expand_idx_out = at::zeros({total_cnt * 3}, at::dtype(at::kInt).device(x.device()));
+    int num_recv_tokens = (total_recv_tokens == 0) ? 1 : total_recv_tokens;
+    auto expandx_out = use_quant ? at::zeros({num_recv_tokens, hidden}, at::dtype(at::kChar).device(x.device()))
+                                : at::zeros({num_recv_tokens, hidden}, x.options());
+    auto dynamic_scales_out = at::zeros({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
+    auto expand_idx_out = at::zeros({num_recv_tokens * 3}, at::dtype(at::kInt).device(x.device()));
 
     EXEC_NPU_CMD(aclnnCamMoeDispatchNormal,
         new_x,
