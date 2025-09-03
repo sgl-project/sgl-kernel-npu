@@ -666,7 +666,7 @@ std::tuple<at::Tensor&, at::Tensor&, at::Tensor&, at::Tensor&> mla_preprocess(
         at::empty({workspace_size}, at::TensorOptions().dtype(at::kByte).device(hiddenState.options().device()));
 
     // tiling
-    int32_t bIndex = N-1;
+    int32_t bIndex = N - 1;
     uint32_t tilingSize = sizeof(MlaTilingData);
     static auto global_tiling_data = at::empty({tilingSize * MAX_SUPPORT_TOKEN_NUMS},
                                         at::TensorOptions().dtype(at::kByte).device(hiddenState.options().device()));
