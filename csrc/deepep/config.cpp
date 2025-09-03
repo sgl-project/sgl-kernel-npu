@@ -18,8 +18,7 @@ int get_value_from_env(const std::string &name, int defaultValue)
         }
         retValue = static_cast<int>(val);
         return retValue;
-    }
-    else {
+    } else {
         return retValue;
     }
 }

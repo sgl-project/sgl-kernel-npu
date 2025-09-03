@@ -61,6 +61,8 @@ constexpr uint32_t INDEX_WDQKV = 5;
 constexpr uint32_t INDEX_WUQ = 18;
 constexpr uint32_t INDEX_WUK = 20;
 
+constexpr uint32_t MAX_SUPPORT_TOKEN_NUMS = 1024;
+
 inline uint32_t CeilDiv(const uint32_t dividend, const uint32_t divisor)
 {
     if (divisor == 0) {
@@ -130,16 +132,8 @@ struct OpParam {
 class PpMatmulTilingApi
 {
 public:
-    PpMatmulTilingApi(
-        struct PlatformInfo &platformInfo,
-        uint32_t numBatch,
-        uint32_t m,
-        uint32_t k,
-        uint32_t n,
-        bool transA,
-        bool transB,
-        bool enDequant,
-        bool deqOnTheFly)
+    PpMatmulTilingApi(struct PlatformInfo &platformInfo, uint32_t numBatch, uint32_t m, uint32_t k, uint32_t n,
+                      bool transA, bool transB, bool enDequant, bool deqOnTheFly)
         : platformInfo_(platformInfo),
           numBatch_(numBatch),
           m_(m),
@@ -271,8 +265,7 @@ uint32_t PpMatmulTilingApi::ComputeK0ForABpingpong(uint32_t l1AbSize)
     uint32_t tmpK0;
     if (enDequant_) {
         tmpK0 = k0Max < CONST_512 ? RoundDown(k0Max, CONST_32) : RoundDown(k0Max, CONST_512);
-    }
-    else {
+    } else {
         tmpK0 = k0Max < CONST_256 ? RoundDown(k0Max, CONST_16) : RoundDown(k0Max, CONST_256);
     }
     if (tmpK0 > CONST_512) {
@@ -360,8 +353,7 @@ void PpMatmulTilingApi::Swizzle()
                 minCost = cost;
                 swizzleCount_ = i;
             }
-        }
-        else {
+        } else {
             swizzleDirect_ = 0;  // Zn
             cost = m0_ * i + n0_ * c;
             if (cost < minCost) {
@@ -485,8 +477,7 @@ void MlaPreprocessTiling::EinSumQuantTiling()
         splitFactor *= NUM2;
         esqHeadPerLoop = (ubSize - scaleUb) / splitFactor;  // 26
         repeatMask = FP32_REPEAT_MASK;
-    }
-    else {
+    } else {
         // fp16 input [H', cloNum](fp16*2 + int8) + [H', 1](fp16) + [H', 16](fp16)
         splitFactor =
             esqColNum * (NUM2 * sizeof(uint16_t) + sizeof(uint8_t)) + sizeof(uint16_t) + (CONST_16 * sizeof(uint16_t));
@@ -515,10 +506,10 @@ void MlaPreprocessTiling::EinSumQuantTiling()
 
 void MlaPreprocessTiling::SetMlapoWorkSpace()
 {
-    uint64_t s1wsFactor = static_cast<uint64_t>(
-        opParam.cacheMode == 2
-            ? std::max(HIDDEN_STRATE * sizeof(int8_t), opParam.headNum * AXES_ALIGN_SIZE * sizeof(uint16_t))
-            : HIDDEN_STRATE * sizeof(int8_t));
+    uint64_t s1wsFactor =
+        static_cast<uint64_t>(opParam.cacheMode == 2 ? std::max(HIDDEN_STRATE * sizeof(int8_t),
+                                                                opParam.headNum * AXES_ALIGN_SIZE * sizeof(uint16_t))
+                                                     : HIDDEN_STRATE * sizeof(int8_t));
     uint64_t workSizeS1 = s1wsFactor;
     uint64_t workSizeS2 = opParam.headNum * HIDDEN_STRATE_ROPE * sizeof(uint16_t);
     uint64_t workSizeS3 = HIDDEN_STRATE_MM * sizeof(uint16_t);
@@ -535,8 +526,7 @@ void MlaPreprocessTiling::SetMlapoWorkSpace()
     uint64_t userWorkspaceSize;
     if (opParam.inDtype == at::kBFloat16 || opParam.quantMode == QuantMode::PER_TOKEN_SYMM_QUANT) {
         userWorkspaceSize = 4 * maxWorkspaceSize + pertokenWorkspace;
-    }
-    else {
+    } else {
         userWorkspaceSize = 3 * maxWorkspaceSize;
     }
 
@@ -568,40 +558,37 @@ void MlaPreprocessTiling::Init()
         deqOnTheFly = true;
     }
 
-    PpMatmulTilingApi mm1TilingApi(
-        platformInfo,
-        1,                 // numBatch
-        opParam.N,         // m
-        HIDDEN_STRATE,     // k
-        HIDDEN_STRATE_MM,  // n
-        false,             // transA
-        true,              // transB
-        true,              // enDequant
-        deqOnTheFly);      // in bf16.cce?
+    PpMatmulTilingApi mm1TilingApi(platformInfo,
+                                   1,                 // numBatch
+                                   opParam.N,         // m
+                                   HIDDEN_STRATE,     // k
+                                   HIDDEN_STRATE_MM,  // n
+                                   false,             // transA
+                                   true,              // transB
+                                   true,              // enDequant
+                                   deqOnTheFly);      // in bf16.cce?
     mm1TilingApi.GetTilingData(tilingData->mm1);
 
-    PpMatmulTilingApi mm2TilingApi(
-        platformInfo,
-        1,                                     // numBatch
-        opParam.N,                             // m
-        HIDDEN_STRATE_RMS,                     // k
-        opParam.headNum * HIDDEN_STRATE_ROPE,  // n
-        false,                                 // transA
-        true,                                  // transB
-        true,                                  // enDequant
-        deqOnTheFly);                          // in bf16.cce?
+    PpMatmulTilingApi mm2TilingApi(platformInfo,
+                                   1,                                     // numBatch
+                                   opParam.N,                             // m
+                                   HIDDEN_STRATE_RMS,                     // k
+                                   opParam.headNum * HIDDEN_STRATE_ROPE,  // n
+                                   false,                                 // transA
+                                   true,                                  // transB
+                                   true,                                  // enDequant
+                                   deqOnTheFly);                          // in bf16.cce?
     mm2TilingApi.GetTilingData(tilingData->mm2);
 
-    PpMatmulTilingApi mm3TilingApi(
-        platformInfo,
-        opParam.headNum,  // numBatch
-        opParam.N,        // m
-        CONST_128,        // k
-        CONCAT_SIZE,      // n
-        false,            // transA
-        false,            // transB
-        false,            // enDequant
-        deqOnTheFly);     // in bf16.cce?
+    PpMatmulTilingApi mm3TilingApi(platformInfo,
+                                   opParam.headNum,  // numBatch
+                                   opParam.N,        // m
+                                   CONST_128,        // k
+                                   CONCAT_SIZE,      // n
+                                   false,            // transA
+                                   false,            // transB
+                                   false,            // enDequant
+                                   deqOnTheFly);     // in bf16.cce?
     mm3TilingApi.GetTilingData(tilingData->mm3);
 
     RmsNormQuantTiling();
@@ -623,11 +610,8 @@ std::unordered_map<c10::string_view, uint16_t> quant_mode_map = {
 };
 
 template <typename MapType>
-inline int get_op_mode(
-    const MapType &mode_map,
-    c10::optional<c10::string_view> mode_opt,
-    c10::string_view default_mode,
-    const char *mode_name)
+inline int get_op_mode(const MapType &mode_map, c10::optional<c10::string_view> mode_opt, c10::string_view default_mode,
+                       const char *mode_name)
 {
     c10::string_view mode_str = mode_opt.value_or(default_mode);
     auto it = mode_map.find(mode_str);
@@ -636,36 +620,15 @@ inline int get_op_mode(
 }
 
 std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &> mla_preprocess(
-    const at::Tensor &hiddenState,
-    const at::Tensor &gamma0,
-    const at::Tensor &beta0,
-    const at::Tensor &wdqkv,
-    const at::Tensor &descale0,
-    const at::Tensor &gamma1,
-    const at::Tensor &beta1,
-    const at::Tensor &wuq,
-    const at::Tensor &descale1,
-    const at::Tensor &gamma2,
-    const at::Tensor &cos,
-    const at::Tensor &sin,
-    const at::Tensor &wuk,
-    const at::Tensor &kv_cache,
-    const at::Tensor &kv_cache_rope,
-    const at::Tensor &slotmapping,
-    const at::Tensor &quant_scale0,
-    const at::Tensor &quant_offset0,
-    const at::Tensor &bias0,
-    const at::Tensor &quant_scale1,
-    const at::Tensor &quant_offset1,
-    const at::Tensor &bias1,
-    const c10::optional<at::Tensor> &ctkv_scale,
-    const c10::optional<at::Tensor> &q_nope_scale,
-    c10::optional<c10::string_view> cache_mode,
-    c10::optional<c10::string_view> quant_mode,
-    at::Tensor &q_out0,
-    at::Tensor &kv_cache_out0,
-    at::Tensor &q_out1,
-    at::Tensor &kv_cache_out1)
+    const at::Tensor &hiddenState, const at::Tensor &gamma0, const at::Tensor &beta0, const at::Tensor &wdqkv,
+    const at::Tensor &descale0, const at::Tensor &gamma1, const at::Tensor &beta1, const at::Tensor &wuq,
+    const at::Tensor &descale1, const at::Tensor &gamma2, const at::Tensor &cos, const at::Tensor &sin,
+    const at::Tensor &wuk, const at::Tensor &kv_cache, const at::Tensor &kv_cache_rope, const at::Tensor &slotmapping,
+    const at::Tensor &quant_scale0, const at::Tensor &quant_offset0, const at::Tensor &bias0,
+    const at::Tensor &quant_scale1, const at::Tensor &quant_offset1, const at::Tensor &bias1,
+    const c10::optional<at::Tensor> &ctkv_scale, const c10::optional<at::Tensor> &q_nope_scale,
+    c10::optional<c10::string_view> cache_mode, c10::optional<c10::string_view> quant_mode, at::Tensor &q_out0,
+    at::Tensor &kv_cache_out0, at::Tensor &q_out1, at::Tensor &kv_cache_out1)
 {
     auto cacheMode = get_op_mode(cache_mode_map, cache_mode, "krope_ctkv", "cache_mode");
     auto quantMode = get_op_mode(quant_mode_map, quant_mode, "per_token_quant_symm", "quant_mode");
@@ -714,43 +677,25 @@ std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &> mla_preproces
         at::empty({workspace_size}, at::TensorOptions().dtype(at::kByte).device(hiddenState.options().device()));
 
     // tiling
-    at::Tensor buffer = at::from_blob((uint8_t *)&tilingData, sizeof(MlaTilingData), at::kByte);
-    at::Tensor tiling = TorchNpuHepler::CopyTensorHostToDevice(buffer);
+    int32_t bIndex = N - 1;
+    uint32_t tilingSize = sizeof(MlaTilingData);
+    static auto global_tiling_data =
+        at::empty({tilingSize * MAX_SUPPORT_TOKEN_NUMS},
+                  at::TensorOptions().dtype(at::kByte).device(hiddenState.options().device()));
+    if (bIndex >= 0 && bIndex < MAX_SUPPORT_TOKEN_NUMS) {
+        aclrtMemcpy(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * bIndex), tilingSize, &tilingData, tilingSize,
+                    ACL_MEMCPY_HOST_TO_DEVICE);
+    } else {
+        // Handle the case where bIndex is out of range
+        TORCH_CHECK(false, "bIndex is out of range: ", bIndex);
+    }
+    at::Tensor tiling =
+        at::from_blob(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * bIndex), tilingSize, at::kByte);
 
-    EXEC_KERNEL_CMD(
-        mla_preprocess,
-        blockDim,
-        hiddenState,
-        gamma0,
-        beta0,
-        quant_scale0,
-        quant_offset0,
-        wdqkv,
-        bias0,
-        gamma1,
-        beta1,
-        quant_scale1,
-        quant_offset1,
-        gamma2,
-        sin,
-        cos,
-        sin,
-        cos,
-        kv_cache,
-        slotmapping,
-        wuq,
-        bias1,
-        wuk,
-        descale0,
-        descale1,
-        CtkvScale,
-        QnopeScale,
-        q_out0,
-        kv_cache_out0,
-        q_out1,
-        kv_cache_out1,
-        workspace_tensor,
-        tiling);
+    EXEC_KERNEL_CMD(mla_preprocess, blockDim, hiddenState, gamma0, beta0, quant_scale0, quant_offset0, wdqkv, bias0,
+                    gamma1, beta1, quant_scale1, quant_offset1, gamma2, sin, cos, sin, cos, kv_cache, slotmapping, wuq,
+                    bias1, wuk, descale0, descale1, CtkvScale, QnopeScale, q_out0, kv_cache_out0, q_out1, kv_cache_out1,
+                    workspace_tensor, tiling);
 
     return std::forward_as_tuple(q_out0, kv_cache_out0, q_out1, kv_cache_out1);
 }

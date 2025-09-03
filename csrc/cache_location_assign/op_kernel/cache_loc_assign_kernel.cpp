@@ -28,13 +28,8 @@ class CacheLocAssignKernel
 public:
     __aicore__ inline CacheLocAssignKernel() {}
 
-    __aicore__ inline void Init(
-        GM_ADDR reqPoolIndices,
-        GM_ADDR tokenPool,
-        GM_ADDR startOffset,
-        GM_ADDR endOffset,
-        GM_ADDR outCacheLoc,
-        __gm__ AssignCacheTillingData *tempTilingGM)
+    __aicore__ inline void Init(GM_ADDR reqPoolIndices, GM_ADDR tokenPool, GM_ADDR startOffset, GM_ADDR endOffset,
+                                GM_ADDR outCacheLoc, __gm__ AssignCacheTillingData *tempTilingGM)
     {
         this->coreId = AscendC::GetBlockIdx();
         this->batchSize = tempTilingGM->batchSize;
@@ -44,8 +39,7 @@ public:
         if (this->coreId < this->tailNum) {
             this->rowNum = this->rowNumNoTail + 1;
             this->tailOffset = this->coreId;
-        }
-        else {
+        } else {
             this->rowNum = this->rowNumNoTail;
             this->tailOffset = this->tailNum;
         }
@@ -131,10 +125,10 @@ private:
         AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(eventIDMTE2TOV);
         AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(eventIDMTE2TOV);
 
-        AscendC::Cast(
-            this->ubStartOffsetInt32, this->ubStartOffset, AscendC::RoundMode::CAST_NONE, this->offsetCountAlignInt64);
-        AscendC::Cast(
-            this->ubEndOffsetInt32, this->ubEndOffset, AscendC::RoundMode::CAST_NONE, this->offsetCountAlignInt64);
+        AscendC::Cast(this->ubStartOffsetInt32, this->ubStartOffset, AscendC::RoundMode::CAST_NONE,
+                      this->offsetCountAlignInt64);
+        AscendC::Cast(this->ubEndOffsetInt32, this->ubEndOffset, AscendC::RoundMode::CAST_NONE,
+                      this->offsetCountAlignInt64);
         this->ubCacheLength = this->ubEndOffsetInt32 - this->ubStartOffsetInt32;
     }
 
@@ -226,14 +220,9 @@ private:
     uint64_t cacheLocCountAlignInt32;
 };
 
-extern "C" __global__ __aicore__ void cache_loc_assign(
-    GM_ADDR reqPoolIndices,
-    GM_ADDR tokenPool,
-    GM_ADDR startOffset,
-    GM_ADDR endOffset,
-    GM_ADDR outCacheLoc,
-    GM_ADDR tilingGM,
-    uint32_t assignMode)
+extern "C" __global__ __aicore__ void cache_loc_assign(GM_ADDR reqPoolIndices, GM_ADDR tokenPool, GM_ADDR startOffset,
+                                                       GM_ADDR endOffset, GM_ADDR outCacheLoc, GM_ADDR tilingGM,
+                                                       uint32_t assignMode)
 {
     REGISTER_TILING_DEFAULT(AssignCacheTillingData);
     __gm__ AssignCacheTillingData *tempTilingGM = reinterpret_cast<__gm__ AssignCacheTillingData *>(tilingGM);
@@ -250,8 +239,7 @@ extern "C" __global__ __aicore__ void cache_loc_assign(
                     break;
             }
         }
-    }
-    else if (tempTilingGM->key == 2) {
+    } else if (tempTilingGM->key == 2) {
         CacheLocAssignKernel<int64_t> op;
         op.Init(reqPoolIndices, tokenPool, startOffset, endOffset, outCacheLoc, tempTilingGM);
         if ASCEND_IS_AIV {

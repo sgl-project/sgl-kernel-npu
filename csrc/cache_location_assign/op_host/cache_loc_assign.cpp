@@ -21,15 +21,14 @@ namespace npu_kernel {
 
 constexpr uint32_t MAX_STEP = 5;
 
-at::Tensor
-getTiling(const at::Tensor &reqPoolIndices, uint64_t rowSize, uint64_t poolSize, uint32_t &blockDim, bool isUpddate)
+at::Tensor getTiling(const at::Tensor &reqPoolIndices, uint64_t rowSize, uint64_t poolSize, uint32_t &blockDim,
+                     bool isUpddate)
 {
     auto batchSize = reqPoolIndices.sizes()[0];
     auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
     if (isUpddate) {
         blockDim = 1;  // todo: support mulitcore calculate for update
-    }
-    else {
+    } else {
         blockDim = ascendcPlatform->GetCoreNumAiv();
     }
 
@@ -47,8 +46,7 @@ getTiling(const at::Tensor &reqPoolIndices, uint64_t rowSize, uint64_t poolSize,
         tillingData->key = 1;
         tillingData->reqInxBufferCount = alinInt32Count(batchSize);
         tillingData->reqInxBufferSize = tillingData->reqInxBufferCount * sizeof(int32_t);
-    }
-    else if (reqPoolIndices.options().dtype() == at::kLong) {
+    } else if (reqPoolIndices.options().dtype() == at::kLong) {
         tillingData->key = 2;
         tillingData->reqInxBufferCount = alinInt64Count(batchSize);
         tillingData->reqInxBufferSize = tillingData->reqInxBufferCount * sizeof(int64_t);
@@ -76,12 +74,8 @@ getTiling(const at::Tensor &reqPoolIndices, uint64_t rowSize, uint64_t poolSize,
     return tilingTensor;
 }
 
-HOST_API void checkParams(
-    const at::Tensor &reqPoolIndices,
-    const at::Tensor &tokenPool,
-    const at::Tensor &startOffset,
-    const at::Tensor &endOffset,
-    const at::Tensor &outCacheLoc)
+HOST_API void checkParams(const at::Tensor &reqPoolIndices, const at::Tensor &tokenPool, const at::Tensor &startOffset,
+                          const at::Tensor &endOffset, const at::Tensor &outCacheLoc)
 {
     auto reqIdxType = reqPoolIndices.options().dtype();
     if ((reqIdxType != at::kInt && reqIdxType != at::kLong) || tokenPool.options().dtype() != at::kInt ||
@@ -93,53 +87,31 @@ HOST_API void checkParams(
     }
 }
 
-HOST_API at::Tensor cache_loc_assign(
-    const at::Tensor &reqPoolIndices,
-    const at::Tensor &tokenPool,
-    const at::Tensor &startOffset,
-    const at::Tensor &endOffset,
-    const at::Tensor &outCacheLoc)
+HOST_API at::Tensor cache_loc_assign(const at::Tensor &reqPoolIndices, const at::Tensor &tokenPool,
+                                     const at::Tensor &startOffset, const at::Tensor &endOffset,
+                                     const at::Tensor &outCacheLoc)
 {
     checkParams(reqPoolIndices, tokenPool, startOffset, endOffset, outCacheLoc);
     uint32_t blockDim;
     uint32_t cacheAssignMode = 0;
     at::Tensor tilingTensor = getTiling(reqPoolIndices, tokenPool.sizes()[1], tokenPool.sizes()[0], blockDim, false);
 
-    EXEC_KERNEL_CMD(
-        cache_loc_assign,
-        blockDim,
-        reqPoolIndices,
-        tokenPool,
-        startOffset,
-        endOffset,
-        outCacheLoc,
-        tilingTensor,
-        cacheAssignMode);
+    EXEC_KERNEL_CMD(cache_loc_assign, blockDim, reqPoolIndices, tokenPool, startOffset, endOffset, outCacheLoc,
+                    tilingTensor, cacheAssignMode);
     return tokenPool;
 }
 
-HOST_API at::Tensor cache_loc_update(
-    const at::Tensor &reqPoolIndices,
-    const at::Tensor &tokenPool,
-    const at::Tensor &startOffset,
-    const at::Tensor &endOffset,
-    const at::Tensor &outCacheLoc)
+HOST_API at::Tensor cache_loc_update(const at::Tensor &reqPoolIndices, const at::Tensor &tokenPool,
+                                     const at::Tensor &startOffset, const at::Tensor &endOffset,
+                                     const at::Tensor &outCacheLoc)
 {
     checkParams(reqPoolIndices, tokenPool, startOffset, endOffset, outCacheLoc);
     uint32_t blockDim;
     uint32_t cacheAssignMode = 1;
     at::Tensor tilingTensor = getTiling(reqPoolIndices, tokenPool.sizes()[1], tokenPool.sizes()[0], blockDim, true);
 
-    EXEC_KERNEL_CMD(
-        cache_loc_assign,
-        blockDim,
-        reqPoolIndices,
-        tokenPool,
-        startOffset,
-        endOffset,
-        outCacheLoc,
-        tilingTensor,
-        cacheAssignMode);
+    EXEC_KERNEL_CMD(cache_loc_assign, blockDim, reqPoolIndices, tokenPool, startOffset, endOffset, outCacheLoc,
+                    tilingTensor, cacheAssignMode);
     return outCacheLoc;
 }
 

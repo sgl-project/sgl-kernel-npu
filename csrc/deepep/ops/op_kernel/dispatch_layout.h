@@ -30,14 +30,9 @@ class DispatchLayout
 public:
     __aicore__ inline DispatchLayout(){};
 
-    __aicore__ inline void Init(
-        GM_ADDR topkIdx,
-        GM_ADDR numTokensPerRank,
-        GM_ADDR numTokensPerExpert,
-        GM_ADDR isTokenInRank,
-        GM_ADDR workspace,
-        TPipe *pipe,
-        const DispatchLayoutTilingData *tilingData)
+    __aicore__ inline void Init(GM_ADDR topkIdx, GM_ADDR numTokensPerRank, GM_ADDR numTokensPerExpert,
+                                GM_ADDR isTokenInRank, GM_ADDR workspace, TPipe *pipe,
+                                const DispatchLayoutTilingData *tilingData)
     {
         numTokens_ = tilingData->dispatchLayoutInfo.numTokens;
         numRanks_ = tilingData->dispatchLayoutInfo.numRanks;
@@ -62,8 +57,7 @@ public:
         if (coreIdx_ < restNum) {
             topkIdxOffset = coreIdx_ * topkIdx32AlignIntLen_;
             isTokenOffset = coreIdx_ * isTokenInRank32AlignIntLen_;
-        }
-        else {
+        } else {
             topkIdxOffset = restNum * Ceil((tempTokens_ + 1) * numTopk_ * sizeof(int64_t), UB_32_ALIGN) * UB_32_ALIGN +
                             (coreIdx_ - restNum) * topkIdx32AlignIntLen_;
             isTokenOffset = restNum * Ceil((tempTokens_ + 1) * numRanks_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN +

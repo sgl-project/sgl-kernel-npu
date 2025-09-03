@@ -20,16 +20,9 @@ extern "C" {
  * executor : executor context(output).
  */
 __attribute__((visibility("default"))) aclnnStatus aclnnDispatchLayoutGetWorkspaceSize(
-    const aclTensor *topkIdx,
-    int64_t numTokens,
-    int64_t numRanks,
-    int64_t numExperts,
-    int64_t numTopk,
-    const aclTensor *numTokensPerRank,
-    const aclTensor *numTokensPerExpert,
-    const aclTensor *isTokenInRank,
-    uint64_t *workspaceSize,
-    aclOpExecutor **executor);
+    const aclTensor *topkIdx, int64_t numTokens, int64_t numRanks, int64_t numExperts, int64_t numTopk,
+    const aclTensor *numTokensPerRank, const aclTensor *numTokensPerExpert, const aclTensor *isTokenInRank,
+    uint64_t *workspaceSize, aclOpExecutor **executor);
 
 /* function: aclnnDispatchLayout
  * workspace : workspace memory addr(input).
@@ -37,8 +30,8 @@ __attribute__((visibility("default"))) aclnnStatus aclnnDispatchLayoutGetWorkspa
  * executor : executor context(input).
  * stream : acl stream.
  */
-__attribute__((visibility("default"))) aclnnStatus
-aclnnDispatchLayout(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream);
+__attribute__((visibility("default"))) aclnnStatus aclnnDispatchLayout(void *workspace, uint64_t workspaceSize,
+                                                                       aclOpExecutor *executor, aclrtStream stream);
 
 #ifdef __cplusplus
 }

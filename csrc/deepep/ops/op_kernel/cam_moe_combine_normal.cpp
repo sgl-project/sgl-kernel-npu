@@ -5,15 +5,9 @@
 using namespace AscendC;
 using namespace CamMoeCombineNormalImpl;
 
-extern "C" __global__ __aicore__ void cam_moe_combine_normal(
-    GM_ADDR recvX,
-    GM_ADDR tokenSrcInfo,
-    GM_ADDR epRecvCount,
-    GM_ADDR topkWeights,
-    GM_ADDR tpRecvCount,
-    GM_ADDR XOut,
-    GM_ADDR workspaceGM,
-    GM_ADDR tilingGM)
+extern "C" __global__ __aicore__ void cam_moe_combine_normal(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount,
+                                                             GM_ADDR topkWeights, GM_ADDR tpRecvCount, GM_ADDR XOut,
+                                                             GM_ADDR workspaceGM, GM_ADDR tilingGM)
 
 {
     REGISTER_TILING_DEFAULT(CamMoeCombineNormalTilingData);

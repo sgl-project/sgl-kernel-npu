@@ -153,8 +153,8 @@ private:
         copyLen = rankSize - copyOffset < rankNumPerCore ? rankSize - copyOffset : rankNumPerCore;
         if (copyLen > 0) {
             readGt = sendDataInputGt[copyOffset * perRankDataNum];
-            CpGM2GMPingPong<T>(
-                copyLen * perRankDataNum * sizeof(T), readGt, writeGt[copyOffset * perRankDataNum], COPYONLY);
+            CpGM2GMPingPong<T>(copyLen * perRankDataNum * sizeof(T), readGt, writeGt[copyOffset * perRankDataNum],
+                               COPYONLY);
             int64_t v = MergeMagicWithValue(magic, 1);
             *inputUB = v;
             AscendC::SetFlag<HardEvent::S_MTE3>(EVENT_ID0);
@@ -190,11 +190,8 @@ private:
             }
             sync.WaitSyncFlag(magic, 1, copyOffset, rank, copyLen);
             for (int i = 0; i < copyLen; i++) {
-                CpGM2GMPingPong<T>(
-                    perRankDataNum * sizeof(T),
-                    readGt1[i][rank * perRankDataNum],
-                    recvDataOutputGt[checkRank[i] * perRankDataNum],
-                    COPYONLY);
+                CpGM2GMPingPong<T>(perRankDataNum * sizeof(T), readGt1[i][rank * perRankDataNum],
+                                   recvDataOutputGt[checkRank[i] * perRankDataNum], COPYONLY);
             }
         }
     }
@@ -209,11 +206,8 @@ private:
     template <HardEvent eventType>
     FORCE_INLINE_AICORE void SetWaitEvent(event_t eventId);
     template <typename K, typename U = K>
-    FORCE_INLINE_AICORE void CpGM2GMPingPong(
-        int64_t dataSizeRemain,
-        const GlobalTensor<U> &sendDataInputGt,
-        const GlobalTensor<K> &recvDataOutputGT,
-        int op);
+    FORCE_INLINE_AICORE void CpGM2GMPingPong(int64_t dataSizeRemain, const GlobalTensor<U> &sendDataInputGt,
+                                             const GlobalTensor<K> &recvDataOutputGT, int op);
 
     GlobalTensor<T> sendDataInputGt;
     GlobalTensor<int> tokenPerExpertDataInputGt;
@@ -415,8 +409,9 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_A
  */
 template <typename T>
 template <typename K, typename U>
-FORCE_INLINE_AICORE void NotifyDispatch<T>::CpGM2GMPingPong(
-    int64_t dataSizeRemain, const GlobalTensor<U> &sendDataInputGt, const GlobalTensor<K> &recvDataOutputGT, int op)
+FORCE_INLINE_AICORE void NotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeRemain,
+                                                            const GlobalTensor<U> &sendDataInputGt,
+                                                            const GlobalTensor<K> &recvDataOutputGT, int op)
 {
     // General case (U = K), input/output are the same, share one UB
     // Only when conversion is needed (U->K), UB will be divided into two parts according to the ratio of
@@ -452,11 +447,8 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::CpGM2GMPingPong(
         CpGM2UB((i & 1) ? inputUB[0] : inputUB[1], input + inputOffsetNum, size / sizeof(K) * sizeof(U));
         if constexpr (!std::is_same_v<K, U>) {
             SetWaitEvent<HardEvent::MTE2_V>(eventId);
-            CastImpl(
-                (i & 1) ? outputUB[0] : outputUB[1],
-                (i & 1) ? inputUB[0] : inputUB[1],
-                RoundMode::CAST_NONE,
-                size / sizeof(K));
+            CastImpl((i & 1) ? outputUB[0] : outputUB[1], (i & 1) ? inputUB[0] : inputUB[1], RoundMode::CAST_NONE,
+                     size / sizeof(K));
             SetWaitEvent<HardEvent::V_MTE3>(eventId);
         }
         AscendC::SetFlag<HardEvent::MTE2_MTE3>(eventId);

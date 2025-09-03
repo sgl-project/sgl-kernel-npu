@@ -14,29 +14,13 @@ extern "C" void __attribute__((weak)) NnopbaseSetHcclServerType(void *executor, 
 extern "C" {
 #endif
 
-aclnnStatus aclnnDispatchLayoutGetWorkspaceSize(
-    const aclTensor *topkIdx,
-    int64_t numTokens,
-    int64_t numRanks,
-    int64_t numExperts,
-    int64_t numTopk,
-    const aclTensor *numTokensPerRank,
-    const aclTensor *numTokensPerExpert,
-    const aclTensor *isTokenInRank,
-    uint64_t *workspaceSize,
-    aclOpExecutor **executor)
+aclnnStatus aclnnDispatchLayoutGetWorkspaceSize(const aclTensor *topkIdx, int64_t numTokens, int64_t numRanks,
+                                                int64_t numExperts, int64_t numTopk, const aclTensor *numTokensPerRank,
+                                                const aclTensor *numTokensPerExpert, const aclTensor *isTokenInRank,
+                                                uint64_t *workspaceSize, aclOpExecutor **executor)
 {
-    return aclnnInnerDispatchLayoutGetWorkspaceSize(
-        topkIdx,
-        numTokens,
-        numRanks,
-        numExperts,
-        numTopk,
-        numTokensPerRank,
-        numTokensPerExpert,
-        isTokenInRank,
-        workspaceSize,
-        executor);
+    return aclnnInnerDispatchLayoutGetWorkspaceSize(topkIdx, numTokens, numRanks, numExperts, numTopk, numTokensPerRank,
+                                                    numTokensPerExpert, isTokenInRank, workspaceSize, executor);
 }
 
 aclnnStatus aclnnDispatchLayout(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream)

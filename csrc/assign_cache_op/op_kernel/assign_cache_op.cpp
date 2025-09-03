@@ -12,17 +12,11 @@ class AssignCacheOp
 {
 public:
     __aicore__ inline AssignCacheOp(){};
-    __aicore__ inline void Init(
-        __gm__ uint8_t *dstPtr,
-        __gm__ uint8_t *srcPtr,
-        __gm__ uint8_t *dstStartIdxPtr,
-        __gm__ uint8_t *dstEndIdxPtr,
-        __gm__ uint8_t *srcStartIdxPtr,
-        __gm__ uint8_t *srcEndIdxPtr,
-        __gm__ uint8_t *sync,
-        __gm__ uint8_t *tilingPtr);
-    __aicore__ inline void
-    CopyElement(AscendC::LocalTensor<T> &dstTensor, AscendC::LocalTensor<T> &srcTensor, uint32_t bytes);
+    __aicore__ inline void Init(__gm__ uint8_t *dstPtr, __gm__ uint8_t *srcPtr, __gm__ uint8_t *dstStartIdxPtr,
+                                __gm__ uint8_t *dstEndIdxPtr, __gm__ uint8_t *srcStartIdxPtr,
+                                __gm__ uint8_t *srcEndIdxPtr, __gm__ uint8_t *sync, __gm__ uint8_t *tilingPtr);
+    __aicore__ inline void CopyElement(AscendC::LocalTensor<T> &dstTensor, AscendC::LocalTensor<T> &srcTensor,
+                                       uint32_t bytes);
     __aicore__ inline void Process();
     __aicore__ inline void ParseTilingData(__gm__ uint8_t *tilingPtr);
 
@@ -52,15 +46,10 @@ private:
 };
 
 template <typename T>
-__aicore__ inline void AssignCacheOp<T>::Init(
-    __gm__ uint8_t *dstPtr,
-    __gm__ uint8_t *srcPtr,
-    __gm__ uint8_t *dstStartIdxPtr,
-    __gm__ uint8_t *dstEndIdxPtr,
-    __gm__ uint8_t *srcStartIdxPtr,
-    __gm__ uint8_t *srcEndIdxPtr,
-    __gm__ uint8_t *sync,
-    __gm__ uint8_t *tilingPtr)
+__aicore__ inline void AssignCacheOp<T>::Init(__gm__ uint8_t *dstPtr, __gm__ uint8_t *srcPtr,
+                                              __gm__ uint8_t *dstStartIdxPtr, __gm__ uint8_t *dstEndIdxPtr,
+                                              __gm__ uint8_t *srcStartIdxPtr, __gm__ uint8_t *srcEndIdxPtr,
+                                              __gm__ uint8_t *sync, __gm__ uint8_t *tilingPtr)
 {
     this->ParseTilingData(tilingPtr);
     ubUsedBufSize_ = ubSize_ >> 2;  // make sure not overflow
@@ -82,8 +71,8 @@ __aicore__ inline void AssignCacheOp<T>::Init(
 }
 
 template <typename T>
-__aicore__ inline void
-AssignCacheOp<T>::CopyElement(AscendC::LocalTensor<T> &dstTensor, AscendC::LocalTensor<T> &srcTensor, uint32_t bytes)
+__aicore__ inline void AssignCacheOp<T>::CopyElement(AscendC::LocalTensor<T> &dstTensor,
+                                                     AscendC::LocalTensor<T> &srcTensor, uint32_t bytes)
 {
     for (uint32_t i = 0; i < bytes / sizeof(T); i++) {
         T tmp = srcTensor.GetValue(i);
@@ -168,15 +157,9 @@ __aicore__ inline void AssignCacheOp<T>::ParseTilingData(__gm__ uint8_t *tilingP
 }
 }  // namespace custom_assign
 
-extern "C" __global__ __aicore__ void assign_cache_op(
-    GM_ADDR dstPtr,
-    GM_ADDR srcPtr,
-    GM_ADDR dstStartIdxPtr,
-    GM_ADDR dstEndIdxPtr,
-    GM_ADDR srcStartIdxPtr,
-    GM_ADDR srcEndIdxPtr,
-    GM_ADDR sync,
-    GM_ADDR tilingPtr)
+extern "C" __global__ __aicore__ void assign_cache_op(GM_ADDR dstPtr, GM_ADDR srcPtr, GM_ADDR dstStartIdxPtr,
+                                                      GM_ADDR dstEndIdxPtr, GM_ADDR srcStartIdxPtr,
+                                                      GM_ADDR srcEndIdxPtr, GM_ADDR sync, GM_ADDR tilingPtr)
 {
     uint32_t typeByte = ((__gm__ uint32_t *)tilingPtr)[custom_assign::TYPEBYPE_ID];
     if ASCEND_IS_AIV {
@@ -184,18 +167,15 @@ extern "C" __global__ __aicore__ void assign_cache_op(
             custom_assign::AssignCacheOp<int8_t> op;
             op.Init(dstPtr, srcPtr, dstStartIdxPtr, dstEndIdxPtr, srcStartIdxPtr, srcEndIdxPtr, sync, tilingPtr);
             op.Process();
-        }
-        else if (typeByte == 2) {
+        } else if (typeByte == 2) {
             custom_assign::AssignCacheOp<int16_t> op;
             op.Init(dstPtr, srcPtr, dstStartIdxPtr, dstEndIdxPtr, srcStartIdxPtr, srcEndIdxPtr, sync, tilingPtr);
             op.Process();
-        }
-        else if (typeByte == 4) {
+        } else if (typeByte == 4) {
             custom_assign::AssignCacheOp<int32_t> op;
             op.Init(dstPtr, srcPtr, dstStartIdxPtr, dstEndIdxPtr, srcStartIdxPtr, srcEndIdxPtr, sync, tilingPtr);
             op.Process();
-        }
-        else if (typeByte == 8) {
+        } else if (typeByte == 8) {
             custom_assign::AssignCacheOp<int64_t> op;
             op.Init(dstPtr, srcPtr, dstStartIdxPtr, dstEndIdxPtr, srcStartIdxPtr, srcEndIdxPtr, sync, tilingPtr);
             op.Process();

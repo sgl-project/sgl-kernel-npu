@@ -17,12 +17,8 @@ namespace sglang {
 namespace npu_kernel {
 constexpr uint32_t PADDING_BYTE = 32U;
 
-at::Tensor get_tiling(
-    int32_t &block_dim,
-    int32_t &workspace_size,
-    const int64_t &page_size,
-    int32_t &batch_size,
-    int64_t &total_extend_tokens)
+at::Tensor get_tiling(int32_t &block_dim, int32_t &workspace_size, const int64_t &page_size, int32_t &batch_size,
+                      int64_t &total_extend_tokens)
 {
     auto ascendc_platform = platform_ascendc::PlatformAscendCManager::GetInstance();
     int32_t max_aiv_core = static_cast<int32_t>(ascendc_platform->GetCoreNumAiv());
@@ -42,14 +38,9 @@ at::Tensor get_tiling(
     return tiling_tensor;
 }
 
-HOST_API void alloc_extend(
-    const at::Tensor &pre_lens,
-    const at::Tensor &seq_lens,
-    const at::Tensor &last_loc,
-    const at::Tensor &free_pages,
-    int64_t pages_size,
-    at::Tensor &out_indices,
-    at::Tensor &values)
+HOST_API void alloc_extend(const at::Tensor &pre_lens, const at::Tensor &seq_lens, const at::Tensor &last_loc,
+                           const at::Tensor &free_pages, int64_t pages_size, at::Tensor &out_indices,
+                           at::Tensor &values)
 {
     if (pre_lens.options().dtype() != at::kLong || seq_lens.options().dtype() != at::kLong ||
         last_loc.options().dtype() != at::kLong || free_pages.options().dtype() != at::kLong ||
@@ -66,17 +57,8 @@ HOST_API void alloc_extend(
     auto workspace_tensor =
         at::empty({workspace_size}, at::TensorOptions().dtype(at::kByte).device(pre_lens.options().device()));
     /* launch the kernel function via torch */
-    EXEC_KERNEL_CMD(
-        alloc_extend,
-        block_dim,
-        pre_lens,
-        seq_lens,
-        last_loc,
-        free_pages,
-        out_indices,
-        values,
-        workspace_tensor,
-        tiling_tensor);
+    EXEC_KERNEL_CMD(alloc_extend, block_dim, pre_lens, seq_lens, last_loc, free_pages, out_indices, values,
+                    workspace_tensor, tiling_tensor);
 }
 
 }  // namespace npu_kernel

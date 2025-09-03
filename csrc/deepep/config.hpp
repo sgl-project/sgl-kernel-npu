@@ -14,12 +14,8 @@ struct Config {
     int num_max_rdma_chunked_send_tokens;
     int num_max_rdma_chunked_recv_tokens;
 
-    Config(
-        int num_sms,
-        int num_max_nvl_chunked_send_tokens,
-        int num_max_nvl_chunked_recv_tokens,
-        int num_max_rdma_chunked_send_tokens,
-        int num_max_rdma_chunked_recv_tokens)
+    Config(int num_sms, int num_max_nvl_chunked_send_tokens, int num_max_nvl_chunked_recv_tokens,
+           int num_max_rdma_chunked_send_tokens, int num_max_rdma_chunked_recv_tokens)
         : num_sms(num_sms),
           num_max_nvl_chunked_send_tokens(num_max_nvl_chunked_send_tokens),
           num_max_nvl_chunked_recv_tokens(num_max_nvl_chunked_recv_tokens),

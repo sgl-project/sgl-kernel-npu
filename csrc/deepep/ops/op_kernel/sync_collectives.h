@@ -179,8 +179,8 @@ public:
     }
 
     // Check flagNum inter-card synchronization flags starting from startBlock for all ranks (memory B)
-    __aicore__ inline bool
-    CheckAllRankPartOuterFlag(int32_t magic, int32_t eventID, int64_t startBlock, int64_t flagNum)
+    __aicore__ inline bool CheckAllRankPartOuterFlag(int32_t magic, int32_t eventID, int64_t startBlock,
+                                                     int64_t flagNum)
     {
         int64_t value = MergeMagicWithValue(magic, eventID);
         __gm__ int64_t *flagAddr;
@@ -250,8 +250,8 @@ public:
     }
 
     // Get multiple consecutive synchronization flags within a single card
-    __aicore__ inline void
-    WaitOneRankPartOuterFlag(int32_t magic, int32_t eventID, int64_t waitRank, int64_t startBlock, int64_t flagNum)
+    __aicore__ inline void WaitOneRankPartOuterFlag(int32_t magic, int32_t eventID, int64_t waitRank,
+                                                    int64_t startBlock, int64_t flagNum)
     {
         int64_t value = MergeMagicWithValue(magic, eventID);
         __gm__ int64_t *flagAddr;
@@ -288,12 +288,9 @@ public:
 
     __aicore__ inline int64_t GetChunkRecvLen(int64_t rank, int64_t destRank, int64_t magic, int64_t timeout)
     {
-        int64_t len = GetChunkFlagValue(
-            (__gm__ int64_t *)(shareAddrs[rank]) + IPC_CHUNK_FLAG + destRank * FLAG_UNIT_INT_NUM,
-            0,
-            timeout,
-            true,
-            magic);
+        int64_t len =
+            GetChunkFlagValue((__gm__ int64_t *)(shareAddrs[rank]) + IPC_CHUNK_FLAG + destRank * FLAG_UNIT_INT_NUM, 0,
+                              timeout, true, magic);
         return len;
     }
 
@@ -324,10 +321,8 @@ private:
         int64_t checkedFlagNum = 0;
         do {
             // Copy global synchronization flags to local
-            DataCopy(
-                localWait,
-                globalWait[checkedFlagNum * FLAG_UNIT_INT_NUM],
-                (flagNum - checkedFlagNum) * FLAG_UNIT_INT_NUM);
+            DataCopy(localWait, globalWait[checkedFlagNum * FLAG_UNIT_INT_NUM],
+                     (flagNum - checkedFlagNum) * FLAG_UNIT_INT_NUM);
             AscendC::SetFlag<HardEvent::MTE2_S>(EVENT_ID0);
             AscendC::WaitFlag<HardEvent::MTE2_S>(EVENT_ID0);  // Wait for GM->UB
 
@@ -375,8 +370,8 @@ private:
         return isSync;
     }
 
-    __aicore__ inline int64_t GetChunkFlagValue(
-        __gm__ int64_t *waitAddr, int64_t checkValue, int64_t timeout, bool checkNonZero = false, int64_t magic = 0)
+    __aicore__ inline int64_t GetChunkFlagValue(__gm__ int64_t *waitAddr, int64_t checkValue, int64_t timeout,
+                                                bool checkNonZero = false, int64_t magic = 0)
     {
         GlobalTensor<int64_t> globalWait;
         globalWait.SetGlobalBuffer(waitAddr, FLAG_UNIT_INT_NUM);
@@ -399,8 +394,7 @@ private:
                 if (((v & MAGIC_MASK) == (static_cast<int64_t>(magic) << MAGIC_OFFSET)) && (v & 0xFFFFFFFF)) {
                     return v & 0xFFFFFFFF;  // Return lower 32 bits when non-zero
                 }
-            }
-            else {
+            } else {
                 // Exact value check mode
                 if (v == checkValue) {
                     return WAIT_SUCCESS;

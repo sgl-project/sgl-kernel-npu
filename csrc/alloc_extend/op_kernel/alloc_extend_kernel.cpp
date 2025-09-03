@@ -25,15 +25,8 @@ class KernelAllocExtent
 {
 public:
     __aicore__ inline KernelAllocExtent() {}
-    __aicore__ inline void Init(
-        GM_ADDR pre_lens_in,
-        GM_ADDR seq_lens_in,
-        GM_ADDR last_loc_in,
-        GM_ADDR free_pages_in,
-        GM_ADDR out_indices_in,
-        GM_ADDR values_in,
-        GM_ADDR workspace_in,
-        GM_ADDR tiling_gm_in)
+    __aicore__ inline void Init(GM_ADDR pre_lens_in, GM_ADDR seq_lens_in, GM_ADDR last_loc_in, GM_ADDR free_pages_in,
+                                GM_ADDR out_indices_in, GM_ADDR values_in, GM_ADDR workspace_in, GM_ADDR tiling_gm_in)
     {
         auto tiling_gm = reinterpret_cast<__gm__ sglang::npu_kernel::AllocExtendTilingData *>(tiling_gm_in);
         this->batch_size = tiling_gm->batch_size;
@@ -135,8 +128,8 @@ private:
             for (int page_i = 0; page_i < num_part2 / this->page_size; page_i++) {
                 int64_t page_value = free_pages_ub_read.GetValue(new_pages_start_loc + page_i);
                 for (int i = 0; i < this->page_size; i++) {
-                    out_indices_ub.SetValue(
-                        out_offset + page_i * this->page_size + i, page_value * this->page_size + i);
+                    out_indices_ub.SetValue(out_offset + page_i * this->page_size + i,
+                                            page_value * this->page_size + i);
                 }
             }
         }
@@ -194,19 +187,13 @@ private:
     int64_t cur_extend_len;
 };
 
-extern "C" __global__ __aicore__ void alloc_extend(
-    GM_ADDR pre_lens_in,
-    GM_ADDR seq_lens_in,
-    GM_ADDR last_loc_in,
-    GM_ADDR free_pages_in,
-    GM_ADDR out_indices_in,
-    GM_ADDR values_in,
-    GM_ADDR workspace_in,
-    GM_ADDR tiling_gm_in)
+extern "C" __global__ __aicore__ void alloc_extend(GM_ADDR pre_lens_in, GM_ADDR seq_lens_in, GM_ADDR last_loc_in,
+                                                   GM_ADDR free_pages_in, GM_ADDR out_indices_in, GM_ADDR values_in,
+                                                   GM_ADDR workspace_in, GM_ADDR tiling_gm_in)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     KernelAllocExtent op;
-    op.Init(
-        pre_lens_in, seq_lens_in, last_loc_in, free_pages_in, out_indices_in, values_in, workspace_in, tiling_gm_in);
+    op.Init(pre_lens_in, seq_lens_in, last_loc_in, free_pages_in, out_indices_in, values_in, workspace_in,
+            tiling_gm_in);
     op.Process();
 }

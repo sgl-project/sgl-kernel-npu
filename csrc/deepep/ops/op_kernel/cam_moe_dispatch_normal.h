@@ -39,19 +39,10 @@ class CamMoeDispatchNormal
 {
 public:
     __aicore__ inline CamMoeDispatchNormal(){};
-    __aicore__ inline void Init(
-        GM_ADDR x,
-        GM_ADDR expertIds,
-        GM_ADDR send_offset,
-        GM_ADDR send_tokenIdx,
-        GM_ADDR recv_offset,
-        GM_ADDR recv_count,
-        GM_ADDR expandXOut,
-        GM_ADDR dynamicScalesOut,
-        GM_ADDR expandIdxOut,
-        GM_ADDR workspaceGM,
-        TPipe *pipe,
-        const CamMoeDispatchNormalTilingData *tilingData);
+    __aicore__ inline void Init(GM_ADDR x, GM_ADDR expertIds, GM_ADDR send_offset, GM_ADDR send_tokenIdx,
+                                GM_ADDR recv_offset, GM_ADDR recv_count, GM_ADDR expandXOut, GM_ADDR dynamicScalesOut,
+                                GM_ADDR expandIdxOut, GM_ADDR workspaceGM, TPipe *pipe,
+                                const CamMoeDispatchNormalTilingData *tilingData);
     __aicore__ inline void Process();
 
 private:
@@ -160,19 +151,12 @@ private:
 };
 
 template <CamTypeClass>
-__aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(
-    GM_ADDR x,
-    GM_ADDR expertIds,
-    GM_ADDR send_offset,
-    GM_ADDR send_tokenIdx,
-    GM_ADDR recv_offset,
-    GM_ADDR recv_count,
-    GM_ADDR expandXOut,
-    GM_ADDR dynamicScalesOut,
-    GM_ADDR expandIdxOut,
-    GM_ADDR workspaceGM,
-    TPipe *pipe,
-    const CamMoeDispatchNormalTilingData *tilingData)
+__aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(GM_ADDR x, GM_ADDR expertIds, GM_ADDR send_offset,
+                                                               GM_ADDR send_tokenIdx, GM_ADDR recv_offset,
+                                                               GM_ADDR recv_count, GM_ADDR expandXOut,
+                                                               GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut,
+                                                               GM_ADDR workspaceGM, TPipe *pipe,
+                                                               const CamMoeDispatchNormalTilingData *tilingData)
 {
     tpipe_ = pipe;
     blockIdx = GetBlockIdx();
@@ -221,8 +205,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(
     if (blockIdx < remainStatus) {
         statusNumPerCore += 1;
         startStatusId += blockIdx;
-    }
-    else {
+    } else {
         startStatusId += remainStatus;
     }
     endStatusId = startStatusId + statusNumPerCore;
@@ -231,8 +214,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(
     dataState = selfDataStatusTensor(0);
     if (dataState == 0) {
         selfDataStatusTensor(0) = 1;
-    }
-    else {
+    } else {
         selfDataStatusTensor(0) = 0;
     }
     DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(selfDataStatusTensor);
@@ -246,8 +228,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(
     hOutUBAlignSize = Ceil(hScaleIdxSize, UB_ALIGN) * UB_ALIGN;
     if constexpr (DynamicQuant) {
         QuantInit();
-    }
-    else {
+    } else {
         tpipe_->InitBuffer(xQueue, BUFFER_NUM, hOutUBAlignSize);  // 2 * 14K = 28K
     }
 
@@ -269,8 +250,8 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::QuantInit()
 }
 
 template <CamTypeClass>
-__aicore__ inline void
-CamMoeDispatchNormal<CamTypeFunc>::ReduceMaxInplace(const LocalTensor<float> &srcLocal, uint32_t count)
+__aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::ReduceMaxInplace(const LocalTensor<float> &srcLocal,
+                                                                           uint32_t count)
 {
     uint64_t repsFp32 = count >> 6;        // 6 is count / elemPerRefFp32
     uint64_t offsetsFp32 = repsFp32 << 6;  // 6 is repsFp32 * elemPerRefFp32
@@ -331,8 +312,8 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::QuantProcess()
 }
 
 template <CamTypeClass>
-__aicore__ inline void
-CamMoeDispatchNormal<CamTypeFunc>::FillTriple(LocalTensor<ExpandXOutType> &xOutTensor, uint32_t tokenIndex, uint32_t k)
+__aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::FillTriple(LocalTensor<ExpandXOutType> &xOutTensor,
+                                                                     uint32_t tokenIndex, uint32_t k)
 {
     SyncFunc<AscendC::HardEvent::MTE3_S>();
     LocalTensor<int32_t> xOutTint32 = xOutTensor.template ReinterpretCast<int32_t>();
@@ -357,8 +338,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::InputToShare()
     if (blockIdx < remainTokenNum) {
         sendTokenNum += 1;
         startTokenId += blockIdx;
-    }
-    else {
+    } else {
         startTokenId += remainTokenNum;
     }
     endTokenId = startTokenId + sendTokenNum;
@@ -398,8 +378,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::InputToShare()
             FillTriple(xOutTensor, tokenIndex / topK, tokenIndex % topK);
             DataCopyPad(dstGT, xOutTensor, hCommuCopyOutParams);
             xOutQueue.FreeTensor(xOutTensor);
-        }
-        else {
+        } else {
             xTmpTensor = xQueue.AllocTensor<ExpandXOutType>();
             DataCopyPad(xTmpTensor, xGT[tokenIndex / topK * h], xCopyParams, tokenCopyPadExtParams);
             xQueue.EnQue(xTmpTensor);
@@ -492,10 +471,8 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::WaitStatus()
     SyncFunc<AscendC::HardEvent::S_V>();
     Duplicate<int32_t>(cleanStateTensor, 0, duplicateMask, Ceil(statusNumPerCore, 8), 1, 8);
     SyncFunc<AscendC::HardEvent::V_MTE3>();
-    DataCopy(
-        windowInstatusFp32Tensor[startStatusId * stateOffset / sizeof(float)],
-        cleanStateTensor.ReinterpretCast<float>(),
-        intriOutParams);
+    DataCopy(windowInstatusFp32Tensor[startStatusId * stateOffset / sizeof(float)],
+             cleanStateTensor.ReinterpretCast<float>(), intriOutParams);
     SyncFunc<AscendC::HardEvent::MTE3_S>();
     SyncAll<true>();
 }
@@ -534,17 +511,13 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::ShareToOutput()
             xQueue.EnQue(xTmpTensor);
             xTmpTensor = xQueue.DeQue<ExpandXOutType>();
             xTmpTensorInt = xTmpTensor.template ReinterpretCast<int32_t>();
-            DataCopyPad(
-                expandIdxOutGT[(targetOffset + j) * EXPAND_IDX_INFO],
-                xTmpTensorInt[expandIdxStartIdx],
-                dataCopyExandIdxParams);
+            DataCopyPad(expandIdxOutGT[(targetOffset + j) * EXPAND_IDX_INFO], xTmpTensorInt[expandIdxStartIdx],
+                        dataCopyExandIdxParams);
             if constexpr (DynamicQuant) {
                 DataCopyExtParams floatDataCopyParams = {1U, sizeof(float), 0U, 0U, 0U};
                 LocalTensor<float> xOutFp32Tensor = xTmpTensor.template ReinterpretCast<float>();
-                DataCopyPad(
-                    dynamicScalesOutGT[targetOffset + j],
-                    xOutFp32Tensor[hUBAlignSize / sizeof(float)],
-                    floatDataCopyParams);
+                DataCopyPad(dynamicScalesOutGT[targetOffset + j], xOutFp32Tensor[hUBAlignSize / sizeof(float)],
+                            floatDataCopyParams);
             }
             dstTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(expandXOutGM) + (targetOffset + j) * h, h);
             DataCopyPad(dstTokenGT, xTmpTensor, expandXCopyParams);

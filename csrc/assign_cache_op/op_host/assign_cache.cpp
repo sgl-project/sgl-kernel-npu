@@ -33,24 +33,15 @@ HOST_API size_t GetElementByteSize(const at::Tensor &tensor)
     return at::elementSize(dtype);
 }
 
-HOST_API bool assign_cache_op(
-    at::Tensor &dstTensor,
-    const at::Tensor &srcTensor,
-    const at::Tensor &dstStartIdx,
-    const at::Tensor &dstEndIdx,
-    const at::Tensor &srcStartIdx,
-    const at::Tensor &srcEndIdx)
+HOST_API bool assign_cache_op(at::Tensor &dstTensor, const at::Tensor &srcTensor, const at::Tensor &dstStartIdx,
+                              const at::Tensor &dstEndIdx, const at::Tensor &srcStartIdx, const at::Tensor &srcEndIdx)
 {
     auto dstShape = dstTensor.sizes(), dstStartShape = dstStartIdx.sizes(), dstEndShape = dstEndIdx.sizes();
     auto srcShape = srcTensor.sizes(), srcStartShape = srcStartIdx.sizes(), srcEndShape = srcEndIdx.sizes();
-    OP_CHECK(
-        dstShape[0] == srcShape[0] && dstStartShape[0] == srcStartShape[0] && dstEndShape[0] == srcEndShape[0],
-        "batch size is not same between srcTensor and dstTensor",
-        return false);
-    OP_CHECK(
-        dstShape[0] == dstStartShape[0] && dstShape[0] == dstEndShape[0],
-        "batch size is not same between srcTensor and dstTensor",
-        return false);
+    OP_CHECK(dstShape[0] == srcShape[0] && dstStartShape[0] == srcStartShape[0] && dstEndShape[0] == srcEndShape[0],
+             "batch size is not same between srcTensor and dstTensor", return false);
+    OP_CHECK(dstShape[0] == dstStartShape[0] && dstShape[0] == dstEndShape[0],
+             "batch size is not same between srcTensor and dstTensor", return false);
 
     auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
     uint32_t blockDim = static_cast<uint32_t>(ascendcPlatform->GetCoreNumAiv());
@@ -58,27 +49,17 @@ HOST_API bool assign_cache_op(
     ascendcPlatform->GetCoreMemSize(platform_ascendc::CoreMemType::UB, ubSize);
     uint32_t eleBytes = GetElementByteSize(dstTensor);
     uint32_t syncWorkspaceSize = blockDim * 32 + blockDim * 32 + 32;
-    struct CustomAssignTilingData tilingData = {
-        .batchSize = static_cast<uint32_t>(dstShape[0]),
-        .tokenPoolLength = static_cast<uint32_t>(dstShape[1]),
-        .typeBytes = eleBytes,
-        .syncWorkspaceSize = syncWorkspaceSize,
-        .ubSize = static_cast<uint32_t>(ubSize)};
+    struct CustomAssignTilingData tilingData = {.batchSize = static_cast<uint32_t>(dstShape[0]),
+                                                .tokenPoolLength = static_cast<uint32_t>(dstShape[1]),
+                                                .typeBytes = eleBytes,
+                                                .syncWorkspaceSize = syncWorkspaceSize,
+                                                .ubSize = static_cast<uint32_t>(ubSize)};
     at::Tensor tiling = GetTilingTensor(tilingData, sizeof(tilingData));
 
     auto sync = at::zeros({syncWorkspaceSize, 1}, at::kByte);
     auto syncDevice = TorchNpuHepler::CopyTensorHostToDevice(sync);
-    EXEC_KERNEL_CMD(
-        assign_cache_op,
-        blockDim,
-        dstTensor,
-        srcTensor,
-        dstStartIdx,
-        dstEndIdx,
-        srcStartIdx,
-        srcEndIdx,
-        syncDevice,
-        tiling);
+    EXEC_KERNEL_CMD(assign_cache_op, blockDim, dstTensor, srcTensor, dstStartIdx, dstEndIdx, srcStartIdx, srcEndIdx,
+                    syncDevice, tiling);
     return true;
 }
 }  // namespace npu_kernel

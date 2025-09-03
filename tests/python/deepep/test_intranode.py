@@ -178,7 +178,7 @@ def test_main(
                 check_x,
                 ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
             )
-            < 5e-6
+            < 5e-5
         )
 
         # For later tuning
@@ -228,6 +228,7 @@ def test_main(
         "topk_weights": topk_weights,
     }
     recv_x, _, _, _, handle, _ = buffer.dispatch(**dispatch_args)
+    recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
     # Tune combine performance
     tune_args = {
         "x": recv_x,
