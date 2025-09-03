@@ -670,8 +670,13 @@ std::tuple<at::Tensor&, at::Tensor&, at::Tensor&, at::Tensor&> mla_preprocess(
     uint32_t tilingSize = sizeof(MlaTilingData);
     static auto global_tiling_data = at::empty({tilingSize * MAX_SUPPORT_TOKEN_NUMS},
                                         at::TensorOptions().dtype(at::kByte).device(hiddenState.options().device()));
-    aclrtMemcpy(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * bIndex), tilingSize,
-                &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    if (bIndex >= 0 && bIndex < MAX_SUPPORT_TOKEN_NUMS) {
+        aclrtMemcpy(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * bIndex), tilingSize,
+                    &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
+     } else {
+        // Handle the case where bIndex is out of range
+        TORCH_CHECK(false, "bIndex is out of range: ", bIndex);
+    }
     at::Tensor tiling = at::from_blob(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * bIndex),
                                                 tilingSize, at::kByte);
 
