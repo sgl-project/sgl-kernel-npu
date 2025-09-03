@@ -22,16 +22,14 @@ class Buffer:
 
         Arguments:
             group: the communication group.
-            num_nvl_bytes: the buffer size for intranode NVLink communication.
+            num_nvl_bytes: the buffer size for intranode HCCS communication. Use this name
+                to ensure compatibility with DeepEP.
             num_rdma_bytes: the buffer size for internode (also for intranode with low-latency mode) RDMA communication.
             low_latency_mode: whether to enable low-latency mode.
             num_qps_per_rank: the number of QPs for RDMA, the low-latency mode requires that this number equals
                 to the number of local experts.
-            allow_nvlink_for_low_latency_mode: whether allow NVLink traffic for low-latency mode, you should notice
-                this is somehow incompatible with the hook-based overlapping.
-                Warning: PCIe connections may lead to errors due to memory ordering issues,
-                please make sure all connections are via NVLink.
-            allow_mnnvl: whether to allow MNNVL
+            allow_nvlink_for_low_latency_mode: This parameter is deprecated and retained to ensure compatibility with DeepEP.
+            allow_mnnvl: This parameter is deprecated and retained to ensure compatibility with DeepEP.
         """
 
         self.rank = group.rank()
@@ -187,8 +185,8 @@ class Buffer:
                   Optional[torch.Tensor], List[int], Tuple, EventOverlap]:
         """
         Dispatch tokens to different ranks, both intranode and internode settings are supported.
-        Intranode kernels require all the ranks should be visible via NVLink.
-        Internode kernels require the ranks in a node should be visible via NVLink, while the ranks with the same GPU
+        Intranode kernels require all the ranks should be visible via HCCS.
+        Internode kernels require the ranks in a node should be visible via HCCS, while the ranks with the same GPU
             index should be visible via RDMA.
 
         Arguments:
@@ -257,8 +255,8 @@ class Buffer:
         """
         Combine (reduce) tokens (addition **without** weights) from different ranks, both intranode and internode
             settings are supported.
-        Intranode kernels require all the ranks should be visible via NVLink.
-        Internode kernels require the ranks in a node should be visible via NVLink, while the ranks with the same GPU
+        Intranode kernels require all the ranks should be visible via HCCS.
+        Internode kernels require the ranks in a node should be visible via HCCS, while the ranks with the same GPU
             index should be visible via RDMA.
 
         Arguments:
