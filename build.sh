@@ -135,13 +135,13 @@ function build_memory_saver()
 {
     if [[ "$BUILD_MEMORY_SAVER_MODULE" != "ON" ]]; then return 0; fi
     echo "[memory_saver] Building torch_memory_saver via setup.py"
-    cd python/memory_saver || exit
-    rm -rf "$CURRENT_DIR"/python/memory_saver/build
-    rm -rf "$CURRENT_DIR"/python/memory_saver/dist
+    cd contrib/torch_memory_saver/python || exit
+    rm -rf "$CURRENT_DIR"/contrib/torch_memory_saver/python/build
+    rm -rf "$CURRENT_DIR"/contrib/torch_memory_saver/python/dist
     python3 setup.py clean --all
     python3 setup.py bdist_wheel
-    mv -v "$CURRENT_DIR"/python/memory_saver/dist/torch_memory_saver*.whl "${OUTPUT_DIR}/"
-    rm -rf "$CURRENT_DIR"/python/memory_saver/dist
+    mv -v "$CURRENT_DIR"/contrib/torch_memory_saver/python/torch_memory_saver*.whl "${OUTPUT_DIR}/"
+    rm -rf "$CURRENT_DIR"/contrib/torch_memory_saver/python/dist
     cd -
 }
 
