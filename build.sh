@@ -3,15 +3,18 @@ set -e
 
 BUILD_DEEPEP_MODULE="ON"
 BUILD_KERNELS_MODULE="ON"
+BUILD_MEMORY_SAVER_MODULE="ON"
 
 ONLY_BUILD_DEEPEP_ADAPTER_MODULE="OFF"
 ONLY_BUILD_DEEPEP_KERNELs_MODULE="OFF"
+ONLY_BUILD_MEMORY_SAVER_MODULE="OFF"
 
 while getopts ":a:h" opt; do
     case ${opt} in
         a )
             BUILD_DEEPEP_MODULE="OFF"
             BUILD_KERNELS_MODULE="OFF"
+            BUILD_MEMORY_SAVER_MODULE="OFF"
             case "$OPTARG" in
                 deepep )
                     BUILD_DEEPEP_MODULE="ON"
@@ -27,9 +30,13 @@ while getopts ":a:h" opt; do
                     BUILD_DEEPEP_MODULE="ON"
                     ONLY_BUILD_DEEPEP_KERNELs_MODULE="ON"
                     ;;
+                memory-saver )
+                    BUILD_MEMORY_SAVER_MODULE="ON"
+                    ONLY_BUILD_MEMORY_SAVER_MODULE="ON"
+                    ;;
                 * )
                     echo "Error: Invalid Value"
-                    echo "Allowed value: deepep|kernels|deepep-adapter|deepep-kernels"
+                    echo "Allowed value: deepep|kernels|deepep-adapter|deepep-kernels|memory-saver"
                     exit 1
                     ;;
             esac
@@ -42,6 +49,7 @@ while getopts ":a:h" opt; do
             echo "    kernels           Only build sgl_kernel_npu."
             echo "    deepep-adapter    Only build deepep adapter layer and use old build of deepep kernels."
             echo "    deepep-kernels    Only build deepep kernels and use old build of deepep adapter layer."
+            echo "    memory-saver      Only build torch_memory_saver (under contrib)."
             exit 1
             ;;
         \? )
@@ -74,6 +82,7 @@ CURRENT_DIR=$(pwd)
 PROJECT_ROOT=$(dirname "$CURRENT_DIR")
 VERSION="1.0.0"
 OUTPUT_DIR=$CURRENT_DIR/output
+mkdir -p $OUTPUT_DIR
 echo "outpath: ${OUTPUT_DIR}"
 
 COMPILE_OPTIONS=""
@@ -81,6 +90,7 @@ COMPILE_OPTIONS=""
 function build_kernels()
 {
     if [[ "$ONLY_BUILD_DEEPEP_KERNELs_MODULE" == "ON" ]]; then return 0; fi
+    if [[ "$BUILD_KERNELS_MODULE" != "ON" ]]; then return 0; fi
 
     CMAKE_DIR=""
     BUILD_DIR="build"
@@ -121,6 +131,20 @@ function build_deepep_kernels()
     cd -
 }
 
+function build_memory_saver()
+{
+    if [[ "$BUILD_MEMORY_SAVER_MODULE" != "ON" ]]; then return 0; fi
+    echo "[memory_saver] Building torch_memory_saver via setup.py"
+    cd python/memory_saver || exit
+    rm -rf "$CURRENT_DIR"/python/memory_saver/build
+    rm -rf "$CURRENT_DIR"/python/memory_saver/dist
+    python3 setup.py clean --all
+    python3 setup.py bdist_wheel
+    mv -v "$CURRENT_DIR"/python/memory_saver/dist/torch_memory_saver*.whl "${OUTPUT_DIR}/"
+    rm -rf "$CURRENT_DIR"/python/memory_saver/dist
+    cd -
+}
+
 function make_deepep_package()
 {
     cd python/deep_ep || exit
@@ -148,8 +172,10 @@ function make_sgl_kernel_npu_package()
 
 function main()
 {
+
     build_kernels
     build_deepep_kernels
+    build_memory_saver
     if pip3 show wheel;then
         echo "wheel has been installed"
     else
@@ -161,6 +187,7 @@ function main()
     if [[ "$BUILD_KERNELS_MODULE" == "ON" ]]; then
         make_sgl_kernel_npu_package
     fi
+
 }
 
 main
