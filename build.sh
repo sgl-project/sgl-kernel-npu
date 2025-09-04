@@ -140,7 +140,7 @@ function build_memory_saver()
     rm -rf "$CURRENT_DIR"/contrib/torch_memory_saver/python/dist
     python3 setup.py clean --all
     python3 setup.py bdist_wheel
-    mv -v "$CURRENT_DIR"/contrib/torch_memory_saver/python/torch_memory_saver*.whl "${OUTPUT_DIR}/"
+    mv -v "$CURRENT_DIR"/contrib/torch_memory_saver/python/dist/torch_memory_saver*.whl "${OUTPUT_DIR}/"
     rm -rf "$CURRENT_DIR"/contrib/torch_memory_saver/python/dist
     cd -
 }
