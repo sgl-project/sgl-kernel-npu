@@ -77,26 +77,32 @@ torch_memory_saver.hook_mode = "torch"
 
 ## Development
 
+1. Before executing the engineering build script build.sh, modify `_ASCEND_INSTALL_PATH` on line 73 of build.sh according to the CANN installation path.
+
 ```bash
 bash build.sh  -a memory-saver
 ```
+2. Pip install the `.whl` file into your Python environment
 
+```bash
+pip install output/deep_ep*.whl
+```
 ## Test
 You can use this command for local testing:
 
 ### Basic Functions
 ```bash
-python tests/python/memory_saver/simple.py  torch
+python contrib/torch_memory_saver/test/simple.py  torch
 ```
 
 ### CPU Backup
 ```bash
-python tests/python/memory_saver/cpu_backup.py  torch
+python contrib/torch_memory_saver/test/cpu_backup.py  torch
 ```
 
 ### RL_Example
 ```bash
-python tests/python/memory_saver/rl_example.py  torch
+python contrib/torch_memory_saver/test/rl_example.py  torch
 ```
 
 ### FAQ
