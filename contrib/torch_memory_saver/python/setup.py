@@ -48,7 +48,6 @@ common_macros = [
 
 repo_root = Path(__file__).resolve().parents[3]  # sgl-kernel-npu/
 csrc_dir = repo_root / "contrib" / "torch_memory_saver" / "csrc"
-print(f"1111111111111111 {csrc_dir}")
 setup(
     name='torch_memory_saver',
     version='0.0.8',
