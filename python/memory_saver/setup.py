@@ -10,7 +10,9 @@ logger = logging.getLogger(__name__)
 
 def _find_ascend_home():
     """
-    优先用 ASCEND_TOOLKIT_HOME，否则退回到常见默认安装路径：
+    Find the ASCEND toolkit home directory.
+    It prioritizes the ASCEND_TOOLKIT_HOME environment variable.
+    If not set, it falls back to the common default installation path:
     /usr/local/Ascend/ascend-toolkit/latest
     """
     home = os.environ.get("ASCEND_TOOLKIT_HOME")

@@ -12,7 +12,9 @@ aclError TorchMemorySaver::malloc(void **ptr, int device, size_t size, const std
     aclrtDrvMemHandle allocHandle;
     CANNUtils::cann_mem_create(&allocHandle, size, device);
     int ret = aclrtReserveMemAddress(ptr, size, 0, nullptr, 0);
+    SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtReserveMemAddress failed");
     ret = aclrtMapMem(*ptr, size, 0, allocHandle, 0);
+    SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtMapMem failed");
     {
         const std::lock_guard<std::mutex> lock(allocator_metadata_mutex_);
         allocation_metadata_.emplace(*ptr, AllocationMetadata{size, device, allocHandle, tag, enable_cpu_backup, nullptr});

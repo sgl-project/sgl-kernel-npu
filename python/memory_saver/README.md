@@ -13,11 +13,11 @@ Please refer to https://github.com/sgl-project/sglang/issues/2542#issuecomment-2
 with torch_memory_saver.region():
     pauseable_tensor = torch.full((1_000_000_000,), 100, dtype=torch.uint8, device='npu')
 
-# 2. After `pause`, CUDA memory is released for those tensors.
-# For example, check `nvidia-smi`'s memory usage to verify.
+# 2. After `pause`, NPU memory is released for those tensors.
+# For example, check `npu-smi info`'s memory usage to verify.
 torch_memory_saver.pause()
 
-# 3. After `resume`, CUDA memory is re-occupied for those tensors.
+# 3. After `resume`, NPU memory is re-occupied for those tensors.
 torch_memory_saver.resume()
 ```
 
@@ -66,7 +66,7 @@ assert tensor1[0] == 42, "content is kept unchanged"
 
 There are two hook modes:
 
-* **preload**: Use `LD_PRELOAD` to hook CUDA's malloc and free API to change allocation behavior.
+* **preload**: Use `LD_PRELOAD` to hook CANN's malloc and free API to change allocation behavior.
 * **torch**: Use torch's custom allocator API to change allocation behavior.
 
 The mode can be chosen by:

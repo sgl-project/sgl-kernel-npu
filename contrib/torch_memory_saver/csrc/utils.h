@@ -24,33 +24,6 @@
     } \
   } while (false)
 
-#define CURESULT_CHECK(EXPR) \
-  do { \
-    CUresult __result = (EXPR); \
-    if (__result != CUDA_SUCCESS) { \
-        const char* err_str = nullptr; \
-        cuGetErrorString(__result, &err_str); \
-        std::cerr << "[torch_memory_saver.cpp] CUresult error: " \
-                  << __result << " (" << (err_str ? err_str : "Unknown error") << ") " \
-                  << " file=" << __FILE__ << " func=" << __func__ << " line=" << __LINE__ \
-                  << std::endl; \
-        exit(1); \
-    } \
-  } while (false)
-
-#define CUDA_ERROR_CHECK(EXPR) \
-  do { \
-    cudaError_t __result = (EXPR); \
-    if (__result != cudaSuccess) { \
-        const char* err_str = cudaGetErrorString(__result); \
-        std::cerr << "[torch_memory_saver.cpp] cudaError error: " \
-                  << __result << " (" << (err_str ? err_str : "Unknown error") << ") " \
-                  << " file=" << __FILE__ << " func=" << __func__ << " line=" << __LINE__ \
-                  << std::endl; \
-        exit(1); \
-    } \
-  } while (false)
-
 namespace CANNUtils {
     static void cann_mem_create(aclrtDrvMemHandle *alloc_handle, size_t size, int device) {
         aclrtPhysicalMemProp prop = {};
@@ -60,12 +33,14 @@ namespace CANNUtils {
         prop.memAttr = ACL_HBM_MEM_HUGE;
         prop.reserve = 0;
         prop.handleType = ACL_MEM_HANDLE_TYPE_NONE ;
-        int ret = aclrtMallocPhysical(alloc_handle, size, &prop, 0);
+        aclError ret = aclrtMallocPhysical(alloc_handle, size, &prop, 0);
+        SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtMallocPhysical failed");
     }
 
     static int cann_ctx_get_device() {
         int ans;
-        aclrtGetDevice(&ans);
+        aclError ret = aclrtGetDevice(&ans);
+        SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtGetDevice failed");
         return ans;
     }
 
