@@ -263,7 +263,7 @@ function(add_kernels_install)
     )
   endif()
 
-  # install *.o files and *.json files 
+  # install *.o files and *.json files
   if (${ENABLE_BINARY_PACKAGE})
     set(INSTALL_DIR packages/vendors/${vendor_name}/op_impl/ai_core/tbe/)
       foreach(compute_unit ${ASCEND_COMPUTE_UNIT})

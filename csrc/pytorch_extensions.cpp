@@ -24,28 +24,33 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 
     m.def("helloworld(Tensor x, Tensor y) -> Tensor");
 
-    m.def("alloc_extend(Tensor pre_lens, Tensor seq_lens, Tensor last_loc, Tensor free_pages, int page_size, "
-          "Tensor(a!) out_indices, Tensor(b!) values) -> ()");
+    m.def(
+        "alloc_extend(Tensor pre_lens, Tensor seq_lens, Tensor last_loc, Tensor free_pages, int page_size, "
+        "Tensor(a!) out_indices, Tensor(b!) values) -> ()");
 
-    m.def("cache_loc_assign(Tensor req_indices, Tensor token_pool, Tensor start_offset, Tensor end_offset, Tensor "
-          "out_cache_loc) -> Tensor");
+    m.def(
+        "cache_loc_assign(Tensor req_indices, Tensor token_pool, Tensor start_offset, Tensor end_offset, Tensor "
+        "out_cache_loc) -> Tensor");
 
-    m.def("cache_loc_update(Tensor req_indices, Tensor token_pool, Tensor start_offset, Tensor end_offset, Tensor "
-          "out_cache_loc) -> Tensor");
+    m.def(
+        "cache_loc_update(Tensor req_indices, Tensor token_pool, Tensor start_offset, Tensor end_offset, Tensor "
+        "out_cache_loc) -> Tensor");
 
-    m.def("assign_cache_op(Tensor! out, Tensor src, Tensor dst_start_idx, Tensor dst_end_idx, Tensor src_start_idx, "
-          "Tensor src_end_idx) -> bool");
+    m.def(
+        "assign_cache_op(Tensor! out, Tensor src, Tensor dst_start_idx, Tensor dst_end_idx, Tensor src_start_idx, "
+        "Tensor src_end_idx) -> bool");
 
-    m.def("mla_preprocess(Tensor hiddenState, Tensor gamma0, Tensor beta0, Tensor wdqkv, "
-          "Tensor descale0, Tensor gamma1, Tensor beta1, Tensor wuq, "
-          "Tensor descale1, Tensor gamma2, Tensor cos, Tensor sin, Tensor wuk,"
-          "Tensor kv_cache, Tensor kv_cache_rope, Tensor slotmapping, "
-          "Tensor quant_scale0, Tensor quant_offset0, Tensor bias0, "
-          "Tensor quant_scale1, Tensor quant_offset1, Tensor bias1, *, "
-          "Tensor? ctkv_scale=None, Tensor? q_nope_scale=None, "
-          "str? cache_mode=None, str? quant_mode=None, "
-          "Tensor(a!) q_out0, Tensor(b!) kv_cache_out0, Tensor(c!) q_out1, Tensor(d!) kv_cache_out1) "
-          "-> (Tensor(a!), Tensor(b!), Tensor(c!), Tensor(d!))");
+    m.def(
+        "mla_preprocess(Tensor hiddenState, Tensor gamma0, Tensor beta0, Tensor wdqkv, "
+        "Tensor descale0, Tensor gamma1, Tensor beta1, Tensor wuq, "
+        "Tensor descale1, Tensor gamma2, Tensor cos, Tensor sin, Tensor wuk,"
+        "Tensor kv_cache, Tensor kv_cache_rope, Tensor slotmapping, "
+        "Tensor quant_scale0, Tensor quant_offset0, Tensor bias0, "
+        "Tensor quant_scale1, Tensor quant_offset1, Tensor bias1, *, "
+        "Tensor? ctkv_scale=None, Tensor? q_nope_scale=None, "
+        "str? cache_mode=None, str? quant_mode=None, "
+        "Tensor(a!) q_out0, Tensor(b!) kv_cache_out0, Tensor(c!) q_out1, Tensor(d!) kv_cache_out1) "
+        "-> (Tensor(a!), Tensor(b!), Tensor(c!), Tensor(d!))");
 }
 }  // namespace
 

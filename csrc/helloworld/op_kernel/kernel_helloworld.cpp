@@ -17,7 +17,8 @@
 /* tensor num for each queue */
 constexpr int32_t BUFFER_NUM = 2;
 
-class KernalHelloworld {
+class KernalHelloworld
+{
 public:
     __aicore__ inline KernalHelloworld() {}
 
@@ -65,7 +66,7 @@ private:
         inQueueX.FreeTensor(xLocal);
         inQueueY.FreeTensor(yLocal);
     }
-    
+
     __aicore__ inline void CopyOut(int32_t progress)
     {
         AscendC::LocalTensor<half> zLocal = outQueueZ.DeQue<half>();
@@ -92,4 +93,4 @@ extern "C" __global__ __aicore__ void helloworld(GM_ADDR x, GM_ADDR y, GM_ADDR z
     op.Process();
 }
 
-#endif  //SGL_KERNEL_NPU_KERNEL_HELLOWORLD_H
+#endif  // SGL_KERNEL_NPU_KERNEL_HELLOWORLD_H

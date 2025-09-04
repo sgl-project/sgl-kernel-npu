@@ -23,7 +23,8 @@ constexpr uint32_t ASSIGN_TO_POOL = 0;
 constexpr uint32_t RETRIEVE_FROM_POOL = 1;
 
 template <typename T>
-class CacheLocAssignKernel {
+class CacheLocAssignKernel
+{
 public:
     __aicore__ inline CacheLocAssignKernel() {}
 

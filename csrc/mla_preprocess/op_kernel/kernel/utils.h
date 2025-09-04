@@ -13,11 +13,8 @@
 #define INCLUDE_UTILS_H
 
 template <typename IN_DTYPE>
-__aicore__ inline void CreateCaMatrix(const AscendC::LocalTensor<IN_DTYPE> &dst,
-                                      const uint16_t repeats,
-                                      const uint16_t blockNum,
-                                      const uint16_t dstGap,
-                                      const IN_DTYPE initValue)
+__aicore__ inline void CreateCaMatrix(const AscendC::LocalTensor<IN_DTYPE> &dst, const uint16_t repeats,
+                                      const uint16_t blockNum, const uint16_t dstGap, const IN_DTYPE initValue)
 {
     AscendC::InitConstValue<IN_DTYPE>(dst,
                                       AscendC::InitConstValueParams<IN_DTYPE>(repeats, blockNum, dstGap, initValue));

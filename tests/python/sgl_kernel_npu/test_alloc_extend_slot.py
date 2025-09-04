@@ -1,8 +1,10 @@
-import torch
 import unittest
+
+import torch
 
 page_size_range = None
 draft_token_num_range = None
+
 
 def alloc_extend_pytorch(
     pre_lens, seq_lens, last_loc, free_pages, page_size, extend_lens
@@ -154,37 +156,44 @@ def alloc_extend_native(
 class TestAllocExtend(unittest.TestCase):
     def setUp(self):
         self.dtype = torch.int64
-        self.device = 'cpu'
-        
+        self.device = "cpu"
+
     def compute(
         self,
-        prefix_lens, 
-        seq_lens, 
-        last_loc, 
-        free_pages, 
-        page_size, 
+        prefix_lens,
+        seq_lens,
+        last_loc,
+        free_pages,
+        page_size,
         estimated_num_new_pages,
     ):
         out_indices_gt, estimated_num_new_pages_gt = alloc_extend_native(
-            prefix_lens, 
-            seq_lens, 
-            last_loc, 
-            free_pages, 
-            page_size, 
-            estimated_num_new_pages
+            prefix_lens,
+            seq_lens,
+            last_loc,
+            free_pages,
+            page_size,
+            estimated_num_new_pages,
         )
         print("=================")
-        print(f"gt out_indices: {out_indices_gt.shape}, estimated_num_new_pages: {estimated_num_new_pages_gt}")
+        print(
+            f"gt out_indices: {out_indices_gt.shape}, estimated_num_new_pages: {estimated_num_new_pages_gt}"
+        )
         print("=================")
         import sgl_kernel_npu
+
         extend_lens = seq_lens - prefix_lens
         extend_tokens_num = extend_lens.sum().item()
-        out_indices = torch.empty((extend_tokens_num,), dtype=self.dtype, device=self.device).npu()
-        estimated_num_new_pages = torch.empty((1,), dtype=self.dtype, device=self.device).npu()
+        out_indices = torch.empty(
+            (extend_tokens_num,), dtype=self.dtype, device=self.device
+        ).npu()
+        estimated_num_new_pages = torch.empty(
+            (1,), dtype=self.dtype, device=self.device
+        ).npu()
         torch.ops.npu.alloc_extend(
-            prefix_lens.npu(), 
-            seq_lens.npu(), 
-            last_loc.npu(), 
+            prefix_lens.npu(),
+            seq_lens.npu(),
+            last_loc.npu(),
             free_pages.npu(),
             page_size,
             out_indices.npu(),
@@ -193,16 +202,22 @@ class TestAllocExtend(unittest.TestCase):
         print("=================")
         out_indices = out_indices.cpu()
         num_new_pages = estimated_num_new_pages.item()
-        print(f"sgl-kernel out_indices: {out_indices.shape}, estimated_num_new_pages: {estimated_num_new_pages}, num_new_pages: {num_new_pages}")
+        print(
+            f"sgl-kernel out_indices: {out_indices.shape}, estimated_num_new_pages: {estimated_num_new_pages}, num_new_pages: {num_new_pages}"
+        )
         print("=================")
         ret = torch.equal(out_indices_gt, out_indices)
         if not ret:
-            close_mask = torch.isclose(out_indices_gt.to(torch.int64), out_indices.to(torch.int64))
+            close_mask = torch.isclose(
+                out_indices_gt.to(torch.int64), out_indices.to(torch.int64)
+            )
             diff_positions = (~close_mask).nonzero()
             show_num = 10
             for idx in range(min(show_num, diff_positions.shape[0])):
                 pos = diff_positions[idx]
-                print(f"total err cnt: {diff_positions.shape}, pos: {pos}, out_indices_gt: {out_indices_gt[pos]}, out_indices: {out_indices[pos]}")
+                print(
+                    f"total err cnt: {diff_positions.shape}, pos: {pos}, out_indices_gt: {out_indices_gt[pos]}, out_indices: {out_indices[pos]}"
+                )
         self.assertTrue(ret)
         # self.assertEqual(estimated_num_new_pages_gt, num_new_pages)
 
@@ -221,11 +236,11 @@ class TestAllocExtend(unittest.TestCase):
             .item()
         )
         self.compute(
-            prefix_lens, 
-            seq_lens, 
-            last_loc, 
-            free_pages, 
-            page_size, 
+            prefix_lens,
+            seq_lens,
+            last_loc,
+            free_pages,
+            page_size,
             estimated_num_new_pages,
         )
 
@@ -244,11 +259,11 @@ class TestAllocExtend(unittest.TestCase):
             .item()
         )
         self.compute(
-            prefix_lens, 
-            seq_lens, 
-            last_loc, 
-            free_pages, 
-            page_size, 
+            prefix_lens,
+            seq_lens,
+            last_loc,
+            free_pages,
+            page_size,
             estimated_num_new_pages,
         )
 
@@ -267,14 +282,14 @@ class TestAllocExtend(unittest.TestCase):
             .item()
         )
         self.compute(
-            prefix_lens, 
-            seq_lens, 
-            last_loc, 
-            free_pages, 
-            page_size, 
+            prefix_lens,
+            seq_lens,
+            last_loc,
+            free_pages,
+            page_size,
             estimated_num_new_pages,
         )
-    
+
     def test_case4_prefill_multi_pages(self):
         prefix_lens = torch.tensor([0], dtype=self.dtype, device=self.device)
         seq_lens = torch.tensor([300], dtype=self.dtype, device=self.device)
@@ -290,14 +305,14 @@ class TestAllocExtend(unittest.TestCase):
             .item()
         )
         self.compute(
-            prefix_lens, 
-            seq_lens, 
-            last_loc, 
-            free_pages, 
-            page_size, 
+            prefix_lens,
+            seq_lens,
+            last_loc,
+            free_pages,
+            page_size,
             estimated_num_new_pages,
         )
-    
+
     def test_case5_prefill_cache_multi_pages(self):
         prefix_lens = torch.tensor([100], dtype=self.dtype, device=self.device)
         seq_lens = torch.tensor([400], dtype=self.dtype, device=self.device)
@@ -313,18 +328,41 @@ class TestAllocExtend(unittest.TestCase):
             .item()
         )
         self.compute(
-            prefix_lens, 
-            seq_lens, 
-            last_loc, 
-            free_pages, 
-            page_size, 
+            prefix_lens,
+            seq_lens,
+            last_loc,
+            free_pages,
+            page_size,
             estimated_num_new_pages,
         )
-    
+
     def test_case6_prefill_multi_batch(self):
         prefix_lens = torch.tensor([0] * 19, dtype=self.dtype, device=self.device)
-        seq_lens = torch.tensor([734, 720, 705, 778, 725, 710, 772, 735, 726, 729, 732, 737, 720, 728, 720, 761, 
-            723, 735, 698], dtype=self.dtype, device=self.device)
+        seq_lens = torch.tensor(
+            [
+                734,
+                720,
+                705,
+                778,
+                725,
+                710,
+                772,
+                735,
+                726,
+                729,
+                732,
+                737,
+                720,
+                728,
+                720,
+                761,
+                723,
+                735,
+                698,
+            ],
+            dtype=self.dtype,
+            device=self.device,
+        )
         last_loc = torch.tensor([-1] * 19, dtype=self.dtype, device=self.device)
         free_pages = torch.arange(1, 1066, dtype=self.dtype, device=self.device)
         page_size = 128
@@ -337,21 +375,93 @@ class TestAllocExtend(unittest.TestCase):
             .item()
         )
         self.compute(
-            prefix_lens, 
-            seq_lens, 
-            last_loc, 
-            free_pages, 
-            page_size, 
+            prefix_lens,
+            seq_lens,
+            last_loc,
+            free_pages,
+            page_size,
             estimated_num_new_pages,
         )
-        
+
     def test_case7_decoder_multi_batch(self):
-        prefix_lens = torch.tensor([697, 734, 720, 705, 778, 725, 710, 772, 735, 726, 729, 732, 737, 720, 728, 720, 
-        761, 723, 735, 698], dtype=self.dtype, device=self.device)
-        seq_lens = torch.tensor([698, 735, 721, 706, 779, 726, 711, 773, 736, 727, 730, 733, 738, 721, 729, 721, 
-        762, 724, 736, 699], dtype=self.dtype, device=self.device)
-        last_loc = torch.tensor([1720, 2525, 3279, 4032, 4873, 5716, 6469, 7299, 8158, 8917, 9688, 10459, 11232, 
-        11983, 12759, 13519, 14328, 15058, 15838, 16569], dtype=self.dtype, device=self.device)
+        prefix_lens = torch.tensor(
+            [
+                697,
+                734,
+                720,
+                705,
+                778,
+                725,
+                710,
+                772,
+                735,
+                726,
+                729,
+                732,
+                737,
+                720,
+                728,
+                720,
+                761,
+                723,
+                735,
+                698,
+            ],
+            dtype=self.dtype,
+            device=self.device,
+        )
+        seq_lens = torch.tensor(
+            [
+                698,
+                735,
+                721,
+                706,
+                779,
+                726,
+                711,
+                773,
+                736,
+                727,
+                730,
+                733,
+                738,
+                721,
+                729,
+                721,
+                762,
+                724,
+                736,
+                699,
+            ],
+            dtype=self.dtype,
+            device=self.device,
+        )
+        last_loc = torch.tensor(
+            [
+                1720,
+                2525,
+                3279,
+                4032,
+                4873,
+                5716,
+                6469,
+                7299,
+                8158,
+                8917,
+                9688,
+                10459,
+                11232,
+                11983,
+                12759,
+                13519,
+                14328,
+                15058,
+                15838,
+                16569,
+            ],
+            dtype=self.dtype,
+            device=self.device,
+        )
         free_pages = torch.arange(1, 950, dtype=self.dtype, device=self.device)
         page_size = 128
         estimated_num_new_pages = (
@@ -363,21 +473,93 @@ class TestAllocExtend(unittest.TestCase):
             .item()
         )
         self.compute(
-            prefix_lens, 
-            seq_lens, 
-            last_loc, 
-            free_pages, 
-            page_size, 
+            prefix_lens,
+            seq_lens,
+            last_loc,
+            free_pages,
+            page_size,
             estimated_num_new_pages,
         )
 
     def test_case8_decoder_multi_batch_verfiy(self):
-        prefix_lens = torch.tensor([697, 734, 720, 705, 778, 725, 710, 772, 735, 726, 729, 732, 737, 720, 728, 
-        720, 761, 723, 735, 698], dtype=self.dtype, device=self.device)
-        seq_lens = torch.tensor([699, 736, 722, 707, 780, 727, 712, 774, 737, 728, 731, 734, 739, 722, 730, 722,
-         763, 725, 737, 700], dtype=self.dtype, device=self.device)
-        last_loc = torch.tensor([1720, 2525, 3279, 4032, 4873, 5716, 6469, 7299, 8158, 8917, 9688, 10459, 11232, 
-        11983, 12759, 13519, 14328, 15058, 15838, 16569], dtype=self.dtype, device=self.device)
+        prefix_lens = torch.tensor(
+            [
+                697,
+                734,
+                720,
+                705,
+                778,
+                725,
+                710,
+                772,
+                735,
+                726,
+                729,
+                732,
+                737,
+                720,
+                728,
+                720,
+                761,
+                723,
+                735,
+                698,
+            ],
+            dtype=self.dtype,
+            device=self.device,
+        )
+        seq_lens = torch.tensor(
+            [
+                699,
+                736,
+                722,
+                707,
+                780,
+                727,
+                712,
+                774,
+                737,
+                728,
+                731,
+                734,
+                739,
+                722,
+                730,
+                722,
+                763,
+                725,
+                737,
+                700,
+            ],
+            dtype=self.dtype,
+            device=self.device,
+        )
+        last_loc = torch.tensor(
+            [
+                1720,
+                2525,
+                3279,
+                4032,
+                4873,
+                5716,
+                6469,
+                7299,
+                8158,
+                8917,
+                9688,
+                10459,
+                11232,
+                11983,
+                12759,
+                13519,
+                14328,
+                15058,
+                15838,
+                16569,
+            ],
+            dtype=self.dtype,
+            device=self.device,
+        )
         free_pages = torch.arange(1, 950, dtype=self.dtype, device=self.device)
         page_size = 128
         estimated_num_new_pages = (
@@ -389,18 +571,26 @@ class TestAllocExtend(unittest.TestCase):
             .item()
         )
         self.compute(
-            prefix_lens, 
-            seq_lens, 
-            last_loc, 
-            free_pages, 
-            page_size, 
+            prefix_lens,
+            seq_lens,
+            last_loc,
+            free_pages,
+            page_size,
             estimated_num_new_pages,
         )
 
     def test_case9_prefill_long_seq(self):
-        prefix_lens = torch.tensor([0, 0, 0, 0, 0, 0, 0], dtype=self.dtype, device=self.device)
-        seq_lens = torch.tensor([10000, 8000, 3000, 5000, 4000, 6000, 7000], dtype=self.dtype, device=self.device)
-        last_loc = torch.tensor([-1, -1, -1, -1, -1, -1, -1], dtype=self.dtype, device=self.device)
+        prefix_lens = torch.tensor(
+            [0, 0, 0, 0, 0, 0, 0], dtype=self.dtype, device=self.device
+        )
+        seq_lens = torch.tensor(
+            [10000, 8000, 3000, 5000, 4000, 6000, 7000],
+            dtype=self.dtype,
+            device=self.device,
+        )
+        last_loc = torch.tensor(
+            [-1, -1, -1, -1, -1, -1, -1], dtype=self.dtype, device=self.device
+        )
         free_pages = torch.arange(1, 950, dtype=self.dtype, device=self.device)
         page_size = 128
         estimated_num_new_pages = (
@@ -412,11 +602,11 @@ class TestAllocExtend(unittest.TestCase):
             .item()
         )
         self.compute(
-            prefix_lens, 
-            seq_lens, 
-            last_loc, 
-            free_pages, 
-            page_size, 
+            prefix_lens,
+            seq_lens,
+            last_loc,
+            free_pages,
+            page_size,
             estimated_num_new_pages,
         )
 
@@ -435,13 +625,14 @@ class TestAllocExtend(unittest.TestCase):
             .item()
         )
         self.compute(
-            prefix_lens, 
-            seq_lens, 
-            last_loc, 
-            free_pages, 
-            page_size, 
+            prefix_lens,
+            seq_lens,
+            last_loc,
+            free_pages,
+            page_size,
             estimated_num_new_pages,
         )
+
 
 if __name__ == "__main__":
     unittest.main()

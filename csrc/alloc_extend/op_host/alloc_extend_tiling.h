@@ -22,7 +22,7 @@ struct AllocExtendTilingData {
     int64_t total_extend_tokens;
 };
 
-}
-}
+}  // namespace npu_kernel
+}  // namespace sglang
 
 #endif  // ALLOC_EXTENT_TILING_H

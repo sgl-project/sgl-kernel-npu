@@ -27,7 +27,7 @@ at::Tensor getTiling(const at::Tensor &reqPoolIndices, uint64_t rowSize, uint64_
     auto batchSize = reqPoolIndices.sizes()[0];
     auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
     if (isUpddate) {
-        blockDim = 1;  // todo: support mulitcore caculate for update
+        blockDim = 1;  // todo: support mulitcore calculate for update
     } else {
         blockDim = ascendcPlatform->GetCoreNumAiv();
     }
@@ -81,8 +81,9 @@ HOST_API void checkParams(const at::Tensor &reqPoolIndices, const at::Tensor &to
     if ((reqIdxType != at::kInt && reqIdxType != at::kLong) || tokenPool.options().dtype() != at::kInt ||
         startOffset.options().dtype() != at::kLong || endOffset.options().dtype() != at::kLong ||
         outCacheLoc.options().dtype() != at::kInt) {
-        throw std::invalid_argument("Only support inputTensor combo1: int64, int32, int64, int64, int32; combo2: "
-                                    "int32, int32, int64, int64, int32");
+        throw std::invalid_argument(
+            "Only support inputTensor combo1: int64, int32, int64, int64, int32; combo2: "
+            "int32, int32, int64, int64, int32");
     }
 }
 

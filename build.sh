@@ -18,7 +18,7 @@ while getopts ":a:h" opt; do
                     ;;
                 kernels )
                     BUILD_KERNELS_MODULE="ON"
-                    ;;  
+                    ;;
                 deepep-adapter )
                     BUILD_DEEPEP_MODULE="ON"
                     ONLY_BUILD_DEEPEP_ADAPTER_MODULE="ON"

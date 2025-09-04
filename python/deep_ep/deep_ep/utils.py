@@ -1,14 +1,18 @@
 import os
+from typing import Optional, Tuple
+
 import torch
 import torch_npu
-
-from typing import Tuple, Optional
 from deep_ep_cpp import Config, EventHandle
+
 
 class EventOverlap:
 
-    def __init__(self, event: Optional[EventHandle] = None,
-                 extra_tensors: Optional[Tuple[torch.Tensor]] = None) -> None:
+    def __init__(
+        self,
+        event: Optional[EventHandle] = None,
+        extra_tensors: Optional[Tuple[torch.Tensor]] = None,
+    ) -> None:
         """
         Initialize the class.
 
@@ -21,6 +25,6 @@ class EventOverlap:
         # NOTES: we use extra tensors to achieve stream recording, otherwise,
         # stream recording will be incompatible with CUDA graph.
         self.extra_tensors = extra_tensors
-    
+
     def current_stream_wait(self) -> None:
         pass

@@ -1,17 +1,18 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
 
-import sys
-import os
-import subprocess
-import time
-import glob
-import shutil
 import argparse
-import const_var
-import ascendc_impl_build
+import glob
+import os
+import shutil
+import subprocess
+import sys
+import time
+
 import ascendc_bin_param_build
+import ascendc_impl_build
 import ascendc_op_info
+import const_var
 
 
 class CompileKernel:
@@ -42,9 +43,8 @@ class CompileKernel:
         else:
             self.json_file = None
 
-
     def clean(self: any):
-        if 'dump_cce' not in self.op_debug_config:
+        if "dump_cce" not in self.op_debug_config:
             shutil.rmtree(self.working_dir)
         return
 
@@ -82,9 +82,15 @@ class CompileKernel:
         base_dir = os.path.dirname(self.op_cfg_ini)
         opc_config_file = os.path.join(base_dir, "custom_opc_options.ini")
         ascendc_bin_param_build.gen_bin_param_file(
-            self.op_cfg_ini, bin_param_path, self.op_soc_ver, opc_config_file, [self.op_type]
+            self.op_cfg_ini,
+            bin_param_path,
+            self.op_soc_ver,
+            opc_config_file,
+            [self.op_type],
         )
-        tiling_key_info, op_debug_config = ascendc_bin_param_build.parse_op_debug_confg(opc_config_file, self.op_type)
+        tiling_key_info, op_debug_config = ascendc_bin_param_build.parse_op_debug_confg(
+            opc_config_file, self.op_type
+        )
         if self.op_type in op_debug_config:
             self.op_debug_config = op_debug_config[self.op_type]
         if "ALL" in op_debug_config:
@@ -111,18 +117,26 @@ class CompileKernel:
 
     def ascendc_put_json(self: any):
         if self.json_file is not None:
-            json_file_dir = os.path.join(self.build_opp_path,
-                                         "op_impl",
-                                         "ai_core",
-                                         "tbe",
-                                         "config",
-                                         self.op_soc_ver)
+            json_file_dir = os.path.join(
+                self.build_opp_path,
+                "op_impl",
+                "ai_core",
+                "tbe",
+                "config",
+                self.op_soc_ver,
+            )
             os.makedirs(json_file_dir)
             shutil.copy(self.json_file, json_file_dir)
-            build_json_file = os.path.join(json_file_dir, "aic-{}-ops-info.json".format(self.op_soc_ver))
+            build_json_file = os.path.join(
+                json_file_dir, "aic-{}-ops-info.json".format(self.op_soc_ver)
+            )
             if not os.path.exists(build_json_file):
                 self.clean()
-                raise RuntimeError("prepare json file aic-{}-ops-info.json failed!".format(self.op_soc_ver))
+                raise RuntimeError(
+                    "prepare json file aic-{}-ops-info.json failed!".format(
+                        self.op_soc_ver
+                    )
+                )
 
     def ascendc_build(self: any):
         op_info = ascendc_op_info.OpInfo(self.op_type, self.op_cfg_ini)
@@ -150,14 +164,30 @@ class CompileKernel:
             fd.write("\n".join(sub_cmd))
 
         if os.getenv("TILINGKEY_PAR_COMPILE") is None:
-            cmd_str = ('export HI_PYTHON=python3 && export ASCEND_CUSTOM_OPP_PATH={} && export TILINGKEY_PAR_COMPILE=1'
-                       '&& make -f {} PY={} OUT={} CPP={}')
+            cmd_str = (
+                "export HI_PYTHON=python3 && export ASCEND_CUSTOM_OPP_PATH={} && export TILINGKEY_PAR_COMPILE=1"
+                "&& make -f {} PY={} OUT={} CPP={}"
+            )
         else:
-            cmd_str = ('export HI_PYTHON=python3 && export ASCEND_CUSTOM_OPP_PATH={} && make -f {} PY={} OUT={} CPP={}')
+            cmd_str = "export HI_PYTHON=python3 && export ASCEND_CUSTOM_OPP_PATH={} && make -f {} PY={} OUT={} CPP={}"
 
-        if os.system(cmd_str.format(self.build_opp_path, mkfile, self.op_impl_py, op_bin_dir, self.op_cpp_file)) != 0:
-            raise RuntimeError('Kernel Compilation Error: OpType {} Kernel File {}!'.format(
-                self.op_type, self.op_cpp_file))
+        if (
+            os.system(
+                cmd_str.format(
+                    self.build_opp_path,
+                    mkfile,
+                    self.op_impl_py,
+                    op_bin_dir,
+                    self.op_cpp_file,
+                )
+            )
+            != 0
+        ):
+            raise RuntimeError(
+                "Kernel Compilation Error: OpType {} Kernel File {}!".format(
+                    self.op_type, self.op_cpp_file
+                )
+            )
 
 
 def args_parse():
@@ -186,13 +216,25 @@ def args_parse():
         "-o", "--output-path", nargs="?", help="Output path of compile result."
     )
     parser.add_argument(
-        "-dy", "--dynamic-dir", nargs="?", default=None, help="dynamic path of source compile."
+        "-dy",
+        "--dynamic-dir",
+        nargs="?",
+        default=None,
+        help="dynamic path of source compile.",
     )
     parser.add_argument(
-        "-eb", "--enable-binary", nargs="?", default=None, help="whether binary compile is enabled."
+        "-eb",
+        "--enable-binary",
+        nargs="?",
+        default=None,
+        help="whether binary compile is enabled.",
     )
     parser.add_argument(
-        "-j", "--json-file", nargs="?", default=None, help="aic-<compute-unit>-ops-info.json file path."
+        "-j",
+        "--json-file",
+        nargs="?",
+        default=None,
+        help="aic-<compute-unit>-ops-info.json file path.",
     )
     # $(MAKE) is necessary for parallel compiling
     parser.add_argument(

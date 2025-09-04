@@ -40,11 +40,9 @@ struct AsdopsBuffer {
 public:
     __aicore__ AsdopsBuffer()
     {
-        constexpr uint32_t bufferSize[(uint32_t)BufferType::ASCEND_MAX] = {HardwareInfo<ArchTag>::ubSize,
-                                                                           HardwareInfo<ArchTag>::l1Size,
-                                                                           HardwareInfo<ArchTag>::l0ASize,
-                                                                           HardwareInfo<ArchTag>::l0BSize,
-                                                                           HardwareInfo<ArchTag>::l0CSize};
+        constexpr uint32_t bufferSize[(uint32_t)BufferType::ASCEND_MAX] = {
+            HardwareInfo<ArchTag>::ubSize, HardwareInfo<ArchTag>::l1Size, HardwareInfo<ArchTag>::l0ASize,
+            HardwareInfo<ArchTag>::l0BSize, HardwareInfo<ArchTag>::l0CSize};
 #ifdef __DAV_C220_VEC__
         tensor[(uint32_t)BufferType::ASCEND_UB].InitBuffer(0, bufferSize[(uint32_t)BufferType::ASCEND_UB]);
         tensor[(uint32_t)BufferType::ASCEND_UB].address_.logicPos = static_cast<uint8_t>(AscendC::TPosition::VECIN);
