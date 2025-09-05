@@ -14,7 +14,9 @@ class BinaryWrapper:
 
         _setup_function_signatures(self.cdll)
 
-    def set_config(self, *, tag: str, interesting_region: bool, enable_cpu_backup: bool):
+    def set_config(
+        self, *, tag: str, interesting_region: bool, enable_cpu_backup: bool
+    ):
         self.cdll.tms_set_current_tag(tag.encode("utf-8"))
         self.cdll.tms_set_interesting_region(interesting_region)
         self.cdll.tms_set_enable_cpu_backup(enable_cpu_backup)

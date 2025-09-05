@@ -1,12 +1,13 @@
-
 import logging
 import os
 import shutil
 from pathlib import Path
+
 import setuptools
 from setuptools import setup
 
 logger = logging.getLogger(__name__)
+
 
 def _find_ascend_home():
     """
@@ -24,6 +25,7 @@ def _find_ascend_home():
     maybe = "/usr/local/Ascend/ascend-toolkit"
     latest = os.path.join(maybe, "latest")
     return latest if os.path.isdir(latest) else default_home
+
 
 ascend_home = Path(_find_ascend_home()).resolve()
 
@@ -49,8 +51,8 @@ common_macros = [
 repo_root = Path(__file__).resolve().parents[3]  # sgl-kernel-npu/
 csrc_dir = repo_root / "contrib" / "torch_memory_saver" / "csrc"
 setup(
-    name='torch_memory_saver',
-    version='0.0.8',
+    name="torch_memory_saver",
+    version="0.0.8",
     ext_modules=[
         setuptools.Extension(
             name,
@@ -66,8 +68,8 @@ setup(
             ],
             include_dirs=include_dirs,
             library_dirs=library_dirs,
-            #CUDA -> ACL
-            libraries=['ascendcl'],
+            # CUDA -> ACL
+            libraries=["ascendcl"],
             define_macros=[
                 *common_macros,
                 *extra_macros,
@@ -76,10 +78,12 @@ setup(
             py_limited_api=True,
         )
         for name, extra_macros in [
-            ('torch_memory_saver_hook_mode_preload', [('TMS_HOOK_MODE_PRELOAD', '1')]),
-            ('torch_memory_saver_hook_mode_torch',   [('TMS_HOOK_MODE_TORCH',   '1')]),
+            ("torch_memory_saver_hook_mode_preload", [("TMS_HOOK_MODE_PRELOAD", "1")]),
+            ("torch_memory_saver_hook_mode_torch", [("TMS_HOOK_MODE_TORCH", "1")]),
         ]
     ],
     python_requires=">=3.9",
-    packages=setuptools.find_packages(include=["torch_memory_saver", "torch_memory_saver.*"]),
+    packages=setuptools.find_packages(
+        include=["torch_memory_saver", "torch_memory_saver.*"]
+    ),
 )

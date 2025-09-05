@@ -107,5 +107,3 @@ python contrib/torch_memory_saver/test/rl_example.py  torch
 
 ### FAQ
 1. Since PTA accesses aclrtMallocAlign32 via dlopen + dlsym, it is not possible to override this interface using LD_PRELOAD. As a result, the preload mode and the feature of releasing activation value memory in graph mode are currently unsupported. This functionality is under development.
-
-
