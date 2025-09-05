@@ -24,18 +24,29 @@ def test_main(
     assert num_experts % num_ranks == 0
     if local_rank == 0:
         print(
-            f"[config] num_tokens={num_tokens}, hidden={hidden}, num_topk={num_topk}",
+            f"[config] num_tokens={num_tokens}, hidden={hidden}, num_topk={num_topk}, active_ranks={args.active_ranks}",
             flush=True,
         )
 
-    # Random data
-    scores = (
-        torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
-        + 1
-    )
-    topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
+    experts_per_rank = num_experts // num_ranks
 
-    rank_idx = topk_idx // (num_experts // num_ranks)
+    if args.active_ranks:
+        # Only assign tokens to the specified ranks
+        active_ranks = [int(r) for r in args.active_ranks.split(',')]
+        valid_experts = torch.cat([
+            torch.arange(r * experts_per_rank, (r + 1) * experts_per_rank, device='npu')
+            for r in active_ranks
+        ])
+        # Randomly sample experts from active ranks only
+        topk_idx = valid_experts[
+            torch.randint(0, len(valid_experts), (num_tokens, num_topk), device='npu')
+        ]
+    else:
+        # Default: random over all experts (original behavior)
+        scores = torch.randn((num_tokens, num_experts), dtype=torch.float32, device='npu').abs() + 1
+        topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
+
+    rank_idx = topk_idx // experts_per_rank
     rank_idx.masked_fill_(topk_idx == -1, -1)
     inplace_unique(rank_idx, num_ranks)
 
@@ -285,6 +296,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num-experts", type=int, default=256, help="Number of experts (default: 256)"
     )
+    parser.add_argument('--active-ranks', type=str, default='',
+                        help='Comma-separated list of ranks that will receive tokens. '
+                             'Example: "0,1,3". If empty, all ranks may receive tokens.')
     args = parser.parse_args()
 
     num_processes = args.num_processes

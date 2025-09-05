@@ -1,4 +1,14 @@
 .vscode/
+**/build/
+**/__pycache__/
+**/build_out/
+output/
+**/fusion_result.json
+**/*.egg-info/
+**/kernel_meta/
+**/extra-info/
+**/vendors/
+
 # Prerequisites
 *.d
 
