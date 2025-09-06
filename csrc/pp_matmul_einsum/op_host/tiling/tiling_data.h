@@ -31,9 +31,9 @@ enum class TensorFormat : uint32_t {
 
 struct MatMulInfo {
     uint32_t batchSize{0};
-    uint32_t m{0}; // 实际输入的 m
-    uint32_t k{0}; // 实际输入的 k
-    uint32_t n{0}; // 实际输入的 n
+    uint32_t m{0}; // actual input m
+    uint32_t k{0}; // actual input k
+    uint32_t n{0}; // actual input n
     TensorDType dtypeA{TensorDType::TENSOR_DTYPE_FLOAT16};
     TensorDType dtypeB{TensorDType::TENSOR_DTYPE_FLOAT16};
     TensorDType dtypeC{TensorDType::TENSOR_DTYPE_FLOAT16};

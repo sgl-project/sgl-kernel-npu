@@ -675,11 +675,6 @@ extern "C" __global__ __aicore__ void pp_matmul_einsum(GM_ADDR gm_a,
     auto tiling_data = reinterpret_cast<__gm__ pp_matmul::PpMatmulTilingData *>(gm_tiling_data);
     uint32_t masked_key = tiling_data->tilingKey >> 2;
 
-    // debug
-    // if (masked_key != 0b00001001001000) {
-    //     AscendC::printf("get a wrong key %d\n", masked_key);
-    // }
-
     switch (masked_key) {
         case 0b00000100100100:
         case 0b01000100100100:
