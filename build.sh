@@ -175,12 +175,12 @@ function main()
 
     build_kernels
     build_deepep_kernels
-    build_memory_saver
     if pip3 show wheel;then
         echo "wheel has been installed"
     else
         pip3 install wheel
     fi
+    build_memory_saver
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
         make_deepep_package
     fi
