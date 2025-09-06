@@ -9,6 +9,7 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/alloc_extend/op_host/alloc_extend_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_host/assign_cache.cpp
     ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_host/mla_preprocess.cpp
+    ${PROJECT_OP_SRC_BASE}/pp_matmul_einsum/op_host/pp_matmul_einsum.cpp
     ${PROJECT_OP_SRC_BASE}/pp_matmul_einsum/op_host/tiling/tiling_data.cpp
     )
 

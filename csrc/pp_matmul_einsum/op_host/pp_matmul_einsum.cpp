@@ -1,5 +1,4 @@
 #include <iostream>
-// #include <string>
 #include "acl/acl.h"
 #include "kernel_tiling/kernel_tiling.h"
 #include "tiling/platform/platform_ascendc.h"
@@ -104,7 +103,7 @@ HOST_API bool pp_matmul_einsum(const at::Tensor &tensor_a, const at::Tensor &ten
         .quantMode = quantMode
     };
     GetPpMatmulTiling(mmInfo, hwInfo, block_dim, matmulTilingData);
-    PpMatmulTilingCheck(matmulTilingData);
+    host_utils::PpMatmulTilingCheck(matmulTilingData);
 
     // static int32_t captureIdx = -1;
     // static uint32_t tilingSize = sizeof(PpMatmulTilingData);
