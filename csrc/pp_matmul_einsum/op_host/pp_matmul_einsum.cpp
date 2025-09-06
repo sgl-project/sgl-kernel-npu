@@ -1,0 +1,149 @@
+#include <iostream>
+// #include <string>
+#include "acl/acl.h"
+#include "kernel_tiling/kernel_tiling.h"
+#include "tiling/platform/platform_ascendc.h"
+#include "tiling/tiling_data.h"
+#include "defines.h"
+#include "torch_helper.h"
+#include "common_tiling.h"
+#include "aclrtlaunch_pp_matmul_einsum.h"
+
+namespace sglang {
+namespace npu_kernel {
+using namespace pp_matmul;
+
+std::unordered_map<c10::string_view, uint16_t> quantModeMap = {
+    {"per_channel_symm", 0},
+    {"per_channel_asymm", 1},
+    {"per_token_symm", 2},
+};
+
+std::unordered_map<c10::string_view, uint16_t> formatModeMap = {
+    {"nd", 0},
+    {"nz", 1},
+};
+
+std::unordered_map<c10::ScalarType, TensorDType> atType2tensorDType = {
+    {at::ScalarType::BFloat16, TensorDType::TENSOR_DTYPE_BF16},
+    {at::ScalarType::Half, TensorDType::TENSOR_DTYPE_FLOAT16}
+};
+
+// batch size -> memory index
+constexpr uint32_t MAX_CAPTURE_NUM = 1024;
+
+template<typename MapType>
+inline int GetModeVal(const MapType& mode_map,
+                       c10::optional<c10::string_view> mode_opt,
+                       c10::string_view default_mode,
+                       const char* mode_name)
+{
+    c10::string_view mode_str = mode_opt.value_or(default_mode);
+    auto it = mode_map.find(mode_str);
+    // if input mode is unsupported, use default value
+    TORCH_CHECK(it != mode_map.end(), c10::str("Unsupported mode value ", mode_str));
+    return it->second;
+}
+
+HOST_API bool pp_matmul_einsum(const at::Tensor &tensor_a, const at::Tensor &tensor_b, at::Tensor &tensor_c,
+    c10::optional<c10::string_view> format_mode, c10::optional<c10::string_view> quant_mode)
+{
+    auto tensorAShape = tensor_a.sizes();
+    auto tensorBShape = tensor_b.sizes();
+    auto tensorCShape = tensor_c.sizes();
+    uint32_t n;
+    uint32_t block_dim;
+    HardwareInfo hwInfo;
+    std::map<c10::ScalarType, float> dTypeMap = {
+        {at::ScalarType::Half, 2.0},
+        {at::ScalarType::BFloat16, 2.0}};
+
+    at::ScalarType aType = tensor_a.scalar_type();
+    at::ScalarType bType = tensor_b.scalar_type();
+    at::ScalarType cType = tensor_c.scalar_type();
+    TORCH_CHECK(aType == bType && bType == cType, "tensor type is not the same");
+    TORCH_CHECK((aType == at::ScalarType::BFloat16) || (aType == at::ScalarType::Half), "tensor type only support half or bf16");
+
+    TensorFormat formatMode = static_cast<TensorFormat>(GetModeVal(formatModeMap, format_mode, "nd", "format_mode"));
+    MatMul::QuantMode quantMode = static_cast<MatMul::QuantMode>(GetModeVal(quantModeMap, quant_mode, "per_channel_symm", "quant_mode"));
+
+    TORCH_CHECK(tensorAShape.size() == 3, "batch size is not same between srcTensor and dstTensor");
+    if (formatMode == TensorFormat::TENSOR_FORMAT_ND) {
+        TORCH_CHECK(tensorBShape.size() == 3, "tensor shape should be dim3 in nd format");
+        TORCH_CHECK(tensorAShape[2] == tensorBShape[1], "tensor shape is wrong");
+        n = tensorBShape[2];
+    } else {
+        TORCH_CHECK(tensorBShape.size() == 4, "tensor shape should be dim4 in nz format");
+        TORCH_CHECK(tensorAShape[2] == tensorBShape[2], "tensor shape is wrong");
+        n = tensorBShape[1] * tensorBShape[3];
+    }
+    TORCH_CHECK(tensorAShape[1] == tensorBShape[0], "tensor shape is wrong");
+
+    OpShape opShape = {
+        .batchSize = static_cast<uint32_t>(tensorAShape[1]),
+        .m = static_cast<uint32_t>(tensorAShape[0]),
+        .k = static_cast<uint32_t>(tensorAShape[2]),
+        .n = n
+    };
+    PpMatmulTilingData matmulTilingData = {
+        .opShape = opShape,
+    };
+    auto dType = atType2tensorDType[aType];
+    MatMulInfo mmInfo = {
+        .batchSize = opShape.batchSize,
+        .m = opShape.m,
+        .k = opShape.k,
+        .n = opShape.n,
+        .dtypeA = dType,
+        .dtypeB = dType,
+        .dtypeC = dType,
+        .formatB = formatMode,
+        .mmType = MatMul::MatMulType::MATMUL_EIN_SUM,
+        .inDtype = dTypeMap[aType],
+        .outDtype = dTypeMap[cType],
+        .quantMode = quantMode
+    };
+    GetPpMatmulTiling(mmInfo, hwInfo, block_dim, matmulTilingData);
+    PpMatmulTilingCheck(matmulTilingData);
+
+    // static int32_t captureIdx = -1;
+    // static uint32_t tilingSize = sizeof(PpMatmulTilingData);
+    // static std::unordered_map<uint32_t, int32_t> graphIndexMap;
+    // static auto globalTilingData = at::empty({MAX_CAPTURE_NUM * tilingSize},
+    //     at::TensorOptions().dtype(at::kByte).device(tensor_a.options().device()));
+
+    // uint32_t batchIndex = opShape.m - 1;
+    // if (graphIndexMap.find(batchIndex) == graphIndexMap.end()) {
+    //     captureIdx++;
+    //     graphIndexMap.insert({batchIndex, captureIdx});
+    // }
+
+    // TORCH_CHECK(captureIdx >= 0 && captureIdx < MAX_CAPTURE_NUM, "captureIdx is out of range");
+    // aclrtMemcpy(globalTilingData.data_ptr<uint8_t>() + (graphIndexMap[batchIndex] * tilingSize), tilingSize, &matmulTilingData,
+    //     tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    
+    // at::Tensor tiling_tensor = at::from_blob(globalTilingData.data_ptr<uint8_t>() + (graphIndexMap[batchIndex] * tilingSize),
+    //     tilingSize, at::kByte);
+
+    // tiling
+    int32_t bIndex = opShape.m - 1;
+    uint32_t tilingSize = sizeof(PpMatmulTilingData);
+    static auto global_tiling_data = at::empty({tilingSize * MAX_CAPTURE_NUM},
+                                        at::TensorOptions().dtype(at::kByte).device(tensor_a.options().device()));
+    if (bIndex >= 0 && bIndex < MAX_CAPTURE_NUM) {
+        aclrtMemcpy(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * bIndex), tilingSize,
+                    &matmulTilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
+     } else {
+        // Handle the case where bIndex is out of range
+        TORCH_CHECK(false, "bIndex is out of range: ", bIndex);
+    }
+    at::Tensor tiling_tensor = at::from_blob(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * bIndex),
+                                                tilingSize, at::kByte);
+
+    EXEC_KERNEL_CMD(pp_matmul_einsum, block_dim, tensor_a, tensor_b, tensor_c, tiling_tensor);
+    return true;
+}
+
+} // namespace npu_kernel
+
+} // namespace sglang
