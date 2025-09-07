@@ -32,18 +32,48 @@ def test_main(
 
     if args.active_ranks:
         # Only assign tokens to the specified ranks
-        active_ranks = [int(r) for r in args.active_ranks.split(',')]
-        valid_experts = torch.cat([
-            torch.arange(r * experts_per_rank, (r + 1) * experts_per_rank, device='npu')
-            for r in active_ranks
-        ])
+        try:
+            active_ranks = [
+                int(r.strip()) for r in args.active_ranks.split(",") if r.strip()
+            ]
+        except ValueError:
+            raise ValueError(
+                f"Invalid value in --active-ranks: {args.active_ranks}. "
+                f"Must be a comma-separated list of integers, e.g., '0,1,3'."
+            )
+
+        # Validate range
+        if any(r < 0 or r >= num_ranks for r in active_ranks):
+            raise ValueError(
+                f"Invalid rank in --active-ranks: {active_ranks}. "
+                f"Ranks must be in range [0, {num_ranks-1}]."
+            )
+
+        if not active_ranks:
+            raise ValueError(
+                "Parsed --active-ranks is empty. Provide at least one valid rank."
+            )
+
+        valid_experts = torch.cat(
+            [
+                torch.arange(
+                    r * experts_per_rank, (r + 1) * experts_per_rank, device="npu"
+                )
+                for r in active_ranks
+            ]
+        )
         # Randomly sample experts from active ranks only
         topk_idx = valid_experts[
-            torch.randint(0, len(valid_experts), (num_tokens, num_topk), device='npu')
+            torch.randint(0, len(valid_experts), (num_tokens, num_topk), device="npu")
         ]
     else:
         # Default: random over all experts (original behavior)
-        scores = torch.randn((num_tokens, num_experts), dtype=torch.float32, device='npu').abs() + 1
+        scores = (
+            torch.randn(
+                (num_tokens, num_experts), dtype=torch.float32, device="npu"
+            ).abs()
+            + 1
+        )
         topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
 
     rank_idx = topk_idx // experts_per_rank
@@ -296,9 +326,13 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num-experts", type=int, default=256, help="Number of experts (default: 256)"
     )
-    parser.add_argument('--active-ranks', type=str, default='',
-                        help='Comma-separated list of ranks that will receive tokens. '
-                             'Example: "0,1,3". If empty, all ranks may receive tokens.')
+    parser.add_argument(
+        "--active-ranks",
+        type=str,
+        default="",
+        help="Comma-separated list of ranks that will receive tokens. "
+        'Example: "0,1,3". If empty, all ranks may receive tokens.',
+    )
     args = parser.parse_args()
 
     num_processes = args.num_processes
