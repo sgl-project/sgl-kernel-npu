@@ -1,6 +1,7 @@
 #include "api_forwarder.h"
 #include "utils.h"
 #include <iostream>
+#include <mutex>
 
 namespace APIForwarder {
 
@@ -22,10 +23,11 @@ static AclrtFreeFunc real_aclrt_free_ = NULL;
 
 aclError call_real_aclrt_malloc_align32(void **ptr, size_t size,
                                         aclrtMemMallocPolicy policy) {
-  if (C10_UNLIKELY(nullptr == real_aclrt_malloc_align32_)) {
+  static std::once_flag malloc_flag;
+  std::call_once(malloc_flag, []() {
     real_aclrt_malloc_align32_ = (AclrtMallocFuncAlign32)check_dlsym(
         dlsym(RTLD_NEXT, "aclrtMallocAlign32"));
-  }
+  });
 
   aclError ret = real_aclrt_malloc_align32_(ptr, size, policy);
 
@@ -39,10 +41,12 @@ aclError call_real_aclrt_malloc_align32(void **ptr, size_t size,
 }
 
 aclError call_real_aclrt_free(void *ptr) {
-  if (C10_UNLIKELY(nullptr == real_aclrt_free_)) {
+
+  static std::once_flag free_flag;
+  std::call_once(free_flag, []() {
     real_aclrt_free_ =
         (AclrtFreeFunc)check_dlsym(dlsym(RTLD_NEXT, "aclrtFree"));
-  }
+  });
 
   aclError ret = real_aclrt_free_(ptr);
 
