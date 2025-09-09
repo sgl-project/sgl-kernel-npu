@@ -14,7 +14,6 @@
 #include <iostream>
 #include <cmath>
 #include "common.h"
-#include "../pp_matmul_einsum/op_host/tiling/tiling_data.h"
 #include "tiling/platform/platform_ascendc.h"
 
 namespace host_utils {
