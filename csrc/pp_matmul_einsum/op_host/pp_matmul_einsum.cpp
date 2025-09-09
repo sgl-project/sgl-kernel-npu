@@ -1,4 +1,5 @@
 #include <iostream>
+#include <string>
 #include "acl/acl.h"
 #include "kernel_tiling/kernel_tiling.h"
 #include "tiling/platform/platform_ascendc.h"
@@ -37,14 +38,15 @@ inline int GetModeVal(const MapType& mode_map,
                        c10::string_view default_mode,
                        const char* mode_name)
 {
+    std::string modeStr(mode_name);
     c10::string_view mode_str = mode_opt.value_or(default_mode);
     auto it = mode_map.find(mode_str);
     // if input mode is unsupported, use default value
-    TORCH_CHECK(it != mode_map.end(), c10::str("Unsupported mode value ", mode_str));
+    TORCH_CHECK(it != mode_map.end(), modeStr, c10::str(": Unsupported mode value ", mode_str));
     return it->second;
 }
 
-HOST_API bool pp_matmul_einsum(const at::Tensor &tensor_a, const at::Tensor &tensor_b, at::Tensor &tensor_c,
+HOST_API void pp_matmul_einsum(const at::Tensor &tensor_a, const at::Tensor &tensor_b, at::Tensor &tensor_c,
     c10::optional<c10::string_view> format_mode, c10::optional<c10::string_view> quant_mode)
 {
     auto tensorAShape = tensor_a.sizes();
@@ -125,18 +127,18 @@ HOST_API bool pp_matmul_einsum(const at::Tensor &tensor_a, const at::Tensor &ten
     //     tilingSize, at::kByte);
 
     // tiling
-    int32_t bIndex = opShape.m - 1;
+    int32_t batchIdx = opShape.m - 1;
     uint32_t tilingSize = sizeof(PpMatmulTilingData);
     static auto global_tiling_data = at::empty({tilingSize * MAX_CAPTURE_NUM},
                                         at::TensorOptions().dtype(at::kByte).device(tensor_a.options().device()));
-    if (bIndex >= 0 && bIndex < MAX_CAPTURE_NUM) {
-        aclrtMemcpy(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * bIndex), tilingSize,
+    if (batchIdx >= 0 && batchIdx < MAX_CAPTURE_NUM) {
+        aclrtMemcpy(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * batchIdx), tilingSize,
                     &matmulTilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
      } else {
-        // Handle the case where bIndex is out of range
-        TORCH_CHECK(false, "bIndex is out of range: ", bIndex);
+        // Handle the case where batchIdx is out of range
+        TORCH_CHECK(false, "batchIdx is out of range: ", batchIdx);
     }
-    at::Tensor tiling_tensor = at::from_blob(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * bIndex),
+    at::Tensor tiling_tensor = at::from_blob(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * batchIdx),
                                                 tilingSize, at::kByte);
 
     EXEC_KERNEL_CMD(pp_matmul_einsum, block_dim, tensor_a, tensor_b, tensor_c, tiling_tensor);

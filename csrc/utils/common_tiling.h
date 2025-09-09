@@ -13,7 +13,7 @@
 
 #include <iostream>
 #include <cmath>
-#include "math_utils.h"
+#include "common.h"
 #include "../pp_matmul_einsum/op_host/tiling/tiling_data.h"
 #include "tiling/platform/platform_ascendc.h"
 

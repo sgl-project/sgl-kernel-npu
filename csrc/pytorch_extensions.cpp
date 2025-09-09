@@ -54,7 +54,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 
     m.def(
         "pp_matmul_einsum(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, "
-        "str? format_mode=None, str? quant_mode=None) -> bool");
+        "str? format_mode=None, str? quant_mode=None) -> ()");
 }
 }  // namespace
 
