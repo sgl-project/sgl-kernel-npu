@@ -2386,6 +2386,7 @@ public:
         this->num_row = mlaParams_.n;
         this->epsilon_ = 1e-6;
         this->mlaParams = mlaParams_;
+        this->hiddenStateDim = mlaParams_.hiddenStateDim;
     }
 
     __aicore__ inline void Init(GM_ADDR hiddenStateGm, GM_ADDR gamma1Gm, GM_ADDR beta1Gm, GM_ADDR quantScale1Gm,
@@ -2694,6 +2695,7 @@ private:
     uint32_t blockOffset;
     uint32_t perTaskNum;
     uint32_t resTaskNum;
+    uint32_t hiddenStateDim;
     MlaTilingData mlaParams;
 
     uint32_t num_core_;
@@ -2801,15 +2803,15 @@ MLAOperation<InDtype, CACHE_MODE, weightFormat1, weightFormat2, weightFormat3, q
         uint32_t num_col_align_f32 = (num_col_1 + REPEAT_TIME_64 - 1) / REPEAT_TIME_64 * REPEAT_TIME_64;
         AscendC::LocalTensor<InDtype> input_tensor = buf.GetBuffer<BufferType::ASCEND_UB, InDtype>(0);
         AscendC::LocalTensor<InDtype> scale_tensor =
-            buf.GetBuffer<BufferType::ASCEND_UB, InDtype>(HIDDTEN_STATE * 2 + HIDDTEN_STATE * 2 + HIDDTEN_STATE * 2);
+            buf.GetBuffer<BufferType::ASCEND_UB, InDtype>(hiddenStateDim * 2 + hiddenStateDim * 2 + hiddenStateDim * 2);
         AscendC::LocalTensor<int8_t> offset_tensor = buf.GetBuffer<BufferType::ASCEND_UB, int8_t>(
-            HIDDTEN_STATE * 2 + HIDDTEN_STATE * 2 + HIDDTEN_STATE * 2 + 32);
+            hiddenStateDim * 2 + hiddenStateDim * 2 + hiddenStateDim * 2 + 32);
         AscendC::LocalTensor<float> res1_tensor =
-            buf.GetBuffer<BufferType::ASCEND_UB, float>(HIDDTEN_STATE * 2 + HIDDTEN_STATE * 2 + HIDDTEN_STATE * 2 + 64);
+            buf.GetBuffer<BufferType::ASCEND_UB, float>(hiddenStateDim * 2 + hiddenStateDim * 2 + hiddenStateDim * 2 + 64);
         AscendC::LocalTensor<float> res3_tensor = buf.GetBuffer<BufferType::ASCEND_UB, float>(
-            HIDDTEN_STATE * 2 + HIDDTEN_STATE * 2 + HIDDTEN_STATE * 2 + 64 + num_col_align_f32 * 4);
+            hiddenStateDim * 2 + hiddenStateDim * 2 + hiddenStateDim * 2 + 64 + num_col_align_f32 * 4);
         AscendC::LocalTensor<int8_t> output_tensor = buf.GetBuffer<BufferType::ASCEND_UB, int8_t>(
-            HIDDTEN_STATE * 2 + HIDDTEN_STATE * 2 + HIDDTEN_STATE * 2 + 64 + num_col_align_f32 * 4 +
+            hiddenStateDim * 2 + hiddenStateDim * 2 + hiddenStateDim * 2 + 64 + num_col_align_f32 * 4 +
             BUF_FACTOR * num_col_align_f32 * 4 + 64);
         Quant1.Launch(output_tensor, input_tensor, scale_tensor, offset_tensor, res1_tensor, res3_tensor);
     }
