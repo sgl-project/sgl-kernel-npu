@@ -673,8 +673,8 @@ std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &> mla_preproces
     // workspace
     uint64_t system_workspace_size = static_cast<uint64_t>(platformAscendC->GetLibApiWorkSpaceSize());
     uint64_t workspace_size = system_workspace_size + tilingData.userWorkspaceSize;
-    auto workspace_tensor =
-        at::empty({workspace_size}, at::TensorOptions().dtype(at::kByte).device(hiddenState.options().device()));
+    auto options = at::TensorOptions().dtype(at::kByte).device(hiddenState.options().device());
+    auto workspace_tensor = at::empty({static_cast<int64_t>(workspace_size)}, options);
 
     // tiling
     int32_t bIndex = N - 1;
