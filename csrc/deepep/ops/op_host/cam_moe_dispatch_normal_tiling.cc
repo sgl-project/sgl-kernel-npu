@@ -91,6 +91,9 @@ constexpr uint32_t WORKSPACE_ELEMENT_OFFSET = 512;
 constexpr int64_t H_MIN = 1024;
 constexpr int64_t H_MAX = 7168;
 constexpr uint64_t MB_SIZE = 1024UL * 1024UL;
+constexpr uint64_t COMBINE_STATE_OFFSET = 3UL * 1024UL * 1024UL;
+constexpr uint64_t NOTIFY_DISPATCH_OFFSET = 204U * 1024UL * 1024UL;
+
 constexpr uint64_t TRIPLE = 3;
 constexpr uint64_t WIN_ADDR_ALIGN = 512UL;
 constexpr uint64_t SCALE_EXPAND_IDX_BUFFER = 44UL;  // scale32B + 3*4expandIdx
@@ -539,16 +542,18 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
     uint64_t tokenActualLen =
         ((h * MAX_OUT_DTYPE_SIZE + UB_ALIGN - 1UL) / UB_ALIGN) * UB_ALIGN + SCALE_EXPAND_IDX_BUFFER;
     uint64_t tokenNeedSizeDispatch = ((tokenActualLen + WIN_ADDR_ALIGN - 1UL) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
+    uint64_t tokenNeedSizeCombine = ((h * MAX_OUT_DTYPE_SIZE + WIN_ADDR_ALIGN - 1UL) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
     // 未考虑双流时大小
-    uint64_t actualSize = maxBs * k * tokenNeedSizeDispatch * DOUBLE_DATA_BUFFER;
+    uint64_t actualSize = 
+        (maxBs * k * (tokenNeedSizeCombine + tokenNeedSizeDispatch) + COMBINE_STATE_OFFSET + NOTIFY_DISPATCH_OFFSET) * DOUBLE_DATA_BUFFER;
     OP_TILING_CHECK((actualSize > maxWindowSize),
                     OP_LOGE(nodeName,
                             "HCCL_BUFFSIZE is too SMALL, maxBs = %lu, h = %lu, epWorldSize = %lu,"
-                            " localMoeExpertNum = %u, tokenNeedSizeDispatch = %lu,"
-                            " k = %lu, NEEDED_HCCL_BUFFSIZE(maxBs * k * tokenNeedSizeDispatch) = %luMB,"
-                            " HCCL_BUFFSIZE=%luMB.",
-                            maxBs, h, epWorldSize, localMoeExpertNum, tokenNeedSizeDispatch, k,
-                            actualSize / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
+                            " localMoeExpertNum = %u, tokenNeedSizeDispatch = %lu, tokenNeedSizeCombine = %lu,"
+                            " k = %lu, NEEDED_HCCL_BUFFSIZE((maxBs * k * (tokenNeedSizeDispatch"
+                            " + tokenNeedSizeCombine) + 3MB + 204MB) * 2) = %luMB, HCCL_BUFFSIZE=%luMB.",
+                            maxBs, h, epWorldSize, localMoeExpertNum, tokenNeedSizeDispatch, tokenNeedSizeCombine, 
+                            k, actualSize / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
                     return ge::GRAPH_FAILED);
     tilingData->camMoeDispatchNormalInfo.totalWinSize = maxWindowSize;
     OP_LOGD(nodeName, "windowSize = %lu", maxWindowSize);

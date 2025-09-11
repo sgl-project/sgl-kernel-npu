@@ -84,6 +84,7 @@ constexpr uint64_t TRIPLE = 3;
 constexpr uint64_t WIN_ADDR_ALIGN = 512UL;
 constexpr uint64_t SCALE_RECV_IDX_BUFFER = 44UL;  // scale32B + 3*4 src info
 constexpr uint64_t COMBINE_STATE_WIN_OFFSET = 3U * 1024UL * 1024UL;
+constexpr uint64_t NOTIFY_DISPATCH_WIN_OFFSET = 204U * 1024UL * 1024UL;
 constexpr uint64_t DOUBLE_DATA_BUFFER = 2UL;
 constexpr uint64_t MAX_OUT_DTYPE_SIZE = 2UL;
 constexpr uint64_t UB_ALIGN = 32UL;
@@ -518,13 +519,13 @@ static ge::graphStatus CamMoeCombineNormalA3TilingFuncImpl(gert::TilingContext *
     uint64_t tokenActualLen = ((h * MAX_OUT_DTYPE_SIZE + UB_ALIGN - 1UL) / UB_ALIGN) * UB_ALIGN + SCALE_RECV_IDX_BUFFER;
     uint64_t tokenNeedSizeDispatch = ((tokenActualLen + WIN_ADDR_ALIGN - 1UL) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
     uint64_t actualSize =
-        (maxBs * k * (tokenNeedSizeCombine + tokenNeedSizeDispatch) + COMBINE_STATE_WIN_OFFSET) * DOUBLE_DATA_BUFFER;
+        (maxBs * k * (tokenNeedSizeCombine + tokenNeedSizeDispatch) + COMBINE_STATE_WIN_OFFSET + NOTIFY_DISPATCH_WIN_OFFSET) * DOUBLE_DATA_BUFFER;
     OP_TILING_CHECK(
         (actualSize > maxWindowSize),
         OP_LOGE(nodeName,
                 "HCCL_BUFFSIZE is too SMALL, maxBs = %lu, h = %lu, epWorldSize = %lu, localMoeExpertNum = %u,"
                 " tokenNeedSizeDispatch = %lu, tokenNeedSizeCombine = %lu, k = %lu, NEEDED_HCCL_BUFFSIZE("
-                "((maxBs * tokenNeedSizeDispatch) + (maxBs * tokenNeedSizeCombine * k) + 3MB) * 2) = %luMB, "
+                "((maxBs * tokenNeedSizeDispatch) + (maxBs * tokenNeedSizeCombine * k) + 3MB + 204MB) * 2) = %luMB, "
                 "HCCL_BUFFSIZE=%luMB.",
                 maxBs, h, epWorldSize, localMoeExpertNum, tokenNeedSizeDispatch, tokenNeedSizeCombine, k,
                 actualSize / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
