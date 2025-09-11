@@ -90,7 +90,7 @@ COMPILE_OPTIONS=""
 function build_kernels()
 {
     if [[ "$ONLY_BUILD_DEEPEP_KERNELs_MODULE" == "ON" ]]; then return 0; fi
-    if [[ "$BUILD_KERNELS_MODULE" != "ON" ]]; then return 0; fi
+    if [[ "$ONLY_BUILD_MEMORY_SAVER_MODULE" == "ON" ]]; then return 0; fi
 
     CMAKE_DIR=""
     BUILD_DIR="build"
