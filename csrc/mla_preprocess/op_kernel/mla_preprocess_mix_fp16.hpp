@@ -2396,21 +2396,25 @@ __aicore__ inline void MLAOperation<cacheMode, weightFormat1, weightFormat2, wei
         uint32_t num_col_align_int8 = (num_col_1 + REPEAT_TIME_256 - 1) / REPEAT_TIME_256 * REPEAT_TIME_256;
         uint32_t num_col_align_f16 = (num_col_1 + REPEAT_TIME_128 - 1) / REPEAT_TIME_128 * REPEAT_TIME_128;
         uint32_t num_col_align_f32 = (num_col_1 + REPEAT_TIME_64 - 1) / REPEAT_TIME_64 * REPEAT_TIME_64;
+
+        const uint32_t gamma_offset = hiddenStateDim * 2;
+        const uint32_t beta_offset = gamma_offset + hiddenStateDim * 2;
+        const uint32_t scale_offset = beta_offset + hiddenStateDim * 2;
+
         AscendC::LocalTensor<half> input_tensor = buf.GetBuffer<BufferType::ASCEND_UB, half>(0);
-        AscendC::LocalTensor<half> gamma_tensor = buf.GetBuffer<BufferType::ASCEND_UB, half>(hiddenStateDim * 2);
+        AscendC::LocalTensor<half> gamma_tensor = buf.GetBuffer<BufferType::ASCEND_UB, half>(gamma_offset);
         AscendC::LocalTensor<half> beta_tensor =
-            buf.GetBuffer<BufferType::ASCEND_UB, half>(hiddenStateDim * 2 + hiddenStateDim * 2);
+            buf.GetBuffer<BufferType::ASCEND_UB, half>(beta_offset);
         AscendC::LocalTensor<half> scale_tensor =
-            buf.GetBuffer<BufferType::ASCEND_UB, half>(hiddenStateDim * 2 + hiddenStateDim * 2 + hiddenStateDim * 2);
+            buf.GetBuffer<BufferType::ASCEND_UB, half>(scale_offset);
         AscendC::LocalTensor<int8_t> offset_tensor = buf.GetBuffer<BufferType::ASCEND_UB, int8_t>(
-            hiddenStateDim * 2 + hiddenStateDim * 2 + hiddenStateDim * 2 + 32);
+            scale_offset + 32);
         AscendC::LocalTensor<float> res1_tensor =
-            buf.GetBuffer<BufferType::ASCEND_UB, float>(hiddenStateDim * 2 + hiddenStateDim * 2 + hiddenStateDim * 2 + 64);
+            buf.GetBuffer<BufferType::ASCEND_UB, float>(scale_offset + 64);
         AscendC::LocalTensor<float> res3_tensor = buf.GetBuffer<BufferType::ASCEND_UB, float>(
-            hiddenStateDim * 2 + hiddenStateDim * 2 + hiddenStateDim * 2 + 64 + num_col_align_f32 * 4);
+            scale_offset + 64 + num_col_align_f32 * 4);
         AscendC::LocalTensor<int8_t> output_tensor = buf.GetBuffer<BufferType::ASCEND_UB, int8_t>(
-            hiddenStateDim * 2 + hiddenStateDim * 2 + hiddenStateDim * 2 + 64 + num_col_align_f32 * 4 +
-            BUF_FACTOR * num_col_align_f32 * 4 + 32);
+            scale_offset + 64 + num_col_align_f32 * 4 + BUF_FACTOR * num_col_align_f32 * 4 + 32);
         Quant1.Launch(output_tensor, input_tensor, gamma_tensor, beta_tensor, scale_tensor, offset_tensor, res1_tensor,
                       res3_tensor);
     }
