@@ -52,7 +52,7 @@ jobs:
         run: bash scripts/prepare_deepep_in_container.sh
 
       - name: Run test
-        timeout-minutes: 20
+        timeout-minutes: 10
         env:
           HCCL_BUFFSIZE: 3000
         run: |
@@ -94,7 +94,7 @@ jobs:
         run: bash scripts/prepare_deepep_in_container.sh -a deepep
 
       - name: Run test
-        timeout-minutes: 20
+        timeout-minutes: 10
         env:
           HCCL_BUFFSIZE: 3000
         run: |
