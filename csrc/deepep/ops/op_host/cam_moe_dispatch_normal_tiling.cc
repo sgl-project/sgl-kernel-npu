@@ -18,9 +18,12 @@
 #include "graph/utils/type_utils.h"
 #include "register/op_def_registry.h"
 #include "../op_kernel/cam_moe_dispatch_normal_tiling.h"
+#include "tiling_args.h"
 
 using namespace AscendC;
 using namespace ge;
+using namespace Moe;
+
 namespace {
 class Mc2TilingUtils
 {
@@ -91,8 +94,6 @@ constexpr uint32_t WORKSPACE_ELEMENT_OFFSET = 512;
 constexpr int64_t H_MIN = 1024;
 constexpr int64_t H_MAX = 7168;
 constexpr uint64_t MB_SIZE = 1024UL * 1024UL;
-constexpr uint64_t COMBINE_STATE_OFFSET = 3UL * 1024UL * 1024UL;
-constexpr uint64_t NOTIFY_DISPATCH_OFFSET = 204U * 1024UL * 1024UL;
 
 constexpr uint64_t TRIPLE = 3;
 constexpr uint64_t WIN_ADDR_ALIGN = 512UL;
@@ -545,7 +546,7 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
     uint64_t tokenNeedSizeCombine = ((h * MAX_OUT_DTYPE_SIZE + WIN_ADDR_ALIGN - 1UL) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
     // 未考虑双流时大小
     uint64_t actualSize = 
-        (maxBs * k * (tokenNeedSizeCombine + tokenNeedSizeDispatch) + COMBINE_STATE_OFFSET + NOTIFY_DISPATCH_OFFSET) * DOUBLE_DATA_BUFFER;
+        (maxBs * k * (tokenNeedSizeCombine + tokenNeedSizeDispatch) + COMBINE_STATE_WIN_OFFSET + NOTIFY_DISPATCH_WIN_OFFSET) * DOUBLE_DATA_BUFFER;
     OP_TILING_CHECK((actualSize > maxWindowSize),
                     OP_LOGE(nodeName,
                             "HCCL_BUFFSIZE is too SMALL, maxBs = %lu, h = %lu, epWorldSize = %lu,"
