@@ -15,7 +15,7 @@ import triton.language as tl
 PAD_SLOT_ID = -1
 
 
-def causal_conv1d_native(
+def causal_conv1d_fn_native(
     x: torch.Tensor,
     weight: torch.Tensor,
     bias: Optional[torch.Tensor] = None,
@@ -110,7 +110,7 @@ def causal_conv1d_fn_npu(
     seqlens = seqlens.tolist()
     splits = [torch.split(var, seqlens, dim=-1) for var in (x)]
     out_ref_b.append(
-        causal_conv1d_native(
+        causal_conv1d_fn_native(
             x,
             weight,
             bias,
