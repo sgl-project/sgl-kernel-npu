@@ -4,7 +4,6 @@ from typing import Optional
 import torch
 import triton
 import triton.language as tl
-
 from sgl_kernel_npu.fla.utils import input_guard
 
 
@@ -93,7 +92,7 @@ def fused_sigmoid_gating_delta_rule_update_kernel(
         temp1 = tl.load(p_h0, mask=mask_h, other=0).to(tl.float32)
         temp2 = tl.zeros_like(temp1)
         value0 = tl.where(idx < 0, temp2, temp1)
-        b_h += value0 # tl.load(p_h0, mask=mask_h, other=0).to(tl.float32)
+        b_h += value0  # tl.load(p_h0, mask=mask_h, other=0).to(tl.float32)
 
     for i in range(0, T):
         # Load inputs

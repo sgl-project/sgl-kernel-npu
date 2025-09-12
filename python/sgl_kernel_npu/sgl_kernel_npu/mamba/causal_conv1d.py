@@ -8,7 +8,6 @@
 from typing import Optional, Union
 
 import torch
-import torch
 import torch.nn.functional as F
 import triton
 import triton.language as tl
@@ -42,18 +41,15 @@ def causal_conv1d_native(
     dim, width = weight.shape
 
     if initial_states is None:
-        out = F.conv1d(x,
-                       weight.unsqueeze(1),
-                       bias,
-                       padding=width - 1,
-                       groups=dim)
+        out = F.conv1d(x, weight.unsqueeze(1), bias, padding=width - 1, groups=dim)
     else:
         x = torch.cat([initial_states, x], dim=-1)
         out = F.conv1d(x, weight.unsqueeze(1), bias, padding=0, groups=dim)
     out = out[..., :seqlen]
     if return_final_states:
         final_states = F.pad(x, (width - 1 - x.shape[-1], 0)).to(
-            dtype_in)  # (batch, dim, width - 1)
+            dtype_in
+        )  # (batch, dim, width - 1)
         if final_states_out is not None:
             final_states_out.copy_(final_states)
         else:
@@ -107,7 +103,7 @@ def causal_conv1d_fn_npu(
     if x.stride(-1) != 1:
         x = x.contiguous()
     bias = bias.contiguous() if bias is not None else None
-    
+
     out_ref = []
     out_ref_b = []
     seqlens = query_start_loc[1:] - query_start_loc[:-1]
@@ -120,14 +116,19 @@ def causal_conv1d_fn_npu(
             bias,
             activation=activation,
             return_final_states=True,
-            final_states_out=conv_states[
-                cache_indices[0]].unsqueeze(0),
-            initial_states=conv_states[cache_indices[0]].
-                unsqueeze(0) if has_initial_state[0] else None))
+            final_states_out=conv_states[cache_indices[0]].unsqueeze(0),
+            initial_states=(
+                conv_states[cache_indices[0]].unsqueeze(0)
+                if has_initial_state[0]
+                else None
+            ),
+        )
+    )
 
     out_ref.append(torch.cat([t[0] for t in out_ref_b], dim=-1))
     out_ref_tensor = torch.cat(out_ref, dim=0)
     return out_ref_tensor
+
 
 @triton.jit()
 def _causal_conv1d_update_kernel(
@@ -364,10 +365,10 @@ def _causal_conv1d_update_kernel(
         # mask_1d = (idx_token < seqlen) & (
         #     idx_feats < dim
         # )  # token-index  # feature-index
-        maskL=idx_feats<dim
-        maskR=tl.full(maskL.shape, False, tl.int1)
-        mask_1d=tl.where(idx_token<seqlen, maskL, maskR)
-        
+        maskL = idx_feats < dim
+        maskR = tl.full(maskL.shape, False, tl.int1)
+        mask_1d = tl.where(idx_token < seqlen, maskL, maskR)
+
         o_ptrs = (
             o_ptr
             + (idx_seq) * stride_o_seq
