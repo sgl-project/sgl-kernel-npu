@@ -4,6 +4,7 @@
 from typing import Optional
 
 import torch
+import torch.nn.functional as F
 
 
 def chunk_gated_delta_rule_native(
