@@ -10,6 +10,10 @@ from typing import Callable
 import torch
 
 
+def custom_device_ctx(index: int):
+    return torch.npu.device(index)
+
+
 def input_guard(fn: Callable[..., torch.Tensor]) -> Callable[..., torch.Tensor]:
     """
     A decorator to make sure all input tensors are contiguous and set the device based on input tensors.
