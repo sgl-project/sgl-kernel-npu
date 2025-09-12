@@ -51,12 +51,18 @@ jobs:
       - name: Prepare Deepep
         run: bash scripts/prepare_deepep_in_container.sh
 
-      - name: Run test
+      - name: Run test intranode
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 3000
+          HCCL_BUFFSIZE: 2000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
+
+      - name: Run test low latency
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+        run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
 
   test-build-deepep:
@@ -93,12 +99,18 @@ jobs:
       - name: Prepare Deepep
         run: bash scripts/prepare_deepep_in_container.sh -a deepep
 
-      - name: Run test
+      - name: Run test intranode
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 3000
+          HCCL_BUFFSIZE: 2000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
+
+      - name: Run test low latency
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+        run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
 
   finish:
