@@ -10,18 +10,18 @@
 #define CAL_US(tick) (((tick) * 2) / 100)
 
 /* performance macro */
-// #define USE_256_TO_1__ // 启用256打1
+// #define USE_256_TO_1__
 #ifdef USE_256_TO_1__
 #pragma message("use 256 to 1")
-#else                                 // 256打1开启仅作为基线，不配合其他优化点使用
-#define USE_FOR_OPT__                 // 启用循环优化
-#define DISPATCH_USE_WRITE_SHUFFLE__  // Dispatch使用write shuffle
-#define USE_TOKEN_COUNT_SPLIT__       // 启用token与count的flag分离
-#define USE_ONE_CORE_WAIT__           // 启用单核等待
+#else
+#define USE_FOR_OPT__
+#define DISPATCH_USE_WRITE_SHUFFLE__
+#define USE_TOKEN_COUNT_SPLIT__
+#define USE_ONE_CORE_WAIT__
 
 #ifdef USE_ONE_CORE_WAIT__
 #pragma message("use one core wait")
-// 启用单核计算cumsum
+
 //  #define USE_ONE_CORE_GETCUMSUM__
 #endif
 #ifdef USE_FOR_OPT__
@@ -29,7 +29,7 @@
 #define FOR_OPT_MAX_BS__ 64
 #define FOR_OPT_MAX_MOE_RANK__ 256
 #endif
-// #define COMBINE_USE_DYNAMIC_QUANT // 默认不开启Combine量化
+// #define COMBINE_USE_DYNAMIC_QUANT
 #define OPT_RANK_OFFSET 512
 #define USE_WRITE_SHUFFLE
 #endif
@@ -40,7 +40,7 @@ constexpr uint32_t AICPU_OP_NOTIFY_MAX_NUM = 2;
 constexpr uint32_t AICPU_MAX_RANK_NUM = 128 * 1024;
 
 struct HcclSignalInfo {
-    uint64_t resId;  // 在代表event时为eventid，notify时为notifyid
+    uint64_t resId;
     uint64_t addr;
     uint32_t devId;
     uint32_t tsId;
@@ -58,8 +58,8 @@ struct ListCommon {
 struct HcclStreamInfo {
     int32_t streamIds;
     uint32_t sqIds;
-    uint32_t cqIds;       // 记录物理cqId
-    uint32_t logicCqids;  // 记录逻辑cqId
+    uint32_t cqIds;
+    uint32_t logicCqids;
 };
 
 struct LocalResInfoV2 {
@@ -68,7 +68,7 @@ struct LocalResInfoV2 {
     HcclSignalInfo localSignals[LOCAL_NOTIFY_MAX_NUM];
     HcclStreamInfo streamInfo[LOCAL_STREAM_MAX_NUM];
     HcclStreamInfo mainStreamInfo;
-    HcclSignalInfo aicpuOpNotify[AICPU_OP_NOTIFY_MAX_NUM];  // 集合通信AICPU展开资源
+    HcclSignalInfo aicpuOpNotify[AICPU_OP_NOTIFY_MAX_NUM];
     ListCommon nextTagRes;                                  // HccltagLocalResV2
 };
 
@@ -79,12 +79,12 @@ enum class rtFloatOverflowMode_t {
 };
 
 struct AlgoTopoInfo {
-    uint32_t userRank;      // 通信域 RankID
-    uint32_t userRankSize;  // 通信域的Rank数量
+    uint32_t userRank;      // RankID
+    uint32_t userRankSize;  // Rank Number
     int32_t deviceLogicId;
     bool isSingleMeshAggregation;
-    uint32_t deviceNumPerAggregation;  // 每个Module中的Device数量
-    uint32_t superPodNum;              // 集群中总的超节点数
+    uint32_t deviceNumPerAggregation;
+    uint32_t superPodNum;
     uint32_t devicePhyId;
     uint32_t topoType;  // TopoType
     uint32_t deviceType;
@@ -102,27 +102,27 @@ struct AlgoTopoInfo {
     uint32_t pairLinkCounterNum;
     uint64_t pairLinkCounter;
     uint32_t nicNum;
-    uint64_t nicList;                      // niclist数组指针
-    uint64_t complanRankLength;            // complanRank占用的字节数
-    uint64_t complanRank;                  // 指针
-    uint64_t bridgeRankNum;                // bridgeRank占用的个数
-    uint64_t bridgeRank;                   // 指针
-    uint64_t serverAndsuperPodRankLength;  // serverAndsuperPodRank占用的字节数
-    uint64_t serverAndsuperPodRank;        // 指针
+    uint64_t nicList;
+    uint64_t complanRankLength;
+    uint64_t complanRank;
+    uint64_t bridgeRankNum;
+    uint64_t bridgeRank;
+    uint64_t serverAndsuperPodRankLength;
+    uint64_t serverAndsuperPodRank;
 };
 
 struct HcclOpConfig {
-    uint8_t deterministic;  // 确定性计算开关
-    uint8_t retryEnable;    // 是否重执行
+    uint8_t deterministic;
+    uint8_t retryEnable;
     uint8_t highPerfEnable;
-    uint8_t padding[5];       // 大小需要64By对齐，未来添加参数时减小padding
-    uint8_t linkTimeOut[8];   // 发送超时时长
-    uint64_t notifyWaitTime;  // 超时时长，同HCCL_EXEC_TIMEOUT
+    uint8_t padding[5];
+    uint8_t linkTimeOut[8];
+    uint64_t notifyWaitTime;
     uint32_t retryHoldTime;
     uint32_t retryIntervalTime;
-    bool interHccsDisable = false;  // 使能rdma开关
+    bool interHccsDisable = false;
     rtFloatOverflowMode_t floatOverflowMode = rtFloatOverflowMode_t::RT_OVERFLOW_MODE_UNDEF;
-    uint32_t multiQpThreshold = 512;  // 多QP每个QP分担数据量最小阈值
+    uint32_t multiQpThreshold = 512;
 };
 
 struct HcclMC2WorkSpace {
@@ -154,44 +154,44 @@ struct HcclRankRelationResV2 {
 };
 
 struct HcclOpResParam {
-    // 本地资源
+    // local resource
     HcclMC2WorkSpace mc2WorkSpace;
     uint32_t localUsrRankId;  // usrrankid
-    uint32_t rankSize;        // 通信域内total rank个数
-    uint64_t winSize;  // 每个win大小，静态图时，可能是0，如果通信域内也有动态图，则可能为非0
-    uint64_t localWindowsIn;   // 全F为无效值
-    uint64_t localWindowsOut;  // 全F为无效值
+    uint32_t rankSize;
+    uint64_t winSize;
+    uint64_t localWindowsIn;
+    uint64_t localWindowsOut;
     char hcomId[128];
-    // aicore识别remote window
+    // aicore detect remote window
     uint64_t winExpSize;
     uint64_t localWindowsExp;
-    uint32_t rWinStart;   // 为HcclRankRelationRes起始位置
-    uint32_t rWinOffset;  // 为HcclRemoteRes的大小
+    uint32_t rWinStart;
+    uint32_t rWinOffset;
     uint64_t version;
     LocalResInfoV2 localRes;
     AlgoTopoInfo topoInfo;
 
-    // 外部配置参数
+    // config parameters
     HcclOpConfig config;
     uint64_t hostStateInfo;
     uint64_t aicpuStateInfo;
     uint64_t lockAddr;
     uint32_t rsv[16];
-    uint32_t notifysize;                         // RDMA场景使用，910B/910_93为4B，其余芯片为8B
-    uint32_t remoteResNum;                       // 有效的remoteResNum
-    RemoteResPtr remoteRes[AICPU_MAX_RANK_NUM];  // 数组指针，指向HcclRankRelationResV2，下标为remoteUserRankId
+    uint32_t notifysize;
+    uint32_t remoteResNum;
+    RemoteResPtr remoteRes[AICPU_MAX_RANK_NUM];
 
     // communicate retry
     HDCommunicateParams kfcControlTransferH2DParams;
     HDCommunicateParams kfcStatusTransferD2HParams;
     uint64_t tinyMem;  // for all2all
     uint64_t tinyMemSize;
-    // 零拷贝场景使用
+    // zero-copy 
     uint64_t zeroCopyHeadPtr;
     uint64_t zeroCopyTailPtr;
     uint64_t zeroCopyRingBuffer;
-    uint64_t zeroCopyIpcPtrs[16];      // 保存集合通信时每个对端的输入输出内存地址
-    uint32_t zeroCopyDevicePhyId[16];  // 保存每个rank对应的物理卡Id
+    uint64_t zeroCopyIpcPtrs[16];
+    uint32_t zeroCopyDevicePhyId[16];
 
     bool utraceStatusFlag;
 };
