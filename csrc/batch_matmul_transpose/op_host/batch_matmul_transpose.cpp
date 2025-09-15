@@ -107,25 +107,6 @@ HOST_API void batch_matmul_transpose(const at::Tensor &tensor_a, const at::Tenso
     GetPpMatmulTiling(mmInfo, hwInfo, block_dim, matmulTilingData);
     host_utils::PpMatmulTilingCheck(matmulTilingData);
 
-    // static int32_t captureIdx = -1;
-    // static uint32_t tilingSize = sizeof(PpMatmulTilingData);
-    // static std::unordered_map<uint32_t, int32_t> graphIndexMap;
-    // static auto globalTilingData = at::empty({MAX_CAPTURE_NUM * tilingSize},
-    //     at::TensorOptions().dtype(at::kByte).device(tensor_a.options().device()));
-
-    // uint32_t batchIndex = opShape.m - 1;
-    // if (graphIndexMap.find(batchIndex) == graphIndexMap.end()) {
-    //     captureIdx++;
-    //     graphIndexMap.insert({batchIndex, captureIdx});
-    // }
-
-    // TORCH_CHECK(captureIdx >= 0 && captureIdx < MAX_CAPTURE_NUM, "captureIdx is out of range");
-    // aclrtMemcpy(globalTilingData.data_ptr<uint8_t>() + (graphIndexMap[batchIndex] * tilingSize), tilingSize, &matmulTilingData,
-    //     tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    
-    // at::Tensor tiling_tensor = at::from_blob(globalTilingData.data_ptr<uint8_t>() + (graphIndexMap[batchIndex] * tilingSize),
-    //     tilingSize, at::kByte);
-
     // tiling
     int32_t batchIdx = opShape.m - 1;
     uint32_t tilingSize = sizeof(PpMatmulTilingData);

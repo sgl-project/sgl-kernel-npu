@@ -12,8 +12,6 @@
 
 
 #define __aicore__ [aicore]
-// #include <string>
-// #include <iostream>
 #include "kernel_operator.h"
 #include "../op_host/tiling/tiling_data.h"
 #include "../../mla_preprocess/op_kernel/kernel/common.h"
