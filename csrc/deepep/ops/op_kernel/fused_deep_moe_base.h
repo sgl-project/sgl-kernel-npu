@@ -1,38 +1,13 @@
-/*!
- * \file moe_distribute_base.h
- * \brief
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+ * Description: Definition of communication group related structures
+ * Author: WANG Qiankun
+ * Create: 2025-07-19
+ * Note:
+ * History: 2025-07-19 Create a definition file for a distribution group related structure
  */
-
-#ifndef MOE_DISTRIBUTE_BASE_H
-#define MOE_DISTRIBUTE_BASE_H
-
-/* system tick: 50MHz */
-#define CAL_US(tick) (((tick) * 2) / 100)
-
-/* performance macro */
-// #define USE_256_TO_1__
-#ifdef USE_256_TO_1__
-#pragma message("use 256 to 1")
-#else
-#define USE_FOR_OPT__
-#define DISPATCH_USE_WRITE_SHUFFLE__
-#define USE_TOKEN_COUNT_SPLIT__
-#define USE_ONE_CORE_WAIT__
-
-#ifdef USE_ONE_CORE_WAIT__
-#pragma message("use one core wait")
-
-//  #define USE_ONE_CORE_GETCUMSUM__
-#endif
-#ifdef USE_FOR_OPT__
-#pragma message("use for optimization")
-#define FOR_OPT_MAX_BS__ 64
-#define FOR_OPT_MAX_MOE_RANK__ 256
-#endif
-// #define COMBINE_USE_DYNAMIC_QUANT
-#define OPT_RANK_OFFSET 512
-#define USE_WRITE_SHUFFLE
-#endif
+#ifndef FUSED_DEEP_MOE_BASE_H
+#define FUSED_DEEP_MOE_BASE_H
 
 constexpr uint32_t LOCAL_NOTIFY_MAX_NUM = 64;
 constexpr uint32_t LOCAL_STREAM_MAX_NUM = 19;
@@ -58,8 +33,8 @@ struct ListCommon {
 struct HcclStreamInfo {
     int32_t streamIds;
     uint32_t sqIds;
-    uint32_t cqIds;
-    uint32_t logicCqids;
+    uint32_t cqIds;      // physical cqId
+    uint32_t logicCqids; // logic cqId
 };
 
 struct LocalResInfoV2 {
@@ -79,14 +54,14 @@ enum class rtFloatOverflowMode_t {
 };
 
 struct AlgoTopoInfo {
-    uint32_t userRank;      // RankID
-    uint32_t userRankSize;  // Rank Number
+    uint32_t userRank;
+    uint32_t userRankSize;
     int32_t deviceLogicId;
     bool isSingleMeshAggregation;
     uint32_t deviceNumPerAggregation;
     uint32_t superPodNum;
     uint32_t devicePhyId;
-    uint32_t topoType;  // TopoType
+    uint32_t topoType; // TopoType
     uint32_t deviceType;
     uint32_t serverNum;
     uint32_t meshAggregationRankSize;
@@ -136,12 +111,12 @@ struct RemoteResPtr {
 };
 
 struct HDCommunicateParams {
-    uint64_t hostAddr{0};
-    uint64_t deviceAddr{0};
-    uint64_t readCacheAddr{0};
-    uint32_t devMemSize{0};
-    uint32_t buffLen{0};
-    uint32_t flag{0};
+    uint64_t hostAddr { 0 };
+    uint64_t deviceAddr { 0 };
+    uint64_t readCacheAddr { 0 };
+    uint32_t devMemSize{ 0 };
+    uint32_t buffLen{ 0 };
+    uint32_t flag{ 0 };
 };
 
 struct HcclRankRelationResV2 {
@@ -156,7 +131,7 @@ struct HcclRankRelationResV2 {
 struct HcclOpResParam {
     // local resource
     HcclMC2WorkSpace mc2WorkSpace;
-    uint32_t localUsrRankId;  // usrrankid
+    uint32_t localUsrRankId; // usrrankid
     uint32_t rankSize;
     uint64_t winSize;
     uint64_t localWindowsIn;
@@ -171,7 +146,6 @@ struct HcclOpResParam {
     LocalResInfoV2 localRes;
     AlgoTopoInfo topoInfo;
 
-    // config parameters
     HcclOpConfig config;
     uint64_t hostStateInfo;
     uint64_t aicpuStateInfo;
@@ -186,7 +160,7 @@ struct HcclOpResParam {
     HDCommunicateParams kfcStatusTransferD2HParams;
     uint64_t tinyMem;  // for all2all
     uint64_t tinyMemSize;
-    // zero-copy 
+    // zero-copy
     uint64_t zeroCopyHeadPtr;
     uint64_t zeroCopyTailPtr;
     uint64_t zeroCopyRingBuffer;
@@ -196,4 +170,7 @@ struct HcclOpResParam {
     bool utraceStatusFlag;
 };
 
-#endif  // MOE_DISTRIBUTE_BASE_H
+#define TemplateMC2TypeClass typename ExpandXType, typename ExpandIdxType, bool IsNeedReduceScatter, uint32_t EXEC_FLAG
+#define TemplateMC2TypeFunc ExpandXType, ExpandIdxType, IsNeedReduceScatter, EXEC_FLAG
+
+#endif // FUSED_DEEP_MOE_BASE_H
