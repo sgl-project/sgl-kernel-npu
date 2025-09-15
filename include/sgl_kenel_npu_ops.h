@@ -57,7 +57,7 @@ mla_preprocess(const at::Tensor &hiddenState, const at::Tensor &gamma0,
                at::Tensor &kv_cache_out0, at::Tensor &q_out1,
                at::Tensor &kv_cache_out1);
 
-bool pp_matmul_einsum(const at::Tensor &tensor_a,
+void batch_matmul_transpose(const at::Tensor &tensor_a,
                     const at::Tensor &tensor_b,
                     at::Tensor &tensor_c,
                     c10::optional<c10::string_view> format_mode,

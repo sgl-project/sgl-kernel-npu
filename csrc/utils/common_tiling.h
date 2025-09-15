@@ -13,8 +13,7 @@
 
 #include <iostream>
 #include <cmath>
-#include "math_utils.h"
-#include "../pp_matmul_einsum/op_host/tiling/tiling_data.h"
+#include "common.h"
 #include "tiling/platform/platform_ascendc.h"
 
 namespace host_utils {
@@ -240,5 +239,5 @@ inline __attribute__((always_inline)) void PpMatmulTilingCheck(const PpTilingDat
     TORCH_CHECK(tilingData.nLoop > 0, "nLoop is invalid");
     TORCH_CHECK(tilingData.blockDim > 0, "nLoop is invalid");
 }
-} // namespace AsdOps
+} // namespace host_utils
 #endif

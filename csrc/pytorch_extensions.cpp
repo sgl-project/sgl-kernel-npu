@@ -53,8 +53,8 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "-> (Tensor(a!), Tensor(b!), Tensor(c!), Tensor(d!))");
 
     m.def(
-        "pp_matmul_einsum(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, "
-        "str? format_mode=None, str? quant_mode=None) -> bool");
+        "batch_matmul_transpose(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, "
+        "str? format_mode=None, str? quant_mode=None) -> ()");
 }
 }  // namespace
 
@@ -73,6 +73,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
     m.impl("mla_preprocess", TORCH_FN(sglang::npu_kernel::mla_preprocess));
 
-    m.impl("pp_matmul_einsum", TORCH_FN(sglang::npu_kernel::pp_matmul_einsum));
+    m.impl("batch_matmul_transpose", TORCH_FN(sglang::npu_kernel::batch_matmul_transpose));
 }
 }  // namespace
