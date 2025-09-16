@@ -5,6 +5,7 @@
 #include "kernel_tiling/kernel_tiling.h"
 #include "moe_distribute_base.h"
 #include "cam_moe_combine_normal_tiling.h"
+#include "comm_args.h"
 
 namespace CamMoeCombineNormalImpl {
 constexpr uint32_t RANK_ID_OFFSET_IN_SRC_INFO = 0U;
@@ -63,7 +64,7 @@ private:
         } else {
             bufferAddr = (GM_ADDR)((HcclRankRelationResV2 *)epWinContext_->remoteRes[rankId].nextDevicePtr)->windowsIn;
         }
-        return (GM_ADDR)(bufferAddr + winDataSizeOffset_);
+        return (GM_ADDR)(bufferAddr + winDataSizeOffset_ + Moe::NOTIFY_DISPATCH_BUFF_OFFSET);
     }
 
     __aicore__ GM_ADDR GetBufferAddrByRankId(const int32_t rankId)
