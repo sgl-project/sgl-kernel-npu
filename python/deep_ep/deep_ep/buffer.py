@@ -606,7 +606,6 @@ class Buffer:
             num_max_dispatch_tokens_per_rank: the maximum number of tokens to dispatch, all the ranks must hold the same value.
             num_experts: the number of experts.
             use_fp8: whether to enable FP8 casting, with this, the received data will be a tuple of FP8 tensor and scaling factors.
-            round_scale: whether round the scaling factors into power of 2.
     
         Notes:
             - The first dimension of `topk_idx` defines the batch size `bs`.
@@ -628,5 +627,4 @@ class Buffer:
                                                             gmm2WeightScale, topk_weights, num_max_dispatch_tokens_per_rank,
                                                             num_experts, use_fp8)
                                                             
-        tensors_to_record = (x, topk_idx, gmm1PermutedWeight, gmm1PermutedWeightScale, gmm2Weight, gmm2WeightScale)
         return output, EventOverlap(event), hook

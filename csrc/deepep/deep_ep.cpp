@@ -580,6 +580,9 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     const at::Tensor &expertScalesOptional, int64_t num_max_dispatch_tokens_per_rank,
     int64_t num_experts, bool use_fp8)
 {
+    EP_HOST_ASSERT(expertIds.dim() == 2); 
+    EP_HOST_ASSERT(expertScalesOptional.dim() == 2);
+
     this->is_padding = false;
     at::Tensor new_x = x;
     this->new_topk_idx = expertIds;

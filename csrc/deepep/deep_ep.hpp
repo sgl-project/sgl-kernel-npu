@@ -86,7 +86,7 @@ public:
     std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>> 
     fused_deep_moe(const at::Tensor &x, const at::Tensor &expertIds, const at::Tensor &gmm1PermutedWeight,
                    const at::Tensor &gmm1PermutedWeightScale, const at::Tensor &gmm2Weight, const at::Tensor &gmm2WeightScale,
-                   const at::Tensor &expertSmoothScalesOptional, int64_t num_max_dispatch_tokens_per_rank,
+                   const at::Tensor &expertScalesOptional, int64_t num_max_dispatch_tokens_per_rank,
                    int64_t num_experts, bool use_fp8);
 };
 }  // namespace deep_ep
