@@ -42,9 +42,9 @@ while getopts ":a:h" opt; do
             esac
             ;;
         h )
-            echo "Use ./build.sh build all modules.\n"
+            echo "Use './build.sh' build all modules."
             echo "Use './build.sh -a <target>' to build specific parts of the project."
-            echo "    <target> can be: all, deepep, kernels, deepep-adapter, deepep-kernels"
+            echo "    <target> can be:"
             echo "    deepep            Only build deep_ep."
             echo "    kernels           Only build sgl_kernel_npu."
             echo "    deepep-adapter    Only build deepep adapter layer and use old build of deepep kernels."
@@ -54,10 +54,12 @@ while getopts ":a:h" opt; do
             ;;
         \? )
             echo "Error: unknown flag: -$OPTARG" 1>&2
+            echo "Run './build.sh -h' for more information."
             exit 1
             ;;
         : )
             echo "Error: -$OPTARG requires a value" 1>&2
+            echo "Run './build.sh -h' for more information."
             exit 1
             ;;
     esac
@@ -90,7 +92,7 @@ COMPILE_OPTIONS=""
 function build_kernels()
 {
     if [[ "$ONLY_BUILD_DEEPEP_KERNELs_MODULE" == "ON" ]]; then return 0; fi
-    if [[ "$BUILD_KERNELS_MODULE" != "ON" ]]; then return 0; fi
+    if [[ "$ONLY_BUILD_MEMORY_SAVER_MODULE" == "ON" ]]; then return 0; fi
 
     CMAKE_DIR=""
     BUILD_DIR="build"
