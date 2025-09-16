@@ -9,9 +9,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include <cstdint>
 #ifndef UTILS_COMMON_H
 #define UTILS_COMMON_H
+
+#include <cstdint>
 
 constexpr uint32_t BLK_SIZE_ALIN_FOR_INT64 = 4;
 constexpr uint32_t BLK_SIZE_ALIN_FOR_INT32 = 8;
@@ -27,3 +28,4 @@ inline uint64_t alinInt32Count(uint64_t count)
 }
 
 #endif  // UTILS_COMMON_H
+
