@@ -108,3 +108,68 @@ def calc_diff(x: torch.Tensor, y: torch.Tensor):
 
 def hash_tensor(t: torch.Tensor):
     return t.view(torch.int8).sum().item()
+
+
+def diagnose_matrix(
+    mat,
+    thres_col=3.0,
+    thres_row=3.0,
+    thres_point=5.0,
+    suppress_points_in_strong_rowscols=True,
+):
+    """
+    Detect abnormal columns, rows, and individual points in a 2D wait-time matrix.
+    Arguments:
+        mat (np.ndarray): 2D array where mat[i, j] is the waiting time of source i for destination j to
+            receive(dispatch)/send(combine) the token
+        thres_col/thres_row/thres_point(float): The ratio of the average waiting time for abnormal rank
+            to the average waiting time for all ranks
+        suppress_points_in_strong_rowscols (bool): If True, exclude points already in detected abnormal
+            rows/columns.
+    Returns:
+        dict: {
+            "abnormal_cols": List[List[int, float, float]],  # abnormal column indices
+            "abnormal_rows": List[List[int, float, float]],  # abnormal row indices
+            "abnormal_points": List[List[int, int, float, float]]  # abnormal points
+        }
+    """
+    mat = mat.cpu().numpy()
+    # 1. Check for abnormal columns
+    col_means = mat.mean(axis=0)
+    z_col = col_means / (col_means.mean() + 1e-8)
+    abnormal_cols = [
+        [j, col_means[j], z_col[j]] for j in np.where(z_col > thres_col)[0]
+    ]
+
+    # 2. Check for abnormal rows
+    row_means = mat.mean(axis=1)
+    z_row = row_means / (row_means.mean() + 1e-8)
+    abnormal_rows = [
+        [i, row_means[i], z_row[i]] for i in np.where(z_row > thres_row)[0]
+    ]
+
+    # 3. Check for abnormal single points
+    z_all = mat / (mat.mean() + 1e-8)
+    # Get all positions with z-score > threshold
+    abnormal_points = [
+        [i, j, mat[i, j], z_all[i, j]]
+        for i in range(mat.shape[0])
+        for j in range(mat.shape[1])
+        if z_all[i, j] > thres_point
+    ]
+    # Optionally remove points that are in already detected abnormal rows
+    # or columns
+    if suppress_points_in_strong_rowscols:
+        strong_rows = [row[0] for row in abnormal_rows]
+        strong_cols = [col[0] for col in abnormal_cols]
+        abnormal_points = [
+            [i, j, v, z]
+            for [i, j, v, z] in abnormal_points
+            if i not in strong_rows and j not in strong_cols
+        ]
+    # 4. Return for automatic processing
+    return {
+        "abnormal_cols": abnormal_cols,
+        "abnormal_rows": abnormal_rows,
+        "abnormal_points": abnormal_points,
+    }
