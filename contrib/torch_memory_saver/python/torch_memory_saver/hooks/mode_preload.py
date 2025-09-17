@@ -27,6 +27,8 @@ def configure_subprocess():
     # Currently, torch_memory_saver does not support preload for npu, therefore LD_PRELOAD interception is not implemented.
     if hasattr(torch, "npu") and torch.npu.is_available():
         yield
+        return
+
     else:
         with _change_env(
             "LD_PRELOAD",
