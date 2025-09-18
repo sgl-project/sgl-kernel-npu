@@ -15,3 +15,5 @@ from deep_ep_cpp import Config
 
 from .buffer import Buffer
 from .utils import EventOverlap
+
+from . import build_config
