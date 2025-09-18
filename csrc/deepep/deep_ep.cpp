@@ -8,9 +8,9 @@
 #include "pytorch_npu_helper.hpp"
 
 #ifdef DEBUG_MODE
-#define LOG_DEBUG(msg) std::cout << "DEBUG: " << msg << std::endl
+#define LOG_DEBUG(msg) do { std::cout << "DEBUG: " << (msg) << std::endl; } while (0)
 #else
-#define LOG_DEBUG(msg)
+#define LOG_DEBUG(msg) do {} while (0)
 #endif
 
 namespace deep_ep {
