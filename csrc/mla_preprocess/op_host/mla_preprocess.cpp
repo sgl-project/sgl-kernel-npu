@@ -560,7 +560,7 @@ void MlaPreprocessTiling::Init(uint32_t hiddenStateDim)
     PpMatmulTilingApi mm1TilingApi(platformInfo,
                                    1,                 // numBatch
                                    opParam.N,         // m
-                                   hiddenStateDim,     // k
+                                   hiddenStateDim,    // k
                                    HIDDEN_STRATE_MM,  // n
                                    false,             // transA
                                    true,              // transB

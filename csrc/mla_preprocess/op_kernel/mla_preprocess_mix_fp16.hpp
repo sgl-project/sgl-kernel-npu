@@ -2403,16 +2403,12 @@ __aicore__ inline void MLAOperation<cacheMode, weightFormat1, weightFormat2, wei
 
         AscendC::LocalTensor<half> input_tensor = buf.GetBuffer<BufferType::ASCEND_UB, half>(0);
         AscendC::LocalTensor<half> gamma_tensor = buf.GetBuffer<BufferType::ASCEND_UB, half>(gamma_offset);
-        AscendC::LocalTensor<half> beta_tensor =
-            buf.GetBuffer<BufferType::ASCEND_UB, half>(beta_offset);
-        AscendC::LocalTensor<half> scale_tensor =
-            buf.GetBuffer<BufferType::ASCEND_UB, half>(scale_offset);
-        AscendC::LocalTensor<int8_t> offset_tensor = buf.GetBuffer<BufferType::ASCEND_UB, int8_t>(
-            scale_offset + 32);
-        AscendC::LocalTensor<float> res1_tensor =
-            buf.GetBuffer<BufferType::ASCEND_UB, float>(scale_offset + 64);
-        AscendC::LocalTensor<float> res3_tensor = buf.GetBuffer<BufferType::ASCEND_UB, float>(
-            scale_offset + 64 + num_col_align_f32 * 4);
+        AscendC::LocalTensor<half> beta_tensor = buf.GetBuffer<BufferType::ASCEND_UB, half>(beta_offset);
+        AscendC::LocalTensor<half> scale_tensor = buf.GetBuffer<BufferType::ASCEND_UB, half>(scale_offset);
+        AscendC::LocalTensor<int8_t> offset_tensor = buf.GetBuffer<BufferType::ASCEND_UB, int8_t>(scale_offset + 32);
+        AscendC::LocalTensor<float> res1_tensor = buf.GetBuffer<BufferType::ASCEND_UB, float>(scale_offset + 64);
+        AscendC::LocalTensor<float> res3_tensor = 
+            buf.GetBuffer<BufferType::ASCEND_UB, float>(scale_offset + 64 + num_col_align_f32 * 4);
         AscendC::LocalTensor<int8_t> output_tensor = buf.GetBuffer<BufferType::ASCEND_UB, int8_t>(
             scale_offset + 64 + num_col_align_f32 * 4 + BUF_FACTOR * num_col_align_f32 * 4 + 32);
         Quant1.Launch(output_tensor, input_tensor, gamma_tensor, beta_tensor, scale_tensor, offset_tensor, res1_tensor,
