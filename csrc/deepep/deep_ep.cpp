@@ -7,6 +7,12 @@
 #include "deep_ep.hpp"
 #include "pytorch_npu_helper.hpp"
 
+#ifdef DEBUG_MODE
+#define LOG_DEBUG(msg) std::cout << "DEBUG: " << msg << std::endl
+#else
+#define LOG_DEBUG(msg)
+#endif
+
 namespace deep_ep {
 constexpr int PADDING_SIZE = 3;
 constexpr size_t HCOMM_NAME_LEN = 128;
