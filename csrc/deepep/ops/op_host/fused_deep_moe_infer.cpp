@@ -22,21 +22,21 @@ static ge::graphStatus InferShape(gert::InferShapeContext* context)
     const gert::Shape* expandXShape = context->GetInputShape(EXPAND_X_INDEX);
     const gert::Shape* expertIdsShape = context->GetInputShape(EXPERT_IDS_INDEX);
     gert::Shape* expandXOutShape = context->GetOutputShape(OUTPUT_X_INDEX);
-    
+
     if (expandXShape == nullptr || expertIdsShape == nullptr || expandXOutShape == nullptr) {
         return GRAPH_FAILED;
     }
     if (expandXShape->GetDimNum() < 2 || expertIdsShape->GetDimNum() < 1) {
         return GRAPH_FAILED;
     }
-    
+
     int bs = expertIdsShape->GetDim(0);
     int h = expandXShape->GetDim(1);
 
     expandXOutShape->SetDimNum(expandXShape->GetDimNum());
     expandXOutShape->SetDim(0, bs);
     expandXOutShape->SetDim(1, h);
-    
+
     return GRAPH_SUCCESS;
 }
 

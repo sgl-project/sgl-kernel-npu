@@ -86,7 +86,7 @@ public:
     // Check LayoutC
     static_assert(std::is_same_v<LayoutC, layout::RowMajor>, "LayoutC only support RowMajor yet!");
 
-    // Check L1TileShape in example, because problemShape.k() cannot get here. 
+    // Check L1TileShape in example, because problemShape.k() cannot get here.
 
     // Check L0TileShape
     static constexpr uint32_t L0A_TILE_SIZE = L0TileShape::M * L0TileShape::K * sizeof(ElementA);
@@ -225,7 +225,7 @@ public:
                     auto l0ATile = l0ATensorList[l0AListId];
                     LayoutAInL0 layoutAInL0 = LayoutAInL0::template MakeLayout<ElementA>(mPartActual, kPartActual);
                     // Locate the current tile of matrix A on L1
-                    MatrixCoord l1AOffset{mPartIdx * L0TileShape::M, 
+                    MatrixCoord l1AOffset{mPartIdx * L0TileShape::M,
                                             kPartIdx * L0TileShape::K + kLoopIdx * L1TileShape::K};
                     auto l1ATile = l1ATensor[layoutAInL1.GetOffset(l1AOffset)];
 

@@ -112,7 +112,7 @@ public:
     /// Destructor
     CATLASS_DEVICE
     ~BlockMmad() {}
-    
+
     CATLASS_DEVICE
     void getBlockShape(GemmCoord &actualShape, uint32_t &nowNIdx, uint32_t &kIdx,
                        uint32_t &nLoop, uint32_t &kLoop, uint32_t &kvSeqlen, uint32_t &embed, bool firstBlock, uint32_t maskTailS = 0)
@@ -282,7 +282,7 @@ public:
             }
         }
     }
- 
+
 protected:
     /// Data members
     AscendC::LocalTensor<ElementA> l1ATensor;

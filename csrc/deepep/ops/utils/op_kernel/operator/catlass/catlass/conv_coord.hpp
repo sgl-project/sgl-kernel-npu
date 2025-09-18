@@ -106,7 +106,7 @@ public:
             dilations[2]
         );
     }
-    
+
 
     //fmapShape
     CATLASS_HOST_DEVICE
@@ -133,7 +133,7 @@ public:
     Index const &kw() const { return filterFracZ3DShape_[3]; }
     CATLASS_HOST_DEVICE
     Index const khkw() const
-    { 
+    {
         return filterFracZ3DShape_[2] * filterFracZ3DShape_[3];
     }
     CATLASS_HOST_DEVICE
@@ -194,7 +194,7 @@ public:
     Index const &dW() const { return dilations_[2]; }
     CATLASS_HOST_DEVICE
     Index const dilatedKernelW() const { return 1 + (filterFracZ3DShape_[3] - 1) * dilations_[2]; }
-    
+
     ///// used in block
     CATLASS_HOST_DEVICE
     Index const howo() const { return out6HDShape_[3] * out6HDShape_[4]; }
@@ -206,7 +206,7 @@ public:
     Index const khkwcin0() const { return filterFracZ3DShape_[2] * filterFracZ3DShape_[3] * filterFracZ3DShape_[6]; }
     CATLASS_HOST_DEVICE
     Index const alignCinKhKwKd() const
-    { 
+    {
         return filterFracZ3DShape_[0] * filterFracZ3DShape_[1] * filterFracZ3DShape_[2] * filterFracZ3DShape_[3] * filterFracZ3DShape_[6];
     }
     CATLASS_HOST_DEVICE

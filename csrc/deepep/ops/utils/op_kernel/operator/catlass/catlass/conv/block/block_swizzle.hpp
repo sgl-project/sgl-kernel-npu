@@ -113,13 +113,13 @@ struct Conv3dIdentityBlockSwizzle {
     {
         uint32_t nActual = (blockCoord.n() == loops.n() - 1) ?
             (outShape[0] - dimStartIdx.n()) : coreTileShape.n();
-        
+
         uint32_t doActual = (blockCoord.d() == loops.d() - 1) ?
             (outShape[1] - dimStartIdx.d()) : coreTileShape.d();
-        
+
         uint32_t c1Actual = (blockCoord.c1() == loops.c1() - 1) ?
             (outShape[2] - dimStartIdx.c1()) : coreTileShape.c1();
-        
+
         uint32_t hwActual = (blockCoord.hw() == loops.hw() - 1) ?
             (outShape[3] - dimStartIdx.hw()) : coreTileShape.hw();
         return Conv3d6HdCoord{nActual, doActual, c1Actual, hwActual};

@@ -378,11 +378,11 @@ private:
     AscendC::TEventID eventIds[BUFFER_NUM] = {EVENT_ID0, EVENT_ID1};
     uint32_t bufferIndex{ 0 };
     static_assert(BUFFER_NUM * COMPUTE_LENGTH * sizeof(Element) <= ArchTag::UB_SIZE, "Excedding the UB space!");
-    static_assert(std::is_same_v<LayoutIn, layout::RowMajor> || 
+    static_assert(std::is_same_v<LayoutIn, layout::RowMajor> ||
         std::is_same_v<LayoutIn, layout::ColumnMajor>, "Unsported layout for PaddingMatrixND!");
 };
 
-// The PaddingBuilder structure can construct the required padding class by specifying the PaddingTag 
+// The PaddingBuilder structure can construct the required padding class by specifying the PaddingTag
 // and the basic information of the matrix, thereby unifying the use of various paddings.
 // Moreover, it allows for quick retrieval of the layout information after padding.
 template <class ArchTag, class Element, class LayoutIn, uint32_t COMPUTE_LENGTH, PaddingTag>

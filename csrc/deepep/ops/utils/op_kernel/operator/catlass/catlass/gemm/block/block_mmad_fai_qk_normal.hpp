@@ -133,7 +133,7 @@ public:
         AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE1>(EVENT_ID3);
         AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE1>(EVENT_ID3);
     }
-    
+
     CATLASS_DEVICE
     void getBlockShape(GemmCoord &actualShape, uint32_t &nowNIdx, uint32_t &kIdx,
                        uint32_t &nLoop, uint32_t &kLoop, uint32_t &kvSeqlen, uint32_t &embed, bool firstBlock, uint32_t maskTailS = 0)
@@ -276,7 +276,7 @@ public:
             AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(1);
             copyL1ToL0A(l0ATensor[0], l1ATensor, layoutAInL0, layoutAInL1);
         }
-        
+
         AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE1>(l1KvPingPongFlag);
         AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(l0ABPingPongFlag + 2);
         copyL1ToL0B(l0BTensor[l0ABPingPongFlag], l1BTensor[l1KvPingPongFlag], layoutBInL0, layoutBInL1);
@@ -315,7 +315,7 @@ public:
             }
         }
     }
- 
+
 protected:
     /// Data members
     AscendC::LocalTensor<ElementA> l1ATensor;

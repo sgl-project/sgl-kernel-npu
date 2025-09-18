@@ -219,11 +219,11 @@ public:
     static constexpr uint32_t L0C_SIZE = ArchTag::L0C_SIZE;
     static constexpr uint32_t L0A_PINGPONG_BUF_SIZE = L0A_SIZE / STAGES;
     static constexpr uint32_t L0B_PINGPONG_BUF_SIZE = L0B_SIZE / STAGES;
-    
+
     // Check LayoutA
     static_assert(std::is_same_v<LayoutA, layout::RowMajor> || std::is_same_v<LayoutA, layout::ColumnMajor>,
         "LayoutA only support RowMajor/ColumnMajor yet!");
-    
+
     // Check LayoutB
     static_assert(std::is_same_v<LayoutB, layout::RowMajor> || std::is_same_v<LayoutB, layout::ColumnMajor>,
         "LayoutB only support RowMajor/ColumnMajor yet!");

@@ -57,7 +57,7 @@ public:
                 currentOffset += ubBufferSize;
             }
         }
-        
+
         // fill the tail block by datacopy
         if (tailElements != 0) {
             AscendC::DataCopyPad(dst[currentOffset], ubBuffer,

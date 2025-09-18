@@ -200,7 +200,7 @@ struct CopyL1ToL0A<ArchTag, Catlass::Gemm::GemmType<Element, layout::NDC1HWC0, A
     void operator()(
         AscendC::LocalTensor<Element> dstTensor,
         AscendC::LocalTensor<Element> srcTensor,
-        LayoutDst layoutDst, LayoutSrc layoutSrc, 
+        LayoutDst layoutDst, LayoutSrc layoutSrc,
         uint32_t kStartPt, uint32_t mStartPt
     ){
         loadData3Dv2Params.kStartPt = kStartPt;

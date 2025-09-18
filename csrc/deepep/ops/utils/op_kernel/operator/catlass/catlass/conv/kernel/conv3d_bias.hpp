@@ -147,7 +147,7 @@ public:
             uint32_t diIdxStart = Max(dimStartCoord.d() * params.problemShape.sD(), params.problemShape.padhead(), 0);
             uint32_t hiwiIdxStart = Max((dimStartCoord.hw() / params.problemShape.wo()) * params.problemShape.sH(),
                                          params.problemShape.padtop(), 0) * params.problemShape.wi();
-            
+
             // Compute initial location in logical coordinates
             Conv3d6HdCoord offsetFmap{dimStartCoord.n(), diIdxStart, 0, hiwiIdxStart};
             Conv3dFracZ3dCoord offsetFilter{0, dimStartCoord.c1() * params.problemShape.cout0()};

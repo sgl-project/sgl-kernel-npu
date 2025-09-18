@@ -155,7 +155,7 @@ public:
                GM_ADDR ptrA_, LayoutA layoutA_, GM_ADDR ptrB_, LayoutB layoutB_, GM_ADDR ptrC_, LayoutC layoutC_)
             : ParamsBase(problemShape_, ptrA_, layoutA_, ptrB_, layoutB_, ptrC_, layoutC_) {}
     };
-    
+
     using Params = KernelParams<!std::is_void_v<PrologueA>, !std::is_void_v<PrologueB>>;
 
     struct Arguments {
@@ -238,7 +238,7 @@ public:
                 // Optimal bandwidth for 512 Byte aligned reads
                 layoutWB = PrologueB::GetWorkspaceLayout(layoutB, 512 / sizeof(ElementB));
             }
-            Params params{args.problemShape, args.ptrA, layoutA, args.ptrB, layoutB, args.ptrC, layoutC, 
+            Params params{args.problemShape, args.ptrA, layoutA, args.ptrB, layoutB, args.ptrC, layoutC,
                 gmWA, layoutWA, gmWB, layoutWB};
             return params;
         } else if constexpr (isPaddingA) {
@@ -266,7 +266,7 @@ public:
         } else {
             Params params{args.problemShape, args.ptrA, layoutA, args.ptrB, layoutB, args.ptrC, layoutC};
             return params;
-        }  
+        }
     }
 
     // Methods

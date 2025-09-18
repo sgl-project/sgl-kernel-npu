@@ -10,7 +10,7 @@
 
  #ifndef CATLASS_EPILOGUE_BLOCK_BLOCK_EPILOGUE_ONLINE_SOFTMAX_NO_MASK_HPP
  #define CATLASS_EPILOGUE_BLOCK_BLOCK_EPILOGUE_ONLINE_SOFTMAX_NO_MASK_HPP
- 
+
  #include "catlass/catlass.hpp"
  #include "catlass/arch/cross_core_sync.hpp"
  #include "catlass/arch/resource.hpp"
@@ -18,9 +18,9 @@
  #include "catlass/epilogue/tile/tile_copy.hpp"
  #include "catlass/gemm_coord.hpp"
  #include "catlass/matrix_coord.hpp"
- 
+
  namespace Catlass::Epilogue::Block {
- 
+
  template <
      class OutputType_,
      class InputType_,
@@ -37,11 +37,11 @@
      using ElementOutput = typename OutputType_::Element;
      using ElementInput = typename InputType_::Element;
      using ElementMask = typename MaskType_::Element;
- 
+
      using LayoutOutput = typename OutputType_::Layout;
      using LayoutInput = typename InputType_::Layout;
      using LayoutMask = typename MaskType_::Layout;
- 
+
      static constexpr uint32_t FLOAT_BLOCK_SIZE = 8;
      static constexpr uint32_t FLOAT_VECTOR_SIZE = 64;
      static constexpr uint32_t HALF_VECTOR_SIZE = 128;
@@ -50,7 +50,7 @@
      static constexpr uint32_t UB_UINT8_BLOCK_SIZE = 16384;
      static constexpr uint32_t VECTOR_SIZE = 128;
      static constexpr uint32_t MAX_UB_S_ELEM_NUM = 8192;
- 
+
      static constexpr uint32_t REDUCE_UB_SIZE = 1024;
      static constexpr uint32_t ROW_OPS_SPEC_MASK_32 = 32;
      static constexpr uint32_t ROW_OPS_SPEC_MASK_4 = 4;
@@ -67,19 +67,19 @@
          constexpr uint32_t LS_UB_TENSOR_OFFSET = 0;
          constexpr uint32_t LP_UB_TENSOR_OFFSET = 4 * UB_UINT8_BLOCK_SIZE;
          constexpr uint32_t MASK32_UB_TENSOR_OFFSET = 4 * UB_UINT8_BLOCK_SIZE;
-         
+
          constexpr uint32_t TV_UB_TENSOR_OFFSET = 10 * UB_UINT8_BLOCK_SIZE;
          constexpr uint32_t LM_UB_TENSOR_OFFSET = 10 * UB_UINT8_BLOCK_SIZE + 8 * UB_UINT8_VECTOR_SIZE;
-         
+
          constexpr uint32_t HM_UB_TENSOR_OFFSET = 10 * UB_UINT8_BLOCK_SIZE + 9 * UB_UINT8_VECTOR_SIZE;
          constexpr uint32_t GM_UB_TENSOR_OFFSET = 10 * UB_UINT8_BLOCK_SIZE + 10 * UB_UINT8_VECTOR_SIZE;
          constexpr uint32_t LL_UB_TENSOR_OFFSET = 10 * UB_UINT8_BLOCK_SIZE + 11 * UB_UINT8_VECTOR_SIZE;
          constexpr uint32_t GL_UB_TENSOR_OFFSET = 10 * UB_UINT8_BLOCK_SIZE + 12 * UB_UINT8_VECTOR_SIZE;
          constexpr uint32_t DM_UB_TENSOR_OFFSET = 10 * UB_UINT8_BLOCK_SIZE + 13 * UB_UINT8_VECTOR_SIZE;
- 
+
          constexpr uint32_t MASK_UB_TENSOR_OFFSET = 11 * UB_UINT8_BLOCK_SIZE;
- 
- 
+
+
          scaleValue = scaleValue_;
          lsUbTensor = resource.ubBuf.template GetBufferByByte<float>(LS_UB_TENSOR_OFFSET);
          lpUbTensor = resource.ubBuf.template GetBufferByByte<ElementOutput>(LP_UB_TENSOR_OFFSET);
@@ -93,16 +93,16 @@
          tvUbTensor = resource.ubBuf.template GetBufferByByte<float>(TV_UB_TENSOR_OFFSET);
          glUbTensor = resource.ubBuf.template GetBufferByByte<float>(GL_UB_TENSOR_OFFSET);
      }
- 
+
      CATLASS_DEVICE
      ~BlockEpilogue() {}
- 
+
      template <typename T>
      CATLASS_DEVICE T Min(T a, T b)
      {
          return (a > b) ? b : a;
      }
- 
+
      CATLASS_DEVICE
      void SetVecMask(int32_t len)
      {
@@ -112,7 +112,7 @@
          for (int64_t i = 0; i < temp; i++) {
              mask |= one << i;
          }
- 
+
          if (len == VECTOR_SIZE || len == 0) {
              AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
          } else if (len >= FLOAT_VECTOR_SIZE) {
@@ -121,7 +121,7 @@
              AscendC::SetVectorMask<int8_t>(0x0, mask);
          }
      }
- 
+
      CATLASS_DEVICE
      void SetBlockReduceMask(int32_t len)
      {
@@ -134,7 +134,7 @@
                               (subMask << 40) + (subMask << 24) + (subMask << 8);
          AscendC::SetVectorMask<int8_t>(maskValue, maskValue);
      }
- 
+
      CATLASS_DEVICE
      void RowsumSPECTILE512(const AscendC::LocalTensor<float> &srcUb, const AscendC::LocalTensor<float> &rowsumUb,
                             const AscendC::LocalTensor<float> &tvUbTensor, uint32_t numRowsRound, uint32_t numElems,
@@ -143,7 +143,7 @@
          AscendC::BlockReduceSum<float, false>(tvUbTensor, srcUb, numRowsRound * numElemsAligned / FLOAT_VECTOR_SIZE, 0,
                                                1, 1, 8);
          AscendC::PipeBarrier<PIPE_V>();
- 
+
          AscendC::BlockReduceSum<float, false>(tvUbTensor[REDUCE_UB_SIZE], tvUbTensor,
                                                numRowsRound * numElemsAligned / FLOAT_BLOCK_SIZE / FLOAT_VECTOR_SIZE, 0,
                                                1, 1, 8);
@@ -153,7 +153,7 @@
                                                1, 1, 8);
          AscendC::PipeBarrier<PIPE_V>();
      }
- 
+
      CATLASS_DEVICE
      void RowsumSPECTILE256(const AscendC::LocalTensor<float> &srcUb, const AscendC::LocalTensor<float> &rowsumUb,
                             const AscendC::LocalTensor<float> &tvUbTensor, uint32_t numRowsRound, uint32_t numElems,
@@ -172,7 +172,7 @@
          AscendC::PipeBarrier<PIPE_V>();
          AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
      }
- 
+
      CATLASS_DEVICE
      void RowsumTAILTILE(const AscendC::LocalTensor<float> &srcUb, const AscendC::LocalTensor<float> &rowsumUb,
                          const AscendC::LocalTensor<float> &tvUbTensor, uint32_t numRowsRound, uint32_t numElems,
@@ -225,7 +225,7 @@
              AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
          }
      }
- 
+
      CATLASS_DEVICE
      void RowmaxSPECTILE512(const AscendC::LocalTensor<float> &srcUb, const AscendC::LocalTensor<float> &rowmaxUb,
                             const AscendC::LocalTensor<float> &tvUbTensor, uint32_t numRowsRound, uint32_t numElems,
@@ -243,7 +243,7 @@
                                                1, 1, 8);
          AscendC::PipeBarrier<PIPE_V>();
      }
- 
+
      CATLASS_DEVICE
      void RowmaxSPECTILE256(const AscendC::LocalTensor<float> &srcUb, const AscendC::LocalTensor<float> &rowmaxUb,
                             const AscendC::LocalTensor<float> &tvUbTensor, uint32_t numRowsRound, uint32_t numElems,
@@ -262,7 +262,7 @@
          AscendC::PipeBarrier<PIPE_V>();
          AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
      }
- 
+
      CATLASS_DEVICE
      void RowmaxTAILTILE(const AscendC::LocalTensor<float> &srcUb, const AscendC::LocalTensor<float> &rowmaxUb,
                          const AscendC::LocalTensor<float> &tvUbTensor, uint32_t numRowsRound, uint32_t numElems,
@@ -315,7 +315,7 @@
              AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
          }
      }
- 
+
      CATLASS_DEVICE
      void CopySGmToUb(
          AscendC::GlobalTensor<ElementInput> gInput,
@@ -331,10 +331,10 @@
                  rowNumCurLoop, columnNumRound / FLOAT_BLOCK_SIZE,
                  (columnNumPad - columnNumRound) / FLOAT_BLOCK_SIZE, 0));
      }
- 
+
      CATLASS_DEVICE
      void CopyMaskGmToUb(
-         AscendC::GlobalTensor<ElementMask> gMask,   
+         AscendC::GlobalTensor<ElementMask> gMask,
          uint32_t columnNum,
          uint32_t columnNumRound,
          uint32_t maskStride,
@@ -369,7 +369,7 @@
                  AscendC::DataCopyPadExtParams<ElementMask>(false, 0, 0, 0));
          }
      }
- 
+
      CATLASS_DEVICE
      void ScaleS(
          uint32_t sUbOffset,
@@ -381,10 +381,10 @@
              lsUbTensor[sUbOffset], lsUbTensor[sUbOffset], scaleValue, (uint64_t)0,
              (rowNumCurLoop * columnNumRound + FLOAT_VECTOR_SIZE - 1) / FLOAT_VECTOR_SIZE,
              AscendC::UnaryRepeatParams(1, 1, 8, 8));
- 
+
          AscendC::PipeBarrier<PIPE_V>();
      }
- 
+
      CATLASS_DEVICE
      void UpCastMask(
          uint32_t rowNumCurLoop,
@@ -396,7 +396,7 @@
              AscendC::UnaryRepeatParams(1, 1, 8, 4));
          AscendC::PipeBarrier<PIPE_V>();
      }
-     
+
      CATLASS_DEVICE
      void ApplyMask(
          uint32_t sUbOffset,
@@ -414,7 +414,7 @@
              AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
          AscendC::PipeBarrier<PIPE_V>();
      }
- 
+
      CATLASS_DEVICE
      void CalcLocalRowMax(
          uint32_t sUbOffset,
@@ -436,9 +436,9 @@
                  lsUbTensor[sUbOffset], lmUbTensor[rowOffset],
                  tvUbTensor, rowNumCurLoopRound, columnNum, columnNumRound);
          }
-         
+
      }
- 
+
      CATLASS_DEVICE
      void UpdateGlobalRowMax(
          uint32_t rowNumCurLoop,
@@ -460,14 +460,14 @@
              AscendC::Max<float, false>(
                  hmUbTensor[rowOffset], lmUbTensor[rowOffset], gmUbTensor[rowOffset], (uint64_t)0,
                  1, AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
- 
+
              AscendC::PipeBarrier<PIPE_V>();
              // *** dm = gm - hm
              AscendC::Sub<float, false>(
                  dmUbTensor[dmUbOffsetCurCycle],
                  gmUbTensor[rowOffset], hmUbTensor[rowOffset], (uint64_t)0, 1,
                  AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
- 
+
              AscendC::PipeBarrier<PIPE_V>();
              // *** dm = exp(dm)
              AscendC::Exp<float, false>(
@@ -482,7 +482,7 @@
                            AscendC::DataCopyParams(1, rowNumCurLoopRound / FLOAT_BLOCK_SIZE, 0, 0));
          AscendC::PipeBarrier<PIPE_V>();
      }
- 
+
      CATLASS_DEVICE
      void CalcExp(
          uint32_t sUbOffset,
@@ -520,7 +520,7 @@
                                     AscendC::UnaryRepeatParams(1, 1, 8, 8));
          AscendC::PipeBarrier<PIPE_V>();
      }
- 
+
      CATLASS_DEVICE
      void CalcLocalRowSum(
          uint32_t sUbOffset,
@@ -544,7 +544,7 @@
                  rowNumCurLoopRound, columnNum, columnNumRound);
          }
      }
- 
+
      CATLASS_DEVICE
      void UpdateGlobalRowSum(
          uint32_t sUbOffset,
@@ -574,7 +574,7 @@
              AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
          }
      }
- 
+
      CATLASS_DEVICE
      void DownCastP(
          uint32_t sUbOffset,
@@ -592,7 +592,7 @@
                  (rowNumCurLoop * columnNumRound + FLOAT_VECTOR_SIZE - 1) / FLOAT_VECTOR_SIZE, AscendC::UnaryRepeatParams(1, 1, 4, 8));
          }
      }
- 
+
      CATLASS_DEVICE
      void CopyPUbToGm(
          AscendC::GlobalTensor<ElementOutput> gOutput,
@@ -615,12 +615,12 @@
                      rowNumCurLoop, columnNumRound / BLOCK_SIZE,
                      0, (columnNumPad - columnNumRound) / BLOCK_SIZE));
          }
-         
+
      }
- 
+
      template<MaskCategory maskCat>
      CATLASS_DEVICE
-     void SubCoreCompute(AscendC::GlobalTensor<ElementOutput> gOutput, 
+     void SubCoreCompute(AscendC::GlobalTensor<ElementOutput> gOutput,
                          const LayoutOutput &layoutOutput,
                          uint32_t rowOffset, uint32_t isFirstStackTile,
                          uint32_t columnNumRound, uint32_t pingpongFlag,
@@ -633,21 +633,21 @@
          uint32_t columnNumPad = layoutOutput.stride(0);
          uint32_t sUbOffset = pingpongFlag * MAX_UB_S_ELEM_NUM;
          uint32_t dmUbOffsetCurCycle = curStackTileMod * MAX_ROW_NUM_SUB_CORE + rowOffset;
- 
+
          CalcLocalRowMax(sUbOffset, rowNumCurLoopRound, columnNum, columnNumRound, rowOffset);
          UpdateGlobalRowMax(rowNumCurLoop, rowNumCurLoopRound, columnNum, columnNumRound, dmUbOffsetCurCycle, rowOffset, isFirstStackTile);
- 
+
          CalcExp(sUbOffset, rowNumCurLoop, rowNumCurLoopRound, columnNum, columnNumRound, rowOffset);
          if constexpr (maskCat == MaskCategory::NO_MASK){
              AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(pingpongFlag);
-         }   
-         
+         }
+
          DownCastP(sUbOffset, rowNumCurLoop, columnNumRound);
          AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(pingpongFlag);
- 
+
          CalcLocalRowSum(sUbOffset, rowNumCurLoopRound, columnNum, columnNumRound, rowOffset);
          AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(pingpongFlag);
- 
+
          AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(pingpongFlag);
          CopyPUbToGm(gOutput, sUbOffset, rowNumCurLoop, columnNumRound, columnNumPad);
          if constexpr (maskCat == MaskCategory::NO_MASK){
@@ -659,7 +659,7 @@
          }
          UpdateGlobalRowSum(sUbOffset, rowNumCurLoop, rowNumCurLoopRound, dmUbOffsetCurCycle, rowOffset, isFirstStackTile);
      }
- 
+
      CATLASS_DEVICE
      void operator()(AscendC::GlobalTensor<ElementOutput> gOutput, AscendC::GlobalTensor<ElementInput> gInput,
                      const LayoutOutput &layoutOutput, const LayoutInput &layoutInput, GemmCoord actualBlockShape,
@@ -669,10 +669,10 @@
          uint32_t columnNum = actualBlockShape.n();
          uint32_t columnNumRound = RoundUp(columnNum, BLOCK_SIZE);
          uint32_t columnNumPad = layoutInput.stride(0);
- 
+
          uint32_t subBlockIdx = AscendC::GetSubBlockIdx();
          uint32_t subBlockNum = AscendC::GetSubBlockNum();
- 
+
          uint32_t qNSplitSubBlock = qNBlockSize / subBlockNum;
          uint32_t qNThisSubBlock = (qNBlockSize == 1) ?
              0 : (subBlockIdx == 1) ? (qNBlockSize - qNSplitSubBlock) : qNSplitSubBlock;
@@ -685,26 +685,26 @@
          uint32_t rowNumTile = RoundDown(maxRowNumPerLoop, FLOAT_BLOCK_SIZE);
          uint32_t rowLoopNum = CeilDiv(rowActualThisSubBlock, rowNumTile);
          uint32_t preLoad = 1;
- 
-         
+
+
          for (uint32_t rowLoopIdx = 0; rowLoopIdx < rowLoopNum + preLoad; rowLoopIdx++) {
              if(rowLoopIdx < rowLoopNum){
-                 
+
                  uint32_t pingpongFlag = rowLoopIdx % 2;
                  uint32_t rowOffsetCurLoop = rowLoopIdx * rowNumTile;
                  uint32_t rowOffsetIoGm = rowOffsetCurLoop + rowOffsetThisSubBlock;
                  uint32_t rowNumCurLoop = (rowLoopIdx == rowLoopNum - 1) ?
                      (rowActualThisSubBlock - rowOffsetCurLoop) : rowNumTile;
              // loop 0 mask load before cross core sync
-             
-             
+
+
                 int64_t offsetInput = layoutInput.GetOffset(MatrixCoord(rowOffsetIoGm, 0));
                 auto gInputCurLoop = gInput[offsetInput];
-                
+
                 AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(pingpongFlag);
                 CopySGmToUb(gInputCurLoop, (pingpongFlag * MAX_UB_S_ELEM_NUM), rowNumCurLoop, columnNumRound, columnNumPad);
                 AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(pingpongFlag);
- 
+
             }
             if(rowLoopIdx >= preLoad){
                 uint32_t delayedRowLoopIdx = rowLoopIdx - preLoad;
@@ -738,7 +738,7 @@
                      AscendC::GlobalTensor<ElementMask> gMask,
                      const LayoutOutput &layoutOutput, const LayoutInput &layoutInput, const LayoutInput &layoutMask,
                      GemmCoord actualBlockShape,
-                     uint32_t isFirstStackTile, uint32_t qSBlockSize, uint32_t qNBlockSize, uint32_t curStackTileMod, 
+                     uint32_t isFirstStackTile, uint32_t qSBlockSize, uint32_t qNBlockSize, uint32_t curStackTileMod,
                     Arch::CrossCoreFlag qkReady)
      {
          uint32_t rowNum = actualBlockShape.m();
@@ -748,7 +748,7 @@
          uint32_t maskStride = layoutMask.stride(0);
          uint32_t subBlockIdx = AscendC::GetSubBlockIdx();
          uint32_t subBlockNum = AscendC::GetSubBlockNum();
- 
+
          uint32_t qNSplitSubBlock = qNBlockSize / subBlockNum;
          uint32_t qNThisSubBlock = (qNBlockSize == 1) ?
              0 : (subBlockIdx == 1) ? (qNBlockSize - qNSplitSubBlock) : qNSplitSubBlock;
@@ -757,9 +757,9 @@
          uint32_t rowActualThisSubBlock = (subBlockIdx == 1) ?
              (rowNum - rowSplitSubBlock) : rowSplitSubBlock;
          uint32_t rowOffsetThisSubBlock = subBlockIdx * rowSplitSubBlock;
- 
+
          uint32_t tokenNumPerHeadThisSubBlock = Min(qSBlockSize, rowActualThisSubBlock);
-         
+
          uint32_t maskOffsetThisSubBlock = (qNBlockSize == 1) ?
              rowOffsetThisSubBlock : 0;
          int64_t offsetMask = layoutMask.GetOffset(MatrixCoord(maskOffsetThisSubBlock, 0));
@@ -770,7 +770,7 @@
          uint32_t rowNumTile = RoundDown(maxRowNumPerLoop, FLOAT_BLOCK_SIZE);
          uint32_t rowLoopNum = CeilDiv(rowActualThisSubBlock, rowNumTile);
          uint32_t preLoad = 1;
-         
+
          if (rowActualThisSubBlock == 0) {
              Arch::CrossCoreWaitFlag(qkReady);
              return;
@@ -855,9 +855,9 @@
                     curStackTileMod);
             }
         }
-         
+
      }
- 
+
  private:
      float scaleValue;
      AscendC::LocalTensor<float> lsUbTensor;
@@ -873,5 +873,5 @@
      AscendC::LocalTensor<float> glUbTensor;
  };
  } // namespace Catlass::Epilogue::Block
- 
+
  #endif // CATLASS_EPILOGUE_BLOCK_BLOCK_EPILOGUE_ONLINE_SOFTMAX_NO_MASK_HPP

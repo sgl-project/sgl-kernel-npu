@@ -255,11 +255,11 @@ public:
 
         // Loop parameter in the D direction
         iterParams.ddr2l1LoopD = actualBlockShape.d();
-        
+
         // The starting position of the input
         iterParams.diStartPos = actualIdxStartFmap.d();
         iterParams.hwStartPos = actualIdxStartFmap.hw();
-        
+
         // Start the batch iterate
         for (uint32_t batchIter = 0; batchIter < actualBlockShape.n(); ++batchIter) {
             auto gmBatchFmap = fmapGm[batchIter * conv3dParams.fmapOneBatchSize()];
@@ -313,7 +313,7 @@ public:
                 // Start the K-axis iterate
                 uint32_t n = (iterParams.nBL1Iter == iterParams.maxNBL1Iter && iterParams.nBL0Iter == iterParams.maxNL0Iter) ? iterParams.nL0Tail : L0TileShape::nL0;
                 uint32_t m = (iterParams.mAL1Iter == iterParams.maxMAL1Iter && iterParams.mAL0Iter == iterParams.maxML0Iter) ? iterParams.mAL0Tail : L0TileShape::mL0;
-                
+
                 tileParams.l0CurrentM = CeilDiv(m, BLOCK_L0_M) * BLOCK_L0_M;
                 tileParams.l0CurrentN = CeilDiv(n, BLOCK_L0_N) * BLOCK_L0_N;
 
@@ -395,7 +395,7 @@ protected:
         uint8_t mL0IsDivisibleByWo = false;
 
         uint8_t isGroupOptDimTail = false;
-        
+
         uint32_t kAL1Iter = 0;
         uint32_t kBL1Iter = 0;
         uint32_t mAL1Iter = 0;
@@ -417,13 +417,13 @@ protected:
         uint32_t maxKL0Iter = 0;
         uint32_t maxDOutIter = 0;
         uint32_t maxGroupOptIter = 0;
-        
+
         uint32_t ddr2l1LoopN = 0;
         uint32_t l12l0LoopN = 0;
         uint32_t ddr2l1LoopD = 0;
         uint32_t l12l0LoopM = 0;
         uint32_t ddr2l0LoopK = 0;
-        
+
         uint32_t kL0Tail = 0;
         uint32_t kAL1Tail = 0;
         uint32_t kBL1Tail = 0;

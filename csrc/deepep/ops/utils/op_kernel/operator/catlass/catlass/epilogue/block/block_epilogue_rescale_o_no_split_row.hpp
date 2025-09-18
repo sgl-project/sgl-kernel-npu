@@ -10,16 +10,16 @@
 
  #ifndef CATLASS_EPILOGUE_BLOCK_BLOCK_EPILOGUE_RESCALE_O_NO_SPLIT_ROW_HPP
  #define CATLASS_EPILOGUE_BLOCK_BLOCK_EPILOGUE_RESCALE_O_NO_SPLIT_ROW_HPP
- 
+
  #include "catlass/catlass.hpp"
  #include "catlass/arch/resource.hpp"
  #include "catlass/epilogue/dispatch_policy.hpp"
  #include "catlass/epilogue/tile/tile_copy.hpp"
  #include "catlass/gemm_coord.hpp"
  #include "catlass/matrix_coord.hpp"
- 
+
  namespace Catlass::Epilogue::Block {
- 
+
  template <
      class OutputType_,
      class InputType_,
@@ -34,15 +34,15 @@
      // Type aliases
      using DispatchPolicy = EpilogueAtlasA2RescaleO;
      using ArchTag = typename DispatchPolicy::ArchTag;
- 
+
      using ElementOutput = typename OutputType_::Element;
      using ElementInput = typename InputType_::Element;
      using ElementUpdate = typename UpdateType_::Element;
- 
+
      using LayoutOutput = typename OutputType_::Layout;
      using LayoutInput = typename InputType_::Layout;
      using LayoutUpdate = typename UpdateType_::Layout;
- 
+
      static constexpr uint32_t HALF_ELENUM_PER_BLK = 16;
      static constexpr uint32_t BLOCK_SIZE = 16;
      static constexpr uint32_t HALF_ELENUM_PER_VECCALC = 128;
@@ -60,7 +60,7 @@
      static constexpr uint32_t NUM4 = 4;
      static constexpr uint32_t MAX_UB_O_ELEM_NUM = 4096;
      static constexpr uint32_t MAX_ROW_NUM_SUB_CORE = 128;
- 
+
      CATLASS_DEVICE
      BlockEpilogue(Arch::Resource<ArchTag> &resource)
      {
@@ -68,11 +68,11 @@
          constexpr uint32_t LO_UB_TENSOR_OFFSET = 6 * UB_UINT8_BLOCK_SIZE;
          constexpr uint32_t GO_UB_TENSOR_OFFSET = 8 * UB_UINT8_BLOCK_SIZE;
          constexpr uint32_t TV_UB_TENSOR_OFFSET = 10 * UB_UINT8_BLOCK_SIZE;
-         
+
          constexpr uint32_t HM_UB_TENSOR_OFFSET = 10 * UB_UINT8_BLOCK_SIZE + 9 * UB_UINT8_VECTOR_SIZE;
          constexpr uint32_t GL_UB_TENSOR_OFFSET = 10 * UB_UINT8_BLOCK_SIZE + 12 * UB_UINT8_VECTOR_SIZE;
          constexpr uint32_t DM_UB_TENSOR_OFFSET = 10 * UB_UINT8_BLOCK_SIZE + 13 * UB_UINT8_VECTOR_SIZE;
- 
+
          loUbTensor = resource.ubBuf.template GetBufferByByte<float>(LO_UB_TENSOR_OFFSET);
          dmUbTensor = resource.ubBuf.template GetBufferByByte<float>(DM_UB_TENSOR_OFFSET);
          glUbTensor = resource.ubBuf.template GetBufferByByte<float>(GL_UB_TENSOR_OFFSET);
@@ -81,12 +81,12 @@
          goUbTensor32 = resource.ubBuf.template GetBufferByByte<float>(GO_UB_TENSOR_OFFSET);
          hmUbTensor = resource.ubBuf.template GetBufferByByte<float>(HM_UB_TENSOR_OFFSET);
      }
- 
+
      CATLASS_DEVICE
      ~BlockEpilogue()
      {
      }
- 
+
      CATLASS_DEVICE
      void SetMask(int32_t len)
      {
@@ -96,7 +96,7 @@
          for (int64_t i = 0; i < temp; i++) {
              mask |= one << i;
          }
- 
+
          if (len == VECTOR_SIZE) {
              AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
          } else if (len >= FLOAT_VECTOR_SIZE) {
@@ -105,7 +105,7 @@
              AscendC::SetVectorMask<int8_t>(0x0, mask);
          }
      }
- 
+
      CATLASS_DEVICE
      void CopyOToGm(
          AscendC::GlobalTensor<ElementOutput> gOutput,
@@ -114,7 +114,7 @@
      {
          if (qNThisSubBlock == 0) {
              AscendC::DataCopyPad(
-                 gOutput, 
+                 gOutput,
                  goUbTensor16,
                  AscendC::DataCopyExtParams(curRowNum, embed * 2, 0, (oHiddenSize - embed) * 2, 0));
          } else {
@@ -126,7 +126,7 @@
              }
          }
      }
- 
+
      CATLASS_DEVICE
      void SubCoreCompute(
          AscendC::GlobalTensor<ElementOutput> gOutput,
@@ -144,14 +144,14 @@
          uint32_t oHiddenSize = layoutOutput.shape(1);
          uint32_t dmUbOffsetCurStackTile =
              curStackTileMod * MAX_ROW_NUM_SUB_CORE;
-         
+
          AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID3);
          if (!isFirstStackTile) {
              AscendC::DataCopy(loUbTensor, gInput,
                                AscendC::DataCopyParams(1, curRowNum * embedRound / FLOAT_BLOCK_SIZE, 0, 0));
              AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID0);
              AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID0);
- 
+
              AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
              AscendC::Brcb(tvUbTensor.ReinterpretCast<uint32_t>(),
                            dmUbTensor[dmUbOffsetCurStackTile].ReinterpretCast<uint32_t>(), curRowNumRound / FLOAT_BLOCK_SIZE,
@@ -192,7 +192,7 @@
              AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID0);
          }
          AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID3);
- 
+
          if (isLastStackTile) {
              // *** gl_block = expand_to_block(gl), 存放于 tv
              AscendC::Brcb(tvUbTensor.ReinterpretCast<uint32_t>(),
@@ -221,7 +221,7 @@
                  AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
              }
              AscendC::PipeBarrier<PIPE_V>();
- 
+
              // *** go = castfp32to16(go)
              if (std::is_same<ElementOutput, bfloat16_t>::value) {
                  AscendC::Cast<ElementOutput, float, false>(
@@ -238,14 +238,14 @@
              }
              AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0);
              AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0);
- 
+
              // ***move O to GM
              CopyOToGm(
                  gOutput, curRowNum, qSBlockSize, embed,
                  embedRound, qNThisSubBlock, oHiddenSize);
          }
      }
- 
+
      CATLASS_DEVICE
      void operator()(
          AscendC::GlobalTensor<ElementOutput> gOutput,
@@ -259,10 +259,10 @@
          uint32_t rowNum = actualBlockShape.m();
          uint32_t embed = actualBlockShape.n();
          // uint32_t columnNumRound = layoutInput.stride(0);
- 
+
          uint32_t subBlockIdx = AscendC::GetSubBlockIdx();
          uint32_t subBlockNum = AscendC::GetSubBlockNum();
- 
+
          uint32_t qNSplitSubBlock = qNBlockSize / subBlockNum;
          uint32_t qNThisSubBlock = (qNBlockSize == 1) ?
              0: (subBlockIdx == 1) ?
@@ -276,13 +276,13 @@
              inRowOffsetThisSubBlock : 0;
          uint32_t outColOffsetThisSubBlock = (qNBlockSize == 1) ?
              0 : subBlockIdx * qNSplitSubBlock * embed;
- 
+
          if (inRowActualThisSubBlock > 0) {
              int64_t offsetOutput =
                  layoutOutput.GetOffset(MatrixCoord(outRowOffsetThisSubBlock, outColOffsetThisSubBlock));
              auto gOutputThisSubBlock = gOutput[offsetOutput];
              auto layoutOutputThisSubBlock = layoutOutput;
- 
+
              int64_t offsetInput = layoutInput.GetOffset(MatrixCoord(inRowOffsetThisSubBlock, 0));
              auto gInputThisSubBlock = gInput[offsetInput];
              auto layoutInputThisSubBlock = layoutInput.GetTileLayout(MatrixCoord(inRowActualThisSubBlock, embed));
@@ -294,7 +294,7 @@
                  qNThisSubBlock, isFirstStackTile, isLastStackTile, curStackTileMod);
          }
      }
- 
+
  private:
      AscendC::LocalTensor<float> loUbTensor;
      AscendC::LocalTensor<float> dmUbTensor;
@@ -305,5 +305,5 @@
      AscendC::LocalTensor<float> goUbTensor32;
  };
  }
- 
+
  #endif // CATLASS_EPILOGUE_BLOCK_BLOCK_EPILOGUE_RESCALE_O_NO_SPLIT_ROW_HPP

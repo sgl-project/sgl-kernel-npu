@@ -135,7 +135,7 @@ public:
         gmBWksp.SetGlobalBuffer((__gm__ ElementB *)params.ptrWksp);
 
         BlockMmad blockMmad(resource);
-        
+
         GemmCoord blockIdxCoord;
         GemmCoord actualBlockShape;
         GemmCoord nextBlockIdCoord;
@@ -193,7 +193,7 @@ public:
         gmC.SetGlobalBuffer((__gm__ ElementC *)params.ptrC);
 
         BlockMmad blockMmad(resource);
-        
+
         GemmCoord blockIdxCoord;
         GemmCoord actualBlockShape;
         GemmCoord nextBlockIdCoord;

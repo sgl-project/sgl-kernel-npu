@@ -37,7 +37,7 @@ struct TileElemWiseGelu {
         AscendC::LocalTensor<ElementCompute> const & srcLocal)
     {
         using namespace AscendC;
-        
+
         // current realization: x / (1 + e^(-1.5957691*0.044715(x/0.044715 + x^3)))
         Mul(dstLocal, srcLocal, srcLocal, COMPUTE_LENGTH); // d: x^2 , s:x
         Mul(dstLocal, dstLocal, srcLocal, COMPUTE_LENGTH); // d: x^3 ,.s:x
