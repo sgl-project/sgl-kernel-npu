@@ -242,6 +242,10 @@ inline aclTensor *ConvertType(const at::Tensor &at_tensor)
             format = ACL_FORMAT_ND;
     }
 
+    if (acl_data_type == ACL_INT8 && dimNum == 3) {
+        format = ACL_FORMAT_FRACTAL_NZ;
+    }
+
     if (at_tensor.unsafeGetTensorImpl()->is_wrapped_number()) {
         c10::Scalar expScalar = ConvertTensorToScalar(at_tensor);
         at::Tensor aclInput = CopyScalarToDevice(expScalar, scalar_data_type);

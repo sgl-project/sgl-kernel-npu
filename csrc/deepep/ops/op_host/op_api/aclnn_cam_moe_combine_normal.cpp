@@ -19,12 +19,14 @@ aclnnStatus aclnnCamMoeCombineNormalGetWorkspaceSize(const aclTensor *recvX, con
                                                      const aclTensor *tpRecvCountsOptional, char *epGroupName,
                                                      int64_t epWorldSize, int64_t epRankId, char *tpGroupNameOptional,
                                                      int64_t tpWorldSize, int64_t tpRankId, int64_t moeExpertNum,
-                                                     int64_t globalBs, const aclTensor *out, uint64_t *workspaceSize,
+                                                     int64_t globalBs, const aclTensor *out,
+                                                     const aclTensor *sendCostStats, uint64_t *workspaceSize,
                                                      aclOpExecutor **executor)
 {
-    return aclnnInnerCamMoeCombineNormalGetWorkspaceSize(
-        recvX, tokenSrcInfo, epRecvCounts, recvTopkWeights, tpRecvCountsOptional, epGroupName, epWorldSize, epRankId,
-        tpGroupNameOptional, tpWorldSize, tpRankId, moeExpertNum, globalBs, out, workspaceSize, executor);
+    return aclnnInnerCamMoeCombineNormalGetWorkspaceSize(recvX, tokenSrcInfo, epRecvCounts, recvTopkWeights,
+                                                         tpRecvCountsOptional, epGroupName, epWorldSize, epRankId,
+                                                         tpGroupNameOptional, tpWorldSize, tpRankId, moeExpertNum,
+                                                         globalBs, out, sendCostStats, workspaceSize, executor);
 }
 
 aclnnStatus aclnnCamMoeCombineNormal(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,

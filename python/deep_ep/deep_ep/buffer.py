@@ -234,6 +234,7 @@ class Buffer:
         previous_event: Optional[EventOverlap] = None,
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
+        dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -269,6 +270,8 @@ class Buffer:
             previous_event: the event to wait before actually executing the kernel.
             async_finish: the current stream will not wait for the communication kernels to be finished if set.
             allocate_on_comm_stream: control whether all the allocated tensors' ownership to be on the communication stream.
+            dispatch_wait_recv_cost_stats: `[num_ranks]` with `torch.int`, record the time it takes for the dispatch phase
+                to receive all tokens from each slave rank in the current rank.
 
         Returns:
             recv_x: received tokens, the first element is a `torch.Tensor` shaped as `[received_token_count, hidden]` with
@@ -324,6 +327,7 @@ class Buffer:
                 0,
                 None,
                 None,
+                dispatch_wait_recv_cost_stats,
                 expert_alignment,
                 num_worst_tokens,
                 config,
@@ -363,6 +367,7 @@ class Buffer:
         previous_event: Optional[EventOverlap] = None,
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
+        combine_send_cost_stats: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], EventOverlap]:
         """
         Combine (reduce) tokens (addition **without** weights) from different ranks, both intranode and internode
@@ -379,6 +384,8 @@ class Buffer:
             previous_event: the event to wait before actually executing the kernel.
             async_finish: the current stream will not wait for the communication kernels to be finished if set.
             allocate_on_comm_stream: control whether all the allocated tensors' ownership to be on the communication stream.
+            combine_send_cost_stats: `[num_ranks]`: record the time when the current rank sends all tokens to other ranks
+                in the combine phase.
 
         Returns:
             recv_x: the reduced token from its dispatched ranks.
@@ -399,7 +406,7 @@ class Buffer:
 
         # Launch the kernel
         recv_x, recv_topk_weights, event = self.runtime.intranode_combine(
-            x, topk_idx, topk_weights_ori, src_idx, send_head
+            x, topk_idx, topk_weights_ori, src_idx, send_head, combine_send_cost_stats
         )
         return recv_x, recv_topk_weights, EventOverlap(event)
 
