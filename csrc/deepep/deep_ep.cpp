@@ -46,7 +46,7 @@ bool Buffer::is_available() const
     return available;
 }
 
-std::tuple<torch::Tensor, std::optional<torch::Tensor>, torch::Tensor, torch::Tensor, std::optional<EventHandle>>
+std::tuple<torch::Tensor, std::optional<torch::Tensor>, torch::Tensor, torch::Tensor, torch::Tensor, std::optional<EventHandle>>
 Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std::optional<EventHandle> &previous_event,
                             bool async, bool allocate_on_comm_stream)
 {
@@ -73,21 +73,30 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
 
     const int num_tokens = new_topk_idx.size(0);
     const int num_topk = new_topk_idx.size(1);
+    const int local_ranksize = 8;
+    auto server_num = num_ranks / local_ranksize;
 
     auto device = new_topk_idx.device();
     auto num_tokens_per_expert = at::zeros({num_experts}, at::dtype(at::kInt).device(device));
     auto num_tokens_per_rank = at::zeros({num_ranks}, at::dtype(at::kInt).device(device));
     auto is_token_in_rank = at::zeros({num_tokens, num_ranks}, at::dtype(at::kInt).device(device));
+    auto local_token_server_offset = at::zeros({num_tokens * server_num}, at::dtype(at::kInt).device(device));
+    auto local_token_server_uniq_count = at::zeros({server_num}, at::dtype(at::kInt).device(device));
+    auto local_token_server_total_count = at::zeros({num_tokens * server_num}, at::dtype(at::kInt).device(device));
+    auto local_token_server_num = at::zeros({num_tokens}, at::dtype(at::kInt).device(device));
+    const int total_size = num_experts * 8193 + server_num + num_tokens * (1 + 2 * server_num + num_topk);
+    auto expert_rank_token_idx = at::zeros({total_size}, at::dtype(at::kInt).device(device));
 
-    EXEC_NPU_CMD(aclnnDispatchLayout, new_topk_idx, num_tokens, num_ranks, num_experts, num_topk, num_tokens_per_rank,
-                 num_tokens_per_expert, is_token_in_rank);
+    EXEC_NPU_CMD(aclnnDispatchLayoutA2, new_topk_idx, num_tokens, num_ranks, num_experts, num_topk, local_ranksize, num_tokens_per_rank,
+                 num_tokens_per_expert, is_token_in_rank, local_token_server_offset, local_token_server_uniq_count,
+                 local_token_server_total_count, local_token_server_num, expert_rank_token_idx);
 
     std::optional<torch::Tensor> num_tokens_per_rdma_rank = std::nullopt;
     std::optional<EventHandle> output_event = std::nullopt;
     auto is_token_in_rank_bool = is_token_in_rank.to(at::kBool);
 
     return std::make_tuple(num_tokens_per_rank, num_tokens_per_rdma_rank, num_tokens_per_expert, is_token_in_rank_bool,
-                           output_event);
+                           expert_rank_token_idx, output_event);
 }
 
 std::tuple<at::Tensor, std::optional<at::Tensor>, std::optional<at::Tensor>, std::optional<at::Tensor>,

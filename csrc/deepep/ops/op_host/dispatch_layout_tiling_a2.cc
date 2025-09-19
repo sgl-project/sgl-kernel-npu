@@ -14,7 +14,7 @@
 #include "error_log.h"
 #include "graph/utils/type_utils.h"
 #include "register/op_def_registry.h"
-#include "../op_kernel/dispatch_layout_tiling.h"
+#include "../op_kernel/dispatch_layout_tiling_a2.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "tiling/hccl/hccl_tiling.h"
 #include "experiment/platform/platform/platform_infos_def.h"
@@ -26,11 +26,17 @@ constexpr uint32_t INPUT_TOPK_IDX_INDEX = 0;
 constexpr uint32_t OUTPUT_NUM_TOKEN_PER_RANK_INDEX = 0;
 constexpr uint32_t OUTPUT_NUM_TOKEN_PER_EXPERT_INDEX = 1;
 constexpr uint32_t OUTPUT_IS_TOKEN_IN_RANK_INDEX = 2;
+constexpr uint32_t OUTPUT_LOCAL_SERVER_OFFSET_INDEX = 3;
+constexpr uint32_t OUTPUT_LOCAL_SERVER_UNIQ_COUNT_INDEX = 4;
+constexpr uint32_t OUTPUT_LOCAL_SERVER_TOTAL_COUNT_INDEX = 5;
+constexpr uint32_t OUTPUT_LOCAL_SERVER_NUM_INDEX = 6;
+constexpr uint32_t OUTPUT_EXPERT_RANK_TOKEN_INDEX = 7;
 
 constexpr uint32_t ATTR_NUM_TOKENS_INDEX = 0;
 constexpr uint32_t ATTR_NUM_RANKS_INDEX = 1;
 constexpr uint32_t ATTR_NUM_EXPERTS_INDEX = 2;
 constexpr uint32_t ATTR_NUM_TOPK_INDEX = 3;
+constexpr uint32_t ATTR_LOCAL_RANKSIZE_INDEX = 4;
 const int64_t MAX_COMM_WORLD_SIZE = 384;
 const int64_t MAX_MOE_EXPERTS_NUM = 512;
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
@@ -38,21 +44,23 @@ constexpr uint32_t KERNEL_USE_WORKSPACE = 1 * 1024 * 1024;
 constexpr uint32_t KERNEL_A2_ARG_SIZE = 1 * 1024 * 1024;
 
 constexpr uint32_t TWO_DIMS = 2;
+constexpr uint32_t MAX_LOCAL_SIZE = 8;
 constexpr uint32_t K_MAX = 16;
 }  // namespace
 
 namespace optiling {
-static void PrintTilingDataInfo(const char *nodeName, DispatchLayoutTilingData &tilingData)
+static void PrintTilingDataInfo(const char *nodeName, DispatchLayoutA2TilingData &tilingData)
 {
-    OP_LOGD(nodeName, "numToken is %u.", tilingData.dispatchLayoutInfo.numTokens);
-    OP_LOGD(nodeName, "numRanks is %u.", tilingData.dispatchLayoutInfo.numRanks);
-    OP_LOGD(nodeName, "numExperts is %u.", tilingData.dispatchLayoutInfo.numExperts);
-    OP_LOGD(nodeName, "numTopk is %u.", tilingData.dispatchLayoutInfo.numTopk);
-    OP_LOGD(nodeName, "totalUbSize is %lu.", tilingData.dispatchLayoutInfo.totalUbSize);
+    OP_LOGD(nodeName, "numToken is %u.", tilingData.dispatchLayoutA2Info.numTokens);
+    OP_LOGD(nodeName, "numRanks is %u.", tilingData.dispatchLayoutA2Info.numRanks);
+    OP_LOGD(nodeName, "numExperts is %u.", tilingData.dispatchLayoutA2Info.numExperts);
+    OP_LOGD(nodeName, "numTopk is %u.", tilingData.dispatchLayoutA2Info.numTopk);
+    OP_LOGD(nodeName, "localRankSize is %u.", tilingData.dispatchLayoutA2Info.localRankSize);
+    OP_LOGD(nodeName, "totalUbSize is %lu.", tilingData.dispatchLayoutA2Info.totalUbSize);
 }
 
 static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, const char *nodeName,
-                                               DispatchLayoutTilingData &tilingData)
+                                               DispatchLayoutA2TilingData &tilingData)
 {
     auto attrs = context->GetAttrs();
     OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "attrs is nullptr."), return ge::GRAPH_FAILED);
@@ -61,11 +69,13 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     auto numRanksPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_NUM_RANKS_INDEX));
     auto numExpertsPtr = attrs->GetAttrPointer<int64_t>(ATTR_NUM_EXPERTS_INDEX);
     auto numTopkPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_NUM_TOPK_INDEX));
+    auto localRankSizePtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_LOCAL_RANKSIZE_INDEX));
 
     OP_TILING_CHECK(numTokensPtr == nullptr, OP_LOGE(nodeName, "numTokensPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(numRanksPtr == nullptr, OP_LOGE(nodeName, "numRanksPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(numExpertsPtr == nullptr, OP_LOGE(nodeName, "numExpertsPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(numTopkPtr == nullptr, OP_LOGE(nodeName, "numTopkPtr is null."), return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(localRankSizePtr == nullptr, OP_LOGE(nodeName, "localRankSizePtr is null."), return ge::GRAPH_FAILED);
 
     OP_TILING_CHECK((*numRanksPtr <= 0) || (*numRanksPtr > MAX_COMM_WORLD_SIZE),
                     OP_LOGE(nodeName, "rankSize is invalid, only support (0, %ld], but got rankSize=%ld.",
@@ -79,11 +89,16 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
         (*numTopkPtr <= 0) || (*numTopkPtr > K_MAX),
         OP_LOGE(nodeName, "numTopkPtr is invalid, only support (0, %u], but got numTopk=%ld.", K_MAX, *numTopkPtr),
         return ge::GRAPH_FAILED);
+    OP_TILING_CHECK((*localRankSizePtr <= 0) || (*localRankSizePtr > MAX_LOCAL_SIZE),
+                    OP_LOGE(nodeName, "localRankSize is invalid, only support (0, %u], but got localRankSize=%ld.",
+                            MAX_LOCAL_SIZE, *localRankSizePtr),
+                    return ge::GRAPH_FAILED);
 
-    tilingData.dispatchLayoutInfo.numTokens = static_cast<uint32_t>(*numTokensPtr);
-    tilingData.dispatchLayoutInfo.numRanks = static_cast<uint32_t>(*numRanksPtr);
-    tilingData.dispatchLayoutInfo.numExperts = static_cast<uint32_t>(*numExpertsPtr);
-    tilingData.dispatchLayoutInfo.numTopk = static_cast<uint32_t>(*numTopkPtr);
+    tilingData.dispatchLayoutA2Info.numTokens = static_cast<uint32_t>(*numTokensPtr);
+    tilingData.dispatchLayoutA2Info.numRanks = static_cast<uint32_t>(*numRanksPtr);
+    tilingData.dispatchLayoutA2Info.numExperts = static_cast<uint32_t>(*numExpertsPtr);
+    tilingData.dispatchLayoutA2Info.numTopk = static_cast<uint32_t>(*numTopkPtr);
+    tilingData.dispatchLayoutA2Info.localRankSize = static_cast<uint32_t>(*localRankSizePtr);
 
     return ge::GRAPH_SUCCESS;
 }
@@ -102,11 +117,21 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     auto numTokensPerRank = context->GetOutputDesc(OUTPUT_NUM_TOKEN_PER_RANK_INDEX);
     auto numTokensPerExpert = context->GetOutputDesc(OUTPUT_NUM_TOKEN_PER_EXPERT_INDEX);
     auto isTokenInRank = context->GetOutputDesc(OUTPUT_IS_TOKEN_IN_RANK_INDEX);
+    auto localServerOffset = context->GetOutputDesc(OUTPUT_LOCAL_SERVER_OFFSET_INDEX);
+    auto localServerUniqCount = context->GetOutputDesc(OUTPUT_LOCAL_SERVER_UNIQ_COUNT_INDEX);
+    auto localServerTotalCount = context->GetOutputDesc(OUTPUT_LOCAL_SERVER_TOTAL_COUNT_INDEX);
+    auto localServerNum = context->GetOutputDesc(OUTPUT_LOCAL_SERVER_NUM_INDEX);
+    auto expertRankTokenIdx = context->GetOutputDesc(OUTPUT_EXPERT_RANK_TOKEN_INDEX);
 
     OP_TILING_CHECK(topkIdx == nullptr, OP_LOGE(nodeName, "topkIdx is null."), return false);
     OP_TILING_CHECK(numTokensPerRank == nullptr, OP_LOGE(nodeName, "numTokensPerRank is null."), return false);
     OP_TILING_CHECK(numTokensPerExpert == nullptr, OP_LOGE(nodeName, "numTokensPerExpert is null."), return false);
     OP_TILING_CHECK(isTokenInRank == nullptr, OP_LOGE(nodeName, "isTokenInRank is null."), return false);
+    OP_TILING_CHECK(localServerOffset == nullptr, OP_LOGE(nodeName, "localServerOffset is null."), return false);
+    OP_TILING_CHECK(localServerUniqCount == nullptr, OP_LOGE(nodeName, "localServerUniqCount is null."), return false);
+    OP_TILING_CHECK(localServerTotalCount == nullptr, OP_LOGE(nodeName, "localServerTotalCount is null."), return false);
+    OP_TILING_CHECK(localServerNum == nullptr, OP_LOGE(nodeName, "localServerNum is null."), return false);
+    OP_TILING_CHECK(expertRankTokenIdx == nullptr, OP_LOGE(nodeName, "expertRankTokenIdx is null."), return false);
 
     OP_TILING_CHECK((topkIdx->GetDataType() != ge::DT_INT64),
                     OP_LOGE(nodeName, "topkIdx datatype is invalid, datatype should be int, but is %d.",
@@ -123,6 +148,26 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     OP_TILING_CHECK((isTokenInRank->GetDataType() != ge::DT_INT32),
                     OP_LOGE(nodeName, "isTokenInRank datatype is invalid, datatype should be int, but is %d.",
                             static_cast<ge::DataType>(isTokenInRank->GetDataType())),
+                    return false);
+    OP_TILING_CHECK((localServerOffset->GetDataType() != ge::DT_INT32),
+                    OP_LOGE(nodeName, "localServerOffset datatype is invalid, datatype should be int, but is %d.",
+                            static_cast<ge::DataType>(localServerOffset->GetDataType())),
+                    return false);
+    OP_TILING_CHECK((localServerUniqCount->GetDataType() != ge::DT_INT32),
+                    OP_LOGE(nodeName, "localServerUniqCount datatype is invalid, datatype should be int, but is %d.",
+                            static_cast<ge::DataType>(localServerUniqCount->GetDataType())),
+                    return false);
+    OP_TILING_CHECK((localServerTotalCount->GetDataType() != ge::DT_INT32),
+                    OP_LOGE(nodeName, "localServerTotalCount datatype is invalid, datatype should be int, but is %d.",
+                            static_cast<ge::DataType>(localServerTotalCount->GetDataType())),
+                    return false);
+    OP_TILING_CHECK((localServerNum->GetDataType() != ge::DT_INT32),
+                    OP_LOGE(nodeName, "localServerNum datatype is invalid, datatype should be int, but is %d.",
+                            static_cast<ge::DataType>(localServerNum->GetDataType())),
+                    return false);
+    OP_TILING_CHECK((expertRankTokenIdx->GetDataType() != ge::DT_INT32),
+                    OP_LOGE(nodeName, "expertRankTokenIdx datatype is invalid, datatype should be int, but is %d.",
+                            static_cast<ge::DataType>(expertRankTokenIdx->GetDataType())),
                     return false);
 
     return true;
@@ -153,10 +198,10 @@ static ge::graphStatus TilingCheckTensor(gert::TilingContext *context, const cha
     return ge::GRAPH_SUCCESS;
 }
 
-static ge::graphStatus DispatchLayoutTilingFuncImpl(gert::TilingContext *context)
+static ge::graphStatus DispatchLayoutA2TilingFuncImpl(gert::TilingContext *context)
 {
     const char *nodeName = context->GetNodeName();
-    DispatchLayoutTilingData *tilingData = context->GetTilingData<DispatchLayoutTilingData>();
+    DispatchLayoutA2TilingData *tilingData = context->GetTilingData<DispatchLayoutA2TilingData>();
     OP_TILING_CHECK(tilingData == nullptr, OP_LOGE(nodeName, "tilingData is nullptr."), return ge::GRAPH_FAILED);
     OP_LOGI(nodeName, "Enter NotifyDispatch tiling check func.");
 
@@ -183,31 +228,31 @@ static ge::graphStatus DispatchLayoutTilingFuncImpl(gert::TilingContext *context
 
     blockDim = aivNum;
     context->SetBlockDim(blockDim);
-    tilingData->dispatchLayoutInfo.totalUbSize = ubSize;
+    tilingData->dispatchLayoutA2Info.totalUbSize = ubSize;
     OP_LOGD(nodeName, "blockDim=%u, aivNum=%u, ubSize=%lu", blockDim, aivNum, ubSize);
     PrintTilingDataInfo(nodeName, *tilingData);
     return ge::GRAPH_SUCCESS;
 }
 
-static ge::graphStatus DispatchLayoutTilingFunc(gert::TilingContext *context)
+static ge::graphStatus DispatchLayoutA2TilingFunc(gert::TilingContext *context)
 {
     fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
     fe::PlatFormInfos &platformInfo = *platformInfoPtr;
 
     std::string socVersion;
     ge::graphStatus ret;
-    ret = DispatchLayoutTilingFuncImpl(context);
+    ret = DispatchLayoutA2TilingFuncImpl(context);
     return ret;
 }
 
-struct DispatchLayoutCompileInfo {};
-ge::graphStatus TilingParseForDispatchLayout(gert::TilingParseContext *context)
+struct DispatchLayoutA2CompileInfo {};
+ge::graphStatus TilingParseForDispatchLayoutA2(gert::TilingParseContext *context)
 {
     (void)context;
     return ge::GRAPH_SUCCESS;
 }
 
-IMPL_OP_OPTILING(DispatchLayout)
-    .Tiling(DispatchLayoutTilingFunc)
-    .TilingParse<DispatchLayoutCompileInfo>(TilingParseForDispatchLayout);
+IMPL_OP_OPTILING(DispatchLayoutA2)
+    .Tiling(DispatchLayoutA2TilingFunc)
+    .TilingParse<DispatchLayoutA2CompileInfo>(TilingParseForDispatchLayoutA2);
 }  // namespace optiling
