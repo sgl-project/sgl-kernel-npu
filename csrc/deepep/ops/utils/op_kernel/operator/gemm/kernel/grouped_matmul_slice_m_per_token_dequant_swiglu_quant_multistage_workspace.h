@@ -1335,8 +1335,8 @@ void AivInitParams(Params const &params)
     moeExpertNumPerRank = params.moeExpertNumPerRank;
     // 单卡多专家改为24收24发
     if (moeExpertNumPerRank > 1) {
-        isRecvCore = ((aivIdx % ODD_EVEN_BASE) == 0);  // 偶数核发送
-        isSendCore = ((aivIdx % ODD_EVEN_BASE) == 1);  // 基数核接收
+        isRecvCore = ((aivIdx % ODD_EVEN_BASE) == 0);  // 偶数核接收
+        isSendCore = ((aivIdx % ODD_EVEN_BASE) == 1);  // 基数核发送
         recvCoreIdx = aivIdx / SUB_AIV_NUM;
         sendCoreIdx = aivIdx / SUB_AIV_NUM;
         sendCoreNum = SEND_AIV_CORE_NUM / SUB_AIV_NUM;
@@ -1487,7 +1487,7 @@ CATLASS_DEVICE void operator()<AscendC::AIV>(Params const &params)
     }
 
     icache_preload(8);
-    Arch::CrossCoreBarrier<0x0, PIPE_MTE3>();
+    AscendC::SyncAll<false>();
     AscendC::PipeBarrier<PIPE_ALL>();
 
     UpdateAndCleanInfo(params.ptrGroupList, params.gmEpSendCount);
