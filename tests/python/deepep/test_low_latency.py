@@ -8,7 +8,14 @@ import torch
 import torch.distributed as dist
 import torch_npu
 from deep_ep import Buffer
-from utils import bench, calc_diff, hash_tensor, init_dist
+from utils import (
+    bench,
+    bench_kineto,
+    calc_diff,
+    calculate_avg_stats,
+    hash_tensor,
+    init_dist,
+)
 
 
 def test(
@@ -165,34 +172,39 @@ def test(
     )
 
     # Separate profiling
-    dispatch_args = {
-        "x": x,
-        "topk_idx": topk_idx,
-        "num_max_dispatch_tokens_per_rank": num_tokens,
-        "num_experts": num_experts,
-        "cumulative_local_expert_recv_stats": cumulative_local_expert_recv_stats,
-        "use_fp8": False,
-        "async_finish": False,
-        "return_recv_hook": return_recv_hook,
-    }
+    # return_recv_hook=True is not supported now
+    for return_recv_hook in (False,):
+        dist.barrier()
+        dispatch_t, combine_t = bench_kineto(
+            partial(test_func, zero_copy=False, return_recv_hook=return_recv_hook),
+            kernel_names=("MoeDistributeDispatchV2", "MoeDistributeCombineV2"),
+            barrier_comm_profiling=True,
+            suppress_kineto_output=True,
+            num_kernels_per_period=2 if return_recv_hook else 1,
+            trace_path=None,
+        )
+        if not return_recv_hook:
+            print(
+                f"[rank {rank}] Dispatch bandwidth: {num_dispatch_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, avg_t={dispatch_t * 1e6:.2f} us | "
+                f"Combine bandwidth: {num_combine_comm_bytes / 1e9 / combine_t:.2f} GB/s, avg_t={combine_t * 1e6:.2f} us",
+                flush=True,
+            )
+            calculate_avg_stats(
+                dispatch_t=dispatch_t,
+                num_dispatch_comm_bytes=num_dispatch_comm_bytes,
+                combine_t=combine_t,
+                num_combine_comm_bytes=num_combine_comm_bytes,
+                rank=rank,
+                num_ranks=num_ranks,
+                root_rank=0,
+            )
 
-    dispatch_t = bench(lambda: buffer.low_latency_dispatch(**dispatch_args))[0]
-    temp_recv_x, _, temp_handle, _, _ = buffer.low_latency_dispatch(**dispatch_args)
-    combine_args = {
-        "x": temp_recv_x,
-        "topk_idx": topk_idx,
-        "topk_weights": topk_weights,
-        "handle": temp_handle,
-        "zero_copy": False,
-        "async_finish": False,
-        "return_recv_hook": return_recv_hook,
-    }
-    combine_t = bench(lambda: buffer.low_latency_combine(**combine_args))[0]
-    print(
-        f"[rank {rank}] Dispatch bandwidth: {(num_dispatch_comm_bytes) / 1e9 / dispatch_t:.2f} GB/s, avg_t={dispatch_t * 1e6:.2f} us | "
-        f"Combine bandwidth: {(num_combine_comm_bytes) / 1e9 / combine_t:.2f} GB/s, avg_t={combine_t * 1e6:.2f} us",
-        flush=True,
-    )
+        else:
+            print(
+                f"[rank {rank}] Dispatch send/recv time: {dispatch_t[0] * 1e6:.2f} + {dispatch_t[1] * 1e6:.2f} us | "
+                f"Combine send/recv time: {combine_t[0] * 1e6:.2f} + {combine_t[1] * 1e6:.2f} us",
+                flush=True,
+            )
 
     return hash_value
 
@@ -226,7 +238,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         seed=1,
     )
 
-    do_pressure_test = False
+    do_pressure_test = args.pressure_test
     for seed in range(int(1e9) if do_pressure_test else 0):
         if rank == 0:
             print(f"Testing with seed {seed} ...", flush=True)
@@ -279,6 +291,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--num-experts", type=int, default=256, help="Number of experts (default: 256)"
+    )
+    parser.add_argument(
+        "--pressure-test", action="store_true", help="Whether to do pressure test"
     )
     args = parser.parse_args()
 
