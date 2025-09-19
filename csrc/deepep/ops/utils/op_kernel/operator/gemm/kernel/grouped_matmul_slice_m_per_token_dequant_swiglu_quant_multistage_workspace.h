@@ -25,7 +25,7 @@ constexpr uint32_t STATE_OFFSET = 512;
 constexpr uint64_t WIN_STATE_OFFSET = 512 * 1024;
 constexpr uint64_t STATE_WIN_OFFSET = 900 * 1024;
 constexpr uint64_t GROUP_TOKEN_NUM_OFFSET = 932 * 1024;
-constexpr uint64_t SOFT_SYNC_OFFSET = 940 * 1024;
+constexpr uint64_t SOFT_SYNC_OFFSET = 964 * 1024;
 constexpr uint32_t SELF_STATE_OFFSET = 256 * 1024;
 constexpr uint32_t SUM_TMP_TENSOR_SIZE = 1024;
 constexpr uint32_t UB_ALIGN = 32;
@@ -67,7 +67,7 @@ constexpr uint32_t OPT_RANK_OFFSET = 512;  // NPLB优化变量
 #define SELF_COUNT_INDEX 3
 #define TOTAL_COUNT_INDEX 4
 #define GROUP_TOKEN_COUNT 3  // 等于SELF_COUNT_INDEX
-#define GROUP_INFO_SIZE 8
+#define GROUP_INFO_SIZE 32
 
 #define REACH_STEP_1_SEND_COUNT
 #define REACH_STEP_2_SEND_TOKEN
