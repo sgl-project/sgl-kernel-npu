@@ -587,7 +587,8 @@ class Buffer:
         )
 
     def fused_deep_moe(
-        self, x: torch.Tensor,
+        self,
+        x: torch.Tensor,
         topk_idx: torch.Tensor,
         topk_weights: torch.Tensor,
         gmm1PermutedWeight: torch.Tensor,
@@ -642,9 +643,11 @@ class Buffer:
             gmm1PermutedWeight,
             gmm1PermutedWeightScale,
             gmm2Weight,
-            gmm2WeightScale, topk_weights,
+            gmm2WeightScale,
+            topk_weights,
             num_max_dispatch_tokens_per_rank,
-            num_experts, use_fp8,
+            num_experts,
+            use_fp8,
         )
-                                                            
+
         return output, EventOverlap(event), hook
