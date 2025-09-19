@@ -595,10 +595,9 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
 std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>> Buffer::fused_deep_moe(
     const at::Tensor &x, const at::Tensor &expertIds, const at::Tensor &gmm1PermutedWeight,
     const at::Tensor &gmm1PermutedWeightScale, const at::Tensor &gmm2Weight, const at::Tensor &gmm2WeightScale,
-    const at::Tensor &expertScalesOptional, int64_t num_max_dispatch_tokens_per_rank,
-    int64_t num_experts, bool use_fp8)
+    const at::Tensor &expertScalesOptional, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts, bool use_fp8)
 {
-    EP_HOST_ASSERT(expertIds.dim() == 2); 
+    EP_HOST_ASSERT(expertIds.dim() == 2);
     EP_HOST_ASSERT(expertScalesOptional.dim() == 2);
 
     this->is_padding = false;
@@ -657,32 +656,20 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     auto xShape = x.sizes();
     auto expertIdsShape = expertIds.sizes();
     int h = xShape[1];
-        int bs = this->new_topk_idx.size(0);
+    int bs = this->new_topk_idx.size(0);
     at::Tensor output = at::empty({bs, h}, x.options());
 
     EXEC_NPU_CMD(aclnnFusedDeepMoe,
-        // input
-        x,
-        expertIds,
-        gmm1PermutedWeight,
-        gmm1PermutedWeightScale,
-        gmm2Weight,
-        gmm2WeightScale,
-        static_cast<const std::nullptr_t&>(nullptr),
-        new_scales,
-        // attr
-        hcom_ep_name,
-        num_ranks,
-        rank,
-        num_experts,
-        shared_expert_num,
-        shared_expert_rank_num,
-        quantMode,
-        globalBs,
-        // output 
-        output);
+                 // input
+                 x, expertIds, gmm1PermutedWeight, gmm1PermutedWeightScale, gmm2Weight, gmm2WeightScale,
+                 static_cast<const std::nullptr_t &>(nullptr), new_scales,
+                 // attr
+                 hcom_ep_name, num_ranks, rank, num_experts, shared_expert_num, shared_expert_rank_num, quantMode,
+                 globalBs,
+                 // output
+                 output);
 
-     // ---------- Unpadding ----------
+    // ---------- Unpadding ----------
     if (this->is_padding) {
         if (expertIds.size(0) == 0) {
             output = this->ori_x;
@@ -693,6 +680,6 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     }
 
     std::optional<EventHandle> event;
-    return {output, event, std::function<void()>([]{})};
+    return {output, event, std::function<void()>([] {})};
 }
 }  // namespace deep_ep

@@ -586,15 +586,21 @@ class Buffer:
             hook,
         )
 
-    def fused_deep_moe(self, x: torch.Tensor, topk_idx: torch.Tensor, topk_weights: torch.Tensor,
-                        gmm1PermutedWeight: torch.Tensor, gmm1PermutedWeightScale: torch.Tensor,
-                        gmm2Weight: torch.Tensor, gmm2WeightScale: torch.Tensor,
-                        num_max_dispatch_tokens_per_rank: int, num_experts: int, use_fp8: bool = True
-                        ) -> \
-            Tuple[torch.Tensor, EventOverlap, Callable]:
+    def fused_deep_moe(
+        self, x: torch.Tensor,
+        topk_idx: torch.Tensor,
+        topk_weights: torch.Tensor,
+        gmm1PermutedWeight: torch.Tensor,
+        gmm1PermutedWeightScale: torch.Tensor,
+        gmm2Weight: torch.Tensor,
+        gmm2WeightScale: torch.Tensor,
+        num_max_dispatch_tokens_per_rank: int,
+        num_experts: int,
+        use_fp8: bool = True,
+    ) -> Tuple[torch.Tensor, EventOverlap, Callable]:
         """
         A fused low-latency implementation for MoE expert forward and combination.
-    
+
         Arguments:
             x: `[bs, hidden]` with `torch.bfloat16` (or supported precision),
                 the token representations to be processed by selected experts.
@@ -613,13 +619,13 @@ class Buffer:
             num_max_dispatch_tokens_per_rank: the maximum number of tokens to dispatch, all the ranks must hold the same value.
             num_experts: the number of experts.
             use_fp8: whether to enable FP8 casting, with this, the received data will be a tuple of FP8 tensor and scaling factors.
-    
+
         Notes:
             - The first dimension of `topk_idx` defines the batch size `bs`.
             - The second dimension of `x` defines the hidden dimension `hidden`.
             - Exact shapes of weight/scale tensors depend on GMM permutation and sharding.
             - If optional scale tensors are empty, the kernel skips those transforms.
-    
+
         Returns:
             output: `torch.Tensor`, shape `[bs, hidden]` and usually `torch.bfloat16`,
                 the fused expert output.
@@ -630,8 +636,15 @@ class Buffer:
         gmm2WeightScale = gmm2WeightScale.float()
         topk_ids = topk_idx.int()
 
-        output, event, hook = self.runtime.fused_deep_moe(x, topk_ids, gmm1PermutedWeight, gmm1PermutedWeightScale, gmm2Weight, 
-                                                            gmm2WeightScale, topk_weights, num_max_dispatch_tokens_per_rank,
-                                                            num_experts, use_fp8)
+        output, event, hook = self.runtime.fused_deep_moe(
+            x,
+            topk_ids,
+            gmm1PermutedWeight,
+            gmm1PermutedWeightScale,
+            gmm2Weight,
+            gmm2WeightScale, topk_weights,
+            num_max_dispatch_tokens_per_rank,
+            num_experts, use_fp8,
+        )
                                                             
         return output, EventOverlap(event), hook
