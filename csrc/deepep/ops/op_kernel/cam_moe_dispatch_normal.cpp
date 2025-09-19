@@ -12,7 +12,8 @@ extern "C" __global__ __aicore__ void cam_moe_dispatch_normal(GM_ADDR x, GM_ADDR
                                                               GM_ADDR send_token_idx, GM_ADDR recv_offset,
                                                               GM_ADDR recv_count, GM_ADDR expandXOut,
                                                               GM_ADDR dynamicScalesOut, GM_ADDR assist_info_for_combine,
-                                                              GM_ADDR workspaceGM, GM_ADDR tilingGM)
+                                                              GM_ADDR waitRecvCostStatsOut, GM_ADDR workspaceGM,
+                                                              GM_ADDR tilingGM)
 {
     REGISTER_TILING_DEFAULT(CamMoeDispatchNormalTilingData);
     TPipe pipe;
@@ -21,7 +22,7 @@ extern "C" __global__ __aicore__ void cam_moe_dispatch_normal(GM_ADDR x, GM_ADDR
         GET_TILING_DATA_WITH_STRUCT(CamMoeDispatchNormalTilingData, tilingData, tilingGM);
         CamMoeDispatchNormal<DTYPE_X, DTYPE_RECV_X, false, false, false> op;
         op.Init(x, expertIds, send_offset, send_token_idx, recv_offset, recv_count, expandXOut, dynamicScalesOut,
-                assist_info_for_combine, workspaceGM, &pipe, &tilingData);
+                assist_info_for_combine, waitRecvCostStatsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
         return;
     }
@@ -30,7 +31,7 @@ extern "C" __global__ __aicore__ void cam_moe_dispatch_normal(GM_ADDR x, GM_ADDR
         GET_TILING_DATA_WITH_STRUCT(CamMoeDispatchNormalTilingData, tilingData, tilingGM);
         CamMoeDispatchNormal<DTYPE_X, DTYPE_RECV_X, true, false, false> op;
         op.Init(x, expertIds, send_offset, send_token_idx, recv_offset, recv_count, expandXOut, dynamicScalesOut,
-                assist_info_for_combine, workspaceGM, &pipe, &tilingData);
+                assist_info_for_combine, waitRecvCostStatsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
         return;
     }

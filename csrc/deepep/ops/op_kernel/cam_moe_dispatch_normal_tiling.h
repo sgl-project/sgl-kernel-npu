@@ -14,6 +14,7 @@ struct CamMoeDispatchNormalInfo {
     uint32_t h;             // h
     uint32_t aivNum;        // aivNum
     bool isQuant;           // whether quant or not
+    bool isEnableDiagnose;  // whether enable diagnose or not
     bool reserved2;         // reserved
     bool reserved3;         // reserved
     uint64_t totalUbSize;   // epWorldSize

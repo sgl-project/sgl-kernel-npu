@@ -22,6 +22,7 @@ struct CamMoeCombineNormalInfo {
     uint64_t totalWinSize;
     float armAvgFactor;
     float epsilon;
+    bool isEnableDiagnose;
 };
 struct CamMoeCombineNormalTilingData {
     Mc2InitTiling mc2InitTiling;
