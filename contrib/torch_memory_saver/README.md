@@ -85,7 +85,7 @@ bash build.sh  -a memory-saver
 2. Pip install the `.whl` file into your Python environment
 
 ```bash
-pip install output/deep_ep*.whl
+pip install output/torch_memory_saver*.whl
 ```
 ## Test
 You can use this command for local testing:
