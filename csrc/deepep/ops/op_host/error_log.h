@@ -5,18 +5,27 @@
 #include "toolchain/slog.h"
 
 #define OP_LOGI(opname, ...)
-#define OP_LOGW(opname, ...)       \
-    printf("[WARN][%s] ", opname); \
-    printf(__VA_ARGS__);           \
-    printf("\n");
+#define OP_LOGW(opname, ...)             \
+    do {                                 \
+        printf("[WARN][%s] ", (opname)); \
+        printf(__VA_ARGS__);             \
+        printf("\n");                    \
+    } while (0)
+
 #define OP_LOGE_WITHOUT_REPORT(opname, ...) \
-    printf("[ERRORx][%s] ", opname);        \
-    printf(__VA_ARGS__);                    \
-    printf("\n");
-#define OP_LOGE(opname, ...)        \
-    printf("[ERROR][%s] ", opname); \
-    printf(__VA_ARGS__);            \
-    printf("\n");
+    do {                                    \
+        printf("[ERRORx][%s] ", (opname));  \
+        printf(__VA_ARGS__);                \
+        printf("\n");                       \
+    } while (0)
+
+#define OP_LOGE(opname, ...)              \
+    do {                                  \
+        printf("[ERROR][%s] ", (opname)); \
+        printf(__VA_ARGS__);              \
+        printf("\n");                     \
+    } while (0)
+
 #define OP_LOGD(opname, ...)
 
 namespace optiling {

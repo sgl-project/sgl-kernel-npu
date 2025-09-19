@@ -7,6 +7,9 @@ ASCEND_HIGH_LV_API=${ASCEND_CANN_PACKAGE_PATH}/aarch64-linux/include/ascendc/hig
 export CPATH=${ASCEND_TOOLKIT_ARCH_INCLUDE}/experiment/metadef/:${ASCEND_HIGH_LV_API}/:${CPATH}
 export OPS_PROJECT_NAME=aclnnInner
 
+SCRIPTS_DIR=$(cd "$(dirname "$0")" && pwd)
+export CPATH=${SCRIPTS_DIR}/utils/op_kernel/operator/catlass:${SCRIPTS_DIR}/utils/op_kernel/operator:${CPATH}
+
 if [ -n "$BASE_LIBS_PATH" ]; then
   export ASCEND_HOME_PATH="$BASE_LIBS_PATH"
 elif [ -z "$ASCEND_HOME_PATH" ]; then
