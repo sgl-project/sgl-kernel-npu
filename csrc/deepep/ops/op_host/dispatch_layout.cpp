@@ -16,6 +16,7 @@ public:
         this->Attr("num_ranks").Int();
         this->Attr("num_experts").Int();
         this->Attr("num_topk").Int();
+        this->Attr("local_ranksize").Int();
 
         this->Output("numTokensPerRank")
             .ParamType(REQUIRED)
@@ -32,9 +33,14 @@ public:
             .DataType({ge::DT_INT32})
             .Format({ge::FORMAT_ND})
             .UnknownShapeFormat({ge::FORMAT_ND});
+        this->Output("totalData")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_INT32})
+            .Format({ge::FORMAT_ND})
+            .UnknownShapeFormat({ge::FORMAT_ND});
 
-        OpAICoreConfig aicore_config;
-        aicore_config.DynamicCompileStaticFlag(true)
+        OpAICoreConfig a3_config;
+        a3_config.DynamicCompileStaticFlag(true)
             .DynamicFormatFlag(true)
             .DynamicRankSupportFlag(true)
             .DynamicShapeSupportFlag(true)
@@ -44,7 +50,19 @@ public:
             .ExtendCfgInfo("jitCompile.flag", "static_true")
             .ExtendCfgInfo("multiKernelSupportDynamicGraph.value", "multi_kernel");
 
-        this->AICore().AddConfig("ascend910_93", aicore_config);
+        OpAICoreConfig a2_config;
+        a2_config.DynamicCompileStaticFlag(true)
+            .DynamicFormatFlag(true)
+            .DynamicRankSupportFlag(true)
+            .DynamicShapeSupportFlag(true)
+            .NeedCheckSupportFlag(false)
+            .PrecisionReduceFlag(true)
+            .ExtendCfgInfo("aclnnSupport.value", "support_aclnn")
+            .ExtendCfgInfo("jitCompile.flag", "static_false")
+            .ExtendCfgInfo("multiKernelSupportDynamicGraph.value", "multi_kernel");
+
+        this->AICore().AddConfig("ascend910_93", a3_config);
+        this->AICore().AddConfig("ascend910b", a2_config);
     }
 };
 

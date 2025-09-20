@@ -157,7 +157,7 @@ class Buffer:
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
     ) -> Tuple[
-        torch.Tensor, Optional[torch.Tensor], torch.Tensor, torch.Tensor, torch.Tensor, EventOverlap
+        torch.Tensor, Optional[torch.Tensor], torch.Tensor, torch.Tensor, EventOverlap
     ]:
         """
         Calculate the layout required for later communication.
@@ -183,7 +183,6 @@ class Buffer:
             num_tokens_per_rdma_rank,
             num_tokens_per_expert,
             is_token_in_rank,
-            expert_rank_token_idx,
             event,
         ) = self.runtime.get_dispatch_layout(
             topk_idx,
@@ -197,7 +196,6 @@ class Buffer:
             num_tokens_per_rdma_rank,
             num_tokens_per_expert,
             is_token_in_rank,
-            expert_rank_token_idx,
             EventOverlap(event),
         )
 
