@@ -12,6 +12,10 @@ constexpr int PADDING_SIZE = 3;
 constexpr size_t HCOMM_NAME_LEN = 128;
 constexpr uint32_t NO_SCALES = 0;
 constexpr uint32_t DYNAMIC_SCALES = 2;
+// In a shared header
+constexpr int LOCAL_RANK_SIZE = 8;
+constexpr int MAX_BATCH_SIZE = 4096;
+constexpr int EXPERT_DATA_SIZE = 1 + 2 * MAX_BATCH_SIZE;  // 8193
 
 Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
                std::string moe_all_to_all_group_name)
@@ -46,7 +50,7 @@ bool Buffer::is_available() const
     return available;
 }
 
-std::tuple<torch::Tensor, std::optional<torch::Tensor>, torch::Tensor, torch::Tensor, torch::Tensor, std::optional<EventHandle>>
+std::tuple<torch::Tensor, std::optional<torch::Tensor>, torch::Tensor, torch::Tensor, std::optional<EventHandle>>
 Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std::optional<EventHandle> &previous_event,
                             bool async, bool allocate_on_comm_stream)
 {
@@ -73,30 +77,39 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
 
     const int num_tokens = new_topk_idx.size(0);
     const int num_topk = new_topk_idx.size(1);
-    const int local_ranksize = 8;
+    const int local_ranksize = A2_LOCAL_RANK_SIZE;
     auto server_num = num_ranks / local_ranksize;
 
     auto device = new_topk_idx.device();
     auto num_tokens_per_expert = at::zeros({num_experts}, at::dtype(at::kInt).device(device));
     auto num_tokens_per_rank = at::zeros({num_ranks}, at::dtype(at::kInt).device(device));
     auto is_token_in_rank = at::zeros({num_tokens, num_ranks}, at::dtype(at::kInt).device(device));
-    auto local_token_server_offset = at::zeros({num_tokens * server_num}, at::dtype(at::kInt).device(device));
-    auto local_token_server_uniq_count = at::zeros({server_num}, at::dtype(at::kInt).device(device));
-    auto local_token_server_total_count = at::zeros({num_tokens * server_num}, at::dtype(at::kInt).device(device));
-    auto local_token_server_num = at::zeros({num_tokens}, at::dtype(at::kInt).device(device));
-    const int total_size = num_experts * 8193 + server_num + num_tokens * (1 + 2 * server_num + num_topk);
-    auto expert_rank_token_idx = at::zeros({total_size}, at::dtype(at::kInt).device(device));
+    const int notify_send_data_size =
+        num_experts * EXPERT_DATA_SIZE + server_num + MAX_BATCH_SIZE * (1 + 2 * server_num + num_topk);
+    /*The output parameters are ordered as follows
+      1. the number of the tokens that every expert received from this NPU.                 size:[numExpert]
+      2. The number of tokens received by each server from this NPU (deduplicated).	        size:[serverNum]
+      3. The number of tokens sent from this NPU to each server (without deduplication).    size:[MAX_BS, serverNum]
+      4. The number of servers each token is sent to by this NPU.                           size:[MAX_BS]
+      5. The order in which each token of this NPU is sent to various servers.				size:[MAX_BS, serverNum]
+      6. The order in which each token is sent to the expert.							    size:[MAX_BS, numTopk]
+      7. The server offset of tokens received by each expert from this NPU.					size:[numExpert, MAX_BS]
+      8. The origin offset of the token received by each expert on the original NPU.		size:[numExpert, MAX_BS]
+      */
+    auto notify_send_data = at::zeros({notify_send_data_size}, at::dtype(at::kInt).device(device));
+    notify_send_data.index({at::indexing::Slice(num_experts + server_num + MAX_BATCH_SIZE * (server_num + 1),
+                       num_experts + server_num + MAX_BATCH_SIZE * (server_num * 2 + 1))}).fill_(-1);
+    // The order of each token sent to the server is set to -1.
+    EXEC_NPU_CMD(aclnnDispatchLayout, new_topk_idx, num_tokens, num_ranks, num_experts, num_topk, local_ranksize,
+                 num_tokens_per_rank, num_tokens_per_expert, is_token_in_rank, notify_send_data);
 
-    EXEC_NPU_CMD(aclnnDispatchLayoutA2, new_topk_idx, num_tokens, num_ranks, num_experts, num_topk, local_ranksize, num_tokens_per_rank,
-                 num_tokens_per_expert, is_token_in_rank, local_token_server_offset, local_token_server_uniq_count,
-                 local_token_server_total_count, local_token_server_num, expert_rank_token_idx);
-
+    this->notify_send_data = notify_send_data;
     std::optional<torch::Tensor> num_tokens_per_rdma_rank = std::nullopt;
     std::optional<EventHandle> output_event = std::nullopt;
     auto is_token_in_rank_bool = is_token_in_rank.to(at::kBool);
 
     return std::make_tuple(num_tokens_per_rank, num_tokens_per_rdma_rank, num_tokens_per_expert, is_token_in_rank_bool,
-                           expert_rank_token_idx, output_event);
+                           output_event);
 }
 
 std::tuple<at::Tensor, std::optional<at::Tensor>, std::optional<at::Tensor>, std::optional<at::Tensor>,

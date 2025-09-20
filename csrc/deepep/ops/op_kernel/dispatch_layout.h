@@ -9,9 +9,7 @@
 #include "sync_collectives.h"
 #include "moe_distribute_base.h"
 #include "dispatch_layout_tiling.h"
-
-using namespace AscendC;
-using namespace Moe;
+namespace MoeDispatchLayout {
 
 constexpr uint32_t UB_32_ALIGN = 32U;
 
@@ -23,6 +21,8 @@ __aicore__ inline void SyncFunc()
     AscendC::WaitFlag<event>(eventID);
 }
 
+using namespace AscendC;
+using namespace Moe;
 template <typename T>
 class DispatchLayout
 {
@@ -30,7 +30,7 @@ public:
     __aicore__ inline DispatchLayout(){};
 
     __aicore__ inline void Init(GM_ADDR topkIdx, GM_ADDR numTokensPerRank, GM_ADDR numTokensPerExpert,
-                                GM_ADDR isTokenInRank, GM_ADDR workspace, TPipe *pipe,
+                                GM_ADDR isTokenInRank, GM_ADDR notifySendData, GM_ADDR workspace, TPipe *pipe,
                                 const DispatchLayoutTilingData *tilingData)
     {
         numTokens_ = tilingData->dispatchLayoutInfo.numTokens;
@@ -152,5 +152,6 @@ private:
     uint32_t numTokensPerExpert32AlignIntLen_{0};
     uint32_t isTokenInRank32AlignIntLen_{0};
 };
+}  // namespace MoeDispatchLayout
 
 #endif  // DISPATCH_LAYOUT_H
