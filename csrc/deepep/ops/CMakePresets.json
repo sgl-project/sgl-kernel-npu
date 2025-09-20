@@ -27,7 +27,7 @@
                 },
                 "ASCEND_COMPUTE_UNIT": {
                     "type": "STRING",
-                    "value": "ascend910b"
+                    "value": "ascend910_93"
                 },
                 "ENABLE_TEST": {
                     "type": "BOOL",
