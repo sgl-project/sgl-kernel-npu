@@ -3,12 +3,14 @@ import json
 import os
 import sys
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Optional, Union
 
 import numpy as np
 import torch
 import torch.distributed as dist
+import torch_npu
 
 
 def init_dist(local_rank: int, num_local_ranks: int):
@@ -104,6 +106,121 @@ def calc_diff(x: torch.Tensor, y: torch.Tensor):
     denominator = (x * x + y * y).sum()
     sim = 2 * (x * y).sum() / denominator
     return (1 - sim).item()
+
+
+class empty_suppress:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        pass
+
+
+class suppress_stdout_stderr:
+    def __enter__(self):
+        self.outnull_file = open(os.devnull, "w")
+        self.errnull_file = open(os.devnull, "w")
+
+        self.old_stdout_fileno_undup = sys.stdout.fileno()
+        self.old_stderr_fileno_undup = sys.stderr.fileno()
+
+        self.old_stdout_fileno = os.dup(sys.stdout.fileno())
+        self.old_stderr_fileno = os.dup(sys.stderr.fileno())
+
+        self.old_stdout = sys.stdout
+        self.old_stderr = sys.stderr
+
+        os.dup2(self.outnull_file.fileno(), self.old_stdout_fileno_undup)
+        os.dup2(self.errnull_file.fileno(), self.old_stderr_fileno_undup)
+
+        sys.stdout = self.outnull_file
+        sys.stderr = self.errnull_file
+        return self
+
+    def __exit__(self, *_):
+        sys.stdout = self.old_stdout
+        sys.stderr = self.old_stderr
+
+        os.dup2(self.old_stdout_fileno, self.old_stdout_fileno_undup)
+        os.dup2(self.old_stderr_fileno, self.old_stderr_fileno_undup)
+
+        os.close(self.old_stdout_fileno)
+        os.close(self.old_stderr_fileno)
+
+        self.outnull_file.close()
+        self.errnull_file.close()
+
+
+def bench_kineto(
+    fn,
+    kernel_names: Union[str, tuple],
+    num_tests: int = 30,
+    suppress_kineto_output: bool = False,
+    trace_path: Optional[str] = None,
+    barrier_comm_profiling: bool = False,
+    num_kernels_per_period: int = 1,
+):
+    # Profile
+    suppress = suppress_stdout_stderr if suppress_kineto_output else empty_suppress
+    with suppress():
+        schedule = torch_npu.profiler.schedule(wait=1, warmup=0, active=1, repeat=1)
+        with torch_npu.profiler.profile(
+            activities=[torch_npu.profiler.ProfilerActivity.NPU], schedule=schedule
+        ) as prof:
+            for i in range(2):
+                # NOTES: use a large kernel and a barrier to eliminate the unbalanced CPU launch overhead
+                if barrier_comm_profiling:
+                    lhs = torch.randn((8192, 8192), dtype=torch.float, device="npu")
+                    rhs = torch.randn((8192, 8192), dtype=torch.float, device="npu")
+                    lhs @ rhs
+                    dist.all_reduce(torch.ones(1, dtype=torch.float, device="npu"))
+                for _ in range(num_tests):
+                    fn()
+                torch.npu.synchronize()
+                prof.step()
+
+    # Parse the profiling table
+    assert isinstance(kernel_names, str) or isinstance(kernel_names, tuple)
+    is_tuple = isinstance(kernel_names, tuple)
+
+    kernel_names = (kernel_names,) if not is_tuple else kernel_names
+    assert all(isinstance(name, str) for name in kernel_names)
+    # Expand the kernels by periods
+
+    # If the json file exists, `torch_npu.profiler.export_chrome_trace` will use the append write mode,
+    # which will cause problems with the json format, so here we use a random file name instead of creating a temporary file
+    temp_path = Path(tempfile.gettempdir()) / f"trace_{uuid.uuid4().hex}.json"
+    prof.export_chrome_trace(temp_path)
+    profile_data = json.loads(Path(temp_path).read_text())
+
+    # Return average kernel durations
+    kernel_durations = []
+    for kernel_name in kernel_names:
+        events = [event for event in profile_data if kernel_name == event["name"]]
+        assert len(events) > 0, f"Kernel '{kernel_name}' not found in trace"
+        events = sorted(events, key=lambda event: event["ts"])
+        durations = [event["dur"] / 1e6 for event in events]
+        if num_kernels_per_period > 1:
+            assert len(durations) % num_kernels_per_period == 0
+            num_kernel_patterns = len(durations) // num_kernels_per_period
+            kernel_durations.append(
+                [
+                    sum(durations[j::num_kernels_per_period]) / num_kernel_patterns
+                    for j in range(num_kernels_per_period)
+                ]
+            )
+        else:
+            num_kernel_patterns = len(durations)
+            kernel_durations.append(sum(durations) / num_kernel_patterns)
+
+    # Save chrome traces
+    if trace_path is not None:
+        prof.export_chrome_trace(trace_path)
+
+    os.unlink(temp_path)
+
+    # Return execution durations
+    return kernel_durations if is_tuple else kernel_durations[0]
 
 
 def hash_tensor(t: torch.Tensor):
