@@ -3,12 +3,30 @@ import subprocess
 
 import setuptools
 from setuptools import find_namespace_packages, find_packages
+from setuptools.command.build_py import build_py
 from setuptools.dist import Distribution
 
 # Eliminate timestamp differences in whl compressed packages
 os.environ["SOURCE_DATE_EPOCH"] = "0"
 
 current_version = os.getenv("VERSION", "1.0.0")
+
+
+class CustomBuildPy(build_py):
+    def run(self):
+        logging_type = (
+            "DEBUG" if os.environ.get("DEBUG_MODE", "OFF") == "ON" else "INFO"
+        )
+        config_content = (
+            "import logging\nlogging.basicConfig(level=logging.%s)" % logging_type
+        )
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        config_file = os.path.join(script_dir, "deep_ep", "build_config.py")
+
+        with open(config_file, "w") as f:
+            f.write(config_content)
+
+        super().run()
 
 
 class BinaryDistribution(Distribution):
@@ -36,4 +54,7 @@ setuptools.setup(
     python_requires=">=3.7",
     package_data={"deep_ep": ["deep_ep_cpp.cpython*.so", "vendors", "vendors/**"]},
     distclass=BinaryDistribution,
+    cmdclass={
+        "build_py": CustomBuildPy,
+    },
 )

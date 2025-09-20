@@ -9,7 +9,9 @@ ONLY_BUILD_DEEPEP_ADAPTER_MODULE="OFF"
 ONLY_BUILD_DEEPEP_KERNELs_MODULE="OFF"
 ONLY_BUILD_MEMORY_SAVER_MODULE="OFF"
 
-while getopts ":a:h" opt; do
+DEBUG_MODE="OFF"
+
+while getopts ":a:hd" opt; do
     case ${opt} in
         a )
             BUILD_DEEPEP_MODULE="OFF"
@@ -41,6 +43,9 @@ while getopts ":a:h" opt; do
                     ;;
             esac
             ;;
+        d )
+            DEBUG_MODE="ON"
+            ;;
         h )
             echo "Use './build.sh' build all modules."
             echo "Use './build.sh -a <target>' to build specific parts of the project."
@@ -66,6 +71,9 @@ while getopts ":a:h" opt; do
 done
 
 shift $((OPTIND -1))
+
+
+export DEBUG_MODE=$DEBUG_MODE
 
 SOC_VERSION="${1:-Ascend910_9382}"
 

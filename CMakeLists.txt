@@ -27,6 +27,13 @@ else ()
     add_compile_options(-g -rdynamic)
 endif ()
 
+if(DEFINED ENV{DEBUG_MODE})
+    if("$ENV{DEBUG_MODE}" STREQUAL "ON")
+        add_compile_definitions(DEBUG_MODE)
+        message(STATUS "Debug logging enabled from environment")
+    endif()
+endif()
+
 set(PROJECT_OP_SRC_BASE ${PROJECT_SOURCE_DIR}/csrc)
 set(PROJECT_BUILD_PATH ${PROJECT_SOURCE_DIR}/build)
 set(PROJECT_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/output)
