@@ -1,4 +1,5 @@
 import os
+import logging
 from typing import Optional, Tuple
 
 import torch
@@ -28,3 +29,21 @@ class EventOverlap:
 
     def current_stream_wait(self) -> None:
         pass
+
+
+logger = logging.getLogger('')
+
+
+def log_parameters(func):
+    @functools.wraps(func)
+    def wrapper(*args, **kwargs):
+        if logger.isEnabledFor(logging.DEBUG):
+            sig = inspect.signature(func)
+            bound_args = sig.bind(*args, **kwargs)
+            bound_args.apply_defaults()
+
+            param_str = "\n".join([f"{k}: {v}" for k, v in bound_args.arguments.items() if k not in ('self', 'cls')])
+            logger.debug(f"Calling {func.__name__} with parameters:\n{param_str}")
+
+        return func(*args, **kwargs)
+    return wrapper
