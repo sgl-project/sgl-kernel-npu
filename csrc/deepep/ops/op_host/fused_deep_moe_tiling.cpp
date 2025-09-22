@@ -198,9 +198,8 @@ static ge::graphStatus FusedDeepMoeTilingFuncImpl(gert::TilingContext *context)
     OP_TILING_CHECK(SetWorkSpace(context, nodeName, *tilingData) != ge::GRAPH_SUCCESS,
                     OP_LOGE(nodeName, "Tiling set workspace failed."), return ge::GRAPH_FAILED);
     SetHcommCfg(context, tilingData, groupEp);
-    if (tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.moeExpertNumPerRank == 1 ||
-        tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.epRankId <
-            tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.sharedExpertRankNum) {
+    if (tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.moeExpertNumPerRank == 1) {
+        // 如果有的卡浅融合、有的卡深融合，浅融合不会给深融合发token的flag，就会卡死
         context->SetTilingKey(0);
     } else {
         context->SetTilingKey(EXEC_FLAG_DEEP_FUSE);
@@ -211,8 +210,7 @@ static ge::graphStatus FusedDeepMoeTilingFuncImpl(gert::TilingContext *context)
 
 static ge::graphStatus FusedDeepMoeTilingFunc(gert::TilingContext *context)
 {
-    ge::graphStatus ret;
-    ret = FusedDeepMoeTilingFuncImpl(context);
+    ge::graphStatus ret = FusedDeepMoeTilingFuncImpl(context);
     return ret;
 }
 
