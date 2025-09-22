@@ -59,7 +59,7 @@ def log_parameters(func):
             logger.debug("[rank %s]" % rank_info + f"Calling {func.__name__} with parameters:\n{param_str}")
 
         result = func(*args, **kwargs)
-        
+
         if logger.isEnabledFor(logging.DEBUG):
             result_str = str(result)
             logger.debug("[rank %s]" % rank_info + f"Function {func.__name__} returned:\n{result_str}")
