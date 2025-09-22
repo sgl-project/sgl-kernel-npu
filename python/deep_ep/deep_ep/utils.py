@@ -36,7 +36,7 @@ class EventOverlap:
 logger = logging.getLogger()
 
 
-def log_parameters(func, head):
+def log_parameters(func):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
         rank_info = "unknown"
