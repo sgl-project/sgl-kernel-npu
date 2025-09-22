@@ -45,8 +45,8 @@ def log_parameters(func):
             bound_args = sig.bind(*args, **kwargs)
             bound_args.apply_defaults()
 
-            self_instance = bound_args.arguments.get('self')
-            if self_instance is not None and hasattr(self_instance, 'rank'):
+            self_instance = bound_args.arguments.get("self")
+            if self_instance is not None and hasattr(self_instance, "rank"):
                 rank_info = str(self_instance.rank)
 
             param_str = "\n".join(
@@ -56,13 +56,19 @@ def log_parameters(func):
                     if k not in ("self", "cls")
                 ]
             )
-            logger.debug("[rank %s]" % rank_info + f"Calling {func.__name__} with parameters:\n{param_str}")
+            logger.debug(
+                "[rank %s]" % rank_info
+                + f"Calling {func.__name__} with parameters:\n{param_str}"
+            )
 
         result = func(*args, **kwargs)
 
         if logger.isEnabledFor(logging.DEBUG):
             result_str = str(result)
-            logger.debug("[rank %s]" % rank_info + f"Function {func.__name__} returned:\n{result_str}")
+            logger.debug(
+                "[rank %s]" % rank_info
+                + f"Function {func.__name__} returned:\n{result_str}"
+            )
 
         return result
 
