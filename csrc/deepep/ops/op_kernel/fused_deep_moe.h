@@ -397,7 +397,8 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Process()
     if constexpr (EXEC_FLAG == 0) {
         if constexpr (g_coreType == AscendC::AIV) {
             AscendC::TPipe tpipe;
-            MoeDistributeDispatchImpl::CamMoeDistributeDispatch<ExpandXType, int8_t, false, true, false, false> dispatcher;
+            MoeDistributeDispatchImpl::CamMoeDistributeDispatch<ExpandXType, int8_t, false, true, false, false>
+                dispatcher;
             dispatcher.Init(gmX_, gmexpertIds_, gmSmoothScales_, gmX1Token, gmX1Scale, gmExpandIdx, gmGroupList,
                             gmEpSendCount, nullptr, gmWorkspace, &tpipe, tilingData_);
             dispatcher.Process();

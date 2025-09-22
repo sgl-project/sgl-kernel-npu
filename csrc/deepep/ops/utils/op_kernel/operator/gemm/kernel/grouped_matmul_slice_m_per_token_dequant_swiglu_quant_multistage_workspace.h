@@ -684,9 +684,9 @@ public:
 
         if (!isShareExpert) {
             for (uint32_t curSatatusExpId = 0; curSatatusExpId < sharedExpertRankNum; ++curSatatusExpId) {
-                int32_t curExpertCnt = (curSatatusExpId + 1 + epRankId) * axisBS / sharedExpertRankNum
-                                       - (curSatatusExpId + epRankId) * axisBS / sharedExpertRankNum;
-                statusTensor_((curSatatusExpId) * INT32_COUNT_PER_BLOCK + 1) = curExpertCnt;
+                int32_t curExpertCnt = (curSatatusExpId + 1 + epRankId) * axisBS / sharedExpertRankNum -
+                                       (curSatatusExpId + epRankId) * axisBS / sharedExpertRankNum;
+                statusTensor_((curSatatusExpId)*INT32_COUNT_PER_BLOCK + 1) = curExpertCnt;
             }
         }
 
@@ -765,9 +765,9 @@ public:
     {
         // 给共享专家发送token
         uint32_t newAivId = sendCoreIdx - sendToMoeAivNum;
-        uint32_t sendTokenNum = axisBS / sendToShareAivNum;             // 每个aiv需要发送的token数
-        uint32_t remainderTokenNum = axisBS % sendToShareAivNum;        // 余数
-        uint32_t startTokenId = sendTokenNum * newAivId;                // 每个aiv发送时的起始rankid
+        uint32_t sendTokenNum = axisBS / sendToShareAivNum;       // 每个aiv需要发送的token数
+        uint32_t remainderTokenNum = axisBS % sendToShareAivNum;  // 余数
+        uint32_t startTokenId = sendTokenNum * newAivId;          // 每个aiv发送时的起始rankid
         if (newAivId < remainderTokenNum) {  // 前remainderRankNum个aiv需要多发1个卡的数据
             sendTokenNum += 1;
             startTokenId += newAivId;
@@ -1359,8 +1359,8 @@ void AivInitParams(Params const &params)
 
     // 单卡多专家改为24收24发
     if (localExpertNum > 1) {
-        isRecvCore = ((aivIdx % ODD_EVEN_BASE) == 0); // 偶数核接收
-        isSendCore = ((aivIdx % ODD_EVEN_BASE) == 1); // 基数核发送
+        isRecvCore = ((aivIdx % ODD_EVEN_BASE) == 0);  // 偶数核接收
+        isSendCore = ((aivIdx % ODD_EVEN_BASE) == 1);  // 基数核发送
         recvCoreIdx = aivIdx / SUB_AIV_NUM;
         sendCoreIdx = aivIdx / SUB_AIV_NUM;
         sendCoreNum = SEND_AIV_CORE_NUM / SUB_AIV_NUM;
