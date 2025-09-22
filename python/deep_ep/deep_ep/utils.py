@@ -1,5 +1,7 @@
-import os
+import functools
+import inspect
 import logging
+import os
 from typing import Optional, Tuple
 
 import torch
@@ -31,19 +33,37 @@ class EventOverlap:
         pass
 
 
-logger = logging.getLogger('')
+logger = logging.getLogger()
 
 
-def log_parameters(func):
+def log_parameters(func, head):
     @functools.wraps(func)
     def wrapper(*args, **kwargs):
+        rank_info = "unknown"
         if logger.isEnabledFor(logging.DEBUG):
             sig = inspect.signature(func)
             bound_args = sig.bind(*args, **kwargs)
             bound_args.apply_defaults()
 
-            param_str = "\n".join([f"{k}: {v}" for k, v in bound_args.arguments.items() if k not in ('self', 'cls')])
-            logger.debug(f"Calling {func.__name__} with parameters:\n{param_str}")
+            self_instance = bound_args.arguments.get('self')
+            if self_instance is not None and hasattr(self_instance, 'rank'):
+                rank_info = str(self_instance.rank)
 
-        return func(*args, **kwargs)
+            param_str = "\n".join(
+                [
+                    f"{k}: {v}"
+                    for k, v in bound_args.arguments.items()
+                    if k not in ("self", "cls")
+                ]
+            )
+            logger.debug("[rank %s]" % rank_info + f"Calling {func.__name__} with parameters:\n{param_str}")
+
+        result = func(*args, **kwargs)
+        
+        if logger.isEnabledFor(logging.DEBUG):
+            result_str = str(result)
+            logger.debug("[rank %s]" % rank_info + f"Function {func.__name__} returned:\n{result_str}")
+
+        return result
+
     return wrapper
