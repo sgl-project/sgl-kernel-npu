@@ -12,6 +12,10 @@ constexpr int PADDING_SIZE = 3;
 constexpr size_t HCOMM_NAME_LEN = 128;
 constexpr uint32_t NO_SCALES = 0;
 constexpr uint32_t DYNAMIC_SCALES = 2;
+// In a shared header
+constexpr int A2_LOCAL_RANK_SIZE = 8;
+constexpr int A2_MAX_BATCH_SIZE = 4096;
+constexpr int A2_EXPERT_DATA_SIZE = 1 + 2 * A2_MAX_BATCH_SIZE;  // 8193
 
 Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
                std::string moe_all_to_all_group_name)
@@ -73,15 +77,21 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
 
     const int num_tokens = new_topk_idx.size(0);
     const int num_topk = new_topk_idx.size(1);
+    const int local_ranksize = A2_LOCAL_RANK_SIZE;
+    auto server_num = num_ranks / local_ranksize;
 
     auto device = new_topk_idx.device();
     auto num_tokens_per_expert = at::zeros({num_experts}, at::dtype(at::kInt).device(device));
     auto num_tokens_per_rank = at::zeros({num_ranks}, at::dtype(at::kInt).device(device));
     auto is_token_in_rank = at::zeros({num_tokens, num_ranks}, at::dtype(at::kInt).device(device));
+    const int total_size =
+        num_experts * A2_EXPERT_DATA_SIZE + server_num + num_tokens * (1 + 2 * server_num + num_topk);
+    auto total_data = at::zeros({total_size}, at::dtype(at::kInt).device(device));
 
-    EXEC_NPU_CMD(aclnnDispatchLayout, new_topk_idx, num_tokens, num_ranks, num_experts, num_topk, num_tokens_per_rank,
-                 num_tokens_per_expert, is_token_in_rank);
+    EXEC_NPU_CMD(aclnnDispatchLayout, new_topk_idx, num_tokens, num_ranks, num_experts, num_topk, local_ranksize,
+                 num_tokens_per_rank, num_tokens_per_expert, is_token_in_rank, total_data);
 
+    this->send_data = total_data;
     std::optional<torch::Tensor> num_tokens_per_rdma_rank = std::nullopt;
     std::optional<EventHandle> output_event = std::nullopt;
     auto is_token_in_rank_bool = is_token_in_rank.to(at::kBool);
