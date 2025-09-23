@@ -226,11 +226,11 @@ def test_main(
                 continue
             gather_list = (
                 [torch.zeros_like(stats) for _ in range(group.size())]
-                if local_rank == 0
+                if rank == 0
                 else None
             )
             dist.gather(stats, gather_list=gather_list, group=group, dst=0)
-            if local_rank == 0:
+            if rank == 0:
                 stats_mat = torch.stack(gather_list, dim=0)
                 print(f"{title} stats:")
                 print(stats_mat)
