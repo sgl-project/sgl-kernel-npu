@@ -14,7 +14,6 @@ using namespace AscendC;
 using namespace Moe;
 
 constexpr uint32_t UB_32_ALIGN = 32U;
-constexpr uint32_t AIV_NUM = 48;
 
 template <AscendC::HardEvent event>
 __aicore__ inline void SyncFunc()
@@ -41,8 +40,13 @@ public:
         tpipe_ = pipe;
 
         coreIdx_ = GetBlockIdx();
-        uint32_t temp = numTokens_ / AIV_NUM;
-        uint32_t restNum = numTokens_ % AIV_NUM;
+        uint32_t maxAivNum = GetBlockNum();
+        aivNum_ = numTokens_ <= maxAivNum ? numTokens_ : maxAivNum;
+        if (coreIdx_ >= aivNum_) {
+            return;
+        }
+        uint32_t temp = numTokens_ / aivNum_;
+        uint32_t restNum = numTokens_ % aivNum_;
         int64_t topkIdxOffset;
         int64_t isTokenOffset;
         tempTokens_ = temp;
@@ -55,13 +59,11 @@ public:
         isTokenInRank32AlignIntLen_ = Ceil(tempTokens_ * numRanks_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
 
         if (coreIdx_ < restNum) {
-            topkIdxOffset = coreIdx_ * topkIdx32AlignIntLen_;
-            isTokenOffset = coreIdx_ * isTokenInRank32AlignIntLen_;
+            topkIdxOffset = coreIdx_ * tempTokens_ * numTopk_ * sizeof(int64_t);
+            isTokenOffset = coreIdx_ * tempTokens_ * numRanks_ * sizeof(T);
         } else {
-            topkIdxOffset = restNum * Ceil((tempTokens_ + 1) * numTopk_ * sizeof(int64_t), UB_32_ALIGN) * UB_32_ALIGN +
-                            (coreIdx_ - restNum) * topkIdx32AlignIntLen_;
-            isTokenOffset = restNum * Ceil((tempTokens_ + 1) * numRanks_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN +
-                            (coreIdx_ - restNum) * isTokenInRank32AlignIntLen_;
+            topkIdxOffset = (restNum + coreIdx_ * tempTokens_) * numTopk_ * sizeof(int64_t);
+            isTokenOffset = (restNum + coreIdx_ * tempTokens_) * numRanks_ * sizeof(T);
         }
 
         topkIdxGM_.SetGlobalBuffer((__gm__ int64_t *)(topkIdx + topkIdxOffset));
@@ -72,6 +74,9 @@ public:
 
     __aicore__ inline void Process()
     {
+        if (coreIdx_ >= aivNum_) {
+            return;
+        }
         tpipe_->Reset();
         tpipe_->InitBuffer(topkIdxBuf_, topkIdx32AlignIntLen_);
         tpipe_->InitBuffer(numTokensPerRankBuf_, numTokensPerRank32AlignIntLen_);
@@ -113,12 +118,15 @@ public:
             }
         }
 
-        const DataCopyExtParams isTokenInRankDataCopyParams{1U, isTokenInRank32AlignIntLen_, 0U, 0U, 0U};
+        uint32_t sendSize = tempTokens_ * numRanks_ * sizeof(T);
+        const DataCopyExtParams isTokenInRankDataCopyParams{1U, sendSize, 0U, 0U, 0U};
         DataCopyPad(isTokenInRankGM_, isTokenInRankTensor, isTokenInRankDataCopyParams);
         AscendC::SetAtomicAdd<T>();
-        const DataCopyExtParams numTokensPerRankDataCopyParams{1U, numTokensPerRank32AlignIntLen_, 0U, 0U, 0U};
+        sendSize = numRanks_ * sizeof(T);
+        const DataCopyExtParams numTokensPerRankDataCopyParams{1U, sendSize, 0U, 0U, 0U};
         DataCopyPad(numTokensPerRankGM_, numTokensPerRankTensor, numTokensPerRankDataCopyParams);
-        const DataCopyExtParams numTokensPerExpertDataCopyParams{1U, numTokensPerExpert32AlignIntLen_, 0U, 0U, 0U};
+        sendSize = numExperts_ * sizeof(T);
+        const DataCopyExtParams numTokensPerExpertDataCopyParams{1U, sendSize, 0U, 0U, 0U};
         DataCopyPad(numTokensPerExpertGM_, numTokensPerExpertTensor, numTokensPerExpertDataCopyParams);
         AscendC::SetAtomicNone();
     }
@@ -141,6 +149,7 @@ private:
     uint32_t numExperts_{0};
     uint32_t numTopk_{0};
     uint32_t coreIdx_{0};
+    uint32_t aivNum_{0};
     uint32_t tempTokens_{0};
 
     uint32_t topkIdx32AlignIntLen_{0};
