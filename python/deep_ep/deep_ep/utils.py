@@ -52,7 +52,7 @@ def log_parameters(input_name_full_tensor=None, output_idx_full_tensor=None):
 
     Arguments:
         input_name_full_tensor: input names of tensors that need to be fully printed.
-        output_idx_full_tensor: ouput indexs of the tensor that needs to be fully printed.
+        output_idx_full_tensor: output indexes of the tensor that needs to be fully printed.
     """
     if input_name_full_tensor is None:
         input_name_full_tensor = []
