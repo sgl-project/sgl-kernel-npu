@@ -44,22 +44,22 @@ at::Tensor getTiling(const at::Tensor &reqPoolIndices, uint64_t rowSize, uint64_
 
     if (reqPoolIndices.options().dtype() == at::kInt) {
         tillingData->key = 1;
-        tillingData->reqInxBufferCount = alinInt32Count(batchSize);
+        tillingData->reqInxBufferCount = host_utils::alinInt32Count(batchSize);
         tillingData->reqInxBufferSize = tillingData->reqInxBufferCount * sizeof(int32_t);
     } else if (reqPoolIndices.options().dtype() == at::kLong) {
         tillingData->key = 2;
-        tillingData->reqInxBufferCount = alinInt64Count(batchSize);
+        tillingData->reqInxBufferCount = host_utils::alinInt64Count(batchSize);
         tillingData->reqInxBufferSize = tillingData->reqInxBufferCount * sizeof(int64_t);
     }
 
-    tillingData->tokenCountAlignInt32 = alinInt32Count(MAX_STEP);
+    tillingData->tokenCountAlignInt32 = host_utils::alinInt32Count(MAX_STEP);
     tillingData->tokenColAlignInt32 = tillingData->tokenCountAlignInt32 * sizeof(int32_t);
 
-    tillingData->offsetCountAlignInt64 = alinInt64Count(batchSize);
+    tillingData->offsetCountAlignInt64 = host_utils::alinInt64Count(batchSize);
     tillingData->offsetColAlignInt64 = tillingData->offsetCountAlignInt64 * sizeof(int64_t);
 
     tillingData->cacheLocSize = batchSize * MAX_STEP;
-    tillingData->cacheLocCountAlignInt32 = alinInt32Count(tillingData->cacheLocSize);
+    tillingData->cacheLocCountAlignInt32 = host_utils::alinInt32Count(tillingData->cacheLocSize);
     tillingData->cacheLocAlignInt32 = tillingData->cacheLocCountAlignInt32 * sizeof(int32_t);
 
     uint64_t ubSize;

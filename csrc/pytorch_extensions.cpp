@@ -51,6 +51,10 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "str? cache_mode=None, str? quant_mode=None, "
         "Tensor(a!) q_out0, Tensor(b!) kv_cache_out0, Tensor(c!) q_out1, Tensor(d!) kv_cache_out1) "
         "-> (Tensor(a!), Tensor(b!), Tensor(c!), Tensor(d!))");
+
+    m.def(
+        "batch_matmul_transpose(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, "
+        "str? format_mode=None, str? quant_mode=None) -> ()");
 }
 }  // namespace
 
@@ -68,5 +72,7 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("alloc_extend", TORCH_FN(sglang::npu_kernel::alloc_extend));
 
     m.impl("mla_preprocess", TORCH_FN(sglang::npu_kernel::mla_preprocess));
+
+    m.impl("batch_matmul_transpose", TORCH_FN(sglang::npu_kernel::batch_matmul_transpose));
 }
 }  // namespace
