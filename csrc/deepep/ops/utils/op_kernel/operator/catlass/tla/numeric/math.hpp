@@ -11,8 +11,7 @@
 #ifndef TLA_NUMERIC_MATH_HPP
 #define TLA_NUMERIC_MATH_HPP
 
-#include "catlass/detail/macros.hpp"
-#include "tla/type_traits.hpp"
+#include "../../tla/type_traits.hpp"
 
 namespace tla {
 
@@ -21,21 +20,15 @@ namespace tla {
 //
 
 template <class T, class U, __TLA_REQUIRES(std::is_arithmetic<T>::value &&std::is_arithmetic<U>::value)>
-CATLASS_HOST_DEVICE constexpr auto max(T const &t, U const &u)
+ACT_HOST_DEVICE constexpr auto max(T const &t, U const &u)
 {
     return t < u ? u : t;
 }
 
 template <class T, class U, __TLA_REQUIRES(std::is_arithmetic<T>::value &&std::is_arithmetic<U>::value)>
-CATLASS_HOST_DEVICE constexpr auto min(T const &t, U const &u)
+ACT_HOST_DEVICE constexpr auto min(T const &t, U const &u)
 {
     return t < u ? t : u;
-}
-
-template <class T, class U, __TLA_REQUIRES(std::is_arithmetic<T>::value &&std::is_arithmetic<U>::value)>
-CATLASS_HOST_DEVICE constexpr auto add(T const &t, U const &u)
-{
-    return t + u;
 }
 
 }  // namespace tla

@@ -8,6 +8,6 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 #pragma once
-#include "../../catlass/catlass/epilogue/block/block_epilogue.hpp"
+#include "../../catlass/act/epilogue/block/block_epilogue.hpp"
 
 #include "block_epilogue_per_token_dequant_swiglu.h"

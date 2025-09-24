@@ -11,28 +11,24 @@
 #ifndef TLA_TENSOR_HPP
 #define TLA_TENSOR_HPP
 
-#include "catlass/arch/arch.hpp"
-#include "tla/layout.hpp"                     // tla::Shape
-#include "tla/numeric/integral_constant.hpp"  // tla::is_integral
-#include "tla/int_tuple.hpp"
+#include "../tla/layout.hpp"                     // tla::Shape
+#include "../tla/numeric/integral_constant.hpp"  // tla::is_integral
 
 namespace tla {
 //
 // Tensor
 //
 
-template <class BuiltinTensor, class Layout_, class Coord_, AscendC::TPosition Position>
+template <class BuiltinTensor, class Layout_, AscendC::TPosition Position>
 struct Tensor {
     using Element = typename BuiltinTensor::PrimType;
     using Layout = Layout_;
-    using Coord = Coord_;
     static constexpr AscendC::TPosition position = Position;
 
-    CATLASS_HOST_DEVICE constexpr Tensor() {}
+    ACT_HOST_DEVICE constexpr Tensor() {}
 
-    CATLASS_HOST_DEVICE constexpr Tensor(BuiltinTensor const &builtinTensor, Layout const &layout,
-                                         Coord const &coord = {})
-        : rep_(builtinTensor, layout, coord)
+    ACT_HOST_DEVICE constexpr Tensor(BuiltinTensor const &builtinTensor, Layout const &layout)
+        : rep_(builtinTensor, layout)
     {}
 
     //
@@ -41,66 +37,64 @@ struct Tensor {
 
     static constexpr int rank = Layout::rank;
 
-    CATLASS_HOST_DEVICE constexpr decltype(auto) tensor() const
+    ACT_HOST_DEVICE constexpr decltype(auto) tensor() const
     {
         return *this;
     }
 
-    CATLASS_HOST_DEVICE constexpr decltype(auto) data() const
+    ACT_HOST_DEVICE constexpr decltype(auto) data() const
     {
         return get<0>(rep_);
     }
 
-    CATLASS_HOST_DEVICE constexpr decltype(auto) data()
+    ACT_HOST_DEVICE constexpr decltype(auto) data()
     {
         return get<0>(rep_);
     }
 
-    CATLASS_HOST_DEVICE constexpr decltype(auto) layout() const
+    ACT_HOST_DEVICE constexpr decltype(auto) layout() const
     {
         return get<1>(rep_);
     }
 
-    CATLASS_HOST_DEVICE constexpr decltype(auto) coord() const
-    {
-        return get<2>(rep_);
-    }
-
-    CATLASS_HOST_DEVICE constexpr decltype(auto) shape() const
+    ACT_HOST_DEVICE constexpr decltype(auto) shape() const
     {
         return layout().shape();
     }
 
-    CATLASS_HOST_DEVICE constexpr decltype(auto) stride() const
+    ACT_HOST_DEVICE constexpr decltype(auto) stride() const
     {
         return layout().stride();
     }
 
-    tla::tuple<BuiltinTensor, Layout, Coord> rep_;
+    ACT_HOST_DEVICE constexpr decltype(auto) orgShape() const
+    {
+        return layout().orgShape();
+    }
+
+    tla::tuple<BuiltinTensor, Layout> rep_;
 };
 
-template <class BuiltinTensor, class Layout, class PositionType>
-CATLASS_HOST_DEVICE constexpr auto MakeTensor(BuiltinTensor const &builtinTensor, Layout const &layout, PositionType)
+template <class BuiltinTensor, class Layout, AscendC::TPosition Position>
+ACT_HOST_DEVICE constexpr auto MakeTensor(BuiltinTensor const &builtinTensor, Layout const &layout)
 {
-    using Coord = detail::MakeZeroTuple<Layout::rank>;
-    return Tensor<BuiltinTensor, Layout, Coord, PositionType::value>(builtinTensor, layout);
+    return Tensor<BuiltinTensor, Layout, Position>(builtinTensor, layout);
 }
 
-template <class BuiltinTensor, class Layout, class Coord, class PositionType>
-CATLASS_HOST_DEVICE constexpr auto MakeTensor(BuiltinTensor const &builtinTensor, Layout const &layout,
-                                              Coord const &coord, PositionType)
+template <class BuiltinTensor, class Layout, class PositionType>
+ACT_HOST_DEVICE constexpr auto MakeTensor(BuiltinTensor const &builtinTensor, Layout const &layout, PositionType)
 {
-    return Tensor<BuiltinTensor, Layout, Coord, PositionType::value>(builtinTensor, layout, coord);
+    return Tensor<BuiltinTensor, Layout, PositionType::POSITION>(builtinTensor, layout);
 }
 
 template <class Tensor, class Coord, class Shape>
-CATLASS_DEVICE constexpr auto GetTile(Tensor const &tensor, Coord const &coord, Shape const &shape)
+ACT_DEVICE constexpr auto GetTile(Tensor const &tensor, Coord const &coord, Shape const &shape)
 {
     auto layout = tensor.layout();
+    auto offset = layout(coord);
     auto builtinTensor = tensor.data();
     auto layoutNew = MakeLayoutTile(layout, shape);
-    auto coordNew = Add(tensor.coord(), coord);
-    return MakeTensor(builtinTensor, layoutNew, coordNew, Catlass::Arch::PositionType<Tensor::position>{});
+    return MakeTensor<decltype(builtinTensor), decltype(layoutNew), Tensor::position>(builtinTensor[offset], layoutNew);
 }
 
 }  // end namespace tla
