@@ -13,14 +13,10 @@ constexpr uint32_t CONST_32 = 32;
 constexpr uint32_t CONST_256 = 256;
 constexpr uint32_t CONST_512 = 512;
 
-const std::map<TensorDType, uint32_t> G_DTYPE_MAP = {
-    {TensorDType::TENSOR_DTYPE_FLOAT16, 1u},
-    {TensorDType::TENSOR_DTYPE_BF16, 2u}
-};
-const std::map<TensorFormat, uint32_t> G_FORMAT_MAP = {
-    {TensorFormat::TENSOR_FORMAT_ND, 0u},
-    {TensorFormat::TENSOR_FORMAT_NZ, 1u}
-};
+const std::map<TensorDType, uint32_t> G_DTYPE_MAP = {{TensorDType::TENSOR_DTYPE_FLOAT16, 1u},
+                                                     {TensorDType::TENSOR_DTYPE_BF16, 2u}};
+const std::map<TensorFormat, uint32_t> G_FORMAT_MAP = {{TensorFormat::TENSOR_FORMAT_ND, 0u},
+                                                       {TensorFormat::TENSOR_FORMAT_NZ, 1u}};
 using MmType = MatMul::MatMulType;
 using QmType = MatMul::QuantMode;
 using namespace host_utils;
@@ -28,8 +24,8 @@ using namespace host_utils;
 bool IsI8Bf16Kernel(const MatMulInfo &mmInfo)
 {
     bool isI8Bf16 = mmInfo.isInt8 && mmInfo.dtypeC == TensorDType::TENSOR_DTYPE_BF16;
-    bool isI8Fp16 =
-        mmInfo.isInt8 && mmInfo.dtypeC == TensorDType::TENSOR_DTYPE_FLOAT16 && mmInfo.quantMode == QmType::PER_TOKEN_SYMM;
+    bool isI8Fp16 = mmInfo.isInt8 && mmInfo.dtypeC == TensorDType::TENSOR_DTYPE_FLOAT16 &&
+                    mmInfo.quantMode == QmType::PER_TOKEN_SYMM;
     return isI8Bf16 || isI8Fp16;
 }
 
@@ -43,7 +39,7 @@ HardwareInfo::HardwareInfo()
     l0bSize = platform.l0bSize;
     l0cSize = platform.l0cSize;
     hbmBandWidth = 1;
-    l2BandWidth = 5; // 5x faster than hbm.
+    l2BandWidth = 5;  // 5x faster than hbm.
 }
 
 void PpMatmulTilingData::SetBaseShape(uint32_t batchSize, uint32_t m, uint32_t k, uint32_t n)
@@ -87,15 +83,14 @@ void PpMatmulTilingData::SetBaseOp(uint32_t coreNum, uint32_t mBase, uint32_t nB
 void PpMatmulTilingData::SetTilingKey(const MatMulInfo &mmInfo, uint32_t swizzleDirect, uint32_t enSplitK)
 {
     if (mmInfo.mmType == MmType::MATMUL_ACCUM_ATOMIC || mmInfo.mmType == MmType::MATMUL_WITH_BIAS ||
-        mmInfo.mmType == MmType::MATMUL_EIN_SUM || mmInfo.mmType == MmType::MATMUL_DEQUANT ||
-        IsI8Bf16Kernel(mmInfo)) {
+        mmInfo.mmType == MmType::MATMUL_EIN_SUM || mmInfo.mmType == MmType::MATMUL_DEQUANT || IsI8Bf16Kernel(mmInfo)) {
         // SwizzleDir[1] TransA[1] TransB[1] DtypeA[3] DtypeB[3] DtypeC[3] FormatA[1] FormatB[1] FormatC[1] WithBias[1]
         tilingKey = swizzleDirect;
         tilingKey = (tilingKey << 1) + static_cast<uint32_t>(mmInfo.transA);
         tilingKey = (tilingKey << 1) + static_cast<uint32_t>(mmInfo.transB);
-        tilingKey = (tilingKey << 3) + G_DTYPE_MAP.at(mmInfo.dtypeA); // 3bit for dtypeA.
-        tilingKey = (tilingKey << 3) + G_DTYPE_MAP.at(mmInfo.dtypeB); // 3bit for dtypeB.
-        tilingKey = (tilingKey << 3) + G_DTYPE_MAP.at(mmInfo.dtypeC); // 3bit for dtypeC.
+        tilingKey = (tilingKey << 3) + G_DTYPE_MAP.at(mmInfo.dtypeA);  // 3bit for dtypeA.
+        tilingKey = (tilingKey << 3) + G_DTYPE_MAP.at(mmInfo.dtypeB);  // 3bit for dtypeB.
+        tilingKey = (tilingKey << 3) + G_DTYPE_MAP.at(mmInfo.dtypeC);  // 3bit for dtypeC.
         tilingKey = (tilingKey << 1) + G_FORMAT_MAP.at(mmInfo.formatA);
         tilingKey = (tilingKey << 1) + G_FORMAT_MAP.at(mmInfo.formatB);
         tilingKey = (tilingKey << 1) + G_FORMAT_MAP.at(mmInfo.formatC);
@@ -120,15 +115,16 @@ uint32_t PpMatmulTilingData::End(const MatMulInfo &mmInfo)
         shapeSum = RoundUp<uint32_t>(opShape.m0, CONST_32) + RoundUp<uint32_t>(opShape.n0, CONST_32);
     }
     uint32_t k0Max = shapeSum == 0
-                            ? L1AB_PINGPONG_BUFFER_LEN
-                            : static_cast<uint32_t>(static_cast<float>(L1AB_PINGPONG_BUFFER_LEN - scaleBlockSize) /
-                                                    (shapeSum * mmInfo.inDtype));
+                         ? L1AB_PINGPONG_BUFFER_LEN
+                         : static_cast<uint32_t>(static_cast<float>(L1AB_PINGPONG_BUFFER_LEN - scaleBlockSize) /
+                                                 (shapeSum * mmInfo.inDtype));
     if (mmInfo.mmType == MatMul::MatMulType::MATMUL_WITH_BIAS) {
         uint32_t l1AbSize = L1AB_PINGPONG_BUFFER_LEN - opShape.n0 * sizeof(float);
         k0Max = l1AbSize / (shapeSum * mmInfo.inDtype);
     }
 
-    opShape.k0 = k0Max < cubeBlockSize ? RoundDown<uint32_t>(k0Max, kBlockSize) : RoundDown<uint32_t>(k0Max, cubeBlockSize);
+    opShape.k0 =
+        k0Max < cubeBlockSize ? RoundDown<uint32_t>(k0Max, kBlockSize) : RoundDown<uint32_t>(k0Max, cubeBlockSize);
     if (opShape.k0 > CONST_512) {
         opShape.k0 = RoundDown<uint32_t>(opShape.k0, CONST_512);
     }
@@ -137,7 +133,7 @@ uint32_t PpMatmulTilingData::End(const MatMulInfo &mmInfo)
 }
 
 void GetPpMatmulTiling(const MatMulInfo &mmInfo, const HardwareInfo &hwInfo, uint32_t &blockDim,
-                        PpMatmulTilingData &tilingData)
+                       PpMatmulTilingData &tilingData)
 {
     OpShape opShape;
     opShape.batchSize = mmInfo.batchSize;
@@ -146,7 +142,7 @@ void GetPpMatmulTiling(const MatMulInfo &mmInfo, const HardwareInfo &hwInfo, uin
     opShape.k = mmInfo.k;
     tilingData.opShape = opShape;
     tilingData.quantMode = static_cast<uint32_t>(mmInfo.quantMode);
-    tilingData.SetTilingKey(mmInfo, 0, 0); // init tilingkey with transA transB.
+    tilingData.SetTilingKey(mmInfo, 0, 0);  // init tilingkey with transA transB.
     if (opShape.m < opShape.n) {
         TilingFunc<false, OpShape, PpMatmulTilingData, HardwareInfo, MatMulInfo>(opShape, tilingData, hwInfo, mmInfo);
     } else {
@@ -156,4 +152,4 @@ void GetPpMatmulTiling(const MatMulInfo &mmInfo, const HardwareInfo &hwInfo, uin
     blockDim = tilingData.End(mmInfo);
     tilingData.SetTilingKey(mmInfo, direct, 0);
 }
-}
+}  // namespace pp_matmul

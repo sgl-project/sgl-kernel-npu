@@ -1,12 +1,12 @@
 /*
-* Copyright (c) 2024 Huawei Technologies Co., Ltd.
-* This file is a part of the CANN Open Software.
-* Licensed under CANN Open Software License Agreement Version 1.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
-*/
+ * Copyright (c) 2024 Huawei Technologies Co., Ltd.
+ * This file is a part of the CANN Open Software.
+ * Licensed under CANN Open Software License Agreement Version 1.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 #ifndef COMMMON_TILING_H
 #define COMMMON_TILING_H
@@ -30,24 +30,17 @@ constexpr uint32_t NZ_SHAPE_SIZE = 4;
 constexpr uint32_t CUBE_BLOCK_SIZE = 256;
 constexpr uint32_t CUBE_BLOCK_SIZE_INT8 = 512;
 constexpr uint32_t L1AB_PINGPONG_BUFFER_LEN = 262144;
-constexpr uint32_t L0AB_PINGPONG_BUFFER_LEN_INT8 = 131072 * 2; // 256 KB
-constexpr uint32_t L0AB_PINGPONG_BUFFER_LEN_FP16 = 131072;     // 128 KB
+constexpr uint32_t L0AB_PINGPONG_BUFFER_LEN_INT8 = 131072 * 2;  // 256 KB
+constexpr uint32_t L0AB_PINGPONG_BUFFER_LEN_FP16 = 131072;      // 128 KB
 constexpr uint32_t L1AB_PINGPONG_BUFFER_LEN_INT8_SPARSE = 160 * 1024;
 constexpr uint32_t UB_LIMIT_SIZE_910A = 128 * 1024;
 
-enum class PlatformType
-{
-    ASCEND_310P,
-    ASCEND_910A,
-    ASCEND_910B,
-    ASCEND_910C,
-    PLATFORM_INVALID
-};
+enum class PlatformType { ASCEND_310P, ASCEND_910A, ASCEND_910B, ASCEND_910C, PLATFORM_INVALID };
 
-struct PlatformInfo
-{
+struct PlatformInfo {
 public:
-    static const PlatformInfo &Instance() {
+    static const PlatformInfo &Instance()
+    {
         static PlatformInfo platformInfo;
         return platformInfo;
     }
@@ -64,7 +57,8 @@ public:
     uint64_t l0cSize;
 
 private:
-    PlatformInfo() {
+    PlatformInfo()
+    {
         auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
         // TODO Hard coding set to 910_93xx, parse using aclrtGetSocName is better
         socType = PlatformType::ASCEND_910C;
@@ -79,10 +73,10 @@ private:
         ascendcPlatform->GetCoreMemSize(platform_ascendc::CoreMemType::L0_C, l0cSize);
     }
 
-    PlatformInfo(const PlatformInfo&) = delete;
-    PlatformInfo& operator=(const PlatformInfo&) = delete;
-    PlatformInfo(PlatformInfo&&) = delete;
-    PlatformInfo& operator=(PlatformInfo&&) = delete;
+    PlatformInfo(const PlatformInfo &) = delete;
+    PlatformInfo &operator=(const PlatformInfo &) = delete;
+    PlatformInfo(PlatformInfo &&) = delete;
+    PlatformInfo &operator=(PlatformInfo &&) = delete;
 };
 
 inline __attribute__((always_inline)) uint32_t GetN0TilingLimit(bool compressFlag, uint32_t tilingN,
@@ -92,27 +86,28 @@ inline __attribute__((always_inline)) uint32_t GetN0TilingLimit(bool compressFla
         return std::min(tilingN * BLOCK_SIZE, AXES_ALIGN_SIZE_INT8);
     } else {
         return (platformType == PlatformType::ASCEND_310P || platformType == PlatformType::ASCEND_910A)
-                ? AXES_ALIGN_SIZE
-                : AXES_ALIGN_SIZE_INT8;
+                   ? AXES_ALIGN_SIZE
+                   : AXES_ALIGN_SIZE_INT8;
     }
 }
 
 template <typename OpShareType>
 inline __attribute__((always_inline)) uint32_t GetN0TilingInit(const OpShareType &opShape, bool compressFlag,
-                                                            uint32_t tilingN)
+                                                               uint32_t tilingN)
 {
     const uint32_t rnd = 16;
-    return compressFlag ? ((tilingN * BLOCK_SIZE > opShape.n) ? RoundUp<uint32_t>(opShape.n, rnd) : tilingN * BLOCK_SIZE)
-                        : BLOCK_SIZE;
+    return compressFlag
+               ? ((tilingN * BLOCK_SIZE > opShape.n) ? RoundUp<uint32_t>(opShape.n, rnd) : tilingN * BLOCK_SIZE)
+               : BLOCK_SIZE;
 }
 
 template <bool PRI_FLAG>
 inline __attribute__((always_inline)) bool IsExceedTilingLimit(uint32_t axes0, uint32_t priAxes0,
-                                                            uint32_t n0TilingLimit, PlatformType platformType,
-                                                            uint32_t basicBlockSize)
+                                                               uint32_t n0TilingLimit, PlatformType platformType,
+                                                               uint32_t basicBlockSize)
 {
     return (PRI_FLAG && axes0 > n0TilingLimit) || (!PRI_FLAG && priAxes0 > n0TilingLimit) ||
-        (platformType == PlatformType::ASCEND_910A && basicBlockSize > UB_LIMIT_SIZE_910A);
+           (platformType == PlatformType::ASCEND_910A && basicBlockSize > UB_LIMIT_SIZE_910A);
 }
 
 template <bool PRI_FLAG, typename OpShareType>
@@ -192,7 +187,8 @@ void TilingFunc(OpShareType &opShape, TilingType &tilingParam, const HardwareTyp
     }
 }
 
-template <typename PpTilingDataType> uint32_t Swizzl(PpTilingDataType &tilingData)
+template <typename PpTilingDataType>
+uint32_t Swizzl(PpTilingDataType &tilingData)
 {
     uint32_t swizzlDirect = 0;
     uint32_t swizzlCount = 1;
@@ -208,14 +204,14 @@ template <typename PpTilingDataType> uint32_t Swizzl(PpTilingDataType &tilingDat
         float cost;
         // B0 + A < A0 + B
         if (i * n0 + m < m0 * c + n) {
-            swizzlDirect = 1; // Nz
+            swizzlDirect = 1;  // Nz
             cost = n0 * i + m0 * c;
             if (cost <= mincost) {
                 mincost = cost;
                 swizzlCount = i;
             }
         } else {
-            swizzlDirect = 0; // Zn
+            swizzlDirect = 0;  // Zn
             cost = m0 * i + n0 * c;
             if (cost < mincost) {
                 mincost = cost;
@@ -239,5 +235,5 @@ inline __attribute__((always_inline)) void PpMatmulTilingCheck(const PpTilingDat
     TORCH_CHECK(tilingData.nLoop > 0, "nLoop is invalid");
     TORCH_CHECK(tilingData.blockDim > 0, "nLoop is invalid");
 }
-} // namespace host_utils
+}  // namespace host_utils
 #endif

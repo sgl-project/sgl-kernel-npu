@@ -10,7 +10,6 @@
 // See LICENSE in the root of the software repository for the full text of the License.
 //
 
-
 #define __aicore__ [aicore]
 #include "kernel_operator.h"
 #include "../op_host/tiling/tiling_data.h"
@@ -38,8 +37,10 @@ struct MatCoord {
 
 using namespace device_utils;
 
-template <uint32_t SwizzleDirect, bool TA, bool TB, typename InDtype = half, typename OutDtype = half, DataFormat FormatB = DataFormat::ND>
-class PpMatmulEinSum {
+template <uint32_t SwizzleDirect, bool TA, bool TB, typename InDtype = half, typename OutDtype = half,
+          DataFormat FormatB = DataFormat::ND>
+class PpMatmulEinSum
+{
     using LocalTensor = AscendC::LocalTensor<InDtype>;
     template <DataFormat srcFormat = DataFormat::ND, DataFormat dstFormat = DataFormat::ND>
     using CopyGmToCbuf = gm_to_l1<ArchType::ASCEND_V220, InDtype, srcFormat, dstFormat>;
@@ -47,6 +48,7 @@ class PpMatmulEinSum {
     using LoadCbufToCb = l1_to_l0_b<ArchType::ASCEND_V220, InDtype, TB, DataFormat::ZN, DataFormat::NZ>;
     using Mad = mmad<ArchType::ASCEND_V220, InDtype, InDtype, float, TA>;
     using CopyCcToGm = l0c_to_gm<ArchType::ASCEND_V220, DataFormat::ND, OutDtype, float>;
+
 public:
     __aicore__ explicit PpMatmulEinSum(){};
 
@@ -74,7 +76,8 @@ public:
 
         AsdopsBuffer<ArchType::ASCEND_V220> buf;
         l1_base_a = buf.template GetBuffer<BufferType::ASCEND_CB, InDtype>(0);
-        l1_base_b = buf.template GetBuffer<BufferType::ASCEND_CB, InDtype>(RoundUp<uint64_t>(m0 * k0 * sizeof(InDtype), CONST_256UL));
+        l1_base_b = buf.template GetBuffer<BufferType::ASCEND_CB, InDtype>(
+            RoundUp<uint64_t>(m0 * k0 * sizeof(InDtype), CONST_256UL));
         l0a_base = buf.template GetBuffer<BufferType::ASCEND_L0A, InDtype>(0);
         l0b_base = buf.template GetBuffer<BufferType::ASCEND_L0B, InDtype>(0);
         num_core = AscendC::GetBlockNum();
@@ -85,7 +88,7 @@ public:
     __aicore__ __force_inline__ void GetBlockIdx(uint64_t index, MatCoord &tidx)
     {
         uint64_t in_batch_idx = index % (tdim.m * tdim.n);
-        if constexpr (SwizzleDirect == 0) { // Zn
+        if constexpr (SwizzleDirect == 0) {  // Zn
             uint64_t tile_block_loop = (tdim.m + swizzle_cnt - 1) / swizzle_cnt;
             uint64_t tile_block_idx = in_batch_idx / (swizzle_cnt * tdim.n);
             uint64_t in_tile_block_idx = in_batch_idx % (swizzle_cnt * tdim.n);
@@ -99,7 +102,7 @@ public:
             if (tile_block_idx % 2 != 0) {
                 tidx.n = tdim.n - tidx.n - 1;
             }
-        } else if constexpr (SwizzleDirect == 1) { // Nz
+        } else if constexpr (SwizzleDirect == 1) {  // Nz
             uint64_t tile_block_loop = (tdim.n + swizzle_cnt - 1) / swizzle_cnt;
             uint64_t tile_block_idx = in_batch_idx / (swizzle_cnt * tdim.m);
             uint64_t in_tile_block_idx = in_batch_idx % (swizzle_cnt * tdim.m);
@@ -149,13 +152,15 @@ public:
                 if constexpr (FormatB != DataFormat::NZ) {
                     offset_b = batch_idx * k * n + tidx.n * n0 * k + shuffle_k * k0;
                 } else {
-                    offset_b = batch_idx * RoundUp<uint64_t, CONST_16UL>(k) * RoundUp<uint64_t, CONST_16UL>(n) + tidx.n * n0 * BLOCK_SIZE_16 + shuffle_k * k0 * RoundUp<uint64_t, CONST_16UL>(n);
+                    offset_b = batch_idx * RoundUp<uint64_t, CONST_16UL>(k) * RoundUp<uint64_t, CONST_16UL>(n) +
+                               tidx.n * n0 * BLOCK_SIZE_16 + shuffle_k * k0 * RoundUp<uint64_t, CONST_16UL>(n);
                 }
             } else {
                 if constexpr (FormatB != DataFormat::NZ) {
                     offset_b = batch_idx * k * n + shuffle_k * k0 * n + tidx.n * n0;
                 } else {
-                    offset_b = batch_idx * RoundUp<uint64_t, CONST_16UL>(k) * RoundUp<uint64_t, CONST_16UL>(n) + shuffle_k * k0 * BLOCK_SIZE_16 + tidx.n * n0 * RoundUp<uint64_t, CONST_16UL>(k);
+                    offset_b = batch_idx * RoundUp<uint64_t, CONST_16UL>(k) * RoundUp<uint64_t, CONST_16UL>(n) +
+                               shuffle_k * k0 * BLOCK_SIZE_16 + tidx.n * n0 * RoundUp<uint64_t, CONST_16UL>(k);
                 }
             }
 
@@ -172,33 +177,33 @@ public:
                 WAIT_FLAG(MTE1, MTE2, event_id);
                 // *** load matrix A to L1
                 if ((m == 1) || (m_actual == 1 && !TA)) {
-                    CopyGmToCbuf<DataFormat::ND, DataFormat::ND>(l1_buf_a,       // dst
-                                 gm_a[offset_a], // src
-                                 1,              // nTileActual
-                                 16,             // nTileCeil
-                                 1,              // nVal
-                                 k_actual,       // kTileActual
-                                 k_round,        // kTileCeil
-                                 k);             // dVal
+                    CopyGmToCbuf<DataFormat::ND, DataFormat::ND>(l1_buf_a,        // dst
+                                                                 gm_a[offset_a],  // src
+                                                                 1,               // nTileActual
+                                                                 16,              // nTileCeil
+                                                                 1,               // nVal
+                                                                 k_actual,        // kTileActual
+                                                                 k_round,         // kTileCeil
+                                                                 k);              // dVal
                 } else {
                     if (TA) {
-                        CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_a,        // dst
-                                          gm_a[offset_a],  // src
-                                          k_actual,        // nTileActual
-                                          k_round,         // nTileCeil
-                                          k,               // nVal
-                                          m_actual,        // dTileActual
-                                          m_round,         // dTileCeil
-                                          m * batch_size); // dVal
+                        CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_a,         // dst
+                                                                     gm_a[offset_a],   // src
+                                                                     k_actual,         // nTileActual
+                                                                     k_round,          // nTileCeil
+                                                                     k,                // nVal
+                                                                     m_actual,         // dTileActual
+                                                                     m_round,          // dTileCeil
+                                                                     m * batch_size);  // dVal
                     } else {
-                        CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_a,        // dst
-                                          gm_a[offset_a],  // src
-                                          m_actual,        // nTileActual
-                                          m_round,         // nTileCeil
-                                          m,               // nVal
-                                          k_actual,        // dTileActual
-                                          k_round,         // dTileCeil
-                                          k * batch_size); // dVal
+                        CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_a,         // dst
+                                                                     gm_a[offset_a],   // src
+                                                                     m_actual,         // nTileActual
+                                                                     m_round,          // nTileCeil
+                                                                     m,                // nVal
+                                                                     k_actual,         // dTileActual
+                                                                     k_round,          // dTileCeil
+                                                                     k * batch_size);  // dVal
                     }
                 }
                 SET_FLAG(MTE2, MTE1, event_id);
@@ -206,43 +211,43 @@ public:
                 wait_flag(PIPE_MTE1, PIPE_MTE2, event_id + 2);
                 if constexpr (FormatB != DataFormat::NZ) {
                     if (TB) {
-                        CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_b,       // dst
-                                        gm_b[offset_b], // src
-                                        n_actual,       // nTileActual
-                                        n_round,        // nTileCeil
-                                        n,              // nVal
-                                        k_actual,       // dTileActual
-                                        k_round,        // dTileCeil
-                                        k);             // dVal
+                        CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_b,        // dst
+                                                                     gm_b[offset_b],  // src
+                                                                     n_actual,        // nTileActual
+                                                                     n_round,         // nTileCeil
+                                                                     n,               // nVal
+                                                                     k_actual,        // dTileActual
+                                                                     k_round,         // dTileCeil
+                                                                     k);              // dVal
                     } else {
-                        CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_b,       // dst
-                                        gm_b[offset_b], // src
-                                        k_actual,       // nTileActual
-                                        k_round,        // nTileCeil
-                                        k,              // nVal
-                                        n_actual,       // dTileActual
-                                        n_round,        // dTileCeil
-                                        n);             // dVal
+                        CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_b,        // dst
+                                                                     gm_b[offset_b],  // src
+                                                                     k_actual,        // nTileActual
+                                                                     k_round,         // nTileCeil
+                                                                     k,               // nVal
+                                                                     n_actual,        // dTileActual
+                                                                     n_round,         // dTileCeil
+                                                                     n);              // dVal
                     }
                 } else {
                     if (TB) {
-                        CopyGmToCbuf<DataFormat::NZ, DataFormat::NZ>(l1_buf_b,       // dst
-                                        gm_b[offset_b], // src
-                                        n_actual,       // nTileActual
-                                        n_round,        // nTileCeil
-                                        RoundUp<uint64_t, CONST_16UL>(n),              // nVal
-                                        k_actual,       // dTileActual
-                                        k_round,        // dTileCeil
-                                        RoundUp<uint64_t, CONST_16UL>(k));             // dVal
+                        CopyGmToCbuf<DataFormat::NZ, DataFormat::NZ>(l1_buf_b,                           // dst
+                                                                     gm_b[offset_b],                     // src
+                                                                     n_actual,                           // nTileActual
+                                                                     n_round,                            // nTileCeil
+                                                                     RoundUp<uint64_t, CONST_16UL>(n),   // nVal
+                                                                     k_actual,                           // dTileActual
+                                                                     k_round,                            // dTileCeil
+                                                                     RoundUp<uint64_t, CONST_16UL>(k));  // dVal
                     } else {
-                        CopyGmToCbuf<DataFormat::NZ, DataFormat::NZ>(l1_buf_b,       // dst
-                                        gm_b[offset_b], // src
-                                        k_actual,       // nTileActual
-                                        k_round,        // nTileCeil
-                                        RoundUp<uint64_t, CONST_16UL>(k),              // nVal
-                                        n_actual,       // dTileActual
-                                        n_round,        // dTileCeil
-                                        RoundUp<uint64_t, CONST_16UL>(n));             // dVal
+                        CopyGmToCbuf<DataFormat::NZ, DataFormat::NZ>(l1_buf_b,                           // dst
+                                                                     gm_b[offset_b],                     // src
+                                                                     k_actual,                           // nTileActual
+                                                                     k_round,                            // nTileCeil
+                                                                     RoundUp<uint64_t, CONST_16UL>(k),   // nVal
+                                                                     n_actual,                           // dTileActual
+                                                                     n_round,                            // dTileCeil
+                                                                     RoundUp<uint64_t, CONST_16UL>(n));  // dVal
                     }
                 }
                 SET_FLAG(MTE2, MTE1, event_id + 2);
@@ -270,13 +275,17 @@ public:
                         if constexpr (FormatB != DataFormat::NZ) {
                             offset_b_next = batch_idx * k * n + tidx.n * n0 * k + shuffle_k_next * k0;
                         } else {
-                            offset_b_next = batch_idx * RoundUp<uint64_t, CONST_16UL>(k) * RoundUp<uint64_t, CONST_16UL>(n) + tidx.n * n0 * BLOCK_SIZE_16 + shuffle_k_next * k0 * RoundUp<uint64_t, CONST_16UL>(n);
+                            offset_b_next =
+                                batch_idx * RoundUp<uint64_t, CONST_16UL>(k) * RoundUp<uint64_t, CONST_16UL>(n) +
+                                tidx.n * n0 * BLOCK_SIZE_16 + shuffle_k_next * k0 * RoundUp<uint64_t, CONST_16UL>(n);
                         }
                     } else {
                         if constexpr (FormatB != DataFormat::NZ) {
                             offset_b_next = batch_idx * k * n + shuffle_k_next * k0 * n + tidx.n * n0;
                         } else {
-                            offset_b_next = batch_idx * RoundUp<uint64_t, CONST_16UL>(k) * RoundUp<uint64_t, CONST_16UL>(n) + shuffle_k_next * k0 * BLOCK_SIZE_16 + tidx.n * n0 * RoundUp<uint64_t, CONST_16UL>(k);
+                            offset_b_next =
+                                batch_idx * RoundUp<uint64_t, CONST_16UL>(k) * RoundUp<uint64_t, CONST_16UL>(n) +
+                                shuffle_k_next * k0 * BLOCK_SIZE_16 + tidx.n * n0 * RoundUp<uint64_t, CONST_16UL>(k);
                         }
                     }
 
@@ -290,33 +299,33 @@ public:
                     WAIT_FLAG(MTE1, MTE2, event_id_next);
                     // *** load matrix A to L1
                     if ((m == 1) || (m_actual == 1 && !TA)) {
-                        CopyGmToCbuf<DataFormat::ND, DataFormat::ND>(l1_buf_a_next,       // dst
-                                     gm_a[offset_a_next], // src
-                                     m_actual,            // nTileActual
-                                     m_round,             // nTileCeil
-                                     m,                   // nVal
-                                     k_actual_next,       // kTileActual
-                                     k_round_next,        // kTileCeil
-                                     k);                  // dVal
+                        CopyGmToCbuf<DataFormat::ND, DataFormat::ND>(l1_buf_a_next,        // dst
+                                                                     gm_a[offset_a_next],  // src
+                                                                     m_actual,             // nTileActual
+                                                                     m_round,              // nTileCeil
+                                                                     m,                    // nVal
+                                                                     k_actual_next,        // kTileActual
+                                                                     k_round_next,         // kTileCeil
+                                                                     k);                   // dVal
                     } else {
                         if (TA) {
-                            CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_a_next,       // dst
-                                              gm_a[offset_a_next], // src
-                                              k_actual_next,       // nTileActual
-                                              k_round_next,        // nTileCeil
-                                              k,                   // nVal
-                                              m_actual,            // dTileActual
-                                              m_round,             // dTileCeil
-                                              m * batch_size);     // dVal
+                            CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_a_next,        // dst
+                                                                         gm_a[offset_a_next],  // src
+                                                                         k_actual_next,        // nTileActual
+                                                                         k_round_next,         // nTileCeil
+                                                                         k,                    // nVal
+                                                                         m_actual,             // dTileActual
+                                                                         m_round,              // dTileCeil
+                                                                         m * batch_size);      // dVal
                         } else {
-                            CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_a_next,       // dst
-                                              gm_a[offset_a_next], // src
-                                              m_actual,            // nTileActual
-                                              m_round,             // nTileCeil
-                                              m,                   // nVal
-                                              k_actual_next,       // dTileActual
-                                              k_round_next,        // dTileCeil
-                                              k * batch_size);     // dVal
+                            CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_a_next,        // dst
+                                                                         gm_a[offset_a_next],  // src
+                                                                         m_actual,             // nTileActual
+                                                                         m_round,              // nTileCeil
+                                                                         m,                    // nVal
+                                                                         k_actual_next,        // dTileActual
+                                                                         k_round_next,         // dTileCeil
+                                                                         k * batch_size);      // dVal
                         }
                     }
                     SET_FLAG(MTE2, MTE1, event_id_next);
@@ -325,43 +334,43 @@ public:
                     wait_flag(PIPE_MTE1, PIPE_MTE2, event_id_next + 2);
                     if constexpr (FormatB != DataFormat::NZ) {
                         if (TB) {
-                            CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_b_next,       // dst
-                                            gm_b[offset_b_next], // src
-                                            n_actual,            // nTileActual
-                                            n_round,             // nTileCeil
-                                            n,                   // nVal
-                                            k_actual_next,       // dTileActual
-                                            k_round_next,        // dTileCeil
-                                            k);                  // dVal
+                            CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_b_next,        // dst
+                                                                         gm_b[offset_b_next],  // src
+                                                                         n_actual,             // nTileActual
+                                                                         n_round,              // nTileCeil
+                                                                         n,                    // nVal
+                                                                         k_actual_next,        // dTileActual
+                                                                         k_round_next,         // dTileCeil
+                                                                         k);                   // dVal
                         } else {
-                            CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_b_next,       // dst
-                                            gm_b[offset_b_next], // src
-                                            k_actual_next,       // nTileActual
-                                            k_round_next,        // nTileCeil
-                                            k,                   // nVal
-                                            n_actual,            // dTileActual
-                                            n_round,             // dTileCeil
-                                            n);                  // dVal
+                            CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_b_next,        // dst
+                                                                         gm_b[offset_b_next],  // src
+                                                                         k_actual_next,        // nTileActual
+                                                                         k_round_next,         // nTileCeil
+                                                                         k,                    // nVal
+                                                                         n_actual,             // dTileActual
+                                                                         n_round,              // dTileCeil
+                                                                         n);                   // dVal
                         }
                     } else {
                         if (TB) {
-                            CopyGmToCbuf<DataFormat::NZ, DataFormat::NZ>(l1_buf_b_next,       // dst
-                                            gm_b[offset_b_next], // src
-                                            n_actual,            // nTileActual
-                                            n_round,             // nTileCeil
-                                            RoundUp<uint64_t, CONST_16UL>(n),                   // nVal
-                                            k_actual_next,       // dTileActual
-                                            k_round_next,        // dTileCeil
-                                            RoundUp<uint64_t, CONST_16UL>(k));                  // dVal
+                            CopyGmToCbuf<DataFormat::NZ, DataFormat::NZ>(l1_buf_b_next,        // dst
+                                                                         gm_b[offset_b_next],  // src
+                                                                         n_actual,             // nTileActual
+                                                                         n_round,              // nTileCeil
+                                                                         RoundUp<uint64_t, CONST_16UL>(n),  // nVal
+                                                                         k_actual_next,  // dTileActual
+                                                                         k_round_next,   // dTileCeil
+                                                                         RoundUp<uint64_t, CONST_16UL>(k));  // dVal
                         } else {
-                            CopyGmToCbuf<DataFormat::NZ, DataFormat::NZ>(l1_buf_b_next,       // dst
-                                            gm_b[offset_b_next], // src
-                                            k_actual_next,       // nTileActual
-                                            k_round_next,        // nTileCeil
-                                            RoundUp<uint64_t, CONST_16UL>(k),                   // nVal
-                                            n_actual,            // dTileActual
-                                            n_round,             // dTileCeil
-                                            RoundUp<uint64_t, CONST_16UL>(n));                  // dVal
+                            CopyGmToCbuf<DataFormat::NZ, DataFormat::NZ>(l1_buf_b_next,        // dst
+                                                                         gm_b[offset_b_next],  // src
+                                                                         k_actual_next,        // nTileActual
+                                                                         k_round_next,         // nTileCeil
+                                                                         RoundUp<uint64_t, CONST_16UL>(k),  // nVal
+                                                                         n_actual,  // dTileActual
+                                                                         n_round,   // dTileCeil
+                                                                         RoundUp<uint64_t, CONST_16UL>(n));  // dVal
                         }
                     }
                     SET_FLAG(MTE2, MTE1, event_id_next + 2);
@@ -388,13 +397,17 @@ public:
                         if constexpr (FormatB != DataFormat::NZ) {
                             offset_b_next = b_idx_next * k * n + tidx.n * n0 * k + shuffle_k_next * k0;
                         } else {
-                            offset_b_next = b_idx_next * RoundUp<uint64_t, CONST_16UL>(k) * RoundUp<uint64_t, CONST_16UL>(n) + tidx.n * n0 * BLOCK_SIZE_16 + shuffle_k_next * k0 * RoundUp<uint64_t, CONST_16UL>(n);
+                            offset_b_next =
+                                b_idx_next * RoundUp<uint64_t, CONST_16UL>(k) * RoundUp<uint64_t, CONST_16UL>(n) +
+                                tidx.n * n0 * BLOCK_SIZE_16 + shuffle_k_next * k0 * RoundUp<uint64_t, CONST_16UL>(n);
                         }
                     } else {
                         if constexpr (FormatB != DataFormat::NZ) {
                             offset_b_next = b_idx_next * k * n + shuffle_k_next * k0 * n + tidx.n * n0;
                         } else {
-                            offset_b_next = b_idx_next * RoundUp<uint64_t, CONST_16UL>(k) * RoundUp<uint64_t, CONST_16UL>(n) + shuffle_k_next * k0 * BLOCK_SIZE_16 + tidx.n * n0 * RoundUp<uint64_t, CONST_16UL>(k);
+                            offset_b_next =
+                                b_idx_next * RoundUp<uint64_t, CONST_16UL>(k) * RoundUp<uint64_t, CONST_16UL>(n) +
+                                shuffle_k_next * k0 * BLOCK_SIZE_16 + tidx.n * n0 * RoundUp<uint64_t, CONST_16UL>(k);
                         }
                     }
 
@@ -405,33 +418,33 @@ public:
                     WAIT_FLAG(MTE1, MTE2, event_id_next);
                     // *** load matrix A to L1
                     if (m == 1 || m_actual_next == 1 && !TA) {
-                        CopyGmToCbuf<DataFormat::ND, DataFormat::ND>(l1_buf_a_next,       // dst
-                                     gm_a[offset_a_next], // src
-                                     m_actual_next,       // nTileActual
-                                     m_round_next,        // nTileCeil
-                                     m,                   // nVal
-                                     k_actual_next,       // kTileActual
-                                     k_round_next,        // kTileCeil
-                                     k);                  // dVal
+                        CopyGmToCbuf<DataFormat::ND, DataFormat::ND>(l1_buf_a_next,        // dst
+                                                                     gm_a[offset_a_next],  // src
+                                                                     m_actual_next,        // nTileActual
+                                                                     m_round_next,         // nTileCeil
+                                                                     m,                    // nVal
+                                                                     k_actual_next,        // kTileActual
+                                                                     k_round_next,         // kTileCeil
+                                                                     k);                   // dVal
                     } else {
                         if (TA) {
-                            CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_a_next,       // dst
-                                              gm_a[offset_a_next], // src
-                                              k_actual_next,       // nTileActual
-                                              k_round_next,        // nTileCeil
-                                              k,                   // nVal
-                                              m_actual_next,       // dTileActual
-                                              m_round_next,        // dTileCeil
-                                              m * batch_size);     // dVal
+                            CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_a_next,        // dst
+                                                                         gm_a[offset_a_next],  // src
+                                                                         k_actual_next,        // nTileActual
+                                                                         k_round_next,         // nTileCeil
+                                                                         k,                    // nVal
+                                                                         m_actual_next,        // dTileActual
+                                                                         m_round_next,         // dTileCeil
+                                                                         m * batch_size);      // dVal
                         } else {
-                            CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_a_next,       // dst
-                                              gm_a[offset_a_next], // src
-                                              m_actual_next,       // nTileActual
-                                              m_round_next,        // nTileCeil
-                                              m,                   // nVal
-                                              k_actual_next,       // dTileActual
-                                              k_round_next,        // dTileCeil
-                                              k * batch_size);     // dVal
+                            CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_a_next,        // dst
+                                                                         gm_a[offset_a_next],  // src
+                                                                         m_actual_next,        // nTileActual
+                                                                         m_round_next,         // nTileCeil
+                                                                         m,                    // nVal
+                                                                         k_actual_next,        // dTileActual
+                                                                         k_round_next,         // dTileCeil
+                                                                         k * batch_size);      // dVal
                         }
                     }
                     SET_FLAG(MTE2, MTE1, event_id_next);
@@ -440,43 +453,43 @@ public:
                     wait_flag(PIPE_MTE1, PIPE_MTE2, event_id_next + 2);
                     if constexpr (FormatB != DataFormat::NZ) {
                         if (TB) {
-                            CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_b_next,       // dst
-                                            gm_b[offset_b_next], // src
-                                            n_actual_next,       // nTileActual
-                                            n_round_next,        // nTileCeil
-                                            n,                   // nVal
-                                            k_actual_next,       // dTileActual
-                                            k_round_next,        // dTileCeil
-                                            k);                  // dVal
+                            CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_b_next,        // dst
+                                                                         gm_b[offset_b_next],  // src
+                                                                         n_actual_next,        // nTileActual
+                                                                         n_round_next,         // nTileCeil
+                                                                         n,                    // nVal
+                                                                         k_actual_next,        // dTileActual
+                                                                         k_round_next,         // dTileCeil
+                                                                         k);                   // dVal
                         } else {
-                            CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_b_next,       // dst
-                                            gm_b[offset_b_next], // src
-                                            k_actual_next,       // nTileActual
-                                            k_round_next,        // nTileCeil
-                                            k,                   // nVal
-                                            n_actual_next,       // dTileActual
-                                            n_round_next,        // dTileCeil
-                                            n);                  // dVal
+                            CopyGmToCbuf<DataFormat::ND, DataFormat::NZ>(l1_buf_b_next,        // dst
+                                                                         gm_b[offset_b_next],  // src
+                                                                         k_actual_next,        // nTileActual
+                                                                         k_round_next,         // nTileCeil
+                                                                         k,                    // nVal
+                                                                         n_actual_next,        // dTileActual
+                                                                         n_round_next,         // dTileCeil
+                                                                         n);                   // dVal
                         }
                     } else {
                         if (TB) {
-                            CopyGmToCbuf<DataFormat::NZ, DataFormat::NZ>(l1_buf_b_next,       // dst
-                                            gm_b[offset_b_next], // src
-                                            n_actual_next,       // nTileActual
-                                            n_round_next,        // nTileCeil
-                                            RoundUp<uint64_t, CONST_16UL>(n),                   // nVal
-                                            k_actual_next,       // dTileActual
-                                            k_round_next,        // dTileCeil
-                                            RoundUp<uint64_t, CONST_16UL>(k));                  // dVal
+                            CopyGmToCbuf<DataFormat::NZ, DataFormat::NZ>(l1_buf_b_next,        // dst
+                                                                         gm_b[offset_b_next],  // src
+                                                                         n_actual_next,        // nTileActual
+                                                                         n_round_next,         // nTileCeil
+                                                                         RoundUp<uint64_t, CONST_16UL>(n),  // nVal
+                                                                         k_actual_next,  // dTileActual
+                                                                         k_round_next,   // dTileCeil
+                                                                         RoundUp<uint64_t, CONST_16UL>(k));  // dVal
                         } else {
-                            CopyGmToCbuf<DataFormat::NZ, DataFormat::NZ>(l1_buf_b_next,       // dst
-                                            gm_b[offset_b_next], // src
-                                            k_actual_next,       // nTileActual
-                                            k_round_next,        // nTileCeil
-                                            RoundUp<uint64_t, CONST_16UL>(k),                   // nVal
-                                            n_actual_next,       // dTileActual
-                                            n_round_next,        // dTileCeil
-                                            RoundUp<uint64_t, CONST_16UL>(n));                  // dVal
+                            CopyGmToCbuf<DataFormat::NZ, DataFormat::NZ>(l1_buf_b_next,        // dst
+                                                                         gm_b[offset_b_next],  // src
+                                                                         k_actual_next,        // nTileActual
+                                                                         k_round_next,         // nTileCeil
+                                                                         RoundUp<uint64_t, CONST_16UL>(k),  // nVal
+                                                                         n_actual_next,  // dTileActual
+                                                                         n_round_next,   // dTileCeil
+                                                                         RoundUp<uint64_t, CONST_16UL>(n));  // dVal
                         }
                     }
                     SET_FLAG(MTE2, MTE1, event_id_next + 2);
@@ -499,33 +512,33 @@ public:
                     WAIT_FLAG(M, MTE1, mte1_mad_event_id);
                     if ((m == 1) || (m_actual == 1 && !TA)) {
                         l1_to_l0_a<ArchType::ASCEND_V220, InDtype, false, DataFormat::VECTOR, DataFormat::VECTOR>(
-                            l0a_buf,                       // dst
-                            l1_buf_a[fidx.k * k_part_len], // src
-                            0,                             // mTileCeil
-                            CeilDiv<CONST_256>(k0_round),  // kPartCeil
-                            0,                             // mSrcStride
-                            1,                             // kSrcStride
-                            0,                             // mDstStride
-                            0);                            // kDstStride
+                            l0a_buf,                        // dst
+                            l1_buf_a[fidx.k * k_part_len],  // src
+                            0,                              // mTileCeil
+                            CeilDiv<CONST_256>(k0_round),   // kPartCeil
+                            0,                              // mSrcStride
+                            1,                              // kSrcStride
+                            0,                              // mDstStride
+                            0);                             // kDstStride
                     } else {
                         if (TA) {
+                            LoadCbufToCa(l0a_buf,                                   // l0Tensor
+                                         l1_buf_a[fidx.k * k_part_len * CONST_16],  // l1Tensor
+                                         m_round,                                   // mTileCeil
+                                         k0_round,                                  // kPartCeil
+                                         k_round / CONST_16,                        // mSrcStride
+                                         1,                                         // kSrcStride
+                                         k0_round / CONST_16,                       // mDstStride
+                                         1);                                        // kDstStride
+                        } else {
                             LoadCbufToCa(l0a_buf,                                  // l0Tensor
-                                         l1_buf_a[fidx.k * k_part_len * CONST_16], // l1Tensor
+                                         l1_buf_a[fidx.k * k_part_len * m_round],  // l1Tensor
                                          m_round,                                  // mTileCeil
                                          k0_round,                                 // kPartCeil
-                                         k_round / CONST_16,                       // mSrcStride
-                                         1,                                        // kSrcStride
+                                         1,                                        // mSrcStride
+                                         m_round / CONST_16,                       // kSrcStride
                                          k0_round / CONST_16,                      // mDstStride
                                          1);                                       // kDstStride
-                        } else {
-                            LoadCbufToCa(l0a_buf,                                 // l0Tensor
-                                         l1_buf_a[fidx.k * k_part_len * m_round], // l1Tensor
-                                         m_round,                                 // mTileCeil
-                                         k0_round,                                // kPartCeil
-                                         1,                                       // mSrcStride
-                                         m_round / CONST_16,                      // kSrcStride
-                                         k0_round / CONST_16,                     // mDstStride
-                                         1);                                      // kDstStride
                         }
                     }
                     if (fidx.k == fdim.k - 1) {
@@ -537,23 +550,23 @@ public:
                         WAIT_FLAG(MTE2, MTE1, event_id + 2);
                     }
                     if (TB) {
-                        LoadCbufToCb(l0b_buf,                                 // l0Tensor
-                                     l1_buf_b[fidx.k * k_part_len * n_round], // l1Tensor
-                                     n_round,                                 // nTileCeil
-                                     k0_round,                                // kPartCeil
-                                     1,                                       // nSrcStride
-                                     n_round / CONST_16,                      // kSrcStride
-                                     1,                                       // nDstStride
-                                     k0_round / CONST_16);                    // kDstStride
-                    } else {
                         LoadCbufToCb(l0b_buf,                                  // l0Tensor
-                                     l1_buf_b[fidx.k * k_part_len * CONST_16], // l1Tensor
+                                     l1_buf_b[fidx.k * k_part_len * n_round],  // l1Tensor
                                      n_round,                                  // nTileCeil
                                      k0_round,                                 // kPartCeil
-                                     k_round / CONST_16,                       // nSrcStride
-                                     1,                                        // kSrcStride
+                                     1,                                        // nSrcStride
+                                     n_round / CONST_16,                       // kSrcStride
                                      1,                                        // nDstStride
-                                     n_round / CONST_16);                      // kDstStride
+                                     k0_round / CONST_16);                     // kDstStride
+                    } else {
+                        LoadCbufToCb(l0b_buf,                                   // l0Tensor
+                                     l1_buf_b[fidx.k * k_part_len * CONST_16],  // l1Tensor
+                                     n_round,                                   // nTileCeil
+                                     k0_round,                                  // kPartCeil
+                                     k_round / CONST_16,                        // nSrcStride
+                                     1,                                         // kSrcStride
+                                     1,                                         // nDstStride
+                                     n_round / CONST_16);                       // kDstStride
                     }
                     if (fidx.k == fdim.k - 1) {
                         SET_FLAG(MTE1, MTE2, event_id + 2);
@@ -568,21 +581,21 @@ public:
                     }
 
                     if (m != 1 && m_actual == 1 && TA) {
-                        Mad(l0c_buf,   // c
-                            l0a_buf,   // a
-                            l0b_buf,   // b
-                            CONST_16,  // mTileActual
-                            n_actual,  // nTileActual
-                            k0_actual, // kTileActual
-                            init_c);   // initC
+                        Mad(l0c_buf,    // c
+                            l0a_buf,    // a
+                            l0b_buf,    // b
+                            CONST_16,   // mTileActual
+                            n_actual,   // nTileActual
+                            k0_actual,  // kTileActual
+                            init_c);    // initC
                     } else {
-                        Mad(l0c_buf,   // c
-                            l0a_buf,   // a
-                            l0b_buf,   // b
-                            m_actual,  // mTileActual
-                            n_actual,  // nTileActual
-                            k0_actual, // kTileActual
-                            init_c);   // initC
+                        Mad(l0c_buf,    // c
+                            l0a_buf,    // a
+                            l0b_buf,    // b
+                            m_actual,   // mTileActual
+                            n_actual,   // nTileActual
+                            k0_actual,  // kTileActual
+                            init_c);    // initC
                     }
 
                     PIPE_BARRIER(M);
@@ -596,12 +609,12 @@ public:
             WAIT_FLAG(M, FIX, EVENT_ID0);
 
             // copy from L0C to gm
-            CopyCcToGm(gm_c[offset_c],  // dst
-                       l0c_buf,         // src
-                       m_actual,        // mTileActual
-                       n_actual,        // nTileActual
-                       m_round,         // mTileCeil
-                       n * batch_size); // nActual
+            CopyCcToGm(gm_c[offset_c],   // dst
+                       l0c_buf,          // src
+                       m_actual,         // mTileActual
+                       n_actual,         // nTileActual
+                       m_round,          // mTileCeil
+                       n * batch_size);  // nActual
             SET_FLAG(FIX, M, EVENT_ID0);
         }
 
@@ -642,28 +655,58 @@ private:
     uint32_t ping_flag{0};
 };
 
-extern "C" __global__ __aicore__ void batch_matmul_transpose(GM_ADDR gm_a,
-                                                        GM_ADDR gm_b,
-                                                        GM_ADDR gm_c,
-                                                        GM_ADDR gm_tiling_data)
+extern "C" __global__ __aicore__ void batch_matmul_transpose(GM_ADDR gm_a, GM_ADDR gm_b, GM_ADDR gm_c,
+                                                             GM_ADDR gm_tiling_data)
 {
-    PpMatmulEinSum<0, false, false, half, half, DataFormat::ND> einsum_0_n_fp16_nd;     // swizzleDir[0] transA[0] transB[0] DtypeA[001] DtypeB[001] DtypeC[001] DataFormatA[0] DataFormatB[0]
-    PpMatmulEinSum<1, false, false, half, half, DataFormat::ND> einsum_1_n_fp16_nd;     // swizzleDir[1] transA[0] transB[0] DtypeA[001] DtypeB[001] DtypeC[001] DataFormatA[0] DataFormatB[0]
-    PpMatmulEinSum<0, false, true, half, half, DataFormat::ND> einsum_0_t_fp16_nd;      // swizzleDir[0] transA[0] transB[1] DtypeA[001] DtypeB[001] DtypeC[001] DataFormatA[0] DataFormatB[0]
-    PpMatmulEinSum<1, false, true, half, half, DataFormat::ND> einsum_1_t_fp16_nd;      // swizzleDir[1] transA[0] transB[1] DtypeA[001] DtypeB[001] DtypeC[001] DataFormatA[0] DataFormatB[0]
-    PpMatmulEinSum<0, false, false, __bf16, __bf16, DataFormat::ND> einsum_0_n_bf16_nd; // swizzleDir[0] transA[0] transB[0] DtypeA[010] DtypeB[010] DtypeC[010] DataFormatA[0] DataFormatB[0]
-    PpMatmulEinSum<1, false, false, __bf16, __bf16, DataFormat::ND> einsum_1_n_bf16_nd; // swizzleDir[1] transA[0] transB[0] DtypeA[010] DtypeB[010] DtypeC[010] DataFormatA[0] DataFormatB[0]
-    PpMatmulEinSum<0, false, true, __bf16, __bf16, DataFormat::ND> einsum_0_t_bf16_nd;  // swizzleDir[0] transA[0] transB[1] DtypeA[010] DtypeB[010] DtypeC[010] DataFormatA[0] DataFormatB[0]
-    PpMatmulEinSum<1, false, true, __bf16, __bf16, DataFormat::ND> einsum_1_t_bf16_nd;  // swizzleDir[1] transA[0] transB[1] DtypeA[010] DtypeB[010] DtypeC[010] DataFormatA[0] DataFormatB[0]
+    PpMatmulEinSum<0, false, false, half, half, DataFormat::ND>
+        einsum_0_n_fp16_nd;  // swizzleDir[0] transA[0] transB[0] DtypeA[001] DtypeB[001] DtypeC[001] DataFormatA[0]
+                             // DataFormatB[0]
+    PpMatmulEinSum<1, false, false, half, half, DataFormat::ND>
+        einsum_1_n_fp16_nd;  // swizzleDir[1] transA[0] transB[0] DtypeA[001] DtypeB[001] DtypeC[001] DataFormatA[0]
+                             // DataFormatB[0]
+    PpMatmulEinSum<0, false, true, half, half, DataFormat::ND>
+        einsum_0_t_fp16_nd;  // swizzleDir[0] transA[0] transB[1] DtypeA[001] DtypeB[001] DtypeC[001] DataFormatA[0]
+                             // DataFormatB[0]
+    PpMatmulEinSum<1, false, true, half, half, DataFormat::ND>
+        einsum_1_t_fp16_nd;  // swizzleDir[1] transA[0] transB[1] DtypeA[001] DtypeB[001] DtypeC[001] DataFormatA[0]
+                             // DataFormatB[0]
+    PpMatmulEinSum<0, false, false, __bf16, __bf16, DataFormat::ND>
+        einsum_0_n_bf16_nd;  // swizzleDir[0] transA[0] transB[0] DtypeA[010] DtypeB[010] DtypeC[010] DataFormatA[0]
+                             // DataFormatB[0]
+    PpMatmulEinSum<1, false, false, __bf16, __bf16, DataFormat::ND>
+        einsum_1_n_bf16_nd;  // swizzleDir[1] transA[0] transB[0] DtypeA[010] DtypeB[010] DtypeC[010] DataFormatA[0]
+                             // DataFormatB[0]
+    PpMatmulEinSum<0, false, true, __bf16, __bf16, DataFormat::ND>
+        einsum_0_t_bf16_nd;  // swizzleDir[0] transA[0] transB[1] DtypeA[010] DtypeB[010] DtypeC[010] DataFormatA[0]
+                             // DataFormatB[0]
+    PpMatmulEinSum<1, false, true, __bf16, __bf16, DataFormat::ND>
+        einsum_1_t_bf16_nd;  // swizzleDir[1] transA[0] transB[1] DtypeA[010] DtypeB[010] DtypeC[010] DataFormatA[0]
+                             // DataFormatB[0]
 
-    PpMatmulEinSum<0, false, false, half, half, DataFormat::NZ> einsum_0_n_fp16_nz;     // swizzleDir[0] transA[0] transB[0] DtypeA[001] DtypeB[001] DtypeC[001] DataFormatA[0] DataFormatB[1]
-    PpMatmulEinSum<1, false, false, half, half, DataFormat::NZ> einsum_1_n_fp16_nz;     // swizzleDir[1] transA[0] transB[0] DtypeA[001] DtypeB[001] DtypeC[001] DataFormatA[0] DataFormatB[1]
-    PpMatmulEinSum<0, false, true, half, half, DataFormat::NZ> einsum_0_t_fp16_nz;      // swizzleDir[0] transA[0] transB[1] DtypeA[001] DtypeB[001] DtypeC[001] DataFormatA[0] DataFormatB[1]
-    PpMatmulEinSum<1, false, true, half, half, DataFormat::NZ> einsum_1_t_fp16_nz;      // swizzleDir[1] transA[0] transB[1] DtypeA[001] DtypeB[001] DtypeC[001] DataFormatA[0] DataFormatB[1]
-    PpMatmulEinSum<0, false, false, __bf16, __bf16, DataFormat::NZ> einsum_0_n_bf16_nz; // swizzleDir[0] transA[0] transB[0] DtypeA[010] DtypeB[010] DtypeC[010] DataFormatA[0] DataFormatB[1]
-    PpMatmulEinSum<1, false, false, __bf16, __bf16, DataFormat::NZ> einsum_1_n_bf16_nz; // swizzleDir[1] transA[0] transB[0] DtypeA[010] DtypeB[010] DtypeC[010] DataFormatA[0] DataFormatB[1]
-    PpMatmulEinSum<0, false, true, __bf16, __bf16, DataFormat::NZ> einsum_0_t_bf16_nz;  // swizzleDir[0] transA[0] transB[1] DtypeA[010] DtypeB[010] DtypeC[010] DataFormatA[0] DataFormatB[1]
-    PpMatmulEinSum<1, false, true, __bf16, __bf16, DataFormat::NZ> einsum_1_t_bf16_nz;  // swizzleDir[1] transA[0] transB[1] DtypeA[010] DtypeB[010] DtypeC[010] DataFormatA[0] DataFormatB[1]
+    PpMatmulEinSum<0, false, false, half, half, DataFormat::NZ>
+        einsum_0_n_fp16_nz;  // swizzleDir[0] transA[0] transB[0] DtypeA[001] DtypeB[001] DtypeC[001] DataFormatA[0]
+                             // DataFormatB[1]
+    PpMatmulEinSum<1, false, false, half, half, DataFormat::NZ>
+        einsum_1_n_fp16_nz;  // swizzleDir[1] transA[0] transB[0] DtypeA[001] DtypeB[001] DtypeC[001] DataFormatA[0]
+                             // DataFormatB[1]
+    PpMatmulEinSum<0, false, true, half, half, DataFormat::NZ>
+        einsum_0_t_fp16_nz;  // swizzleDir[0] transA[0] transB[1] DtypeA[001] DtypeB[001] DtypeC[001] DataFormatA[0]
+                             // DataFormatB[1]
+    PpMatmulEinSum<1, false, true, half, half, DataFormat::NZ>
+        einsum_1_t_fp16_nz;  // swizzleDir[1] transA[0] transB[1] DtypeA[001] DtypeB[001] DtypeC[001] DataFormatA[0]
+                             // DataFormatB[1]
+    PpMatmulEinSum<0, false, false, __bf16, __bf16, DataFormat::NZ>
+        einsum_0_n_bf16_nz;  // swizzleDir[0] transA[0] transB[0] DtypeA[010] DtypeB[010] DtypeC[010] DataFormatA[0]
+                             // DataFormatB[1]
+    PpMatmulEinSum<1, false, false, __bf16, __bf16, DataFormat::NZ>
+        einsum_1_n_bf16_nz;  // swizzleDir[1] transA[0] transB[0] DtypeA[010] DtypeB[010] DtypeC[010] DataFormatA[0]
+                             // DataFormatB[1]
+    PpMatmulEinSum<0, false, true, __bf16, __bf16, DataFormat::NZ>
+        einsum_0_t_bf16_nz;  // swizzleDir[0] transA[0] transB[1] DtypeA[010] DtypeB[010] DtypeC[010] DataFormatA[0]
+                             // DataFormatB[1]
+    PpMatmulEinSum<1, false, true, __bf16, __bf16, DataFormat::NZ>
+        einsum_1_t_bf16_nz;  // swizzleDir[1] transA[0] transB[1] DtypeA[010] DtypeB[010] DtypeC[010] DataFormatA[0]
+                             // DataFormatB[1]
 
     SetPadding<uint64_t>((uint64_t)0);
     SetNdpara(1, 0, 0);
@@ -714,7 +757,7 @@ extern "C" __global__ __aicore__ void batch_matmul_transpose(GM_ADDR gm_a,
             einsum_1_t_bf16_nd.Init(gm_a, gm_b, gm_c, gm_tiling_data);
             einsum_1_t_bf16_nd.Process();
             break;
-        
+
         case 0b00000100100101:
         case 0b01000100100101:
             einsum_0_n_fp16_nz.Init(gm_a, gm_b, gm_c, gm_tiling_data);
@@ -755,6 +798,7 @@ extern "C" __global__ __aicore__ void batch_matmul_transpose(GM_ADDR gm_a,
             einsum_1_t_bf16_nz.Init(gm_a, gm_b, gm_c, gm_tiling_data);
             einsum_1_t_bf16_nz.Process();
             break;
-        default: break;
+        default:
+            break;
     }
 }

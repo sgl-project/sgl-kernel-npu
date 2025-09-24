@@ -5,34 +5,24 @@
 namespace pp_matmul {
 struct MatMul {
     enum class MatMulType : uint32_t {
-        MATMUL_DEFAULT = 0,  // C = op(A) * op(B)
-        MATMUL_DEQUANT,      //
-        MATMUL_ACCUM_ATOMIC, // C += op(A) * op(B)
-        MATMUL_WITH_BIAS,    // C = op(A) * op(B) + Bias, where Bias is a vector.
+        MATMUL_DEFAULT = 0,   // C = op(A) * op(B)
+        MATMUL_DEQUANT,       //
+        MATMUL_ACCUM_ATOMIC,  // C += op(A) * op(B)
+        MATMUL_WITH_BIAS,     // C = op(A) * op(B) + Bias, where Bias is a vector.
         MATMUL_EIN_SUM
     };
-    enum class QuantMode : uint32_t {
-        PER_CHANNEL_SYMM = 0,
-        PER_CHANNEL_ASYMM,
-        PER_TOKEN_SYMM
-    };
+    enum class QuantMode : uint32_t { PER_CHANNEL_SYMM = 0, PER_CHANNEL_ASYMM, PER_TOKEN_SYMM };
 };
 
-enum class TensorDType : uint32_t {
-    TENSOR_DTYPE_FLOAT16 = 0,
-    TENSOR_DTYPE_BF16
-};
+enum class TensorDType : uint32_t { TENSOR_DTYPE_FLOAT16 = 0, TENSOR_DTYPE_BF16 };
 
-enum class TensorFormat : uint32_t {
-    TENSOR_FORMAT_ND = 0,
-    TENSOR_FORMAT_NZ
-};
+enum class TensorFormat : uint32_t { TENSOR_FORMAT_ND = 0, TENSOR_FORMAT_NZ };
 
 struct MatMulInfo {
     uint32_t batchSize{0};
-    uint32_t m{0}; // actual input m
-    uint32_t k{0}; // actual input k
-    uint32_t n{0}; // actual input n
+    uint32_t m{0};  // actual input m
+    uint32_t k{0};  // actual input k
+    uint32_t n{0};  // actual input n
     TensorDType dtypeA{TensorDType::TENSOR_DTYPE_FLOAT16};
     TensorDType dtypeB{TensorDType::TENSOR_DTYPE_FLOAT16};
     TensorDType dtypeC{TensorDType::TENSOR_DTYPE_FLOAT16};
@@ -40,10 +30,10 @@ struct MatMulInfo {
     TensorFormat formatB{TensorFormat::TENSOR_FORMAT_ND};
     TensorFormat formatC{TensorFormat::TENSOR_FORMAT_ND};
     MatMul::MatMulType mmType{MatMul::MatMulType::MATMUL_DEFAULT};
-    bool transA{0};   // false: 0, true: 1
-    bool transB{0};   // false: 0, true: 1
-    bool biasFlag{0}; // false: 0, true: 1
-    bool isInt8{0};   // 是否是 int8融合
+    bool transA{0};    // false: 0, true: 1
+    bool transB{0};    // false: 0, true: 1
+    bool biasFlag{0};  // false: 0, true: 1
+    bool isInt8{0};    // 是否是 int8融合
     float inDtype{0};
     float outDtype{0};
     MatMul::QuantMode quantMode{MatMul::QuantMode::PER_CHANNEL_SYMM};
@@ -95,6 +85,6 @@ struct PpMatmulTilingData {
 #pragma pack(pop)
 
 void GetPpMatmulTiling(const MatMulInfo &mmInfo, const HardwareInfo &hwInfo, uint32_t &blockDim,
-                        PpMatmulTilingData &tilingData);
-}
+                       PpMatmulTilingData &tilingData);
+}  // namespace pp_matmul
 #endif

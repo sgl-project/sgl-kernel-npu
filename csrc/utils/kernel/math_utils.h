@@ -10,6 +10,6 @@ __aicore__ __force_inline__ T RoundUp(const T &val)
     return (val + roundVal - 1) / roundVal * roundVal;
 }
 
-};
+};  // namespace device_utils
 
 #endif

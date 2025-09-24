@@ -12,7 +12,7 @@
 #ifndef UTILS_COMMON_H
 #define UTILS_COMMON_H
 
-namespace host_utils{
+namespace host_utils {
 
 constexpr uint32_t BLK_SIZE_ALIN_FOR_INT64 = 4;
 constexpr uint32_t BLK_SIZE_ALIN_FOR_INT32 = 8;
@@ -53,5 +53,5 @@ inline T RoundDown(const T val, const T align = 16)
     }
     return val / align * align;
 }
-}
+}  // namespace host_utils
 #endif  // UTILS_COMMON_H
