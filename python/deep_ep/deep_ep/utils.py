@@ -34,6 +34,7 @@ class EventOverlap:
 
 
 logger = logging.getLogger()
+torch.set_printoptions(profile="full")
 
 
 def get_simplify_tensor(arg):
