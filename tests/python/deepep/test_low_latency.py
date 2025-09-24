@@ -15,6 +15,7 @@ from utils import (
     calculate_avg_stats,
     hash_tensor,
     init_dist,
+    per_token_cast_back,
 )
 
 
@@ -62,19 +63,23 @@ def test(
     cumulative_local_expert_recv_stats = torch.zeros(
         (num_local_experts,), dtype=torch.int, device="npu"
     )
+    dispatch_use_fp8 = True
     packed_recv_x, packed_recv_count, handle, event, hook = buffer.low_latency_dispatch(
         x,
         topk_idx,
         num_tokens,
         num_experts,
-        use_fp8=False,
+        use_fp8=dispatch_use_fp8,
         round_scale=False,
         use_ue8m0=False,
         cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
         async_finish=not return_recv_hook,
         return_recv_hook=return_recv_hook,
     )
-    simulated_gemm_x = packed_recv_x.clone()
+    simulated_gemm_x = (
+        per_token_cast_back(*packed_recv_x) if dispatch_use_fp8 else packed_recv_x
+    )
+
     all_topk_idx = torch.empty(
         (num_ranks, num_tokens, num_topk), dtype=topk_idx.dtype, device="npu"
     )
@@ -83,8 +88,15 @@ def test(
     for i in range(num_local_experts if do_check else 0):
         expert_id = rank * num_local_experts + i
         temp = num_tokens / num_local_experts
-        recv_x = packed_recv_x[i : int((i + 1) * temp)]
         recv_count = packed_recv_count[i]
+        recv_x = (
+            per_token_cast_back(
+                packed_recv_x[0][int(i * temp) : int((i + 1) * temp)],
+                packed_recv_x[1][int(i * temp) : int((i + 1) * temp)],
+            )
+            if dispatch_use_fp8
+            else packed_recv_x[int(i * temp) : int((i + 1) * temp)]
+        )
         if i == 0:
             recv_layout_range = handle[1][(i + 1) * num_ranks - 1]
         else:
@@ -108,7 +120,17 @@ def test(
         recv_x = recv_x[:num_valid_tokens]
         recv_x_amin = recv_x[:, :-128].amin(dim=-1)
         assert torch.equal(recv_x_amin, recv_x[:, :-128].amax(dim=-1))
-        hash_value ^= hash_tensor(packed_recv_x[i, :num_valid_tokens])
+        if dispatch_use_fp8:
+            hash_value ^= hash_tensor(
+                packed_recv_x[0][int(i * temp) : int(i * temp + num_valid_tokens)]
+            )
+            hash_value ^= hash_tensor(
+                packed_recv_x[1][int(i * temp) : int(i * temp + num_valid_tokens)]
+            )
+        else:
+            hash_value ^= hash_tensor(
+                packed_recv_x[int(i * temp) : int(i * temp + num_valid_tokens)]
+            )
 
     # Check combine correctness
     out = torch.empty((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
@@ -140,12 +162,12 @@ def test(
             num_tokens,
             num_experts,
             cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
-            use_fp8=False,
+            use_fp8=dispatch_use_fp8,
             async_finish=False,
             return_recv_hook=return_recv_hook,
         )
         combined_x, event, hook = buffer.low_latency_combine(
-            recv_x,
+            simulated_gemm_x,
             topk_idx,
             topk_weights,
             handle,
