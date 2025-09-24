@@ -38,9 +38,9 @@ logger = logging.getLogger()
 
 def get_simplify_tensor(arg):
     if type(arg) in (tuple, list):
-        return ', '.join([get_simplify_tensor(a) for a in arg])
+        return ", ".join([get_simplify_tensor(a) for a in arg])
     elif isinstance(arg, torch.Tensor):
-        return str((v.dtype, v.shape))
+        return str((arg.dtype, arg.shape))
     return str(arg)
 
 
