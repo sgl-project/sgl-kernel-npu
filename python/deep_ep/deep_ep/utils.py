@@ -45,11 +45,19 @@ def get_simplify_tensor(arg):
     return str(arg)
 
 
-def log_parameters(input_name_simplify_tensor=None, output_idx_simplify_tensor=None):
-    if input_name_simplify_tensor is None:
-        input_name_simplify_tensor = []
-    if output_idx_simplify_tensor is None:
-        output_idx_simplify_tensor = []
+def log_parameters(input_name_full_tensor=None, output_idx_full_tensor=None):
+    """
+    A decorator for printing the input and output of functions.
+    By default, tensors print dtype and shape.
+
+    Arguments:
+        input_name_full_tensor: input names of tensors that need to be fully printed.
+        output_idx_full_tensor: ouput indexs of the tensor that needs to be fully printed.
+    """
+    if input_name_full_tensor is None:
+        input_name_full_tensor = []
+    if output_idx_full_tensor is None:
+        output_idx_full_tensor = []
 
     def log_parameters_decorator(func):
         @functools.wraps(func)
@@ -66,7 +74,7 @@ def log_parameters(input_name_simplify_tensor=None, output_idx_simplify_tensor=N
 
                 param_str = "\n".join(
                     [
-                        f"{k}: {get_simplify_tensor(v) if k in input_name_simplify_tensor else v}"
+                        f"{k}: {v if k in input_name_full_tensor else get_simplify_tensor(v)}"
                         for k, v in bound_args.arguments.items()
                         if k not in ("self", "cls")
                     ]
@@ -82,16 +90,16 @@ def log_parameters(input_name_simplify_tensor=None, output_idx_simplify_tensor=N
                 if isinstance(result, tuple):
                     result_str_list = []
                     for idx, v in enumerate(result):
-                        if idx in output_idx_simplify_tensor:
-                            result_str_list.append(get_simplify_tensor(v))
-                        else:
+                        if idx in output_idx_full_tensor:
                             result_str_list.append(str(v))
+                        else:
+                            result_str_list.append(get_simplify_tensor(v))
                     result_str = "\n".join(result_str_list)
                 else:
-                    if 0 in output_idx_simplify_tensor:
-                        result_str = get_simplify_tensor(result)
-                    else:
+                    if 0 in output_idx_full_tensor:
                         result_str = str(result)
+                    else:
+                        result_str = get_simplify_tensor(result)
 
                 logger.debug(
                     "[rank %s]" % rank_info
