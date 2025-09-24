@@ -35,41 +35,54 @@ class EventOverlap:
 
 logger = logging.getLogger()
 
+def log_parameters(input_name_simplify_tensor=None, output_idx_simplify_tensor=None):
+    if input_name_simplify_tensor is None:
+        input_name_simplify_tensor = []
+    if output_idx_simplify_tensor is None:
+        output_idx_simplify_tensor = []
+    def log_parameters_decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            rank_info = "unknown"
+            if logger.isEnabledFor(logging.DEBUG):
+                sig = inspect.signature(func)
+                bound_args = sig.bind(*args, **kwargs)
+                bound_args.apply_defaults()
 
-def log_parameters(func):
-    @functools.wraps(func)
-    def wrapper(*args, **kwargs):
-        rank_info = "unknown"
-        if logger.isEnabledFor(logging.DEBUG):
-            sig = inspect.signature(func)
-            bound_args = sig.bind(*args, **kwargs)
-            bound_args.apply_defaults()
+                self_instance = bound_args.arguments.get("self")
+                if self_instance is not None and hasattr(self_instance, "rank"):
+                    rank_info = str(self_instance.rank)
 
-            self_instance = bound_args.arguments.get("self")
-            if self_instance is not None and hasattr(self_instance, "rank"):
-                rank_info = str(self_instance.rank)
+                param_str = "\n".join(
+                    [
+                        f"{k}: {(v.dtype, v.shape) if k in input_name_simplify_tensor else v}"
+                        for k, v in bound_args.arguments.items()
+                        if k not in ("self", "cls")
+                    ]
+                )
+                logger.debug(
+                    "[rank %s]" % rank_info
+                    + f"Calling {func.__name__} with parameters:\n{param_str}"
+                )
 
-            param_str = "\n".join(
-                [
-                    f"{k}: {v}"
-                    for k, v in bound_args.arguments.items()
-                    if k not in ("self", "cls")
-                ]
-            )
-            logger.debug(
-                "[rank %s]" % rank_info
-                + f"Calling {func.__name__} with parameters:\n{param_str}"
-            )
+            result = func(*args, **kwargs)
 
-        result = func(*args, **kwargs)
+            if logger.isEnabledFor(logging.DEBUG):
+                if isinstance(result, tuple):
+                    result_str_list = []
+                    for idx, v in enumerate(result):
+                        if idx in output_idx_simplify_tensor:
+                            result_str_list.append(str((v.dtype, v.shape)))
+                        else:
+                            result_str_list.append(str(value))
+                    result_str = '\n'.join(result_str_list)
 
-        if logger.isEnabledFor(logging.DEBUG):
-            result_str = str(result)
-            logger.debug(
-                "[rank %s]" % rank_info
-                + f"Function {func.__name__} returned:\n{result_str}"
-            )
+                logger.debug(
+                    "[rank %s]" % rank_info
+                    + f"Function {func.__name__} returned:\n{result_str}\n{func.__name__} returned value finish."
+                )
 
-        return result
+            return result
 
-    return wrapper
+        return wrapper
+    return log_parameters_decorator
