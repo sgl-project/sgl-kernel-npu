@@ -35,11 +35,21 @@ class EventOverlap:
 
 logger = logging.getLogger()
 
+
+def get_simplify_tensor(arg):
+    if type(arg) in (tuple, list):
+        return ', '.join([get_simplify_tensor(a) for a in arg])
+    elif isinstance(arg, torch.Tensor):
+        return str((v.dtype, v.shape))
+    return str(arg)
+
+
 def log_parameters(input_name_simplify_tensor=None, output_idx_simplify_tensor=None):
     if input_name_simplify_tensor is None:
         input_name_simplify_tensor = []
     if output_idx_simplify_tensor is None:
         output_idx_simplify_tensor = []
+
     def log_parameters_decorator(func):
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -55,7 +65,7 @@ def log_parameters(input_name_simplify_tensor=None, output_idx_simplify_tensor=N
 
                 param_str = "\n".join(
                     [
-                        f"{k}: {(v.dtype, v.shape) if k in input_name_simplify_tensor else v}"
+                        f"{k}: {get_simplify_tensor(v) if k in input_name_simplify_tensor else v}"
                         for k, v in bound_args.arguments.items()
                         if k not in ("self", "cls")
                     ]
@@ -72,10 +82,15 @@ def log_parameters(input_name_simplify_tensor=None, output_idx_simplify_tensor=N
                     result_str_list = []
                     for idx, v in enumerate(result):
                         if idx in output_idx_simplify_tensor:
-                            result_str_list.append(str((v.dtype, v.shape)))
+                            result_str_list.append(get_simplify_tensor(v))
                         else:
-                            result_str_list.append(str(value))
-                    result_str = '\n'.join(result_str_list)
+                            result_str_list.append(str(v))
+                    result_str = "\n".join(result_str_list)
+                else:
+                    if 0 in output_idx_simplify_tensor:
+                        result_str = get_simplify_tensor(result)
+                    else:
+                        result_str = str(result)
 
                 logger.debug(
                     "[rank %s]" % rank_info
@@ -85,4 +100,5 @@ def log_parameters(input_name_simplify_tensor=None, output_idx_simplify_tensor=N
             return result
 
         return wrapper
+
     return log_parameters_decorator

@@ -218,7 +218,7 @@ class Buffer:
         )
 
     # noinspection PyTypeChecker
-    @log_parameters(['x'], [0])
+    @log_parameters(["x"], [0])
     def dispatch(
         self,
         x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
@@ -354,7 +354,7 @@ class Buffer:
 
         # noinspection PyTypeChecker
 
-    @log_parameters(['x'], [0])
+    @log_parameters(["x"], [0])
     def combine(
         self,
         x: torch.Tensor,
@@ -406,7 +406,7 @@ class Buffer:
         return recv_x, recv_topk_weights, EventOverlap(event)
 
     # noinspection PyTypeChecker
-    @log_parameters(['x'], [0])
+    @log_parameters(["x"], [0])
     def low_latency_dispatch(
         self,
         x: torch.Tensor,
@@ -509,7 +509,7 @@ class Buffer:
             hook,
         )
 
-    @log_parameters(['x'], [0])
+    @log_parameters(["x"], [0])
     def low_latency_combine(
         self,
         x: torch.Tensor,
