@@ -289,9 +289,7 @@ class Buffer:
         if isinstance(x, tuple):
             raise NotImplementedError("Not support fp8")
         x_scales = None
-        use_quant = False
-        if os.getenv('DEEP_NORMAL_MODE_USE_INT8_QUANT') == '1':
-            use_quant = True
+        use_quant = os.getenv('DEEP_NORMAL_MODE_USE_INT8_QUANT') == '1'
 
         if handle is not None:
             raise NotImplementedError(
