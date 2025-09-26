@@ -16,39 +16,39 @@
 namespace Act::Arch {
 
 struct AtlasA2 {
-  static constexpr uint32_t BIAS_SIZE = 1024;
-  static constexpr uint32_t FIXBUF_SIZE = 7 * 1024;
-  static constexpr uint32_t UB_SIZE = 192 * 1024;
-  static constexpr uint32_t L1_SIZE = 512 * 1024;
-  static constexpr uint32_t L0A_SIZE = 64 * 1024;
-  static constexpr uint32_t L0B_SIZE = 64 * 1024;
-  static constexpr uint32_t L0C_SIZE = 128 * 1024;
+    static constexpr uint32_t BIAS_SIZE = 1024;
+    static constexpr uint32_t FIXBUF_SIZE = 7 * 1024;
+    static constexpr uint32_t UB_SIZE = 192 * 1024;
+    static constexpr uint32_t L1_SIZE = 512 * 1024;
+    static constexpr uint32_t L0A_SIZE = 64 * 1024;
+    static constexpr uint32_t L0B_SIZE = 64 * 1024;
+    static constexpr uint32_t L0C_SIZE = 128 * 1024;
 };
 
 struct PositionGM {
-  static constexpr AscendC::TPosition POSITION = AscendC::TPosition::GM;
+    static constexpr AscendC::TPosition POSITION = AscendC::TPosition::GM;
 };
 
 struct PositionL1 {
-  static constexpr AscendC::TPosition POSITION = AscendC::TPosition::A1;
+    static constexpr AscendC::TPosition POSITION = AscendC::TPosition::A1;
 };
 
 struct PositionL0A {
-  static constexpr AscendC::TPosition POSITION = AscendC::TPosition::A2;
+    static constexpr AscendC::TPosition POSITION = AscendC::TPosition::A2;
 };
 
 struct PositionL0B {
-  static constexpr AscendC::TPosition POSITION = AscendC::TPosition::B2;
+    static constexpr AscendC::TPosition POSITION = AscendC::TPosition::B2;
 };
 
 struct PositionL0C {
-  static constexpr AscendC::TPosition POSITION = AscendC::TPosition::CO1;
+    static constexpr AscendC::TPosition POSITION = AscendC::TPosition::CO1;
 };
 
 struct PositionUB {
-  static constexpr AscendC::TPosition POSITION = AscendC::TPosition::VECCALC;
+    static constexpr AscendC::TPosition POSITION = AscendC::TPosition::VECCALC;
 };
 
-} // namespace Act::Arch
+}  // namespace Act::Arch
 
-#endif // ACT_ARCH_ARCH_HPP
+#endif  // ACT_ARCH_ARCH_HPP

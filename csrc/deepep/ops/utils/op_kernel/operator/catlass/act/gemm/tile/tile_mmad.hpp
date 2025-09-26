@@ -29,37 +29,35 @@ template <
     /// GemmType type for Bias operand
     class BiasType_>
 struct TileMmad {
-  using ElementA = typename AType_::Element;
-  using ElementB = typename BType_::Element;
-  using ElementAccumulator = typename Gemm::helper::ElementAccumulatorSelector<
-      ElementA, ElementB>::ElementAccumulator;
+    using ElementA = typename AType_::Element;
+    using ElementB = typename BType_::Element;
+    using ElementAccumulator =
+        typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
 
-  // Methods
+    // Methods
 
-  ACT_DEVICE
-  TileMmad() {}
+    ACT_DEVICE
+    TileMmad() {}
 
-  ACT_DEVICE
-  void operator()(AscendC::LocalTensor<ElementAccumulator> const &l0CTensor,
-                  AscendC::LocalTensor<ElementA> const &l0ATensor,
-                  AscendC::LocalTensor<ElementB> const &l0BTensor, uint32_t m,
-                  uint32_t n, uint32_t k, bool initC = true,
-                  uint8_t unitFlag = 0) {
-    AscendC::MmadParams mmadParams;
-    mmadParams.m = m;
-    mmadParams.n = n;
-    mmadParams.k = k;
-    mmadParams.unitFlag = unitFlag;
-    mmadParams.cmatrixInitVal = initC;
+    ACT_DEVICE
+    void operator()(AscendC::LocalTensor<ElementAccumulator> const &l0CTensor,
+                    AscendC::LocalTensor<ElementA> const &l0ATensor, AscendC::LocalTensor<ElementB> const &l0BTensor,
+                    uint32_t m, uint32_t n, uint32_t k, bool initC = true, uint8_t unitFlag = 0)
+    {
+        AscendC::MmadParams mmadParams;
+        mmadParams.m = m;
+        mmadParams.n = n;
+        mmadParams.k = k;
+        mmadParams.unitFlag = unitFlag;
+        mmadParams.cmatrixInitVal = initC;
 
-    AscendC::Mmad(l0CTensor, l0ATensor, l0BTensor, mmadParams);
+        AscendC::Mmad(l0CTensor, l0ATensor, l0BTensor, mmadParams);
 
-    const uint32_t PIPE_M_BARRIER_THRESHOLD = 10;
-    if ((m / C0_NUM_PER_FRACTAL) * (n / C0_NUM_PER_FRACTAL) <
-        PIPE_M_BARRIER_THRESHOLD) {
-      AscendC::PipeBarrier<PIPE_M>();
+        const uint32_t PIPE_M_BARRIER_THRESHOLD = 10;
+        if ((m / C0_NUM_PER_FRACTAL) * (n / C0_NUM_PER_FRACTAL) < PIPE_M_BARRIER_THRESHOLD) {
+            AscendC::PipeBarrier<PIPE_M>();
+        }
     }
-  }
 };
 
 ///////////////////////////////////////////TileMmadTla/////////////////////////////////////////////////
@@ -76,39 +74,37 @@ template <
     /// Tensor type for Bias operand
     class TensorBias = void>
 struct TileMmadTla {
-  // Methods
+    // Methods
 
-  ACT_DEVICE
-  TileMmadTla() {}
+    ACT_DEVICE
+    TileMmadTla() {}
 
-  ACT_DEVICE
-  void operator()(TensorC const &l0CTensor, TensorA const &l0ATensor,
-                  TensorB const &l0BTensor, bool initC = true,
-                  uint8_t unitFlag = 0) {
-    const uint32_t m = get<0>(l0ATensor.orgShape());
-    const uint32_t n = get<1>(l0BTensor.orgShape());
-    const uint32_t k = get<1>(l0ATensor.orgShape());
+    ACT_DEVICE
+    void operator()(TensorC const &l0CTensor, TensorA const &l0ATensor, TensorB const &l0BTensor, bool initC = true,
+                    uint8_t unitFlag = 0)
+    {
+        const uint32_t m = get<0>(l0ATensor.orgShape());
+        const uint32_t n = get<1>(l0BTensor.orgShape());
+        const uint32_t k = get<1>(l0ATensor.orgShape());
 
-    AscendC::MmadParams mmadParams;
-    mmadParams.m = m;
-    mmadParams.n = n;
-    mmadParams.k = k;
-    mmadParams.unitFlag = unitFlag;
-    mmadParams.cmatrixInitVal = initC;
+        AscendC::MmadParams mmadParams;
+        mmadParams.m = m;
+        mmadParams.n = n;
+        mmadParams.k = k;
+        mmadParams.unitFlag = unitFlag;
+        mmadParams.cmatrixInitVal = initC;
 
-    AscendC::Mmad(l0CTensor.data(), l0ATensor.data(), l0BTensor.data(),
-                  mmadParams);
+        AscendC::Mmad(l0CTensor.data(), l0ATensor.data(), l0BTensor.data(), mmadParams);
 
-    const uint32_t PIPE_M_BARRIER_THRESHOLD = 10;
-    if ((m / C0_NUM_PER_FRACTAL) * (n / C0_NUM_PER_FRACTAL) <
-        PIPE_M_BARRIER_THRESHOLD) {
-      AscendC::PipeBarrier<PIPE_M>();
+        const uint32_t PIPE_M_BARRIER_THRESHOLD = 10;
+        if ((m / C0_NUM_PER_FRACTAL) * (n / C0_NUM_PER_FRACTAL) < PIPE_M_BARRIER_THRESHOLD) {
+            AscendC::PipeBarrier<PIPE_M>();
+        }
     }
-  }
 };
 
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-} // namespace Act::Gemm::Tile
+}  // namespace Act::Gemm::Tile
 
-#endif // ACT_GEMM_TILE_TILE_MMAD_HPP
+#endif  // ACT_GEMM_TILE_TILE_MMAD_HPP

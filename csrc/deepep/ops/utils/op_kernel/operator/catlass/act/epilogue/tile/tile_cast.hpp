@@ -25,21 +25,21 @@ template <
     /// Length of the compute buffer
     class TileShape_>
 struct TileCast {
-  using ArchTag = ArchTag_;
-  using ElementDst = typename DstType_::Element;
-  using ElementSrc = typename SrcType_::Element;
-  using TileShape = TileShape_;
+    using ArchTag = ArchTag_;
+    using ElementDst = typename DstType_::Element;
+    using ElementSrc = typename SrcType_::Element;
+    using TileShape = TileShape_;
 
-  ACT_DEVICE
-  TileCast() {}
+    ACT_DEVICE
+    TileCast() {}
 
-  ACT_DEVICE
-  void operator()(AscendC::LocalTensor<ElementDst> const &ubOut,
-                  AscendC::LocalTensor<ElementSrc> const &ubIn) {
-    AscendC::Cast(ubOut, ubIn, AscendC::RoundMode::CAST_RINT, TileShape::COUNT);
-  }
+    ACT_DEVICE
+    void operator()(AscendC::LocalTensor<ElementDst> const &ubOut, AscendC::LocalTensor<ElementSrc> const &ubIn)
+    {
+        AscendC::Cast(ubOut, ubIn, AscendC::RoundMode::CAST_RINT, TileShape::COUNT);
+    }
 };
 
-} // namespace Act::Epilogue::Tile
+}  // namespace Act::Epilogue::Tile
 
 #endif
