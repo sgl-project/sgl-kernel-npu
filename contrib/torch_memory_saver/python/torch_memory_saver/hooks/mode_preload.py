@@ -2,6 +2,7 @@ import logging
 import os
 from contextlib import contextmanager
 
+import torch
 from torch_memory_saver.hooks.base import HookUtilBase
 from torch_memory_saver.utils import get_binary_path_from_package
 
@@ -23,11 +24,17 @@ class HookUtilModePreload(HookUtilBase):
 @contextmanager
 def configure_subprocess():
     """Configure environment variables for subprocesses. Only needed for hook_mode=preload."""
-    with _change_env(
-        "LD_PRELOAD",
-        str(get_binary_path_from_package("torch_memory_saver_hook_mode_preload")),
-    ):
+    # Currently, torch_memory_saver does not support preload for npu, therefore LD_PRELOAD interception is not implemented.
+    if hasattr(torch, "npu") and torch.npu.is_available():
         yield
+        return
+
+    else:
+        with _change_env(
+            "LD_PRELOAD",
+            str(get_binary_path_from_package("torch_memory_saver_hook_mode_preload")),
+        ):
+            yield
 
 
 @contextmanager
