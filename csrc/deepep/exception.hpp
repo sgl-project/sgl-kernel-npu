@@ -48,3 +48,14 @@ public:
             throw deep_ep::EPException("HCCL Assertion", __FILE__, __LINE__, std::to_string(ret)); \
         }                                                                                          \
     } while (0)
+
+#ifdef DEBUG_MODE
+#define LOG_DEBUG(msg)                                \
+    do {                                              \
+        std::cout << "DEBUG: " << (msg) << std::endl; \
+    } while (0)
+#else
+#define LOG_DEBUG(msg) \
+    do {               \
+    } while (0)
+#endif
