@@ -8,18 +8,18 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 #pragma once
-#include "../../catlass/catlass/catlass.hpp"
-#include "../../catlass/catlass/arch/resource.hpp"
-#include "../../catlass/catlass/epilogue/dispatch_policy.hpp"
-#include "../../catlass/catlass/gemm_coord.hpp"
-#include "../../catlass/catlass/matrix_coord.hpp"
-#include "../../catlass/catlass/layout/layout.hpp"
-#include "../../catlass/catlass/detail/callback.hpp"
+#include "../../catlass/act/act.hpp"
+#include "../../catlass/act/arch/resource.hpp"
+#include "../../catlass/act/epilogue/dispatch_policy.hpp"
+#include "../../catlass/act/gemm_coord.hpp"
+#include "../../catlass/act/matrix_coord.hpp"
+#include "../../catlass/act/layout/layout.hpp"
+#include "../../catlass/act/detail/callback.hpp"
 
 #include "../../epilogue/tile/tile_stride_muls.h"
 #include "../../epilogue/tile/tile_stride_binary.h"
 
-namespace Catlass::Epilogue::Block {
+namespace Act::Epilogue::Block {
 
 template <uint32_t UB_STAGES_, uint32_t EXEC_FLAG_, class CType_, class LayoutScale_, class LayoutPerTokenScale_,
           class DType_, class TileRowBroadcastMul_, class TileBroadcastOneBlk_, class TileOneBlkColumnBroadcastMul_,
@@ -99,10 +99,10 @@ public:
         __gm__ ElementD *ptrD{nullptr};
         LayoutD layoutD{};
 
-        CATLASS_DEVICE
+        ACT_DEVICE
         Params() {};
 
-        CATLASS_DEVICE
+        ACT_DEVICE
         Params(__gm__ ElementScale *ptrScale_, LayoutScale const &layoutScale_,
                __gm__ ElementPerTokenScale *ptrPerTokenScale_, LayoutPerTokenScale const &layoutPerTokenScale_,
                __gm__ ElementD *ptrD_, LayoutD const &layoutD_)
@@ -115,7 +115,7 @@ public:
         {}
     };
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     BlockEpilogue(Arch::Resource<ArchTag> const &resource, Params const &params = Params{}) : params(params)
     {
         size_t ubOffset = 0;
@@ -154,7 +154,7 @@ public:
         ubTmpMxChunkN = resource.ubBuf.template GetBufferByByte<float>(ubOffset);
     }
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     ~BlockEpilogue()
     {
         for (uint32_t i = 0; i < UB_STAGES; ++i) {
@@ -165,13 +165,13 @@ public:
         }
     }
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void UpdateParams(Params const &params_)
     {
         params = params_;
     }
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void operator()(GemmCoord const &blockShapeMNK, GemmCoord const &blockCoordMNK,
                     GemmCoord const &actualBlockShapeMNK, AscendC::GlobalTensor<ElementC> const &gmBlockC,
                     LayoutC const &layoutBlockC, Callback &&callback = Callback{})
@@ -323,4 +323,4 @@ private:
     CopyUbToGmD copyUbToGmD;
 };
 
-}  // namespace Catlass::Epilogue::Block
+}  // namespace Act::Epilogue::Block
