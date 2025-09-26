@@ -17,82 +17,99 @@
 
 namespace Act {
 
-template <uint32_t ROW_ = 1, uint32_t COLUMN_ = 1> struct MatrixShape {
-  static constexpr uint32_t ROW = ROW_;
-  static constexpr uint32_t COLUMN = COLUMN_;
+template <uint32_t ROW_ = 1, uint32_t COLUMN_ = 1>
+struct MatrixShape {
+    static constexpr uint32_t ROW = ROW_;
+    static constexpr uint32_t COLUMN = COLUMN_;
 
-  static constexpr int64_t COUNT = ROW * COLUMN;
+    static constexpr int64_t COUNT = ROW * COLUMN;
 
-  ACT_HOST_DEVICE
-  static Coord<2> ToCoord() { return MakeCoord(ROW, COLUMN); }
+    ACT_HOST_DEVICE
+    static Coord<2> ToCoord()
+    {
+        return MakeCoord(ROW, COLUMN);
+    }
 };
 
 /// MatrixCoord wraps Coord<2, uint32_t> to provide a helper for accessing named
 /// dimensions. Classes expecting a coordinate in the rank=2 index space of a
 /// matrix should use MatrixCoord.
 struct MatrixCoord : public Coord<2, uint32_t> {
-  /// Integer-valued index
-  using Index = uint32_t;
+    /// Integer-valued index
+    using Index = uint32_t;
 
-  /// Base type is a Coord of rank=2
-  using Base = Coord<2, Index>;
+    /// Base type is a Coord of rank=2
+    using Base = Coord<2, Index>;
 
-  /// LongIndex type
-  using LongIndex = typename Base::LongIndex;
+    /// LongIndex type
+    using LongIndex = typename Base::LongIndex;
 
-  /// Rows dimension
-  static constexpr uint32_t ROW_INDEX = 0;
+    /// Rows dimension
+    static constexpr uint32_t ROW_INDEX = 0;
 
-  /// Columns dimension
-  static constexpr uint32_t COLUMN_INDEX = 1;
+    /// Columns dimension
+    static constexpr uint32_t COLUMN_INDEX = 1;
 
-  /// Default ctor
-  ACT_HOST_DEVICE
-  MatrixCoord() {}
+    /// Default ctor
+    ACT_HOST_DEVICE
+    MatrixCoord() {}
 
-  /// Constructs from Coord<2>
-  ACT_HOST_DEVICE
-  MatrixCoord(Coord<2, Index> const &coord) : Base(coord) {}
+    /// Constructs from Coord<2>
+    ACT_HOST_DEVICE
+    MatrixCoord(Coord<2, Index> const &coord) : Base(coord) {}
 
-  /// Helper to construct from a row and column
-  ACT_HOST_DEVICE
-  MatrixCoord(Index row, Index column) : Base(MakeCoord(row, column)) {}
+    /// Helper to construct from a row and column
+    ACT_HOST_DEVICE
+    MatrixCoord(Index row, Index column) : Base(MakeCoord(row, column)) {}
 
-  /// Helper to construct from a row and column, which are LongIndex based
-  ACT_HOST_DEVICE
-  MatrixCoord(LongIndex row, LongIndex column)
-      : Base(MakeCoord(Index(row), Index(column))) {}
+    /// Helper to construct from a row and column, which are LongIndex based
+    ACT_HOST_DEVICE
+    MatrixCoord(LongIndex row, LongIndex column) : Base(MakeCoord(Index(row), Index(column))) {}
 
-  /// Returns the row of the coordinate
-  ACT_HOST_DEVICE
-  Index const &row() const { return this->At(ROW_INDEX); }
+    /// Returns the row of the coordinate
+    ACT_HOST_DEVICE
+    Index const &row() const
+    {
+        return this->At(ROW_INDEX);
+    }
 
-  /// Returns the row of the coordinate
-  ACT_HOST_DEVICE
-  Index &row() { return this->At(ROW_INDEX); }
+    /// Returns the row of the coordinate
+    ACT_HOST_DEVICE
+    Index &row()
+    {
+        return this->At(ROW_INDEX);
+    }
 
-  /// Returns the column of the coordinate
-  ACT_HOST_DEVICE
-  Index const &column() const { return this->At(COLUMN_INDEX); }
+    /// Returns the column of the coordinate
+    ACT_HOST_DEVICE
+    Index const &column() const
+    {
+        return this->At(COLUMN_INDEX);
+    }
 
-  /// Returns the column of the coordinate
-  ACT_HOST_DEVICE
-  Index &column() { return this->At(COLUMN_INDEX); }
+    /// Returns the column of the coordinate
+    ACT_HOST_DEVICE
+    Index &column()
+    {
+        return this->At(COLUMN_INDEX);
+    }
 
-  /// Element-wise addition
-  ACT_HOST_DEVICE
-  MatrixCoord operator+(Base const &b) const {
-    return MatrixCoord(Base::operator+(b));
-  }
+    /// Element-wise addition
+    ACT_HOST_DEVICE
+    MatrixCoord operator+(Base const &b) const
+    {
+        return MatrixCoord(Base::operator+(b));
+    }
 
-  /// In-place addition
-  ACT_HOST_DEVICE
-  MatrixCoord &operator+=(Base const &b) {
-    Base::operator+=(b);
-    return *this;
-  }
+    /// In-place addition
+    ACT_HOST_DEVICE
+    MatrixCoord &operator+=(Base const &b)
+    {
+        Base::operator+=(b);
+        return *this;
+    }
 };
 
-} // namespace Act
+}  // namespace Act
 
 #endif

@@ -24,32 +24,40 @@
 /// it is necessary to ensure that it is used within the life cycle of the
 /// callable structure.
 struct Callback {
-  void const *func{nullptr};
-  void (*caller)(void const *){nullptr};
+    void const *func{nullptr};
+    void (*caller)(void const *){nullptr};
 
-  Callback() = default;
+    Callback() = default;
 
-  ACT_DEVICE
-  void operator()() const {
-    if (func) {
-      caller(func);
+    ACT_DEVICE
+    void operator()() const
+    {
+        if (func) {
+            caller(func);
+        }
     }
-  }
 
-  ACT_DEVICE
-  operator bool() const { return func != nullptr; }
+    ACT_DEVICE
+    operator bool() const
+    {
+        return func != nullptr;
+    }
 };
 
-template <typename Func> ACT_DEVICE static void FuncWrapper(void const *func) {
-  (*static_cast<Func const *>(func))();
+template <typename Func>
+ACT_DEVICE static void FuncWrapper(void const *func)
+{
+    (*static_cast<Func const *>(func))();
 }
 
 // Use this to make a callback
-template <typename Func> ACT_DEVICE Callback MakeCallback(Func *func) {
-  Callback callback;
-  callback.func = func;
-  callback.caller = &FuncWrapper<Func>;
-  return callback;
+template <typename Func>
+ACT_DEVICE Callback MakeCallback(Func *func)
+{
+    Callback callback;
+    callback.func = func;
+    callback.caller = &FuncWrapper<Func>;
+    return callback;
 }
 
-#endif // ACT_DETAIL_CALLBACK_HPP
+#endif  // ACT_DETAIL_CALLBACK_HPP

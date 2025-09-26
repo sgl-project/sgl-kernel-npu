@@ -22,8 +22,7 @@ template <
     /// Tag indicating architecture
     class ArchTag, class... Args>
 struct TileCopy {
-  static_assert(DEPENDENT_FALSE<ArchTag>,
-                "Unsupporteded tile copy, can not find the specialization.");
+    static_assert(DEPENDENT_FALSE<ArchTag>, "Unsupporteded tile copy, can not find the specialization.");
 };
 
 template <class ArchTag,
@@ -34,78 +33,72 @@ template <class ArchTag,
           /// GemmType for D matrix operand
           class DType>
 struct TileCopy<ArchTag, CType, XType, DType> {
-  using ElementC = typename CType::Element;
-  using ElementX = typename XType::Element;
-  using ElementD = typename DType::Element;
+    using ElementC = typename CType::Element;
+    using ElementX = typename XType::Element;
+    using ElementD = typename DType::Element;
 
-  using CopyGmToUbC = CopyGm2Ub<ArchTag, CType>;
-  using CopyGmToUbX = CopyGm2Ub<ArchTag, XType>;
-  using CopyUbToGmD = CopyUb2Gm<ArchTag, DType>;
-  using CopyGmToUbY = CopyGm2Ub<ArchTag, CType>;
-  using CopyGmToUbTemp = CopyGm2Ub<ArchTag, XType>;
-  using CopyUbToGmZ = CopyUb2Gm<ArchTag, DType>;
+    using CopyGmToUbC = CopyGm2Ub<ArchTag, CType>;
+    using CopyGmToUbX = CopyGm2Ub<ArchTag, XType>;
+    using CopyUbToGmD = CopyUb2Gm<ArchTag, DType>;
+    using CopyGmToUbY = CopyGm2Ub<ArchTag, CType>;
+    using CopyGmToUbTemp = CopyGm2Ub<ArchTag, XType>;
+    using CopyUbToGmZ = CopyUb2Gm<ArchTag, DType>;
 };
 
 template <class ArchTag, class CType, class XType, class YType, class DType>
 struct TileCopy<ArchTag, CType, XType, YType, DType> {
-  using ElementC = typename CType::Element;
-  using ElementX = typename XType::Element;
-  using ElementY = typename YType::Element;
-  using ElementD = typename DType::Element;
+    using ElementC = typename CType::Element;
+    using ElementX = typename XType::Element;
+    using ElementY = typename YType::Element;
+    using ElementD = typename DType::Element;
 
-  using CopyGmToUbC = CopyGm2Ub<ArchTag, CType>;
-  using CopyGmToUbX = CopyGm2Ub<ArchTag, XType>;
-  using CopyGmToUbY = CopyGm2Ub<ArchTag, YType>;
-  using CopyUbToGmD = CopyUb2Gm<ArchTag, DType>;
+    using CopyGmToUbC = CopyGm2Ub<ArchTag, CType>;
+    using CopyGmToUbX = CopyGm2Ub<ArchTag, XType>;
+    using CopyGmToUbY = CopyGm2Ub<ArchTag, YType>;
+    using CopyUbToGmD = CopyUb2Gm<ArchTag, DType>;
 };
 
 template <class ArchTag, class CType, class XType, class YType, class DType>
 struct TileCopyBf16 {
-  using ElementC = typename CType::Element;
-  using ElementX = bfloat16_t;
-  using ElementY = bfloat16_t;
-  using ElementD = bfloat16_t;
+    using ElementC = typename CType::Element;
+    using ElementX = bfloat16_t;
+    using ElementY = bfloat16_t;
+    using ElementD = bfloat16_t;
 
-  using CopyGmToUbC = CopyGm2Ub<ArchTag, CType>;
-  using CopyGmToUbX =
-      CopyGm2Ub<ArchTag, Gemm::GemmType<bfloat16_t, typename XType::Layout>>;
-  using CopyGmToUbY =
-      CopyGm2Ub<ArchTag, Gemm::GemmType<bfloat16_t, typename YType::Layout>>;
-  using CopyUbToGmD =
-      CopyUb2Gm<ArchTag, Gemm::GemmType<bfloat16_t, typename DType::Layout>>;
+    using CopyGmToUbC = CopyGm2Ub<ArchTag, CType>;
+    using CopyGmToUbX = CopyGm2Ub<ArchTag, Gemm::GemmType<bfloat16_t, typename XType::Layout>>;
+    using CopyGmToUbY = CopyGm2Ub<ArchTag, Gemm::GemmType<bfloat16_t, typename YType::Layout>>;
+    using CopyUbToGmD = CopyUb2Gm<ArchTag, Gemm::GemmType<bfloat16_t, typename DType::Layout>>;
 };
 
-template <class ArchTag, class CType, class ScaleType, class PerTokenScaleType,
-          class DType>
+template <class ArchTag, class CType, class ScaleType, class PerTokenScaleType, class DType>
 struct TileCopyPerTokenDequant {
-  using ElementC = typename CType::Element;
-  using ElementScale = typename ScaleType::Element;
-  using ElementPerTokenScale = typename PerTokenScaleType::Element;
-  using ElementD = typename DType::Element;
+    using ElementC = typename CType::Element;
+    using ElementScale = typename ScaleType::Element;
+    using ElementPerTokenScale = typename PerTokenScaleType::Element;
+    using ElementD = typename DType::Element;
 
-  using CopyGmToUbC = CopyGm2Ub<ArchTag, CType>;
-  using CopyGmToUbScale = CopyGm2Ub<ArchTag, ScaleType>;
-  using CopyGmToUbPerTokenScale =
-      CopyPerTokenScale2Ub<ArchTag, PerTokenScaleType>;
-  using CopyUbToGmD = CopyUb2Gm<ArchTag, DType>;
+    using CopyGmToUbC = CopyGm2Ub<ArchTag, CType>;
+    using CopyGmToUbScale = CopyGm2Ub<ArchTag, ScaleType>;
+    using CopyGmToUbPerTokenScale = CopyPerTokenScale2Ub<ArchTag, PerTokenScaleType>;
+    using CopyUbToGmD = CopyUb2Gm<ArchTag, DType>;
 };
 
-template <class ArchTag, class XType, class ScaleType, class PerTokenScaleType,
-          class BiasType, class CType>
+template <class ArchTag, class XType, class ScaleType, class PerTokenScaleType, class BiasType, class CType>
 struct TileCopyPerTokenDequantGemm {
-  using ElementX = typename XType::Element;
-  using ElementScale = typename ScaleType::Element;
-  using ElementPerTokenScale = typename PerTokenScaleType::Element;
-  using ElementBias = typename BiasType::Element;
-  using ElementC = typename CType::Element;
+    using ElementX = typename XType::Element;
+    using ElementScale = typename ScaleType::Element;
+    using ElementPerTokenScale = typename PerTokenScaleType::Element;
+    using ElementBias = typename BiasType::Element;
+    using ElementC = typename CType::Element;
 
-  using CopyGmToUbX = CopyGm2Ub<ArchTag, XType>;
-  using CopyGmToUbScale = CopyGm2Ub<ArchTag, ScaleType>;
-  using CopyGmToUbPerTokenScale = CopyGm2Ub<ArchTag, PerTokenScaleType>;
-  using CopyGmToUbBias = CopyGm2Ub<ArchTag, BiasType>;
-  using CopyUbToGmC = CopyUb2Gm<ArchTag, CType>;
+    using CopyGmToUbX = CopyGm2Ub<ArchTag, XType>;
+    using CopyGmToUbScale = CopyGm2Ub<ArchTag, ScaleType>;
+    using CopyGmToUbPerTokenScale = CopyGm2Ub<ArchTag, PerTokenScaleType>;
+    using CopyGmToUbBias = CopyGm2Ub<ArchTag, BiasType>;
+    using CopyUbToGmC = CopyUb2Gm<ArchTag, CType>;
 };
 
-} // namespace Act::Epilogue::Tile
+}  // namespace Act::Epilogue::Tile
 
-#endif // ACT_EPILOGUE_TILE_TILE_COPY_HPP
+#endif  // ACT_EPILOGUE_TILE_TILE_COPY_HPP

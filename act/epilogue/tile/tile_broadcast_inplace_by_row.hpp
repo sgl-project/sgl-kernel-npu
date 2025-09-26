@@ -25,34 +25,33 @@ template <
     /// Length of the compute buffer
     class TileShape_>
 struct TileBroadcastInplaceByRow {
-  using ArchTag = ArchTag_;
-  using ElementCompute = typename ComputeType_::Element;
-  using TileShape = TileShape_;
+    using ArchTag = ArchTag_;
+    using ElementCompute = typename ComputeType_::Element;
+    using TileShape = TileShape_;
 
-  ACT_DEVICE
-  TileBroadcastInplaceByRow() {}
+    ACT_DEVICE
+    TileBroadcastInplaceByRow() {}
 
-  ACT_DEVICE
-  void operator()(AscendC::LocalTensor<ElementCompute> const &ubInOut) {
-    constexpr uint32_t eleNumPerVectorFractal =
-        BYTE_PER_VECTOR_FRACTAL / sizeof(ElementCompute);
+    ACT_DEVICE
+    void operator()(AscendC::LocalTensor<ElementCompute> const &ubInOut)
+    {
+        constexpr uint32_t eleNumPerVectorFractal = BYTE_PER_VECTOR_FRACTAL / sizeof(ElementCompute);
 
-    constexpr uint64_t mask = eleNumPerVectorFractal;
-    constexpr uint8_t repeatTimes = TileShape::COLUMN / eleNumPerVectorFractal;
+        constexpr uint64_t mask = eleNumPerVectorFractal;
+        constexpr uint8_t repeatTimes = TileShape::COLUMN / eleNumPerVectorFractal;
 
-    AscendC::CopyRepeatParams repeatParams;
-    repeatParams.dstStride = 1;
-    repeatParams.srcStride = 1;
-    repeatParams.dstRepeatSize = BLK_NUM_PER_VECTOR_FRACTAL;
-    repeatParams.srcRepeatSize = BLK_NUM_PER_VECTOR_FRACTAL;
+        AscendC::CopyRepeatParams repeatParams;
+        repeatParams.dstStride = 1;
+        repeatParams.srcStride = 1;
+        repeatParams.dstRepeatSize = BLK_NUM_PER_VECTOR_FRACTAL;
+        repeatParams.srcRepeatSize = BLK_NUM_PER_VECTOR_FRACTAL;
 
-    for (uint32_t rowOffset = 1; rowOffset < TileShape::ROW; ++rowOffset) {
-      AscendC::Copy(ubInOut[rowOffset * TileShape::COLUMN], ubInOut, mask,
-                    repeatTimes, repeatParams);
+        for (uint32_t rowOffset = 1; rowOffset < TileShape::ROW; ++rowOffset) {
+            AscendC::Copy(ubInOut[rowOffset * TileShape::COLUMN], ubInOut, mask, repeatTimes, repeatParams);
+        }
     }
-  }
 };
 
-} // namespace Act::Epilogue::Tile
+}  // namespace Act::Epilogue::Tile
 
 #endif

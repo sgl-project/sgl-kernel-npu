@@ -17,4 +17,4 @@
 #include "../../act/layout/matrix.hpp"
 #include "../../act/layout/vector.hpp"
 
-#endif // ACT_LAYOUT_LAYOUT_HPP
+#endif  // ACT_LAYOUT_LAYOUT_HPP
