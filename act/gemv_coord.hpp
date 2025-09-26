@@ -24,66 +24,84 @@ template <
     /// Columns of the matrix (number of elements in the input vector)
     uint32_t N_ = 1>
 struct GemvShape {
-  static constexpr uint32_t M = M_;
-  static constexpr uint32_t N = N_;
+    static constexpr uint32_t M = M_;
+    static constexpr uint32_t N = N_;
 
-  static constexpr int64_t MN = M * N;
+    static constexpr int64_t MN = M * N;
 
-  static constexpr int64_t COUNT = MN;
+    static constexpr int64_t COUNT = MN;
 
-  /// Returns a Coord object
-  ACT_HOST_DEVICE
-  static Coord<2> ToCoord() { return MakeCoord(M, N); }
+    /// Returns a Coord object
+    ACT_HOST_DEVICE
+    static Coord<2> ToCoord()
+    {
+        return MakeCoord(M, N);
+    }
 };
 
 /// GemvCoord is a structure derived from Coord<2> that specifies a location
 /// within the coordinate space of a GEMV problem.
 struct GemvCoord : public Coord<2, uint32_t> {
-  /// Integer-valued index
-  using Index = uint32_t;
+    /// Integer-valued index
+    using Index = uint32_t;
 
-  /// Base type is a Coord of rank=2
-  using Base = Coord<2, Index>;
+    /// Base type is a Coord of rank=2
+    using Base = Coord<2, Index>;
 
-  /// GEMV M dimension - rows of the output vector (y)
-  static constexpr int M_INDEX = 0;
+    /// GEMV M dimension - rows of the output vector (y)
+    static constexpr int M_INDEX = 0;
 
-  /// GEMV N dimension - columns of the matrix (length of the input vector x)
-  static constexpr int N_INDEX = 1;
+    /// GEMV N dimension - columns of the matrix (length of the input vector x)
+    static constexpr int N_INDEX = 1;
 
-  /// Default ctor
-  ACT_HOST_DEVICE
-  GemvCoord() {}
+    /// Default ctor
+    ACT_HOST_DEVICE
+    GemvCoord() {}
 
-  /// Constructs from Coord<2> and a batch
-  ACT_HOST_DEVICE
-  GemvCoord(Coord<2, Index> const &coord) : Base(coord) {}
+    /// Constructs from Coord<2> and a batch
+    ACT_HOST_DEVICE
+    GemvCoord(Coord<2, Index> const &coord) : Base(coord) {}
 
-  /// Helper to construct from M, N coordinates
-  ACT_HOST_DEVICE
-  GemvCoord(Index m, Index n) : Base(MakeCoord(m, n)) {}
+    /// Helper to construct from M, N coordinates
+    ACT_HOST_DEVICE
+    GemvCoord(Index m, Index n) : Base(MakeCoord(m, n)) {}
 
-  /// Returns the GEMV M coordinate (row of the result y)
-  ACT_HOST_DEVICE
-  Index const &m() const { return this->At(M_INDEX); }
+    /// Returns the GEMV M coordinate (row of the result y)
+    ACT_HOST_DEVICE
+    Index const &m() const
+    {
+        return this->At(M_INDEX);
+    }
 
-  /// Returns reference to the GEMV M coordinate
-  ACT_HOST_DEVICE
-  Index &m() { return this->At(M_INDEX); }
+    /// Returns reference to the GEMV M coordinate
+    ACT_HOST_DEVICE
+    Index &m()
+    {
+        return this->At(M_INDEX);
+    }
 
-  /// Returns the GEMV N coordinate (column of the matrix A or the input vector
-  /// x)
-  ACT_HOST_DEVICE
-  Index const &n() const { return this->At(N_INDEX); }
+    /// Returns the GEMV N coordinate (column of the matrix A or the input vector
+    /// x)
+    ACT_HOST_DEVICE
+    Index const &n() const
+    {
+        return this->At(N_INDEX);
+    }
 
-  /// Returns reference to the GEMV N coordinate
-  ACT_HOST_DEVICE
-  Index &n() { return this->At(N_INDEX); }
+    /// Returns reference to the GEMV N coordinate
+    ACT_HOST_DEVICE
+    Index &n()
+    {
+        return this->At(N_INDEX);
+    }
 
-  ACT_HOST_DEVICE
-  auto GetCoordMN() const { return this->GetCoordByAxis<M_INDEX, N_INDEX>(); }
+    ACT_HOST_DEVICE
+    auto GetCoordMN() const
+    {
+        return this->GetCoordByAxis<M_INDEX, N_INDEX>();
+    }
 };
 
-} // namespace Act
+}  // namespace Act
 
-#endif // ACT_GEMV_COORD_HPP
+#endif  // ACT_GEMV_COORD_HPP

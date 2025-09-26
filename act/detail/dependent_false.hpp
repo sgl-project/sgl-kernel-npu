@@ -19,4 +19,4 @@ constexpr bool DEPENDENT_BOOL_VALUE = VALUE;
 template <class... Args>
 constexpr bool DEPENDENT_FALSE = DEPENDENT_BOOL_VALUE<false, Args...>;
 
-#endif // ACT_DETAIL_DEPENDENT_FALSE_HPP
+#endif  // ACT_DETAIL_DEPENDENT_FALSE_HPP

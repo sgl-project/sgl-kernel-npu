@@ -25,22 +25,23 @@ template <
     /// Length of the compute buffer
     class TileShape_>
 struct TileElemwiseMul {
-  using ArchTag = ArchTag_;
-  using ElementCompute = typename ComputeType_::Element;
-  using TileShape = TileShape_;
+    using ArchTag = ArchTag_;
+    using ElementCompute = typename ComputeType_::Element;
+    using TileShape = TileShape_;
 
-  ACT_DEVICE
-  TileElemwiseMul() {}
+    ACT_DEVICE
+    TileElemwiseMul() {}
 
-  ACT_DEVICE
-  void operator()(AscendC::LocalTensor<ElementCompute> const &ubOut,
-                  AscendC::LocalTensor<ElementCompute> const &ubIn0,
-                  AscendC::LocalTensor<ElementCompute> const &ubIn1) {
-    // Do the calculation
-    AscendC::Mul(ubOut, ubIn0, ubIn1, TileShape::COUNT);
-  }
+    ACT_DEVICE
+    void operator()(AscendC::LocalTensor<ElementCompute> const &ubOut,
+                    AscendC::LocalTensor<ElementCompute> const &ubIn0,
+                    AscendC::LocalTensor<ElementCompute> const &ubIn1)
+    {
+        // Do the calculation
+        AscendC::Mul(ubOut, ubIn0, ubIn1, TileShape::COUNT);
+    }
 };
 
-} // namespace Act::Epilogue::Tile
+}  // namespace Act::Epilogue::Tile
 
 #endif

@@ -18,254 +18,294 @@
 namespace Act {
 
 /// Statically-sized array specifying Coords within a tensor
-template <int RANK_,               ///< Logical rank of coordinate
-          class Index_ = uint32_t, ///< Index type used for each dimension
-          class LongIndex_ =
-              int64_t ///< Long index type used for linear offsets
+template <int RANK_,                  ///< Logical rank of coordinate
+          class Index_ = uint32_t,    ///< Index type used for each dimension
+          class LongIndex_ = int64_t  ///< Long index type used for linear offsets
           >
 struct Coord {
 public:
-  // Number of elements in Coord
-  static const int RANK = RANK_;
+    // Number of elements in Coord
+    static const int RANK = RANK_;
 
-  // Index typen used to store elements
-  using Index = Index_;
+    // Index typen used to store elements
+    using Index = Index_;
 
-  // Type used to represent linear offsets
-  using LongIndex = LongIndex_;
+    // Type used to represent linear offsets
+    using LongIndex = LongIndex_;
 
-  // Default ctor initializes uniformly
-  ACT_HOST_DEVICE constexpr explicit Coord(Index value = Index(0)) {
-    for (int i = 0; i < RANK; ++i) {
-      idx[i] = value;
+    // Default ctor initializes uniformly
+    ACT_HOST_DEVICE constexpr explicit Coord(Index value = Index(0))
+    {
+        for (int i = 0; i < RANK; ++i) {
+            idx[i] = value;
+        }
     }
-  }
 
-  // Constructs from an array of integers
-  ACT_HOST_DEVICE constexpr Coord(Index const (&idx_)[RANK]) {
-    for (int i = 0; i < RANK; ++i) {
-      idx[i] = idx_[i];
+    // Constructs from an array of integers
+    ACT_HOST_DEVICE constexpr Coord(Index const (&idx_)[RANK])
+    {
+        for (int i = 0; i < RANK; ++i) {
+            idx[i] = idx_[i];
+        }
     }
-  }
 
-  // Constructs from an array of integers
-  ACT_HOST_DEVICE
-  int Argmin() const {
-    int i = 0;
-    for (int j = 1; j < RANK; ++j) {
-      if (idx[j] < idx[i]) {
-        i = j;
-      }
+    // Constructs from an array of integers
+    ACT_HOST_DEVICE
+    int Argmin() const
+    {
+        int i = 0;
+        for (int j = 1; j < RANK; ++j) {
+            if (idx[j] < idx[i]) {
+                i = j;
+            }
+        }
+        return i;
     }
-    return i;
-  }
 
-  // Returns the index of the dimension with greatest value
-  ACT_HOST_DEVICE
-  int Argmax() const {
-    int i = 0;
-    for (int j = 1; j < RANK; ++j) {
-      if (idx[j] > idx[i]) {
-        i = j;
-      }
+    // Returns the index of the dimension with greatest value
+    ACT_HOST_DEVICE
+    int Argmax() const
+    {
+        int i = 0;
+        for (int j = 1; j < RANK; ++j) {
+            if (idx[j] > idx[i]) {
+                i = j;
+            }
+        }
+        return i;
     }
-    return i;
-  }
 
-  // Returns true if Coord is non-zero
-  ACT_HOST_DEVICE
-  explicit operator bool() const {
-    for (int i = 0; i < RANK; ++i) {
-      if (idx[i]) {
+    // Returns true if Coord is non-zero
+    ACT_HOST_DEVICE
+    explicit operator bool() const
+    {
+        for (int i = 0; i < RANK; ++i) {
+            if (idx[i]) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Return true if Coord is uniformly zero.
+    ACT_HOST_DEVICE
+    bool operator!() const
+    {
+        for (int i = 0; i < RANK; ++i) {
+            if (idx[i]) {
+                return false;
+            }
+        }
         return true;
-      }
     }
-    return false;
-  }
 
-  // Return true if Coord is uniformly zero.
-  ACT_HOST_DEVICE
-  bool operator!() const {
-    for (int i = 0; i < RANK; ++i) {
-      if (idx[i]) {
-        return false;
-      }
+    // Element-wise addition
+    ACT_HOST_DEVICE
+    Coord operator+(Coord const &b) const
+    {
+        Coord c;
+        for (int i = 0; i < RANK; ++i) {
+            c.idx[i] = idx[i] + b.idx[i];
+        }
+        return c;
     }
-    return true;
-  }
 
-  // Element-wise addition
-  ACT_HOST_DEVICE
-  Coord operator+(Coord const &b) const {
-    Coord c;
-    for (int i = 0; i < RANK; ++i) {
-      c.idx[i] = idx[i] + b.idx[i];
+    // Add a scalar to each element
+    ACT_HOST_DEVICE
+    Coord operator+(const Index val) const
+    {
+        Coord c;
+        for (int i = 0; i < RANK; ++i) {
+            c.idx[i] = idx[i] + val;
+        }
+        return c;
     }
-    return c;
-  }
 
-  // Add a scalar to each element
-  ACT_HOST_DEVICE
-  Coord operator+(const Index val) const {
-    Coord c;
-    for (int i = 0; i < RANK; ++i) {
-      c.idx[i] = idx[i] + val;
+    // Element-wise subtraction
+    ACT_HOST_DEVICE
+    Coord operator-(Coord const &b) const
+    {
+        Coord c;
+        for (int i = 0; i < RANK; i++) {
+            c.idx[i] = idx[i] - b.idx[i];
+        }
+        return c;
     }
-    return c;
-  }
 
-  // Element-wise subtraction
-  ACT_HOST_DEVICE
-  Coord operator-(Coord const &b) const {
-    Coord c;
-    for (int i = 0; i < RANK; i++) {
-      c.idx[i] = idx[i] - b.idx[i];
+    // Subtract a scalar from each element
+    ACT_HOST_DEVICE
+    Coord operator-(Index const val) const
+    {
+        Coord c;
+        for (int i = 0; i < RANK; ++i) {
+            c.idx[i] = idx[i] - val;
+        }
+        return c;
     }
-    return c;
-  }
 
-  // Subtract a scalar from each element
-  ACT_HOST_DEVICE
-  Coord operator-(Index const val) const {
-    Coord c;
-    for (int i = 0; i < RANK; ++i) {
-      c.idx[i] = idx[i] - val;
+    // Element-wise multiply
+    ACT_HOST_DEVICE
+    Coord operator*(Coord const &b) const
+    {
+        Coord c;
+        for (int i = 0; i < RANK; i++) {
+            c.idx[i] = idx[i] * b.idx[i];
+        }
+        return c;
     }
-    return c;
-  }
 
-  // Element-wise multiply
-  ACT_HOST_DEVICE
-  Coord operator*(Coord const &b) const {
-    Coord c;
-    for (int i = 0; i < RANK; i++) {
-      c.idx[i] = idx[i] * b.idx[i];
+    // Element-wise division
+    ACT_HOST_DEVICE
+    Coord operator/(Coord const &b) const
+    {
+        Coord c;
+        for (int i = 0; i < RANK; i++) {
+            c.idx[i] = idx[i] / b.idx[i];
+        }
+        return c;
     }
-    return c;
-  }
 
-  // Element-wise division
-  ACT_HOST_DEVICE
-  Coord operator/(Coord const &b) const {
-    Coord c;
-    for (int i = 0; i < RANK; i++) {
-      c.idx[i] = idx[i] / b.idx[i];
+    // Element-wise mod
+    ACT_HOST_DEVICE
+    Coord operator%(Coord const &b) const
+    {
+        Coord c;
+        for (int i = 0; i < RANK; i++) {
+            c.idx[i] = idx[i] % b.idx[i];
+        }
+        return c;
     }
-    return c;
-  }
 
-  // Element-wise mod
-  ACT_HOST_DEVICE
-  Coord operator%(Coord const &b) const {
-    Coord c;
-    for (int i = 0; i < RANK; i++) {
-      c.idx[i] = idx[i] % b.idx[i];
+    // In-place addition
+    ACT_HOST_DEVICE
+    Coord &operator+=(Coord const &b)
+    {
+        for (int i = 0; i < RANK; ++i) {
+            idx[i] += b.idx[i];
+        }
+        return *this;
     }
-    return c;
-  }
 
-  // In-place addition
-  ACT_HOST_DEVICE
-  Coord &operator+=(Coord const &b) {
-    for (int i = 0; i < RANK; ++i) {
-      idx[i] += b.idx[i];
+    // In-place equal
+    ACT_HOST_DEVICE
+    bool operator==(Coord const &b) const
+    {
+        for (int i = 0; i < RANK; ++i) {
+            if (idx[i] != b.idx[i]) {
+                return false;
+            }
+        }
+        return true;
     }
-    return *this;
-  }
 
-  // In-place equal
-  ACT_HOST_DEVICE
-  bool operator==(Coord const &b) const {
-    for (int i = 0; i < RANK; ++i) {
-      if (idx[i] != b.idx[i]) {
-        return false;
-      }
+    // In-place equal
+    ACT_HOST_DEVICE
+    bool operator==(Index const val) const
+    {
+        for (int i = 0; i < RANK; ++i) {
+            if (idx[i] != val) {
+                return false;
+            }
+        }
+        return true;
     }
-    return true;
-  }
 
-  // In-place equal
-  ACT_HOST_DEVICE
-  bool operator==(Index const val) const {
-    for (int i = 0; i < RANK; ++i) {
-      if (idx[i] != val) {
-        return false;
-      }
+    // Member access operator
+    ACT_HOST_DEVICE
+    Index &operator[](int dim)
+    {
+        return idx[dim];
     }
-    return true;
-  }
 
-  // Member access operator
-  ACT_HOST_DEVICE
-  Index &operator[](int dim) { return idx[dim]; }
-
-  // Member access operator
-  ACT_HOST_DEVICE
-  Index const &operator[](int dim) const { return idx[dim]; }
-
-  // Gets the index of a given Coord element
-  template <int DIM> ACT_HOST_DEVICE Index &At() { return idx[DIM]; }
-
-  // Access via index; may limit unrolling potential
-  ACT_HOST_DEVICE
-  Index &At(int dim) { return idx[dim]; }
-
-  // Gets the index of a given Coord element
-  template <int DIM> ACT_HOST_DEVICE Index const &At() const {
-    return idx[DIM];
-  }
-
-  // Access via index; may limit unrolling potential
-  ACT_HOST_DEVICE
-  Index const &At(int dim) const { return idx[dim]; }
-
-  template <int... Is> ACT_HOST_DEVICE auto GetCoordByAxis() const {
-    Index idx_[sizeof...(Is)]{idx[Is]...};
-    return Coord<sizeof...(Is), Index, LongIndex>{idx_};
-  }
-
-  ACT_HOST_DEVICE
-  static Coord Min(Coord const &a, Coord const &b) {
-    Coord res;
-    for (int i = 0; i < RANK; ++i) {
-      res[i] = a[i] < b[i] ? a[i] : b[i];
+    // Member access operator
+    ACT_HOST_DEVICE
+    Index const &operator[](int dim) const
+    {
+        return idx[dim];
     }
-    return res;
-  }
+
+    // Gets the index of a given Coord element
+    template <int DIM>
+    ACT_HOST_DEVICE Index &At()
+    {
+        return idx[DIM];
+    }
+
+    // Access via index; may limit unrolling potential
+    ACT_HOST_DEVICE
+    Index &At(int dim)
+    {
+        return idx[dim];
+    }
+
+    // Gets the index of a given Coord element
+    template <int DIM>
+    ACT_HOST_DEVICE Index const &At() const
+    {
+        return idx[DIM];
+    }
+
+    // Access via index; may limit unrolling potential
+    ACT_HOST_DEVICE
+    Index const &At(int dim) const
+    {
+        return idx[dim];
+    }
+
+    template <int... Is>
+    ACT_HOST_DEVICE auto GetCoordByAxis() const
+    {
+        Index idx_[sizeof...(Is)]{idx[Is]...};
+        return Coord<sizeof...(Is), Index, LongIndex>{idx_};
+    }
+
+    ACT_HOST_DEVICE
+    static Coord Min(Coord const &a, Coord const &b)
+    {
+        Coord res;
+        for (int i = 0; i < RANK; ++i) {
+            res[i] = a[i] < b[i] ? a[i] : b[i];
+        }
+        return res;
+    }
 
 private:
-  // Indices
-  Index idx[RANK];
+    // Indices
+    Index idx[RANK];
 };
 
 // Helper to make a 1-element coordinate
-template <class T> ACT_HOST_DEVICE constexpr Coord<1, T> MakeCoord(T dim0) {
-  T values[1] = {dim0};
-  return Coord<1, T>(values);
+template <class T>
+ACT_HOST_DEVICE constexpr Coord<1, T> MakeCoord(T dim0)
+{
+    T values[1] = {dim0};
+    return Coord<1, T>(values);
 }
 
 /// Helper to make a 2-element coordinate
 template <class T>
-ACT_HOST_DEVICE constexpr Coord<2, T> MakeCoord(T dim0, T dim1) {
-  T values[2] = {dim0, dim1};
-  return Coord<2, T>(values);
+ACT_HOST_DEVICE constexpr Coord<2, T> MakeCoord(T dim0, T dim1)
+{
+    T values[2] = {dim0, dim1};
+    return Coord<2, T>(values);
 }
 
 /// Helper to make a 3-element coordinate
 template <class T>
-ACT_HOST_DEVICE constexpr Coord<3, T> MakeCoord(T dim0, T dim1, T dim2) {
-  T values[3] = {dim0, dim1, dim2};
-  return Coord<3, T>(values);
+ACT_HOST_DEVICE constexpr Coord<3, T> MakeCoord(T dim0, T dim1, T dim2)
+{
+    T values[3] = {dim0, dim1, dim2};
+    return Coord<3, T>(values);
 }
 
 /// Helper to make a 4-element coordinate
 template <class T>
-ACT_HOST_DEVICE constexpr Coord<4, T> MakeCoord(T dim0, T dim1, T dim2,
-                                                T dim3) {
-  T values[4] = {dim0, dim1, dim2, dim3};
-  return Coord<4, T>(values);
+ACT_HOST_DEVICE constexpr Coord<4, T> MakeCoord(T dim0, T dim1, T dim2, T dim3)
+{
+    T values[4] = {dim0, dim1, dim2, dim3};
+    return Coord<4, T>(values);
 }
 
-} // namespace Act
+}  // namespace Act
 
-#endif // ACT_COORD_HPP
+#endif  // ACT_COORD_HPP
