@@ -7,7 +7,7 @@ import torch.distributed as dist
 import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
-from .utils import EventOverlap
+from .utils import EventOverlap, log_parameters
 
 
 class Buffer:
@@ -218,6 +218,7 @@ class Buffer:
         )
 
     # noinspection PyTypeChecker
+    @log_parameters(["topk_idx"])
     def dispatch(
         self,
         x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
@@ -357,6 +358,7 @@ class Buffer:
 
         # noinspection PyTypeChecker
 
+    @log_parameters()
     def combine(
         self,
         x: torch.Tensor,
@@ -411,6 +413,7 @@ class Buffer:
         return recv_x, recv_topk_weights, EventOverlap(event)
 
     # noinspection PyTypeChecker
+    @log_parameters(["topk_idx"])
     def low_latency_dispatch(
         self,
         x: torch.Tensor,
@@ -513,6 +516,7 @@ class Buffer:
             hook,
         )
 
+    @log_parameters(["topk_idx"])
     def low_latency_combine(
         self,
         x: torch.Tensor,
