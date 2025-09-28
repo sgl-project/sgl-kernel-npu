@@ -7,20 +7,19 @@
  * History: 2025-07-19 create FusedDeepMoe operator kernel function implementation file
  */
 #pragma once
-#include "../../catlass/catlass/catlass.hpp"
-#include "../../catlass/catlass/arch/cross_core_sync.hpp"
-#include "../../catlass/catlass/arch/resource.hpp"
-#include "../../catlass/catlass/coord.hpp"
-#include "../../catlass/catlass/detail/callback.hpp"
-#include "../../catlass/catlass/gemm_coord.hpp"
-#include "../../catlass/catlass/matrix_coord.hpp"
-#include "../../catlass/catlass/epilogue/tile/tile_swizzle.hpp"
-#include "../../catlass/catlass/epilogue/tile/tile_copy.hpp"
+#include "../../catlass/act/act.hpp"
+#include "../../catlass/act/arch/cross_core_sync.hpp"
+#include "../../catlass/act/arch/resource.hpp"
+#include "../../catlass/act/coord.hpp"
+#include "../../catlass/act/detail/callback.hpp"
+#include "../../catlass/act/gemm_coord.hpp"
+#include "../../catlass/act/matrix_coord.hpp"
+#include "../../catlass/act/epilogue/tile/tile_swizzle.hpp"
+#include "../../catlass/act/epilogue/tile/tile_copy.hpp"
 
 #include "../../../../../op_kernel/fused_deep_moe_base.h"
 
 constexpr uint32_t tokenLength = 7168;
-constexpr uint32_t axisK_ = 8;
 constexpr uint32_t STATE_OFFSET = 512;
 constexpr uint64_t WIN_STATE_OFFSET = 512 * 1024;
 constexpr uint64_t STATE_WIN_OFFSET = 900 * 1024;
@@ -40,7 +39,7 @@ constexpr int32_t SUB_AIV_NUM = 2;          // 1C配2V，即1个cube搭配两个
 constexpr int32_t ODD_EVEN_BASE = 2;        // 判断奇偶的基数
 constexpr int32_t BUFFER_NUM = 2;
 constexpr int32_t GATHER_SECOND_NUM = 2;
-constexpr uint32_t OPT_RANK_OFFSET = 512;  // NPLB优化变量
+#define OPT_RANK_OFFSET 512
 
 #define CEIL_UP(x) ((x + UB_ALIGN - 1) / UB_ALIGN * UB_ALIGN)
 #define CEIL(x, y) (((x) + (y - 1)) / (y))
@@ -80,7 +79,7 @@ constexpr uint32_t OPT_RANK_OFFSET = 512;  // NPLB优化变量
 
 #define SEND_TOKEN_RETURN  // 这个宏好像比较影响性能，待确认
 
-namespace Catlass::Gemm::Kernel {
+namespace Act::Gemm::Kernel {
 
 template <class ArchTag>
 class BlockQuant
@@ -113,10 +112,10 @@ public:
         __gm__ ElementOutput *ptrOutput{nullptr};
         LayoutOutput layoutOutput;
 
-        CATLASS_DEVICE
+        ACT_DEVICE
         Params() {};
 
-        CATLASS_DEVICE
+        ACT_DEVICE
         Params(__gm__ ElementInput *ptrInput_, LayoutInput const &layoutInput_,
                __gm__ ElementDequantScale *ptrQuantScale_, LayoutDequantScale const &layoutQuantScale_,
                __gm__ ElementOutput *ptrOutput_, LayoutOutput const layoutOutput_)
@@ -129,7 +128,7 @@ public:
         {}
     };
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     BlockQuant(Arch::Resource<ArchTag> const &resource, Params const &params_) : params(params_)
     {
         int64_t ubOffset = 0;
@@ -158,7 +157,7 @@ public:
         AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(1);
     }
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     ~BlockQuant()
     {
         AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(0);
@@ -166,7 +165,7 @@ public:
         AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(1);
     }
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void operator()(MatrixCoord const &blockShape, MatrixCoord const &blockCoord, MatrixCoord const &actualBlockShape)
     {
         MatrixCoord blockOffset = blockCoord * blockShape;
@@ -417,11 +416,12 @@ public:
         uint32_t quantMode;
         uint32_t globalBs;
         uint32_t bs;
+        uint32_t topK;
         // Methods
-        CATLASS_DEVICE
+        ACT_DEVICE
         Params() {}
 
-        CATLASS_DEVICE
+        ACT_DEVICE
         Params(GemmCoord problemShape_, uint32_t problemCount_, GM_ADDR ptrGroupList_, GM_ADDR ptrA_,
                LayoutA const &layoutA_, GM_ADDR ptrB_, LayoutB const &layoutB_, GM_ADDR ptrScale_,
                LayoutScale const &layoutScale_, GM_ADDR ptrPerTokenScale_,
@@ -430,7 +430,7 @@ public:
                GM_ADDR gmX_, GM_ADDR debugGm_, GM_ADDR gmexpertIds_, GM_ADDR gmExpandIdx_, GM_ADDR gmEpSendCount_,
                GM_ADDR gmResvered_, uint32_t epRankSize_, uint32_t epRankId_, uint32_t moeExpertNum_,
                uint32_t moeExpertNumPerRank_, uint32_t sharedExpertNum_, uint32_t sharedExpertRankNum_,
-               uint32_t quantMode_, uint32_t globalBs_, uint32_t bs_)
+               uint32_t quantMode_, uint32_t globalBs_, uint32_t bs_, uint32_t topK_)
             : problemShape(problemShape_),
               problemCount(problemCount_),
               ptrGroupList(reinterpret_cast<__gm__ ElementGroupList *>(ptrGroupList_)),
@@ -461,19 +461,20 @@ public:
               sharedExpertRankNum(sharedExpertRankNum_),
               quantMode(quantMode_),
               globalBs(globalBs_),
-              bs(bs_)
+              bs(bs_),
+              topK(topK_)
         {}
     };
 
     // Methods
-    CATLASS_DEVICE
+    ACT_DEVICE
     GroupedMatmulSliceMPerTokenDequantSwigluQuantMultiStageWorkspace() {}
 
     template <int32_t CORE_TYPE = g_coreType>
-    CATLASS_DEVICE void operator()(Params const &params);
+    ACT_DEVICE void operator()(Params const &params);
 
     template <>
-    CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params)
+    ACT_DEVICE void operator()<AscendC::AIC>(Params const &params)
     {
         aicIdx = AscendC::GetBlockIdx();
         subBlockNum = AscendC::GetSubBlockNum();
@@ -616,9 +617,10 @@ public:
             target += 1;  // 追平AIV多余的软同步
             --stageUsed;
         }
+        AscendC::SyncAll<false>();
     }
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void CalExpandxIdx(int32_t dstExpertId, uint32_t tokenIndex, int32_t &curExpertCnt, int64_t ubOffset)
     {
         // 使用AIV计算发送到对端的偏移量
@@ -648,7 +650,7 @@ public:
         }
     }
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void CalAndSendTokenCount()
     {
         // 计算发送token的数量，并且发送出去
@@ -719,7 +721,7 @@ public:
         }
     }
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void QuantToken(AscendC::LocalTensor<XType> &xInTensor, AscendC::LocalTensor<int8_t> &yInt8Tensor, int64_t ubOffset)
     {
         // 量化token的函数，这里UB空间基本用完就释放了，所以在内部计算UB偏移
@@ -760,7 +762,7 @@ public:
         AscendC::Cast(yInt8Tensor, yHalfTensor, AscendC::RoundMode::CAST_TRUNC, tokenLength);
     }
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void SendToShareExprt(GM_ADDR gmX, GM_ADDR gmX1, GM_ADDR gmX1Scale)
     {
         // 给共享专家发送token
@@ -860,7 +862,7 @@ public:
 #endif
     }
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void SendToMoeExprt(GM_ADDR gmX, GM_ADDR gmExpandIdx)
     {
         // 给路由专家发送token
@@ -889,6 +891,7 @@ public:
 
         AscendC::LocalTensor<XType> xInTensor[BUFFER_NUM];
         AscendC::LocalTensor<int8_t> yInt8Tensor[BUFFER_NUM];
+        AscendC::LocalTensor<float> yFp32Tensor[BUFFER_NUM];
 
         AscendC::GlobalTensor<XType> srcWinGMTensor;  // token输入
         srcWinGMTensor.SetGlobalBuffer((__gm__ XType *)gmX);
@@ -929,7 +932,7 @@ public:
 
                 AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(eventId);
                 AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(eventId);
-                AscendC::DataCopy(xInTensor[index], srcWinGMTensor[tokenIndex / axisK_ * tokenLength], tokenLength);
+                AscendC::DataCopy(xInTensor[index], srcWinGMTensor[tokenIndex / axisK * tokenLength], tokenLength);
                 AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(eventId);
                 AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(eventId);
                 QuantToken(xInTensor[index], yInt8Tensor[index], ubOffset);
@@ -963,11 +966,11 @@ public:
 #endif
 }
 
-CATLASS_DEVICE void
+ACT_DEVICE void
 SendCoreFunc(GM_ADDR gmX, GM_ADDR gmExpertIds, GM_ADDR gmX1, GM_ADDR gmX1Scale, GM_ADDR gmExpandIdx)
 {
     ubOffset = 0;
-    expertIdsCnt = axisBS * axisK_;
+    expertIdsCnt = axisBS * axisK;
 
     AscendC::GlobalTensor<int32_t> expertIdsGMTensor_;
     expertIdsGMTensor_.SetGlobalBuffer((__gm__ int32_t *)gmExpertIds);
@@ -984,7 +987,7 @@ SendCoreFunc(GM_ADDR gmX, GM_ADDR gmExpertIds, GM_ADDR gmX1, GM_ADDR gmX1Scale, 
     CalAndSendTokenCount();
     AscendC::PipeBarrier<PIPE_ALL>();
     if (hasShareExpert) {
-        sendToShareAivNum = sendCoreNum / (axisK_ + 1);  // 均等分，取整
+        sendToShareAivNum = sendCoreNum / (axisK + 1);  // 均等分，取整
         if (sendToShareAivNum == 0) {
             sendToShareAivNum = 1;
         }
@@ -1000,7 +1003,7 @@ SendCoreFunc(GM_ADDR gmX, GM_ADDR gmExpertIds, GM_ADDR gmX1, GM_ADDR gmX1Scale, 
     AscendC::PipeBarrier<PIPE_ALL>();
 }
 
-CATLASS_DEVICE
+ACT_DEVICE
 void RecvCount(int64_t ubOffset)
 {
     // 接收count数据
@@ -1051,7 +1054,7 @@ void RecvCount(int64_t ubOffset)
     }
 }
 
-CATLASS_DEVICE
+ACT_DEVICE
 void GetCumSum(int32_t startRankId, int32_t recvExpertNum, int64_t ubOffset)
 {
     // 计算前缀和，目的是知道自己收到的token在output中的偏移
@@ -1088,7 +1091,7 @@ void GetCumSum(int32_t startRankId, int32_t recvExpertNum, int64_t ubOffset)
     AscendC::WaitFlag<AscendC::HardEvent::V_S>(0);
 }
 
-CATLASS_DEVICE
+ACT_DEVICE
 void RecvToken(GM_ADDR gmX1, GM_ADDR gmX1Scale, GM_ADDR gmEpSendCount, uint32_t &coreTokenCount, uint32_t startRankId,
                uint32_t endRankId, uint32_t recvRankNumPerCore, int64_t ubOffset)
 {
@@ -1181,7 +1184,7 @@ void RecvToken(GM_ADDR gmX1, GM_ADDR gmX1Scale, GM_ADDR gmEpSendCount, uint32_t 
     AscendC::DataCopyPad(sendCountsGlobal[startRankId], gatherMaskOutCountTensor, dataCopyOutParams);
 }
 
-CATLASS_DEVICE
+ACT_DEVICE
 void RecvCoreFunc(GM_ADDR gmX1, GM_ADDR gmX1Scale, GM_ADDR gmEpSendCount)
 {
     ubOffset = 0;
@@ -1233,7 +1236,7 @@ void RecvCoreFunc(GM_ADDR gmX1, GM_ADDR gmX1Scale, GM_ADDR gmEpSendCount)
     AscendC::PipeBarrier<PIPE_ALL>();
 }
 
-CATLASS_DEVICE
+ACT_DEVICE
 void CompCoreFunc(GM_ADDR gmCVSwapBuff, __gm__ ElementScale *gmScale, __gm__ ElementPerTokenScale *gmTokenScale,
                   __gm__ float *gmSwigluOutput, uint32_t n, uint32_t k, LayoutScale layoutScale,
                   LayoutPerTokenScale wholeLayoutPerTokenScale, LayoutOutput layoutOutput)
@@ -1326,7 +1329,7 @@ void CompCoreFunc(GM_ADDR gmCVSwapBuff, __gm__ ElementScale *gmScale, __gm__ Ele
                       tmpZeroLocalTensor, INT32_COUNT_PER_BLOCK);
 }
 
-CATLASS_DEVICE
+ACT_DEVICE
 void AivInitParams(Params const &params)
 {
     aiCoreGroupNum = AscendC::GetBlockNum();
@@ -1372,14 +1375,16 @@ void AivInitParams(Params const &params)
     hCommuSize = hOutSize + scaleParamPad;
     axisHCommu = hCommuSize / sizeof(int8_t);
     axisBS = params.bs;
+    axisK = params.topK;
+    uint32_t maxAxisBs = params.globalBs / epRankSize;
 
     stateOffset = STATE_OFFSET;
-    expertPerSizeOnWin = params.bs * tokenLength * sizeof(XType);
+    expertPerSizeOnWin = maxAxisBs * tokenLength * sizeof(XType);
     winContext_ = (__gm__ HcclOpResParam *)AscendC::GetHcclContext<AscendC::HCCL_GROUP_ID_0>();
     statusDataSpaceGm = (GM_ADDR)(winContext_->localWindowsExp);
 }
 
-CATLASS_DEVICE
+ACT_DEVICE
 void AivInitState()
 {
     // 核状态更新，决定使用哪一半空间，以及各种信号的切换
@@ -1443,7 +1448,7 @@ void AivInitState()
     __asm__ __volatile__("");
 }
 
-CATLASS_DEVICE
+ACT_DEVICE
 void UpdateAndCleanInfo(__gm__ ElementGroupList_ *ptrGroupList, GM_ADDR gmEpSendCount)
 {
     if (aivIdx == aiCoreGroupNum * subBlockNum - 1) {
@@ -1481,7 +1486,7 @@ void UpdateAndCleanInfo(__gm__ ElementGroupList_ *ptrGroupList, GM_ADDR gmEpSend
 }
 
 template <>
-CATLASS_DEVICE void operator()<AscendC::AIV>(Params const &params)
+ACT_DEVICE void operator()<AscendC::AIV>(Params const &params)
 {
     AivInitParams(params);
     AivInitState();
@@ -1540,10 +1545,10 @@ friend struct AicWaitFunc1;
 friend struct AicSetFunc1;
 
 struct AicWaitFunc1 {
-    CATLASS_DEVICE
+    ACT_DEVICE
     AicWaitFunc1() = default;
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void operator()() const
     {
         CheckSyncFlag(flagAddr, idx, target);
@@ -1555,10 +1560,10 @@ struct AicWaitFunc1 {
 };
 
 struct AicSetFunc1 {
-    CATLASS_DEVICE
+    ACT_DEVICE
     AicSetFunc1() = default;
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void operator()() const
     {
         EncreaseSyncFlag(flagAddr, idx);
@@ -1591,6 +1596,7 @@ uint32_t scaleParamPad{0};
 uint32_t hCommuSize{0};
 uint32_t axisHCommu{0};
 uint32_t axisBS{0};
+uint32_t axisK{0};
 uint32_t totalTokenCount{0};
 uint32_t expertIdsCnt{0};
 
@@ -1634,9 +1640,9 @@ uint32_t sendToMoeAivNum{0};
 uint32_t sendToShareAivNum{0};
 };
 
-}  // namespace Catlass::Gemm::Kernel
+}  // namespace Act::Gemm::Kernel
 
-namespace Catlass::Gemm::Kernel {
+namespace Act::Gemm::Kernel {
 
 template <class BlockMmad_, class BlockEpilogue_, class BlockScheduler_, uint32_t WORKSPACE_STAGES_,
           class ElementGroupList_>
@@ -1693,10 +1699,10 @@ public:
         GM_ADDR ptrWorkspace;
 
         // Methods
-        CATLASS_DEVICE
+        ACT_DEVICE
         Params() {}
 
-        CATLASS_DEVICE
+        ACT_DEVICE
         Params(GemmCoord problemShape_, uint32_t problemCount_, GM_ADDR ptrGroupList_, GM_ADDR ptrA_,
                LayoutA const &layoutA_, GM_ADDR ptrB_, LayoutB const &layoutB_, GM_ADDR ptrScale_,
                LayoutScale const &layoutScale_, GM_ADDR ptrPerTokenScale_,
@@ -1722,7 +1728,7 @@ public:
     };
 
     // Methods
-    CATLASS_DEVICE
+    ACT_DEVICE
     GroupedMatmulSliceMPerTokenDequantSwigluQuantMultiStageWorkspaceWithShallowDispatch()
     {
         Arch::FlagID flagId = 0;
@@ -1735,10 +1741,10 @@ public:
     }
 
     template <int32_t CORE_TYPE = g_coreType>
-    CATLASS_DEVICE void operator()(Params const &params);
+    ACT_DEVICE void operator()(Params const &params);
 
     template <>
-    CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params)
+    ACT_DEVICE void operator()<AscendC::AIC>(Params const &params)
     {
         BlockScheduler blockScheduler;
         BlockMmad blockMmad(resource);
@@ -1831,7 +1837,7 @@ public:
     }
 
     template <>
-    CATLASS_DEVICE void operator()<AscendC::AIV>(Params const &params)
+    ACT_DEVICE void operator()<AscendC::AIV>(Params const &params)
     {
         uint32_t coreIdx = AscendC::GetBlockIdx() / AscendC::GetSubBlockNum();
         uint32_t coreNum = AscendC::GetBlockNum();
@@ -1936,10 +1942,10 @@ private:
         using MatmulKernel = GroupedMatmulSliceMPerTokenDequantSwigluQuantMultiStageWorkspaceWithShallowDispatch<
             BlockMmad, BlockEpilogue, BlockScheduler, WORKSPACE_STAGES, ElementGroupList>;
 
-        CATLASS_DEVICE
+        ACT_DEVICE
         AicWaitFunc() = default;
 
-        CATLASS_DEVICE
+        ACT_DEVICE
         void operator()() const
         {
             Arch::CrossCoreWaitFlag(ptr->flagAivFinishComputeList[stageId]);
@@ -1953,10 +1959,10 @@ private:
         using MatmulKernel = GroupedMatmulSliceMPerTokenDequantSwigluQuantMultiStageWorkspaceWithShallowDispatch<
             BlockMmad, BlockEpilogue, BlockScheduler, WORKSPACE_STAGES, ElementGroupList>;
 
-        CATLASS_DEVICE
+        ACT_DEVICE
         AicSetFunc() = default;
 
-        CATLASS_DEVICE
+        ACT_DEVICE
         void operator()() const
         {
             Arch::CrossCoreSetFlag<0x2, PIPE_FIX>(ptr->flagAicFinishStoreList[stageId]);
@@ -1974,4 +1980,4 @@ private:
     Arch::Resource<ArchTag> resource;
 };
 
-}  // namespace Catlass::Gemm::Kernel
+}  // namespace Act::Gemm::Kernel

@@ -8,6 +8,6 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 #pragma once
-#include "../../catlass/catlass/gemm/block/block_mmad.hpp"
+#include "../../catlass/act/gemm/block/block_mmad.hpp"
 
 #include "block_mmad_preload_async_with_callback_resident_a.h"

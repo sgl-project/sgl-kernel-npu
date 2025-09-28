@@ -8,15 +8,15 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 #pragma once
-#include "../catlass/catlass/epilogue/dispatch_policy.hpp"
+#include "../catlass/act/epilogue/dispatch_policy.hpp"
 
-namespace Catlass::Epilogue {
+namespace Act::Epilogue {
 
 template <uint32_t UB_STAGES_, uint32_t EXEC_FLAG_>
 struct EpilogueAtlasA2PerTokenDequantSwiglu {
-    using ArchTag = Catlass::Arch::AtlasA2;
+    using ArchTag = Arch::AtlasA2;
     static constexpr uint32_t UB_STAGES = UB_STAGES_;
     static constexpr uint32_t EXEC_FLAG = EXEC_FLAG_;
 };
 
-}  // namespace Catlass::Epilogue
+}  // namespace Act::Epilogue
