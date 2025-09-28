@@ -7,7 +7,7 @@ import torch.distributed as dist
 import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
-from .utils import EventOverlap
+from .utils import EventOverlap, log_parameters
 
 
 class Buffer:
@@ -218,6 +218,7 @@ class Buffer:
         )
 
     # noinspection PyTypeChecker
+    @log_parameters(["topk_idx"])
     def dispatch(
         self,
         x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
@@ -292,7 +293,7 @@ class Buffer:
         if isinstance(x, tuple):
             raise NotImplementedError("Not support fp8")
         x_scales = None
-        use_quant = True
+        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
 
         if handle is not None:
             raise NotImplementedError(
@@ -357,6 +358,7 @@ class Buffer:
 
         # noinspection PyTypeChecker
 
+    @log_parameters()
     def combine(
         self,
         x: torch.Tensor,
@@ -411,6 +413,7 @@ class Buffer:
         return recv_x, recv_topk_weights, EventOverlap(event)
 
     # noinspection PyTypeChecker
+    @log_parameters(["topk_idx"])
     def low_latency_dispatch(
         self,
         x: torch.Tensor,
@@ -513,6 +516,7 @@ class Buffer:
             hook,
         )
 
+    @log_parameters(["topk_idx"])
     def low_latency_combine(
         self,
         x: torch.Tensor,
@@ -585,3 +589,69 @@ class Buffer:
             EventOverlap(event, tensors_to_record if async_finish else None),
             hook,
         )
+
+    def fused_deep_moe(
+        self,
+        x: torch.Tensor,
+        topk_idx: torch.Tensor,
+        topk_weights: torch.Tensor,
+        gmm1_permuted_weight: torch.Tensor,
+        gmm1_permuted_weight_scale: torch.Tensor,
+        gmm2_weight: torch.Tensor,
+        gmm2_weight_scale: torch.Tensor,
+        num_max_dispatch_tokens_per_rank: int,
+        num_experts: int,
+        use_fp8: bool = True,
+    ) -> Tuple[torch.Tensor, EventOverlap, Callable]:
+        """
+        A fused low-latency implementation for MoE expert forward and combination.
+
+        Arguments:
+            x: `[bs, hidden]` with `torch.bfloat16` (or supported precision),
+                the token representations to be processed by selected experts.
+            topk_idx: `[bs, num_topk]` with `torch.int64`, the selected expert indices
+                for each token. `-1` indices are supported (meaning no expert selected).
+            topk_weights: `[bs, num_topk]` with `torch.float`, the expert weights selected by the dispatched
+                tokens. The received tokens will be reduced with the weights in this tensor.
+            gmm1_permuted_weight: weight tensor for the first stage (e.g., projection) with
+                a permuted layout according to grouped-matmul requirements.
+            gmm1_permuted_weight_scale: quantization scale tensor corresponding to
+                `gmm1PermutedWeight`. Typically `torch.float32` or `torch.float16`,
+                depending on `quantMode`.
+            gmm2_weight: weight tensor for the second stage (e.g., projection or FFN output).
+            gmm2_weight_scale: quantization scale tensor corresponding to `gmm2Weight`.
+
+            num_max_dispatch_tokens_per_rank: the maximum number of tokens to dispatch, all the ranks must hold the same value.
+            num_experts: the number of experts.
+            use_fp8: whether to enable FP8 casting, with this, the received data will be a tuple of FP8 tensor and scaling factors.
+
+        Notes:
+            - The first dimension of `topk_idx` defines the batch size `bs`.
+            - The second dimension of `x` defines the hidden dimension `hidden`.
+            - Exact shapes of weight/scale tensors depend on GMM permutation and sharding.
+            - If optional scale tensors are empty, the kernel skips those transforms.
+
+        Returns:
+            output: `torch.Tensor`, shape `[bs, hidden]` and usually `torch.bfloat16`,
+                the fused expert output.
+            event: `EventOverlap`, the event handle after kernel execution.
+            hook: `Callable`, the completion/receiving hook for delayed or staged execution.
+        """
+        gmm1_permuted_weight_scale = gmm1_permuted_weight_scale.float()
+        gmm2_weight_scale = gmm2_weight_scale.float()
+        topk_ids = topk_idx.int()
+
+        output, event, hook = self.runtime.fused_deep_moe(
+            x,
+            topk_ids,
+            gmm1_permuted_weight,
+            gmm1_permuted_weight_scale,
+            gmm2_weight,
+            gmm2_weight_scale,
+            topk_weights,
+            num_max_dispatch_tokens_per_rank,
+            num_experts,
+            use_fp8,
+        )
+
+        return output, EventOverlap(event), hook

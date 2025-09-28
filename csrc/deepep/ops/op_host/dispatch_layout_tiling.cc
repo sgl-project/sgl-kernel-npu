@@ -35,7 +35,8 @@ constexpr uint32_t ATTR_NUM_TOPK_INDEX = 3;
 constexpr uint32_t ATTR_LOCAL_RANKSIZE_INDEX = 4;
 const int64_t MAX_COMM_WORLD_SIZE = 384;
 const int64_t MAX_MOE_EXPERTS_NUM = 512;
-const int64_t MAX_A2_LOCAL_RANKSIZE = 8;
+const int64_t MAX_LOCAL_RANKSIZE = 8;
+
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
 constexpr uint32_t KERNEL_USE_WORKSPACE = 1 * 1024 * 1024;
 constexpr uint32_t KERNEL_A2_ARG_SIZE = 1 * 1024 * 1024;
@@ -106,9 +107,9 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
 
     if (CheckIfA2Machine(context)) {
         OP_TILING_CHECK(
-            (*localRankSizePtr <= 0) || (*localRankSizePtr > MAX_A2_LOCAL_RANKSIZE),
+            (*localRankSizePtr <= 0) || (*localRankSizePtr > MAX_LOCAL_RANKSIZE),
             OP_LOGE(nodeName, "localRankSizePtr is invalid, only support (0, %ld], but got localRankSize=%ld.",
-                    MAX_A2_LOCAL_RANKSIZE, *localRankSizePtr),
+                    MAX_LOCAL_RANKSIZE, *localRankSizePtr),
             return ge::GRAPH_FAILED);
     }
 

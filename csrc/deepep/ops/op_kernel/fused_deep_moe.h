@@ -199,7 +199,7 @@ CATLASS_DEVICE void GmmDeq(GemmCoord problemShape, uint32_t groupCount, GM_ADDR 
     using EpilogueDispatchPolicy = Catlass::Epilogue::EpilogueAtlasA2PerTokenDequant<ubStages>;
     using ScaleType = Gemm::GemmType<float, layout::VectorLayout>;
     using PerTokenScaleType = Gemm::GemmType<float, layout::VectorLayout>;
-    using DType = Gemm::GemmType<half, layout::RowMajor>;
+    using DType = Gemm::GemmType<ExpandXType, layout::RowMajor>;
 
     using RowBroadcastMulType = Gemm::GemmType<float, layout::RowMajor>;
     using BroadcastOneBlkType = Gemm::GemmType<float, layout::RowMajor>;
@@ -397,7 +397,8 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Process()
     if constexpr (EXEC_FLAG == 0) {
         if constexpr (g_coreType == AscendC::AIV) {
             AscendC::TPipe tpipe;
-            MoeDistributeDispatchImpl::CamMoeDistributeDispatch<half, int8_t, false, true, false, false> dispatcher;
+            MoeDistributeDispatchImpl::CamMoeDistributeDispatch<ExpandXType, int8_t, false, true, false, false>
+                dispatcher;
             dispatcher.Init(gmX_, gmexpertIds_, gmSmoothScales_, gmX1Token, gmX1Scale, gmExpandIdx, gmGroupList,
                             gmEpSendCount, nullptr, gmWorkspace, &tpipe, tilingData_);
             dispatcher.Process();
