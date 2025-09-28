@@ -67,11 +67,10 @@ public:
             isTokenOffset = (restNum + coreIdx_ * tempTokens_) * numRanks_ * sizeof(T);
         }
 
-            topkIdxGM_.SetGlobalBuffer((__gm__ int64_t *)(topkIdx + topkIdxOffset));
-            numTokensPerRankGM_.SetGlobalBuffer((__gm__ T *)numTokensPerRank);
-            numTokensPerExpertGM_.SetGlobalBuffer((__gm__ T *)numTokensPerExpert);
-            isTokenInRankGM_.SetGlobalBuffer((__gm__ T *)(isTokenInRank + isTokenOffset));
-        }
+        topkIdxGM_.SetGlobalBuffer((__gm__ int64_t *)(topkIdx + topkIdxOffset));
+        numTokensPerRankGM_.SetGlobalBuffer((__gm__ T *)numTokensPerRank);
+        numTokensPerExpertGM_.SetGlobalBuffer((__gm__ T *)numTokensPerExpert);
+        isTokenInRankGM_.SetGlobalBuffer((__gm__ T *)(isTokenInRank + isTokenOffset));
     }
 
     __aicore__ inline void Process()
