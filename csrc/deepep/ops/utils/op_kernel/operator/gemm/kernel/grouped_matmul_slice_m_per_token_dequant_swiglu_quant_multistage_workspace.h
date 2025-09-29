@@ -7,6 +7,7 @@
  * History: 2025-07-19 create FusedDeepMoe operator kernel function implementation file
  */
 #pragma once
+
 #include "../../catlass/act/act.hpp"
 #include "../../catlass/act/arch/cross_core_sync.hpp"
 #include "../../catlass/act/arch/resource.hpp"
@@ -406,6 +407,7 @@ public:
         GM_ADDR gmExpandIdx;
         GM_ADDR gmEpSendCount;
         GM_ADDR gmResvered;
+        GM_ADDR gmOutputRecvCount;
 
         uint32_t epRankSize;
         uint32_t epRankId;
@@ -428,9 +430,9 @@ public:
                LayoutPerTokenScale const &layoutPerTokenScale_, GM_ADDR ptrOutput_, LayoutOutput const &layoutOutput_,
                GM_ADDR ptrDequantScale_, LayoutDequantScale const &layoutDequantScale_, GM_ADDR ptrWorkspace_,
                GM_ADDR gmX_, GM_ADDR debugGm_, GM_ADDR gmexpertIds_, GM_ADDR gmExpandIdx_, GM_ADDR gmEpSendCount_,
-               GM_ADDR gmResvered_, uint32_t epRankSize_, uint32_t epRankId_, uint32_t moeExpertNum_,
-               uint32_t moeExpertNumPerRank_, uint32_t sharedExpertNum_, uint32_t sharedExpertRankNum_,
-               uint32_t quantMode_, uint32_t globalBs_, uint32_t bs_, uint32_t topK_)
+               GM_ADDR gmResvered_, GM_ADDR gmOutputRecvCount_, uint32_t epRankSize_, uint32_t epRankId_,
+               uint32_t moeExpertNum_, uint32_t moeExpertNumPerRank_, uint32_t sharedExpertNum_,
+               uint32_t sharedExpertRankNum_, uint32_t quantMode_, uint32_t globalBs_, uint32_t bs_, uint32_t topK_)
             : problemShape(problemShape_),
               problemCount(problemCount_),
               ptrGroupList(reinterpret_cast<__gm__ ElementGroupList *>(ptrGroupList_)),
@@ -452,6 +454,7 @@ public:
               gmexpertIds(gmexpertIds_),
               gmExpandIdx(gmExpandIdx_),
               gmEpSendCount(gmEpSendCount_),
+              gmOutputRecvCount(gmOutputRecvCount_),
               gmResvered(gmResvered_),
               epRankSize(epRankSize_),
               epRankId(epRankId_),
@@ -519,6 +522,7 @@ public:
         gmA.SetGlobalBuffer(params.ptrA);
         AscendC::GlobalTensor<ElementB> gmB;
         gmB.SetGlobalBuffer(params.ptrB);
+
         AscendC::GlobalTensor<ElementGroupList> groupList;
         groupList.SetGlobalBuffer(params.ptrGroupList);
 
@@ -1055,7 +1059,7 @@ void RecvCount(int64_t ubOffset)
 }
 
 ACT_DEVICE
-void GetCumSum(int32_t startRankId, int32_t recvExpertNum, int64_t ubOffset)
+void GetCumSum(int32_t startRankId, int32_t recvExpertNum, int64_t ubOffset, GM_ADDR gmOutputRecvCount)
 {
     // 计算前缀和，目的是知道自己收到的token在output中的偏移
     int64_t subUbOffset = ubOffset;
@@ -1081,7 +1085,15 @@ void GetCumSum(int32_t startRankId, int32_t recvExpertNum, int64_t ubOffset)
     AscendC::WaitFlag<AscendC::HardEvent::S_V>(0);
     AscendC::GatherMask(gatherMaskOutTensor, statusFp32Tensor_, gatherTmpTensor, true, GATHER_SECOND_NUM,
                         {1, (uint16_t)recStatusNumPerCore, 1, 0}, rsvdCnt);
-
+    if (isRecvCore && recvCoreIdx == 0) {
+        AscendC::GlobalTensor<int32_t> recvCountTensor;
+        recvCountTensor.SetGlobalBuffer((__gm__ int32_t *)gmOutputRecvCount);
+        AscendC::DataCopyExtParams dataCopyParams = {
+            1U, static_cast<uint32_t>(localExpertNum * epRankSize * sizeof(int32_t)), 0U, 0U, 0U};
+        AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(0);
+        AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(0);
+        AscendC::DataCopyPad(recvCountTensor, gatherMaskOutTensor.ReinterpretCast<int32_t>(), dataCopyParams);
+    }
     // 这里是为ReduceSum准备所需空间，本应该计算好需要多大空间，但当前是给偏移，且用完就释放，所以就不计算了
     AscendC::LocalTensor<float> workLocalTensor = resource.ubBuf.template GetBufferByByte<float>(subUbOffset);
     AscendC::PipeBarrier<PIPE_V>();
@@ -1185,7 +1197,7 @@ void RecvToken(GM_ADDR gmX1, GM_ADDR gmX1Scale, GM_ADDR gmEpSendCount, uint32_t 
 }
 
 ACT_DEVICE
-void RecvCoreFunc(GM_ADDR gmX1, GM_ADDR gmX1Scale, GM_ADDR gmEpSendCount)
+void RecvCoreFunc(GM_ADDR gmX1, GM_ADDR gmX1Scale, GM_ADDR gmEpSendCount, GM_ADDR gmOutputRecvCount)
 {
     ubOffset = 0;
     RecvCount(ubOffset);
@@ -1213,7 +1225,7 @@ void RecvCoreFunc(GM_ADDR gmX1, GM_ADDR gmX1Scale, GM_ADDR gmEpSendCount)
 
     if (startRankId < recvExpertNum) {
         // 计算前缀和，以及接收token。这里有隐含约束，下面两个函数与RecvCount的ubOffset入参应保持一致，这样才能拿到有效数据
-        GetCumSum(startRankId, recvExpertNum, ubOffset);
+        GetCumSum(startRankId, recvExpertNum, ubOffset, gmOutputRecvCount);
         RecvToken(gmX1, gmX1Scale, gmEpSendCount, coreTokenCount, startRankId, endRankId, recvRankNumPerCore, ubOffset);
     }
 
@@ -1277,14 +1289,12 @@ void CompCoreFunc(GM_ADDR gmCVSwapBuff, __gm__ ElementScale *gmScale, __gm__ Ele
             LayoutPerTokenScale layoutPerTokenScale =
                 wholeLayoutPerTokenScale.GetTileLayout(inGroupProblemShape.template GetCoordByAxis<0>());
             LayoutD layoutD = layoutOutput.GetTileLayout(MakeCoord(currentM, nOut));
-
             EpilogueParams epilogueParams{gmScale + gmGroupOffsetScale,
                                           layoutScale,
                                           gmTokenScale + gmGroupOffsetPerTokenScale,
                                           layoutPerTokenScale,
                                           gmSwigluOutput + gmGroupOffsetD,
                                           layoutD};
-
             blockScheduler.Update(inGroupProblemShape, L1TileShape::ToCoordMN());
             blockEpilogue.UpdateParams(epilogueParams);
             uint32_t coreLoops = blockScheduler.GetCoreLoops();
@@ -1495,7 +1505,8 @@ ACT_DEVICE void operator()<AscendC::AIV>(Params const &params)
                      (GM_ADDR)params.ptrPerTokenScale, (GM_ADDR)params.gmExpandIdx);
     }
     if (isRecvCore) {
-        RecvCoreFunc((GM_ADDR)params.ptrA, (GM_ADDR)params.ptrPerTokenScale, (GM_ADDR)params.gmEpSendCount);
+        RecvCoreFunc((GM_ADDR)params.ptrA, (GM_ADDR)params.ptrPerTokenScale, (GM_ADDR)params.gmEpSendCount,
+                     (GM_ADDR)params.gmOutputRecvCount);
     }
 
     auto gmSwigluOutput = reinterpret_cast<__gm__ float *>(

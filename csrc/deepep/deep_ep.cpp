@@ -592,10 +592,11 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     return {combined_x, event, std::function<void()>([] {})};
 }
 
-std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>> Buffer::fused_deep_moe(
-    const at::Tensor &x, const at::Tensor &expertIds, const at::Tensor &gmm1PermutedWeight,
-    const at::Tensor &gmm1PermutedWeightScale, const at::Tensor &gmm2Weight, const at::Tensor &gmm2WeightScale,
-    const at::Tensor &expertScalesOptional, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts, bool use_fp8)
+std::tuple<std::vector<at::Tensor>, std::optional<EventHandle>, std::optional<std::function<void()>>>
+Buffer::fused_deep_moe(const at::Tensor &x, const at::Tensor &expertIds, const at::Tensor &gmm1PermutedWeight,
+                       const at::Tensor &gmm1PermutedWeightScale, const at::Tensor &gmm2Weight,
+                       const at::Tensor &gmm2WeightScale, const at::Tensor &expertScalesOptional,
+                       int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts, bool use_fp8)
 {
     EP_HOST_ASSERT(expertIds.dim() == 2);
     EP_HOST_ASSERT(expertScalesOptional.dim() == 2);
@@ -659,6 +660,15 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     int bs = this->new_topk_idx.size(0);
     at::Tensor output = at::empty({bs, h}, x.options());
 
+    bool isShareExpert = (rank < shared_expert_num);
+    int64_t localExpertNum = 0;
+    if (isShareExpert) {
+        localExpertNum = num_ranks;
+    } else {
+        localExpertNum = num_ranks * (num_experts / (num_ranks - shared_expert_num));
+    }
+    at::Tensor recvCountOutput = at::empty({localExpertNum}, expertIds.options());
+
     EXEC_NPU_CMD(aclnnFusedDeepMoe,
                  // input
                  x, expertIds, gmm1PermutedWeight, gmm1PermutedWeightScale, gmm2Weight, gmm2WeightScale,
@@ -667,7 +677,7 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
                  hcom_ep_name, num_ranks, rank, num_experts, shared_expert_num, shared_expert_rank_num, quantMode,
                  globalBs,
                  // output
-                 output);
+                 output, recvCountOutput);
 
     // ---------- Unpadding ----------
     if (this->is_padding) {
@@ -680,6 +690,6 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     }
 
     std::optional<EventHandle> event;
-    return {output, event, std::function<void()>([] {})};
+    return {{output, recvCountOutput}, event, std::function<void()>([] {})};
 }
 }  // namespace deep_ep

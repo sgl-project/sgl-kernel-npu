@@ -59,6 +59,11 @@ public:
             .DataType({ge::DT_BF16, ge::DT_FLOAT16})
             .Format({ge::FORMAT_ND, ge::FORMAT_ND})
             .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND});
+        this->Output("ep_recv_count")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_INT32, ge::DT_INT32})
+            .Format({ge::FORMAT_ND, ge::FORMAT_ND})
+            .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND});
         this->Attr("group_ep").String();
         this->Attr("ep_rank_size").Int();
         this->Attr("ep_rank_id").Int();
