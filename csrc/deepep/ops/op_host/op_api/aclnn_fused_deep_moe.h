@@ -21,7 +21,8 @@ __attribute__((visibility("default"))) aclnnStatus aclnnFusedDeepMoeGetWorkspace
     const aclTensor *gmm1PermutedWeightScale, const aclTensor *gmm2Weight, const aclTensor *gmm2WeightScale,
     const aclTensor *expertSmoothScalesOptional, const aclTensor *expertScalesOptional, char *groupEp,
     int64_t epRankSize, int64_t epRankId, int64_t moeExpertNum, int64_t shareExpertNum, int64_t shareExpertRankNum,
-    int64_t quantMode, int64_t globalBs, const aclTensor *output, uint64_t *workspaceSize, aclOpExecutor **executor);
+    int64_t quantMode, int64_t globalBs, const aclTensor *output, const aclTensor *outputRecvCount,
+    uint64_t *workspaceSize, aclOpExecutor **executor);
 
 __attribute__((visibility("default"))) aclnnStatus aclnnFusedDeepMoe(void *workspace, uint64_t workspaceSize,
                                                                      aclOpExecutor *executor, aclrtStream stream);
