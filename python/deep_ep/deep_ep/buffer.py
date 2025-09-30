@@ -601,8 +601,8 @@ class Buffer:
         gmm2_weight_scale: torch.Tensor,
         num_max_dispatch_tokens_per_rank: int,
         num_experts: int,
-        use_fp8: bool = True,
-    ) -> Tuple[torch.Tensor, EventOverlap, Callable]:
+        quant_mode: int = 0,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         A fused low-latency implementation for MoE expert forward and combination.
 
@@ -623,7 +623,7 @@ class Buffer:
 
             num_max_dispatch_tokens_per_rank: the maximum number of tokens to dispatch, all the ranks must hold the same value.
             num_experts: the number of experts.
-            use_fp8: whether to enable FP8 casting, with this, the received data will be a tuple of FP8 tensor and scaling factors.
+            quant_mode: int type, optional number, displays the quantization model. Supported values: 0 means non-quantization (default)
 
         Notes:
             - The first dimension of `topk_idx` defines the batch size `bs`.
@@ -634,14 +634,13 @@ class Buffer:
         Returns:
             output: `torch.Tensor`, shape `[bs, hidden]` and usually `torch.bfloat16`,
                 the fused expert output.
-            event: `EventOverlap`, the event handle after kernel execution.
-            hook: `Callable`, the completion/receiving hook for delayed or staged execution.
+            ep_recv_count: displays the number of tokens received by each card in the EP communication area. Requests 1D Tensor. The quantity delay type is int32. The quantity delay type supports ND and supports connectionless Tensor.
         """
         gmm1_permuted_weight_scale = gmm1_permuted_weight_scale.float()
         gmm2_weight_scale = gmm2_weight_scale.float()
         topk_ids = topk_idx.int()
 
-        output, event, hook = self.runtime.fused_deep_moe(
+        output, ep_recv_count = self.runtime.fused_deep_moe(
             x,
             topk_ids,
             gmm1_permuted_weight,
@@ -651,7 +650,7 @@ class Buffer:
             topk_weights,
             num_max_dispatch_tokens_per_rank,
             num_experts,
-            use_fp8,
+            quant_mode,
         )
 
-        return output, EventOverlap(event), hook
+        return output, ep_recv_count

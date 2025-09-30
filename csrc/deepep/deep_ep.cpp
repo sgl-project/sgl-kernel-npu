@@ -65,7 +65,7 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
         }
         int topk = static_cast<int>(topk_idx.size(1));
         for (int i = 0; i < this->padding_cnt; i++) {
-            at::Tensor tmp_topk = torch::arange(0, topk, topk_idx.options()).reshape({1, topk});
+            at::Tensor tmp_topk = torch::randperm(num_experts, topk_idx.options()).slice(0, 0, topk).reshape({1, topk});
             topk_blocks.emplace_back(tmp_topk);
         }
         this->new_topk_idx = torch::cat(topk_blocks, 0);
@@ -346,8 +346,12 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
                 weight_blocks.emplace_back(topk_weights.value());
             }
             for (int i = 0; i < this->padding_cnt; i++) {
-                at::Tensor tmp_weight = torch::arange(0, num_topk, topk_weights->options()).reshape({1, num_topk});
-                weight_blocks.emplace_back(tmp_weight);
+                if (topk_weights.has_value()) {
+                    at::Tensor tmp_weight = torch::randperm(send_head.size(0), topk_weights->options())
+                                                .slice(0, 0, num_topk)
+                                                .reshape({1, num_topk});
+                    weight_blocks.emplace_back(tmp_weight);
+                }
             }
             expert_scales = torch::cat(weight_blocks, 0);
         }
@@ -424,7 +428,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         int topk = static_cast<int>(new_topk_idx.size(1));
         for (int i = 0; i < this->padding_cnt; i++) {
             at::Tensor tmp_x = torch::ones({1, x.size(1)}, x.options());
-            at::Tensor tmp_topk = torch::arange(0, topk, topk_idx.options()).reshape({1, topk});
+            at::Tensor tmp_topk = torch::randperm(num_experts, topk_idx.options()).slice(0, 0, topk).reshape({1, topk});
             x_blocks.emplace_back(tmp_x);
             topk_blocks.emplace_back(tmp_topk);
         }
@@ -592,10 +596,10 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     return {combined_x, event, std::function<void()>([] {})};
 }
 
-std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>> Buffer::fused_deep_moe(
+std::tuple<at::Tensor, at::Tensor> Buffer::fused_deep_moe(
     const at::Tensor &x, const at::Tensor &expertIds, const at::Tensor &gmm1PermutedWeight,
     const at::Tensor &gmm1PermutedWeightScale, const at::Tensor &gmm2Weight, const at::Tensor &gmm2WeightScale,
-    const at::Tensor &expertScalesOptional, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts, bool use_fp8)
+    const at::Tensor &expertScalesOptional, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts, int quant_mode)
 {
     EP_HOST_ASSERT(expertIds.dim() == 2);
     EP_HOST_ASSERT(expertScalesOptional.dim() == 2);
@@ -622,7 +626,7 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
         int topk = static_cast<int>(expertIds.size(1));
         for (int i = 0; i < this->padding_cnt; i++) {
             at::Tensor tmp_x = torch::ones({1, x.size(1)}, x.options());
-            at::Tensor tmp_idx = torch::arange(0, topk, expertIds.options()).reshape({1, topk});
+            at::Tensor tmp_idx = torch::randperm(num_experts, expertIds.options()).slice(0, 0, topk).reshape({1, topk});
             x_blocks.emplace_back(tmp_x);
             idx_blocks.emplace_back(tmp_idx);
         }
@@ -650,7 +654,6 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
         HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
     }
 
-    int64_t quantMode = use_fp8 ? 2 : 0;
     int64_t globalBs = std::max(new_topk_idx.size(0), num_max_dispatch_tokens_per_rank) * num_ranks;
 
     auto xShape = x.sizes();
@@ -658,6 +661,10 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     int h = xShape[1];
     int bs = this->new_topk_idx.size(0);
     at::Tensor output = at::empty({bs, h}, x.options());
+
+    auto num_local_experts = static_cast<int>(num_experts / num_ranks);
+    at::Tensor ep_recv_count =
+        torch::zeros({num_local_experts * num_ranks}, torch::dtype(torch::kInt32).device(x.device()));
 
     EXEC_NPU_CMD(aclnnFusedDeepMoe,
                  // input
@@ -667,7 +674,7 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
                  hcom_ep_name, num_ranks, rank, num_experts, shared_expert_num, shared_expert_rank_num, quantMode,
                  globalBs,
                  // output
-                 output);
+                 output, ep_recv_count);
 
     // ---------- Unpadding ----------
     if (this->is_padding) {
@@ -679,7 +686,6 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
         this->is_padding = false;
     }
 
-    std::optional<EventHandle> event;
-    return {output, event, std::function<void()>([] {})};
+    return {output, ep_recv_count};
 }
 }  // namespace deep_ep
