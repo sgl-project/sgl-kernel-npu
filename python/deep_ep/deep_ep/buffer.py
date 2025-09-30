@@ -634,7 +634,8 @@ class Buffer:
         Returns:
             output: `torch.Tensor`, shape `[bs, hidden]` and usually `torch.bfloat16`,
                 the fused expert output.
-            ep_recv_count: displays the number of tokens received by each card in the EP communication area. Requests 1D Tensor. The quantity delay type is int32. The quantity delay type supports ND and supports connectionless Tensor.
+            ep_recv_count: `torch.Tensor`, a 1D tensor of type `torch.int32`
+                indicating the number of tokens received by each expert across all ranks.
         """
         gmm1_permuted_weight_scale = gmm1_permuted_weight_scale.float()
         gmm2_weight_scale = gmm2_weight_scale.float()
