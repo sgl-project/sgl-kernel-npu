@@ -9,18 +9,18 @@
 #ifndef FUSED_DEEP_MOE_H
 #define FUSED_DEEP_MOE_H
 
-#include <kernel_operator.h>
 #include "lib/matmul_intf.h"
+#include <kernel_operator.h>
 
-#include "../utils/op_kernel/operator/catlass/catlass/catlass.hpp"
-#include "../utils/op_kernel/operator/catlass/catlass/arch/arch.hpp"
-#include "../utils/op_kernel/operator/catlass/catlass/layout/layout.hpp"
-#include "../utils/op_kernel/operator/catlass/catlass/epilogue/tile/tile_broadcast_mul.hpp"
-#include "../utils/op_kernel/operator/catlass/catlass/epilogue/tile/tile_broadcast_one_blk.hpp"
-#include "../utils/op_kernel/operator/catlass/catlass/epilogue/tile/tile_swizzle.hpp"
-#include "../utils/op_kernel/operator/catlass/catlass/gemm/block/block_swizzle.hpp"
-#include "../utils/op_kernel/operator/catlass/catlass/gemm/kernel/grouped_matmul_slice_m_per_token_dequant_multistage_workspace.hpp"
-#include "../utils/op_kernel/operator/catlass/catlass/gemm/gemm_type.hpp"
+#include "../utils/op_kernel/operator/catlass/act/act.hpp"
+#include "../utils/op_kernel/operator/catlass/act/arch/arch.hpp"
+#include "../utils/op_kernel/operator/catlass/act/layout/layout.hpp"
+#include "../utils/op_kernel/operator/catlass/act/epilogue/tile/tile_broadcast_mul.hpp"
+#include "../utils/op_kernel/operator/catlass/act/epilogue/tile/tile_broadcast_one_blk.hpp"
+#include "../utils/op_kernel/operator/catlass/act/epilogue/tile/tile_swizzle.hpp"
+#include "../utils/op_kernel/operator/catlass/act/gemm/block/block_swizzle.hpp"
+#include "../utils/op_kernel/operator/catlass/act/gemm/kernel/grouped_matmul_slice_m_per_token_dequant_multistage_workspace.hpp"
+#include "../utils/op_kernel/operator/catlass/act/gemm/gemm_type.hpp"
 #include "../utils/op_kernel/operator/epilogue/dispatch_policy.h"
 #include "../utils/op_kernel/operator/gemm/dispatch_policy.h"
 #include "../utils/op_kernel/operator/epilogue/block/block_epilogue.h"
@@ -28,16 +28,15 @@
 #include "../utils/op_kernel/operator/gemm/kernel/grouped_matmul_slice_m_per_token_dequant_swiglu_quant_multistage_workspace.h"
 
 #include "../utils/op_kernel/operator/cam_moe_distribute_combine/op_kernel/a3/cam_moe_distribute_dispatch.h"
-#include "../utils/op_kernel/operator/cam_moe_distribute_combine/op_kernel/a3/cam_moe_distribute_combine.h"
 
 #include "fused_deep_moe_tiling.h"
 #include "fused_deep_moe_base.h"
 
 #define ENABLE_GMM2_COMBINE
-constexpr uint32_t GMM1_HIDDEN_SIZE = 4096;
-constexpr uint32_t TOKEN_LENGTH = 7168;
+#define GMM1_HIDDEN_SIZE 4096
+#define TOKEN_LENGTH 7168
 
-using namespace Catlass;
+using namespace Act;
 
 using MmadAtlasA2Custom =
     Gemm::MmadAtlasA2PreloadAsyncWithCallback<CUSTOM_PRELOAD_STAGES, CUSTOM_L1_STAGES, CUSTOM_L0A_STAGES,
@@ -60,16 +59,16 @@ using Gmm2DispatchPolicy =
 
 template <uint32_t EXEC_FLAG, typename XType_, class L1TileShape_, class L0TileShape_, class EpilogueTileShape_,
           class BlockScheduler_, class DispatchPolicy_ = MmadAtlasA2Custom>
-CATLASS_DEVICE void GmmDeqSwigluQuant(GemmCoord problemShape, uint32_t groupCount, GM_ADDR gmGroupList, GM_ADDR gmA,
-                                      layout::RowMajor layoutA, GM_ADDR gmB, layout::zN layoutB, GM_ADDR gmScale,
-                                      layout::VectorLayout layoutScale, GM_ADDR gmPerTokenScale,
-                                      layout::VectorLayout layoutPerTokenScale, GM_ADDR gmD, layout::RowMajor layoutD,
-                                      GM_ADDR gmDequantScale, layout::VectorLayout layoutDequantScale,
-                                      GM_ADDR gmWorkspace, GM_ADDR gmX, GM_ADDR debugGm, GM_ADDR gmexpertIds,
-                                      GM_ADDR gmExpandIdx, GM_ADDR gmEpSendCount, GM_ADDR gmResvered,
-                                      uint32_t epRankSize, uint32_t epRankId, uint32_t moeExpertNum,
-                                      uint32_t moeExpertNumPerRank, uint32_t sharedExpertNum,
-                                      uint32_t sharedExpertRankNum, uint32_t quantMode, uint32_t globalBs, uint32_t bs)
+ACT_DEVICE void GmmDeqSwigluQuant(GemmCoord problemShape, uint32_t groupCount, GM_ADDR gmGroupList, GM_ADDR gmA,
+                                  layout::RowMajor layoutA, GM_ADDR gmB, layout::zN layoutB, GM_ADDR gmScale,
+                                  layout::VectorLayout layoutScale, GM_ADDR gmPerTokenScale,
+                                  layout::VectorLayout layoutPerTokenScale, GM_ADDR gmD, layout::RowMajor layoutD,
+                                  GM_ADDR gmDequantScale, layout::VectorLayout layoutDequantScale, GM_ADDR gmWorkspace,
+                                  GM_ADDR gmX, GM_ADDR debugGm, GM_ADDR gmexpertIds, GM_ADDR gmExpandIdx,
+                                  GM_ADDR gmEpSendCount, GM_ADDR gmResvered, uint32_t epRankSize, uint32_t epRankId,
+                                  uint32_t moeExpertNum, uint32_t moeExpertNumPerRank, uint32_t sharedExpertNum,
+                                  uint32_t sharedExpertRankNum, uint32_t quantMode, uint32_t globalBs, uint32_t bs,
+                                  uint32_t topK)
 {
     using ArchTag = Arch::AtlasA2;
     using DispatchPolicy = DispatchPolicy_;
@@ -149,7 +148,8 @@ CATLASS_DEVICE void GmmDeqSwigluQuant(GemmCoord problemShape, uint32_t groupCoun
                                            sharedExpertRankNum,
                                            quantMode,
                                            globalBs,
-                                           bs};
+                                           bs,
+                                           topK};
         // call a kernel
         GemmKernel gemm;
         gemm(params);
@@ -178,11 +178,11 @@ CATLASS_DEVICE void GmmDeqSwigluQuant(GemmCoord problemShape, uint32_t groupCoun
 
 template <TemplateMC2TypeClass, class L1TileShape_, class L0TileShape_, class EpilogueTileShape_, class BlockScheduler_,
           class DispatchPolicy_ = MmadAtlasA2Custom>
-CATLASS_DEVICE void GmmDeq(GemmCoord problemShape, uint32_t groupCount, GM_ADDR gmGroupList, GM_ADDR gmA,
-                           layout::RowMajor layoutA, GM_ADDR gmB, layout::nZ layoutB, GM_ADDR gmScale,
-                           layout::VectorLayout layoutScale, GM_ADDR gmPerTokenScale,
-                           layout::VectorLayout layoutPerTokenScale, GM_ADDR gmD, layout::RowMajor layoutD,
-                           GM_ADDR gmWorkspace, void *combiner)
+ACT_DEVICE void GmmDeq(GemmCoord problemShape, uint32_t groupCount, GM_ADDR gmGroupList, GM_ADDR gmA,
+                       layout::RowMajor layoutA, GM_ADDR gmB, layout::nZ layoutB, GM_ADDR gmScale,
+                       layout::VectorLayout layoutScale, GM_ADDR gmPerTokenScale,
+                       layout::VectorLayout layoutPerTokenScale, GM_ADDR gmD, layout::RowMajor layoutD,
+                       GM_ADDR gmWorkspace, void *combiner)
 {
     using ArchTag = Arch::AtlasA2;
     using DispatchPolicy = DispatchPolicy_;
@@ -196,7 +196,7 @@ CATLASS_DEVICE void GmmDeq(GemmCoord problemShape, uint32_t groupCount, GM_ADDR 
     using BlockMmad = Gemm::Block::BlockMmad<DispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType>;
 
     constexpr uint32_t ubStages = 1;
-    using EpilogueDispatchPolicy = Catlass::Epilogue::EpilogueAtlasA2PerTokenDequant<ubStages>;
+    using EpilogueDispatchPolicy = Epilogue::EpilogueAtlasA2PerTokenDequant<ubStages, EXEC_FLAG>;
     using ScaleType = Gemm::GemmType<float, layout::VectorLayout>;
     using PerTokenScaleType = Gemm::GemmType<float, layout::VectorLayout>;
     using DType = Gemm::GemmType<ExpandXType, layout::RowMajor>;
@@ -214,23 +214,20 @@ CATLASS_DEVICE void GmmDeq(GemmCoord problemShape, uint32_t groupCount, GM_ADDR 
     using TileCopy = Epilogue::Tile::TileCopy<ArchTag, CType, ScaleType, PerTokenScaleType, DType>;
     using TileScheduler = Epilogue::Tile::EpilogueHorizontalTileSwizzle;
 
-    using BlockEpilogue =
-        Catlass::Epilogue::Block::BlockEpilogue<EpilogueDispatchPolicy, CType, ScaleType, PerTokenScaleType, DType,
-                                                TileRowBroadcastMul, TileBroadcastOneBlk, TileOneBlkColumnBroadcastMul,
-                                                TileCopy, TileScheduler>;
+    using BlockEpilogue = Epilogue::Block::BlockEpilogue<EpilogueDispatchPolicy, CType, ScaleType, PerTokenScaleType,
+                                                         DType, TileRowBroadcastMul, TileBroadcastOneBlk,
+                                                         TileOneBlkColumnBroadcastMul, TileCopy, TileScheduler>;
 
     using BlockScheduler = BlockScheduler_;
 
     // kernel level
     using ElementGroupList = int64_t;
-    using GemmKernel =
-        Gemm::Kernel::GroupedMatmulSliceMPerTokenDequantMultiStageWorkspace<BlockMmad, BlockEpilogue, BlockScheduler,
-                                                                            WORKSPACE_STAGES, ElementGroupList>;
+    using GemmKernel = Gemm::Kernel::GroupedMatmulSliceMPerTokenDequantMultiStageWorkspace<
+        TemplateMC2TypeFunc, BlockMmad, BlockEpilogue, BlockScheduler, WORKSPACE_STAGES, ElementGroupList>;
 
     typename GemmKernel::Params params{
         problemShape, groupCount,      gmGroupList,         gmA, layoutA, gmB,         layoutB, gmScale,
-        layoutScale,  gmPerTokenScale, layoutPerTokenScale, gmD, layoutD, gmWorkspace,
-    };
+        layoutScale,  gmPerTokenScale, layoutPerTokenScale, gmD, layoutD, gmWorkspace, combiner};
 
     // call a kernel
     GemmKernel gemm;
@@ -282,6 +279,7 @@ private:
     uint32_t quantMode_{0};
     uint32_t globalBs_{0};
     uint32_t bs_{0};
+    uint32_t maxBs_{0};
     uint32_t topK_{0};
 
     AscendC::TPipe *tpipe_{nullptr};
@@ -324,12 +322,13 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Init(
     globalBs_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.globalBs;
     bs_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.bs;
     topK_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.k;
+    maxBs_ = globalBs_ / epRankSize_;
 
     bool isShareExpert = (epRankId_ < sharedExpertRankNum_);
     if (isShareExpert) {
-        m_ = bs_ * epRankSize_ / sharedExpertRankNum_;
+        m_ = maxBs_ * epRankSize_ / sharedExpertRankNum_;
     } else {
-        m_ = bs_ * epRankSize_ * (topK_ < moeExpertNumPerRank_ ? topK_ : moeExpertNumPerRank_);
+        m_ = maxBs_ * epRankSize_ * (topK_ < moeExpertNumPerRank_ ? topK_ : moeExpertNumPerRank_);
     }
 
     n_ = GMM1_HIDDEN_SIZE;
@@ -421,8 +420,7 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Process()
                                           layoutPerTokenScale1, gmX2, layoutX2, gmPerTokenScale2, layoutPerTokenScale2,
                                           gmWorkspace, gmX_, gmSmoothScales_, gmexpertIds_, gmExpandIdx, gmEpSendCount,
                                           gmResvered, epRankSize_, epRankId_, moeExpertNum_, moeExpertNumPerRank_,
-                                          sharedExpertNum_, sharedExpertRankNum_, quantMode_, globalBs_, bs_);
-
+                                          sharedExpertNum_, sharedExpertRankNum_, quantMode_, globalBs_, bs_, topK_);
 #ifdef ENABLE_GMM2_COMBINE
     AscendC::PipeBarrier<PIPE_ALL>();
     Arch::CrossCoreFlag gmm1AivFinished{0};

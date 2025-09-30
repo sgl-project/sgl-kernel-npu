@@ -8,9 +8,9 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 #pragma once
-#include "../../catlass/catlass/catlass.hpp"
+#include "../../catlass/act/act.hpp"
 
-namespace Catlass::Epilogue::Tile {
+namespace Act::Epilogue::Tile {
 
 template <class ArchTag_, class ElementCompute_, class TileShape_, int64_t DST_STRIDE_, int64_t SRC0_STRIDE_,
           int64_t SRC1_STRIDE_>
@@ -32,7 +32,7 @@ struct TileStrideBinary {
     static constexpr uint32_t ROW_NUM_PER_COMPUTE = MAX_REPEAT_TIMES;
     static constexpr uint32_t COL_NUM_PER_COMPUTE = BYTE_PER_VECTOR_FRACTAL / sizeof(ElementCompute);
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     TileStrideBinary()
     {
         repeatParams.dstBlkStride = 1;
@@ -52,10 +52,10 @@ struct TileStrideMul
     : TileStrideBinary<ArchTag_, ElementCompute_, TileShape_, DST_STRIDE_, SRC0_STRIDE_, SRC1_STRIDE_> {
     using Base = TileStrideBinary<ArchTag_, ElementCompute_, TileShape_, DST_STRIDE_, SRC0_STRIDE_, SRC1_STRIDE_>;
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     TileStrideMul() : Base() {}
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void operator()(AscendC::LocalTensor<typename Base::ElementCompute> const &ubDst,
                     AscendC::LocalTensor<typename Base::ElementCompute> const &ubSrc0,
                     AscendC::LocalTensor<typename Base::ElementCompute> const &ubSrc1)
@@ -81,10 +81,10 @@ struct TileStrideDiv
     : TileStrideBinary<ArchTag_, ElementCompute_, TileShape_, DST_STRIDE_, SRC0_STRIDE_, SRC1_STRIDE_> {
     using Base = TileStrideBinary<ArchTag_, ElementCompute_, TileShape_, DST_STRIDE_, SRC0_STRIDE_, SRC1_STRIDE_>;
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     TileStrideDiv() : Base() {}
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void operator()(AscendC::LocalTensor<typename Base::ElementCompute> const &ubDst,
                     AscendC::LocalTensor<typename Base::ElementCompute> const &ubSrc0,
                     AscendC::LocalTensor<typename Base::ElementCompute> const &ubSrc1)
@@ -104,4 +104,4 @@ struct TileStrideDiv
     }
 };
 
-}  // namespace Catlass::Epilogue::Tile
+}  // namespace Act::Epilogue::Tile

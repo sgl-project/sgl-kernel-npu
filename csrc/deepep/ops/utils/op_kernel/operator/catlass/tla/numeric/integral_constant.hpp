@@ -11,9 +11,9 @@
 #ifndef TLA_NUMERIC_INTEGER_CONSTANT_HPP
 #define TLA_NUMERIC_INTEGER_CONSTANT_HPP
 
-#include "catlass/detail/macros.hpp"
-#include "tla/type_traits.hpp"
-#include "tla/numeric/math.hpp"
+#include "../../act/act.hpp"
+#include "../../tla/type_traits.hpp"
+#include "../../tla/numeric/math.hpp"
 
 namespace tla {
 
@@ -23,11 +23,11 @@ struct C {
     using type = C<v>;
     static constexpr auto value = v;
     using value_type = decltype(v);
-    CATLASS_HOST_DEVICE constexpr operator value_type() const noexcept
+    ACT_HOST_DEVICE constexpr operator value_type() const noexcept
     {
         return value;
     }
-    CATLASS_HOST_DEVICE constexpr value_type operator()() const noexcept
+    ACT_HOST_DEVICE constexpr value_type operator()() const noexcept
     {
         return value;
     }
@@ -52,7 +52,7 @@ struct integral_constant : C<v> {
     using type = integral_constant<T, v>;
     static constexpr T value = v;
     using value_type = T;
-    CATLASS_HOST_DEVICE constexpr value_type operator()() const noexcept
+    ACT_HOST_DEVICE constexpr value_type operator()() const noexcept
     {
         return value;
     }
@@ -95,7 +95,6 @@ struct is_constant<n, integral_constant<T, v>> : bool_constant<v == n> {};
 
 template <int v>
 using Int = C<v>;
-using _0 = Int<0>;
 using _64 = Int<64>;
 using _128 = Int<128>;
 using _256 = Int<256>;
@@ -105,17 +104,17 @@ using _512 = Int<512>;
 /** Operators **/
 /***************/
 
-#define TLA_LEFT_UNARY_OP(OP)                                 \
-    template <auto t>                                         \
-    CATLASS_HOST_DEVICE constexpr C<(OP t)> operator OP(C<t>) \
-    {                                                         \
-        return {};                                            \
+#define TLA_LEFT_UNARY_OP(OP)                             \
+    template <auto t>                                     \
+    ACT_HOST_DEVICE constexpr C<(OP t)> operator OP(C<t>) \
+    {                                                     \
+        return {};                                        \
     }
-#define TLA_BINARY_OP(OP)                                             \
-    template <auto t, auto u>                                         \
-    CATLASS_HOST_DEVICE constexpr C<(t OP u)> operator OP(C<t>, C<u>) \
-    {                                                                 \
-        return {};                                                    \
+#define TLA_BINARY_OP(OP)                                         \
+    template <auto t, auto u>                                     \
+    ACT_HOST_DEVICE constexpr C<(t OP u)> operator OP(C<t>, C<u>) \
+    {                                                             \
+        return {};                                                \
     }
 
 TLA_LEFT_UNARY_OP(+);
@@ -143,32 +142,31 @@ TLA_BINARY_OP(>>);
 // Named functions from math.hpp
 //
 
-#define TLA_NAMED_UNARY_FN(OP)                  \
-    template <auto t>                           \
-    CATLASS_HOST_DEVICE constexpr auto OP(C<t>) \
-    {                                           \
-        return C<OP(t)>{};                      \
+#define TLA_NAMED_UNARY_FN(OP)              \
+    template <auto t>                       \
+    ACT_HOST_DEVICE constexpr auto OP(C<t>) \
+    {                                       \
+        return C<OP(t)>{};                  \
     }
 #define TLA_NAMED_BINARY_FN(OP)                                           \
     template <auto t, auto u>                                             \
-    CATLASS_HOST_DEVICE constexpr auto OP(C<t>, C<u>)                     \
+    ACT_HOST_DEVICE constexpr auto OP(C<t>, C<u>)                         \
     {                                                                     \
         return C<OP(t, u)>{};                                             \
     }                                                                     \
     template <auto t, class U, __TLA_REQUIRES(is_std_integral<U>::value)> \
-    CATLASS_HOST_DEVICE constexpr auto OP(C<t>, U u)                      \
+    ACT_HOST_DEVICE constexpr auto OP(C<t>, U u)                          \
     {                                                                     \
         return OP(t, u);                                                  \
     }                                                                     \
     template <class T, auto u, __TLA_REQUIRES(is_std_integral<T>::value)> \
-    CATLASS_HOST_DEVICE constexpr auto OP(T t, C<u>)                      \
+    ACT_HOST_DEVICE constexpr auto OP(T t, C<u>)                          \
     {                                                                     \
         return OP(t, u);                                                  \
     }
 
 TLA_NAMED_BINARY_FN(max);
 TLA_NAMED_BINARY_FN(min);
-TLA_NAMED_BINARY_FN(add);
 
 #undef TLA_NAMED_UNARY_FN
 #undef TLA_NAMED_BINARY_FN

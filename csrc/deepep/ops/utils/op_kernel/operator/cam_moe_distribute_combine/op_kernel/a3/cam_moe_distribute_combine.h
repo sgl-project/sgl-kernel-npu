@@ -8,6 +8,7 @@
  */
 #ifndef CAM_MOE_DISTRIBUTE_COMBINE_H
 #define CAM_MOE_DISTRIBUTE_COMBINE_H
+#define OPT_RANK_OFFSET 512
 
 #include "kernel_operator.h"
 #include "kernel_tiling/kernel_tiling.h"
@@ -29,7 +30,6 @@ constexpr uint64_t WIN_STATE_OFFSET = 512 * 1024;
 constexpr uint64_t STATE_WIN_OFFSET = 900 * 1024;
 constexpr uint16_t SEND_SYNC_EVENT_ID = 9;
 constexpr uint16_t RECV_SYNC_EVENT_ID = 10;
-constexpr uint32_t OPT_RANK_OFFSET = 512;
 
 template <AscendC::HardEvent event>
 __aicore__ inline void SyncFunc()
@@ -246,7 +246,11 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::Init(
         selfDataStatusTensor[coreIdx_ * UB_ALIGN]);
     __asm__ __volatile__("");
     dataState_ = selfDataStatusTensor(coreIdx_ * UB_ALIGN);
-    selfDataStatusTensor(coreIdx_ * UB_ALIGN) = 1 - dataState_;
+    if (dataState_ == 0) {
+        selfDataStatusTensor(coreIdx_ * UB_ALIGN) = 1;
+    } else {
+        selfDataStatusTensor(coreIdx_ * UB_ALIGN) = 0;
+    }
     __asm__ __volatile__("");
     DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
         selfDataStatusTensor[coreIdx_ * UB_ALIGN]);
@@ -372,15 +376,16 @@ template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::AlltoAllBuffInit()
 {
     tpipe_->Reset();
+    uint32_t bsMulTopkSizeAligned = Ceil(axisBS_ * axisK_ * sizeof(int32_t), UB_ALIGN) * UB_ALIGN;  // 防止UB不对齐
     tpipe_->InitBuffer(readStateBuf_, UB_ALIGN);
     tpipe_->InitBuffer(statusBuf_, sendRankNum_ * UB_ALIGN);
-    tpipe_->InitBuffer(expertIdsBuf_, axisBS_ * axisK_ * sizeof(int32_t));
-    tpipe_->InitBuffer(expandScalesBuf_, axisBS_ * axisK_ * sizeof(float));
+    tpipe_->InitBuffer(expertIdsBuf_, bsMulTopkSizeAligned);
+    tpipe_->InitBuffer(expandScalesBuf_, bsMulTopkSizeAligned);
     tpipe_->InitBuffer(tokenBuf_, axisH_ * sizeof(ExpandXType));
     tpipe_->InitBuffer(rowTmpFloatBuf_, axisHFloatSize_);  // 7168 * 4 = 28672
     tpipe_->InitBuffer(mulBuf_, axisHFloatSize_);          // 7168 * 4 = 28672
     tpipe_->InitBuffer(sumFloatBuf_, axisHFloatSize_);     // 7168 * 4 = 28672
-    tpipe_->InitBuffer(indexCountsBuf_, axisBS_ * axisK_ * sizeof(int32_t));
+    tpipe_->InitBuffer(indexCountsBuf_, bsMulTopkSizeAligned);
     tpipe_->InitBuffer(moeSumQueue_, BUFFER_NUM, axisHExpandXTypeSize_);
     tpipe_->InitBuffer(gatherMaskOutBuf_, epWorldSize_ * sizeof(float));
     tpipe_->InitBuffer(gatherTmpBuf_, sizeof(uint32_t));  // 4

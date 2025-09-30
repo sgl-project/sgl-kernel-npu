@@ -5,9 +5,9 @@ Contribution guide refer to [Contribution Guide](docs/developer_guide/contributi
 
 ## Quick start
 
-[DeepEP](https://github.com/deepseek-ai/DeepEP) is a communication library tailored for Mixture-of-Experts (MoE) and expert parallelism (EP).
+DeepEP-Ascend: Ascend Implementation of DeepEP. [README](https://github.com/sgl-project/sgl-kernel-npu/blob/main/python/deep_ep/README.md)
 
-[DeepEP-Ascend](https://github.com/sgl-project/sgl-kernel-npu/blob/main/python/deep_ep/README.md) is the adaptation implementation of DeepEP on Ascend.
+SGL-Kernel-NPU: Other SGLang Kernels for Ascend NPU. [README](https://github.com/sgl-project/sgl-kernel-npu/blob/main/python/sgl_kernel_npu/README.md)
 
 ## DeepEP-Ascend Performance
 
@@ -32,5 +32,3 @@ We test normal kernels on A3 384 SuperPOD. And we follow a typical DeepSeek-V3/R
 | 8            | 132 us  | 58 GB/s (HCCS) | 8           | 126 us  | 116 GB/s (HCCS) |
 | 16           | 139 us  | 55 GB/s (HCCS) | 16          | 135 us  | 109 GB/s (HCCS) |
 | 32           | 153 us  | 49 GB/s (HCCS) | 32          | 151 us  | 97 GB/s (HCCS)  |
-| 64           |         |                | 64          |         |                 |
-| 128          |         |                | 128         |         |                 |
