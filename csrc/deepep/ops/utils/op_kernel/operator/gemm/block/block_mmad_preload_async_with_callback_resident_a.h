@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+ * Copyright (c) 2025 Huawei Technologies Co., Ltd.
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 1.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
@@ -8,15 +8,15 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 #pragma once
-#include "../../catlass/catlass/catlass.hpp"
-#include "../../catlass/catlass/arch/resource.hpp"
-#include "../../catlass/catlass/coord.hpp"
-#include "../../catlass/catlass/detail/callback.hpp"
-#include "../../catlass/catlass/gemm_coord.hpp"
-#include "../../catlass/catlass/gemm/dispatch_policy.hpp"
-#include "../../catlass/catlass/gemm/helper.hpp"
+#include "../../catlass/act/act.hpp"
+#include "../../catlass/act/arch/resource.hpp"
+#include "../../catlass/act/coord.hpp"
+#include "../../catlass/act/detail/callback.hpp"
+#include "../../catlass/act/gemm_coord.hpp"
+#include "../../catlass/act/gemm/dispatch_policy.hpp"
+#include "../../catlass/act/gemm/helper.hpp"
 
-namespace Catlass::Gemm::Block {
+namespace Act::Gemm::Block {
 
 template <uint32_t PRELOAD_STAGES_, uint32_t L1A_STAGES_, uint32_t L1B_STAGES_, uint32_t L0A_STAGES_,
           uint32_t L0B_STAGES_, uint32_t L0C_STAGES_, bool ENABLE_UNIT_FLAG_, bool ENABLE_SHUFFLE_K_,
@@ -93,7 +93,7 @@ public:
     static constexpr auto L1A_LAYOUT = LayoutAInL1::template MakeLayout<ElementA>(L1TileShape::M, L1TileShape::K);
     static constexpr auto L1B_LAYOUT = LayoutBInL1::template MakeLayout<ElementB>(L1TileShape::K, L1TileShape::N);
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     BlockMmad(Arch::Resource<ArchTag> &resource, uint32_t l1BufAddrStart = 0)
     {
         InitL1(resource, l1BufAddrStart);
@@ -102,7 +102,7 @@ public:
         InitL0C(resource);
     }
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     ~BlockMmad()
     {
         SynchronizeBlock();
@@ -123,7 +123,7 @@ public:
         }
     }
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void operator()(AscendC::GlobalTensor<ElementA> const &gmBlockA, LayoutA const &layoutA,
                     AscendC::GlobalTensor<ElementB> const &gmBlockB, LayoutB const &layoutB,
                     AscendC::GlobalTensor<ElementC> const &gmBlockC, LayoutC const &layoutC,
@@ -203,7 +203,7 @@ public:
         }
     }
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void SynchronizeBlock()
     {
         while (preloadCount > 0) {
@@ -227,11 +227,11 @@ private:
         Callback callbackBeforeFixpipe;
         Callback callbackAfterFixpipe;
 
-        CATLASS_DEVICE
+        ACT_DEVICE
         L1TileMmadParams() = default;
     };
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void InitL1(Arch::Resource<ArchTag> &resource, uint32_t l1BufAddrStart)
     {
         uint32_t l1AOffset = l1BufAddrStart;
@@ -248,7 +248,7 @@ private:
         }
     }
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void InitL0A(Arch::Resource<ArchTag> &resource)
     {
         for (uint32_t i = 0; i < L0A_STAGES; ++i) {
@@ -258,7 +258,7 @@ private:
         }
     }
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void InitL0B(Arch::Resource<ArchTag> &resource)
     {
         for (uint32_t i = 0; i < L0B_STAGES; ++i) {
@@ -268,7 +268,7 @@ private:
         }
     }
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void InitL0C(Arch::Resource<ArchTag> &resource)
     {
         for (uint32_t i = 0; i < L0C_STAGES; ++i) {
@@ -278,7 +278,7 @@ private:
         }
     }
 
-    CATLASS_DEVICE
+    ACT_DEVICE
     void L1TileMmad(L1TileMmadParams const &params)
     {
         uint32_t mPartLoop = CeilDiv<L0TileShape::M>(params.mRound);
@@ -417,4 +417,4 @@ private:
     AscendC::GlobalTensor<ElementA> lastGmBlockA;
 };
 
-}  // namespace Catlass::Gemm::Block
+}  // namespace Act::Gemm::Block

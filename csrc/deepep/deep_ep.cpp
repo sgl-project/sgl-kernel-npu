@@ -87,8 +87,7 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     const int notify_send_data_size =
         num_experts * EXPERT_DATA_SIZE + server_num + MAX_BATCH_SIZE * (1 + 2 * server_num + num_topk);
     /*
-    The notify send data is constructed by 8 parameters and
-    the parameters are ordered as follows:
+    The notify send data is constructed by 8 parameters and the 8 parameters are ordered as follows:
     1. the number of the tokens that every expert received from this NPU.
        size:[numExpert]
     2. The number of tokens received by each server from this NPU (deduplicated).
@@ -217,11 +216,11 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 
     int send_per_group = 3;  // (send_to_expert_num, send_to_expert_offset, send_rank_tokens)
 
-    auto send_data = at::zeros({num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
+    auto send_data = torch::empty({num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
     int64_t send_count = send_per_group * num_local_experts * num_ranks;
 
-    auto send_data_offset = at::zeros({num_experts}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor recv_data = at::zeros({num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
+    auto send_data_offset = torch::empty({num_experts}, at::dtype(at::kInt).device(x.device()));
+    at::Tensor recv_data = torch::empty({num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
 
     // get ep name
     char hcom_ep_name[HCOMM_NAME_LEN];
@@ -243,7 +242,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 
     auto options_cpu = torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU);
     std::vector<int32_t> local_expert_acc(num_experts, 0);
-    auto send_token_idx_cpu = at::zeros({num_tokens, num_topk}, options_cpu);
+    auto send_token_idx_cpu = torch::empty({num_tokens, num_topk}, options_cpu);
     auto send_token_idx_ptr = send_token_idx_cpu.data_ptr<int>();
 
     auto topk_idx_cpu = new_topk_idx.to(at::kCPU);
@@ -261,8 +260,8 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 
     EP_HOST_ASSERT(recv_data.dim() == 1 and recv_data.is_contiguous());
     EP_HOST_ASSERT(recv_data.size(0) % num_experts == 0);
-    at::Tensor recv_offset_cpu = at::zeros({num_experts}, options_cpu);
-    at::Tensor recv_count_cpu = at::zeros({num_experts}, options_cpu);
+    at::Tensor recv_offset_cpu = torch::empty({num_experts}, options_cpu);
+    at::Tensor recv_count_cpu = torch::empty({num_experts}, options_cpu);
     auto recv_data_cpu = recv_data.to(at::kCPU);
     auto recv_data_ptr = recv_data_cpu.data_ptr<int>();
     auto recv_count_ptr = recv_count_cpu.data_ptr<int>();
@@ -303,10 +302,10 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     auto recv_count = recv_count_cpu.to(x.device());
 
     int num_recv_tokens = (total_recv_tokens == 0) ? 1 : total_recv_tokens;
-    auto expandx_out = use_quant ? at::zeros({num_recv_tokens, hidden}, at::dtype(at::kChar).device(x.device()))
-                                 : at::zeros({num_recv_tokens, hidden}, x.options());
-    auto dynamic_scales_out = at::zeros({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
-    auto expand_idx_out = at::zeros({num_recv_tokens * 3}, at::dtype(at::kInt).device(x.device()));
+    auto expandx_out = use_quant ? torch::empty({num_recv_tokens, hidden}, at::dtype(at::kChar).device(x.device()))
+                                 : torch::empty({num_recv_tokens, hidden}, x.options());
+    auto dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
+    auto expand_idx_out = torch::empty({num_recv_tokens * 3}, at::dtype(at::kInt).device(x.device()));
 
     EXEC_NPU_CMD(aclnnCamMoeDispatchNormal, new_x, expert_ids, send_data_offset, send_token_idx, recv_offset,
                  recv_count, hcom_ep_name,

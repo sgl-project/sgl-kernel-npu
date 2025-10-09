@@ -245,7 +245,7 @@ def test_main(
     for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x)):
         if local_rank == 0:
             print(
-                f'[testing] Running with {"FP8" if isinstance(current_x, tuple) else "BF16"}, with top-k ...',
+                f'[testing] Running with {"FP8" if isinstance(current_x, tuple) else "BF16"}, with top-k {num_topk} ...',
                 flush=True,
             )
         dispatch_args = {
