@@ -38,6 +38,14 @@ void alloc_extend(const at::Tensor &pre_lens, const at::Tensor &seq_lens,
                   int64_t pages_size, at::Tensor &out_indices,
                   at::Tensor &values);
 
+void build_tree_efficient(
+    const at::Tensor &parent_list, const at::Tensor &selected_index,
+    const at::Tensor &verified_seq_len, const at::Tensor &tree_mask,
+    const at::Tensor &positions, const at::Tensor &retrive_index,
+    const at::Tensor &retrive_next_token,
+    const at::Tensor &retrive_next_sibling, int64_t topk, int64_t depth,
+    int64_t draft_token_num, int64_t tree_mask_mode);
+
 std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>
 mla_preprocess(const at::Tensor &hiddenState, const at::Tensor &gamma0,
                const at::Tensor &beta0, const at::Tensor &wdqkv,
