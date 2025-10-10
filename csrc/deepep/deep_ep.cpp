@@ -596,11 +596,13 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     return {combined_x, event, std::function<void()>([] {})};
 }
 
-std::tuple<at::Tensor, at::Tensor>
-Buffer::fused_deep_moe(const at::Tensor &x, const at::Tensor &expert_ids, const at::Tensor &gmm1_permuted_weight,
-                       const at::Tensor &gmm1_permuted_weight_scale, const at::Tensor &gmm2_weight,
-                       const at::Tensor &gmm2_weight_scale, const at::Tensor &expert_scales_optional,
-                       int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts, int quant_mode)
+std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Tensor &expert_ids,
+                                               const at::Tensor &gmm1_permuted_weight,
+                                               const at::Tensor &gmm1_permuted_weight_scale,
+                                               const at::Tensor &gmm2_weight, const at::Tensor &gmm2_weight_scale,
+                                               const at::Tensor &expert_scales_optional,
+                                               int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
+                                               int quant_mode)
 {
     EP_HOST_ASSERT(expert_ids.dim() == 2);
     EP_HOST_ASSERT(expert_scales_optional.dim() == 2);
@@ -657,15 +659,14 @@ Buffer::fused_deep_moe(const at::Tensor &x, const at::Tensor &expert_ids, const 
     int64_t global_bs = std::max(new_topk_idx.size(0), num_max_dispatch_tokens_per_rank) * num_ranks;
 
     auto x_shape = x.sizes();
-    auto expert_ids_shape = expert_ids.sizes();
     int h = x_shape[1];
     int bs = this->new_topk_idx.size(0);
 
     at::Tensor output = at::empty({bs, h}, x.options());
 
-    auto num_local_experts = static_cast<int>(num_experts / num_ranks);
-    at::Tensor ep_recv_count =
-        torch::zeros({num_local_experts * num_ranks}, torch::dtype(torch::kInt32).device(x.device()));
+    bool is_shared_expert = (rank < shared_expert_rank_num);
+    int64_t num_local_experts = is_shared_expert ? 1 : num_experts / (num_ranks - shared_expert_rank_num);
+    at::Tensor ep_recv_count = at::empty({num_local_experts * num_ranks}, expert_ids.options());
 
     EXEC_NPU_CMD(aclnnFusedDeepMoe,
                  // input

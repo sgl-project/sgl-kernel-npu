@@ -85,12 +85,11 @@ public:
         const at::Tensor &packed_recv_count, bool zero_copy, bool async, bool return_recv_hook,
         const std::optional<at::Tensor> &out);
 
-    std::tuple<at::Tensor, at::Tensor> fused_deep_moe(const at::Tensor &x, const at::Tensor &expertIds,
-                                                      const at::Tensor &gmm1PermutedWeight,
-                                                      const at::Tensor &gmm1PermutedWeightScale,
-                                                      const at::Tensor &gmm2Weight, const at::Tensor &gmm2WeightScale,
-                                                      const at::Tensor &expertScalesOptional,
-                                                      int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
-                                                      int quant_mode);
+    std::vector<at::Tensor> fused_deep_moe(const at::Tensor &x, const at::Tensor &expertIds,
+                                           const at::Tensor &gmm1PermutedWeight,
+                                           const at::Tensor &gmm1PermutedWeightScale, const at::Tensor &gmm2Weight,
+                                           const at::Tensor &gmm2WeightScale, const at::Tensor &expertScalesOptional,
+                                           int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
+                                           int quant_mode);
 };
 }  // namespace deep_ep
