@@ -77,7 +77,7 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     auto device = new_topk_idx.device();
     auto num_tokens_per_expert = at::zeros({num_experts}, at::dtype(at::kInt).device(device));
     auto num_tokens_per_rank = at::zeros({num_ranks}, at::dtype(at::kInt).device(device));
-    auto is_token_in_rank = at::zeros({num_tokens, num_ranks}, at::dtype(at::kInt).device(device));
+    auto is_token_in_rank = torch::empty({num_tokens, num_ranks}, at::dtype(at::kInt).device(device));
 
     EXEC_NPU_CMD(aclnnDispatchLayout, new_topk_idx, num_tokens, num_ranks, num_experts, num_topk, num_tokens_per_rank,
                  num_tokens_per_expert, is_token_in_rank);
@@ -97,7 +97,8 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                            const std::optional<at::Tensor> &num_tokens_per_rank, const at::Tensor &is_token_in_rank,
                            const std::optional<at::Tensor> &num_tokens_per_expert, int cached_num_recv_tokens,
                            const std::optional<at::Tensor> &cached_rank_prefix_matrix,
-                           const std::optional<at::Tensor> &cached_channel_prefix_matrix, int expert_alignment,
+                           const std::optional<at::Tensor> &cached_channel_prefix_matrix,
+                           const std::optional<at::Tensor> &dispatch_wait_recv_cost_stats, int expert_alignment,
                            int num_worst_tokens, const Config &config, std::optional<EventHandle> &previous_event,
                            bool async, bool allocate_on_comm_stream, bool use_quant)
 {
@@ -172,13 +173,21 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         scale_hidden_stride = static_cast<int>(x_scales->stride(1));
     }
 
+    at::Tensor dispatch_wait_recv_cost_stats_out;
+    if (dispatch_wait_recv_cost_stats.has_value()) {
+        EP_HOST_ASSERT(dispatch_wait_recv_cost_stats->scalar_type() == torch::kInt32);
+        EP_HOST_ASSERT(dispatch_wait_recv_cost_stats->dim() == 1 and dispatch_wait_recv_cost_stats->is_contiguous());
+        EP_HOST_ASSERT(dispatch_wait_recv_cost_stats->size(0) == num_ranks);
+        dispatch_wait_recv_cost_stats_out = dispatch_wait_recv_cost_stats.value();
+    }
+
     int send_per_group = 3;  // (send_to_expert_num, send_to_expert_offset, send_rank_tokens)
 
-    auto send_data = at::zeros({num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
+    auto send_data = torch::empty({num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
     int64_t send_count = send_per_group * num_local_experts * num_ranks;
 
-    auto send_data_offset = at::zeros({num_experts}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor recv_data = at::zeros({num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
+    auto send_data_offset = torch::empty({num_experts}, at::dtype(at::kInt).device(x.device()));
+    at::Tensor recv_data = torch::empty({num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
 
     // get ep name
     char hcom_ep_name[HCOMM_NAME_LEN];
@@ -200,7 +209,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 
     auto options_cpu = torch::TensorOptions().dtype(torch::kInt32).device(torch::kCPU);
     std::vector<int32_t> local_expert_acc(num_experts, 0);
-    auto send_token_idx_cpu = at::zeros({num_tokens, num_topk}, options_cpu);
+    auto send_token_idx_cpu = torch::empty({num_tokens, num_topk}, options_cpu);
     auto send_token_idx_ptr = send_token_idx_cpu.data_ptr<int>();
 
     auto topk_idx_cpu = new_topk_idx.to(at::kCPU);
@@ -218,8 +227,8 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 
     EP_HOST_ASSERT(recv_data.dim() == 1 and recv_data.is_contiguous());
     EP_HOST_ASSERT(recv_data.size(0) % num_experts == 0);
-    at::Tensor recv_offset_cpu = at::zeros({num_experts}, options_cpu);
-    at::Tensor recv_count_cpu = at::zeros({num_experts}, options_cpu);
+    at::Tensor recv_offset_cpu = torch::empty({num_experts}, options_cpu);
+    at::Tensor recv_count_cpu = torch::empty({num_experts}, options_cpu);
     auto recv_data_cpu = recv_data.to(at::kCPU);
     auto recv_data_ptr = recv_data_cpu.data_ptr<int>();
     auto recv_count_ptr = recv_count_cpu.data_ptr<int>();
@@ -260,17 +269,17 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     auto recv_count = recv_count_cpu.to(x.device());
 
     int num_recv_tokens = (total_recv_tokens == 0) ? 1 : total_recv_tokens;
-    auto expandx_out = use_quant ? at::zeros({num_recv_tokens, hidden}, at::dtype(at::kChar).device(x.device()))
-                                 : at::zeros({num_recv_tokens, hidden}, x.options());
-    auto dynamic_scales_out = at::zeros({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
-    auto expand_idx_out = at::zeros({num_recv_tokens * 3}, at::dtype(at::kInt).device(x.device()));
+    auto expandx_out = use_quant ? torch::empty({num_recv_tokens, hidden}, at::dtype(at::kChar).device(x.device()))
+                                 : torch::empty({num_recv_tokens, hidden}, x.options());
+    auto dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
+    auto expand_idx_out = torch::empty({num_recv_tokens * 3}, at::dtype(at::kInt).device(x.device()));
 
     EXEC_NPU_CMD(aclnnCamMoeDispatchNormal, new_x, expert_ids, send_data_offset, send_token_idx, recv_offset,
                  recv_count, hcom_ep_name,
                  num_ranks,  // rankSize
                  rank,       // rankId
                  hcom_ep_name, tp_size, tp_rank, num_experts, quant_mode, global_bs, expandx_out, dynamic_scales_out,
-                 expand_idx_out);
+                 expand_idx_out, dispatch_wait_recv_cost_stats_out);
 
     auto recv_topk_idx = std::optional<at::Tensor>();
     auto recv_topk_weights = std::optional<at::Tensor>();
@@ -305,9 +314,10 @@ void Buffer::clean_low_latency_buffer(int num_max_dispatch_tokens_per_rank, int 
     return;
 }
 
-std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandle>> Buffer::intranode_combine(
-    const torch::Tensor &x, const torch::Tensor &topk_idx, const std::optional<torch::Tensor> &topk_weights,
-    const torch::Tensor &src_idx, const torch::Tensor &send_head)
+std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandle>>
+Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
+                          const std::optional<torch::Tensor> &topk_weights, const torch::Tensor &src_idx,
+                          const torch::Tensor &send_head, const std::optional<at::Tensor> &combine_send_cost_stats)
 {
     EP_HOST_ASSERT(x.dim() == 2 and x.is_contiguous());
     at::Tensor recv_x = x;
@@ -345,6 +355,14 @@ std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandl
         expert_scales = at::ones({num_tokens, num_topk}, at::dtype(at::kFloat).device(device));
     }
 
+    at::Tensor combine_send_cost_stats_out;
+    if (combine_send_cost_stats.has_value()) {
+        EP_HOST_ASSERT(combine_send_cost_stats->scalar_type() == torch::kInt32);
+        EP_HOST_ASSERT(combine_send_cost_stats->dim() == 1 and combine_send_cost_stats->is_contiguous());
+        EP_HOST_ASSERT(combine_send_cost_stats->size(0) == num_ranks);
+        combine_send_cost_stats_out = combine_send_cost_stats.value();
+    }
+
     int64_t hidden = static_cast<int>(recv_x.size(1));
     at::Tensor tp_send_counts = at::empty({1}, at::dtype(at::kInt).device(device));
     int64_t tp_world_size = 1;
@@ -367,7 +385,7 @@ std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandl
 
     EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, tp_send_counts,
                  hcom_ep_name, num_ranks, rank, hcom_ep_name, tp_world_size, tp_rankId, moe_expert_number, global_bs,
-                 combined_x);
+                 combined_x, combine_send_cost_stats_out);
 
     if (this->is_padding) {
         if (this->padding_cnt == PADDING_SIZE) {
@@ -574,4 +592,94 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     return {combined_x, event, std::function<void()>([] {})};
 }
 
+std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>> Buffer::fused_deep_moe(
+    const at::Tensor &x, const at::Tensor &expertIds, const at::Tensor &gmm1PermutedWeight,
+    const at::Tensor &gmm1PermutedWeightScale, const at::Tensor &gmm2Weight, const at::Tensor &gmm2WeightScale,
+    const at::Tensor &expertScalesOptional, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts, bool use_fp8)
+{
+    EP_HOST_ASSERT(expertIds.dim() == 2);
+    EP_HOST_ASSERT(expertScalesOptional.dim() == 2);
+
+    this->is_padding = false;
+    at::Tensor new_x = x;
+    this->new_topk_idx = expertIds;
+    at::Tensor new_scales = expertScalesOptional;
+
+    if (expertIds.size(0) < PADDING_SIZE) {
+        this->is_padding = true;
+        this->padding_cnt = PADDING_SIZE - expertIds.size(0);
+
+        std::vector<at::Tensor> x_blocks;
+        std::vector<at::Tensor> idx_blocks;
+
+        if (expertIds.size(0) != 0) {
+            x_blocks.emplace_back(x);
+            idx_blocks.emplace_back(expertIds);
+        } else {
+            this->ori_x = x.clone();  //  Store the original input when the batch is completely empty.
+        }
+
+        int topk = static_cast<int>(expertIds.size(1));
+        for (int i = 0; i < this->padding_cnt; i++) {
+            at::Tensor tmp_x = torch::ones({1, x.size(1)}, x.options());
+            at::Tensor tmp_idx = torch::arange(0, topk, expertIds.options()).reshape({1, topk});
+            x_blocks.emplace_back(tmp_x);
+            idx_blocks.emplace_back(tmp_idx);
+        }
+
+        new_x = torch::cat(x_blocks, 0);
+        this->new_topk_idx = torch::cat(idx_blocks, 0);
+
+        // padding expertScalesOptional
+        std::vector<at::Tensor> scales_blocks;
+        if (this->padding_cnt != PADDING_SIZE) {
+            scales_blocks.emplace_back(expertScalesOptional);
+        }
+        for (int i = 0; i < this->padding_cnt; i++) {
+            at::Tensor tmp_scales = torch::zeros({1, expertScalesOptional.size(1)}, expertScalesOptional.options());
+            scales_blocks.emplace_back(tmp_scales);
+        }
+
+        new_scales = torch::cat(scales_blocks, 0);
+    }
+
+    char hcom_ep_name[128];
+    if (!moe_all_to_all_group_name.empty()) {
+        std::memcpy(hcom_ep_name, moe_all_to_all_group_name.data(), moe_all_to_all_group_name.size() + 1);
+    } else {
+        HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
+    }
+
+    int64_t quantMode = use_fp8 ? 2 : 0;
+    int64_t globalBs = std::max(new_topk_idx.size(0), num_max_dispatch_tokens_per_rank) * num_ranks;
+
+    auto xShape = x.sizes();
+    auto expertIdsShape = expertIds.sizes();
+    int h = xShape[1];
+    int bs = this->new_topk_idx.size(0);
+    at::Tensor output = at::empty({bs, h}, x.options());
+
+    EXEC_NPU_CMD(aclnnFusedDeepMoe,
+                 // input
+                 x, expertIds, gmm1PermutedWeight, gmm1PermutedWeightScale, gmm2Weight, gmm2WeightScale,
+                 static_cast<const std::nullptr_t &>(nullptr), new_scales,
+                 // attr
+                 hcom_ep_name, num_ranks, rank, num_experts, shared_expert_num, shared_expert_rank_num, quantMode,
+                 globalBs,
+                 // output
+                 output);
+
+    // ---------- Unpadding ----------
+    if (this->is_padding) {
+        if (expertIds.size(0) == 0) {
+            output = this->ori_x;
+        } else {
+            output = output.slice(0, 0, PADDING_SIZE - this->padding_cnt);
+        }
+        this->is_padding = false;
+    }
+
+    std::optional<EventHandle> event;
+    return {output, event, std::function<void()>([] {})};
+}
 }  // namespace deep_ep

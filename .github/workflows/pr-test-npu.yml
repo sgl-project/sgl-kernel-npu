@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test-low-latency:
+  test-all-build:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false
     runs-on: linux-aarch64-a3-16
@@ -51,14 +51,21 @@ jobs:
       - name: Prepare Deepep
         run: bash scripts/prepare_deepep_in_container.sh
 
-      - name: Run test
+      - name: Run test intranode
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 2000
+          HCCL_BUFFSIZE: 2239
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
+
+      - name: Run test low latency
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
 
-  test-intranode:
+  test-build-deepep:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false
     runs-on: linux-aarch64-a3-16
@@ -90,20 +97,27 @@ jobs:
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Prepare Deepep
-        run: bash scripts/prepare_deepep_in_container.sh
+        run: bash scripts/prepare_deepep_in_container.sh -a deepep
 
-      - name: Run test
+      - name: Run test intranode
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 3000
+          HCCL_BUFFSIZE: 2239
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
+
+      - name: Run test low latency
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
 
   finish:
     if: always()
     needs:
-      - test-low-latency
-      - test-intranode
+      - test-all-build
+      - test-build-deepep
     runs-on: ubuntu-latest
     steps:
       - name: Check all dependent job statuses

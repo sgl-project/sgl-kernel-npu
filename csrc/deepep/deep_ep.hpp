@@ -58,15 +58,17 @@ public:
                        const std::optional<at::Tensor> &num_tokens_per_rank, const at::Tensor &is_token_in_rank,
                        const std::optional<at::Tensor> &num_tokens_per_expert, int cached_num_recv_tokens,
                        const std::optional<at::Tensor> &cached_rank_prefix_matrix,
-                       const std::optional<at::Tensor> &cached_channel_prefix_matrix, int expert_alignment,
+                       const std::optional<at::Tensor> &cached_channel_prefix_matrix,
+                       const std::optional<at::Tensor> &dispatch_wait_recv_cost_stats, int expert_alignment,
                        int num_worst_tokens, const Config &config, std::optional<EventHandle> &previous_event,
                        bool async, bool allocate_on_comm_stream, bool use_quant);
 
     void clean_low_latency_buffer(int num_max_dispatch_tokens_per_rank, int hidden, int num_experts);
 
-    std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandle>> intranode_combine(
-        const torch::Tensor &x, const torch::Tensor &topk_idx, const std::optional<torch::Tensor> &topk_weights,
-        const torch::Tensor &src_idx, const torch::Tensor &send_head);
+    std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandle>>
+    intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
+                      const std::optional<torch::Tensor> &topk_weights, const torch::Tensor &src_idx,
+                      const torch::Tensor &send_head, const std::optional<at::Tensor> &combine_send_cost_stats);
 
     std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Tensor, std::optional<EventHandle>,
                std::optional<std::function<void()>>>
@@ -82,6 +84,11 @@ public:
         const at::Tensor &layout_range, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
         const at::Tensor &packed_recv_count, bool zero_copy, bool async, bool return_recv_hook,
         const std::optional<at::Tensor> &out);
-};
 
+    std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>>
+    fused_deep_moe(const at::Tensor &x, const at::Tensor &expertIds, const at::Tensor &gmm1PermutedWeight,
+                   const at::Tensor &gmm1PermutedWeightScale, const at::Tensor &gmm2Weight,
+                   const at::Tensor &gmm2WeightScale, const at::Tensor &expertScalesOptional,
+                   int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts, bool use_fp8);
+};
 }  // namespace deep_ep

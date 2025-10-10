@@ -1,11 +1,21 @@
 import argparse
 import time
+from typing import Optional
 
 # noinspection PyUnresolvedReferences
 import deep_ep
+import numpy as np
 import torch
 import torch.distributed as dist
-from utils import bench, calc_diff, init_dist, inplace_unique, per_token_cast_back
+import torch_npu
+from utils import (
+    bench,
+    calc_diff,
+    diagnose_matrix,
+    init_dist,
+    inplace_unique,
+    per_token_cast_back,
+)
 
 
 # noinspection PyShadowingNames
@@ -20,6 +30,7 @@ def test_main(
     # Settings
     num_tokens, hidden = args.num_tokens, args.hidden
     num_topk, num_experts = args.num_topk, args.num_experts
+    enable_diagnose = args.enable_diagnose
 
     assert num_experts % num_ranks == 0
     if local_rank == 0:
@@ -165,10 +176,76 @@ def test_main(
             assert (check_x[check_start:check_end, :].int() - i).sum().item() == 0
             check_start = check_end
 
+    # Test diagnose function
+    # noinspection PyShadowingNames
+    def test_diagnose(
+        dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
+        combine_send_cost_stats: Optional[torch.Tensor] = None,
+    ):
+        for current_x in filter(lambda elem: elem is not None, (x_pure_rand,)):
+            dispatch_args = {
+                "x": current_x,
+                "num_tokens_per_rank": num_tokens_per_rank,
+                "is_token_in_rank": is_token_in_rank,
+                "num_tokens_per_expert": num_tokens_per_expert,
+                "config": config,
+                "topk_idx": topk_idx,
+                "topk_weights": topk_weights_pure_rand,
+                "dispatch_wait_recv_cost_stats": dispatch_wait_recv_cost_stats,
+            }
+            if dispatch_wait_recv_cost_stats is not None:
+                bench(lambda: buffer.dispatch(**dispatch_args), num_warmups=0)
+            if combine_send_cost_stats is not None:
+                (
+                    recv_x,
+                    recv_topk_idx,
+                    recv_topk_weights,
+                    recv_num_tokens_per_expert_list,
+                    handle,
+                    event,
+                ) = buffer.dispatch(**dispatch_args)
+                recv_x = (
+                    per_token_cast_back(*recv_x)
+                    if isinstance(recv_x, tuple)
+                    else recv_x
+                )
+                combine_args = {
+                    "x": recv_x,
+                    "handle": handle,
+                    "topk_weights": handle[7],
+                    "config": config,
+                    "async_finish": False,
+                    "combine_send_cost_stats": combine_send_cost_stats,
+                }
+                bench(lambda: buffer.combine(**combine_args), num_warmups=0)
+        for stats, title in (
+            (dispatch_wait_recv_cost_stats, "Dispatch wait recv cost"),
+            (combine_send_cost_stats, "Combine send cost"),
+        ):
+            if stats is None:
+                continue
+            gather_list = (
+                [torch.zeros_like(stats) for _ in range(group.size())]
+                if rank == 0
+                else None
+            )
+            dist.gather(stats, gather_list=gather_list, group=group, dst=0)
+            if rank == 0:
+                stats_mat = torch.stack(gather_list, dim=0)
+                print(f"{title} stats:")
+                print(stats_mat)
+                res = diagnose_matrix(
+                    stats_mat, thres_col=1.0, thres_row=2.0, thres_point=5.0
+                )
+                print(
+                    f"[Diagnose {title}] abnormal_rows {res['abnormal_rows']}, "
+                    f"abnormal_cols {res['abnormal_cols']}, abnormal_points {res['abnormal_points']}"
+                )
+
     for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x)):
         if local_rank == 0:
             print(
-                f'[testing] Running with {"FP8" if isinstance(current_x, tuple) else "BF16"}, with top-k ...',
+                f'[testing] Running with {"FP8" if isinstance(current_x, tuple) else "BF16"}, with top-k {num_topk} ...',
                 flush=True,
             )
         dispatch_args = {
@@ -286,6 +363,19 @@ def test_main(
         )
         print("", flush=True)
 
+    # Diagnose test
+    if enable_diagnose:
+        dispatch_wait_recv_cost_stats = torch.zeros(
+            (num_ranks,), dtype=torch.int32, device="npu"
+        )
+        combine_send_cost_stats = torch.zeros(
+            (num_ranks,), dtype=torch.int32, device="npu"
+        )
+        test_diagnose(
+            dispatch_wait_recv_cost_stats=dispatch_wait_recv_cost_stats,
+            combine_send_cost_stats=combine_send_cost_stats,
+        )
+
 
 # noinspection PyUnboundLocalVariable,PyShadowingNames
 def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
@@ -332,6 +422,11 @@ if __name__ == "__main__":
         default="",
         help="Comma-separated list of ranks that will receive tokens. "
         'Example: "0,1,3". If empty, all ranks may receive tokens.',
+    )
+    parser.add_argument(
+        "--enable-diagnose",
+        action="store_true",
+        help="Whether to enable diagnose for testing",
     )
     args = parser.parse_args()
 
