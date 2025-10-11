@@ -8,34 +8,32 @@
 # ======================================================================================================================
 
 add_ops_compile_options(
-        OP_NAME LightningIndexer
+        OP_NAME SparseFlashAttention
         OPTIONS --cce-auto-sync=off
                 -Wno-deprecated-declarations
                 -Werror
-                -mllvm -cce-aicore-hoist-movemask=false
-                --op_relocatable_kernel_binary=true
+                -fpermissive
 )
 
-set(lightning_indexer_depends transformer/attention/lightning_indexer PARENT_SCOPE)
-
+set(sparse_flash_attention_depends transformer/attention/sparse_flash_attention PARENT_SCOPE)
 target_sources(op_host_aclnn PRIVATE
-        op_host/lightning_indexer_def.cpp
+        op_host/sparse_flash_attention_def.cpp
 )
 
 target_sources(optiling PRIVATE
-        op_host/lightning_indexer_tiling.cpp
+        op_host/sparse_flash_attention_tiling.cc
 )
 
 if (NOT BUILD_OPEN_PROJECT)
     target_sources(opmaster_ct PRIVATE
-        op_host/lightning_indexer_tiling.cpp
+        op_host/sparse_flash_attention_tiling.cc
     )
 endif ()
 
-target_include_directories(optiling PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/op_host
+target_sources(opsproto PRIVATE
+        op_host/sparse_flash_attention_proto.cpp
 )
 
-target_sources(opsproto PRIVATE
-        op_host/lightning_indexer_proto.cpp
+target_include_directories(optiling PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}
 )

@@ -6,13 +6,12 @@
 # THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
 # See LICENSE in the root of the software repository for the full text of the License.
 
-import torch
-import torch_npu
-import torchair
 import custom_ops
 import numpy as np
+import torch
 import torch.nn as nn
-
+import torch_npu
+import torchair
 from torch_npu.testing.testcase import TestCase, run_tests
 
 DEVICE_ID = 0
@@ -27,13 +26,24 @@ def _get_data_from_pa_cache(key, block_table, act_s2):
     act_s2_align = need_blcok_num * block_size
     out = torch.zeros((act_s2_align, d), dtype=key.dtype, device=key.device)
     for i in range(need_blcok_num):
-        out[i*block_size:(i+1)*block_size, :] = key[block_table[i], ...].reshape(block_size, d)
+        out[i * block_size : (i + 1) * block_size, :] = key[
+            block_table[i], ...
+        ].reshape(block_size, d)
 
     return out[:act_s2, :]
 
 
-def _lightning_indexer(query, key, weights, actual_seq_lengths_query, actual_seq_lengths_key, block_table,
-                       layout_query="BSND", sparse_count=2048, sparse_mode=3):
+def _lightning_indexer(
+    query,
+    key,
+    weights,
+    actual_seq_lengths_query,
+    actual_seq_lengths_key,
+    block_table,
+    layout_query="BSND",
+    sparse_count=2048,
+    sparse_mode=3,
+):
     batch_size = query.shape[0]
     if layout_query == "TND":
         batch_size = actual_seq_lengths_query.shape[0]
@@ -44,7 +54,12 @@ def _lightning_indexer(query, key, weights, actual_seq_lengths_query, actual_seq
     out_shape[-1] = sparse_count
     out_shape[-2] = n2
     # 初始化为全-1
-    out = torch.zeros(out_shape, dtype=torch.int32, device=query.device).reshape(-1, n2, sparse_count) - 1
+    out = (
+        torch.zeros(out_shape, dtype=torch.int32, device=query.device).reshape(
+            -1, n2, sparse_count
+        )
+        - 1
+    )
     act_s1 = 0
     act_s2 = 0
     process_q_len = 0
@@ -53,17 +68,28 @@ def _lightning_indexer(query, key, weights, actual_seq_lengths_query, actual_seq
             # 只能为BSND格式
             act_s1 = query.shape[1]
         else:
-            if layout_query == "TND": # TND格式时actual_seq_lengths_query为前缀和
+            if layout_query == "TND":  # TND格式时actual_seq_lengths_query为前缀和
                 act_s1 = actual_seq_lengths_query[batch_id] - process_q_len
             else:
                 act_s1 = actual_seq_lengths_query[batch_id]
         act_s2 = actual_seq_lengths_key[batch_id]
-        now_q = query.reshape(-1, n1, d)[process_q_len:process_q_len+act_s1, :, :].transpose(0, 1).to(torch.float32)
-        now_weights = weights.reshape(-1, n1, 1)[process_q_len:process_q_len+act_s1, :, :] \
-                    .transpose(0, 1).to(torch.float32)
+        now_q = (
+            query.reshape(-1, n1, d)[process_q_len : process_q_len + act_s1, :, :]
+            .transpose(0, 1)
+            .to(torch.float32)
+        )
+        now_weights = (
+            weights.reshape(-1, n1, 1)[process_q_len : process_q_len + act_s1, :, :]
+            .transpose(0, 1)
+            .to(torch.float32)
+        )
         process_q_len += act_s1
         now_block_table = block_table[batch_id, :]
-        now_k = _get_data_from_pa_cache(key, now_block_table, act_s2).transpose(0, 1).to(torch.float32)
+        now_k = (
+            _get_data_from_pa_cache(key, now_block_table, act_s2)
+            .transpose(0, 1)
+            .to(torch.float32)
+        )
         # n1,s1,d @ d,s2 -> n1,s1,s2
         relu_out = torch.maximum(torch.matmul(now_q, now_k), torch.tensor(0))
         weight_out = relu_out * now_weights
@@ -74,10 +100,12 @@ def _lightning_indexer(query, key, weights, actual_seq_lengths_query, actual_seq
         tmp_s2 = reduce_out.shape[1]
         if sparse_mode == 3:
             for i in range(tmp_s1):
-                reduce_out[-1-i, tmp_s2-i:] = float('-inf')
+                reduce_out[-1 - i, tmp_s2 - i :] = float("-inf")
         sorted_value, sorted_indices = torch.sort(reduce_out, dim=1, descending=True)
         return_s2 = min(sparse_count, tmp_s2)
-        out[process_q_len - act_s1:process_q_len, 0, :return_s2] = sorted_indices.to(torch.int32)[:, :return_s2]
+        out[process_q_len - act_s1 : process_q_len, 0, :return_s2] = sorted_indices.to(
+            torch.int32
+        )[:, :return_s2]
 
     out = out.reshape(out_shape)
     return out
@@ -93,20 +121,41 @@ class TestCustomLightningIndexer(TestCase):
         d = 128
         block_size = 256
         t = 8192
-        layout_query = 'BSND'
+        layout_query = "BSND"
 
         np.random.seed(0)
-        query = torch.tensor(np.random.uniform(-10, 10, (b, s1, n1, d))).to(torch.bfloat16)
-        key = torch.tensor(np.random.uniform(-10, 10, (b*(s2//block_size), block_size, n2, d))).to(torch.bfloat16)
-        weights = torch.tensor(np.random.uniform(-1, 1, (b, s1, n1, 1))).to(torch.bfloat16)
-        actual_seq_lengths_query = torch.tensor(np.random.uniform(s1, s1, (b))).to(torch.int32)
-        actual_seq_lengths_key = torch.tensor(np.random.uniform(s2, s2, (b))).to(torch.int32)
-        block_table = torch.tensor([range(b*s2//block_size)], dtype=torch.int32).reshape(b, -1)
-        layout_key = 'PA_BSND'
+        query = torch.tensor(np.random.uniform(-10, 10, (b, s1, n1, d))).to(
+            torch.bfloat16
+        )
+        key = torch.tensor(
+            np.random.uniform(-10, 10, (b * (s2 // block_size), block_size, n2, d))
+        ).to(torch.bfloat16)
+        weights = torch.tensor(np.random.uniform(-1, 1, (b, s1, n1, 1))).to(
+            torch.bfloat16
+        )
+        actual_seq_lengths_query = torch.tensor(np.random.uniform(s1, s1, (b))).to(
+            torch.int32
+        )
+        actual_seq_lengths_key = torch.tensor(np.random.uniform(s2, s2, (b))).to(
+            torch.int32
+        )
+        block_table = torch.tensor(
+            [range(b * s2 // block_size)], dtype=torch.int32
+        ).reshape(b, -1)
+        layout_key = "PA_BSND"
         sparse_count = 2048
         sparse_mode = 3
-        cpuout = _lightning_indexer(query, key, weights, actual_seq_lengths_query, actual_seq_lengths_key, block_table,
-                                    layout_query, sparse_count, sparse_mode)
+        cpuout = _lightning_indexer(
+            query,
+            key,
+            weights,
+            actual_seq_lengths_query,
+            actual_seq_lengths_key,
+            block_table,
+            layout_query,
+            sparse_count,
+            sparse_mode,
+        )
 
         torch_npu.npu.set_device(int(DEVICE_ID))
         query = query.to("npu:%s" % DEVICE_ID)
@@ -117,11 +166,19 @@ class TestCustomLightningIndexer(TestCase):
         block_table = block_table.to("npu:%s" % DEVICE_ID)
 
         # start run custom ops
-        print(f'======================== PTA eager BEGIN ========================')
+        print(f"======================== PTA eager BEGIN ========================")
         npu_out = torch_npu.npu_lightning_indexer(
-            query, key, weights, actual_seq_lengths_query=actual_seq_lengths_query, 
-                actual_seq_lengths_key=actual_seq_lengths_key, block_table=block_table, layout_query=layout_query, 
-                layout_key=layout_key, sparse_count=sparse_count, sparse_mode=sparse_mode)
+            query,
+            key,
+            weights,
+            actual_seq_lengths_query=actual_seq_lengths_query,
+            actual_seq_lengths_key=actual_seq_lengths_key,
+            block_table=block_table,
+            layout_query=layout_query,
+            layout_key=layout_key,
+            sparse_count=sparse_count,
+            sparse_mode=sparse_mode,
+        )
 
         # compare result
         npu_out = npu_out.reshape(-1, sparse_count).cpu()
@@ -131,8 +188,7 @@ class TestCustomLightningIndexer(TestCase):
             for j in range(sparse_count):
                 if npu_out[i][j] != cpuout[i][j]:
                     print("t K npu cpu = ", i, j, npu_out[i][j], cpuout[i][j])
-        print(f'======================== PTA eager FINISH ========================')
-
+        print(f"======================== PTA eager FINISH ========================")
 
     def test_bsnd_lightning_indexer_graph(self):
         b = 1
@@ -143,20 +199,41 @@ class TestCustomLightningIndexer(TestCase):
         d = 128
         block_size = 256
         t = 8192
-        layout_query = 'BSND'
+        layout_query = "BSND"
 
         np.random.seed(0)
-        query = torch.tensor(np.random.uniform(-10, 10, (b, s1, n1, d))).to(torch.bfloat16)
-        key = torch.tensor(np.random.uniform(-10, 10, (b*(s2//block_size), block_size, n2, d))).to(torch.bfloat16)
-        weights = torch.tensor(np.random.uniform(-1, 1, (b, s1, n1, 1))).to(torch.bfloat16)
-        actual_seq_lengths_query = torch.tensor(np.random.uniform(s1, s1, (b))).to(torch.int32)
-        actual_seq_lengths_key = torch.tensor(np.random.uniform(s2, s2, (b))).to(torch.int32)
-        block_table = torch.tensor([range(b*s2//block_size)], dtype=torch.int32).reshape(b, -1)
-        layout_key = 'PA_BSND'
+        query = torch.tensor(np.random.uniform(-10, 10, (b, s1, n1, d))).to(
+            torch.bfloat16
+        )
+        key = torch.tensor(
+            np.random.uniform(-10, 10, (b * (s2 // block_size), block_size, n2, d))
+        ).to(torch.bfloat16)
+        weights = torch.tensor(np.random.uniform(-1, 1, (b, s1, n1, 1))).to(
+            torch.bfloat16
+        )
+        actual_seq_lengths_query = torch.tensor(np.random.uniform(s1, s1, (b))).to(
+            torch.int32
+        )
+        actual_seq_lengths_key = torch.tensor(np.random.uniform(s2, s2, (b))).to(
+            torch.int32
+        )
+        block_table = torch.tensor(
+            [range(b * s2 // block_size)], dtype=torch.int32
+        ).reshape(b, -1)
+        layout_key = "PA_BSND"
         sparse_count = 2048
         sparse_mode = 3
-        cpuout = _lightning_indexer(query, key, weights, actual_seq_lengths_query, actual_seq_lengths_key, block_table,
-                                    layout_query, sparse_count, sparse_mode)
+        cpuout = _lightning_indexer(
+            query,
+            key,
+            weights,
+            actual_seq_lengths_query,
+            actual_seq_lengths_key,
+            block_table,
+            layout_query,
+            sparse_count,
+            sparse_mode,
+        )
 
         torch_npu.npu.set_device(int(DEVICE_ID))
         query = query.to("npu:%s" % DEVICE_ID)
@@ -171,29 +248,57 @@ class TestCustomLightningIndexer(TestCase):
             def __init__(self):
                 super(Network, self).__init__()
 
-            def forward(self, query, key, weights, actual_seq_lengths_query=None, 
-                    actual_seq_lengths_key=None, block_table=None, layout_query='BSND', 
-                    layout_key='PA_BSND', sparse_count=2048, sparse_mode=3):
+            def forward(
+                self,
+                query,
+                key,
+                weights,
+                actual_seq_lengths_query=None,
+                actual_seq_lengths_key=None,
+                block_table=None,
+                layout_query="BSND",
+                layout_key="PA_BSND",
+                sparse_count=2048,
+                sparse_mode=3,
+            ):
 
-                out1 = torch_npu.npu_lightning_indexer(query, key, weights,
-                                                       actual_seq_lengths_query=actual_seq_lengths_query,  
-                                                       actual_seq_lengths_key=actual_seq_lengths_key,
-                                                       block_table=block_table, layout_query=layout_query, 
-                                                       layout_key=layout_key, sparse_count=sparse_count, 
-                                                       sparse_mode=sparse_mode)
+                out1 = torch_npu.npu_lightning_indexer(
+                    query,
+                    key,
+                    weights,
+                    actual_seq_lengths_query=actual_seq_lengths_query,
+                    actual_seq_lengths_key=actual_seq_lengths_key,
+                    block_table=block_table,
+                    layout_query=layout_query,
+                    layout_key=layout_key,
+                    sparse_count=sparse_count,
+                    sparse_mode=sparse_mode,
+                )
 
                 return out1
-        
-        print(f'======================== PTA graph BEGIN ========================')
+
+        print(f"======================== PTA graph BEGIN ========================")
         npu_mode = Network().to("npu:%s" % DEVICE_ID)
         from torchair.configs.compiler_config import CompilerConfig
+
         config = CompilerConfig()
         npu_backend = torchair.get_npu_backend(compiler_config=config)
 
-        npu_mode = torch.compile(npu_mode, fullgraph=True, backend=npu_backend, dynamic=False)
-        npu_out = npu_mode(query, key, weights, actual_seq_lengths_query=actual_seq_lengths_query, 
-            actual_seq_lengths_key=actual_seq_lengths_key, block_table=block_table, layout_query=layout_query, 
-            layout_key=layout_key, sparse_count=sparse_count, sparse_mode=sparse_mode)
+        npu_mode = torch.compile(
+            npu_mode, fullgraph=True, backend=npu_backend, dynamic=False
+        )
+        npu_out = npu_mode(
+            query,
+            key,
+            weights,
+            actual_seq_lengths_query=actual_seq_lengths_query,
+            actual_seq_lengths_key=actual_seq_lengths_key,
+            block_table=block_table,
+            layout_query=layout_query,
+            layout_key=layout_key,
+            sparse_count=sparse_count,
+            sparse_mode=sparse_mode,
+        )
 
         # compare result
         npu_out = npu_out.reshape(-1, sparse_count).cpu()
@@ -203,8 +308,7 @@ class TestCustomLightningIndexer(TestCase):
             for j in range(sparse_count):
                 if npu_out[i][j] != cpuout[i][j]:
                     print("t K npu cpu = ", i, j, npu_out[i][j], cpuout[i][j])
-        print(f'======================== PTA graph FINISH ========================')
-
+        print(f"======================== PTA graph FINISH ========================")
 
     def test_tnd_lightning_indexer_eager(self):
         b = 3
@@ -214,21 +318,36 @@ class TestCustomLightningIndexer(TestCase):
         n2 = 1
         d = 128
         block_size = 256
-        layout_query = 'TND'
+        layout_query = "TND"
 
         np.random.seed(3)
         query = torch.tensor(np.random.uniform(-10, 10, (t, n1, d))).to(torch.bfloat16)
-        key = torch.tensor(np.random.uniform(-10, 10, (b*(s2//block_size), block_size, n2, d))).to(torch.bfloat16)
+        key = torch.tensor(
+            np.random.uniform(-10, 10, (b * (s2 // block_size), block_size, n2, d))
+        ).to(torch.bfloat16)
         weights = torch.tensor(np.random.uniform(-1, 1, (t, n1, 1))).to(torch.bfloat16)
         # TND格式下，actual_seq_lengths_query为前缀和表示
         actual_seq_lengths_query = torch.tensor([1, 3, 5]).to(torch.int32)
-        actual_seq_lengths_key = torch.tensor(np.random.uniform(s2, s2, (b))).to(torch.int32)
-        block_table = torch.tensor([range(b*s2//block_size)], dtype=torch.int32).reshape(b, -1)
-        layout_key = 'PA_BSND'
+        actual_seq_lengths_key = torch.tensor(np.random.uniform(s2, s2, (b))).to(
+            torch.int32
+        )
+        block_table = torch.tensor(
+            [range(b * s2 // block_size)], dtype=torch.int32
+        ).reshape(b, -1)
+        layout_key = "PA_BSND"
         sparse_count = 2048
         sparse_mode = 3
-        cpuout = _lightning_indexer(query, key, weights, actual_seq_lengths_query, actual_seq_lengths_key, block_table,
-                                    layout_query, sparse_count, sparse_mode)
+        cpuout = _lightning_indexer(
+            query,
+            key,
+            weights,
+            actual_seq_lengths_query,
+            actual_seq_lengths_key,
+            block_table,
+            layout_query,
+            sparse_count,
+            sparse_mode,
+        )
 
         torch_npu.npu.set_device(int(DEVICE_ID))
         query = query.to("npu:%s" % DEVICE_ID)
@@ -239,11 +358,19 @@ class TestCustomLightningIndexer(TestCase):
         block_table = block_table.to("npu:%s" % DEVICE_ID)
 
         # start run custom ops
-        print(f'======================== PTA eager BEGIN ========================')
+        print(f"======================== PTA eager BEGIN ========================")
         npu_out = torch.ops.custom.npu_lightning_indexer(
-            query, key, weights, actual_seq_lengths_query=actual_seq_lengths_query, 
-                actual_seq_lengths_key=actual_seq_lengths_key, block_table=block_table, layout_query=layout_query, 
-                layout_key=layout_key, sparse_count=sparse_count, sparse_mode=sparse_mode)
+            query,
+            key,
+            weights,
+            actual_seq_lengths_query=actual_seq_lengths_query,
+            actual_seq_lengths_key=actual_seq_lengths_key,
+            block_table=block_table,
+            layout_query=layout_query,
+            layout_key=layout_key,
+            sparse_count=sparse_count,
+            sparse_mode=sparse_mode,
+        )
 
         # compare result
         npu_out = npu_out.reshape(-1, sparse_count).cpu()
@@ -253,8 +380,7 @@ class TestCustomLightningIndexer(TestCase):
             for j in range(sparse_count):
                 if npu_out[i][j] != cpuout[i][j]:
                     print("t K npu cpu = ", i, j, npu_out[i][j], cpuout[i][j])
-        print(f'======================== PTA eager FINISH ========================')
-
+        print(f"======================== PTA eager FINISH ========================")
 
     def test_tnd_lightning_indexer_graph(self):
         b = 3
@@ -264,21 +390,36 @@ class TestCustomLightningIndexer(TestCase):
         n2 = 1
         d = 128
         block_size = 256
-        layout_query = 'TND'
+        layout_query = "TND"
 
         np.random.seed(3)
         query = torch.tensor(np.random.uniform(-10, 10, (t, n1, d))).to(torch.bfloat16)
-        key = torch.tensor(np.random.uniform(-10, 10, (b*(s2//block_size), block_size, n2, d))).to(torch.bfloat16)
+        key = torch.tensor(
+            np.random.uniform(-10, 10, (b * (s2 // block_size), block_size, n2, d))
+        ).to(torch.bfloat16)
         weights = torch.tensor(np.random.uniform(-1, 1, (t, n1, 1))).to(torch.bfloat16)
         # TND格式下，actual_seq_lengths_query为前缀和表示
         actual_seq_lengths_query = torch.tensor([1, 3, 5]).to(torch.int32)
-        actual_seq_lengths_key = torch.tensor(np.random.uniform(s2, s2, (b))).to(torch.int32)
-        block_table = torch.tensor([range(b*s2//block_size)], dtype=torch.int32).reshape(b, -1)
-        layout_key = 'PA_BSND'
+        actual_seq_lengths_key = torch.tensor(np.random.uniform(s2, s2, (b))).to(
+            torch.int32
+        )
+        block_table = torch.tensor(
+            [range(b * s2 // block_size)], dtype=torch.int32
+        ).reshape(b, -1)
+        layout_key = "PA_BSND"
         sparse_count = 2048
         sparse_mode = 3
-        cpuout = _lightning_indexer(query, key, weights, actual_seq_lengths_query, actual_seq_lengths_key, block_table,
-                                    layout_query, sparse_count, sparse_mode)
+        cpuout = _lightning_indexer(
+            query,
+            key,
+            weights,
+            actual_seq_lengths_query,
+            actual_seq_lengths_key,
+            block_table,
+            layout_query,
+            sparse_count,
+            sparse_mode,
+        )
 
         torch_npu.npu.set_device(int(DEVICE_ID))
         query = query.to("npu:%s" % DEVICE_ID)
@@ -293,29 +434,57 @@ class TestCustomLightningIndexer(TestCase):
             def __init__(self):
                 super(Network, self).__init__()
 
-            def forward(self, query, key, weights, actual_seq_lengths_query=None, 
-                    actual_seq_lengths_key=None, block_table=None, layout_query='BSND', 
-                    layout_key='PA_BSND', sparse_count=2048, sparse_mode=3):
+            def forward(
+                self,
+                query,
+                key,
+                weights,
+                actual_seq_lengths_query=None,
+                actual_seq_lengths_key=None,
+                block_table=None,
+                layout_query="BSND",
+                layout_key="PA_BSND",
+                sparse_count=2048,
+                sparse_mode=3,
+            ):
 
-                out1 = torch.ops.custom.npu_lightning_indexer(query, key, weights,
-                                                              actual_seq_lengths_query=actual_seq_lengths_query,  
-                                                              actual_seq_lengths_key=actual_seq_lengths_key,
-                                                              block_table=block_table, layout_query=layout_query, 
-                                                              layout_key=layout_key, sparse_count=sparse_count, 
-                                                              sparse_mode=sparse_mode)
+                out1 = torch.ops.custom.npu_lightning_indexer(
+                    query,
+                    key,
+                    weights,
+                    actual_seq_lengths_query=actual_seq_lengths_query,
+                    actual_seq_lengths_key=actual_seq_lengths_key,
+                    block_table=block_table,
+                    layout_query=layout_query,
+                    layout_key=layout_key,
+                    sparse_count=sparse_count,
+                    sparse_mode=sparse_mode,
+                )
 
                 return out1
-        
-        print(f'======================== PTA graph BEGIN ========================')
+
+        print(f"======================== PTA graph BEGIN ========================")
         npu_mode = Network().to("npu:%s" % DEVICE_ID)
         from torchair.configs.compiler_config import CompilerConfig
+
         config = CompilerConfig()
         npu_backend = torchair.get_npu_backend(compiler_config=config)
 
-        npu_mode = torch.compile(npu_mode, fullgraph=True, backend=npu_backend, dynamic=False)
-        npu_out = npu_mode(query, key, weights, actual_seq_lengths_query=actual_seq_lengths_query, 
-            actual_seq_lengths_key=actual_seq_lengths_key, block_table=block_table, layout_query=layout_query, 
-            layout_key=layout_key, sparse_count=sparse_count, sparse_mode=sparse_mode)
+        npu_mode = torch.compile(
+            npu_mode, fullgraph=True, backend=npu_backend, dynamic=False
+        )
+        npu_out = npu_mode(
+            query,
+            key,
+            weights,
+            actual_seq_lengths_query=actual_seq_lengths_query,
+            actual_seq_lengths_key=actual_seq_lengths_key,
+            block_table=block_table,
+            layout_query=layout_query,
+            layout_key=layout_key,
+            sparse_count=sparse_count,
+            sparse_mode=sparse_mode,
+        )
 
         # compare result
         npu_out = npu_out.reshape(-1, sparse_count).cpu()
@@ -325,7 +494,7 @@ class TestCustomLightningIndexer(TestCase):
             for j in range(sparse_count):
                 if npu_out[i][j] != cpuout[i][j]:
                     print("t K npu cpu = ", i, j, npu_out[i][j], cpuout[i][j])
-        print(f'======================== PTA graph FINISH ========================')
+        print(f"======================== PTA graph FINISH ========================")
 
 
 if __name__ == "__main__":

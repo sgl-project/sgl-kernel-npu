@@ -295,7 +295,7 @@ function(add_ops_src_copy)
     list(FILTER SRC_FILES EXCLUDE REGEX "ophost")
     if (NOT TARGET ${SRC_COPY_TARGET_NAME})
         set(_BUILD_FLAG ${SRC_COPY_DST}/${SRC_COPY_TARGET_NAME}.done)
- 
+
         if (NOT "${SRC_COPY_DST}" MATCHES "common")
             add_custom_command(OUTPUT ${_BUILD_FLAG}
                     COMMAND mkdir -p ${SRC_COPY_DST}

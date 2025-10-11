@@ -4,8 +4,9 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
+ * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * the software repository for the full text of the License.
  */
 
 /*!
@@ -20,19 +21,18 @@
 
 using namespace LIKernel;
 
-#define INVOKE_LI_NO_KFC_OP_IMPL(templateClass, ...)                                                                   \
-    do {                                                                                                               \
-        templateClass<LIType<__VA_ARGS__>> op;                                                                         \
-        LI_COPY_TILING_DATA(LITilingData, tiling);                                                                     \
-        op.Init(query, key, weights, actualSeqLengthsQ, actualSeqLengths, blocktable, sparseIndices, user,           \
-                tiling_data, &tPipe);                                                                                  \
-        op.Process();                                                                                                  \
+#define INVOKE_LI_NO_KFC_OP_IMPL(templateClass, ...)                                                       \
+    do {                                                                                                   \
+        templateClass<LIType<__VA_ARGS__>> op;                                                             \
+        LI_COPY_TILING_DATA(LITilingData, tiling);                                                         \
+        op.Init(query, key, weights, actualSeqLengthsQ, actualSeqLengths, blocktable, sparseIndices, user, \
+                tiling_data, &tPipe);                                                                      \
+        op.Process();                                                                                      \
     } while (0)
 
-#define LI_COPY_TILING_DATA(tilingDataStruct, tiling)                                                                  \
-    GET_TILING_DATA_WITH_STRUCT(tilingDataStruct, tiling_data_in, tiling);                                             \
+#define LI_COPY_TILING_DATA(tilingDataStruct, tiling)                      \
+    GET_TILING_DATA_WITH_STRUCT(tilingDataStruct, tiling_data_in, tiling); \
     const tilingDataStruct *__restrict tiling_data = &tiling_data_in;
-
 
 template <int DT_Q, int DT_K, int DT_OUT, int PAGE_ATTENTION, int LAYOUT_T, int K_LAYOUT_T>
 __global__ __aicore__ void lightning_indexer(__gm__ uint8_t *query, __gm__ uint8_t *key, __gm__ uint8_t *weights,

@@ -4,8 +4,9 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
+ * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * the software repository for the full text of the License.
  */
 
 /*!
@@ -25,7 +26,8 @@
 namespace LIKernel {
 using namespace LICommon;
 template <typename LIT>
-class LIMatmul {
+class LIMatmul
+{
 public:
     using Q_T = typename LIT::queryType;
     using K_T = typename LIT::keyType;
@@ -39,13 +41,13 @@ public:
     __aicore__ inline void FreeEventID();
     __aicore__ inline void ComputeMm1(const LICommon::RunInfo &runInfo);
 
-    static constexpr IsResetLoad3dConfig LOAD3DV2_CONFIG = {true, true}; // isSetFMatrix isSetPadding;
+    static constexpr IsResetLoad3dConfig LOAD3DV2_CONFIG = {true, true};  // isSetFMatrix isSetPadding;
     static constexpr uint64_t KEY_BUF_NUM = 3;
     static constexpr uint64_t QUERY_BUF_NUM = 2;
     static constexpr uint64_t L0_BUF_NUM = 2;
 
     static constexpr uint32_t KEY_MTE1_MTE2_EVENT = EVENT_ID2;
-    static constexpr uint32_t QUERY_MTE1_MTE2_EVENT = EVENT_ID5; // KEY_MTE1_MTE2_EVENT + KEY_BUF_NUM;
+    static constexpr uint32_t QUERY_MTE1_MTE2_EVENT = EVENT_ID5;  // KEY_MTE1_MTE2_EVENT + KEY_BUF_NUM;
     static constexpr uint32_t M_MTE1_EVENT = EVENT_ID3;
 
     static constexpr uint32_t MTE2_MTE1_EVENT = EVENT_ID2;
@@ -124,9 +126,10 @@ __aicore__ inline void LIMatmul<LIT>::InitBuffers(TPipe *pipe)
 }
 
 template <typename LIT>
-__aicore__ inline void
-LIMatmul<LIT>::InitMm1GlobalTensor(const GlobalTensor<int32_t> &blkTableGm, const GlobalTensor<K_T> &keyGm,
-                                   const GlobalTensor<Q_T> &queryGm, const GlobalTensor<float> &mm1ResGm)
+__aicore__ inline void LIMatmul<LIT>::InitMm1GlobalTensor(const GlobalTensor<int32_t> &blkTableGm,
+                                                          const GlobalTensor<K_T> &keyGm,
+                                                          const GlobalTensor<Q_T> &queryGm,
+                                                          const GlobalTensor<float> &mm1ResGm)
 {
     blkTableGm_ = blkTableGm;
     keyGm_ = keyGm;
@@ -208,28 +211,28 @@ __aicore__ inline void LIMatmul<LIT>::KeyNd2NzForPA(uint64_t s2L1RealSize, uint6
                                s2BlkOffset * constInfo_.headDim;
         // 搬运按照S2_BASIC_BLOCK_L0*D_BASIC_BLOCK_L0的方式在l1上排布, 方便后续mte1
         // 根据s2的offset判断当前属于前一个L0分型还是后一个L0分型，暂时只支持两个分型
-        uint64_t s2Mte2Size = (s2L1RealSize <= S2_BASIC_BLOCK_L0 || s2L1Offset >= S2_BASIC_BLOCK_L0) ?
-                                  s2L1RealSize - s2L1Offset :
-                                  S2_BASIC_BLOCK_L0 - s2L1Offset;
-        s2Mte2Size = s2BlkOffset + s2Mte2Size >= constInfo_.kCacheBlockSize ? constInfo_.kCacheBlockSize - s2BlkOffset :
-                                                                              s2Mte2Size;
+        uint64_t s2Mte2Size = (s2L1RealSize <= S2_BASIC_BLOCK_L0 || s2L1Offset >= S2_BASIC_BLOCK_L0)
+                                  ? s2L1RealSize - s2L1Offset
+                                  : S2_BASIC_BLOCK_L0 - s2L1Offset;
+        s2Mte2Size = s2BlkOffset + s2Mte2Size >= constInfo_.kCacheBlockSize ? constInfo_.kCacheBlockSize - s2BlkOffset
+                                                                            : s2Mte2Size;
         Nd2NzParams nd2nzPara;
         nd2nzPara.ndNum = 1;
-        nd2nzPara.nValue = s2Mte2Size; // 行数
+        nd2nzPara.nValue = s2Mte2Size;  // 行数
         nd2nzPara.dValue = constInfo_.headDim;
         nd2nzPara.srcDValue = constInfo_.headDim;
-        nd2nzPara.dstNzC0Stride = s2L1Offset >= S2_BASIC_BLOCK_L0 ?
-                                      CeilAlign(s2L1RealSize - S2_BASIC_BLOCK_L0, (uint64_t)BLOCK_CUBE) :
-                                      (s2L1RealSize > S2_BASIC_BLOCK_L0 ?
-                                           S2_BASIC_BLOCK_L0 :
-                                           CeilAlign(s2L1RealSize, (uint64_t)BLOCK_CUBE)); // 对齐到16 单位block
+        nd2nzPara.dstNzC0Stride = s2L1Offset >= S2_BASIC_BLOCK_L0
+                                      ? CeilAlign(s2L1RealSize - S2_BASIC_BLOCK_L0, (uint64_t)BLOCK_CUBE)
+                                      : (s2L1RealSize > S2_BASIC_BLOCK_L0
+                                             ? S2_BASIC_BLOCK_L0
+                                             : CeilAlign(s2L1RealSize, (uint64_t)BLOCK_CUBE));  // 对齐到16 单位block
         nd2nzPara.dstNzNStride = 1;
         nd2nzPara.srcNdMatrixStride = 0;
         nd2nzPara.dstNzMatrixStride = 0;
         DataCopy(keyL1_[(keyL1BufIdx_ % KEY_BUF_NUM) * KEY_BUFFER_OFFSET +
-                        (s2L1Offset >= S2_BASIC_BLOCK_L0 ?
-                             S2_BASIC_BLOCK_L0 * D_BASIC_BLOCK_L0 + (s2L1Offset - S2_BASIC_BLOCK_L0) * BLOCK_CUBE :
-                             s2L1Offset * BLOCK_CUBE)],
+                        (s2L1Offset >= S2_BASIC_BLOCK_L0
+                             ? S2_BASIC_BLOCK_L0 * D_BASIC_BLOCK_L0 + (s2L1Offset - S2_BASIC_BLOCK_L0) * BLOCK_CUBE
+                             : s2L1Offset * BLOCK_CUBE)],
                  keyGm_[keyGmOffset], nd2nzPara);
 
         s2L1Offset += s2Mte2Size;
@@ -243,10 +246,10 @@ __aicore__ inline void LIMatmul<LIT>::QueryNd2Nz(uint64_t s1gL1RealSize, uint64_
 {
     Nd2NzParams nd2nzPara;
     nd2nzPara.ndNum = 1;
-    nd2nzPara.nValue = s1gL1RealSize; // 行数
+    nd2nzPara.nValue = s1gL1RealSize;  // 行数
     nd2nzPara.dValue = constInfo_.headDim;
     nd2nzPara.srcDValue = constInfo_.headDim;
-    nd2nzPara.dstNzC0Stride = CeilAlign(s1gL1RealSize, (uint64_t)BLOCK_CUBE); // 对齐到16 单位block
+    nd2nzPara.dstNzC0Stride = CeilAlign(s1gL1RealSize, (uint64_t)BLOCK_CUBE);  // 对齐到16 单位block
     nd2nzPara.dstNzNStride = 1;
     nd2nzPara.srcNdMatrixStride = 0;
     nd2nzPara.dstNzMatrixStride = 0;
@@ -261,18 +264,18 @@ __aicore__ inline void LIMatmul<LIT>::LoadQueryToL0a(uint64_t s1gGmOffset, uint6
 {
     LoadData3DParamsV2<Q_T> loadData3DParams;
     // SetFmatrixParams
-    loadData3DParams.l1H = CeilDiv(s1gL1RealSize, BLOCK_CUBE); // Hin=M1=8
-    loadData3DParams.l1W = BLOCK_CUBE;                         // Win=M0
-    loadData3DParams.channelSize = constInfo_.headDim;         // Cin=K
+    loadData3DParams.l1H = CeilDiv(s1gL1RealSize, BLOCK_CUBE);  // Hin=M1=8
+    loadData3DParams.l1W = BLOCK_CUBE;                          // Win=M0
+    loadData3DParams.channelSize = constInfo_.headDim;          // Cin=K
 
     loadData3DParams.padList[0] = 0;
     loadData3DParams.padList[1] = 0;
     loadData3DParams.padList[2] = 0;
-    loadData3DParams.padList[3] = 255; // 尾部数据不影响滑窗的结果
+    loadData3DParams.padList[3] = 255;  // 尾部数据不影响滑窗的结果
 
     // SetLoadToA0Params
-    loadData3DParams.mExtension = CeilAlign(s1gL0RealSize, BLOCK_CUBE); // M height维度目的
-    loadData3DParams.kExtension = constInfo_.headDim;                   // K   width维度目的
+    loadData3DParams.mExtension = CeilAlign(s1gL0RealSize, BLOCK_CUBE);  // M height维度目的
+    loadData3DParams.kExtension = constInfo_.headDim;                    // K   width维度目的
     loadData3DParams.mStartPt = s1gL1Offset;
     loadData3DParams.kStartPt = 0;
     loadData3DParams.strideW = 1;
@@ -336,7 +339,7 @@ __aicore__ inline void LIMatmul<LIT>::Fixp(uint64_t s1gGmOffset, uint64_t s2GmOf
     // set mode according to dtype
     intriParams.quantPre = QuantMode_t::NoQuant;
     intriParams.nz2ndEn = true;
-    intriParams.unitFlag = 0b11; // 3 unitflag
+    intriParams.unitFlag = 0b11;  // 3 unitflag
     intriParams.reluPre = 1;
     AscendC::SetFixpipeNz2ndFlag(1, 1, 1);
     AscendC::DataCopy(mm1ResGm_[(runInfo.loop % 2) * constInfo_.mBaseSize * constInfo_.s2BaseSize +
@@ -373,5 +376,5 @@ __aicore__ inline void LIMatmul<LIT>::FreeEventID()
     WaitFlag<HardEvent::M_MTE1>(M_MTE1_EVENT + 0);
     WaitFlag<HardEvent::M_MTE1>(M_MTE1_EVENT + 1);
 }
-} // namespace LIKernel
+}  // namespace LIKernel
 #endif

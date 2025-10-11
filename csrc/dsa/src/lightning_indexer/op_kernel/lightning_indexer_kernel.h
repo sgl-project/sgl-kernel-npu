@@ -4,8 +4,9 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
+ * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * the software repository for the full text of the License.
  */
 
 /*!
@@ -39,18 +40,19 @@ struct TempLoopInfo {
     uint32_t bIdx = 0U;
     uint32_t n2Idx = 0U;
     uint32_t gS1Idx = 0U;
-    uint32_t gS1LoopEnd = 0U;  // gS1方向循环的结束Idx
-    uint32_t s2LoopEnd = 0U;   // S2方向循环的结束Idx
-    uint32_t actS1Size = 1ULL; // 当前Batch循环处理的S1轴的实际大小
+    uint32_t gS1LoopEnd = 0U;   // gS1方向循环的结束Idx
+    uint32_t s2LoopEnd = 0U;    // S2方向循环的结束Idx
+    uint32_t actS1Size = 1ULL;  // 当前Batch循环处理的S1轴的实际大小
     uint32_t actS2Size = 0ULL;
     bool curActSeqLenIsZero = false;
-    uint32_t actMBaseSize = 0U;    // m轴(gS1)方向实际大小
-    uint32_t mBasicSizeTail = 0U;  // gS1方向循环的尾基本块大小
-    uint32_t s2BasicSizeTail = 0U; // S2方向循环的尾基本块大小
+    uint32_t actMBaseSize = 0U;     // m轴(gS1)方向实际大小
+    uint32_t mBasicSizeTail = 0U;   // gS1方向循环的尾基本块大小
+    uint32_t s2BasicSizeTail = 0U;  // S2方向循环的尾基本块大小
 };
 
 template <typename LIT>
-class LIPreload {
+class LIPreload
+{
 public:
     __aicore__ inline LIPreload(){};
     __aicore__ inline void Init(__gm__ uint8_t *query, __gm__ uint8_t *key, __gm__ uint8_t *weights,
@@ -105,9 +107,9 @@ protected:
     GlobalTensor<uint32_t> actualSeqLengthsGmQ;
     GlobalTensor<uint32_t> actualSeqLengthsGm;
     // workspace
-    GlobalTensor<MM1_OUT_T> mm1ResGm;  // 存放S
-    GlobalTensor<float> vec1ResGm;     // 存放TopK计算中间结果
-    GlobalTensor<int64_t> vec1ParamGm; // 存放LD参数信息
+    GlobalTensor<MM1_OUT_T> mm1ResGm;   // 存放S
+    GlobalTensor<float> vec1ResGm;      // 存放TopK计算中间结果
+    GlobalTensor<int64_t> vec1ParamGm;  // 存放LD参数信息
 
     // ================================类成员变量====================================
     // aic、aiv核信息
@@ -155,7 +157,7 @@ __aicore__ inline void LIPreload<LIT>::InitTilingData(const LITilingData *__rest
     constInfo.kCacheBlockSize = tilingData->blockSize;
     constInfo.maxBlockNumPerBatch = tilingData->maxBlockNumPerBatch;
     constInfo.sparseCount = tilingData->sparseCount;
-    constInfo.outputLayout = LAYOUT_T; // 输出和输入形状一致
+    constInfo.outputLayout = LAYOUT_T;  // 输出和输入形状一致
     if (LAYOUT_T == LI_LAYOUT::TND) {
         constInfo.isAccumSeqS1 = true;
     }
@@ -326,16 +328,16 @@ __aicore__ inline void LIPreload<LIT>::DealActSeqLenIsZero(uint32_t bIdx, uint32
 
             for (int s1Idx = 0; s1Idx < s1Count; s1Idx++) {
                 uint64_t indiceOutOffset =
-                    (tBase + s1Idx) * constInfo.kHeadNum * constInfo.sparseCount + // T轴、s1轴偏移
-                    n2Idx * constInfo.sparseCount;                                 // N2轴偏移
+                    (tBase + s1Idx) * constInfo.kHeadNum * constInfo.sparseCount +  // T轴、s1轴偏移
+                    n2Idx * constInfo.sparseCount;                                  // N2轴偏移
                 vectorService.CleanInvalidOutput(indiceOutOffset);
             }
         } else if (constInfo.outputLayout == LI_LAYOUT::BSND) {
             for (int s1Idx = 0; s1Idx < constInfo.qSeqSize; s1Idx++) {
                 // B,S1,N2,K
                 uint64_t indiceOutOffset = bIdx * constInfo.qSeqSize * constInfo.kHeadNum * constInfo.sparseCount +
-                                           s1Idx * constInfo.kHeadNum * constInfo.sparseCount + // B轴、S1轴偏移
-                                           n2Idx * constInfo.sparseCount;                       // N2轴偏移
+                                           s1Idx * constInfo.kHeadNum * constInfo.sparseCount +  // B轴、S1轴偏移
+                                           n2Idx * constInfo.sparseCount;                        // N2轴偏移
                 vectorService.CleanInvalidOutput(indiceOutOffset);
             }
         }
@@ -350,10 +352,10 @@ __aicore__ inline void LIPreload<LIT>::Init(__gm__ uint8_t *query, __gm__ uint8_
                                             TPipe *tPipe)
 {
     if ASCEND_IS_AIV {
-        tmpBlockIdx = GetBlockIdx(); // vec:0-47
+        tmpBlockIdx = GetBlockIdx();  // vec:0-47
         aiCoreIdx = tmpBlockIdx / 2;
     } else {
-        tmpBlockIdx = GetBlockIdx(); // cube:0-23
+        tmpBlockIdx = GetBlockIdx();  // cube:0-23
         aiCoreIdx = tmpBlockIdx;
     }
 
@@ -481,7 +483,7 @@ __aicore__ inline void LIPreload<LIT>::CalcRunInfo(uint32_t loop, uint32_t s2Loo
         uint64_t actualSeqQPrefixSum;
         if constexpr (LAYOUT_T == LI_LAYOUT::TND) {
             actualSeqQPrefixSum = (runInfo.bIdx <= 0) ? 0 : actualSeqLengthsGmQ.GetValue(runInfo.bIdx - 1);
-        } else { // BSND
+        } else {  // BSND
             actualSeqQPrefixSum = (runInfo.bIdx <= 0) ? 0 : runInfo.bIdx * constInfo.qSeqSize;
         }
         uint64_t tndBIdxOffset = actualSeqQPrefixSum * constInfo.qHeadNum * constInfo.headDim;
@@ -490,8 +492,8 @@ __aicore__ inline void LIPreload<LIT>::CalcRunInfo(uint32_t loop, uint32_t s2Loo
         // B,S1,N1(N2,G)/T,N1(N2,G)
         weightsCoreOffset = actualSeqQPrefixSum * constInfo.qHeadNum + runInfo.n2Idx * constInfo.gSize;
         // B,S1,N2,k/T,N2,k
-        indiceOutCoreOffset = actualSeqQPrefixSum * constInfo.kHeadNum * constInfo.sparseCount +
-                              runInfo.n2Idx * constInfo.sparseCount;
+        indiceOutCoreOffset =
+            actualSeqQPrefixSum * constInfo.kHeadNum * constInfo.sparseCount + runInfo.n2Idx * constInfo.sparseCount;
     }
     runInfo.tensorQueryOffset = queryCoreOffset;
     runInfo.tensorWeightsOffset = weightsCoreOffset;
@@ -514,7 +516,7 @@ template <typename LIT>
 __aicore__ inline void LIPreload<LIT>::ProcessInvalid()
 {
     if ASCEND_IS_AIV {
-        uint32_t aivCoreNum = GetBlockNum() * 2; // 2 means c:v = 1:2
+        uint32_t aivCoreNum = GetBlockNum() * 2;  // 2 means c:v = 1:2
         uint64_t totalOutputSize =
             constInfo.batchSize * constInfo.qSeqSize * constInfo.kHeadNum * constInfo.sparseCount;
         uint64_t singleCoreSize =
@@ -600,5 +602,5 @@ __aicore__ inline void LIPreload<LIT>::ProcessDecode()
         }
     }
 }
-} // namespace LIKernel
-#endif // LIGHTNING_INDEXER_KERNEL_H
+}  // namespace LIKernel
+#endif  // LIGHTNING_INDEXER_KERNEL_H

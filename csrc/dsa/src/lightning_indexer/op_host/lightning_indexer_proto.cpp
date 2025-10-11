@@ -4,8 +4,9 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
+ * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * the software repository for the full text of the License.
  */
 
 /*!
@@ -15,7 +16,6 @@
 #include <graph/utils/type_utils.h>
 #include <register/op_impl_registry.h>
 #include "error/ops_error.h"
-
 
 using namespace ge;
 
@@ -50,14 +50,14 @@ static ge::graphStatus InferShapeLightningIndexer(gert::InferShapeContext *conte
 
     outShape->SetDimNum(queryShape->GetDimNum());
     if (inputLayoutQueryPtrStr == "BSND") {
-        outShape->SetDim(0, queryShape->GetDim(0)); // 0:Dim B
-        outShape->SetDim(1, queryShape->GetDim(1)); // 1:Dim S
-        outShape->SetDim(2, keyShape->GetDim(2));   // 2:Dim N
-        outShape->SetDim(3, *seleced_count);        // 3:Dim K
+        outShape->SetDim(0, queryShape->GetDim(0));  // 0:Dim B
+        outShape->SetDim(1, queryShape->GetDim(1));  // 1:Dim S
+        outShape->SetDim(2, keyShape->GetDim(2));    // 2:Dim N
+        outShape->SetDim(3, *seleced_count);         // 3:Dim K
     } else {
-        outShape->SetDim(0, queryShape->GetDim(0)); // 0:Dim T
-        outShape->SetDim(1, keyShape->GetDim(2));   // 1:Dim N
-        outShape->SetDim(2, *seleced_count);        // 2:Dim K
+        outShape->SetDim(0, queryShape->GetDim(0));  // 0:Dim T
+        outShape->SetDim(1, keyShape->GetDim(2));    // 1:Dim N
+        outShape->SetDim(2, *seleced_count);         // 2:Dim K
     }
     OPS_LOG_D(context->GetNodeName(), "LightningIndexer InferShape end.");
 
@@ -80,4 +80,4 @@ static ge::graphStatus InferDataTypeLightningIndexer(gert::InferDataTypeContext 
 IMPL_OP_INFERSHAPE(LightningIndexer)
     .InferShape(InferShapeLightningIndexer)
     .InferDataType(InferDataTypeLightningIndexer);
-} // namespace ops
+}  // namespace ops

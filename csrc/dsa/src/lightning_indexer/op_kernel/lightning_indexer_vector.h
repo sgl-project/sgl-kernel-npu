@@ -4,8 +4,9 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
+ * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * the software repository for the full text of the License.
  */
 
 /*!
@@ -65,7 +66,6 @@ __aicore__ inline void CopyIn(LocalTensor<float> &mmOutUb, LocalTensor<T> &weigh
     AscendC::DataCopyPad(weightsUb, weightScaleGm[weights_gmoffset], dataCopyweightParams, padTParams);
 }
 
-
 template <typename T>
 __aicore__ inline void CopyOut(const GlobalTensor<T> &dstGm, const LocalTensor<T> &srcUb, int64_t copyCount)
 {
@@ -76,7 +76,6 @@ __aicore__ inline void CopyOut(const GlobalTensor<T> &dstGm, const LocalTensor<T
     dataCopyOutyParams.dstStride = 0;
     AscendC::DataCopyPad(dstGm, srcUb, dataCopyOutyParams);
 }
-
 
 template <typename T>
 __aicore__ inline void DoScale(const LocalTensor<float> &reduceCacheBuf, LocalTensor<float> &mmOutUb,
@@ -114,17 +113,15 @@ __aicore__ inline void DoScale(const LocalTensor<float> &reduceCacheBuf, LocalTe
     AscendC::PipeBarrier<PIPE_V>();
 }
 
-
 __aicore__ inline uint64_t FindNearestPower2(uint64_t value)
 {
     if (value <= CONST_TWO) {
         return value;
     } else {
-        const uint64_t pow = 63 - clz(value); // clz返回前导0的个数，对于64位整数，最大有效位位置 = 63 - 前导0个数
+        const uint64_t pow = 63 - clz(value);  // clz返回前导0的个数，对于64位整数，最大有效位位置 = 63 - 前导0个数
         return (1 << pow);
     }
 }
-
 
 // dstTensor 需要初始化0
 __aicore__ inline void DoReduce(const LocalTensor<float> &srcTensor, LocalTensor<float> &dstTensor, int32_t rNum,
@@ -152,7 +149,6 @@ __aicore__ inline void DoReduce(const LocalTensor<float> &srcTensor, LocalTensor
     AscendC::PipeBarrier<PIPE_V>();
 }
 
-
 /**
   src: 传入的初始化空间
   eleNum: 需要初始化的元素个数需为64整数倍，元素将被初始化为交错排布的-inf，-1
@@ -178,7 +174,6 @@ __aicore__ inline void InitSortOutBuf(const LocalTensor<float> &src, int64_t ele
     }
     AscendC::PipeBarrier<PIPE_V>();
 }
-
 
 /**
   src: logits和索引，前logitsNum为logits，后logitsNum为索引
@@ -246,7 +241,6 @@ __aicore__ inline void SortAll(LocalTensor<float> &src, LocalTensor<float> &tmp,
     }
 }
 
-
 /**
   dst: 输出全排序的结果，排布方式为value，index
   srcValue：输入的待排序浮点数
@@ -261,7 +255,6 @@ __aicore__ inline void SortAll(LocalTensor<float> &dst, LocalTensor<float> &srcV
     AscendC::Sort<float, true>(dst, srcValue, srcIndex, tmpTensor, sort32Repeats);
     AscendC::PipeBarrier<PIPE_V>();
 }
-
 
 /**
   mrgDst: 合并进的Tensor
@@ -287,7 +280,6 @@ __aicore__ inline void MergeSort(const LocalTensor<float> &mrgDst, int32_t mrgDs
     AscendC::DataCopy(mrgDst, tmpTensor, mrgDstNum * VALUE_AND_INDEX_NUM);
     AscendC::PipeBarrier<PIPE_V>();
 }
-
 
 /**
  * @brief 合并基础块函数
@@ -328,7 +320,6 @@ __aicore__ inline void MrgBasicBlock(const LocalTensor<float> &dst, const LocalT
     AscendC::MrgSort<float>(dst, srcList, params);
 }
 
-
 /**
  * @brief 从两个队列中选择topk
  * @param dst 已经归并好的topk数据
@@ -363,7 +354,6 @@ __aicore__ inline void SparseTopK(const LocalTensor<float> &dst, const LocalTens
     AscendC::DataCopy(dst, tmp, topk * VALUE_AND_INDEX_NUM);
 }
 
-
 __aicore__ inline void ExtractIndex(const LocalTensor<uint32_t> &idxULocal, const LocalTensor<uint32_t> &sortLocal,
                                     int64_t extractNum)
 {
@@ -372,12 +362,11 @@ __aicore__ inline void ExtractIndex(const LocalTensor<uint32_t> &idxULocal, cons
     gatherMaskParams.src0BlockStride = 1;
     gatherMaskParams.src0RepeatStride = B32_VEC_REPEAT_STRIDE;
     gatherMaskParams.src1RepeatStride = 0;
-    uint64_t rsvdCnt = 0;    // 用于保存筛选后保留下来的元素个数
-    uint8_t src1Pattern = 2; // 固定模式2,表示筛选出奇数索引的数
+    uint64_t rsvdCnt = 0;     // 用于保存筛选后保留下来的元素个数
+    uint8_t src1Pattern = 2;  // 固定模式2,表示筛选出奇数索引的数
     AscendC::GatherMask(idxULocal, sortLocal, src1Pattern, false, static_cast<uint32_t>(0), gatherMaskParams, rsvdCnt);
     AscendC::PipeBarrier<PIPE_V>();
 }
-
 
 template <HardEvent event>
 __aicore__ inline void SetWaitFlag(HardEvent evt)
@@ -387,5 +376,5 @@ __aicore__ inline void SetWaitFlag(HardEvent evt)
     AscendC::WaitFlag<event>(eventId);
 }
 
-} // namespace LIServiceVec
-#endif // LIGHTNING_INDEXER_VECTOR_H
+}  // namespace LIServiceVec
+#endif  // LIGHTNING_INDEXER_VECTOR_H

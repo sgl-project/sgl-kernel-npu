@@ -4,8 +4,9 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
+ * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * the software repository for the full text of the License.
  */
 
 /*!
@@ -36,11 +37,7 @@ struct TilingOptionalParaInfo {
     const gert::Tensor *tensor;
 };
 
-enum class DataLayout : uint32_t {
-    BSND = 0,
-    TND = 1,
-    BnBsND = 2
-};
+enum class DataLayout : uint32_t { BSND = 0, TND = 1, BnBsND = 2 };
 
 // ------------------算子原型索引常量定义----------------
 // Inputs Index
@@ -104,7 +101,8 @@ struct LiParaInfo {
 };
 
 // -----------算子Tiling入参信息类---------------
-class LITilingInfo {
+class LITilingInfo
+{
 public:
     const char *opName = nullptr;
     fe::PlatFormInfos *platformInfo = nullptr;
@@ -136,11 +134,10 @@ public:
 };
 
 // -----------算子Tiling入参信息解析及Check类---------------
-class LIInfoParser {
+class LIInfoParser
+{
 public:
-    explicit LIInfoParser(gert::TilingContext *context) : context_(context)
-    {
-    }
+    explicit LIInfoParser(gert::TilingContext *context) : context_(context) {}
     ~LIInfoParser() = default;
 
     ge::graphStatus CheckRequiredInOutExistence() const;
@@ -204,9 +201,10 @@ public:
 };
 
 // ---------------算子Tiling类---------------
-class LightningIndexerTiling {
+class LightningIndexerTiling
+{
 public:
-    explicit LightningIndexerTiling(gert::TilingContext *context) : context_(context){};
+    explicit LightningIndexerTiling(gert::TilingContext *context) : context_(context) {};
     ge::graphStatus DoTiling(LITilingInfo *tilingInfo);
 
 private:
@@ -214,5 +212,5 @@ private:
     LITilingData tilingData_;
 };
 
-} // namespace optiling
-#endif // LIGHTNING_INDEXER_TILING_H_
+}  // namespace optiling
+#endif  // LIGHTNING_INDEXER_TILING_H_

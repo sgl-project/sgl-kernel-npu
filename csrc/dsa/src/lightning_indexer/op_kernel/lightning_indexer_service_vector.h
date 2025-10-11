@@ -4,8 +4,9 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
+ * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * the software repository for the full text of the License.
  */
 
 /*!
@@ -30,7 +31,8 @@ constexpr uint32_t BASE_TOPK = 2048;
 constexpr uint32_t LD_PARAM_NUM = 16;
 
 template <typename LIT>
-class LIVector {
+class LIVector
+{
 public:
     // =================================类型定义区=================================
     // 中间计算数据类型为float，高精度模式
@@ -114,11 +116,11 @@ __aicore__ inline void LIVector<LIT>::InitBuffers(TPipe *pipe)
     outNeedBufSize = reduceCacheSize > outNeedBufSize ? reduceCacheSize : outNeedBufSize;
 
     pipe->InitBuffer(inQueue_, 2,
-                     groupInner_ * s2BaseSize_ * sizeof(float) + s2BaseSize_ * sizeof(float)); // 69KB mm_out_ub
-    pipe->InitBuffer(outQueue_, 1, outNeedBufSize);                                            // 32KB  extract
-    pipe->InitBuffer(sortOutBuf_, CeilDiv(s1BaseSize_, 2) * BASE_TOPK * 2 * sizeof(float));    // 64KB
-    pipe->InitBuffer(indexBuf_, s2BaseSize_ * sizeof(int32_t));                                // 2KB
-    pipe->InitBuffer(reduceOutBuf_, s2BaseSize_ * 2 * sizeof(float));                          // 4KB
+                     groupInner_ * s2BaseSize_ * sizeof(float) + s2BaseSize_ * sizeof(float));  // 69KB mm_out_ub
+    pipe->InitBuffer(outQueue_, 1, outNeedBufSize);                                             // 32KB  extract
+    pipe->InitBuffer(sortOutBuf_, CeilDiv(s1BaseSize_, 2) * BASE_TOPK * 2 * sizeof(float));     // 64KB
+    pipe->InitBuffer(indexBuf_, s2BaseSize_ * sizeof(int32_t));                                 // 2KB
+    pipe->InitBuffer(reduceOutBuf_, s2BaseSize_ * 2 * sizeof(float));                           // 4KB
     pipe->InitBuffer(brcBuf_, groupInner_ * 8 * sizeof(float));
     pipe->InitBuffer(paramBuf_, LD_PARAM_NUM * sizeof(int64_t));
 
@@ -140,8 +142,8 @@ __aicore__ inline void LIVector<LIT>::InitBuffers(TPipe *pipe)
     LocalTensor<float> tmpfBuff = outQueue_.AllocTensor<float>();
     Duplicate(tmpfBuff.template ReinterpretCast<int32_t>(), -1, 2 * (s1BaseSize_ / 2) * paramNum_ * 2);
     SetWaitFlag<HardEvent::V_MTE3>(HardEvent::V_MTE3);
-    int64_t wsInfoOffset = (blockId_ / 2) * s1BaseSize_ * 2 * paramNum_ +      // 2个AIV共同地址偏移
-                           (blockId_ % 2) * (s1BaseSize_ / 2) * 2 * paramNum_; // 每个AIV的地址偏移，S1方向
+    int64_t wsInfoOffset = (blockId_ / 2) * s1BaseSize_ * 2 * paramNum_ +       // 2个AIV共同地址偏移
+                           (blockId_ % 2) * (s1BaseSize_ / 2) * 2 * paramNum_;  // 每个AIV的地址偏移，S1方向
     DataCopyPad(vec1ParamGm[wsInfoOffset], tmpfBuff.template ReinterpretCast<int64_t>(),
                 {1, static_cast<uint16_t>((s1BaseSize_ / 2) * 2 * paramNum_ * sizeof(int64_t)), 0, 0});
     SetWaitFlag<HardEvent::MTE3_V>(HardEvent::MTE3_V);
@@ -152,9 +154,9 @@ template <typename LIT>
 __aicore__ inline void LIVector<LIT>::InitLDBuffers(TPipe *pipe)
 {
     pipe->Reset();
-    pipe->InitBuffer(ldParamBuf_, s1BaseSize_ * 2 * paramNum_ * sizeof(int64_t)); // 2: 头尾规约
-    pipe->InitBuffer(ldToBeMrgBuf_, 2 * BASE_TOPK * mrgListNum_ * sizeof(float)); // 2：value + index
-    pipe->InitBuffer(ldTmpBuf_, 2 * BASE_TOPK * mrgListNum_ * sizeof(float));     // 2：value + index
+    pipe->InitBuffer(ldParamBuf_, s1BaseSize_ * 2 * paramNum_ * sizeof(int64_t));  // 2: 头尾规约
+    pipe->InitBuffer(ldToBeMrgBuf_, 2 * BASE_TOPK * mrgListNum_ * sizeof(float));  // 2：value + index
+    pipe->InitBuffer(ldTmpBuf_, 2 * BASE_TOPK * mrgListNum_ * sizeof(float));      // 2：value + index
     pipe->InitBuffer(ldOutValueBuf_, BASE_TOPK * sizeof(float));
     pipe->InitBuffer(ldOutIdxBuf_, BASE_TOPK * sizeof(int32_t));
 }
@@ -179,10 +181,11 @@ __aicore__ inline void LIVector<LIT>::InitParams(const struct LICommon::ConstInf
 }
 
 template <typename LIT>
-__aicore__ inline void
-LIVector<LIT>::InitVec1GlobalTensor(GlobalTensor<MM1_OUT_T> mm1ResGm, GlobalTensor<float> vec1ResGm,
-                                    GlobalTensor<int64_t> vec1ParamGm, GlobalTensor<K_T> weightsGm,
-                                    GlobalTensor<int32_t> indiceOutGm)
+__aicore__ inline void LIVector<LIT>::InitVec1GlobalTensor(GlobalTensor<MM1_OUT_T> mm1ResGm,
+                                                           GlobalTensor<float> vec1ResGm,
+                                                           GlobalTensor<int64_t> vec1ParamGm,
+                                                           GlobalTensor<K_T> weightsGm,
+                                                           GlobalTensor<int32_t> indiceOutGm)
 {
     this->mm1ResGm = mm1ResGm;
     this->vec1ResGm = vec1ResGm;
@@ -193,13 +196,11 @@ LIVector<LIT>::InitVec1GlobalTensor(GlobalTensor<MM1_OUT_T> mm1ResGm, GlobalTens
 
 template <typename LIT>
 __aicore__ inline void LIVector<LIT>::AllocEventID()
-{
-}
+{}
 
 template <typename LIT>
 __aicore__ inline void LIVector<LIT>::FreeEventID()
-{
-}
+{}
 
 template <typename LIT>
 __aicore__ inline void LIVector<LIT>::CleanInvalidOutput(int64_t invalidS1offset)
@@ -320,7 +321,7 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
             if (info.actS1Size > 4) {
                 // info.actS1Size > 4 则单个vector核内处理的 s1>2，缓存方案无法处理
                 LIServiceVec::SortAll(reduceOutBuff, tmpSortBuf,
-                                      cuS2LenVecAlign); //  cuS2LenVecAlign <= s2BaseSize_, fill -inf
+                                      cuS2LenVecAlign);  //  cuS2LenVecAlign <= s2BaseSize_, fill -inf
                 PipeBarrier<PIPE_V>();
                 LIServiceVec::MergeSort(globalTopkUb_[innerS1Idx * BASE_TOPK * 2], BASE_TOPK, reduceOutBuff,
                                         cuS2LenVecAlign, tmpSortBuf);
@@ -337,7 +338,7 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
                     if (info.s2Idx - blockS2StartIdx_ < 4) {
                         MrgBasicBlock(globalTopkUb_[innerS1Idx * BASE_TOPK * 2], tt,
                                       static_cast<int64_t>(globalTopkUbCacheIdx + 1), s2BaseSize_);
-                    } else { // 后面缓存在 SortedBasicBlock_, 先精排, 再merge到globalTopkUb_
+                    } else {  // 后面缓存在 SortedBasicBlock_, 先精排, 再merge到globalTopkUb_
                         if (globalTopkUbCacheIdx > 0) {
                             MrgBasicBlock(tmpSortBuf, tt, static_cast<int64_t>(globalTopkUbCacheIdx + 1), s2BaseSize_);
                             PipeBarrier<PIPE_V>();
@@ -370,20 +371,22 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
                 outQueue_.EnQue<float>(valueULocal);
                 valueULocal = outQueue_.DeQue<float>();
                 LocalTensor<int32_t> idxULocal1 = valueULocal.template ReinterpretCast<int32_t>()[BASE_TOPK];
-                LIServiceVec::CopyOut(indiceOutGm[info.indiceOutOffset + cuS1Idx * constInfo_.sparseCount],
-                                      idxULocal1, constInfo_.sparseCount);
+                LIServiceVec::CopyOut(indiceOutGm[info.indiceOutOffset + cuS1Idx * constInfo_.sparseCount], idxULocal1,
+                                      constInfo_.sparseCount);
                 outQueue_.FreeTensor(valueULocal);
             } else if (needCopyWsGm) {
                 // vec1Res Gm = [aic, s1BaseSize_, 2, 2, topkOut_] float32
                 // vec1Param Gm = [aic, s1BaseSize_, 2, 16] int64
                 //     16 = [needFd, s2AcSeq, s2Start, s2End, isS2End, bn2idx, s1Idx, S1ProcNum, ......]
 
-                int64_t wsOffset = (blockId_ / 2) * s1BaseSize_ * 2 * 2 * BASE_TOPK + // 2个AIV共同地址偏移
-                                   (blockId_ % 2) * (s1BaseSize_ / 2) * 2 * 2 * BASE_TOPK + // 每个AIV的地址偏移，S1方向
-                                   (ldS1Offset + innerS1Idx) * 2 * 2 * BASE_TOPK;
-                int64_t wsInfoOffset = (blockId_ / 2) * s1BaseSize_ * 2 * paramNum_ + // 2个AIV共同地址偏移
-                                       (blockId_ % 2) * (s1BaseSize_ / 2) * 2 * paramNum_ + // 每个AIV的地址偏移，S1方向
-                                       (ldS1Offset + innerS1Idx) * 2 * paramNum_;
+                int64_t wsOffset =
+                    (blockId_ / 2) * s1BaseSize_ * 2 * 2 * BASE_TOPK +        // 2个AIV共同地址偏移
+                    (blockId_ % 2) * (s1BaseSize_ / 2) * 2 * 2 * BASE_TOPK +  // 每个AIV的地址偏移，S1方向
+                    (ldS1Offset + innerS1Idx) * 2 * 2 * BASE_TOPK;
+                int64_t wsInfoOffset =
+                    (blockId_ / 2) * s1BaseSize_ * 2 * paramNum_ +        // 2个AIV共同地址偏移
+                    (blockId_ % 2) * (s1BaseSize_ / 2) * 2 * paramNum_ +  // 每个AIV的地址偏移，S1方向
+                    (ldS1Offset + innerS1Idx) * 2 * paramNum_;
 
                 LocalTensor<int64_t> tmpiBuff = paramBuf_.Get<int64_t>();
                 tmpiBuff.SetValue(0, static_cast<int64_t>(1));
@@ -399,11 +402,11 @@ __aicore__ inline void LIVector<LIT>::ProcessVec(const LICommon::RunInfo &info)
                 // [head, tail]
                 // head: 与前面规约，与前后规约
                 // tail: 与后面规约
-                bool isTailReduce = blockS2StartIdx_ == 0; // 一定是isLastTile
+                bool isTailReduce = blockS2StartIdx_ == 0;  // 一定是isLastTile
                 // WS偏移规则 blockS2StartIdx_ != 0
                 // 跟前面块做规约 写到0偏移 不用做计算 blockS2StartIdx_ == 0 and !isS2End
                 // 跟后面块做规约 写到1偏移  需要 + s1BaseSize_, BASE_TOPK*2
-                if (isTailReduce) { // S2不是最后结束的数据就需要往后做规约，放入第二块ws
+                if (isTailReduce) {  // S2不是最后结束的数据就需要往后做规约，放入第二块ws
                     wsInfoOffset += paramNum_;
                     wsOffset += 2 * BASE_TOPK;
                 }
@@ -510,7 +513,7 @@ __aicore__ inline void LIVector<LIT>::ProcessLD()
         valueOffset = 0;
 
         // 搬入数据
-        wsOffset = tmpCubeId * s1BaseSize_ * 2 * 2 * BASE_TOPK + // 2个AIV共同地址偏移
+        wsOffset = tmpCubeId * s1BaseSize_ * 2 * 2 * BASE_TOPK +  // 2个AIV共同地址偏移
                    innerS1Idx * 2 * 2 * BASE_TOPK + 2 * BASE_TOPK;
         DataCopyPad(curValueIdxUb, vec1ResGm[wsOffset],
                     {1, static_cast<uint16_t>(2 * BASE_TOPK * sizeof(int32_t)), 0, 0}, {true, 0, 0, 0});
@@ -531,7 +534,7 @@ __aicore__ inline void LIVector<LIT>::ProcessLD()
 
         while (needFd == 1) {
             // 搬入头规约数据
-            wsOffset = tmpCubeId * s1BaseSize_ * 2 * 2 * BASE_TOPK + // 2个AIV共同地址偏移
+            wsOffset = tmpCubeId * s1BaseSize_ * 2 * 2 * BASE_TOPK +  // 2个AIV共同地址偏移
                        innerS1Idx * 2 * 2 * BASE_TOPK;
             SetWaitFlag<HardEvent::V_MTE2>(HardEvent::V_MTE2);
             DataCopyPad(curValueIdxUb[valueOffset], vec1ResGm[wsOffset],
@@ -621,5 +624,5 @@ __aicore__ inline void LIVector<LIT>::ProcessLD()
                     {1, static_cast<uint16_t>(constInfo_.sparseCount * sizeof(int32_t)), 0, 0});
     }
 }
-} // namespace LIKernel
+}  // namespace LIKernel
 #endif

@@ -20,17 +20,17 @@ custom.npu_lightning_indexer(query, key, weights, *, actual_seq_lengths_query=No
 
 ## 参数说明<a name="zh-cn_topic_0000001832267082_section112637109429"></a>
 
->**说明：**<br> 
+>**说明：**<br>
 >
 >- query、key、weights参数维度含义：B（Batch Size）表示输入样本批量大小、S（Sequence Length）表示输入样本序列长度、H（Head Size）表示hidden层的大小、N（Head Num）表示多头数、D（Head Dim）表示hidden层最小的单元尺寸，且满足D=H/N、T表示所有Batch输入样本序列长度的累加和。
 >- S1表示query shape中的S，S2表示key shape中的S，N1表示query shape中的N，N2表示key shape中的N。
 
 -   **query**（`Tensor`）：必选参数，不支持非连续，数据格式支持ND，数据类型支持`bfloat16`。
-    
+
 -   **key**（`Tensor`）：必选参数，不支持非连续，数据格式支持ND，数据类型支持`bfloat16`，layout\_key为PA_BSND时shape为[block\_count, block\_size, N2, D]，其中block\_count为PageAttention时block总数，block\_size为一个block的token数。
-    
+
 -   **weights**（`Tensor`）：必选参数，不支持非连续，数据格式支持ND，数据类型支持`bfloat16`，支持输入shape[B,S1,N1,1]、[T,N1,1]。
-    
+
 - <strong>*</strong>：代表其之前的参数是位置相关的，必须按照顺序输入，属于必选参数；其之后的参数是键值对赋值，与位置无关，属于可选参数（不传入会使用默认值）。
 
 -   **actual\_seq\_lengths\_query**（`Tensor`）：可选参数，表示不同Batch中`query`的有效token数，数据类型支持`int32`。如果不指定seqlen可传入None，表示和`query`的shape的S长度相同。
@@ -48,7 +48,7 @@ custom.npu_lightning_indexer(query, key, weights, *, actual_seq_lengths_query=No
 -   **sparse\_count**（`int`）：可选参数，代表topK阶段需要保留的block数量，支持1-2048，数据类型支持`int32`。
 
 -   **sparse\_mode**（`int`）：可选参数，表示sparse的模式，支持0/3，数据类型支持`int32`。
-    
+
     -   sparse\_mode为0时，代表defaultMask模式。
     -   sparse\_mode为3时，代表rightDownCausal模式的mask，对应以右顶点为划分的下三角场景。
 

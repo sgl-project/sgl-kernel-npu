@@ -4,8 +4,9 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
+ * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * the software repository for the full text of the License.
  */
 
 /*!
@@ -18,11 +19,7 @@
 namespace LICommon {
 
 // 与tiling的layout保持一致
-enum class LI_LAYOUT {
-    BSND = 0,
-    TND = 1,
-    PA_BSND = 2
-};
+enum class LI_LAYOUT { BSND = 0, TND = 1, PA_BSND = 2 };
 
 template <typename Q_T, typename K_T, typename OUT_T, const bool PAGE_ATTENTION = false,
           LI_LAYOUT LAYOUT_T = LI_LAYOUT::BSND, LI_LAYOUT K_LAYOUT_T = LI_LAYOUT::PA_BSND, typename... Args>
@@ -89,28 +86,28 @@ struct ConstInfo {
     uint64_t qHeadNum = 0ULL;
     uint64_t kHeadNum;
     uint64_t headDim;
-    uint64_t sparseCount;           // topK选取大小
-    uint64_t kSeqSize = 0ULL;         // kv最大S长度
-    uint64_t qSeqSize = 1ULL;         // q最大S长度
-    uint32_t kCacheBlockSize = 0;     // PA场景的block size
-    uint32_t maxBlockNumPerBatch = 0; // PA场景的最大单batch block number
-    LI_LAYOUT outputLayout;           // 输出的格式
+    uint64_t sparseCount;              // topK选取大小
+    uint64_t kSeqSize = 0ULL;          // kv最大S长度
+    uint64_t qSeqSize = 1ULL;          // q最大S长度
+    uint32_t kCacheBlockSize = 0;      // PA场景的block size
+    uint32_t maxBlockNumPerBatch = 0;  // PA场景的最大单batch block number
+    LI_LAYOUT outputLayout;            // 输出的格式
     bool attenMaskFlag = false;
 
-    uint32_t actualLenQDims = 0U; // query的actualSeqLength 的维度
-    uint32_t actualLenDims = 0U;  // KV 的actualSeqLength 的维度
-    bool isAccumSeqS1 = false;    // 是否累加模式
-    bool isAccumSeqS2 = false;    // 是否累加模式
+    uint32_t actualLenQDims = 0U;  // query的actualSeqLength 的维度
+    uint32_t actualLenDims = 0U;   // KV 的actualSeqLength 的维度
+    bool isAccumSeqS1 = false;     // 是否累加模式
+    bool isAccumSeqS2 = false;     // 是否累加模式
 };
 
 struct SplitCoreInfo {
-    uint32_t s2Start = 0U; // S2的起始位置
-    uint32_t s2End = 0U;   // S2循环index上限
+    uint32_t s2Start = 0U;  // S2的起始位置
+    uint32_t s2End = 0U;    // S2循环index上限
     uint32_t bN2Start = 0U;
     uint32_t bN2End = 0U;
     uint32_t gS1Start = 0U;
     uint32_t gS1End = 0U;
-    bool isLD = false; // 当前核是否需要进行Decode归约任务
+    bool isLD = false;  // 当前核是否需要进行Decode归约任务
 };
 
 template <typename T>
@@ -136,6 +133,6 @@ __aicore__ inline T CeilDiv(T num, T rnd)
 {
     return (((rnd) == 0) ? 0 : (((num) + (rnd)-1) / (rnd)));
 }
-} // namespace LICommon
+}  // namespace LICommon
 
-#endif // LIGHTNING_INDEXER_COMMON_H
+#endif  // LIGHTNING_INDEXER_COMMON_H

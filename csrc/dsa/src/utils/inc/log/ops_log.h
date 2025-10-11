@@ -4,8 +4,9 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
+ * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * the software repository for the full text of the License.
  */
 
 /*!
@@ -39,15 +40,15 @@
 #define OPS_LOG_E_IF(COND, OP_DESC, EXPR, ...) OPS_LOG_STUB_IF(COND, OPS_LOG_E(OP_DESC, __VA_ARGS__), EXPR)
 #define OPS_LOG_EVENT_IF(COND, OP_DESC, EXPR, ...) OPS_LOG_STUB_IF(COND, OPS_LOG_EVENT(OP_DESC, __VA_ARGS__), EXPR)
 
-#define OPS_LOG_E_IF_NULL(OPS_DESC, PTR, EXPR)                                                                         \
-    if (__builtin_expect((PTR) == nullptr, 0)) {                                                                       \
-        OPS_LOG_STUB_E(OPS_DESC, "%s is nullptr!", #PTR);                                                              \
-        OPS_CALL_ERR_STUB("EZ9999", OPS_DESC, "%s is nullptr!", #PTR);                                                 \
-        EXPR;                                                                                                          \
+#define OPS_LOG_E_IF_NULL(OPS_DESC, PTR, EXPR)                         \
+    if (__builtin_expect((PTR) == nullptr, 0)) {                       \
+        OPS_LOG_STUB_E(OPS_DESC, "%s is nullptr!", #PTR);              \
+        OPS_CALL_ERR_STUB("EZ9999", OPS_DESC, "%s is nullptr!", #PTR); \
+        EXPR;                                                          \
     }
 
-#define OPS_CHECK(COND, LOG_FUNC, EXPR)                                                                                \
-    if (COND) {                                                                                                        \
-        LOG_FUNC;                                                                                                      \
-        EXPR;                                                                                                          \
+#define OPS_CHECK(COND, LOG_FUNC, EXPR) \
+    if (COND) {                         \
+        LOG_FUNC;                       \
+        EXPR;                           \
     }

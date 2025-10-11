@@ -4,8 +4,9 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
+ * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * the software repository for the full text of the License.
  */
 
 /*!
@@ -253,9 +254,9 @@ ge::graphStatus LIInfoParser::CheckShapeDim()
     OPS_ERR_IF((opParamInfo_.blockTable.tensor != nullptr) &&
                    (opParamInfo_.blockTable.tensor->GetStorageShape().GetDimNum() != DIM_NUM_TWO),
                OPS_LOG_E(opName_, "the dim num of block_table's shape should be 2"), return ge::GRAPH_FAILED);
-    OPS_ERR_IF((kLayout_ == DataLayout::BnBsND) &&
-                   (opParamInfo_.key.shape->GetStorageShape().GetDimNum() != DIM_NUM_FOUR),
-               OPS_LOG_E(opName_, "the dim num of key's shape should be 4"), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(
+        (kLayout_ == DataLayout::BnBsND) && (opParamInfo_.key.shape->GetStorageShape().GetDimNum() != DIM_NUM_FOUR),
+        OPS_LOG_E(opName_, "the dim num of key's shape should be 4"), return ge::GRAPH_FAILED);
 
     uint32_t qShapeDim = opParamInfo_.query.shape->GetStorageShape().GetDimNum();
     uint32_t weightsShapeDim = opParamInfo_.weights.shape->GetStorageShape().GetDimNum();
@@ -331,7 +332,7 @@ ge::graphStatus LIInfoParser::GetBatchSize()
     // 2、TND/NTD时, actual_seq_lens_q必须传入, 以actual_seq_lens_q数组的长度为B轴大小
     if ((qLayout_ == DataLayout::TND)) {
         return GetActualSeqLenSize(bSize_, opParamInfo_.actualSeqLengthsQ.tensor, "input actual_seq_lengths_query");
-    } else { // BSND
+    } else {  // BSND
         bSize_ = opParamInfo_.query.shape->GetStorageShape().GetDim(0);
         return ge::GRAPH_SUCCESS;
     }
@@ -448,8 +449,9 @@ ge::graphStatus LIInfoParser::ValidateInputShapesMatch()
                        (opParamInfo_.blockTable.tensor->GetStorageShape().GetDim(0) != bSize_) ||
                        (opParamInfo_.actualSeqLengths.tensor->GetShapeSize() != bSize_) ||
                        (opParamInfo_.attenOut.shape->GetStorageShape().GetDim(0) != bSize_),
-                   OPS_LOG_E(opName_, "BSND case input query, weight, "
-                                      "actual_seq_lengths_key, block_table, sparse_indices dim 0 must be same."),
+                   OPS_LOG_E(opName_,
+                             "BSND case input query, weight, "
+                             "actual_seq_lengths_key, block_table, sparse_indices dim 0 must be same."),
                    return ge::GRAPH_FAILED);
         OPS_ERR_IF((opParamInfo_.actualSeqLengthsQ.tensor != nullptr) &&
                        (opParamInfo_.actualSeqLengthsQ.tensor->GetShapeSize() != bSize_),
@@ -458,8 +460,9 @@ ge::graphStatus LIInfoParser::ValidateInputShapesMatch()
         // -----------------------check S1-------------------
         OPS_ERR_IF((opParamInfo_.weights.shape->GetStorageShape().GetDim(1) != s1Size_) ||
                        (opParamInfo_.attenOut.shape->GetStorageShape().GetDim(1) != s1Size_),
-                   OPS_LOG_E(opName_, "BSND case input query, weight, "
-                                      "sparse_indices dim 1 must be same."),
+                   OPS_LOG_E(opName_,
+                             "BSND case input query, weight, "
+                             "sparse_indices dim 1 must be same."),
                    return ge::GRAPH_FAILED);
         queryWeightsN1Dim = DIM_IDX_TWO;
         outN2Dim = DIM_IDX_TWO;
@@ -558,17 +561,17 @@ ge::graphStatus LightningIndexerTiling::DoTiling(LITilingInfo *tilingInfo)
     context_->SetBlockDim(blockDim);
 
     // -------------set workspacesize-----------------
-    constexpr uint32_t MM1_RES_ELEM_SIZE = 4;         // 4: fp32
-    constexpr uint32_t DOUBLE_BUFFER = 2;             // 双Buffer
-    constexpr uint32_t M_BASE_SIZE = 512;             // m轴基本块大小
-    constexpr uint32_t S2_BASE_SIZE = 512;            // S2轴基本块大小
-    constexpr uint32_t V1_RES_ELEM_SIZE = 4;          // 4: int32
-    constexpr uint32_t V1_RES_ELEM_TYPE = 2;          // 保留Index和Value 2种数据
-    constexpr uint32_t V1_DECODE_PARAM_ELEM_SIZE = 8; // 8: int64
-    constexpr uint32_t V1_DECODE_PARAM_NUM = 16;      // Decode参数个数
-    constexpr uint32_t V1_DECODE_DATA_NUM = 2;        // Decode每个核需要存储头和尾部两块数据
-    constexpr uint32_t S1_BASE_SIZE = 8;              // S1轴基本块的大小
-    constexpr uint32_t TOPK_MAX_SIZE = 2048;          // TopK选取个数
+    constexpr uint32_t MM1_RES_ELEM_SIZE = 4;          // 4: fp32
+    constexpr uint32_t DOUBLE_BUFFER = 2;              // 双Buffer
+    constexpr uint32_t M_BASE_SIZE = 512;              // m轴基本块大小
+    constexpr uint32_t S2_BASE_SIZE = 512;             // S2轴基本块大小
+    constexpr uint32_t V1_RES_ELEM_SIZE = 4;           // 4: int32
+    constexpr uint32_t V1_RES_ELEM_TYPE = 2;           // 保留Index和Value 2种数据
+    constexpr uint32_t V1_DECODE_PARAM_ELEM_SIZE = 8;  // 8: int64
+    constexpr uint32_t V1_DECODE_PARAM_NUM = 16;       // Decode参数个数
+    constexpr uint32_t V1_DECODE_DATA_NUM = 2;         // Decode每个核需要存储头和尾部两块数据
+    constexpr uint32_t S1_BASE_SIZE = 8;               // S1轴基本块的大小
+    constexpr uint32_t TOPK_MAX_SIZE = 2048;           // TopK选取个数
     uint32_t workspaceSize = ascendcPlatform.GetLibApiWorkSpaceSize();
     // 主流程需Workspace大小
     uint32_t mm1ResSize = M_BASE_SIZE * S2_BASE_SIZE;
@@ -628,4 +631,4 @@ IMPL_OP_OPTILING(LightningIndexer)
     .Tiling(TilingForLightningIndexer)
     .TilingParse<LICompileInfo>(TilingPrepareForLightningIndexer);
 
-} // namespace optiling
+}  // namespace optiling
