@@ -65,6 +65,13 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
 
+      - name: Run test deepep eplb
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --check-recv-count
+
   test-build-deepep:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false
@@ -112,6 +119,13 @@ jobs:
           HCCL_BUFFSIZE: 1913
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
+
+      - name: Run test deepep eplb
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --check-recv-count
 
   finish:
     if: always()
