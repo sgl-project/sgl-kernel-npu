@@ -9,6 +9,7 @@ on:
       - "python/**"
       - "csrc/**"
       - "test/**"
+      - "scripts/**"
       - ".github/workflows/pr-test-npu.yml"
   workflow_dispatch:
 
@@ -145,3 +146,4 @@ jobs:
           done
           echo "All jobs completed successfully"
           exit 0
+
