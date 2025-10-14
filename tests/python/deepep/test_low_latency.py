@@ -293,7 +293,6 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     dist.barrier()
     dist.destroy_process_group()
 
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test intranode EP kernels")
     parser.add_argument(
