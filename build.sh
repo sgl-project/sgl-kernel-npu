@@ -188,7 +188,7 @@ function main()
     if pip3 show wheel;then
         echo "wheel has been installed"
     else
-        pip3 install wheel
+        pip3 install wheel==0.45.1
     fi
     build_memory_saver
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then

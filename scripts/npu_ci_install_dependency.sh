@@ -24,7 +24,7 @@ python3 -m ${PIP_INSTALL} --upgrade pip
 ### Install PyTorch and PTA
 PYTORCH_VERSION=2.6.0
 TORCHVISION_VERSION=0.21.0
-${PIP_INSTALL} torch==$PYTORCH_VERSION torchvision==$TORCHVISION_VERSION --index-url https://download.pytorch.org/whl/cpu
+${PIP_INSTALL} torch==$PYTORCH_VERSION torchvision==$TORCHVISION_VERSION
 
 PTA_VERSION="v7.1.0.1-pytorch2.6.0"
 PTA_NAME="torch_npu-2.6.0.post1-cp311-cp311-manylinux_2_28_aarch64.whl"
