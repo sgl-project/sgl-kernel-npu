@@ -1,56 +1,7 @@
 #!/bin/bash
 
-SKN_PWD=""
-
-# 默认值
-SKIP_BUILD=false
-
-TEMP=$(getopt -o sw:t:h --long skip-build -n "$0" -- "$@")
-if [ $? != 0 ]; then
-    echo "Terminating..." >&2
-    exit 1
-fi
-
-eval set -- "$TEMP"
-
-while true; do
-    case "$1" in
-        -s|--skip-build)
-            SKIP_BUILD=true
-            shift
-            ;;
-        --)
-            shift
-            break
-            ;;
-        *)
-            echo "Invalid option: $1" >&2
-            show_help
-            exit 1
-            ;;
-    esac
-done
-
 # 切换目录
-cd "${SKN_PWD}" || { echo "Directory not found: ${SKN_PWD}"; exit 1; }
-
-# 条件构建
-if [ "$SKIP_BUILD" = false ]; then
-    echo ">>> Building package..."
-    bash build.sh -a deepep || { echo "Build failed!"; exit 1; }
-    pip uninstall -y deep-ep
-    pip install ./output/deep_ep-*.whl || { echo "Install failed!"; exit 1; }
-else
-    echo ">>> Skipping build and install (--skip-build)"
-fi
-
-# 进入测试目录
-cd ./tests/python/deepep || { echo "Test directory not found"; exit 1; }
-
-# 设置环境变量
-export HCCL_BUFFSIZE=4096
-# 设置 Ascend 环境
-source /usr/local/Ascend/ascend-toolkit/set_env.sh
+cd ${GITHUB_WORKSPACE}/tests/python/deepep
 
 #遍历test_low_latency.py
 # 设置参数范围
@@ -101,3 +52,5 @@ for NUM_PROCESSES in "${NUM_PROCESSES_LIST[@]}"; do
     done
   done
 done
+
+cd ./
