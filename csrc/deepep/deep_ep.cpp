@@ -670,8 +670,8 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
 
     EXEC_NPU_CMD(aclnnFusedDeepMoe,
                  // input
-                 x, expert_ids, gmm1_permuted_weight, gmm1_permuted_weight_scale, gmm2_weight, gmm2_weight_scale,
-                 static_cast<const std::nullptr_t &>(nullptr), new_scales,
+                 new_x, this->new_topk_idx, gmm1_permuted_weight, gmm1_permuted_weight_scale, gmm2_weight,
+                 gmm2_weight_scale, static_cast<const std::nullptr_t &>(nullptr), new_scales,
                  // attr
                  hcom_ep_name, num_ranks, rank, num_experts, shared_expert_num, shared_expert_rank_num, quant_mode,
                  global_bs,
