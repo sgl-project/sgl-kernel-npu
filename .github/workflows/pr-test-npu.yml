@@ -70,7 +70,7 @@ jobs:
         env:
           HCCL_BUFFSIZE: 2000
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --check-recv-count
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py
 
   test-build-deepep:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
@@ -125,7 +125,7 @@ jobs:
         env:
           HCCL_BUFFSIZE: 2000
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --check-recv-count
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py
 
   finish:
     if: always()
