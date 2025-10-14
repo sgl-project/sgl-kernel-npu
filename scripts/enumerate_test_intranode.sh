@@ -1,7 +1,5 @@
 #!/bin/bash
 
-SKN_PWD=""
-
 # 默认值
 SKIP_BUILD=false
 
@@ -32,7 +30,7 @@ while true; do
 done
 
 # 切换目录
-cd "${SKN_PWD}" || { echo "Directory not found: ${SKN_PWD}"; exit 1; }
+cd ${GITHUB_WORKSPACE}
 
 # 条件构建
 if [ "$SKIP_BUILD" = false ]; then
@@ -47,8 +45,6 @@ fi
 # 进入测试目录
 cd ./tests/python/deepep || { echo "Test directory not found"; exit 1; }
 
-# 设置环境变量
-export HCCL_BUFFSIZE=4096
 # 设置 Ascend 环境
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
