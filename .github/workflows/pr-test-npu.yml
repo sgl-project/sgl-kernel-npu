@@ -50,7 +50,7 @@ jobs:
 
       - name: Prepare Deepep
         run: bash scripts/prepare_deepep_in_container.sh
-
+    
       - name: Run test intranode
         timeout-minutes: 10
         env:
@@ -64,6 +64,20 @@ jobs:
           HCCL_BUFFSIZE: 1913
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
+
+      - name: Run enumerate test intranode
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2239
+        run: |
+          bash scripts/enumerate_test_intranode.sh
+
+      - name: Run enumerate test low latency
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+        run: |
+          bash scripts/enumerate_test_low_latency.sh
 
   test-build-deepep:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
