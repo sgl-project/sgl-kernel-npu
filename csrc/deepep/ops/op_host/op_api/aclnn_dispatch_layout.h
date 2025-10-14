@@ -13,16 +13,18 @@ extern "C" {
  * numRanks : required
  * numExperts : required
  * numTopk : required
+ * localRankSize : required
  * numTokensPerRank : required
  * numTokensPerExpert : required
  * isTokenInRank : required
+ * notifySendData : required
  * workspaceSize : size of workspace(output).
  * executor : executor context(output).
  */
 __attribute__((visibility("default"))) aclnnStatus aclnnDispatchLayoutGetWorkspaceSize(
     const aclTensor *topkIdx, int64_t numTokens, int64_t numRanks, int64_t numExperts, int64_t numTopk,
-    const aclTensor *numTokensPerRank, const aclTensor *numTokensPerExpert, const aclTensor *isTokenInRank,
-    uint64_t *workspaceSize, aclOpExecutor **executor);
+    int64_t localRankSize, const aclTensor *numTokensPerRank, const aclTensor *numTokensPerExpert,
+    const aclTensor *isTokenInRank, const aclTensor *notifySendData, uint64_t *workspaceSize, aclOpExecutor **executor);
 
 /* function: aclnnDispatchLayout
  * workspace : workspace memory addr(input).
