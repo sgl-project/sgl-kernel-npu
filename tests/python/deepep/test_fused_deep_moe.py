@@ -11,6 +11,7 @@ from deep_ep import Buffer
 from utils import bench, calc_diff, hash_tensor, init_dist
 
 torch_npu.npu.config.allow_internal_format = True
+test_topk_minus1 = True
 
 
 def init_base_weights():
@@ -325,33 +326,67 @@ def test(
 
     # hidden_states = x.to(dtype=torch.float16)
     hidden_states = x
-    baseline_output = baseline_test(
-        buffer2,
-        x,
-        topk_idx,
-        num_tokens,
-        num_experts,
-        cumulative_local_expert_recv_stats,
-        return_recv_hook,
-        w13,
-        w13_scale,
-        w2,
-        w2_scale,
-        topk_weights,
-    )
 
-    hidden_states, event, hook = buffer.fused_deep_moe(
-        x,
-        topk_idx,
-        topk_weights,
-        w13_f,
-        w13s_f,
-        w2_f,
-        w2s_f,
-        num_tokens,
-        num_experts,
-        use_fp8=True,
-    )
+    if test_topk_minus1:
+        topk_weights_minus1 = topk_weights
+        topk_weights_minus1[:, -2:-1] = 0
+        topk_idx_minus1 = topk_idx
+        topk_idx_minus1[:, -2:-1] = -1
+        baseline_output = baseline_test(
+            buffer2,
+            x,
+            topk_idx,
+            num_tokens,
+            num_experts,
+            cumulative_local_expert_recv_stats,
+            return_recv_hook,
+            w13,
+            w13_scale,
+            w2,
+            w2_scale,
+            topk_weights_minus1,
+        )
+        hidden_states, event, hook = buffer.fused_deep_moe(
+            x,
+            topk_idx_minus1,
+            topk_weights,
+            w13_f,
+            w13s_f,
+            w2_f,
+            w2s_f,
+            num_tokens,
+            num_experts,
+            use_fp8=True,
+        )
+
+    else:
+        baseline_output = baseline_test(
+            buffer2,
+            x,
+            topk_idx,
+            num_tokens,
+            num_experts,
+            cumulative_local_expert_recv_stats,
+            return_recv_hook,
+            w13,
+            w13_scale,
+            w2,
+            w2_scale,
+            topk_weights,
+        )
+
+        hidden_states, event, hook = buffer.fused_deep_moe(
+            x,
+            topk_idx,
+            topk_weights,
+            w13_f,
+            w13s_f,
+            w2_f,
+            w2s_f,
+            num_tokens,
+            num_experts,
+            use_fp8=True,
+        )
     # fused_output = hidden_states.to(dtype=torch.bfloat16)
     fused_output = hidden_states
     print(f"[Rank {rank}] fused finish.")

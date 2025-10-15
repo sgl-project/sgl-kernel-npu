@@ -917,7 +917,10 @@ public:
         uint32_t sendValidTokenIndex = 0;
         for (uint32_t sendGroupIndex = 0; sendGroupIndex < moeExpertNumPerRank; ++sendGroupIndex) {
             for (uint32_t tokenIndex = startTokenId; tokenIndex < endTokenId; ++tokenIndex) {
-                uint32_t dstExpertId = expertIdsTensor_(tokenIndex);
+                int32_t dstExpertId = expertIdsTensor_(tokenIndex);
+                if (dstExpertId < 0) {
+                    continue;
+                }
                 if ((dstExpertId % moeExpertNumPerRank) != sendGroupIndex) {  // 优先发送指定专家的token
                     continue;
                 }
