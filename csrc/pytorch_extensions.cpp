@@ -55,6 +55,12 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
     m.def(
         "batch_matmul_transpose(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, "
         "str? format_mode=None, str? quant_mode=None) -> ()");
+
+    m.def(
+        "transfer_kv(Tensor device_k, Tensor host_k, "
+        "Tensor device_v, Tensor host_v, "
+        "Tensor device_indices, Tensor host_indices, int kind, "
+        "int start_layer_id, int num_layers, int page_size) -> ()");
 }
 }  // namespace
 
@@ -74,5 +80,7 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("mla_preprocess", TORCH_FN(sglang::npu_kernel::mla_preprocess));
 
     m.impl("batch_matmul_transpose", TORCH_FN(sglang::npu_kernel::batch_matmul_transpose));
+
+    m.impl("transfer_kv", TORCH_FN(sglang::npu_kernel::transfer_kv));
 }
 }  // namespace
