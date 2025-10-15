@@ -601,7 +601,7 @@ class Buffer:
         gmm2_weight_scale: torch.Tensor,
         num_max_dispatch_tokens_per_rank: int,
         num_experts: int,
-        quant_mode: int = 0,
+        quant_mode: int = 1,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         A fused low-latency implementation for MoE expert forward and combination.
@@ -623,7 +623,7 @@ class Buffer:
 
             num_max_dispatch_tokens_per_rank: the maximum number of tokens to dispatch, all the ranks must hold the same value.
             num_experts: the number of experts.
-            quant_mode: int type, optional number, displays the quantization model. Supported values: 0 means non-quantization (default)
+            quant_mode: int type, optional number, displays the quantization model. Supported values: 1 means int8 (default)
 
         Notes:
             - The first dimension of `topk_idx` defines the batch size `bs`.
