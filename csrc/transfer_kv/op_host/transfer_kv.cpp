@@ -14,14 +14,10 @@
 namespace sglang {
 namespace npu_kernel {
 
-inline void copy_page(
-    const at::Tensor src_buffer,
-    at::Tensor dst_buffer,
-    int64_t page_size)
-{
-    dst_buffer.slice(0, 0, page_size)
-        .copy_(src_buffer.slice(0, 0, page_size), /* non_blocking= */ true);
-}
+enum class TransferDirection {
+    HOST_TO_DEVICE = 1,
+    DEVICE_TO_HOST = 2,
+};
 
 // @kind: only support 1 or 2, 1 is host to device, 2 is device to host
 HOST_API void transfer_kv(
@@ -35,7 +31,9 @@ HOST_API void transfer_kv(
     TORCH_CHECK(device_indices.numel() == host_indices.numel(), "device and host indices must have the same length");
     TORCH_CHECK(device_indices.numel() % page_size == 0, "device indices size must be divisible by page size");
     TORCH_CHECK(page_size > 0, "Page size must be positive");
-    TORCH_CHECK(kind == 1 || kind == 2, "kind must be equal to 1(h2d) or 2(d2h)");
+    TORCH_CHECK(kind == static_cast<int64_t>(TransferDirection::HOST_TO_DEVICE)
+                || kind == static_cast<int64_t>(TransferDirection::DEVICE_TO_HOST),
+                "kind must be equal to 1(h2d) or 2(d2h)")
 
     auto device_indices_cpu = device_indices.cpu();
     auto host_indices_cpu = host_indices.cpu();
@@ -47,31 +45,19 @@ HOST_API void transfer_kv(
         for (int64_t layer_id = start_layer_id; layer_id < start_layer_id + num_layers; ++layer_id) {
             if (kind == 2) {
                 // device -> host
-                copy_page(
-                    device_k[layer_id][device_page_index],
-                    host_k[host_page_index][layer_id],
-                    page_size);
+                host_k[host_page_index][layer_id].copy_(device_k[layer_id][device_page_index]);
             } else {
                 // host -> device
-                copy_page(
-                    host_k[host_page_index][layer_id],
-                    device_k[layer_id][device_page_index],
-                    page_size);
+                device_k[layer_id][device_page_index].copy_(host_k[host_page_index][layer_id]);
             }
 
             if (device_v.numel() != 0 && host_v.numel() != 0) {
                 if (kind == 2) {
                     // device -> host
-                    copy_page(
-                        device_v[layer_id][device_page_index],
-                        host_v[host_page_index][layer_id],
-                        page_size);
+                    host_v[host_page_index][layer_id].copy_(device_v[layer_id][device_page_index]);
                 } else {
                     // host -> device
-                    copy_page(
-                        host_v[host_page_index][layer_id],
-                        device_v[layer_id][device_page_index],
-                        page_size);
+                    device_v[layer_id][device_page_index].copy_(host_v[host_page_index][layer_id]);
                 }
             }
         }

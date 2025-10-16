@@ -1,13 +1,11 @@
-import random
 import time
 import unittest
 
 import sgl_kernel_npu
 import torch
-import torch_npu
 
 # example comes from Qwen3-32B, TP=2
-TP=2
+TP = 2
 NUM_KV_HEADS = 8
 NUM_LAYERS = 64
 NUM_PAGES = 30
@@ -15,8 +13,10 @@ PAGE_SIZE = 128
 HEAD_NUM_PER_TP = int(NUM_KV_HEADS / TP)
 HEAD_DIM = 128
 
-H2D=1
-D2H=2
+from enum import Enum
+class TransferDirection(Enum):
+    H2D = 1
+    D2H = 2
 
 class TestTransferKV(unittest.TestCase):
 
@@ -51,7 +51,7 @@ class TestTransferKV(unittest.TestCase):
         start = time.time()
         with torch.npu.stream(stream):
             torch.ops.npu.transfer_kv(device_k, host_k, device_v, host_v,
-                                      device_indices, host_indices, kind,
+                                      device_indices, host_indices, kind.value,
                                       0, NUM_LAYERS, PAGE_SIZE)
             finish_event.record()
         finish_event.synchronize()
@@ -66,7 +66,7 @@ class TestTransferKV(unittest.TestCase):
         return device_kv_buffer, host_kv_buffer
 
     def test_page_copy_d2h(self):
-        device_kv, host_kv = self._kv_transfer(D2H)
+        device_kv, host_kv = self._kv_transfer(TransferDirection.D2H)
 
         self.assertAlmostEqual(
             device_kv.sum().cpu().item(),
@@ -83,7 +83,7 @@ class TestTransferKV(unittest.TestCase):
         )
 
     def test_page_copy_h2d(self):
-        device_kv, host_kv = self._kv_transfer(H2D)
+        device_kv, host_kv = self._kv_transfer(TransferDirection.H2D)
 
         self.assertAlmostEqual(
             host_kv.sum().item(),
