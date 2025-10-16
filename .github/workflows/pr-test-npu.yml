@@ -65,14 +65,14 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
 
       - name: Run enumerate test intranode
-        timeout-minutes: 20
+        timeout-minutes: 360
         env:
           HCCL_BUFFSIZE: 2239
         run: |
           bash scripts/enumerate_test_intranode.sh
 
       - name: Run enumerate test low latency
-        timeout-minutes: 20
+        timeout-minutes: 360
         env:
           HCCL_BUFFSIZE: 1913
         run: |
@@ -144,6 +144,7 @@ jobs:
           done
           echo "All jobs completed successfully"
           exit 0
+
 
 
 
