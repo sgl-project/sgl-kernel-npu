@@ -20,7 +20,7 @@ class TransferDirection(Enum):
 
 class TestTransferKV(unittest.TestCase):
 
-    def _kv_transfer(self, kind):
+    def _kv_transfer(self, kind, v_empty, non_blocking):
         torch.npu.set_device(0)
 
         device_kv_buffer = torch.ones(
@@ -29,7 +29,7 @@ class TestTransferKV(unittest.TestCase):
             device="npu",
         )
         device_k = device_kv_buffer[0]
-        device_v = device_kv_buffer[1]
+        device_v = torch.empty(0) if v_empty else device_kv_buffer[1]
 
         host_kv_buffer = torch.zeros(
             (2, NUM_PAGES, NUM_LAYERS, PAGE_SIZE, HEAD_NUM_PER_TP, HEAD_DIM),
@@ -41,7 +41,7 @@ class TestTransferKV(unittest.TestCase):
                             "device value should not be equal to host value")
 
         host_k = host_kv_buffer[0]
-        host_v = host_kv_buffer[1]
+        host_v = torch.empty(0) if v_empty else host_kv_buffer[1]
 
         device_indices = torch.arange(NUM_PAGES * PAGE_SIZE, dtype=torch.int64)
         host_indices = torch.arange(NUM_PAGES * PAGE_SIZE, dtype=torch.int64)
@@ -52,50 +52,92 @@ class TestTransferKV(unittest.TestCase):
         with torch.npu.stream(stream):
             torch.ops.npu.transfer_kv(device_k, host_k, device_v, host_v,
                                       device_indices, host_indices, kind.value,
-                                      0, NUM_LAYERS, PAGE_SIZE)
+                                      0, NUM_LAYERS, PAGE_SIZE, non_blocking)
             finish_event.record()
         finish_event.synchronize()
 
         end = time.time()
-        kind_str = "D2H" if kind == 2 else "H2D"
-        print(f"kv transfer {kind_str}, "
-              f"tensor copy times is {NUM_PAGES * NUM_LAYERS * 2}, "
+        kind_str = "D2H" if kind.value == 2 else "H2D"
+        copy_times = NUM_PAGES * NUM_LAYERS
+        if not v_empty:
+            copy_times = copy_times * 2
+        print(f"kv transfer {kind_str}, {v_empty=}, {non_blocking=}, "
+              f"tensor copy times is {copy_times}, "
               f"single tensor copy size is {PAGE_SIZE * HEAD_NUM_PER_TP * HEAD_DIM * torch.bfloat16.itemsize} bytes, "
               f"total duration {float((end - start) * 1000):.3f}ms")
 
         return device_kv_buffer, host_kv_buffer
 
-    def test_page_copy_d2h(self):
-        device_kv, host_kv = self._kv_transfer(TransferDirection.D2H)
+    def _k_transfer(self, kind, non_blocking):
+        return self._kv_transfer(kind, True, non_blocking)
+
+    def test_kv_copy_d2h(self):
+        self._kv_transfer(TransferDirection.D2H, False, False)
+        device_kv, host_kv = self._kv_transfer(TransferDirection.D2H, False, True)
 
         self.assertAlmostEqual(
             device_kv.sum().cpu().item(),
             host_kv.sum().item(),
             delta=1e-3,
-            msg="host value should be equal to device value after transfer d2h"
+            msg="host value should be equal to device value after transfer kv d2h"
         )
 
         self.assertAlmostEqual(
             host_kv.sum().item(),
             host_kv.numel(),
             delta=1e-3,
-            msg="host value sum() should be equal to numel() after transfer d2h"
+            msg="host value sum() should be equal to numel() after transfer kv d2h"
         )
 
-    def test_page_copy_h2d(self):
-        device_kv, host_kv = self._kv_transfer(TransferDirection.H2D)
+    def test_kv_copy_h2d(self):
+        self._kv_transfer(TransferDirection.H2D, False, False)
+        device_kv, host_kv = self._kv_transfer(TransferDirection.H2D, False, True)
 
         self.assertAlmostEqual(
             host_kv.sum().item(),
             device_kv.sum().cpu().item(),
             delta=1e-3,
-            msg="device value should be equal to host value after transfer h2d")
+            msg="device value should be equal to host value after transfer kv h2d")
 
         self.assertAlmostEqual(
             device_kv.sum().cpu().item(),
             0,
             delta=1e-3,
-            msg="device value sum() should be equal to 0 after transfer h2d")
+            msg="device value sum() should be equal to 0 after transfer kv h2d")
+
+    def test_k_copy_d2h(self):
+        self._k_transfer(TransferDirection.D2H, False)
+        device_kv, host_kv = self._k_transfer(TransferDirection.D2H, True)
+
+        self.assertAlmostEqual(
+            device_kv.sum().cpu().item(),
+            host_kv.sum().item() * 2,
+            delta=1e-3,
+            msg="host value * 2 should be equal to device value after transfer k d2h"
+        )
+
+        self.assertAlmostEqual(
+            host_kv.sum().item() * 2,
+            host_kv.numel(),
+            delta=1e-3,
+            msg="host value sum() * 2 should be equal to numel() after transfer k d2h"
+        )
+
+    def test_k_copy_h2d(self):
+        self._k_transfer(TransferDirection.H2D, False)
+        device_kv, host_kv = self._k_transfer(TransferDirection.H2D, True)
+
+        self.assertAlmostEqual(
+            device_kv[0].sum().cpu().item(),
+            0,
+            delta=1e-3,
+            msg="device k sum() should be equal to 0 after transfer k h2d")
+
+        self.assertAlmostEqual(
+            device_kv[1].sum().cpu().item() * 2,
+            host_kv.numel(),
+            delta=1e-3,
+            msg="device v sum() * 2 should be equal to 0 after transfer k h2d")
 
 
 if __name__ == '__main__':

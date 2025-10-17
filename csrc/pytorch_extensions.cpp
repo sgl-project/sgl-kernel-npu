@@ -60,7 +60,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "transfer_kv(Tensor device_k, Tensor host_k, "
         "Tensor device_v, Tensor host_v, "
         "Tensor device_indices, Tensor host_indices, int kind, "
-        "int start_layer_id, int num_layers, int page_size) -> ()");
+        "int start_layer_id, int num_layers, int page_size, bool non_blocking) -> ()");
 }
 }  // namespace
 

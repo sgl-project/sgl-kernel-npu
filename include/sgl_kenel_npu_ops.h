@@ -66,7 +66,7 @@ void transfer_kv(
     at::Tensor &device_k, at::Tensor &host_k,
     at::Tensor &device_v, at::Tensor &host_v,
     const at::Tensor &device_indices, const at::Tensor &host_indices, int64_t kind,
-    int64_t start_layer_id, int64_t num_layers, int64_t page_size);
+    int64_t start_layer_id, int64_t num_layers, int64_t page_size, bool non_blocking);
 
 } // namespace npu_kernel
 
