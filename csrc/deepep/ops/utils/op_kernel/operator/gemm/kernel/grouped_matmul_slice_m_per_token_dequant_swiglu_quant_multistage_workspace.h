@@ -98,12 +98,6 @@ public:
     using DequantScaleType = GemmType<ElementDequantScale, LayoutDequantScale>;
     using OutputType = GemmType<ElementOutput, LayoutOutput>;
 
-    constexpr static uint32_t TILE_ROW = 8;
-    constexpr static uint32_t TILE_COLUMN = 2048;
-    constexpr static uint32_t HALF_TILE_COLUMN = 1024;
-    using TileShape = MatrixShape<TILE_ROW, TILE_COLUMN>;
-    using HalfTileShape = MatrixShape<TILE_ROW, HALF_TILE_COLUMN>;
-
     using EpilogueTileSwizzle = Epilogue::Tile::EpilogueHorizontalTileSwizzle;
 
     struct Params {
