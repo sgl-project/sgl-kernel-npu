@@ -607,6 +607,7 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::WaitDispatc
         LocalTensor<float> gatherMaskOutTensor = gatherMaskOutBuf_.Get<float>();
         LocalTensor<uint32_t> gatherTmpTensor = gatherTmpBuf_.Get<uint32_t>();
         LocalTensor<float> statusSumOutTensor = statusSumOutBuf_.Get<float>();
+        PipeBarrier<PIPE_ALL>();
 
         gatherTmpTensor.SetValue(0, 1);
         uint32_t mask = 1;  // gatherMask + sum

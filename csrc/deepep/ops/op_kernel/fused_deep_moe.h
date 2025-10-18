@@ -33,8 +33,6 @@
 #include "fused_deep_moe_base.h"
 
 #define ENABLE_GMM2_COMBINE
-#define GMM1_HIDDEN_SIZE 4096
-#define TOKEN_LENGTH 7168
 
 using namespace Act;
 
@@ -68,7 +66,7 @@ ACT_DEVICE void GmmDeqSwigluQuant(GemmCoord problemShape, uint32_t groupCount, G
                                   GM_ADDR gmEpSendCount, GM_ADDR gmResvered, GM_ADDR gmOutputRecvCount,
                                   uint32_t epRankSize, uint32_t epRankId, uint32_t moeExpertNum,
                                   uint32_t moeExpertNumPerRank, uint32_t sharedExpertNum, uint32_t sharedExpertRankNum,
-                                  uint32_t quantMode, uint32_t globalBs, uint32_t bs, uint32_t topK)
+                                  uint32_t quantMode, uint32_t globalBs, uint32_t bs, uint32_t topK, uint32_t tokenLen)
 {
     using ArchTag = Arch::AtlasA2;
     using DispatchPolicy = DispatchPolicy_;
@@ -150,7 +148,8 @@ ACT_DEVICE void GmmDeqSwigluQuant(GemmCoord problemShape, uint32_t groupCount, G
                                            quantMode,
                                            globalBs,
                                            bs,
-                                           topK};
+                                           topK,
+                                           tokenLen};
         // call a kernel
         GemmKernel gemm;
         gemm(params);
@@ -334,8 +333,8 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Init(
         m_ = maxBs_ * epRankSize_ * (topK_ < moeExpertNumPerRank_ ? topK_ : moeExpertNumPerRank_);
     }
 
-    n_ = GMM1_HIDDEN_SIZE;
-    k_ = TOKEN_LENGTH;
+    n_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.gmm1HLen;
+    k_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.h;
     groupCount_ = isShareExpert ? 1 : tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.moeExpertNumPerRank;
     n2_ = k_;
     k2_ = n_ / 2;
@@ -423,7 +422,7 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Process()
         gmPermuteScale1_, layoutScale1, gmX1Scale, layoutPerTokenScale1, gmX2, layoutX2, gmPerTokenScale2,
         layoutPerTokenScale2, gmWorkspace, gmX_, gmSmoothScales_, gmexpertIds_, gmExpandIdx, gmEpSendCount, gmResvered,
         gmOutputRecvCount_, epRankSize_, epRankId_, moeExpertNum_, moeExpertNumPerRank_, sharedExpertNum_,
-        sharedExpertRankNum_, quantMode_, globalBs_, bs_, topK_);
+        sharedExpertRankNum_, quantMode_, globalBs_, bs_, topK_, k_);
 #ifdef ENABLE_GMM2_COMBINE
     AscendC::PipeBarrier<PIPE_ALL>();
     Arch::CrossCoreFlag gmm1AivFinished{0};
