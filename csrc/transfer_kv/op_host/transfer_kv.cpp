@@ -28,8 +28,7 @@ HOST_API void transfer_kv(
 {
     TORCH_CHECK(device_k.numel() != 0, "device_k must not be empty");
     TORCH_CHECK(host_k.numel() != 0, "host_k must not be empty");
-    TORCH_CHECK(device_k.sizes()[0] == host_k.sizes()[1], "the 1st dimension of device_k must be equal to the 2nd dimension of host_k");
-    TORCH_CHECK(device_k.sizes()[1] == host_k.sizes()[0], "the 2nd dimension of device_k must be equal to the 1st dimension of host_k");
+    TORCH_CHECK(device_k.sizes()[0] == host_k.sizes()[1], "the layer number of device_k must be equal to host_k");
     TORCH_CHECK(device_k.dim() == host_k.dim(), "the number of dimensions of device_k must be equal to host_k");
     TORCH_CHECK(device_k.dim() > 2, "the number of dimensions of device_k must be greater than 2");
     TORCH_CHECK(device_indices.numel() == host_indices.numel(), "device and host indices must have the same length");
@@ -40,8 +39,7 @@ HOST_API void transfer_kv(
                 "kind must be equal to 1(h2d) or 2(d2h)")
 
     if (device_v.numel() != 0 && host_v.numel() != 0) {
-        TORCH_CHECK(device_v.sizes()[0] == host_v.sizes()[1], "the 1st dimension of device_v must be equal to the 2nd dimension of host_v");
-        TORCH_CHECK(device_v.sizes()[1] == host_v.sizes()[0], "the 2nd dimension of device_v must be equal to the 1st dimension of host_v");
+        TORCH_CHECK(device_v.sizes()[0] == host_v.sizes()[1], "the layer number of device_v must be equal to host_v");
         TORCH_CHECK(device_v.dim() == host_v.dim(), "the number of dimensions of device_v must be equal to host_v");
         TORCH_CHECK(device_v.dim() > 2, "the number of dimensions of device_v must be greater than 2");
     }
