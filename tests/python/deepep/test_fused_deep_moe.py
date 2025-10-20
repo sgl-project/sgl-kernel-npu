@@ -14,6 +14,7 @@ torch_npu.npu.config.allow_internal_format = True
 test_topk_minus1 = True
 
 
+# ======================== Weight Initialization ========================
 def init_base_weights():
     w13_weight = torch.randint(-16, 16, [16, 4096, 7168]).to(torch.int8)
     w2_weight = torch.randint(-16, 16, [16, 7168, 2048]).to(torch.int8)
@@ -29,13 +30,14 @@ def init_baseline_weights(w13_weight, w13_weight_scale, w2_weight, w2_weight_sca
     w2_weight = w2_weight.data.transpose(1, 2).contiguous()
     w13_weight_scale = w13_weight_scale.data.squeeze(-1).contiguous()
     w2_weight_scale = w2_weight_scale.data.squeeze(-1).contiguous()
-
+    # baseline store as nz
     w13_weight = torch_npu.npu_format_cast(w13_weight, 29)
     w2_weight = torch_npu.npu_format_cast(w2_weight, 29)
 
     return w13_weight, w13_weight_scale, w2_weight, w2_weight_scale
 
 
+# ======================== Weight Permutation & Fusion ========================
 def permute_weight(w: torch.Tensor, tile_n):
 
     *dims, n = w.shape
@@ -60,7 +62,6 @@ def reshape_fusion_gmm_weight(weight, dim):
     return weight.contiguous()
 
 
-# ---------- wrapper to init fused int8 weights ----------
 def init_fused_weights_int8(
     w13_weight,
     w13_weight_scale,
@@ -71,19 +72,19 @@ def init_fused_weights_int8(
     block_n: int = 16,
 ):
 
+    # -------- w13_weight --------
     w13 = w13_weight.transpose(1, 2).contiguous()
     torch_npu.npu_format_cast_(w13, 2)
     cpu_w13 = w13.cpu()
     w13 = reshape_fusion_gmm_weight(cpu_w13, -1).npu()
     torch_npu.npu_format_cast_(w13, 29)
-
     w13_int8_nz = torch.nn.Parameter(w13, requires_grad=False)
 
     # -------- w2_weight --------
     w2 = torch_npu.npu_format_cast(w2_weight, 29)
     w2_int8_nz = torch.nn.Parameter(w2, requires_grad=False)
-    # -------- w13_weight_scale --------
 
+    # -------- w13_weight_scale --------
     w13_scale = permute_weight(w13_weight_scale.squeeze(-1).contiguous(), 128)
     w13_scale_o = torch.nn.Parameter(w13_scale, requires_grad=False)
 
@@ -94,6 +95,7 @@ def init_fused_weights_int8(
     return w13_int8_nz, w13_scale_o, w2_int8_nz, w2_scale_o
 
 
+# ======================== Utility Functions ========================
 def make_uniform_topk_idx(
     num_tokens: int, num_experts: int, num_ranks: int, num_topk: int, device="npu"
 ):
@@ -104,16 +106,28 @@ def make_uniform_topk_idx(
 
     for t in range(num_tokens):
         for k in range(num_topk):
-            # Ranks are evenly distributed in rotation.
             rank_id = (t * num_topk + k) % num_ranks
-            # Select an expert within the range of that rank (here, simply take the first one or rotate).
             expert_base = rank_id * experts_per_rank
             expert_id = expert_base + ((t + k) % experts_per_rank)
             topk_idx[t, k] = expert_id
-
     return topk_idx
 
 
+def from_inclusive_prefix_sum(pref):
+    if isinstance(pref, torch.Tensor):
+        if pref.numel() == 0:
+            return pref
+        return torch.cat([pref[:1], pref[1:] - pref[:-1]])
+
+    if not pref:
+        return []
+    out = [pref[0]]
+    for i in range(1, len(pref)):
+        out.append(pref[i] - pref[i - 1])
+    return out
+
+
+# ======================== Baseline Reference ========================
 def baseline_test(
     buffer,
     x,
@@ -128,7 +142,7 @@ def baseline_test(
     w2_scale,
     topk_weights,
 ):
-    hidden_states, group_list, handle, _, _ = buffer.low_latency_dispatch(
+    hidden_states, packed_recv_count, handle, _, _ = buffer.low_latency_dispatch(
         x,
         topk_idx,
         num_tokens,
@@ -144,7 +158,7 @@ def baseline_test(
     per_token_scale = hidden_states[1]
     hidden_states = hidden_states[0]
 
-    group_list = group_list.to(torch.int64)
+    group_list = packed_recv_count.to(torch.int64)
 
     # gmm1: gate_up_proj
     hidden_states = torch_npu.npu_grouped_matmul(
@@ -191,10 +205,11 @@ def baseline_test(
         async_finish=not return_recv_hook,
         return_recv_hook=return_recv_hook,
     )
+    # handle[1] -> ep_recv_count
+    return hidden_states, handle[1]
 
-    return hidden_states
 
-
+# ======================== Main Test ========================
 def test(
     num_tokens: int,
     hidden: int,
@@ -221,7 +236,7 @@ def test(
     ), "Too many ranks (exceeding test precision limit)"
 
     x = torch.rand((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * 10 - 5
-    # Generate routing (topk_idx)
+    # ----- Routing(topk_idx) -----
     if args.active_ranks:
         try:
             active_ranks = [
@@ -271,6 +286,7 @@ def test(
         )
         topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=True)[1]
 
+    # ----- Weights -----
     w13_weight, w13_weight_scale, w2_weight, w2_weight_scale = init_base_weights()
     w13, w13_scale, w2, w2_scale = init_baseline_weights(
         w13_weight.clone().detach(),
@@ -292,21 +308,18 @@ def test(
         print("w2_f:", w2_f.shape, w2_f.dtype, w2_f.device)
         print("w2s_f:", w2s_f.shape, w2s_f.dtype, w2s_f.device)
 
+    # ----- Tokens per rank -----
     tokens_per_rank = torch.zeros(num_ranks, dtype=torch.int64, device="npu")
+    experts_per_rank = num_experts // num_ranks
     for r in range(num_ranks):
-        expert_start, expert_end = r * (num_experts // num_ranks), (r + 1) * (
-            num_experts // num_ranks
-        )
-        tokens_per_rank[r] = (
-            (topk_idx >= expert_start) & (topk_idx < expert_end)
-        ).sum()
+        start, end = r * experts_per_rank, (r + 1) * experts_per_rank
+        tokens_per_rank[r] = ((topk_idx >= start) & (topk_idx < end)).sum()
+    print(f"Tokens per rank: {tokens_per_rank}")
 
-    print("Tokens per rank:", tokens_per_rank)
-
+    # ----- Random drop -----
     if args.drop_prob > 0:
         drop_mask = torch.rand_like(topk_idx, dtype=torch.float32) < args.drop_prob
         topk_idx = topk_idx.masked_fill(drop_mask, -1)
-
         for i in range(num_tokens):
             if (topk_idx[i] == -1).all():
                 topk_idx[i, 0] = torch.topk(scores[i], 1, largest=True)[1].item()
@@ -314,17 +327,12 @@ def test(
     topk_weights = torch.randn(
         (num_tokens, num_topk), dtype=torch.float32, device="npu"
     ).abs()
-
-    # Check dispatch correctness
-    do_check = True
-    return_recv_hook = False
-    hash_value, num_times = 0, 0
-
     cumulative_local_expert_recv_stats = torch.zeros(
         (num_local_experts,), dtype=torch.int, device="npu"
     )
+    return_recv_hook = False
 
-    # hidden_states = x.to(dtype=torch.float16)
+    # ----- Baseline -----
     hidden_states = x
 
     if test_topk_minus1:
@@ -390,19 +398,62 @@ def test(
     # fused_output = hidden_states.to(dtype=torch.bfloat16)
     fused_output = hidden_states
     print(f"[Rank {rank}] fused finish.")
+    baseline_output, base_ep_recv_count = baseline_test(
+        buffer2,
+        x,
+        topk_idx,
+        num_tokens,
+        num_experts,
+        cumulative_local_expert_recv_stats,
+        return_recv_hook,
+        w13,
+        w13_scale,
+        w2,
+        w2_scale,
+        topk_weights,
+    )
 
-    diff = torch.max(torch.abs(fused_output - baseline_output)).item()
-    diff_avg = torch.mean(torch.abs(fused_output - baseline_output)).item()
+    # ----- Fused -----
+    fused_output, fused_ep_recv_count = buffer.fused_deep_moe(
+        x,
+        topk_idx,
+        topk_weights,
+        w13_f,
+        w13s_f,
+        w2_f,
+        w2s_f,
+        num_tokens,
+        num_experts,
+        0,
+    )
+
+    # ----- Compare Outputs -----
+    max_diff = torch.max(torch.abs(fused_output - baseline_output)).item()
+    avg_diff = torch.mean(torch.abs(fused_output - baseline_output)).item()
     baseline_output_avg = torch.mean(torch.abs(baseline_output)).item()
     fused_output_avg = torch.mean(torch.abs(fused_output)).item()
 
-    # if rank == 0:
     print(
-        f"[Rank {rank}] {x.dtype=} fused_output:{fused_output} {fused_output.dtype=}, baseline_output:{baseline_output} {baseline_output.dtype=}, fused_output_avg:{fused_output_avg}, baseline_output_avg:{baseline_output_avg}, Max diff between fused and baseline: {diff}, avg_diss: {diff_avg}"
+        f"[Rank {rank}] baseline_avg={baseline_output_avg:.6e}, fused_avg={fused_output_avg:.6e}, "
+        f"max_diff={max_diff:.6e}, avg_diff={avg_diff:.6e}"
     )
-    assert diff < 1e-4, f"[Rank {rank}] Mismatch detected! diff={diff}"
+    assert avg_diff < 1e-4, f"[Rank {rank}] Mismatch detected! diff={avg_diff}"
+
+    # ----- Compare RecvCount -----
+    recv_count_diff = (
+        from_inclusive_prefix_sum(base_ep_recv_count) - fused_ep_recv_count
+    ).abs()
+    max_recv_count_diff = recv_count_diff.max().item()
+    mean_recv_count_diff = recv_count_diff.mean().item()
+    print(
+        f"[Rank {rank}] Difference between base and fused recv_count -> max: {max_recv_count_diff}, mean: {mean_recv_count_diff}"
+    )
+    assert (
+        max_recv_count_diff < 1e-4
+    ), f"[Rank {rank}] Mismatch detected! diff={max_recv_count_diff}"
 
 
+# ======================== Distributed Entry ========================
 def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     rank, num_ranks, group = init_dist(local_rank, num_local_ranks)
     group2 = dist.new_group(list(range(16)))
