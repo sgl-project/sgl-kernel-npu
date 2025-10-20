@@ -33,8 +33,6 @@
 #include "fused_deep_moe_base.h"
 
 #define ENABLE_GMM2_COMBINE
-#define GMM1_HIDDEN_SIZE 4096
-#define TOKEN_LENGTH 7168
 
 using namespace Act;
 
@@ -65,10 +63,10 @@ ACT_DEVICE void GmmDeqSwigluQuant(GemmCoord problemShape, uint32_t groupCount, G
                                   layout::VectorLayout layoutPerTokenScale, GM_ADDR gmD, layout::RowMajor layoutD,
                                   GM_ADDR gmDequantScale, layout::VectorLayout layoutDequantScale, GM_ADDR gmWorkspace,
                                   GM_ADDR gmX, GM_ADDR debugGm, GM_ADDR gmexpertIds, GM_ADDR gmExpandIdx,
-                                  GM_ADDR gmEpSendCount, GM_ADDR gmResvered, uint32_t epRankSize, uint32_t epRankId,
-                                  uint32_t moeExpertNum, uint32_t moeExpertNumPerRank, uint32_t sharedExpertNum,
-                                  uint32_t sharedExpertRankNum, uint32_t quantMode, uint32_t globalBs, uint32_t bs,
-                                  uint32_t topK)
+                                  GM_ADDR gmEpSendCount, GM_ADDR gmResvered, GM_ADDR gmOutputRecvCount,
+                                  uint32_t epRankSize, uint32_t epRankId, uint32_t moeExpertNum,
+                                  uint32_t moeExpertNumPerRank, uint32_t sharedExpertNum, uint32_t sharedExpertRankNum,
+                                  uint32_t quantMode, uint32_t globalBs, uint32_t bs, uint32_t topK, uint32_t tokenLen)
 {
     using ArchTag = Arch::AtlasA2;
     using DispatchPolicy = DispatchPolicy_;
@@ -140,6 +138,7 @@ ACT_DEVICE void GmmDeqSwigluQuant(GemmCoord problemShape, uint32_t groupCount, G
                                            gmExpandIdx,
                                            gmEpSendCount,
                                            gmResvered,
+                                           gmOutputRecvCount,
                                            epRankSize,
                                            epRankId,
                                            moeExpertNum,
@@ -149,7 +148,8 @@ ACT_DEVICE void GmmDeqSwigluQuant(GemmCoord problemShape, uint32_t groupCount, G
                                            quantMode,
                                            globalBs,
                                            bs,
-                                           topK};
+                                           topK,
+                                           tokenLen};
         // call a kernel
         GemmKernel gemm;
         gemm(params);
@@ -244,7 +244,7 @@ public:
         GM_ADDR x, GM_ADDR expert_ids, GM_ADDR gmm1_permuted_weight, GM_ADDR gmm1_permuted_weight_scale,
         GM_ADDR gmm2_weight, GM_ADDR gmm2_weight_scale, GM_ADDR expert_smooth_scales, GM_ADDR expert_scales,
         // output
-        GM_ADDR output,
+        GM_ADDR output, GM_ADDR outputRecvCount,
         // system
         GM_ADDR workspaceGM, AscendC::TPipe *pipe, const FusedDeepMoeTilingData *tilingData);
     __aicore__ inline void Process();
@@ -257,6 +257,7 @@ private:
     GM_ADDR gmWeight2_;
     GM_ADDR gmScale2_;
     GM_ADDR gmOutput_;
+    GM_ADDR gmOutputRecvCount_;
     GM_ADDR workspaceGM_;
     GM_ADDR gmSmoothScales_;
     GM_ADDR gmexpertScales_;
@@ -293,7 +294,7 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Init(
     GM_ADDR x, GM_ADDR expert_ids, GM_ADDR gmm1_permuted_weight, GM_ADDR gmm1_permuted_weight_scale,
     GM_ADDR gmm2_weight, GM_ADDR gmm2_weight_scale, GM_ADDR expert_smooth_scales, GM_ADDR expert_scales,
     // output
-    GM_ADDR output,
+    GM_ADDR output, GM_ADDR outputRecvCount,
     // system
     GM_ADDR workspaceGM, AscendC::TPipe *pipe, const FusedDeepMoeTilingData *tilingData)
 {
@@ -309,6 +310,7 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Init(
     gmWeight2_ = gmm2_weight;
     gmScale2_ = gmm2_weight_scale;
     gmOutput_ = output;
+    gmOutputRecvCount_ = outputRecvCount;
     workspaceGM_ = workspaceGM;
     gmexpertScales_ = expert_scales;
     tilingData_ = tilingData;
@@ -331,8 +333,8 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Init(
         m_ = maxBs_ * epRankSize_ * (topK_ < moeExpertNumPerRank_ ? topK_ : moeExpertNumPerRank_);
     }
 
-    n_ = GMM1_HIDDEN_SIZE;
-    k_ = TOKEN_LENGTH;
+    n_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.gmm1HLen;
+    k_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.h;
     groupCount_ = isShareExpert ? 1 : tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.moeExpertNumPerRank;
     n2_ = k_;
     k2_ = n_ / 2;
@@ -415,12 +417,12 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Process()
         }
     }
     GmmDeqSwigluQuant<EXEC_FLAG, ExpandXType, Gmm1L1TileShape, Gmm1L0TileShape, Gmm1EpilogueTileShape,
-                      Gmm1BlockScheduler>(gmm1ProblemShape, groupCount_, gmGroupList, gmX1Token, layoutX1,
-                                          gmPermuteWeight1_, layoutWeight1, gmPermuteScale1_, layoutScale1, gmX1Scale,
-                                          layoutPerTokenScale1, gmX2, layoutX2, gmPerTokenScale2, layoutPerTokenScale2,
-                                          gmWorkspace, gmX_, gmSmoothScales_, gmexpertIds_, gmExpandIdx, gmEpSendCount,
-                                          gmResvered, epRankSize_, epRankId_, moeExpertNum_, moeExpertNumPerRank_,
-                                          sharedExpertNum_, sharedExpertRankNum_, quantMode_, globalBs_, bs_, topK_);
+                      Gmm1BlockScheduler>(
+        gmm1ProblemShape, groupCount_, gmGroupList, gmX1Token, layoutX1, gmPermuteWeight1_, layoutWeight1,
+        gmPermuteScale1_, layoutScale1, gmX1Scale, layoutPerTokenScale1, gmX2, layoutX2, gmPerTokenScale2,
+        layoutPerTokenScale2, gmWorkspace, gmX_, gmSmoothScales_, gmexpertIds_, gmExpandIdx, gmEpSendCount, gmResvered,
+        gmOutputRecvCount_, epRankSize_, epRankId_, moeExpertNum_, moeExpertNumPerRank_, sharedExpertNum_,
+        sharedExpertRankNum_, quantMode_, globalBs_, bs_, topK_, k_);
 #ifdef ENABLE_GMM2_COMBINE
     AscendC::PipeBarrier<PIPE_ALL>();
     Arch::CrossCoreFlag gmm1AivFinished{0};

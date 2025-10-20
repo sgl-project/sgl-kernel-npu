@@ -7,6 +7,7 @@
  * History: 2025-07-19 create FusedDeepMoe operator kernel function implementation file
  */
 #pragma once
+
 #include "../../catlass/act/act.hpp"
 #include "../../catlass/act/arch/cross_core_sync.hpp"
 #include "../../catlass/act/arch/resource.hpp"
@@ -19,7 +20,6 @@
 
 #include "../../../../../op_kernel/fused_deep_moe_base.h"
 
-constexpr uint32_t tokenLength = 7168;
 constexpr uint32_t STATE_OFFSET = 512;
 constexpr uint64_t WIN_STATE_OFFSET = 512 * 1024;
 constexpr uint64_t STATE_WIN_OFFSET = 900 * 1024;
@@ -39,6 +39,8 @@ constexpr int32_t SUB_AIV_NUM = 2;          // 1C配2V，即1个cube搭配两个
 constexpr int32_t ODD_EVEN_BASE = 2;        // 判断奇偶的基数
 constexpr int32_t BUFFER_NUM = 2;
 constexpr int32_t GATHER_SECOND_NUM = 2;
+constexpr uint32_t MAX_QUANT_ROW_ONCE = 8;
+constexpr uint32_t QUANT_SPACE_FACTOR = 176 * 1024 / 11;  // 量化使用UB不超过176KB
 #define OPT_RANK_OFFSET 512
 
 #define CEIL_UP(x) ((x + UB_ALIGN - 1) / UB_ALIGN * UB_ALIGN)
@@ -96,12 +98,6 @@ public:
     using DequantScaleType = GemmType<ElementDequantScale, LayoutDequantScale>;
     using OutputType = GemmType<ElementOutput, LayoutOutput>;
 
-    constexpr static uint32_t TILE_ROW = 8;
-    constexpr static uint32_t TILE_COLUMN = 2048;
-    constexpr static uint32_t HALF_TILE_COLUMN = 1024;
-    using TileShape = MatrixShape<TILE_ROW, TILE_COLUMN>;
-    using HalfTileShape = MatrixShape<TILE_ROW, HALF_TILE_COLUMN>;
-
     using EpilogueTileSwizzle = Epilogue::Tile::EpilogueHorizontalTileSwizzle;
 
     struct Params {
@@ -111,6 +107,8 @@ public:
         LayoutDequantScale layoutDequantScale;
         __gm__ ElementOutput *ptrOutput{nullptr};
         LayoutOutput layoutOutput;
+        uint32_t tileRow;
+        uint32_t tileColumn;
 
         ACT_DEVICE
         Params() {};
@@ -118,13 +116,16 @@ public:
         ACT_DEVICE
         Params(__gm__ ElementInput *ptrInput_, LayoutInput const &layoutInput_,
                __gm__ ElementDequantScale *ptrQuantScale_, LayoutDequantScale const &layoutQuantScale_,
-               __gm__ ElementOutput *ptrOutput_, LayoutOutput const layoutOutput_)
+               __gm__ ElementOutput *ptrOutput_, LayoutOutput const layoutOutput_, const uint32_t tileRow_,
+               const uint32_t tileColumn_)
             : ptrInput(ptrInput_),
               layoutInput(layoutInput_),
               ptrDequantScale(ptrQuantScale_),
               layoutDequantScale(layoutQuantScale_),
               ptrOutput(ptrOutput_),
-              layoutOutput(layoutOutput_)
+              layoutOutput(layoutOutput_),
+              tileRow(tileRow_),
+              tileColumn(tileColumn_)
         {}
     };
 
@@ -132,21 +133,27 @@ public:
     BlockQuant(Arch::Resource<ArchTag> const &resource, Params const &params_) : params(params_)
     {
         int64_t ubOffset = 0;
+        tileRow = params_.tileRow;
+        tileColumn = params_.tileColumn;
+        tileCount = tileRow * tileColumn;
+        halfTileColumn = tileColumn / 2;
+        halfTileCount = tileRow * halfTileColumn;
+
         ubInput = resource.ubBuf.template GetBufferByByte<ElementInput>(ubOffset);
-        ubOffset += TileShape::COUNT * sizeof(ElementInput);
+        ubOffset += tileCount * sizeof(ElementInput);
         ubDequantScale = resource.ubBuf.template GetBufferByByte<ElementDequantScale>(ubOffset);
-        ubOffset += TileShape::ROW * sizeof(ElementDequantScale);
+        ubOffset += CEIL_UP(tileRow * sizeof(ElementDequantScale));
         ubOutput = resource.ubBuf.template GetBufferByByte<ElementOutput>(ubOffset);
-        ubOffset += TileShape::COUNT * sizeof(ElementOutput);
+        ubOffset += tileCount * sizeof(ElementOutput);
 
         ubAbs = resource.ubBuf.template GetBufferByByte<float>(ubOffset);
-        ubOffset += TileShape::COUNT * sizeof(float);
+        ubOffset += tileCount * sizeof(float);
         ubMax = resource.ubBuf.template GetBufferByByte<float>(ubOffset);
-        ubOffset += HalfTileShape::COUNT * sizeof(float);
+        ubOffset += halfTileCount * sizeof(float);
         ubReduceMax = resource.ubBuf.template GetBufferByByte<float>(ubOffset);
-        ubOffset += TileShape::ROW * sizeof(float);
+        ubOffset += CEIL_UP(tileRow * sizeof(float));
         ubQuantScale = resource.ubBuf.template GetBufferByByte<float>(ubOffset);
-        ubOffset += TileShape::ROW * sizeof(float);
+        ubOffset += CEIL_UP(tileRow * sizeof(float));
         ubInputTmp = ubAbs;
         ubQuantF32 = ubAbs;
         ubQuantS32 = ubAbs.ReinterpretCast<int32_t>();
@@ -177,9 +184,9 @@ public:
         AscendC::GlobalTensor<ElementOutput> gmOutput;
         gmOutput.SetGlobalBuffer(params.ptrOutput);
 
-        auto ubTileStride = MakeCoord(static_cast<int64_t>(TileShape::COLUMN), 1L);
-        auto ubHalfTileStride = MakeCoord(static_cast<int64_t>(HalfTileShape::COLUMN), 1L);
-        auto tileShape = TileShape::ToCoord();
+        auto ubTileStride = MakeCoord(static_cast<int64_t>(tileColumn), 1L);
+        auto ubHalfTileStride = MakeCoord(static_cast<int64_t>(halfTileColumn), 1L);
+        auto tileShape = MakeCoord(tileRow, tileColumn);
         EpilogueTileSwizzle epilogueTileSwizzle(actualBlockShape, tileShape);
         uint32_t tileLoops = epilogueTileSwizzle.GetLoops();
         uint32_t subblockIdx = AscendC::GetSubBlockIdx();
@@ -200,43 +207,43 @@ public:
             AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(0);
 
             AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(0);
-            AscendC::Abs(ubAbs, ubInput, TileShape::COUNT);
+            AscendC::Abs(ubAbs, ubInput, tileCount);
             AscendC::PipeBarrier<PIPE_V>();
 
-            for (uint32_t rowIdx = 0; rowIdx < HalfTileShape::ROW; ++rowIdx) {
-                AscendC::Max(ubMax[rowIdx * HalfTileShape::COLUMN], ubAbs[rowIdx * TileShape::COLUMN],
-                             ubAbs[rowIdx * TileShape::COLUMN + HalfTileShape::COLUMN], HalfTileShape::COLUMN);
+            for (uint32_t rowIdx = 0; rowIdx < tileRow; ++rowIdx) {
+                AscendC::Max(ubMax[rowIdx * halfTileColumn], ubAbs[rowIdx * tileColumn],
+                             ubAbs[rowIdx * tileColumn + halfTileColumn], halfTileColumn);
             }
 
             AscendC::PipeBarrier<PIPE_V>();
-            AscendC::Muls(ubInputTmp, ubInput, 127.f, TileShape::COUNT);
+            AscendC::Muls(ubInputTmp, ubInput, 127.f, tileCount);
 
             constexpr uint32_t elementPerBlk = BYTE_PER_BLK / sizeof(float);
             constexpr int32_t mask = 64;
 
             AscendC::BinaryRepeatParams maxParams;
-            maxParams.dstBlkStride = HalfTileShape::COLUMN / elementPerBlk;
-            maxParams.src0BlkStride = HalfTileShape::COLUMN / elementPerBlk;
-            maxParams.src1BlkStride = HalfTileShape::COLUMN / elementPerBlk;
+            maxParams.dstBlkStride = halfTileColumn / elementPerBlk;
+            maxParams.src0BlkStride = halfTileColumn / elementPerBlk;
+            maxParams.src1BlkStride = halfTileColumn / elementPerBlk;
             maxParams.dstRepStride = 1;
             maxParams.src0RepStride = 1;
             maxParams.src1RepStride = 1;
             constexpr uint32_t colNumPerCompute = BYTE_PER_VECTOR_FRACTAL / sizeof(float);
-            uint32_t reduceWidth = HalfTileShape::COLUMN;
+            uint32_t reduceWidth = halfTileColumn;
             while (reduceWidth > (BLK_NUM_PER_VECTOR_FRACTAL * BYTE_PER_BLK / sizeof(float))) {
                 reduceWidth >>= 1;
                 AscendC::Max(ubMax, ubMax, ubMax[reduceWidth], mask, reduceWidth / elementPerBlk, maxParams);
                 AscendC::PipeBarrier<PIPE_V>();
             }
 
-            AscendC::WholeReduceMax(ubReduceMax, ubMax, mask, HalfTileShape::ROW, 1, 1,
-                                    HalfTileShape::COLUMN / elementPerBlk, AscendC::ReduceOrder::ORDER_ONLY_VALUE);
+            AscendC::WholeReduceMax(ubReduceMax, ubMax, mask, tileRow, 1, 1, halfTileColumn / elementPerBlk,
+                                    AscendC::ReduceOrder::ORDER_ONLY_VALUE);
             AscendC::SetFlag<AscendC::HardEvent::V_S>(0);
             AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(0);
             AscendC::PipeBarrier<PIPE_V>();
 
             AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(0);
-            AscendC::Muls(ubDequantScale, ubReduceMax, 1.0f / 127.0f, TileShape::ROW);
+            AscendC::Muls(ubDequantScale, ubReduceMax, 1.0f / 127.0f, tileRow);
             AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(0);
 
             auto dequantScaleTileOffset = tileOffset.template GetCoordByAxis<0>();
@@ -253,20 +260,20 @@ public:
             AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(0);
 
             AscendC::WaitFlag<AscendC::HardEvent::V_S>(0);
-            for (uint32_t rowIdx = 0; rowIdx < TileShape::ROW; ++rowIdx) {
-                AscendC::Muls(ubQuantF32[rowIdx * TileShape::COLUMN], ubInputTmp[rowIdx * TileShape::COLUMN],
-                              1.f / ubReduceMax.GetValue(rowIdx), TileShape::COLUMN);
+            for (uint32_t rowIdx = 0; rowIdx < tileRow; ++rowIdx) {
+                AscendC::Muls(ubQuantF32[rowIdx * tileColumn], ubInputTmp[rowIdx * tileColumn],
+                              1.f / ubReduceMax.GetValue(rowIdx), tileColumn);
             }
 
             AscendC::PipeBarrier<PIPE_V>();
-            AscendC::Cast(ubQuantS32, ubQuantF32, AscendC::RoundMode::CAST_RINT, TileShape::COUNT);
+            AscendC::Cast(ubQuantS32, ubQuantF32, AscendC::RoundMode::CAST_RINT, tileCount);
             AscendC::PipeBarrier<PIPE_V>();
             AscendC::SetDeqScale(static_cast<half>(1.0));
-            AscendC::Cast(ubQuantF16, ubQuantS32, AscendC::RoundMode::CAST_RINT, TileShape::COUNT);
+            AscendC::Cast(ubQuantF16, ubQuantS32, AscendC::RoundMode::CAST_RINT, tileCount);
             AscendC::PipeBarrier<PIPE_V>();
 
             AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(1);
-            AscendC::Cast(ubOutput, ubQuantF16, AscendC::RoundMode::CAST_RINT, TileShape::COUNT);
+            AscendC::Cast(ubOutput, ubQuantF16, AscendC::RoundMode::CAST_RINT, tileCount);
             AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(1);
 
             auto gmTileOutput = gmOutput[params.layoutOutput.GetOffset(tileOffset)];
@@ -282,6 +289,11 @@ public:
 
 private:
     Params params;
+    uint32_t tileRow;
+    uint32_t tileColumn;
+    uint32_t tileCount;
+    uint32_t halfTileColumn;
+    uint32_t halfTileCount;
 
     AscendC::LocalTensor<ElementInput> ubInput;
     AscendC::LocalTensor<ElementDequantScale> ubDequantScale;
@@ -342,6 +354,12 @@ __aicore__ inline static void CheckSyncFlag(__gm__ uint8_t *flagAddr, uint8_t id
         }
     }
     AscendC::PipeBarrier<PIPE_ALL>();
+}
+
+__aicore__ inline static void CalQuantRow(const uint32_t column, uint32_t &row)
+{
+    row = QUANT_SPACE_FACTOR / column;
+    row = row < MAX_QUANT_ROW_ONCE ? row : MAX_QUANT_ROW_ONCE;
 }
 
 template <typename XType_, class BlockMmad_, class BlockEpilogue_, class BlockScheduler_, uint32_t WORKSPACE_STAGES_,
@@ -406,6 +424,7 @@ public:
         GM_ADDR gmExpandIdx;
         GM_ADDR gmEpSendCount;
         GM_ADDR gmResvered;
+        GM_ADDR gmOutputRecvCount;
 
         uint32_t epRankSize;
         uint32_t epRankId;
@@ -417,6 +436,7 @@ public:
         uint32_t globalBs;
         uint32_t bs;
         uint32_t topK;
+        uint32_t tokenLen;
         // Methods
         ACT_DEVICE
         Params() {}
@@ -428,9 +448,10 @@ public:
                LayoutPerTokenScale const &layoutPerTokenScale_, GM_ADDR ptrOutput_, LayoutOutput const &layoutOutput_,
                GM_ADDR ptrDequantScale_, LayoutDequantScale const &layoutDequantScale_, GM_ADDR ptrWorkspace_,
                GM_ADDR gmX_, GM_ADDR debugGm_, GM_ADDR gmexpertIds_, GM_ADDR gmExpandIdx_, GM_ADDR gmEpSendCount_,
-               GM_ADDR gmResvered_, uint32_t epRankSize_, uint32_t epRankId_, uint32_t moeExpertNum_,
-               uint32_t moeExpertNumPerRank_, uint32_t sharedExpertNum_, uint32_t sharedExpertRankNum_,
-               uint32_t quantMode_, uint32_t globalBs_, uint32_t bs_, uint32_t topK_)
+               GM_ADDR gmResvered_, GM_ADDR gmOutputRecvCount_, uint32_t epRankSize_, uint32_t epRankId_,
+               uint32_t moeExpertNum_, uint32_t moeExpertNumPerRank_, uint32_t sharedExpertNum_,
+               uint32_t sharedExpertRankNum_, uint32_t quantMode_, uint32_t globalBs_, uint32_t bs_, uint32_t topK_,
+               uint32_t h)
             : problemShape(problemShape_),
               problemCount(problemCount_),
               ptrGroupList(reinterpret_cast<__gm__ ElementGroupList *>(ptrGroupList_)),
@@ -452,6 +473,7 @@ public:
               gmexpertIds(gmexpertIds_),
               gmExpandIdx(gmExpandIdx_),
               gmEpSendCount(gmEpSendCount_),
+              gmOutputRecvCount(gmOutputRecvCount_),
               gmResvered(gmResvered_),
               epRankSize(epRankSize_),
               epRankId(epRankId_),
@@ -462,7 +484,8 @@ public:
               quantMode(quantMode_),
               globalBs(globalBs_),
               bs(bs_),
-              topK(topK_)
+              topK(topK_),
+              tokenLen(h)
         {}
     };
 
@@ -519,6 +542,7 @@ public:
         gmA.SetGlobalBuffer(params.ptrA);
         AscendC::GlobalTensor<ElementB> gmB;
         gmB.SetGlobalBuffer(params.ptrB);
+
         AscendC::GlobalTensor<ElementGroupList> groupList;
         groupList.SetGlobalBuffer(params.ptrGroupList);
 
@@ -1055,7 +1079,7 @@ void RecvCount(int64_t ubOffset)
 }
 
 ACT_DEVICE
-void GetCumSum(int32_t startRankId, int32_t recvExpertNum, int64_t ubOffset)
+void GetCumSum(int32_t startRankId, int32_t recvExpertNum, int64_t ubOffset, GM_ADDR gmOutputRecvCount)
 {
     // 计算前缀和，目的是知道自己收到的token在output中的偏移
     int64_t subUbOffset = ubOffset;
@@ -1081,7 +1105,15 @@ void GetCumSum(int32_t startRankId, int32_t recvExpertNum, int64_t ubOffset)
     AscendC::WaitFlag<AscendC::HardEvent::S_V>(0);
     AscendC::GatherMask(gatherMaskOutTensor, statusFp32Tensor_, gatherTmpTensor, true, GATHER_SECOND_NUM,
                         {1, (uint16_t)recStatusNumPerCore, 1, 0}, rsvdCnt);
-
+    if (isRecvCore && recvCoreIdx == 0) {
+        AscendC::GlobalTensor<int32_t> recvCountTensor;
+        recvCountTensor.SetGlobalBuffer((__gm__ int32_t *)gmOutputRecvCount);
+        AscendC::DataCopyExtParams dataCopyParams = {
+            1U, static_cast<uint32_t>(localExpertNum * epRankSize * sizeof(int32_t)), 0U, 0U, 0U};
+        AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(0);
+        AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(0);
+        AscendC::DataCopyPad(recvCountTensor, gatherMaskOutTensor.ReinterpretCast<int32_t>(), dataCopyParams);
+    }
     // 这里是为ReduceSum准备所需空间，本应该计算好需要多大空间，但当前是给偏移，且用完就释放，所以就不计算了
     AscendC::LocalTensor<float> workLocalTensor = resource.ubBuf.template GetBufferByByte<float>(subUbOffset);
     AscendC::PipeBarrier<PIPE_V>();
@@ -1185,7 +1217,7 @@ void RecvToken(GM_ADDR gmX1, GM_ADDR gmX1Scale, GM_ADDR gmEpSendCount, uint32_t 
 }
 
 ACT_DEVICE
-void RecvCoreFunc(GM_ADDR gmX1, GM_ADDR gmX1Scale, GM_ADDR gmEpSendCount)
+void RecvCoreFunc(GM_ADDR gmX1, GM_ADDR gmX1Scale, GM_ADDR gmEpSendCount, GM_ADDR gmOutputRecvCount)
 {
     ubOffset = 0;
     RecvCount(ubOffset);
@@ -1213,7 +1245,7 @@ void RecvCoreFunc(GM_ADDR gmX1, GM_ADDR gmX1Scale, GM_ADDR gmEpSendCount)
 
     if (startRankId < recvExpertNum) {
         // 计算前缀和，以及接收token。这里有隐含约束，下面两个函数与RecvCount的ubOffset入参应保持一致，这样才能拿到有效数据
-        GetCumSum(startRankId, recvExpertNum, ubOffset);
+        GetCumSum(startRankId, recvExpertNum, ubOffset, gmOutputRecvCount);
         RecvToken(gmX1, gmX1Scale, gmEpSendCount, coreTokenCount, startRankId, endRankId, recvRankNumPerCore, ubOffset);
     }
 
@@ -1277,14 +1309,12 @@ void CompCoreFunc(GM_ADDR gmCVSwapBuff, __gm__ ElementScale *gmScale, __gm__ Ele
             LayoutPerTokenScale layoutPerTokenScale =
                 wholeLayoutPerTokenScale.GetTileLayout(inGroupProblemShape.template GetCoordByAxis<0>());
             LayoutD layoutD = layoutOutput.GetTileLayout(MakeCoord(currentM, nOut));
-
             EpilogueParams epilogueParams{gmScale + gmGroupOffsetScale,
                                           layoutScale,
                                           gmTokenScale + gmGroupOffsetPerTokenScale,
                                           layoutPerTokenScale,
                                           gmSwigluOutput + gmGroupOffsetD,
                                           layoutD};
-
             blockScheduler.Update(inGroupProblemShape, L1TileShape::ToCoordMN());
             blockEpilogue.UpdateParams(epilogueParams);
             uint32_t coreLoops = blockScheduler.GetCoreLoops();
@@ -1359,6 +1389,7 @@ void AivInitParams(Params const &params)
     isShareExpert = (epRankId < sharedExpertRankNum);
     localExpertNum = isShareExpert ? 1 : moeExpertNumPerRank;
     moeExpertNum = params.moeExpertNum;
+    tokenLength = params.tokenLen;
 
     // 单卡多专家改为24收24发
     if (localExpertNum > 1) {
@@ -1495,7 +1526,8 @@ ACT_DEVICE void operator()<AscendC::AIV>(Params const &params)
                      (GM_ADDR)params.ptrPerTokenScale, (GM_ADDR)params.gmExpandIdx);
     }
     if (isRecvCore) {
-        RecvCoreFunc((GM_ADDR)params.ptrA, (GM_ADDR)params.ptrPerTokenScale, (GM_ADDR)params.gmEpSendCount);
+        RecvCoreFunc((GM_ADDR)params.ptrA, (GM_ADDR)params.ptrPerTokenScale, (GM_ADDR)params.gmEpSendCount,
+                     (GM_ADDR)params.gmOutputRecvCount);
     }
 
     auto gmSwigluOutput = reinterpret_cast<__gm__ float *>(
@@ -1521,16 +1553,16 @@ ACT_DEVICE void operator()<AscendC::AIV>(Params const &params)
         __asm__ __volatile__("");
         totalTokenCount = sendCountsGlobal.GetValue(localExpertNum * epRankSize - 1);
         AscendC::PipeBarrier<PIPE_ALL>();
-        typename BlockQuant<ArchTag>::Params quantParams{
-            gmSwigluOutput,         params.layoutOutput,        // input: swiglu output
-            params.ptrDequantScale, params.layoutDequantScale,  // output: quant token scale
-            params.ptrOutput,       params.layoutOutput         // output: x2
-        };
         uint32_t nOut = params.problemShape.n() / 2;
+        uint32_t quantRowOnce = 0;
+        CalQuantRow(nOut, quantRowOnce);
+        typename BlockQuant<ArchTag>::Params quantParams{
+            gmSwigluOutput,   params.layoutOutput, params.ptrDequantScale, params.layoutDequantScale,
+            params.ptrOutput, params.layoutOutput, quantRowOnce,           nOut};
 
         BlockQuant<ArchTag> blockQuant(resource, quantParams);
         MatrixCoord quantShape(totalTokenCount, nOut);
-        MatrixCoord quantBlockShape(16U, 2048U);
+        MatrixCoord quantBlockShape((uint16_t)(subBlockNum * quantRowOnce), nOut);
         Epilogue::Tile::EpilogueHorizontalTileSwizzle quantSwizzle(quantShape, quantBlockShape);
         for (uint32_t loopIdx = aiCoreGroupIdx; loopIdx < quantSwizzle.GetLoops(); loopIdx += aiCoreGroupNum) {
             auto blockCoord = quantSwizzle.GetTileCoord(loopIdx);
@@ -1599,6 +1631,7 @@ uint32_t axisBS{0};
 uint32_t axisK{0};
 uint32_t totalTokenCount{0};
 uint32_t expertIdsCnt{0};
+uint32_t tokenLength{0};
 
 // 状态相关
 int32_t tokenFlag{0};    // token到达的flag
@@ -1914,16 +1947,20 @@ public:
         Arch::CrossCoreBarrier<0x0, PIPE_MTE3>();
 
         {
+            uint32_t quantRowOnce = 0;
+            CalQuantRow(nOut, quantRowOnce);
             typename BlockQuant<ArchTag>::Params quantParams{ptrD,
                                                              params.layoutOutput,
                                                              params.ptrDequantScale,
                                                              params.layoutDequantScale,
                                                              params.ptrOutput,
-                                                             params.layoutOutput};
+                                                             params.layoutOutput,
+                                                             quantRowOnce,
+                                                             nOut};
 
             BlockQuant<ArchTag> blockQuant(resource, quantParams);
             MatrixCoord quantShape(mActual, nOut);
-            MatrixCoord quantBlockShape(16U, 2048U);
+            MatrixCoord quantBlockShape((uint16_t)(AscendC::GetSubBlockNum() * quantRowOnce), nOut);
             Epilogue::Tile::EpilogueHorizontalTileSwizzle quantSwizzle(quantShape, quantBlockShape);
             for (uint32_t loopIdx = coreIdx; loopIdx < quantSwizzle.GetLoops(); loopIdx += coreNum) {
                 auto blockCoord = quantSwizzle.GetTileCoord(loopIdx);

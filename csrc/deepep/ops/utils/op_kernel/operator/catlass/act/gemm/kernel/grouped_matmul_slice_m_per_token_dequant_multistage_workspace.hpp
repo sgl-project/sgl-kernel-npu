@@ -193,7 +193,6 @@ public:
 
             gmGroupOffsetA += inGroupProblemShape.m() * inGroupProblemShape.k();
             gmGroupOffsetB += inGroupProblemShape.k() * inGroupProblemShape.n();
-
             startCoreIdx = (startCoreIdx + coreLoops) % coreNum;
         }
 
@@ -227,7 +226,6 @@ public:
             int64_t gmGroupOffsetScale = 0;
             int64_t gmGroupOffsetPerTokenScale = 0;
             int64_t gmGroupOffsetD = 0;
-
             AscendC::GlobalTensor<ElementGroupList> groupList;
             groupList.SetGlobalBuffer(params.ptrGroupList);
 
@@ -246,14 +244,12 @@ public:
                 LayoutPerTokenScale layoutPerTokenScale =
                     params.layoutPerTokenScale.GetTileLayout(inGroupProblemShape.template GetCoordByAxis<0>());
                 LayoutD layoutD = params.layoutD.GetTileLayout(inGroupProblemShape.GetCoordMN());
-
                 EpilogueParams epilogueParams{params.ptrScale + gmGroupOffsetScale,
                                               layoutScale,
                                               params.ptrPerTokenScale + gmGroupOffsetPerTokenScale,
                                               layoutPerTokenScale,
                                               params.ptrD + gmGroupOffsetD,
                                               layoutD};
-
                 blockScheduler.Update(inGroupProblemShape, L1TileShape::ToCoordMN());
                 blockEpilogue.UpdateParams(epilogueParams);
                 uint32_t coreLoops = blockScheduler.GetCoreLoops();
