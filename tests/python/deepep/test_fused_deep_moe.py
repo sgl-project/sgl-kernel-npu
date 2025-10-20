@@ -1,6 +1,7 @@
 import argparse
 import os
 import random
+import sys
 import time
 from functools import partial
 
@@ -11,6 +12,7 @@ from deep_ep import Buffer
 from utils import bench, calc_diff, hash_tensor, init_dist
 
 torch_npu.npu.config.allow_internal_format = True
+test_topk_minus1 = False
 
 
 # ======================== Weight Initialization ========================
@@ -331,36 +333,72 @@ def test(
     )
     return_recv_hook = False
 
-    # ----- Baseline -----
     hidden_states = x
-    baseline_output, base_ep_recv_count = baseline_test(
-        buffer2,
-        x,
-        topk_idx,
-        num_tokens,
-        num_experts,
-        cumulative_local_expert_recv_stats,
-        return_recv_hook,
-        w13,
-        w13_scale,
-        w2,
-        w2_scale,
-        topk_weights,
-    )
 
-    # ----- Fused -----
-    fused_output, fused_ep_recv_count = buffer.fused_deep_moe(
-        x,
-        topk_idx,
-        topk_weights,
-        w13_f,
-        w13s_f,
-        w2_f,
-        w2s_f,
-        num_tokens,
-        num_experts,
-        0,
-    )
+    if test_topk_minus1:
+        topk_idx_minus1 = topk_idx.clone()
+        topk_idx_minus1[:, -2:-1] = -1
+        topk_weights_minus1 = topk_weights.clone()
+        topk_weights_minus1[:, -2:-1] = 0
+        # ----- Baseline -----
+        baseline_output, base_ep_recv_count = baseline_test(
+            buffer2,
+            x,
+            topk_idx,
+            num_tokens,
+            num_experts,
+            cumulative_local_expert_recv_stats,
+            return_recv_hook,
+            w13,
+            w13_scale,
+            w2,
+            w2_scale,
+            topk_weights_minus1,
+        )
+        # ----- Fused -----
+        fused_output, fused_ep_recv_count = buffer.fused_deep_moe(
+            x,
+            topk_idx_minus1,
+            topk_weights,
+            w13_f,
+            w13s_f,
+            w2_f,
+            w2s_f,
+            num_tokens,
+            num_experts,
+            0,
+        )
+
+    else:
+        # ----- Baseline -----
+        baseline_output, base_ep_recv_count = baseline_test(
+            buffer2,
+            x,
+            topk_idx,
+            num_tokens,
+            num_experts,
+            cumulative_local_expert_recv_stats,
+            return_recv_hook,
+            w13,
+            w13_scale,
+            w2,
+            w2_scale,
+            topk_weights,
+        )
+
+        # ----- Fused -----
+        fused_output, fused_ep_recv_count = buffer.fused_deep_moe(
+            x,
+            topk_idx,
+            topk_weights,
+            w13_f,
+            w13s_f,
+            w2_f,
+            w2s_f,
+            num_tokens,
+            num_experts,
+            0,
+        )
 
     # ----- Compare Outputs -----
     max_diff = torch.max(torch.abs(fused_output - baseline_output)).item()
@@ -383,9 +421,11 @@ def test(
     print(
         f"[Rank {rank}] Difference between base and fused recv_count -> max: {max_recv_count_diff}, mean: {mean_recv_count_diff}"
     )
-    assert (
-        max_recv_count_diff < 1e-4
-    ), f"[Rank {rank}] Mismatch detected! diff={max_recv_count_diff}"
+
+    if not test_topk_minus1:
+        assert (
+            max_recv_count_diff < 1e-4
+        ), f"[Rank {rank}] Mismatch detected! diff={max_recv_count_diff}"
 
 
 # ======================== Distributed Entry ========================
@@ -431,6 +471,15 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     dist.destroy_process_group()
 
 
+def str_to_bool(value):
+    if isinstance(value, bool):
+        return value
+    if value.lower() in ("true", "True", "1"):
+        return True
+    else:
+        return False
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test intranode EP kernels")
     parser.add_argument(
@@ -465,9 +514,15 @@ if __name__ == "__main__":
         help="Probability of dropping an individual top-k index (set to -1). "
         "Guaranteed that each token keeps at least one valid expert.",
     )
+
+    parser.add_argument(
+        "--minus1-flag", type=str_to_bool, default=False, help="bool flag, True/False"
+    )
+
     args = parser.parse_args()
 
     num_processes = args.num_processes
+    test_topk_minus1 = args.minus1_flag
     torch.multiprocessing.spawn(
         test_loop, args=(num_processes, args), nprocs=num_processes
     )
