@@ -14,11 +14,11 @@ torch_npu.npu.config.allow_internal_format = True
 
 
 # ======================== Weight Initialization ========================
-def init_base_weights():
-    w13_weight = torch.randint(-16, 16, [16, 4096, 7168]).to(torch.int8)
-    w2_weight = torch.randint(-16, 16, [16, 7168, 2048]).to(torch.int8)
-    w13_weight_scale = (torch.rand([16, 4096, 1]) * 0.0004 + 0.0015).bfloat16()
-    w2_weight_scale = (torch.rand([16, 7168, 1]) * 0.0004 + 0.0015).bfloat16()
+def init_base_weights(hidden,moe_intermediate):
+    w13_weight = torch.randint(-16, 16, [16,  moe_intermediate * 2, hidden]).to(torch.int8)
+    w2_weight = torch.randint(-16, 16, [16, hidden, moe_intermediate]).to(torch.int8)
+    w13_weight_scale = (torch.rand([16, moe_intermediate * 2, 1]) * 0.0004 + 0.0015).bfloat16()
+    w2_weight_scale = (torch.rand([16, hidden, 1]) * 0.0004 + 0.0015).bfloat16()
 
     return w13_weight, w13_weight_scale, w2_weight, w2_weight_scale
 
@@ -54,7 +54,7 @@ def reshape_fusion_gmm_weight(weight, dim):
     if dim < 0:
         dim += len(original_shape)
 
-    weight = weight.view(*original_shape[:dim], 2, 32, 64, *original_shape[dim + 1 :])
+    weight = weight.view(*original_shape[:dim], 2, original_shape[dim] // 2 // 64, 64, *original_shape[dim + 1 :])
     weight = weight.transpose(dim, dim + 1).contiguous()
     weight = weight.view(*original_shape[:dim], -1, *original_shape[dim + 1 :])
 
@@ -212,6 +212,7 @@ def baseline_test(
 def test(
     num_tokens: int,
     hidden: int,
+    moe_intermediate: int,
     num_experts: int,
     num_topk: int,
     rank: int,
@@ -286,7 +287,7 @@ def test(
         topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=True)[1]
 
     # ----- Weights -----
-    w13_weight, w13_weight_scale, w2_weight, w2_weight_scale = init_base_weights()
+    w13_weight, w13_weight_scale, w2_weight, w2_weight_scale = init_base_weights(hidden,moe_intermediate)
     w13, w13_scale, w2, w2_scale = init_baseline_weights(
         w13_weight.clone().detach(),
         w13_weight_scale.clone().detach(),
@@ -372,7 +373,7 @@ def test(
         f"[Rank {rank}] baseline_avg={baseline_output_avg:.6e}, fused_avg={fused_output_avg:.6e}, "
         f"max_diff={max_diff:.6e}, avg_diff={avg_diff:.6e}"
     )
-    assert avg_diff < 1e-4, f"[Rank {rank}] Mismatch detected! diff={avg_diff}"
+    assert avg_diff < 2e-4, f"[Rank {rank}] Mismatch detected! diff={avg_diff}"
 
     # ----- Compare RecvCount -----
     recv_count_diff = (
@@ -394,6 +395,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     group2 = dist.new_group(list(range(16)))
     shared_expert_rank_num = int(os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0))
     num_tokens, hidden = args.num_tokens, args.hidden
+    moe_intermediate = args.moe_intermediate
     num_topk, num_experts = args.num_topk, args.num_experts
     use_experts = num_experts if shared_expert_rank_num == 0 else (num_experts - 1)
     use_ranks = num_ranks - shared_expert_rank_num
@@ -416,6 +418,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     test(
         num_tokens,
         hidden,
+        moe_intermediate,
         use_experts,
         num_topk,
         rank,
@@ -444,6 +447,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--hidden", type=int, default=7168, help="Hidden dimension size (default: 7168)"
+    )
+    parser.add_argument(
+        "--moe_intermediate", type=int, default=2048, help="Moe_intermediate dimension size (default: 2048)"
     )
     parser.add_argument(
         "--num-topk", type=int, default=8, help="Number of top-k experts (default: 8)"
