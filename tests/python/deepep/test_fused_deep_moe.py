@@ -364,7 +364,7 @@ def test(
             w2s_f,
             num_tokens,
             num_experts,
-            use_fp8=True,
+            0,
         )
 
     else:
@@ -393,7 +393,7 @@ def test(
             w2s_f,
             num_tokens,
             num_experts,
-            use_fp8=True,
+            0,
         )
     # fused_output = hidden_states.to(dtype=torch.bfloat16)
     fused_output = hidden_states
