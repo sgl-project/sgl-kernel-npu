@@ -121,6 +121,7 @@ struct PlatformInfo {
 };
 
 struct OpParam {
+    uint32_t hiddenStateDim;
     uint32_t N;
     uint32_t headNum;
     int32_t cacheMode;
@@ -372,14 +373,14 @@ public:
         this->platformInfo = platformInfo;
         this->opParam = opParam;
     }
-    void Init(uint32_t hiddenStateDim);
+    void Init();
 
-    void RmsNormQuantTiling(uint32_t hiddenStateDim);
+    void RmsNormQuantTiling();
     void RopeConcatTiling();
     void EinSumQuantTiling();
 
     void SetTilingKey();
-    void SetMlapoWorkSpace(uint32_t hiddenStateDim);
+    void SetMlapoWorkSpace();
 
 private:
     MlaTilingData *tilingData;
@@ -387,10 +388,10 @@ private:
     struct OpParam opParam;
 };
 
-void MlaPreprocessTiling::RmsNormQuantTiling(uint32_t hiddenStateDim)
+void MlaPreprocessTiling::RmsNormQuantTiling()
 {
     tilingData->rmsNumCore1 = platformInfo.coreNumAiv;
-    tilingData->rmsNumCol1 = hiddenStateDim;
+    tilingData->rmsNumCol1 = opParam.hiddenStateDim;
     tilingData->rmsNumRow1 = opParam.N;
     tilingData->rmsQuantMin1 = -CONST_128;
     tilingData->rmsNumCore2 = platformInfo.coreNumAiv;
@@ -503,12 +504,12 @@ void MlaPreprocessTiling::EinSumQuantTiling()
     tilingData->esqColTail = esqColTail;
 }
 
-void MlaPreprocessTiling::SetMlapoWorkSpace(uint32_t hiddenStateDim)
+void MlaPreprocessTiling::SetMlapoWorkSpace()
 {
     uint64_t s1wsFactor =
-        static_cast<uint64_t>(opParam.cacheMode == 2 ? std::max(hiddenStateDim * sizeof(int8_t),
+        static_cast<uint64_t>(opParam.cacheMode == 2 ? std::max(opParam.hiddenStateDim * sizeof(int8_t),
                                                                 opParam.headNum * AXES_ALIGN_SIZE * sizeof(uint16_t))
-                                                     : hiddenStateDim * sizeof(int8_t));
+                                                     : opParam.hiddenStateDim * sizeof(int8_t));
     uint64_t workSizeS1 = s1wsFactor;
     uint64_t workSizeS2 = opParam.headNum * HIDDEN_STRATE_ROPE * sizeof(uint16_t);
     uint64_t workSizeS3 = HIDDEN_STRATE_MM * sizeof(uint16_t);
@@ -547,25 +548,25 @@ void MlaPreprocessTiling::SetTilingKey()
     tilingData->tilingKey = tilingKey;
 }
 
-void MlaPreprocessTiling::Init(uint32_t hiddenStateDim)
+void MlaPreprocessTiling::Init()
 {
     tilingData->numCore = platformInfo.coreNumAic;
     tilingData->n = opParam.N;
-    tilingData->hiddenStateDim = hiddenStateDim;
+    tilingData->hiddenStateDim = opParam.hiddenStateDim;
     bool deqOnTheFly = false;
     if (opParam.inDtype == at::kBFloat16 || opParam.quantMode == QuantMode::PER_TOKEN_SYMM_QUANT) {
         deqOnTheFly = true;
     }
 
     PpMatmulTilingApi mm1TilingApi(platformInfo,
-                                   1,                 // numBatch
-                                   opParam.N,         // m
-                                   hiddenStateDim,    // k
-                                   HIDDEN_STRATE_MM,  // n
-                                   false,             // transA
-                                   true,              // transB
-                                   true,              // enDequant
-                                   deqOnTheFly);      // in bf16.cce?
+                                   1,                       // numBatch
+                                   opParam.N,               // m
+                                   opParam.hiddenStateDim,  // k
+                                   HIDDEN_STRATE_MM,        // n
+                                   false,                   // transA
+                                   true,                    // transB
+                                   true,                    // enDequant
+                                   deqOnTheFly);            // in bf16.cce?
     mm1TilingApi.GetTilingData(tilingData->mm1);
 
     PpMatmulTilingApi mm2TilingApi(platformInfo,
@@ -590,11 +591,11 @@ void MlaPreprocessTiling::Init(uint32_t hiddenStateDim)
                                    deqOnTheFly);     // in bf16.cce?
     mm3TilingApi.GetTilingData(tilingData->mm3);
 
-    RmsNormQuantTiling(hiddenStateDim);
+    RmsNormQuantTiling();
     RopeConcatTiling();
     EinSumQuantTiling();
 
-    SetMlapoWorkSpace(hiddenStateDim);
+    SetMlapoWorkSpace();
     SetTilingKey();
 
     return;
@@ -658,6 +659,7 @@ std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &> mla_preproces
     uint32_t hiddenStateDim = hiddenState.sizes().back();
 
     OpParam opParam;
+    opParam.hiddenStateDim = hiddenStateDim;
     opParam.N = N;
     opParam.headNum = headNum;
     opParam.cacheMode = static_cast<int32_t>(cacheMode);
@@ -667,7 +669,7 @@ std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &> mla_preproces
     MlaTilingData tilingData;
     MlaPreprocessTiling mlaTiling(platformInfo, opParam, &tilingData);
 
-    mlaTiling.Init(hiddenStateDim);
+    mlaTiling.Init();
     uint32_t blockDim = platformInfo.coreNumAic;
 
     // workspace
