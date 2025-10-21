@@ -123,25 +123,44 @@ def build_tree_kernel_efficient(
         positions = torch.empty(
             (bs * num_verify_tokens,), device=device, dtype=torch.long
         )
-    (
-        positions,
-        retrive_index,
-        retrive_next_token,
-        retrive_next_sibling,
-        tree_mask,
-    ) = build_tree_efficient_native(
-        parent_list,
-        top_scores_index,
-        seq_lens,
-        tree_mask,
-        retrive_index,
-        retrive_next_token,
-        retrive_next_sibling,
-        topk,
-        num_verify_tokens,
-        tree_mask_mode,
-        bs,
-    )
+
+    try:
+        import sgl_kernel_npu
+
+        torch.ops.npu.build_tree_kernel_efficient(
+            parent_list,
+            top_scores_index,
+            seq_lens,
+            tree_mask,
+            positions,
+            retrive_index,
+            retrive_next_token,
+            retrive_next_sibling,
+            topk,
+            spec_steps,
+            num_verify_tokens,
+            tree_mask_mode,
+        )
+    except ImportError:
+        (
+            positions,
+            retrive_index,
+            retrive_next_token,
+            retrive_next_sibling,
+            tree_mask,
+        ) = build_tree_efficient_native(
+            parent_list,
+            top_scores_index,
+            seq_lens,
+            tree_mask,
+            retrive_index,
+            retrive_next_token,
+            retrive_next_sibling,
+            topk,
+            num_verify_tokens,
+            tree_mask_mode,
+            bs,
+        )
 
     return (
         tree_mask,
