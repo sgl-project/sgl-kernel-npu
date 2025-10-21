@@ -616,7 +616,7 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
         HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
     }
 
-    int64_t global_bs = std::max(new_topk_idx.size(0), num_max_dispatch_tokens_per_rank) * num_ranks;
+    int64_t global_bs = std::max(expert_ids.size(0), num_max_dispatch_tokens_per_rank) * num_ranks;
     auto x_shape = x.sizes();
     int h = x_shape[1];
     int bs = expert_ids.size(0);
