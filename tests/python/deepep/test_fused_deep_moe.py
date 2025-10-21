@@ -14,7 +14,7 @@ torch_npu.npu.config.allow_internal_format = True
 
 
 # ======================== Weight Initialization ========================
-def init_base_weights(hidden,moe_intermediate):
+def init_base_weights(hidden, moe_intermediate):
     w13_weight = torch.randint(-16, 16, [16,  moe_intermediate * 2, hidden]).to(torch.int8)
     w2_weight = torch.randint(-16, 16, [16, hidden, moe_intermediate]).to(torch.int8)
     w13_weight_scale = (torch.rand([16, moe_intermediate * 2, 1]) * 0.0004 + 0.0015).bfloat16()
@@ -287,7 +287,7 @@ def test(
         topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=True)[1]
 
     # ----- Weights -----
-    w13_weight, w13_weight_scale, w2_weight, w2_weight_scale = init_base_weights(hidden,moe_intermediate)
+    w13_weight, w13_weight_scale, w2_weight, w2_weight_scale = init_base_weights(hidden, moe_intermediate)
     w13, w13_scale, w2, w2_scale = init_baseline_weights(
         w13_weight.clone().detach(),
         w13_weight_scale.clone().detach(),

@@ -13,17 +13,11 @@ H_LIST=(7168 6144 2048 4096 6144)
 GMM1_HIDDEN_LIST=(2048 2048 768 1536 2560)
 SCRIPT="test_fused_deep_moe.py"
 
-# 创建临时目录
-mkdir -p tmp
-
 # 执行测试
 for index in "${indexs[@]}";do
 
-    CMD="python $SCRIPT \
-    --hidden ${H_LIST[$index]} \
-    --moe_intermediate ${GMM1_HIDDEN_LIST[$index]}"
-    echo "Running: $CMD"
-    if eval $CMD; then
+    echo "Running: python $SCRIPT --hidden ${H_LIST[$index]} --moe_intermediate ${GMM1_HIDDEN_LIST[$index]}"
+    if python "$SCRIPT" --hidden "${H_LIST[$index]}" --moe_intermediate "${GMM1_HIDDEN_LIST[$index]}"; then
         echo "测试 hidden=${H_LIST[$index]} moe_intermediate=${GMM1_HIDDEN_LIST[$index]} 成功"
     else
         echo "测试 hidden=${H_LIST[$index]} moe_intermediate=${GMM1_HIDDEN_LIST[$index]} 失败，退出码: $?"
@@ -32,3 +26,5 @@ for index in "${indexs[@]}";do
 
     echo "-------------------------------------"
 done
+
+echo "\n"
