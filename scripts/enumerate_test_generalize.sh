@@ -27,4 +27,4 @@ for index in "${indexs[@]}";do
     echo "-------------------------------------"
 done
 
-echo "\n"
+cd ./

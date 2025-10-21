@@ -235,7 +235,7 @@ def test(
         num_ranks - rank_offset < 257
     ), "Too many ranks (exceeding test precision limit)"
 
-    x = torch.rand((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * 10 - 5
+    x = torch.rand((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * 4 - 2
     # ----- Routing(topk_idx) -----
     if args.active_ranks:
         try:
@@ -373,7 +373,7 @@ def test(
         f"[Rank {rank}] baseline_avg={baseline_output_avg:.6e}, fused_avg={fused_output_avg:.6e}, "
         f"max_diff={max_diff:.6e}, avg_diff={avg_diff:.6e}"
     )
-    assert avg_diff < 2e-4, f"[Rank {rank}] Mismatch detected! diff={avg_diff}"
+    assert avg_diff < 1e-4, f"[Rank {rank}] Mismatch detected! diff={avg_diff}"
 
     # ----- Compare RecvCount -----
     recv_count_diff = (
