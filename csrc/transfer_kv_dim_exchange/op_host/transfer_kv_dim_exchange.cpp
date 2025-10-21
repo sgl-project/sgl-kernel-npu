@@ -20,7 +20,7 @@ enum class TransferDirection {
 };
 
 // @kind: only support 1 or 2, 1 is host to device, 2 is device to host
-HOST_API void transfer_kv(
+HOST_API void transfer_kv_dim_exchange(
     at::Tensor &device_k, at::Tensor &host_k,
     at::Tensor &device_v, at::Tensor &host_v,
     const at::Tensor &device_indices, const at::Tensor &host_indices, int64_t kind,
@@ -28,20 +28,29 @@ HOST_API void transfer_kv(
 {
     TORCH_CHECK(device_k.numel() != 0, "device_k must not be empty");
     TORCH_CHECK(host_k.numel() != 0, "host_k must not be empty");
-    TORCH_CHECK(device_k.sizes()[0] == host_k.sizes()[1], "the layer number of device_k must be equal to host_k");
     TORCH_CHECK(device_k.dim() == host_k.dim(), "the number of dimensions of device_k must be equal to host_k");
     TORCH_CHECK(device_k.dim() > 2, "the number of dimensions of device_k must be greater than 2");
+    TORCH_CHECK(device_k.sizes()[0] == host_k.sizes()[1], "the layer number of device_k must be equal to host_k");
+    TORCH_CHECK(0 <= start_layer_id < device_k.sizes()[0], "start_layer_id must be in 0 and device_k layers");
+    TORCH_CHECK(start_layer_id + num_layers <= device_k.sizes()[0], "start_layer_id + num_layers must be less than device_k layers");
+    TORCH_CHECK(device_k.sizes()[2] == page_size, "the 3rd dimension of device_k must be equal to page size");
+    TORCH_CHECK(host_k.sizes()[2] == page_size, "the 3rd dimension of host_k must be equal to page size");
+    TORCH_CHECK(page_size > 0, "Page size must be positive");
     TORCH_CHECK(device_indices.numel() == host_indices.numel(), "device and host indices must have the same length");
     TORCH_CHECK(device_indices.numel() % page_size == 0, "device indices size must be divisible by page size");
-    TORCH_CHECK(page_size > 0, "Page size must be positive");
     TORCH_CHECK(kind == static_cast<int64_t>(TransferDirection::HOST_TO_DEVICE)
                 || kind == static_cast<int64_t>(TransferDirection::DEVICE_TO_HOST),
                 "kind must be equal to 1(h2d) or 2(d2h)")
 
     if (device_v.numel() != 0 && host_v.numel() != 0) {
-        TORCH_CHECK(device_v.sizes()[0] == host_v.sizes()[1], "the layer number of device_v must be equal to host_v");
         TORCH_CHECK(device_v.dim() == host_v.dim(), "the number of dimensions of device_v must be equal to host_v");
         TORCH_CHECK(device_v.dim() > 2, "the number of dimensions of device_v must be greater than 2");
+        TORCH_CHECK(device_v.sizes()[0] == host_v.sizes()[1], "the layer number of device_v must be equal to host_v");
+        TORCH_CHECK(0 <= start_layer_id < device_v.sizes()[0], "start_layer_id must be in 0 and device_v layers");
+        TORCH_CHECK(start_layer_id + num_layers <= device_v.sizes()[0],
+                    "start_layer_id + num_layers must be less than device_v layers");
+        TORCH_CHECK(device_v.sizes()[2] == page_size, "the 3rd dimension of device_v must be equal to page size");
+        TORCH_CHECK(host_v.sizes()[2] == page_size, "the 3rd dimension of host_v must be equal to page size");
     }
 
     auto device_indices_cpu = device_indices.cpu();
@@ -51,6 +60,10 @@ HOST_API void transfer_kv(
     for (const auto i : c10::irange(num_pages)) {
         auto device_page_index = device_indices_cpu[i * page_size].item<int64_t>() / page_size;
         auto host_page_index = host_indices_cpu[i * page_size].item<int64_t>() / page_size;
+        TORCH_CHECK(device_page_index < device_k.sizes()[1],
+                    "device_page_index must be less than the 2nd dim of device_k");
+        TORCH_CHECK(host_page_index < host_k.sizes()[0],
+                    "host_page_index must be be less than the 1st dim of host_k");
         for (int64_t layer_id = start_layer_id; layer_id < start_layer_id + num_layers; ++layer_id) {
             if (kind == 2) {
                 // device -> host

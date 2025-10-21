@@ -50,9 +50,9 @@ class TestTransferKV(unittest.TestCase):
         finish_event = torch.npu.Event()
         start = time.time()
         with torch.npu.stream(stream):
-            torch.ops.npu.transfer_kv(device_k, host_k, device_v, host_v,
-                                      device_indices, host_indices, kind.value,
-                                      0, NUM_LAYERS, PAGE_SIZE, non_blocking)
+            torch.ops.npu.transfer_kv_dim_exchange(device_k, host_k, device_v, host_v,
+                                                   device_indices, host_indices, kind.value,
+                                                   0, NUM_LAYERS, PAGE_SIZE, non_blocking)
             finish_event.record()
         finish_event.synchronize()
 

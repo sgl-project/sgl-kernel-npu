@@ -62,7 +62,7 @@ void batch_matmul_transpose(const at::Tensor &tensor_a,
                             c10::optional<c10::string_view> format_mode,
                             c10::optional<c10::string_view> quant_mode);
 
-void transfer_kv(
+void transfer_kv_dim_exchange(
     at::Tensor &device_k, at::Tensor &host_k,
     at::Tensor &device_v, at::Tensor &host_v,
     const at::Tensor &device_indices, const at::Tensor &host_indices, int64_t kind,
