@@ -9,7 +9,7 @@
         {
             "name": "default",
             "displayName": "Default Config",
-            "description": "Default build using Unix Makefiles generator",
+            "description": "Default build using Unix Makefiles generator for native compilation",
             "generator": "Unix Makefiles",
             "binaryDir": "${sourceDir}/build_out",
             "cacheVariables": {
@@ -48,14 +48,6 @@
                 "CMAKE_INSTALL_PREFIX": {
                     "type": "PATH",
                     "value": "${sourceDir}/build_out"
-                },
-                "ENABLE_CROSS_COMPILE": {
-                    "type": "BOOL",
-                    "value": "False"
-                },
-                "CMAKE_CROSS_PLATFORM_COMPILER": {
-                    "type": "PATH",
-                    "value": "/usr/bin/aarch64-linux-gnu-g++"
                 },
                 "ASCEND_PACK_SHARED_LIBRARY": {
                     "type": "BOOL",
