@@ -449,7 +449,7 @@ if __name__ == "__main__":
         "--hidden", type=int, default=7168, help="Hidden dimension size (default: 7168)"
     )
     parser.add_argument(
-        "--moe_intermediate", type=int, default=2048, help="Moe_intermediate dimension size (default: 2048)"
+        "--moe-intermediate", type=int, default=2048, help="Moe_intermediate dimension size (default: 2048)"
     )
     parser.add_argument(
         "--num-topk", type=int, default=8, help="Number of top-k experts (default: 8)"
