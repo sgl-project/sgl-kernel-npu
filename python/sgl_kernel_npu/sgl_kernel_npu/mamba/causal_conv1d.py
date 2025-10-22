@@ -107,9 +107,6 @@ def causal_conv1d_fn_npu(
 
     out_ref = []
     out_ref_b = []
-    seqlens = query_start_loc[1:] - query_start_loc[:-1]
-    seqlens = seqlens.tolist()
-    splits = [torch.split(var, seqlens, dim=-1) for var in (x)]
     out_ref_b.append(
         causal_conv1d_fn_native(
             x,
