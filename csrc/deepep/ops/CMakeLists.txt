@@ -6,7 +6,7 @@ if(${CMAKE_SYSTEM_PROCESSOR} STREQUAL "x86_64")
 elseif(${CMAKE_SYSTEM_PROCESSOR} STREQUAL "aarch64")
     set(CANN_HOST_ARCH "aarch64")
 else()
-    message(FATAL_ERROR "Unsupported host processor: ${CMAKE_SYSTEM_PROCESSOR}")
+    message(FATAL_ERROR "Unsupported host processor: ${CMAKE_SYSTEM_PROCESSOR}. Please specify a valid architecture.")
 endif()
 
 include(cmake/config.cmake)
@@ -28,6 +28,9 @@ if(ENABLE_TEST AND EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/testcases)
     add_subdirectory(testcases)
 endif()
 
+if(NOT vendor_name)
+    message(FATAL_ERROR "vendor_name is not defined. Please set vendor_name before this command.")
+endif()
 add_custom_command(OUTPUT ${CMAKE_BINARY_DIR}/scripts/install.sh ${CMAKE_BINARY_DIR}/scripts/upgrade.sh
     COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/scripts
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/scripts/ ${CMAKE_BINARY_DIR}/scripts/
