@@ -455,7 +455,10 @@ __aicore__ inline void CamMoeDistributeDispatch<TemplateDispatchTypeFunc>::SendT
     uint32_t endTokenId = startTokenId + sendTokenNum;
     GlobalTensor<ExpandXOutType> dstWinGMTensor;
     for (uint32_t tokenIndex = startTokenId; tokenIndex < endTokenId; ++tokenIndex) {
-        uint32_t dstExpertId = expertIdsTensor_(tokenIndex);
+        int32_t dstExpertId = expertIdsTensor_(tokenIndex);
+        if (dstExpertId < 0) {
+            continue;
+        }
         uint32_t tempRankId = dstExpertId / moeExpertNumPerRank_ + sharedExpertRankNum_;
         GM_ADDR rankGM = (__gm__ uint8_t *)(GetWindAddrByRankId(COMM_EP_IDX, tempRankId) +
                                             (expertPerSizeOnWin_ *
