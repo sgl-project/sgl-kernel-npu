@@ -8,6 +8,7 @@ output/
 **/kernel_meta/
 **/extra-info/
 **/vendors/
+**/build_config.py
 
 # Prerequisites
 *.d
