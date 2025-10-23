@@ -459,18 +459,13 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     auto packed_recv_count = at::empty({num_local_experts}, at::dtype(at::kLong).device(device));
     auto expandScales = at::empty({1}, at::dtype(at::kFloat).device(device));
     at::Tensor scales;
-    at::Tensor activateMask;
+    at::Tensor activate_mask = (new_topk_idx >= 0).to(torch::kBool);
     auto expert_scales = at::empty({1}, at::dtype(at::kFloat).device(device));
     int64_t quant_mode = use_fp8 ? 2 : 0;
     int64_t tp_size = 1;
     int64_t tp_rank = 0;
     int64_t expert_shard_type = 0;
     int64_t expert_token_nums_type = 1;
-
-    std::string comm_log = "0";
-    std::vector<char> comm_log_buf(comm_log.begin(), comm_log.end());
-    comm_log_buf.push_back('\0');
-    char *comm_log_ptr = comm_log_buf.data();
 
     // get ep & tp name
     char hcom_ep_name[HCOMM_NAME_LEN];
@@ -480,10 +475,11 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
     }
     char hcom_tp_name[HCOMM_NAME_LEN] = {0};
+    char comm_alg[] = "fullmesh";
 
     EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2, new_x, new_topk_idx,
                  scales,         // smooth scales,
-                 activateMask,   // activateMask
+                 activate_mask,  // activate_mask
                  expert_scales,  // expert_scales
                  hcom_ep_name,   // ep
                  num_ranks,      // rankSize
@@ -498,7 +494,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
                  quant_mode,
                  global_bs,               // global_bs
                  expert_token_nums_type,  // expert_token_nums_type
-                 comm_log_ptr, packed_recv_x,
+                 comm_alg, packed_recv_x,
                  packed_recv_x_scales,  // dynamicScalesOut
                  expandIdx,
                  packed_recv_count,  // expertTokenNumsOut
@@ -558,7 +554,8 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     at::Tensor ep_send_counts = layout_range;
     at::Tensor expert_scales = new_scales;
     at::Tensor tp_send_counts = at::empty({1}, at::dtype(at::kInt).device(device));
-    at::Tensor x_active_mask, activation_scale, weight_scale, group_list, expand_scales;
+    at::Tensor activation_scale, weight_scale, group_list, expand_scales;
+    at::Tensor x_active_mask = (new_idx >= 0).to(at::kBool);
 
     int64_t tp_world_size = 1;
     int64_t tp_rankId = 0;
@@ -573,16 +570,14 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     at::Tensor shared_expert_x{nullptr};
     at::Tensor combined_x = at::empty({num_combined_tokens, hidden}, x.options());
     std::optional<EventHandle> event;
-    std::string comm_log = "0";
-    std::vector<char> comm_log_buf(comm_log.begin(), comm_log.end());
-    comm_log_buf.push_back('\0');
-    char *comm_log_ptr = comm_log_buf.data();
+    char comm_alg[] = "fullmesh";
 
     EXEC_NPU_CMD(aclnnMoeDistributeCombineV2, expand_x, expert_ids, expand_idx, ep_send_counts, expert_scales,
                  tp_send_counts, x_active_mask, activation_scale, weight_scale, group_list, expand_scales,
                  shared_expert_x, hcom_ep_name, num_ranks, rank, num_experts, hcom_tp_name, tp_world_size, tp_rankId,
                  expert_shared_type, shared_expert_num, shared_expert_rank_num, global_bs, out_dtype, comm_quant_mode,
-                 group_list_type, comm_log_ptr, combined_x);
+                 group_list_type, comm_alg, combined_x);
+
     if (this->is_padding) {
         if (this->padding_cnt == PADDING_SIZE) {
             combined_x = this->ori_x;
