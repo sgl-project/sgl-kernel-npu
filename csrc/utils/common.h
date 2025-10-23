@@ -11,7 +11,7 @@
 
 #ifndef UTILS_COMMON_H
 #define UTILS_COMMON_H
-
+#include<cstdint>
 namespace host_utils {
 
 constexpr uint32_t BLK_SIZE_ALIN_FOR_INT64 = 4;
