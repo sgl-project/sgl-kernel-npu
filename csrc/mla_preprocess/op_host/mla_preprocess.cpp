@@ -680,7 +680,7 @@ std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &> mla_preproces
     // tiling
     int32_t bIndex = N - 1;
     uint32_t tilingSize = sizeof(MlaTilingData);
-    int32_t tilingOffset = tilingSize * MAX_SUPPORT_TOKEN_NUMS * (opParam.cacheMode-1) + (tilingSize * bIndex);
+    int32_t tilingOffset = tilingSize * MAX_SUPPORT_TOKEN_NUMS * (opParam.cacheMode - 1) + (tilingSize * bIndex);
     static auto global_tiling_data =
         at::empty({tilingSize * MAX_SUPPORT_TOKEN_NUMS * MAX_CACHE_MODE_NUMS},
                   at::TensorOptions().dtype(at::kByte).device(hiddenState.options().device()));
@@ -691,8 +691,7 @@ std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &> mla_preproces
         // Handle the case where bIndex is out of range
         TORCH_CHECK(false, "bIndex is out of range: ", bIndex);
     }
-    at::Tensor tiling =
-        at::from_blob(global_tiling_data.data_ptr<uint8_t>() + tilingOffset, tilingSize, at::kByte);
+    at::Tensor tiling = at::from_blob(global_tiling_data.data_ptr<uint8_t>() + tilingOffset, tilingSize, at::kByte);
 
     EXEC_KERNEL_CMD(mla_preprocess, blockDim, hiddenState, gamma0, beta0, quant_scale0, quant_offset0, wdqkv, bias0,
                     gamma1, beta1, quant_scale1, quant_offset1, gamma2, sin, cos, sin, cos, kv_cache, slotmapping, wuq,
