@@ -77,7 +77,6 @@ def build_tree_efficient_native(
     positions = verified_seq_len.repeat_interleave(draft_token_num)
     parent_tb_indices = selected_index // topk
     retrive_index[:] = bs_range.view(-1, 1) * draft_token_num + draft_token_num_range
-    # tree_mask[token_tree_indices.view(-1, 1) + draft_token_num_range1] = True
 
     # Process root and non-root nodes, update retrieve_next_token and retrive_next_sibling
     # Calculate the positional information of each token.
