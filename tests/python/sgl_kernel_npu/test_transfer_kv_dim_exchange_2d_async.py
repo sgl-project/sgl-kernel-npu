@@ -31,6 +31,9 @@ class TestTransferKV(unittest.TestCase):
         device_k = device_kv_buffer[0]
         device_v = torch.empty(0) if v_empty else device_kv_buffer[1]
 
+        print(f" device_k=device_v={device_k.sum().cpu().item()}")
+        print(f" device_kv={device_kv_buffer.sum().cpu().item()}")
+
         host_kv_buffer = torch.zeros(
             (2, NUM_PAGES, NUM_LAYERS, PAGE_SIZE, HEAD_NUM_PER_TP, HEAD_DIM),
             dtype=torch.bfloat16,
@@ -50,9 +53,8 @@ class TestTransferKV(unittest.TestCase):
         finish_event = torch.npu.Event()
         start = time.time()
         with torch.npu.stream(stream):
-            torch.ops.npu.transfer_kv_dim_exchange(device_k, host_k, device_v, host_v,
-                                                   device_indices, host_indices, kind.value,
-                                                   0, NUM_LAYERS, PAGE_SIZE, non_blocking)
+            torch.ops.npu.transfer_kv_dim_exchange_2d_async(device_k, host_k, device_v, host_v,
+                                                   device_indices, host_indices, kind.value, PAGE_SIZE)
             finish_event.record()
         finish_event.synchronize()
 
@@ -76,8 +78,8 @@ class TestTransferKV(unittest.TestCase):
         device_kv, host_kv = self._kv_transfer(TransferDirection.D2H, False, True)
 
         self.assertAlmostEqual(
-            device_kv.sum().cpu().item(),
             host_kv.sum().item(),
+            device_kv.sum().cpu().item(),
             delta=1e-3,
             msg="host value should be equal to device value after transfer kv d2h"
         )
@@ -94,8 +96,8 @@ class TestTransferKV(unittest.TestCase):
         device_kv, host_kv = self._kv_transfer(TransferDirection.H2D, False, True)
 
         self.assertAlmostEqual(
-            host_kv.sum().item(),
             device_kv.sum().cpu().item(),
+            host_kv.sum().item(),
             delta=1e-3,
             msg="device value should be equal to host value after transfer kv h2d")
 
@@ -110,8 +112,8 @@ class TestTransferKV(unittest.TestCase):
         device_kv, host_kv = self._k_transfer(TransferDirection.D2H, True)
 
         self.assertAlmostEqual(
-            device_kv.sum().cpu().item(),
             host_kv.sum().item() * 2,
+            device_kv.sum().cpu().item(),
             delta=1e-3,
             msg="host value * 2 should be equal to device value after transfer k d2h"
         )
@@ -137,7 +139,7 @@ class TestTransferKV(unittest.TestCase):
             device_kv[1].sum().cpu().item() * 2,
             host_kv.numel(),
             delta=1e-3,
-            msg="device v sum() * 2 should be equal to 0 after transfer k h2d")
+            msg="device v sum() * 2 should be equal to host value after transfer k h2d")
 
 
 if __name__ == '__main__':
