@@ -238,7 +238,6 @@ private:
                 offset = localTokenServerOffsetTensor.GetValue(i * serverNum_ + server_id);
                 int32_t count = countExpertTensor.GetValue(expert_id);
                 expertRankTokenIdxTensor.SetValue(expert_id * TEMP_BATCH_SIZE + count % TEMP_BATCH_SIZE, offset);
-                expertRankTokenIdxTensor.SetValue((numExperts_ + expert_id) * TEMP_BATCH_SIZE + count % TEMP_BATCH_SIZE, i);
                 sendTokenIdxTensor.SetValue(expert_id, count);
                 count++;
                 countExpertTensor.SetValue(expert_id, count);

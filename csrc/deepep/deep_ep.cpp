@@ -105,8 +105,10 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     auto notify_send_data = at::zeros({notify_send_data_size}, at::dtype(at::kInt).device(device));
     if (num_tokens < MAX_BATCH_SIZE) {
         notify_send_data
-            .index({at::indexing::Slice(num_experts + server_num + MAX_BATCH_SIZE * (server_num + 1),
-                num_experts + server_num + MAX_BATCH_SIZE * (server_num * 2 + num_experts + 1))}).fill_(-1);
+            .index(
+                {at::indexing::Slice(num_experts + server_num + MAX_BATCH_SIZE * (server_num + 1),
+                                     num_experts + server_num + MAX_BATCH_SIZE * (server_num * 2 + num_experts + 1))})
+            .fill_(-1);
     }
     // The order of each token sent to the server is set to -1.
     EXEC_NPU_CMD(aclnnDispatchLayout, new_topk_idx, num_tokens, num_ranks, num_experts, num_topk, local_ranksize,

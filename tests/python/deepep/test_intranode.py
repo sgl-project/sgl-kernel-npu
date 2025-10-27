@@ -20,6 +20,7 @@ from utils import (
 MAX_BATCH_SIZE = 4096
 enable_a2_test = False
 
+
 # noinspection PyShadowingNames
 def test_main(
     args: argparse.Namespace,
@@ -104,13 +105,24 @@ def test_main(
 
     # Server meta
     if enable_a2_test:
-        count_num_expert = [0] * num_experts
-        num_tokens_per_server_uniq = torch.zeros((num_servers,), dtype=torch.int, device="npu")
-        num_each_token_to_server = torch.zeros((num_tokens * num_servers,), dtype=torch.int, device="npu")
-        each_token_to_num_server = torch.zeros((num_tokens,), dtype=torch.int, device="npu")
-        each_token_offset_to_server = torch.full((num_tokens * num_servers,), -1, dtype=torch.int, device="npu")
-        send_token_idx = torch.full((num_tokens * num_experts,), -1, dtype=torch.int, device="npu")
-        expert_rank_token_idx = torch.zeros((num_experts * MAX_BATCH_SIZE,), dtype=torch.int, device="npu")
+        num_tokens_per_server_uniq = torch.zeros(
+            (num_servers,), dtype=torch.int, device="npu"
+        )
+        num_each_token_to_server = torch.zeros(
+            (num_tokens * num_servers,), dtype=torch.int, device="npu"
+        )
+        each_token_to_num_server = torch.zeros(
+            (num_tokens,), dtype=torch.int, device="npu"
+        )
+        each_token_offset_to_server = torch.full(
+            (num_tokens * num_servers,), -1, dtype=torch.int, device="npu"
+        )
+        send_token_idx = torch.full(
+            (num_tokens * num_experts,), -1, dtype=torch.int, device="npu"
+        )
+        expert_rank_token_idx = torch.zeros(
+            (num_experts * MAX_BATCH_SIZE,), dtype=torch.int, device="npu"
+        )
 
         for i in range(num_tokens):
             seen_server = [0] * num_servers
@@ -119,12 +131,16 @@ def test_main(
                 rank_id = expert_id // experts_per_rank
                 server_id = rank_id // num_local_ranks
                 if seen_server[server_id] == 0:
-                    each_token_offset_to_server[i * num_servers + server_id] = num_tokens_per_server_uniq[server_id]
+                    each_token_offset_to_server[i * num_servers + server_id] = (
+                        num_tokens_per_server_uniq[server_id]
+                    )
                     num_tokens_per_server_uniq[server_id] += 1
                     each_token_to_num_server[i] += 1
                     seen_server[server_id] += 1
                 num_each_token_to_server[i * num_servers + server_id] += 1
-                send_token_idx[i * num_experts + expert_id] = count_num_expert[expert_id]
+                send_token_idx[i * num_experts + expert_id] = count_num_expert[
+                    expert_id
+                ]
                 count_num_expert[expert_id] += 1
 
         count_num_expert = [0] * num_experts
@@ -133,8 +149,9 @@ def test_main(
                 expert_id = topk_idx[i][j]
                 rank_id = expert_id // experts_per_rank
                 server_id = rank_id // num_local_ranks
-                expert_rank_token_idx[expert_id * MAX_BATCH_SIZE + count_num_expert[expert_id]] = \
-                each_token_offset_to_server[i * num_servers + server_id]
+                expert_rank_token_idx[
+                    expert_id * MAX_BATCH_SIZE + count_num_expert[expert_id]
+                ] = each_token_offset_to_server[i * num_servers + server_id]
                 count_num_expert[expert_id] += 1
 
     # Rank layout meta
@@ -160,24 +177,44 @@ def test_main(
             return_values = buffer.get_dispatch_layout(topk_idx, num_experts)
             if enable_a2_test:
                 notify_send_data = buffer.get_notify_send_data()
-                ref_num_tokens_per_server_uniq = notify_send_data[num_experts:num_experts + num_servers]
-                ref_num_each_token_to_server = \
-                    notify_send_data[num_experts + num_servers:num_experts + num_servers * (1 + num_tokens)]
-                ref_each_token_to_num_server = \
-                    notify_send_data[num_experts + num_servers * (1 + MAX_BATCH_SIZE):\
-                                     num_experts + num_servers + MAX_BATCH_SIZE * num_servers + num_tokens]
-                ref_each_token_offset_to_server = \
-                    notify_send_data[num_experts + num_servers + MAX_BATCH_SIZE * (num_servers + 1):\
-                                     num_experts + num_servers + MAX_BATCH_SIZE * (num_servers + 1) +\
-                                     num_servers * num_tokens]
-                ref_send_token_idx = \
-                    notify_send_data[num_experts + num_servers + MAX_BATCH_SIZE * (num_servers * 2 + 1):\
-                                     num_experts + num_servers + MAX_BATCH_SIZE * (num_servers * 2 + 1) +\
-                                     num_tokens * num_experts]
-                ref_expert_rank_token_idx = \
-                    notify_send_data[num_experts + num_servers + MAX_BATCH_SIZE * (num_servers * 2 + num_experts + 1):\
-                                     num_experts + num_servers + MAX_BATCH_SIZE *\
-                                     (num_servers * 2 + num_experts + num_experts + 1)]
+                ref_num_tokens_per_server_uniq = notify_send_data[
+                    num_experts : num_experts + num_servers
+                ]
+                ref_num_each_token_to_server = notify_send_data[
+                    num_experts
+                    + num_servers : num_experts
+                    + num_servers * (1 + num_tokens)
+                ]
+                ref_each_token_to_num_server = notify_send_data[
+                    num_experts
+                    + num_servers * (1 + MAX_BATCH_SIZE) : num_experts
+                    + num_servers
+                    + MAX_BATCH_SIZE * num_servers
+                    + num_tokens
+                ]
+                ref_each_token_offset_to_server = notify_send_data[
+                    num_experts
+                    + num_servers
+                    + MAX_BATCH_SIZE * (num_servers + 1) : num_experts
+                    + num_servers
+                    + MAX_BATCH_SIZE * (num_servers + 1)
+                    + num_servers * num_tokens
+                ]
+                ref_send_token_idx = notify_send_data[
+                    num_experts
+                    + num_servers
+                    + MAX_BATCH_SIZE * (num_servers * 2 + 1) : num_experts
+                    + num_servers
+                    + MAX_BATCH_SIZE * (num_servers * 2 + 1)
+                    + num_tokens * num_experts
+                ]
+                ref_expert_rank_token_idx = notify_send_data[
+                    num_experts
+                    + num_servers
+                    + MAX_BATCH_SIZE * (num_servers * 2 + num_experts + 1) : num_experts
+                    + num_servers
+                    + MAX_BATCH_SIZE * (num_servers * 2 + num_experts + num_experts + 1)
+                ]
         except Exception as e:
             print(f"Error occurred while calling get_dispatch_layout: {e}")
             raise
