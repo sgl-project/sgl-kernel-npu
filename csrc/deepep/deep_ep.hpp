@@ -26,6 +26,7 @@ struct Buffer {
     at::Tensor ori_x;
     at::Tensor new_topk_idx;
     at::Tensor new_scales;
+    at::Tensor notify_send_data;
 
     int64_t shared_expert_rank_num;
     int64_t shared_expert_num = 1;
@@ -50,6 +51,8 @@ public:
     std::tuple<torch::Tensor, std::optional<torch::Tensor>, torch::Tensor, torch::Tensor, std::optional<EventHandle>>
     get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std::optional<EventHandle> &previous_event,
                         bool async, bool allocate_on_comm_stream);
+
+    torch::Tensor get_notify_send_data();
 
     std::tuple<at::Tensor, std::optional<at::Tensor>, std::optional<at::Tensor>, std::optional<at::Tensor>,
                std::vector<int>, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, std::optional<EventHandle>>
