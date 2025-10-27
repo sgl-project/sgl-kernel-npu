@@ -93,7 +93,7 @@ public:
         }
         if (coreIdx_ == aivNum_) {
             expertRankTokenIdx32AlignIntLen_ =
-                Ceil(numExperts_ * TEMP_BATCH_SIZE * 2 * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
+                Ceil(numExperts_ * TEMP_BATCH_SIZE * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
             sendTokenIdx32AlignIntLen_ = Ceil(numExperts_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
             localTokenServerOffset32AlignIntLen_ = Ceil(numTokens_ * serverNum_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
             topkIdxGM_.SetGlobalBuffer((__gm__ int64_t *)topkIdx);
