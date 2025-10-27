@@ -199,6 +199,17 @@ class Buffer:
             EventOverlap(event),
         )
 
+    # internal interface, Only use in test
+    def get_notify_send_data(self) -> torch.Tensor:
+        """
+        Internal interface, we only use it to check the output of get_dispatch_layout.
+
+        Returns:
+            notify_send_data: the member variable of buffer, which usually contains the output of get_dispatch_layout.
+        """
+        notify_send_data = self.runtime.get_notify_send_data()
+        return notify_send_data
+
     def clean_low_latency_buffer(
         self, num_max_dispatch_tokens_per_rank: int, hidden: int, num_experts: int
     ) -> None:
