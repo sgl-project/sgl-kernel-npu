@@ -33,7 +33,7 @@ public:
     __aicore__ inline DispatchLayoutA2(){};
 
     __aicore__ inline void Init(GM_ADDR topkIdx, GM_ADDR numTokensPerRank, GM_ADDR numTokensPerExpert,
-                                GM_ADDR isTokenInRank, GM_ADDR totalData, GM_ADDR workspace, TPipe *pipe,
+                                GM_ADDR isTokenInRank, GM_ADDR notifySendData, GM_ADDR workspace, TPipe *pipe,
                                 const DispatchLayoutTilingData *tilingData)
     {
         numTokens_ = tilingData->dispatchLayoutInfo.numTokens;
@@ -83,12 +83,12 @@ public:
             topkIdxGM_.SetGlobalBuffer((__gm__ int64_t *)(topkIdx + topkIdxOffset));
             numTokensPerRankGM_.SetGlobalBuffer((__gm__ T *)numTokensPerRank);
             numTokensPerExpertSrcGM_.SetGlobalBuffer((__gm__ T *)numTokensPerExpert);
-            numTokensPerExpertGM_.SetGlobalBuffer((__gm__ T *)totalData);
+            numTokensPerExpertGM_.SetGlobalBuffer((__gm__ T *)notifySendData);
             isTokenInRankGM_.SetGlobalBuffer((__gm__ T *)(isTokenInRank + isTokenOffset));
-            localTokenServerUniqCountGM_.SetGlobalBuffer((__gm__ T *)(totalData) + numExperts_);
-            localTokenServerTotalCountGM_.SetGlobalBuffer((__gm__ T *)(totalData + serverOffsetOffset) + numExperts_ +
-                                                          serverNum_);
-            localTokenServerNumGM_.SetGlobalBuffer((__gm__ T *)(totalData + serverNumOffset) + numExperts_ +
+            localTokenServerUniqCountGM_.SetGlobalBuffer((__gm__ T *)(notifySendData) + numExperts_);
+            localTokenServerTotalCountGM_.SetGlobalBuffer((__gm__ T *)(notifySendData + serverOffsetOffset) +
+                                                          numExperts_ + serverNum_);
+            localTokenServerNumGM_.SetGlobalBuffer((__gm__ T *)(notifySendData + serverNumOffset) + numExperts_ +
                                                    serverNum_ * (MAX_BATCH_SIZE + 1));
         }
         if (coreIdx_ == aivNum_) {
@@ -97,11 +97,11 @@ public:
             sendTokenIdx32AlignIntLen_ = Ceil(numExperts_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
             localTokenServerOffset32AlignIntLen_ = Ceil(numTokens_ * serverNum_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
             topkIdxGM_.SetGlobalBuffer((__gm__ int64_t *)topkIdx);
-            localTokenServerOffsetGM_.SetGlobalBuffer((__gm__ T *)totalData + numExperts_ + serverNum_ +
+            localTokenServerOffsetGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ + serverNum_ +
                                                       MAX_BATCH_SIZE * (serverNum_ + 1));
-            sendTokenIdxGM_.SetGlobalBuffer((__gm__ T *)totalData + numExperts_ + serverNum_ +
+            sendTokenIdxGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ + serverNum_ +
                                             MAX_BATCH_SIZE * (1 + 2 * serverNum_));
-            expertRankTokenIdxGM_.SetGlobalBuffer((__gm__ T *)totalData + numExperts_ + serverNum_ +
+            expertRankTokenIdxGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ + serverNum_ +
                                                   MAX_BATCH_SIZE * (1 + 2 * serverNum_ + numExperts_));
         }
     }

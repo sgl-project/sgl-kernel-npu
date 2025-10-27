@@ -105,6 +105,7 @@ def test_main(
 
     # Server meta
     if enable_a2_test:
+        count_num_expert = [0] * num_experts
         num_tokens_per_server_uniq = torch.zeros(
             (num_servers,), dtype=torch.int, device="npu"
         )
