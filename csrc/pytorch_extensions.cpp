@@ -57,9 +57,9 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "str? format_mode=None, str? quant_mode=None) -> ()");
 
     m.def(
-        "transfer_kv_dim_exchange_2d_async(Tensor device_k, Tensor host_k, "
+        "transfer_kv_dim_exchange(Tensor device_k, Tensor host_k, "
         "Tensor device_v, Tensor host_v, "
-        "Tensor device_indices, Tensor host_indices, int kind, int page_size) -> ()");
+        "Tensor device_indices, Tensor host_indices, int page_size, int direct, int flags) -> ()");
 }
 }  // namespace
 
@@ -80,6 +80,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
     m.impl("batch_matmul_transpose", TORCH_FN(sglang::npu_kernel::batch_matmul_transpose));
 
-    m.impl("transfer_kv_dim_exchange_2d_async", TORCH_FN(sglang::npu_kernel::transfer_kv_dim_exchange_2d_async));
+    m.impl("transfer_kv_dim_exchange", TORCH_FN(sglang::npu_kernel::transfer_kv_dim_exchange));
 }
 }  // namespace

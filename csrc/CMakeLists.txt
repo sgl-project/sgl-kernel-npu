@@ -11,7 +11,7 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_host/mla_preprocess.cpp
     ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/batch_matmul_transpose.cpp
     ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/tiling/tiling_data.cpp
-    ${PROJECT_OP_SRC_BASE}/transfer_kv_dim_exchange_2d_async/op_host/transfer_kv_dim_exchange_2d_async.cpp
+    ${PROJECT_OP_SRC_BASE}/transfer_kv_dim_exchange/op_host/transfer_kv_dim_exchange.cpp
     )
 
 # set the so name

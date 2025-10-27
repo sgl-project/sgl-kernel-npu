@@ -20,7 +20,7 @@ class TransferDirection(Enum):
 
 class TestTransferKV(unittest.TestCase):
 
-    def _kv_transfer(self, kind, v_empty, non_blocking):
+    def _kv_transfer(self, direct, v_empty):
         torch.npu.set_device(0)
 
         device_kv_buffer = torch.ones(
@@ -30,9 +30,6 @@ class TestTransferKV(unittest.TestCase):
         )
         device_k = device_kv_buffer[0]
         device_v = torch.empty(0) if v_empty else device_kv_buffer[1]
-
-        print(f" device_k=device_v={device_k.sum().cpu().item()}")
-        print(f" device_kv={device_kv_buffer.sum().cpu().item()}")
 
         host_kv_buffer = torch.zeros(
             (2, NUM_PAGES, NUM_LAYERS, PAGE_SIZE, HEAD_NUM_PER_TP, HEAD_DIM),
@@ -50,32 +47,26 @@ class TestTransferKV(unittest.TestCase):
         host_indices = torch.arange(NUM_PAGES * PAGE_SIZE, dtype=torch.int64)
 
         stream = torch.npu.Stream()
-        finish_event = torch.npu.Event()
         start = time.time()
         with torch.npu.stream(stream):
-            torch.ops.npu.transfer_kv_dim_exchange_2d_async(device_k, host_k, device_v, host_v,
-                                                   device_indices, host_indices, kind.value, PAGE_SIZE)
-            finish_event.record()
-        finish_event.synchronize()
+            torch.ops.npu.transfer_kv_dim_exchange(device_k, host_k, device_v, host_v,
+                                                   device_indices, host_indices, PAGE_SIZE, direct.value, 2)
 
         end = time.time()
-        kind_str = "D2H" if kind.value == 2 else "H2D"
-        copy_times = NUM_PAGES * NUM_LAYERS
-        if not v_empty:
-            copy_times = copy_times * 2
-        print(f"kv transfer {kind_str}, {v_empty=}, {non_blocking=}, "
+        direct_str = "D2H" if direct.value == 2 else "H2D"
+        copy_times = NUM_PAGES if v_empty else NUM_PAGES * 2
+        print(f"kv transfer {direct_str}, {v_empty=}, "
               f"tensor copy times is {copy_times}, "
-              f"single tensor copy size is {PAGE_SIZE * HEAD_NUM_PER_TP * HEAD_DIM * torch.bfloat16.itemsize} bytes, "
+              f"single copy size is {NUM_LAYERS * PAGE_SIZE * HEAD_NUM_PER_TP * HEAD_DIM * torch.bfloat16.itemsize} bytes, "
               f"total duration {float((end - start) * 1000):.3f}ms")
 
         return device_kv_buffer, host_kv_buffer
 
-    def _k_transfer(self, kind, non_blocking):
-        return self._kv_transfer(kind, True, non_blocking)
+    def _k_transfer(self, direct_str):
+        return self._kv_transfer(direct_str, True)
 
     def test_kv_copy_d2h(self):
-        self._kv_transfer(TransferDirection.D2H, False, False)
-        device_kv, host_kv = self._kv_transfer(TransferDirection.D2H, False, True)
+        device_kv, host_kv = self._kv_transfer(TransferDirection.D2H, False)
 
         self.assertAlmostEqual(
             host_kv.sum().item(),
@@ -92,8 +83,7 @@ class TestTransferKV(unittest.TestCase):
         )
 
     def test_kv_copy_h2d(self):
-        self._kv_transfer(TransferDirection.H2D, False, False)
-        device_kv, host_kv = self._kv_transfer(TransferDirection.H2D, False, True)
+        device_kv, host_kv = self._kv_transfer(TransferDirection.H2D, False)
 
         self.assertAlmostEqual(
             device_kv.sum().cpu().item(),
@@ -108,8 +98,7 @@ class TestTransferKV(unittest.TestCase):
             msg="device value sum() should be equal to 0 after transfer kv h2d")
 
     def test_k_copy_d2h(self):
-        self._k_transfer(TransferDirection.D2H, False)
-        device_kv, host_kv = self._k_transfer(TransferDirection.D2H, True)
+        device_kv, host_kv = self._k_transfer(TransferDirection.D2H)
 
         self.assertAlmostEqual(
             host_kv.sum().item() * 2,
@@ -126,8 +115,7 @@ class TestTransferKV(unittest.TestCase):
         )
 
     def test_k_copy_h2d(self):
-        self._k_transfer(TransferDirection.H2D, False)
-        device_kv, host_kv = self._k_transfer(TransferDirection.H2D, True)
+        device_kv, host_kv = self._k_transfer(TransferDirection.H2D)
 
         self.assertAlmostEqual(
             device_kv[0].sum().cpu().item(),

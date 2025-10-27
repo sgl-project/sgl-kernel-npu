@@ -15,16 +15,19 @@
 namespace sglang {
 namespace npu_kernel {
 
-enum class TransferDirection {
-    HOST_TO_DEVICE = 1,
-    DEVICE_TO_HOST = 2,
+#define KV_TRANS_FLAG_1D 1 << 0
+#define KV_TRANS_FLAG_2D 1 << 1
+
+enum TransferDirection {
+    H2D = 1,
+    D2H = 2,
 };
 
-// @kind: only support 1 or 2, 1 is host to device, 2 is device to host
-HOST_API void transfer_kv_dim_exchange_2d_async(
-    at::Tensor &device_k, at::Tensor &host_k,
-    at::Tensor &device_v, at::Tensor &host_v,
-    const at::Tensor &device_indices, const at::Tensor &host_indices, int64_t kind, int64_t page_size)
+// @direction: only support 1 or 2, 1 is host to device, 2 is device to host
+HOST_API void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k, at::Tensor &device_v,
+                                       at::Tensor &host_v, const at::Tensor &device_indices,
+                                       const at::Tensor &host_indices, int64_t page_size, int64_t direction,
+                                       int64_t flags)
 {
     TORCH_CHECK(device_k.numel() != 0, "device_k must not be empty");
     TORCH_CHECK(host_k.numel() != 0, "host_k must not be empty");
@@ -36,9 +39,10 @@ HOST_API void transfer_kv_dim_exchange_2d_async(
     TORCH_CHECK(page_size > 0, "Page size must be positive");
     TORCH_CHECK(device_indices.numel() == host_indices.numel(), "device and host indices must have the same length");
     TORCH_CHECK(device_indices.numel() % page_size == 0, "device indices size must be divisible by page size");
-    TORCH_CHECK(kind == static_cast<int64_t>(TransferDirection::HOST_TO_DEVICE)
-                || kind == static_cast<int64_t>(TransferDirection::DEVICE_TO_HOST),
-                "kind must be equal to 1(h2d) or 2(d2h)")
+    TORCH_CHECK(direction == static_cast<int64_t>(TransferDirection::H2D) ||
+                    direction == static_cast<int64_t>(TransferDirection::D2H),
+                "direction must be equal to 1(h2d) or 2(d2h)")
+    TORCH_CHECK((flags & KV_TRANS_FLAG_2D) == KV_TRANS_FLAG_2D, "now only support 2d(flags=2) copy");
 
     if (device_v.numel() != 0 && host_v.numel() != 0) {
         TORCH_CHECK(device_v.dim() == host_v.dim(), "the number of dimensions of device_v must be equal to host_v");
@@ -69,64 +73,51 @@ HOST_API void transfer_kv_dim_exchange_2d_async(
         auto host_page_index = host_indices_cpu[i * page_size].item<int64_t>() / page_size;
         TORCH_CHECK(device_page_index < device_k.sizes()[1],
                     "device_page_index must be less than the 2nd dim of device_k");
-        TORCH_CHECK(host_page_index < host_k.sizes()[0],
-                    "host_page_index must be be less than the 1st dim of host_k");
+        TORCH_CHECK(host_page_index < host_k.sizes()[0], "host_page_index must be be less than the 1st dim of host_k");
 
-        void* device_k_ptr = reinterpret_cast<void*>(device_k[0][device_page_index].data_ptr());
-        void* host_k_ptr = reinterpret_cast<void*>(host_k[host_page_index][0].data_ptr());
-        if (kind == 2) {
+        void *device_k_ptr = reinterpret_cast<void *>(device_k[0][device_page_index].data_ptr());
+        void *host_k_ptr = reinterpret_cast<void *>(host_k[host_page_index][0].data_ptr());
+        if (direction == 2) {
             // device -> host
-            aclrtMemcpy2dAsync(
-                host_k_ptr, // dst
-                host_pitch, // dpitch
-                device_k_ptr, // src
-                device_pitch, // spitch
-                width, // width
-                height, // height
-                aclrtMemcpyKind::ACL_MEMCPY_DEVICE_TO_HOST,
-                acl_stream
-            );
+            aclrtMemcpy2dAsync(host_k_ptr,    // dst
+                               host_pitch,    // dpitch
+                               device_k_ptr,  // src
+                               device_pitch,  // spitch
+                               width,         // width
+                               height,        // height
+                               aclrtMemcpyKind::ACL_MEMCPY_DEVICE_TO_HOST, acl_stream);
         } else {
             // host -> device
-            aclrtMemcpy2dAsync(
-                device_k_ptr, // dst
-                device_pitch, // dpitch
-                host_k_ptr, // src
-                host_pitch, // spitch
-                width, // width
-                height, // height
-                aclrtMemcpyKind::ACL_MEMCPY_HOST_TO_DEVICE,
-                acl_stream
-            );
+            aclrtMemcpy2dAsync(device_k_ptr,  // dst
+                               device_pitch,  // dpitch
+                               host_k_ptr,    // src
+                               host_pitch,    // spitch
+                               width,         // width
+                               height,        // height
+                               aclrtMemcpyKind::ACL_MEMCPY_HOST_TO_DEVICE, acl_stream);
         }
 
         if (device_v.numel() != 0 && host_v.numel() != 0) {
-            void* device_v_ptr = reinterpret_cast<void*>(device_v[0][device_page_index].data_ptr());
-            void* host_v_ptr = reinterpret_cast<void*>(host_v[host_page_index][0].data_ptr());
-            if (kind == 2) {
+            void *device_v_ptr = reinterpret_cast<void *>(device_v[0][device_page_index].data_ptr());
+            void *host_v_ptr = reinterpret_cast<void *>(host_v[host_page_index][0].data_ptr());
+            if (direction == 2) {
                 // device -> host
-                aclrtMemcpy2dAsync(
-                    host_v_ptr, // dst
-                    host_pitch, // dpitch
-                    device_v_ptr, // src
-                    device_pitch, // spitch
-                    width, // width
-                    height, // height
-                    aclrtMemcpyKind::ACL_MEMCPY_DEVICE_TO_HOST,
-                    acl_stream
-                );
+                aclrtMemcpy2dAsync(host_v_ptr,    // dst
+                                   host_pitch,    // dpitch
+                                   device_v_ptr,  // src
+                                   device_pitch,  // spitch
+                                   width,         // width
+                                   height,        // height
+                                   aclrtMemcpyKind::ACL_MEMCPY_DEVICE_TO_HOST, acl_stream);
             } else {
                 // host -> device
-                aclrtMemcpy2dAsync(
-                    device_v_ptr, // dst
-                    device_pitch, // dpitch
-                    host_v_ptr, // src
-                    host_pitch, // spitch
-                    width, // width
-                    height, // height
-                    aclrtMemcpyKind::ACL_MEMCPY_HOST_TO_DEVICE,
-                    acl_stream
-                );
+                aclrtMemcpy2dAsync(device_v_ptr,  // dst
+                                   device_pitch,  // dpitch
+                                   host_v_ptr,    // src
+                                   host_pitch,    // spitch
+                                   width,         // width
+                                   height,        // height
+                                   aclrtMemcpyKind::ACL_MEMCPY_HOST_TO_DEVICE, acl_stream);
             }
         }
     }
