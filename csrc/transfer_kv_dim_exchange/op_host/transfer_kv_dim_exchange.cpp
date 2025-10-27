@@ -15,15 +15,16 @@
 namespace sglang {
 namespace npu_kernel {
 
-#define KV_TRANS_FLAG_1D 1 << 0
-#define KV_TRANS_FLAG_2D 1 << 1
+constexpr int64_t KV_TRANS_FLAG_1D = 1 << 0;
+constexpr int64_t KV_TRANS_FLAG_2D = 1 << 1;
 
-enum TransferDirection {
+enum class TransferDirection : int64_t {
     H2D = 1,
     D2H = 2,
 };
 
-// @direction: only support 1 or 2, 1 is host to device, 2 is device to host
+// @direction: only support 1 or 2, 1 is H2D, 2 is D2H
+// @flags: only support 2
 HOST_API void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k, at::Tensor &device_v,
                                        at::Tensor &host_v, const at::Tensor &device_indices,
                                        const at::Tensor &host_indices, int64_t page_size, int64_t direction,
@@ -73,27 +74,17 @@ HOST_API void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
         auto host_page_index = host_indices_cpu[i * page_size].item<int64_t>() / page_size;
         TORCH_CHECK(device_page_index < device_k.sizes()[1],
                     "device_page_index must be less than the 2nd dim of device_k");
-        TORCH_CHECK(host_page_index < host_k.sizes()[0], "host_page_index must be be less than the 1st dim of host_k");
+        TORCH_CHECK(host_page_index < host_k.sizes()[0], "host_page_index must be less than the 1st dim of host_k");
 
         void *device_k_ptr = reinterpret_cast<void *>(device_k[0][device_page_index].data_ptr());
         void *host_k_ptr = reinterpret_cast<void *>(host_k[host_page_index][0].data_ptr());
         if (direction == 2) {
-            // device -> host
-            aclrtMemcpy2dAsync(host_k_ptr,    // dst
-                               host_pitch,    // dpitch
-                               device_k_ptr,  // src
-                               device_pitch,  // spitch
-                               width,         // width
-                               height,        // height
+            // D2H
+            aclrtMemcpy2dAsync(host_k_ptr, host_pitch, device_k_ptr, device_pitch, width, height,
                                aclrtMemcpyKind::ACL_MEMCPY_DEVICE_TO_HOST, acl_stream);
         } else {
-            // host -> device
-            aclrtMemcpy2dAsync(device_k_ptr,  // dst
-                               device_pitch,  // dpitch
-                               host_k_ptr,    // src
-                               host_pitch,    // spitch
-                               width,         // width
-                               height,        // height
+            // H2D
+            aclrtMemcpy2dAsync(device_k_ptr, device_pitch, host_k_ptr, host_pitch, width, height,
                                aclrtMemcpyKind::ACL_MEMCPY_HOST_TO_DEVICE, acl_stream);
         }
 
@@ -101,22 +92,12 @@ HOST_API void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
             void *device_v_ptr = reinterpret_cast<void *>(device_v[0][device_page_index].data_ptr());
             void *host_v_ptr = reinterpret_cast<void *>(host_v[host_page_index][0].data_ptr());
             if (direction == 2) {
-                // device -> host
-                aclrtMemcpy2dAsync(host_v_ptr,    // dst
-                                   host_pitch,    // dpitch
-                                   device_v_ptr,  // src
-                                   device_pitch,  // spitch
-                                   width,         // width
-                                   height,        // height
+                // D2H
+                aclrtMemcpy2dAsync(host_v_ptr, host_pitch, device_v_ptr, device_pitch, width, height,
                                    aclrtMemcpyKind::ACL_MEMCPY_DEVICE_TO_HOST, acl_stream);
             } else {
-                // host -> device
-                aclrtMemcpy2dAsync(device_v_ptr,  // dst
-                                   device_pitch,  // dpitch
-                                   host_v_ptr,    // src
-                                   host_pitch,    // spitch
-                                   width,         // width
-                                   height,        // height
+                // H2D
+                aclrtMemcpy2dAsync(device_v_ptr, device_pitch, host_v_ptr, host_pitch, width, height,
                                    aclrtMemcpyKind::ACL_MEMCPY_HOST_TO_DEVICE, acl_stream);
             }
         }
