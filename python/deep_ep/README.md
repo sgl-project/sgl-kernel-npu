@@ -54,7 +54,9 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 ### Test
 Execute deepep-related test scripts
 ```bash
-bash tests/python/deepep/run_test.sh
+python3 tests/python/deepep/test_fused_deep_moe.py
+python3 tests/python/deepep/test_intranode.py
+python3 tests/python/deepep/test_low_latency.py
 ```
 
 ### FAQ

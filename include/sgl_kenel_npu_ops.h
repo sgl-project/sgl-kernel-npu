@@ -69,6 +69,19 @@ void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
                               int64_t page_size, int64_t direction,
                               int64_t flags);
 
+at::Tensor bgmv_expand(at::Tensor &x, at::Tensor &weight, at::Tensor &indices,
+                       at::Tensor &y, int64_t slice_offset, int64_t slice_size);
+
+void bgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &indices,
+                 at::Tensor &y, double scale);
+
+at::Tensor sgmv_expand(at::Tensor &x, at::Tensor &weight,
+                       at::Tensor &lora_indices, at::Tensor &seq_len,
+                       at::Tensor &y, int64_t slice_offset, int64_t slice_size);
+
+void sgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
+                 at::Tensor &seq_len, at::Tensor &y, double scale);
+
 } // namespace npu_kernel
 
 } // namespace sglang

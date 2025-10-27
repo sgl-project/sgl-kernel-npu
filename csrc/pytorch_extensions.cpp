@@ -60,6 +60,19 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "transfer_kv_dim_exchange(Tensor device_k, Tensor host_k, "
         "Tensor device_v, Tensor host_v, "
         "Tensor device_indices, Tensor host_indices, int page_size, int direct, int flags) -> ()");
+
+    m.def(
+        "bgmv_expand(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y,"
+        "            int slice_offset, int slice_size) -> Tensor");
+
+    m.def("bgmv_shrink(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y, float scale) -> ()");
+
+    m.def(
+        "sgmv_expand(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! y,"
+        "            int slice_offset, int slice_size) -> Tensor");
+
+    m.def(
+        "sgmv_shrink(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! y, float scale) -> ()");
 }
 }  // namespace
 
@@ -81,5 +94,13 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("batch_matmul_transpose", TORCH_FN(sglang::npu_kernel::batch_matmul_transpose));
 
     m.impl("transfer_kv_dim_exchange", TORCH_FN(sglang::npu_kernel::transfer_kv_dim_exchange));
+
+    m.impl("bgmv_expand", TORCH_FN(sglang::npu_kernel::bgmv_expand));
+
+    m.impl("bgmv_shrink", TORCH_FN(sglang::npu_kernel::bgmv_shrink));
+
+    m.impl("sgmv_expand", TORCH_FN(sglang::npu_kernel::sgmv_expand));
+
+    m.impl("sgmv_shrink", TORCH_FN(sglang::npu_kernel::sgmv_shrink));
 }
 }  // namespace

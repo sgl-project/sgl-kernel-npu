@@ -12,6 +12,10 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/batch_matmul_transpose.cpp
     ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/tiling/tiling_data.cpp
     ${PROJECT_OP_SRC_BASE}/transfer_kv_dim_exchange/op_host/transfer_kv_dim_exchange.cpp
+    ${PROJECT_OP_SRC_BASE}/lora/op_host/bgmv_expand.cpp
+    ${PROJECT_OP_SRC_BASE}/lora/op_host/bgmv_shrink.cpp
+    ${PROJECT_OP_SRC_BASE}/lora/op_host/sgmv_expand.cpp
+    ${PROJECT_OP_SRC_BASE}/lora/op_host/sgmv_shrink.cpp
     )
 
 # set the so name
@@ -23,6 +27,10 @@ ascendc_library(no_workspace_kernel STATIC
     ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_kernel/cache_loc_assign_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_kernel/assign_cache_op.cpp
     ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_kernel/batch_matmul_transpose_kernel.cpp
+    ${PROJECT_OP_SRC_BASE}/lora/op_kernel/bgmv_expand_kernel.cpp
+    ${PROJECT_OP_SRC_BASE}/lora/op_kernel/bgmv_shrink_kernel.cpp
+    ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgmv_expand_kernel.cpp
+    ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgmv_shrink_kernel.cpp
 )
 
 ascendc_library(workspace_kernel STATIC
