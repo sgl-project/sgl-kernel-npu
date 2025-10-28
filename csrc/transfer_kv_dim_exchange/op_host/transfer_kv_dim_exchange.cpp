@@ -33,7 +33,7 @@ HOST_API void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
     TORCH_CHECK(device_k.numel() != 0, "device_k must not be empty");
     TORCH_CHECK(host_k.numel() != 0, "host_k must not be empty");
     TORCH_CHECK(device_k.dim() == host_k.dim(), "the number of dimensions of device_k must be equal to host_k");
-    TORCH_CHECK(device_k.dim() > 2, "the number of dimensions of device_k must be greater than 2");
+    TORCH_CHECK(device_k.dim() == 5, "the number of dimensions of device_k must be 5");
     TORCH_CHECK(device_k.sizes()[0] == host_k.sizes()[1], "the layer number of device_k must be equal to host_k");
     TORCH_CHECK(device_k.sizes()[2] == page_size, "the 3rd dimension of device_k must be equal to page size");
     TORCH_CHECK(host_k.sizes()[2] == page_size, "the 3rd dimension of host_k must be equal to page size");
@@ -47,7 +47,7 @@ HOST_API void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
 
     if (device_v.numel() != 0 && host_v.numel() != 0) {
         TORCH_CHECK(device_v.dim() == host_v.dim(), "the number of dimensions of device_v must be equal to host_v");
-        TORCH_CHECK(device_v.dim() > 2, "the number of dimensions of device_v must be greater than 2");
+        TORCH_CHECK(device_v.dim() == 5, "the number of dimensions of device_v must be 5");
         TORCH_CHECK(device_v.sizes()[0] == host_v.sizes()[1], "the layer number of device_v must be equal to host_v");
         TORCH_CHECK(device_v.sizes()[2] == page_size, "the 3rd dimension of device_v must be equal to page size");
         TORCH_CHECK(host_v.sizes()[2] == page_size, "the 3rd dimension of host_v must be equal to page size");
