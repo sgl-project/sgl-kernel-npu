@@ -8,7 +8,7 @@
 #include "pytorch_npu_helper.hpp"
 
 namespace deep_ep {
-constexpr int PADDING_SIZE = 3;
+constexpr int PADDING_SIZE = 1;
 constexpr size_t HCOMM_NAME_LEN = 128;
 constexpr uint32_t NO_SCALES = 0;
 constexpr uint32_t DYNAMIC_SCALES = 2;

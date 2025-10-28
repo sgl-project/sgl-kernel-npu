@@ -13,6 +13,7 @@ from utils import bench, calc_diff, hash_tensor, init_dist
 
 torch_npu.npu.config.allow_internal_format = True
 test_topk_minus1 = False
+smallBs_flag = False
 
 
 # ======================== Weight Initialization ========================
@@ -335,6 +336,12 @@ def test(
 
     hidden_states = x
 
+    if smallBs_flag and rank == 0:
+        small_bs = 1
+        x = x[:small_bs, :]
+        topk_idx = topk_idx[:small_bs, :]
+        topk_weights = topk_weights[:small_bs, :]
+
     if test_topk_minus1:
         topk_idx_minus1 = topk_idx.clone()
         topk_idx_minus1[:, -2:-1] = -1
@@ -519,10 +526,19 @@ if __name__ == "__main__":
         "--minus1-flag", type=str_to_bool, default=False, help="bool flag, True/False"
     )
 
+    parser.add_argument(
+        "--smallBs-flag",
+        type=str_to_bool,
+        default=False,
+        help="define small bs on certain rank",
+    )
+
     args = parser.parse_args()
 
     num_processes = args.num_processes
     test_topk_minus1 = args.minus1_flag
+    smallBs_flag = args.smallBs_flag
+
     torch.multiprocessing.spawn(
         test_loop, args=(num_processes, args), nprocs=num_processes
     )
