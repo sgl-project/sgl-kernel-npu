@@ -1,5 +1,3 @@
-import argparse
-
 import numpy as np
 import sgl_kernel_npu
 import torch
@@ -718,7 +716,7 @@ class TestMLAPO(TestCase):
 
     def test_mla_preprocess_ops_bf16_cachemode1_golden2(self):
         self.run_tests_and_compare(
-            cacheMode=1, golden=2, dtype=torch.float16, seed=SEED
+            cacheMode=1, golden=2, dtype=torch.bfloat16, seed=SEED
         )
 
     def test_mla_preprocess_ops_bf16_cachemode2_golden2(self):
