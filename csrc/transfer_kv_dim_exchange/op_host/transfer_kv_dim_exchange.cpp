@@ -25,11 +25,10 @@ enum TransferDirection : int64_t {
 
 // @direction: only support 1 or 2, 1 is H2D, 2 is D2H
 // @flags: only support 2
-HOST_API void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
-                                       at::Tensor &device_v, at::Tensor &host_v,
-                                       const at::Tensor &device_indices,
-                                       const at::Tensor &host_indices, int64_t page_size,
-                                       int64_t direction, int64_t flags)
+HOST_API void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k, at::Tensor &device_v,
+                                       at::Tensor &host_v, const at::Tensor &device_indices,
+                                       const at::Tensor &host_indices, int64_t page_size, int64_t direction,
+                                       int64_t flags)
 {
     TORCH_CHECK(device_k.numel() != 0, "device_k must not be empty");
     TORCH_CHECK(host_k.numel() != 0, "host_k must not be empty");
