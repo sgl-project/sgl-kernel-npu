@@ -2,13 +2,9 @@
 # Adapt from https://github.com/fla-org/flash-linear-attention/blob/main/fla/modules/layernorm_gated.py
 # Copyright (c) 2024, Tri Dao.
 # Based on the Triton LayerNorm tutorial: https://triton-lang.org/main/getting-started/tutorials/05-layer-norm.html
-# For the backward pass, we keep weight_grad and bias_grad in registers and accumulate.
-# This backward pass is faster for dimensions up to 8k, but after that it's much slower due to register spilling.
-# The models we train have hidden dim up to 8k anyway (e.g. Llama 70B), so this is fine.
 
 
 import torch
-import torch.nn.functional as F
 import triton
 import triton.language as tl
 
@@ -81,7 +77,7 @@ def _layer_norm_fwd_1pass_kernel_npu_smid(
         tl.store(start_y + cols, y, mask=mask)
 
 
-def _layer_norm_fwd(
+def _layer_norm_fwd_npu(
     x,
     weight,
     bias,
