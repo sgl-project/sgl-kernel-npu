@@ -59,9 +59,9 @@ def rotate_half(x: torch.Tensor) -> torch.Tensor:
 def apply_rope_half(
     x: torch.Tensor, cos: torch.Tensor, sin: torch.Tensor
 ) -> torch.Tensor:
-     sin = sin.unsqueeze(1)
-     cos = cos.unsqueeze(1)
-     return (x.float() * cos.float() + rotate_half(x.float()) * sin.float()).to(x.dtype)
+    sin = sin.unsqueeze(1)
+    cos = cos.unsqueeze(1)
+    return (x.float() * cos.float() + rotate_half(x.float()) * sin.float()).to(x.dtype)
 
 
 def rms_norm(x: torch.Tensor, gamma: torch.Tensor, eps: float = 1e-6) -> torch.Tensor:
@@ -70,6 +70,7 @@ def rms_norm(x: torch.Tensor, gamma: torch.Tensor, eps: float = 1e-6) -> torch.T
     y = x_norm * gamma.float()
     return y
 
+
 def quant_per_tensor(
     x: torch.Tensor, scale: torch.Tensor, zp: torch.Tensor
 ) -> torch.Tensor:
@@ -77,6 +78,7 @@ def quant_per_tensor(
     x = x.to(torch.float16)
     x = torch.clamp(x, -128, 127)
     return torch.round(x).to(torch.int8)
+
 
 def quant_per_tensor_muls(
     x: torch.Tensor, scale: torch.Tensor, zp: torch.Tensor
@@ -100,6 +102,7 @@ def int8_gemm_dequant(a_int8, w_int8, descale, bias, output_dtype):
     y = y.to(torch.float32) * descale.to(torch.float32)
 
     return y.to(output_dtype)
+
 
 def trans_descale_param(fp32_deq_scale):
     uint32__deq_scale = np.frombuffer(fp32_deq_scale, np.uint32)
@@ -181,7 +184,7 @@ class TestMLAPO(TestCase):
         ).to(device)
         if dtype == torch.float16:
             descale1 = trans_descale_param(np.array(descale1.cpu())).to(device)
-        
+
         # RMS2 & RMS3
         gamma2 = (
             torch.from_numpy(np.random.uniform(-1.0, 1.0, size=(Q_RMS)))
@@ -312,7 +315,7 @@ class TestMLAPO(TestCase):
             slotMapping=slotMapping,
             ctkv_scale=ctkv_scale,
             qnope_scale=qnope_scale,
-         )
+        )
 
         return
 
@@ -337,7 +340,7 @@ class TestMLAPO(TestCase):
         )
 
         latent, q = fused.split([K_NOPE + K_PE, Q_RMS], dim=-1)
-        k_nope = latent[..., :K_NOPE] 
+        k_nope = latent[..., :K_NOPE]
         k_pe = latent[..., K_NOPE:].unsqueeze(1)  # [N,1,64]
 
         # RMSNorm2+3
@@ -481,7 +484,7 @@ class TestMLAPO(TestCase):
 
     # (N, headNum, hiddenDim)
     param_combinations = [
-        (1, 32, 7168), 
+        (1, 32, 7168),
         (1, 64, 7168),
         (1, 128, 7168),
         (16, 32, 7168),
@@ -516,7 +519,7 @@ class TestMLAPO(TestCase):
                 device=device,
                 seed=seed,
             )
-        
+
             if golden == 1:
                 golden_out = self.golden1_torch_npu(
                     N=N, headNum=headNum, dtype=dtype, cache_mode=cache_mode, dev=device
@@ -698,7 +701,7 @@ class TestMLAPO(TestCase):
             cacheMode=1, golden=1, dtype=torch.bfloat16, seed=SEED
         )
 
-    def test_mla_preprocess_ops_bf16_cachemode2_golden1(self):      
+    def test_mla_preprocess_ops_bf16_cachemode2_golden1(self):
         self.run_tests_and_compare(
             cacheMode=2, golden=1, dtype=torch.bfloat16, seed=SEED
         )
