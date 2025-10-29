@@ -8,6 +8,8 @@ import torch
 import triton
 import triton.language as tl
 
+from sgl_kernel_npu.utils.triton_utils import get_device_properties
+
 
 @triton.heuristics({"HAS_BIAS": lambda args: args["B"] is not None})
 @triton.heuristics({"HAS_Z": lambda args: args["Z"] is not None})
@@ -77,7 +79,7 @@ def _layer_norm_fwd_1pass_kernel_npu_smid(
         tl.store(start_y + cols, y, mask=mask)
 
 
-def _layer_norm_fwd_npu(
+def layer_norm_fwd_npu(
     x,
     weight,
     bias,
@@ -121,30 +123,27 @@ def _layer_norm_fwd_npu(
         raise RuntimeError("This layer norm doesn't support feature dim >= 64KB.")
     # heuristics for number of warps
     num_warps = min(max(BLOCK_N // 256, 1), 8)
-    import triton.runtime.driver as driver
 
-    device = torch.npu.current_device()
-    num_cores = driver.active.utils.get_device_properties(device)["num_vectorcore"]
-    grid = (triton.cdiv(num_cores, ngroups), ngroups)
-    with torch.get_device_module(x.device).device(x.device.index):
-        _layer_norm_fwd_1pass_kernel_npu_smid[grid](
-            x,
-            out,
-            weight,
-            bias,
-            z,
-            mean,
-            rstd,
-            x.stride(0),
-            out.stride(0),
-            z.stride(0) if z is not None else 0,
-            M,
-            group_size,
-            eps,
-            BLOCK_N=BLOCK_N,
-            NORM_BEFORE_GATE=norm_before_gate,
-            IS_RMS_NORM=is_rms_norm,
-            num_warps=num_warps,
-            multibuffer=True,
-        )
+    _, num_vectorcore = get_device_properties()
+    grid = (triton.cdiv(num_vectorcore, ngroups), ngroups)
+    _layer_norm_fwd_1pass_kernel_npu_smid[grid](
+        x,
+        out,
+        weight,
+        bias,
+        z,
+        mean,
+        rstd,
+        x.stride(0),
+        out.stride(0),
+        z.stride(0) if z is not None else 0,
+        M,
+        group_size,
+        eps,
+        BLOCK_N=BLOCK_N,
+        NORM_BEFORE_GATE=norm_before_gate,
+        IS_RMS_NORM=is_rms_norm,
+        num_warps=num_warps,
+        multibuffer=True,
+    )
     return out, mean, rstd
