@@ -7,7 +7,6 @@
 import torch
 import triton
 import triton.language as tl
-
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
@@ -121,8 +120,6 @@ def layer_norm_fwd_npu(
     BLOCK_N = min(MAX_FUSED_SIZE, triton.next_power_of_2(group_size))
     if group_size > BLOCK_N:
         raise RuntimeError("This layer norm doesn't support feature dim >= 64KB.")
-    # heuristics for number of warps
-    num_warps = min(max(BLOCK_N // 256, 1), 8)
 
     _, num_vectorcore = get_device_properties()
     grid = (triton.cdiv(num_vectorcore, ngroups), ngroups)
@@ -143,7 +140,6 @@ def layer_norm_fwd_npu(
         BLOCK_N=BLOCK_N,
         NORM_BEFORE_GATE=norm_before_gate,
         IS_RMS_NORM=is_rms_norm,
-        num_warps=num_warps,
         multibuffer=True,
     )
     return out, mean, rstd
