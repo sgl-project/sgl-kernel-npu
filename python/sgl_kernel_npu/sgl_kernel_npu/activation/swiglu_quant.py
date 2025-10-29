@@ -76,6 +76,7 @@ def swiglu_quant(x, group_list, group_list_type, need_quant=True):
     out = torch.empty((s, h // 2), dtype=out_dtype, device=x.device)
     scale = torch.empty((s,), dtype=torch.float32, device=x.device)
     num_experts = group_list.shape[0]
+    # ub must be 32-byte aligned on npu
     if group_list.dtype == torch.int64:
         num_experts_algin = (num_experts + 7) // 8 * 8
     elif group_list.dtype == torch.int32:
