@@ -692,6 +692,18 @@ class TestMLAPO(TestCase):
                 torch.max(torch.abs(golden_out["k_pe"].cpu() - extracted_k_rope)),
             )
 
+            self.assertTrue(torch.allclose(golden_out["q_nope"].cpu(), self.dataDict["q_nope_out"].cpu(), atol=0.001),
+                f"q_nope mismatch. max diff: {torch.max(torch.abs(golden_out['q_nope'].cpu() - self.dataDict['q_nope_out'].cpu()))}")
+
+            self.assertTrue(torch.allclose(golden_out["q_pe"].cpu(), self.dataDict["q_rope_out"].cpu(), atol=0.001),
+                f"q_rope mismatch. max diff: {torch.max(torch.abs(golden_out['q_pe'].cpu() - self.dataDict['q_rope_out'].cpu()))}")
+
+            self.assertTrue(torch.allclose(golden_out["k_nope"].cpu(), extracted_k_nope, atol=0.001),
+                f"keyCache_nope mismatch. max diff: {torch.max(torch.abs(golden_out['k_nope'].cpu() - extracted_k_nope))}")
+
+            self.assertTrue(torch.allclose(golden_out["k_pe"].cpu(), extracted_k_rope, atol=0.001),
+                f"keyCache_rope mismatch. max diff: {torch.max(torch.abs(golden_out['k_pe'].cpu() - extracted_k_rope))}")
+
         return
 
     def test_mla_preprocess_ops_bf16_cachemode1_golden1(self):
