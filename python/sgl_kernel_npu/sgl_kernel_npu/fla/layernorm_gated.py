@@ -10,6 +10,9 @@ import triton.language as tl
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
+# TODO:
+# - Convert int32 comparison to fp32
+# - Increase BLOCK size on M-axis
 @triton.heuristics({"HAS_BIAS": lambda args: args["B"] is not None})
 @triton.heuristics({"HAS_Z": lambda args: args["Z"] is not None})
 @triton.jit
