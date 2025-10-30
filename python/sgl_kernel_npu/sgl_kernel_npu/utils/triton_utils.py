@@ -1,9 +1,11 @@
+from functools import cache
 from typing import Any, Dict, Tuple
 
 import torch
 import triton
 
 
+@cache
 def get_device_properties() -> Tuple[int, int]:
     device = torch.npu.current_device()
     device_properties: Dict[str, Any] = (
