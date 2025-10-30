@@ -41,6 +41,11 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor src_end_idx) -> bool");
 
     m.def(
+        "build_tree_kernel_efficient(Tensor parent_list, Tensor selected_index, Tensor verified_seq_len, "
+        "Tensor tree_mask, Tensor positions, Tensor retrive_index, Tensor retrive_next_token, "
+        "Tensor retrive_next_sibling, int topk, int depth, int draft_token_num, int tree_mask_mode)->()");
+
+    m.def(
         "mla_preprocess(Tensor hiddenState, Tensor gamma0, Tensor beta0, Tensor wdqkv, "
         "Tensor descale0, Tensor gamma1, Tensor beta1, Tensor wuq, "
         "Tensor descale1, Tensor gamma2, Tensor cos, Tensor sin, Tensor wuk,"
@@ -88,6 +93,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("assign_cache_op", TORCH_FN(sglang::npu_kernel::assign_cache_op));
 
     m.impl("alloc_extend", TORCH_FN(sglang::npu_kernel::alloc_extend));
+
+    m.impl("build_tree_kernel_efficient", TORCH_FN(sglang::npu_kernel::build_tree_efficient));
 
     m.impl("mla_preprocess", TORCH_FN(sglang::npu_kernel::mla_preprocess));
 
