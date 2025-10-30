@@ -35,7 +35,7 @@
 #endif
 
 constexpr uint32_t LOCAL_NOTIFY_MAX_NUM = 64;
-constexpr uint32_t LOCAL_STREAM_MAX_NUM = 19;
+constexpr uint32_t LOCAL_STREAM_MAX_NUM = 40U;
 constexpr uint32_t AICPU_OP_NOTIFY_MAX_NUM = 2;
 constexpr uint32_t AICPU_MAX_RANK_NUM = 128 * 1024;
 
