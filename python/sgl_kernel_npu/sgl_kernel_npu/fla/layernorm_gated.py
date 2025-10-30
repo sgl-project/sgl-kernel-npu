@@ -50,24 +50,22 @@ def _layer_norm_fwd_1pass_kernel_npu_smid(
             start_z = Z + row * stride_z_row + group * N
         # Compute mean and variance
         cols = tl.arange(0, BLOCK_N)
-        # NPU does not support int32 vector compare, convert cmp to fp32
-        cols_cmp = cols.to(tl.float32)
-        mask = cols_cmp < N
-        x = tl.load(start_x + cols, mask=mask, other=0.0).to(tl.float32)
+        x = tl.load(start_x + cols, mask=cols < N, other=0.0).to(tl.float32)
         if HAS_Z and not NORM_BEFORE_GATE:
-            z = tl.load(start_z + cols, mask=mask).to(tl.float32)
+            z = tl.load(start_z + cols, mask=cols < N).to(tl.float32)
             x *= z * tl.sigmoid(z)
         if not IS_RMS_NORM:
             mean = tl.sum(x, axis=0) / N
             tl.store(Mean + row, mean)
-            xbar = tl.where(mask, x - mean, 0.0)
+            xbar = tl.where(cols < N, x - mean, 0.0)
             var = tl.sum(xbar * xbar, axis=0) / N
         else:
-            xbar = tl.where(mask, x, 0.0)
+            xbar = tl.where(cols < N, x, 0.0)
             var = tl.sum(xbar * xbar, axis=0) / N
         rstd = 1 / tl.sqrt(var + eps)
         tl.store(Rstd + row, rstd)
         # Normalize and apply linear transformation
+        mask = cols < N
         w = tl.load(W + cols, mask=mask).to(tl.float32)
         if HAS_BIAS:
             b = tl.load(B + cols, mask=mask).to(tl.float32)
