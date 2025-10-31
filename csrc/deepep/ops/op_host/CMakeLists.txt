@@ -136,7 +136,7 @@ else()
     add_dependencies(cust_opapi ascend_opregistry)
 endif()
 
-target_include_directories(cust_opapi PRIVATE $ENV{ASCEND_HOME_PATH}/aarch64-linux/include/experiment/platform/)
+target_include_directories(cust_opapi PRIVATE $ENV{ASCEND_HOME_PATH}/${CANN_HOST_ARCH}-linux/include/experiment/platform/)
 include_directories($ENV{ASCEND_HOME_PATH}/../opp/vendors/CAM/op_impl/ai_core/tbe/CAM_impl/dynamic/)
 
 add_custom_target(optiling_compat ALL
