@@ -1,12 +1,7 @@
 import torch
 import triton
 import triton.language as tl
-import triton.runtime.driver as driver
-
-
-def get_npu_properties():
-    device = torch.npu.current_device()
-    return driver.active.utils.get_device_properties(device)
+from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
 @triton.jit
@@ -97,8 +92,8 @@ def swiglu_quant(x, group_list, group_list_type, need_quant=True):
             f"group_list dtype must be torch.int32 or torch.int64, but got {group_list.dtype}"
         )
 
-    num_cores = get_npu_properties()["num_vectorcore"]
-    _swiglu_quant_kernel[(num_cores,)](
+    _, num_vectorcore = get_device_properties()
+    _swiglu_quant_kernel[(num_vectorcore,)](
         x,
         group_list,
         out,
@@ -109,7 +104,7 @@ def swiglu_quant(x, group_list, group_list_type, need_quant=True):
         NUM_EXPERTS=num_experts,
         NUM_EXPERTS_ALGIN=num_experts_algin,
         GROUP_LIST_TYPE=group_list_type,
-        NUM_CORES=num_cores,
+        NUM_CORES=num_vectorcore,
         DTYPE_MAX=127,
         SCALE=need_quant,
         multibuffer=True,
