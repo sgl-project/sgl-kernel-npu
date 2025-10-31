@@ -59,6 +59,13 @@ python3 tests/python/deepep/test_intranode.py
 python3 tests/python/deepep/test_low_latency.py
 ```
 
+### moe
+Adaptation for using fused moe with SGLang
+1. Enable fused moe
+   export ENABLE_FUSED_MOE=1
+2. Disable fused moe
+   export ENABLE_FUSED_MOE=0
+
 ### FAQ
 1. If installing the `.whl` file results in the inability to import `deep_ep` in the project, check whether it is correctly installed in the `site-packages` directory of the current Python environment;
 View installation path:
