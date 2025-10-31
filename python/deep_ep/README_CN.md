@@ -61,6 +61,13 @@ python3 tests/python/deepep/test_intranode.py
 python3 tests/python/deepep/test_low_latency.py
 ```
 
+### moe
+适配sglang使用融合算子
+1.开启融合算子
+export ENABLE_FUSED_MOE=1
+2.关闭融合算子
+export ENABLE_FUSED_MOE=0
+
 ### 常见问题
 1、如果安装`.whl`后，在工程中`import deep_ep`出现找不到`deep_ep`库，则检查是否正确安装到当前Python环境的`site-packages`目录下；
 查看安装路径：
