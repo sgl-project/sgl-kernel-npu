@@ -19,10 +19,15 @@ elseif (EXISTS "${CANN82_PATH}")
     set(CANN_VERSION_MACRO "USE_CANN82_PATH")
     message(STATUS "Detected CANN 8.2 include structure, using ${CANN82_PATH}")
 else()
-    set(CANN_VERSION_MACRO "")
-    message(WARNING ">>> Cannot find platform_infos_def.h in expected locations.")
+    message(FATAL_ERROR
+            "Cannot find 'platform_infos_def.h' in expected locations.\n"
+            "Please verify that CANN is correctly installed and that either:\n"
+            "  ${CANN83_PATH}\n"
+            "  or\n"
+            "  ${CANN82_PATH}\n"
+            "exists and contains the header file."
+    )
 endif()
-message(STATUS "CANN_VERSION_MACRO= ${CANN_VERSION_MACRO}")
 
 if (CANN_VERSION_MACRO)
     add_compile_definitions(${CANN_VERSION_MACRO})

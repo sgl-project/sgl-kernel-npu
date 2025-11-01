@@ -22,6 +22,8 @@
 #include "platform/platform_infos_def.h"
 #elif defined(USE_CANN82_PATH)
 #include "experiment/platform/platform/platform_infos_def.h"
+#else
+#error "CANN version not supported or platform_infos_def.h not found. Check CANN_VERSION_MACRO definition."
 #endif
 
 using namespace ge;
