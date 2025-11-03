@@ -1,6 +1,38 @@
 
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} ops_srcs)
 
+# =====================================================
+# Detect CANN version include path globally
+# =====================================================
+set(CANN82_PATH "${ASCEND_CANN_PACKAGE_PATH}/include/experiment/platform/platform/platform_infos_def.h")
+set(CANN83_PATH "${ASCEND_CANN_PACKAGE_PATH}/include/platform/platform_infos_def.h")
+
+message(STATUS "ASCEND_CANN_PACKAGE_PATH = ${ASCEND_CANN_PACKAGE_PATH}")
+message(STATUS "Checking for CANN include paths:")
+message(STATUS "CANN82_PATH = ${CANN82_PATH}")
+message(STATUS "CANN83_PATH = ${CANN83_PATH}")
+
+if (EXISTS "${CANN83_PATH}")
+    set(CANN_VERSION_MACRO "USE_CANN83_PATH")
+    message(STATUS "Detected CANN 8.3+ include structure, using ${CANN83_PATH}")
+elseif (EXISTS "${CANN82_PATH}")
+    set(CANN_VERSION_MACRO "USE_CANN82_PATH")
+    message(STATUS "Detected CANN 8.2 include structure, using ${CANN82_PATH}")
+else()
+    message(FATAL_ERROR
+            "Cannot find 'platform_infos_def.h' in expected locations.\n"
+            "Please verify that CANN is correctly installed and that either:\n"
+            "  ${CANN83_PATH}\n"
+            "  or\n"
+            "  ${CANN82_PATH}\n"
+            "exists and contains the header file."
+    )
+endif()
+
+if (CANN_VERSION_MACRO)
+    add_compile_definitions(${CANN_VERSION_MACRO})
+endif()
+
 opbuild(OPS_SRC ${ops_srcs}
         OUT_DIR ${ASCEND_AUTOGEN_PATH}
 )
