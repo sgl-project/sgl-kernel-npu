@@ -1,3 +1,5 @@
+from enum import IntEnum
+
 import numpy as np
 import sgl_kernel_npu
 import torch
@@ -5,7 +7,6 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch_npu
 from torch_npu.testing.testcase import TestCase, run_tests
-from enum import IntEnum
 
 torch.npu.config.allow_internal_format = True
 
@@ -681,7 +682,10 @@ class TestMLAPO(TestCase):
             print(
                 " keyCache_nope diff: ",
                 torch.allclose(
-                    golden_out["k_nope"].cpu(), extracted_k_nope, atol=0.001, rtol=0.001,
+                    golden_out["k_nope"].cpu(),
+                    extracted_k_nope,
+                    atol=0.001,
+                    rtol=0.001,
                 ),
             )
             print(
@@ -690,7 +694,12 @@ class TestMLAPO(TestCase):
             )
             print(
                 " keyCache_rope diff: ",
-                torch.allclose(golden_out["k_pe"].cpu(), extracted_k_rope, atol=0.001, rtol=0.001,),
+                torch.allclose(
+                    golden_out["k_pe"].cpu(),
+                    extracted_k_rope,
+                    atol=0.001,
+                    rtol=0.001,
+                ),
             )
             print(
                 " keyCache_rope max diff: ",
@@ -725,49 +734,75 @@ class TestMLAPO(TestCase):
             )
 
             self.assertTrue(
-                torch.allclose(golden_out["k_pe"].cpu(), extracted_k_rope, atol=0.001, rtol=0.001),
+                torch.allclose(
+                    golden_out["k_pe"].cpu(), extracted_k_rope, atol=0.001, rtol=0.001
+                ),
                 f"keyCache_rope mismatch. max diff: {torch.max(torch.abs(golden_out['k_pe'].cpu() - extracted_k_rope))}",
             )
 
     def test_mla_preprocess_ops_bf16_cachemode1_golden1(self):
-        self.run_tests_and_compare(
-            cacheMode=1, golden=self.GoldenType.NPU_SMALL_OPS, dtype=torch.bfloat16, seed=SEED
+         self.run_tests_and_compare(
+            cacheMode=1,
+            golden=self.GoldenType.NPU_SMALL_OPS,
+            dtype=torch.bfloat16,
+            seed=SEED,
         )
 
     def test_mla_preprocess_ops_bf16_cachemode2_golden1(self):
         self.run_tests_and_compare(
-            cacheMode=2, golden=self.GoldenType.NPU_SMALL_OPS, dtype=torch.bfloat16, seed=SEED
+            cacheMode=2,
+            golden=self.GoldenType.NPU_SMALL_OPS,
+            dtype=torch.bfloat16,
+            seed=SEED,
         )
 
     def test_mla_preprocess_ops_bf16_cachemode3_golden1(self):
         self.run_tests_and_compare(
-            cacheMode=3, golden=self.GoldenType.NPU_SMALL_OPS, dtype=torch.bfloat16, seed=SEED
+            cacheMode=3,
+            golden=self.GoldenType.NPU_SMALL_OPS,
+            dtype=torch.bfloat16,
+            seed=SEED,
         )
 
     def test_mla_preprocess_ops_fp16_cachemode1_golden1(self):
         self.run_tests_and_compare(
-            cacheMode=1, golden=self.GoldenType.NPU_SMALL_OPS, dtype=torch.float16, seed=SEED
+            cacheMode=1,
+            golden=self.GoldenType.NPU_SMALL_OPS,
+            dtype=torch.float16,
+            seed=SEED,
         )
 
     def test_mla_preprocess_ops_bf16_cachemode1_golden2(self):
         self.run_tests_and_compare(
-            cacheMode=1, golden=self.GoldenType.PYTORCH_NATIVE, dtype=torch.bfloat16, seed=SEED
+            cacheMode=1,
+            golden=self.GoldenType.PYTORCH_NATIVE,
+            dtype=torch.bfloat16,
+            seed=SEED,
         )
 
     def test_mla_preprocess_ops_bf16_cachemode2_golden2(self):
         self.run_tests_and_compare(
-            cacheMode=2, golden=self.GoldenType.PYTORCH_NATIVE, dtype=torch.bfloat16, seed=SEED
+            cacheMode=2,
+            golden=self.GoldenType.PYTORCH_NATIVE,
+            dtype=torch.bfloat16,
+            seed=SEED,
         )
 
     def test_mla_preprocess_ops_bf16_cachemode3_golden2(self):
         self.run_tests_and_compare(
-            cacheMode=3, golden=self.GoldenType.PYTORCH_NATIVE, dtype=torch.bfloat16, seed=SEED
+            cacheMode=3,
+            golden=self.GoldenType.PYTORCH_NATIVE,
+            dtype=torch.bfloat16,
+            seed=SEED,
         )
 
     def test_mla_preprocess_ops_fp16_cachemode1_golden2(self):
         self.run_tests_and_compare(
-            cacheMode=1, golden=self.GoldenType.PYTORCH_NATIVE, dtype=torch.float16, seed=SEED
-        )
+            cacheMode=1,
+            golden=self.GoldenType.PYTORCH_NATIVE,
+            dtype=torch.float16,
+            seed=SEED,
+         )
 
 
 if __name__ == "__main__":
