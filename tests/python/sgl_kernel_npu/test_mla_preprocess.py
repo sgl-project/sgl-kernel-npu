@@ -741,7 +741,7 @@ class TestMLAPO(TestCase):
             )
 
     def test_mla_preprocess_ops_bf16_cachemode1_golden1(self):
-         self.run_tests_and_compare(
+        self.run_tests_and_compare(
             cacheMode=1,
             golden=self.GoldenType.NPU_SMALL_OPS,
             dtype=torch.bfloat16,
@@ -802,7 +802,7 @@ class TestMLAPO(TestCase):
             golden=self.GoldenType.PYTORCH_NATIVE,
             dtype=torch.float16,
             seed=SEED,
-         )
+        )
 
 
 if __name__ == "__main__":
