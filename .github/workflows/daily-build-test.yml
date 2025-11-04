@@ -1,0 +1,160 @@
+name: Daily Enumerate Tests (Ascend NPU)
+
+on:
+  schedule:
+    - cron: "0 4,16 * * *"  # 每天 UTC 时间 4:00 和 16:00 各运行一次（即每12小时）
+  workflow_dispatch:       # 保留手动触发能力
+
+concurrency:
+  group: daily-enumerate-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  daily-enumerate-tests:
+    runs-on: linux-aarch64-a3-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-a3-ubuntu22.04-py3.11
+    
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Install dependencies
+        run: |
+          # speed up by using infra cache services
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+
+          bash scripts/npu_ci_install_dependency.sh
+
+      - name: Prepare Deepep
+        run: bash scripts/prepare_deepep_in_container.sh
+
+      - name: Run quick sanity tests
+        timeout-minutes: 20
+        env:
+          HCCL_BUFFSIZE: 2239
+        run: |
+          # 先运行快速测试确保基础功能正常
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
+
+      - name: Run enumerate test intranode (Daily)
+        timeout-minutes: 360  # 6小时超时
+        env:
+          HCCL_BUFFSIZE: 2239
+          TEST_ENV: daily-build
+        run: |
+          echo "Starting daily enumerate intranode test at $(date)"
+          bash scripts/enumerate_test_intranode.sh
+          echo "Completed daily enumerate intranode test at $(date)"
+
+      - name: Run enumerate test low latency (Daily)
+        timeout-minutes: 360  # 6小时超时
+        env:
+          HCCL_BUFFSIZE: 1913
+          TEST_ENV: daily-build
+        run: |
+          echo "Starting daily enumerate low latency test at $(date)"
+          bash scripts/enumerate_test_low_latency.sh
+          echo "Completed daily enumerate low latency test at $(date)"
+
+      - name: Generate daily test report
+        if: always()
+        run: |
+          echo "## Daily Enumerate Tests Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Execution Time**: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Test Results:" >> $GITHUB_STEP_SUMMARY
+          
+          # 检查测试结果文件（如果脚本生成的话）
+          if [ -f "test-results/enumerate-intranode-results.txt" ]; then
+            echo "- **Intranode Enumerate Test**: Completed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Intranode Enumerate Test**: No result file found" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -f "test-results/enumerate-low-latency-results.txt" ]; then
+            echo "- **Low Latency Enumerate Test**: Completed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Low Latency Enumerate Test**: No result file found" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Workflow Run**: [$GITHUB_RUN_ID](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> $GITHUB_STEP_SUMMARY
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: daily-enumerate-results-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            test-results/
+            logs/
+            *.log
+          retention-days: 30  # 保留30天，便于问题排查
+
+  # 可选：添加一个轻量级的验证任务，确保每日构建的基础环境正常
+  daily-smoke-test:
+    runs-on: linux-aarch64-a3-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-a3-ubuntu22.04-py3.11
+    timeout-minutes: 30
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Quick environment check
+        run: |
+          # 快速检查关键依赖和环境
+          python3 --version
+          pip list | grep -i "torch\|npu"
+          echo "Basic environment check passed"
+
+      - name: Verify test scripts exist
+        run: |
+          # 确认测试脚本存在
+          ls -la scripts/enumerate_test_*.sh
+          ls -la tests/python/deepep/test_*.py
+          echo "All required test scripts are present"
+
+  finish:
+    if: always()
+    needs: [daily-enumerate-tests, daily-smoke-test]
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Check all dependent job statuses
+        run: |
+          results=(${{ join(needs.*.result, ' ') }})
+          all_success=true
+          
+          for result in "${results[@]}"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              echo "Job failed with result: $result"
+              all_success=false
+            fi
+          done
+          
+          if [ "$all_success" = true ]; then
+            echo "All daily enumerate tests completed successfully"
+            exit 0
+          else
+            echo "Some daily tests failed"
+            exit 1
+          fi
