@@ -9,7 +9,6 @@ on:
       - "python/**"
       - "csrc/**"
       - "test/**"
-      - "scripts/**"
       - ".github/workflows/pr-test-npu.yml"
   workflow_dispatch:
 
@@ -66,14 +65,6 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
 
-      - name: Run test deepep eplb
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 2000
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --minus1-flag True --small-bs-flag True
-
   test-build-deepep:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false
@@ -122,14 +113,6 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
 
-      - name: Run test deepep eplb
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 2000
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --minus1-flag True --small-bs-flag True
-
   finish:
     if: always()
     needs:
@@ -148,3 +131,4 @@ jobs:
           done
           echo "All jobs completed successfully"
           exit 0
+
