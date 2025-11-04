@@ -504,7 +504,8 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     int64_t tp_size = 1;
     int64_t tp_rank = 0;
     int64_t expert_shard_type = 0;
-    int64_t expert_token_nums_type = 1;
+    int outType = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
+    int64_t expert_token_nums_type = outType;
 
     std::string comm_log = "0";
     std::vector<char> comm_log_buf(comm_log.begin(), comm_log.end());
