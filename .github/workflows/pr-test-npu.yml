@@ -19,6 +19,8 @@ concurrency:
 
 jobs:
   test-all-build:
+    if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        github.event.pull_request.draft == false
     runs-on: linux-aarch64-a3-16
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-a3-ubuntu22.04-py3.11
@@ -49,7 +51,7 @@ jobs:
 
       - name: Prepare Deepep
         run: bash scripts/prepare_deepep_in_container.sh
-    
+
       - name: Run test intranode
         timeout-minutes: 10
         env:
@@ -64,19 +66,13 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
 
-      - name: Run enumerate test intranode
-        timeout-minutes: 360
+      - name: Run test deepep eplb
+        timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 2239
+          HCCL_BUFFSIZE: 2000
         run: |
-          bash scripts/enumerate_test_intranode.sh
-
-      - name: Run enumerate test low latency
-        timeout-minutes: 360
-        env:
-          HCCL_BUFFSIZE: 1913
-        run: |
-          bash scripts/enumerate_test_low_latency.sh
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --minus1-flag True --small-bs-flag True
 
   test-build-deepep:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
@@ -126,6 +122,14 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
 
+      - name: Run test deepep eplb
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --minus1-flag True --small-bs-flag True
+
   finish:
     if: always()
     needs:
@@ -144,7 +148,3 @@ jobs:
           done
           echo "All jobs completed successfully"
           exit 0
-
-
-
-
