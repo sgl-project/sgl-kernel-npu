@@ -2,7 +2,7 @@ name: Daily Enumerate Tests (Ascend NPU)
 
 on:
   schedule:
-    - cron: "0 4,16 * * *"  # 每天 UTC 时间 4:00 和 16:00 各运行一次（即每12小时）
+    - cron: "0 16 * * *"  # 每天 UTC 时间 16:00（下午4点）运行
   workflow_dispatch:       # 保留手动触发能力
 
 concurrency:
