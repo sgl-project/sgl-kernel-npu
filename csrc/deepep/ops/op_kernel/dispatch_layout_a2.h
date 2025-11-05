@@ -67,8 +67,7 @@ public:
             localTokenServerUniqCount32AlignIntLen_ = Ceil(serverNum_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
             localTokenServerTotalCount32AlignIntLen_ =
                 Ceil(tempTokens_ * serverNum_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
-            localTokenServerOffset32AlignIntLen_ =
-                Ceil(tempTokens_ * serverNum_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
+            localTokenServerOffset32AlignIntLen_ = localTokenServerTotalCount32AlignIntLen_;
             localTokenServerNum32AlignIntLen_ = Ceil(tempTokens_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
             sendTokenIdx32AlignIntLen_ = Ceil(tempTokens_ * numExperts_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
             expertRankTokenIdx32AlignIntLen_ =
@@ -315,7 +314,6 @@ private:
                 const DataCopyExtParams expertRankTokendataCopyParams{1U, uint32_t(rest * sizeof(T)), 0U, 0U, 0U};
                 DataCopyPad(expertRankTokenIdxGM_[i * MAX_BATCH_SIZE + preCount + count - rest],
                             expertRankTokenIdxTensor[i * TEMP_BATCH_SIZE], expertRankTokendataCopyParams);
-                // SyncFunc<AscendC::HardEvent::MTE3_S>();
             }
         }
     }
