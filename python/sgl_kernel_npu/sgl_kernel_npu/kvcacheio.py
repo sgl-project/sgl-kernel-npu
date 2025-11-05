@@ -39,8 +39,8 @@ def transfer_kv_dim_exchange(
         device_index_k: index_k_buffer in device
         host_index_k: index_k_buffer in host
         page_size: page size
-        direction: only values 1 and 2 are supported: 1 indicates H2D, and 2 indicates D2H.
-        flags: only value 2 is supported, which indicates 2D data transfer via calling aclrtMemcpy2dAsync.
+        direction: only support H2D and D2H.
+        flags: only FAST2D is supported, which indicates 2D data transfer via calling aclrtMemcpy2dAsync.
     """
     torch.ops.npu.transfer_kv_dim_exchange(
         device_k,
