@@ -106,8 +106,8 @@ public:
                                                   MAX_BATCH_SIZE * (1 + 2 * serverNum_ + numExperts_));
             tempExpertGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ + serverNum_ +
                                           MAX_BATCH_SIZE * (1 + 2 * serverNum_));
-            tempServerGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ * (1 + aivNum_) +
-                                          serverNum_ + MAX_BATCH_SIZE * (1 + 2 * serverNum_));
+            tempServerGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ * (1 + aivNum_) + serverNum_ +
+                                          MAX_BATCH_SIZE * (1 + 2 * serverNum_));
         }
     }
 
@@ -264,8 +264,8 @@ private:
             }
             DataCopy(intermediateExpertTensor, sendTokenIdxTensor[i * numExperts_], numExperts_);
             PipeBarrier<PIPE_V>();
-            AscendC::Mul(sendTokenIdxTensor[i * numExperts_], prefixCountPerExpertTensor,
-                         intermediateExpertTensor, numExperts_);
+            AscendC::Mul(sendTokenIdxTensor[i * numExperts_], prefixCountPerExpertTensor, intermediateExpertTensor,
+                         numExperts_);
             PipeBarrier<PIPE_V>();
             DataCopy(tempExpertTensor, sendTokenIdxTensor[i * numExperts_], numExperts_);
             PipeBarrier<PIPE_V>();
