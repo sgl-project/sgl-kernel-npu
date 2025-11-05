@@ -49,7 +49,7 @@ class TestTransferKV(unittest.TestCase):
         host_v = torch.empty(0) if v_empty else host_kv_buffer[1]
 
         device_index_k = torch.ones(
-            (NUM_PAGES, NUM_LAYERS, PAGE_SIZE, HEAD_NUM_PER_TP, HEAD_DIM),
+            (NUM_LAYERS, NUM_PAGES, PAGE_SIZE, HEAD_NUM_PER_TP, HEAD_DIM),
             dtype=torch.bfloat16,
             device="npu",
         )
@@ -75,8 +75,7 @@ class TestTransferKV(unittest.TestCase):
                     device_v=device_v,
                     host_v=host_v,
                     page_size=PAGE_SIZE,
-                    direction=direct.value,
-                    flags=TransferFlag.value,
+                    direction=direct,
                 )
             else:
                 transfer_kv_dim_exchange(
@@ -89,12 +88,11 @@ class TestTransferKV(unittest.TestCase):
                     device_index_k=device_index_k,
                     host_index_k=host_index_k,
                     page_size=PAGE_SIZE,
-                    direction=direct.value,
-                    flags=TransferFlag.value,
+                    direction=direct,
                 )
 
         end = time.time()
-        direct_str = "D2H" if direct.value == 2 else "H2D"
+        direct_str = "D2H" if direct == TransferDirection.D2H else "H2D"
         copy_times = NUM_PAGES
         if v_empty is False:
             copy_times += NUM_PAGES
