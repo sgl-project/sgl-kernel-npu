@@ -85,7 +85,7 @@ def transfer_kv_dim_exchange_split(
         direction,
         flags,
     )
-    if device_index_k is None and host_index_k is None:
+    if device_index_k is not None and host_index_k is not None:
         torch.ops.npu.transfer_kv_dim_exchange(
             device_index_k,
             host_index_k,
