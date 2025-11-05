@@ -401,7 +401,7 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Process()
             MoeDistributeDispatchImpl::CamMoeDistributeDispatch<ExpandXType, int8_t, false, true, false, false>
                 dispatcher;
             dispatcher.Init(gmX_, gmexpertIds_, gmSmoothScales_, gmX1Token, gmX1Scale, gmExpandIdx, gmGroupList,
-                            gmEpSendCount, nullptr, gmWorkspace, &tpipe, tilingData_);
+                            gmEpSendCount, gmOutputRecvCount_, nullptr, gmWorkspace, &tpipe, tilingData_);
             dispatcher.Process();
             tpipe.Destroy();
             icache_preload(8);
