@@ -115,11 +115,11 @@ def test_main(
         each_token_to_num_server = torch.zeros(
             (num_tokens,), dtype=torch.int, device="npu"
         )
-        each_token_offset_to_server = torch.full(
-            (num_tokens * num_servers,), -1, dtype=torch.int, device="npu"
+        each_token_offset_to_server = torch.zeros(
+            (num_tokens * num_servers,), dtype=torch.int, device="npu"
         )
-        send_token_idx = torch.full(
-            (num_tokens * num_experts,), -1, dtype=torch.int, device="npu"
+        send_token_idx = torch.zeros(
+            (num_tokens * num_experts,), dtype=torch.int, device="npu"
         )
         expert_rank_token_idx = torch.zeros(
             (num_experts * MAX_BATCH_SIZE,), dtype=torch.int, device="npu"
@@ -132,17 +132,17 @@ def test_main(
                 rank_id = expert_id // experts_per_rank
                 server_id = rank_id // num_local_ranks
                 if seen_server[server_id] == 0:
+                    num_tokens_per_server_uniq[server_id] += 1
                     each_token_offset_to_server[i * num_servers + server_id] = (
                         num_tokens_per_server_uniq[server_id]
                     )
-                    num_tokens_per_server_uniq[server_id] += 1
                     each_token_to_num_server[i] += 1
                     seen_server[server_id] += 1
                 num_each_token_to_server[i * num_servers + server_id] += 1
+                count_num_expert[expert_id] += 1
                 send_token_idx[i * num_experts + expert_id] = count_num_expert[
                     expert_id
                 ]
-                count_num_expert[expert_id] += 1
 
         count_num_expert = [0] * num_experts
         for i in range(num_tokens):
@@ -173,6 +173,13 @@ def test_main(
     is_token_in_rank = token_idx_in_rank >= 0
     gbl_num_tokens_per_rank = num_tokens_per_rank.clone()
     dist.all_reduce(gbl_num_tokens_per_rank, group=group)
+
+    t = bench(lambda: buffer.get_dispatch_layout(topk_idx, num_experts))[0]
+    print(f"[layout] Kernel performance: {t * 1000:.3f} ms", flush=True)
+    print("", flush=True)
+    dist.barrier()
+    time.sleep(1)
+
     try:
         try:
             return_values = buffer.get_dispatch_layout(topk_idx, num_experts)
@@ -264,12 +271,6 @@ def test_main(
             raise
     except Exception as e:
         print(f"An error occurred: {e}")
-
-    t = bench(lambda: buffer.get_dispatch_layout(topk_idx, num_experts))[0]
-    print(f"[layout] Kernel performance: {t * 1000:.3f} ms", flush=True)
-    print("", flush=True)
-    dist.barrier()
-    time.sleep(1)
 
     # Config
     buffer_size = 256
