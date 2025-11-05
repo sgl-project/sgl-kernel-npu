@@ -68,7 +68,10 @@ def _swiglu_quant_kernel(
                 o_offsets = (
                     row_idx * HALF_COLS + col_blk_idx + tl.arange(0, COL_BLOCK_SIZE)
                 )
-                tl.store(out_ptr + o_offsets, tmp_out.to(out_ptr.dtype.element_ty))
+                mask = (col_blk_idx + tl.arange(0, COL_BLOCK_SIZE)) < HALF_COLS
+                tl.store(
+                    out_ptr + o_offsets, tmp_out.to(out_ptr.dtype.element_ty), mask=mask
+                )
         else:
             # store out
             o_offsets = row_idx * HALF_COLS + tl.arange(0, HALF_COLS)
