@@ -76,8 +76,11 @@ public:
     constexpr static uint64_t RDMA_TOKEN_ARRIVED_FLAG = 123ULL;
     constexpr static uint64_t RDMA_TOKEN_END_FLAG = 321ULL;
     constexpr static uint32_t MAX_BS_NUM = 512U;  // 适配bs=512
-    constexpr static uint32_t FLAG_TOTAL_SIZE = 2048U;
-
+    constexpr static uint32_t FLAG_SINGLE_CNT = 4;
+    constexpr static uint32_t FLAG_TOTAL_SIZE =
+        MAX_BS_NUM * FLAG_SINGLE_CNT > IPC_DATA_OFFSET
+            ? IPC_DATA_OFFSET
+            : MAX_BS_NUM *FLAG_SINGLE_CNT;  // AlltoAllServerDispatch会放弃bs>1024的部分
 
     template <AscendC::HardEvent event>
     __aicore__ inline void SyncFunc()
@@ -393,8 +396,9 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
     qp_info_ = (__gm__ HcclAiRMAInfo *)(((__gm__ HcclA2CombineOpParam *)contextGM)->aiRMAInfo);
 
     halfWinSize_ = RDMA_DATA_SIZE / 2U;
-    IPC_DATA_SIZE = winContext_->winSize - RDMA_DATA_SIZE - IPC_DATA_OFFSET; // HCCL_BUFFSIZE - 100 - 4 = 2048 - 104 = 1944M
-    dataSpaceSize_ = halfWinSize_ - STATE_SPACE_SIZE; // 50-1 = 49M
+    IPC_DATA_SIZE =
+        winContext_->winSize - RDMA_DATA_SIZE - IPC_DATA_OFFSET;  // HCCL_BUFFSIZE - 100 - 4 = 2048 - 104 = 1944M
+    dataSpaceSize_ = halfWinSize_ - STATE_SPACE_SIZE;             // 50-1 = 49M
     windowInGM_ = hccl_.GetWindowsInAddr(rankId_);
     bufferIdGlobal_.SetGlobalBuffer((__gm__ uint32_t *)(windowInGM_ + dataSpaceSize_ + worldSize_ * STATE_OFFSET));
     // winIn + 49M + 16*0.5k = winIn + 49.0078125M
@@ -601,7 +605,8 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
         inUb(0) = GM2IPC_SYNC_FLAG + magicValue;
         uint32_t flagOffset = rankId_ % SERVER_RANK_SIZE;
         PipeBarrier<PIPE_ALL>();
-        DataCopy(shareFlagGlobal_[flagOffset * 4], inUb, 4);  // *4是因为单次拷贝256byte = 4*int64
+        DataCopy(shareFlagGlobal_[flagOffset * FLAG_SINGLE_CNT], inUb,
+                 FLAG_SINGLE_CNT);  // *4是因为单次拷贝256byte = 4*int64
 
         PipeBarrier<PIPE_ALL>();
     }
@@ -620,7 +625,7 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
         LocalTensor<uint64_t> inUb = statusBuf_.Get<uint64_t>();
         uint32_t waitFlagAddr = coreIdx_ % stepCoreNum_;
         while (true) {
-            DataCopy(inUb, shareFlagGlobal_[waitFlagAddr * 4], 4);
+            DataCopy(inUb, shareFlagGlobal_[waitFlagAddr * FLAG_SINGLE_CNT], FLAG_SINGLE_CNT);
             PipeBarrier<PIPE_ALL>();
             if (inUb(0) >= (GM2IPC_SYNC_FLAG + magicValue)) {
                 break;
@@ -628,7 +633,8 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
         }
         inUb(0) = 0;
         PipeBarrier<PIPE_ALL>();
-        DataCopy(shareFlagGlobal_[waitFlagAddr * 4], inUb, 4);  // *4是因为单次拷贝256byte = 4*int64
+        DataCopy(shareFlagGlobal_[waitFlagAddr * FLAG_SINGLE_CNT], inUb,
+                 FLAG_SINGLE_CNT);  // *4是因为单次拷贝256byte = 4*int64
         PipeBarrier<PIPE_ALL>();
     }
     SyncAll<true>();
@@ -796,7 +802,8 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
                     SyncFunc<AscendC::HardEvent::V_MTE3>();
                     DataCopy(localOutWindow_[dataOffset], dataInLocal, axisH_ / 2 + scaleNumAlign);  // int8数据+scale值
                     PipeBarrier<PIPE_MTE3>();
-                    DataCopy(shareFlagGlobal_[(serverId_ + 1) * FLAG_TOTAL_SIZE + tokenOffset * 4], rdmaFlagLocal, 4);
+                    DataCopy(shareFlagGlobal_[(serverId_ + 1) * FLAG_TOTAL_SIZE + tokenOffset * FLAG_SINGLE_CNT],
+                             rdmaFlagLocal, FLAG_SINGLE_CNT);
                 } else {
                     PipeBarrier<PIPE_V>();
                     Abs(castInFloatLocal, sumFloatLocal, axisH_);  // 求fp32张量的绝对值
@@ -819,7 +826,8 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
                     SyncFunc<AscendC::HardEvent::V_MTE3>();
                     DataCopy(localOutWindow_[dataOffset], dataInLocal, axisH_ / 2 + scaleNumAlign);  // int8数据+scale值
                     PipeBarrier<PIPE_MTE3>();
-                    DataCopy(shareFlagGlobal_[(serverId_ + 1) * FLAG_TOTAL_SIZE + tokenOffset * 4], rdmaFlagLocal, 4);
+                    DataCopy(shareFlagGlobal_[(serverId_ + 1) * FLAG_TOTAL_SIZE + tokenOffset * FLAG_SINGLE_CNT],
+                             rdmaFlagLocal, FLAG_SINGLE_CNT);
                 }
             } else {
                 PipeBarrier<PIPE_V>();
@@ -827,7 +835,8 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
                 SyncFunc<AscendC::HardEvent::V_MTE3>();
                 DataCopy(localOutWindow_[tokenOffset * axisH_], dataInLocal, axisH_);  // int8数据+scale值
                 PipeBarrier<PIPE_MTE3>();
-                DataCopy(shareFlagGlobal_[(serverId_ + 1) * FLAG_TOTAL_SIZE + tokenOffset * 4], rdmaFlagLocal, 4);
+                DataCopy(shareFlagGlobal_[(serverId_ + 1) * FLAG_TOTAL_SIZE + tokenOffset * FLAG_SINGLE_CNT],
+                         rdmaFlagLocal, FLAG_SINGLE_CNT);
             }
             processTokenNum++;
             offsetIndex = offsetIndexs[processTokenNum];
@@ -839,7 +848,8 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
     PipeBarrier<PIPE_ALL>();
     rdmaFlagLocal(0) = RDMA_TOKEN_END_FLAG + magicValue;
     tokenOffset = coreNumPerServer * processTokenNum + coreIdx_ % coreNumPerServer;
-    DataCopy(shareFlagGlobal_[(serverId_ + 1) * FLAG_TOTAL_SIZE + tokenOffset * 4], rdmaFlagLocal, 4);
+    DataCopy(shareFlagGlobal_[(serverId_ + 1) * FLAG_TOTAL_SIZE + tokenOffset * FLAG_SINGLE_CNT], rdmaFlagLocal,
+             FLAG_SINGLE_CNT);
     SyncAll<true>();
 }
 
@@ -876,7 +886,9 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
     while (!stopFlag) {
         for (uint32_t i = 0U; i < copyOnceNum; i++) {
             while (true) {
-                DataCopy(checkRdmaLocal[64], shareFlagGlobal_[(checkServer + 1) * FLAG_TOTAL_SIZE + copySum * 4], 4);
+                DataCopy(checkRdmaLocal[64],
+                         shareFlagGlobal_[(checkServer + 1) * FLAG_TOTAL_SIZE + copySum * FLAG_SINGLE_CNT],
+                         FLAG_SINGLE_CNT);
                 PipeBarrier<PIPE_ALL>();
                 if (checkRdmaLocal.GetValue(64) == (RDMA_TOKEN_ARRIVED_FLAG + magicValue)) {
                     copySum++;
@@ -1145,9 +1157,6 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
                 SyncFunc<AscendC::HardEvent::V_MTE2>();  // 下一个token用的buffer和上一个token用的buffer之间进行同步
                 DataCopy(dataIn, localInWindow_[offsetOnIpc], axisH_);
                 SyncFunc<AscendC::HardEvent::MTE2_V>();
-                if (i > 200 && i < 260) {
-                    PRINTF("#DEBUG1104sumtoserver rank: %d, core: %d, tokenIdx: %d,offsetOnIpc:%d, tokenvalue: %f, localInWindow_[offsetOnIpc]:%f\n", rankId_, coreIdx_, i,offsetOnIpc, dataIn(0), localInWindow_[offsetOnIpc]);
-                }
                 // cast before muls
                 Cast(castFp32, dataIn, AscendC::RoundMode::CAST_NONE, axisH_);
                 PipeBarrier<PIPE_V>();
