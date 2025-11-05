@@ -4,15 +4,15 @@ import torch
 
 
 def transfer_kv_dim_exchange(
-        device_indices: torch.Tensor,
-        host_indices: torch.Tensor,
-        device_k: torch.Tensor,
-        host_k: torch.Tensor,
-        device_v: torch.Tensor,
-        host_v: torch.Tensor,
-        page_size: int = 128,
-        direction: int = 1,
-        flags: int = 2,
+    device_indices: torch.Tensor,
+    host_indices: torch.Tensor,
+    device_k: torch.Tensor,
+    host_k: torch.Tensor,
+    device_v: torch.Tensor,
+    host_v: torch.Tensor,
+    page_size: int = 128,
+    direction: int = 1,
+    flags: int = 2,
 ):
     """
     In the L1 and L2 radix cache scenarios, perform batch copy of KV data between the device and the host.
@@ -39,22 +39,22 @@ def transfer_kv_dim_exchange(
         host_indices,
         page_size,
         direction,
-        flags
+        flags,
     )
 
 
 def transfer_kv_dim_exchange_split(
-        device_indices: torch.Tensor,
-        host_indices: torch.Tensor,
-        device_k: torch.Tensor,
-        host_k: torch.Tensor,
-        device_v: torch.Tensor,
-        host_v: torch.Tensor,
-        device_index_k: Optional[torch.Tensor] = None,
-        host_index_k: Optional[torch.Tensor] = None,
-        page_size: int = 128,
-        direction: int = 1,
-        flags: int = 2,
+    device_indices: torch.Tensor,
+    host_indices: torch.Tensor,
+    device_k: torch.Tensor,
+    host_k: torch.Tensor,
+    device_v: torch.Tensor,
+    host_v: torch.Tensor,
+    device_index_k: Optional[torch.Tensor] = None,
+    host_index_k: Optional[torch.Tensor] = None,
+    page_size: int = 128,
+    direction: int = 1,
+    flags: int = 2,
 ):
     """
     In the mla L1 and L2 radix cache scenarios, perform batch copy of KV data between the device and the host.
@@ -83,7 +83,7 @@ def transfer_kv_dim_exchange_split(
         host_indices,
         page_size,
         direction,
-        flags
+        flags,
     )
     if device_index_k is None and host_index_k is None:
         torch.ops.npu.transfer_kv_dim_exchange(
@@ -95,5 +95,5 @@ def transfer_kv_dim_exchange_split(
             host_indices,
             page_size,
             direction,
-            flags
+            flags,
         )
