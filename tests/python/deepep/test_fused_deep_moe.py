@@ -352,7 +352,7 @@ def test(
     )
     return_recv_hook = False
 
-    # ----- Small-batch for debug (local rank 0 only) -----
+    # ----- Small-batch for debug ----
     if args.small_bs_flag and rank == 0:
         print("[rank 0] small_bs_flag active: truncating to batch 1", flush=True)
         x = x[:1, :]
