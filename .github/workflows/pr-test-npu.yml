@@ -75,6 +75,7 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --topk-drop-col 1 --small-bs-flag True
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --topk-drop-col 3
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --topk-drop-prob 0.3
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-experts 16 --topk-drop-col 3
 
   test-build-deepep:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
@@ -133,6 +134,7 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --topk-drop-col 1 --small-bs-flag True
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --topk-drop-col 3
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --topk-drop-prob 0.3
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-experts 16 --topk-drop-col 3
 
   finish:
     if: always()
