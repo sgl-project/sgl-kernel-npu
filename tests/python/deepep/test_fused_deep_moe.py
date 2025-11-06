@@ -352,14 +352,6 @@ def test(
     )
     return_recv_hook = False
 
-    # ----- Small-batch for debug ----
-    if args.small_bs_flag and rank == 0:
-        print("[rank 0] small_bs_flag active: truncating to batch 1", flush=True)
-        x = x[:1, :]
-        topk_idx = topk_idx[:1, :]
-        topk_weights = topk_weights[:1, :]
-        num_tokens = x.shape[0]
-
     # ----- Random or fixed drop -----
     if args.topk_drop_prob > 0 or args.topk_drop_col >= 0:
         topk_idx_dropped = topk_idx.clone()
@@ -572,12 +564,6 @@ if __name__ == "__main__":
         help="If >=0, drop this specific top-k column (set index to -1 for testing).",
     )
     parser.add_argument(
-        "--small-bs-flag",
-        type=str_to_bool,
-        default=False,
-        help="define small bs on certain rank",
-    )
-    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable debug logging.",
@@ -586,7 +572,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     num_processes = args.num_processes
-    # use args.small_bs_flag directly in test()
     torch.multiprocessing.spawn(
         test_loop, args=(num_processes, args), nprocs=num_processes
     )
