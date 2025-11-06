@@ -147,6 +147,7 @@ def baseline_test(
     hidden_states, packed_recv_count, handle, _, _ = buffer.low_latency_dispatch(
         x,
         topk_idx,
+        topk_weights,
         num_tokens,
         num_experts,
         cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
