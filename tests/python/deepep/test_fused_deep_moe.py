@@ -564,7 +564,6 @@ if __name__ == "__main__":
         default=0.0,
         help="Probability of randomly dropping a top-k index (set to -1).",
     )
-
     parser.add_argument(
         "--topk-drop-col",
         dest="topk_drop_col",
@@ -572,14 +571,12 @@ if __name__ == "__main__":
         default=-1,
         help="If >=0, drop this specific top-k column (set index to -1 for testing).",
     )
-
     parser.add_argument(
         "--small-bs-flag",
         type=str_to_bool,
         default=False,
         help="define small bs on certain rank",
     )
-
     parser.add_argument(
         "--debug",
         action="store_true",
