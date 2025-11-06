@@ -12,16 +12,23 @@ from deep_ep import Buffer
 from utils import bench, calc_diff, hash_tensor, init_dist
 
 torch_npu.npu.config.allow_internal_format = True
-test_topk_minus1 = False
-small_bs_flag = False
 
 
 # ======================== Weight Initialization ========================
-def init_base_weights():
-    w13_weight = torch.randint(-16, 16, [16, 4096, 7168]).to(torch.int8)
-    w2_weight = torch.randint(-16, 16, [16, 7168, 2048]).to(torch.int8)
-    w13_weight_scale = (torch.rand([16, 4096, 1]) * 0.0004 + 0.0015).bfloat16()
-    w2_weight_scale = (torch.rand([16, 7168, 1]) * 0.0004 + 0.0015).bfloat16()
+def init_base_weights(num_local_experts, hidden_in=7168, hidden_mid=4096, hidden_out=2048):
+    """
+    初始化每个本地专家的权重。
+    num_local_experts: 每个 rank 上的专家数 = num_experts // num_ranks
+    hidden_in: 输入维度 (默认 7168)
+    hidden_mid: 中间层维度 (默认 4096)
+    hidden_out: 输出维度 (默认 2048)
+    """
+
+    w13_weight = torch.randint(-16, 16, [num_local_experts, hidden_mid, hidden_in], dtype=torch.int8)
+    w2_weight = torch.randint(-16, 16, [num_local_experts, hidden_in, hidden_out], dtype=torch.int8)
+
+    w13_weight_scale = (torch.rand([num_local_experts, hidden_mid, 1]) * 0.0004 + 0.0015).bfloat16()
+    w2_weight_scale = (torch.rand([num_local_experts, hidden_in, 1]) * 0.0004 + 0.0015).bfloat16()
 
     return w13_weight, w13_weight_scale, w2_weight, w2_weight_scale
 
@@ -65,13 +72,13 @@ def reshape_fusion_gmm_weight(weight, dim):
 
 
 def init_fused_weights_int8(
-    w13_weight,
-    w13_weight_scale,
-    w2_weight,
-    w2_weight_scale,
-    device="npu",
-    block_m: int = 16,
-    block_n: int = 16,
+        w13_weight,
+        w13_weight_scale,
+        w2_weight,
+        w2_weight_scale,
+        device="npu",
+        block_m: int = 16,
+        block_n: int = 16,
 ):
 
     # -------- w13_weight --------
@@ -99,7 +106,7 @@ def init_fused_weights_int8(
 
 # ======================== Utility Functions ========================
 def make_uniform_topk_idx(
-    num_tokens: int, num_experts: int, num_ranks: int, num_topk: int, device="npu"
+        num_tokens: int, num_experts: int, num_ranks: int, num_topk: int, device="npu"
 ):
     assert num_experts % num_ranks == 0, "num_experts must be divisible by num_ranks"
     experts_per_rank = num_experts // num_ranks
@@ -131,18 +138,18 @@ def from_inclusive_prefix_sum(pref):
 
 # ======================== Baseline Reference ========================
 def baseline_test(
-    buffer,
-    x,
-    topk_idx,
-    num_tokens,
-    num_experts,
-    cumulative_local_expert_recv_stats,
-    return_recv_hook,
-    w13,
-    w13_scale,
-    w2,
-    w2_scale,
-    topk_weights,
+        buffer,
+        x,
+        topk_idx,
+        num_tokens,
+        num_experts,
+        cumulative_local_expert_recv_stats,
+        return_recv_hook,
+        w13,
+        w13_scale,
+        w2,
+        w2_scale,
+        topk_weights,
 ):
     hidden_states, packed_recv_count, handle, _, _ = buffer.low_latency_dispatch(
         x,
@@ -213,17 +220,17 @@ def baseline_test(
 
 # ======================== Main Test ========================
 def test(
-    num_tokens: int,
-    hidden: int,
-    num_experts: int,
-    num_topk: int,
-    rank: int,
-    num_ranks: int,
-    group: dist.ProcessGroup,
-    buffer: Buffer,
-    buffer2: Buffer,
-    args: argparse.Namespace,
-    seed: int = 0,
+        num_tokens: int,
+        hidden: int,
+        num_experts: int,
+        num_topk: int,
+        rank: int,
+        num_ranks: int,
+        group: dist.ProcessGroup,
+        buffer: Buffer,
+        buffer2: Buffer,
+        args: argparse.Namespace,
+        seed: int = 0,
 ):
     torch.manual_seed(seed + rank)
     random.seed(seed + rank)
@@ -234,12 +241,13 @@ def test(
     # NOTES: the integers greater than 256 exceeds the BF16 precision limit
     rank_offset = 128
     assert (
-        num_ranks - rank_offset < 257
+            num_ranks - rank_offset < 257
     ), "Too many ranks (exceeding test precision limit)"
 
     x = torch.rand((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * 10 - 5
+
     # ----- Routing(topk_idx) -----
-    if args.active_ranks:
+    if args.debug and args.active_ranks:
         try:
             active_ranks = [
                 int(r.strip()) for r in args.active_ranks.split(",") if r.strip()
@@ -274,22 +282,25 @@ def test(
         topk_idx = valid_experts[
             torch.randint(0, len(valid_experts), (num_tokens, num_topk), device="npu")
         ]
-        if rank == 0:
+        if args.debug and rank == 0:
             print(
                 f"[config] active_ranks={active_ranks}, valid_experts={len(valid_experts)}",
                 flush=True,
             )
     else:
         scores = (
-            torch.randn(
-                (num_tokens, num_experts), dtype=torch.float32, device="npu"
-            ).abs()
-            + 1
+                torch.randn(
+                    (num_tokens, num_experts), dtype=torch.float32, device="npu"
+                ).abs()
+                + 1
         )
         topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=True)[1]
 
     # ----- Weights -----
-    w13_weight, w13_weight_scale, w2_weight, w2_weight_scale = init_base_weights()
+    w13_weight, w13_weight_scale, w2_weight, w2_weight_scale = init_base_weights(
+        num_local_experts=num_local_experts,
+        hidden_in=hidden,
+    )
     w13, w13_scale, w2, w2_scale = init_baseline_weights(
         w13_weight.clone().detach(),
         w13_weight_scale.clone().detach(),
@@ -303,7 +314,7 @@ def test(
         w2_weight_scale.clone().detach(),
     )
 
-    if rank == 0:
+    if args.debug and rank == 0 :
         print("=== Check fused weights ===")
         print("w13_f:", w13_f.shape, w13_f.dtype, w13_f.device)
         print("w13s_f:", w13s_f.shape, w13s_f.dtype, w13s_f.device)
@@ -316,96 +327,96 @@ def test(
     for r in range(num_ranks):
         start, end = r * experts_per_rank, (r + 1) * experts_per_rank
         tokens_per_rank[r] = ((topk_idx >= start) & (topk_idx < end)).sum()
-    print(f"Tokens per rank: {tokens_per_rank}")
 
-    # ----- Random drop -----
-    if args.drop_prob > 0:
-        drop_mask = torch.rand_like(topk_idx, dtype=torch.float32) < args.drop_prob
-        topk_idx = topk_idx.masked_fill(drop_mask, -1)
-        for i in range(num_tokens):
-            if (topk_idx[i] == -1).all():
-                topk_idx[i, 0] = torch.topk(scores[i], 1, largest=True)[1].item()
+    if args.debug:
+        print(f"Tokens per rank: {tokens_per_rank}", flush=True)
 
-    topk_weights = torch.randn(
-        (num_tokens, num_topk), dtype=torch.float32, device="npu"
-    ).abs()
-    cumulative_local_expert_recv_stats = torch.zeros(
-        (num_local_experts,), dtype=torch.int, device="npu"
-    )
+    # ====== ensure topk_weights is defined (fix missing var) ======
+    topk_weights = torch.randn((num_tokens, num_topk), dtype=torch.float32, device="npu").abs()
+
+    # ====== cumulative stats and flags ======
+    cumulative_local_expert_recv_stats = torch.zeros((num_local_experts,), dtype=torch.int32, device="npu")
     return_recv_hook = False
 
-    hidden_states = x
-
-    if small_bs_flag and rank == 0:
-        # Test with a small batch size of 1
+    # ----- Small-batch for debug (local rank 0 only) -----
+    if args.small_bs_flag and rank == 0:
+        print("[rank 0] small_bs_flag active: truncating to batch 1", flush=True)
         x = x[:1, :]
         topk_idx = topk_idx[:1, :]
         topk_weights = topk_weights[:1, :]
+        num_tokens = x.shape[0]
 
-    if test_topk_minus1:
-        topk_idx_minus1 = topk_idx.clone()
-        topk_idx_minus1[:, -2:-1] = -1
-        topk_weights_minus1 = topk_weights.clone()
-        topk_weights_minus1[:, -2:-1] = 0
-        # ----- Baseline -----
-        baseline_output, base_ep_recv_count = baseline_test(
-            buffer2,
-            x,
-            topk_idx,
-            num_tokens,
-            num_experts,
-            cumulative_local_expert_recv_stats,
-            return_recv_hook,
-            w13,
-            w13_scale,
-            w2,
-            w2_scale,
-            topk_weights_minus1,
-        )
-        # ----- Fused -----
-        fused_output, fused_ep_recv_count = buffer.fused_deep_moe(
-            x,
-            topk_idx_minus1,
-            topk_weights,
-            w13_f,
-            w13s_f,
-            w2_f,
-            w2s_f,
-            num_tokens,
-            num_experts,
-            0,
-        )
+    # ----- Random or fixed drop -----
+    if args.topk_drop_prob > 0 or args.topk_drop_col >= 0:
+        topk_idx_dropped = topk_idx.clone()
+        topk_weights_dropped = topk_weights.clone()
 
+        # Random drop (based on probability)
+        if args.topk_drop_prob > 0:
+            drop_mask = torch.rand_like(topk_idx, dtype=torch.float32) < args.topk_drop_prob
+            topk_idx_dropped = topk_idx.clone()
+            topk_idx_dropped = topk_idx_dropped.masked_fill(drop_mask, -1)
+
+
+            # Guarantee that each token has at least one valid expert.
+            for i in range(num_tokens):
+                if (topk_idx_dropped[i] == -1).all():
+                    topk_idx_dropped[i, 0] = torch.topk(scores[i], 1, largest=True)[1].item()
+
+            # Construct topk_weights_dropped
+            invalid_mask = topk_idx_dropped == -1
+            topk_weights_dropped = topk_weights_dropped.masked_fill(invalid_mask, 0.0)
+
+            if args.debug:
+                print(f"[DEBUG] topk_idx_dropped (after random drop):\n{topk_idx_dropped.cpu().numpy()}", flush=True)
+                print(f"[DEBUG] topk_weights_dropped (after random drop):\n{topk_weights_dropped.cpu().numpy()}", flush=True)
+
+
+        # Fixed column drop (for the test_topk_minus1 scenario)
+        if args.topk_drop_col >= 0 and args.topk_drop_col < num_topk:
+            topk_idx_dropped[:, args.topk_drop_col] = -1
+            topk_weights_dropped[:, args.topk_drop_col] = 0
+            if args.debug:
+                print(f"[DEBUG] topk_idx_dropped (after fixed-column drop):\n{topk_idx_dropped.cpu().numpy()}", flush=True)
+                print(f"[DEBUG] topk_weights_dropped (after fixed-column drop):\n{topk_weights_dropped.cpu().numpy()}", flush=True)
+
+        # print drop ratio
+        drop_ratio = (topk_idx_dropped == -1).float().mean().item()
+        if args.debug and rank == 0:
+            print(f"[rank {rank}] topk dropped ratio = {drop_ratio*100:.2f}%", flush=True)
     else:
-        # ----- Baseline -----
-        baseline_output, base_ep_recv_count = baseline_test(
-            buffer2,
-            x,
-            topk_idx,
-            num_tokens,
-            num_experts,
-            cumulative_local_expert_recv_stats,
-            return_recv_hook,
-            w13,
-            w13_scale,
-            w2,
-            w2_scale,
-            topk_weights,
-        )
+        topk_idx_dropped = topk_idx
+        topk_weights_dropped = topk_weights
+
+    # ----- Baseline -----
+    baseline_output, base_ep_recv_count = baseline_test(
+        buffer2,
+        x,
+        topk_idx,
+        num_tokens,
+        num_experts,
+        cumulative_local_expert_recv_stats,
+        return_recv_hook,
+        w13,
+        w13_scale,
+        w2,
+        w2_scale,
+        topk_weights_dropped,
+    )
 
         # ----- Fused -----
-        fused_output, fused_ep_recv_count = buffer.fused_deep_moe(
-            x,
-            topk_idx,
-            topk_weights,
-            w13_f,
-            w13s_f,
-            w2_f,
-            w2s_f,
-            num_tokens,
-            num_experts,
-            0,
-        )
+    fused_output, fused_ep_recv_count = buffer.fused_deep_moe(
+        x,
+        topk_idx_dropped,
+        topk_weights,
+        w13_f,
+        w13s_f,
+        w2_f,
+        w2s_f,
+        num_tokens,
+        num_experts,
+        0,
+    )
 
     # ----- Compare Outputs -----
     max_diff = torch.max(torch.abs(fused_output - baseline_output)).item()
@@ -415,30 +426,29 @@ def test(
 
     print(
         f"[Rank {rank}] baseline_avg={baseline_output_avg:.6e}, fused_avg={fused_output_avg:.6e}, "
-        f"max_diff={max_diff:.6e}, avg_diff={avg_diff:.6e}"
+        f"max_diff={max_diff:.6e}, avg_diff={avg_diff:.6e}",
+        flush=True,
     )
+
     assert avg_diff < 1e-4, f"[Rank {rank}] Mismatch detected! diff={avg_diff}"
 
     # ----- Compare RecvCount -----
-    recv_count_diff = (
-        from_inclusive_prefix_sum(base_ep_recv_count) - fused_ep_recv_count
-    ).abs()
-    max_recv_count_diff = recv_count_diff.max().item()
-    mean_recv_count_diff = recv_count_diff.mean().item()
-    print(
-        f"[Rank {rank}] Difference between base and fused recv_count -> max: {max_recv_count_diff}, mean: {mean_recv_count_diff}"
-    )
-
-    if not test_topk_minus1:
-        assert (
-            max_recv_count_diff < 1e-4
-        ), f"[Rank {rank}] Mismatch detected! diff={max_recv_count_diff}"
+    if args.topk_drop_col < 0 and args.topk_drop_prob == 0.0:
+        recv_count_diff = (from_inclusive_prefix_sum(base_ep_recv_count) - fused_ep_recv_count).abs()
+        max_recv_count_diff = recv_count_diff.max().item()
+        mean_recv_count_diff = recv_count_diff.mean().item()
+        print(
+            f"[Rank {rank}] Difference between base and fused recv_count -> max: {max_recv_count_diff}, mean: {mean_recv_count_diff}",
+            flush=True,
+        )
+        assert max_recv_count_diff < 1e-4, f"[Rank {rank}] Mismatch detected! diff={max_recv_count_diff}"
 
 
 # ======================== Distributed Entry ========================
 def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     rank, num_ranks, group = init_dist(local_rank, num_local_ranks)
-    group2 = dist.new_group(list(range(16)))
+    group2 = dist.new_group(list(range(num_ranks)))
+
     shared_expert_rank_num = int(os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0))
     num_tokens, hidden = args.num_tokens, args.hidden
     num_topk, num_experts = args.num_topk, args.num_experts
@@ -511,19 +521,22 @@ if __name__ == "__main__":
         "--active-ranks",
         type=str,
         default="",
-        help="Comma-separated list of ranks that will receive tokens. "
-        'Example: "0,1,3". If empty, all ranks may receive tokens.',
+        help='Comma-separated list of ranks that will receive tokens. Example: "0,1,3". If empty, all ranks may receive tokens.',
     )
     parser.add_argument(
-        "--drop-prob",
+        "--topk-drop-prob",
+        dest="topk_drop_prob",
         type=float,
         default=0.0,
-        help="Probability of dropping an individual top-k index (set to -1). "
-        "Guaranteed that each token keeps at least one valid expert.",
+        help="Probability of randomly dropping a top-k index (set to -1).",
     )
 
     parser.add_argument(
-        "--minus1-flag", type=str_to_bool, default=False, help="bool flag, True/False"
+        "--topk-drop-col",
+        dest="topk_drop_col",
+        type=int,
+        default=-1,
+        help="If >=0, drop this specific top-k column (set index to -1 for testing).",
     )
 
     parser.add_argument(
@@ -533,12 +546,16 @@ if __name__ == "__main__":
         help="define small bs on certain rank",
     )
 
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable debug logging.",
+    )
+
     args = parser.parse_args()
 
     num_processes = args.num_processes
-    test_topk_minus1 = args.minus1_flag
-    small_bs_flag = args.small_bs_flag
-
+    # use args.small_bs_flag directly in test()
     torch.multiprocessing.spawn(
         test_loop, args=(num_processes, args), nprocs=num_processes
     )
