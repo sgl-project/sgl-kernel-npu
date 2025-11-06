@@ -462,7 +462,7 @@ def test(
 
     assert avg_diff < 1e-4, f"[Rank {rank}] Mismatch detected! diff={avg_diff}"
 
-    # ----- Compare RecvCount -----
+    # ----- Compare Recv Count -----
     if args.topk_drop_col < 0 and args.topk_drop_prob == 0.0:
         recv_count_diff = (
             from_inclusive_prefix_sum(base_ep_recv_count) - fused_ep_recv_count
