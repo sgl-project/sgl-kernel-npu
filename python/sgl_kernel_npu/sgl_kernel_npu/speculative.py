@@ -152,7 +152,10 @@ def verify_tree_greedy_native(
         predicts = target_predict.flatten()
 
         accept_index = torch.arange(
-            0, num_draft_tokens * batch_size, device=candidates.device, dtype=torch.int32
+            0,
+            num_draft_tokens * batch_size,
+            device=candidates.device,
+            dtype=torch.int32,
         ).reshape(batch_size, num_draft_tokens)
         comparison_result = comparison_result.to(torch.int64)
         accept_index_mask = accept_index[:, 1] * comparison_result

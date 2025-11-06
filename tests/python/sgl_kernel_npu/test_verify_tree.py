@@ -1,7 +1,7 @@
 import pytest
 import torch
-from sgl_kernel_npu.speculative import verify_tree_greedy_native
 from sgl_kernel_npu.sample.verify_tree_greedy import verify_tree_greedy
+from sgl_kernel_npu.speculative import verify_tree_greedy_native
 
 
 def test_verify_tree_greedy():
@@ -82,14 +82,22 @@ def test_verify_tree_greedy():
 
 
 def test_verify_tree_greedy_simple():
-    candidates = torch.tensor([[10375, 28], [223, 15098]], device='npu:0', dtype=torch.int32)
-    target_predict = torch.tensor([[28, 334], [15098, 18]], device='npu:0', dtype=torch.int32)
-    retrive_next_sibling = torch.tensor([[-1, -1], [-1, -1]], device='npu:0', dtype=torch.int32)
-    retrive_index = torch.tensor([[0, 1], [2, 3]], device='npu:0', dtype=torch.int32)
-    retrive_next_token = torch.tensor([[ 1, -1], [ 1, -1]], device='npu:0', dtype=torch.int32)
-    predicts = torch.tensor([28, 334, 15098, 18], device='npu:0', dtype=torch.int32)
-    accept_index = torch.tensor([[0, 1], [3, -1]], device='npu:0', dtype=torch.int32)
-    accept_token_num = torch.tensor([1, 1], device='npu:0', dtype=torch.int32)
+    candidates = torch.tensor(
+        [[10375, 28], [223, 15098]], device="npu:0", dtype=torch.int32
+    )
+    target_predict = torch.tensor(
+        [[28, 334], [15098, 18]], device="npu:0", dtype=torch.int32
+    )
+    retrive_next_sibling = torch.tensor(
+        [[-1, -1], [-1, -1]], device="npu:0", dtype=torch.int32
+    )
+    retrive_index = torch.tensor([[0, 1], [2, 3]], device="npu:0", dtype=torch.int32)
+    retrive_next_token = torch.tensor(
+        [[1, -1], [1, -1]], device="npu:0", dtype=torch.int32
+    )
+    predicts = torch.zeros(4, device="npu:0", dtype=torch.int32)
+    accept_index = torch.full((2, 2), -1, device="npu:0", dtype=torch.int32)
+    accept_token_num = torch.zeros(2, device="npu:0", dtype=torch.int32)
 
     verify_tree_greedy(
         predicts=predicts,
@@ -106,16 +114,16 @@ def test_verify_tree_greedy_simple():
     accept_index_gt = torch.zeros_like(accept_index) * -1
     accept_token_num_gt = torch.zeros_like(accept_token_num)
     predicts_gt, accept_index_gt, accept_token_num_gt = verify_tree_greedy_native(
-                    predicts_gt,
-                    accept_index_gt,
-                    accept_token_num_gt,
-                    candidates,
-                    retrive_index,
-                    retrive_next_token,
-                    retrive_next_sibling,
-                    target_predict,
-                    1,
-                )
+        predicts_gt,
+        accept_index_gt,
+        accept_token_num_gt,
+        candidates,
+        retrive_index,
+        retrive_next_token,
+        retrive_next_sibling,
+        target_predict,
+        1,
+    )
     assert torch.allclose(predicts_gt, predicts)
     assert torch.allclose(accept_index_gt, accept_index)
     assert torch.allclose(accept_token_num_gt, accept_token_num)
