@@ -19,11 +19,11 @@ def init_base_weights(
     num_local_experts, hidden_in=7168, hidden_mid=4096, hidden_out=2048
 ):
     """
-    初始化每个本地专家的权重。
-    num_local_experts: 每个 rank 上的专家数 = num_experts // num_ranks
-    hidden_in: 输入维度 (默认 7168)
-    hidden_mid: 中间层维度 (默认 4096)
-    hidden_out: 输出维度 (默认 2048)
+    Initialize the weights for each local expert.
+    `num_local_experts`: Number of experts per rank = `num_experts` // `num_ranks`
+    `hidden_in`: Input dimension (default 7168)
+    `hidden_mid`: Intermediate layer dimension (default 4096)
+    `hidden_out`: Output dimension (default 2048)
     """
 
     w13_weight = torch.randint(
