@@ -570,7 +570,6 @@ if __name__ == "__main__":
     )
 
     args = parser.parse_args()
-
     num_processes = args.num_processes
     torch.multiprocessing.spawn(
         test_loop, args=(num_processes, args), nprocs=num_processes
