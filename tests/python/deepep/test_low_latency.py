@@ -162,8 +162,10 @@ def test(
             combined_x,
         )
         assert torch.isnan(combined_x).sum().item() == 0
-        # assert diff < 1e-5, f"Error: {diff=}, {zero_copy=}"
-        assert diff < 1e-5, f"Error: {diff=}"
+        if dispatch_use_fp8:
+            assert diff < 1e-4, f"Error: {diff=}"
+        else:
+            assert diff < 1e-5, f"Error: {diff=}"
         hash_value ^= hash_tensor(combined_x)
 
         print(f"rank {rank} PASSED")
