@@ -429,6 +429,7 @@ class Buffer:
         self,
         x: torch.Tensor,
         topk_idx: torch.Tensor,
+        topk_weights: Optional[torch.Tensor],
         num_max_dispatch_tokens_per_rank: int,
         num_experts: int,
         cumulative_local_expert_recv_stats: Optional[torch.Tensor] = None,
@@ -487,11 +488,13 @@ class Buffer:
             packed_recv_count,
             packed_recv_src_info,
             packed_recv_layout_range,
+            expand_scales,
             event,
             hook,
         ) = self.runtime.low_latency_dispatch(
             x,
             topk_ids,
+            topk_weights,
             cumulative_local_expert_recv_stats,
             num_max_dispatch_tokens_per_rank,
             num_experts,
@@ -508,6 +511,7 @@ class Buffer:
             x.size(1),
             num_experts,
             packed_recv_count,
+            expand_scales,
         )
         tensors_to_record = (
             x,
@@ -572,6 +576,7 @@ class Buffer:
             hidden,
             num_experts,
             packed_recv_count,
+            expand_scales,
         ) = handle
         combined_x, event, hook = self.runtime.low_latency_combine(
             x,
@@ -586,6 +591,7 @@ class Buffer:
             async_finish,
             return_recv_hook,
             out,
+            expand_scales,
         )
         tensors_to_record = (
             x,

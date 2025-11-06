@@ -67,6 +67,7 @@ def test(
     packed_recv_x, packed_recv_count, handle, event, hook = buffer.low_latency_dispatch(
         x,
         topk_idx,
+        topk_weights,
         num_tokens,
         num_experts,
         use_fp8=dispatch_use_fp8,
@@ -133,6 +134,16 @@ def test(
             )
 
     # Check combine correctness
+    (
+        src_info,
+        layout_range,
+        num_max_dispatch_tokens_per_rank,
+        hidden,
+        num_experts,
+        packed_recv_count,
+        expand_scales,
+    ) = handle
+
     out = torch.empty((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
     combined_x, event, hook = buffer.low_latency_combine(
         simulated_gemm_x,
@@ -151,14 +162,18 @@ def test(
             combined_x,
         )
         assert torch.isnan(combined_x).sum().item() == 0
-        assert diff < 1e-5, f"Error: {diff=}, {zero_copy=}"
+        # assert diff < 1e-5, f"Error: {diff=}, {zero_copy=}"
+        assert diff < 1e-5, f"Error: {diff=}"
         hash_value ^= hash_tensor(combined_x)
+
+        print(f"rank {rank} PASSED")
 
     # noinspection PyShadowingNames
     def test_func(zero_copy: bool, return_recv_hook: bool):
         recv_x, recv_count, handle, event, hook = buffer.low_latency_dispatch(
             x,
             topk_idx,
+            topk_weights,
             num_tokens,
             num_experts,
             cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
