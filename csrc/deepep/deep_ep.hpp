@@ -7,6 +7,7 @@
 #include <optional>
 #include "hccl/hccl.h"
 #include "hccl/hccl_types.h"
+#include "aclnn/opdev/platform.h"
 
 #include "config.hpp"
 #include "event.hpp"
@@ -16,6 +17,7 @@ namespace deep_ep {
 struct Buffer {
     int64_t rank, rdma_rank;
     int64_t num_ranks;
+    op::SocVersion soc_version;
 
     int64_t num_nvl_bytes;
     int64_t num_rdma_bytes;
@@ -73,9 +75,10 @@ public:
                       const std::optional<torch::Tensor> &topk_weights, const torch::Tensor &src_idx,
                       const torch::Tensor &send_head, const std::optional<at::Tensor> &combine_send_cost_stats);
 
-    std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Tensor, std::optional<EventHandle>,
-               std::optional<std::function<void()>>>
+    std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Tensor, at::Tensor,
+               std::optional<EventHandle>, std::optional<std::function<void()>>>
     low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
+                         const std::optional<torch::Tensor> &topk_weights,
                          const std::optional<at::Tensor> &cumulative_local_expert_recv_stats,
                          int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts, bool use_fp8, bool round_scale,
                          bool use_ue8m0, bool async, bool return_recv_hook);
@@ -86,7 +89,7 @@ public:
         const at::Tensor &x, const at::Tensor &topk_idx, const at::Tensor &topk_weights, const at::Tensor &src_info,
         const at::Tensor &layout_range, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
         const at::Tensor &packed_recv_count, bool zero_copy, bool async, bool return_recv_hook,
-        const std::optional<at::Tensor> &out);
+        const std::optional<at::Tensor> &out, const at::Tensor &expand_scales);
 
     std::vector<at::Tensor> fused_deep_moe(const at::Tensor &x, const at::Tensor &expertIds,
                                            const at::Tensor &gmm1PermutedWeight,
