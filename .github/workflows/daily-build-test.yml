@@ -3,6 +3,12 @@ name: Daily Enumerate Tests (Ascend NPU)
 on:
   schedule:
     - cron: "0 16 * * *"  # 每天 UTC 时间 16:00（下午4点）运行
+  pull_request:  # 添加 pull_request 触发器
+    branches: [ main ]  # 仅当拉取请求目标分支是 main 时触发
+    paths:
+      - ".github/workflows/daily-build-test.yml"  # 当前工作流文件更改时触发
+      - "scripts/enumerate_test_intranode.sh"  # 指定脚本文件更改时触发
+      - "scripts/enumerate_test_low_latency.sh"  # 指定脚本文件更改时触发
   workflow_dispatch:       # 保留手动触发能力
 
 concurrency:
