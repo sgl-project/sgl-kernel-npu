@@ -404,7 +404,7 @@ def test(
         drop_ratio = (topk_idx_dropped == -1).float().mean().item()
         if args.debug and rank == 0:
             print(
-                f"[rank {rank}] topk dropped ratio = {drop_ratio*100:.2f}%", flush=True
+                f"[DEBUG] [rank {rank}] topk dropped ratio = {drop_ratio*100:.2f}%", flush=True
             )
     else:
         topk_idx_dropped = topk_idx
