@@ -112,9 +112,8 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
 
     std::optional<torch::Tensor> num_tokens_per_rdma_rank = std::nullopt;
     std::optional<EventHandle> output_event = std::nullopt;
-    auto is_token_in_rank_bool = is_token_in_rank.to(at::kBool);
 
-    return std::make_tuple(num_tokens_per_rank, num_tokens_per_rdma_rank, num_tokens_per_expert, is_token_in_rank_bool,
+    return std::make_tuple(num_tokens_per_rank, num_tokens_per_rdma_rank, num_tokens_per_expert, is_token_in_rank,
                            output_event);
 }
 
@@ -161,15 +160,12 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     EP_HOST_ASSERT(num_tokens_per_expert.has_value());
 
     // Type checks
-    EP_HOST_ASSERT(is_token_in_rank.scalar_type() == at::kBool);
     EP_HOST_ASSERT(num_tokens_per_expert->scalar_type() == at::kInt);
     EP_HOST_ASSERT(num_tokens_per_rank->scalar_type() == at::kInt);
 
     // Shape and contiguous checks
     EP_HOST_ASSERT(new_x.dim() == 2 and new_x.is_contiguous());
     // EP_HOST_ASSERT((x.size(1) * x.element_size()) % sizeof(int4) == 0);
-    EP_HOST_ASSERT(is_token_in_rank.dim() == 2 and is_token_in_rank.is_contiguous());
-    EP_HOST_ASSERT(is_token_in_rank.size(0) == new_x.size(0) and is_token_in_rank.size(1) == num_ranks);
     EP_HOST_ASSERT(num_tokens_per_expert->dim() == 1 and num_tokens_per_expert->is_contiguous());
     EP_HOST_ASSERT(num_tokens_per_expert->size(0) % num_ranks == 0);
     EP_HOST_ASSERT(num_tokens_per_rank->dim() == 1 and num_tokens_per_rank->is_contiguous());
@@ -316,7 +312,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 
     auto recv_topk_idx = std::optional<at::Tensor>();
     auto recv_topk_weights = std::optional<at::Tensor>();
-    auto expand_idx_out_cpu = expand_idx_out.to(torch::kCPU);
     if (topk_idx.has_value()) {
         recv_topk_idx = at::empty({total_recv_tokens, num_topk}, topk_idx->options());
         recv_topk_weights = at::empty({total_recv_tokens, num_topk}, topk_weights->options());
