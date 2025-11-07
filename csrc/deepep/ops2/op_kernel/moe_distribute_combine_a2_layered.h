@@ -7,6 +7,8 @@
 
 namespace MoeDistributeCombineA2Impl {
 
+#define COMBINE_2SERVER_VERSION
+
 #define TemplateMC2TypeA2layeredClass typename ExpandXType, typename ExpandIdxType
 #define TemplateMC2TypeA2layeredFunc ExpandXType, ExpandIdxType
 using namespace AscendC;
@@ -177,6 +179,7 @@ private:
     TBuf<> recvCountBuf_;
     TBuf<> scaleBuf_;
     TBuf<> expertWindowOffsetBuf_;
+    TBuf<> innerOffsetBuf_;
     int32_t sumTarget_{0};
     int32_t stateValue_{0};
     uint32_t startBs{0};
@@ -316,6 +319,7 @@ __aicore__ inline void MoeDistributeCombineA2Layered<TemplateMC2TypeA2layeredFun
     tpipe_->InitBuffer(moeSumQueue_, BUFFER_NUM, (axisHExpandXTypeSize_ + 32U));
     tpipe_->InitBuffer(statusSumOutBuf_, sizeof(float));
     tpipe_->InitBuffer(batchWriteItemBuf_, BATCH_WRITE_ITEM_SIZE * worldSize_);
+    tpipe_->InitBuffer(innerOffsetBuf_, localMoeExpertNum_ * SERVER_RANK_SIZE * sizeof(int32_t));
     batchWriteItemLocalB64 = batchWriteItemBuf_.Get<uint64_t>();
     batchWriteItemLocalB32 = batchWriteItemLocalB64.template ReinterpretCast<uint32_t>();
 }
@@ -413,7 +417,6 @@ __aicore__ inline void MoeDistributeCombineA2Layered<TemplateMC2TypeA2layeredFun
 {
     // 当前假设一个core处理一个rank的数据累加，因为已经只剩下同号卡，所以只有serverNum个rank
     if (coreIdx_ < serverNum) {
-        countReL = 0;
         shareFlagGlobal_.SetGlobalBuffer(
             (__gm__ int64_t *)(shareAddreRank[rankId_ % SERVER_RANK_SIZE] + IPC_DISPATCH_DATA_OFFSET));
         LocalTensor<int64_t> InUb = statusBuf_.AllocTensor<int64_t>();
@@ -436,60 +439,118 @@ __aicore__ inline void MoeDistributeCombineA2Layered<TemplateMC2TypeA2layeredFun
         }
 
         statusBuf_.FreeTensor<int64_t>(InUb);
+    }
+    SyncAll();
+    LocalTensor<int32_t> offsetReduceLt =
+        innerOffsetBuf_.GetWithOffset<int32_t>(localMoeExpertNum_ * SERVER_RANK_SIZE, 0);
+    uint32_t corePerServer = aivNum_ / serverNum;
+    if (coreIdx_ >= corePerServer * serverNum) {
+        SyncAll<true>();
+        return;
+    }
+    uint32_t BSPerCore = MAX_BS / corePerServer;
+    uint32_t remainBS = MAX_BS % corePerServer;
+    uint32_t localBlockIdx = coreIdx_ / serverNum;
+    uint32_t currentServerIdx = coreIdx_ % serverNum;
 
-        int32_t targetRankId = coreIdx_ * SERVER_RANK_SIZE + rankId_ % SERVER_RANK_SIZE;
-        GlobalTensor<int32_t> offsetReduceGt = offsetInnerGlobal_[MAX_BS * moeExpertNum_ * targetRankId];
-        SyncFunc<AscendC::HardEvent::MTE2_S>();
-        AscendC::DumpTensor(offsetReduceGt, 452, 128);
-
-        uint64_t copyAddr = shareAddreRank[rankId_ % SERVER_RANK_SIZE] +
-                            static_cast<uint64_t>(IPC_DATA_OFFSET + coreIdx_ * ipcSliceNodeSize);
-        shareMemGlobal_.SetGlobalBuffer((__gm__ ExpandXType *)copyAddr);
-        uint64_t rdmaAddr = (uint64_t)(hccl_.GetWindowsOutAddr(rankId_) + halfWinSize_ * bufferId_ +
-                                       coreIdx_ * rankSizeOnWin_ * SERVER_RANK_SIZE);
-        localOutWindow_.SetGlobalBuffer((__gm__ ExpandXType *)rdmaAddr);
-        sumFloatLocal_ = sumFloatBuf_.Get<float>();
-        offsetIndex = 0U;
-        for (uint32_t i = 0U; i < MAX_BS; i++) {
-            bool isTokenInServer = false;
-            Duplicate(sumFloatLocal_, 0.0f, axisH_);
-            for (uint32_t j = 0U; j < static_cast<uint32_t>(localMoeExpertNum_ * SERVER_RANK_SIZE); j++) {
-                int32_t expId = j + rankId_ / SERVER_RANK_SIZE * SERVER_RANK_SIZE * localMoeExpertNum_;
-                int32_t offsetValue = offsetReduceGt.GetValue(i * moeExpertNum_ + expId);
-                if (offsetValue == -1) continue;
-                isTokenInServer = true;
-                tmpUb_ = moeSumQueue_.AllocTensor<ExpandXType>();
-                uint32_t offsetOnIpc = (offsetValue * (axisH_ + 16U) * sizeof(ExpandXType)) / sizeof(ExpandXType);
-                DataCopy(tmpUb_, shareMemGlobal_[offsetOnIpc], axisH_ + 16U);
-                SyncFunc<AscendC::HardEvent::MTE2_S>();
-                LocalTensor<float> InUbTemp = tmpUb_[axisH_].template ReinterpretCast<float>();
-                float scaleVal = InUbTemp(0);
-                SyncFunc<AscendC::HardEvent::S_V>();
-                moeSumQueue_.EnQue(tmpUb_);
-                LocalTensor<ExpandXType> tmpOtherUb_ = moeSumQueue_.DeQue<ExpandXType>();
-                Cast(rowTmpFloatLocal_, tmpOtherUb_, AscendC::RoundMode::CAST_NONE, axisH_);
-                PipeBarrier<PIPE_V>();
-                AscendC::Muls(rowTmpFloatLocal_, rowTmpFloatLocal_, scaleVal, axisH_);
-                PipeBarrier<PIPE_V>();
-                AscendC::Add(sumFloatLocal_, sumFloatLocal_, rowTmpFloatLocal_, axisH_);
-                moeSumQueue_.FreeTensor<ExpandXType>(tmpOtherUb_);
-                offsetIndex++;
-                PipeBarrier<PIPE_V>();
-            }
-            PipeBarrier<PIPE_V>();
-            if (!isTokenInServer) {
-                continue;
-            }
-            LocalTensor<ExpandXType> castUbIn = mulBuf_.Get<ExpandXType>();
-            SyncFunc<AscendC::HardEvent::MTE3_V>();
-            Cast(castUbIn, sumFloatLocal_, AscendC::RoundMode::CAST_RINT, axisH_);
-            SyncFunc<AscendC::HardEvent::V_MTE3>();
-            DataCopy(localOutWindow_[countReL * axisH_], castUbIn, axisH_);
-            countReL++;
-            PipeBarrier<PIPE_V>();
-        }
+    uint32_t startTokenId = localBlockIdx * BSPerCore;
+    if (localBlockIdx < remainBS) {
+        startTokenId += localBlockIdx;
+        BSPerCore += 1;
+    } else {
+        startTokenId += remainBS;
     }
 
+    uint32_t endTokenId = startTokenId + BSPerCore;
+
+    int32_t targetRankId = currentServerIdx * SERVER_RANK_SIZE + rankId_ % SERVER_RANK_SIZE;
+    GlobalTensor<int32_t> offsetReduceGt = offsetInnerGlobal_[MAX_BS * moeExpertNum_ * currentServerIdx];
+    SyncFunc<AscendC::HardEvent::MTE2_S>();
+
+    uint64_t copyAddr = shareAddreRank[rankId_ % SERVER_RANK_SIZE] +
+                        static_cast<uint64_t>(IPC_DATA_OFFSET + currentServerIdx * ipcSliceNodeSize);
+    shareMemGlobal_.SetGlobalBuffer((__gm__ ExpandXType *)copyAddr);
+    uint64_t rdmaAddr = (uint64_t)(hccl_.GetWindowsOutAddr(rankId_) + halfWinSize_ * bufferId_ +
+                                   currentServerIdx * rankSizeOnWin_ * SERVER_RANK_SIZE);
+    localOutWindow_.SetGlobalBuffer((__gm__ ExpandXType *)rdmaAddr);
+    sumFloatLocal_ = sumFloatBuf_.Get<float>();
+    countReL = 0;
+#ifdef COMBINE_2SERVER_VERSION
+    if (coreIdx_ < serverNum) {
+        countReL = MAX_BS;
+    }
+#else
+    int32_t countRels[MAX_BS] = {0};
+    for (uint32_t i = 0U; i < MAX_BS; i++) {
+        bool isTokenInServer = false;
+        DataCopy(offsetReduceLt,
+                 offsetReduceGt[i * moeExpertNum_ + rankId_ / SERVER_RANK_SIZE * SERVER_RANK_SIZE * localMoeExpertNum_],
+                 localMoeExpertNum_ * SERVER_RANK_SIZE);
+        SyncFunc<AscendC::HardEvent::MTE2_S>();
+        for (uint32_t j = 0U; j < static_cast<uint32_t>(localMoeExpertNum_ * SERVER_RANK_SIZE); j++) {
+            int32_t expId = j;
+            int32_t offsetValue = offsetReduceLt.GetValue(expId);
+            if (offsetValue == -1) continue;
+            isTokenInServer = true;
+            break;
+        }
+        if (i == MAX_BS - 1) {
+            if (coreIdx_ < serverNum) {
+                countReL = isTokenInServer ? countRels[i] + 1 : countRels[i];
+            }
+            continue;
+        }
+        if (isTokenInServer) {
+            countRels[i + 1] = countRels[i] + 1;
+        } else {
+            countRels[i + 1] = countRels[i];
+        }
+    }
+#endif
+
+    for (uint32_t i = startTokenId; i < endTokenId; i++) {
+        bool isTokenInServer = false;
+        Duplicate(sumFloatLocal_, 0.0f, axisH_);
+        DataCopy(offsetReduceLt,
+                 offsetReduceGt[i * moeExpertNum_ + rankId_ / SERVER_RANK_SIZE * SERVER_RANK_SIZE * localMoeExpertNum_],
+                 localMoeExpertNum_ * SERVER_RANK_SIZE);
+        SyncFunc<AscendC::HardEvent::MTE2_S>();
+        for (uint32_t j = 0U; j < static_cast<uint32_t>(localMoeExpertNum_ * SERVER_RANK_SIZE); j++) {
+            int32_t offsetValue = offsetReduceLt.GetValue(j);
+            if (offsetValue < 0) continue;
+            isTokenInServer = true;
+            tmpUb_ = moeSumQueue_.AllocTensor<ExpandXType>();
+            uint32_t offsetOnIpc = (offsetValue * (axisH_ + 16U) * sizeof(ExpandXType)) / sizeof(ExpandXType);
+            DataCopy(tmpUb_, shareMemGlobal_[offsetOnIpc], axisH_ + 16U);
+            SyncFunc<AscendC::HardEvent::MTE2_S>();
+            LocalTensor<float> InUbTemp = tmpUb_[axisH_].template ReinterpretCast<float>();
+            float scaleVal = InUbTemp(0);
+            SyncFunc<AscendC::HardEvent::S_V>();
+            moeSumQueue_.EnQue(tmpUb_);
+            LocalTensor<ExpandXType> tmpOtherUb_ = moeSumQueue_.DeQue<ExpandXType>();
+            Cast(rowTmpFloatLocal_, tmpOtherUb_, AscendC::RoundMode::CAST_NONE, axisH_);
+            PipeBarrier<PIPE_V>();
+            AscendC::Muls(rowTmpFloatLocal_, rowTmpFloatLocal_, scaleVal, axisH_);
+            PipeBarrier<PIPE_V>();
+            AscendC::Add(sumFloatLocal_, sumFloatLocal_, rowTmpFloatLocal_, axisH_);
+            moeSumQueue_.FreeTensor<ExpandXType>(tmpOtherUb_);
+            PipeBarrier<PIPE_V>();
+        }
+        PipeBarrier<PIPE_V>();
+        if (!isTokenInServer) {
+            continue;
+        }
+        LocalTensor<ExpandXType> castUbIn = mulBuf_.Get<ExpandXType>();
+        SyncFunc<AscendC::HardEvent::MTE3_V>();
+        Cast(castUbIn, sumFloatLocal_, AscendC::RoundMode::CAST_RINT, axisH_);
+        SyncFunc<AscendC::HardEvent::V_MTE3>();
+#ifdef COMBINE_2SERVER_VERSION
+        DataCopy(localOutWindow_[i * axisH_], castUbIn, axisH_);
+#else
+        DataCopy(localOutWindow_[countRels[i] * axisH_], castUbIn, axisH_);
+#endif
+        PipeBarrier<PIPE_V>();
+    }
     SyncAll<true>();
 }
 
@@ -644,12 +705,16 @@ __aicore__ inline void MoeDistributeCombineA2Layered<TemplateMC2TypeA2layeredFun
         Duplicate(sumFloatLocal_, 0.0f, axisH_);
         for (int j = 0; j < serverNum; j++) {
             int cntOuter = offsetOuterGlobal_.GetValue(i * serverNum + j);
-            if (cntOuter == -1) {
+            if (cntOuter < 0) {
                 continue;
             }
             tmpUb_ = moeSumQueue_.AllocTensor<ExpandXType>();
             flag = 1;
+#ifdef COMBINE_2SERVER_VERSION
+            int offsetOnIpc = (i * axisH_ * sizeof(ExpandXType)) / sizeof(ExpandXType);
+#else
             int offsetOnIpc = (cntOuter * axisH_ * sizeof(ExpandXType)) / sizeof(ExpandXType);
+#endif
             uint64_t selfRankAddr = (uint64_t)(hccl_.GetWindowsInAddr(rankId_) + halfWinSize_ * bufferId_ +
                                                j * rankSizeOnWin_ * SERVER_RANK_SIZE);
             localInWindow_.SetGlobalBuffer((__gm__ ExpandXType *)(selfRankAddr));
