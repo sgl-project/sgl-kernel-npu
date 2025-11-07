@@ -15,13 +15,27 @@ endfunction()
 function(opbuild)
   message(STATUS "Opbuild generating sources")
   cmake_parse_arguments(OPBUILD "" "OUT_DIR;PROJECT_NAME;ACCESS_PREFIX;ENABLE_SOURCE" "OPS_SRC" ${ARGN})
-  execute_process(COMMAND ${CMAKE_COMPILE} -g -fPIC -shared -std=c++11 ${OPBUILD_OPS_SRC} -D_GLIBCXX_USE_CXX11_ABI=0
-                  -I ${ASCEND_CANN_PACKAGE_PATH}/include -I ${CMAKE_CURRENT_SOURCE_DIR}/../op_kernel
-                  -L ${ASCEND_CANN_PACKAGE_PATH}/lib64 -lexe_graph -lregister -ltiling_api
-                  -o ${OPBUILD_OUT_DIR}/libascend_all_ops.so
-                  RESULT_VARIABLE EXEC_RESULT
-                  OUTPUT_VARIABLE EXEC_INFO
-                  ERROR_VARIABLE  EXEC_ERROR
+  if (DEFINED CANN_VERSION_MACRO AND NOT "${CANN_VERSION_MACRO}" STREQUAL "")
+    set(CANN_VERSION_FLAG "-D${CANN_VERSION_MACRO}")
+    message(STATUS "opbuild: Detected CANN_VERSION_MACRO = ${CANN_VERSION_MACRO}")
+  else()
+    set(CANN_VERSION_FLAG "")
+    message(WARNING "opbuild: No CANN_VERSION_MACRO defined! Possible #error in .cc files.")
+  endif()
+
+  execute_process(
+          COMMAND ${CMAKE_COMPILE} -g -fPIC -shared -std=c++11
+          ${OPBUILD_OPS_SRC}
+          -D_GLIBCXX_USE_CXX11_ABI=0
+          ${CANN_VERSION_FLAG}
+          -I ${ASCEND_CANN_PACKAGE_PATH}/include
+          -I ${CMAKE_CURRENT_SOURCE_DIR}/../op_kernel
+          -L ${ASCEND_CANN_PACKAGE_PATH}/lib64
+          -lexe_graph -lregister -ltiling_api
+          -o ${OPBUILD_OUT_DIR}/libascend_all_ops.so
+          RESULT_VARIABLE EXEC_RESULT
+          OUTPUT_VARIABLE EXEC_INFO
+          ERROR_VARIABLE  EXEC_ERROR
   )
   if (${EXEC_RESULT})
     message("build ops lib info: ${EXEC_INFO}")
@@ -47,11 +61,12 @@ function(opbuild)
     set(ENV{OPS_PRODUCT_NAME} ${ASCEND_COMPUTE_UNIT})
     set(ENV{SYSTEM_PROCESSOR} ${CMAKE_SYSTEM_PROCESSOR})
   endif()
-  execute_process(COMMAND ${proj_env} ${prefix_env} ${ASCEND_CANN_PACKAGE_PATH}/toolkit/tools/opbuild/op_build
-                          ${OPBUILD_OUT_DIR}/libascend_all_ops.so ${OPBUILD_OUT_DIR}
-                  RESULT_VARIABLE EXEC_RESULT
-                  OUTPUT_VARIABLE EXEC_INFO
-                  ERROR_VARIABLE  EXEC_ERROR
+  execute_process(
+          COMMAND ${proj_env} ${prefix_env} ${ASCEND_CANN_PACKAGE_PATH}/toolkit/tools/opbuild/op_build
+          ${OPBUILD_OUT_DIR}/libascend_all_ops.so ${OPBUILD_OUT_DIR}
+          RESULT_VARIABLE EXEC_RESULT
+          OUTPUT_VARIABLE EXEC_INFO
+          ERROR_VARIABLE EXEC_ERROR
   )
   unset(ENV{ENABLE_SOURCE_PACKAGE})
   if(${ASCEND_PACK_SHARED_LIBRARY})
