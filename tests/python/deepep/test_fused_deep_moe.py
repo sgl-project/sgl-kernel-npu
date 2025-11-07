@@ -339,7 +339,7 @@ def test(
         tokens_per_rank[r] = ((topk_idx >= start) & (topk_idx < end)).sum()
 
     if args.debug:
-        print(f"Tokens per rank: {tokens_per_rank}", flush=True)
+        print(f"[DEBUG] Tokens per rank: {tokens_per_rank}", flush=True)
 
     # ====== ensure topk_weights is defined (fix missing var) ======
     topk_weights = torch.randn(
