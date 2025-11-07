@@ -296,7 +296,7 @@ private:
                 count++;
                 countExpertTensor.SetValue(expert_idx, count);
                 if (count % TEMP_BATCH_SIZE == 0) {
-                    int32_t preCount = numTokensPerExpertTensor.GetValue(i);
+                    int32_t preCount = numTokensPerExpertTensor.GetValue(expert_idx);
                     SyncFunc<AscendC::HardEvent::S_MTE3>();
                     const DataCopyExtParams expertRankTokendataCopyParams{1U, TEMP_BATCH_SIZE * sizeof(T), 0U, 0U, 0U};
                     DataCopyPad(expertRankTokenIdxGM_[expert_idx * MAX_BATCH_SIZE + preCount + count - TEMP_BATCH_SIZE],
