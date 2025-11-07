@@ -20,6 +20,7 @@ Supporting Software
 - PyTorch >= 2.5.1, torch-npu >= 2.5.1-7.0.0
 
 ## Quick Start
+DeepEP-Ascend supports both A2 and A3 and needs to generate packages separately on A2 and A3.
 ### Compile and Run
 1. Prepare the CANN environment variables (modify according to the installation path)
 ```bash
@@ -28,10 +29,16 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
 2. Build the project
 Before executing the engineering build script build.sh, modify `_ASCEND_INSTALL_PATH` on line 7 of build.sh according to the CANN installation path.
-```bash
-# Building Project
-bash build.sh
-```
+- A3
+    ```bash
+    # Building Project
+    bash build.sh -a deepep
+    ```
+- A2
+    ```bash
+    # Building Project
+    bash build.sh -a deepep2
+    ```
 
 ### Installation
 1. Pip install the `.whl` file into your Python environment
@@ -50,6 +57,19 @@ python -c "import deep_ep; print(deep_ep.__path__)"
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 ```
 3. In the Python project, import `deep_ep`.
+
+### Features
+1. The A2 `low_latency_dispatch` and `low_latency_combine` operators support two types of internal operators: non-hierarchical and hierarchical.
+
+    In the implementation of hierarchical operators, intra-node communication uses HCCS, while inter-node communication uses RDMA. In the implementation of non-hierarchical operators, both intra-node and inter-node communications use pure RDMA.
+
+    By default, the non-hierarchical operator is executed. If the environment variables `HCCL_INTRA_PCIE_ENABLE=1` and `HCCL_INTRA_ROCE_ENABLE=0` are configured, the hierarchical operator will be executed instead.
+
+    A3 has only a non-hierarchical kernel implementation. Intra-node and inter-node communication uses pure HCCS communication.
+
+2. In the A2 `dispatch_low_latency` **hierarchical** implementation, an additional parameter `topk_weights` needs to be passed. In addition, an extra 1D Tensor `expand_scales` with shape (A,) will be returned. `expand_scales` will replace `topk_weights` as the weight parameter for the internal kernel in `low_latency_combine`. A2 non-hierarchical kernels and A3 do not require passing topk_weights in dispatch.
+> - For shared experts, $A$ must satisfy the condition: $ A = Bs * epWorldSize *  sharedExpertNum / sharedExpertRankNum $.
+> - For MoE experts, when $globalBs$ is 0, $A$ must satisfy the condition: $A >= Bs * epWorldSize * min(localExpertNum, K)$; when $globalBs$ is not 0, A must > > satisfy the condition: $A >= globalBs * min(localExpertNum, K)$.
 
 ### Test
 Execute deepep-related test scripts
