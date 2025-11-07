@@ -133,39 +133,33 @@ def build_tree_efficient_native(
 
 
 def verify_tree_greedy_native(
-    candidates,
-    retrive_index,
-    retrive_next_token,
-    retrive_next_sibling,
-    target_predict,
-    accept_index,
-    accept_token_num,
-    predicts,
-    num_speculative_tokens,
-    topk,
+    predicts: torch.Tensor,
+    accept_index: torch.Tensor,
+    accept_token_num: torch.Tensor,
+    candidates: torch.Tensor,
+    retrive_index: torch.Tensor,
+    retrive_next_token: torch.Tensor,
+    retrive_next_sibling: torch.Tensor,
+    target_predict: torch.Tensor,
+    topk: int = -1,
 ):
     batch_size, num_draft_tokens = candidates.shape
 
     # Optimized common case for performance.
     if num_draft_tokens == 2 and accept_index.shape[1] == 2 and topk == 1:
-        global tensor_one
-        if tensor_one is None:
-            tensor_one = torch.tensor([1], device=candidates.device)
-
-        # Compare candidates with target_predict, update prediction result.
         comparison_result = candidates[:, 1] == target_predict[:, 0]
 
-        target_predict_view = target_predict[:, 1]
-        target_predict_view[~comparison_result] = 0
+        predicts = target_predict.flatten()
 
-        target_predict_flatten = target_predict.flatten()
-        predicts = torch.cat([target_predict_flatten, tensor_one])
-
-        # Update accept_index and accept_token_num based on the comparison result.
         accept_index = torch.arange(
-            0, num_draft_tokens * batch_size, device=candidates.device, dtype=torch.long
+            0,
+            num_draft_tokens * batch_size,
+            device=candidates.device,
+            dtype=torch.int32,
         ).reshape(batch_size, num_draft_tokens)
-        accept_index[~comparison_result, 1] = -1
+        comparison_result = comparison_result.to(torch.int64)
+        accept_index_mask = accept_index[:, 1] * comparison_result
+        accept_index[:, 1] = accept_index_mask - (1 - comparison_result)
 
         accept_token_num = comparison_result.int()
         return predicts, accept_index, accept_token_num
@@ -183,7 +177,7 @@ def verify_tree_greedy_native(
         num_accepted = 0
         cur_node = 0
 
-        for _ in range(1, num_speculative_tokens):
+        for _ in range(1, num_draft_tokens):
             cur_node = cur_next_token[cur_node]
             found = False
             while cur_node != -1:
