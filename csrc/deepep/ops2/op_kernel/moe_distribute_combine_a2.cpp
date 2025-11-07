@@ -1,6 +1,5 @@
 #include "kernel_operator.h"
 #include "moe_distribute_combine_a2_tiling.h"
-#include "moe_distribute_combine_a2.h"
 #include "moe_distribute_combine_a2_layered.h"
 #include <cstdio>
 
@@ -16,16 +15,7 @@ extern "C" __global__ __aicore__ void moe_distribute_combine_a2(
     REGISTER_TILING_DEFAULT(MoeDistributeCombineA2TilingData);
     TPipe pipe;
 #if (ORIG_DTYPE_EXPAND_X == DT_BF16 || ORIG_DTYPE_EXPAND_X == DT_FLOAT16)
-    if (TILING_KEY_IS(2000)) {
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineA2TilingData, tilingData, tilingGM);
-        auto tiling = (__gm__ MoeDistributeCombineA2TilingData *)tilingGM;
-        __gm__ void *mc2InitTiling = (__gm__ void *)(&(tiling->mc2InitTiling));
-        __gm__ void *mc2CcTiling = (__gm__ void *)(&(tiling->mc2CcTiling));
-        MoeDistributeCombineA2<DTYPE_EXPAND_X, int32_t> op;
-        op.Init(expandX, expertIds, expandIdx, epSendCount, scales, XOut, workspaceGM, &pipe, &tilingData,
-                mc2InitTiling, mc2CcTiling);
-        op.Process();
-    } else if (TILING_KEY_IS(3000)) {
+    if (TILING_KEY_IS(3000)) {
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineA2TilingData, tilingData, tilingGM);
         auto tiling = (__gm__ MoeDistributeCombineA2TilingData *)tilingGM;
         __gm__ void *mc2InitTiling = (__gm__ void *)(&(tiling->mc2InitTiling));
