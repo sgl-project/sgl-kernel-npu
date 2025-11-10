@@ -15,7 +15,6 @@ ENABLE_DIAGNOSE_LIST=("false" "true")
 
 SCRIPT="test_intranode.py"
 
-
 # 遍历所有组合
 for NUM_PROCESSES in "${NUM_PROCESSES_LIST[@]}"; do
   for NUM_TOKENS in "${NUM_TOKENS_LIST[@]}"; do
