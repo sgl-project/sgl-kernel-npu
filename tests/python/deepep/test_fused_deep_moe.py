@@ -257,7 +257,7 @@ def test(
     x = torch.rand((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * 10 - 5
 
     # ----- Routing(topk_idx) -----
-    if args.debug and args.active_ranks:
+    if args.active_ranks:
         try:
             active_ranks = [
                 int(r.strip()) for r in args.active_ranks.split(",") if r.strip()
@@ -292,7 +292,7 @@ def test(
         topk_idx = valid_experts[
             torch.randint(0, len(valid_experts), (num_tokens, num_topk), device="npu")
         ]
-        if args.debug and rank == 0:
+        if rank == 0:
             print(
                 f"[config] active_ranks={active_ranks}, valid_experts={len(valid_experts)}",
                 flush=True,
@@ -324,7 +324,7 @@ def test(
         w2_weight_scale.clone().detach(),
     )
 
-    if args.debug and rank == 0:
+    if rank == 0:
         print("=== Check fused weights ===")
         print("w13_f:", w13_f.shape, w13_f.dtype, w13_f.device)
         print("w13s_f:", w13s_f.shape, w13s_f.dtype, w13s_f.device)
@@ -338,8 +338,7 @@ def test(
         start, end = r * experts_per_rank, (r + 1) * experts_per_rank
         tokens_per_rank[r] = ((topk_idx >= start) & (topk_idx < end)).sum()
 
-    if args.debug:
-        print(f"[DEBUG] Tokens per rank: {tokens_per_rank}", flush=True)
+    print(f"[DEBUG] Tokens per rank: {tokens_per_rank}", flush=True)
 
     # ====== ensure topk_weights is defined (fix missing var) ======
     topk_weights = torch.randn(
@@ -376,33 +375,23 @@ def test(
             invalid_mask = topk_idx_dropped == -1
             topk_weights_dropped = topk_weights_dropped.masked_fill(invalid_mask, 0.0)
 
-            if args.debug:
-                print(
-                    f"[DEBUG] topk_idx_dropped (after random drop):\n{topk_idx_dropped.cpu().numpy()}",
-                    flush=True,
-                )
-                print(
-                    f"[DEBUG] topk_weights_dropped (after random drop):\n{topk_weights_dropped.cpu().numpy()}",
-                    flush=True,
-                )
-
         # Fixed column drop (for the test_topk_minus1 scenario)
         if args.topk_drop_col >= 0 and args.topk_drop_col < num_topk:
             topk_idx_dropped[:, args.topk_drop_col] = -1
             topk_weights_dropped[:, args.topk_drop_col] = 0
-            if args.debug:
-                print(
-                    f"[DEBUG] topk_idx_dropped (after fixed-column drop):\n{topk_idx_dropped.cpu().numpy()}",
-                    flush=True,
-                )
-                print(
-                    f"[DEBUG] topk_weights_dropped (after fixed-column drop):\n{topk_weights_dropped.cpu().numpy()}",
-                    flush=True,
-                )
+
+            print(
+                f"[DEBUG] [rank {rank}] topk_idx_dropped (after fixed-column drop):\n{topk_idx_dropped.cpu().numpy()}",
+                flush=True,
+            )
+            print(
+                f"[DEBUG] [rank {rank}] topk_weights_dropped (after fixed-column drop):\n{topk_weights_dropped.cpu().numpy()}",
+                flush=True,
+            )
 
         # print drop ratio
         drop_ratio = (topk_idx_dropped == -1).float().mean().item()
-        if args.debug and rank == 0:
+        if rank == 0:
             print(
                 f"[DEBUG] [rank {rank}] topk dropped ratio = {drop_ratio*100:.2f}%",
                 flush=True,
@@ -410,6 +399,20 @@ def test(
     else:
         topk_idx_dropped = topk_idx
         topk_weights_dropped = topk_weights
+
+    # Expert meta
+    num_tokens_per_expert = torch.zeros((num_experts,), dtype=torch.int, device="npu")
+    for i in range(num_experts):
+        num_tokens_per_expert[i] = (topk_idx_dropped == i).sum()
+    gbl_num_tokens_per_expert = num_tokens_per_expert.clone()
+    dist.all_reduce(gbl_num_tokens_per_expert, group=group)
+
+    print(f"[Rank {rank}] num_tokens_per_expert: {num_tokens_per_expert.tolist()}")
+    if rank == 0:
+        print(
+            f"[Rank {rank}] gbl_num_tokens_per_expert: {gbl_num_tokens_per_expert.tolist()}"
+        )
+    base_prefix_sum = num_tokens_per_expert.clone()
 
     # ----- Baseline -----
     baseline_output, base_ep_recv_count = baseline_test(
@@ -456,19 +459,49 @@ def test(
     assert avg_diff < 1e-4, f"[Rank {rank}] Mismatch detected! diff={avg_diff}"
 
     # ----- Compare Recv Count -----
-    if args.topk_drop_col < 0 and args.topk_drop_prob == 0.0:
-        recv_count_diff = (
-            from_inclusive_prefix_sum(base_ep_recv_count) - fused_ep_recv_count
-        ).abs()
-        max_recv_count_diff = recv_count_diff.max().item()
-        mean_recv_count_diff = recv_count_diff.mean().item()
+    global_base_prefix_sum = [
+        torch.zeros_like(base_prefix_sum) for _ in range(num_ranks)
+    ]
+    dist.all_gather(global_base_prefix_sum, base_prefix_sum)
+
+    global_base_prefix_sum = torch.stack(global_base_prefix_sum, dim=0)
+
+    if rank == 0:
         print(
-            f"[Rank {rank}] Difference between base and fused recv_count -> max: {max_recv_count_diff}, mean: {mean_recv_count_diff}",
-            flush=True,
+            f"[DEBUG] Global base_prefix_sum (before transpose):\n{global_base_prefix_sum}"
         )
-        assert (
-            max_recv_count_diff < 1e-4
-        ), f"[Rank {rank}] Mismatch detected! diff={max_recv_count_diff}"
+
+    transposed_base_prefix_sum = global_base_prefix_sum.T
+    if rank == 0:
+        print(f"[DEBUG] Transposed base_prefix_sum:\n{transposed_base_prefix_sum}")
+        print(f"[DEBUG] Transposed base_prefix_sum: {transposed_base_prefix_sum.shape}")
+
+    experts_per_rank = num_experts // dist.get_world_size()
+    start_expert = rank * experts_per_rank
+    end_expert = start_expert + experts_per_rank
+
+    # shape [experts_per_rank * num_ranks]
+    expected_recv = transposed_base_prefix_sum[start_expert:end_expert].reshape(-1)
+    fused_recv = fused_ep_recv_count
+
+    print(f"expected_recv: {expected_recv}")
+    print(f"fused_recv: {fused_recv}")
+
+    diff = (expected_recv - fused_recv).abs()
+    print(
+        f"[Rank {rank}] diff (experts {start_expert}~{end_expert-1}): {diff.cpu().numpy()}",
+        flush=True,
+    )
+
+    max_recv_count_diff = diff.max().item()
+    mean_recv_count_diff = diff.mean().item()
+    print(
+        f"[Rank {rank}] Difference between base and fused recv_count -> max: {max_recv_count_diff}, mean: {mean_recv_count_diff}",
+        flush=True,
+    )
+    assert (
+        max_recv_count_diff < 1e-4
+    ), f"[Rank {rank}] Mismatch detected! diff={max_recv_count_diff}"
 
 
 # ======================== Distributed Entry ========================
@@ -563,11 +596,6 @@ if __name__ == "__main__":
         type=int,
         default=-1,
         help="If >=0, drop this specific top-k column (set index to -1 for testing).",
-    )
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug logging.",
     )
 
     args = parser.parse_args()
