@@ -100,7 +100,7 @@ def swiglu_quant(x, group_list, group_list_type, need_quant=True):
         scale,
         TOTAL_COLS=h,
         HALF_COLS=h // 2,
-        COL_BLOCK_SIZE=1024,
+        COL_BLOCK_SIZE=1536,
         NUM_EXPERTS=num_experts,
         NUM_EXPERTS_ALGIN=num_experts_algin,
         GROUP_LIST_TYPE=group_list_type,

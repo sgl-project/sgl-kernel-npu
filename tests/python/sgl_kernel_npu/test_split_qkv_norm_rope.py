@@ -75,11 +75,11 @@ def test_split_qkv_norm_rope():
     cus_q = cus_q.view(bsz, -1)
     cus_k = cus_k.view(bsz, -1)
 
-    torch.allclose(q, cus_q, rtol=5e-3)
+    assert torch.allclose(q, cus_q, rtol=5e-3)
 
-    torch.allclose(k, cus_k, rtol=5e-3)
+    assert torch.allclose(k, cus_k, rtol=5e-3)
 
-    torch.allclose(v, _v, rtol=5e-3)
+    assert torch.allclose(v, _v, rtol=5e-3)
 
 
 if __name__ == "__main__":

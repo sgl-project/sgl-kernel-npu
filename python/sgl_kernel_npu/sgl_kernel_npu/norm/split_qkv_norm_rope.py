@@ -5,7 +5,7 @@ from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
 @triton.jit
-def split_qkv_norm_rope_kernel(
+def split_qkv_rmsnorm_rope_kernel(
     input_ptr,
     sin_ptr,
     cos_ptr,
@@ -114,7 +114,7 @@ def split_qkv_norm_rope_kernel(
 kernels = {}
 
 
-def split_qkv_norm_rope(
+def split_qkv_rmsnorm_rope(
     input,
     sin,
     cos,
@@ -144,7 +144,7 @@ def split_qkv_norm_rope(
 
     kernel = kernels.get((Q_BLOCK_SIZE, KV_BLOCK_SIZE), None)
     if kernel is None:
-        kernel = split_qkv_norm_rope_kernel.warmup(input, sin, cos, q_output, k_output, v_output,
+        kernel = split_qkv_rmsnorm_rope_kernel.warmup(input, sin, cos, q_output, k_output, v_output,
                     q_weight, q_bias, k_weight, k_bias, batch_size, q_hidden_size, kv_hidden_size,
                     total_hidden_size, eps, Q_BLOCK_SIZE, KV_BLOCK_SIZE, head_dim, head_dim // 2,
                     grid=(n_rows, n_cols,))
