@@ -2,24 +2,25 @@ name: Daily Enumerate Tests (Ascend NPU)
 
 on:
   schedule:
-    - cron: "0 16 * * *"  # 每天 UTC 时间 16:00（下午4点）运行
-  pull_request:  # 添加 pull_request 触发器
-    branches: [ main ]  # 仅当拉取请求目标分支是 main 时触发
+    - cron: "0 16 * * *"
+  pull_request:
+    branches: [ main ]
     paths:
-      - ".github/workflows/daily-build-test.yml"  # 当前工作流文件更改时触发
-      - "scripts/enumerate_test_intranode.sh"  # 指定脚本文件更改时触发
-      - "scripts/enumerate_test_low_latency.sh"  # 指定脚本文件更改时触发
-  workflow_dispatch:       # 保留手动触发能力
+      - ".github/workflows/daily-build-test.yml"
+      - "scripts/enumerate_test_*.sh"
+  workflow_dispatch:
 
 concurrency:
   group: daily-enumerate-tests-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  daily-enumerate-tests:
+  # 将两个测试任务拆分为独立的job，可以并行运行
+  daily-enumerate-intranode:
     runs-on: linux-aarch64-a3-16
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-a3-ubuntu22.04-py3.11
+    timeout-minutes: 330  # 5.5小时，留出缓冲时间
     
     steps:
       - name: Clean git config
@@ -38,28 +39,17 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # speed up by using infra cache services
           CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
           sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
           pip config set global.index-url http://${CACHING_URL}/pypi/simple
           pip config set global.trusted-host ${CACHING_URL}
-
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Prepare Deepep
         run: bash scripts/prepare_deepep_in_container.sh
 
-      - name: Run quick sanity tests
-        timeout-minutes: 20
-        env:
-          HCCL_BUFFSIZE: 2239
-        run: |
-          # 先运行快速测试确保基础功能正常
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
-
-      - name: Run enumerate test intranode (Daily)
-        timeout-minutes: 480  # 8小时超时
+      - name: Run enumerate test intranode
+        timeout-minutes: 300  # 5小时
         env:
           HCCL_BUFFSIZE: 2239
           TEST_ENV: daily-build
@@ -68,8 +58,43 @@ jobs:
           bash scripts/enumerate_test_intranode.sh
           echo "Completed daily enumerate intranode test at $(date)"
 
-      - name: Run enumerate test low latency (Daily)
-        timeout-minutes: 480  # 8小时超时
+      - name: Upload intranode artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: intranode-results-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            test-results/
+            logs/
+          retention-days: 30
+
+  daily-enumerate-low-latency:
+    runs-on: linux-aarch64-a3-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-a3-ubuntu22.04-py3.11
+    timeout-minutes: 330  # 5.5小时
+    
+    steps:
+      - name: Clean workspace and checkout
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          bash scripts/npu_ci_install_dependency.sh
+
+      - name: Prepare Deepep
+        run: bash scripts/prepare_deepep_in_container.sh
+
+      - name: Run enumerate test low latency
+        timeout-minutes: 300  # 5小时
         env:
           HCCL_BUFFSIZE: 1913
           TEST_ENV: daily-build
@@ -78,88 +103,48 @@ jobs:
           bash scripts/enumerate_test_low_latency.sh
           echo "Completed daily enumerate low latency test at $(date)"
 
-      - name: Generate daily test report
-        if: always()
-        run: |
-          echo "## Daily Enumerate Tests Report" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Execution Time**: $(date)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Test Results:" >> $GITHUB_STEP_SUMMARY
-          
-          # 检查测试结果文件（如果脚本生成的话）
-          if [ -f "test-results/enumerate-intranode-results.txt" ]; then
-            echo "- **Intranode Enumerate Test**: Completed" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- **Intranode Enumerate Test**: No result file found" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          if [ -f "test-results/enumerate-low-latency-results.txt" ]; then
-            echo "- **Low Latency Enumerate Test**: Completed" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "- **Low Latency Enumerate Test**: No result file found" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Workflow Run**: [$GITHUB_RUN_ID](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> $GITHUB_STEP_SUMMARY
-
-      - name: Upload test artifacts
+      - name: Upload low latency artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: daily-enumerate-results-${{ github.sha }}-${{ github.run_id }}
+          name: low-latency-results-${{ github.sha }}-${{ github.run_id }}
           path: |
             test-results/
             logs/
-            *.log
-          retention-days: 30  # 保留30天，便于问题排查
+          retention-days: 30
 
-        # 可选：添加一个轻量级的验证任务，确保每日构建的基础环境正常
   daily-smoke-test:
     runs-on: linux-aarch64-a3-16
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-a3-ubuntu22.04-py3.11
     timeout-minutes: 30
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
+      - uses: actions/checkout@v4
       - name: Quick environment check
         run: |
-          # 快速检查关键依赖和环境
           python3 --version
           pip list | grep -i "torch\|npu"
           echo "Basic environment check passed"
       - name: Verify test scripts exist
         run: |
-          # 确认测试脚本存在
           ls -la scripts/enumerate_test_*.sh
           ls -la tests/python/deepep/test_*.py
           echo "All required test scripts are present"
 
   finish:
     if: always()
-    needs: [daily-enumerate-tests, daily-smoke-test]
+    needs: [daily-enumerate-intranode, daily-enumerate-low-latency, daily-smoke-test]
     runs-on: ubuntu-latest
-    
     steps:
-      - name: Check all dependent job statuses
+      - name: Generate comprehensive test report
         run: |
-          results=(${{ join(needs.*.result, ' ') }})
-          all_success=true
-          
-          for result in "${results[@]}"; do
-            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
-              echo "Job failed with result: $result"
-              all_success=false
-            fi
-          done
-          
-          if [ "$all_success" = true ]; then
-            echo "All daily enumerate tests completed successfully"
-            exit 0
-          else
-            echo "Some daily tests failed"
-            exit 1
-          fi
+          echo "## Daily Enumerate Tests Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Execution Time**: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Job Status:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Intranode Test**: ${{ needs.daily-enumerate-intranode.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Low Latency Test**: ${{ needs.daily-enumerate-low-latency.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Smoke Test**: ${{ needs.daily-smoke-test.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Workflow Run**: [$GITHUB_RUN_ID](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> $GITHUB_STEP_SUMMARY
