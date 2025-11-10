@@ -170,7 +170,7 @@ def test_main(
             count, dtype=torch.long, device="npu"
         )
     token_idx_in_rank = token_idx_in_rank.T.contiguous().to(torch.int)
-    is_token_in_rank = token_idx_in_rank >= 0
+    is_token_in_rank = (token_idx_in_rank >= 0).to(torch.int)
     gbl_num_tokens_per_rank = num_tokens_per_rank.clone()
     dist.all_reduce(gbl_num_tokens_per_rank, group=group)
 
