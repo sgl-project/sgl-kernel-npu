@@ -105,7 +105,7 @@ const char *K_INNER_DEBUG = "CamHCommMoeDistributeDispatch Tiling Debug";
 const size_t MAX_GROUP_NAME_LENGTH = 128UL;
 const int64_t MAX_EP_WORLD_SIZE = 288;
 const int64_t MAX_TP_WORLD_SIZE = 2;
-const int64_t BS_UPPER_BOUND = 512;
+const int64_t BS_UPPER_BOUND = 4096;
 
 constexpr uint32_t SHARED_EXPERT_NUM = 1;
 constexpr uint64_t BUFF_NUM = 2;
