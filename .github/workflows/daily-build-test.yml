@@ -51,7 +51,7 @@ jobs:
       - name: Run enumerate test intranode
         timeout-minutes: 300  # 5小时
         env:
-          HCCL_BUFFSIZE: 2239
+          HCCL_BUFFSIZE: 4096
           TEST_ENV: daily-build
         run: |
           echo "Starting daily enumerate intranode test at $(date)"
