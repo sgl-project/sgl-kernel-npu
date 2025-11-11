@@ -105,7 +105,7 @@ const char *K_INNER_DEBUG = "CamHCommMoeDistributeDispatch Tiling Debug";
 const size_t MAX_GROUP_NAME_LENGTH = 128UL;
 const int64_t MAX_EP_WORLD_SIZE = 288;
 const int64_t MAX_TP_WORLD_SIZE = 2;
-const int64_t BS_UPPER_BOUND = 512;
+const int64_t BS_UPPER_BOUND = 4096;
 
 constexpr uint32_t SHARED_EXPERT_NUM = 1;
 constexpr uint64_t BUFF_NUM = 2;
@@ -898,7 +898,10 @@ static ge::graphStatus MoeDistributeDispatchA2CheckShapeAndSetTiling(const gert:
     auto quantModePtr = attrs->GetAttrPointer<int>(ATTR_QUANT_MODE_INDEX);
     OP_TILING_CHECK(h % BLOCK_SIZE_A2 != 0 || h <= 0 || h > MAX_HIDDEN_SIZE_A2,
                     OP_LOGE(K_INNER_DEBUG, "hiddensize is invalid."), return GRAPH_FAILED);
-    OP_TILING_CHECK(bs <= 0, OP_LOGE(K_INNER_DEBUG, "batchsize is invalid."), return GRAPH_FAILED);
+    OP_TILING_CHECK(
+        bs <= 0 || bs > BS_UPPER_BOUND,
+        OP_LOGE(K_INNER_DEBUG, "batchsize is invalid. bs: %u, should satisfy 0<bs<=%ld", bs, BS_UPPER_BOUND),
+        return GRAPH_FAILED);
     OP_TILING_CHECK(k <= 0 || k > MAX_K_VALUE_A2, OP_LOGE(K_INNER_DEBUG, "k is invalid."), return GRAPH_FAILED);
     OP_TILING_CHECK(*quantModePtr == UNQUANT_MODE && isScales,
                     OP_LOGE(K_INNER_DEBUG, "scales should be null when quantMode is unQuant."), return GRAPH_FAILED);

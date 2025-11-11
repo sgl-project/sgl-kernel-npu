@@ -67,7 +67,7 @@ constexpr uint32_t OP_TYPE_REDUCE_SCATTER = 7U;  // numeric representation of Al
 constexpr int32_t MAX_EP_WORLD_SIZE_A2 = 256;
 constexpr int32_t MAX_MOE_EXPERT_NUMS_A2 = 512;
 constexpr int32_t MAX_HIDDEN_SIZE_A2 = 7168;
-constexpr uint32_t MAX_BATCH_SIZE_LAYERED_A2 = 128;
+constexpr uint32_t MAX_BATCH_SIZE_LAYERED_A2 = 4096;
 constexpr uint32_t MAX_BATCH_SIZE_A2 = 256;
 constexpr uint32_t RANK_NUM_PER_NODE_A2 = 8;
 constexpr uint32_t BLOCK_SIZE_A2 = 32;
@@ -77,7 +77,7 @@ const char *K_INNER_DEBUG = "MoeDistributeCombine Tiling Debug";
 const size_t MAX_GROUP_NAME_LENGTH = 128UL;
 const int64_t MAX_EP_WORLD_SIZE = 288;
 const int64_t MAX_TP_WORLD_SIZE = 2;
-const int64_t BS_UPPER_BOUND = 512;
+const int64_t BS_UPPER_BOUND = 4096;
 
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
 constexpr int32_t HCCL_BUFFER_SIZE_DEFAULT = 200 * 1024 * 1024;  // Bytes
