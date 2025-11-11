@@ -35,10 +35,8 @@ def test_add_rmsnorm_bias():
     bias = torch.randn(hidden_size).to(torch.bfloat16).npu()
     res1, res2 = add_rmsnorm_bias(input, residual, weight, bias, 1e-6)
     ans1, ans2 = add_rmsnorm_bias_quant_golden(input, residual, weight, bias, 1e-6)
-    print(f'res1res1res1:{res1}')
-    print(f'ans1ans1ans1:{ans1}')
 
-    # assert torch.allclose(res1, ans1, rtol=5e-3)
+    assert torch.allclose(res1, ans1, rtol=5e-3)
 
     assert torch.allclose(res2, ans2, rtol=5e-3)
 
@@ -54,7 +52,7 @@ def test_add_rmsnorm_bias():
     ans1, ans2 = add_rmsnorm_bias_quant_golden(input, residual, weight, bias, 1e-6, quant_scale, quant_offset)
 
     diff = res1 - ans1
-    max_diff = max(diff)
+    max_diff = torch.max(torch.abs(diff))
     assert max_diff <= 1
 
     assert torch.allclose(res2, ans2, rtol=5e-3)
