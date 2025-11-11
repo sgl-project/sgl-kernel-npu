@@ -55,13 +55,9 @@ def write_req_to_token_pool_triton_npu(
 def write_cache_indices_npu(
     out_cache_loc: torch.Tensor,
     req_pool_indices_tensor: torch.Tensor,
-    req_pool_indices_cpu: torch.Tensor,
     prefix_lens_tensor: torch.Tensor,
-    prefix_lens_cpu: torch.Tensor,
     seq_lens_tensor: torch.Tensor,
-    seq_lens_cpu: torch.Tensor,
     extend_lens_tensor: torch.Tensor,
-    extend_lens_cpu: torch.Tensor,
     prefix_tensors: list[torch.Tensor],
     req_to_token_pool: ReqToTokenPool,
 ):
