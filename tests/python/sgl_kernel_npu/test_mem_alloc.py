@@ -1,5 +1,4 @@
 import torch
-from sglang.srt.mem_cache.memory_pool import ReqToTokenPool
 from sgl_kernel_npu.mem_cache import write_cache_indices
 
 def write_cache_indices_golden(
@@ -9,7 +8,7 @@ def write_cache_indices_golden(
     seq_lens: torch.Tensor,
     extend_lens: torch.Tensor,
     prefix_tensors: list[torch.Tensor],
-    req_to_token_pool: ReqToTokenPool,
+    req_to_token_tensor: torch.Tensor,
 ):
         pt = 0
         for i in range(req_pool_indices.shape[0]):
@@ -18,14 +17,9 @@ def write_cache_indices_golden(
             seq_len = seq_lens[i].item()
             extend_len = extend_lens[i].item()
 
-            req_to_token_pool.write(
-                (req_idx, slice(0, prefix_len)),
-                prefix_tensors[i],
-            )
-            req_to_token_pool.write(
-                (req_idx, slice(prefix_len, seq_len)),
-                out_cache_loc[pt : pt + extend_len],
-            )
+            req_to_token_tensor[(req_idx, slice(0, prefix_len))] = prefix_tensors[i]
+            req_to_token_tensor[(req_idx, slice(prefix_len, seq_len))] = out_cache_loc[pt : pt + extend_len]
+
             pt += extend_len
 
 def test_write_cache_indices():
