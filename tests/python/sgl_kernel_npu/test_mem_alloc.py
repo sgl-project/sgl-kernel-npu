@@ -38,8 +38,8 @@ def test_write_cache_indices():
     prefix_tensors = [torch.randint(256, (batch_size), dtype=torch.int64, device = "npu") for r in range(batch_size)]
     out_cache_loc = torch.arange(page_size*sum(extend_lens), device="npu").reshape(-1)
 
-    write_cache_indices(out_cache_loc, req_pool_indices, prefix_lens, seq_lens, extend_lens, prefix_tensors, req_to_token_tensor)
     write_cache_indices_golden(out_cache_loc, req_pool_indices, prefix_lens, seq_lens, extend_lens, prefix_tensors, req_to_token_tensor_ref)
+    write_cache_indices(out_cache_loc, req_pool_indices, prefix_lens, seq_lens, extend_lens, prefix_tensors, req_to_token_tensor)
     torch.testing.assert_close(req_to_token_tensor, req_to_token_tensor_ref, rtol=5e-3)
 
 if __name__ == "__main__":
