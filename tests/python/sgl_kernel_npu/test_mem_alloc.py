@@ -28,7 +28,7 @@ def test_write_cache_indices():
     content_len = 256
     page_size = 2
     req_to_token_tensor = torch.zeros((pool_size, context_len), dtype=torch.int32, device="npu")
-    req_to_token_tensor_ref = torch.zeros((pool_size, context_len), dtype=torch.int32, device="npu")
+    req_to_token_tensor_ref = torch.zeros((pool_size, content_len), dtype=torch.int32, device="npu")
     req_pool_indices = torch.tensor(torch.arange(page_size*batch_size, device=self.device).reshape(-1), dtype=torch.int64, device = "npu")
 
     prefix_lens = torch.randint(16, (batch_size), dtype=torch.int64, device = "npu")
