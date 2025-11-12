@@ -2,8 +2,6 @@ import torch
 import triton
 import triton.language as tl
 
-from sglang.srt.mem_cache.memory_pool import ReqToTokenPool
-
 @triton.jit
 def write_req_to_token_pool_triton_npu(
     req_to_token_ptr,  # [max_batch, max_context_len]
@@ -59,21 +57,21 @@ def write_cache_indices_npu(
     seq_lens_tensor: torch.Tensor,
     extend_lens_tensor: torch.Tensor,
     prefix_tensors: list[torch.Tensor],
-    req_to_token_pool: ReqToTokenPool,
+    req_to_token_tensor: torch.Tensor,
 ):
     prefix_pointers = torch.tensor(
         [t.data_ptr() for t in prefix_tensors],
-        device=req_to_token_pool.device,
+        device=req_to_token_tensor.device,
         dtype=torch.uint64,
     )
     # TODO: some tensors can be reused for ForwardBatchInfo (e.g., extend_lens, cumsum_start)
     write_req_to_token_pool_triton_npu[(req_pool_indices_tensor.shape[0],)](
-        req_to_token_pool.req_to_token,
+        req_to_token_tensor,
         req_pool_indices_tensor,
         prefix_pointers,
         prefix_lens_tensor,
         seq_lens_tensor,
         extend_lens_tensor,
         out_cache_loc,
-        req_to_token_pool.req_to_token.shape[1],
+        req_to_token_tensor.shape[1],
     )
