@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 
 import setuptools
@@ -36,16 +37,75 @@ class BinaryDistribution(Distribution):
         return True
 
 
-try:
-    cmd = ["git", "rev-parse", f"--short=8", "HEAD"]
-    revision = "+" + subprocess.check_output(cmd).strip().decode("utf-8")
-except Exception as _:
-    revision = ""
-print(f"revision: {revision}")
+def get_git_revision():
+    """
+    Get the short (8 characters) hash value of the current Git repository
+    Returns:
+        str: A string with a '+' prefix and an 8-character hash value, or an empty string if retrieval fails
+    """
+    try:
+        cmd = ["git", "rev-parse", "--short=8", "HEAD"]
+        revision = "+" + subprocess.check_output(cmd).strip().decode("utf-8")
+    except Exception:
+        revision = ""
+    return revision
+
+
+def get_cann_version():
+    """
+    Get the CANN version information of the current environment
+    Returns:
+        str: CANN version string, format like 'cann.8.2.rc1.b231'
+             Returns an empty string if retrieval fails
+    """
+    try:
+        ascend_home = os.getenv("ASCEND_TOOLKIT_HOME", "")
+        if not ascend_home:
+            return ""
+
+        arch = subprocess.check_output(["uname", "-m"]).decode().strip()
+        arch = arch.lower()
+
+        info_file = os.path.join(
+            ascend_home, f"{arch}-linux", "ascend_toolkit_install.info"
+        )
+        if not os.path.exists(info_file):
+            return ""
+
+        with open(info_file, "r") as f:
+            lines = f.readlines()
+
+        version = ""
+        b_version = ""
+        for line in lines:
+            line = line.strip()
+            if line.startswith("version="):
+                version = line.split("=")[1]
+            elif line.startswith("innerversion="):
+                match = re.search(r"[Bb](\d+)", line)
+                if match:
+                    b_version = match.group(1)
+
+        if version and b_version:
+            version = version.lower()
+            b_version = b_version.lower()
+            return f".cann.{version}.b{b_version}"
+        return ""
+
+    except Exception:
+        return ""
+
+
+git_rev = get_git_revision()
+cann_ver = get_cann_version()
+
+version_suffix = (
+    git_rev if git_rev else ("+" + cann_ver.lstrip(".") if cann_ver else "")
+)
 
 setuptools.setup(
     name="deep_ep",
-    version=current_version + revision,
+    version=current_version + version_suffix,
     author="",
     author_email="",
     description="python api for deep_ep",
