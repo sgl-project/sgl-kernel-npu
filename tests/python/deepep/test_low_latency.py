@@ -271,7 +271,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     num_topk, num_experts = args.num_topk, args.num_experts
     use_experts = num_experts if shared_expert_rank_num == 0 else (num_experts - 1)
     use_ranks = num_ranks - shared_expert_rank_num
-    drop_precent = args.drop_percent
+    drop_percent = args.drop_percent
     num_rdma_bytes = Buffer.get_low_latency_rdma_size_hint(
         num_tokens, hidden, num_ranks, num_experts
     )
@@ -291,7 +291,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         use_ranks,
         group,
         buffer,
-        drop_precent,
+        drop_percent,
         seed=1,
     )
 
@@ -308,7 +308,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
             use_ranks,
             group,
             buffer,
-            drop_precent,
+            drop_percent,
             seed=seed,
         )
         for i in range(20):
@@ -322,7 +322,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
                     use_ranks,
                     group,
                     buffer,
-                    drop_precent,
+                    drop_percent,
                     seed=seed,
                 )
                 == ref_hash
