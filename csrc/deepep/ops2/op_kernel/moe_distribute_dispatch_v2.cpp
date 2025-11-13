@@ -22,6 +22,8 @@
 #include "moe_distribute_dispatch_v2_tiling.h"
 #include "moe_distribute_dispatch_v2.h"
 #include "moe_distribute_dispatch_v2_layered.h"
+#include "moe_distribute_dispatch_v2_single.h"
+#include <cstdio>
 
 using namespace AscendC;
 using namespace MoeDistributeDispatchA2Impl;
@@ -60,6 +62,13 @@ extern "C" __global__ __aicore__ void moe_distribute_dispatch_v2(
         } else {
             assert(false, "The driver version is too low and does not support layered mode.\n");
         }
+    } else if (TILING_KEY_IS(2000011000)) {  // single server
+        printf("====enter dispatch single...\n");
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchV2Single<DTYPE_X, DTYPE_EXPAND_X, false, false, false, false, false> op;
+        op.Init(x, expertIds, scales, xActiveMask, expandXOut, dynamicScalesOut, assistInfoOut, expertTokenNumsOut,
+                epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, tilingGM);
+        op.Process();
     }
 #elif (ORIG_DTYPE_EXPAND_X == DT_INT8)
     if (TILING_KEY_IS(2000001002)) {
@@ -98,6 +107,13 @@ extern "C" __global__ __aicore__ void moe_distribute_dispatch_v2(
         } else {
             assert(false, "The driver version is too low and does not support layered mode.\n");
         }
+    } else if (TILING_KEY_IS(2000011002)) {  // single server + quant
+        printf("====enter dispatch single quant...\n");
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchV2Single<DTYPE_X, DTYPE_EXPAND_X, false, true, false, false, false> op;
+        op.Init(x, expertIds, scales, xActiveMask, expandXOut, dynamicScalesOut, assistInfoOut, expertTokenNumsOut,
+                epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, tilingGM);
+        op.Process();
     }
 #endif
 }
