@@ -29,14 +29,14 @@ def test_write_cache_indices():
     page_size = 2
     req_to_token_tensor = torch.zeros((pool_size, content_len), dtype=torch.int32, device="npu")
     req_to_token_tensor_ref = torch.zeros((pool_size, content_len), dtype=torch.int32, device="npu")
-    req_pool_indices = torch.tensor(torch.arange(page_size*batch_size, dtype=torch.int64, device = "npu").reshape(-1))
 
-    prefix_lens = torch.randint(16, (batch_size), dtype=torch.int64, device = "npu")
-    extend_lens = torch.randint(16, (batch_size), dtype=torch.int64, device = "npu")
-    seq_lens = prefix_lens + extended_lens
+    req_pool_indices = torch.randint(pool_size, (batch_size,), dtype=torch.int64, device = "npu").reshape(-1)
+    prefix_lens = torch.randint(16, (batch_size,), dtype=torch.int64, device = "npu")
+    extend_lens = torch.randint(16, (batch_size,), dtype=torch.int64, device = "npu")
+    seq_lens = prefix_lens + extend_lens
 
-    prefix_tensors = [torch.randint(256, (batch_size), dtype=torch.int64, device = "npu") for r in range(batch_size)]
-    out_cache_loc = torch.arange(page_size*sum(extend_lens), device="npu").reshape(-1)
+    prefix_tensors = [torch.randint(256, (r,), dtype=torch.int64, device = "npu") for r in prefix_lens]
+    out_cache_loc = torch.arange(sum(extend_lens), device="npu").reshape(-1)
 
     write_cache_indices_golden(out_cache_loc, req_pool_indices, prefix_lens, seq_lens, extend_lens, prefix_tensors, req_to_token_tensor_ref)
     write_cache_indices(out_cache_loc, req_pool_indices, prefix_lens, seq_lens, extend_lens, prefix_tensors, req_to_token_tensor)
