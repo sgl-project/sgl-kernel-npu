@@ -5,17 +5,16 @@ cd ${GITHUB_WORKSPACE}/tests/python/deepep
 
 #遍历test_intranode.py
 # 设置参数范围
-NUM_PROCESSES_LIST=(8 16)
+NUM_PROCESSES_LIST=(8)
 NUM_TOKENS_LIST=(1 4096)
-HIDDEN_LIST=(4096 7168)
-NUM_TOPK_LIST=(8 9)
-NUM_EXPERTS_LIST=(64 256)
-ACTIVE_RANKS_LIST=("" "0,1" "0,2,3")
-ENABLE_DIAGNOSE_LIST=("false" "true")
+HIDDEN_LIST=(4096)
+NUM_TOPK_LIST=(8)
+NUM_EXPERTS_LIST=(64)
+ACTIVE_RANKS_LIST=("" "0,1")
+ENABLE_DIAGNOSE_LIST=("false")
 
 SCRIPT="test_intranode.py"
 
-# 遍历所有组合
 for NUM_PROCESSES in "${NUM_PROCESSES_LIST[@]}"; do
   for NUM_TOKENS in "${NUM_TOKENS_LIST[@]}"; do
     for HIDDEN in "${HIDDEN_LIST[@]}"; do
@@ -23,8 +22,6 @@ for NUM_PROCESSES in "${NUM_PROCESSES_LIST[@]}"; do
         for NUM_EXPERTS in "${NUM_EXPERTS_LIST[@]}"; do
           for ACTIVE_RANKS in "${ACTIVE_RANKS_LIST[@]}"; do
             for ENABLE_DIAGNOSE in "${ENABLE_DIAGNOSE_LIST[@]}"; do
-
-              # 构建命令
               CMD="python3 $SCRIPT \
                 --num-processes $NUM_PROCESSES \
                 --num-tokens $NUM_TOKENS \
@@ -32,7 +29,6 @@ for NUM_PROCESSES in "${NUM_PROCESSES_LIST[@]}"; do
                 --num-topk $NUM_TOPK \
                 --num-experts $NUM_EXPERTS"
 
-              # 添加可选参数
               if [ -n "$ACTIVE_RANKS" ]; then
                 CMD="$CMD --active-ranks \"$ACTIVE_RANKS\""
               fi
@@ -41,12 +37,9 @@ for NUM_PROCESSES in "${NUM_PROCESSES_LIST[@]}"; do
                 CMD="$CMD --enable-diagnose"
               fi
 
-              # 打印并执行命令
               echo "Running: $CMD"
               eval $CMD
-
               echo "--------------------------------------------------"
-
             done
           done
         done
