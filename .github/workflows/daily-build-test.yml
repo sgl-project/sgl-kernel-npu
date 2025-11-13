@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # 将两个测试任务拆分为独立的job，可以并行运行
-  daily-enumerate-intranode:
+  # 将测试任务拆分为独立的job，可以并行运行
+  daily-enumerate-intranode_part_one:
     runs-on: linux-aarch64-a3-16
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-a3-ubuntu22.04-py3.11
@@ -55,7 +55,59 @@ jobs:
           TEST_ENV: daily-build
         run: |
           echo "Starting daily enumerate intranode test at $(date)"
-          bash scripts/enumerate_test_intranode.sh
+          bash scripts/enumerate_test_intranode_part_one.sh
+          echo "Completed daily enumerate intranode test at $(date)"
+
+      - name: Upload intranode artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: intranode-results-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            test-results/
+            logs/
+          retention-days: 30
+
+  daily-enumerate-intranode_part_two:
+    runs-on: linux-aarch64-a3-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-a3-ubuntu22.04-py3.11
+    timeout-minutes: 350  # 5小时50分钟，留出缓冲时间
+    
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          bash scripts/npu_ci_install_dependency.sh
+
+      - name: Prepare Deepep
+        run: bash scripts/prepare_deepep_in_container.sh
+
+      - name: Run enumerate test intranode
+        timeout-minutes: 340  # 5小时 40分钟
+        env:
+          HCCL_BUFFSIZE: 4096
+          TEST_ENV: daily-build
+        run: |
+          echo "Starting daily enumerate intranode test at $(date)"
+          bash scripts/enumerate_test_intranode_part_two.sh
           echo "Completed daily enumerate intranode test at $(date)"
 
       - name: Upload intranode artifacts
