@@ -797,6 +797,24 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     auto packed_recv_count = at::empty({num_local_experts}, at::dtype(at::kLong).device(device));
     at::Tensor scales;
     at::Tensor activate_mask;
+    int enable_neg_one = get_value_from_env("MOE_ENABLE_TOPK_NEG_ONE", 0);
+    int64_t quant_mode = use_fp8 ? 2 : 0;
+    int64_t tp_size = 1;
+    int64_t tp_rank = 0;
+    int64_t expert_shard_type = 0;
+    int outType = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
+    int64_t expert_token_nums_type = outType;
+
+    // get ep & tp name
+    char hcom_ep_name[HCOMM_NAME_LEN];
+    if (!moe_all_to_all_group_name.empty()) {
+        std::memcpy(hcom_ep_name, moe_all_to_all_group_name.data(), moe_all_to_all_group_name.size() + 1);
+    } else {
+        HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
+    }
+    char hcom_tp_name[HCOMM_NAME_LEN] = {0};
+    // Wait streams
+    std::optional<EventHandle> event;
 
     if (soc_version == op::SocVersion::ASCEND910B) {
         const char *hcclIntraPcieEnable = getenv("HCCL_INTRA_PCIE_ENABLE");
@@ -824,25 +842,36 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
             expand_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
             activate_mask = (new_topk_idx >= 0).to(torch::kBool);
         }
+    } else if (enable_neg_one) {
+        activate_mask = (new_topk_idx >= 0).to(torch::kBool);
+        char comm_alg[] = "fullmesh_v1";
+        EXEC_NPU_CMD(aclnnMoeDistributeDispatchNegOne, new_x, new_topk_idx,
+                     scales,         // smooth scales,
+                     activate_mask,  // activateMask
+                     expert_scales,  // expert_scales
+                     hcom_ep_name,   // ep
+                     num_ranks,      // rankSize
+                     rank,           // rankId
+                     num_experts,
+                     hcom_tp_name,            // tp
+                     tp_size,                 // tp_size
+                     tp_rank,                 // tp_rank
+                     expert_shard_type,       // expert_shard_type
+                     shared_expert_num,       // shared_expert_num
+                     shared_expert_rank_num,  // shared_expert_rank_num
+                     quant_mode,
+                     global_bs,               // global_bs
+                     expert_token_nums_type,  // expert_token_nums_type
+                     comm_alg, packed_recv_x,
+                     packed_recv_x_scales,  // dynamicScalesOut
+                     expandIdx,
+                     packed_recv_count,  // expertTokenNumsOut
+                     ep_recv_count, tp_recv_count, expand_scales);
+        return {packed_recv_x, packed_recv_x_scales,        packed_recv_count, expandIdx, ep_recv_count, expand_scales,
+                event,         std::function<void()>([] {})};
     }
 
-    int64_t quant_mode = use_fp8 ? 2 : 0;
-    int64_t tp_size = 1;
-    int64_t tp_rank = 0;
-    int64_t expert_shard_type = 0;
-    int outType = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
-    int64_t expert_token_nums_type = outType;
-
-    // get ep & tp name
-    char hcom_ep_name[HCOMM_NAME_LEN];
-    if (!moe_all_to_all_group_name.empty()) {
-        std::memcpy(hcom_ep_name, moe_all_to_all_group_name.data(), moe_all_to_all_group_name.size() + 1);
-    } else {
-        HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
-    }
-    char hcom_tp_name[HCOMM_NAME_LEN] = {0};
     char comm_alg[] = "fullmesh";
-
     EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2, new_x, new_topk_idx,
                  scales,         // smooth scales,
                  activate_mask,  // activateMask
@@ -865,9 +894,6 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
                  expandIdx,
                  packed_recv_count,  // expertTokenNumsOut
                  ep_recv_count, tp_recv_count, expand_scales);
-
-    // Wait streams
-    std::optional<EventHandle> event;
 
     // Return values
     return {packed_recv_x, packed_recv_x_scales,        packed_recv_count, expandIdx, ep_recv_count, expand_scales,
@@ -917,9 +943,7 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     at::Tensor tp_send_counts = at::empty({1}, at::dtype(at::kInt).device(device));
     at::Tensor activation_scale, weight_scale, group_list;
     at::Tensor x_active_mask;
-    if (soc_version == op::SocVersion::ASCEND910B) {
-        x_active_mask = (new_topk_idx >= 0).to(torch::kBool);
-    }
+    int enable_neg_one = get_value_from_env("MOE_ENABLE_TOPK_NEG_ONE", 0);
     int64_t tp_world_size = 1;
     int64_t tp_rankId = 0;
     int64_t expert_shared_type = 0;
@@ -933,6 +957,26 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     at::Tensor shared_expert_x{nullptr};
     at::Tensor combined_x = at::empty({num_combined_tokens, hidden}, x.options());
     std::optional<EventHandle> event;
+    if (soc_version == op::SocVersion::ASCEND910B) {
+        x_active_mask = (new_topk_idx >= 0).to(torch::kBool);
+    } else if (enable_neg_one) {
+        x_active_mask = (new_topk_idx >= 0).to(torch::kBool);
+        char comm_alg[] = "fullmesh_v1";
+        EXEC_NPU_CMD(aclnnMoeDistributeCombineNegOne, expand_x, expert_ids, expand_idx, ep_send_counts, expert_scales,
+                     tp_send_counts, x_active_mask, activation_scale, weight_scale, group_list, expand_scales,
+                     shared_expert_x, hcom_ep_name, num_ranks, rank, num_experts, hcom_tp_name, tp_world_size,
+                     tp_rankId, expert_shared_type, shared_expert_num, shared_expert_rank_num, global_bs, out_dtype,
+                     comm_quant_mode, group_list_type, comm_alg, combined_x);
+        if (this->is_padding) {
+            if (this->padding_cnt == PADDING_SIZE) {
+                combined_x = this->ori_x;
+            } else {
+                combined_x = combined_x.slice(0, 0, PADDING_SIZE - this->padding_cnt);
+            }
+            is_padding = false;
+        }
+        return {combined_x, event, std::function<void()>([] {})};
+    }
     char comm_alg[] = "fullmesh";
 
     EXEC_NPU_CMD(aclnnMoeDistributeCombineV2, expand_x, expert_ids, expand_idx, ep_send_counts, expert_scales,

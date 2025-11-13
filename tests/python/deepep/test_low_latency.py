@@ -28,6 +28,7 @@ def test(
     num_ranks: int,
     group: dist.ProcessGroup,
     buffer: Buffer,
+    drop_percent: float,
     seed: int = 0,
 ):
     torch.manual_seed(seed + rank)
@@ -51,6 +52,16 @@ def test(
         + 1
     )
     topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=True)[1]
+    if drop_percent > 0:
+        enable_neg_one = int(os.getenv("MOE_ENABLE_TOPK_NEG_ONE", 0))
+        if enable_neg_one == 0:
+            print(
+                "[ERROR] The kernel can't support drop_percent larger than 0 when MOE_ENABLE_TOPK_NEG_ONE was"
+                "unset or 0. Please set to 1 and try again"
+            )
+            assert enable_neg_one == 1
+        drop_mask = torch.rand_like(topk_idx, dtype=torch.float32) < drop_percent
+        topk_idx = topk_idx.masked_fill(drop_mask, -1)
     topk_weights = torch.randn(
         (num_tokens, num_topk), dtype=torch.float32, device="npu"
     ).abs()
@@ -213,10 +224,15 @@ def test(
     # Separate profiling
     # return_recv_hook=True is not supported now
     for return_recv_hook in (False,):
+        enable_neg_one = int(os.getenv("MOE_ENABLE_TOPK_NEG_ONE", 0))
+        if enable_neg_one:
+            kernel_names = ("MoeDistributeDispatchNegOne", "MoeDistributeCombineNegOne")
+        else:
+            kernel_names = ("MoeDistributeDispatchV2", "MoeDistributeCombineV2")
         dist.barrier()
         dispatch_t, combine_t = bench_kineto(
             partial(test_func, zero_copy=False, return_recv_hook=return_recv_hook),
-            kernel_names=("MoeDistributeDispatchV2", "MoeDistributeCombineV2"),
+            kernel_names=kernel_names,
             barrier_comm_profiling=True,
             suppress_kineto_output=True,
             num_kernels_per_period=2 if return_recv_hook else 1,
@@ -255,6 +271,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     num_topk, num_experts = args.num_topk, args.num_experts
     use_experts = num_experts if shared_expert_rank_num == 0 else (num_experts - 1)
     use_ranks = num_ranks - shared_expert_rank_num
+    drop_precent = args.drop_percent
     num_rdma_bytes = Buffer.get_low_latency_rdma_size_hint(
         num_tokens, hidden, num_ranks, num_experts
     )
@@ -274,6 +291,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         use_ranks,
         group,
         buffer,
+        drop_precent,
         seed=1,
     )
 
@@ -290,6 +308,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
             use_ranks,
             group,
             buffer,
+            drop_precent,
             seed=seed,
         )
         for i in range(20):
@@ -303,6 +322,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
                     use_ranks,
                     group,
                     buffer,
+                    drop_precent,
                     seed=seed,
                 )
                 == ref_hash
@@ -333,6 +353,12 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--pressure-test", action="store_true", help="Whether to do pressure test"
+    )
+    parser.add_argument(
+        "--drop-percent",
+        type=float,
+        default=0.0,
+        help="Percentage of dropping an individual top-k index (set to -1). ",
     )
     args = parser.parse_args()
 
