@@ -268,7 +268,7 @@ __aicore__ inline void CamMoeDistributeDispatch<TemplateDispatchTypeFunc>::Init(
     statusSpaceGm_ = GetWindStateAddrByRankId(COMM_EP_IDX, epRankId_);
     tpGatherRankId_ = tpRankId_ == 0 ? 1 : 0;
     axisK_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.k;
-    aivNum_ = 48;
+    aivNum_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.aivNum;
     tpWorldSize_ = 1;
     xGMTensor_.SetGlobalBuffer((__gm__ XType *)x);
     expertIdsGMTensor_.SetGlobalBuffer((__gm__ int32_t *)expertIds);

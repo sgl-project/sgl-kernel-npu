@@ -267,7 +267,11 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::Init(
     axisBS_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.bs;
     axisH_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.h;
     axisK_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.k;
-    aivNum_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.aivNum;
+    if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
+        aivNum_ = get_block_num();
+    } else {
+        aivNum_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.aivNum;
+    }
     ubSize_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.totalUbSize;
     sharedExpertRankNum_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.sharedExpertRankNum;
     moeExpertNum_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.moeExpertNum;

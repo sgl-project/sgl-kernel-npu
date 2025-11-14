@@ -31,12 +31,9 @@ constexpr uint32_t UB_ALIGN = 32;
 constexpr uint32_t TOKEN_EXTRA_SPACE = 512;
 constexpr uint32_t INT32_COUNT_PER_BLOCK = 8;
 constexpr uint32_t SOFT_SYNC_SPACE_SIZE = 512;
-constexpr uint32_t COMP_AIV_CORE_NUM = 24;  // 24 AIV 做deq-swiglu计算，当前不支持自己调整
-constexpr uint32_t SEND_AIV_CORE_NUM = 48;  // 单卡单专家时全部核发送/接收，多专家时砍半
-constexpr uint32_t RECV_AIV_CORE_NUM = 48;  // 单卡单专家时全部核发送/接收，多专家时砍半
-constexpr int64_t LOOP_TMP_SIZE = 4096;     // 计算地址偏移优化使用空间
-constexpr int32_t SUB_AIV_NUM = 2;          // 1C配2V，即1个cube搭配两个vector
-constexpr int32_t ODD_EVEN_BASE = 2;        // 判断奇偶的基数
+constexpr int64_t LOOP_TMP_SIZE = 4096;  // 计算地址偏移优化使用空间
+constexpr int32_t SUB_AIV_NUM = 2;       // 1C配2V，即1个cube搭配两个vector
+constexpr int32_t ODD_EVEN_BASE = 2;     // 判断奇偶的基数
 constexpr int32_t BUFFER_NUM = 2;
 constexpr int32_t GATHER_SECOND_NUM = 2;
 constexpr uint32_t MAX_QUANT_ROW_ONCE = 8;
@@ -60,8 +57,6 @@ constexpr uint32_t QUANT_SPACE_FACTOR = 176 * 1024 / 11;  // 量化使用UB不�
 #define TOKEN_FLAG_2 (0x33333333)
 #define V_TO_C_FLAG_1 (0x03030303)
 #define V_TO_C_FLAG_2 (0x05050505)
-#define AIC_STATE_SPACE_IDNEX (48)
-#define AIV_STATE_SPACE_IDNEX (72)
 #define CV_FLAG_INDEX 0
 #define GROUP_ID_INDEX 1
 #define PRE_COUNT_INDEX 2
@@ -503,15 +498,16 @@ public:
         subBlockNum = AscendC::GetSubBlockNum();
         aiCoreGroupNum = AscendC::GetBlockNum();
         aicNum = aiCoreGroupNum;
-        aicStateGlobalCoreIdx = AIC_STATE_SPACE_IDNEX + aicIdx;
+        aivNum = aiCoreGroupNum * SUB_AIV_NUM;
+        aicStateGlobalCoreIdx = aivNum + aicIdx;
         moeExpertNumPerRank = params.moeExpertNumPerRank;
         isShareExpert = (params.epRankId < params.sharedExpertRankNum);
         localExpertNum = isShareExpert ? 1 : moeExpertNumPerRank;
-        // 单卡单专家48发48收
-        recvCoreNum = RECV_AIV_CORE_NUM;
-        // 单卡多专家24收24发
+        // 单卡单专家所有核先发再收（当前走浅融合，不走这里）
+        recvCoreNum = aivNum;
+        // 单卡多专家一半发一半收
         if (localExpertNum > 1) {
-            recvCoreNum = RECV_AIV_CORE_NUM / SUB_AIV_NUM;
+            recvCoreNum = aiCoreGroupNum;
         }
         uint32_t coreNumPerGroup = recvCoreNum / localExpertNum;  // 这里假设可以整除
         winContext_ = (__gm__ HcclOpResParam *)AscendC::GetHcclContext<AscendC::HCCL_GROUP_ID_0>();
@@ -558,7 +554,7 @@ public:
         uint32_t startCoreIdx = 0;
         AscendC::GlobalTensor<int32_t> groupTokenNumStateTensor;
         aicSetFunc1 = {statusDataSpaceGm + SOFT_SYNC_OFFSET,
-                       static_cast<uint8_t>(aicNum + AscendC::GetBlockIdx())};  // AIV等待的信息在24~48
+                       static_cast<uint8_t>(aicNum + AscendC::GetBlockIdx())};  // AIV等待的信息在后一半
         uint32_t target = 1;
         for (uint32_t groupIdx = 0; groupIdx < localExpertNum; ++groupIdx) {
             groupTokenNumStateTensor.SetGlobalBuffer((__gm__ int32_t *)(statusDataSpaceGm + GROUP_TOKEN_NUM_OFFSET) +
@@ -1333,8 +1329,8 @@ void CompCoreFunc(GM_ADDR gmCVSwapBuff, __gm__ ElementScale *gmScale, __gm__ Ele
                 int64_t gmOffsetC = layoutC.GetOffset(offsetC);
                 auto gmBlockC = gmC[gmOffsetC];
                 auto layoutBlockC = layoutC.GetTileLayout(actualBlockShapeMNK.GetCoordMN());
-                CheckSyncFlag(statusDataSpaceGm + SOFT_SYNC_OFFSET,
-                              static_cast<uint8_t>(COMP_AIV_CORE_NUM + compCoreIdx), target);  // AIV等待的信号在24~48
+                CheckSyncFlag(statusDataSpaceGm + SOFT_SYNC_OFFSET, static_cast<uint8_t>(compCoreNum + compCoreIdx),
+                              target);  // AIV等待的信号在后一半
                 target += 1;
                 blockEpilogue(blockShapeMNK, blockCoordMNK, actualBlockShapeMNK, gmBlockC, layoutBlockC);
                 EncreaseSyncFlag(statusDataSpaceGm + SOFT_SYNC_OFFSET, static_cast<uint8_t>(compCoreIdx));
@@ -1358,7 +1354,7 @@ void CompCoreFunc(GM_ADDR gmCVSwapBuff, __gm__ ElementScale *gmScale, __gm__ Ele
     AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(0);
     AscendC::DataCopy(softSyncTensor[compCoreIdx * SOFT_SYNC_SPACE_SIZE / sizeof(int32_t)], tmpZeroLocalTensor,
                       INT32_COUNT_PER_BLOCK);
-    AscendC::DataCopy(softSyncTensor[(compCoreIdx + COMP_AIV_CORE_NUM) * SOFT_SYNC_SPACE_SIZE / sizeof(int32_t)],
+    AscendC::DataCopy(softSyncTensor[(compCoreIdx + compCoreNum) * SOFT_SYNC_SPACE_SIZE / sizeof(int32_t)],
                       tmpZeroLocalTensor, INT32_COUNT_PER_BLOCK);
 }
 
@@ -1366,21 +1362,23 @@ ACT_DEVICE
 void AivInitParams(Params const &params)
 {
     aiCoreGroupNum = AscendC::GetBlockNum();
-    subBlockNum = AscendC::GetSubBlockNum();
+    subBlockNum = AscendC::GetSubBlockNum();  // 固定1C2V
+    aicNum = aiCoreGroupNum;
+    aivNum = aiCoreGroupNum * subBlockNum;
     aivIdx = AscendC::GetBlockIdx();
     aiCoreGroupIdx = aivIdx / subBlockNum;
-    aivStateGlobalCoreIdx = AIV_STATE_SPACE_IDNEX + aivIdx;
+    aivStateGlobalCoreIdx = aivNum + aicNum + aivIdx;
 
-    isCompCore = (aivIdx % SUB_AIV_NUM) == 0;  // 偶数核做计算
-    compCoreNum = COMP_AIV_CORE_NUM;
+    isCompCore = (aivIdx % subBlockNum) == 0;  // 偶数核做计算
+    compCoreNum = aiCoreGroupNum;
     compCoreIdx = aiCoreGroupIdx;
-    // 单卡单专家48发48收
+    // 单卡单专家所有核先发再收（当前走浅融合，不走这里）
     isRecvCore = true;
     isSendCore = true;
     recvCoreIdx = aivIdx;
     sendCoreIdx = aivIdx;
-    sendCoreNum = SEND_AIV_CORE_NUM;
-    recvCoreNum = RECV_AIV_CORE_NUM;
+    sendCoreNum = aivNum;
+    recvCoreNum = aivNum;
 
     moeExpertNumPerRank = params.moeExpertNumPerRank;
 
@@ -1394,14 +1392,14 @@ void AivInitParams(Params const &params)
     moeExpertNum = params.moeExpertNum;
     tokenLength = params.tokenLen;
 
-    // 单卡多专家改为24收24发
+    // 单卡多专家改为一半发一半收
     if (localExpertNum > 1) {
         isRecvCore = ((aivIdx % ODD_EVEN_BASE) == 0);  // 偶数核接收
         isSendCore = ((aivIdx % ODD_EVEN_BASE) == 1);  // 基数核发送
-        recvCoreIdx = aivIdx / SUB_AIV_NUM;
-        sendCoreIdx = aivIdx / SUB_AIV_NUM;
-        sendCoreNum = SEND_AIV_CORE_NUM / SUB_AIV_NUM;
-        recvCoreNum = RECV_AIV_CORE_NUM / SUB_AIV_NUM;
+        recvCoreIdx = aivIdx / subBlockNum;
+        sendCoreIdx = aivIdx / subBlockNum;
+        sendCoreNum = aiCoreGroupNum;
+        recvCoreNum = aiCoreGroupNum;
     }
 
     hOutSize = tokenLength * sizeof(int8_t);
@@ -1662,6 +1660,7 @@ uint32_t aiCoreGroupNum{0};
 uint32_t aiCoreGroupIdx{0};
 uint32_t subBlockNum{0};
 uint32_t aicNum{0};
+uint32_t aivNum{0};
 uint32_t sendCoreNum{0};
 uint32_t recvCoreNum{0};
 uint32_t compCoreNum{0};
