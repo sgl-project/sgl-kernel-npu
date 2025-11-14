@@ -183,21 +183,21 @@ jobs:
           ls -la tests/python/deepep/test_*.py
           echo "All required test scripts are present"
 
-finish:
-  if: always()
-  needs: [daily-enumerate-intranode_part_one, daily-enumerate-intranode_part_two, daily-enumerate-low-latency, daily-smoke-test]
-  runs-on: ubuntu-latest
-  steps:
-    - name: Generate comprehensive test report
-      run: |
-        echo "## Daily Enumerate Tests Report" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Execution Time**: $(date)" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Job Status:" >> $GITHUB_STEP_SUMMARY
-        echo "- **Intranode Test Part One**: ${{ needs.daily-enumerate-intranode_part_one.result }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Intranode Test Part Two**: ${{ needs.daily-enumerate-intranode_part_two.result }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Low Latency Test**: ${{ needs.daily-enumerate-low-latency.result }}" >> $GITHUB_STEP_SUMMARY
-        echo "- **Smoke Test**: ${{ needs.daily-smoke-test.result }}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Workflow Run**: [$GITHUB_RUN_ID](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> $GITHUB_STEP_SUMMARY
+  finish:
+    if: always()
+    needs: [daily-enumerate-intranode_part_one, daily-enumerate-intranode_part_two, daily-enumerate-low-latency, daily-smoke-test]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate comprehensive test report
+        run: |
+          echo "## Daily Enumerate Tests Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Execution Time**: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Job Status:" >> $GITHUB_STEP_SUMMARY
+          echo "- **Intranode Test Part One**: ${{ needs.daily-enumerate-intranode_part_one.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Intranode Test Part Two**: ${{ needs.daily-enumerate-intranode_part_two.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Low Latency Test**: ${{ needs.daily-enumerate-low-latency.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Smoke Test**: ${{ needs.daily-smoke-test.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Workflow Run**: [$GITHUB_RUN_ID](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> $GITHUB_STEP_SUMMARY
