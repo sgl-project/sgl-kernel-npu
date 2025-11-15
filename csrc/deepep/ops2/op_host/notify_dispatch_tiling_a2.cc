@@ -17,7 +17,13 @@
 #include "../op_kernel/notify_dispatch_tiling_a2.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "tiling/hccl/hccl_tiling.h"
+#ifdef USE_CANN83_PATH
+#include "platform/platform_infos_def.h"
+#elif defined(USE_CANN82_PATH)
 #include "experiment/platform/platform/platform_infos_def.h"
+#else
+#error "CANN version not supported or platform_infos_def.h not found. Check CANN_VERSION_MACRO definition."
+#endif
 
 using namespace ge;
 namespace {
