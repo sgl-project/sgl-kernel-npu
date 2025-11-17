@@ -11,13 +11,13 @@ def l1_norm_kernel(input_ptr, output_ptr, hidden_size: tl.constexpr):
     cols = tl.arange(0, hidden_size)
     buffered_values = tl.load(input_ptr + cols)
     buffered_values /= tl.sum(buffered_values)
-    tl.store(output_ptr + cols, buffered_values.to(tl.bfloat16))
+    tl.store(output_ptr + cols, buffered_values.to(tl.float32))
 
 
 def l1_norm(input):
     batch_size = input.shape[0]
     hidden_size = input.shape[1]
-    output = torch.empty(batch_size, hidden_size, device=input.device, dtype=input.dtype)
+    output = torch.empty(batch_size, hidden_size, device=input.device, dtype=torch.float32)
 
     l1_norm_kernel[(batch_size,)](
         input, output, hidden_size
