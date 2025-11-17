@@ -343,17 +343,6 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Init(
 template <TemplateMC2TypeClass>
 __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Process()
 {
-#ifdef ENABLE_GMM2_COMBINE
-    if (g_coreType == AscendC::AIV) {
-        ((FusedDeepMoeTilingData *)tilingData_)->disGmmDeqSwigluQuantGmmDeqComInfo.aicNum = get_block_num();
-        if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
-            ((FusedDeepMoeTilingData *)tilingData_)->disGmmDeqSwigluQuantGmmDeqComInfo.aivNum = get_block_num();
-        } else {
-            ((FusedDeepMoeTilingData *)tilingData_)->disGmmDeqSwigluQuantGmmDeqComInfo.aivNum =
-                get_block_num() * get_subblockdim();
-        }
-    }
-#endif
     GemmCoord gmm1ProblemShape{m_, n_, k_};
     GemmCoord gmm2ProblemShape{m_, n2_, k2_};
 
