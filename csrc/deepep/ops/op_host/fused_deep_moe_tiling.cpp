@@ -351,7 +351,6 @@ static ge::graphStatus FusedDeepMoeTilingFuncImpl(gert::TilingContext *context)
     }
     context->SetBlockDim(USE_CORE_NUM);
     return ge::GRAPH_SUCCESS;
-
 }
 
 static ge::graphStatus FusedDeepMoeTilingFunc(gert::TilingContext *context)
