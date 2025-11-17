@@ -331,17 +331,19 @@ static ge::graphStatus FusedDeepMoeTilingFuncImpl(gert::TilingContext *context)
     uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize();
     uint64_t epRankSize = static_cast<uint64_t>(tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.epRankSize);
     uint64_t maxBs = static_cast<uint64_t>(tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.globalBs) / epRankSize;
-    uint64_t moeExpertNumPerRank = static_cast<uint64_t>(tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.moeExpertNumPerRank);
+    uint64_t moeExpertNumPerRank =
+        static_cast<uint64_t>(tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.moeExpertNumPerRank);
     uint64_t tokenLength = static_cast<uint64_t>(tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.h);
-    uint64_t actualSize = epRankSize * maxBs * moeExpertNumPerRank * tokenLength * TOKEN_DTYPE_BYTE_SIZE * DOUBLE_BUFFER;
+    uint64_t actualSize =
+        epRankSize * maxBs * moeExpertNumPerRank * tokenLength * TOKEN_DTYPE_BYTE_SIZE * DOUBLE_BUFFER;
     OP_TILING_CHECK((actualSize > maxWindowSize),
                     OP_LOGE(nodeName,
                             "HCCL_BUFFSIZE is too SMALL, epRankSize = %lu, maxBs = %lu, moeExpertNumPerRank = %lu, "
                             " tokenLength = %lu, "
                             " NEEDED_HCCL_BUFFSIZE(epRankSize * maxBs * moeExpertNumPerRank * tokenLength * "
                             " TOKEN_DTYPE_BYTE_SIZE * DOUBLE_BUFFER) = %luMB, HCCL_BUFFSIZE=%luMB.",
-                            epRankSize, maxBs, moeExpertNumPerRank, tokenLength,
-                            actualSize / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
+                            epRankSize, maxBs, moeExpertNumPerRank, tokenLength, actualSize / MB_SIZE + 1UL,
+                            maxWindowSize / MB_SIZE),
                     return ge::GRAPH_FAILED);
 
 #ifdef ENABLE_TILING_CHECK
