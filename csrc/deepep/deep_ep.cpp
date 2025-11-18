@@ -855,11 +855,6 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     if (enable_neg_one) {
         EP_HOST_ASSERT(isLayered == false);
         activate_mask = (new_topk_idx >= 0).to(torch::kBool);
-        if (soc_version == op::SocVersion::ASCEND910B) {
-            comm_alg = "fullmesh";
-        } else {
-            comm_alg = "fullmesh_v1";
-        }
     }
 
     EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2, new_x, new_topk_idx,
