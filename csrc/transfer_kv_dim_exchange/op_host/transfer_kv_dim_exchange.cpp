@@ -55,20 +55,24 @@ HOST_API void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
 
     auto device_indices_cpu = device_indices.cpu();
     auto host_indices_cpu = host_indices.cpu();
-    const int64_t num_pages = device_indices.size(0) / page_size;
     const int64_t device_pages_num = device_k.sizes()[1];
     const int64_t host_pages_num = host_k.sizes()[0];
     const int64_t total_num_layers = device_k.sizes()[0];
     const auto heads_num = device_k.sizes()[3];
-    const auto head_dim = device_k.sizes()[4];
     const auto item_size = device_k.element_size();
-    const auto device_pitch = device_pages_num * page_size * heads_num * head_dim * item_size;
-    const auto host_pitch = page_size * heads_num * head_dim * item_size;
-    const auto width = page_size * heads_num * head_dim * item_size;
+    const auto k_head_dim = device_k.sizes()[4];
+    const auto k_device_pitch = device_pages_num * page_size * heads_num * k_head_dim * item_size;
+    const auto k_host_pitch = page_size * heads_num * k_head_dim * item_size;
+    const auto k_width = page_size * heads_num * k_head_dim * item_size;
+    const auto v_head_dim = device_v.sizes()[4];
+    const auto v_device_pitch = device_pages_num * page_size * heads_num * v_head_dim * item_size;
+    const auto v_host_pitch = page_size * heads_num * v_head_dim * item_size;
+    const auto v_width = page_size * heads_num * v_head_dim * item_size;
     const auto height = total_num_layers;
     c10_npu::NPUStream current_stream = c10_npu::getCurrentNPUStream();
     aclrtStream acl_stream = current_stream.stream();
 
+    const int64_t num_pages = device_indices.size(0) / page_size;
     for (const auto i : c10::irange(num_pages)) {
         auto device_page_index = device_indices_cpu[i * page_size].item<int64_t>() / page_size;
         auto host_page_index = host_indices_cpu[i * page_size].item<int64_t>() / page_size;
@@ -79,10 +83,10 @@ HOST_API void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
         void *device_k_ptr = reinterpret_cast<void *>(device_k[0][device_page_index].data_ptr());
         void *host_k_ptr = reinterpret_cast<void *>(host_k[host_page_index][0].data_ptr());
         if (direction == static_cast<int64_t>(TransferDirection::D2H)) {
-            aclrtMemcpy2dAsync(host_k_ptr, host_pitch, device_k_ptr, device_pitch, width, height,
+            aclrtMemcpy2dAsync(host_k_ptr, k_host_pitch, device_k_ptr, k_device_pitch, k_width, height,
                                aclrtMemcpyKind::ACL_MEMCPY_DEVICE_TO_HOST, acl_stream);
         } else {
-            aclrtMemcpy2dAsync(device_k_ptr, device_pitch, host_k_ptr, host_pitch, width, height,
+            aclrtMemcpy2dAsync(device_k_ptr, k_device_pitch, host_k_ptr, k_host_pitch, k_width, height,
                                aclrtMemcpyKind::ACL_MEMCPY_HOST_TO_DEVICE, acl_stream);
         }
 
@@ -90,10 +94,10 @@ HOST_API void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
             void *device_v_ptr = reinterpret_cast<void *>(device_v[0][device_page_index].data_ptr());
             void *host_v_ptr = reinterpret_cast<void *>(host_v[host_page_index][0].data_ptr());
             if (direction == static_cast<int64_t>(TransferDirection::D2H)) {
-                aclrtMemcpy2dAsync(host_v_ptr, host_pitch, device_v_ptr, device_pitch, width, height,
+                aclrtMemcpy2dAsync(host_v_ptr, v_host_pitch, device_v_ptr, v_device_pitch, v_width, height,
                                    aclrtMemcpyKind::ACL_MEMCPY_DEVICE_TO_HOST, acl_stream);
             } else {
-                aclrtMemcpy2dAsync(device_v_ptr, device_pitch, host_v_ptr, host_pitch, width, height,
+                aclrtMemcpy2dAsync(device_v_ptr, v_device_pitch, host_v_ptr, v_host_pitch, v_width, height,
                                    aclrtMemcpyKind::ACL_MEMCPY_HOST_TO_DEVICE, acl_stream);
             }
         }
