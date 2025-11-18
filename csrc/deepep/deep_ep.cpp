@@ -862,7 +862,6 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         }
     }
 
-
     EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2, new_x, new_topk_idx,
                  scales,         // smooth scales,
                  activate_mask,  // activateMask

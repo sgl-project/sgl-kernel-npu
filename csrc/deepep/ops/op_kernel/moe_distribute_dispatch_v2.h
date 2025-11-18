@@ -53,8 +53,7 @@ public:
     __aicore__ inline void Init(GM_ADDR x, GM_ADDR expertIds, GM_ADDR scales, GM_ADDR xActiveMask, GM_ADDR elasticInfo,
                                 GM_ADDR expandXOut, GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut,
                                 GM_ADDR expertTokenNumsOut, GM_ADDR sendCountsOut, GM_ADDR tpSendCountsOut,
-                                GM_ADDR workspaceGM, TPipe *pipe,
-                                const MoeDistributeDispatchV2TilingData *tilingData);
+                                GM_ADDR workspaceGM, TPipe *pipe, const MoeDistributeDispatchV2TilingData *tilingData);
     __aicore__ inline void Process();
 
 private:
@@ -525,9 +524,11 @@ __aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::QuantInit(G
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::SplitToCore(
-    uint32_t curSendCnt, uint32_t curUseAivNum, uint32_t &startTokenId, uint32_t &endTokenId, uint32_t &sendTokenNum,
-    bool isFront)
+__aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::SplitToCore(uint32_t curSendCnt,
+                                                                                 uint32_t curUseAivNum,
+                                                                                 uint32_t &startTokenId,
+                                                                                 uint32_t &endTokenId,
+                                                                                 uint32_t &sendTokenNum, bool isFront)
 {
     sendTokenNum = curSendCnt / curUseAivNum;                // 每个aiv需要发送的token数
     uint32_t remainderTokenNum = curSendCnt % curUseAivNum;  // 余数
@@ -548,8 +549,8 @@ __aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::SplitToCore
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::FillTriple(
-    LocalTensor<ExpandXOutType> &xOutTensor, uint32_t tokenIndex, uint32_t k)
+__aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::FillTriple(LocalTensor<ExpandXOutType> &xOutTensor,
+                                                                                uint32_t tokenIndex, uint32_t k)
 {
     SyncFunc<AscendC::HardEvent::MTE3_S>();
     LocalTensor<int32_t> xOutTint32 = xOutTensor.template ReinterpretCast<int32_t>();
@@ -613,8 +614,8 @@ __aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::SendToShare
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::CalTokenSendExpertCnt(uint32_t dstExpertId,
-                                                                                               int32_t calCnt,
-                                                                                               int32_t &curExpertCnt)
+                                                                                           int32_t calCnt,
+                                                                                           int32_t &curExpertCnt)
 {
     Duplicate<int32_t>(dstExpIdTensor_, dstExpertId, calCnt);
     PipeBarrier<PIPE_V>();
@@ -729,8 +730,7 @@ __aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::TokenActive
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void
-MoeDistributeDispatchV2<TemplateMC2TypeFunc>::CalValidExpIdx(LocalTensor<bool> maskInputTensor)
+__aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::CalValidExpIdx(LocalTensor<bool> maskInputTensor)
 {
     uint32_t mask = expertIdsCnt_;
     uint32_t curMaskCnt = axisBS_ * axisK_;
@@ -756,8 +756,7 @@ MoeDistributeDispatchV2<TemplateMC2TypeFunc>::CalValidExpIdx(LocalTensor<bool> m
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void
-MoeDistributeDispatchV2<TemplateMC2TypeFunc>::CalValidBSCnt(LocalTensor<bool> maskStrideTensor)
+__aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::CalValidBSCnt(LocalTensor<bool> maskStrideTensor)
 {
     uint64_t rsvdCnt = 0;
     uint32_t mask = axisBS_;
@@ -1190,7 +1189,7 @@ __aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::WaitDispatc
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::GetCumSum(LocalTensor<int32_t> &outLocal,
-                                                                                   uint32_t totalCount)
+                                                                               uint32_t totalCount)
 {
     outLocal = gatherMaskOutBuf_.Get<int32_t>();
     // 获取workspace中每个核的recvcnt

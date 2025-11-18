@@ -25,8 +25,8 @@ extern aclnnStatus aclnnInnerMoeDistributeCombineV2GetWorkspaceSize(
     int64_t commQuantMode, int64_t groupListType, char *commAlg, int64_t zeroExpertNum, int64_t copyExpertNum,
     int64_t constExpertNum, const aclTensor *x, uint64_t *workspaceSize, aclOpExecutor **executor);
 
-extern aclnnStatus aclnnInnerMoeDistributeCombineV2(void *workspace, uint64_t workspaceSize,
-                                                        aclOpExecutor *executor, aclrtStream stream);
+extern aclnnStatus aclnnInnerMoeDistributeCombineV2(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
+                                                    aclrtStream stream);
 
 extern "C" void __attribute__((weak)) NnopbaseSetHcclServerType(void *executor, NnopbaseHcclServerType sType);
 
@@ -49,7 +49,7 @@ aclnnStatus aclnnMoeDistributeCombineV2GetWorkspaceSize(
 }
 
 aclnnStatus aclnnMoeDistributeCombineV2(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
-                                            aclrtStream stream)
+                                        aclrtStream stream)
 {
     if (NnopbaseSetHcclServerType) {
         NnopbaseSetHcclServerType(executor, NNOPBASE_HCCL_SERVER_TYPE_MTE);

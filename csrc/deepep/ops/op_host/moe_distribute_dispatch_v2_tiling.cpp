@@ -563,8 +563,7 @@ static ge::graphStatus CheckAndSetExpertInfo(const gert::TilingContext *context,
 }
 
 static ge::graphStatus CheckAndSetSpecialExpertInfo(const gert::TilingContext *context, const char *nodeName,
-                                                    MoeDistributeDispatchV2TilingData &tilingData,
-                                                    bool &isSetCommAlg)
+                                                    MoeDistributeDispatchV2TilingData &tilingData, bool &isSetCommAlg)
 {
     auto attrs = context->GetAttrs();
     auto commAlgPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_COMM_ALG_INDEX));
@@ -771,8 +770,8 @@ static ge::graphStatus CheckAttrs(const gert::TilingContext *context, const char
     OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "attrs is nullptr."), return ge::GRAPH_FAILED);
     auto globalBsPtr = attrs->GetAttrPointer<int64_t>(ATTR_GLOBAL_BS_INDEX);
     OP_TILING_CHECK(globalBsPtr == nullptr, OP_LOGE(nodeName, "globalBsPtr is nullptr."), return ge::GRAPH_FAILED);
-    OP_LOGD(nodeName, "MoeDistributeDispatchV2 *globalBsPtr = %ld, bs = %ld, epWorldSize = %u\n", *globalBsPtr,
-            xDim0, epWorldSize);
+    OP_LOGD(nodeName, "MoeDistributeDispatchV2 *globalBsPtr = %ld, bs = %ld, epWorldSize = %u\n", *globalBsPtr, xDim0,
+            epWorldSize);
     OP_TILING_CHECK(
         (*globalBsPtr != 0) && ((*globalBsPtr < xDim0 * static_cast<int64_t>(epWorldSize)) ||
                                 ((*globalBsPtr) % (static_cast<int64_t>(epWorldSize)) != 0)),

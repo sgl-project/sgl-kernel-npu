@@ -23,8 +23,8 @@ extern aclnnStatus aclnnInnerMoeDistributeDispatchV2GetWorkspaceSize(
     const aclTensor *expandX, const aclTensor *dynamicScales, const aclTensor *assist_info_for_combine,
     const aclTensor *expertTokensNums, const aclTensor *epRecvCounts, const aclTensor *tpRecvCounts,
     const aclTensor *expandScales, uint64_t *workspaceSize, aclOpExecutor **executor);
-extern aclnnStatus aclnnInnerMoeDistributeDispatchV2(void *workspace, uint64_t workspaceSize,
-                                                         aclOpExecutor *executor, aclrtStream stream);
+extern aclnnStatus aclnnInnerMoeDistributeDispatchV2(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
+                                                     aclrtStream stream);
 
 extern "C" void __attribute__((weak)) NnopbaseSetHcclServerType(void *executor, NnopbaseHcclServerType sType);
 
@@ -47,7 +47,7 @@ aclnnStatus aclnnMoeDistributeDispatchV2GetWorkspaceSize(
 }
 
 aclnnStatus aclnnMoeDistributeDispatchV2(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
-                                             aclrtStream stream)
+                                         aclrtStream stream)
 {
     if (NnopbaseSetHcclServerType) {
         NnopbaseSetHcclServerType(executor, NNOPBASE_HCCL_SERVER_TYPE_MTE);

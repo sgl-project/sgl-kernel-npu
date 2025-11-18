@@ -8,11 +8,11 @@ using namespace MoeDistributeCombineV2Impl;
 namespace {
 template <TemplateMC2TypeClass>
 __aicore__ inline void ExecMoeDistributeCombineV2(GM_ADDR expandX, GM_ADDR expertIds, GM_ADDR assistInfoForCombine,
-                                                      GM_ADDR epSendCount, GM_ADDR tpSendCount, GM_ADDR scales,
-                                                      GM_ADDR xActiveMask, GM_ADDR sharedExpertX, GM_ADDR elasticInfo,
-                                                      GM_ADDR oriX, GM_ADDR constExpertAlpha1,
-                                                      GM_ADDR constExpertAlpha2, GM_ADDR constExpertV, GM_ADDR XOut,
-                                                      GM_ADDR workspaceGM, GM_ADDR tilingGM, TPipe *pipePtr)
+                                                  GM_ADDR epSendCount, GM_ADDR tpSendCount, GM_ADDR scales,
+                                                  GM_ADDR xActiveMask, GM_ADDR sharedExpertX, GM_ADDR elasticInfo,
+                                                  GM_ADDR oriX, GM_ADDR constExpertAlpha1, GM_ADDR constExpertAlpha2,
+                                                  GM_ADDR constExpertV, GM_ADDR XOut, GM_ADDR workspaceGM,
+                                                  GM_ADDR tilingGM, TPipe *pipePtr)
 {
     GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
     MoeDistributeCombineV2<TemplateMC2TypeFunc> op;

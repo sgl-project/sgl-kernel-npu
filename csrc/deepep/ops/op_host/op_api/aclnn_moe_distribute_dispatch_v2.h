@@ -69,10 +69,9 @@ __attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeDispatchV2G
  * @param [in] stream: acl stream流。
  * @return aclnnStatus: 返回状态码
  */
-__attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeDispatchV2(void *workspace,
-                                                                                    uint64_t workspaceSize,
-                                                                                    aclOpExecutor *executor,
-                                                                                    aclrtStream stream);
+__attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeDispatchV2(void *workspace, uint64_t workspaceSize,
+                                                                                aclOpExecutor *executor,
+                                                                                aclrtStream stream);
 
 #ifdef __cplusplus
 }

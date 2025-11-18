@@ -946,8 +946,8 @@ __aicore__ inline void MoeDistributeCombineV2<TemplateMC2TypeFunc>::ExpertAlltoA
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void MoeDistributeCombineV2<TemplateMC2TypeFunc>::CustomAdd(LocalTensor<XType> &dst,
-                                                                                  LocalTensor<XType> &src0,
-                                                                                  LocalTensor<XType> &src1)
+                                                                              LocalTensor<XType> &src0,
+                                                                              LocalTensor<XType> &src1)
 {
     if constexpr (AscendC::IsSameType<XType, bfloat16_t>::value) {
         Cast(winTpSendCountFloatTensor_, src0, RoundMode::CAST_NONE, axisH_);
@@ -1038,8 +1038,8 @@ __aicore__ inline void MoeDistributeCombineV2<TemplateMC2TypeFunc>::Int8DequantP
 // 处理常量专家
 template <TemplateMC2TypeClass>
 __aicore__ inline void MoeDistributeCombineV2<TemplateMC2TypeFunc>::ProcessConstantExpert(uint32_t tokenIndex,
-                                                                                              uint32_t const_expert_idx,
-                                                                                              float scaleVal)
+                                                                                          uint32_t const_expert_idx,
+                                                                                          float scaleVal)
 {
     PipeBarrier<PIPE_ALL>();
     LocalTensor<float> constVFloatLocal = mulBuf_.Get<float>();
@@ -1092,7 +1092,7 @@ __aicore__ inline void MoeDistributeCombineV2<TemplateMC2TypeFunc>::ProcessConst
 // 处理拷贝专家
 template <TemplateMC2TypeClass>
 __aicore__ inline void MoeDistributeCombineV2<TemplateMC2TypeFunc>::ProcessCopyExpert(uint32_t tokenIndex,
-                                                                                          float scaleVal)
+                                                                                      float scaleVal)
 {
     DataCopyPadExtParams<ExpandXType> copyPadExtParams{false, 0U, 0U, 0U};
     DataCopyExtParams expandXCopyParams{1U, static_cast<uint32_t>(hExpandXTypeSize_), 0U, 0U, 0U};
@@ -1113,8 +1113,7 @@ __aicore__ inline void MoeDistributeCombineV2<TemplateMC2TypeFunc>::ProcessCopyE
 // 处理Moe专家
 template <TemplateMC2TypeClass>
 __aicore__ inline void MoeDistributeCombineV2<TemplateMC2TypeFunc>::ProcessMoeExpert(uint32_t tokenIndexOffset,
-                                                                                         uint32_t topkId,
-                                                                                         float scaleVal)
+                                                                                     uint32_t topkId, float scaleVal)
 {
     uint32_t processLen = axisH_;
     const DataCopyExtParams xScaleCopyParams{1U, static_cast<uint32_t>(tokenScaleCnt_ * sizeof(ExpandXType)), 0U, 0U,
