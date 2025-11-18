@@ -40,7 +40,7 @@ def test_main(
     num_servers = num_ranks // num_local_ranks
     num_nodes = num_servers
 
-    assert num_experts % num_ranks == 0
+    assert num_experts % num_ranks == 0 and num_nodes >= 2
     if local_rank == 0:
         print(
             f"[config] num_tokens={num_tokens}, hidden={hidden}, num_topk={num_topk}, active_ranks={args.active_ranks}",
@@ -170,7 +170,7 @@ def test_main(
 
     # Rank layout meta
     num_tokens_per_rank = torch.empty((num_ranks,), dtype=torch.int, device="npu")
-    num_tokens_per_rdma_rank = torch.empty((num_nodes, ), dtype=torch.int, device='npu')
+    num_tokens_per_rdma_rank = torch.empty((num_nodes,), dtype=torch.int, device="npu")
     token_idx_in_rank = torch.full(
         (num_ranks, num_tokens), -1, dtype=torch.long, device="npu"
     )
@@ -408,7 +408,10 @@ def test_main(
 
         # Checks
         rank_prefix_matrix = handle[0]
-        assert gbl_num_tokens_per_expert.view(num_ranks, -1)[rank].tolist() == recv_num_tokens_per_expert_list
+        assert (
+            gbl_num_tokens_per_expert.view(num_ranks, -1)[rank].tolist()
+            == recv_num_tokens_per_expert_list
+        )
 
         # Test combine
         combine_args = {
@@ -449,7 +452,11 @@ def test_main(
             if isinstance(current_x, tuple)
             else dispatch_bf16_recv_bytes
         )
-        rdma_send_bytes = (dispatch_bf16_rdma_send_bytes * fp8_factor) if isinstance(current_x, tuple) else dispatch_bf16_rdma_send_bytes
+        rdma_send_bytes = (
+            (dispatch_bf16_rdma_send_bytes * fp8_factor)
+            if isinstance(current_x, tuple)
+            else dispatch_bf16_rdma_send_bytes
+        )
 
         tune_args = {
             "x": current_x,
@@ -461,11 +468,14 @@ def test_main(
             "topk_weights": topk_weights,
         }
 
-        t, notify_t = bench_kineto(lambda: buffer.dispatch(**tune_args), ('DispatchNormalA2', 'NotifyDispatchA2'))
+        t, notify_t = bench_kineto(
+            lambda: buffer.dispatch(**tune_args),
+            ("DispatchNormalA2", "NotifyDispatchA2"),
+        )
         if local_rank == 0:
             print(
                 f'[tuning] Dispatch ({"FP8" if isinstance(current_x, tuple) else "BF16"}) {recv_bytes / 1e9 / t:.2f} GB/s (HCCS), '
-                f'{rdma_send_bytes / 1e9 / t:.2f} GB/s (RDMA), avg_t: {t * 1e6:.2f} us, notify_t: {notify_t  * 1e6:.2f} us',
+                f"{rdma_send_bytes / 1e9 / t:.2f} GB/s (RDMA), avg_t: {t * 1e6:.2f} us, notify_t: {notify_t  * 1e6:.2f} us",
                 flush=True,
             )
             print("", flush=True)
