@@ -77,6 +77,9 @@ Execute deepep-related test scripts
 python3 tests/python/deepep/test_fused_deep_moe.py
 python3 tests/python/deepep/test_intranode.py
 python3 tests/python/deepep/test_low_latency.py
+
+# Execute under A2 dual-node setup, test internode (you need to set the primary node IP in run_test_internode.sh first).
+bash run_test_internode.sh
 ```
 
 ### FAQ
