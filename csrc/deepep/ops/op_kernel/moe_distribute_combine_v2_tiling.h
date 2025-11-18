@@ -1,11 +1,11 @@
-#ifndef MOE_DISTRIBUTE_COMBINE_NEG_ONE_TILING_H
-#define MOE_DISTRIBUTE_COMBINE_NEG_ONE_TILING_H
+#ifndef MOE_DISTRIBUTE_COMBINE_V2_TILING_H
+#define MOE_DISTRIBUTE_COMBINE_V2_TILING_H
 
 #include <cstdint>
 #include "kernel_tiling/kernel_tiling.h"
 
 // a3
-struct MoeDistributeCombineNegOneInfo {
+struct MoeDistributeCombineV2Info {
     uint32_t epWorldSize;
     uint32_t tpWorldSize;
     uint32_t epRankId;
@@ -32,11 +32,11 @@ struct MoeDistributeCombineNegOneInfo {
     float armAvgFactor;
     float epsilon;
 };
-struct MoeDistributeCombineNegOneTilingData {
+struct MoeDistributeCombineV2TilingData {
     Mc2InitTiling mc2InitTiling;
     Mc2CcTiling mc2CcTiling1;
     Mc2CcTiling mc2CcTiling2;
-    MoeDistributeCombineNegOneInfo moeDistributeCombineNegOneInfo;
+    MoeDistributeCombineV2Info moeDistributeCombineV2Info;
 };
 
-#endif  //__MOE_DISTRIBUTE_COMBINE_NEG_ONE_TILING_H__
+#endif  //__MOE_DISTRIBUTE_COMBINE_V2_TILING_H__

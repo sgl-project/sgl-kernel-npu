@@ -1,5 +1,5 @@
-#include "aclnn_moe_distribute_dispatch_neg_one.h"
-#include "aclnnInner_moe_distribute_dispatch_neg_one.h"
+#include "aclnn_moe_distribute_dispatch_v2.h"
+#include "aclnnInner_moe_distribute_dispatch_v2.h"
 #include <algorithm>
 #include "graph/types.h"
 
@@ -14,7 +14,7 @@ enum NnopbaseHcclServerType {
     NNOPBASE_HCCL_SERVER_TYPE_END
 };
 
-extern aclnnStatus aclnnInnerMoeDistributeDispatchNegOneGetWorkspaceSize(
+extern aclnnStatus aclnnInnerMoeDistributeDispatchV2GetWorkspaceSize(
     const aclTensor *x, const aclTensor *expertIds, const aclTensor *scales, const aclTensor *xActiveMask,
     const aclTensor *expertScales, const aclTensor *elasticInfo, char *groupEp, int64_t epWorldSize, int64_t epRankId,
     int64_t moeExpertNum, char *groupTp, int64_t tpWorldSize, int64_t tpRankId, int64_t expertShardType,
@@ -23,12 +23,12 @@ extern aclnnStatus aclnnInnerMoeDistributeDispatchNegOneGetWorkspaceSize(
     const aclTensor *expandX, const aclTensor *dynamicScales, const aclTensor *assist_info_for_combine,
     const aclTensor *expertTokensNums, const aclTensor *epRecvCounts, const aclTensor *tpRecvCounts,
     const aclTensor *expandScales, uint64_t *workspaceSize, aclOpExecutor **executor);
-extern aclnnStatus aclnnInnerMoeDistributeDispatchNegOne(void *workspace, uint64_t workspaceSize,
+extern aclnnStatus aclnnInnerMoeDistributeDispatchV2(void *workspace, uint64_t workspaceSize,
                                                          aclOpExecutor *executor, aclrtStream stream);
 
 extern "C" void __attribute__((weak)) NnopbaseSetHcclServerType(void *executor, NnopbaseHcclServerType sType);
 
-aclnnStatus aclnnMoeDistributeDispatchNegOneGetWorkspaceSize(
+aclnnStatus aclnnMoeDistributeDispatchV2GetWorkspaceSize(
     const aclTensor *x, const aclTensor *expertIds, const aclTensor *scalesOptional,
     const aclTensor *xActiveMaskOptional, const aclTensor *expertScalesOptional, char *groupEp, int64_t epWorldSize,
     int64_t epRankId, int64_t moeExpertNum, char *groupTp, int64_t tpWorldSize, int64_t tpRankId,
@@ -38,7 +38,7 @@ aclnnStatus aclnnMoeDistributeDispatchNegOneGetWorkspaceSize(
     const aclTensor *tpRecvCountsOut, const aclTensor *expandScalesOut, uint64_t *workspaceSize,
     aclOpExecutor **executor)
 {
-    return aclnnInnerMoeDistributeDispatchNegOneGetWorkspaceSize(
+    return aclnnInnerMoeDistributeDispatchV2GetWorkspaceSize(
         x, expertIds, scalesOptional, xActiveMaskOptional, expertScalesOptional, nullptr, groupEp, epWorldSize,
         epRankId, moeExpertNum, groupTp, tpWorldSize, tpRankId, expertShardType, sharedExpertNum, sharedExpertRankNum,
         quantMode, globalBs, expertTokenNumsType, commAlg, 0, 0, 0, expandXOut, dynamicScalesOut,
@@ -46,13 +46,13 @@ aclnnStatus aclnnMoeDistributeDispatchNegOneGetWorkspaceSize(
         executor);
 }
 
-aclnnStatus aclnnMoeDistributeDispatchNegOne(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
+aclnnStatus aclnnMoeDistributeDispatchV2(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
                                              aclrtStream stream)
 {
     if (NnopbaseSetHcclServerType) {
         NnopbaseSetHcclServerType(executor, NNOPBASE_HCCL_SERVER_TYPE_MTE);
     }
-    return aclnnInnerMoeDistributeDispatchNegOne(workspace, workspaceSize, executor, stream);
+    return aclnnInnerMoeDistributeDispatchV2(workspace, workspaceSize, executor, stream);
 }
 #ifdef __cplusplus
 }

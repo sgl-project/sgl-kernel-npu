@@ -1,10 +1,10 @@
-#include "moe_distribute_dispatch_neg_one.h"
+#include "moe_distribute_dispatch_v2.h"
 #include "kernel_operator.h"
-#include "moe_distribute_dispatch_neg_one_tiling.h"
+#include "moe_distribute_dispatch_v2_tiling.h"
 #include "moe_distribute_dispatch_tiling.h"
 
 using namespace AscendC;
-using namespace MoeDistributeDispatchNegOneImpl;
+using namespace MoeDistributeDispatchV2Impl;
 
 /*
  * A3 tilingkey说明
@@ -20,25 +20,25 @@ using namespace MoeDistributeDispatchNegOneImpl;
  * 第5位（万位）：无实际意义
  */
 
-extern "C" __global__ __aicore__ void moe_distribute_dispatch_neg_one(
+extern "C" __global__ __aicore__ void moe_distribute_dispatch_v2(
     GM_ADDR x, GM_ADDR expertIds, GM_ADDR scales, GM_ADDR xActiveMask, GM_ADDR expertScales, GM_ADDR elasticInfo,
     GM_ADDR expandXOut, GM_ADDR dynamicScalesOut, GM_ADDR assistInfoOut, GM_ADDR expertTokenNumsOut,
     GM_ADDR epSendCountsOut, GM_ADDR tpSendCountsOut, GM_ADDR expandScalesOut, GM_ADDR workspaceGM, GM_ADDR tilingGM)
 {
-    REGISTER_TILING_DEFAULT(MoeDistributeDispatchNegOneTilingData);
+    REGISTER_TILING_DEFAULT(MoeDistributeDispatchV2TilingData);
     TPipe pipe;
 #if (ORIG_DTYPE_EXPAND_X == DT_BF16 || ORIG_DTYPE_EXPAND_X == DT_FLOAT16)
     if (TILING_KEY_IS(10000)) {
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchNegOneTilingData, tilingData, tilingGM);
-        MoeDistributeDispatchNegOne<DTYPE_X, DTYPE_EXPAND_X, false, false, false, false> op;
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, false, false, false> op;
         op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
                 expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
         return;
     }
     if (TILING_KEY_IS(10100)) {
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchNegOneTilingData, tilingData, tilingGM);
-        MoeDistributeDispatchNegOne<DTYPE_X, DTYPE_EXPAND_X, false, false, false, true> op;
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, false, false, true> op;
         op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
                 expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
@@ -46,48 +46,48 @@ extern "C" __global__ __aicore__ void moe_distribute_dispatch_neg_one(
     }
 #elif (ORIG_DTYPE_EXPAND_X == DT_INT8)
     if (TILING_KEY_IS(10011)) {
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchNegOneTilingData, tilingData, tilingGM);
-        MoeDistributeDispatchNegOne<DTYPE_X, DTYPE_EXPAND_X, true, false, false, false> op;
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, true, false, false, false> op;
         op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
                 expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
         return;
     }
     if (TILING_KEY_IS(10002)) {
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchNegOneTilingData, tilingData, tilingGM);
-        MoeDistributeDispatchNegOne<DTYPE_X, DTYPE_EXPAND_X, false, true, false, false> op;
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, true, false, false> op;
         op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
                 expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
         return;
     }
     if (TILING_KEY_IS(10012)) {
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchNegOneTilingData, tilingData, tilingGM);
-        MoeDistributeDispatchNegOne<DTYPE_X, DTYPE_EXPAND_X, false, true, true, false> op;
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, true, true, false> op;
         op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
                 expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
         return;
     }
     if (TILING_KEY_IS(10111)) {
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchNegOneTilingData, tilingData, tilingGM);
-        MoeDistributeDispatchNegOne<DTYPE_X, DTYPE_EXPAND_X, true, false, false, true> op;
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, true, false, false, true> op;
         op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
                 expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
         return;
     }
     if (TILING_KEY_IS(10102)) {
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchNegOneTilingData, tilingData, tilingGM);
-        MoeDistributeDispatchNegOne<DTYPE_X, DTYPE_EXPAND_X, false, true, false, true> op;
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, true, false, true> op;
         op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
                 expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
         return;
     }
     if (TILING_KEY_IS(10112)) {
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchNegOneTilingData, tilingData, tilingGM);
-        MoeDistributeDispatchNegOne<DTYPE_X, DTYPE_EXPAND_X, false, true, true, true> op;
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, true, true, true> op;
         op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
                 expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
         op.Process();

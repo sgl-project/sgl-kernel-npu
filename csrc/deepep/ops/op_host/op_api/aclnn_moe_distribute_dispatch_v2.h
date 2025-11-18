@@ -1,5 +1,5 @@
-#ifndef OP_API_INC_MOE_DISTRIBUTE_DISPATCH_NEG_ONE_
-#define OP_API_INC_MOE_DISTRIBUTE_DISPATCH_NEG_ONE_
+#ifndef OP_API_INC_MOE_DISTRIBUTE_DISPATCH_V2_
+#define OP_API_INC_MOE_DISTRIBUTE_DISPATCH_V2_
 
 #include <string>
 
@@ -10,8 +10,8 @@ extern "C" {
 #endif
 
 /**
- * 算子功能：实现MoeDistributeDispatchNegOne功能，对Token数据先进行量化，再进行EP域的alltoallv通信，再进行TP域的allgatherv通信。
- * @brief aclnnMoeDistributeDispatchNegOne的第一段接口，根据具体的计算流程，计算workspace大小。
+ * 算子功能：实现MoeDistributeDispatchV2功能，对Token数据先进行量化，再进行EP域的alltoallv通信，再进行TP域的allgatherv通信。
+ * @brief aclnnMoeDistributeDispatchV2的第一段接口，根据具体的计算流程，计算workspace大小。
  * @domain aclnn_ops_infer
  * @param [in] x: 计算输入，Tensor，数据类型float16，bfloat16，必须为2维，数据格式支持ND。输入的token数据。
  * @param [in] expertIds: 计算输入，Tensor，数据类型int32，必须为2维，数据格式支持ND。每个token的topK个专家索引。
@@ -50,7 +50,7 @@ extern "C" {
  * @return aclnnStatus: 返回值，返回状态码
  *
  */
-__attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeDispatchNegOneGetWorkspaceSize(
+__attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeDispatchV2GetWorkspaceSize(
     const aclTensor *x, const aclTensor *expertIds, const aclTensor *scalesOptional,
     const aclTensor *xActiveMaskOptional, const aclTensor *expertScalesOptional, char *groupEp, int64_t epWorldSize,
     int64_t epRankId, int64_t moeExpertNum, char *groupTp, int64_t tpWorldSize, int64_t tpRankId,
@@ -61,15 +61,15 @@ __attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeDispatchNeg
     aclOpExecutor **executor);
 
 /**
- * @brief aclnnMoeDistributeDispatchNegOne的第二段接口，用于执行计算。
+ * @brief aclnnMoeDistributeDispatchV2的第二段接口，用于执行计算。
  * @param [in] workspace: 在npu device侧申请的workspace内存起址。
  * @param [in] workspace_size: 在npu
- * device侧申请的workspace大小，由第一段接口aclnnMoeDistributeDispatchNegOneGetWorkspaceSize获取。
+ * device侧申请的workspace大小，由第一段接口aclnnMoeDistributeDispatchV2GetWorkspaceSize获取。
  * @param [in] executor: op执行器，包含了算子计算流程。
  * @param [in] stream: acl stream流。
  * @return aclnnStatus: 返回状态码
  */
-__attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeDispatchNegOne(void *workspace,
+__attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeDispatchV2(void *workspace,
                                                                                     uint64_t workspaceSize,
                                                                                     aclOpExecutor *executor,
                                                                                     aclrtStream stream);
@@ -78,4 +78,4 @@ __attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeDispatchNeg
 }
 #endif
 
-#endif  // OP_API_INC_MOE_DISTRIBUTE_DISPATCH_NEG_ONE_
+#endif  // OP_API_INC_MOE_DISTRIBUTE_DISPATCH_V2_

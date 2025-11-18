@@ -225,14 +225,10 @@ def test(
     # return_recv_hook=True is not supported now
     for return_recv_hook in (False,):
         enable_neg_one = int(os.getenv("MOE_ENABLE_TOPK_NEG_ONE", 0))
-        if enable_neg_one:
-            kernel_names = ("MoeDistributeDispatchNegOne", "MoeDistributeCombineNegOne")
-        else:
-            kernel_names = ("MoeDistributeDispatchV2", "MoeDistributeCombineV2")
         dist.barrier()
         dispatch_t, combine_t = bench_kineto(
             partial(test_func, zero_copy=False, return_recv_hook=return_recv_hook),
-            kernel_names=kernel_names,
+            kernel_names=("MoeDistributeDispatchV2", "MoeDistributeCombineV2"),
             barrier_comm_profiling=True,
             suppress_kineto_output=True,
             num_kernels_per_period=2 if return_recv_hook else 1,

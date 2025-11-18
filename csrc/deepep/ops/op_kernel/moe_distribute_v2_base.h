@@ -1,7 +1,7 @@
-#ifndef MOE_DISTRIBUTE_NEG_ONE_BASE_H
-#define MOE_DISTRIBUTE_NEG_ONE_BASE_H
+#ifndef MOE_DISTRIBUTE_V2_BASE_H
+#define MOE_DISTRIBUTE_V2_BASE_H
 
-namespace MoeDistributeNegOneBase {
+namespace MoeDistributeV2Base {
 constexpr uint64_t OP_CNT_POSUL = 3UL;
 constexpr uint32_t ZERONE_STATE_POS = 0U;
 constexpr uint32_t OPOSITION_POS = 1U;
@@ -58,5 +58,5 @@ __aicore__ inline uint32_t InitWinState(GlobalTensor<uint32_t> selfDataStatusGMT
     }
     return dataState;
 }
-}  // namespace MoeDistributeNegOneBase
-#endif  // MOE_DISTRIBUTE_NEG_ONE_BASE_H
+}  // namespace MoeDistributeV2Base
+#endif  // MOE_DISTRIBUTE_V2_BASE_H

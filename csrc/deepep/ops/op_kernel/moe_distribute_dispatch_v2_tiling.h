@@ -1,7 +1,7 @@
-#ifndef MOE_DISTRIBUTE_DISPATCH_NEG_ONE_TILING_H
-#define MOE_DISTRIBUTE_DISPATCH_NEG_ONE_TILING_H
+#ifndef MOE_DISTRIBUTE_DISPATCH_V2_TILING_H
+#define MOE_DISTRIBUTE_DISPATCH_V2_TILING_H
 
-struct MoeDistributeDispatchNegOneInfo {
+struct MoeDistributeDispatchV2Info {
     uint32_t epWorldSize;          // epWorldSize
     uint32_t tpWorldSize;          // tpWorldSize
     uint32_t epRankId;             // epRankId
@@ -27,11 +27,11 @@ struct MoeDistributeDispatchNegOneInfo {
     uint32_t cumSumUBMinValue;     // Minimum value for CumSum remainder（in UB）
 };
 
-struct MoeDistributeDispatchNegOneTilingData {
+struct MoeDistributeDispatchV2TilingData {
     Mc2InitTiling mc2InitTiling;
     Mc2CcTiling mc2CcTiling1;
     Mc2CcTiling mc2CcTiling2;
-    MoeDistributeDispatchNegOneInfo moeDistributeDispatchNegOneInfo;
+    MoeDistributeDispatchV2Info moeDistributeDispatchV2Info;
 };
 
 #endif

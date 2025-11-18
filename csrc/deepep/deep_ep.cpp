@@ -803,6 +803,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     int64_t tp_rank = 0;
     int64_t expert_shard_type = 0;
     int outType = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
+    char *comm_alg;
     int64_t expert_token_nums_type = outType;
 
     // get ep & tp name
@@ -815,12 +816,14 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     char hcom_tp_name[HCOMM_NAME_LEN] = {0};
     // Wait streams
     std::optional<EventHandle> event;
+    bool isLayered = false;
 
     if (soc_version == op::SocVersion::ASCEND910B) {
         const char *hcclIntraPcieEnable = getenv("HCCL_INTRA_PCIE_ENABLE");
         const char *hcclIntraRoceEnable = getenv("HCCL_INTRA_ROCE_ENABLE");
         if (hcclIntraPcieEnable != nullptr && hcclIntraRoceEnable != nullptr && strcmp(hcclIntraPcieEnable, "1") == 0 &&
             strcmp(hcclIntraRoceEnable, "0") == 0) {  // A2 layered
+            isLayered = true;
             if (topk_weights.has_value()) {
                 if (!this->is_padding) {
                     expert_scales = topk_weights.value();
@@ -840,38 +843,26 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
             int64_t recv_count_tensor_size = num_experts + 2 * global_bs * num_topk * server_num;
             ep_recv_count = at::empty({recv_count_tensor_size}, at::dtype(at::kInt).device(device));
             expand_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
-            activate_mask = (new_topk_idx >= 0).to(torch::kBool);
         }
-    } else if (enable_neg_one) {
-        activate_mask = (new_topk_idx >= 0).to(torch::kBool);
-        char comm_alg[] = "fullmesh_v1";
-        EXEC_NPU_CMD(aclnnMoeDistributeDispatchNegOne, new_x, new_topk_idx,
-                     scales,         // smooth scales,
-                     activate_mask,  // activateMask
-                     expert_scales,  // expert_scales
-                     hcom_ep_name,   // ep
-                     num_ranks,      // rankSize
-                     rank,           // rankId
-                     num_experts,
-                     hcom_tp_name,            // tp
-                     tp_size,                 // tp_size
-                     tp_rank,                 // tp_rank
-                     expert_shard_type,       // expert_shard_type
-                     shared_expert_num,       // shared_expert_num
-                     shared_expert_rank_num,  // shared_expert_rank_num
-                     quant_mode,
-                     global_bs,               // global_bs
-                     expert_token_nums_type,  // expert_token_nums_type
-                     comm_alg, packed_recv_x,
-                     packed_recv_x_scales,  // dynamicScalesOut
-                     expandIdx,
-                     packed_recv_count,  // expertTokenNumsOut
-                     ep_recv_count, tp_recv_count, expand_scales);
-        return {packed_recv_x, packed_recv_x_scales,        packed_recv_count, expandIdx, ep_recv_count, expand_scales,
-                event,         std::function<void()>([] {})};
     }
 
-    char comm_alg[] = "fullmesh";
+    if (soc_version == op::SocVersion::ASCEND910B) {
+        comm_alg = "fullmesh";
+    } else {
+        comm_alg = "fullmesh_v1";
+    }
+
+    if (enable_neg_one) {
+        EP_HOST_ASSERT(isLayered == false);
+        activate_mask = (new_topk_idx >= 0).to(torch::kBool);
+        if (soc_version == op::SocVersion::ASCEND910B) {
+            comm_alg = "fullmesh";
+        } else {
+            comm_alg = "fullmesh_v1";
+        }
+    }
+
+
     EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2, new_x, new_topk_idx,
                  scales,         // smooth scales,
                  activate_mask,  // activateMask
@@ -951,6 +942,8 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     int64_t out_dtype = 0;
     int64_t comm_quant_mode = 0;
     int64_t group_list_type = 0;
+    bool isLayered = false;
+    char *comm_alg;
 
     auto num_combined_tokens = static_cast<int>(new_scales.size(0));
     auto hidden = static_cast<int>(x.size(1));
@@ -958,26 +951,24 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     at::Tensor combined_x = at::empty({num_combined_tokens, hidden}, x.options());
     std::optional<EventHandle> event;
     if (soc_version == op::SocVersion::ASCEND910B) {
-        x_active_mask = (new_topk_idx >= 0).to(torch::kBool);
-    } else if (enable_neg_one) {
-        x_active_mask = (new_topk_idx >= 0).to(torch::kBool);
-        char comm_alg[] = "fullmesh_v1";
-        EXEC_NPU_CMD(aclnnMoeDistributeCombineNegOne, expand_x, expert_ids, expand_idx, ep_send_counts, expert_scales,
-                     tp_send_counts, x_active_mask, activation_scale, weight_scale, group_list, expand_scales,
-                     shared_expert_x, hcom_ep_name, num_ranks, rank, num_experts, hcom_tp_name, tp_world_size,
-                     tp_rankId, expert_shared_type, shared_expert_num, shared_expert_rank_num, global_bs, out_dtype,
-                     comm_quant_mode, group_list_type, comm_alg, combined_x);
-        if (this->is_padding) {
-            if (this->padding_cnt == PADDING_SIZE) {
-                combined_x = this->ori_x;
-            } else {
-                combined_x = combined_x.slice(0, 0, PADDING_SIZE - this->padding_cnt);
-            }
-            is_padding = false;
+        const char *hcclIntraPcieEnable = getenv("HCCL_INTRA_PCIE_ENABLE");
+        const char *hcclIntraRoceEnable = getenv("HCCL_INTRA_ROCE_ENABLE");
+        if (hcclIntraPcieEnable != nullptr && hcclIntraRoceEnable != nullptr && strcmp(hcclIntraPcieEnable, "1") == 0 &&
+            strcmp(hcclIntraRoceEnable, "0") == 0) {  // A2 layered
+            isLayered = true;
         }
-        return {combined_x, event, std::function<void()>([] {})};
     }
-    char comm_alg[] = "fullmesh";
+
+    if (soc_version == op::SocVersion::ASCEND910B) {
+        comm_alg = "fullmesh";
+    } else {
+        comm_alg = "fullmesh_v1";
+    }
+
+    if (enable_neg_one) {
+        EP_HOST_ASSERT(isLayered == false);
+        x_active_mask = (new_topk_idx >= 0).to(torch::kBool);
+    }
 
     EXEC_NPU_CMD(aclnnMoeDistributeCombineV2, expand_x, expert_ids, expand_idx, ep_send_counts, expert_scales,
                  tp_send_counts, x_active_mask, activation_scale, weight_scale, group_list, expand_scales,

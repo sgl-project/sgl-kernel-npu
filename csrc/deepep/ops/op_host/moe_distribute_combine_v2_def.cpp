@@ -1,10 +1,10 @@
 #include "register/op_def_registry.h"
 
 namespace ops {
-class MoeDistributeCombineNegOne : public OpDef
+class MoeDistributeCombineV2 : public OpDef
 {
 public:
-    explicit MoeDistributeCombineNegOne(const char *name) : OpDef(name)
+    explicit MoeDistributeCombineV2(const char *name) : OpDef(name)
     {
         this->Input("expand_x")
             .ParamType(REQUIRED)
@@ -151,6 +151,6 @@ public:
     }
 };
 
-OP_ADD(MoeDistributeCombineNegOne);
+OP_ADD(MoeDistributeCombineV2);
 
 }  // namespace ops

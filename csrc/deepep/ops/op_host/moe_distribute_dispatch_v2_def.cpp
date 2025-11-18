@@ -1,10 +1,10 @@
 #include "register/op_def_registry.h"
 
 namespace ops {
-class MoeDistributeDispatchNegOne : public OpDef
+class MoeDistributeDispatchV2 : public OpDef
 {
 public:
-    explicit MoeDistributeDispatchNegOne(const char *name) : OpDef(name)
+    explicit MoeDistributeDispatchV2(const char *name) : OpDef(name)
     {
         this->Input("x")
             .ParamType(REQUIRED)
@@ -88,6 +88,6 @@ public:
     }
 };
 
-OP_ADD(MoeDistributeDispatchNegOne);
+OP_ADD(MoeDistributeDispatchV2);
 
 }  // namespace ops

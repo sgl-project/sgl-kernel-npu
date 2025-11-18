@@ -17,7 +17,7 @@
 #include "error_log.h"
 #include "register/op_def_registry.h"
 #include "../op_kernel/moe_distribute_combine_tiling.h"
-#include "../op_kernel/moe_distribute_combine_neg_one_tiling.h"
+#include "../op_kernel/moe_distribute_combine_v2_tiling.h"
 
 #ifdef USE_CANN83_PATH
 #include "platform/platform_infos_def.h"
@@ -117,29 +117,29 @@ constexpr int64_t ELASTIC_METAINFO_OFFSET = 4;
 namespace optiling {
 
 // a3专有
-static void PrintTilingDataInfo(const char *nodeName, MoeDistributeCombineNegOneTilingData &tilingData)
+static void PrintTilingDataInfo(const char *nodeName, MoeDistributeCombineV2TilingData &tilingData)
 {
-    OP_LOGD(nodeName, "epWorldSize is %u.", tilingData.moeDistributeCombineNegOneInfo.epWorldSize);
-    OP_LOGD(nodeName, "tpWorldSize is %u.", tilingData.moeDistributeCombineNegOneInfo.tpWorldSize);
-    OP_LOGD(nodeName, "epRankId is %u.", tilingData.moeDistributeCombineNegOneInfo.epRankId);
-    OP_LOGD(nodeName, "tpRankId is %u.", tilingData.moeDistributeCombineNegOneInfo.tpRankId);
-    OP_LOGD(nodeName, "expertShardType is %u.", tilingData.moeDistributeCombineNegOneInfo.expertShardType);
-    OP_LOGD(nodeName, "sharedExpertNum is %u.", tilingData.moeDistributeCombineNegOneInfo.sharedExpertNum);
-    OP_LOGD(nodeName, "sharedExpertRankNum is %u.", tilingData.moeDistributeCombineNegOneInfo.sharedExpertRankNum);
-    OP_LOGD(nodeName, "moeExpertNum is %u.", tilingData.moeDistributeCombineNegOneInfo.moeExpertNum);
-    OP_LOGD(nodeName, "moeExpertPerRankNum is %u.", tilingData.moeDistributeCombineNegOneInfo.moeExpertPerRankNum);
-    OP_LOGD(nodeName, "globalBs is %u.", tilingData.moeDistributeCombineNegOneInfo.globalBs);
-    OP_LOGD(nodeName, "bs is %u.", tilingData.moeDistributeCombineNegOneInfo.bs);
-    OP_LOGD(nodeName, "k is %u.", tilingData.moeDistributeCombineNegOneInfo.k);
-    OP_LOGD(nodeName, "h is %u.", tilingData.moeDistributeCombineNegOneInfo.h);
-    OP_LOGD(nodeName, "aivNum is %u.", tilingData.moeDistributeCombineNegOneInfo.aivNum);
-    OP_LOGD(nodeName, "totalUbSize is %lu.", tilingData.moeDistributeCombineNegOneInfo.totalUbSize);
-    OP_LOGD(nodeName, "totalWinSize is %lu.", tilingData.moeDistributeCombineNegOneInfo.totalWinSize);
-    OP_LOGD(nodeName, "hasElastic is %d.", tilingData.moeDistributeCombineNegOneInfo.hasElasticInfo);
+    OP_LOGD(nodeName, "epWorldSize is %u.", tilingData.moeDistributeCombineV2Info.epWorldSize);
+    OP_LOGD(nodeName, "tpWorldSize is %u.", tilingData.moeDistributeCombineV2Info.tpWorldSize);
+    OP_LOGD(nodeName, "epRankId is %u.", tilingData.moeDistributeCombineV2Info.epRankId);
+    OP_LOGD(nodeName, "tpRankId is %u.", tilingData.moeDistributeCombineV2Info.tpRankId);
+    OP_LOGD(nodeName, "expertShardType is %u.", tilingData.moeDistributeCombineV2Info.expertShardType);
+    OP_LOGD(nodeName, "sharedExpertNum is %u.", tilingData.moeDistributeCombineV2Info.sharedExpertNum);
+    OP_LOGD(nodeName, "sharedExpertRankNum is %u.", tilingData.moeDistributeCombineV2Info.sharedExpertRankNum);
+    OP_LOGD(nodeName, "moeExpertNum is %u.", tilingData.moeDistributeCombineV2Info.moeExpertNum);
+    OP_LOGD(nodeName, "moeExpertPerRankNum is %u.", tilingData.moeDistributeCombineV2Info.moeExpertPerRankNum);
+    OP_LOGD(nodeName, "globalBs is %u.", tilingData.moeDistributeCombineV2Info.globalBs);
+    OP_LOGD(nodeName, "bs is %u.", tilingData.moeDistributeCombineV2Info.bs);
+    OP_LOGD(nodeName, "k is %u.", tilingData.moeDistributeCombineV2Info.k);
+    OP_LOGD(nodeName, "h is %u.", tilingData.moeDistributeCombineV2Info.h);
+    OP_LOGD(nodeName, "aivNum is %u.", tilingData.moeDistributeCombineV2Info.aivNum);
+    OP_LOGD(nodeName, "totalUbSize is %lu.", tilingData.moeDistributeCombineV2Info.totalUbSize);
+    OP_LOGD(nodeName, "totalWinSize is %lu.", tilingData.moeDistributeCombineV2Info.totalWinSize);
+    OP_LOGD(nodeName, "hasElastic is %d.", tilingData.moeDistributeCombineV2Info.hasElasticInfo);
 }
 
 static ge::graphStatus GetAttrAndSetTilingData(const gert::TilingContext *context,
-                                               MoeDistributeCombineNegOneTilingData &tilingData, const char *nodeName,
+                                               MoeDistributeCombineV2TilingData &tilingData, const char *nodeName,
                                                std::string &groupEp, std::string &groupTp, uint32_t &commQuantMode)
 {
     auto attrs = context->GetAttrs();
@@ -259,22 +259,22 @@ static ge::graphStatus GetAttrAndSetTilingData(const gert::TilingContext *contex
 
     commQuantMode = static_cast<uint32_t>(*commQuantModePtr);
     groupEp = std::string(groupEpPtr);
-    tilingData.moeDistributeCombineNegOneInfo.epWorldSize = static_cast<uint32_t>(epWorldSize);
-    tilingData.moeDistributeCombineNegOneInfo.tpWorldSize = static_cast<uint32_t>(*tpWorldSizePtr);
-    tilingData.moeDistributeCombineNegOneInfo.epRankId = static_cast<uint32_t>(*epRankIdPtr);
-    tilingData.moeDistributeCombineNegOneInfo.tpRankId = static_cast<uint32_t>(*tpRankIdPtr);
-    tilingData.moeDistributeCombineNegOneInfo.expertShardType = static_cast<uint32_t>(*expertShardPtr);
-    tilingData.moeDistributeCombineNegOneInfo.sharedExpertNum = static_cast<uint32_t>(*sharedExpertNumPtr);
-    tilingData.moeDistributeCombineNegOneInfo.sharedExpertRankNum = static_cast<uint32_t>(sharedExpertRankNum);
-    if (tilingData.moeDistributeCombineNegOneInfo.sharedExpertRankNum == 0U) {
-        if (tilingData.moeDistributeCombineNegOneInfo.sharedExpertNum == 1U) {
-            tilingData.moeDistributeCombineNegOneInfo.sharedExpertNum = 0U;
+    tilingData.moeDistributeCombineV2Info.epWorldSize = static_cast<uint32_t>(epWorldSize);
+    tilingData.moeDistributeCombineV2Info.tpWorldSize = static_cast<uint32_t>(*tpWorldSizePtr);
+    tilingData.moeDistributeCombineV2Info.epRankId = static_cast<uint32_t>(*epRankIdPtr);
+    tilingData.moeDistributeCombineV2Info.tpRankId = static_cast<uint32_t>(*tpRankIdPtr);
+    tilingData.moeDistributeCombineV2Info.expertShardType = static_cast<uint32_t>(*expertShardPtr);
+    tilingData.moeDistributeCombineV2Info.sharedExpertNum = static_cast<uint32_t>(*sharedExpertNumPtr);
+    tilingData.moeDistributeCombineV2Info.sharedExpertRankNum = static_cast<uint32_t>(sharedExpertRankNum);
+    if (tilingData.moeDistributeCombineV2Info.sharedExpertRankNum == 0U) {
+        if (tilingData.moeDistributeCombineV2Info.sharedExpertNum == 1U) {
+            tilingData.moeDistributeCombineV2Info.sharedExpertNum = 0U;
         }
     }
-    tilingData.moeDistributeCombineNegOneInfo.moeExpertNum = static_cast<uint32_t>(moeExpertNum);
-    tilingData.moeDistributeCombineNegOneInfo.zeroExpertNum = static_cast<uint32_t>(zeroExpertNum);
-    tilingData.moeDistributeCombineNegOneInfo.copyExpertNum = static_cast<uint32_t>(copyExpertNum);
-    tilingData.moeDistributeCombineNegOneInfo.constExpertNum = static_cast<uint32_t>(constExpertNum);
+    tilingData.moeDistributeCombineV2Info.moeExpertNum = static_cast<uint32_t>(moeExpertNum);
+    tilingData.moeDistributeCombineV2Info.zeroExpertNum = static_cast<uint32_t>(zeroExpertNum);
+    tilingData.moeDistributeCombineV2Info.copyExpertNum = static_cast<uint32_t>(copyExpertNum);
+    tilingData.moeDistributeCombineV2Info.constExpertNum = static_cast<uint32_t>(constExpertNum);
 
     return ge::GRAPH_SUCCESS;
 }
@@ -676,7 +676,7 @@ static bool CheckTensorFormat(const gert::TilingContext *context, const char *no
     return true;
 }
 
-static bool CheckTensorShape(const gert::TilingContext *context, MoeDistributeCombineNegOneTilingData &tilingData,
+static bool CheckTensorShape(const gert::TilingContext *context, MoeDistributeCombineV2TilingData &tilingData,
                              const char *nodeName, bool isShared, bool isActiveMask, uint32_t localMoeExpertNum,
                              const bool hasElasticInfo)
 {
@@ -684,10 +684,10 @@ static bool CheckTensorShape(const gert::TilingContext *context, MoeDistributeCo
     const gert::StorageShape *expertIdsStorageShape = context->GetInputShape(EXPERT_IDS_INDEX);
     int64_t expertIdsDim0 = expertIdsStorageShape->GetStorageShape().GetDim(0);
     int64_t expertIdsDim1 = expertIdsStorageShape->GetStorageShape().GetDim(1);
-    int64_t moeExpertNum = static_cast<int64_t>(tilingData.moeDistributeCombineNegOneInfo.moeExpertNum);
-    int64_t zeroExpertNum = static_cast<int64_t>(tilingData.moeDistributeCombineNegOneInfo.zeroExpertNum);
-    int64_t copyExpertNum = static_cast<int64_t>(tilingData.moeDistributeCombineNegOneInfo.copyExpertNum);
-    int64_t constExpertNum = static_cast<int64_t>(tilingData.moeDistributeCombineNegOneInfo.constExpertNum);
+    int64_t moeExpertNum = static_cast<int64_t>(tilingData.moeDistributeCombineV2Info.moeExpertNum);
+    int64_t zeroExpertNum = static_cast<int64_t>(tilingData.moeDistributeCombineV2Info.zeroExpertNum);
+    int64_t copyExpertNum = static_cast<int64_t>(tilingData.moeDistributeCombineV2Info.copyExpertNum);
+    int64_t constExpertNum = static_cast<int64_t>(tilingData.moeDistributeCombineV2Info.constExpertNum);
     OP_TILING_CHECK(
         (expertIdsDim1 <= 0) ||
             (expertIdsDim1 > K_MAX || (expertIdsDim1 > moeExpertNum + zeroExpertNum + copyExpertNum + constExpertNum)),
@@ -697,14 +697,14 @@ static bool CheckTensorShape(const gert::TilingContext *context, MoeDistributeCo
                 "but got expertIds's dim1=%ld.",
                 K_MAX, moeExpertNum + zeroExpertNum + copyExpertNum + constExpertNum, expertIdsDim1),
         return false);
-    tilingData.moeDistributeCombineNegOneInfo.k = static_cast<uint32_t>(expertIdsDim1);
+    tilingData.moeDistributeCombineV2Info.k = static_cast<uint32_t>(expertIdsDim1);
 
     uint32_t A = 0U;
-    uint32_t globalBs = tilingData.moeDistributeCombineNegOneInfo.globalBs;
-    uint32_t sharedExpertNum = tilingData.moeDistributeCombineNegOneInfo.sharedExpertNum;
-    uint32_t sharedExpertRankNum = tilingData.moeDistributeCombineNegOneInfo.sharedExpertRankNum;
+    uint32_t globalBs = tilingData.moeDistributeCombineV2Info.globalBs;
+    uint32_t sharedExpertNum = tilingData.moeDistributeCombineV2Info.sharedExpertNum;
+    uint32_t sharedExpertRankNum = tilingData.moeDistributeCombineV2Info.sharedExpertRankNum;
     uint32_t rankNumPerSharedExpert = 0;
-    uint32_t epWorldSizeU32 = tilingData.moeDistributeCombineNegOneInfo.epWorldSize;
+    uint32_t epWorldSizeU32 = tilingData.moeDistributeCombineV2Info.epWorldSize;
     uint32_t maxBs = globalBs / epWorldSizeU32;
     uint32_t maxSharedGroupNum = 0;
     if ((sharedExpertNum != 0U) && (sharedExpertRankNum != 0U)) {  // 除零保护
@@ -717,7 +717,7 @@ static bool CheckTensorShape(const gert::TilingContext *context, MoeDistributeCo
         A = globalBs * std::min(static_cast<int64_t>(localMoeExpertNum), expertIdsDim1);
     }
 
-    const int64_t epWorldSize = static_cast<int64_t>(tilingData.moeDistributeCombineNegOneInfo.epWorldSize);
+    const int64_t epWorldSize = static_cast<int64_t>(tilingData.moeDistributeCombineV2Info.epWorldSize);
     if (hasElasticInfo) {
         const gert::StorageShape *elasticInfoStorageShape = context->GetOptionalInputShape(ELASTIC_INFO_INDEX);
         const int64_t elasticInfoDim0 = elasticInfoStorageShape->GetStorageShape().GetDim(0);
@@ -732,7 +732,7 @@ static bool CheckTensorShape(const gert::TilingContext *context, MoeDistributeCo
                      globalBs * std::min(static_cast<int64_t>(localMoeExpertNum), expertIdsDim1));
     }
     // 校验expandX的维度并设h
-    int64_t tpWorldSize = static_cast<int64_t>(tilingData.moeDistributeCombineNegOneInfo.tpWorldSize);
+    int64_t tpWorldSize = static_cast<int64_t>(tilingData.moeDistributeCombineV2Info.tpWorldSize);
     const gert::StorageShape *expandXStorageShape = context->GetInputShape(EXPAND_X_INDEX);
     int64_t expandXDim0 = expandXStorageShape->GetStorageShape().GetDim(0);
     int64_t expandXDim1 = expandXStorageShape->GetStorageShape().GetDim(1);
@@ -746,7 +746,7 @@ static bool CheckTensorShape(const gert::TilingContext *context, MoeDistributeCo
         (expandXDim1 < H_MIN) || (expandXDim1 > H_MAX),
         OP_LOGE(nodeName, "expandX's dim1(H) should be in [%ld, %ld], but got %ld.", H_MIN, H_MAX, expandXDim1),
         return false);  // 32对齐
-    tilingData.moeDistributeCombineNegOneInfo.h = static_cast<uint32_t>(expandXDim1);
+    tilingData.moeDistributeCombineV2Info.h = static_cast<uint32_t>(expandXDim1);
 
     // 校验assistInfo的维度
     const gert::StorageShape *assistInfoStorageShape = context->GetInputShape(ASSIST_INFO_INDEX);
@@ -758,7 +758,7 @@ static bool CheckTensorShape(const gert::TilingContext *context, MoeDistributeCo
         return false);
 
     // 校验epSendCount和tpSendCount的维度
-    int64_t moeExpertPerRankNum = static_cast<int64_t>(tilingData.moeDistributeCombineNegOneInfo.moeExpertPerRankNum);
+    int64_t moeExpertPerRankNum = static_cast<int64_t>(tilingData.moeDistributeCombineV2Info.moeExpertPerRankNum);
     const gert::StorageShape *epSendCountStorageShape = context->GetInputShape(EP_SEND_COUNTS_INDEX);
     const gert::StorageShape *tpSendCountStorageShape = context->GetOptionalInputShape(TP_SEND_COUNTS_INDEX);
     const int64_t epSendCountDim0 = epSendCountStorageShape->GetStorageShape().GetDim(0);
@@ -814,7 +814,7 @@ static bool CheckTensorShape(const gert::TilingContext *context, MoeDistributeCo
 
     // 校验sharedExpertX的维度
     const gert::StorageShape *sharedExpertXShape = context->GetOptionalInputShape(SHARED_EXPERT_X_INDEX);
-    tilingData.moeDistributeCombineNegOneInfo.hasSharedExpertX = (sharedExpertXShape != nullptr);
+    tilingData.moeDistributeCombineV2Info.hasSharedExpertX = (sharedExpertXShape != nullptr);
     if (sharedExpertXShape != nullptr) {
         int64_t sharedExpertXDim0 = sharedExpertXShape->GetStorageShape().GetDim(0);
         int64_t sharedExpertXDim1 = sharedExpertXShape->GetStorageShape().GetDim(1);
@@ -874,11 +874,11 @@ static bool CheckTensorShape(const gert::TilingContext *context, MoeDistributeCo
     if (constExpertAlpha1Shape != nullptr) {
         int64_t constExpertAlpha1Dim0 = constExpertAlpha1Shape->GetStorageShape().GetDim(0);
         OP_TILING_CHECK(
-            constExpertAlpha1Dim0 != static_cast<int64_t>(tilingData.moeDistributeCombineNegOneInfo.constExpertNum),
+            constExpertAlpha1Dim0 != static_cast<int64_t>(tilingData.moeDistributeCombineV2Info.constExpertNum),
             OP_LOGE(nodeName,
                     "const_expert_alpha_1's dim0 not equal to const_expert_num, const_expert_alpha_1's dim0 = %ld, "
                     "const_expert_num = %u",
-                    constExpertAlpha1Dim0, tilingData.moeDistributeCombineNegOneInfo.constExpertNum),
+                    constExpertAlpha1Dim0, tilingData.moeDistributeCombineV2Info.constExpertNum),
             return false);
     }
 
@@ -886,11 +886,11 @@ static bool CheckTensorShape(const gert::TilingContext *context, MoeDistributeCo
     if (constExpertAlpha2Shape != nullptr) {
         int64_t constExpertAlpha2Dim0 = constExpertAlpha2Shape->GetStorageShape().GetDim(0);
         OP_TILING_CHECK(
-            constExpertAlpha2Dim0 != static_cast<int64_t>(tilingData.moeDistributeCombineNegOneInfo.constExpertNum),
+            constExpertAlpha2Dim0 != static_cast<int64_t>(tilingData.moeDistributeCombineV2Info.constExpertNum),
             OP_LOGE(nodeName,
                     "const_expert_alpha_2's dim0 not equal to const_expert_num, const_expert_alpha_2's dim0 = %ld, "
                     "const_expert_num = %u",
-                    constExpertAlpha2Dim0, tilingData.moeDistributeCombineNegOneInfo.constExpertNum),
+                    constExpertAlpha2Dim0, tilingData.moeDistributeCombineV2Info.constExpertNum),
             return false);
     }
 
@@ -899,12 +899,12 @@ static bool CheckTensorShape(const gert::TilingContext *context, MoeDistributeCo
         int64_t constExpertVDim0 = constExpertVShape->GetStorageShape().GetDim(0);
         int64_t constExpertVDim1 = constExpertVShape->GetStorageShape().GetDim(1);
         OP_TILING_CHECK(
-            constExpertVDim0 != static_cast<int64_t>(tilingData.moeDistributeCombineNegOneInfo.constExpertNum),
+            constExpertVDim0 != static_cast<int64_t>(tilingData.moeDistributeCombineV2Info.constExpertNum),
             OP_LOGE(
                 nodeName,
                 "const_expert_v's dim0 not equal to const_expert_num, const_expert_v's dim0 = %ld, const_expert_num = "
                 "%u",
-                constExpertVDim0, tilingData.moeDistributeCombineNegOneInfo.constExpertNum),
+                constExpertVDim0, tilingData.moeDistributeCombineV2Info.constExpertNum),
             return false);
         OP_TILING_CHECK(constExpertVDim1 != expandXDim1,
                         OP_LOGE(nodeName, "const_expert_v's dim1 not equal to h, const_expert_v's dim1 = %ld, h = %ld",
@@ -914,10 +914,10 @@ static bool CheckTensorShape(const gert::TilingContext *context, MoeDistributeCo
     return true;
 }
 
-static bool CheckSharedAttrs(const char *nodeName, const MoeDistributeCombineNegOneTilingData &tilingData)
+static bool CheckSharedAttrs(const char *nodeName, const MoeDistributeCombineV2TilingData &tilingData)
 {
-    uint32_t sharedExpertNum = tilingData.moeDistributeCombineNegOneInfo.sharedExpertNum;
-    uint32_t sharedExpertRankNum = tilingData.moeDistributeCombineNegOneInfo.sharedExpertRankNum;
+    uint32_t sharedExpertNum = tilingData.moeDistributeCombineV2Info.sharedExpertNum;
+    uint32_t sharedExpertRankNum = tilingData.moeDistributeCombineV2Info.sharedExpertRankNum;
 
     // 校验共享专家卡数和共享专家数是否只有一个为0
     OP_TILING_CHECK(
@@ -945,13 +945,13 @@ static bool CheckSharedAttrs(const char *nodeName, const MoeDistributeCombineNeg
     return true;
 }
 
-static bool CheckAttrs(const gert::TilingContext *context, MoeDistributeCombineNegOneTilingData &tilingData,
+static bool CheckAttrs(const gert::TilingContext *context, MoeDistributeCombineV2TilingData &tilingData,
                        const char *nodeName, uint32_t &localMoeExpertNum, bool isActiveMask)
 {
-    uint32_t epWorldSize = tilingData.moeDistributeCombineNegOneInfo.epWorldSize;
-    uint32_t tpWorldSize = tilingData.moeDistributeCombineNegOneInfo.tpWorldSize;
-    uint32_t moeExpertNum = tilingData.moeDistributeCombineNegOneInfo.moeExpertNum;
-    uint32_t sharedExpertRankNum = tilingData.moeDistributeCombineNegOneInfo.sharedExpertRankNum;
+    uint32_t epWorldSize = tilingData.moeDistributeCombineV2Info.epWorldSize;
+    uint32_t tpWorldSize = tilingData.moeDistributeCombineV2Info.tpWorldSize;
+    uint32_t moeExpertNum = tilingData.moeDistributeCombineV2Info.moeExpertNum;
+    uint32_t sharedExpertRankNum = tilingData.moeDistributeCombineV2Info.sharedExpertRankNum;
 
     OP_TILING_CHECK(!CheckSharedAttrs(nodeName, tilingData),
                     OP_LOGE(nodeName, "Check shared expert related attributes failed."), return false);
@@ -973,13 +973,13 @@ static bool CheckAttrs(const gert::TilingContext *context, MoeDistributeCombineN
                             localMoeExpertNum, tpWorldSize),
                     return false);
     // 校验tp=2时是否没有动态缩容参数
-    OP_TILING_CHECK((tpWorldSize > 1) && (tilingData.moeDistributeCombineNegOneInfo.hasElasticInfo),
+    OP_TILING_CHECK((tpWorldSize > 1) && (tilingData.moeDistributeCombineV2Info.hasElasticInfo),
                     OP_LOGE(nodeName,
                             "Cannot support elasticInfo "
                             "when tpWorldSize = %u > 1",
                             tpWorldSize),
                     return false);
-    tilingData.moeDistributeCombineNegOneInfo.moeExpertPerRankNum = localMoeExpertNum;
+    tilingData.moeDistributeCombineV2Info.moeExpertPerRankNum = localMoeExpertNum;
 
     // 校验输入expertIds的维度0并设bs
     const gert::StorageShape *expertIdsStorageShape = context->GetInputShape(EXPERT_IDS_INDEX);
@@ -988,14 +988,14 @@ static bool CheckAttrs(const gert::TilingContext *context, MoeDistributeCombineN
                     OP_LOGE(nodeName, "Invalid expertIds dims0(BS) %ld. Should be between [1, %ld].", expertIdsDim0,
                             BS_UPPER_BOUND),
                     return false);
-    tilingData.moeDistributeCombineNegOneInfo.bs = static_cast<uint32_t>(expertIdsDim0);
+    tilingData.moeDistributeCombineV2Info.bs = static_cast<uint32_t>(expertIdsDim0);
 
     // 校验globalBS
     auto attrs = context->GetAttrs();
     OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "attrs is null."), return false);
     auto globalBsPtr = attrs->GetAttrPointer<int64_t>(ATTR_GLOBAL_BS_INDEX);
     OP_TILING_CHECK(globalBsPtr == nullptr, OP_LOGE(nodeName, "globalBs is null."), return false);
-    OP_LOGD(nodeName, "MoeDistributeCombineNegOne *globalBsPtr = %ld, bs = %ld, epWorldSize = %u\n", *globalBsPtr,
+    OP_LOGD(nodeName, "MoeDistributeCombineV2 *globalBsPtr = %ld, bs = %ld, epWorldSize = %u\n", *globalBsPtr,
             expertIdsDim0, epWorldSize);
 
     OP_TILING_CHECK(
@@ -1008,13 +1008,13 @@ static bool CheckAttrs(const gert::TilingContext *context, MoeDistributeCombineN
                 *globalBsPtr, expertIdsDim0, epWorldSize),
         return false);
 
-    tilingData.moeDistributeCombineNegOneInfo.globalBs = static_cast<uint32_t>(*globalBsPtr);
+    tilingData.moeDistributeCombineV2Info.globalBs = static_cast<uint32_t>(*globalBsPtr);
     if (*globalBsPtr == 0) {
-        tilingData.moeDistributeCombineNegOneInfo.globalBs = static_cast<uint32_t>(expertIdsDim0) * epWorldSize;
+        tilingData.moeDistributeCombineV2Info.globalBs = static_cast<uint32_t>(expertIdsDim0) * epWorldSize;
     }
 
-    uint32_t copyExpertNum = tilingData.moeDistributeCombineNegOneInfo.copyExpertNum;
-    uint32_t constExpertNum = tilingData.moeDistributeCombineNegOneInfo.constExpertNum;
+    uint32_t copyExpertNum = tilingData.moeDistributeCombineV2Info.copyExpertNum;
+    uint32_t constExpertNum = tilingData.moeDistributeCombineV2Info.constExpertNum;
 
     const gert::StorageShape *oriXStorageShape = context->GetOptionalInputShape(ORI_X_INDEX);
     const gert::StorageShape *constExpertAlpha1StorageShape =
@@ -1069,11 +1069,11 @@ static void CalTilingKey(uint64_t &tilingKey, const uint64_t tpWorldSize, uint32
     }
 }
 
-static void SetHCommCfg(const gert::TilingContext *context, MoeDistributeCombineNegOneTilingData *tiling,
+static void SetHCommCfg(const gert::TilingContext *context, MoeDistributeCombineV2TilingData *tiling,
                         const std::string groupEp, const std::string groupTp)
 {
     const char *nodeName = context->GetNodeName();
-    OP_LOGD(nodeName, "MoeDistributeCombineNegOne groupEp = %s, groupTp = %s", groupEp.c_str(), groupTp.c_str());
+    OP_LOGD(nodeName, "MoeDistributeCombineV2 groupEp = %s, groupTp = %s", groupEp.c_str(), groupTp.c_str());
     uint32_t opType1 = OP_TYPE_ALL_TO_ALL;
     uint32_t opType2 = OP_TYPE_REDUCE_SCATTER;
     std::string algConfigAllToAllStr = "AlltoAll=level0:fullmesh;level1:pairwise";
@@ -1092,8 +1092,8 @@ static void SetHCommCfg(const gert::TilingContext *context, MoeDistributeCombine
 static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext *context)
 {
     const char *nodeName = context->GetNodeName();
-    OP_LOGD(nodeName, "Enter MoeDistributeCombineNegOne Tiling func");
-    MoeDistributeCombineNegOneTilingData *tilingData = context->GetTilingData<MoeDistributeCombineNegOneTilingData>();
+    OP_LOGD(nodeName, "Enter MoeDistributeCombineV2 Tiling func");
+    MoeDistributeCombineV2TilingData *tilingData = context->GetTilingData<MoeDistributeCombineV2TilingData>();
     OP_TILING_CHECK(tilingData == nullptr, OP_LOGE(nodeName, "tilingData is nullptr."), return ge::GRAPH_FAILED);
     std::string groupEp = "";
     std::string groupTp = "";
@@ -1110,15 +1110,15 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
 
     const gert::StorageShape *xActiveMaskStorageShape = context->GetOptionalInputShape(X_ACTIVE_MASK_INDEX);
     isActiveMask = (xActiveMaskStorageShape != nullptr);
-    tilingData->moeDistributeCombineNegOneInfo.isTokenMask =
+    tilingData->moeDistributeCombineV2Info.isTokenMask =
         ((isActiveMask) && (xActiveMaskStorageShape->GetStorageShape().GetDimNum() == ONE_DIM));
-    tilingData->moeDistributeCombineNegOneInfo.isExpertMask =
+    tilingData->moeDistributeCombineV2Info.isExpertMask =
         ((isActiveMask) && (xActiveMaskStorageShape->GetStorageShape().GetDimNum() == TWO_DIMS));
 
     // 获取elasticInfo
     const gert::StorageShape *elasticInfoStorageShape = context->GetOptionalInputShape(ELASTIC_INFO_INDEX);
     hasElasticInfo = (elasticInfoStorageShape != nullptr);
-    tilingData->moeDistributeCombineNegOneInfo.hasElasticInfo = hasElasticInfo;
+    tilingData->moeDistributeCombineV2Info.hasElasticInfo = hasElasticInfo;
 
     // 检查输入输出的dim、format、dataType
     OP_TILING_CHECK(
@@ -1129,9 +1129,9 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
     OP_TILING_CHECK(!CheckAttrs(context, *tilingData, nodeName, localMoeExpertNum, isActiveMask),
                     OP_LOGE(nodeName, "attr check failed."), return ge::GRAPH_FAILED);
 
-    uint32_t sharedExpertNum = tilingData->moeDistributeCombineNegOneInfo.sharedExpertNum;
-    uint32_t sharedExpertRankNum = tilingData->moeDistributeCombineNegOneInfo.sharedExpertRankNum;
-    uint32_t epRankId = tilingData->moeDistributeCombineNegOneInfo.epRankId;
+    uint32_t sharedExpertNum = tilingData->moeDistributeCombineV2Info.sharedExpertNum;
+    uint32_t sharedExpertRankNum = tilingData->moeDistributeCombineV2Info.sharedExpertRankNum;
+    uint32_t epRankId = tilingData->moeDistributeCombineV2Info.epRankId;
 
     isShared = (epRankId < sharedExpertRankNum);
 
@@ -1142,10 +1142,10 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
 
     // 校验win区大小
     uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize();
-    uint64_t h = static_cast<uint64_t>(tilingData->moeDistributeCombineNegOneInfo.h);
-    uint64_t epWorldSize = static_cast<uint64_t>(tilingData->moeDistributeCombineNegOneInfo.epWorldSize);
-    uint64_t k = static_cast<uint64_t>(tilingData->moeDistributeCombineNegOneInfo.k);
-    uint64_t maxBs = static_cast<uint64_t>(tilingData->moeDistributeCombineNegOneInfo.globalBs) / epWorldSize;
+    uint64_t h = static_cast<uint64_t>(tilingData->moeDistributeCombineV2Info.h);
+    uint64_t epWorldSize = static_cast<uint64_t>(tilingData->moeDistributeCombineV2Info.epWorldSize);
+    uint64_t k = static_cast<uint64_t>(tilingData->moeDistributeCombineV2Info.k);
+    uint64_t maxBs = static_cast<uint64_t>(tilingData->moeDistributeCombineV2Info.globalBs) / epWorldSize;
     // combine数据区 token首地址对齐512
     uint64_t tokenNeedSizeCombine = ((h * MAX_OUT_DTYPE_SIZE + WIN_ADDR_ALIGN - 1UL) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
     // dispatch数据区 token首对齐512，有效token长度h_align_32b + scale(32b) + 三元组(3*4b)
@@ -1167,14 +1167,14 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
             maxBs, h, epWorldSize, localMoeExpertNum, sharedExpertNum, tokenNeedSizeDispatch, tokenNeedSizeCombine, k,
             actualSize / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
         return ge::GRAPH_FAILED);
-    tilingData->moeDistributeCombineNegOneInfo.totalWinSize = maxWindowSize;
+    tilingData->moeDistributeCombineV2Info.totalWinSize = maxWindowSize;
 
     OP_TILING_CHECK(SetWorkspace(context, nodeName) != ge::GRAPH_SUCCESS,
                     OP_LOGE(context->GetNodeName(), "Tiling set workspace Failed"), return ge::GRAPH_FAILED);
 
     SetHCommCfg(context, tilingData, groupEp, groupTp);
 
-    uint64_t tpWorldSize = static_cast<uint64_t>(tilingData->moeDistributeCombineNegOneInfo.tpWorldSize);
+    uint64_t tpWorldSize = static_cast<uint64_t>(tilingData->moeDistributeCombineV2Info.tpWorldSize);
     uint64_t tilingKey = INIT_TILINGKEY;
     CalTilingKey(tilingKey, tpWorldSize, commQuantMode);
     OP_LOGD(nodeName, "tilingKey is %lu", tilingKey);
@@ -1187,8 +1187,8 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
     ascendcPlatform.GetCoreMemSize(platform_ascendc::CoreMemType::UB, ubSize);
     blockDim = ascendcPlatform.CalcTschBlockDim(aivNum, 0, aivNum);
     context->SetBlockDim(blockDim);
-    tilingData->moeDistributeCombineNegOneInfo.aivNum = aivNum;
-    tilingData->moeDistributeCombineNegOneInfo.totalUbSize = ubSize;
+    tilingData->moeDistributeCombineV2Info.aivNum = aivNum;
+    tilingData->moeDistributeCombineV2Info.totalUbSize = ubSize;
     context->SetScheduleMode(1);  // 设置为batch mode模式，所有核同时启动
     OP_LOGD(nodeName, "blockdim = %u, aivNum = %lu, ubsize = %lu", blockDim, aivNum, ubSize);
     PrintTilingDataInfo(nodeName, *tilingData);
@@ -1196,7 +1196,7 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
     return ge::GRAPH_SUCCESS;
 }
 
-static ge::graphStatus MoeDistributeCombineNegOneTilingFunc(gert::TilingContext *context)
+static ge::graphStatus MoeDistributeCombineV2TilingFunc(gert::TilingContext *context)
 {
     // 不支持 expandX数据类型为int32 type
     auto expandXDesc = context->GetInputDesc(EXPAND_X_INDEX);
@@ -1215,13 +1215,13 @@ static ge::graphStatus MoeDistributeCombineNegOneTilingFunc(gert::TilingContext 
 }
 
 struct MoeDistributeCombineCompileInfo {};
-ge::graphStatus TilingParseForMoeDistributeCombineNegOne(gert::TilingParseContext *context)
+ge::graphStatus TilingParseForMoeDistributeCombineV2(gert::TilingParseContext *context)
 {
     (void)context;
     return ge::GRAPH_SUCCESS;
 }
 
-IMPL_OP_OPTILING(MoeDistributeCombineNegOne)
-    .Tiling(MoeDistributeCombineNegOneTilingFunc)
-    .TilingParse<MoeDistributeCombineCompileInfo>(TilingParseForMoeDistributeCombineNegOne);
+IMPL_OP_OPTILING(MoeDistributeCombineV2)
+    .Tiling(MoeDistributeCombineV2TilingFunc)
+    .TilingParse<MoeDistributeCombineCompileInfo>(TilingParseForMoeDistributeCombineV2);
 }  // namespace optiling

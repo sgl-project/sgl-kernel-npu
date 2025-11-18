@@ -1,5 +1,5 @@
-#ifndef OP_API_INC_MOE_DISTRIBUTE_COMBINE_NEG_ONE_
-#define OP_API_INC_MOE_DISTRIBUTE_COMBINE_NEG_ONE_
+#ifndef OP_API_INC_MOE_DISTRIBUTE_COMBINE_V2_
+#define OP_API_INC_MOE_DISTRIBUTE_COMBINE_V2_
 
 #include <string>
 
@@ -10,8 +10,8 @@ extern "C" {
 #endif
 
 /**
- * 算子功能：实现MoeDistributeCombineNegOne功能。
- * @brief aclnnMoeDistributeCombineNegOne的第一段接口，根据具体的计算流程，计算workspace大小。
+ * 算子功能：实现MoeDistributeCombineV2功能。
+ * @brief aclnnMoeDistributeCombineV2的第一段接口，根据具体的计算流程，计算workspace大小。
  * @domain aclnn_ops_infer
  * @param [in] expandX: 计算输入，Tensor，数据类型float16，bfloat16，必须为2维，数据格式支持ND。
  * @param [in] expertIds: 计算输入，Tensor，数据类型int32，必须为2维，数据格式支持ND。
@@ -50,7 +50,7 @@ extern "C" {
  * @return aclnnStatus: 返回值，返回状态码
  *
  */
-__attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeCombineNegOneGetWorkspaceSize(
+__attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeCombineV2GetWorkspaceSize(
     const aclTensor *expandX, const aclTensor *expertIds, const aclTensor *assistInfoForCombine,
     const aclTensor *epSendCounts, const aclTensor *expertScales, const aclTensor *tpSendCountsOptional,
     const aclTensor *xActiveMaskOptional, const aclTensor *activationScaleOptional,
@@ -61,15 +61,15 @@ __attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeCombineNegO
     char *commAlg, const aclTensor *xOut, uint64_t *workspaceSize, aclOpExecutor **executor);
 
 /**
- * @brief aclnnMoeDistributeCombineNegOne的第二段接口，用于执行计算。
+ * @brief aclnnMoeDistributeCombineV2的第二段接口，用于执行计算。
  * @param [in] workspace: 在npu device侧申请的workspace内存起址。
  * @param [in] workspace_size: 在npu
- * device侧申请的workspace大小，由第一段接口aclnnMoeDistributeCombineNegOneGetWorkspaceSize获取。
+ * device侧申请的workspace大小，由第一段接口aclnnMoeDistributeCombineV2GetWorkspaceSize获取。
  * @param [in] executor: op执行器，包含了算子计算流程。
  * @param [in] stream: acl stream流。
  * @return aclnnStatus: 返回状态码
  */
-__attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeCombineNegOne(void *workspace,
+__attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeCombineV2(void *workspace,
                                                                                    uint64_t workspaceSize,
                                                                                    aclOpExecutor *executor,
                                                                                    aclrtStream stream);
@@ -78,4 +78,4 @@ __attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeCombineNegO
 }
 #endif
 
-#endif  // OP_API_INC_MOE_DISTRIBUTE_COMBINE_NEG_ONE_
+#endif  // OP_API_INC_MOE_DISTRIBUTE_COMBINE_V2_
