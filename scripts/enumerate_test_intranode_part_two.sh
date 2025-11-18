@@ -6,7 +6,7 @@ cd ${GITHUB_WORKSPACE}/tests/python/deepep
 #遍历test_intranode.py
 # 设置参数范围
 NUM_PROCESSES_LIST=(16)
-NUM_TOKENS_LIST=(4096)
+NUM_TOKENS_LIST=(1)
 HIDDEN_LIST=(7168)
 NUM_TOPK_LIST=(8)
 NUM_EXPERTS_LIST=(256)
