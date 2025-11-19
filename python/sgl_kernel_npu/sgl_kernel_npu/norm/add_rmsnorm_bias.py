@@ -30,13 +30,15 @@ def add_rmsnorm_bias_kernel(
     for i in tl.range(row_start, batch_size, row_step):
         # add
         buffered_values = tl.load(input_ptr + input_offsets, mask=valid_mask, other=0.0)
-        buffered_values += tl.load(residual_ptr + input_offsets, mask=valid_mask, other=0.0)
+        buffered_values += tl.load(
+            residual_ptr + input_offsets, mask=valid_mask, other=0.0
+        )
         tl.store(output2_ptr + input_offsets, buffered_values, mask=valid_mask)
         buffered_values = buffered_values.to(tl.float32)
         # norm
-        squares = (buffered_values * buffered_values)  # .to(tl.float32)
+        squares = buffered_values * buffered_values  # .to(tl.float32)
         variance = tl.sum(squares) / hidden_size
-        reciprocal_std = (1 / tl.sqrt(variance + eps))  # .to(tl.bfloat16)
+        reciprocal_std = 1 / tl.sqrt(variance + eps)  # .to(tl.bfloat16)
         buffered_values = buffered_values * reciprocal_std
         buffered_values = buffered_values * norm_weight_values
         # bias
@@ -47,13 +49,25 @@ def add_rmsnorm_bias_kernel(
             for block_offset in range(0, hidden_size, COL_BLOCK_SIZE):
                 col_indices = block_offset + block_cols
                 valid_mask2 = col_indices < hidden_size
-                block_buffered_values = tl.extract_slice(buffered_values, (block_offset,), (COL_BLOCK_SIZE,), (1,))
+                block_buffered_values = tl.extract_slice(
+                    buffered_values, (block_offset,), (COL_BLOCK_SIZE,), (1,)
+                )
                 # quant
-                quant_scale_values = tl.load(quant_scale_ptr + col_indices, mask=valid_mask2, other=0.0)
-                quant_offset_values = tl.load(quant_offset_ptr + col_indices, mask=valid_mask2, other=0.0)
-                block_buffered_values = (block_buffered_values.to(tl.float32) * quant_scale_values) + quant_offset_values
+                quant_scale_values = tl.load(
+                    quant_scale_ptr + col_indices, mask=valid_mask2, other=0.0
+                )
+                quant_offset_values = tl.load(
+                    quant_offset_ptr + col_indices, mask=valid_mask2, other=0.0
+                )
+                block_buffered_values = (
+                    block_buffered_values.to(tl.float32) * quant_scale_values
+                ) + quant_offset_values
                 block_buffered_values = tl.math.rint(block_buffered_values)
-                tl.store(output_ptr + i * hidden_size + col_indices, block_buffered_values, mask=valid_mask2)
+                tl.store(
+                    output_ptr + i * hidden_size + col_indices,
+                    block_buffered_values,
+                    mask=valid_mask2,
+                )
         else:
             tl.store(output_ptr + input_offsets, buffered_values, mask=valid_mask)
 
@@ -82,20 +96,49 @@ def add_rmsnorm_bias(
 
     SCALE = quant_scale is not None
     if SCALE:
-        output = torch.empty(batch_size, hidden_size, device=input.device, dtype=torch.int8)
+        output = torch.empty(
+            batch_size, hidden_size, device=input.device, dtype=torch.int8
+        )
     else:
-        output = torch.empty(batch_size, hidden_size, device=input.device, dtype=input.dtype)
-    output2 = torch.empty(batch_size, hidden_size, device=input.device, dtype=input.dtype)
-    kernel = kernels.get((n_rows, hidden_size, eps, BLOCK_SIZE, COL_BLOCK_SIZE, SCALE), None)
+        output = torch.empty(
+            batch_size, hidden_size, device=input.device, dtype=input.dtype
+        )
+    output2 = torch.empty(
+        batch_size, hidden_size, device=input.device, dtype=input.dtype
+    )
+    kernel = kernels.get(
+        (n_rows, hidden_size, eps, BLOCK_SIZE, COL_BLOCK_SIZE, SCALE), None
+    )
     if kernel is None:
-        kernel = add_rmsnorm_bias_kernel.warmup(input, residual, norm_weight,
-                    norm_bias, quant_scale, quant_offset, output, output2, batch_size, hidden_size, eps, BLOCK_SIZE,
-                    COL_BLOCK_SIZE, SCALE, grid=(n_rows,))
+        kernel = add_rmsnorm_bias_kernel.warmup(
+            input,
+            residual,
+            norm_weight,
+            norm_bias,
+            quant_scale,
+            quant_offset,
+            output,
+            output2,
+            batch_size,
+            hidden_size,
+            eps,
+            BLOCK_SIZE,
+            COL_BLOCK_SIZE,
+            SCALE,
+            grid=(n_rows,),
+        )
         kernel._init_handles()
         kernels[(n_rows, hidden_size, eps, BLOCK_SIZE, COL_BLOCK_SIZE, SCALE)] = kernel
 
     kernel[(n_rows, 1, 1)](
-        input, residual, norm_weight, norm_bias, quant_scale, quant_offset, output, output2,
+        input,
+        residual,
+        norm_weight,
+        norm_bias,
+        quant_scale,
+        quant_offset,
+        output,
+        output2,
         batch_size,
     )
     return output, output2

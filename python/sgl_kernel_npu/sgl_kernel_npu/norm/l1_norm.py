@@ -17,9 +17,9 @@ def l1_norm_kernel(input_ptr, output_ptr, hidden_size: tl.constexpr):
 def l1_norm(input):
     batch_size = input.shape[0]
     hidden_size = input.shape[1]
-    output = torch.empty(batch_size, hidden_size, device=input.device, dtype=torch.float32)
-
-    l1_norm_kernel[(batch_size,)](
-        input, output, hidden_size
+    output = torch.empty(
+        batch_size, hidden_size, device=input.device, dtype=torch.float32
     )
+
+    l1_norm_kernel[(batch_size,)](input, output, hidden_size)
     return output

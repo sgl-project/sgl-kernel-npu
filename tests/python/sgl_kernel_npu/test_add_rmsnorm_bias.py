@@ -18,7 +18,7 @@ def add_rmsnorm_bias_quant_golden(
     norm_bias = norm_bias.to(torch.float32).cpu().numpy()
 
     out2 = input + residual
-    reciprocal_std = 1 / np.sqrt(np.mean(out2 ** 2, axis=-1, keepdims=True) + eps)
+    reciprocal_std = 1 / np.sqrt(np.mean(out2**2, axis=-1, keepdims=True) + eps)
     out1 = out2 * reciprocal_std * norm_weight + norm_bias
     if quant_scale is not None:
         quant_scale = quant_scale.to(torch.float32).cpu().numpy()
@@ -39,21 +39,21 @@ def test_add_rmsnorm_bias():
     ans1, ans2 = add_rmsnorm_bias_quant_golden(input, residual, weight, bias, 1e-6)
 
     assert (
-            np.testing.assert_allclose(
-                res1.to(torch.float32).cpu().numpy(),
-                ans1,
-                rtol=5e-3,
-            )
-            is None
+        np.testing.assert_allclose(
+            res1.to(torch.float32).cpu().numpy(),
+            ans1,
+            rtol=5e-3,
+        )
+        is None
     )
 
     assert (
-            np.testing.assert_allclose(
-                res2.to(torch.float32).cpu().numpy(),
-                ans2,
-                rtol=5e-3,
-            )
-            is None
+        np.testing.assert_allclose(
+            res2.to(torch.float32).cpu().numpy(),
+            ans2,
+            rtol=5e-3,
+        )
+        is None
     )
 
     # enable quant
@@ -64,20 +64,24 @@ def test_add_rmsnorm_bias():
     bias = torch.randn(hidden_size).to(torch.bfloat16).npu()
     quant_scale = torch.randn(hidden_size).to(torch.bfloat16).npu()
     quant_offset = torch.randn(hidden_size).to(torch.bfloat16).npu()
-    res1, res2 = add_rmsnorm_bias(input, residual, weight, bias, 1e-6, quant_scale, quant_offset)
-    ans1, ans2 = add_rmsnorm_bias_quant_golden(input, residual, weight, bias, 1e-6, quant_scale, quant_offset)
+    res1, res2 = add_rmsnorm_bias(
+        input, residual, weight, bias, 1e-6, quant_scale, quant_offset
+    )
+    ans1, ans2 = add_rmsnorm_bias_quant_golden(
+        input, residual, weight, bias, 1e-6, quant_scale, quant_offset
+    )
 
     diff = res1.to(torch.float32).cpu().numpy() - ans1
 
     assert (diff <= 1).any()
 
     assert (
-            np.testing.assert_allclose(
-                res2.to(torch.float32).cpu().numpy(),
-                ans2,
-                rtol=5e-3,
-            )
-            is None
+        np.testing.assert_allclose(
+            res2.to(torch.float32).cpu().numpy(),
+            ans2,
+            rtol=5e-3,
+        )
+        is None
     )
 
 

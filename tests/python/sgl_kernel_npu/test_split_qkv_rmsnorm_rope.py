@@ -32,7 +32,7 @@ def rms_norm(
     input = input.to(torch.float32).cpu().numpy()
     norm_weight = norm_weight.to(torch.float32).cpu().numpy()
     norm_bias = norm_bias.to(torch.float32).cpu().numpy()
-    reciprocal_std = 1 / np.sqrt(np.mean(input ** 2, axis=-1, keepdims=True) + eps)
+    reciprocal_std = 1 / np.sqrt(np.mean(input**2, axis=-1, keepdims=True) + eps)
     out = input * reciprocal_std * norm_weight + norm_bias
     return out
 
@@ -44,10 +44,34 @@ def test_split_qkv_rmsnorm_rope():
     bsz = 12
     eps = 1e-6
     qkv = torch.randn(bsz, q_hidden_size + kv_hidden_size * 2).to(torch.bfloat16).npu()
-    q_weight = torch.randn(head_dim, ).to(torch.bfloat16).npu()
-    k_weight = torch.randn(head_dim, ).to(torch.bfloat16).npu()
-    q_bias = torch.randn(head_dim, ).to(torch.bfloat16).npu()
-    k_bias = torch.randn(head_dim, ).to(torch.bfloat16).npu()
+    q_weight = (
+        torch.randn(
+            head_dim,
+        )
+        .to(torch.bfloat16)
+        .npu()
+    )
+    k_weight = (
+        torch.randn(
+            head_dim,
+        )
+        .to(torch.bfloat16)
+        .npu()
+    )
+    q_bias = (
+        torch.randn(
+            head_dim,
+        )
+        .to(torch.bfloat16)
+        .npu()
+    )
+    k_bias = (
+        torch.randn(
+            head_dim,
+        )
+        .to(torch.bfloat16)
+        .npu()
+    )
     sin = np.random.uniform(0, 1, [bsz, 1, 1, head_dim])
     cos = np.random.uniform(0, 1, [bsz, 1, 1, head_dim])
     sin = torch.from_numpy(sin).to(torch.bfloat16).npu()
@@ -64,7 +88,7 @@ def test_split_qkv_rmsnorm_rope():
         head_dim,
         eps,
         q_bias,
-        k_bias
+        k_bias,
     )
 
     # split
@@ -81,30 +105,30 @@ def test_split_qkv_rmsnorm_rope():
     cus_k = cus_k.reshape(bsz, -1)
 
     assert (
-            np.testing.assert_allclose(
-                q.to(torch.float32).cpu().numpy(),
-                cus_q,
-                atol=5e-2,
-            )
-            is None
+        np.testing.assert_allclose(
+            q.to(torch.float32).cpu().numpy(),
+            cus_q,
+            atol=5e-2,
+        )
+        is None
     )
 
     assert (
-            np.testing.assert_allclose(
-                k.to(torch.float32).cpu().numpy(),
-                cus_k,
-                atol=5e-2,
-            )
-            is None
+        np.testing.assert_allclose(
+            k.to(torch.float32).cpu().numpy(),
+            cus_k,
+            atol=5e-2,
+        )
+        is None
     )
 
     assert (
-            np.testing.assert_allclose(
-                v.to(torch.float32).cpu().numpy(),
-                _v.to(torch.float32).cpu().numpy(),
-                rtol=5e-3,
-            )
-            is None
+        np.testing.assert_allclose(
+            v.to(torch.float32).cpu().numpy(),
+            _v.to(torch.float32).cpu().numpy(),
+            rtol=5e-3,
+        )
+        is None
     )
 
 

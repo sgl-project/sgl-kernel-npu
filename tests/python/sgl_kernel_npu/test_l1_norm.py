@@ -12,12 +12,12 @@ def test_l1_norm():
     ans = input / input.sum(axis=-1, keepdims=True)
 
     assert (
-            np.testing.assert_allclose(
-                res.cpu().numpy(),
-                ans,
-                rtol=5e-3,
-            )
-            is None
+        np.testing.assert_allclose(
+            res.cpu().numpy(),
+            ans,
+            rtol=5e-3,
+        )
+        is None
     )
 
 

@@ -1,8 +1,9 @@
+import numpy as np
 import torch
 import torch_npu
-import numpy as np
 import triton
 import triton.language as tl
+
 # from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
@@ -68,17 +69,20 @@ def _swiglu_quant_kernel(
                 o_offsets = (
                     row_idx * HALF_COLS + col_blk_idx + tl.arange(0, COL_BLOCK_SIZE)
                 )
-                tl.store(out_ptr + o_offsets, tmp_out.to(out_ptr.dtype.element_ty), mask=valid_mask)
+                tl.store(
+                    out_ptr + o_offsets,
+                    tmp_out.to(out_ptr.dtype.element_ty),
+                    mask=valid_mask,
+                )
         else:
             # store out
             o_offsets = row_idx * HALF_COLS + tl.arange(0, HALF_COLS)
             tl.store(out_ptr + o_offsets, out.to(out_ptr.dtype.element_ty))
 
+
 def get_device_properties():
     device = torch.npu.current_device()
-    device_properties = (
-        triton.runtime.driver.active.utils.get_device_properties(device)
-    )
+    device_properties = triton.runtime.driver.active.utils.get_device_properties(device)
 
     num_aicore = device_properties.get("num_aicore", -1)
     num_vectorcore = device_properties.get("num_vectorcore", -1)
@@ -126,6 +130,7 @@ def swiglu_quant(x, group_list, group_list_type, need_quant=True):
         multibuffer=True,
     )
     return out, scale
+
 
 def test_swiglu_quant():
     def to_numpy(x: torch.Tensor) -> np.ndarray:
