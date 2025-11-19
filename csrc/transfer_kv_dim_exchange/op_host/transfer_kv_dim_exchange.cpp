@@ -102,7 +102,7 @@ HOST_API void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
             }
         }
     }
-    aclrtSynchronizeStream(acl_stream);
+    // aclrtSynchronizeStream(acl_stream);
 }
 
 }  // namespace npu_kernel

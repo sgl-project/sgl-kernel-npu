@@ -115,7 +115,7 @@ class TestTransferKV(unittest.TestCase):
             f"total copy size is {total_size} bytes, "
             f"total duration {float((end - start) * 1000):.3f}ms"
         )
-
+        torch.npu.synchronize()
         return device_kv_buffer, host_kv_buffer
 
     def _k_transfer(self, direct_str):
