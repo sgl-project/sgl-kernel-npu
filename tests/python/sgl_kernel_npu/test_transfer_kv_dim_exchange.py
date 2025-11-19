@@ -37,6 +37,7 @@ class TestTransferKV(unittest.TestCase):
             (2, NUM_PAGES, NUM_LAYERS, PAGE_SIZE, HEAD_NUM_PER_TP, HEAD_DIM),
             dtype=torch.bfloat16,
             device="cpu",
+            pin_memory=True,
         )
 
         self.assertNotEqual(
@@ -58,6 +59,7 @@ class TestTransferKV(unittest.TestCase):
             (NUM_PAGES, NUM_LAYERS, PAGE_SIZE, HEAD_NUM_PER_TP, HEAD_DIM),
             dtype=torch.bfloat16,
             device="cpu",
+            pin_memory=True,
         )
 
         device_indices = torch.arange(NUM_PAGES * PAGE_SIZE, dtype=torch.int64)
@@ -113,7 +115,7 @@ class TestTransferKV(unittest.TestCase):
             f"total copy size is {total_size} bytes, "
             f"total duration {float((end - start) * 1000):.3f}ms"
         )
-
+        torch.npu.synchronize()
         return device_kv_buffer, host_kv_buffer
 
     def _k_transfer(self, direct_str):
