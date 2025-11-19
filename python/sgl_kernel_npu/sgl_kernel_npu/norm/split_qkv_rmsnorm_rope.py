@@ -17,10 +17,10 @@ def split_qkv_rmsnorm_rope_kernel(
     k_weight_ptr,
     k_bias_ptr,
     batch_size,
-    q_hidden_size,
-    kv_hidden_size,
-    total_hidden_size,
-    eps,
+    q_hidden_size: tl.constexpr,
+    kv_hidden_size: tl.constexpr,
+    total_hidden_size: tl.constexpr,
+    eps: tl.constexpr,
     Q_BLOCK_SIZE: tl.constexpr,
     KV_BLOCK_SIZE: tl.constexpr,
     BIAS: tl.constexpr,
@@ -152,18 +152,17 @@ def split_qkv_rmsnorm_rope(
     n_rows = num_vectorcore // n_cols
     BIAS = q_bias is not None
 
-    kernel = kernels.get((Q_BLOCK_SIZE, KV_BLOCK_SIZE, BIAS), None)
+    kernel = kernels.get((q_hidden_size, kv_hidden_size, total_hidden_size, eps, Q_BLOCK_SIZE, KV_BLOCK_SIZE, BIAS), None)
     if kernel is None:
         kernel = split_qkv_rmsnorm_rope_kernel.warmup(input, sin, cos, q_output, k_output, v_output,
                     q_weight, q_bias, k_weight, k_bias, batch_size, q_hidden_size, kv_hidden_size,
                     total_hidden_size, eps, Q_BLOCK_SIZE, KV_BLOCK_SIZE, BIAS, head_dim, head_dim // 2,
                     grid=(n_rows, n_cols,))
         kernel._init_handles()
-        kernels[(Q_BLOCK_SIZE, KV_BLOCK_SIZE, BIAS)] = kernel
+        kernels[(q_hidden_size, kv_hidden_size, total_hidden_size, eps, Q_BLOCK_SIZE, KV_BLOCK_SIZE, BIAS)] = kernel
 
     kernel[(n_rows, n_cols, 1)](
         input, sin, cos, q_output, k_output, v_output,
-        q_weight, q_bias, k_weight, k_bias, batch_size, q_hidden_size, kv_hidden_size,
-        total_hidden_size, eps,
+        q_weight, q_bias, k_weight, k_bias, batch_size,
     )
     return q_output, k_output, v_output
