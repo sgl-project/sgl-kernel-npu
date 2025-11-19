@@ -1,3 +1,10 @@
+#!/bin/bash
+
+# 切换目录
+cd ${GITHUB_WORKSPACE}/tests/python/deepep
+
+#遍历test_intranode.py
+# 设置参数范围
 NUM_PROCESSES_LIST=(8 16)
 NUM_TOKENS_LIST=(1 4096)
 HIDDEN_LIST=(4096 7168)
@@ -47,3 +54,5 @@ for NUM_PROCESSES in "${NUM_PROCESSES_LIST[@]}"; do
     done
   done
 done
+
+cd ./
