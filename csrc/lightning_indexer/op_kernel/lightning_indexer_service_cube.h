@@ -47,7 +47,7 @@ public:
     static constexpr uint64_t L0_BUF_NUM = 2;
 
     static constexpr uint32_t KEY_MTE1_MTE2_EVENT = EVENT_ID2;
-    static constexpr uint32_t QUERY_MTE1_MTE2_EVENT = EVENT_ID5;  // KEY_MTE1_MTE2_EVENT + KEY_BUF_NUM;
+    uint32_t QUERY_MTE1_MTE2_EVENT;  // KEY_MTE1_MTE2_EVENT + KEY_BUF_NUM;
     static constexpr uint32_t M_MTE1_EVENT = EVENT_ID3;
 
     static constexpr uint32_t MTE2_MTE1_EVENT = EVENT_ID2;
@@ -105,6 +105,19 @@ protected:
 private:
     static constexpr bool PAGE_ATTENTION = LIT::pageAttention;
 };
+
+template <typename LIT>
+__aicore__ inline void LIMatmul<LIT>::LIMatmul()
+{
+    QUERY_MTE1_MTE2_EVENT = GetTPipePtr()->AllocEventID<AscendC::HardEvent::MTE1_MTE2>();
+}
+
+template <typename LIT>
+__aicore__ inline void LIMatmul<LIT>::~LIMatmul(const ConstInfo &constInfo)
+{
+    GetTPipePtr()->ReleaseEventID<AscendC::HardEvent::V_S>(QUERY_MTE1_MTE2_EVENT);
+}
+
 
 template <typename LIT>
 __aicore__ inline void LIMatmul<LIT>::InitParams(const ConstInfo &constInfo)
