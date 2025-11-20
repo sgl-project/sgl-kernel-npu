@@ -343,69 +343,94 @@ def test(
         topk_weights = topk_weights[:1, :]
 
     if test_topk_minus1:
-        topk_idx_minus1 = topk_idx.clone()
-        topk_idx_minus1[:, -2:-1] = -1
-        topk_weights_minus1 = topk_weights.clone()
-        topk_weights_minus1[:, -2:-1] = 0
-        # ----- Baseline -----
-        baseline_output, base_ep_recv_count = baseline_test(
-            buffer2,
-            x,
-            topk_idx,
-            num_tokens,
-            num_experts,
-            cumulative_local_expert_recv_stats,
-            return_recv_hook,
-            w13,
-            w13_scale,
-            w2,
-            w2_scale,
-            topk_weights_minus1,
-        )
-        # ----- Fused -----
-        fused_output, fused_ep_recv_count = buffer.fused_deep_moe(
-            x,
-            topk_idx_minus1,
-            topk_weights,
-            w13_f,
-            w13s_f,
-            w2_f,
-            w2s_f,
-            num_tokens,
-            num_experts,
-            0,
-        )
-
+        topk_idx_modified = topk_idx.clone()
+        topk_idx_modified[:, -2:-1] = -1
+        topk_weights_modified = topk_weights.clone()
+        topk_weights_modified[:, -2:-1] = 0
     else:
-        # ----- Baseline -----
-        baseline_output, base_ep_recv_count = baseline_test(
-            buffer2,
-            x,
-            topk_idx,
-            num_tokens,
-            num_experts,
-            cumulative_local_expert_recv_stats,
-            return_recv_hook,
-            w13,
-            w13_scale,
-            w2,
-            w2_scale,
-            topk_weights,
-        )
+        topk_idx_modified = topk_idx
+        topk_weights_modified = topk_weights
 
-        # ----- Fused -----
-        fused_output, fused_ep_recv_count = buffer.fused_deep_moe(
-            x,
-            topk_idx,
-            topk_weights,
-            w13_f,
-            w13s_f,
-            w2_f,
-            w2s_f,
-            num_tokens,
-            num_experts,
-            0,
-        )
+    # ----- Baseline -----
+    baseline_output, base_ep_recv_count = baseline_test(
+        buffer2,
+        x,
+        topk_idx,
+        num_tokens,
+        num_experts,
+        cumulative_local_expert_recv_stats,
+        return_recv_hook,
+        w13,
+        w13_scale,
+        w2,
+        w2_scale,
+        topk_weights_modified,
+    )
+
+    # ----- Fused -----
+    fused_output, fused_ep_recv_count = buffer.fused_deep_moe(
+        x,
+        topk_idx_modified,
+        topk_weights,
+        w13_f,
+        w13s_f,
+        w2_f,
+        w2s_f,
+        num_tokens,
+        num_experts,
+        0,
+    )
+
+    # ----- performance test -----
+    base_args = {
+        "buffer": buffer2,
+        "x": x,
+        "topk_idx": topk_idx,
+        "num_tokens": num_tokens,
+        "num_experts": num_experts,
+        "cumulative_local_expert_recv_stats": cumulative_local_expert_recv_stats,
+        "return_recv_hook": return_recv_hook,
+        "w13": w13,
+        "w13_scale": w13_scale,
+        "w2": w2,
+        "w2_scale": w2_scale,
+        "topk_weights": topk_weights_modified,
+    }
+
+    moe_args = {
+        "x": x,
+        "topk_idx": topk_idx_modified,
+        "topk_weights": topk_weights,
+        "gmm1_permuted_weight": w13,
+        "gmm1_permuted_weight_scale": w13_scale,
+        "gmm2_weight": w2,
+        "gmm2_weight_scale": w2_scale,
+        "num_max_dispatch_tokens_per_rank": num_tokens,
+        "num_experts": num_experts,
+        "quant_mode": 0
+    }
+
+    base_t_average, base_t_min, base_t_max = bench(lambda: baseline_test(**base_args))
+    moe_t_average, moe_t_min, moe_t_max = bench(lambda: buffer.fused_deep_moe(**moe_args))
+    num_base_comm_bytes, num_moe_comm_bytes = 0, 0
+    if test_topk_minus1:
+        for i in range(num_tokens):
+            num_base_comm_bytes += (topk_idx[i] != -1).sum().item() * hidden * 2
+            num_moe_comm_bytes += (topk_idx_modified[i] != -1).sum().item() * hidden * 2
+    else:
+        for i in range(num_tokens):
+            num_base_comm_bytes += (topk_idx[i] != -1).sum().item() * hidden * 2
+        num_moe_comm_bytes = num_base_comm_bytes
+    print(
+        f"[rank {rank}] baseline bandwith： {num_base_comm_bytes / 1e9 / base_t_average:.2f} GB/s, "
+        f"avg_t={base_t_average * 1e6:.2f} us, min_t={base_t_min * 1e6:.2f} us, max_t={base_t_max * 1e6:.2f} us",
+        flush=True,
+    )
+    print(
+        f"[rank {rank}] moe bandwith： {num_moe_comm_bytes / 1e9 / moe_t_average:.2f} GB/s, "
+        f"avg_t={moe_t_average * 1e6:.2f} us, min_t={moe_t_min * 1e6:.2f} us, max_t={moe_t_max * 1e6:.2f} us",
+        flush=True,
+    )
 
     # ----- Compare Outputs -----
     max_diff = torch.max(torch.abs(fused_output - baseline_output)).item()
