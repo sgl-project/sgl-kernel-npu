@@ -424,12 +424,12 @@ def test(
             num_base_comm_bytes += (topk_idx[i] != -1).sum().item() * hidden * 2
         num_moe_comm_bytes = num_base_comm_bytes
     print(
-        f"[rank {rank}] baseline bandwith： {num_base_comm_bytes / 1e9 / base_t_average:.2f} GB/s, "
+        f"[rank {rank}] baseline bandwidth： {num_base_comm_bytes / 1e9 / base_t_average:.2f} GB/s, "
         f"avg_t={base_t_average * 1e6:.2f} us, min_t={base_t_min * 1e6:.2f} us, max_t={base_t_max * 1e6:.2f} us",
         flush=True,
     )
     print(
-        f"[rank {rank}] moe bandwith： {num_moe_comm_bytes / 1e9 / moe_t_average:.2f} GB/s, "
+        f"[rank {rank}] moe bandwidth： {num_moe_comm_bytes / 1e9 / moe_t_average:.2f} GB/s, "
         f"avg_t={moe_t_average * 1e6:.2f} us, min_t={moe_t_min * 1e6:.2f} us, max_t={moe_t_max * 1e6:.2f} us",
         flush=True,
     )
