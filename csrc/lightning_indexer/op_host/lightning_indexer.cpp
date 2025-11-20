@@ -68,7 +68,7 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
     auto context = std::make_shared<TilingContext>("lightning_indexer");
     TORCH_CHECK(context != nullptr, "TilingContext is null");
 
-    auto runtimeAttrs = context.GetAttrs();
+    const auto runtimeAttrs = context->GetAttrs();
     std::string layoutQuery(runtimeAttrs->GetStr(ATTR_QUERY_LAYOUT_INDEX));
     std::string layoutKey(runtimeAttrs->GetStr(ATTR_KEY_LAYOUT_INDEX));
     int64_t sparseCount = runtimeAttrs->GetAttrPointer<int32_t>(ATTR_SPARSE_COUNT_INDEX);
