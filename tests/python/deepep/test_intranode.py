@@ -17,9 +17,6 @@ from utils import (
     per_token_cast_back,
 )
 
-MAX_BATCH_SIZE = 4096
-enable_a2_test = False
-
 
 # noinspection PyShadowingNames
 def test_main(
@@ -103,58 +100,6 @@ def test_main(
     gbl_num_tokens_per_expert = num_tokens_per_expert.clone()
     dist.all_reduce(gbl_num_tokens_per_expert, group=group)
 
-    # Server meta
-    if enable_a2_test:
-        count_num_expert = [0] * num_experts
-        num_tokens_per_server_uniq = torch.zeros(
-            (num_servers,), dtype=torch.int, device="npu"
-        )
-        num_each_token_to_server = torch.zeros(
-            (num_tokens * num_servers,), dtype=torch.int, device="npu"
-        )
-        each_token_to_num_server = torch.zeros(
-            (num_tokens,), dtype=torch.int, device="npu"
-        )
-        each_token_offset_to_server = torch.zeros(
-            (num_tokens * num_servers,), dtype=torch.int, device="npu"
-        )
-        send_token_idx = torch.zeros(
-            (num_tokens * num_experts,), dtype=torch.int, device="npu"
-        )
-        expert_rank_token_idx = torch.zeros(
-            (num_experts * MAX_BATCH_SIZE,), dtype=torch.int, device="npu"
-        )
-
-        for i in range(num_tokens):
-            seen_server = [0] * num_servers
-            for j in range(num_topk):
-                expert_id = topk_idx[i][j]
-                rank_id = expert_id // experts_per_rank
-                server_id = rank_id // num_local_ranks
-                if seen_server[server_id] == 0:
-                    num_tokens_per_server_uniq[server_id] += 1
-                    each_token_offset_to_server[i * num_servers + server_id] = (
-                        num_tokens_per_server_uniq[server_id]
-                    )
-                    each_token_to_num_server[i] += 1
-                    seen_server[server_id] += 1
-                num_each_token_to_server[i * num_servers + server_id] += 1
-                count_num_expert[expert_id] += 1
-                send_token_idx[i * num_experts + expert_id] = count_num_expert[
-                    expert_id
-                ]
-
-        count_num_expert = [0] * num_experts
-        for i in range(num_tokens):
-            for j in range(num_topk):
-                expert_id = topk_idx[i][j]
-                rank_id = expert_id // experts_per_rank
-                server_id = rank_id // num_local_ranks
-                expert_rank_token_idx[
-                    expert_id * MAX_BATCH_SIZE + count_num_expert[expert_id]
-                ] = each_token_offset_to_server[i * num_servers + server_id]
-                count_num_expert[expert_id] += 1
-
     # Rank layout meta
     num_tokens_per_rank = torch.empty((num_ranks,), dtype=torch.int, device="npu")
     token_idx_in_rank = torch.full(
@@ -181,52 +126,7 @@ def test_main(
     time.sleep(1)
 
     try:
-        try:
-            return_values = buffer.get_dispatch_layout(topk_idx, num_experts)
-            if enable_a2_test:
-                notify_send_data = buffer.get_notify_send_data()
-                ref_num_tokens_per_server_uniq = notify_send_data[
-                    num_experts : num_experts + num_servers
-                ]
-                ref_num_each_token_to_server = notify_send_data[
-                    num_experts
-                    + num_servers : num_experts
-                    + num_servers * (1 + num_tokens)
-                ]
-                ref_each_token_to_num_server = notify_send_data[
-                    num_experts
-                    + num_servers * (1 + MAX_BATCH_SIZE) : num_experts
-                    + num_servers
-                    + MAX_BATCH_SIZE * num_servers
-                    + num_tokens
-                ]
-                ref_each_token_offset_to_server = notify_send_data[
-                    num_experts
-                    + num_servers
-                    + MAX_BATCH_SIZE * (num_servers + 1) : num_experts
-                    + num_servers
-                    + MAX_BATCH_SIZE * (num_servers + 1)
-                    + num_servers * num_tokens
-                ]
-                ref_send_token_idx = notify_send_data[
-                    num_experts
-                    + num_servers
-                    + MAX_BATCH_SIZE * (num_servers * 2 + 1) : num_experts
-                    + num_servers
-                    + MAX_BATCH_SIZE * (num_servers * 2 + 1)
-                    + num_tokens * num_experts
-                ]
-                ref_expert_rank_token_idx = notify_send_data[
-                    num_experts
-                    + num_servers
-                    + MAX_BATCH_SIZE * (num_servers * 2 + num_experts + 1) : num_experts
-                    + num_servers
-                    + MAX_BATCH_SIZE * (num_servers * 2 + num_experts + num_experts + 1)
-                ]
-        except Exception as e:
-            print(f"Error occurred while calling get_dispatch_layout: {e}")
-            raise
-
+        return_values = buffer.get_dispatch_layout(topk_idx, num_experts)
         (
             ref_num_tokens_per_rank,
             _,
@@ -244,28 +144,6 @@ def test_main(
             assert torch.allclose(
                 ref_is_token_in_rank, is_token_in_rank
             ), f"Assertion is_token_in_rank failed on rank {rank}: Expected {is_token_in_rank}, Actual {ref_is_token_in_rank}"
-            if enable_a2_test:
-                assert torch.allclose(
-                    num_tokens_per_expert, notify_send_data[:num_experts]
-                ), f"Assertion num_tokens_per_rank failed on rank {rank}: Expected {ref_num_tokens_per_expert}, Actual {notify_send_data[:num_experts]}"
-                assert torch.allclose(
-                    num_tokens_per_server_uniq, ref_num_tokens_per_server_uniq
-                ), f"Assertion num_tokens_per_server_uniq failed on rank {rank}: Expected {num_tokens_per_server_uniq}, Actual {ref_num_tokens_per_server_uniq}"
-                assert torch.allclose(
-                    num_each_token_to_server, ref_num_each_token_to_server
-                ), f"Assertion num_each_token_to_server failed on rank {rank}: Expected {num_each_token_to_server}, Actual {ref_num_each_token_to_server}"
-                assert torch.allclose(
-                    each_token_to_num_server, ref_each_token_to_num_server
-                ), f"Assertion each_token_to_num_server failed on rank {rank}: Expected {each_token_to_num_server}, Actual {ref_each_token_to_num_server}"
-                assert torch.allclose(
-                    each_token_offset_to_server, ref_each_token_offset_to_server
-                ), f"Assertion each_token_offset_to_server failed on rank {rank}: Expected {each_token_offset_to_server}, Actual {ref_each_token_offset_to_server}"
-                assert torch.allclose(
-                    send_token_idx, ref_send_token_idx
-                ), f"Assertion send_token_idx failed on rank {rank}: Expected {send_token_idx}, Actual {ref_send_token_idx}"
-                assert torch.allclose(
-                    expert_rank_token_idx, ref_expert_rank_token_idx
-                ), f"Assertion expert_rank_token_idx failed on rank {rank}: Expected {expert_rank_token_idx}, Actual {ref_expert_rank_token_idx}"
         except AssertionError as e:
             print(e)
             raise
