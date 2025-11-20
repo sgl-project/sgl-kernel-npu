@@ -71,7 +71,7 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
     const auto runtimeAttrs = context->GetAttrs();
     std::string layoutQuery(runtimeAttrs->GetStr(ATTR_QUERY_LAYOUT_INDEX));
     std::string layoutKey(runtimeAttrs->GetStr(ATTR_KEY_LAYOUT_INDEX));
-    int64_t sparseCount = runtimeAttrs->GetAttrPointer<int32_t>(ATTR_SPARSE_COUNT_INDEX);
+    int64_t sparseCount = *(runtimeAttrs->GetAttrPointer<int32_t>(ATTR_SPARSE_COUNT_INDEX));
 
     if (layout_query.has_value()) {
         layoutQuery = std::string(layout_query.value());
