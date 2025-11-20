@@ -476,6 +476,7 @@ public:
 
         for (auto &input : inputs_) {
             auto tensorDesc = std::make_shared<gert::CompileTimeTensorDesc>();
+            std::cout << "data type is " << int(input.second.GetDataType(index)) << std::endl;
             tensorDesc->SetDataType(input.second.GetDataType(index));
             tensorDesc->SetOriginFormat(input.second.GetFormat(index));
             context->AddInputDesc(tensorDesc);
