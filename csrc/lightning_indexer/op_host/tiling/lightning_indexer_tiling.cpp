@@ -463,6 +463,8 @@ ge::graphStatus LIInfoParser::ValidateInputShapesMatch()
                     opName_, ": BSND case input query, weight, sparse_indices dim 1 are ", s1Size_, ", ",
                     opParamInfo_.weights.shape->GetStorageShape().GetDim(1), ", ",
                     opParamInfo_.attenOut.shape->GetStorageShape().GetDim(1), ", they must be same.");
+        queryWeightsN1Dim = DIM_IDX_TWO;
+        outN2Dim = DIM_IDX_TWO;
     }
 
     // -----------------------check N1-------------------
