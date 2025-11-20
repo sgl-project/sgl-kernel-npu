@@ -65,12 +65,16 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
     using namespace LIHost;
     std::cout << "0" << std::endl;
     LightningIndexer indexer("lightning_indexer");
+    std::string layoutQuery("TND");
+    std::string layoutKey("BSND");
 
     if (layout_query.has_value()) {
-        indexer.SetAttrStr("layout_query", std::string(layoutQuery.value()));
+        layoutQuery = std::string(layout_query.value());
+        indexer.SetAttrStr("layout_query", layoutQuery);
     }
     if (layout_key.has_value()) {
-        indexer.SetAttrStr("layout_key", std::string(layoutKey.value()));
+        layoutKey = std::string(layout_key.value());
+        indexer.SetAttrStr("layout_key", layoutKey);
     }
     if (sparse_count.has_value()) {
         indexer.SetAttrAny("sparse_count", static_cast<int32_t>(sparse_count.value()));
@@ -112,7 +116,7 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
     auto blockDim = tilingData.usedCoreNum;
     auto bs = query.sizes()[0];
     uint64_t mapKey = tilingData.tilingKey;
-    mapKey = mapKey >> 32 | bs
+    mapKey = mapKey >> 32 | bs;
 
     static auto globalTilingData = at::empty({tilingSize * MAX_CAPTURE_NUM},
                                              at::TensorOptions().dtype(at::kByte).device(query.options().device()));
