@@ -12,6 +12,7 @@ import torch
 import torch.nn as nn
 import torch_npu
 import torchair
+import unittest
 from torch_npu.testing.testcase import TestCase, run_tests
 
 DEVICE_ID = 0
@@ -111,7 +112,7 @@ def _lightning_indexer(
     return out
 
 
-class TestCustomLightningIndexer(TestCase):
+class TestCustomLightningIndexer(unittest.TestCase):
     def test_tnd_lightning_indexer_eager(self):
         b = 3
         t = 5
@@ -182,7 +183,7 @@ class TestCustomLightningIndexer(TestCase):
             for i in range(t):
                 for j in range(sparse_count):
                     if npu_out[i][j] != cpuout[i][j]:
-                        print("t K npu cpu = ", i, j, npu_out[i][j], cpuout[i][j])
+                        self.assertEqual(npu_out[i][j], cpuout[i][j])
             print(f"======================== PTA eager FINISH {layout_query=}, {dtype=}========================")
 
     def test_bsnd_lightning_indexer_eager(self):
@@ -258,8 +259,7 @@ class TestCustomLightningIndexer(TestCase):
             t = npu_out.shape[0]
             for i in range(t):
                 for j in range(sparse_count):
-                    if npu_out[i][j] != cpuout[i][j]:
-                        print("t K npu cpu = ", i, j, npu_out[i][j], cpuout[i][j])
+                    self.assertEqual(npu_out[i][j], cpuout[i][j])
             print(f"======================== PTA eager FINISH {layout_query=}, {dtype=}========================")
 
 
