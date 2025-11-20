@@ -65,8 +65,13 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
     using namespace LIHost;
     std::cout << "0" << std::endl;
     LightningIndexer indexer("lightning_indexer");
-    std::string layoutQuery("TND");
-    std::string layoutKey("BSND");
+    auto context = std::make_shared<TilingContext>("lightning_indexer");
+    TORCH_CHECK(context != nullptr, "TilingContext is null");
+
+    auto runtimeAttrs = context.GetAttrs();
+    std::string layoutQuery(runtimeAttrs->GetStr(ATTR_QUERY_LAYOUT_INDEX));
+    std::string layoutKey(runtimeAttrs->GetStr(ATTR_KEY_LAYOUT_INDEX));
+    int64_t sparseCount = runtimeAttrs->GetAttrPointer<int32_t>(ATTR_SPARSE_COUNT_INDEX);
 
     if (layout_query.has_value()) {
         layoutQuery = std::string(layout_query.value());
@@ -84,10 +89,7 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
     }
 
     at::Tensor sparse_indices = ConstructLightningIndexerOutputTensor(query, key, actual_seq_lengths_query,
-                                                                      sparse_count, layoutQuery, layoutKey);
-
-    auto context = std::make_shared<TilingContext>("lightning_indexer");
-    TORCH_CHECK(context != nullptr, "TilingContext is null");
+                                                                      sparseCount, layoutQuery, layoutKey);
 
     auto qScalarType = query.scalar_type();
     std::cout << "1" << std::endl;
