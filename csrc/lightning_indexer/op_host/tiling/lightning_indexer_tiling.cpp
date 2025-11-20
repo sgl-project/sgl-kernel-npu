@@ -113,25 +113,10 @@ ge::graphStatus LIInfoParser::GetAndCheckAttrParaInfo()
     auto attrs = context_->GetAttrs();
     TORCH_CHECK(attrs != nullptr, OPS_LOG_E(context_->GetNodeName(), "attrs got from context is nullptr"));
 
-    // OPS_LOG_I(context_->GetNodeName(), "GetAndCheckAttrParaInfo start");
     opParamInfo_.layOut = attrs->GetStr(ATTR_QUERY_LAYOUT_INDEX);
     opParamInfo_.layOutKey = attrs->GetStr(ATTR_KEY_LAYOUT_INDEX);
     opParamInfo_.sparseCount = attrs->GetAttrPointer<int32_t>(ATTR_SPARSE_COUNT_INDEX);
     opParamInfo_.sparseMode = attrs->GetAttrPointer<int32_t>(ATTR_SPARSE_MODE_INDEX);
-
-    // if (opParamInfo_.layOut != nullptr) {
-    //     OPS_LOG_I(context_->GetNodeName(), "layout_query is:%s", opParamInfo_.layOut);
-    // }
-    // if (opParamInfo_.layOutKey != nullptr) {
-    //     OPS_LOG_I(context_->GetNodeName(), "layout_key is:%s", opParamInfo_.layOutKey);
-    // }
-    // if (opParamInfo_.sparseCount != nullptr) {
-    //     OPS_LOG_I(context_->GetNodeName(), "selscted count is:%d", *opParamInfo_.sparseCount);
-    // }
-    // if (opParamInfo_.sparseMode != nullptr) {
-    //     OPS_LOG_I(context_->GetNodeName(), "sparse mode is:%d", *opParamInfo_.sparseMode);
-    // }
-    // OPS_LOG_I(context_->GetNodeName(), "GetAndCheckAttrParaInfo end");
 
     TORCH_CHECK((std::string(opParamInfo_.layOutKey) == "PA_BSND") ||
                     (std::string(opParamInfo_.layOut) == std::string(opParamInfo_.layOutKey)),
@@ -164,6 +149,7 @@ ge::graphStatus LIInfoParser::GetAndCheckInOutDataType()
     inputKType_ = opParamInfo_.key.desc->GetDataType();
     weightsType_ = opParamInfo_.weights.desc->GetDataType();
     outputType_ = opParamInfo_.attenOut.desc->GetDataType();
+    std::cout << "inputQType_: " << inputQType_ << "inputKType_: " << inputKType_ << std::endl;
 
     bool inDTypeAllEqual = (inputQType_ == inputKType_) && (inputKType_ == weightsType_);
     TORCH_CHECK(inDTypeAllEqual,
@@ -595,6 +581,7 @@ ge::graphStatus LightningIndexerTiling::DoTiling(LITilingInfo *tilingInfo)
     uint32_t inputKLayout = static_cast<uint32_t>(tilingInfo->inputKLayout);
     uint32_t tilingKey = (inputQType << 24) | (inputKType << 16) | (outputType << 12) | (pageAttentionFlag << 8) |
                          (inputQLayout << 4) | inputKLayout;
+    std::cout << "host tilingKey: " << tilingKey << std::endl;
 
     // -------------set tilingdata-----------------
     LITilingData tilingData = {
