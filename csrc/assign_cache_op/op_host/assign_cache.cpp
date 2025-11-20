@@ -23,7 +23,7 @@ HOST_API at::Tensor GetTilingTensor(CustomAssignTilingData &tilingData, size_t t
 {
     auto buffer = at::empty({static_cast<int64_t>(tilingSize)}, at::kByte);
     tilingData.SetToBuffer(buffer.data_ptr<uint8_t>(), tilingSize);
-    auto tilingTensor = TorchNpuHepler::CopyTensorHostToDevice(buffer);
+    auto tilingTensor = TorchNpuHelper::CopyTensorHostToDevice(buffer);
     return tilingTensor;
 }
 
@@ -57,7 +57,7 @@ HOST_API bool assign_cache_op(at::Tensor &dstTensor, const at::Tensor &srcTensor
     at::Tensor tiling = GetTilingTensor(tilingData, sizeof(tilingData));
 
     auto sync = at::zeros({syncWorkspaceSize, 1}, at::kByte);
-    auto syncDevice = TorchNpuHepler::CopyTensorHostToDevice(sync);
+    auto syncDevice = TorchNpuHelper::CopyTensorHostToDevice(sync);
     EXEC_KERNEL_CMD(assign_cache_op, blockDim, dstTensor, srcTensor, dstStartIdx, dstEndIdx, srcStartIdx, srcEndIdx,
                     syncDevice, tiling);
     return true;
