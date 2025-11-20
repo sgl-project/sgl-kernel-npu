@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 3.循环展开：for循环展开，增加搬运并行数
 4.离散访存：c_ptr store的offset离散，使用extract_slice提升性能
 5.tiling调优
+6.将类型转换to(tl.int64)改为to(tl.int32)
 """
 
 
@@ -145,12 +146,12 @@ def fused_moe_kernel(
     num_tokens_post_padded = tl.load(num_tokens_post_padded_ptr)
     if pid_m * BLOCK_SIZE_M >= num_tokens_post_padded:
         return
-    offs_token_id = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M).to(tl.int64)
+    offs_token_id = pid_m * BLOCK_SIZE_M + tl.arange(0, BLOCK_SIZE_M).to(tl.int32)
     offs_token = tl.load(sorted_token_ids_ptr + offs_token_id) 
-    offs_token = offs_token.to(tl.int64)
+    offs_token = offs_token.to(tl.int32)
     token_mask = offs_token < num_valid_tokens
 
-    off_experts = tl.load(expert_ids_ptr + pid_m).to(tl.int64)#size 4
+    off_experts = tl.load(expert_ids_ptr + pid_m).to(tl.int32)#size 4
 
     if off_experts == -1:
         # -----------------------------------------------------------
@@ -170,7 +171,7 @@ def fused_moe_kernel(
         )
         return
 
-    offs_bn = (pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N).to(tl.int64)) % N
+    offs_bn = (pid_n * BLOCK_SIZE_N + tl.arange(0, BLOCK_SIZE_N).to(tl.int32)) % N
     offs_k = tl.arange(0, BLOCK_SIZE_K)
     a_ptrs = a_ptr + (
         offs_token[:, None] // top_k * stride_am + offs_k[None, :] * stride_ak 
