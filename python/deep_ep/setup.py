@@ -100,7 +100,9 @@ git_rev = get_git_revision()
 cann_ver = get_cann_version()
 
 version_suffix = (
-    git_rev if git_rev else ("+" + cann_ver.lstrip(".") if cann_ver else "")
+    f"{git_rev}{cann_ver}"
+    if git_rev
+    else f"+{cann_ver.lstrip('.')}" if cann_ver else ""
 )
 
 setuptools.setup(
