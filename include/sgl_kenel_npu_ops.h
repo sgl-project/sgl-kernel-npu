@@ -96,7 +96,7 @@ at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor &key, con
                             const at::Tensor &actual_seq_lengths_query,
                             const at::Tensor &actual_seq_lengths_key, const at::Tensor &block_table,
                             c10::optional<c10::string_view> layout_query, c10::optional<c10::string_view> layout_key,
-                            c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode)
+                            c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode);
 
 } // namespace npu_kernel
 
