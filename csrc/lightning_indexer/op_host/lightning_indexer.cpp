@@ -59,18 +59,25 @@ namespace npu_kernel {
 HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
                                       const at::Tensor &actual_seq_lengths_query,
                                       const at::Tensor &actual_seq_lengths_key, const at::Tensor &block_table,
-                                      c10::string_view layout_query, c10::string_view layout_key, int64_t sparse_count,
-                                      int64_t sparse_mode)
+                                      c10::optional<c10::string_view> layout_query, c10::optional<c10::string_view> layout_key,
+                                      c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode)
 {
     using namespace LIHost;
     std::cout << "0" << std::endl;
     LightningIndexer indexer("lightning_indexer");
-    std::string layoutQuery(layout_query.data(), layout_query.size());
-    std::string layoutKey(layout_key.data(), layout_key.size());
-    indexer.SetAttrStr("layout_query", layoutQuery);
-    indexer.SetAttrStr("layout_key", layoutKey);
-    indexer.SetAttrAny("sparse_count", static_cast<int32_t>(sparse_count));
-    indexer.SetAttrAny("sparse_mode", static_cast<int32_t>(sparse_mode));
+
+    if (layout_query.has_value()) {
+        indexer.SetAttrStr("layout_query", std::string(layoutQuery.value()));
+    }
+    if (layout_key.has_value()) {
+        indexer.SetAttrStr("layout_key", std::string(layoutKey.value()));
+    }
+    if (sparse_count.has_value()) {
+        indexer.SetAttrAny("sparse_count", static_cast<int32_t>(sparse_count.value()));
+    }
+    if (sparse_mode.has_value()) {
+        indexer.SetAttrAny("sparse_mode", static_cast<int32_t>(sparse_mode.value()));
+    }
 
     at::Tensor sparse_indices = ConstructLightningIndexerOutputTensor(query, key, actual_seq_lengths_query,
                                                                       sparse_count, layoutQuery, layoutKey);
@@ -104,7 +111,8 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
     uint32_t tilingSize = sizeof(LITilingData);
     auto blockDim = tilingData.usedCoreNum;
     auto bs = query.sizes()[0];
-    uint64_t mapKey = tilingData.tilingKey >> 32 | bs;
+    uint64_t mapKey = tilingData.tilingKey;
+    mapKey = mapKey >> 32 | bs
 
     static auto globalTilingData = at::empty({tilingSize * MAX_CAPTURE_NUM},
                                              at::TensorOptions().dtype(at::kByte).device(query.options().device()));

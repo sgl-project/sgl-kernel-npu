@@ -92,14 +92,11 @@ void batch_matmul_transpose(const at::Tensor &tensor_a,
 // void sgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
 //                  at::Tensor &seq_len, at::Tensor &y, double scale);
 
-at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor &key,
-                             const at::Tensor &weights,
-                             const at::Tensor &actual_seq_lengths_query,
-                             const at::Tensor &actual_seq_lengths_key,
-                             const at::Tensor &block_table,
-                             c10::string_view layout_query,
-                             c10::string_view layout_key, int64_t sparse_count,
-                             int64_t sparse_mode);
+at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
+                            const at::Tensor &actual_seq_lengths_query,
+                            const at::Tensor &actual_seq_lengths_key, const at::Tensor &block_table,
+                            c10::optional<c10::string_view> layout_query, c10::optional<c10::string_view> layout_key,
+                            c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode)
 
 } // namespace npu_kernel
 
