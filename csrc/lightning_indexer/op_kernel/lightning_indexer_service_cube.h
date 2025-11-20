@@ -32,7 +32,8 @@ public:
     using Q_T = typename LIT::queryType;
     using K_T = typename LIT::keyType;
 
-    __aicore__ inline LIMatmul(){};
+    __aicore__ inline LIMatmul();
+    __aicore__ inline ~LIMatmul();
     __aicore__ inline void InitBuffers(TPipe *pipe);
     __aicore__ inline void InitMm1GlobalTensor(const GlobalTensor<int32_t> &blkTableGm, const GlobalTensor<K_T> &keyGm,
                                                const GlobalTensor<Q_T> &queryGm, const GlobalTensor<float> &mm1ResGm);
@@ -107,13 +108,13 @@ private:
 };
 
 template <typename LIT>
-__aicore__ inline void LIMatmul<LIT>::LIMatmul()
+__aicore__ inline LIMatmul<LIT>::LIMatmul()
 {
     QUERY_MTE1_MTE2_EVENT = GetTPipePtr()->AllocEventID<AscendC::HardEvent::MTE1_MTE2>();
 }
 
 template <typename LIT>
-__aicore__ inline void LIMatmul<LIT>::~LIMatmul(const ConstInfo &constInfo)
+__aicore__ inline LIMatmul<LIT>::~LIMatmul()
 {
     GetTPipePtr()->ReleaseEventID<AscendC::HardEvent::V_S>(QUERY_MTE1_MTE2_EVENT);
 }
