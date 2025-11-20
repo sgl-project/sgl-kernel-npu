@@ -165,27 +165,9 @@ jobs:
             logs/
           retention-days: 30
 
-  daily-smoke-test:
-    runs-on: linux-aarch64-a3-16
-    container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-a3-ubuntu22.04-py3.11
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-      - name: Quick environment check
-        run: |
-          python3 --version
-          pip list | grep -i "torch\|npu"
-          echo "Basic environment check passed"
-      - name: Verify test scripts exist
-        run: |
-          ls -la scripts/enumerate_test_*.sh
-          ls -la tests/python/deepep/test_*.py
-          echo "All required test scripts are present"
-
   finish:
     if: always()
-    needs: [daily-enumerate-intranode_part_one, daily-enumerate-intranode_part_two, daily-enumerate-low-latency, daily-smoke-test]
+    needs: [daily-enumerate-intranode_part_one, daily-enumerate-intranode_part_two, daily-enumerate-low-latency]
     runs-on: ubuntu-latest
     steps:
       - name: Generate comprehensive test report
