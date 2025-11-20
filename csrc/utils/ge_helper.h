@@ -471,6 +471,8 @@ public:
             throw std::runtime_error("Invalid input type, please check the op definition file");
         }
         uint32_t index = std::distance(firstParamTypes.begin(), it);
+        std::cout << "index is " << index << std::endl;
+        std::cout << "ge type is " << int(geType) << std::endl;
 
         for (auto &input : inputs_) {
             auto tensorDesc = std::make_shared<gert::CompileTimeTensorDesc>();
