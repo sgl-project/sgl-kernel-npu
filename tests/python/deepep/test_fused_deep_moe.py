@@ -407,11 +407,13 @@ def test(
         "gmm2_weight_scale": w2_scale,
         "num_max_dispatch_tokens_per_rank": num_tokens,
         "num_experts": num_experts,
-        "quant_mode": 0
+        "quant_mode": 0,
     }
 
     base_t_average, base_t_min, base_t_max = bench(lambda: baseline_test(**base_args))
-    moe_t_average, moe_t_min, moe_t_max = bench(lambda: buffer.fused_deep_moe(**moe_args))
+    moe_t_average, moe_t_min, moe_t_max = bench(
+        lambda: buffer.fused_deep_moe(**moe_args)
+    )
     num_base_comm_bytes, num_moe_comm_bytes = 0, 0
     if test_topk_minus1:
         for i in range(num_tokens):
