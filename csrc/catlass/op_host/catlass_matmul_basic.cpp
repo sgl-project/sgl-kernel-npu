@@ -60,7 +60,7 @@ HOST_API void catlass_matmul_basic(const at::Tensor &input_a, const at::Tensor &
     TORCH_CHECK(input_b.size(0) == k, "input shape mismatch");
 
     uint32_t blockDim;
-    static auto tiling_tensor = get_tiling(m, n, k, NO_NZ, dTypeMap[aType], blockDim);
+    auto tiling_tensor = get_tiling(m, n, k, NO_NZ, dTypeMap[aType], blockDim);
 
     auto workspace_tensor =
         at::empty({1}, at::TensorOptions().dtype(at::kByte).device(input_a.options().device()));
