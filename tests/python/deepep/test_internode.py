@@ -41,6 +41,7 @@ def test_main(
     num_nodes = num_servers
 
     assert num_experts % num_ranks == 0 and num_nodes >= 2
+    assert num_tokens <= MAX_BATCH_SIZE
     if local_rank == 0:
         print(
             f"[config] num_tokens={num_tokens}, hidden={hidden}, num_topk={num_topk}, active_ranks={args.active_ranks}",
@@ -116,8 +117,8 @@ def test_main(
     gbl_num_tokens_per_expert = num_tokens_per_expert.clone()
     dist.all_reduce(gbl_num_tokens_per_expert, group=group)
 
-    # Server meta
-    if enable_a2_test:
+    def check_layout_a2_data(notify_send_data):
+        # cpu calc data
         count_num_expert = [0] * num_experts
         num_tokens_per_server_uniq = torch.zeros(
             (num_servers,), dtype=torch.int, device="npu"
@@ -168,6 +169,70 @@ def test_main(
                 ] = each_token_offset_to_server[i * num_servers + server_id]
                 count_num_expert[expert_id] += 1
 
+        # layout output data
+        ref_num_tokens_per_server_uniq = notify_send_data[
+            num_experts : num_experts + num_servers
+        ]
+        ref_num_each_token_to_server = notify_send_data[
+            num_experts + num_servers : num_experts + num_servers * (1 + num_tokens)
+        ]
+        ref_each_token_to_num_server = notify_send_data[
+            num_experts
+            + num_servers * (1 + MAX_BATCH_SIZE) : num_experts
+            + num_servers
+            + MAX_BATCH_SIZE * num_servers
+            + num_tokens
+        ]
+        ref_each_token_offset_to_server = notify_send_data[
+            num_experts
+            + num_servers
+            + MAX_BATCH_SIZE * (num_servers + 1) : num_experts
+            + num_servers
+            + MAX_BATCH_SIZE * (num_servers + 1)
+            + num_servers * num_tokens
+        ]
+        ref_send_token_idx = notify_send_data[
+            num_experts
+            + num_servers
+            + MAX_BATCH_SIZE * (num_servers * 2 + 1) : num_experts
+            + num_servers
+            + MAX_BATCH_SIZE * (num_servers * 2 + 1)
+            + num_tokens * num_experts
+        ]
+        ref_expert_rank_token_idx = notify_send_data[
+            num_experts
+            + num_servers
+            + MAX_BATCH_SIZE * (num_servers * 2 + num_experts + 1) : num_experts
+            + num_servers
+            + MAX_BATCH_SIZE * (num_servers * 2 + num_experts + num_experts + 1)
+        ]
+
+        # check data
+        try:
+            assert torch.allclose(
+                num_tokens_per_expert, notify_send_data[:num_experts]
+            ), f"Assertion num_tokens_per_rank failed on rank {rank}: Expected {ref_num_tokens_per_expert}, Actual {notify_send_data[:num_experts]}"
+            assert torch.allclose(
+                num_tokens_per_server_uniq, ref_num_tokens_per_server_uniq
+            ), f"Assertion num_tokens_per_server_uniq failed on rank {rank}: Expected {num_tokens_per_server_uniq}, Actual {ref_num_tokens_per_server_uniq}"
+            assert torch.allclose(
+                num_each_token_to_server, ref_num_each_token_to_server
+            ), f"Assertion num_each_token_to_server failed on rank {rank}: Expected {num_each_token_to_server}, Actual {ref_num_each_token_to_server}"
+            assert torch.allclose(
+                each_token_to_num_server, ref_each_token_to_num_server
+            ), f"Assertion each_token_to_num_server failed on rank {rank}: Expected {each_token_to_num_server}, Actual {ref_each_token_to_num_server}"
+            assert torch.allclose(
+                each_token_offset_to_server, ref_each_token_offset_to_server
+            ), f"Assertion each_token_offset_to_server failed on rank {rank}: Expected {each_token_offset_to_server}, Actual {ref_each_token_offset_to_server}"
+            assert torch.allclose(
+                send_token_idx, ref_send_token_idx
+            ), f"Assertion send_token_idx failed on rank {rank}: Expected {send_token_idx}, Actual {ref_send_token_idx}"
+            assert torch.allclose(
+                expert_rank_token_idx, ref_expert_rank_token_idx
+            ), f"Assertion expert_rank_token_idx failed on rank {rank}: Expected {expert_rank_token_idx}, Actual {ref_expert_rank_token_idx}"
+        except AssertionError as e:
+            raise
+
     # Rank layout meta
     num_tokens_per_rank = torch.empty((num_ranks,), dtype=torch.int, device="npu")
     num_tokens_per_rdma_rank = torch.empty((num_nodes,), dtype=torch.int, device="npu")
@@ -199,46 +264,6 @@ def test_main(
     try:
         try:
             return_values = buffer.get_dispatch_layout(topk_idx, num_experts)
-            if enable_a2_test:
-                notify_send_data = buffer.get_notify_send_data()
-                ref_num_tokens_per_server_uniq = notify_send_data[
-                    num_experts : num_experts + num_servers
-                ]
-                ref_num_each_token_to_server = notify_send_data[
-                    num_experts
-                    + num_servers : num_experts
-                    + num_servers * (1 + num_tokens)
-                ]
-                ref_each_token_to_num_server = notify_send_data[
-                    num_experts
-                    + num_servers * (1 + MAX_BATCH_SIZE) : num_experts
-                    + num_servers
-                    + MAX_BATCH_SIZE * num_servers
-                    + num_tokens
-                ]
-                ref_each_token_offset_to_server = notify_send_data[
-                    num_experts
-                    + num_servers
-                    + MAX_BATCH_SIZE * (num_servers + 1) : num_experts
-                    + num_servers
-                    + MAX_BATCH_SIZE * (num_servers + 1)
-                    + num_servers * num_tokens
-                ]
-                ref_send_token_idx = notify_send_data[
-                    num_experts
-                    + num_servers
-                    + MAX_BATCH_SIZE * (num_servers * 2 + 1) : num_experts
-                    + num_servers
-                    + MAX_BATCH_SIZE * (num_servers * 2 + 1)
-                    + num_tokens * num_experts
-                ]
-                ref_expert_rank_token_idx = notify_send_data[
-                    num_experts
-                    + num_servers
-                    + MAX_BATCH_SIZE * (num_servers * 2 + num_experts + 1) : num_experts
-                    + num_servers
-                    + MAX_BATCH_SIZE * (num_servers * 2 + num_experts + num_experts + 1)
-                ]
         except Exception as e:
             print(f"Error occurred while calling get_dispatch_layout: {e}")
             raise
@@ -261,27 +286,8 @@ def test_main(
                 ref_is_token_in_rank, is_token_in_rank
             ), f"Assertion is_token_in_rank failed on rank {rank}: Expected {is_token_in_rank}, Actual {ref_is_token_in_rank}"
             if enable_a2_test:
-                assert torch.allclose(
-                    num_tokens_per_expert, notify_send_data[:num_experts]
-                ), f"Assertion num_tokens_per_rank failed on rank {rank}: Expected {ref_num_tokens_per_expert}, Actual {notify_send_data[:num_experts]}"
-                assert torch.allclose(
-                    num_tokens_per_server_uniq, ref_num_tokens_per_server_uniq
-                ), f"Assertion num_tokens_per_server_uniq failed on rank {rank}: Expected {num_tokens_per_server_uniq}, Actual {ref_num_tokens_per_server_uniq}"
-                assert torch.allclose(
-                    num_each_token_to_server, ref_num_each_token_to_server
-                ), f"Assertion num_each_token_to_server failed on rank {rank}: Expected {num_each_token_to_server}, Actual {ref_num_each_token_to_server}"
-                assert torch.allclose(
-                    each_token_to_num_server, ref_each_token_to_num_server
-                ), f"Assertion each_token_to_num_server failed on rank {rank}: Expected {each_token_to_num_server}, Actual {ref_each_token_to_num_server}"
-                assert torch.allclose(
-                    each_token_offset_to_server, ref_each_token_offset_to_server
-                ), f"Assertion each_token_offset_to_server failed on rank {rank}: Expected {each_token_offset_to_server}, Actual {ref_each_token_offset_to_server}"
-                assert torch.allclose(
-                    send_token_idx, ref_send_token_idx
-                ), f"Assertion send_token_idx failed on rank {rank}: Expected {send_token_idx}, Actual {ref_send_token_idx}"
-                assert torch.allclose(
-                    expert_rank_token_idx, ref_expert_rank_token_idx
-                ), f"Assertion expert_rank_token_idx failed on rank {rank}: Expected {expert_rank_token_idx}, Actual {ref_expert_rank_token_idx}"
+                notify_send_data = buffer.get_notify_send_data()
+                check_layout_a2_data(notify_send_data)
         except AssertionError as e:
             print(e)
             raise
@@ -301,16 +307,6 @@ def test_main(
     topk_weights_pure_rand = torch.randn(
         (num_tokens, num_topk), dtype=torch.float32, device="npu"
     )
-
-    # Test dispatch
-    # noinspection PyShadowingNames
-    def check_data(check_x, rank_prefix_matrix):
-        assert torch.allclose(check_x.amin(dim=1), check_x.amax(dim=1))
-        check_start = 0
-        for i in range(num_ranks):
-            check_end = rank_prefix_matrix[i][rank].item()
-            assert (check_x[check_start:check_end, :].int() - i).sum().item() == 0
-            check_start = check_end
 
     # Test diagnose function
     # noinspection PyShadowingNames
@@ -378,59 +374,86 @@ def test_main(
                     f"abnormal_cols {res['abnormal_cols']}, abnormal_points {res['abnormal_points']}"
                 )
 
-    for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x)):
-        if local_rank == 0:
-            print(
-                f'[testing] Running with {"FP8" if isinstance(current_x, tuple) else "BF16"}, with top-k {num_topk} ...',
-                flush=True,
+    def test_correctness():
+        for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x)):
+            if local_rank == 0:
+                print(
+                    f'[testing] Running with {"FP8" if isinstance(current_x, tuple) else "BF16"}, with top-k {num_topk} ...',
+                    flush=True,
+                )
+            # Test dispatch
+            dispatch_args = {
+                "x": current_x,
+                "num_tokens_per_rank": num_tokens_per_rank,
+                "is_token_in_rank": is_token_in_rank,
+                "num_tokens_per_expert": num_tokens_per_expert,
+                "config": config,
+                "topk_idx": topk_idx,
+                "topk_weights": (
+                    topk_weights_pure_rand if current_x is x_pure_rand else topk_weights
+                ),
+            }
+
+            (
+                recv_x,
+                recv_topk_idx,
+                recv_topk_weights,
+                recv_num_tokens_per_expert_list,
+                handle,
+                event,
+            ) = buffer.dispatch(**dispatch_args)
+            recv_x = (
+                per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
             )
+
+            # Checks
+            rank_prefix_matrix = handle[0]
+            assert (
+                gbl_num_tokens_per_expert.view(num_ranks, -1)[rank].tolist()
+                == recv_num_tokens_per_expert_list
+            )
+
+            # Test combine
+            combine_args = {
+                "x": recv_x,
+                "handle": handle,
+                "config": config,
+                "async_finish": False,
+                "topk_weights": handle[4],
+            }
+            combined_x, combined_topk_weights, event = buffer.combine(**combine_args)
+            check_x = combined_x.float()
+            ref_x = x_pure_rand if current_x is x_pure_rand else x
+            assert (
+                calc_diff(
+                    check_x,
+                    ref_x
+                    * handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
+                )
+                < 5e-5
+            )
+
+            if local_rank == 0:
+                print(" passed", flush=True)
+        if local_rank == 0:
+            print("", flush=True)
+
+    def test_tuning():
+        # Tune dispatch performance
+        fp8_factor = (1 + 4 / 128) / 2
+        config = deep_ep.Config(24, 8, buffer_size)
+
         dispatch_args = {
-            "x": current_x,
+            "x": x,
             "num_tokens_per_rank": num_tokens_per_rank,
             "is_token_in_rank": is_token_in_rank,
             "num_tokens_per_expert": num_tokens_per_expert,
             "config": config,
             "topk_idx": topk_idx,
-            "topk_weights": (
-                topk_weights_pure_rand if current_x is x_pure_rand else topk_weights
-            ),
+            "topk_weights": topk_weights,
         }
-
-        (
-            recv_x,
-            recv_topk_idx,
-            recv_topk_weights,
-            recv_num_tokens_per_expert_list,
-            handle,
-            event,
-        ) = buffer.dispatch(**dispatch_args)
+        recv_x, _, _, _, handle, _ = buffer.dispatch(**dispatch_args)
         recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
-
-        # Checks
-        rank_prefix_matrix = handle[0]
-        assert (
-            gbl_num_tokens_per_expert.view(num_ranks, -1)[rank].tolist()
-            == recv_num_tokens_per_expert_list
-        )
-
-        # Test combine
-        combine_args = {
-            "x": recv_x,
-            "handle": handle,
-            "config": config,
-            "async_finish": False,
-            "topk_weights": handle[4],
-        }
-        combined_x, combined_topk_weights, event = buffer.combine(**combine_args)
-        check_x = combined_x.float()
-        ref_x = x_pure_rand if current_x is x_pure_rand else x
-        assert (
-            calc_diff(
-                check_x,
-                ref_x * handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
-            )
-            < 5e-5
-        )
 
         # For later tuning
         dispatch_bf16_rdma_send_bytes = num_rdma_token_sent * hidden * 2
@@ -438,74 +461,59 @@ def test_main(
         combine_bf16_send_bytes = dispatch_bf16_recv_bytes
         combine_bf16_rdma_recv_bytes = dispatch_bf16_rdma_send_bytes
 
-        if local_rank == 0:
-            print(" passed", flush=True)
-    if local_rank == 0:
-        print("", flush=True)
+        # Tune dispatch performance
+        for current_x in filter(lambda elem: elem is not None, (x,)):
+            recv_bytes = (
+                (dispatch_bf16_recv_bytes * fp8_factor)
+                if isinstance(current_x, tuple)
+                else dispatch_bf16_recv_bytes
+            )
+            rdma_send_bytes = (
+                (dispatch_bf16_rdma_send_bytes * fp8_factor)
+                if isinstance(current_x, tuple)
+                else dispatch_bf16_rdma_send_bytes
+            )
 
-    # Tune dispatch performance
-    fp8_factor = (1 + 4 / 128) / 2
-    config = deep_ep.Config(24, 8, buffer_size)
-    for current_x in filter(lambda elem: elem is not None, (x,)):
-        recv_bytes = (
-            (dispatch_bf16_recv_bytes * fp8_factor)
-            if isinstance(current_x, tuple)
-            else dispatch_bf16_recv_bytes
-        )
-        rdma_send_bytes = (
-            (dispatch_bf16_rdma_send_bytes * fp8_factor)
-            if isinstance(current_x, tuple)
-            else dispatch_bf16_rdma_send_bytes
-        )
+            tune_args = {
+                "x": current_x,
+                "config": config,
+                "num_tokens_per_rank": num_tokens_per_rank,
+                "is_token_in_rank": is_token_in_rank,
+                "num_tokens_per_expert": num_tokens_per_expert,
+                "topk_idx": topk_idx,
+                "topk_weights": topk_weights,
+            }
 
+            t, notify_t = bench_kineto(
+                lambda: buffer.dispatch(**tune_args),
+                ("DispatchNormalA2", "NotifyDispatchA2"),
+            )
+            if local_rank == 0:
+                print(
+                    f'[tuning] Dispatch ({"FP8" if isinstance(current_x, tuple) else "BF16"}) {recv_bytes / 1e9 / t:.2f} GB/s (HCCS), '
+                    f"{rdma_send_bytes / 1e9 / t:.2f} GB/s (RDMA), avg_t: {t * 1e6:.2f} us, notify_t: {notify_t  * 1e6:.2f} us",
+                    flush=True,
+                )
+                print("", flush=True)
+
+        # Tune combine performance
         tune_args = {
-            "x": current_x,
+            "x": recv_x,
+            "handle": handle,
             "config": config,
-            "num_tokens_per_rank": num_tokens_per_rank,
-            "is_token_in_rank": is_token_in_rank,
-            "num_tokens_per_expert": num_tokens_per_expert,
-            "topk_idx": topk_idx,
-            "topk_weights": topk_weights,
+            "async_finish": False,
+            "topk_weights": handle[4],
         }
-
-        t, notify_t = bench_kineto(
-            lambda: buffer.dispatch(**tune_args),
-            ("DispatchNormalA2", "NotifyDispatchA2"),
-        )
+        t = bench(lambda: buffer.combine(**tune_args))[0]
         if local_rank == 0:
             print(
-                f'[tuning] Dispatch ({"FP8" if isinstance(current_x, tuple) else "BF16"}) {recv_bytes / 1e9 / t:.2f} GB/s (HCCS), '
-                f"{rdma_send_bytes / 1e9 / t:.2f} GB/s (RDMA), avg_t: {t * 1e6:.2f} us, notify_t: {notify_t  * 1e6:.2f} us",
+                f"[tuning] Combine {combine_bf16_send_bytes / 1e9 / t:.2f} GB/s (HCCS), {combine_bf16_rdma_recv_bytes / 1e9 / t:.2f} GB/s (RDMA), avg_t: {t * 1e6:.2f} us",
                 flush=True,
             )
             print("", flush=True)
 
-    dispatch_args = {
-        "x": x,
-        "num_tokens_per_rank": num_tokens_per_rank,
-        "is_token_in_rank": is_token_in_rank,
-        "num_tokens_per_expert": num_tokens_per_expert,
-        "config": config,
-        "topk_idx": topk_idx,
-        "topk_weights": topk_weights,
-    }
-    recv_x, _, _, _, handle, _ = buffer.dispatch(**dispatch_args)
-    recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
-    # Tune combine performance
-    tune_args = {
-        "x": recv_x,
-        "handle": handle,
-        "config": config,
-        "async_finish": False,
-        "topk_weights": handle[4],
-    }
-    t = bench(lambda: buffer.combine(**tune_args))[0]
-    if local_rank == 0:
-        print(
-            f"[tuning] Combine {combine_bf16_send_bytes / 1e9 / t:.2f} GB/s (HCCS), {combine_bf16_rdma_recv_bytes / 1e9 / t:.2f} GB/s (RDMA), avg_t: {t * 1e6:.2f} us",
-            flush=True,
-        )
-        print("", flush=True)
+    test_correctness()
+    test_tuning()
 
     # Diagnose test
     if enable_diagnose:
@@ -547,7 +555,7 @@ if __name__ == "__main__":
         "--num-processes",
         type=int,
         default=8,
-        help="Number of processes to spawn (default: 16)",
+        help="Number of processes to spawn (default: 8)",
     )
     parser.add_argument(
         "--num-tokens", type=int, default=4096, help="Number of tokens (default: 4096)"
