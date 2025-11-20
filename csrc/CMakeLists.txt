@@ -18,6 +18,11 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgmv_expand.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgmv_shrink.cpp
     )
+if(BUILD_CATLASS_MODULE)
+    list(APPEND OP_SRCS
+        ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_matmul_basic.cpp
+    )
+endif()
 
 # set the so name
 set(OP_PLUGIN_NAME sgl_kernel_npu)
@@ -34,11 +39,23 @@ ascendc_library(no_workspace_kernel STATIC
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgmv_shrink_kernel.cpp
 )
 
-ascendc_library(workspace_kernel STATIC
+# kernel side files with workspace
+set(WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_kernel/mla_preprocess_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/alloc_extend/op_kernel/alloc_extend_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/build_tree/op_kernel/build_tree_kernel.cpp
 )
+if(BUILD_CATLASS_MODULE)
+    list(APPEND WORKSPACE_KERNEL_SRCS
+        ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_matmul_basic_kernel.cpp
+    )
+endif()
+ascendc_library(workspace_kernel STATIC ${WORKSPACE_KERNEL_SRCS})
+if(BUILD_CATLASS_MODULE)
+    ascendc_include_directories(workspace_kernel PRIVATE
+        ${CATLASS_DIR}/include
+    )
+endif()
 
 ascendc_compile_definitions(workspace_kernel PRIVATE
        -DHAVE_WORKSPACE
