@@ -382,9 +382,9 @@ def test(
             topk_weights_dropped[:, args.topk_drop_col] = 0
             if args.debug:
                 print(
-                        f"[DEBUG] [rank {rank}] topk_idx_dropped (after fixed-column drop):\n{topk_idx_dropped.cpu().numpy()}",
-                        flush=True,
-                    )
+                    f"[DEBUG] [rank {rank}] topk_idx_dropped (after fixed-column drop):\n{topk_idx_dropped.cpu().numpy()}",
+                    flush=True,
+                )
                 print(
                     f"[DEBUG] [rank {rank}] topk_weights_dropped (after fixed-column drop):\n{topk_weights_dropped.cpu().numpy()}",
                     flush=True,
@@ -407,7 +407,6 @@ def test(
         num_tokens_per_expert[i] = (topk_idx_dropped == i).sum()
     gbl_num_tokens_per_expert = num_tokens_per_expert.clone()
     dist.all_reduce(gbl_num_tokens_per_expert, group=group)
-
 
     if args.debug:
         print(f"[Rank {rank}] num_tokens_per_expert: {num_tokens_per_expert.tolist()}")
@@ -477,8 +476,12 @@ def test(
 
     transposed_base_prefix_sum = all_expert_token_counts.T
     if args.debug and rank == 0:
-        print(f"[DEBUG] Transposed local_expert_token_count:\n{transposed_base_prefix_sum}")
-        print(f"[DEBUG] Transposed local_expert_token_count: {transposed_base_prefix_sum.shape}")
+        print(
+            f"[DEBUG] Transposed local_expert_token_count:\n{transposed_base_prefix_sum}"
+        )
+        print(
+            f"[DEBUG] Transposed local_expert_token_count: {transposed_base_prefix_sum.shape}"
+        )
 
     experts_per_rank = num_experts // dist.get_world_size()
     start_expert = rank * experts_per_rank
