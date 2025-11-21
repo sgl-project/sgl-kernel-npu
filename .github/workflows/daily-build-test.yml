@@ -96,7 +96,7 @@ jobs:
       - name: Run enumerate test low latency
         timeout-minutes: 300  # 5小时
         env:
-          HCCL_BUFFSIZE: 1913
+          HCCL_BUFFSIZE: 4096
           TEST_ENV: daily-build
         run: |
           echo "Starting daily enumerate low latency test at $(date)"
