@@ -54,15 +54,15 @@ mla_preprocess(const at::Tensor &hiddenState, const at::Tensor &gamma0,
                const at::Tensor &descale1, const at::Tensor &gamma2,
                const at::Tensor &cos, const at::Tensor &sin,
                const at::Tensor &wuk, const at::Tensor &kv_cache,
-               const at::Tensor &kv_cache_rope, const at::Tensor &slotmapping,
-               const at::Tensor &quant_scale0, const at::Tensor &quant_offset0,
-               const at::Tensor &bias0, const at::Tensor &quant_scale1,
-               const at::Tensor &quant_offset1, const at::Tensor &bias1,
-               const c10::optional<at::Tensor> &ctkv_scale,
-               const c10::optional<at::Tensor> &q_nope_scale,
+               const at::Tensor &kv_cache_rope, const at::Tensor
+               &slotmapping, const at::Tensor &quant_scale0, const at::Tensor
+               &quant_offset0, const at::Tensor &bias0, const at::Tensor
+               &quant_scale1, const at::Tensor &quant_offset1, const
+               at::Tensor &bias1, const c10::optional<at::Tensor>
+               &ctkv_scale, const c10::optional<at::Tensor> &q_nope_scale,
                c10::optional<c10::string_view> cache_mode,
-               c10::optional<c10::string_view> quant_mode, at::Tensor &q_out0,
-               at::Tensor &kv_cache_out0, at::Tensor &q_out1,
+               c10::optional<c10::string_view> quant_mode, at::Tensor
+               &q_out0, at::Tensor &kv_cache_out0, at::Tensor &q_out1,
                at::Tensor &kv_cache_out1);
 
 void batch_matmul_transpose(const at::Tensor &tensor_a,
@@ -73,21 +73,30 @@ void batch_matmul_transpose(const at::Tensor &tensor_a,
 void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
                               at::Tensor &device_v, at::Tensor &host_v,
                               const at::Tensor &device_indices,
-                              const at::Tensor &host_indices, int64_t page_size,
-                              int64_t direction, int64_t flags);
+                              const at::Tensor &host_indices, int64_t
+                              page_size, int64_t direction, int64_t flags);
 
-at::Tensor bgmv_expand(at::Tensor &x, at::Tensor &weight, at::Tensor &indices,
-                       at::Tensor &y, int64_t slice_offset, int64_t slice_size);
+at::Tensor bgmv_expand(at::Tensor &x, at::Tensor &weight, at::Tensor
+&indices,
+                       at::Tensor &y, int64_t slice_offset, int64_t
+                       slice_size);
 
 void bgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &indices,
                  at::Tensor &y, double scale);
 
 at::Tensor sgmv_expand(at::Tensor &x, at::Tensor &weight,
                        at::Tensor &lora_indices, at::Tensor &seq_len,
-                       at::Tensor &y, int64_t slice_offset, int64_t slice_size);
+                       at::Tensor &y, int64_t slice_offset, int64_t
+                       slice_size);
 
 void sgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
                  at::Tensor &seq_len, at::Tensor &y, double scale);
+
+at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
+                            const at::Tensor &actual_seq_lengths_query,
+                            const at::Tensor &actual_seq_lengths_key, const at::Tensor &block_table,
+                            c10::optional<c10::string_view> layout_query, c10::optional<c10::string_view> layout_key,
+                            c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode);
 
 } // namespace npu_kernel
 
