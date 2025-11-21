@@ -55,6 +55,7 @@ jobs:
           TEST_ENV: daily-build
         run: |
           echo "Starting daily enumerate intranode test at $(date)"
+          chmod +x scripts/enumerate_test_intranode.sh
           bash scripts/enumerate_test_intranode.sh
           echo "Completed daily enumerate intranode test at $(date)"
 
@@ -100,6 +101,7 @@ jobs:
           TEST_ENV: daily-build
         run: |
           echo "Starting daily enumerate low latency test at $(date)"
+          chmod +x scripts/enumerate_test_low_latency.sh
           bash scripts/enumerate_test_low_latency.sh
           echo "Completed daily enumerate low latency test at $(date)"
 
