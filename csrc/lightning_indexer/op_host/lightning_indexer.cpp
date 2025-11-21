@@ -131,7 +131,7 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
         actualCaptureNum++;
     }
     at::Tensor tilingTensor =
-        at::from_blob(globalTilingData.data_ptr<uint8_t>() + (tilingSize * captureMap[bs]), tilingSize, at::kByte);
+        at::from_blob(globalTilingData.data_ptr<uint8_t>() + (tilingSize * captureMap[mapKey]), tilingSize, at::kByte);
 
     size_t userWorkspaceSize = *context->GetWorkspaceSizes(1);
     workspace = at::empty({userWorkspaceSize}, at::TensorOptions().dtype(at::kByte).device(query.options().device()));
