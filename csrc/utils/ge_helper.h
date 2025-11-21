@@ -502,10 +502,15 @@ public:
         context->SetAttrs(runtimeAttrs);
     }
 
+    const AttrDef GetAttr(uint32_t index) const
+    {
+        return attrs_[index].second;
+    }
+
 private:
     std::string opName_;
     std::vector<std::pair<std::string, InputDef>> inputs_;
-    std::vector<std::pair<std::string, InputDef>> outputs_;
+    std::vector<std::pair<std::string, OutputDef>> outputs_;
     std::vector<std::pair<std::string, AttrDef>> attrs_;
 };
 
