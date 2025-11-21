@@ -10,8 +10,6 @@ NUM_TOKENS_LIST=(128 512)
 HIDDEN_LIST=(4096 7168)
 NUM_TOPK_LIST=(8 9)
 NUM_EXPERTS_LIST=(64 256)
-ACTIVE_RANKS_LIST=("" "0,1" "0,2,3")
-ENABLE_DIAGNOSE_LIST=("false" "true")
 
 SCRIPT="test_low_latency.py"
 
@@ -21,8 +19,6 @@ for NUM_PROCESSES in "${NUM_PROCESSES_LIST[@]}"; do
     for HIDDEN in "${HIDDEN_LIST[@]}"; do
       for NUM_TOPK in "${NUM_TOPK_LIST[@]}"; do
         for NUM_EXPERTS in "${NUM_EXPERTS_LIST[@]}"; do
-          for ACTIVE_RANKS in "${ACTIVE_RANKS_LIST[@]}"; do
-            for ENABLE_DIAGNOSE in "${ENABLE_DIAGNOSE_LIST[@]}"; do
 
               # 构建命令
               CMD="python3 $SCRIPT \
@@ -32,23 +28,12 @@ for NUM_PROCESSES in "${NUM_PROCESSES_LIST[@]}"; do
                 --num-topk $NUM_TOPK \
                 --num-experts $NUM_EXPERTS"
 
-              # 添加可选参数
-              if [ -n "$ACTIVE_RANKS" ]; then
-                CMD="$CMD --active-ranks \"$ACTIVE_RANKS\""
-              fi
-
-              if [ "$ENABLE_DIAGNOSE" == "true" ]; then
-                CMD="$CMD --enable-diagnose"
-              fi
-
               # 打印并执行命令
               echo "Running: $CMD"
               eval $CMD
 
               echo "--------------------------------------------------"
 
-            done
-          done
         done
       done
     done
