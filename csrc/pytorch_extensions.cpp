@@ -77,8 +77,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "            int slice_offset, int slice_size) -> Tensor");
 
     m.def(
-        "sgmv_shrink(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! y, float scale) ->
-        ()");
+        "sgmv_shrink(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! y, float scale) -> ()");
 
     m.def(
         "lightning_indexer(Tensor query, Tensor key, Tensor weights, Tensor actual_seq_lengths_query, "
