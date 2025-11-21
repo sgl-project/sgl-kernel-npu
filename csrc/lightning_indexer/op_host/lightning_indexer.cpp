@@ -81,7 +81,8 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
         indexer.SetAttrStr("layout_key", layoutKey);
     }
     if (sparse_count.has_value()) {
-        indexer.SetAttrAny("sparse_count", static_cast<int32_t>(sparse_count.value()));
+        sparseCount = sparse_count.value();
+        indexer.SetAttrAny("sparse_count", static_cast<int32_t>(sparseCount));
     }
     if (sparse_mode.has_value()) {
         indexer.SetAttrAny("sparse_mode", static_cast<int32_t>(sparse_mode.value()));
