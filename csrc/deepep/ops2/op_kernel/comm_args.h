@@ -18,6 +18,7 @@ constexpr int64_t SMALL_DATA_SIZE = 1 * 1024 * 1024;
 constexpr int64_t UB_SINGLE_PING_PONG_ADD_SIZE_MAX = UB_SINGLE_DMA_SIZE_MAX / 2;
 constexpr int UB_ALIGN_SIZE = 32;
 constexpr int64_t MAGIC_ALIGN_COUNT = UB_ALIGN_SIZE / sizeof(int32_t);
+constexpr int64_t STATE_SIZE = 2 * 1024 * 1024;
 
 constexpr uint8_t COMM_NUM = 2;  // Size of communication domain
 constexpr uint8_t COMM_EP_IDX = 0;

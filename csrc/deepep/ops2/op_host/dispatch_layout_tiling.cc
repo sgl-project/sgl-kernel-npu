@@ -66,7 +66,7 @@ static void PrintTilingDataInfo(const char *nodeName, DispatchLayoutTilingData &
     OP_LOGD(nodeName, "totalUbSize is %lu.", tilingData.dispatchLayoutInfo.totalUbSize);
 }
 
-static bool CheckIfA2Machine(gert::TilingContext *context)
+static bool CheckIfA2MultiMachine(gert::TilingContext *context, DispatchLayoutTilingData &tilingData)
 {
     fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
     fe::PlatFormInfos &platformInfo = *platformInfoPtr;
@@ -74,7 +74,10 @@ static bool CheckIfA2Machine(gert::TilingContext *context)
     std::string socVersion;
     (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
 
-    if (socVersion == "Ascend910B") {
+    uint32_t numRanks = tilingData.dispatchLayoutInfo.numRanks;
+    uint32_t localRankSize = tilingData.dispatchLayoutInfo.localRankSize;
+
+    if (socVersion == "Ascend910B" && numRanks > localRankSize) {
         return true;
     }
     return false;
@@ -116,19 +119,24 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
         OP_LOGE(nodeName, "numTopkPtr is invalid, only support (0, %u], but got numTopk=%ld.", K_MAX, *numTopkPtr),
         return ge::GRAPH_FAILED);
 
-    if (CheckIfA2Machine(context)) {
-        OP_TILING_CHECK(
-            (*localRankSizePtr <= 0) || (*localRankSizePtr > MAX_LOCAL_RANKSIZE),
-            OP_LOGE(nodeName, "localRankSizePtr is invalid, only support (0, %ld], but got localRankSize=%ld.",
-                    MAX_LOCAL_RANKSIZE, *localRankSizePtr),
-            return ge::GRAPH_FAILED);
-    }
-
     tilingData.dispatchLayoutInfo.numTokens = static_cast<uint32_t>(*numTokensPtr);
     tilingData.dispatchLayoutInfo.numRanks = static_cast<uint32_t>(*numRanksPtr);
     tilingData.dispatchLayoutInfo.numExperts = static_cast<uint32_t>(*numExpertsPtr);
     tilingData.dispatchLayoutInfo.numTopk = static_cast<uint32_t>(*numTopkPtr);
     tilingData.dispatchLayoutInfo.localRankSize = static_cast<uint32_t>(*localRankSizePtr);
+
+    if (CheckIfA2MultiMachine(context, tilingData)) {
+        OP_TILING_CHECK(
+            (*localRankSizePtr <= 0) || (*localRankSizePtr > MAX_LOCAL_RANKSIZE),
+            OP_LOGE(nodeName, "localRankSizePtr is invalid, only support (0, %ld], but got localRankSize=%ld.",
+                    MAX_LOCAL_RANKSIZE, *localRankSizePtr),
+            return ge::GRAPH_FAILED);
+        OP_TILING_CHECK(
+            (*numRanksPtr % *localRankSizePtr != 0),
+            OP_LOGE(nodeName, "localRankSizePtr isn't an aliquot of numRanks, numRanks=%ld, but got localRankSize=%ld.",
+                    *numRanksPtr, *localRankSizePtr),
+            return ge::GRAPH_FAILED);
+    }
 
     return ge::GRAPH_SUCCESS;
 }
@@ -219,7 +227,7 @@ static ge::graphStatus DispatchLayoutTilingFuncImpl(gert::TilingContext *context
                     OP_LOGE(nodeName, "Tiling set workspace failed."), return ge::GRAPH_FAILED);
 
     int tilingKey = TILING_KEY_INT;
-    if (CheckIfA2Machine(context)) {
+    if (CheckIfA2MultiMachine(context, *tilingData)) {
         tilingKey = tilingKey + TILING_KEY_A2_TYPE;
     }
     context->SetTilingKey(tilingKey);
