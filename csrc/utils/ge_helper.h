@@ -243,7 +243,7 @@ public:
     const T *GetAttrPointer(size_t index)
     {
         std::any &anyValue = anyValues_[index];
-        TORHC_CHECK(anyValue.type() == typeid(T), "Invalid attribute type.");
+        TORCH_CHECK(anyValue.type() == typeid(T), "Invalid attribute type.");
         return &std::any_cast<const T &>(anyValue);
     }
 
