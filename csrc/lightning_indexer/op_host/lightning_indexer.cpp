@@ -63,7 +63,7 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
                                       c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode)
 {
     using namespace LIHost;
-    std::cout << "0" << std::endl;
+    //std::cout << "0" << std::endl;
     LightningIndexer indexer("lightning_indexer");
     auto context = std::make_shared<TilingContext>("lightning_indexer");
     TORCH_CHECK(context != nullptr, "TilingContext is null");
@@ -92,9 +92,9 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
                                                                       sparseCount, layoutQuery, layoutKey);
 
     auto qScalarType = query.scalar_type();
-    std::cout << "1" << std::endl;
+    //std::cout << "1" << std::endl;
     indexer.SetToContext(context, qScalarType);
-    std::cout << "2" << std::endl;
+    //std::cout << "2" << std::endl;
     context->RegisterTensor(query, true);
     context->RegisterTensor(key, true);
     context->RegisterTensor(weights, true);
@@ -102,16 +102,16 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
     context->RegisterTensor(actual_seq_lengths_key, true);
     context->RegisterTensor(block_table, true);
     context->RegisterTensor(sparse_indices, false);
-    std::cout << "3" << std::endl;
+    //std::cout << "3" << std::endl;
 
     LITilingInfo liInfo;
     LIInfoParser LIInfoParser(context.get());
-    std::cout << "4" << std::endl;
+    //std::cout << "4" << std::endl;
     TORCH_CHECK(LIInfoParser.ParseAndCheck(liInfo) == ge::GRAPH_SUCCESS, "lightning_indexer ParseAndCheck failed")
 
     LightningIndexerTiling liTiling(context.get());
     liTiling.DoTiling(&liInfo);
-    std::cout << "5" << std::endl;
+    //std::cout << "5" << std::endl;
     const auto &tilingData = liTiling.GetTilingData();
 
     uint32_t tilingSize = sizeof(LITilingData);
@@ -119,12 +119,12 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
     auto bs = query.sizes()[0];
     uint64_t mapKey = tilingData.tilingKey;
     mapKey = (mapKey << 32) | bs;
-    std::cout << "mapKey is " << mapKey << std::endl;
+    //std::cout << "mapKey is " << mapKey << std::endl;
 
     static auto globalTilingData = at::empty({tilingSize * MAX_CAPTURE_NUM},
                                              at::TensorOptions().dtype(at::kByte).device(query.options().device()));
     if (captureMap.find(mapKey) == captureMap.end()) {
-        std::cout << "step in" << std::endl;
+        //std::cout << "step in" << std::endl;
         TORCH_CHECK(actualCaptureNum < MAX_CAPTURE_NUM, "lightning_indexer captureNum overflow")
         captureMap[mapKey] = actualCaptureNum;
         aclrtMemcpy(globalTilingData.data_ptr<uint8_t>() + actualCaptureNum * tilingSize, tilingSize, &tilingData,
@@ -136,7 +136,7 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
 
     size_t userWorkspaceSize = *context->GetWorkspaceSizes(1);
     workspace = at::empty({userWorkspaceSize}, at::TensorOptions().dtype(at::kByte).device(query.options().device()));
-    std::cout << "6" << std::endl;
+    //std::cout << "6" << std::endl;
     EXEC_KERNEL_CMD(lightning_indexer, blockDim, query, key, weights, actual_seq_lengths_query, actual_seq_lengths_key,
                     block_table, sparse_indices, workspace, tilingTensor);
     return sparse_indices;
