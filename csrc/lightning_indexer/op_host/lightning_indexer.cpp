@@ -117,7 +117,7 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
     auto blockDim = tilingData.usedCoreNum;
     auto bs = query.sizes()[0];
     uint64_t mapKey = tilingData.tilingKey;
-    mapKey = mapKey << 32 | bs;
+    mapKey = (mapKey << 32) | bs;
 
     static auto globalTilingData = at::empty({tilingSize * MAX_CAPTURE_NUM},
                                              at::TensorOptions().dtype(at::kByte).device(query.options().device()));
