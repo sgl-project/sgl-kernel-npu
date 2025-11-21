@@ -21,7 +21,7 @@ jobs:
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-a3-ubuntu22.04-py3.11
     timeout-minutes: 350  # 5小时50分钟，留出缓冲时间
-    
+
     steps:
       - name: Clean git config
         run: |
@@ -74,7 +74,7 @@ jobs:
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-a3-ubuntu22.04-py3.11
     timeout-minutes: 330  # 5.5小时
-    
+
     steps:
       - name: Clean workspace and checkout
         run: |
