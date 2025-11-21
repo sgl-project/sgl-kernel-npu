@@ -33,8 +33,6 @@ aclnnStatus aclnnMoeDistributeCombineA2GetWorkspaceSize(
     int64_t sharedExpertRankNum, int64_t globalBs, int64_t outDtype, int64_t commQuantMode, int64_t groupListType,
     aclTensor *x, uint64_t *workspaceSize, aclOpExecutor **executor)
 {
-    // printf("aclnnMoeDistributeCombineA2GetWorkspaceSize");
-
     aclnnStatus ret = aclnnInnerMoeDistributeCombineA2GetWorkspaceSize(
         expandX, expertIds, expandIdx, epSendCounts, expertScales, tpSendCounts, xActiveMask, activationScale,
         weightScale, groupList, expandScales, offsetInner, offsetOuter, countOuter, groupEp, epWorldSize, epRankId,
@@ -53,7 +51,7 @@ aclnnStatus aclnnMoeDistributeCombineA2(void *workspace, uint64_t workspaceSize,
             NnopbaseSetHcclServerType(executor, NNOPBASE_HCCL_SERVER_TYPE_MTE);
         }
     }
-    // printf("aclnnMoeDistributeCombineA2");
+
     aclnnStatus ret = aclnnInnerMoeDistributeCombineA2(workspace, workspaceSize, executor, stream);
     return ret;
 }

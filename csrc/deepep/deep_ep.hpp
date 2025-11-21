@@ -29,7 +29,8 @@ struct Buffer {
     at::Tensor new_topk_idx;
     at::Tensor new_scales;
     at::Tensor notify_send_data;  // only for internode notify
-    int notify_send_data_size;    // only for internode notify
+    at::Tensor send_token_idx_small;
+    int notify_send_data_size;  // only for internode notify
 
     int64_t shared_expert_rank_num;
     int64_t shared_expert_num = 1;
@@ -61,8 +62,8 @@ public:
 
     torch::Tensor get_notify_send_data();
 
-    std::tuple<at::Tensor, std::optional<at::Tensor>, std::optional<at::Tensor>, std::optional<at::Tensor>,
-               std::vector<int>, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, std::optional<EventHandle>>
+    std::tuple<at::Tensor, std::optional<at::Tensor>, std::optional<at::Tensor>, std::optional<at::Tensor>, at::Tensor,
+               at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, std::optional<EventHandle>>
     intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> &x_scales,
                        const std::optional<at::Tensor> &topk_idx, const std::optional<at::Tensor> &topk_weights,
                        const std::optional<at::Tensor> &num_tokens_per_rank, const at::Tensor &is_token_in_rank,
