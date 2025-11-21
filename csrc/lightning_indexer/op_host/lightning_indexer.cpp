@@ -124,7 +124,7 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
     static auto globalTilingData = at::empty({tilingSize * MAX_CAPTURE_NUM},
                                              at::TensorOptions().dtype(at::kByte).device(query.options().device()));
     if (captureMap.find(mapKey) == captureMap.end()) {
-        //std::cout << "step in" << std::endl;
+        std::cout << "step in" << std::endl;
         TORCH_CHECK(actualCaptureNum < MAX_CAPTURE_NUM, "lightning_indexer captureNum overflow")
         captureMap[mapKey] = actualCaptureNum;
         aclrtMemcpy(globalTilingData.data_ptr<uint8_t>() + actualCaptureNum * tilingSize, tilingSize, &tilingData,
