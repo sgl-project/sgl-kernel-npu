@@ -16,16 +16,16 @@ using namespace Moe;
     GM_ADDR sendDataInput, GM_ADDR tokenPerExpertDataInput, GM_ADDR tmpDataInput, GM_ADDR sendDataOffsetOutput,        \
         GM_ADDR recvDataOutput, int64_t len, int64_t numTokens, int64_t topkNum, int64_t numExperts, int op, int root, \
         int cycleCount, GM_ADDR scale, int64_t scaleCount, GM_ADDR offset, int localRank, int localRankSize,           \
-        GM_ADDR tokenServerIdxOutput, GM_ADDR tokensUniquePerServerOutput,                                             \
-        GM_ADDR epRankTokenCntOutput, GM_ADDR localEpTokenCntOutput, GM_ADDR srcOffsetRankTokenIdxOutput,              \
-        GM_ADDR dstOffsetRankTokenIdxOutput, GM_ADDR offsetInnerOutput, GM_ADDR countOuterOutput,                      \
-        GM_ADDR expandIdxOutput, GM_ADDR workspace, GM_ADDR tiling
+        GM_ADDR tokenServerIdxOutput, GM_ADDR tokensUniquePerServerOutput, GM_ADDR epRankTokenCntOutput,               \
+        GM_ADDR localEpTokenCntOutput, GM_ADDR srcOffsetRankTokenIdxOutput, GM_ADDR dstOffsetRankTokenIdxOutput,       \
+        GM_ADDR offsetInnerOutput, GM_ADDR countOuterOutput, GM_ADDR expandIdxOutput, GM_ADDR workspace,               \
+        GM_ADDR tiling
 
-#define KERNELS_ARGS_CALL_A2_ALL2ALL()                                                                            \
-    sendDataInput, tokenPerExpertDataInput, tmpDataInput, sendDataOffsetOutput, recvDataOutput, len, numTokens,   \
-        topkNum, numExperts, op, root, cycleCount, scale, scaleCount, offset, localRank, localRankSize,           \
-        tokenServerIdxOutput, tokensUniquePerServerOutput, epRankTokenCntOutput, localEpTokenCntOutput,           \
-        srcOffsetRankTokenIdxOutput, dstOffsetRankTokenIdxOutput, offsetInnerOutput, countOuterOutput,            \
+#define KERNELS_ARGS_CALL_A2_ALL2ALL()                                                                          \
+    sendDataInput, tokenPerExpertDataInput, tmpDataInput, sendDataOffsetOutput, recvDataOutput, len, numTokens, \
+        topkNum, numExperts, op, root, cycleCount, scale, scaleCount, offset, localRank, localRankSize,         \
+        tokenServerIdxOutput, tokensUniquePerServerOutput, epRankTokenCntOutput, localEpTokenCntOutput,         \
+        srcOffsetRankTokenIdxOutput, dstOffsetRankTokenIdxOutput, offsetInnerOutput, countOuterOutput,          \
         expandIdxOutput, workspace, tiling
 
 // #define ENABLE_PRINT
@@ -78,7 +78,7 @@ class NotifyDispatchA2
     constexpr static uint32_t DATALEN_OFFSET = 24;      // dataLen 在 statusTensor中的offset, bytes
     constexpr static uint32_t UB_ALIGN = 32;            // UB按32字节对齐
     constexpr static uint64_t EXP_TOKEN_COUNT_FLAG_CNT = UB_ALIGN / sizeof(uint64_t);  // 4
-    constexpr static uint32_t GM_ALIGN = 64;                                          // GM按64字节对齐
+    constexpr static uint32_t GM_ALIGN = 64;                                           // GM按64字节对齐
 
     constexpr static uint32_t MAX_BS = 4096;  // 每卡支持的最大bs
     // Synchronization flag occupies length
@@ -214,8 +214,8 @@ private:
         notifyMemoryOffset = winContext_[COMM_EP_IDX]->winSize - IPC_BUFF_MAX_SIZE * 2;
         // 设置并自增magic
         magicTensor_.SetGlobalBuffer((__gm__ uint64_t *)(hccl_.GetWindowsInAddr(rank) + IPC_DATA_OFFSET -
-                                                        blockNum * sizeof(uint64_t) * EXP_TOKEN_COUNT_FLAG_CNT +
-                                                        notifyMemoryOffset));
+                                                         blockNum * sizeof(uint64_t) * EXP_TOKEN_COUNT_FLAG_CNT +
+                                                         notifyMemoryOffset));
 
         pipe.InitBuffer(this->tBuf, TEMP_BUF_LEN);
         LocalTensor<uint64_t> tempLocal = tBuf.Get<uint64_t>();
@@ -239,7 +239,7 @@ private:
 
     template <typename K, typename U = K>
     __aicore__ inline void CpGM2GMPingPong(int64_t dataSizeRemain, const GlobalTensor<U> &sendDataInputGt,
-                                             const GlobalTensor<K> &recvDataOutputGT, int op);
+                                           const GlobalTensor<K> &recvDataOutputGT, int op);
     template <typename F>
     __aicore__ inline void SetAtomic(int op);
     __aicore__ inline void UnsetAtomic(int op);
@@ -1329,8 +1329,8 @@ __aicore__ inline void NotifyDispatchA2<T>::UnsetAtomic(int op)
 template <typename T>
 template <typename K, typename U>
 __aicore__ inline void NotifyDispatchA2<T>::CpGM2GMPingPong(int64_t dataSizeRemain,
-                                                              const GlobalTensor<U> &sendDataInputGt,
-                                                              const GlobalTensor<K> &recvDataOutputGT, int op)
+                                                            const GlobalTensor<U> &sendDataInputGt,
+                                                            const GlobalTensor<K> &recvDataOutputGT, int op)
 {
     // General case (U = K), input/output are the same, share one UB
     // Only when conversion is needed (U->K), UB will be divided into two parts according to the ratio of

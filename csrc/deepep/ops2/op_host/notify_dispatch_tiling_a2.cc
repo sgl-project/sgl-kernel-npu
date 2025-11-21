@@ -151,13 +151,13 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
         OP_LOGE(nodeName, "rankId is invalid, only support [0, %ld), but got rankId=%ld.", *rankSizePtr, *rankIdPtr),
         return ge::GRAPH_FAILED);
     OP_TILING_CHECK((*localRankSizePtr <= 0) || (*localRankSizePtr > MAX_A2_LOCAL_SIZE),
-            OP_LOGE(nodeName, "localRankSize is invalid, A2 only support (0, %ld], but got localRankSize=%ld.",
-                MAX_A2_LOCAL_SIZE, *localRankSizePtr),
-            return ge::GRAPH_FAILED);
+                    OP_LOGE(nodeName, "localRankSize is invalid, A2 only support (0, %ld], but got localRankSize=%ld.",
+                            MAX_A2_LOCAL_SIZE, *localRankSizePtr),
+                    return ge::GRAPH_FAILED);
     OP_TILING_CHECK((*localRankIdPtr < 0) || (*localRankIdPtr >= *localRankSizePtr),
-        OP_LOGE(nodeName, "localRankId is invalid, only support [0, %ld), but got localRankId=%ld.",
-            *localRankSizePtr, *localRankIdPtr),
-            return ge::GRAPH_FAILED);
+                    OP_LOGE(nodeName, "localRankId is invalid, only support [0, %ld), but got localRankId=%ld.",
+                            *localRankSizePtr, *localRankIdPtr),
+                    return ge::GRAPH_FAILED);
 
     OP_TILING_CHECK((*sendCountPtr <= 0),
                     OP_LOGE(nodeName, "sendCount is invalid, only support > 0, but got sendCount=%ld.", *sendCountPtr),
@@ -197,8 +197,7 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext *context, const char *no
 {
     size_t *workSpaces = context->GetWorkspaceSizes(1);
     OP_TILING_CHECK(workSpaces == nullptr, OP_LOGE(nodeName, "workSpaces is nullptr."), return ge::GRAPH_FAILED);
-    workSpaces[0] = SYSTEM_NEED_WORKSPACE + KERNEL_USE_WORKSPACE +
-                    KERNEL_A2_ARG_SIZE;
+    workSpaces[0] = SYSTEM_NEED_WORKSPACE + KERNEL_USE_WORKSPACE + KERNEL_A2_ARG_SIZE;
     return ge::GRAPH_SUCCESS;
 }
 
@@ -363,7 +362,7 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     // Verify the size of the win area
     NotifyDispatchA2TilingData *tilingData = context->GetTilingData<NotifyDispatchA2TilingData>();
     uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize();
-    uint64_t actualSize = 2 * dataSize * tilingData->notifyDispatchInfoA2.sendCount + 2 * 1024 * 1024; // 2MB flag位
+    uint64_t actualSize = 2 * dataSize * tilingData->notifyDispatchInfoA2.sendCount + 2 * 1024 * 1024;  // 2MB flag位
     if (actualSize > maxWindowSize) {
         OP_LOGE(nodeName, "HCCL_BUFFSIZE is too SMALL, should larger than %luMB", actualSize / MB_SIZE);
         return false;

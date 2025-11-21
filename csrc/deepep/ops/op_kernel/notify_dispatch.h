@@ -565,7 +565,7 @@ private:
     __aicore__ inline void SetWaitEvent(event_t eventId);
     template <typename K, typename U = K>
     __aicore__ inline void CpGM2GMPingPong(int64_t dataSizeRemain, const GlobalTensor<U> &sendDataInputGt,
-                                             const GlobalTensor<K> &recvDataOutputGT, int op);
+                                           const GlobalTensor<K> &recvDataOutputGT, int op);
 
     GlobalTensor<T> sendDataInputGt;
     GlobalTensor<int> tokenPerExpertDataInputGt;
@@ -596,12 +596,12 @@ private:
     int64_t nodeNum;
     int64_t localRankId;
     int64_t localNodeId;
-    int64_t coreNumPerStageX;             // Number of cores used per stage
-    int64_t coreNumPerStageY;             // Number of cores used per stage
-    int64_t coreNumPerStageZ;             // Number of cores used per stage
-    int64_t coreNumPerRank;               // Number of cores allocated per rank
-    int64_t rankNumPerCore;               // Number of ranks responsible per core
-    int64_t copyLen;  // Length of the current data slice being copied (in terms of T)
+    int64_t coreNumPerStageX;  // Number of cores used per stage
+    int64_t coreNumPerStageY;  // Number of cores used per stage
+    int64_t coreNumPerStageZ;  // Number of cores used per stage
+    int64_t coreNumPerRank;    // Number of cores allocated per rank
+    int64_t rankNumPerCore;    // Number of ranks responsible per core
+    int64_t copyLen;           // Length of the current data slice being copied (in terms of T)
 
     // for coll
     int rank;
@@ -764,8 +764,8 @@ __aicore__ inline void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_ALL
 template <typename T>
 template <typename K, typename U>
 __aicore__ inline void NotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeRemain,
-                                                            const GlobalTensor<U> &sendDataInputGt,
-                                                            const GlobalTensor<K> &recvDataOutputGT, int op)
+                                                          const GlobalTensor<U> &sendDataInputGt,
+                                                          const GlobalTensor<K> &recvDataOutputGT, int op)
 {
     // General case (U = K), input/output are the same, share one UB
     // Only when conversion is needed (U->K), UB will be divided into two parts according to the ratio of
