@@ -449,7 +449,7 @@ public:
     void SetToContext(std::shared_ptr<TilingContext> &context, at::ScalarType &scalarType)
     {
         auto geType = SCALAR_TYPE_TO_GE_DATATYPE(scalarType);
-        TORCH_CHECK(!inputs_->empty(), "Check the op definition file");
+        TORCH_CHECK(!inputs_.empty(), "Check the op definition file");
     
         const auto &firstParamTypes = inputs_[0].second.GetDataTypes();
         auto it = std::find(firstParamTypes.begin(), firstParamTypes.end(), geType);
