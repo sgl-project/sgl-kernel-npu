@@ -24,7 +24,7 @@ constexpr int DIM_3 = 3;
 
 // namespace scope global parameters
 uint32_t actualCaptureNum = 0;
-std::unordered_map<uint64_t, uint32_t> captureMap;
+static std::unordered_map<uint64_t, uint32_t> captureMap;
 at::Tensor workspace;
 
 inline at::Tensor ConstructLightningIndexerOutputTensor(const at::Tensor &query, const at::Tensor &key,

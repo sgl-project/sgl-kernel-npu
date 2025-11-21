@@ -39,7 +39,7 @@ constexpr ge::DataType SCALAR_TYPE_TO_GE_DATATYPE(at::ScalarType scalarType)
         case at::ScalarType::BFloat16:
             return ge::DT_BF16;
         default:
-            throw std::runtime_error("Unsupported scalar type");
+            return ge::DT_FLOAT16;
     }
 }
 
@@ -73,7 +73,7 @@ constexpr uint32_t GE_DATATYPE_TO_KEY(ge::DataType geDatatype)
         case ge::DT_BF16:
             return 12;
         default:
-            throw std::runtime_error("Unsupported GE data type: " + std::to_string(static_cast<int>(geDatatype)));
+            return 1;
     }
 }
 namespace sglang {
@@ -99,14 +99,14 @@ public:
 
     InputDef &DataType(const std::vector<ge::DataType> &types)
     {
-        dataTypes = types;
+        dataTypes_ = types;
         return *this;
     }
 
     InputDef &DataTypeList(const std::vector<ge::DataType> &types)
     {
         useDataTypeList_ = true;
-        dataTypes = types;
+        dataTypes_ = types;
         return *this;
     }
 
@@ -131,17 +131,15 @@ public:
     const ge::DataType GetDataType(uint32_t index) const
     {
         if (useDataTypeList_) {
-            return dataTypes[0];
+            return dataTypes_[0];
         }
-        if (index >= dataTypes.size()) {
-            throw std::out_of_range("InputDef::GetDataType index out of range");
-        }
-        return dataTypes[index];
+        TORCH_CHECK(index < dataTypes_.size(), "InputDef::GetDataType index out of range");
+        return dataTypes_[index];
     }
 
     const std::vector<ge::DataType> &GetDataTypes() const
     {
-        return dataTypes;
+        return dataTypes_;
     }
 
     const ge::Format GetFormat(uint32_t index) const
@@ -149,15 +147,13 @@ public:
         if (useFormatList_) {
             return formats_[0];
         }
-        if (index >= formats_.size()) {
-            throw std::out_of_range("InputDef::GetFormat index out of range");
-        }
+        TORCH_CHECK(index < formats_.size(), "InputDef::GetFormat index out of range");
         return formats_[index];
     }
 
 private:
     ParamTypeCls paramType_;
-    std::vector<ge::DataType> dataTypes;
+    std::vector<ge::DataType> dataTypes_;
     std::vector<ge::Format> formats_;
     bool autoContiguous_ = false;
     bool useFormatList_ = false;
@@ -175,9 +171,7 @@ public:
 
     AttrDef &String(const std::string &value)
     {
-        if (valueInitialized_) {
-            throw std::runtime_error("Cannot set default value for an attribute that has already been initialized.");
-        }
+        TORCH_CHECK(valueInitialized_ == false, "Cannot set default value for an attribute that has already been initialized.");
         anyValue_ = value;
         valueInitialized_ = true;
         isString_ = true;
@@ -186,9 +180,7 @@ public:
 
     AttrDef &Int(int value)
     {
-        if (valueInitialized_) {
-            throw std::runtime_error("Cannot set default value for an attribute that has already been initialized.");
-        }
+        TORCH_CHECK(valueInitialized_ == false, "Cannot set default value for an attribute that has already been initialized.");
         anyValue_ = value;
         valueInitialized_ = true;
         return *this;
@@ -251,11 +243,8 @@ public:
     const T *GetAttrPointer(size_t index)
     {
         std::any &anyValue = anyValues_[index];
-        try {
-            return &std::any_cast<const T &>(anyValue);
-        } catch (const std::bad_any_cast &) {
-            throw std::runtime_error("Invalid attribute type.");
-        }
+        TORHC_CHECK(anyValue.type() == typeid(T), "Invalid attribute type.");
+        return &std::any_cast<const T &>(anyValue);
     }
 
 private:
@@ -293,9 +282,7 @@ public:
         shapePtr->emplace_back(std::move(storageShape));
 
         // Safety check to avoid underflow
-        if (descPtr->empty()) {
-            throw std::runtime_error("No tensor description available");
-        }
+        TORCH_CHECK(!descPtr->empty(), "No tensor description available");
 
         auto index = descPtr->size() - 1;
         // storageFormat == originFormat
@@ -445,7 +432,7 @@ public:
                 return;
             }
         }
-        throw std::runtime_error("SetAttrStr failed, attrName not exists");
+        //throw std::runtime_error("SetAttrStr failed, attrName not exists");
     }
 
     void SetAttrAny(const std::string attrName, std::any anyVal)
@@ -456,20 +443,17 @@ public:
                 return;
             }
         }
-        throw std::runtime_error("SetAttrAny failed, attrName not exists");
+        //throw std::runtime_error("SetAttrAny failed, attrName not exists");
     }
 
     void SetToContext(std::shared_ptr<TilingContext> &context, at::ScalarType &scalarType)
     {
         auto geType = SCALAR_TYPE_TO_GE_DATATYPE(scalarType);
-        if (inputs_.empty()) {
-            throw std::runtime_error("Check the op definition file");
-        }
+        TORCH_CHECK(!inputs_->empty(), "Check the op definition file");
+    
         const auto &firstParamTypes = inputs_[0].second.GetDataTypes();
         auto it = std::find(firstParamTypes.begin(), firstParamTypes.end(), geType);
-        if (it == firstParamTypes.end()) {
-            throw std::runtime_error("Invalid input type, please check the op definition file");
-        }
+        TORCH_CHECK(it != firstParamTypes.end(), "Invalid input type, please check the op definition file");
         uint32_t index = std::distance(firstParamTypes.begin(), it);
         // std::cout << "index is " << index << std::endl;
         // std::cout << "ge type is " << int(geType) << std::endl;
@@ -516,9 +500,7 @@ private:
 
 inline gert::StorageShape CreateStorageShape(const std::vector<int64_t> &origin, const std::vector<int64_t> &storage)
 {
-    if (origin.size() > 4 || origin.size() != storage.size()) {
-        throw std::invalid_argument("Unsupported vector size");
-    }
+    TORCH_CHECK(origin.size() <= 4 && origin.size() == storage.size(), "Unsupported vector size");
     switch (origin.size()) {
         case 0:
             return gert::StorageShape({}, {});
