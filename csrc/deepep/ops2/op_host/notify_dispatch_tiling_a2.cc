@@ -79,8 +79,11 @@ constexpr uint32_t ATTR_RANK_ID_INDEX = 6;
 constexpr uint32_t ATTR_LOCAL_RANK_SIZE_INDEX = 7;
 constexpr uint32_t ATTR_LOCAL_RANK_ID_INDEX = 8;
 
-const size_t MAX_GROUP_NAME_LENGTH = 128UL;
-const int64_t MAX_COMM_WORLD_SIZE = 384;
+constexpr size_t MAX_GROUP_NAME_LENGTH = 128UL;
+constexpr int64_t MAX_COMM_WORLD_SIZE = 384;
+constexpr int64_t MAX_A2_WORLD_SIZE = 64;
+constexpr int64_t MAX_COMM_LOCAL_SIZE = 16;
+constexpr int64_t MAX_A2_LOCAL_SIZE = 8;
 
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
 constexpr uint32_t KERNEL_USE_WORKSPACE = 1 * 1024 * 1024;
@@ -93,8 +96,6 @@ constexpr static int TILING_KEY_BFLOAT16 = 21;
 constexpr static int TILING_KEY_FLOAT = 22;
 constexpr static int TILING_KEY_INT = 23;
 constexpr static int TILING_KEY_A2_TYPE = 100;
-
-constexpr static int ALL_TO_ALL_CORE_NUM = 32;
 }  // namespace
 
 namespace optiling {
@@ -141,14 +142,23 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
                     return ge::GRAPH_FAILED);
     OP_TILING_CHECK(localRankIdPtr == nullptr, OP_LOGE(nodeName, "localRankIdPtr is null."), return ge::GRAPH_FAILED);
 
-    OP_TILING_CHECK((*rankSizePtr <= 0) || (*rankSizePtr > MAX_COMM_WORLD_SIZE),
+    OP_TILING_CHECK((*rankSizePtr <= 0) || (*rankSizePtr > MAX_A2_WORLD_SIZE),
                     OP_LOGE(nodeName, "rankSize is invalid, only support (0, %ld], but got rankSize=%ld.",
-                            MAX_COMM_WORLD_SIZE, *rankSizePtr),
+                            MAX_A2_WORLD_SIZE, *rankSizePtr),
                     return ge::GRAPH_FAILED);
     OP_TILING_CHECK(
         (*rankIdPtr < 0) || (*rankIdPtr >= *rankSizePtr),
         OP_LOGE(nodeName, "rankId is invalid, only support [0, %ld), but got rankId=%ld.", *rankSizePtr, *rankIdPtr),
         return ge::GRAPH_FAILED);
+    OP_TILING_CHECK((*localRankSizePtr <= 0) || (*localRankSizePtr > MAX_A2_LOCAL_SIZE),
+            OP_LOGE(nodeName, "localRankSize is invalid, A2 only support (0, %ld], but got localRankSize=%ld.",
+                MAX_A2_LOCAL_SIZE, *localRankSizePtr),
+            return ge::GRAPH_FAILED);
+    OP_TILING_CHECK((*localRankIdPtr < 0) || (*localRankIdPtr >= *localRankSizePtr),
+        OP_LOGE(nodeName, "localRankId is invalid, only support [0, %ld), but got localRankId=%ld.",
+            *localRankSizePtr, *localRankIdPtr),
+            return ge::GRAPH_FAILED);
+
     OP_TILING_CHECK((*sendCountPtr <= 0),
                     OP_LOGE(nodeName, "sendCount is invalid, only support > 0, but got sendCount=%ld.", *sendCountPtr),
                     return ge::GRAPH_FAILED);
@@ -188,7 +198,7 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext *context, const char *no
     size_t *workSpaces = context->GetWorkspaceSizes(1);
     OP_TILING_CHECK(workSpaces == nullptr, OP_LOGE(nodeName, "workSpaces is nullptr."), return ge::GRAPH_FAILED);
     workSpaces[0] = SYSTEM_NEED_WORKSPACE + KERNEL_USE_WORKSPACE +
-                    KERNEL_A2_ARG_SIZE;  // TODO: 多预留空间，dispatch和combine同步要改？
+                    KERNEL_A2_ARG_SIZE;
     return ge::GRAPH_SUCCESS;
 }
 
@@ -353,9 +363,9 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     // Verify the size of the win area
     NotifyDispatchA2TilingData *tilingData = context->GetTilingData<NotifyDispatchA2TilingData>();
     uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize();
-    uint64_t actualSize = dataSize * tilingData->notifyDispatchInfoA2.sendCount;
+    uint64_t actualSize = 2 * dataSize * tilingData->notifyDispatchInfoA2.sendCount + 2 * 1024 * 1024; // 2MB flag位
     if (actualSize > maxWindowSize) {
-        OP_LOGE(nodeName, "HCCL_BUFFSIZE is too SMALL, should larger than %lu", actualSize);
+        OP_LOGE(nodeName, "HCCL_BUFFSIZE is too SMALL, should larger than %luMB", actualSize / MB_SIZE);
         return false;
     }
     return true;
