@@ -55,7 +55,7 @@ jobs:
           TEST_ENV: daily-build
         run: |
           echo "Starting daily enumerate intranode test at $(date)"
-          bash scripts/enumerate_test_intranode_part_one.sh
+          bash scripts/enumerate_test_intranode.sh
           echo "Completed daily enumerate intranode test at $(date)"
 
       - name: Upload intranode artifacts
