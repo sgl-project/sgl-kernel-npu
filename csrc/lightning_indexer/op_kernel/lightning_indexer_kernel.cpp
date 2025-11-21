@@ -665,7 +665,7 @@ __global__ __aicore__ void lightning_indexer(GM_ADDR query, GM_ADDR key, GM_ADDR
         bf16_pa_bsnd_pabsnd_op;
 
     auto tilingKey = tilingData->tilingKey;
-    AscendC::printf("tilingKey is %d\n", tilingKey);
+    //AscendC::printf("tilingKey is %d\n", tilingKey);
     switch (tilingKey) {
         case 0x01013112:
             half_pa_tnd_pabsnd_op.Init(query, key, weights, actualSeqLengthsQ, actualSeqLengths, blocktable,

@@ -149,7 +149,7 @@ ge::graphStatus LIInfoParser::GetAndCheckInOutDataType()
     inputKType_ = opParamInfo_.key.desc->GetDataType();
     weightsType_ = opParamInfo_.weights.desc->GetDataType();
     outputType_ = opParamInfo_.attenOut.desc->GetDataType();
-    std::cout << "inputQType_: " << inputQType_ << "inputKType_: " << inputKType_ << std::endl;
+    //std::cout << "inputQType_: " << inputQType_ << "inputKType_: " << inputKType_ << std::endl;
 
     bool inDTypeAllEqual = (inputQType_ == inputKType_) && (inputKType_ == weightsType_);
     TORCH_CHECK(inDTypeAllEqual,
@@ -581,7 +581,7 @@ ge::graphStatus LightningIndexerTiling::DoTiling(LITilingInfo *tilingInfo)
     uint32_t inputKLayout = static_cast<uint32_t>(tilingInfo->inputKLayout);
     uint32_t tilingKey = (inputQType << 24) | (inputKType << 16) | (outputType << 12) | (pageAttentionFlag << 8) |
                          (inputQLayout << 4) | inputKLayout;
-    std::cout << "host tilingKey: " << tilingKey << std::endl;
+    //std::cout << "host tilingKey: " << tilingKey << std::endl;
 
     // -------------set tilingdata-----------------
     LITilingData tilingData = {
