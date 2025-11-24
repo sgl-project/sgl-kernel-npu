@@ -251,7 +251,7 @@ class Buffer:
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
         Optional[torch.Tensor],
-        Optional[torch.Tensor],
+        List[int],
         Tuple,
         EventOverlap,
     ]:

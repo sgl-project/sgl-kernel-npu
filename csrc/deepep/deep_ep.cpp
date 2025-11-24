@@ -147,8 +147,8 @@ int Buffer::get_rdma_rank() const
     return rdma_rank;
 }
 
-std::tuple<at::Tensor, std::optional<at::Tensor>, std::optional<at::Tensor>, std::optional<at::Tensor>, at::Tensor,
-           at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, std::optional<EventHandle>>
+std::tuple<at::Tensor, std::optional<at::Tensor>, std::optional<at::Tensor>, std::optional<at::Tensor>,
+           std::vector<int>, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, std::optional<EventHandle>>
 Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> &x_scales,
                            const std::optional<at::Tensor> &topk_idx, const std::optional<at::Tensor> &topk_weights,
                            const std::optional<at::Tensor> &num_tokens_per_rank, const at::Tensor &is_token_in_rank,
@@ -174,6 +174,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     auto rank_prefix_matrix = at::empty({num_ranks, num_ranks}, at::dtype(at::kInt).device(x.device()));
     auto channel_prefix_matrix = at::empty({num_ranks, num_channels}, at::dtype(at::kInt).device(x.device()));
     auto recv_channel_prefix_matrix = at::empty({num_ranks, num_channels}, at::dtype(at::kInt).device(x.device()));
+    std::vector<int> num_recv_tokens_per_expert_list;
 
     at::Tensor new_x = x;
     // for padding
@@ -296,13 +297,18 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  rank,       // rankId
                  hcom_ep_name, tp_size, tp_rank, num_experts, quant_mode, gBs, expandx_out, dynamic_scales_out,
                  expand_idx_out, dispatch_wait_recv_cost_stats_out);
-
+    auto recv_token_per_exp_cpu = recv_tokens_per_expert_.to(at::kCPU);
+    auto recv_token_per_exp_ptr = recv_token_per_exp_cpu.data_ptr<int64_t>();
+    for (int64_t local_e = 0; local_e < num_local_experts; ++local_e) {
+        int token_cnt = static_cast<int>(recv_token_per_exp_ptr[local_e]);
+        num_recv_tokens_per_expert_list.emplace_back(token_cnt);
+    }
     // Return values
     return {expandx_out,
             dynamic_scales_out,
             recv_topk_idx,
             recv_topk_weights,
-            recv_tokens_per_expert_,
+            num_recv_tokens_per_expert_list,
             rank_prefix_matrix,
             channel_prefix_matrix,
             recv_channel_prefix_matrix,
