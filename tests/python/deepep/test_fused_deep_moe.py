@@ -9,7 +9,7 @@ import torch
 import torch.distributed as dist
 import torch_npu
 from deep_ep import Buffer
-from utils import bench, calc_diff, hash_tensor, init_dist, bench_kineto
+from utils import bench, bench_kineto, calc_diff, hash_tensor, init_dist
 
 torch_npu.npu.config.allow_internal_format = True
 
@@ -449,19 +449,23 @@ def test(
 
     # ----- moe performance test -----
     moe_args = {
-        "x": x, 
-        "topk_idx": topk_idx_dropped, 
-        "topk_weights": topk_weights, 
-        "gmm1_permuted_weight": w13_f, 
-        "gmm1_permuted_weight_scale": w13s_f, 
-        "gmm2_weight": w2_f, 
-        "gmm2_weight_scale": w2s_f, 
-        "num_max_dispatch_tokens_per_rank": num_tokens, 
-        "num_experts": num_experts, 
-        "quant_mode": 0, 
+        "x": x,
+        "topk_idx": topk_idx_dropped,
+        "topk_weights": topk_weights,
+        "gmm1_permuted_weight": w13_f,
+        "gmm1_permuted_weight_scale": w13s_f,
+        "gmm2_weight": w2_f,
+        "gmm2_weight_scale": w2s_f,
+        "num_max_dispatch_tokens_per_rank": num_tokens,
+        "num_experts": num_experts,
+        "quant_mode": 0,
     }
-    
-    moe_time = bench_kineto(lambda: buffer.fused_deep_moe(**moe_args), "FusedDeepMoe", barrier_comm_profiling=True)
+
+    moe_time = bench_kineto(
+        lambda: buffer.fused_deep_moe(**moe_args),
+        "FusedDeepMoe",
+        barrier_comm_profiling=True,
+    )
 
     num_moe_comm_bytes = 0
     for i in range(num_tokens):
