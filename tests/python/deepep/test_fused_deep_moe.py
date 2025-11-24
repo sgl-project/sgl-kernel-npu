@@ -447,37 +447,6 @@ def test(
         0,
     )
 
-    # ----- moe performance test -----
-    moe_args = {
-        "x": x,
-        "topk_idx": topk_idx_dropped,
-        "topk_weights": topk_weights,
-        "gmm1_permuted_weight": w13_f,
-        "gmm1_permuted_weight_scale": w13s_f,
-        "gmm2_weight": w2_f,
-        "gmm2_weight_scale": w2s_f,
-        "num_max_dispatch_tokens_per_rank": num_tokens,
-        "num_experts": num_experts,
-        "quant_mode": 0,
-    }
-
-    moe_time = bench_kineto(
-        lambda: buffer.fused_deep_moe(**moe_args),
-        "FusedDeepMoe",
-        barrier_comm_profiling=True,
-    )
-
-    num_moe_comm_bytes = 0
-    for i in range(num_tokens):
-        num_moe_selections = (topk_idx_dropped[i] != -1).sum().item()
-        num_moe_comm_bytes += num_moe_selections * hidden * 2
-
-    print(
-        f"[rank {rank}] moe bandwidth: {num_moe_comm_bytes / 1e9 / moe_time:.2f} GB/s, "
-        f"moe_time= {moe_time * 1e6:.2f} us",
-        flush=True,
-    )
-
     # ----- Compare Outputs -----
     max_diff = torch.max(torch.abs(fused_output - baseline_output)).item()
     avg_diff = torch.mean(torch.abs(fused_output - baseline_output)).item()
@@ -542,6 +511,38 @@ def test(
     assert (
         max_recv_count_diff < 1e-4
     ), f"[Rank {rank}] Mismatch detected! diff={max_recv_count_diff}"
+
+    # ----- moe performance test -----
+    dist.barrier()
+    moe_args = {
+        "x": x,
+        "topk_idx": topk_idx_dropped,
+        "topk_weights": topk_weights,
+        "gmm1_permuted_weight": w13_f,
+        "gmm1_permuted_weight_scale": w13s_f,
+        "gmm2_weight": w2_f,
+        "gmm2_weight_scale": w2s_f,
+        "num_max_dispatch_tokens_per_rank": num_tokens,
+        "num_experts": num_experts,
+        "quant_mode": 0,
+    }
+
+    moe_time = bench_kineto(
+        lambda: buffer.fused_deep_moe(**moe_args),
+        "FusedDeepMoe",
+        barrier_comm_profiling=True,
+    )
+
+    num_moe_comm_bytes = 0
+    for i in range(num_tokens):
+        num_moe_selections = (topk_idx_dropped[i] != -1).sum().item()
+        num_moe_comm_bytes += num_moe_selections * hidden * 2
+
+    print(
+        f"[rank {rank}] moe bandwidth: {num_moe_comm_bytes / 1e9 / moe_time:.2f} GB/s, "
+        f"moe_time= {moe_time * 1e6:.2f} us",
+        flush=True,
+    )
 
 
 # ======================== Distributed Entry ========================
