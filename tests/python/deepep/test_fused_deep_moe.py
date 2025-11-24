@@ -9,7 +9,7 @@ import torch
 import torch.distributed as dist
 import torch_npu
 from deep_ep import Buffer
-from utils import bench, calc_diff, hash_tensor, init_dist
+from utils import bench, calc_diff, hash_tensor, init_dist, bench_kineto
 
 torch_npu.npu.config.allow_internal_format = True
 
@@ -445,6 +445,33 @@ def test(
         num_tokens,
         num_experts,
         0,
+    )
+
+    # ----- moe performance test -----
+    moe_args = {
+        "x": x, 
+        "topk_idx": topk_idx_dropped, 
+        "topk_weights": topk_weights, 
+        "gmm1_permuted_weight": w13_f, 
+        "gmm1_permuted_weight_scale": w13s_f, 
+        "gmm2_weight": w2_f, 
+        "gmm2_weight_scale": w2s_f, 
+        "num_max_dispatch_tokens_per_rank": num_tokens, 
+        "num_experts": num_experts, 
+        "quant_mode": 0, 
+    }
+    
+    moe_time = bench_kineto(lambda: buffer.fused_deep_moe(**moe_args), "FusedDeepMoe", barrier_comm_profiling=True)
+
+    num_moe_comm_bytes = 0
+    for i in range(num_tokens):
+        num_moe_selections = (topk_idx_dropped[i] != -1).sum().item()
+        num_moe_comm_bytes += num_moe_selections * hidden * 2
+
+    print(
+        f"[rank {rank}] moe bandwidth: {num_moe_comm_bytes / 1e9 / moe_time:.2f} GB/s, "
+        f"moe_time= {moe_time * 1e6:.2f} us",
+        flush=True,
     )
 
     # ----- Compare Outputs -----
