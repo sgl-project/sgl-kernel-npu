@@ -30,10 +30,16 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
 2、构建项目
 执行工程构建脚本 build.sh前，根据CANN安装路径，修改`build.sh:line7`的`_ASCEND_INSTALL_PATH`。
-```bash
-# 构建项目
-bash build.sh
-```
+- A3
+    ```bash
+    # Building Project
+    bash build.sh -a deepep
+    ```
+- A2
+    ```bash
+    # Building Project
+    bash build.sh -a deepep2
+    ```
 
 ### 安装
 1、执行pip安装命令，将`.whl`安装到你的python环境下
@@ -59,6 +65,9 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 python3 tests/python/deepep/test_fused_deep_moe.py
 python3 tests/python/deepep/test_intranode.py
 python3 tests/python/deepep/test_low_latency.py
+
+# 在A2双机下执行，测试internode (需要先设置run_test_internode.sh中的主节点IP)
+bash run_test_internode.sh
 ```
 
 ### 常见问题
