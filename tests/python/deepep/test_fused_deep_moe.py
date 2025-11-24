@@ -512,8 +512,22 @@ def test(
         max_recv_count_diff < 1e-4
     ), f"[Rank {rank}] Mismatch detected! diff={max_recv_count_diff}"
 
-    # ----- moe performance test -----
+    # ----- performance test -----
     dist.barrier()
+    baseline_args = {
+        "buffer": buffer2,
+        "x": x,
+        "topk_idx": topk_idx,
+        "num_tokens": num_tokens,
+        "num_experts": num_experts,
+        "cumulative_local_expert_recv_stats": cumulative_local_expert_recv_stats,
+        "return_recv_hook": return_recv_hook,
+        "w13": w13,
+        "w13_scale": w13_scale,
+        "w2": w2,
+        "w2_scale": w2_scale,
+        "topk_weights": topk_weights_dropped,
+    }
     moe_args = {
         "x": x,
         "topk_idx": topk_idx_dropped,
@@ -527,17 +541,36 @@ def test(
         "quant_mode": 0,
     }
 
+    baseline_time = bench_kineto(
+        lambda: baseline_test(**baseline_args),
+        (
+            "aclnnInplaceOne_OnesLikeAiCore_OnesLike",
+            "MoeDistributeDispatchV2",
+            "aclnnGroupedMatmulWeightNz_GroupedMatmul_GroupedMatmul",
+            "DequantSwigluQuant",
+            "MoeDistributeCombineV2",
+        ),
+        barrier_comm_profiling=True,
+    )
     moe_time = bench_kineto(
         lambda: buffer.fused_deep_moe(**moe_args),
         "FusedDeepMoe",
         barrier_comm_profiling=True,
     )
-
-    num_moe_comm_bytes = 0
+    num_baseline_comm_bytes, num_moe_comm_bytes = 0, 0
     for i in range(num_tokens):
+        num_baseline_selections = (topk_idx[i] != -1).sum().item()
         num_moe_selections = (topk_idx_dropped[i] != -1).sum().item()
+        num_baseline_comm_bytes += num_baseline_selections * hidden * 2
         num_moe_comm_bytes += num_moe_selections * hidden * 2
 
+    # aclnnGroupedMatmulWeightNz_GroupedMatmul_GroupedMatmul was calculated twice
+    baseline_time_ = sum(baseline_time) + baseline_time[2]
+    print(
+        f"[rank {rank}] baseline bandwidth: {num_baseline_comm_bytes / 1e9 / baseline_time_:.2f} GB/s, "
+        f"baseline_time= {baseline_time_ * 1e6:.2f} us",
+        flush=True,
+    )
     print(
         f"[rank {rank}] moe bandwidth: {num_moe_comm_bytes / 1e9 / moe_time:.2f} GB/s, "
         f"moe_time= {moe_time * 1e6:.2f} us",
