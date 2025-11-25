@@ -22,7 +22,7 @@ jobs:
         github.event.pull_request.draft == false
     runs-on: linux-aarch64-a3-16
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-a3-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.3.rc1-a3-ubuntu22.04-py3.11
     steps:
       - name: Clean git config
         run: |
@@ -70,7 +70,7 @@ jobs:
         github.event.pull_request.draft == false
     runs-on: linux-aarch64-a3-16
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.2.rc1-a3-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.3.rc1-a3-ubuntu22.04-py3.11
     steps:
       - name: Clean git config
         run: |
@@ -131,3 +131,4 @@ jobs:
           done
           echo "All jobs completed successfully"
           exit 0
+
