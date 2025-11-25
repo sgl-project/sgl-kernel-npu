@@ -1,0 +1,43 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+jobs:
+  build-and-upload:
+    runs-on: linux-aarch64-a3-2
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.3.rc1-a3-ubuntu22.04-py3.11
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Build wheel packages
+        run: bash build.sh
+
+      - name: Upload wheel to release
+        run: |
+          cd ./output
+          for whl in *.whl; do
+            if [[ -f "$whl" ]]; then
+              echo "Uploading $whl..."
+              asset_name="$whl"
+              curl -sL \
+                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+                -H "Content-Type: application/octet-stream" \
+                --data-binary @"$whl" \
+                "${{ github.event.release.upload_url }}"?name=$asset_name
+            fi
+          done
+        shell: bash
