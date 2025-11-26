@@ -42,7 +42,7 @@ at::Tensor get_tiling(int32_t &block_dim, int32_t &workspace_size, int32_t batch
     tiling_data->big_core_tile_num = (batch_size + block_dim - 1) / block_dim;
     tiling_data->small_core_tile_num = batch_size / block_dim;
 
-    auto tiling_tensor = TorchNpuHepler::CopyTensorHostToDevice(tiling_buffer);
+    auto tiling_tensor = TorchNpuHelper::CopyTensorHostToDevice(tiling_buffer);
     return tiling_tensor;
 }
 
