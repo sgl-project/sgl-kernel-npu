@@ -17,6 +17,7 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_host/bgmv_shrink.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgmv_expand.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgmv_shrink.cpp
+    ${PROJECT_OP_SRC_BASE}/memory/weak_ref_tensor.cpp
     )
 
 # set the so name
