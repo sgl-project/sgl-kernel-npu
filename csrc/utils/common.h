@@ -12,6 +12,10 @@
 #ifndef UTILS_COMMON_H
 #define UTILS_COMMON_H
 #include <cstdint>
+#include <tuple>
+#include <functional>
+#include <type_traits>
+
 namespace host_utils {
 
 constexpr uint32_t BLK_SIZE_ALIN_FOR_INT64 = 4;
@@ -53,5 +57,26 @@ inline T RoundDown(const T val, const T align = 16)
     }
     return val / align * align;
 }
+
+// Only support c++17 or later version, c++11/14 need to use recursion method
+class TupleHasher
+{
+public:
+    template <typename... Types>
+    static std::size_t Hash(const std::tuple<Types...> &tuple) noexcept
+    {
+        std::size_t seed = 0;
+        std::apply(
+            [&seed](const auto &...args) { (Combine(seed, std::hash<std::decay_t<decltype(args)>>{}(args)), ...); },
+            tuple);
+        return seed;
+    }
+
+private:
+    static inline void Combine(std::size_t &seed, std::size_t hash) noexcept
+    {
+        seed ^= hash + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    }
+};
 }  // namespace host_utils
 #endif  // UTILS_COMMON_H
