@@ -15,10 +15,6 @@ extern "C" __global__ __aicore__ void notify_dispatch(GM_ADDR sendData, GM_ADDR 
     REGISTER_TILING_DEFAULT(NotifyDispatchTilingData);
     GET_TILING_DATA_WITH_STRUCT(NotifyDispatchTilingData, tilingData, tilingGM);
 
-    // hcomm will set magic later in init
-    uint32_t magic = 1;
-    GM_ADDR commArgs = nullptr;
-
     int localRank = tilingData.notifyDispatchInfo.localRankId;
     int localRankSize = tilingData.notifyDispatchInfo.localRankSize;
     int rank = tilingData.notifyDispatchInfo.rankId;

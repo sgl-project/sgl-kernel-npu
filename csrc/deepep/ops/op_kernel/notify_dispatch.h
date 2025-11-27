@@ -211,6 +211,17 @@ private:
         } while (!isSync);
     }
 
+    /**
+     * @brief Wait for the flags starting from the specified eventID on the specified card to become
+     *        a value composed of the combination of magic and value.<br>
+     *        Note: [eventID, eventID + flagNum)
+     */
+    __aicore__ inline void WaitSyncFlag(uint64_t magic, uint64_t value, uint64_t eventID, int32_t rank, int64_t flagNum)
+    {
+        uint64_t v = MergeMagicWithValue(magic, value);
+        WaitOneRankPartFlag((__gm__ uint64_t *)(shareAddrs[rank]) + eventID * FLAG_UNIT_INT_NUM, flagNum, v);
+    }
+
     __aicore__ inline void ShareToShareSlice()
     {
         __ubuf__ T *inputUB = (__ubuf__ T *)get_imm(96);
@@ -228,8 +239,7 @@ private:
                 readGt1[i].SetGlobalBuffer((__gm__ T *)(shareAddrs[checkRank[i]] + IPC_DATA_OFFSET));
             }
 
-            uint64_t v = MergeMagicWithValue(magic, 1);
-            WaitOneRankPartFlag((__gm__ uint64_t *)(shareAddrs[rank]) + copyOffset * FLAG_UNIT_INT_NUM, copyLen, v);
+            WaitSyncFlag(magic, 1, copyOffset, rank, copyLen);
 
             for (int i = 0; i < copyLen; i++) {
                 CpGM2GMPingPong<T>(perRankDataNum * sizeof(T), readGt1[i][rank * perRankDataNum],
