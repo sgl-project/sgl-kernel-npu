@@ -65,9 +65,6 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
  在分层算子的实现中，节点内通信使用 HCCS，节点间通信使用 RDMA。在不分层算子的实现中，节点内和节点间通信均使用纯 RDMA。
  默认情况下，执行的是非层次化算子。如果配置了环境变量 `HCCL_INTRA_PCIE_ENABLE=1` 和 `HCCL_INTRA_ROCE_ENABLE=0`，则将执行分层算子。
  A3 无需分层，节点内和节点间通信均使用纯 HCCS 通信。
-2. 在 A2 的 `dispatch_low_latency` **分层** 实现中，需要额外传入一个参数 `topk_weights`。此外，还会返回一个额外的 1D Tensor `expand_scales`，其形状为 (A,)。`expand_scales` 将取代 `topk_weights` 作为 `low_latency_combine` 内部内核的权重参数。A2 的非层次化内核和 A3 不需要在 dispatch 中传入 topk_weights。
-> - 对于共享专家，$A$ 必须满足以下条件：$ A = Bs * epWorldSize * sharedExpertNum / sharedExpertRankNum $。
-> - 对于 MoE 专家，当 $globalBs$ 为 0 时，$A$ 必须满足以下条件：$A >= Bs * epWorldSize * min(localExpertNum, K)$；当 $globalBs$ 不为 0 时，$A$ 必须满足以下条件：$A >= globalBs * min(localExpertNum, K)$。
 
 ### 测试
 执行deepep相关测试脚本
