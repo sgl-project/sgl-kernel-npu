@@ -6,7 +6,6 @@
 
 #include "comm_args.h"
 #include "data_copy.h"
-#include "sync_collectives.h"
 #include "moe_distribute_base.h"
 #include "notify_dispatch_tiling_a2.h"
 
@@ -17,16 +16,16 @@ using namespace Moe;
     GM_ADDR sendDataInput, GM_ADDR tokenPerExpertDataInput, GM_ADDR tmpDataInput, GM_ADDR sendDataOffsetOutput,        \
         GM_ADDR recvDataOutput, int64_t len, int64_t numTokens, int64_t topkNum, int64_t numExperts, int op, int root, \
         int cycleCount, GM_ADDR scale, int64_t scaleCount, GM_ADDR offset, int localRank, int localRankSize,           \
-        GM_ADDR commArgs, GM_ADDR tokenServerIdxOutput, GM_ADDR tokensUniquePerServerOutput,                           \
-        GM_ADDR epRankTokenCntOutput, GM_ADDR localEpTokenCntOutput, GM_ADDR srcOffsetRankTokenIdxOutput,              \
-        GM_ADDR dstOffsetRankTokenIdxOutput, GM_ADDR offsetInnerOutput, GM_ADDR countOuterOutput,                      \
-        GM_ADDR expandIdxOutput, GM_ADDR workspace, GM_ADDR tiling
+        GM_ADDR tokenServerIdxOutput, GM_ADDR tokensUniquePerServerOutput, GM_ADDR epRankTokenCntOutput,               \
+        GM_ADDR localEpTokenCntOutput, GM_ADDR srcOffsetRankTokenIdxOutput, GM_ADDR dstOffsetRankTokenIdxOutput,       \
+        GM_ADDR offsetInnerOutput, GM_ADDR countOuterOutput, GM_ADDR expandIdxOutput, GM_ADDR workspace,               \
+        GM_ADDR tiling
 
-#define KERNELS_ARGS_CALL_A2_ALL2ALL()                                                                            \
-    sendDataInput, tokenPerExpertDataInput, tmpDataInput, sendDataOffsetOutput, recvDataOutput, len, numTokens,   \
-        topkNum, numExperts, op, root, cycleCount, scale, scaleCount, offset, localRank, localRankSize, commArgs, \
-        tokenServerIdxOutput, tokensUniquePerServerOutput, epRankTokenCntOutput, localEpTokenCntOutput,           \
-        srcOffsetRankTokenIdxOutput, dstOffsetRankTokenIdxOutput, offsetInnerOutput, countOuterOutput,            \
+#define KERNELS_ARGS_CALL_A2_ALL2ALL()                                                                          \
+    sendDataInput, tokenPerExpertDataInput, tmpDataInput, sendDataOffsetOutput, recvDataOutput, len, numTokens, \
+        topkNum, numExperts, op, root, cycleCount, scale, scaleCount, offset, localRank, localRankSize,         \
+        tokenServerIdxOutput, tokensUniquePerServerOutput, epRankTokenCntOutput, localEpTokenCntOutput,         \
+        srcOffsetRankTokenIdxOutput, dstOffsetRankTokenIdxOutput, offsetInnerOutput, countOuterOutput,          \
         expandIdxOutput, workspace, tiling
 
 // #define ENABLE_PRINT
@@ -59,9 +58,7 @@ class NotifyDispatchA2
     constexpr static int64_t MULTI_RANK_SIZE = 4;  // 每个core最多往4个rank发送数据，64卡场景
     constexpr static int64_t MAX_RANK_SIZE = 64;   // 910B设备本算子最大支持的rank数，64卡场景
     constexpr static int32_t INVALID_RANK = -1;
-    constexpr static uint32_t TEMP_BUF_LEN = 128 * 1024;  // tuf注册长度为128K，剩余部分注册为其他buffer
-    constexpr static uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;  // 对齐tiling
-    // constexpr static uint32_t NOTIFY_SHARE_OFFSET = 3696U * 1024 * 1024; // 最大HCCL_BUFFSIZE - 400
+    constexpr static uint32_t TEMP_BUF_LEN = 128 * 1024;  // tBuf注册长度为128K，剩余部分注册为其他buffer
 
     constexpr static uint32_t BW_ITEM_SIZE = 32;                               // = sizeof(BatchWriteItem)
     constexpr static uint32_t U64_PER_ITEM = BW_ITEM_SIZE / sizeof(uint64_t);  // 每个BatchWriteItem占多少个unit64
@@ -80,10 +77,13 @@ class NotifyDispatchA2
     constexpr static uint32_t DEST_RANK_OFFSET = 20;    // destRankId 在 statusTensor中的offset, bytes
     constexpr static uint32_t DATALEN_OFFSET = 24;      // dataLen 在 statusTensor中的offset, bytes
     constexpr static uint32_t UB_ALIGN = 32;            // UB按32字节对齐
-    constexpr static uint32_t EXP_TOKEN_COUNT_FLAG_CNT = UB_ALIGN / sizeof(int32_t);  // 8
-    constexpr static uint32_t GM_ALIGN = 64;                                          // GM按64字节对齐
+    constexpr static uint64_t EXP_TOKEN_COUNT_FLAG_CNT = UB_ALIGN / sizeof(uint64_t);  // 4
+    constexpr static uint32_t GM_ALIGN = 64;                                           // GM按64字节对齐
 
     constexpr static uint32_t MAX_BS = 4096;  // 每卡支持的最大bs
+    // Synchronization flag occupies length
+    constexpr static int64_t FLAG_UNIT_INT_NUM = 4;
+    constexpr static int64_t MAGIC_MASK = ~((1LL << 32) - 1);
 
 public:
     __aicore__ inline NotifyDispatchA2(int rank, int rankSize, uint32_t extraFlag)
@@ -170,8 +170,9 @@ public:
             // 第二阶段，处理server内通信
             ProcessWithinServer();
             SyncAll<true>();
+
             // 交换后的数据拆分和计算输出
-            SplitAndCalcData();  // TODO: 先验证recv_data
+            SplitAndCalcData();
             SyncAll<true>();
 
             hccl_.Finalize();
@@ -179,7 +180,7 @@ public:
     }
 
 private:
-    FORCE_INLINE_AICORE void InitAll2AllLayeredRdma(KERNELS_ARGS_FUN_A2_ALL2ALL())
+    __aicore__ inline void InitAll2AllLayeredRdma(KERNELS_ARGS_FUN_A2_ALL2ALL())
     {
         this->root = 0;
         this->len = len;
@@ -212,15 +213,15 @@ private:
         this->winContext_[COMM_EP_IDX] = (__gm__ HcclOpResParam *)contextGM0;
         notifyMemoryOffset = winContext_[COMM_EP_IDX]->winSize - IPC_BUFF_MAX_SIZE * 2;
         // 设置并自增magic
-        magicTensor_.SetGlobalBuffer((__gm__ int32_t *)(hccl_.GetWindowsInAddr(rank) + IPC_DATA_OFFSET -
-                                                        blockNum * sizeof(int32_t) * EXP_TOKEN_COUNT_FLAG_CNT +
-                                                        notifyMemoryOffset));
+        magicTensor_.SetGlobalBuffer((__gm__ uint64_t *)(hccl_.GetWindowsInAddr(rank) + IPC_DATA_OFFSET -
+                                                         blockNum * sizeof(uint64_t) * EXP_TOKEN_COUNT_FLAG_CNT +
+                                                         notifyMemoryOffset));
 
         pipe.InitBuffer(this->tBuf, TEMP_BUF_LEN);
-        LocalTensor<int32_t> tempLocal = tBuf.Get<int32_t>();
+        LocalTensor<uint64_t> tempLocal = tBuf.Get<uint64_t>();
         tempLocal(0) = 1;
         // 使用atomic方式实现+1
-        AscendC::SetAtomicAdd<int32_t>();
+        AscendC::SetAtomicAdd<uint64_t>();
         AscendC::SetFlag<HardEvent::S_MTE3>(EVENT_ID0);
         AscendC::WaitFlag<HardEvent::S_MTE3>(EVENT_ID0);  // 等待SetValue完成
         DataCopy(magicTensor_[blockIdx * EXP_TOKEN_COUNT_FLAG_CNT], tempLocal, EXP_TOKEN_COUNT_FLAG_CNT);
@@ -234,18 +235,16 @@ private:
             this->shareAddrs[i] =
                 hccl_.GetWindowsInAddr(i) + notifyMemoryOffset + (magic % PING_PONG_SIZE) * IPC_BUFF_MAX_SIZE;
         }
-
-        sync.Init(this->rank, this->rankSize, this->shareAddrs, tBuf);
     }
 
     template <typename K, typename U = K>
-    FORCE_INLINE_AICORE void CpGM2GMPingPong(int64_t dataSizeRemain, const GlobalTensor<U> &sendDataInputGt,
-                                             const GlobalTensor<K> &recvDataOutputGT, int op);
+    __aicore__ inline void CpGM2GMPingPong(int64_t dataSizeRemain, const GlobalTensor<U> &sendDataInputGt,
+                                           const GlobalTensor<K> &recvDataOutputGT, int op);
     template <typename F>
-    FORCE_INLINE_AICORE void SetAtomic(int op);
-    FORCE_INLINE_AICORE void UnsetAtomic(int op);
+    __aicore__ inline void SetAtomic(int op);
+    __aicore__ inline void UnsetAtomic(int op);
     template <HardEvent eventType>
-    FORCE_INLINE_AICORE void SetWaitEvent(event_t eventId);
+    __aicore__ inline void SetWaitEvent(event_t eventId);
 
     __aicore__ inline void InitTensorLen()
     {
@@ -329,6 +328,67 @@ private:
         }
     }
 
+    __aicore__ inline uint64_t MergeMagicWithValue(uint64_t magic, uint64_t value)
+    {
+        // magic as the high part, eventID as the low part, combined into a value for comparison
+        return (magic * 2ULL + value);
+    }
+
+    // Wait for a part of synchronization flags within a rank
+    __aicore__ inline void WaitOneRankPartFlag(__gm__ uint64_t *waitAddr, int64_t flagNum, uint64_t checkValue)
+    {
+        GlobalTensor<uint64_t> globalWait;
+        globalWait.SetGlobalBuffer(waitAddr, flagNum * FLAG_UNIT_INT_NUM);
+        LocalTensor<uint64_t> localWait = tBuf.GetWithOffset<uint64_t>(flagNum * FLAG_UNIT_INT_NUM, 0);
+        bool isSync = true;
+        uint64_t checkedFlagNum = 0;
+        do {
+            // Copy global synchronization flags to local
+            DataCopy(localWait, globalWait[checkedFlagNum * FLAG_UNIT_INT_NUM],
+                     (flagNum - checkedFlagNum) * FLAG_UNIT_INT_NUM);
+            SetWaitEvent<HardEvent::MTE2_S>(EVENT_ID0);  // Wait for GM->UB
+
+            // Check if the synchronization flags are equal to checkValue
+            isSync = true;
+            uint64_t remainToCheck = flagNum - checkedFlagNum;
+            for (auto i = 0; i < remainToCheck; ++i) {
+                // Continue waiting if any core has not reached the checkValue phase
+                uint64_t v = localWait.GetValue(i * FLAG_UNIT_INT_NUM);
+                if ((v & MAGIC_MASK) != (checkValue & MAGIC_MASK) || v < checkValue) {
+                    isSync = false;
+                    checkedFlagNum += i;
+                    break;
+                }
+            }
+        } while (!isSync);
+    }
+
+    __aicore__ inline void SetInnerFlag(uint64_t magic, uint64_t eventID, int64_t setRank, int64_t setBlock)
+    {
+        uint64_t value = MergeMagicWithValue(magic, eventID);
+        // SetFlag((__gm__ uint64_t *)(shareAddrs[setRank]) + setBlock * FLAG_UNIT_INT_NUM, value);
+        __gm__ uint64_t *setAddr = (__gm__ uint64_t *)(shareAddrs[setRank]) + setBlock * FLAG_UNIT_INT_NUM;
+
+        SetWaitEvent<HardEvent::MTE3_S>(EVENT_ID0);
+        SetWaitEvent<HardEvent::MTE2_S>(EVENT_ID0);
+        GlobalTensor<uint64_t> globalSet;
+        globalSet.SetGlobalBuffer(setAddr, FLAG_UNIT_INT_NUM);
+        LocalTensor<uint64_t> localSet = tBuf.GetWithOffset<uint64_t>(1, 0);
+        localSet.SetValue(0, value);
+
+        // Copy global synchronization flag to local
+        SetWaitEvent<HardEvent::S_MTE3>(EVENT_ID0);
+        DataCopy(globalSet, localSet, FLAG_UNIT_INT_NUM);
+        SetWaitEvent<HardEvent::MTE3_S>(EVENT_ID0);
+    }
+
+    // Wait for a single inner-card synchronization flag
+    __aicore__ inline void WaitInnerFlag(uint64_t magic, uint64_t eventID, int64_t waitRank, int64_t waitBlock)
+    {
+        uint64_t value = MergeMagicWithValue(magic, eventID);
+        WaitOneRankPartFlag((__gm__ uint64_t *)(shareAddrs[waitRank]) + waitBlock * FLAG_UNIT_INT_NUM, 1, value);
+    }
+
     __aicore__ inline void InputToShareSlice()
     {
         if (blockIdx > 0) {
@@ -349,7 +409,7 @@ private:
                 // 给当前server每卡写入serverNum个标记，位置为 rank + j * localRankSize
                 int32_t offset = rank + j * rankSize;  // rank0: 0,16 / rank8: 8,24
                 // rank0,server0: 0-7,16-23  rank8,server1: 8-15,24-31
-                sync.SetInnerFlag(magic, 1, curServerRankId, offset);
+                SetInnerFlag(magic, 1, curServerRankId, offset);
             }
         }
     }
@@ -380,7 +440,7 @@ private:
 
             // server0: 0-7,16-23   server1: 8-15,24-31
             int32_t offset = (i / serverNum + serverId * localRankSize) + (i % serverNum) * rankSize;
-            sync.WaitInnerFlag(magic, 1, rank, offset);
+            WaitInnerFlag(magic, 1, rank, offset);
 
             remoteGt.SetGlobalBuffer((__gm__ T *)(shareAddrs[targetRankId] + IPC_DATA_OFFSET +
                                                   serverTarRankId * queSize +
@@ -414,7 +474,6 @@ private:
         }
         int32_t targetRankId = 0;
         if (blockIdx == 0) {
-            // targetRankId = rank;
             return;                                                     // 同server的不搬运
         } else {                                                        // blockIdx=1
             targetRankId = (1 - serverId) * localRankSize + localRank;  // 2个server的计算方式，求对端同号卡rankid
@@ -550,13 +609,13 @@ private:
         pipe.Reset();
         pipe.InitBuffer(tempBuf_, UB_ALIGN);  // 存放临时的立即数
         pipe.InitBuffer(tempBuf2_,
-                        Ceil(4096 * sizeof(int32_t), UB_ALIGN) * UB_ALIGN);  // MAX_BS <= 4096, 要能放下一个bs的数据
+                        Ceil(MAX_BS * sizeof(int32_t), UB_ALIGN) * UB_ALIGN);  // MAX_BS <= 4096, 要能放下一个bs的数据
         pipe.InitBuffer(tempBuf3_, Ceil(numExperts * sizeof(int32_t), UB_ALIGN) * UB_ALIGN);  // 要能放numExpert个数据
         pipe.InitBuffer(tempBuf7_, Ceil(numExperts * sizeof(int32_t), UB_ALIGN) * UB_ALIGN);  // 要能放numExpert个数据
         pipe.InitBuffer(tempBuf8_,
-                        Ceil(4096 * sizeof(int32_t), UB_ALIGN) * UB_ALIGN);  // MAX_BS <= 4096, 要能放下一个bs的数据
+                        Ceil(MAX_BS * sizeof(int32_t), UB_ALIGN) * UB_ALIGN);  // MAX_BS <= 4096, 要能放下一个bs的数据
         pipe.InitBuffer(tempBuf9_,
-                        Ceil(4096 * sizeof(int32_t), UB_ALIGN) * UB_ALIGN);  // MAX_BS <= 4096, 要能放下一个bs的数据
+                        Ceil(MAX_BS * sizeof(int32_t), UB_ALIGN) * UB_ALIGN);  // MAX_BS <= 4096, 要能放下一个bs的数据
         pipe.InitBuffer(tempBuf10_, Ceil(numExperts * sizeof(int32_t), UB_ALIGN) * UB_ALIGN);  // 要能放numExpert个数据
 
         pipe.InitBuffer(tempBuf4_, 1000 * sizeof(float));  // 要能放localExp从所有rank接收token的数据
@@ -1157,7 +1216,7 @@ private:
     int64_t numExperts;
     int64_t numTokens;
     int64_t len;
-    int64_t magic;
+    uint64_t magic;
     int64_t blockIdx;  // 当前aicore序号
     int64_t blockNum;  // 当前rank的总aicore数
     int64_t timeout;
@@ -1166,12 +1225,11 @@ private:
     __gm__ HcclOpResParam *winContext_[COMM_NUM]{nullptr, nullptr};
     TPipe pipe;  // pipe工具类
     TBuf<QuePosition::VECCALC> tBuf;
-    SyncCollectives sync;
 
     Hccl<HCCL_SERVER_TYPE_AICPU> hccl_;
     GM_ADDR windowInGM_;
     GM_ADDR windowOutGM_;
-    GlobalTensor<int32_t> magicTensor_;  // 用于存放magic，位于windowInstatusTensor_之前
+    GlobalTensor<uint64_t> magicTensor_;  // 用于存放magic，位于windowInstatusTensor_之前
     GlobalTensor<uint32_t> batchWriteInfoTensor_;
     GlobalTensor<int32_t> windowInstatusTensor_;  // 用于rank间状态同步
     GlobalTensor<T> windowInTensor_;
@@ -1216,7 +1274,6 @@ private:
     uint32_t gExpertMaxBsOriOffsetAlignLen{0};  // 全局，包含所有rank的
     uint32_t notifyMemoryOffset{0};
 
-    // GM_ADDR dataSpaceGT_;
     GlobalTensor<int32_t> gRankEpTokenCntGT_;  // 临时数据
     GlobalTensor<int32_t> gExpertMaxBsSrcGT_;  // 临时数据
 
@@ -1241,7 +1298,7 @@ private:
 
 template <typename T>
 template <typename F>
-FORCE_INLINE_AICORE void NotifyDispatchA2<T>::SetAtomic(int op)
+__aicore__ inline void NotifyDispatchA2<T>::SetAtomic(int op)
 {
     PipeBarrier<PIPE_ALL>();
     if (op != -1) {
@@ -1254,14 +1311,14 @@ FORCE_INLINE_AICORE void NotifyDispatchA2<T>::SetAtomic(int op)
 
 template <typename T>
 template <HardEvent eventType>
-FORCE_INLINE_AICORE void NotifyDispatchA2<T>::SetWaitEvent(event_t eventId)
+__aicore__ inline void NotifyDispatchA2<T>::SetWaitEvent(event_t eventId)
 {
     AscendC::SetFlag<eventType>(eventId);
     AscendC::WaitFlag<eventType>(eventId);
 }
 
 template <typename T>
-FORCE_INLINE_AICORE void NotifyDispatchA2<T>::UnsetAtomic(int op)
+__aicore__ inline void NotifyDispatchA2<T>::UnsetAtomic(int op)
 {
     if (op != -1) {
         AscendC::SetAtomicNone();
@@ -1271,9 +1328,9 @@ FORCE_INLINE_AICORE void NotifyDispatchA2<T>::UnsetAtomic(int op)
 
 template <typename T>
 template <typename K, typename U>
-FORCE_INLINE_AICORE void NotifyDispatchA2<T>::CpGM2GMPingPong(int64_t dataSizeRemain,
-                                                              const GlobalTensor<U> &sendDataInputGt,
-                                                              const GlobalTensor<K> &recvDataOutputGT, int op)
+__aicore__ inline void NotifyDispatchA2<T>::CpGM2GMPingPong(int64_t dataSizeRemain,
+                                                            const GlobalTensor<U> &sendDataInputGt,
+                                                            const GlobalTensor<K> &recvDataOutputGT, int op)
 {
     // General case (U = K), input/output are the same, share one UB
     // Only when conversion is needed (U->K), UB will be divided into two parts according to the ratio of
@@ -1332,4 +1389,4 @@ FORCE_INLINE_AICORE void NotifyDispatchA2<T>::CpGM2GMPingPong(int64_t dataSizeRe
     return;
 }
 
-#endif /* ALL2ALL_V_LAYERED_RDMA_H */
+#endif /* NOTIFY_DISPATCH_A2_H */
