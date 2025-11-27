@@ -89,7 +89,7 @@ at::Tensor sgmv_expand(at::Tensor &x, at::Tensor &weight,
 void sgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
                  at::Tensor &seq_len, at::Tensor &y, double scale);
 
-at::Tensor weak_ref_tensor(at::Tensor &tensor);
+at::Tensor weak_ref_tensor(const at::Tensor &tensor);
 
 } // namespace npu_kernel
 
