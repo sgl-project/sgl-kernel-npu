@@ -5,33 +5,27 @@ import deep_ep
 import torch
 import torch.distributed as dist
 import torch_npu
-from utils import (
-    calc_diff,
-    init_dist,
-    inplace_unique,
-    per_token_cast_back,
-)
+from utils import calc_diff, init_dist, inplace_unique, per_token_cast_back
+
 
 def intranode_test(
-        num_tokens: int,
-        hidden: int,
-        num_experts: int,
-        num_topk: int,
-        rank: int,
-        num_ranks: int,
-        local_rank: int,
-        num_local_ranks: int,
-        buffer: deep_ep.Buffer,
-        group: dist.ProcessGroup,
+    num_tokens: int,
+    hidden: int,
+    num_experts: int,
+    num_topk: int,
+    rank: int,
+    num_ranks: int,
+    local_rank: int,
+    num_local_ranks: int,
+    buffer: deep_ep.Buffer,
+    group: dist.ProcessGroup,
 ):
     experts_per_rank = num_experts // num_ranks
     assert num_experts % num_ranks == 0
 
     scores = (
-            torch.randn(
-                (num_tokens, num_experts), dtype=torch.float32, device="npu"
-            ).abs()
-            + 1
+        torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
+        + 1
     )
     topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
 
@@ -89,7 +83,9 @@ def intranode_test(
         print(f"An error occurred: {e}")
 
     x = torch.randn((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
-    topk_weights = torch.randn((num_tokens, num_topk), dtype=torch.float32, device="npu")
+    topk_weights = torch.randn(
+        (num_tokens, num_topk), dtype=torch.float32, device="npu"
+    )
 
     buffer_size = 256
     config = deep_ep.Config(24, 8, buffer_size)
@@ -101,10 +97,17 @@ def intranode_test(
         "num_tokens_per_expert": num_tokens_per_expert,
         "config": config,
         "topk_idx": topk_idx,
-        "topk_weights": topk_weights
+        "topk_weights": topk_weights,
     }
 
-    (recv_x, _, _, _, handle, _,) = buffer.dispatch(**dispatch_args)
+    (
+        recv_x,
+        _,
+        _,
+        _,
+        handle,
+        _,
+    ) = buffer.dispatch(**dispatch_args)
 
     recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
     combine_args = {
@@ -114,41 +117,46 @@ def intranode_test(
         "async_finish": False,
         "topk_weights": handle[7],
     }
-    (combined_x, _, _,) = buffer.combine(**combine_args)
+    (
+        combined_x,
+        _,
+        _,
+    ) = buffer.combine(**combine_args)
 
     assert (
-            calc_diff(
-                combined_x.float(),
-                x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
-                )
-            < 5e-5
+        calc_diff(
+            combined_x.float(),
+            x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
+        )
+        < 5e-5
     )
 
+
 def low_latency_test(
-        num_tokens: int,
-        hidden: int,
-        num_experts: int,
-        num_topk: int,
-        rank: int,
-        num_ranks: int,
-        buffer: deep_ep.Buffer,
-        group: dist.ProcessGroup,
+    num_tokens: int,
+    hidden: int,
+    num_experts: int,
+    num_topk: int,
+    rank: int,
+    num_ranks: int,
+    buffer: deep_ep.Buffer,
+    group: dist.ProcessGroup,
 ):
     assert num_experts % num_ranks == 0
     experts_per_rank = num_experts // num_ranks
 
     rank_offset = 128
     assert (
-            num_ranks - rank_offset < 257
+        num_ranks - rank_offset < 257
     ), "Too many ranks (exceeding test precision limit)"
 
     x = torch.ones((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * (
-            rank - rank_offset
+        rank - rank_offset
     )
     x[:, -128:] = torch.arange(num_tokens, device="npu").to(torch.bfloat16).view(-1, 1)
     scores = (
-            torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
-            + 1
+        torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
+        + 1
     )
     topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=True)[1]
     topk_weights = torch.randn(
@@ -160,18 +168,20 @@ def low_latency_test(
         (experts_per_rank,), dtype=torch.int, device="npu"
     )
     dispatch_use_fp8 = True
-    packed_recv_x, packed_recv_count, handle2, event, hook = buffer.low_latency_dispatch(
-        x,
-        topk_idx,
-        num_tokens,
-        num_experts,
-        use_fp8=dispatch_use_fp8,
-        round_scale=False,
-        use_ue8m0=False,
-        topk_weights=topk_weights,
-        cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
-        async_finish=not return_recv_hook,
-        return_recv_hook=return_recv_hook,
+    packed_recv_x, packed_recv_count, handle2, event, hook = (
+        buffer.low_latency_dispatch(
+            x,
+            topk_idx,
+            num_tokens,
+            num_experts,
+            use_fp8=dispatch_use_fp8,
+            round_scale=False,
+            use_ue8m0=False,
+            topk_weights=topk_weights,
+            cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
+            async_finish=not return_recv_hook,
+            return_recv_hook=return_recv_hook,
+        )
     )
     simulated_gemm_x = (
         per_token_cast_back(*packed_recv_x) if dispatch_use_fp8 else packed_recv_x
@@ -207,12 +217,13 @@ def low_latency_test(
     diff = calc_diff(
         x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
         combined_x,
-        )
+    )
     assert torch.isnan(combined_x).sum().item() == 0
     if dispatch_use_fp8:
         assert diff < 1e-4, f"Error: {diff=}"
     else:
         assert diff < 1e-5, f"Error: {diff=}"
+
 
 def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     rank, num_ranks, group = init_dist(local_rank, num_local_ranks)
@@ -239,7 +250,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
 
     torch.manual_seed(rank)
 
-    print("Start executing intranode test...",flush=True)
+    print("Start executing intranode test...", flush=True)
     intranode_test(
         num_tokens_i,
         hidden,
@@ -255,7 +266,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
 
     dist.barrier()
 
-    print("Start executing low latency test...",flush=True)
+    print("Start executing low latency test...", flush=True)
     low_latency_test(
         num_tokens_l,
         hidden,
@@ -270,6 +281,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     dist.barrier()
     dist.destroy_process_group()
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test intranode EP kernels")
     parser.add_argument(
@@ -279,10 +291,16 @@ if __name__ == "__main__":
         help="Number of processes to spawn (default: 16)",
     )
     parser.add_argument(
-        "--num-tokens-i", type=int, default=256, help="Number of intranode tokens (default: 4096)"
+        "--num-tokens-i",
+        type=int,
+        default=256,
+        help="Number of intranode tokens (default: 4096)",
     )
     parser.add_argument(
-        "--num-tokens-l", type=int, default=256, help="Number of low latency tokens (default: 256)"
+        "--num-tokens-l",
+        type=int,
+        default=256,
+        help="Number of low latency tokens (default: 256)",
     )
     parser.add_argument(
         "--hidden", type=int, default=7168, help="Hidden dimension size (default: 7168)"
