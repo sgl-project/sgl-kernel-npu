@@ -6,7 +6,6 @@
 
 #include "comm_args.h"
 #include "data_copy.h"
-#include "sync_collectives.h"
 #include "moe_distribute_base.h"
 
 using namespace AscendC;
@@ -24,34 +23,23 @@ __aicore__ inline void SyncFunc()
     GM_ADDR sendDataInput, GM_ADDR tokenPerExpertDataInput, GM_ADDR sendDataOffsetOutput, GM_ADDR recvDataOutput,   \
         GM_ADDR totalRecvTokens, GM_ADDR recvCount, GM_ADDR recvOffset, GM_ADDR maxBs, GM_ADDR recvTokensPerExpert, \
         int64_t len, int64_t numTokens, int op, int root, int cycleCount, GM_ADDR scale, int64_t scaleCount,        \
-        GM_ADDR offset, int localRank, int localRankSize, GM_ADDR commArgs, int magic
+        GM_ADDR offset, int localRank, int localRankSize
 
 #define KERNELS_ARGS_CALL_ALL2ALL()                                                                              \
     sendDataInput, tokenPerExpertDataInput, sendDataOffsetOutput, recvDataOutput, totalRecvTokens, recvCount,    \
         recvOffset, maxBs, recvTokensPerExpert, len, numTokens, op, root, cycleCount, scale, scaleCount, offset, \
-        localRank, localRankSize, commArgs, magic
+        localRank, localRankSize
 
 template <typename T>
 class NotifyDispatch
 {
-    constexpr static int INVALID_RANK_NUM = 0xFFFFFFFF;   // Invalid rank
-    constexpr static int64_t CORE_NUMS_PER_STAGE_X = 24;  // Maximum number of cores provided by the producer stage
-    constexpr static int64_t CORE_NUMS_PER_STAGE_Y = 16;  // Maximum number of cores provided by the consumer stage
-    constexpr static int64_t CORE_NUMS_PER_STAGE_Z = 16;  // Maximum number of cores provided by the consumer stage 2
-    constexpr static int64_t SHARE_QUE_DEPTH = 1;         // Depth of a single shared queue
-    constexpr static int64_t RANK_NUM_PER_NODE = 16;
-    constexpr static int64_t SIO_NUM = 2;  // Depth of a single shared queue
-    constexpr static int64_t MAX_CORE_NUM = 48;
     constexpr static int64_t MAX_RANK_PER_CORE = 8;
     constexpr static int64_t MULTI_RANK_SIZE = 48;
     constexpr static int64_t MAX_BUFFER_NUMBER = 10;
     constexpr static uint32_t UB_FLAG_SIZE = 8U * 1024U;
-    constexpr static int64_t IDLER_CORE = 0;  // Idle core
-    constexpr static int64_t PRODUCER_CORE =
-        1;  // Producer group, responsible for writing data to shared memory, input->share, or share->share
-    constexpr static int64_t CONSUMER_CORE =
-        2;  // Consumer group, responsible for reading data from shared memory, share->output
-    constexpr static int64_t CONSUMER_CORE2 = 3;
+    // Synchronization flag occupies length
+    constexpr static int64_t FLAG_UNIT_INT_NUM = 4;
+    constexpr static int64_t MAGIC_MASK = ~((1LL << 32) - 1);
 
 public:
     __aicore__ inline NotifyDispatch(int rank, int rankSize, uint32_t extraFlag)
@@ -119,23 +107,18 @@ public:
 private:
     __aicore__ inline void InitCoreGroup()
     {
-        coreNumPerStageY = MAX_CORE_NUM;
-        coreNumPerStageX = MAX_CORE_NUM;
-        rankNumPerCore = (rankSize + MAX_CORE_NUM - 1) / MAX_CORE_NUM;
+        coreNumPerStageY = blockNum;
+        coreNumPerStageX = blockNum;
+        rankNumPerCore = (rankSize + blockNum - 1) / blockNum;
     }
 
     __aicore__ inline void InitDataSlice()
     {
         // The producer is responsible for moving the input data of this rank to shared memory, input-->share
         if (blockIdx < coreNumPerStageX) {
-            ProducerDataSlice();
+            // The ipcQue responsible for the current core
+            writeGt.SetGlobalBuffer((__gm__ T *)(shareAddrs[rank] + IPC_DATA_OFFSET));
         }
-    }
-
-    __aicore__ inline void ProducerDataSlice()
-    {
-        // The ipcQue responsible for the current core
-        writeGt.SetGlobalBuffer((__gm__ T *)(shareAddrs[rank] + IPC_DATA_OFFSET));
     }
 
     __aicore__ inline void AssembleSendData()
@@ -174,28 +157,69 @@ private:
     // copy input to other rank share
     __aicore__ inline void InputToShareSlice()
     {
-        __ubuf__ int64_t *inputUB = (__ubuf__ int64_t *)get_imm(0);
+        __ubuf__ uint64_t *inputUB = (__ubuf__ uint64_t *)get_imm(0);
         int64_t copyOffset = blockIdx * rankNumPerCore;
         copyLen = rankSize - copyOffset < rankNumPerCore ? rankSize - copyOffset : rankNumPerCore;
         if (copyLen > 0) {
             readGt = sendDataInputGt[copyOffset * perRankDataNum];
             CpGM2GMPingPong<T>(copyLen * perRankDataNum * sizeof(T), readGt, writeGt[copyOffset * perRankDataNum],
                                COPYONLY);
-            int64_t v = MergeMagicWithValue(magic, 1);
+            uint64_t v = MergeMagicWithValue(magic, 1);
             *inputUB = v;
             AscendC::SetFlag<HardEvent::S_MTE3>(EVENT_ID0);
             AscendC::WaitFlag<HardEvent::S_MTE3>(EVENT_ID0);
             for (int i = copyOffset; i < copyOffset + copyLen; ++i) {
-                CpUB2GM((__gm__ int64_t *)(shareAddrs[i]) + rank * FLAG_UNIT_INT_NUM, inputUB, sizeof(int64_t));
+                CpUB2GM((__gm__ uint64_t *)(shareAddrs[i]) + rank * FLAG_UNIT_INT_NUM, inputUB, sizeof(uint64_t));
             }
             pipe_barrier(PIPE_ALL);
         }
     }
 
-    __aicore__ inline int64_t MergeMagicWithValue(int32_t magic, int32_t value)
+    __aicore__ inline uint64_t MergeMagicWithValue(uint64_t magic, uint64_t value)
     {
         // magic as the high part, eventID as the low part, combined into a value for comparison
-        return (static_cast<int64_t>(static_cast<uint32_t>(magic)) << MAGIC_OFFSET) | static_cast<int64_t>(value);
+        return (magic * 2ULL + value);
+    }
+
+    // Wait for a part of synchronization flags within a rank
+    __aicore__ inline void WaitOneRankPartFlag(__gm__ uint64_t *waitAddr, int64_t flagNum, uint64_t checkValue)
+    {
+        GlobalTensor<uint64_t> globalWait;
+        globalWait.SetGlobalBuffer(waitAddr, flagNum * FLAG_UNIT_INT_NUM);
+        LocalTensor<uint64_t> localWait = tBuf.GetWithOffset<uint64_t>(flagNum * FLAG_UNIT_INT_NUM, 0);
+        bool isSync = true;
+        uint64_t checkedFlagNum = 0;
+        do {
+            // Copy global synchronization flags to local
+            DataCopy(localWait, globalWait[checkedFlagNum * FLAG_UNIT_INT_NUM],
+                     (flagNum - checkedFlagNum) * FLAG_UNIT_INT_NUM);
+            AscendC::SetFlag<HardEvent::MTE2_S>(EVENT_ID0);
+            AscendC::WaitFlag<HardEvent::MTE2_S>(EVENT_ID0);  // Wait for GM->UB
+
+            // Check if the synchronization flags are equal to checkValue
+            isSync = true;
+            uint64_t remainToCheck = flagNum - checkedFlagNum;
+            for (auto i = 0; i < remainToCheck; ++i) {
+                // Continue waiting if any core has not reached the checkValue phase
+                uint64_t v = localWait.GetValue(i * FLAG_UNIT_INT_NUM);
+                if ((v & MAGIC_MASK) != (checkValue & MAGIC_MASK) || v < checkValue) {
+                    isSync = false;
+                    checkedFlagNum += i;
+                    break;
+                }
+            }
+        } while (!isSync);
+    }
+
+    /**
+     * @brief Wait for the flags starting from the specified eventID on the specified card to become
+     *        a value composed of the combination of magic and value.<br>
+     *        Note: [eventID, eventID + flagNum)
+     */
+    __aicore__ inline void WaitSyncFlag(uint64_t magic, uint64_t value, uint64_t eventID, int32_t rank, int64_t flagNum)
+    {
+        uint64_t v = MergeMagicWithValue(magic, value);
+        WaitOneRankPartFlag((__gm__ uint64_t *)(shareAddrs[rank]) + eventID * FLAG_UNIT_INT_NUM, flagNum, v);
     }
 
     __aicore__ inline void ShareToShareSlice()
@@ -214,7 +238,9 @@ private:
             for (int i = 0; i < copyLen; i++) {
                 readGt1[i].SetGlobalBuffer((__gm__ T *)(shareAddrs[checkRank[i]] + IPC_DATA_OFFSET));
             }
-            sync.WaitSyncFlag(magic, 1, copyOffset, rank, copyLen);
+
+            WaitSyncFlag(magic, 1, copyOffset, rank, copyLen);
+
             for (int i = 0; i < copyLen; i++) {
                 CpGM2GMPingPong<T>(perRankDataNum * sizeof(T), readGt1[i][rank * perRankDataNum],
                                    recvDataOutputGt[checkRank[i] * perRankDataNum], COPYONLY);
@@ -380,18 +406,18 @@ private:
         DataCopyPad(recvTokenPerExpGt, tmpTensor, copyParams);
     }
 
-    FORCE_INLINE_AICORE int64_t GetDataCount(const int64_t dataLen, const int64_t useBlockNum);
+    __aicore__ inline int64_t GetDataCount(const int64_t dataLen, const int64_t useBlockNum);
     __aicore__ inline GM_ADDR GetWindAddrByRankId(const int32_t rankId, uint8_t ctxIdx);
-    __aicore__ inline int32_t GetMagicValue(void);
-    FORCE_INLINE_AICORE void InitSmallFullMesh(KERNELS_ARGS_FUN_ALL2ALL());
+    __aicore__ inline uint64_t GetMagicValue(void);
+    __aicore__ inline void InitSmallFullMesh(KERNELS_ARGS_FUN_ALL2ALL());
     template <typename F>
-    FORCE_INLINE_AICORE void SetAtomic(int op);
-    FORCE_INLINE_AICORE void UnsetAtomic(int op);
+    __aicore__ inline void SetAtomic(int op);
+    __aicore__ inline void UnsetAtomic(int op);
     template <HardEvent eventType>
-    FORCE_INLINE_AICORE void SetWaitEvent(event_t eventId);
+    __aicore__ inline void SetWaitEvent(event_t eventId);
     template <typename K, typename U = K>
-    FORCE_INLINE_AICORE void CpGM2GMPingPong(int64_t dataSizeRemain, const GlobalTensor<U> &sendDataInputGt,
-                                             const GlobalTensor<K> &recvDataOutputGT, int op);
+    __aicore__ inline void CpGM2GMPingPong(int64_t dataSizeRemain, const GlobalTensor<U> &sendDataInputGt,
+                                           const GlobalTensor<K> &recvDataOutputGT, int op);
 
     GlobalTensor<T> sendDataInputGt;
     GlobalTensor<int> tokenPerExpertDataInputGt;
@@ -422,25 +448,12 @@ private:
     int64_t nodeNum;
     int64_t localRankId;
     int64_t localNodeId;
-    int64_t targetNode;
-    int64_t targetLocalRankIds[2];
-    int64_t queLen;
-    int64_t queSize;
-    int64_t coreNumPerStageX;             // Number of cores used per stage
-    int64_t coreNumPerStageY;             // Number of cores used per stage
-    int64_t coreNumPerStageZ;             // Number of cores used per stage
-    int64_t flagNumPerStage;              // Number of synchronization flags used per stage
-    int64_t coreNumPerNode;               // Number of cores allocated per node
-    int64_t coreNumPerRank;               // Number of cores allocated per rank
-    int64_t rankNumPerCore;               // Number of ranks responsible per core
-    int64_t coreGroup;                    // Functional group of the current core
-    int64_t targetRank[MULTI_RANK_SIZE];  // Ranks responsible by the current core
-    int64_t targetRankX;
-    int64_t targetRankY;
-
-    int64_t queElemLen;  // Size of each element in the shared memory queue (in terms of T)
-
-    int64_t copyLen;  // Length of the current data slice being copied (in terms of T)
+    int64_t coreNumPerStageX;  // Number of cores used per stage
+    int64_t coreNumPerStageY;  // Number of cores used per stage
+    int64_t coreNumPerStageZ;  // Number of cores used per stage
+    int64_t coreNumPerRank;    // Number of cores allocated per rank
+    int64_t rankNumPerCore;    // Number of ranks responsible per core
+    int64_t copyLen;           // Length of the current data slice being copied (in terms of T)
 
     // for coll
     int rank;
@@ -457,12 +470,9 @@ private:
     int root;
     int64_t len;
     int64_t numExperts;
-    int64_t magic;
+    uint64_t magic{0};
     int64_t blockIdx;  // Index of the current aicore
     int64_t blockNum;  // Total number of aicores for the current rank
-    int32_t numRanks;
-    int64_t timeout;
-    uint16_t *rootRanks;
     uint32_t maxBsNum{0};
     GM_ADDR scale;
     GM_ADDR shareAddrs[CAM_MAX_RANK_SIZE];  // List of shared memory addresses
@@ -473,8 +483,6 @@ private:
     GM_ADDR recvTokensPerExpert_;
     __gm__ HcclOpResParam *winContext_[COMM_NUM]{nullptr, nullptr};
     Hccl<HCCL_SERVER_TYPE_AICPU> hccl_;
-    GlobalTensor<GM_ADDR> peerMemsAddrGm_;
-    GlobalTensor<int64_t> dfx;
     TPipe pipe;
     TBuf<QuePosition::VECCALC> tBuf;
     TBuf<> tokenPerExpertDataBuf;
@@ -495,12 +503,10 @@ private:
     TBuf<> tmpBuf2_;
     TBuf<> tmpBuf3_;
     TBuf<> tmpBuf4_;
-
-    SyncCollectives sync;
 };
 
 template <typename T>
-FORCE_INLINE_AICORE int64_t NotifyDispatch<T>::GetDataCount(const int64_t dataLen, const int64_t useBlockNum)
+__aicore__ inline int64_t NotifyDispatch<T>::GetDataCount(const int64_t dataLen, const int64_t useBlockNum)
 {
     return dataLen / useBlockNum;
 }
@@ -526,13 +532,13 @@ __aicore__ inline GM_ADDR NotifyDispatch<T>::GetWindAddrByRankId(const int32_t r
 
 // Assign values to winContext_[COMM_EP_IDX] and blockIdx before calling
 template <typename T>
-__aicore__ inline int32_t NotifyDispatch<T>::GetMagicValue(void)
+__aicore__ inline uint64_t NotifyDispatch<T>::GetMagicValue(void)
 {
-    int32_t magic = 0;
-    GlobalTensor<int32_t> selfDataStatusTensor;
+    uint64_t magic = 0;
+    GlobalTensor<uint64_t> selfDataStatusTensor;
     GM_ADDR statusDataSpaceGm = (GM_ADDR)(winContext_[COMM_EP_IDX]->localWindowsExp);
-    selfDataStatusTensor.SetGlobalBuffer((__gm__ int32_t *)(statusDataSpaceGm + STATE_WIN_OFFSET));
-    DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
+    selfDataStatusTensor.SetGlobalBuffer((__gm__ uint64_t *)(statusDataSpaceGm + STATE_WIN_OFFSET));
+    DataCacheCleanAndInvalid<uint64_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
         selfDataStatusTensor[blockIdx * UB_ALIGN_SIZE]);
     magic = selfDataStatusTensor(blockIdx * UB_ALIGN_SIZE);
     if (magic <= 0) {
@@ -543,7 +549,7 @@ __aicore__ inline int32_t NotifyDispatch<T>::GetMagicValue(void)
 }
 
 template <typename T>
-FORCE_INLINE_AICORE void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_ALL2ALL())
+__aicore__ inline void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_ALL2ALL())
 {
     this->root = root;
     this->len = len;
@@ -567,7 +573,7 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_A
     shareAddrs[rank] =
         GetWindAddrByRankId(rank, ctxIdx) + (this->magic % PING_PONG_SIZE) * (IPC_BUFF_MAX_SIZE + IPC_DATA_OFFSET);
 
-    int64_t rankNumPerCore = (rankSize + MAX_CORE_NUM - 1) / MAX_CORE_NUM;
+    int64_t rankNumPerCore = (rankSize + blockNum - 1) / blockNum;
     int64_t copyOffset = blockIdx * rankNumPerCore;
     int64_t copyLen = rankSize - copyOffset < rankNumPerCore ? rankSize - copyOffset : rankNumPerCore;
     if (copyLen > 0) {
@@ -592,8 +598,6 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_A
     }
 
     pipe.InitBuffer(tBuf, UB_FLAG_SIZE);
-
-    sync.Init(rank, rankSize, shareAddrs, tBuf);
 }
 
 /**
@@ -611,9 +615,9 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_A
  */
 template <typename T>
 template <typename K, typename U>
-FORCE_INLINE_AICORE void NotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeRemain,
-                                                            const GlobalTensor<U> &sendDataInputGt,
-                                                            const GlobalTensor<K> &recvDataOutputGT, int op)
+__aicore__ inline void NotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeRemain,
+                                                          const GlobalTensor<U> &sendDataInputGt,
+                                                          const GlobalTensor<K> &recvDataOutputGT, int op)
 {
     // General case (U = K), input/output are the same, share one UB
     // Only when conversion is needed (U->K), UB will be divided into two parts according to the ratio of
@@ -674,7 +678,7 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeRema
 
 template <typename T>
 template <typename F>
-FORCE_INLINE_AICORE void NotifyDispatch<T>::SetAtomic(int op)
+__aicore__ inline void NotifyDispatch<T>::SetAtomic(int op)
 {
     PipeBarrier<PIPE_ALL>();
     if (op != -1) {
@@ -686,7 +690,7 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::SetAtomic(int op)
 }
 
 template <typename T>
-FORCE_INLINE_AICORE void NotifyDispatch<T>::UnsetAtomic(int op)
+__aicore__ inline void NotifyDispatch<T>::UnsetAtomic(int op)
 {
     if (op != -1) {
         AscendC::SetAtomicNone();
@@ -696,7 +700,7 @@ FORCE_INLINE_AICORE void NotifyDispatch<T>::UnsetAtomic(int op)
 
 template <typename T>
 template <HardEvent eventType>
-FORCE_INLINE_AICORE void NotifyDispatch<T>::SetWaitEvent(event_t eventId)
+__aicore__ inline void NotifyDispatch<T>::SetWaitEvent(event_t eventId)
 {
     AscendC::SetFlag<eventType>(eventId);
     AscendC::WaitFlag<eventType>(eventId);
