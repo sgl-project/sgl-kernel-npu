@@ -67,10 +67,6 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
     A3 no need for hierarchical kernel implementation. Intra-node and inter-node communication uses pure HCCS communication.
 
-2. In the A2 `dispatch_low_latency` **hierarchical** implementation, an additional parameter `topk_weights` needs to be passed. In addition, an extra 1D Tensor `expand_scales` with shape (A,) will be returned. `expand_scales` will replace `topk_weights` as the weight parameter for the internal kernel in `low_latency_combine`. A2 non-hierarchical kernels and A3 do not require passing topk_weights in dispatch.
-> - For shared experts, $A$ must satisfy the condition: $ A = Bs * epWorldSize *  sharedExpertNum / sharedExpertRankNum $.
-> - For MoE experts, when $globalBs$ is 0, $A$ must satisfy the condition: $A >= Bs * epWorldSize * min(localExpertNum, K)$; when $globalBs$ is not 0, A must > > satisfy the condition: $A >= globalBs * min(localExpertNum, K)$.
-
 ### Test
 Execute deepep-related test scripts
 ```bash
