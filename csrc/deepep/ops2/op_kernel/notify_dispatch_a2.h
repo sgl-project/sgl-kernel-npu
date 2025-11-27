@@ -275,30 +275,6 @@ private:
         expertMaxBsOriOffsetAlignLen = Ceil(numExperts * MAX_BS * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
         gExpertMaxBsOriOffsetAlignLen =
             Ceil(rankSize * numExperts * MAX_BS * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
-
-        /*
-        if (blockIdx == 0) {
-            PRINTF("[InitTensorLen] rank:%d, blockIdx:%d, send_count:%d, numExperts:%d, rankSize:%d, serverNum:%d,
-        MAX_BS:%d, \
-                numTokensPerExpertAlignLen:%d, gNumTokensPerExpertAlignLen:%d, \
-                numTokensUniquePerServerAlignLen:%d, gNumTokensUniquePerServerAlignLen:%d, \
-                numTokensPerServerAlignLen:%d, gNumTokensPerServerAlignLen:%d, \
-                tokenServerCntAlignLen:%d, gTokenServerCntAlignLen:%d, \
-                tokenServerIdxAlignLen:%d, gTokenServerIdxAlignLen:%d, \
-                tokenExpertIdxAlignLen:%d, gTokenExpertIdxAlignLen:%d, \
-                expertMaxBsSrcOffsetAlignLen:%d, gExpertMaxBsSrcOffsetAlignLen:%d, \
-                expertMaxBsOriOffsetAlignLen:%d, gExpertMaxBsOriOffsetAlignLen:%d \n",
-                rank, blockIdx, len, numExperts, rankSize, serverNum, MAX_BS,
-                numTokensPerExpertAlignLen, gNumTokensPerExpertAlignLen,
-                numTokensUniquePerServerAlignLen, gNumTokensUniquePerServerAlignLen,
-                numTokensPerServerAlignLen, gNumTokensPerServerAlignLen,
-                tokenServerCntAlignLen, gTokenServerCntAlignLen,
-                tokenServerIdxAlignLen, gTokenServerIdxAlignLen,
-                tokenExpertIdxAlignLen, gTokenExpertIdxAlignLen,
-                expertMaxBsSrcOffsetAlignLen, gExpertMaxBsSrcOffsetAlignLen,
-                expertMaxBsOriOffsetAlignLen, gExpertMaxBsOriOffsetAlignLen);
-        }
-        */
     }
 
     __aicore__ inline void InitShare()
@@ -774,7 +750,6 @@ private:
             PipeBarrier<PIPE_V>();
 
             SyncFunc<AscendC::HardEvent::V_MTE3>();
-            // AscendC::DumpTensor(tmpLt, 793, 16);
 
             int32_t tarOffset = index * MAX_BS * numExperts + tokId * numExperts;
             DataCopyPad(offsetInnerOutputGT_[tarOffset], tmpSumLt, copyParams);
