@@ -4,7 +4,7 @@
 namespace sglang {
 namespace npu_kernel {
 
-at::Tensor weak_ref_tensor(at::Tensor &tensor)
+at::Tensor weak_ref_tensor(const at::Tensor &tensor)
 {
     if (!tensor.is_privateuseone()) {
         throw std::runtime_error("Tensor must be on NPU device");
