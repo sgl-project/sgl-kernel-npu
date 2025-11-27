@@ -5,10 +5,49 @@
 
 
 import torch
+import torch.nn.functional as F
+import torch_npu
 import triton
 import triton.language as tl
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
+from einops import rearrange
 
+def rms_norm(
+    x,
+    weight,
+    bias,
+    z=None,
+    eps=1e-6,
+    group_size=None,
+    norm_before_gate=True,
+    upcast=True,
+):
+    dtype = x.dtype
+    N = x.shape[-1]
+    weight = weight.float()
+    bias = bias.float() if bias is not None else None
+    mean = None
+    if upcast:
+        x = x.float()
+        z = z.float() if z is not None else z
+    if z is not None and not norm_before_gate:
+        x = x * F.silu(z)
+    if group_size is None:
+        weight = weight.to(x.dtype)
+        out, inv_rms = torch_npu.npu_rms_norm(x, weight, eps)
+        if bias is not None:
+            out = out + bias
+        rstd_flat = inv_rms.reshape(-1)
+    else:
+        x_group = rearrange(x, "... (g d) -> ... g d", d=group_size)
+        rstd = 1 / torch.sqrt((x_group.square()).mean(dim=-1, keepdim=True) + eps)
+        out = rearrange(x_group * rstd, "... g d -> ... (g d)") * weight
+        rstd_flat = (rstd.squeeze(-1).transpose(0, 1).contiguous().view(-1))
+        if bias is not None:
+            out = out + bias
+    if z is not None and norm_before_gate:
+        out *= F.silu(z)
+    return out.to(dtype), mean, rstd_flat
 
 # TODO:
 # - Convert int32 comparison to fp32
@@ -106,43 +145,21 @@ def layer_norm_fwd_npu(
     if bias is not None:
         assert bias.stride(-1) == 1
         assert bias.shape == (N,)
-    # allocate output
-    if out is not None:
-        assert out.shape == x.shape
-    else:
-        out = torch.empty_like(x)
-    assert out.stride(-1) == 1
-    mean = (
-        torch.empty((ngroups * M,), dtype=torch.float32, device=x.device)
-        if not is_rms_norm
-        else None
-    )
-    rstd = torch.empty((ngroups * M,), dtype=torch.float32, device=x.device)
-    # Less than 64KB per feature: enqueue fused kernel
-    MAX_FUSED_SIZE = 65536 // x.element_size()
-    BLOCK_N = min(MAX_FUSED_SIZE, triton.next_power_of_2(group_size))
-    if group_size > BLOCK_N:
-        raise RuntimeError("This layer norm doesn't support feature dim >= 64KB.")
 
-    _, num_vectorcore = get_device_properties()
-    grid = (triton.cdiv(num_vectorcore, ngroups), ngroups)
-    _layer_norm_fwd_1pass_kernel_npu_smid[grid](
-        x,
-        out,
-        weight,
-        bias,
-        z,
-        mean,
-        rstd,
-        x.stride(0),
-        out.stride(0),
-        z.stride(0) if z is not None else 0,
-        M,
-        group_size,
-        eps,
-        BLOCK_N=BLOCK_N,
-        NORM_BEFORE_GATE=norm_before_gate,
-        IS_RMS_NORM=is_rms_norm,
-        multibuffer=True,
+    if not is_rms_norm:
+        raise NotImplementedError("LayerNorm not implemented yet")
+    out_native, mean, rstd = rms_norm(
+        x=x,
+        weight=weight,
+        bias=bias,
+        z=z,
+        eps=eps,
+        group_size=None if group_size == N else group_size,
+        norm_before_gate=norm_before_gate,
+        upcast=True,
     )
+    if out is not None:
+        out.copy_(out_native)
+    else:
+        out = out_native
     return out, mean, rstd
