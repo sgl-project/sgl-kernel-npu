@@ -13,7 +13,7 @@ DeepEP的ascend实现
 
 
 ## 软硬件配套说明
-硬件型号支持：Atlas A3 系列产品
+硬件型号支持：Atlas A2 和 A3 系列产品
 平台：aarch64/x86
 配套软件
 - 驱动 Ascend HDK 25.0.RC1.1、CANN社区版8.2.RC1.alpha003及之后版本（参考《[CANN软件安装指南](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha003/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)》安装CANN开发套件包以及配套固件和驱动）
@@ -22,6 +22,7 @@ DeepEP的ascend实现
 - PyTorch >= 2.5.1, torch-npu >= 2.5.1-7.0.0
 
 ## 快速上手
+DeepEP-Ascend支持A2和A3，需要在A2和A3上分别生成包。
 ### 编译执行
 1、准备CANN的环境变量（根据安装路径修改）
 ```bash
@@ -58,6 +59,15 @@ python -c "import deep_ep; print(deep_ep.__path__)"
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 ```
 3、在python工程中导入`deep_ep`
+
+### 特性
+1. A2 的 `low_latency_dispatch` 和 `low_latency_combine` 算子支持两种内部算子类型：不分层和分层。
+ 在分层算子的实现中，节点内通信使用 HCCS，节点间通信使用 RDMA。在不分层算子的实现中，节点内和节点间通信均使用纯 RDMA。
+ 默认情况下，执行的是非层次化算子。如果配置了环境变量 `HCCL_INTRA_PCIE_ENABLE=1` 和 `HCCL_INTRA_ROCE_ENABLE=0`，则将执行分层算子。
+ A3 无需分层，节点内和节点间通信均使用纯 HCCS 通信。
+2. 在 A2 的 `dispatch_low_latency` **分层** 实现中，需要额外传入一个参数 `topk_weights`。此外，还会返回一个额外的 1D Tensor `expand_scales`，其形状为 (A,)。`expand_scales` 将取代 `topk_weights` 作为 `low_latency_combine` 内部内核的权重参数。A2 的非层次化内核和 A3 不需要在 dispatch 中传入 topk_weights。
+> - 对于共享专家，$A$ 必须满足以下条件：$ A = Bs * epWorldSize * sharedExpertNum / sharedExpertRankNum $。
+> - 对于 MoE 专家，当 $globalBs$ 为 0 时，$A$ 必须满足以下条件：$A >= Bs * epWorldSize * min(localExpertNum, K)$；当 $globalBs$ 不为 0 时，$A$ 必须满足以下条件：$A >= globalBs * min(localExpertNum, K)$。
 
 ### 测试
 执行deepep相关测试脚本
