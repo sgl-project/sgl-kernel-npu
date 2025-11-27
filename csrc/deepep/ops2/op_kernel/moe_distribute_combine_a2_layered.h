@@ -341,14 +341,12 @@ __aicore__ inline void MoeDistributeCombineA2Layered<TemplateMC2TypeA2layeredFun
 template <TemplateMC2TypeA2layeredClass>
 __aicore__ inline void MoeDistributeCombineA2Layered<TemplateMC2TypeA2layeredFunc>::AlltoAllDispatch()
 {
-    PRINTF("enter AlltoAllDispatch \n");
     rowTmpFloatLocal_ = rowTmpFloatBuf_.Get<float>();
     ipcSliceSize = IPC_DATA_SIZE / worldSize_;
     ipcSliceNodeSize = ipcSliceSize * SERVER_RANK_SIZE;
     LocalTensor<ExpandIdxType> sendCountLocal = sendCountBuf_.Get<int32_t>();
     DataCopy(sendCountLocal, sendCountGlobal_, RoundUp(moeExpertNum_ * worldSize_, B32_PER_BLOCK));
     SyncFunc<AscendC::HardEvent::MTE2_S>();
-    AscendC::DumpTensor(sendCountLocal, 368, 32);
     for (uint32_t dstRankId = startRankId_; dstRankId < endRankId_; ++dstRankId) {
         // dstRankId 在本机上的同号卡
         uint32_t targetRank = dstRankId % SERVER_RANK_SIZE;

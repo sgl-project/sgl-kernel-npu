@@ -11,7 +11,6 @@ extern "C" __global__ __aicore__ void moe_distribute_combine_a2(
     GM_ADDR offsetInner, GM_ADDR offsetOuter, GM_ADDR countOuter, GM_ADDR XOut, GM_ADDR workspaceGM, GM_ADDR tilingGM)
 
 {
-    printf("===========combine_a2=============\n");
     REGISTER_TILING_DEFAULT(MoeDistributeCombineA2TilingData);
     TPipe pipe;
 #if (ORIG_DTYPE_EXPAND_X == DT_BF16 || ORIG_DTYPE_EXPAND_X == DT_FLOAT16)

@@ -29,7 +29,8 @@ struct Buffer {
     at::Tensor new_topk_idx;
     at::Tensor new_scales;
     at::Tensor notify_send_data;  // only for internode notify
-    int notify_send_data_size;    // only for internode notify
+    at::Tensor send_token_idx_small;
+    int notify_send_data_size;  // only for internode notify
 
     int64_t shared_expert_rank_num;
     int64_t shared_expert_num = 1;

@@ -27,7 +27,6 @@ aclnnStatus aclnnDispatchNormalA2GetWorkspaceSize(
     const aclTensor *expandScales, const aclTensor *waitRecvCostStats, uint64_t *workspaceSize,
     aclOpExecutor **executor)
 {
-    // printf("[aclnnDispatch] rank:%d", epRankId);
     return aclnnInnerDispatchNormalA2GetWorkspaceSize(
         x, expertIds, scales, xActiveMask, expertScales, tokenServerIdx, tokenServerCnt, epRankTokenCnt,
         srcOffsetRankTokenIdx, dstOffsetRankTokenIdx, groupEp, epWorldSize, epRankId, moeExpertNum, groupTp,

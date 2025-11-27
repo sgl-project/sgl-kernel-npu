@@ -26,7 +26,6 @@ extern "C" __global__ __aicore__ void dispatch_normal_a2(
     GM_ADDR recvX, GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut, GM_ADDR expertTokenNumsOut, GM_ADDR epRecvCountOut,
     GM_ADDR expandScalesOut, GM_ADDR dispatchWaitRecvCostStatsOut, GM_ADDR workspace, GM_ADDR tiling)
 {
-    printf("[dispatch_normal_a2] blockId: %d\n", GetBlockIdx());
     // REGISTER_TILING_DEFAULT(NotifyDispatchA2TilingData);
     // GET_TILING_DATA_WITH_STRUCT(NotifyDispatchA2TilingData, tilingData, tiling);
     REGISTER_TILING_DEFAULT(CamMoeDistributeDispatchA2TilingData);
