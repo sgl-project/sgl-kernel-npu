@@ -68,6 +68,7 @@ constexpr uint32_t OUTPUT_DST_OFFSET_RANK_TOKEN_INDEX = 7;
 constexpr uint32_t OUTPUT_OFFSET_INNER_INDEX = 8;
 constexpr uint32_t OUTPUT_COUNT_OUTER_INDEX = 9;
 constexpr uint32_t OUTPUT_EXPAND_IDX_INDEX = 10;
+constexpr uint32_t OUTPUT_TOTAL_RECV_TOKENS_INDEX = 11;
 
 constexpr uint32_t ATTR_SEND_COUNT_INDEX = 0;
 constexpr uint32_t ATTR_NUM_TOKENS_INDEX = 1;
@@ -294,10 +295,9 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     auto localEpTokenCnt = context->GetOutputDesc(OUTPUT_LOCAL_EP_TOKEN_CNT_INDEX);
     OP_TILING_CHECK(localEpTokenCnt == nullptr, OP_LOGE(nodeName, "localEpTokenCnt is null."), return false);
     OP_TILING_CHECK(
-        (localEpTokenCnt->GetDataType() != ge::DT_BF16) && (localEpTokenCnt->GetDataType() != ge::DT_FLOAT16) &&
-            (localEpTokenCnt->GetDataType() != ge::DT_FLOAT) && (localEpTokenCnt->GetDataType() != ge::DT_INT32),
+        (localEpTokenCnt->GetDataType() != ge::DT_INT64),
         OP_LOGE(nodeName,
-                "localEpTokenCnt datatype is invalid, datatype should be bf16 or float16 or float or int, but is %d.",
+                "localEpTokenCnt datatype is invalid, datatype should be int64, but is %d.",
                 static_cast<ge::DataType>(localEpTokenCnt->GetDataType())),
         return false);
 
@@ -357,6 +357,16 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
         OP_LOGE(nodeName,
                 "expandIdx datatype is invalid, datatype should be bf16 or float16 or float or int, but is %d.",
                 static_cast<ge::DataType>(expandIdx->GetDataType())),
+        return false);
+
+    auto totalRecvTokens = context->GetOutputDesc(OUTPUT_TOTAL_RECV_TOKENS_INDEX);
+    OP_TILING_CHECK(totalRecvTokens == nullptr, OP_LOGE(nodeName, "totalRecvTokens is null."), return false);
+    OP_TILING_CHECK(
+        (totalRecvTokens->GetDataType() != ge::DT_BF16) && (totalRecvTokens->GetDataType() != ge::DT_FLOAT16) &&
+            (totalRecvTokens->GetDataType() != ge::DT_FLOAT) && (totalRecvTokens->GetDataType() != ge::DT_INT32),
+        OP_LOGE(nodeName,
+                "totalRecvTokens datatype is invalid, datatype should be bf16 or float16 or float or int, but is %d.",
+                static_cast<ge::DataType>(totalRecvTokens->GetDataType())),
         return false);
 
     // Verify the size of the win area
