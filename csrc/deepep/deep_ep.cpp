@@ -575,7 +575,8 @@ Buffer::internode_dispatch(
                  local_rank_size, local_rank_id,
                  send_data_offset,  // A2未使用
                  recv_data, token_server_idx, token_unique_per_server, ep_rank_token_cnt, recv_tokens_per_expert,
-                 src_offset_rank_token_idx, dst_offset_rank_token_idx, offset_inner, count_outer, expand_idx, total_recv_token);
+                 src_offset_rank_token_idx, dst_offset_rank_token_idx, offset_inner, count_outer, expand_idx,
+                 total_recv_token);
 
     int total_count = total_recv_token.item<int>();
     int num_recv_tokens = (total_count == 0) ? 1 : total_count;

@@ -1057,7 +1057,7 @@ private:
         PipeBarrier<PIPE_ALL>();
         SyncFunc<AscendC::HardEvent::MTE2_MTE3>();
         DataCopyExtParams copyParams1{1, static_cast<uint32_t>(1 * sizeof(int32_t)), 0, 0, 0};
-        DataCopyPad(totalRecvTokensOutputGT_, totalCnt, copyParams);
+        DataCopyPad(totalRecvTokensOutputGT_, totalCnt, copyParams1);
     }
 
     __aicore__ inline void BuildLocalEpRankTokenCntData(int32_t beginCoreId, int32_t validCoreNum)
@@ -1335,7 +1335,7 @@ private:
     GlobalTensor<int32_t> offsetOuterOutputGT_;  // 每个token在server上的位次    同tokenServerIdxOutputGT_
     GlobalTensor<int32_t>
         expandIdxOutputGT_;  // 给同一专家的token个数 [bs * numExperts], topk_idx的同专家前缀和扩维到所有专家维度
-    GlobalTensor<int32_t> totalRecvTokensOutputGT_; // 本卡收到的token总数, [1] -> value:count
+    GlobalTensor<int32_t> totalRecvTokensOutputGT_;  // 本卡收到的token总数, [1] -> value:count
 };
 
 template <typename T>

@@ -407,7 +407,6 @@ private:
         DataCopyPad(recvTokenPerExpGt, tmpTensor, copyParams);
     }
 
-
     __aicore__ inline int64_t GetDataCount(const int64_t dataLen, const int64_t useBlockNum);
     __aicore__ inline GM_ADDR GetWindAddrByRankId(const int32_t rankId, uint8_t ctxIdx);
     __aicore__ inline uint64_t GetMagicValue(void);

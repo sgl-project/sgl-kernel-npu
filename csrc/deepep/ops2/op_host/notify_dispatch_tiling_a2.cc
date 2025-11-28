@@ -294,12 +294,10 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
 
     auto localEpTokenCnt = context->GetOutputDesc(OUTPUT_LOCAL_EP_TOKEN_CNT_INDEX);
     OP_TILING_CHECK(localEpTokenCnt == nullptr, OP_LOGE(nodeName, "localEpTokenCnt is null."), return false);
-    OP_TILING_CHECK(
-        (localEpTokenCnt->GetDataType() != ge::DT_INT64),
-        OP_LOGE(nodeName,
-                "localEpTokenCnt datatype is invalid, datatype should be int64, but is %d.",
-                static_cast<ge::DataType>(localEpTokenCnt->GetDataType())),
-        return false);
+    OP_TILING_CHECK((localEpTokenCnt->GetDataType() != ge::DT_INT64),
+                    OP_LOGE(nodeName, "localEpTokenCnt datatype is invalid, datatype should be int64, but is %d.",
+                            static_cast<ge::DataType>(localEpTokenCnt->GetDataType())),
+                    return false);
 
     auto srcOffsetRankTokenIdx = context->GetOutputDesc(OUTPUT_SRC_OFFSET_RANK_TOKEN_INDEX);
     OP_TILING_CHECK(srcOffsetRankTokenIdx == nullptr, OP_LOGE(nodeName, "srcOffsetRankTokenIdx is null."),

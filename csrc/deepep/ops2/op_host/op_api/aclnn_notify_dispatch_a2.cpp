@@ -21,7 +21,7 @@ aclnnStatus aclnnNotifyDispatchA2GetWorkspaceSize(
     int64_t localRankSize, int64_t localRankId, const aclTensor *sendDataOffset, const aclTensor *recvData,
     const aclTensor *tokenServerIdx, const aclTensor *tokenUniquePerServer, const aclTensor *epRankTokenCnt,
     const aclTensor *localEpTokenCnt, const aclTensor *srcOffsetRankTokenIdx, const aclTensor *dstOffsetRankTokenIdx,
-    const aclTensor *offsetInner, const aclTensor *countOuter, const aclTensor *expandIdx, 
+    const aclTensor *offsetInner, const aclTensor *countOuter, const aclTensor *expandIdx,
     const aclTensor *totalRecvTokens, uint64_t *workspaceSize, aclOpExecutor **executor)
 {
     return aclnnInnerNotifyDispatchA2GetWorkspaceSize(
