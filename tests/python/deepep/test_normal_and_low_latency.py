@@ -21,6 +21,7 @@ def intranode_test(
     group: dist.ProcessGroup,
 ):
     experts_per_rank = num_experts // num_ranks
+    num_servers = num_ranks // num_local_ranks
     assert num_experts % num_ranks == 0
 
     scores = (
@@ -115,7 +116,7 @@ def intranode_test(
         "handle": handle,
         "config": config,
         "async_finish": False,
-        "topk_weights": handle[7],
+        "topk_weights": handle[4] if num_servers > 1 else handle[7],
     }
     (
         combined_x,
@@ -126,7 +127,7 @@ def intranode_test(
     assert (
         calc_diff(
             combined_x.float(),
-            x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
+            x * handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1) if num_servers > 1 else x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
         )
         < 5e-5
     )
@@ -225,31 +226,15 @@ def low_latency_test(
         assert diff < 1e-5, f"Error: {diff=}"
 
 
-def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
+def test_loop_i(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     rank, num_ranks, group = init_dist(local_rank, num_local_ranks)
     num_topk, num_experts, hidden = args.num_topk, args.num_experts, args.hidden
+    torch.manual_seed(rank)
 
     num_tokens_i = args.num_tokens_i
     buffer_i = deep_ep.Buffer(
         group, int(2e9), 0, low_latency_mode=False, num_qps_per_rank=1
     )
-
-    shared_expert_rank_num = int(os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0))
-    num_tokens_l = args.num_tokens_l
-    use_experts = num_experts if shared_expert_rank_num == 0 else (num_experts - 1)
-    use_ranks = num_ranks - shared_expert_rank_num
-    num_rdma_bytes = deep_ep.Buffer.get_low_latency_rdma_size_hint(
-        num_tokens_l, hidden, num_ranks, num_experts
-    )
-    buffer_l = deep_ep.Buffer(
-        group,
-        num_rdma_bytes=num_rdma_bytes,
-        low_latency_mode=True,
-        num_qps_per_rank=use_experts // use_ranks if use_ranks > 0 else 1,
-    )
-
-    torch.manual_seed(rank)
-
     print("Start executing intranode test...", flush=True)
     intranode_test(
         num_tokens_i,
@@ -265,7 +250,25 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     )
 
     dist.barrier()
+    dist.destroy_process_group()
 
+def test_loop_l(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
+    rank, num_ranks, group = init_dist(local_rank, num_local_ranks)
+    num_topk, num_experts, hidden = args.num_topk, args.num_experts, args.hidden
+    torch.manual_seed(rank)
+    shared_expert_rank_num = int(os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0))
+    num_tokens_l = args.num_tokens_l
+    use_experts = num_experts if shared_expert_rank_num == 0 else (num_experts - 1)
+    use_ranks = num_ranks - shared_expert_rank_num
+    num_rdma_bytes = deep_ep.Buffer.get_low_latency_rdma_size_hint(
+        num_tokens_l, hidden, num_ranks, num_experts
+    )
+    buffer_l = deep_ep.Buffer(
+        group,
+        num_rdma_bytes=num_rdma_bytes,
+        low_latency_mode=True,
+        num_qps_per_rank=use_experts // use_ranks if use_ranks > 0 else 1,
+    )
     print("Start executing low latency test...", flush=True)
     low_latency_test(
         num_tokens_l,
@@ -293,7 +296,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--num-tokens-i",
         type=int,
-        default=256,
+        default=4096,
         help="Number of intranode tokens (default: 4096)",
     )
     parser.add_argument(
@@ -316,5 +319,8 @@ if __name__ == "__main__":
 
     num_processes = args.num_processes
     torch.multiprocessing.spawn(
-        test_loop, args=(num_processes, args), nprocs=num_processes
+        test_loop_i, args=(num_processes, args), nprocs=num_processes
+    )
+    torch.multiprocessing.spawn(
+        test_loop_l, args=(num_processes, args), nprocs=num_processes
     )
