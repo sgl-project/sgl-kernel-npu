@@ -127,7 +127,11 @@ def intranode_test(
     assert (
         calc_diff(
             combined_x.float(),
-            x * handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1) if num_servers > 1 else x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
+            (
+                x * handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
+                if num_servers > 1
+                else x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
+            ),
         )
         < 5e-5
     )
@@ -251,6 +255,7 @@ def test_loop_i(local_rank: int, num_local_ranks: int, args: argparse.Namespace)
 
     dist.barrier()
     dist.destroy_process_group()
+
 
 def test_loop_l(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     rank, num_ranks, group = init_dist(local_rank, num_local_ranks)
