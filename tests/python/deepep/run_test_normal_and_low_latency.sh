@@ -6,9 +6,9 @@ cd "$script_dir" || exit
 npu_model=$(npu-smi info 2>/dev/null | grep "910")
 
 if [[ "$npu_model" == *"910B"* ]]; then
-    echo "NPU model is 910B"
+    echo "NPU is 910B"
     # set your master node ip
-    RANK0_IP="141.61.41.77"
+    RANK0_IP=""
     IP=$(hostname -I | awk '{print $1}')
 
     export WORLD_SIZE=2
@@ -26,6 +26,6 @@ if [[ "$npu_model" == *"910B"* ]]; then
     fi
     python test_normal_and_low_latency.py --num-processes 8
 else
-    echo "NPU model is 910C"
+    echo "NPU is 910C"
     python test_normal_and_low_latency.py --num-processes 16
 fi

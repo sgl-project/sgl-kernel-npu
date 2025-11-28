@@ -309,7 +309,7 @@ if __name__ == "__main__":
         "--num-tokens-i",
         type=int,
         default=4096,
-        help="Number of intranode tokens (default: 4096)",
+        help="Number of normal tokens (default: 4096)",
     )
     parser.add_argument(
         "--num-tokens-l",
