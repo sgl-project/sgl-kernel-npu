@@ -7,6 +7,8 @@ import torch.distributed as dist
 import torch_npu
 from utils import calc_diff, init_dist, inplace_unique, per_token_cast_back
 
+RANK_OFFSET = 128
+
 
 def intranode_test(
     num_tokens: int,
@@ -36,7 +38,10 @@ def intranode_test(
 
     num_tokens_per_expert = torch.zeros((num_experts,), dtype=torch.int, device="npu")
     for i in range(num_experts):
-        num_tokens_per_expert[i] = (topk_idx == i).sum()
+        valid_topk_idx = topk_idx[topk_idx != -1]
+        num_tokens_per_expert = torch.bincount(
+            valid_topk_idx, minlength=num_experts
+        ).to(torch.int)
     gbl_num_tokens_per_expert = num_tokens_per_expert.clone()
     dist.all_reduce(gbl_num_tokens_per_expert, group=group)
 
@@ -46,13 +51,14 @@ def intranode_test(
     )
     for i in range(num_ranks):
         num_tokens_per_rank[i] = (rank_idx == i).sum()
-        token_sel = (rank_idx == i).max(dim=-1)[0]
+        token_sel = (rank_idx == i).any(dim=-1)
         count = token_sel.sum().item()
-        tokens = torch.sort(token_sel.to(torch.int), descending=True)[1]
-        tokens[:count] = torch.sort(tokens[:count])[0]
-        token_idx_in_rank[i][tokens[:count]] = torch.arange(
-            count, dtype=torch.long, device="npu"
-        )
+        num_tokens_per_rank[i] = count
+        if count > 0:
+            selected_tokens = torch.where(token_sel)[0]
+            token_idx_in_rank[i, selected_tokens] = torch.arange(
+                count, dtype=torch.long, device="npu"
+            )
     token_idx_in_rank = token_idx_in_rank.T.contiguous().to(torch.int)
     is_token_in_rank = (token_idx_in_rank >= 0).to(torch.int)
     gbl_num_tokens_per_rank = num_tokens_per_rank.clone()
@@ -82,6 +88,7 @@ def intranode_test(
             raise
     except Exception as e:
         print(f"An error occurred: {e}")
+        raise
 
     x = torch.randn((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
     topk_weights = torch.randn(
@@ -150,7 +157,7 @@ def low_latency_test(
     assert num_experts % num_ranks == 0
     experts_per_rank = num_experts // num_ranks
 
-    rank_offset = 128
+    rank_offset = RANK_OFFSET
     assert (
         num_ranks - rank_offset < 257
     ), "Too many ranks (exceeding test precision limit)"
