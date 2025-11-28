@@ -21,6 +21,12 @@ class DeviceCapability(IntEnum):
 
 
 @lru_cache(maxsize=1)
+def get_device_name() -> str:
+    device = torch.npu.current_device()
+    return torch.npu.get_device_name(device)
+
+
+@lru_cache(maxsize=1)
 def get_device_properties() -> Tuple[int, int]:
     device = torch.npu.current_device()
     device_properties = torch.npu.get_device_properties(device)
@@ -36,8 +42,6 @@ def get_device_capability() -> DeviceCapability:
     soc = torch_npu._C._npu_get_soc_version()
     soc = soc // 10 * 10
 
-    assert soc in iter(
-        DeviceCapability
-    ), f"Unsupported soc: {torch.npu.get_device_name()}"
+    assert soc in iter(DeviceCapability), f"Unsupported soc: {get_device_name()}"
 
     return DeviceCapability(soc)
