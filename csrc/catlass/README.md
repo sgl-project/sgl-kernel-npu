@@ -38,7 +38,7 @@ extern "C" __global__ __aicore__ void catlass_matmul_basic(GM_ADDR gmA, GM_ADDR 
 |:----------------------|:----------------|:-------------------------------------|:--------------|
 | `input_a`         | `torch.Tensor`  | input left tensor with shape (m, k)  | 左输入矩阵，（m,k)大小 |
 | `input_b`      | `torch.Tensor`  | input right tensor with shape (k, n) | 右输入矩阵，（k,n)大小 |
-| `format_mode`  | `[optional]string`                                            | weight format ND/NZ, default ND        | 权重格式ND/NZ, 默认为 ND    
+| `format_mode`  | `[optional]string`                                            | weight format ND/NZ, default ND        | 权重格式ND/NZ, 默认为 ND
 
 
 ## Output Description | 输出说明

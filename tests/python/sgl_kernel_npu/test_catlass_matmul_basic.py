@@ -127,7 +127,9 @@ if __name__ == "__main__":
     try:
         catlass_ops = torch.ops.npu.catlass_matmul_basic
     except Exception as e:
-        print("use catlass ops in sglang-kernel need to set BUILD_KERNELS_MODULE in cmake during compiling")
+        print(
+            "use catlass ops in sglang-kernel need to set BUILD_KERNELS_MODULE in cmake during compiling"
+        )
         raise e
 
     unittest.main(verbosity=2)

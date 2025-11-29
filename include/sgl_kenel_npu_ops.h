@@ -90,8 +90,9 @@ void sgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
                  at::Tensor &seq_len, at::Tensor &y, double scale);
 
 #ifdef BUILD_CATLASS_MODULE
-void catlass_matmul_basic(const at::Tensor &tensor_a, const at::Tensor &tensor_b, 
-                            at::Tensor &tensor_c, c10::optional<c10::string_view> format_mode);
+void catlass_matmul_basic(const at::Tensor &tensor_a,
+                          const at::Tensor &tensor_b, at::Tensor &tensor_c,
+                          c10::optional<c10::string_view> format_mode);
 #endif
 } // namespace npu_kernel
 

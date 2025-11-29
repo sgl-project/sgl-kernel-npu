@@ -18,7 +18,7 @@ namespace npu_kernel {
 
 typedef enum { WEIGHT_ND = 0, WEIGHT_NZ = 1 } WeightFormatMode;
 
-typedef enum { BF16 = 0, FP16 = 1, FP32 = 2} DataFormatMode;
+typedef enum { BF16 = 0, FP16 = 1, FP32 = 2 } DataFormatMode;
 
 struct KernelCatlassMatmulTilingData {
     int32_t m;

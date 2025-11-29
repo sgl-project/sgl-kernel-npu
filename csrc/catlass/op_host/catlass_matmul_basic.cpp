@@ -20,17 +20,12 @@ namespace npu_kernel {
 
 constexpr uint32_t PADDING_BYTE = 32U;
 
-std::map<c10::ScalarType, DataFormatMode> dTypeMap = {
-    {at::ScalarType::Half, DataFormatMode::FP16},
-    {at::ScalarType::BFloat16, DataFormatMode::BF16},
-    {at::ScalarType::Float, DataFormatMode::FP32}
-};
+std::map<c10::ScalarType, DataFormatMode> dTypeMap = {{at::ScalarType::Half, DataFormatMode::FP16},
+                                                      {at::ScalarType::BFloat16, DataFormatMode::BF16},
+                                                      {at::ScalarType::Float, DataFormatMode::FP32}};
 
-
-std::unordered_map<c10::string_view, uint16_t> weightFormatMap = {
-    {"ND", WeightFormatMode::WEIGHT_ND},
-    {"NZ", WeightFormatMode::WEIGHT_NZ}
-};
+std::unordered_map<c10::string_view, uint16_t> weightFormatMap = {{"ND", WeightFormatMode::WEIGHT_ND},
+                                                                  {"NZ", WeightFormatMode::WEIGHT_NZ}};
 
 template <typename MapType>
 inline int GetModeVal(const MapType &mode_map, c10::optional<c10::string_view> mode_opt, c10::string_view default_mode,
@@ -44,10 +39,9 @@ inline int GetModeVal(const MapType &mode_map, c10::optional<c10::string_view> m
     return it->second;
 }
 
-at::Tensor get_tiling(int32_t &m, int32_t &n, int32_t k, int64_t weight_format_mode,
-                      int64_t data_format_mode, uint32_t &blockDim)
+at::Tensor get_tiling(int32_t &m, int32_t &n, int32_t k, int64_t weight_format_mode, int64_t data_format_mode,
+                      uint32_t &blockDim)
 {
-
     auto ascendc_platform = platform_ascendc::PlatformAscendCManager::GetInstance();
     blockDim = static_cast<uint32_t>(ascendc_platform->GetCoreNumAiv());
 
@@ -55,7 +49,8 @@ at::Tensor get_tiling(int32_t &m, int32_t &n, int32_t k, int64_t weight_format_m
     int32_t tiling_size = (sizeof(KernelCatlassMatmulTilingData) + PADDING_BYTE - 1) / PADDING_BYTE * PADDING_BYTE;
     auto tiling_buffer = at::empty({tiling_size}, at::TensorOptions().dtype(at::kByte).device(at::kCPU));
 
-    KernelCatlassMatmulTilingData *tiling_data = reinterpret_cast<KernelCatlassMatmulTilingData *>(tiling_buffer.data_ptr());
+    KernelCatlassMatmulTilingData *tiling_data =
+        reinterpret_cast<KernelCatlassMatmulTilingData *>(tiling_buffer.data_ptr());
     tiling_data->m = m;
     tiling_data->n = n;
     tiling_data->k = k;
@@ -66,17 +61,18 @@ at::Tensor get_tiling(int32_t &m, int32_t &n, int32_t k, int64_t weight_format_m
     return tiling_tensor;
 }
 
-HOST_API void catlass_matmul_basic(const at::Tensor &input_a, const at::Tensor &input_b,
-                                   at::Tensor &output_c, c10::optional<c10::string_view> format_mode)
+HOST_API void catlass_matmul_basic(const at::Tensor &input_a, const at::Tensor &input_b, at::Tensor &output_c,
+                                   c10::optional<c10::string_view> format_mode)
 {
     // ops valid check
     at::ScalarType aType = input_a.scalar_type();
     at::ScalarType bType = input_b.scalar_type();
     at::ScalarType cType = output_c.scalar_type();
     TORCH_CHECK(aType == bType && bType == cType, "tensor type is not the same");
-    TORCH_CHECK((aType == at::ScalarType::BFloat16) || (aType == at::ScalarType::Half) || (aType == at::ScalarType::Float),
-                "tensor type only support half / bf16 / fp32");
-    
+    TORCH_CHECK(
+        (aType == at::ScalarType::BFloat16) || (aType == at::ScalarType::Half) || (aType == at::ScalarType::Float),
+        "tensor type only support half / bf16 / fp32");
+
     auto formatMode = static_cast<WeightFormatMode>(GetModeVal(weightFormatMap, format_mode, "ND", "format_mode"));
     TORCH_CHECK(formatMode == WeightFormatMode::WEIGHT_ND, "current ops only support weightFormat ND");
 
@@ -89,8 +85,7 @@ HOST_API void catlass_matmul_basic(const at::Tensor &input_a, const at::Tensor &
     auto tiling_tensor = get_tiling(m, n, k, formatMode, dTypeMap[aType], blockDim);
 
     // launch the kernel function via torch
-    auto workspace_tensor =
-        at::empty({1}, at::TensorOptions().dtype(at::kByte).device(input_a.options().device()));
+    auto workspace_tensor = at::empty({1}, at::TensorOptions().dtype(at::kByte).device(input_a.options().device()));
     EXEC_KERNEL_CMD(catlass_matmul_basic, blockDim, input_a, input_b, output_c, workspace_tensor, tiling_tensor);
 }
 
