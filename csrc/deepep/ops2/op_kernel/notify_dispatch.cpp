@@ -1,5 +1,6 @@
 #include "kernel_operator.h"
 #include "notify_dispatch.h"
+#include "notify_dispatch_tiling.h"
 
 #define TILING_KEY_FLOAT16 20
 #define TILING_KEY_BFLOAT16 21
@@ -9,8 +10,9 @@
 #define KERNEL_USE_WORKSPACE (1 * 1024 * 1024)
 
 extern "C" __global__ __aicore__ void notify_dispatch(GM_ADDR sendData, GM_ADDR tokenPerExpertData,
-                                                      GM_ADDR sendDataOffset, GM_ADDR recvData, GM_ADDR workspace,
-                                                      GM_ADDR tilingGM)
+                                                      GM_ADDR sendDataOffset, GM_ADDR recvData, GM_ADDR totalRecvTokens,
+                                                      GM_ADDR recvCount, GM_ADDR recvOffset, GM_ADDR maxBs,
+                                                      GM_ADDR recvTokensPerExpert, GM_ADDR workspace, GM_ADDR tilingGM)
 {
     REGISTER_TILING_DEFAULT(NotifyDispatchTilingData);
     GET_TILING_DATA_WITH_STRUCT(NotifyDispatchTilingData, tilingData, tilingGM);
