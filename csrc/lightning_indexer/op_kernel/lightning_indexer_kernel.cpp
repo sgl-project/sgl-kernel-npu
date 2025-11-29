@@ -10,12 +10,9 @@
  */
 
 // /*!
-//  * \file lightning_indexer_kernel.h
+//  * \file lightning_indexer_kernel.cpp
 //  * \brief
 //  */
-
-// #ifndef LIGHTNING_INDEXER_KERNEL_H
-// #define LIGHTNING_INDEXER_KERNEL_H
 
 #include "kernel_operator.h"
 #include "kernel_operator_list_tensor_intf.h"

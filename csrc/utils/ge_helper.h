@@ -139,7 +139,7 @@ public:
         if (useDataTypeList_) {
             return dataTypes_[0];
         }
-        TORCH_CHECK(index < dataTypes_.size(), "InputDef::GetDataType index out of range");
+        TORCH_CHECK(index < dataTypes_.size(), "[GE_Helper] InputDef::GetDataType index out of range");
         return dataTypes_[index];
     }
 
@@ -153,7 +153,7 @@ public:
         if (useFormatList_) {
             return formats_[0];
         }
-        TORCH_CHECK(index < formats_.size(), "InputDef::GetFormat index out of range");
+        TORCH_CHECK(index < formats_.size(), "[GE_Helper] InputDef::GetFormat index out of range");
         return formats_[index];
     }
 
@@ -178,7 +178,7 @@ public:
     AttrDef &String(const std::string &value)
     {
         TORCH_CHECK(valueInitialized_ == false,
-                    "Cannot set default value for an attribute that has already been initialized.");
+                    "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
         anyValue_ = value;
         valueInitialized_ = true;
         isString_ = true;
@@ -188,7 +188,7 @@ public:
     AttrDef &Int(int value)
     {
         TORCH_CHECK(valueInitialized_ == false,
-                    "Cannot set default value for an attribute that has already been initialized.");
+                    "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
         anyValue_ = value;
         valueInitialized_ = true;
         return *this;
@@ -251,7 +251,7 @@ public:
     const T *GetAttrPointer(size_t index)
     {
         std::any &anyValue = anyValues_[index];
-        TORCH_CHECK(anyValue.type() == typeid(T), "Invalid attribute type.");
+        TORCH_CHECK(anyValue.type() == typeid(T), "[GE_Helper] Invalid attribute type.");
         return &std::any_cast<const T &>(anyValue);
     }
 
@@ -298,7 +298,7 @@ public:
         shapePtr->emplace_back(std::move(storageShape));
 
         // Safety check to avoid underflow
-        TORCH_CHECK(!descPtr->empty(), "No tensor description available");
+        TORCH_CHECK(!descPtr->empty(), "[GE_Helper] No tensor description available.");
 
         auto index = descPtr->size() - 1;
         // storageFormat == originFormat
@@ -455,7 +455,7 @@ public:
                 return;
             }
         }
-        // throw std::runtime_error("SetAttrStr failed, attrName not exists");
+        throw std::runtime_error("[GE_Helper] SetAttrStr failed, attrName not exists");
     }
 
     void SetAttrAny(const std::string attrName, std::any anyVal)
@@ -466,17 +466,18 @@ public:
                 return;
             }
         }
-        // throw std::runtime_error("SetAttrAny failed, attrName not exists");
+        throw std::runtime_error("[GE_Helper] SetAttrAny failed, attrName not exists");
     }
 
     void SetToContext(std::shared_ptr<TilingContext> &context, at::ScalarType &scalarType)
     {
         auto geType = SCALAR_TYPE_TO_GE_DATATYPE(scalarType);
-        TORCH_CHECK(!inputs_.empty(), "Check the op definition file");
+        TORCH_CHECK(!inputs_.empty(), "[GE_Helper] SetToContext: Check the op definition file");
 
         const auto &firstParamTypes = inputs_[0].second.GetDataTypes();
         auto it = std::find(firstParamTypes.begin(), firstParamTypes.end(), geType);
-        TORCH_CHECK(it != firstParamTypes.end(), "Invalid input type, please check the op definition file");
+        TORCH_CHECK(it != firstParamTypes.end(),
+                    "[GE_Helper] SetToContext: Invalid input type, please check the op definition file");
         uint32_t index = std::distance(firstParamTypes.begin(), it);
 
         for (auto &input : inputs_) {
@@ -520,7 +521,8 @@ private:
 
 inline gert::StorageShape CreateStorageShape(const std::vector<int64_t> origin, const std::vector<int64_t> storage)
 {
-    TORCH_CHECK(origin.size() <= 4 && origin.size() == storage.size(), "Unsupported vector size");
+    TORCH_CHECK(origin.size() <= 4 && origin.size() == storage.size(),
+                "[GE_Helper] CreateStorageShape: Unsupported vector size");
     switch (origin.size()) {
         case DIM0:
             return gert::StorageShape({}, {});
