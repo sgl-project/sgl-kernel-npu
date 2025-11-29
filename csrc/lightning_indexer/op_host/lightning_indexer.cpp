@@ -141,16 +141,16 @@ HOST_API at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor 
     static auto globalTilingBuffer = at::empty({tilingSize * MAX_CAPTURE_NUM},
                                                at::TensorOptions().dtype(at::kByte).device(query.options().device()));
 
-    if (actualCaptureNum >= MAX_CAPTURE_NUM) {
-        static auto preillTilingBuffer =
-            at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(query.options().device()));
-        aclrtMemcpy(preillTilingBuffer.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize,
-                    ACL_MEMCPY_HOST_TO_DEVICE);
-        tilingTensor = at::from_blob(preillTilingBuffer.data_ptr<uint8_t>(), tilingSize, at::kByte);
-    } else if (captureMap.find(hashValue) != captureMap.end()) {
-        // Decode replay phase and part of cached prefill tiling data got from globalTilingBuffer
+    if (captureMap.find(hashValue) != captureMap.end()) {
+        // For decode replay phase and part of prefill phase, get cached tiling data from globalTilingBuffer
         tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
                                      tilingSize, at::kByte);
+    } else if (actualCaptureNum >= MAX_CAPTURE_NUM) {
+        // For tiling hash that not exist in capture map and exceeds MAX_CAPTURE_NUM, reload its' tiling data to NPU
+        static auto tilingBuffer =
+            at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(query.options().device()));
+        aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
+        tilingTensor = at::from_blob(tilingBuffer.data_ptr<uint8_t>(), tilingSize, at::kByte);
     } else {
         // Captured tiling cached here
         captureMap[hashValue] = actualCaptureNum;
