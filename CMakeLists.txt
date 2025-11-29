@@ -6,6 +6,7 @@ option(BUILD_TESTS  "build test or not" OFF)
 
 option(BUILD_DEEPEP_MODULE "build deepep" ON)
 option(BUILD_KERNELS_MODULE  "build kernels" ON)
+option(BUILD_CATLASS_MODULE  "build catlass ops within kernels" OFF)
 
 set(CMAKE_CXX_STANDARD 17)
 #set(CMAKE_VERBOSE_MAKEFILE ON)
@@ -16,6 +17,12 @@ endif()
 
 add_compile_options(-hno-unused-parameter -lno-unused-function -Wunused-value -Wcast-align)
 add_compile_options(-Wcast-qual -Winvalid-pch -Wwrite-strings -Wsign-compare -Wextra)
+
+if (BUILD_CATLASS_MODULE)
+    add_compile_definitions(BUILD_CATLASS_MODULE)
+    set(CATLASS_DIR "${PROJECT_SOURCE_DIR}/3rdparty/catlass")  # specific your catlass path here
+    message(STATUS "[CATLASS] ${CATLASS_DIR}")
+endif ()
 
 if (${CMAKE_BUILD_TYPE} MATCHES "RELEASE")
     add_compile_options(-O3)
