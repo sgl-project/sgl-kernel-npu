@@ -30,10 +30,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
-          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
-          pip config set global.index-url http://${CACHING_URL}/pypi/simple
-          pip config set global.trusted-host ${CACHING_URL}
+          pip config set global.index-url https://repo.huaweicloud.com/repository/pypi/simple
+          pip config set global.trusted-host repo.huaweicloud.com
           bash scripts/release_ci_dependency.sh    
 
       - name: Build wheel packages
