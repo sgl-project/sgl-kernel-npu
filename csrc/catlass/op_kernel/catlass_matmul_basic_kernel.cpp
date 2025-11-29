@@ -30,28 +30,36 @@ extern "C" __global__ __aicore__ void catlass_matmul_basic(GM_ADDR gmA, GM_ADDR 
 {
     using ArchTag = Arch::AtlasA2;
     using DispatchPolicy = Gemm::MmadAtlasA2Pingpong<true>;
-    using L1TileShape = GemmShape<128, 256, 256>;
-    using L0TileShape = GemmShape<128, 256, 64>;
+    // tile shape for different element size
+    using L1TileShape_2B = GemmShape<128, 256, 256>;
+    using L0TileShape_2B = GemmShape<128, 256, 64>;
+    using L1TileShape_4B = GemmShape<128, 128, 256>;
+    using L0TileShape_4B = GemmShape<128, 128, 64>;
     using BlockEpilogue = void;
     // Swizzle offset is 3 and direction is 0.
     using BlockScheduler = typename Gemm::Block::GemmIdentityBlockSwizzle<3, 0>;
+
     /* init catlass template 1. fp16 no_weight_nz */
     using BlockMmad_case1 = Gemm::Block::BlockMmad<DispatchPolicy,
-        L1TileShape, L0TileShape,
+        L1TileShape_2B, L0TileShape_2B,
         Gemm::GemmType<half, layout::RowMajor>,
         Gemm::GemmType<half, layout::RowMajor>,
         Gemm::GemmType<half, layout::RowMajor>>;
-    // kernel level
     using MatmulKernel_fp16_no_nz = Gemm::Kernel::BasicMatmul<BlockMmad_case1, BlockEpilogue, BlockScheduler>;
-
     /* init catlass template 2. bf16 no_weight_nz */
     using BlockMmad_case2 = Gemm::Block::BlockMmad<DispatchPolicy,
-        L1TileShape, L0TileShape,
+        L1TileShape_2B, L0TileShape_2B,
         Gemm::GemmType<__bf16, layout::RowMajor>,
         Gemm::GemmType<__bf16, layout::RowMajor>,
         Gemm::GemmType<__bf16, layout::RowMajor>>;
-    // kernel level
     using MatmulKernel_bf16_no_nz = Gemm::Kernel::BasicMatmul<BlockMmad_case2, BlockEpilogue, BlockScheduler>;
+    /* init catlass template 3. fp32 no_weight_nz */
+    using BlockMmad_case3 = Gemm::Block::BlockMmad<DispatchPolicy,
+        L1TileShape_4B, L0TileShape_4B,
+        Gemm::GemmType<float, layout::RowMajor>,
+        Gemm::GemmType<float, layout::RowMajor>,
+        Gemm::GemmType<float, layout::RowMajor>>;
+    using MatmulKernel_fp32_no_nz = Gemm::Kernel::BasicMatmul<BlockMmad_case3, BlockEpilogue, BlockScheduler>;
 
 
     auto tiling_data = reinterpret_cast<__gm__ sglang::npu_kernel::KernelCatlassMatmulTilingData *>(gmTiling);
@@ -91,7 +99,21 @@ extern "C" __global__ __aicore__ void catlass_matmul_basic(GM_ADDR gmA, GM_ADDR 
         MatmulKernel_fp16_no_nz matmul_kernel;
         matmul_kernel(params);
     }
+    else if (tiling_data->data_format_mode == sglang::npu_kernel::DataFormatMode::FP32) {
+        MatmulKernel_fp32_no_nz::Arguments arguments{problemShape, gmA, gmB, gmC};
+
+        typename MatmulKernel_fp32_no_nz::Params params{
+            problemShape,
+            gmA, layoutA,
+            gmB, layoutB,
+            gmC, layoutC
+        };
+
+        MatmulKernel_fp32_no_nz matmul_kernel;
+        matmul_kernel(params);
+    }
     else {
-        assert(false, "Unknown DataFormatMode, process exit!\n");
+        // TODO: use device error check process
+        return;
     }
 }

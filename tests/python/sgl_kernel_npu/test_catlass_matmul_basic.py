@@ -69,7 +69,7 @@ class TestMatrixMultiplication(unittest.TestCase):
             (160, 512, 128),
         ]
 
-        dtypes = [torch.float16, torch.bfloat16]
+        dtypes = [torch.float16, torch.bfloat16, torch.float32]
 
         for dtype in dtypes:
             for m, k, n in test_cases:
@@ -86,7 +86,7 @@ class TestMatrixMultiplication(unittest.TestCase):
     def test_random_shapes(self):
         """Test randomly generated shapes"""
         num_tests = 1
-        dtypes = [torch.float16, torch.bfloat16]
+        dtypes = [torch.float16, torch.bfloat16, torch.float32]
 
         for dtype in dtypes:
             for _ in range(num_tests):
@@ -107,7 +107,7 @@ class TestMatrixMultiplication(unittest.TestCase):
 
     def test_zero_values(self):
         """Test zero input values"""
-        dtypes = [torch.float16, torch.bfloat16]
+        dtypes = [torch.float16, torch.bfloat16, torch.float32]
         m, k, n = 4, 3, 2
 
         for dtype in dtypes:

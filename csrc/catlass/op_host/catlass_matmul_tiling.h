@@ -12,10 +12,11 @@
 #define KERNEL_CATLASS_MATMUL_TILING_H
 
 #include <cstdint>
+
 namespace sglang {
 namespace npu_kernel {
 
-typedef enum { NO_NZ = 0, WEIGHT_NZ = 1 } WeightFormatMode;
+typedef enum { WEIGHT_ND = 0, WEIGHT_NZ = 1 } WeightFormatMode;
 
 typedef enum { BF16 = 0, FP16 = 1, FP32 = 2} DataFormatMode;
 
@@ -24,7 +25,7 @@ struct KernelCatlassMatmulTilingData {
     int32_t n;
     int32_t k;
 
-    int64_t weight_format_mode = NO_NZ;
+    int64_t weight_format_mode = WEIGHT_ND;
     int64_t data_format_mode = BF16;
 };
 

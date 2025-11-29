@@ -19,9 +19,10 @@ This is the catlass version matmul kernel  `catlass_matmul_basic` kernel functio
 import sgl_kernel_npu
 
 torch.ops.npu.catlass_matmul_basic(
-    input_a: torch.Tensor,        # bf16/fp16, [m, k]
-    input_b: torch.Tensor,        # bf16/fp16, [k, n]
-    output_c: torch.Tensor        # bf16/fp16, [m, n]
+    input_a: torch.Tensor,        # bf16/fp16/fp32, [m, k]
+    input_b: torch.Tensor,        # bf16/fp16/fp32, [k, n]
+    output_c: torch.Tensor,       # bf16/fp16/fp32, [m, n]
+    format_mode: str = None       # string "ND"/"NZ"
 ) -> None
 ```
 
@@ -37,6 +38,7 @@ extern "C" __global__ __aicore__ void catlass_matmul_basic(GM_ADDR gmA, GM_ADDR 
 |:----------------------|:----------------|:-------------------------------------|:--------------|
 | `input_a`         | `torch.Tensor`  | input left tensor with shape (m, k)  | 左输入矩阵，（m,k)大小 |
 | `input_b`      | `torch.Tensor`  | input right tensor with shape (k, n) | 右输入矩阵，（k,n)大小 |
+| `format_mode`  | `[optional]string`                                            | weight format ND/NZ, default ND        | 权重格式ND/NZ, 默认为 ND    
 
 
 ## Output Description | 输出说明
@@ -49,10 +51,10 @@ extern "C" __global__ __aicore__ void catlass_matmul_basic(GM_ADDR gmA, GM_ADDR 
 ## Constraints | 约束说明
 
 ### English:
-`WeightFormatMode.WEIGHT_NZ` is not implemented
+`format_mode = "NZ"` is not implemented
 
 ### 中文:
-`WeightFormatMode.WEIGHT_NZ` 暂未实现
+`format_mode = "NZ"` 暂未实现
 
 ## Example | 调用示例
 
@@ -64,7 +66,7 @@ import torch_npu
 
 device = torch.device('npu:0')
 
-dtypes = [torch.float16, torch.bfloat16]
+dtypes = [torch.float16, torch.bfloat16, torch.float32]
 m, k, n = 128, 256, 256
 
 for dtype in dtypes:
