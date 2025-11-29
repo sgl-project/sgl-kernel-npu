@@ -174,7 +174,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     auto rank_prefix_matrix = at::empty({num_ranks, num_ranks}, at::dtype(at::kInt).device(x.device()));
     auto channel_prefix_matrix = at::empty({num_ranks, num_channels}, at::dtype(at::kInt).device(x.device()));
     auto recv_channel_prefix_matrix = at::empty({num_ranks, num_channels}, at::dtype(at::kInt).device(x.device()));
-    std::vector<int> num_recv_tokens_per_expert_list;
 
     at::Tensor new_x = x;
     // for padding
@@ -271,6 +270,11 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int64_t local_rank_size = num_ranks;
     int64_t local_rank_id = rank % local_rank_size;
     auto new_num_tokens_per_expert = num_tokens_per_expert.value();
+    std::vector<int> num_recv_tokens_per_expert_list;
+    // 表示输出num_recv_tokens_per_expert_list的值类型，取值范围[0, 1]
+    // 0表示每个专家收到token数量的前缀和，1表示每个专家收到的token数量（默认）
+    int expert_token_nums_type = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
+    EP_HOST_ASSERT(expert_token_nums_type == 1 or expert_token_nums_type == 0);
 
     EXEC_NPU_CMD(aclnnNotifyDispatch, send_data, new_num_tokens_per_expert, send_count, num_tokens,
                  hcom_ep_name,  // commGroup
@@ -299,8 +303,11 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  expand_idx_out, dispatch_wait_recv_cost_stats_out);
     auto recv_token_per_exp_cpu = recv_tokens_per_expert_.to(at::kCPU);
     auto recv_token_per_exp_ptr = recv_token_per_exp_cpu.data_ptr<int64_t>();
-    for (int64_t local_e = 0; local_e < num_local_experts; ++local_e) {
-        int token_cnt = static_cast<int>(recv_token_per_exp_ptr[local_e]);
+
+    int token_cnt = 0;
+    for (int local_e = 0; local_e < num_local_experts; ++local_e) {
+        int current_tokens = static_cast<int>(recv_token_per_exp_ptr[local_e]);
+        token_cnt = (expert_token_nums_type == 0) ? token_cnt + current_tokens : current_tokens;
         num_recv_tokens_per_expert_list.emplace_back(token_cnt);
     }
     // Return values
@@ -533,6 +540,10 @@ Buffer::internode_dispatch(
     int64_t local_rank_id = rank % local_rank_size;
     auto new_num_tokens_per_expert = num_tokens_per_expert.value();
     std::vector<int> num_recv_tokens_per_expert_list;
+    // 表示输出num_recv_tokens_per_expert_list的值类型，取值范围[0, 1]
+    // 0表示每个专家收到token数量的前缀和，1表示每个专家收到的token数量（默认）
+    int expert_token_nums_type = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
+    EP_HOST_ASSERT(expert_token_nums_type == 1 or expert_token_nums_type == 0);
 
     // 对应于layout的输出数据和长度
     auto new_send_data = this->notify_send_data;
@@ -599,8 +610,11 @@ Buffer::internode_dispatch(
 
     auto recv_token_per_exp_cpu = recv_tokens_per_expert.to(at::kCPU);
     auto recv_token_per_exp_ptr = recv_token_per_exp_cpu.data_ptr<int64_t>();
+
+    int token_cnt = 0;
     for (int local_e = 0; local_e < num_local_experts; ++local_e) {
-        int token_cnt = static_cast<int>(recv_token_per_exp_ptr[local_e]);
+        int current_tokens = static_cast<int>(recv_token_per_exp_ptr[local_e]);
+        token_cnt = (expert_token_nums_type == 0) ? token_cnt + current_tokens : current_tokens;
         num_recv_tokens_per_expert_list.emplace_back(token_cnt);
     }
 
