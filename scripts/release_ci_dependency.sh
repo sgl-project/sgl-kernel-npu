@@ -26,3 +26,7 @@ ${PIP_INSTALL} torch==${PYTORCH_VERSION} torchvision==${TORCHVISION_VERSION} --i
 
 PTA_URL="https://sglang-ascend.obs.cn-east-3.myhuaweicloud.com/sglang/torch_npu/torch_npu-2.8.0.post2.dev20251113-cp311-cp311-manylinux_2_28_aarch64.whl"
 ${PIP_INSTALL} ${PTA_URL}
+ASCEND_CANN_PATH=/usr/local/Ascend/ascend-toolkit
+${PIP_INSTALL} wheel==0.45.1
+export LD_LIBRARY_PATH=${ASCEND_CANN_PATH}/latest/runtime/lib64/stub:$LD_LIBRARY_PATH
+source ${ASCEND_CANN_PATH}/set_env.sh
