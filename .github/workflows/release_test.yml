@@ -6,7 +6,7 @@ on:
       - main
     paths:
       - ".github/workflows/release_test.yml"
-      - "docker/npu.Dockerfile"
+      - "scripts/release_ci_dependency.sh"
   workflow_dispatch:
 jobs:
   build-and-upload:
