@@ -23,6 +23,11 @@ jobs:
         with:
           clean: true
 
+      - name: Install dependencies
+        run: |
+          chmod +x scripts/release_ci_dependency.sh
+          bash scripts/release_ci_dependency.sh
+
       - name: Build wheel packages
         run: bash build.sh
 
