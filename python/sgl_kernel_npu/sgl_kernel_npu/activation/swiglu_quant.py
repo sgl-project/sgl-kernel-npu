@@ -58,7 +58,7 @@ def _swiglu_quant_kernel(
                 )
                 tmp_out = (tmp_out.to(tl.float32) / scale).to(x_ptr.dtype.element_ty)
                 # tmp_out = tl.clamp(tmp_out, -128, 127)
-                tmp_out = tl.math.rint(tmp_out)
+                tmp_out = tmp_out.cast(tl.int8, overflow_mode="saturate")
 
                 o_offsets = (
                     row_idx * HALF_COLS + col_blk_idx + tl.arange(0, COL_BLOCK_SIZE)
