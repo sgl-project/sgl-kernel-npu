@@ -4,14 +4,14 @@
     is unrolled by for loop and low-efficient)
 '''
 
-from typing import Optional
 from inspect import signature
+from typing import Optional
+
 import torch
 import torch.nn.functional as F
 import triton
 import triton.language as tl
 
-# Note: from sglang.srt.layers.attention.fla.index import prepare_chunk_indices, prepare_chunk_offsets
 from sgl_kernel_npu.utils.index import prepare_chunk_indices
 
 
@@ -38,6 +38,43 @@ def chunk_local_cumsum_scalar_kernel(
     HEAD_FIRST: tl.constexpr,
     CHUNK_SIZE: tl.constexpr=64,
 ): 
+    """
+    Computes a chunk-wise cumulative sum (optionally reversed) over input tensor `s` and writes the result to `o`.
+    This kernel operates on sequences that may be either fixed-length (batched) or variable-length (packed)..
+
+    The layout of the input/output tensors depends on the `HEAD_FIRST` flag:
+      - If `HEAD_FIRST=True`: tensors are shaped `(B, H, T)`
+      - If `HEAD_FIRST=False`: tensors are shaped `(B, T, H)`
+
+    For variable-length sequences (`IS_VARLEN=True`), sequence boundaries are defined by `cu_seqlens`,
+    and valid computation blocks are specified via `chunk_indices`.
+
+    Args:
+        s (tl.pointer): Input tensor pointer. Shape depends on `HEAD_FIRST` and batching mode.
+        o (tl.pointer): Output tensor pointer. Same shape and layout as `s`.
+        scale (float or None): Optional scalar multiplier applied to the output if `HAS_SCALE=True`.
+        cu_seqlens (tl.pointer or None): Cumulative sequence lengths for variable-length batching.
+                                         Required if `IS_VARLEN=True`.
+        chunk_indices (tl.pointer or None): Pairs of (sequence_id, block_id) indicating which
+                                            sequence and which time-block to process.
+                                            Only used when `IS_VARLEN=True`.
+        T (int): Total sequence length per batch (for fixed-length) or max sequence length (for varlen).
+        B (tl.constexpr): Batch size (number of sequences).
+        H (tl.constexpr): Number of heads or feature dimension.
+        BLOCK_T (tl.constexpr): Number of time steps processed per kernel launch per batch item.
+        REVERSE (tl.constexpr): If True, computes reverse cumulative sum within each chunk.
+        HAS_SCALE (tl.constexpr): If True, applies `scale` to the output.
+        IS_VARLEN (tl.constexpr): If True, uses packed variable-length layout via `cu_seqlens`.
+        HEAD_FIRST (tl.constexpr): Controls tensor memory layout (head-first vs time-first).
+        CHUNK_SIZE (tl.constexpr, optional): Size of each local chunk for cumsum. Default: 64.
+
+    Notes:
+        - The kernel assumes `BLOCK_T` is divisible into chunks of `CHUNK_SIZE` (padding handled internally).
+        - Boundary checks are applied during load/store to avoid out-of-bounds access.
+        - All computations are performed in fp32 for numerical stability, then cast back to input dtype.
+
+        - reverse cumsum requires T is multiple of CHUNK_SIZE, same as orig code.
+    """
     i_block, i_b = tl.program_id(0), tl.program_id(1)
     N_CHUNKS: tl.constexpr = (BLOCK_T + (CHUNK_SIZE - 1)) // CHUNK_SIZE
     
@@ -123,7 +160,5 @@ def chunk_local_cumsum_scalar_npu(
         CHUNK_SIZE =chunk_size,
         HEAD_FIRST=head_first,
         REVERSE=reverse,
-        num_warps=8,
-        num_stages=3,
     )
     return g

@@ -1,5 +1,6 @@
-from typing import Optional
 from inspect import signature
+from typing import Optional
+
 import torch
 import torch_npu
 import triton
@@ -106,7 +107,7 @@ def chunk_local_cumsum_scalar_gpu(
     )
     return g
 
-#=========================================================
+
 def chunk_local_cumsum_fix_len_torch(
     g: torch.Tensor,
     chunk_size: int,
@@ -330,111 +331,3 @@ def test_chunk_local_cumsum_fixed_len(
         head_first=head_first,
         output_dtype=dtype,
     )
-
-
-if __name__ == "__main__":
-    torch_npu_flag = False
-    if not torch.cuda.is_available():
-        from torch_npu.contrib import transfer_to_npu
-        torch_npu_flag = True
-
-
-    def chunk_local_cumsum(
-        g: torch.Tensor,
-        chunk_size: int,
-        reverse: bool = False,
-        scale: float = None,
-        cu_seqlens: Optional[torch.Tensor] = None,
-        head_first: bool = False,
-        output_dtype: Optional[torch.dtype] = torch.float,
-        **kwargs,
-    ) -> torch.Tensor:
-        if cu_seqlens is not None:
-            assert (
-                g.shape[0] == 1
-            ), "Only batch size 1 is supported when cu_seqlens are provided"
-        if len(g.shape) == 3:
-            if torch_npu_flag:
-                chunk_local_cumsum_scalar = chunk_local_cumsum_scalar_npu
-            else:
-                chunk_local_cumsum_scalar = chunk_local_cumsum_scalar_gpu
-            return chunk_local_cumsum_scalar(
-                g=g,
-                chunk_size=chunk_size,
-                reverse=reverse,
-                scale=scale,
-                cu_seqlens=cu_seqlens,
-                head_first=head_first,
-                output_dtype=output_dtype,
-            )
-        elif len(g.shape) == 4:
-            return chunk_local_cumsum_vector(
-                g=g,
-                chunk_size=chunk_size,
-                reverse=reverse,
-                scale=scale,
-                cu_seqlens=cu_seqlens,
-                head_first=head_first,
-                output_dtype=output_dtype,
-            )
-        else:
-            raise ValueError(
-                f"Unsupported input shape {g.shape}, "
-                f"which should be (B, T, H, D) if `head_first=False` "
-                f"or (B, H, T, D) otherwise"
-            )
-    _CONDITIONS = ("seq7168", )
-    for cond in _CONDITIONS:
-        args, kwargs = torch.load(f"./chunk_local_cumsum@{cond}_input.pt", map_location="cuda")
-        output = torch.load(f"./chunk_local_cumsum@{cond}_output.pt", map_location="cuda")
-
-        print(signature(chunk_local_cumsum).bind(*args, **kwargs))
-
-        result = chunk_local_cumsum(*args, **kwargs)
-        # print(result - output, output.shape, result.shape)
-        torch.testing.assert_close(result, output)
-        if not torch_npu_flag:
-            with torch.profiler.profile(
-                activities=[
-                    torch.profiler.ProfilerActivity.CPU,
-                    torch.profiler.ProfilerActivity.CUDA
-                ],
-                schedule=torch.profiler.schedule(wait=0, warmup=0, active=8, repeat=1, skip_first=0),
-                record_shapes=True,
-                profile_memory=True,
-                with_stack=False,
-                with_flops=False,
-                with_modules=False,
-            ) as prof:
-
-                for i in range(20):
-                    result = chunk_local_cumsum(*args, **kwargs)
-                torch.cuda.synchronize()
-
-            prof.export_chrome_trace(f"./chunk_local_cumsum.json")
-
-        else:
-            import torch_npu
-            experimental_config = torch_npu.profiler._ExperimentalConfig(
-                aic_metrics=torch_npu.profiler.AiCMetrics.PipeUtilization,
-                profiler_level=torch_npu.profiler.ProfilerLevel.Level1,
-                l2_cache=False,
-            )
-            with torch_npu.profiler.profile(
-                activities=[
-                    torch_npu.profiler.ProfilerActivity.CPU,
-                    torch_npu.profiler.ProfilerActivity.NPU
-                ],
-                schedule=torch_npu.profiler.schedule(wait=0, warmup=0, active=8, repeat=1, skip_first=0),
-                on_trace_ready=torch_npu.profiler.tensorboard_trace_handler(f"./chunk_local_cumsum"),
-                record_shapes=True,
-                profile_memory=True,
-                with_stack=False,
-                with_flops=False,
-                with_modules=False,
-                experimental_config=experimental_config,
-            ) as prof:
-
-                for i in range(20):
-                    result = chunk_local_cumsum(*args, **kwargs)
-                torch.npu.synchronize()
