@@ -20,7 +20,6 @@ apt update -y && apt install -y \
 update-ca-certificates
 python3 -m ${PIP_INSTALL} --upgrade pip
 
-
 ### Install PyTorch and PTA
 PYTORCH_VERSION=2.6.0
 TORCHVISION_VERSION=0.21.0
