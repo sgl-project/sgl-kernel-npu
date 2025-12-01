@@ -5,6 +5,8 @@ on:
     types: [published]
 jobs:
   build-and-upload:
+    permissions:
+      contents: write
     runs-on: linux-aarch64-a3-2
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.3.rc1-a3-ubuntu22.04-py3.11
@@ -32,17 +34,8 @@ jobs:
         run: bash build.sh
 
       - name: Upload wheel to release
-        run: |
-          cd ./output
-          for whl in *.whl; do
-            if [[ -f "$whl" ]]; then
-              echo "Uploading $whl..."
-              asset_name="$whl"
-              curl -sL \
-                -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-                -H "Content-Type: application/octet-stream" \
-                --data-binary @"$whl" \
-                "${{ github.event.release.upload_url }}"?name=$asset_name
-            fi
-          done
-        shell: bash
+        uses: softprops/action-gh-release@v2
+        with:
+          files: output/*.whl
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
