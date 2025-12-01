@@ -75,8 +75,10 @@ def chunk_local_cumsum_scalar_kernel(
 
         - reverse cumsum requires T is multiple of CHUNK_SIZE, same as orig code.
     """
+    tl.static_assert(BLOCK_T % CHUNK_SIZE == 0)
+
     i_block, i_b = tl.program_id(0), tl.program_id(1)
-    N_CHUNKS: tl.constexpr = (BLOCK_T + (CHUNK_SIZE - 1)) // CHUNK_SIZE
+    N_CHUNKS: tl.constexpr = BLOCK_T // CHUNK_SIZE
     
     if IS_VARLEN:
         i_s, i_block = tl.load(chunk_indices + i_block * 2).to(tl.int32), tl.load(
