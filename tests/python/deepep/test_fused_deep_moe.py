@@ -16,7 +16,9 @@ torch_npu.npu.config.allow_internal_format = True
 
 # ======================== Weight Initialization ========================
 def init_base_weights(
-    num_local_experts, hidden_in=7168, hidden_mid=4096, hidden_out=2048
+    num_local_experts,
+    hidden_in=7168,
+    hidden_mid=4096,
 ):
     """
     Initialize the weights for each local expert.
@@ -25,7 +27,7 @@ def init_base_weights(
     `hidden_mid`: Intermediate layer dimension (default 4096)
     `hidden_out`: Output dimension (default 2048)
     """
-
+    hidden_out = hidden_mid // 2
     w13_weight = torch.randint(
         -16, 16, [num_local_experts, hidden_mid, hidden_in], dtype=torch.int8
     )
@@ -74,7 +76,7 @@ def reshape_fusion_gmm_weight(weight, dim):
     if dim < 0:
         dim += len(original_shape)
 
-    weight = weight.view(*original_shape[:dim], 2, 32, 64, *original_shape[dim + 1 :])
+    weight = weight.view(*original_shape[:dim], 2, -1, 64, *original_shape[dim + 1 :])
     weight = weight.transpose(dim, dim + 1).contiguous()
     weight = weight.view(*original_shape[:dim], -1, *original_shape[dim + 1 :])
 
@@ -232,6 +234,7 @@ def baseline_test(
 def test(
     num_tokens: int,
     hidden: int,
+    hidden_mid: int,
     num_experts: int,
     num_topk: int,
     rank: int,
@@ -310,6 +313,7 @@ def test(
     w13_weight, w13_weight_scale, w2_weight, w2_weight_scale = init_base_weights(
         num_local_experts=num_local_experts,
         hidden_in=hidden,
+        hidden_mid=hidden_mid,
     )
     w13, w13_scale, w2, w2_scale = init_baseline_weights(
         w13_weight.clone().detach(),
@@ -519,7 +523,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     group2 = dist.new_group(list(range(num_ranks)))
 
     shared_expert_rank_num = int(os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0))
-    num_tokens, hidden = args.num_tokens, args.hidden
+    num_tokens, hidden, hidden_mid = args.num_tokens, args.hidden, args.hidden_mid
     num_topk, num_experts = args.num_topk, args.num_experts
     use_experts = num_experts if shared_expert_rank_num == 0 else (num_experts - 1)
     use_ranks = num_ranks - shared_expert_rank_num
@@ -542,6 +546,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     test(
         num_tokens,
         hidden,
+        hidden_mid,
         use_experts,
         num_topk,
         rank,
@@ -579,6 +584,12 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--hidden", type=int, default=7168, help="Hidden dimension size (default: 7168)"
+    )
+    parser.add_argument(
+        "--hidden-mid",
+        type=int,
+        default=4096,
+        help="Hidden mid dimension size (default: 4096)",
     )
     parser.add_argument(
         "--num-topk", type=int, default=8, help="Number of top-k experts (default: 8)"

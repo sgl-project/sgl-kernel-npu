@@ -78,6 +78,8 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --topk-drop-col 2
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --topk-drop-col 3 --num-experts 16
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 4 --topk-drop-col 1 --num-experts 32
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --num-experts 256 --hidden 6144 --hidden-mid 2048
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py -num-tokens 48 --num-experts 512 --hidden 6144 --hidden-mid 2048
 
   test-build-deepep:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
@@ -139,6 +141,8 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --topk-drop-col 2
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --topk-drop-col 3 --num-experts 16
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 4 --topk-drop-col 1 --num-experts 32
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --num-experts 256 --hidden 6144 --hidden-mid 2048
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py -num-tokens 48 --num-experts 512 --hidden 6144 --hidden-mid 2048
 
   finish:
     if: always()
