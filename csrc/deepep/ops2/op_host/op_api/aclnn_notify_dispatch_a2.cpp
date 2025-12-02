@@ -1,4 +1,3 @@
-#include <string.h>
 #include "graph/types.h"
 #include "aclnn_notify_dispatch_a2.h"
 #include "aclnnInner_notify_dispatch_a2.h"
@@ -22,14 +21,14 @@ aclnnStatus aclnnNotifyDispatchA2GetWorkspaceSize(
     int64_t localRankSize, int64_t localRankId, const aclTensor *sendDataOffset, const aclTensor *recvData,
     const aclTensor *tokenServerIdx, const aclTensor *tokenUniquePerServer, const aclTensor *epRankTokenCnt,
     const aclTensor *localEpTokenCnt, const aclTensor *srcOffsetRankTokenIdx, const aclTensor *dstOffsetRankTokenIdx,
-    const aclTensor *offsetInner, const aclTensor *countOuter, const aclTensor *expandIdx, uint64_t *workspaceSize,
-    aclOpExecutor **executor)
+    const aclTensor *offsetInner, const aclTensor *countOuter, const aclTensor *expandIdx,
+    const aclTensor *totalRecvTokens, uint64_t *workspaceSize, aclOpExecutor **executor)
 {
     return aclnnInnerNotifyDispatchA2GetWorkspaceSize(
         sendData, tokenPerExpertData, tmpData, sendCount, numTokens, topkNum, numExperts, commGroup, rankSize, rankId,
         localRankSize, localRankId, sendDataOffset, recvData, tokenServerIdx, tokenUniquePerServer, epRankTokenCnt,
         localEpTokenCnt, srcOffsetRankTokenIdx, dstOffsetRankTokenIdx, offsetInner, countOuter, expandIdx,
-        workspaceSize, executor);
+        totalRecvTokens, workspaceSize, executor);
 }
 
 aclnnStatus aclnnNotifyDispatchA2(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream)
