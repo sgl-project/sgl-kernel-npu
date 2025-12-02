@@ -7,7 +7,7 @@ jobs:
   build-and-upload:
     permissions:
       contents: write
-    runs-on: ununtu-22.04-arm
+    runs-on: ubuntu-22.04-arm
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.3.rc1-a3-ubuntu22.04-py3.11
     steps:
