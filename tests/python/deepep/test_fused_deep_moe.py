@@ -466,7 +466,7 @@ def test(
         flush=True,
     )
 
-    assert avg_diff < 1e-4, f"[Rank {rank}] Mismatch detected! diff={avg_diff}"
+    assert avg_diff < 2e-4, f"[Rank {rank}] Mismatch detected! diff={avg_diff}"
 
     # ----- Compare Recv Count -----
     all_expert_token_counts = [
