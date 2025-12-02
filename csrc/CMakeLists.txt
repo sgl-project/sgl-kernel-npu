@@ -17,6 +17,8 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_host/bgmv_shrink.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgmv_expand.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgmv_shrink.cpp
+    ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/lightning_indexer.cpp
+    ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/tiling/lightning_indexer_tiling.cpp
     )
 if(BUILD_CATLASS_MODULE)
     list(APPEND OP_SRCS
@@ -44,6 +46,7 @@ set(WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_kernel/mla_preprocess_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/alloc_extend/op_kernel/alloc_extend_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/build_tree/op_kernel/build_tree_kernel.cpp
+    ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_kernel/lightning_indexer_kernel.cpp
 )
 if(BUILD_CATLASS_MODULE)
     list(APPEND WORKSPACE_KERNEL_SRCS
@@ -88,4 +91,7 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${TORCH_DIR}/include
         ${TORCH_DIR}/include/torch/csrc/api/include
         ${TORCH_NPU_DIR}/include
+        ${ASCEND_INCLUDE_DIR}/external
+        ${ASCEND_INCLUDE_DIR}/experiment/platform
+        ${ASCEND_INCLUDE_DIR}/experiment/runtime
 )

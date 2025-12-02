@@ -94,6 +94,16 @@ void catlass_matmul_basic(const at::Tensor &tensor_a,
                           const at::Tensor &tensor_b, at::Tensor &tensor_c,
                           c10::optional<c10::string_view> format_mode);
 #endif
+
+at::Tensor lightning_indexer(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
+    const c10::optional<at::Tensor> &actual_seq_lengths_query,
+    const c10::optional<at::Tensor> &actual_seq_lengths_key,
+    const c10::optional<at::Tensor> &block_table,
+    c10::optional<c10::string_view> layout_query,
+    c10::optional<c10::string_view> layout_key,
+    c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode);
+
 } // namespace npu_kernel
 
 } // namespace sglang
