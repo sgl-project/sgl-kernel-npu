@@ -29,3 +29,5 @@ ${PIP_INSTALL} ${PTA_URL}
 ${PIP_INSTALL} wheel==0.45.1 pybind11
 ASCEND_CANN_PATH=/usr/local/Ascend/ascend-toolkit
 source ${ASCEND_CANN_PATH}/set_env.sh
+export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/devlib:$LD_LIBRARY_PATH
+bash build.sh
