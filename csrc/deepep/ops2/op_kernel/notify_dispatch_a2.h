@@ -18,15 +18,15 @@ using namespace Moe;
         int cycleCount, GM_ADDR scale, int64_t scaleCount, GM_ADDR offset, int localRank, int localRankSize,           \
         GM_ADDR tokenServerIdxOutput, GM_ADDR tokensUniquePerServerOutput, GM_ADDR epRankTokenCntOutput,               \
         GM_ADDR localEpTokenCntOutput, GM_ADDR srcOffsetRankTokenIdxOutput, GM_ADDR dstOffsetRankTokenIdxOutput,       \
-        GM_ADDR offsetInnerOutput, GM_ADDR countOuterOutput, GM_ADDR expandIdxOutput, GM_ADDR workspace,               \
-        GM_ADDR tiling
+        GM_ADDR offsetInnerOutput, GM_ADDR countOuterOutput, GM_ADDR expandIdxOutput, GM_ADDR totalRecvTokensOutput,   \
+        GM_ADDR workspace, GM_ADDR tiling
 
 #define KERNELS_ARGS_CALL_A2_ALL2ALL()                                                                          \
     sendDataInput, tokenPerExpertDataInput, tmpDataInput, sendDataOffsetOutput, recvDataOutput, len, numTokens, \
         topkNum, numExperts, op, root, cycleCount, scale, scaleCount, offset, localRank, localRankSize,         \
         tokenServerIdxOutput, tokensUniquePerServerOutput, epRankTokenCntOutput, localEpTokenCntOutput,         \
         srcOffsetRankTokenIdxOutput, dstOffsetRankTokenIdxOutput, offsetInnerOutput, countOuterOutput,          \
-        expandIdxOutput, workspace, tiling
+        expandIdxOutput, totalRecvTokensOutput, workspace, tiling
 
 // #define ENABLE_PRINT
 #ifdef ENABLE_PRINT
@@ -133,12 +133,13 @@ public:
         tokenServerIdxOutputGT_.SetGlobalBuffer((__gm__ int32_t *)tokenServerIdxOutput);
         tokensUniquePerServerOutputGT_.SetGlobalBuffer((__gm__ int32_t *)tokensUniquePerServerOutput);
         epRankTokenCntOutputGT_.SetGlobalBuffer((__gm__ int32_t *)epRankTokenCntOutput);
-        localEpTokenCntOutputGT_.SetGlobalBuffer((__gm__ int32_t *)localEpTokenCntOutput);
+        localEpTokenCntOutputGT_.SetGlobalBuffer((__gm__ int64_t *)localEpTokenCntOutput);
         srcOffsetRankTokenIdxOutputGT_.SetGlobalBuffer((__gm__ int32_t *)srcOffsetRankTokenIdxOutput);
         dstOffsetRankTokenIdxOutputGT_.SetGlobalBuffer((__gm__ int32_t *)dstOffsetRankTokenIdxOutput);
         offsetInnerOutputGT_.SetGlobalBuffer((__gm__ int32_t *)offsetInnerOutput);
         countOuterOutputGT_.SetGlobalBuffer((__gm__ int32_t *)countOuterOutput);
         expandIdxOutputGT_.SetGlobalBuffer((__gm__ int32_t *)expandIdxOutput);
+        totalRecvTokensOutputGT_.SetGlobalBuffer((__gm__ int32_t *)totalRecvTokensOutput);
 
         // 初始化RDMA相关变量
         // dataSpaceGT_ = workspace; // 需要预留大一些空间供存放交换后拆分出来的数据
@@ -622,6 +623,8 @@ private:
         pipe.InitBuffer(tempBuf5_, 1000 * sizeof(float));  // 存放中间临时数据
         pipe.InitBuffer(tempBuf6_, 1000 * sizeof(float));  // 存放中间临时数据
 
+        pipe.InitBuffer(tempBuf11_, Ceil(1 * sizeof(int64_t), UB_ALIGN) * UB_ALIGN);  // 存放中间临时数据
+
         GetRankEpTokenCntData(0, blockNum);
         GetExpertMaxBsSrcData(0, blockNum);
         SyncAll<true>();
@@ -633,6 +636,7 @@ private:
         if (blockIdx < coreNumPerFunc) {
             if (blockIdx == 0) {
                 BuildTokenUniquePerServerData();
+                BuildTotalRecvTokensData();
             }
             if (blockIdx == 1) {
                 BuildTokenSeverIdxData();
@@ -1021,6 +1025,41 @@ private:
         SyncFunc<AscendC::HardEvent::MTE3_S>();
     }
 
+    __aicore__ inline void BuildTotalRecvTokensData()
+    {
+        // 单核计算
+        LocalTensor<int32_t> totalCnt = tempBuf_.Get<int32_t>();
+        LocalTensor<int32_t> tmpLt = tempBuf2_.Get<int32_t>();
+        LocalTensor<float> floatTmpLt = tempBuf4_.Get<float>();
+        LocalTensor<float> floatTmpSumLt = tempBuf5_.Get<float>();
+        LocalTensor<float> sharedTmpBuffer = tempBuf6_.Get<float>();
+
+        DataCopyExtParams copyParams{1, static_cast<uint32_t>(rankSize * sizeof(int32_t)), 0, 0, 0};
+        DataCopyPadExtParams<int32_t> padParams{false, 0, 0, 0};
+
+        int32_t localExpertNum = numExperts / rankSize;
+        int32_t sumVal = 0;
+        AscendC::SetFlag<HardEvent::MTE3_MTE2>(EVENT_ID0);  // MTE2 waits for MTE3
+        for (int index = 0; index < localExpertNum; ++index) {
+            int expId = rank * localExpertNum + index;
+            DataCopyPad(tmpLt, epRankTokenCntOutputGT_[expId * rankSize], copyParams, padParams);
+            SyncFunc<AscendC::HardEvent::MTE2_V>();
+            Cast(floatTmpLt, tmpLt, RoundMode::CAST_NONE, rankSize);
+            PipeBarrier<PIPE_V>();
+            ReduceSum(floatTmpSumLt, floatTmpLt, sharedTmpBuffer, rankSize);
+            SyncFunc<AscendC::HardEvent::V_S>();
+            // 加上该专家接收的token数
+            sumVal += static_cast<int32_t>(floatTmpSumLt.GetValue(0));
+        }
+        AscendC::WaitFlag<HardEvent::MTE3_MTE2>(EVENT_ID0);  // MTE2 waits for MTE3
+
+        totalCnt(0) = sumVal;
+        PipeBarrier<PIPE_ALL>();
+        SyncFunc<AscendC::HardEvent::MTE2_MTE3>();
+        DataCopyExtParams copyParams1{1, static_cast<uint32_t>(1 * sizeof(int32_t)), 0, 0, 0};
+        DataCopyPad(totalRecvTokensOutputGT_, totalCnt, copyParams1);
+    }
+
     __aicore__ inline void BuildLocalEpRankTokenCntData(int32_t beginCoreId, int32_t validCoreNum)
     {
         // 计算 localEpTokenCntOutputGT_ , shape[localExperts]  value: tokenCnt 非前缀和
@@ -1040,32 +1079,33 @@ private:
             return;
         }
 
+        LocalTensor<int64_t> tmpEpRecvLt = tempBuf11_.Get<int64_t>();
+        DataCopyExtParams copyParams1{1, static_cast<uint32_t>(1 * sizeof(int64_t)), 0, 0, 0};
+
         LocalTensor<int32_t> tmpLt = tempBuf2_.Get<int32_t>();
-        DataCopyExtParams copyParams{1, static_cast<uint32_t>(1 * sizeof(int32_t)), 0, 0, 0};
+        LocalTensor<float> floatTmpLt = tempBuf4_.Get<float>();
+        LocalTensor<float> floatTmpSumLt = tempBuf5_.Get<float>();
+        LocalTensor<float> sharedTmpBuffer = tempBuf6_.Get<float>();
+        DataCopyExtParams copyParams{1, static_cast<uint32_t>(rankSize * sizeof(int32_t)), 0, 0, 0};
         DataCopyPadExtParams<int32_t> padParams{false, 0, 0, 0};
+
         AscendC::SetFlag<HardEvent::MTE3_MTE2>(EVENT_ID0);  // MTE2 waits for MTE3
         for (int i = startExpId; i < endExpId; ++i) {
-            int32_t preCnt = 0;  // 每个专家接收的token单独统计
-            for (int j = 0; j < rankSize; ++j) {
-                int32_t inOffset = (rank * localExpertNum + i) * rankSize + j;  // 拷贝当前专家的1个值，对应不同rank来的
+            int expId = rank * localExpertNum + i;
+            DataCopyPad(tmpLt, epRankTokenCntOutputGT_[expId * rankSize], copyParams, padParams);
+            SyncFunc<AscendC::HardEvent::MTE2_V>();
+            Cast(floatTmpLt, tmpLt, RoundMode::CAST_NONE, rankSize);
+            PipeBarrier<PIPE_V>();
+            ReduceSum(floatTmpSumLt, floatTmpLt, sharedTmpBuffer, rankSize);
+            SyncFunc<AscendC::HardEvent::V_S>();
+            // 该专家接收的token数
+            int64_t recvCnt = static_cast<int64_t>(floatTmpSumLt.GetValue(0));
 
-                event_t eventId = EVENT_ID0;
-                AscendC::WaitFlag<HardEvent::MTE3_MTE2>(eventId);
-
-                DataCopyPad(tmpLt, epRankTokenCntOutputGT_[inOffset], copyParams, padParams);
-
-                SyncFunc<AscendC::HardEvent::MTE2_S>();
-                preCnt += tmpLt(0);
-                pipe_barrier(PIPE_ALL);
-
-                AscendC::SetFlag<HardEvent::MTE3_MTE2>(eventId);
-            }
-            tmpLt(0) = preCnt;
+            tmpEpRecvLt(0) = recvCnt;
             pipe_barrier(PIPE_ALL);
-            DataCopyPad(localEpTokenCntOutputGT_[i], tmpLt, copyParams);
+            DataCopyPad(localEpTokenCntOutputGT_[i], tmpEpRecvLt, copyParams1);
         }
         AscendC::WaitFlag<HardEvent::MTE3_MTE2>(EVENT_ID0);  // MTE2 waits for MTE3
-        SyncFunc<AscendC::HardEvent::MTE3_S>();
     }
 
     __aicore__ inline void BuildSrcDstOffsetData(int32_t beginCoreId, int32_t validCoreNum)
@@ -1123,7 +1163,7 @@ private:
                 PipeBarrier<PIPE_V>();
                 ReduceSum(floatExpTokenSumCntLt, floatExpTokenCntLt, sharedTmpBuffer, copyCnt);
                 SyncFunc<AscendC::HardEvent::V_S>();
-                // 当前专家的起始偏移，从 localEpTokenCntOutputGT_ 中获取，为上一个本地专家收的token总数
+                // 当前专家的起始偏移，为上一个本地专家收的token总数
                 dstOffsetStart = static_cast<int32_t>(floatExpTokenSumCntLt.GetValue(0));
             }
 
@@ -1251,6 +1291,7 @@ private:
     TBuf<> tempBuf8_;
     TBuf<> tempBuf9_;
     TBuf<> tempBuf10_;
+    TBuf<> tempBuf11_;
 
     uint32_t sendDataAlignLen{0};
     uint32_t tokenPerExpertDataAlignLen{0};
@@ -1283,7 +1324,7 @@ private:
         tokensUniquePerServerOutputGT_;  // 当前rank发送给对应server的token个数 [serverNum] -> value:count数量
     GlobalTensor<int32_t>
         epRankTokenCntOutputGT_;  // 每个专家、从rank接收的token数量 [expert_num, rank_num] -> value:token_cnt
-    GlobalTensor<int32_t> localEpTokenCntOutputGT_;  // 本卡每个专家、从rank接收的token数量 [local_expert_num, rank_num]
+    GlobalTensor<int64_t> localEpTokenCntOutputGT_;  // 本卡每个专家接收的token数量 [local_expert_num]
     GlobalTensor<int32_t> srcOffsetRankTokenIdxOutputGT_;  // 每个专家、从rank接收的token源端偏移 [expert_num, rank_num,
                                                            // token_idx] -> value:src_offset
     GlobalTensor<int32_t> dstOffsetRankTokenIdxOutputGT_;  // 每个专家、从rank接收的token目的端偏移 [expert_num,
@@ -1294,6 +1335,7 @@ private:
     GlobalTensor<int32_t> offsetOuterOutputGT_;  // 每个token在server上的位次    同tokenServerIdxOutputGT_
     GlobalTensor<int32_t>
         expandIdxOutputGT_;  // 给同一专家的token个数 [bs * numExperts], topk_idx的同专家前缀和扩维到所有专家维度
+    GlobalTensor<int32_t> totalRecvTokensOutputGT_;  // 本卡收到的token总数, [1] -> value:count
 };
 
 template <typename T>
