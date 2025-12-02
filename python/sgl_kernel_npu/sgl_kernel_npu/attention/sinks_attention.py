@@ -1,6 +1,7 @@
 import torch
 import triton
 import triton.language as tl
+from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
 @triton.jit
@@ -73,6 +74,10 @@ def attention_sinks_kernel(
         # Online softmax update
         l = l * re_scale + tl.sum(p_exp, 1)
         acc = acc * re_scale[:, None] + tl.dot(p_exp.to(v.dtype), v)
+
+        # The purpose of this store is to insert synchronization within the loop.
+        # Do not remove this store until triton solves the synchronization problem,
+        # as doing so may lead to accuracy problem.
         tl.store(sync_space + tl.arange(0, Br), new_e_max)
         history_max = new_e_max
 
@@ -226,6 +231,10 @@ def attention_sinks_prefill_kernel(
                 # Online softmax update
                 l = l * re_scale + tl.sum(p_exp, 1)
                 acc = acc * re_scale[:, None] + tl.dot(p_exp.to(v.dtype), v)
+
+                # The purpose of this store is to insert synchronization within the loop.
+                # Do not remove this store until triton solves the synchronization problem,
+                # as doing so may lead to accuracy problem.
                 tl.store(sync_space + tl.arange(0, Br), new_e_max)
                 history_max = new_e_max
 
@@ -251,7 +260,7 @@ def attention_sinks_prefill_triton(
     k_head_num,
 ):
     S = query.shape[0]
-    kernel_num = 40
+    kernel_num = get_device_properties()[0]
     BS = triton.cdiv(S, kernel_num)
     NS = triton.cdiv(S, BS)
 
