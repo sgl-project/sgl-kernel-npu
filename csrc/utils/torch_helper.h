@@ -22,7 +22,7 @@ namespace npu_kernel {
 
 #define DEVICE_TYPE c10::DeviceType::PrivateUse1
 
-class TorchNpuHepler
+class TorchNpuHelper
 {
 public:
     inline static at::Tensor CopyTensorHostToDevice(const at::Tensor &cpu_tensor)
@@ -55,6 +55,8 @@ public:
         return std::make_tuple(ConvertType(args)...);
     }
 };
+}  // namespace npu_kernel
+}  // namespace sglang
 
 /**
  * @brief Launch real kernel function on NPU
@@ -62,22 +64,20 @@ public:
  * @param kernel_name      [in] name of kernel
  * @param blockdim         [in] dim size of block
  */
-#define EXEC_KERNEL_CMD(kernel_name, blockdim, ...)                         \
-    do {                                                                    \
-        auto acl_stream = c10_npu::getCurrentNPUStream().stream(false);     \
-        auto converted_params = TorchNpuHepler::ConvertTypes(__VA_ARGS__);  \
-        auto acl_call = [acl_stream, blockdim, converted_params]() -> int { \
-            std::apply(                                                     \
-                [&](auto &&...params) {                                     \
-                    ACLRT_LAUNCH_KERNEL(kernel_name)                        \
-                    (blockdim, acl_stream, params...);                      \
-                },                                                          \
-                converted_params);                                          \
-            return 0;                                                       \
-        };                                                                  \
-        at_npu::native::OpCommand::RunOpApi(#kernel_name, acl_call);        \
+#define EXEC_KERNEL_CMD(kernel_name, blockdim, ...)                                            \
+    do {                                                                                       \
+        auto acl_stream = c10_npu::getCurrentNPUStream().stream(false);                        \
+        auto converted_params = sglang::npu_kernel::TorchNpuHelper::ConvertTypes(__VA_ARGS__); \
+        auto acl_call = [acl_stream, blockdim, converted_params]() -> int {                    \
+            std::apply(                                                                        \
+                [&](auto &&...params) {                                                        \
+                    ACLRT_LAUNCH_KERNEL(kernel_name)                                           \
+                    (blockdim, acl_stream, params...);                                         \
+                },                                                                             \
+                converted_params);                                                             \
+            return 0;                                                                          \
+        };                                                                                     \
+        at_npu::native::OpCommand::RunOpApi(#kernel_name, acl_call);                           \
     } while (false)
-}  // namespace npu_kernel
-}  // namespace sglang
 
 #endif  // SGL_KERNEL_NPU_TORCH_NPU_HELPER_H

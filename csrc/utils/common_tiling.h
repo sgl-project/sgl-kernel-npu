@@ -15,6 +15,7 @@
 #include <cmath>
 #include "common.h"
 #include "tiling/platform/platform_ascendc.h"
+#include "../batch_matmul_transpose/op_host/tiling/tiling_data.h"
 
 namespace host_utils {
 
