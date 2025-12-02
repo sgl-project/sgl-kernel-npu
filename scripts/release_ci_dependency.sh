@@ -27,4 +27,3 @@ ${PIP_INSTALL} torch==${PYTORCH_VERSION} torchvision==${TORCHVISION_VERSION} --i
 PTA_URL="https://sglang-ascend.obs.cn-east-3.myhuaweicloud.com/sglang/torch_npu/torch_npu-2.8.0.post2.dev20251113-cp311-cp311-manylinux_2_28_aarch64.whl"
 ${PIP_INSTALL} ${PTA_URL}
 ${PIP_INSTALL} wheel==0.45.1 pybind11
-
