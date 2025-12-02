@@ -13,6 +13,8 @@ from utils import bench, calc_diff, hash_tensor, init_dist
 
 torch_npu.npu.config.allow_internal_format = True
 
+GMM_TILE_N_DIM = 64
+
 
 # ======================== Weight Initialization ========================
 def init_base_weights(
@@ -25,7 +27,6 @@ def init_base_weights(
     `num_local_experts`: Number of experts per rank = `num_experts` // `num_ranks`
     `hidden_in`: Input dimension (default 7168)
     `hidden_mid`: Intermediate layer dimension (default 4096)
-    `hidden_out`: Output dimension (default 2048)
     """
     hidden_out = hidden_mid // 2
     w13_weight = torch.randint(
@@ -76,7 +77,9 @@ def reshape_fusion_gmm_weight(weight, dim):
     if dim < 0:
         dim += len(original_shape)
 
-    weight = weight.view(*original_shape[:dim], 2, -1, 64, *original_shape[dim + 1 :])
+    weight = weight.view(
+        *original_shape[:dim], 2, -1, GMM_TILE_N_DIM, *original_shape[dim + 1 :]
+    )
     weight = weight.transpose(dim, dim + 1).contiguous()
     weight = weight.view(*original_shape[:dim], -1, *original_shape[dim + 1 :])
 
