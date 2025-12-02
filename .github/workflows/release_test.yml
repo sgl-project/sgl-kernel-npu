@@ -33,6 +33,6 @@ jobs:
           bash scripts/release_ci_dependency.sh    
 
       - name: Build wheel packages
-        run: | 
+        run: |
           export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/devlib:$LD_LIBRARY_PATH
           bash build.sh
