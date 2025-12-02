@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 jobs:
   build-and-upload:
-    runs-on: ubuntu-22.04-arm
+    runs-on: linux-aarch64-a3-2
     container:
       image: quay.io/ascend/cann:8.3.rc1-a3-ubuntu22.04-py3.11
     steps:

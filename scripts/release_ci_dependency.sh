@@ -29,5 +29,5 @@ ${PIP_INSTALL} ${PTA_URL}
 ASCEND_CANN_PATH=/usr/local/Ascend/ascend-toolkit
 ${PIP_INSTALL} wheel==0.45.1 pybind11
 find /usr/local -name "libascend_hal.so" 2>/dev/null
-export LD_LIBRARY_PATH=${ASCEND_CANN_PATH}/8.3.RC1/runtime/lib64/stub:$LD_LIBRARY_PATH
+#export LD_LIBRARY_PATH=${ASCEND_CANN_PATH}/8.3.RC1/runtime/lib64/stub:$LD_LIBRARY_PATH
 source ${ASCEND_CANN_PATH}/set_env.sh
