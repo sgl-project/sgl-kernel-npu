@@ -33,14 +33,15 @@ def experts_compute_identity_kernel(
         identity_tensor = tl.where(is_first_mask, 0, identity_tensor)
 
     for i_d in range(NBD):
+        mask_d = (i_d * BD + tl.arange(0, BD)) < D
         hid_ptr = hidden_states_ptr + i_s * D + i_d * BD + tl.arange(0, BD)
         res_ptr = zero_result_ptr + i_s * D + i_d * BD + tl.arange(0, BD)
 
-        hid = tl.load(hid_ptr)
+        hid = tl.load(hid_ptr, mask=mask_d)
 
         hid *= sum_scales
 
-        tl.store(res_ptr, hid)
+        tl.store(res_ptr, hid, mask=mask_d)
 
     tl.store(sca_ptr, zero_tensor, mask=mask)
     tl.store(idx_ptr, identity_tensor, mask=mask)
@@ -56,8 +57,10 @@ def zero_experts_compute_identity_triton(
 ):
     S, D = hidden_states.shape
     K = expert_indices.shape[1]
-    BD = D
-    NBD = D // BD
+    # Make sure BD is a multiple of 32 to accommodate Triton's 32-byte alignment.
+    # Make sure BD does not exceed 65536, which may exceed Triton's limit for tensor elements.
+    BD = min(65536, triton.cdiv(D, 32) * 32)
+    NBD = triton.cdiv(D, BD)
 
     zero_result = torch.empty_like(hidden_states)
 
