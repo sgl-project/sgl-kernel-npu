@@ -28,6 +28,5 @@ PTA_URL="https://sglang-ascend.obs.cn-east-3.myhuaweicloud.com/sglang/torch_npu/
 ${PIP_INSTALL} ${PTA_URL}
 ASCEND_CANN_PATH=/usr/local/Ascend/ascend-toolkit
 ${PIP_INSTALL} wheel==0.45.1 pybind11
-export LD_LIBRARY_PATH=${ASCEND_CANN_PATH}/latest/runtime/lib64/stub:$LD_LIBRARY_PATH
-export LD_LIBRARY_PATH=${ASCEND_CANN_PATH}/latest/aarch64-linux/devlib/linux/aarch64/:$LD_LIBRARY_PATH
 source ${ASCEND_CANN_PATH}/set_env.sh
+export LD_LIBRARY_PATH=${ASCEND_CANN_PATH}/latest/aarch64-linux/devlib:$LD_LIBRARY_PATH
