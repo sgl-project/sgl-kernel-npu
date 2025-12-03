@@ -53,7 +53,6 @@ def low_latency_test(
         use_fp8=dispatch_use_fp8,
         round_scale=False,
         use_ue8m0=False,
-        topk_weights=topk_weights,
         cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
         async_finish=not return_recv_hook,
         return_recv_hook=return_recv_hook,
