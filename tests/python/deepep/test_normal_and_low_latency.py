@@ -1,99 +1,37 @@
 import argparse
-import os
 
 import deep_ep
 import torch
 import torch.distributed as dist
-import torch_npu
-from utils import calc_diff, init_dist, inplace_unique, per_token_cast_back
+from utils import calc_diff, init_dist, per_token_cast_back
 
 RANK_OFFSET = 128
 
 
-def intranode_test(
+def normal_test(
     num_tokens: int,
     hidden: int,
     num_experts: int,
     num_topk: int,
-    rank: int,
-    num_ranks: int,
-    local_rank: int,
-    num_local_ranks: int,
     buffer: deep_ep.Buffer,
-    group: dist.ProcessGroup,
 ):
-    experts_per_rank = num_experts // num_ranks
-    num_servers = num_ranks // num_local_ranks
-    assert num_experts % num_ranks == 0
-
+    x = torch.randn((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
     scores = (
         torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
         + 1
     )
     topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
-
-    rank_idx = topk_idx // experts_per_rank
-    rank_idx.masked_fill_(topk_idx == -1, -1)
-    inplace_unique(rank_idx, num_ranks)
-
-    num_tokens_per_expert = torch.zeros((num_experts,), dtype=torch.int, device="npu")
-    for i in range(num_experts):
-        valid_topk_idx = topk_idx[topk_idx != -1]
-        num_tokens_per_expert = torch.bincount(
-            valid_topk_idx, minlength=num_experts
-        ).to(torch.int)
-    gbl_num_tokens_per_expert = num_tokens_per_expert.clone()
-    dist.all_reduce(gbl_num_tokens_per_expert, group=group)
-
-    num_tokens_per_rank = torch.empty((num_ranks,), dtype=torch.int, device="npu")
-    token_idx_in_rank = torch.full(
-        (num_ranks, num_tokens), -1, dtype=torch.long, device="npu"
-    )
-    for i in range(num_ranks):
-        num_tokens_per_rank[i] = (rank_idx == i).sum()
-        token_sel = (rank_idx == i).any(dim=-1)
-        count = token_sel.sum().item()
-        num_tokens_per_rank[i] = count
-        if count > 0:
-            selected_tokens = torch.where(token_sel)[0]
-            token_idx_in_rank[i, selected_tokens] = torch.arange(
-                count, dtype=torch.long, device="npu"
-            )
-    token_idx_in_rank = token_idx_in_rank.T.contiguous().to(torch.int)
-    is_token_in_rank = (token_idx_in_rank >= 0).to(torch.int)
-    gbl_num_tokens_per_rank = num_tokens_per_rank.clone()
-    dist.all_reduce(gbl_num_tokens_per_rank, group=group)
-
-    try:
-        return_values = buffer.get_dispatch_layout(topk_idx, num_experts)
-        (
-            ref_num_tokens_per_rank,
-            _,
-            ref_num_tokens_per_expert,
-            ref_is_token_in_rank,
-            _,
-        ) = return_values
-        try:
-            assert torch.allclose(
-                ref_num_tokens_per_rank, num_tokens_per_rank
-            ), f"Assertion num_tokens_per_rank failed on rank {rank}: Expected {num_tokens_per_rank}, Actual {ref_num_tokens_per_rank}"
-            assert torch.allclose(
-                ref_num_tokens_per_expert, num_tokens_per_expert
-            ), f"Assertion num_tokens_per_expert failed on rank {rank}: Expected {num_tokens_per_expert}, Actual {ref_num_tokens_per_expert}"
-            assert torch.allclose(
-                ref_is_token_in_rank, is_token_in_rank
-            ), f"Assertion is_token_in_rank failed on rank {rank}: Expected {is_token_in_rank}, Actual {ref_is_token_in_rank}"
-        except AssertionError as e:
-            print(e)
-            raise
-    except Exception as e:
-        print(f"An error occurred: {e}")
-        raise
-
-    x = torch.randn((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
     topk_weights = torch.randn(
         (num_tokens, num_topk), dtype=torch.float32, device="npu"
     )
+
+    (
+        num_tokens_per_rank,
+        _,
+        num_tokens_per_expert,
+        is_token_in_rank,
+        _,
+    ) = buffer.get_dispatch_layout(topk_idx, num_experts)
 
     buffer_size = 256
     config = deep_ep.Config(24, 8, buffer_size)
@@ -123,7 +61,7 @@ def intranode_test(
         "handle": handle,
         "config": config,
         "async_finish": False,
-        "topk_weights": handle[4] if num_servers > 1 else handle[7],
+        "topk_weights": handle[7],
     }
     (
         combined_x,
@@ -134,11 +72,7 @@ def intranode_test(
     assert (
         calc_diff(
             combined_x.float(),
-            (
-                x * handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
-                if num_servers > 1
-                else x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
-            ),
+            x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
         )
         < 5e-5
     )
@@ -152,9 +86,7 @@ def low_latency_test(
     rank: int,
     num_ranks: int,
     buffer: deep_ep.Buffer,
-    group: dist.ProcessGroup,
 ):
-    assert num_experts % num_ranks == 0
     experts_per_rank = num_experts // num_ranks
 
     rank_offset = RANK_OFFSET
@@ -170,7 +102,9 @@ def low_latency_test(
         torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
         + 1
     )
+
     topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=True)[1]
+
     topk_weights = torch.randn(
         (num_tokens, num_topk), dtype=torch.float32, device="npu"
     ).abs()
@@ -180,29 +114,22 @@ def low_latency_test(
         (experts_per_rank,), dtype=torch.int, device="npu"
     )
     dispatch_use_fp8 = True
-    packed_recv_x, packed_recv_count, handle2, event, hook = (
-        buffer.low_latency_dispatch(
-            x,
-            topk_idx,
-            num_tokens,
-            num_experts,
-            use_fp8=dispatch_use_fp8,
-            round_scale=False,
-            use_ue8m0=False,
-            topk_weights=topk_weights,
-            cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
-            async_finish=not return_recv_hook,
-            return_recv_hook=return_recv_hook,
-        )
+    packed_recv_x, packed_recv_count, handle, event, hook = buffer.low_latency_dispatch(
+        x,
+        topk_idx,
+        num_tokens,
+        num_experts,
+        use_fp8=dispatch_use_fp8,
+        round_scale=False,
+        use_ue8m0=False,
+        topk_weights=topk_weights,
+        cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
+        async_finish=not return_recv_hook,
+        return_recv_hook=return_recv_hook,
     )
     simulated_gemm_x = (
         per_token_cast_back(*packed_recv_x) if dispatch_use_fp8 else packed_recv_x
     )
-
-    all_topk_idx = torch.empty(
-        (num_ranks, num_tokens, num_topk), dtype=topk_idx.dtype, device="npu"
-    )
-    dist.all_gather_into_tensor(all_topk_idx, topk_idx, group=group)
 
     (
         src_info,
@@ -212,14 +139,14 @@ def low_latency_test(
         num_experts,
         packed_recv_count,
         expand_scales,
-    ) = handle2
+    ) = handle
 
     out = torch.empty((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
     combined_x, event, hook = buffer.low_latency_combine(
         simulated_gemm_x,
         topk_idx,
         topk_weights,
-        handle2,
+        handle,
         async_finish=not return_recv_hook,
         zero_copy=False,
         return_recv_hook=return_recv_hook,
@@ -237,50 +164,28 @@ def low_latency_test(
         assert diff < 1e-5, f"Error: {diff=}"
 
 
-def test_loop_i(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
+def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     rank, num_ranks, group = init_dist(local_rank, num_local_ranks)
     num_topk, num_experts, hidden = args.num_topk, args.num_experts, args.hidden
+    assert num_experts % num_ranks == 0
     torch.manual_seed(rank)
-
-    num_tokens_i = args.num_tokens_i
-    buffer_i = deep_ep.Buffer(
-        group, int(2e9), 0, low_latency_mode=False, num_qps_per_rank=1
+    buffer = deep_ep.Buffer(
+        group, int(2e9), 0, low_latency_mode=True, num_qps_per_rank=1
     )
-    print("Start executing intranode test...", flush=True)
-    intranode_test(
-        num_tokens_i,
+
+    num_tokens_n = args.num_tokens_n
+    print("Start executing normal test...", flush=True)
+    normal_test(
+        num_tokens_n,
         hidden,
         num_experts,
         num_topk,
-        rank,
-        num_ranks,
-        local_rank,
-        num_local_ranks,
-        buffer_i,
-        group,
+        buffer,
     )
-
+    print("End executing normal test...", flush=True)
     dist.barrier()
-    dist.destroy_process_group()
 
-
-def test_loop_l(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
-    rank, num_ranks, group = init_dist(local_rank, num_local_ranks)
-    num_topk, num_experts, hidden = args.num_topk, args.num_experts, args.hidden
-    torch.manual_seed(rank)
-    shared_expert_rank_num = int(os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0))
     num_tokens_l = args.num_tokens_l
-    use_experts = num_experts if shared_expert_rank_num == 0 else (num_experts - 1)
-    use_ranks = num_ranks - shared_expert_rank_num
-    num_rdma_bytes = deep_ep.Buffer.get_low_latency_rdma_size_hint(
-        num_tokens_l, hidden, num_ranks, num_experts
-    )
-    buffer_l = deep_ep.Buffer(
-        group,
-        num_rdma_bytes=num_rdma_bytes,
-        low_latency_mode=True,
-        num_qps_per_rank=use_experts // use_ranks if use_ranks > 0 else 1,
-    )
     print("Start executing low latency test...", flush=True)
     low_latency_test(
         num_tokens_l,
@@ -289,11 +194,11 @@ def test_loop_l(local_rank: int, num_local_ranks: int, args: argparse.Namespace)
         num_topk,
         rank,
         num_ranks,
-        buffer_l,
-        group,
+        buffer,
     )
-
+    print("End executing low latency test...", flush=True)
     dist.barrier()
+
     dist.destroy_process_group()
 
 
@@ -306,7 +211,7 @@ if __name__ == "__main__":
         help="Number of processes to spawn (default: 16)",
     )
     parser.add_argument(
-        "--num-tokens-i",
+        "--num-tokens-n",
         type=int,
         default=4096,
         help="Number of normal tokens (default: 4096)",
@@ -331,8 +236,5 @@ if __name__ == "__main__":
 
     num_processes = args.num_processes
     torch.multiprocessing.spawn(
-        test_loop_i, args=(num_processes, args), nprocs=num_processes
-    )
-    torch.multiprocessing.spawn(
-        test_loop_l, args=(num_processes, args), nprocs=num_processes
+        test_loop, args=(num_processes, args), nprocs=num_processes
     )
