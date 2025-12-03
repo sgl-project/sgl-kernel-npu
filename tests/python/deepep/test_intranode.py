@@ -1,4 +1,5 @@
 import argparse
+import os
 import time
 from typing import Optional
 
@@ -33,6 +34,7 @@ def test_main(
     num_topk, num_experts = args.num_topk, args.num_experts
     enable_diagnose = args.enable_diagnose
     num_servers = num_ranks // num_local_ranks
+    expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
 
     assert num_experts % num_ranks == 0
     if local_rank == 0:
@@ -270,6 +272,15 @@ def test_main(
 
         # Checks
         rank_prefix_matrix = handle[0]
+        local_expert_token = gbl_num_tokens_per_expert.view(num_ranks, -1)[rank]
+        if expert_token_nums_type == 0:
+            local_expert_token_list = local_expert_token.cumsum(
+                dim=0
+            ).tolist()  # 计算前缀和并转为 list
+        else:
+            local_expert_token_list = local_expert_token.tolist()
+
+        assert local_expert_token_list == recv_num_tokens_per_expert_list
         # todo 1. Duplicate tansmission to experts of the same rank.
         # assert gbl_num_tokens_per_rank[rank].item() == recv_x.size(0), f'{gbl_num_tokens_per_rank[rank].item()} != {recv_x.size(0)}'
         # todo 2. recv_num_tokens_per_expert_list is the prefix sum of the actual data.
