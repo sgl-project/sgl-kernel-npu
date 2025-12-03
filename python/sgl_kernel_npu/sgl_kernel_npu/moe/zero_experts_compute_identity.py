@@ -55,6 +55,7 @@ def zero_experts_compute_identity_triton(
     hidden_states,
     identity_mask_value=0,
 ):
+    # TODO: Divide S to support prefill
     S, D = hidden_states.shape
     K = expert_indices.shape[1]
     # Make sure BD is a multiple of 32 to accommodate Triton's 32-byte alignment.
