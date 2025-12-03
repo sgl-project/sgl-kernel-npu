@@ -28,7 +28,12 @@ jobs:
         with:
           clean: true
 
+      - name: Install dependencies
+        run: |
+#          export LD_LIBRARY_PATH=${ASCEND_CANN_PATH}/latest/aarch64-linux/devlib:$LD_LIBRARY_PATH
+          bash scripts/release_ci_dependency.sh
+
       - name: Build wheel packages
         run: |
-          bash scripts/release_ci_dependency.sh
+          bash build.sh
 
