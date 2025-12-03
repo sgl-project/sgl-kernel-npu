@@ -4,34 +4,34 @@ import deep_ep
 import torch
 import torch.distributed as dist
 from test_common import normal_test
-from utils import init_dist, calc_diff, per_token_cast_back
+from utils import calc_diff, init_dist, per_token_cast_back
 
 RANK_OFFSET = 128
 
 
 def low_latency_test(
-        num_tokens: int,
-        hidden: int,
-        num_experts: int,
-        num_topk: int,
-        rank: int,
-        num_ranks: int,
-        buffer: deep_ep.Buffer,
+    num_tokens: int,
+    hidden: int,
+    num_experts: int,
+    num_topk: int,
+    rank: int,
+    num_ranks: int,
+    buffer: deep_ep.Buffer,
 ):
     experts_per_rank = num_experts // num_ranks
 
     rank_offset = RANK_OFFSET
     assert (
-            num_ranks - rank_offset < 257
+        num_ranks - rank_offset < 257
     ), "Too many ranks (exceeding test precision limit)"
 
     x = torch.ones((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * (
-            rank - rank_offset
+        rank - rank_offset
     )
     x[:, -128:] = torch.arange(num_tokens, device="npu").to(torch.bfloat16).view(-1, 1)
     scores = (
-            torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
-            + 1
+        torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
+        + 1
     )
 
     topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
@@ -87,7 +87,7 @@ def low_latency_test(
     diff = calc_diff(
         x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
         combined_x,
-        )
+    )
     assert torch.isnan(combined_x).sum().item() == 0
     if dispatch_use_fp8:
         assert diff < 1e-4, f"Error: {diff=}"

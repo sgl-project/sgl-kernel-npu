@@ -11,23 +11,23 @@ RANK_OFFSET = 128
 
 
 def fused_deep_moe_test(
-        num_tokens: int,
-        hidden: int,
-        num_experts: int,
-        num_topk: int,
-        num_ranks: int,
-        buffer: deep_ep.Buffer,
+    num_tokens: int,
+    hidden: int,
+    num_experts: int,
+    num_topk: int,
+    num_ranks: int,
+    buffer: deep_ep.Buffer,
 ):
     num_local_experts = num_experts // num_ranks
     rank_offset = RANK_OFFSET
     assert (
-            num_ranks - rank_offset < 257
+        num_ranks - rank_offset < 257
     ), "Too many ranks (exceeding test precision limit)"
 
     x = torch.rand((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * 10 - 5
     scores = (
-            torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
-            + 1
+        torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
+        + 1
     )
     topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
     topk_weights = torch.randn(

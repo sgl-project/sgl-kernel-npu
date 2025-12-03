@@ -1,18 +1,19 @@
-import torch
 import deep_ep
+import torch
 from utils import calc_diff, per_token_cast_back
 
+
 def normal_test(
-        num_tokens: int,
-        hidden: int,
-        num_experts: int,
-        num_topk: int,
-        buffer: deep_ep.Buffer,
+    num_tokens: int,
+    hidden: int,
+    num_experts: int,
+    num_topk: int,
+    buffer: deep_ep.Buffer,
 ):
     x = torch.randn((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
     scores = (
-            torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
-            + 1
+        torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
+        + 1
     )
     topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
     topk_weights = torch.randn(
@@ -48,7 +49,16 @@ def normal_test(
         handle,
         _,
     ) = buffer.dispatch(**dispatch_args)
-    (_, _, _, _, _,_, _, topk_weights_recv,) = handle
+    (
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        _,
+        topk_weights_recv,
+    ) = handle
     recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
     combine_args = {
         "x": recv_x,
@@ -64,9 +74,9 @@ def normal_test(
     ) = buffer.combine(**combine_args)
 
     assert (
-            calc_diff(
-                combined_x.float(),
-                x * topk_weights_recv.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
-                )
-            < 5e-5
+        calc_diff(
+            combined_x.float(),
+            x * topk_weights_recv.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
+        )
+        < 5e-5
     )
