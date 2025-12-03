@@ -31,7 +31,7 @@ jobs:
       - name: Build wheel packages
         run: |
           git config --global --add safe.directory /__w/sgl-kernel-npu/sgl-kernel-npu
-          export CMAKE_PREFIX_PATH=/usr/local/python3.11.13/lib/python3.11/site-packages/pybind11/share/cmake/pybind11
+          export CMAKE_PREFIX_PATH=/usr/local/python3.11.13/lib/python3.11/site-packages/pybind11/share/cmake/pybind11:$CMAKE_PREFIX_PATH
           export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/devlib/linux/aarch64/:$LD_LIBRARY_PATH
           bash build.sh
 
