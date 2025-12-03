@@ -35,6 +35,6 @@ jobs:
       - name: Build wheel packages
         run: |
           export CMAKE_PREFIX_PATH=/usr/local/python3.11.13/lib/python3.11/site-packages/pybind11/share/cmake/pybind11
-          export LD_LIBRARY_PATH=${ASCEND_CANN_PATH}/latest/aarch64-linux/devlib:$LD_LIBRARY_PATH
+          export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/devlib:$LD_LIBRARY_PATH
           bash build.sh
 
