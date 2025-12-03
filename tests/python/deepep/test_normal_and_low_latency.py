@@ -62,13 +62,12 @@ def low_latency_test(
     )
 
     (
-        src_info,
-        layout_range,
-        num_max_dispatch_tokens_per_rank,
+        _,
+        _,
+        _,
         hidden,
-        num_experts,
-        packed_recv_count,
-        expand_scales,
+        _,
+        _,
     ) = handle
 
     out = torch.empty((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
