@@ -26,11 +26,6 @@ public:
             .DataTypeList({ge::DT_BOOL})
             .FormatList({ge::FORMAT_ND})
             .AutoContiguous();
-        this->Input("expert_scales")
-            .ParamType(OPTIONAL)
-            .DataTypeList({ge::DT_FLOAT})
-            .FormatList({ge::FORMAT_ND})
-            .AutoContiguous();
         this->Input("elastic_info")
             .ParamType(OPTIONAL)
             .DataTypeList({ge::DT_INT32})
@@ -51,7 +46,6 @@ public:
         this->Output("expert_token_nums").ParamType(REQUIRED).DataTypeList({ge::DT_INT64}).FormatList({ge::FORMAT_ND});
         this->Output("ep_recv_count").ParamType(REQUIRED).DataTypeList({ge::DT_INT32}).FormatList({ge::FORMAT_ND});
         this->Output("tp_recv_count").ParamType(REQUIRED).DataTypeList({ge::DT_INT32}).FormatList({ge::FORMAT_ND});
-        this->Output("expand_scales").ParamType(REQUIRED).DataTypeList({ge::DT_FLOAT}).FormatList({ge::FORMAT_ND});
 
         this->Attr("group_ep").AttrType(REQUIRED).String();
         this->Attr("ep_world_size").AttrType(REQUIRED).Int();

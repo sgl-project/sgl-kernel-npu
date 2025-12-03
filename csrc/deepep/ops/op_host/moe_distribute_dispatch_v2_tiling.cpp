@@ -35,15 +35,13 @@ constexpr uint32_t X_INDEX = 0U;
 constexpr uint32_t EXPERT_IDS_INDEX = 1U;
 constexpr uint32_t SCALES_INDEX = 2U;
 constexpr uint32_t X_ACTIVE_MASK_INDEX = 3U;
-constexpr uint32_t EXPERT_SCALES_INDEX = 4U;
-constexpr uint32_t ELASTIC_INFO_INDEX = 5U;
+constexpr uint32_t ELASTIC_INFO_INDEX = 4U;
 constexpr uint32_t OUTPUT_EXPAND_X_INDEX = 0U;
 constexpr uint32_t OUTPUT_DYNAMIC_SCALES_INDEX = 1U;
 constexpr uint32_t OUTPUT_ASSIST_INFO_INDEX = 2U;
 constexpr uint32_t OUTPUT_EXPERT_TOKEN_NUMS_INDEX = 3U;
 constexpr uint32_t OUTPUT_EP_RECV_COUNTS_INDEX = 4U;
 constexpr uint32_t OUTPUT_TP_RECV_COUNTS_INDEX = 5U;
-constexpr uint32_t OUTPUT_EXPAND_SCALES_INDEX = 6U;
 
 constexpr uint32_t ATTR_GROUP_EP_INDEX = 0;
 constexpr uint32_t ATTR_EP_WORLD_SIZE_INDEX = 1;

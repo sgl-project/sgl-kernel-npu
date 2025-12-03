@@ -700,10 +700,9 @@ std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandl
     return {combined_x, recv_topk_weights, event};
 }
 
-std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Tensor, at::Tensor,
-           std::optional<EventHandle>, std::optional<std::function<void()>>>
+std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Tensor, std::optional<EventHandle>,
+           std::optional<std::function<void()>>>
 Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
-                             const std::optional<torch::Tensor> &topk_weights,
                              const std::optional<at::Tensor> &cumulative_local_expert_recv_stats,
                              int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts, bool use_fp8,
                              bool round_scale, bool use_ue8m0, bool async, bool return_recv_hook)
@@ -756,16 +755,12 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     auto expandIdx = at::empty({max_size}, at::dtype(at::kInt).device(device));
 
     int32_t server_num = num_ranks / LOCAL_RANK_SIZE;
-    at::Tensor expand_scales = at::empty({1}, at::dtype(at::kFloat).device(device));
-    ;  // just A2 layered need
     at::Tensor ep_recv_count =
         at::empty({num_local_experts * num_ranks}, at::dtype(at::kInt).device(device));  // A2 non-layered / A3
-    at::Tensor expert_scales =
-        at::ones({num_tokens, num_topk}, at::dtype(at::kFloat).device(device));  // A2 non-layered / A3
     auto tp_recv_count = at::empty({1}, at::dtype(at::kInt).device(device));
     auto packed_recv_count = at::empty({num_local_experts}, at::dtype(at::kLong).device(device));
     at::Tensor scales;
-    at::Tensor activate_mask;
+    at::Tensor active_mask;
     int enable_neg_one = get_value_from_env("MOE_ENABLE_TOPK_NEG_ONE", 0);
     int64_t quant_mode = use_fp8 ? 2 : 0;
     int64_t tp_size = 1;
@@ -793,25 +788,8 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         if (hcclIntraPcieEnable != nullptr && hcclIntraRoceEnable != nullptr && strcmp(hcclIntraPcieEnable, "1") == 0 &&
             strcmp(hcclIntraRoceEnable, "0") == 0) {  // A2 layered
             isLayered = true;
-            if (topk_weights.has_value()) {
-                if (!this->is_padding) {
-                    expert_scales = topk_weights.value();
-                } else {
-                    std::vector<at::Tensor> weight_blocks;
-                    if (topk_weights->size(0) != 0) {
-                        weight_blocks.emplace_back(topk_weights.value());
-                    }
-                    for (int i = 0; i < this->padding_cnt; i++) {
-                        at::Tensor tmp_weight =
-                            torch::arange(0, num_topk, topk_weights->options()).reshape({1, num_topk});
-                        weight_blocks.emplace_back(tmp_weight);
-                    }
-                    expert_scales = torch::cat(weight_blocks, 0);
-                }
-            }
             int64_t recv_count_tensor_size = num_experts + 2 * global_bs * num_topk * server_num;
             ep_recv_count = at::empty({recv_count_tensor_size}, at::dtype(at::kInt).device(device));
-            expand_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
         }
     }
 
@@ -823,16 +801,15 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
 
     if (enable_neg_one) {
         EP_HOST_ASSERT(isLayered == false);
-        activate_mask = (new_topk_idx >= 0).to(torch::kBool);
+        active_mask = (new_topk_idx >= 0).to(torch::kBool);
     }
 
     EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2, new_x, new_topk_idx,
-                 scales,         // smooth scales,
-                 activate_mask,  // activateMask
-                 expert_scales,  // expert_scales
-                 hcom_ep_name,   // ep
-                 num_ranks,      // rankSize
-                 rank,           // rankId
+                 scales,        // smooth scales,
+                 active_mask,   // active_mask
+                 hcom_ep_name,  // ep
+                 num_ranks,     // rankSize
+                 rank,          // rankId
                  num_experts,
                  hcom_tp_name,            // tp
                  tp_size,                 // tp_size
@@ -847,10 +824,10 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
                  packed_recv_x_scales,  // dynamicScalesOut
                  expandIdx,
                  packed_recv_count,  // expertTokenNumsOut
-                 ep_recv_count, tp_recv_count, expand_scales);
+                 ep_recv_count, tp_recv_count);
 
     // Return values
-    return {packed_recv_x, packed_recv_x_scales,        packed_recv_count, expandIdx, ep_recv_count, expand_scales,
+    return {packed_recv_x, packed_recv_x_scales,        packed_recv_count, expandIdx, ep_recv_count,
             event,         std::function<void()>([] {})};
 }
 
@@ -858,7 +835,7 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     const at::Tensor &x, const at::Tensor &topk_idx, const at::Tensor &topk_weights, const at::Tensor &src_info,
     const at::Tensor &layout_range, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
     const at::Tensor &packed_recv_count, bool zero_copy, bool async, bool return_recv_hook,
-    const std::optional<at::Tensor> &out, const at::Tensor &expand_scales)
+    const std::optional<at::Tensor> &out)
 {
     at::Tensor new_idx = topk_idx;
     at::Tensor new_scales = topk_weights;
@@ -895,8 +872,7 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     at::Tensor ep_send_counts = layout_range;
     at::Tensor expert_scales = new_scales;
     at::Tensor tp_send_counts = at::empty({1}, at::dtype(at::kInt).device(device));
-    at::Tensor activation_scale, weight_scale, group_list;
-    at::Tensor x_active_mask;
+    at::Tensor x_active_mask, activation_scale, weight_scale, group_list, expand_scales;
     int enable_neg_one = get_value_from_env("MOE_ENABLE_TOPK_NEG_ONE", 0);
     int64_t tp_world_size = 1;
     int64_t tp_rankId = 0;

@@ -22,7 +22,7 @@
 #include "lib/matmul_intf.h"
 #include "moe_distribute_combine_v2_tiling.h"
 #include "moe_distribute_combine_v2.h"
-#include "moe_distribute_combine_v2_layered.h"
+#include "moe_distribute_combine_v2_layered_custom.h"
 #include "moe_distribute_combine_v2_single.h"
 #include <cstdio>
 
@@ -64,7 +64,7 @@ extern "C" __global__ __aicore__ void moe_distribute_combine_v2(
         DataplaneMode dataplaneMode = GetDataplaneMode(contextGM0);
         if (dataplaneMode == DataplaneMode::AIV) {
             MoeDistributeCombineV2Layered<DTYPE_EXPAND_X, int32_t, DTYPE_EXPAND_X> op;
-            op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, expandScales, XOut, workspaceGM, &pipe,
+            op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe,
                     &tilingData, mc2InitTiling, mc2CcTiling, contextGM0);
             op.Process();
         } else {
@@ -80,14 +80,13 @@ extern "C" __global__ __aicore__ void moe_distribute_combine_v2(
         DataplaneMode dataplaneMode = GetDataplaneMode(contextGM0);
         if (dataplaneMode == DataplaneMode::AIV) {
             MoeDistributeCombineV2Layered<DTYPE_EXPAND_X, int32_t, int8_t> op;
-            op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, expandScales, XOut, workspaceGM, &pipe,
+            op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe,
                     &tilingData, mc2InitTiling, mc2CcTiling, contextGM0);
             op.Process();
         } else {
             assert(false, "The driver version is too low. It should not be lower than 25.0.rc1.1.\n");
         }
     } else if (TILING_KEY_IS(5000)) {  // single server
-        printf("====enter combine single...\n");
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
 
         MoeDistributeCombineV2Single<DTYPE_EXPAND_X, DTYPE_X, int32_t, false, false, false> op;
