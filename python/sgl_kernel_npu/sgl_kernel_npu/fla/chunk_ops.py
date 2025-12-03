@@ -1,4 +1,4 @@
-# Adapted and Merge from 
+# Adapted and Merge from
 #   https://github.com/sglang/python/sglang/srt/layers/attention/fla/chunk_delta_h.py
 #   https://github.com/sglang/python/sglang/srt/layers/attention/fla/chunk_o.py
 #   https://github.com/sglang/python/sglang/srt/layers/attention/fla/chunk_scaled_dot_kkt.py
@@ -8,22 +8,26 @@
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, By Triton_Ascend & sglang_ascend
 
-from typing import Optional, Tuple, List, Union
+from typing import List, Optional, Tuple, Union
+
 import torch
 import torch.nn.functional as F
 import triton
 import triton.language as tl
-
-from sgl_kernel_npu.fla.utils import prepare_chunk_indices, prepare_chunk_offsets
-from sgl_kernel_npu.fla.utils import exp, safe_exp
-
-
+from sgl_kernel_npu.fla.utils import (
+    exp,
+    prepare_chunk_indices,
+    prepare_chunk_offsets,
+    safe_exp,
+)
 
 """
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 ++++++++++++++++++++++++++++++ chunk_delata_h part ++++++++++++++++++++++++++++++
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 """
+
+
 @triton.heuristics(
     {
         "USE_G": lambda args: args["g"] is not None,
@@ -89,7 +93,6 @@ def chunk_gated_delta_rule_fwd_kernel_h_blockdim64_npu_kernel(
     mask_kv1 = (offs_k < K) & (offs_v1 < V)
     mask_kv2 = (offs_k < K) & (offs_v2 < V)
 
-
     if USE_INITIAL_STATE:
         h0_ptr = h0 + i_nh * K * V
         ptr_h0_bv1 = h0_ptr + offs_k * V + offs_v1 * 1
@@ -101,11 +104,19 @@ def chunk_gated_delta_rule_fwd_kernel_h_blockdim64_npu_kernel(
     for i_t in range(NT):
         h_base = h + (boh + i_t) * H * K * V + i_h * K * V
 
-        p_h1_bv1 = tl.make_block_ptr(h_base, (K, V), (V, 1), (0, v_start1), (128, 64), (1, 0))
-        tl.store(p_h1_bv1, b_h1_bv1.to(p_h1_bv1.dtype.element_ty), boundary_check=(0, 1))
+        p_h1_bv1 = tl.make_block_ptr(
+            h_base, (K, V), (V, 1), (0, v_start1), (128, 64), (1, 0)
+        )
+        tl.store(
+            p_h1_bv1, b_h1_bv1.to(p_h1_bv1.dtype.element_ty), boundary_check=(0, 1)
+        )
 
-        p_h1_bv2 = tl.make_block_ptr(h_base, (K, V), (V, 1), (0, v_start2), (128, 64), (1, 0))
-        tl.store(p_h1_bv2, b_h1_bv2.to(p_h1_bv2.dtype.element_ty), boundary_check=(0, 1))
+        p_h1_bv2 = tl.make_block_ptr(
+            h_base, (K, V), (V, 1), (0, v_start2), (128, 64), (1, 0)
+        )
+        tl.store(
+            p_h1_bv2, b_h1_bv2.to(p_h1_bv2.dtype.element_ty), boundary_check=(0, 1)
+        )
 
         offs_t_wv = (i_t * BT + tl.arange(0, BT))[:, None]
         offs_k_wv = tl.arange(0, 128)[None, :]
@@ -118,7 +129,9 @@ def chunk_gated_delta_rule_fwd_kernel_h_blockdim64_npu_kernel(
         # =============load k==================
 
         k_base = k + bos * Hg * K + (i_h // (H // Hg)) * K
-        p_k = tl.make_block_ptr(k_base, (K, T), (1, stride_k), (0, i_t * BT), (128, BT), (0, 1))
+        p_k = tl.make_block_ptr(
+            k_base, (K, T), (1, stride_k), (0, i_t * BT), (128, BT), (0, 1)
+        )
         b_k = tl.load(p_k, boundary_check=(0, 1))
 
         v_new_base = v_new + bos * H * V + i_h * V
@@ -128,7 +141,7 @@ def chunk_gated_delta_rule_fwd_kernel_h_blockdim64_npu_kernel(
 
         offs_t = i_t * BT + tl.arange(0, BT)
         mask_t = offs_t < T
-        g_ptr = g + bos + i_h * T_max 
+        g_ptr = g + bos + i_h * T_max
         b_g = tl.load(g_ptr + offs_t, mask=mask_t, other=0.0)
 
         b_g = safe_exp(b_g_last - b_g)
@@ -144,8 +157,17 @@ def chunk_gated_delta_rule_fwd_kernel_h_blockdim64_npu_kernel(
         b_v_new1 -= tl.dot(b_w, b_h1_bv1.to(b_w.dtype))
 
         if SAVE_NEW_VALUE:
-            p_v_new1 = tl.make_block_ptr(v_new_base, (T, V), (stride_v, 1), (i_t * BT, v_start1), (BT, 64), (1, 0))
-            tl.store(p_v_new1, b_v_new1.to(p_v_new1.dtype.element_ty), boundary_check=(0, 1))
+            p_v_new1 = tl.make_block_ptr(
+                v_new_base,
+                (T, V),
+                (stride_v, 1),
+                (i_t * BT, v_start1),
+                (BT, 64),
+                (1, 0),
+            )
+            tl.store(
+                p_v_new1, b_v_new1.to(p_v_new1.dtype.element_ty), boundary_check=(0, 1)
+            )
 
         if USE_G:
             b_v_new1 = b_v_new1 * b_g[:, None]
@@ -161,8 +183,17 @@ def chunk_gated_delta_rule_fwd_kernel_h_blockdim64_npu_kernel(
         b_v_new2 -= tl.dot(b_w, b_h1_bv2.to(b_w.dtype))
 
         if SAVE_NEW_VALUE:
-            p_v_new2 = tl.make_block_ptr(v_new_base, (T, V), (stride_v, 1), (i_t * BT, v_start2), (BT, 64), (1, 0))
-            tl.store(p_v_new2, b_v_new2.to(p_v_new2.dtype.element_ty), boundary_check=(0, 1))
+            p_v_new2 = tl.make_block_ptr(
+                v_new_base,
+                (T, V),
+                (stride_v, 1),
+                (i_t * BT, v_start2),
+                (BT, 64),
+                (1, 0),
+            )
+            tl.store(
+                p_v_new2, b_v_new2.to(p_v_new2.dtype.element_ty), boundary_check=(0, 1)
+            )
 
         if USE_G:
             b_v_new2 = b_v_new2 * b_g[:, None]
@@ -173,11 +204,19 @@ def chunk_gated_delta_rule_fwd_kernel_h_blockdim64_npu_kernel(
 
     if STORE_FINAL_STATE:
         ht_ptr = ht + i_nh * K * V
-        p_ht1_bv1 = tl.make_block_ptr(ht_ptr, (K, V), (V, 1), (0, v_start1), (128, 64), (1, 0))
-        tl.store(p_ht1_bv1, b_h1_bv1.to(p_ht1_bv1.dtype.element_ty), boundary_check=(0, 1))
+        p_ht1_bv1 = tl.make_block_ptr(
+            ht_ptr, (K, V), (V, 1), (0, v_start1), (128, 64), (1, 0)
+        )
+        tl.store(
+            p_ht1_bv1, b_h1_bv1.to(p_ht1_bv1.dtype.element_ty), boundary_check=(0, 1)
+        )
 
-        p_ht1_bv2 = tl.make_block_ptr(ht_ptr, (K, V), (V, 1), (0, v_start2), (128, 64), (1, 0))
-        tl.store(p_ht1_bv2, b_h1_bv2.to(p_ht1_bv2.dtype.element_ty), boundary_check=(0, 1))
+        p_ht1_bv2 = tl.make_block_ptr(
+            ht_ptr, (K, V), (V, 1), (0, v_start2), (128, 64), (1, 0)
+        )
+        tl.store(
+            p_ht1_bv2, b_h1_bv2.to(p_ht1_bv2.dtype.element_ty), boundary_check=(0, 1)
+        )
 
 
 def chunk_gated_delta_rule_fwd_h_npu(
@@ -219,6 +258,7 @@ def chunk_gated_delta_rule_fwd_h_npu(
     # Pre-transpose tensors outside the kernel to ensure contiguous memory access within the kernel
     # avoiding scattered (non-contiguous) access that may lead to axis expansion
     g = g.transpose(1, 2).contiguous()
+
     def grid(meta):
         return (1, N * H)
 
@@ -250,6 +290,8 @@ def chunk_gated_delta_rule_fwd_h_npu(
 +++++++++++++++++++++++++++++++++ chunk_o part ++++++++++++++++++++++++++++++++++
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 """
+
+
 @triton.heuristics(
     {
         "USE_G": lambda args: args["g"] is not None,
@@ -293,7 +335,7 @@ def chunk_fwd_kernel_o_npu_kernel(
         bos, eos = i_n * T, i_n * T + T
         NT = tl.cdiv(T, BT)
         boh = i_n * NT
-    
+
     # offset calculation
     q += (bos * Hg + i_h // (H // Hg)) * K
     k += (bos * Hg + i_h // (H // Hg)) * K
@@ -323,18 +365,18 @@ def chunk_fwd_kernel_o_npu_kernel(
             )
             # [BK, BV]
             b_h = tl.load(p_h, boundary_check=(0, 1), padding_option="zero")
-            
+
             # [BT, BK] @ [BK, BV] -> [BT, BV]
             b_o += tl.dot(b_q, b_h)
             # [BT, BK] @ [BK, BT] -> [BT, BT]
             b_A += tl.dot(b_q, b_k)
-        
+
         if USE_G:
             offs_t = i_t * BT + tl.arange(0, BT)
             mask_t = offs_t < T
-            g_ptr = g + bos + i_h * T_max 
+            g_ptr = g + bos + i_h * T_max
             b_g = tl.load(g_ptr + offs_t, mask=mask_t, other=0.0)
-            
+
             b_o = b_o * tl.exp(b_g)[:, None]
             b_A = b_A * safe_exp(b_g[:, None] - b_g[None, :])
 
@@ -422,6 +464,8 @@ def chunk_fwd_o_npu(
 +++++++++++++++++++++++ chunk_scaled_dot_kkt part +++++++++++++++++++++++++++++++
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 """
+
+
 @triton.heuristics(
     {
         "IS_VARLEN": lambda args: args["cu_seqlens"] is not None,
@@ -430,21 +474,21 @@ def chunk_fwd_o_npu(
 )
 @triton.jit(do_not_specialize=["T"])
 def chunk_scaled_dot_kkt_fwd_trans_kernel(
-        k,
-        beta,  # [H, B, T]
-        g_cumsum,  # [H, B, T]
-        A,
-        cu_seqlens,
-        chunk_indices,
-        T,
-        B,
-        H: tl.constexpr,
-        Hg: tl.constexpr,
-        K: tl.constexpr,
-        BT: tl.constexpr,
-        BK: tl.constexpr,
-        IS_VARLEN: tl.constexpr,
-        USE_G: tl.constexpr,
+    k,
+    beta,  # [H, B, T]
+    g_cumsum,  # [H, B, T]
+    A,
+    cu_seqlens,
+    chunk_indices,
+    T,
+    B,
+    H: tl.constexpr,
+    Hg: tl.constexpr,
+    K: tl.constexpr,
+    BT: tl.constexpr,
+    BK: tl.constexpr,
+    IS_VARLEN: tl.constexpr,
+    USE_G: tl.constexpr,
 ):
     bt_stride = B * T  # get from raw T
     i_t_i, _ = tl.program_id(0), tl.program_id(1)
@@ -495,18 +539,23 @@ def chunk_scaled_dot_kkt_fwd_trans_kernel(
         b_A = b_A * b_beta[:, None]
         b_A = tl.where(o_t_fp32[:, None] > o_t_fp32[None, :], b_A, 0)
         p_A = tl.make_block_ptr(
-            A + (bos * H + i_h) * BT, (T, BT), (BT * H, 1), (i_t * BT, 0), (BT, BT), (1, 0)
+            A + (bos * H + i_h) * BT,
+            (T, BT),
+            (BT * H, 1),
+            (i_t * BT, 0),
+            (BT, BT),
+            (1, 0),
         )
         tl.store(p_A, b_A.to(p_A.dtype.element_ty), boundary_check=(0, 1))
 
 
 def chunk_scaled_dot_kkt_fwd_npu(
-        k: torch.Tensor,
-        beta: torch.Tensor,
-        g_cumsum: Optional[torch.Tensor] = None,
-        cu_seqlens: Optional[torch.LongTensor] = None,
-        chunk_size: int = 64,
-        output_dtype: torch.dtype = torch.float32,
+    k: torch.Tensor,
+    beta: torch.Tensor,
+    g_cumsum: Optional[torch.Tensor] = None,
+    cu_seqlens: Optional[torch.LongTensor] = None,
+    chunk_size: int = 64,
+    output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
     r"""
     Compute beta * K * K^T.
@@ -572,6 +621,8 @@ def chunk_scaled_dot_kkt_fwd_npu(
 ++++++++++++++++++++++++++++++++++ cumsum part ++++++++++++++++++++++++++++++++++
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 """
+
+
 @triton.heuristics(
     {
         "HAS_SCALE": lambda args: args["scale"] is not None,
@@ -588,34 +639,38 @@ def chunk_local_cumsum_scalar_kernel(
     T,
     B: tl.constexpr,
     H: tl.constexpr,
-    BLOCK_T: tl.constexpr,         # 每个BLOCK的T维度size, 是CHUNK_SIZE的倍数
+    BLOCK_T: tl.constexpr,  # 每个BLOCK的T维度size, 是CHUNK_SIZE的倍数
     REVERSE: tl.constexpr,
     HAS_SCALE: tl.constexpr,
     IS_VARLEN: tl.constexpr,
     HEAD_FIRST: tl.constexpr,
-    CHUNK_SIZE: tl.constexpr=64,   # 每个chunk的大小, 增加的新参数,与算法相关
-): 
+    CHUNK_SIZE: tl.constexpr = 64,  # 每个chunk的大小, 增加的新参数,与算法相关
+):
     # g_block: 当前prograd 的全局block idx
     i_block, i_b = tl.program_id(0), tl.program_id(1)
     N_CHUNKS: tl.constexpr = BLOCK_T // CHUNK_SIZE
-    
+
     if IS_VARLEN:
         # [当前block在当前序列的idx, 当前序列的bos对应的idx]
         i_s, i_block = tl.load(chunk_indices + i_block * 2).to(tl.int32), tl.load(
             chunk_indices + i_block * 2 + 1
         ).to(tl.int32)
-        
+
         bos, eos = tl.load(cu_seqlens + i_s).to(tl.int32), tl.load(
             cu_seqlens + i_s + 1
         ).to(tl.int32)
         T = eos - bos
     else:
         bos, eos = i_b * T, i_b * T + T
-    
+
     if HEAD_FIRST:
-        ptr_s = tl.make_block_ptr(s + bos * H, (H, T), (T, 1), (0, i_block * BLOCK_T), (H, BLOCK_T), (1, 0))
-        ptr_o = tl.make_block_ptr(o + bos * H, (H, T), (T, 1), (0, i_block * BLOCK_T), (H, BLOCK_T), (1, 0))
-        b_s = tl.load(ptr_s,  boundary_check=(0,)).to(tl.float32)
+        ptr_s = tl.make_block_ptr(
+            s + bos * H, (H, T), (T, 1), (0, i_block * BLOCK_T), (H, BLOCK_T), (1, 0)
+        )
+        ptr_o = tl.make_block_ptr(
+            o + bos * H, (H, T), (T, 1), (0, i_block * BLOCK_T), (H, BLOCK_T), (1, 0)
+        )
+        b_s = tl.load(ptr_s, boundary_check=(0,)).to(tl.float32)
         b_s = tl.reshape(b_s, (H, N_CHUNKS, CHUNK_SIZE))
         b_s = tl.trans(b_s, (2, 0, 1))
         b_o = tl.cumsum(b_s, axis=0, reverse=REVERSE)
@@ -624,18 +679,22 @@ def chunk_local_cumsum_scalar_kernel(
         b_o = tl.trans(b_o, (2, 0, 1))
         b_o = tl.reshape(b_o, (H, BLOCK_T))
     else:
-        ptr_s = tl.make_block_ptr(s + bos * H, (T, H), (H, 1), (i_block * BLOCK_T, 0), (BLOCK_T, H), (1, 0))
-        ptr_o = tl.make_block_ptr(o + bos * H, (T, H), (H, 1), (i_block * BLOCK_T, 0), (BLOCK_T, H), (1, 0))
-        b_s = tl.load(ptr_s,  boundary_check=(0,)).to(tl.float32)
+        ptr_s = tl.make_block_ptr(
+            s + bos * H, (T, H), (H, 1), (i_block * BLOCK_T, 0), (BLOCK_T, H), (1, 0)
+        )
+        ptr_o = tl.make_block_ptr(
+            o + bos * H, (T, H), (H, 1), (i_block * BLOCK_T, 0), (BLOCK_T, H), (1, 0)
+        )
+        b_s = tl.load(ptr_s, boundary_check=(0,)).to(tl.float32)
         b_s = tl.reshape(b_s, (N_CHUNKS, CHUNK_SIZE, H))
         b_s = tl.trans(b_s, (1, 0, 2))
         b_o = tl.cumsum(b_s, axis=0, reverse=REVERSE)
-        
+
         if HAS_SCALE:
             b_o *= scale
         b_o = tl.trans(b_o, (1, 0, 2))
         b_o = tl.reshape(b_o, (BLOCK_T, H))
-  
+
     tl.store(ptr_o, b_o.to(s.dtype.element_ty), boundary_check=(0,))
     return
 
@@ -656,9 +715,17 @@ def chunk_local_cumsum_scalar_npu(
     assert chunk_size == 2 ** (
         chunk_size.bit_length() - 1
     ), "chunk_size must be a power of 2"
-    OPTIM_BLOCK_SIZE = triton.next_power_of_2((2 ** 18) // (H * chunk_size))
-    block_indices = prepare_chunk_indices(cu_seqlens, chunk_size=OPTIM_BLOCK_SIZE) if cu_seqlens is not None else None
-    num_blocks = len(block_indices) if cu_seqlens is not None else triton.cdiv(T, OPTIM_BLOCK_SIZE)
+    OPTIM_BLOCK_SIZE = triton.next_power_of_2((2**18) // (H * chunk_size))
+    block_indices = (
+        prepare_chunk_indices(cu_seqlens, chunk_size=OPTIM_BLOCK_SIZE)
+        if cu_seqlens is not None
+        else None
+    )
+    num_blocks = (
+        len(block_indices)
+        if cu_seqlens is not None
+        else triton.cdiv(T, OPTIM_BLOCK_SIZE)
+    )
     g_org, g = g, torch.empty_like(g, dtype=output_dtype or g.dtype)
     grid = (num_blocks, B)
 
@@ -671,14 +738,15 @@ def chunk_local_cumsum_scalar_npu(
         T=T,
         B=B,
         H=H,
-        BLOCK_T = OPTIM_BLOCK_SIZE,
-        CHUNK_SIZE =chunk_size,
+        BLOCK_T=OPTIM_BLOCK_SIZE,
+        CHUNK_SIZE=chunk_size,
         HEAD_FIRST=head_first,
         REVERSE=reverse,
         num_warps=8,
         num_stages=3,
     )
     return g
+
 
 def chunk_local_cumsum(
     g: torch.Tensor,
@@ -722,6 +790,8 @@ def chunk_local_cumsum(
 ++++++++++++++++++++++++++++++ solve_tril part ++++++++++++++++++++++++++++++++++
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 """
+
+
 @triton.heuristics({"IS_VARLEN": lambda args: args["cu_seqlens"] is not None})
 @triton.jit(do_not_specialize=["T"])
 def solve_tril_16x16_kernel_paral(
@@ -733,7 +803,7 @@ def solve_tril_16x16_kernel_paral(
     H: tl.constexpr,
     BT: tl.constexpr,
     IS_VARLEN: tl.constexpr,
-    LARGE_BLOCK_T: tl.constexpr
+    LARGE_BLOCK_T: tl.constexpr,
 ):
     i_t, i_bh = tl.program_id(0), tl.program_id(1)
     i_b, i_h = i_bh // H, i_bh % H
@@ -750,62 +820,69 @@ def solve_tril_16x16_kernel_paral(
 
     A = A + (bos * H + i_h) * BT
     Ad = Ad + (bos * H + i_h) * 16
-    
+
     N_BLOCKS: tl.constexpr = LARGE_BLOCK_T // 16
     base_t = i_t * LARGE_BLOCK_T
-    tl.device_print('i_t:', i_t)
-    tl.device_print('base_t:', base_t)
-    
-    b_A = tl.zeros((N_BLOCKS, 16, 16), dtype=tl.float32) # (N_BLOCKS, 16, 16)
+    tl.device_print("i_t:", i_t)
+    tl.device_print("base_t:", base_t)
+
+    b_A = tl.zeros((N_BLOCKS, 16, 16), dtype=tl.float32)  # (N_BLOCKS, 16, 16)
     for blkid in range(0, N_BLOCKS):
-        row_start_o = base_t + blkid*16
+        row_start_o = base_t + blkid * 16
         col_start_o = row_start_o % BT
         p_A_subrec16 = tl.make_block_ptr(
-            A, (T, BT), (H*BT, 1), (row_start_o, col_start_o), (16, 16), (1, 0)
+            A, (T, BT), (H * BT, 1), (row_start_o, col_start_o), (16, 16), (1, 0)
         )
-        b_A_subrec16 = tl.load(p_A_subrec16, boundary_check=(0, 1)).to(tl.float32) # (16, 16)
+        b_A_subrec16 = tl.load(p_A_subrec16, boundary_check=(0, 1)).to(
+            tl.float32
+        )  # (16, 16)
         b_A = tl.insert_slice(
             ful=b_A,
-            sub=b_A_subrec16[None, :, :], # (1, 16, 16)
+            sub=b_A_subrec16[None, :, :],  # (1, 16, 16)
             offsets=[blkid, 0, 0],
             sizes=[1, 16, 16],
-            strides=[1, 1, 1]
+            strides=[1, 1, 1],
         )
-    
-    
+
     # load multi 16x16 into UB
     local_ori_A = tl.trans(b_A, (1, 0, 2))
-    local_ori_A = tl.reshape(local_ori_A, (16, 16*N_BLOCKS)) # (16, N_BLOCKS*16)
-    
+    local_ori_A = tl.reshape(local_ori_A, (16, 16 * N_BLOCKS))  # (16, N_BLOCKS*16)
+
     tmp = tl.arange(0, 16).to(tl.float32)
     rows = tmp[:, None]
     cols = tmp[None, :]
     is_lower = (rows > cols).to(b_A.dtype)
     b_A = -b_A * is_lower
-    
+
     o_i = tl.arange(0, 16)
     for i in range(1, 16):
-        
-        nblks_vec16 = -tl.extract_slice(local_ori_A, (i, 0), (1, 16*N_BLOCKS), (16*N_BLOCKS, 1))
+
+        nblks_vec16 = -tl.extract_slice(
+            local_ori_A, (i, 0), (1, 16 * N_BLOCKS), (16 * N_BLOCKS, 1)
+        )
         b_a = tl.reshape(nblks_vec16, (N_BLOCKS, 16))
-        
+
         dot_tmp = tl.trans(b_a[:, :, None] * b_A, (1, 0, 2))
         dot_product = tl.sum(dot_tmp, 0)
         b_a = b_a + dot_product  # (N_BLOCKS, 16)
-        
-        row_mask = (o_i == i)  # (16,), True at position i
+
+        row_mask = o_i == i  # (16,), True at position i
         update_mask = row_mask[None, :, None]  # (1, 16, 1)
         b_a_expanded = b_a[:, None, :]  # (N_BLOCKS, 1, 16)
-        b_A = tl.where(update_mask, b_a_expanded, b_A) # shape keeps (N_BLOCKS, 16, 16)
-        
-    
-    on_diagonal = (rows == cols)
+        b_A = tl.where(update_mask, b_a_expanded, b_A)  # shape keeps (N_BLOCKS, 16, 16)
+
+    on_diagonal = rows == cols
     b_A = tl.where(on_diagonal, b_A + 1.0, b_A)
-    
-    
-    b_A = tl.reshape(b_A, (N_BLOCKS*16, 16))
-    p_Ai = tl.make_block_ptr(Ad, (T, 16), (H * 16, 1), (base_t, 0), (N_BLOCKS*16, 16), (1, 0))
-    tl.store(p_Ai, b_A.to(p_Ai.dtype.element_ty, fp_downcast_rounding="rtne"), boundary_check=(0, 1),)
+
+    b_A = tl.reshape(b_A, (N_BLOCKS * 16, 16))
+    p_Ai = tl.make_block_ptr(
+        Ad, (T, 16), (H * 16, 1), (base_t, 0), (N_BLOCKS * 16, 16), (1, 0)
+    )
+    tl.store(
+        p_Ai,
+        b_A.to(p_Ai.dtype.element_ty, fp_downcast_rounding="rtne"),
+        boundary_check=(0, 1),
+    )
 
 
 @triton.heuristics({"IS_VARLEN": lambda args: args["cu_seqlens"] is not None})
@@ -819,7 +896,7 @@ def solve_tril_16x16_kernel_paral_v3(
     H: tl.constexpr,
     BT: tl.constexpr,
     IS_VARLEN: tl.constexpr,
-    LARGE_BLOCK_T: tl.constexpr
+    LARGE_BLOCK_T: tl.constexpr,
 ):
     i_t, i_bh = tl.program_id(0), tl.program_id(1)
     i_b, i_h = i_bh // H, i_bh % H
@@ -836,84 +913,100 @@ def solve_tril_16x16_kernel_paral_v3(
 
     A = A + (bos * H + i_h) * BT
     Ad = Ad + (bos * H + i_h) * 16
-    
-    
+
     base_t = i_t * LARGE_BLOCK_T
-    
+
     NTASKS: tl.constexpr = 2
     N_BLOCKS: tl.constexpr = LARGE_BLOCK_T // 16 // NTASKS
-    
+
     for taskid in range(0, NTASKS):
-        base_t += taskid * (LARGE_BLOCK_T//NTASKS)
-        
-        b_A = tl.zeros((N_BLOCKS, 16, 16), dtype=tl.float32) # (N_BLOCKS, 16, 16)
+        base_t += taskid * (LARGE_BLOCK_T // NTASKS)
+
+        b_A = tl.zeros((N_BLOCKS, 16, 16), dtype=tl.float32)  # (N_BLOCKS, 16, 16)
         for blkid in range(0, N_BLOCKS):
-            row_start_o = base_t + blkid*16
+            row_start_o = base_t + blkid * 16
             col_start_o = row_start_o % BT
             # using ptr with mask instead of tl.load(block_ptr)
             offs_rows_in_block = tl.arange(0, 16)
             offs_cols_in_block = tl.arange(0, 16)
             # strides (H*BT, 1)
-            ptr_A_subrec16 = (A + row_start_o * H * BT + col_start_o + 
-                              offs_rows_in_block[:, None] * H * BT + 
-                              offs_cols_in_block[None, :])
+            ptr_A_subrec16 = (
+                A
+                + row_start_o * H * BT
+                + col_start_o
+                + offs_rows_in_block[:, None] * H * BT
+                + offs_cols_in_block[None, :]
+            )
             global_rows = row_start_o + offs_rows_in_block[:, None]
             global_cols = col_start_o + offs_cols_in_block[None, :]
             load_mask = (global_rows < T) & (global_cols < BT)
-            b_A_subrec16 = tl.load(ptr_A_subrec16, mask=load_mask, other=0.0).to(tl.float32)
+            b_A_subrec16 = tl.load(ptr_A_subrec16, mask=load_mask, other=0.0).to(
+                tl.float32
+            )
             b_A = tl.insert_slice(
                 ful=b_A,
-                sub=b_A_subrec16[None, :, :], # (1, 16, 16)
+                sub=b_A_subrec16[None, :, :],  # (1, 16, 16)
                 offsets=[blkid, 0, 0],
                 sizes=[1, 16, 16],
-                strides=[1, 1, 1]
+                strides=[1, 1, 1],
             )
-        
+
         # load multi 16x16
         local_ori_A = tl.trans(b_A, (1, 0, 2))
-        local_ori_A = tl.reshape(local_ori_A, (16, 16*N_BLOCKS)) # (16, N_BLOCKS*16)
-        
+        local_ori_A = tl.reshape(local_ori_A, (16, 16 * N_BLOCKS))  # (16, N_BLOCKS*16)
+
         # change mask into matrix elementwise action
         tmp = tl.arange(0, 16).to(tl.float32)
         rows = tmp[:, None]
         cols = tmp[None, :]
         is_lower = (rows > cols).to(b_A.dtype)
         b_A = -b_A * is_lower
-        
+
         for i in range(1, 16):
-            
-            nblks_vec16 = -tl.extract_slice(local_ori_A, (i, 0), (1, 16*N_BLOCKS), (16*N_BLOCKS, 1))
+
+            nblks_vec16 = -tl.extract_slice(
+                local_ori_A, (i, 0), (1, 16 * N_BLOCKS), (16 * N_BLOCKS, 1)
+            )
             b_a = tl.reshape(nblks_vec16, (N_BLOCKS, 16))
-            
+
             dot_tmp = tl.trans(b_a[:, :, None] * b_A, (1, 0, 2))
             dot_product = tl.sum(dot_tmp, 0)
             b_a = b_a + dot_product  # (N_BLOCKS, 16)
-            
+
             b_a_new_expanded = b_a[:, None, :]  # (N_BLOCKS, 1, 16)
             b_A = tl.insert_slice(
                 ful=b_A,
                 sub=b_a_new_expanded,
                 offsets=[0, i, 0],
                 sizes=[N_BLOCKS, 1, 16],
-                strides=[1, 1, 1] 
+                strides=[1, 1, 1],
             )
 
-        on_diagonal = (rows == cols)
+        on_diagonal = rows == cols
         b_A = tl.where(on_diagonal, b_A + 1.0, b_A)
-        
-        
-        b_A = tl.reshape(b_A, (N_BLOCKS*16, 16))
-        p_Ai = tl.make_block_ptr(Ad, (T, 16), (H * 16, 1), (base_t, 0), (N_BLOCKS*16, 16), (1, 0))
+
+        b_A = tl.reshape(b_A, (N_BLOCKS * 16, 16))
+        p_Ai = tl.make_block_ptr(
+            Ad, (T, 16), (H * 16, 1), (base_t, 0), (N_BLOCKS * 16, 16), (1, 0)
+        )
         # using ptr with mask instead of tl.load(block_ptr)
-        offs_rows_to_store = tl.arange(0, N_BLOCKS*16)
+        offs_rows_to_store = tl.arange(0, N_BLOCKS * 16)
         offs_cols_to_store = tl.arange(0, 16)
         # strides (H*16, 1)
-        p_Ai = (Ad + base_t * H * 16 + 0 +
-                offs_rows_to_store[:, None] * H * 16 +
-                offs_cols_to_store[None, :])
+        p_Ai = (
+            Ad
+            + base_t * H * 16
+            + 0
+            + offs_rows_to_store[:, None] * H * 16
+            + offs_cols_to_store[None, :]
+        )
         global_store_rows = base_t + offs_rows_to_store[:, None]
         store_mask = global_store_rows < T
-        tl.store(p_Ai, b_A.to(p_Ai.dtype.element_ty, fp_downcast_rounding="rtne"), mask=store_mask)
+        tl.store(
+            p_Ai,
+            b_A.to(p_Ai.dtype.element_ty, fp_downcast_rounding="rtne"),
+            mask=store_mask,
+        )
 
 
 @triton.heuristics({"IS_VARLEN": lambda args: args["cu_seqlens"] is not None})
@@ -988,9 +1081,11 @@ def merge_16x16_to_32x32_inverse_kernel(
     )
 
 
-@triton.heuristics({
-    "IS_VARLEN": lambda args: args["cu_seqlens"] is not None,
-})
+@triton.heuristics(
+    {
+        "IS_VARLEN": lambda args: args["cu_seqlens"] is not None,
+    }
+)
 @triton.jit(do_not_specialize=["T"])
 def merge_16x16_to_64x64_inverse_kernel_reorder_all_masked(
     A,
@@ -1002,7 +1097,6 @@ def merge_16x16_to_64x64_inverse_kernel_reorder_all_masked(
     H: tl.constexpr,
     BT: tl.constexpr,
     IS_VARLEN: tl.constexpr,
-    
 ):
     i_t, i_bh = tl.program_id(0), tl.program_id(1)
     i_b, i_h = i_bh // H, i_bh % H
@@ -1099,21 +1193,33 @@ def merge_16x16_to_64x64_inverse_kernel_reorder_all_masked(
     offs_n = tl.arange(0, 32)
     mask_store = (offs_m[:, None] < T) & (offs_n[None, :] < 64)
     ptr_Ai = Ai + offs_m[:, None] * (H * 64) + offs_n[None, :]
-    tl.store(ptr_Ai, Ai_11_32.to(ptr_Ai.dtype.element_ty, fp_downcast_rounding="rtne"), mask=mask_store)
+    tl.store(
+        ptr_Ai,
+        Ai_11_32.to(ptr_Ai.dtype.element_ty, fp_downcast_rounding="rtne"),
+        mask=mask_store,
+    )
 
     # ------------------ Store Ai_22_32 to (i_t*64+32, 32) ------------------
     offs_m = i_t * 64 + 32 + tl.arange(0, 32)
     offs_n = 32 + tl.arange(0, 32)
     mask_store = (offs_m[:, None] < T) & (offs_n[None, :] < 64)
     ptr_Ai = Ai + offs_m[:, None] * (H * 64) + offs_n[None, :]
-    tl.store(ptr_Ai, Ai_22_32.to(ptr_Ai.dtype.element_ty, fp_downcast_rounding="rtne"), mask=mask_store)
+    tl.store(
+        ptr_Ai,
+        Ai_22_32.to(ptr_Ai.dtype.element_ty, fp_downcast_rounding="rtne"),
+        mask=mask_store,
+    )
 
     # ------------------ Store Ai_21_32 to (i_t*64+32, 0) ------------------
     offs_n = tl.arange(0, 32)
     mask_store = (offs_m[:, None] < T) & (offs_n[None, :] < 64)
     ptr_Ai = Ai + offs_m[:, None] * (H * 64) + offs_n[None, :]
-    tl.store(ptr_Ai, Ai_21_32.to(ptr_Ai.dtype.element_ty, fp_downcast_rounding="rtne"), mask=mask_store)
-    
+    tl.store(
+        ptr_Ai,
+        Ai_21_32.to(ptr_Ai.dtype.element_ty, fp_downcast_rounding="rtne"),
+        mask=mask_store,
+    )
+
     # ------------------ Zero out the upper-right 32x32 block (rows 0~31, cols 32~63) ------------------
     offs_m = i_t * 64 + tl.arange(0, 32)
     offs_n = 32 + tl.arange(0, 32)
@@ -1145,18 +1251,19 @@ def solve_tril_npu(
         (I + A)^-1 with the same shape as A
     """
     assert A.shape[-1] in [16, 32, 64]
-    
 
     B, T, H, BT = A.shape
     Ad = torch.empty(
         B, T, H, 16, device=A.device, dtype=torch.float if BT != 16 else output_dtype
     )
 
-    LARGE_BLOCK_T = 608*2
+    LARGE_BLOCK_T = 608 * 2
     # assert A.shape[1]%LARGE_BLOCK_T == 0 # or last N_BLOCKS have not enough block which leads to tl.arange failed
-    
+
     chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, LARGE_BLOCK_T) if cu_seqlens is not None else None
+        prepare_chunk_indices(cu_seqlens, LARGE_BLOCK_T)
+        if cu_seqlens is not None
+        else None
     )
     NT = len(chunk_indices) if cu_seqlens is not None else triton.cdiv(T, LARGE_BLOCK_T)
     solve_tril_16x16_kernel_paral_v3[NT, B * H](
@@ -1171,7 +1278,7 @@ def solve_tril_npu(
         num_warps=1,
         num_stages=4,
     )
-    
+
     if BT == 16:
         return Ad
 
@@ -1205,6 +1312,8 @@ def solve_tril_npu(
 ++++++++++++++++++++++++++++++++ wy_fast part +++++++++++++++++++++++++++++++++++
 +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
 """
+
+
 @triton.heuristics({"IS_VARLEN": lambda args: args["cu_seqlens"] is not None})
 @triton.jit(do_not_specialize=["T"])
 def recompute_w_u_fwd_kernel_npu_kernel(
@@ -1226,7 +1335,7 @@ def recompute_w_u_fwd_kernel_npu_kernel(
     BK: tl.constexpr,
     BV: tl.constexpr,
     IS_VARLEN: tl.constexpr,
-):  
+):
     T_max = T
     i_t_o, _ = tl.program_id(0), tl.program_id(1)
     for i_bh in range(H):
@@ -1245,12 +1354,10 @@ def recompute_w_u_fwd_kernel_npu_kernel(
         offs_t = tl.arange(0, BT)
         global_offs_t = i_t * BT + offs_t
         mask_t = global_offs_t < T
-        
+
         offs_t_2d = global_offs_t[:, None]
         offs_bt = tl.arange(0, BT)[None, :]
-        ptr_A = (A + (bos * H + i_h) * BT + 
-                 offs_t_2d * (H * BT) + 
-                 offs_bt * 1)
+        ptr_A = A + (bos * H + i_h) * BT + offs_t_2d * (H * BT) + offs_bt * 1
         mask_A = mask_t[:, None]
         b_A = tl.load(ptr_A, mask=mask_A, other=0.0).to(tl.float32)
 
@@ -1265,32 +1372,29 @@ def recompute_w_u_fwd_kernel_npu_kernel(
             offs_v = i_v * BV + tl.arange(0, BV)[None, :]
             mask_v = (mask_t[:, None]) & (offs_v < V)
             # orig strides (H * V, 1)
-            ptr_v = (v + (bos * H + i_h) * V +
-                     offs_t_2d * (H * V) +
-                     offs_v * 1)
+            ptr_v = v + (bos * H + i_h) * V + offs_t_2d * (H * V) + offs_v * 1
             b_v = tl.load(ptr_v, mask=mask_v, other=0.0).to(tl.float32)
-            
-            b_vb = (b_v * b_beta[:, None])
+
+            b_vb = b_v * b_beta[:, None]
             b_u = tl.dot(b_A, b_vb, allow_tf32=False)
-            ptr_u = (u + (bos * H + i_h) * V +
-                     offs_t_2d * (H * V) +
-                     offs_v * 1)
+            ptr_u = u + (bos * H + i_h) * V + offs_t_2d * (H * V) + offs_v * 1
             tl.store(ptr_u, b_u.to(ptr_u.dtype.element_ty), mask=mask_v)
 
         for i_k in range(tl.cdiv(K, BK)):
             offs_k = i_k * BK + tl.arange(0, BK)[None, :]
             mask_k = (mask_t[:, None]) & (offs_k < K)
             # orig strides (Hg * K, 1)
-            ptr_k = (k + (bos * Hg + i_h // (H // Hg)) * K +
-                     offs_t_2d * (Hg * K) +
-                     offs_k * 1)
+            ptr_k = (
+                k
+                + (bos * Hg + i_h // (H // Hg)) * K
+                + offs_t_2d * (Hg * K)
+                + offs_k * 1
+            )
             b_k = tl.load(ptr_k, mask=mask_k, other=0.0).to(tl.float32)
-            
-            b_kb = (b_k * b_beta[:, None] * b_g[:, None])
+
+            b_kb = b_k * b_beta[:, None] * b_g[:, None]
             b_w = tl.dot(b_A, b_kb)
-            ptr_w = (w + (bos * H + i_h) * K +
-                     offs_t_2d * (H * K) +
-                     offs_k * 1)
+            ptr_w = w + (bos * H + i_h) * K + offs_t_2d * (H * K) + offs_k * 1
             tl.store(ptr_w, b_w.to(ptr_w.dtype.element_ty), mask=mask_k)
 
 

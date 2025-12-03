@@ -1,23 +1,26 @@
 import os
+import time
 from typing import Optional
 
 import pytest
 import torch
-import time
 import torch.nn.functional as F
-
-from sgl_kernel_npu.fla.chunk import chunk_gated_delta_rule_native, chunk_gated_delta_rule_fwd
+from sgl_kernel_npu.fla.chunk import (
+    chunk_gated_delta_rule_fwd,
+    chunk_gated_delta_rule_native,
+)
 
 LAUNCH_MIN = 2
 LAUNCH_CNT = max(2, LAUNCH_MIN)  # specify your run cnt for profiling
 device = "npu"
 
+
 def get_abs_err(x, y):
-    return (x.detach()-y.detach()).flatten().abs().max().item()
+    return (x.detach() - y.detach()).flatten().abs().max().item()
 
 
 def get_err_ratio(x, y):
-    err = (x.detach()-y.detach()).flatten().square().mean().sqrt().item()
+    err = (x.detach() - y.detach()).flatten().square().mean().sqrt().item()
     base = (x.detach()).flatten().square().mean().sqrt().item()
     return err / (base + 1e-8)
 
@@ -31,6 +34,7 @@ def assert_close(prefix, ref, tri, ratio, warning=False, err_atol=1e-6):
     else:
         assert error_rate < ratio, msg
 
+
 def print_diff(name, ref, tri, atol=0.005):
     abs_diff = torch.abs(ref - tri)
     max_abs_diff = abs_diff.max().item()
@@ -40,7 +44,7 @@ def print_diff(name, ref, tri, atol=0.005):
 
 
 @pytest.mark.parametrize(
-    ('H', 'D', 'mask_p', 'cu_seqlens', 'dtype'),
+    ("H", "D", "mask_p", "cu_seqlens", "dtype"),
     [
         pytest.param(*test, id="H{}-D{}-mask_p{}-cu_seqlens{}-{}".format(*test))
         for test in [
@@ -78,8 +82,8 @@ def print_diff(name, ref, tri, atol=0.005):
     ],
 )
 @pytest.mark.skipif(
-    os.getenv('SKIP_TEST_CHUNK_VARLEN') == '1',
-    reason='Skipping test_chunk_varlen because SKIP_TEST_CHUNK_VARLEN is set',
+    os.getenv("SKIP_TEST_CHUNK_VARLEN") == "1",
+    reason="Skipping test_chunk_varlen because SKIP_TEST_CHUNK_VARLEN is set",
 )
 def test_chunk_varlen(
     H: int,
@@ -89,9 +93,11 @@ def test_chunk_varlen(
     dtype: torch.dtype,
 ):
     if D != 128:
-        pytest.skip(reason='chunk_gated_delta_rule is not supported on alchemist for D!=128')
+        pytest.skip(
+            reason="chunk_gated_delta_rule is not supported on alchemist for D!=128"
+        )
     torch.manual_seed(42)
-    os.environ['TRITON_F32_DEFAULT'] = 'ieee'
+    os.environ["TRITON_F32_DEFAULT"] = "ieee"
     # randomly split the sequence into N segments
     cu_seqlens = torch.LongTensor(cu_seqlens).to(device)
     T = cu_seqlens[-1]
@@ -106,7 +112,9 @@ def test_chunk_varlen(
     beta = torch.rand(1, T, H, dtype=dtype).sigmoid()
     h0 = torch.randn((N, H, D, D), dtype=dtype)
 
-    q, k, v, beta, g, h0 = map(lambda x: x.to(device).requires_grad_(), (q, k, v, beta, g, h0))
+    q, k, v, beta, g, h0 = map(
+        lambda x: x.to(device).requires_grad_(), (q, k, v, beta, g, h0)
+    )
 
     begin_time = 0
     for i in range(LAUNCH_CNT):
@@ -127,7 +135,7 @@ def test_chunk_varlen(
 
     torch.npu.synchronize()
     use_time = time.time() - begin_time
-    print(f'[DEBUG] triton using time is {use_time * 1000 / (LAUNCH_CNT-1)}')
+    print(f"[DEBUG] triton using time is {use_time * 1000 / (LAUNCH_CNT-1)}")
 
     begin_time = 0
     for i in range(LAUNCH_CNT):
@@ -137,11 +145,11 @@ def test_chunk_varlen(
         ref_ht = []
         for i in range(N):
             ref_i, ref_ht_i = chunk_gated_delta_rule_native(
-                query=q[:, cu_seqlens[i]:cu_seqlens[i+1]],
-                key=k[:, cu_seqlens[i]:cu_seqlens[i+1]],
-                value=v[:, cu_seqlens[i]:cu_seqlens[i+1]],
-                beta=beta[:, cu_seqlens[i]:cu_seqlens[i+1]],
-                g=g[:, cu_seqlens[i]:cu_seqlens[i+1]],
+                query=q[:, cu_seqlens[i] : cu_seqlens[i + 1]],
+                key=k[:, cu_seqlens[i] : cu_seqlens[i + 1]],
+                value=v[:, cu_seqlens[i] : cu_seqlens[i + 1]],
+                beta=beta[:, cu_seqlens[i] : cu_seqlens[i + 1]],
+                g=g[:, cu_seqlens[i] : cu_seqlens[i + 1]],
                 initial_state=h0[i],
                 output_final_state=True,
             )
@@ -152,12 +160,10 @@ def test_chunk_varlen(
 
     torch.npu.synchronize()
     use_time = time.time() - begin_time
-    print(f'[DEBUG] native using time is {use_time * 1000 / (LAUNCH_CNT-1)}')
+    print(f"[DEBUG] native using time is {use_time * 1000 / (LAUNCH_CNT-1)}")
 
+    print_diff("o", ref, tri, 0.005)
+    print_diff("ht", ref_ht, tri_ht, 0.005)
 
-    print_diff('o', ref, tri, 0.005)
-    print_diff('ht', ref_ht, tri_ht, 0.005)
-
-    assert_close('o', ref, tri, 0.005)
-    assert_close('ht', ref_ht, tri_ht, 0.005)
-    
+    assert_close("o", ref, tri, 0.005)
+    assert_close("ht", ref_ht, tri_ht, 0.005)

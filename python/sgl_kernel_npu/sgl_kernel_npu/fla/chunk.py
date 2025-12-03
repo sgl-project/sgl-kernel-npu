@@ -5,15 +5,18 @@ from typing import Optional
 
 import torch
 import torch.nn.functional as F
-
-from sgl_kernel_npu.fla.utils import SUPPRESS_LEVEL
-from sgl_kernel_npu.fla.chunk_ops import chunk_local_cumsum
-from sgl_kernel_npu.fla.chunk_ops import chunk_scaled_dot_kkt_fwd_npu as chunk_scaled_dot_kkt_fwd
-from sgl_kernel_npu.fla.chunk_ops import solve_tril_npu as solve_tril
-from sgl_kernel_npu.fla.chunk_ops import recompute_w_u_fwd_npu as recompute_w_u_fwd
-from sgl_kernel_npu.fla.chunk_ops import chunk_gated_delta_rule_fwd_h_npu as chunk_gated_delta_rule_fwd_h
 from sgl_kernel_npu.fla.chunk_ops import chunk_fwd_o_npu as chunk_fwd_o
+from sgl_kernel_npu.fla.chunk_ops import (
+    chunk_gated_delta_rule_fwd_h_npu as chunk_gated_delta_rule_fwd_h,
+)
+from sgl_kernel_npu.fla.chunk_ops import chunk_local_cumsum
+from sgl_kernel_npu.fla.chunk_ops import (
+    chunk_scaled_dot_kkt_fwd_npu as chunk_scaled_dot_kkt_fwd,
+)
+from sgl_kernel_npu.fla.chunk_ops import recompute_w_u_fwd_npu as recompute_w_u_fwd
+from sgl_kernel_npu.fla.chunk_ops import solve_tril_npu as solve_tril
 from sgl_kernel_npu.fla.l2norm import l2norm_fwd
+from sgl_kernel_npu.fla.utils import SUPPRESS_LEVEL
 
 
 def chunk_gated_delta_rule_native(
@@ -335,21 +338,13 @@ def chunk_gated_delta_rule(
             )
     if scale is None:
         scale = k.shape[-1] ** -0.5
-    
+
     if use_qk_l2norm_in_kernel:
         q = l2norm_fwd(q)
         k = l2norm_fwd(k)
 
     _, o, _, final_state, _, _, _ = chunk_gated_delta_rule_fwd(
-        q,
-        k,
-        v,
-        g,
-        beta,
-        scale,
-        initial_state,
-        output_final_state,
-        cu_seqlens
+        q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
     )
     o = o.to(q.dtype)
     if head_first:

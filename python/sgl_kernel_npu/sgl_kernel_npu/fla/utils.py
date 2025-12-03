@@ -5,13 +5,12 @@
 import contextlib
 import functools
 import os
-from typing import Callable, Any, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Optional, Tuple
 
+import torch
 import triton
 import triton.language as tl
 import triton.language.extra.libdevice as tldevice
-import torch
-
 
 is_gather_supported = hasattr(triton.language, "gather")
 SUPPRESS_LEVEL = int(os.getenv("GDN_RECOMPUTE_SUPPRESS_LEVEL", "0"))
@@ -166,10 +165,12 @@ def prepare_chunk_offsets(
 
 @tensor_cache
 def prepare_position_ids(cu_seqlens: torch.LongTensor) -> torch.LongTensor:
-    return torch.cat([
-        torch.arange(n, dtype=cu_seqlens.dtype, device=cu_seqlens.device)
-        for n in prepare_lens(cu_seqlens).unbind()
-    ])
+    return torch.cat(
+        [
+            torch.arange(n, dtype=cu_seqlens.dtype, device=cu_seqlens.device)
+            for n in prepare_lens(cu_seqlens).unbind()
+        ]
+    )
 
 
 @tensor_cache

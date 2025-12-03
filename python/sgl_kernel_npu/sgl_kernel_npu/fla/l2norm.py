@@ -9,7 +9,6 @@ import torch.nn as nn
 import triton
 import triton.language as tl
 import triton.runtime.driver as driver
-
 from sgl_kernel_npu.fla.utils import input_guard
 
 BT_LIST = [8, 16, 32, 64, 128]
@@ -81,7 +80,7 @@ def l2norm_fwd(
         y = torch.empty_like(x, dtype=output_dtype)
     assert y.stride(-1) == 1
     T, D = x.shape[0], x.shape[-1]
-    #rstd = torch.empty((T,), dtype=torch.float32, device=x.device)
+    # rstd = torch.empty((T,), dtype=torch.float32, device=x.device)
     # Less than 64KB per feature: enqueue fused kernel
     MAX_FUSED_SIZE = 65536 // x.element_size()
 
@@ -96,7 +95,7 @@ def l2norm_fwd(
         bt = 109
         num_core = get_npu_properties()["num_vectorcore"]
         main_bs = triton.cdiv(T, num_core)
-        grid = (num_core, )
+        grid = (num_core,)
 
         l2norm_fwd_kernel_opt[grid](
             x,
