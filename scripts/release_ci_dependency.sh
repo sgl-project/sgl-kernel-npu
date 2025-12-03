@@ -16,7 +16,9 @@ apt update -y && apt install -y \
     clang \
     locales \
     ccache \
-    ca-certificates
+    ca-certificates \
+    libpybind11-dev
+
 update-ca-certificates
 python3 -m ${PIP_INSTALL} --upgrade pip
 
