@@ -3,33 +3,33 @@ import argparse
 import deep_ep
 import torch
 import torch.distributed as dist
+from test_common import normal_test
 from test_fused_deep_moe import init_base_weights, init_fused_weights_int8
-from test_normal_and_low_latency import normal_test
-from utils import calc_diff, init_dist
+from utils import init_dist
 
 RANK_OFFSET = 128
 
 
 def fused_deep_moe_test(
-    num_tokens: int,
-    hidden: int,
-    num_experts: int,
-    num_topk: int,
-    num_ranks: int,
-    buffer: deep_ep.Buffer,
+        num_tokens: int,
+        hidden: int,
+        num_experts: int,
+        num_topk: int,
+        num_ranks: int,
+        buffer: deep_ep.Buffer,
 ):
     num_local_experts = num_experts // num_ranks
     rank_offset = RANK_OFFSET
     assert (
-        num_ranks - rank_offset < 257
+            num_ranks - rank_offset < 257
     ), "Too many ranks (exceeding test precision limit)"
 
     x = torch.rand((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * 10 - 5
     scores = (
-        torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
-        + 1
+            torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
+            + 1
     )
-    topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=True)[1]
+    topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
     topk_weights = torch.randn(
         (num_tokens, num_topk), dtype=torch.float32, device="npu"
     ).abs()
@@ -44,7 +44,7 @@ def fused_deep_moe_test(
         w2_weight_scale.clone().detach(),
     )
 
-    fused_output, fused_ep_recv_count = buffer.fused_deep_moe(
+    fused_output, _ = buffer.fused_deep_moe(
         x,
         topk_idx,
         topk_weights,

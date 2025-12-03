@@ -3,107 +3,38 @@ import argparse
 import deep_ep
 import torch
 import torch.distributed as dist
-from utils import calc_diff, init_dist, per_token_cast_back
+from test_common import normal_test
+from utils import init_dist, calc_diff, per_token_cast_back
 
 RANK_OFFSET = 128
 
 
-def normal_test(
-    num_tokens: int,
-    hidden: int,
-    num_experts: int,
-    num_topk: int,
-    buffer: deep_ep.Buffer,
-):
-    x = torch.randn((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
-    scores = (
-        torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
-        + 1
-    )
-    topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
-    topk_weights = torch.randn(
-        (num_tokens, num_topk), dtype=torch.float32, device="npu"
-    )
-
-    (
-        num_tokens_per_rank,
-        _,
-        num_tokens_per_expert,
-        is_token_in_rank,
-        _,
-    ) = buffer.get_dispatch_layout(topk_idx, num_experts)
-
-    buffer_size = 256
-    config = deep_ep.Config(24, 8, buffer_size)
-
-    dispatch_args = {
-        "x": x,
-        "num_tokens_per_rank": num_tokens_per_rank,
-        "is_token_in_rank": is_token_in_rank,
-        "num_tokens_per_expert": num_tokens_per_expert,
-        "config": config,
-        "topk_idx": topk_idx,
-        "topk_weights": topk_weights,
-    }
-
-    (
-        recv_x,
-        _,
-        _,
-        _,
-        handle,
-        _,
-    ) = buffer.dispatch(**dispatch_args)
-
-    recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
-    combine_args = {
-        "x": recv_x,
-        "handle": handle,
-        "config": config,
-        "async_finish": False,
-        "topk_weights": handle[7],
-    }
-    (
-        combined_x,
-        _,
-        _,
-    ) = buffer.combine(**combine_args)
-
-    assert (
-        calc_diff(
-            combined_x.float(),
-            x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
-        )
-        < 5e-5
-    )
-
-
 def low_latency_test(
-    num_tokens: int,
-    hidden: int,
-    num_experts: int,
-    num_topk: int,
-    rank: int,
-    num_ranks: int,
-    buffer: deep_ep.Buffer,
+        num_tokens: int,
+        hidden: int,
+        num_experts: int,
+        num_topk: int,
+        rank: int,
+        num_ranks: int,
+        buffer: deep_ep.Buffer,
 ):
     experts_per_rank = num_experts // num_ranks
 
     rank_offset = RANK_OFFSET
     assert (
-        num_ranks - rank_offset < 257
+            num_ranks - rank_offset < 257
     ), "Too many ranks (exceeding test precision limit)"
 
     x = torch.ones((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * (
-        rank - rank_offset
+            rank - rank_offset
     )
     x[:, -128:] = torch.arange(num_tokens, device="npu").to(torch.bfloat16).view(-1, 1)
     scores = (
-        torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
-        + 1
+            torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
+            + 1
     )
 
-    topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=True)[1]
+    topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
 
     topk_weights = torch.randn(
         (num_tokens, num_topk), dtype=torch.float32, device="npu"
@@ -156,7 +87,7 @@ def low_latency_test(
     diff = calc_diff(
         x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
         combined_x,
-    )
+        )
     assert torch.isnan(combined_x).sum().item() == 0
     if dispatch_use_fp8:
         assert diff < 1e-4, f"Error: {diff=}"
