@@ -552,7 +552,7 @@ def test(
         ),
         barrier_comm_profiling=True,
     )
-    moe_time = bench_kineto(
+    fused_moe_time = bench_kineto(
         lambda: buffer.fused_deep_moe(**fused_moe_args),
         "FusedDeepMoe",
         barrier_comm_profiling=True,
@@ -565,7 +565,7 @@ def test(
         flush=True,
     )
     print(
-        f"[Rank {rank}] fused_moe_time= {moe_time * 1e6:.2f} us",
+        f"[Rank {rank}] fused_moe_time= {fused_moe_time * 1e6:.2f} us",
         flush=True,
     )
 
