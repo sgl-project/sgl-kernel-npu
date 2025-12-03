@@ -17,6 +17,7 @@ apt update -y && apt install -y \
     locales \
     ccache \
     ca-certificates \
+    libtorch-dev
 
 update-ca-certificates
 python3 -m ${PIP_INSTALL} --upgrade pip
