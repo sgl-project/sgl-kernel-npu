@@ -104,10 +104,10 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         group, int(2e9), 0, low_latency_mode=True, num_qps_per_rank=1
     )
 
-    num_tokens_n = args.num_tokens_n
+    normal_num_tokens = args.normal_num_tokens
     print("Start executing normal test...", flush=True)
     normal_test(
-        num_tokens_n,
+        normal_num_tokens,
         hidden,
         num_experts,
         num_topk,
@@ -116,10 +116,10 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     print("End executing normal test...", flush=True)
     dist.barrier()
 
-    num_tokens_l = args.num_tokens_l
+    low_latency_num_tokens = args.low_latency_num_tokens
     print("Start executing low latency test...", flush=True)
     low_latency_test(
-        num_tokens_l,
+        low_latency_num_tokens,
         hidden,
         num_experts,
         num_topk,
@@ -142,13 +142,13 @@ if __name__ == "__main__":
         help="Number of processes to spawn (default: 16)",
     )
     parser.add_argument(
-        "--num-tokens-n",
+        "--normal-num-tokens",
         type=int,
         default=4096,
         help="Number of normal tokens (default: 4096)",
     )
     parser.add_argument(
-        "--num-tokens-l",
+        "--low-latency-num-tokens",
         type=int,
         default=256,
         help="Number of low latency tokens (default: 256)",
