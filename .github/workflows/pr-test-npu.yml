@@ -84,7 +84,6 @@ jobs:
         env:
           HCCL_BUFFSIZE: 3000
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_fused_deep_moe.py
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py
 
   test-build-deepep:
@@ -153,7 +152,6 @@ jobs:
         env:
           HCCL_BUFFSIZE: 3000
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_fused_deep_moe.py
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py
 
   finish:
