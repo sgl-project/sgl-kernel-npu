@@ -20,24 +20,24 @@ GMM_TILE_N_DIM = 64
 def init_base_weights(
     num_local_experts,
     hidden_in=7168,
-    hidden_mid=4096,
+    moe_intermediate_size=4096,
 ):
     """
     Initialize the weights for each local expert.
     `num_local_experts`: Number of experts per rank = `num_experts` // `num_ranks`
     `hidden_in`: Input dimension (default 7168)
-    `hidden_mid`: Intermediate layer dimension (default 4096)
+    `moe_intermediate_size`: Intermediate layer dimension (default 4096)
     """
-    hidden_out = hidden_mid // 2
+    hidden_out = moe_intermediate_size // 2
     w13_weight = torch.randint(
-        -16, 16, [num_local_experts, hidden_mid, hidden_in], dtype=torch.int8
+        -16, 16, [num_local_experts, moe_intermediate_size, hidden_in], dtype=torch.int8
     )
     w2_weight = torch.randint(
         -16, 16, [num_local_experts, hidden_in, hidden_out], dtype=torch.int8
     )
 
     w13_weight_scale = (
-        torch.rand([num_local_experts, hidden_mid, 1]) * 0.0004 + 0.0015
+        torch.rand([num_local_experts, moe_intermediate_size, 1]) * 0.0004 + 0.0015
     ).bfloat16()
     w2_weight_scale = (
         torch.rand([num_local_experts, hidden_in, 1]) * 0.0004 + 0.0015
@@ -237,7 +237,7 @@ def baseline_test(
 def test(
     num_tokens: int,
     hidden: int,
-    hidden_mid: int,
+    moe_intermediate_size: int,
     num_experts: int,
     num_topk: int,
     rank: int,
@@ -316,7 +316,7 @@ def test(
     w13_weight, w13_weight_scale, w2_weight, w2_weight_scale = init_base_weights(
         num_local_experts=num_local_experts,
         hidden_in=hidden,
-        hidden_mid=hidden_mid,
+        moe_intermediate_size=moe_intermediate_size,
     )
     w13, w13_scale, w2, w2_scale = init_baseline_weights(
         w13_weight.clone().detach(),
@@ -526,7 +526,11 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     group2 = dist.new_group(list(range(num_ranks)))
 
     shared_expert_rank_num = int(os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0))
-    num_tokens, hidden, hidden_mid = args.num_tokens, args.hidden, args.hidden_mid
+    num_tokens, hidden, moe_intermediate_size = (
+        args.num_tokens,
+        args.hidden,
+        args.moe_intermediate_size,
+    )
     num_topk, num_experts = args.num_topk, args.num_experts
     use_experts = num_experts if shared_expert_rank_num == 0 else (num_experts - 1)
     use_ranks = num_ranks - shared_expert_rank_num
@@ -549,7 +553,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     test(
         num_tokens,
         hidden,
-        hidden_mid,
+        moe_intermediate_size,
         use_experts,
         num_topk,
         rank,
@@ -589,10 +593,10 @@ if __name__ == "__main__":
         "--hidden", type=int, default=7168, help="Hidden dimension size (default: 7168)"
     )
     parser.add_argument(
-        "--hidden-mid",
+        "--moe-intermediate-size",
         type=int,
         default=4096,
-        help="Hidden mid dimension size (default: 4096)",
+        help="Moe intermediate size (default: 4096)",
     )
     parser.add_argument(
         "--num-topk", type=int, default=8, help="Number of top-k experts (default: 8)"
