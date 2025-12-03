@@ -9,7 +9,7 @@ jobs:
       contents: write
     runs-on: ubuntu-22.04-arm
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.3.rc1-a3-ubuntu22.04-py3.11
+      image: quay.io/ascend/cann:8.3.rc1-a3-ubuntu22.04-py3.11
     steps:
       - name: Clean git config
         run: |
@@ -27,7 +27,9 @@ jobs:
 
       - name: Install dependencies
         run: |
-          chmod +x scripts/release_ci_dependency.sh
+          ASCEND_CANN_PATH=/usr/local/Ascend/ascend-toolkit
+          source ${ASCEND_CANN_PATH}/set_env.sh
+          export LD_LIBRARY_PATH=${ASCEND_CANN_PATH}/latest/aarch64-linux/devlib:$LD_LIBRARY_PATH
           bash scripts/release_ci_dependency.sh
 
       - name: Build wheel packages
