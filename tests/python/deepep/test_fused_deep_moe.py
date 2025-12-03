@@ -9,7 +9,7 @@ import torch
 import torch.distributed as dist
 import torch_npu
 from deep_ep import Buffer
-from utils import bench, calc_diff, hash_tensor, init_dist
+from utils import bench_kineto, calc_diff, hash_tensor, init_dist
 
 torch_npu.npu.config.allow_internal_format = True
 
@@ -511,6 +511,63 @@ def test(
     assert (
         max_recv_count_diff < 1e-4
     ), f"[Rank {rank}] Mismatch detected! diff={max_recv_count_diff}"
+
+    # ----- performance test -----
+    dist.barrier()
+    baseline_args = {
+        "buffer": buffer2,
+        "x": x,
+        "topk_idx": topk_idx,
+        "num_tokens": num_tokens,
+        "num_experts": num_experts,
+        "cumulative_local_expert_recv_stats": cumulative_local_expert_recv_stats,
+        "return_recv_hook": return_recv_hook,
+        "w13": w13,
+        "w13_scale": w13_scale,
+        "w2": w2,
+        "w2_scale": w2_scale,
+        "topk_weights": topk_weights_dropped,
+    }
+    fused_moe_args = {
+        "x": x,
+        "topk_idx": topk_idx_dropped,
+        "topk_weights": topk_weights,
+        "gmm1_permuted_weight": w13_f,
+        "gmm1_permuted_weight_scale": w13s_f,
+        "gmm2_weight": w2_f,
+        "gmm2_weight_scale": w2s_f,
+        "num_max_dispatch_tokens_per_rank": num_tokens,
+        "num_experts": num_experts,
+        "quant_mode": 0,
+    }
+
+    baseline_time = bench_kineto(
+        lambda: baseline_test(**baseline_args),
+        (
+            "aclnnInplaceOne_OnesLikeAiCore_OnesLike",
+            "MoeDistributeDispatchV2",
+            "aclnnGroupedMatmulWeightNz_GroupedMatmul_GroupedMatmul",
+            "DequantSwigluQuant",
+            "MoeDistributeCombineV2",
+        ),
+        barrier_comm_profiling=True,
+    )
+    fused_moe_time = bench_kineto(
+        lambda: buffer.fused_deep_moe(**fused_moe_args),
+        "FusedDeepMoe",
+        barrier_comm_profiling=True,
+    )
+
+    # aclnnGroupedMatmulWeightNz_GroupedMatmul_GroupedMatmul was calculated twice
+    baseline_time_ = sum(baseline_time) + baseline_time[2]
+    print(
+        f"[Rank {rank}] baseline_time= {baseline_time_ * 1e6:.2f} us",
+        flush=True,
+    )
+    print(
+        f"[Rank {rank}] fused_moe_time= {fused_moe_time * 1e6:.2f} us",
+        flush=True,
+    )
 
 
 # ======================== Distributed Entry ========================
