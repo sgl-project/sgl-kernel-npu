@@ -83,7 +83,6 @@ def test(
         use_fp8=dispatch_use_fp8,
         round_scale=False,
         use_ue8m0=False,
-        topk_weights=topk_weights,
         cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
         async_finish=not return_recv_hook,
         return_recv_hook=return_recv_hook,
@@ -152,7 +151,6 @@ def test(
         hidden,
         num_experts,
         packed_recv_count,
-        expand_scales,
     ) = handle
 
     out = torch.empty((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
@@ -188,7 +186,6 @@ def test(
             topk_idx,
             num_tokens,
             num_experts,
-            topk_weights=topk_weights,
             cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
             use_fp8=dispatch_use_fp8,
             async_finish=False,

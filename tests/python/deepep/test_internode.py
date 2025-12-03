@@ -39,6 +39,7 @@ def test_main(
     enable_diagnose = args.enable_diagnose
     num_servers = num_ranks // num_local_ranks
     num_nodes = num_servers
+    expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
 
     assert num_experts % num_ranks == 0 and num_nodes >= 2
     assert num_tokens <= MAX_BATCH_SIZE
@@ -408,10 +409,15 @@ def test_main(
 
             # Checks
             rank_prefix_matrix = handle[0]
-            assert (
-                gbl_num_tokens_per_expert.view(num_ranks, -1)[rank].tolist()
-                == recv_num_tokens_per_expert_list
-            )
+            local_expert_token = gbl_num_tokens_per_expert.view(num_ranks, -1)[rank]
+            if expert_token_nums_type == 0:
+                local_expert_token_list = local_expert_token.cumsum(
+                    dim=0
+                ).tolist()  # 计算前缀和并转为 list
+            else:
+                local_expert_token_list = local_expert_token.tolist()
+
+            assert local_expert_token_list == recv_num_tokens_per_expert_list
 
             # Test combine
             combine_args = {

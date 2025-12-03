@@ -62,7 +62,9 @@ def add_rmsnorm_bias_kernel(
                 block_buffered_values = (
                     block_buffered_values.to(tl.float32) * quant_scale_values
                 ) + quant_offset_values
-                block_buffered_values = tl.math.rint(block_buffered_values)
+                block_buffered_values = block_buffered_values.cast(
+                    tl.int8, overflow_mode="saturate"
+                )
                 tl.store(
                     output_ptr + i * hidden_size + col_indices,
                     block_buffered_values,

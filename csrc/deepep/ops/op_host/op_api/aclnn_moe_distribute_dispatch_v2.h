@@ -17,7 +17,6 @@ extern "C" {
  * @param [in] expertIds: 计算输入，Tensor，数据类型int32，必须为2维，数据格式支持ND。每个token的topK个专家索引。
  * @param [in] scalesOptional: 计算可选输入，Tensor，数据类型float32，必须为2维，数据格式支持ND。每个专家的smooth权重。
  * @param [in] xActiveMaskOptional: 计算输入，Tensor，数据类型Bool，必须为1维，数据格式支持ND。
- * @param [in] expertScalesOptional: 计算输入，Tensor，必须为2维，数据格式支持ND。
  * @param [in] groupEp: 计算输入，str。ep通信域名称，专家并行的通信域。不能和groupTp相同。
  * @param [in] epWorldSize: 计算输入，int。ep通信域size。
  * @param [in] epRankId: 计算输入，int。ep本卡Id。同一个EP通信域中各卡的epRankId不能重复。
@@ -44,7 +43,6 @@ extern "C" {
  计算输出，Tensor，必选输出，数据类型int32，仅支持1维，数据格式支持ND。表示从各卡接收的token数。
  * @param [out] tpRecvCountsOut:
  计算输出，Tensor，必选输出，数据类型int32，仅支持1维，数据格式支持ND。无tp通信域时输出为空。
- * @param [out] expandScalesOut: 计算输出，Tensor，必选输出，数据类型float32，仅支持1维，数据格式支持ND。
  * @param [out] workspaceSize: 出参，返回需要在npu device侧申请的workspace大小。
  * @param [out] executor: 出参，返回op执行器，包含了算子计算流程。
  * @return aclnnStatus: 返回值，返回状态码
@@ -52,13 +50,12 @@ extern "C" {
  */
 __attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeDispatchV2GetWorkspaceSize(
     const aclTensor *x, const aclTensor *expertIds, const aclTensor *scalesOptional,
-    const aclTensor *xActiveMaskOptional, const aclTensor *expertScalesOptional, char *groupEp, int64_t epWorldSize,
-    int64_t epRankId, int64_t moeExpertNum, char *groupTp, int64_t tpWorldSize, int64_t tpRankId,
-    int64_t expertShardType, int64_t sharedExpertNum, int64_t sharedExpertRankNum, int64_t quantMode, int64_t globalBs,
-    int64_t expertTokenNumsType, char *commAlg, const aclTensor *expandXOut, const aclTensor *dynamicScalesOut,
-    const aclTensor *assistInfoForCombineOut, const aclTensor *expertTokenNumsOut, const aclTensor *epRecvCountsOut,
-    const aclTensor *tpRecvCountsOut, const aclTensor *expandScalesOut, uint64_t *workspaceSize,
-    aclOpExecutor **executor);
+    const aclTensor *xActiveMaskOptional, char *groupEp, int64_t epWorldSize, int64_t epRankId, int64_t moeExpertNum,
+    char *groupTp, int64_t tpWorldSize, int64_t tpRankId, int64_t expertShardType, int64_t sharedExpertNum,
+    int64_t sharedExpertRankNum, int64_t quantMode, int64_t globalBs, int64_t expertTokenNumsType, char *commAlg,
+    const aclTensor *expandXOut, const aclTensor *dynamicScalesOut, const aclTensor *assistInfoForCombineOut,
+    const aclTensor *expertTokenNumsOut, const aclTensor *epRecvCountsOut, const aclTensor *tpRecvCountsOut,
+    uint64_t *workspaceSize, aclOpExecutor **executor);
 
 /**
  * @brief aclnnMoeDistributeDispatchV2的第二段接口，用于执行计算。
