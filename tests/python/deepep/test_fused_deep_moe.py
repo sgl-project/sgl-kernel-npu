@@ -16,7 +16,7 @@ torch_npu.npu.config.allow_internal_format = True
 
 # ======================== Weight Initialization ========================
 def init_base_weights(
-        num_local_experts, hidden_in=7168, hidden_mid=4096, hidden_out=2048
+    num_local_experts, hidden_in=7168, hidden_mid=4096, hidden_out=2048
 ):
     """
     Initialize the weights for each local expert.
@@ -34,10 +34,10 @@ def init_base_weights(
     )
 
     w13_weight_scale = (
-            torch.rand([num_local_experts, hidden_mid, 1]) * 0.0004 + 0.0015
+        torch.rand([num_local_experts, hidden_mid, 1]) * 0.0004 + 0.0015
     ).bfloat16()
     w2_weight_scale = (
-            torch.rand([num_local_experts, hidden_in, 1]) * 0.0004 + 0.0015
+        torch.rand([num_local_experts, hidden_in, 1]) * 0.0004 + 0.0015
     ).bfloat16()
 
     return w13_weight, w13_weight_scale, w2_weight, w2_weight_scale
@@ -82,13 +82,13 @@ def reshape_fusion_gmm_weight(weight, dim):
 
 
 def init_fused_weights_int8(
-        w13_weight,
-        w13_weight_scale,
-        w2_weight,
-        w2_weight_scale,
-        device="npu",
-        block_m: int = 16,
-        block_n: int = 16,
+    w13_weight,
+    w13_weight_scale,
+    w2_weight,
+    w2_weight_scale,
+    device="npu",
+    block_m: int = 16,
+    block_n: int = 16,
 ):
 
     # -------- w13_weight --------
@@ -116,7 +116,7 @@ def init_fused_weights_int8(
 
 # ======================== Utility Functions ========================
 def make_uniform_topk_idx(
-        num_tokens: int, num_experts: int, num_ranks: int, num_topk: int, device="npu"
+    num_tokens: int, num_experts: int, num_ranks: int, num_topk: int, device="npu"
 ):
     assert num_experts % num_ranks == 0, "num_experts must be divisible by num_ranks"
     experts_per_rank = num_experts // num_ranks
@@ -148,18 +148,18 @@ def from_inclusive_prefix_sum(pref):
 
 # ======================== Baseline Reference ========================
 def baseline_test(
-        buffer,
-        x,
-        topk_idx,
-        num_tokens,
-        num_experts,
-        cumulative_local_expert_recv_stats,
-        return_recv_hook,
-        w13,
-        w13_scale,
-        w2,
-        w2_scale,
-        topk_weights,
+    buffer,
+    x,
+    topk_idx,
+    num_tokens,
+    num_experts,
+    cumulative_local_expert_recv_stats,
+    return_recv_hook,
+    w13,
+    w13_scale,
+    w2,
+    w2_scale,
+    topk_weights,
 ):
     hidden_states, packed_recv_count, handle, _, _ = buffer.low_latency_dispatch(
         x,
@@ -230,17 +230,17 @@ def baseline_test(
 
 # ======================== Main Test ========================
 def test(
-        num_tokens: int,
-        hidden: int,
-        num_experts: int,
-        num_topk: int,
-        rank: int,
-        num_ranks: int,
-        group: dist.ProcessGroup,
-        buffer: Buffer,
-        buffer2: Buffer,
-        args: argparse.Namespace,
-        seed: int = 0,
+    num_tokens: int,
+    hidden: int,
+    num_experts: int,
+    num_topk: int,
+    rank: int,
+    num_ranks: int,
+    group: dist.ProcessGroup,
+    buffer: Buffer,
+    buffer2: Buffer,
+    args: argparse.Namespace,
+    seed: int = 0,
 ):
     torch.manual_seed(seed + rank)
     random.seed(seed + rank)
@@ -251,7 +251,7 @@ def test(
     # NOTES: the integers greater than 256 exceeds the BF16 precision limit
     rank_offset = 128
     assert (
-            num_ranks - rank_offset < 257
+        num_ranks - rank_offset < 257
     ), "Too many ranks (exceeding test precision limit)"
 
     x = torch.rand((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * 10 - 5
@@ -299,10 +299,10 @@ def test(
             )
     else:
         scores = (
-                torch.randn(
-                    (num_tokens, num_experts), dtype=torch.float32, device="npu"
-                ).abs()
-                + 1
+            torch.randn(
+                (num_tokens, num_experts), dtype=torch.float32, device="npu"
+            ).abs()
+            + 1
         )
         topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=True)[1]
 
@@ -360,7 +360,7 @@ def test(
         # Random drop (based on probability)
         if args.topk_drop_prob > 0:
             drop_mask = (
-                    torch.rand_like(topk_idx, dtype=torch.float32) < args.topk_drop_prob
+                torch.rand_like(topk_idx, dtype=torch.float32) < args.topk_drop_prob
             )
             topk_idx_dropped = topk_idx.clone()
             topk_idx_dropped = topk_idx_dropped.masked_fill(drop_mask, -1)
@@ -509,7 +509,7 @@ def test(
         flush=True,
     )
     assert (
-            max_recv_count_diff < 1e-4
+        max_recv_count_diff < 1e-4
     ), f"[Rank {rank}] Mismatch detected! diff={max_recv_count_diff}"
 
     # ----- performance test -----
