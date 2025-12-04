@@ -1,25 +1,22 @@
 # -*- coding: utf-8 -*-
 import random
-
-import pytest
 from typing import List, Optional, Union
 
 import numpy as np
+import pytest
 import torch
 import torch.nn.functional as F
+from sgl_kernel_npu.mamba.causal_conv1d import PAD_SLOT_ID, causal_conv1d_update_npu
 
-from sgl_kernel_npu.mamba.causal_conv1d import causal_conv1d_update_npu, PAD_SLOT_ID
-
-
-device = 'npu'
+device = "npu"
 
 
 def get_abs_err(x, y):
-    return (x.detach()-y.detach()).flatten().abs().max().item()
+    return (x.detach() - y.detach()).flatten().abs().max().item()
 
 
 def get_err_ratio(x, y):
-    err = (x.detach()-y.detach()).flatten().square().mean().sqrt().item()
+    err = (x.detach() - y.detach()).flatten().square().mean().sqrt().item()
     base = (x.detach()).flatten().square().mean().sqrt().item()
     return err / (base + 1e-8)
 
@@ -34,13 +31,15 @@ def assert_close(prefix, ref, tri, ratio, warning=False, err_atol=1e-6):
         assert error_rate < ratio, msg
 
 
-def _causal_conv1d_update_ref(x,
-                              conv_state,
-                              weight,
-                              bias=None,
-                              activation=None,
-                              cache_seqlens=None,
-                              conv_state_indices=None):
+def _causal_conv1d_update_ref(
+    x,
+    conv_state,
+    weight,
+    bias=None,
+    activation=None,
+    cache_seqlens=None,
+    conv_state_indices=None,
+):
     """
     x: (batch, dim) or (batch, dim, seqlen)
     conv_state: (batch, dim, state_len), where state_len >= width - 1
@@ -80,26 +79,27 @@ def _causal_conv1d_update_ref(x,
 
     if cache_seqlens is None:
         x_new = torch.cat([conv_state[real_conv_state_indices], real_x], dim=-1).to(
-            weight.dtype)  # (batch, dim, state_len + seqlen)
+            weight.dtype
+        )  # (batch, dim, state_len + seqlen)
         to_copy = x_new[:, :, -state_len:]
-        conv_state[real_conv_state_indices] = (to_copy)
+        conv_state[real_conv_state_indices] = to_copy
     else:
         width_idx = torch.arange(
-            -(width - 1), 0, dtype=torch.long,
-            device=x.device).unsqueeze(0) + cache_seqlens.unsqueeze(1)
-        width_idx = (torch.remainder(width_idx, state_len).unsqueeze(1).expand(
-            -1, dim, -1))
-        x_new = torch.cat([conv_state.gather(2, width_idx), x],
-                          dim=-1).to(weight.dtype)
-        copy_idx = torch.arange(
-            seqlen, dtype=torch.long,
-            device=x.device).unsqueeze(0) + cache_seqlens.unsqueeze(1)
-        copy_idx = torch.remainder(copy_idx,
-                                   state_len).unsqueeze(1).expand(-1, dim, -1)
+            -(width - 1), 0, dtype=torch.long, device=x.device
+        ).unsqueeze(0) + cache_seqlens.unsqueeze(1)
+        width_idx = (
+            torch.remainder(width_idx, state_len).unsqueeze(1).expand(-1, dim, -1)
+        )
+        x_new = torch.cat([conv_state.gather(2, width_idx), x], dim=-1).to(weight.dtype)
+        copy_idx = torch.arange(seqlen, dtype=torch.long, device=x.device).unsqueeze(
+            0
+        ) + cache_seqlens.unsqueeze(1)
+        copy_idx = torch.remainder(copy_idx, state_len).unsqueeze(1).expand(-1, dim, -1)
         conv_state.scatter_(2, copy_idx, x)
 
-    real_out = F.conv1d(x_new, weight.unsqueeze(1), bias, padding=0,
-                        groups=dim)[:, :, -seqlen:]
+    real_out = F.conv1d(x_new, weight.unsqueeze(1), bias, padding=0, groups=dim)[
+        :, :, -seqlen:
+    ]
     out[:real_bs] = real_out
     if unsqueeze:
         out = out.squeeze(-1)
@@ -107,15 +107,15 @@ def _causal_conv1d_update_ref(x,
 
 
 def causal_conv1d_update_ref(
-        x: torch.Tensor,
-        conv_state: torch.Tensor,
-        weight: torch.Tensor,
-        bias: Optional[torch.Tensor] = None,
-        activation: Optional[str] = None,
-        cache_seqlens: Optional[torch.Tensor] = None,
-        conv_state_indices: Optional[torch.Tensor] = None,
-        pad_slot_id: int = PAD_SLOT_ID,
-        use_triton: bool = False,
+    x: torch.Tensor,
+    conv_state: torch.Tensor,
+    weight: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
+    activation: Optional[str] = None,
+    cache_seqlens: Optional[torch.Tensor] = None,
+    conv_state_indices: Optional[torch.Tensor] = None,
+    pad_slot_id: int = PAD_SLOT_ID,
+    use_triton: bool = False,
 ):
     """
     x: (batch, dim) or (batch, dim, seqlen)
@@ -141,27 +141,35 @@ def causal_conv1d_update_ref(
     """
     if activation not in [None, "silu", "swish"]:
         raise NotImplementedError(
-            f"activation must be None, silu, or swish, actual: {activation}")
+            f"activation must be None, silu, or swish, actual: {activation}"
+        )
     activation_val = activation in ["silu", "swish"]
     unsqueeze = x.dim() == 2
     if unsqueeze:
         x = x.unsqueeze(-1)
 
-    x = _causal_conv1d_update_ref(x,
-                                  conv_state,
-                                  weight,
-                                  bias,
-                                  activation=activation,
-                                  conv_state_indices=conv_state_indices)
+    x = _causal_conv1d_update_ref(
+        x,
+        conv_state,
+        weight,
+        bias,
+        activation=activation,
+        conv_state_indices=conv_state_indices,
+    )
     if unsqueeze:
         x = x.squeeze(-1)
     return x
 
 
 @pytest.mark.parametrize(
-    ('N', 'T', 'D', 'W', 'activation', 'has_bias', 'has_residual', 'dtype'),
+    ("N", "T", "D", "W", "activation", "has_bias", "has_residual", "dtype"),
     [
-        pytest.param(*test, id="N{0}_T{1}_D{2}_W{3}_activation{4}_has_bias{5}_has_residual{6}_{7}".format(*test))
+        pytest.param(
+            *test,
+            id="N{0}_T{1}_D{2}_W{3}_activation{4}_has_bias{5}_has_residual{6}_{7}".format(
+                *test
+            ),
+        )
         for test in [
             (16, 16, 1024, 3, "swish", True, False, torch.float16),
             (16, 32, 1024, 3, "swish", False, False, torch.float16),
@@ -172,18 +180,18 @@ def causal_conv1d_update_ref(
             (32, 32, 2048, 4, "swish", True, False, torch.float16),
             (32, 64, 2048, 4, "swish", False, False, torch.float16),
         ]
-    ]
+    ],
 )
 @torch.no_grad
 def test_conv_varlen_update(
-        N: int,
-        T: int,
-        D: int,
-        W: int,
-        activation: str,
-        has_bias: bool,
-        has_residual: bool,
-        dtype: torch.dtype
+    N: int,
+    T: int,
+    D: int,
+    W: int,
+    activation: str,
+    has_bias: bool,
+    has_residual: bool,
+    dtype: torch.dtype,
 ):
     torch.manual_seed(42)
     assert T % N == 0
@@ -197,7 +205,7 @@ def test_conv_varlen_update(
     weight = torch.randn(D, W).to(device, dtype) * 0
     bias = torch.randn(D).to(device, dtype) if has_bias else None
     residual = x.clone() if has_residual else None
-    conv_states_ref = torch.randn(T+1, D, W-1).to(device, dtype)
+    conv_states_ref = torch.randn(T + 1, D, W - 1).to(device, dtype)
     conv_states_tri = conv_states_ref.clone()
 
     ref = causal_conv1d_update_ref(
@@ -206,7 +214,7 @@ def test_conv_varlen_update(
         weight=weight,
         bias=bias,
         activation=activation,
-        conv_state_indices=state_indexs
+        conv_state_indices=state_indexs,
     )
     if has_residual:
         ref += residual
@@ -217,7 +225,7 @@ def test_conv_varlen_update(
         weight=weight,
         bias=bias,
         activation=activation,
-        conv_state_indices=state_indexs
+        conv_state_indices=state_indexs,
     )
     if has_residual:
         tri += residual
