@@ -73,7 +73,7 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --num-experts 256 
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --num-experts 256
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 48 --num-experts 128
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 48 --num-experts 256
 
@@ -154,7 +154,7 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --num-experts 256 
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --num-experts 256
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 48 --num-experts 128
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 48 --num-experts 256
 
