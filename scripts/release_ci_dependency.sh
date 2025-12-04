@@ -21,6 +21,7 @@ apt update -y && apt install -y \
 
 update-ca-certificates
 ${PIP_INSTALL} --upgrade pip
+${PIP_INSTALL} wheel==0.45.1 pybind11
 
 PYTORCH_VERSION="2.8.0"
 TORCHVISION_VERSION="0.23.0"
@@ -28,7 +29,6 @@ ${PIP_INSTALL} torch==${PYTORCH_VERSION} torchvision==${TORCHVISION_VERSION} --i
 
 PTA_URL="https://sglang-ascend.obs.cn-east-3.myhuaweicloud.com/sglang/torch_npu/torch_npu-2.8.0.post2.dev20251113-cp311-cp311-manylinux_2_28_aarch64.whl"
 ${PIP_INSTALL} ${PTA_URL}
-${PIP_INSTALL} wheel==0.45.1 pybind11
 find /usr -name "pybind11Config.cmake"
 find / -name types.h 2>/dev/null
 ASCEND_CANN_PATH=/usr/local/Ascend/ascend-toolkit
