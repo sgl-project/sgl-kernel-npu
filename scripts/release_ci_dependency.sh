@@ -20,7 +20,7 @@ apt update -y && apt install -y \
     libtorch-dev
 
 update-ca-certificates
-python3 -m ${PIP_INSTALL} --upgrade pip
+${PIP_INSTALL} --upgrade pip
 
 PYTORCH_VERSION="2.8.0"
 TORCHVISION_VERSION="0.23.0"
