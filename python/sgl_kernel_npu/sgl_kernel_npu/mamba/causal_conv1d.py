@@ -136,6 +136,7 @@ def _causal_conv1d_update_kernel_no_cache_len_no_mtp(
     bias_ptr,
     conv_state_indices_ptr,
     out_ptr,
+    pad_slot_id,
     batch: tl.constexpr,
     dim: tl.constexpr,
     align_val: tl.constexpr,
@@ -150,6 +151,7 @@ def _causal_conv1d_update_kernel_no_cache_len_no_mtp(
     HAS_BIAS: tl.constexpr,
     SILU_ACTIVATION: tl.constexpr,
     IS_CONTINUOUS_BATCHING: tl.constexpr,
+    USE_PAD_SLOT: tl.constexpr,
 ):
     pid = tl.program_id(0)
     cat_len: tl.constexpr = state_len + seq_len  # 4
@@ -162,6 +164,11 @@ def _causal_conv1d_update_kernel_no_cache_len_no_mtp(
         conv_batch_offs = tl.load(conv_state_indices_ptr + pid)
     else:
         conv_batch_offs = pid
+
+    if USE_PAD_SLOT:
+        if conv_batch_offs == pad_slot_id:
+            # skip padding
+            return
 
     for doffs in range(0, dim, DIM_BLOCK):
 
@@ -649,7 +656,7 @@ def causal_conv1d_update_npu(
         stride_inter_seq = stride_inter_step = stride_inter_dim = stride_inter_win = 0
 
     if cache_seqlens is None and num_accepted_tokens is None:
-        DIM_BLOCK = 2048
+        DIM_BLOCK = dim
         _causal_conv1d_update_kernel_no_cache_len_no_mtp[(batch, 1, 1)](
             x,
             conv_state,
@@ -657,6 +664,7 @@ def causal_conv1d_update_npu(
             bias,
             conv_state_indices,
             out,
+            pad_slot_id,
             batch=batch,
             dim=dim,
             align_val=16,
@@ -671,6 +679,7 @@ def causal_conv1d_update_npu(
             HAS_BIAS=bias is not None,
             SILU_ACTIVATION=activation in ["silu", "swish"],
             IS_CONTINUOUS_BATCHING=conv_state_indices is not None,
+            USE_PAD_SLOT=pad_slot_id is not None,
         )
     else:
         _causal_conv1d_update_kernel[grid](
