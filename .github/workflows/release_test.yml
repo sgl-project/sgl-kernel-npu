@@ -1,12 +1,15 @@
-name: Release
+name: Release_test
 
 on:
-  release:
-    types: [published]
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/release_test.yml"
+      - "scripts/release_ci_dependency.sh"
+  workflow_dispatch:
 jobs:
   build-and-upload:
-    permissions:
-      contents: write
     runs-on: ubuntu-22.04-arm
     container:
       image: quay.io/ascend/cann:8.3.rc1-a3-ubuntu22.04-py3.11
@@ -15,10 +18,6 @@ jobs:
         run: |
           CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
           git config --global --unset "$CONFIG_KEY" || true
-
-      - name: Clean workspace
-        run: |
-          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
 
       - name: Checkout code
         uses: actions/checkout@v4
@@ -31,12 +30,8 @@ jobs:
 
       - name: Build wheel packages
         run: |
-          export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/devlib:$LD_LIBRARY_PATH
+          git config --global --add safe.directory /__w/sgl-kernel-npu/sgl-kernel-npu
+          export CMAKE_PREFIX_PATH=/usr/local/python3.11.13/lib/python3.11/site-packages/pybind11/share/cmake/pybind11:$CMAKE_PREFIX_PATH
+          export LD_LIBRARY_PATH=/usr/local/Ascend/ascend-toolkit/latest/aarch64-linux/devlib/linux/aarch64/:$LD_LIBRARY_PATH
           bash build.sh
 
-      - name: Upload wheel to release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: output/*.whl
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
