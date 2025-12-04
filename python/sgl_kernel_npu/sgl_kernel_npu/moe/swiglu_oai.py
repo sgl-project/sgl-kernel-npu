@@ -3,7 +3,7 @@
 import torch
 
 
-def swiglu_oai_native(layer, hidden_states):
+def swiglu_oai(layer, hidden_states):
     E, N, _ = layer.w13_weight.size()
     gate_up = hidden_states.view(-1, N)
     alpha = layer.moe_runner_config.gemm1_alpha
