@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-PIP_INSTALL="Python3 -m pip install --no-cache-dir"
+PIP_INSTALL="python3 -m pip install --no-cache-dir"
 
 
 # Install the required dependencies in CI.
