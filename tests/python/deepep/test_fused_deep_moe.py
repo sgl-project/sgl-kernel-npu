@@ -26,7 +26,7 @@ def init_base_weights(
     Initialize the weights for each local expert.
     `num_local_experts`: Number of experts per rank = `num_experts` // `num_ranks`
     `hidden_in`: Input dimension (default 7168)
-    `moe_intermediate_size`: Intermediate layer dimension (default 4096)
+    `moe_intermediate_size`: Intermediate moe layer dimension (default 4096)
     """
     hidden_out = moe_intermediate_size // 2
     w13_weight = torch.randint(
