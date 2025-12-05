@@ -41,6 +41,11 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor src_end_idx) -> bool");
 
     m.def(
+        "build_tree_kernel_efficient(Tensor parent_list, Tensor selected_index, Tensor verified_seq_len, "
+        "Tensor tree_mask, Tensor positions, Tensor retrive_index, Tensor retrive_next_token, "
+        "Tensor retrive_next_sibling, int topk, int depth, int draft_token_num, int tree_mask_mode)->()");
+
+    m.def(
         "mla_preprocess(Tensor hiddenState, Tensor gamma0, Tensor beta0, Tensor wdqkv, "
         "Tensor descale0, Tensor gamma1, Tensor beta1, Tensor wuq, "
         "Tensor descale1, Tensor gamma2, Tensor cos, Tensor sin, Tensor wuk,"
@@ -55,6 +60,34 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
     m.def(
         "batch_matmul_transpose(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, "
         "str? format_mode=None, str? quant_mode=None) -> ()");
+
+    m.def(
+        "transfer_kv_dim_exchange(Tensor device_k, Tensor host_k, "
+        "Tensor device_v, Tensor host_v, "
+        "Tensor device_indices, Tensor host_indices, int page_size, int direct, int flags) -> ()");
+
+    m.def(
+        "bgmv_expand(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y,"
+        "            int slice_offset, int slice_size) -> Tensor");
+
+    m.def("bgmv_shrink(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y, float scale) -> ()");
+
+    m.def(
+        "sgmv_expand(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! y,"
+        "            int slice_offset, int slice_size) -> Tensor");
+
+    m.def(
+        "sgmv_shrink(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! y, float scale) -> ()");
+
+#ifdef BUILD_CATLASS_MODULE
+    m.def("catlass_matmul_basic(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, str? format_mode=None) -> ()");
+#endif
+
+    m.def(
+        "lightning_indexer(Tensor query, Tensor key, Tensor weights, Tensor? actual_seq_lengths_query=None, "
+        "Tensor? actual_seq_lengths_key=None, Tensor? block_table=None, "
+        "str? layout_query=None, str? layout_key=None, "
+        "int? sparse_count=None, int? sparse_mode=None) -> Tensor");
 }
 }  // namespace
 
@@ -71,8 +104,26 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
     m.impl("alloc_extend", TORCH_FN(sglang::npu_kernel::alloc_extend));
 
+    m.impl("build_tree_kernel_efficient", TORCH_FN(sglang::npu_kernel::build_tree_efficient));
+
     m.impl("mla_preprocess", TORCH_FN(sglang::npu_kernel::mla_preprocess));
 
     m.impl("batch_matmul_transpose", TORCH_FN(sglang::npu_kernel::batch_matmul_transpose));
+
+    m.impl("transfer_kv_dim_exchange", TORCH_FN(sglang::npu_kernel::transfer_kv_dim_exchange));
+
+    m.impl("bgmv_expand", TORCH_FN(sglang::npu_kernel::bgmv_expand));
+
+    m.impl("bgmv_shrink", TORCH_FN(sglang::npu_kernel::bgmv_shrink));
+
+    m.impl("sgmv_expand", TORCH_FN(sglang::npu_kernel::sgmv_expand));
+
+    m.impl("sgmv_shrink", TORCH_FN(sglang::npu_kernel::sgmv_shrink));
+
+#ifdef BUILD_CATLASS_MODULE
+    m.impl("catlass_matmul_basic", TORCH_FN(sglang::npu_kernel::catlass_matmul_basic));
+#endif
+
+    m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
 }
 }  // namespace

@@ -267,7 +267,11 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::Init(
     axisBS_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.bs;
     axisH_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.h;
     axisK_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.k;
-    aivNum_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.aivNum;
+    if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
+        aivNum_ = get_block_num();
+    } else {
+        aivNum_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.aivNum;
+    }
     ubSize_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.totalUbSize;
     sharedExpertRankNum_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.sharedExpertRankNum;
     moeExpertNum_ = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.moeExpertNum;
@@ -696,6 +700,10 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::LocalWindow
         Duplicate(sumFloatBufLocal, (float)0, axisH_);
         for (uint32_t i = 0; i < axisK_; i++) {
             int32_t moeExpert = expertIdsLocal.GetValue(index);
+            if (moeExpert < 0) {
+                index++;
+                continue;
+            }
             float scaleVal = expandScalesLocal.GetValue(index);
             GM_ADDR wAddr = (__gm__ uint8_t *)(epWindowGM_) +
                             expertPerSizeOnWin_ * moeExpertPerRankNum_ * sharedExpertRankNum_ +

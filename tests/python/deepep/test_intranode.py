@@ -1,4 +1,5 @@
 import argparse
+import os
 import time
 from typing import Optional
 
@@ -21,6 +22,7 @@ from utils import (
 # noinspection PyShadowingNames
 def test_main(
     args: argparse.Namespace,
+    num_local_ranks: int,
     local_rank: int,
     num_ranks: int,
     rank: int,
@@ -31,6 +33,8 @@ def test_main(
     num_tokens, hidden = args.num_tokens, args.hidden
     num_topk, num_experts = args.num_topk, args.num_experts
     enable_diagnose = args.enable_diagnose
+    num_servers = num_ranks // num_local_ranks
+    expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
 
     assert num_experts % num_ranks == 0
     if local_rank == 0:
@@ -113,16 +117,18 @@ def test_main(
             count, dtype=torch.long, device="npu"
         )
     token_idx_in_rank = token_idx_in_rank.T.contiguous().to(torch.int)
-    is_token_in_rank = token_idx_in_rank >= 0
+    is_token_in_rank = (token_idx_in_rank >= 0).to(torch.int)
     gbl_num_tokens_per_rank = num_tokens_per_rank.clone()
     dist.all_reduce(gbl_num_tokens_per_rank, group=group)
-    try:
-        try:
-            return_values = buffer.get_dispatch_layout(topk_idx, num_experts)
-        except Exception as e:
-            print(f"Error occurred while calling get_dispatch_layout: {e}")
-            raise
 
+    t = bench(lambda: buffer.get_dispatch_layout(topk_idx, num_experts))[0]
+    print(f"[layout] Kernel performance: {t * 1000:.3f} ms", flush=True)
+    print("", flush=True)
+    dist.barrier()
+    time.sleep(1)
+
+    try:
+        return_values = buffer.get_dispatch_layout(topk_idx, num_experts)
         (
             ref_num_tokens_per_rank,
             _,
@@ -145,12 +151,6 @@ def test_main(
             raise
     except Exception as e:
         print(f"An error occurred: {e}")
-
-    t = bench(lambda: buffer.get_dispatch_layout(topk_idx, num_experts))[0]
-    print(f"[layout] Kernel performance: {t * 1000:.3f} ms", flush=True)
-    print("", flush=True)
-    dist.barrier()
-    time.sleep(1)
 
     # Config
     buffer_size = 256
@@ -272,6 +272,15 @@ def test_main(
 
         # Checks
         rank_prefix_matrix = handle[0]
+        local_expert_token = gbl_num_tokens_per_expert.view(num_ranks, -1)[rank]
+        if expert_token_nums_type == 0:
+            local_expert_token_list = local_expert_token.cumsum(
+                dim=0
+            ).tolist()  # 计算前缀和并转为 list
+        else:
+            local_expert_token_list = local_expert_token.tolist()
+
+        assert local_expert_token_list == recv_num_tokens_per_expert_list
         # todo 1. Duplicate tansmission to experts of the same rank.
         # assert gbl_num_tokens_per_rank[rank].item() == recv_x.size(0), f'{gbl_num_tokens_per_rank[rank].item()} != {recv_x.size(0)}'
         # todo 2. recv_num_tokens_per_expert_list is the prefix sum of the actual data.
@@ -388,7 +397,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     print(f"[Rank {rank}] Buffer created OK.", flush=True)
     torch.manual_seed(rank)
 
-    test_main(args, local_rank, num_ranks, rank, buffer, group)
+    test_main(args, num_local_ranks, local_rank, num_ranks, rank, buffer, group)
     if local_rank == 0:
         print("", flush=True)
 

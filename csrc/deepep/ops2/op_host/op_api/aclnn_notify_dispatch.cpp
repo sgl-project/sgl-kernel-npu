@@ -1,0 +1,44 @@
+#include <string.h>
+#include "graph/types.h"
+#include "aclnn_notify_dispatch.h"
+#include "aclnnInner_notify_dispatch.h"
+
+extern void NnopbaseOpLogE(const aclnnStatus code, const char *const expr);
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+enum NnopbaseHcclServerType {
+    NNOPBASE_HCCL_SERVER_TYPE_AICPU = 0,
+    NNOPBASE_HCCL_SERVER_TYPE_MTE,
+    NNOPBASE_HCCL_SERVER_TYPE_END
+};
+extern "C" void __attribute__((weak)) NnopbaseSetHcclServerType(void *executor, NnopbaseHcclServerType sType);
+
+aclnnStatus aclnnNotifyDispatchGetWorkspaceSize(const aclTensor *sendData, const aclTensor *tokenPerExpertData,
+                                                int64_t sendCount, int64_t numTokens, char *commGroup, int64_t rankSize,
+                                                int64_t rankId, int64_t localRankSize, int64_t localRankId,
+                                                const aclTensor *sendDataOffset, const aclTensor *recvData,
+                                                const aclTensor *totalRecvTokens, const aclTensor *recvCount,
+                                                const aclTensor *recvOffset, const aclTensor *maxBs,
+                                                const aclTensor *recvTokensPerExpert, uint64_t *workspaceSize,
+                                                aclOpExecutor **executor)
+{
+    return aclnnInnerNotifyDispatchGetWorkspaceSize(sendData, tokenPerExpertData, sendCount, numTokens, commGroup,
+                                                    rankSize, rankId, localRankSize, localRankId, sendDataOffset,
+                                                    recvData, totalRecvTokens, recvCount, recvOffset, maxBs,
+                                                    recvTokensPerExpert, workspaceSize, executor);
+}
+
+aclnnStatus aclnnNotifyDispatch(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream)
+{
+    if (NnopbaseSetHcclServerType) {
+        NnopbaseSetHcclServerType(executor, NNOPBASE_HCCL_SERVER_TYPE_AICPU);
+    }
+    return aclnnInnerNotifyDispatch(workspace, workspaceSize, executor, stream);
+}
+
+#ifdef __cplusplus
+}
+#endif
