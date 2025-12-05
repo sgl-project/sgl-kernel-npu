@@ -16,13 +16,14 @@ constexpr uint8_t COMM_EP_IDX = 0;
 constexpr uint8_t COMM_TP_IDX = 1;
 
 constexpr uint64_t WIN_STATE_OFFSET = 500UL * 1024UL;
-constexpr uint64_t STATE_WIN_OFFSET = 975UL * 1024UL;
+constexpr uint64_t STATE_WIN_OFFSET = 950UL * 1024UL;
 constexpr uint64_t WIN_ADDR_ALIGN = 512UL;
 constexpr uint32_t EXPAND_IDX_INFO = 3U;
 constexpr uint64_t COMBINE_STATE_WIN_OFFSET = 4UL * 1024UL * 1024UL;
 constexpr int64_t CYCLE_TO_TIME = 50;  // cycle num is converted into a fixed base unit of time, set at 50
 constexpr uint64_t ROUND_STATE_OFFSET = 450UL * 1024UL;
 constexpr uint32_t FLOAT_NUM_PER_ALIGN = 8U;
+constexpr uint64_t ROUND_STATE_MAX_SIZE = 4 * 1024UL;
 
 template <AscendC::HardEvent event>
 __aicore__ inline void SyncFunc()
@@ -90,11 +91,11 @@ private:
     {
         uint32_t curRankId = ctxIdx == COMM_EP_IDX ? epRankId : tpRankId;
         if (curRankId == rankId) {
-            return (GM_ADDR)(winContext_[ctxIdx]->localWindowsExp) + dataState * WIN_STATE_OFFSET + ROUND_STATE_OFFSET;
+            return (GM_ADDR)(winContext_[ctxIdx]->localWindowsExp) + dataState * ROUND_STATE_MAX_SIZE + ROUND_STATE_OFFSET;
         }
         return (GM_ADDR)(((HcclRankRelationResV2 *)(winContext_[ctxIdx]->remoteRes[rankId].nextDevicePtr))
                              ->windowsExp) +
-               dataState * WIN_STATE_OFFSET + ROUND_STATE_OFFSET;
+               dataState * ROUND_STATE_MAX_SIZE + ROUND_STATE_OFFSET;
     }
 
     TPipe *tpipe_{nullptr};
