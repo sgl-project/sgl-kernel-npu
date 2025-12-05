@@ -10,7 +10,7 @@ fi
 # 设置参数范围
 indexes=(0 1 2 3 4)
 H_LIST=(7168 6144 2048 4096 6144)
-GMM1_HIDDEN_LIST=(2048 2048 768 1536 2560)
+GMM1_HIDDEN_LIST=(4096 4096 1536 3072 5120)
 SCRIPT="test_fused_deep_moe.py"
 
 # 执行测试
