@@ -99,6 +99,13 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --topk-drop-col 3 --num-experts 16
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 4 --topk-drop-col 1 --num-experts 32
 
+      - name: Run test mixed running
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py
+
   test-build-deepep:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false
@@ -179,6 +186,13 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --topk-drop-col 2
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --topk-drop-col 3 --num-experts 16
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 4 --topk-drop-col 1 --num-experts 32
+
+      - name: Run test mixed running
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py
 
   finish:
     if: always()
