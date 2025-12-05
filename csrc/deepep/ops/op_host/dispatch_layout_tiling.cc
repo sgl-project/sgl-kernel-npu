@@ -17,7 +17,14 @@
 #include "../op_kernel/dispatch_layout_tiling.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "tiling/hccl/hccl_tiling.h"
+
+#ifdef USE_CANN83_PATH
+#include "platform/platform_infos_def.h"
+#elif defined(USE_CANN82_PATH)
 #include "experiment/platform/platform/platform_infos_def.h"
+#else
+#error "CANN version not supported or platform_infos_def.h not found. Check CANN_VERSION_MACRO definition."
+#endif
 
 using namespace ge;
 namespace {
@@ -81,7 +88,7 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
 
     auto numTokensPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_NUM_TOKENS_INDEX));
     auto numRanksPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_NUM_RANKS_INDEX));
-    auto numExpertsPtr = attrs->GetAttrPointer<int64_t>(ATTR_NUM_EXPERTS_INDEX);
+    auto numExpertsPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_NUM_EXPERTS_INDEX));
     auto numTopkPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_NUM_TOPK_INDEX));
     auto localRankSizePtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_LOCAL_RANKSIZE_INDEX));
 
@@ -99,6 +106,10 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     OP_TILING_CHECK((*numExpertsPtr <= 0) || (*numExpertsPtr > MAX_MOE_EXPERTS_NUM),
                     OP_LOGE(nodeName, "numExperts is invalid, only support (0, %ld], but got numExperts=%ld.",
                             MAX_MOE_EXPERTS_NUM, *numExpertsPtr),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK((*numExpertsPtr % *numRanksPtr) != 0,
+                    OP_LOGE(nodeName, "numExperts must be divisible by numRanks, but numExperts=%ld and numRanks=%ld.",
+                            *numExpertsPtr, *numRanksPtr),
                     return ge::GRAPH_FAILED);
     OP_TILING_CHECK(
         (*numTopkPtr <= 0) || (*numTopkPtr > K_MAX),
@@ -171,8 +182,6 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
 static bool CheckTensorShape(gert::TilingContext *context, const char *nodeName)
 {
     const gert::StorageShape *topkIdxStorageShape = context->GetInputShape(INPUT_TOPK_IDX_INDEX);
-    int64_t topkIdxDim0 = topkIdxStorageShape->GetStorageShape().GetDim(0);
-    int64_t topkIdxDim1 = topkIdxStorageShape->GetStorageShape().GetDim(1);
 
     OP_TILING_CHECK((topkIdxStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS),
                     OP_LOGE(nodeName, "topkIdx must be 2-dimension, but get %lu dim.",
@@ -231,10 +240,6 @@ static ge::graphStatus DispatchLayoutTilingFuncImpl(gert::TilingContext *context
 
 static ge::graphStatus DispatchLayoutTilingFunc(gert::TilingContext *context)
 {
-    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
-    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
-
-    std::string socVersion;
     ge::graphStatus ret;
     ret = DispatchLayoutTilingFuncImpl(context);
     return ret;
