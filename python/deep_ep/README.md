@@ -80,11 +80,14 @@ bash run_test_internode.sh
 ```
 
 ### moe
-Adaptation for using fused moe with SGLang
 1. Enable fused moe
-   export ENABLE_FUSED_MOE=1
+```bash
+export ENABLE_FUSED_MOE=1
+```
 2. Disable fused moe
-   export ENABLE_FUSED_MOE=0
+```bash
+export ENABLE_FUSED_MOE=0
+```
 
 ### FAQ
 1. If installing the `.whl` file results in the inability to import `deep_ep` in the project, check whether it is correctly installed in the `site-packages` directory of the current Python environment;
