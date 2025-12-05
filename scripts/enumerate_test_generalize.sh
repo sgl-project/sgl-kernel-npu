@@ -8,13 +8,13 @@ fi
 # cd "./tests/python/deepep"
 
 # 设置参数范围
-indexs=(0 1 2 3 4)
+indexes=(0 1 2 3 4)
 H_LIST=(7168 6144 2048 4096 6144)
 GMM1_HIDDEN_LIST=(2048 2048 768 1536 2560)
 SCRIPT="test_fused_deep_moe.py"
 
 # 执行测试
-for index in "${indexs[@]}";do
+for index in "${indexes[@]}";do
 
     echo "Running: python $SCRIPT --hidden ${H_LIST[$index]} --moe-intermediate-size ${GMM1_HIDDEN_LIST[$index]}"
     if python "$SCRIPT" --hidden "${H_LIST[$index]}" --moe_intermediate "${GMM1_HIDDEN_LIST[$index]}"; then
