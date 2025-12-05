@@ -185,6 +185,7 @@ def chunk_gated_delta_rule_fwd(
     output_final_state: bool,
     cu_seqlens: Optional[torch.LongTensor] = None,
 ):
+    assert k.shape[3] == 128 and v.shape[3] == 128, "current chunk_gated_delta_rule_fwd only supports head dimension == 128."
     g = chunk_local_cumsum(g, chunk_size=64, cu_seqlens=cu_seqlens)
     # obtain WY representation. u is actually the new v.
     A = chunk_scaled_dot_kkt_fwd(
