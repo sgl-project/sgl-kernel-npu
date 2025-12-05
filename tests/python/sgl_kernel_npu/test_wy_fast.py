@@ -1,10 +1,12 @@
-from typing import Optional, Tuple
-import torch
 import math
-from torch_npu.testing.testcase import TestCase, run_tests
+from typing import Optional, Tuple
+
+import torch
 from sgl_kernel_npu.fla.wy_fast import recompute_w_u_fwd_npu
+from torch_npu.testing.testcase import TestCase, run_tests
 
 device = "npu"
+
 
 class TestRecomputeWUFwd(TestCase):
     def recompute_w_u_fwd_ref(
@@ -26,7 +28,7 @@ class TestRecomputeWUFwd(TestCase):
         V = v.shape[3]
         BT = A.shape[-1]
         device = k.device
-        dtype = k.dtype 
+        dtype = k.dtype
 
         if cu_seqlens is None:
             cu_seqlens = torch.arange(
@@ -163,18 +165,15 @@ class TestRecomputeWUFwd(TestCase):
         )
 
         self.assertTrue(
-            torch.allclose(
-                w_npu.cpu(), w_ref.cpu(), atol=0.001, rtol=0.001
-            ),
+            torch.allclose(w_npu.cpu(), w_ref.cpu(), atol=0.001, rtol=0.001),
             f"w mismatch. max diff: {torch.max(torch.abs(w_npu.cpu() - w_ref.cpu()))}",
         )
 
         self.assertTrue(
-            torch.allclose(
-                u_npu.cpu(), u_ref.cpu(), atol=0.001, rtol=0.001
-            ),
+            torch.allclose(u_npu.cpu(), u_ref.cpu(), atol=0.001, rtol=0.001),
             f"u mismatch. max diff: {torch.max(torch.abs(u_npu.cpu() - u_ref.cpu()))}",
         )
+
 
 if __name__ == "__main__":
     run_tests()
