@@ -46,7 +46,7 @@ ${PIP_INSTALL} \
     --index-url https://download.pytorch.org/whl/cpu
 
 ## PTA
-PTA_URL="https://gitcode.com/Ascend/pytorch/releases/download/v7.2.0.1-pytorch2.8.0/torch_npu-2.8.0.post1-cp311-cp311-manylinux_2_28_aarch64.whl"
+PTA_URL="https://gitcode.com/Ascend/pytorch/releases/download/v7.2.0-pytorch2.8.0/torch_npu-2.8.0-cp311-cp311-manylinux_2_28_aarch64.whl"
 ${PIP_INSTALL} ${PTA_URL}
 
 
