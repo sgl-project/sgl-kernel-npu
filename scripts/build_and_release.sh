@@ -51,11 +51,5 @@ ${PIP_INSTALL} ${PTA_URL}
 
 
 ### Build SGL-Kernel-NPU
-## Prepare
-set +u # Disable unbound variable temporarily when sourcing ascend-toolkit
 export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH}
-source /usr/local/Ascend/ascend-toolkit/set_env.sh
-
-## Build
-set -u
 bash build.sh

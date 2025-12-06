@@ -30,7 +30,7 @@ jobs:
 
       - name: Build packages
         run: |
-          env -i PATH=${PATH} bash scripts/build_and_release.sh
+          env -i PATH=${PATH} bash --login scripts/build_and_release.sh
 
       - name: Upload Release Artifacts
         if: github.event_name != 'pull_request'
