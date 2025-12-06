@@ -104,8 +104,21 @@ at::Tensor lightning_indexer(
     c10::optional<c10::string_view> layout_key,
     c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode);
 
+at::Tensor sparse_flash_attention(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+    const at::Tensor &sparse_indices,
+    const c10::optional<at::Tensor> &block_table,
+    const c10::optional<at::Tensor> &actual_seq_lengths_query,
+    const c10::optional<at::Tensor> &actual_seq_lengths_kv,
+    const c10::optional<at::Tensor> &query_rope,
+    const c10::optional<at::Tensor> &key_rope,
+    at::Tensor &attention_out,
+    double scale_value,
+    int64_t sparse_block_size,
+    c10::optional<c10::string_view> layout_query,
+    c10::optional<c10::string_view> layout_kv,
+    c10::optional<int64_t> sparse_mode);
 } // namespace npu_kernel
-
 } // namespace sglang
 
 #endif // SGL_KERNEL_NPU_OPS_H
