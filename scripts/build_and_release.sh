@@ -51,6 +51,6 @@ ${PIP_INSTALL} ${PTA_URL}
 
 
 ### Build SGL-Kernel-NPU
-export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH}
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
+export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH}
 bash build.sh
