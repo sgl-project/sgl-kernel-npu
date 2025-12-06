@@ -24,9 +24,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
-        with:
-          clean: true
-          set-safe-directory: true
+
+      - name: Mark repository safe
+        run: |
+          git config --global --add safe.directory ${GITHUB_WORKSPACE}
 
       - name: Build packages
         run: |
