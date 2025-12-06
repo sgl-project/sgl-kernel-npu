@@ -42,6 +42,8 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
     }
 
     this->shared_expert_rank_num = get_value_from_env("MOE_SHARED_EXPERT_RANK_NUM", 0);
+    this->round = get_value_from_env("DEEPEP_NORMAL_LONG_SEQ_ROUND", 4);
+    this->per_round_tokens = get_value_from_env("DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS", 1024);
 
     soc_version = op::GetCurrentPlatformInfo().GetSocVersion();
     num_rdma_ranks = 1;
@@ -202,13 +204,13 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 
     // Shape and contiguous checks
     EP_HOST_ASSERT(new_x.dim() == 2 and new_x.is_contiguous());
-    EP_HOST_ASSERT(num_tokens_per_expert->dim() == 1 and num_tokens_per_expert->is_contiguous());
-    EP_HOST_ASSERT(num_tokens_per_expert->size(0) % num_ranks == 0);
+    EP_HOST_ASSERT(num_tokens_per_expert->dim() == 2 and num_tokens_per_expert->is_contiguous());
+    EP_HOST_ASSERT(num_tokens_per_expert->size(1) % num_ranks == 0);
     EP_HOST_ASSERT(num_tokens_per_rank->dim() == 1 and num_tokens_per_rank->is_contiguous());
     EP_HOST_ASSERT(num_tokens_per_rank->size(0) == num_ranks);
 
     auto num_tokens = static_cast<int>(new_x.size(0)), hidden = static_cast<int>(new_x.size(1));
-    auto num_experts = static_cast<int64_t>(num_tokens_per_expert->size(0));
+    auto num_experts = static_cast<int64_t>(num_tokens_per_expert->size(1));
     auto num_local_experts = static_cast<int>(num_experts / num_ranks);
 
     // Top-k checks
@@ -248,16 +250,11 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 
     int send_per_group = 3;  // (send_to_expert_num, send_to_expert_offset, send_rank_tokens)
 
-    auto send_data = torch::empty({num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
-    int64_t send_count = send_per_group * num_local_experts * num_ranks;
+    auto send_data = torch::empty({round, num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
+    int64_t send_count = send_per_group * num_local_experts * num_ranks * round;
 
-    auto send_data_offset = torch::empty({num_experts}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor recv_data = torch::empty({num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor total_recv_token_ = torch::empty({1}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor recv_count_ = torch::empty({num_experts}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor recv_offset_ = torch::empty({num_experts}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor max_bs_ = torch::empty({1}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor recv_tokens_per_expert_ = torch::empty({num_local_experts}, at::dtype(at::kLong).device(x.device()));
+    auto send_data_offset = torch::empty({round, num_experts}, at::dtype(at::kInt).device(x.device()));
+    at::Tensor recv_data = torch::empty({round, num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
     // get ep name
     char hcom_ep_name[HCOMM_NAME_LEN];
     if (!moe_all_to_all_group_name.empty()) {
@@ -265,6 +262,17 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     } else {
         HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
     }
+    at::Tensor total_recv_token = torch::empty({1}, at::dtype(at::kInt).device(x.device()));
+    at::Tensor recv_offset = at::empty({round, num_experts}, at::dtype(at::kInt).device(x.device()));
+    at::Tensor recv_count = at::empty({round, num_experts}, at::dtype(at::kInt).device(x.device()));
+    at::Tensor max_bs = torch::empty({1}, at::dtype(at::kInt).device(x.device()));
+    at::Tensor recv_tokens_per_expert =
+        torch::empty({round * num_local_experts}, at::dtype(at::kInt).device(x.device()));
+    at::Tensor expert_global_offset = at::empty({num_local_experts}, at::dtype(at::kInt).device(x.device()));
+    at::Tensor srcrank_in_expert_offset =
+        at::empty({num_local_experts * num_ranks}, at::dtype(at::kInt).device(x.device()));
+    at::Tensor r_in_srcrank_offset =
+        at::empty({num_local_experts * num_ranks * round}, at::dtype(at::kInt).device(x.device()));
 
     int64_t local_rank_size = num_ranks;
     int64_t local_rank_id = rank % local_rank_size;
@@ -280,11 +288,14 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  hcom_ep_name,  // commGroup
                  num_ranks,     // rankSize
                  rank,          // rankId
-                 local_rank_size, local_rank_id, send_data_offset, recv_data, total_recv_token_, recv_count_,
-                 recv_offset_, max_bs_, recv_tokens_per_expert_);
+                 local_rank_size, local_rank_id, round, per_round_tokens, send_data_offset, recv_data, recv_count,
+                 recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, total_recv_token,
+                 max_bs, recv_tokens_per_expert);
     auto send_token_idx_small = this->send_token_idx_small;
-    int64_t gBs = max_bs_.item<int>() * num_ranks;
-    int64_t trt = total_recv_token_.item<int>();
+    int64_t real_max_bs = static_cast<int64_t>(std::max(max_bs.item<int>(), static_cast<int>(num_worst_tokens)));
+    // dispatch算子内部按照per_round_tokens来预留显存
+    int64_t global_bs = static_cast<int64_t>(per_round_tokens * num_ranks);
+    int64_t trt = total_recv_token.item<int>();
     int num_recv_tokens = (trt == 0) ? 1 : trt;
     auto expandx_out = use_quant ? torch::empty({num_recv_tokens, hidden}, at::dtype(at::kChar).device(x.device()))
                                  : torch::empty({num_recv_tokens, hidden}, x.options());
