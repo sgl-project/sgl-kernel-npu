@@ -106,6 +106,12 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py
 
+      - name: Run test generalization of fused deep moe
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2048
+        run: bash scripts/generalization_test_fused_deep_moe.sh
+
   test-build-deepep:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false
@@ -193,6 +199,12 @@ jobs:
           HCCL_BUFFSIZE: 3000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py
+
+      - name: Run test generalization of fused deep moe
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2048
+        run: bash scripts/generalization_test_fused_deep_moe.sh
 
   finish:
     if: always()
