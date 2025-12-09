@@ -1,0 +1,44 @@
+name: Build and Release SGL-Kernel-NPU
+
+on:
+  release:
+    types:
+      - published
+
+  pull_request:
+    branches:
+      - 'main'
+    paths:
+      - '.github/workflows/build_and_release.yml'
+
+jobs:
+
+  build-and-release:
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
+    container:
+      image: quay.io/ascend/cann:8.3.rc1-a3-ubuntu22.04-py3.11
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Mark repository safe
+        run: |
+          git config --system --add safe.directory ${GITHUB_WORKSPACE}
+
+      - name: Build packages
+        run: |
+          env -i PATH=${PATH} bash --login scripts/build_and_release.sh
+
+      - name: Upload Release Artifacts
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: output/*.whl
