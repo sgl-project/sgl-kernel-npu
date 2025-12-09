@@ -61,10 +61,10 @@ public:
     constexpr static uint32_t B32_PER_BLOCK = 8U;
     constexpr static uint32_t B64_PER_BLOCK = 4U;
     constexpr static uint32_t SERVER_RANK_SIZE = 8U;
-    constexpr static uint32_t IPC_DATA_OFFSET = 16U * 1024U * 1024U;
+    constexpr static uint32_t IPC_DATA_OFFSET = 4U * 1024U * 1024U;
     constexpr static uint32_t RDMA_DATA_SIZE = 800U * 1024U * 1024U;
     constexpr static uint32_t VEC_LEN = 256U;
-    constexpr static uint32_t MAGIC_OFFSET = IPC_DATA_OFFSET - 32U * 32U;
+    constexpr static uint32_t MAGIC_OFFSET = 2U * 1024U * 1024U - 32U * 32U;
     constexpr static uint32_t EXTRA_TOKEN_INFO_NUM = 4U;  // 专家信息 权重信息 量化Scale 到达标志位
     constexpr static uint64_t MB_SIZE = 1024UL * 1024UL;
     constexpr static bool DynamicQuant = std::is_same<ExpandXTransType, int8_t>::value;

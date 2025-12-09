@@ -58,7 +58,7 @@ public:
     constexpr static uint32_t WAIT_STATUS = 1;
     constexpr static uint32_t ARRIVAL_STATUS = 2;
     constexpr static uint32_t SKIP_STATUS = 3;
-    constexpr static uint32_t RDMA_DATA_SIZE = 100U * 1024U * 1024U;
+    constexpr static uint32_t RDMA_DATA_SIZE = 800U * 1024U * 1024U;
     constexpr static uint32_t EXTRA_TOKEN_INFO_NUM = 4U;  // 专家信息 权重信息 量化Scale 到达标志位
 
     template <AscendC::HardEvent event>
@@ -235,7 +235,7 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeA2layeredFu
     moeExpertNum_ = tilingData.moeDistributeDispatchV2Info.moeExpertNum;
     localMoeExpertNum_ = moeExpertNum_ / worldSize_;
     totalSize_ = winContext_->winSize;
-    totalWinSize_ = 100 * 1024 * 1024;  // 100 MB for RDMA
+    totalWinSize_ = RDMA_DATA_SIZE;  // 800 MB for RDMA, 与normal保持一致
     shareMemOffset_ = totalWinSize_;
     halfWinSize_ = totalWinSize_ / 2;
     WIN_SIZE = halfWinSize_ - STATUS_SIZE_LAYERED;
