@@ -22,6 +22,9 @@ struct Buffer {
     int64_t num_nvl_bytes;
     int64_t num_rdma_bytes;
 
+    int32_t round;
+    int32_t per_round_tokens;
+
     bool low_latency_mode = false;
     bool is_padding = false;
     int padding_cnt = 0;
