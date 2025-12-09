@@ -37,6 +37,7 @@ struct Buffer {
 
 private:
     std::string moe_all_to_all_group_name;
+    void *shmem_ptr = nullptr;
 
     int device_id;
 

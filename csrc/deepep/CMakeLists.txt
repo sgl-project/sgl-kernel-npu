@@ -12,7 +12,7 @@ endif()
 set(PROJECT_BUILD_PATH ${PROJECT_BINARY_DIR})
 set(TARGET_INSTALL_DIR ${CMAKE_INSTALL_PREFIX})
 set(ASCEND_HOME_PATH ${ASCEND_HOME_PATH})
-
+set(SHMEM_HOME_PATH ${SHMEM_HOME_PATH})
 find_program(PYTHON_EXECUTABLE NAMES python3 python)
 message(STATUS "PYTHON_EXECUTABLE:${PYTHON_EXECUTABLE}")
 
@@ -36,11 +36,13 @@ target_include_directories( deep_ep_cpp PRIVATE
     ${TORCH_NPU_DIR}/include/third_party/acl/inc
     ${ASCEND_HOME_PATH}/include
     ${ASCEND_HOME_PATH}/${DEEPEP_ARCH}-linux/include/experiment/platform
+    ${SHMEM_HOME_PATH}/shmem/include
 )
 target_link_directories(deep_ep_cpp PRIVATE
         ${TORCH_DIR}/lib
         ${TORCH_NPU_DIR}/lib
         ${ASCEND_HOME_PATH}/lib64
+        ${SHMEM_HOME_PATH}/shmem/lib
 )
 target_link_libraries(deep_ep_cpp PRIVATE
     torch_python
@@ -48,6 +50,7 @@ target_link_libraries(deep_ep_cpp PRIVATE
     hccl
     torch_npu
     opapi
+    shmem
 )
 
 message(STATUS "TARGET_INSTALL_DIR = ${TARGET_INSTALL_DIR}")

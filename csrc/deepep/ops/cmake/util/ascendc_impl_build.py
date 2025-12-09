@@ -163,6 +163,19 @@ def {}({}, kernel_name="{}", impl_mode=""):
     options.append("-I" + os.path.join(tikcpp_path, "tikcfw", "impl"))
     options.append("-I" + os.path.join(tikcpp_path, "tikcfw", "interface"))
     options.append("-I" + os.path.join(PYF_PATH, "..", "ascendc", "common"))
+
+    SHMEM_HOME_PATH = os.environ.get('SHMEM_HOME_PATH')
+    if SHMEM_HOME_PATH is None:
+        SHMEM_HOME_PATH = os.path.realpath("/usr/local/Ascend/shmem/latest")
+
+    options.append("-I" + SHMEM_HOME_PATH + "/shmem/include")
+    options.append("-I" + SHMEM_HOME_PATH + "shmem/include/device")
+    #options.append("-I" + SHMEM_HOME_PATH +"/shmem/include/host")
+    options.append("-I" + SHMEM_HOME_PATH + "/shmem/include/host_device")
+    options.append("-I" + SHMEM_HOME_PATH + "/shmem/include/internal")
+    options.append("-I" + SHMEM_HOME_PATH + "/memfabric_hybrid/include/smem/device")
+    #options.append("-I" + SHMEM_HOME_PATH + "/memfabric_hybrid/include/smem/host")
+
     if impl_mode == "high_performance":
         options.append("-DHIGH_PERFORMANCE=1")
     elif impl_mode == "high_precision":
