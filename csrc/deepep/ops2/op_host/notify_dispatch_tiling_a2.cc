@@ -186,8 +186,8 @@ static void SetHcommCfg(const gert::TilingContext *context, NotifyDispatchA2Tili
 {
     const char *nodeName = context->GetNodeName();
     OP_LOGD(nodeName, "NotifyDispatchA2 commGroup = %s", commGroup.c_str());
-    uint32_t opType1 = OP_TYPE_ALL_TO_ALL;
-    std::string algConfigAllToAllStr = "AlltoAll=level0:fullmesh;level1:pairwise";
+    uint32_t opType1 = 18;  // batch write=18,
+    std::string algConfigAllToAllStr = "BatchWrite=level1:hierarchy";
 
     AscendC::Mc2CcTilingConfig mc2CcTilingConfig(commGroup, opType1, algConfigAllToAllStr);
     mc2CcTilingConfig.GetTiling(tiling->mc2InitTiling);
@@ -442,6 +442,7 @@ static ge::graphStatus NotifyDispatchA2TilingFuncImpl(gert::TilingContext *conte
     if (socVersion == "Ascend910B") {
         tilingKey = tilingKey + TILING_KEY_A2_TYPE;
     }
+    OP_LOGD(nodeName, "tilingKey is %lu", tilingKey);
     context->SetTilingKey(tilingKey);
 
     auto ascendcPlatform = platform_ascendc::PlatformAscendC(context->GetPlatformInfo());
