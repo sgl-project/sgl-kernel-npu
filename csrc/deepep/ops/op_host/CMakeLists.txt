@@ -6,6 +6,7 @@ aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} ops_srcs)
 # =====================================================
 set(CANN82_PATH "${ASCEND_CANN_PACKAGE_PATH}/include/experiment/platform/platform/platform_infos_def.h")
 set(CANN83_PATH "${ASCEND_CANN_PACKAGE_PATH}/include/platform/platform_infos_def.h")
+set (SHMEM_HOME_PATH /usr/local/Ascend/shmem/latest)
 
 message(STATUS "ASCEND_CANN_PACKAGE_PATH = ${ASCEND_CANN_PACKAGE_PATH}")
 message(STATUS "Checking for CANN include paths:")
@@ -113,6 +114,7 @@ if(ENABLE_CROSS_COMPILE)
     target_link_directories(cust_opapi PRIVATE
                             ${CMAKE_COMPILE_COMPILER_LIBRARY}
                             ${CMAKE_COMPILE_RUNTIME_LIBRARY}
+                            shmem
     )
 endif()
 if(NOT ASCEND_PACK_SHARED_LIBRARY)
@@ -168,7 +170,7 @@ else()
     add_dependencies(cust_opapi ascend_opregistry)
 endif()
 
-target_include_directories(cust_opapi PRIVATE $ENV{ASCEND_HOME_PATH}/${CANN_HOST_ARCH}-linux/include/experiment/platform/)
+target_include_directories(cust_opapi PRIVATE $ENV{ASCEND_HOME_PATH}/${CANN_HOST_ARCH}-linux/include/experiment/platform/ ${SHMEM_HOME_PATH}/shmem/include)
 include_directories($ENV{ASCEND_HOME_PATH}/../opp/vendors/CAM/op_impl/ai_core/tbe/CAM_impl/dynamic/)
 
 add_custom_target(optiling_compat ALL

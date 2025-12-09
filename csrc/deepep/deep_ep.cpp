@@ -6,6 +6,7 @@
 #include "exception.hpp"
 #include "deep_ep.hpp"
 #include "pytorch_npu_helper.hpp"
+#include "shmem.hpp"
 
 namespace deep_ep {
 constexpr int PADDING_SIZE = 1;
@@ -54,9 +55,22 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
         rdma_rank = rank / A2_MAX_HCCS_PEERS;
         nvl_rank = rank % A2_MAX_HCCS_PEERS;
     }
+
+    size_t local_mem_size = 2 * 1024 * 1024 * 1024UL;
+    size_t meta_data_size = 100 * 1024 * 1024UL;
+    EP_HOST_ASSERT(rank == internode::init(rank, num_ranks, local_mem_size, "tcp://127.0.0.1:11222"));
+    shmem_ptr = internode::alloc(meta_data_size, NUM_BUFFER_ALIGNMENT_BYTES);
+    std::cout << "rank: " << rank << ", num_ranks: " << num_ranks << ", shmem_ptr: " << shmem_ptr << std::endl;
 }
 
-Buffer::~Buffer() noexcept(false) {}
+Buffer::~Buffer() noexcept(false)
+{
+    std::cout << "rank " << rank << " ~Buffer" << std::endl;
+    internode::free(shmem_ptr);
+    std::cout << "rank " << rank << " free done!!!" << std::endl;
+    internode::finalize();
+    std::cout << "rank " << rank << " finalize done!!!" << std::endl;
+}
 
 bool Buffer::is_available() const
 {
