@@ -19,16 +19,27 @@ extern "C" {
  * rankId : required
  * localRankSize : required
  * localRankId : required
+ * round : required
+ * perRoundTokens : required
  * sendDataOffset : required
  * recvData : required
+ * recvCount : required
+ * recvOffset : required
+ * expertGlobalOffset : required
+ * srcrankInExpertOffset : required
+ * rInSrcrankOffset : required
+ * totalRecvTokens : required
+ * maxBs : required
+ * recvTokensPerExpert : required
  * workspaceSize : size of workspace(output).
  * executor : executor context(output).
  */
 __attribute__((visibility("default"))) aclnnStatus aclnnNotifyDispatchGetWorkspaceSize(
-    const aclTensor *sendData, const aclTensor *tokenPerExpertData, int64_t sendCount, int64_t numTokens,
-    char *commGroup, int64_t rankSize, int64_t rankId, int64_t localRankSize, int64_t localRankId,
-    const aclTensor *sendDataOffset, const aclTensor *recvData, const aclTensor *totalRecvTokens,
-    const aclTensor *recvCount, const aclTensor *recvOffset, const aclTensor *maxBs,
+    const aclTensor *sendData, const aclTensor *tokenPerExpertData, int32_t sendCount, int32_t numTokens,
+    char *commGroup, int32_t rankSize, int32_t rankId, int32_t localRankSize, int32_t localRankId, int32_t round,
+    int32_t perRoundTokens, const aclTensor *sendDataOffset, const aclTensor *recvData, const aclTensor *recvCount,
+    const aclTensor *recvOffset, const aclTensor *expertGlobalOffset, const aclTensor *srcrankInExpertOffset,
+    const aclTensor *rInSrcrankOffset, const aclTensor *totalRecvTokens, const aclTensor *maxBs,
     const aclTensor *recvTokensPerExpert, uint64_t *workspaceSize, aclOpExecutor **executor);
 
 /* function: aclnnNotifyDispatch
