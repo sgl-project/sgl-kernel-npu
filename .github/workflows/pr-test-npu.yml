@@ -55,7 +55,7 @@ jobs:
       - name: Run test intranode
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 2239
+          HCCL_BUFFSIZE: 2241
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
 
@@ -149,7 +149,7 @@ jobs:
       - name: Run test intranode
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 2239
+          HCCL_BUFFSIZE: 2241
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
 
