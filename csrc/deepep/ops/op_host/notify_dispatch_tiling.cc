@@ -14,7 +14,7 @@
 #include "error_log.h"
 #include "graph/utils/type_utils.h"
 #include "register/op_def_registry.h"
-#include "mc2_tiling_utils.h"
+// #include "mc2_tiling_utils.h"
 #include "../op_kernel/notify_dispatch_tiling.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "tiling/hccl/hccl_tiling.h"
@@ -44,8 +44,9 @@ constexpr uint32_t ATTR_RANK_SIZE_INDEX = 3;
 constexpr uint32_t ATTR_RANK_ID_INDEX = 4;
 constexpr uint32_t ATTR_LOCAL_RANK_SIZE_INDEX = 5;
 constexpr uint32_t ATTR_LOCAL_RANK_ID_INDEX = 6;
+constexpr uint32_t ATTR_SHMEM_PTR_INDEX = 7;
 
-const size_t MAX_GROUP_NAME_LENGTH = 128UL;
+// const size_t MAX_GROUP_NAME_LENGTH = 128UL;
 const int64_t MAX_COMM_WORLD_SIZE = 384;
 
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
@@ -77,7 +78,7 @@ static void PrintTilingDataInfo(const char *nodeName, NotifyDispatchTilingData &
 }
 
 static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, const char *nodeName,
-                                               NotifyDispatchTilingData &tilingData, std::string &commGroup)
+                                               NotifyDispatchTilingData &tilingData)
 {
     auto attrs = context->GetAttrs();
     OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "attrs is nullptr."), return ge::GRAPH_FAILED);
@@ -89,10 +90,11 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     auto rankIdPtr = attrs->GetAttrPointer<int64_t>(ATTR_RANK_ID_INDEX);
     auto localRankSizePtr = attrs->GetAttrPointer<int64_t>(ATTR_LOCAL_RANK_SIZE_INDEX);
     auto localRankIdPtr = attrs->GetAttrPointer<int64_t>(ATTR_LOCAL_RANK_ID_INDEX);
+    auto shmemPtrPtr = attrs->GetAttrPointer<int64_t>(ATTR_SHMEM_PTR_INDEX);
 
-    OP_TILING_CHECK((commGroupPtr == nullptr) || (strnlen(commGroupPtr, MAX_GROUP_NAME_LENGTH) == 0) ||
-                        (strnlen(commGroupPtr, MAX_GROUP_NAME_LENGTH) == MAX_GROUP_NAME_LENGTH),
-                    OP_LOGE(nodeName, "commGroupPtr is null."), return ge::GRAPH_FAILED);
+    // OP_TILING_CHECK((commGroupPtr == nullptr) || (strnlen(commGroupPtr, MAX_GROUP_NAME_LENGTH) == 0) ||
+    //                     (strnlen(commGroupPtr, MAX_GROUP_NAME_LENGTH) == MAX_GROUP_NAME_LENGTH),
+    //                 OP_LOGE(nodeName, "commGroupPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(sendCountPtr == nullptr, OP_LOGE(nodeName, "sendCountPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(numTokenPtr == nullptr, OP_LOGE(nodeName, "numTokenPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(rankSizePtr == nullptr, OP_LOGE(nodeName, "rankSizePtr is null."), return ge::GRAPH_FAILED);
@@ -117,29 +119,30 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
         OP_LOGE(nodeName, "numTokenPtr is invalid, only support > 0, but got numTokenPtr=%ld.", *numTokenPtr),
         return ge::GRAPH_FAILED);
 
-    commGroup = std::string(commGroupPtr);
+    // commGroup = std::string(commGroupPtr);
     tilingData.notifyDispatchInfo.rankSize = static_cast<uint32_t>(*rankSizePtr);
     tilingData.notifyDispatchInfo.rankId = static_cast<uint32_t>(*rankIdPtr);
     tilingData.notifyDispatchInfo.localRankSize = static_cast<uint32_t>(*localRankSizePtr);
     tilingData.notifyDispatchInfo.localRankId = static_cast<uint32_t>(*localRankIdPtr);
     tilingData.notifyDispatchInfo.sendCount = static_cast<uint32_t>(*sendCountPtr);
     tilingData.notifyDispatchInfo.numTokens = static_cast<uint32_t>(*numTokenPtr);
+    tilingData.shmemPtr = static_cast<uint64_t>(*shmemPtrPtr);
 
     return ge::GRAPH_SUCCESS;
 }
 
-static void SetHcommCfg(const gert::TilingContext *context, NotifyDispatchTilingData *tiling,
-                        const std::string commGroup)
-{
-    const char *nodeName = context->GetNodeName();
-    OP_LOGD(nodeName, "NotifyDispatch commGroup = %s", commGroup.c_str());
-    uint32_t opType1 = OP_TYPE_ALL_TO_ALL;
-    std::string algConfigAllToAllStr = "AlltoAll=level0:fullmesh;level1:pairwise";
+// static void SetHcommCfg(const gert::TilingContext *context, NotifyDispatchTilingData *tiling,
+//                         const std::string commGroup)
+// {
+//     const char *nodeName = context->GetNodeName();
+//     OP_LOGD(nodeName, "NotifyDispatch commGroup = %s", commGroup.c_str());
+//     uint32_t opType1 = OP_TYPE_ALL_TO_ALL;
+//     std::string algConfigAllToAllStr = "AlltoAll=level0:fullmesh;level1:pairwise";
 
-    AscendC::Mc2CcTilingConfig mc2CcTilingConfig(commGroup, opType1, algConfigAllToAllStr);
-    mc2CcTilingConfig.GetTiling(tiling->mc2InitTiling);
-    mc2CcTilingConfig.GetTiling(tiling->mc2CcTiling1);
-}
+//     AscendC::Mc2CcTilingConfig mc2CcTilingConfig(commGroup, opType1, algConfigAllToAllStr);
+//     mc2CcTilingConfig.GetTiling(tiling->mc2InitTiling);
+//     mc2CcTilingConfig.GetTiling(tiling->mc2CcTiling1);
+// }
 
 static ge::graphStatus SetWorkSpace(gert::TilingContext *context, const char *nodeName)
 {
@@ -198,13 +201,13 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
         return false);
 
     // Verify the size of the win area
-    NotifyDispatchTilingData *tilingData = context->GetTilingData<NotifyDispatchTilingData>();
-    uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize();
-    uint64_t actualSize = dataSize * tilingData->notifyDispatchInfo.sendCount + 2 * 1024 * 1024;  // 2MB flag位
-    if (actualSize > maxWindowSize) {
-        OP_LOGE(nodeName, "HCCL_BUFFSIZE is too SMALL, should larger than %luMB.", actualSize / MB_SIZE);
-        return false;
-    }
+    // NotifyDispatchTilingData *tilingData = context->GetTilingData<NotifyDispatchTilingData>();
+    // uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize();
+    // uint64_t actualSize = dataSize * tilingData->notifyDispatchInfo.sendCount + 2 * 1024 * 1024;  // 2MB flag位
+    // if (actualSize > maxWindowSize) {
+    //     OP_LOGE(nodeName, "HCCL_BUFFSIZE is too SMALL, should larger than %luMB.", actualSize / MB_SIZE);
+    //     return false;
+    // }
     return true;
 }
 
@@ -224,7 +227,7 @@ static ge::graphStatus NotifyDispatchTilingFuncImpl(gert::TilingContext *context
     std::string commGroup = "";
     OP_LOGI(nodeName, "Enter NotifyDispatch tiling check func.");
 
-    OP_TILING_CHECK(GetAttrAndSetTilingData(context, nodeName, *tilingData, commGroup) != ge::GRAPH_SUCCESS,
+    OP_TILING_CHECK(GetAttrAndSetTilingData(context, nodeName, *tilingData) != ge::GRAPH_SUCCESS,
                     OP_LOGE(nodeName, "Get attr and set tiling data failed."), return ge::GRAPH_FAILED);
 
     OP_TILING_CHECK(TilingCheckTensor(context, nodeName) != ge::GRAPH_SUCCESS,
@@ -232,7 +235,7 @@ static ge::graphStatus NotifyDispatchTilingFuncImpl(gert::TilingContext *context
 
     OP_TILING_CHECK(SetWorkSpace(context, nodeName) != ge::GRAPH_SUCCESS,
                     OP_LOGE(nodeName, "Tiling set workspace failed."), return ge::GRAPH_FAILED);
-    SetHcommCfg(context, tilingData, commGroup);
+    // SetHcommCfg(context, tilingData, commGroup);
 
     int tilingKey = TILING_KEY_INT;
     auto sendDtype = context->GetInputDesc(0)->GetDataType();
