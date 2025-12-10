@@ -403,14 +403,16 @@ private:
         pipe.InitBuffer(tmpBuf_, Ceil(round * numExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
         pipe.InitBuffer(tmpBuf2_, Ceil(round * numExperts * sizeof(float), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
         pipe.InitBuffer(tmpBuf3_, Ceil(round * numExperts * sizeof(float), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
+        pipe.InitBuffer(tmpBuf4_, Ceil(round * numExperts * sizeof(float), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
 
         LocalTensor<int32_t> totalCntLt = tmpBuf_.Get<int32_t>();
         LocalTensor<float> floatExpTokenCntLt = tmpBuf2_.Get<float>();
         LocalTensor<float> floatExpTokenSumCntLt = tmpBuf3_.Get<float>();
+        LocalTensor<float> sharedTmpBuffer = tmpBuf4_.Get<float>();
         SyncFunc<AscendC::HardEvent::S_V>();
         Cast(floatExpTokenCntLt, sendCountTensor, RoundMode::CAST_NONE, round * numExperts);
         PipeBarrier<PIPE_V>();
-        ReduceSum(floatExpTokenSumCntLt, floatExpTokenCntLt, floatExpTokenSumCntLt, round * numExperts);
+        ReduceSum(floatExpTokenSumCntLt, floatExpTokenCntLt, sharedTmpBuffer, round * numExperts);
         SyncFunc<AscendC::HardEvent::V_S>();
         int32_t sumVal = static_cast<int32_t>(floatExpTokenSumCntLt.GetValue(0));
         PipeBarrier<PIPE_V>();
