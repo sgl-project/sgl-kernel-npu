@@ -15,9 +15,10 @@ struct NotifyDispatchInfo {
 };
 
 struct NotifyDispatchTilingData {
-    Mc2InitTiling mc2InitTiling;
-    Mc2CcTiling mc2CcTiling1;
+    // Mc2InitTiling mc2InitTiling;
+    // Mc2CcTiling mc2CcTiling1;
     NotifyDispatchInfo notifyDispatchInfo;
+    uint64_t shmemPtr;  // shmem symmetric point
 };
 
 #endif
