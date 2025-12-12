@@ -95,11 +95,55 @@ def test_main(
     rank_idx.masked_fill_(topk_idx == -1, -1)
     inplace_unique(rank_idx, num_ranks)
 
+    round_env = os.getenv("DEEPEP_NORMAL_LONG_SEQ_ROUND")
+    tokens_env = os.getenv("DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS")
+    round_set = round_env is not None
+    tokens_set = tokens_env is not None
+    assert (
+        round_set == tokens_set
+    ), "DEEPEP_NORMAL_LONG_SEQ_ROUND and DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS must be set or unset at the same time"
+
+    round_val = 1
+    per_round_tokens = 8192
+    if round_set and tokens_set:
+        try:
+            r = int(round_env)
+            t = int(tokens_env)
+        except ValueError:
+            raise AssertionError(
+                "Environment variable values must be in pure integer format"
+            )
+
+        assert (
+            r >= 1 and r <= 16
+        ), f"DEEPEP_NORMAL_LONG_SEQ_ROUND must be between 1-16, current value:{r}"
+        assert (
+            t >= 32 and t <= 8192
+        ), f"DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS must be between 32-8192, current value:{t}"
+        assert (
+            r * t <= 16384
+        ), f"round({r}) * per_round_tokens({t}) = {r*t} exceeds limit of 16384"
+        round_val = r
+        per_round_tokens = t
+
     # Expert meta
-    num_tokens_per_expert = torch.zeros((num_experts,), dtype=torch.int, device="npu")
-    for i in range(num_experts):
-        num_tokens_per_expert[i] = (topk_idx == i).sum()
-    gbl_num_tokens_per_expert = num_tokens_per_expert.clone()
+    num_tokens_per_expert = torch.zeros(
+        (round_val * num_experts), dtype=torch.int, device="npu"
+    )
+    total_tokens_per_expert = torch.zeros((num_experts), dtype=torch.int, device="npu")
+    for round_id in range(round_val):
+        start = round_id * per_round_tokens
+        end = min((round_id + 1) * per_round_tokens, num_tokens)
+        chunk_topk = topk_idx[start:end]
+        for expert_id in range(num_experts):
+            num_tokens_per_expert[round_id * num_experts + expert_id] = (
+                chunk_topk == expert_id
+            ).sum()
+            total_tokens_per_expert[expert_id] += num_tokens_per_expert[
+                round_id * num_experts + expert_id
+            ]
+
+    gbl_num_tokens_per_expert = total_tokens_per_expert.clone()
     dist.all_reduce(gbl_num_tokens_per_expert, group=group)
 
     # Rank layout meta
@@ -187,7 +231,7 @@ def test_main(
                 "x": current_x,
                 "num_tokens_per_rank": num_tokens_per_rank,
                 "is_token_in_rank": is_token_in_rank,
-                "num_tokens_per_expert": num_tokens_per_expert,
+                "num_tokens_per_expert": ref_num_tokens_per_expert,
                 "config": config,
                 "topk_idx": topk_idx,
                 "topk_weights": topk_weights_pure_rand,
@@ -252,7 +296,7 @@ def test_main(
             "x": current_x,
             "num_tokens_per_rank": num_tokens_per_rank,
             "is_token_in_rank": is_token_in_rank,
-            "num_tokens_per_expert": num_tokens_per_expert,
+            "num_tokens_per_expert": ref_num_tokens_per_expert,
             "config": config,
             "topk_idx": topk_idx,
             "topk_weights": (
@@ -332,7 +376,7 @@ def test_main(
             "config": config,
             "num_tokens_per_rank": num_tokens_per_rank,
             "is_token_in_rank": is_token_in_rank,
-            "num_tokens_per_expert": num_tokens_per_expert,
+            "num_tokens_per_expert": ref_num_tokens_per_expert,
             "topk_idx": topk_idx,
             "topk_weights": topk_weights,
         }
@@ -349,7 +393,7 @@ def test_main(
         "x": x,
         "num_tokens_per_rank": num_tokens_per_rank,
         "is_token_in_rank": is_token_in_rank,
-        "num_tokens_per_expert": num_tokens_per_expert,
+        "num_tokens_per_expert": ref_num_tokens_per_expert,
         "config": config,
         "topk_idx": topk_idx,
         "topk_weights": topk_weights,
