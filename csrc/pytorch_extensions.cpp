@@ -88,6 +88,10 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor? actual_seq_lengths_key=None, Tensor? block_table=None, "
         "str? layout_query=None, str? layout_key=None, "
         "int? sparse_count=None, int? sparse_mode=None) -> Tensor");
+    m.def(
+        "sparse_flash_attention(Tensor query, Tensor key, Tensor value, Tensor sparse_indices, "
+        "float scale_value, int sparse_block_size,  Tensor? actual_seq_lengths_query=None, Tensor? actual_seq_lengths_kv=None, "
+        "Tensor? query_rope=None, Tensor? key_rope=None, str? layout_query=\"BSND\", str? layout_kv=\"BSND\", int? sparse_mode=0,Tensor? block_table=None) -> Tensor");
 }
 }  // namespace
 
@@ -125,5 +129,7 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 #endif
 
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
+    
+    m.impl("sparse_flash_attention", TORCH_FN(sglang::npu_kernel::sparse_flash_attention));
 }
 }  // namespace
