@@ -66,18 +66,45 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
 
-      - name: Run test deepep eplb
+      - name: Run test base fused deep moe
         timeout-minutes: 10
         env:
           HCCL_BUFFSIZE: 2000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --num-experts 256
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 48 --num-experts 128
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 48 --num-experts 256
+
+      - name: Run test muti-model for fused deep moe
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --num-experts 256 --hidden 6144 --moe-intermediate-size 2048
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 48 --num-experts 128 --hidden 6144 --moe-intermediate-size 2048
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --num-experts 256 --hidden 4096 --moe-intermediate-size 1536
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 48 --num-experts 256 --hidden 4096 --moe-intermediate-size 1536
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 48 --num-experts 128 --hidden 4096 --moe-intermediate-size 1536
+
+      - name: Run test fused deepep moe eplb
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2000
+        run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --topk-drop-col 3
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --topk-drop-prob 0.3
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --topk-drop-col 2
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --topk-drop-col 3 --num-experts 16
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 4 --topk-drop-col 1 --num-experts 32
+
+      - name: Run test mixed running
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py
 
   test-build-deepep:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
@@ -127,18 +154,45 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
 
-      - name: Run test deepep eplb
+      - name: Run test base fused deep moe
         timeout-minutes: 10
         env:
           HCCL_BUFFSIZE: 2000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --num-experts 256
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 48 --num-experts 128
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 48 --num-experts 256
+
+      - name: Run test muti-model for fused deep moe
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --num-experts 256 --hidden 6144 --moe-intermediate-size 2048
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 48 --num-experts 128 --hidden 6144 --moe-intermediate-size 2048
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --num-experts 256 --hidden 4096 --moe-intermediate-size 1536
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 48 --num-experts 256 --hidden 4096 --moe-intermediate-size 1536
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 48 --num-experts 128 --hidden 4096 --moe-intermediate-size 1536
+
+      - name: Run test fused deepep moe eplb
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2000
+        run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --topk-drop-col 3
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --topk-drop-prob 0.3
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --topk-drop-col 2
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --topk-drop-col 3 --num-experts 16
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 4 --topk-drop-col 1 --num-experts 32
+
+      - name: Run test mixed running
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py
 
   finish:
     if: always()
