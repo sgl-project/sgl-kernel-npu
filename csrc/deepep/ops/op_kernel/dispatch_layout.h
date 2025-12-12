@@ -55,6 +55,7 @@ public:
         isTokenInRank32AlignIntLen_ = Ceil(tempRoundTokens * numRanks_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
         sendTokenIdx32AlignIntLen_ = Ceil(tempTokens_ * numExperts_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
 
+
         tempExpertGM_.SetGlobalBuffer((__gm__ T *)notifySendData);
         numTokensPerRankGM_.SetGlobalBuffer((__gm__ T *)numTokensPerRank);
     }
@@ -70,7 +71,7 @@ public:
         tpipe_->InitBuffer(sendTokenIdxSmallBuf_, topkIdx32AlignIntLen_);
 
         LocalTensor<int64_t> topkIdxTensor = topkIdxBuf_.AllocTensor<int64_t>();
-        LocalTensor<T> numTokensPerRankTensor = numTokensPerRankBuf_.AllocTensor<T>();
+		LocalTensor<T> numTokensPerRankTensor = numTokensPerRankBuf_.AllocTensor<T>();
         LocalTensor<T> numTokensPerExpertTensor = numTokensPerExpertBuf_.AllocTensor<T>();
         LocalTensor<T> isTokenInRankTensor = isTokenInRankBuf_.AllocTensor<T>();
         LocalTensor<T> seenRankTensor = seenRankBuf_.AllocTensor<T>();
@@ -110,10 +111,9 @@ public:
 
             int64_t round_topkIdx_offset = r * perRoundTokens_ * numTopk_ * sizeof(int64_t);
 
-            sendTokenIdxSmallGM_.SetGlobalBuffer(
-                (__gm__ T *)(sendTokenIdxSmall_ + round_topkIdx_offset / 2 + topkIdxOffset / 2));
-            topkIdxGM_.SetGlobalBuffer(
-                (__gm__ int64_t *)(topkIdx_ + r * perRoundTokens_ * numTopk_ * sizeof(int64_t) + topkIdxOffset));
+            sendTokenIdxSmallGM_.SetGlobalBuffer((__gm__ T *)(sendTokenIdxSmall_ + round_topkIdx_offset / 2 + topkIdxOffset / 2));
+            topkIdxGM_.SetGlobalBuffer((__gm__ int64_t *)(topkIdx_ + r * perRoundTokens_ * numTopk_ * sizeof(int64_t) +
+                                                          topkIdxOffset));
             numTokensPerExpertGM_.SetGlobalBuffer((__gm__ T *)numTokensPerExpert_ + numExperts_ * r);
             // tokens * rank;
             isTokenInRankGM_.SetGlobalBuffer(
@@ -136,63 +136,63 @@ public:
             PipeBarrier<PIPE_MTE3>();
             SyncAll<true>();
 
-            int experts_per_rank = numExperts_ / numRanks_;
-            for (int i = 0; i < tempTokens_; ++i) {
-                SyncFunc<AscendC::HardEvent::S_V>();
-                Duplicate<T>(seenRankTensor, 0, numRanks_);
-                SyncFunc<AscendC::HardEvent::V_S>();
-                for (int j = 0; j < numTopk_; ++j) {
-                    int64_t expert_idx = topkIdxTensor.GetValue(i * numTopk_ + j);
-                    uint32_t per_expert_num = numTokensPerExpertTensor.GetValue(expert_idx) + 1;
-                    numTokensPerExpertTensor.SetValue(expert_idx, per_expert_num);
-                    int rank_id = expert_idx / experts_per_rank;
-                    if (!seenRankTensor.GetValue(rank_id)) {
-                        uint32_t per_rank_num = numTokensPerRankTensor.GetValue(rank_id) + 1;
-                        isTokenInRankTensor.SetValue(i * numRanks_ + rank_id, 1);
-                        seenRankTensor.SetValue(rank_id, 1);
-                        numTokensPerRankTensor.SetValue(rank_id, per_rank_num);
-                    }
+        int experts_per_rank = numExperts_ / numRanks_;
+        for (int i = 0; i < tempTokens_; ++i) {
+            SyncFunc<AscendC::HardEvent::S_V>();
+            Duplicate<T>(seenRankTensor, 0, numRanks_);
+            SyncFunc<AscendC::HardEvent::V_S>();
+            for (int j = 0; j < numTopk_; ++j) {
+                int64_t expert_idx = topkIdxTensor.GetValue(i * numTopk_ + j);
+                uint32_t per_expert_num = numTokensPerExpertTensor.GetValue(expert_idx) + 1;
+                numTokensPerExpertTensor.SetValue(expert_idx, per_expert_num);
+                int rank_id = expert_idx / experts_per_rank;
+                if (!seenRankTensor.GetValue(rank_id)) {
+                    uint32_t per_rank_num = numTokensPerRankTensor.GetValue(rank_id) + 1;
+                    isTokenInRankTensor.SetValue(i * numRanks_ + rank_id, 1);
+                    seenRankTensor.SetValue(rank_id, 1);
+                    numTokensPerRankTensor.SetValue(rank_id, per_rank_num);
                 }
             }
-
-            uint32_t sendSize = tempTokens_ * numRanks_ * sizeof(T);
-            const DataCopyExtParams isTokenInRankDataCopyParams{1U, sendSize, 0U, 0U, 0U};
-            SyncFunc<AscendC::HardEvent::S_MTE3>();
-            DataCopyPad(isTokenInRankGM_, isTokenInRankTensor, isTokenInRankDataCopyParams);
-            AscendC::SetAtomicAdd<T>();
-            const DataCopyExtParams tempExpertDataCopyParams{1U, numTokensPerExpert32AlignIntLen_, 0U, 0U, 0U};
-            for (int i = coreIdx_ + 1; i < aivNum_; ++i) {
-                DataCopyPad(tempExpertGM_[i * numExperts_], numTokensPerExpertTensor, tempExpertDataCopyParams);
-            }
-            sendSize = numRanks_ * sizeof(T);
-            const DataCopyExtParams numTokensPerRankDataCopyParams{1U, sendSize, 0U, 0U, 0U};
-            DataCopyPad(numTokensPerRankGM_, numTokensPerRankTensor, numTokensPerRankDataCopyParams);
-            sendSize = numExperts_ * sizeof(T);
-            const DataCopyExtParams numTokensPerExpertDataCopyParams{1U, sendSize, 0U, 0U, 0U};
-            DataCopyPad(numTokensPerExpertGM_, numTokensPerExpertTensor, numTokensPerExpertDataCopyParams);
-            AscendC::SetAtomicNone();
-            PipeBarrier<PIPE_MTE3>();
-            SyncAll<true>();
-            SyncFunc<AscendC::HardEvent::MTE3_MTE2>();
-            const DataCopyPadExtParams<T> tempPadParams{false, 0U, 0U, 0U};
-            DataCopyPad(numTokensPerExpertTensor, tempExpertGM_[coreIdx_ * numExperts_], tempExpertDataCopyParams,
-                        tempPadParams);
-
-            SyncFunc<AscendC::HardEvent::MTE2_S>();
-            for (int i = 0; i < tempTokens_; ++i) {
-                for (int j = 0; j < numTopk_; ++j) {
-                    int64_t expert_idx = topkIdxTensor.GetValue(i * numTopk_ + j);
-                    T valT = numTokensPerExpertTensor(expert_idx);
-                    sendTokenIdxSmallTensor(i * numTopk_ + j) = valT;
-                    numTokensPerExpertTensor(expert_idx) = valT + 1;
-                }
-            }
-            SyncFunc<AscendC::HardEvent::S_MTE3>();
-            const DataCopyExtParams sendTokenIdxSmallDataCopyParams{
-                1U, static_cast<uint32_t>(tempTokens_ * numTopk_ * sizeof(T)), 0U, 0U, 0U};
-            DataCopyPad(sendTokenIdxSmallGM_, sendTokenIdxSmallTensor, sendTokenIdxSmallDataCopyParams);
         }
-    }
+
+        uint32_t sendSize = tempTokens_ * numRanks_ * sizeof(T);
+        const DataCopyExtParams isTokenInRankDataCopyParams{1U, sendSize, 0U, 0U, 0U};
+            SyncFunc<AscendC::HardEvent::S_MTE3>();
+        DataCopyPad(isTokenInRankGM_, isTokenInRankTensor, isTokenInRankDataCopyParams);
+        AscendC::SetAtomicAdd<T>();
+        const DataCopyExtParams tempExpertDataCopyParams{1U, numTokensPerExpert32AlignIntLen_, 0U, 0U, 0U};
+        for (int i = coreIdx_ + 1; i < aivNum_; ++i) {
+            DataCopyPad(tempExpertGM_[i * numExperts_], numTokensPerExpertTensor, tempExpertDataCopyParams);
+        }
+        sendSize = numRanks_ * sizeof(T);
+        const DataCopyExtParams numTokensPerRankDataCopyParams{1U, sendSize, 0U, 0U, 0U};
+        DataCopyPad(numTokensPerRankGM_, numTokensPerRankTensor, numTokensPerRankDataCopyParams);
+        sendSize = numExperts_ * sizeof(T);
+        const DataCopyExtParams numTokensPerExpertDataCopyParams{1U, sendSize, 0U, 0U, 0U};
+        DataCopyPad(numTokensPerExpertGM_, numTokensPerExpertTensor, numTokensPerExpertDataCopyParams);
+        AscendC::SetAtomicNone();
+        PipeBarrier<PIPE_MTE3>();
+        SyncAll<true>();
+        SyncFunc<AscendC::HardEvent::MTE3_MTE2>();
+        const DataCopyPadExtParams<T> tempPadParams{false, 0U, 0U, 0U};
+        DataCopyPad(numTokensPerExpertTensor, tempExpertGM_[coreIdx_ * numExperts_], tempExpertDataCopyParams,
+                    tempPadParams);
+
+        SyncFunc<AscendC::HardEvent::MTE2_S>();
+        for (int i = 0; i < tempTokens_; ++i) {
+            for (int j = 0; j < numTopk_; ++j) {
+                int64_t expert_idx = topkIdxTensor.GetValue(i * numTopk_ + j);
+                T valT = numTokensPerExpertTensor(expert_idx);
+                sendTokenIdxSmallTensor(i * numTopk_ + j) = valT;
+                numTokensPerExpertTensor(expert_idx) = valT + 1;
+            }
+        }
+        SyncFunc<AscendC::HardEvent::S_MTE3>();
+        const DataCopyExtParams sendTokenIdxSmallDataCopyParams{
+            1U, static_cast<uint32_t>(tempTokens_ * numTopk_ * sizeof(T)), 0U, 0U, 0U};
+        DataCopyPad(sendTokenIdxSmallGM_, sendTokenIdxSmallTensor, sendTokenIdxSmallDataCopyParams);
+    	}
+	}
 
 private:
     GlobalTensor<int64_t> topkIdxGM_;
