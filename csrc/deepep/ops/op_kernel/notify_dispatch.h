@@ -4,9 +4,10 @@
 #include <climits>
 #include "kernel_operator.h"
 
+#include "shmem_api.h"
 #include "comm_args.h"
 #include "data_copy.h"
-#include "moe_distribute_base.h"
+// #include "moe_distribute_base.h"
 
 using namespace AscendC;
 using namespace Moe;
@@ -23,16 +24,21 @@ __aicore__ inline void SyncFunc()
     GM_ADDR sendDataInput, GM_ADDR tokenPerExpertDataInput, GM_ADDR sendDataOffsetOutput, GM_ADDR recvDataOutput,   \
         GM_ADDR totalRecvTokens, GM_ADDR recvCount, GM_ADDR recvOffset, GM_ADDR maxBs, GM_ADDR recvTokensPerExpert, \
         int64_t len, int64_t numTokens, int op, int root, int cycleCount, GM_ADDR scale, int64_t scaleCount,        \
-        GM_ADDR offset, int localRank, int localRankSize
+        GM_ADDR offset, int localRank, int localRankSize, uint64_t shmemPtr
 
 #define KERNELS_ARGS_CALL_ALL2ALL()                                                                              \
     sendDataInput, tokenPerExpertDataInput, sendDataOffsetOutput, recvDataOutput, totalRecvTokens, recvCount,    \
         recvOffset, maxBs, recvTokensPerExpert, len, numTokens, op, root, cycleCount, scale, scaleCount, offset, \
-        localRank, localRankSize
+        localRank, localRankSize, shmemPtr
 
 template <typename T>
 class NotifyDispatch
 {
+    constexpr static uint64_t WIN_MAGIC_OFFSET = 100UL * 1024UL;  // notify(50kb) + dispatch&combine(50kb)
+    constexpr static uint64_t HALF_WIN_STATE_OFFSET =
+        8 * 1024UL * 1024UL;  // notify(2MB) + dispatch(3MB) + combine(3MB)
+
+    constexpr static int UB_ALIGN_SIZE = 32;
     constexpr static int64_t MAX_RANK_PER_CORE = 8;
     constexpr static int64_t MULTI_RANK_SIZE = 48;
     constexpr static int64_t MAX_BUFFER_NUMBER = 10;
@@ -66,8 +72,6 @@ public:
 
         // Initialize core grouping
         InitCoreGroup();
-        // Initialize data slicing
-        InitDataSlice();
 
         this->sendDataInput = (__gm__ T *)sendDataInput;
         this->tokenPerExpertDataInput = (__gm__ int32_t *)tokenPerExpertDataInput;
@@ -89,13 +93,11 @@ public:
             AssembleSendData();
         }
         SyncAll<true>();
-        if (blockIdx < coreNumPerStageX) {
-            InputToShareSlice();
-        }
-        if (blockIdx < coreNumPerStageY) {
-            ShareToShareSlice();
-        }
+
+        SetShmemFlag();
+        ReadDataSlice();
         SyncAll<true>();
+
         ReorderOutput();
         BuildTotalRecvTokens();
         BuildRecvCount();
@@ -109,16 +111,7 @@ private:
     {
         coreNumPerStageY = blockNum;
         coreNumPerStageX = blockNum;
-        rankNumPerCore = (rankSize + blockNum - 1) / blockNum;
-    }
-
-    __aicore__ inline void InitDataSlice()
-    {
-        // The producer is responsible for moving the input data of this rank to shared memory, input-->share
-        if (blockIdx < coreNumPerStageX) {
-            // The ipcQue responsible for the current core
-            writeGt.SetGlobalBuffer((__gm__ T *)(shareAddrs[rank] + IPC_DATA_OFFSET));
-        }
+        rankNumPerCore = (rankSize + blockNum - 1) / blockNum;  // 1
     }
 
     __aicore__ inline void AssembleSendData()
@@ -154,22 +147,51 @@ private:
         AscendC::WaitFlag<HardEvent::MTE3_S>(EVENT_ID0);
     }
 
-    // copy input to other rank share
-    __aicore__ inline void InputToShareSlice()
+    // 分核向对应rank发送flag
+    __aicore__ inline void SetShmemFlag()
     {
         __ubuf__ uint64_t *inputUB = (__ubuf__ uint64_t *)get_imm(0);
         int64_t copyOffset = blockIdx * rankNumPerCore;
         copyLen = rankSize - copyOffset < rankNumPerCore ? rankSize - copyOffset : rankNumPerCore;
         if (copyLen > 0) {
-            readGt = sendDataInputGt[copyOffset * perRankDataNum];
-            CpGM2GMPingPong<T>(copyLen * perRankDataNum * sizeof(T), readGt, writeGt[copyOffset * perRankDataNum],
-                               COPYONLY);
             uint64_t v = MergeMagicWithValue(magic, 1);
             *inputUB = v;
             AscendC::SetFlag<HardEvent::S_MTE3>(EVENT_ID0);
             AscendC::WaitFlag<HardEvent::S_MTE3>(EVENT_ID0);
             for (int i = copyOffset; i < copyOffset + copyLen; ++i) {
-                CpUB2GM((__gm__ uint64_t *)(shareAddrs[i]) + rank * FLAG_UNIT_INT_NUM, inputUB, sizeof(uint64_t));
+                GM_ADDR remote_state = GetWindStateAddrByRankId(i);
+
+                CpUB2GM((__gm__ uint64_t *)(remote_state) + rank * FLAG_UNIT_INT_NUM, inputUB, sizeof(uint64_t));
+            }
+            pipe_barrier(PIPE_ALL);
+        }
+    }
+
+    // copy other input to rank output, for shmem symmetric input addresses
+    __aicore__ inline void ReadDataSlice()
+    {
+        __ubuf__ uint64_t *inputUB = (__ubuf__ uint64_t *)get_imm(96);
+        int64_t copyOffset = blockIdx * rankNumPerCore;                                             // 0-48
+        copyLen = rankSize - copyOffset < rankNumPerCore ? rankSize - copyOffset : rankNumPerCore;  // 1, 0 - -36
+        if (copyLen > 0) {
+            int checkRank[MAX_RANK_PER_CORE];
+            for (int i = copyOffset; i < copyOffset + copyLen; ++i) {
+                checkRank[i - copyOffset] = i + rank % copyLen;
+                if (checkRank[i - copyOffset] >= copyOffset + copyLen) {
+                    checkRank[i - copyOffset] -= copyLen;
+                }
+            }
+            for (int i = 0; i < copyLen; i++) {
+                auto ptr = shmem_ptr((__gm__ T *)sendDataInputGt.GetPhyAddr(), checkRank[i]);
+                readGt1[i].SetGlobalBuffer(reinterpret_cast<__gm__ T *>(ptr));
+            }
+
+            WaitShmemFlag(magic, 1, copyOffset, rank, copyLen);
+
+            int64_t dstRankId = copyOffset;  // 0-16
+            for (int i = 0; i < copyLen; ++i) {
+                CpGM2GMPingPong<T>(perRankDataNum * sizeof(T), readGt1[i][rank * perRankDataNum],
+                                   recvDataOutputGt[checkRank[i] * perRankDataNum], COPYONLY);
             }
             pipe_barrier(PIPE_ALL);
         }
@@ -216,36 +238,12 @@ private:
      *        a value composed of the combination of magic and value.<br>
      *        Note: [eventID, eventID + flagNum)
      */
-    __aicore__ inline void WaitSyncFlag(uint64_t magic, uint64_t value, uint64_t eventID, int32_t rank, int64_t flagNum)
+    __aicore__ inline void WaitShmemFlag(uint64_t magic, uint64_t value, uint64_t eventID, int32_t rank,
+                                         int64_t flagNum)
     {
         uint64_t v = MergeMagicWithValue(magic, value);
-        WaitOneRankPartFlag((__gm__ uint64_t *)(shareAddrs[rank]) + eventID * FLAG_UNIT_INT_NUM, flagNum, v);
-    }
-
-    __aicore__ inline void ShareToShareSlice()
-    {
-        __ubuf__ T *inputUB = (__ubuf__ T *)get_imm(96);
-        int64_t copyOffset = blockIdx * rankNumPerCore;
-        copyLen = rankSize - copyOffset < rankNumPerCore ? rankSize - copyOffset : rankNumPerCore;
-        if (copyLen > 0) {
-            int checkRank[MAX_RANK_PER_CORE];
-            for (int i = copyOffset; i < copyOffset + copyLen; ++i) {
-                checkRank[i - copyOffset] = i + rank % copyLen;
-                if (checkRank[i - copyOffset] >= copyOffset + copyLen) {
-                    checkRank[i - copyOffset] -= copyLen;
-                }
-            }
-            for (int i = 0; i < copyLen; i++) {
-                readGt1[i].SetGlobalBuffer((__gm__ T *)(shareAddrs[checkRank[i]] + IPC_DATA_OFFSET));
-            }
-
-            WaitSyncFlag(magic, 1, copyOffset, rank, copyLen);
-
-            for (int i = 0; i < copyLen; i++) {
-                CpGM2GMPingPong<T>(perRankDataNum * sizeof(T), readGt1[i][rank * perRankDataNum],
-                                   recvDataOutputGt[checkRank[i] * perRankDataNum], COPYONLY);
-            }
-        }
+        GM_ADDR remote_state = GetWindStateAddrByRankId(rank);
+        WaitOneRankPartFlag((__gm__ uint64_t *)(remote_state) + eventID * FLAG_UNIT_INT_NUM, flagNum, v);
     }
 
     __aicore__ inline void ReorderOutput()
@@ -407,7 +405,7 @@ private:
     }
 
     __aicore__ inline int64_t GetDataCount(const int64_t dataLen, const int64_t useBlockNum);
-    __aicore__ inline GM_ADDR GetWindAddrByRankId(const int32_t rankId, uint8_t ctxIdx);
+    __aicore__ inline GM_ADDR GetWindStateAddrByRankId(const int32_t rankId);
     __aicore__ inline uint64_t GetMagicValue(void);
     __aicore__ inline void InitSmallFullMesh(KERNELS_ARGS_FUN_ALL2ALL());
     template <typename F>
@@ -424,26 +422,14 @@ private:
     GlobalTensor<T> sendDataOffsetOutputGt;
     GlobalTensor<T> recvDataOutputGt;
     GlobalTensor<int32_t> recvDataOutGt;
-    GlobalTensor<T> readGt;
-    GlobalTensor<T> writeGt;
     GlobalTensor<T> readGt1[MAX_BUFFER_NUMBER];
-    GlobalTensor<T> ipcGT;
-    GlobalTensor<int64_t> sendCountMatrixGm;
     __gm__ T *sendDataInput;
     __gm__ int *tokenPerExpertDataInput;
     __gm__ T *sendDataOffsetOutput;
     __gm__ T *recvDataOutput;
-    int64_t isPad = 0;
-    int64_t maxSliceNum;
-    int64_t revLen = 0;
-    int64_t sendLen = 0;
-    int64_t sliceLen;
     int64_t perNodeDataNum;
     int64_t perRankDataNum;
     int64_t curRankDataNum;
-    int64_t sendOffset[MULTI_RANK_SIZE];
-    int64_t revOffset[MULTI_RANK_SIZE];
-    int64_t inputDataLen[MULTI_RANK_SIZE];
 
     int64_t nodeNum;
     int64_t localRankId;
@@ -471,18 +457,20 @@ private:
     int64_t len;
     int64_t numExperts;
     uint64_t magic{0};
+    uint32_t bufferId_{0};
     int64_t blockIdx;  // Index of the current aicore
     int64_t blockNum;  // Total number of aicores for the current rank
     uint32_t maxBsNum{0};
     GM_ADDR scale;
-    GM_ADDR shareAddrs[CAM_MAX_RANK_SIZE];  // List of shared memory addresses
     GM_ADDR totalRecvTokens_;
     GM_ADDR recvCount_;
     GM_ADDR recvOffset_;
     GM_ADDR maxBs_;
     GM_ADDR recvTokensPerExpert_;
-    __gm__ HcclOpResParam *winContext_[COMM_NUM]{nullptr, nullptr};
-    Hccl<HCCL_SERVER_TYPE_AICPU> hccl_;
+
+    GM_ADDR gva_gm;
+    GM_ADDR shareRecvDataAddrs[CAM_MAX_RANK_SIZE];  // List of shmem asymmetric output addresses (send_data)
+
     TPipe pipe;
     TBuf<QuePosition::VECCALC> tBuf;
     TBuf<> tokenPerExpertDataBuf;
@@ -512,32 +500,21 @@ __aicore__ inline int64_t NotifyDispatch<T>::GetDataCount(const int64_t dataLen,
 }
 
 template <typename T>
-__aicore__ inline GM_ADDR NotifyDispatch<T>::GetWindAddrByRankId(const int32_t rankId, uint8_t ctxIdx)
+__aicore__ inline GM_ADDR NotifyDispatch<T>::GetWindStateAddrByRankId(const int32_t rankId)
 {
-    uint32_t curRankId = rank;
-#ifdef OPT_RANK_OFFSET
-#pragma message("use rank offset")
-    if (curRankId == rankId) {
-        return (GM_ADDR)(winContext_[ctxIdx]->localWindowsIn) + rankId * OPT_RANK_OFFSET;
-    }
-    return (GM_ADDR)(((HcclRankRelationResV2 *)(winContext_[ctxIdx]->remoteRes[rankId].nextDevicePtr))->windowsIn) +
-           rankId * OPT_RANK_OFFSET;
-#else
-    if (curRankId == rankId) {
-        return (GM_ADDR)(winContext_[ctxIdx]->localWindowsIn);
-    }
-    return (GM_ADDR)(((HcclRankRelationResV2 *)(winContext_[ctxIdx]->remoteRes[rankId].nextDevicePtr))->windowsIn);
-#endif
+    auto ptr = shmem_ptr((__gm__ T *)gva_gm, rankId);
+
+    return (GM_ADDR)(ptr) + WIN_MAGIC_OFFSET + bufferId_ * HALF_WIN_STATE_OFFSET;
 }
 
-// Assign values to winContext_[COMM_EP_IDX] and blockIdx before calling
+// Assign values to gva_gm and blockIdx before calling, magic buffer 24kb
 template <typename T>
 __aicore__ inline uint64_t NotifyDispatch<T>::GetMagicValue(void)
 {
     uint64_t magic = 0;
     GlobalTensor<uint64_t> selfDataStatusTensor;
-    GM_ADDR statusDataSpaceGm = (GM_ADDR)(winContext_[COMM_EP_IDX]->localWindowsExp);
-    selfDataStatusTensor.SetGlobalBuffer((__gm__ uint64_t *)(statusDataSpaceGm + STATE_WIN_OFFSET));
+    GM_ADDR statusDataSpaceGm = (GM_ADDR)(gva_gm);
+    selfDataStatusTensor.SetGlobalBuffer((__gm__ uint64_t *)(statusDataSpaceGm));
     DataCacheCleanAndInvalid<uint64_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
         selfDataStatusTensor[blockIdx * UB_ALIGN_SIZE]);
     magic = selfDataStatusTensor(blockIdx * UB_ALIGN_SIZE);
@@ -564,24 +541,11 @@ __aicore__ inline void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_ALL
     this->yRankIdx = rank / localRankSize;
     blockIdx = GetBlockIdx();
     blockNum = GetBlockNum();
-    uint8_t ctxIdx;
 
-    winContext_[COMM_EP_IDX] = (__gm__ HcclOpResParam *)AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
+    gva_gm = (GM_ADDR)shmemPtr;  // 作为原来的 winContext_
+
     this->magic = GetMagicValue();
-    ctxIdx = COMM_EP_IDX;
-
-    shareAddrs[rank] =
-        GetWindAddrByRankId(rank, ctxIdx) + (this->magic % PING_PONG_SIZE) * (IPC_BUFF_MAX_SIZE + IPC_DATA_OFFSET);
-
-    int64_t rankNumPerCore = (rankSize + blockNum - 1) / blockNum;
-    int64_t copyOffset = blockIdx * rankNumPerCore;
-    int64_t copyLen = rankSize - copyOffset < rankNumPerCore ? rankSize - copyOffset : rankNumPerCore;
-    if (copyLen > 0) {
-        for (int i = copyOffset; i < copyOffset + copyLen; ++i) {
-            shareAddrs[i] =
-                GetWindAddrByRankId(i, ctxIdx) + (this->magic % PING_PONG_SIZE) * (IPC_BUFF_MAX_SIZE + IPC_DATA_OFFSET);
-        }
-    }
+    bufferId_ = this->magic % PING_PONG_SIZE;
 
     // When the number of cores is more than the number of ranks, each core is responsible for fetching data from a
     // specified rank
@@ -589,13 +553,6 @@ __aicore__ inline void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_ALL
                                                // cores 4 ranks, each rank is assigned 12 cores
     int maxCore = coreNumPerRank * rankSize;   // Calculate the maximum number of cores that can be used for reading,
                                                // cores exceeding this number will not take action
-    if (blockIdx < maxCore) {
-        int readRank =
-            blockIdx /
-            coreNumPerRank;  // Calculate the rank to be read based on the block, 48 cores divided into 4 groups
-        shareAddrs[readRank] = GetWindAddrByRankId(readRank, ctxIdx) +
-                               (this->magic % PING_PONG_SIZE) * (IPC_BUFF_MAX_SIZE + IPC_DATA_OFFSET);
-    }
 
     pipe.InitBuffer(tBuf, UB_FLAG_SIZE);
 }
