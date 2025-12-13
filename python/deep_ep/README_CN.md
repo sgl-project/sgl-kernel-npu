@@ -48,7 +48,7 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 pip install output/deep_ep*.whl
 
 # 设置deep_ep_cpp*.so的软链接
-cd "$(pip show deep-ep | grep -E '^Location:' | awk '{print $2}')" && ln -s deep_ep/deep_ep_cpp*.so && cd -
+cd "$(pip show deep-ep | grep -E '^Location:' | awk '{print $2}')" && ln -s deep_ep/deep_ep_cpp*.so || true && cd -
 
 # （可选）确认是否可以成功导入
 python -c "import deep_ep; print(deep_ep.__path__)"
