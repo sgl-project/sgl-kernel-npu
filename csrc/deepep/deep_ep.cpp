@@ -138,6 +138,10 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     this->notify_send_data = notify_send_data;
     this->send_token_idx_small = send_token_idx_small;
     this->notify_send_data_size = notify_send_data_size;
+    if (rank == 0) {
+        std::cout << "rank: " << rank << " topk_idx " << new_topk_idx << " send_token_idx_small "
+                  << this->send_token_idx_small << std::endl;
+    }
 
     std::optional<torch::Tensor> num_tokens_per_rdma_rank = std::nullopt;
     std::optional<EventHandle> output_event = std::nullopt;
@@ -269,6 +273,8 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     at::Tensor recv_data = torch::empty({num_experts * send_per_group}, at::dtype(at::kInt).device(x.device()));
     at::Tensor total_recv_token_ = torch::empty({1}, at::dtype(at::kInt).device(x.device()));
     at::Tensor recv_count_ = torch::empty({num_experts}, at::dtype(at::kInt).device(x.device()));
+    at::Tensor all_recv_count_ = torch::empty({num_experts * num_ranks},
+                                              at::dtype(at::kInt).device(x.device()));  // allgater 所有rank的recv_count
     at::Tensor recv_offset_ = torch::empty({num_experts}, at::dtype(at::kInt).device(x.device()));
     at::Tensor max_bs_ = torch::empty({1}, at::dtype(at::kInt).device(x.device()));
     at::Tensor recv_tokens_per_expert_ = torch::empty({num_local_experts}, at::dtype(at::kLong).device(x.device()));
@@ -295,7 +301,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  num_ranks,     // rankSize
                  rank,          // rankId
                  local_rank_size, local_rank_id, send_data_offset, recv_data, total_recv_token_, recv_count_,
-                 recv_offset_, max_bs_, recv_tokens_per_expert_);
+                 all_recv_count_, recv_offset_, max_bs_, recv_tokens_per_expert_);
     auto send_token_idx_small = this->send_token_idx_small;
     int64_t gBs = max_bs_.item<int>() * num_ranks;
     int64_t trt = total_recv_token_.item<int>();
@@ -309,6 +315,10 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         recv_topk_weights = at::empty({trt, num_topk}, topk_weights->options());
     }
 
+    // if (rank == 0) {
+    //     std::cout << "rank " << rank << " send_data_offset " << send_data_offset << " recv_count_ " << recv_count_ <<
+    //     " recv_offset_ " << recv_offset_ << std::endl;
+    // }
     EXEC_NPU_CMD(aclnnCamMoeDispatchNormal, new_x, expert_ids, send_data_offset, send_token_idx_small, recv_offset_,
                  recv_count_, hcom_ep_name,
                  num_ranks,  // rankSize
@@ -413,10 +423,11 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
     auto combined_x = torch::empty({expert_scales.size(0), hidden}, x.options());
     std::optional<torch::Tensor> recv_topk_weights;
     std::optional<EventHandle> event;
+    uint64_t meta_data_ptr = reinterpret_cast<uint64_t>(this->shmem_ptr);
 
-    EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, tp_send_counts,
-                 hcom_ep_name, num_ranks, rank, hcom_ep_name, tp_world_size, tp_rankId, moe_expert_number, global_bs,
-                 combined_x, combine_send_cost_stats_out);
+    EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, topk_idx_p,
+                 this->send_token_idx_small, tp_send_counts, meta_data_ptr, hcom_ep_name, num_ranks, rank, hcom_ep_name,
+                 tp_world_size, tp_rankId, moe_expert_number, global_bs, combined_x, combine_send_cost_stats_out);
 
     if (this->is_padding) {
         if (this->padding_cnt == PADDING_SIZE) {
