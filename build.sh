@@ -190,6 +190,7 @@ function make_sgl_kernel_npu_package()
     cd python/sgl_kernel_npu || exit
 
     rm -rf "$CURRENT_DIR"/python/sgl_kernel_npu/dist
+    cp -v "${CURRENT_DIR}/config.ini" "${CURRENT_DIR}/python/sgl_kernel_npu/sgl_kernel_npu/"
     python3 setup.py clean --all
     python3 setup.py bdist_wheel
     mv -v "$CURRENT_DIR"/python/sgl_kernel_npu/dist/sgl_kernel_npu*.whl ${OUTPUT_DIR}/
