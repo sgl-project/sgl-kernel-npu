@@ -10,7 +10,7 @@ on:
       - 'main'
     paths:
       - '.github/workflows/build_and_release.yml'
-      - 'python/sgl_kernel_npu/sgl_kernel_npu/version.py'
+      - 'config.ini'
 
 jobs:
 
