@@ -171,30 +171,24 @@ def test_main(
     dist.barrier()
     time.sleep(1)
 
-    try:
-        return_values = buffer.get_dispatch_layout(topk_idx, num_experts)
-        (
-            ref_num_tokens_per_rank,
-            _,
-            ref_num_tokens_per_expert,
-            ref_is_token_in_rank,
-            _,
-        ) = return_values
-        try:
-            assert torch.allclose(
-                ref_num_tokens_per_rank, num_tokens_per_rank
-            ), f"Assertion num_tokens_per_rank failed on rank {rank}: Expected {num_tokens_per_rank}, Actual {ref_num_tokens_per_rank}"
-            assert torch.allclose(
-                ref_num_tokens_per_expert, num_tokens_per_expert
-            ), f"Assertion num_tokens_per_expert failed on rank {rank}: Expected {num_tokens_per_expert}, Actual {ref_num_tokens_per_expert}"
-            assert torch.allclose(
-                ref_is_token_in_rank, is_token_in_rank
-            ), f"Assertion is_token_in_rank failed on rank {rank}: Expected {is_token_in_rank}, Actual {ref_is_token_in_rank}"
-        except AssertionError as e:
-            print(e)
-            raise
-    except Exception as e:
-        print(f"An error occurred: {e}")
+    return_values = buffer.get_dispatch_layout(topk_idx, num_experts)
+    (
+        ref_num_tokens_per_rank,
+        _,
+        ref_num_tokens_per_expert,
+        ref_is_token_in_rank,
+        _,
+    ) = return_values
+
+    assert torch.allclose(
+        ref_num_tokens_per_rank, num_tokens_per_rank
+    ), f"Assertion num_tokens_per_rank failed on rank {rank}: Expected {num_tokens_per_rank}, Actual {ref_num_tokens_per_rank}"
+    assert torch.allclose(
+        ref_num_tokens_per_expert, num_tokens_per_expert
+    ), f"Assertion num_tokens_per_expert failed on rank {rank}: Expected {num_tokens_per_expert}, Actual {ref_num_tokens_per_expert}"
+    assert torch.allclose(
+        ref_is_token_in_rank, is_token_in_rank
+    ), f"Assertion is_token_in_rank failed on rank {rank}: Expected {is_token_in_rank}, Actual {ref_is_token_in_rank}"
 
     # Config
     buffer_size = 256
