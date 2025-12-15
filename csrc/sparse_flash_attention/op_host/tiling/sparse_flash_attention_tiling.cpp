@@ -178,6 +178,12 @@ const SparseFlashAttentionTilingDataMla SFAMlaTiling::GetTilingData() const
     return tilingData_;
 }
 
+ge::graphStatus SFAMlaTiling::SetTilingKey(uint64_t tilingKey)
+{
+    tilingData_.tilingKey = tilingKey;
+    return ge::GRAPH_SUCCESS;
+}
+
 
 ge::graphStatus SFAMlaTiling::SetWorkspaceSize(uint64_t workspaceSize)
 {
@@ -189,11 +195,7 @@ ge::graphStatus SFAMlaTiling::SetWorkspaceSize(uint64_t workspaceSize)
 }
 
 ge::graphStatus SFAMlaTiling::GetPlatformInfo()
-{
-    TORCH_CHECK(sfaInfo_->platformInfo != nullptr,
-        OPS_LOG_E(sfaInfo_->opName, "GetPlatformInfo is nullptr."));
-    
-    std::cout << "DEBUG: sparse_flash_attention GetPlatformInfo start" << std::endl;
+{   
     auto ascendcPlatform = *platform_ascendc::PlatfromAsecendCManager::GetInstance();
     libapiSize_ = ascendcPlatform.GetLibApiWorkSpaceSize();
     aivNum_ = ascendcPlatform.GetCoreNumAiv();
@@ -209,16 +211,19 @@ ge::graphStatus SFAMlaTiling::GetPlatformInfo()
 
 void SFAMlaTiling::GenTilingKey()
 {
-    uint32_t inputQType = static_cast<uint32_t>(sfaInfo_->inputQType);
-    uint32_t inputKvType = static_cast<uint32_t>(sfaInfo_->inputKvType);
-    uint32_t outputType = static_cast<uint32_t>(sfaInfo_->outputType);
+    uint32_t inputQType = static_cast<uint32_t>(GE_DATATYPE_TO_KEY(sfaInfo_->inputQType));
+    uint32_t inputKvType = static_cast<uint32_t>(GE_DATATYPE_TO_KE(sfaInfo_->inputKvType));
+    uint32_t outputType = static_cast<uint32_t>(GE_DATATYPE_TO_KE(sfaInfo_->outputType));
     uint32_t layoutQuery = static_cast<uint32_t>(sfaInfo_->qLayout);
     uint32_t layoutKV = static_cast<uint32_t>(sfaInfo_->kvLayout);
 
-    uint32_t tilingKey_ = (0U<<24) |
-                 (((perfMode_ == SFAPerfMode::V_TEMPLATE_MODE) ? 1U : 0U)<<8) |
-                 (static_cast<uint32_t>(layoutQuery)<<4) |
-                 static_cast<uint32_t>(layoutKV);
+    uint32_t perfModevALUE = (perfMode_ == SFAPerfMode::V_TEMPLATE_MODE) ? 1U : 0U;
+    tilingKey_ = (inputQType << 24)|
+                 (inputKvType << 16)|
+                 (outputType << 12)|
+                 (perfModevALUE << 8)|
+                 (layoutQuery << 4)|
+                 (layoutKV<<0);
 
     OPS_LOG_I(sfaInfo_->opName, "SFA tilingKey_: %lu.", tilingKey_);
 }
@@ -421,8 +426,7 @@ void SFAMlaTiling::GetWorkspaceSize()
 
 void SFAMlaTiling::CalcBlockDim()
 {
-    std::cout << "DEBUG: sparse_flash_attention CalcBlockDim start" << std::endl;
-    auto ascendcPlatform = platform_ascendc::PlatformAscendC(sfaInfo_->platformInfo);
+    auto ascendcPlatform = *platform_ascendc::PlatfromAsecendCManager::GetInstance();
     auto aicNum = usedCoreNum_;
     auto aivNum = 2 * usedCoreNum_;
 
@@ -444,7 +448,8 @@ ge::graphStatus SFAMlaTiling::DoOpTiling(SFATilingInfo *sfaInfo)
     GetWorkspaceSize();
     GenTilingKey();
 
-    if  (SetWorkspaceSize(workspaceSize_) != ge::GRAPH_SUCCESS) {
+    if  ((SetWorkspaceSize(workspaceSize_) != ge::GRAPH_SUCCESS) ||
+         (SetTilingKey(tilingKey_) != ge::GRAPH_SUCCESS)) {
         return ge::GRAPH_FAILED;
     }
 
@@ -1368,7 +1373,13 @@ ge::graphStatus SFAInfoParser::GetOpName()
 
 void SFAInfoParser::GetOptionalInputParaInfo()
 {
-    opParamInfo_.blockTable.tensor = context_->GetOptionalInputTensor(BLOCK_TABLE_INPUT_INDEX);
+    auto attrs = context_->GetAttrs();
+    const std::string layoutQuery = attrs->GetStr(LAYOUT_QUERY_ATTR_INDEX);
+    if (layoutQuery == "BSND") {
+        opParamInfo_.blockTable.tensor = nullptr;
+    } else {
+        opParamInfo_.blockTable.tensor = context_->GetOptionalInputTensor(BLOCK_TABLE_INPUT_INDEX);
+    }
     opParamInfo_.actualSeqLengthsQ.tensor = context_->GetOptionalInputTensor(ACT_SEQ_LEN_Q_INPUT_INDEX);
     opParamInfo_.actualSeqLengthsQ.desc = context_->GetOptionalInputDesc(ACT_SEQ_LEN_Q_INPUT_INDEX);
     opParamInfo_.actualSeqLengths.tensor = context_->GetOptionalInputTensor(ACT_SEQ_LEN_KV_INPUT_INDEX);
@@ -1421,6 +1432,23 @@ ge::graphStatus SFAInfoParser::GetOpParaInfo()
     }
     return ge::GRAPH_SUCCESS;
 }
+
+ge::graphStatus SFAInfoParser::GetNpuinfo()
+{
+    auto ascendcPlatform = *platform_ascendc::PlatformAscendCManager::GetInstance();
+    uint32_t aivNum = ascendcPlatform.GetCoreNumAix();
+    uint32_t aicNum = ascendcPlatform.GetCoreNumAic();
+    TORCH_CHECK(aivNum != 0 && aivNum != 0, OPS_LOG_E(opName_, "num of core obtained is 0"));
+
+    socVersion_ = ascendcPlatform.GetSocVersion();
+    TORCH_CHECK(socVersion_ == platform_ascendc::SocVersion::ASCEND910B ||
+                    socVersion_ == platform_ascendc::SocVersion::ASCEND910_93,
+                OPS_LOG_E(opName_, "soc version does not support "), (int32_t)socVersion_);
+
+    ascendcPlatform.GetCoreMemSize(platform_ascendc::CoreMemType::L2,l2CacheSize_);
+    return ge::GRAPH_SUCCESS;
+}
+
 
 ge::graphStatus SFAInfoParser::GetInOutDataType()
 {
@@ -1695,7 +1723,7 @@ void SFAInfoParser::GenerateInfo(SFATilingInfo &sfaInfo)
     sfaInfo.ropeHeadDim = ropeHeadDim_;
     sfaInfo.qTSize = qTSize_;
     sfaInfo.kvTSize = kvTSize_;
-    sfaInfo.sparseBlockSize = static_cast<int32_t>(*opParamInfo_.sparseBlockSize);
+    sfaInfo.sparseBlockSize = *opParamInfo_.sparseBlockSize;
     sfaInfo.sparseBlockCount = sparseBlockCount_;
 
     sfaInfo.inputQType = inputQType_;
@@ -1721,7 +1749,7 @@ void SFAInfoParser::GenerateInfo(SFATilingInfo &sfaInfo)
     sfaInfo.isSameSeqAllKVTensor = isSameSeqAllKVTensor_;
     sfaInfo.isSameActualseq = isSameActualseq_;
 
-    sfaInfo.sparseMode = static_cast<int32_t>(*opParamInfo_.sparseMode);
+    sfaInfo.sparseMode = *opParamInfo_.sparseMode;
 
     sfaInfo.qLayout = qLayout_;
     sfaInfo.topkLayout = topkLayout_;
@@ -1737,6 +1765,7 @@ ge::graphStatus SFAInfoParser::Parse(SFATilingInfo &sfaInfo)
     }
     if (ge::GRAPH_SUCCESS != GetOpName() ||
         ge::GRAPH_SUCCESS != GetOpParaInfo() ||
+        ge::GRAPH_SUCCESS != GetNpuinfo() ||
         ge::GRAPH_SUCCESS != CheckRequiredParaExistence()) {
         return ge::GRAPH_FAILED;
     }
@@ -1773,4 +1802,4 @@ ge::graphStatus SFAInfoParser::Parse(SFATilingInfo &sfaInfo)
     GenerateInfo(sfaInfo);
     return ge::GRAPH_SUCCESS;
 }
-} // namespace optiling
+} // namespace sglang::SFAHost

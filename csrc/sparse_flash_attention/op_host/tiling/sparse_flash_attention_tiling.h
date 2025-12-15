@@ -229,6 +229,7 @@ private:
     ge_helper::TilingContext *context_ = nullptr;
     ge::graphStatus SetWorkspaceSize(uint64_t workspaceSize);
     ge::graphStatus GetPlatformInfo();
+    ge::graphStatus SetTilingKey(uint64_t tilingKey);
     void GenTilingKey();
     bool DealSameSeqEachBatch();
 
@@ -474,6 +475,7 @@ public:
     ge::graphStatus GetN1Size();
     ge::graphStatus GetN2Size();
     ge::graphStatus GetGSize();
+    ge::graphStatus GetNpuInfo();
     ge::graphStatus GetSparseBlockCount();
     ge::graphStatus GetActualseqInfo();
     void GenerateInfo(SFATilingInfo &sfaInfo);
