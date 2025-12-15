@@ -196,7 +196,7 @@ ge::graphStatus SFAMlaTiling::SetWorkspaceSize(uint64_t workspaceSize)
 
 ge::graphStatus SFAMlaTiling::GetPlatformInfo()
 {   
-    auto ascendcPlatform = *platform_ascendc::PlatfromAsecendCManager::GetInstance();
+    auto ascendcPlatform = *platform_ascendc::PlatformAscendCManager::GetInstance();
     libapiSize_ = ascendcPlatform.GetLibApiWorkSpaceSize();
     aivNum_ = ascendcPlatform.GetCoreNumAiv();
     aicNum_ = ascendcPlatform.GetCoreNumAic();
@@ -204,24 +204,22 @@ ge::graphStatus SFAMlaTiling::GetPlatformInfo()
     TORCH_CHECK(aicNum_ != 0 && aivNum_ != 0,
         OPS_LOG_E(sfaInfo_->opName, "num of core obtained is 0."));
 
-    std::cout << "DEBUG: sparse_flash_attention GetPlatformInfo success" << std::endl;
-
     return ge::GRAPH_SUCCESS;
 }
 
 void SFAMlaTiling::GenTilingKey()
 {
     uint32_t inputQType = static_cast<uint32_t>(GE_DATATYPE_TO_KEY(sfaInfo_->inputQType));
-    uint32_t inputKvType = static_cast<uint32_t>(GE_DATATYPE_TO_KE(sfaInfo_->inputKvType));
-    uint32_t outputType = static_cast<uint32_t>(GE_DATATYPE_TO_KE(sfaInfo_->outputType));
+    uint32_t inputKvType = static_cast<uint32_t>(GE_DATATYPE_TO_KEY(sfaInfo_->inputKvType));
+    uint32_t outputType = static_cast<uint32_t>(GE_DATATYPE_TO_KEY(sfaInfo_->outputType));
     uint32_t layoutQuery = static_cast<uint32_t>(sfaInfo_->qLayout);
     uint32_t layoutKV = static_cast<uint32_t>(sfaInfo_->kvLayout);
 
-    uint32_t perfModevALUE = (perfMode_ == SFAPerfMode::V_TEMPLATE_MODE) ? 1U : 0U;
+    uint32_t perfModeValue = (perfMode_ == SFAPerfMode::V_TEMPLATE_MODE) ? 1U : 0U;
     tilingKey_ = (inputQType << 24)|
                  (inputKvType << 16)|
                  (outputType << 12)|
-                 (perfModevALUE << 8)|
+                 (perfModeValue << 8)|
                  (layoutQuery << 4)|
                  (layoutKV<<0);
 
@@ -242,7 +240,6 @@ void SFAMlaTiling::ZeroTensorProcess()
 
 void SFAMlaTiling::InitParams()
 {
-    std::cout << "DEBUG: sparse_flash_attention InitParams start" << std::endl;
     if (sfaInfo_->s2Size != 0 && sfaInfo_->sparseBlockSize <= 4) { // 4:当前支持范围
         perfMode_ = SFAPerfMode::V_TEMPLATE_MODE;
     } else {
@@ -253,7 +250,6 @@ void SFAMlaTiling::InitParams()
 
     headDimAlign_ = Align(sfaInfo_->qkHeadDim, BYTE_BLOCK); // 元素个数按照基本块大小对齐
     ZeroTensorProcess();
-    std::cout<<"DEBUG: sparse_flash_attention InitParams success" << std::endl;
 }
 
 void SFAMlaTiling::CalcUbBmm()
@@ -298,7 +294,6 @@ void SFAMlaTiling::CalcInnerSize(uint32_t s2Size)
 
 void SFAMlaTiling::SplitBalanced()
 {
-    std::cout << "DEBUG: sparse_flash_attention SplitBalanced start" << std::endl;
     CalcInnerSize(sfaInfo_->s2Size);
 
     InnerSplitParams innerSplitParams;
@@ -308,7 +303,6 @@ void SFAMlaTiling::SplitBalanced()
     tilingData_.innerSplitParams.s2BaseSize=innerSplitParams.s2BaseSize;
 
     usedCoreNum_ = aicNum_;
-    std::cout << "DEBUG: sparse_flash_attention SplitBalanced success" << std::endl;
 }
 
 void SFAMlaTiling::Split()
@@ -317,8 +311,7 @@ void SFAMlaTiling::Split()
 }
 
 void SFAMlaTiling::FillTilingBaseParamsMla()
-{   std::cout << "DEBUG: sparse_flash_attention FillTilingBaseParamsMla start" << std::endl;
-    tilingData_.baseParams.batchSize = sfaInfo_->bSize;
+{   tilingData_.baseParams.batchSize = sfaInfo_->bSize;
     tilingData_.baseParams.seqSize = sfaInfo_->s2Size;
     tilingData_.baseParams.qSeqSize = sfaInfo_->s1Size;
     tilingData_.baseParams.blockSize = sfaInfo_->blockSize;
@@ -364,7 +357,6 @@ void SFAMlaTiling::FillTiling()
     FillTilingSplitKVMla();
     FillTilingSingleCoreParamsMla();
     FillTilingSingleCoreTensorSizeMla();
-    std::cout << "DEBUG: sparse_flash_attention FillTiling success" << std::endl;
 }
 
 uint32_t SFAMlaTiling::CalcBalanceFDParamNums(const uint32_t actCoreNum)
@@ -394,7 +386,6 @@ void SFAMlaTiling::CalcFDWorkSpace(const uint32_t actCoreNum)
 
 void SFAMlaTiling::GetWorkspaceSize()
 {
-    std::cout << "DEBUG: sparse_flash_attention GetWorkspaceSize start" << std::endl;
     uint32_t mmResElemSize = 4;         // 4:fp32
     uint32_t vec1ResElemSize = 2;       // 2:fp16/bf16
     uint32_t bmm2ResElemSize = 4;       // 4:fp32
@@ -421,18 +412,16 @@ void SFAMlaTiling::GetWorkspaceSize()
     workspaceSize_ += 4 * 128 * 4 * (2 * actCoreNum); // 4:缓存有效mte2 size的长度 128:份数  4:512B对齐的长度  2:aiv核数
 
     CalcFDWorkSpace(actCoreNum);
-    std::cout << "DEBUG: sparse_flash_attention GetWorkspaceSize success" << std::endl;
 }
 
 void SFAMlaTiling::CalcBlockDim()
 {
-    auto ascendcPlatform = *platform_ascendc::PlatfromAsecendCManager::GetInstance();
+    auto ascendcPlatform = *platform_ascendc::PlatformAscendCManager::GetInstance();
     auto aicNum = usedCoreNum_;
     auto aivNum = 2 * usedCoreNum_;
 
     blockDim_ = ascendcPlatform.CalcTschBlockDim(aivNum, aicNum, aivNum);
     OPS_LOG_I(sfaInfo_->opName, "SFA block dim: %u aiv Num: %u aic Num: %u.", blockDim_, aivNum, aicNum);
-    std::cout << "DEBUG: sparse_flash_attention CalcBlockDim success" << std::endl;
 }
 
 ge::graphStatus SFAMlaTiling::DoOpTiling(SFATilingInfo *sfaInfo)
@@ -1433,10 +1422,10 @@ ge::graphStatus SFAInfoParser::GetOpParaInfo()
     return ge::GRAPH_SUCCESS;
 }
 
-ge::graphStatus SFAInfoParser::GetNpuinfo()
+ge::graphStatus SFAInfoParser::GetNpuInfo()
 {
     auto ascendcPlatform = *platform_ascendc::PlatformAscendCManager::GetInstance();
-    uint32_t aivNum = ascendcPlatform.GetCoreNumAix();
+    uint32_t aivNum = ascendcPlatform.GetCoreNumAiv();
     uint32_t aicNum = ascendcPlatform.GetCoreNumAic();
     TORCH_CHECK(aivNum != 0 && aivNum != 0, OPS_LOG_E(opName_, "num of core obtained is 0"));
 
@@ -1475,7 +1464,6 @@ ge::graphStatus SFAInfoParser::GetBatchSize()
         bSize_ = GetAxisNum(queryShape_, SFAAxis::B, qLayout_);
         return ge::GRAPH_SUCCESS;
     }
-    std::cout << "bSize_: " << bSize_ << std::endl;
 }
 
 ge::graphStatus SFAInfoParser::GetQTSize()
@@ -1509,14 +1497,12 @@ ge::graphStatus SFAInfoParser::GetS1Size()
     // 获取S1基准值
     // 1、非TND时, 以query的S维度为基准;
     // 2、TND时, actual_seq_lens_q必须传入, 以actual_seq_lens_q数组中的最大值为基准
-    std::cout << "qLayout_: " << static_cast<int>(qLayout_) << std::endl;
     if (qLayout_ == SFALayout::TND) {
         s1Size_ = GetAxisNum(queryShape_, SFAAxis::T, qLayout_);
         return ge::GRAPH_SUCCESS;
     } else { // BSND
         s1Size_ = GetAxisNum(queryShape_, SFAAxis::S, qLayout_);
     }
-    std::cout << "s1Size_: " << s1Size_ << std::endl;
 
     return ge::GRAPH_SUCCESS;
 }
@@ -1765,7 +1751,7 @@ ge::graphStatus SFAInfoParser::Parse(SFATilingInfo &sfaInfo)
     }
     if (ge::GRAPH_SUCCESS != GetOpName() ||
         ge::GRAPH_SUCCESS != GetOpParaInfo() ||
-        ge::GRAPH_SUCCESS != GetNpuinfo() ||
+        ge::GRAPH_SUCCESS != GetNpuInfo() ||
         ge::GRAPH_SUCCESS != CheckRequiredParaExistence()) {
         return ge::GRAPH_FAILED;
     }

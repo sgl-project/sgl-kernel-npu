@@ -92,7 +92,7 @@ inline void RegisterSparseFlashAttentionTensors(
     const at::Tensor &key,
     const at::Tensor &value,
     const at::Tensor &sparse_indices,
-    const c10::optional<at::Tensor> &block_table,
+    const c10::optional<at::Tensor> &blockTable,
     const at::Tensor &actuaSeqQ,
     const at::Tensor &actuaSeqKV,
     const at::Tensor &queryRope,
@@ -103,12 +103,7 @@ inline void RegisterSparseFlashAttentionTensors(
     context->RegisterTensor(key, true);
     context->RegisterTensor(value, true);
     context->RegisterTensor(sparse_indices, true);
-    
-    if (block_table.has_value()) {
-        at::Tensor blockTable = block_table.value();
-        context->RegisterTensor(blockTable, true);
-    }
-    
+    context->RegisterTensor(blockTable, true);    
     context->RegisterTensor(actuaSeqQ, true);
     context->RegisterTensor(actuaSeqKV, true);
     context->RegisterTensor(queryRope, true);
@@ -146,15 +141,13 @@ inline void PerformSparseFlashAttentionTiling(
     SFAInfoParser sfaInfoParser(context.get());
     auto parseRet = sfaInfoParser.Parse(sfaInfo);
     TORCH_CHECK(parseRet == ge::GRAPH_SUCCESS, "sparse_flash_attention Parse failed");
-    std::cout << "DEBUG: sparse_flash_attention Parse success" << std::endl;
     
     SFATilingCheck tilingchecker(sfaInfo);
     TORCH_CHECK(tilingchecker.Process() == ge::GRAPH_SUCCESS, "sparse_flash_attention TilingCheck failed");
-    std::cout << "DEBUG: sparse_flash_attention TilingCheck success" << std::endl;
+
     
     auto tilingRet = sfaTiling.DoOpTiling(&sfaInfo);
     TORCH_CHECK(tilingRet == ge::GRAPH_SUCCESS, "sparse_flash_attention DoTiling failed");
-    std::cout << "DEBUG: sparse_flash_attention DoTiling success" << std::endl;
 }
 
 HOST_API at::Tensor sparse_flash_attention(
@@ -197,18 +190,12 @@ HOST_API at::Tensor sparse_flash_attention(
     at::Tensor actuaSeqKV = GetOptionalTensor(actual_seq_lengths_kv, device_opt);
     at::Tensor queryRope = GetOptionalTensor(query_rope, device_opt);
     at::Tensor keyRope = GetOptionalTensor(key_rope, device_opt);
+    at::Tensor blockTable = GetOptionalTensor(block_table, device_opt);
     
-    // 7. 处理block_table（需要特殊处理，因为它在kernel调用中使用）
-    at::Tensor blockTable;
-    if (block_table.has_value()) {
-        blockTable = block_table.value();
-    } else {
-        blockTable = at::empty({0}, at::TensorOptions().dtype(at::kInt).device(device_opt));
-    }
     
     // 8. 注册所有张量到上下文（使用辅助函数）
     RegisterSparseFlashAttentionTensors(context, query, key, value, sparse_indices,
-                                        block_table, actuaSeqQ, actuaSeqKV,
+                                        blockTable, actuaSeqQ, actuaSeqKV,
                                         queryRope, keyRope, attention_out);
     
     // 9. 执行tiling操作（使用辅助函数）

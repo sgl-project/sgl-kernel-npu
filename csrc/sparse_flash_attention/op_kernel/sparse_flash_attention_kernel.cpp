@@ -25,7 +25,7 @@ using namespace sglang::SFAHost;
         using SFA_OP_TYPE = SFAType<DTYPE_Q, DTYPE_KV, DTYPE_OUT, IS_DECODE, LAYOUT_Q, LAYOUT_KV, 0>; \
         SparseFlashAttentionMla<SFA_OP_TYPE> op;                                                   \
         op.Init(query, key, value, sparseIndices, actualSeqLengthsQuery, actualSeqLengthsKV,      \
-	    blocktable, queryRope, keyRope, attentionOut, user, tiling_data, tiling, &tPipe);         \
+	    blocktable, queryRope, keyRope, attentionOut, user, tilingData, tiling, &tPipe);         \
         op.Process();                                                                             \
     } while (0)
 
@@ -57,18 +57,18 @@ extern "C" __global__ __aicore__ void sparse_flash_attention(
     // 3. 根據 Tiling Key 進行運行時分發
     switch (tilingKey) {
         case 16847104: 
-            DISPATCH_SFA_KERNEL(half, half, half, false, SFALayout::BSND, SFALayout::BSND);
+            DISPATCH_SFA_KERNEL(half, half, half, false, SFA_LAYOUT::BSND, SFA_LAYOUT::BSND);
             break;
             
         case 16847122: 
-            DISPATCH_SFA_KERNEL(half, half, half, false, SFALayout::TND, SFALayout::PA_BSND);
+            DISPATCH_SFA_KERNEL(half, half, half, false, SFA_LAYOUT::TND, SFA_LAYOUT::PA_BSND);
             break;
         
         case 33693952: 
-            DISPATCH_SFA_KERNEL(bfloat16_t, bfloat16_t, bfloat16_t, false, SFALayout::BSND, SFALayout::BSND);
+            DISPATCH_SFA_KERNEL(bfloat16_t, bfloat16_t, bfloat16_t, false, SFA_LAYOUT::BSND, SFA_LAYOUT::BSND);
             break;
         case 33693970: 
-            DISPATCH_SFA_KERNEL(bfloat16_t, bfloat16_t, bfloat16_t, false, SFALayout::TND, SFALayout::PA_BSND);
+            DISPATCH_SFA_KERNEL(bfloat16_t, bfloat16_t, bfloat16_t, false, SFA_LAYOUT::TND, SFA_LAYOUT::PA_BSND);
             break;
 
         default:
