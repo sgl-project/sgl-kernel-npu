@@ -8,7 +8,7 @@ struct CamMoeDispatchNormalInfo {
     uint32_t tpRankId;      // tpRankId
     uint32_t moeExpertNum;  // moe expert number
     uint32_t quantMode;     // quant mode
-    uint32_t realMaxBs;            // real max bs
+    uint32_t realMaxBs;     // real max bs
     uint32_t globalBs;      // globalBs = BS * worldSize
     uint32_t round;
     uint32_t perRoundTokens;

@@ -213,6 +213,7 @@ def test_main(
             check_end = rank_prefix_matrix[i][rank].item()
             assert (check_x[check_start:check_end, :].int() - i).sum().item() == 0
             check_start = check_end
+
     print(f"rank {rank} PASSED")
 
     # Test diagnose function

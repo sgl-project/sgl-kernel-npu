@@ -405,7 +405,17 @@ class Buffer:
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
-        ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]:
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
         # Launch the kernel with cached or non-cached mode
@@ -433,7 +443,7 @@ class Buffer:
                 C,
                 total_recv_token,
                 max_bs,
-                recv_tokens_per_expert
+                recv_tokens_per_expert,
             ) = self.runtime.notify_verify(
                 x,
                 x_scales,
@@ -454,9 +464,17 @@ class Buffer:
                 allocate_on_comm_stream,
                 use_quant,
             )
-            return recv_data, recv_count, recv_offset, expert_global_offset, srcrank_in_expert_offset, \
-                   C, total_recv_token, max_bs, recv_tokens_per_expert
-
+            return (
+                recv_data,
+                recv_count,
+                recv_offset,
+                expert_global_offset,
+                srcrank_in_expert_offset,
+                C,
+                total_recv_token,
+                max_bs,
+                recv_tokens_per_expert,
+            )
 
     @log_parameters()
     def combine(
