@@ -223,14 +223,27 @@ def test(
     for return_recv_hook in (False,):
         enable_neg_one = int(os.getenv("MOE_ENABLE_TOPK_NEG_ONE", 0))
         dist.barrier()
-        dispatch_t, combine_t = bench_kineto(
-            partial(test_func, zero_copy=False, return_recv_hook=return_recv_hook),
-            kernel_names=("MoeDistributeDispatchV2", "MoeDistributeCombineV2"),
-            barrier_comm_profiling=True,
-            suppress_kineto_output=True,
-            num_kernels_per_period=2 if return_recv_hook else 1,
-            trace_path=None,
-        )
+
+        shmem_enable = int(os.getenv("DEEPEP_SHMEM_ENABLE", 0))
+        if shmem_enable:
+            dispatch_t, combine_t = bench_kineto(
+                partial(test_func, zero_copy=False, return_recv_hook=return_recv_hook),
+                kernel_names=("ShmemMoeDistributeDispatch", "ShmemMoeDistributeCombine"),
+                barrier_comm_profiling=True,
+                suppress_kineto_output=True,
+                num_kernels_per_period=2 if return_recv_hook else 1,
+                trace_path=None,
+            )
+        else:
+            dispatch_t, combine_t = bench_kineto(
+                partial(test_func, zero_copy=False, return_recv_hook=return_recv_hook),
+                kernel_names=("MoeDistributeDispatchV2", "MoeDistributeCombineV2"),
+                barrier_comm_profiling=True,
+                suppress_kineto_output=True,
+                num_kernels_per_period=2 if return_recv_hook else 1,
+                trace_path=None,
+            )
+
         if not return_recv_hook:
             print(
                 f"[rank {rank}] Dispatch bandwidth: {num_dispatch_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, avg_t={dispatch_t * 1e6:.2f} us | "

@@ -56,20 +56,28 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
         nvl_rank = rank % A2_MAX_HCCS_PEERS;
     }
 
-    size_t local_mem_size = 2 * 1024 * 1024 * 1024UL;
-    size_t meta_data_size = 100 * 1024 * 1024UL;
-    EP_HOST_ASSERT(rank == internode::init(rank, num_ranks, local_mem_size, "tcp://127.0.0.1:11222"));
-    shmem_ptr = internode::alloc(meta_data_size, NUM_BUFFER_ALIGNMENT_BYTES);
-    std::cout << "rank: " << rank << ", num_ranks: " << num_ranks << ", shmem_ptr: " << shmem_ptr << std::endl;
+    EP_HOST_ASSERT(std::getenv("DEEPEP_SHMEM_ENABLE") != nullptr);
+    const char* SHMEM_ENABLE = std::getenv("DEEPEP_SHMEM_ENABLE");
+    shmem_enable = (SHMEM_ENABLE && std::strcmp(SHMEM_ENABLE, "1") == 0);   // only open shmem with "1"
+
+    if (shmem_enable) {
+        size_t local_mem_size = 2 * 1024 * 1024 * 1024UL;
+        size_t meta_data_size = 100 * 1024 * 1024UL;
+        EP_HOST_ASSERT(rank == internode::init(rank, num_ranks, local_mem_size, "tcp://127.0.0.1:11222"));
+        shmem_ptr = internode::alloc(meta_data_size, NUM_BUFFER_ALIGNMENT_BYTES);
+        std::cout << "rank: " << rank << ", num_ranks: " << num_ranks << ", shmem_ptr: " << shmem_ptr << std::endl;
+    }
 }
 
 Buffer::~Buffer() noexcept(false)
 {
-    std::cout << "rank " << rank << " ~Buffer" << std::endl;
-    internode::free(shmem_ptr);
-    std::cout << "rank " << rank << " free done!!!" << std::endl;
-    internode::finalize();
-    std::cout << "rank " << rank << " finalize done!!!" << std::endl;
+    if (shmem_enable) {
+        std::cout << "rank " << rank << " ~Buffer" << std::endl;
+        internode::free(shmem_ptr);
+        std::cout << "rank " << rank << " free done!!!" << std::endl;
+        internode::finalize();
+        std::cout << "rank " << rank << " finalize done!!!" << std::endl;
+    }
 }
 
 bool Buffer::is_available() const
@@ -778,6 +786,9 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         at::empty({num_max_tokens, hidden}, new_x.options().dtype(use_fp8 ? at::kChar : at::kBFloat16));
     auto packed_recv_x_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
     auto expandIdx = at::empty({max_size}, at::dtype(at::kInt).device(device));
+    if (shmem_enable) {
+        expandIdx = at::empty({num_tokens * num_topk}, at::dtype(at::kInt).device(device));
+    }
 
     int32_t server_num = num_ranks / LOCAL_RANK_SIZE;
     at::Tensor ep_recv_count =
@@ -795,19 +806,11 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     char *comm_alg;
     int64_t expert_token_nums_type = outType;
 
-    // get ep & tp name
-    char hcom_ep_name[HCOMM_NAME_LEN];
-    if (!moe_all_to_all_group_name.empty()) {
-        std::memcpy(hcom_ep_name, moe_all_to_all_group_name.data(), moe_all_to_all_group_name.size() + 1);
-    } else {
-        HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
-    }
-    char hcom_tp_name[HCOMM_NAME_LEN] = {0};
     // Wait streams
     std::optional<EventHandle> event;
     bool isLayered = false;
 
-    if (soc_version == op::SocVersion::ASCEND910B) {
+    if (soc_version == op::SocVersion::ASCEND910B & !shmem_enable) {
         const char *hcclIntraPcieEnable = getenv("HCCL_INTRA_PCIE_ENABLE");
         const char *hcclIntraRoceEnable = getenv("HCCL_INTRA_ROCE_ENABLE");
         if (hcclIntraPcieEnable != nullptr && hcclIntraRoceEnable != nullptr && strcmp(hcclIntraPcieEnable, "1") == 0 &&
@@ -818,7 +821,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         }
     }
 
-    if (soc_version == op::SocVersion::ASCEND910B) {
+    if (soc_version == op::SocVersion::ASCEND910B & !shmem_enable) {
         comm_alg = "fullmesh";
     } else {
         comm_alg = "fullmesh_v1";
@@ -829,146 +832,71 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         active_mask = (new_topk_idx >= 0).to(torch::kBool);
     }
 
-    EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2, new_x, new_topk_idx,
-                 scales,        // smooth scales,
-                 active_mask,   // active_mask
-                 hcom_ep_name,  // ep
-                 num_ranks,     // rankSize
-                 rank,          // rankId
-                 num_experts,
-                 hcom_tp_name,            // tp
-                 tp_size,                 // tp_size
-                 tp_rank,                 // tp_rank
-                 expert_shard_type,       // expert_shard_type
-                 shared_expert_num,       // shared_expert_num
-                 shared_expert_rank_num,  // shared_expert_rank_num
-                 quant_mode,
-                 global_bs,               // global_bs
-                 expert_token_nums_type,  // expert_token_nums_type
-                 comm_alg, packed_recv_x,
-                 packed_recv_x_scales,  // dynamicScalesOut
-                 expandIdx,
-                 packed_recv_count,  // expertTokenNumsOut
-                 ep_recv_count, tp_recv_count);
+    // choose comm field by env_var DEEPEP_SHMEM_ENABLE
+    if (shmem_enable) {
+        // get shmem_ptr_info
+        int64_t ext_info = (int64_t)shmem_ptr;
 
-    // Return values
-    return {packed_recv_x, packed_recv_x_scales,        packed_recv_count, expandIdx, ep_recv_count,
-            event,         std::function<void()>([] {})};
-}
+        EXEC_NPU_CMD(aclnnShmemMoeDistributeDispatch, new_x, new_topk_idx,
+                    scales,        // smooth scales,
+                    active_mask,   // active_mask
+                    num_ranks,     // rankSize
+                    rank,          // rankId
+                    num_experts,
+                    tp_size,                 // tp_size
+                    tp_rank,                 // tp_rank
+                    expert_shard_type,       // expert_shard_type
+                    shared_expert_num,       // shared_expert_num
+                    shared_expert_rank_num,  // shared_expert_rank_num
+                    quant_mode,
+                    global_bs,               // global_bs
+                    expert_token_nums_type,  // expert_token_nums_type
+                    ext_info,                 // shmem_ptr as
+                    packed_recv_x,
+                    packed_recv_x_scales,  // dynamicScalesOut
+                    expandIdx,
+                    packed_recv_count,  // expertTokenNumsOut
+                    ep_recv_count, tp_recv_count);
 
-std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Tensor, std::optional<EventHandle>,
-           std::optional<std::function<void()>>>
-Buffer::shmem_low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
-                             const std::optional<at::Tensor> &cumulative_local_expert_recv_stats,
-                             int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts, bool use_fp8,
-                             bool round_scale, bool use_ue8m0, bool async, bool return_recv_hook)
-{
-    this->is_padding = false;
-    EP_HOST_ASSERT(low_latency_mode);   //
-    at::Tensor new_x = x;
-    this->new_topk_idx = topk_idx;
-    if (topk_idx.size(0) < PADDING_SIZE) {
-        this->is_padding = true;
-        this->padding_cnt = PADDING_SIZE - topk_idx.size(0);
-        std::vector<at::Tensor> x_blocks;
-        std::vector<at::Tensor> topk_blocks;
-        if (topk_idx.size(0) != 0) {
-            x_blocks.emplace_back(x);
-            topk_blocks.emplace_back(topk_idx);
+    } else {
+        // get ep & tp name
+        char hcom_ep_name[HCOMM_NAME_LEN];
+        if (!moe_all_to_all_group_name.empty()) {
+            std::memcpy(hcom_ep_name, moe_all_to_all_group_name.data(), moe_all_to_all_group_name.size() + 1);
         } else {
-            this->ori_x = x.clone();
+            HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
         }
-        int topk = static_cast<int>(new_topk_idx.size(1));
-        for (int i = 0; i < this->padding_cnt; i++) {
-            at::Tensor tmp_x = torch::ones({1, x.size(1)}, x.options());
-            at::Tensor tmp_topk = torch::arange(0, topk, topk_idx.options()).reshape({1, topk});
-            x_blocks.emplace_back(tmp_x);
-            topk_blocks.emplace_back(tmp_topk);
-        }
-        new_x = torch::cat(x_blocks, 0);
-        this->new_topk_idx = torch::cat(topk_blocks, 0);
+        char hcom_tp_name[HCOMM_NAME_LEN] = {0};
+
+        EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2, new_x, new_topk_idx,
+                    scales,        // smooth scales,
+                    active_mask,   // active_mask
+                    hcom_ep_name,  // ep
+                    num_ranks,     // rankSize
+                    rank,          // rankId
+                    num_experts,
+                    hcom_tp_name,            // tp
+                    tp_size,                 // tp_size
+                    tp_rank,                 // tp_rank
+                    expert_shard_type,       // expert_shard_type
+                    shared_expert_num,       // shared_expert_num
+                    shared_expert_rank_num,  // shared_expert_rank_num
+                    quant_mode,
+                    global_bs,               // global_bs
+                    expert_token_nums_type,  // expert_token_nums_type
+                    comm_alg, packed_recv_x,
+                    packed_recv_x_scales,  // dynamicScalesOut
+                    expandIdx,
+                    packed_recv_count,  // expertTokenNumsOut
+                    ep_recv_count, tp_recv_count);
     }
-
-    auto num_tokens = static_cast<int>(new_x.size(0)), hidden = static_cast<int>(new_x.size(1));
-    auto num_scales = hidden / 128, num_topk = static_cast<int>(new_topk_idx.size(1));
-    auto num_local_experts = num_experts / (num_ranks - shared_expert_rank_num);
-
-    int64_t global_bs = std::max(new_topk_idx.size(0), num_max_dispatch_tokens_per_rank) * num_ranks;
-    auto num_max_tokens = 0;
-    if (rank < shared_expert_rank_num) {
-        num_max_tokens = global_bs / shared_expert_rank_num;
-        num_local_experts = 1;
-    } else {  // moe expert
-        num_max_tokens = global_bs * num_local_experts;
-    }
-    auto max_size = std::max(num_tokens * num_topk, num_max_tokens * 128);
-
-    // Allocate packed tensors
-    auto device = new_x.device();
-    auto packed_recv_x =
-        at::empty({num_max_tokens, hidden}, new_x.options().dtype(use_fp8 ? at::kChar : at::kBFloat16));
-    auto packed_recv_x_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
-    // auto expandIdx = at::empty({max_size}, at::dtype(at::kInt).device(device));
-    auto expandIdx = at::empty({num_tokens * num_topk}, at::dtype(at::kInt).device(device));
-
-    int32_t server_num = num_ranks / LOCAL_RANK_SIZE;
-    at::Tensor ep_recv_count =
-        at::empty({num_local_experts * num_ranks}, at::dtype(at::kInt).device(device));  // A2 non-layered / A3
-    auto tp_recv_count = at::empty({1}, at::dtype(at::kInt).device(device));
-    auto packed_recv_count = at::empty({num_local_experts}, at::dtype(at::kLong).device(device));
-    at::Tensor scales;
-    at::Tensor active_mask;
-    int enable_neg_one = get_value_from_env("MOE_ENABLE_TOPK_NEG_ONE", 0);
-    int64_t quant_mode = use_fp8 ? 2 : 0;
-    int64_t tp_size = 1;
-    int64_t tp_rank = 0;
-    int64_t expert_shard_type = 0;
-    int outType = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
-    char *comm_alg;
-    int64_t expert_token_nums_type = outType;
-
-    // get shmem_ptr_info
-    int64_t ext_info = (int64_t)shmem_ptr;
-
-    // Wait streams
-    std::optional<EventHandle> event;
-    bool isLayered = false;
-
-    // do not support 910B at the moment
-    comm_alg = "fullmesh_v1";
-
-    if (enable_neg_one) {
-        EP_HOST_ASSERT(isLayered == false);
-        active_mask = (new_topk_idx >= 0).to(torch::kBool);
-    }
-
-    EXEC_NPU_CMD(aclnnShmemMoeDistributeDispatch, new_x, new_topk_idx,
-                 scales,        // smooth scales,
-                 active_mask,   // active_mask
-                 num_ranks,     // rankSize
-                 rank,          // rankId
-                 num_experts,
-                 tp_size,                 // tp_size
-                 tp_rank,                 // tp_rank
-                 expert_shard_type,       // expert_shard_type
-                 shared_expert_num,       // shared_expert_num
-                 shared_expert_rank_num,  // shared_expert_rank_num
-                 quant_mode,
-                 global_bs,               // global_bs
-                 expert_token_nums_type,  // expert_token_nums_type
-                 ext_info,                 // shmem_ptr as
-                 packed_recv_x,
-                 packed_recv_x_scales,  // dynamicScalesOut
-                 expandIdx,
-                 packed_recv_count,  // expertTokenNumsOut
-                 ep_recv_count, tp_recv_count);
 
     // Return values
     return {packed_recv_x, packed_recv_x_scales, packed_recv_count, expandIdx, ep_recv_count,
             event, std::function<void()>([] {})};
 }
 
-std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>>
+std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>> 
 Buffer::low_latency_combine(
     const at::Tensor &x, const at::Tensor &topk_idx, const at::Tensor &topk_weights, const at::Tensor &src_info,
     const at::Tensor &layout_range, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
@@ -994,15 +922,6 @@ Buffer::low_latency_combine(
     EP_HOST_ASSERT(x.dim() == 2 and x.is_contiguous() and x.scalar_type() == at::kBFloat16);
     // EP_HOST_ASSERT(x.size(0) == num_experts / num_ranks);
 
-    // get ep & tp name
-    char hcom_ep_name[HCOMM_NAME_LEN];
-    if (!moe_all_to_all_group_name.empty()) {
-        std::memcpy(hcom_ep_name, moe_all_to_all_group_name.data(), moe_all_to_all_group_name.size() + 1);
-    } else {
-        HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
-    }
-    char hcom_tp_name[HCOMM_NAME_LEN] = {0};
-
     auto device = x.device();
     at::Tensor expand_x = x;
     at::Tensor expert_ids = new_idx;
@@ -1027,7 +946,7 @@ Buffer::low_latency_combine(
     at::Tensor shared_expert_x{nullptr};
     at::Tensor combined_x = at::empty({num_combined_tokens, hidden}, x.options());
     std::optional<EventHandle> event;
-    if (soc_version == op::SocVersion::ASCEND910B) {
+    if (soc_version == op::SocVersion::ASCEND910B & !shmem_enable) {
         const char *hcclIntraPcieEnable = getenv("HCCL_INTRA_PCIE_ENABLE");
         const char *hcclIntraRoceEnable = getenv("HCCL_INTRA_ROCE_ENABLE");
         if (hcclIntraPcieEnable != nullptr && hcclIntraRoceEnable != nullptr && strcmp(hcclIntraPcieEnable, "1") == 0 &&
@@ -1036,7 +955,7 @@ Buffer::low_latency_combine(
         }
     }
 
-    if (soc_version == op::SocVersion::ASCEND910B) {
+    if (soc_version == op::SocVersion::ASCEND910B & !shmem_enable) {
         comm_alg = "fullmesh";
     } else {
         comm_alg = "fullmesh_v1";
@@ -1047,109 +966,31 @@ Buffer::low_latency_combine(
         x_active_mask = (new_topk_idx >= 0).to(torch::kBool);
     }
 
-    EXEC_NPU_CMD(aclnnMoeDistributeCombineV2, expand_x, expert_ids, expand_idx, ep_send_counts, expert_scales,
+    if (shmem_enable) {
+        // get shmem_ptr_info
+        int64_t ext_info = (int64_t)shmem_ptr;
+        EXEC_NPU_CMD(aclnnShmemMoeDistributeCombine, expand_x, expert_ids, expand_idx, ep_send_counts, expert_scales,
+                 tp_send_counts, x_active_mask, activation_scale, weight_scale, group_list, expand_scales,
+                 num_ranks, rank, num_experts, tp_world_size, tp_rankId, expert_shared_type, shared_expert_num, 
+                 shared_expert_rank_num, global_bs, comm_quant_mode, ext_info, out_dtype, 
+                 group_list_type, 
+                 combined_x);
+    } else {
+        // get ep & tp name
+        char hcom_ep_name[HCOMM_NAME_LEN];
+        if (!moe_all_to_all_group_name.empty()) {
+            std::memcpy(hcom_ep_name, moe_all_to_all_group_name.data(), moe_all_to_all_group_name.size() + 1);
+        } else {
+            HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
+        }
+        char hcom_tp_name[HCOMM_NAME_LEN] = {0};
+
+        EXEC_NPU_CMD(aclnnMoeDistributeCombineV2, expand_x, expert_ids, expand_idx, ep_send_counts, expert_scales,
                  tp_send_counts, x_active_mask, activation_scale, weight_scale, group_list, expand_scales,
                  shared_expert_x, hcom_ep_name, num_ranks, rank, num_experts, hcom_tp_name, tp_world_size, tp_rankId,
                  expert_shared_type, shared_expert_num, shared_expert_rank_num, global_bs, out_dtype, comm_quant_mode,
                  group_list_type, comm_alg, combined_x);
-    if (this->is_padding) {
-        if (this->padding_cnt == PADDING_SIZE) {
-            combined_x = this->ori_x;
-        } else {
-            combined_x = combined_x.slice(0, 0, PADDING_SIZE - this->padding_cnt);
-        }
-        is_padding = false;
     }
-    return {combined_x, event, std::function<void()>([] {})};
-}
-
-std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>>
-Buffer::shmem_low_latency_combine(
-    const at::Tensor &x, const at::Tensor &topk_idx, const at::Tensor &topk_weights, const at::Tensor &src_info,
-    const at::Tensor &layout_range, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
-    const at::Tensor &packed_recv_count, bool zero_copy, bool async, bool return_recv_hook,
-    const std::optional<at::Tensor> &out)
-{
-    at::Tensor new_idx = topk_idx;
-    at::Tensor new_scales = topk_weights;
-    if (this->is_padding) {
-        std::vector<at::Tensor> scales_blocks;
-        if (this->padding_cnt != PADDING_SIZE) {
-            scales_blocks.emplace_back(topk_weights);
-        }
-        for (int i = 0; i < this->padding_cnt; i++) {
-            at::Tensor tmp_scales = torch::zeros({1, topk_weights.size(1)}, topk_weights.options());
-            scales_blocks.emplace_back(tmp_scales);
-        }
-        new_idx = this->new_topk_idx;
-        this->new_scales = torch::cat(scales_blocks, 0);
-        new_scales = this->new_scales;
-    }
-    // Tensor checks
-    EP_HOST_ASSERT(x.dim() == 2 and x.is_contiguous() and x.scalar_type() == at::kBFloat16);
-    // EP_HOST_ASSERT(x.size(0) == num_experts / num_ranks);
-
-    // get shmem_ptr_info
-    int64_t ext_info = (int64_t)shmem_ptr;
-
-    auto device = x.device();
-    at::Tensor expand_x = x;
-    at::Tensor expert_ids = new_idx;
-    at::Tensor expand_idx = src_info;  // handle[0] = src_info
-    at::Tensor ep_send_counts = layout_range;
-    at::Tensor expert_scales = new_scales;
-    at::Tensor tp_send_counts = at::empty({1}, at::dtype(at::kInt).device(device));
-    at::Tensor x_active_mask, activation_scale, weight_scale, group_list, expand_scales;
-    int enable_neg_one = get_value_from_env("MOE_ENABLE_TOPK_NEG_ONE", 0);
-    int64_t tp_world_size = 1;
-    int64_t tp_rankId = 0;
-    int64_t expert_shared_type = 0;
-    int64_t global_bs = std::max(new_idx.size(0), num_max_dispatch_tokens_per_rank) * num_ranks;
-    int64_t out_dtype = 0;
-    int64_t comm_quant_mode = 0;
-    int64_t group_list_type = 0;
-    bool isLayered = false;
-    char *comm_alg;
-
-    auto num_combined_tokens = static_cast<int>(new_scales.size(0));
-    auto hidden = static_cast<int>(x.size(1));
-    // at::Tensor shared_expert_x{nullptr};
-    at::Tensor combined_x = at::empty({num_combined_tokens, hidden}, x.options());
-    std::optional<EventHandle> event;
-    // do not support 910B at the moment
-    comm_alg = "fullmesh_v1";
-
-    if (enable_neg_one) {
-        EP_HOST_ASSERT(isLayered == false);
-        x_active_mask = (new_topk_idx >= 0).to(torch::kBool);
-    }
-
-    EXEC_NPU_CMD(aclnnShmemMoeDistributeCombine,
-                 expand_x,
-                 expert_ids,
-                 expand_idx,
-                 ep_send_counts,
-                 expert_scales,
-                 tp_send_counts,
-                 x_active_mask,
-                 activation_scale,
-                 weight_scale,
-                 group_list,
-                 expand_scales,
-                 num_ranks,
-                 rank,
-                 num_experts,
-                 tp_world_size,
-                 tp_rankId,
-                 expert_shared_type,
-                 shared_expert_num,
-                 shared_expert_rank_num,
-                 global_bs,
-                 comm_quant_mode,
-                 ext_info,
-                 out_dtype,
-                 group_list_type,
-                 combined_x);
 
     if (this->is_padding) {
         if (this->padding_cnt == PADDING_SIZE) {
