@@ -47,6 +47,7 @@ def test(
         rank - rank_offset
     )
     x[:, -128:] = torch.arange(num_tokens, device="npu").to(torch.bfloat16).view(-1, 1)
+
     scores = (
         torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
         + 1
@@ -74,18 +75,20 @@ def test(
     cumulative_local_expert_recv_stats = torch.zeros(
         (num_local_experts,), dtype=torch.int, device="npu"
     )
-    dispatch_use_fp8 = True
-    packed_recv_x, packed_recv_count, handle, event, hook = buffer.low_latency_dispatch(
-        x,
-        topk_idx,
-        num_tokens,
-        num_experts,
-        use_fp8=dispatch_use_fp8,
-        round_scale=False,
-        use_ue8m0=False,
-        cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
-        async_finish=not return_recv_hook,
-        return_recv_hook=return_recv_hook,
+    dispatch_use_fp8 = False
+    packed_recv_x, packed_recv_count, handle, event, hook = (
+        buffer.shmem_low_latency_dispatch(
+            x,
+            topk_idx,
+            num_tokens,
+            num_experts,
+            use_fp8=dispatch_use_fp8,
+            round_scale=False,
+            use_ue8m0=False,
+            cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
+            async_finish=not return_recv_hook,
+            return_recv_hook=return_recv_hook,
+        )
     )
     simulated_gemm_x = (
         per_token_cast_back(*packed_recv_x) if dispatch_use_fp8 else packed_recv_x
@@ -154,7 +157,7 @@ def test(
     ) = handle
 
     out = torch.empty((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
-    combined_x, event, hook = buffer.low_latency_combine(
+    combined_x, event, hook = buffer.shmem_low_latency_combine(
         simulated_gemm_x,
         topk_idx,
         topk_weights,
@@ -181,7 +184,7 @@ def test(
 
     # noinspection PyShadowingNames
     def test_func(zero_copy: bool, return_recv_hook: bool):
-        recv_x, recv_count, handle, event, hook = buffer.low_latency_dispatch(
+        recv_x, recv_count, handle, event, hook = buffer.shmem_low_latency_dispatch(
             x,
             topk_idx,
             num_tokens,
@@ -191,7 +194,7 @@ def test(
             async_finish=False,
             return_recv_hook=return_recv_hook,
         )
-        combined_x, event, hook = buffer.low_latency_combine(
+        combined_x, event, hook = buffer.shmem_low_latency_combine(
             simulated_gemm_x,
             topk_idx,
             topk_weights,
@@ -223,30 +226,14 @@ def test(
     for return_recv_hook in (False,):
         enable_neg_one = int(os.getenv("MOE_ENABLE_TOPK_NEG_ONE", 0))
         dist.barrier()
-
-        shmem_enable = int(os.getenv("DEEPEP_SHMEM_ENABLE", 0))
-        if shmem_enable:
-            dispatch_t, combine_t = bench_kineto(
-                partial(test_func, zero_copy=False, return_recv_hook=return_recv_hook),
-                kernel_names=(
-                    "ShmemMoeDistributeDispatch",
-                    "ShmemMoeDistributeCombine",
-                ),
-                barrier_comm_profiling=True,
-                suppress_kineto_output=True,
-                num_kernels_per_period=2 if return_recv_hook else 1,
-                trace_path=None,
-            )
-        else:
-            dispatch_t, combine_t = bench_kineto(
-                partial(test_func, zero_copy=False, return_recv_hook=return_recv_hook),
-                kernel_names=("MoeDistributeDispatchV2", "MoeDistributeCombineV2"),
-                barrier_comm_profiling=True,
-                suppress_kineto_output=True,
-                num_kernels_per_period=2 if return_recv_hook else 1,
-                trace_path=None,
-            )
-
+        dispatch_t, combine_t = bench_kineto(
+            partial(test_func, zero_copy=False, return_recv_hook=return_recv_hook),
+            kernel_names=("ShmemMoeDistributeDispatch", "ShmemMoeDistributeCombine"),
+            barrier_comm_profiling=True,
+            suppress_kineto_output=True,
+            num_kernels_per_period=2 if return_recv_hook else 1,
+            trace_path=None,
+        )
         if not return_recv_hook:
             print(
                 f"[rank {rank}] Dispatch bandwidth: {num_dispatch_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, avg_t={dispatch_t * 1e6:.2f} us | "

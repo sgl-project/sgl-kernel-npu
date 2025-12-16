@@ -686,6 +686,8 @@ class Buffer:
             hook,
         )
 
+        # noinspection PyTypeChecker
+
     @log_parameters(["topk_idx"])
     def low_latency_combine(
         self,

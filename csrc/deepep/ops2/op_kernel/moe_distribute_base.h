@@ -196,7 +196,7 @@ struct HcclOpResParam {
     bool utraceStatusFlag;
 };
 
-// Transport 内存类型
+// Transport 脛脷麓忙脌脿脨脥
 enum class HcclAiRMAMemType : uint32_t {
     LOCAL_INPUT = 0,
     REMOTE_INPUT,
@@ -204,59 +204,59 @@ enum class HcclAiRMAMemType : uint32_t {
     LOCAL_OUTPUT,
     REMOTE_OUTPUT,
 
-    // 可透传更多的内存，可在MAX_NUM之前追加，例如：
+    // 驴脡脥赂麓芦赂眉露脿碌脛脛脷麓忙拢卢驴脡脭脷MAX_NUM脰庐脟掳脳路录脫拢卢脌媒脠莽拢潞
     // LOCAL_EXP,
     // REMOTE_EXP,
     MAX_NUM
 };
 
 struct HcclAiRMAMemInfo {
-    uint32_t memMaxNum{0};         // 最大内存数量，等于 HcclAiRMAMemType::MAX_NUM
-    uint32_t sizeOfMemDetails{0};  // sizeof(MemDetails)，用于内存校验和偏移计算
-    uint64_t memDetailPtr{0};      // MemDetails数组首地址, 个数: HcclAiRMAMemType::MAX_NUM
-    // 可往后追加字段
+    uint32_t memMaxNum{0};         // 脳卯麓贸脛脷麓忙脢媒脕驴拢卢碌脠脫脷 HcclAiRMAMemType::MAX_NUM
+    uint32_t sizeOfMemDetails{0};  // sizeof(MemDetails)拢卢脫脙脫脷脛脷麓忙脨拢脩茅潞脥脝芦脪脝录脝脣茫
+    uint64_t memDetailPtr{0};      // MemDetails脢媒脳茅脢脳碌脴脰路, 赂枚脢媒: HcclAiRMAMemType::MAX_NUM
+    // 驴脡脥霉潞贸脳路录脫脳脰露脦
 };
 
-// 全部 Transport QP/Mem 信息
+// 脠芦虏驴 Transport QP/Mem 脨脜脧垄
 struct HcclAiRMAInfo {
-    uint32_t curRankId{0};  // 当前rankId
-    uint32_t rankNum{0};    // rank数量
-    uint32_t qpNum{0};      // 单个Transport的QP数量
+    uint32_t curRankId{0};  // 碌卤脟掳rankId
+    uint32_t rankNum{0};    // rank脢媒脕驴
+    uint32_t qpNum{0};      // 碌楼赂枚Transport碌脛QP脢媒脕驴
 
     uint32_t sizeOfAiRMAWQ{0};   // sizeof(HcclAiRMAWQ)
     uint32_t sizeOfAiRMACQ{0};   // sizeof(HcclAiRMACQ)
     uint32_t sizeOfAiRMAMem{0};  // sizeof(HcclAiRMAMemInfo)
 
-    // HcclAiRMAWQ二维数组首地址
-    // QP个数: rankNum * qpNum
-    // 计算偏移获取SQ指针：sqPtr + (dstRankId * qpNum + qpIndex) * sizeOfAiRMAWQ
+    // HcclAiRMAWQ露镁脦卢脢媒脳茅脢脳碌脴脰路
+    // QP赂枚脢媒: rankNum * qpNum
+    // 录脝脣茫脝芦脪脝禄帽脠隆SQ脰赂脮毛拢潞sqPtr + (dstRankId * qpNum + qpIndex) * sizeOfAiRMAWQ
     // 0 <= qpIndex < qpNum
     uint64_t sqPtr{0};
 
-    // HcclAiRMACQ二维数组首地址
-    // QP个数: rankNum * qpNum
-    // 计算偏移获取SCQ指针：scqPtr + (dstRankId * qpNum + qpIndex) * sizeOfAiRMACQ
+    // HcclAiRMACQ露镁脦卢脢媒脳茅脢脳碌脴脰路
+    // QP赂枚脢媒: rankNum * qpNum
+    // 录脝脣茫脝芦脪脝禄帽脠隆SCQ脰赂脮毛拢潞scqPtr + (dstRankId * qpNum + qpIndex) * sizeOfAiRMACQ
     // 0 <= qpIndex < qpNum
     uint64_t scqPtr{0};
 
-    // HcclAiRMAWQ二维数组首地址
-    // QP个数: rankNum * qpNum
-    // 计算偏移获取RQ指针：rqPtr + (dstRankId * qpNum + qpIndex) * sizeOfAiRMAWQ
+    // HcclAiRMAWQ露镁脦卢脢媒脳茅脢脳碌脴脰路
+    // QP赂枚脢媒: rankNum * qpNum
+    // 录脝脣茫脝芦脪脝禄帽脠隆RQ脰赂脮毛拢潞rqPtr + (dstRankId * qpNum + qpIndex) * sizeOfAiRMAWQ
     // 0 <= qpIndex < qpNum
     uint64_t rqPtr{0};
 
-    // HcclAiRMACQ二维数组首地址
-    // QP个数: rankNum * qpNum
-    // 计算偏移获取RCQ指针: rcqPtr + (dstRankId * qpNum + qpIndex) * sizeOfAiRMACQ
+    // HcclAiRMACQ露镁脦卢脢媒脳茅脢脳碌脴脰路
+    // QP赂枚脢媒: rankNum * qpNum
+    // 录脝脣茫脝芦脪脝禄帽脠隆RCQ脰赂脮毛: rcqPtr + (dstRankId * qpNum + qpIndex) * sizeOfAiRMACQ
     // 0 <= qpIndex < qpNum
     uint64_t rcqPtr{0};
 
-    // HcclAivMemInfo一维数组
-    // 内存信息个数: rankNum
-    // 计算偏移获取内存信息指针: memPtr + rankId * sizeOfAiRMAMem
-    // srcRankId 获取自身内存信息，dstRankId 获取 Transport 内存信息
+    // HcclAivMemInfo脪禄脦卢脢媒脳茅
+    // 脛脷麓忙脨脜脧垄赂枚脢媒: rankNum
+    // 录脝脣茫脝芦脪脝禄帽脠隆脛脷麓忙脨脜脧垄脰赂脮毛: memPtr + rankId * sizeOfAiRMAMem
+    // srcRankId 禄帽脠隆脳脭脡铆脛脷麓忙脨脜脧垄拢卢dstRankId 禄帽脠隆 Transport 脛脷麓忙脨脜脧垄
     uint64_t memPtr{0};
-    // 可往后追加字段
+    // 驴脡脥霉潞贸脳路录脫脳脰露脦
 };
 
 struct CombinedCapability {
@@ -280,9 +280,9 @@ struct HcclA2CombineOpParam {
     uint8_t multiFlag;
     __gm__ AscendC::IbVerbsData *data;
     uint64_t dataSize;
-    // 追加字段
+    // 脳路录脫脳脰露脦
     uint64_t sizeOfAiRMAInfo;  // sizeof(HcclAiRMAInfo)
-    uint64_t aiRMAInfo;        // HcclAiRMAInfo* 单个结构体指针
+    uint64_t aiRMAInfo;        // HcclAiRMAInfo* 碌楼赂枚陆谩鹿鹿脤氓脰赂脮毛
 
     CombinedCapability *capability;  // address of the communication capability information structure on the Device
     uint64_t capabilitySize;         // size of the communication capability information structure
