@@ -57,8 +57,8 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
     }
 
     EP_HOST_ASSERT(std::getenv("DEEPEP_SHMEM_ENABLE") != nullptr);
-    const char* SHMEM_ENABLE = std::getenv("DEEPEP_SHMEM_ENABLE");
-    shmem_enable = (SHMEM_ENABLE && std::strcmp(SHMEM_ENABLE, "1") == 0);   // only open shmem with "1"
+    const char *SHMEM_ENABLE = std::getenv("DEEPEP_SHMEM_ENABLE");
+    shmem_enable = (SHMEM_ENABLE && std::strcmp(SHMEM_ENABLE, "1") == 0);  // only open shmem with "1"
 
     if (shmem_enable) {
         size_t local_mem_size = 2 * 1024 * 1024 * 1024UL;
@@ -838,25 +838,25 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         int64_t ext_info = (int64_t)shmem_ptr;
 
         EXEC_NPU_CMD(aclnnShmemMoeDistributeDispatch, new_x, new_topk_idx,
-                    scales,        // smooth scales,
-                    active_mask,   // active_mask
-                    num_ranks,     // rankSize
-                    rank,          // rankId
-                    num_experts,
-                    tp_size,                 // tp_size
-                    tp_rank,                 // tp_rank
-                    expert_shard_type,       // expert_shard_type
-                    shared_expert_num,       // shared_expert_num
-                    shared_expert_rank_num,  // shared_expert_rank_num
-                    quant_mode,
-                    global_bs,               // global_bs
-                    expert_token_nums_type,  // expert_token_nums_type
-                    ext_info,                 // shmem_ptr as
-                    packed_recv_x,
-                    packed_recv_x_scales,  // dynamicScalesOut
-                    expandIdx,
-                    packed_recv_count,  // expertTokenNumsOut
-                    ep_recv_count, tp_recv_count);
+                     scales,       // smooth scales,
+                     active_mask,  // active_mask
+                     num_ranks,    // rankSize
+                     rank,         // rankId
+                     num_experts,
+                     tp_size,                 // tp_size
+                     tp_rank,                 // tp_rank
+                     expert_shard_type,       // expert_shard_type
+                     shared_expert_num,       // shared_expert_num
+                     shared_expert_rank_num,  // shared_expert_rank_num
+                     quant_mode,
+                     global_bs,               // global_bs
+                     expert_token_nums_type,  // expert_token_nums_type
+                     ext_info,                // shmem_ptr as
+                     packed_recv_x,
+                     packed_recv_x_scales,  // dynamicScalesOut
+                     expandIdx,
+                     packed_recv_count,  // expertTokenNumsOut
+                     ep_recv_count, tp_recv_count);
 
     } else {
         // get ep & tp name
@@ -869,35 +869,34 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         char hcom_tp_name[HCOMM_NAME_LEN] = {0};
 
         EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2, new_x, new_topk_idx,
-                    scales,        // smooth scales,
-                    active_mask,   // active_mask
-                    hcom_ep_name,  // ep
-                    num_ranks,     // rankSize
-                    rank,          // rankId
-                    num_experts,
-                    hcom_tp_name,            // tp
-                    tp_size,                 // tp_size
-                    tp_rank,                 // tp_rank
-                    expert_shard_type,       // expert_shard_type
-                    shared_expert_num,       // shared_expert_num
-                    shared_expert_rank_num,  // shared_expert_rank_num
-                    quant_mode,
-                    global_bs,               // global_bs
-                    expert_token_nums_type,  // expert_token_nums_type
-                    comm_alg, packed_recv_x,
-                    packed_recv_x_scales,  // dynamicScalesOut
-                    expandIdx,
-                    packed_recv_count,  // expertTokenNumsOut
-                    ep_recv_count, tp_recv_count);
+                     scales,        // smooth scales,
+                     active_mask,   // active_mask
+                     hcom_ep_name,  // ep
+                     num_ranks,     // rankSize
+                     rank,          // rankId
+                     num_experts,
+                     hcom_tp_name,            // tp
+                     tp_size,                 // tp_size
+                     tp_rank,                 // tp_rank
+                     expert_shard_type,       // expert_shard_type
+                     shared_expert_num,       // shared_expert_num
+                     shared_expert_rank_num,  // shared_expert_rank_num
+                     quant_mode,
+                     global_bs,               // global_bs
+                     expert_token_nums_type,  // expert_token_nums_type
+                     comm_alg, packed_recv_x,
+                     packed_recv_x_scales,  // dynamicScalesOut
+                     expandIdx,
+                     packed_recv_count,  // expertTokenNumsOut
+                     ep_recv_count, tp_recv_count);
     }
 
     // Return values
-    return {packed_recv_x, packed_recv_x_scales, packed_recv_count, expandIdx, ep_recv_count,
-            event, std::function<void()>([] {})};
+    return {packed_recv_x, packed_recv_x_scales,        packed_recv_count, expandIdx, ep_recv_count,
+            event,         std::function<void()>([] {})};
 }
 
-std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>> 
-Buffer::low_latency_combine(
+std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>> Buffer::low_latency_combine(
     const at::Tensor &x, const at::Tensor &topk_idx, const at::Tensor &topk_weights, const at::Tensor &src_info,
     const at::Tensor &layout_range, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
     const at::Tensor &packed_recv_count, bool zero_copy, bool async, bool return_recv_hook,
@@ -970,11 +969,10 @@ Buffer::low_latency_combine(
         // get shmem_ptr_info
         int64_t ext_info = (int64_t)shmem_ptr;
         EXEC_NPU_CMD(aclnnShmemMoeDistributeCombine, expand_x, expert_ids, expand_idx, ep_send_counts, expert_scales,
-                 tp_send_counts, x_active_mask, activation_scale, weight_scale, group_list, expand_scales,
-                 num_ranks, rank, num_experts, tp_world_size, tp_rankId, expert_shared_type, shared_expert_num, 
-                 shared_expert_rank_num, global_bs, comm_quant_mode, ext_info, out_dtype, 
-                 group_list_type, 
-                 combined_x);
+                     tp_send_counts, x_active_mask, activation_scale, weight_scale, group_list, expand_scales,
+                     num_ranks, rank, num_experts, tp_world_size, tp_rankId, expert_shared_type, shared_expert_num,
+                     shared_expert_rank_num, global_bs, comm_quant_mode, ext_info, out_dtype, group_list_type,
+                     combined_x);
     } else {
         // get ep & tp name
         char hcom_ep_name[HCOMM_NAME_LEN];
@@ -986,10 +984,10 @@ Buffer::low_latency_combine(
         char hcom_tp_name[HCOMM_NAME_LEN] = {0};
 
         EXEC_NPU_CMD(aclnnMoeDistributeCombineV2, expand_x, expert_ids, expand_idx, ep_send_counts, expert_scales,
-                 tp_send_counts, x_active_mask, activation_scale, weight_scale, group_list, expand_scales,
-                 shared_expert_x, hcom_ep_name, num_ranks, rank, num_experts, hcom_tp_name, tp_world_size, tp_rankId,
-                 expert_shared_type, shared_expert_num, shared_expert_rank_num, global_bs, out_dtype, comm_quant_mode,
-                 group_list_type, comm_alg, combined_x);
+                     tp_send_counts, x_active_mask, activation_scale, weight_scale, group_list, expand_scales,
+                     shared_expert_x, hcom_ep_name, num_ranks, rank, num_experts, hcom_tp_name, tp_world_size,
+                     tp_rankId, expert_shared_type, shared_expert_num, shared_expert_rank_num, global_bs, out_dtype,
+                     comm_quant_mode, group_list_type, comm_alg, combined_x);
     }
 
     if (this->is_padding) {

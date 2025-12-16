@@ -699,8 +699,7 @@ class Buffer:
         async_finish: bool = False,
         return_recv_hook: bool = False,
         out: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, EventOverlap, Callable
-    ]:
+    ) -> Tuple[torch.Tensor, EventOverlap, Callable]:
         """
         A low-latency implementation for combine.
 

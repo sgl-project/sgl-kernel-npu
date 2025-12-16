@@ -1,6 +1,6 @@
 /*
-* Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
-*/
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+ */
 
 #ifndef ASCENDC_SHMEM_COMM_MOE_DISTRIBUTE_CMOBINE_TILING_H
 #define ASCENDC_SHMEM_COMM_MOE_DISTRIBUTE_CMOBINE_TILING_H
@@ -10,8 +10,8 @@
 
 // a3
 struct ShmemMoeDistributeCombineInfo {
-    uint32_t epWorldSize;               // epWorldSize
-    uint32_t tpWorldSize;               // tpWorldSize
+    uint32_t epWorldSize;  // epWorldSize
+    uint32_t tpWorldSize;  // tpWorldSize
     uint32_t epRankId;
     uint32_t tpRankId;
     uint32_t expertShardType;
@@ -26,7 +26,7 @@ struct ShmemMoeDistributeCombineInfo {
     uint64_t totalUbSize;
     uint64_t totalWinSize;
     uint64_t magic;
-    uint64_t shmemptr;                  // shmem ptr
+    uint64_t shmemptr;  // shmem ptr
 };
 struct ShmemMoeDistributeCombineTilingData {
     Mc2InitTiling mc2InitTiling;
@@ -35,4 +35,4 @@ struct ShmemMoeDistributeCombineTilingData {
     ShmemMoeDistributeCombineInfo moeDistributeCombineInfo;
 };
 
-#endif //__ASCENDC_SHMEM_COMM_MOE_DISTRIBUTE_CMOBINE_TILING_H__
+#endif  //__ASCENDC_SHMEM_COMM_MOE_DISTRIBUTE_CMOBINE_TILING_H__

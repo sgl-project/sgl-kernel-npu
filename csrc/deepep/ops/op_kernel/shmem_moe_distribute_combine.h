@@ -16,22 +16,22 @@
 #include "shmem_api.h"
 
 using namespace AscendC;
-#define SHMEM_PUT_BY_DTYPE(dtype, ...)                                      \
-    do {                                                                    \
-        if constexpr (std::is_same_v<dtype, half>) {                                        \
-            shmem_put_half_mem_nbi(__VA_ARGS__);                            \
-        } else if constexpr (std::is_same_v<dtype, bfloat16_t>) {                                \
-            shmem_put_bfloat16_mem_nbi(__VA_ARGS__);                        \
-        }                                                                   \
+#define SHMEM_PUT_BY_DTYPE(dtype, ...)                            \
+    do {                                                          \
+        if constexpr (std::is_same_v<dtype, half>) {              \
+            shmem_put_half_mem_nbi(__VA_ARGS__);                  \
+        } else if constexpr (std::is_same_v<dtype, bfloat16_t>) { \
+            shmem_put_bfloat16_mem_nbi(__VA_ARGS__);              \
+        }                                                         \
     } while (0)
 
-#define SHMEM_GET_BY_DTYPE(dtype, ...)                                      \
-    do {                                                                    \
-        if constexpr (std::is_same_v<dtype, half>) {                                        \
-            shmem_get_half_mem_nbi(__VA_ARGS__);                            \
-        } else if constexpr (std::is_same_v<dtype, bfloat16_t>) {                                \
-            shmem_get_bfloat16_mem_nbi(__VA_ARGS__);                        \
-        }                                                                   \
+#define SHMEM_GET_BY_DTYPE(dtype, ...)                            \
+    do {                                                          \
+        if constexpr (std::is_same_v<dtype, half>) {              \
+            shmem_get_half_mem_nbi(__VA_ARGS__);                  \
+        } else if constexpr (std::is_same_v<dtype, bfloat16_t>) { \
+            shmem_get_bfloat16_mem_nbi(__VA_ARGS__);              \
+        }                                                         \
     } while (0)
 
 namespace MoeDistributeCombineImpl {
@@ -49,9 +49,9 @@ constexpr uint64_t WIN_STATE_OFFSET = 512 * 1024;
 constexpr uint64_t STATE_WIN_OFFSET = 900 * 1024;
 constexpr uint32_t VEC_LEN = 256U;
 constexpr float SCALE_PARAM = 127.0;
-constexpr uint32_t BLOCK_NUM = 256U / UB_ALIGN;  // BlockReduceMax 256字节对齐，计算每256字节block数量
-constexpr int CAM_MAX_RANK_SIZE = 384; // cam max rank size
-constexpr int64_t IPC_DATA_OFFSET = 2 * 1024 * 1024; // first 2MB for flag.
+constexpr uint32_t BLOCK_NUM = 256U / UB_ALIGN;       // BlockReduceMax 256字节对齐，计算每256字节block数量
+constexpr int CAM_MAX_RANK_SIZE = 384;                // cam max rank size
+constexpr int64_t IPC_DATA_OFFSET = 2 * 1024 * 1024;  // first 2MB for flag.
 
 constexpr uint32_t TP_CONTEXT_OFFSET = 512 * 1024 * 1024;  // 512M
 
@@ -66,12 +66,13 @@ __aicore__ inline void SyncFunc()
 #define TemplateMC2TypeClass typename ExpandXType, typename ExpandIdxType, bool IsNeedReduceScatter, bool IsQuant
 #define TemplateMC2TypeFunc ExpandXType, ExpandIdxType, IsNeedReduceScatter, IsQuant
 template <TemplateMC2TypeClass>
-class ShmemMoeDistributeCombine {
+class ShmemMoeDistributeCombine
+{
 public:
     __aicore__ inline ShmemMoeDistributeCombine(){};
     __aicore__ inline void Init(GM_ADDR expandX, GM_ADDR expertIds, GM_ADDR expandIdx, GM_ADDR epSendCount,
-        GM_ADDR tpSendCount, GM_ADDR scales, GM_ADDR XOut, GM_ADDR workspaceGM, TPipe *pipe,
-        const ShmemMoeDistributeCombineTilingData *tilingData);
+                                GM_ADDR tpSendCount, GM_ADDR scales, GM_ADDR XOut, GM_ADDR workspaceGM, TPipe *pipe,
+                                const ShmemMoeDistributeCombineTilingData *tilingData);
     __aicore__ inline void Process();
 
 private:
@@ -80,11 +81,11 @@ private:
     __aicore__ inline void ReduceScatterTrans();
     __aicore__ inline void SetWaitTpStatusAndDisPatch();
     __aicore__ inline void CustomAdd(LocalTensor<ExpandXType> &dst, LocalTensor<ExpandXType> &src0,
-        LocalTensor<ExpandXType> &src1, uint32_t dataCnt);
-    __aicore__ inline void ExpertAlltoAllDispatchInnerCopyAdd(
-        uint32_t tokenNumLoop, uint32_t srcStartTokenIdx, uint32_t ep, uint32_t expertIdx);
-    __aicore__ inline void ExpertAlltoAllDispatchReduceScatterCopyAdd(
-        uint32_t srcStartTokenIdx, uint32_t dataCnt, uint32_t loopIdx, uint32_t ep);
+                                     LocalTensor<ExpandXType> &src1, uint32_t dataCnt);
+    __aicore__ inline void ExpertAlltoAllDispatchInnerCopyAdd(uint32_t tokenNumLoop, uint32_t srcStartTokenIdx,
+                                                              uint32_t ep, uint32_t expertIdx);
+    __aicore__ inline void ExpertAlltoAllDispatchReduceScatterCopyAdd(uint32_t srcStartTokenIdx, uint32_t dataCnt,
+                                                                      uint32_t loopIdx, uint32_t ep);
     __aicore__ inline void ExpertAlltoAllDispatchCopyAdd();
     __aicore__ inline void QuantProcess();
     __aicore__ inline void DequantProcess(LocalTensor<ExpandXType> &src);
@@ -95,7 +96,8 @@ private:
     __aicore__ inline void WaitDispatch();
     __aicore__ GM_ADDR GetWinAddrByRankId(const int32_t rankId, const uint8_t domain, const uint8_t expertLocalId = 0U)
     {
-        return (GM_ADDR)(gva_gm) + STATE_WIN_OFFSET + dataState_ * WIN_STATE_OFFSET + IPC_DATA_OFFSET + expertLocalId * expertPerSizeOnWin_;
+        return (GM_ADDR)(gva_gm) + STATE_WIN_OFFSET + dataState_ * WIN_STATE_OFFSET + IPC_DATA_OFFSET +
+               expertLocalId * expertPerSizeOnWin_;
     }
     __aicore__ GM_ADDR GetWinStateAddrByRankId(const int32_t rankId, const uint8_t domain)
     {
@@ -229,9 +231,9 @@ private:
 };
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void ShmemMoeDistributeCombine<TemplateMC2TypeFunc>::Init(GM_ADDR expandX, GM_ADDR expertIds,
-    GM_ADDR expandIdx, GM_ADDR epSendCount, GM_ADDR tpSendCount, GM_ADDR scales, GM_ADDR XOut, GM_ADDR workspaceGM,
-    TPipe *pipe, const ShmemMoeDistributeCombineTilingData *tilingData)
+__aicore__ inline void ShmemMoeDistributeCombine<TemplateMC2TypeFunc>::Init(
+    GM_ADDR expandX, GM_ADDR expertIds, GM_ADDR expandIdx, GM_ADDR epSendCount, GM_ADDR tpSendCount, GM_ADDR scales,
+    GM_ADDR XOut, GM_ADDR workspaceGM, TPipe *pipe, const ShmemMoeDistributeCombineTilingData *tilingData)
 {
     tpipe_ = pipe;
     coreIdx_ = GetBlockIdx();
@@ -240,7 +242,7 @@ __aicore__ inline void ShmemMoeDistributeCombine<TemplateMC2TypeFunc>::Init(GM_A
     GlobalTensor<int32_t> selfDataStatusTensor;
     gva_gm = (GM_ADDR)tilingData->moeDistributeCombineInfo.shmemptr;
     statusDataSpaceGm = (GM_ADDR)(gva_gm);
-    selfDataStatusTensor.SetGlobalBuffer((__gm__ int32_t*)(statusDataSpaceGm));
+    selfDataStatusTensor.SetGlobalBuffer((__gm__ int32_t *)(statusDataSpaceGm));
 
     DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
         selfDataStatusTensor[coreIdx_ * UB_ALIGN]);
@@ -670,8 +672,10 @@ __aicore__ inline void ShmemMoeDistributeCombine<TemplateMC2TypeFunc>::ExpertAll
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void ShmemMoeDistributeCombine<TemplateMC2TypeFunc>::CustomAdd(
-    LocalTensor<ExpandXType> &dst, LocalTensor<ExpandXType> &src0, LocalTensor<ExpandXType> &src1, uint32_t dataCnt)
+__aicore__ inline void ShmemMoeDistributeCombine<TemplateMC2TypeFunc>::CustomAdd(LocalTensor<ExpandXType> &dst,
+                                                                                 LocalTensor<ExpandXType> &src0,
+                                                                                 LocalTensor<ExpandXType> &src1,
+                                                                                 uint32_t dataCnt)
 {
     if constexpr (AscendC::IsSameType<ExpandXType, bfloat16_t>::value) {
         Cast(winTpSendCountFloatTensor_, src0, RoundMode::CAST_NONE, dataCnt);
@@ -721,10 +725,8 @@ __aicore__ inline void ShmemMoeDistributeCombine<TemplateMC2TypeFunc>::WaitDispa
     gatherTmpTensor.SetValue(0, 1);
     uint32_t mask = 1;  // gatherMask + sum 相关参数
     uint64_t rsvdCnt = 0;
-    DataCopyParams intriParams{static_cast<uint16_t>(sendRankNum_),
-        1,
-        static_cast<uint16_t>((moeSendNum_ > 512) ? 7 : 15),
-        0};  // srcStride为15个block
+    DataCopyParams intriParams{static_cast<uint16_t>(sendRankNum_), 1,
+                               static_cast<uint16_t>((moeSendNum_ > 512) ? 7 : 15), 0};  // srcStride为15个block
     float sumOfFlag = static_cast<float>(-1.0);
     float minTarget = (sumTarget_ * sendRankNum_) - (float)0.5;
     float maxTarget = (sumTarget_ * sendRankNum_) + (float)0.5;
@@ -732,11 +734,11 @@ __aicore__ inline void ShmemMoeDistributeCombine<TemplateMC2TypeFunc>::WaitDispa
     SyncFunc<AscendC::HardEvent::S_V>();
     while ((sumOfFlag < minTarget) || (sumOfFlag > maxTarget)) {
         // GM --> UB
-        DataCopy<float>(
-            statusTensor, epStatusSpaceGlobalTensor_[startRankId_ * stateOffset_ / sizeof(float)], intriParams);
+        DataCopy<float>(statusTensor, epStatusSpaceGlobalTensor_[startRankId_ * stateOffset_ / sizeof(float)],
+                        intriParams);
         SyncFunc<AscendC::HardEvent::MTE2_V>();
-        GatherMask(
-            gatherMaskOutTensor, statusTensor, gatherTmpTensor, true, mask, {1, (uint16_t)sendRankNum_, 1, 0}, rsvdCnt);
+        GatherMask(gatherMaskOutTensor, statusTensor, gatherTmpTensor, true, mask, {1, (uint16_t)sendRankNum_, 1, 0},
+                   rsvdCnt);
         PipeBarrier<PIPE_V>();
         Sum(statusSumOutTensor, gatherMaskOutTensor, sumParams);
         SyncFunc<AscendC::HardEvent::V_S>();
@@ -926,4 +928,4 @@ __aicore__ inline void ShmemMoeDistributeCombine<TemplateMC2TypeFunc>::Process()
     LocalWindowCopy();
 }
 }  // namespace MoeDistributeCombineImpl
-#endif // SHMEM_MOE_DISTRIBUTE_COMBINE_H
+#endif  // SHMEM_MOE_DISTRIBUTE_COMBINE_H

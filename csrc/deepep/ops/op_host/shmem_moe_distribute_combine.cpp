@@ -1,13 +1,14 @@
 /*
-* Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
-*/
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+ */
 
 #include "register/op_def_registry.h"
 
 namespace ops {
-class ShmemMoeDistributeCombine : public OpDef {
+class ShmemMoeDistributeCombine : public OpDef
+{
 public:
-    explicit ShmemMoeDistributeCombine(const char* name) : OpDef(name)
+    explicit ShmemMoeDistributeCombine(const char *name) : OpDef(name)
     {
         this->Input("expand_x")
             .ParamType(REQUIRED)
@@ -114,4 +115,4 @@ public:
 
 OP_ADD(ShmemMoeDistributeCombine);
 
-} // namespace ops
+}  // namespace ops

@@ -228,7 +228,10 @@ def test(
         if shmem_enable:
             dispatch_t, combine_t = bench_kineto(
                 partial(test_func, zero_copy=False, return_recv_hook=return_recv_hook),
-                kernel_names=("ShmemMoeDistributeDispatch", "ShmemMoeDistributeCombine"),
+                kernel_names=(
+                    "ShmemMoeDistributeDispatch",
+                    "ShmemMoeDistributeCombine",
+                ),
                 barrier_comm_profiling=True,
                 suppress_kineto_output=True,
                 num_kernels_per_period=2 if return_recv_hook else 1,

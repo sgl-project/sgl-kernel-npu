@@ -5,9 +5,10 @@
 #include "register/op_def_registry.h"
 
 namespace ops {
-class ShmemMoeDistributeDispatch : public OpDef {
+class ShmemMoeDistributeDispatch : public OpDef
+{
 public:
-    explicit ShmemMoeDistributeDispatch(const char* name) : OpDef(name)
+    explicit ShmemMoeDistributeDispatch(const char *name) : OpDef(name)
     {
         this->Input("x")
             .ParamType(REQUIRED)
@@ -106,4 +107,4 @@ public:
 
 OP_ADD(ShmemMoeDistributeDispatch);
 
-} // namespace ops
+}  // namespace ops

@@ -75,7 +75,7 @@ public:
                        const std::optional<at::Tensor> &dispatch_wait_recv_cost_stats, int expert_alignment,
                        int num_worst_tokens, const Config &config, std::optional<EventHandle> &previous_event,
                        bool async, bool allocate_on_comm_stream, bool use_quant);
-                    
+
     void clean_low_latency_buffer(int num_max_dispatch_tokens_per_rank, int hidden, int num_experts);
 
     std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandle>>
@@ -106,8 +106,7 @@ public:
                          int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts, bool use_fp8, bool round_scale,
                          bool use_ue8m0, bool async, bool return_recv_hook);
 
-    std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>> 
-    low_latency_combine(
+    std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>> low_latency_combine(
         const at::Tensor &x, const at::Tensor &topk_idx, const at::Tensor &topk_weights, const at::Tensor &src_info,
         const at::Tensor &layout_range, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
         const at::Tensor &packed_recv_count, bool zero_copy, bool async, bool return_recv_hook,
