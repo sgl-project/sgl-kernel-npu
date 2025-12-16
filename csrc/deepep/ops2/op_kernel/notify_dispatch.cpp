@@ -10,8 +10,10 @@
 #define KERNEL_USE_WORKSPACE (1 * 1024 * 1024)
 
 extern "C" __global__ __aicore__ void notify_dispatch(GM_ADDR sendData, GM_ADDR tokenPerExpertData,
-                                                      GM_ADDR sendDataOffset, GM_ADDR recvData, GM_ADDR totalRecvTokens,
-                                                      GM_ADDR recvCount, GM_ADDR recvOffset, GM_ADDR maxBs,
+                                                      GM_ADDR sendDataOffset, GM_ADDR recvData, GM_ADDR recvCount,
+                                                      GM_ADDR recvOffset, GM_ADDR expertGlobalOffset,
+                                                      GM_ADDR srcrankInExpertOffset, GM_ADDR rInSrcrankOffset,
+                                                      GM_ADDR totalRecvTokens, GM_ADDR maxBs,
                                                       GM_ADDR recvTokensPerExpert, GM_ADDR workspace, GM_ADDR tilingGM)
 {
     REGISTER_TILING_DEFAULT(NotifyDispatchTilingData);

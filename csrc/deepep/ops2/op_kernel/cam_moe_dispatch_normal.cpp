@@ -10,7 +10,11 @@ using namespace CamMoeDispatchNormalImpl;
 
 extern "C" __global__ __aicore__ void cam_moe_dispatch_normal(GM_ADDR x, GM_ADDR expertIds, GM_ADDR send_offset,
                                                               GM_ADDR send_token_idx, GM_ADDR recv_offset,
-                                                              GM_ADDR recv_count, GM_ADDR expandXOut,
+                                                              GM_ADDR recv_count,
+															  GM_ADDR expert_global_offset,
+															  GM_ADDR srcrank_in_expert_offset,
+															  GM_ADDR r_in_srcrank_offset,
+															  GM_ADDR expandXOut,
                                                               GM_ADDR dynamicScalesOut, GM_ADDR assist_info_for_combine,
                                                               GM_ADDR waitRecvCostStatsOut, GM_ADDR workspaceGM,
                                                               GM_ADDR tilingGM)
