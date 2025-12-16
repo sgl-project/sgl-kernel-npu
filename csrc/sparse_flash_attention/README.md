@@ -20,7 +20,7 @@ where $M_{\text{sparse}}$ is a sparse mask defined by `sparse_indices` and `spar
 ## Function Prototype<a name="zh-cn_topic_0000001832267083_section45077510411"></a>
 
 ```
-torch.ops.npu.sparse_flash_attention(query, key, value, sparse_indices, block_table=None, actual_seq_lengths_query=None, actual_seq_lengths_kv=None, query_rope=None, key_rope=None, attention_out, scale_value, sparse_block_size, layout_query=None, layout_kv=None, sparse_mode=None) -> Tensor
+torch.ops.npu.sparse_flash_attention(query, key, value, sparse_indices, scale_value, sparse_block_size, block_table=None, actual_seq_lengths_query=None, actual_seq_lengths_kv=None, query_rope=None, key_rope=None, attention_out, layout_query=None, layout_kv=None, sparse_mode=None) -> Tensor
 ```
 
 ## Parameter Description<a name="zh-cn_topic_0000001832267083_section112637109429"></a>
@@ -49,8 +49,6 @@ torch.ops.npu.sparse_flash_attention(query, key, value, sparse_indices, block_ta
 -   **query_rope** (`Tensor`): Optional parameter, Rotary Positional Encoding (RoPE) for query. Data types supported: `bfloat16` and `float16`.
 
 -   **key_rope** (`Tensor`): Optional parameter, Rotary Positional Encoding (RoPE) for key. Data types supported: `bfloat16` and `float16`.
-
--   **attention_out** (`Tensor`): Required output parameter (in-out), tensor where attention output will be stored. Must be pre-allocated with correct shape. Data types supported: `bfloat16` and `float16`.
 
 -   **scale_value** (`float`): Required parameter, scaling factor for attention scores. Typically $1/\sqrt{d}$ where $d$ is the head dimension.
 
@@ -110,9 +108,9 @@ attention_out = torch.empty_like(query)
 scale_value = 1.0 / (head_dim ** 0.5)
 output = torch.ops.npu.sparse_flash_attention(
     query, key, value, sparse_indices,
-    attention_out=attention_out,
     scale_value=scale_value,
     sparse_block_size=sparse_block_size,
+    attention_out=attention_out,
     layout_query='BSND',
     layout_kv='BSND',
     sparse_mode=3

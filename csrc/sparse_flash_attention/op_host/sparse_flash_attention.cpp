@@ -73,7 +73,7 @@ inline void SetSparseFlashAttentionAttributes(
         sfa.SetAttrStr("layout_kv", layoutKV);
     }
     
-    sfa.SetAttrAny("sparse_mode", static_cast<int64_t>(sparse_mode.value()));
+    sfa.SetAttrAny("sparse_mode", static_cast<int64_t>(sparse_mode.value_or(3)));
 }
 
 // Helper function to get optional tensor or empty tensor

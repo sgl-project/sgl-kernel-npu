@@ -77,4 +77,4 @@ public:
         this->Attr("sparse_mode").AttrType(OPTIONAL).Int(3); // 3:默认值，只计算下三角
     }
 };
-} // namespace ops
+} // namespace sglang::Host

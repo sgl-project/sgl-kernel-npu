@@ -30,6 +30,10 @@ using namespace sglang::SFAHost;
     } while (0)
 
 
+#define SFA_TILING_KEY_FP16_BSND         16847104
+#define SFA_TILING_KEY_FP16_TND      16847122
+#define SFA_TILING_KEY_BF16_BSND         202162432
+#define SFA_TILING_KEY_BF16_TND      202162450
 
 extern "C" __global__ __aicore__ void sparse_flash_attention(
     GM_ADDR query, GM_ADDR key, GM_ADDR value,
@@ -56,18 +60,18 @@ extern "C" __global__ __aicore__ void sparse_flash_attention(
 
     // 3. 根據 Tiling Key 進行運行時分發
     switch (tilingKey) {
-        case 16847104: 
+        case SFA_TILING_KEY_FP16_BSND: 
             DISPATCH_SFA_KERNEL(half, half, half, false, SFA_LAYOUT::BSND, SFA_LAYOUT::BSND);
             break;
             
-        case 16847122: 
+        case SFA_TILING_KEY_FP16_TND: 
             DISPATCH_SFA_KERNEL(half, half, half, false, SFA_LAYOUT::TND, SFA_LAYOUT::PA_BSND);
             break;
         
-        case 33693952: 
+        case SFA_TILING_KEY_BF16_BSND: 
             DISPATCH_SFA_KERNEL(bfloat16_t, bfloat16_t, bfloat16_t, false, SFA_LAYOUT::BSND, SFA_LAYOUT::BSND);
             break;
-        case 33693970: 
+        case SFA_TILING_KEY_BF16_TND: 
             DISPATCH_SFA_KERNEL(bfloat16_t, bfloat16_t, bfloat16_t, false, SFA_LAYOUT::TND, SFA_LAYOUT::PA_BSND);
             break;
 
