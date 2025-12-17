@@ -552,6 +552,37 @@ def _causal_conv1d_update_kernel(
                 tl.store(base_ptr + 2 * stride_inter_win, col2, mask=mask_w)
 
 
+def torch_causal_conv1d_update_npu(
+    hidden_state: torch.Tensor,
+    conv_state: torch.Tensor,
+    weight: torch.Tensor,
+    conv_state_update: Optional[torch.Tensor] = None,
+    bias: Optional[torch.Tensor] = None,
+):
+    bsz, hidden_size, seq_len = hidden_state.shape
+    state_len = conv_state.shape[-1]
+    hidden_states_new = torch.cat([conv_state, hidden_state], dim=-1).to(
+        weight.dtype
+    )
+    if conv_state_update is not None:
+        for i in range(seq_len):
+            end = i - seq_len + 1
+            start = end - state_len
+            slice_range = slice(start, end if end != 0 else None)
+            conv_state_update[:, i] = hidden_states_new[:, :, slice_range]
+    else:
+        conv_state_update = hidden_states_new[:, :, -state_len:]
+    # out = F.conv1d(
+    #     hidden_states_new, weight.unsqueeze(1), bias, padding=0, groups=hidden_size
+    # )
+    # out = F.silu(out[:, :, -seq_len:])
+
+    out = torch.sum(hidden_states_new * weight, dim=-1, keepdim=True)
+    out = F.silu(out)
+    out = out.to(hidden_state.dtype)
+    return out, conv_state_update
+
+
 def causal_conv1d_update_npu(
     x: torch.Tensor,
     conv_state: torch.Tensor,
@@ -656,30 +687,17 @@ def causal_conv1d_update_npu(
         stride_inter_seq = stride_inter_step = stride_inter_dim = stride_inter_win = 0
 
     if cache_seqlens is None and num_accepted_tokens is None:
-        DIM_BLOCK = dim
-        _causal_conv1d_update_kernel_no_cache_len_no_mtp[(batch, 1, 1)](
-            x,
-            conv_state,
-            weight,
-            bias,
-            conv_state_indices,
-            out,
-            pad_slot_id,
-            batch=batch,
-            dim=dim,
-            align_val=16,
-            state_len=conv_state.shape[-1],  # 3 4 5
-            seq_len=x.shape[-1],  # 1 2
-            width=width,  # 4, <= seq_len + state_len
-            out_len=out.shape[-1],
-            x_batch_stride=x.stride()[0],
-            conv_batch_stride=conv_state.stride()[0],
-            out_batch_stride=out.stride()[0],
-            DIM_BLOCK=DIM_BLOCK,  # dim % DIM_BLOCK must be 0
-            HAS_BIAS=bias is not None,
-            SILU_ACTIVATION=activation in ["silu", "swish"],
-            IS_CONTINUOUS_BATCHING=conv_state_indices is not None,
-            USE_PAD_SLOT=pad_slot_id is not None,
+        real_bs = metadata.num_token_non_padded_cpu
+        cache_indices = conv_state_indices[:real_bs]
+        mixed_qkv_realbs = x[:real_bs, ::]
+        conv_state_update = conv_state[cache_indices]
+        out[:real_bs, ::], conv_state[cache_indices] = (
+            torch_causal_conv1d_update_npu(
+                mixed_qkv_realbs,
+                conv_state_update,
+                weight,
+                bias=bias,
+            )
         )
     else:
         _causal_conv1d_update_kernel[grid](
