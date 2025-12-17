@@ -11,7 +11,7 @@ namespace CamMoeCombineNormalImpl {
 constexpr uint32_t RANK_ID_OFFSET_IN_SRC_INFO = 0U;
 constexpr uint32_t TOKEN_IDX_OFFSET_IN_SRC_INFO = 1U;
 constexpr uint32_t TOPK_IDX_OFFSET_IN_SRC_INFO = 2U;
-constexpr uint64_t COMBINE_STATE_WIN_OFFSET = 3UL * 1024UL * 1024UL;
+constexpr uint64_t COMBINE_STATE_WIN_OFFSET = 4UL * 1024UL * 1024UL;
 constexpr uint64_t MAGIC_WIN_OFFSET = 975UL * 1024UL;
 constexpr uint32_t TOKEN_SRC_INFO_LEN = 3U;
 constexpr uint32_t UB_32_ALIGN = 32U;

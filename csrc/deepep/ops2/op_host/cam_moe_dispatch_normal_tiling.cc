@@ -69,7 +69,10 @@ constexpr uint32_t ATTR_TP_WORLD_SIZE_INDEX = 4;
 constexpr uint32_t ATTR_TP_RANK_ID_INDEX = 5;
 constexpr uint32_t ATTR_MOE_EXPERT_NUM_INDEX = 6;
 constexpr uint32_t ATTR_QUANT_MODE_INDEX = 7;
-constexpr uint32_t ATTR_GLOBAL_BS_INDEX = 8;
+constexpr uint32_t ATTR_REAL_MAX_BS_INDEX = 8;
+constexpr uint32_t ATTR_GLOBAL_BS_INDEX = 9;
+constexpr uint32_t ATTR_ROUND_INDEX = 10;
+constexpr uint32_t ATTR_PER_ROUND_TOKENS_INDEX = 11;
 
 constexpr uint32_t TWO_DIMS = 2;
 constexpr uint32_t ONE_DIM = 1;
@@ -84,7 +87,7 @@ constexpr size_t MAX_GROUP_NAME_LENGTH = 128UL;
 constexpr int64_t MAX_EP_WORLD_SIZE = 384;
 constexpr int64_t MIN_EP_WORLD_SIZE = 2;
 constexpr int64_t MAX_TP_WORLD_SIZE = 2;
-constexpr int64_t BS_UPPER_BOUND = 8000;  // 最大bs
+constexpr int64_t BS_UPPER_BOUND = 32768;  // 最大bs
 
 constexpr uint32_t TILINGKEY_TP_WORLD_SIZE = 100;
 constexpr uint32_t TP_WORLD_SIZE_TWO = 2;
@@ -114,6 +117,7 @@ static void PrintTilingDataInfo(const char *nodeName, CamMoeDispatchNormalTiling
     OP_LOGD(nodeName, "tpRankId is %u.", tilingData.camMoeDispatchNormalInfo.tpRankId);
     OP_LOGD(nodeName, "moeExpertNum is %u.", tilingData.camMoeDispatchNormalInfo.moeExpertNum);
     OP_LOGD(nodeName, "quantMode is %u.", tilingData.camMoeDispatchNormalInfo.quantMode);
+    OP_LOGD(nodeName, "realMaxBs is %u.", tilingData.camMoeDispatchNormalInfo.realMaxBs);
     OP_LOGD(nodeName, "globalBs is %u.", tilingData.camMoeDispatchNormalInfo.globalBs);
     OP_LOGD(nodeName, "bs is %u.", tilingData.camMoeDispatchNormalInfo.bs);
     OP_LOGD(nodeName, "k is %u.", tilingData.camMoeDispatchNormalInfo.k);
@@ -416,6 +420,12 @@ static ge::graphStatus CheckAttrs(gert::TilingContext *context, const char *node
 
     tilingData.camMoeDispatchNormalInfo.globalBs = static_cast<uint32_t>(*globalBsPtr);
 
+    auto roundPtr = attrs->GetAttrPointer<int64_t>(ATTR_ROUND_INDEX);
+    auto perRoundTokensPtr = attrs->GetAttrPointer<int64_t>(ATTR_PER_ROUND_TOKENS_INDEX);
+    auto realMaxBsPtr = attrs->GetAttrPointer<int64_t>(ATTR_REAL_MAX_BS_INDEX);
+    tilingData.camMoeDispatchNormalInfo.round = static_cast<uint32_t>(*roundPtr);
+    tilingData.camMoeDispatchNormalInfo.perRoundTokens = static_cast<uint32_t>(*perRoundTokensPtr);
+    tilingData.camMoeDispatchNormalInfo.realMaxBs = static_cast<uint32_t>(*realMaxBsPtr);
     return ge::GRAPH_SUCCESS;
 }
 
