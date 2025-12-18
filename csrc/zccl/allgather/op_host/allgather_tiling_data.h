@@ -16,9 +16,10 @@ namespace sglang {
 namespace npu_kernel {
 
 struct AllGatherTilingData {
-    int32_t batch_size;
-    int32_t page_size;
-    int32_t used_core_num;
+    uint32_t input_num_per_core;
+    uint32_t output_num_per_core;
+    uint32_t input_last_num_core;
+    uint32_t output_last_num_core;
 };
 
 }  // namespace npu_kernel
