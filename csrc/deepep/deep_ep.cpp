@@ -58,11 +58,11 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
         // 转换并验证数值
         char *end;
         long r = std::strtol(roundEnv, &end, 10);
-        EP_HOST_ASSERT(*end == '\0' && r >= 1 && r <= 16);
+        EP_HOST_ASSERT(*end == '\0' && r >= 1 && r <= 256);
         long t = std::strtol(tokensEnv, &end, 10);
         EP_HOST_ASSERT(*end == '\0' && t >= 32 && t <= 8192);
         // 验证乘积限制
-        EP_HOST_ASSERT(r * t <= 16384);
+        EP_HOST_ASSERT(r * t <= 131072);
         round = static_cast<int>(r);
         per_round_tokens = static_cast<int>(t);
     }
@@ -584,8 +584,6 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
     int64_t tp_world_size = 1;
     int64_t tp_rankId = 0;
     int64_t moe_expert_number = send_head.size(0);
-    int64_t global_bs = topk_idx_p.size(0) * num_ranks;
-    global_bs = real_max_bs * num_ranks;
 
     // get ep & tp name
     char hcom_ep_name[HCOMM_NAME_LEN];
@@ -601,8 +599,8 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
     std::optional<EventHandle> event;
 
     EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, tp_send_counts,
-                 hcom_ep_name, num_ranks, rank, hcom_ep_name, tp_world_size, tp_rankId, moe_expert_number, global_bs,
-                 combined_x, combine_send_cost_stats_out);
+                 hcom_ep_name, num_ranks, rank, hcom_ep_name, tp_world_size, tp_rankId, moe_expert_number, real_max_bs,
+                 round, per_round_tokens, combined_x, combine_send_cost_stats_out);
 
     if (this->is_padding) {
         if (this->padding_cnt == PADDING_SIZE) {
