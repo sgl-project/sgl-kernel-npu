@@ -1,4 +1,9 @@
-# Adapt from https://github.com/sgl-project/sglang/blob/main/python/sglang/srt/layers/attention/fla/fused_sigmoid_gating_recurrent.py
+"""
+    Optimize the core strategy by placing two heads into one core for cyclic computation to increase parallelism.
+    Adjust the order of load and store operations so that the store from the previous cycle and the load of the
+    current cycle can be performed in parallel.
+"""
+
 from typing import Optional
 
 import torch
