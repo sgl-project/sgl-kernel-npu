@@ -43,8 +43,12 @@ def causal_conv1d_fn_native(
     if initial_states is None:
         out = F.conv1d(x, weight.unsqueeze(1), bias, padding=width - 1, groups=dim)
     else:
+        if x.ndim == 2:
+            x = x.unsqueeze(0)
         x = torch.cat([initial_states, x], dim=-1)
         out = F.conv1d(x, weight.unsqueeze(1), bias, padding=0, groups=dim)
+        if out.ndim == 3:
+            out = out.squeeze(0)
     out = out[..., :seqlen]
     if return_final_states:
         final_states = F.pad(x, (width - 1 - x.shape[-1], 0)).to(
@@ -105,26 +109,34 @@ def causal_conv1d_fn_npu(
         x = x.contiguous()
     bias = bias.contiguous() if bias is not None else None
 
-    out_ref = []
     out_ref_b = []
-    out_ref_b.append(
-        causal_conv1d_fn_native(
-            x,
-            weight,
-            bias,
-            activation=activation,
-            return_final_states=True,
-            final_states_out=conv_states[cache_indices[0]].unsqueeze(0),
-            initial_states=(
-                conv_states[cache_indices[0]].unsqueeze(0)
-                if has_initial_state[0]
-                else None
-            ),
+    assert query_start_loc[-1] <= x.shape[-1], f"{query_start_loc=}, {x.shape=}"
+    for i in range(query_start_loc.numel() - 1):
+        out_ref_b.append(
+            causal_conv1d_fn_native(
+                x[..., query_start_loc[i] : query_start_loc[i + 1]],
+                weight,
+                bias,
+                activation=activation,
+                return_final_states=True,
+                final_states_out=conv_states[cache_indices[i]].unsqueeze(0),
+                initial_states=(
+                    conv_states[cache_indices[i]].unsqueeze(0)
+                    if has_initial_state[0]
+                    else None
+                ),
+            )
         )
-    )
-
-    out_ref.append(torch.cat([t[0] for t in out_ref_b], dim=-1))
-    out_ref_tensor = torch.cat(out_ref, dim=0)
+    out_ref_tensor = torch.cat([t[0] for t in out_ref_b], dim=-1)
+    if x.shape[-1] > query_start_loc[-1]:
+        pad_seqlen = x.shape[-1] - query_start_loc[-1]
+        out_ref_tensor = torch.cat(
+            [
+                out_ref_tensor,
+                out_ref_tensor.new_zeros([*out_ref_tensor.shape[:-1], pad_seqlen]),
+            ],
+            dim=-1,
+        )
     return out_ref_tensor
 
 
