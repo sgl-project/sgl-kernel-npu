@@ -7,6 +7,7 @@ option(BUILD_TESTS  "build test or not" OFF)
 option(BUILD_DEEPEP_MODULE "build deepep" ON)
 option(BUILD_KERNELS_MODULE  "build kernels" ON)
 option(BUILD_CATLASS_MODULE  "build catlass ops within kernels" OFF)
+option(BUILD_ZCCL_MODULE "build zccl" ON)
 
 set(CMAKE_CXX_STANDARD 17)
 #set(CMAKE_VERBOSE_MAKEFILE ON)
@@ -55,4 +56,8 @@ endif ()
 
 if (BUILD_DEEPEP_MODULE)
     add_subdirectory(csrc/deepep)
+endif ()
+
+if (BUILD_ZCCL_MODULE)
+    add_subdirectory(csrc/zccl)
 endif ()
