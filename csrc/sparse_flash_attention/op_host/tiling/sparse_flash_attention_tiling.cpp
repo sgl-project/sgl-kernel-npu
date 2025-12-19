@@ -46,7 +46,6 @@ static const std::string ATTEN_OUT_NAME = "attention_out";
 
 
 #define OPS_LOG_E(opName, fmt,...)printf("[ERROR]%s: " fmt "\n", opName, ##__VA_ARGS__)
-#define OPS_LOG_I(opName, fmt,...)printf("[INFO]%s: " fmt "\n", opName, ##__VA_ARGS__)
 
 const std::map<std::string, std::vector<ge::DataType>> DTYPE_SUPPORT_MAP = {
     {QUERY_NAME,                  {ge::DT_FLOAT16, ge::DT_BF16}},
@@ -223,7 +222,6 @@ void SFAMlaTiling::GenTilingKey()
                  (layoutQuery << 4)|
                  (layoutKV<<0);
 
-    OPS_LOG_I(sfaInfo_->opName, "SFA tilingKey_: %lu.", tilingKey_);
 }
 
 void SFAMlaTiling::ZeroTensorProcess()
@@ -421,7 +419,6 @@ void SFAMlaTiling::CalcBlockDim()
     auto aivNum = 2 * usedCoreNum_;
 
     blockDim_ = ascendcPlatform.CalcTschBlockDim(aivNum, aicNum, aivNum);
-    OPS_LOG_I(sfaInfo_->opName, "SFA block dim: %u aiv Num: %u aic Num: %u.", blockDim_, aivNum, aicNum);
 }
 
 ge::graphStatus SFAMlaTiling::DoOpTiling(SFATilingInfo *sfaInfo)

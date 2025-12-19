@@ -125,10 +125,15 @@ inline std::pair<at::Tensor, at::Tensor> CreateWorkspaceAndTilingTensors(
         workspace = at::empty({0}, at::TensorOptions().dtype(at::kByte).device(device));
     }
 
-    uint32_t tilingSize = sizeof(SparseFlashAttentionTilingDataMla);
+    uint32_t rawSize = sizeof(SparseFlashAttentionTilingDataMla);
+    uint32_t tilingSize = ((rawSize + 31) / SIZE) &~ 31; // 512B对齐
     at::Tensor tilingTensor = at::empty({static_cast<int64_t>(tilingSize)}, at::TensorOptions().dtype(at::kByte).device(device));
-    aclrtMemcpy(tilingTensor.data_ptr(), tilingSize, &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
-
+    static at::Tensor pinnedTilingTensor;
+    if (!pinnedTilingTensor.defined() || pinnedTilingTensor.numel() < tilingSize) {
+        pinnedTilingTensor = at::empty({static_cast<int64_t>(tilingSize)}, at::TensorOptions().dtype(at::kByte).device(at::kCPU).pinned_memory(true));
+    }
+    memcpy(pinnedTilingTensor.data_ptr(), &tilingData, rawSize);
+    tilingTensor.slice(0,0,rawSize).copy_(pinnedTilingTensor, /*non_blocking*/true);
     return {workspace, tilingTensor};
 }
 
