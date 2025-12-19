@@ -14,7 +14,7 @@
 #include "tiling/platform/platform_ascendc.h"
 #include "aclrtlaunch_allgather.h"
 #include "allgather_tiling_data.h"
-#include "torch_helper"
+#include "torch_helper.h"
 
 constexpr int64_t SYNC_FLAG_INTERVAL = 16;
 constexpr int64_t GVA_BUFF_MAX_SIZE = 100 * 1024 * 1024;
@@ -52,7 +52,7 @@ HOST_API int ZcclAllGather(void *input, void *output, uint64_t numel, HcclDataTy
 
     void *gva = shmem_malloc(block_dim * SYNC_FLAG_INTERVAL * sizeof(int) + GVA_BUFF_MAX_SIZE / sizeof(int));
 
-    ACLRT_LAUNCH_KERNEL(allgather)(block_dim, stream, input, output, gva, numel, teamId, fftsAddr, tiling_device_ptr)
+    ACLRT_LAUNCH_KERNEL(allgather)(block_dim, stream, input, output, gva, numel, teamId, fftsAddr, tiling_device_ptr);
 }
 
 }  // namespace npu_kernel

@@ -34,7 +34,7 @@ public:
         this->input_last_num_core = tiling_data->input_last_num_core;
         this->output_last_num_core = tiling_data->output_last_num_core;
         shmemx_set_ffts_config(fftsAddr);
-        AllGatherSmallData<T>(input, output, elements);
+        AllGatherSmallData<T>(input, output, gva, elements, teamId);
     }
 
     template<typename T>
@@ -111,7 +111,7 @@ extern "C" __global__ __aicore__ void allgather(GM_ADDR input, GM_ADDR output, G
     uint64_t fftsAddr, GM_ADDR tiling_tensor)
 {
     AllGatherKernel op;
-    op.Process<int>(input, output, numel, teamId, fftsAddr, tiling_tensor);
+    op.Process<int>(input, output, gva, numel, teamId, fftsAddr, tiling_tensor);
 }
 
 #endif  // SGL_KERNEL_NPU_ALL_GATHER_KERNEL_H
