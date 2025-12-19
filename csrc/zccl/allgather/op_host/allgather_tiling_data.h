@@ -18,6 +18,7 @@ namespace npu_kernel {
 struct AllGatherTilingData {
     uint32_t input_num_per_core;
     uint32_t output_num_per_core;
+    uint32_t output_core_per_rank;
     uint32_t input_last_num_core;
     uint32_t output_last_num_core;
 };

@@ -12,8 +12,8 @@
 #define SGL_KERNEL_NPU_ALL_GATHER_KERNEL_H
 
 #include "kernel_operator.h"
-#include "acl/acl.h"
 #include "shmem_api.h"
+#include "../op_host/allgather_tiling_data.h"
 
 constexpr int64_t SYNC_FLAG_INTERVAL = 16;
 constexpr int64_t UB_DMA_MAX_SIZE = 190 * 1024;
@@ -24,32 +24,36 @@ class AllGatherKernel
 public:
     __aicore__ inline AllGatherKernel() {}
 
-    __aicore__ inline void Process(GM_ADDR input, GM_ADDR output, uint64_t elements)
+    template<typename T>
+    __aicore__ inline void Process(GM_ADDR input, GM_ADDR output, GM_ADDR gva, uint64_t elements, int32_t teamId, uint64_t fftsAddr, GM_ADDR tiling_data_in)
     {
-        AllGatherSmallData<int>(input, output, elements);
+        __gm__ sglang::npu_kernel::AllGatherTilingData *tiling_data = reinterpret_cast<__gm__ sglang::npu_kernel::AllGatherTilingData*>(tiling_data_in);
+        this->input_num_per_core = tiling_data->input_num_per_core;
+        this->output_num_per_core = tiling_data->output_num_per_core;
+        this->output_core_per_rank = tiling_data->output_core_per_rank;
+        this->input_last_num_core = tiling_data->input_last_num_core;
+        this->output_last_num_core = tiling_data->output_last_num_core;
+        shmemx_set_ffts_config(fftsAddr);
+        AllGatherSmallData<T>(input, output, elements);
     }
 
     template<typename T>
-    __aicore__ inline void AllGatherSmallData(__gm__ T *inputGM, __gm__ T *outputGM, uint64_t elements)
+    __aicore__ inline void AllGatherSmallData(__gm__ uint8_t *inputGM, __gm__ uint8_t *outputGM, __gm__ uint8_t *gva, uint64_t elements, int32_t teamId)
     {
-        const int64_t aivNum = GetBlockNum();
-        const int64_t aivIndex = GetBlockIdx();
+        const int64_t aivNum = AscendC::GetBlockNum();
+        const int64_t aivIndex = AscendC::GetBlockIdx();
 
         const int64_t data_offset = aivNum * SYNC_FLAG_INTERVAL;
         const int64_t flag_offset = aivIndex * SYNC_FLAG_INTERVAL;
 
-        void *ptr = shmem_malloc(aiv_num * SYNC_FLAG_INTERVAL * sizeof(T) + GVA_BUFF_MAX_SIZE / sizeof(T));
-        __gm__ T *gva = (__gm__ T *)ptr;
-
         int64_t my_rank = shmem_my_pe();
-        int64_t pe_size = shmem_n_pes();
         
         AscendC::GlobalTensor<T> inputGT;
-        inputGT.SetGlobalBuffer(inputGM, elements);
+        inputGT.SetGlobalBuffer((__gm__ T *)inputGM, elements);
         AscendC::GlobalTensor<T> outputGT;
-        outputGT.SetGlobalBuffer(outputGM, elements);
+        outputGT.SetGlobalBuffer((__gm__ T *)outputGM, elements);
         AscendC::GlobalTensor<T> dataGT;
-        dataGT.SetGlobalBuffer(gva + data_offset, elements);
+        dataGT.SetGlobalBuffer((__gm__ T *)gva + data_offset, elements);
         
         __gm__ int32_t *gva_sync_gm = (__gm__ int32_t *)gva;
 
@@ -61,15 +65,16 @@ public:
 
         // [AllGather Step 1] local input gm -> symmetric mem.
 
+        num_per_core = this->input_num_per_core;
         input_offset = aivIndex * num_per_core;
         gva_offset = aivIndex * num_per_core;
         if (aivIndex == aivNum - 1) {
-            num_per_core = elements - num_per_core * aivIndex;
+            num_per_core = this->input_last_num_core;
         }
 
         shmem_mte_put_mem_nbi(dataGT[gva_offset], inputGT[input_offset], tmp_buff, num_per_core, my_rank, EVENT_ID0);
 
-        const int64_t core_per_rank = aivNum / pe_size;
+        const int64_t core_per_rank = this->output_core_per_rank;
         const int64_t core_rank_idx = aivIndex % core_per_rank;
         const int64_t x = aivIndex / core_per_rank;
 
@@ -82,11 +87,11 @@ public:
         shmem_signal_wait_until((__gm__ int32_t *)shmem_ptr(gva_sync_gm, x) + flag_offset, SHMEM_CMP_EQ, magic);
 
         // [AllGather Step 2] symmetric mem -> local output.
-        num_per_core = elements / core_per_rank;
+        num_per_core = elements / this->output_core_per_rank;
         output_offset = x * elements + core_rank_idx * num_per_core;
         gva_offset = core_rank_idx * num_per_core;
         if (core_rank_idx == core_per_rank - 1) {
-            num_per_core = elements - num_per_core * core_rank_idx;
+            num_per_core = this->output_last_num_core;
         }
 
         shmem_mte_get_mem_nbi(outputGT[output_offset], dataGT[gva_offset], tmp_buff, num_per_core, my_rank, EVENT_ID0);
@@ -94,16 +99,19 @@ public:
 
 private:
     int64_t aivNum;
-    uint32_t tileNum;
-    uint32_t tileLength;
+    uint32_t input_num_per_core;
+    uint32_t output_num_per_core;
+    uint32_t output_core_per_rank;
+    uint32_t input_last_num_core;
+    uint32_t output_last_num_core;
 };
 
 
-extern "C" __global__ __aicore__ void allgather(GM_ADDR input, GM_ADDR output, uint32_t numel, uint32_t teamId, 
-    uint32_t fftsAddr, tiling_tensor)
+extern "C" __global__ __aicore__ void allgather(GM_ADDR input, GM_ADDR output, GM_ADDR gva, uint32_t numel, uint32_t teamId, 
+    uint64_t fftsAddr, GM_ADDR tiling_tensor)
 {
     AllGatherKernel op;
-    op.Process(input, output, numel, teamId, fftsAddr, tiling_tensor);
+    op.Process<int>(input, output, numel, teamId, fftsAddr, tiling_tensor);
 }
 
 #endif  // SGL_KERNEL_NPU_ALL_GATHER_KERNEL_H
