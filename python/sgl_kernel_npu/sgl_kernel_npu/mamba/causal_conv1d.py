@@ -152,22 +152,22 @@ def _causal_conv1d_update_kernel_no_cache_len_no_mtp(
     batch: tl.constexpr,
     dim: tl.constexpr,
     align_val: tl.constexpr,
-    state_len: tl.constexpr,  # 3 4 5
-    seq_len: tl.constexpr,  # 1 2
-    width: tl.constexpr,  # 4, <= seq_len + state_len
+    state_len: tl.constexpr,
+    seq_len: tl.constexpr,
+    width: tl.constexpr,
     out_len: tl.constexpr,
     x_batch_stride: tl.constexpr,
     conv_batch_stride: tl.constexpr,
     out_batch_stride: tl.constexpr,
-    DIM_BLOCK: tl.constexpr,  # dim % DIM_BLOCK must be 0
+    DIM_BLOCK: tl.constexpr,
     HAS_BIAS: tl.constexpr,
     SILU_ACTIVATION: tl.constexpr,
     IS_CONTINUOUS_BATCHING: tl.constexpr,
     USE_PAD_SLOT: tl.constexpr,
 ):
     pid = tl.program_id(0)
-    cat_len: tl.constexpr = state_len + seq_len  # 4
-    sub_state_len: tl.constexpr = state_len - seq_len  # 3
+    cat_len: tl.constexpr = state_len + seq_len
+    sub_state_len: tl.constexpr = state_len - seq_len
     sub_align_dim: tl.constexpr = DIM_BLOCK // align_val
 
     conv_begin: tl.constexpr = (cat_len - width + 1) - seq_len
@@ -584,10 +584,6 @@ def torch_causal_conv1d_update_npu(
             conv_state_update[:, i] = hidden_states_new[:, :, slice_range]
     else:
         conv_state_update = hidden_states_new[:, :, -state_len:]
-    # out = F.conv1d(
-    #     hidden_states_new, weight.unsqueeze(1), bias, padding=0, groups=hidden_size
-    # )
-    # out = F.silu(out[:, :, -seq_len:])
 
     out = torch.sum(hidden_states_new * weight, dim=-1, keepdim=True)
     out = F.silu(out)
@@ -699,13 +695,10 @@ def causal_conv1d_update_npu(
         stride_inter_seq = stride_inter_step = stride_inter_dim = stride_inter_win = 0
 
     if cache_seqlens is None and num_accepted_tokens is None:
-        real_bs = metadata.num_token_non_padded_cpu
-        cache_indices = conv_state_indices[:real_bs]
-        mixed_qkv_realbs = x[:real_bs, ::]
         conv_state_update = conv_state[cache_indices]
-        out[:real_bs, ::], conv_state[cache_indices] = (
+        out, conv_state[cache_indices] = (
             torch_causal_conv1d_update_npu(
-                mixed_qkv_realbs,
+                x,
                 conv_state_update,
                 weight,
                 bias=bias,

@@ -276,7 +276,6 @@ def layer_norm_fwd_npu(
         else None
     )
     rstd = torch.empty((ngroups * M,), dtype=torch.float32, device=x.device)
-    # ... [same assertions as before] ...
 
     MAX_FUSED_SIZE = 65536 // x.element_size()
     BLOCK_N = min(MAX_FUSED_SIZE, triton.next_power_of_2(group_size))

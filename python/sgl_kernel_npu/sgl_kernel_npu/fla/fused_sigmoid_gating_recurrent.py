@@ -16,32 +16,32 @@ from sgl_kernel_npu.fla.utils import input_guard
 )
 @triton.jit(do_not_specialize=["T"])
 def fused_sigmoid_gating_delta_rule_update_npu_kernel(
-        A_log,  # shape: 2
-        a,  # shape: 1, 2
-        dt_bias,  # shape: 2
-        softplus_beta,  # 1.0
-        softplus_threshold,  # 20.0
-        q,  # shape: 1,1,1,128
-        k,  # shape: 1,1,1,128
-        v,  # shape: 1,1,2,128
-        b,  # shape: 1,2
-        o,  # shape: 1,1,1,2,128
-        h0_source,  # shape: 33, 2, 128, 128
-        h0_indices,  # shape: 1
-        cu_seqlens,  # shape: 2
-        scale,  # 0.08838834764831845
-        T,  # 1
-        B: tl.constexpr,  # 1
-        H: tl.constexpr,  # 1
-        HV: tl.constexpr,  # 2
-        K: tl.constexpr,  # 128
-        V: tl.constexpr,  # 128
-        BK: tl.constexpr,  # 128
-        BV: tl.constexpr,  # 8
+        A_log,
+        a,
+        dt_bias,
+        softplus_beta,
+        softplus_threshold,
+        q,
+        k,
+        v,
+        b,
+        o,
+        h0_source,
+        h0_indices,
+        cu_seqlens,
+        scale,
+        T,
+        B: tl.constexpr,
+        H: tl.constexpr,
+        HV: tl.constexpr,
+        K: tl.constexpr,
+        V: tl.constexpr,
+        BK: tl.constexpr,
+        BV: tl.constexpr,
         BHV: tl.constexpr,
-        USE_INITIAL_STATE: tl.constexpr,  # true
-        USE_QK_L2NORM_IN_KERNEL: tl.constexpr,  # 1
-        IS_VARLEN: tl.constexpr,  # 3
+        USE_INITIAL_STATE: tl.constexpr,
+        USE_QK_L2NORM_IN_KERNEL: tl.constexpr,
+        IS_VARLEN: tl.constexpr,
 ):
     """
     Fused kernel that combines sigmoid gating computation with recurrent delta rule update.
