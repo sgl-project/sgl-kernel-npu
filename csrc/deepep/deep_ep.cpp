@@ -323,10 +323,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         recv_topk_weights = at::empty({trt, num_topk}, topk_weights->options());
     }
 
-    // if (rank == 0) {
-    //     std::cout << "rank " << rank << " send_data_offset " << send_data_offset << " recv_count_ " << recv_count_ <<
-    //     " recv_offset_ " << recv_offset_ << std::endl;
-    // }
     EXEC_NPU_CMD(aclnnCamMoeDispatchNormal, new_x, expert_ids, send_data_offset, send_token_idx_small, recv_offset_,
                  recv_count_, hcom_ep_name,
                  num_ranks,  // rankSize
@@ -786,9 +782,6 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         at::empty({num_max_tokens, hidden}, new_x.options().dtype(use_fp8 ? at::kChar : at::kBFloat16));
     auto packed_recv_x_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
     auto expandIdx = at::empty({max_size}, at::dtype(at::kInt).device(device));
-    if (shmem_enable) {
-        expandIdx = at::empty({num_tokens * num_topk}, at::dtype(at::kInt).device(device));
-    }
 
     int32_t server_num = num_ranks / LOCAL_RANK_SIZE;
     at::Tensor ep_recv_count =
@@ -837,7 +830,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         // get shmem_ptr_info
         int64_t ext_info = (int64_t)shmem_ptr;
 
-        EXEC_NPU_CMD(aclnnShmemMoeDistributeDispatch, new_x, new_topk_idx,
+        EXEC_NPU_CMD(aclnnShmemMoeDistributeDispatchV2, new_x, new_topk_idx,
                      scales,       // smooth scales,
                      active_mask,  // active_mask
                      num_ranks,    // rankSize
@@ -852,7 +845,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
                      global_bs,               // global_bs
                      expert_token_nums_type,  // expert_token_nums_type
                      ext_info,                // shmem_ptr as
-                     packed_recv_x,
+                     comm_alg, packed_recv_x,
                      packed_recv_x_scales,  // dynamicScalesOut
                      expandIdx,
                      packed_recv_count,  // expertTokenNumsOut
@@ -968,11 +961,11 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     if (shmem_enable) {
         // get shmem_ptr_info
         int64_t ext_info = (int64_t)shmem_ptr;
-        EXEC_NPU_CMD(aclnnShmemMoeDistributeCombine, expand_x, expert_ids, expand_idx, ep_send_counts, expert_scales,
+        EXEC_NPU_CMD(aclnnShmemMoeDistributeCombineV2, expand_x, expert_ids, expand_idx, ep_send_counts, expert_scales,
                      tp_send_counts, x_active_mask, activation_scale, weight_scale, group_list, expand_scales,
-                     num_ranks, rank, num_experts, tp_world_size, tp_rankId, expert_shared_type, shared_expert_num,
-                     shared_expert_rank_num, global_bs, comm_quant_mode, ext_info, out_dtype, group_list_type,
-                     combined_x);
+                     shared_expert_x, num_ranks, rank, num_experts, tp_world_size, tp_rankId, expert_shared_type,
+                     shared_expert_num, shared_expert_rank_num, global_bs, out_dtype, comm_quant_mode, ext_info,
+                     group_list_type, comm_alg, combined_x);
     } else {
         // get ep & tp name
         char hcom_ep_name[HCOMM_NAME_LEN];
