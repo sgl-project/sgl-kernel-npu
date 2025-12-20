@@ -693,8 +693,8 @@ def causal_conv1d_update_npu(
         stride_inter_seq = stride_inter_step = stride_inter_dim = stride_inter_win = 0
 
     if cache_seqlens is None and num_accepted_tokens is None:
-        conv_state_update = conv_state[cache_indices]
-        out, conv_state[cache_indices] = torch_causal_conv1d_update_npu(
+        conv_state_update = conv_state[conv_state_indices]
+        out, conv_state[conv_state_indices] = torch_causal_conv1d_update_npu(
             x,
             conv_state_update,
             weight,
