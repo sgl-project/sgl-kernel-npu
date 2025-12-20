@@ -229,8 +229,8 @@ def test(
             dispatch_t, combine_t = bench_kineto(
                 partial(test_func, zero_copy=False, return_recv_hook=return_recv_hook),
                 kernel_names=(
-                    "ShmemMoeDistributeDispatch",
-                    "ShmemMoeDistributeCombine",
+                    "ShmemMoeDistributeDispatchV2",
+                    "ShmemMoeDistributeCombineV2",
                 ),
                 barrier_comm_profiling=True,
                 suppress_kineto_output=True,
