@@ -573,9 +573,7 @@ def torch_causal_conv1d_update_npu(
 ):
     bsz, hidden_size, seq_len = hidden_state.shape
     state_len = conv_state.shape[-1]
-    hidden_states_new = torch.cat([conv_state, hidden_state], dim=-1).to(
-        weight.dtype
-    )
+    hidden_states_new = torch.cat([conv_state, hidden_state], dim=-1).to(weight.dtype)
     if conv_state_update is not None:
         for i in range(seq_len):
             end = i - seq_len + 1
@@ -696,13 +694,11 @@ def causal_conv1d_update_npu(
 
     if cache_seqlens is None and num_accepted_tokens is None:
         conv_state_update = conv_state[cache_indices]
-        out, conv_state[cache_indices] = (
-            torch_causal_conv1d_update_npu(
-                x,
-                conv_state_update,
-                weight,
-                bias=bias,
-            )
+        out, conv_state[cache_indices] = torch_causal_conv1d_update_npu(
+            x,
+            conv_state_update,
+            weight,
+            bias=bias,
         )
     else:
         _causal_conv1d_update_kernel[grid](

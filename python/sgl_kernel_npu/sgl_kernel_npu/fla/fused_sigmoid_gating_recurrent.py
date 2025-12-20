@@ -2,9 +2,9 @@
 from typing import Optional
 
 import torch
+import torch.nn.functional as F
 import triton
 import triton.language as tl
-import torch.nn.functional as F
 from sgl_kernel_npu.fla.utils import input_guard
 
 
@@ -16,32 +16,32 @@ from sgl_kernel_npu.fla.utils import input_guard
 )
 @triton.jit(do_not_specialize=["T"])
 def fused_sigmoid_gating_delta_rule_update_npu_kernel(
-        A_log,
-        a,
-        dt_bias,
-        softplus_beta,
-        softplus_threshold,
-        q,
-        k,
-        v,
-        b,
-        o,
-        h0_source,
-        h0_indices,
-        cu_seqlens,
-        scale,
-        T,
-        B: tl.constexpr,
-        H: tl.constexpr,
-        HV: tl.constexpr,
-        K: tl.constexpr,
-        V: tl.constexpr,
-        BK: tl.constexpr,
-        BV: tl.constexpr,
-        BHV: tl.constexpr,
-        USE_INITIAL_STATE: tl.constexpr,
-        USE_QK_L2NORM_IN_KERNEL: tl.constexpr,
-        IS_VARLEN: tl.constexpr,
+    A_log,
+    a,
+    dt_bias,
+    softplus_beta,
+    softplus_threshold,
+    q,
+    k,
+    v,
+    b,
+    o,
+    h0_source,
+    h0_indices,
+    cu_seqlens,
+    scale,
+    T,
+    B: tl.constexpr,
+    H: tl.constexpr,
+    HV: tl.constexpr,
+    K: tl.constexpr,
+    V: tl.constexpr,
+    BK: tl.constexpr,
+    BV: tl.constexpr,
+    BHV: tl.constexpr,
+    USE_INITIAL_STATE: tl.constexpr,
+    USE_QK_L2NORM_IN_KERNEL: tl.constexpr,
+    IS_VARLEN: tl.constexpr,
 ):
     """
     Fused kernel that combines sigmoid gating computation with recurrent delta rule update.
@@ -82,9 +82,9 @@ def fused_sigmoid_gating_delta_rule_update_npu_kernel(
 
         for i in range(T):
             # Load inputs
-            b_q = tl.load(p_q + i * H * K, mask=mask_k).to(tl.float32) #128 * float32
-            b_k = tl.load(p_k + i * H * K, mask=mask_k).to(tl.float32) #128 * float32
-            b_v = tl.load(p_v + i * HV * V, mask=mask_v).to(tl.float32) #64 * float32
+            b_q = tl.load(p_q + i * H * K, mask=mask_k).to(tl.float32)  # 128 * float32
+            b_k = tl.load(p_k + i * H * K, mask=mask_k).to(tl.float32)  # 128 * float32
+            b_v = tl.load(p_v + i * HV * V, mask=mask_v).to(tl.float32)  # 64 * float32
             b_b = tl.load(p_b + i * HV).to(tl.float32)
 
             # Compute sigmoid gating
@@ -98,11 +98,11 @@ def fused_sigmoid_gating_delta_rule_update_npu_kernel(
                 idx = tl.load(h0_indices + i_n)  #
                 if idx >= 0:
                     p_h0 = (
-                            h0_source
-                            + idx * HV * K * V
-                            + i_hv * K * V
-                            + o_k[:, None] * V
-                            + o_v[None, :]
+                        h0_source
+                        + idx * HV * K * V
+                        + i_hv * K * V
+                        + o_k[:, None] * V
+                        + o_v[None, :]
                     )  # 128 * 64 * int32
                     b_h = tl.load(p_h0, mask=mask_h).to(tl.float32)
 
@@ -146,32 +146,33 @@ def fused_sigmoid_gating_delta_rule_update_npu_kernel(
                 idx = tl.load(h0_indices + i_n)
                 if idx >= 0:
                     p_h0 = (
-                            h0_source
-                            + idx * HV * K * V
-                            + i_hv * K * V
-                            + o_k[:, None] * V
-                            + o_v[None, :]
+                        h0_source
+                        + idx * HV * K * V
+                        + i_hv * K * V
+                        + o_k[:, None] * V
+                        + o_v[None, :]
                     )  # 128 * 64 * int32
                     tl.store(p_h0, b_h.to(p_h0.dtype.element_ty), mask=mask_h)
 
             tl.store(p_o + i * HV * V, b_o.to(p_o.dtype.element_ty), mask=mask_v)
 
+
 @input_guard
 def fused_sigmoid_gating_delta_rule_update_npu(
-        A_log: torch.Tensor,
-        a: torch.Tensor,
-        dt_bias: torch.Tensor,
-        softplus_beta: float,
-        softplus_threshold: float,
-        q: torch.Tensor,
-        k: torch.Tensor,
-        v: torch.Tensor,
-        b: torch.Tensor,
-        initial_state_source: torch.Tensor,
-        initial_state_indices: torch.Tensor,
-        scale: Optional[float] = None,
-        use_qk_l2norm_in_kernel: bool = False,
-        cu_seqlens: Optional[torch.Tensor] = None,
+    A_log: torch.Tensor,
+    a: torch.Tensor,
+    dt_bias: torch.Tensor,
+    softplus_beta: float,
+    softplus_threshold: float,
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    b: torch.Tensor,
+    initial_state_source: torch.Tensor,
+    initial_state_indices: torch.Tensor,
+    scale: Optional[float] = None,
+    use_qk_l2norm_in_kernel: bool = False,
+    cu_seqlens: Optional[torch.Tensor] = None,
 ):
     """
     Fused triton implementation of sigmoid gating delta rule update.
@@ -195,7 +196,7 @@ def fused_sigmoid_gating_delta_rule_update_npu(
     o = q.new_empty(NK, *v.shape)
     BHV = 2
     NHV = HV // BHV
-    grid = (NV, N, NHV)   #1, 2, 32*8
+    grid = (NV, N, NHV)  #1, 2, 32*8
 
     fused_sigmoid_gating_delta_rule_update_npu_kernel[grid](
         A_log=A_log,
