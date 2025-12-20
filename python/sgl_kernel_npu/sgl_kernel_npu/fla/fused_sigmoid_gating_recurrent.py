@@ -196,7 +196,7 @@ def fused_sigmoid_gating_delta_rule_update_npu(
     o = q.new_empty(NK, *v.shape)
     BHV = 2
     NHV = HV // BHV
-    grid = (NV, N, NHV)  #1, 2, 32*8
+    grid = (NV, N, NHV)
 
     fused_sigmoid_gating_delta_rule_update_npu_kernel[grid](
         A_log=A_log,
