@@ -17,6 +17,10 @@ constexpr int MAX_BATCH_SIZE = 4096;
 constexpr int EXPERT_DATA_SIZE = 1 + MAX_BATCH_SIZE;  // 4097
 constexpr int A3_MAX_HCCS_PEERS = 384;
 constexpr int A2_MAX_HCCS_PEERS = 8;
+constexpr uint32_t MAX_ROUNDS = 256;
+constexpr uint32_t MIN_TOKENS_PER_ROUND = 32;
+constexpr uint32_t MAX_TOKENS_PER_ROUND = 8192;
+constexpr uint32_t MAX_TOTAL_TOKENS = 131072;
 
 Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
                std::string moe_all_to_all_group_name)
@@ -58,9 +62,9 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
         // 转换并验证数值
         char *end;
         long r = std::strtol(roundEnv, &end, 10);
-        EP_HOST_ASSERT(*end == '\0' && r >= 1 && r <= 256);
+        EP_HOST_ASSERT(*end == '\0' && r >= 1 && r <= MAX_ROUNDS);
         long t = std::strtol(tokensEnv, &end, 10);
-        EP_HOST_ASSERT(*end == '\0' && t >= 32 && t <= 8192);
+        EP_HOST_ASSERT(*end == '\0' && t >= MIN_TOKENS_PER_ROUND && t <= MAX_TOKENS_PER_ROUND);
         // 验证乘积限制
         EP_HOST_ASSERT(r * t <= 131072);
         round = static_cast<int>(r);

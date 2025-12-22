@@ -131,10 +131,8 @@ private:
     // send用到的数据
     uint32_t sendCostStatsBufSize_{0};
     uint32_t needSendTokenCnt_{0};
-    uint32_t RecvTokenoffset_{0};  // 已经接收的token数，用作offset
     uint32_t RecvTokenNum_{0};
-    uint32_t perCoreBlockNum_{
-        0};  // 每个core需要负责的block数，共有moeExpertNum个block，一个block表示某个expert从某个rank接收的token
+    uint32_t perCoreBlockNum_{0};  // 每个core需要负责的block数，一个block表示某个expert从某个rank接收的token
     uint32_t startBlockId_{0};
     uint32_t endBlockId_{0};
     uint32_t preRecvCount_{0};
@@ -372,7 +370,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::CopyBufferToSha
         uint32_t sendTokenOffset = roundSendOffsetLT_(blockIndex);
         uint32_t startTokenId = sendTokenOffset;  // 这一轮要发的token在recvX中的偏移
         uint32_t roundActualSendCount = 0;        // 这一轮blockIndex实际发送的token数，<= roundMaxSendCount
-        uint32_t srcInfoLen = roundMaxSendCount * TOKEN_SRC_INFO_LEN * sizeof(float);  // 可能拷贝多了
+        uint32_t srcInfoLen = roundMaxSendCount * TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType);  // 可能拷贝多了
         const DataCopyExtParams dataCopyParams{1U, srcInfoLen, 0U, 0U, 0U};
         const DataCopyPadExtParams<SrcInfoType> padParams{false, 0U, 0U, 0U};
         DataCopyPad(srcInfoLT_, tokenSrcInfoGM_[startTokenId * TOKEN_SRC_INFO_LEN], dataCopyParams, padParams);

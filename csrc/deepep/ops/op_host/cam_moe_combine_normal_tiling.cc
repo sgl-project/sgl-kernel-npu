@@ -440,7 +440,9 @@ static bool CheckAttrs(gert::TilingContext *context, CamMoeCombineNormalTilingDa
         tilingData.camMoeCombineNormalInfo.realMaxBs = static_cast<uint32_t>(topkWeightsDim0);
     }
     auto maxRoundPtr = attrs->GetAttrPointer<int64_t>(ATTR_MAX_ROUND_INDEX);
+    OP_TILING_CHECK(maxRoundPtr == nullptr, OP_LOGE(nodeName, "maxRound is null."), return false);
     auto perRoundTokensPtr = attrs->GetAttrPointer<int64_t>(ATTR_PER_ROUND_TOKENS_INDEX);
+    OP_TILING_CHECK(perRoundTokensPtr == nullptr, OP_LOGE(nodeName, "perRoundTokens is null."), return false);
     tilingData.camMoeCombineNormalInfo.maxRound = static_cast<uint32_t>(*maxRoundPtr);
     tilingData.camMoeCombineNormalInfo.perRoundTokens = static_cast<uint32_t>(*perRoundTokensPtr);
     return true;
@@ -538,7 +540,7 @@ static ge::graphStatus CamMoeCombineNormalA3TilingFuncImpl(gert::TilingContext *
         OP_LOGE(nodeName,
                 "HCCL_BUFFSIZE is too SMALL, perRoundTokens = %lu, h = %lu, epWorldSize = %lu, localMoeExpertNum = %u,"
                 " tokenNeedSizeCombine = %lu, k = %lu, NEEDED_HCCL_BUFFSIZE("
-                "((perRoundTokens * k * tokenNeedSizeCombine)) + 8MB + 52MB) * 2) = %luMB, "
+                "((perRoundTokens * k * tokenNeedSizeCombine)) + 8MB + 102MB) * 2) = %luMB, "
                 "HCCL_BUFFSIZE=%luMB.",
                 perRoundTokens, h, epWorldSize, localMoeExpertNum, tokenNeedSizeCombine, k, actualSize / MB_SIZE + 1UL,
                 maxWindowSize / MB_SIZE),
