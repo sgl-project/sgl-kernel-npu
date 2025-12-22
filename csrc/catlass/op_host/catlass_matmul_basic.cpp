@@ -57,7 +57,7 @@ at::Tensor get_tiling(int32_t &m, int32_t &n, int32_t k, int64_t weight_format_m
     tiling_data->weight_format_mode = weight_format_mode;
     tiling_data->data_format_mode = data_format_mode;
 
-    auto tiling_tensor = TorchNpuHepler::CopyTensorHostToDevice(tiling_buffer);
+    auto tiling_tensor = TorchNpuHelper::CopyTensorHostToDevice(tiling_buffer);
     return tiling_tensor;
 }
 
