@@ -25,8 +25,8 @@ struct PrologueTraitsWithScale : public Prologue {
     using TensorDst = AscendC::GlobalTensor<typename Prologue::ElementDst>;
 
     using ElementScale = typename Prologue::ElementScale;
-    using LayoutScale  = typename Prologue::LayoutScale;
-    using TensorScale  = AscendC::GlobalTensor<typename Prologue::ElementScale>;
+    using LayoutScale = typename Prologue::LayoutScale;
+    using TensorScale = AscendC::GlobalTensor<typename Prologue::ElementScale>;
 };
 
 template <>
@@ -46,10 +46,10 @@ struct PrologueTraitsWithScale<void> {
     using Params = EmptyType;
 
     template <class... Args>
-    CATLASS_DEVICE
-    PrologueTraitsWithScale(Args...) {}
+    CATLASS_DEVICE PrologueTraitsWithScale(Args...)
+    {}
 };
 
-} //namespace Catlass::Gemm::Tile
+}  //namespace Catlass::Gemm::Tile
 
-#endif
+#endif  // CATLASS_GEMM_PROLOGUE_TRATIS_WITH_SCALE_HPP

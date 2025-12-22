@@ -23,7 +23,8 @@
 
 namespace sglang {
 namespace npu_kernel {
-HOST_API at::Tensor fp8_w8a16_matmul(const at::Tensor &mat1, const at::Tensor &mat2, const at::Tensor &scale, const std::string &outDType)
+HOST_API at::Tensor fp8_w8a16_matmul(const at::Tensor &mat1, const at::Tensor &mat2, const at::Tensor &scale,
+                                     const std::string &outDType)
 {
     at::ScalarType scalar_type = mat1.scalar_type();
 
@@ -35,7 +36,7 @@ HOST_API at::Tensor fp8_w8a16_matmul(const at::Tensor &mat1, const at::Tensor &m
     void *w_ptr = mat2.data_ptr();
     void *scale_ptr = scale.data_ptr();
 
-    auto outputDataType = TypeStrToAclDtype(outDType);    
+    auto outputDataType = TypeStrToAclDtype(outDType);
     at::Tensor output = GetOutputTensor({m, n}, AclDtypeToTorchDtype(outputDataType));
     void *y_ptr = output.data_ptr();
 
@@ -44,12 +45,11 @@ HOST_API at::Tensor fp8_w8a16_matmul(const at::Tensor &mat1, const at::Tensor &m
     uint32_t workspace_size = 4 * 256 * 256 * sizeof(outputDataType) * aicCoreNum;
     auto workspace_tensor =
         at::empty({workspace_size}, at::TensorOptions().dtype(at::kByte).device(mat1.options().device()));
-    void *workspace_ptr = workspace_tensor.data_ptr();;
+    void *workspace_ptr = workspace_tensor.data_ptr();
 
     at_npu::native::OpCommand cmd;
     cmd.Name("catlass_fp8w8a16_matmul_bfloat16_t");
-    cmd.SetCustomHandler([aicCoreNum, stream, x_ptr, w_ptr, scale_ptr, y_ptr, 
-                        workspace_ptr, m, n, k]() -> int {
+    cmd.SetCustomHandler([aicCoreNum, stream, x_ptr, w_ptr, scale_ptr, y_ptr, workspace_ptr, m, n, k]() -> int {
         int device_id = 0;
         int64_t aiv_num = 0;
         TORCH_CHECK(aclGetDeviceCapability(device_id, ACL_DEVICE_INFO_VECTOR_CORE_NUM, &aiv_num) == ACL_SUCCESS);
@@ -63,5 +63,5 @@ HOST_API at::Tensor fp8_w8a16_matmul(const at::Tensor &mat1, const at::Tensor &m
     return output;
 }
 
-}
-} // namespace sglang
+}  // namespace npu_kernel
+}  // namespace sglang

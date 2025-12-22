@@ -24,6 +24,6 @@ struct MmadAtlasA2PingPongWithPrologueBFP8 : public MmadAtlasA2 {
     static constexpr bool ENABLE_UNIT_FLAG = ENABLE_UNIT_FLAG_;
 };
 
-} // namespace Catlass::Gemm
+}  // namespace Catlass::Gemm
 
-#endif // CATLASS_GEMM_DISPATCH_POLICY_HPP
+#endif  // CATLASS_GEMM_DISPATCH_POLICY_EXT_HPP

@@ -31,24 +31,16 @@
 using namespace Catlass;
 using namespace matmul;
 
-extern "C" __global__ __aicore__ void catlass_fp8w8a16_gmm_bfloat16_t(
-    GM_ADDR deviceA,
-    GM_ADDR deviceB,
-    GM_ADDR deviceScale,
-    GM_ADDR deviceGroupList,
-    GM_ADDR deviceC,
-    GM_ADDR deviceWorkspace,
-    uint32_t g,
-    uint32_t m,
-    uint32_t n,
-    uint32_t k
-)
+extern "C" __global__ __aicore__ void catlass_fp8w8a16_gmm_bfloat16_t(GM_ADDR deviceA, GM_ADDR deviceB,
+                                                                      GM_ADDR deviceScale, GM_ADDR deviceGroupList,
+                                                                      GM_ADDR deviceC, GM_ADDR deviceWorkspace,
+                                                                      uint32_t g, uint32_t m, uint32_t n, uint32_t k)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
 
     GemmCoord problemShape{m, n, k};
     uint32_t problemCount = g;
-    uint32_t groupSize = 128; 
+    uint32_t groupSize = 128;
     using ElementA = bfloat16_t;
     using ElementPrologueB = int8_t;
     using ElementB = bfloat16_t;
@@ -71,12 +63,12 @@ extern "C" __global__ __aicore__ void catlass_fp8w8a16_gmm_bfloat16_t(
 
     half deqScalar = 1.0;
     half deqZeroPoint = 0.0;
-    using L1TileShape = std::conditional_t<
-        std::is_same_v<LayoutA, layout::ColumnMajor> && std::is_same_v<LayoutB, layout::ColumnMajor>,
-        GemmShape<256, 128, 256>, GemmShape<128, 256, 256>>;
-    using L0TileShape = std::conditional_t<
-        std::is_same_v<LayoutA, layout::ColumnMajor> && std::is_same_v<LayoutB, layout::ColumnMajor>,
-        GemmShape<256, 128, 64>, GemmShape<128, 256, 64>>;
+    using L1TileShape =
+        std::conditional_t<std::is_same_v<LayoutA, layout::ColumnMajor> && std::is_same_v<LayoutB, layout::ColumnMajor>,
+                           GemmShape<256, 128, 256>, GemmShape<128, 256, 256>>;
+    using L0TileShape =
+        std::conditional_t<std::is_same_v<LayoutA, layout::ColumnMajor> && std::is_same_v<LayoutB, layout::ColumnMajor>,
+                           GemmShape<256, 128, 64>, GemmShape<128, 256, 64>>;
 
     using PrologueSrcType = Gemm::GemmType<ElementPrologueB, LayoutPrologueB>;
     using PrologueDstType = Gemm::GemmType<ElementB, LayoutB>;
@@ -90,24 +82,19 @@ extern "C" __global__ __aicore__ void catlass_fp8w8a16_gmm_bfloat16_t(
     using DispatchPolicy = Gemm::MmadAtlasA2PingPongWithPrologueBFP8<ENABLE_UNIT_FLAG>;
     using PrologueA = void;
     constexpr uint32_t computeLen = 8 * 1024;
-    using PrologueB = Gemm::Tile::TileCastFp8ToBf16WithScaleDequant<ArchTag, PrologueSrcType, PrologueDstType, PrologueScaleType, computeLen>;
+    using PrologueB = Gemm::Tile::TileCastFp8ToBf16WithScaleDequant<ArchTag, PrologueSrcType, PrologueDstType,
+                                                                    PrologueScaleType, computeLen>;
     using TileCopy = Gemm::Tile::TileCopyWithPrologue<ArchTag, AType, BType, CType, PrologueA, PrologueB>;
-    using BlockMmadOpt = Gemm::Block::BlockMmad<DispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType, void, TileCopy>;
+    using BlockMmadOpt =
+        Gemm::Block::BlockMmad<DispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType, void, TileCopy>;
 
     if (k > n) {
         using BlockScheduler = typename Gemm::Block::GemmIdentityBlockSwizzle<3, 0>;
         using MatmulKernel = Gemm::Kernel::GroupedMatmulSliceMFP8W8A16<BlockMmadOpt, void, BlockScheduler, int64_t>;
         typename MatmulKernel::Params params_{
-            problemShape,
-            problemCount, deviceGroupList,
-            deviceA, layoutA,
-            deviceB, layoutPrologueB,
-            deviceC, layoutC,
-            {{}, {deqScalar, deqZeroPoint}, {}},
-            deviceScale, layoutScale,
-            groupSize,
-            deviceWorkspace
-        };
+            problemShape, problemCount,    deviceGroupList, deviceA,        layoutA,
+            deviceB,      layoutPrologueB, deviceC,         layoutC,        {{}, {deqScalar, deqZeroPoint}, {}},
+            deviceScale,  layoutScale,     groupSize,       deviceWorkspace};
         MatmulKernel matmul_kernel;
         uint32_t coreIdx = AscendC::GetBlockIdx();
         matmul_kernel(params_);
@@ -115,16 +102,9 @@ extern "C" __global__ __aicore__ void catlass_fp8w8a16_gmm_bfloat16_t(
         using BlockScheduler = typename Gemm::Block::GemmIdentityBlockSwizzle<3, 1>;
         using MatmulKernel = Gemm::Kernel::GroupedMatmulSliceMFP8W8A16<BlockMmadOpt, void, BlockScheduler, int64_t>;
         typename MatmulKernel::Params params_{
-            problemShape,
-            problemCount, deviceGroupList,
-            deviceA, layoutA,
-            deviceB, layoutPrologueB,
-            deviceC, layoutC,
-            {{}, {deqScalar, deqZeroPoint}, {}},
-            deviceScale, layoutScale,
-            groupSize,
-            deviceWorkspace
-        };
+            problemShape, problemCount,    deviceGroupList, deviceA,        layoutA,
+            deviceB,      layoutPrologueB, deviceC,         layoutC,        {{}, {deqScalar, deqZeroPoint}, {}},
+            deviceScale,  layoutScale,     groupSize,       deviceWorkspace};
         MatmulKernel matmul_kernel;
         uint32_t coreIdx = AscendC::GetBlockIdx();
         matmul_kernel(params_);

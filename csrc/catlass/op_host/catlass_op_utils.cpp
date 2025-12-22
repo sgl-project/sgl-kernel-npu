@@ -53,9 +53,9 @@ aclDataType TypeStrToAclDtype(const std::string &typeStr)
 torch::Tensor GetOutputTensor(const std::vector<int64_t> &shape, const torch::Dtype dtype)
 {
     at::TensorOptions options = at::TensorOptions();
-    options =
-    options.dtype(dtype).layout(at::kStrided).requires_grad(false).device(torch_npu::utils::get_npu_device_type());
+    options = 
+        options.dtype(dtype).layout(at::kStrided).requires_grad(false).device(torch_npu::utils::get_npu_device_type());
     return at_npu::native::empty_with_format(shape, options, ACL_FORMAT_ND);
 };
-}
-}
+} // namespace npu_kernel
+} // namespace sglang
