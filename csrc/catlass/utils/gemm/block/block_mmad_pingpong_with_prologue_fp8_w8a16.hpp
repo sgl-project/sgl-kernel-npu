@@ -5,8 +5,9 @@ Copyright (c) 2025 Huawei Technologies Co., Ltd.
 This file is a part of the CANN Open Software.
 Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
 Please refer to the License for details. You may not use this file except in compliance with the License.
-THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-See LICENSE in the root of the software repository for the full text of the License.
+THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of the
+software repository for the full text of the License.
 */
 #ifndef CATLASS_GEMM_BLOCK_BLOCK_MMAD_PINGPONG_WITH_PROLOGUE_FP8_W8A16
 #define CATLASS_GEMM_BLOCK_BLOCK_MMAD_PINGPONG_WITH_PROLOGUE_FP8_W8A16
@@ -211,16 +212,15 @@ public:
              AscendC::GlobalTensor<typename U::ElementScale> const &gmScaleB,
              typename U::LayoutScale const &layoutScaleB, uint32_t groupSize, GemmCoord const &actualBlockShape)
     {
-        PrologueImpl(
-            {}, {}, {}, {}, gmSrcB, layoutSrcB, gmDstB, layoutDstB, gmScaleB, layoutScaleB, groupSize, actualBlockShape);
+        PrologueImpl({}, {}, {}, {}, gmSrcB, layoutSrcB, gmDstB, layoutDstB, gmScaleB, layoutScaleB, groupSize,
+                     actualBlockShape);
     }
 
     /// Perform a block-scoped matrix multiply-accumulate
     CATLASS_DEVICE
-    void operator()(
-        AscendC::GlobalTensor<ElementA> const &gmA, LayoutA const &layoutA,
-        AscendC::GlobalTensor<ElementB> const &gmB, LayoutB const &layoutB,
-        AscendC::GlobalTensor<ElementC> const &gmC, LayoutC const &layoutC, GemmCoord const &actualShape)
+    void operator()(AscendC::GlobalTensor<ElementA> const &gmA, LayoutA const &layoutA,
+                    AscendC::GlobalTensor<ElementB> const &gmB, LayoutB const &layoutB,
+                    AscendC::GlobalTensor<ElementC> const &gmC, LayoutC const &layoutC, GemmCoord const &actualShape)
     {
         uint32_t mRound = RoundUp<L1AAlignHelper::M_ALIGNED>(actualShape.m());
         uint32_t nRound = RoundUp<L1BAlignHelper::N_ALIGNED>(actualShape.n());

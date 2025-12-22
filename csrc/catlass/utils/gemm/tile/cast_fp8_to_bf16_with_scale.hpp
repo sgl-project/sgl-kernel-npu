@@ -5,8 +5,9 @@ Copyright (c) 2025 Huawei Technologies Co., Ltd.
 This file is a part of the CANN Open Software.
 Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
 Please refer to the License for details. You may not use this file except in compliance with the License.
-THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-See LICENSE in the root of the software repository for the full text of the License.
+THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of the
+software repository for the full text of the License.
 */
 #ifndef CATLASS_GEMM_TILE_CAST_FP8_TO_BF16_WITH_SCALE_HPP
 #define CATLASS_GEMM_TILE_CAST_FP8_TO_BF16_WITH_SCALE_HPP
@@ -147,7 +148,7 @@ struct TileCastFp8ToBf16WithScaleDequant {
             // One signle tile length is bigger than COMPUTE_LENGTH, which should be clipped.
             loopsPerTile = CeilDiv(tileLen, COMPUTE_LENGTH);
             totalLoops = tilesPerAiv * loopsPerTile;
-        }else if (tileLenRoundFp8 != 0) {
+        } else if (tileLenRoundFp8 != 0) {
             // COMPUTE_LENGTH is bigger than tile length, such that more than one tiles can be arranged together.
             tilesInALoop = COMPUTE_LENGTH / tileLenRoundFp8;
             totalLoops = CeilDiv(tilesPerAiv, tilesInALoop);
@@ -256,7 +257,7 @@ struct TileCastFp8ToBf16WithScaleDequant {
                         AscendC::Muls<float>(tmpFp32[pingpong][off], tmpFp32[pingpong][off], scale, (uint64_t)chunk, 1,
                                              {1, 1, (uint8_t)rowStrideDb, (uint8_t)rowStrideDb});
                         off += chunk;
-                        r   -= chunk;
+                        r -= chunk;
                     }
 
                     globalCol += colNuminGroup;
@@ -280,12 +281,12 @@ struct TileCastFp8ToBf16WithScaleDequant {
                     for (uint32_t g_col = 0; g_col < groupNuminCol; g_col++) {
                         curC = g_col * groupSize;
                         colNuminGroup = groupSize;
-                        uint32_t sRow = curR / groupSize; 
+                        uint32_t sRow = curR / groupSize;
                         uint32_t sCol = curC / groupSize;
                         uint32_t scaleIdx = 0;
                         scaleIdx = sRow * scaleTileColsUB + sCol;
                         float scale = scaleCacheBuffer.GetValue(scaleIdx) * k256;
-                        uint32_t fp32Offset = (g_row * groupSize)*tileLenRoundFp8 + curC;
+                        uint32_t fp32Offset = (g_row * groupSize) * tileLenRoundFp8 + curC;
                         uint64_t mask = 64;
                         AscendC::Muls<float>(tmpFp32[pingpong][fp32Offset], tmpFp32[pingpong][fp32Offset], scale, mask,
                                              rowNuminGroup, {1, 1, (uint8_t)rowStrideDb, (uint8_t)rowStrideDb});
@@ -350,8 +351,8 @@ private:
 
     CATLASS_DEVICE
     void Dequant(AscendC::LocalTensor<int8_t> &src, AscendC::LocalTensor<half> &dst,
-        AscendC::LocalTensor<int16_t> &value_vector1, AscendC::LocalTensor<int16_t> &value_vector2,
-        AscendC::LocalTensor<half> &workspace, uint32_t validLen)
+                 AscendC::LocalTensor<int16_t> &value_vector1, AscendC::LocalTensor<int16_t> &value_vector2,
+                 AscendC::LocalTensor<half> &workspace, uint32_t validLen)
     {
         pipe_barrier(PIPE_V);
         uint32_t num = validLen;
