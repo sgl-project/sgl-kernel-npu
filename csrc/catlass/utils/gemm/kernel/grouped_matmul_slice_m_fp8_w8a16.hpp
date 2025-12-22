@@ -137,8 +137,7 @@ public:
     ~GroupedMatmulSliceMFP8W8A16() {}
 
     template <int32_t CORE_TYPE = g_coreType>
-    CATLASS_DEVICE
-    void operator()(Params const &params);
+    CATLASS_DEVICE void operator()(Params const &params);
 
     template <>
     CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params)
@@ -236,7 +235,6 @@ public:
             uint32_t currentM = (groupIdx == 0) ? groupList.GetValue(groupIdx)
                                                 : (groupList.GetValue(groupIdx) - groupList.GetValue(groupIdx - 1));
             GemmCoord inGroupProblemShape{currentM, params.problemShape.n(), params.problemShape.k()};
-            // AscendC::printf("currentM is %d\n", currentM);
             LayoutB layoutPrologueB = params.layoutPrologueB;
             blockScheduler.Update(inGroupProblemShape, MakeCoord(L1TileShape::M, L1TileShape::N));
             uint32_t coreLoops = blockScheduler.GetCoreLoops();
@@ -251,7 +249,7 @@ public:
             AscendC::GlobalTensor<ElementScale> gmScaleFull;
             gmScaleFull.SetGlobalBuffer(reinterpret_cast<__gm__ ElementScale *>(params.ptrPerGroupScale +
                                                                                 gmGroupOffsetS * sizeof(ElementScale)));
-        
+
             // Determine the starting loopIdx of the current core under the current groupIdx
             uint32_t startLoopIdx;
             if (coreIdx < startCoreIdx) {
@@ -267,7 +265,6 @@ public:
 
                 // Compute initial location in logical coordinates
                 MatrixCoord offsetB{blockCoord.k() * L1TileShape::K, blockCoord.n() * L1TileShape::N};
-                // ~ auto offsetCoordB = blockIdxCoord.GetCoordKN() * L1TileShape::ToCoordKN(); // return MakeCoord(K, N);
 
                 int64_t gmOffsetB = layoutPrologueB.GetOffset(offsetB);
                 auto layoutBlockPrologueB = layoutPrologueB.GetTileLayout(actualBlockShape.GetCoordKN());
@@ -290,7 +287,7 @@ public:
 
                 auto gmBlockScale = gmScaleFull[params.layoutScale.GetOffset(offsetScaleCoord)];
                 auto layoutBlockScale = params.layoutScale.GetTileLayout(scaleTileShape);
-            
+
                 // Compute block-scoped matrix multiply-add
                 blockMmad.Prologue(gmPrologueB[gmOffsetB], layoutBlockPrologueB, gmBlockB, layoutBlockB, gmBlockScale,
                                    layoutBlockScale, groupSize, actualBlockShape);

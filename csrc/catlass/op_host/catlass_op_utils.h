@@ -32,5 +32,5 @@ aclDataType TypeStrToAclDtype(const std::string &typeStr);
 
 torch::Tensor GetOutputTensor(const std::vector<int64_t> &shape, torch::Dtype dtype);
 
-} // namespace npu_kernel
-} // namespace sglang
+}  // namespace npu_kernel
+}  // namespace sglang

@@ -70,5 +70,5 @@ HOST_API at::Tensor fp8_w8a16_grouped_matmul(const at::Tensor &mat1, const at::T
     return output;
 }
 
-} // namespace npu_kernel
-} // namespace sglang
+}  // namespace npu_kernel
+}  // namespace sglang
