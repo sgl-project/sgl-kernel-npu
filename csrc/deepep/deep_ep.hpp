@@ -22,6 +22,9 @@ struct Buffer {
     int64_t num_nvl_bytes;
     int64_t num_rdma_bytes;
 
+    int32_t round;
+    int32_t per_round_tokens;
+
     bool low_latency_mode = false;
     bool is_padding = false;
     int padding_cnt = 0;
@@ -34,6 +37,7 @@ struct Buffer {
 
     int64_t shared_expert_rank_num;
     int64_t shared_expert_num = 1;
+    int64_t real_max_bs;
 
 private:
     std::string moe_all_to_all_group_name;
@@ -73,6 +77,18 @@ public:
                        const std::optional<at::Tensor> &dispatch_wait_recv_cost_stats, int expert_alignment,
                        int num_worst_tokens, const Config &config, std::optional<EventHandle> &previous_event,
                        bool async, bool allocate_on_comm_stream, bool use_quant);
+
+    std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor,
+               at::Tensor>
+    notify_verify(const at::Tensor &x, const std::optional<at::Tensor> &x_scales,
+                  const std::optional<at::Tensor> &topk_idx, const std::optional<at::Tensor> &topk_weights,
+                  const std::optional<at::Tensor> &num_tokens_per_rank, const at::Tensor &is_token_in_rank,
+                  const std::optional<at::Tensor> &num_tokens_per_expert, int cached_num_recv_tokens,
+                  const std::optional<at::Tensor> &cached_rank_prefix_matrix,
+                  const std::optional<at::Tensor> &cached_channel_prefix_matrix,
+                  const std::optional<at::Tensor> &dispatch_wait_recv_cost_stats, int expert_alignment,
+                  int num_worst_tokens, const Config &config, std::optional<EventHandle> &previous_event, bool async,
+                  bool allocate_on_comm_stream, bool use_quant);
 
     void clean_low_latency_buffer(int num_max_dispatch_tokens_per_rank, int hidden, int num_experts);
 
