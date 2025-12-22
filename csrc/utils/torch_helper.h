@@ -54,6 +54,12 @@ public:
     {
         return std::make_tuple(ConvertType(args)...);
     }
+
+    inline static bool IsCaptureMode()
+    {
+        auto isCapture = c10_npu::currentStreamCaptureStatusMayInitCtx();
+        return isCapture != c10_npu::CaptureStatus::None;
+    }
 };
 
 /**
