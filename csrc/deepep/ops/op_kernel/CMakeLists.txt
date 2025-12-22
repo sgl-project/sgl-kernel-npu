@@ -5,7 +5,7 @@ endif()
 
 # message(STATUS "ASCEND include path: ${ASCEND_CANN_PACKAGE_PATH}/opp/built-in/op_impl/ai_core/tbe/impl/ascendc/moe_distribute_dispatch")
 
-# copy moe_distribute_base head file
+# # copy moe_distribute_base head file
 # execute_process(
 #     COMMAND ${CMAKE_COMMAND} -E copy
 #     "${ASCEND_CANN_PACKAGE_PATH}/opp/built-in/op_impl/ai_core/tbe/impl/ascendc/moe_distribute_dispatch/moe_distribute_base.h"

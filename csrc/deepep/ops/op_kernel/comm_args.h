@@ -9,23 +9,6 @@ namespace Moe {
 constexpr int CAM_MAX_RANK_SIZE = 384;  // Maximum number of NPU cards supported by the communication library
 
 constexpr uint64_t NOTIFY_DISPATCH_BUFF_OFFSET = 204UL * 1024UL * 1024UL;
-constexpr uint64_t NOTIFY_DISPATCH_MAGIC_OFFSET = 0UL;
-constexpr uint64_t NOTIFY_DISPATCH_MAGIC_SIZE = 50 * 1024UL;
-constexpr uint64_t DISPATCH_MAGIC_OFFSET = NOTIFY_DISPATCH_MAGIC_SIZE;  // 50KB
-constexpr uint64_t COMBINE_MAGIC_OFFSET = NOTIFY_DISPATCH_MAGIC_SIZE;   // 50KB
-constexpr uint64_t DISPATCH_COMBINE_MAGIC_SIZE = 50 * 1024UL;
-constexpr uint64_t MAGIC_WIN_SIZE = NOTIFY_DISPATCH_MAGIC_SIZE + DISPATCH_COMBINE_MAGIC_SIZE;           // 100KB
-constexpr uint64_t NOTIFY_DISPATCH_META_FLAG_SIZE = 1 * 1024 * 1024UL;                                  //  1MB
-constexpr uint64_t NOTIFY_DISPATCH_FLAG_SIZE = 2 * 1024 * 1024UL;                                       //  2MB
-constexpr uint64_t DISPATCH_META_FLAG_SIZE = 1 * 1024 * 1024UL;                                         // 1MB
-constexpr uint64_t DISPATCH_FLAG_SIZE = 3 * 1024 * 1024UL;                                              // 3MB
-constexpr uint64_t COMBINE_META_FLAG_SIZE = 1 * 1024 * 1024UL;                                          // 1MB
-constexpr uint64_t COMBINE_FLAG_SIZE = 3 * 1024 * 1024UL;                                               // 3MB
-constexpr uint64_t FLAG_WIN_SIZE = NOTIFY_DISPATCH_FLAG_SIZE + DISPATCH_FLAG_SIZE + COMBINE_FLAG_SIZE;  //  8MB
-constexpr uint64_t NOTIFY_DISPATCH_FLAG_OFFSET = MAGIC_WIN_SIZE;                                        // 100 KB
-constexpr uint64_t DISPATCH_FLAG_OFFSET = NOTIFY_DISPATCH_FLAG_OFFSET + NOTIFY_DISPATCH_FLAG_SIZE;      // 1MB + 100KB
-constexpr uint64_t COMBINE_FLAG_OFFSET = DISPATCH_FLAG_OFFSET + DISPATCH_FLAG_SIZE;                     // 3MB + 100KB
-
 constexpr int64_t IPC_BUFF_MAX_SIZE = 100 * 1024 * 1024;
 constexpr int64_t IPC_DATA_OFFSET = 2 * 1024 * 1024;  // First 2MB as flag, then 100MB as data storage
 constexpr int64_t PING_PONG_SIZE = 2;

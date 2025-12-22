@@ -35,15 +35,14 @@ constexpr uint32_t TP_RECV_COUNTS_INDEX = 4;
 constexpr uint32_t OUTPUT_X_INDEX = 0;
 constexpr uint32_t OUTPUT_SEND_COST_INDEX = 1;
 
-constexpr uint32_t ATTR_META_DATA_PTR_INDEX = 0;
-constexpr uint32_t ATTR_GROUP_EP_INDEX = 1;
-constexpr uint32_t ATTR_EP_WORLD_SIZE_INDEX = 2;
-constexpr uint32_t ATTR_EP_RANK_ID_INDEX = 3;
-constexpr uint32_t ATTR_GROUP_TP_INDEX = 4;
-constexpr uint32_t ATTR_TP_WORLD_SIZE_INDEX = 5;
-constexpr uint32_t ATTR_TP_RANK_ID_INDEX = 6;
-constexpr uint32_t ATTR_MOE_EXPERT_NUM_INDEX = 7;
-constexpr uint32_t ATTR_GLOBAL_BS_INDEX = 8;
+constexpr uint32_t ATTR_GROUP_EP_INDEX = 0;
+constexpr uint32_t ATTR_EP_WORLD_SIZE_INDEX = 1;
+constexpr uint32_t ATTR_EP_RANK_ID_INDEX = 2;
+constexpr uint32_t ATTR_GROUP_TP_INDEX = 3;
+constexpr uint32_t ATTR_TP_WORLD_SIZE_INDEX = 4;
+constexpr uint32_t ATTR_TP_RANK_ID_INDEX = 5;
+constexpr uint32_t ATTR_MOE_EXPERT_NUM_INDEX = 6;
+constexpr uint32_t ATTR_GLOBAL_BS_INDEX = 7;
 
 constexpr uint32_t TWO_DIMS = 2U;
 constexpr uint32_t ONE_DIM = 1U;
@@ -102,7 +101,6 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, Cam
     auto attrs = context->GetAttrs();
     OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "attrs is null."), return ge::GRAPH_FAILED);
 
-    auto metaDataPtrPtr = attrs->GetAttrPointer<uint64_t>(ATTR_META_DATA_PTR_INDEX);
     auto groupEpPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_GROUP_EP_INDEX));
     auto groupTpPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_GROUP_TP_INDEX));
     auto epWorldSizePtr = attrs->GetAttrPointer<int64_t>(ATTR_EP_WORLD_SIZE_INDEX);
@@ -166,7 +164,6 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, Cam
                     return ge::GRAPH_FAILED);
 
     groupEp = std::string(groupEpPtr);
-    tilingData.camMoeCombineNormalInfo.metaDataPtr = static_cast<uint64_t>(*metaDataPtrPtr);
     tilingData.camMoeCombineNormalInfo.epWorldSize = static_cast<uint32_t>(epWorldSize);
     tilingData.camMoeCombineNormalInfo.tpWorldSize = static_cast<uint32_t>(*tpWorldSizePtr);
     tilingData.camMoeCombineNormalInfo.epRankId = static_cast<uint32_t>(*epRankIdPtr);

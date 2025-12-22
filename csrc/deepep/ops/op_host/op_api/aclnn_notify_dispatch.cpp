@@ -16,12 +16,14 @@ enum NnopbaseHcclServerType {
 };
 extern "C" void __attribute__((weak)) NnopbaseSetHcclServerType(void *executor, NnopbaseHcclServerType sType);
 
-aclnnStatus aclnnNotifyDispatchGetWorkspaceSize(
-    const aclTensor *sendData, const aclTensor *tokenPerExpertData, int64_t sendCount, int64_t numTokens,
-    char *commGroup, int64_t rankSize, int64_t rankId, int64_t localRankSize, int64_t localRankId, int64_t shmemPtr,
-    const aclTensor *sendDataOffset, const aclTensor *recvData, const aclTensor *totalRecvTokens,
-    const aclTensor *recvCount, const aclTensor *allRecvCount, const aclTensor *recvOffset, const aclTensor *maxBs,
-    const aclTensor *recvTokensPerExpert, uint64_t *workspaceSize, aclOpExecutor **executor)
+aclnnStatus aclnnNotifyDispatchGetWorkspaceSize(const aclTensor *sendData, const aclTensor *tokenPerExpertData,
+                                                int64_t sendCount, int64_t numTokens, char *commGroup, int64_t rankSize,
+                                                int64_t rankId, int64_t localRankSize, int64_t localRankId,
+                                                int64_t shmemPtr, const aclTensor *sendDataOffset,
+                                                const aclTensor *recvData, const aclTensor *totalRecvTokens,
+                                                const aclTensor *recvCount, const aclTensor *recvOffset,
+                                                const aclTensor *maxBs, const aclTensor *recvTokensPerExpert,
+                                                uint64_t *workspaceSize, aclOpExecutor **executor)
 {
     return aclnnInnerNotifyDispatchGetWorkspaceSize(sendData, tokenPerExpertData, sendCount, numTokens, commGroup,
                                                     rankSize, rankId, localRankSize, localRankId, shmemPtr,
