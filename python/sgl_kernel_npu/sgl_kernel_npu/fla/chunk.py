@@ -5,6 +5,7 @@ from typing import Optional
 
 import torch
 import torch.nn.functional as F
+from einops import rearrange
 from sgl_kernel_npu.fla.chunk_delta_h import (
     chunk_gated_delta_rule_fwd_h_npu as chunk_gated_delta_rule_fwd_h,
 )
@@ -15,7 +16,7 @@ from sgl_kernel_npu.fla.chunk_scaled_dot_kkt import (
 from sgl_kernel_npu.fla.cumsum import chunk_local_cumsum
 from sgl_kernel_npu.fla.l2norm import l2norm_fwd
 from sgl_kernel_npu.fla.solve_tril import solve_tril_npu as solve_tril
-from sgl_kernel_npu.fla.utils import SUPPRESS_LEVEL
+from sgl_kernel_npu.fla.utils import SUPPRESS_LEVEL, input_guard
 from sgl_kernel_npu.fla.wy_fast import recompute_w_u_fwd_npu as recompute_w_u_fwd
 
 
@@ -112,7 +113,7 @@ def chunk_gated_delta_rule_native(
     return core_attn_out, last_recurrent_state
 
 
-def chunk_gated_delta_rule_npu(
+def chunk_gated_delta_rule_npu_native(
     q: torch.Tensor,
     k: torch.Tensor,
     v: torch.Tensor,
@@ -218,13 +219,14 @@ def chunk_gated_delta_rule_fwd(
         cu_seqlens=cu_seqlens,
     )
     if SUPPRESS_LEVEL < 3:
-        return g, o, A, final_state, None, None, None
+        return g, o, A, final_state, None, h, None
     elif SUPPRESS_LEVEL >= 3:
         return g, o, A, final_state, w, h, v_new
 
 
+@input_guard
 @torch.compiler.disable
-def chunk_gated_delta_rule(
+def chunk_gated_delta_rule_npu(
     q: torch.Tensor,
     k: torch.Tensor,
     v: torch.Tensor,
@@ -300,7 +302,6 @@ def chunk_gated_delta_rule(
             cu_seqlens=cu_seqlens
         )
     """
-    from einops import rearrange
 
     assert q.dtype == k.dtype == v.dtype
     assert (
@@ -343,10 +344,12 @@ def chunk_gated_delta_rule(
         q = l2norm_fwd(q)
         k = l2norm_fwd(k)
 
-    _, o, _, final_state, _, _, _ = chunk_gated_delta_rule_fwd(
+    _, o, _, final_state, _, h, _ = chunk_gated_delta_rule_fwd(
         q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
     )
     o = o.to(q.dtype)
     if head_first:
         o = rearrange(o, "b t h ... -> b h t ...")
-    return o, final_state
+    act_sq = cu_seqlens[-1].cpu().item()
+    o = o[:, :act_sq, :, :]
+    return o, final_state, h
