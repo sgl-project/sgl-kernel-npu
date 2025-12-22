@@ -22,15 +22,15 @@
 namespace sglang {
 namespace npu_kernel {
 
-    torch::Dtype TypeStrToTorchDtype(const std::string &typeStr);
+torch::Dtype TypeStrToTorchDtype(const std::string &typeStr);
 
-    aclDataType TorchDtypeToAclDtype(torch::Dtype torchDtype);
+aclDataType TorchDtypeToAclDtype(torch::Dtype torchDtype);
 
-    torch::Dtype AclDtypeToTorchDtype(aclDataType aclDtype);
+torch::Dtype AclDtypeToTorchDtype(aclDataType aclDtype);
 
-    aclDataType TypeStrToAclDtype(const std::string &typeStr);
+aclDataType TypeStrToAclDtype(const std::string &typeStr);
 
-    torch::Tensor GetOutputTensor(const std::vector<int64_t> &shape, torch::Dtype dtype);
+torch::Tensor GetOutputTensor(const std::vector<int64_t> &shape, torch::Dtype dtype);
 
-}
-}
+} // namespace npu_kernel
+} // namespace sglang

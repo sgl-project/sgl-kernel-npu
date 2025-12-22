@@ -23,12 +23,9 @@ See LICENSE in the root of the software repository for the full text of the Lice
 
 namespace Catlass::Gemm::Kernel {
 
-template <
-class BlockMmad_,
-class BlockEpilogue_,
-class BlockScheduler_
->
-class FP8W8A16Matmul {
+template <class BlockMmad_, class BlockEpilogue_, class BlockScheduler_>
+class FP8W8A16Matmul
+{
 public:
     using BlockMmad = BlockMmad_;
     using ArchTag = typename BlockMmad::ArchTag;
@@ -74,23 +71,23 @@ public:
         Params() {}
 
         CATLASS_HOST_DEVICE
-        Params(
-            GemmCoord const &problemShape_,
-            GM_ADDR ptrA_, LayoutA const &layoutA_,
-            GM_ADDR ptrPrologueB_, LayoutPrologueB const &layoutPrologueB_,
-            GM_ADDR ptrC_, LayoutC const &layoutC_,
-            MmadParams const &mmadParams_,
-            GM_ADDR ptrPerGroupScale_, LayoutScale layoutScale_,
-            uint32_t groupSize_,
-            GM_ADDR ptrWorkspace_
-        ):  problemShape(problemShape_),
-            ptrA(ptrA_), layoutA(layoutA_),
-            ptrPrologueB(ptrPrologueB_), layoutPrologueB(layoutPrologueB_),
-            ptrC(ptrC_), layoutC(layoutC_),
-            mmadParams(mmadParams_),
-            ptrPerGroupScale(ptrPerGroupScale_), layoutScale(layoutScale_),
-            groupSize(groupSize_),
-            ptrWorkspace(ptrWorkspace_) {}
+        Params(GemmCoord const &problemShape_, GM_ADDR ptrA_, LayoutA const &layoutA_, GM_ADDR ptrPrologueB_,
+               LayoutPrologueB const &layoutPrologueB_, GM_ADDR ptrC_, LayoutC const &layoutC_,
+               MmadParams const &mmadParams_, GM_ADDR ptrPerGroupScale_, LayoutScale layoutScale_, uint32_t groupSize_,
+               GM_ADDR ptrWorkspace_)
+            : problemShape(problemShape_),
+              ptrA(ptrA_),
+              layoutA(layoutA_),
+              ptrPrologueB(ptrPrologueB_),
+              layoutPrologueB(layoutPrologueB_),
+              ptrC(ptrC_),
+              layoutC(layoutC_),
+              mmadParams(mmadParams_),
+              ptrPerGroupScale(ptrPerGroupScale_),
+              layoutScale(layoutScale_),
+              groupSize(groupSize_),
+              ptrWorkspace(ptrWorkspace_)
+        {}
     };
 
     struct Arguments {
@@ -124,15 +121,9 @@ public:
     static Params ToUnderlyingArguments(const Arguments &args, uint8_t *workspace)
     {
         Params params{
-            args.problemShape,
-            args.deviceA, args.layoutA,
-            args.devicePrologueB, args.layoutPrologueB,
-            args.deviceC, args.layoutC,
-            {{}, {args.deqScalar, args.deqZeroPoint}, {}},
-            args.deviceScale, args.layoutScale,
-            args.groupSize,
-            workspace
-        };
+            args.problemShape,    args.deviceA,     args.layoutA,   args.devicePrologueB,
+            args.layoutPrologueB, args.deviceC,     args.layoutC,   {{}, {args.deqScalar, args.deqZeroPoint}, {}},
+            args.deviceScale,     args.layoutScale, args.groupSize, workspace};
         return params;
     }
 
@@ -141,13 +132,11 @@ public:
     FP8W8A16Matmul() {}
 
     template <int32_t CORE_TYPE = g_coreType>
-    CATLASS_DEVICE
-    void operator()(Params const &params);
+    CATLASS_DEVICE void operator()(Params const &params);
 
     /// Executes matmul
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIC>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params)
     {
         auto aicoreNum = AscendC::GetBlockNum();
         auto aicoreIdx = AscendC::GetBlockIdx();
@@ -180,18 +169,12 @@ public:
             auto gmBlockC = gmC[params.layoutC.GetOffset(offsetCoord.GetCoordMN())];
             auto layoutBlockC = params.layoutC.GetTileLayout(actualBlockShape.GetCoordMN());
 
-            blockMmad(
-                gmBlockA, layoutBlockA,
-                gmBlockB, layoutBlockB,
-                gmBlockC, layoutBlockC,
-                actualBlockShape
-            );
+            blockMmad(gmBlockA, layoutBlockA, gmBlockB, layoutBlockB, gmBlockC, layoutBlockC, actualBlockShape);
         }
     }
 
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIV>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIV>(Params const &params)
     {
         auto aicoreNum = AscendC::GetBlockNum();
         auto aicoreIdx = AscendC::GetBlockIdx() / AscendC::GetSubBlockNum();
@@ -214,20 +197,20 @@ public:
         uint32_t coreLoops = matmulBlockScheduler.GetCoreLoops();
         for (uint32_t loopIdx = aicoreIdx; loopIdx < coreLoops; loopIdx += aicoreNum) {
             auto blockIdxCoord = matmulBlockScheduler.GetBlockCoord(loopIdx);
-            auto actualBlockShape = matmulBlockScheduler.GetActualBlockShape(blockIdxCoord); 
+            auto actualBlockShape = matmulBlockScheduler.GetActualBlockShape(blockIdxCoord);
             auto offsetCoordB = blockIdxCoord.GetCoordKN() * L1TileShape::ToCoordKN();
             auto gmBlockPrologueB = gmPrologueB[params.layoutPrologueB.GetOffset(offsetCoordB)];
             auto layoutBlockPrologueB = params.layoutPrologueB.GetTileLayout(actualBlockShape.GetCoordKN());
 
-            uint32_t kOffset   = offsetCoordB[0];
+            uint32_t kOffset = offsetCoordB[0];
             uint32_t nOffset = offsetCoordB[1];
-            uint32_t kAct      = actualBlockShape.k();
-            uint32_t nAct      = actualBlockShape.n();
+            uint32_t kAct = actualBlockShape.k();
+            uint32_t nAct = actualBlockShape.n();
 
             uint32_t scaleRowStart = kOffset / groupSize;
-            uint32_t scaleRowEnd   = (kOffset + kAct - 1) / groupSize;
+            uint32_t scaleRowEnd = (kOffset + kAct - 1) / groupSize;
             uint32_t scaleColStart = nOffset / groupSize;
-            uint32_t scaleColEnd   = (nOffset + nAct - 1) / groupSize;
+            uint32_t scaleColEnd = (nOffset + nAct - 1) / groupSize;
 
             uint32_t scaleTileRows = scaleRowEnd - scaleRowStart + 1;
             uint32_t scaleTileCols = scaleColEnd - scaleColStart + 1;
@@ -239,18 +222,15 @@ public:
             auto layoutBlockScale = params.layoutScale.GetTileLayout(scaleTileShape);
 
             // Compute block-scoped matrix multiply-add
-            blockMmad.Prologue(
-                gmBlockPrologueB, layoutBlockPrologueB,
-                gmBlockB, layoutBlockB,
-                gmBlockScale, layoutBlockScale, groupSize,
-                actualBlockShape
-            );
+            blockMmad.Prologue(gmBlockPrologueB, layoutBlockPrologueB, gmBlockB, layoutBlockB, gmBlockScale,
+                               layoutBlockScale, groupSize, actualBlockShape);
         }
     }
+
 private:
     Arch::Resource<ArchTag> resource;
 };
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel
 
-#endif // CATLASS_GEMM_KERNEL_W8A16_MATMUL_HPP
+#endif  // CATLASS_GEMM_KERNEL_FP8_W8A16_MATMUL_HPP
