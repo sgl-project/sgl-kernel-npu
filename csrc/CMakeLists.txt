@@ -33,6 +33,9 @@ FILE(GLOB OP_SRCS
 if(BUILD_CATLASS_MODULE)
     list(APPEND OP_SRCS
         ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_matmul_basic.cpp
+        ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_op_utils.cpp
+        ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_gmm_fp8.cpp
+        ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_matmul_fp8.cpp
     )
 endif()
 list(APPEND OP_SRCS
@@ -43,7 +46,7 @@ list(APPEND OP_SRCS
 set(OP_PLUGIN_NAME sgl_kernel_npu)
 
 # kernel side files without workspace
-ascendc_library(no_workspace_kernel STATIC
+set(NO_WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/helloworld/op_kernel/kernel_helloworld.cpp
     ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_kernel/cache_loc_assign_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_kernel/assign_cache_op.cpp
@@ -62,6 +65,18 @@ ascendc_library(no_workspace_kernel STATIC
 ascendc_include_directories(no_workspace_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/utils/kernel
 )
+if(BUILD_CATLASS_MODULE)
+    list(APPEND NO_WORKSPACE_KERNEL_SRCS
+        ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_gmm_fp8_kernel.cpp
+        ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_matmul_fp8_kernel.cpp
+    )
+endif()
+ascendc_library(no_workspace_kernel STATIC ${NO_WORKSPACE_KERNEL_SRCS})
+if(BUILD_CATLASS_MODULE)
+    ascendc_include_directories(no_workspace_kernel PRIVATE
+        ${CATLASS_DIR}/include
+    )
+endif()
 
 # kernel side files with workspace
 set(WORKSPACE_KERNEL_SRCS
