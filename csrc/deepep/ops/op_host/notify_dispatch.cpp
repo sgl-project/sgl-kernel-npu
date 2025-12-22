@@ -53,12 +53,11 @@ public:
             .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
         this->Attr("sendCount").Int();
         this->Attr("num_tokens").Int();
-        this->Attr("comm_group").String();  // Not used when enabling shmem
+        this->Attr("comm_group").String();
         this->Attr("rank_size").Int();
         this->Attr("rank_id").Int();
         this->Attr("local_rank_size").Int();
         this->Attr("local_rank_id").Int();
-        this->Attr("shmem_ptr").Int();
 
         OpAICoreConfig aicore_config_base;
         aicore_config_base.DynamicCompileStaticFlag(true)
@@ -70,15 +69,15 @@ public:
             .ExtendCfgInfo("aclnnSupport.value", "support_aclnn")
             .ExtendCfgInfo("multiKernelSupportDynamicGraph.value", "multi_kernel");
 
-        // OpAICoreConfig aicore_config_A2 = aicore_config_base;
-        // aicore_config_A2.ExtendCfgInfo("jitCompile.flag", "static_false");
+        OpAICoreConfig aicore_config_A2 = aicore_config_base;
+        aicore_config_A2.ExtendCfgInfo("jitCompile.flag", "static_false");
 
         OpAICoreConfig aicore_config = aicore_config_base;
         aicore_config.ExtendCfgInfo("jitCompile.flag", "static_true");
 
         this->AICore().AddConfig("ascend910_93", aicore_config);
-        // this->AICore().AddConfig("ascend910b", aicore_config_A2);
-        // this->MC2().HcclGroup("comm_group");
+        this->AICore().AddConfig("ascend910b", aicore_config_A2);
+        this->MC2().HcclGroup("comm_group");
     }
 };
 
