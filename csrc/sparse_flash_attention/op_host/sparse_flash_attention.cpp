@@ -111,31 +111,48 @@ inline void RegisterSparseFlashAttentionTensors(
     context->RegisterTensor(attention_out, false);
 }
 
-// Helper function to create workspace and tiling tensors
-inline std::pair<at::Tensor, at::Tensor> CreateWorkspaceAndTilingTensors(
-    const std::shared_ptr<TilingContext> &context,
-    const at::Device &device,
-    const SparseFlashAttentionTilingDataMla &tilingData)
+inline at::Tensor GetWorkspaceTensor(const std::shared_ptr<TilingContext> &context,
+                                    const at::Device &device)
 {
     size_t workspaceSize = context->GetWorkspaceSize();
-    at::Tensor workspace;
-    if (workspaceSize > 0) {
-        workspace = at::empty(static_cast<int64_t>(workspaceSize), at::TensorOptions().dtype(at::kByte).device(device));
+    if workspaceSize>0 {
+       return at::empty({static_cast<int64_t>(workspaceSize)}, at::TensorOptions().dtype(at::kByte).device(device));
     } else {
-        workspace = at::empty({0}, at::TensorOptions().dtype(at::kByte).device(device));
+        return at::empty({0}, at::TensorOptions().dtype(at::kByte).device(device));
     }
-
-    uint32_t rawSize = sizeof(SparseFlashAttentionTilingDataMla);
-    uint32_t tilingSize = ((rawSize + 31) / SIZE) &~ 31; // 512B对齐
-    at::Tensor tilingTensor = at::empty({static_cast<int64_t>(tilingSize)}, at::TensorOptions().dtype(at::kByte).device(device));
-    static at::Tensor pinnedTilingTensor;
-    if (!pinnedTilingTensor.defined() || pinnedTilingTensor.numel() < tilingSize) {
-        pinnedTilingTensor = at::empty({static_cast<int64_t>(tilingSize)}, at::TensorOptions().dtype(at::kByte).device(at::kCPU).pinned_memory(true));
-    }
-    memcpy(pinnedTilingTensor.data_ptr(), &tilingData, rawSize);
-    tilingTensor.slice(0,0,rawSize).copy_(pinnedTilingTensor, /*non_blocking*/true);
-    return {workspace, tilingTensor};
 }
+
+inline at::Tensor GetSFATilingTensor(const SparseFlashAttentionTilingDataMla &tilingData,
+                                 const at::Device &device)
+{
+    uint32_t rawSize = sizeof(SparseFlashAttentionTilingDataMla);
+    auto tilingSize = (rawSize+31)&~31;
+    auto tup = std::make_tuple(tilingData.baseParams.batchSize, tilingData.baseParams.seqSize,tilingData.tilingKey);
+    auto hashValue = host_utils::TupleHasher::Hash(tup); 
+    static std::unordered_map<size_t,int> captureMap;
+    static int actualCaptureNum = 0;
+    
+    static auto globalTilingBuffer = at::empty({static_cast<int64_t>(tilingSize*MAX_CAPTURE_NUM)}, at::TensorOptions().dtype(at::kByte).device(device));
+    at::Tensor tilingTensor;
+    if (captureMap.find(hashValue) != captureMap.end()) {
+        int offset = captureMap[hashValue];
+        uint8_t* tilingPtr = static_cast<uint8_t*>(globalTilingBuffer.data_ptr()) + (offset * tilingSize);
+        tilingTensor = at::from_blob(tilingPtr, {static_cast<int64_t>(tilingSize)}, at::TensorOptions().dtype(at::kByte).device(device));
+    } else if (actualCaptureNum > MAX_CAPTURE_NUM) {
+        static auto tempBuffer = at::empty({static_cast<int64_t>(tilingSize)}, at::TensorOptions().dtype(at::kByte).device(device));
+        aclrtMemcpy(tempBuffer.data_ptr(), tilingSize,
+                     reinterpret_cast<const uint8_t*>(&tilingData), rawSize,
+                     ACL_MEMCPY_HOST_TO_HOST);
+        tilingTensor = at::from_blob(tempBuffer.data_ptr(), {static_cast<int64_t>(tilingSize)}, at::TensorOptions().dtype(at::kByte).device(device));
+    }else{
+        int offset = actualCaptureNum++;
+        captureMap[hashValue] = offset;
+        uint8_t* tilingPtr = static_cast<uint8_t*>(globalTilingBuffer.data_ptr()) + (offset * tilingSize);
+        aclrtMemcpy(tilingPtr, tilingSize,
+                     reinterpret_cast<const uint8_t*>(&tilingData), rawSize,
+                     ACL_MEMCPY_HOST_TO_HOST);
+        tilingTensor = at::from_blob(tilingPtr, {static_cast<int64_t>(tilingSize)}, at::TensorOptions().dtype(at::kByte).device(device));
+    }
 
 // Helper function to perform tiling operations
 inline void PerformSparseFlashAttentionTiling(
@@ -212,8 +229,9 @@ HOST_API at::Tensor sparse_flash_attention(
     const auto &tilingData = sfaTiling.GetTilingData();
     
     // 11. 创建工作空间和tiling张量（使用辅助函数）
-    auto [workspace, tilingTensor] = CreateWorkspaceAndTilingTensors(context, device_opt, tilingData);
-    
+    workspace = GetWorkspaceTensor(context, device_opt);
+    tilingTensor = GetSFATilingTensor(tilingData, device_opt);
+
     // 12. 执行内核
     auto blockdim = tilingData.singleCoreParams.usedCoreNum;
     EXEC_KERNEL_CMD(sparse_flash_attention, blockdim, query, key, value, sparse_indices, blockTable,
