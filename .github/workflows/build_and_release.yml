@@ -38,15 +38,15 @@ jobs:
 
       - name: Build SGL-Kernel-NPU in container
         run: |
-          env -i PATH=${PATH} bash --login build.sh -a kernels
+          env -i PATH=${PATH} bash --login export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && build.sh -a kernels
 
       - name: Build Torch-Memory-Saver in container
         run: |
-          env -i PATH=${PATH} bash --login build.sh -a memory-saver
+          env -i PATH=${PATH} bash --login export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && build.sh -a memory-saver
 
       - name: Build DeepEP in container
         run: |
-          env -i PATH=${PATH} bash --login build.sh -a deepep
+          env -i PATH=${PATH} bash --login export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && build.sh -a deepep
           ls -al output/
 
       - name: Upload Release Artifacts
