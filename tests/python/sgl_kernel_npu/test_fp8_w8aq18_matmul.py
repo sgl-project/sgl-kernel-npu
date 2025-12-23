@@ -1,7 +1,9 @@
+import argparse
+
+import sgl_kernel_npu
 import torch
 import torch_npu
-import argparse
-import sgl_kernel_npu
+
 
 def anti_quant_fp8(weight, scale, K, N):
     device = weight.device
@@ -15,26 +17,23 @@ def anti_quant_fp8(weight, scale, K, N):
     deq = bf16_bits_u16.view(torch.bfloat16) * scale_fp8_to_32.view(torch.bfloat16)
     deq = deq.to(torch.float32)
 
-    deq = (
-        deq.reshape(K // 128, 128, N // 128, 128)
-           .permute(0, 2, 1, 3)
-           .contiguous()
-    )
+    deq = deq.reshape(K // 128, 128, N // 128, 128).permute(0, 2, 1, 3).contiguous()
 
     deq = deq.reshape(-1, 128 * 128) * scale.reshape(-1).to(torch.float32).unsqueeze(-1)
 
     return (
         deq.to(torch.bfloat16)
-           .reshape(K // 128, N // 128, 128, 128)
-           .permute(0, 2, 1, 3)
-           .contiguous()
-           .reshape(K, N)
+        .reshape(K // 128, N // 128, 128, 128)
+        .permute(0, 2, 1, 3)
+        .contiguous()
+        .reshape(K, N)
     )
 
+
 def compare_fp8_w8a16(M, N, K):
-    atol=1e-2
-    rtol=1e-2
-    seed=0
+    atol = 1e-2
+    rtol = 1e-2
+    seed = 0
     torch.manual_seed(seed)
 
     scale_K = (K + 127) // 128
@@ -45,11 +44,15 @@ def compare_fp8_w8a16(M, N, K):
     scales = torch.randn([scale_K, scale_N], dtype=torch.float32)
     b_bf16 = anti_quant_fp8(b_int8, scales, K, N)
 
-    out_golden = (a_bf16.to(torch.float32) @ b_bf16.to(torch.float32)).to(torch.bfloat16)
+    out_golden = (a_bf16.to(torch.float32) @ b_bf16.to(torch.float32)).to(
+        torch.bfloat16
+    )
 
     torch.npu.synchronize()
 
-    out_op = torch.ops.npu.fp8_w8a16_matmul(a_bf16.to("npu"), b_int8.to("npu"), scales.to("npu"), "bf16")
+    out_op = torch.ops.npu.fp8_w8a16_matmul(
+        a_bf16.to("npu"), b_int8.to("npu"), scales.to("npu"), "bf16"
+    )
 
     torch.npu.synchronize()
 
@@ -72,7 +75,9 @@ def compare_fp8_w8a16(M, N, K):
     total = bad.numel()
 
     print(f"[M,N,K]=[{M},{N},{K}] out_dtype=bf16, seed={seed}")
-    print(f"scale shape={tuple(scales.shape)} dtype={scales.dtype} stride={scales.stride()}")
+    print(
+        f"scale shape={tuple(scales.shape)} dtype={scales.dtype} stride={scales.stride()}"
+    )
     print(
         f"allclose={ok}  bad={bad_cnt}/{total}  "
         f"max_abs={max_abs:.6g}  mean_abs={mean_abs:.6g}  "
