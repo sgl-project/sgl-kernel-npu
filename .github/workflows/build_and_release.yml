@@ -16,10 +16,10 @@ jobs:
 
   build-and-release:
     runs-on: ubuntu-24.04-arm
-    permissions:
-      contents: write
     container:
       image: quay.io/ascend/cann:8.3.rc2-a3-ubuntu22.04-py3.11
+    permissions:
+      contents: write
     defaults:
       run:
         shell: bash
@@ -28,13 +28,26 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Mark repository safe
+      - name: Mark repository safe in container
         run: |
           git config --system --add safe.directory ${GITHUB_WORKSPACE}
 
-      - name: Build packages
+      - name: Install dependency in container
         run: |
-          env -i PATH=${PATH} bash --login scripts/build_and_release.sh
+          bash scripts/npu_ci_install_dependency.sh
+
+      - name: Build SGL-Kernel-NPU in container
+        run: |
+          env -i PATH=${PATH} bash --login build.sh -a kernels
+
+      - name: Build Torch-Memory-Saver in container
+        run: |
+          env -i PATH=${PATH} bash --login build.sh -a memory-saver
+
+      - name: Build DeepEP in container
+        run: |
+          env -i PATH=${PATH} bash --login build.sh -a deepep
+          ls -al output/
 
       - name: Upload Release Artifacts
         if: github.event_name != 'pull_request'
