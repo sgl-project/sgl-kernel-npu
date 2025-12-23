@@ -364,7 +364,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         int num_recv_tokens = (trt == 0) ? 1 : trt; // max recv_tokens in all rank
 
         recv_data.reset(); // release symetric tensor
-        expandx_out = use_quant ? create_tensor_from_shmem(std::vector<int64_t>{num_recv_tokens, hidden}, at::kInt, device)
+        expandx_out = use_quant ? create_tensor_from_shmem(std::vector<int64_t>{num_recv_tokens, hidden}, at::kChar, device)
                                : create_tensor_from_shmem(std::vector<int64_t>{num_recv_tokens, hidden}, x.scalar_type(), device);
         dynamic_scales_out = use_quant ? create_tensor_from_shmem(std::vector<int64_t>{num_recv_tokens}, at::kFloat, device)
                                     : torch::empty({1}, at::dtype(at::kFloat).device(device));

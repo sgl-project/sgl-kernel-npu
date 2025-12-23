@@ -28,10 +28,10 @@ using namespace Moe;
 
 namespace {
 constexpr uint32_t RECV_X_INDEX = 0;
-constexpr uint32_t EP_RECV_COUNTS_INDEX = 2;
-constexpr uint32_t TOPK_WEIGHTS_INDEX = 3;
-constexpr uint32_t TOPK_IDX_INDEX = 4;
-constexpr uint32_t SEND_TOPKEN_IDX_INDEX = 5;
+constexpr uint32_t EP_RECV_COUNTS_INDEX = 1;
+constexpr uint32_t TOPK_WEIGHTS_INDEX = 2;
+constexpr uint32_t TOPK_IDX_INDEX = 3;
+constexpr uint32_t SEND_TOPKEN_IDX_INDEX = 4;
 
 constexpr uint32_t OUTPUT_X_INDEX = 0;
 constexpr uint32_t OUTPUT_SEND_COST_INDEX = 1;
@@ -240,7 +240,8 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     auto epRecvCountsDesc = context->GetOptionalInputDesc(EP_RECV_COUNTS_INDEX);
     OP_TILING_CHECK(epRecvCountsDesc == nullptr, OP_LOGE(nodeName, "epRecvCountsDesc is null."), return false);
     OP_TILING_CHECK((epRecvCountsDesc->GetDataType() != ge::DT_INT32),
-                    OP_LOGE(nodeName, "epRecvCounts dataType is invalid, dataType should be int32, but is "),
+                    OP_LOGE(nodeName, "epRecvCounts dataType is invalid, dataType should be int32, but is %d", 
+                    static_cast<ge::DataType>(epRecvCountsDesc->GetDataType())),
                     return false);
     auto topkWeightsDesc = context->GetInputDesc(TOPK_WEIGHTS_INDEX);
     OP_TILING_CHECK(topkWeightsDesc == nullptr, OP_LOGE(nodeName, "topkWeightsDesc is null."), return false);

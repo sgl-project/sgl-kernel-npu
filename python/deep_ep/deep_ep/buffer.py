@@ -299,7 +299,6 @@ class Buffer:
         """
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
-        print(f'[dispatch] {self.rank=}, {x.shape=}')
 
         # Internode
         if self.runtime.get_num_rdma_ranks() > 1:

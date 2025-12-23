@@ -174,20 +174,18 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     auto recvTokensPerExpert = context->GetOutputDesc(OUTPUT_RECV_TOKENS_PER_EXPERT_INDEX);
     OP_TILING_CHECK(recvTokensPerExpert == nullptr, OP_LOGE(nodeName, "recvTokensPerExpert is null."), return false);
     OP_TILING_CHECK(
-        (recvTokensPerExpert->GetDataType() != ge::DT_BF16) && (recvTokensPerExpert->GetDataType() != ge::DT_FLOAT16) &&
-            (recvTokensPerExpert->GetDataType() != ge::DT_FLOAT) && (recvTokensPerExpert->GetDataType() != ge::DT_INT32),
+        (recvTokensPerExpert->GetDataType() != ge::DT_INT64),
         OP_LOGE(nodeName,
-                "recvTokensPerExpert datatype is invalid, datatype should be bf16 or float16 or float or int, but is %d.",
+                "recvTokensPerExpert datatype is invalid, datatype should be int64, but is %d.",
                 static_cast<ge::DataType>(recvTokensPerExpert->GetDataType())),
         return false);
 
     auto putOffset = context->GetOutputDesc(OUTPUT_PUT_OFFSET_INDEX);
     OP_TILING_CHECK(putOffset == nullptr, OP_LOGE(nodeName, "putOffset is null."), return false);
     OP_TILING_CHECK(
-        (putOffset->GetDataType() != ge::DT_BF16) && (putOffset->GetDataType() != ge::DT_FLOAT16) &&
-            (putOffset->GetDataType() != ge::DT_FLOAT) && (putOffset->GetDataType() != ge::DT_INT32),
+        (putOffset->GetDataType() != ge::DT_INT32),
         OP_LOGE(nodeName,
-                "putOffset datatype is invalid, datatype should be bf16 or float16 or float or int, but is %d.",
+                "putOffset datatype is invalid, datatype should be int32, but is %d.",
                 static_cast<ge::DataType>(putOffset->GetDataType())),
         return false);
 
