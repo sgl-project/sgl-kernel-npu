@@ -128,28 +128,31 @@ inline at::Tensor GetSFATilingTensor(const SparseFlashAttentionTilingDataMla &ti
     uint32_t tilingSize = sizeof(SparseFlashAttentionTilingDataMla);
     auto tup = std::make_tuple(tilingData.baseParams.batchSize,tilingData.baseParams.blockSize,
                                tilingData.baseParams.maxBlockNumPerBatch,tilingData.baseParams.scaleValue,
-                               tilingData.baseParams.nNumofInOneGroup,tilingData.baseParams.outputLayout,
+                               tilingData.baseParams.nNumOfInOneGroup,tilingData.baseParams.outputLayout,
                                tilingData.baseParams.sparseMode,tilingData.baseParams.sparseBlockSize,
                                tilingData.baseParams.sparseBlockCount,tilingData.splitKVParams.s2,tilingData.tilingKey);
     auto hashValue = host_utils::TupleHasher::Hash(tup);
     static auto globalTilingBuffer = at::empty({tilingSize * MAX_CAPTURE_NUM}, at::TensorOptions().dtype(at::kByte).device(device));
     at::Tensor tilingTensor;
-    if (captureMap.find(hashValue) == captureMap.end()) {
+    if (captureMap.find(hashValue) != captureMap.end()) {
+        // For decode replay phase and part of prefill phase, get cached tiling data from globalTilingBuffer
         tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
-                                    tilingSize, at::kByte);
-        } else if (actualCaptureNum > MAX_CAPTURE_NUM) {
-            static auto tilingBuffer = at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(device));
-            aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), tilingSize,
-                         &tilingData, tilingSize,ACL_MEMCPY_HOST_TO_DEVICE);
-            tilingTensor = at::from_blob(tilingBuffer.data_ptr<uint8_t>(), tilingSize, at::kByte);
-        }else{
-            captureMap[hashValue] = actualCaptureNum;
-            aclrtMemcpy(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * actualCaptureNum),
-                         tilingSize, &tilingData, tilingSize,ACL_MEMCPY_HOST_TO_DEVICE);
-            tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * actualCaptureNum),
-                                        tilingSize, at::kByte);
-            actualCaptureNum++;
-        }
+                                     tilingSize, at::kByte);
+    } else if (actualCaptureNum >= MAX_CAPTURE_NUM) {
+        // For tiling hash that not exist in capture map and exceeds MAX_CAPTURE_NUM, reload its' tiling data to NPU
+        static auto tilingBuffer =
+            at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(device));
+        aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
+        tilingTensor = at::from_blob(tilingBuffer.data_ptr<uint8_t>(), tilingSize, at::kByte);
+    } else {
+        // Captured tiling cached here
+        captureMap[hashValue] = actualCaptureNum;
+        aclrtMemcpy(globalTilingBuffer.data_ptr<uint8_t>() + actualCaptureNum * tilingSize, tilingSize, &tilingData,
+                    tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
+        actualCaptureNum++;
+        tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
+                                     tilingSize, at::kByte);
+    }
     return tilingTensor;
 }
 
@@ -183,55 +186,46 @@ HOST_API at::Tensor sparse_flash_attention(
     const c10::optional<at::Tensor> &key_rope,
     c10::optional<c10::string_view> layout_query,
     c10::optional<c10::string_view> layout_kv,
-    c10::optional<int64_t> sparse_mode
+    c10::optional<int64_t> sparse_mode)
 {
     using namespace SFAHost;
-    
-    // 1. 创建SparseFlashAttention对象
+
     SparseFlashAttention sfa("sparse_flash_attention");
     
-    // 2. 设置属性（使用辅助函数）
+
     SetSparseFlashAttentionAttributes(sfa, scale_value, sparse_block_size, 
                                       layout_query, layout_kv, sparse_mode);
     
-    // 3. 创建TilingContext
+
     auto context = std::make_shared<TilingContext>("sparse_flash_attention");
     TORCH_CHECK(context != nullptr, "TilingContext is null");
     
-    // 4. 设置上下文并获取标量类型
+
     auto qScalarType = query.scalar_type();
     sfa.SetToContext(context, qScalarType);
-    
-    // 5. 创建输出张量
+
     at::Tensor attention_out = ConstructSparseFlashAttentionOutputTensor(query);
     auto device_opt = query.options().device();
     
-    // 6. 处理可选张量（使用辅助函数）
     at::Tensor actuaSeqQ = GetOptionalTensor(actual_seq_lengths_query, device_opt);
     at::Tensor actuaSeqKV = GetOptionalTensor(actual_seq_lengths_kv, device_opt);
     at::Tensor queryRope = GetOptionalTensor(query_rope, device_opt);
     at::Tensor keyRope = GetOptionalTensor(key_rope, device_opt);
     at::Tensor blockTable = GetOptionalTensor(block_table, device_opt);
     
-    
-    // 8. 注册所有张量到上下文（使用辅助函数）
     RegisterSparseFlashAttentionTensors(context, query, key, value, sparse_indices,
                                         blockTable, actuaSeqQ, actuaSeqKV,
                                         queryRope, keyRope, attention_out);
     
-    // 9. 执行tiling操作（使用辅助函数）
     SFATilingInfo sfaInfo;
     SFAMlaTiling sfaTiling(context.get());
     PerformSparseFlashAttentionTiling(context, sfaInfo, sfaTiling);
-    
-    // 10. 获取tiling数据
+
     const auto &tilingData = sfaTiling.GetTilingData();
     
-    // 11. 创建工作空间和tiling张量（使用辅助函数）
     at::Tensor workspace = GetWorkspaceTensor(context, device_opt);
     at::Tensor tilingTensor = GetSFATilingTensor(tilingData, device_opt);
 
-    // 12. 执行内核
     auto blockdim = tilingData.singleCoreParams.usedCoreNum;
     EXEC_KERNEL_CMD(sparse_flash_attention, blockdim, query, key, value, sparse_indices, blockTable,
                     actuaSeqQ, actuaSeqKV, queryRope, keyRope, attention_out, workspace, tilingTensor);
