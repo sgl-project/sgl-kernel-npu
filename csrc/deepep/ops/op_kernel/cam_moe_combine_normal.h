@@ -22,6 +22,7 @@ constexpr uint32_t FLOAT_NUM_PER_ALIGN = 8U;
 constexpr uint8_t DOUBLE_BUFFER = 2;
 constexpr int64_t CYCLE_TO_TIME = 50;  // cycle num is converted into a fixed base unit of time, set at 50
 constexpr uint32_t STATE_OFFSET = 32U;
+constexpr uint32_t BATCH_SRC_INFO_CNT = 128U;
 
 template <AscendC::HardEvent event>
 __aicore__ inline void SyncFunc()
@@ -282,11 +283,9 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitRoundSendDa
     }
 
     // 创建 srcInfoLT_
-    uint32_t srcInfoLen = static_cast<uint32_t>(
-        perRoundTokens_ * TOKEN_SRC_INFO_LEN *
-        sizeof(
-            SrcInfoType));  // 每个核可能需要向多个rank发送数据，为了保证ub够用，这里只需要存放1个rank的srcInfo，然后循环拷贝其他rank的
-    tpipe_->InitBuffer(srcInfoBuf_, srcInfoLen);  // 1024*3*4/1024=12KB
+    // 为了支持一轮最大8192 bs，这里按照一批BATCH_SRC_INFO_LEN个srcInfo拷贝，这样可以保证UB占用少
+    uint32_t srcInfoLen = static_cast<uint32_t>(BATCH_SRC_INFO_CNT * TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType));
+    tpipe_->InitBuffer(srcInfoBuf_, srcInfoLen);  // 128*3*4/1024=1.5KB
     srcInfoLT_ = srcInfoBuf_.Get<SrcInfoType>();
 
     // 创建 setStatusLT_
@@ -306,9 +305,9 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitRoundRecvDa
 
     // 每个核一轮最多需要接收Ceil(perRoundTokens_, aivNum_) * aivNum_个token，topkWeightBuf_也只需要开这么大
     tpipe_->InitBuffer(xOutBuf_, h32AlignRecvXLen_);                                             // 14KB
-    tpipe_->InitBuffer(tokenFloatBuf_, h32AlignFloatLen_);                                       // 14KB
-    tpipe_->InitBuffer(weightedMulBuf_, h256AlignFloatLen_);                                     // 14KB
-    tpipe_->InitBuffer(sumFloatBuf_, h32AlignFloatLen_);                                         // 14KB
+    tpipe_->InitBuffer(tokenFloatBuf_, h32AlignFloatLen_);                                       // 28KB
+    tpipe_->InitBuffer(weightedMulBuf_, h256AlignFloatLen_);                                     // 28KB
+    tpipe_->InitBuffer(sumFloatBuf_, h32AlignFloatLen_);                                         // 28KB
     tpipe_->InitBuffer(weightedSumQueue_, DOUBLE_BUFFER, h32AlignRecvXLen_);                     // 14KB
     tpipe_->InitBuffer(waitStateBuf_, axisK_ * UB_32_ALIGN);                                     // 196B
     tpipe_->InitBuffer(waitTempStateBuf_, axisK_ * UB_32_ALIGN);                                 // 196B
@@ -367,18 +366,23 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::CopyBufferToSha
         uint32_t roundMaxSendCount = roundNeedSendCntLT_(blockIndex) >= perRoundTokens_
                                          ? perRoundTokens_
                                          : roundNeedSendCntLT_(blockIndex);  // 这一轮最多发送 roundMaxSendCount 个token
+
         uint32_t sendTokenOffset = roundSendOffsetLT_(blockIndex);
         uint32_t startTokenId = sendTokenOffset;  // 这一轮要发的token在recvX中的偏移
         uint32_t roundActualSendCount = 0;        // 这一轮blockIndex实际发送的token数，<= roundMaxSendCount
-        uint32_t srcInfoLen = roundMaxSendCount * TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType);  // 可能拷贝多了
-        const DataCopyExtParams dataCopyParams{1U, srcInfoLen, 0U, 0U, 0U};
-        const DataCopyPadExtParams<SrcInfoType> padParams{false, 0U, 0U, 0U};
-        DataCopyPad(srcInfoLT_, tokenSrcInfoGM_[startTokenId * TOKEN_SRC_INFO_LEN], dataCopyParams, padParams);
-        SyncFunc<AscendC::HardEvent::MTE2_S>();
         while (roundActualSendCount < roundMaxSendCount) {
             uint32_t recvXTokenIdx = startTokenId + roundActualSendCount;  // 要发送的token在recvX中的位置
-            uint32_t srcInfoIdx = roundActualSendCount *
-                                  TOKEN_SRC_INFO_LEN;  // 要发送的token的srcInfo在srcInfoLT_中的位置，所以起始偏移为0
+            uint32_t tokenIdxInBatch = roundActualSendCount % BATCH_SRC_INFO_CNT;
+            if (tokenIdxInBatch == 0) {
+                uint32_t tokenCount = min(BATCH_SRC_INFO_CNT, roundMaxSendCount - roundActualSendCount);
+                uint32_t srcInfoLen = tokenCount * TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType);
+                const DataCopyExtParams dataCopyParams{1U, srcInfoLen, 0U, 0U, 0U};
+                const DataCopyPadExtParams<SrcInfoType> padParams{false, 0U, 0U, 0U};
+                DataCopyPad(srcInfoLT_, tokenSrcInfoGM_[recvXTokenIdx * TOKEN_SRC_INFO_LEN], dataCopyParams, padParams);
+                SyncFunc<AscendC::HardEvent::MTE2_S>();
+            }
+            // 要发送的token的srcInfo在srcInfoLT_中的位置，所以起始偏移为0
+            uint32_t srcInfoIdx = tokenIdxInBatch * TOKEN_SRC_INFO_LEN;
             uint32_t srcRankId = static_cast<uint32_t>(srcInfoLT_(srcInfoIdx + RANK_ID_OFFSET_IN_SRC_INFO));
             uint32_t srcTokenId = static_cast<uint32_t>(srcInfoLT_(srcInfoIdx + TOKEN_IDX_OFFSET_IN_SRC_INFO));
             if (srcTokenId >= (roundIndex_ + 1) * perRoundTokens_) {
@@ -386,8 +390,8 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::CopyBufferToSha
                 break;
             }
             uint32_t srcTopkId = static_cast<uint32_t>(srcInfoLT_(srcInfoIdx + TOPK_IDX_OFFSET_IN_SRC_INFO));
-            uint32_t roundTokenId =
-                srcTokenId % perRoundTokens_;  // 每一轮 put token和state 到目标rank的hccl buffer的偏移都要从0开始计算
+            // 每一轮 put token和state 到目标rank的hccl buffer的偏移都要从0开始计算
+            uint32_t roundTokenId = srcTokenId % perRoundTokens_;
             if (isEnableDiagnose_) {
                 sendStartCycle = GetSystemCycle();
             }

@@ -278,8 +278,8 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(
     PipeBarrier<PIPE_ALL>();
 
     uint64_t hSizeAlignCombine = Ceil(h * sizeof(XType), WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
-    winDataSizeOffset =
-        dataState * (tilingData->camMoeDispatchNormalInfo.totalWinSize / 2) + perRoundTokens * topK * hSizeAlignCombine;
+    winDataSizeOffset = dataState * (tilingData->camMoeDispatchNormalInfo.totalWinSize / 2) +
+                        min(realMaxBatchSize, perRoundTokens) * topK * hSizeAlignCombine;
     shareGM = GetWindAddrByRankId(COMM_EP_IDX, epRankId);
 
     hCommuCopyOutParams = {1U, static_cast<uint32_t>(hScaleIdxSize), 0U, 0U, 0U};
