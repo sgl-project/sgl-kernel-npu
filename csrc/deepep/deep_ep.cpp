@@ -532,7 +532,7 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
         ext_info = reinterpret_cast<uint64_t>(shmem_ptr);
 
         EXEC_NPU_CMD(aclnnShmemMoeCombineNormal, recv_x, ep_send_counts, expert_scales, expand_ids,
-                 this->send_token_idx_small, ext_info, num_ranks, rank, moe_expert_number, global_bs,
+                 this->send_token_idx_small, ext_info, num_ranks, rank, tp_world_size, tp_rankId, moe_expert_number, global_bs,
                  combined_x, combine_send_cost_stats_out);
     } else {
         ep_send_counts = send_head;
