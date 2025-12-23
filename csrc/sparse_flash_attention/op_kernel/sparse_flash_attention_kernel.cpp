@@ -51,13 +51,6 @@ extern "C" __global__ __aicore__ void sparse_flash_attention(
     auto tilingData = reinterpret_cast<__gm__ sglang::SFAHost::SparseFlashAttentionTilingDataMla *>(tiling);
     auto tilingKey = tilingData->tilingKey;
 
-    // 2. 定義不同配置的算子實例
-    // 注意：SFAType 的模板參數順序需與頭文件 sparse_flash_attention_kernel_mla.h 中定義的 class SparseFlashAttentionMla 一致
-    // 假設順序為: <typename Q_T, typename KV_T, typename OUT_T, bool FLASH_DECODE, SFA_LAYOUT LAYOUT, SFA_LAYOUT KV_LAYOUT, int TEMPLATE_MODE>
-    
-    SparseFlashAttentionMla<SFAType<half, half, half, false, SFA_LAYOUT::BSND, SFA_LAYOUT::BSND, 0>> op_fp16;
-    SparseFlashAttentionMla<SFAType<bfloat16_t, bfloat16_t, bfloat16_t, false, SFA_LAYOUT::TND, SFA_LAYOUT::PA_BSND, 0>> op_bf16;
-
     // 3. 根據 Tiling Key 進行運行時分發
     switch (tilingKey) {
         case SFA_TILING_KEY_FP16_BSND: 

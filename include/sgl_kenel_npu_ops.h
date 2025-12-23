@@ -109,14 +109,14 @@ at::Tensor sparse_flash_attention(
     const at::Tensor &sparse_indices,
     double scale_value,
     int64_t sparse_block_size,
+    const c10::optional<at::Tensor> &block_table,
     const c10::optional<at::Tensor> &actual_seq_lengths_query,
     const c10::optional<at::Tensor> &actual_seq_lengths_kv,
     const c10::optional<at::Tensor> &query_rope,
     const c10::optional<at::Tensor> &key_rope,
     c10::optional<c10::string_view> layout_query,
     c10::optional<c10::string_view> layout_kv,
-    c10::optional<int64_t> sparse_mode,
-    const c10::optional<at::Tensor> &block_table);
+    c10::optional<int64_t> sparse_mode);
 } // namespace npu_kernel
 } // namespace sglang
 
