@@ -72,7 +72,7 @@ def compare_data_Wf8Abf16(g, m, n, k):
     result = torch.ops.npu.fp8_w8a16_grouped_matmul(
         a_bf16, b_int8, scales, group_list, "bf16"
     )
-    
+
     torch.npu.synchronize()
 
     gt = c_fp32.to(torch.float32).to("cpu")
