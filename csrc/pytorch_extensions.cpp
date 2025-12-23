@@ -83,6 +83,10 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
     m.def("catlass_matmul_basic(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, str? format_mode=None) -> ()");
 #endif
 
+#ifdef BUILD_CATCOC_MODULE
+  m.def("catcoc_allgather_matmul(Tensor tensor_a, Tensor tensor_b, Tensor! tensor_c, int symmAddr, int teamId=0, str? format_mode=None) -> ()");
+#endif
+
     m.def(
         "lightning_indexer(Tensor query, Tensor key, Tensor weights, Tensor? actual_seq_lengths_query=None, "
         "Tensor? actual_seq_lengths_key=None, Tensor? block_table=None, "
@@ -122,6 +126,10 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
 #ifdef BUILD_CATLASS_MODULE
     m.impl("catlass_matmul_basic", TORCH_FN(sglang::npu_kernel::catlass_matmul_basic));
+#endif
+
+#ifdef BUILD_CATCOC_MODULE
+    m.impl("catcoc_allgather_matmul", TORCH_FN(sglang::npu_kernel::catcoc_allgather_matmul));
 #endif
 
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));

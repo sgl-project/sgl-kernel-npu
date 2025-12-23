@@ -94,6 +94,11 @@ void catlass_matmul_basic(const at::Tensor &tensor_a,
                           const at::Tensor &tensor_b, at::Tensor &tensor_c,
                           c10::optional<c10::string_view> format_mode);
 #endif
+#ifdef BUILD_CATCOC_MODULE
+void catcoc_allgather_matmul(const at::Tensor &input_a, const at::Tensor &input_b, at::Tensor &output_c,
+                             int64_t symmAddr, int64_t teamId = 0,
+                             c10::optional<c10::string_view> format_mode = c10::nullopt);
+#endif
 
 at::Tensor lightning_indexer(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
