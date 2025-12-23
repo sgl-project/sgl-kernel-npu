@@ -92,8 +92,8 @@ static void PrintTilingDataInfo(const char *nodeName, ShmemMoeCombineNormalTilin
     OP_LOGD(nodeName, "totalWinSize is %lu.", tilingData.moeCombineNormalInfo.totalWinSize);
 }
 
-static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, ShmemMoeCombineNormalTilingData &tilingData,
-                                               const char *nodeName)
+static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context,
+                                               ShmemMoeCombineNormalTilingData &tilingData, const char *nodeName)
 {
     auto attrs = context->GetAttrs();
     OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "attrs is null."), return ge::GRAPH_FAILED);
@@ -174,8 +174,7 @@ static bool CheckInputTensorDim(gert::TilingContext *context, const char *nodeNa
     OP_LOGD(nodeName, "recvX dim1 = %ld", recvXStorageShape->GetStorageShape().GetDim(1));
 
     const gert::StorageShape *epRecvCountStorageShape = context->GetInputShape(EP_RECV_COUNTS_INDEX);
-    OP_TILING_CHECK(epRecvCountStorageShape == nullptr, OP_LOGE(nodeName, "epRecvCount is null."),
-                    return false);
+    OP_TILING_CHECK(epRecvCountStorageShape == nullptr, OP_LOGE(nodeName, "epRecvCount is null."), return false);
     OP_TILING_CHECK(epRecvCountStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS,
                     OP_LOGE(nodeName, "epRecvCount must be 2-dimension, but got %lu dim",
                             epRecvCountStorageShape->GetStorageShape().GetDimNum()),
@@ -240,8 +239,8 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     auto epRecvCountsDesc = context->GetOptionalInputDesc(EP_RECV_COUNTS_INDEX);
     OP_TILING_CHECK(epRecvCountsDesc == nullptr, OP_LOGE(nodeName, "epRecvCountsDesc is null."), return false);
     OP_TILING_CHECK((epRecvCountsDesc->GetDataType() != ge::DT_INT32),
-                    OP_LOGE(nodeName, "epRecvCounts dataType is invalid, dataType should be int32, but is %d", 
-                    static_cast<ge::DataType>(epRecvCountsDesc->GetDataType())),
+                    OP_LOGE(nodeName, "epRecvCounts dataType is invalid, dataType should be int32, but is %d",
+                            static_cast<ge::DataType>(epRecvCountsDesc->GetDataType())),
                     return false);
     auto topkWeightsDesc = context->GetInputDesc(TOPK_WEIGHTS_INDEX);
     OP_TILING_CHECK(topkWeightsDesc == nullptr, OP_LOGE(nodeName, "topkWeightsDesc is null."), return false);
@@ -389,8 +388,7 @@ static bool CheckAttrs(gert::TilingContext *context, ShmemMoeCombineNormalTiling
                 *globalBsPtr, topkWeightsDim0, epWorldSize),
         return false);
     tilingData.moeCombineNormalInfo.globalBs = static_cast<uint32_t>(*globalBsPtr);
-    OP_LOGD(nodeName, "*globalBsPtr = %ld, bs = %ld, epWorldSize = %u\n", *globalBsPtr,
-            topkWeightsDim0, epWorldSize);
+    OP_LOGD(nodeName, "*globalBsPtr = %ld, bs = %ld, epWorldSize = %u\n", *globalBsPtr, topkWeightsDim0, epWorldSize);
 
     if (*globalBsPtr == 0) {
         tilingData.moeCombineNormalInfo.globalBs = static_cast<uint32_t>(topkWeightsDim0) * epWorldSize;
@@ -400,7 +398,7 @@ static bool CheckAttrs(gert::TilingContext *context, ShmemMoeCombineNormalTiling
 }
 
 static ge::graphStatus TilingCheckShmemMoeCombineNormal(gert::TilingContext *context, const char *nodeName,
-                                                      const bool isEnableDiagnose)
+                                                        const bool isEnableDiagnose)
 {
     // 检查参数shape信息
     OP_TILING_CHECK(!CheckTensorDim(context, nodeName, isEnableDiagnose), OP_LOGE(nodeName, "param shape is invalid"),

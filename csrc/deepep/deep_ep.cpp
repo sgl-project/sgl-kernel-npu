@@ -19,7 +19,7 @@ constexpr int EXPERT_DATA_SIZE = 1 + MAX_BATCH_SIZE;  // 4097
 constexpr int A3_MAX_HCCS_PEERS = 384;
 constexpr int A2_MAX_HCCS_PEERS = 8;
 
-torch::Tensor create_tensor_from_shmem(const std::vector<int64_t>& shape, at::ScalarType dtype, c10::Device &device)
+torch::Tensor create_tensor_from_shmem(const std::vector<int64_t> &shape, at::ScalarType dtype, c10::Device &device)
 {
     int64_t numel = 1;
     for (auto v : shape) {
@@ -42,23 +42,15 @@ torch::Tensor create_tensor_from_shmem(const std::vector<int64_t>& shape, at::Sc
     }
     size_t bytes = static_cast<size_t>(numel) * ele_size;
 
-    void* dev_ptr = shmem_malloc(bytes);
+    void *dev_ptr = shmem_malloc(bytes);
     if (!dev_ptr) {
         throw std::runtime_error("shmem_malloc failed");
     }
 
-    auto options = torch::TensorOptions()
-        .dtype(dtype)
-        .device(device);
+    auto options = torch::TensorOptions().dtype(dtype).device(device);
 
-    torch::Tensor tensor = torch::from_blob(
-        dev_ptr,
-        c10::IntArrayRef(shape),
-        [](void* ptr) {
-            shmem_free(ptr);
-        },
-        options
-    );
+    torch::Tensor tensor =
+        torch::from_blob(dev_ptr, c10::IntArrayRef(shape), [](void *ptr) { shmem_free(ptr); }, options);
 
     return tensor;
 }
@@ -89,13 +81,15 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
         nvl_rank = rank % A2_MAX_HCCS_PEERS;
     }
 
-    shmem_enable = get_value_from_env("DEEPEP_SHMEM_ENABLE", 0) == 1 ? true : false;  // only open shmem with "1"
+    shmem_enable = (get_value_from_env("DEEPEP_SHMEM_ENABLE", 0) == 1);  // only open shmem with "1"
     if (shmem_enable) {
         size_t local_mem_size = 8 * 1024 * 1024 * 1024UL;
         size_t meta_data_size = 100 * 1024 * 1024UL;
         size_t ele_size = sizeof(int32_t);
         size_t num_of_int32 = meta_data_size / ele_size;
-        EP_HOST_ASSERT(rank == internode::init(rank, num_ranks, local_mem_size, "tcp://127.0.0.1:11222")); // 由上层来初始化
+
+        // To be initialized by the caller
+        EP_HOST_ASSERT(rank == internode::init(rank, num_ranks, local_mem_size, "tcp://127.0.0.1:11222"));
         shmem_ptr = internode::alloc(num_of_int32, ele_size);
     } else {
         if (moe_all_to_all_group_name.empty()) {
@@ -218,7 +212,8 @@ int Buffer::get_rdma_rank() const
 }
 
 std::tuple<at::Tensor, std::optional<at::Tensor>, std::optional<at::Tensor>, std::optional<at::Tensor>,
-           std::vector<int>, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, std::optional<EventHandle>>
+           std::vector<int>, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor,
+           std::optional<EventHandle>>
 Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> &x_scales,
                            const std::optional<at::Tensor> &topk_idx, const std::optional<at::Tensor> &topk_weights,
                            const std::optional<at::Tensor> &num_tokens_per_rank, const at::Tensor &is_token_in_rank,
@@ -332,7 +327,8 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 
     char hcom_ep_name[HCOMM_NAME_LEN];
     int send_per_group, send_count;
-    at::Tensor send_data, send_data_offset, recv_data, put_offset_, total_recv_token_, recv_count_, recv_offset_, max_bs_, recv_tokens_per_expert_;
+    at::Tensor send_data, send_data_offset, recv_data, put_offset_, total_recv_token_, recv_count_, recv_offset_,
+        max_bs_, recv_tokens_per_expert_;
     int64_t ext_info;  // shmem_ptr_info
     at::Tensor expandx_out, dynamic_scales_out, expand_idx_out;
 
@@ -348,26 +344,29 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         max_bs_ = torch::empty({1}, at::dtype(at::kInt).device(device));
         recv_tokens_per_expert_ = torch::empty({num_local_experts}, at::dtype(at::kLong).device(device));
 
-        send_data = torch::empty({1}, at::dtype(at::kInt).device(device));  // not use
+        send_data = torch::empty({1}, at::dtype(at::kInt).device(device));         // not use
         send_data_offset = torch::empty({1}, at::dtype(at::kInt).device(device));  // not use
-        recv_count_ = torch::empty({1}, at::dtype(at::kInt).device(device));  // not use
-        recv_offset_ = torch::empty({1}, at::dtype(at::kInt).device(device));  // not use
+        recv_count_ = torch::empty({1}, at::dtype(at::kInt).device(device));       // not use
+        recv_offset_ = torch::empty({1}, at::dtype(at::kInt).device(device));      // not use
 
         EXEC_NPU_CMD(aclnnShmemNotifyDispatch, new_num_tokens_per_expert, send_count,
-                    num_ranks,     // rankSize
-                    rank,          // rankId
-                    local_rank_size, local_rank_id, topk_num, ext_info,
-                    recv_data, total_recv_token_, max_bs_, recv_tokens_per_expert_, put_offset_);
-        
+                     num_ranks,  // rankSize
+                     rank,       // rankId
+                     local_rank_size, local_rank_id, topk_num, ext_info, recv_data, total_recv_token_, max_bs_,
+                     recv_tokens_per_expert_, put_offset_);
+
         int64_t gBs = max_bs_.item<int>() * num_ranks;
         int trt = total_recv_token_.item<int>();
-        int num_recv_tokens = (trt == 0) ? 1 : trt; // max recv_tokens in all rank
+        int num_recv_tokens = (trt == 0) ? 1 : trt;  // max recv_tokens in all rank
 
-        recv_data.reset(); // release symetric tensor
-        expandx_out = use_quant ? create_tensor_from_shmem(std::vector<int64_t>{num_recv_tokens, hidden}, at::kChar, device)
-                               : create_tensor_from_shmem(std::vector<int64_t>{num_recv_tokens, hidden}, x.scalar_type(), device);
-        dynamic_scales_out = use_quant ? create_tensor_from_shmem(std::vector<int64_t>{num_recv_tokens}, at::kFloat, device)
-                                    : torch::empty({1}, at::dtype(at::kFloat).device(device));
+        recv_data.reset();  // release symmetric tensor
+        expandx_out =
+            use_quant
+                ? create_tensor_from_shmem(std::vector<int64_t>{num_recv_tokens, hidden}, at::kChar, device)
+                : create_tensor_from_shmem(std::vector<int64_t>{num_recv_tokens, hidden}, x.scalar_type(), device);
+        dynamic_scales_out = use_quant
+                                 ? create_tensor_from_shmem(std::vector<int64_t>{num_recv_tokens}, at::kFloat, device)
+                                 : torch::empty({1}, at::dtype(at::kFloat).device(device));
         expand_idx_out = torch::empty({1}, at::dtype(at::kInt).device(device));  // not use
 
         if (topk_idx.has_value()) {
@@ -376,11 +375,11 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         }
 
         EXEC_NPU_CMD(aclnnShmemMoeDispatchNormal, new_x, expert_ids, send_token_idx_small, put_offset_,
-                    num_ranks,  // rankSize
-                    rank,       // rankId
-                    tp_size, tp_rank, num_experts, quant_mode, gBs, ext_info,
-                    // output params
-                    expandx_out, dynamic_scales_out, expand_idx_out, dispatch_wait_recv_cost_stats_out);
+                     num_ranks,  // rankSize
+                     rank,       // rankId
+                     tp_size, tp_rank, num_experts, quant_mode, gBs, ext_info,
+                     // output params
+                     expandx_out, dynamic_scales_out, expand_idx_out, dispatch_wait_recv_cost_stats_out);
     } else {
         send_per_group = 3;  // (send_to_expert_num, send_to_expert_offset, send_rank_tokens)
         send_count = send_per_group * num_local_experts * num_ranks;
@@ -394,7 +393,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         max_bs_ = torch::empty({1}, at::dtype(at::kInt).device(x.device()));
         recv_tokens_per_expert_ = torch::empty({num_local_experts}, at::dtype(at::kLong).device(x.device()));
         put_offset_ = torch::empty({1}, at::dtype(at::kInt).device(x.device()));  // not use
-        
+
         // get ep name
         if (!moe_all_to_all_group_name.empty()) {
             std::memcpy(hcom_ep_name, moe_all_to_all_group_name.data(), moe_all_to_all_group_name.size() + 1);
@@ -403,11 +402,11 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         }
 
         EXEC_NPU_CMD(aclnnNotifyDispatch, send_data, new_num_tokens_per_expert, send_count, num_tokens,
-                    hcom_ep_name,  // commGroup
-                    num_ranks,     // rankSize
-                    rank,          // rankId
-                    local_rank_size, local_rank_id, send_data_offset, recv_data, total_recv_token_, recv_count_,
-                    recv_offset_, max_bs_, recv_tokens_per_expert_);
+                     hcom_ep_name,  // commGroup
+                     num_ranks,     // rankSize
+                     rank,          // rankId
+                     local_rank_size, local_rank_id, send_data_offset, recv_data, total_recv_token_, recv_count_,
+                     recv_offset_, max_bs_, recv_tokens_per_expert_);
 
         int64_t gBs = max_bs_.item<int>() * num_ranks;
         int64_t trt = total_recv_token_.item<int>();
@@ -415,7 +414,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 
         // 普通tensor按实际接收预留大小
         expandx_out = use_quant ? torch::empty({num_recv_tokens, hidden}, at::dtype(at::kChar).device(x.device()))
-                               : torch::empty({num_recv_tokens, hidden}, x.options());
+                                : torch::empty({num_recv_tokens, hidden}, x.options());
         dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
         expand_idx_out = torch::empty({num_recv_tokens * 3}, at::dtype(at::kInt).device(x.device()));
 
@@ -425,11 +424,11 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         }
 
         EXEC_NPU_CMD(aclnnCamMoeDispatchNormal, new_x, expert_ids, send_data_offset, send_token_idx_small, recv_offset_,
-                    recv_count_, hcom_ep_name,
-                    num_ranks,  // rankSize
-                    rank,       // rankId
-                    hcom_ep_name, tp_size, tp_rank, num_experts, quant_mode, gBs, expandx_out, dynamic_scales_out,
-                    expand_idx_out, dispatch_wait_recv_cost_stats_out);
+                     recv_count_, hcom_ep_name,
+                     num_ranks,  // rankSize
+                     rank,       // rankId
+                     hcom_ep_name, tp_size, tp_rank, num_experts, quant_mode, gBs, expandx_out, dynamic_scales_out,
+                     expand_idx_out, dispatch_wait_recv_cost_stats_out);
     }
 
     auto recv_token_per_exp_cpu = recv_tokens_per_expert_.to(at::kCPU);
@@ -461,10 +460,10 @@ void Buffer::clean_low_latency_buffer(int num_max_dispatch_tokens_per_rank, int 
     return;
 }
 
-std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandle>>
-Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
-                          const std::optional<torch::Tensor> &topk_weights, const torch::Tensor &src_idx,
-                          const torch::Tensor &send_head, const torch::Tensor &put_offset, const std::optional<at::Tensor> &combine_send_cost_stats)
+std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandle>> Buffer::intranode_combine(
+    const torch::Tensor &x, const torch::Tensor &topk_idx, const std::optional<torch::Tensor> &topk_weights,
+    const torch::Tensor &src_idx, const torch::Tensor &send_head, const torch::Tensor &put_offset,
+    const std::optional<at::Tensor> &combine_send_cost_stats)
 {
     EP_HOST_ASSERT(x.dim() == 2 and x.is_contiguous());
     at::Tensor recv_x = x;
@@ -524,7 +523,7 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
 
     int64_t moe_expert_number;
     at::Tensor ep_send_counts;
-    uint64_t ext_info;  // shmem_ptr_info
+    uint64_t ext_info;                  // shmem_ptr_info
     char hcom_ep_name[HCOMM_NAME_LEN];  // get ep & tp name
     if (shmem_enable) {
         ep_send_counts = put_offset;
@@ -532,8 +531,8 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
         ext_info = reinterpret_cast<uint64_t>(shmem_ptr);
 
         EXEC_NPU_CMD(aclnnShmemMoeCombineNormal, recv_x, ep_send_counts, expert_scales, expand_ids,
-                 this->send_token_idx_small, ext_info, num_ranks, rank, tp_world_size, tp_rankId, moe_expert_number, global_bs,
-                 combined_x, combine_send_cost_stats_out);
+                     this->send_token_idx_small, ext_info, num_ranks, rank, tp_world_size, tp_rankId, moe_expert_number,
+                     global_bs, combined_x, combine_send_cost_stats_out);
     } else {
         ep_send_counts = send_head;
         moe_expert_number = send_head.size(0);
@@ -545,8 +544,8 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
         }
 
         EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, tp_send_counts,
-                 hcom_ep_name, num_ranks, rank, hcom_ep_name, tp_world_size, tp_rankId, moe_expert_number, global_bs,
-                 combined_x, combine_send_cost_stats_out);
+                     hcom_ep_name, num_ranks, rank, hcom_ep_name, tp_world_size, tp_rankId, moe_expert_number,
+                     global_bs, combined_x, combine_send_cost_stats_out);
     }
 
     if (this->is_padding) {

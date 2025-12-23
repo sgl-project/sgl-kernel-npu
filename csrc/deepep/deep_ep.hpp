@@ -65,7 +65,8 @@ public:
     torch::Tensor get_notify_send_data();
 
     std::tuple<at::Tensor, std::optional<at::Tensor>, std::optional<at::Tensor>, std::optional<at::Tensor>,
-               std::vector<int>, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, std::optional<EventHandle>>
+               std::vector<int>, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor,
+               std::optional<EventHandle>>
     intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> &x_scales,
                        const std::optional<at::Tensor> &topk_idx, const std::optional<at::Tensor> &topk_weights,
                        const std::optional<at::Tensor> &num_tokens_per_rank, const at::Tensor &is_token_in_rank,
@@ -78,11 +79,10 @@ public:
 
     void clean_low_latency_buffer(int num_max_dispatch_tokens_per_rank, int hidden, int num_experts);
 
-    std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandle>>
-    intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
-                      const std::optional<torch::Tensor> &topk_weights, const torch::Tensor &src_idx,
-                      const torch::Tensor &send_head, const torch::Tensor &put_offset,
-                      const std::optional<at::Tensor> &combine_send_cost_stats);
+    std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandle>> intranode_combine(
+        const torch::Tensor &x, const torch::Tensor &topk_idx, const std::optional<torch::Tensor> &topk_weights,
+        const torch::Tensor &src_idx, const torch::Tensor &send_head, const torch::Tensor &put_offset,
+        const std::optional<at::Tensor> &combine_send_cost_stats);
 
     std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<torch::Tensor>, std::optional<torch::Tensor>,
                std::vector<int>, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor,

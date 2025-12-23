@@ -14,8 +14,8 @@ constexpr uint8_t COMM_NUM = 2;
 constexpr uint32_t FLOAT_NUM_PER_ALIGN = 8U;
 
 constexpr uint64_t NOTIFY_MAGIC_OFFSET = 50UL * 1024UL;
-constexpr uint64_t WIN_MAGIC_OFFSET = 100UL * 1024UL;  // notify(50kb) + dispatch&combine(50kb)
-constexpr uint64_t HALF_WIN_STATE_OFFSET = 8 * 1024UL * 1024UL;  // notify(2MB) + dispatch(3MB) + combine(3MB)
+constexpr uint64_t WIN_MAGIC_OFFSET = 100UL * 1024UL;              // notify(50kb) + dispatch&combine(50kb)
+constexpr uint64_t HALF_WIN_STATE_OFFSET = 8 * 1024UL * 1024UL;    // notify(2MB) + dispatch(3MB) + combine(3MB)
 constexpr uint64_t NOTIFY_WIN_STATE_OFFSET = 2 * 1024UL * 1024UL;  // notify(2MB)
 constexpr uint64_t WIN_ADDR_ALIGN = 512UL;
 
@@ -41,9 +41,9 @@ class ShmemMoeDispatchNormal
 {
 public:
     __aicore__ inline ShmemMoeDispatchNormal(){};
-    __aicore__ inline void Init(GM_ADDR x, GM_ADDR expertIds, GM_ADDR send_tokenIdx,
-                                GM_ADDR put_offset, GM_ADDR expandXOut, GM_ADDR dynamicScalesOut,
-                                GM_ADDR expandIdxOut, GM_ADDR waitRecvCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe,
+    __aicore__ inline void Init(GM_ADDR x, GM_ADDR expertIds, GM_ADDR send_tokenIdx, GM_ADDR put_offset,
+                                GM_ADDR expandXOut, GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut,
+                                GM_ADDR waitRecvCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe,
                                 const ShmemMoeDispatchNormalTilingData *tilingData);
     __aicore__ inline void Process();
 
@@ -79,7 +79,7 @@ private:
     LocalTensor<ExpandXOutType> xOutTensor;
     LocalTensor<ExpandXOutType> xTmpTensor;
     LocalTensor<int32_t> expertIdsTensor;
-    LocalTensor<int32_t> putOffsetTensor; // 全局recv_count前缀和
+    LocalTensor<int32_t> putOffsetTensor;  // 全局recv_count前缀和
     LocalTensor<int32_t> sendTokenIdxTensor;
     LocalTensor<int32_t> statusTensor;
 
@@ -132,9 +132,11 @@ private:
 
 template <CamTypeClass>
 __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::Init(GM_ADDR x, GM_ADDR expertIds, GM_ADDR send_tokenIdx,
-    GM_ADDR put_offset, GM_ADDR expandXOut, GM_ADDR dynamicScalesOut,
-    GM_ADDR expandIdxOut, GM_ADDR waitRecvCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe,
-    const ShmemMoeDispatchNormalTilingData *tilingData)
+                                                                 GM_ADDR put_offset, GM_ADDR expandXOut,
+                                                                 GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut,
+                                                                 GM_ADDR waitRecvCostStatsOut, GM_ADDR workspaceGM,
+                                                                 TPipe *pipe,
+                                                                 const ShmemMoeDispatchNormalTilingData *tilingData)
 {
     tpipe_ = pipe;
     blockIdx = GetBlockIdx();
@@ -166,14 +168,14 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::Init(GM_ADDR x, GM_A
     hUBAlignSize = Ceil(h * sizeof(ExpandXOutType), UB_ALIGN) * UB_ALIGN;
     uint32_t hScaleSizeAlign = hUBAlignSize + UB_ALIGN;
 
-    hOutUBAlignSize = Ceil(hScaleSizeAlign, UB_ALIGN) * UB_ALIGN; // h_align_32b + scale(32b)
+    hOutUBAlignSize = Ceil(hScaleSizeAlign, UB_ALIGN) * UB_ALIGN;  // h_align_32b + scale(32b)
     if constexpr (DynamicQuant) {
         QuantInit();
     } else {
         tpipe_->InitBuffer(xQueue, BUFFER_NUM, hOutUBAlignSize);  // 2 * 14K = 28K
     }
 
-    putOffsetAlignSize = Ceil(epRankSize * moeExpertNum * sizeof(int32_t), UB_ALIGN) * UB_ALIGN; // 4 * ranks * moeNum
+    putOffsetAlignSize = Ceil(epRankSize * moeExpertNum * sizeof(int32_t), UB_ALIGN) * UB_ALIGN;  // 4 * ranks * moeNum
     tpipe_->InitBuffer(putOffsetBuf, putOffsetAlignSize);
     putOffsetTensor = putOffsetBuf.Get<int32_t>();
 }
@@ -191,7 +193,7 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::QuantInit()
 
 template <CamTypeClass>
 __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::ReduceMaxInplace(const LocalTensor<float> &srcLocal,
-                                                                           uint32_t count)
+                                                                             uint32_t count)
 {
     uint64_t repsFp32 = count >> 6;        // 6 is count / elemPerRefFp32
     uint64_t offsetsFp32 = repsFp32 << 6;  // 6 is repsFp32 * elemPerRefFp32
@@ -270,7 +272,8 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::InputToDstOutput()
         return;  // 按照bs*k的token数进行分核
     }
 
-    DataCopyExtParams putOffsetParams = {1U, static_cast<uint32_t>(epRankSize * moeExpertNum * sizeof(uint32_t)), 0U, 0U, 0U};
+    DataCopyExtParams putOffsetParams = {1U, static_cast<uint32_t>(epRankSize * moeExpertNum * sizeof(uint32_t)), 0U,
+                                         0U, 0U};
     DataCopyPadExtParams<int32_t> putOffsetCopyPadParams{false, 0U, 0U, 0U};
     DataCopyPad(putOffsetTensor, putOffsetGT, putOffsetParams, putOffsetCopyPadParams);
     SyncFunc<AscendC::HardEvent::MTE2_S>();
@@ -288,8 +291,8 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::InputToDstOutput()
 
     DataCopyExtParams xCopyParams = {1U, static_cast<uint32_t>(h * sizeof(XType)), 0U, 0U, 0U};
     DataCopyPadExtParams<XType> tokenCopyPadExtParams{false, 0U, 0U, 0U};
-    DataCopyExtParams xOutCopyParams = {1U, static_cast<uint32_t>(hUBAlignSize), 0U, 0U, 0U};  //只拷贝hidden_size
-    DataCopyExtParams scaleCopyParams = {1U, sizeof(float), 0U, 0U, 0U};  // 拷贝dynamicScales
+    DataCopyExtParams xOutCopyParams = {1U, static_cast<uint32_t>(hUBAlignSize), 0U, 0U, 0U};  // 只拷贝hidden_size
+    DataCopyExtParams scaleCopyParams = {1U, sizeof(float), 0U, 0U, 0U};                       // 拷贝dynamicScales
 
     for (int32_t tokenIndex = startTokenId; tokenIndex < endTokenId; ++tokenIndex) {
         uint32_t dstExpertId = expertIdsTensor(tokenIndex - startTokenId);
@@ -299,11 +302,11 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::InputToDstOutput()
         // 对端output的大偏移，不同专家及不同rank来源间的，本卡需要放置给该rank的token大偏移，定位到专家和来源rank
         int32_t dstExpertOffset = putOffsetTensor(dstExpertId * epRankSize + epRankId);
 
-        auto ptr = reinterpret_cast<__gm__ uint8_t *>(shmem_ptr(expandXOutGM,  dstRankId));
+        auto ptr = reinterpret_cast<__gm__ uint8_t *>(shmem_ptr(expandXOutGM, dstRankId));
         dstGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(ptr + hUBAlignSize * (dstExpertOffset + curExpertIdx)));
 
         if constexpr (DynamicQuant) {
-            auto dsPtr = shmem_ptr((__gm__ uint8_t *)(dynamicScalesOutGT.GetPhyAddr()),  dstRankId);
+            auto dsPtr = shmem_ptr((__gm__ uint8_t *)(dynamicScalesOutGT.GetPhyAddr()), dstRankId);
             dstScaleOutGT.SetGlobalBuffer((__gm__ float *)(dsPtr) + (dstExpertOffset + curExpertIdx));
 
             xInTensor = xInQueue.AllocTensor<XType>();
@@ -327,7 +330,6 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::InputToDstOutput()
             xTmpTensor = xQueue.DeQue<ExpandXOutType>();
             DataCopyPad(dstGT, xTmpTensor, xOutCopyParams);
             xQueue.FreeTensor<ExpandXOutType>(xTmpTensor);
-
         }
     }
 }
@@ -386,8 +388,8 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::WaitShmemStatus()
     }
 
     uint32_t waitStatusBufSize = (((rankNumPerCore * UB_ALIGN) > 256) ? (rankNumPerCore * UB_ALIGN) : 256);
-    tpipe_->InitBuffer(waitStatusBuf, waitStatusBufSize);                // ranks/48 * 32B = 1 * 32B
-    tpipe_->InitBuffer(scalarBuf, UB_ALIGN * 3);                         // 96B
+    tpipe_->InitBuffer(waitStatusBuf, waitStatusBufSize);  // ranks/48 * 32B = 1 * 32B
+    tpipe_->InitBuffer(scalarBuf, UB_ALIGN * 3);           // 96B
 
     LocalTensor<float> gatherMaskOutTensor = gatherMaskOutBuf.Get<float>();
     LocalTensor<float> statusSumOutTensor = scalarBuf.GetWithOffset<float>(UB_ALIGN / sizeof(float), UB_ALIGN);
@@ -412,8 +414,8 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::WaitShmemStatus()
         // timeoutCheckEnd = static_cast<uint64_t>(GetSystemCycle());
         // timeoutCheckDuration = (timeoutCheckEnd - timeoutCheckStart) / CYCLE_TO_TIME;
         // if (timeoutCheckDuration > TIMEOUT_DETECTION_THRESHOLD) {
-            // printf("[normal_dispatch] WaitShmemStatus, rank:%d, coreId:%d, compareTarget:%d, sumOfFlag:%d\n",
-            //     epRankId, blockIdx, compareTarget, sumOfFlag);
+        // printf("[normal_dispatch] WaitShmemStatus, rank:%d, coreId:%d, compareTarget:%d, sumOfFlag:%d\n",
+        //     epRankId, blockIdx, compareTarget, sumOfFlag);
         // }
     }
 

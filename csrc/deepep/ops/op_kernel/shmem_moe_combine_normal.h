@@ -8,8 +8,8 @@
 
 namespace ShmemMoeCombineNormalImpl {
 constexpr uint64_t NOTIFY_MAGIC_OFFSET = 50UL * 1024UL;
-constexpr uint64_t WIN_MAGIC_OFFSET = 100UL * 1024UL;  // notify(50kb) + dispatch&combine(50kb)
-constexpr uint64_t HALF_WIN_STATE_OFFSET = 8 * 1024UL * 1024UL;  // notify(2MB) + dispatch(3MB) + combine(3MB)
+constexpr uint64_t WIN_MAGIC_OFFSET = 100UL * 1024UL;               // notify(50kb) + dispatch&combine(50kb)
+constexpr uint64_t HALF_WIN_STATE_OFFSET = 8 * 1024UL * 1024UL;     // notify(2MB) + dispatch(3MB) + combine(3MB)
 constexpr uint64_t COMBINE_WIN_STATE_OFFSET = 5 * 1024UL * 1024UL;  // notify+dispatch(5MB)
 constexpr uint64_t WIN_ADDR_ALIGN = 512UL;
 
@@ -38,17 +38,15 @@ class ShmemMoeCombineNormal
 {
 public:
     __aicore__ inline ShmemMoeCombineNormal(){};
-    __aicore__ inline void Init(GM_ADDR recvX, GM_ADDR epRecvCount, GM_ADDR topkWeights,
-                                GM_ADDR topkIdx, GM_ADDR sendTokenIdx, GM_ADDR XOut,
-                                GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe,
-                                const ShmemMoeCombineNormalTilingData *tilingData);
+    __aicore__ inline void Init(GM_ADDR recvX, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR topkIdx,
+                                GM_ADDR sendTokenIdx, GM_ADDR XOut, GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM,
+                                TPipe *pipe, const ShmemMoeCombineNormalTilingData *tilingData);
     __aicore__ inline void Process();
 
 private:
     __aicore__ inline void InitMagic();
-    __aicore__ inline void InitGlobalBuffer(GM_ADDR recvX, GM_ADDR epRecvCount,
-                                            GM_ADDR topkWeights, GM_ADDR topkIdx, GM_ADDR sendTokenIdx, GM_ADDR XOut,
-                                            GM_ADDR sendCostStatsOut);
+    __aicore__ inline void InitGlobalBuffer(GM_ADDR recvX, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR topkIdx,
+                                            GM_ADDR sendTokenIdx, GM_ADDR XOut, GM_ADDR sendCostStatsOut);
     __aicore__ inline void InitTilingData(const ShmemMoeCombineNormalTilingData *tilingData);
     __aicore__ inline void InitBuffLen();
     __aicore__ inline void CopyBufferToShareAndSetStatus();
@@ -160,11 +158,11 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::InitMagic()
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::InitGlobalBuffer(GM_ADDR recvX,
-                                                                                  GM_ADDR epRecvCount,
-                                                                                  GM_ADDR topkWeights, GM_ADDR topkIdx,
-                                                                                  GM_ADDR sendTokenIdx, GM_ADDR XOut,
-                                                                                  GM_ADDR sendCostStatsOut)
+__aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::InitGlobalBuffer(GM_ADDR recvX, GM_ADDR epRecvCount,
+                                                                                    GM_ADDR topkWeights,
+                                                                                    GM_ADDR topkIdx,
+                                                                                    GM_ADDR sendTokenIdx, GM_ADDR XOut,
+                                                                                    GM_ADDR sendCostStatsOut)
 {
     recvXGT_.SetGlobalBuffer((__gm__ RecvXType *)recvX);
     epRecvCountGT_.SetGlobalBuffer((__gm__ int32_t *)epRecvCount);  // 放置allReccvCount信息，num_ranks * num_experts
@@ -207,15 +205,14 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::InitBuffLen()
     }
     k32AlignFloatLen_ = Ceil(axisK_ * static_cast<uint32_t>(sizeof(float)), UB_32_ALIGN) * UB_32_ALIGN;
     k32AlignLen_ = Ceil(axisK_ * static_cast<uint32_t>(sizeof(int32_t)), UB_32_ALIGN) * UB_32_ALIGN;
-    // h32AlignFloatLen_:28672, h256AlignFloatLen_:28672, hRecvXTypeLen_:14336, h32AlignRecvXLen_:14336, 
+    // h32AlignFloatLen_:28672, h256AlignFloatLen_:28672, hRecvXTypeLen_:14336, h32AlignRecvXLen_:14336,
     // h512AlignRecvXLen_:14336 k32AlignFloatLen_:32, k32AlignLen_:32
 }
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::Init(
-    GM_ADDR recvX, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR topkIdx,
-    GM_ADDR sendTokenIdx, GM_ADDR XOut, GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe,
-    const ShmemMoeCombineNormalTilingData *tilingData)
+    GM_ADDR recvX, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR topkIdx, GM_ADDR sendTokenIdx, GM_ADDR XOut,
+    GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe, const ShmemMoeCombineNormalTilingData *tilingData)
 {
     workspaceGM_ = workspaceGM;
     recvXGM_ = recvX;
@@ -237,7 +234,7 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::Init(
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::ReadBufferAndWeightedSum(uint32_t tokenIndex,
-                                                                                          uint32_t startTokenIndex)
+                                                                                            uint32_t startTokenIndex)
 {
     const DataCopyExtParams xOutCopyParams{1U, static_cast<uint32_t>(hRecvXTypeLen_), 0U, 0U, 0U};
     const DataCopyPadExtParams<RecvXType> copyPadExtParams{false, 0U, 0U, 0U};
@@ -251,7 +248,7 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::ReadBufferAnd
         uint64_t remoteReadAddr = static_cast<uint64_t>(remoteReadBase + remoteReadOffset) * hRecvXTypeLen_;
 
         int32_t dstRankId = expertId / moeExpertPerRankNum_;
-        auto ptr = reinterpret_cast<__gm__ uint8_t *>(shmem_ptr(recvXGM_,  dstRankId));
+        auto ptr = reinterpret_cast<__gm__ uint8_t *>(shmem_ptr(recvXGM_, dstRankId));
         dstGT.SetGlobalBuffer((__gm__ XType *)(ptr + hRecvXTypeLen_ * (remoteReadBase + remoteReadOffset)));
 
         LocalTensor<XType> tmpToken = weightedSumQueue_.AllocTensor<XType>();
@@ -312,7 +309,8 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::ReadBufferFro
     const DataCopyPadExtParams<float> copyPadFloatParams{false, 0U, 0U, 0U};
     const DataCopyPadExtParams<int32_t> copyPadint32Params{false, 0U, 0U, 0U};
 
-    const DataCopyExtParams countParams{1U, static_cast<uint32_t>(epWorldSize_ * moeExpertNum_ * sizeof(int32_t)), 0U, 0U, 0U};
+    const DataCopyExtParams countParams{1U, static_cast<uint32_t>(epWorldSize_ * moeExpertNum_ * sizeof(int32_t)), 0U,
+                                        0U, 0U};
 
     SyncFunc<AscendC::HardEvent::MTE3_MTE2>();
     DataCopyPad(allRecvCountLocal, epRecvCountGT_, countParams, copyPadint32Params);

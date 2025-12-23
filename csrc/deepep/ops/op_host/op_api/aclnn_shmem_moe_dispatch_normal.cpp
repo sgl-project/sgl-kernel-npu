@@ -15,20 +15,19 @@ extern "C" {
 #endif
 
 aclnnStatus aclnnShmemMoeDispatchNormalGetWorkspaceSize(
-    const aclTensor *x, const aclTensor *topkIdx, const aclTensor *sendTokenIdx,
-    const aclTensor *putOffset, int64_t epWorldSize, int64_t epRankId,
-    int64_t tpWorldSize, int64_t tpRankId, int64_t moeExpertNum, int64_t quantMode,
-    int64_t globalBs, uint64_t shmemPtr, const aclTensor *recvX, const aclTensor *recvXScales, const aclTensor *assistInfoForCombine,
-    const aclTensor *waitRecvCostStats, uint64_t *workspaceSize, aclOpExecutor **executor)
+    const aclTensor *x, const aclTensor *topkIdx, const aclTensor *sendTokenIdx, const aclTensor *putOffset,
+    int64_t epWorldSize, int64_t epRankId, int64_t tpWorldSize, int64_t tpRankId, int64_t moeExpertNum,
+    int64_t quantMode, int64_t globalBs, uint64_t shmemPtr, const aclTensor *recvX, const aclTensor *recvXScales,
+    const aclTensor *assistInfoForCombine, const aclTensor *waitRecvCostStats, uint64_t *workspaceSize,
+    aclOpExecutor **executor)
 {
     return aclnnInnerShmemMoeDispatchNormalGetWorkspaceSize(
-        x, topkIdx, sendTokenIdx, putOffset, epWorldSize, epRankId,
-        tpWorldSize, tpRankId, moeExpertNum, quantMode, globalBs, shmemPtr, recvX, recvXScales, assistInfoForCombine,
-        waitRecvCostStats, workspaceSize, executor);
+        x, topkIdx, sendTokenIdx, putOffset, epWorldSize, epRankId, tpWorldSize, tpRankId, moeExpertNum, quantMode,
+        globalBs, shmemPtr, recvX, recvXScales, assistInfoForCombine, waitRecvCostStats, workspaceSize, executor);
 }
 
 aclnnStatus aclnnShmemMoeDispatchNormal(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
-                                      aclrtStream stream)
+                                        aclrtStream stream)
 {
     if (NnopbaseSetHcclServerType) {
         NnopbaseSetHcclServerType(executor, NNOPBASE_HCCL_SERVER_TYPE_MTE);

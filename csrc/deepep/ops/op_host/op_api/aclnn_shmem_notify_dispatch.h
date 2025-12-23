@@ -28,9 +28,9 @@ extern "C" {
  */
 __attribute__((visibility("default"))) aclnnStatus aclnnShmemNotifyDispatchGetWorkspaceSize(
     const aclTensor *tokenPerExpertData, int64_t sendCount, int64_t rankSize, int64_t rankId, int64_t localRankSize,
-    int64_t localRankId, int64_t topkNum, uint64_t shmemPtr, const aclTensor *recvData, const aclTensor *totalRecvTokens,
-    const aclTensor *maxBs, const aclTensor *recvTokensPerExpert, const aclTensor *putOffset, uint64_t *workspaceSize,
-    aclOpExecutor **executor);
+    int64_t localRankId, int64_t topkNum, uint64_t shmemPtr, const aclTensor *recvData,
+    const aclTensor *totalRecvTokens, const aclTensor *maxBs, const aclTensor *recvTokensPerExpert,
+    const aclTensor *putOffset, uint64_t *workspaceSize, aclOpExecutor **executor);
 
 /* function: aclnnShmemNotifyDispatch
  * parameters :

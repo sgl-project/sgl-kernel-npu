@@ -103,10 +103,9 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     OP_TILING_CHECK((*sendCountPtr <= 0),
                     OP_LOGE(nodeName, "sendCount is invalid, only support > 0, but got sendCount=%ld.", *sendCountPtr),
                     return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(
-        (*topkNumPtr <= 0),
-        OP_LOGE(nodeName, "topkNumPtr is invalid, only support > 0, but got topkNumPtr=%ld.", *topkNumPtr),
-        return ge::GRAPH_FAILED);
+    OP_TILING_CHECK((*topkNumPtr <= 0),
+                    OP_LOGE(nodeName, "topkNumPtr is invalid, only support > 0, but got topkNumPtr=%ld.", *topkNumPtr),
+                    return ge::GRAPH_FAILED);
 
     tilingData.notifyDispatchInfo.sendCount = static_cast<uint32_t>(*sendCountPtr);
     tilingData.notifyDispatchInfo.rankSize = static_cast<uint32_t>(*rankSizePtr);
@@ -129,7 +128,6 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext *context, const char *no
 
 static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeName)
 {
-    
     auto tokenPerExpertData = context->GetInputDesc(INPUT_TOKEN_PER_EXPERT_INDEX);
     OP_TILING_CHECK(tokenPerExpertData == nullptr, OP_LOGE(nodeName, "tokenPerExpertData is null."), return false);
     OP_TILING_CHECK(
@@ -150,7 +148,7 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
                 "recvData datatype is invalid, datatype should be bf16 or float16 or float or int, but is %d.",
                 static_cast<ge::DataType>(recvData->GetDataType())),
         return false);
-    
+
     auto totalRecvToken = context->GetOutputDesc(OUTPUT_TOTAL_RECV_TOKEN_INDEX);
     OP_TILING_CHECK(totalRecvToken == nullptr, OP_LOGE(nodeName, "totalRecvToken is null."), return false);
     OP_TILING_CHECK(
@@ -166,28 +164,23 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     OP_TILING_CHECK(
         (maxBS->GetDataType() != ge::DT_BF16) && (maxBS->GetDataType() != ge::DT_FLOAT16) &&
             (maxBS->GetDataType() != ge::DT_FLOAT) && (maxBS->GetDataType() != ge::DT_INT32),
-        OP_LOGE(nodeName,
-                "maxBS datatype is invalid, datatype should be bf16 or float16 or float or int, but is %d.",
+        OP_LOGE(nodeName, "maxBS datatype is invalid, datatype should be bf16 or float16 or float or int, but is %d.",
                 static_cast<ge::DataType>(maxBS->GetDataType())),
         return false);
 
     auto recvTokensPerExpert = context->GetOutputDesc(OUTPUT_RECV_TOKENS_PER_EXPERT_INDEX);
     OP_TILING_CHECK(recvTokensPerExpert == nullptr, OP_LOGE(nodeName, "recvTokensPerExpert is null."), return false);
-    OP_TILING_CHECK(
-        (recvTokensPerExpert->GetDataType() != ge::DT_INT64),
-        OP_LOGE(nodeName,
-                "recvTokensPerExpert datatype is invalid, datatype should be int64, but is %d.",
-                static_cast<ge::DataType>(recvTokensPerExpert->GetDataType())),
-        return false);
+    OP_TILING_CHECK((recvTokensPerExpert->GetDataType() != ge::DT_INT64),
+                    OP_LOGE(nodeName, "recvTokensPerExpert datatype is invalid, datatype should be int64, but is %d.",
+                            static_cast<ge::DataType>(recvTokensPerExpert->GetDataType())),
+                    return false);
 
     auto putOffset = context->GetOutputDesc(OUTPUT_PUT_OFFSET_INDEX);
     OP_TILING_CHECK(putOffset == nullptr, OP_LOGE(nodeName, "putOffset is null."), return false);
-    OP_TILING_CHECK(
-        (putOffset->GetDataType() != ge::DT_INT32),
-        OP_LOGE(nodeName,
-                "putOffset datatype is invalid, datatype should be int32, but is %d.",
-                static_cast<ge::DataType>(putOffset->GetDataType())),
-        return false);
+    OP_TILING_CHECK((putOffset->GetDataType() != ge::DT_INT32),
+                    OP_LOGE(nodeName, "putOffset datatype is invalid, datatype should be int32, but is %d.",
+                            static_cast<ge::DataType>(putOffset->GetDataType())),
+                    return false);
 
     return true;
 }

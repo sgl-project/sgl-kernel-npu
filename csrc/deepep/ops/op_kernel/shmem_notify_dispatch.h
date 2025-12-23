@@ -19,14 +19,14 @@ __aicore__ inline void SyncFunc()
     AscendC::WaitFlag<event>(eventID);
 }
 
-#define KERNELS_ARGS_FUN_ALLGATHER()                                                                                    \
-    GM_ADDR tokenPerExpertData, GM_ADDR recvDataOutput, GM_ADDR totalRecvTokens,         \
-        GM_ADDR maxBs, GM_ADDR recvTokensPerExpert, GM_ADDR putOffset, int64_t len, uint32_t topkNum, int root,  \
-        int localRank, int localRankSize, uint64_t shmemPtr
+#define KERNELS_ARGS_FUN_ALLGATHER()                                                                            \
+    GM_ADDR tokenPerExpertData, GM_ADDR recvDataOutput, GM_ADDR totalRecvTokens, GM_ADDR maxBs,                 \
+        GM_ADDR recvTokensPerExpert, GM_ADDR putOffset, int64_t len, uint32_t topkNum, int root, int localRank, \
+        int localRankSize, uint64_t shmemPtr
 
-#define KERNELS_ARGS_CALL_ALLGATHER()                                                                             \
-    tokenPerExpertData, recvDataOutput, totalRecvTokens, maxBs, recvTokensPerExpert, putOffset, len, \
-        topkNum, root, localRank, localRankSize, shmemPtr
+#define KERNELS_ARGS_CALL_ALLGATHER()                                                                               \
+    tokenPerExpertData, recvDataOutput, totalRecvTokens, maxBs, recvTokensPerExpert, putOffset, len, topkNum, root, \
+        localRank, localRankSize, shmemPtr
 
 template <typename T>
 class ShmemNotifyDispatch
@@ -52,14 +52,14 @@ public:
     __aicore__ inline void Init(KERNELS_ARGS_FUN_ALLGATHER())
     {
         this->len = len;
-        this->numExperts = len / sendPerGroup; // len为 num_tokens_per_expert长度，即专家数
+        this->numExperts = len / sendPerGroup;  // len为 num_tokens_per_expert长度，即专家数
         this->localRank = localRank;
         this->localRankSize = localRankSize;
         blockIdx_ = GetBlockIdx();
         blockNum_ = GetBlockNum();
 
         gva_gm = (GM_ADDR)shmemPtr;  // 作为原来的 winContext_
-        this->magic = 0; // 使用shmem_barrier可以考虑不需要 magic
+        this->magic = 0;             // 使用shmem_barrier可以考虑不需要 magic
         bufferId_ = this->magic % PING_PONG_SIZE;
 
         nodeNum = epWorldSize_ / localRankSize;
@@ -213,8 +213,8 @@ private:
             auto ptr = shmem_ptr(tokenPerExpertData_, targetRankId);
             gmRemoteDataGt.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(ptr));
 
-            CpGM2GMPingPong<int32_t>(numExperts * sizeof(int32_t), gmRemoteDataGt, 
-                                recvDataGt_[targetRankId * numExperts], COPYONLY);
+            CpGM2GMPingPong<int32_t>(numExperts * sizeof(int32_t), gmRemoteDataGt,
+                                     recvDataGt_[targetRankId * numExperts], COPYONLY);
             PipeBarrier<PIPE_ALL>();
         }
     }
@@ -241,14 +241,14 @@ private:
         SyncFunc<AscendC::HardEvent::V_S>();
         SyncFunc<AscendC::HardEvent::MTE2_S>();
         // 对recv_data进行转置
-        int32_t prefixSum = 0; // 每卡求前缀和，调整为偏移，起始偏移从0开始
+        int32_t prefixSum = 0;  // 每卡求前缀和，调整为偏移，起始偏移从0开始
         for (uint32_t expId = startExpId; expId < endExpId; ++expId) {
             for (uint32_t srcRank = 0; srcRank < epWorldSize_; ++srcRank) {
                 uint32_t index = (expId - startExpId) * epWorldSize_ + srcRank;
                 uint32_t pairIdx = srcRank * numExperts + expId;
 
                 int32_t curRecvCount = recvDataTensor_(pairIdx);
-                transLt(index) = isCumSum ? prefixSum : curRecvCount; // 根据是否需要前缀和进行填充
+                transLt(index) = isCumSum ? prefixSum : curRecvCount;  // 根据是否需要前缀和进行填充
                 prefixSum += curRecvCount;
             }
         }
@@ -322,7 +322,7 @@ private:
 
         for (uint32_t rank = startRankId; rank < endRankId; ++rank) {
             // 每卡求前缀和
-            ReorderRecvDataOutput(rank, recvTokenLt, true); // localExpNum * ranks
+            ReorderRecvDataOutput(rank, recvTokenLt, true);  // localExpNum * ranks
 
             SyncFunc<AscendC::HardEvent::MTE2_MTE3>();
             DataCopyExtParams copyParams{1, static_cast<uint32_t>(numExperts * sizeof(int32_t)), 0, 0, 0};
@@ -345,9 +345,9 @@ private:
         LocalTensor<float> floatExpTokenSumCntLt = tmpBuf3_.Get<float>();
         LocalTensor<float> sharedTmpBuffer = tmpBuf4_.Get<float>();
 
-        int32_t sumVal = 0; // 所有rank中接收token最大的
+        int32_t sumVal = 0;  // 所有rank中接收token最大的
         for (uint32_t srcRankId = 0; srcRankId < epWorldSize_; srcRankId++) {
-            ReorderRecvDataOutput(srcRankId, recvTokenLt, false); // localExpNum * ranks
+            ReorderRecvDataOutput(srcRankId, recvTokenLt, false);  // localExpNum * ranks
 
             SyncFunc<AscendC::HardEvent::MTE2_V>();
             Cast(floatExpTokenCntLt, recvTokenLt, RoundMode::CAST_NONE, numExperts);
@@ -375,7 +375,7 @@ private:
         pipe_.InitBuffer(tmpBuf_, Ceil(moeExpertPerRankNum * sizeof(int64_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
 
         LocalTensor<int32_t> recvTokenLt = localRecvDataBuf_.Get<int32_t>();
-        ReorderRecvDataOutput(epRankId_, recvTokenLt, false); // localExpNum * ranks
+        ReorderRecvDataOutput(epRankId_, recvTokenLt, false);  // localExpNum * ranks
         SyncFunc<AscendC::HardEvent::MTE2_S>();
 
         LocalTensor<int64_t> tmpTensor = tmpBuf_.Get<int64_t>();
@@ -507,8 +507,8 @@ __aicore__ inline uint64_t ShmemNotifyDispatch<T>::GetMagicValue(void)
 template <typename T>
 template <typename K, typename U>
 __aicore__ inline void ShmemNotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeRemain,
-                                                          const GlobalTensor<U> &sendDataInputGt,
-                                                          const GlobalTensor<K> &recvDataOutputGT, int op)
+                                                               const GlobalTensor<U> &sendDataInputGt,
+                                                               const GlobalTensor<K> &recvDataOutputGT, int op)
 {
     // General case (U = K), input/output are the same, share one UB
     // Only when conversion is needed (U->K), UB will be divided into two parts according to the ratio of

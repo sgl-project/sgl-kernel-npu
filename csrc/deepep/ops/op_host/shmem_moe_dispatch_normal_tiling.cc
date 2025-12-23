@@ -372,8 +372,7 @@ static ge::graphStatus CheckAttrs(gert::TilingContext *context, const char *node
                     OP_LOGE(nodeName, "globalBS is invalid, should be positive, but got globalBS=%ld.", *globalBsPtr),
                     return ge::GRAPH_FAILED);
     tilingData.moeDispatchNormalInfo.globalBs = static_cast<uint32_t>(*globalBsPtr);
-    OP_LOGD(nodeName, "globalBs = %ld, bs = %ld, epWorldSize = %u\n", *globalBsPtr, xDim0,
-            epWorldSize);
+    OP_LOGD(nodeName, "globalBs = %ld, bs = %ld, epWorldSize = %u\n", *globalBsPtr, xDim0, epWorldSize);
 
     // 校验shmemPtr
     auto shmemPtrPtr = attrs->GetAttrPointer<uint64_t>(ATTR_SHMEM_PTR_INDEX);
@@ -450,7 +449,7 @@ static ge::graphStatus CheckTensorShape(gert::TilingContext *context, const char
 }
 
 static ge::graphStatus TilingCheckShmemMoeDispatchNormal(gert::TilingContext *context, const char *nodeName,
-                                                       const uint32_t quantMode, const bool isEnableDiagnose)
+                                                         const uint32_t quantMode, const bool isEnableDiagnose)
 {
     OP_TILING_CHECK(!CheckTensorDim(context, nodeName, quantMode, isEnableDiagnose),
                     OP_LOGE(nodeName, "params shape is invalid."), return ge::GRAPH_FAILED);

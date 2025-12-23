@@ -2,17 +2,17 @@ import argparse
 import os
 import random
 import time
-from typing import Optional
 from functools import partial
+from typing import Optional
 
 # noinspection PyUnresolvedReferences
 import deep_ep
 import numpy as np
+import shmem as ash
 import torch
 import torch.distributed as dist
 import torch.distributed._symmetric_memory as symm_mem
 import torch_npu
-import shmem as ash
 from utils import (
     bench,
     bench_kineto,
@@ -44,9 +44,9 @@ def register_shmem():
     attributes.option_attr.data_op_engine_type = ash.OpEngineType.MTE
     ret = ash.shmem_init(attributes)
     if ret != 0:
-        raise ValueError('[ERROR] shmem_init failed')
+        raise ValueError("[ERROR] shmem_init failed")
 
-    print(f'rank[{rank}]: register shmem hander ret={ret}')
+    print(f"rank[{rank}]: register shmem handler ret={ret}")
 
 
 # noinspection PyShadowingNames
@@ -149,7 +149,6 @@ def test_main(
         #     for k in range(num_topk):
         #         topk_idx[t, k] = (start + k) % num_experts
 
-
     rank_idx = topk_idx // experts_per_rank
     rank_idx.masked_fill_(topk_idx == -1, -1)
     inplace_unique(rank_idx, num_ranks)
@@ -183,7 +182,6 @@ def test_main(
     dist.barrier()
     time.sleep(1)
 
-
     return_values = buffer.get_dispatch_layout(topk_idx, num_experts)
     (
         ref_num_tokens_per_rank,
@@ -206,7 +204,6 @@ def test_main(
         print(e)
         raise
     print(f"{rank=}, dispatch_layout passed", flush=True)
-
 
     # Config
     buffer_size = 256
@@ -254,8 +251,10 @@ def test_main(
 
         recv_x_bf16 = (x_fp32 * x_scales).view(x_fp8.shape).to(torch.bfloat16)
 
-        device = torch.device('npu:{}'.format(local_rank))
-        shmem_recv_x = symm_mem.empty(recv_x_bf16.shape, dtype=torch.bfloat16, device=device)
+        device = torch.device("npu:{}".format(local_rank))
+        shmem_recv_x = symm_mem.empty(
+            recv_x_bf16.shape, dtype=torch.bfloat16, device=device
+        )
         return shmem_recv_x
 
     def test_correctness():
@@ -286,7 +285,11 @@ def test_main(
                 handle,
                 event,
             ) = buffer.dispatch(**dispatch_args)
-            recv_x = per_token_cast_back_shmem(*recv_x) if isinstance(recv_x, tuple) else recv_x
+            recv_x = (
+                per_token_cast_back_shmem(*recv_x)
+                if isinstance(recv_x, tuple)
+                else recv_x
+            )
 
             # Checks notify output
             local_expert_token_list = get_num_tokens_per_expert_list(rank)
@@ -295,7 +298,10 @@ def test_main(
             all_recv_count = handle[8]
 
             total_recv_tokens = sum(local_expert_token_list)
-            print(f"{rank=}, {total_recv_tokens=} {recv_x.shape}, dispatch passed", flush=True)
+            print(
+                f"{rank=}, {total_recv_tokens=} {recv_x.shape}, dispatch passed",
+                flush=True,
+            )
 
             # Test combine
             combine_args = {
@@ -312,12 +318,13 @@ def test_main(
             assert (
                 calc_diff(
                     check_x,
-                    ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
+                    ref_x
+                    * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
                 )
                 < 5e-5
             )
 
-            del recv_x  # release symetric tensor
+            del recv_x  # release symmetric tensor
 
         if local_rank == 0:
             print(" passed", flush=True)
@@ -337,17 +344,15 @@ def test_main(
                 _,
             ) = buffer.get_dispatch_layout(topk_idx, num_experts)
 
-            del tmp_num_tokens_per_expert  # release symetric tensor
+            del tmp_num_tokens_per_expert  # release symmetric tensor
 
-        
-        avg_t, min_t, max_t = bench(
-            partial(test_layout_func)
-        )
+        avg_t, min_t, max_t = bench(partial(test_layout_func))
         print(f"[layout] Kernel performance: {avg_t * 1000:.3f} ms", flush=True)
         print("", flush=True)
 
         # test dispatch+combine
         current_x = x
+
         def test_func():
             tune_dispatch_args = {
                 "x": current_x,
@@ -374,9 +379,11 @@ def test_main(
                 "async_finish": False,
                 "topk_weights": handle[7],
             }
-            combined_x, combined_topk_weights, event = buffer.combine(**tune_combine_args)
+            combined_x, combined_topk_weights, event = buffer.combine(
+                **tune_combine_args
+            )
 
-            del recv_x  # release symetric tensor
+            del recv_x  # release symmetric tensor
 
         local_expert_token_list = get_num_tokens_per_expert_list(rank)
         real_recv_tokens = sum(local_expert_token_list)
@@ -419,7 +426,6 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     test_main(args, num_local_ranks, local_rank, num_ranks, rank, buffer, group)
     if local_rank == 0:
         print("", flush=True)
-
 
     # _ = ash.shmem_finialize()
     dist.barrier()
