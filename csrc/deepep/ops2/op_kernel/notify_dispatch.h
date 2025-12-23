@@ -389,10 +389,10 @@ private:
             return;
         }
         ReorderSendCountOutput();
-        pipe.InitBuffer(tmpBuf_, Ceil(numExperts / rankSize * sizeof(int64_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
-        LocalTensor<int64_t> tmpTensor = tmpBuf_.Get<int64_t>();
+        pipe.InitBuffer(tmpBuf_, Ceil(numExperts / rankSize * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
+        LocalTensor<int32_t> tmpTensor = tmpBuf_.Get<int32_t>();
         for (uint32_t expId = 0; expId < numExperts / rankSize; ++expId) {
-            int64_t localRecvCount = 0;
+            int32_t localRecvCount = 0;
             for (uint32_t srcRank = 0; srcRank < rankSize; ++srcRank) {
                 uint32_t index = expId * rankSize + srcRank;
                 localRecvCount += sendCountTensor(index);
@@ -400,9 +400,9 @@ private:
             tmpTensor(expId) = localRecvCount;
         }
         SyncFunc<AscendC::HardEvent::S_MTE3>();
-        GlobalTensor<int64_t> recvTokenPerExpGt;
-        recvTokenPerExpGt.SetGlobalBuffer((__gm__ int64_t *)recvTokensPerExpert_);
-        DataCopyExtParams copyParams{1, static_cast<uint32_t>(numExperts / rankSize * sizeof(int64_t)), 0, 0, 0};
+        GlobalTensor<int32_t> recvTokenPerExpGt;
+        recvTokenPerExpGt.SetGlobalBuffer((__gm__ int32_t *)recvTokensPerExpert_);
+        DataCopyExtParams copyParams{1, static_cast<uint32_t>(numExperts / rankSize * sizeof(int32_t)), 0, 0, 0};
         SyncFunc<AscendC::HardEvent::S_MTE3>();
         DataCopyPad(recvTokenPerExpGt, tmpTensor, copyParams);
     }

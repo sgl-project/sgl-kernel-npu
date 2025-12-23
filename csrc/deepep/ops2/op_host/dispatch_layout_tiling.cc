@@ -40,6 +40,7 @@ constexpr uint32_t ATTR_NUM_RANKS_INDEX = 1;
 constexpr uint32_t ATTR_NUM_EXPERTS_INDEX = 2;
 constexpr uint32_t ATTR_NUM_TOPK_INDEX = 3;
 constexpr uint32_t ATTR_LOCAL_RANKSIZE_INDEX = 4;
+constexpr uint32_t ATTR_PER_ROUND_TOKENS_INDEX = 5;
 const int64_t MAX_COMM_WORLD_SIZE = 384;
 const int64_t MAX_MOE_EXPERTS_NUM = 512;
 const int64_t MAX_LOCAL_RANKSIZE = 8;
@@ -63,6 +64,7 @@ static void PrintTilingDataInfo(const char *nodeName, DispatchLayoutTilingData &
     OP_LOGD(nodeName, "numExperts is %u.", tilingData.dispatchLayoutInfo.numExperts);
     OP_LOGD(nodeName, "numTopk is %u.", tilingData.dispatchLayoutInfo.numTopk);
     OP_LOGD(nodeName, "localRankSize is %u.", tilingData.dispatchLayoutInfo.localRankSize);
+    OP_LOGD(nodeName, "perRoundTokens is %u.", tilingData.dispatchLayoutInfo.perRoundTokens);
     OP_LOGD(nodeName, "totalUbSize is %lu.", tilingData.dispatchLayoutInfo.totalUbSize);
 }
 
@@ -94,12 +96,15 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     auto numExpertsPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_NUM_EXPERTS_INDEX));
     auto numTopkPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_NUM_TOPK_INDEX));
     auto localRankSizePtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_LOCAL_RANKSIZE_INDEX));
+    auto perRoundTokensPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_PER_ROUND_TOKENS_INDEX));
 
     OP_TILING_CHECK(numTokensPtr == nullptr, OP_LOGE(nodeName, "numTokensPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(numRanksPtr == nullptr, OP_LOGE(nodeName, "numRanksPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(numExpertsPtr == nullptr, OP_LOGE(nodeName, "numExpertsPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(numTopkPtr == nullptr, OP_LOGE(nodeName, "numTopkPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(localRankSizePtr == nullptr, OP_LOGE(nodeName, "localRankSizePtr is null."),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(perRoundTokensPtr == nullptr, OP_LOGE(nodeName, "perRoundTokensPtr is null."),
                     return ge::GRAPH_FAILED);
 
     OP_TILING_CHECK((*numRanksPtr <= 0) || (*numRanksPtr > MAX_COMM_WORLD_SIZE),
@@ -124,6 +129,7 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     tilingData.dispatchLayoutInfo.numExperts = static_cast<uint32_t>(*numExpertsPtr);
     tilingData.dispatchLayoutInfo.numTopk = static_cast<uint32_t>(*numTopkPtr);
     tilingData.dispatchLayoutInfo.localRankSize = static_cast<uint32_t>(*localRankSizePtr);
+    tilingData.dispatchLayoutInfo.perRoundTokens = static_cast<uint32_t>(*perRoundTokensPtr);
 
     if (CheckIfA2MultiMachine(context, tilingData)) {
         OP_TILING_CHECK(

@@ -41,11 +41,11 @@ public:
     constexpr static uint32_t UB_32B_ALIGN = 32;
     constexpr static uint32_t EXP_TOKEN_COUNT_FLAG_CNT = UB_32B_ALIGN / sizeof(int32_t);  // 8
     constexpr static uint32_t TBUF_SIZE = 190 * 1024;
-    constexpr static uint32_t IPC_DATA_OFFSET = 16 * 1024 * 1024;
+    constexpr static uint32_t IPC_DATA_OFFSET = 4 * 1024 * 1024;
     constexpr static uint32_t RDMA_DATA_SIZE = 800U * 1024U * 1024U;
-    constexpr static uint32_t IPC_MAGIC_OFFSET = IPC_DATA_OFFSET - 128 * 32;
     constexpr static uint32_t IPC_FLAG_OFFSET = 1 * 1024 * 1024;
     constexpr static uint32_t IPC_TOKEN_CNT_OFFSET = 2 * 1024 * 1024;
+    constexpr static uint32_t IPC_MAGIC_OFFSET = IPC_TOKEN_CNT_OFFSET - 128 * 32;
     constexpr static uint32_t MTU_SIZE = 4 * 1024;
     constexpr static uint32_t IPC_BUFF_ALIGN = 512;
     constexpr static int32_t IPC_FLAG_STEP_1 = 0x0d0d0d0d;
