@@ -73,7 +73,7 @@ jobs:
 
       - name: Pack up packages
         run: |
-          zip -v "sgl-kernel-npu_${{ github.event.release.tag_name }}_${{ matrix.cann_version }}_${{ matrix.hardware }}_$(arch).zip" output/*.whl
+          zip -v "sgl-kernel-npu_${{ github.event.release.tag_name }}_${{ matrix.cann_version }}_${{ matrix.hardware }}.zip" output/*.whl
 
       - name: Upload Release Artifacts
         if: github.event_name != 'pull_request'

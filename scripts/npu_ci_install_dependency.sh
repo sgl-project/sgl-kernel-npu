@@ -6,7 +6,7 @@ export DEBIAN_FRONTEND="noninteractive"
 export PIP_INSTALL="python3 -m pip install --no-cache-dir"
 
 
-### Dependency Verisons
+### Dependency Versions
 TORCH_VERSION="2.8.0"
 TORCHVISION_VERSION="0.23.0"
 TORCH_NPU_URL="https://sglang-ascend.obs.cn-east-3.myhuaweicloud.com/sglang/torch_npu/torch_npu-2.8.0.post2.dev20251113-cp311-cp311-manylinux_2_28_${ARCHITECT}.whl"
