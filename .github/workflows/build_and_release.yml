@@ -28,25 +28,34 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v6
 
-      - name: Mark repository safe in container
+      - name: Mark repository safe
         run: |
           git config --system --add safe.directory ${GITHUB_WORKSPACE}
 
-      - name: Install dependency in container
+      - name: Install dependency
         run: |
           bash scripts/npu_ci_install_dependency.sh
 
-      - name: Build SGL-Kernel-NPU in container
+      - name: Build SGL-Kernel-NPU
         run: |
-          env -i PATH=${PATH} bash --login export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && build.sh -a kernels
+          env -i PATH=${PATH} bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+            build.sh -a kernels
+          "
 
-      - name: Build Torch-Memory-Saver in container
+      - name: Build Torch-Memory-Saver
         run: |
-          env -i PATH=${PATH} bash --login export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && build.sh -a memory-saver
+          env -i PATH=${PATH} bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+            build.sh -a memory-saver
+          "
 
-      - name: Build DeepEP in container
+      - name: Build DeepEP
         run: |
-          env -i PATH=${PATH} bash --login export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && build.sh -a deepep
+          env -i PATH=${PATH} bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+            build.sh -a deepep
+          "
           ls -al output/
 
       - name: Upload Release Artifacts
