@@ -102,30 +102,34 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         group, int(2e9), 0, low_latency_mode=True, num_qps_per_rank=1
     )
 
-    normal_num_tokens = args.normal_num_tokens
-    print("Start executing normal test...", flush=True)
-    normal_test(
-        normal_num_tokens,
-        hidden,
-        num_experts,
-        num_topk,
-        buffer,
-    )
-    print("End executing normal test...", flush=True)
-    dist.barrier()
+    for i in range(args.test_loop):
+        normal_num_tokens = args.normal_num_tokens
+        if local_rank == 0:
+            print(f"Start executing normal test loop {i} ...", flush=True)
+        normal_test(
+            normal_num_tokens,
+            hidden,
+            num_experts,
+            num_topk,
+            buffer,
+        )
+        if local_rank == 0:
+            print(f"End executing normal test loop {i} ...", flush=True)
 
-    low_latency_num_tokens = args.low_latency_num_tokens
-    print("Start executing low latency test...", flush=True)
-    low_latency_test(
-        low_latency_num_tokens,
-        hidden,
-        num_experts,
-        num_topk,
-        rank,
-        num_ranks,
-        buffer,
-    )
-    print("End executing low latency test...", flush=True)
+        low_latency_num_tokens = args.low_latency_num_tokens
+        if local_rank == 0:
+            print(f"Start executing low latency test loop {i} ...", flush=True)
+        low_latency_test(
+            low_latency_num_tokens,
+            hidden,
+            num_experts,
+            num_topk,
+            rank,
+            num_ranks,
+            buffer,
+        )
+        if local_rank == 0:
+            print(f"End executing low latency test loop {i} ...", flush=True)
     dist.barrier()
 
     dist.destroy_process_group()
@@ -159,6 +163,12 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--num-experts", type=int, default=256, help="Number of experts (default: 256)"
+    )
+    parser.add_argument(
+        "--test-loop",
+        type=int,
+        default=1000,
+        help="Number of test loop (default: 1000)",
     )
 
     args = parser.parse_args()
