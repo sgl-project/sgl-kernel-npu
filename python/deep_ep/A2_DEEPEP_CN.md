@@ -55,10 +55,8 @@ export HCCL_BUFFSIZE=1024
 **不推荐启用场景**：当 ranks < 8 时不推荐开启 DeepEp，缺乏足够并行度，难以体现EP的优化收益；
 
 **性能上限**：
-  - normal dispatch&combine：最大支持 `bs=32768`
+  - normal dispatch&combine：最大支持 `bs=8000`
   - low_latency dispatch&combine：最大支持 `bs=512`
-
-> 💡 **支持特性**：normal算子已支持“蚂蚁搬家”优化，显著提升大 Batch 场景吞吐。
 
 
 （可选）支持在Prefill阶段**开启**量化，设置环境变量：
