@@ -32,11 +32,16 @@ target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         platform
         ascendalog
         dl
+        shmem
+        mf_smem
+        mf_hydm_core
 )
 
 target_link_directories(${OP_PLUGIN_NAME} PRIVATE
         ${TORCH_DIR}/lib
         ${TORCH_NPU_DIR}/lib
+        ${SHMEM_HOME_PATH}/shmem/lib
+        ${SHMEM_HOME_PATH}/memfabric_hybrid/lib
 )
 
 target_include_directories(${OP_PLUGIN_NAME} PRIVATE

@@ -13,7 +13,7 @@
 
 #include <cstdint>
 namespace sglang {
-namespace npu_kernel {
+namespace zccl {
 
 struct AllGatherTilingData {
     uint32_t input_num_per_core;
