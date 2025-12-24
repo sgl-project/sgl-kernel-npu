@@ -4,10 +4,11 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
+ * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * the software repository for the full text of the License.
  */
- 
+
 /*!
  * \file sparse_flash_attention_def.cpp
  * \brief
@@ -17,7 +18,8 @@
 
 namespace sglang::SFAHost {
 using namespace ge_helper;
-class SparseFlashAttention : public OpDef {
+class SparseFlashAttention : public OpDef
+{
 public:
     explicit SparseFlashAttention(const char *name) : OpDef(name)
     {
@@ -74,7 +76,7 @@ public:
             .AutoContiguous();
         this->Attr("layout_query").AttrType(OPTIONAL).String("BSND");
         this->Attr("layout_kv").AttrType(OPTIONAL).String("BSND");
-        this->Attr("sparse_mode").AttrType(OPTIONAL).Int(3); // 3:默认值，只计算下三角
+        this->Attr("sparse_mode").AttrType(OPTIONAL).Int(3);  // 3:默认值，只计算下三角
     }
 };
-} // namespace sglang::Host
+}  // namespace sglang::SFAHost

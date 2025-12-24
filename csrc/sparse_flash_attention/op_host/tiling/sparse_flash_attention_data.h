@@ -55,7 +55,6 @@ struct SparseFlashAttentionTilingDataMla {
     uint32_t tilingKey = 0U;
 };
 
-
 #pragma pack(pop)
-} // namespace sglang::SFAHost
-#endif // SPARSE_FLASH_ATTENTION_DATA_H
+}  // namespace sglang::SFAHost
+#endif  // SPARSE_FLASH_ATTENTION_DATA_H

@@ -4,8 +4,9 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
+ * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * the software repository for the full text of the License.
  */
 
 /*!
@@ -56,14 +57,10 @@ constexpr uint32_t NUM_BYTES_FLOAT = 4;
 constexpr uint32_t NUM_BYTES_FLOAT16 = 2;
 constexpr uint32_t NUM_BYTES_BF16 = 2;
 constexpr uint32_t BYTE_BLOCK = 32;
-const uint32_t SFA_MAX_AIC_CORE_NUM = 26; // 25 + 1 保证数组8字节对齐
+const uint32_t SFA_MAX_AIC_CORE_NUM = 26;  // 25 + 1 保证数组8字节对齐
 
 // ------------------公共定义--------------------------
-enum class SFALayout : uint32_t {
-    BSND = 0,
-    TND = 1,
-    PA_BSND = 2
-};
+enum class SFALayout : uint32_t { BSND = 0, TND = 1, PA_BSND = 2 };
 
 struct SFATilingShapeCompareParam {
     int64_t B = 1;
@@ -76,15 +73,9 @@ struct SFATilingShapeCompareParam {
     int64_t Bn = 1;
 };
 
-enum class KvStorageMode : uint32_t {
-    BATCH_CONTINUOUS = 0,
-    PAGE_ATTENTION = 1
-};
+enum class KvStorageMode : uint32_t { BATCH_CONTINUOUS = 0, PAGE_ATTENTION = 1 };
 
-enum class SFAPerfMode : uint32_t {
-    C_TEMPLATE_MODE = 0,
-    V_TEMPLATE_MODE
-};
+enum class SFAPerfMode : uint32_t { C_TEMPLATE_MODE = 0, V_TEMPLATE_MODE };
 
 enum class SFAAxis : uint32_t {
     B = 0,
@@ -93,8 +84,8 @@ enum class SFAAxis : uint32_t {
     D = 3,
     K = 3,  // sparse_indices的K和key的D枚举值相同，表达相同位置, 最后一维
     T = 5,
-    Bn = 6, // block number
-    Bs = 7, // block size
+    Bn = 6,  // block number
+    Bs = 7,  // block size
 };
 
 struct SFARequiredParaInfo {
@@ -132,10 +123,10 @@ struct InnerSplitParams {
     uint32_t s2BaseSize = 1;
 };
 
-
-template <typename T> inline T Align(T num, T rnd)
+template <typename T>
+inline T Align(T num, T rnd)
 {
-    return (((rnd) == 0) ? 0 : (((num) + (rnd) - 1) / (rnd) * (rnd)));
+    return (((rnd) == 0) ? 0 : (((num) + (rnd)-1) / (rnd) * (rnd)));
 }
 
 template <typename T>
@@ -176,8 +167,8 @@ struct SFATilingInfo {
     uint32_t vHeadDim = 0;
     uint32_t gSize = 0;
     uint32_t ropeHeadDim = 0;
-    uint32_t qTSize = 0; // 仅TND时生效
-    uint32_t kvTSize = 0; // 仅TND时生效
+    uint32_t qTSize = 0;   // 仅TND时生效
+    uint32_t kvTSize = 0;  // 仅TND时生效
     float scaleValue = 0;
     uint32_t innerPrecise = 0;
     uint32_t l2CacheOffFlag = 0;
@@ -197,7 +188,7 @@ struct SFATilingInfo {
     bool isSameSeqAllKVTensor = true;
     bool isSameActualseq = true;
     uint32_t actualLenDimsKV = 0;
-    std::vector<int64_t> kvListSeqLens {};
+    std::vector<int64_t> kvListSeqLens{};
 
     uint32_t sparseMode = 0;
 
@@ -219,7 +210,8 @@ struct SFATilingInfo {
 };
 
 // ---------------算子Tiling类---------------
-class SFAMlaTiling {
+class SFAMlaTiling
+{
 public:
     explicit SFAMlaTiling(ge_helper::TilingContext *context) : context_(context) {}
     ge::graphStatus DoOpTiling(SFATilingInfo *sfaInfo);
@@ -269,7 +261,7 @@ private:
     uint32_t kvSplitPart_ = 1;
     size_t mmResUbSize_ = 0;
     size_t bmm2ResUbSize_ = 0;
-    size_t qPreSizeMla_= 0;
+    size_t qPreSizeMla_ = 0;
     uint32_t sInnerLoopTimes_ = 0;
     uint32_t sInnerSize_ = 0;
     uint32_t sInnerSizeTail_ = 0;
@@ -297,31 +289,34 @@ private:
 };
 
 // -----------算子Tiling入参信息解析及Check类---------------
-class SFATilingCheck {
+class SFATilingCheck
+{
 public:
     explicit SFATilingCheck(const SFATilingInfo &sfaInfo) : sfaInfo_(sfaInfo) {};
     ~SFATilingCheck() = default;
     virtual ge::graphStatus Process();
+
 private:
     void Init();
-    void LogErrorDtypeSupport(const std::vector<ge::DataType> &expectDtypeList,
-        const ge::DataType &actualDtype, const std::string &name) const;
-    ge::graphStatus CheckDtypeSupport(const gert::CompileTimeTensorDesc *desc,
-        const std::string &name) const;
-    template <typename T> void LogErrorNumberSupport(const std::vector<T> &expectNumberList,
-        const T &actualValue, const std::string &name, const std::string subName) const;
-    template <typename T> void LogErrorDimNumSupport(const std::vector<T> &expectNumberList,
-        const T &actualValue, const std::string &name) const;
-    ge::graphStatus CheckDimNumSupport(const gert::StorageShape *shape,
-        const std::vector<size_t> &expectDimNumList, const std::string &name) const;
-    ge::graphStatus CheckDimNumInLayoutSupport(const SFALayout &layout,
-        const gert::StorageShape *shape, const std::string &name) const;
-    std::string LogErrorLayoutSupport(const std::vector<SFALayout> &expectLayoutList,
-        const SFALayout &actualLayout, const std::string &name) const;
-    ge::graphStatus GetExpectedShape(gert::Shape &shapeExpected,
-    const SFATilingShapeCompareParam &param, const SFALayout &layout) const;
-    ge::graphStatus CompareShape(SFATilingShapeCompareParam &param,
-        const gert::Shape &shape, const SFALayout &layout, const std::string &name) const;
+    void LogErrorDtypeSupport(const std::vector<ge::DataType> &expectDtypeList, const ge::DataType &actualDtype,
+                              const std::string &name) const;
+    ge::graphStatus CheckDtypeSupport(const gert::CompileTimeTensorDesc *desc, const std::string &name) const;
+    template <typename T>
+    void LogErrorNumberSupport(const std::vector<T> &expectNumberList, const T &actualValue, const std::string &name,
+                               const std::string subName) const;
+    template <typename T>
+    void LogErrorDimNumSupport(const std::vector<T> &expectNumberList, const T &actualValue,
+                               const std::string &name) const;
+    ge::graphStatus CheckDimNumSupport(const gert::StorageShape *shape, const std::vector<size_t> &expectDimNumList,
+                                       const std::string &name) const;
+    ge::graphStatus CheckDimNumInLayoutSupport(const SFALayout &layout, const gert::StorageShape *shape,
+                                               const std::string &name) const;
+    std::string LogErrorLayoutSupport(const std::vector<SFALayout> &expectLayoutList, const SFALayout &actualLayout,
+                                      const std::string &name) const;
+    ge::graphStatus GetExpectedShape(gert::Shape &shapeExpected, const SFATilingShapeCompareParam &param,
+                                     const SFALayout &layout) const;
+    ge::graphStatus CompareShape(SFATilingShapeCompareParam &param, const gert::Shape &shape, const SFALayout &layout,
+                                 const std::string &name) const;
     ge::graphStatus CheckLayoutSupport(const SFALayout &actualLayout, const std::string &name) const;
     ge::graphStatus CheckSingleParaQuery() const;
     ge::graphStatus CheckSingleParaKey() const;
@@ -343,15 +338,15 @@ private:
     ge::graphStatus CheckExistsByMap(const std::map<std::string, const void *> &paramMap) const;
     ge::graphStatus CheckNotExistsByMap(const std::map<std::string, const void *> &paramMap) const;
     ge::graphStatus CheckExistenceByMap(std::map<std::string, const void *> &existMap,
-        std::map<std::string, const void *> &notExistMap) const;
-    template <typename T> ge::graphStatus CheckAttrValueByMap(
-        std::map<std::string, std::pair<const T *, T>> &attrMap) const;
+                                        std::map<std::string, const void *> &notExistMap) const;
+    template <typename T>
+    ge::graphStatus CheckAttrValueByMap(std::map<std::string, std::pair<const T *, T>> &attrMap) const;
     ge::graphStatus CheckParaExistenceMlaNoquant() const;
     ge::graphStatus CheckParaExistenceGqaNoquant() const;
     ge::graphStatus CheckParaExistenceMla() const;
     ge::graphStatus CheckParaExistence();
-    ge::graphStatus GetActualSeqLenSize(uint32_t &size, const gert::Tensor *tensor,
-        const SFALayout &layout, const std::string &name);
+    ge::graphStatus GetActualSeqLenSize(uint32_t &size, const gert::Tensor *tensor, const SFALayout &layout,
+                                        const std::string &name);
     void SetSFAShapeCompare();
     ge::graphStatus CheckQRope();
     ge::graphStatus CheckQRopeShape();
@@ -363,8 +358,8 @@ private:
     ge::graphStatus CheckTopK();
     ge::graphStatus CheckTopkShape();
     ge::graphStatus CheckBlockTable() const;
-    ge::graphStatus CheckDTypeConsistency(const ge::DataType &actualDtype,
-    const ge::DataType &expectDtype, const std::string &name) const;
+    ge::graphStatus CheckDTypeConsistency(const ge::DataType &actualDtype, const ge::DataType &expectDtype,
+                                          const std::string &name) const;
 
     ge::graphStatus CheckAttenOut();
     ge::graphStatus CheckAttenOutShape();
@@ -399,8 +394,8 @@ private:
     uint32_t qkHeadDim_ = 0;
     uint32_t vHeadDim_ = 0;
     uint32_t ropeHeadDim_ = 0;
-    uint32_t qTSize_ = 0; // 仅TND时生效
-    uint32_t kvTSize_ = 0; // 仅TND时生效
+    uint32_t qTSize_ = 0;   // 仅TND时生效
+    uint32_t kvTSize_ = 0;  // 仅TND时生效
     KvStorageMode kvStorageMode_ = KvStorageMode::BATCH_CONTINUOUS;
     uint32_t sparseBlockCount_ = 0;
     int64_t sparseBlockSize_ = 0;
@@ -433,8 +428,8 @@ private:
     gert::Shape attenOutShapeCmp_{};
 };
 
-
-class SFAInfoParser {
+class SFAInfoParser
+{
 public:
     explicit SFAInfoParser(ge_helper::TilingContext *context) : context_(context) {}
     ~SFAInfoParser() = default;
@@ -443,8 +438,8 @@ public:
     ge::graphStatus CheckRequiredAttrExistence() const;
     ge::graphStatus CheckRequiredParaExistence() const;
 
-    ge::graphStatus GetActualSeqLenSize(uint32_t &size, const gert::Tensor *tensor,
-        SFALayout &layout, const std::string &name);
+    ge::graphStatus GetActualSeqLenSize(uint32_t &size, const gert::Tensor *tensor, SFALayout &layout,
+                                        const std::string &name);
     ge::graphStatus GetActualSeqLenQSize(uint32_t &size);
     ge::graphStatus GetOpName();
     void GetOptionalInputParaInfo();
@@ -479,14 +474,13 @@ public:
     ge::graphStatus GetSparseBlockCount();
     ge::graphStatus GetActualseqInfo();
     void GenerateInfo(SFATilingInfo &sfaInfo);
-    ge::graphStatus Parse(SFATilingInfo &sfaInfo);   
+    ge::graphStatus Parse(SFATilingInfo &sfaInfo);
 
 public:
     ge_helper::TilingContext *context_ = nullptr;
     bool HasAxis(const SFAAxis &axis, const SFALayout &layout, const gert::Shape &shape) const;
     size_t GetAxisIdx(const SFAAxis &axis, const SFALayout &layout) const;
-    uint32_t GetAxisNum(const gert::Shape &shape, const SFAAxis &axis,const SFALayout &layout) const;
-
+    uint32_t GetAxisNum(const gert::Shape &shape, const SFAAxis &axis, const SFALayout &layout) const;
 
     const char *opName_;
     fe::PlatFormInfos *platformInfo_;
@@ -502,8 +496,8 @@ public:
     uint32_t qkHeadDim_ = 0;
     uint32_t vHeadDim_ = 0;
     uint32_t ropeHeadDim_ = 0;
-    uint32_t qTSize_ = 0; // 仅TND时生效
-    uint32_t kvTSize_ = 0; // 仅TND时生效
+    uint32_t qTSize_ = 0;   // 仅TND时生效
+    uint32_t kvTSize_ = 0;  // 仅TND时生效
     KvStorageMode kvStorageMode_ = KvStorageMode::BATCH_CONTINUOUS;
     uint32_t sparseBlockCount_ = 0;
 
@@ -539,5 +533,5 @@ public:
     gert::Shape queryRopeShape_{};
     gert::Shape keyRopeShape_{};
 };
-} // namespace sglang::SFAHost
-#endif // SPARSE_FLASH_ATTENTION_TILING_H
+}  // namespace sglang::SFAHost
+#endif  // SPARSE_FLASH_ATTENTION_TILING_H
