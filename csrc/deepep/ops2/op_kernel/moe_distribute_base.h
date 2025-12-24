@@ -196,7 +196,7 @@ struct HcclOpResParam {
     bool utraceStatusFlag;
 };
 
-// Transport ÄÚ´æÀàĞÍ
+// Transport å†…å­˜ç±»å‹
 enum class HcclAiRMAMemType : uint32_t {
     LOCAL_INPUT = 0,
     REMOTE_INPUT,
@@ -204,59 +204,59 @@ enum class HcclAiRMAMemType : uint32_t {
     LOCAL_OUTPUT,
     REMOTE_OUTPUT,
 
-    // ¿ÉÍ¸´«¸ü¶àµÄÄÚ´æ£¬¿ÉÔÚMAX_NUMÖ®Ç°×·¼Ó£¬ÀıÈç£º
+    // å¯é€ä¼ æ›´å¤šçš„å†…å­˜ï¼Œå¯åœ¨MAX_NUMä¹‹å‰è¿½åŠ ï¼Œä¾‹å¦‚ï¼š
     // LOCAL_EXP,
     // REMOTE_EXP,
     MAX_NUM
 };
 
 struct HcclAiRMAMemInfo {
-    uint32_t memMaxNum{0};         // ×î´óÄÚ´æÊıÁ¿£¬µÈÓÚ HcclAiRMAMemType::MAX_NUM
-    uint32_t sizeOfMemDetails{0};  // sizeof(MemDetails)£¬ÓÃÓÚÄÚ´æĞ£ÑéºÍÆ«ÒÆ¼ÆËã
-    uint64_t memDetailPtr{0};      // MemDetailsÊı×éÊ×µØÖ·, ¸öÊı: HcclAiRMAMemType::MAX_NUM
-    // ¿ÉÍùºó×·¼Ó×Ö¶Î
+    uint32_t memMaxNum{0};         // æœ€å¤§å†…å­˜æ•°é‡ï¼Œç­‰äº HcclAiRMAMemType::MAX_NUM
+    uint32_t sizeOfMemDetails{0};  // sizeof(MemDetails)ï¼Œç”¨äºå†…å­˜æ ¡éªŒå’Œåç§»è®¡ç®—
+    uint64_t memDetailPtr{0};      // MemDetailsæ•°ç»„é¦–åœ°å€, ä¸ªæ•°: HcclAiRMAMemType::MAX_NUM
+    // å¯å¾€åè¿½åŠ å­—æ®µ
 };
 
-// È«²¿ Transport QP/Mem ĞÅÏ¢
+// å…¨éƒ¨ Transport QP/Mem ä¿¡æ¯
 struct HcclAiRMAInfo {
-    uint32_t curRankId{0};  // µ±Ç°rankId
-    uint32_t rankNum{0};    // rankÊıÁ¿
-    uint32_t qpNum{0};      // µ¥¸öTransportµÄQPÊıÁ¿
+    uint32_t curRankId{0};  // å½“å‰rankId
+    uint32_t rankNum{0};    // rankæ•°é‡
+    uint32_t qpNum{0};      // å•ä¸ªTransportçš„QPæ•°é‡
 
     uint32_t sizeOfAiRMAWQ{0};   // sizeof(HcclAiRMAWQ)
     uint32_t sizeOfAiRMACQ{0};   // sizeof(HcclAiRMACQ)
     uint32_t sizeOfAiRMAMem{0};  // sizeof(HcclAiRMAMemInfo)
 
-    // HcclAiRMAWQ¶şÎ¬Êı×éÊ×µØÖ·
-    // QP¸öÊı: rankNum * qpNum
-    // ¼ÆËãÆ«ÒÆ»ñÈ¡SQÖ¸Õë£ºsqPtr + (dstRankId * qpNum + qpIndex) * sizeOfAiRMAWQ
+    // HcclAiRMAWQäºŒç»´æ•°ç»„é¦–åœ°å€
+    // QPä¸ªæ•°: rankNum * qpNum
+    // è®¡ç®—åç§»è·å–SQæŒ‡é’ˆï¼šsqPtr + (dstRankId * qpNum + qpIndex) * sizeOfAiRMAWQ
     // 0 <= qpIndex < qpNum
     uint64_t sqPtr{0};
 
-    // HcclAiRMACQ¶şÎ¬Êı×éÊ×µØÖ·
-    // QP¸öÊı: rankNum * qpNum
-    // ¼ÆËãÆ«ÒÆ»ñÈ¡SCQÖ¸Õë£ºscqPtr + (dstRankId * qpNum + qpIndex) * sizeOfAiRMACQ
+    // HcclAiRMACQäºŒç»´æ•°ç»„é¦–åœ°å€
+    // QPä¸ªæ•°: rankNum * qpNum
+    // è®¡ç®—åç§»è·å–SCQæŒ‡é’ˆï¼šscqPtr + (dstRankId * qpNum + qpIndex) * sizeOfAiRMACQ
     // 0 <= qpIndex < qpNum
     uint64_t scqPtr{0};
 
-    // HcclAiRMAWQ¶şÎ¬Êı×éÊ×µØÖ·
-    // QP¸öÊı: rankNum * qpNum
-    // ¼ÆËãÆ«ÒÆ»ñÈ¡RQÖ¸Õë£ºrqPtr + (dstRankId * qpNum + qpIndex) * sizeOfAiRMAWQ
+    // HcclAiRMAWQäºŒç»´æ•°ç»„é¦–åœ°å€
+    // QPä¸ªæ•°: rankNum * qpNum
+    // è®¡ç®—åç§»è·å–RQæŒ‡é’ˆï¼šrqPtr + (dstRankId * qpNum + qpIndex) * sizeOfAiRMAWQ
     // 0 <= qpIndex < qpNum
     uint64_t rqPtr{0};
 
-    // HcclAiRMACQ¶şÎ¬Êı×éÊ×µØÖ·
-    // QP¸öÊı: rankNum * qpNum
-    // ¼ÆËãÆ«ÒÆ»ñÈ¡RCQÖ¸Õë: rcqPtr + (dstRankId * qpNum + qpIndex) * sizeOfAiRMACQ
+    // HcclAiRMACQäºŒç»´æ•°ç»„é¦–åœ°å€
+    // QPä¸ªæ•°: rankNum * qpNum
+    // è®¡ç®—åç§»è·å–RCQæŒ‡é’ˆ: rcqPtr + (dstRankId * qpNum + qpIndex) * sizeOfAiRMACQ
     // 0 <= qpIndex < qpNum
     uint64_t rcqPtr{0};
 
-    // HcclAivMemInfoÒ»Î¬Êı×é
-    // ÄÚ´æĞÅÏ¢¸öÊı: rankNum
-    // ¼ÆËãÆ«ÒÆ»ñÈ¡ÄÚ´æĞÅÏ¢Ö¸Õë: memPtr + rankId * sizeOfAiRMAMem
-    // srcRankId »ñÈ¡×ÔÉíÄÚ´æĞÅÏ¢£¬dstRankId »ñÈ¡ Transport ÄÚ´æĞÅÏ¢
+    // HcclAivMemInfoä¸€ç»´æ•°ç»„
+    // å†…å­˜ä¿¡æ¯ä¸ªæ•°: rankNum
+    // è®¡ç®—åç§»è·å–å†…å­˜ä¿¡æ¯æŒ‡é’ˆ: memPtr + rankId * sizeOfAiRMAMem
+    // srcRankId è·å–è‡ªèº«å†…å­˜ä¿¡æ¯ï¼ŒdstRankId è·å– Transport å†…å­˜ä¿¡æ¯
     uint64_t memPtr{0};
-    // ¿ÉÍùºó×·¼Ó×Ö¶Î
+    // å¯å¾€åè¿½åŠ å­—æ®µ
 };
 
 struct CombinedCapability {
@@ -280,9 +280,9 @@ struct HcclA2CombineOpParam {
     uint8_t multiFlag;
     __gm__ AscendC::IbVerbsData *data;
     uint64_t dataSize;
-    // ×·¼Ó×Ö¶Î
+    // è¿½åŠ å­—æ®µ
     uint64_t sizeOfAiRMAInfo;  // sizeof(HcclAiRMAInfo)
-    uint64_t aiRMAInfo;        // HcclAiRMAInfo* µ¥¸ö½á¹¹ÌåÖ¸Õë
+    uint64_t aiRMAInfo;        // HcclAiRMAInfo* å•ä¸ªç»“æ„ä½“æŒ‡é’ˆ
 
     CombinedCapability *capability;  // address of the communication capability information structure on the Device
     uint64_t capabilitySize;         // size of the communication capability information structure
