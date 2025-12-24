@@ -21,9 +21,9 @@ typedef enum { WEIGHT_ND = 0, WEIGHT_NZ = 1 } WeightFormatMode;
 typedef enum { BF16 = 0, FP16 = 1, FP32 = 2 } DataFormatMode;
 
 struct KernelCATCOCHostTilingData {
-    int32_t m;  // get from matmul M
-    int32_t n;  // get from matmul N
-    int32_t k;  // get from matmul K
+    uint32_t m;  // get from matmul M
+    uint32_t n;  // get from matmul N
+    uint32_t k;  // get from matmul K
 
     uint32_t m0 = 128;
     uint32_t k0 = 256;

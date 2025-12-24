@@ -37,14 +37,17 @@
 using namespace AscendC;
 using namespace Catcoc;
 
-extern "C" __global__ __aicore__ void catcoc_allgather_matmul(uint64_t fftsAddr, GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmC,
-                                                              GM_ADDR gmSymmetric, GM_ADDR gmTiling, int32_t teamIdx)
+extern "C" __global__ __aicore__ void catcoc_allgather_matmul_kernel(uint64_t fftsAddr, uint64_t teamIdx,
+                                                                     GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmC,
+                                                                     GM_ADDR gmSymmetric, GM_ADDR gmTiling)
 {
     // Set FFTS address
     shmemx_set_ffts_config(fftsAddr);
     // Set shmem config
-    uint32_t rankIdx = shmem_team_my_pe(teamIdx);
-    uint32_t rankSize = shmem_team_n_pes(teamIdx);
+    int32_t newTeamIdx = 0;
+    // int32_t newTeamIdx = (int32_t)teamIdx;
+    uint32_t rankIdx = shmem_team_my_pe(newTeamIdx);
+    uint32_t rankSize = shmem_team_n_pes(newTeamIdx);
 
     using ElementA = half;
     using ElementB = half;
@@ -61,6 +64,14 @@ extern "C" __global__ __aicore__ void catcoc_allgather_matmul(uint64_t fftsAddr,
     uint32_t m0 = tiling_data->m0;
     uint32_t k0 = tiling_data->k0;
     uint32_t n0 = tiling_data->n0;
+
+    if(rankIdx == 0) {
+      AscendC::printf("m is: %d ;", tiling_data->m);
+      AscendC::printf("n is: %d ;", tiling_data->n);
+      AscendC::printf("k is: %d ;\n", k);
+
+      AscendC::printf("tiling_ptr on device is %ld \n", (int64_t) tiling_data);
+    }
     /*
     uint32_t swizzleOffset = tiling_data->swizzleOffset;
     uint32_t swizzleDirect = tiling_data->swizzleDirect;
@@ -128,7 +139,7 @@ extern "C" __global__ __aicore__ void catcoc_allgather_matmul(uint64_t fftsAddr,
     // Prepare params
     typename AllGatherMatmulKernel::Params params{
             problemShape,
-            rankIdx, rankSize, teamIdx,
+            rankIdx, rankSize, newTeamIdx,
             COMM_INTERVAL,
             gmA, layoutA,
             gmB, layoutB,
@@ -139,5 +150,5 @@ extern "C" __global__ __aicore__ void catcoc_allgather_matmul(uint64_t fftsAddr,
 
     // Call kernel
     AllGatherMatmulKernel matmulCommKernel;
-    matmulCommKernel(params);
+    // matmulCommKernel(params);
 }

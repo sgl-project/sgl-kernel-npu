@@ -33,7 +33,7 @@ def direct_testing(input_a, input_b, input_c, team_id=0, group_list=()):
     # print('rank', rank, ' is ', a.device, b.device)
     for _ in range(1):
         with torch.npu.stream(torch.npu.current_stream()):
-            output = torch.ops.npu.catcoc_allgather_matmul(a, b, input_c, g_shmem_addr, team_id)
+            torch.ops.npu.catcoc_allgather_matmul(a, b, input_c, g_shmem_addr, team_id)
         torch.npu.synchronize()
 
     if l_world_size > 1:
@@ -50,10 +50,10 @@ def direct_testing(input_a, input_b, input_c, team_id=0, group_list=()):
     native_c = torch.matmul(native_a, b)
 
     if rank == 0:
-        print(output.shape, output.flatten()[:10], output.flatten()[-10:])
+        print(input_c.shape, input_c.flatten()[:10], input_c.flatten()[-10:])
         print(rank, native_c.shape, native_c.flatten()[:10], native_c.flatten()[-10:])
     # time.sleep(rank * 5)
-    torch.allclose(output, native_c, rtol=1e-3, atol=1e-3)
+    assert torch.allclose(input_c, native_c, rtol=1e-3, atol=1e-3)
     print('rank', rank, ' success')
 
 
