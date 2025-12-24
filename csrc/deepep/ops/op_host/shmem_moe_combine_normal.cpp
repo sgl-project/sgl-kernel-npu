@@ -1,20 +1,14 @@
 #include "register/op_def_registry.h"
 
 namespace ops {
-class CamMoeCombineNormal : public OpDef
+class ShmemMoeCombineNormal : public OpDef
 {
 public:
-    explicit CamMoeCombineNormal(const char *name) : OpDef(name)
+    explicit ShmemMoeCombineNormal(const char *name) : OpDef(name)
     {
         this->Input("recv_x")
             .ParamType(REQUIRED)
             .DataType({ge::DT_BF16, ge::DT_FLOAT16, ge::DT_INT32, ge::DT_INT32})
-            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
-            .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
-            .AutoContiguous();
-        this->Input("token_src_info")
-            .ParamType(REQUIRED)
-            .DataType({ge::DT_INT32, ge::DT_INT32, ge::DT_INT32, ge::DT_INT32})
             .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
             .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
             .AutoContiguous();
@@ -30,7 +24,13 @@ public:
             .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
             .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
             .AutoContiguous();
-        this->Input("tp_recv_counts")
+        this->Input("topk_idx")
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_INT32, ge::DT_INT32, ge::DT_INT32, ge::DT_INT32})
+            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
+            .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
+            .AutoContiguous();
+        this->Input("send_token_idx")
             .ParamType(OPTIONAL)
             .DataType({ge::DT_INT32, ge::DT_INT32, ge::DT_INT32, ge::DT_INT32})
             .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
@@ -42,17 +42,15 @@ public:
             .DataType({ge::DT_BF16, ge::DT_FLOAT16, ge::DT_BF16, ge::DT_FLOAT16})
             .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
             .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
-
         this->Output("combine_send_cost_stats")
             .ParamType(OPTIONAL)
             .DataType({ge::DT_INT32, ge::DT_INT32, ge::DT_INT32, ge::DT_INT32})
             .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
             .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
 
-        this->Attr("ep_group_name").AttrType(REQUIRED).String();
+        this->Attr("meta_data_ptr").AttrType(REQUIRED).Int();
         this->Attr("ep_world_size").AttrType(REQUIRED).Int();
         this->Attr("ep_rank_id").AttrType(REQUIRED).Int();
-        this->Attr("tp_group_name").AttrType(OPTIONAL).String("");
         this->Attr("tp_world_size").AttrType(OPTIONAL).Int(0);
         this->Attr("tp_rank_id").AttrType(OPTIONAL).Int(0);
         this->Attr("moe_expert_num").AttrType(REQUIRED).Int();
@@ -70,10 +68,9 @@ public:
             .ExtendCfgInfo("multiKernelSupportDynamicGraph.value", "multi_kernel");
 
         this->AICore().AddConfig("ascend910_93", aicore_config);
-        this->MC2().HcclGroup({"ep_group_name", "tp_group_name"});
     }
 };
 
-OP_ADD(CamMoeCombineNormal);
+OP_ADD(ShmemMoeCombineNormal);
 
 }  // namespace ops

@@ -1,10 +1,10 @@
-#ifndef CAM_MOE_COMBINE_NORMAL_TILING_H
-#define CAM_MOE_COMBINE_NORMAL_TILING_H
+#ifndef SHMEM_MOE_COMBINE_NORMAL_TILING_H
+#define SHMEM_MOE_COMBINE_NORMAL_TILING_H
 
 #include <cstdint>
 #include "kernel_tiling/kernel_tiling.h"
 
-struct CamMoeCombineNormalInfo {
+struct ShmemMoeCombineNormalInfo {
     uint32_t epWorldSize;
     uint32_t tpWorldSize;
     uint32_t epRankId;
@@ -23,11 +23,9 @@ struct CamMoeCombineNormalInfo {
     float epsilon;
     bool isEnableDiagnose;
 };
-struct CamMoeCombineNormalTilingData {
-    Mc2InitTiling mc2InitTiling;
-    Mc2CcTiling mc2CcTiling1;
-    Mc2CcTiling mc2CcTiling2;
-    CamMoeCombineNormalInfo camMoeCombineNormalInfo;
+struct ShmemMoeCombineNormalTilingData {
+    ShmemMoeCombineNormalInfo moeCombineNormalInfo;
+    uint64_t shmemPtr;  // shmem symmetric point
 };
 
-#endif  // CAM_MOE_COMBINE_NORMAL_TILING_H
+#endif  // SHMEM_MOE_COMBINE_NORMAL_TILING_H

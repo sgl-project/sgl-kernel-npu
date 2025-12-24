@@ -345,6 +345,7 @@ class Buffer:
                 recv_channel_prefix_matrix,
                 recv_src_idx,
                 send_head,
+                put_offset,
                 event,
             ) = self.runtime.intranode_dispatch(
                 x,
@@ -375,6 +376,7 @@ class Buffer:
                 send_head,
                 topk_idx,
                 topk_weights,
+                put_offset,
             )
             return (
                 (recv_x, recv_x_scales) if use_quant else recv_x,
@@ -446,11 +448,18 @@ class Buffer:
             send_head,
             topk_idx,
             topk_weights_ori,
+            put_offset,
         ) = handle
 
         # Launch the kernel
         recv_x, recv_topk_weights, event = self.runtime.intranode_combine(
-            x, topk_idx, topk_weights_ori, src_idx, send_head, combine_send_cost_stats
+            x,
+            topk_idx,
+            topk_weights_ori,
+            src_idx,
+            send_head,
+            put_offset,
+            combine_send_cost_stats,
         )
         return recv_x, recv_topk_weights, EventOverlap(event)
 

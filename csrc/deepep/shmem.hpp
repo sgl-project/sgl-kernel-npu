@@ -28,9 +28,9 @@ int init(int rank, int num_ranks, uint64_t localMemSize, const char *server_ippo
     return shmem_my_pe();
 }
 
-void *alloc(size_t size, size_t alignment)
+void *alloc(size_t element_count, size_t element_size)
 {
-    return shmem_align(alignment, size);
+    return shmem_calloc(element_count, element_size);
 }
 
 void free(void *ptr)
