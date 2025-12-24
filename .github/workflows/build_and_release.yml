@@ -19,10 +19,10 @@ jobs:
       matrix:
         os: [ubuntu-24.04-arm]
         hardware: [910b, a3]
-        cann_vesion: [8.3.rc2]
+        cann_version: [8.3.rc2]
     runs-on: ${{ matrix.os }}
     container:
-      image: quay.io/ascend/cann:${{ matrix.cann_vesion }}-${{ matrix.hardware }}-ubuntu22.04-py3.11
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.hardware }}-ubuntu22.04-py3.11
     permissions:
       contents: write
     defaults:
@@ -73,10 +73,15 @@ jobs:
           "
           ls -al output/
 
+      - name: Pack up packages
+        run: |
+          zip -v "sgl-kernel-npu_${{ github.event.release.tag_name }}_${{ matrix.cann_version }}_$(arch).zip" output/*.whl
+          ls -al | grep zip
+
       - name: Upload Release Artifacts
         if: github.event_name != 'pull_request'
         uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          files: output/*.whl
+          files: *.zip
