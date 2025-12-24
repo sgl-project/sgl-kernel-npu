@@ -15,9 +15,14 @@ on:
 jobs:
 
   build-and-release:
-    runs-on: ubuntu-24.04-arm
+    strategy:
+      matrix:
+        os: [ubuntu-24.04-arm]
+        hardware: [910b, a3]
+        cann_vesion: [8.3.rc2]
+    runs-on: ${{ matrix.os }}
     container:
-      image: quay.io/ascend/cann:8.3.rc2-a3-ubuntu22.04-py3.11
+      image: quay.io/ascend/cann:${{ matrix.cann_vesion }}-${{ matrix.hardware }}-ubuntu22.04-py3.11
     permissions:
       contents: write
     defaults:
@@ -50,7 +55,17 @@ jobs:
             ./build.sh -a memory-saver
           "
 
-      - name: Build DeepEP
+      - name: Build DeepEP for 910b
+        if: matrix.hardware == '910b'
+        run: |
+          env -i PATH=${PATH} bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+            ./build.sh -a deepep2
+          "
+          ls -al output/
+
+      - name: Build DeepEP for a3
+        if: matrix.hardware == 'a3'
         run: |
           env -i PATH=${PATH} bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
