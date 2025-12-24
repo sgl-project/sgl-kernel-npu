@@ -62,7 +62,6 @@ jobs:
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
             ./build.sh -a deepep2
           "
-          ls -al output/
 
       - name: Build DeepEP for a3
         if: matrix.hardware == 'a3'
@@ -71,12 +70,10 @@ jobs:
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
             ./build.sh -a deepep
           "
-          ls -al output/
 
       - name: Pack up packages
         run: |
-          zip -v "sgl-kernel-npu_${{ github.event.release.tag_name }}_${{ matrix.cann_version }}_$(arch).zip" output/*.whl
-          ls -al | grep zip
+          zip -v "sgl-kernel-npu_${{ github.event.release.tag_name }}_${{ matrix.cann_version }}_${{ matrix.hardware }}_$(arch).zip" output/*.whl
 
       - name: Upload Release Artifacts
         if: github.event_name != 'pull_request'
