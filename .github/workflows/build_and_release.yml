@@ -40,21 +40,21 @@ jobs:
         run: |
           env -i PATH=${PATH} bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
-            build.sh -a kernels
+            ./build.sh -a kernels
           "
 
       - name: Build Torch-Memory-Saver
         run: |
           env -i PATH=${PATH} bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
-            build.sh -a memory-saver
+            ./build.sh -a memory-saver
           "
 
       - name: Build DeepEP
         run: |
           env -i PATH=${PATH} bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
-            build.sh -a deepep
+            ./build.sh -a deepep
           "
           ls -al output/
 
