@@ -117,9 +117,8 @@ inline at::Tensor GetSFATilingTensor(const SparseFlashAttentionTilingDataMla &ti
     uint32_t tilingSize = sizeof(SparseFlashAttentionTilingDataMla);
     auto tup = std::make_tuple(
         tilingData.baseParams.batchSize, tilingData.baseParams.blockSize, tilingData.baseParams.maxBlockNumPerBatch,
-        tilingData.baseParams.scaleValue, tilingData.baseParams.nNumOfQInOneGroup, tilingData.baseParams.outputLayout,
-        tilingData.baseParams.sparseMode, tilingData.baseParams.sparseBlockSize, tilingData.baseParams.sparseBlockCount,
-        tilingData.splitKVParams.s2, tilingData.tilingKey);
+        tilingData.baseParams.nNumOfQInOneGroup, tilingData.baseParams.outputLayout, tilingData.baseParams.sparseMode,
+        tilingData.baseParams.sparseBlockSize, tilingData.baseParams.sparseBlockCount, tilingData.tilingKey);
     auto hashValue = host_utils::TupleHasher::Hash(tup);
     static auto globalTilingBuffer =
         at::empty({tilingSize * MAX_CAPTURE_NUM}, at::TensorOptions().dtype(at::kByte).device(device));
@@ -128,7 +127,7 @@ inline at::Tensor GetSFATilingTensor(const SparseFlashAttentionTilingDataMla &ti
         // For decode replay phase and part of prefill phase, get cached tiling data from globalTilingBuffer
         tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
                                      tilingSize, at::kByte);
-    } else if (actualCaptureNum >= MAX_CAPTURE_NUM / 2) {
+    } else if (actualCaptureNum >= MAX_CAPTURE_NUM) {
         // For tiling hash that not exist in capture map and exceeds MAX_CAPTURE_NUM, reload its' tiling data to NPU
         static auto tilingBuffer = at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(device));
         aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
