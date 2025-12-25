@@ -61,3 +61,7 @@ endif ()
 if (BUILD_ZCCL_MODULE)
     add_subdirectory(csrc/zccl)
 endif ()
+
+if (BUILD_TESTS)
+    add_subdirectory(tests/csrc)
+endif ()

@@ -4,6 +4,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/python/sgl_kernel_npu/s
 # host side files
 FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/zccl/allgather/op_host/allgather.cpp
+    ${PROJECT_OP_SRC_BASE}/zccl/reduce_scatter/op_host/reduce_scatter.cpp
 )
 
 # set the so name
@@ -12,6 +13,7 @@ set(OP_PLUGIN_NAME zccl)
 # kernel side files without workspace
 ascendc_library(zccl_kernel STATIC
     ${PROJECT_OP_SRC_BASE}/zccl/allgather/op_kernel/allgather_kernel.cpp
+    ${PROJECT_OP_SRC_BASE}/zccl/reduce_scatter/op_kernel/reduce_scatter_kernel.cpp
 )
 
 ascendc_include_directories(zccl_kernel PRIVATE
@@ -20,6 +22,7 @@ ascendc_include_directories(zccl_kernel PRIVATE
     ${ASCEND_INCLUDE_DIR}
     ${ASCEND_INCLUDE_DIR}/aclnn
     ${ASCEND_INCLUDE_DIR}/aclnn/opdev
+    ${PROJECT_OP_SRC_BASE}/zccl/include
 )
 
 # create shared library libzccl.so
@@ -36,6 +39,7 @@ target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         dl
         shmem
         mf_smem
+        mf_hybm_core
 )
 
 target_link_directories(${OP_PLUGIN_NAME} PRIVATE
