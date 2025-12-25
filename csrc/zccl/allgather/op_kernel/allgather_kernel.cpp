@@ -13,7 +13,6 @@
 
 #include "kernel_operator.h"
 #include "shmem_api.h"
-#include "fp16_t.h"
 #include "bfloat16.h"
 #include "../../../mla_preprocess/op_kernel/kernel/common.h"
 #include "../../../mla_preprocess/op_kernel/kernel/hardware.h"
@@ -25,7 +24,6 @@
 
 using namespace AscendC;
 
-using fp16_t = op::fp16_t;
 using bfloat16 = op::bfloat16;
 
 constexpr int64_t SYNC_FLAG_INTERVAL = 16;
@@ -80,7 +78,7 @@ public:
 
     template<typename T>
     __aicore__ inline void AllGatherOrigin(AscendC::GlobalTensor<T> inputGM, AscendC::GlobalTensor<T> outputGM, GM_ADDR gva, 
-        uint64_t max_gva_num, uint64_t elements, int32_t team_id, int magic)
+        uint64_t max_gva_num, uint64_t elements, int32_t len, int32_t team_id, int magic)
     {
         const int64_t aivNum = AscendC::GetBlockNum();
         const int64_t aivIndex = AscendC::GetBlockIdx();
@@ -118,7 +116,7 @@ public:
 
         // GM to SymmPtr
         if (aivIndex < core_group_num) {
-            AscendC::LocalTensor<T> tmp_buff = buf.GetBuffer<BufferType:ASCEND_UB, T>(1024 + 32);
+            AscendC::LocalTensor<T> tmp_buff = buf.GetBuffer<BufferType::ASCEND_UB, T>(1024 + 32);
             uint32_t copy_ub_size = UB_DMA_MAX_SIZE;
             uint32_t copy_ub_num = copy_ub_size / sizeof(T);
             tmp_buff.SetSize(copy_ub_num);
@@ -164,8 +162,8 @@ public:
             *flags_ub2[i] = 0;
         }
 
-        AscendC::LocalTensor<T> ping_buff = buf.GetBuffer<BufferType:ASCEND_UB, T>(1024 + 32);
-        AscendC::LocalTensor<T> pong_buff = buf.GetBuffer<BufferType:ASCEND_UB, T>(96 * 1024 + 32);
+        AscendC::LocalTensor<T> ping_buff = buf.GetBuffer<BufferType::ASCEND_UB, T>(1024 + 32);
+        AscendC::LocalTensor<T> pong_buff = buf.GetBuffer<BufferType::ASCEND_UB, T>(96 * 1024 + 32);
         uint32_t copy_ub_size = UB_DMA_MAX_SIZE / 2;
         uint32_t copy_ub_num = copy_ub_size / sizeof(T);
         ping_buff.SetSize(copy_ub_num);
@@ -266,7 +264,7 @@ public:
         __gm__ int32_t *gva_sync_gm = (__gm__ int32_t *)gva;
 
         AsdopsBuffer<ArchType::ASCEND_V220> buf;
-        AscendC::LocalTensor<T> tmp_buff = buf.GetBuffer<BufferType:ASCEND_UB, T>(64);
+        AscendC::LocalTensor<T> tmp_buff = buf.GetBuffer<BufferType::ASCEND_UB, T>(64);
 
         // data move parameters
         uint32_t input_offset, output_offset, gva_offset, num_per_core;
@@ -288,7 +286,6 @@ public:
         shmem_quiet();
         shmemi_barrier_core_soft();
 
-        int magic = 1024;
         shmemx_signal_op(gva_sync_gm + flag_offset, magic, SHMEM_SIGNAL_SET, my_rank);
         shmem_signal_wait_until((__gm__ int32_t *)shmem_ptr(gva_sync_gm, x) + flag_offset, SHMEM_CMP_EQ, magic);
 
@@ -317,7 +314,7 @@ extern "C" __global__ __aicore__ void allgather(GM_ADDR input, GM_ADDR output, G
     uint64_t ffts_addr, int magic, GM_ADDR tiling_tensor)
 {
     AllGatherKernel op;
-    ZCCLDataType zccl_data_type = static_cast<ZCCLDataType>(dataType);
+    ZCCLDataType zccl_data_type = static_cast<ZCCLDataType>(data_type);
     switch (zccl_data_type){
         case ZCCLDataType::ZCCL_DATA_TYPE_INT8:
             op.Process<int8_t>(input, output, gva, numel, team_id, ffts_addr, magic, tiling_tensor);
