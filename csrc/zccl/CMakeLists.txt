@@ -18,6 +18,8 @@ ascendc_include_directories(zccl_kernel PRIVATE
     ${SHMEM_HOME_PATH}/shmem/include
     ${SHMEM_HOME_PATH}/memfabric_hybrid/include/smem/device
     ${ASCEND_INCLUDE_DIR}
+    ${ASCEND_INCLUDE_DIR}/aclnn
+    ${ASCEND_INCLUDE_DIR}/aclnn/opdev
 )
 
 # create shared library libzccl.so
@@ -34,7 +36,6 @@ target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         dl
         shmem
         mf_smem
-        mf_hydm_core
 )
 
 target_link_directories(${OP_PLUGIN_NAME} PRIVATE

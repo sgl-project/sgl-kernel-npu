@@ -13,7 +13,7 @@ enum class ZCCLDataType {
 namespace sglang {
 namespace zccl {
 
-int zccl_all_gather(void *input, void *output, uint64_t numel, ZCCLDataType data_type, int team_id, aclrtStream stream);
+extern "C" int zccl_all_gather(void *input, void *output, uint64_t numel, ZCCLDataType data_type, int team_id, aclrtStream stream);
 
 }  // namespace zccl
 }  // namespace sglang
