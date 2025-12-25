@@ -19,7 +19,7 @@
 #include "../../../mla_preprocess/op_kernel/kernel/mma.h"
 #include "../../../mla_preprocess/op_kernel/kernel/utils.h"
 #include "../../../mla_preprocess/op_kernel/kernel/iterator.h"
-#include "../../include/zccl.h"
+#include "zccl.h"
 #include "../op_host/allgather_tiling_data.h"
 
 using namespace AscendC;
