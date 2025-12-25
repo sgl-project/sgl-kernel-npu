@@ -11,49 +11,60 @@
 #include "acl/acl.h"
 #include "defines.h"
 #include "shmem_api.h"
-#include "tiling/platform/platform_ascendc.h"
 #include "aclrtlaunch_allgather.h"
 #include "allgather_tiling_data.h"
 #include "torch_helper.h"
+#include "../../include/zccl.h"
 
 constexpr int64_t SYNC_FLAG_INTERVAL = 16;
 constexpr int64_t GVA_BUFF_MAX_SIZE = 100 * 1024 * 1024;
+constexpr int64_t BIG_DATA_SIZE = 2 * 1024 * 1024;
 
 namespace sglang {
-namespace npu_kernel {
+namespace zccl {
 
-std::unique_ptr<AllGatherTilingData> get_tiling(int32_t &block_dim, uint64_t elements)
+std::shared_ptr<AllGatherTilingData> get_tiling(int32_t block_dim, uint64_t elements, int team_id)
 {
-    auto ascendc_platform = platform_ascendc::PlatformAscendCManager::GetInstance();
-    block_dim = static_cast<int32_t>(ascendc_platform->GetCoreNumAiv());
-    int64_t pe_size = shmem_n_pes();
-    auto tiling_data = std::make_unique<AllGatherTilingData>();
+    int64_t pe_size = shmem_team_n_pes(team_id);
+    auto tiling_data = std::make_shared<AllGatherTilingData>();
     tiling_data->input_num_per_core = elements / block_dim;
-    tiling_data->input_last_num_core = elements % block_dim;
+    tiling_data->input_last_num_core = elements - (block_dim - 1) * tiling_data->input_num_per_core;
     const uint32_t core_per_rank = block_dim / pe_size;
     tiling_data->output_core_per_rank = core_per_rank;
     tiling_data->output_num_per_core = elements / core_per_rank;
-    tiling_data->output_last_num_core = elements % core_per_rank;
+    tiling_data->output_last_num_core = elements - (core_per_rank - 1) * tiling_data->output_num_per_core;
     return tiling_data;
 }
 
-HOST_API int ZcclAllGather(void *input, void *output, uint64_t numel, HcclDataType dataType, int teamId, aclrtStream stream)
+HOST_API int zccl_all_gather(void *input, void *output, uint64_t numel, ZCCLDataType data_type, int team_id, aclrtStream stream)
 {
-    int32_t block_dim;
+    int32_t block_dim = 0;
+    if (numel * sizeof(int) < BIG_DATA_SIZE) {
+        block_dim = 8;
+    }else {
+        block_dim = 16;
+    }
+    int magic = 1024;
 
     void *tiling_device_ptr;
     aclrtMalloc(&tiling_device_ptr, sizeof(AllGatherTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
     std::unique_ptr<AllGatherTilingData> tiling_host;
+    aclrtMallocHost(reinterpret_cast<void**>(tiling_host.get()), sizeof(AllGatherTilingData));
     tiling_host = get_tiling(block_dim, numel);
 
-    aclrtMallocHost(reinterpret_cast<void**>(tiling_host.get()), sizeof(AllGatherTilingData));
     aclrtMemcpy(tiling_device_ptr, sizeof(AllGatherTilingData), tiling_host.get(), sizeof(AllGatherTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-    uint64_t fftsAddr = shmemx_get_ffts_config();
+    uint64_t ffts_addr = shmemx_get_ffts_config();
+    size_t gva_size = block_dim * SYNC_FLAG_INTERVAL * sizeof(int) + GVA_BUFF_MAX_SIZE;
+    void *gva = shmem_malloc(gva_size)
+    aclrtMemset(gva, gva_size, 0, gva_size);
+    int data_type_int = static_cast<int>(data_type);
 
-    void *gva = shmem_malloc(block_dim * SYNC_FLAG_INTERVAL * sizeof(int) + GVA_BUFF_MAX_SIZE / sizeof(int));
-
-    ACLRT_LAUNCH_KERNEL(allgather)(block_dim, stream, input, output, gva, numel, teamId, fftsAddr, tiling_device_ptr);
+    ACLRT_LAUNCH_KERNEL(allgather)(block_dim, stream, input, output, gva, numel, data_type_int, team_id, ffts_addr, tiling_device_ptr);
+    aclrtFreeHost(tiling_host.get());
+    aclrtFree(tiling_device_ptr);
+    shmem_free(gva);
+    return 0;
 }
 
-}  // namespace npu_kernel
+}  // namespace zccl
 }  // namespace sglang
