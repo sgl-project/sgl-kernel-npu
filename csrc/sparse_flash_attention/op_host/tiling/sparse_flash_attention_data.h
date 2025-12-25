@@ -2,11 +2,6 @@
 #define SPARSE_FLASH_ATTENTION_DATA_H
 
 #include <cstdint>
-
-#ifndef __CCE__
-#include "register/tilingdata_base.h"
-#endif
-
 namespace sglang::SFAHost {
 
 #pragma pack(push, 1)
@@ -25,7 +20,7 @@ struct SparseFlashAttentionBaseParamsMla {
     int64_t sparseBlockSize = 0;
     uint32_t sparseBlockCount = 0U;
 };
-
+#pragma pack(pop)
 struct SparseFlashAttentionSplitKVParamsMla {
     uint32_t s2 = 0U;             // S2
     uint32_t accumOutSize = 0U;   // FD workspace
@@ -55,6 +50,5 @@ struct SparseFlashAttentionTilingDataMla {
     uint32_t tilingKey = 0U;
 };
 
-#pragma pack(pop)
 }  // namespace sglang::SFAHost
 #endif  // SPARSE_FLASH_ATTENTION_DATA_H

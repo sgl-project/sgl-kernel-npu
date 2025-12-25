@@ -81,7 +81,6 @@ target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         platform
         ascendalog
         dl
-        nnopbase
 )
 
 target_link_directories(${OP_PLUGIN_NAME} PRIVATE
@@ -95,7 +94,6 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${TORCH_DIR}/include
         ${TORCH_DIR}/include/torch/csrc/api/include
         ${TORCH_NPU_DIR}/include
-        ${ASCEND_INCLUDE_DIR}/
         ${ASCEND_INCLUDE_DIR}/external
         ${ASCEND_INCLUDE_DIR}/experiment/platform
         ${ASCEND_INCLUDE_DIR}/experiment/runtime

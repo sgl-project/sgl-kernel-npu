@@ -128,7 +128,7 @@ inline at::Tensor GetSFATilingTensor(const SparseFlashAttentionTilingDataMla &ti
         // For decode replay phase and part of prefill phase, get cached tiling data from globalTilingBuffer
         tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
                                      tilingSize, at::kByte);
-    } else if (actualCaptureNum >= MAX_CAPTURE_NUM) {
+    } else if (actualCaptureNum >= MAX_CAPTURE_NUM / 2) {
         // For tiling hash that not exist in capture map and exceeds MAX_CAPTURE_NUM, reload its' tiling data to NPU
         static auto tilingBuffer = at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(device));
         aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);

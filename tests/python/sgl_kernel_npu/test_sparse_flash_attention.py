@@ -265,198 +265,204 @@ def cpu_sparse_flash_attention(
 
 class TestCustomSFA(unittest.TestCase):
     def test_sfa_eager(self):
-        scale_value = 0.041666666666666664
+        scale_value = 0.41666666666666664
         sparse_block_size = 1
         torch_npu.npu.set_device(int(DEVICE_ID))
-        query_type = torch.float16
-        scale_value = 0.041666666666666664
-        sparse_block_size = 1
-        sparse_block_count = 2048
-        t = 10
-        b = 4
-        s1 = 1
-        s2 = 8192
-        n1 = 128
-        n2 = 1
-        dn = 512
-        dr = 64
-        tile_size = 128
-        block_size = 256
-        s2_act = 4096
+        for query_type in (torch.float16, torch.bfloat16):
+            scale_value = 0.41666666666666664
+            sparse_block_size = 1
+            sparse_block_count = 2048
+            t = 10
+            b = 4
+            s1 = 1
+            s2 = 8192
+            n1 = 128
+            n2 = 1
+            dn = 512
+            dr = 64
+            tile_size = 128
+            block_size = 256
+            s2_act = 4096
 
-        query = torch.tensor(np.random.uniform(-10, 10, (b, s1, n1, dn))).to(query_type)
-        key = torch.tensor(np.random.uniform(-5, 10, (b, s2, n2, dn))).to(query_type)
-        value = key.clone()
-        idxs = random.sample(range(s2_act - s1 + 1), sparse_block_count)
-        sparse_indices = (
-            torch.tensor([idxs for _ in range(b * s1 * n2)])
-            .reshape(b, s1, n2, sparse_block_count)
-            .to(torch.int32)
-        )
-        query_rope = torch.tensor(np.random.uniform(-10, 10, (b, s1, n1, dr))).to(
-            query_type
-        )
-        key_rope = torch.tensor(np.random.uniform(-10, 10, (b, s2, n2, dr))).to(
-            query_type
-        )
-        act_seq_q = [s1] * 4
-        act_seq_kv = [s2_act] * 4
+            query = torch.tensor(np.random.uniform(-10, 10, (b, s1, n1, dn))).to(
+                query_type
+            )
+            key = torch.tensor(np.random.uniform(-5, 10, (b, s2, n2, dn))).to(
+                query_type
+            )
+            value = key.clone()
+            idxs = random.sample(range(s2_act - s1 + 1), sparse_block_count)
+            sparse_indices = (
+                torch.tensor([idxs for _ in range(b * s1 * n2)])
+                .reshape(b, s1, n2, sparse_block_count)
+                .to(torch.int32)
+            )
+            query_rope = torch.tensor(np.random.uniform(-10, 10, (b, s1, n1, dr))).to(
+                query_type
+            )
+            key_rope = torch.tensor(np.random.uniform(-10, 10, (b, s2, n2, dr))).to(
+                query_type
+            )
+            act_seq_q = [s1] * 4
+            act_seq_kv = [s2_act] * 4
 
-        query = query.to("npu:%s" % DEVICE_ID)
-        key = key.to("npu:%s" % DEVICE_ID)
-        value = value.to("npu:%s" % DEVICE_ID)
-        sparse_indices = sparse_indices.to("npu:%s" % DEVICE_ID)
-        query_rope = query_rope.to("npu:%s" % DEVICE_ID)
-        key_rope = key_rope.to("npu:%s" % DEVICE_ID)
-        act_seq_q = torch.tensor(act_seq_q).to(torch.int32).to("npu:%s" % DEVICE_ID)
-        act_seq_kv = torch.tensor(act_seq_kv).to(torch.int32).to("npu:%s" % DEVICE_ID)
+            query = query.to("npu:%s" % DEVICE_ID)
+            key = key.to("npu:%s" % DEVICE_ID)
+            value = value.to("npu:%s" % DEVICE_ID)
+            sparse_indices = sparse_indices.to("npu:%s" % DEVICE_ID)
+            query_rope = query_rope.to("npu:%s" % DEVICE_ID)
+            key_rope = key_rope.to("npu:%s" % DEVICE_ID)
+            act_seq_q = torch.tensor(act_seq_q).to(torch.int32).to("npu:%s" % DEVICE_ID)
+            act_seq_kv = (
+                torch.tensor(act_seq_kv).to(torch.int32).to("npu:%s" % DEVICE_ID)
+            )
 
-        print(f"======================== PTA eager BEGIN ========================")
-        # start run custom ops
-        npu_out = torch.ops.npu.sparse_flash_attention(
-            query,
-            key,
-            value,
-            sparse_indices,
-            scale_value,
-            sparse_block_size,
-            actual_seq_lengths_query=act_seq_q,
-            actual_seq_lengths_kv=act_seq_kv,
-            query_rope=query_rope,
-            key_rope=key_rope,
-            layout_query="BSND",
-            layout_kv="BSND",
-            sparse_mode=3,
-            block_table=None,
-        )
+            print(f"======================== PTA eager BEGIN ========================")
+            # start run custom ops
+            npu_out = torch.ops.npu.sparse_flash_attention(
+                query,
+                key,
+                value,
+                sparse_indices,
+                scale_value,
+                sparse_block_size,
+                actual_seq_lengths_query=act_seq_q,
+                actual_seq_lengths_kv=act_seq_kv,
+                query_rope=query_rope,
+                key_rope=key_rope,
+                layout_query="BSND",
+                layout_kv="BSND",
+                sparse_mode=3,
+                block_table=None,
+            )
 
-        # compare result
-        cpu_out = cpu_sparse_flash_attention(
-            query,
-            key,
-            value,
-            sparse_indices,
-            scale_value,
-            sparse_block_size,
-            actual_seq_lengths_query=act_seq_q,
-            actual_seq_lengths_kv=act_seq_kv,
-            query_rope=query_rope,
-            key_rope=key_rope,
-            layout_query="BSND",
-            layout_kv="BSND",
-            sparse_mode=3,
-            block_table=None,
-        )
-        npu_out = npu_out.cpu().to(torch.float32).numpy()
+            # compare result
+            cpu_out = cpu_sparse_flash_attention(
+                query,
+                key,
+                value,
+                sparse_indices,
+                scale_value,
+                sparse_block_size,
+                actual_seq_lengths_query=act_seq_q,
+                actual_seq_lengths_kv=act_seq_kv,
+                query_rope=query_rope,
+                key_rope=key_rope,
+                layout_query="BSND",
+                layout_kv="BSND",
+                sparse_mode=3,
+                block_table=None,
+            )
+            npu_out = npu_out.cpu().to(torch.float32).numpy()
 
-        res = np.isclose(npu_out, cpu_out, rtol=0.005, atol=0.0001, equal_nan=False)
-        true_ratio = np.mean(res)
-        if true_ratio < 0.99:
-            print("npu output:\n", npu_out, npu_out.shape)
-            print("cpu output:\n", cpu_out, cpu_out.shape)
-            print("correct ratio of cpu vs npu is:", true_ratio * 100, "%")
-        self.assertTrue(true_ratio > 0.99, "precision compare fail")
-        print(f"======================== PTA eager FINISH ========================")
+            res = np.isclose(npu_out, cpu_out, rtol=0.005, atol=0.0001, equal_nan=False)
+            true_ratio = np.mean(res)
+            if true_ratio < 0.99:
+                print("npu output:\n", npu_out, npu_out.shape)
+                print("cpu output:\n", cpu_out, cpu_out.shape)
+                print("correct ratio of cpu vs npu is:", true_ratio * 100, "%")
+            self.assertTrue(true_ratio > 0.99, "precision compare fail")
+            print(f"======================== PTA eager FINISH ========================")
 
     # Q:TND, KV:PA_BSND
     def test_tnd_pabsnd_sfa_eager(self):
         torch_npu.npu.set_device(int(DEVICE_ID))
-        query_type = torch.float16
-        scale_value = 0.041666666666666664
-        sparse_block_size = 1
-        sparse_block_count = 2048
-        t = 10
-        b = 4
-        s1 = 1
-        s2 = 8192
-        n1 = 128
-        n2 = 1
-        dn = 512
-        dr = 64
-        tile_size = 128
-        block_size = 256
-        s2_act = 4096
-        s1_max = 5
+        for query_type in (torch.float16, torch.bfloat16):
+            scale_value = 0.41666666666666664
+            sparse_block_size = 1
+            sparse_block_count = 2048
+            t = 10
+            b = 4
+            s1 = 1
+            s2 = 8192
+            n1 = 128
+            n2 = 1
+            dn = 512
+            dr = 64
+            tile_size = 128
+            block_size = 256
+            s2_act = 4096
+            s1_max = 5
 
-        query = torch.tensor(np.random.uniform(-10, 10, (t, n1, dn))).to(query_type)
-        key = torch.tensor(
-            np.random.uniform(-5, 10, (b * (s2 // block_size), block_size, n2, dn))
-        ).to(query_type)
-        value = key.clone()
-        idxs = random.sample(range(s2_act - s1_max + 1), sparse_block_count)
-        sparse_indices = (
-            torch.tensor([idxs for _ in range(t * n2)])
-            .reshape(t, n2, sparse_block_count)
-            .to(torch.int32)
-        )
-        query_rope = torch.tensor(np.random.uniform(-10, 10, (t, n1, dr))).to(
-            query_type
-        )
-        key_rope = torch.tensor(
-            np.random.uniform(-10, 10, (b * (s2 // block_size), block_size, n2, dr))
-        ).to(query_type)
-        act_seq_q = torch.tensor([1, 3, 8, 10]).to(torch.int32)
-        act_seq_kv = torch.tensor([s2_act] * b).to(torch.int32)
-        block_table = torch.tensor(
-            [range(b * s2 // block_size)], dtype=torch.int32
-        ).reshape(b, -1)
+            query = torch.tensor(np.random.uniform(-10, 10, (t, n1, dn))).to(query_type)
+            key = torch.tensor(
+                np.random.uniform(-5, 10, (b * (s2 // block_size), block_size, n2, dn))
+            ).to(query_type)
+            value = key.clone()
+            idxs = random.sample(range(s2_act - s1_max + 1), sparse_block_count)
+            sparse_indices = (
+                torch.tensor([idxs for _ in range(t * n2)])
+                .reshape(t, n2, sparse_block_count)
+                .to(torch.int32)
+            )
+            query_rope = torch.tensor(np.random.uniform(-10, 10, (t, n1, dr))).to(
+                query_type
+            )
+            key_rope = torch.tensor(
+                np.random.uniform(-10, 10, (b * (s2 // block_size), block_size, n2, dr))
+            ).to(query_type)
+            act_seq_q = torch.tensor([1, 3, 8, 10]).to(torch.int32)
+            act_seq_kv = torch.tensor([s2_act] * b).to(torch.int32)
+            block_table = torch.tensor(
+                [range(b * s2 // block_size)], dtype=torch.int32
+            ).reshape(b, -1)
 
-        query = query.to("npu:%s" % DEVICE_ID)
-        key = key.to("npu:%s" % DEVICE_ID)
-        value = value.to("npu:%s" % DEVICE_ID)
-        sparse_indices = sparse_indices.to("npu:%s" % DEVICE_ID)
-        query_rope = query_rope.to("npu:%s" % DEVICE_ID)
-        key_rope = key_rope.to("npu:%s" % DEVICE_ID)
-        act_seq_q = act_seq_q.to("npu:%s" % DEVICE_ID)
-        act_seq_kv = act_seq_kv.to("npu:%s" % DEVICE_ID)
-        block_table = block_table.to("npu:%s" % DEVICE_ID)
+            query = query.to("npu:%s" % DEVICE_ID)
+            key = key.to("npu:%s" % DEVICE_ID)
+            value = value.to("npu:%s" % DEVICE_ID)
+            sparse_indices = sparse_indices.to("npu:%s" % DEVICE_ID)
+            query_rope = query_rope.to("npu:%s" % DEVICE_ID)
+            key_rope = key_rope.to("npu:%s" % DEVICE_ID)
+            act_seq_q = act_seq_q.to("npu:%s" % DEVICE_ID)
+            act_seq_kv = act_seq_kv.to("npu:%s" % DEVICE_ID)
+            block_table = block_table.to("npu:%s" % DEVICE_ID)
 
-        print(f"======================== PTA eager BEGIN ========================")
-        # start run custom ops
-        npu_out = torch.ops.npu.sparse_flash_attention(
-            query,
-            key,
-            value,
-            sparse_indices,
-            scale_value,
-            sparse_block_size,
-            actual_seq_lengths_query=act_seq_q,
-            actual_seq_lengths_kv=act_seq_kv,
-            query_rope=query_rope,
-            key_rope=key_rope,
-            layout_query="TND",
-            layout_kv="PA_BSND",
-            sparse_mode=3,
-            block_table=block_table,
-        )
+            print(f"======================== PTA eager BEGIN ========================")
+            # start run custom ops
+            npu_out = torch.ops.npu.sparse_flash_attention(
+                query,
+                key,
+                value,
+                sparse_indices,
+                scale_value,
+                sparse_block_size,
+                actual_seq_lengths_query=act_seq_q,
+                actual_seq_lengths_kv=act_seq_kv,
+                query_rope=query_rope,
+                key_rope=key_rope,
+                layout_query="TND",
+                layout_kv="PA_BSND",
+                sparse_mode=3,
+                block_table=block_table,
+            )
 
-        # compare result
-        cpu_out = cpu_sparse_flash_attention(
-            query,
-            key,
-            value,
-            sparse_indices,
-            scale_value,
-            sparse_block_size,
-            actual_seq_lengths_query=act_seq_q,
-            actual_seq_lengths_kv=act_seq_kv,
-            query_rope=query_rope,
-            key_rope=key_rope,
-            layout_query="TND",
-            layout_kv="PA_BSND",
-            sparse_mode=3,
-            block_table=block_table,
-        )
-        npu_out = npu_out.cpu().to(torch.float32).numpy()
+            # compare result
+            cpu_out = cpu_sparse_flash_attention(
+                query,
+                key,
+                value,
+                sparse_indices,
+                scale_value,
+                sparse_block_size,
+                actual_seq_lengths_query=act_seq_q,
+                actual_seq_lengths_kv=act_seq_kv,
+                query_rope=query_rope,
+                key_rope=key_rope,
+                layout_query="TND",
+                layout_kv="PA_BSND",
+                sparse_mode=3,
+                block_table=block_table,
+            )
+            npu_out = npu_out.cpu().to(torch.float32).numpy()
 
-        res = np.isclose(npu_out, cpu_out, rtol=0.005, atol=0.0001, equal_nan=False)
-        true_ratio = np.mean(res)
-        if true_ratio < 0.99:
-            print("npu output:\n", npu_out, npu_out.shape)
-            print("cpu output:\n", cpu_out, cpu_out.shape)
-            print("correct ratio of cpu vs npu is:", true_ratio * 100, "%")
-        self.assertTrue(true_ratio > 0.99, "precision compare fail")
-        print(f"======================== PTA eager FINISH ========================")
+            res = np.isclose(npu_out, cpu_out, rtol=0.005, atol=0.0001, equal_nan=False)
+            true_ratio = np.mean(res)
+            if true_ratio < 0.99:
+                print("npu output:\n", npu_out, npu_out.shape)
+                print("cpu output:\n", cpu_out, cpu_out.shape)
+                print("correct ratio of cpu vs npu is:", true_ratio * 100, "%")
+            self.assertTrue(true_ratio > 0.99, "precision compare fail")
+            print(f"======================== PTA eager FINISH ========================")
 
 
 if __name__ == "__main__":
