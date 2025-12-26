@@ -1,9 +1,10 @@
 import os
 import re
 import subprocess
+import sys
 
 import setuptools
-from setuptools import find_namespace_packages, find_packages
+from setuptools import find_packages
 from setuptools.command.build_py import build_py
 from setuptools.dist import Distribution
 
@@ -96,13 +97,71 @@ def get_cann_version():
         return ""
 
 
+def get_npu_chip_type():
+    """
+    Detect the NPU chip type (910B or 910C) using npu-smi command
+    Returns:
+        str: "910b" if running on Ascend 910B, "910c" if running on Ascend 910C, empty string otherwise
+    """
+    try:
+        # Execute npu-smi command to get board information
+        cmd = ["npu-smi", "info", "-t", "board", "-i", "0", "-c", "0"]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+        output = result.stdout
+
+        # Check for 910C pattern: NPU Name : 9382
+        if re.search(r"NPU\s+Name\s*:\s*9382", output, re.IGNORECASE) and re.search(
+            r"Chip\s+Name\s*:\s*Ascend910", output, re.IGNORECASE
+        ):
+            return "910c"
+
+        # Check for 910B pattern: Chip Name : 910B
+        if re.search(r"Chip\s+Name\s*:\s*910B", output, re.IGNORECASE):
+            return "910b"
+
+        # Fallback: check for keywords in the output
+        output_lower = output.lower()
+        if "ascend910" in output_lower:
+            return "910C"
+        elif "910b" in output_lower:
+            return "910b"
+
+        print(
+            f"Warning: Could not determine NPU chip type from output:\n{output}",
+            file=sys.stderr,
+        )
+        return ""
+
+    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+        if isinstance(e, FileNotFoundError):
+            print(
+                "Warning: npu-smi command not found. Cannot determine NPU chip type.",
+                file=sys.stderr,
+            )
+        else:
+            print(f"Warning: Failed to execute npu-smi command: {e}", file=sys.stderr)
+            print(f"Command output: {e.output}", file=sys.stderr)
+        return ""
+    except Exception as e:
+        print(
+            f"Warning: Unexpected error detecting NPU chip type: {e}", file=sys.stderr
+        )
+        return ""
+
+
 git_rev = get_git_revision()
 cann_ver = get_cann_version()
+chip_type = get_npu_chip_type()
 
+# Build chip suffix based on detected chip type
+chip_suffix = f"_{chip_type}" if chip_type else ""
+
+# Construct version suffix with git revision, CANN version, and chip suffix
 version_suffix = (
-    f"{git_rev}{cann_ver}"
+    f"{git_rev}{cann_ver}{chip_suffix}"
     if git_rev
-    else f"+{cann_ver.lstrip('.')}" if cann_ver else ""
+    else f"+{cann_ver.lstrip('.')}{chip_suffix}" if cann_ver else ""
 )
 
 setuptools.setup(
