@@ -93,6 +93,9 @@ void sgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
 void catlass_matmul_basic(const at::Tensor &tensor_a,
                           const at::Tensor &tensor_b, at::Tensor &tensor_c,
                           c10::optional<c10::string_view> format_mode);
+at::Tensor fp8_w8a16_batch_matmul(const at::Tensor &mat1,
+                                  const at::Tensor &mat2, at::Tensor &scale,
+                                  const std::string &outDtype);
 #endif
 
 at::Tensor lightning_indexer(
