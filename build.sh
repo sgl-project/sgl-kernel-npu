@@ -123,7 +123,7 @@ function build_kernels()
     mkdir -p $BUILD_DIR
 
     cmake $COMPILE_OPTIONS -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" -DASCEND_HOME_PATH=$ASCEND_HOME_PATH -DASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR -DSOC_VERSION=$SOC_VERSION -DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE -DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE -B "$BUILD_DIR" -S .
-    cmake --build "$BUILD_DIR" -j8 && cmake --build "$BUILD_DIR" --target install
+    cmake --build "$BUILD_DIR" --target install
     cd -
 }
 
