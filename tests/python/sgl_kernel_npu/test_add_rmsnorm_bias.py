@@ -35,7 +35,15 @@ def test_add_rmsnorm_bias():
     residual = torch.randn(3, hidden_size).to(torch.bfloat16).npu()
     weight = torch.randn(hidden_size).to(torch.bfloat16).npu()
     bias = torch.randn(hidden_size).to(torch.bfloat16).npu()
-    res1, res2 = add_rmsnorm_bias(input, residual, weight, bias, 1e-6)
+    res1, res2 = add_rmsnorm_bias(
+        input,
+        residual,
+        weight,
+        1e-6,
+        norm_bias=bias,
+        quant_scale=None,
+        quant_offset=None,
+    )
     ans1, ans2 = add_rmsnorm_bias_quant_golden(input, residual, weight, bias, 1e-6)
 
     assert (
@@ -65,7 +73,13 @@ def test_add_rmsnorm_bias():
     quant_scale = torch.randn(hidden_size).to(torch.bfloat16).npu()
     quant_offset = torch.randn(hidden_size).to(torch.bfloat16).npu()
     res1, res2 = add_rmsnorm_bias(
-        input, residual, weight, bias, 1e-6, quant_scale, quant_offset
+        input,
+        residual,
+        weight,
+        1e-6,
+        norm_bias=bias,
+        quant_scale=quant_scale,
+        quant_offset=quant_offset,
     )
     ans1, ans2 = add_rmsnorm_bias_quant_golden(
         input, residual, weight, bias, 1e-6, quant_scale, quant_offset
