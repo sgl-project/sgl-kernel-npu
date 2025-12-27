@@ -89,6 +89,15 @@ at::Tensor sgmv_expand(at::Tensor &x, at::Tensor &weight,
 void sgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
                  at::Tensor &seq_len, at::Tensor &y, double scale);
 
+at::Tensor sgemmv_expand(at::Tensor &x, at::Tensor &weight,
+                         at::Tensor &lora_indices, at::Tensor &seq_len,
+                         at::Tensor &lora_ranks, at::Tensor &slice_offsets,
+                         at::Tensor &y);
+
+void sgemmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
+                   at::Tensor &seq_len, at::Tensor &lora_ranks,
+                   at::Tensor &lora_scales, at::Tensor &y);
+
 #ifdef BUILD_CATLASS_MODULE
 void catlass_matmul_basic(const at::Tensor &tensor_a,
                           const at::Tensor &tensor_b, at::Tensor &tensor_c,
