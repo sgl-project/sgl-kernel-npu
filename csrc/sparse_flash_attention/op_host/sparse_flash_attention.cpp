@@ -106,7 +106,7 @@ inline at::Tensor GetWorkspaceTensor(const std::shared_ptr<TilingContext> &conte
 {
     size_t workspaceSize = context->GetWorkspaceSize();
     if (workspaceSize > 0) {
-        return at::empty({static_cast<int64_t>(workspaceSize)}, at::TensorOptions().dtype(at::kByte).device(device));
+        return at::zeros({static_cast<int64_t>(workspaceSize)}, at::TensorOptions().dtype(at::kByte).device(device));
     } else {
         return at::empty({0}, at::TensorOptions().dtype(at::kByte).device(device));
     }
@@ -115,10 +115,12 @@ inline at::Tensor GetWorkspaceTensor(const std::shared_ptr<TilingContext> &conte
 inline at::Tensor GetSFATilingTensor(const SparseFlashAttentionTilingDataMla &tilingData, const at::Device &device)
 {
     uint32_t tilingSize = sizeof(SparseFlashAttentionTilingDataMla);
-    auto tup = std::make_tuple(
-        tilingData.baseParams.batchSize, tilingData.baseParams.blockSize, tilingData.baseParams.maxBlockNumPerBatch,
-        tilingData.baseParams.nNumOfQInOneGroup, tilingData.baseParams.outputLayout, tilingData.baseParams.sparseMode,
-        tilingData.baseParams.sparseBlockSize, tilingData.baseParams.sparseBlockCount, tilingData.tilingKey);
+    auto tup =
+        std::make_tuple(tilingData.baseParams.batchSize, tilingData.baseParams.seqSize, tilingData.baseParams.qSeqSize,
+                        tilingData.baseParams.blockSize, tilingData.baseParams.maxBlockNumPerBatch,
+                        tilingData.baseParams.nNumOfQInOneGroup, tilingData.baseParams.outputLayout,
+                        tilingData.baseParams.sparseMode, tilingData.baseParams.sparseBlockSize,
+                        tilingData.baseParams.sparseBlockCount, tilingData.splitKVParams.s2, tilingData.tilingKey);
     auto hashValue = host_utils::TupleHasher::Hash(tup);
     static auto globalTilingBuffer =
         at::empty({tilingSize * MAX_CAPTURE_NUM}, at::TensorOptions().dtype(at::kByte).device(device));
