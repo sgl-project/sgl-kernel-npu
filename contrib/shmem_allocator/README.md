@@ -42,7 +42,7 @@ Shmem allocator provide two python api for users.<br>
     * `my_rank`: rank of current process.
     * `n_ranks`: global world size.
     * `local_mem_size`: shmem pool size to be pre-allocated on each NPU.
-    * `meta_size`: reserved region to ensure symmetric addressing across all NPUs.
+    * `meta_size`: the portion of `local_mem_size` that guarantees symmetric allocation across all NPUs.
     * `ip_port`: ip:port for inter-PE bootstrap and synchronization.
    
 
