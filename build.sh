@@ -5,7 +5,7 @@ BUILD_DEEPEP_MODULE="ON"
 BUILD_DEEPEP_OPS="ON"
 BUILD_KERNELS_MODULE="ON"
 BUILD_MEMORY_SAVER_MODULE="ON"
-BUILD_SHMEM_ALLOCATOR_MODULE="ON"
+BUILD_SHMEM_ALLOCATOR_MODULE="OFF"
 
 ONLY_BUILD_DEEPEP_ADAPTER_MODULE="OFF"
 ONLY_BUILD_DEEPEP_KERNELs_MODULE="OFF"
@@ -51,7 +51,7 @@ while getopts ":a:hd" opt; do
                     ;;
                 * )
                     echo "Error: Invalid Value"
-                    echo "Allowed value: deepep|kernels|deepep-adapter|deepep-kernels|memory-saver"
+                    echo "Allowed value: deepep|kernels|deepep-adapter|deepep-kernels|memory-saver|shmem-allocator"
                     exit 1
                     ;;
             esac
