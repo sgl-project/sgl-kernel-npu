@@ -36,7 +36,7 @@ std::shared_ptr<AllGatherTilingData> get_tiling(int32_t block_dim, uint64_t elem
     return tiling_data;
 }
 
-extern "C" HOST_API int zccl_all_gather(void *input, void *output, uint64_t numel, ZCCLDataType data_type, int team_id, aclrtStream stream)
+extern "C" HOST_API int ZcclAllGather(void *input, void *output, uint64_t numel, ZCCLDataType data_type, int team_id, aclrtStream stream)
 {
     int32_t block_dim = 0;
     if (numel * sizeof(int) < BIG_DATA_SIZE) {
