@@ -5,10 +5,12 @@ BUILD_DEEPEP_MODULE="ON"
 BUILD_DEEPEP_OPS="ON"
 BUILD_KERNELS_MODULE="ON"
 BUILD_MEMORY_SAVER_MODULE="ON"
+BUILD_SHMEM_ALLOCATOR_MODULE="ON"
 
 ONLY_BUILD_DEEPEP_ADAPTER_MODULE="OFF"
 ONLY_BUILD_DEEPEP_KERNELs_MODULE="OFF"
 ONLY_BUILD_MEMORY_SAVER_MODULE="OFF"
+ONLY_BUILD_SHMEM_ALLOCATOR_MODULE="OFF"
 
 DEBUG_MODE="OFF"
 
@@ -18,6 +20,7 @@ while getopts ":a:hd" opt; do
             BUILD_DEEPEP_MODULE="OFF"
             BUILD_KERNELS_MODULE="OFF"
             BUILD_MEMORY_SAVER_MODULE="OFF"
+            BUILD_SHMEM_ALLOCATOR_MODULE="OFF"
             case "$OPTARG" in
                 deepep )
                     BUILD_DEEPEP_MODULE="ON"
@@ -42,6 +45,10 @@ while getopts ":a:hd" opt; do
                     BUILD_MEMORY_SAVER_MODULE="ON"
                     ONLY_BUILD_MEMORY_SAVER_MODULE="ON"
                     ;;
+                shmem-allocator )
+                    BUILD_SHMEM_ALLOCATOR_MODULE="ON"
+                    ONLY_BUILD_SHMEM_ALLOCATOR_MODULE="ON"
+                    ;;
                 * )
                     echo "Error: Invalid Value"
                     echo "Allowed value: deepep|kernels|deepep-adapter|deepep-kernels|memory-saver"
@@ -61,6 +68,7 @@ while getopts ":a:hd" opt; do
             echo "    deepep-adapter    Only build deepep adapter layer and use old build of deepep kernels."
             echo "    deepep-kernels    Only build deepep kernels and use old build of deepep adapter layer."
             echo "    memory-saver      Only build torch_memory_saver (under contrib)."
+            echo "    shmem-allocator   Only build torch-shmem-allocator (under contrib)."
             exit 1
             ;;
         \? )
@@ -113,6 +121,7 @@ function build_kernels()
 {
     if [[ "$ONLY_BUILD_DEEPEP_KERNELs_MODULE" == "ON" ]]; then return 0; fi
     if [[ "$ONLY_BUILD_MEMORY_SAVER_MODULE" == "ON" ]]; then return 0; fi
+    if [[ "$ONLY_BUILD_SHMEM_ALLOCATOR_MODULE" == "ON" ]]; then return 0; fi
 
     CMAKE_DIR=""
     BUILD_DIR="build"
@@ -172,6 +181,20 @@ function build_memory_saver()
     cd -
 }
 
+function build_shmem_allocator()
+{
+    if [[ "$BUILD_SHMEM_ALLOCATOR_MODULE" != "ON" ]]; then return 0; fi
+    echo "[shmem_allocator] Building shmem_allocator via setup.py"
+    cd contrib/shmem_allocator/python || exit
+    rm -rf "$CURRENT_DIR"/contrib/shmem_allocator/python/build
+    rm -rf "$CURRENT_DIR"/contrib/shmem_allocator/python/dist
+    python3 setup.py clean --all
+    python3 setup.py bdist_wheel
+    mv -v "$CURRENT_DIR"/contrib/shmem_allocator/python/dist/shmem_allocator*.whl "${OUTPUT_DIR}/"
+    rm -rf "$CURRENT_DIR"/contrib/shmem_allocator/python/dist
+    cd -
+}
+
 function make_deepep_package()
 {
     cd python/deep_ep || exit
@@ -209,6 +232,7 @@ function main()
         pip3 install wheel==0.45.1
     fi
     build_memory_saver
+    build_shmem_allocator
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
         make_deepep_package
     fi
