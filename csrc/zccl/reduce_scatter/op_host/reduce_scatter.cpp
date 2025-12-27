@@ -26,7 +26,7 @@ constexpr uint32_t BLOCK_NUM_SMALL_DATA = 8;
 constexpr uint32_t BLOCK_NUM_LARGE_DATA = 16;
 
 
-extern "C" HOST_API void ZcclReduceScatter(uint8_t *inp, uint8_t *out,
+extern "C" HOST_API int ZcclReduceScatter(uint8_t *inp, uint8_t *out,
     size_t inpNumel, ZCCLDataType dataType, int teamId, aclrtStream stream, uint32_t reduceOp)
 {
     /* define the block dim */
@@ -58,6 +58,7 @@ extern "C" HOST_API void ZcclReduceScatter(uint8_t *inp, uint8_t *out,
     ACLRT_LAUNCH_KERNEL(ShmemReduceScatter)(blockDim, stream, inp, out, (uint8_t *)ptr,
                                             fftsAddr, dataTypeNum, inpNumel, teamId, reduceOp);
     shmem_free(ptr);
+    return 0;
 }
 
 }
