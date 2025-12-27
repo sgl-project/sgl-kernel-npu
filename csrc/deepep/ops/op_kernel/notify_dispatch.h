@@ -202,30 +202,34 @@ private:
         }
 
         int totalRounds = round;
-        for (int tr = 0; tr < rankSize; ++tr) {
-            for (int rBase = 0; rBase < totalRounds; rBase += batchRounds) {
-                int currentBatch = (rBase + batchRounds > totalRounds) ? (totalRounds - rBase) : batchRounds;
-                for (int r = 0; r < currentBatch; ++r) {
-                    int absRound = rBase + r;
-                    for (int le = 0; le < localExpertsNum; ++le) {
-                        int globalExpertIdx = tr * localExpertsNum + le;
-                        int srcIdx = (absRound * numExperts + globalExpertIdx) * sendPerGroup;
-                        int dstIdx = (r * localExpertsNum + le) * sendPerGroup;
-                        newSendDataTensor(dstIdx) = sendDataTensor(srcIdx);
-                        newSendDataTensor(dstIdx + 1) = sendDataTensor(srcIdx + 1);
-                        newSendDataTensor(dstIdx + 2) = sendDataTensor(srcIdx + 2);
+        if (round > 1) {
+            for (int tr = 0; tr < rankSize; ++tr) {
+                for (int rBase = 0; rBase < totalRounds; rBase += batchRounds) {
+                    int currentBatch = (rBase + batchRounds > totalRounds) ? (totalRounds - rBase) : batchRounds;
+                    for (int r = 0; r < currentBatch; ++r) {
+                        int absRound = rBase + r;
+                        for (int le = 0; le < localExpertsNum; ++le) {
+                            int globalExpertIdx = tr * localExpertsNum + le;
+                            int srcIdx = (absRound * numExperts + globalExpertIdx) * sendPerGroup;
+                            int dstIdx = (r * localExpertsNum + le) * sendPerGroup;
+                            newSendDataTensor(dstIdx) = sendDataTensor(srcIdx);
+                            newSendDataTensor(dstIdx + 1) = sendDataTensor(srcIdx + 1);
+                            newSendDataTensor(dstIdx + 2) = sendDataTensor(srcIdx + 2);
+                        }
                     }
+                    AscendC::SetFlag<HardEvent::S_MTE3>(EVENT_ID0);
+                    AscendC::WaitFlag<HardEvent::S_MTE3>(EVENT_ID0);
+                    uint32_t copyLen = currentBatch * localExpertsNum * sendPerGroup * sizeof(int32_t);
+                    DataCopyExtParams copyParams = {1U, copyLen, 0U, 0U, 0U};
+                    uint64_t gmOffset = (uint64_t)tr * totalRounds * localExpertsNum * sendPerGroup +
+                                        (uint64_t)rBase * localExpertsNum * sendPerGroup;
+                    DataCopyPad(sendDataInputGt[gmOffset], newSendDataTensor[0], copyParams);
+                    AscendC::SetFlag<HardEvent::MTE3_S>(EVENT_ID0);
+                    AscendC::WaitFlag<HardEvent::MTE3_S>(EVENT_ID0);
                 }
-                AscendC::SetFlag<HardEvent::S_MTE3>(EVENT_ID0);
-                AscendC::WaitFlag<HardEvent::S_MTE3>(EVENT_ID0);
-                uint32_t copyLen = currentBatch * localExpertsNum * sendPerGroup * sizeof(int32_t);
-                DataCopyExtParams copyParams = {1U, copyLen, 0U, 0U, 0U};
-                uint64_t gmOffset = (uint64_t)tr * totalRounds * localExpertsNum * sendPerGroup +
-                                    (uint64_t)rBase * localExpertsNum * sendPerGroup;
-                DataCopyPad(sendDataInputGt[gmOffset], newSendDataTensor[0], copyParams);
-                AscendC::SetFlag<HardEvent::MTE3_S>(EVENT_ID0);
-                AscendC::WaitFlag<HardEvent::MTE3_S>(EVENT_ID0);
             }
+        } else {
+            DataCopyPad(sendDataInputGt, sendDataTensor, {1U, sendDataAlignLen, 0U, 0U, 0U});
         }
         DataCopyExtParams sendDataOffsetParams = {1U, sendDataOffsetAlignLen, 0U, 0U, 0U};
         DataCopyPad(sendDataOffsetOutputGt, sendDataOffsetTensor, sendDataOffsetParams);
@@ -405,21 +409,18 @@ private:
 
     __aicore__ inline void BuildTotalRecvTokens()
     {
-        // 只需要sendCountTensor
         if (blockIdx != TOTAL_CNT_CORE) {
             return;
         }
 
-        ReorderSendCountOutput();  // 这里消耗32 KB ；还剩 32； 这个函数里用例recvDataTensor_消耗96tensor  // 这里
-                                   // 共消耗 128
+        ReorderSendCountOutput();
         pipe.InitBuffer(tmpBuf_, UB_ALIGN_SIZE);
-        pipe.InitBuffer(tmpBuf2_, Ceil(round * numExperts * sizeof(float), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);  // 32KB
+        pipe.InitBuffer(tmpBuf2_, Ceil(round * numExperts * sizeof(float), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
 
         LocalTensor<int32_t> totalCntLt = tmpBuf_.Get<int32_t>();
         LocalTensor<float> floatExpTokenCntLt = tmpBuf2_.Get<float>();
-        LocalTensor<float> floatExpTokenSumCntLt = sendCountBuf.Get<float>();  // 复用32 的，？ 直接复用试试
-        LocalTensor<float> sharedTmpBuffer =
-            recvDataBuf.Get<float>();  // 复用 96的 ；需要清0 么？？？？不需要， 直接复用
+        LocalTensor<float> floatExpTokenSumCntLt = sendCountBuf.Get<float>();
+        LocalTensor<float> sharedTmpBuffer = recvDataBuf.Get<float>();
 
         SyncFunc<AscendC::HardEvent::S_V>();
         Cast(floatExpTokenCntLt, sendCountTensor, RoundMode::CAST_NONE, round * numExperts);

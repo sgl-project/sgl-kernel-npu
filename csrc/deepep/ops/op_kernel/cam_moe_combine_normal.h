@@ -11,9 +11,8 @@ namespace CamMoeCombineNormalImpl {
 constexpr uint32_t RANK_ID_OFFSET_IN_SRC_INFO = 0U;
 constexpr uint32_t TOKEN_IDX_OFFSET_IN_SRC_INFO = 1U;
 constexpr uint32_t TOPK_IDX_OFFSET_IN_SRC_INFO = 2U;
-constexpr uint64_t COMBINE_STATE_WIN_OFFSET = 8UL * 1024UL * 1024UL;
+constexpr uint64_t COMBINE_STATE_WIN_OFFSET = 4UL * 1024UL * 1024UL;
 constexpr uint64_t MAGIC_WIN_OFFSET = 975UL * 1024UL;
-constexpr uint64_t ROUND_STATE_OFFSET = Moe::BASE_ROUND_STATE_OFFSET + Moe::ROUND_STATE_MAX_SIZE * 2UL;  // 458*1024
 constexpr uint32_t TOKEN_SRC_INFO_LEN = 3U;
 constexpr uint32_t UB_32_ALIGN = 32U;
 constexpr uint32_t MUL_256_ALIGN = 256U;
@@ -21,8 +20,6 @@ constexpr uint64_t WIN_512_ALIGN = 512UL;
 constexpr uint32_t FLOAT_NUM_PER_ALIGN = 8U;
 constexpr uint8_t DOUBLE_BUFFER = 2;
 constexpr int64_t CYCLE_TO_TIME = 50;  // cycle num is converted into a fixed base unit of time, set at 50
-constexpr uint32_t STATE_OFFSET = 32U;
-constexpr uint32_t BATCH_SRC_INFO_CNT = 128U;
 
 template <AscendC::HardEvent event>
 __aicore__ inline void SyncFunc()
@@ -36,7 +33,6 @@ __aicore__ inline void SyncFunc()
 #define TemplateMC2TypeFunc RecvXType, XType, SrcInfoType
 
 using namespace AscendC;
-using namespace Moe;
 template <TemplateMC2TypeClass>
 class CamMoeCombineNormal
 {
@@ -57,13 +53,9 @@ private:
     __aicore__ inline void CopyBufferToShare(uint32_t srcRankId, uint32_t srcTokenId, uint32_t srcTopkId,
                                              uint32_t tkIndex);
     __aicore__ inline void ReadBufferFromRemote();
-    __aicore__ inline void WaitBuffCopy(uint32_t recvXTokenIdx);
+    __aicore__ inline void WaitBuffCopy(uint32_t tokenIndex);
     __aicore__ inline void SetStatusBySrcInfo(uint32_t srcRankId, uint32_t srcTokenId, uint32_t srcTopkId);
-    __aicore__ inline void ReadBufferAndWeightedSum(uint32_t recvXTokenIdx, uint32_t roundRecvStartTokenIdx_);
-    __aicore__ inline void InitRoundSendData();
-    __aicore__ inline void SetRoundStatus();
-    __aicore__ inline void WaitRoundStatus();
-    __aicore__ inline void InitRoundRecvData();
+    __aicore__ inline void ReadBufferAndWeightedSum(uint32_t tokenIndex, uint32_t startTokenIndex);
 
     __aicore__ GM_ADDR GetStateAddrByRankId(const int32_t rankId)
     {
@@ -79,16 +71,6 @@ private:
     __aicore__ GM_ADDR GetBufferAddrByRankId(const int32_t rankId)
     {
         return GetStateAddrByRankId(rankId) + COMBINE_STATE_WIN_OFFSET;
-    }
-
-    __aicore__ inline GM_ADDR GetRoundStateAddrByRankId(const int32_t rankId)
-    {
-        if (epRankId_ == rankId) {
-            return (GM_ADDR)(epWinContext_->localWindowsExp) + roundMagic_ * Moe::ROUND_STATE_MAX_SIZE +
-                   ROUND_STATE_OFFSET;
-        }
-        return (GM_ADDR)(((HcclRankRelationResV2 *)(epWinContext_->remoteRes[rankId].nextDevicePtr))->windowsExp) +
-               roundMagic_ * Moe::ROUND_STATE_MAX_SIZE + ROUND_STATE_OFFSET;
     }
 
     __aicore__ inline void SplitCoreCal(uint32_t totalNum, uint32_t &perCoreNum, uint32_t &startIdx, uint32_t &endIdx)
@@ -118,34 +100,14 @@ private:
     uint32_t moeExpertNum_{0};
     uint32_t moeExpertPerRankNum_{0};
     uint32_t magic_{0};
-    uint32_t roundMagic_{0};
     uint64_t winDataSizeOffset_{0};
+    uint32_t selfSendCnt_{0};
     uint32_t hRecvXTypeLen_{0};
     uint32_t h32AlignFloatLen_{0};
     uint32_t h256AlignFloatLen_{0};
     uint32_t h32AlignRecvXLen_{0};
     uint32_t h512AlignRecvXLen_{0};
-    uint32_t roundIndex_{0};
-    uint32_t realMaxBs_{0};
-    uint32_t perRoundTokens_{0};
-    uint32_t maxRound_{0};
-    // send用到的数据
     uint32_t sendCostStatsBufSize_{0};
-    uint32_t needSendTokenCnt_{0};
-    uint32_t RecvTokenNum_{0};
-    uint32_t perCoreBlockNum_{0};  // 每个core需要负责的block数，一个block表示某个expert从某个rank接收的token
-    uint32_t startBlockId_{0};
-    uint32_t endBlockId_{0};
-    uint32_t preRecvCount_{0};
-    // recv用到的数据
-    uint32_t totalNeedRecvTokenCnt_{0};   // 剩余需要接收的token数，初始化为axisBS_
-    uint32_t roundTotalRecvTokenCnt_{0};  // 每一轮所有核需要接收的总token数
-    uint32_t roundRecvTokenCnt_{0};       // 每一轮每个核接收的token数，每一轮接收开始前重新计算
-    uint32_t roundRecvStartTokenIdx_{0};  // 每一轮每个核从HCCL buffer接收的token的起始index，每一轮接收开始前重新计算
-    uint32_t roundRecvEndTokenIdx_{0};  // 每一轮每个核从HCCL buffer接收的token的结束index，每一轮接收开始前重新计算
-    uint32_t xOutTokenOffset_{
-        0};  // 这一轮接收的token需要存放在xOut的偏移，即前面几轮接收的token数，每一轮每个核从topkWeightsGM_拷贝权重也需要
-    uint32_t stateOffset_{0};
 
     bool isEnableDiagnose_{false};
 
@@ -153,27 +115,14 @@ private:
     TQue<QuePosition::VECIN, 1> weightedSumQueue_;
     TQue<QuePosition::VECOUT, 1> sendCostStatsOutQueue_;
     TQueBind<QuePosition::VECIN, QuePosition::VECOUT, 1> localCopyQueue_;
-    TBuf<> setStateBuf_;
-    TBuf<> waitStateBuf_;
-    TBuf<> waitTempStateBuf_;
+    TBuf<> stateBuf_;
     TBuf<> topkWeightsBuf_;
     TBuf<> tokenFloatBuf_;
     TBuf<> sumFloatBuf_;
     TBuf<> weightedMulBuf_;
     TBuf<> srcInfoBuf_;
     TBuf<> xOutBuf_;
-    TBuf<> setRoundStateBuf_;
-    TBuf<> waitRoundStateBuf_;
-    TBuf<> tempRoundStateBuf_;
-    TBuf<> roundNeedSendCntBuf_;
-    TBuf<> roundSendOffsetBuf_;
-    TBuf<> tempRecvCountBuf_;
-
-    LocalTensor<uint32_t> setStateLT_;
-    LocalTensor<uint32_t> roundNeedSendCntLT_;
-    LocalTensor<uint32_t> roundSendOffsetLT_;
-    LocalTensor<SrcInfoType> srcInfoLT_;
-    LocalTensor<float> topkWeightsLT_;
+    TBuf<> tempStateBuf_;
 
     GlobalTensor<RecvXType> recvXGM_;
     GlobalTensor<SrcInfoType> tokenSrcInfoGM_;
@@ -181,7 +130,6 @@ private:
     GlobalTensor<float> topkWeightsGM_;
     GlobalTensor<XType> xOutGlobal_;
     GlobalTensor<int32_t> sendCostStatsGT_;
-    GlobalTensor<float> dstRoundStatusGT_;
     GM_ADDR localRankGM_;
     GM_ADDR workspaceGM_;
 };
@@ -230,9 +178,6 @@ CamMoeCombineNormal<TemplateMC2TypeFunc>::InitTilingData(const CamMoeCombineNorm
     epWorldSize_ = tilingData->camMoeCombineNormalInfo.epWorldSize;
     epRankId_ = tilingData->camMoeCombineNormalInfo.epRankId;
     isEnableDiagnose_ = tilingData->camMoeCombineNormalInfo.isEnableDiagnose;
-    realMaxBs_ = tilingData->camMoeCombineNormalInfo.realMaxBs;
-    maxRound_ = tilingData->camMoeCombineNormalInfo.maxRound;
-    perRoundTokens_ = tilingData->camMoeCombineNormalInfo.perRoundTokens;
 }
 
 template <TemplateMC2TypeClass>
@@ -250,78 +195,6 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitBuffLen()
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitRoundSendData()
-{
-    SplitCoreCal(moeExpertNum_, perCoreBlockNum_, startBlockId_,
-                 endBlockId_);  // 按专家分核，每个核负责向perBlockRankNum个rank发送数据
-    if (perCoreBlockNum_ == 0) {
-        return;
-    }
-    uint32_t sendBlockLen = perCoreBlockNum_ * sizeof(int32_t);
-    tpipe_->Reset();
-    tpipe_->InitBuffer(tempRecvCountBuf_, sendBlockLen);     // 64B
-    tpipe_->InitBuffer(roundNeedSendCntBuf_, sendBlockLen);  // 64B
-    tpipe_->InitBuffer(roundSendOffsetBuf_, sendBlockLen);   // 64B
-
-    // 拷贝 epRecvCountGM_ 到 UB
-    LocalTensor<int32_t> tempRecvCountTensor = tempRecvCountBuf_.Get<int32_t>();
-    const DataCopyExtParams sendBlockCopyParams{1U, sendBlockLen, 0U, 0U, 0U};
-    const DataCopyPadExtParams<int32_t> sendBlockPadParams{false, 0U, 0U, 0U};
-    DataCopyPad(tempRecvCountTensor, epRecvCountGM_[startBlockId_], sendBlockCopyParams, sendBlockPadParams);
-    SyncFunc<HardEvent::MTE2_S>();
-
-    // 每个核计算需要给每个专家发送的token数以及token起始偏移，以及每个block的srcInfo偏移
-    preRecvCount_ = startBlockId_ == 0 ? 0 : epRecvCountGM_(startBlockId_ - 1);  // 记录当前core发送token的起始偏移
-    needSendTokenCnt_ = tempRecvCountTensor(perCoreBlockNum_ - 1) - preRecvCount_;
-    roundNeedSendCntLT_ = roundNeedSendCntBuf_.Get<uint32_t>();
-    roundSendOffsetLT_ = roundSendOffsetBuf_.Get<uint32_t>();
-    roundSendOffsetLT_(0) = preRecvCount_;
-    roundNeedSendCntLT_(0) = tempRecvCountTensor(0) - preRecvCount_;
-    for (uint32_t i = 1; i < perCoreBlockNum_; ++i) {
-        roundSendOffsetLT_(i) = tempRecvCountTensor(i - 1);
-        roundNeedSendCntLT_(i) = tempRecvCountTensor(i) - tempRecvCountTensor(i - 1);
-    }
-
-    // 创建 srcInfoLT_
-    // 为了支持一轮最大8192 bs，这里按照一批BATCH_SRC_INFO_LEN个srcInfo拷贝，这样可以保证UB占用少
-    uint32_t srcInfoLen = static_cast<uint32_t>(BATCH_SRC_INFO_CNT * TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType));
-    tpipe_->InitBuffer(srcInfoBuf_, srcInfoLen);  // 128*3*4/1024=1.5KB
-    srcInfoLT_ = srcInfoBuf_.Get<SrcInfoType>();
-
-    // 创建 setStatusLT_
-    tpipe_->InitBuffer(setStateBuf_, UB_32_ALIGN);  // 32B
-    setStateLT_ = setStateBuf_.Get<uint32_t>();
-    Duplicate<uint32_t>(setStateLT_, 0x3F800000, FLOAT_NUM_PER_ALIGN);
-
-    // 创建localCopyQueue_， 用于存放从GM拷贝到UB的token
-    tpipe_->InitBuffer(localCopyQueue_, DOUBLE_BUFFER, h32AlignRecvXLen_);  // 28KB
-    PipeBarrier<PIPE_ALL>();
-}
-
-template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitRoundRecvData()
-{
-    totalNeedRecvTokenCnt_ = axisBS_;
-
-    // 每个核一轮最多需要接收Ceil(perRoundTokens_, aivNum_) * aivNum_个token，topkWeightBuf_也只需要开这么大
-    tpipe_->InitBuffer(xOutBuf_, h32AlignRecvXLen_);                                             // 14KB
-    tpipe_->InitBuffer(tokenFloatBuf_, h32AlignFloatLen_);                                       // 28KB
-    tpipe_->InitBuffer(weightedMulBuf_, h256AlignFloatLen_);                                     // 28KB
-    tpipe_->InitBuffer(sumFloatBuf_, h32AlignFloatLen_);                                         // 28KB
-    tpipe_->InitBuffer(weightedSumQueue_, DOUBLE_BUFFER, h32AlignRecvXLen_);                     // 14KB
-    tpipe_->InitBuffer(waitStateBuf_, axisK_ * UB_32_ALIGN);                                     // 196B
-    tpipe_->InitBuffer(waitTempStateBuf_, axisK_ * UB_32_ALIGN);                                 // 196B
-    tpipe_->InitBuffer(setRoundStateBuf_, epWorldSize_ * FLOAT_NUM_PER_ALIGN * sizeof(float));   // 用于setRoundStatus
-    tpipe_->InitBuffer(waitRoundStateBuf_, epWorldSize_ * FLOAT_NUM_PER_ALIGN * sizeof(float));  // 用于waitRoundStatus
-    tpipe_->InitBuffer(tempRoundStateBuf_, epWorldSize_ * FLOAT_NUM_PER_ALIGN * sizeof(float));  // 用于waitRoundStatus
-
-    // 创建topkWeightsLT_，存放每一轮每个核的权重信息
-    uint32_t maxTopkWeightsLen = (perRoundTokens_ / aivNum_ + 1) * axisK_ * sizeof(float);
-    tpipe_->InitBuffer(topkWeightsBuf_, maxTopkWeightsLen);  // 512 分48核 需要352B
-    topkWeightsLT_ = topkWeightsBuf_.Get<float>();
-}
-
-template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::Init(
     GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR tpRecvCount, GM_ADDR XOut,
     GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe, const CamMoeCombineNormalTilingData *tilingData)
@@ -329,7 +202,6 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::Init(
     workspaceGM_ = workspaceGM;
     tpipe_ = pipe;
     coreIdx_ = GetBlockIdx();
-    stateOffset_ = STATE_OFFSET;
 
     InitMagic();
     InitTilingData(tilingData);
@@ -341,18 +213,33 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::Init(
     localRankGM_ = GetBufferAddrByRankId(epRankId_);
     DataCacheCleanAndInvalid<SrcInfoType, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
         epRecvCountGM_[moeExpertNum_ - 1]);
-    PipeBarrier<PIPE_ALL>();
-
-    InitRoundSendData();
-    InitRoundRecvData();
+    selfSendCnt_ = epRecvCountGM_(moeExpertNum_ - 1);
 }
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::CopyBufferToShareAndSetStatus()
 {
-    if (needSendTokenCnt_ == 0) {
+    PipeBarrier<PIPE_ALL>();
+    uint32_t perBlockSendNum = 0, startTokenId = 0, endTokenId = 0;
+    SplitCoreCal(selfSendCnt_, perBlockSendNum, startTokenId, endTokenId);
+    if (perBlockSendNum == 0U) {
         return;
     }
+
+    uint32_t blockLen = static_cast<uint32_t>(perBlockSendNum * TOKEN_SRC_INFO_LEN * sizeof(uint32_t));
+    tpipe_->Reset();
+    tpipe_->InitBuffer(stateBuf_, UB_32_ALIGN);
+    tpipe_->InitBuffer(localCopyQueue_, DOUBLE_BUFFER, h32AlignRecvXLen_);
+    tpipe_->InitBuffer(srcInfoBuf_, blockLen);
+    LocalTensor<uint32_t> statusTensor = stateBuf_.Get<uint32_t>();
+    Duplicate<uint32_t>(statusTensor, 0x3F800000, FLOAT_NUM_PER_ALIGN);
+
+    LocalTensor<SrcInfoType> srcInfoLocal = srcInfoBuf_.Get<SrcInfoType>();
+    const DataCopyExtParams dataCopyParams{1U, blockLen, 0U, 0U, 0U};
+    const DataCopyPadExtParams<SrcInfoType> padParams{false, 0U, 0U, 0U};
+    DataCopyPad(srcInfoLocal, tokenSrcInfoGM_[startTokenId * TOKEN_SRC_INFO_LEN], dataCopyParams, padParams);
+    SyncFunc<AscendC::HardEvent::MTE2_S>();
+
     LocalTensor<int32_t> sendCostStatsTensor;
     if (isEnableDiagnose_) {
         tpipe_->InitBuffer(sendCostStatsOutQueue_, DOUBLE_BUFFER, sendCostStatsBufSize_);
@@ -360,57 +247,23 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::CopyBufferToSha
         Duplicate<int32_t>(sendCostStatsTensor, 0, sendCostStatsBufSize_ / sizeof(int32_t));
     }
 
-    uint32_t startTokenIndex = preRecvCount_;
-    int64_t sendStartCycle;
-    for (uint32_t blockIndex = 0; blockIndex < perCoreBlockNum_; ++blockIndex) {
-        uint32_t roundMaxSendCount = roundNeedSendCntLT_(blockIndex) >= perRoundTokens_
-                                         ? perRoundTokens_
-                                         : roundNeedSendCntLT_(blockIndex);  // 这一轮最多发送 roundMaxSendCount 个token
+    for (uint32_t tokenIndex = startTokenId; tokenIndex < endTokenId; tokenIndex++) {
+        uint32_t index = (tokenIndex - startTokenId) * TOKEN_SRC_INFO_LEN;
+        uint32_t srcRankId = static_cast<uint32_t>(srcInfoLocal(index + RANK_ID_OFFSET_IN_SRC_INFO));
+        uint32_t srcTokenId = static_cast<uint32_t>(srcInfoLocal(index + TOKEN_IDX_OFFSET_IN_SRC_INFO));
+        uint32_t srcTopkId = static_cast<uint32_t>(srcInfoLocal(index + TOPK_IDX_OFFSET_IN_SRC_INFO));
+        int64_t sendStartCycle = GetSystemCycle();
 
-        uint32_t sendTokenOffset = roundSendOffsetLT_(blockIndex);
-        uint32_t startTokenId = sendTokenOffset;  // 这一轮要发的token在recvX中的偏移
-        uint32_t roundActualSendCount = 0;        // 这一轮blockIndex实际发送的token数，<= roundMaxSendCount
-        while (roundActualSendCount < roundMaxSendCount) {
-            uint32_t recvXTokenIdx = startTokenId + roundActualSendCount;  // 要发送的token在recvX中的位置
-            uint32_t tokenIdxInBatch = roundActualSendCount % BATCH_SRC_INFO_CNT;
-            if (tokenIdxInBatch == 0) {
-                uint32_t tokenCount = min(BATCH_SRC_INFO_CNT, roundMaxSendCount - roundActualSendCount);
-                uint32_t srcInfoLen = tokenCount * TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType);
-                const DataCopyExtParams dataCopyParams{1U, srcInfoLen, 0U, 0U, 0U};
-                const DataCopyPadExtParams<SrcInfoType> padParams{false, 0U, 0U, 0U};
-                DataCopyPad(srcInfoLT_, tokenSrcInfoGM_[recvXTokenIdx * TOKEN_SRC_INFO_LEN], dataCopyParams, padParams);
-                SyncFunc<AscendC::HardEvent::MTE2_S>();
-            }
-            // 要发送的token的srcInfo在srcInfoLT_中的位置，所以起始偏移为0
-            uint32_t srcInfoIdx = tokenIdxInBatch * TOKEN_SRC_INFO_LEN;
-            uint32_t srcRankId = static_cast<uint32_t>(srcInfoLT_(srcInfoIdx + RANK_ID_OFFSET_IN_SRC_INFO));
-            uint32_t srcTokenId = static_cast<uint32_t>(srcInfoLT_(srcInfoIdx + TOKEN_IDX_OFFSET_IN_SRC_INFO));
-            if (srcTokenId >= (roundIndex_ + 1) * perRoundTokens_) {
-                // 这一轮实际发送的token数，接收方一轮最多接收perRoundTokens_个token
-                break;
-            }
-            uint32_t srcTopkId = static_cast<uint32_t>(srcInfoLT_(srcInfoIdx + TOPK_IDX_OFFSET_IN_SRC_INFO));
-            // 每一轮 put token和state 到目标rank的hccl buffer的偏移都要从0开始计算
-            uint32_t roundTokenId = srcTokenId % perRoundTokens_;
-            if (isEnableDiagnose_) {
-                sendStartCycle = GetSystemCycle();
-            }
-            CopyBufferToShare(srcRankId, roundTokenId, srcTopkId, recvXTokenIdx);
-            PipeBarrier<PIPE_ALL>();
-            SetStatusBySrcInfo(srcRankId, roundTokenId, srcTopkId);
+        CopyBufferToShare(srcRankId, srcTokenId, srcTopkId, tokenIndex);
+        PipeBarrier<PIPE_ALL>();
+        SetStatusBySrcInfo(srcRankId, srcTokenId, srcTopkId);
 
-            if (isEnableDiagnose_) {
-                SyncFunc<AscendC::HardEvent::MTE3_S>();
-                int32_t durationTime = static_cast<int32_t>((GetSystemCycle() - sendStartCycle) / CYCLE_TO_TIME);  // us
-                int32_t preTime = sendCostStatsTensor.GetValue(srcRankId);
-                sendCostStatsTensor.SetValue(srcRankId, preTime + durationTime);
-            }
-            ++roundActualSendCount;
+        if (isEnableDiagnose_) {
+            SyncFunc<AscendC::HardEvent::MTE3_S>();
+            int32_t durationTime = static_cast<int32_t>((GetSystemCycle() - sendStartCycle) / CYCLE_TO_TIME);  // us
+            int32_t preTime = sendCostStatsTensor.GetValue(srcRankId);
+            sendCostStatsTensor.SetValue(srcRankId, preTime + durationTime);
         }
-
-        roundSendOffsetLT_(blockIndex) += roundActualSendCount;
-        roundNeedSendCntLT_(blockIndex) -= roundActualSendCount;
-        needSendTokenCnt_ -= roundActualSendCount;
     }
 
     if (isEnableDiagnose_) {
@@ -421,6 +274,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::CopyBufferToSha
         AscendC::SetAtomicNone();
         sendCostStatsOutQueue_.FreeTensor<int32_t>(sendCostStatsTensor);
     }
+
     SyncFunc<AscendC::HardEvent::MTE3_S>();
 }
 
@@ -450,25 +304,25 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::SetStatusBySrcI
                                                                                     uint32_t srcTokenId,
                                                                                     uint32_t srcTopkId)
 {
+    LocalTensor<uint32_t> statusTensor = stateBuf_.Get<uint32_t>();
     GM_ADDR stateGM = GetStateAddrByRankId(srcRankId) + (srcTokenId * axisK_ + srcTopkId) * UB_32_ALIGN;
     GlobalTensor<uint32_t> stateGMTensor;
     stateGMTensor.SetGlobalBuffer((__gm__ uint32_t *)stateGM);
-    DataCopy<uint32_t>(stateGMTensor, setStateLT_, FLOAT_NUM_PER_ALIGN);
-    PipeBarrier<PIPE_ALL>();
+    DataCopy<uint32_t>(stateGMTensor, statusTensor, FLOAT_NUM_PER_ALIGN);
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::WaitBuffCopy(uint32_t recvXTokenIdx)
+__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::WaitBuffCopy(uint32_t tokenIndex)
 {
     uint32_t calCount = axisK_ * FLOAT_NUM_PER_ALIGN;
-    GM_ADDR stateGM = GetStateAddrByRankId(epRankId_) + recvXTokenIdx * axisK_ * UB_32_ALIGN;  // 计算地址偏移
+    GM_ADDR stateGM = GetStateAddrByRankId(epRankId_) + tokenIndex * axisK_ * UB_32_ALIGN;  // 计算地址偏移
     GlobalTensor<float> stateGMTensor;
     stateGMTensor.SetGlobalBuffer((__gm__ float *)stateGM);
     float current = (float)0.0;
     float target = (float)1.0 * axisK_ * FLOAT_NUM_PER_ALIGN;
     SumParams sumPerKParams{1, calCount, calCount};
-    LocalTensor<float> stateTensorLocal = waitStateBuf_.Get<float>();
-    LocalTensor<float> tempStateTensorLocal = waitTempStateBuf_.Get<float>();
+    LocalTensor<float> stateTensorLocal = stateBuf_.Get<float>();
+    LocalTensor<float> tempStateTensorLocal = tempStateBuf_.Get<float>();
     while (current != target) {
         SyncFunc<AscendC::HardEvent::S_MTE2>();
         DataCopy<float>(stateTensorLocal, stateGMTensor, calCount);
@@ -484,19 +338,20 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::WaitBuffCopy(ui
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::ReadBufferAndWeightedSum(uint32_t recvXTokenIdx,
-                                                                                          uint32_t topkWeightTokenIdx)
+__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::ReadBufferAndWeightedSum(uint32_t tokenIndex,
+                                                                                          uint32_t startTokenIndex)
 {
     LocalTensor<float> tokenFloatLocal = tokenFloatBuf_.Get<float>();
     LocalTensor<float> weightedMulBufLocal = weightedMulBuf_.Get<float>();
     LocalTensor<float> sumFloatBufLocal = sumFloatBuf_.Get<float>();
+    LocalTensor<float> topkWeightsLocal = topkWeightsBuf_.Get<float>();
+    LocalTensor<uint32_t> stateTensorLocal = stateBuf_.Get<uint32_t>();
     Duplicate(sumFloatBufLocal, static_cast<float>(0), axisH_);
     const DataCopyExtParams xOutCopyParams{1U, static_cast<uint32_t>(hRecvXTypeLen_), 0U, 0U, 0U};
-    uint32_t xOutTokenIdx = recvXTokenIdx + xOutTokenOffset_;
 
     for (uint32_t topkId = 0U; topkId < axisK_; topkId++) {
-        float scale = topkWeightsLT_.GetValue(topkWeightTokenIdx * axisK_ + topkId);
-        GM_ADDR localTokenAddr = localRankGM_ + (recvXTokenIdx * axisK_ + topkId) * h512AlignRecvXLen_;
+        float scale = topkWeightsLocal.GetValue((tokenIndex - startTokenIndex) * axisK_ + topkId);
+        GM_ADDR localTokenAddr = localRankGM_ + (tokenIndex * axisK_ + topkId) * h512AlignRecvXLen_;
         GlobalTensor<XType> localTokenTensor;
         localTokenTensor.SetGlobalBuffer((__gm__ XType *)localTokenAddr);
 
@@ -516,108 +371,51 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::ReadBufferAndWe
     LocalTensor<XType> xOutLocal = xOutBuf_.Get<XType>();
     Cast(xOutLocal, sumFloatBufLocal, AscendC::RoundMode::CAST_RINT, axisH_);
     SyncFunc<AscendC::HardEvent::V_MTE3>();
-    DataCopyPad(xOutGlobal_[xOutTokenIdx * axisH_], xOutLocal, xOutCopyParams);
-    PipeBarrier<PIPE_ALL>();
+    DataCopyPad(xOutGlobal_[tokenIndex * axisH_], xOutLocal, xOutCopyParams);
 }
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::ReadBufferFromRemote()
 {
-    if (totalNeedRecvTokenCnt_ == 0) {
+    if (axisBS_ == 0U) {
         return;
     }
-    roundTotalRecvTokenCnt_ = min(perRoundTokens_, totalNeedRecvTokenCnt_);
-    SplitCoreCal(roundTotalRecvTokenCnt_, roundRecvTokenCnt_, roundRecvStartTokenIdx_, roundRecvEndTokenIdx_);
-    if (roundRecvTokenCnt_ == 0) {
+    uint32_t tokenPerBlock = 0U, startTokenIndex = 0U, endTokenIndex = 0U;
+    SplitCoreCal(axisBS_, tokenPerBlock, startTokenIndex, endTokenIndex);
+
+    if (tokenPerBlock == 0U) {
         return;
     }
-    const DataCopyExtParams bskParams{1U, static_cast<uint32_t>(roundRecvTokenCnt_ * axisK_ * sizeof(float)), 0U, 0U,
-                                      0U};
+
+    tpipe_->Reset();
+    tpipe_->InitBuffer(xOutBuf_, h32AlignRecvXLen_);
+    tpipe_->InitBuffer(tokenFloatBuf_, h32AlignFloatLen_);
+    tpipe_->InitBuffer(weightedMulBuf_, h256AlignFloatLen_);
+    tpipe_->InitBuffer(sumFloatBuf_, h32AlignFloatLen_);
+    tpipe_->InitBuffer(weightedSumQueue_, DOUBLE_BUFFER, h32AlignRecvXLen_);
+    tpipe_->InitBuffer(stateBuf_, (axisK_)*UB_32_ALIGN);
+    tpipe_->InitBuffer(tempStateBuf_, (axisK_)*UB_32_ALIGN);
+    tpipe_->InitBuffer(topkWeightsBuf_, tokenPerBlock * axisK_ * sizeof(float));
+
+    LocalTensor<float> topkWeightsLocal = topkWeightsBuf_.Get<float>();
+    const DataCopyExtParams bskParams{1U, static_cast<uint32_t>(tokenPerBlock * axisK_ * sizeof(float)), 0U, 0U, 0U};
     const DataCopyPadExtParams<float> copyPadFloatParams{false, 0U, 0U, 0U};
-    DataCopyPad(topkWeightsLT_, topkWeightsGM_[(xOutTokenOffset_ + roundRecvStartTokenIdx_) * axisK_], bskParams,
-                copyPadFloatParams);
-    PipeBarrier<PIPE_ALL>();
+    DataCopyPad(topkWeightsLocal, topkWeightsGM_[startTokenIndex * axisK_], bskParams, copyPadFloatParams);
+    SyncFunc<AscendC::HardEvent::MTE2_S>();
 
-    for (uint32_t roundTokenIdx = roundRecvStartTokenIdx_; roundTokenIdx < roundRecvEndTokenIdx_;
-         roundTokenIdx++) {  // 每轮都从从hccl buffer起始位置读put来的数据
-        WaitBuffCopy(roundTokenIdx);
-        SyncFunc<AscendC::HardEvent::MTE3_V>();                            // 与结果搬出datacopy同tensor
-        uint32_t topkWeightIdx = roundTokenIdx - roundRecvStartTokenIdx_;  // 用来计算每一轮token对应weight的偏移
-        ReadBufferAndWeightedSum(roundTokenIdx, topkWeightIdx);
+    for (uint32_t tokenIndex = startTokenIndex; tokenIndex < endTokenIndex; tokenIndex++) {
+        WaitBuffCopy(tokenIndex);
+        SyncFunc<AscendC::HardEvent::MTE3_V>();  // 与结果搬出datacopy同tensor
+        ReadBufferAndWeightedSum(tokenIndex, startTokenIndex);
     }
-    totalNeedRecvTokenCnt_ -= roundTotalRecvTokenCnt_;
-    xOutTokenOffset_ += roundTotalRecvTokenCnt_;
-}
-template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::SetRoundStatus()
-{
-    if (coreIdx_ != 0) {
-        return;
-    }
-    LocalTensor<float> roundStateTensor = setRoundStateBuf_.Get<float>();
-    Duplicate<float>(roundStateTensor, 1.0, FLOAT_NUM_PER_ALIGN);
-    SyncFunc<AscendC::HardEvent::V_MTE3>();
-    for (uint32_t i = 0; i < epWorldSize_; ++i) {
-        uint32_t targetRankId = i;
-        uint32_t offset = stateOffset_ * epRankId_;
-        GM_ADDR rankGM = GetRoundStateAddrByRankId(targetRankId) + offset;
-        dstRoundStatusGT_.SetGlobalBuffer((__gm__ float *)rankGM);
-        DataCopy<float>(dstRoundStatusGT_, roundStateTensor, FLOAT_NUM_PER_ALIGN);
-    }
-    SyncFunc<AscendC::HardEvent::MTE3_S>();
-}
-
-template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::WaitRoundStatus()
-{
-    if (coreIdx_ != 0) {
-        return;
-    }
-    uint32_t count = epWorldSize_ * FLOAT_NUM_PER_ALIGN;
-    uint32_t inner = (count * sizeof(float) + 32 - 1) / 32 * 32 / sizeof(float);
-    GM_ADDR roundStateGM = GetRoundStateAddrByRankId(epRankId_);
-    GlobalTensor<float> roundStatusGMTensor;
-
-    roundStatusGMTensor.SetGlobalBuffer((__gm__ float *)roundStateGM);
-    float current = (float)0.0;
-    float target = (float)(1.0) * epWorldSize_ * FLOAT_NUM_PER_ALIGN;
-    SumParams sumPerRankParams{1, inner, count};
-    LocalTensor<float> stateTensorLocal = waitRoundStateBuf_.Get<float>();
-    LocalTensor<float> tempRoundStateTensorLocal = tempRoundStateBuf_.Get<float>();
-
-    while (current != target) {
-        SyncFunc<AscendC::HardEvent::S_MTE2>();
-        DataCopy<float>(stateTensorLocal, roundStatusGMTensor, count);
-        SyncFunc<AscendC::HardEvent::MTE2_V>();
-        Sum(tempRoundStateTensorLocal, stateTensorLocal, sumPerRankParams);
-        SyncFunc<AscendC::HardEvent::V_S>();
-        current = tempRoundStateTensorLocal.GetValue(0);
-    }
-
-    SyncFunc<AscendC::HardEvent::S_V>();
-    Duplicate<float>(tempRoundStateTensorLocal, (float)0.0, count);
-    SyncFunc<AscendC::HardEvent::V_MTE3>();
-    DataCopy<float>(roundStatusGMTensor, tempRoundStateTensorLocal, count);
-    PipeBarrier<PIPE_ALL>();
 }
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::Process()
 {
     if ASCEND_IS_AIV {  // 全aiv处理
-        uint32_t realRound = (realMaxBs_ + perRoundTokens_ - 1) / perRoundTokens_;
-        while (roundIndex_ < realRound) {
-            CopyBufferToShareAndSetStatus();
-            ReadBufferFromRemote();
-            SyncAll<true>();
-            if (realRound > 1) {
-                SetRoundStatus();
-                WaitRoundStatus();
-                roundMagic_ = roundMagic_ == 0 ? 1 : 0;
-                SyncAll<true>();
-            }
-            roundIndex_ += 1;
-        }
+        CopyBufferToShareAndSetStatus();
+        ReadBufferFromRemote();
     }
 }
 
