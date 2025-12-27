@@ -56,7 +56,9 @@ public:
         this->Attr("tp_world_size").AttrType(OPTIONAL).Int(0);
         this->Attr("tp_rank_id").AttrType(OPTIONAL).Int(0);
         this->Attr("moe_expert_num").AttrType(REQUIRED).Int();
-        this->Attr("global_bs").AttrType(OPTIONAL).Int(0);
+        this->Attr("real_max_bs").AttrType(OPTIONAL).Int(0);
+        this->Attr("round").AttrType(OPTIONAL).Int(4);
+        this->Attr("per_round_tokens").AttrType(OPTIONAL).Int(1024);
 
         OpAICoreConfig aicore_config;
         aicore_config.DynamicCompileStaticFlag(true)

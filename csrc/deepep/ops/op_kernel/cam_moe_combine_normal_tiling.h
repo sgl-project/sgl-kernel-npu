@@ -12,7 +12,9 @@ struct CamMoeCombineNormalInfo {
     uint32_t expertShardType;
     uint32_t moeExpertNum;
     uint32_t moeExpertPerRankNum;
-    uint32_t globalBs;
+    uint32_t realMaxBs;
+    uint32_t perRoundTokens;
+    uint32_t maxRound;
     uint32_t bs;
     uint32_t k;
     uint32_t h;

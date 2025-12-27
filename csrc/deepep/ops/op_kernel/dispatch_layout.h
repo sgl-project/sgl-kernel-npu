@@ -85,7 +85,7 @@ public:
             if (coreIdx_ >= aivNum_) {
                 SyncAll<true>();
                 SyncAll<true>();
-                return;
+                continue;
             }
             uint32_t temp = roundTokens / aivNum_;
             uint32_t restNum = roundTokens % aivNum_;
@@ -150,10 +150,6 @@ public:
                         isTokenInRankTensor.SetValue(i * numRanks_ + rank_id, 1);
                         seenRankTensor.SetValue(rank_id, 1);
                         numTokensPerRankTensor.SetValue(rank_id, per_rank_num);
-                        printf(
-                            "get_dispatch_layout [AIC %d] tempTokens_ %d i %d numTopk_ %d j %d rank_id %d per_rank_num "
-                            "%d\n",
-                            coreIdx_, tempTokens_, i, numTopk_, j, rank_id, per_rank_num);
                     }
                 }
             }
