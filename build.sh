@@ -134,8 +134,10 @@ function build_deepep_kernels()
 
     if [[ "$BUILD_DEEPEP_OPS" == "ON" ]]; then
         KERNEL_DIR="csrc/deepep/ops"
+        sed -i 's|"[^"]*/ascend-toolkit/latest"|"'$ASCEND_HOME_PATH'"|g' $CURRENT_DIR/csrc/deepep/ops/CMakePresets.json
     else
         KERNEL_DIR="csrc/deepep/ops2"
+        sed -i 's|"[^"]*/ascend-toolkit/latest"|"'$ASCEND_HOME_PATH'"|g' $CURRENT_DIR/csrc/deepep/ops2/CMakePresets.json
     fi
     CUSTOM_OPP_DIR="${CURRENT_DIR}/python/deep_ep/deep_ep"
 
