@@ -2,7 +2,6 @@
 #define OPS_BUILT_IN_OP_TILING_ERROR_LOG_H_
 
 #include <string>
-#include "toolchain/slog.h"
 
 #define OP_LOGI(opname, ...)
 #define OP_LOGW(opname, ...)             \
