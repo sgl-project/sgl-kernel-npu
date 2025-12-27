@@ -19,7 +19,7 @@ constexpr uint64_t WIN_STATE_OFFSET = 500UL * 1024UL;
 constexpr uint64_t STATE_WIN_OFFSET = 950UL * 1024UL;
 constexpr uint64_t WIN_ADDR_ALIGN = 512UL;
 constexpr uint32_t EXPAND_IDX_INFO = 3U;
-constexpr uint64_t COMBINE_STATE_WIN_OFFSET = 8UL * 1024UL * 1024UL;
+constexpr uint64_t COMBINE_STATE_WIN_OFFSET = 4UL * 1024UL * 1024UL;
 constexpr int64_t CYCLE_TO_TIME = 50;  // cycle num is converted into a fixed base unit of time, set at 50
 constexpr uint64_t ROUND_STATE_OFFSET = Moe::BASE_ROUND_STATE_OFFSET;
 constexpr uint32_t FLOAT_NUM_PER_ALIGN = 8U;
@@ -759,10 +759,12 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Process()
             SetStatus();
             WaitStatus();
             ShareToOutputLongSeq();
-            SyncAll<true>();
-            SetRoundStatus();
-            WaitRoundStatus();
-            SyncAll<true>();
+            if (realRound > 1) {
+                SyncAll<true>();
+                SetRoundStatus();
+                WaitRoundStatus();
+                SyncAll<true>();
+            }
             roundIndex += 1;
         }
     }
