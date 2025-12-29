@@ -136,9 +136,9 @@ def tensor_cache(fn: Callable[..., torch.Tensor]) -> Callable[..., torch.Tensor]
 @tensor_cache
 def prepare_lens(cu_seqlens: torch.LongTensor) -> torch.LongTensor:
     device = cu_seqlens.device
-    cu_seqlens = cu_seqlens.to(torch.int64).cpu().clone()
+    cu_seqlens = cu_seqlens.to(torch.int64).clone()
     tmp = cu_seqlens[1:] - cu_seqlens[:-1]
-    return tmp.to(device)
+    return tmp
 
 
 @tensor_cache
