@@ -22,14 +22,14 @@
 #include "catlass/layout/layout.hpp"
 
 /* include file of catcoc */
-#include "catcoc/catcoc.hpp"
-#include "catcoc/comm_epilogue/comm_dispatch_policy.hpp"
-#include "catcoc/comm_epilogue/block/comm_block_epilogue.hpp"
-#include "catcoc/comm_epilogue/block/comm_block_swizzle.hpp"
-#include "catcoc/comm_epilogue/tile/tile_remote_copy.hpp"
-#include "catcoc/detail/remote_copy_type.hpp"
-#include "catcoc/dgemm/block/block_swizzle_allgather.hpp"
-#include "catcoc/dgemm/kernel/allgather_matmul.hpp"
+#include "catcoc/catcoc.h"
+#include "catcoc/comm_epilogue/comm_dispatch_policy.h"
+#include "catcoc/comm_epilogue/block/comm_block_epilogue.h"
+#include "catcoc/comm_epilogue/block/comm_block_swizzle.h"
+#include "catcoc/comm_epilogue/tile/tile_remote_copy.h"
+#include "catcoc/detail/remote_copy_type.h"
+#include "catcoc/dgemm/block/block_swizzle_allgather.h"
+#include "catcoc/dgemm/kernel/allgather_matmul.h"
 
 // shmem_device
 #include "shmem_api.h"
@@ -37,17 +37,19 @@
 using namespace AscendC;
 using namespace Catcoc;
 
-extern "C" __global__ __aicore__ void catcoc_allgather_matmul_kernel(uint64_t fftsAddr, uint64_t teamIdx,
-                                                                     GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmC,
-                                                                     GM_ADDR gmSymmetric, GM_ADDR gmTiling)
+extern "C" __global__ __aicore__ void catcoc_allgather_matmul(uint64_t fftsAddr, uint64_t teamIdx,
+                                                              GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmC,
+                                                              GM_ADDR gmSymmetric, GM_ADDR gmWorkspace,
+                                                              GM_ADDR gmTiling)
 {
+    // gmWorkspace is a dummy input for ascendc compile with tiling, catcoc ops use gmSymmetric as actual workspace
     // Set FFTS address
-    shmemx_set_ffts_config(fftsAddr);
+    AscendC::SetSyncBaseAddr(fftsAddr);
     // Set shmem config
     int32_t newTeamIdx = 0;
     // int32_t newTeamIdx = (int32_t)teamIdx;
-    uint32_t rankIdx = shmem_team_my_pe(newTeamIdx);
-    uint32_t rankSize = shmem_team_n_pes(newTeamIdx);
+    uint32_t rankIdx = shmem_my_pe();
+    uint32_t rankSize = shmem_n_pes();
 
     using ElementA = half;
     using ElementB = half;
@@ -65,13 +67,20 @@ extern "C" __global__ __aicore__ void catcoc_allgather_matmul_kernel(uint64_t ff
     uint32_t k0 = tiling_data->k0;
     uint32_t n0 = tiling_data->n0;
 
-    if(rankIdx == 0) {
-      AscendC::printf("m is: %d ;", tiling_data->m);
-      AscendC::printf("n is: %d ;", tiling_data->n);
-      AscendC::printf("k is: %d ;\n", k);
 
-      AscendC::printf("tiling_ptr on device is %ld \n", (int64_t) tiling_data);
+    /*
+    if(rankIdx == 0) {
+      AscendC::printf("m is: %u ;", tiling_data->m);
+      AscendC::printf("n is: %u ;", tiling_data->n);
+      AscendC::printf("k is: %u ;\n", k);
+      AscendC::printf("rankIdx is %u ; rankSize is %u ; teamIdx is: %d ;\n", rankIdx, rankSize, newTeamIdx);
+
+      AscendC::printf("[dev] tiling_ptr on device is %lu \n", (uint64_t) tiling_data);
+      AscendC::printf("[dev] ipt_a_ptr is %ld, ipt_b_ptr is %ld, opt_c_ptr is %ld\n", gmA, gmB, gmC);
+      printf("[dev] fftsAddr is %lu, symm_ptr is %lu\n", fftsAddr, (uint64_t) gmSymmetric);
     }
+    */
+
     /*
     uint32_t swizzleOffset = tiling_data->swizzleOffset;
     uint32_t swizzleDirect = tiling_data->swizzleDirect;
@@ -90,7 +99,7 @@ extern "C" __global__ __aicore__ void catcoc_allgather_matmul_kernel(uint64_t ff
     Catlass::GemmCoord problemShape{m, n, k};
 
     /* init catcoc instance and run */
-    constexpr bool enableUnitFlag = false;
+    constexpr bool enableUnitFlag = true;
     using MmadDispatchPolicy = Catlass::Gemm::MmadAtlasA2Pingpong<enableUnitFlag>;
     using L1TileShape = Catlass::GemmShape<128, 256, 256>;
     using L0TileShape = Catlass::GemmShape<128, 256, 64>;
@@ -139,7 +148,7 @@ extern "C" __global__ __aicore__ void catcoc_allgather_matmul_kernel(uint64_t ff
     // Prepare params
     typename AllGatherMatmulKernel::Params params{
             problemShape,
-            rankIdx, rankSize, newTeamIdx,
+            rankIdx, rankSize, // newTeamIdx,
             COMM_INTERVAL,
             gmA, layoutA,
             gmB, layoutB,
@@ -150,5 +159,11 @@ extern "C" __global__ __aicore__ void catcoc_allgather_matmul_kernel(uint64_t ff
 
     // Call kernel
     AllGatherMatmulKernel matmulCommKernel;
-    // matmulCommKernel(params);
+    matmulCommKernel(params);
+}
+
+extern "C" void catcoc_allgather_matmul_kernel(uint32_t blockNum, aclrtStream stream, uint64_t fftsAddr, uint64_t teamIdx,
+                                               void* gmA, void* gmB, void* gmC,
+                                               void* gmSymmetric, void* gmWorkspace, void* gmTiling) {
+  catcoc_allgather_matmul<<<blockNum, nullptr, stream>>>(fftsAddr, teamIdx, gmA, gmB, gmC, gmSymmetric, gmWorkspace, gmTiling);
 }

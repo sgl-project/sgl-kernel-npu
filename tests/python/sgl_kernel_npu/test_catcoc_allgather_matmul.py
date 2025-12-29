@@ -20,6 +20,7 @@ g_team_size = 2
 
 def direct_testing(input_a, input_b, input_c, team_id=0, group_list=()):
     global g_shmem_addr
+    g_shmem_addr = 0
 
     a, b = input_a, input_b
     # b_nz = torch_npu.npu_format_cast(b, 29)
@@ -27,13 +28,16 @@ def direct_testing(input_a, input_b, input_c, team_id=0, group_list=()):
     k = a.shape[1]
     n = b.shape[1]
 
+    if rank == 0:
+        print(f"[py] addr is:{a.data_ptr()} {b.data_ptr()} {input_c.data_ptr()}")
+
     l_world_size = int(world_size / len(group_list)) if len(group_list) > 0 else world_size
 
     # assert g_shmem_addr is not None and k == b.shape[0]
     # print('rank', rank, ' is ', a.device, b.device)
     for _ in range(1):
-        with torch.npu.stream(torch.npu.current_stream()):
-            torch.ops.npu.catcoc_allgather_matmul(a, b, input_c, g_shmem_addr, team_id)
+        # with torch.npu.stream(torch.npu.current_stream()):
+        torch.ops.npu.catcoc_allgather_matmul(a, b, input_c, g_shmem_addr, team_id)
         torch.npu.synchronize()
 
     if l_world_size > 1:
@@ -57,25 +61,69 @@ def direct_testing(input_a, input_b, input_c, team_id=0, group_list=()):
     print('rank', rank, ' success')
 
 
-def shmem_init():
-    from shmem import set_conf_store_tls
+def shmem_init(rank, world_size):
+    # original init
+    # from shmem import set_conf_store_tls
+    #
+    # global g_shmem_addr, g_ash_size, g_malloc_size
+    # set_conf_store_tls(False, "")
+    # shmem_addr = "tcp://127.0.0.1:26666"
+    # attributes = ash.InitAttr()
+    # attributes.my_rank = rank
+    # attributes.n_ranks = world_size
+    # attributes.local_mem_size = g_ash_size
+    # attributes.ip_port = shmem_addr
+    # attributes.option_attr.data_op_engine_type = ash.OpEngineType.MTE
+    # ret = ash.shmem_init(attributes)
+    # assert ret == 0, '[ERROR] aclshmem_init failed'
+    #
+    # g_shmem_addr = ash.shmem_malloc(g_malloc_size)
 
-    set_conf_store_tls(False, "")
-    init_attr = ash.InitAttr()
-    shmem_addr = "tcp://127.0.0.1:26666"
-    ash.shmem_set_attributes(rank, world_size, g_ash_size, shmem_addr, init_attr)
-    ret = ash.shmem_init(init_attr)
-    assert ret == 0, '[ERROR] aclshmem_init failed'
-    global g_shmem_addr
+    # uid init(need env SHMEM_UID_SOCK_IFNAM=enp194s0f0::inet4)
+    global g_shmem_addr, g_ash_size, g_malloc_size
+    # 0. disabel TLS
+    ret = ash.set_conf_store_tls(False, "")
+    if ret != 0:
+        raise ValueError("[ERROR] disable tls failed.")
+
+    # 1. get unique id
+    uid_size = 512
+    tensor = torch.zeros(uid_size, dtype=torch.uint8, device=f'npu:{rank}')
+    if rank == 0:
+        unique_id = ash.shmem_get_unique_id()
+        if unique_id is None:
+            raise ValueError('[ERROR] get unique id failed')
+        uid_list = [0] * uid_size
+        uid_list[:len(unique_id)] = unique_id
+        tensor = torch.tensor(uid_list, dtype=torch.uint8, device=f'npu:{rank}')
+    dist.broadcast(tensor, src=0)
+    torch.npu.synchronize()
+    if rank != 0:
+        unique_id = bytes(tensor.cpu().tolist())
+    # 2. init with unique id
+    ret = ash.shmem_init_using_unique_id(rank, world_size, g_ash_size, unique_id)
+    if ret != 0:
+        raise ValueError('[ERROR] shmem_init failed')
+
+    # test malloc
     g_shmem_addr = ash.shmem_malloc(g_malloc_size)
+    print(f'rank[{rank}]: shmem_ptr:{g_shmem_addr} with type{type(g_shmem_addr)}')
+    if g_shmem_addr is None:
+        raise ValueError('[ERROR] shmem_malloc failed')
+
+    # test pe
+    my_pe, pe_count = ash.my_pe(), ash.pe_count()
+    print(f'rank[{rank}]: my_pe:{my_pe} and pe_count:{pe_count}')
+    if not (my_pe == rank and pe_count == world_size):
+        raise ValueError('[ERROR] pe/world failed')
 
 
 def run_global_test(test_mnk=(1024, 1024, 1024)):
     test_m, test_n, test_k = test_mnk
     print('+++++++++++++++++++++++Testing NO QUANT...')
-    a = torch.rand([test_m, test_k]).to(dtype=torch.float16).to(f"npu:{rank}")
-    b = torch.rand([test_k, test_n]).to(dtype=torch.float16).to(f"npu:{rank}")
-    c = torch.empty([test_m * world_size, test_n]).to(dtype=torch.float16).to(f"npu:{rank}")  # tmp tensor
+    a = torch.rand([test_m, test_k]).to(dtype=torch.float16).to(f"npu:{rank}").contiguous()
+    b = torch.rand([test_k, test_n]).to(dtype=torch.float16).to(f"npu:{rank}").contiguous()
+    c = torch.empty([test_m * world_size, test_n]).to(dtype=torch.float16).to(f"npu:{rank}").contiguous()  # tmp tensor
     bias = None
     scale = None
     pertoken_scale = None
@@ -101,14 +149,15 @@ if __name__ == "__main__":
 
     local_rank = int(os.environ["LOCAL_RANK"])
     torch.npu.set_device(local_rank)
+    # dist.init_process_group(backend="gloo", init_method="env://")
     dist.init_process_group(backend="hccl", rank=local_rank)
     rank = dist.get_rank()
     world_size = dist.get_world_size()
 
-    shmem_init()
+    # shmem_init(rank, world_size)
 
     for mnk_list in ((64, 7168, 2048),):
         run_global_test(test_mnk=mnk_list)
 
-    ash.shmem_free(g_shmem_addr)
+    # ash.shmem_free(g_shmem_addr)
     ash.shmem_finialize()

@@ -9,22 +9,28 @@
 // limitations under the License.
 #include <map>
 #include "acl/acl.h"
+#include <cstdlib>
 
 #include "defines.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "torch_helper.h"
 #include "catcoc_host_tiling.h"
-#include "aclrtlaunch_catcoc_allgather_matmul_kernel.h"
+// #include "aclrtlaunch_catcoc_allgather_matmul_kernel.h"
 
 // shmem_device
 #include "shmem_api.h"
+
+extern "C" int rtGetC2cCtrlAddr(uint64_t *config, uint32_t *len);
+extern "C" void catcoc_allgather_matmul_kernel(uint32_t blockNum, aclrtStream stream, uint64_t fftsAddr, uint64_t teamIdx,
+                                               void* gmA, void* gmB, void* gmC,
+                                               void* gmSymmetric, void* gmWorkspace, void* gmTiling);
 
 namespace sglang {
 namespace npu_kernel {
 
 constexpr uint32_t PADDING_BYTE = 32U;
 
-std::map<c10::ScalarType, DataFormatMode> dTypeMap = {{at::ScalarType::BFloat16, DataFormatMode::BF16}};
+std::map<c10::ScalarType, DataFormatMode> dTypeMap = {{at::ScalarType::Half, DataFormatMode::FP16}};
 
 std::unordered_map<c10::string_view, uint16_t> weightFormatMap = {{"ND", WeightFormatMode::WEIGHT_ND},
                                                                   {"NZ", WeightFormatMode::WEIGHT_NZ}};
@@ -66,10 +72,36 @@ at::Tensor get_tiling_tensor(uint32_t &m, uint32_t &n, uint32_t &k, int64_t weig
     return tiling_buffer;
 }
 
+static uint64_t gNpuReserveSpace = 1024UL * 1024UL * 1024;
+static uint64_t gNpuMallocSpace = 128UL * 1024UL * 1024;
+static std::string ipPort = "tcp://127.0.0.1:19233";
+
+void shmem_init() {
+  auto get_env_int = [](const char* name, int default_val = 0) {
+      char* val = std::getenv(name);
+      return val ? std::stoi(val) : default_val;
+  };
+  auto rankId = get_env_int("RANK");
+  auto rankSize = get_env_int("WORLD_SIZE");
+  printf("rankId is: %d ; rankSize is: %d", rankId, rankSize);
+  auto status = shmem_set_conf_store_tls(false, nullptr, 0);
+  printf("shmem_set_conf_store_tls is: %d ;", status);
+  shmem_init_attr_t *attributes;
+  status = shmem_set_attr(rankId, rankSize, gNpuReserveSpace, ipPort.c_str(), &attributes);
+  printf("shmem_set_attr is: %d ;", status);
+  status = shmem_init_attr(attributes);
+  printf("shmem_init_attr is: %d ;", status);
+  status = shmem_init_status();
+  printf("shmem_init_status is: %d ;", status);
+}
+
 HOST_API void catcoc_allgather_matmul(const at::Tensor &input_a, const at::Tensor &input_b, at::Tensor &output_c,
                                       int64_t symmAddr, int64_t teamId = 0,
                                       c10::optional<c10::string_view> format_mode = c10::nullopt)
 {
+    // init shmem
+    shmem_init();
+
     // ops valid check
     at::ScalarType aType = input_a.scalar_type();
     at::ScalarType bType = input_b.scalar_type();
@@ -90,9 +122,9 @@ HOST_API void catcoc_allgather_matmul(const at::Tensor &input_a, const at::Tenso
     auto cpu_tiling_tensor = get_tiling_tensor(m, n, k, formatMode, dTypeMap[aType], blockDim);
 
     auto tiling_data_cpu = reinterpret_cast<KernelCATCOCHostTilingData *>(cpu_tiling_tensor.data_ptr<uint8_t>());
-    printf("m is: %d ;", tiling_data_cpu->m);
-    printf("n is: %d ;", tiling_data_cpu->n);
-    printf("k is: %d ;\n", tiling_data_cpu->k);
+    // printf("m is: %d ;", tiling_data_cpu->m);
+    // printf("n is: %d ;", tiling_data_cpu->n);
+    // printf("k is: %d ;\n", tiling_data_cpu->k);
 
     int32_t batchIdx = m - 1;
     uint32_t tilingSize = sizeof(KernelCATCOCHostTilingData);
@@ -109,19 +141,26 @@ HOST_API void catcoc_allgather_matmul(const at::Tensor &input_a, const at::Tenso
     at::Tensor tiling_tensor =
             at::from_blob(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * batchIdx), tilingSize,
                           at::TensorOptions().dtype(at::kByte).device(input_a.options().device()));
+    // gmWorkspace is a dummy input for ascendc compile with tiling, catcoc ops use gmSymmetric as actual workspace
+    auto workspace_tensor = at::empty({1}, at::TensorOptions().dtype(at::kByte).device(input_a.options().device()));
 
     // launch the kernel function via torch opcmd
     void *a_ptr = input_a.data_ptr();
     void *b_ptr = input_b.data_ptr();
     void *c_ptr = output_c.data_ptr();
-    void *symm_ptr = reinterpret_cast<void*>(symmAddr);
+    void *symm_ptr = shmem_malloc(gNpuMallocSpace * sizeof(__fp16));
+    // void *symm_ptr = reinterpret_cast<void*>(symmAddr);
     void *tiling_ptr = tiling_tensor.data_ptr();
-    auto fftsAddr = shmemx_get_ffts_config();
-    // void *tiling_ptr = reinterpret_cast<void*>(static_cast<uint8_t*>(global_tiling_data.data_ptr<uint8_t>()) + (tilingSize * batchIdx));
-    printf("tiling_ptr on host is %ld\n", tiling_ptr);
+    // auto fftsAddr = shmemx_get_ffts_config();
+    uint32_t len;
+    uint64_t fftsAddr;
+    rtGetC2cCtrlAddr(&fftsAddr, &len);
+    void *workspace_ptr = workspace_tensor.data_ptr();
 
-    // uint32_t block_dim = platform_ascendc::PlatformAscendCManager::GetInstance()->GetCoreNumAic();
-    // EXEC_KERNEL_CMD(catcoc_allgather_matmul, block_dim, fftsAddr, input_a, input_b, output_c, symm_ptr, tiling_ptr);
+    printf("[host] tiling_ptr on host is %ld\n", tiling_ptr);
+    printf("[host] ipt_a_ptr is %ld, ipt_b_ptr is %ld, opt_c_ptr is %ld\n", a_ptr, b_ptr, c_ptr);
+    printf("[host] fftsAddr is %lu, symm_ptr is %lu\n", fftsAddr, symm_ptr);
+
     /*
     at::Tensor cpu_tensor = tiling_tensor.to(at::kCPU).contiguous();
     uint8_t * data_ptr = cpu_tensor.data_ptr<uint8_t>();
@@ -134,13 +173,28 @@ HOST_API void catcoc_allgather_matmul(const at::Tensor &input_a, const at::Tenso
     auto stream = c10_npu::getCurrentNPUStream().stream(false);
     auto teamIdx = (uint64_t)teamId;
     uint32_t aicCoreNum = platform_ascendc::PlatformAscendCManager::GetInstance()->GetCoreNumAic();
-    auto acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, tiling_ptr]() -> int {
+    /*
+    auto acl_call = [aicCoreNum, stream, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr, tiling_ptr]() -> int {
         printf("tiling_ptr on launch is %ld\n", tiling_ptr);
         ACLRT_LAUNCH_KERNEL(catcoc_allgather_matmul_kernel)
-            (aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, tiling_ptr);
+            (aicCoreNum, stream, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr, tiling_ptr);
         return 0;
         };
-    at_npu::native::OpCommand::RunOpApi("catcoc_allgather_matmul_kernel", acl_call);
+    */
+    auto acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr, tiling_ptr]() -> int {
+      printf("tiling_ptr on launch is %ld\n", tiling_ptr);
+      catcoc_allgather_matmul_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr, tiling_ptr);
+      return 0;
+    };
+    at_npu::native::OpCommand::RunOpApiV2("catcoc_allgather_matmul_kernel", acl_call);
+
+    /*
+    auto teamIdx = (uint64_t)teamId;
+    uint32_t block_dim = platform_ascendc::PlatformAscendCManager::GetInstance()->GetCoreNumAic();
+    // gmWorkspace is a dummy input for ascendc compile with tiling, catcoc ops use gmSymmetric as actual workspace
+    EXEC_KERNEL_CMD(catcoc_allgather_matmul_kernel, block_dim, fftsAddr, teamIdx, input_a, input_b, output_c,
+                    symm_ptr, workspace_tensor, tiling_ptr);
+    */
 
 }
 
