@@ -43,9 +43,11 @@ def split_qkv_rmsnorm_rope_kernel(
     for row_idx in tl.range(row_pid, batch_size, row_step):
         col_indices = col_pid * Q_BLOCK_SIZE + tl.arange(0, Q_BLOCK_SIZE)
         valid_mask = col_indices < q_hidden_size
-        input_values = tl.load(
-            input_ptr + input_offset + col_indices, mask=valid_mask, other=0.0
-        ).reshape(Q_BLOCK_SIZE // HEAD_DIM, HEAD_DIM)
+        input_values = (
+            tl.load(input_ptr + input_offset + col_indices, mask=valid_mask, other=0.0)
+            .to(tl.float32)
+            .reshape(Q_BLOCK_SIZE // HEAD_DIM, HEAD_DIM)
+        )
         if NORMS:
             squares = input_values * input_values
             variances = tl.sum(squares, axis=1) / HEAD_DIM
@@ -228,67 +230,11 @@ def split_qkv_rmsnorm_rope(
         batch_size, kv_hidden_size, device=input.device, dtype=input.dtype
     )
     n_cols = kv_hidden_size // KV_BLOCK_SIZE
-    assert num_vectorcore % n_cols == 0
-    n_rows = num_vectorcore // n_cols
+    n_rows = (num_vectorcore + n_cols - 1) // n_cols
     BIAS = q_bias is not None
     NORMS = eps is not None
 
-    kernel = kernels.get(
-        (
-            q_hidden_size,
-            kv_hidden_size,
-            total_hidden_size,
-            eps,
-            Q_BLOCK_SIZE,
-            KV_BLOCK_SIZE,
-            BIAS,
-            NORMS,
-        ),
-        None,
-    )
-    if kernel is None:
-        kernel = split_qkv_rmsnorm_rope_kernel.warmup(
-            input,
-            sin,
-            cos,
-            q_output,
-            k_output,
-            v_output,
-            q_weight,
-            q_bias,
-            k_weight,
-            k_bias,
-            batch_size,
-            q_hidden_size,
-            kv_hidden_size,
-            total_hidden_size,
-            eps,
-            Q_BLOCK_SIZE,
-            KV_BLOCK_SIZE,
-            BIAS,
-            NORMS,
-            head_dim,
-            head_dim // 2,
-            grid=(
-                n_rows,
-                n_cols,
-            ),
-        )
-        kernel._init_handles()
-        kernels[
-            (
-                q_hidden_size,
-                kv_hidden_size,
-                total_hidden_size,
-                eps,
-                Q_BLOCK_SIZE,
-                KV_BLOCK_SIZE,
-                BIAS,
-                NORMS,
-            )
-        ] = kernel
-
-    kernel[(n_rows, n_cols, 1)](
+    split_qkv_rmsnorm_rope_kernel[(n_rows, n_cols, 1)](
         input,
         sin,
         cos,
@@ -300,5 +246,16 @@ def split_qkv_rmsnorm_rope(
         k_weight,
         k_bias,
         batch_size,
+        q_hidden_size,
+        kv_hidden_size,
+        total_hidden_size,
+        eps,
+        Q_BLOCK_SIZE,
+        KV_BLOCK_SIZE,
+        BIAS,
+        NORMS,
+        head_dim,
+        head_dim // 2,
     )
+
     return q_output, k_output, v_output
