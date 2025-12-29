@@ -54,6 +54,9 @@ extern "C" int ZcclAllGather(void *input, void *output, uint64_t numel, ZCCLData
 extern "C" int ZcclReduceScatter(uint8_t *inp, uint8_t *out,
     size_t inpNumel, ZCCLDataType dataType, int teamId, aclrtStream stream, uint32_t reduceOp = 0);
 
+extern "C" int ZcclReduceScatterZeroBuff(uint8_t *inp, uint8_t *out,
+    size_t inpNumel, ZCCLDataType dataType, int teamId, aclrtStream stream, uint32_t reduceOp = 0);
+
 }  // namespace zccl
 }  // namespace sglang
 

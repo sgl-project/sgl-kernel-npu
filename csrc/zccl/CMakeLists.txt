@@ -14,6 +14,7 @@ set(OP_PLUGIN_NAME zccl)
 ascendc_library(zccl_kernel STATIC
     ${PROJECT_OP_SRC_BASE}/zccl/allgather/op_kernel/allgather_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/zccl/reduce_scatter/op_kernel/reduce_scatter_kernel.cpp
+    ${PROJECT_OP_SRC_BASE}/zccl/reduce_scatter/op_kernel/reduce_scatter_zero_buff_kernel.cpp
 )
 
 ascendc_include_directories(zccl_kernel PRIVATE
