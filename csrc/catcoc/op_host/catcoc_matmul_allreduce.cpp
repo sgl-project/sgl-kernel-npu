@@ -15,6 +15,7 @@
 #include "tiling/platform/platform_ascendc.h"
 #include "torch_helper.h"
 #include "../include/catcoc_host_tiling.h"
+#include "../include/catcoc_host_utils.h"
 #include "../include/catcoc_kernel.h"
 
 
@@ -61,11 +62,11 @@ HOST_API void catcoc_matmul_allreduce(const at::Tensor &input_a, const at::Tenso
     at::ScalarType bType = input_b.scalar_type();
     at::ScalarType cType = output_c.scalar_type();
     TORCH_CHECK(aType == bType && bType == cType, "tensor type is not the same");
-    TORCH_CHECK((aType == at::ScalarType::Half),
-        "tensor type only support half");
+    TORCH_CHECK((aType == at::ScalarType::Half)||(aType == at::ScalarType::BFloat16),
+                "tensor type only support half and bf16");
 
     auto formatMode = static_cast<WeightFormatMode>(GetModeVal(weightFormatMap, format_mode, "ND", "format_mode"));
-    TORCH_CHECK(formatMode == WeightFormatMode::WEIGHT_ND, "current ops only support weightFormat ND");
+    // TORCH_CHECK(formatMode == WeightFormatMode::WEIGHT_ND, "current ops only support weightFormat ND");
 
     uint32_t m = input_a.size(0);
     uint32_t k = input_a.size(1);
@@ -135,11 +136,38 @@ HOST_API void catcoc_matmul_allreduce(const at::Tensor &input_a, const at::Tenso
         return 0;
         };
     */
-    auto acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr, tiling_ptr]() -> int {
-      printf("tiling_ptr on launch is %ld\n", tiling_ptr);
-      catcoc_matmul_allreduce_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr, tiling_ptr);
-      return 0;
-    };
+    std::function<int()> acl_call;
+    if ((aType == at::ScalarType::Half) && (formatMode == WeightFormatMode::WEIGHT_ND)) {
+        acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr, tiling_ptr]() -> int {
+            printf("[catcoc_matmul_allreduce_fp16_wnd_kernel] tiling_ptr on launch is %ld\n", tiling_ptr);
+            catcoc_matmul_allreduce_fp16_wnd_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr,
+                                                    workspace_ptr, tiling_ptr);
+            return 0;
+        };
+    } else if ((aType == at::ScalarType::Half) && (formatMode == WeightFormatMode::WEIGHT_NZ)) {
+        acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr, tiling_ptr]() -> int {
+            printf("[catcoc_matmul_allreduce_fp16_wnz_kernel] tiling_ptr on launch is %ld\n", tiling_ptr);
+            catcoc_matmul_allreduce_fp16_wnz_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr,
+                                                    workspace_ptr, tiling_ptr);
+            return 0;
+        };
+    } else if ((aType == at::ScalarType::BFloat16) && (formatMode == WeightFormatMode::WEIGHT_ND)) {
+        acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr, tiling_ptr]() -> int {
+            printf("[catcoc_matmul_allreduce_bf16_wnd_kernel] tiling_ptr on launch is %ld\n", tiling_ptr);
+            catcoc_matmul_allreduce_bf16_wnd_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr,
+                                                    workspace_ptr, tiling_ptr);
+            return 0;
+        };
+    } else if ((aType == at::ScalarType::BFloat16) && (formatMode == WeightFormatMode::WEIGHT_NZ)) {
+        acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr, tiling_ptr]() -> int {
+            printf("[catcoc_matmul_allreduce_bf16_wnz_kernel] tiling_ptr on launch is %ld\n", tiling_ptr);
+            catcoc_matmul_allreduce_bf16_wnz_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr,
+                                                    workspace_ptr, tiling_ptr);
+            return 0;
+        };
+    } else {
+        AT_ERROR("Unknown tiling cases, ops exec failed!");
+    }
     at_npu::native::OpCommand::RunOpApiV2("catcoc_matmul_allreduce_kernel", acl_call);
 
     /*
