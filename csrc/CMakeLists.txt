@@ -33,6 +33,7 @@ if(BUILD_CATCOC_MODULE)
     endif()
     list(APPEND OP_SRCS
         ${PROJECT_OP_SRC_BASE}/catcoc/op_host/catcoc_allgather_matmul.cpp
+        ${PROJECT_OP_SRC_BASE}/catcoc/op_host/catcoc_matmul_allreduce.cpp
     )
 endif()
 
@@ -100,6 +101,8 @@ if(BUILD_CATCOC_MODULE)
         ${SHMEM_HOME_PATH}/shmem/lib/libshmem.so
         ${CATCOC_LIBRARY_OUTPUT}/libcatcoc_kernel.so
     )
+    # install catcoc lib in wheel
+    install(FILES ${CATCOC_LIBRARY_OUTPUT}/libcatcoc_kernel.so DESTINATION ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
 endif()
 
 target_include_directories(${OP_PLUGIN_NAME} PRIVATE

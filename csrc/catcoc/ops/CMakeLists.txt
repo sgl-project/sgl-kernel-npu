@@ -92,6 +92,7 @@ endfunction()
 
 # FIXME if aicore-arch is different, maybe crash, to find the solution
 catlass_add_kernel(catcoc_allgather_matmul dav-c220 ${CMAKE_CURRENT_SOURCE_DIR}/op_host/catcoc_allgather_matmul_kernel.cpp)
+catlass_add_kernel(catcoc_matmul_allreduce dav-c220 ${CMAKE_CURRENT_SOURCE_DIR}/op_host/catcoc_matmul_allreduce_kernel.cpp)
 
 message("Kernel Object Files: ${KERNEL_OBJ_FILES}")
 

@@ -8,17 +8,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef KERNEL_CATCOC_KERNEL_H
-#define KERNEL_CATCOC_KERNEL_H
-
-#include <acl/acl.h>
 #include "catcoc_host_tiling.h"
+#include "catcoc_kernel.h"
+#include "../op_kernel/catcoc_matmul_allreduce_kernel.hpp"
 
-void catcoc_allgather_matmul_kernel(uint32_t blockNum, aclrtStream stream, uint64_t fftsAddr, uint64_t teamIdx,
-                                    uint8_t* gmA, uint8_t* gmB, uint8_t* gmC,
-                                    uint8_t* gmSymmetric, uint8_t* gmWorkspace, uint8_t* gmTiling);
+
+using namespace AscendC;
+
 
 void catcoc_matmul_allreduce_kernel(uint32_t blockNum, aclrtStream stream, uint64_t fftsAddr, uint64_t teamIdx,
-                                    uint8_t* gmA, uint8_t* gmB, uint8_t* gmC,
-                                    uint8_t* gmSymmetric, uint8_t* gmWorkspace, uint8_t* gmTiling);
-#endif //KERNEL_CATCOC_KERNEL_H
+                                    uint8_t* gmA, uint8_t* gmB, uint8_t* gmD,
+                                    uint8_t* gmSymmetric, uint8_t* gmWorkspace, uint8_t* gmTiling) {
+  catcoc_matmul_allreduce<<<blockNum, nullptr, stream>>>(fftsAddr, teamIdx, gmA, gmB, gmD, gmSymmetric, gmWorkspace, gmTiling);
+}
+

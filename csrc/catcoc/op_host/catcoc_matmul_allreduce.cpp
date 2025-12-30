@@ -16,7 +16,6 @@
 #include "torch_helper.h"
 #include "../include/catcoc_host_tiling.h"
 #include "../include/catcoc_kernel.h"
-// #include "aclrtlaunch_catcoc_allgather_matmul_kernel.h"
 
 
 extern "C" int rtGetC2cCtrlAddr(uint64_t *config, uint32_t *len);
@@ -49,7 +48,7 @@ void shmem_init() {
 }
 */
 
-HOST_API void catcoc_allgather_matmul(const at::Tensor &input_a, const at::Tensor &input_b, at::Tensor &output_c,
+HOST_API void catcoc_matmul_allreduce(const at::Tensor &input_a, const at::Tensor &input_b, at::Tensor &output_c,
                                       int64_t symmAddr, int64_t teamId = 0,
                                       c10::optional<c10::string_view> format_mode = c10::nullopt)
 {
@@ -138,10 +137,10 @@ HOST_API void catcoc_allgather_matmul(const at::Tensor &input_a, const at::Tenso
     */
     auto acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr, tiling_ptr]() -> int {
       printf("tiling_ptr on launch is %ld\n", tiling_ptr);
-      catcoc_allgather_matmul_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr, tiling_ptr);
+      catcoc_matmul_allreduce_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr, tiling_ptr);
       return 0;
     };
-    at_npu::native::OpCommand::RunOpApiV2("catcoc_allgather_matmul_kernel", acl_call);
+    at_npu::native::OpCommand::RunOpApiV2("catcoc_matmul_allreduce_kernel", acl_call);
 
     /*
     auto teamIdx = (uint64_t)teamId;

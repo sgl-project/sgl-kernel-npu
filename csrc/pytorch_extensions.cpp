@@ -85,6 +85,8 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 
 #ifdef BUILD_CATCOC_MODULE
   m.def("catcoc_allgather_matmul(Tensor tensor_a, Tensor tensor_b, Tensor! tensor_c, int symmAddr, int teamId=0, str? format_mode=None) -> ()");
+
+  m.def("catcoc_matmul_allreduce(Tensor tensor_a, Tensor tensor_b, Tensor! tensor_c, int symmAddr, int teamId=0, str? format_mode=None) -> ()");
 #endif
 
     m.def(
@@ -130,6 +132,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
 #ifdef BUILD_CATCOC_MODULE
     m.impl("catcoc_allgather_matmul", TORCH_FN(sglang::npu_kernel::catcoc_allgather_matmul));
+
+    m.impl("catcoc_matmul_allreduce", TORCH_FN(sglang::npu_kernel::catcoc_matmul_allreduce));
 #endif
 
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
