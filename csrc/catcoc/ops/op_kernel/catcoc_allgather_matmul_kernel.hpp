@@ -38,11 +38,9 @@
 using namespace AscendC;
 using namespace Catcoc;
 
-
-extern "C" __global__ __aicore__ void catcoc_allgather_matmul_fp16(uint64_t fftsAddr, uint64_t teamIdx,
-                                                                   GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmC,
-                                                                   GM_ADDR gmSymmetric, GM_ADDR gmWorkspace,
-                                                                   GM_ADDR gmTiling)
+extern "C" __global__ __aicore__ void catcoc_allgather_matmul_fp16(uint64_t fftsAddr, uint64_t teamIdx, GM_ADDR gmA,
+                                                                   GM_ADDR gmB, GM_ADDR gmC, GM_ADDR gmSymmetric,
+                                                                   GM_ADDR gmWorkspace, GM_ADDR gmTiling)
 {
     // gmWorkspace is a dummy input for ascendc compile with tiling, catcoc ops use gmSymmetric as actual workspace
     // Set FFTS address
@@ -107,9 +105,8 @@ extern "C" __global__ __aicore__ void catcoc_allgather_matmul_fp16(uint64_t ffts
     using AType = Catlass::Gemm::GemmType<ElementA, Catlass::layout::RowMajor>;
     using BType = Catlass::Gemm::GemmType<ElementB, Catlass::layout::RowMajor>;
     using CType = Catlass::Gemm::GemmType<ElementC, Catlass::layout::RowMajor>;
-    using BlockMmad = Catlass::Gemm::Block::BlockMmad<
-            MmadDispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType
-    >;
+    using BlockMmad =
+        Catlass::Gemm::Block::BlockMmad<MmadDispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType>;
 
     using BlockSchedulerForAllgather = Catcoc::DGemm::Block::GemmBlockSwizzleAllGatherMesh<7, 1>;
     using CommBlockScheduler = CommEpilogue::Block::BlockCommSwizzle<0>;
@@ -126,48 +123,32 @@ extern "C" __global__ __aicore__ void catcoc_allgather_matmul_fp16(uint64_t ffts
     constexpr uint32_t UB_STAGES = 2;
     using AllGatherTileShape = Catlass::MatrixShape<32, 256>;
     using AllGatherDispatch = CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES, Catcoc::detail::CopyMode::Gather>;
-    using BlockEpilogueAllGather = CommEpilogue::Block::CommBlockEpilogue<AllGatherDispatch,
-            RemoteSrcType,
-            RemoteDstType,
-            CommCoreSplit,
-            CommBlockShape,
-            AllGatherTileShape,
-            TileRemoteCopy,
-            TileSchedulerForAllgather>;
+    using BlockEpilogueAllGather =
+        CommEpilogue::Block::CommBlockEpilogue<AllGatherDispatch, RemoteSrcType, RemoteDstType, CommCoreSplit,
+                                               CommBlockShape, AllGatherTileShape, TileRemoteCopy,
+                                               TileSchedulerForAllgather>;
 
     constexpr uint32_t WORKSPACE_STAGES = 2;
     constexpr uint32_t COMM_INTERVAL = 3;
-    using AllGatherMatmulKernel = DGemm::Kernel::AllGatherMatmul<
-            BlockMmad,
-            BlockEpilogueAllGather,
-            BlockSchedulerForAllgather,
-            CommBlockScheduler,
-            WORKSPACE_STAGES>;
+    using AllGatherMatmulKernel =
+        DGemm::Kernel::AllGatherMatmul<BlockMmad, BlockEpilogueAllGather, BlockSchedulerForAllgather,
+                                       CommBlockScheduler, WORKSPACE_STAGES>;
 
     typename BlockEpilogueAllGather::Params allGatherParams{};
 
     // Prepare params
-    typename AllGatherMatmulKernel::Params params{
-            problemShape,
-            rankIdx, rankSize, // newTeamIdx,
-            COMM_INTERVAL,
-            gmA, layoutA,
-            gmB, layoutB,
-            gmC, layoutC,
-            gmSymmetric,
-            allGatherParams
-    };
+    typename AllGatherMatmulKernel::Params params{problemShape,  rankIdx,     rankSize,  // newTeamIdx,
+                                                  COMM_INTERVAL, gmA,         layoutA,        gmB, layoutB, gmC,
+                                                  layoutC,       gmSymmetric, allGatherParams};
 
     // Call kernel
     AllGatherMatmulKernel matmulCommKernel;
     matmulCommKernel(params);
 }
 
-
-extern "C" __global__ __aicore__ void catcoc_allgather_matmul_fp16_wnz(uint64_t fftsAddr, uint64_t teamIdx,
-                                                                       GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmC,
-                                                                       GM_ADDR gmSymmetric, GM_ADDR gmWorkspace,
-                                                                       GM_ADDR gmTiling)
+extern "C" __global__ __aicore__ void catcoc_allgather_matmul_fp16_wnz(uint64_t fftsAddr, uint64_t teamIdx, GM_ADDR gmA,
+                                                                       GM_ADDR gmB, GM_ADDR gmC, GM_ADDR gmSymmetric,
+                                                                       GM_ADDR gmWorkspace, GM_ADDR gmTiling)
 {
     // gmWorkspace is a dummy input for ascendc compile with tiling, catcoc ops use gmSymmetric as actual workspace
     // Set FFTS address
@@ -232,9 +213,8 @@ extern "C" __global__ __aicore__ void catcoc_allgather_matmul_fp16_wnz(uint64_t 
     using AType = Catlass::Gemm::GemmType<ElementA, Catlass::layout::RowMajor>;
     using BType = Catlass::Gemm::GemmType<ElementB, Catlass::layout::zN>;
     using CType = Catlass::Gemm::GemmType<ElementC, Catlass::layout::RowMajor>;
-    using BlockMmad = Catlass::Gemm::Block::BlockMmad<
-            MmadDispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType
-    >;
+    using BlockMmad =
+        Catlass::Gemm::Block::BlockMmad<MmadDispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType>;
 
     using BlockSchedulerForAllgather = Catcoc::DGemm::Block::GemmBlockSwizzleAllGatherMesh<7, 1>;
     using CommBlockScheduler = CommEpilogue::Block::BlockCommSwizzle<0>;
@@ -251,48 +231,32 @@ extern "C" __global__ __aicore__ void catcoc_allgather_matmul_fp16_wnz(uint64_t 
     constexpr uint32_t UB_STAGES = 2;
     using AllGatherTileShape = Catlass::MatrixShape<32, 256>;
     using AllGatherDispatch = CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES, Catcoc::detail::CopyMode::Gather>;
-    using BlockEpilogueAllGather = CommEpilogue::Block::CommBlockEpilogue<AllGatherDispatch,
-            RemoteSrcType,
-            RemoteDstType,
-            CommCoreSplit,
-            CommBlockShape,
-            AllGatherTileShape,
-            TileRemoteCopy,
-            TileSchedulerForAllgather>;
+    using BlockEpilogueAllGather =
+        CommEpilogue::Block::CommBlockEpilogue<AllGatherDispatch, RemoteSrcType, RemoteDstType, CommCoreSplit,
+                                               CommBlockShape, AllGatherTileShape, TileRemoteCopy,
+                                               TileSchedulerForAllgather>;
 
     constexpr uint32_t WORKSPACE_STAGES = 2;
     constexpr uint32_t COMM_INTERVAL = 3;
-    using AllGatherMatmulKernel = DGemm::Kernel::AllGatherMatmul<
-            BlockMmad,
-            BlockEpilogueAllGather,
-            BlockSchedulerForAllgather,
-            CommBlockScheduler,
-            WORKSPACE_STAGES>;
+    using AllGatherMatmulKernel =
+        DGemm::Kernel::AllGatherMatmul<BlockMmad, BlockEpilogueAllGather, BlockSchedulerForAllgather,
+                                       CommBlockScheduler, WORKSPACE_STAGES>;
 
     typename BlockEpilogueAllGather::Params allGatherParams{};
 
     // Prepare params
-    typename AllGatherMatmulKernel::Params params{
-            problemShape,
-            rankIdx, rankSize, // newTeamIdx,
-            COMM_INTERVAL,
-            gmA, layoutA,
-            gmB, layoutB,
-            gmC, layoutC,
-            gmSymmetric,
-            allGatherParams
-    };
+    typename AllGatherMatmulKernel::Params params{problemShape,  rankIdx,     rankSize,  // newTeamIdx,
+                                                  COMM_INTERVAL, gmA,         layoutA,        gmB, layoutB, gmC,
+                                                  layoutC,       gmSymmetric, allGatherParams};
 
     // Call kernel
     AllGatherMatmulKernel matmulCommKernel;
     matmulCommKernel(params);
 }
 
-
-extern "C" __global__ __aicore__ void catcoc_allgather_matmul_bf16(uint64_t fftsAddr, uint64_t teamIdx,
-                                                                   GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmC,
-                                                                   GM_ADDR gmSymmetric, GM_ADDR gmWorkspace,
-                                                                   GM_ADDR gmTiling)
+extern "C" __global__ __aicore__ void catcoc_allgather_matmul_bf16(uint64_t fftsAddr, uint64_t teamIdx, GM_ADDR gmA,
+                                                                   GM_ADDR gmB, GM_ADDR gmC, GM_ADDR gmSymmetric,
+                                                                   GM_ADDR gmWorkspace, GM_ADDR gmTiling)
 {
     // gmWorkspace is a dummy input for ascendc compile with tiling, catcoc ops use gmSymmetric as actual workspace
     // Set FFTS address
@@ -318,7 +282,6 @@ extern "C" __global__ __aicore__ void catcoc_allgather_matmul_bf16(uint64_t ffts
     uint32_t m0 = tiling_data->m0;
     uint32_t k0 = tiling_data->k0;
     uint32_t n0 = tiling_data->n0;
-
 
     /*
     if(rankIdx == 0) {
@@ -358,9 +321,8 @@ extern "C" __global__ __aicore__ void catcoc_allgather_matmul_bf16(uint64_t ffts
     using AType = Catlass::Gemm::GemmType<ElementA, Catlass::layout::RowMajor>;
     using BType = Catlass::Gemm::GemmType<ElementB, Catlass::layout::RowMajor>;
     using CType = Catlass::Gemm::GemmType<ElementC, Catlass::layout::RowMajor>;
-    using BlockMmad = Catlass::Gemm::Block::BlockMmad<
-            MmadDispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType
-    >;
+    using BlockMmad =
+        Catlass::Gemm::Block::BlockMmad<MmadDispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType>;
 
     using BlockSchedulerForAllgather = Catcoc::DGemm::Block::GemmBlockSwizzleAllGatherMesh<7, 1>;
     using CommBlockScheduler = CommEpilogue::Block::BlockCommSwizzle<0>;
@@ -377,48 +339,32 @@ extern "C" __global__ __aicore__ void catcoc_allgather_matmul_bf16(uint64_t ffts
     constexpr uint32_t UB_STAGES = 2;
     using AllGatherTileShape = Catlass::MatrixShape<32, 256>;
     using AllGatherDispatch = CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES, Catcoc::detail::CopyMode::Gather>;
-    using BlockEpilogueAllGather = CommEpilogue::Block::CommBlockEpilogue<AllGatherDispatch,
-            RemoteSrcType,
-            RemoteDstType,
-            CommCoreSplit,
-            CommBlockShape,
-            AllGatherTileShape,
-            TileRemoteCopy,
-            TileSchedulerForAllgather>;
+    using BlockEpilogueAllGather =
+        CommEpilogue::Block::CommBlockEpilogue<AllGatherDispatch, RemoteSrcType, RemoteDstType, CommCoreSplit,
+                                               CommBlockShape, AllGatherTileShape, TileRemoteCopy,
+                                               TileSchedulerForAllgather>;
 
     constexpr uint32_t WORKSPACE_STAGES = 2;
     constexpr uint32_t COMM_INTERVAL = 3;
-    using AllGatherMatmulKernel = DGemm::Kernel::AllGatherMatmul<
-            BlockMmad,
-            BlockEpilogueAllGather,
-            BlockSchedulerForAllgather,
-            CommBlockScheduler,
-            WORKSPACE_STAGES>;
+    using AllGatherMatmulKernel =
+        DGemm::Kernel::AllGatherMatmul<BlockMmad, BlockEpilogueAllGather, BlockSchedulerForAllgather,
+                                       CommBlockScheduler, WORKSPACE_STAGES>;
 
     typename BlockEpilogueAllGather::Params allGatherParams{};
 
     // Prepare params
-    typename AllGatherMatmulKernel::Params params{
-            problemShape,
-            rankIdx, rankSize, // newTeamIdx,
-            COMM_INTERVAL,
-            gmA, layoutA,
-            gmB, layoutB,
-            gmC, layoutC,
-            gmSymmetric,
-            allGatherParams
-    };
+    typename AllGatherMatmulKernel::Params params{problemShape,  rankIdx,     rankSize,  // newTeamIdx,
+                                                  COMM_INTERVAL, gmA,         layoutA,        gmB, layoutB, gmC,
+                                                  layoutC,       gmSymmetric, allGatherParams};
 
     // Call kernel
     AllGatherMatmulKernel matmulCommKernel;
     matmulCommKernel(params);
 }
 
-
-extern "C" __global__ __aicore__ void catcoc_allgather_matmul_bf16_wnz(uint64_t fftsAddr, uint64_t teamIdx,
-                                                                       GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmC,
-                                                                       GM_ADDR gmSymmetric, GM_ADDR gmWorkspace,
-                                                                       GM_ADDR gmTiling)
+extern "C" __global__ __aicore__ void catcoc_allgather_matmul_bf16_wnz(uint64_t fftsAddr, uint64_t teamIdx, GM_ADDR gmA,
+                                                                       GM_ADDR gmB, GM_ADDR gmC, GM_ADDR gmSymmetric,
+                                                                       GM_ADDR gmWorkspace, GM_ADDR gmTiling)
 {
     // gmWorkspace is a dummy input for ascendc compile with tiling, catcoc ops use gmSymmetric as actual workspace
     // Set FFTS address
@@ -444,7 +390,6 @@ extern "C" __global__ __aicore__ void catcoc_allgather_matmul_bf16_wnz(uint64_t 
     uint32_t m0 = tiling_data->m0;
     uint32_t k0 = tiling_data->k0;
     uint32_t n0 = tiling_data->n0;
-
 
     /*
     if(rankIdx == 0) {
@@ -484,9 +429,8 @@ extern "C" __global__ __aicore__ void catcoc_allgather_matmul_bf16_wnz(uint64_t 
     using AType = Catlass::Gemm::GemmType<ElementA, Catlass::layout::RowMajor>;
     using BType = Catlass::Gemm::GemmType<ElementB, Catlass::layout::zN>;
     using CType = Catlass::Gemm::GemmType<ElementC, Catlass::layout::RowMajor>;
-    using BlockMmad = Catlass::Gemm::Block::BlockMmad<
-            MmadDispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType
-    >;
+    using BlockMmad =
+        Catlass::Gemm::Block::BlockMmad<MmadDispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType>;
 
     using BlockSchedulerForAllgather = Catcoc::DGemm::Block::GemmBlockSwizzleAllGatherMesh<7, 1>;
     using CommBlockScheduler = CommEpilogue::Block::BlockCommSwizzle<0>;
@@ -503,40 +447,25 @@ extern "C" __global__ __aicore__ void catcoc_allgather_matmul_bf16_wnz(uint64_t 
     constexpr uint32_t UB_STAGES = 2;
     using AllGatherTileShape = Catlass::MatrixShape<32, 256>;
     using AllGatherDispatch = CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES, Catcoc::detail::CopyMode::Gather>;
-    using BlockEpilogueAllGather = CommEpilogue::Block::CommBlockEpilogue<AllGatherDispatch,
-            RemoteSrcType,
-            RemoteDstType,
-            CommCoreSplit,
-            CommBlockShape,
-            AllGatherTileShape,
-            TileRemoteCopy,
-            TileSchedulerForAllgather>;
+    using BlockEpilogueAllGather =
+        CommEpilogue::Block::CommBlockEpilogue<AllGatherDispatch, RemoteSrcType, RemoteDstType, CommCoreSplit,
+                                               CommBlockShape, AllGatherTileShape, TileRemoteCopy,
+                                               TileSchedulerForAllgather>;
 
     constexpr uint32_t WORKSPACE_STAGES = 2;
     constexpr uint32_t COMM_INTERVAL = 3;
-    using AllGatherMatmulKernel = DGemm::Kernel::AllGatherMatmul<
-            BlockMmad,
-            BlockEpilogueAllGather,
-            BlockSchedulerForAllgather,
-            CommBlockScheduler,
-            WORKSPACE_STAGES>;
+    using AllGatherMatmulKernel =
+        DGemm::Kernel::AllGatherMatmul<BlockMmad, BlockEpilogueAllGather, BlockSchedulerForAllgather,
+                                       CommBlockScheduler, WORKSPACE_STAGES>;
 
     typename BlockEpilogueAllGather::Params allGatherParams{};
 
     // Prepare params
-    typename AllGatherMatmulKernel::Params params{
-            problemShape,
-            rankIdx, rankSize, // newTeamIdx,
-            COMM_INTERVAL,
-            gmA, layoutA,
-            gmB, layoutB,
-            gmC, layoutC,
-            gmSymmetric,
-            allGatherParams
-    };
+    typename AllGatherMatmulKernel::Params params{problemShape,  rankIdx,     rankSize,  // newTeamIdx,
+                                                  COMM_INTERVAL, gmA,         layoutA,        gmB, layoutB, gmC,
+                                                  layoutC,       gmSymmetric, allGatherParams};
 
     // Call kernel
     AllGatherMatmulKernel matmulCommKernel;
     matmulCommKernel(params);
 }
-

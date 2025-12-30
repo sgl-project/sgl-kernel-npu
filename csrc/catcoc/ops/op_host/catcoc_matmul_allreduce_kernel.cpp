@@ -12,31 +12,36 @@
 #include "catcoc_kernel.h"
 #include "../op_kernel/catcoc_matmul_allreduce_kernel.hpp"
 
-
 using namespace AscendC;
 
-
 void catcoc_matmul_allreduce_bf16_wnd_kernel(uint32_t blockNum, aclrtStream stream, uint64_t fftsAddr, uint64_t teamIdx,
-                                             uint8_t* gmA, uint8_t* gmB, uint8_t* gmD,
-                                             uint8_t* gmSymmetric, uint8_t* gmWorkspace, uint8_t* gmTiling) {
-  catcoc_matmul_allreduce_bf16<<<blockNum, nullptr, stream>>>(fftsAddr, teamIdx, gmA, gmB, gmD, gmSymmetric, gmWorkspace, gmTiling);
+                                             uint8_t *gmA, uint8_t *gmB, uint8_t *gmD, uint8_t *gmSymmetric,
+                                             uint8_t *gmWorkspace, uint8_t *gmTiling)
+{
+    catcoc_matmul_allreduce_bf16<<<blockNum, nullptr, stream>>>(fftsAddr, teamIdx, gmA, gmB, gmD, gmSymmetric,
+                                                                gmWorkspace, gmTiling);
 }
 
 void catcoc_matmul_allreduce_bf16_wnz_kernel(uint32_t blockNum, aclrtStream stream, uint64_t fftsAddr, uint64_t teamIdx,
-                                             uint8_t* gmA, uint8_t* gmB, uint8_t* gmD,
-                                             uint8_t* gmSymmetric, uint8_t* gmWorkspace, uint8_t* gmTiling) {
-  catcoc_matmul_allreduce_bf16_wnz<<<blockNum, nullptr, stream>>>(fftsAddr, teamIdx, gmA, gmB, gmD, gmSymmetric, gmWorkspace, gmTiling);
+                                             uint8_t *gmA, uint8_t *gmB, uint8_t *gmD, uint8_t *gmSymmetric,
+                                             uint8_t *gmWorkspace, uint8_t *gmTiling)
+{
+    catcoc_matmul_allreduce_bf16_wnz<<<blockNum, nullptr, stream>>>(fftsAddr, teamIdx, gmA, gmB, gmD, gmSymmetric,
+                                                                    gmWorkspace, gmTiling);
 }
 
 void catcoc_matmul_allreduce_fp16_wnd_kernel(uint32_t blockNum, aclrtStream stream, uint64_t fftsAddr, uint64_t teamIdx,
-                                             uint8_t* gmA, uint8_t* gmB, uint8_t* gmD,
-                                             uint8_t* gmSymmetric, uint8_t* gmWorkspace, uint8_t* gmTiling) {
-  catcoc_matmul_allreduce_fp16<<<blockNum, nullptr, stream>>>(fftsAddr, teamIdx, gmA, gmB, gmD, gmSymmetric, gmWorkspace, gmTiling);
+                                             uint8_t *gmA, uint8_t *gmB, uint8_t *gmD, uint8_t *gmSymmetric,
+                                             uint8_t *gmWorkspace, uint8_t *gmTiling)
+{
+    catcoc_matmul_allreduce_fp16<<<blockNum, nullptr, stream>>>(fftsAddr, teamIdx, gmA, gmB, gmD, gmSymmetric,
+                                                                gmWorkspace, gmTiling);
 }
 
 void catcoc_matmul_allreduce_fp16_wnz_kernel(uint32_t blockNum, aclrtStream stream, uint64_t fftsAddr, uint64_t teamIdx,
-                                             uint8_t* gmA, uint8_t* gmB, uint8_t* gmD,
-                                             uint8_t* gmSymmetric, uint8_t* gmWorkspace, uint8_t* gmTiling) {
-  catcoc_matmul_allreduce_fp16_wnz<<<blockNum, nullptr, stream>>>(fftsAddr, teamIdx, gmA, gmB, gmD, gmSymmetric, gmWorkspace, gmTiling);
+                                             uint8_t *gmA, uint8_t *gmB, uint8_t *gmD, uint8_t *gmSymmetric,
+                                             uint8_t *gmWorkspace, uint8_t *gmTiling)
+{
+    catcoc_matmul_allreduce_fp16_wnz<<<blockNum, nullptr, stream>>>(fftsAddr, teamIdx, gmA, gmB, gmD, gmSymmetric,
+                                                                    gmWorkspace, gmTiling);
 }
-

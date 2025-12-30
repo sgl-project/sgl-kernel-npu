@@ -84,9 +84,13 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 #endif
 
 #ifdef BUILD_CATCOC_MODULE
-  m.def("catcoc_allgather_matmul(Tensor tensor_a, Tensor tensor_b, Tensor! tensor_c, int symmAddr, int teamId=0, str? format_mode=None) -> ()");
+    m.def(
+        "catcoc_allgather_matmul(Tensor tensor_a, Tensor tensor_b, Tensor! tensor_c, int symmAddr, int teamId=0, str? "
+        "format_mode=None) -> ()");
 
-  m.def("catcoc_matmul_allreduce(Tensor tensor_a, Tensor tensor_b, Tensor! tensor_c, int symmAddr, int teamId=0, str? format_mode=None) -> ()");
+    m.def(
+        "catcoc_matmul_allreduce(Tensor tensor_a, Tensor tensor_b, Tensor! tensor_c, int symmAddr, int teamId=0, str? "
+        "format_mode=None) -> ()");
 #endif
 
     m.def(

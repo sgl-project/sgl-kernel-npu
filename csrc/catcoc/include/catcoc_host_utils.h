@@ -23,7 +23,7 @@ inline std::map<c10::ScalarType, DataFormatMode> dTypeMap = {{at::ScalarType::Ha
                                                              {at::ScalarType::BFloat16, DataFormatMode::BF16}};
 
 inline std::unordered_map<c10::string_view, uint16_t> weightFormatMap = {{"ND", WeightFormatMode::WEIGHT_ND},
-                                                                  {"NZ", WeightFormatMode::WEIGHT_NZ}};
+                                                                         {"NZ", WeightFormatMode::WEIGHT_NZ}};
 
 // batch size -> memory index
 constexpr uint32_t MAX_CAPTURE_NUM = 128;
@@ -50,8 +50,7 @@ inline at::Tensor get_tiling_tensor(uint32_t &m, uint32_t &n, uint32_t &k, int64
     int32_t tiling_size = (sizeof(KernelCATCOCHostTilingData) + PADDING_BYTE - 1) / PADDING_BYTE * PADDING_BYTE;
     auto tiling_buffer = at::empty({tiling_size}, at::TensorOptions().dtype(at::kByte).device(at::kCPU));
 
-    KernelCATCOCHostTilingData *tiling_data =
-        reinterpret_cast<KernelCATCOCHostTilingData *>(tiling_buffer.data_ptr());
+    KernelCATCOCHostTilingData *tiling_data = reinterpret_cast<KernelCATCOCHostTilingData *>(tiling_buffer.data_ptr());
     tiling_data->m = m;
     tiling_data->n = n;
     tiling_data->k = k;

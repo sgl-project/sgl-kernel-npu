@@ -38,10 +38,9 @@
 using namespace AscendC;
 using namespace Catcoc;
 
-extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_fp16(uint64_t fftsAddr, uint64_t teamIdx,
-                                                                   GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmD,
-                                                                   GM_ADDR gmSymmetric, GM_ADDR gmWorkspace,
-                                                                   GM_ADDR gmTiling)
+extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_fp16(uint64_t fftsAddr, uint64_t teamIdx, GM_ADDR gmA,
+                                                                   GM_ADDR gmB, GM_ADDR gmD, GM_ADDR gmSymmetric,
+                                                                   GM_ADDR gmWorkspace, GM_ADDR gmTiling)
 {
     // gmWorkspace is a dummy input for ascendc compile with tiling, catcoc ops use gmSymmetric as actual workspace
     // Set FFTS address
@@ -108,9 +107,8 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_fp16(uint64_t ffts
     using BType = Catlass::Gemm::GemmType<ElementB, Catlass::layout::RowMajor>;
     using CType = Catlass::Gemm::GemmType<ElementC, Catlass::layout::RowMajor>;
     using DType = Catlass::Gemm::GemmType<ElementD, Catlass::layout::RowMajor>;
-    using BlockMmad = Catlass::Gemm::Block::BlockMmad<
-            MmadDispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType
-    >;
+    using BlockMmad =
+        Catlass::Gemm::Block::BlockMmad<MmadDispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType>;
 
     constexpr uint32_t SWIZZLE_GROUP_SIZE = 7;
     constexpr uint32_t SWIZZLE_DIRECTION = 1;
@@ -134,62 +132,53 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_fp16(uint64_t ffts
     constexpr uint32_t SCATTER_TILE_ROWS = 32;
     constexpr uint32_t SCATTER_TILE_COLUMNS = 256;
     using EpilogueReduceScatterTileShape = Catlass::MatrixShape<SCATTER_TILE_ROWS, SCATTER_TILE_COLUMNS>;
-    using EpilogueReduceScatterDispatch = CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES,
-            Catcoc::detail::CopyMode::Scatter>;
-    using BlockEpilogueReduceScatter = CommEpilogue::Block::CommBlockEpilogue<
-            EpilogueReduceScatterDispatch,
-            RemoteSrcType, RemoteDstType,
-            CommCoreSplit,
-            CommBlockShape,
-            EpilogueReduceScatterTileShape, TileRemoteCopy, TileScheduler
-    >;
+    using EpilogueReduceScatterDispatch =
+        CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES, Catcoc::detail::CopyMode::Scatter>;
+    using BlockEpilogueReduceScatter =
+        CommEpilogue::Block::CommBlockEpilogue<EpilogueReduceScatterDispatch, RemoteSrcType, RemoteDstType,
+                                               CommCoreSplit, CommBlockShape, EpilogueReduceScatterTileShape,
+                                               TileRemoteCopy, TileScheduler>;
 
     constexpr uint32_t ALLGATHER_TILE_ROWS = 32;
     constexpr uint32_t ALLGATHER_TILE_COLUMNS = 256;
     using EpilogueAllGatherTileShape = Catlass::MatrixShape<ALLGATHER_TILE_ROWS, ALLGATHER_TILE_COLUMNS>;
-    using EpilogueAllGatherDispatch = CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES,
-            Catcoc::detail::CopyMode::Gather>;
-    using BlockEpilogueAllGather = CommEpilogue::Block::CommBlockEpilogue<
-            EpilogueAllGatherDispatch,
-            RemoteSrcType, RemoteDstType,
-            CommCoreSplit,
-            CommBlockShape,
-            EpilogueAllGatherTileShape, TileRemoteCopy, TileScheduler
-    >;
+    using EpilogueAllGatherDispatch =
+        CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES, Catcoc::detail::CopyMode::Gather>;
+    using BlockEpilogueAllGather =
+        CommEpilogue::Block::CommBlockEpilogue<EpilogueAllGatherDispatch, RemoteSrcType, RemoteDstType, CommCoreSplit,
+                                               CommBlockShape, EpilogueAllGatherTileShape, TileRemoteCopy,
+                                               TileScheduler>;
 
     constexpr uint32_t WORKSPACE_STAGES = 2;
     constexpr uint32_t COMM_INTERVAL = 3;
-    using MatmulAllReduceKernel = DGemm::Kernel::MatmulAllReduce<
-            BlockMmad,
-            BlockEpilogueReduceScatter,
-            BlockEpilogueAllGather,
-            BlockMmadScheduler,
-            BlockEpilogueScheduler,
-            WORKSPACE_STAGES
-    >;
+    using MatmulAllReduceKernel =
+        DGemm::Kernel::MatmulAllReduce<BlockMmad, BlockEpilogueReduceScatter, BlockEpilogueAllGather,
+                                       BlockMmadScheduler, BlockEpilogueScheduler, WORKSPACE_STAGES>;
 
     typename BlockEpilogueReduceScatter::Params reduceScatterParams{};
     typename BlockEpilogueAllGather::Params allGatherParams{};
 
-    typename MatmulAllReduceKernel::Params params{
-            problemShape, rankIdx, rankSize,
-            COMM_INTERVAL,
-            gmA, layoutA,
-            gmB, layoutB,
-            gmD, layoutD,
-            gmSymmetric,
-            reduceScatterParams,
-            allGatherParams
-    };
+    typename MatmulAllReduceKernel::Params params{problemShape,
+                                                  rankIdx,
+                                                  rankSize,
+                                                  COMM_INTERVAL,
+                                                  gmA,
+                                                  layoutA,
+                                                  gmB,
+                                                  layoutB,
+                                                  gmD,
+                                                  layoutD,
+                                                  gmSymmetric,
+                                                  reduceScatterParams,
+                                                  allGatherParams};
 
     MatmulAllReduceKernel matmulAllReduceKernel;
     matmulAllReduceKernel(params);
 }
 
-extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_fp16_wnz(uint64_t fftsAddr, uint64_t teamIdx,
-                                                                       GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmD,
-                                                                       GM_ADDR gmSymmetric, GM_ADDR gmWorkspace,
-                                                                       GM_ADDR gmTiling)
+extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_fp16_wnz(uint64_t fftsAddr, uint64_t teamIdx, GM_ADDR gmA,
+                                                                       GM_ADDR gmB, GM_ADDR gmD, GM_ADDR gmSymmetric,
+                                                                       GM_ADDR gmWorkspace, GM_ADDR gmTiling)
 {
     // gmWorkspace is a dummy input for ascendc compile with tiling, catcoc ops use gmSymmetric as actual workspace
     // Set FFTS address
@@ -256,9 +245,8 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_fp16_wnz(uint64_t 
     using BType = Catlass::Gemm::GemmType<ElementB, Catlass::layout::zN>;
     using CType = Catlass::Gemm::GemmType<ElementC, Catlass::layout::RowMajor>;
     using DType = Catlass::Gemm::GemmType<ElementD, Catlass::layout::RowMajor>;
-    using BlockMmad = Catlass::Gemm::Block::BlockMmad<
-            MmadDispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType
-    >;
+    using BlockMmad =
+        Catlass::Gemm::Block::BlockMmad<MmadDispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType>;
 
     constexpr uint32_t SWIZZLE_GROUP_SIZE = 7;
     constexpr uint32_t SWIZZLE_DIRECTION = 1;
@@ -282,63 +270,53 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_fp16_wnz(uint64_t 
     constexpr uint32_t SCATTER_TILE_ROWS = 32;
     constexpr uint32_t SCATTER_TILE_COLUMNS = 256;
     using EpilogueReduceScatterTileShape = Catlass::MatrixShape<SCATTER_TILE_ROWS, SCATTER_TILE_COLUMNS>;
-    using EpilogueReduceScatterDispatch = CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES,
-            Catcoc::detail::CopyMode::Scatter>;
-    using BlockEpilogueReduceScatter = CommEpilogue::Block::CommBlockEpilogue<
-            EpilogueReduceScatterDispatch,
-            RemoteSrcType, RemoteDstType,
-            CommCoreSplit,
-            CommBlockShape,
-            EpilogueReduceScatterTileShape, TileRemoteCopy, TileScheduler
-    >;
+    using EpilogueReduceScatterDispatch =
+        CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES, Catcoc::detail::CopyMode::Scatter>;
+    using BlockEpilogueReduceScatter =
+        CommEpilogue::Block::CommBlockEpilogue<EpilogueReduceScatterDispatch, RemoteSrcType, RemoteDstType,
+                                               CommCoreSplit, CommBlockShape, EpilogueReduceScatterTileShape,
+                                               TileRemoteCopy, TileScheduler>;
 
     constexpr uint32_t ALLGATHER_TILE_ROWS = 32;
     constexpr uint32_t ALLGATHER_TILE_COLUMNS = 256;
     using EpilogueAllGatherTileShape = Catlass::MatrixShape<ALLGATHER_TILE_ROWS, ALLGATHER_TILE_COLUMNS>;
-    using EpilogueAllGatherDispatch = CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES,
-            Catcoc::detail::CopyMode::Gather>;
-    using BlockEpilogueAllGather = CommEpilogue::Block::CommBlockEpilogue<
-            EpilogueAllGatherDispatch,
-            RemoteSrcType, RemoteDstType,
-            CommCoreSplit,
-            CommBlockShape,
-            EpilogueAllGatherTileShape, TileRemoteCopy, TileScheduler
-    >;
+    using EpilogueAllGatherDispatch =
+        CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES, Catcoc::detail::CopyMode::Gather>;
+    using BlockEpilogueAllGather =
+        CommEpilogue::Block::CommBlockEpilogue<EpilogueAllGatherDispatch, RemoteSrcType, RemoteDstType, CommCoreSplit,
+                                               CommBlockShape, EpilogueAllGatherTileShape, TileRemoteCopy,
+                                               TileScheduler>;
 
     constexpr uint32_t WORKSPACE_STAGES = 2;
     constexpr uint32_t COMM_INTERVAL = 3;
-    using MatmulAllReduceKernel = DGemm::Kernel::MatmulAllReduce<
-            BlockMmad,
-            BlockEpilogueReduceScatter,
-            BlockEpilogueAllGather,
-            BlockMmadScheduler,
-            BlockEpilogueScheduler,
-            WORKSPACE_STAGES
-    >;
+    using MatmulAllReduceKernel =
+        DGemm::Kernel::MatmulAllReduce<BlockMmad, BlockEpilogueReduceScatter, BlockEpilogueAllGather,
+                                       BlockMmadScheduler, BlockEpilogueScheduler, WORKSPACE_STAGES>;
 
     typename BlockEpilogueReduceScatter::Params reduceScatterParams{};
     typename BlockEpilogueAllGather::Params allGatherParams{};
 
-    typename MatmulAllReduceKernel::Params params{
-            problemShape, rankIdx, rankSize,
-            COMM_INTERVAL,
-            gmA, layoutA,
-            gmB, layoutB,
-            gmD, layoutD,
-            gmSymmetric,
-            reduceScatterParams,
-            allGatherParams
-    };
+    typename MatmulAllReduceKernel::Params params{problemShape,
+                                                  rankIdx,
+                                                  rankSize,
+                                                  COMM_INTERVAL,
+                                                  gmA,
+                                                  layoutA,
+                                                  gmB,
+                                                  layoutB,
+                                                  gmD,
+                                                  layoutD,
+                                                  gmSymmetric,
+                                                  reduceScatterParams,
+                                                  allGatherParams};
 
     MatmulAllReduceKernel matmulAllReduceKernel;
     matmulAllReduceKernel(params);
 }
 
-
-extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_bf16(uint64_t fftsAddr, uint64_t teamIdx,
-                                                                   GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmD,
-                                                                   GM_ADDR gmSymmetric, GM_ADDR gmWorkspace,
-                                                                   GM_ADDR gmTiling)
+extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_bf16(uint64_t fftsAddr, uint64_t teamIdx, GM_ADDR gmA,
+                                                                   GM_ADDR gmB, GM_ADDR gmD, GM_ADDR gmSymmetric,
+                                                                   GM_ADDR gmWorkspace, GM_ADDR gmTiling)
 {
     // gmWorkspace is a dummy input for ascendc compile with tiling, catcoc ops use gmSymmetric as actual workspace
     // Set FFTS address
@@ -405,9 +383,8 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_bf16(uint64_t ffts
     using BType = Catlass::Gemm::GemmType<ElementB, Catlass::layout::RowMajor>;
     using CType = Catlass::Gemm::GemmType<ElementC, Catlass::layout::RowMajor>;
     using DType = Catlass::Gemm::GemmType<ElementD, Catlass::layout::RowMajor>;
-    using BlockMmad = Catlass::Gemm::Block::BlockMmad<
-            MmadDispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType
-    >;
+    using BlockMmad =
+        Catlass::Gemm::Block::BlockMmad<MmadDispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType>;
 
     constexpr uint32_t SWIZZLE_GROUP_SIZE = 7;
     constexpr uint32_t SWIZZLE_DIRECTION = 1;
@@ -431,63 +408,53 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_bf16(uint64_t ffts
     constexpr uint32_t SCATTER_TILE_ROWS = 32;
     constexpr uint32_t SCATTER_TILE_COLUMNS = 256;
     using EpilogueReduceScatterTileShape = Catlass::MatrixShape<SCATTER_TILE_ROWS, SCATTER_TILE_COLUMNS>;
-    using EpilogueReduceScatterDispatch = CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES,
-            Catcoc::detail::CopyMode::Scatter>;
-    using BlockEpilogueReduceScatter = CommEpilogue::Block::CommBlockEpilogue<
-            EpilogueReduceScatterDispatch,
-            RemoteSrcType, RemoteDstType,
-            CommCoreSplit,
-            CommBlockShape,
-            EpilogueReduceScatterTileShape, TileRemoteCopy, TileScheduler
-    >;
+    using EpilogueReduceScatterDispatch =
+        CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES, Catcoc::detail::CopyMode::Scatter>;
+    using BlockEpilogueReduceScatter =
+        CommEpilogue::Block::CommBlockEpilogue<EpilogueReduceScatterDispatch, RemoteSrcType, RemoteDstType,
+                                               CommCoreSplit, CommBlockShape, EpilogueReduceScatterTileShape,
+                                               TileRemoteCopy, TileScheduler>;
 
     constexpr uint32_t ALLGATHER_TILE_ROWS = 32;
     constexpr uint32_t ALLGATHER_TILE_COLUMNS = 256;
     using EpilogueAllGatherTileShape = Catlass::MatrixShape<ALLGATHER_TILE_ROWS, ALLGATHER_TILE_COLUMNS>;
-    using EpilogueAllGatherDispatch = CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES,
-            Catcoc::detail::CopyMode::Gather>;
-    using BlockEpilogueAllGather = CommEpilogue::Block::CommBlockEpilogue<
-            EpilogueAllGatherDispatch,
-            RemoteSrcType, RemoteDstType,
-            CommCoreSplit,
-            CommBlockShape,
-            EpilogueAllGatherTileShape, TileRemoteCopy, TileScheduler
-    >;
+    using EpilogueAllGatherDispatch =
+        CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES, Catcoc::detail::CopyMode::Gather>;
+    using BlockEpilogueAllGather =
+        CommEpilogue::Block::CommBlockEpilogue<EpilogueAllGatherDispatch, RemoteSrcType, RemoteDstType, CommCoreSplit,
+                                               CommBlockShape, EpilogueAllGatherTileShape, TileRemoteCopy,
+                                               TileScheduler>;
 
     constexpr uint32_t WORKSPACE_STAGES = 2;
     constexpr uint32_t COMM_INTERVAL = 3;
-    using MatmulAllReduceKernel = DGemm::Kernel::MatmulAllReduce<
-            BlockMmad,
-            BlockEpilogueReduceScatter,
-            BlockEpilogueAllGather,
-            BlockMmadScheduler,
-            BlockEpilogueScheduler,
-            WORKSPACE_STAGES
-    >;
+    using MatmulAllReduceKernel =
+        DGemm::Kernel::MatmulAllReduce<BlockMmad, BlockEpilogueReduceScatter, BlockEpilogueAllGather,
+                                       BlockMmadScheduler, BlockEpilogueScheduler, WORKSPACE_STAGES>;
 
     typename BlockEpilogueReduceScatter::Params reduceScatterParams{};
     typename BlockEpilogueAllGather::Params allGatherParams{};
 
-    typename MatmulAllReduceKernel::Params params{
-            problemShape, rankIdx, rankSize,
-            COMM_INTERVAL,
-            gmA, layoutA,
-            gmB, layoutB,
-            gmD, layoutD,
-            gmSymmetric,
-            reduceScatterParams,
-            allGatherParams
-    };
+    typename MatmulAllReduceKernel::Params params{problemShape,
+                                                  rankIdx,
+                                                  rankSize,
+                                                  COMM_INTERVAL,
+                                                  gmA,
+                                                  layoutA,
+                                                  gmB,
+                                                  layoutB,
+                                                  gmD,
+                                                  layoutD,
+                                                  gmSymmetric,
+                                                  reduceScatterParams,
+                                                  allGatherParams};
 
     MatmulAllReduceKernel matmulAllReduceKernel;
     matmulAllReduceKernel(params);
 }
 
-
-extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_bf16_wnz(uint64_t fftsAddr, uint64_t teamIdx,
-                                                                       GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmD,
-                                                                       GM_ADDR gmSymmetric, GM_ADDR gmWorkspace,
-                                                                       GM_ADDR gmTiling)
+extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_bf16_wnz(uint64_t fftsAddr, uint64_t teamIdx, GM_ADDR gmA,
+                                                                       GM_ADDR gmB, GM_ADDR gmD, GM_ADDR gmSymmetric,
+                                                                       GM_ADDR gmWorkspace, GM_ADDR gmTiling)
 {
     // gmWorkspace is a dummy input for ascendc compile with tiling, catcoc ops use gmSymmetric as actual workspace
     // Set FFTS address
@@ -554,9 +521,8 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_bf16_wnz(uint64_t 
     using BType = Catlass::Gemm::GemmType<ElementB, Catlass::layout::zN>;
     using CType = Catlass::Gemm::GemmType<ElementC, Catlass::layout::RowMajor>;
     using DType = Catlass::Gemm::GemmType<ElementD, Catlass::layout::RowMajor>;
-    using BlockMmad = Catlass::Gemm::Block::BlockMmad<
-            MmadDispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType
-    >;
+    using BlockMmad =
+        Catlass::Gemm::Block::BlockMmad<MmadDispatchPolicy, L1TileShape, L0TileShape, AType, BType, CType>;
 
     constexpr uint32_t SWIZZLE_GROUP_SIZE = 7;
     constexpr uint32_t SWIZZLE_DIRECTION = 1;
@@ -580,55 +546,46 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_bf16_wnz(uint64_t 
     constexpr uint32_t SCATTER_TILE_ROWS = 32;
     constexpr uint32_t SCATTER_TILE_COLUMNS = 256;
     using EpilogueReduceScatterTileShape = Catlass::MatrixShape<SCATTER_TILE_ROWS, SCATTER_TILE_COLUMNS>;
-    using EpilogueReduceScatterDispatch = CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES,
-            Catcoc::detail::CopyMode::Scatter>;
-    using BlockEpilogueReduceScatter = CommEpilogue::Block::CommBlockEpilogue<
-            EpilogueReduceScatterDispatch,
-            RemoteSrcType, RemoteDstType,
-            CommCoreSplit,
-            CommBlockShape,
-            EpilogueReduceScatterTileShape, TileRemoteCopy, TileScheduler
-    >;
+    using EpilogueReduceScatterDispatch =
+        CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES, Catcoc::detail::CopyMode::Scatter>;
+    using BlockEpilogueReduceScatter =
+        CommEpilogue::Block::CommBlockEpilogue<EpilogueReduceScatterDispatch, RemoteSrcType, RemoteDstType,
+                                               CommCoreSplit, CommBlockShape, EpilogueReduceScatterTileShape,
+                                               TileRemoteCopy, TileScheduler>;
 
     constexpr uint32_t ALLGATHER_TILE_ROWS = 32;
     constexpr uint32_t ALLGATHER_TILE_COLUMNS = 256;
     using EpilogueAllGatherTileShape = Catlass::MatrixShape<ALLGATHER_TILE_ROWS, ALLGATHER_TILE_COLUMNS>;
-    using EpilogueAllGatherDispatch = CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES,
-            Catcoc::detail::CopyMode::Gather>;
-    using BlockEpilogueAllGather = CommEpilogue::Block::CommBlockEpilogue<
-            EpilogueAllGatherDispatch,
-            RemoteSrcType, RemoteDstType,
-            CommCoreSplit,
-            CommBlockShape,
-            EpilogueAllGatherTileShape, TileRemoteCopy, TileScheduler
-    >;
+    using EpilogueAllGatherDispatch =
+        CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES, Catcoc::detail::CopyMode::Gather>;
+    using BlockEpilogueAllGather =
+        CommEpilogue::Block::CommBlockEpilogue<EpilogueAllGatherDispatch, RemoteSrcType, RemoteDstType, CommCoreSplit,
+                                               CommBlockShape, EpilogueAllGatherTileShape, TileRemoteCopy,
+                                               TileScheduler>;
 
     constexpr uint32_t WORKSPACE_STAGES = 2;
     constexpr uint32_t COMM_INTERVAL = 3;
-    using MatmulAllReduceKernel = DGemm::Kernel::MatmulAllReduce<
-            BlockMmad,
-            BlockEpilogueReduceScatter,
-            BlockEpilogueAllGather,
-            BlockMmadScheduler,
-            BlockEpilogueScheduler,
-            WORKSPACE_STAGES
-    >;
+    using MatmulAllReduceKernel =
+        DGemm::Kernel::MatmulAllReduce<BlockMmad, BlockEpilogueReduceScatter, BlockEpilogueAllGather,
+                                       BlockMmadScheduler, BlockEpilogueScheduler, WORKSPACE_STAGES>;
 
     typename BlockEpilogueReduceScatter::Params reduceScatterParams{};
     typename BlockEpilogueAllGather::Params allGatherParams{};
 
-    typename MatmulAllReduceKernel::Params params{
-            problemShape, rankIdx, rankSize,
-            COMM_INTERVAL,
-            gmA, layoutA,
-            gmB, layoutB,
-            gmD, layoutD,
-            gmSymmetric,
-            reduceScatterParams,
-            allGatherParams
-    };
+    typename MatmulAllReduceKernel::Params params{problemShape,
+                                                  rankIdx,
+                                                  rankSize,
+                                                  COMM_INTERVAL,
+                                                  gmA,
+                                                  layoutA,
+                                                  gmB,
+                                                  layoutB,
+                                                  gmD,
+                                                  layoutD,
+                                                  gmSymmetric,
+                                                  reduceScatterParams,
+                                                  allGatherParams};
 
     MatmulAllReduceKernel matmulAllReduceKernel;
     matmulAllReduceKernel(params);
 }
-

@@ -15,34 +15,34 @@
 #include "catcoc_host_tiling.h"
 
 void catcoc_allgather_matmul_bf16_wnd_kernel(uint32_t blockNum, aclrtStream stream, uint64_t fftsAddr, uint64_t teamIdx,
-                                             uint8_t* gmA, uint8_t* gmB, uint8_t* gmC,
-                                             uint8_t* gmSymmetric, uint8_t* gmWorkspace, uint8_t* gmTiling);
+                                             uint8_t *gmA, uint8_t *gmB, uint8_t *gmC, uint8_t *gmSymmetric,
+                                             uint8_t *gmWorkspace, uint8_t *gmTiling);
 
 void catcoc_allgather_matmul_fp16_wnd_kernel(uint32_t blockNum, aclrtStream stream, uint64_t fftsAddr, uint64_t teamIdx,
-                                             uint8_t* gmA, uint8_t* gmB, uint8_t* gmC,
-                                             uint8_t* gmSymmetric, uint8_t* gmWorkspace, uint8_t* gmTiling);
+                                             uint8_t *gmA, uint8_t *gmB, uint8_t *gmC, uint8_t *gmSymmetric,
+                                             uint8_t *gmWorkspace, uint8_t *gmTiling);
 
 void catcoc_allgather_matmul_bf16_wnz_kernel(uint32_t blockNum, aclrtStream stream, uint64_t fftsAddr, uint64_t teamIdx,
-                                             uint8_t* gmA, uint8_t* gmB, uint8_t* gmC,
-                                             uint8_t* gmSymmetric, uint8_t* gmWorkspace, uint8_t* gmTiling);
+                                             uint8_t *gmA, uint8_t *gmB, uint8_t *gmC, uint8_t *gmSymmetric,
+                                             uint8_t *gmWorkspace, uint8_t *gmTiling);
 
 void catcoc_allgather_matmul_fp16_wnz_kernel(uint32_t blockNum, aclrtStream stream, uint64_t fftsAddr, uint64_t teamIdx,
-                                             uint8_t* gmA, uint8_t* gmB, uint8_t* gmC,
-                                             uint8_t* gmSymmetric, uint8_t* gmWorkspace, uint8_t* gmTiling);
+                                             uint8_t *gmA, uint8_t *gmB, uint8_t *gmC, uint8_t *gmSymmetric,
+                                             uint8_t *gmWorkspace, uint8_t *gmTiling);
 
 void catcoc_matmul_allreduce_bf16_wnd_kernel(uint32_t blockNum, aclrtStream stream, uint64_t fftsAddr, uint64_t teamIdx,
-                                             uint8_t* gmA, uint8_t* gmB, uint8_t* gmC,
-                                             uint8_t* gmSymmetric, uint8_t* gmWorkspace, uint8_t* gmTiling);
+                                             uint8_t *gmA, uint8_t *gmB, uint8_t *gmC, uint8_t *gmSymmetric,
+                                             uint8_t *gmWorkspace, uint8_t *gmTiling);
 
 void catcoc_matmul_allreduce_fp16_wnd_kernel(uint32_t blockNum, aclrtStream stream, uint64_t fftsAddr, uint64_t teamIdx,
-                                             uint8_t* gmA, uint8_t* gmB, uint8_t* gmC,
-                                             uint8_t* gmSymmetric, uint8_t* gmWorkspace, uint8_t* gmTiling);
+                                             uint8_t *gmA, uint8_t *gmB, uint8_t *gmC, uint8_t *gmSymmetric,
+                                             uint8_t *gmWorkspace, uint8_t *gmTiling);
 
 void catcoc_matmul_allreduce_bf16_wnz_kernel(uint32_t blockNum, aclrtStream stream, uint64_t fftsAddr, uint64_t teamIdx,
-                                             uint8_t* gmA, uint8_t* gmB, uint8_t* gmC,
-                                             uint8_t* gmSymmetric, uint8_t* gmWorkspace, uint8_t* gmTiling);
+                                             uint8_t *gmA, uint8_t *gmB, uint8_t *gmC, uint8_t *gmSymmetric,
+                                             uint8_t *gmWorkspace, uint8_t *gmTiling);
 
 void catcoc_matmul_allreduce_fp16_wnz_kernel(uint32_t blockNum, aclrtStream stream, uint64_t fftsAddr, uint64_t teamIdx,
-                                             uint8_t* gmA, uint8_t* gmB, uint8_t* gmC,
-                                             uint8_t* gmSymmetric, uint8_t* gmWorkspace, uint8_t* gmTiling);
-#endif //KERNEL_CATCOC_KERNEL_H
+                                             uint8_t *gmA, uint8_t *gmB, uint8_t *gmC, uint8_t *gmSymmetric,
+                                             uint8_t *gmWorkspace, uint8_t *gmTiling);
+#endif  // KERNEL_CATCOC_KERNEL_H

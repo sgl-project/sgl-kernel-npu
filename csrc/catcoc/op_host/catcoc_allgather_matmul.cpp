@@ -19,7 +19,6 @@
 #include "../include/catcoc_kernel.h"
 // #include "aclrtlaunch_catcoc_allgather_matmul_kernel.h"
 
-
 extern "C" int rtGetC2cCtrlAddr(uint64_t *config, uint32_t *len);
 
 namespace sglang {
@@ -63,8 +62,8 @@ HOST_API void catcoc_allgather_matmul(const at::Tensor &input_a, const at::Tenso
     at::ScalarType bType = input_b.scalar_type();
     at::ScalarType cType = output_c.scalar_type();
     TORCH_CHECK(aType == bType && bType == cType, "tensor type is not the same");
-    TORCH_CHECK((aType == at::ScalarType::Half)||(aType == at::ScalarType::BFloat16),
-        "tensor type only support half and bf16");
+    TORCH_CHECK((aType == at::ScalarType::Half) || (aType == at::ScalarType::BFloat16),
+                "tensor type only support half and bf16");
 
     auto formatMode = static_cast<WeightFormatMode>(GetModeVal(weightFormatMap, format_mode, "ND", "format_mode"));
     // TORCH_CHECK(formatMode == WeightFormatMode::WEIGHT_ND, "current ops only support weightFormat ND");
@@ -84,34 +83,35 @@ HOST_API void catcoc_allgather_matmul(const at::Tensor &input_a, const at::Tenso
 
     int32_t batchIdx = m - 1;
     uint32_t tilingSize = sizeof(KernelCATCOCHostTilingData);
-    static auto global_tiling_data = at::empty(
-            {tilingSize * MAX_CAPTURE_NUM}, at::TensorOptions().dtype(at::kByte).device(input_a.options().device())).contiguous();
+    static auto global_tiling_data = at::empty({tilingSize * MAX_CAPTURE_NUM},
+                                               at::TensorOptions().dtype(at::kByte).device(input_a.options().device()))
+                                         .contiguous();
     if (batchIdx >= 0 && batchIdx < MAX_CAPTURE_NUM) {
-      aclrtMemcpy(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * batchIdx), tilingSize,
-                  cpu_tiling_tensor.data_ptr<uint8_t>(), tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
+        aclrtMemcpy(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * batchIdx), tilingSize,
+                    cpu_tiling_tensor.data_ptr<uint8_t>(), tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
     } else {
-      // Handle the case where batchIdx is out of range
-      TORCH_CHECK(false, "caching tiling batchIdx is out of range: ", batchIdx);
+        // Handle the case where batchIdx is out of range
+        TORCH_CHECK(false, "caching tiling batchIdx is out of range: ", batchIdx);
     }
     // c10_npu::getCurrentNPUStream().synchronize();
     at::Tensor tiling_tensor =
-            at::from_blob(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * batchIdx), tilingSize,
-                          at::TensorOptions().dtype(at::kByte).device(input_a.options().device()));
+        at::from_blob(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * batchIdx), tilingSize,
+                      at::TensorOptions().dtype(at::kByte).device(input_a.options().device()));
     // gmWorkspace is a dummy input for ascendc compile with tiling, catcoc ops use gmSymmetric as actual workspace
     auto workspace_tensor = at::empty({1}, at::TensorOptions().dtype(at::kByte).device(input_a.options().device()));
 
     // launch the kernel function via torch opcmd
-    auto a_ptr = reinterpret_cast<uint8_t*>(input_a.data_ptr());
-    auto b_ptr = reinterpret_cast<uint8_t*>(input_b.data_ptr());
-    auto c_ptr = reinterpret_cast<uint8_t*>(output_c.data_ptr());
+    auto a_ptr = reinterpret_cast<uint8_t *>(input_a.data_ptr());
+    auto b_ptr = reinterpret_cast<uint8_t *>(input_b.data_ptr());
+    auto c_ptr = reinterpret_cast<uint8_t *>(output_c.data_ptr());
     // void *symm_ptr = shmem_malloc(gNpuMallocSpace * sizeof(__fp16));
-    auto symm_ptr = reinterpret_cast<uint8_t*>(symmAddr);
-    auto tiling_ptr = reinterpret_cast<uint8_t*>(tiling_tensor.data_ptr());
+    auto symm_ptr = reinterpret_cast<uint8_t *>(symmAddr);
+    auto tiling_ptr = reinterpret_cast<uint8_t *>(tiling_tensor.data_ptr());
     // auto fftsAddr = shmemx_get_ffts_config();
     uint32_t len;
     uint64_t fftsAddr;
     rtGetC2cCtrlAddr(&fftsAddr, &len);
-    auto workspace_ptr = reinterpret_cast<uint8_t*>(workspace_tensor.data_ptr());
+    auto workspace_ptr = reinterpret_cast<uint8_t *>(workspace_tensor.data_ptr());
 
     printf("[host] tiling_ptr on host is %ld\n", tiling_ptr);
     printf("[host] ipt_a_ptr is %ld, ipt_b_ptr is %ld, opt_c_ptr is %ld\n", a_ptr, b_ptr, c_ptr);
@@ -132,31 +132,35 @@ HOST_API void catcoc_allgather_matmul(const at::Tensor &input_a, const at::Tenso
 
     std::function<int()> acl_call;
     if ((aType == at::ScalarType::Half) && (formatMode == WeightFormatMode::WEIGHT_ND)) {
-        acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr, tiling_ptr]() -> int {
+        acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr,
+                    tiling_ptr]() -> int {
             printf("[catcoc_allgather_matmul_fp16_wnd_kernel] tiling_ptr on launch is %ld\n", tiling_ptr);
-            catcoc_allgather_matmul_fp16_wnd_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr,
-                                                    workspace_ptr, tiling_ptr);
+            catcoc_allgather_matmul_fp16_wnd_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr,
+                                                    symm_ptr, workspace_ptr, tiling_ptr);
             return 0;
         };
     } else if ((aType == at::ScalarType::Half) && (formatMode == WeightFormatMode::WEIGHT_NZ)) {
-        acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr, tiling_ptr]() -> int {
+        acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr,
+                    tiling_ptr]() -> int {
             printf("[catcoc_allgather_matmul_fp16_wnz_kernel] tiling_ptr on launch is %ld\n", tiling_ptr);
-            catcoc_allgather_matmul_fp16_wnz_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr,
-                                                    workspace_ptr, tiling_ptr);
+            catcoc_allgather_matmul_fp16_wnz_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr,
+                                                    symm_ptr, workspace_ptr, tiling_ptr);
             return 0;
         };
     } else if ((aType == at::ScalarType::BFloat16) && (formatMode == WeightFormatMode::WEIGHT_ND)) {
-        acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr, tiling_ptr]() -> int {
+        acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr,
+                    tiling_ptr]() -> int {
             printf("[catcoc_allgather_matmul_bf16_wnd_kernel] tiling_ptr on launch is %ld\n", tiling_ptr);
-            catcoc_allgather_matmul_bf16_wnd_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr,
-                                                    workspace_ptr, tiling_ptr);
+            catcoc_allgather_matmul_bf16_wnd_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr,
+                                                    symm_ptr, workspace_ptr, tiling_ptr);
             return 0;
         };
     } else if ((aType == at::ScalarType::BFloat16) && (formatMode == WeightFormatMode::WEIGHT_NZ)) {
-        acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr, tiling_ptr]() -> int {
+        acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr,
+                    tiling_ptr]() -> int {
             printf("[catcoc_allgather_matmul_bf16_wnz_kernel] tiling_ptr on launch is %ld\n", tiling_ptr);
-            catcoc_allgather_matmul_bf16_wnz_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr,
-                                                    workspace_ptr, tiling_ptr);
+            catcoc_allgather_matmul_bf16_wnz_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr,
+                                                    symm_ptr, workspace_ptr, tiling_ptr);
             return 0;
         };
     } else {
@@ -171,7 +175,6 @@ HOST_API void catcoc_allgather_matmul(const at::Tensor &input_a, const at::Tenso
     EXEC_KERNEL_CMD(catcoc_allgather_matmul_kernel, block_dim, fftsAddr, teamIdx, input_a, input_b, output_c,
                     symm_ptr, workspace_tensor, tiling_ptr);
     */
-
 }
 
 }  // namespace npu_kernel
