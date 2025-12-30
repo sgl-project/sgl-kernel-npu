@@ -12,6 +12,7 @@
 #include "defines.h"
 #include "shmem_api.h"
 #include "aclrtlaunch_allgather.h"
+#include "aclrtlaunch_allgatherZeroBuff.h"
 #include "allgather_tiling_data.h"
 #include "torch_helper.h"
 #include "../../include/zccl.h"
@@ -60,6 +61,36 @@ extern "C" HOST_API int ZcclAllGather(void *input, void *output, uint64_t numel,
     int data_type_int = static_cast<int>(data_type);
 
     ACLRT_LAUNCH_KERNEL(allgather)(block_dim, stream, input, output, gva, numel, data_type_int, team_id, ffts_addr, magic, tiling_device_ptr);
+    aclrtFreeHost(tiling_host.get());
+    aclrtFree(tiling_device_ptr);
+    shmem_free(gva);
+    return 0;
+}
+
+extern "C" HOST_API int ZcclAllGatherZeroBuff(void *input, void *output, uint64_t numel, ZCCLDataType data_type, int team_id, aclrtStream stream)
+{
+    int32_t block_dim = 0;
+    if (numel * sizeof(int) < BIG_DATA_SIZE) {
+        block_dim = 8;
+    }else {
+        block_dim = 16;
+    }
+    int magic = 1024;
+
+    void *tiling_device_ptr;
+    aclrtMalloc(&tiling_device_ptr, sizeof(AllGatherTilingData), ACL_MEM_MALLOC_HUGE_FIRST);
+    std::shared_ptr<AllGatherTilingData> tiling_host;
+    aclrtMallocHost(reinterpret_cast<void**>(tiling_host.get()), sizeof(AllGatherTilingData));
+    tiling_host = get_tiling(block_dim, numel, team_id);
+
+    aclrtMemcpy(tiling_device_ptr, sizeof(AllGatherTilingData), tiling_host.get(), sizeof(AllGatherTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+    uint64_t ffts_addr = shmemx_get_ffts_config();
+    size_t gva_size = block_dim * SYNC_FLAG_INTERVAL * sizeof(int) + GVA_BUFF_MAX_SIZE;
+    void *gva = shmem_malloc(gva_size);
+    aclrtMemset(gva, gva_size, 0, gva_size);
+    int data_type_int = static_cast<int>(data_type);
+
+    ACLRT_LAUNCH_KERNEL(allgatherZeroBuff)(block_dim, stream, input, output, gva, numel, data_type_int, team_id, ffts_addr, magic, tiling_device_ptr);
     aclrtFreeHost(tiling_host.get());
     aclrtFree(tiling_device_ptr);
     shmem_free(gva);
