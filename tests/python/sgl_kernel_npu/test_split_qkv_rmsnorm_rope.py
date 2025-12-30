@@ -81,14 +81,14 @@ def test_split_qkv_rmsnorm_rope():
         qkv,
         sin,
         cos,
-        q_weight,
-        k_weight,
         q_hidden_size,
         kv_hidden_size,
         head_dim,
-        eps,
-        q_bias,
-        k_bias,
+        eps=eps,
+        q_weight=q_weight,
+        k_weight=k_weight,
+        q_bias=q_bias,
+        k_bias=k_bias,
     )
 
     # split
@@ -132,5 +132,65 @@ def test_split_qkv_rmsnorm_rope():
     )
 
 
+def test_split_qkv_rope():
+    q_hidden_size = 6144
+    kv_hidden_size = 1024
+    head_dim = 128
+    bsz = 12
+    eps = 1e-6
+    qkv = torch.randn(bsz, q_hidden_size + kv_hidden_size * 2).to(torch.bfloat16).npu()
+    sin = np.random.uniform(0, 1, [bsz, 1, 1, head_dim])
+    cos = np.random.uniform(0, 1, [bsz, 1, 1, head_dim])
+    sin = torch.from_numpy(sin).to(torch.bfloat16).npu()
+    cos = torch.from_numpy(cos).to(torch.bfloat16).npu()
+    # fused kernel
+    q, k, v = split_qkv_rmsnorm_rope(
+        qkv,
+        sin,
+        cos,
+        q_hidden_size,
+        kv_hidden_size,
+        head_dim,
+    )
+
+    # split
+    _q, _k, _v = qkv.split([q_hidden_size, kv_hidden_size, kv_hidden_size], dim=-1)
+
+    # rope
+    _q = _q.reshape(bsz, 1, -1, head_dim).to(torch.float32).cpu().numpy()
+    _k = _k.reshape(bsz, 1, -1, head_dim).to(torch.float32).cpu().numpy()
+    cus_q, cus_k = custom_rope(_q, _k, sin, cos)
+    cus_q = cus_q.reshape(bsz, -1)
+    cus_k = cus_k.reshape(bsz, -1)
+
+    assert (
+        np.testing.assert_allclose(
+            q.to(torch.float32).cpu().numpy(),
+            cus_q,
+            atol=5e-2,
+        )
+        is None
+    )
+
+    assert (
+        np.testing.assert_allclose(
+            k.to(torch.float32).cpu().numpy(),
+            cus_k,
+            atol=5e-2,
+        )
+        is None
+    )
+
+    assert (
+        np.testing.assert_allclose(
+            v.to(torch.float32).cpu().numpy(),
+            _v.to(torch.float32).cpu().numpy(),
+            rtol=5e-3,
+        )
+        is None
+    )
+
+
 if __name__ == "__main__":
     test_split_qkv_rmsnorm_rope()
+    test_split_qkv_rope()
