@@ -14,16 +14,12 @@
 #include "defines.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "torch_helper.h"
-#include "catcoc_host_tiling.h"
+#include "../include/catcoc_host_tiling.h"
+#include "../include/catcoc_kernel.h"
 // #include "aclrtlaunch_catcoc_allgather_matmul_kernel.h"
 
-// shmem_device
-#include "shmem_api.h"
 
 extern "C" int rtGetC2cCtrlAddr(uint64_t *config, uint32_t *len);
-extern "C" void catcoc_allgather_matmul_kernel(uint32_t blockNum, aclrtStream stream, uint64_t fftsAddr, uint64_t teamIdx,
-                                               void* gmA, void* gmB, void* gmC,
-                                               void* gmSymmetric, void* gmWorkspace, void* gmTiling);
 
 namespace sglang {
 namespace npu_kernel {
@@ -76,6 +72,7 @@ static uint64_t gNpuReserveSpace = 1024UL * 1024UL * 1024;
 static uint64_t gNpuMallocSpace = 128UL * 1024UL * 1024;
 static std::string ipPort = "tcp://127.0.0.1:19233";
 
+/*
 void shmem_init() {
   auto get_env_int = [](const char* name, int default_val = 0) {
       char* val = std::getenv(name);
@@ -94,13 +91,15 @@ void shmem_init() {
   status = shmem_init_status();
   printf("shmem_init_status is: %d ;", status);
 }
+*/
 
 HOST_API void catcoc_allgather_matmul(const at::Tensor &input_a, const at::Tensor &input_b, at::Tensor &output_c,
                                       int64_t symmAddr, int64_t teamId = 0,
                                       c10::optional<c10::string_view> format_mode = c10::nullopt)
 {
     // init shmem
-    shmem_init();
+    // shmem_init();
+    assert(shm::g_state.is_shmem_initialized);
 
     // ops valid check
     at::ScalarType aType = input_a.scalar_type();
@@ -145,17 +144,17 @@ HOST_API void catcoc_allgather_matmul(const at::Tensor &input_a, const at::Tenso
     auto workspace_tensor = at::empty({1}, at::TensorOptions().dtype(at::kByte).device(input_a.options().device()));
 
     // launch the kernel function via torch opcmd
-    void *a_ptr = input_a.data_ptr();
-    void *b_ptr = input_b.data_ptr();
-    void *c_ptr = output_c.data_ptr();
-    void *symm_ptr = shmem_malloc(gNpuMallocSpace * sizeof(__fp16));
-    // void *symm_ptr = reinterpret_cast<void*>(symmAddr);
-    void *tiling_ptr = tiling_tensor.data_ptr();
+    auto a_ptr = reinterpret_cast<uint8_t*>(input_a.data_ptr());
+    auto b_ptr = reinterpret_cast<uint8_t*>(input_b.data_ptr());
+    auto c_ptr = reinterpret_cast<uint8_t*>(output_c.data_ptr());
+    // void *symm_ptr = shmem_malloc(gNpuMallocSpace * sizeof(__fp16));
+    auto symm_ptr = reinterpret_cast<uint8_t*>(symmAddr);
+    auto tiling_ptr = reinterpret_cast<uint8_t*>(tiling_tensor.data_ptr());
     // auto fftsAddr = shmemx_get_ffts_config();
     uint32_t len;
     uint64_t fftsAddr;
     rtGetC2cCtrlAddr(&fftsAddr, &len);
-    void *workspace_ptr = workspace_tensor.data_ptr();
+    auto workspace_ptr = reinterpret_cast<uint8_t*>(workspace_tensor.data_ptr());
 
     printf("[host] tiling_ptr on host is %ld\n", tiling_ptr);
     printf("[host] ipt_a_ptr is %ld, ipt_b_ptr is %ld, opt_c_ptr is %ld\n", a_ptr, b_ptr, c_ptr);

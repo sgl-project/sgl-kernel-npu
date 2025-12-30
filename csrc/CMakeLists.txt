@@ -26,6 +26,11 @@ if(BUILD_CATLASS_MODULE)
     )
 endif()
 if(BUILD_CATCOC_MODULE)
+    # check catcoc kernel already built (must build in bisheng)
+    set(CATCOC_LIBRARY_OUTPUT ${PROJECT_OP_SRC_BASE}/catcoc/ops/install)
+    if(NOT EXISTS "${CATCOC_LIBRARY_OUTPUT}/libcatcoc_kernel.so")
+        message(FATAL_ERROR "Assert Failed: CATCOC ops lib(libcatcoc_kernel.so) does not exist: ${CATCOC_LIBRARY_OUTPUT}")
+    endif()
     list(APPEND OP_SRCS
         ${PROJECT_OP_SRC_BASE}/catcoc/op_host/catcoc_allgather_matmul.cpp
     )
@@ -58,26 +63,11 @@ if(BUILD_CATLASS_MODULE)
         ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_matmul_basic_kernel.cpp
     )
 endif()
-if(BUILD_CATCOC_MODULE)
-    list(APPEND WORKSPACE_KERNEL_SRCS
-       ${PROJECT_OP_SRC_BASE}/catcoc/op_kernel/catcoc_allgather_matmul_kernel.cpp
-    )
-endif()
 
 ascendc_library(workspace_kernel STATIC ${WORKSPACE_KERNEL_SRCS})
 if(BUILD_CATLASS_MODULE)
     ascendc_include_directories(workspace_kernel PRIVATE
         ${CATLASS_DIR}/include
-    )
-endif()
-if(BUILD_CATCOC_MODULE)
-    ascendc_include_directories(workspace_kernel PRIVATE
-        ${CATLASS_DIR}/include
-        ${CATCOC_DIR}/include
-        ${SHMEM_HOME_PATH}/shmem/include
-        ${SHMEM_HOME_PATH}/memfabric_hybrid/include/smem/host
-        ${SHMEM_HOME_PATH}/memfabric_hybrid/include/smem/device
-        ${ASCEND_HOME_PATH}/include
     )
 endif()
 
@@ -108,6 +98,7 @@ target_link_directories(${OP_PLUGIN_NAME} PRIVATE
 if(BUILD_CATCOC_MODULE)
     target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${SHMEM_HOME_PATH}/shmem/lib/libshmem.so
+        ${CATCOC_LIBRARY_OUTPUT}/libcatcoc_kernel.so
     )
 endif()
 
@@ -121,10 +112,10 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${ASCEND_INCLUDE_DIR}/experiment/platform
         ${ASCEND_INCLUDE_DIR}/experiment/runtime
 )
-if(BUILD_CATCOC_MODULE)
-    target_include_directories(${OP_PLUGIN_NAME} PRIVATE
-        ${SHMEM_HOME_PATH}/shmem/include
-        ${SHMEM_HOME_PATH}/memfabric_hybrid/include/smem/host
-        ${SHMEM_HOME_PATH}/memfabric_hybrid/include/smem/device
-    )
-endif()
+#if(BUILD_CATCOC_MODULE)
+#    target_include_directories(${OP_PLUGIN_NAME} PRIVATE
+#        ${SHMEM_HOME_PATH}/shmem/include
+#        ${SHMEM_HOME_PATH}/memfabric_hybrid/include/smem/host
+#        ${SHMEM_HOME_PATH}/memfabric_hybrid/include/smem/device
+#    )
+#endif()

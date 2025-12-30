@@ -10,7 +10,6 @@
 
 /* include file of ascendc */
 #include "kernel_operator.h"
-#include "../op_host/catcoc_host_tiling.h"
 /* include file of catlass */
 #include "catlass/catlass.hpp"
 #include "catlass/arch/arch.hpp"
@@ -33,6 +32,8 @@
 
 // shmem_device
 #include "shmem_api.h"
+
+#include "catcoc_host_tiling.h"
 
 using namespace AscendC;
 using namespace Catcoc;
@@ -160,10 +161,4 @@ extern "C" __global__ __aicore__ void catcoc_allgather_matmul(uint64_t fftsAddr,
     // Call kernel
     AllGatherMatmulKernel matmulCommKernel;
     matmulCommKernel(params);
-}
-
-extern "C" void catcoc_allgather_matmul_kernel(uint32_t blockNum, aclrtStream stream, uint64_t fftsAddr, uint64_t teamIdx,
-                                               void* gmA, void* gmB, void* gmC,
-                                               void* gmSymmetric, void* gmWorkspace, void* gmTiling) {
-  catcoc_allgather_matmul<<<blockNum, nullptr, stream>>>(fftsAddr, teamIdx, gmA, gmB, gmC, gmSymmetric, gmWorkspace, gmTiling);
 }

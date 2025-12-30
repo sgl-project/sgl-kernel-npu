@@ -20,7 +20,7 @@ g_team_size = 2
 
 def direct_testing(input_a, input_b, input_c, team_id=0, group_list=()):
     global g_shmem_addr
-    g_shmem_addr = 0
+    # g_shmem_addr = 0
 
     a, b = input_a, input_b
     # b_nz = torch_npu.npu_format_cast(b, 29)
@@ -154,10 +154,10 @@ if __name__ == "__main__":
     rank = dist.get_rank()
     world_size = dist.get_world_size()
 
-    # shmem_init(rank, world_size)
+    shmem_init(rank, world_size)
 
     for mnk_list in ((64, 7168, 2048),):
         run_global_test(test_mnk=mnk_list)
 
-    # ash.shmem_free(g_shmem_addr)
+    ash.shmem_free(g_shmem_addr)
     ash.shmem_finialize()
