@@ -19,11 +19,10 @@ constexpr uint64_t WIN_STATE_OFFSET = 500UL * 1024UL;
 constexpr uint64_t STATE_WIN_OFFSET = 950UL * 1024UL;
 constexpr uint64_t WIN_ADDR_ALIGN = 512UL;
 constexpr uint32_t EXPAND_IDX_INFO = 3U;
-constexpr uint64_t COMBINE_STATE_WIN_OFFSET = 4UL * 1024UL * 1024UL;
+constexpr uint64_t COMBINE_STATE_WIN_OFFSET = 8UL * 1024UL * 1024UL;
 constexpr int64_t CYCLE_TO_TIME = 50;  // cycle num is converted into a fixed base unit of time, set at 50
-constexpr uint64_t ROUND_STATE_OFFSET = 450UL * 1024UL;
+constexpr uint64_t ROUND_STATE_OFFSET = Moe::BASE_ROUND_STATE_OFFSET;
 constexpr uint32_t FLOAT_NUM_PER_ALIGN = 8U;
-constexpr uint64_t ROUND_STATE_MAX_SIZE = 4 * 1024UL;
 
 template <AscendC::HardEvent event>
 __aicore__ inline void SyncFunc()
@@ -90,12 +89,12 @@ private:
     {
         uint32_t curRankId = ctxIdx == COMM_EP_IDX ? epRankId : tpRankId;
         if (curRankId == rankId) {
-            return (GM_ADDR)(winContext_[ctxIdx]->localWindowsExp) + dataState * ROUND_STATE_MAX_SIZE +
+            return (GM_ADDR)(winContext_[ctxIdx]->localWindowsExp) + dataState * Moe::ROUND_STATE_MAX_SIZE +
                    ROUND_STATE_OFFSET;
         }
         return (GM_ADDR)(((HcclRankRelationResV2 *)(winContext_[ctxIdx]->remoteRes[rankId].nextDevicePtr))
                              ->windowsExp) +
-               dataState * ROUND_STATE_MAX_SIZE + ROUND_STATE_OFFSET;
+               dataState * Moe::ROUND_STATE_MAX_SIZE + ROUND_STATE_OFFSET;
     }
 
     TPipe *tpipe_{nullptr};
@@ -280,7 +279,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(
 
     uint64_t hSizeAlignCombine = Ceil(h * sizeof(XType), WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
     winDataSizeOffset = dataState * (tilingData->camMoeDispatchNormalInfo.totalWinSize / 2) +
-                        realMaxBatchSize * topK * hSizeAlignCombine;
+                        min(realMaxBatchSize, perRoundTokens) * topK * hSizeAlignCombine;
     shareGM = GetWindAddrByRankId(COMM_EP_IDX, epRankId);
 
     hCommuCopyOutParams = {1U, static_cast<uint32_t>(hScaleIdxSize), 0U, 0U, 0U};
@@ -751,76 +750,20 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::ShareToOutputLongSeq()
 }
 
 template <CamTypeClass>
-__aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::ShareToOutput()
-{
-    if (startStatusId >= moeExpertNum) {
-        return;
-    }
-    uint32_t fromRank, count, preCount, recvOffset, targetOffset;
-    DataCopyPadExtParams<ExpandXOutType> copyPadExtParams{false, 0U, 0U, 0U};
-    DataCopyExtParams dataCopyExandIdxParams{1U, sizeof(int32_t) * EXPAND_IDX_INFO, 0U, 0U, 0U};
-    DataCopyExtParams dataCopyOutParams{1U, static_cast<uint32_t>(statusNumPerCore * sizeof(int32_t)), 0U, 0U, 0U};
-    DataCopyExtParams expandXCopyParams = {1U, static_cast<uint32_t>(h * sizeof(ExpandXOutType)), 0U, 0U, 0U};
-    LocalTensor<int32_t> xTmpTensorInt;
-    AscendC::TQueSync<PIPE_MTE2, PIPE_S> recvCountLocalSync;
-    recvCountLocalSync.SetFlag(0);
-    recvCountLocalSync.WaitFlag(0);
-    for (uint32_t i = startStatusId; i < endStatusId; ++i) {
-        preCount = 0;
-        if (likely(i != 0)) {
-            preCount = recvCountTensor(i - 1);
-        }
-        fromRank = i % epRankSize;
-        count = recvCountTensor(i) - preCount;
-        recvOffset = recvOffsetTensor(i);
-        targetOffset = preCount;
-        GM_ADDR recvStart =
-            (__gm__ uint8_t *)(GetWindAddrByRankId(COMM_EP_IDX, fromRank)) + recvOffset * hOutGMAlignSize;
-        GlobalTensor<ExpandXOutType> srcTokenGT, dstTokenGT;
-        for (uint32_t j = 0; j < count; ++j) {
-            srcTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(recvStart + j * hOutGMAlignSize));
-            xTmpTensor = xQueue.AllocTensor<ExpandXOutType>();
-            DataCopyPad(xTmpTensor, srcTokenGT, hCommuCopyOutParams, copyPadExtParams);
-            xQueue.EnQue(xTmpTensor);
-            xTmpTensor = xQueue.DeQue<ExpandXOutType>();
-            xTmpTensorInt = xTmpTensor.template ReinterpretCast<int32_t>();
-            DataCopyPad(expandIdxOutGT[(targetOffset + j) * EXPAND_IDX_INFO], xTmpTensorInt[expandIdxStartIdx],
-                        dataCopyExandIdxParams);
-            if constexpr (DynamicQuant) {
-                DataCopyExtParams floatDataCopyParams = {1U, sizeof(float), 0U, 0U, 0U};
-                LocalTensor<float> xOutFp32Tensor = xTmpTensor.template ReinterpretCast<float>();
-                DataCopyPad(dynamicScalesOutGT[targetOffset + j], xOutFp32Tensor[hUBAlignSize / sizeof(float)],
-                            floatDataCopyParams);
-            }
-            dstTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(expandXOutGM) + (targetOffset + j) * h, h);
-            DataCopyPad(dstTokenGT, xTmpTensor, expandXCopyParams);
-            xQueue.FreeTensor(xTmpTensor);
-        }
-    }
-}
-
-template <CamTypeClass>
 __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Process()
 {
     if ASCEND_IS_AIV {
-        if (round != 0) {
-            uint32_t realRound = (realMaxBatchSize + perRoundTokens - 1) / perRoundTokens;
-            while (roundIndex < realRound) {
-                InputToShare();
-                SetStatus();
-                WaitStatus();
-                ShareToOutputLongSeq();
-                SyncAll<true>();
-                SetRoundStatus();
-                WaitRoundStatus();
-                SyncAll<true>();
-                roundIndex += 1;
-            }
-        } else {
+        uint32_t realRound = (realMaxBatchSize + perRoundTokens - 1) / perRoundTokens;
+        while (roundIndex < realRound) {
             InputToShare();
             SetStatus();
             WaitStatus();
-            ShareToOutput();
+            ShareToOutputLongSeq();
+            SyncAll<true>();
+            SetRoundStatus();
+            WaitRoundStatus();
+            SyncAll<true>();
+            roundIndex += 1;
         }
     }
 }

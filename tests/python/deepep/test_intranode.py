@@ -115,14 +115,14 @@ def test_main(
             )
 
         assert (
-            r >= 1 and r <= 16
-        ), f"DEEPEP_NORMAL_LONG_SEQ_ROUND must be between 1-16, current value:{r}"
+            r >= 1 and r <= 256
+        ), f"DEEPEP_NORMAL_LONG_SEQ_ROUND must be between 1-256, current value:{r}"
         assert (
             t >= 32 and t <= 8192
         ), f"DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS must be between 32-8192, current value:{t}"
         assert (
-            r * t <= 16384
-        ), f"round({r}) * per_round_tokens({t}) = {r*t} exceeds limit of 16384"
+            r * t <= 131072
+        ), f"round({r}) * per_round_tokens({t}) = {r*t} exceeds limit of 131072"
         round_val = r
         per_round_tokens = t
 
@@ -225,8 +225,8 @@ def test_main(
         for current_x in filter(lambda elem: elem is not None, (x_pure_rand,)):
             dispatch_args = {
                 "x": current_x,
-                "num_tokens_per_rank": num_tokens_per_rank,
-                "is_token_in_rank": is_token_in_rank,
+                "num_tokens_per_rank": ref_num_tokens_per_rank,
+                "is_token_in_rank": ref_is_token_in_rank,
                 "num_tokens_per_expert": ref_num_tokens_per_expert,
                 "config": config,
                 "topk_idx": topk_idx,
@@ -290,8 +290,8 @@ def test_main(
             )
         dispatch_args = {
             "x": current_x,
-            "num_tokens_per_rank": num_tokens_per_rank,
-            "is_token_in_rank": is_token_in_rank,
+            "num_tokens_per_rank": ref_num_tokens_per_rank,
+            "is_token_in_rank": ref_is_token_in_rank,
             "num_tokens_per_expert": ref_num_tokens_per_expert,
             "config": config,
             "topk_idx": topk_idx,
@@ -320,7 +320,9 @@ def test_main(
         else:
             local_expert_token_list = local_expert_token.tolist()
 
-        assert local_expert_token_list == recv_num_tokens_per_expert_list
+        assert (
+            local_expert_token_list == recv_num_tokens_per_expert_list
+        ), f"Assertion num_tokens_per_rank failed on rank {rank}: Expected {local_expert_token_list}, Actual {recv_num_tokens_per_expert_list}"
         # todo 1. Duplicate tansmission to experts of the same rank.
         # assert gbl_num_tokens_per_rank[rank].item() == recv_x.size(0), f'{gbl_num_tokens_per_rank[rank].item()} != {recv_x.size(0)}'
         # todo 2. recv_num_tokens_per_expert_list is the prefix sum of the actual data.
@@ -340,13 +342,11 @@ def test_main(
         combined_x, combined_topk_weights, event = buffer.combine(**combine_args)
         check_x = combined_x.float()
         ref_x = x_pure_rand if current_x is x_pure_rand else x
-        assert (
-            calc_diff(
-                check_x,
-                ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
-            )
-            < 5e-5
+        diff = calc_diff(
+            check_x,
+            ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
         )
+        assert diff < 5e-5
 
         # For later tuning
         dispatch_bf16_recv_bytes = recv_x.numel() * 2
@@ -370,8 +370,8 @@ def test_main(
         tune_args = {
             "x": current_x,
             "config": config,
-            "num_tokens_per_rank": num_tokens_per_rank,
-            "is_token_in_rank": is_token_in_rank,
+            "num_tokens_per_rank": ref_num_tokens_per_rank,
+            "is_token_in_rank": ref_is_token_in_rank,
             "num_tokens_per_expert": ref_num_tokens_per_expert,
             "topk_idx": topk_idx,
             "topk_weights": topk_weights,
@@ -387,8 +387,8 @@ def test_main(
 
     dispatch_args = {
         "x": x,
-        "num_tokens_per_rank": num_tokens_per_rank,
-        "is_token_in_rank": is_token_in_rank,
+        "num_tokens_per_rank": ref_num_tokens_per_rank,
+        "is_token_in_rank": ref_is_token_in_rank,
         "num_tokens_per_expert": ref_num_tokens_per_expert,
         "config": config,
         "topk_idx": topk_idx,

@@ -73,7 +73,7 @@ public:
         this->Attr("rank_id").Int();
         this->Attr("local_rank_size").Int();
         this->Attr("local_rank_id").Int();
-        this->Attr("round").Int();  // µÚ7¸ö£¬ATTR_ROUND_INDEX
+        this->Attr("round").Int();  // ç¬¬7ä¸ªï¼ŒATTR_ROUND_INDEX
         this->Attr("perRoundTokens").Int();
 
         OpAICoreConfig aicore_config_base;
