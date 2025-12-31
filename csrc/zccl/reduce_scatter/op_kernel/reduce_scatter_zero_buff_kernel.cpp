@@ -16,6 +16,8 @@
 #include "kernel_operator.h"
 #include "shmem_api.h"
 #include "zccl.h"
+#include "hardware.h"
+#include "mem.h"
 
 using namespace sglang::zccl;
 
@@ -136,8 +138,8 @@ public:
     __aicore__ inline void Process()
     {
 #ifdef __DAV_C220_VEC__
-        const uint32_t ubSize = UB_DMA_MAX_SIZE;
-        AscendC::LocalTensor<T> tmpBuff(AscendC::TPosition::VECIN, 64, ubSize);
+        AsdopsBuffer<ArchType::ASCEND_V220> buf;
+        AscendC::LocalTensor<T> tmpBuff = buf.GetBuffer<BufferType::ASCEND_UB, T>(64);
 
         const __gm__ int32_t *gvaSyncGmAddr = gvaSyncGm.GetPhyAddr();
         __gm__ int32_t *coreGvaSyncGmAddr = (__gm__ int32_t *)gvaSyncGmAddr + gvaSyncOffset;
