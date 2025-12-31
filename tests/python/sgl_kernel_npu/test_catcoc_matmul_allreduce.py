@@ -266,9 +266,9 @@ if __name__ == "__main__":
 
     shmem_init(rank, world_size)
 
-    # for mnk_list in ((64, 7168, 2048),):
-    #     run_global_test(test_mnk=mnk_list, test_nz=True)
-    run_single_test(test_mnk=(10320, 2048, 2048))
+    for mnk_list in ((64, 7168, 2048),):
+        run_global_test(test_mnk=mnk_list, test_nz=True)
+    # run_single_test(test_mnk=(10320, 2048, 2048))
 
     ash.shmem_free(g_shmem_addr)
     ash.shmem_finialize()

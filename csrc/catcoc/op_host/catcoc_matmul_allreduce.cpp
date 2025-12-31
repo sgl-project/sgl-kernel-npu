@@ -112,11 +112,11 @@ HOST_API void catcoc_matmul_allreduce(const at::Tensor &input_a, const at::Tenso
     rtGetC2cCtrlAddr(&fftsAddr, &len);
     auto workspace_ptr = reinterpret_cast<uint8_t *>(workspace_tensor.data_ptr());
 
+    /*
     printf("[host] tiling_ptr on host is %ld\n", tiling_ptr);
     printf("[host] ipt_a_ptr is %ld, ipt_b_ptr is %ld, opt_c_ptr is %ld\n", a_ptr, b_ptr, c_ptr);
     printf("[host] fftsAddr is %lu, symm_ptr is %lu\n", fftsAddr, symm_ptr);
 
-    /*
     at::Tensor cpu_tensor = tiling_tensor.to(at::kCPU).contiguous();
     uint8_t * data_ptr = cpu_tensor.data_ptr<uint8_t>();
     printf("tiling_ptr on host is %ld\n", tiling_ptr);
@@ -140,7 +140,7 @@ HOST_API void catcoc_matmul_allreduce(const at::Tensor &input_a, const at::Tenso
     if ((aType == at::ScalarType::Half) && (formatMode == WeightFormatMode::WEIGHT_ND)) {
         acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr,
                     tiling_ptr]() -> int {
-            printf("[catcoc_matmul_allreduce_fp16_wnd_kernel] tiling_ptr on launch is %ld\n", tiling_ptr);
+            // printf("[catcoc_matmul_allreduce_fp16_wnd_kernel] tiling_ptr on launch is %ld\n", tiling_ptr);
             catcoc_matmul_allreduce_fp16_wnd_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr,
                                                     symm_ptr, workspace_ptr, tiling_ptr);
             return 0;
@@ -148,7 +148,7 @@ HOST_API void catcoc_matmul_allreduce(const at::Tensor &input_a, const at::Tenso
     } else if ((aType == at::ScalarType::Half) && (formatMode == WeightFormatMode::WEIGHT_NZ)) {
         acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr,
                     tiling_ptr]() -> int {
-            printf("[catcoc_matmul_allreduce_fp16_wnz_kernel] tiling_ptr on launch is %ld\n", tiling_ptr);
+            // printf("[catcoc_matmul_allreduce_fp16_wnz_kernel] tiling_ptr on launch is %ld\n", tiling_ptr);
             catcoc_matmul_allreduce_fp16_wnz_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr,
                                                     symm_ptr, workspace_ptr, tiling_ptr);
             return 0;
@@ -156,7 +156,7 @@ HOST_API void catcoc_matmul_allreduce(const at::Tensor &input_a, const at::Tenso
     } else if ((aType == at::ScalarType::BFloat16) && (formatMode == WeightFormatMode::WEIGHT_ND)) {
         acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr,
                     tiling_ptr]() -> int {
-            printf("[catcoc_matmul_allreduce_bf16_wnd_kernel] tiling_ptr on launch is %ld\n", tiling_ptr);
+            // printf("[catcoc_matmul_allreduce_bf16_wnd_kernel] tiling_ptr on launch is %ld\n", tiling_ptr);
             catcoc_matmul_allreduce_bf16_wnd_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr,
                                                     symm_ptr, workspace_ptr, tiling_ptr);
             return 0;
@@ -164,7 +164,7 @@ HOST_API void catcoc_matmul_allreduce(const at::Tensor &input_a, const at::Tenso
     } else if ((aType == at::ScalarType::BFloat16) && (formatMode == WeightFormatMode::WEIGHT_NZ)) {
         acl_call = [aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr, symm_ptr, workspace_ptr,
                     tiling_ptr]() -> int {
-            printf("[catcoc_matmul_allreduce_bf16_wnz_kernel] tiling_ptr on launch is %ld\n", tiling_ptr);
+            // printf("[catcoc_matmul_allreduce_bf16_wnz_kernel] tiling_ptr on launch is %ld\n", tiling_ptr);
             catcoc_matmul_allreduce_bf16_wnz_kernel(aicCoreNum, stream, fftsAddr, teamIdx, a_ptr, b_ptr, c_ptr,
                                                     symm_ptr, workspace_ptr, tiling_ptr);
             return 0;
