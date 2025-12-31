@@ -26,9 +26,9 @@
 using namespace sglang::SFAHost;
 constexpr uint32_t MAX_CAPTURE_NUM = 1024;
 constexpr uint32_t MAX_DECODE_BS = 512;
-constexpr uint32_t RESERVRED_TILING_BUFFER = 1024
-    // npu tensor max size
-    constexpr int SIZE = 8;
+constexpr uint32_t RESERVRED_TILING_BUFFER = 1024;
+// npu tensor max size
+constexpr int SIZE = 8;
 constexpr int DIM_0 = 0;
 constexpr int DIM_1 = 1;
 constexpr int DIM_2 = 2;
