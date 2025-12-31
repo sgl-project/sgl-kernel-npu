@@ -220,13 +220,12 @@ private:
 
         pipe.InitBuffer(this->tBuf, TEMP_BUF_LEN);
         LocalTensor<uint64_t> tempLocal = tBuf.Get<uint64_t>();
-        tempLocal(0) = 1;
+        PipeBarrier<PIPE_ALL>();
+        tempLocal(0) = magicTensor_.GetValue(blockIdx * EXP_TOKEN_COUNT_FLAG_CNT) + 1;
         // 使用atomic方式实现+1
-        AscendC::SetAtomicAdd<uint64_t>();
         AscendC::SetFlag<HardEvent::S_MTE3>(EVENT_ID0);
         AscendC::WaitFlag<HardEvent::S_MTE3>(EVENT_ID0);  // 等待SetValue完成
         DataCopy(magicTensor_[blockIdx * EXP_TOKEN_COUNT_FLAG_CNT], tempLocal, EXP_TOKEN_COUNT_FLAG_CNT);
-        AscendC::SetAtomicNone();
         AscendC::SetFlag<HardEvent::MTE3_S>(EVENT_ID0);
         AscendC::WaitFlag<HardEvent::MTE3_S>(EVENT_ID0);  // 等待DataCopy完成
         magic = magicTensor_.GetValue(blockIdx * EXP_TOKEN_COUNT_FLAG_CNT);
