@@ -26,8 +26,9 @@
 using namespace sglang::SFAHost;
 constexpr uint32_t MAX_CAPTURE_NUM = 1024;
 constexpr uint32_t MAX_DECODE_BS = 512;
-// npu tensor max size
-constexpr int SIZE = 8;
+constexpr uint32_t RESERVRED_TILING_BUFFER = 1024
+    // npu tensor max size
+    constexpr int SIZE = 8;
 constexpr int DIM_0 = 0;
 constexpr int DIM_1 = 1;
 constexpr int DIM_2 = 2;
@@ -106,7 +107,7 @@ inline at::Tensor GetWorkspaceTensor(const std::shared_ptr<TilingContext> &conte
 {
     size_t workspaceSize = context->GetWorkspaceSize();
     if (workspaceSize > 0) {
-        return at::empty({static_cast<int64_t>(workspaceSize)}, at::TensorOptions().dtype(at::kByte).device(device));
+        return at::zeros({static_cast<int64_t>(workspaceSize)}, at::TensorOptions().dtype(at::kByte).device(device));
     } else {
         return at::empty({0}, at::TensorOptions().dtype(at::kByte).device(device));
     }
@@ -116,10 +117,11 @@ inline at::Tensor GetSFATilingTensor(const SparseFlashAttentionTilingDataMla &ti
 {
     uint32_t tilingSize = sizeof(SparseFlashAttentionTilingDataMla);
     auto tup = std::make_tuple(
-        tilingData.baseParams.batchSize, tilingData.baseParams.blockSize, tilingData.baseParams.maxBlockNumPerBatch,
-        tilingData.baseParams.scaleValue, tilingData.baseParams.nNumOfQInOneGroup, tilingData.baseParams.outputLayout,
-        tilingData.baseParams.sparseMode, tilingData.baseParams.sparseBlockSize, tilingData.baseParams.sparseBlockCount,
-        tilingData.splitKVParams.s2, tilingData.tilingKey);
+        tilingData.baseParams.batchSize, tilingData.baseParams.seqSize, tilingData.baseParams.qSeqSize,
+        tilingData.baseParams.blockSize, tilingData.baseParams.maxBlockNumPerBatch,
+        tilingData.baseParams.nNumOfQInOneGroup, tilingData.baseParams.outputLayout, tilingData.baseParams.sparseMode,
+        tilingData.baseParams.sparseBlockSize, tilingData.baseParams.scaleValue, tilingData.baseParams.actualLenDimsQ,
+        tilingData.baseParams.actualLenDimsKV, tilingData.baseParams.sparseBlockCount, tilingData.tilingKey);
     auto hashValue = host_utils::TupleHasher::Hash(tup);
     static auto globalTilingBuffer =
         at::empty({tilingSize * MAX_CAPTURE_NUM}, at::TensorOptions().dtype(at::kByte).device(device));
@@ -130,7 +132,7 @@ inline at::Tensor GetSFATilingTensor(const SparseFlashAttentionTilingDataMla &ti
                                      tilingSize, at::kByte);
     } else if (actualCaptureNum >= MAX_CAPTURE_NUM) {
         // For tiling hash that not exist in capture map and exceeds MAX_CAPTURE_NUM, reload its' tiling data to NPU
-        static auto tilingBuffer = at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(device));
+        auto tilingBuffer = at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(device));
         aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
         tilingTensor = at::from_blob(tilingBuffer.data_ptr<uint8_t>(), tilingSize, at::kByte);
     } else {

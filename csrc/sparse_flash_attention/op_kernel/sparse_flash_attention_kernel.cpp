@@ -46,11 +46,9 @@ extern "C" __global__ __aicore__ void sparse_flash_attention(GM_ADDR query, GM_A
     TPipe tPipe;
     __gm__ uint8_t *user = GetUserWorkspace(workspace);
 
-    // 1. 獲取 Tiling Data 並讀取 Key
     auto tilingData = reinterpret_cast<__gm__ sglang::SFAHost::SparseFlashAttentionTilingDataMla *>(tiling);
     auto tilingKey = tilingData->tilingKey;
 
-    // 3. 根據 Tiling Key 進行運行時分發
     switch (tilingKey) {
         case SFA_TILING_KEY_FP16_BSND:
             DISPATCH_SFA_KERNEL(half, half, half, false, SFA_LAYOUT::BSND, SFA_LAYOUT::BSND);

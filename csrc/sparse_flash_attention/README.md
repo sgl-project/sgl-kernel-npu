@@ -81,42 +81,43 @@ torch.ops.npu.sparse_flash_attention(query, key, value, sparse_indices, scale_va
 ```python
 import torch
 import torch_npu
+import numpy as np
 
-# Example configuration
-batch_size = 2
-seq_len_q = 128
-seq_len_kv = 256
-num_heads_q = 32
-num_heads_kv = 32
-head_dim = 128
-sparse_block_size = 64
+# Configuration
+batch, s_q, s_kv, n_q, n_kv, head_dim, rope_dim = 4, 1, 4096, 128, 1, 512, 64
+sparse_block_size = 1  # Granularity of sparse computation
+sparse_block_count = 2048
 
-# Create input tensors
-query = torch.randn(batch_size, seq_len_q, num_heads_q, head_dim, dtype=torch.bfloat16).npu()
-key = torch.randn(batch_size, seq_len_kv, num_heads_kv, head_dim, dtype=torch.bfloat16).npu()
-value = torch.randn(batch_size, seq_len_kv, num_heads_kv, head_dim, dtype=torch.bfloat16).npu()
+# Initialize tensors on NPU
+query = torch.randn(batch, s_q, n_q, head_dim, dtype=torch.float16).npu()
+key = torch.randn(batch, 8192, n_kv, head_dim, dtype=torch.float16).npu()
+value = key.clone()
 
-# Create sparse indices (example: block diagonal pattern)
-sparse_indices = torch.zeros(batch_size, seq_len_q // sparse_block_size, seq_len_kv // sparse_block_size, dtype=torch.int32).npu()
-for i in range(seq_len_q // sparse_block_size):
-    sparse_indices[:, i, i] = 1  # Only compute diagonal blocks
+# Create sparse indices: (batch, s_q, n_kv, sparse_block_count)
+# Specifies which blocks in the KV sequence each query head attends to
+idxs = torch.randint(0, s_kv, (sparse_block_count,), dtype=torch.int32).npu()
+sparse_indices = idxs.repeat(batch * s_q * n_kv).reshape(batch, s_q, n_kv, sparse_block_count)
 
-# Pre-allocate output tensor
-attention_out = torch.empty_like(query)
+# Optional RoPE and sequence lengths
+query_rope = torch.randn(batch, s_q, n_q, rope_dim, dtype=torch.float16).npu()
+key_rope = torch.randn(batch, 8192, n_kv, rope_dim, dtype=torch.float16).npu()
+act_seq_q = torch.tensor([s_q] * batch, dtype=torch.int32).npu()
+act_seq_kv = torch.tensor([s_kv] * batch, dtype=torch.int32).npu()
 
-# Call sparse flash attention
+# Execute Sparse Flash Attention
 scale_value = 1.0 / (head_dim ** 0.5)
 output = torch.ops.npu.sparse_flash_attention(
-    query, key, value, sparse_indices,
-    scale_value=scale_value,
-    sparse_block_size=sparse_block_size,
-    attention_out=attention_out,
-    layout_query='BSND',
-    layout_kv='BSND',
+    query, key, value, sparse_indices, scale_value, sparse_block_size,
+    actual_seq_lengths_query=act_seq_q,
+    actual_seq_lengths_kv=act_seq_kv,
+    query_rope=query_rope,
+    key_rope=key_rope,
+    layout_query="BSND",
+    layout_kv="BSND",
     sparse_mode=3
 )
 
-print(f"Output shape: {output.shape}")
+print(f"BSND Output shape: {output.shape}")
 ```
 
 For more detailed examples and test cases, refer to the test files in the repository.
