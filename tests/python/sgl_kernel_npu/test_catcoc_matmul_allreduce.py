@@ -18,7 +18,7 @@ g_shmem_addr = None
 g_team_size = 2
 
 
-def direct_testing(input_a, input_b, input_c, team_id=0, group_list=(), use_nz=False):
+def direct_testing(input_a, input_b, input_c, team_id=0, group_list=(), use_nz=False, run_cnt=1):
     global g_shmem_addr
     # g_shmem_addr = 0
 
@@ -36,8 +36,7 @@ def direct_testing(input_a, input_b, input_c, team_id=0, group_list=(), use_nz=F
 
     # assert g_shmem_addr is not None and k == b.shape[0]
     # print('rank', rank, ' is ', a.device, b.device)
-    for _ in range(1):
-        # with torch.npu.stream(torch.npu.current_stream()):
+    for _ in range(run_cnt):
         if use_nz:
             b_nz = torch_npu.npu_format_cast(input_b, 29)
             torch.ops.npu.catcoc_matmul_allreduce(
@@ -45,7 +44,7 @@ def direct_testing(input_a, input_b, input_c, team_id=0, group_list=(), use_nz=F
             )
         else:
             torch.ops.npu.catcoc_matmul_allreduce(a, b, input_c, g_shmem_addr, team_id)
-        torch.npu.synchronize()
+    torch.npu.synchronize()
 
     native_c = torch.matmul(a, b)
     if world_size > 1:
@@ -203,6 +202,49 @@ def run_global_test(test_mnk=(1024, 1024, 1024), test_nz=True):
         direct_testing(a, b, c, use_nz=True)
 
 
+def run_single_test(test_mnk=(1024, 1024, 1024), test_bf16=True, test_nz=True, test_cnt=10):
+    test_m, test_n, test_k = test_mnk
+    test_dtype = torch.bfloat16 if test_bf16 else torch.float16
+    a = (
+        torch.rand([test_m, test_k])
+        .to(dtype=test_dtype)
+        .to(f"npu:{rank}")
+        .contiguous()
+    )
+    b = (
+        torch.rand([test_k, test_n])
+        .to(dtype=test_dtype)
+        .to(f"npu:{rank}")
+        .contiguous()
+    )
+    c = (
+        torch.empty([test_m, test_n])
+        .to(dtype=test_dtype)
+        .to(f"npu:{rank}")
+        .contiguous()
+    )
+    bias = None
+    scale = None
+    pertoken_scale = None
+
+    assert (
+            torch.npu.current_device() == rank
+    ), f"[ERROR] device:{torch.npu.current_device()} mismatch with rank:{rank}"
+    # npu_graph_test_suit = NPUGraphTest(f"npu:{torch.npu.current_device()}", m=test_m, n=test_n, k=test_k,
+    #                                    use_npu_graph=True, test_type=test_type)
+    # npu_graph_test_suit.graph_testing(a, b, c, bias, pertoken_scale, scale)
+    if not test_nz:
+        direct_testing(a, b, c, run_cnt=test_cnt)
+    else:
+        c = (
+            torch.empty([test_m, test_n])
+            .to(dtype=test_dtype)
+            .to(f"npu:{rank}")
+            .contiguous()
+        )  # fresh tensor
+        direct_testing(a, b, c, use_nz=True, run_cnt=test_cnt)
+
+
 if __name__ == "__main__":
     torch.npu.config.allow_internal_format = True
     torch_npu.npu.set_compile_mode(jit_compile=False)
@@ -224,8 +266,9 @@ if __name__ == "__main__":
 
     shmem_init(rank, world_size)
 
-    for mnk_list in ((64, 7168, 2048),):
-        run_global_test(test_mnk=mnk_list, test_nz=True)
+    # for mnk_list in ((64, 7168, 2048),):
+    #     run_global_test(test_mnk=mnk_list, test_nz=True)
+    run_single_test(test_mnk=(10320, 2048, 2048))
 
     ash.shmem_free(g_shmem_addr)
     ash.shmem_finialize()

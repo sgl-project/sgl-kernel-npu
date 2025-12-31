@@ -121,15 +121,15 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_fp16(uint64_t ffts
     using TileRemoteCopy = CommEpilogue::Tile::TileRemoteCopy<ArchTag, RemoteSrcType, RemoteDstType, CopyDirect::Get>;
     using TileScheduler = Catlass::Epilogue::Tile::EpilogueIdentityTileSwizzle;
 
-    constexpr uint32_t COMM_BLOCK_ROWS = 64;
+    constexpr uint32_t COMM_BLOCK_ROWS = 8;
     constexpr uint32_t COMM_BLOCK_COLUMNS = 256;
-    constexpr uint32_t CORE_SPLIT_ROWS = 20;
+    constexpr uint32_t CORE_SPLIT_ROWS = 16;
     constexpr uint32_t CORE_SPLIT_COLUMNS = 1;
     using CommBlockShape = Catlass::MatrixShape<COMM_BLOCK_ROWS, COMM_BLOCK_COLUMNS>;
     using CommCoreSplit = Catlass::MatrixShape<CORE_SPLIT_ROWS, CORE_SPLIT_COLUMNS>;
 
     constexpr uint32_t UB_STAGES = 2;
-    constexpr uint32_t SCATTER_TILE_ROWS = 32;
+    constexpr uint32_t SCATTER_TILE_ROWS = 4;
     constexpr uint32_t SCATTER_TILE_COLUMNS = 256;
     using EpilogueReduceScatterTileShape = Catlass::MatrixShape<SCATTER_TILE_ROWS, SCATTER_TILE_COLUMNS>;
     using EpilogueReduceScatterDispatch =
@@ -139,7 +139,7 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_fp16(uint64_t ffts
                                                CommCoreSplit, CommBlockShape, EpilogueReduceScatterTileShape,
                                                TileRemoteCopy, TileScheduler>;
 
-    constexpr uint32_t ALLGATHER_TILE_ROWS = 32;
+    constexpr uint32_t ALLGATHER_TILE_ROWS = 4;
     constexpr uint32_t ALLGATHER_TILE_COLUMNS = 256;
     using EpilogueAllGatherTileShape = Catlass::MatrixShape<ALLGATHER_TILE_ROWS, ALLGATHER_TILE_COLUMNS>;
     using EpilogueAllGatherDispatch =
@@ -150,7 +150,7 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_fp16(uint64_t ffts
                                                TileScheduler>;
 
     constexpr uint32_t WORKSPACE_STAGES = 2;
-    constexpr uint32_t COMM_INTERVAL = 3;
+    constexpr uint32_t COMM_INTERVAL = 4;
     using MatmulAllReduceKernel =
         DGemm::Kernel::MatmulAllReduce<BlockMmad, BlockEpilogueReduceScatter, BlockEpilogueAllGather,
                                        BlockMmadScheduler, BlockEpilogueScheduler, WORKSPACE_STAGES>;
@@ -259,15 +259,15 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_fp16_wnz(uint64_t 
     using TileRemoteCopy = CommEpilogue::Tile::TileRemoteCopy<ArchTag, RemoteSrcType, RemoteDstType, CopyDirect::Get>;
     using TileScheduler = Catlass::Epilogue::Tile::EpilogueIdentityTileSwizzle;
 
-    constexpr uint32_t COMM_BLOCK_ROWS = 64;
+    constexpr uint32_t COMM_BLOCK_ROWS = 8;
     constexpr uint32_t COMM_BLOCK_COLUMNS = 256;
-    constexpr uint32_t CORE_SPLIT_ROWS = 20;
+    constexpr uint32_t CORE_SPLIT_ROWS = 16;
     constexpr uint32_t CORE_SPLIT_COLUMNS = 1;
     using CommBlockShape = Catlass::MatrixShape<COMM_BLOCK_ROWS, COMM_BLOCK_COLUMNS>;
     using CommCoreSplit = Catlass::MatrixShape<CORE_SPLIT_ROWS, CORE_SPLIT_COLUMNS>;
 
     constexpr uint32_t UB_STAGES = 2;
-    constexpr uint32_t SCATTER_TILE_ROWS = 32;
+    constexpr uint32_t SCATTER_TILE_ROWS = 4;
     constexpr uint32_t SCATTER_TILE_COLUMNS = 256;
     using EpilogueReduceScatterTileShape = Catlass::MatrixShape<SCATTER_TILE_ROWS, SCATTER_TILE_COLUMNS>;
     using EpilogueReduceScatterDispatch =
@@ -277,7 +277,7 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_fp16_wnz(uint64_t 
                                                CommCoreSplit, CommBlockShape, EpilogueReduceScatterTileShape,
                                                TileRemoteCopy, TileScheduler>;
 
-    constexpr uint32_t ALLGATHER_TILE_ROWS = 32;
+    constexpr uint32_t ALLGATHER_TILE_ROWS = 4;
     constexpr uint32_t ALLGATHER_TILE_COLUMNS = 256;
     using EpilogueAllGatherTileShape = Catlass::MatrixShape<ALLGATHER_TILE_ROWS, ALLGATHER_TILE_COLUMNS>;
     using EpilogueAllGatherDispatch =
@@ -288,7 +288,7 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_fp16_wnz(uint64_t 
                                                TileScheduler>;
 
     constexpr uint32_t WORKSPACE_STAGES = 2;
-    constexpr uint32_t COMM_INTERVAL = 3;
+    constexpr uint32_t COMM_INTERVAL = 4;
     using MatmulAllReduceKernel =
         DGemm::Kernel::MatmulAllReduce<BlockMmad, BlockEpilogueReduceScatter, BlockEpilogueAllGather,
                                        BlockMmadScheduler, BlockEpilogueScheduler, WORKSPACE_STAGES>;
@@ -397,15 +397,15 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_bf16(uint64_t ffts
     using TileRemoteCopy = CommEpilogue::Tile::TileRemoteCopy<ArchTag, RemoteSrcType, RemoteDstType, CopyDirect::Get>;
     using TileScheduler = Catlass::Epilogue::Tile::EpilogueIdentityTileSwizzle;
 
-    constexpr uint32_t COMM_BLOCK_ROWS = 64;
+    constexpr uint32_t COMM_BLOCK_ROWS = 8;
     constexpr uint32_t COMM_BLOCK_COLUMNS = 256;
-    constexpr uint32_t CORE_SPLIT_ROWS = 20;
+    constexpr uint32_t CORE_SPLIT_ROWS = 16;
     constexpr uint32_t CORE_SPLIT_COLUMNS = 1;
     using CommBlockShape = Catlass::MatrixShape<COMM_BLOCK_ROWS, COMM_BLOCK_COLUMNS>;
     using CommCoreSplit = Catlass::MatrixShape<CORE_SPLIT_ROWS, CORE_SPLIT_COLUMNS>;
 
     constexpr uint32_t UB_STAGES = 2;
-    constexpr uint32_t SCATTER_TILE_ROWS = 32;
+    constexpr uint32_t SCATTER_TILE_ROWS = 4;
     constexpr uint32_t SCATTER_TILE_COLUMNS = 256;
     using EpilogueReduceScatterTileShape = Catlass::MatrixShape<SCATTER_TILE_ROWS, SCATTER_TILE_COLUMNS>;
     using EpilogueReduceScatterDispatch =
@@ -415,7 +415,7 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_bf16(uint64_t ffts
                                                CommCoreSplit, CommBlockShape, EpilogueReduceScatterTileShape,
                                                TileRemoteCopy, TileScheduler>;
 
-    constexpr uint32_t ALLGATHER_TILE_ROWS = 32;
+    constexpr uint32_t ALLGATHER_TILE_ROWS = 4;
     constexpr uint32_t ALLGATHER_TILE_COLUMNS = 256;
     using EpilogueAllGatherTileShape = Catlass::MatrixShape<ALLGATHER_TILE_ROWS, ALLGATHER_TILE_COLUMNS>;
     using EpilogueAllGatherDispatch =
@@ -426,7 +426,7 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_bf16(uint64_t ffts
                                                TileScheduler>;
 
     constexpr uint32_t WORKSPACE_STAGES = 2;
-    constexpr uint32_t COMM_INTERVAL = 3;
+    constexpr uint32_t COMM_INTERVAL = 4;
     using MatmulAllReduceKernel =
         DGemm::Kernel::MatmulAllReduce<BlockMmad, BlockEpilogueReduceScatter, BlockEpilogueAllGather,
                                        BlockMmadScheduler, BlockEpilogueScheduler, WORKSPACE_STAGES>;
@@ -535,15 +535,15 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_bf16_wnz(uint64_t 
     using TileRemoteCopy = CommEpilogue::Tile::TileRemoteCopy<ArchTag, RemoteSrcType, RemoteDstType, CopyDirect::Get>;
     using TileScheduler = Catlass::Epilogue::Tile::EpilogueIdentityTileSwizzle;
 
-    constexpr uint32_t COMM_BLOCK_ROWS = 64;
+    constexpr uint32_t COMM_BLOCK_ROWS = 8;
     constexpr uint32_t COMM_BLOCK_COLUMNS = 256;
-    constexpr uint32_t CORE_SPLIT_ROWS = 20;
+    constexpr uint32_t CORE_SPLIT_ROWS = 16;
     constexpr uint32_t CORE_SPLIT_COLUMNS = 1;
     using CommBlockShape = Catlass::MatrixShape<COMM_BLOCK_ROWS, COMM_BLOCK_COLUMNS>;
     using CommCoreSplit = Catlass::MatrixShape<CORE_SPLIT_ROWS, CORE_SPLIT_COLUMNS>;
 
     constexpr uint32_t UB_STAGES = 2;
-    constexpr uint32_t SCATTER_TILE_ROWS = 32;
+    constexpr uint32_t SCATTER_TILE_ROWS = 4;
     constexpr uint32_t SCATTER_TILE_COLUMNS = 256;
     using EpilogueReduceScatterTileShape = Catlass::MatrixShape<SCATTER_TILE_ROWS, SCATTER_TILE_COLUMNS>;
     using EpilogueReduceScatterDispatch =
@@ -553,7 +553,7 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_bf16_wnz(uint64_t 
                                                CommCoreSplit, CommBlockShape, EpilogueReduceScatterTileShape,
                                                TileRemoteCopy, TileScheduler>;
 
-    constexpr uint32_t ALLGATHER_TILE_ROWS = 32;
+    constexpr uint32_t ALLGATHER_TILE_ROWS = 4;
     constexpr uint32_t ALLGATHER_TILE_COLUMNS = 256;
     using EpilogueAllGatherTileShape = Catlass::MatrixShape<ALLGATHER_TILE_ROWS, ALLGATHER_TILE_COLUMNS>;
     using EpilogueAllGatherDispatch =
@@ -564,7 +564,7 @@ extern "C" __global__ __aicore__ void catcoc_matmul_allreduce_bf16_wnz(uint64_t 
                                                TileScheduler>;
 
     constexpr uint32_t WORKSPACE_STAGES = 2;
-    constexpr uint32_t COMM_INTERVAL = 3;
+    constexpr uint32_t COMM_INTERVAL = 4;
     using MatmulAllReduceKernel =
         DGemm::Kernel::MatmulAllReduce<BlockMmad, BlockEpilogueReduceScatter, BlockEpilogueAllGather,
                                        BlockMmadScheduler, BlockEpilogueScheduler, WORKSPACE_STAGES>;

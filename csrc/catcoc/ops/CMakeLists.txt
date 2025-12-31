@@ -27,6 +27,14 @@ set(CMAKE_BISHENG_COMPILER  ${ASCEND_HOME_PATH}/compiler/ccec_compiler/bin/bishe
 set(THIRD_PARTY_HOME_PATH ${CMAKE_SGL_KERNEL_DIRECTORY}/3rdparty)
 message(${THIRD_PARTY_HOME_PATH})
 
+# check 3rdparty
+if(NOT EXISTS "${THIRD_PARTY_HOME_PATH}/catlass")
+    message(FATAL_ERROR "catlass not found in: ${THIRD_PARTY_HOME_PATH}/catlass")
+endif()
+if(NOT EXISTS "${THIRD_PARTY_HOME_PATH}/catcoc")
+    message(FATAL_ERROR "catcoc not found in: ${THIRD_PARTY_HOME_PATH}/catcoc")
+endif()
+
 # use --cce-enable-print if you want debug
 set(BISHENG_COMPILER_OPTIONS
         -O2 -std=c++17 -xcce -fPIC
