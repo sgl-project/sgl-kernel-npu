@@ -18,7 +18,9 @@ g_shmem_addr = None
 g_team_size = 2
 
 
-def direct_testing(input_a, input_b, input_c, team_id=0, group_list=(), use_nz=False, run_cnt=1):
+def direct_testing(
+    input_a, input_b, input_c, team_id=0, group_list=(), use_nz=False, run_cnt=1
+):
     global g_shmem_addr
     # g_shmem_addr = 0
 
@@ -137,16 +139,11 @@ def run_global_test(test_mnk=(1024, 1024, 1024), test_nz=True):
         .to(f"npu:{rank}")
         .contiguous()
     )
-    bias = None
-    scale = None
-    pertoken_scale = None
 
     assert (
         torch.npu.current_device() == rank
     ), f"[ERROR] device:{torch.npu.current_device()} mismatch with rank:{rank}"
-    # npu_graph_test_suit = NPUGraphTest(f"npu:{torch.npu.current_device()}", m=test_m, n=test_n, k=test_k,
-    #                                    use_npu_graph=True, test_type=test_type)
-    # npu_graph_test_suit.graph_testing(a, b, c, bias, pertoken_scale, scale)
+
     direct_testing(a, b, c)
     if test_nz:
         if rank == 0:
@@ -179,16 +176,11 @@ def run_global_test(test_mnk=(1024, 1024, 1024), test_nz=True):
         .to(f"npu:{rank}")
         .contiguous()
     )
-    bias = None
-    scale = None
-    pertoken_scale = None
 
     assert (
         torch.npu.current_device() == rank
     ), f"[ERROR] device:{torch.npu.current_device()} mismatch with rank:{rank}"
-    # npu_graph_test_suit = NPUGraphTest(f"npu:{torch.npu.current_device()}", m=test_m, n=test_n, k=test_k,
-    #                                    use_npu_graph=True, test_type=test_type)
-    # npu_graph_test_suit.graph_testing(a, b, c, bias, pertoken_scale, scale)
+
     direct_testing(a, b, c)
     if test_nz:
         if rank == 0:
@@ -202,37 +194,24 @@ def run_global_test(test_mnk=(1024, 1024, 1024), test_nz=True):
         direct_testing(a, b, c, use_nz=True)
 
 
-def run_single_test(test_mnk=(1024, 1024, 1024), test_bf16=True, test_nz=True, test_cnt=10):
+def run_single_test(
+    test_mnk=(1024, 1024, 1024), test_bf16=True, test_nz=True, test_cnt=10
+):
     test_m, test_n, test_k = test_mnk
     test_dtype = torch.bfloat16 if test_bf16 else torch.float16
-    a = (
-        torch.rand([test_m, test_k])
-        .to(dtype=test_dtype)
-        .to(f"npu:{rank}")
-        .contiguous()
-    )
-    b = (
-        torch.rand([test_k, test_n])
-        .to(dtype=test_dtype)
-        .to(f"npu:{rank}")
-        .contiguous()
-    )
+    a = torch.rand([test_m, test_k]).to(dtype=test_dtype).to(f"npu:{rank}").contiguous()
+    b = torch.rand([test_k, test_n]).to(dtype=test_dtype).to(f"npu:{rank}").contiguous()
     c = (
         torch.empty([test_m, test_n])
         .to(dtype=test_dtype)
         .to(f"npu:{rank}")
         .contiguous()
     )
-    bias = None
-    scale = None
-    pertoken_scale = None
 
     assert (
-            torch.npu.current_device() == rank
+        torch.npu.current_device() == rank
     ), f"[ERROR] device:{torch.npu.current_device()} mismatch with rank:{rank}"
-    # npu_graph_test_suit = NPUGraphTest(f"npu:{torch.npu.current_device()}", m=test_m, n=test_n, k=test_k,
-    #                                    use_npu_graph=True, test_type=test_type)
-    # npu_graph_test_suit.graph_testing(a, b, c, bias, pertoken_scale, scale)
+
     if not test_nz:
         direct_testing(a, b, c, run_cnt=test_cnt)
     else:

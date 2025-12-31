@@ -39,20 +39,21 @@ using namespace AscendC;
 using namespace Catcoc;
 using namespace sglang::npu_kernel;
 
-
 template <DataFormatMode dMode, WeightFormatMode wMode>
-class CatCocAllgatherMatmul {
+class CatCocAllgatherMatmul
+{
 public:
     uint64_t fftsAddr_;
     int32_t teamIdx_;
 
-    __aicore__ inline void Init(uint64_t fftsAddr, uint64_t teamIdx) {
+    __aicore__ inline void Init(uint64_t fftsAddr, uint64_t teamIdx)
+    {
         fftsAddr_ = fftsAddr;
         teamIdx_ = (int32_t)teamIdx;
     }
 
-    __aicore__ inline void Process(GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmC,
-                                   GM_ADDR gmSymmetric, GM_ADDR gmTiling) {
+    __aicore__ inline void Process(GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmC, GM_ADDR gmSymmetric, GM_ADDR gmTiling)
+    {
         // Set FFTS address
         AscendC::SetSyncBaseAddr(fftsAddr_);
         // Set shmem config
@@ -97,14 +98,15 @@ public:
         */
 
         // switch cases
-        using ElementA = typename std::conditional_t<dMode == DataFormatMode::FP16, half,
-                typename std::conditional_t<dMode == DataFormatMode::BF16, __bf16, float>>;
+        using ElementA =
+            typename std::conditional_t<dMode == DataFormatMode::FP16, half,
+                                        typename std::conditional_t<dMode == DataFormatMode::BF16, __bf16, float>>;
         using ElementB = ElementA;
         using ElementC = ElementA;
 
         using LayoutA = Catlass::layout::RowMajor;
-        using LayoutB = typename std::conditional_t<wMode == WeightFormatMode::WEIGHT_ND,
-                Catlass::layout::RowMajor, Catlass::layout::zN>;
+        using LayoutB = typename std::conditional_t<wMode == WeightFormatMode::WEIGHT_ND, Catlass::layout::RowMajor,
+                                                    Catlass::layout::zN>;
         using LayoutC = Catlass::layout::RowMajor;
 
         using AType = Catlass::Gemm::GemmType<ElementA, LayoutA>;
@@ -112,7 +114,7 @@ public:
         using CType = Catlass::Gemm::GemmType<ElementC, LayoutC>;
 
         LayoutA layoutA{m, k};
-        LayoutB layoutB = LayoutB::template MakeLayout<ElementB>(k, n);  // adapted for both nz and nd
+        LayoutB layoutB = LayoutB::template MakeLayout<ElementB>(k, n);  // adapted for both NZ and ND
         LayoutC layoutC{m * rankSize, n};
         Catlass::GemmCoord problemShape{m, n, k};
 
@@ -133,7 +135,8 @@ public:
         using RemoteSrcType = AType;
         using RemoteDstType = AType;
         using CopyDirect = Catcoc::detail::CopyDirect;
-        using TileRemoteCopy = CommEpilogue::Tile::TileRemoteCopy<ArchTag, RemoteSrcType, RemoteDstType, CopyDirect::Put>;
+        using TileRemoteCopy =
+            CommEpilogue::Tile::TileRemoteCopy<ArchTag, RemoteSrcType, RemoteDstType, CopyDirect::Put>;
         using TileSchedulerForAllgather = Catlass::Epilogue::Tile::EpilogueIdentityTileSwizzle;
 
         using CommBlockShape = Catlass::MatrixShape<64, UINT_MAX / 2>;
@@ -141,7 +144,8 @@ public:
 
         constexpr uint32_t UB_STAGES = 2;
         using AllGatherTileShape = Catlass::MatrixShape<32, 256>;
-        using AllGatherDispatch = CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES, Catcoc::detail::CopyMode::Gather>;
+        using AllGatherDispatch =
+            CommEpilogue::EpilogueAtlasA2CommRemoteCopy<UB_STAGES, Catcoc::detail::CopyMode::Gather>;
         using BlockEpilogueAllGather =
             CommEpilogue::Block::CommBlockEpilogue<AllGatherDispatch, RemoteSrcType, RemoteDstType, CommCoreSplit,
                                                    CommBlockShape, AllGatherTileShape, TileRemoteCopy,
@@ -166,44 +170,44 @@ public:
     }
 };
 
-
 template <DataFormatMode dMode, WeightFormatMode wMode>
-__aicore__ void catcoc_allgather_matmul_impl(uint64_t fftsAddr, uint64_t teamIdx,
-                                             GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmC,
-                                             GM_ADDR gmSymmetric, GM_ADDR gmWorkspace,
-                                             GM_ADDR gmTiling) {
+__aicore__ void catcoc_allgather_matmul_impl(uint64_t fftsAddr, uint64_t teamIdx, GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmC,
+                                             GM_ADDR gmSymmetric, GM_ADDR gmWorkspace, GM_ADDR gmTiling)
+{
     // gmWorkspace is a dummy input for ascendc compile with tiling, catcoc ops use gmSymmetric as actual workspace
     CatCocAllgatherMatmul<dMode, wMode> op;
     op.Init(fftsAddr, teamIdx);
     op.Process(gmA, gmB, gmC, gmSymmetric, gmTiling);
 }
 
-
 extern "C" __global__ __aicore__ void catcoc_allgather_matmul_fp16(uint64_t fftsAddr, uint64_t teamIdx, GM_ADDR gmA,
                                                                    GM_ADDR gmB, GM_ADDR gmC, GM_ADDR gmSymmetric,
-                                                                   GM_ADDR gmWorkspace, GM_ADDR gmTiling) {
-    catcoc_allgather_matmul_impl<DataFormatMode::FP16, WeightFormatMode::WEIGHT_ND>
-            (fftsAddr, teamIdx, gmA, gmB, gmC, gmSymmetric, gmWorkspace, gmTiling);
+                                                                   GM_ADDR gmWorkspace, GM_ADDR gmTiling)
+{
+    catcoc_allgather_matmul_impl<DataFormatMode::FP16, WeightFormatMode::WEIGHT_ND>(fftsAddr, teamIdx, gmA, gmB, gmC,
+                                                                                    gmSymmetric, gmWorkspace, gmTiling);
 }
-
 
 extern "C" __global__ __aicore__ void catcoc_allgather_matmul_fp16_wnz(uint64_t fftsAddr, uint64_t teamIdx, GM_ADDR gmA,
                                                                        GM_ADDR gmB, GM_ADDR gmC, GM_ADDR gmSymmetric,
-                                                                       GM_ADDR gmWorkspace, GM_ADDR gmTiling) {
-    catcoc_allgather_matmul_impl<DataFormatMode::FP16, WeightFormatMode::WEIGHT_NZ>
-            (fftsAddr, teamIdx, gmA, gmB, gmC, gmSymmetric, gmWorkspace, gmTiling);
+                                                                       GM_ADDR gmWorkspace, GM_ADDR gmTiling)
+{
+    catcoc_allgather_matmul_impl<DataFormatMode::FP16, WeightFormatMode::WEIGHT_NZ>(fftsAddr, teamIdx, gmA, gmB, gmC,
+                                                                                    gmSymmetric, gmWorkspace, gmTiling);
 }
 
 extern "C" __global__ __aicore__ void catcoc_allgather_matmul_bf16(uint64_t fftsAddr, uint64_t teamIdx, GM_ADDR gmA,
                                                                    GM_ADDR gmB, GM_ADDR gmC, GM_ADDR gmSymmetric,
-                                                                   GM_ADDR gmWorkspace, GM_ADDR gmTiling) {
-    catcoc_allgather_matmul_impl<DataFormatMode::BF16, WeightFormatMode::WEIGHT_ND>
-            (fftsAddr, teamIdx, gmA, gmB, gmC, gmSymmetric, gmWorkspace, gmTiling);
+                                                                   GM_ADDR gmWorkspace, GM_ADDR gmTiling)
+{
+    catcoc_allgather_matmul_impl<DataFormatMode::BF16, WeightFormatMode::WEIGHT_ND>(fftsAddr, teamIdx, gmA, gmB, gmC,
+                                                                                    gmSymmetric, gmWorkspace, gmTiling);
 }
 
 extern "C" __global__ __aicore__ void catcoc_allgather_matmul_bf16_wnz(uint64_t fftsAddr, uint64_t teamIdx, GM_ADDR gmA,
                                                                        GM_ADDR gmB, GM_ADDR gmC, GM_ADDR gmSymmetric,
-                                                                       GM_ADDR gmWorkspace, GM_ADDR gmTiling) {
-    catcoc_allgather_matmul_impl<DataFormatMode::BF16, WeightFormatMode::WEIGHT_NZ>
-          (fftsAddr, teamIdx, gmA, gmB, gmC, gmSymmetric, gmWorkspace, gmTiling);
+                                                                       GM_ADDR gmWorkspace, GM_ADDR gmTiling)
+{
+    catcoc_allgather_matmul_impl<DataFormatMode::BF16, WeightFormatMode::WEIGHT_NZ>(fftsAddr, teamIdx, gmA, gmB, gmC,
+                                                                                    gmSymmetric, gmWorkspace, gmTiling);
 }

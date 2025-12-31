@@ -146,16 +146,11 @@ def run_global_test(test_mnk=(1024, 1024, 1024), test_nz=True):
         .to(f"npu:{rank}")
         .contiguous()
     )  # tmp tensor
-    bias = None
-    scale = None
-    pertoken_scale = None
 
     assert (
         torch.npu.current_device() == rank
     ), f"[ERROR] device:{torch.npu.current_device()} mismatch with rank:{rank}"
-    # npu_graph_test_suit = NPUGraphTest(f"npu:{torch.npu.current_device()}", m=test_m, n=test_n, k=test_k,
-    #                                    use_npu_graph=True, test_type=test_type)
-    # npu_graph_test_suit.graph_testing(a, b, c, bias, pertoken_scale, scale)
+
     direct_testing(a, b, c)
     if test_nz:
         (
@@ -190,16 +185,11 @@ def run_global_test(test_mnk=(1024, 1024, 1024), test_nz=True):
         .to(f"npu:{rank}")
         .contiguous()
     )  # tmp tensor
-    bias = None
-    scale = None
-    pertoken_scale = None
 
     assert (
         torch.npu.current_device() == rank
     ), f"[ERROR] device:{torch.npu.current_device()} mismatch with rank:{rank}"
-    # npu_graph_test_suit = NPUGraphTest(f"npu:{torch.npu.current_device()}", m=test_m, n=test_n, k=test_k,
-    #                                    use_npu_graph=True, test_type=test_type)
-    # npu_graph_test_suit.graph_testing(a, b, c, bias, pertoken_scale, scale)
+
     direct_testing(a, b, c)
     if test_nz:
         (
