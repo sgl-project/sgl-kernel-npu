@@ -49,6 +49,7 @@ shmem_home = Path(_find_sheme_home()).resolve()
 python_include_dir = Path(_find_python_include()).resolve()
 torch_dir = Path(os.path.dirname(torch.__file__)).resolve()
 torch_npu_dir = Path(os.path.dirname(torch_npu.__file__)).resolve()
+repo_root = Path(__file__).resolve().parents[3]  # sgl-kernel-npu/
 
 
 include_dirs = [
@@ -57,7 +58,8 @@ include_dirs = [
     str((torch_npu_dir / "include").resolve()),
     str((torch_dir / "include").resolve()),
     str((torch_dir / "include/torch/csrc/api/include").resolve()),
-    str((shmem_home / "shmem/include").resolve())
+    str((shmem_home / "shmem/include").resolve()),
+    str((repo_root / "contrib/shmem_allocator").resolve())
 ]
 
 library_dirs = [
@@ -79,7 +81,6 @@ extra_compile_args = ["-std=c++17", "-hno-unused-parameter", "-lno-unused-functi
 
 common_macros = []
 
-repo_root = Path(__file__).resolve().parents[3]  # sgl-kernel-npu/
 csrc_dir = repo_root / "contrib" / "shmem_allocator" / "csrc"
 setup(
     name="shmem_allocator",
@@ -88,8 +89,9 @@ setup(
         setuptools.Extension(
             "shmem_allocator.lib.libshmem_allocator",
             sources=[
-                str(csrc_dir / "shmem_alloc_mm_heap.cpp"),
-                str(csrc_dir / "NpuCachingCustomAllocator.cpp"),
+                str(csrc_dir / "NPUCommon.cpp"),
+                str(csrc_dir / "NPUShmemAllocator.cpp"),
+                str(csrc_dir / "shmem_alloc_mm_heap.cpp")
             ],
             include_dirs=include_dirs,
             library_dirs=library_dirs,

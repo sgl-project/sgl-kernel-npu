@@ -18,13 +18,15 @@ def switch_to_shmem_allocator():
 
     init_fn = ctypes.cast(getattr(myallocator, "my_init"), ctypes.c_void_p).value
     empty_fn = ctypes.cast(getattr(myallocator, "my_empty_cache"), ctypes.c_void_p).value
-    get_device_stats_fn = ctypes.cast(getattr(myallocator, "my_get_device_stats"), ctypes.c_void_p).value
-    reset_peak_stats_fn = ctypes.cast(getattr(myallocator, "my_reset_peak_stats"), ctypes.c_void_p).value
+    begin_allocate_to_pool_fn = ctypes.cast(getattr(myallocator, "my_begin_allocate_to_pool"), ctypes.c_void_p).value
+    end_allocate_to_pool_fn = ctypes.cast(getattr(myallocator, "my_end_allocate_to_pool"), ctypes.c_void_p).value
+    release_pool_fn = ctypes.cast(getattr(myallocator, "my_release_pool"), ctypes.c_void_p).value
 
     new_alloc.allocator().set_init_fn(init_fn)
     new_alloc.allocator().set_reset_fn(empty_fn)
-    new_alloc.allocator().set_get_device_stats_fn(get_device_stats_fn)
-    new_alloc.allocator().set_reset_peak_status_fn(reset_peak_stats_fn)
+    new_alloc.allocator().set_begin_allocate_to_pool_fn(begin_allocate_to_pool_fn)
+    new_alloc.allocator().set_end_allocate_to_pool_fn(end_allocate_to_pool_fn)
+    new_alloc.allocator().set_release_pool_fn(release_pool_fn)
 
 
 def init_shmem(my_rank, n_ranks, local_mem_size, meta_size, ip_port):
