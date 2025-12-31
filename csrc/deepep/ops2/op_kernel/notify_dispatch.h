@@ -561,14 +561,17 @@ __aicore__ inline void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_ALL
     blockNum = GetBlockNum();
     uint8_t ctxIdx;
 
-    auto tilingData = (__gm__ NotifyDispatchTilingData *)tilingGM;
-    __gm__ void *mc2InitTiling = (__gm__ void *)(&(tilingData->mc2InitTiling));
-    __gm__ void *mc2CcTiling = (__gm__ void *)(&(tilingData->mc2CcTiling1));
+    GET_TILING_DATA_WITH_STRUCT(NotifyDispatchTilingData, tilingData, tilingGM);
+    // auto tilingData = (__gm__ NotifyDispatchTilingData *)tilingGM;
+    // __gm__ void *mc2InitTiling = (__gm__ void *)(&(tilingData->mc2InitTiling));
+    // __gm__ void *mc2CcTiling = (__gm__ void *)(&(tilingData->mc2CcTiling1));
 
     auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
 
-    hccl_.Init(contextGM0, mc2InitTiling);
-    hccl_.SetCcTiling(mc2CcTiling);
+    // hccl_.Init(contextGM0, mc2InitTiling);
+    // hccl_.SetCcTiling(mc2CcTiling);
+    hccl_.InitV2(contextGM0, &tilingData);
+    hccl_.SetCcTilingV2(offsetof(NotifyDispatchTilingData, mc2CcTiling1));
     this->winContext_[COMM_EP_IDX] = (__gm__ HcclOpResParam *)contextGM0;
     // notifyMemoryOffset = winContext_[COMM_EP_IDX]->winSize - IPC_BUFF_MAX_SIZE * 2;
     this->magic = GetMagicValue();

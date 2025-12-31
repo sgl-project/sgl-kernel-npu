@@ -164,25 +164,28 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(GM_ADDR x, GM_ADD
 {
     tpipe_ = pipe;
     blockIdx = GetBlockIdx();
-    auto tilingData = (__gm__ CamMoeDispatchNormalTilingData *)tilingGM;
-    __gm__ void *mc2InitTiling = (__gm__ void *)(&(tilingData->mc2InitTiling));
-    __gm__ void *mc2CcTiling = (__gm__ void *)(&(tilingData->mc2CcTiling1));
+    GET_TILING_DATA_WITH_STRUCT(CamMoeDispatchNormalTilingData, tilingData, tilingGM);
+    // auto tilingData = (__gm__ CamMoeDispatchNormalTilingData *)tilingGM;
+    // __gm__ void *mc2InitTiling = (__gm__ void *)(&(tilingData->mc2InitTiling));
+    // __gm__ void *mc2CcTiling = (__gm__ void *)(&(tilingData->mc2CcTiling1));
 
     auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
-    hccl_.Init(contextGM0, mc2InitTiling);
-    hccl_.SetCcTiling(mc2CcTiling);
+    // hccl_.Init(contextGM0, mc2InitTiling);
+    hccl_.InitV2(contextGM0, &tilingData);
+    // hccl_.SetCcTiling(mc2CcTiling);
+    hccl_.SetCcTilingV2(offsetof(CamMoeDispatchNormalTilingData, mc2CcTiling1));
     winContext_[COMM_EP_IDX] = (__gm__ HcclOpResParam *)AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
 
-    batchSize = tilingData->camMoeDispatchNormalInfo.bs;
-    globalBatchSize = tilingData->camMoeDispatchNormalInfo.globalBs;
-    h = tilingData->camMoeDispatchNormalInfo.h;
-    topK = tilingData->camMoeDispatchNormalInfo.k;
-    blockNum = tilingData->camMoeDispatchNormalInfo.aivNum;
-    epRankSize = tilingData->camMoeDispatchNormalInfo.epWorldSize;
-    epRankId = tilingData->camMoeDispatchNormalInfo.epRankId;
-    moeExpertNum = tilingData->camMoeDispatchNormalInfo.moeExpertNum;
+    batchSize = tilingData.camMoeDispatchNormalInfo.bs;
+    globalBatchSize = tilingData.camMoeDispatchNormalInfo.globalBs;
+    h = tilingData.camMoeDispatchNormalInfo.h;
+    topK = tilingData.camMoeDispatchNormalInfo.k;
+    blockNum = tilingData.camMoeDispatchNormalInfo.aivNum;
+    epRankSize = tilingData.camMoeDispatchNormalInfo.epWorldSize;
+    epRankId = tilingData.camMoeDispatchNormalInfo.epRankId;
+    moeExpertNum = tilingData.camMoeDispatchNormalInfo.moeExpertNum;
     moeExpertNumPerRank = moeExpertNum / epRankSize;
-    isEnableDiagnose = tilingData->camMoeDispatchNormalInfo.isEnableDiagnose;
+    isEnableDiagnose = tilingData.camMoeDispatchNormalInfo.isEnableDiagnose;
 
     GlobalTensor<int32_t> selfDataStatusTensor;
     GM_ADDR statusDataSpaceGm =
@@ -236,7 +239,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(GM_ADDR x, GM_ADD
     PipeBarrier<PIPE_ALL>();
 
     uint64_t hSizeAlignCombine = Ceil(h * sizeof(XType), WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
-    winDataSizeOffset = dataState * (tilingData->camMoeDispatchNormalInfo.totalWinSize / 2) +
+    winDataSizeOffset = dataState * (tilingData.camMoeDispatchNormalInfo.totalWinSize / 2) +
                         globalBatchSize / epRankSize * topK * hSizeAlignCombine;
     shareGM = GetWindAddrByRankId(COMM_EP_IDX, epRankId);
 
