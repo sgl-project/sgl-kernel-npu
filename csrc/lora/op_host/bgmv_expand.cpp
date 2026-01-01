@@ -20,9 +20,7 @@
 #include "torch_helper.h"
 
 #include "aclrtlaunch_bgmv_expand_half.h"
-#if (__CCE_AICORE__ >= 220)
 #include "aclrtlaunch_bgmv_expand_bfloat16_t.h"
-#endif
 
 namespace sglang {
 namespace npu_kernel {
@@ -36,11 +34,9 @@ extern void bgmv_expand_impl(at::ScalarType type, void *stream, void *x, void *w
     if (type == at::ScalarType::Float) {
         return;
     } else if (type == at::ScalarType::BFloat16) {
-#if (__CCE_AICORE__ >= 220)
         ACLRT_LAUNCH_KERNEL(bgmv_expand_bfloat16_t)
         (blockDim, stream, x, weight, indices, indicesSize, yIn, yOut, batchSize, numTokensPerCore, maxLoRARank,
          outputHiddenDim, sliceOffset, outputFullDim);
-#endif
     } else {
         ACLRT_LAUNCH_KERNEL(bgmv_expand_half)
         (blockDim, stream, x, weight, indices, indicesSize, yIn, yOut, batchSize, numTokensPerCore, maxLoRARank,
