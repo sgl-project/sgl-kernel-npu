@@ -93,9 +93,10 @@ class MoeDistributeCombineV2
 {
 public:
     __aicore__ inline MoeDistributeCombineV2(){};
-    __aicore__ inline void Init(GM_ADDR expandX, GM_ADDR expertIds, GM_ADDR expandIdx, GM_ADDR sendCount, GM_ADDR scales, GM_ADDR xActiveMask,
-                                GM_ADDR oriX, GM_ADDR constExpertAlpha1, GM_ADDR constExpertAlpha2, GM_ADDR constExpertV, GM_ADDR XOut,
-                                GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tilingGM);
+    __aicore__ inline void Init(GM_ADDR expandX, GM_ADDR expertIds, GM_ADDR expandIdx, GM_ADDR sendCount,
+                                GM_ADDR scales, GM_ADDR xActiveMask, GM_ADDR oriX, GM_ADDR constExpertAlpha1,
+                                GM_ADDR constExpertAlpha2, GM_ADDR constExpertV, GM_ADDR XOut, GM_ADDR workspaceGM,
+                                TPipe *pipe, GM_ADDR tilingGM);
     __aicore__ inline void Process();
 
 private:

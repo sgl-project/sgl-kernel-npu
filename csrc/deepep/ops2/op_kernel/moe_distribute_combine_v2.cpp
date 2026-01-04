@@ -56,8 +56,8 @@ extern "C" __global__ __aicore__ void moe_distribute_combine_v2(
         DataplaneMode dataplaneMode = GetDataplaneMode(contextGM0);
         if (dataplaneMode == DataplaneMode::AIV) {
             MoeDistributeCombineV2Layered<DTYPE_EXPAND_X, int32_t, DTYPE_EXPAND_X> op;
-            op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe,
-                    tilingGM, contextGM0);
+            op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe, tilingGM,
+                    contextGM0);
             op.Process();
         } else {
             assert(false, "The driver version is too low and does not support layered mode.\n");
@@ -67,8 +67,8 @@ extern "C" __global__ __aicore__ void moe_distribute_combine_v2(
         DataplaneMode dataplaneMode = GetDataplaneMode(contextGM0);
         if (dataplaneMode == DataplaneMode::AIV) {
             MoeDistributeCombineV2Layered<DTYPE_EXPAND_X, int32_t, int8_t> op;
-            op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe,
-                    tilingGM, contextGM0);
+            op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe, tilingGM,
+                    contextGM0);
             op.Process();
         } else {
             assert(false, "The driver version is too low. It should not be lower than 25.0.rc1.1.\n");

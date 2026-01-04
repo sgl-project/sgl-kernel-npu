@@ -209,7 +209,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::Init(GM_ADDR re
     hccl_.Init(contextGM0, mc2InitTiling);
     hccl_.SetCcTiling(mc2CcTiling);
 #endif
-    
+
     epWinContext_ = (__gm__ HcclOpResParam *)contextGM0;
     // InitTilingData(tilingData);
     axisBS_ = tilingData.camMoeCombineNormalInfo.bs;
