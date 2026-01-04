@@ -9,8 +9,8 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-#ifndef __ZBCCL_MEM_ALLOCATOR_H__
-#define __ZBCCL_MEM_ALLOCATOR_H__
+#ifndef ZBCCL_MEM_ALLOCATOR_H_
+#define ZBCCL_MEM_ALLOCATOR_H_
 
 #include "zbccl_def.h"
 
@@ -45,7 +45,7 @@ void zbccl_torch_allocator_uninit(int32_t flags);
  * @param stream           [in] current stream
  * @return memory ptr is successful, nullptr is failed
  */
-void *zbccl_torch_malloc(ssize_t size, int32_t device, aclrtStream stream);
+void *zbccl_torch_malloc(size_t size, int32_t device, aclrtStream stream);
 
 /**
  * @brief Free the memory allocated back to the secondary memory allocator
@@ -55,10 +55,10 @@ void *zbccl_torch_malloc(ssize_t size, int32_t device, aclrtStream stream);
  * @param device           [in] device id
  * @param stream           [in] stream
  */
-void zbccl_torch_free(void *ptr, ssize_t size, int32_t device, aclrtStream stream);
+void zbccl_torch_free(void *ptr, size_t size, int32_t device, aclrtStream stream);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif  // __ZBCCL_MEM_ALLOCATOR_H__
+#endif  // ZBCCL_MEM_ALLOCATOR_H_

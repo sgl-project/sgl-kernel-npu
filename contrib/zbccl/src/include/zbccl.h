@@ -9,8 +9,8 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-#ifndef __ZBCCL_H__
-#define __ZBCCL_H__
+#ifndef ZBCCL_H_
+#define ZBCCL_H_
 
 #include "zbccl_mem_allocator.h"
 #include "zbccl_operations.h"
@@ -30,4 +30,4 @@ const char *zbccl_version();
 }
 #endif
 
-#endif  // __ZBCCL_H__
+#endif  // ZBCCL_H_

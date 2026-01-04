@@ -9,8 +9,8 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-#ifndef __ZBCCL_DEF_H__
-#define __ZBCCL_DEF_H__
+#ifndef ZBCCL_DEF_H_
+#define ZBCCL_DEF_H_
 
 #include <stdint.h>
 #include <stdio.h>
@@ -34,11 +34,11 @@ typedef enum {
 
 typedef struct {
     void *address;
-    void *size;
+    size_t size;
 } zbccl_allocator_options;
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif  // __ZBCCL_DEF_H__
+#endif  // ZBCCL_DEF_H_

@@ -9,8 +9,8 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-#ifndef __ZBCCL_OPERATIONS_H__
-#define __ZBCCL_OPERATIONS_H__
+#ifndef ZBCCL_OPERATIONS_H_
+#define ZBCCL_OPERATIONS_H_
 
 #include "zbccl_def.h"
 
@@ -18,54 +18,59 @@
 extern "C" {
 #endif
 
+/**
+ * @brief Initialize zero buffer collective communication library
+ *
+ * @return 0 if successful
+ */
 int32_t zbccl_init();
 
 /**
- * @brief 
- * 
- * @param send_buff         [in]
- * @param recv_buff         [in]
- * @param count             [in]
- * @param data_type         [in]
- * @param op                [in]
- * @param comm              [in]
- * @param stream            [in]
- * @return 
+ * @brief Do all reduce operation
+ *
+ * @param send_buff         [in] pointer of send buffer
+ * @param recv_buff         [in] pointer of receive buffer
+ * @param count             [in] size of buffer
+ * @param data_type         [in] data type
+ * @param op                [in] operation type of reduce
+ * @param comm              [in] zbccl communication handle
+ * @param stream            [in] stream
+ * @return 0 if successful
  */
 int32_t zbccl_all_reduce(const void *send_buff, void *recv_buff, size_t count, zbccl_datatype_t data_type,
-                        zbccl_reduce_op_t op, zbccl_comm_t comm, aclrtStream stream);
+                         zbccl_reduce_op_t op, zbccl_comm_t comm, aclrtStream stream);
 
 /**
- * @brief
+ * @brief Do reduce scatter operation
  *
- * @param send_buff
- * @param recv_buff
- * @param recv_count
- * @param data_type
- * @param op
- * @param comm
- * @param stream
- * @return
+ * @param send_buff        [in] pointer of send buffer
+ * @param recv_buff        [in] pointer of receive buffer
+ * @param recv_count       [in] size of buffer
+ * @param data_type        [in] data type
+ * @param op               [in] operation type of reduce
+ * @param comm             [in] zbccl communication handle
+ * @param stream           [in] stream
+ * @return 0 if successful
  */
 int32_t zbccl_reduce_scatter(const void *send_buff, void *recv_buff, size_t recv_count, zbccl_datatype_t data_type,
-                            zbccl_reduce_op_t op, zbccl_comm_t comm, aclrtStream stream);
+                             zbccl_reduce_op_t op, zbccl_comm_t comm, aclrtStream stream);
 
 /**
- * @brief
+ * @brief Do all gather operation
  *
- * @param send_buff
- * @param recv_buff
- * @param send_count
- * @param data_type
- * @param comm
- * @param stream
+ * @param send_buff        [in] pointer of send buffer
+ * @param recv_buff        [in] pointer of receive buffer
+ * @param send_count       [in] size of buffer
+ * @param data_type        [in] data type
+ * @param comm             [in] zbccl communication handle
+ * @param stream           [in] stream
  * @return
  */
 int32_t zbccl_all_gather(const void *send_buff, void *recv_buff, size_t send_count, zbccl_datatype_t data_type,
-                        zbccl_comm_t comm, aclrtStream stream);
+                         zbccl_comm_t comm, aclrtStream stream);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif  // __ZBCCL_OPERATIONS_H__
+#endif  // ZBCCL_OPERATIONS_H_
