@@ -1,0 +1,38 @@
+Language: Cpp
+BasedOnStyle: Google
+IndentWidth: 4
+ColumnLimit: 120
+AllowShortFunctionsOnASingleLine: Empty
+DerivePointerAlignment: false
+PointerAlignment: Right
+NamespaceIndentation: None
+SortIncludes: false
+AllowShortLoopsOnASingleLine: false
+BinPackParameters: true               # Prevents packing parameters in declarations
+BinPackArguments: true                # Prevents packing arguments in function calls
+AlignAfterOpenBracket: Align          # Forces a break after the opening parenthesis
+AlignOperands: Align                  # Aligns arguments vertically
+PenaltyBreakBeforeFirstCallParameter: 1  # Encourages breaking before the first argument
+PenaltyReturnTypeOnItsOwnLine: 100    # Keeps return type with function name
+AccessModifierOffset: -4
+AllowAllArgumentsOnNextLine: false
+
+BraceWrapping:
+  AfterCaseLabel: false
+  AfterClass: true
+  AfterControlStatement: Never
+  AfterEnum: false
+  AfterFunction: true
+  AfterNamespace: false
+  AfterObjCDeclaration: false
+  AfterStruct: false
+  AfterUnion: false
+  AfterExternBlock: false
+  BeforeCatch: false
+  BeforeElse: false
+  IndentBraces: false
+  SplitEmptyFunction: false
+  SplitEmptyRecord: false
+  SplitEmptyNamespace: false
+
+BreakBeforeBraces: Custom
