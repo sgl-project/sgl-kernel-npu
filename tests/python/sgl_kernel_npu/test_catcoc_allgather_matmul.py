@@ -27,8 +27,8 @@ def direct_testing(input_a, input_b, input_c, team_id=0, group_list=(), use_nz=F
     k = a.shape[1]
     n = b.shape[1]
 
-    if rank == 0:
-        print(f"[py] addr is:{a.data_ptr()} {b.data_ptr()} {input_c.data_ptr()}")
+    # if rank == 0:
+    #     print(f"[py] addr is:{a.data_ptr()} {b.data_ptr()} {input_c.data_ptr()}")
 
     l_world_size = (
         int(world_size / len(group_list)) if len(group_list) > 0 else world_size

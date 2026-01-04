@@ -82,20 +82,28 @@ HOST_API void catcoc_matmul_allreduce(const at::Tensor &input_a, const at::Tenso
 
     int32_t batchIdx = m - 1;
     uint32_t tilingSize = sizeof(KernelCATCOCHostTilingData);
-    static auto global_tiling_data = at::empty({tilingSize * MAX_CAPTURE_NUM},
-                                               at::TensorOptions().dtype(at::kByte).device(input_a.options().device()))
-                                         .contiguous();
+    // for graphed decode(max batch controlled by MAX_CAPTURE_NUM)
+    static auto global_batched_tiling =
+        at::empty({tilingSize * MAX_CAPTURE_NUM},
+                  at::TensorOptions().dtype(at::kByte).device(input_a.options().device()))
+            .contiguous();
+    // for single prefill each time
+    static auto global_single_tiling =
+        at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(input_a.options().device())).contiguous();
+    at::Tensor tiling_tensor;
     if (batchIdx >= 0 && batchIdx < MAX_CAPTURE_NUM) {
-        aclrtMemcpy(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * batchIdx), tilingSize,
+        aclrtMemcpy(global_batched_tiling.data_ptr<uint8_t>() + (tilingSize * batchIdx), tilingSize,
                     cpu_tiling_tensor.data_ptr<uint8_t>(), tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
+        tiling_tensor = at::from_blob(global_batched_tiling.data_ptr<uint8_t>() + (tilingSize * batchIdx), tilingSize,
+                                      at::TensorOptions().dtype(at::kByte).device(input_a.options().device()));
     } else {
-        // Handle the case where batchIdx is out of range
-        TORCH_CHECK(false, "caching tiling batchIdx is out of range: ", batchIdx);
+        // FIXME: if decode processing into this step will be undefined action
+        aclrtMemcpy(global_single_tiling.data_ptr<uint8_t>(), tilingSize, cpu_tiling_tensor.data_ptr<uint8_t>(),
+                    tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
+        tiling_tensor = global_single_tiling;
     }
     // c10_npu::getCurrentNPUStream().synchronize();
-    at::Tensor tiling_tensor =
-        at::from_blob(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * batchIdx), tilingSize,
-                      at::TensorOptions().dtype(at::kByte).device(input_a.options().device()));
+
     // gmWorkspace is a dummy input for ascendc compile with tiling, catcoc ops use gmSymmetric as actual workspace
     auto workspace_tensor = at::empty({1}, at::TensorOptions().dtype(at::kByte).device(input_a.options().device()));
 
