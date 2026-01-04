@@ -47,48 +47,33 @@ extern "C" __global__ __aicore__ void moe_distribute_combine_v2(
 
 #if (ORIG_DTYPE_EXPAND_X == DT_BF16 || ORIG_DTYPE_EXPAND_X == DT_FLOAT16)
     if (TILING_KEY_IS(2000)) {
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
-        auto tiling = (__gm__ MoeDistributeCombineV2TilingData *)tilingGM;
-        __gm__ void *mc2InitTiling = (__gm__ void *)(&(tiling->mc2InitTiling));
-        __gm__ void *mc2CcTiling = (__gm__ void *)(&(tiling->mc2CcTiling));
         MoeDistributeCombineV2<DTYPE_EXPAND_X, int32_t> op;
         op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, xActiveMask, oriX, constExpertAlpha1,
-                constExpertAlpha2, constExpertV, XOut, workspaceGM, &pipe, &tilingData, mc2InitTiling, mc2CcTiling);
+                constExpertAlpha2, constExpertV, XOut, workspaceGM, &pipe, tilingGM);
         op.Process();
     } else if (TILING_KEY_IS(3000)) {
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
-        auto tiling = (__gm__ MoeDistributeCombineV2TilingData *)tilingGM;
-        __gm__ void *mc2InitTiling = (__gm__ void *)(&(tiling->mc2InitTiling));
-        __gm__ void *mc2CcTiling = (__gm__ void *)(&(tiling->mc2CcTiling));
         auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
         DataplaneMode dataplaneMode = GetDataplaneMode(contextGM0);
         if (dataplaneMode == DataplaneMode::AIV) {
             MoeDistributeCombineV2Layered<DTYPE_EXPAND_X, int32_t, DTYPE_EXPAND_X> op;
-            op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe,
-                    &tilingData, mc2InitTiling, mc2CcTiling, contextGM0);
+            op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe, tilingGM,
+                    contextGM0);
             op.Process();
         } else {
             assert(false, "The driver version is too low and does not support layered mode.\n");
         }
     } else if (TILING_KEY_IS(3100)) {
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
-        auto tiling = (__gm__ MoeDistributeCombineV2TilingData *)tilingGM;
-        __gm__ void *mc2InitTiling = (__gm__ void *)(&(tiling->mc2InitTiling));
-        __gm__ void *mc2CcTiling = (__gm__ void *)(&(tiling->mc2CcTiling));
-
         auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
         DataplaneMode dataplaneMode = GetDataplaneMode(contextGM0);
         if (dataplaneMode == DataplaneMode::AIV) {
             MoeDistributeCombineV2Layered<DTYPE_EXPAND_X, int32_t, int8_t> op;
-            op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe,
-                    &tilingData, mc2InitTiling, mc2CcTiling, contextGM0);
+            op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe, tilingGM,
+                    contextGM0);
             op.Process();
         } else {
             assert(false, "The driver version is too low. It should not be lower than 25.0.rc1.1.\n");
         }
     } else if (TILING_KEY_IS(5000)) {  // single server
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
-
         MoeDistributeCombineV2Single<DTYPE_EXPAND_X, DTYPE_X, int32_t, false, false, false> op;
         op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, scales, xActiveMask, sharedExpertX,
                 XOut, workspaceGM, &pipe, tilingGM);

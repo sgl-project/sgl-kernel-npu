@@ -96,8 +96,7 @@ public:
     __aicore__ inline void Init(GM_ADDR expandX, GM_ADDR expertIds, GM_ADDR expandIdx, GM_ADDR sendCount,
                                 GM_ADDR scales, GM_ADDR xActiveMask, GM_ADDR oriX, GM_ADDR constExpertAlpha1,
                                 GM_ADDR constExpertAlpha2, GM_ADDR constExpertV, GM_ADDR XOut, GM_ADDR workspaceGM,
-                                TPipe *pipe, const MoeDistributeCombineV2TilingData *tilingData,
-                                __gm__ void *mc2InitTiling, __gm__ void *mc2CcTiling);
+                                TPipe *pipe, GM_ADDR tilingGM);
     __aicore__ inline void Process();
 
 private:
@@ -210,10 +209,10 @@ template <TemplateMC2TypeA2Class>
 __aicore__ inline void MoeDistributeCombineV2<TemplateMC2TypeA2Func>::Init(
     GM_ADDR expandX, GM_ADDR expertIds, GM_ADDR expandIdx, GM_ADDR sendCount, GM_ADDR scales, GM_ADDR xActiveMask,
     GM_ADDR oriX, GM_ADDR constExpertAlpha1, GM_ADDR constExpertAlpha2, GM_ADDR constExpertV, GM_ADDR XOut,
-    GM_ADDR workspaceGM, TPipe *pipe, const MoeDistributeCombineV2TilingData *tilingData, __gm__ void *mc2InitTiling,
-    __gm__ void *mc2CcTiling)
+    GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tilingGM)
 {
     tpipe_ = pipe;
+    GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
     expandXGM_ = expandX;
     expertIdsGM_ = expertIds;
     expandIdxGM_ = expandIdx;
@@ -221,22 +220,30 @@ __aicore__ inline void MoeDistributeCombineV2<TemplateMC2TypeA2Func>::Init(
     scalesGM_ = scales;
     oriXGM_ = oriX;
     XOutGM_ = XOut;
-    rankId_ = tilingData->moeDistributeCombineV2Info.epRankId;
-    axisBS_ = tilingData->moeDistributeCombineV2Info.bs;
-    axisH_ = tilingData->moeDistributeCombineV2Info.h;
-    axisK_ = tilingData->moeDistributeCombineV2Info.k;
-    aivNum_ = tilingData->moeDistributeCombineV2Info.aivNum;
-    moeExpertNum_ = tilingData->moeDistributeCombineV2Info.moeExpertNum;
-    zeroExpertNum_ = tilingData->moeDistributeCombineV2Info.zeroExpertNum;
-    copyExpertNum_ = tilingData->moeDistributeCombineV2Info.copyExpertNum;
-    constExpertNum_ = tilingData->moeDistributeCombineV2Info.constExpertNum;
-    worldSize_ = tilingData->moeDistributeCombineV2Info.epWorldSize;
-    isInputTokenMaskFlag_ = tilingData->moeDistributeCombineV2Info.isTokenMask;
-    isInputExpertMaskFlag_ = tilingData->moeDistributeCombineV2Info.isExpertMask;
+    rankId_ = tilingData.moeDistributeCombineV2Info.epRankId;
+    axisBS_ = tilingData.moeDistributeCombineV2Info.bs;
+    axisH_ = tilingData.moeDistributeCombineV2Info.h;
+    axisK_ = tilingData.moeDistributeCombineV2Info.k;
+    aivNum_ = tilingData.moeDistributeCombineV2Info.aivNum;
+    moeExpertNum_ = tilingData.moeDistributeCombineV2Info.moeExpertNum;
+    zeroExpertNum_ = tilingData.moeDistributeCombineV2Info.zeroExpertNum;
+    copyExpertNum_ = tilingData.moeDistributeCombineV2Info.copyExpertNum;
+    constExpertNum_ = tilingData.moeDistributeCombineV2Info.constExpertNum;
+    worldSize_ = tilingData.moeDistributeCombineV2Info.epWorldSize;
+    isInputTokenMaskFlag_ = tilingData.moeDistributeCombineV2Info.isTokenMask;
+    isInputExpertMaskFlag_ = tilingData.moeDistributeCombineV2Info.isExpertMask;
     auto contextGM = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
     winContext_ = (__gm__ HcclOpResParam *)contextGM;
+#ifdef USE_V2_INTERFACE
+    hccl_.InitV2(contextGM, &tilingData);
+    hccl_.SetCcTilingV2(offsetof(MoeDistributeCombineV2TilingData, mc2CcTiling));
+#else
+    auto tiling = (__gm__ MoeDistributeCombineV2TilingData *)tilingGM;
+    __gm__ void *mc2InitTiling = (__gm__ void *)(&(tiling->mc2InitTiling));
+    __gm__ void *mc2CcTiling = (__gm__ void *)(&(tiling->mc2CcTiling));
     hccl_.Init(contextGM, mc2InitTiling);
     hccl_.SetCcTiling(mc2CcTiling);
+#endif
     halfWinSize_ = winContext_->winSize / 2;
     dataSpaceSize_ = halfWinSize_ - STATE_SPACE_SIZE;
     windowInGM_ = hccl_.GetWindowsInAddr(rankId_);
