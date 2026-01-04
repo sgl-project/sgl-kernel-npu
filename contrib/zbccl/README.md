@@ -4,7 +4,7 @@
 
 ## 🎉Introduction
 
-ZBCCL stands for Zero Buffer Collective Communication Library. It is designed for LLM inference on Ascend NPU, there is two key advantages: <b>zero intermediate buffer</b> and <b>blazing fast</a>.
+ZBCCL stands for Zero Buffer Collective Communication Library. It is designed for LLM inference on Ascend NPU, there is two key advantages: <b>zero intermediate buffer</b> and <b>blazing fast</b>.
 
 ## 🧩Core Features
 Two major features:
