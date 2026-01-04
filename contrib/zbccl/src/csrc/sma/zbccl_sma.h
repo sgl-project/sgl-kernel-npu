@@ -54,7 +54,7 @@ public:
      *
      * @param ptr          [in] memory pointer allocated by <i>Allocate</i>
      * @param size         [in] size of the memory
-     * @param device       [in] deivce id
+     * @param device       [in] device id
      * @param stream       [in] stream
      * @param flags        [in] optional flags
      * @return 0 if successful
