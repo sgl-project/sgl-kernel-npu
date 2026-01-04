@@ -26,12 +26,12 @@ Two major features:
   - Host: aarch64/x86
 
 - Software:
-  - CANN 8.1.RC1及之后版本
+  - CANN 8.1.RC1 and later
   - cmake >= 3.19
   - GLIBC >= 2.28
 
 ## 📝 Other information
 
-- [安全声明](./doc/SECURITYNOTE.md)
+- [Security Note](./doc/SECURITYNOTE.md)
 
 - [License](./LICENSE)
