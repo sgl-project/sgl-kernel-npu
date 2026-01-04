@@ -9,7 +9,7 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-#ifndef SZBCCL_COMM_OP_H
-#define SZBCCL_COMM_OP_H
+#ifndef ZBCCL_COMM_OP_H
+#define ZBCCL_COMM_OP_H
 
-#endif  // SZBCCL_COMM_OP_H
+#endif  // ZBCCL_COMM_OP_H

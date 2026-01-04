@@ -9,8 +9,8 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-#ifndef ZBCCL_DEFINE_H
-#define ZBCCL_DEFINE_H
+#ifndef ZBCCL_DEFINES_H
+#define ZBCCL_DEFINES_H
 
 #include <cstdint>
 #include <cstddef>

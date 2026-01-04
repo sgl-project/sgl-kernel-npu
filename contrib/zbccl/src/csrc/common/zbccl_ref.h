@@ -1,5 +1,5 @@
 /*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+ * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
  * ZBCCL is licensed under Mulan PSL v2.
  * You can use this software according to the terms and conditions of the Mulan PSL v2.
  * You may obtain a copy of Mulan PSL v2 at:
@@ -13,6 +13,7 @@
 #ifndef ZBCCL_REF_H
 #define ZBCCL_REF_H
 
+#include <atomic>
 #include <cstdint>
 
 namespace zbccl {
@@ -25,19 +26,19 @@ public:
 
     inline void IncreaseRef()
     {
-        __sync_fetch_and_add(&refCount_, 1);
+        refCount_.fetch_add(1, std::memory_order_relaxed);
     }
 
     inline void DecreaseRef()
     {
         // delete itself if reference count equal to 0
-        if (__sync_sub_and_fetch(&refCount_, 1) == 0) {
+        if (refCount_.fetch_sub(1, std::memory_order_acq_rel) == 1) {
             delete this;
         }
     }
 
 protected:
-    int32_t refCount_ = 0;
+    std::atomic<int32_t> refCount_{0};
 };
 
 template <typename T>
@@ -68,7 +69,7 @@ public:
         }
     }
 
-    ZRef(ZRef<T> &&other) noexcept : mObj(std::__exchange(other.mObj, nullptr))
+    ZRef(ZRef<T> &&other) noexcept : mObj(std::exchange(other.mObj, nullptr))
     {
         // move constructor
         // since this mObj is null, just exchange
