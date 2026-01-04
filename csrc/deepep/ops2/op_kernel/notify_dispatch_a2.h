@@ -19,14 +19,14 @@ using namespace Moe;
         GM_ADDR tokenServerIdxOutput, GM_ADDR tokensUniquePerServerOutput, GM_ADDR epRankTokenCntOutput,               \
         GM_ADDR localEpTokenCntOutput, GM_ADDR srcOffsetRankTokenIdxOutput, GM_ADDR dstOffsetRankTokenIdxOutput,       \
         GM_ADDR offsetInnerOutput, GM_ADDR countOuterOutput, GM_ADDR expandIdxOutput, GM_ADDR totalRecvTokensOutput,   \
-        GM_ADDR workspace, GM_ADDR tiling
+        GM_ADDR workspace, GM_ADDR tilingGM
 
 #define KERNELS_ARGS_CALL_A2_ALL2ALL()                                                                          \
     sendDataInput, tokenPerExpertDataInput, tmpDataInput, sendDataOffsetOutput, recvDataOutput, len, numTokens, \
         topkNum, numExperts, op, root, cycleCount, scale, scaleCount, offset, localRank, localRankSize,         \
         tokenServerIdxOutput, tokensUniquePerServerOutput, epRankTokenCntOutput, localEpTokenCntOutput,         \
         srcOffsetRankTokenIdxOutput, dstOffsetRankTokenIdxOutput, offsetInnerOutput, countOuterOutput,          \
-        expandIdxOutput, totalRecvTokensOutput, workspace, tiling
+        expandIdxOutput, totalRecvTokensOutput, workspace, tilingGM
 
 // #define ENABLE_PRINT
 #ifdef ENABLE_PRINT
@@ -203,14 +203,20 @@ private:
         ctxIdx = COMM_EP_IDX;
 
         // 初始化RDMA相关变量
-        auto tilingData = (__gm__ NotifyDispatchA2TilingData *)tiling;
-        __gm__ void *mc2InitTiling = (__gm__ void *)(&(tilingData->mc2InitTiling));
-        __gm__ void *mc2CcTiling = (__gm__ void *)(&(tilingData->mc2CcTiling1));
+        GET_TILING_DATA_WITH_STRUCT(NotifyDispatchA2TilingData, tilingData, tilingGM);
 
         auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
 
+#ifdef USE_V2_INTERFACE
+        hccl_.InitV2(contextGM0, &tilingData);
+        hccl_.SetCcTilingV2(offsetof(NotifyDispatchA2TilingData, mc2CcTiling1));
+#else
+        auto tiling = (__gm__ NotifyDispatchA2TilingData *)tilingGM;
+        __gm__ void *mc2InitTiling = (__gm__ void *)(&(tiling->mc2InitTiling));
+        __gm__ void *mc2CcTiling = (__gm__ void *)(&(tiling->mc2CcTiling1));
         hccl_.Init(contextGM0, mc2InitTiling);
         hccl_.SetCcTiling(mc2CcTiling);
+#endif
         this->winContext_[COMM_EP_IDX] = (__gm__ HcclOpResParam *)contextGM0;
         notifyMemoryOffset = winContext_[COMM_EP_IDX]->winSize - IPC_BUFF_MAX_SIZE * 2;
         // 设置并自增magic

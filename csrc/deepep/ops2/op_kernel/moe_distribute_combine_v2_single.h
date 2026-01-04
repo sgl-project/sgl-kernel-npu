@@ -368,13 +368,21 @@ __aicore__ inline void MoeDistributeCombineV2Single<TemplateMC2TypeA2SingleFunc>
     coreIdx_ = GetBlockIdx();
 
     REGISTER_TILING_DEFAULT(MoeDistributeCombineV2TilingData);
+    // auto tiling = (__gm__ MoeDistributeCombineV2TilingData *)tilingGM;
+    // __gm__ void *mc2InitTiling = (__gm__ void *)(&(tiling->mc2InitTiling));
+    // __gm__ void *mc2CcTiling = (__gm__ void *)(&(tiling->mc2CcTiling));
+    GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
+    auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
+#ifdef USE_V2_INTERFACE
+    hccl_.InitV2(contextGM0, &tilingData);
+    hccl_.SetCcTilingV2(offsetof(MoeDistributeCombineV2TilingData, mc2CcTiling));
+#else
     auto tiling = (__gm__ MoeDistributeCombineV2TilingData *)tilingGM;
     __gm__ void *mc2InitTiling = (__gm__ void *)(&(tiling->mc2InitTiling));
     __gm__ void *mc2CcTiling = (__gm__ void *)(&(tiling->mc2CcTiling));
-    GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
-    auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
     hccl_.Init(contextGM0, mc2InitTiling);
     hccl_.SetCcTiling(mc2CcTiling);
+#endif
 
     InitAttrs(tilingData);
     InitDataStatus();

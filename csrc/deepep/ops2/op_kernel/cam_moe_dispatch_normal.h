@@ -165,15 +165,17 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(GM_ADDR x, GM_ADD
     tpipe_ = pipe;
     blockIdx = GetBlockIdx();
     GET_TILING_DATA_WITH_STRUCT(CamMoeDispatchNormalTilingData, tilingData, tilingGM);
-    // auto tilingData = (__gm__ CamMoeDispatchNormalTilingData *)tilingGM;
-    // __gm__ void *mc2InitTiling = (__gm__ void *)(&(tilingData->mc2InitTiling));
-    // __gm__ void *mc2CcTiling = (__gm__ void *)(&(tilingData->mc2CcTiling1));
-
     auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
-    // hccl_.Init(contextGM0, mc2InitTiling);
+#ifdef USE_V2_INTERFACE
     hccl_.InitV2(contextGM0, &tilingData);
-    // hccl_.SetCcTiling(mc2CcTiling);
     hccl_.SetCcTilingV2(offsetof(CamMoeDispatchNormalTilingData, mc2CcTiling1));
+#else
+    auto tiling = (__gm__ CamMoeDispatchNormalTilingData *)tilingGM;
+    __gm__ void *mc2InitTiling = (__gm__ void *)(&(tiling->mc2InitTiling));
+    __gm__ void *mc2CcTiling = (__gm__ void *)(&(tiling->mc2CcTiling1));
+    hccl_.Init(contextGM0, mc2InitTiling);
+    hccl_.SetCcTiling(mc2CcTiling);
+#endif
     winContext_[COMM_EP_IDX] = (__gm__ HcclOpResParam *)AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
 
     batchSize = tilingData.camMoeDispatchNormalInfo.bs;
