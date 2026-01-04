@@ -7,6 +7,7 @@ option(BUILD_TESTS  "build test or not" OFF)
 option(BUILD_DEEPEP_MODULE "build deepep" ON)
 option(BUILD_KERNELS_MODULE  "build kernels" ON)
 option(BUILD_CATLASS_MODULE  "build catlass ops within kernels" OFF)
+option(BUILD_CATCOC_MODULE  "build catcoc ops within kernels" ON)
 
 set(CMAKE_CXX_STANDARD 17)
 #set(CMAKE_VERBOSE_MAKEFILE ON)
@@ -22,6 +23,21 @@ if (BUILD_CATLASS_MODULE)
     add_compile_definitions(BUILD_CATLASS_MODULE)
     set(CATLASS_DIR "${PROJECT_SOURCE_DIR}/3rdparty/catlass")  # specific your catlass path here
     message(STATUS "[CATLASS] ${CATLASS_DIR}")
+endif ()
+
+if (BUILD_CATCOC_MODULE)
+    add_compile_definitions(BUILD_CATCOC_MODULE)
+    set(CATLASS_DIR "${PROJECT_SOURCE_DIR}/3rdparty/catlass")  # specific your catlass path here
+    set(CATCOC_DIR "${PROJECT_SOURCE_DIR}/3rdparty/catcoc")  # specific your catcoc path here
+    message(STATUS "[CATLASS] ${CATLASS_DIR}")
+    message(STATUS "[CATCOC] ${CATCOC_DIR}")
+
+    # shmem
+    if(NOT DEFINED SHMEM_HOME_PATH AND NOT DEFINED ENV{SHMEM_HOME_PATH})
+        message(FATAL_ERROR "Cannot find SHMEM_HOME_PATH, please run set_env.sh.")
+    elseif(NOT DEFINED SHMEM_HOME_PATH)
+        set(SHMEM_HOME_PATH $ENV{SHMEM_HOME_PATH})
+    endif()
 endif ()
 
 if (${CMAKE_BUILD_TYPE} MATCHES "RELEASE")

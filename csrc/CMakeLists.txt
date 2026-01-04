@@ -27,6 +27,17 @@ if(BUILD_CATLASS_MODULE)
         ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_matmul_basic.cpp
     )
 endif()
+if(BUILD_CATCOC_MODULE)
+    # check catcoc kernel already built (must build in bisheng)
+    set(CATCOC_LIBRARY_OUTPUT ${PROJECT_OP_SRC_BASE}/catcoc/ops/install)
+    if(NOT EXISTS "${CATCOC_LIBRARY_OUTPUT}/libcatcoc_kernel.so")
+        message(FATAL_ERROR "Assert Failed: CATCOC ops lib(libcatcoc_kernel.so) does not exist: ${CATCOC_LIBRARY_OUTPUT}")
+    endif()
+    list(APPEND OP_SRCS
+        ${PROJECT_OP_SRC_BASE}/catcoc/op_host/catcoc_allgather_matmul.cpp
+        ${PROJECT_OP_SRC_BASE}/catcoc/op_host/catcoc_matmul_allreduce.cpp
+    )
+endif()
 
 # set the so name
 set(OP_PLUGIN_NAME sgl_kernel_npu)
@@ -57,6 +68,7 @@ if(BUILD_CATLASS_MODULE)
         ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_matmul_basic_kernel.cpp
     )
 endif()
+
 ascendc_library(workspace_kernel STATIC ${WORKSPACE_KERNEL_SRCS})
 if(BUILD_CATLASS_MODULE)
     ascendc_include_directories(workspace_kernel PRIVATE
@@ -88,6 +100,14 @@ target_link_directories(${OP_PLUGIN_NAME} PRIVATE
         ${TORCH_DIR}/lib
         ${TORCH_NPU_DIR}/lib
 )
+if(BUILD_CATCOC_MODULE)
+    target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
+        ${SHMEM_HOME_PATH}/shmem/lib/libshmem.so
+        ${CATCOC_LIBRARY_OUTPUT}/libcatcoc_kernel.so
+    )
+    # install catcoc lib in wheel
+    install(FILES ${CATCOC_LIBRARY_OUTPUT}/libcatcoc_kernel.so DESTINATION ${CMAKE_LIBRARY_OUTPUT_DIRECTORY})
+endif()
 
 target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/utils
@@ -99,3 +119,10 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${ASCEND_INCLUDE_DIR}/experiment/platform
         ${ASCEND_INCLUDE_DIR}/experiment/runtime
 )
+#if(BUILD_CATCOC_MODULE)
+#    target_include_directories(${OP_PLUGIN_NAME} PRIVATE
+#        ${SHMEM_HOME_PATH}/shmem/include
+#        ${SHMEM_HOME_PATH}/memfabric_hybrid/include/smem/host
+#        ${SHMEM_HOME_PATH}/memfabric_hybrid/include/smem/device
+#    )
+#endif()
