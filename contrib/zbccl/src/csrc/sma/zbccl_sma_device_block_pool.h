@@ -9,8 +9,8 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-#ifndef ZBCCL_SMA_BLOCK_POOL_H
-#define ZBCCL_SMA_BLOCK_POOL_H
+#ifndef ZBCCL_SMA_DEVICE_BLOCK_POOL_H
+#define ZBCCL_SMA_DEVICE_BLOCK_POOL_H
 
 #include "zbccl_sma.h"
 #include "zbccl_sma_config.h"
@@ -60,7 +60,7 @@ private:
     uintptr_t ptr_{0};                  // memory address
     DeviceBlockPtr prev_{nullptr};      // prev block if split from a larger allocation
     DeviceBlockPtr next_{nullptr};      // next block if split from a larger allocation
-    int32_t event_count_{0};            // number of outstanding CUDA events
+    int32_t event_count_{0};            // number of outstanding events
     bool allocated_{false};             // in-use flag
     int64_t gc_count_base_{0};          // get_free_blocks_call_count when DeviceBlock is inserted
 
@@ -133,4 +133,4 @@ inline size_t DeviceAllocParams::size() const
 }  // namespace sma
 }  // namespace zbccl
 
-#endif  // ZBCCL_SMA_BLOCK_POOL_H
+#endif  // ZBCCL_SMA_DEVICE_BLOCK_POOL_H

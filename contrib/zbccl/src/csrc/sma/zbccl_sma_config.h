@@ -9,8 +9,8 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-#ifndef ZBCCL_ALLOCATOR_CONFIG_H
-#define ZBCCL_ALLOCATOR_CONFIG_H
+#ifndef ZBCCL_SMA_CONFIG_H
+#define ZBCCL_SMA_CONFIG_H
 
 #include "zbccl_common_includes.h"
 
@@ -28,7 +28,6 @@ public:
         return gConfig;
     }
 
-public:
 private:
     void ParseEnv();
 
@@ -37,4 +36,4 @@ private:
 }  // namespace sma
 }  // namespace zbccl
 
-#endif  // ZBCCL_ALLOCATOR_CONFIG_H
+#endif  // ZBCCL_SMA_CONFIG_H

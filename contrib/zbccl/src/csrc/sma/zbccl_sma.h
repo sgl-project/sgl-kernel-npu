@@ -9,8 +9,8 @@
  * MERCHANTABILITY OR FIT FOR A PARTICULAR PURPOSE.
  * See the Mulan PSL v2 for more details.
  */
-#ifndef ZBCCL_DEVICE_MEM_ALLOCATOR_H
-#define ZBCCL_DEVICE_MEM_ALLOCATOR_H
+#ifndef ZBCCL_SMA_H
+#define ZBCCL_SMA_H
 
 #include "zbccl_common_includes.h"
 
@@ -47,8 +47,7 @@ public:
      * @param out          [out] pointer that allocated
      * @return 0 if successful
      */
-    virtual ZResult Allocate(ssize_t size, int32_t device, aclrtStream stream, int32_t flags,
-                             void *&out) noexcept = 0;
+    virtual ZResult Allocate(ssize_t size, int32_t device, aclrtStream stream, int32_t flags, void *&out) noexcept = 0;
 
     /**
      * @brief Free memory
@@ -66,4 +65,4 @@ using SMAPtr = ZRef<SecondaryMemoryAllocator>;
 }  // namespace sma
 }  // namespace zbccl
 
-#endif  // ZBCCL_DEVICE_MEM_ALLOCATOR_H
+#endif  // ZBCCL_SMA_H
