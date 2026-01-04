@@ -20,7 +20,6 @@ void SMAConfig::ParseEnv()
     if (strEnv == nullptr) {
         return;
     }
-
 }
 }  // namespace sma
 }  // namespace zbccl
