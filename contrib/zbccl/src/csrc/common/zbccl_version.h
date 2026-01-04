@@ -33,8 +33,7 @@
 /*
  * global lib version string with build time
  */
-[[maybe_unused]] static const char *LIB_VERSION_FULL = "library version: " LIB_VERSION
-                                                       ", build time: " __DATE__ " " __TIME__
-                                                       ", commit: " STR2(GIT_LAST_COMMIT);
+[[maybe_unused]] static const char *LIB_VERSION_FULL =
+    "library version: " LIB_VERSION ", build time: " __DATE__ " " __TIME__ ", commit: " STR2(GIT_LAST_COMMIT);
 
 #endif  // ZBCCL_VERSION_H

@@ -15,10 +15,10 @@
 #include <string>
 
 namespace zbccl {
-class Func {
+class Func
+{
 public:
-
 };
-}
+}  // namespace zbccl
 
 #endif  // ZBCCL_FUNCTIONS_H

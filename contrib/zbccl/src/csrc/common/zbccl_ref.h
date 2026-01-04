@@ -40,7 +40,8 @@ protected:
     int32_t refCount_ = 0;
 };
 
-template <typename T> class ZRef
+template <typename T>
+class ZRef
 {
 public:
     // constructor
@@ -161,7 +162,8 @@ private:
     T *mObj = nullptr;
 };
 
-template <typename C, typename... ARGS> inline ZRef<C> ZMakeRef(ARGS... args)
+template <typename C, typename... ARGS>
+inline ZRef<C> ZMakeRef(ARGS... args)
 {
     return new (std::nothrow) C(args...);
 }

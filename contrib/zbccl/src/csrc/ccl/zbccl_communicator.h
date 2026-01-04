@@ -14,8 +14,6 @@
 
 #include "zbccl_common_includes.h"
 
-namespace zbccl {
-
-}
+namespace zbccl {}
 
 #endif  // ZBCCL_COMMUNICATOR_H
