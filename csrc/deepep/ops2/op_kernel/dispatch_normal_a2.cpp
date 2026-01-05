@@ -27,7 +27,6 @@ extern "C" __global__ __aicore__ void dispatch_normal_a2(
     GM_ADDR expandScalesOut, GM_ADDR dispatchWaitRecvCostStatsOut, GM_ADDR workspace, GM_ADDR tiling)
 {
     REGISTER_TILING_DEFAULT(CamMoeDistributeDispatchA2TilingData);
-    // GET_TILING_DATA_WITH_STRUCT(CamMoeDistributeDispatchA2TilingData, tilingData, tiling);
 
     // hcomm will set magic later in init
     uint32_t magic = 1;
