@@ -27,15 +27,11 @@ def direct_testing(input_a, input_b, input_c, team_id=0, group_list=(), use_nz=F
     k = a.shape[1]
     n = b.shape[1]
 
-    # if rank == 0:
-    #     print(f"[py] addr is:{a.data_ptr()} {b.data_ptr()} {input_c.data_ptr()}")
-
     l_world_size = (
         int(world_size / len(group_list)) if len(group_list) > 0 else world_size
     )
 
     # assert g_shmem_addr is not None and k == b.shape[0]
-    # print('rank', rank, ' is ', a.device, b.device)
     for _ in range(1):
         # with torch.npu.stream(torch.npu.current_stream()):
         if use_nz:
@@ -70,22 +66,24 @@ def direct_testing(input_a, input_b, input_c, team_id=0, group_list=(), use_nz=F
 
 def shmem_init(rank, world_size):
     # original init
-    # from shmem import set_conf_store_tls
-    #
-    # global g_shmem_addr, g_ash_size, g_malloc_size
-    # set_conf_store_tls(False, "")
-    # shmem_addr = "tcp://127.0.0.1:26666"
-    # attributes = ash.InitAttr()
-    # attributes.my_rank = rank
-    # attributes.n_ranks = world_size
-    # attributes.local_mem_size = g_ash_size
-    # attributes.ip_port = shmem_addr
-    # attributes.option_attr.data_op_engine_type = ash.OpEngineType.MTE
-    # ret = ash.shmem_init(attributes)
-    # assert ret == 0, '[ERROR] aclshmem_init failed'
-    #
-    # g_shmem_addr = ash.shmem_malloc(g_malloc_size)
+    from shmem import set_conf_store_tls
 
+    global g_shmem_addr, g_ash_size, g_malloc_size
+    set_conf_store_tls(False, "")
+    shmem_addr = "tcp://127.0.0.1:26666"
+    attributes = ash.InitAttr()
+    attributes.my_rank = rank
+    attributes.n_ranks = world_size
+    attributes.local_mem_size = g_ash_size
+    attributes.ip_port = shmem_addr
+    attributes.option_attr.data_op_engine_type = ash.OpEngineType.MTE
+    ret = ash.shmem_init(attributes)
+    assert ret == 0, "[ERROR] aclshmem_init failed"
+
+    g_shmem_addr = ash.shmem_malloc(g_malloc_size)
+
+
+def shmem_init_uid(rank, world_size):
     # uid init(need env SHMEM_UID_SOCK_IFNAM=enp194s0f0::inet4)
     global g_shmem_addr, g_ash_size, g_malloc_size
     # 0. disable TLS

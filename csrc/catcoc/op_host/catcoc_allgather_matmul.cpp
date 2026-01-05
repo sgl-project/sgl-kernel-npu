@@ -66,7 +66,6 @@ HOST_API void catcoc_allgather_matmul(const at::Tensor &input_a, const at::Tenso
                 "tensor type only support half and bf16");
 
     auto formatMode = static_cast<WeightFormatMode>(GetModeVal(weightFormatMap, format_mode, "ND", "format_mode"));
-    // TORCH_CHECK(formatMode == WeightFormatMode::WEIGHT_ND, "current ops only support weightFormat ND");
 
     uint32_t m = input_a.size(0);
     uint32_t k = input_a.size(1);
@@ -77,9 +76,6 @@ HOST_API void catcoc_allgather_matmul(const at::Tensor &input_a, const at::Tenso
     auto cpu_tiling_tensor = get_tiling_tensor(m, n, k, formatMode, dTypeMap[aType], blockDim);
 
     auto tiling_data_cpu = reinterpret_cast<KernelCATCOCHostTilingData *>(cpu_tiling_tensor.data_ptr<uint8_t>());
-    // printf("m is: %d ;", tiling_data_cpu->m);
-    // printf("n is: %d ;", tiling_data_cpu->n);
-    // printf("k is: %d ;\n", tiling_data_cpu->k);
 
     int32_t batchIdx = m - 1;
     uint32_t tilingSize = sizeof(KernelCATCOCHostTilingData);
@@ -120,19 +116,6 @@ HOST_API void catcoc_allgather_matmul(const at::Tensor &input_a, const at::Tenso
     uint64_t fftsAddr;
     rtGetC2cCtrlAddr(&fftsAddr, &len);
     auto workspace_ptr = reinterpret_cast<uint8_t *>(workspace_tensor.data_ptr());
-
-    /*
-    printf("[host] tiling_ptr on host is %ld\n", tiling_ptr);
-    printf("[host] ipt_a_ptr is %ld, ipt_b_ptr is %ld, opt_c_ptr is %ld\n", a_ptr, b_ptr, c_ptr);
-    printf("[host] fftsAddr is %lu, symm_ptr is %lu\n", fftsAddr, symm_ptr);
-
-    at::Tensor cpu_tensor = tiling_tensor.to(at::kCPU).contiguous();
-    uint8_t * data_ptr = cpu_tensor.data_ptr<uint8_t>();
-    printf("tiling_ptr on host is %ld\n", tiling_ptr);
-    printf("M element (hex): %02x %02x %02x %02x\n", data_ptr[0], data_ptr[1], data_ptr[2], data_ptr[3]);
-    printf("N element (hex): %02x %02x %02x %02x\n", data_ptr[4], data_ptr[5], data_ptr[6], data_ptr[7]);
-    printf("K element (hex): %02x %02x %02x %02x\n", data_ptr[8], data_ptr[9], data_ptr[10], data_ptr[11]);
-    */
 
     auto stream = c10_npu::getCurrentNPUStream().stream(false);
     auto teamIdx = (uint64_t)teamId;
@@ -175,14 +158,6 @@ HOST_API void catcoc_allgather_matmul(const at::Tensor &input_a, const at::Tenso
         AT_ERROR("Unknown tiling cases, ops exec failed!");
     }
     at_npu::native::OpCommand::RunOpApiV2("catcoc_allgather_matmul_kernel", acl_call);
-
-    /*
-    auto teamIdx = (uint64_t)teamId;
-    uint32_t block_dim = platform_ascendc::PlatformAscendCManager::GetInstance()->GetCoreNumAic();
-    // gmWorkspace is a dummy input for ascendc compile with tiling, catcoc ops use gmSymmetric as actual workspace
-    EXEC_KERNEL_CMD(catcoc_allgather_matmul_kernel, block_dim, fftsAddr, teamIdx, input_a, input_b, output_c,
-                    symm_ptr, workspace_tensor, tiling_ptr);
-    */
 }
 
 }  // namespace npu_kernel

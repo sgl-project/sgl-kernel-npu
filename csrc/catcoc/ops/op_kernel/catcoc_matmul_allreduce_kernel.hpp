@@ -74,29 +74,6 @@ public:
         uint32_t k0 = tiling_data->k0;
         uint32_t n0 = tiling_data->n0;
 
-        /*
-        if(rankIdx == 0) {
-            AscendC::printf("m is: %u ;", tiling_data->m);
-            AscendC::printf("n is: %u ;", tiling_data->n);
-            AscendC::printf("k is: %u ;\n", k);
-            AscendC::printf("rankIdx is %u ; rankSize is %u ; teamIdx is: %d ;\n", rankIdx, rankSize, newTeamIdx);
-
-            AscendC::printf("[dev] tiling_ptr on device is %lu \n", (uint64_t) tiling_data);
-            AscendC::printf("[dev] ipt_a_ptr is %ld, ipt_b_ptr is %ld, opt_c_ptr is %ld\n", gmA, gmB, gmC);
-            printf("[dev] fftsAddr is %lu, symm_ptr is %lu\n", fftsAddr, (uint64_t) gmSymmetric);
-        }
-        */
-
-        /*
-        uint32_t swizzleOffset = tiling_data->swizzleOffset;
-        uint32_t swizzleDirect = tiling_data->swizzleDirect;
-        uint32_t pValue = tiling_data->pValue;
-        uint32_t commDataSplit = tiling_data->commDataSplit;
-        uint32_t commNpuSplit = tiling_data->commNpuSplit;
-        uint32_t ubMoveNum = tiling_data->ubMoveNum;
-        uint32_t lenPerLoop = tiling_data->lenPerLoop;
-        */
-
         // switch cases
         using ElementA =
             typename std::conditional_t<dMode == DataFormatMode::FP16, half,
