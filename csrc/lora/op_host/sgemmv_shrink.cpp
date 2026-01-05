@@ -19,32 +19,34 @@
 #include "defines.h"
 #include "torch_helper.h"
 
-#include "aclrtlaunch_sgmv_shrink_half.h"
-#include "aclrtlaunch_sgmv_shrink_bfloat16_t.h"
+#include "aclrtlaunch_sgemmv_shrink_half.h"
+#include "aclrtlaunch_sgemmv_shrink_bfloat16_t.h"
 
 namespace sglang {
 namespace npu_kernel {
 
-extern void sgmv_shrink_impl(at::ScalarType type, void *stream, void *x, void *weight, void *loraIndices,
-                             uint32_t loraIndicesSize, void *seqLen, uint32_t seqLenSize, void *y, uint32_t batchSize,
-                             uint32_t numTokensPerCore, uint32_t inputHiddenDim, uint32_t maxLoRARank, float scale)
+extern void sgemmv_shrink_impl(at::ScalarType type, void *stream, void *x, void *weight, void *loraIndices,
+                               uint32_t loraIndicesSize, void *seqLen, uint32_t seqLenSize, void *loraRanks,
+                               uint32_t loraRanksSize, void *loraScales, uint32_t loraScalesSize, void *y,
+                               uint32_t batchSize, uint32_t numTokensPerCore, uint32_t inputHiddenDim,
+                               uint32_t maxLoRARank)
 {
     uint32_t blockDim = (batchSize + numTokensPerCore - 1) / numTokensPerCore;
     if (type == at::ScalarType::Float) {
         return;
     } else if (type == at::ScalarType::BFloat16) {
-        ACLRT_LAUNCH_KERNEL(sgmv_shrink_bfloat16_t)
-        (blockDim, stream, x, weight, loraIndices, loraIndicesSize, seqLen, seqLenSize, y, batchSize, numTokensPerCore,
-         inputHiddenDim, maxLoRARank, scale);
+        ACLRT_LAUNCH_KERNEL(sgemmv_shrink_bfloat16_t)
+        (blockDim, stream, x, weight, loraIndices, loraIndicesSize, seqLen, seqLenSize, loraRanks, loraRanksSize,
+         loraScales, loraScalesSize, y, batchSize, numTokensPerCore, inputHiddenDim, maxLoRARank);
     } else {
-        ACLRT_LAUNCH_KERNEL(sgmv_shrink_half)
-        (blockDim, stream, x, weight, loraIndices, loraIndicesSize, seqLen, seqLenSize, y, batchSize, numTokensPerCore,
-         inputHiddenDim, maxLoRARank, scale);
+        ACLRT_LAUNCH_KERNEL(sgemmv_shrink_half)
+        (blockDim, stream, x, weight, loraIndices, loraIndicesSize, seqLen, seqLenSize, loraRanks, loraRanksSize,
+         loraScales, loraScalesSize, y, batchSize, numTokensPerCore, inputHiddenDim, maxLoRARank);
     }
 }
 
-HOST_API void sgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices, at::Tensor &seq_len,
-                          at::Tensor &y, double scale)
+HOST_API void sgemmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices, at::Tensor &seq_len,
+                            at::Tensor &lora_ranks, at::Tensor &lora_scales, at::Tensor &y)
 {
     at::ScalarType scalar_type = x.scalar_type();
     TORCH_CHECK(scalar_type == at::kHalf || scalar_type == at::kBFloat16, "only support half and bf16");
@@ -55,27 +57,34 @@ HOST_API void sgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_in
     TORCH_CHECK(x.size(1) > y.size(1), "hidden in should be greater than hidden out");
     void *x_ptr = x.data_ptr();
     void *weight_ptr = weight.data_ptr();
+
     void *lora_indices_ptr = lora_indices.data_ptr();
-    void *seq_len_ptr = seq_len.data_ptr();
     int lora_indices_size = lora_indices.size(0);
+    void *seq_len_ptr = seq_len.data_ptr();
     int seq_len_size = seq_len.size(0);
+    void *lora_ranks_ptr = lora_ranks.data_ptr();
+    int lora_ranks_size = lora_ranks.size(0);
+    void *lora_scales_ptr = lora_scales.data_ptr();
+    int lora_scales_size = lora_scales.size(0);
+
     void *y_ptr = y.data_ptr();
     int batch_size = x.size(0);
     int input_hidden_token = x.size(1);
-    uint32_t lora_rank = y.size(1);
-    float scale_f = static_cast<float>(scale);
+    uint32_t max_lora_rank = y.size(1);
     aclrtStream stream = c10_npu::getCurrentNPUStream().stream();
     at_npu::native::OpCommand cmd;
-    cmd.Name("sgmv_shrink");
+    cmd.Name("sgemmv_shrink");
     cmd.SetCustomHandler([scalar_type, stream, x_ptr, weight_ptr, lora_indices_ptr, lora_indices_size, seq_len_ptr,
-                          seq_len_size, y_ptr, batch_size, input_hidden_token, lora_rank, scale_f]() -> int {
+                          seq_len_size, lora_ranks_ptr, lora_ranks_size, lora_scales_ptr, lora_scales_size, y_ptr,
+                          batch_size, input_hidden_token, max_lora_rank]() -> int {
         int device_id = 0;
         int64_t aiv_num = 0;
         TORCH_CHECK(aclGetDeviceCapability(device_id, ACL_DEVICE_INFO_VECTOR_CORE_NUM, &aiv_num) == ACL_SUCCESS);
         int num_tokens_per_core = (batch_size + aiv_num - 1) / aiv_num;
         TORCH_CHECK(num_tokens_per_core != 0, "num_tokens_per_core should not be 0");
-        sgmv_shrink_impl(scalar_type, stream, x_ptr, weight_ptr, lora_indices_ptr, lora_indices_size, seq_len_ptr,
-                         seq_len_size, y_ptr, batch_size, num_tokens_per_core, input_hidden_token, lora_rank, scale_f);
+        sgemmv_shrink_impl(scalar_type, stream, x_ptr, weight_ptr, lora_indices_ptr, lora_indices_size, seq_len_ptr,
+                           seq_len_size, lora_ranks_ptr, lora_ranks_size, lora_scales_ptr, lora_scales_size, y_ptr,
+                           batch_size, num_tokens_per_core, input_hidden_token, max_lora_rank);
         return 0;
     });
     cmd.Run();
