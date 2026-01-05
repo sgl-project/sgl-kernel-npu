@@ -45,7 +45,7 @@ const char *data_type;
 bool zero_buff = false;
 
 template<class T>
-int test_shmem_reduce_scatter(int rank_id, int n_ranks, uint64_t local_mem_size, bool zero_buff)
+int test_shmem_reduce_scatter(int rank_id, int n_ranks, uint64_t local_mem_size, ZCCLDataType dataType, bool zero_buff)
 {
     // 初始化ACL和SHMEM
     int32_t device_id = rank_id % g_npus + f_npu;
@@ -75,7 +75,6 @@ int test_shmem_reduce_scatter(int rank_id, int n_ranks, uint64_t local_mem_size,
     }
 
     uint32_t reduceOp = 0;
-    ZCCLDataType dataType = ZCCLDataType::ZCCL_DATA_TYPE_FP32;
     int teamId = 0;
     std::string cwd = getEnvVar("PWD");
 
@@ -186,12 +185,15 @@ int main(int argc, char *argv[])
     uint64_t local_mem_size = 1024UL * 1024UL * 1024;
     int32_t ret = shmem_set_conf_store_tls(false, nullptr, 0);
     std::cout << "init shmem tls result:" << ret << std::endl;
+    ZCCLDataType dataType = ZCCLDataType::ZCCL_DATA_TYPE_FP32;
     if (std::string(data_type) == "int") {
-        status = test_shmem_reduce_scatter<int>(rank_id, n_ranks, local_mem_size, zero_buff);
+        dataType = ZCCLDataType::ZCCL_DATA_TYPE_INT32;
+        status = test_shmem_reduce_scatter<int>(rank_id, n_ranks, local_mem_size, dataType, zero_buff);
     } else if (std::string(data_type) == "float") {
-        status = test_shmem_reduce_scatter<float>(rank_id, n_ranks, local_mem_size, zero_buff);
+        status = test_shmem_reduce_scatter<float>(rank_id, n_ranks, local_mem_size, dataType, zero_buff);
     } else if (std::string(data_type) == "float16_t") {
-        status = test_shmem_reduce_scatter<fp16_t>(rank_id, n_ranks, local_mem_size, zero_buff);
+        dataType = ZCCLDataType::ZCCL_DATA_TYPE_FP16;
+        status = test_shmem_reduce_scatter<fp16_t>(rank_id, n_ranks, local_mem_size, dataType, zero_buff);
     }
     
     if (status) {

@@ -202,6 +202,18 @@ extern "C" __global__ __aicore__ void ShmemZeroBuffReduceScatter(
             op.Process();
             break;
         }
+        case ZCCLDataType::ZCCL_DATA_TYPE_FP16: {
+            ZeroBuffReduceScatterKernel<float16_t> op;
+            op.Init(input, output, gva, rank, rankSize, totalLength, magic, fftsAddr, reduceOp);
+            op.Process();
+            break;
+        }
+        case ZCCLDataType::ZCCL_DATA_TYPE_BFP16: {
+            ZeroBuffReduceScatterKernel<bfloat16_t> op;
+            op.Init(input, output, gva, rank, rankSize, totalLength, magic, fftsAddr, reduceOp);
+            op.Process();
+            break;
+        }
         default:
             return;
     }

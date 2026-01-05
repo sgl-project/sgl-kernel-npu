@@ -13,7 +13,6 @@
 
 #include "kernel_operator.h"
 #include "shmem_api.h"
-#include "bfloat16.h"
 #include "../../../mla_preprocess/op_kernel/kernel/common.h"
 #include "../../../mla_preprocess/op_kernel/kernel/hardware.h"
 #include "../../../mla_preprocess/op_kernel/kernel/mma.h"
@@ -23,8 +22,6 @@
 #include "../op_host/allgather_tiling_data.h"
 
 using namespace AscendC;
-
-using bfloat16 = op::bfloat16;
 
 constexpr int64_t SYNC_FLAG_INTERVAL = 16;
 constexpr int64_t UB_DMA_MAX_SIZE = 190 * 1024;
@@ -131,8 +128,8 @@ extern "C" __global__ __aicore__ void allgatherZeroBuff(GM_ADDR input, GM_ADDR o
             op.Process<int64_t>(input, output, gva, numel, team_id, ffts_addr, magic, tiling_tensor);        
             break;
         case ZCCLDataType::ZCCL_DATA_TYPE_BFP16:
-            op.Process<bfloat16>(input, output, gva, numel, team_id, ffts_addr, magic, tiling_tensor);
-            break;                                            
+            op.Process<bfloat16_t>(input, output, gva, numel, team_id, ffts_addr, magic, tiling_tensor);
+            break;
         default:
             break;
     }
