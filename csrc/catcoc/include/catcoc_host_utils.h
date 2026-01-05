@@ -26,7 +26,7 @@ inline std::unordered_map<c10::string_view, uint16_t> weightFormatMap = {{"ND", 
                                                                          {"NZ", WeightFormatMode::WEIGHT_NZ}};
 
 // batch size -> memory index
-constexpr uint32_t MAX_CAPTURE_NUM = 512;
+constexpr uint32_t MAX_CAPTURE_NUM = 2048;
 
 template <typename MapType>
 inline int GetModeVal(const MapType &mode_map, c10::optional<c10::string_view> mode_opt, c10::string_view default_mode,
