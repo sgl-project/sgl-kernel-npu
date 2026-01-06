@@ -168,8 +168,8 @@ private:
         LocalTensor<T> countExpertTensor = countExpertBuf_.AllocTensor<T>();
         Duplicate<T>(countExpertTensor, 0, numExperts_);
         Duplicate<T>(numTokensPerRankTensor, 0, numRanks_);
-        Duplicate<T>(numTokensPerExpertTensor, 0, numExperts_);
-        Duplicate<T>(prefixCountPerExpertTensor, 0, numExperts_);
+        Duplicate<T>(numTokensPerExpertTensor, 0, numTokensPerExpert32AlignIntLen_ / sizeof(T));
+        Duplicate<T>(prefixCountPerExpertTensor, 0, numTokensPerExpert32AlignIntLen_ / sizeof(T));
         Duplicate<T>(isTokenInRankTensor, 0, tempTokens_ * numRanks_);
         Duplicate<T>(localTokenServerOffsetTensor, 0, localTokenServerOffset32AlignIntLen_ / sizeof(T));
         Duplicate<T>(sendTokenIdxTensor, 0, sendTokenIdx32AlignIntLen_ / sizeof(T));

@@ -127,7 +127,7 @@ public:
             SyncFunc<AscendC::HardEvent::MTE3_V>();
             Duplicate<T>(numTokensPerRankTensor, 0, numRanks_);
             Duplicate<T>(isTokenInRankTensor, 0, tempTokens_ * numRanks_);
-            Duplicate<T>(numTokensPerExpertTensor, 0, numExperts_);
+            Duplicate<T>(numTokensPerExpertTensor, 0, numTokensPerExpert32AlignIntLen_ / sizeof(T));
             SyncFunc<AscendC::HardEvent::V_S>();
             SyncFunc<AscendC::HardEvent::V_MTE3>();
             const DataCopyExtParams clearGmParams{1U, numTokensPerExpert32AlignIntLen_, 0U, 0U, 0U};
