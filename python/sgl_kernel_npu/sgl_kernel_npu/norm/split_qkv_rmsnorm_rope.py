@@ -24,6 +24,7 @@ def split_qkv_rmsnorm_rope_kernel(
     Q_BLOCK_SIZE: tl.constexpr,
     KV_BLOCK_SIZE: tl.constexpr,
     BIAS: tl.constexpr,
+    NORMS: tl.constexpr,
     HEAD_DIM: tl.constexpr,
     HALF_HEAD_DIM: tl.constexpr,
 ):
@@ -31,7 +32,8 @@ def split_qkv_rmsnorm_rope_kernel(
     col_pid = tl.program_id(1)
     row_step = tl.num_programs(0)
     # q
-    weight_values = tl.load(q_weight_ptr + tl.arange(0, HEAD_DIM))
+    if NORMS:
+        weight_values = tl.load(q_weight_ptr + tl.arange(0, HEAD_DIM))
     if BIAS:
         bias_values = tl.load(q_bias_ptr + tl.arange(0, HEAD_DIM))
     input_offset = row_pid * total_hidden_size
@@ -46,20 +48,24 @@ def split_qkv_rmsnorm_rope_kernel(
             .to(tl.float32)
             .reshape(Q_BLOCK_SIZE // HEAD_DIM, HEAD_DIM)
         )
-        squares = input_values * input_values
-        variances = tl.sum(squares, axis=1) / HEAD_DIM
-        reciprocal_std = (1 / tl.sqrt(variances + eps)).reshape(
-            Q_BLOCK_SIZE // HEAD_DIM, 1
-        )
-        normalized_values = (
-            input_values * reciprocal_std
-        )  # (Q_BLOCK_SIZE//HEAD_DIM, HEAD_DIM)
-        if BIAS:
-            normalized_values = (normalized_values * weight_values + bias_values).to(
-                tl.bfloat16
+        if NORMS:
+            squares = input_values * input_values
+            variances = tl.sum(squares, axis=1) / HEAD_DIM
+            reciprocal_std = (1 / tl.sqrt(variances + eps)).reshape(
+                Q_BLOCK_SIZE // HEAD_DIM, 1
             )
+            normalized_values = (
+                input_values * reciprocal_std
+            )  # (Q_BLOCK_SIZE//HEAD_DIM, HEAD_DIM)
+            if BIAS:
+                normalized_values = (
+                    normalized_values * weight_values + bias_values
+                ).to(tl.bfloat16)
+            else:
+                normalized_values = (normalized_values * weight_values).to(tl.bfloat16)
         else:
-            normalized_values = (normalized_values * weight_values).to(tl.bfloat16)
+            normalized_values = input_values.to(tl.bfloat16)
+
         # rope
         sc_offsets = row_idx * HEAD_DIM + tl.arange(0, HEAD_DIM)
         sin = (tl.load(sin_ptr + sc_offsets)).reshape(1, HEAD_DIM)
@@ -102,7 +108,8 @@ def split_qkv_rmsnorm_rope_kernel(
         output_offset += output_offset_step
 
     # k
-    weight_values = tl.load(k_weight_ptr + tl.arange(0, HEAD_DIM))
+    if NORMS:
+        weight_values = tl.load(k_weight_ptr + tl.arange(0, HEAD_DIM))
     if BIAS:
         bias_values = tl.load(k_bias_ptr + tl.arange(0, HEAD_DIM))
     input_offset = row_pid * total_hidden_size + q_hidden_size
@@ -116,20 +123,24 @@ def split_qkv_rmsnorm_rope_kernel(
             .to(tl.float32)
             .reshape(KV_BLOCK_SIZE // HEAD_DIM, HEAD_DIM)
         )
-        squares = input_values * input_values
-        variances = tl.sum(squares, axis=1) / HEAD_DIM
-        reciprocal_std = (1 / tl.sqrt(variances + eps)).reshape(
-            KV_BLOCK_SIZE // HEAD_DIM, 1
-        )
-        normalized_values = (
-            input_values * reciprocal_std
-        )  # (KV_BLOCK_SIZE/HEAD_DIM, HEAD_DIM)
-        if BIAS:
-            normalized_values = (normalized_values * weight_values + bias_values).to(
-                tl.bfloat16
+        if NORMS:
+            squares = input_values * input_values
+            variances = tl.sum(squares, axis=1) / HEAD_DIM
+            reciprocal_std = (1 / tl.sqrt(variances + eps)).reshape(
+                KV_BLOCK_SIZE // HEAD_DIM, 1
             )
+            normalized_values = (
+                input_values * reciprocal_std
+            )  # (KV_BLOCK_SIZE/HEAD_DIM, HEAD_DIM)
+            if BIAS:
+                normalized_values = (
+                    normalized_values * weight_values + bias_values
+                ).to(tl.bfloat16)
+            else:
+                normalized_values = (normalized_values * weight_values).to(tl.bfloat16)
         else:
-            normalized_values = (normalized_values * weight_values).to(tl.bfloat16)
+            normalized_values = input_values.to(tl.bfloat16)
+
         # # rope
         sc_offsets = row_idx * HEAD_DIM + tl.arange(0, HEAD_DIM)
         sin = (tl.load(sin_ptr + sc_offsets)).reshape(1, HEAD_DIM)
@@ -192,14 +203,14 @@ def split_qkv_rmsnorm_rope(
     input,
     sin,
     cos,
-    q_weight,
-    k_weight,
     q_hidden_size,
     kv_hidden_size,
     head_dim,
-    eps,
-    q_bias,
-    k_bias,
+    eps=None,
+    q_weight=None,
+    k_weight=None,
+    q_bias=None,
+    k_bias=None,
 ):
     _, num_vectorcore = get_device_properties()
 
@@ -219,63 +230,11 @@ def split_qkv_rmsnorm_rope(
         batch_size, kv_hidden_size, device=input.device, dtype=input.dtype
     )
     n_cols = kv_hidden_size // KV_BLOCK_SIZE
-    assert num_vectorcore % n_cols == 0
-    n_rows = num_vectorcore // n_cols
+    n_rows = (num_vectorcore + n_cols - 1) // n_cols
     BIAS = q_bias is not None
+    NORMS = eps is not None
 
-    kernel = kernels.get(
-        (
-            q_hidden_size,
-            kv_hidden_size,
-            total_hidden_size,
-            eps,
-            Q_BLOCK_SIZE,
-            KV_BLOCK_SIZE,
-            BIAS,
-        ),
-        None,
-    )
-    if kernel is None:
-        kernel = split_qkv_rmsnorm_rope_kernel.warmup(
-            input,
-            sin,
-            cos,
-            q_output,
-            k_output,
-            v_output,
-            q_weight,
-            q_bias,
-            k_weight,
-            k_bias,
-            batch_size,
-            q_hidden_size,
-            kv_hidden_size,
-            total_hidden_size,
-            eps,
-            Q_BLOCK_SIZE,
-            KV_BLOCK_SIZE,
-            BIAS,
-            head_dim,
-            head_dim // 2,
-            grid=(
-                n_rows,
-                n_cols,
-            ),
-        )
-        kernel._init_handles()
-        kernels[
-            (
-                q_hidden_size,
-                kv_hidden_size,
-                total_hidden_size,
-                eps,
-                Q_BLOCK_SIZE,
-                KV_BLOCK_SIZE,
-                BIAS,
-            )
-        ] = kernel
-
-    kernel[(n_rows, n_cols, 1)](
+    split_qkv_rmsnorm_rope_kernel[(n_rows, n_cols, 1)](
         input,
         sin,
         cos,
@@ -287,5 +246,16 @@ def split_qkv_rmsnorm_rope(
         k_weight,
         k_bias,
         batch_size,
+        q_hidden_size,
+        kv_hidden_size,
+        total_hidden_size,
+        eps,
+        Q_BLOCK_SIZE,
+        KV_BLOCK_SIZE,
+        BIAS,
+        NORMS,
+        head_dim,
+        head_dim // 2,
     )
+
     return q_output, k_output, v_output

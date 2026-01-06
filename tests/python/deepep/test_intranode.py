@@ -95,11 +95,55 @@ def test_main(
     rank_idx.masked_fill_(topk_idx == -1, -1)
     inplace_unique(rank_idx, num_ranks)
 
+    round_env = os.getenv("DEEPEP_NORMAL_LONG_SEQ_ROUND")
+    tokens_env = os.getenv("DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS")
+    round_set = round_env is not None
+    tokens_set = tokens_env is not None
+    assert (
+        round_set == tokens_set
+    ), "DEEPEP_NORMAL_LONG_SEQ_ROUND and DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS must be set or unset at the same time"
+
+    round_val = 1
+    per_round_tokens = 8192
+    if round_set and tokens_set:
+        try:
+            r = int(round_env)
+            t = int(tokens_env)
+        except ValueError:
+            raise AssertionError(
+                "Environment variable values must be in pure integer format"
+            )
+
+        assert (
+            r >= 1 and r <= 256
+        ), f"DEEPEP_NORMAL_LONG_SEQ_ROUND must be between 1-256, current value:{r}"
+        assert (
+            t >= 32 and t <= 8192
+        ), f"DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS must be between 32-8192, current value:{t}"
+        assert (
+            r * t <= 131072
+        ), f"round({r}) * per_round_tokens({t}) = {r*t} exceeds limit of 131072"
+        round_val = r
+        per_round_tokens = t
+
     # Expert meta
-    num_tokens_per_expert = torch.zeros((num_experts,), dtype=torch.int, device="npu")
-    for i in range(num_experts):
-        num_tokens_per_expert[i] = (topk_idx == i).sum()
-    gbl_num_tokens_per_expert = num_tokens_per_expert.clone()
+    num_tokens_per_expert = torch.zeros(
+        (round_val * num_experts), dtype=torch.int, device="npu"
+    )
+    total_tokens_per_expert = torch.zeros((num_experts), dtype=torch.int, device="npu")
+    for round_id in range(round_val):
+        start = round_id * per_round_tokens
+        end = min((round_id + 1) * per_round_tokens, num_tokens)
+        chunk_topk = topk_idx[start:end]
+        for expert_id in range(num_experts):
+            num_tokens_per_expert[round_id * num_experts + expert_id] = (
+                chunk_topk == expert_id
+            ).sum()
+            total_tokens_per_expert[expert_id] += num_tokens_per_expert[
+                round_id * num_experts + expert_id
+            ]
+
+    gbl_num_tokens_per_expert = total_tokens_per_expert.clone()
     dist.all_reduce(gbl_num_tokens_per_expert, group=group)
 
     # Rank layout meta
@@ -127,30 +171,24 @@ def test_main(
     dist.barrier()
     time.sleep(1)
 
-    try:
-        return_values = buffer.get_dispatch_layout(topk_idx, num_experts)
-        (
-            ref_num_tokens_per_rank,
-            _,
-            ref_num_tokens_per_expert,
-            ref_is_token_in_rank,
-            _,
-        ) = return_values
-        try:
-            assert torch.allclose(
-                ref_num_tokens_per_rank, num_tokens_per_rank
-            ), f"Assertion num_tokens_per_rank failed on rank {rank}: Expected {num_tokens_per_rank}, Actual {ref_num_tokens_per_rank}"
-            assert torch.allclose(
-                ref_num_tokens_per_expert, num_tokens_per_expert
-            ), f"Assertion num_tokens_per_expert failed on rank {rank}: Expected {num_tokens_per_expert}, Actual {ref_num_tokens_per_expert}"
-            assert torch.allclose(
-                ref_is_token_in_rank, is_token_in_rank
-            ), f"Assertion is_token_in_rank failed on rank {rank}: Expected {is_token_in_rank}, Actual {ref_is_token_in_rank}"
-        except AssertionError as e:
-            print(e)
-            raise
-    except Exception as e:
-        print(f"An error occurred: {e}")
+    return_values = buffer.get_dispatch_layout(topk_idx, num_experts)
+    (
+        ref_num_tokens_per_rank,
+        _,
+        ref_num_tokens_per_expert,
+        ref_is_token_in_rank,
+        _,
+    ) = return_values
+
+    assert torch.allclose(
+        ref_num_tokens_per_rank, num_tokens_per_rank
+    ), f"Assertion num_tokens_per_rank failed on rank {rank}: Expected {num_tokens_per_rank}, Actual {ref_num_tokens_per_rank}"
+    assert torch.allclose(
+        ref_num_tokens_per_expert, num_tokens_per_expert
+    ), f"Assertion num_tokens_per_expert failed on rank {rank}: Expected {num_tokens_per_expert}, Actual {ref_num_tokens_per_expert}"
+    assert torch.allclose(
+        ref_is_token_in_rank, is_token_in_rank
+    ), f"Assertion is_token_in_rank failed on rank {rank}: Expected {is_token_in_rank}, Actual {ref_is_token_in_rank}"
 
     # Config
     buffer_size = 256
@@ -176,6 +214,8 @@ def test_main(
             assert (check_x[check_start:check_end, :].int() - i).sum().item() == 0
             check_start = check_end
 
+    print(f"rank {rank} PASSED")
+
     # Test diagnose function
     # noinspection PyShadowingNames
     def test_diagnose(
@@ -185,9 +225,9 @@ def test_main(
         for current_x in filter(lambda elem: elem is not None, (x_pure_rand,)):
             dispatch_args = {
                 "x": current_x,
-                "num_tokens_per_rank": num_tokens_per_rank,
-                "is_token_in_rank": is_token_in_rank,
-                "num_tokens_per_expert": num_tokens_per_expert,
+                "num_tokens_per_rank": ref_num_tokens_per_rank,
+                "is_token_in_rank": ref_is_token_in_rank,
+                "num_tokens_per_expert": ref_num_tokens_per_expert,
                 "config": config,
                 "topk_idx": topk_idx,
                 "topk_weights": topk_weights_pure_rand,
@@ -250,9 +290,9 @@ def test_main(
             )
         dispatch_args = {
             "x": current_x,
-            "num_tokens_per_rank": num_tokens_per_rank,
-            "is_token_in_rank": is_token_in_rank,
-            "num_tokens_per_expert": num_tokens_per_expert,
+            "num_tokens_per_rank": ref_num_tokens_per_rank,
+            "is_token_in_rank": ref_is_token_in_rank,
+            "num_tokens_per_expert": ref_num_tokens_per_expert,
             "config": config,
             "topk_idx": topk_idx,
             "topk_weights": (
@@ -280,7 +320,9 @@ def test_main(
         else:
             local_expert_token_list = local_expert_token.tolist()
 
-        assert local_expert_token_list == recv_num_tokens_per_expert_list
+        assert (
+            local_expert_token_list == recv_num_tokens_per_expert_list
+        ), f"Assertion num_tokens_per_rank failed on rank {rank}: Expected {local_expert_token_list}, Actual {recv_num_tokens_per_expert_list}"
         # todo 1. Duplicate tansmission to experts of the same rank.
         # assert gbl_num_tokens_per_rank[rank].item() == recv_x.size(0), f'{gbl_num_tokens_per_rank[rank].item()} != {recv_x.size(0)}'
         # todo 2. recv_num_tokens_per_expert_list is the prefix sum of the actual data.
@@ -300,13 +342,11 @@ def test_main(
         combined_x, combined_topk_weights, event = buffer.combine(**combine_args)
         check_x = combined_x.float()
         ref_x = x_pure_rand if current_x is x_pure_rand else x
-        assert (
-            calc_diff(
-                check_x,
-                ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
-            )
-            < 5e-5
+        diff = calc_diff(
+            check_x,
+            ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
         )
+        assert diff < 5e-5
 
         # For later tuning
         dispatch_bf16_recv_bytes = recv_x.numel() * 2
@@ -330,9 +370,9 @@ def test_main(
         tune_args = {
             "x": current_x,
             "config": config,
-            "num_tokens_per_rank": num_tokens_per_rank,
-            "is_token_in_rank": is_token_in_rank,
-            "num_tokens_per_expert": num_tokens_per_expert,
+            "num_tokens_per_rank": ref_num_tokens_per_rank,
+            "is_token_in_rank": ref_is_token_in_rank,
+            "num_tokens_per_expert": ref_num_tokens_per_expert,
             "topk_idx": topk_idx,
             "topk_weights": topk_weights,
         }
@@ -347,9 +387,9 @@ def test_main(
 
     dispatch_args = {
         "x": x,
-        "num_tokens_per_rank": num_tokens_per_rank,
-        "is_token_in_rank": is_token_in_rank,
-        "num_tokens_per_expert": num_tokens_per_expert,
+        "num_tokens_per_rank": ref_num_tokens_per_rank,
+        "is_token_in_rank": ref_is_token_in_rank,
+        "num_tokens_per_expert": ref_num_tokens_per_expert,
         "config": config,
         "topk_idx": topk_idx,
         "topk_weights": topk_weights,

@@ -21,22 +21,32 @@ __aicore__ inline void SyncFunc()
 
 #define KERNELS_ARGS_FUN_ALL2ALL()                                                                                  \
     GM_ADDR sendDataInput, GM_ADDR tokenPerExpertDataInput, GM_ADDR sendDataOffsetOutput, GM_ADDR recvDataOutput,   \
-        GM_ADDR totalRecvTokens, GM_ADDR recvCount, GM_ADDR recvOffset, GM_ADDR maxBs, GM_ADDR recvTokensPerExpert, \
-        int64_t len, int64_t numTokens, int op, int root, int cycleCount, GM_ADDR scale, int64_t scaleCount,        \
-        GM_ADDR offset, int localRank, int localRankSize
+        GM_ADDR recvCount, GM_ADDR recvOffset, GM_ADDR expertGlobalOffset, GM_ADDR srcrankInExpertOffset,           \
+        GM_ADDR rInSrcrankOffset, GM_ADDR totalRecvTokens, GM_ADDR maxBs, GM_ADDR recvTokensPerExpert, int64_t len, \
+        int32_t round, int32_t perRoundTokens, int32_t numTokens, int op, int root, int cycleCount, GM_ADDR scale,  \
+        int32_t scaleCount, GM_ADDR offset, int localRank, int localRankSize
 
-#define KERNELS_ARGS_CALL_ALL2ALL()                                                                              \
-    sendDataInput, tokenPerExpertDataInput, sendDataOffsetOutput, recvDataOutput, totalRecvTokens, recvCount,    \
-        recvOffset, maxBs, recvTokensPerExpert, len, numTokens, op, root, cycleCount, scale, scaleCount, offset, \
-        localRank, localRankSize
+#define KERNELS_ARGS_CALL_ALL2ALL()                                                                                    \
+    sendDataInput, tokenPerExpertDataInput, sendDataOffsetOutput, recvDataOutput, recvCount, recvOffset,               \
+        expertGlobalOffset, srcrankInExpertOffset, rInSrcrankOffset, totalRecvTokens, maxBs, recvTokensPerExpert, len, \
+        round, perRoundTokens, numTokens, op, root, cycleCount, scale, scaleCount, offset, localRank, localRankSize
 
 template <typename T>
 class NotifyDispatch
 {
-    constexpr static int64_t MAX_RANK_PER_CORE = 8;
-    constexpr static int64_t MULTI_RANK_SIZE = 48;
-    constexpr static int64_t MAX_BUFFER_NUMBER = 10;
+    constexpr static int32_t MAX_RANK_PER_CORE = 8;
+    constexpr static int32_t MULTI_RANK_SIZE = 48;
+    constexpr static int32_t MAX_BUFFER_NUMBER = 10;
     constexpr static uint32_t UB_FLAG_SIZE = 8U * 1024U;
+
+    constexpr static int32_t TOTAL_CNT_CORE = 0;
+    constexpr static int32_t RECV_COUNT_CORE = 1;
+    constexpr static int32_t RECV_OFFSET_CORE = 2;
+    constexpr static int32_t MAX_BS_CORE = 3;
+    constexpr static int32_t RECV_TOKEN_PER_EXP_CORE = 4;
+    constexpr static int32_t EXP_GLOBAL_OFFSET_CORE = 5;
+    constexpr static int32_t SRC_RANK_EXP_OFFSET_CORE = 6;
+    constexpr static int32_t R_IN_SRCRANK_OFFSET_CORE = 7;
     // Synchronization flag occupies length
     constexpr static int64_t FLAG_UNIT_INT_NUM = 4;
     constexpr static int64_t MAGIC_MASK = ~((1LL << 32) - 1);
@@ -59,16 +69,28 @@ public:
         recvOffset_ = recvOffset;
         maxBs_ = maxBs;
         recvTokensPerExpert_ = recvTokensPerExpert;
-        recvDataAlignLen = Ceil(numExperts * sendPerGroup * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
-        tokenPerExpertDataAlignLen = Ceil(numExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
-        sendDataOffsetAlignLen = Ceil(numExperts * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
-        sendDataAlignLen = Ceil(numExperts * sendPerGroup * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
+        tokenPerExpertDataAlignLen = Ceil(round * numExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
+        sendDataOffsetAlignLen = Ceil(round * numExperts * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
+        sendDataAlignLen = Ceil(round * numExperts * sendPerGroup * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
+        recvDataAlignLen = Ceil(round * numExperts * sendPerGroup * sizeof(int32_t), UB_ALIGN_SIZE) *
+                           UB_ALIGN_SIZE;  // 32 * 256 * 3 * 4 = 96KB
+        sendTokensPerRankAlignLen = Ceil(numRanks * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
+        sendCountAlignLen =
+            Ceil(round * numExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;  // 32 * 256 * 4 = 32KB
 
         // Initialize core grouping
         InitCoreGroup();
         // Initialize data slicing
         InitDataSlice();
 
+        totalRecvTokens_ = totalRecvTokens;
+        recvCount_ = recvCount;
+        recvOffset_ = recvOffset;
+        maxBs_ = maxBs;
+        recvTokensPerExpert_ = recvTokensPerExpert;
+        expertGlobalOffset_ = expertGlobalOffset;
+        srcrankInExpertOffset_ = srcrankInExpertOffset;
+        rInSrcrankOffset_ = rInSrcrankOffset;
         this->sendDataInput = (__gm__ T *)sendDataInput;
         this->tokenPerExpertDataInput = (__gm__ int32_t *)tokenPerExpertDataInput;
         this->sendDataOffsetOutput = (__gm__ T *)sendDataOffsetOutput;
@@ -97,11 +119,14 @@ public:
         }
         SyncAll<true>();
         ReorderOutput();
-        BuildTotalRecvTokens();
+        BuildTotalRecvTokens();  // 出错点
         BuildRecvCount();
         BuildRecvOffset();
         BuildMaxBs();
         BuildRecvTokenPerExp();
+        BuildExpGlobalOffset();
+        BuildsrcRankInExpOffset();
+        BuildRInSrcrankOffset();
     }
 
 private:
@@ -123,33 +148,92 @@ private:
 
     __aicore__ inline void AssembleSendData()
     {
+        pipe.Reset();
         pipe.InitBuffer(tokenPerExpertDataBuf, tokenPerExpertDataAlignLen);
         pipe.InitBuffer(sendDataBuf, sendDataAlignLen);
         pipe.InitBuffer(sendDataOffsetBuf, sendDataOffsetAlignLen);
+        int batchRounds = 32;
+        int localExpertsNum = numExperts / rankSize;
+        int newSendDataAlignLen =
+            Ceil(batchRounds * localExpertsNum * sendPerGroup * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
+        pipe.InitBuffer(newSendDataBuf, newSendDataAlignLen);
 
-        __ubuf__ int32_t *tokenPerExpertUB = (__ubuf__ int32_t *)get_imm(96);
-        CpGM2UB(tokenPerExpertUB, (__gm__ int32_t *)tokenPerExpertDataInputGt.GetPhyAddr(), tokenPerExpertDataAlignLen);
+        tokenPerExpertTensor = tokenPerExpertDataBuf.Get<int32_t>();
+        sendDataTensor = sendDataBuf.Get<T>();
+        sendDataOffsetTensor = sendDataOffsetBuf.Get<T>();
+        newSendDataTensor = newSendDataBuf.Get<T>();
+        DataCopyExtParams tokenPerExpertParams = {1U, tokenPerExpertDataAlignLen, 0U, 0U, 0U};
+        DataCopyPadExtParams<int32_t> copyPadExtParams{false, 0U, 0U, 0U};
+        DataCopyPad(tokenPerExpertTensor, tokenPerExpertDataInputGt, tokenPerExpertParams, copyPadExtParams);
+
         AscendC::SetFlag<HardEvent::MTE2_S>(EVENT_ID0);
         AscendC::WaitFlag<HardEvent::MTE2_S>(EVENT_ID0);
 
-        __ubuf__ T *sendDataOffsetUB = (__ubuf__ T *)get_imm(96 + tokenPerExpertDataAlignLen);
-        __ubuf__ T *sendDataUB = (__ubuf__ T *)get_imm(96 + tokenPerExpertDataAlignLen + sendDataOffsetAlignLen);
+        int realRound = (numTokens + perRoundTokens - 1) / perRoundTokens;
+        int lastRoundNumTokens = numTokens % perRoundTokens;
+        if (lastRoundNumTokens == 0 && numTokens > 0) {
+            lastRoundNumTokens = perRoundTokens;
+        }
 
         int prefixSum = 0;
-        for (int i = 0; i < numExperts; ++i) {
-            int numTokensExpert = tokenPerExpertUB[i];
-            sendDataUB[i * sendPerGroup] = numTokensExpert;
-            sendDataUB[i * sendPerGroup + 1] = prefixSum;
-            sendDataUB[i * sendPerGroup + 2] = numTokens;
-            sendDataOffsetUB[i] = prefixSum;
 
-            prefixSum += numTokensExpert;
+        for (int r = 0; r < realRound; ++r) {
+            prefixSum = 0;
+            for (int i = 0; i < numExperts; ++i) {
+                int numTokensExpert = tokenPerExpertTensor(r * numExperts + i);
+                int baseUB = r * numExperts * sendPerGroup + i * sendPerGroup;
+                sendDataTensor(baseUB) = numTokensExpert;
+                sendDataTensor(baseUB + 1) = prefixSum;
+                int roundNumTokens = (r == realRound - 1 ? lastRoundNumTokens : perRoundTokens);
+                sendDataTensor(baseUB + 2) = roundNumTokens;
+                sendDataOffsetTensor(r * numExperts + i) = prefixSum;
+                prefixSum += numTokensExpert;
+            }
         }
-        AscendC::SetFlag<HardEvent::S_MTE3>(EVENT_ID0);
-        AscendC::WaitFlag<HardEvent::S_MTE3>(EVENT_ID0);
 
-        CpUB2GM((__gm__ T *)sendDataInputGt.GetPhyAddr(), sendDataUB, sendDataAlignLen);
-        CpUB2GM((__gm__ T *)sendDataOffsetOutputGt.GetPhyAddr(), sendDataOffsetUB, sendDataOffsetAlignLen);
+        for (int r = realRound; r < round; ++r) {
+            for (int i = 0; i < numExperts; ++i) {
+                int baseUB = r * numExperts * sendPerGroup + i * sendPerGroup;
+                sendDataTensor(baseUB) = 0;
+                sendDataTensor(baseUB + 1) = 0;
+                sendDataTensor(baseUB + 2) = 0;
+                sendDataOffsetTensor(r * numExperts + i) = 0;
+            }
+        }
+
+        int totalRounds = round;
+        if (round > 1) {
+            for (int tr = 0; tr < rankSize; ++tr) {
+                for (int rBase = 0; rBase < totalRounds; rBase += batchRounds) {
+                    int currentBatch = (rBase + batchRounds > totalRounds) ? (totalRounds - rBase) : batchRounds;
+                    for (int r = 0; r < currentBatch; ++r) {
+                        int absRound = rBase + r;
+                        for (int le = 0; le < localExpertsNum; ++le) {
+                            int globalExpertIdx = tr * localExpertsNum + le;
+                            int srcIdx = (absRound * numExperts + globalExpertIdx) * sendPerGroup;
+                            int dstIdx = (r * localExpertsNum + le) * sendPerGroup;
+                            newSendDataTensor(dstIdx) = sendDataTensor(srcIdx);
+                            newSendDataTensor(dstIdx + 1) = sendDataTensor(srcIdx + 1);
+                            newSendDataTensor(dstIdx + 2) = sendDataTensor(srcIdx + 2);
+                        }
+                    }
+                    AscendC::SetFlag<HardEvent::S_MTE3>(EVENT_ID0);
+                    AscendC::WaitFlag<HardEvent::S_MTE3>(EVENT_ID0);
+                    uint32_t copyLen = currentBatch * localExpertsNum * sendPerGroup * sizeof(int32_t);
+                    DataCopyExtParams copyParams = {1U, copyLen, 0U, 0U, 0U};
+                    uint64_t gmOffset = (uint64_t)tr * totalRounds * localExpertsNum * sendPerGroup +
+                                        (uint64_t)rBase * localExpertsNum * sendPerGroup;
+                    DataCopyPad(sendDataInputGt[gmOffset], newSendDataTensor[0], copyParams);
+                    AscendC::SetFlag<HardEvent::MTE3_S>(EVENT_ID0);
+                    AscendC::WaitFlag<HardEvent::MTE3_S>(EVENT_ID0);
+                }
+            }
+        } else {
+            DataCopyPad(sendDataInputGt, sendDataTensor, {1U, sendDataAlignLen, 0U, 0U, 0U});
+        }
+        DataCopyExtParams sendDataOffsetParams = {1U, sendDataOffsetAlignLen, 0U, 0U, 0U};
+        DataCopyPad(sendDataOffsetOutputGt, sendDataOffsetTensor, sendDataOffsetParams);
+
         AscendC::SetFlag<HardEvent::MTE3_S>(EVENT_ID0);
         AscendC::WaitFlag<HardEvent::MTE3_S>(EVENT_ID0);
     }
@@ -158,7 +242,7 @@ private:
     __aicore__ inline void InputToShareSlice()
     {
         __ubuf__ uint64_t *inputUB = (__ubuf__ uint64_t *)get_imm(0);
-        int64_t copyOffset = blockIdx * rankNumPerCore;
+        int32_t copyOffset = blockIdx * rankNumPerCore;
         copyLen = rankSize - copyOffset < rankNumPerCore ? rankSize - copyOffset : rankNumPerCore;
         if (copyLen > 0) {
             readGt = sendDataInputGt[copyOffset * perRankDataNum];
@@ -225,7 +309,7 @@ private:
     __aicore__ inline void ShareToShareSlice()
     {
         __ubuf__ T *inputUB = (__ubuf__ T *)get_imm(96);
-        int64_t copyOffset = blockIdx * rankNumPerCore;
+        int32_t copyOffset = blockIdx * rankNumPerCore;
         copyLen = rankSize - copyOffset < rankNumPerCore ? rankSize - copyOffset : rankNumPerCore;
         if (copyLen > 0) {
             int checkRank[MAX_RANK_PER_CORE];
@@ -250,81 +334,104 @@ private:
 
     __aicore__ inline void ReorderOutput()
     {
-        recvDataTensor = recvDataBuf.Get<int32_t>();
+        pipe.Reset();
+        pipe.InitBuffer(recvDataBuf, recvDataAlignLen);
+        recvDataTensor = recvDataBuf.Get<T>();
         DataCopyExtParams recvDataParams = {1U, static_cast<uint32_t>(recvDataAlignLen), 0, 0, 0};
-        DataCopyPadExtParams<int32_t> DataCopyPadExtParams{false, 0U, 0U, 0U};
-        DataCopyPad(recvDataTensor, recvDataOutGt, recvDataParams, DataCopyPadExtParams);
+        DataCopyPadExtParams<T> DataCopyPadExtParams{false, 0U, 0U, 0U};
+        DataCopyPad(recvDataTensor, recvDataOutputGt, recvDataParams, DataCopyPadExtParams);
     }
 
     __aicore__ inline void ReorderSendCountOutput()
     {
-        sendCountTensor = sendCountBuf.Get<int32_t>();
-        Duplicate<int32_t>(sendCountTensor, 0, tokenPerExpertDataAlignLen / sizeof(int32_t));
+        pipe.InitBuffer(sendCountBuf, sendCountAlignLen);
+        sendCountTensor = sendCountBuf.Get<T>();
+        Duplicate<T>(sendCountTensor, 0, sendCountAlignLen / sizeof(int32_t));
         SyncFunc<AscendC::HardEvent::V_S>();
         SyncFunc<AscendC::HardEvent::MTE2_S>();
-        for (uint32_t expId = 0; expId < numExperts / rankSize; ++expId) {
-            for (uint32_t srcRank = 0; srcRank < rankSize; ++srcRank) {
-                uint32_t index = expId * rankSize + srcRank;
-                uint32_t pair_idx = sendPerGroup * (srcRank * numExperts / rankSize + expId);
-                sendCountTensor(index) = recvDataTensor(pair_idx);
+        for (uint32_t r = 0; r < round; ++r) {
+            for (uint32_t expId = 0; expId < numLocalExperts; ++expId) {
+                for (uint32_t srcRank = 0; srcRank < rankSize; ++srcRank) {
+                    uint32_t index = expId * rankSize + srcRank;
+                    uint32_t pair_idx =
+                        sendPerGroup * (srcRank * numLocalExperts * round + r * numLocalExperts + expId);
+                    sendCountTensor(r * numExperts + index) = recvDataTensor(pair_idx);
+                }
             }
         }
     }
 
     __aicore__ inline void ReorderSendOffsetOutput()
     {
-        sendOffsetTensor = sendOffsetBuf.Get<int32_t>();
-        Duplicate<int32_t>(sendOffsetTensor, 0, tokenPerExpertDataAlignLen / sizeof(int32_t));
+        pipe.InitBuffer(sendOffsetBuf, sendCountAlignLen);
+        sendOffsetTensor = sendOffsetBuf.Get<T>();
+        Duplicate<T>(sendOffsetTensor, 0, sendCountAlignLen / sizeof(int32_t));
         SyncFunc<AscendC::HardEvent::V_S>();
         SyncFunc<AscendC::HardEvent::MTE2_S>();
-        for (uint32_t expId = 0; expId < numExperts / rankSize; ++expId) {
-            for (uint32_t srcRank = 0; srcRank < rankSize; ++srcRank) {
-                uint32_t index = expId * rankSize + srcRank;
-                uint32_t pair_idx = sendPerGroup * (srcRank * numExperts / rankSize + expId);
-                sendOffsetTensor(index) = recvDataTensor(pair_idx + 1);
+        for (uint32_t r = 0; r < round; ++r) {
+            for (uint32_t expId = 0; expId < numLocalExperts; ++expId) {
+                for (uint32_t srcRank = 0; srcRank < rankSize; ++srcRank) {
+                    uint32_t index = expId * rankSize + srcRank;
+                    uint32_t pair_idx =
+                        sendPerGroup * (srcRank * numLocalExperts * round + r * numLocalExperts + expId);
+                    sendOffsetTensor(r * numExperts + index) = recvDataTensor(pair_idx + 1);
+                }
             }
         }
     }
 
-    __aicore__ inline void ReorderMaxBsOutput()
+    __aicore__ inline void ReorderSendTokensPerRankOutput()
     {
+        pipe.InitBuffer(sendTokensPerRankBuf, sendTokensPerRankAlignLen);
+        pipe.InitBuffer(seenRoundBuf, sendTokensPerRankAlignLen);
+        sendTokensPerRankTensor = sendTokensPerRankBuf.Get<int32_t>();
+        seenRoundTensor = seenRoundBuf.Get<int32_t>();
+        Duplicate<int32_t>(sendTokensPerRankTensor, 0, sendTokensPerRankAlignLen / sizeof(int32_t));
+        SyncFunc<AscendC::HardEvent::V_S>();
         SyncFunc<AscendC::HardEvent::MTE2_S>();
-        for (uint32_t expId = 0; expId < numExperts / rankSize; ++expId) {
-            for (uint32_t srcRank = 0; srcRank < rankSize; ++srcRank) {
-                uint32_t pair_idx = sendPerGroup * (srcRank * numExperts / rankSize + expId);
-                uint32_t BsCnt = recvDataTensor(pair_idx + 2);
-                maxBsNum = maxBsNum < BsCnt ? BsCnt : maxBsNum;
+        for (uint32_t r = 0; r < round; ++r) {
+            Duplicate<int32_t>(seenRoundTensor, 0, sendTokensPerRankAlignLen / sizeof(int32_t));
+            SyncFunc<AscendC::HardEvent::V_S>();
+            for (uint32_t expId = 0; expId < numLocalExperts; ++expId) {
+                for (uint32_t srcRank = 0; srcRank < rankSize; ++srcRank) {
+                    uint32_t index = expId * rankSize + srcRank;
+                    uint32_t pair_idx =
+                        sendPerGroup * (srcRank * numLocalExperts * round + r * numLocalExperts + expId);
+                    if (!seenRoundTensor(srcRank)) {
+                        sendTokensPerRankTensor(srcRank) += recvDataTensor(pair_idx + 2);
+                        seenRoundTensor(srcRank) = 1;
+                    }
+                }
             }
+            SyncFunc<AscendC::HardEvent::S_V>();
         }
     }
 
     __aicore__ inline void BuildTotalRecvTokens()
     {
-        // 只需要sendCountTensor
-        if (blockIdx > 0) {
+        if (blockIdx != TOTAL_CNT_CORE) {
             return;
         }
+
         ReorderSendCountOutput();
-        pipe.InitBuffer(tmpBuf_, Ceil(numExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
-        pipe.InitBuffer(tmpBuf2_, Ceil(numExperts * sizeof(float), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
-        pipe.InitBuffer(tmpBuf3_, Ceil(numExperts * sizeof(float), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
-        pipe.InitBuffer(tmpBuf4_, Ceil(numExperts * sizeof(float), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
+        pipe.InitBuffer(tmpBuf_, UB_ALIGN_SIZE);
+        pipe.InitBuffer(tmpBuf2_, Ceil(round * numExperts * sizeof(float), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
 
         LocalTensor<int32_t> totalCntLt = tmpBuf_.Get<int32_t>();
         LocalTensor<float> floatExpTokenCntLt = tmpBuf2_.Get<float>();
-        LocalTensor<float> floatExpTokenSumCntLt = tmpBuf3_.Get<float>();
-        LocalTensor<float> sharedTmpBuffer = tmpBuf4_.Get<float>();
+        LocalTensor<float> floatExpTokenSumCntLt = sendCountBuf.Get<float>();
+        LocalTensor<float> sharedTmpBuffer = recvDataBuf.Get<float>();
+
         SyncFunc<AscendC::HardEvent::S_V>();
-        Cast(floatExpTokenCntLt, sendCountTensor, RoundMode::CAST_NONE, numExperts);
+        Cast(floatExpTokenCntLt, sendCountTensor, RoundMode::CAST_NONE, round * numExperts);
         PipeBarrier<PIPE_V>();
-        ReduceSum(floatExpTokenSumCntLt, floatExpTokenCntLt, sharedTmpBuffer, numExperts);
+        ReduceSum(floatExpTokenSumCntLt, floatExpTokenCntLt, sharedTmpBuffer, round * numExperts);
         SyncFunc<AscendC::HardEvent::V_S>();
         int32_t sumVal = static_cast<int32_t>(floatExpTokenSumCntLt.GetValue(0));
         PipeBarrier<PIPE_V>();
         totalCntLt(0) = sumVal;
         PipeBarrier<PIPE_V>();
         SyncFunc<AscendC::HardEvent::MTE2_MTE3>();
-
         // 拷贝到outputGT
         GlobalTensor<int32_t> totalCntGt;
         totalCntGt.SetGlobalBuffer((__gm__ int32_t *)totalRecvTokens_);
@@ -335,21 +442,23 @@ private:
     __aicore__ inline void BuildRecvCount()
     {
         // 只需要sendCountTensor
-        if (blockIdx != 1) {
+        if (blockIdx != RECV_COUNT_CORE) {
             return;
         }
         ReorderSendCountOutput();
-        int32_t recvCountNum = 0;
-        for (uint32_t expId = 0; expId < numExperts / rankSize; ++expId) {
-            for (uint32_t srcRank = 0; srcRank < rankSize; ++srcRank) {
-                uint32_t index = expId * rankSize + srcRank;
-                recvCountNum += sendCountTensor(index);
-                sendCountTensor(index) = recvCountNum;
+        for (uint32_t r = 0; r < round; ++r) {
+            int32_t recvCountNum = 0;
+            for (uint32_t expId = 0; expId < numExperts / rankSize; ++expId) {
+                for (uint32_t srcRank = 0; srcRank < rankSize; ++srcRank) {
+                    uint32_t index = r * numExperts + expId * rankSize + srcRank;
+                    recvCountNum += sendCountTensor(index);
+                    sendCountTensor(index) = recvCountNum;
+                }
             }
         }
         GlobalTensor<int32_t> recvCntGt;
         recvCntGt.SetGlobalBuffer((__gm__ int32_t *)recvCount_);
-        DataCopyExtParams copyParams{1, static_cast<uint32_t>(numExperts * sizeof(int32_t)), 0, 0, 0};
+        DataCopyExtParams copyParams{1, static_cast<uint32_t>(round * numExperts * sizeof(int32_t)), 0, 0, 0};
         SyncFunc<AscendC::HardEvent::S_MTE3>();
         DataCopyPad(recvCntGt, sendCountTensor, copyParams);
     }
@@ -357,13 +466,13 @@ private:
     __aicore__ inline void BuildRecvOffset()
     {
         // 只需要sendOffsetTensor
-        if (blockIdx != 2) {
+        if (blockIdx != RECV_OFFSET_CORE) {
             return;
         }
         ReorderSendOffsetOutput();
-        GlobalTensor<int32_t> recvOffsetGt;
+        GlobalTensor<T> recvOffsetGt;
         recvOffsetGt.SetGlobalBuffer((__gm__ int32_t *)recvOffset_);
-        DataCopyExtParams copyParams{1, static_cast<uint32_t>(numExperts * sizeof(int32_t)), 0, 0, 0};
+        DataCopyExtParams copyParams{1, static_cast<uint32_t>(round * numExperts * sizeof(int32_t)), 0, 0, 0};
         SyncFunc<AscendC::HardEvent::S_MTE3>();
         DataCopyPad(recvOffsetGt, sendOffsetTensor, copyParams);
     }
@@ -371,10 +480,14 @@ private:
     __aicore__ inline void BuildMaxBs()
     {
         // 只需要maxBsNum
-        if (blockIdx != 3) {
+        if (blockIdx != MAX_BS_CORE) {
             return;
         }
-        ReorderMaxBsOutput();
+        ReorderSendTokensPerRankOutput();
+        for (uint32_t srcRank = 0; srcRank < numRanks; ++srcRank) {
+            uint32_t tempBs = sendTokensPerRankTensor(srcRank);
+            maxBsNum = maxBsNum >= tempBs ? maxBsNum : tempBs;
+        }
         GlobalTensor<int32_t> maxBsGt;
         maxBsGt.SetGlobalBuffer((__gm__ int32_t *)maxBs_);
         maxBsGt.SetValue(0, maxBsNum);
@@ -384,26 +497,132 @@ private:
     __aicore__ inline void BuildRecvTokenPerExp()
     {
         // 只需要sendCountTensor
-        if (blockIdx != 4) {
+        if (blockIdx != RECV_TOKEN_PER_EXP_CORE) {
             return;
         }
         ReorderSendCountOutput();
-        pipe.InitBuffer(tmpBuf_, Ceil(numExperts / rankSize * sizeof(int64_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
-        LocalTensor<int64_t> tmpTensor = tmpBuf_.Get<int64_t>();
-        for (uint32_t expId = 0; expId < numExperts / rankSize; ++expId) {
-            int64_t localRecvCount = 0;
-            for (uint32_t srcRank = 0; srcRank < rankSize; ++srcRank) {
-                uint32_t index = expId * rankSize + srcRank;
-                localRecvCount += sendCountTensor(index);
+        pipe.InitBuffer(tmpBuf_, Ceil(round * numLocalExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
+        LocalTensor<int32_t> tmpTensor = tmpBuf_.Get<int32_t>();
+        for (uint32_t r = 0; r < round; r++) {
+            for (uint32_t expId = 0; expId < numLocalExperts; ++expId) {
+                int32_t localRecvCount = 0;
+                for (uint32_t srcRank = 0; srcRank < rankSize; ++srcRank) {
+                    uint32_t index = r * numExperts + expId * rankSize + srcRank;
+                    localRecvCount += sendCountTensor(index);
+                }
+                tmpTensor(r * numLocalExperts + expId) = localRecvCount;
             }
-            tmpTensor(expId) = localRecvCount;
         }
-        SyncFunc<AscendC::HardEvent::S_MTE3>();
-        GlobalTensor<int64_t> recvTokenPerExpGt;
-        recvTokenPerExpGt.SetGlobalBuffer((__gm__ int64_t *)recvTokensPerExpert_);
-        DataCopyExtParams copyParams{1, static_cast<uint32_t>(numExperts / rankSize * sizeof(int64_t)), 0, 0, 0};
+        GlobalTensor<int32_t> recvTokenPerExpGt;
+        recvTokenPerExpGt.SetGlobalBuffer((__gm__ int32_t *)recvTokensPerExpert_);
+        DataCopyExtParams copyParams{1, static_cast<uint32_t>(round * numLocalExperts * sizeof(int32_t)), 0, 0, 0};
         SyncFunc<AscendC::HardEvent::S_MTE3>();
         DataCopyPad(recvTokenPerExpGt, tmpTensor, copyParams);
+    }
+
+    __aicore__ inline void BuildExpGlobalOffset()
+    {
+        // 只需要sendCountTensor
+        if (blockIdx != EXP_GLOBAL_OFFSET_CORE) {
+            return;
+        }
+        ReorderSendCountOutput();
+        pipe.InitBuffer(tmpBuf_, Ceil(numLocalExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
+        pipe.InitBuffer(tmpBuf2_, Ceil(numLocalExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
+        LocalTensor<int32_t> tmpTensor = tmpBuf_.Get<int32_t>();
+        LocalTensor<int32_t> expTensor = tmpBuf2_.Get<int32_t>();
+        Duplicate<int32_t>(tmpTensor, 0, numLocalExperts);
+        expTensor(0) = 0;
+        SyncFunc<AscendC::HardEvent::V_S>();
+        int32_t localExpTotal = 0;
+        for (uint32_t r = 0; r < round; r++) {
+            for (uint32_t expId = 0; expId < numLocalExperts; ++expId) {
+                int32_t localRecvCount = 0;
+                for (uint32_t srcRank = 0; srcRank < rankSize; ++srcRank) {
+                    uint32_t index = r * numExperts + expId * rankSize + srcRank;
+                    localRecvCount += sendCountTensor(index);
+                }
+                tmpTensor(expId) += localRecvCount;
+            }
+        }
+        for (uint32_t expId = 1; expId < numLocalExperts; ++expId) {
+            expTensor(expId) = expTensor(expId - 1) + tmpTensor(expId - 1);
+        }
+        GlobalTensor<int32_t> expGlobalOffsetGt;
+        expGlobalOffsetGt.SetGlobalBuffer((__gm__ int32_t *)expertGlobalOffset_);
+        DataCopyExtParams copyParams{1, static_cast<uint32_t>(numLocalExperts * sizeof(int32_t)), 0, 0, 0};
+        SyncFunc<AscendC::HardEvent::S_MTE3>();
+        DataCopyPad(expGlobalOffsetGt, expTensor, copyParams);
+    }
+
+    __aicore__ inline void BuildsrcRankInExpOffset()
+    {
+        if (blockIdx != SRC_RANK_EXP_OFFSET_CORE) {
+            return;
+        }
+        ReorderSendCountOutput();
+        pipe.InitBuffer(tmpBuf_, Ceil(numRanks * numLocalExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
+        pipe.InitBuffer(tmpBuf2_, Ceil(numRanks * numLocalExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
+        LocalTensor<int32_t> expSrcTotalTensor = tmpBuf_.Get<int32_t>();
+        LocalTensor<int32_t> srcRankInExpOffsetTensor = tmpBuf2_.Get<int32_t>();
+        Duplicate<int32_t>(expSrcTotalTensor, 0, numExperts);
+        SyncFunc<AscendC::HardEvent::V_S>();
+        int32_t localExpTotal = 0;
+        for (uint32_t r = 0; r < round; r++) {
+            for (uint32_t expId = 0; expId < numLocalExperts; ++expId) {
+                int32_t localRecvCount = 0;
+                for (uint32_t srcRank = 0; srcRank < rankSize; ++srcRank) {
+                    uint32_t index = r * numExperts + expId * rankSize + srcRank;
+                    localRecvCount = sendCountTensor(index);
+                    expSrcTotalTensor(expId * numRanks + srcRank) += localRecvCount;
+                }
+            }
+        }
+        for (uint32_t expId = 0; expId < numLocalExperts; ++expId) {
+            int32_t cumOffset = 0;
+            for (uint32_t srcRank = 0; srcRank < rankSize; ++srcRank) {
+                srcRankInExpOffsetTensor(expId * numRanks + srcRank) = cumOffset;
+                cumOffset += expSrcTotalTensor(expId * numRanks + srcRank);
+            }
+        }
+        GlobalTensor<int32_t> srcRankInExpOffsetGt;
+        srcRankInExpOffsetGt.SetGlobalBuffer((__gm__ int32_t *)srcrankInExpertOffset_);
+        DataCopyExtParams copyParams{1, static_cast<uint32_t>(numExperts * sizeof(int32_t)), 0, 0, 0};
+        SyncFunc<AscendC::HardEvent::S_MTE3>();
+        DataCopyPad(srcRankInExpOffsetGt, srcRankInExpOffsetTensor, copyParams);
+    }
+
+    __aicore__ inline void BuildRInSrcrankOffset()
+    {
+        if (blockIdx != R_IN_SRCRANK_OFFSET_CORE) {
+            return;
+        }
+        ReorderSendCountOutput();
+        pipe.InitBuffer(tmpBuf_, Ceil(round * numExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
+        pipe.InitBuffer(tmpBuf2_, Ceil(numRanks * numLocalExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
+        LocalTensor<int32_t> rInSrcrankOffsetTensor = tmpBuf_.Get<int32_t>();
+        LocalTensor<int32_t> expSrcCumPrevTensor = tmpBuf2_.Get<int32_t>();
+        Duplicate<int32_t>(expSrcCumPrevTensor, 0, numExperts);
+        SyncFunc<AscendC::HardEvent::V_S>();
+        for (uint32_t r = 0; r < round; r++) {
+            for (uint32_t expId = 0; expId < numLocalExperts; ++expId) {
+                int32_t localRecvCount = 0;
+                for (uint32_t srcRank = 0; srcRank < rankSize; ++srcRank) {
+                    uint32_t pairIdx = r * numExperts + expId * rankSize + srcRank;
+                    uint32_t index = expId * rankSize + srcRank;
+                    uint32_t cIdx = expId * numRanks * round + srcRank * round + r;
+                    int32_t recvCnt = sendCountTensor(pairIdx);
+                    int32_t offset = expSrcCumPrevTensor(index);
+                    rInSrcrankOffsetTensor(cIdx) = offset;
+                    expSrcCumPrevTensor(index) = offset + recvCnt;
+                }
+            }
+        }
+        GlobalTensor<int32_t> rInSrcrankOffsetGt;
+        rInSrcrankOffsetGt.SetGlobalBuffer((__gm__ int32_t *)rInSrcrankOffset_);
+        DataCopyExtParams copyParams{1, static_cast<uint32_t>(round * numExperts * sizeof(int32_t)), 0, 0, 0};
+        SyncFunc<AscendC::HardEvent::S_MTE3>();
+        DataCopyPad(rInSrcrankOffsetGt, rInSrcrankOffsetTensor, copyParams);
     }
 
     __aicore__ inline int64_t GetDataCount(const int64_t dataLen, const int64_t useBlockNum);
@@ -433,27 +652,19 @@ private:
     __gm__ int *tokenPerExpertDataInput;
     __gm__ T *sendDataOffsetOutput;
     __gm__ T *recvDataOutput;
-    int64_t isPad = 0;
-    int64_t maxSliceNum;
-    int64_t revLen = 0;
-    int64_t sendLen = 0;
-    int64_t sliceLen;
     int64_t perNodeDataNum;
     int64_t perRankDataNum;
     int64_t curRankDataNum;
-    int64_t sendOffset[MULTI_RANK_SIZE];
-    int64_t revOffset[MULTI_RANK_SIZE];
-    int64_t inputDataLen[MULTI_RANK_SIZE];
 
-    int64_t nodeNum;
-    int64_t localRankId;
-    int64_t localNodeId;
-    int64_t coreNumPerStageX;  // Number of cores used per stage
-    int64_t coreNumPerStageY;  // Number of cores used per stage
-    int64_t coreNumPerStageZ;  // Number of cores used per stage
-    int64_t coreNumPerRank;    // Number of cores allocated per rank
-    int64_t rankNumPerCore;    // Number of ranks responsible per core
-    int64_t copyLen;           // Length of the current data slice being copied (in terms of T)
+    int32_t nodeNum;
+    int32_t localRankId;
+    int32_t localNodeId;
+    int32_t coreNumPerStageX;  // Number of cores used per stage
+    int32_t coreNumPerStageY;  // Number of cores used per stage
+    int32_t coreNumPerStageZ;  // Number of cores used per stage
+    int32_t coreNumPerRank;    // Number of cores allocated per rank
+    int32_t rankNumPerCore;    // Number of ranks responsible per core
+    int32_t copyLen;           // Length of the current data slice being copied (in terms of T)
 
     // for coll
     int rank;
@@ -465,20 +676,27 @@ private:
     int xRankIdx = 0;
     int yRankIdx = 0;
     uint32_t extraFlag;
+    int round;
+    int32_t perRoundTokens;
     int numTokens;
+    int numRanks;
     int sendPerGroup = 3;
     int root;
     int64_t len;
-    int64_t numExperts;
+    int32_t numExperts;
+    int32_t numLocalExperts;
     uint64_t magic{0};
-    int64_t blockIdx;  // Index of the current aicore
-    int64_t blockNum;  // Total number of aicores for the current rank
+    int32_t blockIdx;  // Index of the current aicore
+    int32_t blockNum;  // Total number of aicores for the current rank
     uint32_t maxBsNum{0};
     GM_ADDR scale;
     GM_ADDR shareAddrs[CAM_MAX_RANK_SIZE];  // List of shared memory addresses
     GM_ADDR totalRecvTokens_;
     GM_ADDR recvCount_;
     GM_ADDR recvOffset_;
+    GM_ADDR expertGlobalOffset_;
+    GM_ADDR srcrankInExpertOffset_;
+    GM_ADDR rInSrcrankOffset_;
     GM_ADDR maxBs_;
     GM_ADDR recvTokensPerExpert_;
     __gm__ HcclOpResParam *winContext_[COMM_NUM]{nullptr, nullptr};
@@ -490,14 +708,27 @@ private:
     TBuf<> sendCountBuf;
     TBuf<> sendOffsetBuf;
     TBuf<> sendDataBuf;
+    TBuf<> newSendDataBuf;
     TBuf<> recvDataBuf;
+    TBuf<> sendTokensPerRankBuf;
+    TBuf<> seenRoundBuf;
+
+    LocalTensor<int32_t> tokenPerExpertTensor;
+    LocalTensor<T> sendDataTensor;
+    LocalTensor<T> sendDataOffsetTensor;
+    LocalTensor<T> newSendDataTensor;
     LocalTensor<int32_t> sendCountTensor;
     LocalTensor<int32_t> sendOffsetTensor;
+    LocalTensor<int32_t> sendTokensPerRankTensor;
     LocalTensor<int32_t> recvDataTensor;
+    LocalTensor<int32_t> seenRoundTensor;
+
     uint32_t sendDataAlignLen{0};
     uint32_t tokenPerExpertDataAlignLen{0};
     uint32_t recvDataAlignLen{0};
     uint32_t sendDataOffsetAlignLen{0};
+    uint32_t sendCountAlignLen{0};
+    uint32_t sendTokensPerRankAlignLen{0};
 
     TBuf<> tmpBuf_;
     TBuf<> tmpBuf2_;
@@ -553,7 +784,11 @@ __aicore__ inline void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_ALL
 {
     this->root = root;
     this->len = len;
-    this->numExperts = len / sendPerGroup;
+    this->round = round;
+    this->perRoundTokens = perRoundTokens;
+    this->numRanks = rankSize;
+    this->numExperts = len / sendPerGroup / round;
+    this->numLocalExperts = numExperts / rankSize;
     this->numTokens = numTokens;
     this->scale = scale;
     this->localRank = localRank;
@@ -573,9 +808,9 @@ __aicore__ inline void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_ALL
     shareAddrs[rank] =
         GetWindAddrByRankId(rank, ctxIdx) + (this->magic % PING_PONG_SIZE) * (IPC_BUFF_MAX_SIZE + IPC_DATA_OFFSET);
 
-    int64_t rankNumPerCore = (rankSize + blockNum - 1) / blockNum;
-    int64_t copyOffset = blockIdx * rankNumPerCore;
-    int64_t copyLen = rankSize - copyOffset < rankNumPerCore ? rankSize - copyOffset : rankNumPerCore;
+    int32_t rankNumPerCore = (rankSize + blockNum - 1) / blockNum;
+    int32_t copyOffset = blockIdx * rankNumPerCore;
+    int32_t copyLen = rankSize - copyOffset < rankNumPerCore ? rankSize - copyOffset : rankNumPerCore;
     if (copyLen > 0) {
         for (int i = copyOffset; i < copyOffset + copyLen; ++i) {
             shareAddrs[i] =
