@@ -1,4 +1,5 @@
 import argparse
+import random
 
 import deep_ep
 import torch
@@ -10,7 +11,8 @@ RANK_OFFSET = 128
 
 
 def low_latency_test(
-    num_tokens: int,
+    aligned_num_tokens: int,
+    actual_num_tokens: int,
     hidden: int,
     num_experts: int,
     num_topk: int,
@@ -25,20 +27,31 @@ def low_latency_test(
         num_ranks - rank_offset < 257
     ), "Too many ranks (exceeding test precision limit)"
 
-    x = torch.ones((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * (
-        rank - rank_offset
-    )
-    x[:, -128:] = torch.arange(num_tokens, device="npu").to(torch.bfloat16).view(-1, 1)
+    x = torch.zeros((aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu")
+
+    if actual_num_tokens > 0:
+        x[:actual_num_tokens] = torch.ones((actual_num_tokens, hidden), dtype=torch.bfloat16, device="npu") * (
+            rank - rank_offset
+        )
+        x[:actual_num_tokens, -128:] = torch.arange(actual_num_tokens, device="npu").to(torch.bfloat16).view(-1, 1)
+
     scores = (
-        torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
+        torch.randn((aligned_num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
         + 1
     )
 
-    topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
+    topk_idx = torch.full((aligned_num_tokens, num_topk), -1, dtype=torch.long, device="npu")
 
-    topk_weights = torch.randn(
-        (num_tokens, num_topk), dtype=torch.float32, device="npu"
-    ).abs()
+    if actual_num_tokens > 0:
+        actual_scores = scores[:actual_num_tokens]
+        actual_topk_idx = torch.topk(actual_scores, num_topk, dim=-1, largest=True, sorted=True)[1]
+        topk_idx[:actual_num_tokens] = actual_topk_idx
+
+    topk_weights = torch.zeros(
+        (aligned_num_tokens, num_topk), dtype=torch.float32, device="npu")
+    if actual_num_tokens > 0:
+        topk_weights[:actual_num_tokens] = torch.randn(
+            (actual_num_tokens, num_topk), dtype=torch.float32, device="npu").abs()
 
     return_recv_hook = False
     cumulative_local_expert_recv_stats = torch.zeros(
@@ -48,7 +61,7 @@ def low_latency_test(
     packed_recv_x, packed_recv_count, handle, event, hook = buffer.low_latency_dispatch(
         x,
         topk_idx,
-        num_tokens,
+        aligned_num_tokens,
         num_experts,
         use_fp8=dispatch_use_fp8,
         round_scale=False,
@@ -70,7 +83,7 @@ def low_latency_test(
         _,
     ) = handle
 
-    out = torch.empty((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
+    out = torch.empty((aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu")
     combined_x, event, hook = buffer.low_latency_combine(
         simulated_gemm_x,
         topk_idx,
@@ -82,15 +95,26 @@ def low_latency_test(
         out=out,
     )
 
-    diff = calc_diff(
-        x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
-        combined_x,
-    )
-    assert torch.isnan(combined_x).sum().item() == 0
-    if dispatch_use_fp8:
-        assert diff < 1e-4, f"Error: {diff=}"
-    else:
-        assert diff < 1e-5, f"Error: {diff=}"
+    if actual_num_tokens > 0:
+        # 计算期望的输出（只考虑有效token）
+        expected_x = torch.zeros((aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu")
+        expected_x[:actual_num_tokens] = torch.ones(
+            (actual_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
+        ) * (rank - rank_offset)
+        expected_x[:actual_num_tokens, -128:] = torch.arange(
+            actual_num_tokens, device="npu"
+        ).to(torch.bfloat16).view(-1, 1)
+        
+        diff = calc_diff(
+            expected_x[:actual_num_tokens] * topk_weights[:actual_num_tokens].masked_fill(
+            topk_idx[:actual_num_tokens] == -1, 0).sum(dim=1).view(-1, 1),
+            combined_x[:actual_num_tokens],
+        )
+        assert torch.isnan(combined_x).sum().item() == 0
+        if dispatch_use_fp8:
+            assert diff < 1e-4, f"Error: {diff=}"
+        else:
+            assert diff < 1e-5, f"Error: {diff=}"
 
 
 def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
@@ -98,12 +122,25 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     num_topk, num_experts, hidden = args.num_topk, args.num_experts, args.hidden
     assert num_experts % num_ranks == 0
     torch.manual_seed(rank)
-    buffer = deep_ep.Buffer(
-        group, int(2e9), 0, low_latency_mode=True, num_qps_per_rank=1
-    )
 
     for i in range(args.test_loop):
-        normal_num_tokens = args.normal_num_tokens
+        buffer = deep_ep.Buffer(
+            group, int(2e9), 0, low_latency_mode=True, num_qps_per_rank=1
+        )
+        base_normal_num_tokens = args.normal_num_tokens
+        fluctuation_percentage = 0.1
+        min_fluctuation = 2
+
+        if base_normal_num_tokens < 10:
+            fluctuation = random.randint(-min_fluctuation, min_fluctuation)
+            normal_num_tokens = base_normal_num_tokens + fluctuation
+        else:
+            fluctuation = random.uniform(1 - fluctuation_percentage, 1 + fluctuation_percentage)
+            normal_num_tokens = int(base_normal_num_tokens * fluctuation)
+
+        # Ensure normal_num_tokens is at least 1
+        normal_num_tokens = max(normal_num_tokens, 1)
+
         if local_rank == 0:
             print(f"Start executing normal test loop {i} ...", flush=True)
         normal_test(
@@ -116,10 +153,26 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         if local_rank == 0:
             print(f"End executing normal test loop {i} ...", flush=True)
 
-        low_latency_num_tokens = args.low_latency_num_tokens
+        base_low_latency_num_tokens = args.low_latency_num_tokens
+
+        if base_low_latency_num_tokens < 10:
+            fluctuation = random.randint(-min_fluctuation, min_fluctuation)
+            low_latency_num_tokens = base_low_latency_num_tokens + fluctuation
+        else:
+            fluctuation = random.uniform(1 - fluctuation_percentage, 1 + fluctuation_percentage)
+            low_latency_num_tokens = int(base_low_latency_num_tokens * fluctuation)
+
+        # Ensure low_latency_num_tokens is at least 1
+        low_latency_num_tokens = max(low_latency_num_tokens, 1)
+
+        local_tokens_tensor = torch.tensor([low_latency_num_tokens], dtype=torch.int32, device="npu")
+        dist.all_reduce(local_tokens_tensor, op=dist.ReduceOp.MAX)
+        aligned_num_tokens = local_tokens_tensor.item()
+
         if local_rank == 0:
             print(f"Start executing low latency test loop {i} ...", flush=True)
         low_latency_test(
+            aligned_num_tokens,
             low_latency_num_tokens,
             hidden,
             num_experts,
@@ -130,7 +183,9 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         )
         if local_rank == 0:
             print(f"End executing low latency test loop {i} ...", flush=True)
-    dist.barrier()
+        del buffer
+        torch.npu.empty_cache()
+        dist.barrier()
 
     dist.destroy_process_group()
 
