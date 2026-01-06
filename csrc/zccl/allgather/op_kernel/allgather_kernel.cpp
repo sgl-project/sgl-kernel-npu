@@ -26,7 +26,7 @@ using namespace AscendC;
 constexpr int64_t SYNC_FLAG_INTERVAL = 16;
 constexpr int64_t UB_DMA_MAX_SIZE = 190 * 1024;
 constexpr int64_t GVA_BUFF_MAX_SIZE = 100 * 1024 * 1024;
-constexpr int64_t BIG_DATA_SIZE = 2 * 1024 * 1024;
+constexpr int64_t BIG_DATA_SIZE = 40 * 1024 * 1024;
 
 class AllGatherKernel
 {
@@ -47,7 +47,7 @@ public:
         if (elements * sizeof(T) < BIG_DATA_SIZE) {
             AllGatherSmallData<T>(input, output, gva, elements, team_id, magic);
         } else {
-            AllGatherSmallData<T>(input, output, gva, elements, team_id, magic);
+            AllGatherBigData<T>(input, output, gva, elements, team_id, magic);
         }
         
     }
@@ -61,7 +61,7 @@ public:
         AscendC::GlobalTensor<T> inputGT;
         inputGT.SetGlobalBuffer((__gm__ T *)inputGM, elements);
         AscendC::GlobalTensor<T> outputGT;
-        outputGT.SetGlobalBuffer((__gm__ T *)outputGM, elements);
+        outputGT.SetGlobalBuffer((__gm__ T *)outputGM);
         for (int i = 0; i < times; i++) {
             AscendC::PipeBarrier<PIPE_ALL>();
             int32_t len = total_num > max_gva_num ? max_gva_num : total_num;
@@ -87,7 +87,7 @@ public:
         int64_t pe_size = shmem_team_n_pes(team_id);
 
         AscendC::GlobalTensor<T> gvaDataGT;
-        gvaDataGT.SetGlobalBuffer((__gm__ T *)gva + data_offset);
+        gvaDataGT.SetGlobalBuffer((__gm__ T *)((__gm__ int32_t *)gva + data_offset));
 
         __gm__ int32_t *gva_sync_gm = (__gm__ int32_t *)gva;
 
@@ -254,9 +254,9 @@ public:
         AscendC::GlobalTensor<T> inputGT;
         inputGT.SetGlobalBuffer((__gm__ T *)inputGM, elements);
         AscendC::GlobalTensor<T> outputGT;
-        outputGT.SetGlobalBuffer((__gm__ T *)outputGM, elements);
+        outputGT.SetGlobalBuffer((__gm__ T *)outputGM);
         AscendC::GlobalTensor<T> dataGT;
-        dataGT.SetGlobalBuffer((__gm__ T *)gva + data_offset, elements);
+        dataGT.SetGlobalBuffer((__gm__ T *)((__gm__ int32_t *)gva + data_offset));
         
         __gm__ int32_t *gva_sync_gm = (__gm__ int32_t *)gva;
 
@@ -323,7 +323,7 @@ extern "C" __global__ __aicore__ void allgather(GM_ADDR input, GM_ADDR output, G
             op.Process<int32_t>(input, output, gva, numel, team_id, ffts_addr, magic, tiling_tensor);
             break;
         case ZCCLDataType::ZCCL_DATA_TYPE_FP16:
-            op.Process<float>(input, output, gva, numel, team_id, ffts_addr, magic, tiling_tensor);
+            op.Process<float16_t>(input, output, gva, numel, team_id, ffts_addr, magic, tiling_tensor);
             break;
         case ZCCLDataType::ZCCL_DATA_TYPE_FP32:
             op.Process<float>(input, output, gva, numel, team_id, ffts_addr, magic, tiling_tensor);

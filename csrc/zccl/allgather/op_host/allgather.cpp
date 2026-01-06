@@ -19,7 +19,7 @@
 
 constexpr int64_t SYNC_FLAG_INTERVAL = 16;
 constexpr int64_t GVA_BUFF_MAX_SIZE = 100 * 1024 * 1024;
-constexpr int64_t BIG_DATA_SIZE = 2 * 1024 * 1024;
+constexpr int64_t BIG_DATA_SIZE = 40 * 1024 * 1024;
 
 namespace sglang {
 namespace zccl {
@@ -40,7 +40,7 @@ std::shared_ptr<AllGatherTilingData> get_tiling(int32_t block_dim, uint64_t elem
 extern "C" HOST_API int ZcclAllGather(void *input, void *output, uint64_t numel, ZCCLDataType data_type, int team_id, aclrtStream stream)
 {
     int32_t block_dim = 0;
-    if (numel * sizeof(int) < BIG_DATA_SIZE) {
+    if (numel * getSizeFromTypeEnum(data_type) < BIG_DATA_SIZE) {
         block_dim = 8;
     }else {
         block_dim = 16;
