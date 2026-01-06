@@ -444,6 +444,15 @@ extern "C" __global__ __aicore__ void ShmemReduceScatter(GM_ADDR input, GM_ADDR 
             }
             break;
         }
+        case ZCCLDataType::ZCCL_DATA_TYPE_INT64: {
+            ReduceScatterKernel<int64_t> op;
+            if (smallFlag) {
+                op.Init(input, output, gva, rank, rankSize, totalLength, totalLength, magic, fftsAddr, smallFlag, reduceOp);
+                op.Process();
+            } else {
+                op.RunBigDataOp(input, output, gva, rank, rankSize, totalLength, magic, fftsAddr, reduceOp);
+            }
+        }
         case ZCCLDataType::ZCCL_DATA_TYPE_FP32: {
             ReduceScatterKernel<float> op;
             if (smallFlag) {
@@ -453,6 +462,25 @@ extern "C" __global__ __aicore__ void ShmemReduceScatter(GM_ADDR input, GM_ADDR 
                 op.RunBigDataOp(input, output, gva, rank, rankSize, totalLength, magic, fftsAddr, reduceOp);
             }
             break;
+        }
+        case ZCCLDataType::ZCCL_DATA_TYPE_FP16: {
+            ReduceScatterKernel<float16_t> op;
+            if (smallFlag) {
+                op.Init(input, output, gva, rank, rankSize, totalLength, totalLength, magic, fftsAddr, smallFlag, reduceOp);
+                op.Process();
+            } else {
+                op.RunBigDataOp(input, output, gva, rank, rankSize, totalLength, magic, fftsAddr, reduceOp);
+            }
+            break;
+        }
+        case ZCCLDataType::ZCCL_DATA_TYPE_BFP16: {
+            ReduceScatterKernel<bfloat16_t> op;
+            if (smallFlag) {
+                op.Init(input, output, gva, rank, rankSize, totalLength, totalLength, magic, fftsAddr, smallFlag, reduceOp);
+                op.Process();
+            } else {
+                op.RunBigDataOp(input, output, gva, rank, rankSize, totalLength, magic, fftsAddr, reduceOp);
+            }
         }
         default:
             return;

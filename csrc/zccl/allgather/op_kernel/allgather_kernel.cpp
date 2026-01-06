@@ -13,7 +13,6 @@
 
 #include "kernel_operator.h"
 #include "shmem_api.h"
-#include "bfloat16.h"
 #include "../../../mla_preprocess/op_kernel/kernel/common.h"
 #include "../../../mla_preprocess/op_kernel/kernel/hardware.h"
 #include "../../../mla_preprocess/op_kernel/kernel/mma.h"
@@ -23,8 +22,6 @@
 #include "../op_host/allgather_tiling_data.h"
 
 using namespace AscendC;
-
-using bfloat16 = op::bfloat16;
 
 constexpr int64_t SYNC_FLAG_INTERVAL = 16;
 constexpr int64_t UB_DMA_MAX_SIZE = 190 * 1024;
@@ -294,7 +291,7 @@ public:
         output_offset = x * elements + core_rank_idx * num_per_core;
         gva_offset = core_rank_idx * num_per_core;
         if (core_rank_idx == core_per_rank - 1) {
-            num_per_core = this->output_last_num_core;
+            num_per_core = elements - core_rank_idx * num_per_core;
         }
 
         shmem_mte_get_mem_nbi(outputGT[output_offset], dataGT[gva_offset], tmp_buff, num_per_core, x, EVENT_ID0);
@@ -330,13 +327,13 @@ extern "C" __global__ __aicore__ void allgather(GM_ADDR input, GM_ADDR output, G
             break;
         case ZCCLDataType::ZCCL_DATA_TYPE_FP32:
             op.Process<float>(input, output, gva, numel, team_id, ffts_addr, magic, tiling_tensor);
-            break;    
+            break;
         case ZCCLDataType::ZCCL_DATA_TYPE_INT64:
-            op.Process<int64_t>(input, output, gva, numel, team_id, ffts_addr, magic, tiling_tensor);        
+            op.Process<int64_t>(input, output, gva, numel, team_id, ffts_addr, magic, tiling_tensor);
             break;
         case ZCCLDataType::ZCCL_DATA_TYPE_BFP16:
-            op.Process<bfloat16>(input, output, gva, numel, team_id, ffts_addr, magic, tiling_tensor);
-            break;                                            
+            op.Process<bfloat16_t>(input, output, gva, numel, team_id, ffts_addr, magic, tiling_tensor);
+            break;
         default:
             break;
     }

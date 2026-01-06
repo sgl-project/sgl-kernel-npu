@@ -109,6 +109,16 @@ inline bool WriteFile(const std::string &filePath, const void *buffer, size_t si
     return true;
 }
 
+std::string getCurrentPath()
+{
+    char buffer[PATH_MAX];
+    char *ret = getcwd(buffer, sizeof(buffer));
+    if (ret != nullptr) {
+        return std::string(buffer);
+    }
+    return std::string(".");
+}
+
 std::string getEnvVar(const std::string &key)
 {
     const char* val = std::getenv(key.c_str());
