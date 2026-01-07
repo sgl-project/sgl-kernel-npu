@@ -98,7 +98,7 @@ public:
         LocalTensor<T> seenRankTensor = seenRankBuf_.AllocTensor<T>();
         LocalTensor<T> sendTokenIdxSmallTensor = sendTokenIdxSmallBuf_.AllocTensor<T>();
         Duplicate<T>(numTokensPerRankTensor, 0, numRanks_);
-        Duplicate<T>(numTokensPerExpertTensor, 0, numExperts_);
+        Duplicate<T>(numTokensPerExpertTensor, 0, numTokensPerExpert32AlignIntLen_ / sizeof(T));
         Duplicate<T>(isTokenInRankTensor, 0, tempTokens_ * numRanks_);
         SyncFunc<AscendC::HardEvent::V_S>();
 
