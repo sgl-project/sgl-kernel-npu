@@ -5,6 +5,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/python/sgl_kernel_npu/s
 FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/zccl/allgather/op_host/allgather.cpp
     ${PROJECT_OP_SRC_BASE}/zccl/reduce_scatter/op_host/reduce_scatter.cpp
+    ${PROJECT_OP_SRC_BASE}/zccl/all_reduce/op_host/all_reduce.cpp
 )
 
 # set the so name
@@ -14,6 +15,7 @@ set(OP_PLUGIN_NAME zccl)
 ascendc_library(zccl_kernel STATIC
     ${PROJECT_OP_SRC_BASE}/zccl/allgather/op_kernel/allgather_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/zccl/reduce_scatter/op_kernel/reduce_scatter_kernel.cpp
+    ${PROJECT_OP_SRC_BASE}/zccl/all_reduce/op_kernel/all_reduce_kernel.cpp
 )
 
 ascendc_include_directories(zccl_kernel PRIVATE
