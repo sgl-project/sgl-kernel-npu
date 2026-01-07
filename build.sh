@@ -172,6 +172,13 @@ function build_memory_saver()
     cd -
 }
 
+function create_deepep_cmake()
+{
+    cd csrc || exit
+    ./build.sh
+    cd -
+}
+
 function make_deepep_package()
 {
     cd python/deep_ep || exit
@@ -200,7 +207,7 @@ function make_sgl_kernel_npu_package()
 
 function main()
 {
-
+    create_deepep_cmake
     build_kernels
     build_deepep_kernels
     if pip3 show wheel;then
