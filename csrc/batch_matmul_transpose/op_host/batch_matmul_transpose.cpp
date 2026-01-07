@@ -13,6 +13,7 @@ namespace sglang {
 namespace npu_kernel {
 using namespace pp_matmul;
 
+namespace einsum {
 std::unordered_map<c10::string_view, uint16_t> quantModeMap = {
     {"per_channel_symm", 0},
     {"per_channel_asymm", 1},
@@ -28,8 +29,8 @@ std::unordered_map<c10::ScalarType, TensorDType> atType2tensorDType = {
     {at::ScalarType::BFloat16, TensorDType::TENSOR_DTYPE_BF16},
     {at::ScalarType::Half, TensorDType::TENSOR_DTYPE_FLOAT16}};
 
-// batch size -> memory index
-constexpr uint32_t MAX_CAPTURE_NUM = 1024;
+static std::unordered_map<int, at::Tensor> capturedTile;
+}  // namespace einsum
 
 template <typename MapType>
 inline int GetModeVal(const MapType &mode_map, c10::optional<c10::string_view> mode_opt, c10::string_view default_mode,
@@ -47,6 +48,7 @@ HOST_API void batch_matmul_transpose(const at::Tensor &tensor_a, const at::Tenso
                                      c10::optional<c10::string_view> format_mode,
                                      c10::optional<c10::string_view> quant_mode)
 {
+    using namespace einsum;
     auto tensorAShape = tensor_a.sizes();
     auto tensorBShape = tensor_b.sizes();
     auto tensorCShape = tensor_c.sizes();
@@ -104,19 +106,28 @@ HOST_API void batch_matmul_transpose(const at::Tensor &tensor_a, const at::Tenso
     // tiling
     int32_t batchIdx = opShape.m - 1;
     uint32_t tilingSize = sizeof(PpMatmulTilingData);
-    static auto global_tiling_data = at::empty(
-        {tilingSize * MAX_CAPTURE_NUM}, at::TensorOptions().dtype(at::kByte).device(tensor_a.options().device()));
-    if (batchIdx >= 0 && batchIdx < MAX_CAPTURE_NUM) {
-        aclrtMemcpy(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * batchIdx), tilingSize, &matmulTilingData,
-                    tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    } else {
-        // Handle the case where batchIdx is out of range
-        TORCH_CHECK(false, "batchIdx is out of range: ", batchIdx);
-    }
-    at::Tensor tiling_tensor =
-        at::from_blob(global_tiling_data.data_ptr<uint8_t>() + (tilingSize * batchIdx), tilingSize, at::kByte);
+    bool isCaptured = TorchNpuHelper::IsCaptureMode();
+    at::Tensor tilingTensor;
 
-    EXEC_KERNEL_CMD(batch_matmul_transpose, block_dim, tensor_a, tensor_b, tensor_c, tiling_tensor);
+    static auto tilingBuffer =
+        at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(tensor_a.options().device()));
+
+    if (isCaptured) {
+        auto it = capturedTile.find(batchIdx);
+        if (it == capturedTile.end()) {
+            auto tmpTilingBuffer = at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(tensor_a.options().device()));
+            aclrtMemcpy(tmpTilingBuffer.data_ptr<uint8_t>(), tilingSize, &matmulTilingData, tilingSize,
+                        ACL_MEMCPY_HOST_TO_DEVICE);
+            it = capturedTile.emplace(batchIdx, std::move(tmpTilingBuffer)).first;
+        }
+        tilingTensor = at::from_blob(it->second.data_ptr<uint8_t>(), tilingSize, at::kByte);
+    } else {
+        aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), tilingSize, &matmulTilingData, tilingSize,
+                    ACL_MEMCPY_HOST_TO_DEVICE);
+        tilingTensor = at::from_blob(tilingBuffer.data_ptr<uint8_t>(), tilingSize, at::kByte);
+    }
+
+    EXEC_KERNEL_CMD(batch_matmul_transpose, block_dim, tensor_a, tensor_b, tensor_c, tilingTensor);
 }
 
 }  // namespace npu_kernel
