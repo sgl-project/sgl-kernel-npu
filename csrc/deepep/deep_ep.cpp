@@ -48,6 +48,7 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
     this->shared_expert_rank_num = get_value_from_env("MOE_SHARED_EXPERT_RANK_NUM", 0);
     const char *roundEnv = std::getenv("DEEPEP_NORMAL_LONG_SEQ_ROUND");
     const char *tokensEnv = std::getenv("DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS");
+    this->combine_enable_long_seq = get_value_from_env("DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ", 0);
     bool roundSet = (roundEnv != nullptr);
     bool tokensSet = (tokensEnv != nullptr);
 
@@ -602,6 +603,8 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
     std::optional<torch::Tensor> recv_topk_weights;
     std::optional<EventHandle> event;
 
+    int32_t round = this->combine_enable_long_seq ? this->round : 1;
+    int32_t per_round_tokens = this->combine_enable_long_seq ? this->per_round_tokens : MAX_TOKENS_PER_ROUND;
     EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, tp_send_counts,
                  hcom_ep_name, num_ranks, rank, hcom_ep_name, tp_world_size, tp_rankId, moe_expert_number, real_max_bs,
                  round, per_round_tokens, combined_x, combine_send_cost_stats_out);

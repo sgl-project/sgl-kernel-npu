@@ -24,6 +24,7 @@ struct Buffer {
 
     int32_t round;
     int32_t per_round_tokens;
+    bool combine_enable_long_seq = false;  // Whether to enable the Combine Ant Migration feature
 
     bool low_latency_mode = false;
     bool is_padding = false;
