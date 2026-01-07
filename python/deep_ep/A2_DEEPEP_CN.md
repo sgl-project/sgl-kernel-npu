@@ -1,6 +1,12 @@
 
 A2场景下使用DeepEp说明
 
+# 软硬件配套说明
+硬件型号支持：Atlas A2 系列产品
+平台：aarch64/x86
+配套软件
+- 驱动 Ascend HDK ≥ 25.3.RC1、CANN ≥ 8.3.RC1
+
 # 构建DeepEp包
 执行工程构建脚本 build.sh
 ```bash
@@ -45,6 +51,12 @@ DeepEp 向上层提供以下核心接口：
 ```bash
 # 根据实际模型场景灵活调整大小
 export HCCL_BUFFSIZE=1024
+```
+
+A2场景下叠加deepep，需**禁用**环境变量`HCCL_OP_EXPANSION_MODE`，否则会出现未知算子错误。
+```bash
+# A2下需要去除该环境变量
+# export HCCL_OP_EXPANSION_MODE=AIV
 ```
 
 ## A2单机
