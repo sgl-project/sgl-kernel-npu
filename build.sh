@@ -3,6 +3,7 @@ set -e
 
 BUILD_DEEPEP_MODULE="ON"
 BUILD_DEEPEP_OPS="ON"
+BUILD_CATCOC_OPS="OFF"  # need catlass & catcoc in 3rdparty/
 BUILD_KERNELS_MODULE="ON"
 BUILD_MEMORY_SAVER_MODULE="ON"
 
@@ -122,7 +123,7 @@ function build_kernels()
     rm -rf $BUILD_DIR
     mkdir -p $BUILD_DIR
 
-    cmake $COMPILE_OPTIONS -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" -DASCEND_HOME_PATH=$ASCEND_HOME_PATH -DASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR -DSOC_VERSION=$SOC_VERSION -DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE -DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE -B "$BUILD_DIR" -S .
+    cmake $COMPILE_OPTIONS -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" -DASCEND_HOME_PATH=$ASCEND_HOME_PATH -DASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR -DSOC_VERSION=$SOC_VERSION -DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE -DBUILD_CATCOC_MODULE=$BUILD_CATCOC_OPS -DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE -B "$BUILD_DIR" -S .
     cmake --build "$BUILD_DIR" --target install
     cd -
 }
@@ -156,6 +157,29 @@ function build_deepep_kernels()
     rm -rf "$CUSTOM_OPP_DIR"/vendors
     ./build_out/custom_opp_*.run --install-path=$CUSTOM_OPP_DIR
     cd -
+}
+
+function build_catcoc_kernels()
+{
+    echo "building catcoc ops..."
+    # using bisheng to compile catcoc
+    if [[ "$BUILD_CATCOC_OPS" != "ON" ]]; then return 0; fi
+
+    KERNEL_DIR="csrc/catcoc/ops"
+    CATLASS_DIR="3rdparty/catlass"
+    CATCOC_DIR="3rdparty/catcoc"
+
+    if [ ! -d "$CATLASS_DIR" ]; then
+        echo "Error: CATLASS Directory '$CATLASS_DIR' does not exist."
+    fi
+    if [ ! -d "$CATCOC_DIR" ]; then
+        echo "Error: CATCOC Directory '$CATCOC_DIR' does not exist."
+    fi
+
+    cd "$KERNEL_DIR" || exit
+    bash build.sh
+    cd -
+
 }
 
 function build_memory_saver()
@@ -200,7 +224,7 @@ function make_sgl_kernel_npu_package()
 
 function main()
 {
-
+    build_catcoc_kernels
     build_kernels
     build_deepep_kernels
     if pip3 show wheel;then
