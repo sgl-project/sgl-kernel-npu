@@ -20,8 +20,19 @@ add_compile_options(-Wcast-qual -Winvalid-pch -Wwrite-strings -Wsign-compare -We
 
 if (BUILD_CATLASS_MODULE)
     add_compile_definitions(BUILD_CATLASS_MODULE)
-    set(CATLASS_DIR "${PROJECT_SOURCE_DIR}/3rdparty/catlass")  # specific your catlass path here
-    message(STATUS "[CATLASS] ${CATLASS_DIR}")
+
+    # submodule path (recommend: third_party/catlass)
+    set(CATLASS_DIR "${PROJECT_SOURCE_DIR}/third_party/catlass")
+    message(STATUS "[CATLASS] CATLASS_DIR = ${CATLASS_DIR}")
+
+    # fail fast if submodule is not initialized
+    if (NOT EXISTS "${CATLASS_DIR}/include")
+        message(FATAL_ERROR
+            "Catlass submodule not found at ${CATLASS_DIR}\n"
+            "Please run:\n"
+            "  git submodule update --init --recursive\n"
+        )
+    endif ()
 endif ()
 
 if (${CMAKE_BUILD_TYPE} MATCHES "RELEASE")
