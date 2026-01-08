@@ -34,6 +34,9 @@ constexpr uint32_t OUTPUT_NUM_TOKEN_PER_RANK_INDEX = 0;
 constexpr uint32_t OUTPUT_NUM_TOKEN_PER_EXPERT_INDEX = 1;
 constexpr uint32_t OUTPUT_IS_TOKEN_IN_RANK_INDEX = 2;
 constexpr uint32_t OUTPUT_NOTIFY_SEND_DATA_INDEX = 3;
+constexpr uint32_t OUTPUT_SEND_TOKEN_IDX_SMALL_INDEX = 4;
+constexpr uint32_t OUTPUT_TOKEN_IDX_MAP_INDEX = 5;
+constexpr uint32_t OUTPUT_VALID_BS_INDEX = 6;
 
 constexpr uint32_t ATTR_NUM_TOKENS_INDEX = 0;
 constexpr uint32_t ATTR_NUM_RANKS_INDEX = 1;
@@ -154,12 +157,18 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     auto numTokensPerExpert = context->GetOutputDesc(OUTPUT_NUM_TOKEN_PER_EXPERT_INDEX);
     auto isTokenInRank = context->GetOutputDesc(OUTPUT_IS_TOKEN_IN_RANK_INDEX);
     auto notifySendData = context->GetOutputDesc(OUTPUT_NOTIFY_SEND_DATA_INDEX);
+    auto sendTokenIdxSmall = context->GetOutputDesc(OUTPUT_SEND_TOKEN_IDX_SMALL_INDEX);
+    auto tokenIdxMap = context->GetOutputDesc(OUTPUT_TOKEN_IDX_MAP_INDEX);
+    auto validBs = context->GetOutputDesc(OUTPUT_VALID_BS_INDEX);
 
     OP_TILING_CHECK(topkIdx == nullptr, OP_LOGE(nodeName, "topkIdx is null."), return false);
     OP_TILING_CHECK(numTokensPerRank == nullptr, OP_LOGE(nodeName, "numTokensPerRank is null."), return false);
     OP_TILING_CHECK(numTokensPerExpert == nullptr, OP_LOGE(nodeName, "numTokensPerExpert is null."), return false);
     OP_TILING_CHECK(isTokenInRank == nullptr, OP_LOGE(nodeName, "isTokenInRank is null."), return false);
     OP_TILING_CHECK(notifySendData == nullptr, OP_LOGE(nodeName, "notifySendData is null."), return false);
+    OP_TILING_CHECK(sendTokenIdxSmall == nullptr, OP_LOGE(nodeName, "sendTokenIdxSmall is null."), return false);
+    OP_TILING_CHECK(tokenIdxMap == nullptr, OP_LOGE(nodeName, "tokenIdxMap is null."), return false);
+    OP_TILING_CHECK(validBs == nullptr, OP_LOGE(nodeName, "validBs is null."), return false);
 
     OP_TILING_CHECK((topkIdx->GetDataType() != ge::DT_INT64),
                     OP_LOGE(nodeName, "topkIdx datatype is invalid, datatype should be int, but is %d.",
@@ -180,6 +189,18 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     OP_TILING_CHECK((notifySendData->GetDataType() != ge::DT_INT32),
                     OP_LOGE(nodeName, "notifySendData datatype is invalid, datatype should be int, but is %d.",
                             static_cast<ge::DataType>(notifySendData->GetDataType())),
+                    return false);
+    OP_TILING_CHECK((sendTokenIdxSmall->GetDataType() != ge::DT_INT32),
+                    OP_LOGE(nodeName, "sendTokenIdxSmall datatype is invalid, datatype should be int, but is %d.",
+                            static_cast<ge::DataType>(sendTokenIdxSmall->GetDataType())),
+                    return false);
+    OP_TILING_CHECK((tokenIdxMap->GetDataType() != ge::DT_INT32),
+                    OP_LOGE(nodeName, "tokenIdxMap datatype is invalid, datatype should be int, but is %d.",
+                            static_cast<ge::DataType>(tokenIdxMap->GetDataType())),
+                    return false);
+    OP_TILING_CHECK((validBs->GetDataType() != ge::DT_INT32),
+                    OP_LOGE(nodeName, "validBs datatype is invalid, datatype should be int, but is %d.",
+                            static_cast<ge::DataType>(validBs->GetDataType())),
                     return false);
 
     return true;

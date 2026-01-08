@@ -19,11 +19,13 @@ aclnnStatus aclnnDispatchLayoutGetWorkspaceSize(const aclTensor *topkIdx, int64_
                                                 int32_t perRoundTokens, const aclTensor *numTokensPerRank,
                                                 const aclTensor *numTokensPerExpert, const aclTensor *isTokenInRank,
                                                 const aclTensor *notifySendData, const aclTensor *sendTokenIdxSmall,
+                                                const aclTensor *tokenIdxMap, const aclTensor *validBs,
                                                 uint64_t *workspaceSize, aclOpExecutor **executor)
 {
     return aclnnInnerDispatchLayoutGetWorkspaceSize(topkIdx, numTokens, numRanks, numExperts, numTopk, localRankSize,
                                                     perRoundTokens, numTokensPerRank, numTokensPerExpert, isTokenInRank,
-                                                    notifySendData, sendTokenIdxSmall, workspaceSize, executor);
+                                                    notifySendData, sendTokenIdxSmall, tokenIdxMap, validBs,
+                                                    workspaceSize, executor);
 }
 
 aclnnStatus aclnnDispatchLayout(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream)

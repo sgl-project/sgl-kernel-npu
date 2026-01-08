@@ -128,6 +128,8 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     auto num_tokens_per_expert = at::zeros({round, num_experts}, at::dtype(at::kInt).device(device));
     auto num_tokens_per_rank = at::zeros({num_ranks}, at::dtype(at::kInt).device(device));
     auto is_token_in_rank = at::zeros({num_tokens, num_ranks}, at::dtype(at::kInt).device(device));
+    auto token_idx_map = at::empty({num_tokens}, at::dtype(at::kInt).device(device));
+    auto valid_bs = at::zeros({1}, at::dtype(at::kInt).device(device));
     const int notify_send_data_size =
         num_experts * EXPERT_DATA_SIZE + server_num + MAX_BATCH_SIZE * (1 + 2 * server_num + num_experts);
     /*
@@ -151,11 +153,13 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     auto notify_send_data = at::zeros({notify_send_data_size}, at::dtype(at::kInt).device(device));
     EXEC_NPU_CMD(aclnnDispatchLayout, new_topk_idx, num_tokens, num_ranks, num_experts, num_topk, local_ranksize,
                  per_round_tokens, num_tokens_per_rank, num_tokens_per_expert, is_token_in_rank, notify_send_data,
-                 send_token_idx_small);
+                 send_token_idx_small, token_idx_map, valid_bs);
 
     this->notify_send_data = notify_send_data;
     this->send_token_idx_small = send_token_idx_small;
     this->notify_send_data_size = notify_send_data_size;
+    this->token_idx_map = token_idx_map;
+    this->valid_bs = valid_bs.item<int>();
 
     std::optional<torch::Tensor> num_tokens_per_rdma_rank = std::nullopt;
     std::optional<EventHandle> output_event = std::nullopt;

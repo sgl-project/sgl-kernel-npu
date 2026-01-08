@@ -19,6 +19,9 @@ extern "C" {
  * numTokensPerExpert : required
  * isTokenInRank : required
  * notifySendData : required
+ * sendTokenIdxSmall : required
+ * tokenIdxMap : required
+ * validBs : required
  * workspaceSize : size of workspace(output).
  * executor : executor context(output).
  */
@@ -26,7 +29,8 @@ __attribute__((visibility("default"))) aclnnStatus aclnnDispatchLayoutGetWorkspa
     const aclTensor *topkIdx, int64_t numTokens, int64_t numRanks, int64_t numExperts, int64_t numTopk,
     int64_t localRankSize, int32_t perRoundTokens, const aclTensor *numTokensPerRank,
     const aclTensor *numTokensPerExpert, const aclTensor *isTokenInRank, const aclTensor *notifySendData,
-    const aclTensor *sendTokenIdxSmall, uint64_t *workspaceSize, aclOpExecutor **executor);
+    const aclTensor *sendTokenIdxSmall, const aclTensor *tokenIdxMap, const aclTensor *validBs, uint64_t *workspaceSize,
+    aclOpExecutor **executor);
 
 /* function: aclnnDispatchLayout
  * workspace : workspace memory addr(input).
