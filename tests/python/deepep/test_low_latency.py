@@ -75,17 +75,19 @@ def test(
         (num_local_experts,), dtype=torch.int, device="npu"
     )
     for dispatch_use_fp8 in (True, False):
-        packed_recv_x, packed_recv_count, handle, event, hook = buffer.low_latency_dispatch(
-            x,
-            topk_idx,
-            num_tokens,
-            num_experts,
-            use_fp8=dispatch_use_fp8,
-            round_scale=False,
-            use_ue8m0=False,
-            cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
-            async_finish=not return_recv_hook,
-            return_recv_hook=return_recv_hook,
+        packed_recv_x, packed_recv_count, handle, event, hook = (
+            buffer.low_latency_dispatch(
+                x,
+                topk_idx,
+                num_tokens,
+                num_experts,
+                use_fp8=dispatch_use_fp8,
+                round_scale=False,
+                use_ue8m0=False,
+                cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
+                async_finish=not return_recv_hook,
+                return_recv_hook=return_recv_hook,
+            )
         )
         simulated_gemm_x = (
             per_token_cast_back(*packed_recv_x) if dispatch_use_fp8 else packed_recv_x
