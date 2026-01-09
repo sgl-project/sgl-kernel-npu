@@ -19,10 +19,10 @@ extern "C" __global__ __aicore__ void notify_dispatch_a2(GM_ADDR sendData, GM_AD
                                                          GM_ADDR epRankTokenCnt, GM_ADDR localEpTokenCnt,
                                                          GM_ADDR srcOffsetRankTokenIdx, GM_ADDR dstOffsetRankTokenIdx,
                                                          GM_ADDR offsetInner, GM_ADDR countOuter, GM_ADDR expandIdx,
-                                                         GM_ADDR totalRecvTokens, GM_ADDR workspace, GM_ADDR tiling)
+                                                         GM_ADDR totalRecvTokens, GM_ADDR workspace, GM_ADDR tilingGM)
 {
     REGISTER_TILING_DEFAULT(NotifyDispatchA2TilingData);
-    GET_TILING_DATA_WITH_STRUCT(NotifyDispatchA2TilingData, tilingData, tiling);
+    GET_TILING_DATA_WITH_STRUCT(NotifyDispatchA2TilingData, tilingData, tilingGM);
 
     int localRank = tilingData.notifyDispatchInfoA2.localRankId;
     int localRankSize = tilingData.notifyDispatchInfoA2.localRankSize;
