@@ -174,3 +174,43 @@ def prepare_position_ids(cu_seqlens: torch.LongTensor) -> torch.LongTensor:
 @tensor_cache
 def prepare_sequence_ids(cu_seqlens: torch.LongTensor) -> torch.LongTensor:
     return prepare_position_ids(cu_seqlens).eq(0).cumsum(0) - 1
+
+
+def fused_qkvzba_split_reshape_cat_torch(
+    mixed_qkvz: torch.Tensor,  # [B, 3072]
+    mixed_ba: torch.Tensor,  # [B, 16]
+    num_heads_qk: int = 4,
+    num_heads_v: int = 8,
+    head_qk: int = 128,
+    head_v: int = 128,
+):
+    B = mixed_qkvz.shape[0]
+    v_group_size = num_heads_v // num_heads_qk  # = 2
+
+    # Step 1: Reshape to [B, num_heads_qk, per_head_dim]
+    per_head_dim = 2 * head_qk + 2 * v_group_size * head_v  # 768
+    x = mixed_qkvz.view(B, num_heads_qk, per_head_dim)
+
+    # Extract components per head
+    q = x[:, :, :head_qk]  # [B, 4, 128]
+    k = x[:, :, head_qk : 2 * head_qk]  # [B, 4, 128]
+    v_groups = x[:, :, 2 * head_qk : 2 * head_qk + v_group_size * head_v]  # [B, 4, 256]
+    z_groups = x[:, :, 2 * head_qk + v_group_size * head_v :]  # [B, 4, 256]
+
+    # Reshape V and Z to [B, num_heads_v, head_v]
+    v = v_groups.reshape(B, num_heads_v, head_v)  # [B, 8, 128]
+    z = z_groups.reshape(B, num_heads_v, head_v)  # [B, 8, 128]
+
+    # Build mixed_qkv = [Q_flat, K_flat, V_flat]
+    # Q_flat: concatenate all q heads → [B, 4*128]
+    q_flat = q.reshape(B, -1)
+    k_flat = k.reshape(B, -1)
+    v_flat = v.reshape(B, -1)
+    mixed_qkv = torch.cat([q_flat, k_flat, v_flat], dim=1)  # [B, 2048]
+
+    # Process mixed_ba: [B, 16] → view as [B, 4, 4] → split b/a
+    ba = mixed_ba.view(B, num_heads_qk, 2 * v_group_size)  # [B, 4, 4]
+    b = ba[:, :, :v_group_size].reshape(B, num_heads_v)  # [B, 8]
+    a = ba[:, :, v_group_size:].reshape(B, num_heads_v)  # [B, 8]
+
+    return mixed_qkv, z, b, a
