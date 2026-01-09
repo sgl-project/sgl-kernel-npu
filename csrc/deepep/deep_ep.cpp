@@ -151,8 +151,9 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     */
     auto send_token_idx_small = at::zeros({num_tokens, num_topk}, at::dtype(at::kInt).device(device));
     auto notify_send_data = at::zeros({notify_send_data_size}, at::dtype(at::kInt).device(device));
+    int32_t rank_id = int(rank);
     EXEC_NPU_CMD(aclnnDispatchLayout, new_topk_idx, num_tokens, num_ranks, num_experts, num_topk, local_ranksize,
-                 per_round_tokens, num_tokens_per_rank, num_tokens_per_expert, is_token_in_rank, notify_send_data,
+                 per_round_tokens, rank_id, num_tokens_per_rank, num_tokens_per_expert, is_token_in_rank, notify_send_data,
                  send_token_idx_small, token_idx_map, valid_bs);
 
     this->notify_send_data = notify_send_data;
@@ -172,6 +173,11 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
 torch::Tensor Buffer::get_notify_send_data()
 {
     return this->notify_send_data;
+}
+
+std::tuple<torch::Tensor, int> Buffer::get_topk_neg_one_data()
+{
+    return std::make_tuple(this->token_idx_map, this->valid_bs);
 }
 
 int Buffer::get_num_rdma_ranks() const
@@ -603,13 +609,14 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
     }
 
     // Combine data
-    auto combined_x = torch::empty({expert_scales.size(0), hidden}, x.options());
+    // auto combined_x = torch::empty({expert_scales.size(0), hidden}, x.options());
+    auto combined_x = torch::empty({valid_bs, hidden}, x.options());
     std::optional<torch::Tensor> recv_topk_weights;
     std::optional<EventHandle> event;
 
     int32_t round = this->combine_enable_long_seq ? this->round : 1;
     int32_t per_round_tokens = this->combine_enable_long_seq ? this->per_round_tokens : MAX_TOKENS_PER_ROUND;
-    EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, tp_send_counts,
+    EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, token_idx_map, tp_send_counts,
                  hcom_ep_name, num_ranks, rank, hcom_ep_name, tp_world_size, tp_rankId, moe_expert_number, real_max_bs,
                  round, per_round_tokens, combined_x, combine_send_cost_stats_out);
 

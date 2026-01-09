@@ -44,6 +44,7 @@ constexpr uint32_t ATTR_NUM_EXPERTS_INDEX = 2;
 constexpr uint32_t ATTR_NUM_TOPK_INDEX = 3;
 constexpr uint32_t ATTR_LOCAL_RANKSIZE_INDEX = 4;
 constexpr uint32_t ATTR_PER_ROUND_TOKENS_INDEX = 5;
+constexpr uint32_t ATTR_RANK_ID_INDEX = 6;
 const int64_t MAX_COMM_WORLD_SIZE = 384;
 const int64_t MAX_MOE_EXPERTS_NUM = 512;
 const int64_t MAX_LOCAL_RANKSIZE = 8;
@@ -97,6 +98,7 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     auto numTopkPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_NUM_TOPK_INDEX));
     auto localRankSizePtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_LOCAL_RANKSIZE_INDEX));
     auto perRoundTokensPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_PER_ROUND_TOKENS_INDEX));
+    auto rankIdPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_RANK_ID_INDEX));
 
     OP_TILING_CHECK(numTokensPtr == nullptr, OP_LOGE(nodeName, "numTokensPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(numRanksPtr == nullptr, OP_LOGE(nodeName, "numRanksPtr is null."), return ge::GRAPH_FAILED);
@@ -105,6 +107,8 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     OP_TILING_CHECK(localRankSizePtr == nullptr, OP_LOGE(nodeName, "localRankSizePtr is null."),
                     return ge::GRAPH_FAILED);
     OP_TILING_CHECK(perRoundTokensPtr == nullptr, OP_LOGE(nodeName, "perRoundTokensPtr is null."),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(rankIdPtr == nullptr, OP_LOGE(nodeName, "rankIdPtr is null."),
                     return ge::GRAPH_FAILED);
 
     OP_TILING_CHECK((*numRanksPtr <= 0) || (*numRanksPtr > MAX_COMM_WORLD_SIZE),
@@ -138,6 +142,7 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     tilingData.dispatchLayoutInfo.numTopk = static_cast<uint32_t>(*numTopkPtr);
     tilingData.dispatchLayoutInfo.localRankSize = static_cast<uint32_t>(*localRankSizePtr);
     tilingData.dispatchLayoutInfo.perRoundTokens = static_cast<uint32_t>(*perRoundTokensPtr);
+    tilingData.dispatchLayoutInfo.rankId = static_cast<uint32_t>(*rankIdPtr);
 
     return ge::GRAPH_SUCCESS;
 }
