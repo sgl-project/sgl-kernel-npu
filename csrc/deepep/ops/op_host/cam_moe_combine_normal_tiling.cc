@@ -31,8 +31,9 @@ constexpr uint32_t RECV_X_INDEX = 0;
 constexpr uint32_t TOKEN_SRC_INFO_INDEX = 1;
 constexpr uint32_t EP_RECV_COUNTS_INDEX = 2;
 constexpr uint32_t TOPK_WEIGHTS_INDEX = 3;
-constexpr uint32_t TOKEN_IDX_MAP_INDEX = 4;
-constexpr uint32_t TP_RECV_COUNTS_INDEX = 5;
+constexpr uint32_t TOKEN_IDX_INDEX = 4;
+constexpr uint32_t TOKEN_IDX_MAP_INDEX = 5;
+constexpr uint32_t TP_RECV_COUNTS_INDEX = 6;
 constexpr uint32_t OUTPUT_X_INDEX = 0;
 constexpr uint32_t OUTPUT_SEND_COST_INDEX = 1;
 
@@ -208,6 +209,15 @@ static bool CheckInputTensorDim(gert::TilingContext *context, const char *nodeNa
     OP_LOGD(nodeName, "topkWeights dim0 = %ld", topkWeightsStorageShape->GetStorageShape().GetDim(0));
     OP_LOGD(nodeName, "topkWeights dim1 = %ld", topkWeightsStorageShape->GetStorageShape().GetDim(1));
 
+    const gert::StorageShape *tokenIdxStorageShape = context->GetInputShape(TOKEN_IDX_INDEX);
+    OP_TILING_CHECK(tokenIdxStorageShape == nullptr, OP_LOGE(nodeName, "tokenIdx is null."), return false);
+    OP_TILING_CHECK(tokenIdxStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS,
+                    OP_LOGE(nodeName, "tokenIdx must be 2-dimension, but got %lu dim",
+                            tokenIdxStorageShape->GetStorageShape().GetDimNum()),
+                    return false);
+    OP_LOGD(nodeName, "tokenIdx dim0 = %ld", tokenIdxStorageShape->GetStorageShape().GetDim(0));
+    OP_LOGD(nodeName, "tokenIdx dim1 = %ld", tokenIdxStorageShape->GetStorageShape().GetDim(1));
+
     const gert::StorageShape *tokenIdxMapStorageShape = context->GetInputShape(TOKEN_IDX_MAP_INDEX);
     OP_TILING_CHECK(tokenIdxMapStorageShape == nullptr, OP_LOGE(nodeName, "tokenIdxMap is null."),
                     return false);
@@ -296,6 +306,11 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     OP_TILING_CHECK((topkWeightsDesc->GetDataType() != ge::DT_FLOAT),
                     OP_LOGE(nodeName, "topkWeights dataType is invalid, dataType should be float, but is "),
                     return false);
+    auto tokenIdxDesc = context->GetInputDesc(TOKEN_IDX_INDEX);
+    OP_TILING_CHECK(tokenIdxDesc == nullptr, OP_LOGE(nodeName, "tokenIdxDesc is null."), return false);
+    OP_TILING_CHECK((tokenIdxDesc->GetDataType() != ge::DT_INT32),
+                    OP_LOGE(nodeName, "tokenIdx dataType is invalid, dataType should be int32, but is "),
+                    return false);
     auto tokenIdxMapDesc = context->GetInputDesc(TOKEN_IDX_MAP_INDEX);
     OP_TILING_CHECK(tokenIdxMapDesc == nullptr, OP_LOGE(nodeName, "tokenIdxMapDesc is null."), return false);
     OP_TILING_CHECK((tokenIdxMapDesc->GetDataType() != ge::DT_INT32),
@@ -344,6 +359,12 @@ static bool CheckTensorFormat(gert::TilingContext *context, const char *nodeName
     OP_TILING_CHECK(
         static_cast<ge::Format>(ge::GetPrimaryFormat(topkWeightsDesc->GetStorageFormat())) == ge::FORMAT_FRACTAL_NZ,
         OP_LOGE(nodeName, "topkWeightsFormat is invalid"), return false);
+
+    auto tokenIdxDesc = context->GetInputDesc(TOKEN_IDX_INDEX);
+    OP_TILING_CHECK(tokenIdxDesc == nullptr, OP_LOGE(nodeName, "tokenIdxDesc is null."), return false);
+    OP_TILING_CHECK(
+        static_cast<ge::Format>(ge::GetPrimaryFormat(tokenIdxDesc->GetStorageFormat())) == ge::FORMAT_FRACTAL_NZ,
+        OP_LOGE(nodeName, "tokenIdxFormat is invalid"), return false);
 
     auto tokenIdxMapDesc = context->GetInputDesc(TOKEN_IDX_MAP_INDEX);
     OP_TILING_CHECK(tokenIdxMapDesc == nullptr, OP_LOGE(nodeName, "tokenIdxMapDesc is null."), return false);

@@ -15,7 +15,7 @@ extern "C" {
 #endif
 
 aclnnStatus aclnnCamMoeCombineNormalGetWorkspaceSize(const aclTensor *recvX, const aclTensor *tokenSrcInfo,
-                                                     const aclTensor *epRecvCounts, const aclTensor *recvTopkWeights, const aclTensor *tokenIdxMap,
+                                                     const aclTensor *epRecvCounts, const aclTensor *recvTopkWeights, const aclTensor *tokenIdx, const aclTensor *tokenIdxMap,
                                                      const aclTensor *tpRecvCountsOptional, char *epGroupName,
                                                      int64_t epWorldSize, int64_t epRankId, char *tpGroupNameOptional,
                                                      int64_t tpWorldSize, int64_t tpRankId, int64_t moeExpertNum,
@@ -24,7 +24,7 @@ aclnnStatus aclnnCamMoeCombineNormalGetWorkspaceSize(const aclTensor *recvX, con
                                                      uint64_t *workspaceSize, aclOpExecutor **executor)
 {
     return aclnnInnerCamMoeCombineNormalGetWorkspaceSize(
-        recvX, tokenSrcInfo, epRecvCounts, recvTopkWeights, tokenIdxMap, tpRecvCountsOptional, epGroupName, epWorldSize, epRankId,
+        recvX, tokenSrcInfo, epRecvCounts, recvTopkWeights, tokenIdx, tokenIdxMap, tpRecvCountsOptional, epGroupName, epWorldSize, epRankId,
         tpGroupNameOptional, tpWorldSize, tpRankId, moeExpertNum, realMaxBs, round, per_round_tokens, out,
         sendCostStats, workspaceSize, executor);
 }
