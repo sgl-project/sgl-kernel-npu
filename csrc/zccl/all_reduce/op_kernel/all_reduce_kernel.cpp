@@ -40,7 +40,7 @@ enum class ReduceOp {
 };
 
 template <typename T>
-SHMEM_DEVICE void setAtomicOp(ReduceOp reduceOp)
+SHMEM_DEVICE void SetAtomicOp(ReduceOp reduceOp)
 {
     switch (reduceOp) {
         case ReduceOp::REDUCE_SUM:
@@ -58,230 +58,125 @@ SHMEM_DEVICE void setAtomicOp(ReduceOp reduceOp)
     }
 }
 
-// 使用 AscendC 原子操作接口进行规约
 template<typename T>
-__aicore__ inline void AtomicReduce(AscendC::GlobalTensor<T>& dataGt,
-                                   uint32_t destOffset, uint32_t srcOffset,
-                                   uint32_t numElements, ReduceOp reduceOp)
-{
-    // 临时缓冲区用于数据传输
-    AsdopsBuffer<ArchType::ASCEND_V220> buf;
-    AscendC::LocalTensor<T> tempBuff = buf.GetBuffer<BufferType::ASCEND_UB, T>(numElements);
-
-    // 将源数据加载到本地缓冲区
-    AscendC::DataCopy(tempBuff, dataGt[srcOffset], numElements);
-}
-
 class AllReduceKernel
 {
 public:
     __aicore__ inline AllReduceKernel() {}
 
-    template<typename T>
-    __aicore__ inline void Process(GM_ADDR input, GM_ADDR output, GM_ADDR gva, uint64_t elements, int32_t teamId, 
-        uint64_t fftsAddr, int magic, GM_ADDR tilingConfig, uint32_t reduceOp)
+	__aicore__ inline void Init(
+		GM_ADDR input, GM_ADDR output, GM_ADDR gva, GM_ADDR tilingConfig, uint32_t teamId, uint32_t reduceOp)
+	{
+    	teamId_ = shmem_team_my_pe(teamId);
+		auto *tilingCfg = reinterpret_cast<__gm__ sglang::zccl::AllReduceTilingData*>(tilingConfig);
+        formerNum_ = tilingCfg->formerNum_;
+        formerLength_ = tilingCfg->formerLength_;
+        tailLength_ = tilingCfg->tailLength_;
+        tailNum_ = tilingCfg->tailNum_;
+		eleNumPerRank_ = tilingCfg->eleNumPerRank_;
+        reduceOp_ = static_cast<ReduceOp>(reduceOp);
+
+        const uint32_t aivNum = AscendC::GetBlockNum();
+        const uint32_t aivIndex = AscendC::GetBlockIdx();
+
+		// [0, 1, 2, 3 || 4, 5, 6, 7 || 8, 9, 10, 11 || 12, 13, 14, 15]
+        uint32_t groupId_ = aivIndex / tilingCfg->coreNumPerRank_;
+
+		// [0, 1, 2, 3 || 0, 1, 2, 3 || 0, 1, 2, 3 || 0, 1, 2, 3]
+        uint32_t coreInGroupIdx = aivIndex % tilingCfg->coreNumPerRank_;
+
+		// 计算偏移 通信组基址 + 组内偏移
+		if (coreInGroupIdx < formerNum_) {
+			lenPerCore_ = formerLength_;
+            copyOffset_ = groupId_ * eleNumPerRank_ + coreInGroupIdx * formerLength_;
+        } else {
+			lenPerCore_ = tailLength_;
+			// 计算偏移 通信组基址 + 组内偏移
+            copyOffset_ =
+				groupId_ * eleNumPerRank_ + formerNum_ * formerLength_ + (coreInGroupIdx - formerNum_) * tailLength_;
+        }
+
+        inputGm_.SetGlobalBuffer((__gm__ T *)input + copyOffset_, lenPerCore_);
+       	outputGm_.SetGlobalBuffer((__gm__ T *)output + copyOffset_, lenPerCore_);
+
+		// [SYNC_FLAG_INTERVAL, SYNC_FLAG_INTERVAL, SYNC_FLAG_INTERVAL || data, data, data]
+		uint32_t gvaSyncLen = aivNum * SYNC_FLAG_INTERVAL;
+		gvaSyncOffset_ = aivIndex * SYNC_FLAG_INTERVAL;
+        gvaGm_.SetGlobalBuffer((__gm__ T *)((__gm__ int32_t *)gva + gvaSyncLen), GVA_BUFF_MAX_SIZE / sizeof(T));
+        gvaSyncGm_.SetGlobalBuffer((__gm__ int32_t *)gva, gvaSyncLen);
+
+        uint32_t waitOffset_ = (teamId_ * tilingCfg->coreNumPerRank_ + coreInGroupIdx) * SYNC_FLAG_INTERVAL;
+	}
+
+    __aicore__ inline void Process(uint64_t elements, uint64_t fftsAddr, int magic)
     {
-        auto *tilingCfg = reinterpret_cast<__gm__ sglang::zccl::AllReduceTilingData*>(tilingConfig);
-        this->inputNumPerCore_ = tilingCfg->inputNumPerCore_;
-        this->outputNumPerCore_ = tilingCfg->outputNumPerCore_;
-        this->outputCorePerRank_ = tilingCfg->outputCorePerRank_;
-        this->inputLastNumCore_ = tilingCfg->inputLastNumCore_;
-        this->outputLastNumCore_ = tilingCfg->outputLastNumCore_;
-        this->reduceOp_ = static_cast<ReduceOp>(reduceOp);
         shmemx_set_ffts_config(fftsAddr);
         if (elements * sizeof(T) < BIG_DATA_SIZE) {
-            AllReduceSmallData<T>(input, output, gva, elements, teamId, magic);
+            AllReduceSmallData(magic);
         } else {
-            AllReduceSmallData<T>(input, output, gva, elements, teamId, magic);
+            AllReduceSmallData(magic);
         }
     }
 
-    template<typename T>
-    __aicore__ inline void AllReduceLargeData(GM_ADDR inputGm, GM_ADDR outputGm, GM_ADDR gva, uint64_t elements,
-        int32_t teamId, int magic, ReduceOp reduceOp)
+    // 小数据场景：直接 ReduceScatter + AllGather
+    __aicore__ inline void AllReduceSmallData(int magic)
     {
-        const int64_t aivNum = AscendC::GetBlockNum();
-        const int64_t aivIndex = AscendC::GetBlockIdx();
-        const int64_t dataOffset = aivNum * SYNC_FLAG_INTERVAL;
-        const int64_t flagOffset = aivIndex * SYNC_FLAG_INTERVAL;
-        int64_t myRank = shmem_team_my_pe(teamId);
+        #ifdef __DAV_C220_VEC__
 
-        AscendC::GlobalTensor<T> inputGt, outputGt, gvaGt;
-        inputGt.SetGlobalBuffer((__gm__ T *)inputGm, elements);
-        outputGt.SetGlobalBuffer((__gm__ T *)outputGm, elements);
-        gvaGt.SetGlobalBuffer((__gm__ T *)((__gm__ char *)gva + dataOffset), elements);
+        const __gm__ int32_t* gvaSyncGmStart = gvaSyncGm_.GetPhyAddr();
+        __gm__ int32_t* gvaSyncGmAddr = (__gm__ int32_t *)gvaSyncGmStart + gvaSyncOffset_;
 
-        __gm__ int32_t *gvaSyncGm = (__gm__ int32_t *)gva;
         AsdopsBuffer<ArchType::ASCEND_V220> buf;
         AscendC::LocalTensor<T> tmpBuff = buf.GetBuffer<BufferType::ASCEND_UB, T>(64);
 
-        // 使用预计算的 tiling 参数
-        const uint32_t coreRankIdx = aivIndex % outputCorePerRank_;
-        const uint32_t rank = aivIndex / outputCorePerRank_;  // 当前节点ID
-        const uint32_t coreTargetRank = (rank + 1) % aivNum;  // 目标节点ID
+        // 阶段1：收集所有节点数据到共享内存, 在发送到system mem 时计算
+		SetAtomicOp<T>(reduceOp_);
+        shmem_mte_put_mem_nbi(gvaGm_[copyOffset_], inputGm_, tmpBuff, lenPerCore_, teamId_, EVENT_ID0);
+        // 重置原子操作
+        AscendC::SetAtomicNone();
 
-        // 计算当前核心处理的数据量
-        uint32_t lenPerCore = (coreRankIdx < (elements % aivNum)) ?
-                             (elements / aivNum + 1) : (elements / aivNum);
-
-        uint32_t gvaCopyInOffset, gvaCopyOutOffset;
-
-        if (coreRankIdx < (elements % aivNum)) {
-            gvaCopyInOffset = coreTargetRank * (elements / aivNum) + coreRankIdx * (elements / aivNum + 1);
-            gvaCopyOutOffset = rank * (elements / aivNum) + coreRankIdx * (elements / aivNum + 1);
-        } else {
-            gvaCopyInOffset = coreTargetRank * (elements / aivNum) + (elements % aivNum) * (elements / aivNum + 1) +
-                             (coreRankIdx - (elements % aivNum)) * (elements / aivNum);
-            gvaCopyOutOffset = rank * (elements / aivNum) + (elements % aivNum) * (elements / aivNum + 1) +
-                              (coreRankIdx - (elements % aivNum)) * (elements / aivNum);
-        }
-
-        // [AllReduce Step 1: ReduceScatter]
-        shmem_mte_put_mem_nbi(gvaGt[gvaCopyInOffset], inputGt, tmpBuff, lenPerCore, rank, EVENT_ID0);
-
+        // 同步
         shmem_quiet();
         shmemi_barrier_core_soft();
 
-        shmemx_signal_op(gvaSyncGm + flagOffset, magic, SHMEM_SIGNAL_SET, myRank);
-        __gm__ int32_t * waitAddr = (__gm__ int32_t *)shmem_ptr(gvaSyncGm, coreTargetRank);
-        int32_t waitOffset = (rank * outputCorePerRank_ + coreRankIdx) * SYNC_FLAG_INTERVAL;
-        shmem_signal_wait_until(waitAddr + waitOffset, SHMEM_CMP_EQ, magic);
+        shmemx_signal_op(gvaSyncGmAddr, magic, SHMEM_SIGNAL_SET, teamId_);
+        __gm__ int32_t * waitAddr = (__gm__ int32_t *)shmem_ptr((__gm__ int32_t *)gvaSyncGmAddr, groupId_);
 
-        // [AllReduce Step 2: Reduce with Atomic Operation]
-        setAtomicOp<T>(reduceOp);
+        shmem_signal_wait_until(waitAddr + waitOffset_, SHMEM_CMP_EQ, magic);
+
+        // 阶段2：从system拷贝到本节点 output gm
         AscendC::PipeBarrier<PIPE_ALL>();
-
-        shmem_mte_get_mem_nbi(outputGt, gvaGt[gvaCopyOutOffset], tmpBuff, lenPerCore, coreTargetRank, EVENT_ID0);
-
-        AscendC::SetAtomicNone();
+        shmem_mte_get_mem_nbi(outputGm_[copyOffset_], gvaGm_[copyOffset_], tmpBuff, lenPerCore_, groupId_, EVENT_ID0);
         AscendC::PipeBarrier<PIPE_ALL>();
-
-        // [AllReduce Step 3: AllGather]
-        uint32_t outputCopyInOffset, outputCopyOutOffset;
-
-        if (coreRankIdx < (elements % aivNum)) {
-            outputCopyInOffset = rank * (elements / aivNum) + coreRankIdx * (elements / aivNum + 1);
-            outputCopyOutOffset = coreTargetRank * (elements / aivNum) + coreRankIdx * (elements / aivNum + 1);
-        } else {
-            outputCopyInOffset = rank * (elements / aivNum) + (elements % aivNum) * (elements / aivNum + 1) +
-                                (coreRankIdx - (elements % aivNum)) * (elements / aivNum);
-            outputCopyOutOffset = coreTargetRank * (elements / aivNum) + (elements % aivNum) * (elements / aivNum + 1) +
-                                 (coreRankIdx - (elements % aivNum)) * (elements / aivNum);
-        }
-
-        shmem_mte_put_mem_nbi(gvaGt[outputCopyInOffset], outputGt, tmpBuff, lenPerCore, rank, EVENT_ID0);
-
-        shmem_quiet();
-        shmemi_barrier_core_soft();
-
-        shmemx_signal_op(gvaSyncGm + flagOffset, magic + 1, SHMEM_SIGNAL_SET, myRank);
-        shmem_signal_wait_until(waitAddr + waitOffset, SHMEM_CMP_EQ, magic + 1);
-
-        shmem_mte_get_mem_nbi(outputGt, gvaGt[outputCopyOutOffset], tmpBuff, lenPerCore, coreTargetRank, EVENT_ID0);
-    }
-
-
-    template<typename T>
-    __aicore__ inline void AllReduceSmallData(GM_ADDR inputGm, GM_ADDR outputGm, GM_ADDR gva,
-        uint64_t elements, int32_t teamId, int magic)
-    {
-        #ifdef __DAV_C220_VEC__
-            // 小数据场景：直接 AllGather + Reduce
-    const int64_t aivNum = AscendC::GetBlockNum();
-    const int64_t aivIndex = AscendC::GetBlockIdx();
-    const int64_t dataOffset = aivNum * SYNC_FLAG_INTERVAL;
-    const int64_t flagOffset = aivIndex * SYNC_FLAG_INTERVAL;
-    int64_t myRank = shmem_team_my_pe(teamId);
-
-    AscendC::GlobalTensor<T> inputGt, outputGt, dataGt;
-    inputGt.SetGlobalBuffer((__gm__ T *)inputGm, elements);
-    outputGt.SetGlobalBuffer((__gm__ T *)outputGm, elements);
-    dataGt.SetGlobalBuffer((__gm__ T *)((__gm__ char *)gva + dataOffset), elements);
-
-    __gm__ int32_t *gvaSyncGm = (__gm__ int32_t *)gva;
-    AsdopsBuffer<ArchType::ASCEND_V220> buf;
-    AscendC::LocalTensor<T> tmpBuff = buf.GetBuffer<BufferType::ASCEND_UB, T>(64);
-
-    // 计算每个核心的数据量
-    uint32_t numPerCore = this->inputNumPerCore_;
-    uint32_t inputOffset = aivIndex * numPerCore;
-    uint32_t gvaOffset = aivIndex * numPerCore;
-
-    if (aivIndex == aivNum - 1) {
-        numPerCore = this->inputLastNumCore_;
-    }
-
-    // 阶段1：收集所有节点数据到共享内存
-    shmem_mte_put_mem_nbi(dataGt[gvaOffset], inputGt[inputOffset], tmpBuff,
-                          numPerCore, myRank, EVENT_ID0);
-
-    const int64_t corePerRank = this->outputCorePerRank_;
-    const int64_t coreRankIdx = aivIndex % corePerRank;
-    const int64_t x = aivIndex / corePerRank;
-
-    // 同步
-    shmem_quiet();
-    shmemi_barrier_core_soft();
-    shmemx_signal_op(gvaSyncGm + flagOffset, magic, SHMEM_SIGNAL_SET, myRank);
-    shmem_signal_wait_until((__gm__ int32_t *)shmem_ptr(gvaSyncGm, x) + flagOffset,
-                           SHMEM_CMP_EQ, magic);
-
-    // 阶段2：单节点规约（只在节点0执行）
-    if (aivIndex == 0) {
-        // 设置原子操作模式
-        setAtomicOp<T>(reduceOp_);
-        for (int64_t srcRank = 1; srcRank < aivNum; srcRank++) {
-            uint32_t srcOffset = srcRank * this->inputNumPerCore_;
-            uint32_t destOffset = 0;  // 规约到位置0
-
-            if (srcRank == aivNum - 1) {
-                numPerCore = this->inputLastNumCore_;
-            } else {
-                numPerCore = this->inputNumPerCore_;
-            }
-
-            AtomicReduce<T>(dataGt, destOffset, srcOffset, numPerCore, reduceOp_);
-        }
-        // 重置为普通模式
-        AscendC::SetAtomicNone();
-    }
-
-    // 规约完成同步
-    shmem_quiet();
-    shmemi_barrier_core_soft();
-    if (aivIndex == 0) {
-        shmemx_signal_op(gvaSyncGm, magic + 1, SHMEM_SIGNAL_SET, myRank);
-    }
-    shmem_signal_wait_until(gvaSyncGm, SHMEM_CMP_EQ, magic + 1);
-
-    // 阶段3：广播结果
-    numPerCore = this->outputCorePerRank_;
-    uint32_t outputOffset = x * elements + coreRankIdx * numPerCore;
-    gvaOffset = coreRankIdx * numPerCore;
-
-    if (coreRankIdx == corePerRank - 1) {
-        numPerCore = this->outputLastNumCore_;
-    }
-
-    shmem_mte_get_mem_nbi(outputGt[outputOffset], dataGt[gvaOffset],
-                          tmpBuff, numPerCore, 0, EVENT_ID0);
         #endif
     }
 
 private:
-    int64_t aivNum;
-    uint32_t inputNumPerCore_;
-    uint32_t outputNumPerCore_;
-    uint32_t outputCorePerRank_;
-    uint32_t inputLastNumCore_;
-    uint32_t outputLastNumCore_;
+    uint32_t formerNum_;
+    uint32_t formerLength_;
+    uint64_t tailLength_;
+    uint32_t tailNum_;
+	uint32_t lenPerCore_;
+	uint32_t eleNumPerRank_;
+	uint32_t copyOffset_;
+	uint32_t gvaSyncOffset_;
+	uint32_t gvaCopyInOffset_;
+	uint32_t groupId_;
+	uint32_t waitOffset_;
+	uint32_t teamId_;
     ReduceOp reduceOp_;
+    AscendC::GlobalTensor<T> inputGm_;
+    AscendC::GlobalTensor<T> outputGm_;
+    AscendC::GlobalTensor<T> gvaGm_;
+    AscendC::GlobalTensor<int32_t> gvaSyncGm_;
 };
 
 // 宏定义：减少重复代码
 #define HANDLE_DATA_TYPE(CASE_TYPE, TYPE) \
+    AllReduceKernel<TYPE> op; \
     case CASE_TYPE: \
-        op.Process<TYPE>(input, output, gva, numel, teamId, fftsAddr, magic, tilingConfig, reduceOp); \
+		op.Init(input, output, gva, tilingConfig, teamId, reduceOp); \
+        op.Process(numel, fftsAddr, magic); \
         break;
 
 
@@ -289,7 +184,6 @@ extern "C" __global__ __aicore__ void AllReduce(GM_ADDR input, GM_ADDR output, G
     int dataType, uint32_t teamId,
     uint64_t fftsAddr, int magic, GM_ADDR tilingConfig, uint32_t reduceOp)
 {
-    AllReduceKernel op;
     ZCCLDataType zcclDataType = static_cast<ZCCLDataType>(dataType);
     switch (zcclDataType) {
         HANDLE_DATA_TYPE(ZCCL_DATA_TYPE_INT8, int8_t)
