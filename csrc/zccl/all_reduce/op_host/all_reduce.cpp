@@ -21,6 +21,7 @@ constexpr int64_t GVA_BUFF_MAX_SIZE = 100 * 1024 * 1024;
 constexpr int64_t BIG_DATA_SIZE = 2 * 1024 * 1024;
 constexpr uint32_t BLOCK_NUM_SMALL_DATA = 8;
 constexpr uint32_t BLOCK_NUM_LARGE_DATA = 16;
+constexpr uint32_t MAGIC = 1024;
 
 namespace sglang {
 namespace zccl {
@@ -79,48 +80,76 @@ std::shared_ptr<T> MakeAclHostPtr(size_t size) {
     );
 }
 
-void SetTilingConfig(int32_t blockDim, uint64_t elements, int teamId,
-    std::shared_ptr<AllReduceTilingData> tilingconfig)
+template<typename T>
+std::shared_ptr<T> MakeSharedMemPtr(size_t size) {
+    if (size == 0) {
+        return nullptr;
+    }
+    void* rawPtr = shmem_malloc(size);
+    if (rawPtr == nullptr) {
+        return nullptr;  // 分配失败
+    }
+	aclrtMemset(rawPtr, size, 0, size);
+    return std::shared_ptr<T>(
+        static_cast<T*>(rawPtr),
+        [](T* p) { if (p) shmem_free(p); }
+    );
+}
+
+void SetTilingConfig(uint64_t elements, int teamId, bool isSmallData, uint32_t blockDim,
+					std::shared_ptr<AllReduceTilingData> tilingconfig)
 {
-    int64_t peSize = shmem_team_n_pes(teamId);
-    tilingconfig->inputNumPerCore_ = elements / blockDim;
-    tilingconfig->inputLastNumCore_ = elements - (blockDim - 1) * (tilingconfig->inputNumPerCore_);
-    tilingconfig->outputCorePerRank_ = blockDim / peSize;
-    tilingconfig->outputNumPerCore_ = elements / tilingconfig->outputCorePerRank_;
-    tilingconfig->outputLastNumCore_ =
-        elements - ((tilingconfig->outputCorePerRank_) - 1) * (tilingconfig->outputCorePerRank_);
+	// 根据通信组数对核进行进行分组
+    uint32_t rankSize = shmem_team_n_pes(teamId);
+	uint32_t coreGroupNum = isSmallData ? blockDim : blockDim / 2;
+	tilingconfig->coreNumPerRank_ = blockDim / coreGroupNum;
+	// 计算每个通信组处理的数据
+    tilingconfig->eleNumPerRank_ = elements / rankSize;
+	// 计算组内每个核处理的数据, 如果不能对齐, former 处理大块数据,
+    tilingconfig->formerNum_ = tilingconfig->eleNumPerRank_ % tilingconfig->coreNumPerRank_;
+    tilingconfig->tailNum_ = tilingconfig->coreNumPerRank_ - tilingconfig->formerNum_;
+    tilingconfig->tailLength_ = tilingconfig->eleNumPerRank_ / tilingconfig->coreNumPerRank_;
+    tilingconfig->formerLength_ =
+		(tilingconfig->eleNumPerRank_ - tilingconfig->tailLength_ * tilingconfig->tailNum_) / tilingconfig->formerNum_;
 }
 
 // 在host上申请内存，然后进行tilling，再把配置下发到device上
 extern "C" HOST_API int ZcclAllReduce(uint8_t *input, uint8_t *output,
     size_t inputNumel, ZCCLDataType dataType, int teamId, aclrtStream stream, uint32_t reduceOp)
 {
-    int32_t blockDim = 0;
-    if (inputNumel * GetSizeFromTypeEnum(dataType) < BIG_DATA_SIZE) {
+	// 申请host 和 device 上的 tiling 块内存
+    auto deviceTilingConfig = MakeAclDevicePtr<AllReduceTilingData>(sizeof(AllReduceTilingData));
+	if (deviceTilingConfig == nullptr) {
+		return -1;
+	}
+    auto hostTilingConfig = MakeAclHostPtr<AllReduceTilingData>(sizeof(AllReduceTilingData));
+	if (hostTilingConfig == nullptr) {
+		return -1;
+	}
+	// 配置 tiling
+	bool isSmallData = true;
+	uint32_t blockDim = 0;
+    size_t typeSize = getSizeFromTypeEnum(dataType);
+    if (inputNumel * typeSize < BIG_DATA_SIZE) {
         blockDim = BLOCK_NUM_SMALL_DATA;
     } else {
         blockDim = BLOCK_NUM_LARGE_DATA;
+		isSmallData = false;
     }
-    int magic = 1024;
-
-    auto deviceTilingConfig = MakeAclDevicePtr<AllReduceTilingData>(sizeof(AllReduceTilingData));
-    auto hostTilingConfig = MakeAclHostPtr<AllReduceTilingData>(sizeof(AllReduceTilingData));
-
-    SetTilingConfig(blockDim, inputNumel, teamId, hostTilingConfig);
-
+    SetTilingConfig(inputNumel, teamId, isSmallData, blockDim, hostTilingConfig);
+	// tiling 从 host 下发到 device
     aclrtMemcpy(deviceTilingConfig.get(), sizeof(AllReduceTilingData),
         hostTilingConfig.get(), sizeof(AllReduceTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-
+	// 申请 shared mem
     uint64_t fftsAddr = shmemx_get_ffts_config();
     size_t gvaSize = blockDim * SYNC_FLAG_INTERVAL * sizeof(int) + GVA_BUFF_MAX_SIZE;
-    void *gva = shmem_malloc(gvaSize);
-    aclrtMemset(gva, gvaSize, 0, gvaSize);
+    auto gva = MakeSharedMemPtr<void>(gvaSize);
+	if (gva == nullptr) {
+		return -1;
+	}
     int dataTypeSize = static_cast<int>(dataType);
-
-    ACLRT_LAUNCH_KERNEL(AllReduce)(blockDim, stream, input, output, gva, inputNumel,
-        dataTypeSize, teamId, fftsAddr, magic, deviceTilingConfig.get(), reduceOp);
-
-    shmem_free(gva);
+    ACLRT_LAUNCH_KERNEL(AllReduce)(blockDim, stream, input, output, gva.get(), inputNumel,
+        dataTypeSize, teamId, fftsAddr, MAGIC, deviceTilingConfig.get(), reduceOp);
     return 0;
 }
 

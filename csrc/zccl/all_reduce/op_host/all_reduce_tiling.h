@@ -18,19 +18,14 @@ namespace zccl {
 struct AllReduceTilingData {
     // 构造函数（带默认参数）
     AllReduceTilingData(
-        uint32_t inputNumPerCore = 0, uint32_t inputLastNumCore = 0, uint32_t outputCorePerRank = 0,
-        uint32_t outputNumPerCore = 0, uint32_t outputLastNumCore = 0
-    ) : inputNumPerCore_(inputNumPerCore), inputLastNumCore_(inputLastNumCore),
-        outputNumPerCore_(outputNumPerCore), outputCorePerRank_(outputCorePerRank),
-        outputLastNumCore_(outputLastNumCore)
-
-    {}
-
-    uint32_t inputNumPerCore_;
-    uint32_t inputLastNumCore_;
-    uint32_t outputNumPerCore_;
-    uint32_t outputCorePerRank_;
-    uint32_t outputLastNumCore_;
+		uint32_t formerNum = 0, uint32_t formerLength = 0, uint32_t tailNum = 0, uint32_t tailLength = 0
+    ): formerNum_(formerNum), formerLength_(formerLength), tailNum_(tailNum), tailLength_(tailLength) {}
+	uint32_t formerNum_;
+    uint32_t formerLength_;
+    uint64_t tailLength_;
+    uint32_t tailNum_;
+	uint32_t coreNumPerRank_;
+	uint32_t eleNumPerRank_;
 };
 
 }  // namespace npu_kernel
