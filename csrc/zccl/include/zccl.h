@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 // Licensed under the BSD 3-Clause License  (the "License");
 // you may not use this file except in compliance with the License.
 // You may obtain a copy of the License at
@@ -66,7 +65,7 @@ extern "C" int ZcclReduceScatterZeroBuff(uint8_t *inp, uint8_t *out,
     size_t inpNumel, ZCCLDataType dataType, int teamId, aclrtStream stream, uint32_t reduceOp = 0);
 
 extern "C" int ZcclAllReduce(uint8_t *inp, uint8_t *out,
-    size_t inpNumel, ZCCLDataType dataType, int teamId, aclrtStream stream, uint32_t reduceOp)
+    size_t inpNumel, ZCCLDataType dataType, int teamId, aclrtStream stream, uint32_t reduceOp);
 
 }  // namespace zccl
 }  // namespace sglang
