@@ -460,7 +460,8 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::WaitB
 {
     uint32_t calCount = axisK_ * FLOAT_NUM_PER_ALIGN;
     uint32_t stateOffset = roundMagic_ * STATE_WIN_SIZE_HALF;
-    GM_ADDR stateGM = GetStateAddrByRankId(epRankId_) + stateOffset + recvXTokenIdx * axisK_ * UB_32_ALIGN;  // 计算地址偏移
+    GM_ADDR stateGM =
+        GetStateAddrByRankId(epRankId_) + stateOffset + recvXTokenIdx * axisK_ * UB_32_ALIGN;  // 计算地址偏移
     GlobalTensor<float> stateGMTensor;
     stateGMTensor.SetGlobalBuffer((__gm__ float *)stateGM);
     float current = (float)0.0;
@@ -495,7 +496,8 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::ReadB
 
     for (uint32_t topkId = 0U; topkId < axisK_; topkId++) {
         float scale = topkWeightsLT_.GetValue(topkWeightTokenIdx * axisK_ + topkId);
-        GM_ADDR localTokenAddr = GetBufferAddrByRankId(epRankId_) + (recvXTokenIdx * axisK_ + topkId) * h512AlignRecvXLen_;
+        GM_ADDR localTokenAddr =
+            GetBufferAddrByRankId(epRankId_) + (recvXTokenIdx * axisK_ + topkId) * h512AlignRecvXLen_;
         GlobalTensor<XType> localTokenTensor;
         localTokenTensor.SetGlobalBuffer((__gm__ XType *)localTokenAddr);
 
