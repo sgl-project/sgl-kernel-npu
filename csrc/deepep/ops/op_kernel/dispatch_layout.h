@@ -245,7 +245,7 @@ public:
                 int32_t validFlag = 0;
                 for (int j = 0; j < numTopk_; ++j) {
                     int64_t expert_idx = topkIdxTensor.GetValue(i * numTopk_ + j);
-                    if (expert_idx < 0 || expert_idx > numExperts_) {
+                    if (expert_idx < 0 || expert_idx >= numExperts_) {
                         continue;
                     }
                     validFlag = 1;

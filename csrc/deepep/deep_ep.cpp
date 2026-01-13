@@ -609,7 +609,6 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
     }
 
     // Combine data
-    // auto combined_x = torch::empty({expert_scales.size(0), hidden}, x.options());
     auto combined_x = torch::empty({valid_bs, hidden}, x.options());
     std::optional<torch::Tensor> recv_topk_weights;
     std::optional<EventHandle> event;
