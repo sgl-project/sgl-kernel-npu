@@ -11,7 +11,8 @@ namespace CamMoeCombineNormalMultiRoundImpl {
 constexpr uint32_t RANK_ID_OFFSET_IN_SRC_INFO = 0U;
 constexpr uint32_t TOKEN_IDX_OFFSET_IN_SRC_INFO = 1U;
 constexpr uint32_t TOPK_IDX_OFFSET_IN_SRC_INFO = 2U;
-constexpr uint64_t COMBINE_STATE_WIN_OFFSET = 4UL * 1024UL * 1024UL;
+constexpr uint64_t STATE_WIN_SIZE = 4UL * 1024UL * 1024UL;
+constexpr uint64_t STATE_WIN_SIZE_HALF = STATE_WIN_SIZE / 2;
 constexpr uint64_t MAGIC_WIN_OFFSET = 975UL * 1024UL;
 constexpr uint64_t ROUND_STATE_OFFSET = Moe::BASE_ROUND_STATE_OFFSET + Moe::ROUND_STATE_MAX_SIZE * 2UL;  // 458*1024
 constexpr uint32_t TOKEN_SRC_INFO_LEN = 3U;
@@ -20,6 +21,7 @@ constexpr uint32_t MUL_256_ALIGN = 256U;
 constexpr uint64_t WIN_512_ALIGN = 512UL;
 constexpr uint32_t FLOAT_NUM_PER_ALIGN = 8U;
 constexpr uint8_t DOUBLE_BUFFER = 2;
+constexpr uint32_t WAIT_ROUND_INDEX = 2U;
 constexpr int64_t CYCLE_TO_TIME = 50;  // cycle num is converted into a fixed base unit of time, set at 50
 constexpr uint32_t STATE_OFFSET = 32U;
 constexpr uint32_t BATCH_SRC_INFO_CNT = 128U;
@@ -77,7 +79,7 @@ private:
 
     __aicore__ GM_ADDR GetBufferAddrByRankId(const int32_t rankId)
     {
-        return GetStateAddrByRankId(rankId) + COMBINE_STATE_WIN_OFFSET;
+        return GetStateAddrByRankId(rankId) + STATE_WIN_SIZE + roundMagic_ * combineDataBuffSize_;
     }
 
     __aicore__ inline GM_ADDR GetRoundStateAddrByRankId(const int32_t rankId)
@@ -145,6 +147,7 @@ private:
     uint32_t xOutTokenOffset_{
         0};  // 这一轮接收的token需要存放在xOut的偏移，即前面几轮接收的token数，每一轮每个核从topkWeightsGM_拷贝权重也需要
     uint32_t stateOffset_{0};
+    uint32_t combineDataBuffSize_{0};
 
     bool isEnableDiagnose_{false};
 
@@ -181,7 +184,6 @@ private:
     GlobalTensor<XType> xOutGlobal_;
     GlobalTensor<int32_t> sendCostStatsGT_;
     GlobalTensor<float> dstRoundStatusGT_;
-    GM_ADDR localRankGM_;
     GM_ADDR workspaceGM_;
 };
 
@@ -333,10 +335,9 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::Init(
     InitTilingData(tilingData);
     InitGlobalBuffer(recvX, tokenSrcInfo, epRecvCount, topkWeights, XOut, sendCostStatsOut);
     InitBuffLen();
-
+    combineDataBuffSize_ = perRoundTokens_ * axisK_ * h512AlignRecvXLen_;
     PipeBarrier<PIPE_ALL>();
     winDataSizeOffset_ = static_cast<uint64_t>(magic_) * (tilingData->camMoeCombineNormalInfo.totalWinSize / 2UL);
-    localRankGM_ = GetBufferAddrByRankId(epRankId_);
     DataCacheCleanAndInvalid<SrcInfoType, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
         epRecvCountGM_[moeExpertNum_ - 1]);
     PipeBarrier<PIPE_ALL>();
@@ -449,7 +450,8 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::SetSt
                                                                                               uint32_t srcTokenId,
                                                                                               uint32_t srcTopkId)
 {
-    GM_ADDR stateGM = GetStateAddrByRankId(srcRankId) + (srcTokenId * axisK_ + srcTopkId) * UB_32_ALIGN;
+    uint32_t stateOffset = roundMagic_ * STATE_WIN_SIZE_HALF;
+    GM_ADDR stateGM = GetStateAddrByRankId(srcRankId) + stateOffset + (srcTokenId * axisK_ + srcTopkId) * UB_32_ALIGN;
     GlobalTensor<uint32_t> stateGMTensor;
     stateGMTensor.SetGlobalBuffer((__gm__ uint32_t *)stateGM);
     DataCopy<uint32_t>(stateGMTensor, setStateLT_, FLOAT_NUM_PER_ALIGN);
@@ -460,7 +462,8 @@ template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::WaitBuffCopy(uint32_t recvXTokenIdx)
 {
     uint32_t calCount = axisK_ * FLOAT_NUM_PER_ALIGN;
-    GM_ADDR stateGM = GetStateAddrByRankId(epRankId_) + recvXTokenIdx * axisK_ * UB_32_ALIGN;  // 计算地址偏移
+    uint32_t stateOffset = roundMagic_ * STATE_WIN_SIZE_HALF;
+    GM_ADDR stateGM = GetStateAddrByRankId(epRankId_) + stateOffset + recvXTokenIdx * axisK_ * UB_32_ALIGN;  // 计算地址偏移
     GlobalTensor<float> stateGMTensor;
     stateGMTensor.SetGlobalBuffer((__gm__ float *)stateGM);
     float current = (float)0.0;
@@ -495,7 +498,7 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::ReadB
 
     for (uint32_t topkId = 0U; topkId < axisK_; topkId++) {
         float scale = topkWeightsLT_.GetValue(topkWeightTokenIdx * axisK_ + topkId);
-        GM_ADDR localTokenAddr = localRankGM_ + (recvXTokenIdx * axisK_ + topkId) * h512AlignRecvXLen_;
+        GM_ADDR localTokenAddr = GetBufferAddrByRankId(epRankId_) + (recvXTokenIdx * axisK_ + topkId) * h512AlignRecvXLen_;
         GlobalTensor<XType> localTokenTensor;
         localTokenTensor.SetGlobalBuffer((__gm__ XType *)localTokenAddr);
 
@@ -606,16 +609,15 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::Proce
     if ASCEND_IS_AIV {  // 全aiv处理
         uint32_t realRound = (realMaxBs_ + perRoundTokens_ - 1) / perRoundTokens_;
         while (roundIndex_ < realRound) {
-            CopyBufferToShareAndSetStatus();
-            ReadBufferFromRemote();
-            if (realRound > 1) {
-                SyncAll<true>();
-                SetRoundStatus();
+            if (roundIndex_ >= WAIT_ROUND_INDEX) {
                 WaitRoundStatus();
-                roundMagic_ = roundMagic_ == 0 ? 1 : 0;
                 SyncAll<true>();
             }
+            CopyBufferToShareAndSetStatus();
+            ReadBufferFromRemote();
+            SetRoundStatus();
             roundIndex_ += 1;
+            roundMagic_ = roundMagic_ == 0 ? 1 : 0;
         }
     }
 }
