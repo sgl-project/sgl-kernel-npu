@@ -295,7 +295,6 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitR
 
     // 创建localCopyQueue_， 用于存放从GM拷贝到UB的token
     tpipe_->InitBuffer(localCopyQueue_, DOUBLE_BUFFER, h32AlignRecvXLen_);  // 28KB
-    PipeBarrier<PIPE_ALL>();
 }
 
 template <TemplateMC2TypeClass>
@@ -340,7 +339,6 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::Init(
     winDataSizeOffset_ = static_cast<uint64_t>(magic_) * (tilingData->camMoeCombineNormalInfo.totalWinSize / 2UL);
     DataCacheCleanAndInvalid<SrcInfoType, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
         epRecvCountGM_[moeExpertNum_ - 1]);
-    PipeBarrier<PIPE_ALL>();
 
     InitRoundSendData();
     InitRoundRecvData();
@@ -455,7 +453,6 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::SetSt
     GlobalTensor<uint32_t> stateGMTensor;
     stateGMTensor.SetGlobalBuffer((__gm__ uint32_t *)stateGM);
     DataCopy<uint32_t>(stateGMTensor, setStateLT_, FLOAT_NUM_PER_ALIGN);
-    PipeBarrier<PIPE_ALL>();
 }
 
 template <TemplateMC2TypeClass>
@@ -519,7 +516,6 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::ReadB
     Cast(xOutLocal, sumFloatBufLocal, AscendC::RoundMode::CAST_RINT, axisH_);
     SyncFunc<AscendC::HardEvent::V_MTE3>();
     DataCopyPad(xOutGlobal_[xOutTokenIdx * axisH_], xOutLocal, xOutCopyParams);
-    PipeBarrier<PIPE_ALL>();
 }
 
 template <TemplateMC2TypeClass>
@@ -538,7 +534,7 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::ReadB
     const DataCopyPadExtParams<float> copyPadFloatParams{false, 0U, 0U, 0U};
     DataCopyPad(topkWeightsLT_, topkWeightsGM_[(xOutTokenOffset_ + roundRecvStartTokenIdx_) * axisK_], bskParams,
                 copyPadFloatParams);
-    PipeBarrier<PIPE_ALL>();
+    SyncFunc<AscendC::HardEvent::MTE2_S>();
 
     for (uint32_t roundTokenIdx = roundRecvStartTokenIdx_; roundTokenIdx < roundRecvEndTokenIdx_;
          roundTokenIdx++) {  // 每轮都从从hccl buffer起始位置读put来的数据
@@ -600,7 +596,6 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::WaitR
     Duplicate<float>(tempRoundStateTensorLocal, (float)0.0, count);
     SyncFunc<AscendC::HardEvent::V_MTE3>();
     DataCopy<float>(roundStatusGMTensor, tempRoundStateTensorLocal, count);
-    PipeBarrier<PIPE_ALL>();
 }
 
 template <TemplateMC2TypeClass>
