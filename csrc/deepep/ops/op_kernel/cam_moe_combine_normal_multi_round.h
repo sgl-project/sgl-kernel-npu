@@ -41,15 +41,17 @@ class CamMoeCombineNormalMultiRound
 {
 public:
     __aicore__ inline CamMoeCombineNormalMultiRound(){};
-    __aicore__ inline void Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR tokenIdx, GM_ADDR tokenIdxMap, GM_ADDR topkWeights,
-                                GM_ADDR tpRecvCount, GM_ADDR XOut, GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM,
-                                TPipe *pipe, const CamMoeCombineNormalTilingData *tilingData);
+    __aicore__ inline void Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights,
+                                GM_ADDR tokenIdx, GM_ADDR tokenIdxMap, GM_ADDR tpRecvCount, GM_ADDR XOut,
+                                GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe,
+                                const CamMoeCombineNormalTilingData *tilingData);
     __aicore__ inline void Process();
 
 private:
     __aicore__ inline void InitMagic();
     __aicore__ inline void InitGlobalBuffer(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount,
-                                            GM_ADDR tokenIdx, GM_ADDR tokenIdxMap, GM_ADDR topkWeights, GM_ADDR XOut, GM_ADDR sendCostStatsOut);
+                                            GM_ADDR topkWeights, GM_ADDR tokenIdx, GM_ADDR tokenIdxMap, GM_ADDR XOut,
+                                            GM_ADDR sendCostStatsOut);
     __aicore__ inline void InitTilingData(const CamMoeCombineNormalTilingData *tilingData);
     __aicore__ inline void InitBuffLen();
     __aicore__ inline void CopyBufferToShareAndSetStatus();
@@ -58,7 +60,8 @@ private:
     __aicore__ inline void ReadBufferFromRemote();
     __aicore__ inline void WaitBuffCopy(uint32_t recvXTokenIdx, uint32_t topkWeightTokenIdx);
     __aicore__ inline void SetStatusBySrcInfo(uint32_t srcRankId, uint32_t srcTokenId, uint32_t srcTopkId);
-    __aicore__ inline void ReadBufferAndWeightedSum(uint32_t recvXTokenIdx, uint32_t topkWeightTokenIdx, int32_t validOffset);
+    __aicore__ inline void ReadBufferAndWeightedSum(uint32_t recvXTokenIdx, uint32_t topkWeightTokenIdx,
+                                                    int32_t validOffset);
     __aicore__ inline void InitRoundSendData();
     __aicore__ inline void SetRoundStatus();
     __aicore__ inline void WaitRoundStatus();
@@ -210,8 +213,8 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitM
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitGlobalBuffer(
-    GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR tokenIdx, GM_ADDR tokenIdxMap, GM_ADDR topkWeights, GM_ADDR XOut,
-    GM_ADDR sendCostStatsOut)
+    GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR tokenIdx,
+    GM_ADDR tokenIdxMap, GM_ADDR XOut, GM_ADDR sendCostStatsOut)
 {
     recvXGM_.SetGlobalBuffer((__gm__ RecvXType *)recvX);
     tokenSrcInfoGM_.SetGlobalBuffer((__gm__ SrcInfoType *)tokenSrcInfo);
@@ -333,13 +336,13 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitR
     tokenIdxLT_ = tokenIdxBuf_.Get<int32_t>();
     tokenIdxMapLT_ = tokenIdxMapBuf_.Get<int32_t>();
     topkWeightsLT_ = topkWeightsBuf_.Get<float>();
-
 }
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::Init(
-    GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount,GM_ADDR tokenIdx, GM_ADDR tokenIdxMap,  GM_ADDR topkWeights, GM_ADDR tpRecvCount, GM_ADDR XOut,
-    GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe, const CamMoeCombineNormalTilingData *tilingData)
+    GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR tokenIdx,
+    GM_ADDR tokenIdxMap, GM_ADDR tpRecvCount, GM_ADDR XOut, GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe,
+    const CamMoeCombineNormalTilingData *tilingData)
 {
     workspaceGM_ = workspaceGM;
     tpipe_ = pipe;
@@ -348,7 +351,7 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::Init(
 
     InitMagic();
     InitTilingData(tilingData);
-    InitGlobalBuffer(recvX, tokenSrcInfo, epRecvCount, tokenIdx, tokenIdxMap, topkWeights, XOut, sendCostStatsOut);
+    InitGlobalBuffer(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tokenIdxMap, XOut, sendCostStatsOut);
     InitBuffLen();
 
     PipeBarrier<PIPE_ALL>();
@@ -479,7 +482,7 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::WaitB
 {
     int tempValidCount = 0;
     for (int topkId = 0; topkId < axisK_; ++topkId) {
-        int expertId = tokenIdxLT_.GetValue((topkWeightTokenIdx) * axisK_ + topkId);
+        int expertId = tokenIdxLT_.GetValue((topkWeightTokenIdx)*axisK_ + topkId);
         if (expertId < 0 || expertId >= moeExpertNum_) {
             continue;
         }
@@ -562,10 +565,10 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::ReadB
     }
     const DataCopyExtParams bskParams{1U, static_cast<uint32_t>(roundRecvTokenCnt_ * axisK_ * sizeof(float)), 0U, 0U,
                                       0U};
-    const DataCopyExtParams tokenIdxParams{1U, static_cast<uint32_t>(roundRecvTokenCnt_ * axisK_ * sizeof(int32_t)), 0U, 0U,
-                                           0U};
+    const DataCopyExtParams tokenIdxParams{1U, static_cast<uint32_t>(roundRecvTokenCnt_ * axisK_ * sizeof(int32_t)), 0U,
+                                           0U, 0U};
     const DataCopyExtParams tokenIdxMapParams{1U, static_cast<uint32_t>(roundRecvTokenCnt_ * sizeof(int32_t)), 0U, 0U,
-                                              0U};                                           
+                                              0U};
     const DataCopyPadExtParams<float> copyPadFloatParams{false, 0U, 0U, 0U};
     const DataCopyPadExtParams<int32_t> copyPadIntParams{false, 0U, 0U, 0U};
     DataCopyPad(topkWeightsLT_, topkWeightsGM_[(xOutTokenOffset_ + roundRecvStartTokenIdx_) * axisK_], bskParams,
@@ -584,7 +587,7 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::ReadB
         }
         uint32_t topkWeightIdx = roundTokenIdx - roundRecvStartTokenIdx_;  // 用来计算每一轮token对应weight的偏移
         WaitBuffCopy(roundTokenIdx, topkWeightIdx);
-        SyncFunc<AscendC::HardEvent::MTE3_V>();                            // 与结果搬出datacopy同tensor
+        SyncFunc<AscendC::HardEvent::MTE3_V>();  // 与结果搬出datacopy同tensor
         ReadBufferAndWeightedSum(roundTokenIdx, topkWeightIdx, validOffset);
     }
     totalNeedRecvTokenCnt_ -= roundTotalRecvTokenCnt_;

@@ -219,14 +219,12 @@ static bool CheckInputTensorDim(gert::TilingContext *context, const char *nodeNa
     OP_LOGD(nodeName, "tokenIdx dim1 = %ld", tokenIdxStorageShape->GetStorageShape().GetDim(1));
 
     const gert::StorageShape *tokenIdxMapStorageShape = context->GetInputShape(TOKEN_IDX_MAP_INDEX);
-    OP_TILING_CHECK(tokenIdxMapStorageShape == nullptr, OP_LOGE(nodeName, "tokenIdxMap is null."),
-                    return false);
+    OP_TILING_CHECK(tokenIdxMapStorageShape == nullptr, OP_LOGE(nodeName, "tokenIdxMap is null."), return false);
     OP_TILING_CHECK(tokenIdxMapStorageShape->GetStorageShape().GetDimNum() != ONE_DIM,
                     OP_LOGE(nodeName, "tokenIdxMap must be 1-dimension, but got %lu dim",
                             tokenIdxMapStorageShape->GetStorageShape().GetDimNum()),
                     return false);
     OP_LOGD(nodeName, "tokenIdxMap dim0 = %ld", tokenIdxMapStorageShape->GetStorageShape().GetDim(0));
-
 
     return true;
 }
@@ -309,8 +307,7 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     auto tokenIdxDesc = context->GetInputDesc(TOKEN_IDX_INDEX);
     OP_TILING_CHECK(tokenIdxDesc == nullptr, OP_LOGE(nodeName, "tokenIdxDesc is null."), return false);
     OP_TILING_CHECK((tokenIdxDesc->GetDataType() != ge::DT_INT32),
-                    OP_LOGE(nodeName, "tokenIdx dataType is invalid, dataType should be int32, but is "),
-                    return false);
+                    OP_LOGE(nodeName, "tokenIdx dataType is invalid, dataType should be int32, but is "), return false);
     auto tokenIdxMapDesc = context->GetInputDesc(TOKEN_IDX_MAP_INDEX);
     OP_TILING_CHECK(tokenIdxMapDesc == nullptr, OP_LOGE(nodeName, "tokenIdxMapDesc is null."), return false);
     OP_TILING_CHECK((tokenIdxMapDesc->GetDataType() != ge::DT_INT32),

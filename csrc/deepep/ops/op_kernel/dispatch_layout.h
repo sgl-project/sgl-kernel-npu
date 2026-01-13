@@ -213,11 +213,11 @@ public:
             DataCopyPad(isTokenInRankGM_, isTokenInRankTensor, isTokenInRankDataCopyParams);
             AscendC::SetAtomicAdd<T>();
             const DataCopyExtParams tempExpertDataCopyParams{1U, numTokensPerExpert32AlignIntLen_, 0U, 0U, 0U};
-            for (int i = coreIdx_ + 1; i < aivNum_; ++i) {
-                DataCopyPad(tempExpertGM_[i * numExperts_], numTokensPerExpertTensor, tempExpertDataCopyParams);
-            }
             const DataCopyExtParams onePieceDataCopyParams{1U, onePiece32AlignIntLen_, 0U, 0U, 0U};
-            for (int i = coreIdx_ + 1; i <= aivNum_; ++i) {
+            for (int i = coreIdx_ + 1; i < aivNum_ + 1; ++i) {
+                if (i < aivNum_) {
+                    DataCopyPad(tempExpertGM_[i * numExperts_], numTokensPerExpertTensor, tempExpertDataCopyParams);
+                }
                 DataCopyPad(onePieceGM_[i * ONE_PIECE], onePieceTensor, onePieceDataCopyParams);
             }
             sendSize = numRanks_ * sizeof(T);
@@ -233,17 +233,14 @@ public:
             const DataCopyPadExtParams<T> tempPadParams{false, 0U, 0U, 0U};
             DataCopyPad(numTokensPerExpertTensor, tempExpertGM_[coreIdx_ * numExperts_], tempExpertDataCopyParams,
                         tempPadParams);
-            DataCopyPad(onePieceTensor, onePieceGM_[coreIdx_ * ONE_PIECE], onePieceDataCopyParams,
-                        tempPadParams);
-            SyncFunc<AscendC::HardEvent::MTE3_S>();
-            AscendC::DataCacheCleanAndInvalid<T, AscendC::CacheLine::SINGLE_CACHE_LINE, AscendC::DcciDst::CACHELINE_OUT>(onePieceGM_[aivNum_ * ONE_PIECE]);
-            preRoundCount = onePieceGM_.GetValue(aivNum_ * ONE_PIECE);
-            if (preRoundCount == 0) {
-                AscendC::DataCacheCleanAndInvalid<T, AscendC::CacheLine::SINGLE_CACHE_LINE, AscendC::DcciDst::CACHELINE_OUT>(onePieceGM_[(aivNum_ - 1) * ONE_PIECE]);
-                preRoundCount = onePieceGM_.GetValue((aivNum_ - 1) * ONE_PIECE);
-            }
-            int32_t tempBCount = 0;
+            DataCopyPad(onePieceTensor, onePieceGM_[coreIdx_ * ONE_PIECE], onePieceDataCopyParams, tempPadParams);
             SyncFunc<AscendC::HardEvent::MTE2_S>();
+            int32_t preCount = onePieceTensor.GetValue(0);
+            SyncFunc<AscendC::HardEvent::S_MTE2>();
+            DataCopyPad(onePieceTensor, onePieceGM_[aivNum_ * ONE_PIECE], onePieceDataCopyParams, tempPadParams);
+            SyncFunc<AscendC::HardEvent::MTE2_S>();
+            preRoundCount = onePieceTensor.GetValue(0);
+            int32_t tempBCount = 0;
             for (int i = 0; i < tempTokens_; ++i) {
                 int32_t validFlag = 0;
                 for (int j = 0; j < numTopk_; ++j) {
@@ -257,10 +254,7 @@ public:
                     numTokensPerExpertTensor(expert_idx) = valT + 1;
                 }
                 if (validFlag) {
-                    int32_t preCount = onePieceTensor.GetValue(0);
                     int32_t validOffset = preRoundsCount_ + preCount + tempBCount;
-                    // printf("rankId:%d, coreIdx_:%d, r:%d, preRoundCount:%d, preRoundsCount_:%d, preCount:%d, tempCount:%d, validOffset:%d\n",
-                    // rankId_, coreIdx_, r, preRoundCount, preRoundsCount_, preCount, tempBCount, validOffset);
                     tokenIdxMapTensor.SetValue(i, validOffset);
                     ++tempBCount;
                 } else {

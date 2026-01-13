@@ -9,7 +9,8 @@ using namespace AscendC;
 #define TILINGKEY_SINGLE_ROUND 10000
 
 extern "C" __global__ __aicore__ void cam_moe_combine_normal(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount,
-                                                             GM_ADDR topkWeights, GM_ADDR tokenIdx, GM_ADDR tokenIdxMap, GM_ADDR tpRecvCount, GM_ADDR XOut,
+                                                             GM_ADDR topkWeights, GM_ADDR tokenIdx, GM_ADDR tokenIdxMap,
+                                                             GM_ADDR tpRecvCount, GM_ADDR XOut,
                                                              GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM,
                                                              GM_ADDR tilingGM)
 
@@ -21,13 +22,13 @@ extern "C" __global__ __aicore__ void cam_moe_combine_normal(GM_ADDR recvX, GM_A
     GET_TILING_DATA_WITH_STRUCT(CamMoeCombineNormalTilingData, tilingData, tilingGM);
     if (TILING_KEY_IS(TILINGKEY_MULTI_ROUND)) {
         CamMoeCombineNormalMultiRoundImpl::CamMoeCombineNormalMultiRound<DTYPE_RECV_X, DTYPE_X, int32_t> op;
-        op.Init(recvX, tokenSrcInfo, epRecvCount, tokenIdx, tokenIdxMap, topkWeights, tpRecvCount, XOut, sendCostStatsOut, workspaceGM, &pipe,
-                &tilingData);
+        op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tokenIdxMap, tpRecvCount, XOut,
+                sendCostStatsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
     } else if (TILING_KEY_IS(TILINGKEY_SINGLE_ROUND)) {
         CamMoeCombineNormalImpl::CamMoeCombineNormal<DTYPE_RECV_X, DTYPE_X, int32_t> op;
-        op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tokenIdxMap, tpRecvCount, XOut, sendCostStatsOut, workspaceGM, &pipe,
-                &tilingData);
+        op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tokenIdxMap, tpRecvCount, XOut,
+                sendCostStatsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
     }
 #endif

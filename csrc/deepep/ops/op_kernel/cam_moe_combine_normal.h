@@ -38,15 +38,17 @@ class CamMoeCombineNormal
 {
 public:
     __aicore__ inline CamMoeCombineNormal(){};
-    __aicore__ inline void Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR tokenIdx, GM_ADDR tokenIdxMap,
-                                GM_ADDR tpRecvCount, GM_ADDR XOut, GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM,
-                                TPipe *pipe, const CamMoeCombineNormalTilingData *tilingData);
+    __aicore__ inline void Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights,
+                                GM_ADDR tokenIdx, GM_ADDR tokenIdxMap, GM_ADDR tpRecvCount, GM_ADDR XOut,
+                                GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe,
+                                const CamMoeCombineNormalTilingData *tilingData);
     __aicore__ inline void Process();
 
 private:
     __aicore__ inline void InitMagic();
     __aicore__ inline void InitGlobalBuffer(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount,
-                                            GM_ADDR topkWeights, GM_ADDR tokenIdx, GM_ADDR tokenIdxMap, GM_ADDR XOut, GM_ADDR sendCostStatsOut);
+                                            GM_ADDR topkWeights, GM_ADDR tokenIdx, GM_ADDR tokenIdxMap, GM_ADDR XOut,
+                                            GM_ADDR sendCostStatsOut);
     __aicore__ inline void InitTilingData(const CamMoeCombineNormalTilingData *tilingData);
     __aicore__ inline void InitBuffLen();
     __aicore__ inline void CopyBufferToShareAndSetStatus();
@@ -158,8 +160,9 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitMagic()
 template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitGlobalBuffer(GM_ADDR recvX, GM_ADDR tokenSrcInfo,
                                                                                   GM_ADDR epRecvCount,
-                                                                                  GM_ADDR topkWeights, GM_ADDR tokenIdx, GM_ADDR tokenIdxMap,
-                                                                                  GM_ADDR XOut, GM_ADDR sendCostStatsOut)
+                                                                                  GM_ADDR topkWeights, GM_ADDR tokenIdx,
+                                                                                  GM_ADDR tokenIdxMap, GM_ADDR XOut,
+                                                                                  GM_ADDR sendCostStatsOut)
 {
     recvXGM_.SetGlobalBuffer((__gm__ RecvXType *)recvX);
     tokenSrcInfoGM_.SetGlobalBuffer((__gm__ SrcInfoType *)tokenSrcInfo);
@@ -204,8 +207,9 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitBuffLen()
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::Init(
-    GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR tokenIdx, GM_ADDR tokenIdxMap, GM_ADDR tpRecvCount, GM_ADDR XOut,
-    GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe, const CamMoeCombineNormalTilingData *tilingData)
+    GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR tokenIdx,
+    GM_ADDR tokenIdxMap, GM_ADDR tpRecvCount, GM_ADDR XOut, GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe,
+    const CamMoeCombineNormalTilingData *tilingData)
 {
     workspaceGM_ = workspaceGM;
     tpipe_ = pipe;
@@ -438,7 +442,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::ReadBufferFromR
     const DataCopyPadExtParams<int32_t> copyPadIntParams{false, 0U, 0U, 0U};
     DataCopyPad(topkWeightsLocal, topkWeightsGM_[startTokenIndex * axisK_], bskParams, copyPadFloatParams);
     DataCopyPad(tokenIdxMapLocal, tokenIdxMapGM_[startTokenIndex], tokenIdxMapParams, copyPadIntParams);
-    DataCopyPad(tokenIdxLocal, tokenIdxGM_[startTokenIndex], tokenIdxParams, copyPadIntParams);
+    DataCopyPad(tokenIdxLocal, tokenIdxGM_[startTokenIndex * axisK_], tokenIdxParams, copyPadIntParams);
     SyncFunc<AscendC::HardEvent::MTE2_S>();
 
     for (uint32_t tokenIndex = startTokenIndex; tokenIndex < endTokenIndex; tokenIndex++) {
