@@ -24,6 +24,7 @@ extern "C" __global__ __aicore__ void notify_dispatch(GM_ADDR sendData, GM_ADDR 
     int numTokens = tilingData.notifyDispatchInfo.numTokens;
     int round = tilingData.notifyDispatchInfo.round;
     int perRoundTokens = tilingData.notifyDispatchInfo.perRoundTokens;
+    uint64_t totalWinSize = tilingData.notifyDispatchInfo.totalWinSize;
 
     GM_ADDR sendDataInput = sendData;
     GM_ADDR tokenPerExpertDataInput = tokenPerExpertData;
