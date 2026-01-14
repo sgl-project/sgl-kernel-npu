@@ -1,6 +1,6 @@
 import numpy as np
 import torch
-from sgl_kernel_npu.norm.add_rmsnorm_bias import add_rmsnorm_bias
+from sgl_kernel_npu.norm.add_rmsnorm_bias import add_gemma_rms_norm, add_rmsnorm_bias
 
 
 def add_rmsnorm_bias_quant_golden(
@@ -99,5 +99,58 @@ def test_add_rmsnorm_bias():
     )
 
 
+def reference_add_gemma_rms_norm(hidden_state, weight, residual, variance_epsilon):
+    # Step 1: Add
+    add_output = hidden_state + residual
+
+    # Step 2: RMS Norm (Gemma style: x * (w + 1) / sqrt(mean(x^2) + eps))
+    dtype = add_output.dtype
+    add_output_fp32 = add_output.to(torch.float32)
+    variance = torch.mean(add_output_fp32**2, dim=-1, keepdim=True)
+    norm_output_fp32 = add_output_fp32 * torch.rsqrt(variance + variance_epsilon)
+    norm_output_fp32 = norm_output_fp32 * (weight.to(torch.float32) + 1.0)
+    norm_output = norm_output_fp32.to(dtype)
+
+    return norm_output, add_output
+
+
+def test_add_gemma_rms_norm():
+    torch.manual_seed(0)
+    device = torch.device("npu")
+
+    test_cases = [
+        (8, 512),
+        (16, 1024),
+        (32, 2048),
+        (1, 256),
+    ]
+
+    variance_epsilon = 1e-6
+
+    for batch, dim in test_cases:
+        print(f"Testing batch={batch}, dim={dim}")
+
+        hidden_state = torch.randn(batch, dim, device=device, dtype=torch.float16)
+        residual = torch.randn(batch, dim, device=device, dtype=torch.float16)
+        weight = torch.randn(dim, device=device, dtype=torch.float16)
+
+        # Triton output
+        norm_out_triton, add_out_triton = add_gemma_rms_norm(
+            hidden_state, weight, residual, variance_epsilon
+        )
+
+        # Reference output
+        norm_out_ref, add_out_ref = reference_add_gemma_rms_norm(
+            hidden_state, weight, residual, variance_epsilon
+        )
+
+        # Compare
+        assert torch.allclose(add_out_triton, add_out_ref, atol=1e-2, rtol=1e-2)
+        assert torch.allclose(norm_out_triton, norm_out_ref, atol=1e-2, rtol=1e-2)
+
+    print("All tests passed!")
+
+
 if __name__ == "__main__":
     test_add_rmsnorm_bias()
+    test_add_gemma_rms_norm()

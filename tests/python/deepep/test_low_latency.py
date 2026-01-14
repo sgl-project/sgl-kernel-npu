@@ -87,133 +87,137 @@ def test(
     cumulative_local_expert_recv_stats = torch.zeros(
         (num_local_experts,), dtype=torch.int, device="npu"
     )
-    dispatch_use_fp8 = True
-    packed_recv_x, packed_recv_count, handle, event, hook = buffer.low_latency_dispatch(
-        x,
-        topk_idx,
-        aligned_num_tokens,
-        num_experts,
-        use_fp8=dispatch_use_fp8,
-        round_scale=False,
-        use_ue8m0=False,
-        cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
-        async_finish=not return_recv_hook,
-        return_recv_hook=return_recv_hook,
-    )
-    simulated_gemm_x = (
-        per_token_cast_back(*packed_recv_x) if dispatch_use_fp8 else packed_recv_x
-    )
-
-    all_topk_idx = torch.empty(
-        (num_ranks, aligned_num_tokens, num_topk), dtype=topk_idx.dtype, device="npu"
-    )
-    dist.all_gather_into_tensor(all_topk_idx, topk_idx, group=group)
-
-    local_actual_tokens = torch.tensor([actual_num_tokens], dtype=torch.int32, device="npu")
-    all_actual_tokens = torch.empty(num_ranks, dtype=torch.int32, device="npu")
-    dist.all_gather_into_tensor(all_actual_tokens, local_actual_tokens, group=group)
-
-    for i in range(num_local_experts if do_check else 0):
-        expert_id = rank * num_local_experts + i
-        temp = aligned_num_tokens / num_local_experts
-        recv_count = packed_recv_count[i]
-        recv_x = (
-            per_token_cast_back(
-                packed_recv_x[0][int(i * temp) : int((i + 1) * temp)],
-                packed_recv_x[1][int(i * temp) : int((i + 1) * temp)],
+    for dispatch_use_fp8 in (True, False):
+        packed_recv_x, packed_recv_count, handle, event, hook = (
+            buffer.low_latency_dispatch(
+                x,
+                topk_idx,
+                aligned_num_tokens,
+                num_experts,
+                use_fp8=dispatch_use_fp8,
+                round_scale=False,
+                use_ue8m0=False,
+                cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
+                async_finish=not return_recv_hook,
+                return_recv_hook=return_recv_hook,
+                )
+                if dispatch_use_fp8
+                else packed_recv_x[int(i * temp) : int((i + 1) * temp)]
             )
-            if dispatch_use_fp8
-            else packed_recv_x[int(i * temp) : int((i + 1) * temp)]
+        simulated_gemm_x = (
+            per_token_cast_back(*packed_recv_x) if dispatch_use_fp8 else packed_recv_x
         )
-        if i == 0:
-            recv_layout_range = handle[1][(i + 1) * num_ranks - 1]
-        else:
-            recv_layout_range = (
-                handle[1][(i + 1) * num_ranks - 1] - handle[1][i * num_ranks - 1]
+
+        all_topk_idx = torch.empty(
+            (num_ranks, aligned_num_tokens, num_topk), dtype=topk_idx.dtype, device="npu"
+        )
+        dist.all_gather_into_tensor(all_topk_idx, topk_idx, group=group)
+
+        local_actual_tokens = torch.tensor([actual_num_tokens], dtype=torch.int32, device="npu")
+        all_actual_tokens = torch.empty(num_ranks, dtype=torch.int32, device="npu")
+        dist.all_gather_into_tensor(all_actual_tokens, local_actual_tokens, group=group)
+
+        for i in range(num_local_experts if do_check else 0):
+            expert_id = rank * num_local_experts + i
+            temp = aligned_num_tokens / num_local_experts
+            recv_count = packed_recv_count[i]
+            recv_x = (
+                per_token_cast_back(
+                    packed_recv_x[0][int(i * temp) : int((i + 1) * temp)],
+                    packed_recv_x[1][int(i * temp) : int((i + 1) * temp)],
+                )
+                if dispatch_use_fp8
+                else packed_recv_x[int(i * temp) : int((i + 1) * temp)]
             )
-
-        # Check expert indices
-        int_mask = (2**32) - 1
-        num_valid_tokens = recv_count.item()
-
-        expected_valid_tokens = 0
-        for r in range(num_ranks):
-            # 获取rank r的实际token数
-            r_actual_tokens = all_actual_tokens[r].item()
-            # 获取rank r发送给这个专家的token数
-            r_topk_idx = all_topk_idx[r, :r_actual_tokens]
-            expected_valid_tokens += (r_topk_idx == expert_id).sum().item()
-        
-        assert (
-            num_valid_tokens == (recv_layout_range & int_mask).item()
-        ), f"{num_valid_tokens} != {recv_layout_range & int_mask}.item()"
-        assert (
-            num_valid_tokens == expected_valid_tokens
-        ), f"{num_valid_tokens} != {expected_valid_tokens}"
-
-        if num_valid_tokens == 0:
-            continue
-        # Check received data
-        recv_x = recv_x[:num_valid_tokens]
-        recv_x_amin = recv_x[:, :-128].amin(dim=-1)
-        assert torch.equal(recv_x_amin, recv_x[:, :-128].amax(dim=-1))
-        if dispatch_use_fp8:
-            hash_value ^= hash_tensor(
-                packed_recv_x[0][int(i * temp) : int(i * temp + num_valid_tokens)]
-            )
-            hash_value ^= hash_tensor(
-                packed_recv_x[1][int(i * temp) : int(i * temp + num_valid_tokens)]
-            )
-        else:
-            hash_value ^= hash_tensor(
-                packed_recv_x[int(i * temp) : int(i * temp + num_valid_tokens)]
-            )
-
-    # Check combine correctness
-    (
-        src_info,
-        layout_range,
-        num_max_dispatch_tokens_per_rank,
-        hidden,
-        num_experts,
-        packed_recv_count,
-    ) = handle
-
-    out = torch.empty((aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu")
-    combined_x, event, hook = buffer.low_latency_combine(
-        simulated_gemm_x,
-        topk_idx,
-        topk_weights,
-        handle,
-        async_finish=not return_recv_hook,
-        zero_copy=False,
-        return_recv_hook=return_recv_hook,
-        out=out,
-    )
-
-    if do_check:
-        if actual_num_tokens > 0:
-            # 只考虑有效token
-            expected_x = torch.zeros((aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu")
-            expected_x[:actual_num_tokens] = torch.ones(
-                (actual_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
-            ) * (rank - rank_offset)
-            expected_x[:actual_num_tokens, -128:] = torch.arange(
-                actual_num_tokens, device="npu"
-            ).to(torch.bfloat16).view(-1, 1)
-            
-            diff = calc_diff(
-                expected_x[:actual_num_tokens] * topk_weights[:actual_num_tokens].masked_fill(topk_idx[:actual_num_tokens] == -1, 0).sum(dim=1).view(-1, 1),
-                combined_x[:actual_num_tokens],
-            )
-            assert torch.isnan(combined_x).sum().item() == 0
-            if dispatch_use_fp8:
-                assert diff < 1e-4, f"Error: {diff=}"
+            if i == 0:
+                recv_layout_range = handle[1][(i + 1) * num_ranks - 1]
             else:
-                assert diff < 1e-5, f"Error: {diff=}"
-        hash_value ^= hash_tensor(combined_x[:actual_num_tokens] if actual_num_tokens > 0 else torch.tensor([], device="npu"))
+                recv_layout_range = (
+                    handle[1][(i + 1) * num_ranks - 1] - handle[1][i * num_ranks - 1]
+                )
 
-        print(f"rank {rank} PASSED (actual tokens: {actual_num_tokens})")
+            # Check expert indices
+            int_mask = (2**32) - 1
+            num_valid_tokens = recv_count.item()
+
+            expected_valid_tokens = 0
+            for r in range(num_ranks):
+                # 获取rank r的实际token数
+                r_actual_tokens = all_actual_tokens[r].item()
+                # 获取rank r发送给这个专家的token数
+                r_topk_idx = all_topk_idx[r, :r_actual_tokens]
+                expected_valid_tokens += (r_topk_idx == expert_id).sum().item()
+            
+            assert (
+                num_valid_tokens == (recv_layout_range & int_mask).item()
+            ), f"{num_valid_tokens} != {recv_layout_range & int_mask}.item()"
+            assert (
+                num_valid_tokens == expected_valid_tokens
+            ), f"{num_valid_tokens} != {expected_valid_tokens}"
+
+            if num_valid_tokens == 0:
+                continue
+            # Check received data
+            recv_x = recv_x[:num_valid_tokens]
+            recv_x_amin = recv_x[:, :-128].amin(dim=-1)
+            assert torch.equal(recv_x_amin, recv_x[:, :-128].amax(dim=-1))
+            if dispatch_use_fp8:
+                hash_value ^= hash_tensor(
+                    packed_recv_x[0][int(i * temp) : int(i * temp + num_valid_tokens)]
+                )
+                hash_value ^= hash_tensor(
+                    packed_recv_x[1][int(i * temp) : int(i * temp + num_valid_tokens)]
+                )
+            else:
+                hash_value ^= hash_tensor(
+                    packed_recv_x[int(i * temp) : int(i * temp + num_valid_tokens)]
+                )
+
+        # Check combine correctness
+        (
+            src_info,
+            layout_range,
+            num_max_dispatch_tokens_per_rank,
+            hidden,
+            num_experts,
+            packed_recv_count,
+        ) = handle
+
+        out = torch.empty((aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu")
+        combined_x, event, hook = buffer.low_latency_combine(
+            simulated_gemm_x,
+            topk_idx,
+            topk_weights,
+            handle,
+            async_finish=not return_recv_hook,
+            zero_copy=False,
+            return_recv_hook=return_recv_hook,
+            out=out,
+        )
+
+        if do_check:
+            if actual_num_tokens > 0:
+                # 只考虑有效token
+                expected_x = torch.zeros((aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu")
+                expected_x[:actual_num_tokens] = torch.ones(
+                    (actual_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
+                ) * (rank - rank_offset)
+                expected_x[:actual_num_tokens, -128:] = torch.arange(
+                    actual_num_tokens, device="npu"
+                ).to(torch.bfloat16).view(-1, 1)
+                
+                diff = calc_diff(
+                    expected_x[:actual_num_tokens] * topk_weights[:actual_num_tokens].masked_fill(topk_idx[:actual_num_tokens] == -1, 0).sum(dim=1).view(-1, 1),
+                    combined_x[:actual_num_tokens],
+                )
+                assert torch.isnan(combined_x).sum().item() == 0
+                if dispatch_use_fp8:
+                    assert diff < 1e-4, f"Error: {diff=}"
+                else:
+                    assert diff < 1e-5, f"Error: {diff=}"
+            hash_value ^= hash_tensor(combined_x[:actual_num_tokens] if actual_num_tokens > 0 else torch.tensor([], device="npu"))
+
+            print(f"rank {rank} PASSED (actual tokens: {actual_num_tokens})")
 
     # noinspection PyShadowingNames
     def test_func(zero_copy: bool, return_recv_hook: bool):
