@@ -21,7 +21,7 @@ from utils import (
 
 def test(
     aligned_num_tokens: int,  # 对齐后的最大token数
-    actual_num_tokens: int,   # 当前rank的实际token数，有效token数
+    actual_num_tokens: int,  # 当前rank的实际token数，有效token数
     hidden: int,
     num_experts: int,
     num_topk: int,
@@ -47,20 +47,28 @@ def test(
     x = torch.zeros((aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu")
 
     if actual_num_tokens > 0:
-        x[:actual_num_tokens] = torch.ones((actual_num_tokens, hidden), dtype=torch.bfloat16, device="npu") * (
-            rank - rank_offset
+        x[:actual_num_tokens] = torch.ones(
+            (actual_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
+        ) * (rank - rank_offset)
+        x[:actual_num_tokens, -128:] = (
+            torch.arange(actual_num_tokens, device="npu").to(torch.bfloat16).view(-1, 1)
         )
-        x[:actual_num_tokens, -128:] = torch.arange(actual_num_tokens, device="npu").to(torch.bfloat16).view(-1, 1)
 
     scores = (
-        torch.randn((aligned_num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
+        torch.randn(
+            (aligned_num_tokens, num_experts), dtype=torch.float32, device="npu"
+        ).abs()
         + 1
     )
-    topk_idx = torch.full((aligned_num_tokens, num_topk), -1, dtype=torch.long, device="npu")
+    topk_idx = torch.full(
+        (aligned_num_tokens, num_topk), -1, dtype=torch.long, device="npu"
+    )
 
     if actual_num_tokens > 0:
         actual_scores = scores[:actual_num_tokens]
-        actual_topk_idx = torch.topk(actual_scores, num_topk, dim=-1, largest=True, sorted=True)[1]
+        actual_topk_idx = torch.topk(
+            actual_scores, num_topk, dim=-1, largest=True, sorted=True
+        )[1]
         topk_idx[:actual_num_tokens] = actual_topk_idx
 
         if drop_percent > 0:
@@ -71,13 +79,20 @@ def test(
                     "unset or 0. Please set to 1 and try again"
                 )
                 assert enable_neg_one == 1
-            drop_mask = torch.rand((actual_num_tokens, num_topk), dtype=torch.float32) < drop_percent
-            topk_idx[:actual_num_tokens] = topk_idx[:actual_num_tokens].masked_fill(drop_mask, -1)
+            drop_mask = (
+                torch.rand((actual_num_tokens, num_topk), dtype=torch.float32)
+                < drop_percent
+            )
+            topk_idx[:actual_num_tokens] = topk_idx[:actual_num_tokens].masked_fill(
+                drop_mask, -1
+            )
     topk_weights = torch.zeros(
-        (aligned_num_tokens, num_topk), dtype=torch.float32, device="npu")
+        (aligned_num_tokens, num_topk), dtype=torch.float32, device="npu"
+    )
     if actual_num_tokens > 0:
         topk_weights[:actual_num_tokens] = torch.randn(
-            (actual_num_tokens, num_topk), dtype=torch.float32, device="npu").abs()
+            (actual_num_tokens, num_topk), dtype=torch.float32, device="npu"
+        ).abs()
 
     # Check dispatch correctness
     do_check = True
@@ -100,20 +115,24 @@ def test(
                 cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
                 async_finish=not return_recv_hook,
                 return_recv_hook=return_recv_hook,
-                )
-                if dispatch_use_fp8
-                else packed_recv_x[int(i * temp) : int((i + 1) * temp)]
             )
+            if dispatch_use_fp8
+            else packed_recv_x[int(i * temp) : int((i + 1) * temp)]
+        )
         simulated_gemm_x = (
             per_token_cast_back(*packed_recv_x) if dispatch_use_fp8 else packed_recv_x
         )
 
         all_topk_idx = torch.empty(
-            (num_ranks, aligned_num_tokens, num_topk), dtype=topk_idx.dtype, device="npu"
+            (num_ranks, aligned_num_tokens, num_topk),
+            dtype=topk_idx.dtype,
+            device="npu",
         )
         dist.all_gather_into_tensor(all_topk_idx, topk_idx, group=group)
 
-        local_actual_tokens = torch.tensor([actual_num_tokens], dtype=torch.int32, device="npu")
+        local_actual_tokens = torch.tensor(
+            [actual_num_tokens], dtype=torch.int32, device="npu"
+        )
         all_actual_tokens = torch.empty(num_ranks, dtype=torch.int32, device="npu")
         dist.all_gather_into_tensor(all_actual_tokens, local_actual_tokens, group=group)
 
@@ -147,7 +166,7 @@ def test(
                 # 获取rank r发送给这个专家的token数
                 r_topk_idx = all_topk_idx[r, :r_actual_tokens]
                 expected_valid_tokens += (r_topk_idx == expert_id).sum().item()
-            
+
             assert (
                 num_valid_tokens == (recv_layout_range & int_mask).item()
             ), f"{num_valid_tokens} != {recv_layout_range & int_mask}.item()"
@@ -183,7 +202,9 @@ def test(
             packed_recv_count,
         ) = handle
 
-        out = torch.empty((aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu")
+        out = torch.empty(
+            (aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
+        )
         combined_x, event, hook = buffer.low_latency_combine(
             simulated_gemm_x,
             topk_idx,
@@ -198,16 +219,24 @@ def test(
         if do_check:
             if actual_num_tokens > 0:
                 # 只考虑有效token
-                expected_x = torch.zeros((aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu")
+                expected_x = torch.zeros(
+                    (aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
+                )
                 expected_x[:actual_num_tokens] = torch.ones(
                     (actual_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
                 ) * (rank - rank_offset)
-                expected_x[:actual_num_tokens, -128:] = torch.arange(
-                    actual_num_tokens, device="npu"
-                ).to(torch.bfloat16).view(-1, 1)
-                
+                expected_x[:actual_num_tokens, -128:] = (
+                    torch.arange(actual_num_tokens, device="npu")
+                    .to(torch.bfloat16)
+                    .view(-1, 1)
+                )
+
                 diff = calc_diff(
-                    expected_x[:actual_num_tokens] * topk_weights[:actual_num_tokens].masked_fill(topk_idx[:actual_num_tokens] == -1, 0).sum(dim=1).view(-1, 1),
+                    expected_x[:actual_num_tokens]
+                    * topk_weights[:actual_num_tokens]
+                    .masked_fill(topk_idx[:actual_num_tokens] == -1, 0)
+                    .sum(dim=1)
+                    .view(-1, 1),
                     combined_x[:actual_num_tokens],
                 )
                 assert torch.isnan(combined_x).sum().item() == 0
@@ -215,7 +244,11 @@ def test(
                     assert diff < 1e-4, f"Error: {diff=}"
                 else:
                     assert diff < 1e-5, f"Error: {diff=}"
-            hash_value ^= hash_tensor(combined_x[:actual_num_tokens] if actual_num_tokens > 0 else torch.tensor([], device="npu"))
+            hash_value ^= hash_tensor(
+                combined_x[:actual_num_tokens]
+                if actual_num_tokens > 0
+                else torch.tensor([], device="npu")
+            )
 
             print(f"rank {rank} PASSED (actual tokens: {actual_num_tokens})")
 
@@ -313,7 +346,9 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         fluctuation = random.randint(-min_fluctuation, min_fluctuation)
         num_tokens = base_num_tokens + fluctuation
     else:
-        fluctuation = random.uniform(1 - fluctuation_percentage, 1 + fluctuation_percentage)
+        fluctuation = random.uniform(
+            1 - fluctuation_percentage, 1 + fluctuation_percentage
+        )
         num_tokens = int(base_num_tokens * fluctuation)
 
     raw_num_tokens = max(num_tokens, 1)
@@ -322,7 +357,9 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     dist.all_reduce(local_tokens_tensor, op=dist.ReduceOp.MAX)
     aligned_num_tokens = local_tokens_tensor.item()
 
-    print(f"[rank {rank}] raw_num_tokens: {raw_num_tokens}, aligned_num_tokens: {aligned_num_tokens}")
+    print(
+        f"[rank {rank}] raw_num_tokens: {raw_num_tokens}, aligned_num_tokens: {aligned_num_tokens}"
+    )
 
     num_rdma_bytes = Buffer.get_low_latency_rdma_size_hint(
         aligned_num_tokens, hidden, num_ranks, num_experts

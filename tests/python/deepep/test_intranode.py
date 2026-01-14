@@ -1,7 +1,7 @@
 import argparse
 import os
-import time
 import random
+import time
 from typing import Optional
 
 # noinspection PyUnresolvedReferences
@@ -44,7 +44,9 @@ def test_main(
         fluctuation = random.randint(-min_fluctuation, min_fluctuation)
         num_tokens = base_num_tokens + fluctuation
     else:
-        fluctuation = random.uniform(1 - fluctuation_percentage, 1 + fluctuation_percentage)
+        fluctuation = random.uniform(
+            1 - fluctuation_percentage, 1 + fluctuation_percentage
+        )
         num_tokens = int(base_num_tokens * fluctuation)
 
     # Ensure num_tokens is at least 1
