@@ -34,10 +34,8 @@ struct Buffer {
     at::Tensor new_scales;
     at::Tensor notify_send_data;  // only for internode notify
     at::Tensor send_token_idx_small;
-    at::Tensor token_idx_map;
     int notify_send_data_size;  // only for internode notify
 
-    int32_t valid_bs = 0;
     int64_t shared_expert_rank_num;
     int64_t shared_expert_num = 1;
     int64_t real_max_bs;
@@ -68,8 +66,6 @@ public:
                         bool async, bool allocate_on_comm_stream);
 
     torch::Tensor get_notify_send_data();
-
-    std::tuple<torch::Tensor, int> get_topk_neg_one_data();
 
     std::tuple<at::Tensor, std::optional<at::Tensor>, std::optional<at::Tensor>, std::optional<at::Tensor>,
                std::vector<int>, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, std::optional<EventHandle>>

@@ -210,16 +210,6 @@ class Buffer:
         notify_send_data = self.runtime.get_notify_send_data()
         return notify_send_data
 
-    def get_topk_neg_one_data(self) -> Tuple[torch.Tensor, int]:
-        """
-        Internal interface, we only use it to check the output of get_dispatch_layout.
-
-        Returns:
-            notify_send_data: the member variable of buffer, which usually contains the output of get_dispatch_layout.
-        """
-        (token_idx_map, valid_bs) = self.runtime.get_topk_neg_one_data()
-        return (token_idx_map, valid_bs)
-
     def clean_low_latency_buffer(
         self, num_max_dispatch_tokens_per_rank: int, hidden: int, num_experts: int
     ) -> None:

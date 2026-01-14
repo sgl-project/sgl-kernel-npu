@@ -201,12 +201,6 @@ def test_main(
     gbl_num_tokens_per_rank = num_tokens_per_rank.clone()
     dist.all_reduce(gbl_num_tokens_per_rank, group=group)
 
-    is_all_neg_one = (topk_idx == -1).all(dim=1)
-    valid_bs = num_tokens - is_all_neg_one.sum().item()
-    token_idx_map = torch.full((topk_idx.size(0),), -1, dtype=torch.int)
-    valid_rows = ~is_all_neg_one
-    token_idx_map[valid_rows] = torch.arange(valid_rows.sum(), dtype=torch.int)
-
     t = bench(lambda: buffer.get_dispatch_layout(topk_idx, num_experts))[0]
     print(f"[layout] Kernel performance: {t * 1000:.3f} ms", flush=True)
     print("", flush=True)
@@ -222,8 +216,6 @@ def test_main(
         _,
     ) = return_values
 
-    (ref_token_idx_map, ref_valid_bs) = buffer.get_topk_neg_one_data()
-
     assert torch.allclose(
         ref_num_tokens_per_rank, num_tokens_per_rank
     ), f"Assertion num_tokens_per_rank failed on rank {rank}: Expected {num_tokens_per_rank}, Actual {ref_num_tokens_per_rank}"
@@ -234,13 +226,6 @@ def test_main(
         ref_is_token_in_rank, is_token_in_rank
     ), f"Assertion is_token_in_rank failed on rank {rank}: Expected {is_token_in_rank}, Actual {ref_is_token_in_rank}"
 
-    assert torch.allclose(
-        ref_token_idx_map, token_idx_map
-    ), f"Assertion token_idx_map failed on rank {rank}: Expected {token_idx_map}, Actual {ref_token_idx_map}"
-    assert (
-        ref_valid_bs == valid_bs
-    ), f"Assertion valid_bs failed on rank {rank}: Expected {valid_bs}, Actual {ref_valid_bs}"
-
     # Config
     buffer_size = 256
     config = deep_ep.Config(24, 8, buffer_size)
@@ -248,6 +233,9 @@ def test_main(
     # Random data
     x = torch.ones((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * rank
     x_pure_rand = torch.randn((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
+    topk_weights = (
+        torch.ones((num_tokens, num_topk), dtype=torch.float32, device="npu") * rank
+    )
     topk_weights_pure_rand = torch.randn(
         (num_tokens, num_topk), dtype=torch.float32, device="npu"
     )
@@ -389,16 +377,13 @@ def test_main(
         }
         combined_x, combined_topk_weights, event = buffer.combine(**combine_args)
         check_x = combined_x.float()
-        mask = ~torch.all(topk_idx == -1, dim=1)
-
+        
         ref_x = x_pure_rand if current_x is x_pure_rand else x
-        diff_x = ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
-        diff_x_filtered = diff_x[mask]
         diff = calc_diff(
             check_x,
-            diff_x_filtered,
+            ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
         )
-        assert diff < 5e-5 or math.isnan(diff)
+        assert diff < 5e-5
 
         # For later tuning
         dispatch_bf16_recv_bytes = recv_x.numel() * 2

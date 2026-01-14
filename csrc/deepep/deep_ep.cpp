@@ -128,8 +128,6 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     auto num_tokens_per_expert = at::zeros({round, num_experts}, at::dtype(at::kInt).device(device));
     auto num_tokens_per_rank = at::zeros({num_ranks}, at::dtype(at::kInt).device(device));
     auto is_token_in_rank = at::zeros({num_tokens, num_ranks}, at::dtype(at::kInt).device(device));
-    auto token_idx_map = at::empty({num_tokens}, at::dtype(at::kInt).device(device));
-    auto valid_bs = at::zeros({1}, at::dtype(at::kInt).device(device));
     const int notify_send_data_size =
         num_experts * EXPERT_DATA_SIZE + server_num + MAX_BATCH_SIZE * (1 + 2 * server_num + num_experts);
     /*
@@ -154,13 +152,11 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     int32_t rank_id = static_cast<int>(rank);
     EXEC_NPU_CMD(aclnnDispatchLayout, new_topk_idx, num_tokens, num_ranks, num_experts, num_topk, local_ranksize,
                  per_round_tokens, rank_id, num_tokens_per_rank, num_tokens_per_expert, is_token_in_rank,
-                 notify_send_data, send_token_idx_small, token_idx_map, valid_bs);
+                 notify_send_data, send_token_idx_small);
 
     this->notify_send_data = notify_send_data;
     this->send_token_idx_small = send_token_idx_small;
     this->notify_send_data_size = notify_send_data_size;
-    this->token_idx_map = token_idx_map;
-    this->valid_bs = valid_bs.item<int>();
 
     std::optional<torch::Tensor> num_tokens_per_rdma_rank = std::nullopt;
     std::optional<EventHandle> output_event = std::nullopt;
@@ -173,11 +169,6 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
 torch::Tensor Buffer::get_notify_send_data()
 {
     return this->notify_send_data;
-}
-
-std::tuple<torch::Tensor, int> Buffer::get_topk_neg_one_data()
-{
-    return std::make_tuple(this->token_idx_map, this->valid_bs);
 }
 
 int Buffer::get_num_rdma_ranks() const
@@ -609,14 +600,14 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
     }
 
     // Combine data
-    auto combined_x = torch::empty({valid_bs, hidden}, x.options());
+    auto combined_x = torch::empty({expert_scales.size(0), hidden}, x.options());
     std::optional<torch::Tensor> recv_topk_weights;
     std::optional<EventHandle> event;
 
     int32_t round = this->combine_enable_long_seq ? this->round : 1;
     int32_t per_round_tokens = this->combine_enable_long_seq ? this->per_round_tokens : MAX_TOKENS_PER_ROUND;
     EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, topk_idx_int32,
-                 token_idx_map, tp_send_counts, hcom_ep_name, num_ranks, rank, hcom_ep_name, tp_world_size, tp_rankId,
+                 tp_send_counts, hcom_ep_name, num_ranks, rank, hcom_ep_name, tp_world_size, tp_rankId,
                  moe_expert_number, real_max_bs, round, per_round_tokens, combined_x, combine_send_cost_stats_out);
 
     if (this->is_padding) {
