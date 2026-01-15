@@ -78,7 +78,7 @@ def input_guard(fn: Callable[..., torch.Tensor]) -> Callable[..., torch.Tensor]:
                     tensor = value
                     break
 
-        if tensor is not None and enable_torch_compile is not True:
+        if tensor is not None and not enable_torch_compile:
             ctx = custom_device_ctx(tensor.device.index)
         else:
             ctx = contextlib.nullcontext()
