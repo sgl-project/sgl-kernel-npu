@@ -157,7 +157,6 @@ public:
             SyncAll<true>();
 
             int experts_per_rank = numExperts_ / numRanks_;
-            int32_t tempACount = 0;
             for (int i = 0; i < tempTokens_; ++i) {
                 SyncFunc<AscendC::HardEvent::S_V>();
                 Duplicate<T>(seenRankTensor, 0, numRanks_);
