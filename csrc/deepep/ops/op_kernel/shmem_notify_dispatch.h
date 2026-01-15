@@ -5,12 +5,12 @@
 #include "kernel_operator.h"
 
 #include "shmem_api.h"
-#include "comm_args.h"
-#include "data_copy.h"
+#include "shmem_comm_args.h"
 
 using namespace AscendC;
-using namespace Moe;
+using namespace ShmemMoe;
 
+namespace ShmemNotifyDispatchImpl {
 template <AscendC::HardEvent event>
 __aicore__ inline void SyncFunc()
 {
@@ -28,21 +28,19 @@ __aicore__ inline void SyncFunc()
     tokenPerExpertData, recvDataOutput, totalRecvTokens, maxBs, recvTokensPerExpert, putOffset, len, topkNum, root, \
         localRank, localRankSize, shmemPtr
 
+constexpr int UB_ALIGN_SIZE = 32;
+constexpr uint64_t NOTIFY_STATUS_OFFSET = 20UL * 1024UL;
+constexpr int64_t MAX_RANK_PER_CORE = 8;
+constexpr int64_t MULTI_RANK_SIZE = 48;
+constexpr int64_t MAX_BUFFER_NUMBER = 10;
+constexpr uint32_t UB_FLAG_SIZE = 8U * 1024U;
+// Synchronization flag occupies length
+constexpr int64_t FLAG_UNIT_INT_NUM = 4;
+constexpr int64_t MAGIC_MASK = ~((1LL << 32) - 1);
+
 template <typename T>
 class ShmemNotifyDispatch
 {
-    constexpr static uint64_t WIN_MAGIC_OFFSET = 100UL * 1024UL;  // notify(50kb) + dispatch&combine(50kb)
-    constexpr static uint64_t HALF_WIN_STATE_OFFSET =
-        8 * 1024UL * 1024UL;  // notify(2MB) + dispatch(3MB) + combine(3MB)
-
-    constexpr static int UB_ALIGN_SIZE = 32;
-    constexpr static int64_t MAX_RANK_PER_CORE = 8;
-    constexpr static int64_t MULTI_RANK_SIZE = 48;
-    constexpr static int64_t MAX_BUFFER_NUMBER = 10;
-    constexpr static uint32_t UB_FLAG_SIZE = 8U * 1024U;
-    // Synchronization flag occupies length
-    constexpr static int64_t FLAG_UNIT_INT_NUM = 4;
-    constexpr static int64_t MAGIC_MASK = ~((1LL << 32) - 1);
 
 public:
     __aicore__ inline ShmemNotifyDispatch(int epRankId_, int epWorldSize_, uint32_t extraFlag)
@@ -59,8 +57,12 @@ public:
         blockNum_ = GetBlockNum();
 
         gva_gm = (GM_ADDR)shmemPtr;  // 作为原来的 winContext_
-        this->magic = 0;             // 使用shmem_barrier可以考虑不需要 magic
+        this->magic = GetMagicValue();
         bufferId_ = this->magic % PING_PONG_SIZE;
+
+        // if (epRankId_ == 0) {
+        //     printf("[Init] rank:%d, blockId:%d, magic:%d\n", epRankId_, blockIdx_, magic);
+        // }
 
         nodeNum = epWorldSize_ / localRankSize;
         localRankId = epRankId_ % localRankSize;
@@ -75,6 +77,7 @@ public:
         recvTokensPerExpert_ = recvTokensPerExpert;
         recvData_ = recvDataOutput;
 
+        addrUint64AlignLen_ = Ceil(shareAddrNum * sizeof(uint64_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
         recvDataAlignLen_ = Ceil(numExperts * epWorldSize_ * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
         tokenPerExpertDataAlignLen_ = Ceil(numExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
         allRecvCountDataAlignLen_ = Ceil(numExperts * epWorldSize_ * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
@@ -87,10 +90,18 @@ public:
         recvCntGt.SetGlobalBuffer((__gm__ int32_t *)allRecvCount_);
 
         pipe_.InitBuffer(tBuf, UB_FLAG_SIZE);
+        pipe_.InitBuffer(addrBuf_, addrUint64AlignLen_);
+
+        // 分核
+        SplitCoreCal(epWorldSize_, rankNumPerBlock, curBlockStartRankId, curBlockEndRankId);
     }
 
     __aicore__ inline void Process()
     {
+        // 交换非对称地址
+        ExchangeShareAddr();
+        SetStatus(); // TODO: 将地址和flag一起发送
+        WaitStatus();
         AllGatherSendData();  // allgather 每个rank的sendCount
         SyncAll<true>();
         shmem_barrier_all();  // 全卡同步，确保数据已经获取完
@@ -116,6 +127,12 @@ private:
     __aicore__ inline void UnsetAtomic(int op);
     template <HardEvent eventType>
     __aicore__ inline void SetWaitEvent(event_t eventId);
+    template <typename F>
+    __aicore__ inline  void SetAtomicOpType(int op);
+    template <typename F>
+    __aicore__ inline  void CpUB2GM(__gm__ F *gmAddr, __ubuf__ F *ubAddr, uint32_t size);
+    template <typename F>
+    __aicore__ inline  void CpGM2UB(__ubuf__ F *ubAddr, __gm__ F *gmAddr, uint32_t size);
     template <typename K, typename U = K>
     __aicore__ inline void CpGM2GMPingPong(int64_t dataSizeRemain, const GlobalTensor<U> &sendDataInputGt,
                                            const GlobalTensor<K> &recvDataOutputGT, int op);
@@ -124,9 +141,11 @@ private:
     int64_t nodeNum;
     int64_t localRankId;
     int64_t localNodeId;
-    int64_t coreNumPerRank;  // Number of cores allocated per epRankId_
     int64_t rankNumPerCore;  // Number of ranks responsible per core
     int64_t copyLen;         // Length of the current data slice being copied (in terms of T)
+    uint32_t rankNumPerBlock;
+    uint32_t curBlockStartRankId;
+    uint32_t curBlockEndRankId;
 
     // for coll
     int epRankId_;
@@ -154,6 +173,7 @@ private:
     LocalTensor<int32_t> sendCountTensor_;
     LocalTensor<int32_t> sendOffsetTensor;
     LocalTensor<int32_t> recvDataTensor_;
+    uint32_t addrUint64AlignLen_{0};
     uint32_t sendDataAlignLen_{0};
     uint32_t tokenPerExpertDataAlignLen_{0};
     uint32_t allRecvCountDataAlignLen_{0};
@@ -162,6 +182,11 @@ private:
 
     TPipe pipe_;
     TBuf<QuePosition::VECCALC> tBuf;
+    TBuf<> addrBuf_;
+    TBuf<> statusBuf_;
+    TBuf<> waitStatusBuf_;
+    TBuf<> gatherMaskOutBuf_;
+    TBuf<> statusSumBuf_;
     TBuf<> tokenPerExpertDataBuf_;
     TBuf<> sendCountBuf_;
     TBuf<> recvDataBuf_;
@@ -182,7 +207,8 @@ private:
     GM_ADDR recvData_;
 
     GM_ADDR gva_gm;
-    GM_ADDR shareRecvDataAddrs[CAM_MAX_RANK_SIZE];  // List of shmem asymmetric output addresses (send_data)
+    GM_ADDR shareTokenPerExpertAddrs[CAM_MAX_RANK_SIZE];  // List of shmem asymmetric output addresses (tokenPerExpertData_)
+    uint32_t shareAddrNum{1};
 
     __aicore__ inline void SplitCoreCal(uint32_t totalNum, uint32_t &perCoreNum, uint32_t &startIdx, uint32_t &endIdx)
     {
@@ -199,18 +225,45 @@ private:
         endIdx = startIdx + perCoreNum;
     }
 
+    __aicore__ inline void ExchangeShareAddr()
+    {
+        if (rankNumPerBlock == 0U) {
+            return;
+        }
+
+        LocalTensor<uint64_t> addrTensor_ = addrBuf_.Get<uint64_t>();
+        uint64_t recvDataAddr = reinterpret_cast<__gm__ uint64_t>(recvData_);
+        uint64_t tokenPerExpertAddr = reinterpret_cast<__gm__ uint64_t>(tokenPerExpertData_);
+        addrTensor_(0) = tokenPerExpertAddr;
+        // addrTensor_(1) = tokenPerExpertAddr;
+        SyncFunc<AscendC::HardEvent::S_MTE3>();
+        SyncFunc<AscendC::HardEvent::MTE2_MTE3>();
+
+        // if (blockIdx_ == 0) {
+        //     printf("[ExchangeShareAddr] rank:%d, blockId:%d, recvDataAddr:%p, tokenPerExpertAddr:%p\n", 
+        //         epRankId_, blockIdx_, recvDataAddr, tokenPerExpertAddr);
+        //     AscendC::DumpTensor(addrTensor_, 234, 4);
+        // }
+
+        AscendC::GlobalTensor<uint64_t> gmRemoteDataGt;
+        DataCopyExtParams copyParams{1, static_cast<uint32_t>(shareAddrNum * sizeof(uint64_t)), 0, 0, 0};
+        for (uint32_t targetRankId = curBlockStartRankId; targetRankId < curBlockEndRankId; targetRankId++) {
+            GM_ADDR remote_meta = GetWindStateAddrByRankId(targetRankId);
+            gmRemoteDataGt.SetGlobalBuffer((__gm__ uint64_t *)(remote_meta) + NOTIFY_STATUS_OFFSET +  shareAddrNum * epRankId_ * ADDR_OFFSET);
+            DataCopyPad(gmRemoteDataGt, addrTensor_, copyParams);
+        }
+    }
+
     // allgather每个rank的num_tokens_per_expert，采用分核策略
     __aicore__ inline void AllGatherSendData()
     {
-        uint32_t rankNumPerBlock = 0U, startRankId = 0U, endRankId = 0U;
-        SplitCoreCal(epWorldSize_, rankNumPerBlock, startRankId, endRankId);
         if (rankNumPerBlock == 0U) {
             return;
         }
 
         AscendC::GlobalTensor<int32_t> gmRemoteDataGt;
-        for (uint32_t targetRankId = startRankId; targetRankId < endRankId; targetRankId++) {
-            auto ptr = shmem_ptr(tokenPerExpertData_, targetRankId);
+        for (uint32_t targetRankId = curBlockStartRankId; targetRankId < curBlockEndRankId; targetRankId++) {
+            GM_ADDR ptr = shareTokenPerExpertAddrs[targetRankId];
             gmRemoteDataGt.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(ptr));
 
             CpGM2GMPingPong<int32_t>(numExperts * sizeof(int32_t), gmRemoteDataGt,
@@ -397,73 +450,133 @@ private:
     }
 
     // 分核向对应rank发送flag
-    __aicore__ inline void SetShmemFlag()
+    __aicore__ inline void SetStatus()
     {
-        __ubuf__ uint64_t *inputUB = (__ubuf__ uint64_t *)get_imm(0);
-        int64_t copyOffset = blockIdx_ * rankNumPerCore;  // 16个rank 每个核负责一个rank
-        copyLen = epWorldSize_ - copyOffset < rankNumPerCore ? epWorldSize_ - copyOffset : rankNumPerCore;
-        if (copyLen > 0) {
-            uint64_t v = MergeMagicWithValue(magic, 1);
-            *inputUB = v;
-            AscendC::SetFlag<HardEvent::S_MTE3>(EVENT_ID0);
-            AscendC::WaitFlag<HardEvent::S_MTE3>(EVENT_ID0);
-            for (int i = copyOffset; i < copyOffset + copyLen; ++i) {
-                GM_ADDR remote_state = GetWindStateAddrByRankId(i);
-
-                CpUB2GM((__gm__ uint64_t *)(remote_state) + epRankId_ * FLAG_UNIT_INT_NUM, inputUB, sizeof(uint64_t));
-            }
-            pipe_barrier(PIPE_ALL);
+        if (rankNumPerBlock == 0U) {
+            SyncAll<true>();
+            return;
         }
+
+        uint32_t statusCntAlign = Ceil(rankNumPerCore, 8) * 8;
+        pipe_.InitBuffer(statusBuf_, statusCntAlign * UB_ALIGN_SIZE);
+        LocalTensor statusTensor = statusBuf_.Get<int32_t>();
+        Duplicate<int32_t>(statusTensor, 0, rankNumPerCore * 8);
+        uint64_t mask[2] = {0x101010101010101, 0};
+        PipeBarrier<PIPE_V>();
+        Duplicate<int32_t>(statusTensor, 0x3F800000, mask, statusCntAlign / 8, 1, 8);
+        PipeBarrier<PIPE_ALL>();
+        SyncAll<true>();
+
+        AscendC::GlobalTensor<int32_t> gmRemoteStatusGt;
+        for (uint32_t i = curBlockStartRankId; i < curBlockEndRankId; i++) {
+            GM_ADDR remote_meta = (__gm__ uint8_t *)(GetWindStateAddrByRankId(i) + epRankId_ * STATE_OFFSET);
+            gmRemoteStatusGt.SetGlobalBuffer((__gm__ int32_t *)remote_meta);
+            DataCopy<int32_t>(gmRemoteStatusGt, statusTensor[(i - curBlockStartRankId) * 8], 8UL);
+
+            // if (epRankId_ == 0) {
+            //     printf("[SetStatus] rank:%d, blockId:%d, i:%d, offset:%d\n", epRankId_, blockIdx_, i, epRankId_ * STATE_OFFSET);
+            //     AscendC::DumpTensor(statusTensor[(i - curBlockStartRankId) * 8], 470, 8);
+            // }
+        }
+        SyncFunc<AscendC::HardEvent::MTE3_S>();
     }
 
-    __aicore__ inline uint64_t MergeMagicWithValue(uint64_t magic, uint64_t value)
+    __aicore__ inline void WaitStatus()
     {
-        // magic as the high part, eventID as the low part, combined into a value for comparison
-        return (magic * 2ULL + value);
+        if (rankNumPerBlock == 0U) {
+            SyncAll<true>();
+            return;
+        }
+
+        uint32_t waitStatusBufSize = (((rankNumPerBlock * UB_ALIGN_SIZE) > 256) ? (rankNumPerCore * UB_ALIGN_SIZE) : 256);
+        pipe_.InitBuffer(waitStatusBuf_, waitStatusBufSize);  // ranks/48 * 32B = 1 * 32B
+        uint32_t maskAlign = Ceil(epWorldSize_ * sizeof(float), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
+        pipe_.InitBuffer(gatherMaskOutBuf_, maskAlign);  // rankSize * 4B
+        pipe_.InitBuffer(statusSumBuf_, UB_ALIGN_SIZE);  // 32B
+        
+        LocalTensor<float> gatherMaskOutTensor = gatherMaskOutBuf_.Get<float>();
+        LocalTensor<float> statusSumOutTensor = statusSumBuf_.Get<float>(UB_ALIGN_SIZE);
+        LocalTensor<float> statusFp32Tensor = waitStatusBuf_.Get<float>();
+        GlobalTensor<float> statusFp32TensorGT;
+        statusFp32TensorGT.SetGlobalBuffer((__gm__ float *)(GetWindStateAddrByRankId(epRankId_)));
+        uint32_t mask = 1;
+        float compareTarget = static_cast<float>(1.0) * rankNumPerBlock;
+        float sumOfFlag = static_cast<float>(-1.0);
+        DataCopyParams intriParams{static_cast<uint16_t>(rankNumPerBlock), 1, 0, 0};
+
+        SyncFunc<AscendC::HardEvent::S_V>();
+        // uint64_t timeoutCheckStart = static_cast<uint64_t>(GetSystemCycle());
+        // uint64_t timeoutCheckEnd, timeoutCheckDuration;
+        while (sumOfFlag != compareTarget) {
+            DataCopy(statusFp32Tensor, statusFp32TensorGT[curBlockStartRankId * STATE_OFFSET / sizeof(float)], intriParams);
+            SyncFunc<AscendC::HardEvent::MTE2_V>();
+            ReduceSum(statusSumOutTensor, statusFp32Tensor, gatherMaskOutTensor, mask, rankNumPerCore, 1);
+            SyncFunc<AscendC::HardEvent::V_S>();
+            sumOfFlag = statusSumOutTensor.GetValue(0);
+
+            // if (epRankId_ == 0 && sumOfFlag == compareTarget) {
+            //     printf("[WaitStatus] rank:%d, blockId:%d, sumOfFlag:%f, offset:%d\n", epRankId_, blockIdx_, sumOfFlag, curBlockStartRankId * STATE_OFFSET / sizeof(float));
+            //     AscendC::DumpTensor(statusFp32Tensor, 511, 8);
+            //     AscendC::DumpTensor(statusFp32TensorGT, 512, 40);
+            // }
+
+            // timeoutCheckEnd = static_cast<uint64_t>(GetSystemCycle());
+            // timeoutCheckDuration = (timeoutCheckEnd - timeoutCheckStart) / CYCLE_TO_TIME;
+            // if (timeoutCheckDuration > TIMEOUT_DETECTION_THRESHOLD) {
+            //     if (epRankId_ == 0) {
+            //         printf("[normal_dispatch] WaitStatus, rank:%d, coreId:%d, compareTarget:%f, sumOfFlag:%f, offset:%d\n",
+            //             epRankId_, blockIdx_, compareTarget, sumOfFlag, curBlockStartRankId * STATE_OFFSET / sizeof(float));
+            //         // AscendC::DumpTensor(statusFp32Tensor, 534, 8);
+            //         // AscendC::DumpTensor(statusFp32TensorGT, 535, 40);
+            //     }
+            //     break;
+            // }
+        }
+
+        // 将共享地址保存
+        GM_ADDR meta_addr = GetWindStateAddrByRankId(epRankId_);
+        AscendC::GlobalTensor<uint64_t> shareAddrGt;
+        shareAddrGt.SetGlobalBuffer((__gm__ uint64_t *)(meta_addr) + NOTIFY_STATUS_OFFSET);
+
+        LocalTensor<uint64_t> addrTensor_ = addrBuf_.Get<uint64_t>();
+        DataCopyExtParams copyParams = {1U, static_cast<uint32_t>(addrUint64AlignLen_), 0, 0, 0};
+        DataCopyPadExtParams<uint64_t> copyExtParams{false, 0U, 0U, 0U};
+
+        for (uint32_t i = curBlockStartRankId; i < curBlockEndRankId; i++) {
+            // uint32_t offset = i * shareAddrNum * ADDR_OFFSET;
+
+            SyncFunc<AscendC::HardEvent::MTE3_MTE2>();
+            DataCopyPad(addrTensor_, shareAddrGt[i * shareAddrNum * ADDR_OFFSET], copyParams, copyExtParams);
+            SyncFunc<AscendC::HardEvent::MTE2_S>();
+            shareTokenPerExpertAddrs[i] = (__gm__ uint8_t *)addrTensor_(0);
+
+            // if (epRankId_ == 0) {
+            //     printf("[WaitStatus] rank:%d, blockId:%d, i:%d, tokenPerExpertAddr:%p\n", 
+            //         epRankId_, blockIdx_, i, shareTokenPerExpertAddrs[i]);
+            //     // AscendC::DumpTensor(addrTensor_, 537, 4);
+            // }
+        }
+
+        // 清状态
+        SyncFunc<AscendC::HardEvent::MTE3_S>();
+        DataCopyParams intriOutParams{static_cast<uint16_t>(rankNumPerBlock), 1, 0, 0};
+        uint64_t duplicateMask[2] = {0x101010101010101, 0};
+        LocalTensor<int32_t> cleanStateTensor = waitStatusBuf_.Get<int32_t>();
+        SyncFunc<AscendC::HardEvent::S_V>();
+        Duplicate<int32_t>(cleanStateTensor, 0, duplicateMask, Ceil(rankNumPerBlock, 8), 1, 8);
+        SyncFunc<AscendC::HardEvent::V_MTE3>();
+        DataCopy(statusFp32TensorGT[curBlockStartRankId * STATE_OFFSET / sizeof(float)],
+                cleanStateTensor.ReinterpretCast<float>(), intriOutParams);
+        SyncFunc<AscendC::HardEvent::MTE3_S>();
+
+        SyncAll<true>();
+        // if (epRankId_ == 0) {
+        //     printf("[WaitStatus2] rank:%d, blockId:%d, offset:%d\n", 
+        //         epRankId_, blockIdx_, curBlockStartRankId * STATE_OFFSET / sizeof(float));
+        //     AscendC::DumpTensor(statusFp32TensorGT, 578, 40);
+        // }
     }
 
-    // Wait for a part of synchronization flags within a epRankId_
-    __aicore__ inline void WaitOneRankPartFlag(__gm__ uint64_t *waitAddr, int64_t flagNum, uint64_t checkValue)
-    {
-        GlobalTensor<uint64_t> globalWait;
-        globalWait.SetGlobalBuffer(waitAddr, flagNum * FLAG_UNIT_INT_NUM);
-        LocalTensor<uint64_t> localWait = tBuf.GetWithOffset<uint64_t>(flagNum * FLAG_UNIT_INT_NUM, 0);
-        bool isSync = true;
-        uint64_t checkedFlagNum = 0;
-        do {
-            // Copy global synchronization flags to local
-            DataCopy(localWait, globalWait[checkedFlagNum * FLAG_UNIT_INT_NUM],
-                     (flagNum - checkedFlagNum) * FLAG_UNIT_INT_NUM);
-            AscendC::SetFlag<HardEvent::MTE2_S>(EVENT_ID0);
-            AscendC::WaitFlag<HardEvent::MTE2_S>(EVENT_ID0);  // Wait for GM->UB
-
-            // Check if the synchronization flags are equal to checkValue
-            isSync = true;
-            uint64_t remainToCheck = flagNum - checkedFlagNum;
-            for (auto i = 0; i < remainToCheck; ++i) {
-                // Continue waiting if any core has not reached the checkValue phase
-                uint64_t v = localWait.GetValue(i * FLAG_UNIT_INT_NUM);
-                if ((v & MAGIC_MASK) != (checkValue & MAGIC_MASK) || v < checkValue) {
-                    isSync = false;
-                    checkedFlagNum += i;
-                    break;
-                }
-            }
-        } while (!isSync);
-    }
-
-    /**
-     * @brief Wait for the flags starting from the specified eventID on the specified card to become
-     *        a value composed of the combination of magic and value.<br>
-     *        Note: [eventID, eventID + flagNum)
-     */
-    __aicore__ inline void WaitShmemFlag(uint64_t magic, uint64_t value, uint64_t eventID, int32_t epRankId_,
-                                         int64_t flagNum)
-    {
-        uint64_t v = MergeMagicWithValue(magic, value);
-        GM_ADDR remote_state = GetWindStateAddrByRankId(epRankId_);
-        WaitOneRankPartFlag((__gm__ uint64_t *)(remote_state) + eventID * FLAG_UNIT_INT_NUM, flagNum, v);
-    }
 };
 template <typename T>
 __aicore__ inline GM_ADDR ShmemNotifyDispatch<T>::GetWindStateAddrByRankId(const int32_t rankId)
@@ -480,15 +593,43 @@ __aicore__ inline uint64_t ShmemNotifyDispatch<T>::GetMagicValue(void)
     uint64_t magic = 0;
     GlobalTensor<uint64_t> selfDataStatusTensor;
     GM_ADDR statusDataSpaceGm = (GM_ADDR)(gva_gm);
-    selfDataStatusTensor.SetGlobalBuffer((__gm__ uint64_t *)(statusDataSpaceGm));
-    DataCacheCleanAndInvalid<uint64_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
-        selfDataStatusTensor[blockIdx_ * UB_ALIGN_SIZE]);
-    magic = selfDataStatusTensor(blockIdx_ * UB_ALIGN_SIZE);
+    selfDataStatusTensor.SetGlobalBuffer((__gm__ uint64_t *)(statusDataSpaceGm + blockIdx_ * WIN_ADDR_ALIGN));
+    DataCacheCleanAndInvalid<uint64_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(selfDataStatusTensor);
+    magic = selfDataStatusTensor(0);
     if (magic <= 0) {
         magic = 1;
     }
-    selfDataStatusTensor(blockIdx_ * UB_ALIGN_SIZE) = magic + 1;
+    selfDataStatusTensor(0) = magic + 1;
+    DataCacheCleanAndInvalid<uint64_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(selfDataStatusTensor);
+    PipeBarrier<PIPE_ALL>();
     return magic;
+}
+
+template <typename T>
+template <typename F>
+__aicore__ inline  void ShmemNotifyDispatch<T>::CpUB2GM(__gm__ F *gmAddr, __ubuf__ F *ubAddr, uint32_t size)
+{
+    LocalTensor<uint8_t> ubTensor;
+    GlobalTensor<uint8_t> gmTensor;
+    DataCopyExtParams dataCopyParams(1, size, 0, 0, 0);
+    ubTensor.address_.logicPos = static_cast<uint8_t>(TPosition::VECIN);
+    ubTensor.address_.bufferAddr = reinterpret_cast<uint64_t>(ubAddr);
+    gmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ uint8_t *>(gmAddr));
+    DataCopyPad(gmTensor, ubTensor, dataCopyParams);
+}
+
+template <typename T>
+template <typename F>
+__aicore__ inline  void ShmemNotifyDispatch<T>::CpGM2UB(__ubuf__ F *ubAddr, __gm__ F *gmAddr, uint32_t size)
+{
+    LocalTensor<uint8_t> ubTensor;
+    GlobalTensor<uint8_t> gmTensor;
+    DataCopyExtParams dataCopyParams(1, size, 0, 0, 0);
+    ubTensor.address_.logicPos = static_cast<uint8_t>(TPosition::VECIN);
+    ubTensor.address_.bufferAddr = reinterpret_cast<uint64_t>(ubAddr);
+    gmTensor.SetGlobalBuffer(reinterpret_cast<__gm__ uint8_t *>(gmAddr));
+    DataCopyPadExtParams<uint8_t> padParams;
+    DataCopyPad(ubTensor, gmTensor, dataCopyParams, padParams);
 }
 
 /**
@@ -569,6 +710,28 @@ __aicore__ inline void ShmemNotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeR
 
 template <typename T>
 template <typename F>
+__aicore__ inline  void ShmemNotifyDispatch<T>::SetAtomicOpType(int op)
+{
+    switch (op) {
+        case ADD:
+            AscendC::SetAtomicAdd<F>();
+            break;
+        case MUL:
+            // Ignore setting the atomic register when performing mul
+            break;
+        case MAX:
+            AscendC::SetAtomicMax<F>();
+            break;
+        case MIN:
+            AscendC::SetAtomicMin<F>();
+            break;
+        default:
+            AscendC::SetAtomicNone();
+    }
+}
+
+template <typename T>
+template <typename F>
 __aicore__ inline void ShmemNotifyDispatch<T>::SetAtomic(int op)
 {
     PipeBarrier<PIPE_ALL>();
@@ -595,6 +758,7 @@ __aicore__ inline void ShmemNotifyDispatch<T>::SetWaitEvent(event_t eventId)
 {
     AscendC::SetFlag<eventType>(eventId);
     AscendC::WaitFlag<eventType>(eventId);
+}
 }
 
 #endif  // SHMEM_NOTIFY_DISPATCH_H
