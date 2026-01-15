@@ -58,6 +58,7 @@ def input_guard(fn: Callable[..., torch.Tensor]) -> Callable[..., torch.Tensor]:
 
     @functools.wraps(fn)
     def wrapper(*args, **kwargs):
+        enable_torch_compile = kwargs.pop("enable_torch_compile", False)
         contiguous_args = (
             i if not isinstance(i, torch.Tensor) else i.contiguous() for i in args
         )
@@ -77,7 +78,7 @@ def input_guard(fn: Callable[..., torch.Tensor]) -> Callable[..., torch.Tensor]:
                     tensor = value
                     break
 
-        if tensor is not None:
+        if tensor is not None and enable_torch_compile is not True:
             ctx = custom_device_ctx(tensor.device.index)
         else:
             ctx = contextlib.nullcontext()
