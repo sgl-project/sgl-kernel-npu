@@ -2,7 +2,6 @@
 #define OPS_BUILT_IN_OP_TILING_ERROR_LOG_H_
 
 #include <string>
-#include "toolchain/slog.h"
 
 #define OP_LOGI(opname, ...)
 #define OP_LOGW(opname, ...)             \
@@ -27,6 +26,7 @@
     } while (0)
 
 #define OP_LOGD(opname, ...)
+// #define OP_LOGD(opname, ...) printf("[DEBUG]" __VA_ARGS__); printf("\n");
 
 namespace optiling {
 

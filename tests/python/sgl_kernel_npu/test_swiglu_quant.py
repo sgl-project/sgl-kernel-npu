@@ -9,7 +9,7 @@ def test_swiglu_quant():
         return x.detach().cpu().numpy()
 
     # create inputs
-    s, h = 4096, 4096
+    s, h = 4096, 3072
     x = torch.randn((s, h), dtype=torch.bfloat16).npu()
     group_list = (
         torch.Tensor([0, 32, 0, 0, 10, 0, 0, 0, 100, 0, 0, 5, 5, 5, 0, 0])
@@ -24,6 +24,7 @@ def test_swiglu_quant():
 
     real_tokens = torch.sum(group_list)
     diff = res1[:real_tokens, :] - ans1[:real_tokens, :]
+
     max_diff = torch.max(torch.abs(diff))
     assert max_diff <= 1
 

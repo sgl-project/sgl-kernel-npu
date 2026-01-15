@@ -20,9 +20,7 @@
 #include "torch_helper.h"
 
 #include "aclrtlaunch_sgmv_shrink_half.h"
-#if (__CCE_AICORE__ >= 220)
 #include "aclrtlaunch_sgmv_shrink_bfloat16_t.h"
-#endif
 
 namespace sglang {
 namespace npu_kernel {
@@ -35,11 +33,9 @@ extern void sgmv_shrink_impl(at::ScalarType type, void *stream, void *x, void *w
     if (type == at::ScalarType::Float) {
         return;
     } else if (type == at::ScalarType::BFloat16) {
-#if (__CCE_AICORE__ >= 220)
         ACLRT_LAUNCH_KERNEL(sgmv_shrink_bfloat16_t)
         (blockDim, stream, x, weight, loraIndices, loraIndicesSize, seqLen, seqLenSize, y, batchSize, numTokensPerCore,
          inputHiddenDim, maxLoRARank, scale);
-#endif
     } else {
         ACLRT_LAUNCH_KERNEL(sgmv_shrink_half)
         (blockDim, stream, x, weight, loraIndices, loraIndicesSize, seqLen, seqLenSize, y, batchSize, numTokensPerCore,

@@ -17,6 +17,7 @@
 #include "error_log.h"
 #include "graph/utils/type_utils.h"
 #include "register/op_def_registry.h"
+#include "mc2_tiling_utils.h"
 #include "../op_kernel/cam_moe_dispatch_normal_tiling.h"
 #include "tiling_args.h"
 
@@ -25,30 +26,6 @@ using namespace ge;
 using namespace Moe;
 
 namespace {
-class Mc2TilingUtils
-{
-public:
-#define HCCL_BUFFSIZE "HCCL_BUFFSIZE"
-    static uint64_t GetMaxWindowSize()
-    {
-        uint16_t defaultWindowSize = 200;
-        if (getenv(HCCL_BUFFSIZE) == nullptr) {
-            OP_LOGD("", "Env HCCL_BUFFSIZE don't set");
-        } else {
-            try {
-                std::string envStr(getenv(HCCL_BUFFSIZE));
-                defaultWindowSize = std::stoi(envStr);
-            } catch (const std::invalid_argument &ia) {
-                OP_LOGE("", "Invalid argument when parsing HCCL_BUFFSIZE: %s", ia.what());
-            } catch (const std::out_of_range &oor) {
-                OP_LOGE("", "Out of range when parsing HCCL_BUFFSIZE: %s", oor.what());
-            }
-        }
-        const uint64_t maxWindowSize = static_cast<uint64_t>(defaultWindowSize) * 1024UL * 1024UL;
-        OP_LOGI("", "Get maxWindowSize is %lu", maxWindowSize);
-        return maxWindowSize;
-    }
-};
 constexpr uint32_t X_INDEX = 0U;
 constexpr uint32_t EXPERT_IDS_INDEX = 1U;
 constexpr uint32_t SEND_OFFSET_INDEX = 2U;
@@ -69,7 +46,10 @@ constexpr uint32_t ATTR_TP_WORLD_SIZE_INDEX = 4;
 constexpr uint32_t ATTR_TP_RANK_ID_INDEX = 5;
 constexpr uint32_t ATTR_MOE_EXPERT_NUM_INDEX = 6;
 constexpr uint32_t ATTR_QUANT_MODE_INDEX = 7;
-constexpr uint32_t ATTR_GLOBAL_BS_INDEX = 8;
+constexpr uint32_t ATTR_REAL_MAX_BS_INDEX = 8;
+constexpr uint32_t ATTR_GLOBAL_BS_INDEX = 9;
+constexpr uint32_t ATTR_ROUND_INDEX = 10;
+constexpr uint32_t ATTR_PER_ROUND_TOKENS_INDEX = 11;
 
 constexpr uint32_t TWO_DIMS = 2;
 constexpr uint32_t ONE_DIM = 1;
@@ -84,7 +64,7 @@ constexpr size_t MAX_GROUP_NAME_LENGTH = 128UL;
 constexpr int64_t MAX_EP_WORLD_SIZE = 384;
 constexpr int64_t MIN_EP_WORLD_SIZE = 2;
 constexpr int64_t MAX_TP_WORLD_SIZE = 2;
-constexpr int64_t BS_UPPER_BOUND = 8000;  // 最大bs
+constexpr int64_t BS_UPPER_BOUND = 32768;  // 最大bs
 
 constexpr uint32_t TILINGKEY_TP_WORLD_SIZE = 100;
 constexpr uint32_t TP_WORLD_SIZE_TWO = 2;
@@ -114,6 +94,7 @@ static void PrintTilingDataInfo(const char *nodeName, CamMoeDispatchNormalTiling
     OP_LOGD(nodeName, "tpRankId is %u.", tilingData.camMoeDispatchNormalInfo.tpRankId);
     OP_LOGD(nodeName, "moeExpertNum is %u.", tilingData.camMoeDispatchNormalInfo.moeExpertNum);
     OP_LOGD(nodeName, "quantMode is %u.", tilingData.camMoeDispatchNormalInfo.quantMode);
+    OP_LOGD(nodeName, "realMaxBs is %u.", tilingData.camMoeDispatchNormalInfo.realMaxBs);
     OP_LOGD(nodeName, "globalBs is %u.", tilingData.camMoeDispatchNormalInfo.globalBs);
     OP_LOGD(nodeName, "bs is %u.", tilingData.camMoeDispatchNormalInfo.bs);
     OP_LOGD(nodeName, "k is %u.", tilingData.camMoeDispatchNormalInfo.k);
@@ -416,6 +397,12 @@ static ge::graphStatus CheckAttrs(gert::TilingContext *context, const char *node
 
     tilingData.camMoeDispatchNormalInfo.globalBs = static_cast<uint32_t>(*globalBsPtr);
 
+    auto roundPtr = attrs->GetAttrPointer<int64_t>(ATTR_ROUND_INDEX);
+    auto perRoundTokensPtr = attrs->GetAttrPointer<int64_t>(ATTR_PER_ROUND_TOKENS_INDEX);
+    auto realMaxBsPtr = attrs->GetAttrPointer<int64_t>(ATTR_REAL_MAX_BS_INDEX);
+    tilingData.camMoeDispatchNormalInfo.round = static_cast<uint32_t>(*roundPtr);
+    tilingData.camMoeDispatchNormalInfo.perRoundTokens = static_cast<uint32_t>(*perRoundTokensPtr);
+    tilingData.camMoeDispatchNormalInfo.realMaxBs = static_cast<uint32_t>(*realMaxBsPtr);
     return ge::GRAPH_SUCCESS;
 }
 
@@ -591,7 +578,7 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
                             "HCCL_BUFFSIZE is too SMALL, maxBs = %lu, h = %lu, epWorldSize = %lu,"
                             " localMoeExpertNum = %u, tokenNeedSizeDispatch = %lu, tokenNeedSizeCombine = %lu,"
                             " k = %lu, NEEDED_HCCL_BUFFSIZE((maxBs * k * (tokenNeedSizeDispatch"
-                            " + tokenNeedSizeCombine) + 3MB + 204MB) * 2) = %luMB, HCCL_BUFFSIZE=%luMB.",
+                            " + tokenNeedSizeCombine) + 4MB + 204MB) * 2) = %luMB, HCCL_BUFFSIZE=%luMB.",
                             maxBs, h, epWorldSize, localMoeExpertNum, tokenNeedSizeDispatch, tokenNeedSizeCombine, k,
                             actualSize / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
                     return ge::GRAPH_FAILED);

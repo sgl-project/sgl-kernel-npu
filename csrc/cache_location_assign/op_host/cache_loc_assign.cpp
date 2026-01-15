@@ -70,7 +70,7 @@ at::Tensor getTiling(const at::Tensor &reqPoolIndices, uint64_t rowSize, uint64_
         throw std::invalid_argument("Batch size is too large, buffer is not enough to do calculate");
     }
 
-    auto tilingTensor = TorchNpuHepler::CopyTensorHostToDevice(tilingBuffer);
+    auto tilingTensor = TorchNpuHelper::CopyTensorHostToDevice(tilingBuffer);
     return tilingTensor;
 }
 

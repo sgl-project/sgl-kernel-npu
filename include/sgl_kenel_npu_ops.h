@@ -38,6 +38,14 @@ void alloc_extend(const at::Tensor &pre_lens, const at::Tensor &seq_lens,
                   int64_t pages_size, at::Tensor &out_indices,
                   at::Tensor &values);
 
+void build_tree_efficient(
+    const at::Tensor &parent_list, const at::Tensor &selected_index,
+    const at::Tensor &verified_seq_len, const at::Tensor &tree_mask,
+    const at::Tensor &positions, const at::Tensor &retrive_index,
+    const at::Tensor &retrive_next_token,
+    const at::Tensor &retrive_next_sibling, int64_t topk, int64_t depth,
+    int64_t draft_token_num, int64_t tree_mask_mode);
+
 std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>
 mla_preprocess(const at::Tensor &hiddenState, const at::Tensor &gamma0,
                const at::Tensor &beta0, const at::Tensor &wdqkv,
@@ -80,6 +88,30 @@ at::Tensor sgmv_expand(at::Tensor &x, at::Tensor &weight,
 
 void sgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
                  at::Tensor &seq_len, at::Tensor &y, double scale);
+
+at::Tensor sgemmv_expand(at::Tensor &x, at::Tensor &weight,
+                         at::Tensor &lora_indices, at::Tensor &seq_len,
+                         at::Tensor &lora_ranks, at::Tensor &slice_offsets,
+                         at::Tensor &y);
+
+void sgemmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
+                   at::Tensor &seq_len, at::Tensor &lora_ranks,
+                   at::Tensor &lora_scales, at::Tensor &y);
+
+#ifdef BUILD_CATLASS_MODULE
+void catlass_matmul_basic(const at::Tensor &tensor_a,
+                          const at::Tensor &tensor_b, at::Tensor &tensor_c,
+                          c10::optional<c10::string_view> format_mode);
+#endif
+
+at::Tensor lightning_indexer(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
+    const c10::optional<at::Tensor> &actual_seq_lengths_query,
+    const c10::optional<at::Tensor> &actual_seq_lengths_key,
+    const c10::optional<at::Tensor> &block_table,
+    c10::optional<c10::string_view> layout_query,
+    c10::optional<c10::string_view> layout_key,
+    c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode);
 
 } // namespace npu_kernel
 

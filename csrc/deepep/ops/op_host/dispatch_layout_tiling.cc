@@ -40,6 +40,7 @@ constexpr uint32_t ATTR_NUM_RANKS_INDEX = 1;
 constexpr uint32_t ATTR_NUM_EXPERTS_INDEX = 2;
 constexpr uint32_t ATTR_NUM_TOPK_INDEX = 3;
 constexpr uint32_t ATTR_LOCAL_RANKSIZE_INDEX = 4;
+constexpr uint32_t ATTR_PER_ROUND_TOKENS_INDEX = 5;
 const int64_t MAX_COMM_WORLD_SIZE = 384;
 const int64_t MAX_MOE_EXPERTS_NUM = 512;
 const int64_t MAX_LOCAL_RANKSIZE = 8;
@@ -63,6 +64,7 @@ static void PrintTilingDataInfo(const char *nodeName, DispatchLayoutTilingData &
     OP_LOGD(nodeName, "numExperts is %u.", tilingData.dispatchLayoutInfo.numExperts);
     OP_LOGD(nodeName, "numTopk is %u.", tilingData.dispatchLayoutInfo.numTopk);
     OP_LOGD(nodeName, "localRankSize is %u.", tilingData.dispatchLayoutInfo.localRankSize);
+    OP_LOGD(nodeName, "perRoundTokens is %u.", tilingData.dispatchLayoutInfo.perRoundTokens);
     OP_LOGD(nodeName, "totalUbSize is %lu.", tilingData.dispatchLayoutInfo.totalUbSize);
 }
 
@@ -88,15 +90,18 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
 
     auto numTokensPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_NUM_TOKENS_INDEX));
     auto numRanksPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_NUM_RANKS_INDEX));
-    auto numExpertsPtr = attrs->GetAttrPointer<int64_t>(ATTR_NUM_EXPERTS_INDEX);
+    auto numExpertsPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_NUM_EXPERTS_INDEX));
     auto numTopkPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_NUM_TOPK_INDEX));
     auto localRankSizePtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_LOCAL_RANKSIZE_INDEX));
+    auto perRoundTokensPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_PER_ROUND_TOKENS_INDEX));
 
     OP_TILING_CHECK(numTokensPtr == nullptr, OP_LOGE(nodeName, "numTokensPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(numRanksPtr == nullptr, OP_LOGE(nodeName, "numRanksPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(numExpertsPtr == nullptr, OP_LOGE(nodeName, "numExpertsPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(numTopkPtr == nullptr, OP_LOGE(nodeName, "numTopkPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(localRankSizePtr == nullptr, OP_LOGE(nodeName, "localRankSizePtr is null."),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(perRoundTokensPtr == nullptr, OP_LOGE(nodeName, "perRoundTokensPtr is null."),
                     return ge::GRAPH_FAILED);
 
     OP_TILING_CHECK((*numRanksPtr <= 0) || (*numRanksPtr > MAX_COMM_WORLD_SIZE),
@@ -106,6 +111,10 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     OP_TILING_CHECK((*numExpertsPtr <= 0) || (*numExpertsPtr > MAX_MOE_EXPERTS_NUM),
                     OP_LOGE(nodeName, "numExperts is invalid, only support (0, %ld], but got numExperts=%ld.",
                             MAX_MOE_EXPERTS_NUM, *numExpertsPtr),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK((*numExpertsPtr % *numRanksPtr) != 0,
+                    OP_LOGE(nodeName, "numExperts must be divisible by numRanks, but numExperts=%ld and numRanks=%ld.",
+                            *numExpertsPtr, *numRanksPtr),
                     return ge::GRAPH_FAILED);
     OP_TILING_CHECK(
         (*numTopkPtr <= 0) || (*numTopkPtr > K_MAX),
@@ -125,6 +134,7 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     tilingData.dispatchLayoutInfo.numExperts = static_cast<uint32_t>(*numExpertsPtr);
     tilingData.dispatchLayoutInfo.numTopk = static_cast<uint32_t>(*numTopkPtr);
     tilingData.dispatchLayoutInfo.localRankSize = static_cast<uint32_t>(*localRankSizePtr);
+    tilingData.dispatchLayoutInfo.perRoundTokens = static_cast<uint32_t>(*perRoundTokensPtr);
 
     return ge::GRAPH_SUCCESS;
 }
@@ -178,8 +188,6 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
 static bool CheckTensorShape(gert::TilingContext *context, const char *nodeName)
 {
     const gert::StorageShape *topkIdxStorageShape = context->GetInputShape(INPUT_TOPK_IDX_INDEX);
-    int64_t topkIdxDim0 = topkIdxStorageShape->GetStorageShape().GetDim(0);
-    int64_t topkIdxDim1 = topkIdxStorageShape->GetStorageShape().GetDim(1);
 
     OP_TILING_CHECK((topkIdxStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS),
                     OP_LOGE(nodeName, "topkIdx must be 2-dimension, but get %lu dim.",
@@ -238,10 +246,6 @@ static ge::graphStatus DispatchLayoutTilingFuncImpl(gert::TilingContext *context
 
 static ge::graphStatus DispatchLayoutTilingFunc(gert::TilingContext *context)
 {
-    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
-    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
-
-    std::string socVersion;
     ge::graphStatus ret;
     ret = DispatchLayoutTilingFuncImpl(context);
     return ret;

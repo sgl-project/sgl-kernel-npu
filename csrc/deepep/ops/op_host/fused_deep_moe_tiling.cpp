@@ -22,13 +22,36 @@
 
 using namespace ge;
 namespace {
+class Mc2TilingUtils
+{
+public:
+#define HCCL_BUFFSIZE "HCCL_BUFFSIZE"
+    static uint64_t GetMaxWindowSize()
+    {
+        uint16_t defaultWindowSize = 200;
+        if (getenv(HCCL_BUFFSIZE) == nullptr) {
+            OP_LOGD("", "Env HCCL_BUFFSIZE don't set");
+        } else {
+            try {
+                std::string envStr(getenv(HCCL_BUFFSIZE));
+                defaultWindowSize = std::stoi(envStr);
+            } catch (...) {
+                OP_LOGE("", "Unknown Exception encountered when parser env HCCL_BUFFERSIZE");
+            }
+        }
+        const uint64_t maxWindowSize = static_cast<uint64_t>(defaultWindowSize) * 1024UL * 1024UL;
+        OP_LOGI("", "Get maxWindowSize is %lu", maxWindowSize);
+        return maxWindowSize;
+    }
+};
 constexpr uint32_t OP_TYPE_ALL_TO_ALL = 8;
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
 constexpr uint32_t TOKEN_DTYPE_BYTE_SIZE = 2;
-constexpr uint32_t USE_CORE_NUM = 24;
 constexpr uint32_t L1_TILE_BYTE_SIZE = 32 * 1024;
 constexpr uint32_t CUBE_WORKSPACE_STAGE = 4;
 constexpr uint32_t RESERVED_WORKSPACE_SIZE = 256 * 1024;
+constexpr uint32_t MB_SIZE = 1024 * 1024;
+constexpr uint32_t DOUBLE_BUFFER = 2;
 
 constexpr uint32_t INPUT_X_INDEX = 0;
 constexpr uint32_t INPUT_EXPERT_IDS_INDEX = 1;
@@ -51,7 +74,6 @@ constexpr uint32_t ATTR_GLOBAL_BS_INDEX = 7;
 constexpr uint32_t MIN_BATCH_SIZE = 1;
 constexpr uint32_t MAX_BATCH_SIZE = 256;
 constexpr uint32_t MAX_MOE_EXERT_NUM = 512;
-constexpr uint32_t RECV_AIV_NUM = 24;
 constexpr uint32_t SUPPORT_TOP_K = 12;
 constexpr uint32_t TWO_DIMS = 2;
 constexpr uint32_t MIN_TOKEN_LENGTH = 512;
@@ -157,7 +179,12 @@ static ge::graphStatus CheckData(const char *nodeName, FusedDeepMoeTilingData &t
         OP_TILING_CHECK(globalBatchSize % epRankSize > 0,
                         OP_LOGE(nodeName, "globalBatchSize must be divisible by epRankSize."), return ge::GRAPH_FAILED);
     }
-
+    uint32_t moeExpertNumPerRank = tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.moeExpertNumPerRank;
+    uint32_t recvAivNum = tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.aivNum / 2;
+    OP_TILING_CHECK(
+        moeExpertNumPerRank > recvAivNum,
+        OP_LOGE(nodeName, "moeExpertNumPerRank must <= (aivNum/2)(%u), but got %u", recvAivNum, moeExpertNumPerRank),
+        return ge::GRAPH_FAILED);
     return ge::GRAPH_SUCCESS;
 }
 
@@ -193,8 +220,6 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     OP_TILING_CHECK(moeExpertNum % (epRankSize - sharedExpertRankNum) != 0,
                     OP_LOGE(nodeName, "moeExpertNum must be divisible by (epRankSize - sharedExpertRankNum)."),
                     return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(moeExpertNumPerRank > RECV_AIV_NUM,
-                    OP_LOGE(nodeName, "moeExpertNumPerRank must <= %d.", RECV_AIV_NUM), return ge::GRAPH_FAILED);
 #endif
 
     groupEp = std::string(groupEpPtr);
@@ -237,6 +262,7 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext *context, const char *no
     uint32_t topK = tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.k;
     uint32_t moeExpertNumPerRank = tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.moeExpertNumPerRank;
     uint32_t h = tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.h;
+    uint32_t aicNum = tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.aicNum;
     uint64_t gmm2HLen = tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.gmm1HLen / 2;
     if (epRankId < sharedExpertRankNum) {
         maxTokenNum = maxBatchSize * epRankSize / sharedExpertRankNum;
@@ -247,7 +273,7 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext *context, const char *no
     size_t x2TokenSize = CeilUp(maxTokenNum * gmm2HLen * sizeof(int8_t), GM_ALIGN_SIZE);
     size_t x2ScaleSize = CeilUp(maxTokenNum * sizeof(float), GM_ALIGN_SIZE);
     size_t CVSwapBufferSize =
-        CeilUp(USE_CORE_NUM * L1_TILE_BYTE_SIZE * CUBE_WORKSPACE_STAGE * sizeof(int32_t), GM_ALIGN_SIZE);
+        CeilUp(aicNum * L1_TILE_BYTE_SIZE * CUBE_WORKSPACE_STAGE * sizeof(int32_t), GM_ALIGN_SIZE);
     size_t swigluOutSize = CeilUp(maxTokenNum * gmm2HLen * sizeof(float), GM_ALIGN_SIZE);
     size_t groupListSize = CeilUp(moeExpertNumPerRank * sizeof(int64_t), GM_ALIGN_SIZE);
     size_t expandIdxSize = CeilUp(batchSize * topK * sizeof(int32_t), GM_ALIGN_SIZE);
@@ -296,6 +322,30 @@ static ge::graphStatus FusedDeepMoeTilingFuncImpl(gert::TilingContext *context)
     OP_TILING_CHECK(gmm1WeightStorageShape == nullptr, OP_LOGE(nodeName, "gmm1Weight shape is null."),
                     return ge::GRAPH_FAILED);
     tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.gmm1HLen = gmm1WeightStorageShape->GetOriginShape().GetDim(TWO_DIMS);
+    auto ascendcPlatform = platform_ascendc::PlatformAscendC(context->GetPlatformInfo());
+    uint32_t aicNum = ascendcPlatform.GetCoreNumAic();
+    uint32_t aivNum = ascendcPlatform.GetCoreNumAiv();
+    tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.aicNum = aicNum;
+    tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.aivNum = aivNum;
+
+    uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize();
+    uint64_t epRankSize = static_cast<uint64_t>(tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.epRankSize);
+    uint64_t maxBs = static_cast<uint64_t>(tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.globalBs) / epRankSize;
+    uint64_t moeExpertNumPerRank =
+        static_cast<uint64_t>(tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.moeExpertNumPerRank);
+    uint64_t tokenLength = static_cast<uint64_t>(tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.h);
+    uint64_t actualSize =
+        epRankSize * maxBs * moeExpertNumPerRank * tokenLength * TOKEN_DTYPE_BYTE_SIZE * DOUBLE_BUFFER;
+    OP_TILING_CHECK((actualSize > maxWindowSize),
+                    OP_LOGE(nodeName,
+                            "HCCL_BUFFSIZE is too SMALL, epRankSize = %lu, maxBs = %lu, moeExpertNumPerRank = %lu, "
+                            " tokenLength = %lu, "
+                            " NEEDED_HCCL_BUFFSIZE(epRankSize * maxBs * moeExpertNumPerRank * tokenLength * "
+                            " TOKEN_DTYPE_BYTE_SIZE * DOUBLE_BUFFER) = %luMB, HCCL_BUFFSIZE=%luMB.",
+                            epRankSize, maxBs, moeExpertNumPerRank, tokenLength, actualSize / MB_SIZE + 1UL,
+                            maxWindowSize / MB_SIZE),
+                    return ge::GRAPH_FAILED);
+
 #ifdef ENABLE_TILING_CHECK
     OP_TILING_CHECK(CheckData(nodeName, *tilingData) != ge::GRAPH_SUCCESS, OP_LOGE(nodeName, "CheckData failed."),
                     return ge::GRAPH_FAILED);
@@ -308,7 +358,7 @@ static ge::graphStatus FusedDeepMoeTilingFuncImpl(gert::TilingContext *context)
     } else {
         context->SetTilingKey(EXEC_FLAG_DEEP_FUSE);
     }
-    context->SetBlockDim(USE_CORE_NUM);
+    context->SetBlockDim(aicNum);
     return ge::GRAPH_SUCCESS;
 }
 

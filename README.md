@@ -25,7 +25,7 @@ We test normal kernels on A3 384 SuperPOD. And we follow the DeepSeek-V3/R1 pret
 
 ### Low-latency kernels with pure HCCS
 
-We test normal kernels on A3 384 SuperPOD. And we follow a typical DeepSeek-V3/R1 production setting (128 tokens per batch, 7168 hidden, top-8 experts, INT8 dispatching and BF16 combining).
+We test low-latency kernels on A3 384 SuperPOD. And we follow a typical DeepSeek-V3/R1 production setting (128 tokens per batch, 7168 hidden, top-8 experts, INT8 dispatching and BF16 combining).
 
 | Dispatch #EP | Latency | Bandwidth      | Combine #EP | Latency | Bandwidth       |
 | ------------ | ------- | -------------- | ----------- | ------- | --------------- |

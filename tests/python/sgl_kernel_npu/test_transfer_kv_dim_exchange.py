@@ -1,8 +1,12 @@
 import time
 import unittest
 
-import sgl_kernel_npu
 import torch
+from sgl_kernel_npu.kvcacheio import (
+    TransferDirection,
+    TransferFlag,
+    transfer_kv_dim_exchange,
+)
 
 # example comes from Qwen3-32B, TP=2
 TP = 2
@@ -13,17 +17,12 @@ PAGE_SIZE = 128
 HEAD_NUM_PER_TP = int(NUM_KV_HEADS / TP)
 HEAD_DIM = 128
 
-from enum import Enum
-
-
-class TransferDirection(Enum):
-    H2D = 1
-    D2H = 2
-
 
 class TestTransferKV(unittest.TestCase):
 
-    def _kv_transfer(self, direct, v_empty):
+    def _kv_transfer(
+        self, direct: TransferDirection, v_empty: bool, index_k_empty: bool = True
+    ):
         torch.npu.set_device(0)
 
         device_kv_buffer = torch.ones(
@@ -38,6 +37,7 @@ class TestTransferKV(unittest.TestCase):
             (2, NUM_PAGES, NUM_LAYERS, PAGE_SIZE, HEAD_NUM_PER_TP, HEAD_DIM),
             dtype=torch.bfloat16,
             device="cpu",
+            pin_memory=True,
         )
 
         self.assertNotEqual(
@@ -49,34 +49,73 @@ class TestTransferKV(unittest.TestCase):
         host_k = host_kv_buffer[0]
         host_v = torch.empty(0) if v_empty else host_kv_buffer[1]
 
+        device_index_k = torch.ones(
+            (NUM_LAYERS, NUM_PAGES, PAGE_SIZE, HEAD_NUM_PER_TP, HEAD_DIM),
+            dtype=torch.bfloat16,
+            device="npu",
+        )
+
+        host_index_k = torch.zeros(
+            (NUM_PAGES, NUM_LAYERS, PAGE_SIZE, HEAD_NUM_PER_TP, HEAD_DIM),
+            dtype=torch.bfloat16,
+            device="cpu",
+            pin_memory=True,
+        )
+
         device_indices = torch.arange(NUM_PAGES * PAGE_SIZE, dtype=torch.int64)
         host_indices = torch.arange(NUM_PAGES * PAGE_SIZE, dtype=torch.int64)
 
         stream = torch.npu.Stream()
         start = time.time()
         with torch.npu.stream(stream):
-            torch.ops.npu.transfer_kv_dim_exchange(
-                device_k,
-                host_k,
-                device_v,
-                host_v,
-                device_indices,
-                host_indices,
-                PAGE_SIZE,
-                direct.value,
-                2,
-            )
+            if index_k_empty:
+                transfer_kv_dim_exchange(
+                    device_indices=device_indices,
+                    host_indices=host_indices,
+                    device_k=device_k,
+                    host_k=host_k,
+                    device_v=device_v,
+                    host_v=host_v,
+                    page_size=PAGE_SIZE,
+                    direction=direct,
+                )
+            else:
+                transfer_kv_dim_exchange(
+                    device_indices=device_indices,
+                    host_indices=host_indices,
+                    device_k=device_k,
+                    host_k=host_k,
+                    device_v=device_v,
+                    host_v=host_v,
+                    device_index_k=device_index_k,
+                    host_index_k=host_index_k,
+                    page_size=PAGE_SIZE,
+                    direction=direct,
+                )
 
         end = time.time()
-        direct_str = "D2H" if direct.value == 2 else "H2D"
-        copy_times = NUM_PAGES if v_empty else NUM_PAGES * 2
+        direct_str = "D2H" if direct == TransferDirection.D2H else "H2D"
+        copy_times = NUM_PAGES
+        if v_empty is False:
+            copy_times += NUM_PAGES
+        if index_k_empty is False:
+            copy_times += NUM_PAGES
+
+        total_size = (
+            copy_times
+            * NUM_LAYERS
+            * PAGE_SIZE
+            * HEAD_NUM_PER_TP
+            * HEAD_DIM
+            * torch.bfloat16.itemsize
+        )
         print(
-            f"kv transfer {direct_str}, {v_empty=}, "
-            f"tensor copy times is {copy_times}, "
-            f"single copy size is {NUM_LAYERS * PAGE_SIZE * HEAD_NUM_PER_TP * HEAD_DIM * torch.bfloat16.itemsize} bytes, "
+            f"kv transfer {direct_str}, {v_empty=}, {index_k_empty=}, "
+            f"2d copy times is {copy_times}, "
+            f"total copy size is {total_size} bytes, "
             f"total duration {float((end - start) * 1000):.3f}ms"
         )
-
+        torch.npu.synchronize()
         return device_kv_buffer, host_kv_buffer
 
     def _k_transfer(self, direct_str):
@@ -114,6 +153,40 @@ class TestTransferKV(unittest.TestCase):
             0,
             delta=1e-3,
             msg="device value sum() should be equal to 0 after transfer kv h2d",
+        )
+
+    def test_kv_index_k_copy_d2h(self):
+        device_kv, host_kv = self._kv_transfer(TransferDirection.D2H, False, False)
+
+        self.assertAlmostEqual(
+            host_kv.sum().item(),
+            device_kv.sum().cpu().item(),
+            delta=1e-3,
+            msg="host value should be equal to device value after transfer kv and index k d2h",
+        )
+
+        self.assertAlmostEqual(
+            host_kv.sum().item(),
+            host_kv.numel(),
+            delta=1e-3,
+            msg="host value sum() should be equal to numel() after transfer kv and index d2h",
+        )
+
+    def test_kv_index_k_copy_h2d(self):
+        device_kv, host_kv = self._kv_transfer(TransferDirection.H2D, False, False)
+
+        self.assertAlmostEqual(
+            device_kv.sum().cpu().item(),
+            host_kv.sum().item(),
+            delta=1e-3,
+            msg="device value should be equal to host value after transfer kv and index k h2d",
+        )
+
+        self.assertAlmostEqual(
+            device_kv.sum().cpu().item(),
+            0,
+            delta=1e-3,
+            msg="device value sum() should be equal to 0 after transfer kv and index k h2d",
         )
 
     def test_k_copy_d2h(self):

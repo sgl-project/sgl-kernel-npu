@@ -11,7 +11,7 @@ namespace CamMoeCombineNormalImpl {
 constexpr uint32_t RANK_ID_OFFSET_IN_SRC_INFO = 0U;
 constexpr uint32_t TOKEN_IDX_OFFSET_IN_SRC_INFO = 1U;
 constexpr uint32_t TOPK_IDX_OFFSET_IN_SRC_INFO = 2U;
-constexpr uint64_t COMBINE_STATE_WIN_OFFSET = 3UL * 1024UL * 1024UL;
+constexpr uint64_t COMBINE_STATE_WIN_OFFSET = 4UL * 1024UL * 1024UL;
 constexpr uint64_t MAGIC_WIN_OFFSET = 975UL * 1024UL;
 constexpr uint32_t TOKEN_SRC_INFO_LEN = 3U;
 constexpr uint32_t UB_32_ALIGN = 32U;
@@ -231,7 +231,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::CopyBufferToSha
     tpipe_->InitBuffer(stateBuf_, UB_32_ALIGN);
     tpipe_->InitBuffer(localCopyQueue_, DOUBLE_BUFFER, h32AlignRecvXLen_);
     tpipe_->InitBuffer(srcInfoBuf_, blockLen);
-    LocalTensor<uint32_t> statusTensor = stateBuf_.AllocTensor<uint32_t>();
+    LocalTensor<uint32_t> statusTensor = stateBuf_.Get<uint32_t>();
     Duplicate<uint32_t>(statusTensor, 0x3F800000, FLOAT_NUM_PER_ALIGN);
 
     LocalTensor<SrcInfoType> srcInfoLocal = srcInfoBuf_.Get<SrcInfoType>();
@@ -304,7 +304,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::SetStatusBySrcI
                                                                                     uint32_t srcTokenId,
                                                                                     uint32_t srcTopkId)
 {
-    LocalTensor<uint32_t> statusTensor = stateBuf_.AllocTensor<uint32_t>();
+    LocalTensor<uint32_t> statusTensor = stateBuf_.Get<uint32_t>();
     GM_ADDR stateGM = GetStateAddrByRankId(srcRankId) + (srcTokenId * axisK_ + srcTopkId) * UB_32_ALIGN;
     GlobalTensor<uint32_t> stateGMTensor;
     stateGMTensor.SetGlobalBuffer((__gm__ uint32_t *)stateGM);

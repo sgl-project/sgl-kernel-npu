@@ -1,6 +1,14 @@
 # this is the cmakelist file for deepep build
 # deepep will be built as separated wheel package
 
+if(${CMAKE_SYSTEM_PROCESSOR} STREQUAL "x86_64")
+    set(DEEPEP_ARCH "x86_64")
+elseif(${CMAKE_SYSTEM_PROCESSOR} STREQUAL "aarch64")
+    set(DEEPEP_ARCH "aarch64")
+else()
+    message(FATAL_ERROR "Unsupported host processor: ${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+
 set(PROJECT_BUILD_PATH ${PROJECT_BINARY_DIR})
 set(TARGET_INSTALL_DIR ${CMAKE_INSTALL_PREFIX})
 set(ASCEND_HOME_PATH ${ASCEND_HOME_PATH})
@@ -27,6 +35,7 @@ target_include_directories( deep_ep_cpp PRIVATE
     ${TORCH_NPU_DIR}/include/third_party/acl/inc/acl
     ${TORCH_NPU_DIR}/include/third_party/acl/inc
     ${ASCEND_HOME_PATH}/include
+    ${ASCEND_HOME_PATH}/${DEEPEP_ARCH}-linux/include/experiment/platform
 )
 target_link_directories(deep_ep_cpp PRIVATE
         ${TORCH_DIR}/lib
@@ -38,6 +47,7 @@ target_link_libraries(deep_ep_cpp PRIVATE
     ascendcl
     hccl
     torch_npu
+    opapi
 )
 
 message(STATUS "TARGET_INSTALL_DIR = ${TARGET_INSTALL_DIR}")

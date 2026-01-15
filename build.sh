@@ -2,6 +2,7 @@
 set -e
 
 BUILD_DEEPEP_MODULE="ON"
+BUILD_DEEPEP_OPS="ON"
 BUILD_KERNELS_MODULE="ON"
 BUILD_MEMORY_SAVER_MODULE="ON"
 
@@ -20,6 +21,11 @@ while getopts ":a:hd" opt; do
             case "$OPTARG" in
                 deepep )
                     BUILD_DEEPEP_MODULE="ON"
+                    BUILD_DEEPEP_OPS="ON"
+                    ;;
+                deepep2 )
+                    BUILD_DEEPEP_MODULE="ON"
+                    BUILD_DEEPEP_OPS="OFF"
                     ;;
                 kernels )
                     BUILD_KERNELS_MODULE="ON"
@@ -83,6 +89,12 @@ else
     _ASCEND_INSTALL_PATH=/usr/local/Ascend/ascend-toolkit/latest
 fi
 
+if [ -n "$ASCEND_INCLUDE_DIR" ]; then
+    ASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR
+else
+    ASCEND_INCLUDE_DIR=${_ASCEND_INSTALL_PATH}/aarch64-linux/include
+fi
+
 export ASCEND_TOOLKIT_HOME=${_ASCEND_INSTALL_PATH}
 export ASCEND_HOME_PATH=${_ASCEND_INSTALL_PATH}
 echo "ascend path: ${ASCEND_HOME_PATH}"
@@ -110,8 +122,8 @@ function build_kernels()
     rm -rf $BUILD_DIR
     mkdir -p $BUILD_DIR
 
-    cmake $COMPILE_OPTIONS -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" -DASCEND_HOME_PATH=$ASCEND_HOME_PATH -DSOC_VERSION=$SOC_VERSION -DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE -DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE -B "$BUILD_DIR" -S .
-    cmake --build "$BUILD_DIR" -j8 && cmake --build "$BUILD_DIR" --target install
+    cmake $COMPILE_OPTIONS -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" -DASCEND_HOME_PATH=$ASCEND_HOME_PATH -DASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR -DSOC_VERSION=$SOC_VERSION -DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE -DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE -B "$BUILD_DIR" -S .
+    cmake --build "$BUILD_DIR" --target install
     cd -
 }
 
@@ -120,7 +132,11 @@ function build_deepep_kernels()
     if [[ "$ONLY_BUILD_DEEPEP_ADAPTER_MODULE" == "ON" ]]; then return 0; fi
     if [[ "$BUILD_DEEPEP_MODULE" != "ON" ]]; then return 0; fi
 
-    KERNEL_DIR="csrc/deepep/ops"
+    if [[ "$BUILD_DEEPEP_OPS" == "ON" ]]; then
+        KERNEL_DIR="csrc/deepep/ops"
+    else
+        KERNEL_DIR="csrc/deepep/ops2"
+    fi
     CUSTOM_OPP_DIR="${CURRENT_DIR}/python/deep_ep/deep_ep"
 
     cd "$KERNEL_DIR" || exit
@@ -137,6 +153,7 @@ function build_deepep_kernels()
         echo "find run package: $custom_opp_file"
         chmod +x "$custom_opp_file"
     fi
+    rm -rf "$CUSTOM_OPP_DIR"/vendors
     ./build_out/custom_opp_*.run --install-path=$CUSTOM_OPP_DIR
     cd -
 }
@@ -173,6 +190,7 @@ function make_sgl_kernel_npu_package()
     cd python/sgl_kernel_npu || exit
 
     rm -rf "$CURRENT_DIR"/python/sgl_kernel_npu/dist
+    cp -v "${CURRENT_DIR}/config.ini" "${CURRENT_DIR}/python/sgl_kernel_npu/sgl_kernel_npu/"
     python3 setup.py clean --all
     python3 setup.py bdist_wheel
     mv -v "$CURRENT_DIR"/python/sgl_kernel_npu/dist/sgl_kernel_npu*.whl ${OUTPUT_DIR}/

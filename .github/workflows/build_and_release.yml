@@ -1,0 +1,84 @@
+name: Build and Release SGL-Kernel-NPU
+
+on:
+  release:
+    types:
+      - published
+
+  pull_request:
+    branches:
+      - 'main'
+    paths:
+      - '.github/workflows/build_and_release.yml'
+      - 'config.ini'
+
+jobs:
+
+  build-and-release:
+    strategy:
+      matrix:
+        os: [ubuntu-24.04-arm]
+        hardware: [910b, a3]
+        cann_version: [8.3.rc2]
+    runs-on: ${{ matrix.os }}
+    container:
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.hardware }}-ubuntu22.04-py3.11
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Mark repository safe
+        run: |
+          git config --system --add safe.directory ${GITHUB_WORKSPACE}
+
+      - name: Install dependency
+        run: |
+          bash scripts/npu_ci_install_dependency.sh
+
+      - name: Build SGL-Kernel-NPU
+        run: |
+          env -i PATH=${PATH} bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+            ./build.sh -a kernels
+          "
+
+      - name: Build Torch-Memory-Saver
+        run: |
+          env -i PATH=${PATH} bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+            ./build.sh -a memory-saver
+          "
+
+      - name: Build DeepEP for 910b
+        if: matrix.hardware == '910b'
+        run: |
+          env -i PATH=${PATH} bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+            ./build.sh -a deepep2
+          "
+
+      - name: Build DeepEP for a3
+        if: matrix.hardware == 'a3'
+        run: |
+          env -i PATH=${PATH} bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+            ./build.sh -a deepep
+          "
+
+      - name: Pack up packages
+        run: |
+          zip -v "sgl-kernel-npu_${{ github.event.release.tag_name }}_${{ matrix.cann_version }}_${{ matrix.hardware }}.zip" output/*.whl
+
+      - name: Upload Release Artifacts
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: ./*.zip

@@ -34,7 +34,7 @@ at::Tensor get_tiling(int32_t &block_dim, int32_t &workspace_size, const int64_t
     tiling_data->used_core_num = block_dim;
     tiling_data->total_extend_tokens = total_extend_tokens;
 
-    auto tiling_tensor = TorchNpuHepler::CopyTensorHostToDevice(tiling_buffer);
+    auto tiling_tensor = TorchNpuHelper::CopyTensorHostToDevice(tiling_buffer);
     return tiling_tensor;
 }
 

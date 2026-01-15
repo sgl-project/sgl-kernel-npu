@@ -1,12 +1,7 @@
 import torch
 import triton
 import triton.language as tl
-import triton.runtime.driver as driver
-
-
-def get_npu_properties():
-    device = torch.npu.current_device()
-    return driver.active.utils.get_device_properties(device)
+from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
 @triton.jit
@@ -63,12 +58,15 @@ def _swiglu_quant_kernel(
                 )
                 tmp_out = (tmp_out.to(tl.float32) / scale).to(x_ptr.dtype.element_ty)
                 # tmp_out = tl.clamp(tmp_out, -128, 127)
-                tmp_out = tl.math.rint(tmp_out)
+                tmp_out = tmp_out.cast(tl.int8, overflow_mode="saturate")
 
                 o_offsets = (
                     row_idx * HALF_COLS + col_blk_idx + tl.arange(0, COL_BLOCK_SIZE)
                 )
-                tl.store(out_ptr + o_offsets, tmp_out.to(out_ptr.dtype.element_ty))
+                mask = (col_blk_idx + tl.arange(0, COL_BLOCK_SIZE)) < HALF_COLS
+                tl.store(
+                    out_ptr + o_offsets, tmp_out.to(out_ptr.dtype.element_ty), mask=mask
+                )
         else:
             # store out
             o_offsets = row_idx * HALF_COLS + tl.arange(0, HALF_COLS)
@@ -94,19 +92,19 @@ def swiglu_quant(x, group_list, group_list_type, need_quant=True):
             f"group_list dtype must be torch.int32 or torch.int64, but got {group_list.dtype}"
         )
 
-    num_cores = get_npu_properties()["num_vectorcore"]
-    _swiglu_quant_kernel[(num_cores,)](
+    _, num_vectorcore = get_device_properties()
+    _swiglu_quant_kernel[(num_vectorcore,)](
         x,
         group_list,
         out,
         scale,
         TOTAL_COLS=h,
         HALF_COLS=h // 2,
-        COL_BLOCK_SIZE=1024,
+        COL_BLOCK_SIZE=1536,
         NUM_EXPERTS=num_experts,
         NUM_EXPERTS_ALGIN=num_experts_algin,
         GROUP_LIST_TYPE=group_list_type,
-        NUM_CORES=num_cores,
+        NUM_CORES=num_vectorcore,
         DTYPE_MAX=127,
         SCALE=need_quant,
         multibuffer=True,
