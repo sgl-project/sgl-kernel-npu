@@ -56,8 +56,7 @@ private:
     __aicore__ inline GM_ADDR GetWindStateAddrByRankId(const int32_t rankId)
     {
         auto ptr = shmem_ptr(gva_gm, rankId);
-
-        return (GM_ADDR)(ptr) + WIN_MAGIC_OFFSET + NOTIFY_META_SIZE + dataState * HALF_WIN_STATE_OFFSET; // TODO:待重整偏移
+        return (GM_ADDR)(ptr);
     }
 
     TPipe *tpipe_{nullptr};
@@ -161,6 +160,10 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::Init(GM_ADDR x, GM_A
     moeExpertNum = tilingData->moeDispatchNormalInfo.moeExpertNum;
     moeExpertNumPerRank = moeExpertNum / epRankSize;
     isEnableDiagnose = tilingData->moeDispatchNormalInfo.isEnableDiagnose;
+
+    // if (blockIdx == 0) {
+    //     printf("[dispatch_Init] rank:%d, blockId:%d, gva_gm:%p\n", epRankId, blockIdx, gva_gm);
+    // }
 
     xGT.SetGlobalBuffer((__gm__ XType *)x);
     expertIdsGT.SetGlobalBuffer((__gm__ int32_t *)expertIds);
@@ -576,7 +579,7 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::Process()
 
         // 交换所有卡的output地址
         PutShareAddr();
-        SetStatus(); // TODO: 将地址和flag一起发送
+        SetStatus();
         WaitStatus();
         GetShareAddr();
 

@@ -39,7 +39,6 @@ public:
     __aicore__ inline void Process();
 
 private:
-    __aicore__ inline void InitMagic();
     __aicore__ inline void InitGlobalBuffer(GM_ADDR recvX, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR topkIdx,
                                             GM_ADDR sendTokenIdx, GM_ADDR XOut, GM_ADDR sendCostStatsOut);
     __aicore__ inline void InitTilingData(const ShmemMoeCombineNormalTilingData *tilingData);
@@ -55,8 +54,7 @@ private:
     __aicore__ inline GM_ADDR GetWindStateAddrByRankId(const int32_t rankId)
     {
         auto ptr = shmem_ptr(gva_gm, rankId);
-
-        return (GM_ADDR)(ptr) + WIN_MAGIC_OFFSET + NOTIFY_META_SIZE + DISPATCH_META_SIZE + magic_ * HALF_WIN_STATE_OFFSET; // TODO:待重整偏移
+        return (GM_ADDR)(ptr);
     }
 
     __aicore__ inline void SplitCoreCal(uint32_t totalNum, uint32_t &perCoreNum, uint32_t &startIdx, uint32_t &endIdx)
@@ -150,18 +148,6 @@ private:
 };
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::InitMagic()
-{
-    GM_ADDR magicAddr = (GM_ADDR)(gva_gm);
-    GlobalTensor<uint64_t> selfMagicTensor;
-    selfMagicTensor.SetGlobalBuffer((__gm__ uint64_t *)(magicAddr + blockIdx * WIN_512_ALIGN));
-    DataCacheCleanAndInvalid<uint64_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(selfMagicTensor);
-    magic_ = selfMagicTensor(0);
-    selfMagicTensor(0) = ((magic_ == 0) ? 1 : 0);
-    DataCacheCleanAndInvalid<uint64_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(selfMagicTensor);
-}
-
-template <TemplateMC2TypeClass>
 __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::InitGlobalBuffer(GM_ADDR recvX, GM_ADDR epRecvCount,
                                                                                     GM_ADDR topkWeights,
                                                                                     GM_ADDR topkIdx,
@@ -231,7 +217,10 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::Init(
     InitGlobalBuffer(recvX, epRecvCount, topkWeights, topkIdx, sendTokenIdx, XOut, sendCostStatsOut);
     InitBuffLen();
 
-    // InitMagic();
+    // if (blockIdx == 0) {
+    //     printf("[combine_Init] rank:%d, blockId:%d, gva_gm:%p\n", epRankId, blockIdx, gva_gm);
+    // }
+
     // rank分核
     SplitCoreCal(epRankSize, rankNumPerBlock, curBlockStartRankId, curBlockEndRankId);
 }
@@ -394,19 +383,19 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::GetShareAddr(
         SyncFunc<AscendC::HardEvent::MTE2_S>();
         shareRecvXAddrs[i] = addrTensor_(0);
 
-        if (epRankId == 0) {
-            printf("[combine_GetShareAddr] rank:%d, blockId:%d, i:%d, recvX:%p\n", 
-                epRankId, blockIdx, i, shareRecvXAddrs[i]);
-            // AscendC::DumpTensor(addrTensor_, 387, 4);
-        }
+        // if (epRankId == 0) {
+        //     printf("[combine_GetShareAddr] rank:%d, blockId:%d, i:%d, recvX:%p\n", 
+        //         epRankId, blockIdx, i, shareRecvXAddrs[i]);
+        //     // AscendC::DumpTensor(addrTensor_, 387, 4);
+        // }
     }
 
-    if (epRankId == 0) {
-        printf("[combine_GetShareAddr1] rank:%d, blockId:%d, shareRecvXAddrs:%p %p %p %p, %p %p %p %p\n", 
-            epRankId, blockIdx, 
-            shareRecvXAddrs[0], shareRecvXAddrs[1], shareRecvXAddrs[2], shareRecvXAddrs[3],
-            shareRecvXAddrs[4], shareRecvXAddrs[5], shareRecvXAddrs[6], shareRecvXAddrs[7]);
-    }
+    // if (epRankId == 0) {
+    //     printf("[combine_GetShareAddr1] rank:%d, blockId:%d, shareRecvXAddrs:%p %p %p %p, %p %p %p %p\n", 
+    //         epRankId, blockIdx, 
+    //         shareRecvXAddrs[0], shareRecvXAddrs[1], shareRecvXAddrs[2], shareRecvXAddrs[3],
+    //         shareRecvXAddrs[4], shareRecvXAddrs[5], shareRecvXAddrs[6], shareRecvXAddrs[7]);
+    // }
 }
 
 template <TemplateMC2TypeClass>
@@ -425,13 +414,12 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::ReadTokenAndW
         uint64_t remoteReadAddr = static_cast<uint64_t>(remoteReadBase + remoteReadOffset) * hRecvXTypeLen_;
 
         int32_t dstRankId = expertId / moeExpertPerRankNum_;
-        auto ptr = reinterpret_cast<__gm__ uint8_t *>(shmem_ptr(recvXGM_, dstRankId));
-        auto ptr2 = shareRecvXAddrs[dstRankId];
-        if (epRankId == 0) {
-            printf("[ReadToken] rank:%d, blockId:%d, tokenIndex:%d, dstRankId:%d, ptr:%p, ptr2:%p, ori_ptr:%p\n", 
-                epRankId, blockIdx, tokenIndex, dstRankId, ptr, ptr2, shareRecvXAddrs[dstRankId]);
-        }
-        dstGT.SetGlobalBuffer((__gm__ XType *)(ptr2 + hRecvXTypeLen_ * (remoteReadBase + remoteReadOffset)));
+        auto ptr = shareRecvXAddrs[dstRankId];
+        // if (epRankId == 0) {
+        //     printf("[ReadToken] rank:%d, blockId:%d, tokenIndex:%d, dstRankId:%d, ptr:%p, ptr2:%p, ori_ptr:%p\n", 
+        //         epRankId, blockIdx, tokenIndex, dstRankId, ptr, ptr2, shareRecvXAddrs[dstRankId]);
+        // }
+        dstGT.SetGlobalBuffer((__gm__ XType *)(ptr + hRecvXTypeLen_ * (remoteReadBase + remoteReadOffset)));
 
         LocalTensor<XType> tmpToken = weightedSumQueue_.AllocTensor<XType>();
         DataCopyPad(tmpToken, dstGT, xOutCopyParams, copyPadExtParams);
@@ -519,7 +507,7 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::Process()
         
         // 交换所有卡的output地址
         PutShareAddr();
-        SetStatus(); // TODO: 将地址和flag一起发送
+        SetStatus();
         WaitStatus();
         GetShareAddr();
 

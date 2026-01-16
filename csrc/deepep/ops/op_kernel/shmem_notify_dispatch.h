@@ -50,12 +50,10 @@ public:
         blockIdx_ = GetBlockIdx();
         blockNum_ = GetBlockNum();
 
-        gva_gm = (GM_ADDR)shmemPtr;  // 作为原来的 winContext_
-        this->magic = GetMagicValue();
-        bufferId_ = this->magic % PING_PONG_SIZE;
+        gva_gm = (GM_ADDR)shmemPtr;
 
-        // if (epRankId_ == 0) {
-        //     printf("[Init] rank:%d, blockId:%d, magic:%d\n", epRankId_, blockIdx_, magic);
+        // if (blockIdx_ == 0) {
+        //     printf("[notify_Init] rank:%d, blockId:%d, gva_gm:%p\n", epRankId_, blockIdx_, gva_gm);
         // }
 
         nodeNum = epWorldSize_ / localRankSize;
@@ -97,7 +95,7 @@ public:
 
         // 交换非对称地址
         PutShareAddr();
-        SetStatus(); // TODO: 将地址和flag一起发送
+        SetStatus();
         WaitStatus();
         GetShareAddr();
 
@@ -120,7 +118,6 @@ public:
 
 private:
     __aicore__ inline GM_ADDR GetWindStateAddrByRankId(const int32_t rankId);
-    __aicore__ inline uint64_t GetMagicValue(void);
     template <typename F>
     __aicore__ inline void SetAtomic(int op);
     __aicore__ inline void UnsetAtomic(int op);
@@ -610,34 +607,12 @@ private:
     }
 
 };
+
 template <typename T>
 __aicore__ inline GM_ADDR ShmemNotifyDispatch<T>::GetWindStateAddrByRankId(const int32_t rankId)
 {
-    auto ptr = shmem_ptr((__gm__ T *)gva_gm, rankId);
-
-    return (GM_ADDR)(ptr) + WIN_MAGIC_OFFSET + bufferId_ * HALF_WIN_STATE_OFFSET;
-}
-
-// Assign values to gva_gm and blockIdx_ before calling, magic buffer 24kb
-template <typename T>
-__aicore__ inline uint64_t ShmemNotifyDispatch<T>::GetMagicValue(void)
-{
-    uint64_t magic = 0;
-    GlobalTensor<uint64_t> selfDataStatusTensor;
-    GM_ADDR statusDataSpaceGm = (GM_ADDR)(gva_gm);
-    selfDataStatusTensor.SetGlobalBuffer((__gm__ uint64_t *)(statusDataSpaceGm + blockIdx_ * WIN_ADDR_ALIGN));
-    DataCacheCleanAndInvalid<uint64_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(selfDataStatusTensor);
-    magic = selfDataStatusTensor(0);
-    if (magic <= 0) {
-        magic = 1;
-    }
-    selfDataStatusTensor(0) = magic + 1;
-    DataCacheCleanAndInvalid<uint64_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(selfDataStatusTensor);
-    // PipeBarrier<PIPE_ALL>();
-    // if (epRankId_ == 0) {
-    //     printf("[GetMagicValue] rank:%d, blockId:%d, magic:%d\n", epRankId_, blockIdx_, magic);
-    // }
-    return magic;
+    auto ptr = shmem_ptr(gva_gm, rankId);
+    return (GM_ADDR)(ptr);
 }
 
 template <typename T>
