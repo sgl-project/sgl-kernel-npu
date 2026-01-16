@@ -102,7 +102,7 @@ void SetTilingConfig(uint64_t elements, int teamId, bool isSmallData, uint32_t b
 	// 根据通信组数对核进行进行分组
     uint32_t rankSize = shmem_team_n_pes(teamId);
 	uint32_t coreGroupNum = isSmallData ? blockDim : blockDim / 2;
-	tilingconfig->coreNumPerRank_ = blockDim / coreGroupNum;
+	tilingconfig->coreNumPerRank_ = coreGroupNum / rankSize;
 	// 计算每个通信组处理的数据
     tilingconfig->eleNumPerRank_ = elements / rankSize;
 	// 计算组内每个核处理的数据, 如果不能对齐, former 处理大块数据,
