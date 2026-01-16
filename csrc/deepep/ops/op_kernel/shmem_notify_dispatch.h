@@ -91,17 +91,17 @@ public:
     {
         // 清理meta中的flag，然后同步
         ResetMetaFlag();
-        shmem_barrier_all();
 
         // 交换非对称地址
         PutShareAddr();
-        SetStatus();
-        WaitStatus();
+        shmem_barrier_all();
         GetShareAddr();
 
         AllGatherSendData();  // allgather 每个rank的sendCount
-        SyncAll<true>();
-        shmem_barrier_all();  // 全卡同步，确保数据已经获取完
+        // SyncAll<true>();
+        // shmem_barrier_all();  // 全卡同步，确保数据已经获取完
+        SetStatus();
+        WaitStatus();
 
         ReloadRecvData();
         int32_t remainBlockIdx = (blockNum_ / 2);

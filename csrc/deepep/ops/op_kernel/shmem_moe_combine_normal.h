@@ -503,17 +503,17 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::Process()
 {
     if ASCEND_IS_AIV {  // 全aiv处理
         ResetMetaFlag();
-        shmem_barrier_all(); // 清除其他算子残留的flag TODO: 验证是否可以删除
         
         // 交换所有卡的output地址
         PutShareAddr();
-        SetStatus();
-        WaitStatus();
+        shmem_barrier_all(); // 清除其他算子残留的flag TODO: 验证是否可以删除
         GetShareAddr();
 
         ReadTokenFromRemote();
-        SyncAll<true>();
-        shmem_barrier_all();  // 全卡同步，确保数据已经获取完
+        // SyncAll<true>();
+        // shmem_barrier_all();  // 全卡同步，确保数据已经获取完
+        SetStatus();
+        WaitStatus();
     }
 }
 
