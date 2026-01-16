@@ -552,17 +552,17 @@ private:
             // }
         }
 
-        // 清状态
-        SyncFunc<AscendC::HardEvent::MTE3_S>();
-        DataCopyParams intriOutParams{static_cast<uint16_t>(rankNumPerBlock), 1, 0, 0};
-        uint64_t duplicateMask[2] = {0x101010101010101, 0};
-        LocalTensor<int32_t> cleanStateTensor = waitStatusBuf_.Get<int32_t>();
-        SyncFunc<AscendC::HardEvent::S_V>();
-        Duplicate<int32_t>(cleanStateTensor, 0, duplicateMask, Ceil(rankNumPerBlock, 8), 1, 8);
-        SyncFunc<AscendC::HardEvent::V_MTE3>();
-        DataCopy(statusFp32TensorGT[curBlockStartRankId * STATE_OFFSET / sizeof(float)],
-                cleanStateTensor.ReinterpretCast<float>(), intriOutParams);
-        SyncFunc<AscendC::HardEvent::MTE3_S>();
+        // // 清状态
+        // SyncFunc<AscendC::HardEvent::MTE3_S>();
+        // DataCopyParams intriOutParams{static_cast<uint16_t>(rankNumPerBlock), 1, 0, 0};
+        // uint64_t duplicateMask[2] = {0x101010101010101, 0};
+        // LocalTensor<int32_t> cleanStateTensor = waitStatusBuf_.Get<int32_t>();
+        // SyncFunc<AscendC::HardEvent::S_V>();
+        // Duplicate<int32_t>(cleanStateTensor, 0, duplicateMask, Ceil(rankNumPerBlock, 8), 1, 8);
+        // SyncFunc<AscendC::HardEvent::V_MTE3>();
+        // DataCopy(statusFp32TensorGT[curBlockStartRankId * STATE_OFFSET / sizeof(float)],
+        //         cleanStateTensor.ReinterpretCast<float>(), intriOutParams);
+        // SyncFunc<AscendC::HardEvent::MTE3_S>();
 
         SyncAll<true>();
         // if (epRankId_ == 0) {
