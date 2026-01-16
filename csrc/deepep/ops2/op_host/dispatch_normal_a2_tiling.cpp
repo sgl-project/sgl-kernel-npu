@@ -102,7 +102,7 @@ constexpr uint32_t STATIC_QUANT_MODE = 1;
 constexpr uint32_t DYNAMIC_QUANT_MODE = 2;
 constexpr uint32_t RANK_NUM_PER_NODE_A2 = 8;
 constexpr uint32_t BLOCK_SIZE_A2 = 32;
-constexpr uint32_t MAX_K_VALUE_A2 = 8;
+constexpr uint32_t MAX_K_VALUE_A2 = 10;
 constexpr int32_t MAX_HIDDEN_SIZE_A2 = 7168;
 constexpr int32_t MAX_EP_WORLD_SIZE_A2 = 256;
 constexpr int32_t MAX_MOE_EXPERT_NUMS_A2 = 512;
@@ -123,7 +123,7 @@ constexpr uint32_t TP_TILING_KEY = 100;
 constexpr uint32_t VERSION_2 = 2;
 constexpr uint32_t HCOMMCNT_2 = 2;
 constexpr int64_t MOE_EXPERT_MAX_NUM = 512;
-constexpr int64_t K_MAX = 8;
+constexpr int64_t K_MAX = 10;
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
 constexpr uint32_t USER_WORKSPACE_A2 = 1 * 1024 * 1024;  // moeExpertNum_ * sizeof(uint32_t) + epWorldSize_ * 2 * 32
 constexpr int32_t HCCL_BUFFER_SIZE_DEFAULT = 200 * 1024 * 1024;  // Bytes
@@ -1106,9 +1106,6 @@ static ge::graphStatus MoeDistributeDispatchA2TilingFuncImpl(gert::TilingContext
 
     uint64_t tilingKey = MoeDistributeDispatchA2CalcTilingKey(context);
     context.SetTilingKey(tilingKey);
-    if ((tilingKey & TILING_KEY_LAYERED_COMM_A2) != 0) {
-        OP_TILING_CHECK(info.k != 8, OP_LOGE(nodeName, "As layered, K must be 8."), return ge::GRAPH_FAILED);
-    }
     // 2. workspace
     size_t *workSpaces = context.GetWorkspaceSizes(1);
     OP_TILING_CHECK(workSpaces == nullptr, VECTOR_INNER_ERR_REPORT_TILIING(nodeName, "workSpaces is nullptr."),
