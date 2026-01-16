@@ -532,6 +532,9 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::InputToDstOutput()
 
     for (int32_t tokenIndex = startTokenId; tokenIndex < endTokenId; ++tokenIndex) {
         uint32_t dstExpertId = expertIdsTensor(tokenIndex - startTokenId);
+        if (dstExpertId < 0 || dstExpertId >= moeExpertNum) {
+            continue;
+        }
         uint32_t dstRankId = dstExpertId / moeExpertNumPerRank;
         // 对端output的小偏移，专家内不同rank来源内的，本卡发送给该专家的token序号
         int32_t curExpertIdx = sendTokenIdxTensor(tokenIndex - startTokenId);

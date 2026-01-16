@@ -407,8 +407,11 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::ReadTokenAndW
     Duplicate(sumFloatBufLocal, static_cast<float>(0), axisH_);
 
     for (uint32_t topkId = 0U; topkId < axisK_; topkId++) {
-        float scale = topkWeightsLocal.GetValue(topkId);
         int32_t expertId = topkIdxLocal.GetValue(topkId);
+        if (expertId < 0 || expertId >= moeExpertNum_) {
+            continue;
+        }
+        float scale = topkWeightsLocal.GetValue(topkId);
         int32_t remoteReadOffset = sendTokenIdxLocal(topkId);
         int32_t remoteReadBase = allRecvCountLocal(expertId * epRankSize + epRankId);
         uint64_t remoteReadAddr = static_cast<uint64_t>(remoteReadBase + remoteReadOffset) * hRecvXTypeLen_;
