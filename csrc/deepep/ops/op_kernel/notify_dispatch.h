@@ -74,9 +74,7 @@ public:
         tokenPerExpertDataAlignLen = Ceil(batchRounds * numExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
         sendDataOffsetAlignLen = Ceil(batchRounds * numExperts * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
         sendDataAlignLen = Ceil(batchRounds * numExperts * sendPerGroup * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
-        recvDataAlignLen = Ceil(round * numExperts * sendPerGroup * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
         sendTokensPerRankAlignLen = Ceil(numRanks * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
-        sendCountAlignLen = Ceil(round * numExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
 
         // Initialize core grouping
         InitCoreGroup();
@@ -394,7 +392,6 @@ private:
 
     __aicore__ inline void ReorderSendTokensPerRankOutput()
     {
-        sendTokensPerRankAlignLen = Ceil(numRanks * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE; 
         pipe.InitBuffer(sendTokensPerRankBuf, sendTokensPerRankAlignLen);
         pipe.InitBuffer(seenRoundBuf, sendTokensPerRankAlignLen);
         sendTokensPerRankTensor = sendTokensPerRankBuf.Get<int32_t>();
