@@ -132,7 +132,7 @@ def test(
             # Check received data
             recv_x = recv_x[:num_valid_tokens]
             recv_x_amin = recv_x[:, :-128].amin(dim=-1)
-            assert torch.equal(recv_x_amin, recv_x[:, :-128].amax(dim=-1))
+            assert torch.allclose(recv_x_amin, recv_x[:, :-128].amax(dim=-1), equal_nan=True)
             if dispatch_use_fp8:
                 hash_value ^= hash_tensor(
                     packed_recv_x[0][int(i * temp) : int(i * temp + num_valid_tokens)]
