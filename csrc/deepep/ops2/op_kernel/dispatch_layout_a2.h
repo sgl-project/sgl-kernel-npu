@@ -297,6 +297,9 @@ private:
         for (int i = 0; i < tempTokens_; ++i) {
             for (int j = 0; j < numTopk_; ++j) {
                 int64_t expert_idx = topkIdxTensor.GetValue(i * numTopk_ + j);
+                if (expert_idx < 0 || expert_idx >= numExperts_) {
+                    continue;
+                }
                 int rank_id = expert_idx / experts_per_rank;
                 int server_id = rank_id / localRankSize_;
                 int32_t offset = localTokenServerOffsetTensor.GetValue(i * serverNum_ + server_id);

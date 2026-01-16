@@ -548,7 +548,6 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
     }
 
     auto topk_idx_int32 = topk_idx_p.to(at::kInt);
-    at::Tensor expand_ids = topk_idx_int32;
     at::Tensor token_src_info = src_idx;
     at::Tensor ep_send_counts = send_head;
     auto device = x.device();

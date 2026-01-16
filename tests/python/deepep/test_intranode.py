@@ -1,5 +1,4 @@
 import argparse
-import math
 import os
 import time
 from typing import Optional
