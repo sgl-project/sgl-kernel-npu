@@ -376,6 +376,9 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::InputToShare()
     DataCopyExtParams xCopyParams = {1U, static_cast<uint32_t>(h * sizeof(XType)), 0U, 0U, 0U};
     for (int32_t tokenIndex = startTokenId; tokenIndex < endTokenId; ++tokenIndex) {
         uint32_t dstExpertId = expertIdsTensor(tokenIndex - startTokenId);
+        if (dstExpertId < 0 || dstExpertId >= moeExpertNum) {
+            continue;
+        }
         int32_t curExpertCnt = sendTokenIdxTensor(tokenIndex - startTokenId);
         int32_t dstExpertOffset = sendOffsetTensor(dstExpertId);
         GM_ADDR rankGM = (__gm__ uint8_t *)(shareGM + hOutGMAlignSize * (dstExpertOffset + curExpertCnt));
