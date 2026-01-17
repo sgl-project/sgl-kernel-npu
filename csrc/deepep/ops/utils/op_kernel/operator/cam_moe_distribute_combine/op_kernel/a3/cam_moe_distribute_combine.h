@@ -116,13 +116,13 @@ private:
                                  ? epWinContext_->localWindowsExp
                                  : ((HcclRankRelationResV2 *)(epWinContext_->remoteRes[rankId].nextDevicePtr))
                                        ->windowsExp) +
-                   dataState_ * WIN_STATE_OFFSET;
+                   dataState_ * WIN_STATE_OFFSET + WINDOWS_EXP_OFFSET;
         } else {
             return (GM_ADDR)((tpRankId_ == rankId)
                                  ? tpWinContext_->localWindowsExp
                                  : ((HcclRankRelationResV2 *)(tpWinContext_->remoteRes[rankId].nextDevicePtr))
                                        ->windowsExp) +
-                   dataState_ * WIN_STATE_OFFSET;
+                   dataState_ * WIN_STATE_OFFSET + WINDOWS_EXP_OFFSET;
         }
     }
 
@@ -239,7 +239,7 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::Init(
     auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
     epWinContext_ = (__gm__ HcclOpResParam *)contextGM0;
     GlobalTensor<int32_t> selfDataStatusTensor;
-    GM_ADDR statusDataSpaceGm = (GM_ADDR)epWinContext_->localWindowsExp;
+    GM_ADDR statusDataSpaceGm = (GM_ADDR)epWinContext_->localWindowsExp + WINDOWS_EXP_OFFSET;
     selfDataStatusTensor.SetGlobalBuffer((__gm__ int32_t *)(statusDataSpaceGm + STATE_WIN_OFFSET));
     __asm__ __volatile__("");
     DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
