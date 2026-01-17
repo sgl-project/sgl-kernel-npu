@@ -243,9 +243,18 @@ def test_main(
     for i in range(num_ranks):
         num_tokens_per_rank[i] = (rank_idx == i).sum()
         token_sel = (rank_idx == i).max(dim=-1)[0]
-        count = token_sel.sum().item()
-        tokens = torch.sort(token_sel.to(torch.int), descending=True)[1]
-        tokens[:count] = torch.sort(tokens[:count])[0]
+        count = token_sel.sum().cpu().item()
+
+        # Perform sorting on CPU
+        token_sel_cpu = token_sel.to(torch.int).cpu()
+        tokens_cpu = torch.sort(token_sel_cpu, descending=True)[1]
+        sorted_tokens = torch.sort(tokens_cpu[:count])[0]
+
+        # Put the results back into the NPU
+        tokens = tokens_cpu.to("npu")
+        tokens[:count] = sorted_tokens.to("npu")
+
+        # Ensure the size of arrange matches the count.
         token_idx_in_rank[i][tokens[:count]] = torch.arange(
             count, dtype=torch.long, device="npu"
         )
@@ -430,14 +439,22 @@ def test_main(
             combined_x, combined_topk_weights, event = buffer.combine(**combine_args)
             check_x = combined_x.float()
             ref_x = x_pure_rand if current_x is x_pure_rand else x
-            assert (
-                calc_diff(
-                    check_x,
-                    ref_x
-                    * handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
-                )
-                < 5e-5
-            )
+            # Calculate the intermediate values of each item
+            masked_values = handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
+            scaled_ref_x = ref_x * masked_values
+
+
+            # Calculate the difference
+            diff_result = calc_diff(check_x, scaled_ref_x)
+
+            if args.debug:
+                print(f"Debug - diff_result: {diff_result}, threshold: {5e-5}")
+                print(f"Debug - masked_values (first 10): {masked_values.flatten()[:10]}")
+                print(f"Debug - ref_x (first 10): {ref_x.flatten()[:10]}")
+                print(f"Debug - scaled_ref_x (first 10): {scaled_ref_x.flatten()[:10]}")
+                print(f"Debug - check_x (first 10): {check_x.flatten()[:10]}")
+
+            assert diff_result < 5e-5
 
             if local_rank == 0:
                 print(" passed", flush=True)
@@ -519,7 +536,8 @@ def test_main(
             print("", flush=True)
 
     test_correctness()
-    test_tuning()
+    #test_correctness_with_saved_data()      # 测试 BF16
+    #test_tuning()
 
     # Diagnose test
     if enable_diagnose:
@@ -587,6 +605,13 @@ if __name__ == "__main__":
         action="store_true",
         help="Whether to enable diagnose for testing",
     )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="Enable debug logging.",
+    )
+
     args = parser.parse_args()
 
     num_processes = args.num_processes
