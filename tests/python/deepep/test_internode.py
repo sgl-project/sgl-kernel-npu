@@ -440,16 +440,19 @@ def test_main(
             check_x = combined_x.float()
             ref_x = x_pure_rand if current_x is x_pure_rand else x
             # Calculate the intermediate values of each item
-            masked_values = handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
+            masked_values = (
+                handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
+            )
             scaled_ref_x = ref_x * masked_values
-
 
             # Calculate the difference
             diff_result = calc_diff(check_x, scaled_ref_x)
 
             if args.debug:
                 print(f"Debug - diff_result: {diff_result}, threshold: {5e-5}")
-                print(f"Debug - masked_values (first 10): {masked_values.flatten()[:10]}")
+                print(
+                    f"Debug - masked_values (first 10): {masked_values.flatten()[:10]}"
+                )
                 print(f"Debug - ref_x (first 10): {ref_x.flatten()[:10]}")
                 print(f"Debug - scaled_ref_x (first 10): {scaled_ref_x.flatten()[:10]}")
                 print(f"Debug - check_x (first 10): {check_x.flatten()[:10]}")
