@@ -14,6 +14,7 @@ struct NotifyDispatchInfo {
     uint32_t perRoundTokens;
     uint32_t aivNum;
     uint64_t totalUbSize;
+    uint64_t totalWinSize;
 };
 
 struct NotifyDispatchTilingData {
