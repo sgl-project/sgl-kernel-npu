@@ -18,6 +18,8 @@
 
 namespace host_utils {
 
+#include <cstdint>
+
 constexpr uint32_t BLK_SIZE_ALIN_FOR_INT64 = 4;
 constexpr uint32_t BLK_SIZE_ALIN_FOR_INT32 = 8;
 
@@ -80,3 +82,4 @@ private:
 };
 }  // namespace host_utils
 #endif  // UTILS_COMMON_H
+
