@@ -536,8 +536,7 @@ def test_main(
             print("", flush=True)
 
     test_correctness()
-    #test_correctness_with_saved_data()      # 测试 BF16
-    #test_tuning()
+    test_tuning()
 
     # Diagnose test
     if enable_diagnose:
