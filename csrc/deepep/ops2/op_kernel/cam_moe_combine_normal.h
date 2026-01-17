@@ -40,14 +40,14 @@ public:
     __aicore__ inline CamMoeCombineNormal(){};
     __aicore__ inline void Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights,
                                 GM_ADDR tpRecvCount, GM_ADDR XOut, GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM,
-                                TPipe *pipe, GM_ADDR tiling);
+                                TPipe *pipe, GM_ADDR tilingGM);
     __aicore__ inline void Process();
 
 private:
     __aicore__ inline void InitMagic();
     __aicore__ inline void InitGlobalBuffer(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount,
                                             GM_ADDR topkWeights, GM_ADDR XOut, GM_ADDR sendCostStatsOut);
-    __aicore__ inline void InitTilingData(__gm__ CamMoeCombineNormalTilingData *tilingData);
+    // __aicore__ inline void InitTilingData(__gm__ CamMoeCombineNormalTilingData *tilingData);
     __aicore__ inline void InitBuffLen();
     __aicore__ inline void CopyBufferToShareAndSetStatus();
     __aicore__ inline void CopyBufferToShare(uint32_t srcRankId, uint32_t srcTokenId, uint32_t srcTopkId,
@@ -157,20 +157,20 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitGlobalBuffe
     }
 }
 
-template <TemplateMC2TypeClass>
-__aicore__ inline void
-CamMoeCombineNormal<TemplateMC2TypeFunc>::InitTilingData(__gm__ CamMoeCombineNormalTilingData *tilingData)
-{
-    axisBS_ = tilingData->camMoeCombineNormalInfo.bs;
-    axisH_ = tilingData->camMoeCombineNormalInfo.h;
-    axisK_ = tilingData->camMoeCombineNormalInfo.k;
-    aivNum_ = tilingData->camMoeCombineNormalInfo.aivNum;
-    moeExpertNum_ = tilingData->camMoeCombineNormalInfo.moeExpertNum;
-    moeExpertPerRankNum_ = tilingData->camMoeCombineNormalInfo.moeExpertPerRankNum;
-    epWorldSize_ = tilingData->camMoeCombineNormalInfo.epWorldSize;
-    epRankId_ = tilingData->camMoeCombineNormalInfo.epRankId;
-    isEnableDiagnose_ = tilingData->camMoeCombineNormalInfo.isEnableDiagnose;
-}
+// template <TemplateMC2TypeClass>
+// __aicore__ inline void
+// CamMoeCombineNormal<TemplateMC2TypeFunc>::InitTilingData(__gm__ CamMoeCombineNormalTilingData *tilingData)
+// {
+//     axisBS_ = tilingData->camMoeCombineNormalInfo.bs;
+//     axisH_ = tilingData->camMoeCombineNormalInfo.h;
+//     axisK_ = tilingData->camMoeCombineNormalInfo.k;
+//     aivNum_ = tilingData->camMoeCombineNormalInfo.aivNum;
+//     moeExpertNum_ = tilingData->camMoeCombineNormalInfo.moeExpertNum;
+//     moeExpertPerRankNum_ = tilingData->camMoeCombineNormalInfo.moeExpertPerRankNum;
+//     epWorldSize_ = tilingData->camMoeCombineNormalInfo.epWorldSize;
+//     epRankId_ = tilingData->camMoeCombineNormalInfo.epRankId;
+//     isEnableDiagnose_ = tilingData->camMoeCombineNormalInfo.isEnableDiagnose;
+// }
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitBuffLen()
@@ -191,28 +191,42 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::Init(GM_ADDR re
                                                                       GM_ADDR epRecvCount, GM_ADDR topkWeights,
                                                                       GM_ADDR tpRecvCount, GM_ADDR XOut,
                                                                       GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM,
-                                                                      TPipe *pipe, GM_ADDR tiling)
+                                                                      TPipe *pipe, GM_ADDR tilingGM)
 {
     workspaceGM_ = workspaceGM;
     tpipe_ = pipe;
     coreIdx_ = GetBlockIdx();
 
-    auto tilingData = (__gm__ CamMoeCombineNormalTilingData *)tiling;
-    __gm__ void *mc2InitTiling = (__gm__ void *)(&(tilingData->mc2InitTiling));
-    __gm__ void *mc2CcTiling = (__gm__ void *)(&(tilingData->mc2CcTiling1));
-
+    GET_TILING_DATA_WITH_STRUCT(CamMoeCombineNormalTilingData, tilingData, tilingGM);
     auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
-
+#ifdef USE_V2_INTERFACE
+    hccl_.InitV2(contextGM0, &tilingData);
+    hccl_.SetCcTilingV2(offsetof(CamMoeCombineNormalTilingData, mc2CcTiling1));
+#else
+    auto tiling = (__gm__ CamMoeCombineNormalTilingData *)tilingGM;
+    __gm__ void *mc2InitTiling = (__gm__ void *)(&(tiling->mc2InitTiling));
+    __gm__ void *mc2CcTiling = (__gm__ void *)(&(tiling->mc2CcTiling1));
     hccl_.Init(contextGM0, mc2InitTiling);
     hccl_.SetCcTiling(mc2CcTiling);
+#endif
+
     epWinContext_ = (__gm__ HcclOpResParam *)contextGM0;
-    InitTilingData(tilingData);
+    // InitTilingData(tilingData);
+    axisBS_ = tilingData.camMoeCombineNormalInfo.bs;
+    axisH_ = tilingData.camMoeCombineNormalInfo.h;
+    axisK_ = tilingData.camMoeCombineNormalInfo.k;
+    aivNum_ = tilingData.camMoeCombineNormalInfo.aivNum;
+    moeExpertNum_ = tilingData.camMoeCombineNormalInfo.moeExpertNum;
+    moeExpertPerRankNum_ = tilingData.camMoeCombineNormalInfo.moeExpertPerRankNum;
+    epWorldSize_ = tilingData.camMoeCombineNormalInfo.epWorldSize;
+    epRankId_ = tilingData.camMoeCombineNormalInfo.epRankId;
+    isEnableDiagnose_ = tilingData.camMoeCombineNormalInfo.isEnableDiagnose;
     InitMagic();
     InitGlobalBuffer(recvX, tokenSrcInfo, epRecvCount, topkWeights, XOut, sendCostStatsOut);
     InitBuffLen();
 
     PipeBarrier<PIPE_ALL>();
-    winDataSizeOffset_ = static_cast<uint64_t>(magic_) * (tilingData->camMoeCombineNormalInfo.totalWinSize / 2UL);
+    winDataSizeOffset_ = static_cast<uint64_t>(magic_) * (tilingData.camMoeCombineNormalInfo.totalWinSize / 2UL);
     localRankGM_ = GetBufferAddrByRankId(epRankId_);
     DataCacheCleanAndInvalid<SrcInfoType, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
         epRecvCountGM_[moeExpertNum_ - 1]);

@@ -210,13 +210,17 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeA2layeredFu
 {
     tpipe_ = pipe;
     REGISTER_TILING_DEFAULT(MoeDistributeDispatchV2TilingData);
+    GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+#ifdef USE_V2_INTERFACE
+    hccl_.InitV2(contextGM0, &tilingData);
+    hccl_.SetCcTilingV2(offsetof(MoeDistributeDispatchV2TilingData, mc2CcTiling));
+#else
     auto tiling = (__gm__ MoeDistributeDispatchV2TilingData *)tilingGM;
     __gm__ void *mc2InitTiling = (__gm__ void *)(&(tiling->mc2InitTiling));
     __gm__ void *mc2CcTiling = (__gm__ void *)(&(tiling->mc2CcTiling));
-    GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
-
     hccl_.Init(contextGM0, mc2InitTiling);
     hccl_.SetCcTiling(mc2CcTiling);
+#endif
 
     winContext_ = (__gm__ HcclA2CombineOpParam *)contextGM0;
     rankId_ = tilingData.moeDistributeDispatchV2Info.epRankId;

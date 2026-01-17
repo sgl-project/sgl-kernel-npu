@@ -9,6 +9,8 @@
 /* system tick: 50MHz */
 #define CAL_US(tick) (((tick) * 2) / 100)
 
+// #define USE_V2_INTERFACE
+
 /* performance macro */
 // #define USE_256_TO_1__
 #ifdef USE_256_TO_1__
