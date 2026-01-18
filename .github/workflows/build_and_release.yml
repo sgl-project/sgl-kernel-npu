@@ -43,14 +43,14 @@ jobs:
 
       - name: Build SGL-Kernel-NPU
         run: |
-          env bash --login -c "
+          env -i bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
             ./build.sh -a kernels
           "
 
       - name: Build Torch-Memory-Saver
         run: |
-          env bash --login -c "
+          env -i bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
             ./build.sh -a memory-saver
           "
@@ -58,7 +58,7 @@ jobs:
       - name: Build DeepEP for 910b
         if: matrix.hardware == '910b'
         run: |
-          env bash --login -c "
+          env -i bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
             ./build.sh -a deepep2
           "
@@ -66,7 +66,7 @@ jobs:
       - name: Build DeepEP for a3
         if: matrix.hardware == 'a3'
         run: |
-          env bash --login -c "
+          env -i bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
             ./build.sh -a deepep
           "
