@@ -39,12 +39,14 @@ jobs:
 
       - name: Install dependency
         run: |
+          env
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Build SGL-Kernel-NPU
         run: |
           env -i bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+            env
             ./build.sh -a kernels
           "
 
