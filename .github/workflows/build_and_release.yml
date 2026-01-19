@@ -19,7 +19,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04-arm]
         hardware: [910b, a3]
-        cann_version: [8.3.rc2]
+        cann_version: [8.5.0]
     runs-on: ${{ matrix.os }}
     container:
       image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.hardware }}-ubuntu22.04-py3.11
@@ -39,11 +39,13 @@ jobs:
 
       - name: Install dependency
         run: |
+          env
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Build SGL-Kernel-NPU
         run: |
           env -i PATH=${PATH} bash --login -c "
+            env
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
             ./build.sh -a kernels
           "
