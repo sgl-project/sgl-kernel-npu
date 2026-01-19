@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.12 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 project(sgl-kernel-npu LANGUAGES CXX)
 
 option(BUILD_PYTHON "build python SDK" ON)

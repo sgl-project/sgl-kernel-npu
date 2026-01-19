@@ -224,7 +224,7 @@ function(ascendc_device_library)
         COMMAND ${CMAKE_COMMAND} -E touch ${CMAKE_CURRENT_BINARY_DIR}/tiling_sink/CMakeLists.txt
     )
     execute_process(
-        COMMAND ${CMAKE_COMMAND} -E echo "cmake_minimum_required(VERSION 3.16.0)\nproject(cust_tiling_sink)\ninclude(${CMAKE_SOURCE_DIR}/cmake/device_task.cmake)\n"
+        COMMAND ${CMAKE_COMMAND} -E echo "cmake_minimum_required(VERSION 3.20.0)\nproject(cust_tiling_sink)\ninclude(${CMAKE_SOURCE_DIR}/cmake/device_task.cmake)\n"
         OUTPUT_FILE ${CMAKE_CURRENT_BINARY_DIR}/tiling_sink/CMakeLists.txt
         RESULT_VARIABLE result
     )
