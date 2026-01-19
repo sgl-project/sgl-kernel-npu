@@ -431,6 +431,7 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
             DataCopyPad(tokenTempTensorU8_, xGMTensorU8_[(startTokenId + i) * tokenLenInStruct_],
                         tokenCopyParamsNoQuant, tokenPadParams);
         }
+        // 在量化模式下，确保上一次数据token计算完成，防止在datacopyPad覆盖掉上一次未计算完成的数据
         SyncFunc<AscendC::HardEvent::V_MTE2>();
         // 拷贝topkIds 可省略
         DataCopyPad(tokenTempTensorU8_[expOffsetInStruct_], expertIdsGMTensorU8_[(startTokenId + i) * realLenInStruct_],
