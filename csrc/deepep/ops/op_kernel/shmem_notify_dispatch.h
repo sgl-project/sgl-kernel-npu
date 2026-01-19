@@ -81,32 +81,17 @@ public:
 
         // 分核
         SplitCoreCal(epWorldSize_, rankNumPerBlock, curBlockStartRankId, curBlockEndRankId);
-
-        // if (blockIdx_ == 0) {
-        // }
-        // printf("[notify_Init] rank:%d, blockId:%d, gva_gm:%p, tokenPerExpertData_:%p\n", epRankId_, blockIdx_, gva_gm, tokenPerExpertData_);
     }
 
     __aicore__ inline void Process()
     {
-        // printf("[notify_process1] rank:%d, blockId:%d\n", epRankId_, blockIdx_);
-        // 清理meta中的state，然后同步
         ResetMetaState();
-
-        // 交换非对称地址
         PutShareAddr();
         SetSyncFlag(FLAG);  // 全卡同步，确保对称地址都放到了meta空间
         WaitSyncFlag(FLAG);
-        // shmem_barrier_all();
-        // printf("[notify_process2] rank:%d, blockId:%d\n", epRankId_, blockIdx_);
-        // return;
-        GetShareAddr();
 
+        GetShareAddr();
         AllGatherSendData();  // allgather 每个rank的sendCount
-        // SyncAll<true>();
-        // shmem_barrier_all();  // 全卡同步，确保数据已经获取完
-        // SetStatus();
-        // WaitStatus();
         SetSyncFlag(STATE);  // 全卡同步，确保数据已经获取完
         WaitSyncFlag(STATE);
 
@@ -124,7 +109,6 @@ public:
     }
 
 private:
-    __aicore__ inline GM_ADDR GetWindStateAddrByRankId(const int32_t rankId);
     __aicore__ inline GM_ADDR GetMetaAddrByRankId(const int32_t rankId, const int metaType);
     template <typename F>
     __aicore__ inline void SetAtomic(int op);
@@ -247,9 +231,6 @@ private:
         DataCopy(statusFp32TensorGT[curBlockStartRankId * STATE_OFFSET / sizeof(float)],
                 cleanStateTensor.ReinterpretCast<float>(), intriOutParams);
         SyncFunc<AscendC::HardEvent::MTE3_S>();
-
-        // printf("[notify_ResetMetaState] rank:%d, blockId:%d, ptr:%p\n", epRankId_, blockIdx_, ptr);
-        // AscendC::DumpTensor(statusFp32TensorGT, 244, 40);
     }
 
     __aicore__ inline void SetSyncFlag(int metaType)
@@ -275,11 +256,6 @@ private:
             // GM_ADDR remote_meta = (__gm__ uint8_t *)(ptr);
             gmRemoteStatusGt.SetGlobalBuffer((__gm__ int32_t *)(ptr));
             DataCopy<int32_t>(gmRemoteStatusGt, statusTensor[(i - curBlockStartRankId) * 8], 8UL);
-
-            // if (epRankId_ == 0) {
-            //     printf("[SetSyncFlag] rank:%d, blockId:%d, i:%d, metaType:%d, ptr:%p\n", epRankId_, blockIdx_, i, metaType, ptr);
-            //     AscendC::DumpTensor(statusTensor[(i - curBlockStartRankId) * 8], 470, 8);
-            // }
         }
         SyncFunc<AscendC::HardEvent::MTE3_S>();
     }
@@ -309,8 +285,6 @@ private:
         DataCopyParams intriParams{static_cast<uint16_t>(rankNumPerBlock), 1, 0, 0};
 
         SyncFunc<AscendC::HardEvent::S_V>();
-        // uint64_t timeoutCheckStart = static_cast<uint64_t>(GetSystemCycle());
-        // uint64_t timeoutCheckEnd, timeoutCheckDuration;
         while (sumOfFlag != compareTarget) {
             DataCopy(statusFp32Tensor, statusFp32TensorGT[curBlockStartRankId * STATE_OFFSET / sizeof(float)], intriParams);
             SyncFunc<AscendC::HardEvent::MTE2_V>();
@@ -332,12 +306,6 @@ private:
         SyncFunc<AscendC::HardEvent::MTE3_S>();
 
         SyncAll<true>();
-        // if (epRankId_ == 0) {
-        //     printf("[WaitSyncFlag] rank:%d, blockId:%d, offset:%d, ptr:%p\n", 
-        //         epRankId_, blockIdx_, curBlockStartRankId * STATE_OFFSET / sizeof(float), ptr);
-        //     AscendC::DumpTensor(statusFp32TensorGT, 578, 40);
-        // }
-        
     }
 
     // allgather每个rank的num_tokens_per_expert，采用分核策略
@@ -350,11 +318,6 @@ private:
         AscendC::GlobalTensor<int32_t> gmRemoteDataGt;
         for (uint32_t targetRankId = curBlockStartRankId; targetRankId < curBlockEndRankId; targetRankId++) {
             auto ptr = shareTokenPerExpertAddrs[targetRankId];
-            // if (epRankId_ == 0) {
-            //     printf("[AllGatherSendData] rank:%d, blockId:%d, targetRankId:%d, ptr:%p\n", 
-            //         epRankId_, blockIdx_, targetRankId, ptr);
-            // }
-
             gmRemoteDataGt.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(ptr));
 
             CpGM2GMPingPong<int32_t>(numExperts * sizeof(int32_t), gmRemoteDataGt,
@@ -489,10 +452,6 @@ private:
         LocalTensor<float> floatExpTokenSumCntLt = tmpBuf3_.Get<float>();
         LocalTensor<float> sharedTmpBuffer = tmpBuf4_.Get<float>();
 
-        // int32_t sumVal = 0;  
-        // for (uint32_t srcRankId = 0; srcRankId < epWorldSize_; srcRankId++) {
-        // }
-
         // 只需要计算当前rank接收的token数
         ReorderRecvDataOutput(epRankId_, recvTokenLt, false);  // localExpNum * ranks
 
@@ -503,7 +462,6 @@ private:
         SyncFunc<AscendC::HardEvent::V_S>();
         int32_t recvCnt = static_cast<int32_t>(floatExpTokenSumCntLt.GetValue(0));
         PipeBarrier<PIPE_ALL>();
-        // sumVal = sumVal > recvCnt ? sumVal : recvCnt;
 
         // 拷贝到outputGT
         GlobalTensor<int32_t> totalCntGt;
@@ -559,99 +517,6 @@ private:
         GM_ADDR remote_meta = GetMetaAddrByRankId(epRankId_, ADDR);
         metaDataGt.SetGlobalBuffer((__gm__ uint64_t *)(remote_meta));
         DataCopyPad(metaDataGt, addrTensor_, copyParams);
-
-        // if (blockIdx_ == 0) {
-        //     printf("[PutShareAddr] rank:%d, blockId:%d, remote_meta:%p, tokenPerExpertAddr:%p\n", 
-        //         epRankId_, blockIdx_, remote_meta, tokenPerExpertAddr);
-        //     // AscendC::DumpTensor(addrTensor_, 234, 4);
-        // }
-    }
-
-    // 分核向对应rank发送flag
-    __aicore__ inline void SetStatus()
-    {
-        if (rankNumPerBlock == 0U) {
-            SyncAll<true>();
-            return;
-        }
-
-        uint32_t statusCntAlign = Ceil(rankNumPerBlock, 8) * 8;
-        pipe_.InitBuffer(statusBuf_, statusCntAlign * UB_ALIGN);
-        LocalTensor statusTensor = statusBuf_.Get<int32_t>();
-        Duplicate<int32_t>(statusTensor, 0, rankNumPerBlock * 8);
-        uint64_t mask[2] = {0x101010101010101, 0};
-        PipeBarrier<PIPE_V>();
-        Duplicate<int32_t>(statusTensor, 0x3F800000, mask, statusCntAlign / 8, 1, 8);
-        PipeBarrier<PIPE_ALL>();
-        SyncAll<true>();
-
-        AscendC::GlobalTensor<int32_t> gmRemoteStatusGt;
-        for (uint32_t i = curBlockStartRankId; i < curBlockEndRankId; i++) {
-            GM_ADDR remote_meta = (__gm__ uint8_t *)(GetWindStateAddrByRankId(i) + epRankId_ * STATE_OFFSET);
-            gmRemoteStatusGt.SetGlobalBuffer((__gm__ int32_t *)remote_meta);
-            DataCopy<int32_t>(gmRemoteStatusGt, statusTensor[(i - curBlockStartRankId) * 8], 8UL);
-
-            // if (epRankId_ == 0) {
-            //     printf("[SetStatus] rank:%d, blockId:%d, i:%d, offset:%d\n", epRankId_, blockIdx_, i, epRankId_ * STATE_OFFSET);
-            //     AscendC::DumpTensor(statusTensor[(i - curBlockStartRankId) * 8], 470, 8);
-            // }
-        }
-        SyncFunc<AscendC::HardEvent::MTE3_S>();
-    }
-
-    __aicore__ inline void WaitStatus()
-    {
-        if (rankNumPerBlock == 0U) {
-            SyncAll<true>();
-            return;
-        }
-
-        uint32_t waitStatusBufSize = (((rankNumPerBlock * UB_ALIGN) > 256) ? (rankNumPerBlock * UB_ALIGN) : 256);
-        pipe_.InitBuffer(waitStatusBuf_, waitStatusBufSize);  // ranks/48 * 32B = 1 * 32B
-        uint32_t maskAlign = Ceil(epWorldSize_ * sizeof(float), UB_ALIGN) * UB_ALIGN;
-        pipe_.InitBuffer(gatherMaskOutBuf_, maskAlign);  // rankSize * 4B
-        pipe_.InitBuffer(statusSumBuf_, UB_ALIGN);  // 32B
-        
-        LocalTensor<float> gatherMaskOutTensor = gatherMaskOutBuf_.Get<float>();
-        LocalTensor<float> statusSumOutTensor = statusSumBuf_.Get<float>(UB_ALIGN);
-        LocalTensor<float> statusFp32Tensor = waitStatusBuf_.Get<float>();
-        GlobalTensor<float> statusFp32TensorGT;
-        statusFp32TensorGT.SetGlobalBuffer((__gm__ float *)(GetWindStateAddrByRankId(epRankId_)));
-        uint32_t mask = 1;
-        float compareTarget = static_cast<float>(1.0) * rankNumPerBlock;
-        float sumOfFlag = static_cast<float>(-1.0);
-        DataCopyParams intriParams{static_cast<uint16_t>(rankNumPerBlock), 1, 0, 0};
-
-        SyncFunc<AscendC::HardEvent::S_V>();
-        // uint64_t timeoutCheckStart = static_cast<uint64_t>(GetSystemCycle());
-        // uint64_t timeoutCheckEnd, timeoutCheckDuration;
-        while (sumOfFlag != compareTarget) {
-            DataCopy(statusFp32Tensor, statusFp32TensorGT[curBlockStartRankId * STATE_OFFSET / sizeof(float)], intriParams);
-            SyncFunc<AscendC::HardEvent::MTE2_V>();
-            ReduceSum(statusSumOutTensor, statusFp32Tensor, gatherMaskOutTensor, mask, rankNumPerBlock, 1);
-            SyncFunc<AscendC::HardEvent::V_S>();
-            sumOfFlag = statusSumOutTensor.GetValue(0);
-        }
-
-        // // 清状态
-        // SyncFunc<AscendC::HardEvent::MTE3_S>();
-        // DataCopyParams intriOutParams{static_cast<uint16_t>(rankNumPerBlock), 1, 0, 0};
-        // uint64_t duplicateMask[2] = {0x101010101010101, 0};
-        // LocalTensor<int32_t> cleanStateTensor = waitStatusBuf_.Get<int32_t>();
-        // SyncFunc<AscendC::HardEvent::S_V>();
-        // Duplicate<int32_t>(cleanStateTensor, 0, duplicateMask, Ceil(rankNumPerBlock, 8), 1, 8);
-        // SyncFunc<AscendC::HardEvent::V_MTE3>();
-        // DataCopy(statusFp32TensorGT[curBlockStartRankId * STATE_OFFSET / sizeof(float)],
-        //         cleanStateTensor.ReinterpretCast<float>(), intriOutParams);
-        // SyncFunc<AscendC::HardEvent::MTE3_S>();
-
-        SyncAll<true>();
-        // if (epRankId_ == 0) {
-        //     printf("[WaitStatus2] rank:%d, blockId:%d, offset:%d\n", 
-        //         epRankId_, blockIdx_, curBlockStartRankId * STATE_OFFSET / sizeof(float));
-        //     AscendC::DumpTensor(statusFp32TensorGT, 578, 40);
-        // }
-        
     }
 
     __aicore__ inline void GetShareAddr()
@@ -665,36 +530,15 @@ private:
             GM_ADDR meta_addr = GetMetaAddrByRankId(i, ADDR);
             AscendC::GlobalTensor<uint64_t> shareAddrGt;
             shareAddrGt.SetGlobalBuffer((__gm__ uint64_t *)(meta_addr));
-            // uint32_t offset = i * shareAddrNum * ADDR_OFFSET;
 
             SyncFunc<AscendC::HardEvent::MTE3_MTE2>();
             DataCopyPad(addrTensor_, shareAddrGt, copyParams, copyExtParams);
             SyncFunc<AscendC::HardEvent::MTE2_S>();
             shareTokenPerExpertAddrs[i] = addrTensor_(0);
-
-            // if (epRankId_ == 0) {
-            //     printf("[notify_GetShareAddr] rank:%d, blockId:%d, i:%d, tokenPerExpertAddr:%p\n", 
-            //         epRankId_, blockIdx_, i, shareTokenPerExpertAddrs[i]);
-            //     // AscendC::DumpTensor(addrTensor_, 537, 4);
-            // }
         }
-
-        // if (epRankId_ == 0) {
-        //     printf("[notify_GetShareAddr1] rank:%d, blockId:%d, shareTokenPerExpertAddrs:%p %p %p %p, %p %p %p %p\n", 
-        //         epRankId_, blockIdx_, 
-        //         shareTokenPerExpertAddrs[0], shareTokenPerExpertAddrs[1], shareTokenPerExpertAddrs[2], shareTokenPerExpertAddrs[3],
-        //         shareTokenPerExpertAddrs[4], shareTokenPerExpertAddrs[5], shareTokenPerExpertAddrs[6], shareTokenPerExpertAddrs[7]);
-        // }
     }
 
 };
-
-template <typename T>
-__aicore__ inline GM_ADDR ShmemNotifyDispatch<T>::GetWindStateAddrByRankId(const int32_t rankId)
-{
-    auto ptr = shmem_ptr(gva_gm, rankId);
-    return (GM_ADDR)(ptr);
-}
 
 template <typename T>
 __aicore__ inline GM_ADDR ShmemNotifyDispatch<T>::GetMetaAddrByRankId(const int32_t rankId, const int metaType)
