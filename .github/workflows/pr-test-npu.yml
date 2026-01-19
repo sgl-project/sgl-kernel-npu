@@ -64,6 +64,7 @@ jobs:
         env:
           DEEPEP_NORMAL_LONG_SEQ_ROUND: 5
           DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 512
+          DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
           HCCL_BUFFSIZE: 1000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2122
@@ -74,6 +75,8 @@ jobs:
           HCCL_BUFFSIZE: 1913
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-tokens=1
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-tokens=2
 
       - name: Run test base fused deep moe
         timeout-minutes: 10
@@ -168,6 +171,8 @@ jobs:
           HCCL_BUFFSIZE: 1913
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-tokens=1
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-tokens=2
 
       - name: Run test base fused deep moe
         timeout-minutes: 10
