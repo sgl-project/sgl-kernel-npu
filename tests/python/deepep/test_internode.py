@@ -478,8 +478,8 @@ def test_main(
     def test_tuning():
         # Tune dispatch performance
         quant_factor = (
-            0.5 if USE_INT8_QUANT else 1.0
-        )  # INT8: 50% bandwidth, BF16: 100% bandwidth
+            (1 + 4 / 128) / 2 if USE_INT8_QUANT else 1.0
+        )  # INT8: (1 + 4 / 128) / 2 ≈ 51% bandwidth, BF16: 100% bandwidth
         config = deep_ep.Config(24, 8, buffer_size)
 
         dispatch_args = {
