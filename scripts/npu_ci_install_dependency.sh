@@ -44,7 +44,8 @@ ${PIP_INSTALL} \
     pybind11 \
     pyyaml \
     decorator \
-    scipy
+    scipy \
+    attr
 
 
 ### Install pytorch
