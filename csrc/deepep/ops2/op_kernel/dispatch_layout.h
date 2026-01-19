@@ -31,7 +31,7 @@ public:
     __aicore__ inline DispatchLayout(){};
 
     __aicore__ inline void Init(GM_ADDR topkIdx, GM_ADDR numTokensPerRank, GM_ADDR numTokensPerExpert,
-                                GM_ADDR isTokenInRank, GM_ADDR notifySendData, GM_ADDR sendTokenIdxSmall, 
+                                GM_ADDR isTokenInRank, GM_ADDR notifySendData, GM_ADDR sendTokenIdxSmall,
                                 GM_ADDR workspace, TPipe *pipe, const DispatchLayoutTilingData *tilingData)
     {
         numTokens_ = tilingData->dispatchLayoutInfo.numTokens;

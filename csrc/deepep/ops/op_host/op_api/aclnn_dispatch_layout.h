@@ -30,8 +30,7 @@ __attribute__((visibility("default"))) aclnnStatus aclnnDispatchLayoutGetWorkspa
     const aclTensor *topkIdx, int64_t numTokens, int64_t numRanks, int64_t numExperts, int64_t numTopk,
     int64_t localRankSize, int32_t perRoundTokens, int32_t rankId, const aclTensor *numTokensPerRank,
     const aclTensor *numTokensPerExpert, const aclTensor *isTokenInRank, const aclTensor *notifySendData,
-    const aclTensor *sendTokenIdxSmall, uint64_t *workspaceSize,
-    aclOpExecutor **executor);
+    const aclTensor *sendTokenIdxSmall, uint64_t *workspaceSize, aclOpExecutor **executor);
 
 /* function: aclnnDispatchLayout
  * workspace : workspace memory addr(input).

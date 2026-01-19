@@ -376,7 +376,7 @@ def test_main(
         }
         combined_x, combined_topk_weights, event = buffer.combine(**combine_args)
         check_x = combined_x.float()
-        
+
         ref_x = x_pure_rand if current_x is x_pure_rand else x
         diff = calc_diff(
             check_x,

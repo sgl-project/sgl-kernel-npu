@@ -39,7 +39,7 @@ class CamMoeCombineNormal
 public:
     __aicore__ inline CamMoeCombineNormal(){};
     __aicore__ inline void Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights,
-                                GM_ADDR tokenIdx, GM_ADDR tpRecvCount, GM_ADDR XOut, GM_ADDR sendCostStatsOut, 
+                                GM_ADDR tokenIdx, GM_ADDR tpRecvCount, GM_ADDR XOut, GM_ADDR sendCostStatsOut,
                                 GM_ADDR workspaceGM, TPipe *pipe, const CamMoeCombineNormalTilingData *tilingData);
     __aicore__ inline void Process();
 
@@ -157,7 +157,7 @@ template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitGlobalBuffer(GM_ADDR recvX, GM_ADDR tokenSrcInfo,
                                                                                   GM_ADDR epRecvCount,
                                                                                   GM_ADDR topkWeights, GM_ADDR tokenIdx,
-                                                                                  GM_ADDR XOut, 
+                                                                                  GM_ADDR XOut,
                                                                                   GM_ADDR sendCostStatsOut)
 {
     recvXGM_.SetGlobalBuffer((__gm__ RecvXType *)recvX);
@@ -201,10 +201,12 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitBuffLen()
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::Init(
-    GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR tokenIdx,
-    GM_ADDR tpRecvCount, GM_ADDR XOut, GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe,
-    const CamMoeCombineNormalTilingData *tilingData)
+__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo,
+                                                                      GM_ADDR epRecvCount, GM_ADDR topkWeights,
+                                                                      GM_ADDR tokenIdx, GM_ADDR tpRecvCount,
+                                                                      GM_ADDR XOut, GM_ADDR sendCostStatsOut,
+                                                                      GM_ADDR workspaceGM, TPipe *pipe,
+                                                                      const CamMoeCombineNormalTilingData *tilingData)
 {
     workspaceGM_ = workspaceGM;
     tpipe_ = pipe;

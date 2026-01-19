@@ -39,14 +39,14 @@ class CamMoeCombineNormal
 public:
     __aicore__ inline CamMoeCombineNormal(){};
     __aicore__ inline void Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights,
-                                GM_ADDR topkIdx, GM_ADDR tpRecvCount, GM_ADDR XOut, GM_ADDR sendCostStatsOut, 
+                                GM_ADDR topkIdx, GM_ADDR tpRecvCount, GM_ADDR XOut, GM_ADDR sendCostStatsOut,
                                 GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tiling);
     __aicore__ inline void Process();
 
 private:
     __aicore__ inline void InitMagic();
     __aicore__ inline void InitGlobalBuffer(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount,
-                                            GM_ADDR topkWeights, GM_ADDR topkIdx, GM_ADDR XOut, 
+                                            GM_ADDR topkWeights, GM_ADDR topkIdx, GM_ADDR XOut,
                                             GM_ADDR sendCostStatsOut);
     __aicore__ inline void InitTilingData(__gm__ CamMoeCombineNormalTilingData *tilingData);
     __aicore__ inline void InitBuffLen();
@@ -54,7 +54,7 @@ private:
     __aicore__ inline void CopyBufferToShare(uint32_t srcRankId, uint32_t srcTokenId, uint32_t srcTopkId,
                                              uint32_t tkIndex);
     __aicore__ inline void ReadBufferFromRemote();
-    __aicore__ inline void WaitBuffCopy(uint32_t tokenIndex ,uint32_t startTokenIndex);
+    __aicore__ inline void WaitBuffCopy(uint32_t tokenIndex, uint32_t startTokenIndex);
     __aicore__ inline void SetStatusBySrcInfo(uint32_t srcRankId, uint32_t srcTokenId, uint32_t srcTopkId);
     __aicore__ inline void ReadBufferAndWeightedSum(uint32_t tokenIndex, uint32_t startTokenIndex);
 
@@ -148,8 +148,8 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitMagic()
 template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitGlobalBuffer(GM_ADDR recvX, GM_ADDR tokenSrcInfo,
                                                                                   GM_ADDR epRecvCount,
-                                                                                  GM_ADDR topkWeights, GM_ADDR topkIdx, 
-                                                                                  GM_ADDR XOut, 
+                                                                                  GM_ADDR topkWeights, GM_ADDR topkIdx,
+                                                                                  GM_ADDR XOut,
                                                                                   GM_ADDR sendCostStatsOut)
 {
     recvXGM_.SetGlobalBuffer((__gm__ RecvXType *)recvX);
@@ -194,9 +194,9 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitBuffLen()
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo,
-                                                                      GM_ADDR epRecvCount, GM_ADDR topkWeights, 
-                                                                      GM_ADDR topkIdx, GM_ADDR tpRecvCount, 
-                                                                      GM_ADDR XOut, GM_ADDR sendCostStatsOut, 
+                                                                      GM_ADDR epRecvCount, GM_ADDR topkWeights,
+                                                                      GM_ADDR topkIdx, GM_ADDR tpRecvCount,
+                                                                      GM_ADDR XOut, GM_ADDR sendCostStatsOut,
                                                                       GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tiling)
 {
     workspaceGM_ = workspaceGM;
@@ -321,7 +321,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::SetStatusBySrcI
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::WaitBuffCopy(uint32_t tokenIndex, 
+__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::WaitBuffCopy(uint32_t tokenIndex,
                                                                               uint32_t startTokenIndex)
 {
     uint32_t calCount = axisK_ * FLOAT_NUM_PER_ALIGN;

@@ -470,7 +470,9 @@ def test_main(
             check_x = combined_x.float()
             ref_x = x_pure_rand if current_x is x_pure_rand else x
             mask = ~torch.all(topk_idx == -1, dim=1)
-            desire_x = ref_x * handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
+            desire_x = ref_x * handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(
+                -1, 1
+            )
             assert (
                 calc_diff(
                     check_x[mask],

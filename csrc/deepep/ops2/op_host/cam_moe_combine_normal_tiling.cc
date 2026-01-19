@@ -366,7 +366,7 @@ static bool CheckTensorFormat(gert::TilingContext *context, const char *nodeName
     OP_TILING_CHECK(
         static_cast<ge::Format>(ge::GetPrimaryFormat(topkWeightsDesc->GetStorageFormat())) == ge::FORMAT_FRACTAL_NZ,
         OP_LOGE(nodeName, "topkWeightsFormat is invalid"), return false);
-    
+
     auto topkIdxsDesc = context->GetOptionalInputDesc(TOPK_IDX_INDEX);
     OP_TILING_CHECK(topkIdxsDesc == nullptr, OP_LOGE(nodeName, "topkIdxsDesc is null."), return false);
     OP_TILING_CHECK(
