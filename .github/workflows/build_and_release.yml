@@ -19,7 +19,7 @@ jobs:
       matrix:
         os: [ubuntu-24.04-arm]
         hardware: [910b, a3]
-        cann_version: [8.3.rc2]
+        cann_version: [8.3.rc2, 8.5.0]
     runs-on: ${{ matrix.os }}
     container:
       image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.hardware }}-ubuntu22.04-py3.11
