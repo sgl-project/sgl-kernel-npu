@@ -58,6 +58,7 @@ jobs:
           HCCL_BUFFSIZE: 2300
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=200
 
       - name: Run test multi-round intranode
         timeout-minutes: 10

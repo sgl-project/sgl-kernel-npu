@@ -80,7 +80,9 @@ def test(
                 )
                 assert enable_neg_one == 1
             drop_mask = (
-                torch.rand((actual_num_tokens, num_topk), dtype=torch.float32, device="npu")
+                torch.rand(
+                    (actual_num_tokens, num_topk), dtype=torch.float32, device="npu"
+                )
                 < drop_percent
             )
             topk_idx[:actual_num_tokens] = topk_idx[:actual_num_tokens].masked_fill(
