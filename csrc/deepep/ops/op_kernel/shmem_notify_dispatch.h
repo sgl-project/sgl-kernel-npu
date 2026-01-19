@@ -28,14 +28,12 @@ __aicore__ inline void SyncFunc()
     tokenPerExpertData, recvDataOutput, totalRecvTokens, maxBs, recvTokensPerExpert, putOffset, len, topkNum, root, \
         localRank, localRankSize, shmemPtr
 
-
 constexpr uint64_t NOTIFY_STATUS_OFFSET = 20UL * 1024UL;
 constexpr uint32_t UB_FLAG_SIZE = 8U * 1024U;
 
 template <typename T>
 class ShmemNotifyDispatch
 {
-
 public:
     __aicore__ inline ShmemNotifyDispatch(int epRankId_, int epWorldSize_, uint32_t extraFlag)
         : epRankId_(epRankId_), epWorldSize_(epWorldSize_), extraFlag(extraFlag)
@@ -92,7 +90,7 @@ public:
 
         GetShareAddr();
         AllGatherSendData();  // allgather 每个rank的sendCount
-        SetSyncFlag(STATE);  // 全卡同步，确保数据已经获取完
+        SetSyncFlag(STATE);   // 全卡同步，确保数据已经获取完
         WaitSyncFlag(STATE);
 
         ReloadRecvData();
@@ -116,11 +114,11 @@ private:
     template <HardEvent eventType>
     __aicore__ inline void SetWaitEvent(event_t eventId);
     template <typename F>
-    __aicore__ inline  void SetAtomicOpType(int op);
+    __aicore__ inline void SetAtomicOpType(int op);
     template <typename F>
-    __aicore__ inline  void CpUB2GM(__gm__ F *gmAddr, __ubuf__ F *ubAddr, uint32_t size);
+    __aicore__ inline void CpUB2GM(__gm__ F *gmAddr, __ubuf__ F *ubAddr, uint32_t size);
     template <typename F>
-    __aicore__ inline  void CpGM2UB(__ubuf__ F *ubAddr, __gm__ F *gmAddr, uint32_t size);
+    __aicore__ inline void CpGM2UB(__ubuf__ F *ubAddr, __gm__ F *gmAddr, uint32_t size);
     template <typename K, typename U = K>
     __aicore__ inline void CpGM2GMPingPong(int64_t dataSizeRemain, const GlobalTensor<U> &sendDataInputGt,
                                            const GlobalTensor<K> &recvDataOutputGT, int op);
@@ -191,7 +189,8 @@ private:
     GM_ADDR recvData_;
 
     GM_ADDR gva_gm;
-    uint64_t shareTokenPerExpertAddrs[CAM_MAX_RANK_SIZE];  // List of shmem asymmetric output addresses (tokenPerExpertData_)
+    uint64_t
+        shareTokenPerExpertAddrs[CAM_MAX_RANK_SIZE];  // List of shmem asymmetric output addresses (tokenPerExpertData_)
     uint32_t shareAddrNum{1};
 
     __aicore__ inline void SplitCoreCal(uint32_t totalNum, uint32_t &perCoreNum, uint32_t &startIdx, uint32_t &endIdx)
@@ -229,7 +228,7 @@ private:
         Duplicate<int32_t>(cleanStateTensor, 0, duplicateMask, Ceil(rankNumPerBlock, 8), 1, 8);
         SyncFunc<AscendC::HardEvent::V_MTE3>();
         DataCopy(statusFp32TensorGT[curBlockStartRankId * STATE_OFFSET / sizeof(float)],
-                cleanStateTensor.ReinterpretCast<float>(), intriOutParams);
+                 cleanStateTensor.ReinterpretCast<float>(), intriOutParams);
         SyncFunc<AscendC::HardEvent::MTE3_S>();
     }
 
@@ -271,8 +270,8 @@ private:
         pipe_.InitBuffer(waitStatusBuf_, waitStatusBufSize);  // ranks/48 * 32B = 1 * 32B
         uint32_t maskAlign = Ceil(epWorldSize_ * sizeof(float), UB_ALIGN) * UB_ALIGN;
         pipe_.InitBuffer(gatherMaskOutBuf_, maskAlign);  // rankSize * 4B
-        pipe_.InitBuffer(statusSumBuf_, UB_ALIGN);  // 32B
-        
+        pipe_.InitBuffer(statusSumBuf_, UB_ALIGN);       // 32B
+
         LocalTensor<float> gatherMaskOutTensor = gatherMaskOutBuf_.Get<float>();
         LocalTensor<float> statusSumOutTensor = statusSumBuf_.Get<float>(UB_ALIGN);
         LocalTensor<float> statusFp32Tensor = waitStatusBuf_.Get<float>();
@@ -286,7 +285,8 @@ private:
 
         SyncFunc<AscendC::HardEvent::S_V>();
         while (sumOfFlag != compareTarget) {
-            DataCopy(statusFp32Tensor, statusFp32TensorGT[curBlockStartRankId * STATE_OFFSET / sizeof(float)], intriParams);
+            DataCopy(statusFp32Tensor, statusFp32TensorGT[curBlockStartRankId * STATE_OFFSET / sizeof(float)],
+                     intriParams);
             SyncFunc<AscendC::HardEvent::MTE2_V>();
             ReduceSum(statusSumOutTensor, statusFp32Tensor, gatherMaskOutTensor, mask, rankNumPerBlock, 1);
             SyncFunc<AscendC::HardEvent::V_S>();
@@ -302,7 +302,7 @@ private:
         Duplicate<int32_t>(cleanStateTensor, 0, duplicateMask, Ceil(rankNumPerBlock, 8), 1, 8);
         SyncFunc<AscendC::HardEvent::V_MTE3>();
         DataCopy(statusFp32TensorGT[curBlockStartRankId * STATE_OFFSET / sizeof(float)],
-                cleanStateTensor.ReinterpretCast<float>(), intriOutParams);
+                 cleanStateTensor.ReinterpretCast<float>(), intriOutParams);
         SyncFunc<AscendC::HardEvent::MTE3_S>();
 
         SyncAll<true>();
@@ -537,7 +537,6 @@ private:
             shareTokenPerExpertAddrs[i] = addrTensor_(0);
         }
     }
-
 };
 
 template <typename T>
@@ -546,7 +545,7 @@ __aicore__ inline GM_ADDR ShmemNotifyDispatch<T>::GetMetaAddrByRankId(const int3
     auto ptr = shmem_ptr(gva_gm, rankId);
 
     switch (metaType) {
-        case STATE: // 存放通信结束的state
+        case STATE:  // 存放通信结束的state
             return (GM_ADDR)(ptr);
         case ADDR:  // 存放交换的共享地址
             return (GM_ADDR)(ptr) + NOTIFY_STATUS_OFFSET;
@@ -559,7 +558,7 @@ __aicore__ inline GM_ADDR ShmemNotifyDispatch<T>::GetMetaAddrByRankId(const int3
 
 template <typename T>
 template <typename F>
-__aicore__ inline  void ShmemNotifyDispatch<T>::CpUB2GM(__gm__ F *gmAddr, __ubuf__ F *ubAddr, uint32_t size)
+__aicore__ inline void ShmemNotifyDispatch<T>::CpUB2GM(__gm__ F *gmAddr, __ubuf__ F *ubAddr, uint32_t size)
 {
     LocalTensor<uint8_t> ubTensor;
     GlobalTensor<uint8_t> gmTensor;
@@ -572,7 +571,7 @@ __aicore__ inline  void ShmemNotifyDispatch<T>::CpUB2GM(__gm__ F *gmAddr, __ubuf
 
 template <typename T>
 template <typename F>
-__aicore__ inline  void ShmemNotifyDispatch<T>::CpGM2UB(__ubuf__ F *ubAddr, __gm__ F *gmAddr, uint32_t size)
+__aicore__ inline void ShmemNotifyDispatch<T>::CpGM2UB(__ubuf__ F *ubAddr, __gm__ F *gmAddr, uint32_t size)
 {
     LocalTensor<uint8_t> ubTensor;
     GlobalTensor<uint8_t> gmTensor;
@@ -662,7 +661,7 @@ __aicore__ inline void ShmemNotifyDispatch<T>::CpGM2GMPingPong(int64_t dataSizeR
 
 template <typename T>
 template <typename F>
-__aicore__ inline  void ShmemNotifyDispatch<T>::SetAtomicOpType(int op)
+__aicore__ inline void ShmemNotifyDispatch<T>::SetAtomicOpType(int op)
 {
     switch (op) {
         case ADD:
@@ -711,6 +710,6 @@ __aicore__ inline void ShmemNotifyDispatch<T>::SetWaitEvent(event_t eventId)
     AscendC::SetFlag<eventType>(eventId);
     AscendC::WaitFlag<eventType>(eventId);
 }
-}
+}  // namespace ShmemNotifyDispatchImpl
 
 #endif  // SHMEM_NOTIFY_DISPATCH_H

@@ -62,9 +62,7 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
     }
 }
 
-Buffer::~Buffer() noexcept(false)
-{
-}
+Buffer::~Buffer() noexcept(false) {}
 
 bool Buffer::is_available() const
 {

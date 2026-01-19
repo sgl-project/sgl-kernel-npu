@@ -14,7 +14,6 @@ constexpr uint32_t UB_ALIGN = 32U;
 
 constexpr uint64_t DISPATCH_STATUS_OFFSET = 20UL * 1024UL;
 
-
 template <AscendC::HardEvent event>
 __aicore__ inline void SyncFunc()
 {
@@ -58,7 +57,7 @@ private:
         auto ptr = shmem_ptr(gva_gm, rankId);
 
         switch (metaType) {
-            case STATE: // 存放通信结束的state
+            case STATE:  // 存放通信结束的state
                 return (GM_ADDR)(ptr);
             case ADDR:  // 存放交换的共享地址
                 return (GM_ADDR)(ptr) + DISPATCH_STATUS_OFFSET;
@@ -143,7 +142,8 @@ private:
 
     GM_ADDR gva_gm;
     uint64_t shareExpandOutAddrs[CAM_MAX_RANK_SIZE];  // List of shmem asymmetric output addresses (expandXOut_)
-    uint64_t shareDynamicScaleAddrs[CAM_MAX_RANK_SIZE];  // List of shmem asymmetric output addresses (dynamicScalesOut_)
+    uint64_t
+        shareDynamicScaleAddrs[CAM_MAX_RANK_SIZE];  // List of shmem asymmetric output addresses (dynamicScalesOut_)
     uint32_t shareAddrNum{2};
 };
 
@@ -216,7 +216,8 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::QuantInit()
 }
 
 template <CamTypeClass>
-__aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::SplitCoreCal(uint32_t totalNum, uint32_t &perCoreNum, uint32_t &startIdx, uint32_t &endIdx)
+__aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::SplitCoreCal(uint32_t totalNum, uint32_t &perCoreNum,
+                                                                         uint32_t &startIdx, uint32_t &endIdx)
 {
     perCoreNum = totalNum / blockNum;
     uint32_t remainderRankNum = totalNum % blockNum;
@@ -230,7 +231,6 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::SplitCoreCal(uint32_
     }
     endIdx = startIdx + perCoreNum;
 }
-
 
 template <CamTypeClass>
 __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::ResetMetaState()
@@ -253,7 +253,7 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::ResetMetaState()
     Duplicate<int32_t>(cleanStateTensor, 0, duplicateMask, Ceil(rankNumPerBlock, 8), 1, 8);
     SyncFunc<AscendC::HardEvent::V_MTE3>();
     DataCopy(statusFp32TensorGT[curBlockStartRankId * STATE_OFFSET / sizeof(float)],
-            cleanStateTensor.ReinterpretCast<float>(), intriOutParams);
+             cleanStateTensor.ReinterpretCast<float>(), intriOutParams);
     SyncFunc<AscendC::HardEvent::MTE3_S>();
 }
 
@@ -340,8 +340,8 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::WaitSyncFlag(int met
     tpipe_->InitBuffer(waitStatusBuf, waitStatusBufSize);  // ranks/48 * 32B = 1 * 32B
     uint32_t maskAlign = Ceil(epRankSize * sizeof(float), UB_ALIGN) * UB_ALIGN;
     tpipe_->InitBuffer(gatherMaskOutBuf, maskAlign);  // rankSize * 4B
-    tpipe_->InitBuffer(statusSumBuf, UB_ALIGN);  // 32B
-    
+    tpipe_->InitBuffer(statusSumBuf, UB_ALIGN);       // 32B
+
     LocalTensor<float> gatherMaskOutTensor = gatherMaskOutBuf.Get<float>();
     LocalTensor<float> statusSumOutTensor = statusSumBuf.Get<float>(UB_ALIGN);
     LocalTensor<float> statusFp32Tensor = waitStatusBuf.Get<float>();
@@ -371,7 +371,7 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::WaitSyncFlag(int met
     Duplicate<int32_t>(cleanStateTensor, 0, duplicateMask, Ceil(rankNumPerBlock, 8), 1, 8);
     SyncFunc<AscendC::HardEvent::V_MTE3>();
     DataCopy(statusFp32TensorGT[curBlockStartRankId * STATE_OFFSET / sizeof(float)],
-            cleanStateTensor.ReinterpretCast<float>(), intriOutParams);
+             cleanStateTensor.ReinterpretCast<float>(), intriOutParams);
     SyncFunc<AscendC::HardEvent::MTE3_S>();
 
     SyncAll<true>();

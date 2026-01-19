@@ -10,6 +10,7 @@ import deep_ep
 import numpy as np
 import torch
 import torch.distributed as dist
+
 # import shmem as ash
 # import torch.distributed._symmetric_memory as symm_mem
 import torch_npu
@@ -276,7 +277,6 @@ def test_main(
             event,
         ) = buffer.dispatch(**dispatch_args)
         recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
-        # return
 
         # Checks
         rank_prefix_matrix = handle[0]
@@ -411,9 +411,14 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
 
     print(f"[Rank {rank} | Local rank {local_rank}] Initializing buffer...", flush=True)
     buffer = deep_ep.Buffer(
-        group, int(2e9), 0, low_latency_mode=False, num_qps_per_rank=1, 
-        allow_nvlink_for_low_latency_mode = True, allow_mnnvl = False,
-        meta_addr = meta_addr
+        group,
+        int(2e9),
+        0,
+        low_latency_mode=False,
+        num_qps_per_rank=1,
+        allow_nvlink_for_low_latency_mode=True,
+        allow_mnnvl=False,
+        meta_addr=meta_addr,
     )
     print(f"[Rank {rank}] Buffer created OK.", flush=True)
     torch.manual_seed(rank)

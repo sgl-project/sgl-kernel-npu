@@ -16,8 +16,8 @@ constexpr uint32_t ADDR_OFFSET = 32U;
 enum MetaType : int { STATE = 0, ADDR = 1, FLAG = 2 };
 constexpr uint64_t WIN_MAGIC_OFFSET = 100UL * 1024UL;
 constexpr uint64_t HALF_WIN_STATE_OFFSET = 180 * 1024UL;  // notify(60KB) + dispatch(60KB) + combine(60KB)
-constexpr uint64_t NOTIFY_META_SIZE = 60 * 1024UL;  // notify(60KB)
-constexpr uint64_t DISPATCH_META_SIZE = 60 * 1024UL;  // dispatch(60KB)
+constexpr uint64_t NOTIFY_META_SIZE = 60 * 1024UL;        // notify(60KB)
+constexpr uint64_t DISPATCH_META_SIZE = 60 * 1024UL;      // dispatch(60KB)
 
 constexpr uint64_t META_FLAG_OFFSET = 180 * 1024UL * 1024UL;  // 预设meta空间200MB，从180MB开始用来写清理后的同步flag
 

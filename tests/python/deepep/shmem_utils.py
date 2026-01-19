@@ -14,7 +14,7 @@ import torch_npu
 
 
 def register_shmem(local_rank, rank, world_size):
-    from shmem_allocator import switch_to_shmem_allocator, init_shmem
+    from shmem_allocator import init_shmem, switch_to_shmem_allocator
 
     local_shmem_size = 38 * 1024 * 1024 * 1024
     local_meta_size = 200 * 1024 * 1024
@@ -23,7 +23,9 @@ def register_shmem(local_rank, rank, world_size):
     switch_to_shmem_allocator()
     torch.npu.set_device(local_rank)
     device = torch.device(f"npu:{local_rank}")
-    meta_addr = init_shmem(rank, world_size, local_shmem_size, local_meta_size, G_IP_PORT)
+    meta_addr = init_shmem(
+        rank, world_size, local_shmem_size, local_meta_size, G_IP_PORT
+    )
 
     npu_tensor = torch.zeros(10, device="npu")
     print(npu_tensor)
@@ -41,7 +43,6 @@ def init_dist(local_rank: int, num_local_ranks: int):
 
     global_rank = node_rank * num_local_ranks + local_rank
     world_size = num_nodes * num_local_ranks
-    print(f'{global_rank=}, {world_size=}')
 
     meta_addr = register_shmem(local_rank, global_rank, world_size)
 
