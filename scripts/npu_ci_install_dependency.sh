@@ -45,7 +45,7 @@ ${PIP_INSTALL} \
     pyyaml \
     decorator \
     scipy \
-    attr
+    attrs
 
 
 ### Install pytorch
