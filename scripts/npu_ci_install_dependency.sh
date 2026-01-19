@@ -43,7 +43,8 @@ ${PIP_INSTALL} \
     wheel==0.45.1 \
     pybind11 \
     pyyaml \
-    decorator
+    decorator \
+    scipy
 
 
 ### Install pytorch
