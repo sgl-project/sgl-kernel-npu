@@ -6,7 +6,7 @@
 #include "exception.hpp"
 #include "deep_ep.hpp"
 #include "pytorch_npu_helper.hpp"
-#include "shmem.hpp"
+// #include "shmem.hpp"
 
 namespace deep_ep {
 constexpr int PADDING_SIZE = 1;
@@ -19,7 +19,8 @@ constexpr int EXPERT_DATA_SIZE = 1 + MAX_BATCH_SIZE;  // 4097
 constexpr int A3_MAX_HCCS_PEERS = 384;
 constexpr int A2_MAX_HCCS_PEERS = 8;
 
-torch::Tensor create_tensor_from_shmem(const std::vector<int64_t> &shape, at::ScalarType dtype, c10::Device &device)
+/*
+torch::Tensor create_tensor_from_shmem(const std::vector<int64_t> &shape, at::ScalarType dtype, c10::Device &device, int rank)
 {
     int64_t numel = 1;
     for (auto v : shape) {
@@ -46,6 +47,7 @@ torch::Tensor create_tensor_from_shmem(const std::vector<int64_t> &shape, at::Sc
     if (!dev_ptr) {
         throw std::runtime_error("shmem_malloc failed");
     }
+    // std::cout << "[deepep] rank: " << rank << ", ptr: " << dev_ptr << std::endl;
 
     auto options = torch::TensorOptions().dtype(dtype).device(device);
 
@@ -54,9 +56,10 @@ torch::Tensor create_tensor_from_shmem(const std::vector<int64_t> &shape, at::Sc
 
     return tensor;
 }
+*/
 
 Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
-               std::string moe_all_to_all_group_name)
+               std::string moe_all_to_all_group_name, uint64_t meta_addr)
     : rank(rank),
       num_ranks(num_ranks),
       num_nvl_bytes(num_nvl_bytes),
@@ -83,7 +86,9 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
 
     shmem_enable = (get_value_from_env("DEEPEP_SHMEM_ENABLE", 0) == 1);  // only open shmem with "1"
     if (shmem_enable) {
-        size_t local_mem_size = 8 * 1024 * 1024 * 1024UL;
+        /*
+        int shmem_mem_size = get_value_from_env("SHMEM_SYMMETRIC_SIZE", 2048);
+        size_t local_mem_size = shmem_mem_size * 1024 * 1024UL;
         size_t meta_data_size = 100 * 1024 * 1024UL;
         size_t ele_size = sizeof(int32_t);
         size_t num_of_int32 = meta_data_size / ele_size;
@@ -91,6 +96,10 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
         // To be initialized by the caller
         EP_HOST_ASSERT(rank == internode::init(rank, num_ranks, local_mem_size, "tcp://127.0.0.1:11222"));
         shmem_ptr = internode::alloc(num_of_int32, ele_size);
+        */
+
+        shmem_ptr = meta_addr;
+        std::cout << "[deepep] rank: " << rank << ", shmem_ptr: " << shmem_ptr << std::endl;
     } else {
         if (moe_all_to_all_group_name.empty()) {
             char *ranktable_file = std::getenv("RANK_TABLE_FILE");
@@ -107,13 +116,13 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
 
 Buffer::~Buffer() noexcept(false)
 {
-    if (shmem_enable) {
-        std::cout << "rank " << rank << " ~Buffer" << std::endl;
-        internode::free(shmem_ptr);
-        std::cout << "rank " << rank << " free done!!!" << std::endl;
-        internode::finalize();
-        std::cout << "rank " << rank << " finalize done!!!" << std::endl;
-    }
+    // if (shmem_enable) {
+    //     std::cout << "rank " << rank << " ~Buffer" << std::endl;
+    //     internode::free(shmem_ptr);
+    //     std::cout << "rank " << rank << " free done!!!" << std::endl;
+    //     internode::finalize();
+    //     std::cout << "rank " << rank << " finalize done!!!" << std::endl;
+    // }
 }
 
 bool Buffer::is_available() const
@@ -154,8 +163,9 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     auto device = new_topk_idx.device();
     at::Tensor num_tokens_per_expert;
     if (shmem_enable) {
-        num_tokens_per_expert = create_tensor_from_shmem(std::vector<int64_t>{num_experts}, at::kInt, device);
-        num_tokens_per_expert.fill_(0);
+        // num_tokens_per_expert = create_tensor_from_shmem(std::vector<int64_t>{num_experts}, at::kInt, device, rank);
+        // num_tokens_per_expert.fill_(0);
+        num_tokens_per_expert = at::zeros({num_experts}, at::dtype(at::kInt).device(device));
     } else {
         num_tokens_per_expert = at::zeros({num_experts}, at::dtype(at::kInt).device(device));
     }
@@ -329,16 +339,17 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int send_per_group, send_count;
     at::Tensor send_data, send_data_offset, recv_data, put_offset_, total_recv_token_, recv_count_, recv_offset_,
         max_bs_, recv_tokens_per_expert_;
-    int64_t ext_info;  // shmem_ptr_info
+    uint64_t ext_info;  // shmem_ptr_info
     at::Tensor expandx_out, dynamic_scales_out, expand_idx_out;
 
     if (shmem_enable) {
         send_per_group = 1;  // (send_to_expert_num)
         send_count = send_per_group * num_experts;
         // get shmem_ptr_info
-        ext_info = (int64_t)shmem_ptr;
+        ext_info = reinterpret_cast<uint64_t>(shmem_ptr);
 
-        recv_data = create_tensor_from_shmem(std::vector<int64_t>{num_ranks, num_experts}, at::kInt, device);
+        // recv_data = create_tensor_from_shmem(std::vector<int64_t>{num_ranks, num_experts}, at::kInt, device, rank);
+        recv_data = torch::empty({num_ranks, num_experts}, at::dtype(at::kInt).device(device));
         put_offset_ = torch::empty({num_experts, num_ranks}, at::dtype(at::kInt).device(device));
         total_recv_token_ = torch::empty({1}, at::dtype(at::kInt).device(device));
         max_bs_ = torch::empty({1}, at::dtype(at::kInt).device(device));
@@ -359,14 +370,20 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         int trt = total_recv_token_.item<int>();
         int num_recv_tokens = (trt == 0) ? 1 : trt;  // max recv_tokens in all rank
 
-        recv_data.reset();  // release symmetric tensor
-        expandx_out =
-            use_quant
-                ? create_tensor_from_shmem(std::vector<int64_t>{num_recv_tokens, hidden}, at::kChar, device)
-                : create_tensor_from_shmem(std::vector<int64_t>{num_recv_tokens, hidden}, x.scalar_type(), device);
-        dynamic_scales_out = use_quant
-                                 ? create_tensor_from_shmem(std::vector<int64_t>{num_recv_tokens}, at::kFloat, device)
-                                 : torch::empty({1}, at::dtype(at::kFloat).device(device));
+        // std::cout << "[deepep] rank:" << rank << " num_recv_tokens:" << num_recv_tokens << std::endl;
+
+        // expandx_out =
+        //     use_quant
+        //         ? create_tensor_from_shmem(std::vector<int64_t>{num_recv_tokens, hidden}, at::kChar, device, rank)
+        //         : create_tensor_from_shmem(std::vector<int64_t>{num_recv_tokens, hidden}, x.scalar_type(), device, rank);
+        // dynamic_scales_out = use_quant
+        //                          ? create_tensor_from_shmem(std::vector<int64_t>{num_recv_tokens}, at::kFloat, device, rank)
+        //                          : create_tensor_from_shmem(std::vector<int64_t>{1}, at::kFloat, device, rank);
+        
+        expandx_out = use_quant ? torch::empty({num_recv_tokens, hidden}, at::dtype(at::kChar).device(x.device()))
+                                : torch::empty({num_recv_tokens, hidden}, x.options());
+        dynamic_scales_out = use_quant ? torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()))
+                                       : torch::empty({1}, at::dtype(at::kFloat).device(x.device()));
         expand_idx_out = torch::empty({1}, at::dtype(at::kInt).device(device));  // not use
 
         if (topk_idx.has_value()) {

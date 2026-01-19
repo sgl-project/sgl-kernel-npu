@@ -37,7 +37,8 @@ struct Buffer {
 
 private:
     std::string moe_all_to_all_group_name;
-    void *shmem_ptr = nullptr;
+    // void *shmem_ptr = nullptr;
+    uint64_t shmem_ptr = 0;
     bool shmem_enable;
 
     int device_id;
@@ -48,7 +49,7 @@ private:
 
 public:
     Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
-           std::string moe_all_to_all_group_name);
+           std::string moe_all_to_all_group_name, uint64_t meta_addr = 0);
 
     ~Buffer() noexcept(false);
 

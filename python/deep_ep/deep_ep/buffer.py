@@ -23,6 +23,7 @@ class Buffer:
         num_qps_per_rank: int = 12,
         allow_nvlink_for_low_latency_mode: bool = True,
         allow_mnnvl: bool = False,
+        meta_addr: int = 0,
     ) -> None:
         """
         Initialize the communication buffer.
@@ -37,6 +38,7 @@ class Buffer:
                 to the number of local experts.
             allow_nvlink_for_low_latency_mode: This parameter is deprecated and retained to ensure compatibility with DeepEP.
             allow_mnnvl: This parameter is deprecated and retained to ensure compatibility with DeepEP.
+            meta_addr: This parameter must be passed a valid address value when zbccl is used.
         """
 
         self.rank = group.rank()
@@ -44,6 +46,7 @@ class Buffer:
         self.num_nvl_bytes = num_nvl_bytes
         self.num_rdma_bytes = num_rdma_bytes
         self.low_latency_mode = low_latency_mode
+        self.meta_addr = meta_addr
         try:
             backend = group._get_backend(torch.device("npu"))
             moe_all_to_all_group_name = backend.get_hccl_comm_name(self.rank)
@@ -57,6 +60,7 @@ class Buffer:
             num_rdma_bytes,
             low_latency_mode,
             moe_all_to_all_group_name,
+            meta_addr,
         )
 
     @staticmethod
