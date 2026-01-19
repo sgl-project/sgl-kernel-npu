@@ -42,7 +42,8 @@ ${PIP_INSTALL} --upgrade pip
 ${PIP_INSTALL} \
     wheel==0.45.1 \
     pybind11 \
-    pyyaml
+    pyyaml \
+    decorator
 
 
 ### Install pytorch
