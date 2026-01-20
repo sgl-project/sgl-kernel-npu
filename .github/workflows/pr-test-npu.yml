@@ -72,7 +72,7 @@ jobs:
       - name: Run test low latency
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 1913
+          HCCL_BUFFSIZE: 2077
           MOE_ENABLE_TOPK_NEG_ONE: 1
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
