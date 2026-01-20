@@ -603,7 +603,7 @@ jobs:
       - name: Run test mixed running for experts
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 2241
+          HCCL_BUFFSIZE: 3769
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-processes=2 --num-topk=1 --num-experts=2 --test-loop=100
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-experts=512 --test-loop=100
