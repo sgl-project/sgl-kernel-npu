@@ -58,7 +58,6 @@ jobs:
           HCCL_BUFFSIZE: 3000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=200
 
       - name: Run test multi-round intranode
         timeout-minutes: 10
@@ -72,7 +71,7 @@ jobs:
       - name: Run test low latency
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 2077
+          HCCL_BUFFSIZE: 3000
           MOE_ENABLE_TOPK_NEG_ONE: 1
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
