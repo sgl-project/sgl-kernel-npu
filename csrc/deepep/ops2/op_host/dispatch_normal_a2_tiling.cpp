@@ -103,6 +103,7 @@ constexpr uint32_t DYNAMIC_QUANT_MODE = 2;
 constexpr uint32_t RANK_NUM_PER_NODE_A2 = 8;
 constexpr uint32_t BLOCK_SIZE_A2 = 32;
 constexpr uint32_t MAX_K_VALUE_A2 = 10;
+constexpr uint32_t MIN_K_VALUE_A2 = 2;
 constexpr int32_t MAX_HIDDEN_SIZE_A2 = 7168;
 constexpr int32_t MAX_EP_WORLD_SIZE_A2 = 256;
 constexpr int32_t MAX_MOE_EXPERT_NUMS_A2 = 512;
@@ -908,7 +909,9 @@ static ge::graphStatus MoeDistributeDispatchA2CheckShapeAndSetTiling(const gert:
         bs <= 0 || bs > BS_UPPER_BOUND,
         OP_LOGE(K_INNER_DEBUG, "batchsize is invalid. bs: %u, should satisfy 0<bs<=%ld", bs, BS_UPPER_BOUND),
         return GRAPH_FAILED);
-    OP_TILING_CHECK(k <= 0 || k > MAX_K_VALUE_A2, OP_LOGE(K_INNER_DEBUG, "k is invalid."), return GRAPH_FAILED);
+    OP_TILING_CHECK(k < MIN_K_VALUE_A2 || k > MAX_K_VALUE_A2,
+                    OP_LOGE(K_INNER_DEBUG, "k should be in [%u, %u], but got k=%u.", MIN_K_VALUE_A2, MAX_K_VALUE_A2, k),
+                    return GRAPH_FAILED);
     OP_TILING_CHECK(*quantModePtr == UNQUANT_MODE && isScales,
                     OP_LOGE(K_INNER_DEBUG, "scales should be null when quantMode is unQuant."), return GRAPH_FAILED);
 
