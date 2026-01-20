@@ -117,7 +117,7 @@ at::Tensor lightning_indexer(
  * @brief Triangular inverse of input tensor where last two dimensions represent
  * a matrix.
  *
- * @param [in] tensor_in Tensor of dimensions (batch_size, n, n) where `n` is
+ * @param [in] tensor_in Tensor of dimensions (..., n, n) where `n` is
  * the matrix size.
  * @return at::Tensor Returns tensor of same shape where each matrix of size n
  * is inversed.
