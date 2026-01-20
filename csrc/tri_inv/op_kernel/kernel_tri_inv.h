@@ -45,10 +45,7 @@ public:
      * @param [in] matrix_size Input square matrix size.
      */
     __aicore__ inline KernelTriInvColumnSweep(uint32_t vec_len, uint32_t matrix_size)
-        : vec_core_num_(AscendC::GetBlockNum() * AscendC::GetTaskRation()),
-          vec_len_(vec_len),
-          matrix_size_(matrix_size),
-          tile_len_(matrix_size * matrix_size)
+        : vec_len_(vec_len), matrix_size_(matrix_size), tile_len_(matrix_size * matrix_size)
     {}
 
     /**
@@ -100,7 +97,6 @@ private:
         // Left-hand side Ax=b.
         LocalTensor<T> b = b_buf_.Get<T>();
 
-        // Transpose(vec_in_lt, vec_in_lt);
         Duplicate(vec_out_lt, static_cast<T>(0), tile_len_);
 
         // For every output column j-th
@@ -141,7 +137,6 @@ private:
     AscendC::GlobalTensor<T> global_in_;
     AscendC::GlobalTensor<T> global_out_;
 
-    const uint32_t vec_core_num_;
     const uint32_t vec_len_;
     const uint32_t matrix_size_;
     const uint32_t tile_len_;

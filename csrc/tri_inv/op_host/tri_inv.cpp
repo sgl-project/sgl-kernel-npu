@@ -38,7 +38,6 @@ at::Tensor calc_tiling(const TriInvColumnSweepTiling &tiling)
 
 HOST_API at::Tensor tri_inv_col_sweep(const at::Tensor &tensor)
 {
-    const at::Device device = tensor.options().device();
     const auto dtype = tensor.options().dtype();
     if (tensor.dim() < 2) {
         throw std::runtime_error("Input tensor must have at least 2 dimensions.\n");
