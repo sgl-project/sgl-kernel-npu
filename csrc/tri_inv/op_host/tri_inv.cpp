@@ -61,6 +61,8 @@ HOST_API at::Tensor tri_inv_col_sweep(const at::Tensor &tensor)
         EXEC_KERNEL_CMD(tri_inv_col_sweep_fp16, block_dim, tensor, tensor_out, tiling_device);
     } else if (dtype == at::kFloat) {
         EXEC_KERNEL_CMD(tri_inv_col_sweep_fp32, block_dim, tensor, tensor_out, tiling_device);
+    } else {
+        throw std::runtime_error("Unsupported data type for tri_inv_col_sweep. fp16 and fp32 are currently supported.");
     }
 
     return tensor_out;
