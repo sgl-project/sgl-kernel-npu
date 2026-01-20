@@ -2,4 +2,4 @@
 
 This is a vector-only AscendC triangular inversion kernel on Ascend NPU.
 
-The kernel support matrix sizes `16, 32, 64, 128` and data types `fp16` and `fp32`.
+The kernel supports matrix sizes `16, 32, 64, 128` and data types `fp16` and `fp32`.
