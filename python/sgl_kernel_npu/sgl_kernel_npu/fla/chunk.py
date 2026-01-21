@@ -39,6 +39,8 @@ def inv_tril_inplace(A: torch.Tensor):
         row = A[..., i, :i].clone()
         sub = A[..., :i, :i].clone()
         A[..., i, :i] = row + (row.unsqueeze(-1) * sub).sum(-2)
+    
+    return A
 
 
 def chunk_gated_delta_rule_native(
@@ -91,7 +93,7 @@ def chunk_gated_delta_rule_native(
     g = g.cumsum(dim=-1)
     decay_mask = ((g.unsqueeze(-1) - g.unsqueeze(-2)).tril().exp().float()).tril()
     attn = -((k_beta @ key.transpose(-1, -2)) * decay_mask).masked_fill(mask, 0)
-    tri_inv_fn(attn)
+    attn = tri_inv_fn(attn)
     attn = attn + torch.eye(chunk_size, dtype=attn.dtype, device=attn.device)
     value = attn @ v_beta
     k_cumdecay = attn @ (k_beta * g.exp().unsqueeze(-1))
