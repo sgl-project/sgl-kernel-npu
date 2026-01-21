@@ -18,7 +18,7 @@ def get_err_ratio(x, y):
     return err / (base + 1e-8)
 
 
-def assert_close(prefix, ref, tri, ratio, warning=False, err_atol=1e-6):
+def assert_close(prefix, ref, tri, ratio, err_atol=1e-6):
     abs_atol = get_abs_err(ref, tri)
     msg = f"{prefix:>16} diff: {abs_atol:.6f} ratio: {get_err_ratio(ref, tri):.6f}"
     error_rate = get_err_ratio(ref, tri)
