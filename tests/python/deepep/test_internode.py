@@ -45,9 +45,19 @@ def test_main(
     assert num_tokens <= MAX_BATCH_SIZE
     if local_rank == 0:
         print(
-            f"[config] num_tokens={num_tokens}, hidden={hidden}, num_topk={num_topk}, active_ranks={args.active_ranks}",
+            f"[config] num_tokens={num_tokens}, hidden={hidden}, num_topk={num_topk}, active_ranks={args.active_ranks}, use_int8_quant={args.use_int8_quant}",
             flush=True,
         )
+
+    # Set environment variables to allow the operator to read them
+    os.environ["DEEP_NORMAL_MODE_USE_INT8_QUANT"] = "1" if args.use_int8_quant else "0"
+
+    # Check quantification mode
+    USE_INT8_QUANT = args.use_int8_quant
+    print(
+        f"[Config] Quantization mode: {'INT8' if USE_INT8_QUANT else 'BF16'}",
+        flush=True,
+    )
 
     experts_per_rank = num_experts // num_ranks
 
@@ -243,9 +253,18 @@ def test_main(
     for i in range(num_ranks):
         num_tokens_per_rank[i] = (rank_idx == i).sum()
         token_sel = (rank_idx == i).max(dim=-1)[0]
-        count = token_sel.sum().item()
-        tokens = torch.sort(token_sel.to(torch.int), descending=True)[1]
-        tokens[:count] = torch.sort(tokens[:count])[0]
+        count = token_sel.sum().cpu().item()
+
+        # Perform sorting on CPU
+        token_sel_cpu = token_sel.to(torch.int).cpu()
+        tokens_cpu = torch.sort(token_sel_cpu, descending=True)[1]
+        sorted_tokens = torch.sort(tokens_cpu[:count])[0]
+
+        # Put the results back into the NPU
+        tokens = tokens_cpu.to("npu")
+        tokens[:count] = sorted_tokens.to("npu")
+
+        # Ensure the size of arrange matches the count.
         token_idx_in_rank[i][tokens[:count]] = torch.arange(
             count, dtype=torch.long, device="npu"
         )
@@ -282,7 +301,7 @@ def test_main(
             ), f"Assertion num_tokens_per_rank failed on rank {rank}: Expected {num_tokens_per_rank}, Actual {ref_num_tokens_per_rank}"
             assert torch.allclose(
                 ref_num_tokens_per_expert, num_tokens_per_expert
-            ), f"Assertion num_tokens_per_expert failed on rank {rank}: Expected {num_tokens_per_expert}, Actual {ref_num_tokens_per_expert}"
+            ), f"Assertion num_tokens_per_expert failed on rank {rank}: Expected {num_tokens_per_expert}, Actual {num_tokens_per_expert}"
             assert torch.allclose(
                 ref_is_token_in_rank, is_token_in_rank
             ), f"Assertion is_token_in_rank failed on rank {rank}: Expected {is_token_in_rank}, Actual {ref_is_token_in_rank}"
@@ -378,8 +397,9 @@ def test_main(
     def test_correctness():
         for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x)):
             if local_rank == 0:
+                quant_mode_str = "INT8" if USE_INT8_QUANT else "BF16"
                 print(
-                    f'[testing] Running with {"FP8" if isinstance(current_x, tuple) else "BF16"}, with top-k {num_topk} ...',
+                    f"[testing] Running with {quant_mode_str} quantization, with top-k {num_topk} ...",
                     flush=True,
                 )
             # Test dispatch
@@ -430,14 +450,25 @@ def test_main(
             combined_x, combined_topk_weights, event = buffer.combine(**combine_args)
             check_x = combined_x.float()
             ref_x = x_pure_rand if current_x is x_pure_rand else x
-            assert (
-                calc_diff(
-                    check_x,
-                    ref_x
-                    * handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
-                )
-                < 5e-5
+            # Calculate the intermediate values of each item
+            masked_values = (
+                handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
             )
+            scaled_ref_x = ref_x * masked_values
+
+            # Calculate the difference
+            diff_result = calc_diff(check_x, scaled_ref_x)
+
+            if args.debug:
+                print(f"Debug - diff_result: {diff_result}, threshold: {5e-5}")
+                print(
+                    f"Debug - masked_values (first 10): {masked_values.flatten()[:10]}"
+                )
+                print(f"Debug - ref_x (first 10): {ref_x.flatten()[:10]}")
+                print(f"Debug - scaled_ref_x (first 10): {scaled_ref_x.flatten()[:10]}")
+                print(f"Debug - check_x (first 10): {check_x.flatten()[:10]}")
+
+            assert diff_result < 5e-5
 
             if local_rank == 0:
                 print(" passed", flush=True)
@@ -446,7 +477,9 @@ def test_main(
 
     def test_tuning():
         # Tune dispatch performance
-        fp8_factor = (1 + 4 / 128) / 2
+        quant_factor = (
+            (1 + 4 / 128) / 2 if USE_INT8_QUANT else 1.0
+        )  # INT8: (1 + 4 / 128) / 2 ≈ 51% bandwidth, BF16: 100% bandwidth
         config = deep_ep.Config(24, 8, buffer_size)
 
         dispatch_args = {
@@ -470,13 +503,13 @@ def test_main(
         # Tune dispatch performance
         for current_x in filter(lambda elem: elem is not None, (x,)):
             recv_bytes = (
-                (dispatch_bf16_recv_bytes * fp8_factor)
-                if isinstance(current_x, tuple)
+                (dispatch_bf16_recv_bytes * quant_factor)
+                if USE_INT8_QUANT  # INT8 量化时使用压缩因子
                 else dispatch_bf16_recv_bytes
             )
             rdma_send_bytes = (
-                (dispatch_bf16_rdma_send_bytes * fp8_factor)
-                if isinstance(current_x, tuple)
+                (dispatch_bf16_rdma_send_bytes * quant_factor)
+                if USE_INT8_QUANT  # INT8 量化时使用压缩因子
                 else dispatch_bf16_rdma_send_bytes
             )
 
@@ -495,8 +528,9 @@ def test_main(
                 ("DispatchNormalA2", "NotifyDispatchA2"),
             )
             if local_rank == 0:
+                quant_mode_str = "INT8" if USE_INT8_QUANT else "BF16"
                 print(
-                    f'[tuning] Dispatch ({"FP8" if isinstance(current_x, tuple) else "BF16"}) {recv_bytes / 1e9 / t:.2f} GB/s (HCCS), '
+                    f"[tuning] Dispatch ({quant_mode_str}) {recv_bytes / 1e9 / t:.2f} GB/s (HCCS), "
                     f"{rdma_send_bytes / 1e9 / t:.2f} GB/s (RDMA), avg_t: {t * 1e6:.2f} us, notify_t: {notify_t  * 1e6:.2f} us",
                     flush=True,
                 )
@@ -587,6 +621,19 @@ if __name__ == "__main__":
         action="store_true",
         help="Whether to enable diagnose for testing",
     )
+    parser.add_argument(
+        "--use-int8-quant",
+        action="store_true",
+        default=False,
+        help="Enable internal INT8 quantization instead of BF16 (default: BF16)",
+    )
+    parser.add_argument(
+        "--debug",
+        action="store_true",
+        default=False,
+        help="Enable debug logging.",
+    )
+
     args = parser.parse_args()
 
     num_processes = args.num_processes
