@@ -1,7 +1,7 @@
 #ifndef SHMEM_MOE_DISPATCH_NORMAL_H
 #define SHMEM_MOE_DISPATCH_NORMAL_H
 
-#include "shmem_api.h"
+#include "shmem.h"
 #include "kernel_operator.h"
 #include "kernel_tiling/kernel_tiling.h"
 #include "shmem_moe_dispatch_normal_tiling.h"
@@ -54,7 +54,7 @@ private:
 
     __aicore__ inline GM_ADDR GetMetaAddrByRankId(const int32_t rankId, const int metaType)
     {
-        auto ptr = shmem_ptr(gva_gm, rankId);
+        auto ptr = aclshmem_ptr(gva_gm, rankId);
 
         switch (metaType) {
             case STATE:  // 存放通信结束的state

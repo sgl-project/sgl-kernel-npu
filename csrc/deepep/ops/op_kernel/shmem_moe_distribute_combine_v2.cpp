@@ -1,28 +1,28 @@
-#include "shmem_moe_distribute_combine_v2.h"
+// #include "shmem_moe_distribute_combine_v2.h"
 #include "kernel_operator.h"
 #include "shmem_moe_distribute_combine_v2_tiling.h"
 
 using namespace AscendC;
-using namespace MoeDistributeCombineV2Impl;
+// using namespace MoeDistributeCombineV2Impl;
 
 namespace {
-template <TemplateMC2TypeClass>
-__aicore__ inline void ExecShmemMoeDistributeCombineV2(GM_ADDR expandX, GM_ADDR expertIds, GM_ADDR assistInfoForCombine,
-                                                       GM_ADDR epSendCount, GM_ADDR tpSendCount, GM_ADDR scales,
-                                                       GM_ADDR xActiveMask, GM_ADDR sharedExpertX, GM_ADDR elasticInfo,
-                                                       GM_ADDR oriX, GM_ADDR constExpertAlpha1,
-                                                       GM_ADDR constExpertAlpha2, GM_ADDR constExpertV, GM_ADDR XOut,
-                                                       GM_ADDR workspaceGM, GM_ADDR tilingGM, TPipe *pipePtr)
-{
-    GET_TILING_DATA_WITH_STRUCT(ShmemMoeDistributeCombineV2TilingData, tilingData, tilingGM);
-    ShmemMoeDistributeCombineV2<TemplateMC2TypeFunc> op;
-    // PRINTF("[---------------- Initializing CombineV2 ------------------] \n");
-    op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, scales, xActiveMask, sharedExpertX,
-            elasticInfo, oriX, constExpertAlpha1, constExpertAlpha2, constExpertV, XOut, workspaceGM, pipePtr,
-            &tilingData);
-    // PRINTF("[---------------- Processing CombineV2 ------------------] \n");
-    op.Process();
-}
+// template <TemplateMC2TypeClass>
+// __aicore__ inline void ExecShmemMoeDistributeCombineV2(GM_ADDR expandX, GM_ADDR expertIds, GM_ADDR assistInfoForCombine,
+//                                                        GM_ADDR epSendCount, GM_ADDR tpSendCount, GM_ADDR scales,
+//                                                        GM_ADDR xActiveMask, GM_ADDR sharedExpertX, GM_ADDR elasticInfo,
+//                                                        GM_ADDR oriX, GM_ADDR constExpertAlpha1,
+//                                                        GM_ADDR constExpertAlpha2, GM_ADDR constExpertV, GM_ADDR XOut,
+//                                                        GM_ADDR workspaceGM, GM_ADDR tilingGM, TPipe *pipePtr)
+// {
+//     GET_TILING_DATA_WITH_STRUCT(ShmemMoeDistributeCombineV2TilingData, tilingData, tilingGM);
+//     ShmemMoeDistributeCombineV2<TemplateMC2TypeFunc> op;
+//     // PRINTF("[---------------- Initializing CombineV2 ------------------] \n");
+//     op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, scales, xActiveMask, sharedExpertX,
+//             elasticInfo, oriX, constExpertAlpha1, constExpertAlpha2, constExpertV, XOut, workspaceGM, pipePtr,
+//             &tilingData);
+//     // PRINTF("[---------------- Processing CombineV2 ------------------] \n");
+//     op.Process();
+// }
 }  // namespace
 
 /*
@@ -50,24 +50,24 @@ extern "C" __global__ __aicore__ void shmem_moe_distribute_combine_v2(
 
 #if (ORIG_DTYPE_EXPAND_X == DT_BF16 || ORIG_DTYPE_EXPAND_X == DT_FLOAT16)
     if (TILING_KEY_IS(10100)) {  // tp=2 IsInt8Quant=0
-        ExecShmemMoeDistributeCombineV2<DTYPE_EXPAND_X, DTYPE_X, int32_t, true, false>(
-            expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, scales, xActiveMask, sharedExpertX,
-            elasticInfo, oriX, constExpertAlpha1, constExpertAlpha2, constExpertV, XOut, workspaceGM, tilingGM, &pipe);
+        // ExecShmemMoeDistributeCombineV2<DTYPE_EXPAND_X, DTYPE_X, int32_t, true, false>(
+        //     expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, scales, xActiveMask, sharedExpertX,
+        //     elasticInfo, oriX, constExpertAlpha1, constExpertAlpha2, constExpertV, XOut, workspaceGM, tilingGM, &pipe);
     }
     if (TILING_KEY_IS(10000)) {  // tp=1 IsInt8Quant=0
-        ExecShmemMoeDistributeCombineV2<DTYPE_EXPAND_X, DTYPE_X, int32_t, false, false>(
-            expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, scales, xActiveMask, sharedExpertX,
-            elasticInfo, oriX, constExpertAlpha1, constExpertAlpha2, constExpertV, XOut, workspaceGM, tilingGM, &pipe);
+        // ExecShmemMoeDistributeCombineV2<DTYPE_EXPAND_X, DTYPE_X, int32_t, false, false>(
+        //     expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, scales, xActiveMask, sharedExpertX,
+        //     elasticInfo, oriX, constExpertAlpha1, constExpertAlpha2, constExpertV, XOut, workspaceGM, tilingGM, &pipe);
     }
     if (TILING_KEY_IS(10120)) {  // tp=2 IsInt8Quant=1
-        ExecShmemMoeDistributeCombineV2<DTYPE_EXPAND_X, DTYPE_X, int32_t, true, true>(
-            expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, scales, xActiveMask, sharedExpertX,
-            elasticInfo, oriX, constExpertAlpha1, constExpertAlpha2, constExpertV, XOut, workspaceGM, tilingGM, &pipe);
+        // ExecShmemMoeDistributeCombineV2<DTYPE_EXPAND_X, DTYPE_X, int32_t, true, true>(
+        //     expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, scales, xActiveMask, sharedExpertX,
+        //     elasticInfo, oriX, constExpertAlpha1, constExpertAlpha2, constExpertV, XOut, workspaceGM, tilingGM, &pipe);
     }
     if (TILING_KEY_IS(10020)) {  // tp=1 IsInt8Quant=1
-        ExecShmemMoeDistributeCombineV2<DTYPE_EXPAND_X, DTYPE_X, int32_t, false, true>(
-            expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, scales, xActiveMask, sharedExpertX,
-            elasticInfo, oriX, constExpertAlpha1, constExpertAlpha2, constExpertV, XOut, workspaceGM, tilingGM, &pipe);
+        // ExecShmemMoeDistributeCombineV2<DTYPE_EXPAND_X, DTYPE_X, int32_t, false, true>(
+        //     expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, scales, xActiveMask, sharedExpertX,
+        //     elasticInfo, oriX, constExpertAlpha1, constExpertAlpha2, constExpertV, XOut, workspaceGM, tilingGM, &pipe);
     }
 #endif
 }

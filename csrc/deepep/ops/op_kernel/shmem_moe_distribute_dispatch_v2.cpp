@@ -1,9 +1,9 @@
 #include "kernel_operator.h"
-#include "shmem_moe_distribute_dispatch_v2.h"
+// #include "shmem_moe_distribute_dispatch_v2.h"
 #include "shmem_moe_distribute_dispatch_v2_tiling.h"
 
 using namespace AscendC;
-using namespace MoeDistributeDispatchV2Impl;
+// using namespace MoeDistributeDispatchV2Impl;
 
 /*
  * A3 tilingkey说明
@@ -28,68 +28,68 @@ extern "C" __global__ __aicore__ void shmem_moe_distribute_dispatch_v2(
     TPipe pipe;
 #if (ORIG_DTYPE_EXPAND_X == DT_BF16 || ORIG_DTYPE_EXPAND_X == DT_FLOAT16)
     if (TILING_KEY_IS(10000)) {
-        GET_TILING_DATA_WITH_STRUCT(ShmemMoeDistributeDispatchV2TilingData, tilingData, tilingGM);
-        ShmemMoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, false, false, false> op;
-        op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
-                expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
-        op.Process();
+        // GET_TILING_DATA_WITH_STRUCT(ShmemMoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        // ShmemMoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, false, false, false> op;
+        // op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
+        //         expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
+        // op.Process();
         return;
     }
     if (TILING_KEY_IS(10100)) {
-        GET_TILING_DATA_WITH_STRUCT(ShmemMoeDistributeDispatchV2TilingData, tilingData, tilingGM);
-        ShmemMoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, false, false, true> op;
-        op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
-                expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
-        op.Process();
+        // GET_TILING_DATA_WITH_STRUCT(ShmemMoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        // ShmemMoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, false, false, true> op;
+        // op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
+        //         expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
+        // op.Process();
         return;
     }
 #elif (ORIG_DTYPE_EXPAND_X == DT_INT8)
     if (TILING_KEY_IS(10011)) {
-        GET_TILING_DATA_WITH_STRUCT(ShmemMoeDistributeDispatchV2TilingData, tilingData, tilingGM);
-        ShmemMoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, true, false, false, false> op;
-        op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
-                expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
-        op.Process();
+        // GET_TILING_DATA_WITH_STRUCT(ShmemMoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        // ShmemMoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, true, false, false, false> op;
+        // op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
+        //         expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
+        // op.Process();
         return;
     }
     if (TILING_KEY_IS(10002)) {
-        GET_TILING_DATA_WITH_STRUCT(ShmemMoeDistributeDispatchV2TilingData, tilingData, tilingGM);
-        ShmemMoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, true, false, false> op;
-        op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
-                expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
-        op.Process();
+        // GET_TILING_DATA_WITH_STRUCT(ShmemMoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        // ShmemMoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, true, false, false> op;
+        // op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
+        //         expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
+        // op.Process();
         return;
     }
     if (TILING_KEY_IS(10012)) {
-        GET_TILING_DATA_WITH_STRUCT(ShmemMoeDistributeDispatchV2TilingData, tilingData, tilingGM);
-        ShmemMoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, true, true, false> op;
-        op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
-                expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
-        op.Process();
+        // GET_TILING_DATA_WITH_STRUCT(ShmemMoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        // ShmemMoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, true, true, false> op;
+        // op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
+        //         expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
+        // op.Process();
         return;
     }
     if (TILING_KEY_IS(10111)) {
-        GET_TILING_DATA_WITH_STRUCT(ShmemMoeDistributeDispatchV2TilingData, tilingData, tilingGM);
-        ShmemMoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, true, false, false, true> op;
-        op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
-                expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
-        op.Process();
+        // GET_TILING_DATA_WITH_STRUCT(ShmemMoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        // ShmemMoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, true, false, false, true> op;
+        // op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
+        //         expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
+        // op.Process();
         return;
     }
     if (TILING_KEY_IS(10102)) {
-        GET_TILING_DATA_WITH_STRUCT(ShmemMoeDistributeDispatchV2TilingData, tilingData, tilingGM);
-        ShmemMoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, true, false, true> op;
-        op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
-                expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
-        op.Process();
+        // GET_TILING_DATA_WITH_STRUCT(ShmemMoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        // ShmemMoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, true, false, true> op;
+        // op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
+        //         expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
+        // op.Process();
         return;
     }
     if (TILING_KEY_IS(10112)) {
-        GET_TILING_DATA_WITH_STRUCT(ShmemMoeDistributeDispatchV2TilingData, tilingData, tilingGM);
-        ShmemMoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, true, true, true> op;
-        op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
-                expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
-        op.Process();
+        // GET_TILING_DATA_WITH_STRUCT(ShmemMoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        // ShmemMoeDistributeDispatchV2<DTYPE_X, DTYPE_EXPAND_X, false, true, true, true> op;
+        // op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
+        //         expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
+        // op.Process();
         return;
     }
 #endif

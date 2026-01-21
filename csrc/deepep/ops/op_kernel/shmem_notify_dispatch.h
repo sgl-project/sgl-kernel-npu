@@ -4,7 +4,7 @@
 #include <climits>
 #include "kernel_operator.h"
 
-#include "shmem_api.h"
+#include "shmem.h"
 #include "shmem_comm_args.h"
 
 using namespace AscendC;
@@ -542,7 +542,7 @@ private:
 template <typename T>
 __aicore__ inline GM_ADDR ShmemNotifyDispatch<T>::GetMetaAddrByRankId(const int32_t rankId, const int metaType)
 {
-    auto ptr = shmem_ptr(gva_gm, rankId);
+    auto ptr = aclshmem_ptr(gva_gm, rankId);
 
     switch (metaType) {
         case STATE:  // 存放通信结束的state
