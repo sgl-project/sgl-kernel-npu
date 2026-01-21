@@ -1,12 +1,10 @@
-<h2 align="left">
-DeepEP-DeepFusedMoE
-</h2>
+## DeepEP-DeepFusedMoE
 
 
-## Introduction
+### Introduction
 In Mixture of Experts (MoE) models, the fused_deep_moe operator implements the hyper-fusion of Dispatch + Experts FFN (2×GMM) + Combine functionalities.
 This operator completes token distribution, expert computation (matrix multiplication, activation, quantization/dequantization), and result aggregation in a single call. Compared with traditional multi-operator implementations, it significantly reduces communication overhead and end-to-end latency.
-The communication latency (Bs=32/155μs, Dispatch=80μs, Combine=75μs) is reduced to less than 85μs, with a 70μs reduction in single-layer communication latency and a 4ms reduction in inference end-to-end latency.
+The communication latency (Batch size = 32 / 155μs, Dispatch = 80μs, Combine = 75μs) is reduced to less than 85μs, with a 70μs reduction in single-layer communication latency and a 4ms reduction in inference end-to-end latency.
 
 * In MoE-based large models, each token (a vector with consistent length across all tokens) needs to be processed by multiple experts, and the processed results are collected and accumulated. Different experts are distributed across different NPU cards, and each card supports deploying multiple experts.
 
@@ -17,7 +15,7 @@ The communication latency (Bs=32/155μs, Dispatch=80μs, Combine=75μs) is reduc
   * ATB currently provides a large computation operator GmmDepSwigluQuantGmmDep that can complete all the above computational steps in one go.
 * The operation/operator for collecting and accumulating processed results is called combine. The corresponding alcnn operator is already available in CANN.
 
-## Python-API
+### Python-API
 ```python
 def fused_deep_moe(
     x: torch.Tensor,
@@ -48,8 +46,8 @@ def fused_deep_moe(
 | **quant_mode** | `int` | Scalar, default `1` | Indicates quantization mode:<br>`1`: int8;<br>fp8 will be supported in A5 release.                                                                                                                                                                                                                                                                                                                                                         |
 
 ### Return Values
-| 参数                              | 类型             | 形状                         | 说明                                                                     |
-|---------------------------------| -------------- | -------------------------- |------------------------------------------------------------------------|
-| **output**                      | `torch.Tensor` | `[bs, hidden]`             | 	Fused expert outputs.                                                 |
-| **ep_recv_count**               | `torch.Tensor` | `[num_local_experts]`           | Number of tokens received by each card in the EP communication domain, which is used for subsequent communication synchronization or load balancing statistics.
+| Parameter                     | 	Type             | 	Shape                         | Description                                                                     |
+|-------------------------------| -------------- | -------------------------- |------------------------------------------------------------------------|
+| **output**                      | `torch.Tensor` | `[bs, hidden]`             | Fused expert outputs.                                                 |
+| **ep_recv_count**             | `torch.Tensor` | `[num_local_experts]`           | Number of tokens received by each card in the EP communication domain, which is used for subsequent communication synchronization or load balancing statistics.
 |
