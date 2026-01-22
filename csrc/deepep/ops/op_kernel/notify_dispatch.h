@@ -180,7 +180,7 @@ private:
                 int prefixSum = 0;
                 if (absRound < realRound) {
                     for (int i = 0; i < numExperts; ++i) {
-                        int numTokensExpert = tokenPerExpertTensor(r * numExperts + i);  // S操作
+                        int numTokensExpert = tokenPerExpertTensor(r * numExperts + i);  // S operation
                         int baseUB = r * numExperts * sendPerGroup + i * sendPerGroup;
                         sendDataTensor(baseUB) = numTokensExpert;
                         sendDataTensor(baseUB + 1) = prefixSum;
@@ -375,7 +375,6 @@ private:
         sendOffsetTensor = sendOffsetBuf.Get<T>();
         Duplicate<T>(sendOffsetTensor, 0, sendCountAlignLen / sizeof(int32_t));
         SyncFunc<AscendC::HardEvent::V_S>();
-        SyncFunc<AscendC::HardEvent::MTE2_S>();
         uint32_t computeNum = currentBatchRounds * numLocalExperts;
         for (uint32_t r = 0; r < currentBatchRounds; ++r) {
             uint32_t computeNumIn = r * numLocalExperts;
@@ -646,9 +645,6 @@ private:
             uint32_t currentBatchRounds = (rStart + batchRounds > round) ? (round - rStart) : batchRounds;
             ReorderOutput(rStart, currentBatchRounds);
             ReorderSendCountOutput(currentBatchRounds);
-            SyncFunc<AscendC::HardEvent::S_V>();
-            SyncFunc<AscendC::HardEvent::V_S>();
-            int32_t localExpTotal = 0;
             for (uint32_t r = 0; r < currentBatchRounds; r++) {
                 for (uint32_t expId = 0; expId < numLocalExperts; ++expId) {
                     int32_t localRecvCount = 0;
@@ -764,7 +760,6 @@ private:
                     SyncFunc<AscendC::HardEvent::V_S>();
                     for (uint32_t r = 0; r < currentBatchRounds; r++) {
                         uint32_t pairIdx = r * numExperts + index;
-                        uint32_t ubIdx = index * currentBatchRounds + r;
                         int32_t recvCnt = recvCountTensor(pairIdx);
                         int32_t offset = expSrcCumPrevTensor(index);
                         rInSrcrankOffsetTensor(ubBlockAlignIndex + r) = offset;
