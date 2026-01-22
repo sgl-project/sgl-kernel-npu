@@ -109,6 +109,9 @@ public:
             SyncFunc<AscendC::HardEvent::V_S>();
             for (int j = 0; j < numTopk_; ++j) {
                 int64_t expert_idx = topkIdxTensor.GetValue(i * numTopk_ + j);
+                if (expert_idx < 0 || expert_idx >= numExperts_) {
+                    continue;
+                }
                 uint32_t per_expert_num = numTokensPerExpertTensor.GetValue(expert_idx) + 1;
                 numTokensPerExpertTensor.SetValue(expert_idx, per_expert_num);
                 int rank_id = expert_idx / experts_per_rank;
@@ -147,6 +150,9 @@ public:
         for (int i = 0; i < tempTokens_; ++i) {
             for (int j = 0; j < numTopk_; ++j) {
                 int64_t expert_idx = topkIdxTensor.GetValue(i * numTopk_ + j);
+                if (expert_idx < 0 || expert_idx >= numExperts_) {
+                    continue;
+                }
                 T valT = numTokensPerExpertTensor(expert_idx);
                 sendTokenIdxSmallTensor(i * numTopk_ + j) = valT;
                 numTokensPerExpertTensor(expert_idx) = valT + 1;
