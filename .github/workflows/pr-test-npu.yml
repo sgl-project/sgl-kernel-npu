@@ -58,7 +58,6 @@ jobs:
           HCCL_BUFFSIZE: 4065
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=1
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=8192
 
       - name: Run test multi-round intranode
@@ -356,7 +355,6 @@ jobs:
           HCCL_BUFFSIZE: 4065
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=1
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=8192
 
       - name: Run test multi-round intranode

@@ -63,13 +63,8 @@ def bench(fn, num_warmups: int = 50, num_tests: int = 50, post_fn=None):
     cache = torch.empty(int(256e6 // 4), dtype=torch.int32, device=device)
 
     # Warmup
-    warmup_event = torch.npu.Event(enable_timing=False)
     for _ in range(num_warmups):
-        torch.npu.synchronize()
-        warmup_event.record()
         fn()
-        warmup_event.record()
-        torch.npu.synchronize()
 
     # Flush L2 cache
     cache.zero_()
