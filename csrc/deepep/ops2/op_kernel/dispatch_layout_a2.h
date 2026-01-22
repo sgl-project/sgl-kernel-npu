@@ -41,6 +41,7 @@ public:
         numExperts_ = tilingData->dispatchLayoutInfo.numExperts;
         numTopk_ = tilingData->dispatchLayoutInfo.numTopk;
         localRankSize_ = tilingData->dispatchLayoutInfo.localRankSize;
+        rankId_ = tilingData->dispatchLayoutInfo.rankId;
         serverNum_ = (numRanks_ + localRankSize_ - 1) / localRankSize_;
         tpipe_ = pipe;
 
@@ -190,6 +191,9 @@ private:
             SyncFunc<AscendC::HardEvent::V_S>();
             for (int j = 0; j < numTopk_; ++j) {
                 int64_t expert_idx = topkIdxTensor.GetValue(i * numTopk_ + j);
+                if (expert_idx < 0 || expert_idx >= numExperts_) {
+                    continue;
+                }
                 uint32_t per_expert_num = numTokensPerExpertTensor.GetValue(expert_idx) + 1;
                 numTokensPerExpertTensor.SetValue(expert_idx, per_expert_num);
                 int rank_id = expert_idx / experts_per_rank;
@@ -293,6 +297,9 @@ private:
         for (int i = 0; i < tempTokens_; ++i) {
             for (int j = 0; j < numTopk_; ++j) {
                 int64_t expert_idx = topkIdxTensor.GetValue(i * numTopk_ + j);
+                if (expert_idx < 0 || expert_idx >= numExperts_) {
+                    continue;
+                }
                 int rank_id = expert_idx / experts_per_rank;
                 int server_id = rank_id / localRankSize_;
                 int32_t offset = localTokenServerOffsetTensor.GetValue(i * serverNum_ + server_id);
@@ -372,7 +379,7 @@ private:
     uint32_t coreIdx_{0};
     uint32_t aivNum_{0};
     uint32_t tempTokens_{0};
-    uint32_t rank_{0};
+    uint32_t rankId_{0};
 
     uint32_t topkIdx32AlignIntLen_{0};
     uint32_t numTokensPerRank32AlignIntLen_{0};
