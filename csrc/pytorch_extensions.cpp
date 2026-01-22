@@ -97,7 +97,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "str? layout_query=None, str? layout_key=None, "
         "int? sparse_count=None, int? sparse_mode=None) -> Tensor");
 
-    m.def("tri_inv(Tensor x) -> Tensor");
+    m.def("triangular_inverse(Tensor x) -> Tensor");
 }
 }  // namespace
 
@@ -140,6 +140,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
 
-    m.impl("tri_inv", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
+    m.impl("triangular_inverse", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
 }
 }  // namespace

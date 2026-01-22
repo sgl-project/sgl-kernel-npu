@@ -82,7 +82,7 @@ def test_tri_inv_col_sweep(
     expected = torch.from_numpy(expected_cpu).npu()
 
     torch.npu.synchronize()
-    actual = torch.ops.npu.tri_inv(input_x)
+    actual = torch.ops.npu.triangular_inverse(input_x)
     torch.npu.synchronize()
     # Transpose matrices back to row-major order
     actual = actual.transpose(2, 1)
@@ -117,7 +117,7 @@ def test_tri_inv_col_sweep_np_linalg_inv(
     golden_numpy_as_torch = torch.from_numpy(golden_numpy_cpu).npu()
 
     torch.npu.synchronize()
-    actual = torch.ops.npu.tri_inv(input_x)
+    actual = torch.ops.npu.triangular_inverse(input_x)
     torch.npu.synchronize()
 
     # rtol must be scaled w.r.t to the input size, see Higham's paper, Eq. (2.3)

@@ -23,15 +23,17 @@ from sgl_kernel_npu.fla.wy_fast import recompute_w_u_fwd_npu as recompute_w_u_fw
 
 def fast_inv_tril(A: torch.Tensor):
     dtype = A.dtype
-    # Perform matrix inversion in fp32
-    A_inv = torch.ops.npu.tri_inv(A.to(torch.float32))
+    assert A.shape[-2] == A.shape[-1]
+    chunk_size = A.shape[-1]
+    identity = torch.eye(chunk_size, dtype=torch.float32, device=A.device)
+    A_inv = torch.ops.npu.triangular_inverse(identity - A.to(torch.float32))
     return A_inv.to(dtype)
 
 
 def inv_tril_inplace(A: torch.Tensor):
     """
-    compute inv(I - A) where A is strict lower-triangular. The algorithm is somewhat "in-place",
-    in the sense that it does not explicitly form a full matrix for the inverse.
+    Returns the "matrix inverse" of the last two dimensions of A that must be a strict lower-triangular matrix.
+    The algorithm is somewhat "in-place", in the sense that it does not explicitly form a full matrix for the inverse.
     """
     assert A.shape[-2] == A.shape[-1]
     chunk_size = A.shape[-1]
@@ -39,8 +41,7 @@ def inv_tril_inplace(A: torch.Tensor):
         row = A[..., i, :i].clone()
         sub = A[..., :i, :i].clone()
         A[..., i, :i] = row + (row.unsqueeze(-1) * sub).sum(-2)
-    
-    return A
+    return A + torch.eye(chunk_size, dtype=A.dtype, device=A.device)
 
 
 def chunk_gated_delta_rule_native(
@@ -94,7 +95,6 @@ def chunk_gated_delta_rule_native(
     decay_mask = ((g.unsqueeze(-1) - g.unsqueeze(-2)).tril().exp().float()).tril()
     attn = -((k_beta @ key.transpose(-1, -2)) * decay_mask).masked_fill(mask, 0)
     attn = tri_inv_fn(attn)
-    attn = attn + torch.eye(chunk_size, dtype=attn.dtype, device=attn.device)
     value = attn @ v_beta
     k_cumdecay = attn @ (k_beta * g.exp().unsqueeze(-1))
     last_recurrent_state = (
