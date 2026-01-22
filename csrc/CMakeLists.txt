@@ -21,6 +21,7 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmv_shrink.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/lightning_indexer.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/tiling/lightning_indexer_tiling.cpp
+    ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
     )
 if(BUILD_CATLASS_MODULE)
     list(APPEND OP_SRCS
@@ -43,6 +44,7 @@ ascendc_library(no_workspace_kernel STATIC
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgmv_shrink_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmv_expand_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmv_shrink_kernel.cpp
+    ${PROJECT_OP_SRC_BASE}/tri_inv/op_kernel/tri_inv_kernel.cpp
 )
 
 # kernel side files with workspace
