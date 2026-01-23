@@ -55,9 +55,15 @@ jobs:
       - name: Run test intranode
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 4065
+          HCCL_BUFFSIZE: 2300
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
+
+      - name: Run test intranode
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 4065
+        run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=8192
 
       - name: Run test multi-round intranode
@@ -352,9 +358,15 @@ jobs:
       - name: Run test intranode
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 4065
+          HCCL_BUFFSIZE: 2300
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
+
+      - name: Run test intranode
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 4065
+        run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=8192
 
       - name: Run test multi-round intranode
