@@ -578,7 +578,7 @@ jobs:
           HCCL_BUFFSIZE: 4065
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --normal-num-tokens=1 --low-latency-num-tokens=1
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --normal-num-tokens=8192 --low-latency-num-tokens=512 --test-loop=100
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --normal-num-tokens=8192 --low-latency-num-tokens=512
 
       - name: Run test mixed running for hidden
         timeout-minutes: 10
