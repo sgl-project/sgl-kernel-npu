@@ -25,15 +25,14 @@ For contribution guidelines, please refer to the [Contribution Guide](docs/devel
 DeepEP-Ascend provides optimized all-to-all communication kernels for Expert Parallelism in MoE models.
 
 **Communication Modes:**
-- **Normal Mode**: High-throughput dispatch and combine operations for training and prefill phases (up to 4096 tokens/batch)
+- **Normal Mode**: High-throughput dispatch and combine operations for training and prefill phases (up to 65536 tokens/batch for A3 and 8192 tokens/batch for A2)
 - **Low-Latency Mode**: Optimized for production inference with small batch sizes (128 tokens/batch), achieving sub-150us latency
 
 **Key Capabilities:**
 - Token dispatch and combine with automatic load balancing
 - Fused MoE computation (`fused_deep_moe`)
-- Intranode HCCS and internode RDMA communication
+- A3 full-mesh HCCS communication and A2 Intranode HCCS + internode RDMA communication
 - INT8/FP8/BF16 quantization for reduced memory bandwidth
-- Support for EP scales: 2, 4, 8, 16, 32, 64, 128, 144, 160 ranks
 
 ### SGLang-Kernel-NPU
 
