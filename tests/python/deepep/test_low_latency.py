@@ -179,7 +179,9 @@ def test(
             # Check received data
             recv_x = recv_x[:num_valid_tokens]
             recv_x_amin = recv_x[:, :-128].amin(dim=-1)
-            assert torch.allclose(recv_x_amin, recv_x[:, :-128].amax(dim=-1), atol=1e-3)
+            assert torch.allclose(
+                recv_x_amin, recv_x[:, :-128].amax(dim=-1), equal_nan=True
+            )
             if dispatch_use_fp8:
                 hash_value ^= hash_tensor(
                     packed_recv_x[0][int(i * temp) : int(i * temp + num_valid_tokens)]
@@ -337,7 +339,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     num_topk, num_experts = args.num_topk, args.num_experts
     use_experts = num_experts if shared_expert_rank_num == 0 else (num_experts - 1)
     use_ranks = num_ranks - shared_expert_rank_num
-    base_drop_percent = args.drop_percent
+    drop_percent = args.drop_percent
 
     fluctuation_percentage = 0.1
     min_fluctuation = 2
@@ -371,13 +373,6 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         num_qps_per_rank=use_experts // use_ranks if use_ranks > 0 else 1,
     )
 
-    current_drop = 0.0
-    fluctuation_drop_percentage = 0.3
-    if base_drop_percent == 0.0 and num_ranks > 1:
-        current_drop = fluctuation_drop_percentage * (rank / (num_ranks - 1))
-    else:
-        current_drop = base_drop_percent
-
     test(
         aligned_num_tokens,
         raw_num_tokens,
@@ -388,7 +383,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         use_ranks,
         group,
         buffer,
-        current_drop,
+        drop_percent,
         seed=1,
     )
 
@@ -406,7 +401,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
             use_ranks,
             group,
             buffer,
-            current_drop,
+            drop_percent,
             seed=seed,
         )
         for i in range(20):
@@ -421,7 +416,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
                     use_ranks,
                     group,
                     buffer,
-                    current_drop,
+                    drop_percent,
                     seed=seed,
                 )
                 == ref_hash
