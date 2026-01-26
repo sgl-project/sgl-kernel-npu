@@ -16,6 +16,7 @@
 
 #include "torch_npu/csrc/core/npu/NPUStream.h"
 #include "torch_npu/csrc/framework/OpCommand.h"
+#include "common_tiling.h"
 
 namespace sglang {
 namespace npu_kernel {
@@ -41,6 +42,49 @@ public:
     inline static void *ConvertType(const at::Tensor &at_tensor)
     {
         return const_cast<void *>(at_tensor.data_ptr());
+    }
+
+    inline static host_utils::DataType ConvertDataType(const at::ScalarType type)
+    {
+        switch (type) {
+            case at::ScalarType::Float:
+                return host_utils::DataType::DT_FLOAT;
+
+            case at::ScalarType::Half:
+                return host_utils::DataType::DT_FLOAT16;
+
+            case at::ScalarType::BFloat16:
+                return host_utils::DataType::DT_BFLOAT16;
+
+            case at::ScalarType::Double:
+                return host_utils::DataType::DT_DOUBLE;
+
+            case at::ScalarType::Bool:
+                return host_utils::DataType::DT_BOOL;
+
+            case at::ScalarType::Char:
+                return host_utils::DataType::DT_INT8;
+
+            case at::ScalarType::Short:
+                return host_utils::DataType::DT_INT16;
+
+            case at::ScalarType::Int:
+                return host_utils::DataType::DT_INT32;
+
+            case at::ScalarType::Long:
+                return host_utils::DataType::DT_INT64;
+
+            case at::ScalarType::Byte:
+                return host_utils::DataType::DT_UINT8;
+
+            case at::ScalarType::ComplexFloat:
+                return host_utils::DataType::DT_COMPLEX64;
+
+            case at::ScalarType::ComplexDouble:
+                return host_utils::DataType::DT_COMPLEX128;
+        }
+
+        return host_utils::DataType::DT_MAX;
     }
 
     template <typename T>
