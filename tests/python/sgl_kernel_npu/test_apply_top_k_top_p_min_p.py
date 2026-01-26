@@ -83,7 +83,6 @@ class TestCustomApplyTopKTopPMinP(unittest.TestCase):
                 rtol=tol,
             )
 
-
     def test_apply_top_k_top_p_min_p_eager_without_min_p(self):
         batch_size = 4
         vocab_size = 131072
