@@ -477,7 +477,7 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::InputToDstOutput()
 
     DataCopyExtParams xCopyParams = {1U, static_cast<uint32_t>(h * sizeof(XType)), 0U, 0U, 0U};
     DataCopyPadExtParams<XType> tokenCopyPadExtParams{false, 0U, 0U, 0U};
-    DataCopyExtParams xOutCopyParams = {1U, static_cast<uint32_t>(hUBAlignSize), 0U, 0U, 0U};  // 只拷贝hidden_size
+    DataCopyExtParams xOutCopyParams = {1U, static_cast<uint32_t>(h * sizeof(ExpandXOutType)), 0U, 0U, 0U};  // 只拷贝hidden_size
     DataCopyExtParams scaleCopyParams = {1U, sizeof(float), 0U, 0U, 0U};                       // 拷贝dynamicScales
 
     for (int32_t tokenIndex = startTokenId; tokenIndex < endTokenId; ++tokenIndex) {
@@ -496,7 +496,7 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::InputToDstOutput()
 
         if constexpr (DynamicQuant) {
             auto dsPtr = shareDynamicScaleAddrs[dstRankId];
-            dstScaleOutGT.SetGlobalBuffer((__gm__ float *)(dsPtr) + (dstExpertOffset + curExpertIdx));
+            dstScaleOutGT.SetGlobalBuffer((__gm__ float *)(dsPtr));
 
             xInTensor = xInQueue.AllocTensor<XType>();
             DataCopyPad(xInTensor, xGT[tokenIndex / topK * h], xCopyParams, tokenCopyPadExtParams);
@@ -509,7 +509,7 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::InputToDstOutput()
             DataCopyPad(dstGT, xOutTensor, xOutCopyParams);  // 拷贝token
 
             LocalTensor<float> xOutFp32Tensor = xOutTensor.template ReinterpretCast<float>();
-            DataCopyPad(dstScaleOutGT, xOutFp32Tensor[hUBAlignSize / sizeof(float)], scaleCopyParams);
+            DataCopyPad(dstScaleOutGT[dstExpertOffset + curExpertIdx], xOutFp32Tensor[hUBAlignSize / sizeof(float)], scaleCopyParams);
 
             xOutQueue.FreeTensor(xOutTensor);
         } else {
@@ -520,6 +520,8 @@ __aicore__ inline void ShmemMoeDispatchNormal<CamTypeFunc>::InputToDstOutput()
             DataCopyPad(dstGT, xTmpTensor, xOutCopyParams);
             xQueue.FreeTensor<ExpandXOutType>(xTmpTensor);
         }
+        // // 在量化模式下，确保上一次数据token计算完成，防止在datacopyPad覆盖掉上一次未计算完成的数据
+        // SyncFunc<AscendC::HardEvent::V_MTE2>();
     }
 }
 
