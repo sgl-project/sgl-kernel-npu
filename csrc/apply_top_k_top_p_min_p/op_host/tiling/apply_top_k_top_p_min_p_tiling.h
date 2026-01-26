@@ -30,9 +30,7 @@ struct TensorParaInfo {
     c10::ArrayRef<int64_t> shape;
 };
 
-const std::map<ge::DataType, int64_t> G_DTYPE_MAP = {{ge::DT_FLOAT, 1},
-                                                     {ge::DT_FLOAT16, 2},
-                                                     {ge::DT_BF16, 3}};
+const std::map<ge::DataType, int64_t> G_DTYPE_MAP = {{ge::DT_FLOAT, 1}, {ge::DT_FLOAT16, 2}, {ge::DT_BF16, 3}};
 // ------------------算子原型索引常量定义----------------
 // Dim Index
 constexpr uint32_t DIM_IDX_ZERO = 0;

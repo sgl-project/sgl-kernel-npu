@@ -29,11 +29,7 @@ public:
             .DataType({ge::DT_FLOAT, ge::DT_FLOAT16, ge::DT_BF16})
             .FormatList({ge::FORMAT_ND})
             .AutoContiguous();
-        this->Input("k")
-            .ParamType(REQUIRED)
-            .DataTypeList({ge::DT_INT32})
-            .FormatList({ge::FORMAT_ND})
-            .AutoContiguous();
+        this->Input("k").ParamType(REQUIRED).DataTypeList({ge::DT_INT32}).FormatList({ge::FORMAT_ND}).AutoContiguous();
         this->Input("p")
             .ParamType(REQUIRED)
             .DataType({ge::DT_FLOAT, ge::DT_FLOAT16, ge::DT_BF16})

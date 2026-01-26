@@ -37,26 +37,27 @@ __aicore__ inline void SetWaitFlag(HardEvent evt)
 }
 
 template <typename T, int64_t IsMinPSampling>
-class ApplyTopKTopPMinP {
+class ApplyTopKTopPMinP
+{
 public:
     __aicore__ inline ApplyTopKTopPMinP(){};
-    __aicore__ inline void Init(
-        const __gm__ ApplyTopKTopPMinPTilingData *tilingData, GM_ADDR probs, GM_ADDR k,
-        GM_ADDR p, GM_ADDR min_p, GM_ADDR sampled_res, GM_ADDR workspace, TPipe *tPipe);
+    __aicore__ inline void Init(const __gm__ ApplyTopKTopPMinPTilingData *tilingData, GM_ADDR probs, GM_ADDR k,
+                                GM_ADDR p, GM_ADDR min_p, GM_ADDR sampled_res, GM_ADDR workspace, TPipe *tPipe);
     __aicore__ inline void Process();
+
 private:
-    __aicore__ inline void CopyInWithCast(
-        LocalTensor<float>& localTensor, GlobalTensor<T>& globalTensor, int64_t gmOffset, int64_t copyNum);
-    __aicore__ inline void InitWorkspace(LocalTensor<float>& workLocal);
-    __aicore__ inline void GetFloatValue(GlobalTensor<T>& globalTensor, int64_t offset, float& value);
-    __aicore__ inline void CumSumImpl(LocalTensor<float>& cumSumInput1Local, LocalTensor<float>& cumSumInput2Local);
-    __aicore__ inline void CopyOutWithCast(
-        GlobalTensor<T>& globalTensor, LocalTensor<float>& localTensor, int64_t gmOffset, int64_t copyNum);
-    __aicore__ inline void TopPProcess(
-        LocalTensor<float>& cumSumInput1Local, LocalTensor<float>& cumSumInput2Local, LocalTensor<float>& zeroLocal,
-        LocalTensor<uint8_t>& maskLocal);
-    __aicore__ inline void MinPProcess(
-        LocalTensor<float>& workLocal, LocalTensor<float>& zeroLocal, LocalTensor<uint8_t>& maskLocal);
+    __aicore__ inline void CopyInWithCast(LocalTensor<float> &localTensor, GlobalTensor<T> &globalTensor,
+                                          int64_t gmOffset, int64_t copyNum);
+    __aicore__ inline void InitWorkspace(LocalTensor<float> &workLocal);
+    __aicore__ inline void GetFloatValue(GlobalTensor<T> &globalTensor, int64_t offset, float &value);
+    __aicore__ inline void CumSumImpl(LocalTensor<float> &cumSumInput1Local, LocalTensor<float> &cumSumInput2Local);
+    __aicore__ inline void CopyOutWithCast(GlobalTensor<T> &globalTensor, LocalTensor<float> &localTensor,
+                                           int64_t gmOffset, int64_t copyNum);
+    __aicore__ inline void TopPProcess(LocalTensor<float> &cumSumInput1Local, LocalTensor<float> &cumSumInput2Local,
+                                       LocalTensor<float> &zeroLocal, LocalTensor<uint8_t> &maskLocal);
+    __aicore__ inline void MinPProcess(LocalTensor<float> &workLocal, LocalTensor<float> &zeroLocal,
+                                       LocalTensor<uint8_t> &maskLocal);
+
 private:
     TBuf<TPosition::VECCALC> calBuf_;
 
@@ -93,9 +94,9 @@ private:
 };
 
 template <typename T, int64_t IsMinPSampling>
-__aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::Init(
-    const __gm__ ApplyTopKTopPMinPTilingData *tilingData, GM_ADDR probs, GM_ADDR k,
-    GM_ADDR p, GM_ADDR min_p, GM_ADDR sampled_res, GM_ADDR workspace, TPipe *tPipe)
+__aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::Init(const __gm__ ApplyTopKTopPMinPTilingData *tilingData,
+                                                                  GM_ADDR probs, GM_ADDR k, GM_ADDR p, GM_ADDR min_p,
+                                                                  GM_ADDR sampled_res, GM_ADDR workspace, TPipe *tPipe)
 {
     batchSize_ = tilingData->batchSize;
     vocabSize_ = tilingData->vocabSize;
@@ -137,8 +138,8 @@ __aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::Init(
 }
 
 template <typename T, int64_t IsMinPSampling>
-__aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::GetFloatValue(
-    GlobalTensor<T>& globalTensor, int64_t offset, float& value)
+__aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::GetFloatValue(GlobalTensor<T> &globalTensor,
+                                                                           int64_t offset, float &value)
 {
     if constexpr (IsSameType<T, float>::value) {
         value = globalTensor.GetValue(offset);
@@ -196,12 +197,13 @@ __aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::Process()
 }
 
 template <typename T, int64_t IsMinPSampling>
-__aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::CopyInWithCast(
-    LocalTensor<float>& localTensor, GlobalTensor<T>& globalTensor, int64_t gmOffset, int64_t copyNum)
+__aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::CopyInWithCast(LocalTensor<float> &localTensor,
+                                                                            GlobalTensor<T> &globalTensor,
+                                                                            int64_t gmOffset, int64_t copyNum)
 {
     if constexpr (IsSameType<T, float>::value) {
-        DataCopyPad(localTensor, globalTensor[gmOffset],
-                    {1, static_cast<uint32_t>(copyNum * sizeof(T)), 0, 0, 0}, {false, 0, 0, 0});
+        DataCopyPad(localTensor, globalTensor[gmOffset], {1, static_cast<uint32_t>(copyNum * sizeof(T)), 0, 0, 0},
+                    {false, 0, 0, 0});
     } else {
         DataCopyPad(localTensor.ReinterpretCast<T>()[loopDataNum_], globalTensor[gmOffset],
                     {1, static_cast<uint32_t>(copyNum * sizeof(T)), 0, 0, 0}, {false, 0, 0, 0});
@@ -211,7 +213,7 @@ __aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::CopyInWithCast(
 }
 
 template <typename T, int64_t IsMinPSampling>
-__aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::InitWorkspace(LocalTensor<float>& workLocal)
+__aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::InitWorkspace(LocalTensor<float> &workLocal)
 {
     for (int64_t vocabLoop = 0; vocabLoop < kLoopNum_; vocabLoop++) {
         CopyInWithCast(workLocal, gmProbs_, probsGmOffset_ + vocabLoop * loopDataNum_, loopDataNum_);
@@ -238,8 +240,8 @@ __aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::InitWorkspace(Local
 }
 
 template <typename T, int64_t IsMinPSampling>
-__aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::CumSumImpl(
-    LocalTensor<float>& cumSumInput1Local, LocalTensor<float>& cumSumInput2Local)
+__aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::CumSumImpl(LocalTensor<float> &cumSumInput1Local,
+                                                                        LocalTensor<float> &cumSumInput2Local)
 {
     int64_t tmpValue = 1;
     iterateTimes_ = 0;
@@ -284,8 +286,9 @@ __aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::CumSumImpl(
 }
 
 template <typename T, int64_t IsMinPSampling>
-__aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::CopyOutWithCast(
-    GlobalTensor<T>& globalTensor, LocalTensor<float>& localTensor, int64_t gmOffset, int64_t copyNum)
+__aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::CopyOutWithCast(GlobalTensor<T> &globalTensor,
+                                                                             LocalTensor<float> &localTensor,
+                                                                             int64_t gmOffset, int64_t copyNum)
 {
     if constexpr (IsSameType<T, float>::value) {
         DataCopyPad(globalTensor[gmOffset], localTensor, {1, static_cast<uint32_t>(copyNum * sizeof(T)), 0, 0, 0});
@@ -298,9 +301,10 @@ __aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::CopyOutWithCast(
 }
 
 template <typename T, int64_t IsMinPSampling>
-__aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::TopPProcess(
-    LocalTensor<float>& cumSumInput1Local, LocalTensor<float>& cumSumInput2Local, LocalTensor<float>& zeroLocal,
-    LocalTensor<uint8_t>& maskLocal)
+__aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::TopPProcess(LocalTensor<float> &cumSumInput1Local,
+                                                                         LocalTensor<float> &cumSumInput2Local,
+                                                                         LocalTensor<float> &zeroLocal,
+                                                                         LocalTensor<uint8_t> &maskLocal)
 {
     CumSumImpl(cumSumInput1Local, cumSumInput2Local);
     for (int64_t vocabLoop = 0; vocabLoop < kLoopNum_; vocabLoop++) {
@@ -316,7 +320,8 @@ __aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::TopPProcess(
         PipeBarrier<PIPE_V>();
         CompareScalar(maskLocal, cumSumInput1Local, pValue_, CMPMODE::GT, loopDataNum_);
         PipeBarrier<PIPE_V>();
-        Select(cumSumInput2Local, maskLocal, zeroLocal, cumSumInput2Local, SELMODE::VSEL_TENSOR_TENSOR_MODE, loopDataNum_);
+        Select(cumSumInput2Local, maskLocal, zeroLocal, cumSumInput2Local, SELMODE::VSEL_TENSOR_TENSOR_MODE,
+               loopDataNum_);
         if constexpr (IsSameType<T, float>::value) {
             SetWaitFlag<HardEvent::V_MTE3>(HardEvent::V_MTE3);
         } else {
@@ -338,7 +343,8 @@ __aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::TopPProcess(
         PipeBarrier<PIPE_V>();
         CompareScalar(maskLocal, cumSumInput1Local, pValue_, CMPMODE::GT, loopDataNum_);
         PipeBarrier<PIPE_V>();
-        Select(cumSumInput2Local, maskLocal, zeroLocal, cumSumInput2Local, SELMODE::VSEL_TENSOR_TENSOR_MODE, loopDataNum_);
+        Select(cumSumInput2Local, maskLocal, zeroLocal, cumSumInput2Local, SELMODE::VSEL_TENSOR_TENSOR_MODE,
+               loopDataNum_);
         if constexpr (IsSameType<T, float>::value) {
             SetWaitFlag<HardEvent::V_MTE3>(HardEvent::V_MTE3);
         } else {
@@ -350,8 +356,9 @@ __aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::TopPProcess(
 }
 
 template <typename T, int64_t IsMinPSampling>
-__aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::MinPProcess(
-    LocalTensor<float>& workLocal, LocalTensor<float>& zeroLocal, LocalTensor<uint8_t>& maskLocal)
+__aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::MinPProcess(LocalTensor<float> &workLocal,
+                                                                         LocalTensor<float> &zeroLocal,
+                                                                         LocalTensor<uint8_t> &maskLocal)
 {
     for (int64_t vocabLoop = 0; vocabLoop < kLoopNum_; vocabLoop++) {
         CopyInWithCast(workLocal, gmSampledRes_, probsGmOffset_ + vocabLoop * loopDataNum_, loopDataNum_);
@@ -392,18 +399,16 @@ __aicore__ inline void ApplyTopKTopPMinP<T, IsMinPSampling>::MinPProcess(
 }
 }  // namespace sglang::npu_kernel::ApplyTopKTopPMinPKernel
 
-__global__ __aicore__ void apply_top_k_top_p_min_p(
-    GM_ADDR probs, GM_ADDR k, GM_ADDR p, GM_ADDR min_p, GM_ADDR sampled_res,
-    GM_ADDR workspace, GM_ADDR tiling)
+__global__ __aicore__ void apply_top_k_top_p_min_p(GM_ADDR probs, GM_ADDR k, GM_ADDR p, GM_ADDR min_p,
+                                                   GM_ADDR sampled_res, GM_ADDR workspace, GM_ADDR tiling)
 {
-#define INIT_AND_PROCESS                                                   \
+#define INIT_AND_PROCESS                                                  \
     op.Init(tilingData, probs, k, p, min_p, sampled_res, userWS, &tPipe); \
     op.Process();
 
     AscendC::TPipe tPipe;
     using namespace sglang::npu_kernel::ApplyTopKTopPMinPKernel;
 
-    // __gm__ uint8_t *userWorkspace = workspace;
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
 
     auto tilingData = reinterpret_cast<__gm__ sglang::ATKTPMPHost::ApplyTopKTopPMinPTilingData *>(tiling);
@@ -414,22 +419,22 @@ __global__ __aicore__ void apply_top_k_top_p_min_p(
     }
 
     if (tilingKey == TTILING_FP32_WITHOUT_MIN_P) {
-            ApplyTopKTopPMinP<float, 0> op;
-            INIT_AND_PROCESS;
+        ApplyTopKTopPMinP<float, 0> op;
+        INIT_AND_PROCESS;
     } else if (tilingKey == TTILING_FP16_WITHOUT_MIN_P) {
-            ApplyTopKTopPMinP<half, 0> op;
-            INIT_AND_PROCESS;
+        ApplyTopKTopPMinP<half, 0> op;
+        INIT_AND_PROCESS;
     } else if (tilingKey == TTILING_BF16_WITHOUT_MIN_P) {
-            ApplyTopKTopPMinP<bfloat16_t, 0> op;
-            INIT_AND_PROCESS;
+        ApplyTopKTopPMinP<bfloat16_t, 0> op;
+        INIT_AND_PROCESS;
     } else if (tilingKey == TTILING_FP32_MIN_P) {
-            ApplyTopKTopPMinP<float, 1> op;
-            INIT_AND_PROCESS;
+        ApplyTopKTopPMinP<float, 1> op;
+        INIT_AND_PROCESS;
     } else if (tilingKey == TTILING_FP16_MIN_P) {
-            ApplyTopKTopPMinP<half, 1> op;
-            INIT_AND_PROCESS;
+        ApplyTopKTopPMinP<half, 1> op;
+        INIT_AND_PROCESS;
     } else if (tilingKey == TTILING_BF16_MIN_P) {
-            ApplyTopKTopPMinP<bfloat16_t, 1> op;
-            INIT_AND_PROCESS;
+        ApplyTopKTopPMinP<bfloat16_t, 1> op;
+        INIT_AND_PROCESS;
     }
 }

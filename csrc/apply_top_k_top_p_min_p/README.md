@@ -12,7 +12,7 @@ A top-k, top-p and min-p sampling implementation for ascend.
 
 ## Calculation Formula
 $$
-sampled\_res[b][v] = 
+sampled\_res[b][v] =
 \begin{cases}
 0 & \text{v >= k[b]} \\
 probs[b][v] & \text{v < k[b]}
@@ -21,7 +21,7 @@ $$
 $$probs\_sum = cumsum(sampled\_res, dim=-1)$$
 $$top\_p\_mask[b][v] = probs\_sum[b][v] - sampled\_res[b][v] > p[b]$$
 $$
-sampled\_res[b][v] = 
+sampled\_res[b][v] =
 \begin{cases}
 0 & \text{top\_p\_mask = True} \\
 sampled\_res[b][v] & \text{top\_p\_mask = False}
@@ -29,7 +29,7 @@ sampled\_res[b][v] & \text{top\_p\_mask = False}
 $$
 $$min\_p\_mask[b][v] = sampled\_res[b][v] < sampled\_res[b][0] * min\_p[b]$$
 $$
-sampled\_res[b][v] = 
+sampled\_res[b][v] =
 \begin{cases}
 0 & \text{min\_p\_mask = True} \\
 sampled\_res[b][v] & \text{min\_p\_mask = False}

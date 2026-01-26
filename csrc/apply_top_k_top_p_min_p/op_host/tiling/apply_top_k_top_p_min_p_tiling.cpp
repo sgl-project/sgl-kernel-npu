@@ -26,17 +26,16 @@ namespace sglang::ATKTPMPHost {
 ge::graphStatus ApplyTopKTopPMinPTiling::CheckDtype()
 {
     TORCH_CHECK((tilingInfo_->opParamInfo.probs.dtype == ge::DT_FLOAT16) ||
-                (tilingInfo_->opParamInfo.probs.dtype == ge::DT_BF16) ||
-                (tilingInfo_->opParamInfo.probs.dtype == ge::DT_FLOAT),
+                    (tilingInfo_->opParamInfo.probs.dtype == ge::DT_BF16) ||
+                    (tilingInfo_->opParamInfo.probs.dtype == ge::DT_FLOAT),
                 "The data types of probs, p and sampled_res must be float16, bfloat16 or float.");
 
     TORCH_CHECK(tilingInfo_->opParamInfo.probs.dtype == tilingInfo_->opParamInfo.p.dtype,
                 "The data types of probs and p must be the same.");
     TORCH_CHECK(tilingInfo_->opParamInfo.probs.dtype == tilingInfo_->opParamInfo.sampledRes.dtype,
                 "The data types of probs and sampled_res must be the same.");
-    
-    TORCH_CHECK(tilingInfo_->opParamInfo.k.dtype == ge::DT_INT32,
-                "The data types of the input k must be int32.");
+
+    TORCH_CHECK(tilingInfo_->opParamInfo.k.dtype == ge::DT_INT32, "The data types of the input k must be int32.");
 
     return ge::GRAPH_SUCCESS;
 }
@@ -49,19 +48,17 @@ ge::graphStatus ApplyTopKTopPMinPTiling::CheckShape()
     tilingData_.batchSize = tilingInfo_->opParamInfo.probs.shape[DIM_IDX_ZERO];
     tilingData_.vocabSize = tilingInfo_->opParamInfo.probs.shape[DIM_IDX_ONE];
 
-    TORCH_CHECK(tilingInfo_->opParamInfo.k.shape.size() == DIM_NUM_ONE,
-                "ApplyTopKTopPMinP: the dimNum of k should be ", DIM_NUM_ONE, ", but now is ",
-                tilingInfo_->opParamInfo.k.shape.size(), ".");
+    TORCH_CHECK(tilingInfo_->opParamInfo.k.shape.size() == DIM_NUM_ONE, "ApplyTopKTopPMinP: the dimNum of k should be ",
+                DIM_NUM_ONE, ", but now is ", tilingInfo_->opParamInfo.k.shape.size(), ".");
     int64_t kSize = tilingInfo_->opParamInfo.k.shape[DIM_IDX_ZERO];
-    TORCH_CHECK(kSize == tilingData_.batchSize,
-                "ApplyTopKTopPMinP: the shape of k should be [", tilingData_.batchSize, "], but now is [", kSize, "].");
-    
-    TORCH_CHECK(tilingInfo_->opParamInfo.p.shape.size() == DIM_NUM_ONE,
-                "ApplyTopKTopPMinP: the dimNum of p should be ", DIM_NUM_ONE, ", but now is ",
-                tilingInfo_->opParamInfo.p.shape.size(), ".");
+    TORCH_CHECK(kSize == tilingData_.batchSize, "ApplyTopKTopPMinP: the shape of k should be [", tilingData_.batchSize,
+                "], but now is [", kSize, "].");
+
+    TORCH_CHECK(tilingInfo_->opParamInfo.p.shape.size() == DIM_NUM_ONE, "ApplyTopKTopPMinP: the dimNum of p should be ",
+                DIM_NUM_ONE, ", but now is ", tilingInfo_->opParamInfo.p.shape.size(), ".");
     int64_t pSize = tilingInfo_->opParamInfo.p.shape[DIM_IDX_ZERO];
-    TORCH_CHECK(pSize == tilingData_.batchSize,
-                "ApplyTopKTopPMinP: the shape of p should be [", tilingData_.batchSize, "], but now is [", pSize, "].");
+    TORCH_CHECK(pSize == tilingData_.batchSize, "ApplyTopKTopPMinP: the shape of p should be [", tilingData_.batchSize,
+                "], but now is [", pSize, "].");
 
     if (tilingInfo_->opParamInfo.minP.shape.size() != DIM_NUM_ZERO) {
         int64_t minPSize = tilingInfo_->opParamInfo.minP.shape[DIM_IDX_ZERO];
@@ -76,9 +73,8 @@ ge::graphStatus ApplyTopKTopPMinPTiling::CheckShape()
     int64_t sampledResSize0 = tilingInfo_->opParamInfo.sampledRes.shape[DIM_IDX_ZERO];
     int64_t sampledResSize1 = tilingInfo_->opParamInfo.sampledRes.shape[DIM_IDX_ONE];
     TORCH_CHECK(sampledResSize0 == tilingData_.batchSize && sampledResSize1 == tilingData_.vocabSize,
-                "ApplyTopKTopPMinP: the size of sampledRes should be [",
-                tilingData_.batchSize, ", ", tilingData_.vocabSize,
-                "], but now is [", sampledResSize0, ", ", sampledResSize1, "].");
+                "ApplyTopKTopPMinP: the size of sampledRes should be [", tilingData_.batchSize, ", ",
+                tilingData_.vocabSize, "], but now is [", sampledResSize0, ", ", sampledResSize1, "].");
     return ge::GRAPH_SUCCESS;
 }
 
@@ -111,18 +107,18 @@ ge::graphStatus ApplyTopKTopPMinPTiling::DoTiling()
 
     auto socVersion = ascendcPlatform.GetSocVersion();
     TORCH_CHECK(socVersion == platform_ascendc::SocVersion::ASCEND910B ||
-                socVersion == platform_ascendc::SocVersion::ASCEND910_93,
+                    socVersion == platform_ascendc::SocVersion::ASCEND910_93,
                 "soc version does not support ", (int32_t)socVersion);
-    
+
     SplitTask();
-    
+
     // -------------set workspacesize-----------------
     tilingInfo_->workspaceSize = static_cast<int64_t>(ascendcPlatform.GetLibApiWorkSpaceSize()) +
                                  tilingData_.batchSize * tilingData_.vocabSize * BYTES_B32;
 
     // -------------set tilingkey-----------------
-    tilingData_.tilingKey =  G_DTYPE_MAP.at(tilingInfo_->opParamInfo.probs.dtype) * COEF_TEN +
-                             tilingInfo_->needMinPSample;
+    tilingData_.tilingKey =
+        G_DTYPE_MAP.at(tilingInfo_->opParamInfo.probs.dtype) * COEF_TEN + tilingInfo_->needMinPSample;
 
     return ge::GRAPH_SUCCESS;
 }

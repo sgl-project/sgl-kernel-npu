@@ -40,10 +40,9 @@ HOST_API at::Tensor apply_top_k_top_p_min_p(const at::Tensor &probs, const at::T
 
     auto probsType = probs.scalar_type();
 
-    at::Tensor minP =
-        min_p.has_value()
-            ? min_p.value()
-            : at::empty({1}, at::TensorOptions().dtype(probsType).device(probs.options().device()));
+    at::Tensor minP = min_p.has_value()
+                          ? min_p.value()
+                          : at::empty({1}, at::TensorOptions().dtype(probsType).device(probs.options().device()));
 
     ApplyTopKTopPMinPTilingInfo applyTopKTopPMinPInfo;
     applyTopKTopPMinPInfo.opParamInfo.probs.dtype = SCALAR_TYPE_TO_GE_DATATYPE(probsType);
@@ -60,9 +59,8 @@ HOST_API at::Tensor apply_top_k_top_p_min_p(const at::Tensor &probs, const at::T
     applyTopKTopPMinPInfo.opParamInfo.sampledRes.shape = sampledRes.sizes();
 
     ApplyTopKTopPMinPTiling applyTopKTopPMinPTiling(&applyTopKTopPMinPInfo);
-    TORCH_CHECK(applyTopKTopPMinPTiling.DoTiling() == ge::GRAPH_SUCCESS,
-                "apply_top_k_top_p_min_p DoTiling failed")
-    
+    TORCH_CHECK(applyTopKTopPMinPTiling.DoTiling() == ge::GRAPH_SUCCESS, "apply_top_k_top_p_min_p DoTiling failed");
+
     const auto &tilingData = applyTopKTopPMinPTiling.GetTilingData();
 
     uint32_t tilingSize = (sizeof(ApplyTopKTopPMinPTiling) + PADDING_BYTE - 1) / PADDING_BYTE * PADDING_BYTE;
@@ -71,9 +69,9 @@ HOST_API at::Tensor apply_top_k_top_p_min_p(const at::Tensor &probs, const at::T
         at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(probs.options().device()));
     aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
     at::Tensor tilingTensor = at::from_blob(tilingBuffer.data_ptr<uint8_t>(), tilingSize, at::kByte);
-   
+
     auto workspace = at::empty({applyTopKTopPMinPInfo.workspaceSize},
-                                at::TensorOptions().dtype(at::kByte).device(probs.options().device()));
+                               at::TensorOptions().dtype(at::kByte).device(probs.options().device()));
     EXEC_KERNEL_CMD(apply_top_k_top_p_min_p, blockDim, probs, k, p, minP, sampledRes, workspace, tilingTensor);
     return sampledRes;
 }

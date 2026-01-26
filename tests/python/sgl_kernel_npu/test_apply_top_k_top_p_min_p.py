@@ -27,7 +27,9 @@ def _apply_top_k_top_p_min_p(
     min_p=None,
 ):
     probs_sort_out = probs_sort.clone().to(torch.float32)
-    top_k_mask = torch.arange(0, probs_sort.shape[-1], device=probs_sort.device).view(1, -1) >= k.view(-1, 1)
+    top_k_mask = torch.arange(0, probs_sort.shape[-1], device=probs_sort.device).view(
+        1, -1
+    ) >= k.view(-1, 1)
     probs_sort_out.masked_fill_(top_k_mask, 0.0)
 
     probs_sum = torch.cumsum(probs_sort_out, dim=-1)
@@ -48,18 +50,17 @@ class TestCustomApplyTopKTopPMinP(unittest.TestCase):
 
         for dtype in [torch.bfloat16, torch.float16, torch.float32]:
             np.random.seed(3)
-            logits = torch.tensor(np.random.uniform(-10, 10, (batch_size, vocab_size))).to(dtype)
-            k = torch.tensor(np.random.randint(1, vocab_size, (batch_size))).to(torch.int32)
+            logits = torch.tensor(
+                np.random.uniform(-10, 10, (batch_size, vocab_size))
+            ).to(dtype)
+            k = torch.tensor(np.random.randint(1, vocab_size, (batch_size))).to(
+                torch.int32
+            )
             p = torch.tensor(np.random.uniform(0, 1, (batch_size))).to(dtype)
             min_p = torch.tensor(np.random.uniform(0, 1, (batch_size))).to(dtype)
             probs = torch.softmax(logits, dim=-1)
             probs_sort, probs_idx = probs.sort(dim=-1, descending=True, stable=True)
-            cpu_out = _apply_top_k_top_p_min_p(
-                probs_sort,
-                k,
-                p,
-                min_p
-            )
+            cpu_out = _apply_top_k_top_p_min_p(probs_sort, k, p, min_p)
 
             torch_npu.npu.set_device(int(DEVICE_ID))
             probs_sort = probs_sort.to("npu:%s" % DEVICE_ID)
@@ -68,10 +69,7 @@ class TestCustomApplyTopKTopPMinP(unittest.TestCase):
             min_p = min_p.to("npu:%s" % DEVICE_ID)
 
             npu_out = torch.ops.npu.apply_top_k_top_p_min_p(
-                probs_sort,
-                k,
-                p,
-                min_p=min_p
+                probs_sort, k, p, min_p=min_p
             )
 
             # compare result
@@ -79,11 +77,11 @@ class TestCustomApplyTopKTopPMinP(unittest.TestCase):
             cpu_out = cpu_out.cpu()
             tol = DTYPE_ATOL[dtype]
             assert torch.allclose(
-                    cpu_out.to(torch.float32),
-                    npu_out.to(torch.float32),
-                    atol=tol,
-                    rtol=tol,
-                )
+                cpu_out.to(torch.float32),
+                npu_out.to(torch.float32),
+                atol=tol,
+                rtol=tol,
+            )
 
 
     def test_apply_top_k_top_p_min_p_eager_without_min_p(self):
@@ -92,17 +90,16 @@ class TestCustomApplyTopKTopPMinP(unittest.TestCase):
 
         for dtype in [torch.bfloat16, torch.float16, torch.float32]:
             np.random.seed(4)
-            logits = torch.tensor(np.random.uniform(-10, 10, (batch_size, vocab_size))).to(dtype)
-            k = torch.tensor(np.random.randint(1, vocab_size, (batch_size))).to(torch.int32)
+            logits = torch.tensor(
+                np.random.uniform(-10, 10, (batch_size, vocab_size))
+            ).to(dtype)
+            k = torch.tensor(np.random.randint(1, vocab_size, (batch_size))).to(
+                torch.int32
+            )
             p = torch.tensor(np.random.uniform(0, 1, (batch_size))).to(dtype)
             probs = torch.softmax(logits, dim=-1)
             probs_sort, probs_idx = probs.sort(dim=-1, descending=True, stable=True)
-            cpu_out = _apply_top_k_top_p_min_p(
-                probs_sort,
-                k,
-                p,
-                min_p=None
-            )
+            cpu_out = _apply_top_k_top_p_min_p(probs_sort, k, p, min_p=None)
 
             torch_npu.npu.set_device(int(DEVICE_ID))
             probs_sort = probs_sort.to("npu:%s" % DEVICE_ID)
@@ -110,10 +107,7 @@ class TestCustomApplyTopKTopPMinP(unittest.TestCase):
             p = p.to("npu:%s" % DEVICE_ID)
 
             npu_out = torch.ops.npu.apply_top_k_top_p_min_p(
-                probs_sort,
-                k,
-                p,
-                min_p=None
+                probs_sort, k, p, min_p=None
             )
 
             # compare result
@@ -121,11 +115,11 @@ class TestCustomApplyTopKTopPMinP(unittest.TestCase):
             cpu_out = cpu_out.cpu()
             tol = DTYPE_ATOL[dtype]
             assert torch.allclose(
-                    cpu_out.to(torch.float32),
-                    npu_out.to(torch.float32),
-                    atol=tol,
-                    rtol=tol,
-                )
+                cpu_out.to(torch.float32),
+                npu_out.to(torch.float32),
+                atol=tol,
+                rtol=tol,
+            )
 
 
 if __name__ == "__main__":

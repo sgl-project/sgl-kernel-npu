@@ -98,7 +98,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int? sparse_count=None, int? sparse_mode=None) -> Tensor");
 
     m.def("triangular_inverse(Tensor x) -> Tensor");
-    
+
     m.def("apply_top_k_top_p_min_p(Tensor logits, Tensor k, Tensor p, Tensor? min_p=None) -> Tensor");
 }
 }  // namespace

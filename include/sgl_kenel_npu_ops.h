@@ -124,9 +124,9 @@ at::Tensor lightning_indexer(
  */
 at::Tensor tri_inv_col_sweep(const at::Tensor &tensor_in);
 
-at::Tensor apply_top_k_top_p_min_p(
-    const at::Tensor &logits, const at::Tensor &k, const at::Tensor &p,
-    const c10::optional<at::Tensor> &min_p);
+at::Tensor apply_top_k_top_p_min_p(const at::Tensor &logits,
+                                   const at::Tensor &k, const at::Tensor &p,
+                                   const c10::optional<at::Tensor> &min_p);
 } // namespace npu_kernel
 
 } // namespace sglang
