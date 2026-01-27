@@ -780,7 +780,7 @@ jobs:
         env:
           HCCL_BUFFSIZE: 3825
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-tokens=512 --num-processes=8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=8 --num-tokens=512
 
       - name: Run test low latency for little num processes
         timeout-minutes: 10
