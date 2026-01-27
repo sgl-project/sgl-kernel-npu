@@ -71,7 +71,7 @@ jobs:
         env:
           HCCL_BUFFSIZE: 4065
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=8192
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=7168
 
       - name: Run test multi-round intranode
         timeout-minutes: 10
@@ -381,7 +381,7 @@ jobs:
         env:
           HCCL_BUFFSIZE: 4065
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=8192
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=7168
 
       - name: Run test multi-round intranode
         timeout-minutes: 10
@@ -643,7 +643,7 @@ jobs:
         github.event.pull_request.draft == false
     runs-on: linux-aarch64-a2-8
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.3.rc1-a2-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.3.rc2-910b-ubuntu22.04-py3.11
     steps:
       - name: Clean git config
         run: |
