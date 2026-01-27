@@ -1,5 +1,6 @@
 import argparse
 import os
+import random
 import time
 from typing import Optional
 
@@ -34,12 +35,27 @@ def test_main(
     group: dist.ProcessGroup,
 ):
     # Settings
-    num_tokens, hidden = args.num_tokens, args.hidden
+    base_num_tokens, hidden = args.num_tokens, args.hidden
     num_topk, num_experts = args.num_topk, args.num_experts
     enable_diagnose = args.enable_diagnose
     num_servers = num_ranks // num_local_ranks
     num_nodes = num_servers
     expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
+
+    fluctuation_percentage = 0.1
+    min_fluctuation = 2
+
+    if base_num_tokens < 10:
+        fluctuation = random.randint(-min_fluctuation, min_fluctuation)
+        num_tokens = base_num_tokens + fluctuation
+    else:
+        fluctuation = random.uniform(
+            1 - fluctuation_percentage, 1 + fluctuation_percentage
+        )
+        num_tokens = int(base_num_tokens * fluctuation)
+
+    # Ensure num_tokens is at least 1
+    num_tokens = max(num_tokens, 1)
 
     assert num_experts % num_ranks == 0 and num_nodes >= 2
     assert num_tokens <= MAX_BATCH_SIZE
