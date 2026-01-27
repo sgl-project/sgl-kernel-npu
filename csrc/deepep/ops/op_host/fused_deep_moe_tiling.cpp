@@ -10,7 +10,8 @@
 #include <cstdint>
 #include <string>
 
-#include "error_log.h"
+#include "ops_log.h"
+#include "ops_error.h"
 #include "graph/utils/type_utils.h"
 #include "register/op_def_registry.h"
 #include "../op_kernel/fused_deep_moe_tiling.h"
@@ -20,27 +21,37 @@
 #define GM_ALIGN_SIZE 512
 #define ENABLE_TILING_CHECK
 
+#ifndef OPS_UTILS_LOG_SUB_MOD_NAME
+#define OPS_UTILS_LOG_SUB_MOD_NAME "FUSED_DEEP_MOE"
+#endif
+
+#ifndef OPS_UTILS_LOG_PACKAGE_TYPE
+#define OPS_UTILS_LOG_PACKAGE_TYPE "DEEPEP_OPS"
+#endif
+
 using namespace ge;
+using namespace ops;
+
 namespace {
 class Mc2TilingUtils
 {
 public:
-#define HCCL_BUFFSIZE "HCCL_BUFFSIZE"
-    static uint64_t GetMaxWindowSize()
+    static uint64_t GetMaxWindowSize(const char *nodeName)
     {
         uint16_t defaultWindowSize = 200;
-        if (getenv(HCCL_BUFFSIZE) == nullptr) {
-            OP_LOGD("", "Env HCCL_BUFFSIZE don't set");
+        const char *hcclBuffSize = getenv("DEEPEP_HCCL_BUFFSIZE") == nullptr ? "HCCL_BUFFSIZE" : "DEEPEP_HCCL_BUFFSIZE";
+        if (getenv(hcclBuffSize) == nullptr) {
+            OPS_LOG_D(nodeName, "Env HCCL_BUFFSIZE don't set");
         } else {
             try {
-                std::string envStr(getenv(HCCL_BUFFSIZE));
+                std::string envStr(getenv(hcclBuffSize));
                 defaultWindowSize = std::stoi(envStr);
             } catch (...) {
-                OP_LOGE("", "Unknown Exception encountered when parser env HCCL_BUFFERSIZE");
+                OPS_LOG_E(nodeName, "Unknown Exception encountered when parser env HCCL_BUFFERSIZE");
             }
         }
         const uint64_t maxWindowSize = static_cast<uint64_t>(defaultWindowSize) * 1024UL * 1024UL;
-        OP_LOGI("", "Get maxWindowSize is %lu", maxWindowSize);
+        OPS_LOG_I(nodeName, "Get maxWindowSize is %lu", maxWindowSize);
         return maxWindowSize;
     }
 };
@@ -100,51 +111,49 @@ static ge::graphStatus CheckTensorShape(gert::TilingContext *context, const char
 
     uint32_t localExpertNum = epRankId < sharedExpertRankNum ? 1 : moeExpertNumPerRank;
     const gert::StorageShape *gmm1WeightStorageShape = context->GetInputShape(INPUT_GMM1_WEIGHT_INDEX);
-    OP_TILING_CHECK(gmm1WeightStorageShape == nullptr, OP_LOGE(nodeName, "gmm1 weight shape is null."),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(gmm1WeightStorageShape == nullptr, OPS_LOG_E(nodeName, "gmm1 weight shape is null."),
+               return ge::GRAPH_FAILED);
     const int64_t gmm1WeightDim0 = gmm1WeightStorageShape->GetStorageShape().GetDim(0);
-    OP_TILING_CHECK(gmm1WeightDim0 != localExpertNum,
-                    OP_LOGE(nodeName, "gmm1Weight Dim0 must be expert number in current rank."),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(gmm1WeightDim0 != localExpertNum,
+               OPS_LOG_E(nodeName, "gmm1Weight Dim0 must be expert number in current rank."), return ge::GRAPH_FAILED);
 
     const gert::StorageShape *gmm1WeightScaleStorageShape = context->GetInputShape(INPUT_GMM1_WEIGHT_SCALE_INDEX);
-    OP_TILING_CHECK(gmm1WeightScaleStorageShape == nullptr, OP_LOGE(nodeName, "gmm1 weight scale shape is null."),
-                    return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(gmm1WeightScaleStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS,
-                    OP_LOGE(nodeName, "gmm1 weight scale shape dims must be 2, but current dim num is %lu.",
-                            gmm1WeightScaleStorageShape->GetStorageShape().GetDimNum()),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(gmm1WeightScaleStorageShape == nullptr, OPS_LOG_E(nodeName, "gmm1 weight scale shape is null."),
+               return ge::GRAPH_FAILED);
+    OPS_ERR_IF(gmm1WeightScaleStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS,
+               OPS_LOG_E(nodeName, "gmm1 weight scale shape dims must be 2, but current dim num is %lu.",
+                         gmm1WeightScaleStorageShape->GetStorageShape().GetDimNum()),
+               return ge::GRAPH_FAILED);
     const int64_t gmm1WeightScaleDim0 = gmm1WeightScaleStorageShape->GetStorageShape().GetDim(0);
-    OP_TILING_CHECK(gmm1WeightScaleDim0 != localExpertNum,
-                    OP_LOGE(nodeName, "gmm1WeightScale Dim0 must be expert number in current rank."),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(gmm1WeightScaleDim0 != localExpertNum,
+               OPS_LOG_E(nodeName, "gmm1WeightScale Dim0 must be expert number in current rank."),
+               return ge::GRAPH_FAILED);
     const int64_t gmm1WeightScaleDim1 = gmm1WeightScaleStorageShape->GetStorageShape().GetDim(1);
-    OP_TILING_CHECK(gmm1WeightScaleDim1 != gmm1WeightDim2,
-                    OP_LOGE(nodeName, "gmm1WeightScale Dim1 must be %lu(gmm1WeightDim2).", gmm1WeightDim2),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(gmm1WeightScaleDim1 != gmm1WeightDim2,
+               OPS_LOG_E(nodeName, "gmm1WeightScale Dim1 must be %lu(gmm1WeightDim2).", gmm1WeightDim2),
+               return ge::GRAPH_FAILED);
 
     const gert::StorageShape *gmm2WeightStorageShape = context->GetInputShape(INPUT_GMM2_WEIGHT_INDEX);
-    OP_TILING_CHECK(gmm2WeightStorageShape == nullptr, OP_LOGE(nodeName, "gmm2 weight shape is null."),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(gmm2WeightStorageShape == nullptr, OPS_LOG_E(nodeName, "gmm2 weight shape is null."),
+               return ge::GRAPH_FAILED);
     const int64_t gmm2WeightDim0 = gmm2WeightStorageShape->GetStorageShape().GetDim(0);
-    OP_TILING_CHECK(gmm2WeightDim0 != localExpertNum,
-                    OP_LOGE(nodeName, "gmm2Weight Dim0 must be expert number in current rank."),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(gmm2WeightDim0 != localExpertNum,
+               OPS_LOG_E(nodeName, "gmm2Weight Dim0 must be expert number in current rank."), return ge::GRAPH_FAILED);
 
     const gert::StorageShape *gmm2WeightScaleStorageShape = context->GetInputShape(INPUT_GMM2_WEIGHT_SCALE_INDEX);
-    OP_TILING_CHECK(gmm2WeightScaleStorageShape == nullptr, OP_LOGE(nodeName, "gmm2 weight scale shape is null."),
-                    return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(gmm2WeightScaleStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS,
-                    OP_LOGE(nodeName, "gmm2 weight scale shape dims must be 2, but current dim num is %lu.",
-                            gmm2WeightScaleStorageShape->GetStorageShape().GetDimNum()),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(gmm2WeightScaleStorageShape == nullptr, OPS_LOG_E(nodeName, "gmm2 weight scale shape is null."),
+               return ge::GRAPH_FAILED);
+    OPS_ERR_IF(gmm2WeightScaleStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS,
+               OPS_LOG_E(nodeName, "gmm2 weight scale shape dims must be 2, but current dim num is %lu.",
+                         gmm2WeightScaleStorageShape->GetStorageShape().GetDimNum()),
+               return ge::GRAPH_FAILED);
     const int64_t gmm2WeightScaleDim0 = gmm2WeightScaleStorageShape->GetStorageShape().GetDim(0);
-    OP_TILING_CHECK(gmm2WeightScaleDim0 != localExpertNum,
-                    OP_LOGE(nodeName, "gmm2WeightScale Dim0 must be expert number in current rank."),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(gmm2WeightScaleDim0 != localExpertNum,
+               OPS_LOG_E(nodeName, "gmm2WeightScale Dim0 must be expert number in current rank."),
+               return ge::GRAPH_FAILED);
     const int64_t gmm2WeightScaleDim1 = gmm2WeightScaleStorageShape->GetStorageShape().GetDim(1);
-    OP_TILING_CHECK(gmm2WeightScaleDim1 != h, OP_LOGE(nodeName, "gmm2WeightScale Dim1 must be %u.", h),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(gmm2WeightScaleDim1 != h, OPS_LOG_E(nodeName, "gmm2WeightScale Dim1 must be %u.", h),
+               return ge::GRAPH_FAILED);
 
     return ge::GRAPH_SUCCESS;
 }
@@ -152,38 +161,38 @@ static ge::graphStatus CheckTensorShape(gert::TilingContext *context, const char
 static ge::graphStatus CheckData(const char *nodeName, FusedDeepMoeTilingData &tilingData)
 {
     uint32_t batchSize = tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.bs;
-    OP_TILING_CHECK(batchSize < MIN_BATCH_SIZE, OP_LOGE(nodeName, "batchSize(bs) must >= %d.", MIN_BATCH_SIZE),
-                    return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(batchSize > MAX_BATCH_SIZE, OP_LOGE(nodeName, "batchSize(bs) must <= %d.", MAX_BATCH_SIZE),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(batchSize < MIN_BATCH_SIZE, OPS_LOG_E(nodeName, "batchSize(bs) must >= %d.", MIN_BATCH_SIZE),
+               return ge::GRAPH_FAILED);
+    OPS_ERR_IF(batchSize > MAX_BATCH_SIZE, OPS_LOG_E(nodeName, "batchSize(bs) must <= %d.", MAX_BATCH_SIZE),
+               return ge::GRAPH_FAILED);
     uint32_t tokenLength = tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.h;
-    OP_TILING_CHECK(
+    OPS_ERR_IF(
         tokenLength < MIN_TOKEN_LENGTH || tokenLength > MAX_TOKEN_LENGTH,
-        OP_LOGE(nodeName, "tokenLength(h) is invalid. Only support [%u, %u].", MIN_TOKEN_LENGTH, MAX_TOKEN_LENGTH),
+        OPS_LOG_E(nodeName, "tokenLength(h) is invalid. Only support [%u, %u].", MIN_TOKEN_LENGTH, MAX_TOKEN_LENGTH),
         return ge::GRAPH_FAILED);
     uint32_t gmm1HLen = tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.gmm1HLen;
-    OP_TILING_CHECK(
+    OPS_ERR_IF(
         gmm1HLen < MIN_GMM1_HIDDEN || gmm1HLen > MAX_GMM1_HIDDEN,
-        OP_LOGE(nodeName, "gmm1 hidden size is invalid. Only support [%u, %u].", MIN_GMM1_HIDDEN, MAX_GMM1_HIDDEN),
+        OPS_LOG_E(nodeName, "gmm1 hidden size is invalid. Only support [%u, %u].", MIN_GMM1_HIDDEN, MAX_GMM1_HIDDEN),
         return ge::GRAPH_FAILED);
     uint32_t topK = tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.k;
-    OP_TILING_CHECK(topK > SUPPORT_TOP_K, OP_LOGE(nodeName, "topK(k) must <= %d.", SUPPORT_TOP_K),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(topK > SUPPORT_TOP_K, OPS_LOG_E(nodeName, "topK(k) must <= %d.", SUPPORT_TOP_K),
+               return ge::GRAPH_FAILED);
     uint32_t globalBatchSize = tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.globalBs;
     uint32_t epRankSize = tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.epRankSize;
     if (globalBatchSize == 0) {
         globalBatchSize = epRankSize * batchSize;
         tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.globalBs = globalBatchSize;
     } else {
-        OP_TILING_CHECK(globalBatchSize < 0, OP_LOGE(nodeName, "globalBatchSize must >= 0."), return ge::GRAPH_FAILED);
-        OP_TILING_CHECK(globalBatchSize % epRankSize > 0,
-                        OP_LOGE(nodeName, "globalBatchSize must be divisible by epRankSize."), return ge::GRAPH_FAILED);
+        OPS_ERR_IF(globalBatchSize < 0, OPS_LOG_E(nodeName, "globalBatchSize must >= 0."), return ge::GRAPH_FAILED);
+        OPS_ERR_IF(globalBatchSize % epRankSize > 0,
+                   OPS_LOG_E(nodeName, "globalBatchSize must be divisible by epRankSize."), return ge::GRAPH_FAILED);
     }
     uint32_t moeExpertNumPerRank = tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.moeExpertNumPerRank;
     uint32_t recvAivNum = tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.aivNum / 2;
-    OP_TILING_CHECK(
+    OPS_ERR_IF(
         moeExpertNumPerRank > recvAivNum,
-        OP_LOGE(nodeName, "moeExpertNumPerRank must <= (aivNum/2)(%u), but got %u", recvAivNum, moeExpertNumPerRank),
+        OPS_LOG_E(nodeName, "moeExpertNumPerRank must <= (aivNum/2)(%u), but got %u", recvAivNum, moeExpertNumPerRank),
         return ge::GRAPH_FAILED);
     return ge::GRAPH_SUCCESS;
 }
@@ -192,7 +201,7 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
                                                FusedDeepMoeTilingData &tilingData, std::string &groupEp)
 {
     auto attrs = context->GetAttrs();
-    OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "attrs is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(attrs == nullptr, OPS_LOG_E(nodeName, "attrs is nullptr."), return ge::GRAPH_FAILED);
 
     auto groupEpPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_GROUP_EP_INDEX));
     auto epRankSizePtr = attrs->GetAttrPointer<int64_t>(ATTR_EP_RANK_SIZE_INDEX);
@@ -211,15 +220,15 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     uint32_t moeExpertNumPerRank = moeExpertNum / (epRankSize - sharedExpertRankNum);
 
 #ifdef ENABLE_TILING_CHECK
-    OP_TILING_CHECK(epRankId < 0, OP_LOGE(nodeName, "epRankId must >= 0."), return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(epRankId >= epRankSize, OP_LOGE(nodeName, "epRankId must < epRankSize."), return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(moeExpertNum > MAX_MOE_EXERT_NUM, OP_LOGE(nodeName, "moeExpertNum must <= %d.", MAX_MOE_EXERT_NUM),
-                    return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(moeExpertNum <= 0, OP_LOGE(nodeName, "moeExpertNum must > 0."), return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(sharedExpertNum != 1, OP_LOGE(nodeName, "sharedExpertNum must be 1."), return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(moeExpertNum % (epRankSize - sharedExpertRankNum) != 0,
-                    OP_LOGE(nodeName, "moeExpertNum must be divisible by (epRankSize - sharedExpertRankNum)."),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(epRankId < 0, OPS_LOG_E(nodeName, "epRankId must >= 0."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(epRankId >= epRankSize, OPS_LOG_E(nodeName, "epRankId must < epRankSize."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(moeExpertNum > MAX_MOE_EXERT_NUM, OPS_LOG_E(nodeName, "moeExpertNum must <= %d.", MAX_MOE_EXERT_NUM),
+               return ge::GRAPH_FAILED);
+    OPS_ERR_IF(moeExpertNum <= 0, OPS_LOG_E(nodeName, "moeExpertNum must > 0."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(sharedExpertNum != 1, OPS_LOG_E(nodeName, "sharedExpertNum must be 1."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(moeExpertNum % (epRankSize - sharedExpertRankNum) != 0,
+               OPS_LOG_E(nodeName, "moeExpertNum must be divisible by (epRankSize - sharedExpertRankNum)."),
+               return ge::GRAPH_FAILED);
 #endif
 
     groupEp = std::string(groupEpPtr);
@@ -237,7 +246,7 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
 static void SetHcommCfg(const gert::TilingContext *context, FusedDeepMoeTilingData *tiling, const std::string groupEp)
 {
     const char *nodeName = context->GetNodeName();
-    OP_LOGD(nodeName, "FusedDeepMoe groupEp = %s", groupEp.c_str());
+    OPS_LOG_D(nodeName, "FusedDeepMoe groupEp = %s", groupEp.c_str());
     uint32_t opType = OP_TYPE_ALL_TO_ALL;
     std::string algConfigAllToAllStr = "AlltoAll=level0:fullmesh;level1:pairwise";
     std::string algConfigAllGatherStr = "AllGather=level0:ring";
@@ -251,7 +260,7 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext *context, const char *no
                                     FusedDeepMoeTilingData &tilingData)
 {
     size_t *workSpaces = context->GetWorkspaceSizes(1);
-    OP_TILING_CHECK(workSpaces == nullptr, OP_LOGE(nodeName, "workSpaces is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(workSpaces == nullptr, OPS_LOG_E(nodeName, "workSpaces is nullptr."), return ge::GRAPH_FAILED);
     size_t maxTokenNum;
     uint32_t epRankSize = tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.epRankSize;
     uint32_t epRankId = tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.epRankId;
@@ -293,34 +302,34 @@ static ge::graphStatus FusedDeepMoeTilingFuncImpl(gert::TilingContext *context)
 {
     const char *nodeName = context->GetNodeName();
     FusedDeepMoeTilingData *tilingData = context->GetTilingData<FusedDeepMoeTilingData>();
-    OP_TILING_CHECK(tilingData == nullptr, OP_LOGE(nodeName, "tilingData is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(tilingData == nullptr, OPS_LOG_E(nodeName, "tilingData is nullptr."), return ge::GRAPH_FAILED);
     std::string groupEp = "";
 
     const gert::StorageShape *xStorageShape = context->GetInputShape(INPUT_X_INDEX);
-    OP_TILING_CHECK(xStorageShape == nullptr, OP_LOGE(nodeName, "x shape is null."), return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(xStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS,
-                    OP_LOGE(nodeName, "x shape dims must be 2, but current dim num is %lu.",
-                            xStorageShape->GetStorageShape().GetDimNum()),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(xStorageShape == nullptr, OPS_LOG_E(nodeName, "x shape is null."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(xStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS,
+               OPS_LOG_E(nodeName, "x shape dims must be 2, but current dim num is %lu.",
+                         xStorageShape->GetStorageShape().GetDimNum()),
+               return ge::GRAPH_FAILED);
     const int64_t batchSize = xStorageShape->GetStorageShape().GetDim(0);
     tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.bs = batchSize;
     const int64_t hiddenSize = xStorageShape->GetStorageShape().GetDim(1);
     tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.h = hiddenSize;
 
     const gert::StorageShape *expertIdsStorageShape = context->GetInputShape(INPUT_EXPERT_IDS_INDEX);
-    OP_TILING_CHECK(expertIdsStorageShape == nullptr, OP_LOGE(nodeName, "expertIds shape is null."),
-                    return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(expertIdsStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS,
-                    OP_LOGE(nodeName, "expertIds shape dims must be 2, but current dim num is %lu.",
-                            expertIdsStorageShape->GetStorageShape().GetDimNum()),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(expertIdsStorageShape == nullptr, OPS_LOG_E(nodeName, "expertIds shape is null."),
+               return ge::GRAPH_FAILED);
+    OPS_ERR_IF(expertIdsStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS,
+               OPS_LOG_E(nodeName, "expertIds shape dims must be 2, but current dim num is %lu.",
+                         expertIdsStorageShape->GetStorageShape().GetDimNum()),
+               return ge::GRAPH_FAILED);
     const int64_t topK = expertIdsStorageShape->GetStorageShape().GetDim(1);
     tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.k = topK;
-    OP_TILING_CHECK(GetAttrAndSetTilingData(context, nodeName, *tilingData, groupEp) != ge::GRAPH_SUCCESS,
-                    OP_LOGE(nodeName, "Get attr and set tiling data failed."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(GetAttrAndSetTilingData(context, nodeName, *tilingData, groupEp) != ge::GRAPH_SUCCESS,
+               OPS_LOG_E(nodeName, "Get attr and set tiling data failed."), return ge::GRAPH_FAILED);
     const gert::StorageShape *gmm1WeightStorageShape = context->GetInputShape(INPUT_GMM1_WEIGHT_INDEX);
-    OP_TILING_CHECK(gmm1WeightStorageShape == nullptr, OP_LOGE(nodeName, "gmm1Weight shape is null."),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(gmm1WeightStorageShape == nullptr, OPS_LOG_E(nodeName, "gmm1Weight shape is null."),
+               return ge::GRAPH_FAILED);
     tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.gmm1HLen = gmm1WeightStorageShape->GetOriginShape().GetDim(TWO_DIMS);
     auto ascendcPlatform = platform_ascendc::PlatformAscendC(context->GetPlatformInfo());
     uint32_t aicNum = ascendcPlatform.GetCoreNumAic();
@@ -328,7 +337,7 @@ static ge::graphStatus FusedDeepMoeTilingFuncImpl(gert::TilingContext *context)
     tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.aicNum = aicNum;
     tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.aivNum = aivNum;
 
-    uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize();
+    uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize(nodeName);
     uint64_t epRankSize = static_cast<uint64_t>(tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.epRankSize);
     uint64_t maxBs = static_cast<uint64_t>(tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.globalBs) / epRankSize;
     uint64_t moeExpertNumPerRank =
@@ -336,22 +345,22 @@ static ge::graphStatus FusedDeepMoeTilingFuncImpl(gert::TilingContext *context)
     uint64_t tokenLength = static_cast<uint64_t>(tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.h);
     uint64_t actualSize =
         epRankSize * maxBs * moeExpertNumPerRank * tokenLength * TOKEN_DTYPE_BYTE_SIZE * DOUBLE_BUFFER;
-    OP_TILING_CHECK((actualSize > maxWindowSize),
-                    OP_LOGE(nodeName,
-                            "HCCL_BUFFSIZE is too SMALL, epRankSize = %lu, maxBs = %lu, moeExpertNumPerRank = %lu, "
-                            " tokenLength = %lu, "
-                            " NEEDED_HCCL_BUFFSIZE(epRankSize * maxBs * moeExpertNumPerRank * tokenLength * "
-                            " TOKEN_DTYPE_BYTE_SIZE * DOUBLE_BUFFER) = %luMB, HCCL_BUFFSIZE=%luMB.",
-                            epRankSize, maxBs, moeExpertNumPerRank, tokenLength, actualSize / MB_SIZE + 1UL,
-                            maxWindowSize / MB_SIZE),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF((actualSize > maxWindowSize),
+               OPS_LOG_E(nodeName,
+                         "HCCL_BUFFSIZE is too SMALL, epRankSize = %lu, maxBs = %lu, moeExpertNumPerRank = %lu, "
+                         " tokenLength = %lu, "
+                         " NEEDED_HCCL_BUFFSIZE(epRankSize * maxBs * moeExpertNumPerRank * tokenLength * "
+                         " TOKEN_DTYPE_BYTE_SIZE * DOUBLE_BUFFER) = %luMB, HCCL_BUFFSIZE=%luMB.",
+                         epRankSize, maxBs, moeExpertNumPerRank, tokenLength, actualSize / MB_SIZE + 1UL,
+                         maxWindowSize / MB_SIZE),
+               return ge::GRAPH_FAILED);
 
 #ifdef ENABLE_TILING_CHECK
-    OP_TILING_CHECK(CheckData(nodeName, *tilingData) != ge::GRAPH_SUCCESS, OP_LOGE(nodeName, "CheckData failed."),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(CheckData(nodeName, *tilingData) != ge::GRAPH_SUCCESS, OPS_LOG_E(nodeName, "CheckData failed."),
+               return ge::GRAPH_FAILED);
 #endif
-    OP_TILING_CHECK(SetWorkSpace(context, nodeName, *tilingData) != ge::GRAPH_SUCCESS,
-                    OP_LOGE(nodeName, "Tiling set workspace failed."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(SetWorkSpace(context, nodeName, *tilingData) != ge::GRAPH_SUCCESS,
+               OPS_LOG_E(nodeName, "Tiling set workspace failed."), return ge::GRAPH_FAILED);
     SetHcommCfg(context, tilingData, groupEp);
     if (tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.moeExpertNumPerRank == 1) {
         context->SetTilingKey(0);

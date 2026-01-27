@@ -9,7 +9,7 @@ export PIP_INSTALL="python3 -m pip install --no-cache-dir"
 ### Dependency Versions
 TORCH_VERSION="2.8.0"
 TORCHVISION_VERSION="0.23.0"
-TORCH_NPU_URL="https://sglang-ascend.obs.cn-east-3.myhuaweicloud.com/sglang/torch_npu/torch_npu-2.8.0.post2.dev20251113-cp311-cp311-manylinux_2_28_${ARCHITECT}.whl"
+TORCH_NPU_URL="https://gitcode.com/Ascend/pytorch/releases/download/v7.3.0-pytorch2.8.0/torch_npu-2.8.0.post2-cp311-cp311-manylinux_2_28_${ARCHITECT}.whl"
 
 
 ### Install required dependencies
@@ -41,7 +41,12 @@ ${PIP_INSTALL} --upgrade pip
 # Pin wheel to 0.45.1, REF: https://github.com/pypa/wheel/issues/662
 ${PIP_INSTALL} \
     wheel==0.45.1 \
-    pybind11
+    pybind11 \
+    pyyaml \
+    decorator \
+    scipy \
+    attrs \
+    psutil
 
 
 ### Install pytorch
@@ -53,3 +58,5 @@ ${PIP_INSTALL} \
     --index-url https://download.pytorch.org/whl/cpu
 ## torch_npu
 ${PIP_INSTALL} ${TORCH_NPU_URL}
+
+ln -sf /usr/local/Ascend/cann-8.5.0/set_env.sh /usr/local/Ascend/set_env.sh

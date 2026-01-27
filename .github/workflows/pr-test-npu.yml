@@ -55,7 +55,7 @@ jobs:
       - name: Run test intranode
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 2300
+          HCCL_BUFFSIZE: 3000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
 
@@ -78,6 +78,7 @@ jobs:
         env:
           DEEPEP_NORMAL_LONG_SEQ_ROUND: 5
           DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 512
+          DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
           HCCL_BUFFSIZE: 1000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2122
@@ -149,7 +150,7 @@ jobs:
       - name: Run test low latency
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 1913
+          HCCL_BUFFSIZE: 3000
           MOE_ENABLE_TOPK_NEG_ONE: 1
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
@@ -268,6 +269,7 @@ jobs:
         timeout-minutes: 10
         env:
           HCCL_BUFFSIZE: 3000
+          MOE_ENABLE_TOPK_NEG_ONE: 1
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-topk=1
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-topk=12
@@ -377,7 +379,7 @@ jobs:
       - name: Run test intranode
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 2300
+          HCCL_BUFFSIZE: 3000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
 
@@ -471,7 +473,7 @@ jobs:
       - name: Run test low latency
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 1913
+          HCCL_BUFFSIZE: 3000
           MOE_ENABLE_TOPK_NEG_ONE: 1
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
@@ -590,6 +592,7 @@ jobs:
         timeout-minutes: 10
         env:
           HCCL_BUFFSIZE: 3000
+          MOE_ENABLE_TOPK_NEG_ONE: 1
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-topk=1
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-topk=12

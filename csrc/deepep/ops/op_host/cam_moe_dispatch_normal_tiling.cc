@@ -563,12 +563,14 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
     uint64_t k = static_cast<uint64_t>(tilingData->camMoeDispatchNormalInfo.k);
     uint64_t epWorldSize = static_cast<uint64_t>(tilingData->camMoeDispatchNormalInfo.epWorldSize);
     uint64_t maxBs = static_cast<uint64_t>(tilingData->camMoeDispatchNormalInfo.globalBs) / epWorldSize;
-
+    uint32_t round = tilingData->camMoeDispatchNormalInfo.round;
     // dispatch数据区 token首对齐512，有效token长度h_align_32b + scale(32b) + 三元组(3*4b)
     uint64_t tokenActualLen =
         ((h * MAX_OUT_DTYPE_SIZE + UB_ALIGN - 1UL) / UB_ALIGN) * UB_ALIGN + SCALE_EXPAND_IDX_BUFFER;
     uint64_t tokenNeedSizeDispatch = ((tokenActualLen + WIN_ADDR_ALIGN - 1UL) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
     uint64_t tokenNeedSizeCombine = ((h * MAX_OUT_DTYPE_SIZE + WIN_ADDR_ALIGN - 1UL) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
+    tokenNeedSizeCombine =
+        round > 1 ? tokenNeedSizeCombine * 2 : tokenNeedSizeCombine;  // round > 1 combine要使用double buffer
     // 未考虑双流时大小
     uint64_t actualSize = (maxBs * k * (tokenNeedSizeCombine + tokenNeedSizeDispatch) + COMBINE_STATE_WIN_OFFSET +
                            NOTIFY_DISPATCH_WIN_OFFSET) *

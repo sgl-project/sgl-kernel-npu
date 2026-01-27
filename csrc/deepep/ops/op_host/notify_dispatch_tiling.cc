@@ -86,6 +86,7 @@ static void PrintTilingDataInfo(const char *nodeName, NotifyDispatchTilingData &
     OP_LOGD(nodeName, "perRoundTokens is %u.", tilingData.notifyDispatchInfo.perRoundTokens);
     OP_LOGD(nodeName, "aivNum is %u.", tilingData.notifyDispatchInfo.aivNum);
     OP_LOGD(nodeName, "totalUbSize is %lu.", tilingData.notifyDispatchInfo.totalUbSize);
+    OP_LOGD(nodeName, "totalWinSize is %lu.", tilingData.notifyDispatchInfo.totalWinSize);
 }
 
 static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, const char *nodeName,
@@ -281,6 +282,7 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
         OP_LOGE(nodeName, "HCCL_BUFFSIZE is too SMALL, should larger than %luMB.", actualSize / MB_SIZE);
         return false;
     }
+    tilingData->notifyDispatchInfo.totalWinSize = maxWindowSize;
     return true;
 }
 

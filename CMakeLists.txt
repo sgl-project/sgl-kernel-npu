@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.12 FATAL_ERROR)
+cmake_minimum_required(VERSION 3.20 FATAL_ERROR)
 project(sgl-kernel-npu LANGUAGES CXX)
 
 option(BUILD_PYTHON "build python SDK" ON)
@@ -48,6 +48,15 @@ set(PROJECT_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/output)
 include(cmake/config_git_last_commit.cmake)
 include(cmake/config_envs.cmake)
 include(cmake/config_ascend.cmake)
+
+find_program(CCACHE_PROGRAM ccache)
+if(CCACHE_PROGRAM)
+    message(STATUS "Found ccache: ${CCACHE_PROGRAM}")
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+    set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+else()
+    message(STATUS "ccache not found, proceeding with normal compilation")
+endif()
 
 if (BUILD_KERNELS_MODULE)
     add_subdirectory(csrc)
