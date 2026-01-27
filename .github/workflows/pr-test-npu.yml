@@ -55,7 +55,7 @@ jobs:
       - name: Run test intranode
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 2300
+          HCCL_BUFFSIZE: 3000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
 
@@ -72,7 +72,8 @@ jobs:
       - name: Run test low latency
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 1913
+          HCCL_BUFFSIZE: 3000
+          MOE_ENABLE_TOPK_NEG_ONE: 1
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-tokens=1
@@ -115,6 +116,7 @@ jobs:
         timeout-minutes: 10
         env:
           HCCL_BUFFSIZE: 3000
+          MOE_ENABLE_TOPK_NEG_ONE: 1
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py
 
@@ -161,14 +163,15 @@ jobs:
       - name: Run test intranode
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 2300
+          HCCL_BUFFSIZE: 3000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
 
       - name: Run test low latency
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 1913
+          HCCL_BUFFSIZE: 3000
+          MOE_ENABLE_TOPK_NEG_ONE: 1
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-tokens=1
@@ -211,6 +214,7 @@ jobs:
         timeout-minutes: 10
         env:
           HCCL_BUFFSIZE: 3000
+          MOE_ENABLE_TOPK_NEG_ONE: 1
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py
 
