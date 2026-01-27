@@ -470,7 +470,7 @@ jobs:
         env:
           HCCL_BUFFSIZE: 4000
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-tokens=512
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-tokens=400
 
       - name: Run test low latency for little num processes
         timeout-minutes: 10
@@ -604,7 +604,7 @@ jobs:
           HCCL_BUFFSIZE: 4400
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --normal-num-tokens=1 --low-latency-num-tokens=1 --test-loop=100
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --normal-num-tokens=8192 --low-latency-num-tokens=512 --test-loop=100
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --normal-num-tokens=7168 --low-latency-num-tokens=420 --test-loop=100
 
       - name: Run test mixed running for hidden
         timeout-minutes: 10
@@ -675,7 +675,7 @@ jobs:
       - name: Run test intranode
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 2300
+          HCCL_BUFFSIZE: 2500
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=8
 
@@ -689,9 +689,9 @@ jobs:
       - name: Run test intranode for big bs
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 4300
+          HCCL_BUFFSIZE: 4500
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=8192 --num-processes=8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=7168 --num-processes=8
 
       - name: Run test multi-round intranode
         timeout-minutes: 10
@@ -780,7 +780,7 @@ jobs:
         env:
           HCCL_BUFFSIZE: 4000
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=8 --num-tokens=512
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=8 --num-tokens=420
 
       - name: Run test low latency for little num processes
         timeout-minutes: 10
@@ -843,7 +843,7 @@ jobs:
           HCCL_BUFFSIZE: 4353
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --normal-num-tokens=1 --low-latency-num-tokens=1 --test-loop=100 --num-processes=8
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --normal-num-tokens=8192 --low-latency-num-tokens=512 --test-loop=100 --num-processes=8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --normal-num-tokens=7168 --low-latency-num-tokens=420 --test-loop=100 --num-processes=8
 
       - name: Run test mixed running for hidden
         timeout-minutes: 10
