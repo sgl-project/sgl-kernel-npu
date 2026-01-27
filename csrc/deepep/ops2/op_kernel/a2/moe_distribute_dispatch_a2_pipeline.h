@@ -14,7 +14,7 @@ constexpr uint32_t RING_BUFFER_HEAD_TAIL = 8 * 32;
 constexpr uint32_t RDMA_BUFFER_ALIGN = 4 * 1024;
 constexpr uint32_t SELF_STATE_OFFSET = 512 * 1024;  // 本卡状态空间偏移地址
 constexpr uint32_t SERVER_RANK_SIZE = 8;
-constexpr uint32_t INFO_NUM_IN_TOKENSTRUCK = 4;  // 在Token后加入3种信息:expIds, weights, tokenIdx, scales
+constexpr uint32_t INFO_NUM_IN_TOKENSTRUCK = 5;  // 在Token后加入3种信息:expIds, weights, tokenIdx, dstRank, scales;
 constexpr uint32_t B64_PER_BLOCK = 4;
 constexpr uint32_t PER_MSG_RDMA_SEND_TIME = 2;
 constexpr uint32_t B32_PER_BLOCK = 8;
@@ -168,6 +168,7 @@ private:
     uint32_t totalWinSize_{0};
     uint32_t halfWinSize_{0};
     uint32_t serverNum{0};
+    uint32_t rdmaItemNum{0};
     uint32_t expertTokenNumsType_{0};
     uint32_t shareMemOffset_{0};
     // TokenStruck相关
@@ -224,39 +225,44 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     aivNum_ = tilingData.moeDistributeDispatchInfo.aivNum;
     worldSize_ = tilingData.moeDistributeDispatchInfo.epWorldSize;
     moeExpertNum_ = tilingData.moeDistributeDispatchInfo.moeExpertNum;
+    expertTokenNumsType_ = tilingData.moeDistributeDispatchInfo.expertTokenNumsType;
     localMoeExpertNum_ = moeExpertNum_ / worldSize_;
+    serverNum = worldSize_ / SERVER_RANK_SIZE;
     kAlign_ = RoundUp(axisK_, (uint32_t)8);
     totalSize_ = winContext_->winSize;
     totalWinSize_ = RDMA_DATA_SIZE;  // RDMA 800 MB空间, 与low_latency一致
     shareMemOffset_ = totalWinSize_;
     halfWinSize_ = totalWinSize_ / 2;
-    WIN_SIZE = halfWinSize_ - STATUS_SIZE_LAYERED - RING_BUFFER_HEAD_TAIL;
-    expertTokenNumsType_ = tilingData.moeDistributeDispatchInfo.expertTokenNumsType;
+    WIN_SIZE = halfWinSize_ - STATUS_SIZE_LAYERED - serverNum * RING_BUFFER_HEAD_TAIL;
+    SERVER_SIZE_ON_WIN = WIN_SIZE / serverNum;
+    SERVER_SIZE_ON_WIN = (SERVER_SIZE_ON_WIN / RDMA_BUFFER_ALIGN) * RDMA_BUFFER_ALIGN;  // 共享内存上每个server块的大小
 
     // struce相关信息初始化计算
     tokenStructLen_ =
-        axisH_ * sizeof(ExpandXOutType) + INFO_NUM_IN_TOKENSTRUCK * (kAlign_ * sizeof(uint32_t));  // token和四元组大小
+        axisH_ * sizeof(ExpandXOutType) + INFO_NUM_IN_TOKENSTRUCK * (kAlign_ * sizeof(uint32_t));  // token和五元组大小
     tokenLenInStruct_ = axisH_ * sizeof(ExpandXOutType);                                           // 纯token大小
     expLenInStruct_ = kAlign_ * sizeof(uint32_t);                                                  // topkId大小
     weightLenInStruct_ = kAlign_ * sizeof(uint32_t);                                               // weight大小
     cntLenInStruct_ = kAlign_ * sizeof(uint32_t);                                                  // tokenIdx大小
+    dstRankInStruct_ = kAlign_ * sizeof(uint32_t);                                                 // dstRank大小
     realLenInStruct_ = axisK_ * sizeof(uint32_t);                 // 内存中实际有效部分，跟 axisK_ 有关
     expOffsetInStruct_ = tokenLenInStruct_;                       // 开始写topkId的起始位置
     weightOffsetInStruct_ = tokenLenInStruct_ + expLenInStruct_;  // 开始写weight的起始位置
     cntOffsetInStruct_ = tokenLenInStruct_ + expLenInStruct_ + weightLenInStruct_;  // 开始写tokenIdx的起始位置
+    dstOffsetInStruct_ = 
+        tokenLenInStruct_ + expLenInStruct_ + weightLenInStruct_ + cntLenInStruct_; // 开始写dstRank的起始位置
     scaleOffsetInStruct_ =
-        tokenLenInStruct_ + expLenInStruct_ + weightLenInStruct_ + cntLenInStruct_;  // 开始写scales的起始位置
+        tokenLenInStruct_ + expLenInStruct_ + weightLenInStruct_ + cntLenInStruct_ + dstRankInStruct_;  // 开始写scales的起始位置
     tokenGapInStruct_ = (tokenStructLen_ - tokenLenInStruct_) / UB_32B_ALIGN;
     infoGapInStruct_ = (tokenStructLen_ - expLenInStruct_) / UB_32B_ALIGN;
+
+    rdmaItemNum = SERVER_SIZE_ON_WIN / 2 / tokenStructLen_;
 
     RANK_SIZE_ON_IPC = (totalSize_ - totalWinSize_ - IPC_DATA_OFFSET) / (localMoeExpertNum_ * worldSize_);
     RANK_SIZE_ON_IPC = (RANK_SIZE_ON_IPC / IPC_BUFF_ALIGN) * IPC_BUFF_ALIGN;
 
     aivId_ = GetBlockIdx();
     expertIdsCnt_ = axisBS_ * axisK_;
-    serverNum = worldSize_ / SERVER_RANK_SIZE;
-    SERVER_SIZE_ON_WIN = WIN_SIZE / serverNum;
-    SERVER_SIZE_ON_WIN = (SERVER_SIZE_ON_WIN / RDMA_BUFFER_ALIGN) * RDMA_BUFFER_ALIGN;  // 共享内存上每个server块的大小
 
     bufferChosenGlobal_.SetGlobalBuffer((__gm__ uint32_t *)(windowInGM_ + WIN_SIZE + worldSize_ * STATE_OFFSET));
     bufferId_ = bufferChosenGlobal_(0);
