@@ -154,7 +154,7 @@ int Buffer::get_rdma_rank() const
 }
 
 std::tuple<at::Tensor, std::optional<at::Tensor>, std::optional<at::Tensor>, std::optional<at::Tensor>,
-           std::vector<int>, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor,
+           std::vector<int>, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor,
            std::optional<EventHandle>>
 Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> &x_scales,
                            const std::optional<at::Tensor> &topk_idx, const std::optional<at::Tensor> &topk_weights,
@@ -271,6 +271,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int send_per_group, send_count;
     at::Tensor send_data, send_data_offset, recv_data, put_offset_, total_recv_token_, recv_count_, recv_offset_,
         max_bs_, recv_tokens_per_expert_;
+    at::Tensor balance_matrix;
     uint64_t ext_info;  // shmem_ptr_info
     at::Tensor expandx_out, dynamic_scales_out, expand_idx_out;
 
@@ -286,6 +287,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         total_recv_token_ = torch::empty({1}, at::dtype(at::kInt).device(device));
         max_bs_ = torch::empty({1}, at::dtype(at::kInt).device(device));
         recv_tokens_per_expert_ = torch::empty({num_local_experts}, at::dtype(at::kLong).device(device));
+        balance_matrix = torch::empty({num_ranks, num_ranks * 2}, at::dtype(at::kInt).device(device));
 
         send_data = torch::empty({1}, at::dtype(at::kInt).device(device));         // not use
         send_data_offset = torch::empty({1}, at::dtype(at::kInt).device(device));  // not use
@@ -296,7 +298,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                      num_ranks,  // rankSize
                      rank,       // rankId
                      local_rank_size, local_rank_id, topk_num, ext_info, recv_data, total_recv_token_, max_bs_,
-                     recv_tokens_per_expert_, put_offset_);
+                     recv_tokens_per_expert_, put_offset_, balance_matrix);
 
         int64_t gBs = max_bs_.item<int>() * num_ranks;
         int trt = total_recv_token_.item<int>();
@@ -391,6 +393,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
             expand_idx_out,
             recv_count_,
             put_offset_,
+            balance_matrix,
             event};
 }
 

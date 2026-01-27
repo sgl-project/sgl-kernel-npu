@@ -347,9 +347,10 @@ class Buffer:
                 rank_prefix_matrix,
                 channel_prefix_matrix,
                 recv_channel_prefix_matrix,
-                recv_src_idx,
-                send_head,
+                recv_src_idx,  # expand_idx
+                send_head,  # recv_count
                 put_offset,
+                balance_matrix,
                 event,
             ) = self.runtime.intranode_dispatch(
                 x,
@@ -381,6 +382,7 @@ class Buffer:
                 topk_idx,
                 topk_weights,
                 put_offset,
+                balance_matrix,
             )
             return (
                 (recv_x, recv_x_scales) if use_quant else recv_x,
@@ -453,6 +455,7 @@ class Buffer:
             topk_idx,
             topk_weights_ori,
             put_offset,
+            balance_matrix,
         ) = handle
 
         # Launch the kernel

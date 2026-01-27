@@ -10,7 +10,7 @@ using namespace ShmemNotifyDispatchImpl;
 
 extern "C" __global__ __aicore__ void shmem_notify_dispatch(GM_ADDR tokenPerExpertData, GM_ADDR recvData,
                                                             GM_ADDR totalRecvTokens, GM_ADDR maxBs,
-                                                            GM_ADDR recvTokensPerExpert, GM_ADDR putOffset,
+                                                            GM_ADDR recvTokensPerExpert, GM_ADDR putOffset, GM_ADDR balanceMatrix,
                                                             GM_ADDR workspace, GM_ADDR tiling)
 {
     REGISTER_TILING_DEFAULT(ShmemNotifyDispatchTilingData);

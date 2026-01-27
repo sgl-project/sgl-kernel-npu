@@ -22,14 +22,15 @@ __aicore__ inline void SyncFunc()
 #define KERNELS_ARGS_FUN_ALLGATHER()                                                                            \
     GM_ADDR tokenPerExpertData, GM_ADDR recvDataOutput, GM_ADDR totalRecvTokens, GM_ADDR maxBs,                 \
         GM_ADDR recvTokensPerExpert, GM_ADDR putOffset, int64_t len, uint32_t topkNum, int root, int localRank, \
-        int localRankSize, uint64_t shmemPtr
+        int localRankSize, uint64_t shmemPtr, GM_ADDR balanceMatrix
 
 #define KERNELS_ARGS_CALL_ALLGATHER()                                                                               \
     tokenPerExpertData, recvDataOutput, totalRecvTokens, maxBs, recvTokensPerExpert, putOffset, len, topkNum, root, \
-        localRank, localRankSize, shmemPtr
+        localRank, localRankSize, shmemPtr, balanceMatrix
 
 constexpr uint64_t NOTIFY_STATUS_OFFSET = 20UL * 1024UL;
 constexpr uint32_t UB_FLAG_SIZE = 8U * 1024U;
+constexpr int32_t REBALANCE_MIN_TOKEN_NUM = 128;
 
 template <typename T>
 class ShmemNotifyDispatch
@@ -61,11 +62,13 @@ public:
         maxBs_ = maxBs;
         recvTokensPerExpert_ = recvTokensPerExpert;
         recvData_ = recvDataOutput;
+        balanceMatrix_ = balanceMatrix; // shape:[epWorldSize_, epWorldSize_*2]
 
         addrUint64AlignLen_ = Ceil(shareAddrNum * sizeof(uint64_t), UB_ALIGN) * UB_ALIGN;
         recvDataAlignLen_ = Ceil(numExperts * epWorldSize_ * sizeof(int32_t), UB_ALIGN) * UB_ALIGN;
         tokenPerExpertDataAlignLen_ = Ceil(numExperts * sizeof(int32_t), UB_ALIGN) * UB_ALIGN;
         allRecvCountDataAlignLen_ = Ceil(numExperts * epWorldSize_ * sizeof(int32_t), UB_ALIGN) * UB_ALIGN;
+        matrixDataAlignLen_ = Ceil(epWorldSize_ * epWorldSize_ * 2 * sizeof(int32_t), UB_ALIGN) * UB_ALIGN;
 
         this->tokenPerExpertDataInput = (__gm__ int32_t *)tokenPerExpertData;
         tokenPerExpertDataInputGt.SetGlobalBuffer((__gm__ int32_t *)tokenPerExpertDataInput);
@@ -73,6 +76,7 @@ public:
         recvDataOutputGt.SetGlobalBuffer((__gm__ T *)recvDataOutput);
         recvDataGt_.SetGlobalBuffer((__gm__ int32_t *)recvDataOutput);
         recvCntGt.SetGlobalBuffer((__gm__ int32_t *)allRecvCount_);
+        balanceMatrixGt.SetGlobalBuffer((__gm__ int32_t *)balanceMatrix);
 
         pipe_.InitBuffer(tBuf, UB_FLAG_SIZE);
         pipe_.InitBuffer(addrBuf_, addrUint64AlignLen_);
@@ -151,6 +155,7 @@ private:
     GlobalTensor<T> recvDataOutputGt;
     GlobalTensor<int32_t> recvDataGt_;
     GlobalTensor<int32_t> recvCntGt;
+    GlobalTensor<int32_t> balanceMatrixGt;
 
     LocalTensor<int32_t> sendCountTensor_;
     LocalTensor<int32_t> sendOffsetTensor;
@@ -161,6 +166,7 @@ private:
     uint32_t allRecvCountDataAlignLen_{0};
     uint32_t recvDataAlignLen_{0};
     uint32_t sendDataOffsetAlignLen{0};
+    uint32_t matrixDataAlignLen_{0};
 
     TPipe pipe_;
     TBuf<QuePosition::VECCALC> tBuf;
@@ -177,6 +183,7 @@ private:
     TBuf<> tmpBuf2_;
     TBuf<> tmpBuf3_;
     TBuf<> tmpBuf4_;
+    TBuf<> matrixBuf_;
 
     __gm__ int *tokenPerExpertDataInput;
     __gm__ T *recvDataOutput;
@@ -187,6 +194,12 @@ private:
     GM_ADDR maxBs_;
     GM_ADDR recvTokensPerExpert_;
     GM_ADDR recvData_;
+
+    GM_ADDR balanceMatrix_;
+    float factor_high{1.3};
+    float factor_low{1.0};
+    int32_t bsPerRank[CAM_MAX_RANK_SIZE];  // 记录每个rank上的bs, size=epWorldSize_
+    int32_t processCapacity[CAM_MAX_RANK_SIZE];  // 记录每个rank的剩余处理能力, size=epWorldSize_
 
     GM_ADDR gva_gm;
     uint64_t
@@ -382,6 +395,7 @@ private:
         LocalTensor<float> sharedTmpBuffer = tmpBuf4_.Get<float>();
 
         int32_t maxBsNum = 0;
+        int32_t totalTokens = 0;
         for (uint32_t srcRankId = 0; srcRankId < epWorldSize_; srcRankId++) {
             DataCopy(tokenPerExpertDataLt, recvDataTensor_[numExperts * srcRankId], numExperts);
             PipeBarrier<PIPE_ALL>();
@@ -392,8 +406,10 @@ private:
             ReduceSum(floatExpTokenSumCntLt, floatExpTokenCntLt, sharedTmpBuffer, numExperts);
             SyncFunc<AscendC::HardEvent::V_S>();
 
-            int32_t curRankBsNum = static_cast<int32_t>(floatExpTokenSumCntLt(0));
+            int32_t curRankBsNum = static_cast<int32_t>(floatExpTokenSumCntLt(0)) / topkNum_;
             maxBsNum = curRankBsNum > maxBsNum ? curRankBsNum : maxBsNum;
+            totalTokens += curRankBsNum;
+            bsPerRank[srcRankId] = curRankBsNum;
             PipeBarrier<PIPE_V>();
         }
         PipeBarrier<PIPE_V>();
@@ -402,8 +418,106 @@ private:
         GlobalTensor<int32_t> maxBsGt;
         maxBsGt.SetGlobalBuffer((__gm__ int32_t *)maxBs_);
 
-        maxBsGt.SetValue(0, maxBsNum / topkNum_);
+        maxBsGt.SetValue(0, maxBsNum);
         DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(maxBsGt);
+
+        BuildBalanceMatrix(totalTokens);
+    }
+
+    __aicore__ inline void BuildBalanceMatrix(int32_t totalTokens)
+    {
+        pipe_.InitBuffer(matrixBuf_, matrixDataAlignLen_);
+        // 跨rank分配token处理范围
+        int32_t avgTokens = static_cast<int32_t>(totalTokens / epWorldSize_); // 小于128时，每卡仅处理自己的
+        // if (epRankId_ == 0) {
+        //     printf("[BuildBalanceMatrix] rank:%d, totalTokens:%d, avgTokens:%d, bsPerRank:[%d %d %d %d %d %d %d %d]\n",
+        //         epWorldSize_, totalTokens, avgTokens,
+        //         bsPerRank[0], bsPerRank[1], bsPerRank[2], bsPerRank[3], bsPerRank[4], bsPerRank[5], bsPerRank[6], bsPerRank[7]);
+        // }
+        int32_t capacity = 0;
+        for (uint32_t i = 0; i < epWorldSize_; ++i) {
+            if (bsPerRank[i] > avgTokens) {
+                capacity = ScalarCast<float, int32_t, RoundMode::CAST_CEIL>(avgTokens * factor_high);
+            } else {
+                // capacity = static_cast<int32_t>(Ceil(avgTokens * factor_low, 1));
+                capacity = ScalarCast<float, int32_t, RoundMode::CAST_CEIL>(avgTokens * factor_low);
+            }
+            processCapacity[i] = capacity;
+        }
+        // if (epRankId_ == 0) {
+        //     printf("[BuildBalanceMatrix] rank:%d, processCapacity:[%d %d %d %d %d %d %d %d]\n",
+        //         epWorldSize_, 
+        //         processCapacity[0], processCapacity[1], processCapacity[2], processCapacity[3], processCapacity[4], processCapacity[5], processCapacity[6], processCapacity[7]);
+        // }
+        LocalTensor<int32_t> balanceMatrixLt = matrixBuf_.Get<int32_t>();
+        Duplicate<int32_t>(balanceMatrixLt, -1, matrixDataAlignLen_);
+        PipeBarrier<PIPE_V>();
+
+        // 每个rank先处理自己的token
+        bool isNeedBalance = avgTokens > REBALANCE_MIN_TOKEN_NUM;
+        int32_t offset = epWorldSize_ * 2; // 一行的个数
+        int32_t processCount = 0;
+        for (uint32_t i = 0; i < epWorldSize_; ++i) {
+            if (bsPerRank[i] > 0) {
+                if (!isNeedBalance) {
+                    processCount = bsPerRank[i]; // 本卡处理完自己的所有token
+                } else {
+                    processCount = bsPerRank[i] > processCapacity[i] ? processCapacity[i] : bsPerRank[i];
+                }
+                balanceMatrixLt(i * offset + i * 2) = 0;
+                balanceMatrixLt(i * offset + i * 2 + 1) = processCount - 1;
+                processCapacity[i] -= processCount;
+            }
+        }
+        // if (epRankId_ == 0) {
+        //     AscendC::DumpTensor(balanceMatrixLt, 472, 128);
+        // }
+        // PipeBarrier<PIPE_ALL>();
+        // 处理其他rank的剩余token
+        for (uint32_t tarRankId = 0; tarRankId < epWorldSize_; ++tarRankId) {
+            if (!isNeedBalance || bsPerRank[tarRankId] == 0) {
+                continue;
+            }
+            // 计算目标rank上已经处理了多少token
+            int32_t processedCnt = 0;
+            for (int32_t srcRankId = 0; srcRankId < epWorldSize_; ++srcRankId) {
+                if (balanceMatrixLt.GetValue(srcRankId * offset + tarRankId * 2) != -1) {
+                    int32_t startId = balanceMatrixLt.GetValue(srcRankId * offset + tarRankId * 2);
+                    int32_t endId = balanceMatrixLt.GetValue(srcRankId * offset + tarRankId * 2 + 1);
+                    processedCnt += (endId - startId + 1);
+                }
+            }
+            int32_t remainTokens = bsPerRank[tarRankId] - processedCnt;
+            if (remainTokens <= 0) {
+                continue;
+            }
+            // 寻找有处理能力的rank分担
+            int32_t curStart = processedCnt;
+            for (int32_t helpRank = 0; helpRank < epWorldSize_; ++helpRank) {
+                if (helpRank == tarRankId) {
+                    continue;
+                }
+                if (processCapacity[helpRank] > 0 && remainTokens > 0) {
+                    int32_t allocCnt = processCapacity[helpRank] > remainTokens ? remainTokens : processCapacity[helpRank];
+                    int32_t startId = curStart;
+                    int32_t endId = startId + allocCnt -1;
+
+                    balanceMatrixLt(helpRank * offset + tarRankId * 2) = startId;
+                    balanceMatrixLt(helpRank * offset + tarRankId * 2 + 1) = endId;
+                    
+                    processCapacity[helpRank] -= allocCnt;
+                    remainTokens -= allocCnt;
+                    curStart += allocCnt;
+                }
+            }
+        }
+        // if (epRankId_ == 0) {
+        //     AscendC::DumpTensor(balanceMatrixLt, 472, 128);
+        // }
+        PipeBarrier<PIPE_ALL>();
+        SyncFunc<AscendC::HardEvent::S_MTE3>();
+        DataCopyExtParams copyParams{1, static_cast<uint32_t>(epWorldSize_ * epWorldSize_ * 2 * sizeof(int32_t)), 0, 0, 0};
+        DataCopyPad(balanceMatrixGt, balanceMatrixLt, copyParams);
     }
 
     __aicore__ inline void BuildTotalRecvCount()

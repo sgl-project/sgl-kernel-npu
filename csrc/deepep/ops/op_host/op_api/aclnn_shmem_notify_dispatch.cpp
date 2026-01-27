@@ -21,12 +21,12 @@ aclnnStatus aclnnShmemNotifyDispatchGetWorkspaceSize(const aclTensor *tokenPerEx
                                                      int64_t localRankId, int64_t topkNum, uint64_t shmemPtr,
                                                      const aclTensor *recvData, const aclTensor *totalRecvTokens,
                                                      const aclTensor *maxBs, const aclTensor *recvTokensPerExpert,
-                                                     const aclTensor *putOffset, uint64_t *workspaceSize,
-                                                     aclOpExecutor **executor)
+                                                     const aclTensor *putOffset, const aclTensor *balanceMatrix,
+                                                     uint64_t *workspaceSize, aclOpExecutor **executor)
 {
     return aclnnInnerShmemNotifyDispatchGetWorkspaceSize(
         tokenPerExpertData, sendCount, rankSize, rankId, localRankSize, localRankId, topkNum, shmemPtr, recvData,
-        totalRecvTokens, maxBs, recvTokensPerExpert, putOffset, workspaceSize, executor);
+        totalRecvTokens, maxBs, recvTokensPerExpert, putOffset, balanceMatrix, workspaceSize, executor);
 }
 
 aclnnStatus aclnnShmemNotifyDispatch(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
