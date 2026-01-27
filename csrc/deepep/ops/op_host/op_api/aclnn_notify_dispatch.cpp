@@ -2,6 +2,7 @@
 #include "graph/types.h"
 #include "aclnn_notify_dispatch.h"
 #include "aclnnInner_notify_dispatch.h"
+#include <stdio.h>
 
 extern void NnopbaseOpLogE(const aclnnStatus code, const char *const expr);
 

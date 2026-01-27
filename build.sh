@@ -130,7 +130,7 @@ function build_kernels()
     -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" \
     -DASCEND_HOME_PATH=$ASCEND_HOME_PATH \
     -DASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR \
-    -DSOC_VERSION=$SOC_VERSION \
+    -DSOC_VERSION="Ascend910_9382" \
     -DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE \
     -DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE \
     -B "$BUILD_DIR" \
@@ -155,7 +155,6 @@ function build_deepep_kernels()
     cd "$KERNEL_DIR" || exit
 
     chmod +x build.sh
-    chmod +x cmake/util/gen_ops_filter.sh
     ./build.sh
 
     custom_opp_file=$(find ./build_out -maxdepth 1 -type f -name "custom_opp*.run")
