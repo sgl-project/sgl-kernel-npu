@@ -187,7 +187,7 @@ function create_deepep_cmake()
     chmod +x build.sh
     chmod +x deepep/build.sh
     chmod +x deepep/compile_ascend_proj.sh
-    ./build.sh
+    ./deepep_cmake_build.sh
     cd -
 }
 
