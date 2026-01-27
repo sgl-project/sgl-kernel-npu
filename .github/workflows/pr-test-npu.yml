@@ -184,7 +184,7 @@ jobs:
         env:
           HCCL_BUFFSIZE: 1969
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-topk=2
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-topk=4
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-topk=16
 
       - name: Run test low latency for experts
@@ -494,7 +494,7 @@ jobs:
         env:
           HCCL_BUFFSIZE: 1969
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-topk=2
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-topk=4
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-topk=16
 
       - name: Run test low latency for experts
