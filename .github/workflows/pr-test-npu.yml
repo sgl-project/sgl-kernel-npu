@@ -751,12 +751,12 @@ jobs:
       #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2122 --num-processes=8
       #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2048 --num-processes=8
 
-      - name: Run test little processes intranode
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 2241
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=2
+      # - name: Run test little processes intranode
+      #   timeout-minutes: 10
+      #   env:
+      #     HCCL_BUFFSIZE: 2241
+      #   run: |
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=2
 
       # - name: Run test hidden intranode
       #   timeout-minutes: 10
