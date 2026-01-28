@@ -184,7 +184,10 @@ function build_memory_saver()
 function create_deepep_cmake()
 {
     cd csrc || exit
+<<<<<<< HEAD
     chmod +x deepep_cmake_build.sh
+=======
+>>>>>>> ef82e62ecc4f5e5dd7f1995699474216e4ff7a31
     chmod +x deepep/build.sh
     chmod +x deepep/compile_ascend_proj.sh
     ./deepep_cmake_build.sh
