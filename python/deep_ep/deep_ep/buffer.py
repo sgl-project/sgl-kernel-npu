@@ -466,6 +466,7 @@ class Buffer:
             src_idx,
             send_head,
             put_offset,
+            balance_matrix,
             combine_send_cost_stats,
         )
         return recv_x, recv_topk_weights, EventOverlap(event)

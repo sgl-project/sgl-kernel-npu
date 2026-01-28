@@ -9,7 +9,7 @@ extern "C" {
 
 __attribute__((visibility("default"))) aclnnStatus aclnnShmemMoeCombineNormalGetWorkspaceSize(
     const aclTensor *recvX, const aclTensor *epRecvCounts, const aclTensor *recvTopkWeights, const aclTensor *topkIdx,
-    const aclTensor *sendTokenIdx, uint64_t meta_data_ptr, int64_t epWorldSize, int64_t epRankId, int64_t tpWorldSize,
+    const aclTensor *sendTokenIdx, const aclTensor *balanceMatrix, uint64_t meta_data_ptr, int64_t epWorldSize, int64_t epRankId, int64_t tpWorldSize,
     int64_t tpRankId, int64_t moeExpertNum, int64_t globalBs, const aclTensor *out, const aclTensor *sendCostStats,
     uint64_t *workspaceSize, aclOpExecutor **executor);
 
