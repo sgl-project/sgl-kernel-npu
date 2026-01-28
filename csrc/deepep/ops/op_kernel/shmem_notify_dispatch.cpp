@@ -6,10 +6,12 @@
 
 #define KERNEL_USE_WORKSPACE (1 * 1024 * 1024)
 
+using namespace ShmemNotifyDispatchImpl;
+
 extern "C" __global__ __aicore__ void shmem_notify_dispatch(GM_ADDR tokenPerExpertData, GM_ADDR recvData,
                                                             GM_ADDR totalRecvTokens, GM_ADDR maxBs,
                                                             GM_ADDR recvTokensPerExpert, GM_ADDR putOffset,
-                                                            GM_ADDR workspace, GM_ADDR tiling)
+                                                            GM_ADDR balanceMatrix, GM_ADDR workspace, GM_ADDR tiling)
 {
     REGISTER_TILING_DEFAULT(ShmemNotifyDispatchTilingData);
     GET_TILING_DATA_WITH_STRUCT(ShmemNotifyDispatchTilingData, tilingData, tiling);
@@ -21,6 +23,8 @@ extern "C" __global__ __aicore__ void shmem_notify_dispatch(GM_ADDR tokenPerExpe
     int rankSize = tilingData.notifyDispatchInfo.rankSize;
     uint32_t topkNum = tilingData.notifyDispatchInfo.topkNum;
     uint64_t shmemPtr = tilingData.shmemPtr;
+    float factorHigh = tilingData.notifyDispatchInfo.factorHigh;
+    float factorLow = tilingData.notifyDispatchInfo.factorLow;
 
     GM_ADDR tokenPerExpertDataInput = tokenPerExpertData;
     GM_ADDR recvDataOutput = recvData;

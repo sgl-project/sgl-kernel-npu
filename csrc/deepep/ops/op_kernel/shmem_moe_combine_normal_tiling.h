@@ -22,6 +22,7 @@ struct ShmemMoeCombineNormalInfo {
     float armAvgFactor;
     float epsilon;
     bool isEnableDiagnose;
+    bool enableBalance;
 };
 struct ShmemMoeCombineNormalTilingData {
     ShmemMoeCombineNormalInfo moeCombineNormalInfo;

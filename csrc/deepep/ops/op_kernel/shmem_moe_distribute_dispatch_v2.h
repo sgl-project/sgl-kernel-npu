@@ -11,7 +11,7 @@
 #ifndef SHMEM_MOE_DISTRIBUTE_DISPATCH_V2_H
 #define SHMEM_MOE_DISTRIBUTE_DISPATCH_V2_H
 
-#include "shmem_api.h"
+#include "shmem.h"
 #include "kernel_operator.h"
 #include "kernel_tiling/kernel_tiling.h"
 #include "shmem_moe_distribute_v2_base.h"
@@ -22,20 +22,20 @@ using namespace AscendC;
 #define SHMEM_PUT_BY_DTYPE(dtype, ...)                            \
     do {                                                          \
         if constexpr (std::is_same_v<dtype, half>) {              \
-            shmem_put_half_mem_nbi(__VA_ARGS__);                  \
+            aclshmem_put_half_mem_nbi(__VA_ARGS__);                  \
         } else if constexpr (std::is_same_v<dtype, bfloat16_t>) { \
-            shmem_put_bfloat16_mem_nbi(__VA_ARGS__);              \
+            aclshmem_put_bfloat16_mem_nbi(__VA_ARGS__);              \
         } else if constexpr (std::is_same_v<dtype, float>) {      \
-            shmem_put_float_mem_nbi(__VA_ARGS__);                 \
+            aclshmem_put_float_mem_nbi(__VA_ARGS__);                 \
         }                                                         \
     } while (0)
 
 #define SHMEM_GET_BY_DTYPE(dtype, ...)                            \
     do {                                                          \
         if constexpr (std::is_same_v<dtype, half>) {              \
-            shmem_get_half_mem_nbi(__VA_ARGS__);                  \
+            aclshmem_get_half_mem_nbi(__VA_ARGS__);                  \
         } else if constexpr (std::is_same_v<dtype, bfloat16_t>) { \
-            shmem_get_bfloat16_mem_nbi(__VA_ARGS__);              \
+            aclshmem_get_bfloat16_mem_nbi(__VA_ARGS__);              \
         }                                                         \
     } while (0)
 

@@ -56,7 +56,7 @@ constexpr int64_t MAX_TP_WORLD_SIZE = 2;
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
 constexpr int64_t MOE_EXPERT_MAX_NUM = 512;
 constexpr int64_t K_MAX = 16;
-constexpr int64_t H_MIN = 1024;
+constexpr int64_t H_MIN = 1;
 constexpr int64_t H_MAX = 7168;
 constexpr uint64_t MB_SIZE = 1024UL * 1024UL;
 constexpr uint64_t TRIPLE = 3;
@@ -72,6 +72,25 @@ using CommQuantModeType = std::underlying_type<CommQuantMode>;
 }  // namespace
 
 namespace optiling {
+
+static int GetFactorEnv(const char *name, int value = 0)
+{
+    int defaultValue = value;
+    if (getenv(name) == nullptr) {
+        OP_LOGD("", "Env %s don't set", name);
+    } else {
+        try {
+            std::string envStr(getenv(name));
+            defaultValue = static_cast<int>(std::stoi(envStr));
+        } catch (const std::invalid_argument &ia) {
+            OP_LOGE("", "Invalid argument when parsing %s: %s", name, ia.what());
+        } catch (const std::out_of_range &oor) {
+            OP_LOGE("", "Out of range when parsing %s: %s", name, oor.what());
+        }
+    }
+    OP_LOGI("", "Get factor is %f", defaultValue);
+    return defaultValue;
+}
 
 // a3专有
 static void PrintTilingDataInfo(const char *nodeName, ShmemMoeCombineNormalTilingData &tilingData)
@@ -158,6 +177,8 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context,
     tilingData.moeCombineNormalInfo.epRankId = static_cast<uint32_t>(*epRankIdPtr);
     tilingData.moeCombineNormalInfo.tpRankId = static_cast<uint32_t>(*tpRankIdPtr);
     tilingData.moeCombineNormalInfo.moeExpertNum = static_cast<uint32_t>(moeExpertNum);
+
+    tilingData.moeCombineNormalInfo.enableBalance = GetFactorEnv("ENABLE_REBALANCE", 0) > 0;
 
     return ge::GRAPH_SUCCESS;
 }

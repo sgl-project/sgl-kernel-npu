@@ -37,7 +37,8 @@ struct Buffer {
 
 private:
     std::string moe_all_to_all_group_name;
-    void *shmem_ptr = nullptr;
+    // void *shmem_ptr = nullptr;
+    uint64_t shmem_ptr = 0;
     bool shmem_enable;
 
     int device_id;
@@ -48,7 +49,7 @@ private:
 
 public:
     Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
-           std::string moe_all_to_all_group_name);
+           std::string moe_all_to_all_group_name, uint64_t meta_addr = 0);
 
     ~Buffer() noexcept(false);
 
@@ -65,7 +66,7 @@ public:
     torch::Tensor get_notify_send_data();
 
     std::tuple<at::Tensor, std::optional<at::Tensor>, std::optional<at::Tensor>, std::optional<at::Tensor>,
-               std::vector<int>, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor,
+               std::vector<int>, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor,
                std::optional<EventHandle>>
     intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> &x_scales,
                        const std::optional<at::Tensor> &topk_idx, const std::optional<at::Tensor> &topk_weights,
@@ -82,7 +83,7 @@ public:
     std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandle>> intranode_combine(
         const torch::Tensor &x, const torch::Tensor &topk_idx, const std::optional<torch::Tensor> &topk_weights,
         const torch::Tensor &src_idx, const torch::Tensor &send_head, const torch::Tensor &put_offset,
-        const std::optional<at::Tensor> &combine_send_cost_stats);
+        const torch::Tensor &balance_matrix, const std::optional<at::Tensor> &combine_send_cost_stats);
 
     std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<torch::Tensor>, std::optional<torch::Tensor>,
                std::vector<int>, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor,
