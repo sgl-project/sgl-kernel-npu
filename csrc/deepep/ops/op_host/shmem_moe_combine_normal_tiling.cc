@@ -73,7 +73,7 @@ using CommQuantModeType = std::underlying_type<CommQuantMode>;
 
 namespace optiling {
 
-static int GetFactorEnv(const char* name, int value = 0)
+static int GetFactorEnv(const char *name, int value = 0)
 {
     int defaultValue = value;
     if (getenv(name) == nullptr) {

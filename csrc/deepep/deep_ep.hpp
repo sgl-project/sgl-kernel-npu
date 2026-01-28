@@ -83,8 +83,7 @@ public:
     std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandle>> intranode_combine(
         const torch::Tensor &x, const torch::Tensor &topk_idx, const std::optional<torch::Tensor> &topk_weights,
         const torch::Tensor &src_idx, const torch::Tensor &send_head, const torch::Tensor &put_offset,
-        const torch::Tensor &balance_matrix,
-        const std::optional<at::Tensor> &combine_send_cost_stats);
+        const torch::Tensor &balance_matrix, const std::optional<at::Tensor> &combine_send_cost_stats);
 
     std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<torch::Tensor>, std::optional<torch::Tensor>,
                std::vector<int>, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor, torch::Tensor,

@@ -58,7 +58,7 @@ constexpr static int TILING_KEY_A2_TYPE = 100;
 }  // namespace
 
 namespace optiling {
-static float GetFactorEnv(const char* name, float value = 0.0f)
+static float GetFactorEnv(const char *name, float value = 0.0f)
 {
     float defaultValue = value;
     if (getenv(name) == nullptr) {

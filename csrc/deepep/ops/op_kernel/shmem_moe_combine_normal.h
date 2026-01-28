@@ -34,13 +34,14 @@ class ShmemMoeCombineNormal
 public:
     __aicore__ inline ShmemMoeCombineNormal(){};
     __aicore__ inline void Init(GM_ADDR recvX, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR topkIdx,
-                                GM_ADDR sendTokenIdx, GM_ADDR balanceMatrix, GM_ADDR XOut, GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM,
-                                TPipe *pipe, const ShmemMoeCombineNormalTilingData *tilingData);
+                                GM_ADDR sendTokenIdx, GM_ADDR balanceMatrix, GM_ADDR XOut, GM_ADDR sendCostStatsOut,
+                                GM_ADDR workspaceGM, TPipe *pipe, const ShmemMoeCombineNormalTilingData *tilingData);
     __aicore__ inline void Process();
 
 private:
     __aicore__ inline void InitGlobalBuffer(GM_ADDR recvX, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR topkIdx,
-                                            GM_ADDR sendTokenIdx, GM_ADDR balanceMatrix, GM_ADDR XOut, GM_ADDR sendCostStatsOut);
+                                            GM_ADDR sendTokenIdx, GM_ADDR balanceMatrix, GM_ADDR XOut,
+                                            GM_ADDR sendCostStatsOut);
     __aicore__ inline void InitTilingData(const ShmemMoeCombineNormalTilingData *tilingData);
     __aicore__ inline void InitBuffLen();
     __aicore__ inline void ResetMetaState();
@@ -49,7 +50,8 @@ private:
     __aicore__ inline void WaitSyncFlag(int metaType);
     __aicore__ inline void GetShareAddr();
     __aicore__ inline void HandleAllRankToken();
-    __aicore__ inline void ReadAndWriteForTargetRank(uint32_t startId, uint32_t endId, uint32_t tokenCnt, uint32_t tarRankId);
+    __aicore__ inline void ReadAndWriteForTargetRank(uint32_t startId, uint32_t endId, uint32_t tokenCnt,
+                                                     uint32_t tarRankId);
     __aicore__ inline void ReadTokenFromRemote();
     __aicore__ inline void ReadTokenAndWeightedSum(uint32_t tokenIndex, uint32_t tarRankId);
 
@@ -153,12 +155,12 @@ private:
     GM_ADDR epRecvCountGM_;
 
     GM_ADDR gva_gm;
-    uint64_t shareRecvXAddrs[CAM_MAX_RANK_SIZE];  // List of shmem asymmetric output addresses (recvXGM_)
-    uint64_t shareTopkIdxAddrs[CAM_MAX_RANK_SIZE];  // List of shmem asymmetric output addresses (topkIdxGM_)
-    uint64_t shareTopkWeightsAddrs[CAM_MAX_RANK_SIZE];  // List of shmem asymmetric output addresses (topkWeightsGM_)
+    uint64_t shareRecvXAddrs[CAM_MAX_RANK_SIZE];         // List of shmem asymmetric output addresses (recvXGM_)
+    uint64_t shareTopkIdxAddrs[CAM_MAX_RANK_SIZE];       // List of shmem asymmetric output addresses (topkIdxGM_)
+    uint64_t shareTopkWeightsAddrs[CAM_MAX_RANK_SIZE];   // List of shmem asymmetric output addresses (topkWeightsGM_)
     uint64_t shareSendTokenIdxAddrs[CAM_MAX_RANK_SIZE];  // List of shmem asymmetric output addresses (sendTokenIdxGM_)
-    uint64_t shareRecvCountAddrs[CAM_MAX_RANK_SIZE];  // List of shmem asymmetric output addresses (epRecvCountGM_)
-    uint64_t shareXOutAddrs[CAM_MAX_RANK_SIZE];  // List of shmem asymmetric output addresses (XOutGM_)
+    uint64_t shareRecvCountAddrs[CAM_MAX_RANK_SIZE];     // List of shmem asymmetric output addresses (epRecvCountGM_)
+    uint64_t shareXOutAddrs[CAM_MAX_RANK_SIZE];          // List of shmem asymmetric output addresses (XOutGM_)
     uint32_t shareAddrNum{6};
 
     LocalTensor<float> tokenFloatLocal;
@@ -173,13 +175,9 @@ private:
 };
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::InitGlobalBuffer(GM_ADDR recvX, GM_ADDR epRecvCount,
-                                                                                    GM_ADDR topkWeights,
-                                                                                    GM_ADDR topkIdx,
-                                                                                    GM_ADDR sendTokenIdx,
-                                                                                    GM_ADDR balanceMatrix,
-                                                                                    GM_ADDR XOut,
-                                                                                    GM_ADDR sendCostStatsOut)
+__aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::InitGlobalBuffer(
+    GM_ADDR recvX, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR topkIdx, GM_ADDR sendTokenIdx,
+    GM_ADDR balanceMatrix, GM_ADDR XOut, GM_ADDR sendCostStatsOut)
 {
     recvXGT_.SetGlobalBuffer((__gm__ RecvXType *)recvX);
     epRecvCountGT_.SetGlobalBuffer((__gm__ int32_t *)epRecvCount);  // 放置allReccvCount信息，num_ranks * num_experts
@@ -233,8 +231,9 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::InitBuffLen()
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::Init(
-    GM_ADDR recvX, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR topkIdx, GM_ADDR sendTokenIdx, GM_ADDR balanceMatrix, GM_ADDR XOut,
-    GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe, const ShmemMoeCombineNormalTilingData *tilingData)
+    GM_ADDR recvX, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR topkIdx, GM_ADDR sendTokenIdx,
+    GM_ADDR balanceMatrix, GM_ADDR XOut, GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe,
+    const ShmemMoeCombineNormalTilingData *tilingData)
 {
     workspaceGM_ = workspaceGM;
     recvXGM_ = recvX;
@@ -259,7 +258,8 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::Init(
     SplitCoreCal(epRankSize, rankNumPerBlock, curBlockStartRankId, curBlockEndRankId);
 
     // if (blockIdx == 0) {
-    //     printf("[Init] rank:%d, recvXGM_ %p topkIdxGM_ %p topkWeightsGM_ %p sendTokenIdxGM_ %p epRecvCountGM_ %p XOutGM_ %p\n", epRankId,
+    //     printf("[Init] rank:%d, recvXGM_ %p topkIdxGM_ %p topkWeightsGM_ %p sendTokenIdxGM_ %p epRecvCountGM_ %p
+    //     XOutGM_ %p\n", epRankId,
     //         recvXGM_, topkIdxGM_, topkWeightsGM_, sendTokenIdxGM_, epRecvCountGM_, XOutGM_);
     // }
 }
@@ -319,7 +319,8 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::PutShareAddr(
     metaDataGt.SetGlobalBuffer((__gm__ uint64_t *)(remote_meta));
     DataCopyPad(metaDataGt, addrTensor_, copyParams);
 
-    // printf("[putAddr] rank:%d, recvXAddr %p topkIdxAddr %p topkWeightsAddr %p sendTokenIdxAddr %p epRecvCountAddr %p XOutAddr %p\n", epRankId,
+    // printf("[putAddr] rank:%d, recvXAddr %p topkIdxAddr %p topkWeightsAddr %p sendTokenIdxAddr %p epRecvCountAddr %p
+    // XOutAddr %p\n", epRankId,
     //     recvXAddr, topkIdxAddr, topkWeightsAddr, sendTokenIdxAddr,
     //     epRecvCountAddr, XOutAddr);
 
@@ -478,7 +479,8 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::ReadTokenAndW
         dstGT.SetGlobalBuffer((__gm__ XType *)(ptr + hRecvXTypeLen_ * (remoteReadBase + remoteReadOffset)));
 
         // if (tarRankId == 5) {
-        //     printf("[WeightedSum] rank:%d, blockId:%d, tarRankId:%d, tokenIndex:%d, remoteReadBase:%d, remoteReadOffset:%d, expertId:%d, dstRankId:%d\n",
+        //     printf("[WeightedSum] rank:%d, blockId:%d, tarRankId:%d, tokenIndex:%d, remoteReadBase:%d,
+        //     remoteReadOffset:%d, expertId:%d, dstRankId:%d\n",
         //         epRankId, blockIdx, tarRankId, tokenIndex, remoteReadBase, remoteReadOffset, expertId, dstRankId);
         // }
 
@@ -542,7 +544,8 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::ReadTokenFrom
     xOutGlobal_.SetGlobalBuffer((__gm__ XType *)XOutGM_);
 
     // if (blockIdx == 0) {
-    //     printf("[ReadTokenFromRemote] rank:%d, recvXGM_ %p topkIdxGM_ %p topkWeightsGM_ %p sendTokenIdxGM_ %p epRecvCountGM_ %p XOutGM_ %p\n", epRankId,
+    //     printf("[ReadTokenFromRemote] rank:%d, recvXGM_ %p topkIdxGM_ %p topkWeightsGM_ %p sendTokenIdxGM_ %p
+    //     epRecvCountGM_ %p XOutGM_ %p\n", epRankId,
     //         recvXGM_, topkIdxGM_, topkWeightsGM_, sendTokenIdxGM_, epRecvCountGM_, XOutGM_);
     //     AscendC::DumpTensor(topkIdxGT_, 547, 8);
     // }
@@ -572,7 +575,10 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::ReadTokenFrom
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::ReadAndWriteForTargetRank(uint32_t startId, uint32_t endId, uint32_t tokenCnt, uint32_t tarRankId)
+__aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::ReadAndWriteForTargetRank(uint32_t startId,
+                                                                                             uint32_t endId,
+                                                                                             uint32_t tokenCnt,
+                                                                                             uint32_t tarRankId)
 {
     if (tokenCnt == 0U) {
         return;
@@ -586,7 +592,8 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::ReadAndWriteF
     endTokenIndex += startId;
 
     // if (tarRankId == 5) {
-    //     printf("[ReadAndWrite] rank:%d, blockId:%d, startTokenIndex:%d, endTokenIndex:%d, tokenPerBlock:%d, tarRankId:%d\n",
+    //     printf("[ReadAndWrite] rank:%d, blockId:%d, startTokenIndex:%d, endTokenIndex:%d, tokenPerBlock:%d,
+    //     tarRankId:%d\n",
     //         epRankId, blockIdx, startTokenIndex, endTokenIndex, tokenPerBlock, tarRankId);
     // }
 
@@ -672,8 +679,8 @@ __aicore__ inline void ShmemMoeCombineNormal<TemplateMC2TypeFunc>::HandleAllRank
             continue;
         }
         if (blockIdx == 0) {
-            printf("[HandleAllRank] rank:%d, blockId:%d, startId:%d, endId:%d, tokenCnt:%d, tarRankId:%d\n",
-                epRankId, blockIdx, startId, endId, tokenCnt, tarRankId);
+            printf("[HandleAllRank] rank:%d, blockId:%d, startId:%d, endId:%d, tokenCnt:%d, tarRankId:%d\n", epRankId,
+                   blockIdx, startId, endId, tokenCnt, tarRankId);
         }
 
         ReadAndWriteForTargetRank(startId, endId, tokenCnt, tarRankId);

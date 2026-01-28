@@ -405,8 +405,7 @@ void Buffer::clean_low_latency_buffer(int num_max_dispatch_tokens_per_rank, int 
 std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandle>> Buffer::intranode_combine(
     const torch::Tensor &x, const torch::Tensor &topk_idx, const std::optional<torch::Tensor> &topk_weights,
     const torch::Tensor &src_idx, const torch::Tensor &send_head, const torch::Tensor &put_offset,
-    const torch::Tensor &balance_matrix,
-    const std::optional<at::Tensor> &combine_send_cost_stats)
+    const torch::Tensor &balance_matrix, const std::optional<at::Tensor> &combine_send_cost_stats)
 {
     EP_HOST_ASSERT(x.dim() == 2 and x.is_contiguous());
     at::Tensor recv_x = x;
@@ -473,13 +472,14 @@ std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandl
         moe_expert_number = put_offset.size(0);
         ext_info = reinterpret_cast<uint64_t>(shmem_ptr);
 
-        // printf("[deepep] rank:%d, is_padding:%d, recv_x %p expand_ids %p expert_scales %p send_token_idx %p ep_send_counts %p combined_x %p\n", 
-        //     rank, is_padding, recv_x.data_ptr(), expand_ids.data_ptr(), expert_scales.data_ptr(), send_token_idx_small.data_ptr(),
-        //     ep_send_counts.data_ptr(), combined_x.data_ptr());
+        // printf("[deepep] rank:%d, is_padding:%d, recv_x %p expand_ids %p expert_scales %p send_token_idx %p
+        // ep_send_counts %p combined_x %p\n",
+        //     rank, is_padding, recv_x.data_ptr(), expand_ids.data_ptr(), expert_scales.data_ptr(),
+        //     send_token_idx_small.data_ptr(), ep_send_counts.data_ptr(), combined_x.data_ptr());
 
         EXEC_NPU_CMD(aclnnShmemMoeCombineNormal, recv_x, ep_send_counts, expert_scales, expand_ids,
-                     this->send_token_idx_small, balance_matrix, ext_info, num_ranks, rank, tp_world_size, tp_rankId, moe_expert_number,
-                     global_bs, combined_x, combine_send_cost_stats_out);
+                     this->send_token_idx_small, balance_matrix, ext_info, num_ranks, rank, tp_world_size, tp_rankId,
+                     moe_expert_number, global_bs, combined_x, combine_send_cost_stats_out);
     } else {
         ep_send_counts = send_head;
         moe_expert_number = send_head.size(0);

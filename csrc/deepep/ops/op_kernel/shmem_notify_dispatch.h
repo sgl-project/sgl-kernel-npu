@@ -65,7 +65,7 @@ public:
         maxBs_ = maxBs;
         recvTokensPerExpert_ = recvTokensPerExpert;
         recvData_ = recvDataOutput;
-        balanceMatrix_ = balanceMatrix; // shape:[epWorldSize_, epWorldSize_*2]
+        balanceMatrix_ = balanceMatrix;  // shape:[epWorldSize_, epWorldSize_*2]
 
         addrUint64AlignLen_ = Ceil(shareAddrNum * sizeof(uint64_t), UB_ALIGN) * UB_ALIGN;
         recvDataAlignLen_ = Ceil(numExperts * epWorldSize_ * sizeof(int32_t), UB_ALIGN) * UB_ALIGN;
@@ -201,7 +201,7 @@ private:
     GM_ADDR balanceMatrix_;
     float factor_high{1.3};
     float factor_low{1.0};
-    int32_t bsPerRank[CAM_MAX_RANK_SIZE];  // 记录每个rank上的bs, size=epWorldSize_
+    int32_t bsPerRank[CAM_MAX_RANK_SIZE];        // 记录每个rank上的bs, size=epWorldSize_
     int32_t processCapacity[CAM_MAX_RANK_SIZE];  // 记录每个rank的剩余处理能力, size=epWorldSize_
 
     GM_ADDR gva_gm;
@@ -431,11 +431,13 @@ private:
     {
         pipe_.InitBuffer(matrixBuf_, matrixDataAlignLen_);
         // 跨rank分配token处理范围
-        int32_t avgTokens = static_cast<int32_t>(totalTokens / epWorldSize_); // 小于128时，每卡仅处理自己的
+        int32_t avgTokens = static_cast<int32_t>(totalTokens / epWorldSize_);  // 小于128时，每卡仅处理自己的
         // if (epRankId_ == 0) {
-        //     printf("[BuildBalanceMatrix] rank:%d, totalTokens:%d, avgTokens:%d, bsPerRank:[%d %d %d %d %d %d %d %d]\n",
+        //     printf("[BuildBalanceMatrix] rank:%d, totalTokens:%d, avgTokens:%d, bsPerRank:[%d %d %d %d %d %d %d
+        //     %d]\n",
         //         epWorldSize_, totalTokens, avgTokens,
-        //         bsPerRank[0], bsPerRank[1], bsPerRank[2], bsPerRank[3], bsPerRank[4], bsPerRank[5], bsPerRank[6], bsPerRank[7]);
+        //         bsPerRank[0], bsPerRank[1], bsPerRank[2], bsPerRank[3], bsPerRank[4], bsPerRank[5], bsPerRank[6],
+        //         bsPerRank[7]);
         // }
         int32_t capacity = 0;
         for (uint32_t i = 0; i < epWorldSize_; ++i) {
@@ -449,8 +451,9 @@ private:
         }
         // if (epRankId_ == 0) {
         //     printf("[BuildBalanceMatrix] rank:%d, processCapacity:[%d %d %d %d %d %d %d %d]\n",
-        //         epWorldSize_, 
-        //         processCapacity[0], processCapacity[1], processCapacity[2], processCapacity[3], processCapacity[4], processCapacity[5], processCapacity[6], processCapacity[7]);
+        //         epWorldSize_,
+        //         processCapacity[0], processCapacity[1], processCapacity[2], processCapacity[3], processCapacity[4],
+        //         processCapacity[5], processCapacity[6], processCapacity[7]);
         // }
         LocalTensor<int32_t> balanceMatrixLt = matrixBuf_.Get<int32_t>();
         Duplicate<int32_t>(balanceMatrixLt, -1, matrixDataAlignLen_);
@@ -458,12 +461,12 @@ private:
 
         // 每个rank先处理自己的token
         bool isNeedBalance = avgTokens > REBALANCE_MIN_TOKEN_NUM;
-        int32_t offset = epWorldSize_ * 2; // 一行的个数
+        int32_t offset = epWorldSize_ * 2;  // 一行的个数
         int32_t processCount = 0;
         for (uint32_t i = 0; i < epWorldSize_; ++i) {
             if (bsPerRank[i] > 0) {
                 if (!isNeedBalance) {
-                    processCount = bsPerRank[i]; // 本卡处理完自己的所有token
+                    processCount = bsPerRank[i];  // 本卡处理完自己的所有token
                 } else {
                     processCount = bsPerRank[i] > processCapacity[i] ? processCapacity[i] : bsPerRank[i];
                 }
@@ -501,13 +504,14 @@ private:
                     continue;
                 }
                 if (processCapacity[helpRank] > 0 && remainTokens > 0) {
-                    int32_t allocCnt = processCapacity[helpRank] > remainTokens ? remainTokens : processCapacity[helpRank];
+                    int32_t allocCnt =
+                        processCapacity[helpRank] > remainTokens ? remainTokens : processCapacity[helpRank];
                     int32_t startId = curStart;
-                    int32_t endId = startId + allocCnt -1;
+                    int32_t endId = startId + allocCnt - 1;
 
                     balanceMatrixLt(helpRank * offset + tarRankId * 2) = startId;
                     balanceMatrixLt(helpRank * offset + tarRankId * 2 + 1) = endId;
-                    
+
                     processCapacity[helpRank] -= allocCnt;
                     remainTokens -= allocCnt;
                     curStart += allocCnt;
@@ -519,7 +523,8 @@ private:
         // }
         PipeBarrier<PIPE_ALL>();
         SyncFunc<AscendC::HardEvent::S_MTE3>();
-        DataCopyExtParams copyParams{1, static_cast<uint32_t>(epWorldSize_ * epWorldSize_ * 2 * sizeof(int32_t)), 0, 0, 0};
+        DataCopyExtParams copyParams{1, static_cast<uint32_t>(epWorldSize_ * epWorldSize_ * 2 * sizeof(int32_t)), 0, 0,
+                                     0};
         DataCopyPad(balanceMatrixGt, balanceMatrixLt, copyParams);
     }
 
