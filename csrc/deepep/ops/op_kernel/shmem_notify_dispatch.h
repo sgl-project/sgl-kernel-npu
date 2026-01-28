@@ -22,11 +22,11 @@ __aicore__ inline void SyncFunc()
 #define KERNELS_ARGS_FUN_ALLGATHER()                                                                            \
     GM_ADDR tokenPerExpertData, GM_ADDR recvDataOutput, GM_ADDR totalRecvTokens, GM_ADDR maxBs,                 \
         GM_ADDR recvTokensPerExpert, GM_ADDR putOffset, int64_t len, uint32_t topkNum, int root, int localRank, \
-        int localRankSize, uint64_t shmemPtr, GM_ADDR balanceMatrix
+        int localRankSize, uint64_t shmemPtr, GM_ADDR balanceMatrix, float factorHigh, float factorLow
 
 #define KERNELS_ARGS_CALL_ALLGATHER()                                                                               \
     tokenPerExpertData, recvDataOutput, totalRecvTokens, maxBs, recvTokensPerExpert, putOffset, len, topkNum, root, \
-        localRank, localRankSize, shmemPtr, balanceMatrix
+        localRank, localRankSize, shmemPtr, balanceMatrix, factorHigh, factorLow
 
 constexpr uint64_t NOTIFY_STATUS_OFFSET = 20UL * 1024UL;
 constexpr uint32_t UB_FLAG_SIZE = 8U * 1024U;
@@ -48,6 +48,9 @@ public:
         this->localRankSize = localRankSize;
         blockIdx_ = GetBlockIdx();
         blockNum_ = GetBlockNum();
+
+        factor_high = factorHigh;
+        factor_low = factorLow;
 
         gva_gm = (GM_ADDR)shmemPtr;
 

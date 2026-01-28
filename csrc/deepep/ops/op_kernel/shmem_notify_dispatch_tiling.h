@@ -12,6 +12,8 @@ struct ShmemNotifyDispatchInfo {
     uint32_t topkNum;
     uint32_t aivNum;
     uint64_t totalUbSize;
+    float factorHigh;
+    float factorLow;
 };
 
 struct ShmemNotifyDispatchTilingData {

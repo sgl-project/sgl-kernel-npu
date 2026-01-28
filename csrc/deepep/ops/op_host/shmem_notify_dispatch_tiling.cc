@@ -58,6 +58,25 @@ constexpr static int TILING_KEY_A2_TYPE = 100;
 }  // namespace
 
 namespace optiling {
+static float GetFactorEnv(const char* name, float value = 0.0f)
+{
+    float defaultValue = value;
+    if (getenv(name) == nullptr) {
+        OP_LOGD("", "Env %s don't set", name);
+    } else {
+        try {
+            std::string envStr(getenv(name));
+            defaultValue = static_cast<float>(std::stod(envStr));
+        } catch (const std::invalid_argument &ia) {
+            OP_LOGE("", "Invalid argument when parsing %s: %s", name, ia.what());
+        } catch (const std::out_of_range &oor) {
+            OP_LOGE("", "Out of range when parsing %s: %s", name, oor.what());
+        }
+    }
+    OP_LOGI("", "Get factor is %f", defaultValue);
+    return defaultValue;
+}
+
 static void PrintTilingDataInfo(const char *nodeName, ShmemNotifyDispatchTilingData &tilingData)
 {
     OP_LOGD(nodeName, "sendCount is %u.", tilingData.notifyDispatchInfo.sendCount);
@@ -114,6 +133,8 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     tilingData.notifyDispatchInfo.localRankId = static_cast<uint32_t>(*localRankIdPtr);
     tilingData.notifyDispatchInfo.topkNum = static_cast<uint32_t>(*topkNumPtr);
     tilingData.shmemPtr = static_cast<uint64_t>(*shmemPtrPtr);
+    tilingData.notifyDispatchInfo.factorHigh = GetFactorEnv("FACTOR_HIGH", 10.0);
+    tilingData.notifyDispatchInfo.factorLow = GetFactorEnv("FACTOR_LOW", 1.0);
 
     return ge::GRAPH_SUCCESS;
 }

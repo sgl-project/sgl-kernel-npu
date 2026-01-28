@@ -23,6 +23,8 @@ extern "C" __global__ __aicore__ void shmem_notify_dispatch(GM_ADDR tokenPerExpe
     int rankSize = tilingData.notifyDispatchInfo.rankSize;
     uint32_t topkNum = tilingData.notifyDispatchInfo.topkNum;
     uint64_t shmemPtr = tilingData.shmemPtr;
+    float factorHigh = tilingData.notifyDispatchInfo.factorHigh;
+    float factorLow = tilingData.notifyDispatchInfo.factorLow;
 
     GM_ADDR tokenPerExpertDataInput = tokenPerExpertData;
     GM_ADDR recvDataOutput = recvData;
