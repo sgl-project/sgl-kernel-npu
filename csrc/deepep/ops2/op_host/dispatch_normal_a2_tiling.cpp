@@ -33,15 +33,15 @@ namespace {
 class Mc2TilingUtils
 {
 public:
-#define HCCL_BUFFSIZE "HCCL_BUFFSIZE"
     static uint64_t GetMaxWindowSize()
     {
         uint16_t defaultWindowSize = 200;
-        if (getenv(HCCL_BUFFSIZE) == nullptr) {
+        const char *hcclBuffSize = getenv("DEEPEP_HCCL_BUFFSIZE") == nullptr ? "HCCL_BUFFSIZE" : "DEEPEP_HCCL_BUFFSIZE";
+        if (getenv(hcclBuffSize) == nullptr) {
             OP_LOGD("", "Env HCCL_BUFFSIZE don't set");
         } else {
             try {
-                std::string envStr(getenv(HCCL_BUFFSIZE));
+                std::string envStr(getenv(hcclBuffSize));
                 defaultWindowSize = std::stoi(envStr);
             } catch (const std::invalid_argument &ia) {
                 OP_LOGE("", "Invalid argument when parsing HCCL_BUFFSIZE: %s", ia.what());
@@ -102,7 +102,8 @@ constexpr uint32_t STATIC_QUANT_MODE = 1;
 constexpr uint32_t DYNAMIC_QUANT_MODE = 2;
 constexpr uint32_t RANK_NUM_PER_NODE_A2 = 8;
 constexpr uint32_t BLOCK_SIZE_A2 = 32;
-constexpr uint32_t MAX_K_VALUE_A2 = 8;
+constexpr uint32_t MAX_K_VALUE_A2 = 10;
+constexpr uint32_t MIN_K_VALUE_A2 = 2;
 constexpr int32_t MAX_HIDDEN_SIZE_A2 = 7168;
 constexpr int32_t MAX_EP_WORLD_SIZE_A2 = 256;
 constexpr int32_t MAX_MOE_EXPERT_NUMS_A2 = 512;
@@ -123,7 +124,7 @@ constexpr uint32_t TP_TILING_KEY = 100;
 constexpr uint32_t VERSION_2 = 2;
 constexpr uint32_t HCOMMCNT_2 = 2;
 constexpr int64_t MOE_EXPERT_MAX_NUM = 512;
-constexpr int64_t K_MAX = 8;
+constexpr int64_t K_MAX = 10;
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
 constexpr uint32_t USER_WORKSPACE_A2 = 1 * 1024 * 1024;  // moeExpertNum_ * sizeof(uint32_t) + epWorldSize_ * 2 * 32
 constexpr int32_t HCCL_BUFFER_SIZE_DEFAULT = 200 * 1024 * 1024;  // Bytes
@@ -908,7 +909,9 @@ static ge::graphStatus MoeDistributeDispatchA2CheckShapeAndSetTiling(const gert:
         bs <= 0 || bs > BS_UPPER_BOUND,
         OP_LOGE(K_INNER_DEBUG, "batchsize is invalid. bs: %u, should satisfy 0<bs<=%ld", bs, BS_UPPER_BOUND),
         return GRAPH_FAILED);
-    OP_TILING_CHECK(k <= 0 || k > MAX_K_VALUE_A2, OP_LOGE(K_INNER_DEBUG, "k is invalid."), return GRAPH_FAILED);
+    OP_TILING_CHECK(k < MIN_K_VALUE_A2 || k > MAX_K_VALUE_A2,
+                    OP_LOGE(K_INNER_DEBUG, "k should be in [%u, %u], but got k=%u.", MIN_K_VALUE_A2, MAX_K_VALUE_A2, k),
+                    return GRAPH_FAILED);
     OP_TILING_CHECK(*quantModePtr == UNQUANT_MODE && isScales,
                     OP_LOGE(K_INNER_DEBUG, "scales should be null when quantMode is unQuant."), return GRAPH_FAILED);
 
@@ -1106,9 +1109,6 @@ static ge::graphStatus MoeDistributeDispatchA2TilingFuncImpl(gert::TilingContext
 
     uint64_t tilingKey = MoeDistributeDispatchA2CalcTilingKey(context);
     context.SetTilingKey(tilingKey);
-    if ((tilingKey & TILING_KEY_LAYERED_COMM_A2) != 0) {
-        OP_TILING_CHECK(info.k != 8, OP_LOGE(nodeName, "As layered, K must be 8."), return ge::GRAPH_FAILED);
-    }
     // 2. workspace
     size_t *workSpaces = context.GetWorkspaceSizes(1);
     OP_TILING_CHECK(workSpaces == nullptr, VECTOR_INNER_ERR_REPORT_TILIING(nodeName, "workSpaces is nullptr."),

@@ -36,15 +36,15 @@ constexpr uint32_t AICPU_BLOCK_DIM_A2 = 6U;
 class Mc2TilingUtils
 {
 public:
-#define HCCL_BUFFSIZE "HCCL_BUFFSIZE"
     static uint64_t GetMaxWindowSize()
     {
         uint16_t defaultWindowSize = 200;
-        if (getenv(HCCL_BUFFSIZE) == nullptr) {
+        const char *hcclBuffSize = getenv("DEEPEP_HCCL_BUFFSIZE") == nullptr ? "HCCL_BUFFSIZE" : "DEEPEP_HCCL_BUFFSIZE";
+        if (getenv(hcclBuffSize) == nullptr) {
             OP_LOGD("", "Env HCCL_BUFFSIZE don't set");
         } else {
             try {
-                std::string envStr(getenv(HCCL_BUFFSIZE));
+                std::string envStr(getenv(hcclBuffSize));
                 defaultWindowSize = std::stoi(envStr);
             } catch (const std::invalid_argument &ia) {
                 OP_LOGE("", "Invalid argument when parsing HCCL_BUFFSIZE: %s", ia.what());

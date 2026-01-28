@@ -1,6 +1,7 @@
 # Adapted from https://github.com/fla-org/flash-linear-attention/blob/main/fla/ops/gated_delta_rule/chunk.py
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
+import typing
 from typing import Optional
 
 import torch
@@ -20,6 +21,29 @@ from sgl_kernel_npu.fla.utils import SUPPRESS_LEVEL, input_guard
 from sgl_kernel_npu.fla.wy_fast import recompute_w_u_fwd_npu as recompute_w_u_fwd
 
 
+def fast_inv_tril(A: torch.Tensor):
+    dtype = A.dtype
+    assert A.shape[-2] == A.shape[-1]
+    chunk_size = A.shape[-1]
+    identity = torch.eye(chunk_size, dtype=torch.float32, device=A.device)
+    A_inv = torch.ops.npu.triangular_inverse(identity - A.to(torch.float32))
+    return A_inv.to(dtype)
+
+
+def inv_tril_inplace(A: torch.Tensor):
+    """
+    Returns the "matrix inverse" of the last two dimensions of A that must be a strict lower-triangular matrix.
+    The algorithm is somewhat "in-place", in the sense that it does not explicitly form a full matrix for the inverse.
+    """
+    assert A.shape[-2] == A.shape[-1]
+    chunk_size = A.shape[-1]
+    for i in range(1, chunk_size):
+        row = A[..., i, :i].clone()
+        sub = A[..., :i, :i].clone()
+        A[..., i, :i] = row + (row.unsqueeze(-1) * sub).sum(-2)
+    return A + torch.eye(chunk_size, dtype=A.dtype, device=A.device)
+
+
 def chunk_gated_delta_rule_native(
     query,
     key,
@@ -30,6 +54,7 @@ def chunk_gated_delta_rule_native(
     initial_state=None,
     output_final_state=False,
     use_qk_l2norm_in_kernel=False,
+    tri_inv_fn: typing.Callable = inv_tril_inplace,
 ):
     initial_dtype = query.dtype
     if use_qk_l2norm_in_kernel:
@@ -69,11 +94,7 @@ def chunk_gated_delta_rule_native(
     g = g.cumsum(dim=-1)
     decay_mask = ((g.unsqueeze(-1) - g.unsqueeze(-2)).tril().exp().float()).tril()
     attn = -((k_beta @ key.transpose(-1, -2)) * decay_mask).masked_fill(mask, 0)
-    for i in range(1, chunk_size):
-        row = attn[..., i, :i].clone()
-        sub = attn[..., :i, :i].clone()
-        attn[..., i, :i] = row + (row.unsqueeze(-1) * sub).sum(-2)
-    attn = attn + torch.eye(chunk_size, dtype=attn.dtype, device=attn.device)
+    attn = tri_inv_fn(attn)
     value = attn @ v_beta
     k_cumdecay = attn @ (k_beta * g.exp().unsqueeze(-1))
     last_recurrent_state = (
@@ -234,7 +255,7 @@ def chunk_gated_delta_rule_npu(
     beta: torch.Tensor,
     scale: float = None,
     initial_state: torch.Tensor = None,
-    output_final_state: bool = False,
+    output_final_state: bool = True,
     cu_seqlens: Optional[torch.LongTensor] = None,
     head_first: bool = False,
     use_qk_l2norm_in_kernel: bool = False,

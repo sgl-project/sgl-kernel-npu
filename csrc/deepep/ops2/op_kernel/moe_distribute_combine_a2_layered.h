@@ -669,8 +669,8 @@ __aicore__ inline void MoeDistributeCombineA2Layered<TemplateMC2TypeA2layeredFun
     if (coreIdx_ >= 8U) {
         return;
     }
-    processNum = MAX_BS / 8U;
-    resNum = MAX_BS - processNum * 8U;
+    processNum = axisBS_ / 8U;
+    resNum = axisBS_ - processNum * 8U;
     resLen = (resNum == 0U) ? 0U : 1U;
     startBs = 0U;
     endBs = 0U;
@@ -736,7 +736,7 @@ __aicore__ inline void MoeDistributeCombineA2Layered<TemplateMC2TypeA2layeredFun
         SyncFunc<AscendC::HardEvent::MTE3_V>();
         Cast(castUbIn, sumFloatLocal_, AscendC::RoundMode::CAST_RINT, axisH_);
         SyncFunc<AscendC::HardEvent::V_MTE3>();
-        DataCopy(expandOutGlobal_[count * axisH_], castUbIn, axisH_);
+        DataCopy(expandOutGlobal_[i * axisH_], castUbIn, axisH_);
         count++;
         PipeBarrier<PIPE_V>();
     }

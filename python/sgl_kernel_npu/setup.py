@@ -13,8 +13,6 @@ from setuptools.command.build_ext import build_ext
 from setuptools.dist import Distribution
 from torch_npu.utils.cpp_extension import NpuExtension
 
-os.environ["SOURCE_DATE_EPOCH"] = "0"
-
 
 class BinaryDistribution(Distribution):
     """Distribution which always forces a binary package with platform name"""
