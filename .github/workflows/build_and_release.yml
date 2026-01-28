@@ -15,19 +15,25 @@ on:
 jobs:
 
   build-and-release:
-    strategy:
-      matrix:
-        os: [ubuntu-24.04-arm]
-        hardware: [910b, a3]
-        cann_version: [8.3.rc2, 8.5.0]
-    runs-on: ${{ matrix.os }}
-    container:
-      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.hardware }}-ubuntu22.04-py3.11
-    permissions:
-      contents: write
     defaults:
       run:
         shell: bash
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        arch: [x86_64, aarch64]
+        hardware: [910b, a3]
+        cann_version: [8.3.rc2, 8.5.0]
+        # Ref: https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.hardware }}-ubuntu22.04-py3.11
 
     steps:
       - name: Checkout repository
@@ -40,6 +46,7 @@ jobs:
       - name: Install dependency
         run: |
           env
+          arch
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Build SGL-Kernel-NPU
@@ -75,7 +82,8 @@ jobs:
 
       - name: Pack up packages
         run: |
-          zip -v "sgl-kernel-npu_${{ github.event.release.tag_name }}_${{ matrix.cann_version }}_${{ matrix.hardware }}.zip" output/*.whl
+          zip -v "sgl-kernel-npu_${{ github.event.release.tag_name }}_${{ matrix.cann_version }}_${{ matrix.hardware }}_${{ matrix.arch }}.zip" output/*.whl
+          ls -al
 
       - name: Upload Release Artifacts
         if: github.event_name != 'pull_request'
