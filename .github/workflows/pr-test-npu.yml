@@ -689,7 +689,8 @@ jobs:
         github.event.pull_request.draft == false
     runs-on: linux-aarch64-a2-8
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.3.rc1-910b-ubuntu22.04-py3.11
+      # image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.3.rc1-910b-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-910b-ubuntu22.04-py3.11
     steps:
       - name: Clean git config
         run: |
@@ -717,6 +718,20 @@ jobs:
 
       - name: Prepare Deepep
         run: bash scripts/prepare_deepep_in_container.sh -a deepep2
+
+      - name: Run test intranode
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2300
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=8
+
+      - name: Run test mixed running
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-processes=8
 
       - name: Run test low latency
         timeout-minutes: 10
