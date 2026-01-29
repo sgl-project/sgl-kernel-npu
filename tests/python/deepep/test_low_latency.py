@@ -359,7 +359,9 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     else:
         raw_num_tokens = base_num_tokens
 
-    local_tokens_tensor = torch.tensor([raw_num_tokens], dtype=torch.int32, device="npu")
+    local_tokens_tensor = torch.tensor(
+        [raw_num_tokens], dtype=torch.int32, device="npu"
+    )
     dist.all_reduce(local_tokens_tensor, op=dist.ReduceOp.MAX)
     aligned_num_tokens = local_tokens_tensor.item()
 
