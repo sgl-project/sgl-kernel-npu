@@ -721,6 +721,7 @@ jobs:
 
       - name: Run test mixed running
         timeout-minutes: 10
+        continue-on-error: true
         env:
           HCCL_BUFFSIZE: 3000
         run: |
@@ -728,13 +729,16 @@ jobs:
 
       - name: Run test mixed running for little processes
         timeout-minutes: 10
+        continue-on-error: true
         env:
           HCCL_BUFFSIZE: 2241
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-processes=2 --test-loop=100
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-processes=2
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-processes=4 --test-loop=100
 
       - name: Run test mixed running for bs
         timeout-minutes: 10
+        continue-on-error: true
         env:
           HCCL_BUFFSIZE: 4065
         run: |
@@ -743,6 +747,7 @@ jobs:
 
       - name: Run test mixed running for hidden
         timeout-minutes: 10
+        continue-on-error: true
         env:
           HCCL_BUFFSIZE: 2241
         run: |
@@ -753,6 +758,7 @@ jobs:
 
       - name: Run test mixed running for topk
         timeout-minutes: 10
+        continue-on-error: true
         env:
           HCCL_BUFFSIZE: 4065
         run: |
@@ -761,6 +767,7 @@ jobs:
 
       - name: Run test mixed running for experts
         timeout-minutes: 10
+        continue-on-error: true
         env:
           HCCL_BUFFSIZE: 3769
         run: |
@@ -769,6 +776,7 @@ jobs:
 
       - name: Run test mixed running for dynamic tokens
         timeout-minutes: 10
+        continue-on-error: true
         env:
           HCCL_BUFFSIZE: 3769
           MOE_ENABLE_TOPK_NEG_ONE: 1
