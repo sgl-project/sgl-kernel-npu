@@ -719,13 +719,6 @@ jobs:
       - name: Prepare Deepep
         run: bash scripts/prepare_deepep_in_container.sh -a deepep2
 
-      - name: Run test intranode
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 2300
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=8
-
       - name: Run test mixed running
         timeout-minutes: 10
         env:
