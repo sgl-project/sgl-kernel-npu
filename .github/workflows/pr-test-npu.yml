@@ -720,7 +720,6 @@ jobs:
 
       - name: Run test mixed running
         timeout-minutes: 10
-        continue-on-error: true
         env:
           HCCL_BUFFSIZE: 3000
         run: |
