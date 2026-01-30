@@ -83,27 +83,17 @@ export DEBUG_MODE=$DEBUG_MODE
 
 SOC_VERSION="${1:-Ascend910_9382}"
 
+
 ### Get Current CANN Toolkit Installation Path
 _CANN_TOOLKIT_INSTALL_PATH=$(cat /etc/Ascend/ascend_cann_install.info | grep "Toolkit_InstallPath" | awk -F'=' '{print $2}')
-echo "CANN Toolkit Installation Path: ${_CANN_TOOLKIT_INSTALL_PATH}"
+source ${_CANN_TOOLKIT_INSTALL_PATH}/set_env.sh
+echo -e "\e[1;36;32mDetected CANN Toolkit Installation Path: ${_CANN_TOOLKIT_INSTALL_PATH}\e[0m"
+echo -e "\e[1;36;33mDouble Checking Environment Variables:\e[0m"
+echo -e "\e[1;36;32mASCEND_HOME_PATH: ${ASCEND_HOME_PATH}\e[0m"
+echo -e "\e[1;36;32mASCEND_TOOLKIT_HOME: ${ASCEND_TOOLKIT_HOME}\e[0m"
 
-if [ -n "$ASCEND_HOME_PATH" ]; then
-    _ASCEND_INSTALL_PATH=$ASCEND_HOME_PATH
-else
-    _ASCEND_INSTALL_PATH=/usr/local/Ascend/ascend-toolkit/latest
-fi
 
-if [ -n "$ASCEND_INCLUDE_DIR" ]; then
-    ASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR
-else
-    ASCEND_INCLUDE_DIR=${_ASCEND_INSTALL_PATH}/aarch64-linux/include
-fi
-
-export ASCEND_TOOLKIT_HOME=${_ASCEND_INSTALL_PATH}
-export ASCEND_HOME_PATH=${_ASCEND_INSTALL_PATH}
-echo "ascend path: ${ASCEND_HOME_PATH}"
-source $(dirname ${ASCEND_HOME_PATH})/set_env.sh
-
+ASCEND_INCLUDE_DIR=${ASCEND_TOOLKIT_HOME}/$(arch)-linux/include
 CURRENT_DIR=$(pwd)
 PROJECT_ROOT=$(dirname "$CURRENT_DIR")
 VERSION="1.0.0"
