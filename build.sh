@@ -83,6 +83,10 @@ export DEBUG_MODE=$DEBUG_MODE
 
 SOC_VERSION="${1:-Ascend910_9382}"
 
+### Get Current CANN Toolkit Installation Path
+_CANN_TOOLKIT_INSTALL_PATH=$(cat /etc/Ascend/ascend_cann_install.info | grep "Toolkit_InstallPath" | awk -F'=' '{print $2}')
+echo "CANN Toolkit Installation Path: ${_CANN_TOOLKIT_INSTALL_PATH}"
+
 if [ -n "$ASCEND_HOME_PATH" ]; then
     _ASCEND_INSTALL_PATH=$ASCEND_HOME_PATH
 else
