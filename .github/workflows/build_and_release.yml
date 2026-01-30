@@ -11,6 +11,7 @@ on:
     paths:
       - '.github/workflows/build_and_release.yml'
       - 'config.ini'
+      - 'build.sh'
 
 jobs:
 
