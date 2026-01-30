@@ -10,7 +10,7 @@ extern "C" {
 __attribute__((visibility("default"))) aclnnStatus aclnnDispatchNormalA2GetWorkspaceSize(
     const aclTensor *x, const aclTensor *expertIds, const aclTensor *scales, const aclTensor *xActiveMask,
     const aclTensor *expertScales, const aclTensor *tokenServerIdx, const aclTensor *tokenServerCnt,
-    const aclTensor *epRankTokenCnt, const aclTensor *srcOffsetRankTokenIdx, const aclTensor *dstOffsetRankTokenIdx,
+    const aclTensor *epRankTokenCnt, const aclTensor *srcOffsetRankTokenIdx, const aclTensor *dstOffsetRankTokenIdx,const aclTensor *tokenIdxPerExpert,
     char *groupEp, int64_t epWorldSize, int64_t epRankId, int64_t moeExpertNum, char *groupTp, int64_t tpWorldSize,
     int64_t tpRankId, int64_t expertShardType, int64_t sharedExpertNum, int64_t sharedExpertRankNum, int64_t quantMode,
     int64_t globalBs, int64_t expertTokenNumsType, const aclTensor *recvX, const aclTensor *dynamicScales,

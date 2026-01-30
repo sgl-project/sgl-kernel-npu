@@ -17,7 +17,7 @@ using namespace Moe;
         GM_ADDR recvDataOutput, int64_t len, int64_t numTokens, int64_t topkNum, int64_t numExperts, int op, int root, \
         int cycleCount, GM_ADDR scale, int64_t scaleCount, GM_ADDR offset, int localRank, int localRankSize,           \
         GM_ADDR tokenServerIdxOutput, GM_ADDR tokensUniquePerServerOutput, GM_ADDR epRankTokenCntOutput,               \
-        GM_ADDR localEpTokenCntOutput, GM_ADDR srcOffsetRankTokenIdxOutput, GM_ADDR dstOffsetRankTokenIdxOutput,       \
+        GM_ADDR localEpTokenCntOutput, GM_ADDR srcOffsetRankTokenIdxOutput, GM_ADDR dstOffsetRankTokenIdxOutput,GM_ADDR tokenIdxPerExpertOutput,       \
         GM_ADDR offsetInnerOutput, GM_ADDR countOuterOutput, GM_ADDR expandIdxOutput, GM_ADDR totalRecvTokensOutput,   \
         GM_ADDR workspace, GM_ADDR tiling
 
@@ -25,7 +25,7 @@ using namespace Moe;
     sendDataInput, tokenPerExpertDataInput, tmpDataInput, sendDataOffsetOutput, recvDataOutput, len, numTokens, \
         topkNum, numExperts, op, root, cycleCount, scale, scaleCount, offset, localRank, localRankSize,         \
         tokenServerIdxOutput, tokensUniquePerServerOutput, epRankTokenCntOutput, localEpTokenCntOutput,         \
-        srcOffsetRankTokenIdxOutput, dstOffsetRankTokenIdxOutput, offsetInnerOutput, countOuterOutput,          \
+        srcOffsetRankTokenIdxOutput, dstOffsetRankTokenIdxOutput,tokenIdxPerExpertOutput, offsetInnerOutput, countOuterOutput,          \
         expandIdxOutput, totalRecvTokensOutput, workspace, tiling
 
 // #define ENABLE_PRINT
@@ -136,6 +136,7 @@ public:
         localEpTokenCntOutputGT_.SetGlobalBuffer((__gm__ int64_t *)localEpTokenCntOutput);
         srcOffsetRankTokenIdxOutputGT_.SetGlobalBuffer((__gm__ int32_t *)srcOffsetRankTokenIdxOutput);
         dstOffsetRankTokenIdxOutputGT_.SetGlobalBuffer((__gm__ int32_t *)dstOffsetRankTokenIdxOutput);
+        tokenIdxPerExpertOutputGT_.SetGlobalBuffer((__gm__ int32_t *)tokenIdxPerExpertOutput);
         offsetInnerOutputGT_.SetGlobalBuffer((__gm__ int32_t *)offsetInnerOutput);
         countOuterOutputGT_.SetGlobalBuffer((__gm__ int32_t *)countOuterOutput);
         expandIdxOutputGT_.SetGlobalBuffer((__gm__ int32_t *)expandIdxOutput);
@@ -652,8 +653,11 @@ private:
                 BuildOffsetInnerData(beginCoreId, remainCoreNum);
             }
         } else {
-            int32_t beginCoreId = coreNumPerFunc;
-            int32_t remainCoreNum = blockNum - coreNumPerFunc;
+            if (blockIdx == coreNumPerFunc) {
+                BuildOffsetToken();
+            }
+            int32_t beginCoreId = coreNumPerFunc + 1;
+            int32_t remainCoreNum = blockNum - coreNumPerFunc - 1;
             BuildSrcDstOffsetData(beginCoreId, remainCoreNum);
         }
     }
@@ -845,6 +849,26 @@ private:
             AscendC::SetFlag<HardEvent::MTE3_MTE2>(eventId);
         }
         AscendC::WaitFlag<HardEvent::MTE3_MTE2>(EVENT_ID0);  // MTE2 waits for MTE3
+    }
+
+    __aicore__ inline void BuildOffsetToken() {
+        LocalTensor<int32_t> prefixCountToken = tempBuf10_.Get<int32_t>();
+        Duplicate<int32_t>(prefixCountToken, 0, numExperts);
+        LocalTensor<int32_t> tokenIdxExpert = tempBuf3_.Get<int32_t>();
+        LocalTensor<int32_t> tmpData = tempBuf7_.Get<int32_t>();
+        LocalTensor<int32_t> tokenIdx = tempBuf_.Get<int32_t>();
+        
+        DataCopyExtParams copyParams{1, static_cast<uint32_t>(numExperts * sizeof(int32_t)), 0, 0, 0};
+        DataCopyPadExtParams<int32_t> padParams{false, 0, 0, 0};
+        for(int i = 0; i < MAX_BS; i++) {
+            int32_t dataOffset =
+                rank * len + numExperts + serverNum + MAX_BS * serverNum + MAX_BS + MAX_BS * serverNum + i * numExperts;
+            DataCopyPad(tokenIdxExpert, recvDataOutputGt[dataOffset], copyParams, padParams);
+            Add(tmpData, tokenIdxExpert, prefixCountToken, numExperts);
+            DataCopy(prefixCountToken, tmpData, numExperts);
+            DataCopy(tokenIdxPerExpertOutputGT_[i * numExperts], tmpData, numExperts);
+
+        }
     }
 
     __aicore__ inline void BuildOffsetInnerData(int32_t beginCoreId, int32_t validCoreNum)
@@ -1354,6 +1378,7 @@ private:
                                                            // token_idx] -> value:src_offset
     GlobalTensor<int32_t> dstOffsetRankTokenIdxOutputGT_;  // 每个专家、从rank接收的token目的端偏移 [expert_num,
                                                            // rank_num, token_idx] -> value:dst_offset
+    GlobalTensor<int32_t> tokenIdxPerExpertOutputGT_; 
     GlobalTensor<int32_t> countInnerOutputGT_;   // token给各个server发送个数    弃用
     GlobalTensor<int32_t> offsetInnerOutputGT_;  // 存放全局的expandIdx, [globalBs, expertNum]
     GlobalTensor<int32_t> countOuterOutputGT_;   // 每个token发送到的server数量 [bs] -> value:server数量

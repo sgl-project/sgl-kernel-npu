@@ -65,10 +65,11 @@ constexpr uint32_t OUTPUT_EP_RANK_TOKEN_CNT_INDEX = 4;
 constexpr uint32_t OUTPUT_LOCAL_EP_TOKEN_CNT_INDEX = 5;
 constexpr uint32_t OUTPUT_SRC_OFFSET_RANK_TOKEN_INDEX = 6;
 constexpr uint32_t OUTPUT_DST_OFFSET_RANK_TOKEN_INDEX = 7;
-constexpr uint32_t OUTPUT_OFFSET_INNER_INDEX = 8;
-constexpr uint32_t OUTPUT_COUNT_OUTER_INDEX = 9;
-constexpr uint32_t OUTPUT_EXPAND_IDX_INDEX = 10;
-constexpr uint32_t OUTPUT_TOTAL_RECV_TOKENS_INDEX = 11;
+constexpr uint32_t TOKEN_IDX_PER_EXPERT_INDEX = 8;
+constexpr uint32_t OUTPUT_OFFSET_INNER_INDEX = 9;
+constexpr uint32_t OUTPUT_COUNT_OUTER_INDEX = 10;
+constexpr uint32_t OUTPUT_EXPAND_IDX_INDEX = 11;
+constexpr uint32_t OUTPUT_TOTAL_RECV_TOKENS_INDEX = 12;
 
 constexpr uint32_t ATTR_SEND_COUNT_INDEX = 0;
 constexpr uint32_t ATTR_NUM_TOKENS_INDEX = 1;
@@ -325,6 +326,20 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
             nodeName,
             "dstOffsetRankTokenIdx datatype is invalid, datatype should be bf16 or float16 or float or int, but is %d.",
             static_cast<ge::DataType>(dstOffsetRankTokenIdx->GetDataType())),
+        return false);
+
+    auto tokenIdxPerExpert = context->GetOutputDesc(TOKEN_IDX_PER_EXPERT_INDEX);
+    OP_TILING_CHECK(tokenIdxPerExpert == nullptr, OP_LOGE(nodeName, "tokenIdxPerExpert is null."),
+                    return false);
+    OP_TILING_CHECK(
+        (tokenIdxPerExpert->GetDataType() != ge::DT_BF16) &&
+            (tokenIdxPerExpert->GetDataType() != ge::DT_FLOAT16) &&
+            (tokenIdxPerExpert->GetDataType() != ge::DT_FLOAT) &&
+            (tokenIdxPerExpert->GetDataType() != ge::DT_INT32),
+        OP_LOGE(
+            nodeName,
+            "tokenIdxPerExpert datatype is invalid, datatype should be bf16 or float16 or float or int, but is %d.",
+            static_cast<ge::DataType>(tokenIdxPerExpert->GetDataType())),
         return false);
 
     auto offsetInner = context->GetOutputDesc(OUTPUT_OFFSET_INNER_INDEX);

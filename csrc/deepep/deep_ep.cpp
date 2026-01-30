@@ -159,6 +159,7 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     this->notify_send_data = notify_send_data;
     this->send_token_idx_small = send_token_idx_small;
     this->notify_send_data_size = notify_send_data_size;
+    this->tokens_per_rank = num_tokens_per_rank;
 
     std::optional<torch::Tensor> num_tokens_per_rdma_rank = std::nullopt;
     std::optional<EventHandle> output_event = std::nullopt;
@@ -772,6 +773,8 @@ Buffer::internode_dispatch(
         at::empty({num_experts, num_ranks, MAX_BATCH_SIZE}, at::dtype(at::kInt).device(x.device()));
     at::Tensor dst_offset_rank_token_idx =
         at::empty({num_experts, num_ranks, MAX_BATCH_SIZE}, at::dtype(at::kInt).device(x.device()));
+    at::Tensor token_idx_per_expert =
+        at::empty({num_ranks, num_experts}, at::dtype(at::kInt).device(x.device()));
     // The offsetInner for the current rank and the peer rank
     at::Tensor offset_inner = at::empty({2, MAX_BATCH_SIZE, num_experts}, at::dtype(at::kInt).device(x.device()));
     at::Tensor count_outer = at::empty({MAX_BATCH_SIZE}, at::dtype(at::kInt).device(x.device()));
@@ -794,7 +797,7 @@ Buffer::internode_dispatch(
                  local_rank_size, local_rank_id,
                  send_data_offset,  // A2 not use
                  recv_data, token_server_idx, token_unique_per_server, ep_rank_token_cnt, recv_tokens_per_expert,
-                 src_offset_rank_token_idx, dst_offset_rank_token_idx, offset_inner, count_outer, expand_idx,
+                 src_offset_rank_token_idx, dst_offset_rank_token_idx, token_idx_per_expert, offset_inner, count_outer, expand_idx,
                  total_recv_token);
 
     int total_count = total_recv_token.item<int>();
@@ -810,7 +813,7 @@ Buffer::internode_dispatch(
     }
 
     EXEC_NPU_CMD(aclnnDispatchNormalA2, new_x, expert_ids, x_scales, xActiveMask, new_topk_weights, token_server_idx,
-                 token_unique_per_server, ep_rank_token_cnt, src_offset_rank_token_idx, dst_offset_rank_token_idx,
+                 token_unique_per_server, ep_rank_token_cnt, src_offset_rank_token_idx, dst_offset_rank_token_idx, token_idx_per_expert,
                  hcom_ep_name, num_ranks, rank, num_experts, hcom_ep_name, tp_size, tp_rank, expertShardType,
                  sharedExpertNum, sharedExpertRankNum, quant_mode, global_bs, expertTokenNumsType, expandx_out,
                  dynamic_scales_out, expand_idx, expertTokenNums, epRecvCount, expand_scales,

@@ -17,7 +17,7 @@ extern "C" __global__ __aicore__ void notify_dispatch_a2(GM_ADDR sendData, GM_AD
                                                          GM_ADDR sendDataOffset, GM_ADDR recvData,
                                                          GM_ADDR tokenServerIdx, GM_ADDR tokensUniquePerServer,
                                                          GM_ADDR epRankTokenCnt, GM_ADDR localEpTokenCnt,
-                                                         GM_ADDR srcOffsetRankTokenIdx, GM_ADDR dstOffsetRankTokenIdx,
+                                                         GM_ADDR srcOffsetRankTokenIdx, GM_ADDR dstOffsetRankTokenIdx,GM_ADDR tokenIdxPerExpertOutput,
                                                          GM_ADDR offsetInner, GM_ADDR countOuter, GM_ADDR expandIdx,
                                                          GM_ADDR totalRecvTokens, GM_ADDR workspace, GM_ADDR tiling)
 {
