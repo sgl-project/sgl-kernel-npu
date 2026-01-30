@@ -58,5 +58,3 @@ ${PIP_INSTALL} \
     --index-url https://download.pytorch.org/whl/cpu
 ## torch_npu
 ${PIP_INSTALL} ${TORCH_NPU_URL}
-
-ln -sf /usr/local/Ascend/cann-8.5.0/set_env.sh /usr/local/Ascend/set_env.sh
