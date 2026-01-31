@@ -80,6 +80,7 @@ jobs:
 
       - name: Pack up packages
         run: |
+          export TORCH_DEVICE_BACKEND_AUTOLOAD=0
           TORCH_VERSION=$(python3 -c "import torch; print(torch.__verison__)" | awk -F'+' '{print $1}')
           PYTHON_VERSION=$(python3 -c "import platform; print(platform.python_version())" | awk -F'.' '{print $1$2}')
           PACKAGE_NAME="sgl-kernel-npu-${{ github.event.release.tag_name }}-torch${TORCH_VERSION}-py${PYTHON_VERSION}-cann${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-${{ matrix.arch }}.zip"
