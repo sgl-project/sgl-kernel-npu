@@ -120,9 +120,17 @@ jobs:
         continue-on-error: true
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 3000
+          HCCL_BUFFSIZE: 6000
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-experts=272
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-experts=240
+
+      - name: Run test experts num intranode
+        continue-on-error: true
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 6000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=2 --num-topk=1 --num-experts=256
 
       - name: Run test intranode for active ranks
         timeout-minutes: 10
