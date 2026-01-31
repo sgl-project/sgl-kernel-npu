@@ -122,7 +122,7 @@ jobs:
         env:
           HCCL_BUFFSIZE: 3000
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-experts=320
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-experts=256
 
       - name: Run test intranode for active ranks
         timeout-minutes: 10
