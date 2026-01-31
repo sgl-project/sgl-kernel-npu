@@ -64,7 +64,7 @@ constexpr size_t MAX_GROUP_NAME_LENGTH = 128UL;
 constexpr int64_t MAX_EP_WORLD_SIZE = 384;
 constexpr int64_t MIN_EP_WORLD_SIZE = 2;
 constexpr int64_t MAX_TP_WORLD_SIZE = 2;
-constexpr int64_t BS_UPPER_BOUND = 32768;  // 最大bs
+constexpr int64_t BS_UPPER_BOUND = 65536;  // 最大bs
 
 constexpr uint32_t TILINGKEY_TP_WORLD_SIZE = 100;
 constexpr uint32_t TP_WORLD_SIZE_TWO = 2;

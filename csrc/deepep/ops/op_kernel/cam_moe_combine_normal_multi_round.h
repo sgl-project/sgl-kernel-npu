@@ -635,15 +635,15 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::Proce
     if ASCEND_IS_AIV {  // 全aiv处理
         uint32_t realRound = (realMaxBs_ + perRoundTokens_ - 1) / perRoundTokens_;
         while (roundIndex_ < realRound) {
-            if (roundIndex_ >= WAIT_ROUND_INDEX) {
-                WaitRoundStatus();
-                SyncAll<true>();
-            }
             CopyBufferToShareAndSetStatus();
             ReadBufferFromRemote();
-            SetRoundStatus();
+            if (realRound > 1) {
+                SetRoundStatus();
+                WaitRoundStatus();
+                roundMagic_ = roundMagic_ == 0 ? 1 : 0;
+                SyncAll<true>();
+            }
             roundIndex_ += 1;
-            roundMagic_ = roundMagic_ == 0 ? 1 : 0;
         }
     }
 }
