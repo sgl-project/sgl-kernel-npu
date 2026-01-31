@@ -340,22 +340,28 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     use_experts = num_experts if shared_expert_rank_num == 0 else (num_experts - 1)
     use_ranks = num_ranks - shared_expert_rank_num
     drop_percent = args.drop_percent
+    enable_dynamic_tokens = args.enable_dynamic_tokens
 
-    fluctuation_percentage = 0.1
-    min_fluctuation = 2
+    if enable_dynamic_tokens:
+        fluctuation_percentage = 0.1
+        min_fluctuation = 2
 
-    if base_num_tokens < 10:
-        fluctuation = random.randint(-min_fluctuation, min_fluctuation)
-        num_tokens = base_num_tokens + fluctuation
+        if base_num_tokens < 10:
+            fluctuation = random.randint(-min_fluctuation, min_fluctuation)
+            num_tokens = base_num_tokens + fluctuation
+        else:
+            fluctuation = random.uniform(
+                1 - fluctuation_percentage, 1 + fluctuation_percentage
+            )
+            num_tokens = int(base_num_tokens * fluctuation)
+
+        raw_num_tokens = max(num_tokens, 1)
     else:
-        fluctuation = random.uniform(
-            1 - fluctuation_percentage, 1 + fluctuation_percentage
-        )
-        num_tokens = int(base_num_tokens * fluctuation)
+        raw_num_tokens = base_num_tokens
 
-    raw_num_tokens = max(num_tokens, 1)
-
-    local_tokens_tensor = torch.tensor([num_tokens], dtype=torch.int32, device="npu")
+    local_tokens_tensor = torch.tensor(
+        [raw_num_tokens], dtype=torch.int32, device="npu"
+    )
     dist.all_reduce(local_tokens_tensor, op=dist.ReduceOp.MAX)
     aligned_num_tokens = local_tokens_tensor.item()
 
@@ -453,6 +459,11 @@ if __name__ == "__main__":
         type=float,
         default=0.0,
         help="Percentage of dropping an individual top-k index (set to -1). ",
+    )
+    parser.add_argument(
+        "--enable-dynamic-tokens",
+        action="store_true",
+        help="Whether to enable dynamic tokens for testing",
     )
     args = parser.parse_args()
 

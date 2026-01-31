@@ -55,29 +55,160 @@ jobs:
       - name: Run test intranode
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 3000
+          HCCL_BUFFSIZE: 2300
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
+
+      - name: Run test intranode for little bs
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 4065
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=4
+
+      - name: Run test intranode for big bs
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 4065
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=8192
 
       - name: Run test multi-round intranode
         timeout-minutes: 10
         env:
           DEEPEP_NORMAL_LONG_SEQ_ROUND: 5
           DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 512
-          DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ: 1
           HCCL_BUFFSIZE: 1000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2122
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2048
+
+      - name: Run test little processes intranode
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2241
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=2
+
+      - name: Run test hidden intranode
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2300
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=2048
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=4096
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=6144
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=7168
+
+      - name: Run test topk num intranode
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 4065
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-topk=1
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-topk=16
+
+      - name: Run test intranode for active ranks
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2300
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --active-ranks="0,1,3"
+
+      - name: Run test intranode for DeepXtrace
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2300
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --enable-diagnose
+
+      - name: Run test intranode for int8 quant
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2300
+          DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
+
+      - name: Run test intranode for output parameters of different types
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2300
+          MOE_EXPERT_TOKEN_NUMS_TYPE: 0
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
+
+      - name: Run test intranode for dynamic tokens
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2300
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --enable-dynamic-tokens
 
       - name: Run test low latency
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 3000
-          MOE_ENABLE_TOPK_NEG_ONE: 1
+          HCCL_BUFFSIZE: 1913
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-tokens=1
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-tokens=2
+
+      - name: Run test low latency for big bs
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3825
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-tokens=512
+
+      - name: Run test low latency for little num processes
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=2
+
+      - name: Run test low latency for hidden
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --hidden=2048
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --hidden=4096
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --hidden=6144
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --hidden=7168
+
+      - name: Run test low latency for topk
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1969
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-topk=4
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-topk=16
+
+      - name: Run test low latency for experts
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 7481
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=2 --num-topk=1 --num-experts=2
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-experts=1024
+
+      - name: Run test low latency for drop percent
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+          MOE_ENABLE_TOPK_NEG_ONE: 1
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --drop-percent=0.3
+
+      - name: Run test low latency for dynamic tokens
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2300
+          MOE_ENABLE_TOPK_NEG_ONE: 1
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --enable-dynamic-tokens
 
       - name: Run test base fused deep moe
         timeout-minutes: 10
@@ -112,13 +243,91 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --topk-drop-col 3 --num-experts 16
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 4 --topk-drop-col 1 --num-experts 32
 
+      - name: Run test fused deepep moe for little processes
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-processes=2 --num-experts=24
+
+      - name: Run test fused deepep moe for bs
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens=256
+
+      - name: Run test fused deepep moe for hidden
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --hidden=2048
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --hidden=7168
+
+      - name: Run test fused deepep moe for topk
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-topk=1
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-topk=12
+
+      - name: Run test fused deepep moe for experts
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-processes=2 --num-topk=1 --num-experts=4
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-experts=384
+
       - name: Run test mixed running
         timeout-minutes: 10
         env:
           HCCL_BUFFSIZE: 3000
-          MOE_ENABLE_TOPK_NEG_ONE: 1
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py
+
+      - name: Run test mixed running for little processes
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2241
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-processes=2 --test-loop=100
+
+      - name: Run test mixed running for bs
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 4065
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --normal-num-tokens=1 --low-latency-num-tokens=1 --test-loop=100
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --normal-num-tokens=8192 --low-latency-num-tokens=512 --test-loop=100
+
+      - name: Run test mixed running for hidden
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2241
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --hidden=2048 --test-loop=100
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --hidden=4096 --test-loop=100
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --hidden=6144 --test-loop=100
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --hidden=7168 --test-loop=100
+
+      - name: Run test mixed running for topk
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 4065
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-topk=1 --test-loop=100
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-topk=16 --test-loop=100
+
+      - name: Run test mixed running for dynamic tokens
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3769
+          MOE_ENABLE_TOPK_NEG_ONE: 1
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --test-loop=100 --enable-dynamic-tokens
 
       - name: Run test generalization of fused deep moe
         timeout-minutes: 10
@@ -126,7 +335,7 @@ jobs:
           HCCL_BUFFSIZE: 2048
         run: bash scripts/generalization_test_fused_deep_moe.sh
 
-  test-build-deepep:
+  test-build-deepep-a3:
     if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false
     runs-on: linux-aarch64-a3-16
@@ -163,19 +372,160 @@ jobs:
       - name: Run test intranode
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 3000
+          HCCL_BUFFSIZE: 2300
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
+
+      - name: Run test intranode for little bs
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 4065
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=4
+
+      - name: Run test intranode for big bs
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 4065
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=8192
+
+      - name: Run test multi-round intranode
+        timeout-minutes: 10
+        env:
+          DEEPEP_NORMAL_LONG_SEQ_ROUND: 5
+          DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 512
+          HCCL_BUFFSIZE: 1000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2122
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2048
+
+      - name: Run test little processes intranode
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2241
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=2
+
+      - name: Run test hidden intranode
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2300
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=2048
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=4096
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=6144
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=7168
+
+      - name: Run test topk num intranode
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 4065
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-topk=1
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-topk=16
+
+      - name: Run test intranode for active ranks
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2300
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --active-ranks="0,1,3"
+
+      - name: Run test intranode for DeepXtrace
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2300
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --enable-diagnose
+
+      - name: Run test intranode for int8 quant
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2300
+          DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
+
+      - name: Run test intranode for output parameters of different types
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2300
+          MOE_EXPERT_TOKEN_NUMS_TYPE: 0
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
+
+      - name: Run test intranode for dynamic tokens
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2300
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --enable-dynamic-tokens
 
       - name: Run test low latency
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 3000
-          MOE_ENABLE_TOPK_NEG_ONE: 1
+          HCCL_BUFFSIZE: 1913
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-tokens=1
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-tokens=2
+
+      - name: Run test low latency for big bs
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3825
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-tokens=512
+
+      - name: Run test low latency for little num processes
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=2
+
+      - name: Run test low latency for hidden
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --hidden=2048
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --hidden=4096
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --hidden=6144
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --hidden=7168
+
+      - name: Run test low latency for topk
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1969
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-topk=4
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-topk=16
+
+      - name: Run test low latency for experts
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 7481
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=2 --num-topk=1 --num-experts=2
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-experts=1024
+
+      - name: Run test low latency for drop percent
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+          MOE_ENABLE_TOPK_NEG_ONE: 1
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --drop-percent=0.3
+
+      - name: Run test low latency for dynamic tokens
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2300
+          MOE_ENABLE_TOPK_NEG_ONE: 1
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --enable-dynamic-tokens
 
       - name: Run test base fused deep moe
         timeout-minutes: 10
@@ -210,13 +560,91 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 2 --topk-drop-col 3 --num-experts 16
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens 4 --topk-drop-col 1 --num-experts 32
 
+      - name: Run test fused deepep moe for little processes
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-processes=2 --num-experts=24
+
+      - name: Run test fused deepep moe for bs
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-tokens=256
+
+      - name: Run test fused deepep moe for hidden
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --hidden=2048
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --hidden=7168
+
+      - name: Run test fused deepep moe for topk
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-topk=1
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-topk=12
+
+      - name: Run test fused deepep moe for experts
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-processes=2 --num-topk=1 --num-experts=4
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe.py --num-experts=384
+
       - name: Run test mixed running
         timeout-minutes: 10
         env:
           HCCL_BUFFSIZE: 3000
-          MOE_ENABLE_TOPK_NEG_ONE: 1
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py
+
+      - name: Run test mixed running for little processes
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2241
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-processes=2 --test-loop=100
+
+      - name: Run test mixed running for bs
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 4065
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --normal-num-tokens=1 --low-latency-num-tokens=1 --test-loop=100
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --normal-num-tokens=8192 --low-latency-num-tokens=512 --test-loop=100
+
+      - name: Run test mixed running for hidden
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2241
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --hidden=2048 --test-loop=100
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --hidden=4096 --test-loop=100
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --hidden=6144 --test-loop=100
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --hidden=7168 --test-loop=100
+
+      - name: Run test mixed running for topk
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 4065
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-topk=1 --test-loop=100
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-topk=16 --test-loop=100
+
+      - name: Run test mixed running for dynamic tokens
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3769
+          MOE_ENABLE_TOPK_NEG_ONE: 1
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --test-loop=100 --enable-dynamic-tokens
 
       - name: Run test generalization of fused deep moe
         timeout-minutes: 10
@@ -224,11 +652,256 @@ jobs:
           HCCL_BUFFSIZE: 2048
         run: bash scripts/generalization_test_fused_deep_moe.sh
 
+  test-build-deepep-a2:
+    if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        github.event.pull_request.draft == false
+    runs-on: linux-aarch64-a2-8
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.3.rc1-910b-ubuntu22.04-py3.11
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Install dependencies
+        run: |
+          # speed up by using infra cache services
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+
+          bash scripts/npu_ci_install_dependency.sh
+
+      - name: Prepare Deepep
+        run: bash scripts/prepare_deepep_in_container.sh -a deepep2
+
+      - name: Run test intranode
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=8
+
+      - name: Run test intranode for little bs
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2300
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=1 --num-processes=8
+
+      - name: Run test intranode for big bs
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 4065
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=7168 --num-processes=8
+
+      - name: Run test little processes intranode
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=2
+
+      - name: Run test hidden intranode
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=2048 --num-processes=8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=4096 --num-processes=8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=6144 --num-processes=8
+
+      - name: Run test topk num intranode
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 4500
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-topk=1 --num-processes=8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-topk=16 --num-processes=8
+
+      - name: Run test experts num intranode
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=2 --num-topk=1 --num-experts=2
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-experts=512 --num-processes=8
+
+      - name: Run test intranode for active ranks
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=8 --active-ranks="0,1,3"
+
+      - name: Run test intranode for DeepXtrace
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --enable-diagnose --num-processes=8
+
+      - name: Run test intranode for int8 quant
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+          DEEP_NORMAL_MODE_USE_INT8_QUANT: 1
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=8
+
+      - name: Run test intranode for output parameters of different types
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+          MOE_EXPERT_TOKEN_NUMS_TYPE: 0
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=8
+
+      - name: Run test intranode for dynamic tokens
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --enable-dynamic-tokens --num-processes=8
+
+      - name: Run test low latency
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-tokens=1 --num-processes=8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-tokens=2 --num-processes=8
+
+      - name: Run test low latency for big bs
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3825
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=8 --num-tokens=512
+
+      - name: Run test low latency for little num processes
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=2
+
+      - name: Run test low latency for hidden
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --hidden=2048 --num-processes=8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --hidden=4096 --num-processes=8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --hidden=6144 --num-processes=8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --hidden=7168 --num-processes=8
+
+      - name: Run test low latency for topk
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1969
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-topk=4 --num-processes=8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-topk=16 --num-processes=8
+
+      - name: Run test low latency for experts
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 7481
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=2 --num-topk=1 --num-experts=2
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-experts=1024 --num-processes=8
+
+      - name: Run test low latency for drop percent
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 1913
+          MOE_ENABLE_TOPK_NEG_ONE: 1
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --drop-percent=0.3 --num-processes=8
+
+      - name: Run test low latency for dynamic tokens
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2300
+          MOE_ENABLE_TOPK_NEG_ONE: 1
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=8 --enable-dynamic-tokens
+
+      - name: Run test mixed running
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-processes=8
+
+      - name: Run test mixed running for little processes
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-processes=2 --test-loop=100
+
+      - name: Run test mixed running for bs
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 5000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --normal-num-tokens=1 --low-latency-num-tokens=1 --test-loop=100 --num-processes=8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --normal-num-tokens=8000 --low-latency-num-tokens=488 --test-loop=100 --num-processes=8
+
+      - name: Run test mixed running for hidden
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --hidden=2048 --test-loop=100 --num-processes=8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --hidden=4096 --test-loop=100 --num-processes=8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --hidden=6144 --test-loop=100 --num-processes=8
+
+      - name: Run test mixed running for topk
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 5000
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-topk=1 --test-loop=100 --num-processes=8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-topk=16 --test-loop=100 --num-processes=8
+
+      - name: Run test mixed running for experts
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3769
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-processes=2 --num-topk=1 --num-experts=2 --test-loop=100
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-experts=512 --test-loop=100 --num-processes=8
+
+      - name: Run test mixed running for dynamic tokens
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3769
+          MOE_ENABLE_TOPK_NEG_ONE: 1
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --test-loop=100 --enable-dynamic-tokens --num-processes=8
+
   finish:
     if: always()
     needs:
       - test-all-build
-      - test-build-deepep
+      - test-build-deepep-a3
+      - test-build-deepep-a2
     runs-on: ubuntu-latest
     steps:
       - name: Check all dependent job statuses
