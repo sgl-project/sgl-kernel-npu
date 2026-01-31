@@ -24,7 +24,7 @@ jobs:
     strategy:
       matrix:
         arch: [x86_64, aarch64]
-        hardware: [910b, a3]
+        npu_hardware: [910b, a3]
         cann_version: [8.3.rc2, 8.5.0]
         # Ref: https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
         include:
@@ -34,7 +34,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     container:
-      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.hardware }}-ubuntu22.04-py3.11
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.11
 
     steps:
       - name: Checkout repository
@@ -63,7 +63,7 @@ jobs:
           "
 
       - name: Build DeepEP for 910b
-        if: matrix.hardware == '910b'
+        if: matrix.npu_hardware == '910b'
         run: |
           env -i PATH=${PATH} bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
@@ -71,7 +71,7 @@ jobs:
           "
 
       - name: Build DeepEP for a3
-        if: matrix.hardware == 'a3'
+        if: matrix.npu_hardware == 'a3'
         run: |
           env -i PATH=${PATH} bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
@@ -80,7 +80,10 @@ jobs:
 
       - name: Pack up packages
         run: |
-          zip -v "sgl-kernel-npu-${{ github.event.release.tag_name }}-${{ matrix.cann_version }}-${{ matrix.hardware }}-${{ matrix.arch }}.zip" output/*.whl
+          TORCH_VERSION=$(python3 -c "import torch; print(torch.__verison__)" | awk -F'+' '{print $1}')
+          PYTHON_VERSION=$(python3 -c "import platform; print(platform.python_version())" | awk -F'.' '{print $1$2}')
+          PACKAGE_NAME="sgl-kernel-npu-${{ github.event.release.tag_name }}-torch${TORCH_VERSION}-py${PYTHON_VERSION}-cann${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-${{ matrix.arch }}.zip"
+          zip -v ${PACKAGE_NAME} output/*.whl
 
       - name: Upload Release Artifacts
         if: github.event_name != 'pull_request'
