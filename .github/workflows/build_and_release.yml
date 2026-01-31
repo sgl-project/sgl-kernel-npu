@@ -84,7 +84,9 @@ jobs:
           TORCH_VERSION=$(python3 -c "import torch; print(torch.__version__)" | awk -F'+' '{print $1}')
           PYTHON_VERSION=$(python3 -c "import platform; print(platform.python_version())" | awk -F'.' '{print $1$2}')
           PACKAGE_NAME="sgl-kernel-npu-${{ github.event.release.tag_name }}-torch${TORCH_VERSION}-py${PYTHON_VERSION}-cann${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-${{ matrix.arch }}.zip"
-          zip -v ${PACKAGE_NAME} output/*.whl
+          cd output/
+          zip -v ${PACKAGE_NAME} ./*.whl
+          ls -al
 
       - name: Upload Release Artifacts
         if: github.event_name != 'pull_request'
