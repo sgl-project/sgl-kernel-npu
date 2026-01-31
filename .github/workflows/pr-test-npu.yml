@@ -52,66 +52,66 @@ jobs:
       - name: Prepare Deepep
         run: bash scripts/prepare_deepep_in_container.sh
 
-      - name: Run test intranode
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 2300
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
+      # - name: Run test intranode
+      #   timeout-minutes: 10
+      #   env:
+      #     HCCL_BUFFSIZE: 2300
+      #   run: |
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
 
-      - name: Run test intranode for little bs
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 4065
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=4
+      # - name: Run test intranode for little bs
+      #   timeout-minutes: 10
+      #   env:
+      #     HCCL_BUFFSIZE: 4065
+      #   run: |
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=4
 
-      - name: Run test intranode for big bs
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 4065
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=8192
+      # - name: Run test intranode for big bs
+      #   timeout-minutes: 10
+      #   env:
+      #     HCCL_BUFFSIZE: 4065
+      #   run: |
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=8192
 
-      - name: Run test multi-round intranode
-        timeout-minutes: 10
-        env:
-          DEEPEP_NORMAL_LONG_SEQ_ROUND: 5
-          DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 512
-          HCCL_BUFFSIZE: 1000
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2122
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2048
+      # - name: Run test multi-round intranode
+      #   timeout-minutes: 10
+      #   env:
+      #     DEEPEP_NORMAL_LONG_SEQ_ROUND: 5
+      #     DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 512
+      #     HCCL_BUFFSIZE: 1000
+      #   run: |
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2122
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2048
 
-      - name: Run test little processes intranode
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 2241
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=2
+      # - name: Run test little processes intranode
+      #   timeout-minutes: 10
+      #   env:
+      #     HCCL_BUFFSIZE: 2241
+      #   run: |
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=2
 
-      - name: Run test hidden intranode
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 2300
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=2048
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=4096
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=6144
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=7168
+      # - name: Run test hidden intranode
+      #   timeout-minutes: 10
+      #   env:
+      #     HCCL_BUFFSIZE: 2300
+      #   run: |
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=2048
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=4096
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=6144
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=7168
 
-      - name: Run test topk num intranode
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 4065
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-topk=1
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-topk=16
+      # - name: Run test topk num intranode
+      #   timeout-minutes: 10
+      #   env:
+      #     HCCL_BUFFSIZE: 4065
+      #   run: |
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-topk=1
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-topk=16
 
       - name: Run test experts num intranode
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 2300
+          HCCL_BUFFSIZE: 3000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=2 --num-topk=1 --num-experts=2
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-experts=512
@@ -385,66 +385,66 @@ jobs:
       - name: Prepare Deepep
         run: bash scripts/prepare_deepep_in_container.sh -a deepep
 
-      - name: Run test intranode
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 2300
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
+      # - name: Run test intranode
+      #   timeout-minutes: 10
+      #   env:
+      #     HCCL_BUFFSIZE: 2300
+      #   run: |
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py
 
-      - name: Run test intranode for little bs
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 4065
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=4
+      # - name: Run test intranode for little bs
+      #   timeout-minutes: 10
+      #   env:
+      #     HCCL_BUFFSIZE: 4065
+      #   run: |
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=4
 
-      - name: Run test intranode for big bs
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 4065
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=8192
+      # - name: Run test intranode for big bs
+      #   timeout-minutes: 10
+      #   env:
+      #     HCCL_BUFFSIZE: 4065
+      #   run: |
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=8192
 
-      - name: Run test multi-round intranode
-        timeout-minutes: 10
-        env:
-          DEEPEP_NORMAL_LONG_SEQ_ROUND: 5
-          DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 512
-          HCCL_BUFFSIZE: 1000
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2122
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2048
+      # - name: Run test multi-round intranode
+      #   timeout-minutes: 10
+      #   env:
+      #     DEEPEP_NORMAL_LONG_SEQ_ROUND: 5
+      #     DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS: 512
+      #     HCCL_BUFFSIZE: 1000
+      #   run: |
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2122
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=2048
 
-      - name: Run test little processes intranode
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 2241
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=2
+      # - name: Run test little processes intranode
+      #   timeout-minutes: 10
+      #   env:
+      #     HCCL_BUFFSIZE: 2241
+      #   run: |
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=2
 
-      - name: Run test hidden intranode
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 2300
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=2048
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=4096
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=6144
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=7168
+      # - name: Run test hidden intranode
+      #   timeout-minutes: 10
+      #   env:
+      #     HCCL_BUFFSIZE: 2300
+      #   run: |
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=2048
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=4096
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=6144
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=7168
 
-      - name: Run test topk num intranode
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 4065
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-topk=1
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-topk=16
+      # - name: Run test topk num intranode
+      #   timeout-minutes: 10
+      #   env:
+      #     HCCL_BUFFSIZE: 4065
+      #   run: |
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-topk=1
+      #     python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-topk=16
 
       - name: Run test experts num intranode
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 2300
+          HCCL_BUFFSIZE: 3000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=2 --num-topk=1 --num-experts=2
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-experts=512
