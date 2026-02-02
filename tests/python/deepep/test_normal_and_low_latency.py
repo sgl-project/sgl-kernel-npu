@@ -135,6 +135,7 @@ def low_latency_test(
 def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     rank, num_ranks, group = init_dist(local_rank, num_local_ranks)
     num_topk, num_experts, hidden = args.num_topk, args.num_experts, args.hidden
+    enable_dynamic_tokens = args.enable_dynamic_tokens
     assert num_experts % num_ranks == 0
     torch.manual_seed(rank)
 
@@ -146,17 +147,20 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         fluctuation_percentage = 0.1
         min_fluctuation = 2
 
-        if base_normal_num_tokens < 10:
-            fluctuation = random.randint(-min_fluctuation, min_fluctuation)
-            normal_num_tokens = base_normal_num_tokens + fluctuation
-        else:
-            fluctuation = random.uniform(
-                1 - fluctuation_percentage, 1 + fluctuation_percentage
-            )
-            normal_num_tokens = int(base_normal_num_tokens * fluctuation)
+        if enable_dynamic_tokens:
+            if base_normal_num_tokens < 10:
+                fluctuation = random.randint(-min_fluctuation, min_fluctuation)
+                normal_num_tokens = base_normal_num_tokens + fluctuation
+            else:
+                fluctuation = random.uniform(
+                    1 - fluctuation_percentage, 1 + fluctuation_percentage
+                )
+                normal_num_tokens = int(base_normal_num_tokens * fluctuation)
 
-        # Ensure normal_num_tokens is at least 1
-        normal_num_tokens = max(normal_num_tokens, 1)
+            # Ensure normal_num_tokens is at least 1
+            normal_num_tokens = max(normal_num_tokens, 1)
+        else:
+            normal_num_tokens = base_normal_num_tokens
 
         if local_rank == 0:
             print(f"Start executing normal test loop {i} ...", flush=True)
@@ -172,17 +176,20 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
 
         base_low_latency_num_tokens = args.low_latency_num_tokens
 
-        if base_low_latency_num_tokens < 10:
-            fluctuation = random.randint(-min_fluctuation, min_fluctuation)
-            low_latency_num_tokens = base_low_latency_num_tokens + fluctuation
-        else:
-            fluctuation = random.uniform(
-                1 - fluctuation_percentage, 1 + fluctuation_percentage
-            )
-            low_latency_num_tokens = int(base_low_latency_num_tokens * fluctuation)
+        if enable_dynamic_tokens:
+            if base_low_latency_num_tokens < 10:
+                fluctuation = random.randint(-min_fluctuation, min_fluctuation)
+                low_latency_num_tokens = base_low_latency_num_tokens + fluctuation
+            else:
+                fluctuation = random.uniform(
+                    1 - fluctuation_percentage, 1 + fluctuation_percentage
+                )
+                low_latency_num_tokens = int(base_low_latency_num_tokens * fluctuation)
 
-        # Ensure low_latency_num_tokens is at least 1
-        low_latency_num_tokens = max(low_latency_num_tokens, 1)
+            # Ensure low_latency_num_tokens is at least 1
+            low_latency_num_tokens = max(low_latency_num_tokens, 1)
+        else:
+            low_latency_num_tokens = base_low_latency_num_tokens
 
         local_tokens_tensor = torch.tensor(
             [low_latency_num_tokens], dtype=torch.int32, device="npu"
@@ -245,6 +252,11 @@ if __name__ == "__main__":
         type=int,
         default=1000,
         help="Number of test loop (default: 1000)",
+    )
+    parser.add_argument(
+        "--enable-dynamic-tokens",
+        action="store_true",
+        help="Whether to enable dynamic tokens for testing",
     )
 
     args = parser.parse_args()
