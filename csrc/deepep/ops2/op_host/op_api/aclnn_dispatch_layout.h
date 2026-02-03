@@ -20,6 +20,7 @@ extern "C" {
  * numTokensPerExpert : required
  * isTokenInRank : required
  * notifySendData : required
+ * sendTokenIdxSmall : required
  * workspaceSize : size of workspace(output).
  * executor : executor context(output).
  */
