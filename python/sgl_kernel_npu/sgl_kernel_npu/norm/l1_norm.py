@@ -2,7 +2,10 @@ import torch
 import triton
 import triton.language as tl
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
+from torch.library import triton_op, wrap_triton
 
+
+_, num_vectorcore = get_device_properties()
 
 @triton.jit
 def l1_norm_kernel(
@@ -24,15 +27,15 @@ def l1_norm_kernel(
             output_ptr + row_idx * hidden_size + cols, buffered_values.to(tl.float32)
         )
 
-
-def l1_norm(input):
+@triton_op("sgl_kernel_npu::l1_norm",mutates_args={})
+def l1_norm(input: torch.Tensor) -> torch.Tensor:
     batch_size = input.shape[0]
     hidden_size = input.shape[1]
     output = torch.empty(
         batch_size, hidden_size, device=input.device, dtype=torch.float32
     )
-    _, num_vectorcore = get_device_properties()
-    l1_norm_kernel[(num_vectorcore,)](
+
+    wrap_triton(l1_norm_kernel)[(num_vectorcore,)](
         input, output, batch_size, hidden_size, num_vectorcore
     )
     return output

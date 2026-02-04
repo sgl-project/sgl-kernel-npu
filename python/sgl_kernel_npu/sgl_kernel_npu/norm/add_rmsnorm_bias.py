@@ -2,7 +2,7 @@ import torch
 import triton
 import triton.language as tl
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
-
+from torch.library import triton_op, wrap_triton
 
 @triton.jit
 def add_rmsnorm_bias_kernel(
@@ -77,18 +77,18 @@ def add_rmsnorm_bias_kernel(
 
 
 kernels = {}
+_, num_vectorcore = get_device_properties()
 
-
+@triton_op("sgl_kernel_npu::add_rmsnorm_bias", mutates_args={})
 def add_rmsnorm_bias(
-    input,
-    residual,
-    norm_weight,
-    norm_bias,
-    eps,
-    quant_scale=None,
-    quant_offset=None,
-):
-    _, num_vectorcore = get_device_properties()
+    input: torch.Tensor,
+    residual: torch.Tensor,
+    norm_weight: torch.Tensor,
+    norm_bias: torch.Tensor,
+    eps: float,
+    quant_scale: torch.Tensor=None,
+    quant_offset: torch.Tensor=None,
+)-> tuple[torch.Tensor, torch.Tensor]:
 
     batch_size = input.shape[0]
     hidden_size = input.shape[1]
@@ -108,31 +108,8 @@ def add_rmsnorm_bias(
     output2 = torch.empty(
         batch_size, hidden_size, device=input.device, dtype=input.dtype
     )
-    kernel = kernels.get(
-        (n_rows, hidden_size, eps, BLOCK_SIZE, COL_BLOCK_SIZE, SCALE), None
-    )
-    if kernel is None:
-        kernel = add_rmsnorm_bias_kernel.warmup(
-            input,
-            residual,
-            norm_weight,
-            norm_bias,
-            quant_scale,
-            quant_offset,
-            output,
-            output2,
-            batch_size,
-            hidden_size,
-            eps,
-            BLOCK_SIZE,
-            COL_BLOCK_SIZE,
-            SCALE,
-            grid=(n_rows,),
-        )
-        kernel._init_handles()
-        kernels[(n_rows, hidden_size, eps, BLOCK_SIZE, COL_BLOCK_SIZE, SCALE)] = kernel
 
-    kernel[(n_rows, 1, 1)](
+    wrap_triton(add_rmsnorm_bias_kernel)[(n_rows, 1, 1)](
         input,
         residual,
         norm_weight,
@@ -142,6 +119,11 @@ def add_rmsnorm_bias(
         output,
         output2,
         batch_size,
+        hidden_size,
+        eps,
+        BLOCK_SIZE,
+        COL_BLOCK_SIZE,
+        SCALE,
     )
     return output, output2
 
