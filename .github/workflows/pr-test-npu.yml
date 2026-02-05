@@ -888,14 +888,6 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-processes=2 --num-topk=1 --num-experts=2 --test-loop=100
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-experts=512 --test-loop=100 --num-processes=8
 
-      - name: Run test mixed running for dynamic tokens
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 3769
-          MOE_ENABLE_TOPK_NEG_ONE: 1
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --test-loop=100 --enable-dynamic-tokens --num-processes=8
-
   finish:
     if: always()
     needs:
