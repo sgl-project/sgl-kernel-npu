@@ -18,9 +18,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  get-changed-files:
+    name: Check changed files
+    runs-on: ubuntu-latest
+    outputs:
+      ops2_changed: ${{ steps.match-groups.outputs.ops2_any_changed }}
+      ops_changed: ${{ steps.match-groups.outputs.ops_any_changed }}
+      common_changed: ${{ steps.match-groups.outputs.common_any_changed }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Match changed files
+        id: match-groups
+        uses: tj-actions/changed-files@v45
+        with:
+          files_yaml: |
+            ops:
+              - csrc/deepep/ops/**
+            ops2:
+              - csrc/deepep/ops2/**
+            common:
+              - csrc/**
+              - '!csrc/deepep/ops/**'
+              - '!csrc/deepep/ops2/**'
+              - build.sh
+              - cmake/**
+              - python/**
+              - test/**
+              - scripts/**
+              - .github/workflows/pr-test-npu.yml
+
   test-all-build:
-    if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
-        github.event.pull_request.draft == false
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
     runs-on: linux-aarch64-a3-16
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.3.rc1-a3-ubuntu22.04-py3.11
@@ -336,8 +374,13 @@ jobs:
         run: bash scripts/generalization_test_fused_deep_moe.sh
 
   test-build-deepep-a3:
-    if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
-        github.event.pull_request.draft == false
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
     runs-on: linux-aarch64-a3-16
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.3.rc1-a3-ubuntu22.04-py3.11
@@ -653,8 +696,13 @@ jobs:
         run: bash scripts/generalization_test_fused_deep_moe.sh
 
   test-build-deepep-a2:
-    if: (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
-        github.event.pull_request.draft == false
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.ops2_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
     runs-on: linux-aarch64-a2-8
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.3.rc1-910b-ubuntu22.04-py3.11
