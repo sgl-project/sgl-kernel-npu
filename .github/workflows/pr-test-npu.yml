@@ -41,7 +41,7 @@ jobs:
             ops2:
               - csrc/deepep/ops2/**
             common:
-              - csrc/**/*
+              - csrc/**
               - '!csrc/deepep/ops/**'
               - '!csrc/deepep/ops2/**'
               - build.sh
