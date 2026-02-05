@@ -17,6 +17,7 @@
 #include "error_log.h"
 #include "graph/utils/type_utils.h"
 #include "register/op_def_registry.h"
+#include "mc2_tiling_utils.h"
 #include "../op_kernel/cam_moe_dispatch_normal_tiling.h"
 #include "tiling_args.h"
 
@@ -25,30 +26,6 @@ using namespace ge;
 using namespace Moe;
 
 namespace {
-class Mc2TilingUtils
-{
-public:
-    static uint64_t GetMaxWindowSize()
-    {
-        uint16_t defaultWindowSize = 200;
-        const char *hcclBuffSize = getenv("DEEPEP_HCCL_BUFFSIZE") == nullptr ? "HCCL_BUFFSIZE" : "DEEPEP_HCCL_BUFFSIZE";
-        if (getenv(hcclBuffSize) == nullptr) {
-            OP_LOGD("", "Env HCCL_BUFFSIZE don't set");
-        } else {
-            try {
-                std::string envStr(getenv(hcclBuffSize));
-                defaultWindowSize = std::stoi(envStr);
-            } catch (const std::invalid_argument &ia) {
-                OP_LOGE("", "Invalid argument when parsing HCCL_BUFFSIZE: %s", ia.what());
-            } catch (const std::out_of_range &oor) {
-                OP_LOGE("", "Out of range when parsing HCCL_BUFFSIZE: %s", oor.what());
-            }
-        }
-        const uint64_t maxWindowSize = static_cast<uint64_t>(defaultWindowSize) * 1024UL * 1024UL;
-        OP_LOGI("", "Get maxWindowSize is %lu", maxWindowSize);
-        return maxWindowSize;
-    }
-};
 constexpr uint32_t X_INDEX = 0U;
 constexpr uint32_t EXPERT_IDS_INDEX = 1U;
 constexpr uint32_t SEND_OFFSET_INDEX = 2U;
@@ -87,7 +64,7 @@ constexpr size_t MAX_GROUP_NAME_LENGTH = 128UL;
 constexpr int64_t MAX_EP_WORLD_SIZE = 384;
 constexpr int64_t MIN_EP_WORLD_SIZE = 2;
 constexpr int64_t MAX_TP_WORLD_SIZE = 2;
-constexpr int64_t BS_UPPER_BOUND = 32768;  // 最大bs
+constexpr int64_t BS_UPPER_BOUND = 65536;  // 最大bs
 
 constexpr uint32_t TILINGKEY_TP_WORLD_SIZE = 100;
 constexpr uint32_t TP_WORLD_SIZE_TWO = 2;
@@ -586,22 +563,25 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
     uint64_t k = static_cast<uint64_t>(tilingData->camMoeDispatchNormalInfo.k);
     uint64_t epWorldSize = static_cast<uint64_t>(tilingData->camMoeDispatchNormalInfo.epWorldSize);
     uint64_t maxBs = static_cast<uint64_t>(tilingData->camMoeDispatchNormalInfo.globalBs) / epWorldSize;
-
+    uint32_t round = tilingData->camMoeDispatchNormalInfo.round;
     // dispatch数据区 token首对齐512，有效token长度h_align_32b + scale(32b) + 三元组(3*4b)
     uint64_t tokenActualLen =
         ((h * MAX_OUT_DTYPE_SIZE + UB_ALIGN - 1UL) / UB_ALIGN) * UB_ALIGN + SCALE_EXPAND_IDX_BUFFER;
     uint64_t tokenNeedSizeDispatch = ((tokenActualLen + WIN_ADDR_ALIGN - 1UL) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
     uint64_t tokenNeedSizeCombine = ((h * MAX_OUT_DTYPE_SIZE + WIN_ADDR_ALIGN - 1UL) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
+    tokenNeedSizeCombine =
+        round > 1 ? tokenNeedSizeCombine * 2 : tokenNeedSizeCombine;  // round > 1 combine要使用double buffer
     // 未考虑双流时大小
     uint64_t actualSize = (maxBs * k * (tokenNeedSizeCombine + tokenNeedSizeDispatch) + COMBINE_STATE_WIN_OFFSET +
                            NOTIFY_DISPATCH_WIN_OFFSET) *
-                          DOUBLE_DATA_BUFFER;
+                              DOUBLE_DATA_BUFFER +
+                          Moe::STATE_SIZE * 4;
     OP_TILING_CHECK((actualSize > maxWindowSize),
                     OP_LOGE(nodeName,
                             "HCCL_BUFFSIZE is too SMALL, maxBs = %lu, h = %lu, epWorldSize = %lu,"
                             " localMoeExpertNum = %u, tokenNeedSizeDispatch = %lu, tokenNeedSizeCombine = %lu,"
                             " k = %lu, NEEDED_HCCL_BUFFSIZE((maxBs * k * (tokenNeedSizeDispatch"
-                            " + tokenNeedSizeCombine) + 3MB + 204MB) * 2) = %luMB, HCCL_BUFFSIZE=%luMB.",
+                            " + tokenNeedSizeCombine) + 4MB + 404MB) * 2 + 4 * 2MB) = %luMB, HCCL_BUFFSIZE=%luMB.",
                             maxBs, h, epWorldSize, localMoeExpertNum, tokenNeedSizeDispatch, tokenNeedSizeCombine, k,
                             actualSize / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
                     return ge::GRAPH_FAILED);
