@@ -631,7 +631,6 @@ private:
         BuildEpRankTokenCntData(0, blockNum);
         SyncAll<true>();
         BuildLocalEpRankTokenCntData(0, blockNum);
-
         int32_t coreNumPerFunc = CeilDiv(static_cast<int32_t>(blockNum), 2);
         if (blockIdx < coreNumPerFunc) {
             if (blockIdx == 0) {
@@ -854,20 +853,37 @@ private:
     __aicore__ inline void BuildOffsetToken() {
         LocalTensor<int32_t> prefixCountToken = tempBuf10_.Get<int32_t>();
         Duplicate<int32_t>(prefixCountToken, 0, numExperts);
+        PipeBarrier<PIPE_V>();
         LocalTensor<int32_t> tokenIdxExpert = tempBuf3_.Get<int32_t>();
         LocalTensor<int32_t> tmpData = tempBuf7_.Get<int32_t>();
         LocalTensor<int32_t> tokenIdx = tempBuf_.Get<int32_t>();
+        LocalTensor<int32_t> tmp = tempBuf_.Get<int32_t>();
         
         DataCopyExtParams copyParams{1, static_cast<uint32_t>(numExperts * sizeof(int32_t)), 0, 0, 0};
         DataCopyPadExtParams<int32_t> padParams{false, 0, 0, 0};
-        for(int i = 0; i < MAX_BS; i++) {
-            int32_t dataOffset =
-                rank * len + numExperts + serverNum + MAX_BS * serverNum + MAX_BS + MAX_BS * serverNum + i * numExperts;
-            DataCopyPad(tokenIdxExpert, recvDataOutputGt[dataOffset], copyParams, padParams);
-            Add(tmpData, tokenIdxExpert, prefixCountToken, numExperts);
-            DataCopy(prefixCountToken, tmpData, numExperts);
-            DataCopy(tokenIdxPerExpertOutputGT_[i * numExperts], tmpData, numExperts);
-
+        uint32_t preTokenIdx = 0;
+        for(int i = 0; i < rankSize; i++) {
+            int32_t rankOffset =
+                i * len + numExperts * (MAX_BS + 1) + serverNum + MAX_BS * serverNum + MAX_BS + MAX_BS * serverNum + MAX_BS * numExperts;
+            uint32_t tokenRank = recvDataOutputGt.GetValue(rankOffset);
+            for (int j = 0; j < tokenRank; j++) {
+                int32_t dataOffset =
+                    i * len + numExperts + serverNum + MAX_BS * serverNum + MAX_BS + MAX_BS * serverNum + j * numExperts;
+                DataCopyPad(tokenIdxExpert, recvDataOutputGt[dataOffset], copyParams, padParams);
+                SyncFunc<AscendC::HardEvent::MTE2_V>();
+                
+                Add(tmpData, tokenIdxExpert, prefixCountToken, numExperts);
+                PipeBarrier<PIPE_V>();
+                SyncFunc<AscendC::HardEvent::V_MTE3>();
+                DataCopy(tokenIdxPerExpertOutputGT_[(j + preTokenIdx) * numExperts], tmpData, numExperts);
+                SyncFunc<AscendC::HardEvent::MTE3_MTE2>();
+                if (j == tokenRank - 1) {
+                    DataCopy(prefixCountToken, tmpData, numExperts);
+                    PipeBarrier<PIPE_V>();
+                    SyncFunc<AscendC::HardEvent::MTE3_MTE2>();
+                }
+            }
+            preTokenIdx += tokenRank;
         }
     }
 

@@ -129,7 +129,7 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     auto num_tokens_per_rank = at::zeros({num_ranks}, at::dtype(at::kInt).device(device));
     auto is_token_in_rank = at::zeros({num_tokens, num_ranks}, at::dtype(at::kInt).device(device));
     const int notify_send_data_size =
-        num_experts * EXPERT_DATA_SIZE + server_num + MAX_BATCH_SIZE * (1 + 2 * server_num + 2 * num_topk);
+        num_experts * EXPERT_DATA_SIZE + server_num + MAX_BATCH_SIZE * (1 + 2 * server_num + 2 * num_topk) + 1;
     /*
     The notify send data is constructed by 7 parameters and the 7 parameters are ordered as follows:
     1. the number of the tokens that every expert received from this NPU.
@@ -148,6 +148,8 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
        size:[MAX_BS, numTopk]
     8. The server offset of tokens received by each expert from this NPU.
        size:[numExpert, MAX_BS]
+    9. The number of tokens this NPU processed.
+       size:[1]
     */
     auto send_token_idx_small = at::zeros({num_tokens, num_topk}, at::dtype(at::kInt).device(device));
     auto notify_send_data = at::zeros({notify_send_data_size}, at::dtype(at::kInt).device(device));
@@ -159,7 +161,6 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     this->notify_send_data = notify_send_data;
     this->send_token_idx_small = send_token_idx_small;
     this->notify_send_data_size = notify_send_data_size;
-    this->tokens_per_rank = num_tokens_per_rank;
 
     std::optional<torch::Tensor> num_tokens_per_rdma_rank = std::nullopt;
     std::optional<EventHandle> output_event = std::nullopt;
