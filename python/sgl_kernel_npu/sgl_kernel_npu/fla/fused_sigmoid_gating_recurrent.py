@@ -182,7 +182,7 @@ def fused_sigmoid_gating_delta_rule_update_npu(
     scale: Optional[float] = None,
     use_qk_l2norm_in_kernel: bool = False,
     cu_seqlens: Optional[torch.Tensor] = None,
-    is_kda: Optional[bool] = False,
+    is_kda: bool = False,
 ):
     """
     Fused triton implementation of sigmoid gating delta rule update.
