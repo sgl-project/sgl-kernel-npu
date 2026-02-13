@@ -573,7 +573,7 @@ def torch_causal_conv1d_update_npu(
 ):
     bsz, hidden_size, seq_len = hidden_state.shape
     state_len = conv_state.shape[-1]
-    hidden_states_new = torch.cat([conv_state, hidden_state], dim=-1).to(conv_state.dtype)
+    hidden_states_new = torch.cat([conv_state, hidden_state], dim=-1).to(weight.dtype)
     if conv_state_update is not None:
         for i in range(seq_len):
             end = i - seq_len + 1
@@ -586,6 +586,7 @@ def torch_causal_conv1d_update_npu(
     out = torch.sum(hidden_states_new * weight, dim=-1, keepdim=True)
     out = F.silu(out)
     out = out.to(hidden_state.dtype)
+    conv_state_update = conv_state_update.to(hidden_state.dtype)
     return out, conv_state_update
 
 
