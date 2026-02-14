@@ -193,9 +193,9 @@ def add_gemma_rms_norm(
     variance_epsilon,
 ):
     batch, dim = hidden_state.shape
-    if dim > 2048:
-        raise NotImplementedError("dim > 2048 not supported")
-    ROW_BLOCK_SIZE = 4  # A safe default balancing parallelism and register pressure.
+    # if dim > 2048:
+    #     raise NotImplementedError("dim > 2048 not supported")
+    ROW_BLOCK_SIZE = 2  # A safe default balancing parallelism and register pressure.
     BLOCK_M = min(ROW_BLOCK_SIZE, batch)
 
     _, num_vectorcore = get_device_properties()

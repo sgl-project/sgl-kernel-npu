@@ -371,6 +371,4 @@ def chunk_gated_delta_rule_npu(
     o = o.to(q.dtype)
     if head_first:
         o = rearrange(o, "b t h ... -> b h t ...")
-    act_sq = cu_seqlens[-1].cpu().item()
-    o = o[:, :act_sq, :, :]
     return o, final_state, h
