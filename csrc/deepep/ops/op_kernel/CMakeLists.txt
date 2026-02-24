@@ -8,7 +8,7 @@ message(STATUS "ASCEND include path: ${ASCEND_CANN_PACKAGE_PATH}/opp/built-in/op
 # copy moe_distribute_base head file
 execute_process(
     COMMAND ${CMAKE_COMMAND} -E copy
-    "${ASCEND_CANN_PACKAGE_PATH}/opp/built-in/op_impl/ai_core/tbe/impl/ascendc/moe_distribute_dispatch/moe_distribute_base.h"
+    "${ASCEND_CANN_PACKAGE_PATH}/opp/built-in/op_impl/ai_core/tbe/impl/ascendc/common/inc/kernel/moe_distribute_base.h"
     "${CMAKE_CURRENT_BINARY_DIR}/../../op_kernel/moe_distribute_base.h"
     RESULT_VARIABLE copy_result
 )
