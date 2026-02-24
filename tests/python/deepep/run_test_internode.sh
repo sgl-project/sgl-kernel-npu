@@ -1,5 +1,5 @@
 # set your master node ip
-RANK0_IP="61.47.2.182"
+RANK0_IP=""
 IP=$(hostname -I | awk '{print $1}')
 
 script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
@@ -19,4 +19,4 @@ else
   export RANK=1
 fi
 
-python test_internode.py --num-token 128 --num-expert 32
+python test_internode.py

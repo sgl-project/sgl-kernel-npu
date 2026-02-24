@@ -329,17 +329,13 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
         return false);
 
     auto tokenIdxPerExpert = context->GetOutputDesc(TOKEN_IDX_PER_EXPERT_INDEX);
-    OP_TILING_CHECK(tokenIdxPerExpert == nullptr, OP_LOGE(nodeName, "tokenIdxPerExpert is null."),
-                    return false);
+    OP_TILING_CHECK(tokenIdxPerExpert == nullptr, OP_LOGE(nodeName, "tokenIdxPerExpert is null."), return false);
     OP_TILING_CHECK(
-        (tokenIdxPerExpert->GetDataType() != ge::DT_BF16) &&
-            (tokenIdxPerExpert->GetDataType() != ge::DT_FLOAT16) &&
-            (tokenIdxPerExpert->GetDataType() != ge::DT_FLOAT) &&
-            (tokenIdxPerExpert->GetDataType() != ge::DT_INT32),
-        OP_LOGE(
-            nodeName,
-            "tokenIdxPerExpert datatype is invalid, datatype should be bf16 or float16 or float or int, but is %d.",
-            static_cast<ge::DataType>(tokenIdxPerExpert->GetDataType())),
+        (tokenIdxPerExpert->GetDataType() != ge::DT_BF16) && (tokenIdxPerExpert->GetDataType() != ge::DT_FLOAT16) &&
+            (tokenIdxPerExpert->GetDataType() != ge::DT_FLOAT) && (tokenIdxPerExpert->GetDataType() != ge::DT_INT32),
+        OP_LOGE(nodeName,
+                "tokenIdxPerExpert datatype is invalid, datatype should be bf16 or float16 or float or int, but is %d.",
+                static_cast<ge::DataType>(tokenIdxPerExpert->GetDataType())),
         return false);
 
     auto offsetInner = context->GetOutputDesc(OUTPUT_OFFSET_INNER_INDEX);

@@ -17,16 +17,16 @@ using namespace Moe;
         GM_ADDR recvDataOutput, int64_t len, int64_t numTokens, int64_t topkNum, int64_t numExperts, int op, int root, \
         int cycleCount, GM_ADDR scale, int64_t scaleCount, GM_ADDR offset, int localRank, int localRankSize,           \
         GM_ADDR tokenServerIdxOutput, GM_ADDR tokensUniquePerServerOutput, GM_ADDR epRankTokenCntOutput,               \
-        GM_ADDR localEpTokenCntOutput, GM_ADDR srcOffsetRankTokenIdxOutput, GM_ADDR dstOffsetRankTokenIdxOutput,GM_ADDR tokenIdxPerExpertOutput,       \
-        GM_ADDR offsetInnerOutput, GM_ADDR countOuterOutput, GM_ADDR expandIdxOutput, GM_ADDR totalRecvTokensOutput,   \
-        GM_ADDR workspace, GM_ADDR tiling
+        GM_ADDR localEpTokenCntOutput, GM_ADDR srcOffsetRankTokenIdxOutput, GM_ADDR dstOffsetRankTokenIdxOutput,       \
+        GM_ADDR tokenIdxPerExpertOutput, GM_ADDR offsetInnerOutput, GM_ADDR countOuterOutput, GM_ADDR expandIdxOutput, \
+        GM_ADDR totalRecvTokensOutput, GM_ADDR workspace, GM_ADDR tiling
 
 #define KERNELS_ARGS_CALL_A2_ALL2ALL()                                                                          \
     sendDataInput, tokenPerExpertDataInput, tmpDataInput, sendDataOffsetOutput, recvDataOutput, len, numTokens, \
         topkNum, numExperts, op, root, cycleCount, scale, scaleCount, offset, localRank, localRankSize,         \
         tokenServerIdxOutput, tokensUniquePerServerOutput, epRankTokenCntOutput, localEpTokenCntOutput,         \
-        srcOffsetRankTokenIdxOutput, dstOffsetRankTokenIdxOutput,tokenIdxPerExpertOutput, offsetInnerOutput, countOuterOutput,          \
-        expandIdxOutput, totalRecvTokensOutput, workspace, tiling
+        srcOffsetRankTokenIdxOutput, dstOffsetRankTokenIdxOutput, tokenIdxPerExpertOutput, offsetInnerOutput,   \
+        countOuterOutput, expandIdxOutput, totalRecvTokensOutput, workspace, tiling
 
 // #define ENABLE_PRINT
 #ifdef ENABLE_PRINT
@@ -851,7 +851,8 @@ private:
     }
 
     // 生成一个全局token偏移输出，维度是totalToken*topk，每个元素都是一个int32_t类型数据，代表本token是发往topk位置对应expert的第几个token
-    __aicore__ inline void BuildOffsetToken() {
+    __aicore__ inline void BuildOffsetToken()
+    {
         LocalTensor<int32_t> topkExpertIdx = tempBuf3_.Get<int32_t>();
         LocalTensor<int32_t> tokenPerRank = tempBuf2_.Get<int32_t>();
         LocalTensor<int32_t> tokenIdxRank = tempBuf7_.Get<int32_t>();
@@ -859,35 +860,37 @@ private:
         LocalTensor<float> floatTmpLt = tempBuf4_.Get<float>();
         LocalTensor<float> floatTmpSumLt = tempBuf5_.Get<float>();
         LocalTensor<float> sharedTmpBuffer = tempBuf6_.Get<float>();
-        
+
         DataCopyExtParams copyParams{1, static_cast<uint32_t>(rankSize * sizeof(int32_t)), 0, 0, 0};
         DataCopyPadExtParams<int32_t> padParams{false, 0, 0, 0};
         DataCopyExtParams tokenIdxRankParams{1, static_cast<uint32_t>(topkNum * sizeof(int32_t)), 0, 0, 0};
         DataCopyPadExtParams<int32_t> tokenIdxRankPadParams{false, 0, 0, 0};
         uint32_t preTokenIdx = 0;
         // 此处实现是单核aicore处理所有rank，后续重构后根据核的分配情况可以将核按rank并行处理，一个核处理一个或多个rank
-        for(int i = 0; i < rankSize; i++) {
-            int32_t rankOffset =
-                i * len + numExperts * (MAX_BS + 1) + serverNum + MAX_BS * serverNum + MAX_BS + MAX_BS * serverNum + MAX_BS * numExperts;
+        for (int i = 0; i < rankSize; i++) {
+            int32_t rankOffset = i * len + numExperts * (MAX_BS + 1) + serverNum + MAX_BS * serverNum + MAX_BS +
+                                 MAX_BS * serverNum + MAX_BS * numExperts;
             uint32_t tokenRank = recvDataOutputGt.GetValue(rankOffset);
             for (int j = 0; j < tokenRank; j++) {
-                DataCopyPad(tokenIdxRank, recvDataOutputGt[i * len + numExperts + serverNum + MAX_BS * serverNum +
-                MAX_BS + MAX_BS * serverNum + j * topkNum], tokenIdxRankParams, tokenIdxRankPadParams);
+                DataCopyPad(tokenIdxRank,
+                            recvDataOutputGt[i * len + numExperts + serverNum + MAX_BS * serverNum + MAX_BS +
+                                             MAX_BS * serverNum + j * topkNum],
+                            tokenIdxRankParams, tokenIdxRankPadParams);
                 for (int k = 0; k < topkNum; k++) {
-                    // 此处topkExpertIdx重构涉及到的参数，重构后基于计算需要，会传入topk数据，对应此处topkExpertIdx
-                    uint32_t topk = topkExpertIdx[k];
-                    if (topk >= numExperts || topk < 0) {
-                        continue;
-                    }
-                    DataCopyPad(tokenPerRank, epRankTokenCntOutputGT_[topk * rankSize], copyParams, padParams);
-                    SyscFunc<AscendC::HardEvent::MTE2_V>();
-                    Cast(floatTmpLt, tokenPerRank, RoundMode::CAST_NONE, rankSize);
                     uint32_t preTokenExpertRank = 0;
                     if (i > 0) {
+                        // 此处topkExpertIdx重构涉及到的参数，重构后基于计算需要，会传入topk数据，对应此处topkExpertIdx
+                        int32_t topk = topkExpertIdx.GetValue(k);
+                        if (topk >= numExperts || topk < 0) {
+                            continue;
+                        }
+                        DataCopyPad(tokenPerRank, epRankTokenCntOutputGT_[topk * rankSize], copyParams, padParams);
+                        SyncFunc<AscendC::HardEvent::MTE2_V>();
+                        Cast(floatTmpLt, tokenPerRank, RoundMode::CAST_NONE, rankSize);
                         PipeBarrier<PIPE_V>();
                         ReduceSum(floatTmpSumLt, floatTmpLt, sharedTmpBuffer, i);
                         PipeBarrier<PIPE_V>();
-                        SyscFunc<AscendC::HardEvent::V_S>();
+                        SyncFunc<AscendC::HardEvent::V_S>();
                         preTokenExpertRank = static_cast<int32_t>(floatTmpSumLt.GetValue(0));
                     }
                     uint32_t localTokenIdxExpert = tokenIdxRank.GetValue(k);
@@ -895,7 +898,7 @@ private:
                     tokenPerRankOut.SetValue(k, tokenIdxExpert);
                 }
                 DataCopyPad(tokenIdxPerExpertOutputGT_[(j + preTokenIdx) * topkNum], tokenPerRankOut,
-                    tokenIdxRankParams, tokenIdxRankPadParams);
+                            tokenIdxRankParams);
             }
             preTokenIdx += tokenRank;
         }
@@ -1408,7 +1411,7 @@ private:
                                                            // token_idx] -> value:src_offset
     GlobalTensor<int32_t> dstOffsetRankTokenIdxOutputGT_;  // 每个专家、从rank接收的token目的端偏移 [expert_num,
                                                            // rank_num, token_idx] -> value:dst_offset
-    GlobalTensor<int32_t> tokenIdxPerExpertOutputGT_; 
+    GlobalTensor<int32_t> tokenIdxPerExpertOutputGT_;
     GlobalTensor<int32_t> countInnerOutputGT_;   // token给各个server发送个数    弃用
     GlobalTensor<int32_t> offsetInnerOutputGT_;  // 存放全局的expandIdx, [globalBs, expertNum]
     GlobalTensor<int32_t> countOuterOutputGT_;   // 每个token发送到的server数量 [bs] -> value:server数量

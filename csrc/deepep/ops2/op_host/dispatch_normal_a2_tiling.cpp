@@ -935,8 +935,7 @@ static ge::graphStatus MoeDistributeDispatchA2CheckShapeAndSetTiling(const gert:
         context.GetInputShape(DST_OFFSET_RANK_TOKEN_IDX_INDEX);
     OP_TILING_CHECK(dstOffsetRankTokenIdxStorageShape == nullptr,
                     OP_LOGE(K_INNER_DEBUG, "dstOffsetRankTokenIdxStorageShape is null."), return GRAPH_FAILED);
-    const gert::StorageShape *tokenIdxPerExpertStorageShape =
-        context.GetInputShape(TOKEN_IDX_PER_EXPERT_INDEX);
+    const gert::StorageShape *tokenIdxPerExpertStorageShape = context.GetInputShape(TOKEN_IDX_PER_EXPERT_INDEX);
     OP_TILING_CHECK(tokenIdxPerExpertStorageShape == nullptr,
                     OP_LOGE(K_INNER_DEBUG, "tokenIdxPerExpertStorageShape is null."), return GRAPH_FAILED);
 

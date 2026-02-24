@@ -110,7 +110,8 @@ public:
             rankTokensGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ * (1 + MAX_BATCH_SIZE) + serverNum_ +
                                           MAX_BATCH_SIZE * (1 + 2 * serverNum_ + numTopk_ * 2));
             rankTokensGM_.SetValue(0, numTokens_);
-            AscendC::DataCacheCleanAndInvalid<T, AscendC::CacheLine::SINGLE_CACHE_LINE, AscendC::DcciDst::CACHELINE_OUT>(rankTokensGM_);
+            AscendC::DataCacheCleanAndInvalid<T, AscendC::CacheLine::SINGLE_CACHE_LINE,
+                                              AscendC::DcciDst::CACHELINE_OUT>(rankTokensGM_);
             tempExpertGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ + serverNum_ +
                                           MAX_BATCH_SIZE * (1 + 2 * serverNum_ + numTopk_ * 2));
             tempServerGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ * (1 + aivNum_) + serverNum_ +

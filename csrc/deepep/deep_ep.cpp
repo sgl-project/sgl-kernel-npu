@@ -774,8 +774,7 @@ Buffer::internode_dispatch(
         at::empty({num_experts, num_ranks, MAX_BATCH_SIZE}, at::dtype(at::kInt).device(x.device()));
     at::Tensor dst_offset_rank_token_idx =
         at::empty({num_experts, num_ranks, MAX_BATCH_SIZE}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor token_idx_per_expert =
-        at::empty({num_ranks, num_experts}, at::dtype(at::kInt).device(x.device()));
+    at::Tensor token_idx_per_expert = at::empty({num_ranks, num_topk}, at::dtype(at::kInt).device(x.device()));
     // The offsetInner for the current rank and the peer rank
     at::Tensor offset_inner = at::empty({2, MAX_BATCH_SIZE, num_experts}, at::dtype(at::kInt).device(x.device()));
     at::Tensor count_outer = at::empty({MAX_BATCH_SIZE}, at::dtype(at::kInt).device(x.device()));
@@ -798,8 +797,8 @@ Buffer::internode_dispatch(
                  local_rank_size, local_rank_id,
                  send_data_offset,  // A2 not use
                  recv_data, token_server_idx, token_unique_per_server, ep_rank_token_cnt, recv_tokens_per_expert,
-                 src_offset_rank_token_idx, dst_offset_rank_token_idx, token_idx_per_expert, offset_inner, count_outer, expand_idx,
-                 total_recv_token);
+                 src_offset_rank_token_idx, dst_offset_rank_token_idx, token_idx_per_expert, offset_inner, count_outer,
+                 expand_idx, total_recv_token);
 
     int total_count = total_recv_token.item<int>();
     int num_recv_tokens = (total_count == 0) ? 1 : total_count;
@@ -814,10 +813,10 @@ Buffer::internode_dispatch(
     }
 
     EXEC_NPU_CMD(aclnnDispatchNormalA2, new_x, expert_ids, x_scales, xActiveMask, new_topk_weights, token_server_idx,
-                 token_unique_per_server, ep_rank_token_cnt, src_offset_rank_token_idx, dst_offset_rank_token_idx, token_idx_per_expert,
-                 hcom_ep_name, num_ranks, rank, num_experts, hcom_ep_name, tp_size, tp_rank, expertShardType,
-                 sharedExpertNum, sharedExpertRankNum, quant_mode, global_bs, expertTokenNumsType, expandx_out,
-                 dynamic_scales_out, expand_idx, expertTokenNums, epRecvCount, expand_scales,
+                 token_unique_per_server, ep_rank_token_cnt, src_offset_rank_token_idx, dst_offset_rank_token_idx,
+                 token_idx_per_expert, hcom_ep_name, num_ranks, rank, num_experts, hcom_ep_name, tp_size, tp_rank,
+                 expertShardType, sharedExpertNum, sharedExpertRankNum, quant_mode, global_bs, expertTokenNumsType,
+                 expandx_out, dynamic_scales_out, expand_idx, expertTokenNums, epRecvCount, expand_scales,
                  dispatch_wait_recv_cost_stats_out);
 
     auto recv_token_per_exp_cpu = recv_tokens_per_expert.to(at::kCPU);
