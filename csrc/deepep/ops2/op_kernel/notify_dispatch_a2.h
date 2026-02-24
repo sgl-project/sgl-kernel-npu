@@ -850,38 +850,52 @@ private:
         AscendC::WaitFlag<HardEvent::MTE3_MTE2>(EVENT_ID0);  // MTE2 waits for MTE3
     }
 
+    // 生成一个全局token偏移输出，维度是totalToken*topk，每个元素都是一个int32_t类型数据，代表本token是发往topk位置对应expert的第几个token
     __aicore__ inline void BuildOffsetToken() {
-        LocalTensor<int32_t> prefixCountToken = tempBuf10_.Get<int32_t>();
-        Duplicate<int32_t>(prefixCountToken, 0, numExperts);
-        PipeBarrier<PIPE_V>();
-        LocalTensor<int32_t> tokenIdxExpert = tempBuf3_.Get<int32_t>();
-        LocalTensor<int32_t> tmpData = tempBuf7_.Get<int32_t>();
-        LocalTensor<int32_t> tokenIdx = tempBuf_.Get<int32_t>();
-        LocalTensor<int32_t> tmp = tempBuf_.Get<int32_t>();
+        LocalTensor<int32_t> topkExpertIdx = tempBuf3_.Get<int32_t>();
+        LocalTensor<int32_t> tokenPerRank = tempBuf2_.Get<int32_t>();
+        LocalTensor<int32_t> tokenIdxRank = tempBuf7_.Get<int32_t>();
+        LocalTensor<int32_t> tokenPerRankOut = tempBuf10_.Get<int32_t>();
+        LocalTensor<float> floatTmpLt = tempBuf4_.Get<float>();
+        LocalTensor<float> floatTmpSumLt = tempBuf5_.Get<float>();
+        LocalTensor<float> sharedTmpBuffer = tempBuf6_.Get<float>();
         
-        DataCopyExtParams copyParams{1, static_cast<uint32_t>(numExperts * sizeof(int32_t)), 0, 0, 0};
+        DataCopyExtParams copyParams{1, static_cast<uint32_t>(rankSize * sizeof(int32_t)), 0, 0, 0};
         DataCopyPadExtParams<int32_t> padParams{false, 0, 0, 0};
+        DataCopyExtParams tokenIdxRankParams{1, static_cast<uint32_t>(topkNum * sizeof(int32_t)), 0, 0, 0};
+        DataCopyPadExtParams<int32_t> tokenIdxRankPadParams{false, 0, 0, 0};
         uint32_t preTokenIdx = 0;
+        // 此处实现是单核aicore处理所有rank，后续重构后根据核的分配情况可以将核按rank并行处理，一个核处理一个或多个rank
         for(int i = 0; i < rankSize; i++) {
             int32_t rankOffset =
                 i * len + numExperts * (MAX_BS + 1) + serverNum + MAX_BS * serverNum + MAX_BS + MAX_BS * serverNum + MAX_BS * numExperts;
             uint32_t tokenRank = recvDataOutputGt.GetValue(rankOffset);
             for (int j = 0; j < tokenRank; j++) {
-                int32_t dataOffset =
-                    i * len + numExperts + serverNum + MAX_BS * serverNum + MAX_BS + MAX_BS * serverNum + j * numExperts;
-                DataCopyPad(tokenIdxExpert, recvDataOutputGt[dataOffset], copyParams, padParams);
-                SyncFunc<AscendC::HardEvent::MTE2_V>();
-                
-                Add(tmpData, tokenIdxExpert, prefixCountToken, numExperts);
-                PipeBarrier<PIPE_V>();
-                SyncFunc<AscendC::HardEvent::V_MTE3>();
-                DataCopy(tokenIdxPerExpertOutputGT_[(j + preTokenIdx) * numExperts], tmpData, numExperts);
-                SyncFunc<AscendC::HardEvent::MTE3_MTE2>();
-                if (j == tokenRank - 1) {
-                    DataCopy(prefixCountToken, tmpData, numExperts);
-                    PipeBarrier<PIPE_V>();
-                    SyncFunc<AscendC::HardEvent::MTE3_MTE2>();
+                DataCopyPad(tokenIdxRank, recvDataOutputGt[i * len + numExperts + serverNum + MAX_BS * serverNum +
+                MAX_BS + MAX_BS * serverNum + j * topkNum], tokenIdxRankParams, tokenIdxRankPadParams);
+                for (int k = 0; k < topkNum; k++) {
+                    // 此处topkExpertIdx重构涉及到的参数，重构后基于计算需要，会传入topk数据，对应此处topkExpertIdx
+                    uint32_t topk = topkExpertIdx[k];
+                    if (topk >= numExperts || topk < 0) {
+                        continue;
+                    }
+                    DataCopyPad(tokenPerRank, epRankTokenCntOutputGT_[topk * rankSize], copyParams, padParams);
+                    SyscFunc<AscendC::HardEvent::MTE2_V>();
+                    Cast(floatTmpLt, tokenPerRank, RoundMode::CAST_NONE, rankSize);
+                    uint32_t preTokenExpertRank = 0;
+                    if (i > 0) {
+                        PipeBarrier<PIPE_V>();
+                        ReduceSum(floatTmpSumLt, floatTmpLt, sharedTmpBuffer, i);
+                        PipeBarrier<PIPE_V>();
+                        SyscFunc<AscendC::HardEvent::V_S>();
+                        preTokenExpertRank = static_cast<int32_t>(floatTmpSumLt.GetValue(0));
+                    }
+                    uint32_t localTokenIdxExpert = tokenIdxRank.GetValue(k);
+                    uint32_t tokenIdxExpert = preTokenExpertRank + localTokenIdxExpert;
+                    tokenPerRankOut.SetValue(k, tokenIdxExpert);
                 }
+                DataCopyPad(tokenIdxPerExpertOutputGT_[(j + preTokenIdx) * topkNum], tokenPerRankOut,
+                    tokenIdxRankParams, tokenIdxRankPadParams);
             }
             preTokenIdx += tokenRank;
         }

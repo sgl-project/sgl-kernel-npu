@@ -674,7 +674,7 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     uint32_t tokenStart = 0;
     uint32_t tokenEnd = tokenStart + serverNum * eachChunked;
     uint32_t localRankId = rankId_ % SERVER_RANK_SIZE;
-    if (localWorkCoreId < SERVER_RANK_SIZE) {
+    if (localWorkCoreId >= SERVER_RANK_SIZE) {
         return;
     }
     DataCopyExtParams tokenStructParams{1, static_cast<uint32_t>(tokenStructLen_), 0, 0, 0};
