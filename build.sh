@@ -81,8 +81,11 @@ shift $((OPTIND -1))
 
 export DEBUG_MODE=$DEBUG_MODE
 
-SOC_VERSION="${1:-Ascend910_9382}"
-
+if [[ "$BUILD_DEEPEP_OPS" == "ON" ]]; then
+    SOC_VERSION="${1:-Ascend910_9382}"
+else
+    SOC_VERSION="${1:-Ascend910B1}"
+fi
 
 ### Get Current CANN Toolkit Installation Path
 _CANN_TOOLKIT_INSTALL_PATH=$(cat /etc/Ascend/ascend_cann_install.info | grep "Toolkit_InstallPath" | awk -F'=' '{print $2}')
