@@ -25,14 +25,14 @@ aclnnStatus aclnnDispatchNormalA2GetWorkspaceSize(
     int64_t sharedExpertRankNum, int64_t quantMode, int64_t globalBs, int64_t expertTokenNumsType,
     const aclTensor *recvX, const aclTensor *dynamicScales, const aclTensor *expandIdx,
     const aclTensor *expertTokenNums, const aclTensor *epRecvCount, const aclTensor *expandScales,
-    const aclTensor *waitRecvCostStats, uint64_t *workspaceSize, aclOpExecutor **executor)
+    const aclTensor *waitRecvCostStats, const aclTensor *syncCore, uint64_t *workspaceSize, aclOpExecutor **executor)
 {
     return aclnnInnerDispatchNormalA2GetWorkspaceSize(
         x, expertIds, scales, xActiveMask, expertScales, tokenServerIdx, tokenServerCnt, epRankTokenCnt,
         srcOffsetRankTokenIdx, dstOffsetRankTokenIdx, tokenIdxPerExpert, groupEp, epWorldSize, epRankId, moeExpertNum,
         groupTp, tpWorldSize, tpRankId, expertShardType, sharedExpertNum, sharedExpertRankNum, quantMode, globalBs,
         expertTokenNumsType, recvX, dynamicScales, expandIdx, expertTokenNums, epRecvCount, expandScales,
-        waitRecvCostStats, workspaceSize, executor);
+        waitRecvCostStats, syncCore, workspaceSize, executor);
 }
 
 aclnnStatus aclnnDispatchNormalA2(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream)

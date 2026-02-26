@@ -26,7 +26,7 @@ extern "C" __global__ __aicore__ void dispatch_normal_a2(
     GM_ADDR tokenServerCnt, GM_ADDR epRankTokenCnt, GM_ADDR srcOffsetRankTokenIdx, GM_ADDR dstOffsetRankTokenIdx,
     GM_ADDR tokenIdxPerExpert, GM_ADDR recvX, GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut,
     GM_ADDR expertTokenNumsOut, GM_ADDR epRecvCountOut, GM_ADDR expandScalesOut, GM_ADDR dispatchWaitRecvCostStatsOut,
-    GM_ADDR workspace, GM_ADDR tiling)
+    GM_ADDR syncCore, GM_ADDR workspace, GM_ADDR tiling)
 {
     // REGISTER_TILING_DEFAULT(NotifyDispatchA2TilingData);
     // GET_TILING_DATA_WITH_STRUCT(NotifyDispatchA2TilingData, tilingData, tiling);
@@ -77,7 +77,7 @@ extern "C" __global__ __aicore__ void dispatch_normal_a2(
         MoeDistributeDispatchA2Pipeline<bfloat16_t, bfloat16_t, false, false, false> op;
         op.Init(x, expertIds, scales, expertScales, tokenServerIdx, tokenServerCnt, epRankTokenCnt,
                 srcOffsetRankTokenIdx, dstOffsetRankTokenIdx, tokenIdxPerExpert, recvX, dynamicScalesOut, expandIdxOut,
-                expertTokenNumsOut, epRecvCountOut, expandScalesOut, workspace, &pipe, tiling);
+                expertTokenNumsOut, epRecvCountOut, expandScalesOut, syncCore, workspace, &pipe, tiling);
         op.Process();
     } else if (TILING_KEY_IS(2000000000)) {
         // NotifyDispatchA2<int> opKernel(rank, rankSize, extraFlag);
@@ -86,7 +86,7 @@ extern "C" __global__ __aicore__ void dispatch_normal_a2(
         MoeDistributeDispatchA2Pipeline<bfloat16_t, bfloat16_t, false, false, false> op;
         op.Init(x, expertIds, scales, expertScales, tokenServerIdx, tokenServerCnt, epRankTokenCnt,
                 srcOffsetRankTokenIdx, dstOffsetRankTokenIdx, tokenIdxPerExpert, recvX, dynamicScalesOut, expandIdxOut,
-                expertTokenNumsOut, epRecvCountOut, expandScalesOut, workspace, &pipe, tiling);
+                expertTokenNumsOut, epRecvCountOut, expandScalesOut, syncCore, workspace, &pipe, tiling);
         op.Process();
     } else if (TILING_KEY_IS(2000001000)) {
         // NotifyDispatchA2<int> opKernel(rank, rankSize, extraFlag);
@@ -95,7 +95,7 @@ extern "C" __global__ __aicore__ void dispatch_normal_a2(
         MoeDistributeDispatchA2Pipeline<bfloat16_t, bfloat16_t, false, false, false> op;
         op.Init(x, expertIds, scales, expertScales, tokenServerIdx, tokenServerCnt, epRankTokenCnt,
                 srcOffsetRankTokenIdx, dstOffsetRankTokenIdx, tokenIdxPerExpert, recvX, dynamicScalesOut, expandIdxOut,
-                expertTokenNumsOut, epRecvCountOut, expandScalesOut, workspace, &pipe, tiling);
+                expertTokenNumsOut, epRecvCountOut, expandScalesOut, syncCore, workspace, &pipe, tiling);
         op.Process();
     }
 }

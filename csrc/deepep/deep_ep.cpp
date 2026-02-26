@@ -21,6 +21,7 @@ constexpr uint32_t MAX_ROUNDS = 256;
 constexpr uint32_t MIN_TOKENS_PER_ROUND = 32;
 constexpr uint32_t MAX_TOKENS_PER_ROUND = 8192;
 constexpr uint32_t MAX_TOTAL_TOKENS = 131072;
+constexpr uint32_t MAX_AICORE_NUM = 800; // 此处需要为coreNum*32byte，由于无法感知coreNum，暂定为100*（32/sizeof（int））
 
 Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
                std::string moe_all_to_all_group_name)
@@ -811,13 +812,14 @@ Buffer::internode_dispatch(
         recv_topk_idx = at::empty({total_count, num_topk}, topk_idx->options());
         recv_topk_weights = at::empty({total_count, num_topk}, topk_weights->options());
     }
+    auto sync_core = at::zeros({MAX_AICORE_NUM}, at::dtype(at::kInt).device(x.device()));
 
     EXEC_NPU_CMD(aclnnDispatchNormalA2, new_x, expert_ids, x_scales, xActiveMask, new_topk_weights, token_server_idx,
                  token_unique_per_server, ep_rank_token_cnt, src_offset_rank_token_idx, dst_offset_rank_token_idx,
                  token_idx_per_expert, hcom_ep_name, num_ranks, rank, num_experts, hcom_ep_name, tp_size, tp_rank,
                  expertShardType, sharedExpertNum, sharedExpertRankNum, quant_mode, global_bs, expertTokenNumsType,
                  expandx_out, dynamic_scales_out, expand_idx, expertTokenNums, epRecvCount, expand_scales,
-                 dispatch_wait_recv_cost_stats_out);
+                 dispatch_wait_recv_cost_stats_out, sync_core);
 
     auto recv_token_per_exp_cpu = recv_tokens_per_expert.to(at::kCPU);
     auto recv_token_per_exp_ptr = recv_token_per_exp_cpu.data_ptr<int64_t>();

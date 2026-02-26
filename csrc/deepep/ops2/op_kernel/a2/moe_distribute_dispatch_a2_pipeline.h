@@ -47,6 +47,7 @@ constexpr uint32_t RDMA_HCCS_FORWARDER = 2;
 constexpr uint32_t FORWARDER_COORDINATOR = 3;
 constexpr uint32_t HCCS_RECEIVER = 4;
 constexpr uint32_t RDMA_COORDINATOR = 5;
+constexpr uint32_t DEFAULT_SYNCALL_NEED_SIZE = 256;
 
 #define TemplateMC2TypeA2PipelineClass \
     typename XType, typename ExpandXOutType, bool StaticQuant, bool DynamicQuant, bool IsSmoothScaleExist
@@ -73,7 +74,7 @@ public:
                                 GM_ADDR tokenServerIdx, GM_ADDR tokenServerCnt, GM_ADDR epRankTokenCnt,
                                 GM_ADDR srcOffsetRankTokenIdx, GM_ADDR dstOffsetRankTokenIdx, GM_ADDR tokenIdxPerExpert,
                                 GM_ADDR expandXOut, GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut,
-                                GM_ADDR expertTokenNumsOut, GM_ADDR epRecvCountsOut, GM_ADDR expandScales,
+                                GM_ADDR expertTokenNumsOut, GM_ADDR epRecvCountsOut, GM_ADDR expandScales, GM_ADDR syncCore,
                                 GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tilingGM);
     __aicore__ inline void Process();
     template <AscendC::HardEvent event>
@@ -122,6 +123,7 @@ private:
     GlobalTensor<int32_t> dstOffsetRankTokenIdxGMTensor_;
     GlobalTensor<int32_t> tokenIdxPerExpertGMTensor_;
     GlobalTensor<int32_t> tokenPerRankGMTensor_;
+    GlobalTensor<int32_t> syncCoreGMTensor_;
 
     LocalTensor<int32_t> expertCountTensor_;
     LocalTensor<uint64_t> batchWriteU64Tensor_;
@@ -135,6 +137,7 @@ private:
     LocalTensor<uint8_t> tokenStructInHccsTensor_;
     LocalTensor<uint8_t> rdmaUseTokenStructInHccsTensor_;
     LocalTensor<uint32_t> localHccsHeadTailTensor_;
+    LocalTensor<int32_t> localSyncCoreTensor_;
 
     TBuf<> tokenServerIdxBuf_;
     TBuf<> serverCountBuf_;
@@ -150,6 +153,7 @@ private:
     TBuf<> tokenStructInHccsBuf_;
     TBuf<> rdmaUseTokenStructInHccsBuf_;
     TBuf<> localHccsHeadTailBuf_;
+    TBuf<> localSyncCoreBuf_;
 
     GM_ADDR expandXGM_;
     GM_ADDR expandIdxGM_;
@@ -232,7 +236,7 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     GM_ADDR x, GM_ADDR expertIds, GM_ADDR scales, GM_ADDR expertScales, GM_ADDR tokenServerIdx, GM_ADDR tokenServerCnt,
     GM_ADDR epRankTokenCnt, GM_ADDR srcOffsetRankTokenIdx, GM_ADDR dstOffsetRankTokenIdx, GM_ADDR tokenIdxPerExpert,
     GM_ADDR expandXOut, GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut, GM_ADDR expertTokenNumsOut,
-    GM_ADDR epRecvCountsOut, GM_ADDR expandScales, GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tilingGM)
+    GM_ADDR epRecvCountsOut, GM_ADDR expandScales, GM_ADDR syncCore, GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tilingGM)
 {
     tpipe_ = pipe;
     REGISTER_TILING_DEFAULT(CamMoeDistributeDispatchA2TilingData);
@@ -318,8 +322,8 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     expandXOutGMTensor_.SetGlobalBuffer((__gm__ ExpandXOutType *)(expandXOut),
                                         worldSize_ * axisBS_ * localMoeExpertNum_ * axisH_);
     dynamicScalesOutGMTensor_.SetGlobalBuffer((__gm__ float *)(dynamicScalesOut));
-
     weightsOutGt.SetGlobalBuffer((__gm__ float *)(expandScales));
+    syncCoreGMTensor_.SetGlobalBuffer((__gm__ int32_t *)(syncCore));
 
     sendTokensU8Tensor_.SetGlobalBuffer((__gm__ uint8_t *)(windowOutGM_));
     rdmaSendRingU8Tensor_.SetGlobalBuffer((__gm__ uint8_t *)(windowOutGM_));
@@ -388,6 +392,9 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
 
     tpipe_->InitBuffer(tBuf, DISPATCH_TOKEN_UB_SIZE);  // 176K
     tpipe_->InitBuffer(weightBuf_, UB_32B_ALIGN);      // 32
+    tpipe_->InitBuffer(localSyncCoreBuf_, aivNum_ * DEFAULT_SYNCALL_NEED_SIZE); 
+    localSyncCoreTensor_ = localSyncCoreBuf_.Get<int32_t>();
+    Duplicate<int32_t>(localSyncCoreTensor_, 0, aivNum_);
 
     CoreRoleAssign();
 
@@ -760,8 +767,12 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
                 // 每张卡上一段内存记录用于接收来自各个卡环形buffer的headtail，localranksize个headtail与localranksize个共享内存对应
                 DataCopy(globalHccsHeadTailTensor[localRankId], localHccsHeadTailTensor_, hccsHesdTailParams);
             }
-            rdmaTail = (rdmaTail + 1) % rdmaItemNum;
-            rdmaHeadTailTensor_.SetValue(currentServerId * RING_BUFFER_HEAD_TAIL + 3, rdmaTail);
+            SyncAll(syncCoreGMTensor_, localSyncCoreTensor_, SERVER_RANK_SIZE);
+            if (localWorkCoreId == 0) {
+                rdmaTail = (rdmaTail + 1) % rdmaItemNum;
+                rdmaHeadTailTensor_.SetValue(currentServerId * RING_BUFFER_HEAD_TAIL + 3, rdmaTail);
+                AscendC::DataCacheCleanAndInvalid<uint32_t, AscendC::CacheLine::SINGLE_CACHE_LINE, AscendC::DcciDst::CACHELINE_OUT>(rdmaHeadTailTensor_);
+            }
             processedTokenNum++;
         }
     }

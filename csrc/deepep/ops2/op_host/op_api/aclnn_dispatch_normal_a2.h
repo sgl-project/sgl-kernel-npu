@@ -16,7 +16,7 @@ __attribute__((visibility("default"))) aclnnStatus aclnnDispatchNormalA2GetWorks
     int64_t sharedExpertRankNum, int64_t quantMode, int64_t globalBs, int64_t expertTokenNumsType,
     const aclTensor *recvX, const aclTensor *dynamicScales, const aclTensor *expandIdx,
     const aclTensor *expertTokenNums, const aclTensor *epRecvCount, const aclTensor *expandScales,
-    const aclTensor *waitRecvCostStats, uint64_t *workspaceSize, aclOpExecutor **executor);
+    const aclTensor *waitRecvCostStats, const aclTensor *syncCore, uint64_t *workspaceSize, aclOpExecutor **executor);
 
 __attribute__((visibility("default"))) aclnnStatus aclnnDispatchNormalA2(void *workspace, uint64_t workspaceSize,
                                                                          aclOpExecutor *executor, aclrtStream stream);
