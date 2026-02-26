@@ -728,9 +728,12 @@ private:
             SyncFunc<AscendC::HardEvent::MTE2_S>();
             SyncFunc<AscendC::HardEvent::V_S>();
             for (int j = 0; j < topkNum; ++j) {
-                int key = expertIdxTensor.GetValue(j);
-                int value = tmpLt.GetValue(j);
-                dstLt.SetValue(key, value);
+                int expert_idx = expertIdxTensor.GetValue(j);
+                if (expert_idx < 0 || expert_idx >= numExperts) {
+                    continue;
+                }
+                int offset = tmpLt.GetValue(j);
+                dstLt.SetValue(expert_idx, offset);
             }
 
             SyncFunc<AscendC::HardEvent::S_V>();
@@ -811,9 +814,12 @@ private:
             SyncFunc<AscendC::HardEvent::MTE2_S>();
             SyncFunc<AscendC::HardEvent::V_S>();
             for (int j = 0; j < topkNum; ++j) {
-                int key = expertIdxTensor.GetValue(j);
-                int value = tmpSumLt.GetValue(j);
-                tmpLt.SetValue(key, value);
+                int expert_idx = expertIdxTensor.GetValue(j);
+                if (expert_idx < 0 || expert_idx >= numExperts) {
+                    continue;
+                }
+                int offset = tmpSumLt.GetValue(j);
+                tmpLt.SetValue(expert_idx, offset);
             }
             // 3.求token在每个专家上的偏移
             // 当前server上专家token的前缀和与每个token的expand_idx进行相加，为负数的表示没有发给该专家

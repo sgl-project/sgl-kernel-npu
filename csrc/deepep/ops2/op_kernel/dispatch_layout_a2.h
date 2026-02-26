@@ -274,6 +274,9 @@ private:
         for (int i = 0; i < tempTokens_; ++i) {
             for (int j = 0; j < numTopk_; ++j) {
                 int expert_idx = topkIdxTensor.GetValue(i * numTopk_ + j);
+                if (expert_idx < 0 || expert_idx >= numExperts_) {
+                    continue;
+                }
                 int offset = prefixCountPerExpertTensor.GetValue(expert_idx);
                 sendTokenIdxTensor.SetValue(i * numTopk_ + j, offset + 1);
                 prefixCountPerExpertTensor.SetValue(expert_idx, offset + 1);
