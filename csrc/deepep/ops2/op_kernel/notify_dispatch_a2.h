@@ -869,17 +869,20 @@ private:
         // 此处实现是单核aicore处理所有rank，后续重构后根据核的分配情况可以将核按rank并行处理，一个核处理一个或多个rank
         for (int i = 0; i < rankSize; i++) {
             int32_t rankOffset = i * len + numExperts * (MAX_BS + 1) + serverNum + MAX_BS * serverNum + MAX_BS +
-                                 MAX_BS * serverNum + MAX_BS * numExperts;
+                                 MAX_BS * serverNum + MAX_BS * topkNum * 2;
+            int32_t topkIdxOffset = i * len + numExperts * (MAX_BS + 1) + serverNum + MAX_BS * serverNum + MAX_BS +
+                                 MAX_BS * serverNum + MAX_BS * topkNum;
             uint32_t tokenRank = recvDataOutputGt.GetValue(rankOffset);
+            DataCopyPad(topkExpertIdx, recvDataOutputGt[topkIdxOffset], tokenIdxRankParams, tokenIdxRankPadParams);
             for (int j = 0; j < tokenRank; j++) {
+                int32_t tokenIdxOffset = i * len + numExperts + serverNum + MAX_BS * serverNum + MAX_BS +
+                                             MAX_BS * serverNum + j * topkNum;
                 DataCopyPad(tokenIdxRank,
-                            recvDataOutputGt[i * len + numExperts + serverNum + MAX_BS * serverNum + MAX_BS +
-                                             MAX_BS * serverNum + j * topkNum],
+                            recvDataOutputGt[tokenIdxOffset],
                             tokenIdxRankParams, tokenIdxRankPadParams);
                 for (int k = 0; k < topkNum; k++) {
                     uint32_t preTokenExpertRank = 0;
                     if (i > 0) {
-                        // 此处topkExpertIdx重构涉及到的参数，重构后基于计算需要，会传入topk数据，对应此处topkExpertIdx
                         int32_t topk = topkExpertIdx.GetValue(k);
                         if (topk >= numExperts || topk < 0) {
                             continue;
@@ -893,14 +896,20 @@ private:
                         SyncFunc<AscendC::HardEvent::V_S>();
                         preTokenExpertRank = static_cast<int32_t>(floatTmpSumLt.GetValue(0));
                     }
+                    SyncFunc<AscendC::HardEvent::MTE2_S>();
                     uint32_t localTokenIdxExpert = tokenIdxRank.GetValue(k);
-                    uint32_t tokenIdxExpert = preTokenExpertRank + localTokenIdxExpert;
+                    uint32_t tokenIdxExpert = preTokenExpertRank + localTokenIdxExpert - 1;
                     tokenPerRankOut.SetValue(k, tokenIdxExpert);
                 }
                 DataCopyPad(tokenIdxPerExpertOutputGT_[(j + preTokenIdx) * topkNum], tokenPerRankOut,
                             tokenIdxRankParams);
             }
             preTokenIdx += tokenRank;
+        }
+        if (localRank == 0) {
+            for (int i = 0; i < 127; i++) {
+                AscendC::DumpTensor(tokenIdxPerExpertOutputGT_[i * topkNum], i, topkNum);
+            }
         }
     }
 

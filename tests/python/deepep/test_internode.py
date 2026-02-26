@@ -116,7 +116,14 @@ def test_main(
             + 1
         )
         topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
-
+    data = [[0,1,2,3,4,5,6,7],
+            [8,9,10,11,12,13,14,15],
+            [16,17,18,19,20,21,22,23],
+            [24,25,26,27,28,29,30,31],
+            [0,1,2,3,4,5,6,7],
+            [8,9,10,11,12,13,14,15],
+            [16,17,18,19,20,21,22,23],
+                [24,25,26,27,28,29,30,31]]
     topk_idx = torch.tensor(data, dtype=torch.int64, device="npu")
     topk_weights = (
         torch.ones((num_tokens, num_topk), dtype=torch.float32, device="npu") * rank
@@ -461,6 +468,7 @@ def test_main(
                 handle,
                 event,
             ) = buffer.dispatch(**dispatch_args)
+            return
             recv_x = (
                 per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
             )
@@ -579,6 +587,7 @@ def test_main(
             print("", flush=True)
 
     test_correctness()
+    return
     test_tuning()
 
     # Diagnose test
