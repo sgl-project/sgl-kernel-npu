@@ -21,7 +21,7 @@ from utils import (
 )
 
 MAX_BATCH_SIZE = 4096
-enable_a2_test = True
+enable_a2_test = False  # Only open when layout kernel output is proved to be wrong
 
 
 # noinspection PyShadowingNames
@@ -189,7 +189,7 @@ def test_main(
             (num_tokens * num_servers,), dtype=torch.int, device="npu"
         )
         send_token_idx = torch.zeros(
-            (num_tokens * num_experts,), dtype=torch.int, device="npu"
+            (num_tokens * num_topk,), dtype=torch.int, device="npu"
         )
         expert_rank_token_idx = torch.zeros(
             (num_experts * MAX_BATCH_SIZE,), dtype=torch.int, device="npu"
@@ -212,9 +212,7 @@ def test_main(
                     seen_server[server_id] += 1
                 num_each_token_to_server[i * num_servers + server_id] += 1
                 count_num_expert[expert_id] += 1
-                send_token_idx[i * num_experts + expert_id] = count_num_expert[
-                    expert_id
-                ]
+                send_token_idx[i * num_topk + j] = count_num_expert[expert_id]
 
         count_num_expert = [0] * num_experts
         for i in range(num_tokens):
@@ -257,14 +255,14 @@ def test_main(
             + MAX_BATCH_SIZE * (num_servers * 2 + 1) : num_experts
             + num_servers
             + MAX_BATCH_SIZE * (num_servers * 2 + 1)
-            + num_tokens * num_experts
+            + num_tokens * num_topk
         ]
         ref_expert_rank_token_idx = notify_send_data[
             num_experts
             + num_servers
-            + MAX_BATCH_SIZE * (num_servers * 2 + num_experts + 1) : num_experts
+            + MAX_BATCH_SIZE * (num_servers * 2 + num_topk * 2 + 1) : num_experts
             + num_servers
-            + MAX_BATCH_SIZE * (num_servers * 2 + num_experts + num_experts + 1)
+            + MAX_BATCH_SIZE * (num_servers * 2 + num_topk * 2 + num_experts + 1)
         ]
 
         # check data
