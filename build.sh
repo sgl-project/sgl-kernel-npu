@@ -92,6 +92,9 @@ echo -e "\e[1;33mDouble Checking Environment Variables:\e[0m"
 echo -e "\e[1;32mASCEND_HOME_PATH: ${ASCEND_HOME_PATH}\e[0m"
 echo -e "\e[1;32mASCEND_TOOLKIT_HOME: ${ASCEND_TOOLKIT_HOME}\e[0m"
 
+# Add cann-9.0.0 library path for libhccl.so
+export LD_LIBRARY_PATH=/home/developer/Ascend/cann-9.0.0/aarch64-linux/lib64:$LD_LIBRARY_PATH
+
 
 ASCEND_INCLUDE_DIR=${ASCEND_TOOLKIT_HOME}/$(arch)-linux/include
 CURRENT_DIR=$(pwd)
