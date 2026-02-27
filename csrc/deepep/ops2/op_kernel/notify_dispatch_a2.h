@@ -699,13 +699,16 @@ private:
     __aicore__ inline void BuildExpandIdxData()
     {
         // printflag("enter BuildExpandIdxData\n");
-        LocalTensor<int32_t> tmpLt = tempBuf2_.Get<int32_t>();
-        LocalTensor<int32_t> dstLt = tempBuf9_.Get<int32_t>();
-        DataCopyExtParams copyParams{1, static_cast<uint32_t>(MAX_BS * sizeof(int32_t)), 0, 0, 0};
+        LocalTensor<int32_t> tmpLt = tempBuf3_.Get<int32_t>();
+        LocalTensor<int32_t> dstLt = tempBuf8_.Get<int32_t>();
+        LocalTensor<int32_t> lastLt = tempBuf10_.Get<int32_t>();
+        DataCopyExtParams copyTopkParams{1, static_cast<uint32_t>(topkNum * sizeof(int32_t)), 0, 0, 0};
+        DataCopyExtParams copyExpertsParams{1, static_cast<uint32_t>(numExperts * sizeof(int32_t)), 0, 0, 0};
         DataCopyPadExtParams<int32_t> padParams{false, 0, 0, 0};
 
-        LocalTensor<int32_t> fullOneLt = tempBuf8_.Get<int32_t>();
-        Duplicate<int32_t>(fullOneLt, 1, MAX_BS);
+        LocalTensor<int32_t> fullOneLt = tempBuf9_.Get<int32_t>();
+        Duplicate<int32_t>(fullOneLt, 1, numExperts);
+        LocalTensor<int32_t> expertIdxTensor = tempBuf7_.Get<int32_t>();
         PipeBarrier<PIPE_V>();
 
         // 计算 expandIdxOutputGT_ , 对应于输入 tokenExpertIdx
@@ -714,22 +717,33 @@ private:
         int32_t curRankDataOffset =
             rank * len + numExperts + serverNum + MAX_BS * serverNum + MAX_BS + MAX_BS * serverNum;
         AscendC::SetFlag<HardEvent::MTE3_MTE2>(EVENT_ID0);  // MTE2 waits for MTE3
-        for (int i = 0; i < numExperts; ++i) {
-            int32_t recvOffset = curRankDataOffset + i * MAX_BS;  // 每次从recvdata中拷贝 MAX_BS 个数
-
+        for (int i = 0; i < MAX_BS; ++i) {
+            int32_t recvOffset = curRankDataOffset + i * topkNum;  // 每次从recvdata中拷贝 topkNum 个数
+            Duplicate<int32_t>(dstLt, 0, numExperts);
             event_t eventId = EVENT_ID0;
             AscendC::WaitFlag<HardEvent::MTE3_MTE2>(eventId);
+            DataCopyPad(expertIdxTensor, recvDataOutputGt[recvOffset + MAX_BS * topkNum], copyTopkParams, padParams);
+            DataCopyPad(tmpLt, recvDataOutputGt[recvOffset], copyTopkParams, padParams);
 
-            DataCopyPad(tmpLt, recvDataOutputGt[recvOffset], copyParams, padParams);
+            SyncFunc<AscendC::HardEvent::MTE2_S>();
+            SyncFunc<AscendC::HardEvent::V_S>();
+            for (int j = 0; j < topkNum; ++j) {
+                int expert_idx = expertIdxTensor.GetValue(j);
+                if (expert_idx < 0 || expert_idx >= numExperts) {
+                    continue;
+                }
+                int offset = tmpLt.GetValue(j);
+                dstLt.SetValue(expert_idx, offset);
+            }
 
-            SyncFunc<AscendC::HardEvent::MTE2_V>();
+            SyncFunc<AscendC::HardEvent::S_V>();
 
-            Sub(dstLt, tmpLt, fullOneLt, MAX_BS);  // 所有偏移值-1，为-1的表示不发给该server
+            Sub(lastLt, dstLt, fullOneLt, numExperts);  // 所有偏移值-1，为-1的表示不发给该server
             PipeBarrier<PIPE_V>();
             SyncFunc<AscendC::HardEvent::V_MTE3>();
 
-            int32_t tarOffset = i * MAX_BS;
-            DataCopyPad(expandIdxOutputGT_[tarOffset], dstLt, copyParams);
+            int32_t tarOffset = i * numExperts;
+            DataCopyPad(expandIdxOutputGT_[tarOffset], lastLt, copyExpertsParams);
 
             AscendC::SetFlag<HardEvent::MTE3_MTE2>(eventId);
         }
@@ -771,13 +785,15 @@ private:
         LocalTensor<int32_t> tmpSumLt = tempBuf7_.Get<int32_t>();
         LocalTensor<int32_t> tmp2Lt = tempBuf10_.Get<int32_t>();
         LocalTensor<int32_t> maskLt = tempBuf3_.Get<int32_t>();
+        LocalTensor<int32_t> expertIdxTensor = tempBuf10_.Get<int32_t>();
 
         LocalTensor<int32_t> fullOneLt = tempBuf9_.Get<int32_t>();
         Duplicate<int32_t>(fullOneLt, 1, numExperts);
         PipeBarrier<PIPE_V>();
 
         LocalTensor<int32_t> epTokenCntLt = tempBuf8_.Get<int32_t>();
-        DataCopyExtParams copyParams{1, static_cast<uint32_t>(numExperts * sizeof(int32_t)), 0, 0, 0};
+        DataCopyExtParams copyExpertsParams{1, static_cast<uint32_t>(numExperts * sizeof(int32_t)), 0, 0, 0};
+        DataCopyExtParams copyTopkParams{1, static_cast<uint32_t>(topkNum * sizeof(int32_t)), 0, 0, 0};
         DataCopyPadExtParams<int32_t> padParams{false, 0, 0, 0};
 
         // 1.获取本卡发给每个expert的token个数起始前缀和
@@ -787,17 +803,27 @@ private:
         int32_t dataOffset =
             targetRankId * len + numExperts + serverNum + MAX_BS * serverNum + MAX_BS + MAX_BS * serverNum;
         for (int tokId = startTokenId; tokId < endTokenId; ++tokId) {
-            int32_t recvOffset = dataOffset + tokId * numExperts;  // 每次从recvdata中拷贝 numExperts 个数
+            int32_t recvOffset = dataOffset + tokId * topkNum;  // 每次从recvdata中拷贝 numExperts 个数
 
             event_t eventId = EVENT_ID0;
             AscendC::WaitFlag<HardEvent::MTE3_MTE2>(eventId);
-
+            Duplicate<int32_t>(tmpLt, 0, numExperts);
             // 2.每个token发到expert的顺序, 当前token的expand_idx, 假设 [2,2,0,0]
-            DataCopyPad(tmpLt, recvDataOutputGt[recvOffset], copyParams, padParams);
-
+            DataCopyPad(tmpSumLt, recvDataOutputGt[recvOffset], copyTopkParams, padParams);
+            DataCopyPad(expertIdxTensor, recvDataOutputGt[recvOffset + MAX_BS * topkNum], copyTopkParams, padParams);
+            SyncFunc<AscendC::HardEvent::MTE2_S>();
+            SyncFunc<AscendC::HardEvent::V_S>();
+            for (int j = 0; j < topkNum; ++j) {
+                int expert_idx = expertIdxTensor.GetValue(j);
+                if (expert_idx < 0 || expert_idx >= numExperts) {
+                    continue;
+                }
+                int offset = tmpSumLt.GetValue(j);
+                tmpLt.SetValue(expert_idx, offset);
+            }
             // 3.求token在每个专家上的偏移
             // 当前server上专家token的前缀和与每个token的expand_idx进行相加，为负数的表示没有发给该专家
-            SyncFunc<AscendC::HardEvent::MTE2_V>();
+            SyncFunc<AscendC::HardEvent::S_V>();
 
             // 通过与1比较, 获取0/1的tensor, 用于作为被乘数 [1,1,0,0]
             Mins(maskLt, tmpLt, 1, numExperts);
@@ -814,7 +840,7 @@ private:
             SyncFunc<AscendC::HardEvent::V_MTE3>();
 
             int32_t tarOffset = index * MAX_BS * numExperts + tokId * numExperts;
-            DataCopyPad(offsetInnerOutputGT_[tarOffset], tmpSumLt, copyParams);
+            DataCopyPad(offsetInnerOutputGT_[tarOffset], tmpSumLt, copyExpertsParams);
 
             AscendC::SetFlag<HardEvent::MTE3_MTE2>(eventId);
         }
@@ -956,7 +982,7 @@ private:
         AscendC::SetFlag<HardEvent::MTE3_MTE2>(EVENT_ID0);  // MTE2 waits for MTE3
         for (int i = startRankId; i < endRankId; ++i) {
             int32_t dataOffset = i * len + numExperts + serverNum + MAX_BS * serverNum + MAX_BS + MAX_BS * serverNum +
-                                 MAX_BS * numExperts;
+                                 MAX_BS * topkNum * 2;
             for (int j = 0; j < numExperts; ++j) {
                 int32_t recvOffset = dataOffset + j * MAX_BS;  // 每次从recvdata中拷贝 MAX_BS 个数
 

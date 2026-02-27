@@ -51,10 +51,10 @@ public:
         uint32_t temp = numTokens_ / aivNum_;
         uint32_t restNum = numTokens_ % aivNum_;
         int64_t topkIdxOffset;
+        int64_t tokenIdxOffset;
         int64_t isTokenOffset;
         int64_t serverOffsetOffset;
         int64_t serverNumOffset;
-        int64_t sendTokenIdxOffset;
         tempTokens_ = temp;
 
         if (coreIdx_ < aivNum_) {
@@ -62,6 +62,7 @@ public:
                 tempTokens_++;
             }
             topkIdx32AlignIntLen_ = Ceil(tempTokens_ * numTopk_ * sizeof(int64_t), UB_32_ALIGN) * UB_32_ALIGN;
+            tokenIdx32AlignIntLen_ = Ceil(tempTokens_ * numTopk_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
             numTokensPerRank32AlignIntLen_ = Ceil(numRanks_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
             numTokensPerExpert32AlignIntLen_ = Ceil(numExperts_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
             isTokenInRank32AlignIntLen_ = Ceil(tempTokens_ * numRanks_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
@@ -70,22 +71,22 @@ public:
                 Ceil(tempTokens_ * serverNum_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
             localTokenServerOffset32AlignIntLen_ = localTokenServerTotalCount32AlignIntLen_;
             localTokenServerNum32AlignIntLen_ = Ceil(tempTokens_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
-            sendTokenIdx32AlignIntLen_ = Ceil(tempTokens_ * numExperts_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
+            sendTokenIdx32AlignIntLen_ = Ceil(tempTokens_ * numTopk_ * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
             expertRankTokenIdx32AlignIntLen_ =
                 Ceil(numExperts_ * TEMP_BATCH_SIZE * sizeof(T), UB_32_ALIGN) * UB_32_ALIGN;
 
             if (coreIdx_ < restNum) {
                 topkIdxOffset = coreIdx_ * tempTokens_ * numTopk_ * sizeof(int64_t);
+                tokenIdxOffset = coreIdx_ * tempTokens_ * numTopk_ * sizeof(T);
                 isTokenOffset = coreIdx_ * tempTokens_ * numRanks_ * sizeof(T);
                 serverOffsetOffset = coreIdx_ * tempTokens_ * serverNum_ * sizeof(T);
                 serverNumOffset = coreIdx_ * tempTokens_ * sizeof(T);
-                sendTokenIdxOffset = coreIdx_ * tempTokens_ * numExperts_ * sizeof(T);
             } else {
                 topkIdxOffset = (restNum + coreIdx_ * tempTokens_) * numTopk_ * sizeof(int64_t);
+                tokenIdxOffset = (restNum + coreIdx_ * tempTokens_) * numTopk_ * sizeof(T);
                 isTokenOffset = (restNum + coreIdx_ * tempTokens_) * numRanks_ * sizeof(T);
                 serverOffsetOffset = (restNum + coreIdx_ * tempTokens_) * serverNum_ * sizeof(T);
                 serverNumOffset = (restNum + coreIdx_ * tempTokens_) * sizeof(T);
-                sendTokenIdxOffset = (restNum + coreIdx_ * tempTokens_) * numExperts_ * sizeof(T);
             }
 
             topkIdxGM_.SetGlobalBuffer((__gm__ int64_t *)(topkIdx + topkIdxOffset));
@@ -100,14 +101,16 @@ public:
                                                    serverNum_ * (MAX_BATCH_SIZE + 1));
             localTokenServerOffsetGM_.SetGlobalBuffer((__gm__ T *)(notifySendData + serverOffsetOffset) + numExperts_ +
                                                       serverNum_ + MAX_BATCH_SIZE * (serverNum_ + 1));
-            sendTokenIdxGM_.SetGlobalBuffer((__gm__ T *)(notifySendData + sendTokenIdxOffset) + numExperts_ +
-                                            serverNum_ + MAX_BATCH_SIZE * (1 + 2 * serverNum_));
+            sendTokenIdxGM_.SetGlobalBuffer((__gm__ T *)(notifySendData + tokenIdxOffset) + numExperts_ + serverNum_ +
+                                            MAX_BATCH_SIZE * (1 + 2 * serverNum_));
+            tokenIdxGM_.SetGlobalBuffer((__gm__ T *)(notifySendData + tokenIdxOffset) + numExperts_ + serverNum_ +
+                                        MAX_BATCH_SIZE * (1 + 2 * serverNum_ + numTopk_));
             expertRankTokenIdxGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ + serverNum_ +
-                                                  MAX_BATCH_SIZE * (1 + 2 * serverNum_ + numExperts_));
+                                                  MAX_BATCH_SIZE * (1 + 2 * serverNum_ + numTopk_ * 2));
             tempExpertGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ + serverNum_ +
-                                          MAX_BATCH_SIZE * (1 + 2 * serverNum_));
+                                          MAX_BATCH_SIZE * (1 + 2 * serverNum_ + numTopk_ * 2));
             tempServerGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ * (1 + aivNum_) + serverNum_ +
-                                          MAX_BATCH_SIZE * (1 + 2 * serverNum_));
+                                          MAX_BATCH_SIZE * (1 + 2 * serverNum_ + numTopk_ * 2));
             sendTokenIdxSmallGM_.SetGlobalBuffer((__gm__ T *)(sendTokenIdxSmall + topkIdxOffset / 2));
         }
     }
@@ -126,6 +129,7 @@ private:
     {
         tpipe_->Reset();
         tpipe_->InitBuffer(topkIdxBuf_, topkIdx32AlignIntLen_);
+        tpipe_->InitBuffer(tokenIdxBuf_, tokenIdx32AlignIntLen_);
         tpipe_->InitBuffer(sendTokenIdxSmallBuf_, topkIdx32AlignIntLen_);
         tpipe_->InitBuffer(numTokensPerRankBuf_, numTokensPerRank32AlignIntLen_);
         tpipe_->InitBuffer(numTokensPerExpertBuf_, numTokensPerExpert32AlignIntLen_);
@@ -139,13 +143,11 @@ private:
         tpipe_->InitBuffer(localTokenServerOffsetBuf_, localTokenServerOffset32AlignIntLen_);
         tpipe_->InitBuffer(sendTokenIdxBuf_, sendTokenIdx32AlignIntLen_);
         tpipe_->InitBuffer(tempServerBuf_, serverNum_ * sizeof(T));
-        tpipe_->InitBuffer(tempExpertBuf_, numExperts_ * sizeof(T));
         tpipe_->InitBuffer(expertRankTokenIdxBuf_, expertRankTokenIdx32AlignIntLen_);
         tpipe_->InitBuffer(countExpertBuf_, numExperts_ * sizeof(T));
-        tpipe_->InitBuffer(intermediateExpertBuf_, numExperts_ * sizeof(T));
-        tpipe_->InitBuffer(intermediateServerBuf_, serverNum_ * sizeof(T));
 
         LocalTensor<int64_t> topkIdxTensor = topkIdxBuf_.AllocTensor<int64_t>();
+        LocalTensor<T> tokenIdxTensor = tokenIdxBuf_.AllocTensor<T>();
         LocalTensor<T> sendTokenIdxSmallTensor = sendTokenIdxSmallBuf_.AllocTensor<T>();
         const DataCopyExtParams dataCopyParams{1U, topkIdx32AlignIntLen_, 0U, 0U, 0U};
         const DataCopyPadExtParams<int64_t> padParams{false, 0U, 0U, 0U};
@@ -159,10 +161,7 @@ private:
         LocalTensor<T> localTokenServerNumTensor = localTokenServerNumBuf_.AllocTensor<T>();
         LocalTensor<T> sendTokenIdxTensor = sendTokenIdxBuf_.AllocTensor<T>();
         LocalTensor<T> localTokenServerOffsetTensor = localTokenServerOffsetBuf_.AllocTensor<T>();
-        LocalTensor<T> tempExpertTensor = tempExpertBuf_.AllocTensor<T>();
         LocalTensor<T> tempServerTensor = tempServerBuf_.AllocTensor<T>();
-        LocalTensor<T> intermediateExpertTensor = intermediateExpertBuf_.AllocTensor<T>();
-        LocalTensor<T> intermediateServerTensor = intermediateServerBuf_.AllocTensor<T>();
         LocalTensor<T> expertRankTokenIdxTensor = expertRankTokenIdxBuf_.AllocTensor<T>();
         LocalTensor<T> seenRankTensor = seenRankBuf_.AllocTensor<T>();
         LocalTensor<T> seenServerTensor = seenServerBuf_.AllocTensor<T>();
@@ -175,15 +174,13 @@ private:
         Duplicate<T>(localTokenServerOffsetTensor, 0, localTokenServerOffset32AlignIntLen_ / sizeof(T));
         Duplicate<T>(sendTokenIdxTensor, 0, sendTokenIdx32AlignIntLen_ / sizeof(T));
         Duplicate<T>(tempServerTensor, 0, serverNum_);
-        Duplicate<T>(tempExpertTensor, 0, numExperts_);
-        Duplicate<T>(intermediateServerTensor, 0, serverNum_);
-        Duplicate<T>(intermediateExpertTensor, 0, numExperts_);
         Duplicate<T>(localTokenServerUniqCountTensor, 0, serverNum_);
         Duplicate<T>(localTokenServerTotalCountTensor, 0, tempTokens_ * serverNum_);
         Duplicate<T>(localTokenServerNumTensor, 0, tempTokens_);
         SyncFunc<AscendC::HardEvent::MTE2_S>();
         SyncFunc<AscendC::HardEvent::V_S>();
         int experts_per_rank = numExperts_ / numRanks_;
+        Cast(tokenIdxTensor, topkIdxTensor, AscendC::RoundMode::CAST_NONE, topkIdx32AlignIntLen_ / sizeof(int64_t));
         for (int i = 0; i < tempTokens_; ++i) {
             SyncFunc<AscendC::HardEvent::S_V>();
             Duplicate<T>(seenRankTensor, 0, numRanks_);
@@ -208,7 +205,6 @@ private:
                 }
                 uint32_t totalCount = localTokenServerTotalCountTensor.GetValue(i * serverNum_ + server_id) + 1;
                 localTokenServerTotalCountTensor.SetValue(i * serverNum_ + server_id, totalCount);
-                sendTokenIdxTensor.SetValue(i * numExperts_ + expert_idx, 1);
                 if (!seenRankTensor.GetValue(rank_id)) {
                     uint32_t per_rank_num = numTokensPerRankTensor.GetValue(rank_id) + 1;
                     isTokenInRankTensor.SetValue(i * numRanks_ + rank_id, 1);
@@ -227,6 +223,9 @@ private:
         sendSize = tempTokens_ * serverNum_ * sizeof(T);
         const DataCopyExtParams localTokenServerTotalCountParams{1U, sendSize, 0U, 0U, 0U};
         DataCopyPad(localTokenServerTotalCountGM_, localTokenServerTotalCountTensor, localTokenServerTotalCountParams);
+        sendSize = tempTokens_ * numTopk_ * sizeof(T);
+        const DataCopyExtParams tokenIdxParams{1U, sendSize, 0U, 0U, 0U};
+        DataCopyPad(tokenIdxGM_, tokenIdxTensor, tokenIdxParams);
         AscendC::SetAtomicAdd<T>();
         const DataCopyExtParams tempExpertDataCopyParams{1U, numTokensPerExpert32AlignIntLen_, 0U, 0U, 0U};
         for (int i = coreIdx_ + 1; i < aivNum_; ++i) {
@@ -253,8 +252,11 @@ private:
                     tempPadParams);
         DataCopyPad(numTokensPerExpertTensor, tempExpertGM_[coreIdx_ * numExperts_], tempExpertDataCopyParams,
                     tempPadParams);
-        SyncFunc<AscendC::HardEvent::MTE2_V>();
-        SyncFunc<AscendC::HardEvent::MTE2_S>();
+        SyncFunc<AscendC::HardEvent::MTE2_MTE3>();
+        DataCopyPad(tempExpertGM_[coreIdx_ * numExperts_], prefixCountPerExpertTensor, tempExpertDataCopyParams);
+        DataCopyPad(tempServerGM_[coreIdx_ * serverNum_], tempServerTensor, tempServerDataCopyParams);
+        SyncFunc<AscendC::HardEvent::MTE3_V>();
+        SyncFunc<AscendC::HardEvent::MTE3_S>();
         for (int j = 0; j < serverNum_; ++j) {
             int value = localTokenServerUniqCountTensor.GetValue(j);
             tempServerTensor.SetValue(j, value);
@@ -268,23 +270,20 @@ private:
                 localTokenServerOffsetTensor.SetValue(i * serverNum_ + j, value1 * value2 + value1);
                 tempServerTensor.SetValue(j, value2 + value1);
             }
-            DataCopy(intermediateExpertTensor, sendTokenIdxTensor[i * numExperts_], numExperts_);
-            PipeBarrier<PIPE_V>();
-            AscendC::Mul(sendTokenIdxTensor[i * numExperts_], prefixCountPerExpertTensor, intermediateExpertTensor,
-                         numExperts_);
-            PipeBarrier<PIPE_V>();
-            DataCopy(tempExpertTensor, sendTokenIdxTensor[i * numExperts_], numExperts_);
-            PipeBarrier<PIPE_V>();
-            AscendC::Add(sendTokenIdxTensor[i * numExperts_], tempExpertTensor, intermediateExpertTensor, numExperts_);
-            PipeBarrier<PIPE_V>();
-            DataCopy(tempExpertTensor, prefixCountPerExpertTensor, numExperts_);
-            PipeBarrier<PIPE_V>();
-            AscendC::Add(prefixCountPerExpertTensor, intermediateExpertTensor, tempExpertTensor, numExperts_);
-            PipeBarrier<PIPE_V>();
+        }
+        for (int i = 0; i < tempTokens_; ++i) {
+            for (int j = 0; j < numTopk_; ++j) {
+                int expert_idx = topkIdxTensor.GetValue(i * numTopk_ + j);
+                if (expert_idx < 0 || expert_idx >= numExperts_) {
+                    continue;
+                }
+                int offset = prefixCountPerExpertTensor.GetValue(expert_idx);
+                sendTokenIdxTensor.SetValue(i * numTopk_ + j, offset + 1);
+                prefixCountPerExpertTensor.SetValue(expert_idx, offset + 1);
+            }
         }
         SyncFunc<AscendC::HardEvent::S_MTE3>();
-        SyncFunc<AscendC::HardEvent::V_MTE3>();
-        sendSize = tempTokens_ * numExperts_ * sizeof(T);
+        sendSize = tempTokens_ * numTopk_ * sizeof(T);
         const DataCopyExtParams sendTokenIdxDataCopyParams{1U, sendSize, 0U, 0U, 0U};
         const DataCopyExtParams sendTokenIdxSmallDataCopyParams{
             1U, static_cast<uint32_t>(tempTokens_ * numTopk_ * sizeof(T)), 0U, 0U, 0U};
@@ -307,7 +306,7 @@ private:
                 expertRankTokenIdxTensor.SetValue(expert_idx * TEMP_BATCH_SIZE + count % TEMP_BATCH_SIZE, offset);
                 count++;
                 countExpertTensor.SetValue(expert_idx, count);
-                sendTokenIdxSmallTensor(i * numTopk_ + j) = sendTokenIdxTensor(i * numExperts_ + expert_idx) - 1;
+                sendTokenIdxSmallTensor(i * numTopk_ + j) = sendTokenIdxTensor(i * numTopk_ + j) - 1;
                 if (count % TEMP_BATCH_SIZE == 0) {
                     int32_t preCount = numTokensPerExpertTensor.GetValue(expert_idx);
                     SyncFunc<AscendC::HardEvent::S_MTE3>();
@@ -342,6 +341,7 @@ private:
     GlobalTensor<T> localTokenServerUniqCountGM_;
     GlobalTensor<T> localTokenServerTotalCountGM_;
     GlobalTensor<T> localTokenServerNumGM_;
+    GlobalTensor<T> tokenIdxGM_;
     GlobalTensor<T> expertRankTokenIdxGM_;
     GlobalTensor<T> sendTokenIdxGM_;
     GlobalTensor<T> tempExpertGM_;
@@ -349,6 +349,7 @@ private:
     GlobalTensor<T> sendTokenIdxSmallGM_;
 
     TBuf<> topkIdxBuf_;
+    TBuf<> tokenIdxBuf_;
     TBuf<> sendTokenIdxSmallBuf_;
     TBuf<> numTokensPerRankBuf_;
     TBuf<> numTokensPerExpertBuf_;
@@ -363,11 +364,8 @@ private:
     TBuf<> countExpertBuf_;
     TBuf<> countServerBuf_;
     TBuf<> sendTokenIdxBuf_;
-    TBuf<> tempExpertBuf_;
     TBuf<> tempServerBuf_;
     TBuf<> expertRankTokenIdxBuf_;
-    TBuf<> intermediateExpertBuf_;
-    TBuf<> intermediateServerBuf_;
 
     TPipe *tpipe_{nullptr};
     uint32_t numTokens_{0};
@@ -382,6 +380,7 @@ private:
     uint32_t rankId_{0};
 
     uint32_t topkIdx32AlignIntLen_{0};
+    uint32_t tokenIdx32AlignIntLen_{0};
     uint32_t numTokensPerRank32AlignIntLen_{0};
     uint32_t numTokensPerExpert32AlignIntLen_{0};
     uint32_t isTokenInRank32AlignIntLen_{0};
