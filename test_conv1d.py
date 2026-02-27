@@ -229,6 +229,8 @@ def test_npu_causal_conv1d_update():
     SEQ_LEN = 2
     KERNEL_SIZE = 3
     CACHE_LEN = 10
+    # conv_state buffer size: 必须足够大以容纳 (width-1)+(seq_len-1) = 2+1 = 3 个元素
+    CONV_STATE_LEN = KERNEL_SIZE - 1  # 当前NPU kernel只支持固定size
     DTYPE = torch.bfloat16
     DEVICE = "npu"
 
@@ -240,7 +242,7 @@ def test_npu_causal_conv1d_update():
     weight = torch.randn(KERNEL_SIZE, HIDDEN_SIZE, device=DEVICE, dtype=DTYPE)
     bias = torch.randn(HIDDEN_SIZE, device=DEVICE, dtype=DTYPE)
     hidden_state = torch.randn(BSZ, SEQ_LEN, HIDDEN_SIZE, device=DEVICE, dtype=DTYPE)
-    conv_state_init = torch.randn(CACHE_LEN, KERNEL_SIZE - 1, HIDDEN_SIZE, device=DEVICE, dtype=DTYPE)
+    conv_state_init = torch.randn(CACHE_LEN, CONV_STATE_LEN, HIDDEN_SIZE, device=DEVICE, dtype=DTYPE)
     conv_state_indices = torch.arange(BSZ, device=DEVICE, dtype=torch.int32)
 
     # 用于索引的可选张量
@@ -291,14 +293,65 @@ def test_npu_causal_conv1d_update():
             f"Output shape mismatch: {out_npu_cpu.shape} vs {out_vl_transposed.shape}"
         print(f"✅ Output shape matched: {out_npu_cpu.shape}")
 
-        # 注意：由于算子实现差异，数值结果可能会有微小差异
-        # 主要验证算子可以正确执行并产生合理的输出
-        print(f"NPU output - shape: {out_npu_cpu.shape}, dtype: {out_npu_cpu.dtype}, mean: {out_npu_cpu.mean().item():.6f}")
-        print(f"vLLM output (transposed) - shape: {out_vl_transposed.shape}, dtype: {out_vl_transposed.dtype}, mean: {out_vl_transposed.mean().item():.6f}")
-
         # 验证输出不是全零
         assert not torch.all(out_npu_cpu == 0), "NPU output is all zeros!"
         print(f"✅ NPU output is not all zeros")
+
+        print(f"\n--- Numerical Comparison ---")
+        print(f"NPU output - shape: {out_npu_cpu.shape}, dtype: {out_npu_cpu.dtype}, mean: {out_npu_cpu.mean().item():.6f}")
+        print(f"vLLM output (transposed) - shape: {out_vl_transposed.shape}, dtype: {out_vl_transposed.dtype}, mean: {out_vl_transposed.mean().item():.6f}")
+
+        # 逐元素比较精度
+        diff = out_npu_cpu - out_vl_transposed
+        abs_diff = torch.abs(diff)
+        max_abs_diff = abs_diff.max().item()
+        mean_abs_diff = abs_diff.mean().item()
+        rel_diff_max = abs_diff / (torch.abs(out_vl_transposed) + 1e-6)
+        max_rel_diff = rel_diff_max.max().item()
+
+        print(f"Max absolute diff: {max_abs_diff:.6e}")
+        print(f"Mean absolute diff: {mean_abs_diff:.6e}")
+        print(f"Median absolute diff: {(abs_diff).median().item():.6e}")
+        print(f"Max relative diff: {max_rel_diff:.6e}")
+
+        # 进行精度验证 (使用ops-transformer标准: atol=1e-2, rtol=1e-3)
+        ATOL, RTOL = 1e-2, 1e-3
+        tol = ATOL + RTOL * torch.abs(out_vl_transposed)
+        matched = (abs_diff <= tol).sum().item()
+        total = abs_diff.numel()
+        print(f"Matched (atol={ATOL}, rtol={RTOL}): {matched}/{total} ({100*matched/total:.2f}%)")
+
+        # --- Conv State 验证 ---
+        print(f"\n--- Conv State Update Verification ---")
+        print(f"vLLM state shape: {state_vl.shape}")
+        print(f"NPU state shape: {conv_state_npu.shape}")
+
+        # vLLM state是 [4, 3, 1024]，取最后KERNEL_SIZE-1个元素
+        state_vl_t = state_vl.transpose(1, 2)  # [4, 1024, 3]
+        vllm_last = state_vl_t[:, :, -(KERNEL_SIZE-1):].transpose(1, 2)  # [4, 2, 1024]
+        npu_state = conv_state_npu[:BSZ].cpu()
+
+        state_diff = (npu_state - vllm_last.cpu()).abs()
+        state_exact_match = (state_diff < 1e-6).sum().item()
+        state_total = state_diff.numel()
+
+        print(f"State exact match (diff < 1e-6): {state_exact_match}/{state_total} ({100*state_exact_match/state_total:.2f}%)")
+        if state_exact_match == state_total:
+            print(f"✅ Conv state values match exactly!")
+        else:
+            print(f"State max diff: {state_diff.max():.6e}")
+
+        # --- 总结 ---
+        print(f"\n{'='*60}")
+        print("PRECISION TEST SUMMARY")
+        print(f"{'='*60}")
+        print(f"Output precision:  {matched}/{total} ({100*matched/total:.2f}%) match (atol={ATOL}, rtol={RTOL})")
+        print(f"State precision:   {state_exact_match}/{state_total} ({100*state_exact_match/state_total:.2f}%) exact match")
+
+        if matched >= total * 0.95 and state_exact_match == state_total:
+            print(f"\\n✅ PASS: Output and state are correctly aligned to torch reference!")
+        else:
+            print(f"\\n⚠️  WARNING: Precision below expected threshold")
 
         print(f"\n🎉 NPU causal_conv1d_update test passed!")
 
