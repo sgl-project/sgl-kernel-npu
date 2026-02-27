@@ -272,8 +272,8 @@ def test_npu_causal_conv1d_update():
             conv_state=conv_state_npu,
             conv_state_indices=conv_state_indices,
             bias=bias,
-            num_accepted_tokens=torch.empty(0, device=DEVICE, dtype=torch.int32),  # 可选参数，传空
-            query_start_loc=torch.empty(0, device=DEVICE, dtype=torch.int32),  # 可选参数，传空
+            # num_accepted_tokens=None,  # 可选参数，不传递
+            # query_start_loc=None,     # 可选参数，不传递
             activation_mode=True,
             pad_slot_id=-1
         )
