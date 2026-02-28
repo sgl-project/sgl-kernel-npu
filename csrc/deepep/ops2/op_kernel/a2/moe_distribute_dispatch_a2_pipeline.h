@@ -42,8 +42,8 @@ constexpr uint32_t BITS32_PER_BLOCK = 8U;
 constexpr static uint32_t BW_ITEM_SIZE = 32;
 constexpr uint32_t FLAG_VALUE = 0xFFFFFFFF;
 constexpr uint32_t BS_UPPER = 4096;
-constexpr uint32_t RDMA_SENDER = 1;
-constexpr uint32_t RDMA_HCCS_FORWARDER = 2;
+constexpr uint32_t RDMA_HCCS_FORWARDER = 1;
+constexpr uint32_t RDMA_SENDER = 2;
 constexpr uint32_t FORWARDER_COORDINATOR = 3;
 constexpr uint32_t HCCS_RECEIVER = 4;
 constexpr uint32_t RDMA_COORDINATOR = 5;
@@ -52,7 +52,10 @@ constexpr uint32_t DEFAULT_SYNCALL_NEED_SIZE = 256;
 #define TemplateMC2TypeA2PipelineClass \
     typename XType, typename ExpandXOutType, bool StaticQuant, bool DynamicQuant, bool IsSmoothScaleExist
 #define TemplateMC2TypeA2PipelineFunc XType, ExpandXOutType, StaticQuant, DynamicQuant, IsSmoothScaleExist
-
+#define printflag(ss)                                                      \
+    if (blockIdx < 1) {                                       \
+        printf("========rank:%d coreIdx:%d " #ss "\n", rank, blockIdx); \
+    }
 using namespace AscendC;
 using namespace Cam;
 template <TemplateMC2TypeA2PipelineClass>
@@ -892,11 +895,17 @@ template <TemplateMC2TypeA2PipelineClass>
 __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2PipelineFunc>::Process()
 {
     if ASCEND_IS_AIV {  // 全aiv处理
+        printflag(PrepareRdmaSend);
         PrepareRdmaSend();
+        printflag(TriggerRdmaSend);
         TriggerRdmaSend();
+        printflag(Rdma2HCCS);
         Rdma2HCCS();
-        CreditRecycle();
+        printflag(HCCS2Out);
+        // CreditRecycle();
+        // printflag();
         HCCS2Out();
+        printflag(finish);
 
         hccl_.Finalize();
     }

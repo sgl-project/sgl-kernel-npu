@@ -906,11 +906,6 @@ private:
             }
             preTokenIdx += tokenRank;
         }
-        if (localRank == 0) {
-            for (int i = 0; i < 127; i++) {
-                AscendC::DumpTensor(tokenIdxPerExpertOutputGT_[i * topkNum], i, topkNum);
-            }
-        }
     }
 
     __aicore__ inline void BuildOffsetInnerData(int32_t beginCoreId, int32_t validCoreNum)
