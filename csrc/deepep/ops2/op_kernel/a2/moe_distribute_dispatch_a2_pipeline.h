@@ -22,7 +22,7 @@ constexpr uint32_t PER_MSG_RDMA_SEND_TIME = 2;
 constexpr uint32_t B32_PER_BLOCK = 8;
 constexpr uint32_t UB_32B_ALIGN = 32;
 constexpr uint32_t EXP_TOKEN_COUNT_FLAG_CNT = UB_32B_ALIGN / sizeof(int32_t);  // 8
-constexpr uint32_t DISPATCH_TOKEN_UB_SIZE = 176 * 1024;
+constexpr uint32_t DISPATCH_TOKEN_UB_SIZE = 145 * 1024;
 constexpr uint32_t IPC_MAGIC_OFFSET = 2 * 1024 * 1024 - 64 * 32;
 constexpr uint32_t IPC_TOKEN_CNT_OFFSET = 2 * 1024 * 1024;
 constexpr uint32_t IPC_DATA_OFFSET = 4 * 1024 * 1024;
@@ -44,16 +44,18 @@ constexpr uint32_t FLAG_VALUE = 0xFFFFFFFF;
 constexpr uint32_t BS_UPPER = 4096;
 constexpr uint32_t RDMA_HCCS_FORWARDER = 1;
 constexpr uint32_t RDMA_SENDER = 2;
+constexpr uint32_t RDMA_HCCS_FORWARDER = 1;
+constexpr uint32_t RDMA_SENDER = 2;
 constexpr uint32_t FORWARDER_COORDINATOR = 3;
 constexpr uint32_t HCCS_RECEIVER = 4;
 constexpr uint32_t RDMA_COORDINATOR = 5;
-constexpr uint32_t DEFAULT_SYNCALL_NEED_SIZE = 256;
+constexpr uint32_t DEFAULT_SYNCALL_NEED_SIZE = 32;
 
 #define TemplateMC2TypeA2PipelineClass \
     typename XType, typename ExpandXOutType, bool StaticQuant, bool DynamicQuant, bool IsSmoothScaleExist
 #define TemplateMC2TypeA2PipelineFunc XType, ExpandXOutType, StaticQuant, DynamicQuant, IsSmoothScaleExist
 #define printflag(ss)                                                      \
-    if (aivId_ < 1) {                                       \
+    if (true) {                                       \
         printf("========rank:%d coreIdx:%d " #ss "\n", rankId_, aivId_); \
     }
 using namespace AscendC;
@@ -116,7 +118,9 @@ private:
     GlobalTensor<int32_t> tokenServerIdxGMTensor_;
     GlobalTensor<int32_t> tokenServerCntGMTensor_;
     GlobalTensor<uint8_t> rdmaSendRingU8Tensor_;
+    GlobalTensor<uint32_t> rdmaSendRingU32Tensor_;
     GlobalTensor<uint8_t> rdmaRecvRingU8Tensor_;
+    GlobalTensor<uint32_t> rdmaRecvRingU32Tensor_;
     GlobalTensor<uint8_t> hccsRecvRingU8Tensor_;
     GlobalTensor<uint32_t> rdmaHeadTailTensor_;
     GlobalTensor<uint32_t> hccsHeadTailTensor_;
@@ -254,9 +258,15 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
 
     winContext_ = (__gm__ HcclOpResParam *)contextGM0;
     rankId_ = tilingData.moeDistributeDispatchInfo.epRankId;
+    aivId_ = GetBlockIdx();
     windowInGM_ = hccl_.GetWindowsInAddr(rankId_);
     windowOutGM_ = hccl_.GetWindowsOutAddr(rankId_);
-
+    if (aivId_ == 0) {
+        for (int i = 0; i < SERVER_RANK_SIZE * 2; i++) {
+            printf("Dispatch Init [RANK %d AIC %d] windowInGM_[%d]: %p windowOutGM_[%d]:%p\n",
+                rankId_, aivId_, i, hccl_.GetWindowsInAddr(i), i, hccl_.GetWindowsOutAddr(i));
+        }
+    }
     axisBS_ = tilingData.moeDistributeDispatchInfo.bs;
     globalBs_ = tilingData.moeDistributeDispatchInfo.globalBs;
     axisH_ = tilingData.moeDistributeDispatchInfo.h;
@@ -298,7 +308,6 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     RANK_SIZE_ON_IPC = (totalSize_ - totalWinSize_ - IPC_DATA_OFFSET) / (localMoeExpertNum_ * worldSize_);
     RANK_SIZE_ON_IPC = (RANK_SIZE_ON_IPC / IPC_BUFF_ALIGN) * IPC_BUFF_ALIGN;
 
-    aivId_ = GetBlockIdx();
     expertIdsCnt_ = axisBS_ * axisK_;
 
     bufferChosenGlobal_.SetGlobalBuffer((__gm__ uint32_t *)(windowInGM_ + WIN_SIZE + worldSize_ * STATE_OFFSET));
@@ -331,6 +340,8 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     sendTokensU8Tensor_.SetGlobalBuffer((__gm__ uint8_t *)(windowOutGM_));
     rdmaSendRingU8Tensor_.SetGlobalBuffer((__gm__ uint8_t *)(windowOutGM_));
     rdmaRecvRingU8Tensor_.SetGlobalBuffer((__gm__ uint8_t *)(windowInGM_));
+    rdmaSendRingU32Tensor_.SetGlobalBuffer((__gm__ uint32_t *)(windowOutGM_));
+    rdmaRecvRingU32Tensor_.SetGlobalBuffer((__gm__ uint32_t *)(windowInGM_));
     hccsRecvRingU8Tensor_.SetGlobalBuffer((__gm__ uint8_t *)(windowInGM_ + halfWinSize_ / 2));
     sendTokensU32Tensor_.SetGlobalBuffer((__gm__ uint32_t *)(windowOutGM_));
     sendStatusTensor_.SetGlobalBuffer((__gm__ int32_t *)(windowOutGM_ + WIN_SIZE));
@@ -344,7 +355,6 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     //                                                     HCCS_RING_BUFFER_HEAD_TAIL));
     rdmaHeadTailTensor_.SetGlobalBuffer((__gm__ uint32_t *)(windowInGM_ + halfWinSize_ - HCCS_RING_BUFFER_HEAD_TAIL -
                                                             RING_BUFFER_HEAD_TAIL * serverNum));
-
     expertTokenNumsOutGM_ = expertTokenNumsOut;  // 无GlobalTensor
     epRecvCountsGM_ = epRecvCountsOut;           // 无GlobalTensor
     statusSpaceGm_ = windowInGM_ + WIN_SIZE;
@@ -356,7 +366,6 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     dataBatchWriteInfo_ = workspaceGM;
     dataBatchWriteInfoTensor_.SetGlobalBuffer((__gm__ uint64_t *)(dataBatchWriteInfo_),
                                               serverNum * PER_MSG_RDMA_SEND_TIME * B64_PER_BLOCK);
-
     expertToServerCntGM_ = dataBatchWriteInfo_ + serverNum * PER_MSG_RDMA_SEND_TIME * B64_PER_BLOCK * sizeof(uint64_t);
     expertToServerGlobalTensor_.SetGlobalBuffer((__gm__ uint32_t *)(expertToServerCntGM_),
                                                 RoundUp(axisBS_ * serverNum, B32_PER_BLOCK));
@@ -366,7 +375,6 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     combineOuterCntOffset = combineInnerCntIndexOffset + globalBs_ * axisK_ * serverNum * sizeof(int32_t);
     combineOuterCntIndexOffset = combineOuterCntOffset + axisBS_ * sizeof(int32_t);
     moeExpertNumInServer_ = SERVER_RANK_SIZE * localMoeExpertNum_;
-
     tpipe_->InitBuffer(batchWriteInfoBuf_, PER_MSG_RDMA_SEND_TIME * BW_ITEM_SIZE);  // 2 * 32
 
     batchWriteU64Tensor_ = batchWriteInfoBuf_.Get<uint64_t>();
@@ -392,7 +400,6 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     tpipe_->InitBuffer(expertCountBuf_, moeExpertNum_ * sizeof(int32_t));  // moeNum * 4
     expertCountTensor_ = expertCountBuf_.Get<int32_t>();
     Duplicate<int32_t>(expertCountTensor_, 0, moeExpertNum_);
-
     tpipe_->InitBuffer(tBuf, DISPATCH_TOKEN_UB_SIZE);  // 176K
     tpipe_->InitBuffer(weightBuf_, UB_32B_ALIGN);      // 32
     tpipe_->InitBuffer(localSyncCoreBuf_, aivNum_ * DEFAULT_SYNCALL_NEED_SIZE); 
@@ -400,7 +407,6 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     Duplicate<int32_t>(localSyncCoreTensor_, 0, aivNum_);
 
     CoreRoleAssign();
-
     GlobalTensor<int32_t> selfStatusTensor;
     selfStatusTensor.SetGlobalBuffer((__gm__ int32_t *)(statusSpaceGm_ + SELF_STATE_OFFSET));
     int32_t state = selfStatusTensor(aivId_ * UB_32B_ALIGN);
@@ -413,7 +419,6 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     }
 
     LocalTensor<uint64_t> tempLocal = tBuf.Get<uint64_t>();
-
     // 每次调用magic++,用来区分不同轮次
     GlobalTensor<uint64_t> magicGt;
     magicGt.SetGlobalBuffer((__gm__ uint64_t *)(shareAddrs[rankId_ % SERVER_RANK_SIZE] + IPC_MAGIC_OFFSET) +
@@ -431,7 +436,7 @@ template <TemplateMC2TypeA2PipelineClass>
 __aicore__ void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2PipelineFunc>::CoreRoleAssign()
 {
     senderNum = aivNum_ / 4 - 1;
-    aivRole_ = aivNum_ / senderNum + 1;
+    aivRole_ = aivId_ / senderNum + 1;
     triggerNum = aivNum_ - 4 * senderNum;
 }
 
@@ -442,10 +447,12 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     if (aivRole_ != RDMA_SENDER) {
         return;
     }
+    //printflag(438);
     uint32_t localIndex = aivId_ % senderNum;
     if (localIndex >= serverNum) {
         return;
     }
+    //printflag(443);
     uint32_t sendTokenNum = axisBS_;
     uint32_t startTokenId = 0;
     uint32_t endTokenId = axisBS_;
@@ -529,7 +536,7 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
                 DataCopy(rdmaRecvRingU8Tensor_[destOffset], tokenTempTensorU8_[0], tokenStructLen_);
             } else {
                 rdmaSendTail[j] = rdmaHeadTailTensor_.GetValue(j * 2 * UB_32B_ALIGN);
-                rdmaHeadTailTensor_.SetValue(j * 2 * UB_32B_ALIGN, rdmaRecvTail[j] + 1);
+                rdmaHeadTailTensor_.SetValue(j * 2 * UB_32B_ALIGN, rdmaSendTail[j] + 1);
                 while (rdmaSendTail[j] - rdmaSendHead[j] >= rdmaItemNum) {
                     continue;
                 }
@@ -554,6 +561,7 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     if (aivRole_ != RDMA_COORDINATOR) {
         return;
     }
+    //printflag(551);
     uint32_t localIndex = aivId_ % triggerNum;
     uint32_t destServerNum = serverNum / triggerNum;  // 每个AIV要处理的server数
     uint32_t rdmaServerNum = serverNum % triggerNum;
@@ -568,6 +576,7 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     if (destServerNum == 0) {
         return;
     }
+    printflag(TriggerRdmaSend567);
     uint32_t endServerId = startServerId + destServerNum;
 
     tpipe_->InitBuffer(serverCountBuf_, serverNum * sizeof(int32_t));
@@ -579,16 +588,23 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     for (uint32_t dstServerId = startServerId; dstServerId < startServerId + destServerNum; ++dstServerId) {
         uint32_t dstServerCnt = serverCountTensor_(dstServerId);
         expertToServerIdxTensor_(dstServerId) = dstServerCnt;
-        LocalTensor<uint32_t> writeCntLt = tBuf.GetWithOffset<uint32_t>(EXP_TOKEN_COUNT_FLAG_CNT, 0);
+        LocalTensor<uint32_t> writeCntLt = tBuf.GetWithOffset<uint32_t>((EXP_TOKEN_COUNT_FLAG_CNT) / sizeof(uint32_t), 0);
+        //LocalTensor<uint8_t> writeCntLtU8 = tBuf.GetWithOffset<uint8_t>(EXP_TOKEN_COUNT_FLAG_CNT, 0);
         writeCntLt.SetValue(0, dstServerCnt);
         uint32_t destOffset = (dstServerId * SERVER_SIZE_ON_WIN) / sizeof(uint32_t);
-
+        if (dstServerId == rankId_ / SERVER_RANK_SIZE) {
+            DataCopy(rdmaRecvRingU32Tensor_[destOffset], writeCntLt, EXP_TOKEN_COUNT_FLAG_CNT);
+        } else {
+            DataCopy(rdmaSendRingU32Tensor_[destOffset], writeCntLt, EXP_TOKEN_COUNT_FLAG_CNT);
+        }
         SyncFunc<AscendC::HardEvent::S_MTE3>();
     }
 
     // 当前aiv负责 [startServerId,endServerId) 个 server
     for (uint32_t dstServerInd = startServerId; dstServerInd < endServerId; ++dstServerInd) {
-        uint32_t sendIdx = dstServerInd - startServerId;
+        if (dstServerInd == rankId_ / SERVER_RANK_SIZE) {
+            continue;
+        }
         uint32_t dstRankId = rankId_ % SERVER_RANK_SIZE + dstServerInd * SERVER_RANK_SIZE;  // 目标Rank
         rdmaRecvTail[dstServerInd] = rdmaHeadTailTensor_.GetValue(dstServerInd * 2 * UB_32B_ALIGN + 2 * 8);
         rdmaHeadTailTensor_.SetValue(dstServerInd * 2 * UB_32B_ALIGN + 2 * 8, rdmaRecvTail[dstServerInd] + RDMA_CHUNK);
@@ -597,20 +613,25 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
         int32_t realTail = rdmaRecvTail[dstServerInd] % rdmaItemNum;
         int32_t realHead = rdmaRecvHead[dstServerInd] % rdmaItemNum;
         int32_t sendHead = rdmaSendHead[dstServerInd] % rdmaItemNum;
+        printf("realTail(%d) realHead(%d) sendHead(%d)", realTail, realHead, sendHead);
+        //AscendC::DumpTensor(rdmaHeadTailTensor_, localIndex * 1 + 609, RING_BUFFER_HEAD_TAIL * serverNum);
         PipeBarrier<PIPE_ALL>();
         uint64_t dstDataRdmaAddr =
             (uint64_t)(hccl_.GetWindowsInAddr(dstRankId) + NOTIFY_OFFSET + halfWinSize_ * bufferId_ +
                        curServerId * SERVER_SIZE_ON_WIN + realTail * tokenStructLen_);
         // src卡GetWindowsInAddr地址, 要发给serverIndex，即是本端的rdma地址
         uint64_t srcDataRdmaAddr = (uint64_t)(hccl_.GetWindowsOutAddr(rankId_) + halfWinSize_ * bufferId_ +
-                                              dstServerInd * SERVER_SIZE_ON_WIN + sendHead);
+                                              dstServerInd * SERVER_SIZE_ON_WIN + sendHead * tokenStructLen_);
 
         // 去往该Server的传输的数据量
+        // GlobalTensor<uint32_t> senddata;
+        // senddata.SetGlobalBuffer((__gm__ uint32_t *)srcDataRdmaAddr);
+        // AscendC::DumpTensor(senddata, 620, tokenStructLen_);
         uint32_t validTokenCount = RDMA_CHUNK;
         uint32_t validDataLength = TOKEN_COUNT_SIZE + validTokenCount * tokenStructLen_;
         // uint32_t validDataLength = validTokenCount * tokenStructLen_;
-        uint64_t winInAddr = (uint64_t)(hccl_.GetWindowsInAddr(rankId_) + NOTIFY_OFFSET);
-        uint64_t winOutAddr = (uint64_t)(hccl_.GetWindowsOutAddr(rankId_));
+        //uint64_t winInAddr = (uint64_t)(hccl_.GetWindowsInAddr(rankId_) + NOTIFY_OFFSET);
+        //uint64_t winOutAddr = (uint64_t)(hccl_.GetWindowsOutAddr(rankId_));
         PipeBarrier<PIPE_ALL>();
         batchWriteU64Tensor_(0) = srcDataRdmaAddr;  // 源地址
         batchWriteU64Tensor_(1) = dstDataRdmaAddr;  // 目的地址
@@ -630,43 +651,62 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
         batchWriteU64Tensor_(6) = flagLen;          // 数据长度
         batchWriteU32Tensor_(14) = HcclDataType::HCCL_DATA_TYPE_INT8;
         batchWriteU32Tensor_(15) = dstRankId;  // dst卡
-
+        //AscendC::DumpTensor(batchWriteU64Tensor_, 637, PER_MSG_RDMA_SEND_TIME * BW_ITEM_SIZE);
+        AscendC::DumpTensor(sendStatusTensor_, rankId_, FLAG_U32_CNT);
+        printf("TriggerRdmaSend [RANK %d AIC %d] flagLen:%d dstRankId:%ld srcFlagRdmaAddr:%ld dstFlagRdmaAddr:%ld dstRankId:%ld srcRank:%d\n",
+            rankId_, aivId_, flagLen, dstRankId, srcFlagRdmaAddr, dstFlagRdmaAddr, dstRankId, rankId_);
         SyncFunc<AscendC::HardEvent::S_MTE3>();
         uint32_t dstServerOffset = dstServerInd;
         uint32_t sendInfoCount = B64_PER_BLOCK * PER_MSG_RDMA_SEND_TIME;
         DataCopy(dataBatchWriteInfoTensor_[dstServerOffset * sendInfoCount], batchWriteU64Tensor_, sendInfoCount);
 
         PipeBarrier<PIPE_ALL>();
-        SyncAll<true>();
+        //SyncAll<true>();
         if ASCEND_IS_AIV {
-            while (((rdmaSendTail[dstServerInd] - sendHead + rdmaItemNum) % rdmaItemNum < RDMA_CHUNK) ||
-                   (realTail + RDMA_CHUNK) % rdmaItemNum == realHead) {
-                continue;
-            }
+            // while (((rdmaSendTail[dstServerInd] - sendHead + rdmaItemNum) % rdmaItemNum < RDMA_CHUNK) ||
+            //        (realTail + RDMA_CHUNK) % rdmaItemNum == realHead) {
+            //     continue;
+            // }
+            printf("=========================start batchwrite==========================bufferId_:%d\n",bufferId_);
             HcclHandle batchWriteResultData = hccl_.BatchWrite<true>(
                 (GM_ADDR)(dataBatchWriteInfoTensor_[dstServerOffset * sendInfoCount].GetPhyAddr()),
-                PER_MSG_RDMA_SEND_TIME);
+                serverNum * PER_MSG_RDMA_SEND_TIME);
             bufferChosenGlobal_(0) = bufferId_ ^ 1;
-            DataCacheCleanAndInvalid<uint32_t, AscendC::CacheLine::SINGLE_CACHE_LINE, AscendC::DcciDst::CACHELINE_OUT>(
-                bufferChosenGlobal_);
+            DataCacheCleanAndInvalid<uint32_t, AscendC::CacheLine::SINGLE_CACHE_LINE,
+            AscendC::DcciDst::CACHELINE_OUT>(bufferChosenGlobal_);
+            printf("=========================end batchwrite==========================bufferId_:%d\n",bufferId_);
         }
     }
+        // if (rankId_ == 8 && localIndex == 0) {
+        //     AscendC::DumpTensor(rdmaSendRingU8Tensor_, 661, tokenStructLen_);
+        //     AscendC::DumpTensor(rdmaSendRingU8Tensor_[expOffsetInStruct_], 662, axisK_);
+        // }
 
     PipeBarrier<PIPE_ALL>();
     LocalTensor<int32_t> statusTensor = statusBuf_.Get<int32_t>();
+    uint32_t count = 0;
+    int32_t flag = 0;
     for (uint32_t dstServerInd = startServerId; dstServerInd < endServerId; ++dstServerInd) {
-        while (true) {
-            DataCopy(statusTensor, readStatusTensor_[(dstServerInd)*STATE_OFFSET / sizeof(int32_t)], FLAG_U32_CNT);
-            SyncFunc<AscendC::HardEvent::MTE2_S>();
-            int32_t sumOfFlag = statusTensor.GetValue(0);
-            if (sumOfFlag == FLAG_VALUE) {
-                break;
+        if (dstServerInd != rankId_ / SERVER_RANK_SIZE) {
+            while (count < 1000000) {
+                DataCopy(statusTensor, readStatusTensor_[(dstServerInd)*STATE_OFFSET / sizeof(int32_t)], FLAG_U32_CNT);
+                SyncFunc<AscendC::HardEvent::MTE2_S>();
+                int32_t sumOfFlag = statusTensor.GetValue(0);
+                flag = sumOfFlag;
+                if (sumOfFlag == FLAG_VALUE) {
+                    AscendC::DumpTensor(statusTensor, dstServerInd * 1000 + 679, FLAG_U32_CNT);
+                    break;
+                }
+                count++;
             }
+            printf("rankId:%d coreIdx:%d flag :%d FLAG_VALUE:%d\n", rankId_, aivId_, flag, FLAG_VALUE);
+            rdmaSendHead[dstServerInd] = rdmaHeadTailTensor_.GetValue(dstServerInd * 2 * UB_32B_ALIGN + 1 * 8);
+            rdmaSendHead[dstServerInd] += RDMA_CHUNK;
+            rdmaHeadTailTensor_.SetValue(dstServerInd * 2 * UB_32B_ALIGN + 1 * 8, rdmaSendHead[dstServerInd]);
         }
-        rdmaSendHead[dstServerInd] = rdmaHeadTailTensor_.GetValue(dstServerInd * 2 * UB_32B_ALIGN + 1 * 8);
-        rdmaSendHead[dstServerInd] += RDMA_CHUNK;
-        rdmaHeadTailTensor_.SetValue(dstServerInd * 2 * UB_32B_ALIGN + 1 * 8, rdmaSendHead[dstServerInd]);
     }
+    AscendC::DumpTensor(readStatusTensor_, localIndex * 1000 + 694, 256);
+    printflag(TriggerRdmaSend695);
     // if local_tail - last_sent >= RDMA_CHUNK:
     //     roce_write(rdma_buffer[last_sent : local_tail])
     //     rdma_atomic_add(remote_tail, local_tail - last_sent)
@@ -685,12 +725,8 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     uint32_t expertIdxStart = serverId * moeExpertNumInServer_;
     uint32_t expertIdxEnd = expertIdxStart_ + moeExpertNumInServer_;
     uint32_t senderNum = aivNum_ / 4 - 1;
-    uint32_t eachChunked = rdmaItemNum;
-    uint32_t localStartWorkerCoreIdx = (RDMA_HCCS_FORWARDER - 1) * senderNum;
     // 每个核负责一个hccs接收环形buffer
-    uint32_t localWorkCoreId = aivId_ - localStartWorkerCoreIdx;
-    uint32_t tokenStart = 0;
-    uint32_t tokenEnd = tokenStart + serverNum * eachChunked;
+    uint32_t localWorkCoreId = aivId_ % senderNum;
     uint32_t localRankId = rankId_ % SERVER_RANK_SIZE;
     if (localWorkCoreId >= SERVER_RANK_SIZE) {
         return;
@@ -698,22 +734,51 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     DataCopyExtParams tokenStructParams{1, static_cast<uint32_t>(tokenStructLen_), 0, 0, 0};
     DataCopyPadExtParams<uint8_t> tokenStructPadParams{false, 0U, 0U, 0U};
     DataCopyParams hccsHesdTailParams{1, EACH_HCCS_RING_BUFFER_HEAD_TAIL * sizeof(uint32_t), 0, 0};
+    // LocalTensor<int32_t> statusTensor = statusBuf_.Get<int32_t>();
+    // for (uint32_t dstServerInd = 0; dstServerInd < serverNum; ++dstServerInd) {
+    //     if (dstServerInd != rankId_ / SERVER_RANK_SIZE) {
+    //         uint32_t count = 0;
+    //         while (count < 1000000) {
+    //             DataCopy(statusTensor, readStatusTensor_[(dstServerInd)*STATE_OFFSET / sizeof(int32_t)], FLAG_U32_CNT);
+    //             SyncFunc<AscendC::HardEvent::MTE2_S>();
+    //             int32_t sumOfFlag = statusTensor.GetValue(0);
+    //             if (sumOfFlag == FLAG_VALUE) {
+    //                 AscendC::DumpTensor(statusTensor, dstServerInd * 1000 + 744, FLAG_U32_CNT);
+    //                 break;
+    //             }
+    //             count++;
+    //         }
+    //         rdmaSendHead[dstServerInd] = rdmaHeadTailTensor_.GetValue(dstServerInd * 2 * UB_32B_ALIGN + 1 * 8);
+    //         rdmaSendHead[dstServerInd] += RDMA_CHUNK;
+    //         rdmaHeadTailTensor_.SetValue(dstServerInd * 2 * UB_32B_ALIGN + 1 * 8, rdmaSendHead[dstServerInd]);
+    //     }
+    // }
     uint32_t processedTokenNum = 0;
     // 当前aicore负责的hccs环形buffer接收的来自于各server的token数，即每个aicore需要处理的token
     uint32_t tokenGlobalCnt = 0;
     for (int i = 0; i < serverNum; i++) {
-        tokenGlobalCnt += rdmaRecvRingU8Tensor_.GetValue(i * rdmaItemNum);
+        tokenGlobalCnt += rdmaRecvRingU32Tensor_.GetValue(i * rdmaItemNum * tokenStructLen_ / sizeof(uint32_t));
     }
     // 此处processedTokenNum不用原子加是因为就算当前aicore不处理本token也会遍历token并计数
     while (processedTokenNum <= tokenGlobalCnt) {
         for (int i = 0; i < serverNum * rdmaItemNum; i++) {
             uint32_t currentServerId = i / rdmaItemNum;
-            uint32_t rdmaHead = rdmaHeadTailTensor_.GetValue(currentServerId * RING_BUFFER_HEAD_TAIL + 2);
-            uint32_t rdmaTail = rdmaHeadTailTensor_.GetValue(currentServerId * RING_BUFFER_HEAD_TAIL + 3);
+            SyncFunc<AscendC::HardEvent::MTE2_S>();
+            uint32_t rdmaTail = rdmaHeadTailTensor_.GetValue(currentServerId * 2 * UB_32B_ALIGN + 2 * 8);
+            uint32_t rdmaHead = rdmaHeadTailTensor_.GetValue(currentServerId * 2 * UB_32B_ALIGN + 3 * 8);
             // 相等说明currentServerId为空环形buffer
-            if (rdmaHead == rdmaTail % rdmaItemNum) {
+            // if (rankId_ % 8 == 0 && localWorkCoreId == 0 && i == 0 && count < 10) {
+            // AscendC::DumpTensor(rdmaHeadTailTensor_[currentServerId * 2 * UB_32B_ALIGN + 2 * 8], 766, 8);
+            // AscendC::DumpTensor(rdmaHeadTailTensor_[currentServerId * 2 * UB_32B_ALIGN + 3 * 8], 767, 8);
+            //     count++;
+            // }
+            if (rdmaHead % rdmaItemNum == rdmaTail % rdmaItemNum) {
+                i = currentServerId * rdmaItemNum;
                 continue;
             }
+            printf("rdmaHead(%d) rdmaTail(%d)\n", rdmaHead, rdmaTail);
+            //AscendC::DumpTensor(rdmaRecvRingU32Tensor_, 777, tokenStructLen_);
+            //AscendC::DumpTensor(rdmaRecvRingU32Tensor_[expOffsetInStruct_], 778, axisK_);
             DataCopyPad(tokenStructInRdmaTensor_,
                         rdmaRecvRingU8Tensor_[sizeof(uint32_t) * currentServerId +
                                               (currentServerId * rdmaItemNum + rdmaHead) * tokenStructLen_],
@@ -747,7 +812,7 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
                 }
                 GlobalTensor<uint8_t> dstRankRecvRingU8Tensor;
                 dstRankRecvRingU8Tensor.SetGlobalBuffer((__gm__ uint8_t *)(hccl_.GetWindowsInAddr(localDstRank)) +
-                                                        halfWinSize_ / 2);
+                                                        halfWinSize_ * bufferId_ + halfWinSize_ / 2);
                 GlobalTensor<uint32_t> globalHccsHeadTailTensor;
                 globalHccsHeadTailTensor.SetGlobalBuffer((__gm__ uint32_t *)hccsHeadTailGM[localDstRank]);
                 DataCopy(localHccsHeadTailTensor_, globalHccsHeadTailTensor[localRankId], hccsHesdTailParams);
@@ -772,8 +837,8 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
             }
             SyncAll(syncCoreGMTensor_, localSyncCoreTensor_, SERVER_RANK_SIZE);
             if (localWorkCoreId == 0) {
-                rdmaTail = (rdmaTail + 1) % rdmaItemNum;
-                rdmaHeadTailTensor_.SetValue(currentServerId * RING_BUFFER_HEAD_TAIL + 3, rdmaTail);
+                rdmaHead = (rdmaHead + 1) % rdmaItemNum;
+                rdmaHeadTailTensor_.SetValue(currentServerId * 2 * UB_32B_ALIGN + 3 * 8, rdmaHead);
                 AscendC::DataCacheCleanAndInvalid<uint32_t, AscendC::CacheLine::SINGLE_CACHE_LINE, AscendC::DcciDst::CACHELINE_OUT>(rdmaHeadTailTensor_);
             }
             processedTokenNum++;
@@ -805,6 +870,7 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     if (aivRole_ != HCCS_RECEIVER) {
         return;
     }
+    //printflag(806);
     // 每个核负责一个rank的环形buffer
     uint32_t senderNum = aivNum_ / 4 - 1;
     uint32_t localRankId = rankId_ % SERVER_RANK_SIZE;
@@ -817,6 +883,7 @@ __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2Pipeline
     if (localWorkerCoreIdx >= SERVER_RANK_SIZE) {
         return;
     }
+    //printflag(819);
     uint32_t processedTokens = 0;
     DataCopyExtParams tokenStructParams{1, static_cast<uint32_t>(tokenStructLen_), 0, 0, 0};
     DataCopyExtParams tokenParams{1, static_cast<uint32_t>(tokenLenInStruct_), 0, 0, 0};
@@ -895,17 +962,17 @@ template <TemplateMC2TypeA2PipelineClass>
 __aicore__ inline void MoeDistributeDispatchA2Pipeline<TemplateMC2TypeA2PipelineFunc>::Process()
 {
     if ASCEND_IS_AIV {  // 全aiv处理
-        printflag(PrepareRdmaSend);
+        //printflag(PrepareRdmaSend);
         PrepareRdmaSend();
-        printflag(TriggerRdmaSend);
+        //printflag(TriggerRdmaSend);
         TriggerRdmaSend();
-        printflag(Rdma2HCCS);
+        //printflag(Rdma2HCCS);
         Rdma2HCCS();
-        printflag(HCCS2Out);
-        // CreditRecycle();
+        //printflag(HCCS2Out);
+        CreditRecycle();
         // printflag();
         HCCS2Out();
-        printflag(finish);
+        //printflag(finish);
 
         hccl_.Finalize();
     }
