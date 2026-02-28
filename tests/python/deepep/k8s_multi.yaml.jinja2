@@ -174,11 +174,6 @@ spec:
         - name: localtime
           hostPath:
             path: /etc/localtime
-        tolerations:
-          - key: "npu-type"
-            operator: "Equal"
-            value: "ascend"
-            effect: "NoSchedule"
         nodeSelector:
           accelerator/huawei-npu: ascend-1980
         restartPolicy: OnFailure

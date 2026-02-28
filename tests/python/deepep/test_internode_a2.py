@@ -145,6 +145,8 @@ def test_main(
             seen_server = [0] * num_servers
             for j in range(num_topk):
                 expert_id = topk_idx[i][j]
+                if expert_id < 0 or expert_id >= num_experts:
+                    continue
                 rank_id = expert_id // experts_per_rank
                 server_id = rank_id // num_local_ranks
                 if seen_server[server_id] == 0:
@@ -164,6 +166,8 @@ def test_main(
         for i in range(num_tokens):
             for j in range(num_topk):
                 expert_id = topk_idx[i][j]
+                if expert_id < 0 or expert_id >= num_experts:
+                    continue
                 rank_id = expert_id // experts_per_rank
                 server_id = rank_id // num_local_ranks
                 expert_rank_token_idx[
@@ -193,13 +197,9 @@ def test_main(
             + MAX_BATCH_SIZE * (num_servers + 1)
             + num_servers * num_tokens
         ]
+        base_offset = num_experts + num_servers + MAX_BATCH_SIZE * (num_servers * 2 + 1)
         ref_send_token_idx = notify_send_data[
-            num_experts
-            + num_servers
-            + MAX_BATCH_SIZE * (num_servers * 2 + 1) : num_experts
-            + num_servers
-            + MAX_BATCH_SIZE * (num_servers * 2 + 1)
-            + num_tokens * num_experts
+            base_offset : base_offset + num_tokens * num_experts
         ]
         ref_expert_rank_token_idx = notify_send_data[
             num_experts
@@ -226,9 +226,9 @@ def test_main(
             assert torch.allclose(
                 each_token_offset_to_server, ref_each_token_offset_to_server
             ), f"Assertion each_token_offset_to_server failed on rank {rank}: Expected {each_token_offset_to_server}, Actual {ref_each_token_offset_to_server}"
-            assert torch.allclose(
-                send_token_idx, ref_send_token_idx, atol=1e-6, rtol=1e-6
-            ), f"Assertion send_token_idx failed on rank {rank}: Expected {send_token_idx}, Actual {ref_send_token_idx}"
+            assert torch.equal(
+                send_token_idx, ref_send_token_idx
+            ), f"Assertion send_token_idx failed on rank {rank}"
             assert torch.allclose(
                 expert_rank_token_idx, ref_expert_rank_token_idx
             ), f"Assertion expert_rank_token_idx failed on rank {rank}: Expected {expert_rank_token_idx}, Actual {ref_expert_rank_token_idx}"
