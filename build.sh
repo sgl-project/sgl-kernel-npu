@@ -116,7 +116,7 @@ function build_kernels()
     CMAKE_DIR=""
     BUILD_DIR="build"
 
-    ### The kernel compilation does not yet adapt to different versions, so a temporary stable version is used
+    ### Because the kernel code has not been adapted to the Ascend A5, an error will be reported when Ascend910_95xx is used. Therefore, a temporary stable version is used here.
     TMP_SOC_VERSION="Ascend910_9382"
 
     cd "$CMAKE_DIR" || exit
@@ -189,7 +189,7 @@ function create_deepep_cmake()
     chmod +x deepep_cmake_build.sh
     chmod +x deepep/build.sh
     chmod +x deepep/compile_ascend_proj.sh
-    echo "./deepep_cmake_build.sh all $SOC_VERSION"
+    echo "${FUNCNAME[0]}:./deepep_cmake_build.sh all $SOC_VERSION"
     ./deepep_cmake_build.sh all $SOC_VERSION
     cd -
 }
