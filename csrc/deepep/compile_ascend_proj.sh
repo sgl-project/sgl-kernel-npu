@@ -77,18 +77,21 @@ BuildAscendProj() {
   echo "cd $1"
   cd $1
 
-  BuildOps "ops_${soc_version}" ${soc_version}
-  BuildOps "ops2_${soc_version}" ${soc_version}
-  CopyOps "./ops" "./ops_${soc_version}"
-  CopyOps "./ops2" "./ops2_${soc_version}"
-  cp -r ./ops_${soc_version}/cmake ./ops
-  cp -r ./ops2_${soc_version}/cmake ./ops2
-  cp -r ./ops_${soc_version}/CMakePresets.json ./ops
-  cp -r ./ops2_${soc_version}/CMakePresets.json ./ops2
-  DelOps "ops_${soc_version}"
-  DelOps "ops2_${soc_version}"
-  sed -i 's/customize/hwcomputing/g' ./ops/CMakePresets.json
-  sed -i 's/customize/hwcomputing/g' ./ops2/CMakePresets.json
+  if [[ "$3" == "deepep" ]]; then
+    BuildOps "ops_${soc_version}" ${soc_version}
+    CopyOps "./ops" "./ops_${soc_version}"
+    cp -r ./ops_${soc_version}/cmake ./ops
+    cp -r ./ops_${soc_version}/CMakePresets.json ./ops
+    DelOps "ops_${soc_version}"
+    sed -i 's/customize/hwcomputing/g' ./ops/CMakePresets.json
+  else
+    BuildOps "ops2_${soc_version}" ${soc_version}
+    CopyOps "./ops2" "./ops2_${soc_version}"
+    cp -r ./ops2_${soc_version}/cmake ./ops2
+    cp -r ./ops2_${soc_version}/CMakePresets.json ./ops2
+    DelOps "ops2_${soc_version}"
+    sed -i 's/customize/hwcomputing/g' ./ops2/CMakePresets.json
+  fi
 }
 
 BuildAscendProj $1 $2 $3 $4

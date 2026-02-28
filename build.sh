@@ -191,6 +191,14 @@ function create_deepep_cmake()
     chmod +x deepep/compile_ascend_proj.sh
     echo "${FUNCNAME[0]}:./deepep_cmake_build.sh all $SOC_VERSION"
     ./deepep_cmake_build.sh all $SOC_VERSION
+
+    if [[ "$BUILD_DEEPEP_OPS" == "ON" ]]; then
+        echo "./deepep/compile_ascend_proj.sh ./deepep $SOC_VERSION deepep"
+        bash ./deepep/compile_ascend_proj.sh ./deepep $SOC_VERSION deepep
+    else
+        echo "./deepep/compile_ascend_proj.sh ./deepep $SOC_VERSION deepep2"
+        bash ./deepep/compile_ascend_proj.sh ./deepep $SOC_VERSION deepep2
+    fi
     cd -
 }
 

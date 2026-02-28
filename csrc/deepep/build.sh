@@ -8,7 +8,6 @@ export MODULE_TEST_PATH="${TEST_PATH}/${MODULE_NAME}"
 SOC_VERSION=$1
 ENABLE_UT_BUILD=0
 ENABLE_PYBIND_BUILD=0
-ENABLE_SRC_BUILD=1
 
 BuildPybind() {
   DIST_OUT_PATH=$MODULE_BUILD_OUT_PATH
@@ -81,21 +80,6 @@ echo "Start creating the CMake file"
 if [ ! -d "$BUILD_OUT_PATH/${MODULE_NAME}" ]; then
   echo "mkdir $BUILD_OUT_PATH/${MODULE_NAME}"
   mkdir $BUILD_OUT_PATH/${MODULE_NAME}
-fi
-
-echo "ENABLE_SRC_BUILD=$ENABLE_SRC_BUILD"
-if [ $ENABLE_SRC_BUILD -eq 1 ]; then
-  echo "SOC_VERSION=$SOC_VERSION"
-  if [[ "$SOC_VERSION" == "all" ]]; then
-    echo "$MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH Ascend910_9382"
-    bash $MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH Ascend910_9382
-  else
-    echo "$MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH $SOC_VERSION"
-    bash $MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH $SOC_VERSION
-  fi
-  if [ $? -ne 0 ]; then
-    exit 1
-  fi
 fi
 
 if [ $ENABLE_PYBIND_BUILD -eq 1 ]; then
