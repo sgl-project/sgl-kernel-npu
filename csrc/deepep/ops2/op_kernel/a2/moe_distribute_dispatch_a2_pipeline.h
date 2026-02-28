@@ -53,8 +53,8 @@ constexpr uint32_t DEFAULT_SYNCALL_NEED_SIZE = 256;
     typename XType, typename ExpandXOutType, bool StaticQuant, bool DynamicQuant, bool IsSmoothScaleExist
 #define TemplateMC2TypeA2PipelineFunc XType, ExpandXOutType, StaticQuant, DynamicQuant, IsSmoothScaleExist
 #define printflag(ss)                                                      \
-    if (blockIdx < 1) {                                       \
-        printf("========rank:%d coreIdx:%d " #ss "\n", rank, blockIdx); \
+    if (aivId_ < 1) {                                       \
+        printf("========rank:%d coreIdx:%d " #ss "\n", rankId_, aivId_); \
     }
 using namespace AscendC;
 using namespace Cam;
