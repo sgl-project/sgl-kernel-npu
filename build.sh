@@ -116,9 +116,6 @@ function build_kernels()
     CMAKE_DIR=""
     BUILD_DIR="build"
 
-    ### Because the kernel code has not been adapted to the Ascend A5, an error will be reported when Ascend910_95xx is used. Therefore, a temporary stable version is used here.
-    TMP_SOC_VERSION="Ascend910_9382"
-
     cd "$CMAKE_DIR" || exit
 
     rm -rf $BUILD_DIR
@@ -128,7 +125,7 @@ function build_kernels()
     -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" \
     -DASCEND_HOME_PATH=$ASCEND_HOME_PATH \
     -DASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR \
-    -DSOC_VERSION=$TMP_SOC_VERSION \
+    -DSOC_VERSION=$SOC_VERSION \
     -DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE \
     -DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE \
     -B "$BUILD_DIR" \
