@@ -942,14 +942,13 @@ __aicore__ inline void NotifyDispatch<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_ALL
     blockIdx = GetBlockIdx();
     blockNum = GetBlockNum();
     uint8_t ctxIdx;
-    auto tilingData = (__gm__ NotifyDispatchTilingData *)tiling;
-    __gm__ void *mc2InitTiling = (__gm__ void *)(&(tilingData->mc2InitTiling));
-    __gm__ void *mc2CcTiling = (__gm__ void *)(&(tilingData->mc2CcTiling1));
+    REGISTER_TILING_DEFAULT(NotifyDispatchTilingData);
+    GET_TILING_DATA_WITH_STRUCT(NotifyDispatchTilingData, tilingData, tiling);
 
     auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
 
-    hccl_.Init(contextGM0, mc2InitTiling);
-    hccl_.SetCcTiling(mc2CcTiling);
+    hccl_.InitV2(contextGM0, &tilingData);
+    hccl_.SetCcTilingV2(offsetof(NotifyDispatchTilingData, mc2CcTiling1));
 
     winContext_[COMM_EP_IDX] = (__gm__ HcclOpResParam *)contextGM0;
     this->magic = GetMagicValue();
