@@ -10,6 +10,8 @@
 
 #include <cstdio>
 #include <cstring>
+#include <unordered_map>
+#include <functional>
 #include "acl/acl.h"
 #include "kernel_tiling/kernel_tiling.h"
 #include "tiling/platform/platform_ascendc.h"
@@ -25,25 +27,61 @@ namespace sglang {
 namespace npu_kernel {
 
 constexpr uint32_t PADDING_BYTE = 32U;
+constexpr uint32_t MAX_CAPTURE_NUM = 256;
 
-at::Tensor get_tiling(int32_t& block_dim, int32_t& workspace_size,
-                      int64_t batch, int64_t seq_len, int64_t dim, int64_t width, int64_t state_len,
-                      bool has_indices, bool has_bias, bool has_num_accept, bool has_query_loc,
-                      bool activation_mode, int64_t pad_slot_id)
-{
-    auto ascendc_platform = platform_ascendc::PlatformAscendCManager::GetInstance();
-    int32_t max_aiv_core = static_cast<int32_t>(ascendc_platform->GetCoreNumAiv());
-    block_dim = std::min(max_aiv_core, static_cast<int32_t>(batch));
-    if (block_dim == 0) {
-        block_dim = 1;
+// Graph mode tiling cache
+uint32_t actualCaptureNum = 0;
+static std::unordered_map<uint64_t, uint32_t> captureMap;
+
+// Helper struct for hashing tiling parameters
+struct CausalConv1dUpdateTilingKey {
+    int64_t batch;
+    int64_t seqLen;
+    int64_t dim;
+    int64_t width;
+    int64_t stateLen;
+    int64_t hasIndices;
+    int64_t hasBias;
+    int64_t hasNumAccept;
+    int64_t hasQueryLoc;
+    int64_t activationMode;
+    int64_t padSlotId;
+
+    bool operator==(const CausalConv1dUpdateTilingKey& other) const {
+        return batch == other.batch && seqLen == other.seqLen && dim == other.dim &&
+               width == other.width && stateLen == other.stateLen && hasIndices == other.hasIndices &&
+               hasBias == other.hasBias && hasNumAccept == other.hasNumAccept &&
+               hasQueryLoc == other.hasQueryLoc && activationMode == other.activationMode &&
+               padSlotId == other.padSlotId;
     }
-    workspace_size = static_cast<int32_t>(ascendc_platform->GetLibApiWorkSpaceSize());
+};
 
-    // align to 32 bytes
-    int32_t tiling_size = (sizeof(CausalConv1dUpdateTilingData) + PADDING_BYTE - 1) / PADDING_BYTE * PADDING_BYTE;
-    auto tiling_buffer = at::empty({tiling_size}, at::TensorOptions().dtype(at::kByte).device(at::kCPU));
+// Hash function for CausalConv1dUpdateTilingKey
+struct CausalConv1dUpdateTilingKeyHash {
+    std::size_t operator()(const CausalConv1dUpdateTilingKey& k) const {
+        std::size_t h1 = std::hash<int64_t>{}(k.batch);
+        std::size_t h2 = std::hash<int64_t>{}(k.seqLen);
+        std::size_t h3 = std::hash<int64_t>{}(k.dim);
+        std::size_t h4 = std::hash<int64_t>{}(k.width);
+        std::size_t h5 = std::hash<int64_t>{}(k.stateLen);
+        std::size_t h6 = std::hash<int64_t>{}(k.hasIndices);
+        std::size_t h7 = std::hash<int64_t>{}(k.hasBias);
+        std::size_t h8 = std::hash<int64_t>{}(k.hasNumAccept);
+        std::size_t h9 = std::hash<int64_t>{}(k.hasQueryLoc);
+        std::size_t h10 = std::hash<int64_t>{}(k.activationMode);
+        std::size_t h11 = std::hash<int64_t>{}(k.padSlotId);
+        return h1 ^ (h2 << 1) ^ (h3 << 2) ^ (h4 << 3) ^ (h5 << 4) ^ (h6 << 5) ^ (h7 << 6) ^ (h8 << 7) ^ (h9 << 8) ^ (h10 << 9) ^ (h11 << 10);
+    }
+};
 
-    CausalConv1dUpdateTilingData* tiling_data = reinterpret_cast<CausalConv1dUpdateTilingData*>(tiling_buffer.data_ptr());
+// Global tiling buffer for graph mode
+static at::Tensor globalTilingBuffer;
+
+void populate_tiling_data(CausalConv1dUpdateTilingData* tiling_data, int32_t block_dim,
+                          int64_t batch, int64_t seq_len, int64_t dim, int64_t width, int64_t state_len,
+                          bool has_indices, bool has_bias, bool has_num_accept, bool has_query_loc,
+                          bool activation_mode, int64_t pad_slot_id)
+{
     tiling_data->batch = batch;
     tiling_data->seqLen = seq_len;
     tiling_data->dim = dim;
@@ -63,8 +101,99 @@ at::Tensor get_tiling(int32_t& block_dim, int32_t& workspace_size,
     if (tiling_data->blockTailFactor <= 0) {
         tiling_data->blockTailFactor = tiling_data->blockFactor;
     }
+}
 
-    auto tiling_tensor = TorchNpuHelper::CopyTensorHostToDevice(tiling_buffer);
+at::Tensor get_tiling(int32_t& block_dim, int32_t& workspace_size,
+                      int64_t batch, int64_t seq_len, int64_t dim, int64_t width, int64_t state_len,
+                      bool has_indices, bool has_bias, bool has_num_accept, bool has_query_loc,
+                      bool activation_mode, int64_t pad_slot_id, bool enable_graph_mode_cache = false,
+                      const at::Device& device = at::kCPU)
+{
+    auto ascendc_platform = platform_ascendc::PlatformAscendCManager::GetInstance();
+    int32_t max_aiv_core = static_cast<int32_t>(ascendc_platform->GetCoreNumAiv());
+    block_dim = std::min(max_aiv_core, static_cast<int32_t>(batch));
+    if (block_dim == 0) {
+        block_dim = 1;
+    }
+    workspace_size = static_cast<int32_t>(ascendc_platform->GetLibApiWorkSpaceSize());
+
+    // align to 32 bytes
+    int32_t tiling_size = (sizeof(CausalConv1dUpdateTilingData) + PADDING_BYTE - 1) / PADDING_BYTE * PADDING_BYTE;
+
+    at::Tensor tiling_tensor;
+
+    if (enable_graph_mode_cache) {
+        // Graph mode: use cached tiling
+        CausalConv1dUpdateTilingKey key{
+            .batch = batch,
+            .seqLen = seq_len,
+            .dim = dim,
+            .width = width,
+            .stateLen = state_len,
+            .hasIndices = has_indices ? 1 : 0,
+            .hasBias = has_bias ? 1 : 0,
+            .hasNumAccept = has_num_accept ? 1 : 0,
+            .hasQueryLoc = has_query_loc ? 1 : 0,
+            .activationMode = activation_mode ? 1 : 0,
+            .padSlotId = pad_slot_id
+        };
+
+        CausalConv1dUpdateTilingKeyHash hasher;
+        uint64_t hashValue = hasher(key);
+
+        // Initialize global tiling buffer if needed
+        if (!globalTilingBuffer.defined() || globalTilingBuffer.numel() < static_cast<int64_t>(tiling_size * MAX_CAPTURE_NUM)) {
+            globalTilingBuffer = at::empty({static_cast<int64_t>(tiling_size * MAX_CAPTURE_NUM)},
+                                          at::TensorOptions().dtype(at::kByte).device(device));
+        }
+
+        if (captureMap.find(hashValue) != captureMap.end()) {
+            // Get cached tiling data from globalTilingBuffer
+            tiling_tensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tiling_size * captureMap[hashValue]),
+                                         tiling_size, at::kByte);
+        } else if (actualCaptureNum >= MAX_CAPTURE_NUM) {
+            // Exceeded max captures, use temporary buffer
+            static at::Tensor tempTilingBuffer = at::empty({tiling_size},
+                                                          at::TensorOptions().dtype(at::kByte).device(at::kCPU));
+            CausalConv1dUpdateTilingData* tiling_data = reinterpret_cast<CausalConv1dUpdateTilingData*>(tempTilingBuffer.data_ptr());
+            populate_tiling_data(tiling_data, block_dim, batch, seq_len, dim, width, state_len,
+                               has_indices, has_bias, has_num_accept, has_query_loc,
+                               activation_mode, pad_slot_id);
+
+            // Create temporary device buffer
+            static at::Tensor tempDeviceTilingBuffer = at::empty({tiling_size},
+                                                                at::TensorOptions().dtype(at::kByte).device(device));
+            aclrtMemcpy(tempDeviceTilingBuffer.data_ptr<uint8_t>(), tiling_size, tiling_data, tiling_size, ACL_MEMCPY_HOST_TO_DEVICE);
+            tiling_tensor = at::from_blob(tempDeviceTilingBuffer.data_ptr<uint8_t>(), tiling_size, at::kByte);
+        } else {
+            // Cache new tiling data
+            captureMap[hashValue] = actualCaptureNum;
+
+            // Create host buffer
+            auto tiling_buffer = at::empty({tiling_size}, at::TensorOptions().dtype(at::kByte).device(at::kCPU));
+            CausalConv1dUpdateTilingData* tiling_data = reinterpret_cast<CausalConv1dUpdateTilingData*>(tiling_buffer.data_ptr());
+            populate_tiling_data(tiling_data, block_dim, batch, seq_len, dim, width, state_len,
+                               has_indices, has_bias, has_num_accept, has_query_loc,
+                               activation_mode, pad_slot_id);
+
+            // Copy to global buffer (host to device)
+            aclrtMemcpy(globalTilingBuffer.data_ptr<uint8_t>() + actualCaptureNum * tiling_size, tiling_size,
+                       tiling_data, tiling_size, ACL_MEMCPY_HOST_TO_DEVICE);
+            actualCaptureNum++;
+
+            tiling_tensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tiling_size * captureMap[hashValue]),
+                                         tiling_size, at::kByte);
+        }
+    } else {
+        // Eager mode: create tiling tensor normally
+        auto tiling_buffer = at::empty({tiling_size}, at::TensorOptions().dtype(at::kByte).device(at::kCPU));
+        CausalConv1dUpdateTilingData* tiling_data = reinterpret_cast<CausalConv1dUpdateTilingData*>(tiling_buffer.data_ptr());
+        populate_tiling_data(tiling_data, block_dim, batch, seq_len, dim, width, state_len,
+                           has_indices, has_bias, has_num_accept, has_query_loc,
+                           activation_mode, pad_slot_id);
+        tiling_tensor = TorchNpuHelper::CopyTensorHostToDevice(tiling_buffer);
+    }
+
     return tiling_tensor;
 }
 
@@ -120,13 +249,22 @@ HOST_API at::Tensor causal_conv1d_update_impl(
     // Create output tensor
     at::Tensor y = at::empty_like(x);
 
+    // Detect graph mode by checking if we're using NPU and graph compilation is enabled
+    bool enable_graph_mode_cache = false;
+    if (x.is_npu()) {
+        // Check for graph mode environment variable or context
+        const char* graph_mode_env = std::getenv("TORCH_NPU_COMPILE_ENABLE");
+        enable_graph_mode_cache = (graph_mode_env != nullptr && std::string(graph_mode_env) != "0");
+    }
+
     // Get tiling data
     int32_t block_dim;
     int32_t workspace_size;
     at::Tensor tiling_tensor = get_tiling(block_dim, workspace_size,
                                            batch, seq_len, dim, width, state_len,
                                            has_indices, has_bias, has_num_accept, has_query_loc,
-                                           activation_mode, pad_slot_id);
+                                           activation_mode, pad_slot_id, enable_graph_mode_cache,
+                                           x.options().device());
 
     // Create workspace tensor
     auto workspace_tensor = at::empty({workspace_size},
