@@ -166,7 +166,7 @@ static ge::graphStatus MoeDistributeCombineA2CheckShapeAndSetTiling(gert::Tiling
     OPS_CHECK(expertIdStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS,
               OPS_LOG_E(K_INNER_DEBUG, "expertIdshape is invalid"), return GRAPH_FAILED);
     uint32_t bs = expertIdStorageShape->GetStorageShape().GetDim(0);
-    OPS_CHECK(bs <= 0, OPS_LOG_E(K_INNER_DEBUG, "batchsize is invalid."), return GRAPH_FAILED);
+    OPS_CHECK(bs < 0, OPS_LOG_E(K_INNER_DEBUG, "batchsize is invalid."), return GRAPH_FAILED);
     uint32_t k = expertIdStorageShape->GetStorageShape().GetDim(1);
     OPS_CHECK(k < MIN_K_VALUE_A2 || k > MAX_K_VALUE_A2,
               OPS_LOG_E(K_INNER_DEBUG, "k should be in [%u, %u], but got k=%u.", MIN_K_VALUE_A2, MAX_K_VALUE_A2, k),

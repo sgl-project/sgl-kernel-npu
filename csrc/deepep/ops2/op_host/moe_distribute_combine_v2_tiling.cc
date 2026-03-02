@@ -632,8 +632,8 @@ static bool CheckAttrs(const gert::TilingContext *context, MoeDistributeCombineV
     // 校验输入expertIds的维度0并设bs
     const gert::StorageShape *expertIdsStorageShape = context->GetInputShape(EXPERT_IDS_INDEX);
     int64_t expertIdsDim0 = expertIdsStorageShape->GetStorageShape().GetDim(0);
-    OP_TILING_CHECK((expertIdsDim0 <= 0) || (expertIdsDim0 > BS_UPPER_BOUND),
-                    OP_LOGE(nodeName, "Invalid expertIds dims0(BS) %ld. Should be between [1, %ld].", expertIdsDim0,
+    OP_TILING_CHECK((expertIdsDim0 < 0) || (expertIdsDim0 > BS_UPPER_BOUND),
+                    OP_LOGE(nodeName, "Invalid expertIds dims0(BS) %ld. Should be between [0, %ld].", expertIdsDim0,
                             BS_UPPER_BOUND),
                     return false);
     tilingData.moeDistributeCombineV2Info.bs = static_cast<uint32_t>(expertIdsDim0);
@@ -678,9 +678,9 @@ static bool CheckTensorShape(const gert::TilingContext *context, MoeDistributeCo
     int64_t expertIdsDim0 = expertIdsStorageShape->GetStorageShape().GetDim(0);
     int64_t expertIdsDim1 = expertIdsStorageShape->GetStorageShape().GetDim(1);
     int64_t moeExpertNum = static_cast<int64_t>(tilingData.moeDistributeCombineV2Info.moeExpertNum);
-    OP_TILING_CHECK((expertIdsDim1 <= 0) || (expertIdsDim1 > K_MAX || (expertIdsDim1 > moeExpertNum)),
+    OP_TILING_CHECK((expertIdsDim1 < 0) || (expertIdsDim1 > K_MAX || (expertIdsDim1 > moeExpertNum)),
                     OP_LOGE(nodeName,
-                            "expertIds's dim1(K) should be in (0, min(%ld, moeExpetNum %ld)], "
+                            "expertIds's dim1(K) should be in [0, min(%ld, moeExpetNum %ld)], "
                             "but got expertIds's dim1=%ld.",
                             K_MAX, moeExpertNum, expertIdsDim1),
                     return false);
@@ -1123,7 +1123,7 @@ static ge::graphStatus MoeDistributeCombineA2CheckShapeAndSetTiling(gert::Tiling
     OP_TILING_CHECK(expertIdStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS,
                     OP_LOGE(K_INNER_DEBUG, "expertIdshape is invalid"), return GRAPH_FAILED);
     uint32_t bs = expertIdStorageShape->GetStorageShape().GetDim(0);
-    OP_TILING_CHECK(bs <= 0 || bs > MAX_BATCH_SIZE_A2, OP_LOGE(K_INNER_DEBUG, "batchsize is invalid."),
+    OP_TILING_CHECK(bs < 0 || bs > MAX_BATCH_SIZE_A2, OP_LOGE(K_INNER_DEBUG, "batchsize is invalid."),
                     return GRAPH_FAILED);
 
     uint32_t k = expertIdStorageShape->GetStorageShape().GetDim(1);
