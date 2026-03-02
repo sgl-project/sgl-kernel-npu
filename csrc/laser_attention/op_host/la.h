@@ -18,6 +18,31 @@
 #include <string>
 #include <tuple>
 
+struct AscendLaserAttentionTilingData {
+    int32_t batchSize;       // B
+    int32_t headNum;         // N
+    int32_t seqSize;         // S
+    int32_t headDim;         // D
+    int32_t coreNumPerGroup; // Y
+    int32_t coreGroupNum;    // F
+
+    int32_t qSeqLength;      // qkv???
+    int32_t kSeqLength;      // qkv???
+    int32_t vSeqLength;      // qkv???
+    int32_t maskSeqLength;   // ??
+    float scale;             // ??
+    float keep_prob;         // ??
+    int32_t pre_tokens;      // ??
+    int32_t next_tokens;     // ??
+
+    bool isTriangle;        // ?????
+    int32_t attenType;       // 0:MHA/1:GQA
+    int32_t sparseMode;      // 0:dense/1:sparse
+    int32_t headGroupSize;   // N/G
+    int32_t windowLen;       // sparse?????
+    bool isHighPrecision;    // ???
+};
+
 namespace sglang {
 namespace npu_kernel {
 
