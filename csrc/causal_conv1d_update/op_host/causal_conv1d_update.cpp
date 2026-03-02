@@ -251,7 +251,7 @@ HOST_API at::Tensor causal_conv1d_update_impl(
 
     // Detect graph mode by checking if we're using NPU and graph compilation is enabled
     bool enable_graph_mode_cache = false;
-    if (x.is_npu()) {
+    if (x.device().type() == c10::DeviceType::PrivateUse1) {
         // Check for graph mode environment variable or context
         const char* graph_mode_env = std::getenv("TORCH_NPU_COMPILE_ENABLE");
         enable_graph_mode_cache = (graph_mode_env != nullptr && std::string(graph_mode_env) != "0");
