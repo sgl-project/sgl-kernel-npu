@@ -93,11 +93,7 @@ def prepare_data(
     mask = base_t < seqlens.unsqueeze(1)
     indices = (base_idx.unsqueeze(1) + base_t)[mask]
 
-    if cu_seq_len != x.shape[1]:
-        x_flat.index_copy_(1, indices, x[..., :cu_seq_len])
-    else:
-        x_flat.index_copy_(1, indices, x)
-
+    x_flat.index_copy_(1, indices, x[..., :cu_seq_len])
     x_pad = x_flat.view(dim, batch_size, max_T).transpose(0, 1).contiguous()
 
     return x_pad, initial_states, seqlens, indices
@@ -115,6 +111,35 @@ def causal_conv1d_fn_npu(
     pad_slot_id: int = PAD_SLOT_ID,
     **kwargs,
 ):
+    """
+    x: (batch, dim, seqlen) or (dim,cu_seq_len) for varlen
+        sequences are concatenated from left to right for varlen
+    weight: (dim, width)
+    bias: (dim,)
+    query_start_loc: (batch + 1) int32
+        The cumulative sequence lengths of the sequences in
+        the batch, used to index into sequence. prepended by 0.
+        for example: query_start_loc = torch.Tensor([0,10,16,17]),
+        x.shape=(dim,17)
+    cache_indices: (batch)  int32
+        indicates the corresponding state index,
+        like so: conv_state = conv_states[cache_indices[batch_id]]
+    has_initial_state: (batch) bool
+        indicates whether should the kernel take the current state as initial
+        state for the calculations
+    conv_states: (...,dim,width - 1) itype
+        updated inplace if provided
+    activation: either None or "silu" or "swish"
+    pad_slot_id: int
+            if cache_indices is passed, lets the kernel identify padded
+            entries that will not be processed,
+            for example: cache_indices = [pad_slot_id, 1, 20, pad_slot_id]
+            in this case, the kernel will not process entries at
+            indices 0 and 3
+
+
+    out: (batch, dim, seqlen)
+    """
     if activation not in [None, "silu", "swish"]:
         raise NotImplementedError("activation must be None, silu, or swish")
     if x.stride(-1) != 1:
