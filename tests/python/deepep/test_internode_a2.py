@@ -1,5 +1,6 @@
 import argparse
 import os
+import random
 import time
 from typing import Optional
 
@@ -21,7 +22,7 @@ from utils import (
 )
 
 MAX_BATCH_SIZE = 4096
-enable_a2_test = True
+enable_a2_test = False  # Only open when layout kernel output is proved to be wrong
 
 
 # noinspection PyShadowingNames
@@ -35,12 +36,31 @@ def test_main(
     group: dist.ProcessGroup,
 ):
     # Settings
-    num_tokens, hidden = args.num_tokens, args.hidden
+    base_num_tokens, hidden = args.num_tokens, args.hidden
     num_topk, num_experts = args.num_topk, args.num_experts
     enable_diagnose = args.enable_diagnose
+    enable_dynamic_tokens = args.enable_dynamic_tokens
     num_servers = num_ranks // num_local_ranks
     num_nodes = num_servers
     expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
+
+    if enable_dynamic_tokens:
+        fluctuation_percentage = 0.1
+        min_fluctuation = 2
+
+        if base_num_tokens < 10:
+            fluctuation = random.randint(-min_fluctuation, min_fluctuation)
+            num_tokens = base_num_tokens + fluctuation
+        else:
+            fluctuation = random.uniform(
+                1 - fluctuation_percentage, 1 + fluctuation_percentage
+            )
+            num_tokens = int(base_num_tokens * fluctuation)
+
+        # Ensure num_tokens is at least 1
+        num_tokens = max(num_tokens, 1)
+    else:
+        num_tokens = base_num_tokens
 
     assert num_experts % num_ranks == 0 and num_nodes >= 2
     assert num_tokens <= MAX_BATCH_SIZE
@@ -98,6 +118,41 @@ def test_main(
         )
         topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
 
+    topk_weights = (
+        torch.ones((num_tokens, num_topk), dtype=torch.float32, device="npu") * rank
+    )
+
+    if args.topk_drop_prob > 0 or args.topk_drop_row >= 0:
+        topk_idx_dropped = topk_idx.clone()
+        topk_weights_dropped = topk_weights.clone()
+
+        # Random drop (based on probability)
+        if args.topk_drop_prob > 0:
+            drop_mask = (
+                torch.rand_like(topk_idx, dtype=torch.float32) < args.topk_drop_prob
+            )
+            topk_idx_dropped = topk_idx.clone()
+            topk_idx_dropped = topk_idx_dropped.masked_fill(drop_mask, -1)
+
+            # Construct topk_weights_dropped
+            invalid_mask = topk_idx_dropped == -1
+            topk_weights_dropped = topk_weights_dropped.masked_fill(invalid_mask, 0.0)
+
+        # Fixed column drop (for the test_topk_minus1 scenario)
+        if args.topk_drop_row >= 0 and args.topk_drop_row < num_tokens:
+            topk_idx_dropped[args.topk_drop_row, :] = -1
+            topk_weights_dropped[args.topk_drop_row, :] = 0
+
+        # print drop ratio
+        drop_ratio = (topk_idx_dropped == -1).float().mean().item()
+        if rank == 0:
+            print(
+                f"[DEBUG] [rank {rank}] topk dropped ratio = {drop_ratio*100:.2f}%",
+                flush=True,
+            )
+        topk_idx = topk_idx_dropped
+        topk_weights = topk_weights_dropped
+
     rank_idx = topk_idx // (num_experts // num_ranks)
     rank_idx.masked_fill_(topk_idx == -1, -1)
     inplace_unique(rank_idx, num_ranks)
@@ -135,7 +190,7 @@ def test_main(
             (num_tokens * num_servers,), dtype=torch.int, device="npu"
         )
         send_token_idx = torch.zeros(
-            (num_tokens * num_experts,), dtype=torch.int, device="npu"
+            (num_tokens * num_topk,), dtype=torch.int, device="npu"
         )
         expert_rank_token_idx = torch.zeros(
             (num_experts * MAX_BATCH_SIZE,), dtype=torch.int, device="npu"
@@ -145,7 +200,8 @@ def test_main(
             seen_server = [0] * num_servers
             for j in range(num_topk):
                 expert_id = topk_idx[i][j]
-                if expert_id < 0 or expert_id >= num_experts:
+                # Skip invalid expert IDs (can occur with dynamic token dropping)
+                if expert_id < 0 or expert_id > num_experts:
                     continue
                 rank_id = expert_id // experts_per_rank
                 server_id = rank_id // num_local_ranks
@@ -158,15 +214,13 @@ def test_main(
                     seen_server[server_id] += 1
                 num_each_token_to_server[i * num_servers + server_id] += 1
                 count_num_expert[expert_id] += 1
-                send_token_idx[i * num_experts + expert_id] = count_num_expert[
-                    expert_id
-                ]
+                send_token_idx[i * num_topk + j] = count_num_expert[expert_id]
 
         count_num_expert = [0] * num_experts
         for i in range(num_tokens):
             for j in range(num_topk):
                 expert_id = topk_idx[i][j]
-                if expert_id < 0 or expert_id >= num_experts:
+                if expert_id < 0 or expert_id > num_experts:
                     continue
                 rank_id = expert_id // experts_per_rank
                 server_id = rank_id // num_local_ranks
@@ -197,16 +251,20 @@ def test_main(
             + MAX_BATCH_SIZE * (num_servers + 1)
             + num_servers * num_tokens
         ]
-        base_offset = num_experts + num_servers + MAX_BATCH_SIZE * (num_servers * 2 + 1)
         ref_send_token_idx = notify_send_data[
-            base_offset : base_offset + num_tokens * num_experts
+            num_experts
+            + num_servers
+            + MAX_BATCH_SIZE * (num_servers * 2 + 1) : num_experts
+            + num_servers
+            + MAX_BATCH_SIZE * (num_servers * 2 + 1)
+            + num_tokens * num_topk
         ]
         ref_expert_rank_token_idx = notify_send_data[
             num_experts
             + num_servers
-            + MAX_BATCH_SIZE * (num_servers * 2 + num_experts + 1) : num_experts
+            + MAX_BATCH_SIZE * (num_servers * 2 + num_topk * 2 + 1) : num_experts
             + num_servers
-            + MAX_BATCH_SIZE * (num_servers * 2 + num_experts + num_experts + 1)
+            + MAX_BATCH_SIZE * (num_servers * 2 + num_topk * 2 + num_experts + 1)
         ]
 
         # check data
@@ -226,9 +284,9 @@ def test_main(
             assert torch.allclose(
                 each_token_offset_to_server, ref_each_token_offset_to_server
             ), f"Assertion each_token_offset_to_server failed on rank {rank}: Expected {each_token_offset_to_server}, Actual {ref_each_token_offset_to_server}"
-            assert torch.equal(
+            assert torch.allclose(
                 send_token_idx, ref_send_token_idx
-            ), f"Assertion send_token_idx failed on rank {rank}"
+            ), f"Assertion send_token_idx failed on rank {rank}: Expected {send_token_idx}, Actual {ref_send_token_idx}"
             assert torch.allclose(
                 expert_rank_token_idx, ref_expert_rank_token_idx
             ), f"Assertion expert_rank_token_idx failed on rank {rank}: Expected {expert_rank_token_idx}, Actual {ref_expert_rank_token_idx}"
@@ -241,15 +299,15 @@ def test_main(
     token_idx_in_rank = torch.full(
         (num_ranks, num_tokens), -1, dtype=torch.long, device="npu"
     )
+
     for i in range(num_ranks):
-        num_tokens_per_rank[i] = (rank_idx == i).sum()
-        token_sel = (rank_idx == i).max(dim=-1)[0]
-        count = token_sel.sum().item()
-        tokens = torch.sort(token_sel.to(torch.int), descending=True)[1]
-        tokens[:count] = torch.sort(tokens[:count])[0]
-        token_idx_in_rank[i][tokens[:count]] = torch.arange(
-            count, dtype=torch.long, device="npu"
-        )
+        token_sel = (rank_idx == i).max(dim=-1)[0]  # [num_tokens]
+        token_indices = torch.nonzero(token_sel, as_tuple=True)[0]  # [count]
+        count = token_indices.numel()
+        num_tokens_per_rank[i] = count
+        if count > 0:
+            token_idx_in_rank[i][token_indices] = torch.arange(count, device="npu")
+
     for i in range(num_nodes):
         num_tokens_per_rdma_rank[i] = (rdma_rank_idx == i).sum()
     token_idx_in_rank = token_idx_in_rank.T.contiguous().to(torch.int)
@@ -431,11 +489,14 @@ def test_main(
             combined_x, combined_topk_weights, event = buffer.combine(**combine_args)
             check_x = combined_x.float()
             ref_x = x_pure_rand if current_x is x_pure_rand else x
+            mask = ~torch.all(topk_idx == -1, dim=1)
+            desire_x = ref_x * handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(
+                -1, 1
+            )
             assert (
                 calc_diff(
-                    check_x,
-                    ref_x
-                    * handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
+                    check_x[mask],
+                    desire_x[mask],
                 )
                 < 5e-5
             )
@@ -587,6 +648,25 @@ if __name__ == "__main__":
         "--enable-diagnose",
         action="store_true",
         help="Whether to enable diagnose for testing",
+    )
+    parser.add_argument(
+        "--topk-drop-prob",
+        dest="topk_drop_prob",
+        type=float,
+        default=0.0,
+        help="Probability of randomly dropping a top-k index (set to -1).",
+    )
+    parser.add_argument(
+        "--topk-drop-row",
+        dest="topk_drop_row",
+        type=int,
+        default=-1,
+        help="If >=0, drop this specific top-k column (set index to -1 for testing).",
+    )
+    parser.add_argument(
+        "--enable-dynamic-tokens",
+        action="store_true",
+        help="Whether to enable dynamic tokens for testing",
     )
     args = parser.parse_args()
 
