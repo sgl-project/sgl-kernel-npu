@@ -36,6 +36,7 @@ def low_latency_test(
         + 1
     )
 
+    # Sorting not needed for correctness test, improves performance
     topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
 
     topk_weights = torch.randn(

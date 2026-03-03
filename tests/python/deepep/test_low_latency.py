@@ -20,8 +20,8 @@ from utils import (
 
 
 def test(
-    aligned_num_tokens: int,
-    num_tokens: int,
+    aligned_num_tokens: int,  # 对齐后的最大token数
+    num_tokens: int,  # 当前rank的实际token数，有效token数
     hidden: int,
     num_experts: int,
     num_topk: int,
