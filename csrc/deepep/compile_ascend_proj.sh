@@ -41,6 +41,8 @@ BuildOps() {
   echo "${proj_name}"
   local soc_version=$2
 
+  echo "[${FUNCNAME[0]}] Building for ops: $soc_version"
+
   if [ -d "./${proj_name}" ]; then
     rm -rf ${proj_name}/cmake
     rm -rf ${proj_name}/op_host

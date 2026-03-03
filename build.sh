@@ -81,6 +81,11 @@ shift $((OPTIND -1))
 
 export DEBUG_MODE=$DEBUG_MODE
 
+# Chip mapping:
+# - deepep  → A3+ (Ascend910_9382)
+# - deepep2 → A2  (Ascend910B1)
+# - A5 is not open-sourced yet
+
 if [[ "$BUILD_DEEPEP_OPS" == "ON" ]]; then
     SOC_VERSION="${1:-Ascend910_9382}"
 else
