@@ -27,7 +27,7 @@ namespace sglang {
 namespace npu_kernel {
 
 constexpr uint32_t PADDING_BYTE = 32U;
-constexpr uint32_t MAX_CAPTURE_NUM = 256;
+constexpr uint32_t MAX_CAPTURE_NUM = 1024; // 对齐 lightning_indexer
 
 // Graph mode tiling cache
 uint32_t actualCaptureNum = 0;
@@ -74,129 +74,6 @@ struct CausalConv1dUpdateTilingKeyHash {
     }
 };
 
-// Global tiling buffer for graph mode
-static at::Tensor globalTilingBuffer;
-
-void populate_tiling_data(CausalConv1dUpdateTilingData* tiling_data, int32_t block_dim,
-                          int64_t batch, int64_t seq_len, int64_t dim, int64_t width, int64_t state_len,
-                          bool has_indices, bool has_bias, bool has_num_accept, bool has_query_loc,
-                          bool activation_mode, int64_t pad_slot_id)
-{
-    tiling_data->batch = batch;
-    tiling_data->seqLen = seq_len;
-    tiling_data->dim = dim;
-    tiling_data->width = width;
-    tiling_data->stateLen = state_len;
-    tiling_data->hasIndices = has_indices ? 1 : 0;
-    tiling_data->hasBias = has_bias ? 1 : 0;
-    tiling_data->hasNumAccept = has_num_accept ? 1 : 0;
-    tiling_data->hasQueryLoc = has_query_loc ? 1 : 0;
-    tiling_data->activationMode = activation_mode ? 1 : 0;
-    tiling_data->padSlotId = pad_slot_id;
-    tiling_data->numCore = block_dim;
-
-    // Compute block factor
-    tiling_data->blockFactor = (batch + block_dim - 1) / block_dim;
-    tiling_data->blockTailFactor = batch - tiling_data->blockFactor * (block_dim - 1);
-    if (tiling_data->blockTailFactor <= 0) {
-        tiling_data->blockTailFactor = tiling_data->blockFactor;
-    }
-}
-
-at::Tensor get_tiling(int32_t& block_dim, int32_t& workspace_size,
-                      int64_t batch, int64_t seq_len, int64_t dim, int64_t width, int64_t state_len,
-                      bool has_indices, bool has_bias, bool has_num_accept, bool has_query_loc,
-                      bool activation_mode, int64_t pad_slot_id, bool enable_graph_mode_cache = false,
-                      const at::Device& device = at::kCPU)
-{
-    auto ascendc_platform = platform_ascendc::PlatformAscendCManager::GetInstance();
-    int32_t max_aiv_core = static_cast<int32_t>(ascendc_platform->GetCoreNumAiv());
-    block_dim = std::min(max_aiv_core, static_cast<int32_t>(batch));
-    if (block_dim == 0) {
-        block_dim = 1;
-    }
-    workspace_size = static_cast<int32_t>(ascendc_platform->GetLibApiWorkSpaceSize());
-
-    // align to 32 bytes
-    int32_t tiling_size = (sizeof(CausalConv1dUpdateTilingData) + PADDING_BYTE - 1) / PADDING_BYTE * PADDING_BYTE;
-
-    at::Tensor tiling_tensor;
-
-    if (enable_graph_mode_cache) {
-        // Graph mode: use cached tiling
-        CausalConv1dUpdateTilingKey key{
-            .batch = batch,
-            .seqLen = seq_len,
-            .dim = dim,
-            .width = width,
-            .stateLen = state_len,
-            .hasIndices = has_indices ? 1 : 0,
-            .hasBias = has_bias ? 1 : 0,
-            .hasNumAccept = has_num_accept ? 1 : 0,
-            .hasQueryLoc = has_query_loc ? 1 : 0,
-            .activationMode = activation_mode ? 1 : 0,
-            .padSlotId = pad_slot_id
-        };
-
-        CausalConv1dUpdateTilingKeyHash hasher;
-        uint64_t hashValue = hasher(key);
-
-        // Initialize global tiling buffer if needed
-        if (!globalTilingBuffer.defined() || globalTilingBuffer.numel() < static_cast<int64_t>(tiling_size * MAX_CAPTURE_NUM)) {
-            globalTilingBuffer = at::empty({static_cast<int64_t>(tiling_size * MAX_CAPTURE_NUM)},
-                                          at::TensorOptions().dtype(at::kByte).device(device));
-        }
-
-        if (captureMap.find(hashValue) != captureMap.end()) {
-            // Get cached tiling data from globalTilingBuffer
-            tiling_tensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tiling_size * captureMap[hashValue]),
-                                         tiling_size, at::kByte);
-        } else if (actualCaptureNum >= MAX_CAPTURE_NUM) {
-            // Exceeded max captures, use temporary buffer
-            static at::Tensor tempTilingBuffer = at::empty({tiling_size},
-                                                          at::TensorOptions().dtype(at::kByte).device(at::kCPU));
-            CausalConv1dUpdateTilingData* tiling_data = reinterpret_cast<CausalConv1dUpdateTilingData*>(tempTilingBuffer.data_ptr());
-            populate_tiling_data(tiling_data, block_dim, batch, seq_len, dim, width, state_len,
-                               has_indices, has_bias, has_num_accept, has_query_loc,
-                               activation_mode, pad_slot_id);
-
-            // Create temporary device buffer
-            static at::Tensor tempDeviceTilingBuffer = at::empty({tiling_size},
-                                                                at::TensorOptions().dtype(at::kByte).device(device));
-            aclrtMemcpy(tempDeviceTilingBuffer.data_ptr<uint8_t>(), tiling_size, tiling_data, tiling_size, ACL_MEMCPY_HOST_TO_DEVICE);
-            tiling_tensor = at::from_blob(tempDeviceTilingBuffer.data_ptr<uint8_t>(), tiling_size, at::kByte);
-        } else {
-            // Cache new tiling data
-            captureMap[hashValue] = actualCaptureNum;
-
-            // Create host buffer
-            auto tiling_buffer = at::empty({tiling_size}, at::TensorOptions().dtype(at::kByte).device(at::kCPU));
-            CausalConv1dUpdateTilingData* tiling_data = reinterpret_cast<CausalConv1dUpdateTilingData*>(tiling_buffer.data_ptr());
-            populate_tiling_data(tiling_data, block_dim, batch, seq_len, dim, width, state_len,
-                               has_indices, has_bias, has_num_accept, has_query_loc,
-                               activation_mode, pad_slot_id);
-
-            // Copy to global buffer (host to device)
-            aclrtMemcpy(globalTilingBuffer.data_ptr<uint8_t>() + actualCaptureNum * tiling_size, tiling_size,
-                       tiling_data, tiling_size, ACL_MEMCPY_HOST_TO_DEVICE);
-            actualCaptureNum++;
-
-            tiling_tensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tiling_size * captureMap[hashValue]),
-                                         tiling_size, at::kByte);
-        }
-    } else {
-        // Eager mode: create tiling tensor normally
-        auto tiling_buffer = at::empty({tiling_size}, at::TensorOptions().dtype(at::kByte).device(at::kCPU));
-        CausalConv1dUpdateTilingData* tiling_data = reinterpret_cast<CausalConv1dUpdateTilingData*>(tiling_buffer.data_ptr());
-        populate_tiling_data(tiling_data, block_dim, batch, seq_len, dim, width, state_len,
-                           has_indices, has_bias, has_num_accept, has_query_loc,
-                           activation_mode, pad_slot_id);
-        tiling_tensor = TorchNpuHelper::CopyTensorHostToDevice(tiling_buffer);
-    }
-
-    return tiling_tensor;
-}
-
 HOST_API at::Tensor causal_conv1d_update_impl(
     const at::Tensor& x, const at::Tensor& weight, const at::Tensor& conv_state,
     const at::Tensor& conv_state_indices, const at::Tensor& bias,
@@ -213,6 +90,11 @@ HOST_API at::Tensor causal_conv1d_update_impl(
     TORCH_CHECK(weight.scalar_type() == dtype, "weight dtype must match x dtype");
     TORCH_CHECK(conv_state.scalar_type() == dtype, "conv_state dtype must match x dtype");
 
+    // 关键拦截：防止在图回放中出现步长错乱的转置 Tensor！
+    TORCH_CHECK(x.is_contiguous(), "x must be contiguous before entering the NPU kernel. Fix this in Python.");
+    TORCH_CHECK(weight.is_contiguous(), "weight must be contiguous. Transposed weights are NOT allowed. Fix this in Python.");
+    TORCH_CHECK(conv_state.is_contiguous(), "conv_state must be contiguous. Fix this in Python.");
+
     const int64_t batch = x.size(0);
     const int64_t seq_len = x.size(1);
     const int64_t dim = x.size(2);
@@ -225,72 +107,79 @@ HOST_API at::Tensor causal_conv1d_update_impl(
     const bool has_num_accept = num_accepted_tokens.numel() > 0;
     const bool has_query_loc = query_start_loc.numel() > 0;
 
-    if (has_indices) {
-        TORCH_CHECK(conv_state_indices.dim() == 1, "conv_state_indices must be 1D tensor");
-        TORCH_CHECK(conv_state_indices.size(0) >= batch, "conv_state_indices size must be >= batch");
-    }
-
-    if (has_bias) {
-        TORCH_CHECK(bias.dim() == 1, "bias must be 1D tensor");
-        TORCH_CHECK(bias.size(0) == dim, "bias size must match dim");
-        TORCH_CHECK(bias.scalar_type() == dtype, "bias dtype must match input dtype");
-    }
-
-    if (has_num_accept) {
-        TORCH_CHECK(num_accepted_tokens.dim() == 1, "num_accepted_tokens must be 1D tensor");
-        TORCH_CHECK(num_accepted_tokens.size(0) >= batch, "num_accepted_tokens size must be >= batch");
-    }
-
-    if (has_query_loc) {
-        TORCH_CHECK(query_start_loc.dim() == 1, "query_start_loc must be 1D tensor");
-        TORCH_CHECK(query_start_loc.size(0) >= batch + 1, "query_start_loc size must be >= batch+1");
-    }
-
     // Create output tensor
     at::Tensor y = at::empty_like(x);
 
-    // Detect graph mode by checking if we're using NPU and graph compilation is enabled
-    bool enable_graph_mode_cache = false;
-    if (x.device().type() == c10::DeviceType::PrivateUse1) {
-        // Check for graph mode environment variable or context
-        const char* graph_mode_env = std::getenv("TORCH_NPU_COMPILE_ENABLE");
-        enable_graph_mode_cache = (graph_mode_env != nullptr && std::string(graph_mode_env) != "0");
+    auto ascendc_platform = platform_ascendc::PlatformAscendCManager::GetInstance();
+    int32_t max_aiv_core = static_cast<int32_t>(ascendc_platform->GetCoreNumAiv());
+    int32_t block_dim = std::min(max_aiv_core, static_cast<int32_t>(batch));
+    if (block_dim == 0) {
+        block_dim = 1;
     }
+    int32_t workspace_size = static_cast<int32_t>(ascendc_platform->GetLibApiWorkSpaceSize());
 
-    // Get tiling data
-    int32_t block_dim;
-    int32_t workspace_size;
-    at::Tensor tiling_tensor = get_tiling(block_dim, workspace_size,
-                                           batch, seq_len, dim, width, state_len,
-                                           has_indices, has_bias, has_num_accept, has_query_loc,
-                                           activation_mode, pad_slot_id, enable_graph_mode_cache,
-                                           x.options().device());
+    // 1. Prepare Tiling Data Struct (使用你头文件中的辅助函数)
+    CausalConv1dUpdateTilingData tiling_data;
+    SGLang::CausalConv1dUpdate::ComputeTilingData(
+        batch, seq_len, dim, width, state_len,
+        has_indices, has_bias, has_num_accept, has_query_loc,
+        activation_mode, pad_slot_id, block_dim,
+        tiling_data
+    );
 
-    // Create workspace tensor
-    auto workspace_tensor = at::empty({workspace_size},
-                                      at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+    int32_t tilingSize = (sizeof(CausalConv1dUpdateTilingData) + PADDING_BYTE - 1) / PADDING_BYTE * PADDING_BYTE;
+    at::Tensor tilingTensor;
 
-    // Prepare tensors for kernel launch
-    at::Tensor x_contiguous = x.contiguous();
-    at::Tensor weight_contiguous = weight.contiguous();
-    at::Tensor conv_state_contiguous = conv_state.contiguous();
-    at::Tensor conv_state_indices_contiguous = has_indices ? conv_state_indices.contiguous() : at::empty(0, x.options());
-    at::Tensor bias_contiguous = has_bias ? bias.contiguous() : at::empty(0, x.options());
-    at::Tensor num_accepted_tokens_contiguous = has_num_accept ? num_accepted_tokens.contiguous() : at::empty(0, x.options());
-    at::Tensor query_start_loc_contiguous = has_query_loc ? query_start_loc.contiguous() : at::empty(0, x.options());
+    // 2. Hash computation
+    CausalConv1dUpdateTilingKey key{
+        .batch = batch, .seqLen = seq_len, .dim = dim, .width = width, .stateLen = state_len,
+        .hasIndices = has_indices ? 1 : 0, .hasBias = has_bias ? 1 : 0, 
+        .hasNumAccept = has_num_accept ? 1 : 0, .hasQueryLoc = has_query_loc ? 1 : 0,
+        .activationMode = activation_mode ? 1 : 0, .padSlotId = pad_slot_id
+    };
+    uint64_t hashValue = CausalConv1dUpdateTilingKeyHash{}(key);
 
-    // Launch kernel based on dtype
-    if (dtype == at::kBFloat16) {
-        EXEC_KERNEL_CMD(causal_conv1d_update_bfloat16_t, block_dim, x_contiguous, weight_contiguous, conv_state_contiguous,
-                        conv_state_indices_contiguous, bias_contiguous, num_accepted_tokens_contiguous,
-                        query_start_loc_contiguous, y, workspace_tensor, tiling_tensor);
+    // 3. 全局缓存管理 (对标 lightning_indexer 逻辑)
+    static auto globalTilingBuffer = at::empty({tilingSize * MAX_CAPTURE_NUM},
+                                               at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+
+    if (captureMap.find(hashValue) != captureMap.end()) {
+        tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
+                                     tilingSize, at::kByte);
+    } else if (actualCaptureNum >= MAX_CAPTURE_NUM) {
+        static auto tilingBuffer =
+            at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+        aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), sizeof(CausalConv1dUpdateTilingData), &tiling_data, sizeof(CausalConv1dUpdateTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+        tilingTensor = at::from_blob(tilingBuffer.data_ptr<uint8_t>(), tilingSize, at::kByte);
     } else {
-        EXEC_KERNEL_CMD(causal_conv1d_update_half, block_dim, x_contiguous, weight_contiguous, conv_state_contiguous,
-                        conv_state_indices_contiguous, bias_contiguous, num_accepted_tokens_contiguous,
-                        query_start_loc_contiguous, y, workspace_tensor, tiling_tensor);
+        captureMap[hashValue] = actualCaptureNum;
+        aclrtMemcpy(globalTilingBuffer.data_ptr<uint8_t>() + actualCaptureNum * tilingSize, sizeof(CausalConv1dUpdateTilingData), &tiling_data,
+                    sizeof(CausalConv1dUpdateTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+        actualCaptureNum++;
+        tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
+                                     tilingSize, at::kByte);
     }
 
-    // Return y (conv_state is updated in-place)
+    // 4. Create workspace
+    auto workspace_tensor = at::empty({workspace_size}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+
+    // 5. Launch kernel (注意！直接传入原 Tensor，不要做任何 .contiguous 操作！)
+    if (dtype == at::kBFloat16) {
+        EXEC_KERNEL_CMD(causal_conv1d_update_bfloat16_t, block_dim, x, weight, conv_state,
+                        has_indices ? conv_state_indices : at::empty(0, x.options()),
+                        has_bias ? bias : at::empty(0, x.options()),
+                        has_num_accept ? num_accepted_tokens : at::empty(0, x.options()),
+                        has_query_loc ? query_start_loc : at::empty(0, x.options()),
+                        y, workspace_tensor, tilingTensor);
+    } else {
+        EXEC_KERNEL_CMD(causal_conv1d_update_half, block_dim, x, weight, conv_state,
+                        has_indices ? conv_state_indices : at::empty(0, x.options()),
+                        has_bias ? bias : at::empty(0, x.options()),
+                        has_num_accept ? num_accepted_tokens : at::empty(0, x.options()),
+                        has_query_loc ? query_start_loc : at::empty(0, x.options()),
+                        y, workspace_tensor, tilingTensor);
+    }
+
     return y;
 }
 
