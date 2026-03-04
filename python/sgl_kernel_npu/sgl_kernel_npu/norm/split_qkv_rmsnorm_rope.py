@@ -2,7 +2,7 @@ import torch
 import triton
 import triton.language as tl
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
-
+from torch.library import triton_op, wrap_triton
 
 @triton.jit
 def split_qkv_rmsnorm_rope_kernel(
@@ -198,21 +198,22 @@ def split_qkv_rmsnorm_rope_kernel(
 
 kernels = {}
 
+_, num_vectorcore = get_device_properties()
 
+@triton_op("sgl_kernel_npu::split_qkv_rmsnorm_rope_kernel", mutates_args={})
 def split_qkv_rmsnorm_rope(
-    input,
-    sin,
-    cos,
-    q_hidden_size,
-    kv_hidden_size,
-    head_dim,
-    eps=None,
-    q_weight=None,
-    k_weight=None,
-    q_bias=None,
-    k_bias=None,
-):
-    _, num_vectorcore = get_device_properties()
+    input: torch.Tensor,
+    sin: torch.Tensor,
+    cos: torch.Tensor,
+    q_hidden_size: int,
+    kv_hidden_size: int,
+    head_dim: int,
+    eps: float=None,
+    q_weight:torch.Tensor=None,
+    k_weight:torch.Tensor=None,
+    q_bias:torch.Tensor=None,
+    k_bias:torch.Tensor=None,
+)-> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
 
     KV_BLOCK_SIZE = triton.next_power_of_2(head_dim)
     assert KV_BLOCK_SIZE == head_dim
@@ -234,7 +235,7 @@ def split_qkv_rmsnorm_rope(
     BIAS = q_bias is not None
     NORMS = eps is not None
 
-    split_qkv_rmsnorm_rope_kernel[(n_rows, n_cols, 1)](
+    wrap_triton(split_qkv_rmsnorm_rope_kernel)[(n_rows, n_cols, 1)](
         input,
         sin,
         cos,
