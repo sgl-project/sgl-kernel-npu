@@ -50,46 +50,16 @@ def split_qkv_rmsnorm_rope_half_pos_cache_kernel(
     k_ty = k_ptr.dtype.element_ty
     v_ty = v_ptr.dtype.element_ty
 
-    # =========================
-    # Q
-    # =========================
     if norms:
         q_w = tl.load(q_weight_ptr + tl.arange(0, head_dim)).to(tl.float32)
+        k_w = tl.load(k_weight_ptr + tl.arange(0, head_dim)).to(tl.float32)
     if bias:
         q_b = tl.load(q_bias_ptr + tl.arange(0, head_dim)).to(tl.float32)
+        k_b = tl.load(k_bias_ptr + tl.arange(0, head_dim)).to(tl.float32)
 
-    in_off = row_pid * total_hidden_size
-    outq_off = row_pid * q_hidden_size
-    in_off_step = row_step * total_hidden_size
-    outq_off_step = row_step * q_hidden_size
-
+    # Single loop over batch: for each row process Q, K, V (avoids duplication, same cos/sin per row)
     for row_idx in tl.range(row_pid, batch_size, row_step):
-        col = col_pid * q_block_size + tl.arange(0, q_block_size)
-        mask = col < q_hidden_size
-
-        x = tl.load(input_ptr + in_off + col, mask=mask, other=0.0).to(tl.float32)
-        x = x.reshape(q_block_n, head_dim)
-
-        # RMSNorm (fp32)
-        if norms:
-            var = tl.sum(x * x, axis=1) / (1.0 * head_dim)
-            inv_std = tl.rsqrt(var + eps).reshape(q_block_n, 1)
-            y = x * inv_std
-            if bias:
-                y = y * q_w + q_b
-            else:
-                y = y * q_w
-        else:
-            y = x
-
-        # y_base: fp32 or bf16
-        if cast_norm_to_bf16:
-            # keep strict RNE here ONLY
-            y_base = fp32_to_bf16_rne(y)  # bf16
-        else:
-            y_base = y  # fp32
-
-        # ---- load cos/sin half (fp32) ----
+        # ---- load cos/sin once per row (shared by Q and K RoPE) ----
         p = tl.load(pos_ptr + row_idx).to(tl.int32)
         base = p * cos_sin_stride0
         offs = tl.arange(0, half_rope_dim)
@@ -104,12 +74,35 @@ def split_qkv_rmsnorm_rope_half_pos_cache_kernel(
             .reshape(1, half_rope_dim)
         )
 
-        # ---- RoPE half on first rope_dim (fp32 math; casts use .to(bf16)) ----
+        # --- Q ---
+        in_off_q = row_idx * total_hidden_size
+        outq_off = row_idx * q_hidden_size
+        col = col_pid * q_block_size + tl.arange(0, q_block_size)
+        mask = col < q_hidden_size
+
+        x = tl.load(input_ptr + in_off_q + col, mask=mask, other=0.0).to(tl.float32)
+        x = x.reshape(q_block_n, head_dim)
+
+        if norms:
+            var = tl.sum(x * x, axis=1) / (1.0 * head_dim)
+            inv_std = tl.rsqrt(var + eps).reshape(q_block_n, 1)
+            y = x * inv_std
+            if bias:
+                y = y * q_w + q_b
+            else:
+                y = y * q_w
+        else:
+            y = x
+
+        if cast_norm_to_bf16:
+            y_base = fp32_to_bf16_rne(y)
+        else:
+            y_base = y
+
         y_rot = tl.extract_slice(
             y_base, offsets=(0, 0), sizes=(q_block_n, rope_dim), strides=(1, 1)
         )
         y_rot_f = y_rot.to(tl.float32)
-
         x1 = tl.extract_slice(
             y_rot_f, offsets=(0, 0), sizes=(q_block_n, half_rope_dim), strides=(1, 1)
         )
@@ -119,12 +112,10 @@ def split_qkv_rmsnorm_rope_half_pos_cache_kernel(
             sizes=(q_block_n, half_rope_dim),
             strides=(1, 1),
         )
-
         o1 = x1 * cos_f - x2 * sin_f
         o2 = x2 * cos_f + x1 * sin_f
         ro1 = o1.to(tl.bfloat16)
         ro2 = o2.to(tl.bfloat16)
-
         roped = tl.zeros((q_block_n, rope_dim), dtype=tl.bfloat16)
         roped = tl.insert_slice(
             roped, ro1, offsets=(0, 0), sizes=(q_block_n, half_rope_dim), strides=(1, 1)
@@ -136,13 +127,10 @@ def split_qkv_rmsnorm_rope_half_pos_cache_kernel(
             sizes=(q_block_n, half_rope_dim),
             strides=(1, 1),
         )
-
-        # output base bf16 (tail passthrough)
         if cast_norm_to_bf16:
-            y_out = y_base  # already bf16
+            y_out = y_base
         else:
-            y_out = y_base.to(tl.bfloat16)  # fast cast
-
+            y_out = y_base.to(tl.bfloat16)
         y_out = tl.insert_slice(
             y_out, roped, offsets=(0, 0), sizes=(q_block_n, rope_dim), strides=(1, 1)
         )
@@ -150,26 +138,13 @@ def split_qkv_rmsnorm_rope_half_pos_cache_kernel(
             q_ptr + outq_off + col, y_out.reshape(q_block_size).to(q_ty), mask=mask
         )
 
-        in_off += in_off_step
-        outq_off += outq_off_step
-
-    # =========================
-    # K
-    # =========================
-    if norms:
-        k_w = tl.load(k_weight_ptr + tl.arange(0, head_dim)).to(tl.float32)
-    if bias:
-        k_b = tl.load(k_bias_ptr + tl.arange(0, head_dim)).to(tl.float32)
-
-    in_off = row_pid * total_hidden_size + q_hidden_size
-    outk_off = row_pid * kv_hidden_size
-    outk_off_step = row_step * kv_hidden_size
-
-    for row_idx in tl.range(row_pid, batch_size, row_step):
+        # --- K ---
+        in_off_k = row_idx * total_hidden_size + q_hidden_size
+        outk_off = row_idx * kv_hidden_size
         col = col_pid * kv_block_size + tl.arange(0, kv_block_size)
         mask = col < kv_hidden_size
 
-        x = tl.load(input_ptr + in_off + col, mask=mask, other=0.0).to(tl.float32)
+        x = tl.load(input_ptr + in_off_k + col, mask=mask, other=0.0).to(tl.float32)
         x = x.reshape(k_block_n, head_dim)
 
         if norms:
@@ -184,31 +159,14 @@ def split_qkv_rmsnorm_rope_half_pos_cache_kernel(
             y = x
 
         if cast_norm_to_bf16:
-            y_base = fp32_to_bf16_rne(y)  # strict here only
+            y_base = fp32_to_bf16_rne(y)
         else:
             y_base = y
 
-        # cos/sin half
-        p = tl.load(pos_ptr + row_idx).to(tl.int32)
-        base = p * cos_sin_stride0
-        offs = tl.arange(0, half_rope_dim)
-        cos_f = (
-            tl.load(cos_sin_cache_ptr + base + offs)
-            .to(tl.float32)
-            .reshape(1, half_rope_dim)
-        )
-        sin_f = (
-            tl.load(cos_sin_cache_ptr + base + half_rope_dim + offs)
-            .to(tl.float32)
-            .reshape(1, half_rope_dim)
-        )
-
-        # rope
         y_rot = tl.extract_slice(
             y_base, offsets=(0, 0), sizes=(k_block_n, rope_dim), strides=(1, 1)
         )
         y_rot_f = y_rot.to(tl.float32)
-
         x1 = tl.extract_slice(
             y_rot_f, offsets=(0, 0), sizes=(k_block_n, half_rope_dim), strides=(1, 1)
         )
@@ -218,12 +176,10 @@ def split_qkv_rmsnorm_rope_half_pos_cache_kernel(
             sizes=(k_block_n, half_rope_dim),
             strides=(1, 1),
         )
-
         o1 = x1 * cos_f - x2 * sin_f
         o2 = x2 * cos_f + x1 * sin_f
         ro1 = o1.to(tl.bfloat16)
         ro2 = o2.to(tl.bfloat16)
-
         roped = tl.zeros((k_block_n, rope_dim), dtype=tl.bfloat16)
         roped = tl.insert_slice(
             roped, ro1, offsets=(0, 0), sizes=(k_block_n, half_rope_dim), strides=(1, 1)
@@ -235,12 +191,10 @@ def split_qkv_rmsnorm_rope_half_pos_cache_kernel(
             sizes=(k_block_n, half_rope_dim),
             strides=(1, 1),
         )
-
         if cast_norm_to_bf16:
             y_out = y_base
         else:
             y_out = y_base.to(tl.bfloat16)
-
         y_out = tl.insert_slice(
             y_out, roped, offsets=(0, 0), sizes=(k_block_n, rope_dim), strides=(1, 1)
         )
@@ -248,23 +202,13 @@ def split_qkv_rmsnorm_rope_half_pos_cache_kernel(
             k_ptr + outk_off + col, y_out.reshape(kv_block_size).to(k_ty), mask=mask
         )
 
-        in_off += in_off_step
-        outk_off += outk_off_step
-
-    # =========================
-    # V
-    # =========================
-    in_off = row_pid * total_hidden_size + q_hidden_size + kv_hidden_size
-    outv_off = row_pid * kv_hidden_size
-    outv_off_step = row_step * kv_hidden_size
-
-    for _ in tl.range(row_pid, batch_size, row_step):
+        # --- V ---
+        in_off_v = row_idx * total_hidden_size + q_hidden_size + kv_hidden_size
+        outv_off = row_idx * kv_hidden_size
         col = col_pid * kv_block_size + tl.arange(0, kv_block_size)
         mask = col < kv_hidden_size
-        v = tl.load(input_ptr + in_off + col, mask=mask, other=0.0)
+        v = tl.load(input_ptr + in_off_v + col, mask=mask, other=0.0)
         tl.store(v_ptr + outv_off + col, v.to(v_ty), mask=mask)
-        in_off += in_off_step
-        outv_off += outv_off_step
 
 
 def split_qkv_rmsnorm_rope_pos_cache_half_npu(
@@ -324,6 +268,16 @@ def split_qkv_rmsnorm_rope_pos_cache_half_npu(
     pos = pos.contiguous()
 
     cache = cos_sin_cache.contiguous()
+    max_seq = cache.shape[0]
+    # Bounds check: prevent out-of-bounds read in kernel (security)
+    if (pos < 0).any() or (pos >= max_seq).any():
+        bad = (pos < 0) | (pos >= max_seq)
+        idx = bad.nonzero(as_tuple=True)[0]
+        raise ValueError(
+            f"Position indices must be in [0, {max_seq}); "
+            f"got invalid at batch indices {idx.tolist()[:10]}{'...' if bad.sum().item() > 10 else ''} "
+            f"(min={pos.min().item()}, max={pos.max().item()})."
+        )
     stride0 = cache.stride(0)
 
     kv_block_size = triton.next_power_of_2(head_dim)
@@ -343,6 +297,30 @@ def split_qkv_rmsnorm_rope_pos_cache_half_npu(
 
     bias = q_bias is not None
     norms = eps is not None
+
+    # Bounds check: kernel loads weight/bias with head_dim elements (security)
+    if norms:
+        if q_weight is None or q_weight.numel() < head_dim:
+            raise ValueError(
+                f"When using RMSNorm (eps is not None), q_weight must have at least head_dim={head_dim} elements, "
+                f"got {q_weight.numel() if q_weight is not None else 0}."
+            )
+        if k_weight is None or k_weight.numel() < head_dim:
+            raise ValueError(
+                f"When using RMSNorm (eps is not None), k_weight must have at least head_dim={head_dim} elements, "
+                f"got {k_weight.numel() if k_weight is not None else 0}."
+            )
+    if bias:
+        if q_bias is None or q_bias.numel() < head_dim:
+            raise ValueError(
+                f"When using bias (q_bias provided), q_bias must have at least head_dim={head_dim} elements, "
+                f"got {q_bias.numel() if q_bias is not None else 0}."
+            )
+        if k_bias is None or k_bias.numel() < head_dim:
+            raise ValueError(
+                f"When using bias (k_bias provided), k_bias must have at least head_dim={head_dim} elements, "
+                f"got {k_bias.numel() if k_bias is not None else 0}."
+            )
 
     split_qkv_rmsnorm_rope_half_pos_cache_kernel[(n_rows, n_cols, 1)](
         input_tensor,
