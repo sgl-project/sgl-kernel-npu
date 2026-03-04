@@ -21,7 +21,7 @@ from utils import (
 
 def test(
     aligned_num_tokens: int,  # 对齐后的最大token数
-    actual_num_tokens: int,  # 当前rank的实际token数，有效token数
+    num_tokens: int,  # 当前rank的实际token数，有效token数
     hidden: int,
     num_experts: int,
     num_topk: int,
@@ -44,57 +44,28 @@ def test(
         num_ranks - rank_offset < 257
     ), "Too many ranks (exceeding test precision limit)"
 
-    x = torch.zeros((aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu")
-
-    if actual_num_tokens > 0:
-        x[:actual_num_tokens] = torch.ones(
-            (actual_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
-        ) * (rank - rank_offset)
-        x[:actual_num_tokens, -128:] = (
-            torch.arange(actual_num_tokens, device="npu").to(torch.bfloat16).view(-1, 1)
-        )
-
+    x = torch.ones((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * (
+        rank - rank_offset
+    )
+    x[:, -128:] = torch.arange(num_tokens, device="npu").to(torch.bfloat16).view(-1, 1)
     scores = (
-        torch.randn(
-            (aligned_num_tokens, num_experts), dtype=torch.float32, device="npu"
-        ).abs()
+        torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
         + 1
     )
-    topk_idx = torch.full(
-        (aligned_num_tokens, num_topk), -1, dtype=torch.long, device="npu"
-    )
-
-    if actual_num_tokens > 0:
-        actual_scores = scores[:actual_num_tokens]
-        actual_topk_idx = torch.topk(
-            actual_scores, num_topk, dim=-1, largest=True, sorted=True
-        )[1]
-        topk_idx[:actual_num_tokens] = actual_topk_idx
-
-        if drop_percent > 0:
-            enable_neg_one = int(os.getenv("MOE_ENABLE_TOPK_NEG_ONE", 0))
-            if enable_neg_one == 0:
-                print(
-                    "[ERROR] The kernel can't support drop_percent larger than 0 when MOE_ENABLE_TOPK_NEG_ONE was"
-                    "unset or 0. Please set to 1 and try again"
-                )
-                assert enable_neg_one == 1
-            drop_mask = (
-                torch.rand(
-                    (actual_num_tokens, num_topk), dtype=torch.float32, device="npu"
-                )
-                < drop_percent
+    topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=True)[1]
+    if drop_percent > 0:
+        enable_neg_one = int(os.getenv("MOE_ENABLE_TOPK_NEG_ONE", 0))
+        if enable_neg_one == 0:
+            print(
+                "[ERROR] The kernel can't support drop_percent larger than 0 when MOE_ENABLE_TOPK_NEG_ONE was"
+                "unset or 0. Please set to 1 and try again"
             )
-            topk_idx[:actual_num_tokens] = topk_idx[:actual_num_tokens].masked_fill(
-                drop_mask, -1
-            )
-    topk_weights = torch.zeros(
-        (aligned_num_tokens, num_topk), dtype=torch.float32, device="npu"
-    )
-    if actual_num_tokens > 0:
-        topk_weights[:actual_num_tokens] = torch.randn(
-            (actual_num_tokens, num_topk), dtype=torch.float32, device="npu"
-        ).abs()
+            assert enable_neg_one == 1
+        drop_mask = torch.rand_like(topk_idx, dtype=torch.float32) < drop_percent
+        topk_idx = topk_idx.masked_fill(drop_mask, -1)
+    topk_weights = torch.randn(
+        (num_tokens, num_topk), dtype=torch.float32, device="npu"
+    ).abs()
 
     # Check dispatch correctness
     do_check = True
@@ -123,18 +94,24 @@ def test(
             per_token_cast_back(*packed_recv_x) if dispatch_use_fp8 else packed_recv_x
         )
 
+        padding_size = aligned_num_tokens - num_tokens
+        if padding_size > 0:
+            padding_tensor = torch.full(
+                (padding_size, num_topk),
+                fill_value=-1,
+                dtype=topk_idx.dtype,
+                device="npu",
+            )
+            topk_idx_padded = torch.cat([topk_idx, padding_tensor], dim=0)
+        else:
+            topk_idx_padded = topk_idx
+
         all_topk_idx = torch.empty(
             (num_ranks, aligned_num_tokens, num_topk),
             dtype=topk_idx.dtype,
             device="npu",
         )
-        dist.all_gather_into_tensor(all_topk_idx, topk_idx, group=group)
-
-        local_actual_tokens = torch.tensor(
-            [actual_num_tokens], dtype=torch.int32, device="npu"
-        )
-        all_actual_tokens = torch.empty(num_ranks, dtype=torch.int32, device="npu")
-        dist.all_gather_into_tensor(all_actual_tokens, local_actual_tokens, group=group)
+        dist.all_gather_into_tensor(all_topk_idx, topk_idx_padded, group=group)
 
         for i in range(num_local_experts if do_check else 0):
             expert_id = rank * num_local_experts + i
@@ -158,30 +135,19 @@ def test(
             # Check expert indices
             int_mask = (2**32) - 1
             num_valid_tokens = recv_count.item()
-
-            expected_valid_tokens = 0
-            for r in range(num_ranks):
-                # 获取rank r的实际token数
-                r_actual_tokens = all_actual_tokens[r].item()
-                # 获取rank r发送给这个专家的token数
-                r_topk_idx = all_topk_idx[r, :r_actual_tokens]
-                expected_valid_tokens += (r_topk_idx == expert_id).sum().item()
-
             assert (
                 num_valid_tokens == (recv_layout_range & int_mask).item()
             ), f"{num_valid_tokens} != {recv_layout_range & int_mask}.item()"
             assert (
-                num_valid_tokens == expected_valid_tokens
-            ), f"{num_valid_tokens} != {expected_valid_tokens}"
+                num_valid_tokens == (all_topk_idx == expert_id).sum().item()
+            ), f"{num_valid_tokens} != {(all_topk_idx == expert_id).sum().item()}"
 
             if num_valid_tokens == 0:
                 continue
             # Check received data
             recv_x = recv_x[:num_valid_tokens]
             recv_x_amin = recv_x[:, :-128].amin(dim=-1)
-            assert torch.allclose(
-                recv_x_amin, recv_x[:, :-128].amax(dim=-1), equal_nan=True
-            )
+            assert torch.equal(recv_x_amin, recv_x[:, :-128].amax(dim=-1))
             if dispatch_use_fp8:
                 hash_value ^= hash_tensor(
                     packed_recv_x[0][int(i * temp) : int(i * temp + num_valid_tokens)]
@@ -219,40 +185,18 @@ def test(
         )
 
         if do_check:
-            if actual_num_tokens > 0:
-                # 只考虑有效token
-                expected_x = torch.zeros(
-                    (aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
-                )
-                expected_x[:actual_num_tokens] = torch.ones(
-                    (actual_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
-                ) * (rank - rank_offset)
-                expected_x[:actual_num_tokens, -128:] = (
-                    torch.arange(actual_num_tokens, device="npu")
-                    .to(torch.bfloat16)
-                    .view(-1, 1)
-                )
-
-                diff = calc_diff(
-                    expected_x[:actual_num_tokens]
-                    * topk_weights[:actual_num_tokens]
-                    .masked_fill(topk_idx[:actual_num_tokens] == -1, 0)
-                    .sum(dim=1)
-                    .view(-1, 1),
-                    combined_x[:actual_num_tokens],
-                )
-                assert torch.isnan(combined_x[:actual_num_tokens]).sum().item() == 0
-                if dispatch_use_fp8:
-                    assert diff < 1e-4, f"Error: {diff=}"
-                else:
-                    assert diff < 1e-5, f"Error: {diff=}"
-            hash_value ^= hash_tensor(
-                combined_x[:actual_num_tokens]
-                if actual_num_tokens > 0
-                else torch.tensor([], device="npu")
+            diff = calc_diff(
+                x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
+                combined_x,
             )
+            assert torch.isnan(combined_x).sum().item() == 0
+            if dispatch_use_fp8:
+                assert diff < 1e-4, f"Error: {diff=}"
+            else:
+                assert diff < 1e-5, f"Error: {diff=}"
+            hash_value ^= hash_tensor(combined_x)
 
-            print(f"rank {rank} PASSED (actual tokens: {actual_num_tokens})")
+            print(f"rank {rank} PASSED")
 
     # noinspection PyShadowingNames
     def test_func(zero_copy: bool, return_recv_hook: bool):
@@ -278,7 +222,7 @@ def test(
     # Calculate bandwidth
     num_fp8_bytes, num_bf16_bytes = (hidden + hidden // 128 * 4 + 16), hidden * 2
     num_dispatch_comm_bytes, num_combine_comm_bytes = 0, 0
-    for i in range(actual_num_tokens):
+    for i in range(num_tokens):
         num_selections = (topk_idx[i] != -1).sum().item()
         num_dispatch_comm_bytes += num_fp8_bytes * num_selections
         num_combine_comm_bytes += num_bf16_bytes * num_selections
@@ -289,12 +233,12 @@ def test(
     )
     print(
         f"[rank {rank}] Dispatch + combine bandwidth: {(num_dispatch_comm_bytes + num_combine_comm_bytes) / 1e9 / avg_t:.2f} GB/s, "
-        f"avg_t={avg_t * 1e6:.2f} us, min_t={min_t * 1e6:.2f} us, max_t={max_t * 1e6:.2f} us, "
-        f"actual_tokens={actual_num_tokens}",
+        f"avg_t={avg_t * 1e6:.2f} us, min_t={min_t * 1e6:.2f} us, max_t={max_t * 1e6:.2f} us",
         flush=True,
     )
 
     # Separate profiling
+    # return_recv_hook=True is not supported now
     for return_recv_hook in (False,):
         enable_neg_one = int(os.getenv("MOE_ENABLE_TOPK_NEG_ONE", 0))
         dist.barrier()
@@ -463,7 +407,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--enable-dynamic-tokens",
         action="store_true",
-        help="Whether to enable dynamic tokens for testing",
+        help="Enable dynamic and inconsistent num_tokens across different ranks",
     )
     args = parser.parse_args()
 
