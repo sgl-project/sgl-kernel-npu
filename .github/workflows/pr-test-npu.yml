@@ -980,12 +980,33 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --test-loop=100 --enable-dynamic-tokens --num-processes=8
 
+  test-build-deepep-internode:
+    name: multi-node
+    if: ${{ (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') }}
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        test_config:
+          - name: test_internode_a2
+            node_size: 2
+            test_case: tests/python/deepep/test_internode_a2.py
+    uses: ./.github/workflows/internode.yml
+    with:
+      soc_version: a2
+      runner: linux-aarch64-a2-0
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.3.rc1-910b-ubuntu22.04-py3.11'
+      test_config_name: ${{ matrix.test_config.name }}
+      node_size: ${{ matrix.test_config.node_size }}
+      test_case: ${{ matrix.test_config.test_case }}
+
   finish:
     if: always()
     needs:
       - test-all-build
       - test-build-deepep-a3
       - test-build-deepep-a2
+      - test-build-deepep-internode
     runs-on: ubuntu-latest
     steps:
       - name: Check all dependent job statuses
