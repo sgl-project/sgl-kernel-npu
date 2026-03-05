@@ -12,7 +12,7 @@ RANK_OFFSET = 128
 
 def low_latency_test(
     aligned_num_tokens: int,
-    actual_num_tokens: int,
+    num_tokens: int,
     hidden: int,
     num_experts: int,
     num_topk: int,
@@ -27,41 +27,21 @@ def low_latency_test(
         num_ranks - rank_offset < 257
     ), "Too many ranks (exceeding test precision limit)"
 
-    x = torch.zeros((aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu")
-
-    if actual_num_tokens > 0:
-        x[:actual_num_tokens] = torch.ones(
-            (actual_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
-        ) * (rank - rank_offset)
-        x[:actual_num_tokens, -128:] = (
-            torch.arange(actual_num_tokens, device="npu").to(torch.bfloat16).view(-1, 1)
-        )
-
+    x = torch.ones((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * (
+        rank - rank_offset
+    )
+    x[:, -128:] = torch.arange(num_tokens, device="npu").to(torch.bfloat16).view(-1, 1)
     scores = (
-        torch.randn(
-            (aligned_num_tokens, num_experts), dtype=torch.float32, device="npu"
-        ).abs()
+        torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
         + 1
     )
 
-    topk_idx = torch.full(
-        (aligned_num_tokens, num_topk), -1, dtype=torch.long, device="npu"
-    )
+    # Sorting not needed for correctness test, improves performance
+    topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
 
-    if actual_num_tokens > 0:
-        actual_scores = scores[:actual_num_tokens]
-        actual_topk_idx = torch.topk(
-            actual_scores, num_topk, dim=-1, largest=True, sorted=True
-        )[1]
-        topk_idx[:actual_num_tokens] = actual_topk_idx
-
-    topk_weights = torch.zeros(
-        (aligned_num_tokens, num_topk), dtype=torch.float32, device="npu"
-    )
-    if actual_num_tokens > 0:
-        topk_weights[:actual_num_tokens] = torch.randn(
-            (actual_num_tokens, num_topk), dtype=torch.float32, device="npu"
-        ).abs()
+    topk_weights = torch.randn(
+        (num_tokens, num_topk), dtype=torch.float32, device="npu"
+    ).abs()
 
     return_recv_hook = False
     cumulative_local_expert_recv_stats = torch.zeros(
@@ -105,31 +85,15 @@ def low_latency_test(
         out=out,
     )
 
-    if actual_num_tokens > 0:
-        # 计算期望的输出（只考虑有效token）
-        expected_x = torch.zeros(
-            (aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
-        )
-        expected_x[:actual_num_tokens] = torch.ones(
-            (actual_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
-        ) * (rank - rank_offset)
-        expected_x[:actual_num_tokens, -128:] = (
-            torch.arange(actual_num_tokens, device="npu").to(torch.bfloat16).view(-1, 1)
-        )
-
-        diff = calc_diff(
-            expected_x[:actual_num_tokens]
-            * topk_weights[:actual_num_tokens]
-            .masked_fill(topk_idx[:actual_num_tokens] == -1, 0)
-            .sum(dim=1)
-            .view(-1, 1),
-            combined_x[:actual_num_tokens],
-        )
-        assert torch.isnan(combined_x).sum().item() == 0
-        if dispatch_use_fp8:
-            assert diff < 1e-4, f"Error: {diff=}"
-        else:
-            assert diff < 1e-5, f"Error: {diff=}"
+    diff = calc_diff(
+        x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
+        combined_x,
+    )
+    assert torch.isnan(combined_x).sum().item() == 0
+    if dispatch_use_fp8:
+        assert diff < 1e-4, f"Error: {diff=}"
+    else:
+        assert diff < 1e-5, f"Error: {diff=}"
 
 
 def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):

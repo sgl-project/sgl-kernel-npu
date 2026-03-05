@@ -537,8 +537,8 @@ static ge::graphStatus CheckAttrs(const gert::TilingContext &context, const char
     const gert::StorageShape *xStorageShape = context.GetInputShape(X_INDEX);
     OP_TILING_CHECK(xStorageShape == nullptr, OP_LOGE(nodeName, "xStorageShape is nullptr."), return ge::GRAPH_FAILED);
     const int64_t xDim0 = xStorageShape->GetStorageShape().GetDim(0);
-    OP_TILING_CHECK((xDim0 > BS_UPPER_BOUND) || (xDim0 <= 0),
-                    OP_LOGE(nodeName, "xDim0(BS) is invalid. Should be between [1, %ld], but got xDim0=%ld.",
+    OP_TILING_CHECK((xDim0 > BS_UPPER_BOUND) || (xDim0 < 0),
+                    OP_LOGE(nodeName, "xDim0(BS) is invalid. Should be between [0, %ld], but got xDim0=%ld.",
                             BS_UPPER_BOUND, xDim0),
                     return ge::GRAPH_FAILED);
     tilingData.moeDistributeDispatchInfo.bs = static_cast<uint32_t>(xDim0);
@@ -906,8 +906,8 @@ static ge::graphStatus MoeDistributeDispatchA2CheckShapeAndSetTiling(const gert:
     OP_TILING_CHECK(h % BLOCK_SIZE_A2 != 0 || h <= 0 || h > MAX_HIDDEN_SIZE_A2,
                     OP_LOGE(K_INNER_DEBUG, "hiddensize is invalid."), return GRAPH_FAILED);
     OP_TILING_CHECK(
-        bs <= 0 || bs > BS_UPPER_BOUND,
-        OP_LOGE(K_INNER_DEBUG, "batchsize is invalid. bs: %u, should satisfy 0<bs<=%ld", bs, BS_UPPER_BOUND),
+        bs < 0 || bs > BS_UPPER_BOUND,
+        OP_LOGE(K_INNER_DEBUG, "batchsize is invalid. bs: %u, should satisfy 0<=bs<=%ld", bs, BS_UPPER_BOUND),
         return GRAPH_FAILED);
     OP_TILING_CHECK(k < MIN_K_VALUE_A2 || k > MAX_K_VALUE_A2,
                     OP_LOGE(K_INNER_DEBUG, "k should be in [%u, %u], but got k=%u.", MIN_K_VALUE_A2, MAX_K_VALUE_A2, k),

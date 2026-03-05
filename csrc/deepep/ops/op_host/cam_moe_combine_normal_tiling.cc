@@ -435,7 +435,7 @@ static bool CheckAttrs(gert::TilingContext *context, CamMoeCombineNormalTilingDa
     // 校验输入topkWeights的维度0并设bs
     const gert::StorageShape *topkWeightsStorageShape = context->GetInputShape(TOPK_WEIGHTS_INDEX);
     int64_t topkWeightsDim0 = topkWeightsStorageShape->GetStorageShape().GetDim(0);
-    OP_TILING_CHECK((topkWeightsDim0 <= 0) || (topkWeightsDim0 > BS_UPPER_BOUND),
+    OP_TILING_CHECK((topkWeightsDim0 < 0) || (topkWeightsDim0 > BS_UPPER_BOUND),
                     OP_LOGE(nodeName, "Invalid topkWeights dims0(BS) %ld. Should be between [1, %ld].", topkWeightsDim0,
                             BS_UPPER_BOUND),
                     return false);

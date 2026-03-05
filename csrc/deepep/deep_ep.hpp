@@ -27,11 +27,6 @@ struct Buffer {
     bool combine_enable_long_seq = false;  // Whether to enable the Combine Ant Migration feature
 
     bool low_latency_mode = false;
-    bool is_padding = false;
-    int padding_cnt = 0;
-    at::Tensor ori_x;
-    at::Tensor new_topk_idx;
-    at::Tensor new_scales;
     at::Tensor notify_send_data;  // only for internode notify
     at::Tensor send_token_idx_small;
     int notify_send_data_size;  // only for internode notify
