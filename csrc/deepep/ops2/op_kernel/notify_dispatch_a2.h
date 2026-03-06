@@ -18,15 +18,15 @@ using namespace Moe;
         int cycleCount, GM_ADDR scale, int64_t scaleCount, GM_ADDR offset, int localRank, int localRankSize,           \
         GM_ADDR tokenServerIdxOutput, GM_ADDR tokensUniquePerServerOutput, GM_ADDR epRankTokenCntOutput,               \
         GM_ADDR localEpTokenCntOutput, GM_ADDR srcOffsetRankTokenIdxOutput, GM_ADDR dstOffsetRankTokenIdxOutput,       \
-        GM_ADDR offsetInnerOutput, GM_ADDR countOuterOutput, GM_ADDR expandIdxOutput, GM_ADDR totalRecvTokensOutput,   \
-        GM_ADDR workspace, GM_ADDR tiling
+        GM_ADDR tokenIdxPerExpertOutput, GM_ADDR offsetInnerOutput, GM_ADDR countOuterOutput, GM_ADDR expandIdxOutput, \
+        GM_ADDR totalRecvTokensOutput, GM_ADDR workspace, GM_ADDR tiling
 
 #define KERNELS_ARGS_CALL_A2_ALL2ALL()                                                                          \
     sendDataInput, tokenPerExpertDataInput, tmpDataInput, sendDataOffsetOutput, recvDataOutput, len, numTokens, \
         topkNum, numExperts, op, root, cycleCount, scale, scaleCount, offset, localRank, localRankSize,         \
         tokenServerIdxOutput, tokensUniquePerServerOutput, epRankTokenCntOutput, localEpTokenCntOutput,         \
-        srcOffsetRankTokenIdxOutput, dstOffsetRankTokenIdxOutput, offsetInnerOutput, countOuterOutput,          \
-        expandIdxOutput, totalRecvTokensOutput, workspace, tiling
+        srcOffsetRankTokenIdxOutput, dstOffsetRankTokenIdxOutput, tokenIdxPerExpertOutput, offsetInnerOutput,   \
+        countOuterOutput, expandIdxOutput, totalRecvTokensOutput, workspace, tiling
 
 // #define ENABLE_PRINT
 #ifdef ENABLE_PRINT
@@ -136,6 +136,7 @@ public:
         localEpTokenCntOutputGT_.SetGlobalBuffer((__gm__ int64_t *)localEpTokenCntOutput);
         srcOffsetRankTokenIdxOutputGT_.SetGlobalBuffer((__gm__ int32_t *)srcOffsetRankTokenIdxOutput);
         dstOffsetRankTokenIdxOutputGT_.SetGlobalBuffer((__gm__ int32_t *)dstOffsetRankTokenIdxOutput);
+        tokenIdxPerExpertOutputGT_.SetGlobalBuffer((__gm__ int32_t *)tokenIdxPerExpertOutput);
         offsetInnerOutputGT_.SetGlobalBuffer((__gm__ int32_t *)offsetInnerOutput);
         countOuterOutputGT_.SetGlobalBuffer((__gm__ int32_t *)countOuterOutput);
         expandIdxOutputGT_.SetGlobalBuffer((__gm__ int32_t *)expandIdxOutput);
@@ -452,9 +453,8 @@ private:
     __aicore__ inline void ProcessBetweenServer()
     {
         InputToWindowOut();
-        ConstructBatchWriteInfo();
         SyncAll<true>();
-        SendRdma();
+        ConstructBatchWriteInfo();
         WaitRdma();
         SyncAll<true>();
         WindowInToOutput();
@@ -475,32 +475,37 @@ private:
         if (blockIdx == 0) {
             return;                                                     // 同server的不搬运
         } else {                                                        // blockIdx=1
-            targetRankId = (1 - serverId) * localRankSize + localRank;  // 2个server的计算方式，求对端同号卡rankid
+            for (int i = 0; i < serverNum; i++) {
+                if (i == serverId) {
+                    continue;
+                }
+                int32_t targetRankId = i * localRankSize + localRank;
+                int32_t targetServerId = targetRankId / localRankSize;
+
+                int64_t datalen = this->len;
+                readGt = sendDataInputGt[0];  // 读取全部数据
+
+                // 计算各个位置的offset，in bytes
+                int64_t statusEntryOffset = queSize * targetRankId;
+                int64_t statusFlagOffset = statusEntryOffset + FLAG_OFFSET;
+                int64_t sourceRankIdOffset = statusEntryOffset + SOURCE_RANK_OFFSET;
+                int64_t destRankIdOffset = statusEntryOffset + DEST_RANK_OFFSET;
+                int64_t dataLenOffset = statusEntryOffset + DATALEN_OFFSET;
+                int64_t dataOffset = statusEntryOffset + STATUS_ENTRY_SIZE;
+                int64_t dataFlagOffset = dataOffset + datalen * sizeof(T);
+                CpGM2GMPingPong<T>(datalen * sizeof(T), readGt, windowOutTensor_[dataOffset / sizeof(T)], COPYONLY);
+
+                windowOutstatusTensor_(statusFlagOffset / sizeof(int32_t)) = FLAG_VALUE;
+                windowOutstatusTensor_(sourceRankIdOffset / sizeof(int32_t)) = rank;
+                windowOutstatusTensor_(destRankIdOffset / sizeof(int32_t)) = targetRankId;
+                windowOutstatusTensor_(dataLenOffset / sizeof(int32_t)) = (int32_t)datalen;
+                DataCacheCleanAndInvalid<int32_t, AscendC::CacheLine::SINGLE_CACHE_LINE, AscendC::DcciDst::CACHELINE_OUT>(
+                    windowOutstatusTensor_[(statusEntryOffset / sizeof(int32_t))]);
+                windowOutstatusTensor_(dataFlagOffset / sizeof(int32_t)) = FLAG_VALUE;
+                DataCacheCleanAndInvalid<int32_t, AscendC::CacheLine::SINGLE_CACHE_LINE, AscendC::DcciDst::CACHELINE_OUT>(
+                    windowOutstatusTensor_[(dataFlagOffset / sizeof(int32_t))]);
+            }
         }
-        int32_t targetServerId = targetRankId / localRankSize;
-
-        int64_t datalen = this->len;
-        readGt = sendDataInputGt[0];  // 读取全部数据
-
-        // 计算各个位置的offset，in bytes
-        int64_t statusEntryOffset = queSize * targetRankId;
-        int64_t statusFlagOffset = statusEntryOffset + FLAG_OFFSET;
-        int64_t sourceRankIdOffset = statusEntryOffset + SOURCE_RANK_OFFSET;
-        int64_t destRankIdOffset = statusEntryOffset + DEST_RANK_OFFSET;
-        int64_t dataLenOffset = statusEntryOffset + DATALEN_OFFSET;
-        int64_t dataOffset = statusEntryOffset + STATUS_ENTRY_SIZE;
-        int64_t dataFlagOffset = dataOffset + datalen * sizeof(T);
-        CpGM2GMPingPong<T>(datalen * sizeof(T), readGt, windowOutTensor_[dataOffset / sizeof(T)], COPYONLY);
-
-        windowOutstatusTensor_(statusFlagOffset / sizeof(int32_t)) = FLAG_VALUE;
-        windowOutstatusTensor_(sourceRankIdOffset / sizeof(int32_t)) = rank;
-        windowOutstatusTensor_(destRankIdOffset / sizeof(int32_t)) = targetRankId;
-        windowOutstatusTensor_(dataLenOffset / sizeof(int32_t)) = (int32_t)datalen;
-        DataCacheCleanAndInvalid<int32_t, AscendC::CacheLine::SINGLE_CACHE_LINE, AscendC::DcciDst::CACHELINE_OUT>(
-            windowOutstatusTensor_[(statusEntryOffset / sizeof(int32_t))]);
-        windowOutstatusTensor_(dataFlagOffset / sizeof(int32_t)) = FLAG_VALUE;
-        DataCacheCleanAndInvalid<int32_t, AscendC::CacheLine::SINGLE_CACHE_LINE, AscendC::DcciDst::CACHELINE_OUT>(
-            windowOutstatusTensor_[(dataFlagOffset / sizeof(int32_t))]);
     }
 
     // 创建RDMA使用的batch write信息
@@ -514,29 +519,35 @@ private:
         LocalTensor<uint64_t> batchWriteU64Tensor_ = batchWriteInfoBuf_.Get<uint64_t>();
         uint32_t batchWriteDataType = static_cast<uint32_t>(AscendC::HcclDataType::HCCL_DATA_TYPE_INT8);
         SyncFunc<AscendC::HardEvent::MTE2_S>();
+        for (int i = 0; i < serverNum; i++) {
+            if (i == serverId) {
+                continue;
+            }
+            int32_t targetRankId = i * localRankSize + localRank;
+            int32_t targetServerId = targetRankId / localRankSize;
+            uint32_t sendToRankId = targetServerId * localRankSize + localRank;  // 数据发送目标Server的同号卡rankId
 
-        int32_t targetRankId = (1 - serverId) * localRankSize + localRank;  // 2个server的计算方式
+            // 数据在目标GM中的位置，保证第一轮数据不相互覆盖
+            uint32_t sendOffset = serverId * localRankSize + (targetRankId % localRankSize);
 
-        int32_t targetServerId = targetRankId / localRankSize;
-        uint32_t sendToRankId = targetServerId * localRankSize + localRank;  // 数据发送目标Server的同号卡rankId
+            int64_t datalen = this->len;
+            GM_ADDR localBuf = (__gm__ uint8_t *)(windowOutGM_ + IPC_DATA_OFFSET + targetRankId * queSize);
+            GM_ADDR remoteGM = (__gm__ uint8_t *)(shareAddrs[sendToRankId] + IPC_DATA_OFFSET + rank * queSize);
+            uint64_t batchWriteDataSize = datalen * sizeof(T) + 2 * STATUS_ENTRY_SIZE;  // payload加前后共2个flag长度
 
-        // 数据在目标GM中的位置，保证第一轮数据不相互覆盖
-        uint32_t sendOffset = serverId * localRankSize + (targetRankId % localRankSize);
+            batchWriteU64Tensor_(0 * U64_PER_ITEM + BW_MEB_OFFSET64_LOCAL_GM) = (uint64_t)localBuf;
+            batchWriteU64Tensor_(0 * U64_PER_ITEM + BW_MEB_OFFSET64_REMOTE_GM) = (uint64_t)remoteGM;
+            batchWriteU64Tensor_(0 * U64_PER_ITEM + BW_MEB_OFFSET64_DATA_SIZE) = batchWriteDataSize;
+            batchWriteU32Tensor_(0 * U32_PER_ITEM + BW_MEB_OFFSET32_DATA_TYPE) = batchWriteDataType;
+            batchWriteU32Tensor_(0 * U32_PER_ITEM + BW_MEB_OFFSET32_TARGET_RANK) = sendToRankId;
 
-        int64_t datalen = this->len;
-        GM_ADDR localBuf = (__gm__ uint8_t *)(windowOutGM_ + IPC_DATA_OFFSET + targetRankId * queSize);
-        GM_ADDR remoteGM = (__gm__ uint8_t *)(shareAddrs[sendToRankId] + IPC_DATA_OFFSET + rank * queSize);
-        uint64_t batchWriteDataSize = datalen * sizeof(T) + 2 * STATUS_ENTRY_SIZE;  // payload加前后共2个flag长度
-
-        batchWriteU64Tensor_(0 * U64_PER_ITEM + BW_MEB_OFFSET64_LOCAL_GM) = (uint64_t)localBuf;
-        batchWriteU64Tensor_(0 * U64_PER_ITEM + BW_MEB_OFFSET64_REMOTE_GM) = (uint64_t)remoteGM;
-        batchWriteU64Tensor_(0 * U64_PER_ITEM + BW_MEB_OFFSET64_DATA_SIZE) = batchWriteDataSize;
-        batchWriteU32Tensor_(0 * U32_PER_ITEM + BW_MEB_OFFSET32_DATA_TYPE) = batchWriteDataType;
-        batchWriteU32Tensor_(0 * U32_PER_ITEM + BW_MEB_OFFSET32_TARGET_RANK) = sendToRankId;
-
-        SyncFunc<AscendC::HardEvent::S_MTE3>();
-        DataCopy(batchWriteInfoTensor_[0], batchWriteU32Tensor_, 1 * U32_PER_ITEM);
-        PipeBarrier<PIPE_ALL>();
+            SyncFunc<AscendC::HardEvent::S_MTE3>();
+            DataCopy(batchWriteInfoTensor_[0], batchWriteU32Tensor_, 1 * U32_PER_ITEM);
+            PipeBarrier<PIPE_ALL>();
+            if (blockIdx == 0) {
+                HcclHandle batchWrResult = hccl_.BatchWrite<true>((GM_ADDR)batchWriteInfoTensor_.GetPhyAddr(), 1);
+            }
+        }
     }
 
     __aicore__ inline void SendRdma()
@@ -557,31 +568,36 @@ private:
         LocalTensor<int32_t> dataFlagLocal = tempBuf_.Get<int32_t>();
         SyncFunc<AscendC::HardEvent::S_MTE2>();
 
-        int32_t targetRankId = (1 - serverId) * localRankSize + localRank;  // 2个server的计算方式
-        int32_t targetServerId = targetRankId / localRankSize;
+        for (int i = 0; i < serverNum; i++) {
+            if (i == serverId) {
+                continue;
+            }
+            int32_t targetRankId = i * localRankSize + localRank;
+            int32_t targetServerId = targetRankId / localRankSize;
 
-        int64_t statusOffset = targetRankId * queSize + FLAG_OFFSET;
+            int64_t statusOffset = targetRankId * queSize + FLAG_OFFSET;
 
-        int64_t datalen = 0;
-        int32_t statusFlag = 0;
-        int32_t dataFlag = 0;
-        while (statusFlag != FLAG_VALUE) {
-            DataCopy(statusTensor_[0], windowInstatusTensor_[targetRankId * queSize / sizeof(int32_t)],
-                     U32_STATUS_ENTRY);
-            SyncFunc<AscendC::HardEvent::MTE2_S>();
-            statusFlag = statusTensor_(FLAG_OFFSET / sizeof(int32_t));
-            datalen = statusTensor_(DATALEN_OFFSET / sizeof(int32_t));
-            PipeBarrier<PIPE_MTE2>();
+            int64_t datalen = 0;
+            int32_t statusFlag = 0;
+            int32_t dataFlag = 0;
+            while (statusFlag != FLAG_VALUE) {
+                DataCopy(statusTensor_[0], windowInstatusTensor_[targetRankId * queSize / sizeof(int32_t)],
+                    U32_STATUS_ENTRY);
+                SyncFunc<AscendC::HardEvent::MTE2_S>();
+                statusFlag = statusTensor_(FLAG_OFFSET / sizeof(int32_t));
+                datalen = statusTensor_(DATALEN_OFFSET / sizeof(int32_t));
+                PipeBarrier<PIPE_MTE2>();
+            }
+
+            uint64_t dataFlagOffset = (targetRankId * queSize + datalen * sizeof(T) + STATUS_ENTRY_SIZE) / sizeof(int32_t);
+            while (dataFlag != FLAG_VALUE) {
+                DataCopyPad(dataFlagLocal, windowInstatusTensor_[dataFlagOffset], copyFlagParams, padParams);
+                SyncFunc<AscendC::HardEvent::MTE2_S>();
+                dataFlag = dataFlagLocal(0);
+                PipeBarrier<PIPE_MTE2>();
+            }
+            windowInstatusTensor_(dataFlagOffset) = 0;
         }
-
-        uint64_t dataFlagOffset = (targetRankId * queSize + datalen * sizeof(T) + STATUS_ENTRY_SIZE) / sizeof(int32_t);
-        while (dataFlag != FLAG_VALUE) {
-            DataCopyPad(dataFlagLocal, windowInstatusTensor_[dataFlagOffset], copyFlagParams, padParams);
-            SyncFunc<AscendC::HardEvent::MTE2_S>();
-            dataFlag = dataFlagLocal(0);
-            PipeBarrier<PIPE_MTE2>();
-        }
-        windowInstatusTensor_(dataFlagOffset) = 0;
     }
 
     // 从RDMA收到的windowInTensor将数据拷贝到output
@@ -595,11 +611,16 @@ private:
         if (blockIdx > 0) {
             return;
         }
-        int32_t targetRankId = (1 - serverId) * localRankSize + localRank;  // 2个server的计算方式
-        int64_t recvCount = this->len;
-        uint64_t dataOffset = (targetRankId * queSize + STATUS_ENTRY_SIZE) / sizeof(T);
-        CpGM2GMPingPong<T>(recvCount * sizeof(T), windowInTensor_[dataOffset],
-                           recvDataOutputGt[targetRankId * this->len], COPYONLY);
+        for (int i = 0; i < serverNum; i++) {
+            if (i == serverId) {
+                continue;
+            }
+            int32_t targetRankId = i * localRankSize + localRank;
+            int64_t recvCount = this->len;
+            uint64_t dataOffset = (targetRankId * queSize + STATUS_ENTRY_SIZE) / sizeof(T);
+            CpGM2GMPingPong<T>(recvCount * sizeof(T), windowInTensor_[dataOffset],
+                recvDataOutputGt[targetRankId * this->len], COPYONLY);
+        }
     }
 
     // 从recvData拆分数据并计算输出
@@ -629,7 +650,6 @@ private:
         BuildEpRankTokenCntData(0, blockNum);
         SyncAll<true>();
         BuildLocalEpRankTokenCntData(0, blockNum);
-
         int32_t coreNumPerFunc = CeilDiv(static_cast<int32_t>(blockNum), 2);
         if (blockIdx < coreNumPerFunc) {
             if (blockIdx == 0) {
@@ -651,8 +671,11 @@ private:
                 BuildOffsetInnerData(beginCoreId, remainCoreNum);
             }
         } else {
-            int32_t beginCoreId = coreNumPerFunc;
-            int32_t remainCoreNum = blockNum - coreNumPerFunc;
+            if (blockIdx == coreNumPerFunc) {
+                BuildOffsetToken();
+            }
+            int32_t beginCoreId = coreNumPerFunc + 1;
+            int32_t remainCoreNum = blockNum - coreNumPerFunc - 1;
             BuildSrcDstOffsetData(beginCoreId, remainCoreNum);
         }
     }
@@ -846,6 +869,64 @@ private:
         AscendC::WaitFlag<HardEvent::MTE3_MTE2>(EVENT_ID0);  // MTE2 waits for MTE3
     }
 
+    // 生成一个全局token偏移输出，维度是totalToken*topk，每个元素都是一个int32_t类型数据，代表本token是发往topk位置对应expert的第几个token
+    __aicore__ inline void BuildOffsetToken()
+    {
+        LocalTensor<int32_t> topkExpertIdx = tempBuf3_.Get<int32_t>();
+        LocalTensor<int32_t> tokenPerRank = tempBuf2_.Get<int32_t>();
+        LocalTensor<int32_t> tokenIdxRank = tempBuf7_.Get<int32_t>();
+        LocalTensor<int32_t> tokenPerRankOut = tempBuf10_.Get<int32_t>();
+        LocalTensor<float> floatTmpLt = tempBuf4_.Get<float>();
+        LocalTensor<float> floatTmpSumLt = tempBuf5_.Get<float>();
+        LocalTensor<float> sharedTmpBuffer = tempBuf6_.Get<float>();
+
+        DataCopyExtParams copyParams{1, static_cast<uint32_t>(rankSize * sizeof(int32_t)), 0, 0, 0};
+        DataCopyPadExtParams<int32_t> padParams{false, 0, 0, 0};
+        DataCopyExtParams tokenIdxRankParams{1, static_cast<uint32_t>(topkNum * sizeof(int32_t)), 0, 0, 0};
+        DataCopyPadExtParams<int32_t> tokenIdxRankPadParams{false, 0, 0, 0};
+        uint32_t preTokenIdx = 0;
+        // 此处实现是单核aicore处理所有rank，后续重构后根据核的分配情况可以将核按rank并行处理，一个核处理一个或多个rank
+        for (int i = 0; i < rankSize; i++) {
+            int32_t rankOffset = i * len + numExperts * (MAX_BS + 1) + serverNum + MAX_BS * serverNum + MAX_BS +
+                                 MAX_BS * serverNum + MAX_BS * topkNum * 2;
+            int32_t topkIdxOffset = i * len + numExperts * (MAX_BS + 1) + serverNum + MAX_BS * serverNum + MAX_BS +
+                                 MAX_BS * serverNum + MAX_BS * topkNum;
+            uint32_t tokenRank = recvDataOutputGt.GetValue(rankOffset);
+            DataCopyPad(topkExpertIdx, recvDataOutputGt[topkIdxOffset], tokenIdxRankParams, tokenIdxRankPadParams);
+            for (int j = 0; j < tokenRank; j++) {
+                int32_t tokenIdxOffset = i * len + numExperts + serverNum + MAX_BS * serverNum + MAX_BS +
+                                             MAX_BS * serverNum + j * topkNum;
+                DataCopyPad(tokenIdxRank,
+                            recvDataOutputGt[tokenIdxOffset],
+                            tokenIdxRankParams, tokenIdxRankPadParams);
+                for (int k = 0; k < topkNum; k++) {
+                    uint32_t preTokenExpertRank = 0;
+                    if (i > 0) {
+                        int32_t topk = topkExpertIdx.GetValue(k);
+                        if (topk >= numExperts || topk < 0) {
+                            continue;
+                        }
+                        DataCopyPad(tokenPerRank, epRankTokenCntOutputGT_[topk * rankSize], copyParams, padParams);
+                        SyncFunc<AscendC::HardEvent::MTE2_V>();
+                        Cast(floatTmpLt, tokenPerRank, RoundMode::CAST_NONE, rankSize);
+                        PipeBarrier<PIPE_V>();
+                        ReduceSum(floatTmpSumLt, floatTmpLt, sharedTmpBuffer, i);
+                        PipeBarrier<PIPE_V>();
+                        SyncFunc<AscendC::HardEvent::V_S>();
+                        preTokenExpertRank = static_cast<int32_t>(floatTmpSumLt.GetValue(0));
+                    }
+                    SyncFunc<AscendC::HardEvent::MTE2_S>();
+                    uint32_t localTokenIdxExpert = tokenIdxRank.GetValue(k);
+                    uint32_t tokenIdxExpert = preTokenExpertRank + localTokenIdxExpert - 1;
+                    tokenPerRankOut.SetValue(k, tokenIdxExpert);
+                }
+                DataCopyPad(tokenIdxPerExpertOutputGT_[(j + preTokenIdx) * topkNum], tokenPerRankOut,
+                            tokenIdxRankParams);
+            }
+            preTokenIdx += tokenRank;
+        }
+    }
+
     __aicore__ inline void BuildOffsetInnerData(int32_t beginCoreId, int32_t validCoreNum)
     {
         // 分核处理token，2 server
@@ -866,14 +947,11 @@ private:
 
         // 计算对端rank，需构造对端rank的offsetInner数据（2个server的计算方式）
         int32_t curRankId = rank;
-        int32_t peerRankId = (1 - serverId) * localRankSize + localRank;         // 2个server的计算方式
-        int32_t firstRankId = curRankId < peerRankId ? curRankId : peerRankId;   // 取小的rank
-        int32_t secondRankId = curRankId < peerRankId ? peerRankId : curRankId;  // 取大的rank
-
-        // 计算 offsetInnerOutputGT_ (包含本端rank和对端rank的offsetInner信息)
-        // shape[max_bs, expertNum]  value: inner_offset
-        BuildOffsetInnerForRank(firstRankId, 0, startTokenId, endTokenId);   // 先处理rankId小的
-        BuildOffsetInnerForRank(secondRankId, 1, startTokenId, endTokenId);  // 再处理rankId大的
+        
+        for (int i = 0; i < serverNum; i++) {
+            int32_t targetRank = i * localRankSize + localRank;
+            BuildOffsetInnerForRank(targetRank, i, startTokenId, endTokenId);
+        }
     }
 
     __aicore__ inline void BuildCountOuterData()
@@ -903,6 +981,7 @@ private:
 
         int32_t curRankDataOffset = rank * len + numExperts;  // offset + numTokensPerExpertLen
         DataCopyPad(tmpLt, recvDataOutputGt[curRankDataOffset], copyParams, padParams);
+        
 
         SyncFunc<AscendC::HardEvent::MTE2_MTE3>();
 
@@ -987,7 +1066,6 @@ private:
 
                 event_t eventId = EVENT_ID0;
                 AscendC::WaitFlag<HardEvent::MTE3_MTE2>(eventId);
-
                 DataCopyPad(tmpLt, recvDataOutputGt[recvOffset], copyParams, padParams);
 
                 AscendC::SetFlag<HardEvent::MTE2_MTE3>(eventId);
@@ -1353,6 +1431,7 @@ private:
                                                            // token_idx] -> value:src_offset
     GlobalTensor<int32_t> dstOffsetRankTokenIdxOutputGT_;  // 每个专家、从rank接收的token目的端偏移 [expert_num,
                                                            // rank_num, token_idx] -> value:dst_offset
+    GlobalTensor<int32_t> tokenIdxPerExpertOutputGT_;
     GlobalTensor<int32_t> countInnerOutputGT_;   // token给各个server发送个数    弃用
     GlobalTensor<int32_t> offsetInnerOutputGT_;  // 存放全局的expandIdx, [globalBs, expertNum]
     GlobalTensor<int32_t> countOuterOutputGT_;   // 每个token发送到的server数量 [bs] -> value:server数量

@@ -600,7 +600,9 @@ CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layeredFunc>::ConstructDataAn
         batchWriteU64Tensor_(6) = flagLen;          // 数据长度
         batchWriteU32Tensor_(14) = HcclDataType::HCCL_DATA_TYPE_INT8;
         batchWriteU32Tensor_(15) = dstRankId;  // dst卡
-
+        printf(
+        "flagLen:%d srcDataRdmaAddr:%ld dstDataRdmaAddr:%ld dstRankId:%ld srcFlagRdmaAddr:%ld dstFlagRdmaAddr:%ld dstRankId:%ld readStatusTensor_:%ld srcRank:%d\n",
+        flagLen, srcDataRdmaAddr, dstDataRdmaAddr, dstRankId, srcFlagRdmaAddr, dstFlagRdmaAddr, dstRankId, (uint64_t)(windowInGM_ + WIN_SIZE), rankId_);
         SyncFunc<AscendC::HardEvent::S_MTE3>();
         uint32_t dstServerOffset = dstserverInd;
         uint32_t sendInfoCount = B64_PER_BLOCK * PER_MSG_RDMA_SEND_TIME;

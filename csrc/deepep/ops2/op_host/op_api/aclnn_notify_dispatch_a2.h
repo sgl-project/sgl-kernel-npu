@@ -29,6 +29,7 @@ extern "C" {
  * localEpTokenCnt : required
  * srcOffsetRankTokenIdx : required
  * dstOffsetRankTokenIdx : required
+ * tokenIdxPerExpert : required
  * offsetInner : required
  * countOuter : required
  * expandIdx : required
@@ -41,8 +42,8 @@ __attribute__((visibility("default"))) aclnnStatus aclnnNotifyDispatchA2GetWorks
     int64_t localRankSize, int64_t localRankId, const aclTensor *sendDataOffset, const aclTensor *recvData,
     const aclTensor *tokenServerIdx, const aclTensor *tokenUniquePerServer, const aclTensor *epRankTokenCnt,
     const aclTensor *localEpTokenCnt, const aclTensor *srcOffsetRankTokenIdx, const aclTensor *dstOffsetRankTokenIdx,
-    const aclTensor *offsetInner, const aclTensor *countOuter, const aclTensor *expandIdx,
-    const aclTensor *totalRecvTokens, uint64_t *workspaceSize, aclOpExecutor **executor);
+    const aclTensor *tokenIdxPerExpert, const aclTensor *offsetInner, const aclTensor *countOuter,
+    const aclTensor *expandIdx, const aclTensor *totalRecvTokens, uint64_t *workspaceSize, aclOpExecutor **executor);
 
 /* function: aclnnNotifyDispatch
  * parameters :

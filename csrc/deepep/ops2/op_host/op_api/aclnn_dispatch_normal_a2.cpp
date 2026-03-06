@@ -20,19 +20,19 @@ aclnnStatus aclnnDispatchNormalA2GetWorkspaceSize(
     const aclTensor *x, const aclTensor *expertIds, const aclTensor *scales, const aclTensor *xActiveMask,
     const aclTensor *expertScales, const aclTensor *tokenServerIdx, const aclTensor *tokenServerCnt,
     const aclTensor *epRankTokenCnt, const aclTensor *srcOffsetRankTokenIdx, const aclTensor *dstOffsetRankTokenIdx,
-    char *groupEp, int64_t epWorldSize, int64_t epRankId, int64_t moeExpertNum, char *groupTp, int64_t tpWorldSize,
-    int64_t tpRankId, int64_t expertShardType, int64_t sharedExpertNum, int64_t sharedExpertRankNum, int64_t quantMode,
-    int64_t globalBs, int64_t expertTokenNumsType, const aclTensor *recvX, const aclTensor *dynamicScales,
-    const aclTensor *expandIdx, const aclTensor *expertTokenNums, const aclTensor *epRecvCount,
-    const aclTensor *expandScales, const aclTensor *waitRecvCostStats, uint64_t *workspaceSize,
-    aclOpExecutor **executor)
+    const aclTensor *tokenIdxPerExpert, char *groupEp, int64_t epWorldSize, int64_t epRankId, int64_t moeExpertNum,
+    char *groupTp, int64_t tpWorldSize, int64_t tpRankId, int64_t expertShardType, int64_t sharedExpertNum,
+    int64_t sharedExpertRankNum, int64_t quantMode, int64_t globalBs, int64_t expertTokenNumsType,
+    const aclTensor *recvX, const aclTensor *dynamicScales, const aclTensor *expandIdx,
+    const aclTensor *expertTokenNums, const aclTensor *epRecvCount, const aclTensor *expandScales,
+    const aclTensor *waitRecvCostStats, const aclTensor *syncCore, uint64_t *workspaceSize, aclOpExecutor **executor)
 {
     return aclnnInnerDispatchNormalA2GetWorkspaceSize(
         x, expertIds, scales, xActiveMask, expertScales, tokenServerIdx, tokenServerCnt, epRankTokenCnt,
-        srcOffsetRankTokenIdx, dstOffsetRankTokenIdx, groupEp, epWorldSize, epRankId, moeExpertNum, groupTp,
-        tpWorldSize, tpRankId, expertShardType, sharedExpertNum, sharedExpertRankNum, quantMode, globalBs,
+        srcOffsetRankTokenIdx, dstOffsetRankTokenIdx, tokenIdxPerExpert, groupEp, epWorldSize, epRankId, moeExpertNum,
+        groupTp, tpWorldSize, tpRankId, expertShardType, sharedExpertNum, sharedExpertRankNum, quantMode, globalBs,
         expertTokenNumsType, recvX, dynamicScales, expandIdx, expertTokenNums, epRecvCount, expandScales,
-        waitRecvCostStats, workspaceSize, executor);
+        waitRecvCostStats, syncCore, workspaceSize, executor);
 }
 
 aclnnStatus aclnnDispatchNormalA2(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream)

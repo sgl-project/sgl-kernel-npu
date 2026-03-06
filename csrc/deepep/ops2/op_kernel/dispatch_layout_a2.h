@@ -107,6 +107,11 @@ public:
                                         MAX_BATCH_SIZE * (1 + 2 * serverNum_ + numTopk_));
             expertRankTokenIdxGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ + serverNum_ +
                                                   MAX_BATCH_SIZE * (1 + 2 * serverNum_ + numTopk_ * 2));
+            rankTokensGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ * (1 + MAX_BATCH_SIZE) + serverNum_ +
+                                          MAX_BATCH_SIZE * (1 + 2 * serverNum_ + numTopk_ * 2));
+            rankTokensGM_.SetValue(0, numTokens_);
+            AscendC::DataCacheCleanAndInvalid<T, AscendC::CacheLine::SINGLE_CACHE_LINE,
+                                              AscendC::DcciDst::CACHELINE_OUT>(rankTokensGM_);
             tempExpertGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ + serverNum_ +
                                           MAX_BATCH_SIZE * (1 + 2 * serverNum_ + numTopk_ * 2));
             tempServerGM_.SetGlobalBuffer((__gm__ T *)notifySendData + numExperts_ * (1 + aivNum_) + serverNum_ +
@@ -344,6 +349,7 @@ private:
     GlobalTensor<T> tokenIdxGM_;
     GlobalTensor<T> expertRankTokenIdxGM_;
     GlobalTensor<T> sendTokenIdxGM_;
+    GlobalTensor<T> rankTokensGM_;
     GlobalTensor<T> tempExpertGM_;
     GlobalTensor<T> tempServerGM_;
     GlobalTensor<T> sendTokenIdxSmallGM_;
