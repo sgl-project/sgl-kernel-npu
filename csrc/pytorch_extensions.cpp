@@ -70,14 +70,17 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "bgmv_expand(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y,"
         "            int slice_offset, int slice_size) -> Tensor");
 
-    m.def("bgmv_shrink(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y, float scale) -> ()");
+    m.def(
+        "bgmv_shrink(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y,"
+        "            float scale) -> ()");
 
     m.def(
         "sgmv_expand(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! y,"
         "            int slice_offset, int slice_size) -> Tensor");
 
     m.def(
-        "sgmv_shrink(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! y, float scale) -> ()");
+        "sgmv_shrink(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! y,"
+        " float scale) -> ()");
 
     m.def(
         "sgemmv_expand(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! lora_ranks,"
@@ -85,6 +88,14 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 
     m.def(
         "sgemmv_shrink(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! lora_ranks,"
+        "              Tensor! lora_scales, Tensor! y) -> ()");
+
+    m.def(
+        "sgemmc_expand(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! lora_ranks,"
+        "              Tensor! sliceOffsets, Tensor! y) -> Tensor");
+
+    m.def(
+        "sgemmc_shrink(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! lora_ranks,"
         "              Tensor! lora_scales, Tensor! y) -> ()");
 
 #ifdef BUILD_CATLASS_MODULE
@@ -133,6 +144,10 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("sgemmv_expand", TORCH_FN(sglang::npu_kernel::sgemmv_expand));
 
     m.impl("sgemmv_shrink", TORCH_FN(sglang::npu_kernel::sgemmv_shrink));
+
+    m.impl("sgemmc_expand", TORCH_FN(sglang::npu_kernel::sgemmc_expand));
+
+    m.impl("sgemmc_shrink", TORCH_FN(sglang::npu_kernel::sgemmc_shrink));
 
 #ifdef BUILD_CATLASS_MODULE
     m.impl("catlass_matmul_basic", TORCH_FN(sglang::npu_kernel::catlass_matmul_basic));
