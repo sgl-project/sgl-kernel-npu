@@ -2,6 +2,7 @@
 #include "graph/types.h"
 #include "aclnn_notify_dispatch.h"
 #include "aclnnInner_notify_dispatch.h"
+#include <stdio.h>
 
 extern void NnopbaseOpLogE(const aclnnStatus code, const char *const expr);
 
@@ -24,6 +25,7 @@ aclnnStatus aclnnNotifyDispatchGetWorkspaceSize(
     const aclTensor *rInSrcrankOffset, const aclTensor *totalRecvTokens, const aclTensor *maxBs,
     const aclTensor *recvTokensPerExpert, uint64_t *workspaceSize, aclOpExecutor **executor)
 {
+    printf("=================OPAPI aclnnNotifyDispatchGetWorkspaceSize start\n");
     return aclnnInnerNotifyDispatchGetWorkspaceSize(
         sendData, tokenPerExpertData, sendCount, numTokens, commGroup, rankSize, rankId, localRankSize, localRankId,
         round, perRoundTokens, sendDataOffset, recvData, recvCount, recvOffset, expertGlobalOffset,
@@ -32,6 +34,7 @@ aclnnStatus aclnnNotifyDispatchGetWorkspaceSize(
 
 aclnnStatus aclnnNotifyDispatch(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream)
 {
+    printf("=================OPAPI aclnnNotifyDispatch start\n");
     if (NnopbaseSetHcclServerType) {
         NnopbaseSetHcclServerType(executor, NNOPBASE_HCCL_SERVER_TYPE_MTE);
     }

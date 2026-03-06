@@ -39,6 +39,7 @@ class Buffer:
             allow_mnnvl: This parameter is deprecated and retained to ensure compatibility with DeepEP.
         """
 
+        self.group = group
         self.rank = group.rank()
         self.group_size = group.size()
         self.num_nvl_bytes = num_nvl_bytes
@@ -178,6 +179,19 @@ class Buffer:
             is_token_in_rank: `[num_tokens, num_ranks]` with `torch.int`, whether a token be sent to a rank.
             event: the event after executing the kernel (valid only if `async_finish` is set).
         """
+        self.num_experts = num_experts
+        if os.getenv("USE_HCCL_MOE") == "1":
+            device = topk_idx.device
+            dummy_tensor = torch.empty(0, dtype=torch.int, device=device)
+            raw_event = getattr(previous_event, "event", None)
+            return (
+                dummy_tensor,
+                None,
+                dummy_tensor,
+                dummy_tensor,
+                EventOverlap(raw_event)
+            )
+
         (
             num_tokens_per_rank,
             num_tokens_per_rdma_rank,
@@ -227,6 +241,220 @@ class Buffer:
         self.runtime.clean_low_latency_buffer(
             num_max_dispatch_tokens_per_rank, hidden, num_experts
         )
+
+    def _hccl_dispatch(
+        self,
+        x: torch.Tensor,
+        topk_idx: torch.Tensor,
+        topk_weights: torch.Tensor,
+        async_finish: bool = False,
+    ) -> Tuple[
+        torch.Tensor,
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
+        List[int],
+        Tuple,
+        EventOverlap,
+    ]:
+        """
+        Encapsulated HCCL implementation for dispatch.
+        """
+        import torch_npu
+        import torch.distributed as dist
+
+        # 1. Basic Info Setup
+        world_size = self.group_size
+        rank = self.rank
+
+        # Determine number of experts
+        # Ensure explicitly int for slicing and shape generation
+        total_num_experts = self.num_experts
+        num_local_experts = int(total_num_experts // world_size)
+
+        local_expert_indices_offset = rank * num_local_experts
+        local_expert_indices_end = local_expert_indices_offset + num_local_experts
+
+        # Reshape input to (total_tokens, hidden)
+        hidden_shape = x.shape
+        hidden_states = x.view(-1, hidden_shape[-1])
+
+        # 2. Preprocess: Calculate Splits
+        # Histogram of local tokens per expert
+        num_local_tokens_per_expert = torch.histc(
+            topk_idx.float(), bins=total_num_experts, min=0, max=total_num_experts
+        )
+
+        # Input Splits: Tokens sent from this rank to every other rank
+        input_splits = (
+            num_local_tokens_per_expert.reshape(world_size, num_local_experts)
+            .sum(axis=1)
+            .to(torch.int64)
+            .cpu()
+            .tolist()
+        )
+
+        # AllGather to get global distribution for Output Splits
+        num_local_tokens_per_expert_list = [
+            torch.empty_like(num_local_tokens_per_expert) for _ in range(world_size)
+        ]
+        dist.all_gather(num_local_tokens_per_expert_list, num_local_tokens_per_expert, group=self.group)
+
+        # [world_size, num_experts]
+        num_global_tokens_per_expert = torch.stack(num_local_tokens_per_expert_list, dim=0)
+
+        # Filter for local experts of current rank
+        # [world_size, num_local_experts]
+        num_global_tokens_per_local_expert = num_global_tokens_per_expert[
+            :, local_expert_indices_offset : local_expert_indices_end
+        ]
+
+        # Output Splits: Tokens received by this rank from every other rank
+        output_splits = (
+            num_global_tokens_per_local_expert.sum(axis=-1)
+            .to(torch.int64)
+            .cpu()
+            .tolist()
+        )
+
+        # 3. Local Permutation
+        permutated_tokens, reversed_local_mapping = torch_npu.npu_moe_token_permute(
+            hidden_states, topk_idx.to(torch.int32), num_out_tokens=topk_idx.numel()
+        )
+
+        # 4. AllToAllV Communication
+        recv_buffer_size = sum(output_splits)
+        global_input_tokens = torch.empty(
+            (recv_buffer_size, hidden_shape[-1]),
+            dtype=x.dtype,
+            device=x.device
+        )
+
+        dist_handle = dist.all_to_all_single(
+            global_input_tokens,
+            permutated_tokens.contiguous(),
+            output_split_sizes=output_splits,
+            input_split_sizes=input_splits,
+            group=self.group,
+            async_op=True
+        )
+
+        # Ensure communication finishes before using the data in next npu op
+        if not async_finish:
+            dist_handle.wait()
+        else:
+            dist_handle.wait()
+
+        # 5. Post-process: Global Permutation (Align to Local Experts)
+        # We need to generate indices for reordering received tokens.
+        # Data layout from AllToAll is: [Rank0_Data, Rank1_Data, ...]
+        # Within RankN_Data, tokens are ordered by GlobalExpertID (mapped to LocalExpertID 0..L-1).
+        # We construct IDs matching the [world_size, num_local_experts] shape structure explicitly.
+
+        # Shape: [num_local_experts] -> [0, 1, ..., L-1]
+        local_expert_ids = torch.arange(num_local_experts, device=x.device, dtype=torch.int32)
+
+        # Expand to [world_size, num_local_experts] to strictly match the counts tensor shape
+        # Then flatten to 1D: [0, 1..L-1, 0, 1..L-1, ...]
+        repeated_expert_ids = local_expert_ids.unsqueeze(0).expand(world_size, -1).contiguous().flatten()
+
+        # Flatten the counts to 1D, ensuring int32 for NPU op
+        flat_counts = num_global_tokens_per_local_expert.flatten().to(torch.int32)
+
+        # Now both inputs are strictly 1D and have the same number of elements (world_size * num_local_experts)
+        global_tokens_indices = torch.repeat_interleave(
+            repeated_expert_ids,
+            flat_counts
+        )
+
+        dispatch_out, reversed_global_mapping = torch_npu.npu_moe_token_permute(
+            global_input_tokens, global_tokens_indices
+        )
+
+        # 6. Prepare Returns
+        # Count received tokens per local expert for DeepEP compat
+        num_recv_tokens_per_expert_list = num_global_tokens_per_local_expert.sum(dim=0).cpu().tolist()
+
+        # Pack Handle
+        hccl_handle = (
+            reversed_local_mapping,
+            reversed_global_mapping,
+            input_splits,
+            output_splits,
+            hidden_shape,
+            topk_weights
+        )
+
+        return (
+            dispatch_out,
+            None, # recv_topk_idx not needed/available in this flow
+            None, # recv_topk_weights not needed
+            num_recv_tokens_per_expert_list,
+            hccl_handle,
+            EventOverlap(None) # Wrapper for event
+        )
+
+    def _hccl_combine(
+        self,
+        x: torch.Tensor,
+        handle: Tuple,
+        async_finish: bool = False,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], EventOverlap]:
+        """
+        Encapsulated HCCL implementation for combine.
+        """
+        import torch_npu
+        import torch.distributed as dist
+
+        # Unpack Handle
+        (
+            reversed_local_mapping,
+            reversed_global_mapping,
+            dispatch_input_splits,
+            dispatch_output_splits,
+            original_hidden_shape,
+            original_topk_weights
+        ) = handle
+
+        # 1. Unpermute Locally (Reverse the post-dispatch permutation)
+        hidden_states = torch_npu.npu_moe_token_unpermute(
+            x, reversed_global_mapping
+        )
+
+        # 2. AllToAll Back
+        # Swap splits: Send what we received (Output of Dispatch), Receive what we sent (Input of Dispatch)
+        send_splits = dispatch_output_splits
+        recv_splits = dispatch_input_splits
+
+        recv_buffer_size = sum(recv_splits)
+        local_tokens = torch.empty(
+            (recv_buffer_size, x.shape[-1]),
+            dtype=x.dtype,
+            device=x.device
+        )
+
+        dist_handle = dist.all_to_all_single(
+            local_tokens,
+            hidden_states.contiguous(),
+            output_split_sizes=recv_splits,
+            input_split_sizes=send_splits,
+            group=self.group,
+            async_op=True
+        )
+
+        if not async_finish:
+            dist_handle.wait()
+        else:
+            dist_handle.wait()
+
+        # 3. Final Unpermute and Weighted Sum
+        output = torch_npu.npu_moe_token_unpermute(
+            local_tokens,
+            reversed_local_mapping.to(torch.int32),
+            probs=original_topk_weights,
+            restore_shape=original_hidden_shape,
+        )
+
+        return output, None, EventOverlap(None)
 
     # noinspection PyTypeChecker
     @log_parameters(["topk_idx"])
@@ -297,6 +525,16 @@ class Buffer:
             handle: the returned communication handle.
             event: the event after executing the kernel (valid only if `async_finish` is set).
         """
+        # --- HCCL Branch ---
+        if os.getenv("USE_HCCL_MOE") == "1":
+            return self._hccl_dispatch(
+                x=x,
+                topk_idx=topk_idx,
+                topk_weights=topk_weights,
+                async_finish=async_finish
+            )
+        # -------------------
+
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
 
@@ -512,6 +750,15 @@ class Buffer:
             recv_topk_weights: the reduced top-k weights from its dispatch ranks.
             event: the event after executing the kernel (valid only if `async_finish` is set).
         """
+        # --- HCCL Branch ---
+        if os.getenv("USE_HCCL_MOE") == "1":
+            return self._hccl_combine(
+                x=x,
+                handle=handle,
+                async_finish=async_finish
+            )
+        # -------------------
+
         # Internode
         if self.runtime.get_num_rdma_ranks() > 1:
             return self.internode_combine(
@@ -728,6 +975,7 @@ class Buffer:
             event: the event after executing the kernel (valid only if `async_finish` is set).
             hook: the receiving hook function (valid only if `return_recv_hook` is set).
         """
+        # print(f"PYTHON {self.rank=} before low_latency_dispatch", flush=True)
         topk_ids = topk_idx.int()
         (
             packed_recv_x,
@@ -749,6 +997,7 @@ class Buffer:
             async_finish,
             return_recv_hook,
         )
+        # print(f"PYTHON {self.rank=} after low_latency_dispatch", flush=True)
         handle = (
             packed_recv_src_info,
             packed_recv_layout_range,
