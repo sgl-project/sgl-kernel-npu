@@ -368,6 +368,11 @@ def fused_qkvzba_split_reshape_cat(
     fused_qkvzba_split_reshape_cat_kernel[grid](
         mixed_qkv,
         z,
+        b,
+        a,
+        mixed_qkvz,
+        mixed_ba,
+        num_heads_qk,
         num_heads_v,
         head_qk,
         head_v,
