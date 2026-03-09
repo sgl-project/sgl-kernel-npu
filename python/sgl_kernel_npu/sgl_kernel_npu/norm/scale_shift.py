@@ -2,7 +2,7 @@ import torch
 import triton
 import triton.language as tl
 
-triton.jit
+@triton.jit
 def fuse_scale_shift_kernel(
     x_ptr,
     scale_ptr,
@@ -38,15 +38,13 @@ def fuse_scale_shift_kernel(
     else:
         shift_offsets = dim_offsets[None, :]
         shift_mask = dim_offsets[None, :] < hidden_size
-        shift = tl.load(shift_ptr + shift_offsets, mask=shift_mask, other=0.0).to(tl.float32)
+        shift = tl.load(shift_ptr + shift_offsets, mask=shift_mask, other=0.0).to(
+            tl.float32
+        )
 
     output = x * (1.0 + scale) + shift
 
-    tl.store(
-        output_ptr + offset,
-        output.to(output_ptr.dtype.element_ty),
-        mask=mask
-    )
+    tl.store(output_ptr + offset, output.to(output_ptr.dtype.element_ty), mask=mask)
 
 
 def fuse_scale_shift(
@@ -66,8 +64,12 @@ def fuse_scale_shift(
     scale_numel = scale.numel()
     shift_numel = shift.numel()
 
-    assert scale_numel == 1 or scale_numel == hidden_size, f"Scale size must be 1 or {hidden_size}, got {scale_numel}"
-    assert shift_numel == 1 or shift_numel == hidden_size, f"Scale size must be 1 or {hidden_size}, got {shift_numel}"
+    assert (
+        scale_numel == 1 or scale_numel == hidden_size
+    ), f"Scale size must be 1 or {hidden_size}, got {scale_numel}"
+    assert (
+        shift_numel == 1 or shift_numel == hidden_size
+    ), f"Scale size must be 1 or {hidden_size}, got {shift_numel}"
 
     output = torch.empty_like(x)
 
