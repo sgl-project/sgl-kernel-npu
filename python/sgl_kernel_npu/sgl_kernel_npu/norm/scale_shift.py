@@ -2,6 +2,7 @@ import torch
 import triton
 import triton.language as tl
 
+
 @triton.jit
 def fuse_scale_shift_kernel(
     x_ptr,
