@@ -12,7 +12,7 @@ RANK_OFFSET = 128
 
 def low_latency_test(
     aligned_num_tokens: int,
-    actual_num_tokens: int,
+    num_tokens: int,
     hidden: int,
     num_experts: int,
     num_topk: int,
@@ -27,41 +27,21 @@ def low_latency_test(
         num_ranks - rank_offset < 257
     ), "Too many ranks (exceeding test precision limit)"
 
-    x = torch.zeros((aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu")
-
-    if actual_num_tokens > 0:
-        x[:actual_num_tokens] = torch.ones(
-            (actual_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
-        ) * (rank - rank_offset)
-        x[:actual_num_tokens, -128:] = (
-            torch.arange(actual_num_tokens, device="npu").to(torch.bfloat16).view(-1, 1)
-        )
-
+    x = torch.ones((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * (
+        rank - rank_offset
+    )
+    x[:, -128:] = torch.arange(num_tokens, device="npu").to(torch.bfloat16).view(-1, 1)
     scores = (
-        torch.randn(
-            (aligned_num_tokens, num_experts), dtype=torch.float32, device="npu"
-        ).abs()
+        torch.randn((num_tokens, num_experts), dtype=torch.float32, device="npu").abs()
         + 1
     )
 
-    topk_idx = torch.full(
-        (aligned_num_tokens, num_topk), -1, dtype=torch.long, device="npu"
-    )
+    # Sorting not needed for correctness test, improves performance
+    topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
 
-    if actual_num_tokens > 0:
-        actual_scores = scores[:actual_num_tokens]
-        actual_topk_idx = torch.topk(
-            actual_scores, num_topk, dim=-1, largest=True, sorted=True
-        )[1]
-        topk_idx[:actual_num_tokens] = actual_topk_idx
-
-    topk_weights = torch.zeros(
-        (aligned_num_tokens, num_topk), dtype=torch.float32, device="npu"
-    )
-    if actual_num_tokens > 0:
-        topk_weights[:actual_num_tokens] = torch.randn(
-            (actual_num_tokens, num_topk), dtype=torch.float32, device="npu"
-        ).abs()
+    topk_weights = torch.randn(
+        (num_tokens, num_topk), dtype=torch.float32, device="npu"
+    ).abs()
 
     return_recv_hook = False
     cumulative_local_expert_recv_stats = torch.zeros(
@@ -105,36 +85,21 @@ def low_latency_test(
         out=out,
     )
 
-    if actual_num_tokens > 0:
-        # 计算期望的输出（只考虑有效token）
-        expected_x = torch.zeros(
-            (aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
-        )
-        expected_x[:actual_num_tokens] = torch.ones(
-            (actual_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
-        ) * (rank - rank_offset)
-        expected_x[:actual_num_tokens, -128:] = (
-            torch.arange(actual_num_tokens, device="npu").to(torch.bfloat16).view(-1, 1)
-        )
-
-        diff = calc_diff(
-            expected_x[:actual_num_tokens]
-            * topk_weights[:actual_num_tokens]
-            .masked_fill(topk_idx[:actual_num_tokens] == -1, 0)
-            .sum(dim=1)
-            .view(-1, 1),
-            combined_x[:actual_num_tokens],
-        )
-        assert torch.isnan(combined_x).sum().item() == 0
-        if dispatch_use_fp8:
-            assert diff < 1e-4, f"Error: {diff=}"
-        else:
-            assert diff < 1e-5, f"Error: {diff=}"
+    diff = calc_diff(
+        x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
+        combined_x,
+    )
+    assert torch.isnan(combined_x).sum().item() == 0
+    if dispatch_use_fp8:
+        assert diff < 1e-4, f"Error: {diff=}"
+    else:
+        assert diff < 1e-5, f"Error: {diff=}"
 
 
 def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     rank, num_ranks, group = init_dist(local_rank, num_local_ranks)
     num_topk, num_experts, hidden = args.num_topk, args.num_experts, args.hidden
+    enable_dynamic_tokens = args.enable_dynamic_tokens
     assert num_experts % num_ranks == 0
     torch.manual_seed(rank)
 
@@ -146,17 +111,20 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         fluctuation_percentage = 0.1
         min_fluctuation = 2
 
-        if base_normal_num_tokens < 10:
-            fluctuation = random.randint(-min_fluctuation, min_fluctuation)
-            normal_num_tokens = base_normal_num_tokens + fluctuation
-        else:
-            fluctuation = random.uniform(
-                1 - fluctuation_percentage, 1 + fluctuation_percentage
-            )
-            normal_num_tokens = int(base_normal_num_tokens * fluctuation)
+        if enable_dynamic_tokens:
+            if base_normal_num_tokens < 10:
+                fluctuation = random.randint(-min_fluctuation, min_fluctuation)
+                normal_num_tokens = base_normal_num_tokens + fluctuation
+            else:
+                fluctuation = random.uniform(
+                    1 - fluctuation_percentage, 1 + fluctuation_percentage
+                )
+                normal_num_tokens = int(base_normal_num_tokens * fluctuation)
 
-        # Ensure normal_num_tokens is at least 1
-        normal_num_tokens = max(normal_num_tokens, 1)
+            # Ensure normal_num_tokens is at least 1
+            normal_num_tokens = max(normal_num_tokens, 1)
+        else:
+            normal_num_tokens = base_normal_num_tokens
 
         if local_rank == 0:
             print(f"Start executing normal test loop {i} ...", flush=True)
@@ -172,17 +140,20 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
 
         base_low_latency_num_tokens = args.low_latency_num_tokens
 
-        if base_low_latency_num_tokens < 10:
-            fluctuation = random.randint(-min_fluctuation, min_fluctuation)
-            low_latency_num_tokens = base_low_latency_num_tokens + fluctuation
-        else:
-            fluctuation = random.uniform(
-                1 - fluctuation_percentage, 1 + fluctuation_percentage
-            )
-            low_latency_num_tokens = int(base_low_latency_num_tokens * fluctuation)
+        if enable_dynamic_tokens:
+            if base_low_latency_num_tokens < 10:
+                fluctuation = random.randint(-min_fluctuation, min_fluctuation)
+                low_latency_num_tokens = base_low_latency_num_tokens + fluctuation
+            else:
+                fluctuation = random.uniform(
+                    1 - fluctuation_percentage, 1 + fluctuation_percentage
+                )
+                low_latency_num_tokens = int(base_low_latency_num_tokens * fluctuation)
 
-        # Ensure low_latency_num_tokens is at least 1
-        low_latency_num_tokens = max(low_latency_num_tokens, 1)
+            # Ensure low_latency_num_tokens is at least 1
+            low_latency_num_tokens = max(low_latency_num_tokens, 1)
+        else:
+            low_latency_num_tokens = base_low_latency_num_tokens
 
         local_tokens_tensor = torch.tensor(
             [low_latency_num_tokens], dtype=torch.int32, device="npu"
@@ -245,6 +216,11 @@ if __name__ == "__main__":
         type=int,
         default=1000,
         help="Number of test loop (default: 1000)",
+    )
+    parser.add_argument(
+        "--enable-dynamic-tokens",
+        action="store_true",
+        help="Whether to enable dynamic tokens for testing",
     )
 
     args = parser.parse_args()

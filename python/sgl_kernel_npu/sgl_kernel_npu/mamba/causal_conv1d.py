@@ -586,6 +586,7 @@ def torch_causal_conv1d_update_npu(
     out = torch.sum(hidden_states_new * weight, dim=-1, keepdim=True)
     out = F.silu(out)
     out = out.to(hidden_state.dtype)
+    conv_state_update = conv_state_update.to(hidden_state.dtype)
     return out, conv_state_update
 
 

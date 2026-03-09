@@ -23,7 +23,8 @@ extern aclnnStatus aclnnInnerMoeDistributeCombineV2GetWorkspaceSize(
     int64_t epRankId, int64_t moeExpertNum, char *groupTp, int64_t tpWorldSize, int64_t tpRankId,
     int64_t expertShardType, int64_t sharedExpertNum, int64_t sharedExpertRankNum, int64_t globalBs, int64_t outDtype,
     int64_t commQuantMode, int64_t groupListType, char *commAlg, int64_t zeroExpertNum, int64_t copyExpertNum,
-    int64_t constExpertNum, const aclTensor *x, uint64_t *workspaceSize, aclOpExecutor **executor);
+    int64_t constExpertNum, const aclTensor *x, const aclTensor *sendCostStats, uint64_t *workspaceSize,
+    aclOpExecutor **executor);
 
 extern aclnnStatus aclnnInnerMoeDistributeCombineV2(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
                                                     aclrtStream stream);
@@ -38,14 +39,15 @@ aclnnStatus aclnnMoeDistributeCombineV2GetWorkspaceSize(
     const aclTensor *sharedExpertXOptional, char *groupEp, int64_t epWorldSize, int64_t epRankId, int64_t moeExpertNum,
     char *groupTp, int64_t tpWorldSize, int64_t tpRankId, int64_t expertShardType, int64_t sharedExpertNum,
     int64_t sharedExpertRankNum, int64_t globalBs, int64_t outDtype, int64_t commQuantMode, int64_t groupListType,
-    char *commAlg, const aclTensor *xOut, uint64_t *workspaceSize, aclOpExecutor **executor)
+    char *commAlg, const aclTensor *xOut, const aclTensor *sendCostStats, uint64_t *workspaceSize,
+    aclOpExecutor **executor)
 {
     return aclnnInnerMoeDistributeCombineV2GetWorkspaceSize(
         expandX, expertIds, assistInfoForCombine, epSendCounts, expertScales, tpSendCountsOptional, xActiveMaskOptional,
         activationScaleOptional, weightScaleOptional, groupListOptional, expandScalesOptional, sharedExpertXOptional,
         nullptr, nullptr, nullptr, nullptr, nullptr, groupEp, epWorldSize, epRankId, moeExpertNum, groupTp, tpWorldSize,
         tpRankId, expertShardType, sharedExpertNum, sharedExpertRankNum, globalBs, outDtype, commQuantMode,
-        groupListType, commAlg, 0, 0, 0, xOut, workspaceSize, executor);
+        groupListType, commAlg, 0, 0, 0, xOut, sendCostStats, workspaceSize, executor);
 }
 
 aclnnStatus aclnnMoeDistributeCombineV2(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,

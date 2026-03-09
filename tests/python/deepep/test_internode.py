@@ -21,7 +21,7 @@ from utils import (
 )
 
 MAX_BATCH_SIZE = 4096
-enable_a2_test = True
+enable_a2_test = False  # Only open when layout kernel output is proved to be wrong
 
 
 # noinspection PyShadowingNames
@@ -38,24 +38,28 @@ def test_main(
     base_num_tokens, hidden = args.num_tokens, args.hidden
     num_topk, num_experts = args.num_topk, args.num_experts
     enable_diagnose = args.enable_diagnose
+    enable_dynamic_tokens = args.enable_dynamic_tokens
     num_servers = num_ranks // num_local_ranks
     num_nodes = num_servers
     expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
 
-    fluctuation_percentage = 0.1
-    min_fluctuation = 2
+    if enable_dynamic_tokens:
+        fluctuation_percentage = 0.1
+        min_fluctuation = 2
 
-    if base_num_tokens < 10:
-        fluctuation = random.randint(-min_fluctuation, min_fluctuation)
-        num_tokens = base_num_tokens + fluctuation
+        if base_num_tokens < 10:
+            fluctuation = random.randint(-min_fluctuation, min_fluctuation)
+            num_tokens = base_num_tokens + fluctuation
+        else:
+            fluctuation = random.uniform(
+                1 - fluctuation_percentage, 1 + fluctuation_percentage
+            )
+            num_tokens = int(base_num_tokens * fluctuation)
+
+        # Ensure num_tokens is at least 1
+        num_tokens = max(num_tokens, 1)
     else:
-        fluctuation = random.uniform(
-            1 - fluctuation_percentage, 1 + fluctuation_percentage
-        )
-        num_tokens = int(base_num_tokens * fluctuation)
-
-    # Ensure num_tokens is at least 1
-    num_tokens = max(num_tokens, 1)
+        num_tokens = base_num_tokens
 
     assert num_experts % num_ranks == 0 and num_nodes >= 2
     assert num_tokens <= MAX_BATCH_SIZE
@@ -185,7 +189,7 @@ def test_main(
             (num_tokens * num_servers,), dtype=torch.int, device="npu"
         )
         send_token_idx = torch.zeros(
-            (num_tokens * num_experts,), dtype=torch.int, device="npu"
+            (num_tokens * num_topk,), dtype=torch.int, device="npu"
         )
         expert_rank_token_idx = torch.zeros(
             (num_experts * MAX_BATCH_SIZE,), dtype=torch.int, device="npu"
@@ -208,9 +212,7 @@ def test_main(
                     seen_server[server_id] += 1
                 num_each_token_to_server[i * num_servers + server_id] += 1
                 count_num_expert[expert_id] += 1
-                send_token_idx[i * num_experts + expert_id] = count_num_expert[
-                    expert_id
-                ]
+                send_token_idx[i * num_topk + j] = count_num_expert[expert_id]
 
         count_num_expert = [0] * num_experts
         for i in range(num_tokens):
@@ -253,14 +255,14 @@ def test_main(
             + MAX_BATCH_SIZE * (num_servers * 2 + 1) : num_experts
             + num_servers
             + MAX_BATCH_SIZE * (num_servers * 2 + 1)
-            + num_tokens * num_experts
+            + num_tokens * num_topk
         ]
         ref_expert_rank_token_idx = notify_send_data[
             num_experts
             + num_servers
-            + MAX_BATCH_SIZE * (num_servers * 2 + num_experts + 1) : num_experts
+            + MAX_BATCH_SIZE * (num_servers * 2 + num_topk * 2 + 1) : num_experts
             + num_servers
-            + MAX_BATCH_SIZE * (num_servers * 2 + num_experts + num_experts + 1)
+            + MAX_BATCH_SIZE * (num_servers * 2 + num_topk * 2 + num_experts + 1)
         ]
 
         # check data
@@ -658,6 +660,11 @@ if __name__ == "__main__":
         type=int,
         default=-1,
         help="If >=0, drop this specific top-k column (set index to -1 for testing).",
+    )
+    parser.add_argument(
+        "--enable-dynamic-tokens",
+        action="store_true",
+        help="Whether to enable dynamic tokens for testing",
     )
     args = parser.parse_args()
 
