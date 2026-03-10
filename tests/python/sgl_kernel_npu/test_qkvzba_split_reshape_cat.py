@@ -6,8 +6,8 @@ import pytest
 import torch
 import torch.nn.functional as F
 from sgl_kernel_npu.fla.utils import (
-    fused_qkvzba_split_reshape_cat_torch,
     fused_qkvzba_split_reshape_cat,
+    fused_qkvzba_split_reshape_cat_torch,
 )
 
 LAUNCH_MIN = 2
@@ -48,7 +48,7 @@ def print_diff(name, ref, tri, atol=0.005):
     [
         pytest.param(
             *test,
-            id="B{}-num_heads_qk{}-num_heads_v{}-head_qk{}-head_v{}-{}".format(*test)
+            id="B{}-num_heads_qk{}-num_heads_v{}-head_qk{}-head_v{}-{}".format(*test),
         )
         for test in [
             # (B, num_heads_qk, num_heads_v, head_qk, head_v, dtype)
@@ -78,35 +78,35 @@ def test_fused_qkvzba(
 ):
     if head_v not in [64, 128, 256]:
         pytest.skip(reason="fused_qkvzba only supports head_v in [64,128,256]")
-    
+
     torch.manual_seed(42)
     torch.npu.manual_seed_all(42)
     os.environ["TRITON_F32_DEFAULT"] = "ieee"
     
     mixed_qkvz = torch.randn((B, 3072), dtype=dtype)
     mixed_ba = torch.randn((B, 16), dtype=dtype)
-    
+
     mixed_qkvz, mixed_ba = map(
         lambda x: x.to(device).requires_grad_(),
         (mixed_qkvz, mixed_ba)
     )
-    
+
     tri_mixed_qkv, tri_z, tri_b, tri_a = None, None, None, None
     begin_time = 0
     for i in range(LAUNCH_CNT):
         if i == 1 or LAUNCH_CNT == 1:
             torch.npu.synchronize()
             begin_time = time.time()
-        
+
         tri_mixed_qkv, tri_z, tri_b, tri_a = fused_qkvzba_split_reshape_cat(
             mixed_qkvz=mixed_qkvz.clone(),
             mixed_ba=mixed_ba.clone(),
             num_heads_qk=num_heads_qk,
             num_heads_v=num_heads_v,
             head_qk=head_qk,
-            head_v=head_v
+            head_v=head_v,
         )
-    
+
     torch.npu.synchronize()
     use_time = time.time() - begin_time
     avg_time = use_time * 1000 / (LAUNCH_CNT - 1) if LAUNCH_CNT > 1 else use_time * 1000
@@ -118,16 +118,16 @@ def test_fused_qkvzba(
         if i == 1 or LAUNCH_CNT == 1:
             torch.npu.synchronize()
             begin_time = time.time()
-        
+
         ref_mixed_qkv, ref_z, ref_b, ref_a = fused_qkvzba_split_reshape_cat_torch(
             mixed_qkvz=mixed_qkvz.clone(),
             mixed_ba=mixed_ba.clone(),
             num_heads_qk=num_heads_qk,
             num_heads_v=num_heads_v,
             head_qk=head_qk,
-            head_v=head_v
+            head_v=head_v,
         )
-    
+
     torch.npu.synchronize()
     use_time = time.time() - begin_time
     avg_time = use_time * 1000 / (LAUNCH_CNT - 1) if LAUNCH_CNT > 1 else use_time * 1000
