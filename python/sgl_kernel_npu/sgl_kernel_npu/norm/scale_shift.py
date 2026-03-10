@@ -4,7 +4,7 @@ import triton.language as tl
 
 
 @triton.jit
-def fuse_scale_shift_kernel(
+def fused_scale_shift_kernel(
     x_ptr,
     scale_ptr,
     shift_ptr,
@@ -48,7 +48,7 @@ def fuse_scale_shift_kernel(
     tl.store(output_ptr + offset, output.to(output_ptr.dtype.element_ty), mask=mask)
 
 
-def fuse_scale_shift(
+def fused_scale_shift(
     x: torch.Tensor,
     scale: torch.Tensor,
     shift: torch.Tensor,
@@ -79,7 +79,7 @@ def fuse_scale_shift(
         triton.cdiv(hidden_size, block_c),
     )
 
-    fuse_scale_shift_kernel[grid](
+    fused_scale_shift_kernel[grid](
         x,
         scale,
         shift,
