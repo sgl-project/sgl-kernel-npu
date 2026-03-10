@@ -1,3 +1,9 @@
+"""Split QKV + optional RMSNorm + RoPE using a position-indexed cos/sin cache (packed layout).
+
+Provides ``split_qkv_rmsnorm_rope_pos_cache_half_npu``. Use this when you have a global
+cos/sin cache and per-row position indices; use ``split_qkv_rmsnorm_rope`` in the same
+package when you already have sin/cos tensors of shape [B, rope_dim].
+"""
 import triton
 import triton.language as tl
 import torch
@@ -214,7 +220,7 @@ def split_qkv_rmsnorm_rope_half_pos_cache_kernel(
 def split_qkv_rmsnorm_rope_pos_cache_half_npu(
     input_tensor: torch.Tensor,  # [B, q_hidden + 2*kv_hidden]
     positions: torch.Tensor,  # [B]
-    cos_sin_cache: torch.Tensor,  # [max_seq, rope_dim] layout [cos_half, sin_half]
+    cos_sin_cache: torch.Tensor,  # [max_seq, rope_dim] layout [cos_block, sin_block]
     q_hidden_size: int,
     kv_hidden_size: int,
     head_dim: int,
@@ -224,31 +230,36 @@ def split_qkv_rmsnorm_rope_pos_cache_half_npu(
     q_bias: torch.Tensor = None,
     k_bias: torch.Tensor = None,
     rope_dim: int = None,
-    cast_norm_to_bf16: bool = True, # cast norm result to bf16 before RoPE
+    cast_norm_to_bf16: bool = True,  # cast norm result to bf16 before RoPE
 ):
-    """Split concatenated QKV input, optionally apply RMSNorm, then RoPE using position cache (half layout).
+    """Split QKV from concatenated input, optional RMSNorm on Q/K, RoPE via position-indexed cache, copy V.
 
-    The input is [B, q_hidden + 2*kv_hidden] (Q|K|V concatenated). Outputs are separate
-    Q, K, V tensors with optional RMSNorm and rotary position embedding applied.
-    cos_sin_cache uses half-angle layout [cos_half, sin_half] per dimension.
+    Input shape is [B, q_hidden_size + 2*kv_hidden_size] (Q|K|V concatenated). Outputs are
+    separate Q, K, V tensors with optional RMSNorm and rotary position embedding applied to Q/K.
+    RoPE cos/sin are read from ``cos_sin_cache`` at indices ``positions[b]`` for each row b.
+    Cache layout is packed: first ``rope_dim // 2`` columns are cos(θ), next ``rope_dim // 2`` are sin(θ).
+
+    See also:
+        split_qkv_rmsnorm_rope: variant that takes pre-indexed sin/cos tensors [B, rope_dim].
 
     Args:
         input_tensor: Concatenated QKV hidden states, shape [B, q_hidden_size + 2*kv_hidden_size].
-        positions: Position indices per batch item, shape [B].
-        cos_sin_cache: RoPE cos/sin cache, shape [max_seq, rope_dim], layout [cos_half, sin_half].
+        positions: Position index per batch item, shape [B], dtype int32 or int64. Must be in [0, max_seq).
+        cos_sin_cache: RoPE cos/sin cache, shape [max_seq, rope_dim]. Layout: [0 : rope_dim//2] = cos,
+            [rope_dim//2 : rope_dim] = sin.
         q_hidden_size: Query hidden size.
         kv_hidden_size: Key/Value hidden size (each).
         head_dim: Head dimension (must be power of 2).
         eps: RMSNorm epsilon; if None, norm is skipped.
-        q_weight: Optional Q RMSNorm weight.
-        k_weight: Optional K RMSNorm weight.
-        q_bias: Optional Q RMSNorm bias.
-        k_bias: Optional K RMSNorm bias.
-        rope_dim: RoPE dimension (default head_dim).
-        cast_norm_to_bf16: If True, cast norm output to bf16 before RoPE.
+        q_weight: Optional Q RMSNorm weight (length >= head_dim when eps is not None).
+        k_weight: Optional K RMSNorm weight (length >= head_dim when eps is not None).
+        q_bias: Optional Q RMSNorm bias (length >= head_dim when provided).
+        k_bias: Optional K RMSNorm bias (length >= head_dim when provided).
+        rope_dim: RoPE dimension (default head_dim). Must be even and <= head_dim.
+        cast_norm_to_bf16: If True, cast norm output to bf16 with RNE before RoPE; else keep in fp32 then cast.
 
     Returns:
-        Tuple of (q_out, k_out, v_out), each shape [B, *] with respective hidden sizes.
+        Tuple of (q_out, k_out, v_out), shapes [B, q_hidden_size], [B, kv_hidden_size], [B, kv_hidden_size].
     """
     _, num_vectorcore = get_device_properties()
     assert input_tensor.dim() == 2
