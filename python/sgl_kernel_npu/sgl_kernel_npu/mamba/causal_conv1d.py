@@ -71,7 +71,8 @@ def prepare_data(
     conv_states: Optional[torch.Tensor] = None,
 ):
     initial_states = (
-        torch.index_select(conv_states, 0, cache_indices) * has_initial_state[:, None, None]
+        torch.index_select(conv_states, 0, cache_indices)
+        * has_initial_state[:, None, None]
         if has_initial_state is not None and has_initial_state.any()
         else None
     )
