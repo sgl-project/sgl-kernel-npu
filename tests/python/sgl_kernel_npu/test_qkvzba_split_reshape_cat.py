@@ -11,7 +11,7 @@ from sgl_kernel_npu.fla.utils import (
 )
 
 LAUNCH_MIN = 2
-LAUNCH_CNT = max(2, LAUNCH_MIN)  # specify your run cnt for profiling
+LAUNCH_CNT = max(2, LAUNCH_MIN)
 device = "npu"
 
 
@@ -56,11 +56,14 @@ def print_diff(name, ref, tri, atol=0.005):
             (2, 4, 8, 128, 128, torch.float16),
             (4, 4, 8, 128, 128, torch.float16),
             (8, 4, 8, 128, 128, torch.float16),
-            (1, 6, 12, 64, 64, torch.float16),
-            (2, 6, 12, 64, 64, torch.float16),
-            (4, 8, 16, 256, 256, torch.float16),
-            (8, 8, 16, 256, 256, torch.float16),
-            (1, 4, 8, 128, 128, torch.float32),  # 可选：测试float32
+            (1, 4, 8, 128, 128, torch.bfloat16),
+            (2, 4, 8, 128, 128, torch.bfloat16),
+            (4, 4, 8, 128, 128, torch.bfloat16),
+            (8, 4, 8, 128, 128, torch.bfloat16),
+            (1, 4, 8, 128, 128, torch.float32),
+            (2, 4, 8, 128, 128, torch.float32),
+            (4, 4, 8, 128, 128, torch.float32),
+            (8, 4, 8, 128, 128, torch.float32),
         ]
     ],
 )
@@ -143,6 +146,3 @@ def test_fused_qkvzba(
     assert_close("b", ref_b, tri_b, 0.005, err_atol=1e-6)
     assert_close("a", ref_a, tri_a, 0.005, err_atol=1e-6)
 
-
-if __name__ == "__main__":
-    pytest.main(["-v", __file__])
