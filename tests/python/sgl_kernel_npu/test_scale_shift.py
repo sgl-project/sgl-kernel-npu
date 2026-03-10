@@ -20,6 +20,8 @@ def test_fuse_scale():
     ]
 
     for shape in test_cases:
+        print(f"Testing with scale/shift shape: {shape}")
+
         x = torch.randn(B, H, C, dtype=torch.float32, device="npu")
         scale = torch.randn(shape, dtype=dtype, device="npu")
         shift = torch.randn(shape, dtype=dtype, device="npu")
@@ -27,9 +29,14 @@ def test_fuse_scale():
         res = fuse_scale_shift_golden(x, scale, shift)
         ans = fuse_scale_shift(x, scale, shift, block_l, block_c)
 
-        assert (
-            np.testing.assert_allclose(res, ans, rtol=1e-1) is None
+        np.testing.assert_allclose(
+            res.cpu().numpy(),
+            ans.cpu().numpy(),
+            rtol=1e-1,
+            err_msg=f"Failed for shape {shape}"
         )
+
+        print(f"Passed: shape {shape}")
 
 if __name__ == "__main__":
     test_fuse_scale()
