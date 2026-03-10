@@ -32,7 +32,7 @@ def test_fuse_scale():
         np.testing.assert_allclose(
             res.cpu().numpy(),
             ans.cpu().numpy(),
-            rtol=1e-1,
+            rtol=1e-3,
             err_msg=f"Failed for shape {shape}"
         )
 
