@@ -12,7 +12,7 @@ def fuse_scale_shift_golden(
 def test_fuse_scale():
     B, H, C = 3, 37440, 5120
     block_l, block_c = 128, 128
-    dtype = torch.bfloat16
+    dtype = torch.float32
 
     test_cases = [
         (1, 1, C),
@@ -22,7 +22,7 @@ def test_fuse_scale():
     for shape in test_cases:
         print(f"Testing with scale/shift shape: {shape}")
 
-        x = torch.randn(B, H, C, dtype=torch.float32, device="npu")
+        x = torch.randn(B, H, C, dtype=dtype, device="npu")
         scale = torch.randn(shape, dtype=dtype, device="npu")
         shift = torch.randn(shape, dtype=dtype, device="npu")
 
