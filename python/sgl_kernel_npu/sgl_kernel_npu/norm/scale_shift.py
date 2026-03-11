@@ -104,8 +104,8 @@ def fused_scale_shift(
         scale_numel == 1 or scale_numel == hidden_size
     ), f"Scale size must be 1 or {hidden_size}, got {scale_numel}"
     assert (
-        shift_numel == 1 or shift_numel == hidden_size
-    ), f"Scale size must be 1 or {hidden_size}, got {shift_numel}"
+        shift_numel == 1 or shift_numel == hidden_size or shift_numel == x_numel
+    ), f"Scale size must be 1, {hidden_size} or {x_numel}, got {shift_numel}"
 
     output = torch.empty_like(x)
 
