@@ -47,6 +47,7 @@ def fused_scale_shift_kernel(
 
     tl.store(output_ptr + offset, output.to(output_ptr.dtype.element_ty), mask=mask)
 
+
 @triton.jit
 def fused_scale_shift_kernel_2(
     x_ptr,

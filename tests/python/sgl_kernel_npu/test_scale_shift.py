@@ -17,9 +17,18 @@ def test_fused_scale():
     dtype = torch.float32
 
     test_cases = [
-        [(1, 1, C), (1, 1, C),],
-        [(1,), (1,),],
-        [(1, 1, C), (B, H, C),],
+        [
+            (1, 1, C),
+            (1, 1, C),
+        ],
+        [
+            (1,),
+            (1,),
+        ],
+        [
+            (1, 1, C),
+            (B, H, C),
+        ],
     ]
 
     for shape in test_cases:
