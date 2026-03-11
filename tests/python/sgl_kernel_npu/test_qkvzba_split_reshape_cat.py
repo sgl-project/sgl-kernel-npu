@@ -85,13 +85,12 @@ def test_fused_qkvzba(
     torch.manual_seed(42)
     torch.npu.manual_seed_all(42)
     os.environ["TRITON_F32_DEFAULT"] = "ieee"
-    
+
     mixed_qkvz = torch.randn((B, 3072), dtype=dtype)
     mixed_ba = torch.randn((B, 16), dtype=dtype)
 
     mixed_qkvz, mixed_ba = map(
-        lambda x: x.to(device).requires_grad_(),
-        (mixed_qkvz, mixed_ba)
+        lambda x: x.to(device).requires_grad_(), (mixed_qkvz, mixed_ba)
     )
 
     tri_mixed_qkv, tri_z, tri_b, tri_a = None, None, None, None
@@ -145,4 +144,3 @@ def test_fused_qkvzba(
     assert_close("z", ref_z, tri_z, 0.005, err_atol=1e-6)
     assert_close("b", ref_b, tri_b, 0.005, err_atol=1e-6)
     assert_close("a", ref_a, tri_a, 0.005, err_atol=1e-6)
-

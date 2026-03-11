@@ -396,14 +396,14 @@ def fused_qkvzba_split_reshape_cat(
         device=mixed_ba.device,
     )
 
-    num_vectorcore = get_device_properties()[0]
+    num_vectorcore = get_device_properties()[1]
 
     grid_size = min(num_vectorcore, total_rows)
     grid_size = max(1, grid_size)
 
     rows_per_vec = triton.cdiv(total_rows, grid_size)
 
-    ub_size = 85 * 1024 // mixed_qkvz.element_size()
+    ub_size = 86 * 1024 // mixed_qkvz.element_size()
 
     elements_per_row = (
         qkvz_row_stride
