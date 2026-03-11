@@ -47,17 +47,52 @@ def fused_scale_shift_kernel(
 
     tl.store(output_ptr + offset, output.to(output_ptr.dtype.element_ty), mask=mask)
 
+@triton.jit
+def fused_scale_shift_kernel_2(
+    x_ptr,
+    scale_ptr,
+    shift_ptr,
+    output_ptr,
+    num_tokens,
+    hidden_size,
+    scale_constant: tl.constexpr,
+    block_l: tl.constexpr,
+    block_c: tl.constexpr,
+):
+    row_pid = tl.program_id(0)
+    col_pid = tl.program_id(1)
+
+    token_offsets = row_pid * block_l + tl.arange(0, block_l)
+    dim_offsets = col_pid * block_c + tl.arange(0, block_c)
+
+    mask = (token_offsets[:, None] < num_tokens) & (dim_offsets[None, :] < hidden_size)
+    offset = token_offsets[:, None] * hidden_size + dim_offsets[None, :]
+
+    x = tl.load(x_ptr + offset, mask=mask, other=0.0)
+
+    scale_offsets = dim_offsets[None, :]
+    scale_mask = dim_offsets[None, :] < hidden_size
+    scale = tl.load(scale_ptr + scale_offsets, mask=scale_mask, other=0.0)
+
+    shift = tl.load(shift_ptr + offset, mask=mask, other=0.0).to(tl.float32)
+
+    output = x * (scale_constant + scale) + shift
+
+    tl.store(output_ptr + offset, output.to(output_ptr.dtype.element_ty), mask=mask)
+
 
 def fused_scale_shift(
     x: torch.Tensor,
     scale: torch.Tensor,
     shift: torch.Tensor,
+    scale_constant: float = 1.0,
     block_l: int = 128,
     block_c: int = 128,
 ):
     orig_shape = x.shape
     num_tokens = orig_shape[0] * orig_shape[1]
     hidden_size = orig_shape[2]
+    x_numel = num_tokens * hidden_size
 
     scale = scale.view(-1)
     shift = shift.view(-1)
@@ -79,17 +114,31 @@ def fused_scale_shift(
         triton.cdiv(hidden_size, block_c),
     )
 
-    fused_scale_shift_kernel[grid](
-        x,
-        scale,
-        shift,
-        output,
-        num_tokens,
-        hidden_size,
-        scale_numel=scale_numel,
-        shift_numel=shift_numel,
-        block_l=block_l,
-        block_c=block_c,
-    )
+    if shift_numel == x_numel:
+        fused_scale_shift_kernel_2[grid](
+            x,
+            scale,
+            shift,
+            output,
+            num_tokens,
+            hidden_size,
+            scale_constant,
+            block_l=block_l,
+            block_c=block_c,
+        )
+
+    else:
+        fused_scale_shift_kernel[grid](
+            x,
+            scale,
+            shift,
+            output,
+            num_tokens,
+            hidden_size,
+            scale_numel=scale_numel,
+            shift_numel=shift_numel,
+            block_l=block_l,
+            block_c=block_c,
+        )
 
     return output
