@@ -85,6 +85,7 @@ public:
             .NeedCheckSupportFlag(false)
             .PrecisionReduceFlag(true)
             .ExtendCfgInfo("aclnnSupport.value", "support_aclnn")
+            .ExtendCfgInfo("prebuildPattern.value", "Opaque")
             .ExtendCfgInfo("multiKernelSupportDynamicGraph.value", "multi_kernel");
 
         OpAICoreConfig aicore_config_A2 = aicore_config_base;
@@ -93,6 +94,7 @@ public:
         OpAICoreConfig aicore_config = aicore_config_base;
         aicore_config.ExtendCfgInfo("jitCompile.flag", "static_true");
 
+        this->AICore().AddConfig("ascend910_95", aicore_config);
         this->AICore().AddConfig("ascend910_93", aicore_config);
         this->AICore().AddConfig("ascend910b", aicore_config_A2);
         this->MC2().HcclGroup("comm_group");

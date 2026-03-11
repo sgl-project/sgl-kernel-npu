@@ -283,6 +283,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int expert_token_nums_type = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
     EP_HOST_ASSERT(expert_token_nums_type == 1 or expert_token_nums_type == 0);
 
+    printf("=================DEEPEP intranode_dispatch start\n");
     EXEC_NPU_CMD(aclnnNotifyDispatch, send_data, new_num_tokens_per_expert, send_count, num_tokens,
                  hcom_ep_name,  // commGroup
                  num_ranks,     // rankSize
@@ -291,7 +292,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, total_recv_token,
                  max_bs, recv_tokens_per_expert);
     auto send_token_idx_small = this->send_token_idx_small;
-
+    printf("=================DEEPEP intranode_dispatch end\n");
     real_max_bs = static_cast<int64_t>(std::max(max_bs.item<int>(), static_cast<int>(num_worst_tokens)));
 
     // dispatch算子内部按照 min(per_round_tokens, real_max_bs)来预留显存
