@@ -370,4 +370,3 @@ def split_qkv_rmsnorm_rope_pos_cache_half_npu(
     )
 
     return q_out, k_out, v_out
-
