@@ -4,10 +4,12 @@ Provides ``split_qkv_rmsnorm_rope_pos_cache_half_npu``. Use this when you have a
 cos/sin cache and per-row position indices; use ``split_qkv_rmsnorm_rope`` in the same
 package when you already have sin/cos tensors of shape [B, rope_dim].
 """
+
+import torch
 import triton
 import triton.language as tl
-import torch
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
+
 
 @triton.jit
 def fp32_to_bf16_rne(x):
@@ -299,9 +301,15 @@ def split_qkv_rmsnorm_rope_pos_cache_half_npu(
     q_block_n = q_block_size // head_dim
     k_block_n = kv_block_size // head_dim  # usually 1
 
-    q_out = torch.empty((B, q_hidden_size), device=input_tensor.device, dtype=input_tensor.dtype)
-    k_out = torch.empty((B, kv_hidden_size), device=input_tensor.device, dtype=input_tensor.dtype)
-    v_out = torch.empty((B, kv_hidden_size), device=input_tensor.device, dtype=input_tensor.dtype)
+    q_out = torch.empty(
+        (B, q_hidden_size), device=input_tensor.device, dtype=input_tensor.dtype
+    )
+    k_out = torch.empty(
+        (B, kv_hidden_size), device=input_tensor.device, dtype=input_tensor.dtype
+    )
+    v_out = torch.empty(
+        (B, kv_hidden_size), device=input_tensor.device, dtype=input_tensor.dtype
+    )
 
     n_cols = kv_hidden_size // kv_block_size
     n_rows = (num_vectorcore + n_cols - 1) // n_cols
@@ -363,4 +371,3 @@ def split_qkv_rmsnorm_rope_pos_cache_half_npu(
     )
 
     return q_out, k_out, v_out
-
