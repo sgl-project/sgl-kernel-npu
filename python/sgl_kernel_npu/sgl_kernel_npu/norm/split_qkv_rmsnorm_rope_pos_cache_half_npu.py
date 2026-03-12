@@ -4,6 +4,7 @@ Provides ``split_qkv_rmsnorm_rope_pos_cache_half_npu``. Use this when you have a
 cos/sin cache and per-row position indices; use ``split_qkv_rmsnorm_rope`` in the same
 package when you already have sin/cos tensors of shape [B, rope_dim].
 """
+
 import torch
 import triton
 import triton.language as tl
