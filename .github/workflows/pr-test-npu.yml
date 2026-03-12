@@ -387,6 +387,14 @@ jobs:
           HCCL_BUFFSIZE: 2048
         run: bash scripts/generalization_test_fused_deep_moe.sh
 
+      - name: Run test combine only
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3900
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --test-type="low_latency"
+
   test-build-deepep-a3:
     needs: get-changed-files
     if: |
@@ -723,6 +731,14 @@ jobs:
           HCCL_BUFFSIZE: 2048
         run: bash scripts/generalization_test_fused_deep_moe.sh
 
+      - name: Run test combine only
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3900
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --test-type="low_latency"
+
   test-build-deepep-a2:
     needs: get-changed-files
     if: |
@@ -980,9 +996,19 @@ jobs:
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --test-loop=100 --enable-dynamic-tokens --num-processes=8
 
+      - name: Run test combine only
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3900
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --num-processes=8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --test-type="low_latency" --num-processes=8
+
   test-build-deepep-internode:
     name: multi-node
-    if: ${{ (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') }}
+    needs: get-changed-files
+    if: ${{ (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+      (needs.get-changed-files.outputs.ops2_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')}}
     strategy:
       fail-fast: false
       max-parallel: 1
