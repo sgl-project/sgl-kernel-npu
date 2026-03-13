@@ -20,6 +20,7 @@
 #define SGL_KERNEL_NPU_KERNEL_SGEMMV_EXPAND_H
 
 #include "kernel_operator.h"
+#include "lora_common_kernel.h"
 
 template <typename scalar_t>
 class SGEMMVExpand
@@ -106,11 +107,19 @@ public:
         if (endIdx > batchSize_) {
             endIdx = batchSize_;
         }
+
+        int64_t requestBlock = 0;
+        lora_common::BlockIterator blockIterator(seqLenGm_);
         for (int64_t idx = startIdx; idx < endIdx; idx++) {
             yOffset_ = outputFullDim_ * idx + sliceOffset_;
 
+            requestBlock = blockIterator.GetBlockIdx(idx);
+            if (requestBlock < 0) {
+                continue;
+            }
+
             // Set up LoRA index
-            CopyInIndex(idx);
+            reqLoRAIndex_ = loraIndicesGm_.GetValue(requestBlock);
             if (reqLoRAIndex_ < 0) {
                 continue;
             }
@@ -144,22 +153,6 @@ public:
     }
 
 private:
-    __aicore__ inline void CopyInIndex(const int64_t idx)
-    {
-        // Look up the LoRA index
-        int64_t weightIdx = idx;
-        uint64_t i = 0;
-        for (; i < seqLenGm_.GetSize(); i++) {
-            int64_t repeatValue = seqLenGm_.GetValue(i);
-            if (weightIdx >= repeatValue) {
-                weightIdx -= repeatValue;
-                continue;
-            }
-            break;
-        }
-        reqLoRAIndex_ = (i < seqLenGm_.GetSize()) ? loraIndicesGm_.GetValue(i) : -1;
-    }
-
     __aicore__ inline void ComputeLastIteration()
     {
         int32_t remainingY = outputHiddenDim_ % Y_OUT_TILE_NUM_ELEMENTS;
