@@ -77,10 +77,7 @@ def input_guard(fn: Callable[..., torch.Tensor]) -> Callable[..., torch.Tensor]:
                     tensor = value
                     break
 
-        if tensor is not None:
-            ctx = custom_device_ctx(tensor.device.index)
-        else:
-            ctx = contextlib.nullcontext()
+        ctx = contextlib.nullcontext()
 
         with ctx:
             return fn(*contiguous_args, **contiguous_kwargs)
