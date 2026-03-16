@@ -21,14 +21,14 @@ aclnnStatus aclnnNotifyDispatchA2GetWorkspaceSize(
     int64_t localRankSize, int64_t localRankId, const aclTensor *sendDataOffset, const aclTensor *recvData,
     const aclTensor *tokenServerIdx, const aclTensor *tokenUniquePerServer, const aclTensor *epRankTokenCnt,
     const aclTensor *localEpTokenCnt, const aclTensor *srcOffsetRankTokenIdx, const aclTensor *dstOffsetRankTokenIdx,
-    const aclTensor *offsetInner, const aclTensor *countOuter, const aclTensor *expandIdx,
-    const aclTensor *totalRecvTokens, uint64_t *workspaceSize, aclOpExecutor **executor)
+    const aclTensor *tokenIdxPerExpert, const aclTensor *offsetInner, const aclTensor *countOuter,
+    const aclTensor *expandIdx, const aclTensor *totalRecvTokens, uint64_t *workspaceSize, aclOpExecutor **executor)
 {
     return aclnnInnerNotifyDispatchA2GetWorkspaceSize(
         sendData, tokenPerExpertData, tmpData, sendCount, numTokens, topkNum, numExperts, commGroup, rankSize, rankId,
         localRankSize, localRankId, sendDataOffset, recvData, tokenServerIdx, tokenUniquePerServer, epRankTokenCnt,
-        localEpTokenCnt, srcOffsetRankTokenIdx, dstOffsetRankTokenIdx, offsetInner, countOuter, expandIdx,
-        totalRecvTokens, workspaceSize, executor);
+        localEpTokenCnt, srcOffsetRankTokenIdx, dstOffsetRankTokenIdx, tokenIdxPerExpert, offsetInner, countOuter,
+        expandIdx, totalRecvTokens, workspaceSize, executor);
 }
 
 aclnnStatus aclnnNotifyDispatchA2(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream)

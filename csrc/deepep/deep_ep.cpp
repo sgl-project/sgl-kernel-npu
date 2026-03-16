@@ -21,6 +21,7 @@ constexpr uint32_t MAX_ROUNDS = 256;
 constexpr uint32_t MIN_TOKENS_PER_ROUND = 32;
 constexpr uint32_t MAX_TOKENS_PER_ROUND = 8192;
 constexpr uint32_t MAX_TOTAL_TOKENS = 131072;
+constexpr uint32_t MAX_AICORE_NUM = 800; // 此处需要为coreNum*32byte，由于无法感知coreNum，暂定为100*（32/sizeof（int））
 
 Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
                std::string moe_all_to_all_group_name)
@@ -111,7 +112,7 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     auto num_tokens_per_rank = at::zeros({num_ranks}, at::dtype(at::kInt).device(device));
     auto is_token_in_rank = at::zeros({num_tokens, num_ranks}, at::dtype(at::kInt).device(device));
     const int notify_send_data_size =
-        num_experts * EXPERT_DATA_SIZE + server_num + MAX_BATCH_SIZE * (1 + 2 * server_num + 2 * num_topk);
+        num_experts * EXPERT_DATA_SIZE + server_num + MAX_BATCH_SIZE * (1 + 2 * server_num + 2 * num_topk) + 1;
     /*
     The notify send data is constructed by 7 parameters and the 7 parameters are ordered as follows:
     1. the number of the tokens that every expert received from this NPU.
@@ -130,6 +131,8 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
        size:[MAX_BS, numTopk]
     8. The server offset of tokens received by each expert from this NPU.
        size:[numExpert, MAX_BS]
+    9. The number of tokens this NPU processed.
+       size:[1]
     */
     auto send_token_idx_small = at::zeros({num_tokens, num_topk}, at::dtype(at::kInt).device(device));
     auto notify_send_data = at::zeros({notify_send_data_size}, at::dtype(at::kInt).device(device));
@@ -662,6 +665,7 @@ Buffer::internode_dispatch(
         at::empty({num_experts, num_ranks, MAX_BATCH_SIZE}, at::dtype(at::kInt).device(x.device()));
     at::Tensor dst_offset_rank_token_idx =
         at::empty({num_experts, num_ranks, MAX_BATCH_SIZE}, at::dtype(at::kInt).device(x.device()));
+    at::Tensor token_idx_per_expert = at::empty({num_ranks, num_topk}, at::dtype(at::kInt).device(x.device()));
     // The offsetInner for the current rank and the peer rank
     at::Tensor offset_inner = at::empty({2, MAX_BATCH_SIZE, num_experts}, at::dtype(at::kInt).device(x.device()));
     at::Tensor count_outer = at::empty({MAX_BATCH_SIZE}, at::dtype(at::kInt).device(x.device()));
@@ -684,8 +688,8 @@ Buffer::internode_dispatch(
                  local_rank_size, local_rank_id,
                  send_data_offset,  // A2 not use
                  recv_data, token_server_idx, token_unique_per_server, ep_rank_token_cnt, recv_tokens_per_expert,
-                 src_offset_rank_token_idx, dst_offset_rank_token_idx, offset_inner, count_outer, expand_idx,
-                 total_recv_token);
+                 src_offset_rank_token_idx, dst_offset_rank_token_idx, token_idx_per_expert, offset_inner, count_outer,
+                 expand_idx, total_recv_token);
 
     int total_count = total_recv_token.item<int>();
     int num_recv_tokens = (total_count == 0) ? 1 : total_count;
@@ -698,13 +702,14 @@ Buffer::internode_dispatch(
         recv_topk_idx = at::empty({total_count, num_topk}, topk_idx->options());
         recv_topk_weights = at::empty({total_count, num_topk}, topk_weights->options());
     }
+    auto sync_core = at::zeros({MAX_AICORE_NUM}, at::dtype(at::kInt).device(x.device()));
 
     EXEC_NPU_CMD(aclnnDispatchNormalA2, new_x, expert_ids, x_scales, xActiveMask, new_topk_weights, token_server_idx,
                  token_unique_per_server, ep_rank_token_cnt, src_offset_rank_token_idx, dst_offset_rank_token_idx,
-                 hcom_ep_name, num_ranks, rank, num_experts, hcom_ep_name, tp_size, tp_rank, expertShardType,
-                 sharedExpertNum, sharedExpertRankNum, quant_mode, global_bs, expertTokenNumsType, expandx_out,
-                 dynamic_scales_out, expand_idx, expertTokenNums, epRecvCount, expand_scales,
-                 dispatch_wait_recv_cost_stats_out);
+                 token_idx_per_expert, hcom_ep_name, num_ranks, rank, num_experts, hcom_ep_name, tp_size, tp_rank,
+                 expertShardType, sharedExpertNum, sharedExpertRankNum, quant_mode, global_bs, expertTokenNumsType,
+                 expandx_out, dynamic_scales_out, expand_idx, expertTokenNums, epRecvCount, expand_scales,
+                 dispatch_wait_recv_cost_stats_out, sync_core);
 
     auto recv_token_per_exp_cpu = recv_tokens_per_expert.to(at::kCPU);
     auto recv_token_per_exp_ptr = recv_token_per_exp_cpu.data_ptr<int64_t>();

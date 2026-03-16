@@ -63,6 +63,7 @@ constexpr uint32_t TOKEN_SERVER_CNT_INDEX = 6;
 constexpr uint32_t EP_RANK_TOKEN_CNT_INDEX = 7;
 constexpr uint32_t SRC_OFFSET_RANK_TOKEN_IDX_INDEX = 8;
 constexpr uint32_t DST_OFFSET_RANK_TOKEN_IDX_INDEX = 9;
+constexpr uint32_t TOKEN_IDX_PER_EXPERT_INDEX = 10;
 constexpr uint32_t OUTPUT_EXPAND_X_INDEX = 0;
 constexpr uint32_t OUTPUT_DYNAMIC_SCALES_INDEX = 1;
 constexpr uint32_t OUTPUT_EXPAND_IDX_INDEX = 2;
@@ -175,6 +176,7 @@ static bool CheckTensorDim(const gert::TilingContext &context, const char *nodeN
                     return false);
     OP_LOGD(nodeName, "expertId dim0 = %ld", expertIdStorageShape->GetStorageShape().GetDim(0));
     OP_LOGD(nodeName, "expertId dim1 = %ld", expertIdStorageShape->GetStorageShape().GetDim(1));
+
     // 如果scales不为空进行shape维度检查
     if (isScales) {
         const gert::StorageShape *scalesStorageShape = context.GetOptionalInputShape(SCALES_INDEX);
@@ -601,6 +603,7 @@ static ge::graphStatus CheckTensorShape(const gert::TilingContext &context, cons
                 expertIdsDim1),
         return ge::GRAPH_FAILED);
     tilingData.moeDistributeDispatchInfo.k = static_cast<uint32_t>(expertIdsDim1);
+
     // 校验scales的维度
     if (isScales) {
         const gert::StorageShape *scalesStorageShape = context.GetOptionalInputShape(SCALES_INDEX);
@@ -932,6 +935,9 @@ static ge::graphStatus MoeDistributeDispatchA2CheckShapeAndSetTiling(const gert:
         context.GetInputShape(DST_OFFSET_RANK_TOKEN_IDX_INDEX);
     OP_TILING_CHECK(dstOffsetRankTokenIdxStorageShape == nullptr,
                     OP_LOGE(K_INNER_DEBUG, "dstOffsetRankTokenIdxStorageShape is null."), return GRAPH_FAILED);
+    const gert::StorageShape *tokenIdxPerExpertStorageShape = context.GetInputShape(TOKEN_IDX_PER_EXPERT_INDEX);
+    OP_TILING_CHECK(tokenIdxPerExpertStorageShape == nullptr,
+                    OP_LOGE(K_INNER_DEBUG, "tokenIdxPerExpertStorageShape is null."), return GRAPH_FAILED);
 
     info.isQuant = isScales;
     info.bs = bs;
