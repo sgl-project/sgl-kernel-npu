@@ -403,7 +403,7 @@ def fused_qkvzba_split_reshape_cat(
 
     rows_per_vec = triton.cdiv(total_rows, grid_size)
 
-    ub_size = 86 * 1024 // mixed_qkvz.element_size()
+    ub_size = 85 * 1024 // mixed_qkvz.element_size()
 
     elements_per_row = (
         qkvz_row_stride
