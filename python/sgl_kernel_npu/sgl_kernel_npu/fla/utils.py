@@ -219,6 +219,7 @@ def fused_qkvzba_split_reshape_cat_torch(
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 MAX_ROWS_PER_ITER = 64
+UB_SPECIFICATION = 85
 
 
 @triton.jit(do_not_specialize=["total_rows", "rows_per_vec"])
@@ -403,7 +404,7 @@ def fused_qkvzba_split_reshape_cat(
 
     rows_per_vec = triton.cdiv(total_rows, grid_size)
 
-    ub_size = 85 * 1024 // mixed_qkvz.element_size()
+    ub_size = UB_SPECIFICATION * 1024 // mixed_qkvz.element_size()
 
     elements_per_row = (
         qkvz_row_stride
