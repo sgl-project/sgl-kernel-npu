@@ -326,11 +326,11 @@ static ge::graphStatus NotifyDispatchTilingFuncImpl(gert::TilingContext *context
 
     if (socVersion == "Ascend910B") {
         tilingKey = tilingKey + TILING_KEY_A2_TYPE;
-    } else if (socVersion == "Ascend910_95") {
+    } else if (socVersion == "Ascend950") {
         tilingKey = tilingKey + TILING_KEY_A5_TYPE;
     }
     context->SetTilingKey(tilingKey);
-    OP_LOGD(nodeName, "tilingKey=%d", tilingKey);
+    OP_LOGD(nodeName, "tilingKey=%d socVersion=%s", tilingKey, socVersion.c_str());
 
     auto ascendcPlatform = platform_ascendc::PlatformAscendC(context->GetPlatformInfo());
     uint32_t blockDim;

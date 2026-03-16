@@ -45,13 +45,13 @@ extern "C" __global__ __aicore__ void notify_dispatch(GM_ADDR sendData, GM_ADDR 
 
     if (TILING_KEY_IS(TILING_KEY_INT)) {
         printf("================= notify_dispatch A3\n");
-        return;
+        // return;
         NotifyDispatch<int> opKernel(rank, rankSize, extraFlag);
         opKernel.Init(KERNELS_ARGS_CALL_ALL2ALL());
         opKernel.Process();
     } else if (TILING_KEY_IS(TILING_KEY_A5)) {
         printf("================= notify_dispatch A5\n");
-        return;
+        // return;
         NotifyDispatchA5<int> opKernel(rank, rankSize, extraFlag);
         opKernel.Init(KERNELS_ARGS_CALL_ALL2ALL());
         opKernel.Process();

@@ -21,6 +21,9 @@
 #include "mc2_tiling_utils.h"
 #include "../op_kernel/cam_moe_combine_normal_tiling.h"
 #include "tiling_args.h"
+#include "tiling/platform/platform_ascendc.h"
+#include "tiling/hccl/hccl_tiling.h"
+
 
 using namespace AscendC;
 using namespace ge;
@@ -74,6 +77,9 @@ constexpr uint64_t MAX_OUT_DTYPE_SIZE = 2UL;
 constexpr uint64_t UB_ALIGN = 32UL;
 constexpr int64_t DISPATCH_STATUS_MAX_SUPPORT_NUM = 1280UL;
 constexpr uint64_t INIT_TILINGKEY = 10000UL;
+constexpr uint64_t TILING_KEY_A5_TYPE = 5000UL;
+constexpr uint64_t TILING_KEY_A3_TYPE = 3000UL;
+constexpr uint64_t TILING_KEY_A2_TYPE = 2000UL;
 
 enum class CommQuantMode : int32_t { NON_QUANT = 0, INT12_QUANT = 1, INT8_QUANT = 2 };
 using CommQuantModeType = std::underlying_type<CommQuantMode>;
@@ -598,6 +604,18 @@ static ge::graphStatus CamMoeCombineNormalA3TilingFuncImpl(gert::TilingContext *
     if (maxRound > 1) {
         tilingKey += 1;
     }
+
+    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
+    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
+    std::string socVersion;
+    (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
+
+    if (socVersion == "Ascend950") {
+        tilingKey = tilingKey + TILING_KEY_A5_TYPE;
+    } else {
+        tilingKey = tilingKey + TILING_KEY_A3_TYPE;
+    }
+
     OP_LOGD(nodeName, "tilingKey is %lu", tilingKey);
     context->SetTilingKey(tilingKey);
 

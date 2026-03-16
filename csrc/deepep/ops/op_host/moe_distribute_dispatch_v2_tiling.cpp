@@ -66,7 +66,6 @@ constexpr uint32_t ONE_DIM = 1;
 constexpr uint32_t DYN_SCALE_DIMS = 1;
 constexpr uint32_t ASSIST_INFO_DIMS = 1;
 constexpr uint32_t DYNAMIC_SCALE_DIM_NUM = 1;
-constexpr uint64_t INIT_TILINGKEY = 10000;
 constexpr uint32_t ARR_LENGTH = 128;
 constexpr uint32_t OP_TYPE_ALL_TO_ALL = 8;
 constexpr uint32_t NO_SCALES = 0;
@@ -85,10 +84,16 @@ constexpr int64_t EP_RESTRICT_8 = 8;
 constexpr int64_t MAX_TP_WORLD_SIZE = 2;
 constexpr int64_t BS_UPPER_BOUND = 512;
 
-constexpr uint64_t NUM_10 = 10ULL;
-constexpr uint32_t TILINGKEY_SCALES = 10;
-constexpr uint32_t TILINGKEY_TP_WORLD_SIZE = 100;
+// tilingkey
+constexpr uint64_t INIT_TILINGKEY = 30000;
+constexpr uint64_t TILING_KEY_A5_TYPE = 50000;
+constexpr uint64_t TILING_KEY_A3_TYPE = 30000;
+constexpr uint64_t TILING_KEY_A2_TYPE = 20000;
 constexpr uint32_t TILINGKEY_COMM_ALG = 1000;
+constexpr uint32_t TILINGKEY_TP_WORLD_SIZE = 100;
+constexpr uint32_t TILINGKEY_SCALES = 10;
+
+constexpr uint64_t NUM_10 = 10ULL;
 constexpr uint32_t TP_WORLD_SIZE_TWO = 2;
 constexpr uint32_t VERSION_2 = 2;
 constexpr uint32_t HCOMMCNT_2 = 2;
@@ -1200,6 +1205,16 @@ static ge::graphStatus MoeDistributeDispatchA3TilingFuncImpl(gert::TilingContext
     SetHcommCfg(context, tilingData);
 
     uint64_t tilingKey = INIT_TILINGKEY;
+    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
+    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
+    std::string socVersion;
+    (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
+
+    if (socVersion == "Ascend950") {
+        tilingKey = TILING_KEY_A5_TYPE;
+    } else if (socVersion == "Ascend910B") {
+        tilingKey = TILING_KEY_A2_TYPE;
+    }
     uint32_t tpWorldSize = tilingData->moeDistributeDispatchV2Info.tpWorldSize;
     CalTilingKey(tilingKey, isScales, quantMode, tpWorldSize, isSetCommAlg);
     OP_LOGD(nodeName, "tilingKey is %lu", tilingKey);

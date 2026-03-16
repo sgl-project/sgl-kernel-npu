@@ -1,5 +1,5 @@
-#ifndef CAM_MOE_COMBINE_NORMAL_H
-#define CAM_MOE_COMBINE_NORMAL_H
+#ifndef CAM_MOE_COMBINE_NORMAL_A5_H
+#define CAM_MOE_COMBINE_NORMAL_A5_H
 
 #include "kernel_operator.h"
 #include "kernel_tiling/kernel_tiling.h"
@@ -8,7 +8,7 @@
 #include "comm_args.h"
 #include "moe_distribute_v2_base.h"
 
-namespace CamMoeCombineNormalImpl {
+namespace CamMoeCombineNormalA5Impl {
 constexpr uint32_t RANK_ID_OFFSET_IN_SRC_INFO = 0U;
 constexpr uint32_t TOKEN_IDX_OFFSET_IN_SRC_INFO = 1U;
 constexpr uint32_t TOPK_IDX_OFFSET_IN_SRC_INFO = 2U;
@@ -37,10 +37,10 @@ using namespace AscendC;
 using namespace MoeDistributeV2Base;
 
 template <TemplateMC2TypeClass>
-class CamMoeCombineNormal
+class CamMoeCombineNormalA5
 {
 public:
-    __aicore__ inline CamMoeCombineNormal(){};
+    __aicore__ inline CamMoeCombineNormalA5(){};
     __aicore__ inline void Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights,
                                 GM_ADDR tokenIdx, GM_ADDR tpRecvCount, GM_ADDR XOut, GM_ADDR sendCostStatsOut,
                                 GM_ADDR workspaceGM, TPipe *pipe, const CamMoeCombineNormalTilingData *tilingData);
@@ -137,7 +137,7 @@ private:
 };
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitMagic()
+__aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::InitMagic()
 {
     auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
     epWinContext_ = (__gm__ HcclOpParam *)contextGM0;
@@ -155,7 +155,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitMagic()
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitGlobalBuffer(GM_ADDR recvX, GM_ADDR tokenSrcInfo,
+__aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::InitGlobalBuffer(GM_ADDR recvX, GM_ADDR tokenSrcInfo,
                                                                                   GM_ADDR epRecvCount,
                                                                                   GM_ADDR topkWeights, GM_ADDR tokenIdx,
                                                                                   GM_ADDR XOut,
@@ -174,7 +174,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitGlobalBuffe
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void
-CamMoeCombineNormal<TemplateMC2TypeFunc>::InitTilingData(const CamMoeCombineNormalTilingData *tilingData)
+CamMoeCombineNormalA5<TemplateMC2TypeFunc>::InitTilingData(const CamMoeCombineNormalTilingData *tilingData)
 {
     axisBS_ = tilingData->camMoeCombineNormalInfo.bs;
     axisH_ = tilingData->camMoeCombineNormalInfo.h;
@@ -188,7 +188,7 @@ CamMoeCombineNormal<TemplateMC2TypeFunc>::InitTilingData(const CamMoeCombineNorm
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitBuffLen()
+__aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::InitBuffLen()
 {
     uint32_t hFloatSize = axisH_ * static_cast<uint32_t>(sizeof(float));
     h32AlignFloatLen_ = Ceil(hFloatSize, UB_32_ALIGN) * UB_32_ALIGN;
@@ -202,7 +202,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitBuffLen()
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo,
+__aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo,
                                                                       GM_ADDR epRecvCount, GM_ADDR topkWeights,
                                                                       GM_ADDR tokenIdx, GM_ADDR tpRecvCount,
                                                                       GM_ADDR XOut, GM_ADDR sendCostStatsOut,
@@ -227,7 +227,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::Init(GM_ADDR re
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::CopyBufferToShareAndSetStatus()
+__aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToShareAndSetStatus()
 {
     PipeBarrier<PIPE_ALL>();
     uint32_t perBlockSendNum = 0, startTokenId = 0, endTokenId = 0;
@@ -289,7 +289,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::CopyBufferToSha
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::CopyBufferToShare(uint32_t srcRankId,
+__aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToShare(uint32_t srcRankId,
                                                                                    uint32_t srcTokenId,
                                                                                    uint32_t srcTopkId, uint32_t tkIndex)
 {
@@ -310,7 +310,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::CopyBufferToSha
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::SetStatusBySrcInfo(uint32_t srcRankId,
+__aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::SetStatusBySrcInfo(uint32_t srcRankId,
                                                                                     uint32_t srcTokenId,
                                                                                     uint32_t srcTopkId)
 {
@@ -322,7 +322,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::SetStatusBySrcI
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::WaitBuffCopy(uint32_t tokenIndex,
+__aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::WaitBuffCopy(uint32_t tokenIndex,
                                                                               uint32_t startTokenIndex)
 {
     LocalTensor<int32_t> tokenIdxLocal = tokenIdxBuf_.Get<int32_t>();
@@ -358,7 +358,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::WaitBuffCopy(ui
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::ReadBufferAndWeightedSum(uint32_t tokenIndex,
+__aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::ReadBufferAndWeightedSum(uint32_t tokenIndex,
                                                                                           uint32_t startTokenIndex)
 {
     LocalTensor<float> tokenFloatLocal = tokenFloatBuf_.Get<float>();
@@ -401,7 +401,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::ReadBufferAndWe
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::ReadBufferFromRemote()
+__aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::ReadBufferFromRemote()
 {
     if (axisBS_ == 0U) {
         return;
@@ -444,14 +444,13 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::ReadBufferFromR
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::Process()
+__aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::Process()
 {
     if ASCEND_IS_AIV {  // 全aiv处理
         CopyBufferToShareAndSetStatus();
-        // return;
         ReadBufferFromRemote();
     }
 }
 
-}  // namespace CamMoeCombineNormalImpl
+}  // namespace CamMoeCombineNormalA5Impl
 #endif  // MOE_COMBINE_IMPL_H

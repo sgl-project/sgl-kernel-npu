@@ -35,12 +35,17 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
     EP_HOST_ASSERT(0 <= rank and rank < num_ranks);
 
     if (moe_all_to_all_group_name.empty()) {
-        char *ranktable_file = std::getenv("RANK_TABLE_FILE");
-        EP_HOST_ASSERT(ranktable_file != nullptr)
-        ACL_CHECK(aclrtGetDevice(&device_id));
+        // char *ranktable_file = std::getenv("RANK_TABLE_FILE");
+        // EP_HOST_ASSERT(ranktable_file != nullptr)
+        // ACL_CHECK(aclrtGetDevice(&device_id));
 
-        // ep domain
-        HCCL_CHECK(HcclCommInitClusterInfo(ranktable_file, device_id, &ep_comm));
+        // // ep domain
+        // HCCL_CHECK(HcclCommInitClusterInfo(ranktable_file, device_id, &ep_comm));
+        HcclRootInfo rootInfo;
+        HcclGetRootInfo(&rootInfo);
+        ACL_CHECK(aclrtGetDevice(&device_id));
+        // 初始化通信域
+        HcclCommInitRootInfo(num_ranks, &rootInfo, device_id, &ep_comm);
     } else {
         EP_HOST_ASSERT(moe_all_to_all_group_name.size() < HCOMM_NAME_LEN);
     }
@@ -316,7 +321,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int expert_token_nums_type = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
     EP_HOST_ASSERT(expert_token_nums_type == 1 or expert_token_nums_type == 0);
 
-    printf("=================DEEPEP intranode_dispatch start\n");
+    // printf("=================DEEPEP intranode_dispatch start\n");
     EXEC_NPU_CMD(aclnnNotifyDispatch, send_data, new_num_tokens_per_expert, send_count, num_tokens,
                  hcom_ep_name,  // commGroup
                  num_ranks,     // rankSize
@@ -325,7 +330,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, total_recv_token,
                  max_bs, recv_tokens_per_expert);
     auto send_token_idx_small = this->send_token_idx_small;
-    printf("=================DEEPEP intranode_dispatch end\n");
+    // printf("=================DEEPEP intranode_dispatch end\n");
     real_max_bs = static_cast<int64_t>(std::max(max_bs.item<int>(), static_cast<int>(num_worst_tokens)));
 
     // dispatch算子内部按照 min(per_round_tokens, real_max_bs)来预留显存

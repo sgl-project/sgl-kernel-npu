@@ -1,5 +1,5 @@
-#ifndef CAM_MOE_DISPATCH_NORMAL_H
-#define CAM_MOE_DISPATCH_NORMAL_H
+#ifndef CAM_MOE_DISPATCH_NORMAL_A5_H
+#define CAM_MOE_DISPATCH_NORMAL_A5_H
 
 #include "kernel_operator.h"
 #include "kernel_tiling/kernel_tiling.h"
@@ -8,7 +8,7 @@
 #include "comm_args.h"
 #include "moe_distribute_v2_base.h"
 
-namespace CamMoeDispatchNormalImpl {
+namespace CamMoeDispatchNormalA5Impl {
 constexpr uint8_t BUFFER_NUM = 2;
 constexpr uint32_t STATE_OFFSET = 32U;
 constexpr uint32_t UB_ALIGN = 32U;
@@ -48,10 +48,10 @@ using namespace AscendC;
 using namespace MoeDistributeV2Base;
 
 template <CamTypeClass>
-class CamMoeDispatchNormal
+class CamMoeDispatchNormalA5
 {
 public:
-    __aicore__ inline CamMoeDispatchNormal(){};
+    __aicore__ inline CamMoeDispatchNormalA5(){};
     __aicore__ inline void Init(GM_ADDR x, GM_ADDR expertIds, GM_ADDR send_offset, GM_ADDR send_tokenIdx,
                                 GM_ADDR recv_offset, GM_ADDR recv_count, GM_ADDR expert_global_offset,
                                 GM_ADDR srcrank_in_expert_offset, GM_ADDR r_in_srcrank_offset, GM_ADDR expandXOut,
@@ -194,7 +194,7 @@ private:
 };
 
 template <CamTypeClass>
-__aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(
+__aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
     GM_ADDR x, GM_ADDR expertIds, GM_ADDR send_offset, GM_ADDR send_tokenIdx, GM_ADDR recv_offset, GM_ADDR recv_count,
     GM_ADDR expert_global_offset, GM_ADDR srcrank_in_expert_offset, GM_ADDR r_in_srcrank_offset, GM_ADDR expandXOut,
     GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut, GM_ADDR waitRecvCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe,
@@ -285,7 +285,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(
 }
 
 template <CamTypeClass>
-__aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::QuantInit()
+__aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantInit()
 {
     uint32_t hAlignSize = Ceil(h * sizeof(XType), UB_ALIGN) * UB_ALIGN;
     tpipe_->InitBuffer(xInQueue, BUFFER_NUM, hAlignSize);        // 14K * 2
@@ -296,7 +296,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::QuantInit()
 }
 
 template <CamTypeClass>
-__aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::ReduceMaxInplace(const LocalTensor<float> &srcLocal,
+__aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ReduceMaxInplace(const LocalTensor<float> &srcLocal,
                                                                            uint32_t count)
 {
     uint64_t repsFp32 = count >> 6;        // 6 is count / elemPerRefFp32
@@ -318,7 +318,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::ReduceMaxInplace(const
 }
 
 template <CamTypeClass>
-__aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::QuantProcess()
+__aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantProcess()
 {
     float dynamicScale = 0.0;
     float maxVal = 0.0f;
@@ -331,41 +331,41 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::QuantProcess()
     }
 
     LocalTensor<float> tokenF32LT = tokenCastFloatBuf.Get<float>();
-    Cast(tokenF32LT, xInTensor_, RoundMode::CAST_NONE, axisH_);  // 1. tokenF16 -> tokenF32
-    xInQueue_.FreeTensor<XType>(xInTensor_);
+    Cast(tokenF32LT, xInTensor, RoundMode::CAST_NONE, h);  // 1. tokenF16 -> tokenF32
+    xInQueue.FreeTensor<XType>(xInTensor);
     // PipeBarrier<PIPE_V>();
-    LocalTensor<float> tokenF32AbsLT = tokenAbsFloatBuf_.Get<float>();
-    Abs(tokenF32AbsLT, tokenF32LT, axisH_);  // 2. tokenF32 -> tokenF32Abs
+    LocalTensor<float> tokenF32AbsLT = tokenAbsFloatBuf.Get<float>();
+    Abs(tokenF32AbsLT, tokenF32LT, h);  // 2. tokenF32 -> tokenF32Abs
     // PipeBarrier<PIPE_V>();
-    ReduceMaxInplace(tokenF32AbsLT, axisH_);  // 3. tokenF32Abs -> max
+    ReduceMaxInplace(tokenF32AbsLT, h);  // 3. tokenF32Abs -> max
     SyncFunc<AscendC::HardEvent::V_S>();
     dynamicScale = float(maxVal) / tokenF32AbsLT.GetValue(0);  // 4. maxVal / max 计算出最大值量化的scale
     SyncFunc<AscendC::HardEvent::S_V>();
-    Muls(tokenF32LT, tokenF32LT, dynamicScale, axisH_);  // 5. tokenF32 * scale 得出量化后的token
+    Muls(tokenF32LT, tokenF32LT, dynamicScale, h);  // 5. tokenF32 * scale 得出量化后的token
     // PipeBarrier<PIPE_V>();
 
     if constexpr (Std::IsSame<ExpandXOutType, int8_t>::value) {
         LocalTensor<int32_t> tokenI32LT = tokenF32LT.ReinterpretCast<int32_t>();
-        Cast(tokenI32LT, tokenF32LT, RoundMode::CAST_RINT, axisH_);  // 6. tokenF32 -> tokenI32
+        Cast(tokenI32LT, tokenF32LT, RoundMode::CAST_RINT, h);  // 6. tokenF32 -> tokenI32
         LocalTensor<half> tokenHalfLT = tokenF32LT.ReinterpretCast<half>();
         // PipeBarrier<PIPE_V>();
         SetDeqScale((half)1.000000e+00f);
         // PipeBarrier<PIPE_V>();
-        Cast(tokenHalfLT, tokenI32LT, RoundMode::CAST_ROUND, axisH_);  // 7. tokenI32 -> tokenHalf
+        Cast(tokenHalfLT, tokenI32LT, RoundMode::CAST_ROUND, h);  // 7. tokenI32 -> tokenHalf
         // PipeBarrier<PIPE_V>();
-        Cast(xOutLT_, tokenHalfLT, RoundMode::CAST_TRUNC, axisH_);  // 8. tokenHalf -> tokenI8
+        Cast(xOutTensor, tokenHalfLT, RoundMode::CAST_TRUNC, h);  // 8. tokenHalf -> tokenI8
     } else if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value ||
         Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value) {
-        Cast(xOutLT_, tokenF32LT, RoundMode::CAST_RINT, axisH_);  // 1. tokenF32->tokenF8
+        Cast(xOutTensor, tokenF32LT, RoundMode::CAST_RINT, h);  // 1. tokenF32->tokenF8
     }
 
-    tokenF32LT = xOutLT_.template ReinterpretCast<float>();
+    tokenF32LT = xOutTensor.template ReinterpretCast<float>();
     tokenF32LT.SetValue(hUBAlignSize / sizeof(float), float(1.0) / dynamicScale);
     SyncFunc<AscendC::HardEvent::S_MTE3>();
 }
 
 template <CamTypeClass>
-__aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::FillTriple(LocalTensor<ExpandXOutType> &xOutTensor,
+__aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::FillTriple(LocalTensor<ExpandXOutType> &xOutTensor,
                                                                      uint32_t tokenIndex, uint32_t k)
 {
     SyncFunc<AscendC::HardEvent::MTE3_S>();
@@ -377,7 +377,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::FillTriple(LocalTensor
 }
 
 template <CamTypeClass>
-__aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::InputToShare()
+__aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::InputToShare()
 {
     tpipe_->Reset();
     hOutUBAlignSize = Ceil(hScaleIdxSize, UB_ALIGN) * UB_ALIGN;
@@ -477,7 +477,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::InputToShare()
 }
 
 template <CamTypeClass>
-__aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::SetStatus()
+__aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::SetStatus()
 {
     uint32_t startExpId, endExpId, expNumPerCore;
     expNumPerCore = statusNumPerCore;
@@ -507,7 +507,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::SetStatus()
 }
 
 template <CamTypeClass>
-__aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::SetRoundStatus()
+__aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::SetRoundStatus()
 {
     if (blockIdx >= 1) {
         return;
@@ -527,7 +527,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::SetRoundStatus()
 }
 
 template <CamTypeClass>
-__aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::WaitStatus()
+__aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::WaitStatus()
 {
     tpipe_->Reset();
     uint32_t waitStatusBufSize = (((statusNumPerCore * UB_ALIGN) > 256) ? (statusNumPerCore * UB_ALIGN) : 256);
@@ -634,7 +634,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::WaitStatus()
 }
 
 template <CamTypeClass>
-__aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::WaitRoundStatus()
+__aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::WaitRoundStatus()
 {
     tpipe_->Reset();
     if (blockIdx >= 1) {
@@ -673,7 +673,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::WaitRoundStatus()
 }
 
 template <CamTypeClass>
-__aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::ShareToOutputLongSeq()
+__aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq()
 {
     if (startStatusId >= moeExpertNum) {
         return;
@@ -759,7 +759,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::ShareToOutputLongSeq()
 }
 
 template <CamTypeClass>
-__aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Process()
+__aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Process()
 {
     if ASCEND_IS_AIV {
         uint32_t realRound = (realMaxBatchSize + perRoundTokens - 1) / perRoundTokens;

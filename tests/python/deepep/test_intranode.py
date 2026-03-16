@@ -373,8 +373,8 @@ def test_main(
             "handle": handle,
             "config": config,
             "async_finish": False,
-            "topk_weights": handle[5],
-            # "topk_weights": handle[7],
+            # "topk_weights": handle[5],
+            "topk_weights": handle[7],
         }
         combined_x, combined_topk_weights, event = buffer.combine(**combine_args)
         check_x = combined_x.float()
@@ -382,8 +382,8 @@ def test_main(
         ref_x = x_pure_rand if current_x is x_pure_rand else x
         diff = calc_diff(
             check_x,
-            ref_x * handle[5].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
-            # ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
+            # ref_x * handle[5].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
+            ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
         )
         assert diff < 5e-5
 
@@ -396,74 +396,74 @@ def test_main(
     if local_rank == 0:
         print("", flush=True)
 
-    # # Tune dispatch performance
-    # fp8_factor = (1 + 4 / 128) / 2
-    # config = deep_ep.Config(24, 8, buffer_size)
-    # for current_x in filter(lambda elem: elem is not None, (x,)):
-    #     recv_bytes = (
-    #         (dispatch_bf16_recv_bytes * fp8_factor)
-    #         if isinstance(current_x, tuple)
-    #         else dispatch_bf16_recv_bytes
-    #     )
+    # Tune dispatch performance
+    fp8_factor = (1 + 4 / 128) / 2
+    config = deep_ep.Config(24, 8, buffer_size)
+    for current_x in filter(lambda elem: elem is not None, (x,)):
+        recv_bytes = (
+            (dispatch_bf16_recv_bytes * fp8_factor)
+            if isinstance(current_x, tuple)
+            else dispatch_bf16_recv_bytes
+        )
 
-    #     tune_args = {
-    #         "x": current_x,
-    #         "config": config,
-    #         "num_tokens_per_rank": ref_num_tokens_per_rank,
-    #         "is_token_in_rank": ref_is_token_in_rank,
-    #         "num_tokens_per_expert": ref_num_tokens_per_expert,
-    #         "topk_idx": topk_idx,
-    #         "topk_weights": topk_weights,
-    #     }
+        tune_args = {
+            "x": current_x,
+            "config": config,
+            "num_tokens_per_rank": ref_num_tokens_per_rank,
+            "is_token_in_rank": ref_is_token_in_rank,
+            "num_tokens_per_expert": ref_num_tokens_per_expert,
+            "topk_idx": topk_idx,
+            "topk_weights": topk_weights,
+        }
 
-    #     t = bench(lambda: buffer.dispatch(**tune_args))[0]
-    #     if local_rank == 0:
-    #         print(
-    #             f'[tuning] Dispatch ({"FP8" if isinstance(current_x, tuple) else "BF16"}) {recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us',
-    #             flush=True,
-    #         )
-    #         print("", flush=True)
+        t = bench(lambda: buffer.dispatch(**tune_args))[0]
+        if local_rank == 0:
+            print(
+                f'[tuning] Dispatch ({"FP8" if isinstance(current_x, tuple) else "BF16"}) {recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us',
+                flush=True,
+            )
+            print("", flush=True)
 
-    # dispatch_args = {
-    #     "x": x,
-    #     "num_tokens_per_rank": ref_num_tokens_per_rank,
-    #     "is_token_in_rank": ref_is_token_in_rank,
-    #     "num_tokens_per_expert": ref_num_tokens_per_expert,
-    #     "config": config,
-    #     "topk_idx": topk_idx,
-    #     "topk_weights": topk_weights,
-    # }
-    # recv_x, _, _, _, handle, _ = buffer.dispatch(**dispatch_args)
-    # recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
-    # # Tune combine performance
-    # tune_args = {
-    #     "x": recv_x,
-    #     "handle": handle,
-    #     "config": config,
-    #     "async_finish": False,
-    #     "topk_weights": handle[5],
-    #     # "topk_weights": handle[7],
-    # }
-    # t = bench(lambda: buffer.combine(**tune_args))[0]
-    # if local_rank == 0:
-    #     print(
-    #         f"[tuning] Combine {combine_bf16_send_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
-    #         flush=True,
-    #     )
-    #     print("", flush=True)
+    dispatch_args = {
+        "x": x,
+        "num_tokens_per_rank": ref_num_tokens_per_rank,
+        "is_token_in_rank": ref_is_token_in_rank,
+        "num_tokens_per_expert": ref_num_tokens_per_expert,
+        "config": config,
+        "topk_idx": topk_idx,
+        "topk_weights": topk_weights,
+    }
+    recv_x, _, _, _, handle, _ = buffer.dispatch(**dispatch_args)
+    recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
+    # Tune combine performance
+    tune_args = {
+        "x": recv_x,
+        "handle": handle,
+        "config": config,
+        "async_finish": False,
+        # "topk_weights": handle[5],
+        "topk_weights": handle[7],
+    }
+    t = bench(lambda: buffer.combine(**tune_args))[0]
+    if local_rank == 0:
+        print(
+            f"[tuning] Combine {combine_bf16_send_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
+            flush=True,
+        )
+        print("", flush=True)
 
-    # # Diagnose test
-    # if enable_diagnose:
-    #     dispatch_wait_recv_cost_stats = torch.zeros(
-    #         (num_ranks,), dtype=torch.int32, device="npu"
-    #     )
-    #     combine_send_cost_stats = torch.zeros(
-    #         (num_ranks,), dtype=torch.int32, device="npu"
-    #     )
-    #     test_diagnose(
-    #         dispatch_wait_recv_cost_stats=dispatch_wait_recv_cost_stats,
-    #         combine_send_cost_stats=combine_send_cost_stats,
-    #     )
+    # Diagnose test
+    if enable_diagnose:
+        dispatch_wait_recv_cost_stats = torch.zeros(
+            (num_ranks,), dtype=torch.int32, device="npu"
+        )
+        combine_send_cost_stats = torch.zeros(
+            (num_ranks,), dtype=torch.int32, device="npu"
+        )
+        test_diagnose(
+            dispatch_wait_recv_cost_stats=dispatch_wait_recv_cost_stats,
+            combine_send_cost_stats=combine_send_cost_stats,
+        )
 
 
 # noinspection PyUnboundLocalVariable,PyShadowingNames
