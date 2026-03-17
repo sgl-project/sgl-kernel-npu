@@ -219,6 +219,7 @@ def fused_qkvzba_split_reshape_cat_torch(
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 MAX_ROWS_PER_ITER = 64
+# 85 is deployed because A3 ub-size is 192kb and taking double buffer and extra memory into consideration.
 UB_SPECIFICATION = 85
 
 
@@ -407,11 +408,11 @@ def fused_qkvzba_split_reshape_cat(
     ub_size = UB_SPECIFICATION * 1024 // mixed_qkvz.element_size()
 
     elements_per_row = (
-        qkvz_row_stride
-        + ba_row_stride
-        + qkv_row_stride
-        + z_row_stride
-        + ba_out_row_stride * 2
+        qkvz_row_stride # mixed_qkvz
+        + ba_row_stride # mixed_ba
+        + qkv_row_stride # mixed_qkv
+        + z_row_stride # z
+        + ba_out_row_stride * 2 # one for b, and the other for a
     )
     rows_per_iter = max(1, ub_size // elements_per_row)
     rows_per_iter = triton.next_power_of_2(rows_per_iter)
