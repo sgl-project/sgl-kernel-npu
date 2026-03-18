@@ -30,6 +30,15 @@ def fast_inv_tril(A: torch.Tensor):
     return A_inv.to(dtype)
 
 
+def fast_cube_inv_tril(A: torch.Tensor):
+    dtype = A.dtype
+    assert A.shape[-2] == A.shape[-1]
+    chunk_size = A.shape[-1]
+    identity = torch.eye(chunk_size, dtype=torch.float16, device=A.device)
+    A_inv = torch.ops.npu.cube_triangular_inverse(identity - A.to(torch.float16))
+    return A_inv.to(dtype)
+
+
 def inv_tril_inplace(A: torch.Tensor):
     """
     Returns the "matrix inverse" of the last two dimensions of A that must be a strict lower-triangular matrix.

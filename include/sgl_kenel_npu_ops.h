@@ -114,7 +114,7 @@ at::Tensor lightning_indexer(
     c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode);
 
 /**
- * @brief Triangular inverse of input tensor where last two dimensions represent
+ * @brief AIV-based triangular inverse of input tensor where last two dimensions represent
  * a matrix.
  *
  * @param [in] tensor_in Tensor of dimensions (..., n, n) where `n` is
@@ -123,6 +123,17 @@ at::Tensor lightning_indexer(
  * is inversed.
  */
 at::Tensor tri_inv_col_sweep(const at::Tensor &tensor_in);
+
+/**
+ * @brief AIC-based triangular inverse of input tensor where last two dimensions represent
+ * a matrix.
+ *
+ * @param [in] tensor_in Tensor of dimensions (..., n, n) where `n` is
+ * the matrix size.
+ * @return at::Tensor Returns tensor of same shape where each matrix of size n
+ * is inversed.
+ */
+at::Tensor tri_inv_cube_col_sweep(const at::Tensor &tensor_in);
 } // namespace npu_kernel
 
 } // namespace sglang

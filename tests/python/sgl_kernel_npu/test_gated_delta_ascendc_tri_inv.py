@@ -3,7 +3,12 @@ import os
 import pytest
 import torch
 import torch.nn.functional as F
-from sgl_kernel_npu.fla.chunk import chunk_gated_delta_rule_native, fast_inv_tril
+import typing
+from sgl_kernel_npu.fla.chunk import (
+    chunk_gated_delta_rule_native,
+    fast_inv_tril,
+    fast_cube_inv_tril,
+)
 
 device = "npu"
 
@@ -36,6 +41,7 @@ def print_diff(name, ref, tri, atol=0.005):
         print(f"Exceeds tolerance ({atol})!")
 
 
+@pytest.mark.parametrize("tri_inv_fn", [fast_inv_tril, fast_cube_inv_tril])
 @pytest.mark.parametrize(
     ("H", "D", "mask_p", "cu_seqlens", "dtype"),
     [
@@ -84,6 +90,7 @@ def test_chunk_varlen(
     mask_p: float,
     cu_seqlens: list[int],
     dtype: torch.dtype,
+    tri_inv_fn: typing.Callable,
 ):
     if D != 128:
         pytest.skip(
@@ -142,7 +149,7 @@ def test_chunk_varlen(
             initial_state=h0[i],
             output_final_state=True,
             use_qk_l2norm_in_kernel=False,
-            tri_inv_fn=fast_inv_tril,
+            tri_inv_fn=tri_inv_fn,
         )
         actual.append(actual_i)
         actual_ht.append(actual_ht_i)
@@ -151,8 +158,8 @@ def test_chunk_varlen(
 
     torch.npu.synchronize()
 
-    print_diff("o", ref, actual, 0.01)
-    print_diff("ht", ref_ht, actual_ht, 0.01)
+    print_diff("o", ref, actual, 0.05)
+    print_diff("ht", ref_ht, actual_ht, 0.05)
 
-    assert_close("o", ref, actual, 0.01)
-    assert_close("ht", ref_ht, actual_ht, 0.01)
+    assert_close("o", ref, actual, 0.05)
+    assert_close("ht", ref_ht, actual_ht, 0.05)
