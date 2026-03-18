@@ -739,6 +739,12 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --test-type="low_latency"
 
+      - name: Run test fused deep moe for fuse_mode.DISPATCH_FFN_COMBINE
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2048
+        run: python3 $GITHUB_WORKSPACE/tests/python/deepep/test_dispatch_ffn_combine.py
+
   test-build-deepep-a2:
     needs: get-changed-files
     if: |
