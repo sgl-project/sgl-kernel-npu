@@ -398,7 +398,7 @@ static bool CheckTensorShape(gert::TilingContext *context, CamMoeCombineNormalTi
     int64_t xDim0 = xStorageShape->GetStorageShape().GetDim(0);
     int64_t xDim1 = xStorageShape->GetStorageShape().GetDim(1);
     OP_TILING_CHECK(xDim0 != topkWeightsDim0,
-                    OP_LOGE(nodeName, "x's dim0 is greater than bs, bs = %ld, x's dim0 = %ld", topkWeightsDim0, xDim0),
+                    OP_LOGE(nodeName, "x's dim0 not equal to bs, bs = %ld, x's dim0 = %ld", topkWeightsDim0, xDim0),
                     return false);
     OP_TILING_CHECK(xDim1 != recvXDim1,
                     OP_LOGE(nodeName, "x's dim1 not equal to h, x's dim1 = %ld, h = %ld", xDim1, recvXDim1),
@@ -435,7 +435,7 @@ static bool CheckAttrs(gert::TilingContext *context, CamMoeCombineNormalTilingDa
     // 校验输入topkWeights的维度0并设bs
     const gert::StorageShape *topkWeightsStorageShape = context->GetInputShape(TOPK_WEIGHTS_INDEX);
     int64_t topkWeightsDim0 = topkWeightsStorageShape->GetStorageShape().GetDim(0);
-    OP_TILING_CHECK((topkWeightsDim0 <= 0) || (topkWeightsDim0 > BS_UPPER_BOUND),
+    OP_TILING_CHECK((topkWeightsDim0 < 0) || (topkWeightsDim0 > BS_UPPER_BOUND),
                     OP_LOGE(nodeName, "Invalid topkWeights dims0(BS) %ld. Should be between [1, %ld].", topkWeightsDim0,
                             BS_UPPER_BOUND),
                     return false);

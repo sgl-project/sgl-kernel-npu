@@ -20,8 +20,9 @@ extern "C" __global__ __aicore__ void cam_moe_dispatch_normal(
     if (TILING_KEY_IS(TILINGKEY_NO_QUANT)) {
         GET_TILING_DATA_WITH_STRUCT(CamMoeDispatchNormalTilingData, tilingData, tilingGM);
         CamMoeDispatchNormal<DTYPE_X, DTYPE_RECV_X, false, false, false> op;
-        op.Init(x, expertIds, send_offset, send_token_idx, recv_offset, recv_count, expandXOut, dynamicScalesOut,
-                assist_info_for_combine, waitRecvCostStatsOut, workspaceGM, &pipe, tilingGM);
+        op.Init(x, expertIds, send_offset, send_token_idx, recv_offset, recv_count, expert_global_offset,
+                srcrank_in_expert_offset, r_in_srcrank_offset, expandXOut, dynamicScalesOut, assist_info_for_combine,
+                waitRecvCostStatsOut, workspaceGM, &pipe, tilingGM);
         op.Process();
         return;
     }
@@ -29,8 +30,9 @@ extern "C" __global__ __aicore__ void cam_moe_dispatch_normal(
     if (TILING_KEY_IS(TILINGKEY_QUANT)) {
         GET_TILING_DATA_WITH_STRUCT(CamMoeDispatchNormalTilingData, tilingData, tilingGM);
         CamMoeDispatchNormal<DTYPE_X, DTYPE_RECV_X, true, false, false> op;
-        op.Init(x, expertIds, send_offset, send_token_idx, recv_offset, recv_count, expandXOut, dynamicScalesOut,
-                assist_info_for_combine, waitRecvCostStatsOut, workspaceGM, &pipe, tilingGM);
+        op.Init(x, expertIds, send_offset, send_token_idx, recv_offset, recv_count, expert_global_offset,
+                srcrank_in_expert_offset, r_in_srcrank_offset, expandXOut, dynamicScalesOut, assist_info_for_combine,
+                waitRecvCostStatsOut, workspaceGM, &pipe, tilingGM);
         op.Process();
         return;
     }
