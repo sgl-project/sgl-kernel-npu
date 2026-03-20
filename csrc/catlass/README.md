@@ -77,7 +77,7 @@ for dtype in dtypes:
     torch.ops.npu.catlass_matmul_basic(a, b, res)
 ```
 
-# torch.ops.npu.fp8_w8a16_matmul
+# torch.ops.npu.softfp8_w8a16_matmul
 
 ## Function Description | 功能描述
 
@@ -98,7 +98,7 @@ Catlass-based soft-FP8 (W8A16) matmul. Activations are BF16; weights are FP8 bit
 import sgl_kernel_npu
 import torch
 
-torch.ops.npu.fp8_w8a16_matmul(
+torch.ops.npu.softfp8_w8a16_matmul(
     mat1: torch.Tensor,     # bf16, [m, k]
     mat2: torch.Tensor,     # int8 (FP8 bits), [k, n]
     scale: torch.Tensor,    # fp32, per-block scale
@@ -182,7 +182,7 @@ print(c.shape, c.dtype)  # (m, n), bf16
 
 ---
 
-# torch.ops.npu.fp8_w8a16_grouped_matmul
+# torch.ops.npu.softfp8_w8a16_grouped_matmul
 
 ## Function Description | 功能描述
 
@@ -201,7 +201,7 @@ Catlass-based soft-FP8 (W8A16) grouped-matmul (GMM). Activations are BF16 [M, K]
 import sgl_kernel_npu
 import torch
 
-torch.ops.npu.fp8_w8a16_grouped_matmul(
+torch.ops.npu.softfp8_w8a16_grouped_matmul(
     mat1: torch.Tensor,       # bf16, [M, K]
     mat2: torch.Tensor,       # int8 (FP8 bits), [g, K, N]
     scale: torch.Tensor,      # fp32, per-block scale
@@ -295,7 +295,7 @@ print(c.shape, c.dtype)  # (M, N), bf16
 
 ---
 
-# torch.ops.npu.fp8_w8a16_batch_matmul
+# torch.ops.npu.softfp8_w8a16_batch_matmul
 
 ## Function Description | 功能描述
 
@@ -314,7 +314,7 @@ Catlass-based soft-FP8 (W8A16) batch-matmul (BMM). mat1 is BF16 [b, M, K]; mat2 
 import sgl_kernel_npu
 import torch
 
-torch.ops.npu.fp8_w8a16_batch_matmul(
+torch.ops.npu.softfp8_w8a16_batch_matmul(
     mat1: torch.Tensor,     # bf16, [b, M, K]
     mat2: torch.Tensor,     # int8 (FP8 bits), [b, K, N]
     scale: torch.Tensor,    # fp32, per-block scale
