@@ -82,10 +82,14 @@ for dtype in dtypes:
 ## Function Description | 功能描述
 
 ### English:
-Catlass-based soft-FP8 (W8A16) matmul. Activations are BF16; weights are FP8 bits stored as int8 and are dequantized to BF16 with per-block scales, then GEMM is executed and BF16 output is produced.
+Catlass-based soft-FP8 (W8A16) matmul. Activations are BF16; weights are FP8 bits stored as int8 and are dequantized to BF16 with per block scales(block size is (128, 128)), then GEMM is executed and BF16 output is produced.
+
+This operator is applicable to Atlas A2/A3 and enables FP8 computation on Ascend 910B/C hardware that does not support native FP8 computation.
 
 ### 中文:
-基于 Catlass 的 soft-FP8（W8A16）矩阵乘：输入激活为 BF16；权重以 int8 形式存储 FP8 bit，按照块用 scale 做反量化，转换为 BF16，再进行 GEMM，输出为 BF16。
+基于 Catlass 的 soft-FP8（W8A16）矩阵乘：输入激活为 BF16；权重以 int8 形式存储 FP8 bit，按照块用 scale 做反量化（块大小是(128, 128)），转换为 BF16，再进行 GEMM，输出为 BF16。
+
+此算子适用于Atlas A2/A3，可在不支持原生FP8计算的Ascend 910B/C 硬件上支持FP8计算。
 
 参考/Refs: Catlass (submodule)
 
@@ -101,7 +105,7 @@ import torch
 torch.ops.npu.softfp8_w8a16_matmul(
     mat1: torch.Tensor,     # bf16, [m, k]
     mat2: torch.Tensor,     # int8 (FP8 bits), [k, n]
-    scale: torch.Tensor,    # fp32, per-block scale
+    scale: torch.Tensor,    # fp32, per-block scale (block size is (128, 128))
     outDType: str = "bf16"  # output dtype string
 ) -> torch.Tensor           # [m, n]
 ```
@@ -122,7 +126,7 @@ extern "C" __global__ __aicore__ void catlass_fp8w8a16_matmul_bfloat16_t(
 |:--|:--|:--|:--|
 | mat1 | torch.Tensor | BF16 activation matrix, shape (m, k) | BF16 左矩阵，形状 (m, k) |
 | mat2 | torch.Tensor | FP8(E4M3) bits stored in int8, shape (k, n) | 以 int8 存储的 FP8 bit 权重，形状 (k, n) |
-| scale | torch.Tensor | FP32 scale table for dequant (block-wise) | 反量化 scale 表（按 block） |
+| scale | torch.Tensor | FP32 scale table for dequant ((128,128) block-wise) | 反量化 scale 表（按 (128,128) block） |
 | outDType | str | output dtype string (now only support "bf16") | 输出 dtype 字符串（当前仅支持 "bf16"） |
 
 ---
@@ -176,7 +180,7 @@ b = torch.randint(-128, 127, (k, n), dtype=torch.int8, device=device)
 
 scale = torch.ones(scale_rows, scale_cols, dtype=torch.float32, device=device)
 
-c = torch.ops.npu.fp8_w8a16_matmul(a, b, scale, "bf16")
+c = torch.ops.npu.softfp8_w8a16_matmul(a, b, scale, "bf16")
 print(c.shape, c.dtype)  # (m, n), bf16
 ```
 
@@ -189,8 +193,12 @@ print(c.shape, c.dtype)  # (m, n), bf16
 ### English:
 Catlass-based soft-FP8 (W8A16) grouped-matmul (GMM). Activations are BF16 [M, K], weights are [g, K, N] (FP8 bits stored as int8), and groupList describes how the M dimension is partitioned across groups.
 
+This operator is applicable to Atlas A2/A3 and enables FP8 computation on Ascend 910B/C hardware that does not support native FP8 computation.
+
 ### 中文:
 基于 Catlass 的 soft-FP8（W8A16）分组矩阵乘（GMM）：输入激活 BF16 [M, K]，权重 [g, K, N]（FP8 bit 以 int8 存储），groupList 描述 M 维如何按组切分。
+
+此算子适用于Atlas A2/A3，可在不支持原生FP8计算的Ascend 910B/C 硬件上支持FP8计算。
 
 ---
 
@@ -204,7 +212,7 @@ import torch
 torch.ops.npu.softfp8_w8a16_grouped_matmul(
     mat1: torch.Tensor,       # bf16, [M, K]
     mat2: torch.Tensor,       # int8 (FP8 bits), [g, K, N]
-    scale: torch.Tensor,      # fp32, per-block scale
+    scale: torch.Tensor,      # fp32, per-block scale (block size is (128, 128))
     groupList: torch.Tensor,  # prefix-sum describing groups (see "Constraints")
     outDType: str = "bf16"
 ) -> torch.Tensor             # [M, N]
@@ -227,7 +235,7 @@ extern "C" __global__ __aicore__ void catlass_fp8w8a16_gmm_bfloat16_t(
 |:--|:--|:--|:--|
 | mat1 | torch.Tensor | BF16 activation, shape (M, K) | BF16 输入矩阵 (M, K) |
 | mat2 | torch.Tensor | grouped weights, shape (g, K, N) | 分组权重 (g, K, N) |
-| scale | torch.Tensor | FP32 scale table for dequant (block-wise) | 反量化 scale 表（按 block） |
+| scale | torch.Tensor | FP32 scale table for dequant ((128,128) block-wise) | 反量化 scale 表（按 (128,128) block） |
 | groupList | torch.Tensor | prefix-sum group descriptor over M | M 维分组的前缀和描述 |
 | outDType | str | output dtype string (now only support "bf16") | 输出 dtype 字符串（当前仅支持 "bf16"） |
 
@@ -289,7 +297,7 @@ groupList_t = torch.tensor(groupList, dtype=torch.int32, device=device)
 # scale layout depends on packing strategy; here is a placeholder
 scale = torch.ones(1, dtype=torch.float32, device=device)
 
-c = torch.ops.npu.fp8_w8a16_grouped_matmul(a, w, scale, groupList_t, "bf16")
+c = torch.ops.npu.softfp8_w8a16_grouped_matmul(a, w, scale, groupList_t, "bf16")
 print(c.shape, c.dtype)  # (M, N), bf16
 ```
 
@@ -302,8 +310,12 @@ print(c.shape, c.dtype)  # (M, N), bf16
 ### English:
 Catlass-based soft-FP8 (W8A16) batch-matmul (BMM). mat1 is BF16 [b, M, K]; mat2 is [b, K, N] (FP8 bits stored as int8). Weights are dequantized using block-wise scales, then bf16 BMM is executed.
 
+This operator is applicable to Atlas A2/A3 and enables FP8 computation on Ascend 910B/C hardware that does not support native FP8 computation.
+
 ### 中文:
 基于 Catlass 的 soft-FP8（W8A16）批量矩阵乘（BMM）：mat1 为 BF16 [b, M, K]；mat2 为 [b, K, N]（FP8 bit 以 int8 存储）。按块用 scale 做权重反量化，再执行bf16 BMM。
+
+此算子适用于Atlas A2/A3，可在不支持原生FP8计算的Ascend 910B/C 硬件上支持FP8计算。
 
 ---
 
@@ -317,7 +329,7 @@ import torch
 torch.ops.npu.softfp8_w8a16_batch_matmul(
     mat1: torch.Tensor,     # bf16, [b, M, K]
     mat2: torch.Tensor,     # int8 (FP8 bits), [b, K, N]
-    scale: torch.Tensor,    # fp32, per-block scale
+    scale: torch.Tensor,    # fp32, per-block scale (block size is (128, 128))
     outDType: str = "bf16"
 ) -> torch.Tensor           # [b, M, N]
 ```
@@ -338,7 +350,7 @@ extern "C" __global__ __aicore__ void catlass_fp8w8a16_bmm_bfloat16_t(
 |:--|:--|:--|:--|
 | mat1 | torch.Tensor | BF16 activations, shape (b, M, K) | BF16 输入 (b, M, K) |
 | mat2 | torch.Tensor | weights (b, K, N), FP8 bits stored as int8 | 权重 (b, K, N)，FP8 bit 以 int8 承载 |
-| scale | torch.Tensor | FP32 scale table (block-wise) | FP32 scale 表（按 block） |
+| scale | torch.Tensor | FP32 scale table ((128,128) block-wise) | FP32 scale 表（按 (128,128) block） |
 | outDType | str | output dtype string (now only support "bf16") | 输出 dtype 字符串（当前仅支持 "bf16"） |
 
 ---
@@ -392,6 +404,6 @@ b_w = torch.randint(-128, 127, (b, K, N), dtype=torch.int8, device=device)
 
 scale = torch.ones(scale_rows, scale_cols, dtype=torch.float32, device=device)
 
-c = torch.ops.npu.fp8_w8a16_batch_matmul(a, b_w, scale, "bf16")
+c = torch.ops.npu.softfp8_w8a16_batch_matmul(a, b_w, scale, "bf16")
 print(c.shape, c.dtype)  # (b, M, N), bf16
 ```
