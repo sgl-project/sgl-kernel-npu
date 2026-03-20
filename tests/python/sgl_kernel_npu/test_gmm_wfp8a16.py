@@ -63,9 +63,9 @@ def compare_data_Wf8Abf16(g, m, n, k):
 
     b_bf16 = anti_quant_fp8_to_bf16(b_int8, scales, g, k, n)
     c_fp32 = group_matmul(a_bf16, b_bf16, g, single_m)
-    
-    result = torch.ops.npu.fp8_w8a16_grouped_matmul(a_bf16, b_int8, scales, group_list, "bf16")
-    
+    result = torch.ops.npu.softfp8_w8a16_grouped_matmul(
+        a_bf16, b_int8, scales, group_list, "bf16"
+    )
     torch.npu.synchronize()
 
     gt = c_fp32.to(torch.float32).to("cpu")
