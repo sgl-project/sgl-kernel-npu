@@ -47,6 +47,8 @@ def apply_block_scale(weight_fp8, scale, K, N, block_size=BLOCK_SIZE):
 
     deq = (blocked.permute(0, 2, 1, 3).contiguous().view(K_pad, N_pad))[:K, :N]
 
+    return deq.to(torch.bfloat16)
+
 
 def compare_fp8_w8a16(M, N, K):
     atol = 1e-2
