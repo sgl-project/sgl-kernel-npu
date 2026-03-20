@@ -68,7 +68,7 @@ __attribute__((visibility("default"))) aclnnStatus aclnnMoeDistributeCombineA2Ge
     const aclTensor *countOuter, char *groupEp, int64_t epWorldSize, int64_t epRankId, int64_t moeExpertNum,
     char *groupTp, int64_t tpWorldSize, int64_t tpRankId, int64_t expertShardType, int64_t sharedExpertNum,
     int64_t sharedExpertRankNum, int64_t globalBs, int64_t outDtype, int64_t commQuantMode, int64_t groupListType,
-    aclTensor *x, uint64_t *workspaceSize, aclOpExecutor **executor);
+    aclTensor *x, const aclTensor *sendCostStats, uint64_t *workspaceSize, aclOpExecutor **executor);
 
 /**
  * @brief aclnnMoeDistributeCombine的第二段接口，用于执行计算。

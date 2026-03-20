@@ -60,6 +60,7 @@ public:
     constexpr static uint32_t ARRIVAL_STATUS = 2;
     constexpr static uint32_t SKIP_STATUS = 3;
     constexpr static uint32_t EXTRA_TOKEN_INFO_NUM = 4U;  // 专家信息 权重信息 量化Scale 到达标志位
+    constexpr static uint32_t NOTIFY_DATA_SIZE = 400U * 1024U * 1024U;
 
     template <AscendC::HardEvent event>
     __aicore__ inline void SyncFunc()
@@ -210,13 +211,10 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeA2layeredFu
 {
     tpipe_ = pipe;
     REGISTER_TILING_DEFAULT(MoeDistributeDispatchV2TilingData);
-    auto tiling = (__gm__ MoeDistributeDispatchV2TilingData *)tilingGM;
-    __gm__ void *mc2InitTiling = (__gm__ void *)(&(tiling->mc2InitTiling));
-    __gm__ void *mc2CcTiling = (__gm__ void *)(&(tiling->mc2CcTiling));
     GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
 
-    hccl_.Init(contextGM0, mc2InitTiling);
-    hccl_.SetCcTiling(mc2CcTiling);
+    hccl_.InitV2(contextGM0, &tilingData);
+    hccl_.SetCcTilingV2(offsetof(MoeDistributeDispatchV2TilingData, mc2CcTiling));
 
     winContext_ = (__gm__ HcclA2CombineOpParam *)contextGM0;
     rankId_ = tilingData.moeDistributeDispatchV2Info.epRankId;
@@ -246,7 +244,7 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeA2layeredFu
 
     uint64_t winSizeMin =
         moeExpertNum_ * axisBS_ * (axisH_ * sizeof(XType) + EXTRA_TOKEN_INFO_NUM * alignK_ * sizeof(uint32_t)) +
-        IPC_DATA_OFFSET + RDMA_DATA_SIZE;  // 考虑负载极其不均衡时，HCCL BUFFSIZE需要开的大小
+        IPC_DATA_OFFSET + RDMA_DATA_SIZE + NOTIFY_DATA_SIZE;  // 考虑负载极其不均衡时，HCCL BUFFSIZE需要开的大小
     assert(winContext_->winSize >= winSizeMin,
            "The HCCL_BUFFSIZE is %lluMB, the min value should be %lluMB. \
         epWorldSize:%u, epRankId:%u, moeExpertNum:%u, quantMode:%u, globalBs:%u, bs:%u, k:%u, h:%u, aivNum:%u, \
@@ -264,7 +262,8 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeA2layeredFu
     bufferId_ = bufferChosenGlobal_(0);
     windowInGM_ = windowInGM_ + halfWinSize_ * bufferId_;
     windowOutGM_ = windowOutGM_ + halfWinSize_ * bufferId_;
-    RANK_SIZE_ON_IPC = (totalSize_ - totalWinSize_ - IPC_DATA_OFFSET) / (localMoeExpertNum_ * worldSize_);
+    RANK_SIZE_ON_IPC =
+        (totalSize_ - totalWinSize_ - IPC_DATA_OFFSET - NOTIFY_DATA_SIZE) / (localMoeExpertNum_ * worldSize_);
     RANK_SIZE_ON_IPC = (RANK_SIZE_ON_IPC / IPC_BUFF_ALIGN) * IPC_BUFF_ALIGN;
 
     // IPC buffer init

@@ -86,6 +86,7 @@ static void PrintTilingDataInfo(const char *nodeName, NotifyDispatchTilingData &
     OP_LOGD(nodeName, "perRoundTokens is %u.", tilingData.notifyDispatchInfo.perRoundTokens);
     OP_LOGD(nodeName, "aivNum is %u.", tilingData.notifyDispatchInfo.aivNum);
     OP_LOGD(nodeName, "totalUbSize is %lu.", tilingData.notifyDispatchInfo.totalUbSize);
+    OP_LOGD(nodeName, "totalWinSize is %lu.", tilingData.notifyDispatchInfo.totalWinSize);
 }
 
 static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, const char *nodeName,
@@ -130,8 +131,8 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
                     OP_LOGE(nodeName, "sendCount is invalid, only support > 0, but got sendCount=%d.", *sendCountPtr),
                     return ge::GRAPH_FAILED);
     OP_TILING_CHECK(
-        (*numTokenPtr <= 0),
-        OP_LOGE(nodeName, "numTokenPtr is invalid, only support > 0, but got numTokenPtr=%d.", *numTokenPtr),
+        (*numTokenPtr < 0),
+        OP_LOGE(nodeName, "numTokenPtr is invalid, only support >= 0, but got numTokenPtr=%d.", *numTokenPtr),
         return ge::GRAPH_FAILED);
 
     commGroup = std::string(commGroupPtr);
@@ -281,6 +282,7 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
         OP_LOGE(nodeName, "HCCL_BUFFSIZE is too SMALL, should larger than %luMB.", actualSize / MB_SIZE);
         return false;
     }
+    tilingData->notifyDispatchInfo.totalWinSize = maxWindowSize;
     return true;
 }
 

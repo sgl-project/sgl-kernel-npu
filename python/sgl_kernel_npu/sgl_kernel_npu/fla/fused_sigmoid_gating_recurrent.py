@@ -42,6 +42,7 @@ def fused_sigmoid_gating_delta_rule_update_npu_kernel(
     USE_INITIAL_STATE: tl.constexpr,
     USE_QK_L2NORM_IN_KERNEL: tl.constexpr,
     IS_VARLEN: tl.constexpr,
+    IS_KDA: tl.constexpr,
 ):
     """
     Fused kernel that combines sigmoid gating computation with recurrent delta rule update.
@@ -77,8 +78,13 @@ def fused_sigmoid_gating_delta_rule_update_npu_kernel(
 
         # Gating computation pointers
         p_A_log = A_log + i_hv
-        p_a = a + bos * HV + i_hv
-        p_dt_bias = dt_bias + i_hv
+
+        if IS_KDA:
+            p_a = a + (bos * HV + i_hv) * K + o_k
+            p_dt_bias = dt_bias + i_hv * K + o_k
+        else:
+            p_a = a + bos * HV + i_hv
+            p_dt_bias = dt_bias + i_hv
 
         for i in range(T):
             # Load inputs
@@ -128,7 +134,10 @@ def fused_sigmoid_gating_delta_rule_update_npu_kernel(
             b_q = b_q * scale
 
             # Apply gating to hidden state: h *= exp(g)
-            b_h *= tl.exp(b_g)
+            if IS_KDA:
+                b_h *= tl.exp(b_g[:, None])
+            else:
+                b_h *= tl.exp(b_g)
 
             # Delta rule: v -= sum(h * k, dim=0)
             b_v -= tl.sum(b_h * b_k[:, None], 0)
@@ -173,6 +182,7 @@ def fused_sigmoid_gating_delta_rule_update_npu(
     scale: Optional[float] = None,
     use_qk_l2norm_in_kernel: bool = False,
     cu_seqlens: Optional[torch.Tensor] = None,
+    is_kda: bool = False,
 ):
     """
     Fused triton implementation of sigmoid gating delta rule update.
@@ -226,6 +236,7 @@ def fused_sigmoid_gating_delta_rule_update_npu(
         num_warps=num_warps,
         num_stages=num_stages,
         multibuffer=False,
+        IS_KDA=is_kda,
     )
     o = o.squeeze(0)
     return o

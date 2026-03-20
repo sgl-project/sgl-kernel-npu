@@ -1,38 +1,89 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
-PIP_INSTALL="pip install --no-cache-dir"
+export ARCHITECT="$(arch)"
+export DEBIAN_FRONTEND="noninteractive"
+export PIP_INSTALL="python3 -m pip install --no-cache-dir"
 
 
-# Install the required dependencies in CI.
-apt update -y && apt install -y \
+### Dependency Versions
+# PyTorch: Default to torch 2.8.0, can be overridden by --torch-version
+TORCH_VERSION="2.8.0"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --torch-version)
+            TORCH_VERSION="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [--torch-version <2.8.0|2.10.0>]"
+            exit 1
+            ;;
+    esac
+done
+
+case "${TORCH_VERSION}" in
+    "2.8.0")
+        TORCHVISION_VERSION="0.23.0"
+        TORCH_NPU_URL="https://gitcode.com/Ascend/pytorch/releases/download/v7.3.0-pytorch2.8.0/torch_npu-2.8.0.post2-cp311-cp311-manylinux_2_28_${ARCHITECT}.whl"
+        ;;
+    "2.10.0")
+        TORCHVISION_VERSION="0.25.0"
+        TORCH_NPU_URL="https://gitcode.com/Ascend/pytorch/releases/download/7.3.0.alpha002/torch_npu-2.10.0rc2-cp311-cp311-manylinux_2_28_${ARCHITECT}.whl"
+        ;;
+    *)
+        echo "Unsupported torch version: ${TORCH_VERSION}"
+        echo "Supported versions: 2.8.0, 2.10.0"
+        exit 1
+        ;;
+esac
+
+
+### Install required dependencies
+## APT packages
+apt update -y && \
+apt upgrade -y && \
+apt install -y \
+    locales \
+    ca-certificates \
     build-essential \
     cmake \
+    ccache \
+    pkg-config \
+    zlib1g-dev \
     wget \
     curl \
-    net-tools \
-    zlib1g-dev \
-    lld \
-    clang \
-    locales \
-    ccache \
-    ca-certificates
+    zip \
+    unzip
+
+## Setup
+locale-gen en_US.UTF-8
 update-ca-certificates
-python3 -m ${PIP_INSTALL} --upgrade pip
+export LANG=en_US.UTF-8
+export LANGUAGE=en_US:en
+export LC_ALL=en_US.UTF-8
+
+## Python packages
+${PIP_INSTALL} --upgrade pip
+# Pin wheel to 0.45.1, REF: https://github.com/pypa/wheel/issues/662
+${PIP_INSTALL} \
+    wheel==0.45.1 \
+    pybind11 \
+    pyyaml \
+    decorator \
+    scipy \
+    attrs \
+    psutil
 
 
-### Install PyTorch and PTA
-PYTORCH_VERSION=2.6.0
-TORCHVISION_VERSION=0.21.0
-${PIP_INSTALL} torch==$PYTORCH_VERSION torchvision==$TORCHVISION_VERSION
-
-PTA_VERSION="v7.1.0.1-pytorch2.6.0"
-PTA_NAME="torch_npu-2.6.0.post1-cp311-cp311-manylinux_2_28_aarch64.whl"
-PTA_URL="https://gitee.com/ascend/pytorch/releases/download/${PTA_VERSION}/${PTA_NAME}"
-wget -O "${PTA_NAME}" "${PTA_URL}" && ${PIP_INSTALL} "./${PTA_NAME}"
-
-### Install Triton-Ascend
-TRITON_ASCEND_NAME="triton_ascend-3.2.0.dev20250729-cp311-cp311-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl"
-TRITON_ASCEND_URL="https://sglang-ascend.obs.cn-east-3.myhuaweicloud.com/sglang/${TRITON_ASCEND_NAME}"
-${PIP_INSTALL} attrs==24.2.0 numpy==1.26.4 scipy==1.13.1 decorator==5.1.1 psutil==6.0.0 pytest==8.3.2 pytest-xdist==3.6.1 pyyaml pybind11
-wget -O "${TRITON_ASCEND_NAME}" "${TRITON_ASCEND_URL}" && ${PIP_INSTALL} "./${TRITON_ASCEND_NAME}"
+### Install pytorch
+## torch
+${PIP_INSTALL} \
+    torch==${TORCH_VERSION} \
+    torchvision==${TORCHVISION_VERSION} \
+    torchaudio==${TORCH_VERSION} \
+    --index-url https://download.pytorch.org/whl/cpu
+## torch_npu
+${PIP_INSTALL} ${TORCH_NPU_URL}

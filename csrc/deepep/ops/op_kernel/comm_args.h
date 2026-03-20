@@ -8,7 +8,7 @@
 namespace Moe {
 constexpr int CAM_MAX_RANK_SIZE = 384;  // Maximum number of NPU cards supported by the communication library
 
-constexpr uint64_t NOTIFY_DISPATCH_BUFF_OFFSET = 204UL * 1024UL * 1024UL;
+constexpr uint64_t NOTIFY_DISPATCH_BUFF_OFFSET = 102UL * 1024UL * 1024UL;
 constexpr int64_t IPC_BUFF_MAX_SIZE = 100 * 1024 * 1024;
 constexpr int64_t IPC_DATA_OFFSET = 2 * 1024 * 1024;  // First 2MB as flag, then 100MB as data storage
 constexpr int64_t PING_PONG_SIZE = 2;
@@ -27,6 +27,8 @@ constexpr int64_t WAIT_SUCCESS = 112233445566;
 constexpr int64_t IPC_CHUNK_FLAG = 0;  // Start offset for send recv, chunk flag region
 constexpr int64_t MAX_WAIT_ROUND_UNIT =
     10 * 1000 * 1000;  // Threshold for waiting to get Flag under normal conditions within the same SIO
+constexpr uint64_t ROUND_STATE_MAX_SIZE = 4UL * 1024UL;
+constexpr uint64_t BASE_ROUND_STATE_OFFSET = 450UL * 1024UL;
 
 constexpr static int32_t UB_HEAD_OFFSET = 96;
 constexpr static int32_t UB_MID_OFFSET = UB_HEAD_OFFSET + UB_SINGLE_PING_PONG_ADD_SIZE_MAX + UB_ALIGN_SIZE;

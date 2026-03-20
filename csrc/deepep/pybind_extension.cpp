@@ -2,6 +2,7 @@
 #include <pybind11/pytypes.h>
 #include <pybind11/functional.h>
 #include <pybind11/stl.h>
+#include <c10/util/ArrayRef.h>
 
 #include "deep_ep.hpp"
 #include "config.hpp"
@@ -42,5 +43,6 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
         .def("internode_combine", &deep_ep::Buffer::internode_combine)
         .def("low_latency_dispatch", &deep_ep::Buffer::low_latency_dispatch)
         .def("low_latency_combine", &deep_ep::Buffer::low_latency_combine)
-        .def("fused_deep_moe", &deep_ep::Buffer::fused_deep_moe);
+        .def("fused_deep_moe", &deep_ep::Buffer::fused_deep_moe)
+        .def("dispatch_ffn_combine", &deep_ep::Buffer::dispatch_ffn_combine);
 }

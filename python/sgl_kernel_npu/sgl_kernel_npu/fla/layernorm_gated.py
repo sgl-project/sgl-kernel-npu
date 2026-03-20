@@ -248,6 +248,7 @@ def layer_norm_fwd_npu(
     group_size=None,
     norm_before_gate=True,
     is_rms_norm=False,
+    activation=None,
 ):
     M, N = x.shape
     if group_size is None:
