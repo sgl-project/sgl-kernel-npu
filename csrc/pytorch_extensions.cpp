@@ -89,6 +89,8 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 
 #ifdef BUILD_CATLASS_MODULE
     m.def("catlass_matmul_basic(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, str? format_mode=None) -> ()");
+
+    m.def("fp8_w8a16_batch_matmul(Tensor mat1, Tensor mat2, Tensor scale, str c) -> Tensor");
 #endif
 
     m.def(
@@ -136,6 +138,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
 #ifdef BUILD_CATLASS_MODULE
     m.impl("catlass_matmul_basic", TORCH_FN(sglang::npu_kernel::catlass_matmul_basic));
+
+    m.impl("fp8_w8a16_batch_matmul", TORCH_FN(sglang::npu_kernel::fp8_w8a16_batch_matmul));
 #endif
 
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
