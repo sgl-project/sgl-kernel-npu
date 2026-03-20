@@ -88,10 +88,10 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "              Tensor! lora_scales, Tensor! y) -> ()");
 
     m.def(
-        "recurrent_gated_delta_rule(Tensor mix_qkv, Tensor recurrent_state, Tensor beta, "
-        "float scale, Tensor actual_seq_lengths, Tensor ssm_state_indices, "
+        "recurrent_gated_delta_rule(Tensor mix_qkv, Tensor(a!) recurrent_state, Tensor beta, "
+        "double scale, Tensor actual_seq_lengths, Tensor ssm_state_indices, "
         "int nk, int nv, "
-        "Tensor? intermediate_state=None, Tensor? cache_indices=None, "
+        "Tensor(b!)? intermediate_state=None, Tensor? cache_indices=None, "
         "Tensor? num_accepted_tokens=None, Tensor? g=None, Tensor? gk=None) -> Tensor");
 
 #ifdef BUILD_CATLASS_MODULE
