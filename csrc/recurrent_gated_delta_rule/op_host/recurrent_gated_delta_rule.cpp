@@ -64,8 +64,8 @@ HOST_API at::Tensor recurrent_gated_delta_rule(
         "mix_qkv width mismatch. Expected: " + std::to_string(expectedD) +
         ", Got: " + std::to_string(d) +
         ". Formula: D = nv*dv + 2*nk*dk, where nv=" + std::to_string(nv) +
-        ", dv(or State.size(3))=" + std::to_string(dv) + ", nk=" + std::to_string(nk) +
-        ", dk(or State.size(4))=" + std::to_string(dk));
+        ", dv(or State.size(2))=" + std::to_string(dv) + ", nk=" + std::to_string(nk) +
+        ", dk(or State.size(3))=" + std::to_string(dk));
 
     TORCH_CHECK(recurrent_state.size(1) == nv, "State third dimension must match nv");
 
@@ -103,26 +103,25 @@ HOST_API at::Tensor recurrent_gated_delta_rule(
     int64_t aDv = ceilAlign(dv, ALIGN_SIZE);
     int64_t aDk = ceilAlign(dk, ALIGN_SIZE);
 
-    int64_t usedUbBytes = MAX_MTP * (4 * aDk + 2 * aDv);
-    usedUbBytes += 128;
-    usedUbBytes += MAX_MTP * (4 * aNv + 2 * aNv);
+    int64_t usedUbBytes = MAX_MTP * (4 * aDk + 2 * aDv);    // 4 for qLocal & kLocal, 2 for vLocal
+    usedUbBytes += 128;                                     // reserve 128 Bytes
+    usedUbBytes += MAX_MTP * (4 * aNv + 2 * aNv);           // 4 for gamaLocal, 2 for betaLocal
 
     int64_t ubRestBytes = ubSize - usedUbBytes;
 
-    usedUbBytes += MAX_MTP * (8 * aDk + 4 * aDv + 4 * aNv);
+    usedUbBytes += MAX_MTP * (8 * aDk + 4 * aDv + 4 * aNv); // 8 for qk in ub, 4 for v in ub, 4 for beta in ub
+    int64_t coeff = (2 + 2) * aDk + 4;                      // 2 for stateLocal, stateOutLocal, 4 for attnOutLocal
+    coeff += (4 + 4) * aDk + 4 + 4;                         // 4 for qInUb, kInUb, vInUb, deltaInUb, attnInUb
 
-    int64_t coeff = (2 + 2) * aDk + 4;
-    coeff += (4 + 4) * aDk + 4 + 4;
-
-    int64_t vStep = (ubSize - usedUbBytes) / coeff / 8 * 8;
-
-    if (vStep < 8) {
+    int64_t vStep = (ubSize - usedUbBytes) / coeff / 8 * 8; // 8 * sizeof(float) = 32
+    if (vStep < 8) {                                        // vStep must be no less than 8
         TORCH_CHECK(false, "vStep should be bigger than 8, shape is too big");
+        TORCH_CHECK(false, "vStep (" + std::to_string(vStep) + ") should be bigger than 8 ");
     }
 
     int64_t rptime = ceilDiv(dv, static_cast<uint32_t>(vStep));
-    vStep = ceilAlign(ceilDiv(dv, static_cast<uint32_t>(rptime)), 8);
-    ubRestBytes -= ((2 + 2) * aDk + 4) * vStep;
+    vStep = ceilAlign(ceilDiv(dv, static_cast<uint32_t>(rptime)), 8);   // 8 * sizeof(float) = 32
+    ubRestBytes -= ((2 + 2) * aDk + 4) * vStep;                         // 2 for stateLocal, stateOutLocal, 4 for attnOutLocal
 
     // ===================== optional inputs =====================
 
@@ -140,7 +139,7 @@ HOST_API at::Tensor recurrent_gated_delta_rule(
         intermediate_state_opt.value().defined()) {
         hasIntermediateState = true;
         intermediate_state_tensor = intermediate_state_opt.value().contiguous();
-        intermediateStatePtr = (void*)intermediate_state_tensor.data_ptr();
+        intermediateStatePtr = intermediate_state_tensor.data_ptr();
 
         // MTP input and output
         initStatePtr = intermediateStatePtr;
@@ -155,7 +154,7 @@ HOST_API at::Tensor recurrent_gated_delta_rule(
         cache_indices_opt.value().defined()) {
 
         cache_indices_tensor = cache_indices_opt.value().to(at::kInt).contiguous();
-        cacheIndicesPtr = (void*)cache_indices_tensor.data_ptr();
+        cacheIndicesPtr = cache_indices_tensor.data_ptr();
     }
 
     bool hasAcceptedTokens = false;
@@ -169,8 +168,7 @@ HOST_API at::Tensor recurrent_gated_delta_rule(
         num_accepted_tokens_int32 =
             num_accepted_tokens_opt.value().to(at::kInt).contiguous();
 
-        numAcceptedTokensPtr =
-            (void*)num_accepted_tokens_int32.data_ptr();
+        numAcceptedTokensPtr = num_accepted_tokens_int32.data_ptr();
     }
 
     bool hasGama = false;
@@ -180,12 +178,12 @@ HOST_API at::Tensor recurrent_gated_delta_rule(
         hasGama = true;
         g_tensor = g_opt.value().to(at::kFloat).contiguous();
     } else {
-        g_tensor = torch::zeros(
+        g_tensor = torch::ones(
             {t, nv},
             torch::TensorOptions().dtype(at::kFloat).device(mix_qkv.device()));
     }
 
-    void* gPtr = g_tensor.defined() ? (void*)g_tensor.data_ptr() : nullptr;
+    void* gPtr = g_tensor.data_ptr();
 
     void* gkPtr = nullptr;
     at::Tensor gk_local;
@@ -193,7 +191,7 @@ HOST_API at::Tensor recurrent_gated_delta_rule(
     if (gk_opt.has_value() && gk_opt.value().defined()) {
         gk_local = gk_opt.value().to(at::kFloat).contiguous();
 
-        gkPtr = (void*)gk_local.data_ptr();
+        gkPtr = gk_local.data_ptr();
     }
 
     at::Tensor output = torch::empty({b, s, nv, dv}, mix_qkv.options());

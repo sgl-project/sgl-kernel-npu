@@ -8,11 +8,6 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-/*!
- * \file grouped_matmul_finalize_routing.h
- * \brief
- */
-
 #ifndef __RECURRENT_GATED_DELTA_RULE_KERNEL_H_
 #define __RECURRENT_GATED_DELTA_RULE_KERNEL_H_
 
@@ -31,6 +26,7 @@ constexpr uint64_t BF16_NUM_PER_BLOCK = 16;
 constexpr uint64_t FP32_NUM_PER_BLOCK = 8;
 constexpr uint32_t REPEAT_LENTH = 64; // 256Byte for float
 constexpr uint32_t MAX_REPEAT_TIME = 255;
+constexpr float EPSILON_FOR_STABILITY = 1e-6f;
 
 constexpr int BLK_SIZE = 64;
 constexpr int VEC_FLOAT = 64;
@@ -285,25 +281,10 @@ private:
         AscendC::PipeBarrier<PIPE_V>();
     }
 
-    __aicore__ inline void MatVecMul(const LocalTensor<float> &cubeTensor, const LocalTensor<float> &vecTensor,
-                                          LocalTensor<float> &dstTensor, uint32_t cols, bool isAdd)
-    {
-        uint8_t repeatStride = alignK_ / FP32_NUM_PER_BLOCK;
-        for (uint32_t i = 0; i < alignK_; i += REPEAT_LENTH) {
-            uint64_t mask = Std::min(REPEAT_LENTH, alignK_ - i);
-            for (uint32_t j = 0; j < cols; j += MAX_REPEAT_TIME) {
-                uint64_t repeatTime = Std::min(MAX_REPEAT_TIME, cols - j);
-                if (isAdd) {
-                    MulAddDst(dstTensor[j * alignK_ + i], cubeTensor[j * alignK_ + i], vecTensor[i], mask, repeatTime,
-                              {1, 1, 1, repeatStride, repeatStride, 0});
-                } else {
-                    Mul(dstTensor[j * alignK_ + i], cubeTensor[j * alignK_ + i], vecTensor[i], mask, repeatTime,
-                        {1, 1, 1, repeatStride, repeatStride, 0});
-                }
-            }
-        }
-    }
-
+    /**
+     * Note: This method is specifically designed and invoked only when
+     * curSingleV == 64 and alignK_ == 128.
+     */
     __aicore__ inline void ReduceSum_AR_64x128_ReuseSource(
         const LocalTensor<float>& dstTensor,
         const LocalTensor<float>& srcTensor,
@@ -367,7 +348,7 @@ private:
         Sum<float>(kSumLocal, kTempInUb, {seqLen, alignK_, realK_});
         PipeBarrier<PIPE_V>();
 
-        Adds<float>(kSumLocal, kSumLocal, static_cast<float>(1e-6f), seqLen);
+        Adds<float>(kSumLocal, kSumLocal, EPSILON_FOR_STABILITY, seqLen);
         PipeBarrier<PIPE_V>();
         Rsqrt<float>(kSumLocal, kSumLocal, seqLen);
 
@@ -398,7 +379,7 @@ private:
         Sum<float>(qSumLocal, qTempInUb, {seqLen, alignK_, realK_});
         PipeBarrier<PIPE_V>();
 
-        Adds<float>(qSumLocal, qSumLocal, static_cast<float>(1e-6f), seqLen);
+        Adds<float>(qSumLocal, qSumLocal, EPSILON_FOR_STABILITY, seqLen);
         PipeBarrier<PIPE_V>();
         Rsqrt<float>(qSumLocal, qSumLocal, seqLen);
 
@@ -625,7 +606,6 @@ private:
             uint64_t curRecurrentOffset = (((stateOffset / S_) * NV_ + head_i) * realV_ + v_i) * realK_;
 
             CopyInState(curStateOffset, curRecurrentOffset, curSingleV);
-            statecopyFlag_ = false;
             for (uint64_t seq_i = seq0; seq_i < seq1; seq_i++) {
                 uint64_t curQKOffset = (seq_i - seq0) * alignK_;
                 uint64_t curVOffset = (seq_i - seq0) * alignV_ + v_i;
@@ -634,17 +614,6 @@ private:
                 Compute(curSingleV, curQKOffset, curVOffset, seq_i, attnOffset, seq0, seq1, head_i, stateOffset, v_i);
             }
         }
-    }
-
-    __aicore__ inline bool IsCurrentBlock(int32_t seqlen)
-    {
-        load += seqlen;
-        bool ret = (blockIdx == usedblk && seqlen > 0);
-        if (load >= avgload) {
-            load = 0;
-            usedblk++;
-        }
-        return ret;
     }
 
 private:
@@ -716,14 +685,12 @@ private:
     bool needRecurrentInit_;
     bool hasAcceptedTokens_;
     bool hasGama_;
-    bool hasGamaK_;
     float gama_;
     float beta_;
     float scale_;
     uint64_t blockIdx;
 
     bool qkvcopyFlag_;
-    bool statecopyFlag_;
 };
 
 extern "C" __global__ __aicore__ void
