@@ -90,7 +90,6 @@ HOST_API at::Tensor causal_conv1d_update_impl(
     TORCH_CHECK(weight.scalar_type() == dtype, "weight dtype must match x dtype");
     TORCH_CHECK(conv_state.scalar_type() == dtype, "conv_state dtype must match x dtype");
 
-    // 关键拦截：防止在图回放中出现步长错乱的转置 Tensor！
     TORCH_CHECK(x.is_contiguous(), "x must be contiguous before entering the NPU kernel. Fix this in Python.");
     TORCH_CHECK(weight.is_contiguous(), "weight must be contiguous. Transposed weights are NOT allowed. Fix this in Python.");
     TORCH_CHECK(conv_state.is_contiguous(), "conv_state must be contiguous. Fix this in Python.");
@@ -118,7 +117,7 @@ HOST_API at::Tensor causal_conv1d_update_impl(
     }
     int32_t workspace_size = static_cast<int32_t>(ascendc_platform->GetLibApiWorkSpaceSize());
 
-    // 1. Prepare Tiling Data Struct (使用你头文件中的辅助函数)
+    // 1. Prepare Tiling Data Struct
     CausalConv1dUpdateTilingData tiling_data;
     SGLang::CausalConv1dUpdate::ComputeTilingData(
         batch, seq_len, dim, width, state_len,
@@ -139,7 +138,7 @@ HOST_API at::Tensor causal_conv1d_update_impl(
     };
     uint64_t hashValue = CausalConv1dUpdateTilingKeyHash{}(key);
 
-    // 3. 全局缓存管理 (对标 lightning_indexer 逻辑)
+    // 3. cache management
     static auto globalTilingBuffer = at::empty({tilingSize * MAX_CAPTURE_NUM},
                                                at::TensorOptions().dtype(at::kByte).device(x.options().device()));
 
@@ -163,7 +162,7 @@ HOST_API at::Tensor causal_conv1d_update_impl(
     // 4. Create workspace
     auto workspace_tensor = at::empty({workspace_size}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
 
-    // 5. Launch kernel (注意！直接传入原 Tensor，不要做任何 .contiguous 操作！)
+    // 5. Launch kernel
     if (dtype == at::kBFloat16) {
         EXEC_KERNEL_CMD(causal_conv1d_update_bfloat16_t, block_dim, x, weight, conv_state,
                         has_indices ? conv_state_indices : at::empty(0, x.options()),
