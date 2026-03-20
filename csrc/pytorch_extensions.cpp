@@ -15,6 +15,7 @@
 
 #include "torch_helper.h"
 #include "sgl_kenel_npu_ops.h"
+#include "causal_conv1d_update/op_host/causal_conv1d_update.h"
 
 namespace {
 TORCH_LIBRARY_FRAGMENT(npu, m)
@@ -98,6 +99,11 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int? sparse_count=None, int? sparse_mode=None) -> Tensor");
 
     m.def("triangular_inverse(Tensor x) -> Tensor");
+
+    m.def(
+        "causal_conv1d_update(Tensor x, Tensor weight, Tensor conv_state, "
+        "Tensor conv_state_indices, Tensor? bias=None, Tensor? num_accepted_tokens=None, "
+        "Tensor? query_start_loc=None, bool activation_mode=False, int pad_slot_id=-1) -> Tensor");
 }
 }  // namespace
 
@@ -141,5 +147,21 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
 
     m.impl("triangular_inverse", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
+
+    m.impl("causal_conv1d_update", [](const at::Tensor& x, const at::Tensor& weight,
+                                       const at::Tensor& conv_state, const at::Tensor& conv_state_indices,
+                                       const c10::optional<at::Tensor>& bias,
+                                       const c10::optional<at::Tensor>& num_accepted_tokens,
+                                       const c10::optional<at::Tensor>& query_start_loc,
+                                       bool activation_mode, int64_t pad_slot_id) {
+        // Handle optional parameters - convert None to empty tensors
+        auto bias_or_empty = bias.has_value() ? *bias : at::empty({0}, x.options());
+        auto num_accepted_or_empty = num_accepted_tokens.has_value() ? *num_accepted_tokens : at::empty({0}, x.options().dtype(at::kInt));
+        auto query_loc_or_empty = query_start_loc.has_value() ? *query_start_loc : at::empty({0}, x.options().dtype(at::kInt));
+
+        return sglang::npu_kernel::causal_conv1d_update_impl(x, weight, conv_state, conv_state_indices,
+                                                              bias_or_empty, num_accepted_or_empty, query_loc_or_empty,
+                                                              activation_mode, pad_slot_id);
+    });
 }
 }  // namespace
