@@ -264,58 +264,51 @@ struct TileCastFp8ToBf16WithScaleDequant {
                     localCol += colNuminGroup;
                     remainLen -= colNuminGroup;
                 }
-                } else {
-                    uint32_t rowsRemain = loadRepeat;
-                    uint32_t localRowBase = 0;
-                    uint32_t validCols = tileLen;
+            } else {
+                uint32_t rowsRemain = loadRepeat;
+                uint32_t localRowBase = 0;
+                uint32_t validCols = tileLen;
 
-                    while (rowsRemain > 0) {
-                        uint32_t curR = baseRow + localRowBase;
-                        uint32_t rowsThisSlice = groupSize - (curR % groupSize);
-                        if (rowsThisSlice > rowsRemain) {
-                            rowsThisSlice = rowsRemain;
-                        }
-
-                        uint32_t sRow = curR / groupSize;
-                        uint32_t colsRemain = validCols;
-                        uint32_t curC = 0;
-
-                        while (colsRemain > 0) {
-                            uint32_t inGroup = curC % groupSize;
-                            uint32_t colNuminGroup = groupSize - inGroup;
-                            if (colNuminGroup > colsRemain) {
-                                colNuminGroup = colsRemain;
-                            }
-
-                            uint32_t sCol = curC / groupSize;
-                            uint32_t scaleIdx = sRow * scaleTileColsUB + sCol;
-                            float scale = scaleCacheBuffer.GetValue(scaleIdx) * k256;
-
-                            uint32_t fp32Offset = localRowBase * tileLenRoundFp8 + curC;
-                            uint32_t remain = colNuminGroup;
-                            uint32_t off = fp32Offset;
-                            while (remain > 0) {
-                                uint32_t chunk = (remain >= 64) ? 64 : remain;
-                                AscendC::Muls<float>(
-                                    tmpFp32[pingpong][off],
-                                    tmpFp32[pingpong][off],
-                                    scale,
-                                    (uint64_t)chunk,
-                                    rowsThisSlice,
-                                    {1, 1, (uint8_t)rowStrideDb, (uint8_t)rowStrideDb}
-                                );
-                                off += chunk;
-                                remain -= chunk;
-                            }
-
-                            curC += colNuminGroup;
-                            colsRemain -= colNuminGroup;
-                        }
-
-                        localRowBase += rowsThisSlice;
-                        rowsRemain -= rowsThisSlice;
+                while (rowsRemain > 0) {
+                    uint32_t curR = baseRow + localRowBase;
+                    uint32_t rowsThisSlice = groupSize - (curR % groupSize);
+                    if (rowsThisSlice > rowsRemain) {
+                        rowsThisSlice = rowsRemain;
                     }
+
+                    uint32_t sRow = curR / groupSize;
+                    uint32_t colsRemain = validCols;
+                    uint32_t curC = 0;
+
+                    while (colsRemain > 0) {
+                        uint32_t inGroup = curC % groupSize;
+                        uint32_t colNuminGroup = groupSize - inGroup;
+                        if (colNuminGroup > colsRemain) {
+                            colNuminGroup = colsRemain;
+                        }
+
+                        uint32_t sCol = curC / groupSize;
+                        uint32_t scaleIdx = sRow * scaleTileColsUB + sCol;
+                        float scale = scaleCacheBuffer.GetValue(scaleIdx) * k256;
+
+                        uint32_t fp32Offset = localRowBase * tileLenRoundFp8 + curC;
+                        uint32_t remain = colNuminGroup;
+                        uint32_t off = fp32Offset;
+                        while (remain > 0) {
+                            uint32_t chunk = (remain >= 64) ? 64 : remain;
+                            AscendC::Muls<float>(tmpFp32[pingpong][off], tmpFp32[pingpong][off], scale, (uint64_t)chunk,
+                                                 rowsThisSlice, {1, 1, (uint8_t)rowStrideDb, (uint8_t)rowStrideDb});
+                            off += chunk;
+                            remain -= chunk;
+                        }
+                        curC += colNuminGroup;
+                        colsRemain -= colNuminGroup;
+                    }
+
+                    localRowBase += rowsThisSlice;
+                    rowsRemain -= rowsThisSlice;
                 }
+            }
             pipe_barrier(PIPE_V);
 
             // fp32->bf16
