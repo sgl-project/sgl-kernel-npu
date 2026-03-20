@@ -2,7 +2,6 @@ import sgl_kernel_npu
 import torch
 import torch_npu
 
-
 BLOCK_SIZE = 128
 
 
@@ -46,13 +45,7 @@ def apply_block_scale(weight_fp8, scale, K, N, block_size=BLOCK_SIZE):
 
     blocked = blocked * scale.to(torch.float32).view(scale_K, scale_N, 1, 1)
 
-    deq = (
-        blocked.permute(0, 2, 1, 3)
-        .contiguous()
-        .view(K_pad, N_pad)
-    )[:K, :N]
-
-    return deq.to(torch.bfloat16)
+    deq = (blocked.permute(0, 2, 1, 3).contiguous().view(K_pad, N_pad))[:K, :N]
 
 
 def compare_fp8_w8a16(M, N, K):
@@ -73,7 +66,9 @@ def compare_fp8_w8a16(M, N, K):
 
     b_bf16 = apply_block_scale(b_fp8, scales, K, N)
 
-    out_golden = (a_bf16.to(torch.float32) @ b_bf16.to(torch.float32)).to(torch.bfloat16)
+    out_golden = (a_bf16.to(torch.float32) @ b_bf16.to(torch.float32)).to(
+        torch.bfloat16
+    )
 
     torch.npu.synchronize()
 
@@ -134,6 +129,7 @@ def compare_fp8_w8a16(M, N, K):
             )
 
     return ok
+
 
 if __name__ == "__main__":
     test_cases = [

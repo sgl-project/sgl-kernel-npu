@@ -121,14 +121,14 @@ void catlass_matmul_basic(const at::Tensor &tensor_a,
                           c10::optional<c10::string_view> format_mode);
 
 at::Tensor softfp8_w8a16_grouped_matmul(const at::Tensor &mat1,
-                                    const at::Tensor &mat2,
-                                    const at::Tensor &scale,
-                                    const at::Tensor &groupList,
-                                    const std::string &outDType);
+                                        const at::Tensor &mat2,
+                                        const at::Tensor &scale,
+                                        const at::Tensor &groupList,
+                                        const std::string &outDType);
 
 at::Tensor softfp8_w8a16_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
-                            const at::Tensor &scale,
-                            const std::string &outDType);
+                                const at::Tensor &scale,
+                                const std::string &outDType);
 #endif
 
 void mega_chunk_gdn(

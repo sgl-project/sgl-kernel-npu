@@ -52,13 +52,7 @@ output/
 # debug information files
 *.dwo
 
-<<<<<<< HEAD
-.codemate
-
 csrc/deepep/ops/cmake/
 csrc/deepep/ops/scripts/
 csrc/deepep/ops2/cmake/
 csrc/deepep/ops2/scripts/
-=======
-.codemate
->>>>>>> 731e284 (fix precision problems, update test cases and refactor)

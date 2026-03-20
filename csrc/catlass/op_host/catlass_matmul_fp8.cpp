@@ -24,7 +24,7 @@
 namespace sglang {
 namespace npu_kernel {
 HOST_API at::Tensor softfp8_w8a16_matmul(const at::Tensor &mat1, const at::Tensor &mat2, const at::Tensor &scale,
-                                     const std::string &outDType)
+                                         const std::string &outDType)
 {
     at::ScalarType scalar_type = mat1.scalar_type();
 
