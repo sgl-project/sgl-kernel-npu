@@ -23,10 +23,14 @@
 
 namespace sglang {
 namespace npu_kernel {
-HOST_API at::Tensor fp8_w8a16_matmul(const at::Tensor &mat1, const at::Tensor &mat2, const at::Tensor &scale,
+HOST_API at::Tensor softfp8_w8a16_matmul(const at::Tensor &mat1, const at::Tensor &mat2, const at::Tensor &scale,
                                      const std::string &outDType)
 {
     at::ScalarType scalar_type = mat1.scalar_type();
+
+    TORCH_CHECK(scalar_type == at::kBFloat16, "only support bf16");
+    TORCH_CHECK(mat1.dim() == 2, "x should be [M, K]");
+    TORCH_CHECK(mat2.dim() == 2, "weight should be [K, N]");
 
     uint32_t m = mat1.size(0);
     uint32_t k = mat1.size(1);

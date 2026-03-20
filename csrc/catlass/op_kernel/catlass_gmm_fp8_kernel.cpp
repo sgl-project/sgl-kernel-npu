@@ -23,7 +23,7 @@
 #include "catlass/layout/layout.hpp"
 #include "catlass/status.hpp"
 
-#include "../utils/gemm/kernel/grouped_matmul_slice_m_fp8_w8a16.hpp"
+#include "../utils/gemm/kernel/gmm_wfp8a16.hpp"
 #include "../utils/gemm/tile/cast_fp8_to_bf16_with_scale.hpp"
 #include "../utils/gemm/block/block_mmad_pingpong_with_prologue_fp8_w8a16.hpp"
 #include "../utils/gemm/dispatch_policy_ext.hpp"
