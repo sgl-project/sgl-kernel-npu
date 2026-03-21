@@ -48,6 +48,7 @@ def split_qkv_rmsnorm_rope_half_pos_cache_kernel(
     half_rope_dim: tl.constexpr,
     cos_sin_stride0: tl.constexpr,
     cast_norm_to_bf16: tl.constexpr,  # ONLY this cast uses fp32_to_bf16_rne
+    max_seq: tl.constexpr,  # cos_sin_cache rows; clamp position to [0, max_seq-1] (graph-safe)
 ):
     """Triton kernel: split QKV from concatenated input, optional RMSNorm on Q/K, RoPE (half cache), copy V."""
     row_pid = tl.program_id(0)
@@ -69,6 +70,9 @@ def split_qkv_rmsnorm_rope_half_pos_cache_kernel(
     for row_idx in tl.range(row_pid, batch_size, row_step):
         # ---- load cos/sin once per row (shared by Q and K RoPE) ----
         p = tl.load(pos_ptr + row_idx).to(tl.int32)
+        # Clamp on-device: avoids OOB cos/sin loads without Python .any()/.item() sync (breaks NPU graph capture).
+        p = tl.maximum(p, 0)
+        p = tl.minimum(p, max_seq - 1)
         base = p * cos_sin_stride0
         offs = tl.arange(0, half_rope_dim)
         cos_f = (
@@ -246,7 +250,8 @@ def split_qkv_rmsnorm_rope_pos_cache_half_npu(
 
     Args:
         input_tensor: Concatenated QKV hidden states, shape [B, q_hidden_size + 2*kv_hidden_size].
-        positions: Position index per batch item, shape [B], dtype int32 or int64. Must be in [0, max_seq).
+        positions: Position index per batch item, shape [B], dtype int32 or int64. Values are clamped to
+            [0, max_seq) inside the kernel (no host sync); keep inputs in range for correct RoPE.
         cos_sin_cache: RoPE cos/sin cache, shape [max_seq, rope_dim]. Layout: [0 : rope_dim//2] = cos,
             [rope_dim//2 : rope_dim] = sin.
         q_hidden_size: Query hidden size.
@@ -282,15 +287,10 @@ def split_qkv_rmsnorm_rope_pos_cache_half_npu(
 
     cache = cos_sin_cache.contiguous()
     max_seq = cache.shape[0]
-    # Bounds check: prevent out-of-bounds read in kernel (security)
-    if (pos < 0).any() or (pos >= max_seq).any():
-        bad = (pos < 0) | (pos >= max_seq)
-        idx = bad.nonzero(as_tuple=True)[0]
-        raise ValueError(
-            f"Position indices must be in [0, {max_seq}); "
-            f"got invalid at batch indices {idx.tolist()[:10]}{'...' if bad.sum().item() > 10 else ''} "
-            f"(min={pos.min().item()}, max={pos.max().item()})."
-        )
+    assert max_seq >= 1, "cos_sin_cache must be non-empty"
+    # Do not use (pos < 0).any() / pos.min().item() here: they synchronize the device and break
+    # torch.npu.graph capture ("Not allow to synchronize captured-stream"). Out-of-range indices
+    # are clamped inside the Triton kernel (see max_seq).
     stride0 = cache.stride(0)
 
     kv_block_size = triton.next_power_of_2(head_dim)
@@ -368,6 +368,7 @@ def split_qkv_rmsnorm_rope_pos_cache_half_npu(
         half_rope_dim=rope_dim // 2,
         cos_sin_stride0=stride0,
         cast_norm_to_bf16=cast_norm_to_bf16,
+        max_seq=max_seq,
     )
 
     return q_out, k_out, v_out
