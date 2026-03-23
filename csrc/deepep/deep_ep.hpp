@@ -135,4 +135,11 @@ public:
                                                  const at::Tensor &expert_scales, int64_t max_output_size,
                                                  int64_t num_experts, int quant_mode) const;
 };
+
+std::vector<at::Tensor> fused_deep_moe_no_buffer(
+    const at::Tensor &x, const at::Tensor &expert_ids, const at::Tensor &gmm1_permuted_weight,
+    const at::Tensor &gmm1_permuted_weight_scale, const at::Tensor &gmm2_weight, const at::Tensor &gmm2_weight_scale,
+    const at::Tensor &expert_scales_optional, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
+    int quant_mode, int64_t rank, int64_t num_ranks, std::string moe_all_to_all_group_name);
+
 }  // namespace deep_ep
