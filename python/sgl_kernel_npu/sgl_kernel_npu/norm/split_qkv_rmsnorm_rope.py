@@ -444,7 +444,7 @@ def split_qkvgate_gemma_rmsnorm_rope_kernel(
             sizes=(Q_BLOCK_SIZE // HEAD_DIM, HALF_ROPE_DIM),
             strides=(1, 1),
         )
-        roped_q = cat_x * sin + rot_x * cos_ptr
+        roped_q = cat_x * sin + rot_x * cos
         normalized_values = tl.insert_slice(
             normalized_values,
             roped_q,
@@ -462,7 +462,7 @@ def split_qkvgate_gemma_rmsnorm_rope_kernel(
 
         # store
         col_indices_out = col_pid * Q_BLOCK_SIZE + tl.arange(0, Q_BLOCK_SIZE)
-        valid_mask_out = col_indices < q_hidden_size
+        valid_mask_out = col_indices_out < q_hidden_size
         tl.store(
             q_ptr + output_offset + col_indices_out,
             normalized_values.reshape(Q_BLOCK_SIZE).to(q_ptr.dtype.element_ty),
