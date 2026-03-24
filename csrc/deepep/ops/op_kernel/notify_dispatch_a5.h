@@ -32,6 +32,7 @@ class NotifyDispatchA5
     constexpr static int32_t MULTI_RANK_SIZE = 48;
     constexpr static int32_t MAX_BUFFER_NUMBER = 10;
     constexpr static uint32_t UB_FLAG_SIZE = 8U * 1024U;
+    constexpr static uint64_t STATE_WIN_OFFSET = 1000 * 1024;
 
     constexpr static int32_t TOTAL_CNT_CORE = 0;
     constexpr static int32_t RECV_COUNT_CORE = 1;

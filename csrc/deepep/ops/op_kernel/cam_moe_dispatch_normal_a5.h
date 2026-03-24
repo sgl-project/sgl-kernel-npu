@@ -16,8 +16,8 @@ constexpr uint8_t COMM_NUM = 2;
 constexpr uint8_t COMM_EP_IDX = 0;
 constexpr uint8_t COMM_TP_IDX = 1;
 
-constexpr uint64_t WIN_STATE_OFFSET = 500UL * 1024UL;
-constexpr uint64_t STATE_WIN_OFFSET = 950UL * 1024UL;
+constexpr uint64_t WIN_STATE_OFFSET = 550UL * 1024UL;
+constexpr uint64_t STATE_WIN_OFFSET = 1050UL * 1024UL;
 constexpr uint64_t WIN_ADDR_ALIGN = 512UL;
 constexpr uint32_t EXPAND_IDX_INFO = 3U;
 constexpr uint64_t COMBINE_STATE_WIN_OFFSET = 4UL * 1024UL * 1024UL;
@@ -205,8 +205,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
 
     winContext_[COMM_EP_IDX] = (__gm__ HcclOpParam *)AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
     winContext_[COMM_TP_IDX] = (__gm__ HcclOpParam *)AscendC::GetHcclContext<1>();
-
-    baseWindSize = GetWinSize(winContext_[COMM_EP_IDX]) - A5_MTE_STATE_WIN_SIZE;
+    baseWindSize = tilingData->camMoeDispatchNormalInfo.totalWinSize - A5_MTE_STATE_WIN_SIZE;
     GlobalTensor<int32_t> selfDataStatusTensor;
     GM_ADDR statusDataSpaceGm = GetStatusDataSpaceGm(winContext_[COMM_EP_IDX]);
     selfDataStatusTensor.SetGlobalBuffer(

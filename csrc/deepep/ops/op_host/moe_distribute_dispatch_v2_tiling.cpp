@@ -1045,6 +1045,7 @@ static void SetHcommCfg(const gert::TilingContext *context, MoeDistributeDispatc
     std::string algConfigAllGatherStr = "AllGather=level0:ring";
 
     AscendC::Mc2CcTilingConfig mc2CcTilingConfig(groupEp, opType1, algConfigAllToAllStr);
+    mc2CcTilingConfig.SetCommEngine(mc2tiling::AIV_ENGINE);   // 通过不拉起AICPU，提高算子退出性能
     mc2CcTilingConfig.GetTiling(tiling->mc2InitTiling);
     mc2CcTilingConfig.GetTiling(tiling->mc2CcTiling1);
 
@@ -1204,7 +1205,7 @@ static ge::graphStatus MoeDistributeDispatchA3TilingFuncImpl(gert::TilingContext
 
     SetHcommCfg(context, tilingData);
 
-    uint64_t tilingKey = INIT_TILINGKEY;
+    uint64_t tilingKey = TILING_KEY_A3_TYPE;
     fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
     fe::PlatFormInfos &platformInfo = *platformInfoPtr;
     std::string socVersion;

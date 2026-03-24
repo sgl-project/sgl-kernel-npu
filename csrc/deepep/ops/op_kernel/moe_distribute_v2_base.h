@@ -63,7 +63,7 @@ __aicore__ inline uint64_t GetWinSize(__gm__ HcclOpParam * winContext)
 
 __aicore__ inline GM_ADDR GetStatusDataSpaceGm(__gm__ HcclOpParam * winContext)
 {
-    printf("=======================A5=========================== winContext %p winContext->rankId %d\n", winContext, winContext->rankId);
+    // printf("=======================A5=========================== winContext %p winContext->rankId %d\n", winContext, winContext->rankId);
     return (GM_ADDR)(winContext->windowsIn[winContext->rankId]);
 }
 

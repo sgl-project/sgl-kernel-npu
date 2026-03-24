@@ -13,7 +13,7 @@ constexpr uint32_t RANK_ID_OFFSET_IN_SRC_INFO = 0U;
 constexpr uint32_t TOKEN_IDX_OFFSET_IN_SRC_INFO = 1U;
 constexpr uint32_t TOPK_IDX_OFFSET_IN_SRC_INFO = 2U;
 constexpr uint64_t COMBINE_STATE_WIN_OFFSET = 4UL * 1024UL * 1024UL;
-constexpr uint64_t MAGIC_WIN_OFFSET = 1000UL * 1024UL;
+constexpr uint64_t MAGIC_WIN_OFFSET = 1100UL * 1024UL;
 constexpr uint32_t TOKEN_SRC_INFO_LEN = 3U;
 constexpr uint32_t UB_32_ALIGN = 32U;
 constexpr uint32_t MUL_256_ALIGN = 256U;
@@ -141,7 +141,6 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::InitMagic()
 {
     auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
     epWinContext_ = (__gm__ HcclOpParam *)contextGM0;
-    baseWindSize_ = GetWinSize(epWinContext_) - A5_MTE_STATE_WIN_SIZE;
     GM_ADDR statusDataSpaceGm = GetStatusDataSpaceGm(epWinContext_);
     GlobalTensor<int32_t> selfMagicTensor;
     selfMagicTensor.SetGlobalBuffer(
@@ -150,8 +149,8 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::InitMagic()
     magic_ = selfMagicTensor(0);
     selfMagicTensor(0) = ((magic_ == 0) ? 1 : 0);
     DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(selfMagicTensor);
-    printf("[RANK %d AIC %d] COMBINE statusDataSpaceGm %d rankId %d rankDim %d baseWindSize_ %d magic_ %d\n",
-        GetRankId(epWinContext_), coreIdx_, statusDataSpaceGm, GetRankId(epWinContext_), GetRankDim(epWinContext_), baseWindSize_, magic_);
+    printf("[RANK %d AIC %d] COMBINE statusDataSpaceGm %d rankId %d rankDim %d magic_ %d\n",
+        GetRankId(epWinContext_), coreIdx_, statusDataSpaceGm, GetRankId(epWinContext_), GetRankDim(epWinContext_), magic_);
 }
 
 template <TemplateMC2TypeClass>
@@ -185,6 +184,7 @@ CamMoeCombineNormalA5<TemplateMC2TypeFunc>::InitTilingData(const CamMoeCombineNo
     epWorldSize_ = tilingData->camMoeCombineNormalInfo.epWorldSize;
     epRankId_ = tilingData->camMoeCombineNormalInfo.epRankId;
     isEnableDiagnose_ = tilingData->camMoeCombineNormalInfo.isEnableDiagnose;
+    baseWindSize_ = tilingData->camMoeCombineNormalInfo.totalWinSize - A5_MTE_STATE_WIN_SIZE;
 }
 
 template <TemplateMC2TypeClass>
