@@ -1,4 +1,6 @@
 .vscode/
+.env
+.arts/.env
 **/build/
 **/__pycache__/
 **/build_out/
