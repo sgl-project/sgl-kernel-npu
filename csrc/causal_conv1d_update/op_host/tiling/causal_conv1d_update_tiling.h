@@ -73,13 +73,9 @@ inline void ComputeTilingData(
     tiling_data.activationMode = activation_mode ? 1 : 0;
     tiling_data.padSlotId = pad_slot_id;
 
-    // Compute block factor
     tiling_data.numCore = num_cores;
-    tiling_data.blockFactor = (batch + num_cores - 1) / num_cores;
+    tiling_data.blockFactor = batch / num_cores;
     tiling_data.blockTailFactor = batch - tiling_data.blockFactor * (num_cores - 1);
-    if (tiling_data.blockTailFactor <= 0) {
-        tiling_data.blockTailFactor = tiling_data.blockFactor;
-    }
 }
 
 } // namespace CausalConv1dUpdate
