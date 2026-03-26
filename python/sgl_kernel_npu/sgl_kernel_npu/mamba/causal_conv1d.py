@@ -56,8 +56,9 @@ def causal_conv1d_fn_native(
             width - 1, device=seqlens.device
         ).unsqueeze(0)
         indices = positions.unsqueeze(1).expand(-1, x.shape[-2], -1)
-        final_states = x.gather(2, indices).to(dtype_in)  # (batch, dim, width - 1)
-
+        final_states = (
+            x.gather(2, indices.clamp(min=0)).masked_fill(indices < 0, 0).to(dtype_in)
+        )  # (batch, dim, width - 1)
     out = (out if activation is None else F.silu(out)).to(dtype=dtype_in)
     return (out, None) if not return_final_states else (out, final_states)
 
