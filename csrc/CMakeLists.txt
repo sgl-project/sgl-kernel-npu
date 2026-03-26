@@ -22,6 +22,7 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/lightning_indexer.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/tiling/lightning_indexer_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
+    ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/causal_conv1d.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/causal_conv1d_update.cpp
     )
 if(BUILD_CATLASS_MODULE)
@@ -54,6 +55,7 @@ set(WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/alloc_extend/op_kernel/alloc_extend_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/build_tree/op_kernel/build_tree_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_kernel/lightning_indexer_kernel.cpp
+    ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel/causal_conv1d.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel/causal_conv1d_update.cpp
 )
 if(BUILD_CATLASS_MODULE)
@@ -63,6 +65,7 @@ if(BUILD_CATLASS_MODULE)
 endif()
 ascendc_library(workspace_kernel STATIC ${WORKSPACE_KERNEL_SRCS})
 ascendc_include_directories(workspace_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel
 )
 if(BUILD_CATLASS_MODULE)
@@ -99,6 +102,10 @@ target_link_directories(${OP_PLUGIN_NAME} PRIVATE
 target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/utils
         ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel
+        ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/tiling
+        ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host
+        ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/stub
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/tiling
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host

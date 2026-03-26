@@ -15,6 +15,7 @@
 
 #include "torch_helper.h"
 #include "sgl_kenel_npu_ops.h"
+#include "causal_conv1d/op_host/causal_conv1d.h"
 #include "causal_conv1d_update/op_host/causal_conv1d_update.h"
 
 namespace {
@@ -101,6 +102,11 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
     m.def("triangular_inverse(Tensor x) -> Tensor");
 
     m.def(
+        "causal_conv1d(Tensor x, Tensor weight, Tensor conv_states, "
+        "Tensor query_start_loc, Tensor cache_indices, Tensor has_initial_state, "
+        "Tensor? bias=None, bool activation_mode=False, int pad_slot_id=-1) -> Tensor");
+
+    m.def(
         "causal_conv1d_update(Tensor x, Tensor weight, Tensor conv_state, "
         "Tensor conv_state_indices, Tensor? bias=None, Tensor? num_accepted_tokens=None, "
         "Tensor? query_start_loc=None, bool activation_mode=False, int pad_slot_id=-1) -> Tensor");
@@ -147,6 +153,17 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
 
     m.impl("triangular_inverse", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
+
+    m.impl("causal_conv1d", [](const at::Tensor& x, const at::Tensor& weight,
+                               const at::Tensor& conv_states, const at::Tensor& query_start_loc,
+                               const at::Tensor& cache_indices, const at::Tensor& has_initial_state,
+                               const c10::optional<at::Tensor>& bias,
+                               bool activation_mode, int64_t pad_slot_id) {
+        auto bias_or_empty = bias.has_value() ? *bias : at::empty({0}, x.options());
+        return sglang::npu_kernel::causal_conv1d_impl(
+            x, weight, conv_states, query_start_loc, cache_indices, has_initial_state,
+            bias_or_empty, activation_mode, pad_slot_id);
+    });
 
     m.impl("causal_conv1d_update", [](const at::Tensor& x, const at::Tensor& weight,
                                        const at::Tensor& conv_state, const at::Tensor& conv_state_indices,
