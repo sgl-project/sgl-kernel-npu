@@ -8,7 +8,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#include "kernel_tri_inv.h"
+#include "kernel_tri_inv_col_sweep.h"
 
 #include "../op_host/tiling_tri_inv.h"
 
