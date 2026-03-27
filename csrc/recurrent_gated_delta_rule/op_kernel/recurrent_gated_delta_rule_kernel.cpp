@@ -236,25 +236,22 @@ public:
             uint64_t stateOffset = hasAcceptedTokens_ ?
                     ssmStateIndicesGm_.GetValue(seq0 + numAcceptedTokensGm_.GetValue(batchIdx) - 1) :
                     ssmStateIndicesGm_.GetValue(seq0);
+            uint64_t recurrentStateOffset = 0;
+            if (hasIntermediateState_) {
+                recurrentStateOffset = cacheIndicesGm_.GetValue(batchIdx);
+            }
 
             if (batchIdx != lastProcessedBatch) {
                 needRecurrentInit_ = false;
 
                 if (hasIntermediateState_ && stateOffset % S_ == 0) {
-                    uint64_t state_n_idx = stateOffset / S_;
-                    for (uint32_t i = 0; i < B_; i++) {
-                        if (cacheIndicesGm_.GetValue(i) == state_n_idx) {
-                            needRecurrentInit_ = true;
-                            break;
-                        }
-                    }
+                    needRecurrentInit_ = true;
                 }
-
                 CopyInGamaBeta(seq0, seq1);
                 lastProcessedBatch = batchIdx;
             }
             in_empty_Beta.wait();
-            ProcessHead(seq0, seq1, headIdx, stateOffset);
+            ProcessHead(seq0, seq1, headIdx, stateOffset, recurrentStateOffset);
             in_empty_Beta.set();
         }
         in_empty_Beta.release(); // wait
@@ -597,13 +594,13 @@ private:
         WaitFlag<HardEvent::V_S>(eventIDS);
     }
 
-    __aicore__ inline void ProcessHead(int32_t seq0, int32_t seq1, uint64_t head_i, uint64_t stateOffset)
+    __aicore__ inline void ProcessHead(int32_t seq0, int32_t seq1, uint64_t head_i, uint64_t stateOffset, uint64_t recurrentStateOffset)
     {
         qkvcopyFlag_ = false;
         for (uint64_t v_i = 0; v_i < realV_; v_i += vStep_) {
             uint32_t curSingleV = v_i + vStep_ > realV_ ? realV_ - v_i : vStep_;
             uint64_t curStateOffset = ((stateOffset * NV_ + head_i) * realV_ + v_i) * realK_;
-            uint64_t curRecurrentOffset = (((stateOffset / S_) * NV_ + head_i) * realV_ + v_i) * realK_;
+            uint64_t curRecurrentOffset = ((recurrentStateOffset * NV_ + head_i) * realV_ + v_i) * realK_;
 
             CopyInState(curStateOffset, curRecurrentOffset, curSingleV);
             for (uint64_t seq_i = seq0; seq_i < seq1; seq_i++) {
