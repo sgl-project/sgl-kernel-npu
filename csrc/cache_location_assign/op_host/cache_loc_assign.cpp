@@ -19,7 +19,7 @@
 namespace sglang {
 namespace npu_kernel {
 
-constexpr uint32_t MAX_STEP = 5;
+constexpr uint32_t MAX_STEP = 16;
 
 at::Tensor getTiling(const at::Tensor &reqPoolIndices, uint64_t rowSize, uint64_t poolSize, uint32_t &blockDim,
                      bool isUpddate)
