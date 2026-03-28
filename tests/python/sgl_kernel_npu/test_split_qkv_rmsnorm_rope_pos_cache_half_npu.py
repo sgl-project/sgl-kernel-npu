@@ -1,7 +1,6 @@
 import unittest
 
 import torch
-
 from sglang.srt.utils import is_npu
 
 split_qkv_rmsnorm_rope_pos_cache_half_npu = None
@@ -131,7 +130,9 @@ def golden_split_qkv_rmsnorm_rope_pos_cache_half(
     return q, k, v
 
 
-def _assert_close_fp32(a: torch.Tensor, b: torch.Tensor, atol: float, rtol: float = 5e-3):
+def _assert_close_fp32(
+    a: torch.Tensor, b: torch.Tensor, atol: float, rtol: float = 5e-3
+):
     torch.testing.assert_close(
         a.to(torch.float32).cpu(),
         b.to(torch.float32).cpu(),
@@ -252,9 +253,7 @@ class TestSplitQkvRmsnormRopePosCacheHalfNpu(unittest.TestCase):
         graph = torch.npu.NPUGraph()
         torch.npu.synchronize()
         capture_stream = torch.npu.Stream()
-        with torch.npu.graph(
-            graph, stream=capture_stream, auto_dispatch_capture=True
-        ):
+        with torch.npu.graph(graph, stream=capture_stream, auto_dispatch_capture=True):
             run_once()
         torch.npu.synchronize()
 
