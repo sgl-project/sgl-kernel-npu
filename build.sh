@@ -145,7 +145,6 @@ function build_deepep_kernels()
     cd "$KERNEL_DIR" || exit
 
     chmod +x build.sh
-    chmod +x cmake/util/gen_ops_filter.sh
     ./build.sh
 
     custom_opp_file=$(find ./build_out -maxdepth 1 -type f -name "custom_opp*.run")

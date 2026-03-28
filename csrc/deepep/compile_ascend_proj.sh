@@ -77,12 +77,15 @@ BuildAscendProj() {
   echo "cd $1"
   cd $1
 
+  # echo "==========================================ENV========================================="
+  # env
+  # echo "==========================================ENV========================================="
   BuildOps "ops_${soc_version}" ${soc_version}
   BuildOps "ops2_${soc_version}" ${soc_version}
-  CopyOps "./ops" "./ops_${soc_version}"
-  CopyOps "./ops2" "./ops2_${soc_version}"
-  cp -r ./ops_${soc_version}/cmake ./ops
-  cp -r ./ops2_${soc_version}/cmake ./ops2
+  # CopyOps "./ops" "./ops_${soc_version}"
+  # CopyOps "./ops2" "./ops2_${soc_version}"
+  # cp -r ./ops_${soc_version}/cmake ./ops
+  # cp -r ./ops2_${soc_version}/cmake ./ops2
   cp -r ./ops_${soc_version}/CMakePresets.json ./ops
   cp -r ./ops2_${soc_version}/CMakePresets.json ./ops2
   DelOps "ops_${soc_version}"

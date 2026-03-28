@@ -19,14 +19,7 @@
 #include "register/op_def_registry.h"
 #include "../op_kernel/moe_distribute_dispatch_tiling.h"
 #include "../op_kernel/moe_distribute_dispatch_v2_tiling.h"
-
-#ifdef USE_CANN83_PATH
 #include "platform/platform_infos_def.h"
-#elif defined(USE_CANN82_PATH)
-#include "experiment/platform/platform/platform_infos_def.h"
-#else
-#error "CANN version not supported or platform_infos_def.h not found. Check CANN_VERSION_MACRO definition."
-#endif
 
 using namespace AscendC;
 using namespace ge;
@@ -1210,6 +1203,7 @@ static ge::graphStatus MoeDistributeDispatchA3TilingFuncImpl(gert::TilingContext
     fe::PlatFormInfos &platformInfo = *platformInfoPtr;
     std::string socVersion;
     (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
+    OP_LOGD(nodeName, "socVersion %s", socVersion.c_str());
 
     if (socVersion == "Ascend950") {
         tilingKey = TILING_KEY_A5_TYPE;

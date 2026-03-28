@@ -5,10 +5,10 @@ endif()
 
 message(STATUS "ASCEND include path: ${ASCEND_CANN_PACKAGE_PATH}/opp/built-in/op_impl/ai_core/tbe/impl/ascendc/moe_distribute_dispatch")
 
-# copy moe_distribute_base head file
+copy moe_distribute_base head file
 execute_process(
     COMMAND ${CMAKE_COMMAND} -E copy
-    "${ASCEND_CANN_PACKAGE_PATH}/opp/built-in/op_impl/ai_core/tbe/impl/ascendc/moe_distribute_dispatch/moe_distribute_base.h"
+    "${ASCEND_CANN_PACKAGE_PATH}/opp/built-in/op_impl/ai_core/tbe/impl/ascendc/common/inc/kernel/moe_distribute_base.h"
     "${CMAKE_CURRENT_BINARY_DIR}/../../op_kernel/moe_distribute_base.h"
     RESULT_VARIABLE copy_result
 )
@@ -20,6 +20,20 @@ else()
     message(WARNING "Failed to copy moe_distribute_base.h")
 endif()
 
-add_ops_compile_options(ALL OPTIONS -DASCENDC_DUMP=0 --cce-auto-sync=off)
+npu_op_kernel_sources(ascendc_kernels
+    KERNEL_DIR ./
+)
 
-add_kernels_compile()
+npu_op_kernel_library(ascendc_kernels
+    SRC_BASE ${CMAKE_CURRENT_SOURCE_DIR}/
+    TILING_LIBRARY cust_optiling
+)
+
+npu_op_package_add(${package_name}
+    LIBRARY ascendc_kernels
+)
+
+npu_op_kernel_options("" ALL OPTIONS -DASCENDC_DUMP=0 --cce-auto-sync=off)
+# add_ops_compile_options(ALL OPTIONS -DASCENDC_DUMP=0 --cce-auto-sync=off)
+
+# add_kernels_compile()

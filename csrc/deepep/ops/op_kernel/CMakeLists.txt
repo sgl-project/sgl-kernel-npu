@@ -20,6 +20,20 @@ else()
     message(WARNING "Failed to copy moe_distribute_base.h")
 endif()
 
-add_ops_compile_options(ALL OPTIONS -DASCENDC_DUMP=0 --cce-auto-sync=off)
+npu_op_kernel_sources(ascendc_kernels
+    KERNEL_DIR ./
+)
 
-add_kernels_compile()
+npu_op_kernel_library(ascendc_kernels
+    SRC_BASE ${CMAKE_CURRENT_SOURCE_DIR}/
+    TILING_LIBRARY cust_optiling
+)
+
+npu_op_package_add(${package_name}
+    LIBRARY ascendc_kernels
+)
+
+npu_op_kernel_options("" ALL OPTIONS -DASCENDC_DUMP=0 --cce-auto-sync=off)
+# add_ops_compile_options(ALL OPTIONS -DASCENDC_DUMP=0 --cce-auto-sync=off)
+
+# add_kernels_compile()
