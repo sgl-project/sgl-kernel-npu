@@ -10,8 +10,9 @@
 
 #include <cstdio>
 #include <cstring>
-#include <unordered_map>
 #include <functional>
+#include <mutex>
+#include <unordered_map>
 #include "acl/acl.h"
 #include "kernel_tiling/kernel_tiling.h"
 #include "tiling/platform/platform_ascendc.h"
@@ -26,12 +27,11 @@
 namespace sglang {
 namespace npu_kernel {
 
-constexpr uint32_t PADDING_BYTE = 32U;
-constexpr uint32_t MAX_CAPTURE_NUM = 1024; // 对齐 lightning_indexer
+namespace {
 
-// Graph mode tiling cache
-uint32_t actualCaptureNum = 0;
-static std::unordered_map<uint64_t, uint32_t> captureMap;
+constexpr uint32_t PADDING_BYTE = 32U;
+// Keep the cache capacity aligned with lightning_indexer so graph-mode memory stays predictable.
+constexpr uint32_t MAX_CAPTURE_NUM = 1024;
 
 // Helper struct for hashing tiling parameters
 struct CausalConv1dUpdateTilingKey {
@@ -73,6 +73,86 @@ struct CausalConv1dUpdateTilingKeyHash {
         return h1 ^ (h2 << 1) ^ (h3 << 2) ^ (h4 << 3) ^ (h5 << 4) ^ (h6 << 5) ^ (h7 << 6) ^ (h8 << 7) ^ (h9 << 8) ^ (h10 << 9) ^ (h11 << 10);
     }
 };
+
+class CausalConv1dUpdateTilingCache {
+public:
+    at::Tensor GetOrCreate(
+        const at::Tensor& reference_tensor,
+        int64_t tiling_size,
+        uint64_t hash_value,
+        const CausalConv1dUpdateTilingData& tiling_data)
+    {
+        const auto options = at::TensorOptions().dtype(at::kByte).device(reference_tensor.device());
+        std::lock_guard<std::mutex> lock(mutex_);
+        ResetIfNeeded(reference_tensor.device(), tiling_size, options);
+
+        auto it = capture_map_.find(hash_value);
+        if (it != capture_map_.end()) {
+            return GetSlice(it->second, tiling_size);
+        }
+
+        if (actual_capture_num_ >= MAX_CAPTURE_NUM) {
+            at::Tensor tiling_tensor = at::empty({tiling_size}, options);
+            CopyTilingData(tiling_tensor, tiling_data, tiling_size);
+            return tiling_tensor;
+        }
+
+        const uint32_t slot = actual_capture_num_++;
+        capture_map_.emplace(hash_value, slot);
+        at::Tensor tiling_tensor = GetSlice(slot, tiling_size);
+        CopyTilingData(tiling_tensor, tiling_data, tiling_size);
+        return tiling_tensor;
+    }
+
+private:
+    static void CopyTilingData(
+        const at::Tensor& tiling_tensor,
+        const CausalConv1dUpdateTilingData& tiling_data,
+        int64_t tiling_size)
+    {
+        const aclError copy_status = aclrtMemcpy(
+            tiling_tensor.data_ptr<uint8_t>(),
+            static_cast<size_t>(tiling_size),
+            &tiling_data,
+            sizeof(CausalConv1dUpdateTilingData),
+            ACL_MEMCPY_HOST_TO_DEVICE);
+        TORCH_CHECK(
+            copy_status == ACL_SUCCESS,
+            "aclrtMemcpy failed for causal_conv1d_update tiling data, error code: ",
+            static_cast<int>(copy_status));
+    }
+
+    at::Tensor GetSlice(uint32_t slot, int64_t tiling_size) const
+    {
+        return global_tiling_buffer_.narrow(0, static_cast<int64_t>(slot) * tiling_size, tiling_size);
+    }
+
+    void ResetIfNeeded(const c10::Device& device, int64_t tiling_size, const at::TensorOptions& options)
+    {
+        if (global_tiling_buffer_.defined() && global_tiling_buffer_.device() == device && tiling_size_ == tiling_size) {
+            return;
+        }
+
+        global_tiling_buffer_ = at::empty({tiling_size * MAX_CAPTURE_NUM}, options);
+        capture_map_.clear();
+        actual_capture_num_ = 0;
+        tiling_size_ = tiling_size;
+    }
+
+    std::mutex mutex_;
+    at::Tensor global_tiling_buffer_;
+    std::unordered_map<uint64_t, uint32_t> capture_map_;
+    uint32_t actual_capture_num_ = 0;
+    int64_t tiling_size_ = 0;
+};
+
+CausalConv1dUpdateTilingCache& GetCausalConv1dUpdateTilingCache()
+{
+    static CausalConv1dUpdateTilingCache cache;
+    return cache;
+}
+
+}  // namespace
 
 HOST_API at::Tensor causal_conv1d_update_impl(
     const at::Tensor& x, const at::Tensor& weight, const at::Tensor& conv_state,
@@ -126,8 +206,8 @@ HOST_API at::Tensor causal_conv1d_update_impl(
         tiling_data
     );
 
-    int32_t tilingSize = (sizeof(CausalConv1dUpdateTilingData) + PADDING_BYTE - 1) / PADDING_BYTE * PADDING_BYTE;
-    at::Tensor tilingTensor;
+    const int64_t tiling_size =
+        (sizeof(CausalConv1dUpdateTilingData) + PADDING_BYTE - 1) / PADDING_BYTE * PADDING_BYTE;
 
     // 2. Hash computation
     CausalConv1dUpdateTilingKey key{
@@ -138,26 +218,9 @@ HOST_API at::Tensor causal_conv1d_update_impl(
     };
     uint64_t hashValue = CausalConv1dUpdateTilingKeyHash{}(key);
 
-    // 3. cache management
-    static auto globalTilingBuffer = at::empty({tilingSize * MAX_CAPTURE_NUM},
-                                               at::TensorOptions().dtype(at::kByte).device(x.options().device()));
-
-    if (captureMap.find(hashValue) != captureMap.end()) {
-        tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
-                                     tilingSize, at::kByte);
-    } else if (actualCaptureNum >= MAX_CAPTURE_NUM) {
-        static auto tilingBuffer =
-            at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
-        aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), sizeof(CausalConv1dUpdateTilingData), &tiling_data, sizeof(CausalConv1dUpdateTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-        tilingTensor = at::from_blob(tilingBuffer.data_ptr<uint8_t>(), tilingSize, at::kByte);
-    } else {
-        captureMap[hashValue] = actualCaptureNum;
-        aclrtMemcpy(globalTilingBuffer.data_ptr<uint8_t>() + actualCaptureNum * tilingSize, sizeof(CausalConv1dUpdateTilingData), &tiling_data,
-                    sizeof(CausalConv1dUpdateTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-        actualCaptureNum++;
-        tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
-                                     tilingSize, at::kByte);
-    }
+    // Reuse graph-safe tiling storage when possible, but never grow past the fixed cache budget.
+    at::Tensor tilingTensor =
+        GetCausalConv1dUpdateTilingCache().GetOrCreate(x, tiling_size, hashValue, tiling_data);
 
     // 4. Create workspace
     auto workspace_tensor = at::empty({workspace_size}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));

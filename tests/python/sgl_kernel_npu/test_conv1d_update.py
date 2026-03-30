@@ -3,13 +3,13 @@ import torch.nn.functional as F
 from typing import Optional, Tuple
 import logging
 
-# Log settings
+# Logging configuration
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("TestScript")
 torch.manual_seed(42)
 
 # ==========================================
-# 1. SGLang 原始实现
+# 1. Original SGLang implementation
 # ==========================================
 class SGLangImpl:
     def torch_causal_conv1d_update_npu(
@@ -39,7 +39,7 @@ class SGLangImpl:
         kernel_size = weight.shape[-1]
         windows = hidden_states_new.unfold(-1, kernel_size, 1)
 
-        # [注意] 这里假设 weight 是 2D [H, K]
+        # Note: this test assumes weight has shape [H, K].
         out = (windows * weight[None, :, None, :]).sum(dim=-1)
 
         if bias is not None:
@@ -51,7 +51,7 @@ class SGLangImpl:
         return out, conv_state_update
 
 # ==========================================
-# 2. vLLM 风格修正版 (V3)
+# 2. vLLM-style reference implementation (V3)
 # ==========================================
 def vllm_causal_conv1d_update_v3(
     hidden_state: torch.Tensor,
@@ -67,16 +67,16 @@ def vllm_causal_conv1d_update_v3(
     bsz, hidden_size, seq_len = hidden_state.shape
     kernel_size = weight.shape[-1]
 
-    # 逻辑: (K-1) + (L-1). 丢弃最老的历史 (H1), 保留最新的输入 (C)
+    # Keep (kernel_size - 1) history tokens plus the latest generated suffix.
     target_state_len = (kernel_size - 1) + (seq_len - 1)
 
     full_context = torch.cat([conv_state[conv_state_indices], hidden_state], dim=-1).to(weight.dtype)
 
-    # 计算 output
+    # Compute the output.
     computation_input = full_context[:, :, -(kernel_size - 1 + seq_len):]
     windows = computation_input.unfold(-1, kernel_size, 1)
 
-    # 同样假设 weight 是 2D [H, K]
+    # This path also assumes weight has shape [H, K].
     out = (windows * weight[None, :, None, :]).sum(dim=-1)
 
     if bias is not None:
@@ -87,7 +87,7 @@ def vllm_causal_conv1d_update_v3(
 
     out = out.to(hidden_state.dtype)
 
-    # 更新 State: 保留最后 target_state_len 长度
+    # Update the state by keeping the most recent target_state_len values.
     if target_state_len > 0:
         new_conv_state = full_context[:, :, -target_state_len:]
     else:
@@ -99,7 +99,7 @@ def vllm_causal_conv1d_update_v3(
     return out
 
 # ==========================================
-# 3. 修复后的测试函数
+# 3. Correctness test
 # ==========================================
 def test_correctness_fixed():
     # --- Config ---
@@ -144,7 +144,7 @@ def test_correctness_fixed():
         weight=weight,
         bias=bias,
         conv_state_indices=conv_state_indices,
-        activation="silu"
+        activation=True
     )
 
     # --- Validation ---
@@ -194,10 +194,10 @@ def test_correctness_fixed():
         print("❌ Cache content verification failed.")
 
 # ==========================================
-# 4. NPU算子测试
+# 4. NPU operator test
 # ==========================================
 def test_npu_causal_conv1d_update():
-    """测试 NPU causal_conv1d_update 算子"""
+    """Test the NPU causal_conv1d_update operator."""
     try:
         import torch_npu
     except ImportError as e:
@@ -228,12 +228,12 @@ def test_npu_causal_conv1d_update():
 
     # --- Config ---
     BSZ = 1
-    HIDDEN_SIZE = 4096  # 使用较小的隐藏大小以加快测试
+    HIDDEN_SIZE = 4096  # Keep the hidden size moderate so the test stays fast.
     SEQ_LEN = 1
     KERNEL_SIZE = 4
     CACHE_LEN = 10
-    # conv_state buffer size: 必须足够大以容纳 (width-1)+(seq_len-1) = 2+1 = 3 个元素
-    CONV_STATE_LEN = KERNEL_SIZE - 1 + SEQ_LEN - 1 # 当前NPU kernel只支持固定size
+    # conv_state must be large enough to hold (width - 1) + (seq_len - 1) values.
+    CONV_STATE_LEN = KERNEL_SIZE - 1 + SEQ_LEN - 1  # The current NPU kernel expects a fixed-size state buffer.
     DTYPE = torch.bfloat16
     DEVICE = "npu"
 
@@ -241,15 +241,15 @@ def test_npu_causal_conv1d_update():
     print(f"Testing NPU causal_conv1d_update on {DEVICE}")
     print(f"{'='*50}")
 
-    # 创建参数
+    # Create inputs.
     weight = torch.randn(KERNEL_SIZE, HIDDEN_SIZE, device=DEVICE, dtype=DTYPE)
     # bias = torch.randn(HIDDEN_SIZE, device=DEVICE, dtype=DTYPE)
     bias = None
     hidden_state = torch.randn(BSZ, SEQ_LEN, HIDDEN_SIZE, device=DEVICE, dtype=DTYPE)
     conv_state_init = torch.randn(CACHE_LEN, CONV_STATE_LEN, HIDDEN_SIZE, device=DEVICE, dtype=DTYPE)
     conv_state_indices = torch.arange(BSZ, device=DEVICE, dtype=torch.int32)
-    num_accepted_tokens = torch.tensor([SEQ_LEN - 1] * BSZ, device=DEVICE, dtype=torch.int32)
-    # 用于索引的可选张量
+    num_accepted_tokens = torch.tensor([SEQ_LEN] * BSZ, device=DEVICE, dtype=torch.int32)
+    # Optional tensor used when queries are packed by start offset.
     query_start_loc = torch.tensor([0, SEQ_LEN, 2*SEQ_LEN, 3*SEQ_LEN], device=DEVICE, dtype=torch.int32)
     conv_state_vl = conv_state_init.clone()
     # --- vLLM Execution (CPU/CUDA reference) ---
@@ -266,7 +266,7 @@ def test_npu_causal_conv1d_update():
     print(f"Input shapes: x={hidden_state.shape}, weight={weight.shape}, conv_state={conv_state_init.shape}")
     print(f"Calling torch.ops.npu.causal_conv1d_update...")
 
-    # 克隆conv_state因为NPU会原地修改
+    # Clone conv_state because the NPU kernel updates it in place.
     conv_state_npu = conv_state_init.clone()
 
     try:
@@ -276,8 +276,8 @@ def test_npu_causal_conv1d_update():
             conv_state=conv_state_npu,
             conv_state_indices=conv_state_indices,
             bias=bias,
-            num_accepted_tokens=None,  # 可选参数，不传递
-            # query_start_loc=None,     # 可选参数，不传递
+            num_accepted_tokens=num_accepted_tokens,
+            # query_start_loc=None,  # Leave unset for dense [batch, seq, hidden] inputs.
             activation_mode=True,
             pad_slot_id=-1
         )
@@ -285,18 +285,18 @@ def test_npu_causal_conv1d_update():
         print(f"✅ NPU kernel executed successfully!")
         print(f"Output shape: {out_npu.shape}")
 
-        # --- 验证 ---
-        # 将NPU结果转回CPU进行比较
+        # --- Validation ---
+        # Move the NPU result back to CPU for comparison.
         out_npu_cpu = out_npu.cpu()
         out_vl = out_vl.cpu()
 
 
-        # 检查输出形状
+        # Check the output shape.
         assert out_npu_cpu.shape == out_vl.shape, \
             f"Output shape mismatch: {out_npu_cpu.shape} vs {out_vl.shape}"
         print(f"✅ Output shape matched: {out_npu_cpu.shape}")
 
-        # 验证输出不是全零
+        # Ensure the output is not all zeros.
         assert not torch.all(out_npu_cpu == 0), "NPU output is all zeros!"
         print(f"✅ NPU output is not all zeros")
 
@@ -304,7 +304,7 @@ def test_npu_causal_conv1d_update():
         print(f"NPU output - shape: {out_npu_cpu.shape}, dtype: {out_npu_cpu.dtype}, mean: {out_npu_cpu.mean().item():.6f}")
         print(f"vLLM output (transposed) - shape: {out_vl.shape}, dtype: {out_vl.dtype}, mean: {out_vl.mean().item():.6f}")
 
-        # 逐元素比较精度
+        # Compare precision element by element.
         diff = out_npu_cpu - out_vl
         abs_diff = torch.abs(diff)
         max_abs_diff = abs_diff.max().item()
@@ -317,14 +317,14 @@ def test_npu_causal_conv1d_update():
         print(f"Median absolute diff: {(abs_diff).median().item():.6e}")
         print(f"Max relative diff: {max_rel_diff:.6e}")
 
-        # 进行精度验证 (使用ops-transformer标准: atol=1e-2, rtol=1e-3)
+        # Validate precision using the repo's existing tolerance style.
         ATOL, RTOL = 5e-2, 1e-2
         tol = ATOL + RTOL * torch.abs(out_vl)
         matched = (abs_diff <= tol).sum().item()
         total = abs_diff.numel()
         print(f"Matched (atol={ATOL}, rtol={RTOL}): {matched}/{total} ({100*matched/total:.2f}%)")
 
-        # --- Conv State 验证 ---
+        # --- Conv state verification ---
         print(f"\n--- Conv State Update Verification ---")
         print(f"vLLM state shape: {conv_state_vl.shape}")
         print(f"NPU state shape: {conv_state_npu.shape}")
@@ -342,7 +342,7 @@ def test_npu_causal_conv1d_update():
         else:
             print(f"State max diff: {state_diff.max():.6e}")
 
-        # --- 总结 ---
+        # --- Summary ---
         print(f"\n{'='*60}")
         print("PRECISION TEST SUMMARY")
         print(f"{'='*60}")

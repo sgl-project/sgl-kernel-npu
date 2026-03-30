@@ -181,7 +181,7 @@ __aicore__ inline void CausalConv1dUpdate<T>::ComputeUpdate(int64_t xOffset)
     }
 
     for (int64_t i = 0; i < batchNum_; ++i) {
-        // 获取 stateOffset
+        // Resolve the state offset for the current batch item.
         if (tilingData_.hasIndices) {
             int64_t stateIdx = convStateIndicesGm_.GetValue(blockIdx_ * tilingData_.blockFactor + i);
             if (stateIdx == tilingData_.padSlotId) {
@@ -210,12 +210,12 @@ __aicore__ inline void CausalConv1dUpdate<T>::ComputeUpdate(int64_t xOffset)
             Duplicate<float>(resultLocal, 0, tilingData_.dim);
             LocalTensor<T> outLocal = outQueueY_.AllocTensor<T>();
             for (int64_t k = 0; k < tilingData_.width - 1; ++k) {
-                // 循环历史token
+                // Walk the history window from oldest to newest cached token.
                 CopyInState(tilingData_.dim, stateOffset + (k + inStateOffset_) * tilingData_.dim);
                 MTE2ToMTE3Sync();
 
                 if ((k + inStateOffset_) != 0) {
-                    // 搬出覆盖conv state
+                    // Shift the cached state left once there is a previous slot to overwrite.
                     CopyOutState(tilingData_.dim, stateOffset + (k + inStateOffset_ -1) * tilingData_.dim);
                     MTE3ToMTE2Sync();
                 }
@@ -227,7 +227,7 @@ __aicore__ inline void CausalConv1dUpdate<T>::ComputeUpdate(int64_t xOffset)
 
                 VToMTE2Sync();
             }
-            // 搬入 x
+            // Append the current token to the newest conv_state slot.
             CopyInX(tilingData_.dim, xOffset + j * tilingData_.dim);
             MTE2ToMTE3Sync();
             CopyOutState(tilingData_.dim, stateOffset + (inStateOffset_ + tilingData_.width - 2) * tilingData_.dim);
