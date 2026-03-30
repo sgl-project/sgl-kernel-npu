@@ -15,13 +15,13 @@ def custom_rope(q, k, sin, cos):
     k = np.asarray(k, dtype=np.float32)
 
     x1 = q[..., :half]
-    x2 = q[..., half:2*half]
+    x2 = q[..., half : 2 * half]
     qn1 = x1 * cos_half - x2 * sin_half
     qn2 = x2 * cos_half + x1 * sin_half
     res1 = np.concatenate((qn1, qn2), axis=-1)
 
     x1 = k[..., :half]
-    x2 = k[..., half:2*half]
+    x2 = k[..., half : 2 * half]
     kn1 = x1 * cos_half - x2 * sin_half
     kn2 = x2 * cos_half + x1 * sin_half
     res2 = np.concatenate((kn1, kn2), axis=-1)

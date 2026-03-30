@@ -4,6 +4,7 @@ import triton
 import triton.language as tl
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
+
 @triton.jit
 def _split_qkv_and_compute_local_qk_var_kernel(
     input_ptr,
@@ -112,7 +113,9 @@ def _apply_global_rmsnorm_kernel(
             q_offsets = q_off + tl.arange(0, Q_BLOCK_SIZE)
             q_mask = q_offsets < q_cols
             q_vals = tl.load(q_base + q_offsets, mask=q_mask, other=0.0)
-            q_weight = tl.load(q_weight_ptr + q_offsets, mask=q_mask, other=1.0).to(tl.float32)
+            q_weight = tl.load(q_weight_ptr + q_offsets, mask=q_mask, other=1.0).to(
+                tl.float32
+            )
             q_vals = (q_vals.to(tl.float32) * q_scale * q_weight).to(q_vals.dtype)
             tl.store(q_base + q_offsets, q_vals, mask=q_mask)
 
@@ -121,7 +124,9 @@ def _apply_global_rmsnorm_kernel(
             k_offsets = k_off + tl.arange(0, KV_BLOCK_SIZE)
             k_mask = k_offsets < k_cols
             k_vals = tl.load(k_base + k_offsets, mask=k_mask, other=0.0)
-            k_weight = tl.load(k_weight_ptr + k_offsets, mask=k_mask, other=1.0).to(tl.float32)
+            k_weight = tl.load(k_weight_ptr + k_offsets, mask=k_mask, other=1.0).to(
+                tl.float32
+            )
             k_vals = (k_vals.to(tl.float32) * k_scale * k_weight).to(k_vals.dtype)
             tl.store(k_base + k_offsets, k_vals, mask=k_mask)
 
