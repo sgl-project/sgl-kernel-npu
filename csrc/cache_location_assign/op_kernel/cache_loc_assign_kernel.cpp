@@ -17,7 +17,6 @@
 
 /* tensor num for each queue */
 constexpr int32_t BUFFER_NUM = 2;
-constexpr uint32_t MAX_STEP = 5;
 
 constexpr uint32_t ASSIGN_TO_POOL = 0;
 constexpr uint32_t RETRIEVE_FROM_POOL = 1;
