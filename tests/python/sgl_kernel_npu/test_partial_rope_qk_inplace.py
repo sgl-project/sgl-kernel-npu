@@ -38,8 +38,10 @@ def rope_native(query, key, cos_sin, rotary_dim, is_neox_style=False):
 def test_partial_rope_qk_inplace():
     dtype = torch.float32
     shapes = [
-        [32, 4, 1, 256, 64],  # partial
-        [32, 4, 1, 64, 64]   # no partial
+        [64, 4, 1, 256, 64],  # partial, HQ_IN_GRID
+        [64, 4, 1, 64, 64],   # no partial
+        [1, 4, 1, 256, 64],   # HK_IN_GRID
+        [1, 4, 1, 64, 64], 
     ]
     for T, Hq, Hk, D, D_ROPE in shapes:
         for is_neox_style in [True, False]:

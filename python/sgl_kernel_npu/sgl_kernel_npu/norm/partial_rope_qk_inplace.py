@@ -1,6 +1,7 @@
 import torch
 import triton
 import triton.language as tl
+from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
 @triton.jit
@@ -19,9 +20,10 @@ def partial_rope_qk_inplace_kernel(
     groups: tl.constexpr,
     D_ROPE: tl.constexpr,
     IS_NEOX_STYLE: tl.constexpr,
+    HQ_IN_GRID: tl.constexpr,
 ):
     t_id = tl.program_id(0)
-    hk_id = tl.program_id(1)
+    
 
     d = tl.arange(0, D_ROPE // 2)
     if IS_NEOX_STYLE:
@@ -35,9 +37,32 @@ def partial_rope_qk_inplace_kernel(
     cos = tl.load(cos_sin_ptr + t_id * stride_ct + d * stride_cd)  # (D_ROPE // 2,)
     sin = tl.load(cos_sin_ptr + t_id * stride_ct + (d + D_ROPE // 2) * stride_cd)  # (D_ROPE // 2,)
 
-    # ================= Q =================
-    for g_id in range(groups):
-        hq_id = hk_id + g_id
+    if not HQ_IN_GRID:
+        hk_id = tl.program_id(1)
+        # ================= Q =================
+        for g_id in range(groups):
+            hq_id = hk_id + g_id
+            q_base = query_ptr + t_id * stride_qt + hq_id * stride_qh
+            q1 = tl.load(q_base + idx_even * stride_qd)
+            q2 = tl.load(q_base + idx_odd * stride_qd)
+            q_out1 = (q1 * cos) - (q2 * sin)
+            q_out2 = (q1 * sin) + (q2 * cos)
+            tl.store(q_base + idx_even * stride_qd, q_out1)
+            tl.store(q_base + idx_odd * stride_qd, q_out2)
+
+        # ================= K =================
+        k_base = key_ptr + t_id * stride_kt + hk_id * stride_kh
+        k1 = tl.load(k_base + idx_even * stride_kd)
+        k2 = tl.load(k_base + idx_odd * stride_kd)
+
+        k_out1 = (k1 * cos) - (k2 * sin)
+        k_out2 = (k1 * sin) + (k2 * cos)
+
+        tl.store(k_base + idx_even * stride_kd, k_out1)
+        tl.store(k_base + idx_odd * stride_kd, k_out2)
+    else:
+        hq_id = tl.program_id(1)
+        # ================= Q =================
         q_base = query_ptr + t_id * stride_qt + hq_id * stride_qh
         q1 = tl.load(q_base + idx_even * stride_qd)
         q2 = tl.load(q_base + idx_odd * stride_qd)
@@ -46,16 +71,16 @@ def partial_rope_qk_inplace_kernel(
         tl.store(q_base + idx_even * stride_qd, q_out1)
         tl.store(q_base + idx_odd * stride_qd, q_out2)
 
-    # ================= K =================
-    k_base = key_ptr + t_id * stride_kt + hk_id * stride_kh
-    k1 = tl.load(k_base + idx_even * stride_kd)
-    k2 = tl.load(k_base + idx_odd * stride_kd)
-
-    k_out1 = (k1 * cos) - (k2 * sin)
-    k_out2 = (k1 * sin) + (k2 * cos)
-
-    tl.store(k_base + idx_even * stride_kd, k_out1)
-    tl.store(k_base + idx_odd * stride_kd, k_out2)
+        # ================= K =================
+        if hq_id % groups == 0:
+            hk_id = hq_id // groups
+            k_base = key_ptr + t_id * stride_kt + hk_id * stride_kh
+            k1 = tl.load(k_base + idx_even * stride_kd)
+            k2 = tl.load(k_base + idx_odd * stride_kd)
+            k_out1 = (k1 * cos) - (k2 * sin)
+            k_out2 = (k1 * sin) + (k2 * cos)
+            tl.store(k_base + idx_even * stride_kd, k_out1)
+            tl.store(k_base + idx_odd * stride_kd, k_out2)
 
 
 def partial_rope_qk_inplace(
@@ -68,8 +93,12 @@ def partial_rope_qk_inplace(
     T, Hq, D = query.shape
     _, Hk, _ = key.shape
     assert Hq % Hk == 0
-
-    grid = (T, Hk)
+    _, vec_cors = get_device_properties()
+    grid = (T, Hq)
+    HQ_IN_GRID = True
+    if T * Hk >= vec_cors:
+        grid = (T, Hk)
+        HQ_IN_GRID = False
 
     partial_rope_qk_inplace_kernel[grid](
         query,
@@ -86,6 +115,7 @@ def partial_rope_qk_inplace(
         groups=Hq // Hk,
         D_ROPE=rotary_dim,
         IS_NEOX_STYLE=is_neox_style,
+        HQ_IN_GRID=HQ_IN_GRID,
     )
 
     return query, key
