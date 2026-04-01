@@ -2,16 +2,15 @@
 #include "notify_dispatch.h"
 #include "notify_dispatch_tiling.h"
 
-#define TILING_KEY_FLOAT16 20
-#define TILING_KEY_BFLOAT16 21
-#define TILING_KEY_FLOAT 22
 #define TILING_KEY_INT 23
 
 #define KERNEL_USE_WORKSPACE (1 * 1024 * 1024)
 
 extern "C" __global__ __aicore__ void notify_dispatch(GM_ADDR sendData, GM_ADDR tokenPerExpertData,
-                                                      GM_ADDR sendDataOffset, GM_ADDR recvData, GM_ADDR totalRecvTokens,
-                                                      GM_ADDR recvCount, GM_ADDR recvOffset, GM_ADDR maxBs,
+                                                      GM_ADDR sendDataOffset, GM_ADDR recvData, GM_ADDR recvCount,
+                                                      GM_ADDR recvOffset, GM_ADDR expertGlobalOffset,
+                                                      GM_ADDR srcrankInExpertOffset, GM_ADDR rInSrcrankOffset,
+                                                      GM_ADDR totalRecvTokens, GM_ADDR maxBs,
                                                       GM_ADDR recvTokensPerExpert, GM_ADDR workspace, GM_ADDR tiling)
 {
     REGISTER_TILING_DEFAULT(NotifyDispatchTilingData);
@@ -22,7 +21,10 @@ extern "C" __global__ __aicore__ void notify_dispatch(GM_ADDR sendData, GM_ADDR 
     int rank = tilingData.notifyDispatchInfo.rankId;
     int rankSize = tilingData.notifyDispatchInfo.rankSize;
     int64_t len = tilingData.notifyDispatchInfo.sendCount;
-    int64_t numTokens = tilingData.notifyDispatchInfo.numTokens;
+    int numTokens = tilingData.notifyDispatchInfo.numTokens;
+    int round = tilingData.notifyDispatchInfo.round;
+    int perRoundTokens = tilingData.notifyDispatchInfo.perRoundTokens;
+    uint64_t totalWinSize = tilingData.notifyDispatchInfo.totalWinSize;
 
     GM_ADDR sendDataInput = sendData;
     GM_ADDR tokenPerExpertDataInput = tokenPerExpertData;
@@ -35,19 +37,11 @@ extern "C" __global__ __aicore__ void notify_dispatch(GM_ADDR sendData, GM_ADDR 
     int root = 0;
     int op = 0;
     int cycleCount = 0;
-    int64_t scaleCount = 0;
+    int scaleCount = 0;
     GM_ADDR offset = nullptr;
     int blockNum = GetBlockNum();
 
-    if (TILING_KEY_IS(TILING_KEY_FLOAT16)) {
-        NotifyDispatch<float16_t> opKernel(rank, rankSize, extraFlag);
-        opKernel.Init(KERNELS_ARGS_CALL_ALL2ALL());
-        opKernel.Process();
-    } else if (TILING_KEY_IS(TILING_KEY_FLOAT)) {
-        NotifyDispatch<float> opKernel(rank, rankSize, extraFlag);
-        opKernel.Init(KERNELS_ARGS_CALL_ALL2ALL());
-        opKernel.Process();
-    } else if (TILING_KEY_IS(TILING_KEY_INT)) {
+    if (TILING_KEY_IS(TILING_KEY_INT)) {
         NotifyDispatch<int> opKernel(rank, rankSize, extraFlag);
         opKernel.Init(KERNELS_ARGS_CALL_ALL2ALL());
         opKernel.Process();

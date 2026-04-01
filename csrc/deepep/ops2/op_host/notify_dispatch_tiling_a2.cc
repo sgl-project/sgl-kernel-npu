@@ -30,15 +30,15 @@ namespace {
 class Mc2TilingUtils
 {
 public:
-#define HCCL_BUFFSIZE "HCCL_BUFFSIZE"
     static uint64_t GetMaxWindowSize()
     {
         uint16_t defaultWindowSize = 200;
-        if (getenv(HCCL_BUFFSIZE) == nullptr) {
+        const char *hcclBuffSize = getenv("DEEPEP_HCCL_BUFFSIZE") == nullptr ? "HCCL_BUFFSIZE" : "DEEPEP_HCCL_BUFFSIZE";
+        if (getenv(hcclBuffSize) == nullptr) {
             OP_LOGD("", "Env HCCL_BUFFSIZE don't set");
         } else {
             try {
-                std::string envStr(getenv(HCCL_BUFFSIZE));
+                std::string envStr(getenv(hcclBuffSize));
                 defaultWindowSize = std::stoi(envStr);
             } catch (const std::invalid_argument &ia) {
                 OP_LOGE("", "Invalid argument when parsing HCCL_BUFFSIZE: %s", ia.what());
@@ -164,8 +164,8 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
                     OP_LOGE(nodeName, "sendCount is invalid, only support > 0, but got sendCount=%ld.", *sendCountPtr),
                     return ge::GRAPH_FAILED);
     OP_TILING_CHECK(
-        (*numTokenPtr <= 0),
-        OP_LOGE(nodeName, "numTokenPtr is invalid, only support > 0, but got numTokenPtr=%ld.", *numTokenPtr),
+        (*numTokenPtr < 0),
+        OP_LOGE(nodeName, "numTokenPtr is invalid, only support >= 0, but got numTokenPtr=%ld.", *numTokenPtr),
         return ge::GRAPH_FAILED);
 
     commGroup = std::string(commGroupPtr);
@@ -186,8 +186,8 @@ static void SetHcommCfg(const gert::TilingContext *context, NotifyDispatchA2Tili
 {
     const char *nodeName = context->GetNodeName();
     OP_LOGD(nodeName, "NotifyDispatchA2 commGroup = %s", commGroup.c_str());
-    uint32_t opType1 = OP_TYPE_ALL_TO_ALL;
-    std::string algConfigAllToAllStr = "AlltoAll=level0:fullmesh;level1:pairwise";
+    uint32_t opType1 = 18;  // batch write=18,
+    std::string algConfigAllToAllStr = "BatchWrite=level1:hierarchy";
 
     AscendC::Mc2CcTilingConfig mc2CcTilingConfig(commGroup, opType1, algConfigAllToAllStr);
     mc2CcTilingConfig.GetTiling(tiling->mc2InitTiling);
@@ -442,6 +442,7 @@ static ge::graphStatus NotifyDispatchA2TilingFuncImpl(gert::TilingContext *conte
     if (socVersion == "Ascend910B") {
         tilingKey = tilingKey + TILING_KEY_A2_TYPE;
     }
+    OP_LOGD(nodeName, "tilingKey is %lu", tilingKey);
     context->SetTilingKey(tilingKey);
 
     auto ascendcPlatform = platform_ascendc::PlatformAscendC(context->GetPlatformInfo());

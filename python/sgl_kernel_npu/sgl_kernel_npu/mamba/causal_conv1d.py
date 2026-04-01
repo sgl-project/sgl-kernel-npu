@@ -19,18 +19,19 @@ def causal_conv1d_fn_native(
     x: torch.Tensor,
     weight: torch.Tensor,
     bias: Optional[torch.Tensor] = None,
+    seqlens: Optional[torch.Tensor] = None,
+    has_initial_state: Optional[torch.Tensor] = None,
     initial_states: Optional[torch.Tensor] = None,
     return_final_states: bool = False,
-    final_states_out: Optional[torch.Tensor] = None,
     activation: Optional[str] = "silu",
 ):
     """
     x: (batch, dim, seqlen)
     weight: (dim, width)
     bias: (dim,)
+    seqlens: (batch,)
+    has_initial_state: (batch,)
     initial_states: (batch, dim, width - 1)
-    final_states_out: (batch, dim, width - 1)
-
     out: (batch, dim, seqlen)
     """
     if activation not in [None, "silu", "swish"]:
@@ -43,19 +44,61 @@ def causal_conv1d_fn_native(
     if initial_states is None:
         out = F.conv1d(x, weight.unsqueeze(1), bias, padding=width - 1, groups=dim)
     else:
+        if x.ndim == 2:
+            x = x.unsqueeze(0)
         x = torch.cat([initial_states, x], dim=-1)
         out = F.conv1d(x, weight.unsqueeze(1), bias, padding=0, groups=dim)
+
     out = out[..., :seqlen]
     if return_final_states:
-        final_states = F.pad(x, (width - 1 - x.shape[-1], 0)).to(
-            dtype_in
+        base = seqlens - (width - 1) * (~has_initial_state)
+        positions = base.unsqueeze(1) + torch.arange(
+            width - 1, device=seqlens.device
+        ).unsqueeze(0)
+        indices = positions.unsqueeze(1).expand(-1, x.shape[-2], -1)
+        final_states = (
+            x.gather(2, indices.clamp(min=0)).masked_fill(indices < 0, 0).to(dtype_in)
         )  # (batch, dim, width - 1)
-        if final_states_out is not None:
-            final_states_out.copy_(final_states)
-        else:
-            final_states_out = final_states
     out = (out if activation is None else F.silu(out)).to(dtype=dtype_in)
-    return (out, None) if not return_final_states else (out, final_states_out)
+    return (out, None) if not return_final_states else (out, final_states)
+
+
+def prepare_data(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    query_start_loc: Optional[torch.Tensor] = None,
+    cache_indices: Optional[torch.Tensor] = None,
+    has_initial_state: Optional[torch.Tensor] = None,
+    conv_states: Optional[torch.Tensor] = None,
+):
+    initial_states = (
+        torch.index_select(conv_states, 0, cache_indices)
+        * has_initial_state[:, None, None]
+        if has_initial_state is not None and has_initial_state.any()
+        else None
+    )
+
+    seqlens = query_start_loc[1:] - query_start_loc[:-1]
+
+    if x.ndim == 3:
+        return x, initial_states, seqlens, None
+
+    dtype, device = weight.dtype, weight.device
+    batch_size = seqlens.size(0)
+    max_T = seqlens.max()
+    dim, cu_seq_len = x.size(0), query_start_loc[-1]
+
+    x_flat = torch.zeros(size=(dim, batch_size * max_T), dtype=dtype, device=device)
+
+    base_idx = torch.arange(batch_size, device=device, dtype=torch.int32) * max_T
+    base_t = torch.arange(max_T, device=device, dtype=torch.int32).unsqueeze(0)
+    mask = base_t < seqlens.unsqueeze(1)
+    indices = (base_idx.unsqueeze(1) + base_t)[mask]
+
+    x_flat.index_copy_(1, indices, x[..., :cu_seq_len])
+    x_pad = x_flat.view(dim, batch_size, max_T).transpose(0, 1).contiguous()
+
+    return x_pad, initial_states, seqlens, indices
 
 
 def causal_conv1d_fn_npu(
@@ -105,27 +148,35 @@ def causal_conv1d_fn_npu(
         x = x.contiguous()
     bias = bias.contiguous() if bias is not None else None
 
-    out_ref = []
-    out_ref_b = []
-    out_ref_b.append(
-        causal_conv1d_fn_native(
-            x,
-            weight,
-            bias,
-            activation=activation,
-            return_final_states=True,
-            final_states_out=conv_states[cache_indices[0]].unsqueeze(0),
-            initial_states=(
-                conv_states[cache_indices[0]].unsqueeze(0)
-                if has_initial_state[0]
-                else None
-            ),
-        )
+    assert query_start_loc[-1] <= x.shape[-1], f"{query_start_loc=}, {x.shape=}"
+
+    x_pad, initial_state_pad, seqlens, indices = prepare_data(
+        x, weight, query_start_loc, cache_indices, has_initial_state, conv_states
     )
 
-    out_ref.append(torch.cat([t[0] for t in out_ref_b], dim=-1))
-    out_ref_tensor = torch.cat(out_ref, dim=0)
-    return out_ref_tensor
+    out, final_states_out = causal_conv1d_fn_native(
+        x_pad,
+        weight,
+        bias,
+        seqlens=seqlens,
+        has_initial_state=has_initial_state,
+        initial_states=initial_state_pad,
+        activation=activation,
+        return_final_states=True,
+    )
+    conv_states.index_copy_(0, cache_indices, final_states_out)
+
+    if x.ndim == 3:
+        return out  # [batch_size, dim, seq_len]
+
+    out = out.transpose(1, 2).contiguous().view(out.size(0) * out.size(2), out.size(1))
+    out_final = torch.index_select(out, 0, indices).transpose(0, 1).contiguous()
+
+    pad_seq_len = x.size(-1) - out_final.size(-1)
+    if pad_seq_len > 0:
+        out_final = F.pad(out_final, (0, pad_seq_len))
+
+    return out_final  # [dim, cu_seq_len]
 
 
 @triton.jit()
@@ -136,24 +187,26 @@ def _causal_conv1d_update_kernel_no_cache_len_no_mtp(
     bias_ptr,
     conv_state_indices_ptr,
     out_ptr,
+    pad_slot_id,
     batch: tl.constexpr,
     dim: tl.constexpr,
     align_val: tl.constexpr,
-    state_len: tl.constexpr,  # 3 4 5
-    seq_len: tl.constexpr,  # 1 2
-    width: tl.constexpr,  # 4, <= seq_len + state_len
+    state_len: tl.constexpr,
+    seq_len: tl.constexpr,
+    width: tl.constexpr,
     out_len: tl.constexpr,
     x_batch_stride: tl.constexpr,
     conv_batch_stride: tl.constexpr,
     out_batch_stride: tl.constexpr,
-    DIM_BLOCK: tl.constexpr,  # dim % DIM_BLOCK must be 0
+    DIM_BLOCK: tl.constexpr,
     HAS_BIAS: tl.constexpr,
     SILU_ACTIVATION: tl.constexpr,
     IS_CONTINUOUS_BATCHING: tl.constexpr,
+    USE_PAD_SLOT: tl.constexpr,
 ):
     pid = tl.program_id(0)
-    cat_len: tl.constexpr = state_len + seq_len  # 4
-    sub_state_len: tl.constexpr = state_len - seq_len  # 3
+    cat_len: tl.constexpr = state_len + seq_len
+    sub_state_len: tl.constexpr = state_len - seq_len
     sub_align_dim: tl.constexpr = DIM_BLOCK // align_val
 
     conv_begin: tl.constexpr = (cat_len - width + 1) - seq_len
@@ -162,6 +215,11 @@ def _causal_conv1d_update_kernel_no_cache_len_no_mtp(
         conv_batch_offs = tl.load(conv_state_indices_ptr + pid)
     else:
         conv_batch_offs = pid
+
+    if USE_PAD_SLOT:
+        if conv_batch_offs == pad_slot_id:
+            # skip padding
+            return
 
     for doffs in range(0, dim, DIM_BLOCK):
 
@@ -545,6 +603,31 @@ def _causal_conv1d_update_kernel(
                 tl.store(base_ptr + 2 * stride_inter_win, col2, mask=mask_w)
 
 
+def torch_causal_conv1d_update_npu(
+    hidden_state: torch.Tensor,
+    conv_state: torch.Tensor,
+    weight: torch.Tensor,
+    conv_state_update: Optional[torch.Tensor] = None,
+    bias: Optional[torch.Tensor] = None,
+):
+    bsz, hidden_size, seq_len = hidden_state.shape
+    state_len = conv_state.shape[-1]
+    hidden_states_new = torch.cat([conv_state, hidden_state], dim=-1).to(weight.dtype)
+    if conv_state_update is not None:
+        for i in range(seq_len):
+            end = i - seq_len + 1
+            start = end - state_len
+            slice_range = slice(start, end if end != 0 else None)
+            conv_state_update[:, i] = hidden_states_new[:, :, slice_range]
+    else:
+        conv_state_update = hidden_states_new[:, :, -state_len:]
+
+    out = torch.sum(hidden_states_new * weight, dim=-1, keepdim=True)
+    out = F.silu(out)
+    out = out.to(hidden_state.dtype)
+    return out, conv_state_update
+
+
 def causal_conv1d_update_npu(
     x: torch.Tensor,
     conv_state: torch.Tensor,
@@ -649,28 +732,12 @@ def causal_conv1d_update_npu(
         stride_inter_seq = stride_inter_step = stride_inter_dim = stride_inter_win = 0
 
     if cache_seqlens is None and num_accepted_tokens is None:
-        DIM_BLOCK = 2048
-        _causal_conv1d_update_kernel_no_cache_len_no_mtp[(batch, 1, 1)](
+        conv_state_update = conv_state[conv_state_indices]
+        out, conv_state[conv_state_indices] = torch_causal_conv1d_update_npu(
             x,
-            conv_state,
+            conv_state_update,
             weight,
-            bias,
-            conv_state_indices,
-            out,
-            batch=batch,
-            dim=dim,
-            align_val=16,
-            state_len=conv_state.shape[-1],  # 3 4 5
-            seq_len=x.shape[-1],  # 1 2
-            width=width,  # 4, <= seq_len + state_len
-            out_len=out.shape[-1],
-            x_batch_stride=x.stride()[0],
-            conv_batch_stride=conv_state.stride()[0],
-            out_batch_stride=out.stride()[0],
-            DIM_BLOCK=DIM_BLOCK,  # dim % DIM_BLOCK must be 0
-            HAS_BIAS=bias is not None,
-            SILU_ACTIVATION=activation in ["silu", "swish"],
-            IS_CONTINUOUS_BATCHING=conv_state_indices is not None,
+            bias=bias,
         )
     else:
         _causal_conv1d_update_kernel[grid](

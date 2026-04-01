@@ -17,6 +17,8 @@ public:
         this->Attr("num_experts").Int();
         this->Attr("num_topk").Int();
         this->Attr("local_ranksize").Int();
+        this->Attr("per_round_tokens").Int();
+        this->Attr("rank_id").Int();
 
         this->Output("numTokensPerRank")
             .ParamType(REQUIRED)

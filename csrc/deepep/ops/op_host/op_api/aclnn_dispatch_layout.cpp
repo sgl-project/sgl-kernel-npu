@@ -16,14 +16,15 @@ extern "C" {
 
 aclnnStatus aclnnDispatchLayoutGetWorkspaceSize(const aclTensor *topkIdx, int64_t numTokens, int64_t numRanks,
                                                 int64_t numExperts, int64_t numTopk, int64_t localRankSize,
+                                                int32_t perRoundTokens, int32_t rankId,
                                                 const aclTensor *numTokensPerRank, const aclTensor *numTokensPerExpert,
                                                 const aclTensor *isTokenInRank, const aclTensor *notifySendData,
                                                 const aclTensor *sendTokenIdxSmall, uint64_t *workspaceSize,
                                                 aclOpExecutor **executor)
 {
-    return aclnnInnerDispatchLayoutGetWorkspaceSize(topkIdx, numTokens, numRanks, numExperts, numTopk, localRankSize,
-                                                    numTokensPerRank, numTokensPerExpert, isTokenInRank, notifySendData,
-                                                    sendTokenIdxSmall, workspaceSize, executor);
+    return aclnnInnerDispatchLayoutGetWorkspaceSize(
+        topkIdx, numTokens, numRanks, numExperts, numTopk, localRankSize, perRoundTokens, rankId, numTokensPerRank,
+        numTokensPerExpert, isTokenInRank, notifySendData, sendTokenIdxSmall, workspaceSize, executor);
 }
 
 aclnnStatus aclnnDispatchLayout(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream)

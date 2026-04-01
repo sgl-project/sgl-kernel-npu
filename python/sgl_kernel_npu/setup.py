@@ -4,18 +4,14 @@
 """python api for sgl_kernel_npu."""
 
 import os
+from configparser import ConfigParser
+from pathlib import Path
 
 import setuptools
-import torch
-import torch_npu
-from setuptools import find_namespace_packages, find_packages, setup
+from setuptools import find_namespace_packages
 from setuptools.command.build_ext import build_ext
 from setuptools.dist import Distribution
 from torch_npu.utils.cpp_extension import NpuExtension
-
-os.environ["SOURCE_DATE_EPOCH"] = "0"
-
-current_version = os.getenv("VERSION", "0.1.0")
 
 
 class BinaryDistribution(Distribution):
@@ -34,9 +30,15 @@ class Build(build_ext, object):
         super(Build, self).run()
 
 
+WORKING_DIR = Path(__file__).resolve().parent
+config = ConfigParser()
+config.read(WORKING_DIR / "sgl_kernel_npu" / "config.ini")
+_version = config.get("global", "version")
+
+
 setuptools.setup(
     name="sgl_kernel_npu",
-    version=current_version,
+    version=_version,
     description="python api for sgl_kernel_npu",
     packages=find_namespace_packages(exclude=("tests*",)),
     ext_modules=[NpuExtension("sgl_kernel_npu._C", sources=[])],

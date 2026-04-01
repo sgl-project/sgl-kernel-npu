@@ -58,7 +58,7 @@ public:
     constexpr static uint32_t WAIT_STATUS = 1;
     constexpr static uint32_t ARRIVAL_STATUS = 2;
     constexpr static uint32_t SKIP_STATUS = 3;
-    constexpr static uint32_t RDMA_DATA_SIZE = 100U * 1024U * 1024U;
+    constexpr static uint32_t RDMA_DATA_SIZE = 800U * 1024U * 1024U;
     constexpr static uint32_t EXTRA_TOKEN_INFO_NUM = 4U;  // 专家信息 权重信息 量化Scale 到达标志位
 
     template <AscendC::HardEvent event>
@@ -210,13 +210,10 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeA2layeredFu
 {
     tpipe_ = pipe;
     REGISTER_TILING_DEFAULT(MoeDistributeDispatchV2TilingData);
-    auto tiling = (__gm__ MoeDistributeDispatchV2TilingData *)tilingGM;
-    __gm__ void *mc2InitTiling = (__gm__ void *)(&(tiling->mc2InitTiling));
-    __gm__ void *mc2CcTiling = (__gm__ void *)(&(tiling->mc2CcTiling));
     GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
 
-    hccl_.Init(contextGM0, mc2InitTiling);
-    hccl_.SetCcTiling(mc2CcTiling);
+    hccl_.InitV2(contextGM0, &tilingData);
+    hccl_.SetCcTilingV2(offsetof(MoeDistributeDispatchV2TilingData, mc2CcTiling));
 
     winContext_ = (__gm__ HcclA2CombineOpParam *)contextGM0;
     rankId_ = tilingData.moeDistributeDispatchV2Info.epRankId;
@@ -235,7 +232,7 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeA2layeredFu
     moeExpertNum_ = tilingData.moeDistributeDispatchV2Info.moeExpertNum;
     localMoeExpertNum_ = moeExpertNum_ / worldSize_;
     totalSize_ = winContext_->winSize;
-    totalWinSize_ = 100 * 1024 * 1024;  // 100 MB for RDMA
+    totalWinSize_ = RDMA_DATA_SIZE;  // 800 MB for RDMA, 与normal保持一致
     shareMemOffset_ = totalWinSize_;
     halfWinSize_ = totalWinSize_ / 2;
     WIN_SIZE = halfWinSize_ - STATUS_SIZE_LAYERED;

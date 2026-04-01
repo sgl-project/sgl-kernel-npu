@@ -1,0 +1,101 @@
+name: Build and Release SGL-Kernel-NPU
+
+on:
+  release:
+    types:
+      - published
+
+  pull_request:
+    branches:
+      - 'main'
+    paths:
+      - '.github/workflows/build_and_release.yml'
+      - 'config.ini'
+      - 'build.sh'
+
+jobs:
+
+  build-and-release:
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        arch: [x86_64, aarch64]
+        npu_hardware: [910b, a3]
+        cann_version: [8.3.rc2, 8.5.0]
+        torch_version: [2.8.0, 2.10.0]
+        # Ref: https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+        exclude:
+          - torch_version: 2.10.0
+            cann_version: 8.3.rc2
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.11
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Mark repository safe
+        run: |
+          git config --system --add safe.directory ${GITHUB_WORKSPACE}
+
+      - name: Install dependency
+        run: |
+          bash scripts/npu_ci_install_dependency.sh --torch-version ${{ matrix.torch_version }}
+
+      - name: Build SGL-Kernel-NPU
+        run: |
+          env -i PATH=${PATH} bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+            ./build.sh -a kernels
+          "
+
+      - name: Build Torch-Memory-Saver
+        run: |
+          env -i PATH=${PATH} bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+            ./build.sh -a memory-saver
+          "
+
+      - name: Build DeepEP for 910b
+        if: matrix.npu_hardware == '910b'
+        run: |
+          env -i PATH=${PATH} bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+            ./build.sh -a deepep2
+          "
+
+      - name: Build DeepEP for a3
+        if: matrix.npu_hardware == 'a3'
+        run: |
+          env -i PATH=${PATH} bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+            ./build.sh -a deepep
+          "
+
+      - name: Pack up packages
+        run: |
+          export TORCH_DEVICE_BACKEND_AUTOLOAD=0
+          TORCH_VERSION=$(python3 -c "import torch; print(torch.__version__)" | awk -F'+' '{print $1}')
+          PYTHON_VERSION=$(python3 -c "import platform; print(platform.python_version())" | awk -F'.' '{print $1$2}')
+          PACKAGE_NAME="sgl-kernel-npu-${{ github.event.release.tag_name }}-torch${TORCH_VERSION}-py${PYTHON_VERSION}-cann${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-${{ matrix.arch }}.zip"
+          cd output/
+          zip -v ${PACKAGE_NAME} ./*.whl
+          ls -al
+
+      - name: Upload Release Artifacts
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: ./output/*.zip

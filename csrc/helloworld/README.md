@@ -1,5 +1,5 @@
 ##### Description of Helloworld
-This is an extreme simple example of writing an op on Ascend NPU.
+This is an extremely simple example of writing an op on Ascend NPU.
 
 A typical op includes two major parts:
 * Device part which really running device, i.e. NPU

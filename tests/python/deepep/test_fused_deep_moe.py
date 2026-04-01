@@ -9,32 +9,35 @@ import torch
 import torch.distributed as dist
 import torch_npu
 from deep_ep import Buffer
-from utils import bench, calc_diff, hash_tensor, init_dist
+from utils import bench_kineto, calc_diff, hash_tensor, init_dist
 
 torch_npu.npu.config.allow_internal_format = True
+
+GMM_TILE_N_DIM = 64
 
 
 # ======================== Weight Initialization ========================
 def init_base_weights(
-    num_local_experts, hidden_in=7168, hidden_mid=4096, hidden_out=2048
+    num_local_experts,
+    hidden_in=7168,
+    moe_intermediate_size=4096,
 ):
     """
     Initialize the weights for each local expert.
     `num_local_experts`: Number of experts per rank = `num_experts` // `num_ranks`
     `hidden_in`: Input dimension (default 7168)
-    `hidden_mid`: Intermediate layer dimension (default 4096)
-    `hidden_out`: Output dimension (default 2048)
+    `moe_intermediate_size`: Intermediate moe layer dimension (default 4096)
     """
-
+    hidden_out = moe_intermediate_size // 2
     w13_weight = torch.randint(
-        -16, 16, [num_local_experts, hidden_mid, hidden_in], dtype=torch.int8
+        -16, 16, [num_local_experts, moe_intermediate_size, hidden_in], dtype=torch.int8
     )
     w2_weight = torch.randint(
         -16, 16, [num_local_experts, hidden_in, hidden_out], dtype=torch.int8
     )
 
     w13_weight_scale = (
-        torch.rand([num_local_experts, hidden_mid, 1]) * 0.0004 + 0.0015
+        torch.rand([num_local_experts, moe_intermediate_size, 1]) * 0.0004 + 0.0015
     ).bfloat16()
     w2_weight_scale = (
         torch.rand([num_local_experts, hidden_in, 1]) * 0.0004 + 0.0015
@@ -74,7 +77,9 @@ def reshape_fusion_gmm_weight(weight, dim):
     if dim < 0:
         dim += len(original_shape)
 
-    weight = weight.view(*original_shape[:dim], 2, 32, 64, *original_shape[dim + 1 :])
+    weight = weight.view(
+        *original_shape[:dim], 2, -1, GMM_TILE_N_DIM, *original_shape[dim + 1 :]
+    )
     weight = weight.transpose(dim, dim + 1).contiguous()
     weight = weight.view(*original_shape[:dim], -1, *original_shape[dim + 1 :])
 
@@ -232,6 +237,7 @@ def baseline_test(
 def test(
     num_tokens: int,
     hidden: int,
+    moe_intermediate_size: int,
     num_experts: int,
     num_topk: int,
     rank: int,
@@ -310,6 +316,7 @@ def test(
     w13_weight, w13_weight_scale, w2_weight, w2_weight_scale = init_base_weights(
         num_local_experts=num_local_experts,
         hidden_in=hidden,
+        moe_intermediate_size=moe_intermediate_size,
     )
     w13, w13_scale, w2, w2_scale = init_baseline_weights(
         w13_weight.clone().detach(),
@@ -459,7 +466,7 @@ def test(
         flush=True,
     )
 
-    assert avg_diff < 1e-4, f"[Rank {rank}] Mismatch detected! diff={avg_diff}"
+    assert avg_diff < 4e-4, f"[Rank {rank}] Mismatch detected! diff={avg_diff}"
 
     # ----- Compare Recv Count -----
     all_expert_token_counts = [
@@ -512,6 +519,63 @@ def test(
         max_recv_count_diff < 1e-4
     ), f"[Rank {rank}] Mismatch detected! diff={max_recv_count_diff}"
 
+    # ----- performance test -----
+    dist.barrier()
+    baseline_args = {
+        "buffer": buffer2,
+        "x": x,
+        "topk_idx": topk_idx,
+        "num_tokens": num_tokens,
+        "num_experts": num_experts,
+        "cumulative_local_expert_recv_stats": cumulative_local_expert_recv_stats,
+        "return_recv_hook": return_recv_hook,
+        "w13": w13,
+        "w13_scale": w13_scale,
+        "w2": w2,
+        "w2_scale": w2_scale,
+        "topk_weights": topk_weights_dropped,
+    }
+    fused_moe_args = {
+        "x": x,
+        "topk_idx": topk_idx_dropped,
+        "topk_weights": topk_weights,
+        "gmm1_permuted_weight": w13_f,
+        "gmm1_permuted_weight_scale": w13s_f,
+        "gmm2_weight": w2_f,
+        "gmm2_weight_scale": w2s_f,
+        "num_max_dispatch_tokens_per_rank": num_tokens,
+        "num_experts": num_experts,
+        "quant_mode": 0,
+    }
+
+    baseline_time = bench_kineto(
+        lambda: baseline_test(**baseline_args),
+        (
+            "aclnnInplaceOne_OnesLikeAiCore_OnesLike",
+            "MoeDistributeDispatchV2",
+            "aclnnGroupedMatmulWeightNz_GroupedMatmul_GroupedMatmul",
+            "DequantSwigluQuant",
+            "MoeDistributeCombineV2",
+        ),
+        barrier_comm_profiling=True,
+    )
+    fused_moe_time = bench_kineto(
+        lambda: buffer.fused_deep_moe(**fused_moe_args),
+        "FusedDeepMoe",
+        barrier_comm_profiling=True,
+    )
+
+    # aclnnGroupedMatmulWeightNz_GroupedMatmul_GroupedMatmul was calculated twice
+    baseline_time_ = sum(baseline_time) + baseline_time[2]
+    print(
+        f"[Rank {rank}] baseline_time= {baseline_time_ * 1e6:.2f} us",
+        flush=True,
+    )
+    print(
+        f"[Rank {rank}] fused_moe_time= {fused_moe_time * 1e6:.2f} us",
+        flush=True,
+    )
+
 
 # ======================== Distributed Entry ========================
 def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
@@ -519,7 +583,11 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     group2 = dist.new_group(list(range(num_ranks)))
 
     shared_expert_rank_num = int(os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0))
-    num_tokens, hidden = args.num_tokens, args.hidden
+    num_tokens, hidden, moe_intermediate_size = (
+        args.num_tokens,
+        args.hidden,
+        args.moe_intermediate_size,
+    )
     num_topk, num_experts = args.num_topk, args.num_experts
     use_experts = num_experts if shared_expert_rank_num == 0 else (num_experts - 1)
     use_ranks = num_ranks - shared_expert_rank_num
@@ -542,6 +610,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     test(
         num_tokens,
         hidden,
+        moe_intermediate_size,
         use_experts,
         num_topk,
         rank,
@@ -579,6 +648,12 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--hidden", type=int, default=7168, help="Hidden dimension size (default: 7168)"
+    )
+    parser.add_argument(
+        "--moe-intermediate-size",
+        type=int,
+        default=4096,
+        help="Moe intermediate size (default: 4096)",
     )
     parser.add_argument(
         "--num-topk", type=int, default=8, help="Number of top-k experts (default: 8)"

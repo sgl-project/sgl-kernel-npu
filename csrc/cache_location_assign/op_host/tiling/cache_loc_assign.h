@@ -37,4 +37,6 @@ struct AssignCacheTillingData {
     uint64_t cacheLocAlignInt32{0};
 };
 
+constexpr uint32_t MAX_STEP = 16;
+
 #endif  // CACHE_LOC_ASSIGN_TILING_H

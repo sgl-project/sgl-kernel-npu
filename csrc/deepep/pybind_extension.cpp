@@ -2,6 +2,7 @@
 #include <pybind11/pytypes.h>
 #include <pybind11/functional.h>
 #include <pybind11/stl.h>
+#include <c10/util/ArrayRef.h>
 
 #include "deep_ep.hpp"
 #include "config.hpp"
@@ -36,10 +37,12 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
         .def("get_notify_send_data", &deep_ep::Buffer::get_notify_send_data)
         .def("clean_low_latency_buffer", &deep_ep::Buffer::clean_low_latency_buffer)
         .def("intranode_dispatch", &deep_ep::Buffer::intranode_dispatch)
+        .def("notify_verify", &deep_ep::Buffer::notify_verify)
         .def("intranode_combine", &deep_ep::Buffer::intranode_combine)
         .def("internode_dispatch", &deep_ep::Buffer::internode_dispatch)
         .def("internode_combine", &deep_ep::Buffer::internode_combine)
         .def("low_latency_dispatch", &deep_ep::Buffer::low_latency_dispatch)
         .def("low_latency_combine", &deep_ep::Buffer::low_latency_combine)
-        .def("fused_deep_moe", &deep_ep::Buffer::fused_deep_moe);
+        .def("fused_deep_moe", &deep_ep::Buffer::fused_deep_moe)
+        .def("dispatch_ffn_combine", &deep_ep::Buffer::dispatch_ffn_combine);
 }

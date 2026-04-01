@@ -31,8 +31,8 @@ constexpr int32_t IPC_FLAG_STEP_1 = 1ULL;
 constexpr int32_t IPC_FLAG_STEP_2 = 2ULL;
 constexpr uint32_t TBUF_TEMP_OFFSET = 8 * 1024;
 constexpr uint32_t TBUF_OFFSET_ALIGN_B32_CNT = 2 * 1024 / sizeof(int32_t);
-constexpr uint32_t RDMA_DATA_SIZE = 100U * 1024U * 1024U;
-constexpr uint32_t EXTRA_TOKEN_INFO_NUM = 4U;  // 专家信息 权重信息 量化Scale 到达标志位
+constexpr uint32_t RDMA_DATA_SIZE = 800U * 1024U * 1024U;  // normal/low_latency dispatch&combine的预留大小一致
+constexpr uint32_t EXTRA_TOKEN_INFO_NUM = 4U;              // 专家信息 权重信息 量化Scale 到达标志位
 constexpr uint32_t BITS32_PER_BLOCK = 8U;
 constexpr static uint32_t BW_ITEM_SIZE = 32;
 constexpr uint32_t FLAG_VALUE = 0xFFFFFFFF;
@@ -203,18 +203,15 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
 {
     tpipe_ = pipe;
     REGISTER_TILING_DEFAULT(CamMoeDistributeDispatchA2TilingData);
-    auto tiling = (__gm__ CamMoeDistributeDispatchA2TilingData *)tilingGM;
-    __gm__ void *mc2InitTiling = (__gm__ void *)(&(tiling->mc2InitTiling));
-    __gm__ void *mc2CcTiling = (__gm__ void *)(&(tiling->mc2CcTiling));
     GET_TILING_DATA_WITH_STRUCT(CamMoeDistributeDispatchA2TilingData, tilingData, tilingGM);
 
     auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
-    hccl_.Init(contextGM0, mc2InitTiling);
-    hccl_.SetCcTiling(mc2CcTiling);
+    hccl_.InitV2(contextGM0, &tilingData);
+    hccl_.SetCcTilingV2(offsetof(CamMoeDistributeDispatchA2TilingData, mc2CcTiling));
 
     winContext_ = (__gm__ HcclOpResParam *)contextGM0;
     rankId_ = tilingData.moeDistributeDispatchInfo.epRankId;
-    windowInGM_ = hccl_.GetWindowsInAddr(rankId_) + NOTIFY_OFFSET;
+    windowInGM_ = hccl_.GetWindowsInAddr(rankId_);
     windowOutGM_ = hccl_.GetWindowsOutAddr(rankId_);
 
     axisBS_ = tilingData.moeDistributeDispatchInfo.bs;
@@ -227,7 +224,7 @@ __aicore__ inline void CamMoeDistributeDispatchA2Layered<TemplateMC2TypeA2layere
     localMoeExpertNum_ = moeExpertNum_ / worldSize_;
     kAlign_ = RoundUp(axisK_, (uint32_t)8);
     totalSize_ = winContext_->winSize;
-    totalWinSize_ = 300 * 1024 * 1024;  // RDMA 300 MB空间
+    totalWinSize_ = RDMA_DATA_SIZE;  // RDMA 800 MB空间, 与low_latency一致
     shareMemOffset_ = totalWinSize_;
     halfWinSize_ = totalWinSize_ / 2;
     WIN_SIZE = halfWinSize_ - STATUS_SIZE_LAYERED;

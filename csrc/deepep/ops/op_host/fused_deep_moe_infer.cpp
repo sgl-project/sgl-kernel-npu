@@ -8,10 +8,20 @@
  */
 
 #include <cstdint>
-#include "error_log.h"
+#include "ops_log.h"
+#include "ops_error.h"
 #include "graph/utils/type_utils.h"
 #include "register/op_def_registry.h"
 
+#ifndef OPS_UTILS_LOG_SUB_MOD_NAME
+#define OPS_UTILS_LOG_SUB_MOD_NAME "FUSED_DEEP_MOE"
+#endif
+
+#ifndef OPS_UTILS_LOG_PACKAGE_TYPE
+#define OPS_UTILS_LOG_PACKAGE_TYPE "DEEPEP_OPS"
+#endif
+
+using namespace ops;
 namespace ge {
 constexpr uint32_t EXPAND_X_INDEX = 0;
 constexpr uint32_t EXPERT_IDS_INDEX = 1;
@@ -52,19 +62,18 @@ static ge::graphStatus InferShape(gert::InferShapeContext *context)
 
     // infer recvCount shape
     auto attrs = context->GetAttrs();
-    OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "attrs is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(attrs == nullptr, OPS_LOG_E(nodeName, "attrs is nullptr."), return ge::GRAPH_FAILED);
 
     auto epRankSizePtr = attrs->GetAttrPointer<int64_t>(ATTR_EP_RANK_SIZE_INDEX);
     auto epRankIdPtr = attrs->GetAttrPointer<int64_t>(ATTR_EP_RANK_ID_INDEX);
     auto moeExpertNumPtr = attrs->GetAttrPointer<int64_t>(ATTR_MOE_EXPERT_NUM_INDEX);
     auto sharedExpertRankNumPtr = attrs->GetAttrPointer<int64_t>(ATTR_SHARE_EXPERT_RANK_NUM_INDEX);
 
-    OP_TILING_CHECK(epRankIdPtr == nullptr, OP_LOGE(nodeName, "epRankIdPtr is nullptr."), return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(moeExpertNumPtr == nullptr, OP_LOGE(nodeName, "moeExpertNumPtr is nullptr."),
-                    return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(epRankSizePtr == nullptr, OP_LOGE(nodeName, "epRankSizePtr is nullptr."), return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(sharedExpertRankNumPtr == nullptr, OP_LOGE(nodeName, "sharedExpertRankNumPtr is nullptr."),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(epRankIdPtr == nullptr, OPS_LOG_E(nodeName, "epRankIdPtr is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(moeExpertNumPtr == nullptr, OPS_LOG_E(nodeName, "moeExpertNumPtr is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(epRankSizePtr == nullptr, OPS_LOG_E(nodeName, "epRankSizePtr is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(sharedExpertRankNumPtr == nullptr, OPS_LOG_E(nodeName, "sharedExpertRankNumPtr is nullptr."),
+               return ge::GRAPH_FAILED);
     uint32_t epRankSize = static_cast<uint32_t>(*epRankSizePtr);
     uint32_t moeExpertNum = static_cast<uint32_t>(*moeExpertNumPtr);
     uint32_t epRankId = static_cast<uint32_t>(*epRankIdPtr);

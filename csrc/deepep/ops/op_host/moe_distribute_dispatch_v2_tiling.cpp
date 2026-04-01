@@ -35,15 +35,13 @@ constexpr uint32_t X_INDEX = 0U;
 constexpr uint32_t EXPERT_IDS_INDEX = 1U;
 constexpr uint32_t SCALES_INDEX = 2U;
 constexpr uint32_t X_ACTIVE_MASK_INDEX = 3U;
-constexpr uint32_t EXPERT_SCALES_INDEX = 4U;
-constexpr uint32_t ELASTIC_INFO_INDEX = 5U;
+constexpr uint32_t ELASTIC_INFO_INDEX = 4U;
 constexpr uint32_t OUTPUT_EXPAND_X_INDEX = 0U;
 constexpr uint32_t OUTPUT_DYNAMIC_SCALES_INDEX = 1U;
 constexpr uint32_t OUTPUT_ASSIST_INFO_INDEX = 2U;
 constexpr uint32_t OUTPUT_EXPERT_TOKEN_NUMS_INDEX = 3U;
 constexpr uint32_t OUTPUT_EP_RECV_COUNTS_INDEX = 4U;
 constexpr uint32_t OUTPUT_TP_RECV_COUNTS_INDEX = 5U;
-constexpr uint32_t OUTPUT_EXPAND_SCALES_INDEX = 6U;
 
 constexpr uint32_t ATTR_GROUP_EP_INDEX = 0;
 constexpr uint32_t ATTR_EP_WORLD_SIZE_INDEX = 1;
@@ -759,8 +757,8 @@ static ge::graphStatus CheckAttrs(const gert::TilingContext *context, const char
     // 校验输入x的dim 0并设bs
     const gert::StorageShape *xStorageShape = context->GetInputShape(X_INDEX);
     const int64_t xDim0 = xStorageShape->GetStorageShape().GetDim(0);
-    OP_TILING_CHECK((xDim0 > BS_UPPER_BOUND) || (xDim0 <= 0),
-                    OP_LOGE(nodeName, "xDim0(BS) is invalid. Should be between [1, %ld], but got xDim0=%ld.",
+    OP_TILING_CHECK((xDim0 > BS_UPPER_BOUND) || (xDim0 < 0),
+                    OP_LOGE(nodeName, "xDim0(BS) is invalid. Should be between [0, %ld], but got xDim0=%ld.",
                             BS_UPPER_BOUND, xDim0),
                     return ge::GRAPH_FAILED);
     tilingData.moeDistributeDispatchV2Info.bs = static_cast<uint32_t>(xDim0);

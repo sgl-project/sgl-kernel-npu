@@ -5,21 +5,14 @@ endif()
 
 message(STATUS "ASCEND include path: ${ASCEND_CANN_PACKAGE_PATH}/opp/built-in/op_impl/ai_core/tbe/impl/ascendc/moe_distribute_dispatch")
 
-# copy moe_distribute_base head file
-execute_process(
-    COMMAND ${CMAKE_COMMAND} -E copy
-    "${ASCEND_CANN_PACKAGE_PATH}/opp/built-in/op_impl/ai_core/tbe/impl/ascendc/moe_distribute_dispatch/moe_distribute_base.h"
-    "${CMAKE_CURRENT_BINARY_DIR}/../../op_kernel/moe_distribute_base.h"
-    RESULT_VARIABLE copy_result
-)
-
-# check moe_distribute_base head file
-if(copy_result EQUAL 0)
-    message(STATUS "Successfully copied moe_distribute_base.h")
+set(_DISPATCH_FFN_INC_OPTS)
+if (EXISTS ${CMAKE_SOURCE_DIR}/third_party/catlass/include)
+    list(APPEND _DISPATCH_FFN_INC_OPTS -I${CMAKE_SOURCE_DIR}/third_party/catlass/include)
 else()
-    message(WARNING "Failed to copy moe_distribute_base.h")
+    message(FATAL_ERROR "dependency catlass is missing")
 endif()
+message(WARNING "_DISPATCH_FFN_INC_OPTS: ${_DISPATCH_FFN_INC_OPTS}")
 
-add_ops_compile_options(ALL OPTIONS -DASCENDC_DUMP=0 --cce-auto-sync=off)
+add_ops_compile_options(ALL OPTIONS -DASCENDC_DUMP=0 --cce-auto-sync=off ${_DISPATCH_FFN_INC_OPTS})
 
 add_kernels_compile()

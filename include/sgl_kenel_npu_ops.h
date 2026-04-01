@@ -89,6 +89,23 @@ at::Tensor sgmv_expand(at::Tensor &x, at::Tensor &weight,
 void sgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
                  at::Tensor &seq_len, at::Tensor &y, double scale);
 
+at::Tensor sgemmv_expand(at::Tensor &x, at::Tensor &weight,
+                         at::Tensor &lora_indices, at::Tensor &seq_len,
+                         at::Tensor &lora_ranks, at::Tensor &slice_offsets,
+                         at::Tensor &y);
+
+void sgemmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
+                   at::Tensor &seq_len, at::Tensor &lora_ranks,
+                   at::Tensor &lora_scales, at::Tensor &y);
+
+at::Tensor recurrent_gated_delta_rule(
+    at::Tensor &mix_qkv, at::Tensor &recurrent_state, at::Tensor &beta,
+    double scale, at::Tensor &actual_seq_lengths, at::Tensor &ssm_state_indices,
+    int64_t nk, int64_t nv, c10::optional<at::Tensor> intermediate_state_opt,
+    c10::optional<at::Tensor> cache_indices_opt,
+    c10::optional<at::Tensor> num_accepted_tokens_opt,
+    c10::optional<at::Tensor> g_opt, c10::optional<at::Tensor> gk_opt);
+
 #ifdef BUILD_CATLASS_MODULE
 void catlass_matmul_basic(const at::Tensor &tensor_a,
                           const at::Tensor &tensor_b, at::Tensor &tensor_c,
@@ -104,6 +121,16 @@ at::Tensor lightning_indexer(
     c10::optional<c10::string_view> layout_key,
     c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode);
 
+/**
+ * @brief Triangular inverse of input tensor where last two dimensions represent
+ * a matrix.
+ *
+ * @param [in] tensor_in Tensor of dimensions (..., n, n) where `n` is
+ * the matrix size.
+ * @return at::Tensor Returns tensor of same shape where each matrix of size n
+ * is inversed.
+ */
+at::Tensor tri_inv_col_sweep(const at::Tensor &tensor_in);
 } // namespace npu_kernel
 
 } // namespace sglang

@@ -1,4 +1,5 @@
 import os
+from enum import IntEnum
 from typing import Callable, List, Optional, Tuple, Union
 
 import deep_ep_cpp
@@ -8,6 +9,11 @@ import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
 from .utils import EventOverlap, log_parameters
+
+
+class FuseMode(IntEnum):
+    FUSED_DEEP_MOE = 1
+    DISPATCH_FFN_COMBINE = 2
 
 
 class Buffer:
@@ -387,6 +393,95 @@ class Buffer:
 
         # noinspection PyTypeChecker
 
+    @log_parameters(["topk_idx"])
+    def notify_verify(
+        self,
+        x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+        handle: Optional[Tuple] = None,
+        num_tokens_per_rank: Optional[torch.Tensor] = None,
+        num_tokens_per_rdma_rank: Optional[torch.Tensor] = None,
+        is_token_in_rank: Optional[torch.Tensor] = None,
+        num_tokens_per_expert: Optional[torch.Tensor] = None,
+        topk_idx: Optional[torch.Tensor] = None,
+        topk_weights: Optional[torch.Tensor] = None,
+        expert_alignment: int = 1,
+        num_worst_tokens: int = 0,
+        config: Optional[Config] = None,
+        previous_event: Optional[EventOverlap] = None,
+        async_finish: bool = False,
+        allocate_on_comm_stream: bool = False,
+        dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
+    ) -> Tuple[
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+        torch.Tensor,
+    ]:
+        # Default config
+        config = self.get_dispatch_config(self.group_size) if config is None else config
+        # Launch the kernel with cached or non-cached mode
+        if isinstance(x, tuple):
+            raise NotImplementedError("Not support fp8")
+        x_scales = None
+        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+
+        if handle is not None:
+            raise NotImplementedError(
+                "Optional communication handle is not supported yet."
+            )
+        else:
+            assert (
+                num_tokens_per_rank is not None
+                and is_token_in_rank is not None
+                and num_tokens_per_expert is not None
+            )
+            (
+                recv_data,
+                recv_count,
+                recv_offset,
+                expert_global_offset,
+                srcrank_in_expert_offset,
+                C,
+                total_recv_token,
+                max_bs,
+                recv_tokens_per_expert,
+            ) = self.runtime.notify_verify(
+                x,
+                x_scales,
+                topk_idx,
+                topk_weights,
+                num_tokens_per_rank,
+                is_token_in_rank,
+                num_tokens_per_expert,
+                0,
+                None,
+                None,
+                dispatch_wait_recv_cost_stats,
+                expert_alignment,
+                num_worst_tokens,
+                config,
+                getattr(previous_event, "event", None),
+                async_finish,
+                allocate_on_comm_stream,
+                use_quant,
+            )
+            return (
+                recv_data,
+                recv_count,
+                recv_offset,
+                expert_global_offset,
+                srcrank_in_expert_offset,
+                C,
+                total_recv_token,
+                max_bs,
+                recv_tokens_per_expert,
+            )
+
     @log_parameters()
     def combine(
         self,
@@ -590,7 +685,6 @@ class Buffer:
         topk_idx: torch.Tensor,
         num_max_dispatch_tokens_per_rank: int,
         num_experts: int,
-        topk_weights: Optional[torch.Tensor] = None,
         cumulative_local_expert_recv_stats: Optional[torch.Tensor] = None,
         use_fp8: bool = True,
         round_scale: bool = False,
@@ -647,13 +741,11 @@ class Buffer:
             packed_recv_count,
             packed_recv_src_info,
             packed_recv_layout_range,
-            expand_scales,
             event,
             hook,
         ) = self.runtime.low_latency_dispatch(
             x,
             topk_ids,
-            topk_weights,
             cumulative_local_expert_recv_stats,
             num_max_dispatch_tokens_per_rank,
             num_experts,
@@ -670,7 +762,6 @@ class Buffer:
             x.size(1),
             num_experts,
             packed_recv_count,
-            expand_scales,
         )
         tensors_to_record = (
             x,
@@ -735,7 +826,6 @@ class Buffer:
             hidden,
             num_experts,
             packed_recv_count,
-            expand_scales,
         ) = handle
         combined_x, event, hook = self.runtime.low_latency_combine(
             x,
@@ -750,7 +840,6 @@ class Buffer:
             async_finish,
             return_recv_hook,
             out,
-            expand_scales,
         )
         tensors_to_record = (
             x,
@@ -778,6 +867,7 @@ class Buffer:
         num_max_dispatch_tokens_per_rank: int,
         num_experts: int,
         quant_mode: int = 1,
+        fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         A fused low-latency implementation for MoE expert forward and combination.
@@ -797,9 +887,11 @@ class Buffer:
             gmm2_weight: weight tensor for the second stage (e.g., projection or FFN output).
             gmm2_weight_scale: quantization scale tensor corresponding to `gmm2Weight`.
 
-            num_max_dispatch_tokens_per_rank: the maximum number of tokens to dispatch, all the ranks must hold the same value.
+            num_max_dispatch_tokens_per_rank: the maximum number of tokens to dispatch, when fuse_mode is DISPATCH_FFN_COMBINE,
+                it indicates the maximum number of tokens received in dispatch. All the ranks must hold the same value.
             num_experts: the number of experts.
             quant_mode: int type, optional number, displays the quantization model. Supported values: 1 means int8 (default)
+            fuse_mode: Fuse mode enum (default: FuseMode.FUSED_DEEP_MOE).
 
         Notes:
             - The first dimension of `topk_idx` defines the batch size `bs`.
@@ -813,21 +905,39 @@ class Buffer:
             ep_recv_count: `torch.Tensor`, a 1D tensor of type `torch.int32`
                 indicating the number of tokens received by each expert across all ranks.
         """
-        gmm1_permuted_weight_scale = gmm1_permuted_weight_scale.float()
-        gmm2_weight_scale = gmm2_weight_scale.float()
         topk_ids = topk_idx.int()
+        if fuse_mode == FuseMode.FUSED_DEEP_MOE:
+            gmm1_permuted_weight_scale = gmm1_permuted_weight_scale.float()
+            gmm2_weight_scale = gmm2_weight_scale.float()
 
-        output, ep_recv_count = self.runtime.fused_deep_moe(
-            x,
-            topk_ids,
-            gmm1_permuted_weight,
-            gmm1_permuted_weight_scale,
-            gmm2_weight,
-            gmm2_weight_scale,
-            topk_weights,
-            num_max_dispatch_tokens_per_rank,
-            num_experts,
-            quant_mode,
-        )
-
-        return output, ep_recv_count
+            output, ep_recv_count = self.runtime.fused_deep_moe(
+                x,
+                topk_ids,
+                gmm1_permuted_weight,
+                gmm1_permuted_weight_scale,
+                gmm2_weight,
+                gmm2_weight_scale,
+                topk_weights,
+                num_max_dispatch_tokens_per_rank,
+                num_experts,
+                quant_mode,
+            )
+            return output, ep_recv_count
+        elif fuse_mode == FuseMode.DISPATCH_FFN_COMBINE:
+            # The maximum number of tokens that rank can obtain during dispatch. (max_bs * ranks * topk)
+            max_output_size = num_max_dispatch_tokens_per_rank
+            output, expert_token_nums = self.runtime.dispatch_ffn_combine(
+                x,
+                topk_ids,
+                gmm1_permuted_weight,
+                gmm1_permuted_weight_scale,
+                gmm2_weight,
+                gmm2_weight_scale,
+                topk_weights,
+                max_output_size,
+                num_experts,
+                quant_mode,
+            )
+            return output, expert_token_nums
+        else:
+            raise NotImplementedError(f"Not support fuse_mode:{fuse_mode}")
