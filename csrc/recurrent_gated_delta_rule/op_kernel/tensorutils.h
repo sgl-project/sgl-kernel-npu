@@ -24,7 +24,7 @@ using namespace AscendC;
 #define WAIT_VEC(iiii) CrossCoreWaitFlag(iiii)
 
 constexpr uint64_t VECTORFULLMASK[2] = {(uint64_t)-1, (uint64_t)-1};
-constexpr int SGL_TWO = 2; // vector per core; dbuff
+constexpr int SGL_TWO = 2;  // vector per core; dbuff
 constexpr int SGL_THREE = 3;
 constexpr int SGL_FOUR = 4;
 
@@ -82,7 +82,7 @@ __aicore__ constexpr HardEvent GetHardEventByPipe(pipe_t src, pipe_t dst)
 __aicore__ inline void OccupyMMTE1Events()
 {
     if ASCEND_IS_AIC {
-        TPipe* pipe_ptr = GetTPipePtr();
+        TPipe *pipe_ptr = GetTPipePtr();
         pipe_ptr->AllocEventID<HardEvent::M_MTE1>();
         pipe_ptr->AllocEventID<HardEvent::M_MTE1>();
         pipe_ptr->AllocEventID<HardEvent::M_MTE1>();
@@ -122,19 +122,20 @@ template <TPosition pos, typename T>
 __aicore__ inline void AllocateLocalTensor(LocalTensor<T> &tsr, int len)
 {
     TBuf<pos> tbuf;
-    TPipe* ptr = GetTPipePtr();
+    TPipe *ptr = GetTPipePtr();
     ptr->InitBuffer(tbuf, len * sizeof(T));
     tsr = tbuf.template Get<T>();
 }
 
 /* ------------- Double Buffer ------------- */
 template <typename T, TPosition pos>
-class DBuff {
+class DBuff
+{
 public:
     __aicore__ inline DBuff() {}
     __aicore__ inline void Init(int len)
     {
-        TPipe* ptr = GetTPipePtr();
+        TPipe *ptr = GetTPipePtr();
         ptr->InitBuffer(buf1, len * sizeof(T));
         ptr->InitBuffer(buf2, len * sizeof(T));
         tsr1 = buf1.template Get<T>();
@@ -149,6 +150,7 @@ public:
             return tsr2;
         }
     }
+
 private:
     TBuf<pos> buf1, buf2;
     LocalTensor<T> tsr1, tsr2;
@@ -156,12 +158,13 @@ private:
 
 /* ------------- Triple Buffer ------------- */
 template <typename T, TPosition pos>
-class TBuff {
+class TBuff
+{
 public:
     __aicore__ inline TBuff() {}
     __aicore__ inline void Init(int len)
     {
-        TPipe* ptr = GetTPipePtr();
+        TPipe *ptr = GetTPipePtr();
         ptr->InitBuffer(buf1, len * sizeof(T));
         ptr->InitBuffer(buf2, len * sizeof(T));
         ptr->InitBuffer(buf3, len * sizeof(T));
@@ -180,6 +183,7 @@ public:
             return tsr3;
         }
     }
+
 private:
     TBuf<pos> buf1, buf2, buf3;
     LocalTensor<T> tsr1, tsr2, tsr3;
@@ -187,12 +191,13 @@ private:
 
 /* ------------- Events ------------- */
 template <HardEvent hardevent_t>
-class SEvent {
+class SEvent
+{
 public:
     __aicore__ inline SEvent() {}
     __aicore__ inline void Init()
     {
-        TPipe* pipe_ptr = GetTPipePtr();
+        TPipe *pipe_ptr = GetTPipePtr();
         id1 = (event_t)pipe_ptr->AllocEventID<hardevent_t>();
     }
     __aicore__ inline void wait()
@@ -217,12 +222,13 @@ private:
 };
 
 template <pipe_t p1, pipe_t p2>
-class DEvent {
+class DEvent
+{
 public:
     __aicore__ inline DEvent() {}
     __aicore__ inline void Init()
     {
-        TPipe* pipe_ptr = GetTPipePtr();
+        TPipe *pipe_ptr = GetTPipePtr();
         id1 = (event_t)pipe_ptr->AllocEventID<GetHardEventByPipe(p1, p2)>();
         id2 = (event_t)pipe_ptr->AllocEventID<GetHardEventByPipe(p1, p2)>();
     }

@@ -46,21 +46,12 @@ namespace SGLang {
 namespace CausalConv1dUpdate {
 
 // Helper function to compute tiling data
-inline void ComputeTilingData(
-    const int64_t batch,
-    const int64_t seq_len,
-    const int64_t dim,
-    const int64_t width,
-    const int64_t state_len,
-    const bool has_indices,
-    const bool has_bias,
-    const bool has_num_accept,
-    const bool has_query_loc,
-    const bool activation_mode,
-    const int64_t pad_slot_id,
-    const int32_t num_cores,
-    CausalConv1dUpdateTilingData& tiling_data
-) {
+inline void ComputeTilingData(const int64_t batch, const int64_t seq_len, const int64_t dim, const int64_t width,
+                              const int64_t state_len, const bool has_indices, const bool has_bias,
+                              const bool has_num_accept, const bool has_query_loc, const bool activation_mode,
+                              const int64_t pad_slot_id, const int32_t num_cores,
+                              CausalConv1dUpdateTilingData &tiling_data)
+{
     tiling_data.batch = batch;
     tiling_data.seqLen = seq_len;
     tiling_data.dim = dim;
@@ -78,7 +69,7 @@ inline void ComputeTilingData(
     tiling_data.blockTailFactor = batch - tiling_data.blockFactor * (num_cores - 1);
 }
 
-} // namespace CausalConv1dUpdate
-} // namespace SGLang
+}  // namespace CausalConv1dUpdate
+}  // namespace SGLang
 
-#endif // CAUSAL_CONV1D_UPDATE_TILING_HOST_H_
+#endif  // CAUSAL_CONV1D_UPDATE_TILING_HOST_H_

@@ -50,4 +50,4 @@ struct CausalConv1dUpdateTilingData {
 }  // namespace npu_kernel
 }  // namespace sglang
 
-#endif // CAUSAL_CONV1D_UPDATE_TILING_DATA_H_
+#endif  // CAUSAL_CONV1D_UPDATE_TILING_DATA_H_

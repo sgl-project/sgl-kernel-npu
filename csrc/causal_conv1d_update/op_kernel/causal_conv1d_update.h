@@ -21,12 +21,12 @@
 namespace CausalConv1dUpdateOp {
 using namespace AscendC;
 template <typename T>
-class CausalConv1dUpdate : public CausalConv1dUpdateBase<T> {
+class CausalConv1dUpdate : public CausalConv1dUpdateBase<T>
+{
 public:
     __aicore__ inline CausalConv1dUpdate(){};
-    __aicore__ inline void Init(GM_ADDR x, GM_ADDR weight, GM_ADDR convState, GM_ADDR convStateIndices,
-                                GM_ADDR bias, GM_ADDR numAcceptedTokens, GM_ADDR queryStartLoc,
-                                GM_ADDR y, GM_ADDR tiling);
+    __aicore__ inline void Init(GM_ADDR x, GM_ADDR weight, GM_ADDR convState, GM_ADDR convStateIndices, GM_ADDR bias,
+                                GM_ADDR numAcceptedTokens, GM_ADDR queryStartLoc, GM_ADDR y, GM_ADDR tiling);
     __aicore__ inline void Process();
 
 private:
@@ -103,22 +103,22 @@ private:
 };
 
 template <typename T>
-__aicore__ inline void CausalConv1dUpdate<T>::Init(GM_ADDR x, GM_ADDR weight, GM_ADDR convState, GM_ADDR convStateIndices,
-                                                   GM_ADDR bias, GM_ADDR numAcceptedTokens, GM_ADDR queryStartLoc,
-                                                   GM_ADDR y, GM_ADDR tiling)
+__aicore__ inline void CausalConv1dUpdate<T>::Init(GM_ADDR x, GM_ADDR weight, GM_ADDR convState,
+                                                   GM_ADDR convStateIndices, GM_ADDR bias, GM_ADDR numAcceptedTokens,
+                                                   GM_ADDR queryStartLoc, GM_ADDR y, GM_ADDR tiling)
 {
     blockIdx_ = GetBlockIdx();
-    xGm_.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(x));
-    weightGm_.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(weight));
-    convStateGm_.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(convState));
-    convStateIndicesGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t*>(convStateIndices));
-    biasGm_.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(bias));
-    numAcceptGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t*>(numAcceptedTokens));
-    queryLocGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t*>(queryStartLoc));
-    yGm_.SetGlobalBuffer(reinterpret_cast<__gm__ T*>(y));
+    xGm_.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(x));
+    weightGm_.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(weight));
+    convStateGm_.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(convState));
+    convStateIndicesGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(convStateIndices));
+    biasGm_.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(bias));
+    numAcceptGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(numAcceptedTokens));
+    queryLocGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(queryStartLoc));
+    yGm_.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(y));
 
     // Parse tiling data directly
-    auto tiling_data = reinterpret_cast<__gm__ sglang::npu_kernel::CausalConv1dUpdateTilingData*>(tiling);
+    auto tiling_data = reinterpret_cast<__gm__ sglang::npu_kernel::CausalConv1dUpdateTilingData *>(tiling);
     tilingData_.numCore = tiling_data->numCore;
     tilingData_.blockFactor = tiling_data->blockFactor;
     tilingData_.blockTailFactor = tiling_data->blockTailFactor;
@@ -176,7 +176,7 @@ __aicore__ inline void CausalConv1dUpdate<T>::ComputeUpdate(int64_t xOffset)
     castWeight = castBufWeight_.Get<float>();
     int64_t stateOffset = 0;
 
-    if(!tilingData_.hasIndices) {
+    if (!tilingData_.hasIndices) {
         gmStateOffset_ = blockIdx_ * tilingData_.blockFactor * tilingData_.stateLen * tilingData_.dim;
     }
 
@@ -216,7 +216,7 @@ __aicore__ inline void CausalConv1dUpdate<T>::ComputeUpdate(int64_t xOffset)
 
                 if ((k + inStateOffset_) != 0) {
                     // Shift the cached state left once there is a previous slot to overwrite.
-                    CopyOutState(tilingData_.dim, stateOffset + (k + inStateOffset_ -1) * tilingData_.dim);
+                    CopyOutState(tilingData_.dim, stateOffset + (k + inStateOffset_ - 1) * tilingData_.dim);
                     MTE3ToMTE2Sync();
                 }
 
@@ -370,5 +370,5 @@ __aicore__ inline void CausalConv1dUpdate<T>::CopyOutY(int64_t yLen, int64_t yOu
     DataCopyPad<T>(yGm_[yOutOffset], outLocal, copyParams);
     outQueueY_.FreeTensor(outLocal);
 }
-} // namespace CausalConv1dUpdateOp
+}  // namespace CausalConv1dUpdateOp
 #endif

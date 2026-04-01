@@ -1,12 +1,14 @@
+import logging
+from typing import Optional, Tuple
+
 import torch
 import torch.nn.functional as F
-from typing import Optional, Tuple
-import logging
 
 # Logging configuration
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("TestScript")
 torch.manual_seed(42)
+
 
 # ==========================================
 # 1. Original SGLang implementation
@@ -50,6 +52,7 @@ class SGLangImpl:
         conv_state = conv_state.transpose(1, 2)
         return out, conv_state_update
 
+
 # ==========================================
 # 2. vLLM-style reference implementation (V3)
 # ==========================================
@@ -70,10 +73,12 @@ def vllm_causal_conv1d_update_v3(
     # Keep (kernel_size - 1) history tokens plus the latest generated suffix.
     target_state_len = (kernel_size - 1) + (seq_len - 1)
 
-    full_context = torch.cat([conv_state[conv_state_indices], hidden_state], dim=-1).to(weight.dtype)
+    full_context = torch.cat([conv_state[conv_state_indices], hidden_state], dim=-1).to(
+        weight.dtype
+    )
 
     # Compute the output.
-    computation_input = full_context[:, :, -(kernel_size - 1 + seq_len):]
+    computation_input = full_context[:, :, -(kernel_size - 1 + seq_len) :]
     windows = computation_input.unfold(-1, kernel_size, 1)
 
     # This path also assumes weight has shape [H, K].
@@ -91,12 +96,15 @@ def vllm_causal_conv1d_update_v3(
     if target_state_len > 0:
         new_conv_state = full_context[:, :, -target_state_len:]
     else:
-        new_conv_state = torch.empty(bsz, hidden_size, 0, device=hidden_state.device, dtype=hidden_state.dtype)
+        new_conv_state = torch.empty(
+            bsz, hidden_size, 0, device=hidden_state.device, dtype=hidden_state.dtype
+        )
     conv_state[conv_state_indices] = new_conv_state
     conv_state = conv_state.transpose(1, 2)
     out = out.transpose(1, 2)
 
     return out
+
 
 # ==========================================
 # 3. Correctness test
@@ -118,15 +126,16 @@ def test_correctness_fixed():
     bias = torch.randn(HIDDEN_SIZE, device=DEVICE, dtype=DTYPE)
 
     hidden_state = torch.randn(BSZ, SEQ_LEN, HIDDEN_SIZE, device=DEVICE, dtype=DTYPE)
-    conv_state_init = torch.randn(CACHE_LEN, KERNEL_SIZE - 1, HIDDEN_SIZE, device=DEVICE, dtype=DTYPE)
+    conv_state_init = torch.randn(
+        CACHE_LEN, KERNEL_SIZE - 1, HIDDEN_SIZE, device=DEVICE, dtype=DTYPE
+    )
 
     conv_state_indices = torch.arange(BSZ, device=hidden_state.device)
 
     # --- SGLang Execution ---
     sglang_model = SGLangImpl()
     sglang_cache_buffer = torch.zeros(
-        BSZ, SEQ_LEN, HIDDEN_SIZE, KERNEL_SIZE - 1,
-        device=DEVICE, dtype=DTYPE
+        BSZ, SEQ_LEN, HIDDEN_SIZE, KERNEL_SIZE - 1, device=DEVICE, dtype=DTYPE
     )
 
     out_sg, final_buffer_sg = sglang_model.torch_causal_conv1d_update_npu(
@@ -134,7 +143,7 @@ def test_correctness_fixed():
         conv_state=conv_state_init.transpose(1, 2)[conv_state_indices],
         weight=weight.transpose(0, 1),
         conv_state_update=sglang_cache_buffer,
-        bias=bias
+        bias=bias,
     )
 
     # --- vLLM Execution ---
@@ -144,7 +153,7 @@ def test_correctness_fixed():
         weight=weight,
         bias=bias,
         conv_state_indices=conv_state_indices,
-        activation=True
+        activation=True,
     )
 
     # --- Validation ---
@@ -161,8 +170,12 @@ def test_correctness_fixed():
     # 2. State Length Check
     state_vl_t = state_vl.transpose(1, 2)
     expected_len = (KERNEL_SIZE - 1) + (SEQ_LEN - 1)
-    print(f"State Shapes -> SGLang Buffer: {final_buffer_sg.shape}, vLLM State: {state_vl_t.shape}")
-    assert state_vl_t.shape[-1] == expected_len, f"Length mismatch: {state_vl_t.shape[-1]} vs {expected_len}"
+    print(
+        f"State Shapes -> SGLang Buffer: {final_buffer_sg.shape}, vLLM State: {state_vl_t.shape}"
+    )
+    assert (
+        state_vl_t.shape[-1] == expected_len
+    ), f"Length mismatch: {state_vl_t.shape[-1]} vs {expected_len}"
     print(f"✅ vLLM State length is correct: {expected_len}")
 
     # 3. Cache Content Check
@@ -179,7 +192,7 @@ def test_correctness_fixed():
         end_idx = state_vl_t.shape[-1] - (SEQ_LEN - 1 - i)
         start_idx = end_idx - (KERNEL_SIZE - 1)
 
-        vl_slice = state_vl_t[:, :, start_idx : end_idx]
+        vl_slice = state_vl_t[:, :, start_idx:end_idx]
 
         try:
             torch.testing.assert_close(sg_slice, vl_slice, rtol=1e-5, atol=1e-5)
@@ -192,6 +205,7 @@ def test_correctness_fixed():
         print(f"✅ Verified {match_count} intermediate states (Full Coverage).")
     else:
         print("❌ Cache content verification failed.")
+
 
 # ==========================================
 # 4. NPU operator test
@@ -213,7 +227,7 @@ def test_npu_causal_conv1d_update():
 
     # Check NPU availability
     try:
-        if not (hasattr(torch_npu, 'npu') and torch.npu.device_count() > 0):
+        if not (hasattr(torch_npu, "npu") and torch.npu.device_count() > 0):
             print("⚠️  NPU not available, skipping NPU test")
             return
     except Exception as e:
@@ -221,9 +235,11 @@ def test_npu_causal_conv1d_update():
         return
 
     # Verify operator is registered
-    if not hasattr(torch.ops.npu, 'causal_conv1d_update'):
+    if not hasattr(torch.ops.npu, "causal_conv1d_update"):
         print("⚠️  causal_conv1d_update operator not registered!")
-        print(f"Available npu ops: {[op for op in dir(torch.ops.npu) if not op.startswith('_')][:10]}")
+        print(
+            f"Available npu ops: {[op for op in dir(torch.ops.npu) if not op.startswith('_')][:10]}"
+        )
         return
 
     # --- Config ---
@@ -233,7 +249,9 @@ def test_npu_causal_conv1d_update():
     KERNEL_SIZE = 4
     CACHE_LEN = 10
     # conv_state must be large enough to hold (width - 1) + (seq_len - 1) values.
-    CONV_STATE_LEN = KERNEL_SIZE - 1 + SEQ_LEN - 1  # The current NPU kernel expects a fixed-size state buffer.
+    CONV_STATE_LEN = (
+        KERNEL_SIZE - 1 + SEQ_LEN - 1
+    )  # The current NPU kernel expects a fixed-size state buffer.
     DTYPE = torch.bfloat16
     DEVICE = "npu"
 
@@ -246,11 +264,17 @@ def test_npu_causal_conv1d_update():
     # bias = torch.randn(HIDDEN_SIZE, device=DEVICE, dtype=DTYPE)
     bias = None
     hidden_state = torch.randn(BSZ, SEQ_LEN, HIDDEN_SIZE, device=DEVICE, dtype=DTYPE)
-    conv_state_init = torch.randn(CACHE_LEN, CONV_STATE_LEN, HIDDEN_SIZE, device=DEVICE, dtype=DTYPE)
+    conv_state_init = torch.randn(
+        CACHE_LEN, CONV_STATE_LEN, HIDDEN_SIZE, device=DEVICE, dtype=DTYPE
+    )
     conv_state_indices = torch.arange(BSZ, device=DEVICE, dtype=torch.int32)
-    num_accepted_tokens = torch.tensor([SEQ_LEN] * BSZ, device=DEVICE, dtype=torch.int32)
+    num_accepted_tokens = torch.tensor(
+        [SEQ_LEN] * BSZ, device=DEVICE, dtype=torch.int32
+    )
     # Optional tensor used when queries are packed by start offset.
-    query_start_loc = torch.tensor([0, SEQ_LEN, 2*SEQ_LEN, 3*SEQ_LEN], device=DEVICE, dtype=torch.int32)
+    query_start_loc = torch.tensor(
+        [0, SEQ_LEN, 2 * SEQ_LEN, 3 * SEQ_LEN], device=DEVICE, dtype=torch.int32
+    )
     conv_state_vl = conv_state_init.clone()
     # --- vLLM Execution (CPU/CUDA reference) ---
     out_vl = vllm_causal_conv1d_update_v3(
@@ -259,11 +283,13 @@ def test_npu_causal_conv1d_update():
         weight=weight,
         bias=bias,
         conv_state_indices=conv_state_indices,
-        activation=True
+        activation=True,
     )
 
     # --- NPU Execution ---
-    print(f"Input shapes: x={hidden_state.shape}, weight={weight.shape}, conv_state={conv_state_init.shape}")
+    print(
+        f"Input shapes: x={hidden_state.shape}, weight={weight.shape}, conv_state={conv_state_init.shape}"
+    )
     print(f"Calling torch.ops.npu.causal_conv1d_update...")
 
     # Clone conv_state because the NPU kernel updates it in place.
@@ -279,7 +305,7 @@ def test_npu_causal_conv1d_update():
             num_accepted_tokens=num_accepted_tokens,
             # query_start_loc=None,  # Leave unset for dense [batch, seq, hidden] inputs.
             activation_mode=True,
-            pad_slot_id=-1
+            pad_slot_id=-1,
         )
 
         print(f"✅ NPU kernel executed successfully!")
@@ -290,10 +316,10 @@ def test_npu_causal_conv1d_update():
         out_npu_cpu = out_npu.cpu()
         out_vl = out_vl.cpu()
 
-
         # Check the output shape.
-        assert out_npu_cpu.shape == out_vl.shape, \
-            f"Output shape mismatch: {out_npu_cpu.shape} vs {out_vl.shape}"
+        assert (
+            out_npu_cpu.shape == out_vl.shape
+        ), f"Output shape mismatch: {out_npu_cpu.shape} vs {out_vl.shape}"
         print(f"✅ Output shape matched: {out_npu_cpu.shape}")
 
         # Ensure the output is not all zeros.
@@ -301,8 +327,12 @@ def test_npu_causal_conv1d_update():
         print(f"✅ NPU output is not all zeros")
 
         print(f"\n--- Numerical Comparison ---")
-        print(f"NPU output - shape: {out_npu_cpu.shape}, dtype: {out_npu_cpu.dtype}, mean: {out_npu_cpu.mean().item():.6f}")
-        print(f"vLLM output (transposed) - shape: {out_vl.shape}, dtype: {out_vl.dtype}, mean: {out_vl.mean().item():.6f}")
+        print(
+            f"NPU output - shape: {out_npu_cpu.shape}, dtype: {out_npu_cpu.dtype}, mean: {out_npu_cpu.mean().item():.6f}"
+        )
+        print(
+            f"vLLM output (transposed) - shape: {out_vl.shape}, dtype: {out_vl.dtype}, mean: {out_vl.mean().item():.6f}"
+        )
 
         # Compare precision element by element.
         diff = out_npu_cpu - out_vl
@@ -322,7 +352,9 @@ def test_npu_causal_conv1d_update():
         tol = ATOL + RTOL * torch.abs(out_vl)
         matched = (abs_diff <= tol).sum().item()
         total = abs_diff.numel()
-        print(f"Matched (atol={ATOL}, rtol={RTOL}): {matched}/{total} ({100*matched/total:.2f}%)")
+        print(
+            f"Matched (atol={ATOL}, rtol={RTOL}): {matched}/{total} ({100*matched/total:.2f}%)"
+        )
 
         # --- Conv state verification ---
         print(f"\n--- Conv State Update Verification ---")
@@ -336,7 +368,9 @@ def test_npu_causal_conv1d_update():
         state_exact_match = (state_diff < 1e-6).sum().item()
         state_total = state_diff.numel()
 
-        print(f"State exact match (diff < 1e-6): {state_exact_match}/{state_total} ({100*state_exact_match/state_total:.2f}%)")
+        print(
+            f"State exact match (diff < 1e-6): {state_exact_match}/{state_total} ({100*state_exact_match/state_total:.2f}%)"
+        )
         if state_exact_match == state_total:
             print(f"✅ Conv state values match exactly!")
         else:
@@ -346,11 +380,17 @@ def test_npu_causal_conv1d_update():
         print(f"\n{'='*60}")
         print("PRECISION TEST SUMMARY")
         print(f"{'='*60}")
-        print(f"Output precision:  {matched}/{total} ({100*matched/total:.2f}%) match (atol={ATOL}, rtol={RTOL})")
-        print(f"State precision:   {state_exact_match}/{state_total} ({100*state_exact_match/state_total:.2f}%) exact match")
+        print(
+            f"Output precision:  {matched}/{total} ({100*matched/total:.2f}%) match (atol={ATOL}, rtol={RTOL})"
+        )
+        print(
+            f"State precision:   {state_exact_match}/{state_total} ({100*state_exact_match/state_total:.2f}%) exact match"
+        )
 
         if matched >= total * 0.95 and state_exact_match == state_total:
-            print(f"\\n✅ PASS: Output and state are correctly aligned to torch reference!")
+            print(
+                f"\\n✅ PASS: Output and state are correctly aligned to torch reference!"
+            )
         else:
             print(f"\\n⚠️  WARNING: Precision below expected threshold")
 
@@ -359,7 +399,9 @@ def test_npu_causal_conv1d_update():
     except Exception as e:
         print(f"❌ NPU test failed with error: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     # print("="*60)
@@ -367,7 +409,7 @@ if __name__ == "__main__":
     # print("="*60)
     # test_correctness_fixed()
 
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("Running test_npu_causal_conv1d_update (NPU kernel)")
-    print("="*60)
+    print("=" * 60)
     test_npu_causal_conv1d_update()

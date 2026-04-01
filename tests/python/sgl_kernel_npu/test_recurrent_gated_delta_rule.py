@@ -1,16 +1,15 @@
-import os
-import time
-import shutil
 import logging
-import numpy as np
+import os
+import shutil
+import time
 
+import numpy as np
+import sgl_kernel_npu
 import torch
 import torch_npu
 import torchair as tng
 from torchair.configs.compiler_config import CompilerConfig
 from torchair.core.utils import logger
-
-import sgl_kernel_npu
 
 EPSILON_FOR_DIVISION = 1e-9
 # Global Configuration
@@ -37,14 +36,16 @@ def verify_result(output, golden):
     golden = golden.to(torch.float32).cpu().reshape(-1)
 
     different_element_results = np.isclose(
-        output, golden, rtol=2**(-8), atol=2**(-8), equal_nan=True
+        output, golden, rtol=2 ** (-8), atol=2 ** (-8), equal_nan=True
     )
     different_element_indexes = np.where(~different_element_results)[0]
 
     for index, real_index in enumerate(different_element_indexes):
         golden_data = golden[real_index]
         output_data = output[real_index]
-        diff_ratio = abs(output_data - golden_data) / (golden_data + EPSILON_FOR_DIVISION) # Added epsilon to prevent division by zero
+        diff_ratio = abs(output_data - golden_data) / (
+            golden_data + EPSILON_FOR_DIVISION
+        )  # Added epsilon to prevent division by zero
 
         print(
             f"data index: {real_index:06d}, expected: {golden_data:-.9f}, "
@@ -55,18 +56,25 @@ def verify_result(output, golden):
             break
 
 
-def visualize_error_flatline_ansi(output, golden, tolerance=2**(-8), width=100):
+def visualize_error_flatline_ansi(output, golden, tolerance=2 ** (-8), width=100):
     """Prints an ANSI color-coded visual representation of the error map."""
     output = output.cpu()
     golden = golden.cpu()
-    error = torch.abs(output.to(torch.float) - golden.to(torch.float)).flatten().cpu().numpy()
+    error = (
+        torch.abs(output.to(torch.float) - golden.to(torch.float))
+        .flatten()
+        .cpu()
+        .numpy()
+    )
 
     total_count = len(error)
     fail_count = np.sum(error > tolerance)
     max_error = np.max(error)
 
     step = max(total_count // width, 1)
-    compressed_error = [np.max(error[i:i+step]) for i in range(0, total_count, step)]
+    compressed_error = [
+        np.max(error[i : i + step]) for i in range(0, total_count, step)
+    ]
 
     def ansi_block(color_code):
         return f"\033[{color_code}m  \033[0m"
@@ -85,19 +93,34 @@ def visualize_error_flatline_ansi(output, golden, tolerance=2**(-8), width=100):
 
     print("\n?? Summary:")
     print(f"  ?? Max Error: {max_error:.4e}")
-    print(f"  ?? Failed elements (> {tolerance}): {fail_count}/{total_count} ({(fail_count / total_count) * 100:.2f}%)\n")
+    print(
+        f"  ?? Failed elements (> {tolerance}): {fail_count}/{total_count} ({(fail_count / total_count) * 100:.2f}%)\n"
+    )
     verify_result(output, golden)
 
 
 class MyModel(torch.nn.Module):
     """Wrapper module for the recurrent_gated_delta_rule NPU operation."""
+
     def __init__(self):
         super().__init__()
 
-    def forward(self, mix_qkv, recurrent_state, beta=None, scale=None, actual_seq_lengths=None,
-                ssm_state_indices=None, nk=None, nv=None,
-                intermediate_state=None, cache_indices=None,
-                num_accepted_tokens=None, g=None, gk=None):
+    def forward(
+        self,
+        mix_qkv,
+        recurrent_state,
+        beta=None,
+        scale=None,
+        actual_seq_lengths=None,
+        ssm_state_indices=None,
+        nk=None,
+        nv=None,
+        intermediate_state=None,
+        cache_indices=None,
+        num_accepted_tokens=None,
+        g=None,
+        gk=None,
+    ):
 
         return torch.ops.npu.recurrent_gated_delta_rule(
             mix_qkv,
@@ -118,9 +141,22 @@ class MyModel(torch.nn.Module):
 
 class TestCase:
     """Class to generate inputs, run golden PyTorch logic, run NPU logic, and compare results."""
-    def __init__(self, b=64, mtp=2, nk=4, nv=8, dk=128, dv=128,
-                 is_continue=True, has_beta=True, has_scale=True, has_g=True, has_gk=False,
-                 has_num_accepted_tokens=True):
+
+    def __init__(
+        self,
+        b=64,
+        mtp=2,
+        nk=4,
+        nv=8,
+        dk=128,
+        dv=128,
+        is_continue=True,
+        has_beta=True,
+        has_scale=True,
+        has_g=True,
+        has_gk=False,
+        has_num_accepted_tokens=True,
+    ):
         self.b = b
         self.mtp = mtp
         self.nk = nk
@@ -152,9 +188,11 @@ class TestCase:
         self.state_golden = None
 
     def __repr__(self):
-        return (f"B={self.b}, MTP={self.mtp}, Nk={self.nk}, Nv={self.nv}, Dk={self.dk}, Dv={self.dv}, "
-                f"is_continue={self.is_continue}, has_beta={self.has_beta}, has_scale={self.has_scale}, "
-                f"has_g={self.has_g}, has_gk={self.has_gk}, has_num_accepted_tokens={self.has_num_accepted_tokens}")
+        return (
+            f"B={self.b}, MTP={self.mtp}, Nk={self.nk}, Nv={self.nv}, Dk={self.dk}, Dv={self.dv}, "
+            f"is_continue={self.is_continue}, has_beta={self.has_beta}, has_scale={self.has_scale}, "
+            f"has_g={self.has_g}, has_gk={self.has_gk}, has_num_accepted_tokens={self.has_num_accepted_tokens}"
+        )
 
     def generate_input(self):
         bs = self.b
@@ -177,38 +215,48 @@ class TestCase:
         if self.is_continue:
             self.actual_seq_lengths = (torch.ones(bs) * S).npu().to(torch.int32)
             if mtp > 1:
-                self.intermediate_state = torch.rand((self.max_slots, S, nv, dv, dk), dtype=torch.bfloat16, device='npu')
+                self.intermediate_state = torch.rand(
+                    (self.max_slots, S, nv, dv, dk), dtype=torch.bfloat16, device="npu"
+                )
 
-            self.recurrent_state = torch.rand((self.max_slots, nv, dv, dk), dtype=torch.bfloat16, device='npu')
+            self.recurrent_state = torch.rand(
+                (self.max_slots, nv, dv, dk), dtype=torch.bfloat16, device="npu"
+            )
 
-            v_temp = torch.rand((bs, S, nv, dv), dtype=torch.bfloat16, device='npu')
-            q_temp = torch.rand((bs, S, nk, dk), dtype=torch.bfloat16, device='npu')
-            k_temp = torch.rand((bs, S, nk, dk), dtype=torch.bfloat16, device='npu')
+            v_temp = torch.rand((bs, S, nv, dv), dtype=torch.bfloat16, device="npu")
+            q_temp = torch.rand((bs, S, nk, dk), dtype=torch.bfloat16, device="npu")
+            k_temp = torch.rand((bs, S, nk, dk), dtype=torch.bfloat16, device="npu")
 
             self.mix_qkv = make_mix_qkv(q_temp, k_temp, v_temp).contiguous()
 
-            self.g = torch.rand((bs, S, nv), dtype=torch.float32, device='npu') * (-1.0)
-            self.be = torch.rand((bs, S, nv), dtype=torch.bfloat16, device='npu')
+            self.g = torch.rand((bs, S, nv), dtype=torch.float32, device="npu") * (-1.0)
+            self.be = torch.rand((bs, S, nv), dtype=torch.bfloat16, device="npu")
 
-            cache_indices = torch.randperm(self.max_slots, device='npu')[:bs].to(torch.int32)
+            cache_indices = torch.randperm(self.max_slots, device="npu")[:bs].to(
+                torch.int32
+            )
             base_indices = (cache_indices * S).unsqueeze(1)  # shape: (bs, 1)
-            offsets = torch.arange(S, device='npu', dtype=torch.int32)  # shape: (S,)
+            offsets = torch.arange(S, device="npu", dtype=torch.int32)  # shape: (S,)
 
             self.ssm_state_indices = (base_indices + offsets).contiguous()
             if mtp > 1:
                 self.cache_indices = cache_indices
 
-            self.scale = dk ** -0.5
-            self.num_accepted_tokens = (torch.randint(1, mtp + 1, (bs,)).npu()).to(torch.int32)
+            self.scale = dk**-0.5
+            self.num_accepted_tokens = (torch.randint(1, mtp + 1, (bs,)).npu()).to(
+                torch.int32
+            )
         else:
             raise NotImplementedError(
-                    "Initialization for is_continue=False is not defined. "
-                    "The 'recurrent_gated_delta_rule' operator currently only supports continuous input tensors."
-                )
+                "Initialization for is_continue=False is not defined. "
+                "The 'recurrent_gated_delta_rule' operator currently only supports continuous input tensors."
+            )
 
         self.be = self.be if self.has_beta else None
         self.scale = self.scale if self.has_scale else None
-        self.num_accepted_tokens = self.num_accepted_tokens if self.has_num_accepted_tokens else None
+        self.num_accepted_tokens = (
+            self.num_accepted_tokens if self.has_num_accepted_tokens else None
+        )
         self.g = self.g if self.has_g else None
         self.gk = self.gk if self.has_gk else None
 
@@ -222,7 +270,9 @@ class TestCase:
         mix_qkv_fp32 = self.mix_qkv.to(torch.float32)
         mix_qkv_flat = mix_qkv_fp32.view(T, -1)
 
-        q_flat, k_flat, v_flat = torch.split(mix_qkv_flat, [dim_q, dim_k, dim_v], dim=-1)
+        q_flat, k_flat, v_flat = torch.split(
+            mix_qkv_flat, [dim_q, dim_k, dim_v], dim=-1
+        )
 
         # Reshape back to the original shapes required by the logic
         q = q_flat.view(T, nk, dk)  # [B, S, nk, dk]
@@ -252,8 +302,16 @@ class TestCase:
         T, n_heads_v, Dv = v.shape
         n_heads_qk = q.shape[-2]
 
-        g = torch.ones(T, n_heads_v).to(torch.float32) if self.g is None else self.g.to(torch.float32).reshape(T, n_heads_v).exp()
-        be = torch.ones(T, n_heads_v).to(torch.float32) if self.be is None else self.be.to(torch.float32).view(T, n_heads_v)
+        g = (
+            torch.ones(T, n_heads_v).to(torch.float32)
+            if self.g is None
+            else self.g.to(torch.float32).reshape(T, n_heads_v).exp()
+        )
+        be = (
+            torch.ones(T, n_heads_v).to(torch.float32)
+            if self.be is None
+            else self.be.to(torch.float32).view(T, n_heads_v)
+        )
         beta = be.sigmoid()
 
         o = torch.empty_like(v).to(torch.float32)
@@ -266,7 +324,9 @@ class TestCase:
             if num_accepted_tokens is None:
                 init_state = initial_state[ssm_state_indices[seq_start]]
             else:
-                init_state = initial_state[ssm_state_indices[seq_start + num_accepted_tokens[i] - 1]]
+                init_state = initial_state[
+                    ssm_state_indices[seq_start + num_accepted_tokens[i] - 1]
+                ]
 
             for head_id in range(n_heads_v):
                 S = init_state[head_id]  # [Dv, Dk]
@@ -284,7 +344,7 @@ class TestCase:
                     S = S + S_  # [Dv, Dk]
 
                     initial_state[ssm_state_indices[slot_id]][head_id] = S
-                    o[slot_id][head_id] = ((S * q_i.unsqueeze(-2)).sum(dim=-1))  # [Dv]
+                    o[slot_id][head_id] = (S * q_i.unsqueeze(-2)).sum(dim=-1)  # [Dv]
 
             seq_start += actual_seq_lengths[i]
 
@@ -306,11 +366,19 @@ class TestCase:
 
         initial_state = self.recurrent_state.clone()
         o = model(
-            self.mix_qkv, initial_state,
-            beta=self.be, scale=self.scale, actual_seq_lengths=self.actual_seq_lengths,
-            ssm_state_indices=self.ssm_state_indices, nk=self.nk, nv=self.nv,
-            intermediate_state=intermediate_state, cache_indices=cache_indices,
-            num_accepted_tokens=self.num_accepted_tokens, g=self.g, gk=self.gk
+            self.mix_qkv,
+            initial_state,
+            beta=self.be,
+            scale=self.scale,
+            actual_seq_lengths=self.actual_seq_lengths,
+            ssm_state_indices=self.ssm_state_indices,
+            nk=self.nk,
+            nv=self.nv,
+            intermediate_state=intermediate_state,
+            cache_indices=cache_indices,
+            num_accepted_tokens=self.num_accepted_tokens,
+            g=self.g,
+            gk=self.gk,
         )
 
         self.out_npu = o.to(torch.float32)
@@ -320,9 +388,13 @@ class TestCase:
             self.state_npu = initial_state.to(torch.float32)
 
     def compare(self):
-        eps = 2**(-8)
-        is_close_o = torch.allclose(self.out_golden, self.out_npu, rtol=eps, atol=eps, equal_nan=False)
-        is_close_state = torch.allclose(self.state_golden, self.state_npu, rtol=eps, atol=eps, equal_nan=False)
+        eps = 2 ** (-8)
+        is_close_o = torch.allclose(
+            self.out_golden, self.out_npu, rtol=eps, atol=eps, equal_nan=False
+        )
+        is_close_state = torch.allclose(
+            self.state_golden, self.state_npu, rtol=eps, atol=eps, equal_nan=False
+        )
 
         if is_close_o and is_close_state:
             print(f"\t{eps=}: passed.")
@@ -338,12 +410,36 @@ def compatible_cases():
     """Defines the matrix of test cases to be executed."""
     res = []
     # format: {'shape': (b, mtp, dk, dv, nk, nv), 'is_cont': bool, 'option': (beta, scale, g, num_accepted_tokens, gk)}
-    res.append({'shape': (2, 1, 128, 128, 8, 16), 'is_cont': True, 'option': (True, True, True, True, False)})
-    res.append({'shape': (64, 2, 128, 128, 8, 16), 'is_cont': True, 'option': (True, True, True, True, False)})
-    res.append({'shape': (32, 8, 128, 128, 8, 16), 'is_cont': True, 'option': (True, True, True, True, False)})
-    res.append({'shape': (32, 8, 128, 128, 16, 32), 'is_cont': True, 'option': (True, True, True, True, False)})
+    res.append(
+        {
+            "shape": (2, 1, 128, 128, 8, 16),
+            "is_cont": True,
+            "option": (True, True, True, True, False),
+        }
+    )
+    res.append(
+        {
+            "shape": (64, 2, 128, 128, 8, 16),
+            "is_cont": True,
+            "option": (True, True, True, True, False),
+        }
+    )
+    res.append(
+        {
+            "shape": (32, 8, 128, 128, 8, 16),
+            "is_cont": True,
+            "option": (True, True, True, True, False),
+        }
+    )
+    res.append(
+        {
+            "shape": (32, 8, 128, 128, 16, 32),
+            "is_cont": True,
+            "option": (True, True, True, True, False),
+        }
+    )
 
-    return res, 'compatible'
+    return res, "compatible"
 
 
 def run_cases(cases):
@@ -354,13 +450,23 @@ def run_cases(cases):
     fault_count = 0
 
     for case in cases[0]:
-        b, mtp, dk, dv, nk, nv = case['shape']
-        is_cont = case['is_cont']
-        beta, scale, g, n_acc_tokens, gk = case['option']
+        b, mtp, dk, dv, nk, nv = case["shape"]
+        is_cont = case["is_cont"]
+        beta, scale, g, n_acc_tokens, gk = case["option"]
 
         tc = TestCase(
-            b=b, mtp=mtp, nk=nk, nv=nv, dk=dk, dv=dv, is_continue=is_cont,
-            has_g=g, has_scale=scale, has_beta=beta, has_gk=gk, has_num_accepted_tokens=n_acc_tokens
+            b=b,
+            mtp=mtp,
+            nk=nk,
+            nv=nv,
+            dk=dk,
+            dv=dv,
+            is_continue=is_cont,
+            has_g=g,
+            has_scale=scale,
+            has_beta=beta,
+            has_gk=gk,
+            has_num_accepted_tokens=n_acc_tokens,
         )
 
         print(f"{tc}")
@@ -371,7 +477,9 @@ def run_cases(cases):
         if not tc.compare():
             fault_count += 1
 
-    print(f"{cases[1]} cases time cost: {time.time() - t0:.4f}s, total: {len(cases[0])}, failed: {fault_count}")
+    print(
+        f"{cases[1]} cases time cost: {time.time() - t0:.4f}s, total: {len(cases[0])}, failed: {fault_count}"
+    )
 
 
 if __name__ == "__main__":

@@ -99,19 +99,12 @@ void sgemmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
                    at::Tensor &lora_scales, at::Tensor &y);
 
 at::Tensor recurrent_gated_delta_rule(
-    at::Tensor &mix_qkv,
-    at::Tensor &recurrent_state,
-    at::Tensor &beta,
-    double scale,
-    at::Tensor &actual_seq_lengths,
-    at::Tensor &ssm_state_indices,
-    int64_t nk,
-    int64_t nv,
-    c10::optional<at::Tensor> intermediate_state_opt,
+    at::Tensor &mix_qkv, at::Tensor &recurrent_state, at::Tensor &beta,
+    double scale, at::Tensor &actual_seq_lengths, at::Tensor &ssm_state_indices,
+    int64_t nk, int64_t nv, c10::optional<at::Tensor> intermediate_state_opt,
     c10::optional<at::Tensor> cache_indices_opt,
     c10::optional<at::Tensor> num_accepted_tokens_opt,
-    c10::optional<at::Tensor> g_opt,
-    c10::optional<at::Tensor> gk_opt);
+    c10::optional<at::Tensor> g_opt, c10::optional<at::Tensor> gk_opt);
 
 #ifdef BUILD_CATLASS_MODULE
 void catlass_matmul_basic(const at::Tensor &tensor_a,

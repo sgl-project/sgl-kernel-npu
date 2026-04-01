@@ -27,30 +27,30 @@ using namespace AscendC;
 using sglang::npu_kernel::CausalConv1dUpdateTilingData;
 
 template <typename T>
-class CausalConv1dUpdateBase {
+class CausalConv1dUpdateBase
+{
 public:
     __aicore__ inline CausalConv1dUpdateBase(){};
 
 protected:
-    __aicore__ inline void ParseTilingData(
-        const sglang::npu_kernel::CausalConv1dUpdateTilingData* tilingData, CausalConv1dUpdateTilingData& runTilingData);
-    __aicore__ inline void ParseCoreBlocks(
-        const CausalConv1dUpdateTilingData& runTilingData, int32_t blockIdx, int64_t& batchNum);
-    __aicore__ inline void GetXInCopyParams(int64_t xLen, AscendC::DataCopyExtParams& copyParams);
-    __aicore__ inline void GetWeightInCopyParams(int64_t weightLen, AscendC::DataCopyExtParams& copyParams);
-    __aicore__ inline void GetStateInCopyParams(int64_t stateLen, AscendC::DataCopyExtParams& copyParams);
-    __aicore__ inline void GetBiasInCopyParams(int64_t biasLen, AscendC::DataCopyExtParams& copyParams);
-    __aicore__ inline void GetYOutCopyParams(int64_t yLen, AscendC::DataCopyExtParams& copyParams);
-    __aicore__ inline void GetStateOutCopyParams(int64_t stateLen, AscendC::DataCopyExtParams& copyParams);
+    __aicore__ inline void ParseTilingData(const sglang::npu_kernel::CausalConv1dUpdateTilingData *tilingData,
+                                           CausalConv1dUpdateTilingData &runTilingData);
+    __aicore__ inline void ParseCoreBlocks(const CausalConv1dUpdateTilingData &runTilingData, int32_t blockIdx,
+                                           int64_t &batchNum);
+    __aicore__ inline void GetXInCopyParams(int64_t xLen, AscendC::DataCopyExtParams &copyParams);
+    __aicore__ inline void GetWeightInCopyParams(int64_t weightLen, AscendC::DataCopyExtParams &copyParams);
+    __aicore__ inline void GetStateInCopyParams(int64_t stateLen, AscendC::DataCopyExtParams &copyParams);
+    __aicore__ inline void GetBiasInCopyParams(int64_t biasLen, AscendC::DataCopyExtParams &copyParams);
+    __aicore__ inline void GetYOutCopyParams(int64_t yLen, AscendC::DataCopyExtParams &copyParams);
+    __aicore__ inline void GetStateOutCopyParams(int64_t stateLen, AscendC::DataCopyExtParams &copyParams);
 
-// protected:
-//     constexpr static int32_t BLOCK_SIZE = GetUbBlockSize();
-
+    // protected:
+    //     constexpr static int32_t BLOCK_SIZE = GetUbBlockSize();
 };
 
 template <typename T>
 __aicore__ inline void CausalConv1dUpdateBase<T>::ParseTilingData(
-    const sglang::npu_kernel::CausalConv1dUpdateTilingData* tilingData, CausalConv1dUpdateTilingData& runTilingData)
+    const sglang::npu_kernel::CausalConv1dUpdateTilingData *tilingData, CausalConv1dUpdateTilingData &runTilingData)
 {
     runTilingData.numCore = tilingData->numCore;
     runTilingData.blockFactor = tilingData->blockFactor;
@@ -68,8 +68,8 @@ __aicore__ inline void CausalConv1dUpdateBase<T>::ParseTilingData(
 }
 
 template <typename T>
-__aicore__ inline void CausalConv1dUpdateBase<T>::ParseCoreBlocks(
-    const CausalConv1dUpdateTilingData& runTilingData, int32_t blockIdx, int64_t& batchNum)
+__aicore__ inline void CausalConv1dUpdateBase<T>::ParseCoreBlocks(const CausalConv1dUpdateTilingData &runTilingData,
+                                                                  int32_t blockIdx, int64_t &batchNum)
 {
     if (blockIdx == runTilingData.numCore - 1) {
         batchNum = runTilingData.blockTailFactor;
@@ -79,7 +79,7 @@ __aicore__ inline void CausalConv1dUpdateBase<T>::ParseCoreBlocks(
 }
 
 template <typename T>
-__aicore__ inline void CausalConv1dUpdateBase<T>::GetXInCopyParams(int64_t xLen, DataCopyExtParams& copyParams)
+__aicore__ inline void CausalConv1dUpdateBase<T>::GetXInCopyParams(int64_t xLen, DataCopyExtParams &copyParams)
 {
     copyParams.blockCount = 1;
     copyParams.blockLen = xLen * sizeof(T);
@@ -89,7 +89,8 @@ __aicore__ inline void CausalConv1dUpdateBase<T>::GetXInCopyParams(int64_t xLen,
 }
 
 template <typename T>
-__aicore__ inline void CausalConv1dUpdateBase<T>::GetWeightInCopyParams(int64_t weightLen, DataCopyExtParams& copyParams)
+__aicore__ inline void CausalConv1dUpdateBase<T>::GetWeightInCopyParams(int64_t weightLen,
+                                                                        DataCopyExtParams &copyParams)
 {
     copyParams.blockCount = 1;
     copyParams.blockLen = weightLen * sizeof(T);
@@ -99,7 +100,7 @@ __aicore__ inline void CausalConv1dUpdateBase<T>::GetWeightInCopyParams(int64_t 
 }
 
 template <typename T>
-__aicore__ inline void CausalConv1dUpdateBase<T>::GetStateInCopyParams(int64_t stateLen, DataCopyExtParams& copyParams)
+__aicore__ inline void CausalConv1dUpdateBase<T>::GetStateInCopyParams(int64_t stateLen, DataCopyExtParams &copyParams)
 {
     copyParams.blockCount = 1;
     copyParams.blockLen = stateLen * sizeof(T);
@@ -109,7 +110,7 @@ __aicore__ inline void CausalConv1dUpdateBase<T>::GetStateInCopyParams(int64_t s
 }
 
 template <typename T>
-__aicore__ inline void CausalConv1dUpdateBase<T>::GetBiasInCopyParams(int64_t biasLen, DataCopyExtParams& copyParams)
+__aicore__ inline void CausalConv1dUpdateBase<T>::GetBiasInCopyParams(int64_t biasLen, DataCopyExtParams &copyParams)
 {
     copyParams.blockCount = 1;
     copyParams.blockLen = biasLen * sizeof(T);
@@ -119,7 +120,7 @@ __aicore__ inline void CausalConv1dUpdateBase<T>::GetBiasInCopyParams(int64_t bi
 }
 
 template <typename T>
-__aicore__ inline void CausalConv1dUpdateBase<T>::GetYOutCopyParams(int64_t yLen, DataCopyExtParams& copyParams)
+__aicore__ inline void CausalConv1dUpdateBase<T>::GetYOutCopyParams(int64_t yLen, DataCopyExtParams &copyParams)
 {
     copyParams.blockCount = 1;
     copyParams.blockLen = yLen * sizeof(T);
@@ -129,7 +130,7 @@ __aicore__ inline void CausalConv1dUpdateBase<T>::GetYOutCopyParams(int64_t yLen
 }
 
 template <typename T>
-__aicore__ inline void CausalConv1dUpdateBase<T>::GetStateOutCopyParams(int64_t stateLen, DataCopyExtParams& copyParams)
+__aicore__ inline void CausalConv1dUpdateBase<T>::GetStateOutCopyParams(int64_t stateLen, DataCopyExtParams &copyParams)
 {
     copyParams.blockCount = 1;
     copyParams.blockLen = stateLen * sizeof(T);
@@ -138,6 +139,6 @@ __aicore__ inline void CausalConv1dUpdateBase<T>::GetStateOutCopyParams(int64_t 
     copyParams.rsv = 0;
 }
 
-} // namespace CausalConv1dUpdateOp
+}  // namespace CausalConv1dUpdateOp
 
 #endif
