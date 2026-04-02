@@ -24,6 +24,7 @@ def get_err_ratio(x, y):
 def assert_close(prefix, ref, tri, ratio, warning=False, err_atol=1e-6):
     abs_atol = get_abs_err(ref, tri)
     msg = f"{prefix:>16} diff: {abs_atol:.6f} ratio: {get_err_ratio(ref, tri):.6f}"
+    print(msg)
     error_rate = get_err_ratio(ref, tri)
     if abs_atol <= err_atol:
         return
@@ -129,24 +130,28 @@ def test_move_intermediate_cache(
     dtype: torch.dtype,
 ):
     torch.manual_seed(42)
-
+    # prepare input data
     dst_cache = torch.randn(L, S, H, V, K, device=device, dtype=dtype)
     dst_cache_clone = dst_cache.clone()
     src_cache = torch.randn(L, S, D, H, V, K, device=device, dtype=dtype)
 
+    # prepare input data
     population = range(S)
     valid_indices = random.sample(population, num_valid)
     last_step_pos = [random.randint(0, D - 1) for _ in range(num_valid)]
-
-    valid_tensor = torch.tensor(valid_indices, device=device, dtype=torch.int32)
+    dst_indices_tensor = torch.tensor(valid_indices, device=device, dtype=torch.int32)
+    src_indices_tensor = torch.arange(dst_indices_tensor.shape[0], device=device, dtype=torch.int32)
     last_steps_tensor = torch.tensor(last_step_pos, device=device, dtype=torch.int32)
+
     valid_mask = last_steps_tensor >= 0
-    valid_state_indices = valid_tensor[valid_mask].to(torch.int64)
+    dst_state_indices = dst_indices_tensor[valid_mask].to(torch.int64)
+    src_state_indices = src_indices_tensor[valid_mask].to(torch.int64)
     valid_last_steps = last_steps_tensor[valid_mask].to(torch.int64)
-    dst_cache[:, valid_state_indices, :] = src_cache[
-        :, valid_state_indices, valid_last_steps
+    # prepare output verify
+    dst_cache[:, dst_state_indices, :] = src_cache[
+        :, src_state_indices, valid_last_steps
     ]
 
-    move_intermediate_cache(dst_cache_clone, src_cache, valid_tensor, last_steps_tensor)
+    move_intermediate_cache(dst_cache_clone, src_cache, dst_indices_tensor, src_indices_tensor, last_steps_tensor)
 
     assert_close("move_cache", dst_cache, dst_cache_clone, 1e-3)
