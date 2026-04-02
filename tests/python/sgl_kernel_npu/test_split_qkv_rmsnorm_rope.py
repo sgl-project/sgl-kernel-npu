@@ -264,7 +264,7 @@ def test_split_qkvgate_gemma_rmsnorm_rope():
     rope_dim = int(head_dim * partial_rotary_factor)
 
     qkvgate = (
-        orch.randn(bsz, q_hidden_size * 2 + kv_hidden_size * 2)
+        torch.randn(bsz, q_hidden_size * 2 + kv_hidden_size * 2)
         .to(torch.bfloat16)
         .npu()
     )
