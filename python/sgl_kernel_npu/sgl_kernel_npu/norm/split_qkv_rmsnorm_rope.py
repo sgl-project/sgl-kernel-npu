@@ -333,7 +333,6 @@ def split_qkv_rmsnorm_rope(
     return q_output, k_output, v_output
 
 
-
 @triton.jit
 def split_qkvgate_gemma_rmsnorm_rope_kernel(
     input_ptr,
@@ -393,12 +392,8 @@ def split_qkvgate_gemma_rmsnorm_rope_kernel(
 
         squares = q * q
         variances = tl.sum(squares, axis=1) / HEAD_DIM
-        reciprocal_std = tl.rsqrt(variances + eps).reshape(
-            Q_BLOCK_SIZE // HEAD_DIM, 1
-        )
-        normalized_values = (
-            q * reciprocal_std
-        )  # (Q_BLOCK_SIZE//HEAD_DIM, HEAD_DIM)
+        reciprocal_std = tl.rsqrt(variances + eps).reshape(Q_BLOCK_SIZE // HEAD_DIM, 1)
+        normalized_values = q * reciprocal_std  # (Q_BLOCK_SIZE//HEAD_DIM, HEAD_DIM)
         normalized_values = normalized_values * weight_values
 
         # rope
@@ -491,9 +486,7 @@ def split_qkvgate_gemma_rmsnorm_rope_kernel(
         )
         squares = input_values * input_values
         variances = tl.sum(squares, axis=1) / HEAD_DIM
-        reciprocal_std = tl.rsqrt(variances + eps).reshape(
-            KV_BLOCK_SIZE // HEAD_DIM, 1
-        )
+        reciprocal_std = tl.rsqrt(variances + eps).reshape(KV_BLOCK_SIZE // HEAD_DIM, 1)
         normalized_values = (
             input_values * reciprocal_std
         )  # (KV_BLOCK_SIZE/HEAD_DIM, HEAD_DIM)

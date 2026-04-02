@@ -1,7 +1,10 @@
 import numpy as np
 import torch
 import torch_npu
-from sgl_kernel_npu.norm.split_qkv_rmsnorm_rope import split_qkv_rmsnorm_rope, split_qkvgate_gemma_rmsnorm_rope
+from sgl_kernel_npu.norm.split_qkv_rmsnorm_rope import (
+    split_qkv_rmsnorm_rope,
+    split_qkvgate_gemma_rmsnorm_rope,
+)
 
 
 def custom_rope(q, k, sin, cos, half_rope_dim):
@@ -191,7 +194,6 @@ def test_split_qkv_rope():
     )
 
 
-
 def gemma_rms_norm(
     input,
     norm_weight,
@@ -202,6 +204,7 @@ def gemma_rms_norm(
     reciprocal_std = 1 / np.sqrt(np.mean(input**2, axis=-1, keepdims=True) + eps)
     out = input * reciprocal_std * norm_weight
     return out
+
 
 def golden_ref_split_qkvgate_gemma_rmsnorm_rope(
     input,
@@ -216,7 +219,7 @@ def golden_ref_split_qkvgate_gemma_rmsnorm_rope(
     k_weight,
 ):
     bs = input.shape[0]
-    half_rope_dim = rope_dim//2
+    half_rope_dim = rope_dim // 2
     pass_dim = head_dim - rope_dim
 
     q_gate, _k, v = input.split(
@@ -237,12 +240,19 @@ def golden_ref_split_qkvgate_gemma_rmsnorm_rope(
     _q = _q.reshape(bs, 1, -1, head_dim)
     _k = _k.reshape(bs, 1, -1, head_dim)
 
-    cus_q, cus_k = custom_rope(_q[..., :rope_dim], _k[..., :rope_dim], sin, cos, rope_dim//2)
+    cus_q, cus_k = custom_rope(
+        _q[..., :rope_dim], _k[..., :rope_dim], sin, cos, rope_dim // 2
+    )
 
-    rop_q = np.concatenate((cus_q, _q[..., rope_dim:]), axis=-1).reshape(bs, q_hidden_size)
-    rop_k = np.concatenate((cus_k, _k[..., rope_dim:]), axis=-1).reshape(bs, kv_hidden_size)
+    rop_q = np.concatenate((cus_q, _q[..., rope_dim:]), axis=-1).reshape(
+        bs, q_hidden_size
+    )
+    rop_k = np.concatenate((cus_k, _k[..., rope_dim:]), axis=-1).reshape(
+        bs, kv_hidden_size
+    )
 
     return rop_q, rop_k, v, _gate
+
 
 def test_split_qkvgate_gemma_rmsnorm_rope():
     q_hidden_size = 512
@@ -253,7 +263,11 @@ def test_split_qkvgate_gemma_rmsnorm_rope():
     partial_rotary_factor = 0.25
     rope_dim = int(head_dim * partial_rotary_factor)
 
-    qkvgate = torch.randn(bsz, q_hidden_size * 2 + kv_hidden_size * 2).to(torch.bfloat16).npu()
+    qkvgate = (
+        orch.randn(bsz, q_hidden_size * 2 + kv_hidden_size * 2)
+        .to(torch.bfloat16)
+        .npu()
+    )
     q_weight = (
         torch.randn(
             head_dim,
@@ -298,7 +312,6 @@ def test_split_qkvgate_gemma_rmsnorm_rope():
         k_weight=k_weight,
     )
 
-
     assert (
         np.testing.assert_allclose(
             q.to(torch.float32).cpu().numpy(),
@@ -334,6 +347,7 @@ def test_split_qkvgate_gemma_rmsnorm_rope():
         )
         is None
     )
+
 
 if __name__ == "__main__":
     test_split_qkv_rmsnorm_rope()
