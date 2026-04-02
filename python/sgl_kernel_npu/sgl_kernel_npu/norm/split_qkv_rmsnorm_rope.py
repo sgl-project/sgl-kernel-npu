@@ -593,9 +593,9 @@ def split_qkvgate_gemma_rmsnorm_rope(
     kv_hidden_size,
     head_dim,
     rope_dim,
-    eps=None,
-    q_weight=None,
-    k_weight=None,
+    eps,
+    q_weight,
+    k_weight,
 ):
     _, num_vectorcore = get_device_properties()
 
