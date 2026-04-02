@@ -23,7 +23,7 @@ struct DimTileChoice {
 
 inline DimTileChoice ChooseDimTileSize(int64_t batch, int64_t dim, int32_t core_num)
 {
-    constexpr std::array<int64_t, 4> kCandidates = {4096, 2048, 1024, 512, 384, 192};
+    constexpr std::array<int64_t, 6> kCandidates = {4096, 2048, 1024, 512, 384, 192};
     DimTileChoice best_over;
     int64_t best_over_gap = std::numeric_limits<int64_t>::max();
     DimTileChoice best_under;
