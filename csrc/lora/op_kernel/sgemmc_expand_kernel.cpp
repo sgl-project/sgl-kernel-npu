@@ -47,13 +47,12 @@ public:
     __aicore__ inline void Init(GM_ADDR x, GM_ADDR weight, GM_ADDR loraIndices, uint32_t loraIndicesSize,
                                 GM_ADDR seqLen, uint32_t seqLenSize, GM_ADDR loraRanks, uint32_t loraRanksSize,
                                 GM_ADDR sliceOffsets, uint32_t sliceOffsetsSize, GM_ADDR yIn, GM_ADDR yOut,
-                                uint32_t batchSize, uint32_t numBlocksPerCore, uint32_t maxLoRARank,
-                                uint32_t outputFullDim, GM_ADDR workspace, TCubeTiling &tiling)
+                                uint32_t batchSize, uint32_t maxLoRARank, uint32_t outputFullDim, GM_ADDR workspace,
+                                TCubeTiling &tiling)
     {
         this->tiling = tiling;
 
         batchSize_ = batchSize;
-        numBlocksPerCore_ = numBlocksPerCore;
         maxLoRARank_ = maxLoRARank;
         sliceCount_ = sliceOffsetsSize - 1;
         outputFullDim_ = outputFullDim;
@@ -78,15 +77,11 @@ public:
         int64_t blocks = AscendC::GetBlockNum();
         int64_t blockIdx = AscendC::GetBlockIdx();
 
-        int64_t startIdx = blockIdx * numBlocksPerCore_;
-        int64_t endIdx = startIdx + numBlocksPerCore_;
-
         AscendC::WaitPreTaskEnd();
 
-        int64_t batchIdx = 0;
         int64_t requestBlock = 0;
         lora_common::BlockIterator blockIterator(seqLenGm_);
-        requestBlock = blockIterator.GetBlockIdx(batchIdx);
+        requestBlock = blockIterator.GetBlockIdx(blockIdx);
         if (requestBlock < 0) {
             return;
         }
@@ -178,7 +173,6 @@ private:
 
     uint32_t batchSize_;
     uint32_t sliceCount_;
-    uint32_t numBlocksPerCore_;
     uint32_t maxLoRARank_;
     uint32_t outputHiddenDim_;
     uint32_t sliceOffset_;
@@ -197,8 +191,8 @@ extern "C" __global__ __aicore__ void sgemmc_expand(GM_ADDR x, GM_ADDR weight, G
                                                     uint32_t loraIndicesSize, GM_ADDR seqLen, uint32_t seqLenSize,
                                                     GM_ADDR loraRanks, uint32_t loraRanksSize, GM_ADDR sliceOffsets,
                                                     uint32_t sliceOffsetsSize, GM_ADDR yIn, GM_ADDR yOut,
-                                                    uint32_t batchSize, uint32_t numBlocksPerCore, uint32_t maxLoRARank,
-                                                    uint32_t outputFullDim, GM_ADDR workspace, GM_ADDR tiling)
+                                                    uint32_t batchSize, uint32_t maxLoRARank, uint32_t outputFullDim,
+                                                    GM_ADDR workspace, GM_ADDR tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_1);
 
@@ -209,14 +203,12 @@ extern "C" __global__ __aicore__ void sgemmc_expand(GM_ADDR x, GM_ADDR weight, G
     if (tilingData.dataType == 1) {
         SGEMMCExpand<bfloat16_t, float> op(&pipe);
         op.Init(x, weight, loraIndices, loraIndicesSize, seqLen, seqLenSize, loraRanks, loraRanksSize, sliceOffsets,
-                sliceOffsetsSize, yIn, yOut, batchSize, numBlocksPerCore, maxLoRARank, outputFullDim, workspace,
-                tilingData.cubeTiling);
+                sliceOffsetsSize, yIn, yOut, batchSize, maxLoRARank, outputFullDim, workspace, tilingData.cubeTiling);
         op.Process();
     } else {
         SGEMMCExpand<half, float> op(&pipe);
         op.Init(x, weight, loraIndices, loraIndicesSize, seqLen, seqLenSize, loraRanks, loraRanksSize, sliceOffsets,
-                sliceOffsetsSize, yIn, yOut, batchSize, numBlocksPerCore, maxLoRARank, outputFullDim, workspace,
-                tilingData.cubeTiling);
+                sliceOffsetsSize, yIn, yOut, batchSize, maxLoRARank, outputFullDim, workspace, tilingData.cubeTiling);
         op.Process();
     }
 }

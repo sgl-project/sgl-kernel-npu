@@ -35,22 +35,18 @@ matmul_tiling::DataType ConvertToMatMulTypes(host_utils::DataType data_type)
     return matmul_tiling::DataType::DT_FLOAT16;
 }
 
-at::Tensor GenerateTiling(uint32_t &block_dim, uint32_t &workspace_size, uint32_t batch_size, uint32_t hidden_size,
-                          uint32_t max_lora_rank, const host_utils::DataType type)
+at::Tensor GenerateTiling(uint32_t &block_dim, uint32_t &workspace_size, uint32_t batch_size, uint32_t inner_size,
+                          uint32_t output_size, const host_utils::DataType type)
 {
     auto ascendc_platform = *platform_ascendc::PlatformAscendCManager::GetInstance();
-    uint32_t aiv_num = ascendcPlatform.GetCoreNumAiv();
-    uint32_t aic_num = ascendcPlatform.GetCoreNumAic();
-    workspace_size = ascendcPlatform.GetLibApiWorkSpaceSize();
+    uint32_t aiv_num = ascendc_platform.GetCoreNumAiv();
+    uint32_t aic_num = ascendc_platform.GetCoreNumAic();
+    workspace_size = ascendc_platform.GetLibApiWorkSpaceSize();
 
     auto tilingBuffer = at::empty({sizeof(SGEMMCTilingData)}, at::TensorOptions().dtype(at::kByte).device(at::kCPU));
     SGEMMCTilingData *tiling_data = reinterpret_cast<SGEMMCTilingData *>(tilingBuffer.data_ptr());
 
     matmul_tiling::MultiCoreMatmulTiling cubeTiling(ascendc_platform);
-
-    uint32_t M = batch_size;
-    uint32_t N = hidden_size;
-    uint32_t K = max_lora_rank;
 
     const matmul_tiling::DataType data_type = ConvertToMatMulTypes(type);
 
@@ -60,11 +56,11 @@ at::Tensor GenerateTiling(uint32_t &block_dim, uint32_t &workspace_size, uint32_
     cubeTiling.SetCType(matmul_tiling::TPosition::VECIN, matmul_tiling::CubeFormat::ND,
                         matmul_tiling::DataType::DT_FLOAT);
     cubeTiling.SetBiasType(matmul_tiling::TPosition::GM, matmul_tiling::CubeFormat::ND, data_type);
-
+    cubeTiling.EnableMultiCoreSplitK(false);
     cubeTiling.SetDim(aic_num);
 
-    cubeTiling.SetOrgShape(1, hidden_size, max_lora_rank);
-    cubeTiling.SetShape(1, hidden_size, max_lora_rank);
+    cubeTiling.SetOrgShape(1, inner_size, output_size);
+    cubeTiling.SetShape(1, inner_size, output_size);
     cubeTiling.SetBufferSpace(-1, -1, -1);
 
     if (cubeTiling.GetTiling(tiling_data->cubeTiling) == -1) {
@@ -73,8 +69,9 @@ at::Tensor GenerateTiling(uint32_t &block_dim, uint32_t &workspace_size, uint32_
     }
 
     tiling_data->batch = batch_size;
+    tiling_data->dataType = (type == host_utils::DataType::DT_BFLOAT16);
 
-    block_dim = batch * tiling_data->cubeTiling.usedCoreNum;
+    block_dim = batch_size * tiling_data->cubeTiling.usedCoreNum;
 
     return tilingBuffer;
 }

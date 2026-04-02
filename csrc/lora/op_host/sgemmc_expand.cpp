@@ -55,10 +55,8 @@ HOST_API at::Tensor sgemmc_expand(at::Tensor &x, at::Tensor &weight, at::Tensor 
 
     uint32_t block_dim;
     uint32_t workspace_size;
-    int64_t num_tokens_per_core = 0;
-    int input_hidden_token = 0;
 
-    at::Tensor tiling_tensor = GenerateTiling(block_dim, workspace_size, batch_size, input_hidden_token, max_lora_rank,
+    at::Tensor tiling_tensor = GenerateTiling(block_dim, workspace_size, batch_size, max_lora_rank, output_full_dim,
                                               TorchNpuHelper::ConvertDataType(scalar_type));
     auto workspace_tensor =
         at::empty({workspace_size}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
@@ -66,8 +64,7 @@ HOST_API at::Tensor sgemmc_expand(at::Tensor &x, at::Tensor &weight, at::Tensor 
     /* launch the kernel function via torch */
     EXEC_KERNEL_CMD(sgemmc_expand, block_dim, x_ptr, weight_ptr, lora_indices_ptr, lora_indices_size, seq_len_ptr,
                     seq_len_size, lora_ranks_ptr, lora_ranks_size, slice_offsets_ptr, slice_offsets_size, y_ptr,
-                    y_out_ptr, batch_size, num_tokens_per_core, max_lora_rank, output_full_dim, workspace_tensor,
-                    tiling_tensor);
+                    y_out_ptr, batch_size, max_lora_rank, output_full_dim, workspace_tensor, tiling_tensor);
 
     return y_out;
 }

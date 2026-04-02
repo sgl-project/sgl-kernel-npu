@@ -47,13 +47,11 @@ public:
     __aicore__ inline void Init(GM_ADDR x, GM_ADDR weight, GM_ADDR loraIndices, uint32_t loraIndicesSize,
                                 GM_ADDR seqLen, uint32_t seqLenSize, GM_ADDR loraRanks, uint32_t loraRanksSize,
                                 GM_ADDR loraScales, uint32_t loraScalesSize, GM_ADDR y, uint32_t batchSize,
-                                uint32_t numBlocksPerCore, uint32_t inputHiddenDim, uint32_t maxLoRARank,
-                                GM_ADDR workspace, TCubeTiling &tiling)
+                                uint32_t inputHiddenDim, uint32_t maxLoRARank, GM_ADDR workspace, TCubeTiling &tiling)
     {
         this->tiling = tiling;
 
         batchSize_ = batchSize;
-        numBlocksPerCore_ = numBlocksPerCore;
         inputHiddenDim_ = inputHiddenDim;
         maxLoRARank_ = maxLoRARank;
         singleLoRAWeightLen_ = inputHiddenDim_ * maxLoRARank_;
@@ -75,9 +73,6 @@ public:
     {
         int64_t blocks = AscendC::GetBlockNum();
         int64_t blockIdx = AscendC::GetBlockIdx();
-
-        int64_t startIdx = blockIdx * numBlocksPerCore_;
-        int64_t endIdx = startIdx + numBlocksPerCore_;
 
         AscendC::WaitPreTaskEnd();
 
@@ -165,7 +160,6 @@ private:
     AscendC::TBuf<AscendC::QuePosition::VECCALC> vectorCalcBuf;
 
     uint32_t batchSize_;
-    uint32_t numBlocksPerCore_;
     uint32_t inputHiddenDim_;
     uint32_t maxLoRARank_;
     uint32_t singleLoRAWeightLen_;
@@ -179,8 +173,8 @@ extern "C" __global__ __aicore__ void sgemmc_shrink(GM_ADDR x, GM_ADDR weight, G
                                                     uint32_t loraIndicesSize, GM_ADDR seqLen, uint32_t seqLenSize,
                                                     GM_ADDR loraRanks, uint32_t loraRanksSize, GM_ADDR loraScales,
                                                     uint32_t loraScalesSize, GM_ADDR y, uint32_t batchSize,
-                                                    uint32_t numBlocksPerCore, uint32_t inputHiddenDim,
-                                                    uint32_t maxLoRARank, GM_ADDR workspace, GM_ADDR tiling)
+                                                    uint32_t inputHiddenDim, uint32_t maxLoRARank, GM_ADDR workspace,
+                                                    GM_ADDR tiling)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_1);
 
@@ -191,14 +185,12 @@ extern "C" __global__ __aicore__ void sgemmc_shrink(GM_ADDR x, GM_ADDR weight, G
     if (tilingData.dataType == 1) {
         SGEMMCShrink<bfloat16_t, float> op(&pipe);
         op.Init(x, weight, loraIndices, loraIndicesSize, seqLen, seqLenSize, loraRanks, loraRanksSize, loraScales,
-                loraScalesSize, y, batchSize, numBlocksPerCore, inputHiddenDim, maxLoRARank, workspace,
-                tilingData.cubeTiling);
+                loraScalesSize, y, batchSize, inputHiddenDim, maxLoRARank, workspace, tilingData.cubeTiling);
         op.Process();
     } else {
         SGEMMCShrink<half, float> op(&pipe);
         op.Init(x, weight, loraIndices, loraIndicesSize, seqLen, seqLenSize, loraRanks, loraRanksSize, loraScales,
-                loraScalesSize, y, batchSize, numBlocksPerCore, inputHiddenDim, maxLoRARank, workspace,
-                tilingData.cubeTiling);
+                loraScalesSize, y, batchSize, inputHiddenDim, maxLoRARank, workspace, tilingData.cubeTiling);
         op.Process();
     }
 }
