@@ -31,13 +31,13 @@ aclnnStatus aclnnMoeDistributeCombineA2GetWorkspaceSize(
     const aclTensor *countOuter, char *groupEp, int64_t epWorldSize, int64_t epRankId, int64_t moeExpertNum,
     char *groupTp, int64_t tpWorldSize, int64_t tpRankId, int64_t expertShardType, int64_t sharedExpertNum,
     int64_t sharedExpertRankNum, int64_t globalBs, int64_t outDtype, int64_t commQuantMode, int64_t groupListType,
-    aclTensor *x, uint64_t *workspaceSize, aclOpExecutor **executor)
+    aclTensor *x, const aclTensor *sendCostStats, uint64_t *workspaceSize, aclOpExecutor **executor)
 {
     aclnnStatus ret = aclnnInnerMoeDistributeCombineA2GetWorkspaceSize(
         expandX, expertIds, expandIdx, epSendCounts, expertScales, tpSendCounts, xActiveMask, activationScale,
         weightScale, groupList, expandScales, offsetInner, offsetOuter, countOuter, groupEp, epWorldSize, epRankId,
         moeExpertNum, groupTp, tpWorldSize, tpRankId, expertShardType, sharedExpertNum, sharedExpertRankNum, globalBs,
-        outDtype, commQuantMode, groupListType, x, workspaceSize, executor);
+        outDtype, commQuantMode, groupListType, x, sendCostStats, workspaceSize, executor);
     return ret;
 }
 

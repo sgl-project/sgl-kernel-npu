@@ -25,12 +25,29 @@ public:
 
 }  // namespace deep_ep
 
+template <typename... Args>
+void log_all(std::ostream &os, Args &&...args)
+{
+    (os << ... << std::forward<Args>(args));
+}
+
 #define EP_HOST_ASSERT(cond)                                           \
     ;                                                                  \
     do {                                                               \
         if (not(cond)) {                                               \
             throw EPException("Assertion", __FILE__, __LINE__, #cond); \
         }                                                              \
+    } while (0)
+
+#define EP_HOST_ASSERT_S(cond, ...)                                        \
+    do {                                                                   \
+        if (not(cond)) {                                                   \
+            std::ostringstream oss;                                        \
+            oss << "(" #cond ") ";                                         \
+            log_all(oss, __VA_ARGS__);                                     \
+            oss << std::endl;                                              \
+            throw EPException("Assertion", __FILE__, __LINE__, oss.str()); \
+        }                                                                  \
     } while (0)
 
 #define ACL_CHECK(ret)                                                                            \
