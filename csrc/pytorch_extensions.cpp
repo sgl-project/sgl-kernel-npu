@@ -15,6 +15,8 @@
 
 #include "torch_helper.h"
 #include "sgl_kenel_npu_ops.h"
+#include "causal_conv1d_update/op_host/causal_conv1d_update.h"
+#include "causal_conv1d/op_host/causal_conv1d.h"
 
 namespace {
 TORCH_LIBRARY_FRAGMENT(npu, m)
@@ -87,6 +89,13 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "sgemmv_shrink(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! lora_ranks,"
         "              Tensor! lora_scales, Tensor! y) -> ()");
 
+    m.def(
+        "recurrent_gated_delta_rule(Tensor mix_qkv, Tensor(a!) recurrent_state, Tensor beta, "
+        "float scale, Tensor actual_seq_lengths, Tensor ssm_state_indices, "
+        "int nk, int nv, "
+        "Tensor(b!)? intermediate_state=None, Tensor? cache_indices=None, "
+        "Tensor? num_accepted_tokens=None, Tensor? g=None, Tensor? gk=None) -> Tensor");
+
 #ifdef BUILD_CATLASS_MODULE
     m.def("catlass_matmul_basic(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, str? format_mode=None) -> ()");
 #endif
@@ -98,6 +107,16 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int? sparse_count=None, int? sparse_mode=None) -> Tensor");
 
     m.def("triangular_inverse(Tensor x) -> Tensor");
+
+    m.def(
+        "causal_conv1d_update(Tensor x, Tensor weight, Tensor conv_state, "
+        "Tensor conv_state_indices, Tensor? bias=None, Tensor? num_accepted_tokens=None, "
+        "Tensor? query_start_loc=None, bool activation_mode=False, int pad_slot_id=-1) -> Tensor");
+
+    m.def(
+        "causal_conv1d(Tensor x, Tensor weight, Tensor conv_states, "
+        "Tensor query_start_loc, Tensor cache_indices, Tensor has_initial_state, "
+        "Tensor? bias=None, bool activation_mode=False, int pad_slot_id=-1) -> Tensor");
 }
 }  // namespace
 
@@ -134,6 +153,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
     m.impl("sgemmv_shrink", TORCH_FN(sglang::npu_kernel::sgemmv_shrink));
 
+    m.impl("recurrent_gated_delta_rule", TORCH_FN(sglang::npu_kernel::recurrent_gated_delta_rule));
+
 #ifdef BUILD_CATLASS_MODULE
     m.impl("catlass_matmul_basic", TORCH_FN(sglang::npu_kernel::catlass_matmul_basic));
 #endif
@@ -141,5 +162,31 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
 
     m.impl("triangular_inverse", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
+
+    m.impl("causal_conv1d_update",
+           [](const at::Tensor &x, const at::Tensor &weight, const at::Tensor &conv_state,
+              const at::Tensor &conv_state_indices, const c10::optional<at::Tensor> &bias,
+              const c10::optional<at::Tensor> &num_accepted_tokens, const c10::optional<at::Tensor> &query_start_loc,
+              bool activation_mode, int64_t pad_slot_id) {
+               // Handle optional parameters - convert None to empty tensors
+               auto bias_or_empty = bias.has_value() ? *bias : at::empty({0}, x.options());
+               auto num_accepted_or_empty =
+                   num_accepted_tokens.has_value() ? *num_accepted_tokens : at::empty({0}, x.options().dtype(at::kInt));
+               auto query_loc_or_empty =
+                   query_start_loc.has_value() ? *query_start_loc : at::empty({0}, x.options().dtype(at::kInt));
+
+               return sglang::npu_kernel::causal_conv1d_update_impl(x, weight, conv_state, conv_state_indices,
+                                                                    bias_or_empty, num_accepted_or_empty,
+                                                                    query_loc_or_empty, activation_mode, pad_slot_id);
+           });
+
+    m.impl("causal_conv1d", [](const at::Tensor &x, const at::Tensor &weight, const at::Tensor &conv_states,
+                               const at::Tensor &query_start_loc, const at::Tensor &cache_indices,
+                               const at::Tensor &has_initial_state, const c10::optional<at::Tensor> &bias,
+                               bool activation_mode, int64_t pad_slot_id) {
+        auto bias_or_empty = bias.has_value() ? *bias : at::empty({0}, x.options());
+        return sglang::npu_kernel::causal_conv1d_impl(x, weight, conv_states, query_start_loc, cache_indices,
+                                                      has_initial_state, bias_or_empty, activation_mode, pad_slot_id);
+    });
 }
 }  // namespace

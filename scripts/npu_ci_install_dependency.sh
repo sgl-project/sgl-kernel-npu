@@ -84,6 +84,7 @@ ${PIP_INSTALL} \
     torch==${TORCH_VERSION} \
     torchvision==${TORCHVISION_VERSION} \
     torchaudio==${TORCH_VERSION} \
-    --index-url https://download.pytorch.org/whl/cpu
+    --index-url ${TORCH_CACHE_URL:="https://download.pytorch.org/whl/cpu"} \
+    --extra-index-url ${PYPI_CACHE_URL:="https://pypi.org/simple/"}
 ## torch_npu
 ${PIP_INSTALL} ${TORCH_NPU_URL}
