@@ -111,7 +111,7 @@ CausalConv1dShapeInfo ValidateInputs(const at::Tensor &x, const at::Tensor &weig
     info.width = weight.size(0);
     TORCH_CHECK(weight.size(1) == info.dim, "weight.shape[1] must equal dim");
     TORCH_CHECK(info.width == 4, "Only width == 4 is supported, got ", info.width);
-    TORCH_CHECK(info.dim % 16 != 0, "dim must be multiple of 16 for fp16/bf16 alignment, but got ", info.dim);
+    TORCH_CHECK(info.dim % 16 == 0, "dim must be multiple of 16 for fp16/bf16 alignment, but got ", info.dim);
 
     info.numCacheLines = conv_states.size(0);
     info.stateLen = conv_states.size(1);
