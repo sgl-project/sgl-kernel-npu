@@ -21,7 +21,8 @@ import triton.language as tl
 def move_cache_dynamic_last_kernel_h_block(
     dst_cache_ptr,
     src_cache_ptr,
-    valid_indices_ptr,
+    dst_indices_ptr,
+    src_indices_ptr,
     last_steps_ptr,
     layer_stride,
     size_stride,
@@ -39,7 +40,8 @@ def move_cache_dynamic_last_kernel_h_block(
     valid_id = tl.program_id(0)
 
     # Load actual indices
-    valid_idx_val = tl.load(valid_indices_ptr + valid_id)
+    dst_idx_val = tl.load(dst_indices_ptr + valid_id)
+    src_idx_val = tl.load(src_indices_ptr + valid_id)
     last_step_val = tl.load(last_steps_ptr + valid_id)
     if last_step_val < 0:
         return
@@ -52,12 +54,12 @@ def move_cache_dynamic_last_kernel_h_block(
         src_base_addr = (
             src_cache_ptr
             + tl.cast(l, tl.int64) * layer_stride
-            + tl.cast(valid_idx_val, tl.int64) * size_stride
+            + tl.cast(src_idx_val, tl.int64) * size_stride
         )
         dst_base_addr = (
             dst_cache_ptr
             + tl.cast(l, tl.int64) * dst_layer_stride
-            + tl.cast(valid_idx_val, tl.int64) * dst_size_stride
+            + tl.cast(dst_idx_val, tl.int64) * dst_size_stride
         )
         src_addr = src_base_addr + tl.cast(last_step_val, tl.int64) * draft_stride
 
@@ -84,7 +86,8 @@ def move_cache_dynamic_last_kernel_h_block(
 def move_intermediate_cache(
     ssm_states,
     intermediate_state_cache,
-    valid_tensor,
+    dst_indices_tensor,
+    src_indices_tensor,
     last_steps_tensor,
     h_block_size=2,
 ):
@@ -94,7 +97,8 @@ def move_intermediate_cache(
     Args:
         ssm_states: Destination SSM states tensor
         intermediate_state_cache: Source intermediate state cache
-        valid_tensor: Valid indices tensor
+        dst_indices_tensor: Valid destination indices tensor
+        src_indices_tensor: Valid source indices tensor
         last_steps_tensor: Last steps tensor
         h_block_size: Block size for h dimension processing
     """
@@ -109,15 +113,17 @@ def move_intermediate_cache(
     dst_layer_stride, dst_size_stride = int(ssm_states.stride()[0]), int(
         ssm_states.stride()[1]
     )
-    assert len(valid_tensor) == len(last_steps_tensor), "Lengths must match"
+    assert len(dst_indices_tensor) == len(last_steps_tensor), "Destination indices lengths must match"
+    assert len(src_indices_tensor) == len(last_steps_tensor), "Source indices lengths must match"
 
     # Grid: one thread per valid index
-    grid = (len(valid_tensor),)
+    grid = (len(dst_indices_tensor),)
 
     move_cache_dynamic_last_kernel_h_block[grid](
         dst_cache_ptr=ssm_states,
         src_cache_ptr=intermediate_state_cache,
-        valid_indices_ptr=valid_tensor,
+        dst_indices_ptr=dst_indices_tensor,
+        src_indices_ptr=src_indices_tensor,
         last_steps_ptr=last_steps_tensor,
         layer_stride=layer_stride,
         size_stride=size_stride,
