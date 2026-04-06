@@ -139,7 +139,9 @@ def test_move_intermediate_cache(
     valid_indices = random.sample(population, num_valid)
     last_step_pos = [random.randint(0, D - 1) for _ in range(num_valid)]
     dst_indices_tensor = torch.tensor(valid_indices, device=device, dtype=torch.int32)
-    src_indices_tensor = torch.arange(dst_indices_tensor.shape[0], device=device, dtype=torch.int32)
+    src_indices_tensor = torch.arange(
+        dst_indices_tensor.shape[0], device=device, dtype=torch.int32
+    )
     last_steps_tensor = torch.tensor(last_step_pos, device=device, dtype=torch.int32)
 
     valid_mask = last_steps_tensor >= 0
@@ -151,6 +153,12 @@ def test_move_intermediate_cache(
         :, src_state_indices, valid_last_steps
     ]
 
-    move_intermediate_cache(dst_cache_clone, src_cache, dst_indices_tensor, src_indices_tensor, last_steps_tensor)
+    move_intermediate_cache(
+        dst_cache_clone,
+        src_cache,
+        dst_indices_tensor,
+        src_indices_tensor,
+        last_steps_tensor,
+    )
 
     assert_close("move_cache", dst_cache, dst_cache_clone, 1e-3)
