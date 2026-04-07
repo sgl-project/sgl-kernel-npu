@@ -158,7 +158,7 @@ def test_move_intermediate_cache(
         src_cache,
         dst_indices_tensor,
         src_indices_tensor,
-        last_steps_tensor
+        last_steps_tensor,
     )
 
     assert_close("move_cache", dst_cache, dst_cache_clone, 1e-3)
