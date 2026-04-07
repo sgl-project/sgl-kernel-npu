@@ -243,11 +243,11 @@ def test_npu_causal_conv1d_update():
         return
 
     # --- Config ---
-    BSZ = 1
-    HIDDEN_SIZE = 4096  # Keep the hidden size moderate so the test stays fast.
-    SEQ_LEN = 1
+    BSZ = 32
+    HIDDEN_SIZE = 2048  # Keep the hidden size moderate so the test stays fast.
+    SEQ_LEN = 4
     KERNEL_SIZE = 4
-    CACHE_LEN = 10
+    CACHE_LEN = 32
     # conv_state must be large enough to hold (width - 1) + (seq_len - 1) values.
     CONV_STATE_LEN = (
         KERNEL_SIZE - 1 + SEQ_LEN - 1
