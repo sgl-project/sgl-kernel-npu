@@ -103,6 +103,31 @@ HOST_API at::Tensor causal_conv1d_update_impl(const at::Tensor &x, const at::Ten
     // Create output tensor
     at::Tensor y = at::empty_like(x);
 
+    // Pre-shift conv_state to maintain the rolling-buffer convention used by the
+    // vLLM/SGLang reference. The kernel only writes positions [VAL .. state_len-1]
+    // (where VAL = state_len - seq_len), leaving the older "scratch" prefix stale.
+    // We shift state[0..VAL-1] := state[seq_len..seq_len+VAL-1] beforehand so that
+    // after the kernel completes, the full conv_state matches the rolling window
+    // [old[seq_len:state_len], x[0:seq_len]].
+    const int64_t val_shift = state_len - seq_len;
+    if (val_shift > 0) {
+        if (has_indices) {
+            // Filter out padded entries before gathering, so pad slots are not touched.
+            auto cs_indices_long = conv_state_indices.to(at::kLong);
+            auto valid_mask = cs_indices_long.ne(static_cast<int64_t>(pad_slot_id));
+            auto valid_indices = cs_indices_long.masked_select(valid_mask);
+            if (valid_indices.numel() > 0) {
+                auto cs_view = conv_state.index_select(0, valid_indices);  // [B', state_len, dim]
+                auto src = cs_view.slice(1, seq_len, seq_len + val_shift).clone();
+                cs_view.slice(1, 0, val_shift).copy_(src);
+                conv_state.index_copy_(0, valid_indices, cs_view);
+            }
+        } else {
+            auto src = conv_state.slice(1, seq_len, seq_len + val_shift).clone();
+            conv_state.slice(1, 0, val_shift).copy_(src);
+        }
+    }
+
     auto ascendc_platform = platform_ascendc::PlatformAscendCManager::GetInstance();
     int32_t max_aiv_core = static_cast<int32_t>(ascendc_platform->GetCoreNumAiv());
     int32_t block_dim = std::min(max_aiv_core, static_cast<int32_t>(batch));
