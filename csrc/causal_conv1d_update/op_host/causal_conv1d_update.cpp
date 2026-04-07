@@ -136,69 +136,111 @@ HOST_API at::Tensor causal_conv1d_update_impl(const at::Tensor &x, const at::Ten
     }
     int32_t workspace_size = static_cast<int32_t>(ascendc_platform->GetLibApiWorkSpaceSize());
 
-    // 1. Prepare Tiling Data Struct
-    CausalConv1dUpdateTilingData tiling_data;
-    SGLang::CausalConv1dUpdate::ComputeTilingData(batch, seq_len, dim, width, state_len, has_indices, has_bias,
-                                                  has_num_accept, has_query_loc, activation_mode, pad_slot_id,
-                                                  block_dim, tiling_data);
+    // Per-tile launch helper. Captures everything needed except the tensors and the
+    // current tile_dim, so we can call it once for the whole tensor or once per tile
+    // when dim exceeds the kernel's UB budget.
+    auto launch_for_tile = [&](const at::Tensor &x_t, const at::Tensor &weight_t, const at::Tensor &conv_state_t,
+                               const at::Tensor &bias_t, at::Tensor &y_t, int64_t tile_dim) {
+        // 1. Prepare Tiling Data Struct
+        CausalConv1dUpdateTilingData tiling_data;
+        SGLang::CausalConv1dUpdate::ComputeTilingData(batch, seq_len, tile_dim, width, state_len, has_indices, has_bias,
+                                                      has_num_accept, has_query_loc, activation_mode, pad_slot_id,
+                                                      block_dim, tiling_data);
 
-    int32_t tilingSize = (sizeof(CausalConv1dUpdateTilingData) + PADDING_BYTE - 1) / PADDING_BYTE * PADDING_BYTE;
-    at::Tensor tilingTensor;
+        int32_t tilingSize = (sizeof(CausalConv1dUpdateTilingData) + PADDING_BYTE - 1) / PADDING_BYTE * PADDING_BYTE;
+        at::Tensor tilingTensor;
 
-    // 2. Hash computation
-    CausalConv1dUpdateTilingKey key{.batch = batch,
-                                    .seqLen = seq_len,
-                                    .dim = dim,
-                                    .width = width,
-                                    .stateLen = state_len,
-                                    .hasIndices = has_indices ? 1 : 0,
-                                    .hasBias = has_bias ? 1 : 0,
-                                    .hasNumAccept = has_num_accept ? 1 : 0,
-                                    .hasQueryLoc = has_query_loc ? 1 : 0,
-                                    .activationMode = activation_mode ? 1 : 0,
-                                    .padSlotId = pad_slot_id};
-    uint64_t hashValue = CausalConv1dUpdateTilingKeyHash{}(key);
+        // 2. Hash computation
+        CausalConv1dUpdateTilingKey key{.batch = batch,
+                                        .seqLen = seq_len,
+                                        .dim = tile_dim,
+                                        .width = width,
+                                        .stateLen = state_len,
+                                        .hasIndices = has_indices ? 1 : 0,
+                                        .hasBias = has_bias ? 1 : 0,
+                                        .hasNumAccept = has_num_accept ? 1 : 0,
+                                        .hasQueryLoc = has_query_loc ? 1 : 0,
+                                        .activationMode = activation_mode ? 1 : 0,
+                                        .padSlotId = pad_slot_id};
+        uint64_t hashValue = CausalConv1dUpdateTilingKeyHash{}(key);
 
-    // 3. cache management
-    static auto globalTilingBuffer =
-        at::empty({tilingSize * MAX_CAPTURE_NUM}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+        // 3. cache management
+        static auto globalTilingBuffer = at::empty({tilingSize * MAX_CAPTURE_NUM},
+                                                   at::TensorOptions().dtype(at::kByte).device(x_t.options().device()));
 
-    if (captureMap.find(hashValue) != captureMap.end()) {
-        tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
-                                     tilingSize, at::kByte);
-    } else if (actualCaptureNum >= MAX_CAPTURE_NUM) {
-        static auto tilingBuffer =
-            at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
-        aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), sizeof(CausalConv1dUpdateTilingData), &tiling_data,
-                    sizeof(CausalConv1dUpdateTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-        tilingTensor = at::from_blob(tilingBuffer.data_ptr<uint8_t>(), tilingSize, at::kByte);
-    } else {
-        captureMap[hashValue] = actualCaptureNum;
-        aclrtMemcpy(globalTilingBuffer.data_ptr<uint8_t>() + actualCaptureNum * tilingSize,
-                    sizeof(CausalConv1dUpdateTilingData), &tiling_data, sizeof(CausalConv1dUpdateTilingData),
-                    ACL_MEMCPY_HOST_TO_DEVICE);
-        actualCaptureNum++;
-        tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
-                                     tilingSize, at::kByte);
+        if (captureMap.find(hashValue) != captureMap.end()) {
+            tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
+                                         tilingSize, at::kByte);
+        } else if (actualCaptureNum >= MAX_CAPTURE_NUM) {
+            static auto tilingBuffer =
+                at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(x_t.options().device()));
+            aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), sizeof(CausalConv1dUpdateTilingData), &tiling_data,
+                        sizeof(CausalConv1dUpdateTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+            tilingTensor = at::from_blob(tilingBuffer.data_ptr<uint8_t>(), tilingSize, at::kByte);
+        } else {
+            captureMap[hashValue] = actualCaptureNum;
+            aclrtMemcpy(globalTilingBuffer.data_ptr<uint8_t>() + actualCaptureNum * tilingSize,
+                        sizeof(CausalConv1dUpdateTilingData), &tiling_data, sizeof(CausalConv1dUpdateTilingData),
+                        ACL_MEMCPY_HOST_TO_DEVICE);
+            actualCaptureNum++;
+            tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
+                                         tilingSize, at::kByte);
+        }
+
+        // 4. Create workspace
+        auto workspace_tensor =
+            at::empty({workspace_size}, at::TensorOptions().dtype(at::kByte).device(x_t.options().device()));
+
+        // 5. Launch kernel
+        if (dtype == at::kBFloat16) {
+            EXEC_KERNEL_CMD(causal_conv1d_update_bfloat16_t, block_dim, x_t, weight_t, conv_state_t,
+                            has_indices ? conv_state_indices : at::empty(0, x_t.options()),
+                            has_bias ? bias_t : at::empty(0, x_t.options()),
+                            has_num_accept ? num_accepted_tokens : at::empty(0, x_t.options()),
+                            has_query_loc ? query_start_loc : at::empty(0, x_t.options()), y_t, workspace_tensor,
+                            tilingTensor);
+        } else {
+            EXEC_KERNEL_CMD(causal_conv1d_update_half, block_dim, x_t, weight_t, conv_state_t,
+                            has_indices ? conv_state_indices : at::empty(0, x_t.options()),
+                            has_bias ? bias_t : at::empty(0, x_t.options()),
+                            has_num_accept ? num_accepted_tokens : at::empty(0, x_t.options()),
+                            has_query_loc ? query_start_loc : at::empty(0, x_t.options()), y_t, workspace_tensor,
+                            tilingTensor);
+        }
+    };
+
+    // The kernel allocates ~26*dim bytes of UB (width*dim weight + several dim*sizeof
+    // operand/accum buffers). Atlas A3 has 192KB UB per AIV core, so dim much beyond
+    // ~7500 overflows ("ub address out of bounds" / vector core exception). Models
+    // like Qwen3-Next have a much larger conv_dim, so we tile along the dim axis
+    // here at the integration layer and call the kernel per tile.
+    constexpr int64_t kMaxDimTile = 4096;
+    if (dim <= kMaxDimTile) {
+        launch_for_tile(x, weight, conv_state, bias, y, dim);
+        return y;
     }
 
-    // 4. Create workspace
-    auto workspace_tensor =
-        at::empty({workspace_size}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+    const int64_t num_tiles = (dim + kMaxDimTile - 1) / kMaxDimTile;
+    for (int64_t t = 0; t < num_tiles; ++t) {
+        const int64_t tile_start = t * kMaxDimTile;
+        const int64_t tile_end = std::min(tile_start + kMaxDimTile, dim);
+        const int64_t tile_dim = tile_end - tile_start;
 
-    // 5. Launch kernel
-    if (dtype == at::kBFloat16) {
-        EXEC_KERNEL_CMD(causal_conv1d_update_bfloat16_t, block_dim, x, weight, conv_state,
-                        has_indices ? conv_state_indices : at::empty(0, x.options()),
-                        has_bias ? bias : at::empty(0, x.options()),
-                        has_num_accept ? num_accepted_tokens : at::empty(0, x.options()),
-                        has_query_loc ? query_start_loc : at::empty(0, x.options()), y, workspace_tensor, tilingTensor);
-    } else {
-        EXEC_KERNEL_CMD(causal_conv1d_update_half, block_dim, x, weight, conv_state,
-                        has_indices ? conv_state_indices : at::empty(0, x.options()),
-                        has_bias ? bias : at::empty(0, x.options()),
-                        has_num_accept ? num_accepted_tokens : at::empty(0, x.options()),
-                        has_query_loc ? query_start_loc : at::empty(0, x.options()), y, workspace_tensor, tilingTensor);
+        // Slice along the dim axis. Slicing yields non-contiguous views; the kernel
+        // requires contiguous inputs, so we materialize tile copies and write the
+        // results back after the kernel returns.
+        auto x_tile = x.slice(2, tile_start, tile_end).contiguous();
+        auto weight_tile = weight.slice(1, tile_start, tile_end).contiguous();
+        auto conv_state_tile = conv_state.slice(2, tile_start, tile_end).contiguous();
+        auto bias_tile = has_bias ? bias.slice(0, tile_start, tile_end).contiguous() : bias;
+        auto y_tile = at::empty_like(x_tile);
+
+        launch_for_tile(x_tile, weight_tile, conv_state_tile, bias_tile, y_tile, tile_dim);
+
+        // Stitch the tile outputs back into the full tensors. conv_state is updated
+        // in-place by the kernel on the tile copy, so we must copy it back.
+        y.slice(2, tile_start, tile_end).copy_(y_tile);
+        conv_state.slice(2, tile_start, tile_end).copy_(conv_state_tile);
     }
 
     return y;
