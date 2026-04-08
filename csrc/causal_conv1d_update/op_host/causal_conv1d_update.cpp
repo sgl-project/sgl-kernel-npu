@@ -8,8 +8,6 @@
 #include "tiling/causal_conv1d_update_tiling.h"
 #include "defines.h"
 #include "torch_helper.h"
-#include "torch_npu/csrc/core/npu/NPUStream.h"
-#include "torch_npu/csrc/framework/OpCommand.h"
 #include "common_tiling.h"
 #include "common.h"
 #include "stub/aclrtlaunch_causal_conv1d_update_bfloat16_t.h"
@@ -120,12 +118,10 @@ HOST_API at::Tensor causal_conv1d_update_impl(const at::Tensor &x, const at::Ten
             // (same source row, same shift), so the result is correct.
             auto cs_indices_long = conv_state_indices.to(at::kLong);
             auto safe_indices = cs_indices_long.clamp_min(0);
-            // Slice first, then index_select — only allocates [B, val_shift, dim]
-            // instead of a full [B, state_len, dim] copy.
-            auto src_batch = conv_state.slice(1, seq_len, seq_len + val_shift)
-                                 .index_select(0, safe_indices)
-                                 .contiguous();
-            conv_state.slice(1, 0, val_shift).index_copy_(0, safe_indices, src_batch);
+            auto cs_view = conv_state.index_select(0, safe_indices);  // [B, state_len, dim]
+            auto src = cs_view.slice(1, seq_len, seq_len + val_shift).clone();
+            cs_view.slice(1, 0, val_shift).copy_(src);
+            conv_state.index_copy_(0, safe_indices, cs_view);
         } else {
             auto src = conv_state.slice(1, seq_len, seq_len + val_shift).clone();
             conv_state.slice(1, 0, val_shift).copy_(src);
@@ -205,42 +201,22 @@ HOST_API at::Tensor causal_conv1d_update_impl(const at::Tensor &x, const at::Ten
         auto workspace_tensor =
             at::empty({workspace_size}, at::TensorOptions().dtype(at::kByte).device(x_t.options().device()));
 
-        // 5. Prepare kernel arguments — resolve optional tensors once so the
-        //    lambda captures fixed pointers, not temporaries.
-        auto indices_t = has_indices ? conv_state_indices : at::empty(0, x_t.options());
-        auto bias_k = has_bias ? bias_t : at::empty(0, x_t.options());
-        auto num_accept_t = has_num_accept ? num_accepted_tokens : at::empty(0, x_t.options());
-        auto query_loc_t = has_query_loc ? query_start_loc : at::empty(0, x_t.options());
-
-        // 6. Launch kernel via OpCommand (same task queue as pre-shift ops).
-        //    EXEC_KERNEL_CMD uses RunOpApi which may bypass the OpCommand task
-        //    queue, causing stream ordering issues with preceding PyTorch ops
-        //    (pre-shift) in graph / non-blocking mode.
-        aclrtStream acl_stream = c10_npu::getCurrentNPUStream().stream();
-        void *x_ptr = x_t.data_ptr();
-        void *w_ptr = weight_t.data_ptr();
-        void *cs_ptr = conv_state_t.data_ptr();
-        void *idx_ptr = indices_t.data_ptr();
-        void *bias_ptr = bias_k.data_ptr();
-        void *na_ptr = num_accept_t.data_ptr();
-        void *ql_ptr = query_loc_t.data_ptr();
-        void *y_ptr = y_t.data_ptr();
-        void *ws_ptr = workspace_tensor.data_ptr();
-        void *tl_ptr = tilingTensor.data_ptr();
-
-        at_npu::native::OpCommand cmd;
-        cmd.Name(dtype == at::kBFloat16 ? "causal_conv1d_update_bfloat16_t" : "causal_conv1d_update_half");
-        cmd.SetCustomHandler([=]() -> int {
-            if (dtype == at::kBFloat16) {
-                ACLRT_LAUNCH_KERNEL(causal_conv1d_update_bfloat16_t)
-                (block_dim, acl_stream, x_ptr, w_ptr, cs_ptr, idx_ptr, bias_ptr, na_ptr, ql_ptr, y_ptr, ws_ptr, tl_ptr);
-            } else {
-                ACLRT_LAUNCH_KERNEL(causal_conv1d_update_half)
-                (block_dim, acl_stream, x_ptr, w_ptr, cs_ptr, idx_ptr, bias_ptr, na_ptr, ql_ptr, y_ptr, ws_ptr, tl_ptr);
-            }
-            return 0;
-        });
-        cmd.Run();
+        // 5. Launch kernel
+        if (dtype == at::kBFloat16) {
+            EXEC_KERNEL_CMD(causal_conv1d_update_bfloat16_t, block_dim, x_t, weight_t, conv_state_t,
+                            has_indices ? conv_state_indices : at::empty(0, x_t.options()),
+                            has_bias ? bias_t : at::empty(0, x_t.options()),
+                            has_num_accept ? num_accepted_tokens : at::empty(0, x_t.options()),
+                            has_query_loc ? query_start_loc : at::empty(0, x_t.options()), y_t, workspace_tensor,
+                            tilingTensor);
+        } else {
+            EXEC_KERNEL_CMD(causal_conv1d_update_half, block_dim, x_t, weight_t, conv_state_t,
+                            has_indices ? conv_state_indices : at::empty(0, x_t.options()),
+                            has_bias ? bias_t : at::empty(0, x_t.options()),
+                            has_num_accept ? num_accepted_tokens : at::empty(0, x_t.options()),
+                            has_query_loc ? query_start_loc : at::empty(0, x_t.options()), y_t, workspace_tensor,
+                            tilingTensor);
+        }
     };
 
     // The kernel allocates ~26*dim bytes of UB (width*dim weight + several dim*sizeof
