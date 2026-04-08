@@ -164,6 +164,17 @@ HOST_API at::Tensor causal_conv1d_update_impl(const at::Tensor &x, const at::Ten
                                         .padSlotId = pad_slot_id};
         uint64_t hashValue = CausalConv1dUpdateTilingKeyHash{}(key);
 
+        // Helper: wrap tiling_data in a CPU tensor and copy to device via
+        // torch_npu dispatch so the H2D transfer is properly ordered on the
+        // same task queue as the preceding pre-shift ops and the subsequent
+        // kernel launch.  Using raw aclrtMemcpy here would bypass OpCommand
+        // and break stream ordering in graph / non-blocking mode.
+        auto copyTilingToDevice = [&]() {
+            auto cpuTiling = at::empty({tilingSize}, at::kByte);
+            std::memcpy(cpuTiling.data_ptr(), &tiling_data, sizeof(CausalConv1dUpdateTilingData));
+            return TorchNpuHelper::CopyTensorHostToDevice(cpuTiling);
+        };
+
         // 3. cache management
         static auto globalTilingBuffer = at::empty({tilingSize * MAX_CAPTURE_NUM},
                                                    at::TensorOptions().dtype(at::kByte).device(x_t.options().device()));
@@ -172,16 +183,15 @@ HOST_API at::Tensor causal_conv1d_update_impl(const at::Tensor &x, const at::Ten
             tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
                                          tilingSize, at::kByte);
         } else if (actualCaptureNum >= MAX_CAPTURE_NUM) {
-            static auto tilingBuffer =
-                at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(x_t.options().device()));
-            aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), sizeof(CausalConv1dUpdateTilingData), &tiling_data,
-                        sizeof(CausalConv1dUpdateTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
-            tilingTensor = at::from_blob(tilingBuffer.data_ptr<uint8_t>(), tilingSize, at::kByte);
+            // Overflow: no room in cache, create a one-shot device copy.
+            tilingTensor = copyTilingToDevice();
         } else {
+            // New capture: copy to device and cache in globalTilingBuffer.
             captureMap[hashValue] = actualCaptureNum;
-            aclrtMemcpy(globalTilingBuffer.data_ptr<uint8_t>() + actualCaptureNum * tilingSize,
-                        sizeof(CausalConv1dUpdateTilingData), &tiling_data, sizeof(CausalConv1dUpdateTilingData),
-                        ACL_MEMCPY_HOST_TO_DEVICE);
+            auto deviceTiling = copyTilingToDevice();
+            // D2D copy into the pre-allocated cache buffer (ordered via dispatch).
+            globalTilingBuffer.slice(0, actualCaptureNum * tilingSize,
+                                     actualCaptureNum * tilingSize + tilingSize).copy_(deviceTiling);
             actualCaptureNum++;
             tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
                                          tilingSize, at::kByte);
