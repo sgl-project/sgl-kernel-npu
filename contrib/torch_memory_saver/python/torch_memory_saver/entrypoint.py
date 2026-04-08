@@ -5,6 +5,7 @@ from contextlib import contextmanager
 from typing import Optional
 
 import torch
+import torch_npu
 
 from .binary_wrapper import BinaryWrapper
 from .hooks.base import HookMode, HookUtilBase
@@ -50,15 +51,18 @@ class TorchMemorySaver:
 
     @contextmanager
     def disable(self):
+        self._ensure_initialized()
         with self._impl.disable():
             yield
 
     def pause(self, tag: Optional[str] = None):
         """Pause memory for specific tag or all memory if tag is None"""
+        self._ensure_initialized()
         self._impl.pause(tag=tag)
 
     def resume(self, tag: Optional[str] = None):
         """Resume memory for specific tag or all memory if tag is None"""
+        self._ensure_initialized()
         self._impl.resume(tag=tag)
 
     # for compatibility
@@ -85,7 +89,9 @@ class TorchMemorySaver:
 
 
 class _TorchMemorySaverImpl:
-    def __init__(self, hook_mode: HookMode = "torch"):
+    def __init__(self, hook_mode: HookMode = None):
+        if hook_mode is None:
+            hook_mode = os.environ.get("TMS_HOOK_MODE", "torch")
         self._hook_mode = hook_mode
         self._hook_util = HookUtilBase.create(hook_mode=hook_mode)
         self._binary_wrapper = BinaryWrapper(
@@ -134,17 +140,27 @@ class _TorchMemorySaverImpl:
             )
 
     @contextmanager
-    def disable(self):
-        old_is_interesting_region = (
-            self._binary_wrapper.cdll.tms_get_interesting_region()
-        )
+    def disable(self, dispose_mem_pool_after_use: bool = True):
+        if not dispose_mem_pool_after_use:
+            raise ValueError("Only dispose_mem_pool_after_use=True is supported now")
+        if not self._binary_wrapper.cdll.tms_get_interesting_region():
+            raise RuntimeError("disable() should be called only when tms is active")
+
         self._binary_wrapper.cdll.tms_set_interesting_region(False)
         try:
-            yield
+            # Affected by the memory allocation mechanism of torch_npu, a new mempool must be adopted.
+            # Otherwise, paused virtual addresses may be reused, causing memory conflicts and trigger errors.
+            pool = torch.npu.MemPool()
+            with torch.npu.use_mem_pool(pool):
+                yield
+
+            torch.npu.synchronize()
+            # Note that this operation does not release the device memory immediately. The memory will
+            # only be released after the memory region is resumed and empty_cache() is invoked.
+            torch_npu._C._npu_releasePool(torch.npu.current_device(), pool.id)
+            del pool
         finally:
-            self._binary_wrapper.cdll.tms_set_interesting_region(
-                old_is_interesting_region
-            )
+            self._binary_wrapper.cdll.tms_set_interesting_region(True)
 
     def pause(self, tag: Optional[str]):
         tag_bytes = tag.encode("utf-8") if tag else None
