@@ -113,7 +113,7 @@ def test_correctness_fixed():
     # --- Config ---
     BSZ = 8
     HIDDEN_SIZE = 4096
-    SEQ_LEN = 2
+    SEQ_LEN = 3
     KERNEL_SIZE = 3
     CACHE_LEN = 65
     DTYPE = torch.bfloat16
@@ -244,7 +244,7 @@ def test_npu_causal_conv1d_update():
 
     # --- Config ---
     BSZ = 32
-    HIDDEN_SIZE = 2048  # Keep the hidden size moderate so the test stays fast.
+    HIDDEN_SIZE = 8192  # Keep the hidden size moderate so the test stays fast.
     SEQ_LEN = 4
     KERNEL_SIZE = 4
     CACHE_LEN = 32
