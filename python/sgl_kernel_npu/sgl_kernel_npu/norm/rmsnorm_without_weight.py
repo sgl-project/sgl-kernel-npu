@@ -70,3 +70,5 @@ def fused_rmsnorm_without_weight(x, eps):
         C,
         kernel_num=num_vectorcore,
     )
+
+    return output
