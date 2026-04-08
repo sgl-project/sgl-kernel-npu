@@ -45,7 +45,9 @@ def fused_rmsnorm_without_weight_kernel(
         dim_offsets = tl.arange(0, hidden_size)
 
         offsets = token_offsets[:, None] * hidden_size + dim_offsets[None, :]
-        mask = (token_offsets[:, None] < num_tokens) & (dim_offsets[None, :] < hidden_size)
+        mask_token = token_offsets[:, None] < num_tokens
+        mask_dim = dim_offsets[None, :] < hidden_size
+        mask = mask_token & mask_dim
 
         x = tl.load(x_ptr + offsets, mask=mask, other=0.0)
         x_sq = x * x
