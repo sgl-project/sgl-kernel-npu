@@ -112,16 +112,16 @@ HOST_API at::Tensor causal_conv1d_update_impl(const at::Tensor &x, const at::Ten
     const int64_t val_shift = state_len - seq_len;
     if (val_shift > 0) {
         if (has_indices) {
-            // Filter out padded entries before gathering, so pad slots are not touched.
+            // Map pad_slot_id (e.g. -1) to index 0 so that index_select stays
+            // in-bounds.  Shifting a pad slot is harmless because its data is
+            // meaningless, and duplicate writes to index 0 are all identical
+            // (same source row, same shift), so the result is correct.
             auto cs_indices_long = conv_state_indices.to(at::kLong);
-            auto valid_mask = cs_indices_long.ne(static_cast<int64_t>(pad_slot_id));
-            auto valid_indices = cs_indices_long.masked_select(valid_mask);
-            if (valid_indices.numel() > 0) {
-                auto cs_view = conv_state.index_select(0, valid_indices);  // [B', state_len, dim]
-                auto src = cs_view.slice(1, seq_len, seq_len + val_shift).clone();
-                cs_view.slice(1, 0, val_shift).copy_(src);
-                conv_state.index_copy_(0, valid_indices, cs_view);
-            }
+            auto safe_indices = cs_indices_long.clamp_min(0);
+            auto cs_view = conv_state.index_select(0, safe_indices);  // [B, state_len, dim]
+            auto src = cs_view.slice(1, seq_len, seq_len + val_shift).clone();
+            cs_view.slice(1, 0, val_shift).copy_(src);
+            conv_state.index_copy_(0, safe_indices, cs_view);
         } else {
             auto src = conv_state.slice(1, seq_len, seq_len + val_shift).clone();
             conv_state.slice(1, 0, val_shift).copy_(src);

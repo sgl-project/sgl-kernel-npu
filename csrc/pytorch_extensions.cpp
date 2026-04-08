@@ -109,7 +109,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
     m.def("triangular_inverse(Tensor x) -> Tensor");
 
     m.def(
-        "causal_conv1d_update(Tensor x, Tensor weight, Tensor conv_state, "
+        "causal_conv1d_update(Tensor x, Tensor weight, Tensor(a!) conv_state, "
         "Tensor conv_state_indices, Tensor? bias=None, Tensor? num_accepted_tokens=None, "
         "Tensor? query_start_loc=None, bool activation_mode=False, int pad_slot_id=-1) -> Tensor");
 
