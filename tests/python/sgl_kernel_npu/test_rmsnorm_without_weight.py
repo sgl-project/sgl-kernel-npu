@@ -11,7 +11,7 @@ def fused_rmsnorm_without_weight_golden(
     return F.rms_norm(x, normalized_shape=(x.shape[-1],), eps=eps)
 
 
-def test_fused_scale():
+def test_fused_rmsnorm():
     B, H, C = 1, 130, 2048
     dtype = torch.float32
 
@@ -32,4 +32,4 @@ def test_fused_scale():
 
 
 if __name__ == "__main__":
-    test_fused_scale()
+    test_fused_rmsnorm()
