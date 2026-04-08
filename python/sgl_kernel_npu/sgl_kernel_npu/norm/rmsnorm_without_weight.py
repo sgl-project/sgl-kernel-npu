@@ -42,7 +42,7 @@ def fused_rmsnorm_without_weight_kernel(
 
     for task_id in range(pid, total_tasks, kernel_num):
         token_offsets = task_id * block_l + tl.arange(0, block_l)
-        dim_offsets = tl.arrange(0, hidden_size)
+        dim_offsets = tl.arange(0, hidden_size)
 
         offsets = token_offsets[:, None] * hidden_size + dim_offsets[None, :]
         mask = (token_offsets[:, None] < num_tokens) & (dim_offsets[None, :] < hidden_size)
