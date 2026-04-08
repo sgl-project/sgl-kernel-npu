@@ -55,6 +55,7 @@ __aicore__ inline void CausalConv1dUpdateBase<T>::ParseTilingData(
     runTilingData.hasNumAccept = tilingData->hasNumAccept;
     runTilingData.hasQueryLoc = tilingData->hasQueryLoc;
     runTilingData.activationMode = tilingData->activationMode;
+    runTilingData.padSlotId = tilingData->padSlotId;
 }
 
 template <typename T>

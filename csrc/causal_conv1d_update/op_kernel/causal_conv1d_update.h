@@ -122,6 +122,7 @@ __aicore__ inline void CausalConv1dUpdate<T>::Init(GM_ADDR x, GM_ADDR weight, GM
     tilingData_.hasNumAccept = tiling_data->hasNumAccept;
     tilingData_.hasQueryLoc = tiling_data->hasQueryLoc;
     tilingData_.activationMode = tiling_data->activationMode;
+    tilingData_.padSlotId = tiling_data->padSlotId;
     this->ParseCoreBlocks(tilingData_, blockIdx_, batchNum_);
 
     // alloc TQue
