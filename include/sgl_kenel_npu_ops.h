@@ -106,15 +106,6 @@ at::Tensor recurrent_gated_delta_rule(
     c10::optional<at::Tensor> num_accepted_tokens_opt,
     c10::optional<at::Tensor> g_opt, c10::optional<at::Tensor> gk_opt);
 
-at::Tensor sgemmc_expand(at::Tensor &x, at::Tensor &weight,
-                         at::Tensor &lora_indices, at::Tensor &seq_len,
-                         at::Tensor &lora_ranks, at::Tensor &slice_offsets,
-                         at::Tensor &y);
-
-void sgemmc_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
-                   at::Tensor &seq_len, at::Tensor &lora_ranks,
-                   at::Tensor &lora_scales, at::Tensor &y);
-
 #ifdef BUILD_CATLASS_MODULE
 void catlass_matmul_basic(const at::Tensor &tensor_a,
                           const at::Tensor &tensor_b, at::Tensor &tensor_c,

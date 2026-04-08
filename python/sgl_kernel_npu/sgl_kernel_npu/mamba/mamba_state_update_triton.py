@@ -113,12 +113,8 @@ def move_intermediate_cache(
     dst_layer_stride, dst_size_stride = int(ssm_states.stride()[0]), int(
         ssm_states.stride()[1]
     )
-    assert len(dst_indices_tensor) == len(
-        last_steps_tensor
-    ), "Destination indices lengths must match"
-    assert len(src_indices_tensor) == len(
-        last_steps_tensor
-    ), "Source indices lengths must match"
+    assert len(dst_indices_tensor) == len(last_steps_tensor), "Destination indices lengths must match"
+    assert len(src_indices_tensor) == len(last_steps_tensor), "Source indices lengths must match"
 
     # Grid: one thread per valid index
     grid = (len(dst_indices_tensor),)
