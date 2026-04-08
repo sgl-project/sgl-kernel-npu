@@ -38,7 +38,7 @@ def fused_rmsnorm_without_weight_kernel(
     kernel_num: tl.constexpr,
 ):
     pid = tl.program_id(0)
-    total_tasks = tl.cdif(num_tokens, block_l)
+    total_tasks = tl.cdiv(num_tokens, block_l)
 
     for task_id in range(pid, total_tasks, kernel_num):
         token_offsets = task_id * block_l + tl.arange(0, block_l)
