@@ -190,8 +190,8 @@ HOST_API at::Tensor causal_conv1d_update_impl(const at::Tensor &x, const at::Ten
             captureMap[hashValue] = actualCaptureNum;
             auto deviceTiling = copyTilingToDevice();
             // D2D copy into the pre-allocated cache buffer (ordered via dispatch).
-            globalTilingBuffer.slice(0, actualCaptureNum * tilingSize,
-                                     actualCaptureNum * tilingSize + tilingSize).copy_(deviceTiling);
+            globalTilingBuffer.slice(0, actualCaptureNum * tilingSize, actualCaptureNum * tilingSize + tilingSize)
+                .copy_(deviceTiling);
             actualCaptureNum++;
             tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
                                          tilingSize, at::kByte);
