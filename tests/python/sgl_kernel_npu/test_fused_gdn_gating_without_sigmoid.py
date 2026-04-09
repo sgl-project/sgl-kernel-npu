@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import torch
 from sgl_kernel_npu.fla.fused_gdn_gating import fused_gdn_gating_kernel_without_sigmoid
 
+
 @dataclass
 class CaseConfig:
     name: str
@@ -13,9 +14,11 @@ class CaseConfig:
     beta: float
     threshold: float
 
+
 def summarize_diff(lhs: torch.Tensor, rhs: torch.Tensor) -> tuple[float, float]:
     diff = (lhs.float() - rhs.float()).abs()
     return diff.max().item(), diff.mean().item()
+
 
 def reference_fused_gdn_gating(
     A_log: torch.Tensor,
@@ -28,13 +31,12 @@ def reference_fused_gdn_gating(
     x = a.to(torch.float32) + dt_bias.to(torch.float32)
     beta_x = beta * x
     softplus_x = torch.where(
-        beta_x <= threshold,
-        (1.0 / beta) * torch.log1p(torch.exp(beta_x)),
-        x
+        beta_x <= threshold, (1.0 / beta) * torch.log1p(torch.exp(beta_x)), x
     )
     g = -torch.exp(A_log.to(torch.float32)) * softplus_x
     g = g.unsqueeze(0)
     return g, b
+
 
 def make_case_tensors(case: CaseConfig, device: torch.device):
     A_log = torch.randn((case.num_heads,), device=device, dtype=case.dtype)
@@ -43,12 +45,11 @@ def make_case_tensors(case: CaseConfig, device: torch.device):
     dt_bias = torch.randn((case.num_heads,), device=device, dtype=case.dtype)
     return A_log, a, b, dt_bias
 
-def run_positive_case(
-    case: CaseConfig, device: torch.device, atol: float, rtol: float
-):
+
+def run_positive_case(case: CaseConfig, device: torch.device, atol: float, rtol: float):
     host_device = torch.device("cpu")
     A_log_cpu, a_cpu, b_cpu, dt_bias_cpu = make_case_tensors(case, host_device)
-    
+
     A_log = A_log_cpu.to(device)
     a = a_cpu.to(device)
     b = b_cpu.to(device)
@@ -77,6 +78,7 @@ def run_positive_case(
         f"g_output(max={g_max_diff:.6g}, mean={g_mean_diff:.6g}) "
         f"b_forward(max={b_max_diff:.6g}, mean={b_mean_diff:.6g})"
     )
+
 
 def main():
     parser = argparse.ArgumentParser()
@@ -107,6 +109,7 @@ def main():
         run_positive_case(case, device, args.atol, args.rtol)
 
     print("All fused_gdn_gating_kernel_without_sigmoid tests passed.")
+
 
 if __name__ == "__main__":
     main()

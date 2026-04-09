@@ -90,6 +90,7 @@ def fused_gdn_gating_npu(
     )
     return g, beta_output
 
+
 @triton.jit
 def fused_gdn_gating_kernel_without_sigmoid_kernel(
     g,
