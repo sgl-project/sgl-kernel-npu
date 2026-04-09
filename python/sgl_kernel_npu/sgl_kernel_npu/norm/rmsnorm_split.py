@@ -18,6 +18,15 @@ from sgl_kernel_npu.utils.triton_utils import get_device_properties
         triton.Config(
             {"block_l": 64, "block_c": 128},
         ),
+        triton.Config(
+            {"block_l": 64, "block_c": 64},
+        ),
+        triton.Config(
+            {"block_l": 64, "block_c": 32},
+        ),
+        triton.Config(
+            {"block_l": 32, "block_c": 32},
+        ),
     ],
     key=["num_tokens", "hidden_size"],
 )
