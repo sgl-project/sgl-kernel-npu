@@ -201,7 +201,9 @@ def _layer_norm_fwd_1pass_kernel_npu(
         # Load Z if needed
         if HAS_Z:
             z_ptrs = Z + rows[:, None] * stride_z_row + cols[None, :] + group * N
-            z = tl.load(z_ptrs, mask=row_mask[:, None] & col_mask[None, :]).to(tl.float32)
+            z = tl.load(z_ptrs, mask=row_mask[:, None] & col_mask[None, :]).to(
+                tl.float32
+            )
             if not NORM_BEFORE_GATE:
                 x *= z * tl.sigmoid(z)
 

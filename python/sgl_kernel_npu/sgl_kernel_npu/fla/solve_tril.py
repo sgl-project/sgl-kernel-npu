@@ -332,13 +332,17 @@ def merge_16x16_to_64x64_inverse_kernel_reorder_all_masked(
     Ai_base = Ai
 
     for chunk_offset in range(CHUNKS_PER_PROGRAM):
-        current_chunk = i_t_* CHUNKS_PER_PROGRAM + chunk_offset
+        current_chunk = i_t_ * CHUNKS_PER_PROGRAM + chunk_offset
 
         valid_chunk = current_chunk < NT
 
         if IS_VARLEN:
-            i_n = tl.load(chunk_indices + current_chunk * 2, mask=valid_chunk, other=0).to(tl.int32)
-            i_t_val = tl.load(chunk_indices + current_chunk * 2 + 1, mask=valid_chunk, other=0).to(tl.int32)
+            i_n = tl.load(
+                chunk_indices + current_chunk * 2, mask=valid_chunk, other=0
+            ).to(tl.int32)
+            i_t_val = tl.load(
+                chunk_indices + current_chunk * 2 + 1, mask=valid_chunk, other=0
+            ).to(tl.int32)
             bos = tl.load(cu_seqlens + i_n, mask=valid_chunk, other=0).to(tl.int32)
             eos = tl.load(cu_seqlens + i_n + 1, mask=valid_chunk, other=0).to(tl.int32)
             T = tl.where(valid_chunk, eos - bos, 0)
@@ -360,7 +364,9 @@ def merge_16x16_to_64x64_inverse_kernel_reorder_all_masked(
         Ai_22 = tl.load(ptr_Ad, mask=mask_Ad, other=0.0).to(tl.float32)
 
         # ------------------ Load A_21 (A block at row i_t*64+16, col 0, 16x16) ------------------
-        mask_A = valid_chunk & (offs_m[:, None] < T) & (offs_n[None, :] < 64)  # A has 64 cols
+        mask_A = (
+            valid_chunk & (offs_m[:, None] < T) & (offs_n[None, :] < 64)
+        )  # A has 64 cols
         ptr_A = A + offs_m[:, None] * (H * 64) + offs_n[None, :]
         A_21 = tl.load(ptr_A, mask=mask_A, other=0.0).to(tl.float32)
 
@@ -457,7 +463,9 @@ def merge_16x16_to_64x64_inverse_kernel_reorder_all_masked(
         # ------------------ Zero out the upper-right 32x32 block (rows 0~31, cols 32~63) ------------------
         offs_m = i_t * 64 + tl.arange(0, 32)
         offs_n = 32 + tl.arange(0, 32)
-        mask_store = valid_chunk & (offs_m[:, None] < T) & (offs_n[None, :] < BT)  # BT=64
+        mask_store = (
+            valid_chunk & (offs_m[:, None] < T) & (offs_n[None, :] < BT)
+        )  # BT=64
         ptr_Ai = Ai + offs_m[:, None] * (H * BT) + offs_n[None, :]
         zero_block = tl.zeros((32, 32), dtype=ptr_Ai.dtype.element_ty)
         tl.store(ptr_Ai, zero_block, mask=mask_store)
