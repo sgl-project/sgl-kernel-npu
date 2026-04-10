@@ -96,9 +96,6 @@ def fused_rsqrt_mul(x, variance, weight, eps=1e-6):
             {"block_l": 96},
         ),
         triton.Config(
-            {"block_l": 80},
-        ),
-        triton.Config(
             {"block_l": 64},
         ),
         triton.Config(
@@ -106,6 +103,18 @@ def fused_rsqrt_mul(x, variance, weight, eps=1e-6):
         ),
         triton.Config(
             {"block_l": 16},
+        ),
+        triton.Config(
+            {"block_l": 8},
+        ),
+        triton.Config(
+            {"block_l": 4},
+        ),
+        triton.Config(
+            {"block_l": 2},
+        ),
+        triton.Config(
+            {"block_l": 1},
         ),
     ],
     key=["num_tokens"],
