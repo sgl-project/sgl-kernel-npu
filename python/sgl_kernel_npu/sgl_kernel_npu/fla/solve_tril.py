@@ -492,7 +492,10 @@ def solve_tril_npu(
     Returns:
         (I + A)^-1 with the same shape as A
     """
-    assert A.shape[-1] in [16, 32, 64]
+    if A.shape[-1] not in (16, 32, 64):
+        raise ValueError(
+            f"Invalid last dimension of A. Expected 16, 32, or 64, got {A.shape[-1]}"
+        )
 
     B, T, H, BT = A.shape
     Ad = torch.empty(
