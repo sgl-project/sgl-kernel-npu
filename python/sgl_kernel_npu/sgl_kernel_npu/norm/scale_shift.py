@@ -73,6 +73,9 @@ def fused_scale_shift_kernel(
             {"block_l": 96, "block_c": 128},
         ),
         triton.Config(
+            {"block_l": 80, "block_c": 128},
+        ),
+        triton.Config(
             {"block_l": 64, "block_c": 128},
         ),
     ],
