@@ -21,8 +21,6 @@ def fused_split_qk_norm_kernel(
     Q_HAS_BIAS: tl.constexpr,
     K_HAS_BIAS: tl.constexpr,
 ):
-    assert q_lora_rank > 0, f"q_lora_rank should be positive, got {q_lora_rank}"
-    assert kv_lora_rank > 0, f"kv_lora_rank should be positive, got {kv_lora_rank}"
     pid = tl.program_id(0)
 
     base = pid * total_hidden
@@ -100,6 +98,9 @@ def fused_split_qk_norm(
     qk_rope_dim,
     eps=1e-6,
 ):
+    assert q_lora_rank > 0, f"q_lora_rank should be positive, got {q_lora_rank}"
+    assert kv_lora_rank > 0, f"kv_lora_rank should be positive, got {kv_lora_rank}"
+    assert qk_rope_dim > 0, f"qk_rope_dim should be positive, got {qk_rope_dim}"
     B, total_hidden = fused_qkv_a_proj_out.shape
     device = fused_qkv_a_proj_out.device
     dtype = fused_qkv_a_proj_out.dtype
