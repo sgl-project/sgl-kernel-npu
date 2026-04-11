@@ -19,7 +19,7 @@ struct CustomAssignTilingData {
         }
         // Ensure no padding is added by the compiler.
         static_assert(sizeof(CustomAssignTilingData) == 5 * sizeof(uint32_t), "CustomAssignTilingData must be packed.");
-        memmove(dataPtr, this, sizeof(CustomAssignTilingData));
+        memcpy(dataPtr, this, sizeof(CustomAssignTilingData));
     }
 };
 #pragma pack(pop)
