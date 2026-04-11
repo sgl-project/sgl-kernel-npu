@@ -21,6 +21,8 @@ def fused_split_qk_norm_kernel(
     Q_HAS_BIAS: tl.constexpr,
     K_HAS_BIAS: tl.constexpr,
 ):
+    assert q_lora_rank > 0, f"q_lora_rank should be positive, got {q_lora_rank}"
+    assert kv_lora_rank > 0, f"kv_lora_rank should be positive, got {kv_lora_rank}"
     pid = tl.program_id(0)
 
     base = pid * total_hidden

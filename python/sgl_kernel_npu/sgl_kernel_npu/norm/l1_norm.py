@@ -19,7 +19,8 @@ def l1_norm_kernel(
     for row_idx in range(row_begin, row_end):
         cols = tl.arange(0, hidden_size)
         buffered_values = tl.load(input_ptr + row_idx * hidden_size + cols)
-        buffered_values /= tl.sum(buffered_values)
+        sum_val = tl.sum(buffered_values)
+        buffered_values = tl.where(sum_val != 0, buffered_values / sum_val, buffered_values)
         tl.store(
             output_ptr + row_idx * hidden_size + cols, buffered_values.to(tl.float32)
         )
