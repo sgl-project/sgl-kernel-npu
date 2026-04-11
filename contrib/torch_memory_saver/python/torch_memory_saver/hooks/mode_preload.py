@@ -45,10 +45,6 @@ def _change_env(key: str, value: str):
     try:
         yield
     finally:
-        current_value = os.environ.get(key)
+        assert os.environ[key] == value
         os.environ[key] = old_value
-        if current_value != value:
-            raise RuntimeError(
-                f"Environment variable {key} was unexpectedly modified during the context"
-            )
         logger.debug(f"change_env restore key={key} value={old_value}")

@@ -154,9 +154,6 @@ def chunk_gated_delta_rule_npu_native(
         q = q.repeat_interleave(num_value_heads // num_heads, dim=2)
         k = k.repeat_interleave(num_value_heads // num_heads, dim=2)
 
-    if initial_state is None:
-        raise ValueError("initial_state must not be None")
-
     batch_size = initial_state.shape[0]
     core_attn_out = []
     last_recurrent_state = torch.empty_like(initial_state)
