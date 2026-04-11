@@ -409,9 +409,6 @@ ge::graphStatus LIInfoParser::ValidateInputShapesMatch()
     if (qLayout_ == DataLayout::TND) {
         // -----------------------check BatchSize-------------------
         // bSize_ 来源于act_seq_q
-        TORCH_CHECK(opParamInfo_.query.shape != nullptr, opName_, ": query shape is null");
-        TORCH_CHECK(opParamInfo_.weights.shape != nullptr, opName_, ": weights shape is null");
-        TORCH_CHECK(opParamInfo_.attenOut.shape != nullptr, opName_, ": attenOut shape is null");
         TORCH_CHECK(opParamInfo_.actualSeqLengths.tensor != nullptr, opName_, ": actualSeqLengths tensor is null");
 
         TORCH_CHECK((opParamInfo_.actualSeqLengths.tensor->GetShapeSize() == bSize_) &&
@@ -432,9 +429,6 @@ ge::graphStatus LIInfoParser::ValidateInputShapesMatch()
     } else {
         // -----------------------check BatchSize-------------------
         // bSize_ 来源于query
-        TORCH_CHECK(opParamInfo_.weights.shape != nullptr, opName_, ": weights shape is null");
-        TORCH_CHECK(opParamInfo_.attenOut.shape != nullptr, opName_, ": attenOut shape is null");
-
         TORCH_CHECK((opParamInfo_.weights.shape->GetStorageShape().GetDim(0) == bSize_) &&
                         ((opParamInfo_.blockTable.tensor == nullptr) ||
                          (opParamInfo_.blockTable.tensor->GetStorageShape().GetDim(0) == bSize_)) &&
@@ -459,9 +453,6 @@ ge::graphStatus LIInfoParser::ValidateInputShapesMatch()
         queryWeightsN1Dim = DIM_IDX_TWO;
         outN2Dim = DIM_IDX_TWO;
     }
-
-    TORCH_CHECK(opParamInfo_.key.shape != nullptr, opName_, ": key shape is null");
-    TORCH_CHECK(opParamInfo_.sparseCount != nullptr, opName_, ": sparseCount is null");
 
     // -----------------------check N1-------------------
     TORCH_CHECK(opParamInfo_.weights.shape->GetStorageShape().GetDim(queryWeightsN1Dim) == n1Size_,
