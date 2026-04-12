@@ -1428,7 +1428,7 @@ static ge::graphStatus MoeDistributeCombineV2TilingFunc(gert::TilingContext *con
     if (socVersion == "Ascend910B") {
         ret = MoeDistributeCombineA2TilingFuncImpl(context);
     } else {
-        // ret = MoeDistributeCombineA3TilingFuncImpl(context);
+        OP_LOGE(nodeName, "socVersion is not support");
     }
 
     return ret;

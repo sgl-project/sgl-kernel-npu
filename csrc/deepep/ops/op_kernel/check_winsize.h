@@ -15,7 +15,7 @@ __aicore__ inline void CheckWindowSize(uint64_t tilingWinSizeBytes, uint64_t rea
         AscendC::TBuf<AscendC::TPosition::VECCALC> exceptionBuf;
         tpipe_->InitBuffer(exceptionBuf, 1);  // 初始化一个缓冲区
         AscendC::LocalTensor<int32_t> exceptionLocal = exceptionBuf.Get<int32_t>();
-        AscendC::DataCopy(exceptionLocal[1], exceptionGlobal, 1);  // 从全局地址复制数据到本地地址
+        AscendC::DataCopy(exceptionLocal[0], exceptionGlobal, 1);  // 从全局地址复制数据到本地地址
     }
 }
 #endif  // CHECK_WINSIZE_H
