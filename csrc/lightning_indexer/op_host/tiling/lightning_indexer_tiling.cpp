@@ -364,7 +364,11 @@ ge::graphStatus LIInfoParser::GetS2SizeForPageAttention()
         return ge::GRAPH_FAILED;
     }
     maxBlockNumPerBatch_ = opParamInfo_.blockTable.tensor->GetStorageShape().GetDim(1);
-    s2Size_ = static_cast<int64_t>(maxBlockNumPerBatch_) * static_cast<int64_t>(blockSize_);
+    const int64_t s2SizeTemp = static_cast<int64_t>(maxBlockNumPerBatch_) * static_cast<int64_t>(blockSize_);
+    if (s2SizeTemp > static_cast<int64_t>(std::numeric_limits<uint32_t>::max())) {
+        return ge::GRAPH_FAILED;
+    }
+    s2Size_ = static_cast<uint32_t>(s2SizeTemp);
     return ge::GRAPH_SUCCESS;
 }
 
