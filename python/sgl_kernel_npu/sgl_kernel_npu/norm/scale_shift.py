@@ -106,7 +106,9 @@ def fused_scale_shift_kernel_2(
         token_offsets = row_pid * block_l + tl.arange(0, block_l)
         dim_offsets = col_pid * block_c + tl.arange(0, block_c)
 
-        mask = (token_offsets[:, None] < num_tokens) & (dim_offsets[None, :] < hidden_size)
+        mask = (token_offsets[:, None] < num_tokens) & (
+            dim_offsets[None, :] < hidden_size
+        )
         offset = token_offsets[:, None] * hidden_size + dim_offsets[None, :]
 
         x = tl.load(x_ptr + offset, mask=mask, other=0.0)

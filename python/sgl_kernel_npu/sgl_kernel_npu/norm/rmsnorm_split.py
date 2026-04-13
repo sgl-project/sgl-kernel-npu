@@ -61,7 +61,9 @@ def fused_rsqrt_mul_kernel(
         mask = mask_token[:, None] & mask_dim[None, :]
 
         x = tl.load(x_ptr + offset, mask=mask, other=0.0)
-        variance = tl.load(variance_ptr + token_offsets[:, None], mask=mask_token[:, None], other=0.0)
+        variance = tl.load(
+            variance_ptr + token_offsets[:, None], mask=mask_token[:, None], other=0.0
+        )
         weight = tl.load(weight_ptr + dim_offsets, mask=mask_dim, other=0.0)
 
         rsqrt = tl.math.rsqrt(variance + eps)
@@ -155,11 +157,5 @@ def fused_variance(x: torch.Tensor):
 
     output = torch.empty((B, L, 1), device=x.device, dtype=x.dtype)
 
-    fused_variance_kernel[grid](
-        x,
-        output,
-        B * L,
-        C,
-        kernel_num=kernel_num
-    )
+    fused_variance_kernel[grid](x, output, B * L, C, kernel_num=kernel_num)
     return output

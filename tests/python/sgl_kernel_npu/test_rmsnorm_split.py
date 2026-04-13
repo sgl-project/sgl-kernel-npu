@@ -10,7 +10,7 @@ def rsqrt_mul_golden(
     eps: float,
 ):
     return x * torch.rsqrt(variance + eps) * weight
-    
+
 
 def variance_golden(x: torch.Tensor):
     return x.pow(2).mean(dim=-1, keepdim=True)
@@ -32,7 +32,7 @@ def test_fused_rsqrt_mul():
         res.cpu().numpy(),
         ans.cpu().numpy(),
         rtol=1e-3,
-        err_msg="Fused_rsqrt_mul failed!"
+        err_msg="Fused_rsqrt_mul failed!",
     )
 
     print("Fused_rsqrt_mul Passed!")
@@ -50,7 +50,7 @@ def test_fused_variance():
         res.cpu().numpy(),
         ans.cpu().numpy(),
         rtol=1e-3,
-        err_msg="Fused_variance failed!"
+        err_msg="Fused_variance failed!",
     )
 
     print("Fused_variance Passed!")
