@@ -10,8 +10,8 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#ifndef RAINFUSIONATTENTION_MINDIE_SD_IMPL_H
-#define RAINFUSIONATTENTION_MINDIE_SD_IMPL_H
+#ifndef RAINFUSIONATTENTION_IMPL_H
+#define RAINFUSIONATTENTION_IMPL_H
 
 #include <ATen/Tensor.h>
 #include <c10/util/Optional.h>
@@ -34,4 +34,4 @@ std::tuple<at::Tensor, at::Tensor> rainfusionattention(
     int64_t head_num, int64_t mask_type, double scale,
     int64_t inner_precise, int64_t block_size);
 
-#endif // RAINFUSIONATTENTION_MINDIE_SD_IMPL_H
+#endif // RAINFUSIONATTENTION_IMPL_H

@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # coding=utf-8
 # Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
-# MindIE is licensed under Mulan PSL v2.
+# sgl-kernel-npu/svoloch2940194 is licensed under Mulan PSL v2.
 # You can use this software according to the terms and conditions of the Mulan PSL v2.
 # You may obtain a copy of Mulan PSL v2 at:
 #          http://license.coscl.org.cn/MulanPSL2
@@ -90,7 +90,7 @@ def rain_fusion_attention(
     inner_precise: int = 1,
     block_size: int = 0
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    return getattr(torch.ops.mindiesd, "rainfusionattention")(
+    return getattr(torch.ops.attentions, "rainfusionattention")(
         query=query,
         key=key,
         value=value,
@@ -156,7 +156,7 @@ def sparse_block_estimate(
     keep_recent: bool = True,
     row_sparse: float = 1.0
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    return getattr(torch.ops.mindiesd, "sparse_block_estimate")(
+    return getattr(torch.ops.attentions, "sparse_block_estimate")(
         query=query,
         key=key,
         actual_seq_lengths=actual_seq_lengths,
@@ -234,7 +234,7 @@ def block_sparse_attention(
     actual_seq_lengths: Optional[List[int]] = None,
     actual_seq_lengths_kv: Optional[List[int]] = None,
 ) -> torch.Tensor:
-    return getattr(torch.ops.mindiesd, "block_sparse_attention")(
+    return getattr(torch.ops.attentions, "block_sparse_attention")(
         query=query,
         key=key,
         value=value,

@@ -10,8 +10,8 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#ifndef SPARSE_BLOCK_ESTIMATE_MINDIE_SD_IMPL_H
-#define SPARSE_BLOCK_ESTIMATE_MINDIE_SD_IMPL_H
+#ifndef SPARSE_BLOCK_ESTIMATE_IMPL_H
+#define SPARSE_BLOCK_ESTIMATE_IMPL_H
 #include <ATen/Tensor.h>
 #include <c10/util/Optional.h>
 #include <string>
@@ -25,4 +25,4 @@ std::tuple<at::Tensor, at::Tensor> sparse_block_estimate(
     int64_t num_key_value_heads, double scale_value, double threshold,
     bool causal, bool keep_sink, bool keep_recent, double row_sparse);
 
-#endif // SPARSE_BLOCK_ESTIMATE_MINDIE_SD_IMPL_H
+#endif // SPARSE_BLOCK_ESTIMATE_IMPL_H
