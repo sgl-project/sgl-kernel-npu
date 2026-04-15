@@ -22,7 +22,7 @@ MINDIE_NS = "attentions"  # 固定命名空间，与 torch.ops.attentions 对应
 
 
 def _load_attentions_ops_library() -> None:
-    """Load the MindIE custom operator shared library.
+    """Load the attentions custom operator shared library.
     
     Raises:
         ParametersInvalid: If the parent directory level is insufficient.
@@ -49,7 +49,7 @@ if is_npu_available():
 
 
 def check_attentions_operator_exists(op_name: str) -> bool:
-    """Check if a MindIE operator is registered in PyTorch.
+    """Check if a attentions operator is registered in PyTorch.
     
     Args:
         op_name: Full name of the operator (e.g. "rope", "la")
@@ -101,7 +101,7 @@ else:
 
 
 def register_attentions_fake_op(op_name: str):
-    """Decorator to register a fake implementation for a MindIE operator.
+    """Decorator to register a fake implementation for a attentions operator.
     
     Usage:
         @register_mindie_fake_op("rope")
@@ -121,7 +121,7 @@ def register_attentions_fake_op(op_name: str):
     
     if not check_attentions_operator_exists(op_name):
         raise RuntimeError(
-            f"MindIE operator {MINDIE_NS}::{op_name} not found! "
+            f"attentions operator {MINDIE_NS}::{op_name} not found! "
             "Ensure the SO library is loaded and the operator is registered with TORCH_LIBRARY."
         )
     
