@@ -186,7 +186,6 @@ function build_attentions_kernels()
     echo "run build laser attention kernel"
 
     chmod +x build.sh
-    # chmod +x cmake/util/gen_ops_filter.sh
     ./build.sh
 
     cd -
