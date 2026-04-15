@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+BUILD_ATTENTIONS_MODULE="ON"
 BUILD_DEEPEP_MODULE="ON"
 BUILD_DEEPEP_OPS="ON"
 BUILD_KERNELS_MODULE="ON"
@@ -175,6 +176,22 @@ function build_memory_saver()
     cd -
 }
 
+function build_attentions_kernels() 
+{
+    CUSTOM_OPP_DIR="${CURRENT_DIR}/python/attentions/attentions"
+    KERNEL_DIR="csrc/attentions/build"
+
+    cd "$KERNEL_DIR" || exit
+
+    echo "run build laser attention kernel"
+
+    chmod +x build.sh
+    # chmod +x cmake/util/gen_ops_filter.sh
+    ./build.sh
+
+    cd -
+}
+
 function make_deepep_package()
 {
     cd python/deep_ep || exit
@@ -201,10 +218,21 @@ function make_sgl_kernel_npu_package()
     cd -
 }
 
+function make_attentions_package() {
+    cd python/attentions || exit
+
+    rm -rf "$CURRENT_DIR"/python/attentions/dist
+    python3 setup.py clean --all
+    python3 setup.py bdist_wheel
+    mv -v "$CURRENT_DIR"/python/attentions/dist/attentions*.whl ${OUTPUT_DIR}/
+    rm -rf "$CURRENT_DIR"/python/attentions/dist
+    cd -
+}
+
 function main()
 {
-
     build_kernels
+    build_attentions_kernels
     build_deepep_kernels
     if pip3 show wheel;then
         echo "wheel has been installed"
@@ -217,6 +245,10 @@ function main()
     fi
     if [[ "$BUILD_KERNELS_MODULE" == "ON" ]]; then
         make_sgl_kernel_npu_package
+    fi
+
+    if [[ "$BUILD_ATTENTIONS_MODULE" == "ON" ]]; then
+        make_attentions_package
     fi
 
 }
