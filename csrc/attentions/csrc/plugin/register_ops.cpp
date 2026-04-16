@@ -44,6 +44,8 @@ TORCH_LIBRARY(attentions, m)
         float threshold=1, bool causal=True, bool keep_sink=True,  \
         bool keep_recent=True, float row_sparse=1) \
         -> (Tensor, Tensor)");
+    m.def("layernorm(Tensor input, int[] normalized_shape, Tensor? weight=None, Tensor? bias=None, float eps=1e-05, \
+        int impl_mode=0) -> (Tensor, Tensor, Tensor)");
 }
 
 
@@ -53,4 +55,5 @@ TORCH_LIBRARY_IMPL(attentions, PrivateUse1, m)
     m.impl("rainfusionattention", &rainfusionattention);
     m.impl("block_sparse_attention", &block_sparse_attention);
     m.impl("sparse_block_estimate", &sparse_block_estimate);
+    m.impl("layernorm", &layernorm_npu);
 }

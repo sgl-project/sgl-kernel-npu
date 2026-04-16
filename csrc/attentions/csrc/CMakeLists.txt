@@ -48,7 +48,8 @@ add_library(PTAExtensionOPS SHARED
     ./plugin/find_op_path.cpp
     ./plugin/rainfusionattention.cpp
     ./plugin/block_sparse_attention.cpp
-    ./plugin/sparse_block_estimate.cpp)
+    ./plugin/sparse_block_estimate.cpp
+    ./plugin/layernorm.cpp)
 
 target_compile_features(PTAExtensionOPS PRIVATE cxx_std_17)
 if(DEFINED ENV{USER_ABI_VERSION})
