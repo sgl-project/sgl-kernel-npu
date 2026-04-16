@@ -101,15 +101,18 @@ private:
         // Copy logits to output
         AscendC::DataCopy(outLocal, logitsLocal, curTileLen);
 
-        // Apply bitmask: for each element, extract bit from int32 bitmask
+        // Apply bitmask: process one int32 (32 bits) at a time
         // If bit is 0, set output to -inf
         T negInf = static_cast<T>(-1.0f / 0.0f);
-        for (uint32_t i = 0; i < curTileLen; i++) {
-            uint32_t intIdx = i / BITS_PER_INT32;
-            uint32_t bitIdx = i % BITS_PER_INT32;
+        for (uint32_t intIdx = 0; intIdx < (curTileLen + BITS_PER_INT32 - 1) / BITS_PER_INT32; intIdx++) {
             int32_t packed = bitmaskLocal.GetValue(intIdx);
-            if (((packed >> static_cast<int32_t>(bitIdx)) & 1) == 0) {
-                outLocal.SetValue(i, negInf);
+            if (packed == -1) continue; // All bits are 1, no masking needed
+            for (uint32_t bitIdx = 0; bitIdx < BITS_PER_INT32; bitIdx++) {
+                uint32_t i = intIdx * BITS_PER_INT32 + bitIdx;
+                if (i >= curTileLen) break;
+                if (((packed >> static_cast<int32_t>(bitIdx)) & 1) == 0) {
+                    outLocal.SetValue(i, negInf);
+                }
             }
         }
 

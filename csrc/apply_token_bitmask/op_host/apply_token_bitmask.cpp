@@ -47,11 +47,10 @@ HOST_API at::Tensor apply_token_bitmask(
         TORCH_CHECK(rowIndices.dim() == 1, "indices must be 1D");
         selectedBitmask = bitmask.index({rowIndices}).contiguous();
     } else {
-        rowIndices = at::arange(batch, at::TensorOptions().dtype(at::kLong).device(logits.device()));
         selectedBitmask = bitmask;
     }
 
-    int64_t numIndices = rowIndices.size(0);
+    int64_t numIndices = hasIndices ? rowIndices.size(0) : batch;
     if (numIndices == 0) return logits;
 
     // --- Alignment ---
@@ -113,7 +112,7 @@ HOST_API at::Tensor apply_token_bitmask(
     //   logitsQueue:  2 * tileLength * sizeof(T)
     //   bitmaskQueue: 2 * (tileLength/32) * sizeof(int32_t)
     //   outQueue:     2 * tileLength * sizeof(T)
-    // Total = 2 * tileLength * (2*sizeof(T) + sizeof(int32_t)/32)
+    // Calculate at ALIGN_UNIT granularity to avoid integer division truncation
     constexpr int32_t hostBufferNum = 2;
     uint64_t ubSize = 0;
     ascendcPlatform->GetCoreMemSize(platform_ascendc::CoreMemType::UB, ubSize);
@@ -121,12 +120,10 @@ HOST_API at::Tensor apply_token_bitmask(
     // Subtract 16KB for pipe overhead
     uint64_t usableUb = (ubSize > 16384) ? (ubSize - 16384) : ubSize;
 
-    int64_t bytesPerElem = 2 * hostBufferNum * static_cast<int64_t>(dtypeSize)
-                         + 2 * hostBufferNum * (static_cast<int64_t>(sizeof(int32_t)) / 32);
-    uint32_t tileLength = static_cast<uint32_t>(usableUb / static_cast<uint64_t>(bytesPerElem));
-
-    // Align tileLength to ALIGN_UNIT (256)
-    tileLength = (tileLength / static_cast<uint32_t>(ALIGN_UNIT)) * static_cast<uint32_t>(ALIGN_UNIT);
+    int64_t bytesPerUnit = static_cast<int64_t>(hostBufferNum) *
+        (2 * ALIGN_UNIT * dtypeSize + (ALIGN_UNIT / 32) * static_cast<int64_t>(sizeof(int32_t)));
+    uint32_t tileLength = static_cast<uint32_t>(
+        (usableUb / static_cast<uint64_t>(bytesPerUnit)) * static_cast<uint64_t>(ALIGN_UNIT));
 
     // Cap tileLength to paddedVocabSize
     if (tileLength > static_cast<uint32_t>(paddedVocabSize)) {
@@ -175,7 +172,7 @@ HOST_API at::Tensor apply_token_bitmask(
     auto result = needsPadding ? workingLogits.narrow(1, 0, vocabSize) : workingLogits;
     if (hasIndices) {
         logits.index_put_({rowIndices}, result);
-    } else {
+    } else if (needsPadding) {
         logits.copy_(result);
     }
 
