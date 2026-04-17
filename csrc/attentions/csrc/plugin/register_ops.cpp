@@ -16,6 +16,7 @@
 #include "rainfusionattention.h"
 #include "block_sparse_attention.h"
 #include "sparse_block_estimate.h"
+#include "layernorm.h"
 
 TORCH_LIBRARY(attentions, m)
 {
