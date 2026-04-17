@@ -15,7 +15,7 @@ import os
 from typing import Dict, Callable
 import torch
 from torch.library import Library
-from ..utils import file_utils, ParametersInvalid, is_npu_available
+from .utils import file_utils, ParametersInvalid, is_npu_available
 
 
 MINDIE_NS = "attentions"  # 固定命名空间，与 torch.ops.attentions 对应
@@ -30,10 +30,10 @@ def _load_attentions_ops_library() -> None:
         PermissionError: If the SO file has invalid permissions.
     """
     current_path = Path(__file__).resolve()
-    if len(current_path.parents) < 2:
+    if len(current_path.parents) < 1:
         raise ParametersInvalid("Insufficient parent directory levels to locate plugin folder.")
     
-    ops_path = current_path.parents[1] / "plugin"
+    ops_path = current_path.parents[0] / "plugin"
     ops_path = file_utils.standardize_path(str(ops_path))
     ops_file = os.path.join(ops_path, "libPTAExtensionOPS.so")
     
@@ -42,10 +42,6 @@ def _load_attentions_ops_library() -> None:
         permission_mode=file_utils.BINARY_FILE_PERMISSION
     )
     torch.ops.load_library(ops_file)
-
-
-if is_npu_available():
-    _load_attentions_ops_library()
 
 
 def check_attentions_operator_exists(op_name: str) -> bool:
@@ -62,41 +58,6 @@ def check_attentions_operator_exists(op_name: str) -> bool:
         return True
     except AttributeError:
         return False
-
-
-if torch.__version__.startswith("0.1"):
-    # PyTorch 2.1 使用 Library.impl
-    _lib = Library(MINDIE_NS, "IMPL")
-    
-    def _compatible_register_fake(op_name: str):
-        """Compatibility wrapper for PyTorch 2.1 fake registration."""
-        def decorator(fake_func: Callable):
-            @wraps(fake_func)
-            def wrapper(*args, **kwargs):
-                # Ensure all tensor inputs are on Meta device (required for PyTorch 2.1)
-                args = [
-                    a.to(device="meta") if isinstance(a, torch.Tensor) else a
-                    for a in args
-                ]
-                kwargs = {
-                    k: v.to(device="meta") if isinstance(v, torch.Tensor) else v
-                    for k, v in kwargs.items()
-                }
-                return fake_func(*args, **kwargs)
-            
-            _lib.impl(op_name, wrapper, "Meta")
-            return fake_func
-        return decorator
-else:
-    # PyTorch 2.2+ 使用 register_fake 或 impl_abstract
-    try:
-        from torch.library import register_fake as _native_register_fake
-    except ImportError:
-        from torch.library import impl_abstract as _native_register_fake
-    
-    def _compatible_register_fake(op_name: str):
-        """Compatibility wrapper for PyTorch 2.2+ fake registration."""
-        return _native_register_fake(op_name)
 
 
 
@@ -126,3 +87,41 @@ def register_attentions_fake_op(op_name: str):
         )
     
     return _compatible_register_fake(f"{MINDIE_NS}::{op_name}")
+
+def load_library():
+    if is_npu_available():
+        _load_attentions_ops_library()
+
+    if torch.__version__.startswith("0.1"):
+        # PyTorch 2.1 使用 Library.impl
+        _lib = Library(MINDIE_NS, "IMPL")
+        
+        def _compatible_register_fake(op_name: str):
+            """Compatibility wrapper for PyTorch 2.1 fake registration."""
+            def decorator(fake_func: Callable):
+                @wraps(fake_func)
+                def wrapper(*args, **kwargs):
+                    # Ensure all tensor inputs are on Meta device (required for PyTorch 2.1)
+                    args = [
+                        a.to(device="meta") if isinstance(a, torch.Tensor) else a
+                        for a in args
+                    ]
+                    kwargs = {
+                        k: v.to(device="meta") if isinstance(v, torch.Tensor) else v
+                        for k, v in kwargs.items()
+                    }
+                    return fake_func(*args, **kwargs)
+                
+                _lib.impl(op_name, wrapper, "Meta")
+                return fake_func
+            return decorator
+    else:
+        # PyTorch 2.2+ 使用 register_fake 或 impl_abstract
+        try:
+            from torch.library import register_fake as _native_register_fake
+        except ImportError:
+            from torch.library import impl_abstract as _native_register_fake
+        
+        def _compatible_register_fake(op_name: str):
+            """Compatibility wrapper for PyTorch 2.2+ fake registration."""
+            return _native_register_fake(op_name)    
