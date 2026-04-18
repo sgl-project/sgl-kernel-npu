@@ -36,6 +36,12 @@ HOST_API size_t GetElementByteSize(const at::Tensor &tensor)
 HOST_API bool assign_cache_op(at::Tensor &dstTensor, const at::Tensor &srcTensor, const at::Tensor &dstStartIdx,
                               const at::Tensor &dstEndIdx, const at::Tensor &srcStartIdx, const at::Tensor &srcEndIdx)
 {
+    OP_CHECK(dstTensor.defined() && dstTensor.dim() >= 1, "dstTensor is invalid or 0-dimensional", return false);
+    OP_CHECK(srcTensor.defined() && srcTensor.dim() >= 1, "srcTensor is invalid or 0-dimensional", return false);
+    OP_CHECK(dstStartIdx.defined() && dstStartIdx.dim() >= 1, "dstStartIdx is invalid or 0-dimensional", return false);
+    OP_CHECK(dstEndIdx.defined() && dstEndIdx.dim() >= 1, "dstEndIdx is invalid or 0-dimensional", return false);
+    OP_CHECK(srcStartIdx.defined() && srcStartIdx.dim() >= 1, "srcStartIdx is invalid or 0-dimensional", return false);
+    OP_CHECK(srcEndIdx.defined() && srcEndIdx.dim() >= 1, "srcEndIdx is invalid or 0-dimensional", return false);
     auto dstShape = dstTensor.sizes(), dstStartShape = dstStartIdx.sizes(), dstEndShape = dstEndIdx.sizes();
     auto srcShape = srcTensor.sizes(), srcStartShape = srcStartIdx.sizes(), srcEndShape = srcEndIdx.sizes();
     OP_CHECK(dstShape[0] == srcShape[0] && dstStartShape[0] == srcStartShape[0] && dstEndShape[0] == srcEndShape[0],

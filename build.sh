@@ -83,23 +83,17 @@ export DEBUG_MODE=$DEBUG_MODE
 
 SOC_VERSION="${1:-Ascend910_9382}"
 
-if [ -n "$ASCEND_HOME_PATH" ]; then
-    _ASCEND_INSTALL_PATH=$ASCEND_HOME_PATH
-else
-    _ASCEND_INSTALL_PATH=/usr/local/Ascend/ascend-toolkit/latest
-fi
 
-if [ -n "$ASCEND_INCLUDE_DIR" ]; then
-    ASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR
-else
-    ASCEND_INCLUDE_DIR=${_ASCEND_INSTALL_PATH}/aarch64-linux/include
-fi
+### Get Current CANN Toolkit Installation Path
+_CANN_TOOLKIT_INSTALL_PATH=$(cat /etc/Ascend/ascend_cann_install.info | grep "Toolkit_InstallPath" | awk -F'=' '{print $2}')
+source ${_CANN_TOOLKIT_INSTALL_PATH}/set_env.sh
+echo -e "\e[1;32mDetected CANN Toolkit Installation Path: ${_CANN_TOOLKIT_INSTALL_PATH}\e[0m"
+echo -e "\e[1;33mDouble Checking Environment Variables:\e[0m"
+echo -e "\e[1;32mASCEND_HOME_PATH: ${ASCEND_HOME_PATH}\e[0m"
+echo -e "\e[1;32mASCEND_TOOLKIT_HOME: ${ASCEND_TOOLKIT_HOME}\e[0m"
 
-export ASCEND_TOOLKIT_HOME=${_ASCEND_INSTALL_PATH}
-export ASCEND_HOME_PATH=${_ASCEND_INSTALL_PATH}
-echo "ascend path: ${ASCEND_HOME_PATH}"
-source $(dirname ${ASCEND_HOME_PATH})/set_env.sh
 
+ASCEND_INCLUDE_DIR=${ASCEND_TOOLKIT_HOME}/$(arch)-linux/include
 CURRENT_DIR=$(pwd)
 PROJECT_ROOT=$(dirname "$CURRENT_DIR")
 VERSION="1.0.0"
@@ -122,8 +116,17 @@ function build_kernels()
     rm -rf $BUILD_DIR
     mkdir -p $BUILD_DIR
 
-    cmake $COMPILE_OPTIONS -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" -DASCEND_HOME_PATH=$ASCEND_HOME_PATH -DASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR -DSOC_VERSION=$SOC_VERSION -DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE -DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE -B "$BUILD_DIR" -S .
-    cmake --build "$BUILD_DIR" --target install
+    cmake $COMPILE_OPTIONS \
+    -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" \
+    -DASCEND_HOME_PATH=$ASCEND_HOME_PATH \
+    -DASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR \
+    -DSOC_VERSION=$SOC_VERSION \
+    -DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE \
+    -DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE \
+    -B "$BUILD_DIR" \
+    -S .
+
+    cmake --build "$BUILD_DIR" --target install -j 16
     cd -
 }
 

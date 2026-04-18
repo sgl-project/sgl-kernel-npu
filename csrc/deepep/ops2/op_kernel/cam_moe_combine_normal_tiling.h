@@ -4,7 +4,6 @@
 #include <cstdint>
 #include "kernel_tiling/kernel_tiling.h"
 
-// a3
 struct CamMoeCombineNormalInfo {
     uint32_t epWorldSize;
     uint32_t tpWorldSize;

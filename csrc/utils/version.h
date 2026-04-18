@@ -7,6 +7,15 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License
+//
+// The code snippet comes from [CANN].
+//
+// Copyright (c) [2025] [CANN]. All rights reserved.
+//
+// This file contains code from [CANN], which is released under
+// the CANN Open Software License Agreement Version 2.0 (the "License")
+// See the LICENSE file in the root directory of this source tree
+// or at https://gitcode.com/cann/ops-nn/blob/master/LICENSE for details.
 
 #ifndef SGL_KERNEL_NPU_VERSION_H
 #define SGL_KERNEL_NPU_VERSION_H

@@ -849,9 +849,7 @@ static bool CheckTensorShape(const gert::TilingContext *context, MoeDistributeCo
     const gert::StorageShape *xStorageShape = context->GetOutputShape(OUTPUT_X_INDEX);
     int64_t xDim0 = xStorageShape->GetStorageShape().GetDim(0);
     int64_t xDim1 = xStorageShape->GetStorageShape().GetDim(1);
-    OP_TILING_CHECK(xDim0 != expertIdsDim0,
-                    OP_LOGE(nodeName, "x's dim0 not equal to bs, bs = %ld, x's dim0 = %ld", expertIdsDim0, xDim0),
-                    return false);
+
     OP_TILING_CHECK(xDim1 != expandXDim1,
                     OP_LOGE(nodeName, "x's dim1 not equal to h, x's dim1 = %ld, h = %ld", xDim1, expandXDim1),
                     return false);
@@ -984,8 +982,8 @@ static bool CheckAttrs(const gert::TilingContext *context, MoeDistributeCombineV
     // 校验输入expertIds的维度0并设bs
     const gert::StorageShape *expertIdsStorageShape = context->GetInputShape(EXPERT_IDS_INDEX);
     int64_t expertIdsDim0 = expertIdsStorageShape->GetStorageShape().GetDim(0);
-    OP_TILING_CHECK((expertIdsDim0 <= 0) || (expertIdsDim0 > BS_UPPER_BOUND),
-                    OP_LOGE(nodeName, "Invalid expertIds dims0(BS) %ld. Should be between [1, %ld].", expertIdsDim0,
+    OP_TILING_CHECK((expertIdsDim0 < 0) || (expertIdsDim0 > BS_UPPER_BOUND),
+                    OP_LOGE(nodeName, "Invalid expertIds dims0(BS) %ld. Should be between [0, %ld].", expertIdsDim0,
                             BS_UPPER_BOUND),
                     return false);
     tilingData.moeDistributeCombineV2Info.bs = static_cast<uint32_t>(expertIdsDim0);

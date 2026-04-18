@@ -278,8 +278,9 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(
     PipeBarrier<PIPE_ALL>();
 
     uint64_t hSizeAlignCombine = Ceil(h * sizeof(XType), WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
+    hSizeAlignCombine = round > 1 ? hSizeAlignCombine * 2 : hSizeAlignCombine;
     winDataSizeOffset = dataState * (tilingData->camMoeDispatchNormalInfo.totalWinSize / 2) +
-                        min(realMaxBatchSize, perRoundTokens) * topK * hSizeAlignCombine;
+                        min(realMaxBatchSize, perRoundTokens) * topK * hSizeAlignCombine;  // *2 是因为double buffer
     shareGM = GetWindAddrByRankId(COMM_EP_IDX, epRankId);
 
     hCommuCopyOutParams = {1U, static_cast<uint32_t>(hScaleIdxSize), 0U, 0U, 0U};
@@ -436,6 +437,9 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::InputToShare()
     DataCopyExtParams xCopyParams = {1U, static_cast<uint32_t>(h * sizeof(XType)), 0U, 0U, 0U};
     for (int32_t tokenIndex = startTokenId; tokenIndex < endTokenId; ++tokenIndex) {
         uint32_t dstExpertId = expertIdsTensor(tokenIndex - startTokenId);
+        if (dstExpertId < 0 || dstExpertId >= moeExpertNum) {
+            continue;
+        }
         int32_t curExpertCnt = sendTokenIdxTensor(tokenIndex - startTokenId);
         int32_t dstExpertOffset = sendOffsetTensor(dstExpertId);
         GM_ADDR rankGM = (__gm__ uint8_t *)(shareGM + hOutGMAlignSize * (dstExpertOffset + curExpertCnt));

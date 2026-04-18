@@ -1,4 +1,5 @@
 import argparse
+import random
 
 import deep_ep
 import torch
@@ -10,6 +11,7 @@ RANK_OFFSET = 128
 
 
 def low_latency_test(
+    aligned_num_tokens: int,
     num_tokens: int,
     hidden: int,
     num_experts: int,
@@ -34,6 +36,7 @@ def low_latency_test(
         + 1
     )
 
+    # Sorting not needed for correctness test, improves performance
     topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
 
     topk_weights = torch.randn(
@@ -48,7 +51,7 @@ def low_latency_test(
     packed_recv_x, packed_recv_count, handle, event, hook = buffer.low_latency_dispatch(
         x,
         topk_idx,
-        num_tokens,
+        aligned_num_tokens,
         num_experts,
         use_fp8=dispatch_use_fp8,
         round_scale=False,
@@ -70,7 +73,7 @@ def low_latency_test(
         _,
     ) = handle
 
-    out = torch.empty((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
+    out = torch.empty((aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu")
     combined_x, event, hook = buffer.low_latency_combine(
         simulated_gemm_x,
         topk_idx,
@@ -96,14 +99,33 @@ def low_latency_test(
 def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     rank, num_ranks, group = init_dist(local_rank, num_local_ranks)
     num_topk, num_experts, hidden = args.num_topk, args.num_experts, args.hidden
+    enable_dynamic_tokens = args.enable_dynamic_tokens
     assert num_experts % num_ranks == 0
     torch.manual_seed(rank)
-    buffer = deep_ep.Buffer(
-        group, int(2e9), 0, low_latency_mode=True, num_qps_per_rank=1
-    )
 
     for i in range(args.test_loop):
-        normal_num_tokens = args.normal_num_tokens
+        buffer = deep_ep.Buffer(
+            group, int(2e9), 0, low_latency_mode=True, num_qps_per_rank=1
+        )
+        base_normal_num_tokens = args.normal_num_tokens
+        fluctuation_percentage = 0.1
+        min_fluctuation = 2
+
+        if enable_dynamic_tokens:
+            if base_normal_num_tokens < 10:
+                fluctuation = random.randint(-min_fluctuation, min_fluctuation)
+                normal_num_tokens = base_normal_num_tokens + fluctuation
+            else:
+                fluctuation = random.uniform(
+                    1 - fluctuation_percentage, 1 + fluctuation_percentage
+                )
+                normal_num_tokens = int(base_normal_num_tokens * fluctuation)
+
+            # Ensure normal_num_tokens is at least 1
+            normal_num_tokens = max(normal_num_tokens, 1)
+        else:
+            normal_num_tokens = base_normal_num_tokens
+
         if local_rank == 0:
             print(f"Start executing normal test loop {i} ...", flush=True)
         normal_test(
@@ -116,10 +138,33 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         if local_rank == 0:
             print(f"End executing normal test loop {i} ...", flush=True)
 
-        low_latency_num_tokens = args.low_latency_num_tokens
+        base_low_latency_num_tokens = args.low_latency_num_tokens
+
+        if enable_dynamic_tokens:
+            if base_low_latency_num_tokens < 10:
+                fluctuation = random.randint(-min_fluctuation, min_fluctuation)
+                low_latency_num_tokens = base_low_latency_num_tokens + fluctuation
+            else:
+                fluctuation = random.uniform(
+                    1 - fluctuation_percentage, 1 + fluctuation_percentage
+                )
+                low_latency_num_tokens = int(base_low_latency_num_tokens * fluctuation)
+
+            # Ensure low_latency_num_tokens is at least 1
+            low_latency_num_tokens = max(low_latency_num_tokens, 1)
+        else:
+            low_latency_num_tokens = base_low_latency_num_tokens
+
+        local_tokens_tensor = torch.tensor(
+            [low_latency_num_tokens], dtype=torch.int32, device="npu"
+        )
+        dist.all_reduce(local_tokens_tensor, op=dist.ReduceOp.MAX)
+        aligned_num_tokens = local_tokens_tensor.item()
+
         if local_rank == 0:
             print(f"Start executing low latency test loop {i} ...", flush=True)
         low_latency_test(
+            aligned_num_tokens,
             low_latency_num_tokens,
             hidden,
             num_experts,
@@ -130,7 +175,9 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         )
         if local_rank == 0:
             print(f"End executing low latency test loop {i} ...", flush=True)
-    dist.barrier()
+        del buffer
+        torch.npu.empty_cache()
+        dist.barrier()
 
     dist.destroy_process_group()
 
@@ -169,6 +216,11 @@ if __name__ == "__main__":
         type=int,
         default=1000,
         help="Number of test loop (default: 1000)",
+    )
+    parser.add_argument(
+        "--enable-dynamic-tokens",
+        action="store_true",
+        help="Whether to enable dynamic tokens for testing",
     )
 
     args = parser.parse_args()

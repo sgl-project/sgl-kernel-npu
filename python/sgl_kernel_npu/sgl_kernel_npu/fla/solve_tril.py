@@ -322,136 +322,153 @@ def merge_16x16_to_64x64_inverse_kernel_reorder_all_masked(
     H: tl.constexpr,
     BT: tl.constexpr,
     IS_VARLEN: tl.constexpr,
+    CHUNKS_PER_PROGRAM: tl.constexpr,
+    NT: tl.constexpr,
 ):
-    i_t, i_bh = tl.program_id(0), tl.program_id(1)
+    i_t_, i_bh = tl.program_id(0), tl.program_id(1)
     i_b, i_h = i_bh // H, i_bh % H
+    A_base = A
+    Ad_base = Ad
+    Ai_base = Ai
 
-    if IS_VARLEN:
-        i_n, i_t_val = tl.load(chunk_indices + i_t * 2).to(tl.int32), tl.load(
-            chunk_indices + i_t * 2 + 1
-        ).to(tl.int32)
-        bos, eos = tl.load(cu_seqlens + i_n).to(tl.int32), tl.load(
-            cu_seqlens + i_n + 1
-        ).to(tl.int32)
-        T = eos - bos
-        i_t = i_t_val
-    else:
-        bos, eos = i_b * T, i_b * T + T
+    for chunk_offset in range(CHUNKS_PER_PROGRAM):
+        current_chunk = i_t_ * CHUNKS_PER_PROGRAM + chunk_offset
 
-    # Base pointers (already offset by batch and head)
-    A += (bos * H + i_h) * 64
-    Ad += (bos * H + i_h) * 16
-    Ai += (bos * H + i_h) * 64
+        valid_chunk = current_chunk < NT
 
-    # ------------------ Load Ai_22 (Ad block at row i_t*64+16, col 0, 16x16) ------------------
-    offs_m = i_t * 64 + 16 + tl.arange(0, 16)
-    offs_n = tl.arange(0, 16)
-    mask_Ad = (offs_m[:, None] < T) & (offs_n[None, :] < 16)
-    ptr_Ad = Ad + offs_m[:, None] * (H * 16) + offs_n[None, :]
-    Ai_22 = tl.load(ptr_Ad, mask=mask_Ad, other=0.0).to(tl.float32)
+        if IS_VARLEN:
+            i_n = tl.load(
+                chunk_indices + current_chunk * 2, mask=valid_chunk, other=0
+            ).to(tl.int32)
+            i_t_val = tl.load(
+                chunk_indices + current_chunk * 2 + 1, mask=valid_chunk, other=0
+            ).to(tl.int32)
+            bos = tl.load(cu_seqlens + i_n, mask=valid_chunk, other=0).to(tl.int32)
+            eos = tl.load(cu_seqlens + i_n + 1, mask=valid_chunk, other=0).to(tl.int32)
+            T = tl.where(valid_chunk, eos - bos, 0)
+            i_t = i_t_val
+        else:
+            bos, eos = i_b * T, i_b * T + T
+            i_t = current_chunk
 
-    # ------------------ Load A_21 (A block at row i_t*64+16, col 0, 16x16) ------------------
-    mask_A = (offs_m[:, None] < T) & (offs_n[None, :] < 64)  # A has 64 cols
-    ptr_A = A + offs_m[:, None] * (H * 64) + offs_n[None, :]
-    A_21 = tl.load(ptr_A, mask=mask_A, other=0.0).to(tl.float32)
+        # Base pointers (already offset by batch and head)
+        A = A_base + (bos * H + i_h) * 64
+        Ad = Ad_base + (bos * H + i_h) * 16
+        Ai = Ai_base + (bos * H + i_h) * 64
 
-    tmp = tl.dot(Ai_22, A_21, input_precision="ieee")
+        # ------------------ Load Ai_22 (Ad block at row i_t*64+16, col 0, 16x16) ------------------
+        offs_m = i_t * 64 + 16 + tl.arange(0, 16)
+        offs_n = tl.arange(0, 16)
+        mask_Ad = valid_chunk & (offs_m[:, None] < T) & (offs_n[None, :] < 16)
+        ptr_Ad = Ad + offs_m[:, None] * (H * 16) + offs_n[None, :]
+        Ai_22 = tl.load(ptr_Ad, mask=mask_Ad, other=0.0).to(tl.float32)
 
-    # ------------------ Load Ai_11 (Ad block at row i_t*64, col 0, 16x16) ------------------
-    offs_m = i_t * 64 + tl.arange(0, 16)
-    offs_n = tl.arange(0, 16)
-    mask_Ad = (offs_m[:, None] < T) & (offs_n[None, :] < 16)
-    ptr_Ad = Ad + offs_m[:, None] * (H * 16) + offs_n[None, :]
-    Ai_11 = tl.load(ptr_Ad, mask=mask_Ad, other=0.0).to(tl.float32)
+        # ------------------ Load A_21 (A block at row i_t*64+16, col 0, 16x16) ------------------
+        mask_A = (
+            valid_chunk & (offs_m[:, None] < T) & (offs_n[None, :] < 64)
+        )  # A has 64 cols
+        ptr_A = A + offs_m[:, None] * (H * 64) + offs_n[None, :]
+        A_21 = tl.load(ptr_A, mask=mask_A, other=0.0).to(tl.float32)
 
-    Ai_21 = -tl.dot(tmp, Ai_11, input_precision="ieee")
+        tmp = tl.dot(Ai_22, A_21, input_precision="ieee")
 
-    # ------------------ Load Ai_44 (Ad block at row i_t*64+48, col 0, 16x16) ------------------
-    offs_m = i_t * 64 + 48 + tl.arange(0, 16)
-    offs_n = tl.arange(0, 16)
-    mask_Ad = (offs_m[:, None] < T) & (offs_n[None, :] < 16)
-    ptr_Ad = Ad + offs_m[:, None] * (H * 16) + offs_n[None, :]
-    Ai_44 = tl.load(ptr_Ad, mask=mask_Ad, other=0.0).to(tl.float32)
+        # ------------------ Load Ai_11 (Ad block at row i_t*64, col 0, 16x16) ------------------
+        offs_m = i_t * 64 + tl.arange(0, 16)
+        offs_n = tl.arange(0, 16)
+        mask_Ad = valid_chunk & (offs_m[:, None] < T) & (offs_n[None, :] < 16)
+        ptr_Ad = Ad + offs_m[:, None] * (H * 16) + offs_n[None, :]
+        Ai_11 = tl.load(ptr_Ad, mask=mask_Ad, other=0.0).to(tl.float32)
 
-    # ------------------ Load A_43 (A block at row i_t*64+48, col 32, 16x16) ------------------
-    offs_n = 32 + tl.arange(0, 16)
-    mask_A = (offs_m[:, None] < T) & (offs_n[None, :] < 64)
-    ptr_A = A + offs_m[:, None] * (H * 64) + offs_n[None, :]
-    A_43 = tl.load(ptr_A, mask=mask_A, other=0.0).to(tl.float32)
+        Ai_21 = -tl.dot(tmp, Ai_11, input_precision="ieee")
 
-    tmp = tl.dot(Ai_44, A_43, input_precision="ieee")
+        # ------------------ Load Ai_44 (Ad block at row i_t*64+48, col 0, 16x16) ------------------
+        offs_m = i_t * 64 + 48 + tl.arange(0, 16)
+        offs_n = tl.arange(0, 16)
+        mask_Ad = valid_chunk & (offs_m[:, None] < T) & (offs_n[None, :] < 16)
+        ptr_Ad = Ad + offs_m[:, None] * (H * 16) + offs_n[None, :]
+        Ai_44 = tl.load(ptr_Ad, mask=mask_Ad, other=0.0).to(tl.float32)
 
-    # ------------------ Load Ai_33 (Ad block at row i_t*64+32, col 0, 16x16) ------------------
-    offs_m = i_t * 64 + 32 + tl.arange(0, 16)
-    offs_n = tl.arange(0, 16)
-    mask_Ad = (offs_m[:, None] < T) & (offs_n[None, :] < 16)
-    ptr_Ad = Ad + offs_m[:, None] * (H * 16) + offs_n[None, :]
-    Ai_33 = tl.load(ptr_Ad, mask=mask_Ad, other=0.0).to(tl.float32)
+        # ------------------ Load A_43 (A block at row i_t*64+48, col 32, 16x16) ------------------
+        offs_n = 32 + tl.arange(0, 16)
+        mask_A = valid_chunk & (offs_m[:, None] < T) & (offs_n[None, :] < 64)
+        ptr_A = A + offs_m[:, None] * (H * 64) + offs_n[None, :]
+        A_43 = tl.load(ptr_A, mask=mask_A, other=0.0).to(tl.float32)
 
-    Ai_43 = -tl.dot(tmp, Ai_33, input_precision="ieee")
+        tmp = tl.dot(Ai_44, A_43, input_precision="ieee")
 
-    # ------------------ Build Ai_22_32 (32x32) ------------------
-    Ai_22_32 = tl.zeros((32, 32), tl.float32)
-    Ai_22_32 = tl.insert_slice(Ai_22_32, Ai_33, (0, 0), (16, 16), (1, 1))
-    Ai_22_32 = tl.insert_slice(Ai_22_32, Ai_44, (16, 16), (16, 16), (1, 1))
-    Ai_22_32 = tl.insert_slice(Ai_22_32, Ai_43, (16, 0), (16, 16), (1, 1))
+        # ------------------ Load Ai_33 (Ad block at row i_t*64+32, col 0, 16x16) ------------------
+        offs_m = i_t * 64 + 32 + tl.arange(0, 16)
+        offs_n = tl.arange(0, 16)
+        mask_Ad = valid_chunk & (offs_m[:, None] < T) & (offs_n[None, :] < 16)
+        ptr_Ad = Ad + offs_m[:, None] * (H * 16) + offs_n[None, :]
+        Ai_33 = tl.load(ptr_Ad, mask=mask_Ad, other=0.0).to(tl.float32)
 
-    # ------------------ Load A_21_32 (A block at row i_t*64+32, col 0, 32x32) ------------------
-    offs_m = i_t * 64 + 32 + tl.arange(0, 32)
-    offs_n = tl.arange(0, 32)
-    mask_A = (offs_m[:, None] < T) & (offs_n[None, :] < 64)
-    ptr_A = A + offs_m[:, None] * (H * 64) + offs_n[None, :]
-    A_21_32 = tl.load(ptr_A, mask=mask_A, other=0.0).to(tl.float32)
+        Ai_43 = -tl.dot(tmp, Ai_33, input_precision="ieee")
 
-    tmp = tl.dot(Ai_22_32, A_21_32, input_precision="ieee")
+        # ------------------ Build Ai_22_32 (32x32) ------------------
+        Ai_22_32 = tl.zeros((32, 32), tl.float32)
+        Ai_22_32 = tl.insert_slice(Ai_22_32, Ai_33, (0, 0), (16, 16), (1, 1))
+        Ai_22_32 = tl.insert_slice(Ai_22_32, Ai_44, (16, 16), (16, 16), (1, 1))
+        Ai_22_32 = tl.insert_slice(Ai_22_32, Ai_43, (16, 0), (16, 16), (1, 1))
 
-    # ------------------ Build Ai_11_32 (32x32) ------------------
-    Ai_11_32 = tl.zeros((32, 32), tl.float32)
-    Ai_11_32 = tl.insert_slice(Ai_11_32, Ai_11, (0, 0), (16, 16), (1, 1))
-    Ai_11_32 = tl.insert_slice(Ai_11_32, Ai_22, (16, 16), (16, 16), (1, 1))
-    Ai_11_32 = tl.insert_slice(Ai_11_32, Ai_21, (16, 0), (16, 16), (1, 1))
+        # ------------------ Load A_21_32 (A block at row i_t*64+32, col 0, 32x32) ------------------
+        offs_m = i_t * 64 + 32 + tl.arange(0, 32)
+        offs_n = tl.arange(0, 32)
+        mask_A = valid_chunk & (offs_m[:, None] < T) & (offs_n[None, :] < 64)
+        ptr_A = A + offs_m[:, None] * (H * 64) + offs_n[None, :]
+        A_21_32 = tl.load(ptr_A, mask=mask_A, other=0.0).to(tl.float32)
 
-    Ai_21_32 = -tl.dot(tmp, Ai_11_32, input_precision="ieee")
+        tmp = tl.dot(Ai_22_32, A_21_32, input_precision="ieee")
 
-    # ------------------ Store Ai_11_32 to (i_t*64, 0) ------------------
-    offs_m = i_t * 64 + tl.arange(0, 32)
-    offs_n = tl.arange(0, 32)
-    mask_store = (offs_m[:, None] < T) & (offs_n[None, :] < 64)
-    ptr_Ai = Ai + offs_m[:, None] * (H * 64) + offs_n[None, :]
-    tl.store(
-        ptr_Ai,
-        Ai_11_32.to(ptr_Ai.dtype.element_ty, fp_downcast_rounding="rtne"),
-        mask=mask_store,
-    )
+        # ------------------ Build Ai_11_32 (32x32) ------------------
+        Ai_11_32 = tl.zeros((32, 32), tl.float32)
+        Ai_11_32 = tl.insert_slice(Ai_11_32, Ai_11, (0, 0), (16, 16), (1, 1))
+        Ai_11_32 = tl.insert_slice(Ai_11_32, Ai_22, (16, 16), (16, 16), (1, 1))
+        Ai_11_32 = tl.insert_slice(Ai_11_32, Ai_21, (16, 0), (16, 16), (1, 1))
 
-    # ------------------ Store Ai_22_32 to (i_t*64+32, 32) ------------------
-    offs_m = i_t * 64 + 32 + tl.arange(0, 32)
-    offs_n = 32 + tl.arange(0, 32)
-    mask_store = (offs_m[:, None] < T) & (offs_n[None, :] < 64)
-    ptr_Ai = Ai + offs_m[:, None] * (H * 64) + offs_n[None, :]
-    tl.store(
-        ptr_Ai,
-        Ai_22_32.to(ptr_Ai.dtype.element_ty, fp_downcast_rounding="rtne"),
-        mask=mask_store,
-    )
+        Ai_21_32 = -tl.dot(tmp, Ai_11_32, input_precision="ieee")
 
-    # ------------------ Store Ai_21_32 to (i_t*64+32, 0) ------------------
-    offs_n = tl.arange(0, 32)
-    mask_store = (offs_m[:, None] < T) & (offs_n[None, :] < 64)
-    ptr_Ai = Ai + offs_m[:, None] * (H * 64) + offs_n[None, :]
-    tl.store(
-        ptr_Ai,
-        Ai_21_32.to(ptr_Ai.dtype.element_ty, fp_downcast_rounding="rtne"),
-        mask=mask_store,
-    )
+        # ------------------ Store Ai_11_32 to (i_t*64, 0) ------------------
+        offs_m = i_t * 64 + tl.arange(0, 32)
+        offs_n = tl.arange(0, 32)
+        mask_store = valid_chunk & (offs_m[:, None] < T) & (offs_n[None, :] < 64)
+        ptr_Ai = Ai + offs_m[:, None] * (H * 64) + offs_n[None, :]
+        tl.store(
+            ptr_Ai,
+            Ai_11_32.to(ptr_Ai.dtype.element_ty, fp_downcast_rounding="rtne"),
+            mask=mask_store,
+        )
 
-    # ------------------ Zero out the upper-right 32x32 block (rows 0~31, cols 32~63) ------------------
-    offs_m = i_t * 64 + tl.arange(0, 32)
-    offs_n = 32 + tl.arange(0, 32)
-    mask_store = (offs_m[:, None] < T) & (offs_n[None, :] < BT)  # BT=64
-    ptr_Ai = Ai + offs_m[:, None] * (H * BT) + offs_n[None, :]
-    zero_block = tl.zeros((32, 32), dtype=ptr_Ai.dtype.element_ty)
-    tl.store(ptr_Ai, zero_block, mask=mask_store)
+        # ------------------ Store Ai_22_32 to (i_t*64+32, 32) ------------------
+        offs_m = i_t * 64 + 32 + tl.arange(0, 32)
+        offs_n = 32 + tl.arange(0, 32)
+        mask_store = valid_chunk & (offs_m[:, None] < T) & (offs_n[None, :] < 64)
+        ptr_Ai = Ai + offs_m[:, None] * (H * 64) + offs_n[None, :]
+        tl.store(
+            ptr_Ai,
+            Ai_22_32.to(ptr_Ai.dtype.element_ty, fp_downcast_rounding="rtne"),
+            mask=mask_store,
+        )
+
+        # ------------------ Store Ai_21_32 to (i_t*64+32, 0) ------------------
+        offs_n = tl.arange(0, 32)
+        mask_store = valid_chunk & (offs_m[:, None] < T) & (offs_n[None, :] < 64)
+        ptr_Ai = Ai + offs_m[:, None] * (H * 64) + offs_n[None, :]
+        tl.store(
+            ptr_Ai,
+            Ai_21_32.to(ptr_Ai.dtype.element_ty, fp_downcast_rounding="rtne"),
+            mask=mask_store,
+        )
+
+        # ------------------ Zero out the upper-right 32x32 block (rows 0~31, cols 32~63) ------------------
+        offs_m = i_t * 64 + tl.arange(0, 32)
+        offs_n = 32 + tl.arange(0, 32)
+        mask_store = (
+            valid_chunk & (offs_m[:, None] < T) & (offs_n[None, :] < BT)
+        )  # BT=64
+        ptr_Ai = Ai + offs_m[:, None] * (H * BT) + offs_n[None, :]
+        zero_block = tl.zeros((32, 32), dtype=ptr_Ai.dtype.element_ty)
+        tl.store(ptr_Ai, zero_block, mask=mask_store)
 
 
 def solve_tril_npu(
@@ -517,16 +534,34 @@ def solve_tril_npu(
         prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
     )
     NT = len(chunk_indices) if cu_seqlens is not None else triton.cdiv(T, BT)
-    merge_fn[NT, B * H](
-        A=A,
-        Ad=Ad,
-        Ai=Ai,
-        cu_seqlens=cu_seqlens,
-        chunk_indices=chunk_indices,
-        T=T,
-        H=H,
-        BT=BT,
-        num_warps=4,
-        num_stages=3,
-    )
+    if BT != 32:
+        CHUNKS_PER_PROGRAM = min(NT, 2048)
+        num_programs = triton.cdiv(NT, CHUNKS_PER_PROGRAM)
+        merge_fn[num_programs, B * H](
+            A=A,
+            Ad=Ad,
+            Ai=Ai,
+            cu_seqlens=cu_seqlens,
+            chunk_indices=chunk_indices,
+            T=T,
+            H=H,
+            BT=BT,
+            num_warps=4,
+            num_stages=3,
+            CHUNKS_PER_PROGRAM=CHUNKS_PER_PROGRAM,
+            NT=NT,
+        )
+    else:
+        merge_fn[NT, B * H](
+            A=A,
+            Ad=Ad,
+            Ai=Ai,
+            cu_seqlens=cu_seqlens,
+            chunk_indices=chunk_indices,
+            T=T,
+            H=H,
+            BT=BT,
+            num_warps=4,
+            num_stages=3,
+        )
     return Ai

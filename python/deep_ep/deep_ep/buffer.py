@@ -1,4 +1,5 @@
 import os
+from enum import IntEnum
 from typing import Callable, List, Optional, Tuple, Union
 
 import deep_ep_cpp
@@ -8,6 +9,11 @@ import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
 from .utils import EventOverlap, log_parameters
+
+
+class FuseMode(IntEnum):
+    FUSED_DEEP_MOE = 1
+    DISPATCH_FFN_COMBINE = 2
 
 
 class Buffer:
@@ -861,6 +867,7 @@ class Buffer:
         num_max_dispatch_tokens_per_rank: int,
         num_experts: int,
         quant_mode: int = 1,
+        fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         A fused low-latency implementation for MoE expert forward and combination.
@@ -880,9 +887,11 @@ class Buffer:
             gmm2_weight: weight tensor for the second stage (e.g., projection or FFN output).
             gmm2_weight_scale: quantization scale tensor corresponding to `gmm2Weight`.
 
-            num_max_dispatch_tokens_per_rank: the maximum number of tokens to dispatch, all the ranks must hold the same value.
+            num_max_dispatch_tokens_per_rank: the maximum number of tokens to dispatch, when fuse_mode is DISPATCH_FFN_COMBINE,
+                it indicates the maximum number of tokens received in dispatch. All the ranks must hold the same value.
             num_experts: the number of experts.
             quant_mode: int type, optional number, displays the quantization model. Supported values: 1 means int8 (default)
+            fuse_mode: Fuse mode enum (default: FuseMode.FUSED_DEEP_MOE).
 
         Notes:
             - The first dimension of `topk_idx` defines the batch size `bs`.
@@ -896,21 +905,39 @@ class Buffer:
             ep_recv_count: `torch.Tensor`, a 1D tensor of type `torch.int32`
                 indicating the number of tokens received by each expert across all ranks.
         """
-        gmm1_permuted_weight_scale = gmm1_permuted_weight_scale.float()
-        gmm2_weight_scale = gmm2_weight_scale.float()
         topk_ids = topk_idx.int()
+        if fuse_mode == FuseMode.FUSED_DEEP_MOE:
+            gmm1_permuted_weight_scale = gmm1_permuted_weight_scale.float()
+            gmm2_weight_scale = gmm2_weight_scale.float()
 
-        output, ep_recv_count = self.runtime.fused_deep_moe(
-            x,
-            topk_ids,
-            gmm1_permuted_weight,
-            gmm1_permuted_weight_scale,
-            gmm2_weight,
-            gmm2_weight_scale,
-            topk_weights,
-            num_max_dispatch_tokens_per_rank,
-            num_experts,
-            quant_mode,
-        )
-
-        return output, ep_recv_count
+            output, ep_recv_count = self.runtime.fused_deep_moe(
+                x,
+                topk_ids,
+                gmm1_permuted_weight,
+                gmm1_permuted_weight_scale,
+                gmm2_weight,
+                gmm2_weight_scale,
+                topk_weights,
+                num_max_dispatch_tokens_per_rank,
+                num_experts,
+                quant_mode,
+            )
+            return output, ep_recv_count
+        elif fuse_mode == FuseMode.DISPATCH_FFN_COMBINE:
+            # The maximum number of tokens that rank can obtain during dispatch. (max_bs * ranks * topk)
+            max_output_size = num_max_dispatch_tokens_per_rank
+            output, expert_token_nums = self.runtime.dispatch_ffn_combine(
+                x,
+                topk_ids,
+                gmm1_permuted_weight,
+                gmm1_permuted_weight_scale,
+                gmm2_weight,
+                gmm2_weight_scale,
+                topk_weights,
+                max_output_size,
+                num_experts,
+                quant_mode,
+            )
+            return output, expert_token_nums
+        else:
+            raise NotImplementedError(f"Not support fuse_mode:{fuse_mode}")

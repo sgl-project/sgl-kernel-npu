@@ -56,8 +56,7 @@ public:
     __aicore__ inline MoeDistributeCombineA2Layered(){};
     __aicore__ inline void Init(GM_ADDR expandX, GM_ADDR expandIdx, GM_ADDR sendCount, GM_ADDR offsetInner,
                                 GM_ADDR offsetOuter, GM_ADDR countOuter, GM_ADDR scales, GM_ADDR XOut,
-                                GM_ADDR workspaceGM, TPipe *pipe, const MoeDistributeCombineA2TilingData *tilingData,
-                                __gm__ void *mc2InitTiling, __gm__ void *mc2CcTiling);
+                                GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tiling);
     __aicore__ inline void Process();
 
 private:
@@ -196,29 +195,30 @@ private:
 template <TemplateMC2TypeA2layeredClass>
 __aicore__ inline void MoeDistributeCombineA2Layered<TemplateMC2TypeA2layeredFunc>::Init(
     GM_ADDR expandX, GM_ADDR expandIdx, GM_ADDR sendCount, GM_ADDR offsetInner, GM_ADDR offsetOuter, GM_ADDR countOuter,
-    GM_ADDR scales, GM_ADDR XOut, GM_ADDR workspaceGM, TPipe *pipe, const MoeDistributeCombineA2TilingData *tilingData,
-    __gm__ void *mc2InitTiling, __gm__ void *mc2CcTiling)
+    GM_ADDR scales, GM_ADDR XOut, GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tiling)
 {
     tpipe_ = pipe;
+    REGISTER_TILING_DEFAULT(MoeDistributeCombineA2TilingData);
+    GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineA2TilingData, tilingData, tiling);
     expandXGM_ = expandX;
     expandIdxGM_ = expandIdx;
     sendCountGM_ = sendCount;
     scalesGM_ = scales;
     XOutGM_ = XOut;
-    rankId_ = tilingData->moeDistributeCombineInfo.epRankId;
-    axisBS_ = tilingData->moeDistributeCombineInfo.bs;
-    globalBs = tilingData->moeDistributeCombineInfo.globalBs;
+    rankId_ = tilingData.moeDistributeCombineInfo.epRankId;
+    axisBS_ = tilingData.moeDistributeCombineInfo.bs;
+    globalBs = tilingData.moeDistributeCombineInfo.globalBs;
 
-    axisH_ = tilingData->moeDistributeCombineInfo.h;
-    axisK_ = tilingData->moeDistributeCombineInfo.k;
-    aivNum_ = tilingData->moeDistributeCombineInfo.aivNum;
-    moeExpertNum_ = tilingData->moeDistributeCombineInfo.moeExpertNum;
-    worldSize_ = tilingData->moeDistributeCombineInfo.epWorldSize;
+    axisH_ = tilingData.moeDistributeCombineInfo.h;
+    axisK_ = tilingData.moeDistributeCombineInfo.k;
+    aivNum_ = tilingData.moeDistributeCombineInfo.aivNum;
+    moeExpertNum_ = tilingData.moeDistributeCombineInfo.moeExpertNum;
+    worldSize_ = tilingData.moeDistributeCombineInfo.epWorldSize;
 
     auto contextGM = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
     winContext_ = (__gm__ HcclOpResParam *)contextGM;
-    hccl_.Init(contextGM, mc2InitTiling);
-    hccl_.SetCcTiling(mc2CcTiling);
+    hccl_.InitV2(contextGM, &tilingData);
+    hccl_.SetCcTilingV2(offsetof(MoeDistributeCombineA2TilingData, mc2CcTiling));
 
     halfWinSize_ = RDMA_DATA_SIZE / 2U;
     IPC_DATA_SIZE = winContext_->winSize - RDMA_DATA_SIZE - IPC_DATA_OFFSET - NOTIFY_DATA_SIZE;
@@ -259,12 +259,12 @@ __aicore__ inline void MoeDistributeCombineA2Layered<TemplateMC2TypeA2layeredFun
            "The HCCL_BUFFSIZE is %lluMB, the min value should be %lluMB. \
         epWorldSize:%u, epRankId:%u, moeExpertNum:%u, globalBs:%u, bs:%u, k:%u, h:%u, aivNum:%u, \
         totalUbSize:%llu, hcclBufferSize:%u\n",
-           winContext_->winSize / MB_SIZE, winSizeMin / MB_SIZE, tilingData->moeDistributeCombineInfo.epWorldSize,
-           tilingData->moeDistributeCombineInfo.epRankId, tilingData->moeDistributeCombineInfo.moeExpertNum,
-           tilingData->moeDistributeCombineInfo.globalBs, tilingData->moeDistributeCombineInfo.bs,
-           tilingData->moeDistributeCombineInfo.k, tilingData->moeDistributeCombineInfo.h,
-           tilingData->moeDistributeCombineInfo.aivNum, tilingData->moeDistributeCombineInfo.totalUbSize,
-           tilingData->moeDistributeCombineInfo.hcclBufferSize);
+           winContext_->winSize / MB_SIZE, winSizeMin / MB_SIZE, tilingData.moeDistributeCombineInfo.epWorldSize,
+           tilingData.moeDistributeCombineInfo.epRankId, tilingData.moeDistributeCombineInfo.moeExpertNum,
+           tilingData.moeDistributeCombineInfo.globalBs, tilingData.moeDistributeCombineInfo.bs,
+           tilingData.moeDistributeCombineInfo.k, tilingData.moeDistributeCombineInfo.h,
+           tilingData.moeDistributeCombineInfo.aivNum, tilingData.moeDistributeCombineInfo.totalUbSize,
+           tilingData.moeDistributeCombineInfo.hcclBufferSize);
 
     GlobalTensor<int32_t> selfStatusTensor;
     selfStatusTensor.SetGlobalBuffer((__gm__ int32_t *)(statusSpaceGm_ + SELF_STATE_OFFSET));
@@ -669,8 +669,8 @@ __aicore__ inline void MoeDistributeCombineA2Layered<TemplateMC2TypeA2layeredFun
     if (coreIdx_ >= 8U) {
         return;
     }
-    processNum = MAX_BS / 8U;
-    resNum = MAX_BS - processNum * 8U;
+    processNum = axisBS_ / 8U;
+    resNum = axisBS_ - processNum * 8U;
     resLen = (resNum == 0U) ? 0U : 1U;
     startBs = 0U;
     endBs = 0U;
@@ -736,7 +736,7 @@ __aicore__ inline void MoeDistributeCombineA2Layered<TemplateMC2TypeA2layeredFun
         SyncFunc<AscendC::HardEvent::MTE3_V>();
         Cast(castUbIn, sumFloatLocal_, AscendC::RoundMode::CAST_RINT, axisH_);
         SyncFunc<AscendC::HardEvent::V_MTE3>();
-        DataCopy(expandOutGlobal_[count * axisH_], castUbIn, axisH_);
+        DataCopy(expandOutGlobal_[i * axisH_], castUbIn, axisH_);
         count++;
         PipeBarrier<PIPE_V>();
     }
