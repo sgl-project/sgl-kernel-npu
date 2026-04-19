@@ -38,6 +38,7 @@ fi
 
 function build_ops(){
     ori_path=${PWD}
+    chmod -R u+w ${current_script_dir}
     cd ${current_script_dir}
     rm -rf vendors
     source ${current_script_dir}/build_ascendc_ops.sh -n 'laser_attention;block_sparse_attention;sparse_block_estimate' -c 'ascend910;ascend910b;ascend910_93'
