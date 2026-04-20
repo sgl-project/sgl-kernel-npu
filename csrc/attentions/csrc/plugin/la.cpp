@@ -34,7 +34,6 @@ std::tuple<at::Tensor, at::Tensor> la(
     double keep_prob, int64_t pre_tokens, int64_t next_tokens, bool is_highPrecision)
 {   
 
-    std::cout<<"RUN SUCCESS!!!\n" <<std::endl;
     size_t query_dim = query.sizes().size();
     if (query_dim != 4) { // 4 is the first input dimension
         throw std::invalid_argument("The first input dimension of la must be 4 but got " + str(query_dim));
