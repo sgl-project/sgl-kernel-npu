@@ -408,8 +408,8 @@ def causal_conv1d_update_mtp_npu(
     - `[num_tokens, dim]` - continuous batching, where num_tokens is
         the total tokens of all sequences in that batch
 
-    conv_state: (..., dim, state_len), where state_len >= width - 1
-    weight: (dim, width)
+    conv_state: (..., state_len, dim), where state_len >= width - 1
+    weight: (width, dim)
     bias: (dim,)
     conv_state_indices: (batch,), dtype int32
         If not None, the conv_state is a larger tensor along the batch dim,
