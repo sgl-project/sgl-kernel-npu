@@ -32,8 +32,8 @@ PAD_SLOT_ID = -1
 
 def _causal_conv1d_update_kernel_npu_tiled(
     # Pointers
-    x_ptr,  # (batch, dim, seqlen) OR (num_tokens, dim) for varlen
-    w_ptr,  # (dim, width)
+    x_ptr,  # (batch, seqlen, dim) OR (num_tokens, dim) for varlen
+    w_ptr,  # (width, dim)
     bias_ptr,
     conv_state_ptr,  # (num_cache_lines, dim, state_len)
     conv_state_indices_ptr,
