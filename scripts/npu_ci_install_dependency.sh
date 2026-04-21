@@ -3,7 +3,7 @@ set -euo pipefail
 
 export ARCHITECT="$(arch)"
 export DEBIAN_FRONTEND="noninteractive"
-export PIP_INSTALL="python3 -m pip install --no-cache-dir"
+export PIP_INSTALL="uv pip install"
 
 
 ### Dependency Versions
@@ -66,7 +66,7 @@ export LANGUAGE=en_US:en
 export LC_ALL=en_US.UTF-8
 
 ## Python packages
-${PIP_INSTALL} --upgrade pip
+uv pip install --upgrade pip
 # Pin wheel to 0.45.1, REF: https://github.com/pypa/wheel/issues/662
 ${PIP_INSTALL} \
     wheel==0.45.1 \

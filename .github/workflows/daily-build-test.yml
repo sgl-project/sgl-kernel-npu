@@ -25,6 +25,11 @@ jobs:
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
       PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      UV_EXTRA_INDEX_URL: "https://mirrors.huaweicloud.com/ascend/repos/pypi"
+      UV_INDEX_STRATEGY: "unsafe-best-match"
+      UV_NO_CACHE: 1
+      UV_SYSTEM_PYTHON: 1
 
     steps:
       - name: Clean git config
@@ -47,6 +52,7 @@ jobs:
           sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
           pip config set global.index-url http://${CACHING_URL}/pypi/simple
           pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Prepare Deepep
@@ -82,6 +88,11 @@ jobs:
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
       PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      UV_EXTRA_INDEX_URL: "https://mirrors.huaweicloud.com/ascend/repos/pypi"
+      UV_INDEX_STRATEGY: "unsafe-best-match"
+      UV_NO_CACHE: 1
+      UV_SYSTEM_PYTHON: 1
 
     steps:
       - name: Clean workspace and checkout
@@ -97,6 +108,7 @@ jobs:
           sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
           pip config set global.index-url http://${CACHING_URL}/pypi/simple
           pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Prepare Deepep
