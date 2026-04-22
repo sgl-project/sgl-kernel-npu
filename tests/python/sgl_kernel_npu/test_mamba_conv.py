@@ -8,8 +8,8 @@ import torch
 import torch.nn.functional as F
 from sgl_kernel_npu.mamba.causal_conv1d import (
     PAD_SLOT_ID,
-    causal_conv1d_update_mtp_npu,
     causal_conv1d_update_npu,
+    causal_conv1d_update_v2,
 )
 
 device = "npu"
@@ -317,7 +317,7 @@ def test_npu_causal_conv1d_update_mtp():
     mixed_qkv_reshaped = mixed_qkv.view(batch_size, draft_token_num, dim).clone()
 
     # ---------------- 1. NPU Kernel ----------------
-    out_npu = causal_conv1d_update_mtp_npu(
+    out_npu = causal_conv1d_update_v2(
         x=mixed_qkv.view(batch_size, draft_token_num, -1).contiguous(),
         conv_state=conv_states.contiguous(),
         weight=conv_weights.transpose(0, 1).contiguous(),  # [kernel_size, dim]
