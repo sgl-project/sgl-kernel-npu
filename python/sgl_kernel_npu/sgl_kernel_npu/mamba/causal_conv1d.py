@@ -5,10 +5,9 @@
 # Adapted from https://github.com/Dao-AILab/causal-conv1d/blob/main/causal_conv1d/causal_conv1d_interface.py
 # and https://github.com/vllm-project/vllm/blob/main/vllm/model_executor/layers/mamba/ops/causal_conv1d.py
 
-from typing import Any, Optional, Union
+from typing import Optional, Union
 
 import torch
-import torch_npu
 import torch.nn.functional as F
 import triton
 import triton.language as tl
@@ -404,7 +403,7 @@ def causal_conv1d_update_mtp_npu(
     x: Input tensor which can take the following shapes:
 
     - `[batch, dim]` - single token prediction
-    - `[batch, dim, seqlen]` - single or multiple tokens prediction
+    - `[batch, seqlen, dim]` - single or multiple tokens prediction
     - `[num_tokens, dim]` - continuous batching, where num_tokens is
         the total tokens of all sequences in that batch
 
@@ -436,7 +435,7 @@ def causal_conv1d_update_mtp_npu(
             for example: conv_state_indices = [pad_slot_id, 1 ,20 ,pad_slot_id]
             in this case, the kernel will not process entries at
             indices 0 and 3
-    out: (batch, dim) or (batch, dim, seqlen) or (num_tokens, dim), same shape as `x`
+    out: (batch, dim) or (batch, seqlen, dim) or (num_tokens, dim), same shape as `x`
     """
     if validate_data:
         assert pad_slot_id is not None
