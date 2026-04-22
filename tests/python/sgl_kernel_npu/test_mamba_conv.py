@@ -361,7 +361,7 @@ def test_npu_causal_conv1d_update_mtp():
     assert torch.allclose(
         out_npu, out_ref, rtol=rtol, atol=atol
     ), f"Output value mismatch, {(out_npu-out_ref).abs().max()=}"
- 
+
     assert torch.allclose(
         conv_states, conv_states_clone, rtol=rtol, atol=atol
     ), f"Conv state update mismatch, {(conv_states-conv_states_clone).abs().max()=}"
