@@ -29,7 +29,7 @@ PAD_SLOT_ID = -1
     ]
 )
 
-def _causal_conv1d_update_kernel_npu_tiled(
+def _causal_conv1d_update_kernel_npu_tiled1(
     # Pointers
     x_ptr,  # (batch, seqlen, dim) OR (num_tokens, dim) for varlen
     w_ptr,  # (width, dim)
@@ -515,7 +515,7 @@ def causal_conv1d_update_mtp_npu(
             triton.cdiv(dim, META["BLOCK_N"]),
         )
 
-    _causal_conv1d_update_kernel_npu_tiled[grid](
+    _causal_conv1d_update_kernel_npu_tiled1[grid](
         x,
         weight,
         bias,
