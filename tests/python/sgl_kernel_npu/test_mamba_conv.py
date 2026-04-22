@@ -11,6 +11,7 @@ from sgl_kernel_npu.mamba.causal_conv1d import (
     causal_conv1d_update_mtp_npu,
     causal_conv1d_update_npu,
 )
+
 device = "npu"
 
 
@@ -349,7 +350,10 @@ def test_npu_causal_conv1d_update_mtp():
 
     conv_states_clone[cache_indices] = new_conv_state_ref.transpose(1, 2).contiguous()
 
-    assert out_npu.shape == out_ref.shape, f"Output shape mismatch: {out_npu.shape} vs {out_ref.shape}"
+    assert (
+        out_npu.shape == out_ref.shape
+    ), f"Output shape mismatch: {out_npu.shape} vs {out_ref.shape}"
+
     assert (
         out_npu.shape == out_ref.shape
     ), f"Output shape mismatch: {out_npu.shape} vs {out_ref.shape}"
@@ -362,6 +366,8 @@ def test_npu_causal_conv1d_update_mtp():
         conv_states, conv_states_clone, rtol=rtol, atol=atol
     ), f"Conv state update mismatch, {(conv_states-conv_states_clone).abs().max()=}"
 
-    assert torch.allclose(conv_states, conv_states_clone, rtol=rtol, atol=atol), "Conv state update mismatch"
+    assert torch.allclose(
+        conv_states, conv_states_clone, rtol=rtol, atol=atol
+    ), "Conv state update mismatch"
 
     print("✅  Test passed!")
