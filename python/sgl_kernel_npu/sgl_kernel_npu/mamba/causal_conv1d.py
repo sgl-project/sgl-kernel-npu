@@ -331,7 +331,11 @@ def _causal_conv1d_update_kernel_npu_tiled(
             dst_tok = (t0 + tok_vec).to(tl.int32)  # [T_CHUNK]
             x_tok = (tail_start + dst_tok).to(tl.int32)  # [T_CHUNK]
             m_tok = use_tail & (dst_tok < state_len_run) & (x_tok < seqlen_run)
-            m = (lane_active & m_tok)[:, None] & mask_w[None, :] & (conv_states_offset < num_cache_lines)
+            m = (
+                (lane_active & m_tok)[:, None]
+                & mask_w[None, :]
+                & (conv_states_offset < num_cache_lines)
+            )
 
             x_ptrs = x_base[None, :] + x_tok[:, None] * stride_x_token
             dst_ptrs = (
