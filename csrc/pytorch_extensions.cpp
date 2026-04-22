@@ -105,7 +105,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 
     m.def(
         "sgemmc_shrink(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! lora_ranks,"
-        "              Tensor! lora_scales, Tensor! y) -> ()");
+        "              Tensor! lora_scales, Tensor! y, int slice_count) -> ()");
 
 #ifdef BUILD_CATLASS_MODULE
     m.def("catlass_matmul_basic(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, str? format_mode=None) -> ()");

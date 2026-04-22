@@ -33,6 +33,9 @@ HOST_API at::Tensor sgemmc_expand(at::Tensor &x, at::Tensor &weight, at::Tensor 
     TORCH_CHECK(weight.dim() == 3 || weight.dim() == 4,
                 "weight should be [num_loras, hidden_out, hidden_in] or [num_loras, 1, hidden_out, hidden_in]");
     TORCH_CHECK(y.dim() == 2, "y should be [batch_size, hidden_out]");
+    TORCH_CHECK(slice_offsets.dim() == 1 && slice_offsets.size(0) > 1,
+                "slice_offsets should be a vector of size 2 and more.");
+    TORCH_CHECK(lora_ranks.dim() == 1, "lora_ranks should be a vector.");
 
     at::Tensor y_out = y;
     void *x_ptr = x.data_ptr();
@@ -57,7 +60,7 @@ HOST_API at::Tensor sgemmc_expand(at::Tensor &x, at::Tensor &weight, at::Tensor 
     uint32_t workspace_size;
 
     at::Tensor tiling_tensor = GenerateTiling(block_dim, workspace_size, batch_size, max_lora_rank, output_full_dim,
-                                              TorchNpuHelper::ConvertDataType(scalar_type));
+                                              slice_count, TorchNpuHelper::ConvertDataType(scalar_type));
     auto workspace_tensor =
         at::empty({workspace_size}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
 

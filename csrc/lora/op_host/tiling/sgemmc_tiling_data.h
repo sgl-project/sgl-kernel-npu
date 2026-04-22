@@ -33,11 +33,7 @@ namespace npu_kernel {
 
 #pragma pack(push, 1)
 struct SGEMMCTilingData {
-    uint32_t dataType;
-    uint32_t batch;
-    uint32_t hidden;
-    uint32_t k;
-    uint32_t slices;
+    uint32_t tilingKey;
     AscendC::tiling::TCubeTiling cubeTiling;
 };
 #pragma pack(pop)

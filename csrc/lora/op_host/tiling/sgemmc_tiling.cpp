@@ -36,7 +36,7 @@ matmul_tiling::DataType ConvertToMatMulTypes(host_utils::DataType data_type)
 }
 
 at::Tensor GenerateTiling(uint32_t &block_dim, uint32_t &workspace_size, uint32_t batch_size, uint32_t inner_size,
-                          uint32_t output_size, const host_utils::DataType type)
+                          uint32_t output_size, uint32_t slice_count, const host_utils::DataType type)
 {
     auto ascendc_platform = *platform_ascendc::PlatformAscendCManager::GetInstance();
     uint32_t aiv_num = ascendc_platform.GetCoreNumAiv();
@@ -46,7 +46,7 @@ at::Tensor GenerateTiling(uint32_t &block_dim, uint32_t &workspace_size, uint32_
     auto tilingBuffer = at::empty({sizeof(SGEMMCTilingData)}, at::TensorOptions().dtype(at::kByte).device(at::kCPU));
     SGEMMCTilingData *tiling_data = reinterpret_cast<SGEMMCTilingData *>(tilingBuffer.data_ptr());
 
-    matmul_tiling::MultiCoreMatmulTiling cubeTiling(ascendc_platform);
+    matmul_tiling::MatmulApiTiling cubeTiling(ascendc_platform);
 
     const matmul_tiling::DataType data_type = ConvertToMatMulTypes(type);
 
@@ -56,11 +56,9 @@ at::Tensor GenerateTiling(uint32_t &block_dim, uint32_t &workspace_size, uint32_
     cubeTiling.SetCType(matmul_tiling::TPosition::VECIN, matmul_tiling::CubeFormat::ND,
                         matmul_tiling::DataType::DT_FLOAT);
     cubeTiling.SetBiasType(matmul_tiling::TPosition::GM, matmul_tiling::CubeFormat::ND, data_type);
-    cubeTiling.EnableMultiCoreSplitK(false);
-    cubeTiling.SetDim(aic_num);
 
-    cubeTiling.SetOrgShape(1, inner_size, output_size);
-    cubeTiling.SetShape(1, inner_size, output_size);
+    cubeTiling.SetOrgShape(1, output_size, inner_size);
+    cubeTiling.SetShape(1, output_size, inner_size);
     cubeTiling.SetBufferSpace(-1, -1, -1);
 
     if (cubeTiling.GetTiling(tiling_data->cubeTiling) == -1) {
@@ -68,12 +66,14 @@ at::Tensor GenerateTiling(uint32_t &block_dim, uint32_t &workspace_size, uint32_
         return {};
     }
 
-    tiling_data->batch = batch_size;
-    tiling_data->dataType = (type == host_utils::DataType::DT_BFLOAT16);
+    tiling_data->tilingKey = (type == host_utils::DataType::DT_BFLOAT16);
 
-    block_dim = batch_size * tiling_data->cubeTiling.usedCoreNum;
+    block_dim = batch_size * slice_count;
+    workspace_size = ascendc_platform.GetLibApiWorkSpaceSize() +
+                     static_cast<uint32_t>(batch_size * tiling_data->cubeTiling.baseM * tiling_data->cubeTiling.baseN *
+                                           sizeof(float));
 
-    return tilingBuffer;
+    return TorchNpuHelper::CopyTensorHostToDevice(tilingBuffer);
 }
 
 }  // namespace npu_kernel

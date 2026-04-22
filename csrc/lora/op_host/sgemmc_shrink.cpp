@@ -25,7 +25,7 @@ namespace sglang {
 namespace npu_kernel {
 
 HOST_API void sgemmc_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices, at::Tensor &seq_len,
-                            at::Tensor &lora_ranks, at::Tensor &lora_scales, at::Tensor &y)
+                            at::Tensor &lora_ranks, at::Tensor &lora_scales, at::Tensor &y, int64_t slices)
 {
     at::ScalarType scalar_type = x.scalar_type();
     TORCH_CHECK(scalar_type == at::kHalf || scalar_type == at::kBFloat16, "only support half and bf16");
@@ -34,9 +34,9 @@ HOST_API void sgemmc_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_
                 "weight should be [num_loras, hidden_out, hidden_in] or [num_loras, 1, hidden_out, hidden_in]");
     TORCH_CHECK(y.dim() == 2, "y should be [batch_size, hidden_out]");
     TORCH_CHECK(x.size(1) > y.size(1), "hidden in should be greater than hidden out");
+
     void *x_ptr = x.data_ptr();
     void *weight_ptr = weight.data_ptr();
-
     void *lora_indices_ptr = lora_indices.data_ptr();
     int lora_indices_size = lora_indices.size(0);
     void *seq_len_ptr = seq_len.data_ptr();
@@ -49,20 +49,21 @@ HOST_API void sgemmc_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_
     void *y_ptr = y.data_ptr();
     int batch_size = x.size(0);
     int input_hidden_token = x.size(1);
-    uint32_t max_lora_rank = y.size(1);
+    uint32_t max_lora_rank = y.size(1) / slices;
+    uint32_t slice_count = slices;
 
     uint32_t block_dim;
     uint32_t workspace_size;
 
     at::Tensor tiling_tensor = GenerateTiling(block_dim, workspace_size, batch_size, input_hidden_token, max_lora_rank,
-                                              TorchNpuHelper::ConvertDataType(scalar_type));
+                                              slice_count, TorchNpuHelper::ConvertDataType(scalar_type));
 
     auto workspace_tensor =
         at::empty({workspace_size}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
     /* launch the kernel function via torch */
     EXEC_KERNEL_CMD(sgemmc_shrink, block_dim, x_ptr, weight_ptr, lora_indices_ptr, lora_indices_size, seq_len_ptr,
                     seq_len_size, lora_ranks_ptr, lora_ranks_size, lora_scales_ptr, lora_scales_size, y_ptr, batch_size,
-                    input_hidden_token, max_lora_rank, workspace_tensor, tiling_tensor);
+                    input_hidden_token, max_lora_rank, slice_count, workspace_tensor, tiling_tensor);
     return;
 }
 

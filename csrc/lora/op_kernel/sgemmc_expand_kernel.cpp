@@ -38,7 +38,7 @@ public:
     using X_MAT_TYPE = AscendC::MatmulType<AscendC::TPosition::GM, CubeFormat::VECTOR, X_T, false>;
     using W_MAT_TYPE = AscendC::MatmulType<AscendC::TPosition::GM, CubeFormat::ND, W_T, true>;
     using Y_MAT_TYPE = AscendC::MatmulType<AscendC::TPosition::VECIN, CubeFormat::ND, INNER_T>;
-    using BIAS_MAT_TYPE = AscendC::MatmulType<AscendC::TPosition::GM, CubeFormat::ND, X_T>;
+    using BIAS_MAT_TYPE = AscendC::MatmulType<AscendC::TPosition::GM, CubeFormat::ND, float>;
 
     using MAT_TYPE = AscendC::Matmul<X_MAT_TYPE, W_MAT_TYPE, Y_MAT_TYPE, BIAS_MAT_TYPE, CFG_MDL>;
 
@@ -67,9 +67,7 @@ public:
         loraRanksGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(loraRanks), loraRanksSize);
         sliceOffsetsGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(sliceOffsets), sliceOffsetsSize);
 
-        workspaceGlobal.SetGlobalBuffer(reinterpret_cast<__gm__ Y_T *>(workspace));
-
-        REGIST_MATMUL_OBJ(pipe_, GetSysWorkSpacePtr(), matmulObj, &tiling);
+        workspaceGlobal.SetGlobalBuffer(reinterpret_cast<__gm__ INNER_T *>(workspace));
     }
 
     __aicore__ inline void Process()
@@ -77,88 +75,112 @@ public:
         int64_t blocks = AscendC::GetBlockNum();
         int64_t blockIdx = AscendC::GetBlockIdx();
 
-        AscendC::WaitPreTaskEnd();
+        if ASCEND_IS_AIV {
+            if (AscendC::GetSubBlockIdx() == 1) {
+                return;
+            }
+            blockIdx /= AscendC::GetSubBlockNum();
+        }
 
-        int64_t requestBlock = 0;
+        int64_t tokenIdx = blockIdx / sliceCount_;
+        int64_t sliceIdx = blockIdx % sliceCount_;
+
         lora_common::BlockIterator blockIterator(seqLenGm_);
-        requestBlock = blockIterator.GetBlockIdx(blockIdx);
+        int64_t requestBlock = blockIterator.GetBlockIdx(tokenIdx);
         if (requestBlock < 0) {
             return;
         }
 
-        int32_t reqLoRAIndex_ = loraIndicesGm_.GetValue(requestBlock);
+        reqLoRAIndex_ = loraIndicesGm_.GetValue(requestBlock);
         if (reqLoRAIndex_ < 0) {
             return;
         }
 
-        int64_t reqLoRAWeightOffset_ = reqLoRAIndex_ * singleLoRAWeightLen_;
-        int32_t reqLoRARank_ = loraRanksGm_.GetValue(reqLoRAIndex_);
+        reqLoRAWeightOffset_ = reqLoRAIndex_ * singleLoRAWeightLen_;
+        reqLoRARank_ = loraRanksGm_.GetValue(reqLoRAIndex_);
 
         if (reqLoRARank_ == 0) {
             return;
         }
 
+        int32_t beginSlice = sliceOffsetsGm_.GetValue(sliceIdx);
+        int32_t endSlice = sliceOffsetsGm_.GetValue(sliceIdx + 1);
+        int32_t slice = endSlice - beginSlice;
+        uint32_t baseM = min(tiling.baseM, tiling.singleCoreM);
+        uint32_t baseN = min(tiling.baseN, min(tiling.singleCoreN, slice));
+        uint32_t elements = baseM * baseN;
+        uint32_t maxElements = tiling.baseM * tiling.baseN;
+
+        workspaceGlobal = workspaceGlobal[blockIdx * maxElements];
+
+        REGIST_MATMUL_OBJ(pipe_, GetSysWorkSpacePtr(), matmulObj, &tiling);
+
+        matmulObj.DisableBias();
         matmulObj.SetWorkspace(workspaceGlobal);
-        matmulObj.SetTensorA(xInGm_);
-        matmulObj.SetTensorB(wInGm_);
+        matmulObj.SetOrgShape(tiling.M, tiling.N, tiling.Ka, tiling.Kb);
+        matmulObj.SetSingleShape(tiling.singleCoreM, slice, reqLoRARank_);
+        matmulObj.SetTensorA(xInGm_[tokenIdx * sliceCount_ * maxLoRARank_ + sliceIdx * reqLoRARank_], false);
+        matmulObj.SetTensorB(wInGm_[reqLoRAWeightOffset_ + maxLoRARank_ * beginSlice], true);
         matmulObj.template Iterate<false>();
 
-        uint32_t baseM = tiling.baseM;
-        uint32_t baseN = tiling.baseN;
-        pipe_->InitBuffer(vectorCalcBuf, baseM * baseN * sizeof(INNER_T));
-        pipe_->InitBuffer(vectorInQueue, 1, baseM * baseN * sizeof(INNER_T));
-        pipe_->InitBuffer(vectorYInQueue, 1, baseM * baseN * sizeof(INNER_T));
-        pipe_->InitBuffer(vectorOutQueue, 1, baseM * baseN * sizeof(Y_T));
+        pipe_->InitBuffer(calcBuf, maxElements * sizeof(INNER_T));
+        pipe_->InitBuffer(matmulQueue, 1, maxElements * sizeof(INNER_T));
+        pipe_->InitBuffer(vectorYInQueue, 1, maxElements * sizeof(Y_T));
+        pipe_->InitBuffer(vectorOutQueue, 1, maxElements * sizeof(Y_T));
 
         AscendC::DataCopyParams copyParams = {(uint16_t)baseM,
                                               (uint16_t)(baseN * sizeof(Y_T) / AscendC::DEFAULT_C0_SIZE), (uint16_t)0,
                                               (uint16_t)((tiling.N - baseN) * sizeof(Y_T) / AscendC::DEFAULT_C0_SIZE)};
-        uint32_t iterateTimes = AscendC::Ceil(tiling.singleCoreM, baseM) * AscendC::Ceil(tiling.singleCoreN, baseN);
+        uint32_t iterateTimes = AscendC::Ceil(tiling.singleCoreM, baseM) * AscendC::Ceil(slice, baseN);
+        uint32_t outputOffset = tokenIdx * tiling.N + beginSlice;
         for (uint32_t i = 0; i < iterateTimes; ++i) {
-            auto cInLocal = vectorInQueue.AllocTensor<INNER_T>();
+            uint32_t offset = outputOffset + i * baseN;
+            auto cInLocal = matmulQueue.AllocTensor<INNER_T>();
             matmulObj.template GetTensorC<false>(cInLocal);
-            vectorInQueue.EnQue(cInLocal);
+            matmulObj.WaitGetTensorC();
+            matmulQueue.EnQue(cInLocal);
 
             AscendC::LocalTensor<Y_T> yInLocalCube = vectorYInQueue.AllocTensor<Y_T>();
-            DataCopy(yInLocalCube, yInGm_[i], baseM * baseN);
+            DataCopy(yInLocalCube, yInGm_[offset], elements);
             vectorYInQueue.EnQue(yInLocalCube);
 
-            AscendC::LocalTensor<INNER_T> tmpTensor = vectorCalcBuf.Get<INNER_T>();
+            AscendC::LocalTensor<INNER_T> tmpTensor = calcBuf.Get<INNER_T>();
             AscendC::LocalTensor<Y_T> yInLocal = vectorYInQueue.DeQue<Y_T>();
-            AscendC::LocalTensor<INNER_T> yLocal = vectorInQueue.DeQue<INNER_T>();
-            Cast(tmpTensor, yInLocal, AscendC::RoundMode::CAST_NONE, baseM * baseN);
-            pipe_barrier(PIPE_V);
+            AscendC::Cast(tmpTensor, yInLocal, AscendC::RoundMode::CAST_NONE, elements);
+            AscendC::PipeBarrier<PIPE_V>();
             vectorYInQueue.FreeTensor(yInLocal);
 
-            Add(yLocal, yLocal, tmpTensor, baseM * baseN);
-            pipe_barrier(PIPE_V);
+            AscendC::LocalTensor<INNER_T> yLocal = matmulQueue.DeQue<INNER_T>();
+            AscendC::Add(tmpTensor, tmpTensor, yLocal, elements);
+            AscendC::PipeBarrier<PIPE_V>();
 
             AscendC::LocalTensor<Y_T> yOutLocal = vectorOutQueue.AllocTensor<Y_T>();
-            Cast(yOutLocal, yLocal, AscendC::RoundMode::CAST_RINT, baseM * baseN);
-            pipe_barrier(PIPE_V);
+            AscendC::Cast(yOutLocal, tmpTensor, AscendC::RoundMode::CAST_RINT, elements);
+            AscendC::PipeBarrier<PIPE_V>();
 
             vectorOutQueue.EnQue<Y_T>(yOutLocal);
+            calcBuf.FreeTensor(tmpTensor);
+            matmulQueue.FreeTensor(yLocal);
 
-            // copy out
-            auto cOutLocal = vectorOutQueue.DeQue<Y_T>();
-            DataCopy(yOutGm_[i], cOutLocal, copyParams);
-            vectorOutQueue.FreeTensor(cOutLocal);
+            AscendC::LocalTensor<Y_T> outputCopy = vectorOutQueue.DeQue<Y_T>();
+            DataCopy(yOutGm_[offset], outputCopy, copyParams);
+            vectorOutQueue.FreeTensor(outputCopy);
         }
         matmulObj.End();
-        AscendC::SetNextTaskStart();
     }
 
 private:
     AscendC::TPipe *pipe_;
+
     MAT_TYPE matmulObj;
-
-    AscendC::GlobalTensor<Y_T> workspaceGlobal;
-
     TCubeTiling tiling;
-    AscendC::TQue<AscendC::QuePosition::VECIN, 1> vectorInQueue;
+
+    AscendC::GlobalTensor<INNER_T> workspaceGlobal;
+
+    AscendC::TQue<AscendC::QuePosition::VECIN, 1> matmulQueue;
     AscendC::TQue<AscendC::QuePosition::VECIN, 1> vectorYInQueue;
     AscendC::TQue<AscendC::QuePosition::VECOUT, 1> vectorOutQueue;
-    AscendC::TBuf<AscendC::QuePosition::VECCALC> vectorCalcBuf;
+    AscendC::TBuf<AscendC::QuePosition::VECCALC> calcBuf;
 
     AscendC::GlobalTensor<X_T> xInGm_;
     AscendC::GlobalTensor<W_T> wInGm_;
@@ -167,7 +189,6 @@ private:
 
     AscendC::GlobalTensor<int32_t> seqLenGm_;
     AscendC::GlobalTensor<int32_t> loraIndicesGm_;
-
     AscendC::GlobalTensor<int32_t> loraRanksGm_;
     AscendC::GlobalTensor<int32_t> sliceOffsetsGm_;
 
@@ -200,7 +221,7 @@ extern "C" __global__ __aicore__ void sgemmc_expand(GM_ADDR x, GM_ADDR weight, G
     sglang::npu_kernel::SGEMMCTilingData tilingData;
     kernel_utils::CopyTiling(&tilingData, tiling);
 
-    if (tilingData.dataType == 1) {
+    if (tilingData.tilingKey == 1) {
         SGEMMCExpand<bfloat16_t, float> op(&pipe);
         op.Init(x, weight, loraIndices, loraIndicesSize, seqLen, seqLenSize, loraRanks, loraRanksSize, sliceOffsets,
                 sliceOffsetsSize, yIn, yOut, batchSize, maxLoRARank, outputFullDim, workspace, tilingData.cubeTiling);

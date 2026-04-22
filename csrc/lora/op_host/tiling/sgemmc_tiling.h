@@ -29,7 +29,7 @@ namespace sglang {
 namespace npu_kernel {
 
 at::Tensor GenerateTiling(uint32_t &blockDim, uint32_t &workspace, uint32_t batch, uint32_t hidden_size, uint32_t k,
-                          const host_utils::DataType type);
+                          uint32_t slice_count, const host_utils::DataType type);
 
 }  // namespace npu_kernel
 }  // namespace sglang
