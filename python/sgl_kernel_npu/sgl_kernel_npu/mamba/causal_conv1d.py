@@ -467,7 +467,7 @@ def _causal_conv1d_update_kernel_npu_tiled(
             tl.store(o_ptrs, acc, mask=lane_active & mask_w)
 
 
-def causal_conv1d_update_mtp_npu(
+def causal_conv1d_update_v2(
     x: torch.Tensor,
     conv_state: torch.Tensor,
     weight: torch.Tensor,
