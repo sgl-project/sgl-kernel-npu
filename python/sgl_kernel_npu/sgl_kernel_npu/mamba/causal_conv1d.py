@@ -28,7 +28,6 @@ PAD_SLOT_ID = -1
         "stride_o_token",
     ]
 )
-
 def _causal_conv1d_update_kernel_npu_tiled(
     # Pointers
     x_ptr,  # (batch, seqlen, dim) OR (num_tokens, dim) for varlen
@@ -93,17 +92,29 @@ def _causal_conv1d_update_kernel_npu_tiled(
     w_col4 = tl.zeros((BLOCK_N,), dtype=tl.float32)
     w_col5 = tl.zeros((BLOCK_N,), dtype=tl.float32)
     if KERNEL_WIDTH >= 1:
-        w_col0 = tl.load(w_base + 0 * stride_w_width, mask=mask_w, other=0.0).to(tl.float32)
+        w_col0 = tl.load(w_base + 0 * stride_w_width, mask=mask_w, other=0.0).to(
+            tl.float32
+        )
     if KERNEL_WIDTH >= 2:
-        w_col1 = tl.load(w_base + 1 * stride_w_width, mask=mask_w, other=0.0).to(tl.float32)
+        w_col1 = tl.load(w_base + 1 * stride_w_width, mask=mask_w, other=0.0).to(
+            tl.float32
+        )
     if KERNEL_WIDTH >= 3:
-        w_col2 = tl.load(w_base + 2 * stride_w_width, mask=mask_w, other=0.0).to(tl.float32)
+        w_col2 = tl.load(w_base + 2 * stride_w_width, mask=mask_w, other=0.0).to(
+            tl.float32
+        )
     if KERNEL_WIDTH >= 4:
-        w_col3 = tl.load(w_base + 3 * stride_w_width, mask=mask_w, other=0.0).to(tl.float32)
+        w_col3 = tl.load(w_base + 3 * stride_w_width, mask=mask_w, other=0.0).to(
+            tl.float32
+        )
     if KERNEL_WIDTH >= 5:
-        w_col4 = tl.load(w_base + 4 * stride_w_width, mask=mask_w, other=0.0).to(tl.float32)
+        w_col4 = tl.load(w_base + 4 * stride_w_width, mask=mask_w, other=0.0).to(
+            tl.float32
+        )
     if KERNEL_WIDTH >= 6:
-        w_col5 = tl.load(w_base + 5 * stride_w_width, mask=mask_w, other=0.0).to(tl.float32)
+        w_col5 = tl.load(w_base + 5 * stride_w_width, mask=mask_w, other=0.0).to(
+            tl.float32
+        )
 
     # bias vector once per program
     if HAS_BIAS:
@@ -123,15 +134,21 @@ def _causal_conv1d_update_kernel_npu_tiled(
         # APC mapping (optional)
         # -------------------------
         if IS_APC_ENABLED:
-            conv_state_init = tl.load(initial_state_idx + b, mask=lane_active, other=0).to(tl.int32)
-            current_last_index = tl.load(block_idx_last_scheduled_token + b, mask=lane_active, other=0).to(tl.int32)
+            conv_state_init = tl.load(
+                initial_state_idx + b, mask=lane_active, other=0
+            ).to(tl.int32)
+            current_last_index = tl.load(
+                block_idx_last_scheduled_token + b, mask=lane_active, other=0
+            ).to(tl.int32)
         else:
             conv_state_init = tl.full((), 0, tl.int32)
             current_last_index = tl.full((), 0, tl.int32)
 
         # input cache line
         conv_states_input_coord = tl.load(
-            conv_state_indices_ptr + b * stride_state_indices + conv_state_init, mask=lane_active, other=0
+            conv_state_indices_ptr + b * stride_state_indices + conv_state_init,
+            mask=lane_active,
+            other=0,
         ).to(tl.int64)
 
         if USE_PAD_SLOT:
@@ -141,8 +158,12 @@ def _causal_conv1d_update_kernel_npu_tiled(
         # varlen (optional): revise seqlen_run and state_len_run like original kernel does
         # -------------------------
         if IS_VARLEN:
-            qs = tl.load(query_start_loc_ptr + b, mask=lane_active, other=0).to(tl.int64)
-            qe = tl.load(query_start_loc_ptr + (b + 1), mask=lane_active, other=0).to(tl.int64)
+            qs = tl.load(query_start_loc_ptr + b, mask=lane_active, other=0).to(
+                tl.int64
+            )
+            qe = tl.load(query_start_loc_ptr + (b + 1), mask=lane_active, other=0).to(
+                tl.int64
+            )
             seqlen_run = (qe - qs).to(tl.int32)
             # revise effective state_len for shorter sequences (same formula as original)
             state_len_run = (state_len - (seqlen - seqlen_run)).to(tl.int32)
@@ -161,7 +182,12 @@ def _causal_conv1d_update_kernel_npu_tiled(
         # spec decoding offset (optional)
         # -------------------------
         if IS_SPEC_DECODING:
-            conv_state_token_offset = tl.load(num_accepted_tokens_ptr + b, mask=lane_active, other=1).to(tl.int64) - 1
+            conv_state_token_offset = (
+                tl.load(num_accepted_tokens_ptr + b, mask=lane_active, other=1).to(
+                    tl.int64
+                )
+                - 1
+            )
             shift = tl.full((), 1, tl.int32)  # sliding by 1 in spec mode
         else:
             conv_state_token_offset = tl.full((), 0, tl.int64)
@@ -171,9 +197,13 @@ def _causal_conv1d_update_kernel_npu_tiled(
         # STEP 1: read initial history cols BEFORE state update (out==x safe)
         # -------------------------
         conv_states_base = (
-            conv_state_ptr + conv_states_input_coord * stride_conv_state_seq + idx_feats * stride_conv_state_dim
+            conv_state_ptr
+            + conv_states_input_coord * stride_conv_state_seq
+            + idx_feats * stride_conv_state_dim
         )
-        prior_tokens = conv_states_base + conv_state_token_offset * stride_conv_state_tok
+        prior_tokens = (
+            conv_states_base + conv_state_token_offset * stride_conv_state_tok
+        )
 
         # define history vectors as zeros then load conditionally
         col0 = tl.zeros((BLOCK_N,), dtype=tl.float16)
@@ -182,25 +212,35 @@ def _causal_conv1d_update_kernel_npu_tiled(
         col3 = tl.zeros((BLOCK_N,), dtype=tl.float16)
         col4 = tl.zeros((BLOCK_N,), dtype=tl.float16)
         if KERNEL_WIDTH >= 2:
-            col0 = tl.load(prior_tokens + 0 * stride_conv_state_tok, mask=lane_active & mask_w, other=0.0).to(
-                tl.float16
-            )
+            col0 = tl.load(
+                prior_tokens + 0 * stride_conv_state_tok,
+                mask=lane_active & mask_w,
+                other=0.0,
+            ).to(tl.float16)
         if KERNEL_WIDTH >= 3:
-            col1 = tl.load(prior_tokens + 1 * stride_conv_state_tok, mask=lane_active & mask_w, other=0.0).to(
-                tl.float16
-            )
+            col1 = tl.load(
+                prior_tokens + 1 * stride_conv_state_tok,
+                mask=lane_active & mask_w,
+                other=0.0,
+            ).to(tl.float16)
         if KERNEL_WIDTH >= 4:
-            col2 = tl.load(prior_tokens + 2 * stride_conv_state_tok, mask=lane_active & mask_w, other=0.0).to(
-                tl.float16
-            )
+            col2 = tl.load(
+                prior_tokens + 2 * stride_conv_state_tok,
+                mask=lane_active & mask_w,
+                other=0.0,
+            ).to(tl.float16)
         if KERNEL_WIDTH >= 5:
-            col3 = tl.load(prior_tokens + 3 * stride_conv_state_tok, mask=lane_active & mask_w, other=0.0).to(
-                tl.float16
-            )
+            col3 = tl.load(
+                prior_tokens + 3 * stride_conv_state_tok,
+                mask=lane_active & mask_w,
+                other=0.0,
+            ).to(tl.float16)
         if KERNEL_WIDTH >= 6:
-            col4 = tl.load(prior_tokens + 4 * stride_conv_state_tok, mask=lane_active & mask_w, other=0.0).to(
-                tl.float16
-            )
+            col4 = tl.load(
+                prior_tokens + 4 * stride_conv_state_tok,
+                mask=lane_active & mask_w,
+                other=0.0,
+            ).to(tl.float16)
 
         # -------------------------
         # STEP 2: chunked state update (replaces original NP2_STATELEN x BLOCK_N big block)
@@ -211,15 +251,21 @@ def _causal_conv1d_update_kernel_npu_tiled(
         # -------------------------
         # output cache line
         conv_states_offset = tl.load(
-            conv_state_indices_ptr + b * stride_state_indices + current_last_index, mask=lane_active, other=0
+            conv_state_indices_ptr + b * stride_state_indices + current_last_index,
+            mask=lane_active,
+            other=0,
         ).to(tl.int64)
 
         use_shift = seqlen_run < state_len_run
         use_tail = seqlen_run >= state_len_run
 
         zero_i32 = tl.full((), 0, tl.int32)
-        keep_shift = tl.where(use_shift, (state_len_run - seqlen_run), zero_i32).to(tl.int32)
-        tail_start = tl.where(use_tail, (seqlen_run - state_len_run), zero_i32).to(tl.int32)
+        keep_shift = tl.where(use_shift, (state_len_run - seqlen_run), zero_i32).to(
+            tl.int32
+        )
+        tail_start = tl.where(use_tail, (seqlen_run - state_len_run), zero_i32).to(
+            tl.int32
+        )
 
         # base pointers
         state_src_base = (
@@ -228,7 +274,11 @@ def _causal_conv1d_update_kernel_npu_tiled(
             + conv_state_token_offset * stride_conv_state_tok
             + idx_feats * stride_conv_state_dim
         )
-        state_dst_base = conv_state_ptr + conv_states_offset * stride_conv_state_seq + idx_feats * stride_conv_state_dim
+        state_dst_base = (
+            conv_state_ptr
+            + conv_states_offset * stride_conv_state_seq
+            + idx_feats * stride_conv_state_dim
+        )
 
         x_base = x_ptr + x_offset + idx_feats * stride_x_dim
 
@@ -236,7 +286,12 @@ def _causal_conv1d_update_kernel_npu_tiled(
         for t0 in tl.static_range(0, NP2_STATELEN, T_CHUNK):
             dst_tok = (t0 + tok_vec).to(tl.int32)  # [T_CHUNK]
             src_tok = (dst_tok + shift).to(tl.int32)  # [T_CHUNK]
-            m_tok = use_shift & (dst_tok < keep_shift) & (src_tok < state_len_run) & (dst_tok < state_len_run)
+            m_tok = (
+                use_shift
+                & (dst_tok < keep_shift)
+                & (src_tok < state_len_run)
+                & (dst_tok < state_len_run)
+            )
             m = (
                 (lane_active & m_tok)[:, None]
                 & mask_w[None, :]
@@ -244,8 +299,12 @@ def _causal_conv1d_update_kernel_npu_tiled(
                 & (conv_states_offset < num_cache_lines)
             )
 
-            src_ptrs = state_src_base[None, :] + src_tok[:, None] * stride_conv_state_tok
-            dst_ptrs = state_dst_base[None, :] + dst_tok[:, None] * stride_conv_state_tok
+            src_ptrs = (
+                state_src_base[None, :] + src_tok[:, None] * stride_conv_state_tok
+            )
+            dst_ptrs = (
+                state_dst_base[None, :] + dst_tok[:, None] * stride_conv_state_tok
+            )
             vals = tl.load(src_ptrs, mask=m, other=0.0)
             tl.store(dst_ptrs, vals, mask=m)
 
@@ -254,10 +313,16 @@ def _causal_conv1d_update_kernel_npu_tiled(
             x_tok = (t0 + tok_vec).to(tl.int32)  # [T_CHUNK]
             dst_tok = (keep_shift + x_tok).to(tl.int32)  # [T_CHUNK]
             m_tok = use_shift & (x_tok < seqlen_run) & (dst_tok < state_len_run)
-            m = (lane_active & m_tok)[:, None] & mask_w[None, :] & (conv_states_offset < num_cache_lines)
+            m = (
+                (lane_active & m_tok)[:, None]
+                & mask_w[None, :]
+                & (conv_states_offset < num_cache_lines)
+            )
 
             x_ptrs = x_base[None, :] + x_tok[:, None] * stride_x_token
-            dst_ptrs = state_dst_base[None, :] + dst_tok[:, None] * stride_conv_state_tok
+            dst_ptrs = (
+                state_dst_base[None, :] + dst_tok[:, None] * stride_conv_state_tok
+            )
             x_vals = tl.load(x_ptrs, mask=m, other=0.0)
             tl.store(dst_ptrs, x_vals, mask=m)
 
@@ -269,7 +334,9 @@ def _causal_conv1d_update_kernel_npu_tiled(
             m = (lane_active & m_tok)[:, None] & mask_w[None, :] & (conv_states_offset < num_cache_lines)
 
             x_ptrs = x_base[None, :] + x_tok[:, None] * stride_x_token
-            dst_ptrs = state_dst_base[None, :] + dst_tok[:, None] * stride_conv_state_tok
+            dst_ptrs = (
+                state_dst_base[None, :] + dst_tok[:, None] * stride_conv_state_tok
+            )
             x_vals = tl.load(x_ptrs, mask=m, other=0.0)
             tl.store(dst_ptrs, x_vals, mask=m)
 
@@ -294,13 +361,17 @@ def _causal_conv1d_update_kernel_npu_tiled(
                 if KERNEL_WIDTH == 1:
                     # only x[t] * w0
                     x_ptrs_1d = x_base_1d + idx_token * stride_x_token
-                    matrix_x = tl.load(x_ptrs_1d, mask=lane_active & mask_w, other=0.0).to(tl.float16)
+                    matrix_x = tl.load(
+                        x_ptrs_1d, mask=lane_active & mask_w, other=0.0
+                    ).to(tl.float16)
                     matrix_w = w_col0
                 elif KERNEL_WIDTH == 2:
                     if j == 1:
                         matrix_w = w_col1
                         x_ptrs_1d = x_base_1d + idx_token * stride_x_token
-                        matrix_x = tl.load(x_ptrs_1d, mask=lane_active & mask_w, other=0.0).to(tl.float16)
+                        matrix_x = tl.load(
+                            x_ptrs_1d, mask=lane_active & mask_w, other=0.0
+                        ).to(tl.float16)
                 elif KERNEL_WIDTH == 3:
                     if j == 1:
                         matrix_w = w_col1
@@ -308,7 +379,9 @@ def _causal_conv1d_update_kernel_npu_tiled(
                     elif j == 2:
                         matrix_w = w_col2
                         x_ptrs_1d = x_base_1d + idx_token * stride_x_token
-                        matrix_x = tl.load(x_ptrs_1d, mask=lane_active & mask_w, other=0.0).to(tl.float16)
+                        matrix_x = tl.load(
+                            x_ptrs_1d, mask=lane_active & mask_w, other=0.0
+                        ).to(tl.float16)
                 elif KERNEL_WIDTH == 4:
                     if j == 1:
                         matrix_w = w_col1
@@ -319,7 +392,9 @@ def _causal_conv1d_update_kernel_npu_tiled(
                     elif j == 3:
                         matrix_w = w_col3
                         x_ptrs_1d = x_base_1d + idx_token * stride_x_token
-                        matrix_x = tl.load(x_ptrs_1d, mask=lane_active & mask_w, other=0.0).to(tl.float16)
+                        matrix_x = tl.load(
+                            x_ptrs_1d, mask=lane_active & mask_w, other=0.0
+                        ).to(tl.float16)
                 elif KERNEL_WIDTH == 5:
                     if j == 1:
                         matrix_w = w_col1
@@ -333,7 +408,9 @@ def _causal_conv1d_update_kernel_npu_tiled(
                     elif j == 4:
                         matrix_w = w_col4
                         x_ptrs_1d = x_base_1d + idx_token * stride_x_token
-                        matrix_x = tl.load(x_ptrs_1d, mask=lane_active & mask_w, other=0.0).to(tl.float16)
+                        matrix_x = tl.load(
+                            x_ptrs_1d, mask=lane_active & mask_w, other=0.0
+                        ).to(tl.float16)
                 elif KERNEL_WIDTH == 6:
                     if j == 1:
                         matrix_w = w_col1
@@ -350,7 +427,9 @@ def _causal_conv1d_update_kernel_npu_tiled(
                     elif j == 5:
                         matrix_w = w_col5
                         x_ptrs_1d = x_base_1d + idx_token * stride_x_token
-                        matrix_x = tl.load(x_ptrs_1d, mask=lane_active & mask_w, other=0.0).to(tl.float16)
+                        matrix_x = tl.load(
+                            x_ptrs_1d, mask=lane_active & mask_w, other=0.0
+                        ).to(tl.float16)
 
                 acc += matrix_x.to(tl.float32) * matrix_w  # [BLOCK_N]
 
@@ -477,7 +556,9 @@ def causal_conv1d_update_mtp_npu(
         stride_o_seq = 0
 
     stride_istate_seq, stride_istate_token, stride_istate_dim = conv_state.stride()
-    stride_state_indices = conv_state_indices.stride(0) if conv_state_indices is not None else 0
+    stride_state_indices = (
+        conv_state_indices.stride(0) if conv_state_indices is not None else 0
+    )
 
     # effective state_len exactly as original
     if num_accepted_tokens is not None:
@@ -560,6 +641,7 @@ def causal_conv1d_update_mtp_npu(
     if unsqueeze:
         out = out.squeeze(1)
     return out.to(original_x_dtype)
+
 
 def causal_conv1d_fn_native(
     x: torch.Tensor,
