@@ -271,7 +271,7 @@ def test_npu_causal_conv1d_update_mtp():
     if itype == torch.bfloat16:
         rtol, atol = 1e-2, 5e-2
 
-    batch_size = 5
+    batch_size = 10
     draft_token_num = 4
     dim = 4096
     kernel_size = 4  # width
@@ -294,7 +294,7 @@ def test_npu_causal_conv1d_update_mtp():
     bias = torch.randn(dim, dtype=itype, device=device)
 
     # 5. Cache indices: [batch_size]
-    cache_indices = torch.randint(0, num_states, (batch_size,), dtype=torch.int32, device=device)
+    cache_indices = torch.randperm(num_states, device=device)[:batch_size].to(torch.int32)
 
     num_accepted_tokens = torch.full(
         (batch_size,),
