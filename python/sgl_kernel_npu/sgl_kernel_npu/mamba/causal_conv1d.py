@@ -1255,6 +1255,8 @@ def torch_causal_conv1d_update_npu(
         conv_state_update = hidden_states_new[:, :, -state_len:]
 
     out = torch.sum(hidden_states_new * weight, dim=-1, keepdim=True)
+    if bias is not None:
+        out = out + bias.view(1, -1, 1)
     out = F.silu(out)
     out = out.to(hidden_state.dtype)
     return out, conv_state_update
