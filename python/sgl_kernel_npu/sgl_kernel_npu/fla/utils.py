@@ -618,7 +618,7 @@ def fused_qkvzba_split_reshape_cat_contiguous(
         num_heads_v,
         head_qk,
         head_v,
-        batch,  #
+        batch,
         num_warps=1,
         num_stages=3,
     )
