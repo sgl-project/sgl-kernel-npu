@@ -223,6 +223,13 @@ MAX_ROWS_PER_ITER = 64
 UB_SPECIFICATION = 85
 
 
+# =============================================================================
+# Fused kernel — reads INTERLEAVED input format
+# Used by Qwen3-Next whose checkpoint stores fused in_proj_qkvz weights
+# in per-head-group interleaved layout:
+#   [g0_q, g0_k, g0_v, g0_z, g1_q, g1_k, g1_v, g1_z, ...]
+# =============================================================================
+
 @triton.jit(do_not_specialize=["total_rows", "rows_per_vec"])
 def fused_qkvzba_split_reshape_cat_kernel(
     mixed_qkv,
@@ -439,189 +446,6 @@ def fused_qkvzba_split_reshape_cat(
         ba_out_row_stride,
         rows_per_iter,
     )
-    return mixed_qkv, z, b, a
-
-
-# =============================================================================
-# Fused kernel — reads INTERLEAVED input format
-# Used by Qwen3-Next whose checkpoint stores fused in_proj_qkvz weights
-# in per-head-group interleaved layout:
-#   [g0_q, g0_k, g0_v, g0_z, g1_q, g1_k, g1_v, g1_z, ...]
-# =============================================================================
-
-@triton.jit
-def fused_qkvzba_split_reshape_cat_contiguous_kernel(
-    mixed_qkv,
-    z,
-    b,
-    a,
-    mixed_qkvz,
-    mixed_ba,
-    NUM_HEADS_QK: tl.constexpr,
-    NUM_HEADS_V: tl.constexpr,
-    HEAD_QK: tl.constexpr,
-    HEAD_V: tl.constexpr,
-    batch_size,
-):
-    pid = tl.program_id(0)
-    num_pids = tl.num_programs(0)
-
-    V_PER_GROUP: tl.constexpr = NUM_HEADS_V // NUM_HEADS_QK
-
-    # ── Input dimensions (contiguous layout) ──
-    TOTAL_Q: tl.constexpr = NUM_HEADS_QK * HEAD_QK
-    TOTAL_K: tl.constexpr = NUM_HEADS_QK * HEAD_QK
-    TOTAL_V: tl.constexpr = NUM_HEADS_V * HEAD_V
-    TOTAL_QKVZ: tl.constexpr = TOTAL_Q + TOTAL_K + TOTAL_V + TOTAL_V
-    TOTAL_BA: tl.constexpr = NUM_HEADS_V * 2
-
-    # ── Output dimensions ──
-    QKV_DIM_T: tl.constexpr = TOTAL_Q + TOTAL_K + TOTAL_V
-
-    total_tasks = batch_size * NUM_HEADS_QK
-
-    for task_id in tl.range(pid, total_tasks, num_pids):
-
-        i_bs = task_id // NUM_HEADS_QK
-        i_qk = task_id % NUM_HEADS_QK
-
-        # ── Read from contiguous input ──
-        # q for head group i_qk: in the all_q region, offset i_qk * HEAD_QK
-        blk_q_ptr = (
-            mixed_qkvz + i_bs * TOTAL_QKVZ + i_qk * HEAD_QK + tl.arange(0, HEAD_QK)
-        )
-        # k for head group i_qk: in the all_k region
-        blk_k_ptr = (
-            mixed_qkvz
-            + i_bs * TOTAL_QKVZ
-            + TOTAL_Q
-            + i_qk * HEAD_QK
-            + tl.arange(0, HEAD_QK)
-        )
-        # v for head group i_qk: in the all_v region
-        blk_v_ptr = (
-            mixed_qkvz
-            + i_bs * TOTAL_QKVZ
-            + TOTAL_Q
-            + TOTAL_K
-            + i_qk * V_PER_GROUP * HEAD_V
-            + tl.arange(0, V_PER_GROUP * HEAD_V)
-        )
-        # z for head group i_qk: in the all_z region
-        blk_z_ptr = (
-            mixed_qkvz
-            + i_bs * TOTAL_QKVZ
-            + TOTAL_Q
-            + TOTAL_K
-            + TOTAL_V
-            + i_qk * V_PER_GROUP * HEAD_V
-            + tl.arange(0, V_PER_GROUP * HEAD_V)
-        )
-
-        # ── Write to output (identical layout to the interleaved kernel) ──
-        blk_q_st_ptr = (
-            mixed_qkv + i_bs * QKV_DIM_T + i_qk * HEAD_QK + tl.arange(0, HEAD_QK)
-        )
-        blk_k_st_ptr = (
-            mixed_qkv
-            + i_bs * QKV_DIM_T
-            + NUM_HEADS_QK * HEAD_QK
-            + i_qk * HEAD_QK
-            + tl.arange(0, HEAD_QK)
-        )
-        blk_v_st_ptr = (
-            mixed_qkv
-            + i_bs * QKV_DIM_T
-            + NUM_HEADS_QK * HEAD_QK * 2
-            + i_qk * V_PER_GROUP * HEAD_V
-            + tl.arange(0, V_PER_GROUP * HEAD_V)
-        )
-        blk_z_st_ptr = (
-            z
-            + i_bs * NUM_HEADS_V * HEAD_V
-            + i_qk * V_PER_GROUP * HEAD_V
-            + tl.arange(0, V_PER_GROUP * HEAD_V)
-        )
-
-        tl.store(blk_q_st_ptr, tl.load(blk_q_ptr))
-        tl.store(blk_k_st_ptr, tl.load(blk_k_ptr))
-        tl.store(blk_v_st_ptr, tl.load(blk_v_ptr))
-        tl.store(blk_z_st_ptr, tl.load(blk_z_ptr))
-
-        for i in tl.static_range(V_PER_GROUP):
-            blk_b_ptr = mixed_ba + i_bs * TOTAL_BA + i_qk * V_PER_GROUP + i
-            blk_b_st_ptr = b + i_bs * NUM_HEADS_V + i_qk * V_PER_GROUP + i
-            tl.store(blk_b_st_ptr, tl.load(blk_b_ptr))
-
-        for i in tl.static_range(V_PER_GROUP):
-            blk_a_ptr = (
-                mixed_ba + i_bs * TOTAL_BA + NUM_HEADS_V + i_qk * V_PER_GROUP + i
-            )
-            blk_a_st_ptr = a + i_bs * NUM_HEADS_V + i_qk * V_PER_GROUP + i
-            tl.store(blk_a_st_ptr, tl.load(blk_a_ptr))
-
-
-def fused_qkvzba_split_reshape_cat_contiguous(
-    mixed_qkvz,
-    mixed_ba,
-    num_heads_qk,
-    num_heads_v,
-    head_qk,
-    head_v,
-):
-    """Fused split/reshape/cat for CONTIGUOUS input format (Qwen3.5).
-
-    Input layout:
-        mixed_qkvz: [all_q | all_k | all_v | all_z]
-        mixed_ba:   [all_b | all_a]
-
-    Output layout (same as fused_qkvzba_split_reshape_cat):
-        mixed_qkv: [all_q | all_k | all_v]  (z stripped)
-        z: [num_v_heads, head_v]
-        b: [num_v_heads]
-        a: [num_v_heads]
-    """
-    batch, seq_len = mixed_qkvz.shape[0], 1
-    qkv_dim_t = num_heads_qk * head_qk * 2 + num_heads_v * head_v
-    mixed_qkv = torch.empty(
-        [batch * seq_len, qkv_dim_t],
-        dtype=mixed_qkvz.dtype,
-        device=mixed_qkvz.device,
-    )
-    z = torch.empty(
-        [batch * seq_len, num_heads_v, head_v],
-        dtype=mixed_qkvz.dtype,
-        device=mixed_qkvz.device,
-    )
-    b = torch.empty(
-        [batch * seq_len, num_heads_v],
-        dtype=mixed_ba.dtype,
-        device=mixed_ba.device,
-    )
-    a = torch.empty_like(b)
-    num_vectorcore = get_device_properties()[1]
-
-    total_tasks = batch * num_heads_qk
-    grid_size = min(num_vectorcore, total_tasks)
-    grid_size = max(1, grid_size)
-
-    grid = (grid_size,)
-    fused_qkvzba_split_reshape_cat_contiguous_kernel[grid](
-        mixed_qkv,
-        z,
-        b,
-        a,
-        mixed_qkvz,
-        mixed_ba,
-        num_heads_qk,
-        num_heads_v,
-        head_qk,
-        head_v,
-        batch,
-        num_warps=1,
-        num_stages=3,
-    )
-
     return mixed_qkv, z, b, a
 
 
