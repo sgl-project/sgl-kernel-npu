@@ -459,12 +459,10 @@ def fused_qkvzba_split_reshape_cat(
 #
 # Output format is identical to the interleaved kernel (same downstream consumer).
 # =============================================================================
-MAX_ROWS_PER_ITER = 256
-UB_SPECIFICATION = 85
 
 
 @triton.jit
-def fused_qkvzba_split_reshape_cat_contiguous_kernel_optimized(
+def fused_qkvzba_split_reshape_cat_contiguous_kernel(
     mixed_qkv,
     z,
     b,
@@ -483,18 +481,13 @@ def fused_qkvzba_split_reshape_cat_contiguous_kernel_optimized(
     Z_ROW_STRIDE: tl.constexpr,
     BA_OUT_ROW_STRIDE: tl.constexpr,
     ROWS_PER_ITER: tl.constexpr,
+    BLOCK_SIZE_COL: tl.constexpr,
 ):
     vec_id = tl.program_id(0)
-
-    # ── Input dimensions (contiguous layout) ──
-    V_PER_GROUP: tl.constexpr = NUM_HEADS_V // NUM_HEADS_QK
-    V_DIM_PER_GROUP: tl.constexpr = V_PER_GROUP * HEAD_V
 
     TOTAL_Q: tl.constexpr = NUM_HEADS_QK * HEAD_QK
     TOTAL_K: tl.constexpr = NUM_HEADS_QK * HEAD_QK
     TOTAL_V: tl.constexpr = NUM_HEADS_V * HEAD_V
-    TOTAL_QK: tl.constexpr = TOTAL_Q + TOTAL_K
-    TOTAL_QKV: tl.constexpr = TOTAL_Q + TOTAL_K + TOTAL_V
 
     row_start = vec_id * rows_per_vec
     row_end = tl.minimum(row_start + rows_per_vec, total_rows)
@@ -503,97 +496,81 @@ def fused_qkvzba_split_reshape_cat_contiguous_kernel_optimized(
     iter_count = (row_end - row_start + ROWS_PER_ITER - 1) // ROWS_PER_ITER
 
     for _ in tl.range(iter_count):
-
         row_indices = tl.arange(0, ROWS_PER_ITER) + row_offset
         row_mask = row_indices < row_end
 
-        for head_id in tl.static_range(NUM_HEADS_QK):
+        for col_start in tl.static_range(0, TOTAL_Q, BLOCK_SIZE_COL):
+            col_range = tl.arange(0, BLOCK_SIZE_COL) + col_start
+            col_mask = col_range < TOTAL_Q
+            combined_mask = row_mask[:, None] & col_mask[None, :]
 
-            q_range = tl.arange(0, HEAD_QK)
-            q_src_offset = head_id * HEAD_QK
+            q_src = row_indices[:, None] * QKVZ_ROW_STRIDE + col_range[None, :]
+            q_dst = row_indices[:, None] * QKV_ROW_STRIDE + col_range[None, :]
 
-            q_src = (
-                row_indices[:, None] * QKVZ_ROW_STRIDE + q_src_offset + q_range[None, :]
-            )
-            q_dst = (
-                row_indices[:, None] * QKV_ROW_STRIDE
-                + head_id * HEAD_QK
-                + q_range[None, :]
-            )
+            q_data = tl.load(mixed_qkvz + q_src, mask=combined_mask)
+            tl.store(mixed_qkv + q_dst, q_data, mask=combined_mask)
 
-            q_data = tl.load(mixed_qkvz + q_src, mask=row_mask[:, None])
-            tl.store(mixed_qkv + q_dst, q_data, mask=row_mask[:, None])
+        for col_start in tl.static_range(0, TOTAL_K, BLOCK_SIZE_COL):
+            col_range = tl.arange(0, BLOCK_SIZE_COL) + col_start
+            col_mask = col_range < TOTAL_K
+            combined_mask = row_mask[:, None] & col_mask[None, :]
 
-            k_src_offset = TOTAL_Q + head_id * HEAD_QK
             k_src = (
-                row_indices[:, None] * QKVZ_ROW_STRIDE + k_src_offset + q_range[None, :]
+                row_indices[:, None] * QKVZ_ROW_STRIDE + TOTAL_Q + col_range[None, :]
             )
-            k_dst = (
-                row_indices[:, None] * QKV_ROW_STRIDE
-                + TOTAL_Q
-                + head_id * HEAD_QK
-                + q_range[None, :]
-            )
+            k_dst = row_indices[:, None] * QKV_ROW_STRIDE + TOTAL_Q + col_range[None, :]
 
-            k_data = tl.load(mixed_qkvz + k_src, mask=row_mask[:, None])
-            tl.store(mixed_qkv + k_dst, k_data, mask=row_mask[:, None])
+            k_data = tl.load(mixed_qkvz + k_src, mask=combined_mask)
+            tl.store(mixed_qkv + k_dst, k_data, mask=combined_mask)
 
-            v_range = tl.arange(0, V_DIM_PER_GROUP)
-            v_src_offset = TOTAL_QK + head_id * V_DIM_PER_GROUP
+        for col_start in tl.static_range(0, TOTAL_V, BLOCK_SIZE_COL):
+            col_range = tl.arange(0, BLOCK_SIZE_COL) + col_start
+            col_mask = col_range < TOTAL_V
+            combined_mask = row_mask[:, None] & col_mask[None, :]
 
             v_src = (
-                row_indices[:, None] * QKVZ_ROW_STRIDE + v_src_offset + v_range[None, :]
+                row_indices[:, None] * QKVZ_ROW_STRIDE
+                + TOTAL_Q
+                + TOTAL_K
+                + col_range[None, :]
             )
             v_dst = (
                 row_indices[:, None] * QKV_ROW_STRIDE
-                + TOTAL_QK
-                + head_id * V_DIM_PER_GROUP
-                + v_range[None, :]
+                + TOTAL_Q
+                + TOTAL_K
+                + col_range[None, :]
             )
 
-            v_data = tl.load(mixed_qkvz + v_src, mask=row_mask[:, None])
-            tl.store(mixed_qkv + v_dst, v_data, mask=row_mask[:, None])
+            v_data = tl.load(mixed_qkvz + v_src, mask=combined_mask)
+            tl.store(mixed_qkv + v_dst, v_data, mask=combined_mask)
 
-            z_src_offset = TOTAL_QKV + head_id * V_DIM_PER_GROUP
+        for col_start in tl.static_range(0, TOTAL_V, BLOCK_SIZE_COL):
+            col_range = tl.arange(0, BLOCK_SIZE_COL) + col_start
+            col_mask = col_range < TOTAL_V
+            combined_mask = row_mask[:, None] & col_mask[None, :]
+
             z_src = (
-                row_indices[:, None] * QKVZ_ROW_STRIDE + z_src_offset + v_range[None, :]
+                row_indices[:, None] * QKVZ_ROW_STRIDE
+                + TOTAL_Q
+                + TOTAL_K
+                + TOTAL_V
+                + col_range[None, :]
             )
-            z_dst = (
-                row_indices[:, None] * Z_ROW_STRIDE
-                + head_id * V_DIM_PER_GROUP
-                + v_range[None, :]
-            )
+            z_dst = row_indices[:, None] * Z_ROW_STRIDE + col_range[None, :]
 
-            z_data = tl.load(mixed_qkvz + z_src, mask=row_mask[:, None])
-            tl.store(z + z_dst, z_data, mask=row_mask[:, None])
+            z_data = tl.load(mixed_qkvz + z_src, mask=combined_mask)
+            tl.store(z + z_dst, z_data, mask=combined_mask)
 
-            ba_range = tl.arange(0, V_PER_GROUP)
-            b_src_offset = head_id * V_PER_GROUP
+        ba_range = tl.arange(0, NUM_HEADS_V)
+        b_src = row_indices[:, None] * BA_ROW_STRIDE + ba_range[None, :]
+        b_dst = row_indices[:, None] * BA_OUT_ROW_STRIDE + ba_range[None, :]
 
-            b_src = (
-                row_indices[:, None] * BA_ROW_STRIDE + b_src_offset + ba_range[None, :]
-            )
-            b_dst = (
-                row_indices[:, None] * BA_OUT_ROW_STRIDE
-                + head_id * V_PER_GROUP
-                + ba_range[None, :]
-            )
+        b_data = tl.load(mixed_ba + b_src, mask=row_mask[:, None])
+        tl.store(b + b_dst, b_data, mask=row_mask[:, None])
 
-            b_data = tl.load(mixed_ba + b_src, mask=row_mask[:, None])
-            tl.store(b + b_dst, b_data, mask=row_mask[:, None])
-
-            a_src_offset = NUM_HEADS_V + head_id * V_PER_GROUP
-            a_src = (
-                row_indices[:, None] * BA_ROW_STRIDE + a_src_offset + ba_range[None, :]
-            )
-            a_dst = (
-                row_indices[:, None] * BA_OUT_ROW_STRIDE
-                + head_id * V_PER_GROUP
-                + ba_range[None, :]
-            )
-
-            a_data = tl.load(mixed_ba + a_src, mask=row_mask[:, None])
-            tl.store(a + a_dst, a_data, mask=row_mask[:, None])
+        a_src = row_indices[:, None] * BA_ROW_STRIDE + NUM_HEADS_V + ba_range[None, :]
+        a_data = tl.load(mixed_ba + a_src, mask=row_mask[:, None])
+        tl.store(a + b_dst, a_data, mask=row_mask[:, None])
 
         row_offset += ROWS_PER_ITER
 
@@ -605,8 +582,8 @@ def fused_qkvzba_split_reshape_cat_contiguous(
     num_heads_v,
     head_qk,
     head_v,
+    block_size_col=1024,
 ):
-
     batch, seq_len = mixed_qkvz.shape[0], 1
     total_rows = batch * seq_len
 
@@ -641,18 +618,11 @@ def fused_qkvzba_split_reshape_cat_contiguous(
     grid_size = min(num_vectorcore, total_rows)
     grid_size = max(1, grid_size)
 
-    ub_size_bytes = UB_SPECIFICATION * 1024
     dtype_size = mixed_qkvz.element_size()
+    ub_size_bytes = UB_SPECIFICATION * 1024
 
-    elements_per_row = (
-        qkvz_row_stride
-        + ba_row_stride
-        + qkv_row_stride
-        + z_row_stride
-        + ba_out_row_stride * 2
-    )
-
-    rows_per_iter = max(1, int(ub_size_bytes * 0.75 // (elements_per_row * dtype_size)))
+    target_elements_per_iter = (ub_size_bytes * 0.4) // dtype_size
+    rows_per_iter = max(1, int(target_elements_per_iter // block_size_col))
     rows_per_iter = triton.next_power_of_2(rows_per_iter)
     rows_per_iter = min(rows_per_iter, MAX_ROWS_PER_ITER)
 
@@ -660,7 +630,7 @@ def fused_qkvzba_split_reshape_cat_contiguous(
     rows_per_vec = max(rows_per_vec, rows_per_iter)
 
     grid = (grid_size,)
-    fused_qkvzba_split_reshape_cat_contiguous_kernel_optimized[grid](
+    fused_qkvzba_split_reshape_cat_contiguous_kernel[grid](
         mixed_qkv,
         z,
         b,
@@ -679,6 +649,8 @@ def fused_qkvzba_split_reshape_cat_contiguous(
         z_row_stride,
         ba_out_row_stride,
         rows_per_iter,
+        block_size_col,
     )
 
     return mixed_qkv, z, b, a
+
