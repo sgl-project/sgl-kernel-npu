@@ -15,7 +15,7 @@ import triton.language.extra.libdevice as tldevice
 
 is_gather_supported = hasattr(triton.language, "gather")
 SUPPRESS_LEVEL = int(os.getenv("GDN_RECOMPUTE_SUPPRESS_LEVEL", "0"))
-NUM_VECTORCORE = -1
+_NUM_VECTORCORE = -1
 
 if os.environ.get("FLA_USE_FAST_OPS", "0") == "1":
     exp = tldevice.fast_expf
