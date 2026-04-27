@@ -1241,6 +1241,7 @@ def torch_causal_conv1d_update_npu(
     weight: torch.Tensor,
     conv_state_update: Optional[torch.Tensor] = None,
     bias: Optional[torch.Tensor] = None,
+    activation: Union[bool, str, None] = None,
 ):
     bsz, hidden_size, seq_len = hidden_state.shape
     state_len = conv_state.shape[-1]
@@ -1255,7 +1256,8 @@ def torch_causal_conv1d_update_npu(
         conv_state_update = hidden_states_new[:, :, -state_len:]
 
     out = torch.sum(hidden_states_new * weight, dim=-1, keepdim=True)
-    out = F.silu(out)
+    if activation in ["silu", "swish"]:
+        out = F.silu(out)
     out = out.to(hidden_state.dtype)
     return out, conv_state_update
 
@@ -1370,6 +1372,7 @@ def causal_conv1d_update_npu(
             conv_state_update,
             weight,
             bias=bias,
+            activation=activation,
         )
     else:
         _causal_conv1d_update_kernel[grid](
