@@ -609,7 +609,6 @@ def fused_qkvzba_split_reshape_cat_contiguous(
     batch, seq_len = mixed_qkvz.shape[0], 1
     total_rows = batch * seq_len
 
-
     total_q = num_heads_qk * head_qk
     total_k = num_heads_qk * head_qk
     total_v = num_heads_v * head_v
