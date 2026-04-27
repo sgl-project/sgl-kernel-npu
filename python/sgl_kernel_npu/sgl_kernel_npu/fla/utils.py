@@ -458,9 +458,12 @@ def fused_qkvzba_split_reshape_cat(
 #
 # Output format is identical to the interleaved kernel (same downstream consumer).
 # =============================================================================
+MAX_ROWS_PER_ITER = 256
+UB_SPECIFICATION = 85
+
 
 @triton.jit
-def fused_qkvzba_split_reshape_cat_contiguous_kernel(
+def fused_qkvzba_split_reshape_cat_contiguous_kernel_optimized(
     mixed_qkv,
     z,
     b,
@@ -471,95 +474,127 @@ def fused_qkvzba_split_reshape_cat_contiguous_kernel(
     NUM_HEADS_V: tl.constexpr,
     HEAD_QK: tl.constexpr,
     HEAD_V: tl.constexpr,
-    batch_size,
+    total_rows,
+    rows_per_vec,
+    QKVZ_ROW_STRIDE: tl.constexpr,
+    BA_ROW_STRIDE: tl.constexpr,
+    QKV_ROW_STRIDE: tl.constexpr,
+    Z_ROW_STRIDE: tl.constexpr,
+    BA_OUT_ROW_STRIDE: tl.constexpr,
+    ROWS_PER_ITER: tl.constexpr,
 ):
-    pid = tl.program_id(0)
-    num_pids = tl.num_programs(0)
+    vec_id = tl.program_id(0)
 
+    # ── Input dimensions (contiguous layout) ──
     V_PER_GROUP: tl.constexpr = NUM_HEADS_V // NUM_HEADS_QK
+    V_DIM_PER_GROUP: tl.constexpr = V_PER_GROUP * HEAD_V
 
     TOTAL_Q: tl.constexpr = NUM_HEADS_QK * HEAD_QK
     TOTAL_K: tl.constexpr = NUM_HEADS_QK * HEAD_QK
     TOTAL_V: tl.constexpr = NUM_HEADS_V * HEAD_V
-    TOTAL_QKVZ: tl.constexpr = TOTAL_Q + TOTAL_K + TOTAL_V + TOTAL_V
-    TOTAL_BA: tl.constexpr = NUM_HEADS_V * 2
-    QKV_DIM_T: tl.constexpr = TOTAL_Q + TOTAL_K + TOTAL_V
+    TOTAL_QK: tl.constexpr = TOTAL_Q + TOTAL_K
+    TOTAL_QKV: tl.constexpr = TOTAL_Q + TOTAL_K + TOTAL_V
 
-    total_tasks = batch_size * NUM_HEADS_QK
+    row_start = vec_id * rows_per_vec
+    row_end = tl.minimum(row_start + rows_per_vec, total_rows)
+    row_offset = row_start
 
-    for task_id in tl.range(pid, total_tasks, num_pids):
+    iter_count = (row_end - row_start + ROWS_PER_ITER - 1) // ROWS_PER_ITER
 
-        i_bs = task_id // NUM_HEADS_QK
-        i_qk = task_id % NUM_HEADS_QK
+    for _ in tl.range(iter_count):
 
-        blk_q_ptr = (
-            mixed_qkvz + i_bs * TOTAL_QKVZ + i_qk * HEAD_QK + tl.arange(0, HEAD_QK)
-        )
-        blk_k_ptr = (
-            mixed_qkvz
-            + i_bs * TOTAL_QKVZ
-            + TOTAL_Q
-            + i_qk * HEAD_QK
-            + tl.arange(0, HEAD_QK)
-        )
-        blk_v_ptr = (
-            mixed_qkvz
-            + i_bs * TOTAL_QKVZ
-            + TOTAL_Q
-            + TOTAL_K
-            + i_qk * V_PER_GROUP * HEAD_V
-            + tl.arange(0, V_PER_GROUP * HEAD_V)
-        )
-        blk_z_ptr = (
-            mixed_qkvz
-            + i_bs * TOTAL_QKVZ
-            + TOTAL_Q
-            + TOTAL_K
-            + TOTAL_V
-            + i_qk * V_PER_GROUP * HEAD_V
-            + tl.arange(0, V_PER_GROUP * HEAD_V)
-        )
+        row_indices = tl.arange(0, ROWS_PER_ITER) + row_offset
+        row_mask = row_indices < row_end
 
-        blk_q_st_ptr = (
-            mixed_qkv + i_bs * QKV_DIM_T + i_qk * HEAD_QK + tl.arange(0, HEAD_QK)
-        )
-        blk_k_st_ptr = (
-            mixed_qkv
-            + i_bs * QKV_DIM_T
-            + NUM_HEADS_QK * HEAD_QK
-            + i_qk * HEAD_QK
-            + tl.arange(0, HEAD_QK)
-        )
-        blk_v_st_ptr = (
-            mixed_qkv
-            + i_bs * QKV_DIM_T
-            + NUM_HEADS_QK * HEAD_QK * 2
-            + i_qk * V_PER_GROUP * HEAD_V
-            + tl.arange(0, V_PER_GROUP * HEAD_V)
-        )
-        blk_z_st_ptr = (
-            z
-            + i_bs * NUM_HEADS_V * HEAD_V
-            + i_qk * V_PER_GROUP * HEAD_V
-            + tl.arange(0, V_PER_GROUP * HEAD_V)
-        )
+        for head_id in tl.static_range(NUM_HEADS_QK):
 
-        tl.store(blk_q_st_ptr, tl.load(blk_q_ptr))
-        tl.store(blk_k_st_ptr, tl.load(blk_k_ptr))
-        tl.store(blk_v_st_ptr, tl.load(blk_v_ptr))
-        tl.store(blk_z_st_ptr, tl.load(blk_z_ptr))
+            q_range = tl.arange(0, HEAD_QK)
+            q_src_offset = head_id * HEAD_QK
 
-        for i in tl.static_range(V_PER_GROUP):
-            blk_b_ptr = mixed_ba + i_bs * TOTAL_BA + i_qk * V_PER_GROUP + i
-            blk_b_st_ptr = b + i_bs * NUM_HEADS_V + i_qk * V_PER_GROUP + i
-            tl.store(blk_b_st_ptr, tl.load(blk_b_ptr))
-
-        for i in tl.static_range(V_PER_GROUP):
-            blk_a_ptr = (
-                mixed_ba + i_bs * TOTAL_BA + NUM_HEADS_V + i_qk * V_PER_GROUP + i
+            q_src = (
+                row_indices[:, None] * QKVZ_ROW_STRIDE + q_src_offset + q_range[None, :]
             )
-            blk_a_st_ptr = a + i_bs * NUM_HEADS_V + i_qk * V_PER_GROUP + i
-            tl.store(blk_a_st_ptr, tl.load(blk_a_ptr))
+            q_dst = (
+                row_indices[:, None] * QKV_ROW_STRIDE
+                + head_id * HEAD_QK
+                + q_range[None, :]
+            )
+
+            q_data = tl.load(mixed_qkvz + q_src, mask=row_mask[:, None])
+            tl.store(mixed_qkv + q_dst, q_data, mask=row_mask[:, None])
+
+            k_src_offset = TOTAL_Q + head_id * HEAD_QK
+            k_src = (
+                row_indices[:, None] * QKVZ_ROW_STRIDE + k_src_offset + q_range[None, :]
+            )
+            k_dst = (
+                row_indices[:, None] * QKV_ROW_STRIDE
+                + TOTAL_Q
+                + head_id * HEAD_QK
+                + q_range[None, :]
+            )
+
+            k_data = tl.load(mixed_qkvz + k_src, mask=row_mask[:, None])
+            tl.store(mixed_qkv + k_dst, k_data, mask=row_mask[:, None])
+
+            v_range = tl.arange(0, V_DIM_PER_GROUP)
+            v_src_offset = TOTAL_QK + head_id * V_DIM_PER_GROUP
+
+            v_src = (
+                row_indices[:, None] * QKVZ_ROW_STRIDE + v_src_offset + v_range[None, :]
+            )
+            v_dst = (
+                row_indices[:, None] * QKV_ROW_STRIDE
+                + TOTAL_QK
+                + head_id * V_DIM_PER_GROUP
+                + v_range[None, :]
+            )
+
+            v_data = tl.load(mixed_qkvz + v_src, mask=row_mask[:, None])
+            tl.store(mixed_qkv + v_dst, v_data, mask=row_mask[:, None])
+
+            z_src_offset = TOTAL_QKV + head_id * V_DIM_PER_GROUP
+            z_src = (
+                row_indices[:, None] * QKVZ_ROW_STRIDE + z_src_offset + v_range[None, :]
+            )
+            z_dst = (
+                row_indices[:, None] * Z_ROW_STRIDE
+                + head_id * V_DIM_PER_GROUP
+                + v_range[None, :]
+            )
+
+            z_data = tl.load(mixed_qkvz + z_src, mask=row_mask[:, None])
+            tl.store(z + z_dst, z_data, mask=row_mask[:, None])
+
+            ba_range = tl.arange(0, V_PER_GROUP)
+            b_src_offset = head_id * V_PER_GROUP
+
+            b_src = (
+                row_indices[:, None] * BA_ROW_STRIDE + b_src_offset + ba_range[None, :]
+            )
+            b_dst = (
+                row_indices[:, None] * BA_OUT_ROW_STRIDE
+                + head_id * V_PER_GROUP
+                + ba_range[None, :]
+            )
+
+            b_data = tl.load(mixed_ba + b_src, mask=row_mask[:, None])
+            tl.store(b + b_dst, b_data, mask=row_mask[:, None])
+
+            a_src_offset = NUM_HEADS_V + head_id * V_PER_GROUP
+            a_src = (
+                row_indices[:, None] * BA_ROW_STRIDE + a_src_offset + ba_range[None, :]
+            )
+            a_dst = (
+                row_indices[:, None] * BA_OUT_ROW_STRIDE
+                + head_id * V_PER_GROUP
+                + ba_range[None, :]
+            )
+
+            a_data = tl.load(mixed_ba + a_src, mask=row_mask[:, None])
+            tl.store(a + a_dst, a_data, mask=row_mask[:, None])
+
+        row_offset += ROWS_PER_ITER
 
 
 def fused_qkvzba_split_reshape_cat_contiguous(
@@ -570,22 +605,23 @@ def fused_qkvzba_split_reshape_cat_contiguous(
     head_qk,
     head_v,
 ):
-    """Fused split/reshape/cat for CONTIGUOUS input format (Qwen3.5).
 
-    Input layout:
-        mixed_qkvz: [all_q | all_k | all_v | all_z]
-        mixed_ba:   [all_b | all_a]
-
-    Output layout (same as fused_qkvzba_split_reshape_cat):
-        mixed_qkv: [all_q | all_k | all_v]  (z stripped)
-        z: [num_v_heads, head_v]
-        b: [num_v_heads]
-        a: [num_v_heads]
-    """
     batch, seq_len = mixed_qkvz.shape[0], 1
-    qkv_dim_t = num_heads_qk * head_qk * 2 + num_heads_v * head_v
+    total_rows = batch * seq_len
+
+
+    total_q = num_heads_qk * head_qk
+    total_k = num_heads_qk * head_qk
+    total_v = num_heads_v * head_v
+
+    qkvz_row_stride = total_q + total_k + total_v + total_v
+    ba_row_stride = num_heads_v * 2
+    qkv_row_stride = total_q + total_k + total_v
+    z_row_stride = num_heads_v * head_v
+    ba_out_row_stride = num_heads_v
+
     mixed_qkv = torch.empty(
-        [batch * seq_len, qkv_dim_t],
+        [batch * seq_len, qkv_row_stride],
         dtype=mixed_qkvz.dtype,
         device=mixed_qkvz.device,
     )
@@ -600,14 +636,31 @@ def fused_qkvzba_split_reshape_cat_contiguous(
         device=mixed_ba.device,
     )
     a = torch.empty_like(b)
-    num_vectorcore = get_device_properties()[1]
 
-    total_tasks = batch * num_heads_qk
-    grid_size = min(num_vectorcore, total_tasks)
+    num_vectorcore = get_device_properties()[1]
+    grid_size = min(num_vectorcore, total_rows)
     grid_size = max(1, grid_size)
 
+    ub_size_bytes = UB_SPECIFICATION * 1024
+    dtype_size = mixed_qkvz.element_size()
+
+    elements_per_row = (
+        qkvz_row_stride
+        + ba_row_stride
+        + qkv_row_stride
+        + z_row_stride
+        + ba_out_row_stride * 2
+    )
+
+    rows_per_iter = max(1, int(ub_size_bytes * 0.75 // (elements_per_row * dtype_size)))
+    rows_per_iter = triton.next_power_of_2(rows_per_iter)
+    rows_per_iter = min(rows_per_iter, MAX_ROWS_PER_ITER)
+
+    rows_per_vec = triton.cdiv(total_rows, grid_size)
+    rows_per_vec = max(rows_per_vec, rows_per_iter)
+
     grid = (grid_size,)
-    fused_qkvzba_split_reshape_cat_contiguous_kernel[grid](
+    fused_qkvzba_split_reshape_cat_contiguous_kernel_optimized[grid](
         mixed_qkv,
         z,
         b,
@@ -618,9 +671,14 @@ def fused_qkvzba_split_reshape_cat_contiguous(
         num_heads_v,
         head_qk,
         head_v,
-        batch,
-        num_warps=1,
-        num_stages=3,
+        total_rows,
+        rows_per_vec,
+        qkvz_row_stride,
+        ba_row_stride,
+        qkv_row_stride,
+        z_row_stride,
+        ba_out_row_stride,
+        rows_per_iter,
     )
 
     return mixed_qkv, z, b, a
