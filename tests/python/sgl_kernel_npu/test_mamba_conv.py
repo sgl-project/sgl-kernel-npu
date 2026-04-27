@@ -6,7 +6,11 @@ import numpy as np
 import pytest
 import torch
 import torch.nn.functional as F
-from sgl_kernel_npu.mamba.causal_conv1d import PAD_SLOT_ID, causal_conv1d_update_npu
+from sgl_kernel_npu.mamba.causal_conv1d import (
+    PAD_SLOT_ID,
+    causal_conv1d_update_npu,
+    causal_conv1d_update_v2,
+)
 
 device = "npu"
 
@@ -232,3 +236,138 @@ def test_conv_varlen_update(
 
     assert_close("    y", ref, tri, 1e-3)
     assert_close("cache", conv_states_ref, conv_states_tri, 1e-3)
+
+
+def native_causal_conv1d_update_mtp(
+    hidden_state: torch.Tensor,
+    weight: torch.Tensor,
+    conv_state: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
+    silu_activation: bool = True,
+):
+    bsz, hidden_size, seq_len = hidden_state.shape
+    kernel_size = weight.shape[-1]
+    target_state_len = (kernel_size - 1) + (seq_len - 1)
+    full_context = torch.cat([conv_state, hidden_state], dim=-1).to(weight.dtype)
+    computation_input = full_context[:, :, -(kernel_size - 1 + seq_len) :]
+    windows = computation_input.unfold(-1, kernel_size, 1)
+
+    out = (windows * weight[None, :, None, :]).sum(dim=-1)
+    if bias is not None:
+        out = out + bias[None, :, None]
+    if silu_activation:
+        out = F.silu(out)
+    out = out.to(hidden_state.dtype)
+
+    if target_state_len > 0:
+        new_conv_state = full_context[:, :, -target_state_len:]
+    else:
+        new_conv_state = torch.empty(
+            bsz, hidden_size, 0, device=hidden_state.device, dtype=hidden_state.dtype
+        )
+
+    return out, new_conv_state
+
+
+def test_npu_causal_conv1d_update_mtp():
+    device = "npu"
+    itype = torch.bfloat16
+    rtol, atol = (5e-2, 5e-2) if itype == torch.float32 else (5e-2, 5e-2)
+    if itype == torch.bfloat16:
+        rtol, atol = 1e-2, 5e-2
+
+    batch_size = 10
+    draft_token_num = 4
+    dim = 4096
+    kernel_size = 4  # width
+    num_states = 929
+    state_len = kernel_size - 1 + draft_token_num - 1
+
+    slen = batch_size * draft_token_num
+
+    # 1. mixed_qkv: [slen, dim]
+    mixed_qkv = torch.randn(slen, dim, dtype=itype, device=device)
+
+    # 2. Conv states: [num_states, state_len, dim]
+    conv_states = torch.randn(num_states, state_len, dim, dtype=itype, device=device)
+    conv_states_clone = conv_states.detach().clone()
+
+    # 3. Weight: [dim, kernel_size]
+    conv_weights = torch.randn(dim, kernel_size, dtype=itype, device=device)
+
+    # 4. Bias: [dim]
+    bias = torch.randn(dim, dtype=itype, device=device)
+
+    # 5. Cache indices: [batch_size]
+    cache_indices = torch.randperm(num_states, device=device)[:batch_size].to(
+        torch.int32
+    )
+
+    num_accepted_tokens = torch.full(
+        (batch_size,),
+        draft_token_num,
+        dtype=torch.int32,
+        device=device,
+    )
+
+    activation = "silu"
+    pad_slot_id = -1
+    validate_data = False
+
+    mixed_qkv_reshaped = mixed_qkv.view(batch_size, draft_token_num, dim).clone()
+
+    # ---------------- 1. NPU Kernel ----------------
+    out_npu = causal_conv1d_update_v2(
+        x=mixed_qkv.view(batch_size, draft_token_num, -1).contiguous(),
+        conv_state=conv_states.contiguous(),
+        weight=conv_weights.transpose(0, 1).contiguous(),  # [kernel_size, dim]
+        bias=bias,
+        activation=activation,
+        conv_state_indices=cache_indices,
+        num_accepted_tokens=num_accepted_tokens,
+        pad_slot_id=pad_slot_id,
+        validate_data=validate_data,
+    ).view(slen, -1)
+
+    # ---------------- 2. ref ----------------
+    conv_states_to_use = conv_states_clone[
+        cache_indices
+    ]  # [batch_size, state_len, dim]
+
+    mixed_qkv_processed_ref, new_conv_state_ref = native_causal_conv1d_update_mtp(
+        hidden_state=mixed_qkv_reshaped.transpose(
+            1, 2
+        ).contiguous(),  # [batch, dim, draft_token_num]
+        weight=conv_weights,  # [dim, kernel_size]
+        conv_state=conv_states_to_use.transpose(
+            1, 2
+        ).contiguous(),  # [batch, dim, state_len]
+        bias=bias,
+        silu_activation=True,
+    )
+
+    out_ref = mixed_qkv_processed_ref.transpose(1, 2).contiguous().view(slen, -1)
+
+    conv_states_clone[cache_indices] = new_conv_state_ref.transpose(1, 2).contiguous()
+
+    assert (
+        out_npu.shape == out_ref.shape
+    ), f"Output shape mismatch: {out_npu.shape} vs {out_ref.shape}"
+
+    assert (
+        out_npu.shape == out_ref.shape
+    ), f"Output shape mismatch: {out_npu.shape} vs {out_ref.shape}"
+
+    assert torch.allclose(
+        out_npu, out_ref, rtol=rtol, atol=atol
+    ), f"Output value mismatch, {(out_npu-out_ref).abs().max()=}"
+
+    assert torch.allclose(
+        conv_states, conv_states_clone, rtol=rtol, atol=atol
+    ), f"Conv state update mismatch, {(conv_states-conv_states_clone).abs().max()=}"
+
+    assert torch.allclose(
+        conv_states, conv_states_clone, rtol=rtol, atol=atol
+    ), "Conv state update mismatch"
+
+    print("✅  Test passed!")

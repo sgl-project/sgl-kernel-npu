@@ -131,8 +131,8 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
                     OP_LOGE(nodeName, "sendCount is invalid, only support > 0, but got sendCount=%d.", *sendCountPtr),
                     return ge::GRAPH_FAILED);
     OP_TILING_CHECK(
-        (*numTokenPtr <= 0),
-        OP_LOGE(nodeName, "numTokenPtr is invalid, only support > 0, but got numTokenPtr=%d.", *numTokenPtr),
+        (*numTokenPtr < 0),
+        OP_LOGE(nodeName, "numTokenPtr is invalid, only support >= 0, but got numTokenPtr=%d.", *numTokenPtr),
         return ge::GRAPH_FAILED);
 
     commGroup = std::string(commGroupPtr);

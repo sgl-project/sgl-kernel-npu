@@ -638,8 +638,8 @@ static ge::graphStatus CheckAttrs(gert::TilingContext *context, const char *node
     // 校验输入x的dim 0并设bs
     const gert::StorageShape *xStorageShape = context->GetInputShape(X_INDEX);
     const int64_t xDim0 = xStorageShape->GetStorageShape().GetDim(0);
-    OP_TILING_CHECK((xDim0 > BS_UPPER_BOUND) || (xDim0 <= 0),
-                    OP_LOGE(nodeName, "xDim0(BS) is invalid. Should be between [1, %ld], but got xDim0=%ld.",
+    OP_TILING_CHECK((xDim0 > BS_UPPER_BOUND) || (xDim0 < 0),
+                    OP_LOGE(nodeName, "xDim0(BS) is invalid. Should be between [0, %ld], but got xDim0=%ld.",
                             BS_UPPER_BOUND, xDim0),
                     return ge::GRAPH_FAILED);
     tilingData.moeDistributeDispatchV2Info.bs = static_cast<uint32_t>(xDim0);
@@ -704,7 +704,7 @@ static ge::graphStatus CheckTensorShape(const gert::TilingContext *context, cons
                             "xShape's dim0 is %ld, expertIdShape's dim0 is %ld.",
                             xDim0, expertIdsDim0),
                     return ge::GRAPH_FAILED);
-    OP_TILING_CHECK((expertIdsDim1 <= 0) || (expertIdsDim1 > K_MAX) || (expertIdsDim1 > moeExpertNum),
+    OP_TILING_CHECK((expertIdsDim1 < 0) || (expertIdsDim1 > K_MAX) || (expertIdsDim1 > moeExpertNum),
                     OP_LOGE(nodeName,
                             "expertIdShape's dim1(k) should be in (0, min(%ld, moeExpertNum=%ld)], "
                             "but got expertIdShape's dim1=%ld.",
@@ -1141,7 +1141,7 @@ static ge::graphStatus MoeDistributeDispatchA2CheckShapeAndSetTiling(gert::Tilin
     auto quantModePtr = attrs->GetAttrPointer<int>(ATTR_QUANT_MODE_INDEX);
     OP_TILING_CHECK(h % BLOCK_SIZE_A2 != 0 || h <= 0 || h > MAX_HIDDEN_SIZE_A2,
                     OP_LOGE(K_INNER_DEBUG, "hiddensize is invalid."), return GRAPH_FAILED);
-    OP_TILING_CHECK(bs <= 0 || bs > MAX_BATCH_SIZE_A2, OP_LOGE(K_INNER_DEBUG, "batchsize is invalid."),
+    OP_TILING_CHECK(bs < 0 || bs > MAX_BATCH_SIZE_A2, OP_LOGE(K_INNER_DEBUG, "batchsize is invalid."),
                     return GRAPH_FAILED);
     auto moeExpertNumPtr = attrs->GetAttrPointer<int>(ATTR_MOE_EXPERT_NUM_INDEX);
     auto zeroExpertNumPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_ZERO_EXPERT_NUM_INDEX));
