@@ -230,6 +230,7 @@ UB_SPECIFICATION = 85
 #   [g0_q, g0_k, g0_v, g0_z, g1_q, g1_k, g1_v, g1_z, ...]
 # =============================================================================
 
+
 @triton.jit(do_not_specialize=["total_rows", "rows_per_vec"])
 def fused_qkvzba_split_reshape_cat_kernel(
     mixed_qkv,
