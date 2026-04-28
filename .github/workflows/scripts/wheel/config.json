@@ -6,9 +6,9 @@
   },
   "jobs": [
     {
-      "variant_label": "910b",
+      "variant_label": "a2",
       "properties": [
-        "ascend :: npu_type :: 910b"
+        "ascend :: npu_type :: a2"
       ],
       "skip_plugin_validation": true
     },

@@ -10,7 +10,6 @@ on:
       - 'main'
     paths:
       - '.github/workflows/release_deep_ep_wheel.yml'
-      - 'config.ini'
       - 'build.sh'
 
 jobs:
@@ -20,6 +19,7 @@ jobs:
     strategy:
       matrix:
         arch: [x86_64, aarch64]
+        cann_version: [8.5.0]
         include:
           - arch: x86_64
             runner: ubuntu-24.04
@@ -28,18 +28,11 @@ jobs:
 
     runs-on: ${{ matrix.runner }}
     container:
-      image: quay.io/ascend/cann:8.5.0-910b-ubuntu22.04-py3.11
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-py3.11
 
     steps:
       - name: Checkout repository
-        if: ${{ github.event_name != 'workflow_dispatch' }}
         uses: actions/checkout@v6
-
-      - name: Checkout repository ${{ inputs.tag }}
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.tag }}
 
       - name: Mark repository safe
         run: |
@@ -47,7 +40,7 @@ jobs:
 
       - name: Install dependency
         run: |
-          bash scripts/npu_ci_install_dependency.sh --torch-version 2.8.0
+          bash scripts/npu_ci_install_dependency.sh --torch-version 2.10.0
 
       - name: Build DeepEP (910b)
         run: |
@@ -101,7 +94,7 @@ jobs:
       - name: Archive wheel
         uses: actions/upload-artifact@v4
         with:
-          name: deep-ep-910b-${{ matrix.arch }}-py${{ matrix.python-version }}-wheel
+          name: deep-ep-910b-${{ matrix.arch }}-cann${{ matrix.cann_version }}-py3.11-wheel
           path: output/
 
 
@@ -110,6 +103,7 @@ jobs:
     strategy:
       matrix:
         arch: [x86_64, aarch64]
+        cann_version: [8.5.0]
         include:
           - arch: x86_64
             runner: ubuntu-24.04
@@ -118,18 +112,11 @@ jobs:
 
     runs-on: ${{ matrix.runner }}
     container:
-      image: quay.io/ascend/cann:8.5.0-a3-ubuntu22.04-py3.11
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py3.11
 
     steps:
       - name: Checkout repository
-        if: ${{ github.event_name != 'workflow_dispatch' }}
         uses: actions/checkout@v6
-
-      - name: Checkout repository ${{ inputs.tag }}
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.tag }}
 
       - name: Mark repository safe
         run: |
@@ -137,7 +124,7 @@ jobs:
 
       - name: Install dependency
         run: |
-          bash scripts/npu_ci_install_dependency.sh --torch-version 2.8.0
+          bash scripts/npu_ci_install_dependency.sh --torch-version 2.10.0
 
       - name: Build DeepEP (a3)
         run: |
@@ -191,7 +178,7 @@ jobs:
       - name: Archive wheel
         uses: actions/upload-artifact@v4
         with:
-          name: deep-ep-a3-${{ matrix.arch }}-py${{ matrix.python-version }}-wheel
+          name: deep-ep-a3-${{ matrix.arch }}-cann${{ matrix.cann_version }}-py3.11-wheel
           path: output/
 
 
