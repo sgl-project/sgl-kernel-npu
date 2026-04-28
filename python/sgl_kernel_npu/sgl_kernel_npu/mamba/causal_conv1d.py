@@ -272,8 +272,19 @@ def causal_conv1d_fn_npu(
                 else out.transpose(0, 1).contiguous()
             )
 
+    fallback_layout = input_layout
+    x_for_prepare = x
+    if x.ndim == 2 and fallback_layout is None:
+        dim_w = weight.size(0)
+        if x.size(0) == dim_w:
+            fallback_layout = "dim_token"
+        elif x.size(-1) == dim_w:
+            fallback_layout = "token_dim"
+    if x.ndim == 2 and fallback_layout == "token_dim":
+        x_for_prepare = x.transpose(0, 1).contiguous()
+
     x_pad, initial_state_pad, seqlens, indices = prepare_data(
-        x, weight, query_start_loc, cache_indices, has_initial_state, conv_states,
+        x_for_prepare, weight, query_start_loc, cache_indices, has_initial_state, conv_states,
         has_initial_state_any=has_initial_state_any,
         seq_lens_cpu=seq_lens_cpu,
     )
@@ -296,10 +307,12 @@ def causal_conv1d_fn_npu(
     out = out.transpose(1, 2).contiguous().view(out.size(0) * out.size(2), out.size(1))
     out_final = torch.index_select(out, 0, indices).transpose(0, 1).contiguous()
 
-    pad_seq_len = x.size(-1) - out_final.size(-1)
+    pad_seq_len = x_for_prepare.size(-1) - out_final.size(-1)
     if pad_seq_len > 0:
         out_final = F.pad(out_final, (0, pad_seq_len))
 
+    if fallback_layout == "token_dim":
+        return out_final.transpose(0, 1).contiguous()  # [cu_seq_len, dim]
     return out_final  # [dim, cu_seq_len]
 
 
