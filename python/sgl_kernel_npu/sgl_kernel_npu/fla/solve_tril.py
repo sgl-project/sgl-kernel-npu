@@ -457,6 +457,8 @@ def merge_16x16_to_64x64_inverse_kernel_reorder_all_masked(
 def solve_tril_npu(
     A: torch.Tensor,
     cu_seqlens: Optional[torch.Tensor] = None,
+    chunk_indices_large_block: Optional[torch.Tensor] = None,
+    chunk_indices_bt: Optional[torch.Tensor] = None,
     output_dtype: torch.dtype = torch.float,
 ) -> torch.Tensor:
     """
@@ -485,11 +487,9 @@ def solve_tril_npu(
     LARGE_BLOCK_T = 608 * 2
     # assert A.shape[1]%LARGE_BLOCK_T == 0 # or last N_BLOCKS have not enough block which leads to tl.arange failed
 
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, LARGE_BLOCK_T)
-        if cu_seqlens is not None
-        else None
-    )
+    if cu_seqlens is not None and chunk_indices_large_block is None:
+        chunk_indices_large_block = prepare_chunk_indices(cu_seqlens, LARGE_BLOCK_T)
+    chunk_indices = chunk_indices_large_block
     NT = len(chunk_indices) if cu_seqlens is not None else triton.cdiv(T, LARGE_BLOCK_T)
     solve_tril_16x16_kernel_paral_v3[NT, B * H](
         A=A,
@@ -513,9 +513,9 @@ def solve_tril_npu(
         if BT == 32
         else merge_16x16_to_64x64_inverse_kernel_reorder_all_masked
     )
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
+    if cu_seqlens is not None and chunk_indices_bt is None:
+        chunk_indices_bt = prepare_chunk_indices(cu_seqlens, BT)
+    chunk_indices = chunk_indices_bt
     NT = len(chunk_indices) if cu_seqlens is not None else triton.cdiv(T, BT)
     merge_fn[NT, B * H](
         A=A,

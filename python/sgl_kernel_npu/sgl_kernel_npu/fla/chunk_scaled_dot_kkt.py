@@ -105,6 +105,7 @@ def chunk_scaled_dot_kkt_fwd_npu(
     beta: torch.Tensor,
     g_cumsum: Optional[torch.Tensor] = None,
     cu_seqlens: Optional[torch.LongTensor] = None,
+    chunk_indices: Optional[torch.Tensor] = None,
     chunk_size: int = 64,
     output_dtype: torch.dtype = torch.float32,
 ) -> torch.Tensor:
@@ -135,12 +136,8 @@ def chunk_scaled_dot_kkt_fwd_npu(
 
     H = beta.shape[-1]
     BT = chunk_size
-    if cu_seqlens is not None:
-        chunk_indices = (
-            prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-        )
-    else:
-        chunk_indices = None
+    if cu_seqlens is not None and chunk_indices is None:
+        chunk_indices = prepare_chunk_indices(cu_seqlens, BT)
     NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
     A = torch.empty(B, T, H, BT, device=k.device, dtype=output_dtype)
 
