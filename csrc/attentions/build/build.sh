@@ -16,8 +16,6 @@ chmod a-w $BUILD_DIR/*
 
 cd ${PROJ_ROOT_DIR}
 
-echo "\nPROJ_ROOT_DIR = ${PROJ_ROOT_DIR}"
-
 PYTHON_VERSION=""
 if command -v python3 &> /dev/null; then
     version=$(python3 --version | awk '{print$2}')
