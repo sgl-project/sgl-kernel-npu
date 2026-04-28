@@ -137,6 +137,50 @@ def prepare_data(
     return x_pad, initial_states, seqlens, indices
 
 
+def _is_direct_causal_conv1d_available() -> bool:
+    return hasattr(torch.ops, "npu") and hasattr(torch.ops.npu, "causal_conv1d")
+
+
+def _prepare_direct_prefill_inputs(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    conv_states: torch.Tensor,
+    input_layout: Optional[str],
+):
+    dim = weight.size(0)
+    if input_layout is None:
+        if x.size(-1) == dim:
+            input_layout = "token_dim"
+        elif x.size(0) == dim:
+            input_layout = "dim_token"
+        else:
+            return None
+
+    if input_layout == "token_dim":
+        op_x = x.contiguous()
+        output_layout = "token_dim"
+    elif input_layout == "dim_token":
+        op_x = x.transpose(0, 1).contiguous()
+        output_layout = "dim_token"
+    else:
+        raise ValueError(
+            "input_layout must be one of None, 'token_dim', or 'dim_token', "
+            f"got {input_layout!r}"
+        )
+
+    op_weight = weight.transpose(0, 1).contiguous()
+    if conv_states.size(-1) == dim:
+        op_conv_states = conv_states if conv_states.is_contiguous() else conv_states.contiguous()
+        conv_states_layout = "token_dim"
+    elif conv_states.size(1) == dim:
+        op_conv_states = conv_states.transpose(1, 2).contiguous()
+        conv_states_layout = "dim_token"
+    else:
+        return None
+
+    return op_x, op_weight, op_conv_states, output_layout, conv_states_layout
+
+
 def causal_conv1d_fn_npu(
     x: torch.Tensor,
     weight: torch.Tensor,
@@ -149,6 +193,7 @@ def causal_conv1d_fn_npu(
     pad_slot_id: int = PAD_SLOT_ID,
     has_initial_state_any: Optional[bool] = None,
     seq_lens_cpu: Optional[torch.Tensor] = None,
+    input_layout: Optional[str] = None,
     **kwargs,
 ):
     """
@@ -186,7 +231,46 @@ def causal_conv1d_fn_npu(
         x = x.contiguous()
     bias = bias.contiguous() if bias is not None else None
 
-    assert query_start_loc[-1] <= x.shape[-1], f"{query_start_loc=}, {x.shape=}"
+    if (
+        x.ndim == 2
+        and query_start_loc is not None
+        and cache_indices is not None
+        and has_initial_state is not None
+        and conv_states is not None
+        and _is_direct_causal_conv1d_available()
+    ):
+        direct_inputs = _prepare_direct_prefill_inputs(
+            x, weight, conv_states, input_layout
+        )
+        if direct_inputs is not None:
+            (
+                op_x,
+                op_weight,
+                op_conv_states,
+                output_layout,
+                conv_states_layout,
+            ) = direct_inputs
+            out = torch.ops.npu.causal_conv1d(
+                op_x,
+                op_weight,
+                op_conv_states,
+                query_start_loc,
+                cache_indices,
+                has_initial_state,
+                bias=bias,
+                activation_mode=activation in ["silu", "swish"],
+                pad_slot_id=pad_slot_id,
+            )
+            if op_conv_states.data_ptr() != conv_states.data_ptr():
+                if conv_states_layout == "token_dim":
+                    conv_states.copy_(op_conv_states)
+                else:
+                    conv_states.copy_(op_conv_states.transpose(1, 2))
+            return (
+                out
+                if output_layout == "token_dim"
+                else out.transpose(0, 1).contiguous()
+            )
 
     x_pad, initial_state_pad, seqlens, indices = prepare_data(
         x, weight, query_start_loc, cache_indices, has_initial_state, conv_states,
