@@ -7,6 +7,7 @@ import torch
 import torch.nn.functional as F
 from sgl_kernel_npu.fla.utils import (
     fused_qkvzba_split_reshape_cat,
+    fused_qkvzba_split_reshape_cat_contiguous,
     fused_qkvzba_split_reshape_cat_torch,
 )
 
@@ -144,3 +145,127 @@ def test_fused_qkvzba(
     assert_close("z", ref_z, tri_z, 0.005, err_atol=1e-6)
     assert_close("b", ref_b, tri_b, 0.005, err_atol=1e-6)
     assert_close("a", ref_a, tri_a, 0.005, err_atol=1e-6)
+
+
+def fused_qkvzba_split_reshape_cat_torch_contiguous(qkvz, ba, batch, num_k_heads, num_v_heads, head_dim):
+    """
+    Reference implementation.
+    """
+    total_q = num_k_heads * head_dim
+    total_k = num_k_heads * head_dim
+    total_v = num_v_heads * head_dim
+
+    q = qkvz[:, 0:total_q]
+    k = qkvz[:, total_q : total_q + total_k]
+    v = qkvz[:, total_q + total_k : total_q + total_k + total_v]
+    z_data = qkvz[:, total_q + total_k + total_v :]
+
+    mixed_qkv_ref = torch.cat([q, k, v], dim=-1)
+
+    z_ref = z_data.reshape(batch, num_v_heads, head_dim)
+    b_ref = ba[:, 0:num_v_heads]
+    a_ref = ba[:, num_v_heads:]
+
+    return mixed_qkv_ref, z_ref, b_ref, a_ref
+
+
+@pytest.mark.parametrize(
+    ("B", "num_heads_qk", "num_heads_v", "head_qk", "head_v", "dtype"),
+    [
+        pytest.param(
+            *test,
+            id="B{}-num_heads_qk{}-num_heads_v{}-head_qk{}-head_v{}-{}".format(*test),
+        )
+        for test in [
+            # Original small cases (for robustness)
+            (1, 4, 8, 128, 128, torch.float16),
+            (2, 4, 8, 128, 128, torch.float16),
+            (1, 4, 8, 128, 128, torch.bfloat16),
+            (2, 4, 8, 128, 128, torch.bfloat16),
+            (1, 4, 8, 128, 128, torch.float32),
+            (2, 4, 8, 128, 128, torch.float32),
+            (31480, 8, 24, 128, 128, torch.float32),
+        ]
+    ],
+)
+@pytest.mark.skipif(
+    os.getenv("SKIP_TEST_FUSED_QKVZBA_CONTIGUOUS") == "1",
+    reason="Skipping test_fused_qkvzba_contiguous because SKIP_TEST_FUSED_QKVZBA_CONTIGUOUS is set",
+)
+def test_fused_qkvzba_contiguous(
+    B: int,
+    num_heads_qk: int,
+    num_heads_v: int,
+    head_qk: int,
+    head_v: int,
+    dtype: torch.dtype,
+):
+    if head_v not in [64, 128, 256]:
+        pytest.skip(reason="fused_qkvzba only supports head_v in [64,128,256]")
+
+    torch.manual_seed(42)
+    torch.npu.manual_seed_all(42)
+    os.environ["TRITON_F32_DEFAULT"] = "ieee"
+
+    total_q = num_heads_qk * head_qk
+    total_k = num_heads_qk * head_qk
+    total_v = num_heads_v * head_v
+    qkvz_dim = total_q + total_k + total_v + total_v
+    ba_dim = num_heads_v * 2
+
+    projected_states_qkvz = torch.randn((B, qkvz_dim), device=device, dtype=dtype)
+    projected_states_ba = torch.randn((B, ba_dim), device=device, dtype=dtype)
+
+    tri_mixed_qkv, tri_z, tri_b, tri_a = None, None, None, None
+    begin_time = 0
+    for i in range(LAUNCH_CNT):
+        if i == 1 or LAUNCH_CNT == 1:
+            torch.npu.synchronize()
+            begin_time = time.time()
+
+        tri_mixed_qkv, tri_z, tri_b, tri_a = fused_qkvzba_split_reshape_cat_contiguous(
+            projected_states_qkvz.clone(),
+            projected_states_ba.clone(),
+            num_heads_qk,
+            num_heads_v,
+            head_qk,
+            head_v,
+        )
+
+    torch.npu.synchronize()
+    use_time = time.time() - begin_time
+    avg_time = use_time * 1000 / (LAUNCH_CNT - 1) if LAUNCH_CNT > 1 else use_time * 1000
+    print(f"[DEBUG] fused_qkvzba_contiguous (target) using time: {avg_time:.2f} ms")
+
+    ref_mixed_qkv, ref_z, ref_b, ref_a = None, None, None, None
+    begin_time = 0
+    for i in range(LAUNCH_CNT):
+        if i == 1 or LAUNCH_CNT == 1:
+            torch.npu.synchronize()
+            begin_time = time.time()
+
+        ref_mixed_qkv, ref_z, ref_b, ref_a = fused_qkvzba_split_reshape_cat_torch_contiguous(
+            projected_states_qkvz,
+            projected_states_ba,
+            B,
+            num_heads_qk,
+            num_heads_v,
+            head_v,
+        )
+
+    torch.npu.synchronize()
+    use_time = time.time() - begin_time
+    avg_time = use_time * 1000 / (LAUNCH_CNT - 1) if LAUNCH_CNT > 1 else use_time * 1000
+    print(f"[DEBUG] fused_qkvzba_contiguous (torch ref) using time: {avg_time:.2f} ms")
+
+    # --- Verification ---
+    print_diff("mixed_qkv", ref_mixed_qkv, tri_mixed_qkv, 0.005)
+    print_diff("z", ref_z.flatten(), tri_z.flatten(), 0.005)
+    print_diff("b", ref_b.flatten(), tri_b.flatten(), 0.005)
+    print_diff("a", ref_a.flatten(), tri_a.flatten(), 0.005)
+
+    assert_close("mixed_qkv", ref_mixed_qkv, tri_mixed_qkv, 0.005, err_atol=1e-6)
+    assert_close("z", ref_z.flatten(), tri_z.flatten(), 0.005, err_atol=1e-6)
+    assert_close("b", ref_b.flatten(), tri_b.flatten(), 0.005, err_atol=1e-6)
+    assert_close("a", ref_a.flatten(), tri_a.flatten(), 0.005, err_atol=1e-6)
+
