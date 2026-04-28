@@ -183,7 +183,7 @@ function build_attentions_kernels()
 
     cd "$KERNEL_DIR" || exit
 
-    echo "run build laser attention kernel"
+    echo "run build attentions library"
 
     chmod +x build.sh
     ./build.sh
