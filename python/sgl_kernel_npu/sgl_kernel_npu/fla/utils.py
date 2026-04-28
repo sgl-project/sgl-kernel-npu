@@ -653,4 +653,3 @@ def fused_qkvzba_split_reshape_cat_contiguous(
     )
 
     return mixed_qkv, z, b, a
-
