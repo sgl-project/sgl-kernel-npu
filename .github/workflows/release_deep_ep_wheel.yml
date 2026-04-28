@@ -5,12 +5,13 @@ on:
     types:
       - published
 
-  workflow_dispatch:
-    inputs:
-      tag:
-        description: 'Tag to checkout'
-        required: false
-        type: string
+  pull_request:
+    branches:
+      - 'main'
+    paths:
+      - '.github/workflows/release_deep_ep_wheel.yml'
+      - 'config.ini'
+      - 'build.sh'
 
 jobs:
 
@@ -19,7 +20,6 @@ jobs:
     strategy:
       matrix:
         arch: [x86_64, aarch64]
-        python-version: ["3.10", "3.11"]
         include:
           - arch: x86_64
             runner: ubuntu-24.04
@@ -28,7 +28,7 @@ jobs:
 
     runs-on: ${{ matrix.runner }}
     container:
-      image: quay.io/ascend/cann:8.5.0-910b-ubuntu22.04-py${{ matrix.python-version }}
+      image: quay.io/ascend/cann:8.5.0-910b-ubuntu22.04-py3.11
 
     steps:
       - name: Checkout repository
@@ -104,19 +104,12 @@ jobs:
           name: deep-ep-910b-${{ matrix.arch }}-py${{ matrix.python-version }}-wheel
           path: output/
 
-      - name: Release to PyPI
-        if: ${{ github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
-        run: |
-          python3 -m pip install twine
-          python3 -m twine upload --verbose output/*.whl -u __token__ -p ${{ secrets.PYPI_TOKEN }}
-
 
   build_deep_ep_wheel_a3:
     name: build deep_ep wheel (a3)
     strategy:
       matrix:
         arch: [x86_64, aarch64]
-        python-version: ["3.10", "3.11"]
         include:
           - arch: x86_64
             runner: ubuntu-24.04
@@ -125,7 +118,7 @@ jobs:
 
     runs-on: ${{ matrix.runner }}
     container:
-      image: quay.io/ascend/cann:8.5.0-a3-ubuntu22.04-py${{ matrix.python-version }}
+      image: quay.io/ascend/cann:8.5.0-a3-ubuntu22.04-py3.11
 
     steps:
       - name: Checkout repository
@@ -200,12 +193,6 @@ jobs:
         with:
           name: deep-ep-a3-${{ matrix.arch }}-py${{ matrix.python-version }}-wheel
           path: output/
-
-      - name: Release to PyPI
-        if: ${{ github.event_name == 'release' || github.event_name == 'workflow_dispatch' }}
-        run: |
-          python3 -m pip install twine
-          python3 -m twine upload --verbose output/*.whl -u __token__ -p ${{ secrets.PYPI_TOKEN }}
 
 
   generate_and_upload_variant_index:
