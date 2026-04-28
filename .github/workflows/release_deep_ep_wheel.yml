@@ -20,6 +20,7 @@ jobs:
     strategy:
       matrix:
         arch: [x86_64, aarch64]
+        cann_version: [8.3.rc2, 8.5.0]
         include:
           - arch: x86_64
             runner: ubuntu-24.04
@@ -28,18 +29,11 @@ jobs:
 
     runs-on: ${{ matrix.runner }}
     container:
-      image: quay.io/ascend/cann:8.5.0-910b-ubuntu22.04-py3.11
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-py3.11
 
     steps:
       - name: Checkout repository
-        if: ${{ github.event_name != 'workflow_dispatch' }}
         uses: actions/checkout@v6
-
-      - name: Checkout repository ${{ inputs.tag }}
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.tag }}
 
       - name: Mark repository safe
         run: |
@@ -101,7 +95,7 @@ jobs:
       - name: Archive wheel
         uses: actions/upload-artifact@v4
         with:
-          name: deep-ep-910b-${{ matrix.arch }}-py${{ matrix.python-version }}-wheel
+          name: deep-ep-910b-${{ matrix.arch }}-cann${{ matrix.cann_version }}-py3.11-wheel
           path: output/
 
 
@@ -110,6 +104,7 @@ jobs:
     strategy:
       matrix:
         arch: [x86_64, aarch64]
+        cann_version: [8.3.rc2, 8.5.0]
         include:
           - arch: x86_64
             runner: ubuntu-24.04
@@ -118,18 +113,11 @@ jobs:
 
     runs-on: ${{ matrix.runner }}
     container:
-      image: quay.io/ascend/cann:8.5.0-a3-ubuntu22.04-py3.11
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py3.11
 
     steps:
       - name: Checkout repository
-        if: ${{ github.event_name != 'workflow_dispatch' }}
         uses: actions/checkout@v6
-
-      - name: Checkout repository ${{ inputs.tag }}
-        if: ${{ github.event_name == 'workflow_dispatch' }}
-        uses: actions/checkout@v6
-        with:
-          ref: ${{ inputs.tag }}
 
       - name: Mark repository safe
         run: |
@@ -191,7 +179,7 @@ jobs:
       - name: Archive wheel
         uses: actions/upload-artifact@v4
         with:
-          name: deep-ep-a3-${{ matrix.arch }}-py${{ matrix.python-version }}-wheel
+          name: deep-ep-a3-${{ matrix.arch }}-cann${{ matrix.cann_version }}-py3.11-wheel
           path: output/
 
 
@@ -238,7 +226,7 @@ jobs:
           import os, glob
           from obs import ObsClient
           OBS_BUCKET = 'ascend-artifcat-packages'
-          OBS_PATH = 'pypi/packages/ascend/repos/pypi/variant/deep-ep'
+          OBS_PATH = 'pypi/packages/ascend/repos/pypi/variant/deep_ep'
           client = ObsClient(
               access_key_id=os.environ['OBS_ACCESS_KEY'],
               secret_access_key=os.environ['OBS_SECRET_KEY'],
