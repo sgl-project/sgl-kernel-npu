@@ -70,24 +70,60 @@ def prepare_data(
     cache_indices: Optional[torch.Tensor] = None,
     has_initial_state: Optional[torch.Tensor] = None,
     conv_states: Optional[torch.Tensor] = None,
+    has_initial_state_any: Optional[bool] = None,
+    seq_lens_cpu: Optional[torch.Tensor] = None,
 ):
+    import warnings
+
+    if has_initial_state_any is None:
+        warnings.warn(
+            "causal_conv1d.prepare_data fell back to has_initial_state.any() device sync; "
+            "pass has_initial_state_any from host metadata.",
+            stacklevel=3,
+        )
+        has_initial_state_any = (
+            bool(has_initial_state.any()) if has_initial_state is not None else False
+        )
+
     initial_states = (
-        torch.index_select(conv_states, 0, cache_indices)
-        * has_initial_state[:, None, None]
-        if has_initial_state is not None and has_initial_state.any()
+        torch.index_select(conv_states, 0, cache_indices) * has_initial_state[:, None, None]
+        if has_initial_state is not None and has_initial_state_any
         else None
     )
 
-    seqlens = query_start_loc[1:] - query_start_loc[:-1]
+    if seq_lens_cpu is not None:
+        if isinstance(seq_lens_cpu, torch.Tensor):
+            seqlens = seq_lens_cpu.to(dtype=torch.int32, device=weight.device)
+            max_T_host = int(seq_lens_cpu.max())
+            cu_seq_len_host = int(seq_lens_cpu.sum())
+        else:
+            seqlens = torch.tensor(seq_lens_cpu, dtype=torch.int32, device=weight.device)
+            max_T_host = max(seq_lens_cpu)
+            cu_seq_len_host = sum(seq_lens_cpu)
+    else:
+        seqlens = query_start_loc[1:] - query_start_loc[:-1]
+        max_T_host = None
+        cu_seq_len_host = None
 
     if x.ndim == 3:
         return x, initial_states, seqlens, None
 
     dtype, device = weight.dtype, weight.device
     batch_size = seqlens.size(0)
-    max_T = seqlens.max()
-    dim, cu_seq_len = x.size(0), query_start_loc[-1]
 
+    if max_T_host is not None:
+        max_T = max_T_host
+        cu_seq_len = cu_seq_len_host
+    else:
+        warnings.warn(
+            "causal_conv1d.prepare_data fell back to device sync for max_seqlen/cu_seq_len; "
+            "pass them from host metadata.",
+            stacklevel=3,
+        )
+        max_T = int(seqlens.max())
+        cu_seq_len = int(query_start_loc[-1])
+
+    dim = x.size(0)
     x_flat = torch.zeros(size=(dim, batch_size * max_T), dtype=dtype, device=device)
 
     base_idx = torch.arange(batch_size, device=device, dtype=torch.int32) * max_T
@@ -111,6 +147,8 @@ def causal_conv1d_fn_npu(
     conv_states: Optional[torch.Tensor] = None,
     activation: Optional[str] = "silu",
     pad_slot_id: int = PAD_SLOT_ID,
+    has_initial_state_any: Optional[bool] = None,
+    seq_lens_cpu: Optional[torch.Tensor] = None,
     **kwargs,
 ):
     """
@@ -151,7 +189,9 @@ def causal_conv1d_fn_npu(
     assert query_start_loc[-1] <= x.shape[-1], f"{query_start_loc=}, {x.shape=}"
 
     x_pad, initial_state_pad, seqlens, indices = prepare_data(
-        x, weight, query_start_loc, cache_indices, has_initial_state, conv_states
+        x, weight, query_start_loc, cache_indices, has_initial_state, conv_states,
+        has_initial_state_any=has_initial_state_any,
+        seq_lens_cpu=seq_lens_cpu,
     )
 
     out, final_states_out = causal_conv1d_fn_native(
