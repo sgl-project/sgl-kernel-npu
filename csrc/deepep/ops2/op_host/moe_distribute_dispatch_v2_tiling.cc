@@ -660,12 +660,6 @@ static ge::graphStatus CheckAttrs(gert::TilingContext *context, const char *node
                 "bs=%ld, epWorldSize=%u.",
                 *globalBsPtr, xDim0, epWorldSize),
         return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(((*globalBsPtr > (xDim0 * static_cast<int64_t>(epWorldSize))) && isActiveMask),
-                    OP_LOGE(nodeName,
-                            "Different bs on different rank cannot work when isActiveMask=true, globalBS=%ld, "
-                            "bs=%ld, epWorldSize=%u.",
-                            *globalBsPtr, xDim0, epWorldSize),
-                    return ge::GRAPH_FAILED);
     if (*globalBsPtr == 0) {
         tilingData.moeDistributeDispatchV2Info.globalBs = static_cast<uint32_t>(xDim0) * epWorldSize;
     } else {

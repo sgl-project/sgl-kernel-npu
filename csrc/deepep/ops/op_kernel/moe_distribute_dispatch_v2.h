@@ -881,10 +881,10 @@ __aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::AlltoAllDis
 {
     activeMaskBsCnt_ = axisBS_;
     sendToMoeExpTokenCnt_ = axisBS_ * axisK_;
-    if (isTokenMaskFlag_) {
+    if (axisBS_ != 0 && isTokenMaskFlag_) {
         TokenActiveMaskCal();
     }
-    if (isExpertMaskFlag_) {
+    if (axisBS_ != 0 && isExpertMaskFlag_) {
         ExpertActiveMaskCal();
     }
 

@@ -314,7 +314,7 @@ __aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeA2Func>::Init(
     baseBuffOffset_ += xActiveMaskSize_;
     gatherMaskTensor_ = gatherMaskTensorInt8.template ReinterpretCast<uint32_t>();
 
-    if (isExpertMaskFlag_) {
+    if (axisBS_ != 0 && isExpertMaskFlag_) {
         ExpertActiveMaskCal();
     }
 
