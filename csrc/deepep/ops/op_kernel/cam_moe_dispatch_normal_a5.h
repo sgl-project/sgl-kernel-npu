@@ -321,43 +321,47 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantProcess()
 {
     float dynamicScale = 0.0;
     float maxVal = 0.0f;
+    if constexpr (Std::IsSame<ExpandXOutType, int8_t>::value) {
+        maxVal = INT8_MAX_VALUE;
+    }
+#ifdef __DAV_C310__
     if constexpr (Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value) {
         maxVal = FP8_E5M2_MAX_VALUE;
     } else if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value) {
         maxVal = FP8_E4M3_MAX_VALUE;
-    } else if constexpr (Std::IsSame<ExpandXOutType, int8_t>::value) {
-        maxVal = INT8_MAX_VALUE;
     }
-
+#endif
     LocalTensor<float> tokenF32LT = tokenCastFloatBuf.Get<float>();
     Cast(tokenF32LT, xInTensor, RoundMode::CAST_NONE, h);  // 1. tokenF16 -> tokenF32
     xInQueue.FreeTensor<XType>(xInTensor);
-    // PipeBarrier<PIPE_V>();
+    PipeBarrier<PIPE_V>();
     LocalTensor<float> tokenF32AbsLT = tokenAbsFloatBuf.Get<float>();
     Abs(tokenF32AbsLT, tokenF32LT, h);  // 2. tokenF32 -> tokenF32Abs
-    // PipeBarrier<PIPE_V>();
+    PipeBarrier<PIPE_V>();
     ReduceMaxInplace(tokenF32AbsLT, h);  // 3. tokenF32Abs -> max
     SyncFunc<AscendC::HardEvent::V_S>();
     dynamicScale = float(maxVal) / tokenF32AbsLT.GetValue(0);  // 4. maxVal / max 计算出最大值量化的scale
     SyncFunc<AscendC::HardEvent::S_V>();
     Muls(tokenF32LT, tokenF32LT, dynamicScale, h);  // 5. tokenF32 * scale 得出量化后的token
-    // PipeBarrier<PIPE_V>();
+    PipeBarrier<PIPE_V>();
 
     if constexpr (Std::IsSame<ExpandXOutType, int8_t>::value) {
         LocalTensor<int32_t> tokenI32LT = tokenF32LT.ReinterpretCast<int32_t>();
         Cast(tokenI32LT, tokenF32LT, RoundMode::CAST_RINT, h);  // 6. tokenF32 -> tokenI32
         LocalTensor<half> tokenHalfLT = tokenF32LT.ReinterpretCast<half>();
-        // PipeBarrier<PIPE_V>();
+        PipeBarrier<PIPE_V>();
         SetDeqScale((half)1.000000e+00f);
-        // PipeBarrier<PIPE_V>();
+        PipeBarrier<PIPE_V>();
         Cast(tokenHalfLT, tokenI32LT, RoundMode::CAST_ROUND, h);  // 7. tokenI32 -> tokenHalf
-        // PipeBarrier<PIPE_V>();
+        PipeBarrier<PIPE_V>();
         Cast(xOutTensor, tokenHalfLT, RoundMode::CAST_TRUNC, h);  // 8. tokenHalf -> tokenI8
-    } else if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value ||
+    }
+#ifdef __DAV_C310__
+    else if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value ||
         Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value) {
         Cast(xOutTensor, tokenF32LT, RoundMode::CAST_RINT, h);  // 1. tokenF32->tokenF8
     }
-
+#endif
     tokenF32LT = xOutTensor.template ReinterpretCast<float>();
     tokenF32LT.SetValue(hUBAlignSize / sizeof(float), float(1.0) / dynamicScale);
     SyncFunc<AscendC::HardEvent::S_MTE3>();

@@ -138,11 +138,10 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     enable_dynamic_tokens = args.enable_dynamic_tokens
     assert num_experts % num_ranks == 0
     torch.manual_seed(rank)
-
+    buffer = deep_ep.Buffer(
+        group, int(2e9), 0, low_latency_mode=True, num_qps_per_rank=1
+    )
     for i in range(args.test_loop):
-        buffer = deep_ep.Buffer(
-            group, int(2e9), 0, low_latency_mode=True, num_qps_per_rank=1
-        )
         base_normal_num_tokens = args.normal_num_tokens
         fluctuation_percentage = 0.1
         min_fluctuation = 2
@@ -211,10 +210,9 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         )
         if local_rank == 0:
             print(f"End executing low latency test loop {i} ...", flush=True)
-        del buffer
         torch.npu.empty_cache()
         dist.barrier()
-
+    del buffer
     dist.destroy_process_group()
 
 

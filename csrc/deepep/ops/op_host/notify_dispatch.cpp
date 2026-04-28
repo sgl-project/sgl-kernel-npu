@@ -94,7 +94,9 @@ public:
         OpAICoreConfig aicore_config = aicore_config_base;
         aicore_config.ExtendCfgInfo("jitCompile.flag", "static_true");
 
+#ifdef __DAV_C310__
         this->AICore().AddConfig("ascend950", aicore_config);
+#endif
         this->AICore().AddConfig("ascend910_93", aicore_config);
         this->AICore().AddConfig("ascend910b", aicore_config_A2);
         this->MC2().HcclGroup("comm_group");

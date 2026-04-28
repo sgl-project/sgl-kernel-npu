@@ -321,7 +321,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int expert_token_nums_type = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
     EP_HOST_ASSERT(expert_token_nums_type == 1 or expert_token_nums_type == 0);
 
-    // printf("=================DEEPEP intranode_dispatch start\n");
     EXEC_NPU_CMD(aclnnNotifyDispatch, send_data, new_num_tokens_per_expert, send_count, num_tokens,
                  hcom_ep_name,  // commGroup
                  num_ranks,     // rankSize
@@ -330,7 +329,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, total_recv_token,
                  max_bs, recv_tokens_per_expert);
     auto send_token_idx_small = this->send_token_idx_small;
-    // printf("=================DEEPEP intranode_dispatch end\n");
     real_max_bs = static_cast<int64_t>(std::max(max_bs.item<int>(), static_cast<int>(num_worst_tokens)));
 
     // dispatch算子内部按照 min(per_round_tokens, real_max_bs)来预留显存
@@ -1015,28 +1013,31 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         EP_HOST_ASSERT(isLayered == false);
         active_mask = (new_topk_idx >= 0).to(torch::kBool);
     }
-
-    EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2, new_x, new_topk_idx,
-                 scales,        // smooth scales,
-                 active_mask,   // active_mask
-                 hcom_ep_name,  // ep
-                 num_ranks,     // rankSize
-                 rank,          // rankId
-                 num_experts,
-                 hcom_tp_name,            // tp
-                 tp_size,                 // tp_size
-                 tp_rank,                 // tp_rank
+    EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2,
+                 new_x,  // x
+                 new_topk_idx,  // expertIds
+                 scales,        // scalesOptional
+                 active_mask,   // xActiveMaskOptional
+                 hcom_ep_name,  // groupEp
+                 num_ranks,     // epWorldSize
+                 rank,          // epRankId
+                 num_experts,  // moeExpertNum
+                 hcom_tp_name,            // groupTp
+                 tp_size,                 // tpWorldSize
+                 tp_rank,                 // tpRankId
                  expert_shard_type,       // expert_shard_type
                  shared_expert_num,       // shared_expert_num
                  shared_expert_rank_num,  // shared_expert_rank_num
                  quant_mode,
                  global_bs,               // global_bs
                  expert_token_nums_type,  // expert_token_nums_type
-                 comm_alg, packed_recv_x,
+                 comm_alg,
+                 packed_recv_x,   // expandXOut
                  packed_recv_x_scales,  // dynamicScalesOut
-                 expandIdx,
+                 expandIdx,         // assistInfoForCombineOut
                  packed_recv_count,  // expertTokenNumsOut
-                 ep_recv_count, tp_recv_count);
+                 ep_recv_count,     // epRecvCountsOut
+                 tp_recv_count);    // tpRecvCountsOut
 
     // Return values
     return {packed_recv_x, packed_recv_x_scales,        packed_recv_count, expandIdx, ep_recv_count,

@@ -87,11 +87,11 @@ echo "ENABLE_SRC_BUILD=$ENABLE_SRC_BUILD"
 if [ $ENABLE_SRC_BUILD -eq 1 ]; then
   echo "SOC_VERSION=$SOC_VERSION"
   if [[ "$SOC_VERSION" == "all" ]]; then
-    echo "$MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH ascend950"
-    bash $MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH ascend950
+    echo "$MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH Ascend910_9382"
+    bash $MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH Ascend910_9382
   else
-    echo "$MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH ascend950"
-    bash $MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH ascend950
+    echo "$MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH $SOC_VERSION"
+    bash $MODULE_SCRIPTS_PATH/compile_ascend_proj.sh $MODULE_SRC_PATH $SOC_VERSION
   fi
   if [ $? -ne 0 ]; then
     exit 1

@@ -34,6 +34,3 @@ npu_op_package_add(${package_name}
 )
 
 npu_op_kernel_options("" ALL OPTIONS -DASCENDC_DUMP=0 --cce-auto-sync=off)
-# add_ops_compile_options(ALL OPTIONS -DASCENDC_DUMP=0 --cce-auto-sync=off)
-
-# add_kernels_compile()

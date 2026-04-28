@@ -146,7 +146,9 @@ public:
             .ExtendCfgInfo("jitCompile.flag", "static_true")
             .ExtendCfgInfo("multiKernelSupportDynamicGraph.value", "multi_kernel");
 
+#ifdef __DAV_C310__
         this->AICore().AddConfig("ascend950", aicore_config);
+#endif
         this->AICore().AddConfig("ascend910_93", aicore_config);
         this->MC2().HcclGroup({"group_ep", "group_tp"});
     }

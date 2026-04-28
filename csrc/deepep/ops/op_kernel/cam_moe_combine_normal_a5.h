@@ -149,8 +149,6 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::InitMagic()
     magic_ = selfMagicTensor(0);
     selfMagicTensor(0) = ((magic_ == 0) ? 1 : 0);
     DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(selfMagicTensor);
-    printf("[RANK %d AIC %d] COMBINE statusDataSpaceGm %d rankId %d rankDim %d magic_ %d\n",
-        GetRankId(epWinContext_), coreIdx_, statusDataSpaceGm, GetRankId(epWinContext_), GetRankDim(epWinContext_), magic_);
 }
 
 template <TemplateMC2TypeClass>

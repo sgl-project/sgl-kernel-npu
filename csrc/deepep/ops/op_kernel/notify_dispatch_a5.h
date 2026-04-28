@@ -753,11 +753,6 @@ __aicore__ inline uint64_t NotifyDispatchA5<T>::GetMagicValue(void)
     GlobalTensor<uint64_t> selfDataStatusTensor;
     GM_ADDR statusDataSpaceGm = GetStatusDataSpaceGm(winContext_[COMM_EP_IDX]);
     selfDataStatusTensor.SetGlobalBuffer((__gm__ uint64_t *)(statusDataSpaceGm + STATE_WIN_OFFSET));
-    printf("[RANK %d AIC %d] statusDataSpaceGm %d rankId %d rankDim %d winSize %d\n",
-        rank, blockIdx, statusDataSpaceGm, GetRankId(winContext_[COMM_EP_IDX]), GetRankDim(winContext_[COMM_EP_IDX]), GetWinSize(winContext_[COMM_EP_IDX]));
-    for (int i = 0; i < 32 && blockIdx == 0; ++i) {
-        printf("[RANK %d AIC %d] windowsIn[%d] %d\n", rank, blockIdx, i, winContext_[COMM_EP_IDX]->windowsIn[i]);
-    }
     DataCacheCleanAndInvalid<uint64_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
         selfDataStatusTensor[blockIdx * UB_ALIGN_SIZE]);
     magic = selfDataStatusTensor(blockIdx * UB_ALIGN_SIZE);
@@ -792,7 +787,6 @@ __aicore__ inline void NotifyDispatchA5<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_A
 
     winContext_[COMM_EP_IDX] = (__gm__ HcclOpParam *)AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
     baseWindSize = GetWinSize(winContext_[COMM_EP_IDX]) - A5_MTE_STATE_WIN_SIZE;
-    printf("[RANK %d AIC %d] winContext_ %p totalWinSize %d baseWindSize %d\n", rank, blockIdx, winContext_[COMM_EP_IDX], totalWinSize, baseWindSize);
     this->magic = GetMagicValue();
     ctxIdx = COMM_EP_IDX;
     uint64_t winDataOffset = (this->magic % PING_PONG_SIZE) * (baseWindSize / 2);
@@ -805,8 +799,6 @@ __aicore__ inline void NotifyDispatchA5<T>::InitSmallFullMesh(KERNELS_ARGS_FUN_A
     if (copyLen > 0) {
         for (int i = copyOffset; i < copyOffset + copyLen; ++i) {
             shareAddrs[i] = GetWindAddrByRankId(i, ctxIdx) + winDataOffset;
-            if (blockIdx == 0)
-                printf("[RANK %d AIC %d] magic %d shareAddrs[%d] %d\n", rank, blockIdx, magic, i, shareAddrs[i]);
         }
     }
 

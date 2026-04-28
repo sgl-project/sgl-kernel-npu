@@ -46,8 +46,8 @@ public:
             .Format({ge::FORMAT_ND})
             .UnknownShapeFormat({ge::FORMAT_ND});
 
-        OpAICoreConfig a3_config;
-        a3_config.DynamicCompileStaticFlag(true)
+        OpAICoreConfig aicore_config;
+        aicore_config.DynamicCompileStaticFlag(true)
             .DynamicFormatFlag(true)
             .DynamicRankSupportFlag(true)
             .DynamicShapeSupportFlag(true)
@@ -68,8 +68,10 @@ public:
             .ExtendCfgInfo("jitCompile.flag", "static_false")
             .ExtendCfgInfo("multiKernelSupportDynamicGraph.value", "multi_kernel");
 
-        this->AICore().AddConfig("ascend950", a3_config);
-        this->AICore().AddConfig("ascend910_93", a3_config);
+#ifdef __DAV_C310__
+        this->AICore().AddConfig("ascend950", aicore_config);
+#endif
+        this->AICore().AddConfig("ascend910_93", aicore_config);
         this->AICore().AddConfig("ascend910b", a2_config);
     }
 };
