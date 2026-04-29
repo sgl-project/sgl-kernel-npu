@@ -244,13 +244,15 @@ def test_fused_qkvzba_contiguous(
             torch.npu.synchronize()
             begin_time = time.time()
 
-        ref_mixed_qkv, ref_z, ref_b, ref_a = fused_qkvzba_split_reshape_cat_torch_contiguous(
-            projected_states_qkvz,
-            projected_states_ba,
-            B,
-            num_heads_qk,
-            num_heads_v,
-            head_v,
+        ref_mixed_qkv, ref_z, ref_b, ref_a = (
+            fused_qkvzba_split_reshape_cat_torch_contiguous(
+                projected_states_qkvz,
+                projected_states_ba,
+                B,
+                num_heads_qk,
+                num_heads_v,
+                head_v,
+            )
         )
 
     torch.npu.synchronize()
@@ -268,4 +270,3 @@ def test_fused_qkvzba_contiguous(
     assert_close("z", ref_z.flatten(), tri_z.flatten(), 0.005, err_atol=1e-6)
     assert_close("b", ref_b.flatten(), tri_b.flatten(), 0.005, err_atol=1e-6)
     assert_close("a", ref_a.flatten(), tri_a.flatten(), 0.005, err_atol=1e-6)
-
