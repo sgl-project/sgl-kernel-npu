@@ -147,7 +147,9 @@ def test_fused_qkvzba(
     assert_close("a", ref_a, tri_a, 0.005, err_atol=1e-6)
 
 
-def fused_qkvzba_split_reshape_cat_torch_contiguous(qkvz, ba, batch, num_k_heads, num_v_heads, head_dim):
+def fused_qkvzba_split_reshape_cat_torch_contiguous(
+    qkvz, ba, batch, num_k_heads, num_v_heads, head_dim
+):
     """
     Reference implementation.
     """
