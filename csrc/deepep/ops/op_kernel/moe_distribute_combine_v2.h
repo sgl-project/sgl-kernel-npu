@@ -698,6 +698,9 @@ __aicore__ inline void MoeDistributeCombineV2<TemplateMC2TypeFunc>::AlltoAllBuff
         scaleDupLocalTensor_ = mulBuf_.Get<float>();
         scaleDivFloatTensor_ = xAbsBuf_.Get<float>();
     }
+    if (axisBS_ == 0) {
+        return;
+    }
     if (isInputTokenMaskFlag_) {
         axisBsAlignSize_ = Ceil(axisBS_ * sizeof(bool), UB_ALIGN) * UB_ALIGN;
         tpipe_->InitBuffer(xActMaskTBuf_, axisBsAlignSize_);
