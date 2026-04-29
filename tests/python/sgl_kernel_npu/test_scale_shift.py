@@ -13,7 +13,6 @@ def fused_scale_shift_golden(
 
 def test_fused_scale():
     B, H, C = 3, 37440, 5120
-    block_l, block_c = 128, 128
     dtype = torch.float32
 
     test_cases = [
@@ -39,7 +38,7 @@ def test_fused_scale():
         shift = torch.randn(shape[1], dtype=dtype, device="npu")
 
         res = fused_scale_shift_golden(x, scale, shift)
-        ans = fused_scale_shift(x, scale, shift, block_l=block_l, block_c=block_c)
+        ans = fused_scale_shift(x, scale, shift)
 
         np.testing.assert_allclose(
             res.cpu().numpy(),
