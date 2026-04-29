@@ -53,12 +53,13 @@ jobs:
 
       - name: Install system dependencies
         run: |
-          pip3 install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple jinja2-cli
+          pip install uv
+          uv pip install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple jinja2-cli
 
       - name: Install kubernetes
         run: |
           # Install kubernetes
-          pip3 install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple kubernetes
+          uv pip install -i https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple kubernetes
           cp $KUBECTL /usr/local/sbin/
 
       - name: Create K8s Namespace
