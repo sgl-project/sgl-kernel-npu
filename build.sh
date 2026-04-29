@@ -81,8 +81,18 @@ shift $((OPTIND -1))
 
 export DEBUG_MODE=$DEBUG_MODE
 
-SOC_VERSION="${1:-Ascend910_9382}"
+# Chip mapping:
+# - deepep  → A3+ (Ascend910_9382)
+# - deepep2 → A2  (Ascend910B1)
+# - A5 is not open-sourced yet
 
+if [[ "$BUILD_DEEPEP_OPS" == "ON" ]]; then
+    SOC_VERSION="${1:-Ascend910_9382}"
+else
+    SOC_VERSION="${1:-Ascend910B1}"
+fi
+
+echo "Use SOC_VERSION: $SOC_VERSION"
 
 ### Get Current CANN Toolkit Installation Path
 _CANN_TOOLKIT_INSTALL_PATH=$(cat /etc/Ascend/ascend_cann_install.info | grep "Toolkit_InstallPath" | awk -F'=' '{print $2}')
@@ -175,6 +185,25 @@ function build_memory_saver()
     cd -
 }
 
+function create_deepep_cmake()
+{
+    cd csrc || exit
+    chmod +x deepep_cmake_build.sh
+    chmod +x deepep/build.sh
+    chmod +x deepep/compile_ascend_proj.sh
+    echo "${FUNCNAME[0]}:./deepep_cmake_build.sh all $SOC_VERSION"
+    ./deepep_cmake_build.sh all $SOC_VERSION
+
+    if [[ "$BUILD_DEEPEP_OPS" == "ON" ]]; then
+        echo "./deepep/compile_ascend_proj.sh ./deepep $SOC_VERSION deepep"
+        bash ./deepep/compile_ascend_proj.sh ./deepep $SOC_VERSION deepep
+    else
+        echo "./deepep/compile_ascend_proj.sh ./deepep $SOC_VERSION deepep2"
+        bash ./deepep/compile_ascend_proj.sh ./deepep $SOC_VERSION deepep2
+    fi
+    cd -
+}
+
 function make_deepep_package()
 {
     cd python/deep_ep || exit
@@ -203,7 +232,7 @@ function make_sgl_kernel_npu_package()
 
 function main()
 {
-
+    create_deepep_cmake
     build_kernels
     build_deepep_kernels
     if pip3 show wheel;then
