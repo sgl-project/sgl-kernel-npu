@@ -131,7 +131,8 @@ at::Tensor lightning_indexer(
  * is inversed.
  */
 at::Tensor tri_inv_col_sweep(const at::Tensor &tensor_in);
-at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask, c10::optional<at::Tensor> indices);
+at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask,
+                               c10::optional<at::Tensor> indices);
 
 } // namespace npu_kernel
 

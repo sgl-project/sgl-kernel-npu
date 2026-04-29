@@ -164,9 +164,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
     m.impl("triangular_inverse", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
 
-m.impl("apply_token_bitmask", [](at::Tensor logits, at::Tensor bitmask, const c10::optional<at::Tensor> &indices) {
-        auto indices_or_empty =
-            indices.has_value() ? *indices : at::empty({0}, logits.options().dtype(at::kInt));
+    m.impl("apply_token_bitmask", [](at::Tensor logits, at::Tensor bitmask, const c10::optional<at::Tensor> &indices) {
+        auto indices_or_empty = indices.has_value() ? *indices : at::empty({0}, logits.options().dtype(at::kInt));
         return sglang::npu_kernel::apply_token_bitmask(logits, bitmask, indices_or_empty);
     });
 

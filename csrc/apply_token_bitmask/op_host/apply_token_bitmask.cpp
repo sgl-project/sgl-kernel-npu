@@ -9,23 +9,18 @@
 #include "tiling/platform/platform_ascendc.h"
 
 namespace sglang {
-namespace npu_kernel
+namespace npu_kernel {
+
+HOST_API at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask, c10::optional<at::Tensor> indices)
 {
-
-HOST_API at::Tensor apply_token_bitmask(
-    at::Tensor logits,
-    at::Tensor bitmask,
-    c10::optional<at::Tensor> indices) {
-
     // Input validation
     TORCH_CHECK(logits.dim() == 2, "logits must be 2D, got ", logits.dim(), "D tensor");
     TORCH_CHECK(bitmask.dim() == 2, "bitmask must be 2D, got ", bitmask.dim(), "D tensor");
-    TORCH_CHECK(logits.size(0) == bitmask.size(0),
-                "logits and bitmask batch size mismatch: ", logits.size(0), " vs ", bitmask.size(0));
+    TORCH_CHECK(logits.size(0) == bitmask.size(0), "logits and bitmask batch size mismatch: ", logits.size(0), " vs ",
+                bitmask.size(0));
     TORCH_CHECK(logits.is_contiguous(), "logits must be contiguous");
     TORCH_CHECK(bitmask.is_contiguous(), "bitmask must be contiguous");
-    TORCH_CHECK(bitmask.scalar_type() == at::kInt,
-                "bitmask must be int32, got ", bitmask.scalar_type());
+    TORCH_CHECK(bitmask.scalar_type() == at::kInt, "bitmask must be int32, got ", bitmask.scalar_type());
 
     at::ScalarType dtype = logits.scalar_type();
     TORCH_CHECK(dtype == at::kFloat || dtype == at::kHalf || dtype == at::kBFloat16,
@@ -85,8 +80,7 @@ HOST_API at::Tensor apply_token_bitmask(
     if (static_cast<int64_t>(selectedBitmask.size(1)) >= paddedBitmaskWidth) {
         workingBitmask = selectedBitmask;
     } else {
-        workingBitmask = at::zeros({numIndices, paddedBitmaskWidth},
-                                   selectedBitmask.options());
+        workingBitmask = at::zeros({numIndices, paddedBitmaskWidth}, selectedBitmask.options());
         workingBitmask.narrow(1, 0, selectedBitmask.size(1)).copy_(selectedBitmask);
     }
 
@@ -122,9 +116,9 @@ HOST_API at::Tensor apply_token_bitmask(
     uint64_t usableUb = (ubSize > 16384) ? (ubSize - 16384) : ubSize;
 
     int64_t bytesPerUnit = static_cast<int64_t>(hostBufferNum) *
-        (2 * ALIGN_UNIT * dtypeSize + (ALIGN_UNIT / 32) * static_cast<int64_t>(sizeof(int32_t)));
-    uint32_t tileLength = static_cast<uint32_t>(
-        (usableUb / static_cast<uint64_t>(bytesPerUnit)) * static_cast<uint64_t>(ALIGN_UNIT));
+                           (2 * ALIGN_UNIT * dtypeSize + (ALIGN_UNIT / 32) * static_cast<int64_t>(sizeof(int32_t)));
+    uint32_t tileLength =
+        static_cast<uint32_t>((usableUb / static_cast<uint64_t>(bytesPerUnit)) * static_cast<uint64_t>(ALIGN_UNIT));
 
     // Cap tileLength to paddedVocabSize
     if (tileLength > static_cast<uint32_t>(paddedVocabSize)) {
@@ -150,23 +144,14 @@ HOST_API at::Tensor apply_token_bitmask(
 
     // Launch kernel
     if (dtype == at::kFloat) {
-        EXEC_KERNEL_CMD(apply_token_bitmask_fp32, blockDim,
-                        workingLogits, workingBitmask,
-                        numRowsU32, vocabSizeU32, logitsStrideU32, bitmaskStrideU32,
-                        baseRows, extraCores,
-                        tileLength, blockDim, dtypeSizeU32);
+        EXEC_KERNEL_CMD(apply_token_bitmask_fp32, blockDim, workingLogits, workingBitmask, numRowsU32, vocabSizeU32,
+                        logitsStrideU32, bitmaskStrideU32, baseRows, extraCores, tileLength, blockDim, dtypeSizeU32);
     } else if (dtype == at::kHalf) {
-        EXEC_KERNEL_CMD(apply_token_bitmask_fp16, blockDim,
-                        workingLogits, workingBitmask,
-                        numRowsU32, vocabSizeU32, logitsStrideU32, bitmaskStrideU32,
-                        baseRows, extraCores,
-                        tileLength, blockDim, dtypeSizeU32);
+        EXEC_KERNEL_CMD(apply_token_bitmask_fp16, blockDim, workingLogits, workingBitmask, numRowsU32, vocabSizeU32,
+                        logitsStrideU32, bitmaskStrideU32, baseRows, extraCores, tileLength, blockDim, dtypeSizeU32);
     } else {
-        EXEC_KERNEL_CMD(apply_token_bitmask_bf16, blockDim,
-                        workingLogits, workingBitmask,
-                        numRowsU32, vocabSizeU32, logitsStrideU32, bitmaskStrideU32,
-                        baseRows, extraCores,
-                        tileLength, blockDim, dtypeSizeU32);
+        EXEC_KERNEL_CMD(apply_token_bitmask_bf16, blockDim, workingLogits, workingBitmask, numRowsU32, vocabSizeU32,
+                        logitsStrideU32, bitmaskStrideU32, baseRows, extraCores, tileLength, blockDim, dtypeSizeU32);
     }
 
     // Copy results back

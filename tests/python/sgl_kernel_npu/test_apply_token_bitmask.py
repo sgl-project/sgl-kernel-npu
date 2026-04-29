@@ -21,15 +21,14 @@ import sys
 import time
 import unittest
 
+import sgl_kernel_npu
 import torch
 import torch_npu
-
-import sgl_kernel_npu
-
 
 # ---------------------------------------------------------------------------
 # CPU reference implementation
 # ---------------------------------------------------------------------------
+
 
 def apply_token_bitmask_ref(logits, bitmask, indices=None):
     """CPU reference: for each bit=0 in bitmask, set corresponding logit to -inf."""
@@ -54,6 +53,7 @@ def apply_token_bitmask_ref(logits, bitmask, indices=None):
 # ---------------------------------------------------------------------------
 # Data generation helpers
 # ---------------------------------------------------------------------------
+
 
 def make_bitmask(batch, vocab_size, mode="random"):
     """Create bitmask tensor.  mode: random | all_masked | all_unmasked | half_masked"""
@@ -88,6 +88,7 @@ def make_bitmask(batch, vocab_size, mode="random"):
 # Helper: run NPU and compare with CPU reference
 # ---------------------------------------------------------------------------
 
+
 def _run_and_compare(logits, bitmask, indices=None, label=""):
     """Run NPU op, compare with CPU ref, return True if pass."""
     vocab_size = logits.shape[1]
@@ -101,7 +102,9 @@ def _run_and_compare(logits, bitmask, indices=None, label=""):
     bitmask_npu = bitmask.npu().contiguous()
     if indices is not None:
         indices_npu = indices.npu()
-        out_npu = torch.ops.npu.apply_token_bitmask(logits_npu, bitmask_npu, indices_npu)
+        out_npu = torch.ops.npu.apply_token_bitmask(
+            logits_npu, bitmask_npu, indices_npu
+        )
     else:
         out_npu = torch.ops.npu.apply_token_bitmask(logits_npu, bitmask_npu)
     out_cpu = out_npu.float().cpu()
@@ -135,23 +138,23 @@ def _run_and_compare(logits, bitmask, indices=None, label=""):
 SUPPORTED_DTYPES = [torch.float32, torch.float16, torch.bfloat16]
 
 LLM_SHAPES = [
-    ("small",   (1, 320)),
-    ("small",   (4, 320)),
-    ("tiny",    (1, 64)),
-    ("base",    (1, 32000)),
-    ("base",    (8, 32000)),
-    ("large",   (2, 128256)),
-    ("common",  (16, 32000)),
+    ("small", (1, 320)),
+    ("small", (4, 320)),
+    ("tiny", (1, 64)),
+    ("base", (1, 32000)),
+    ("base", (8, 32000)),
+    ("large", (2, 128256)),
+    ("common", (16, 32000)),
 ]
 
 GENERAL_SHAPES = [
-    ("sub1",    (2, 1)),
-    ("sub32",   (2, 31)),
-    ("eq32",    (2, 32)),
-    ("over32",  (2, 33)),
-    ("unaligned",(4, 100)),
-    ("stress",  (32, 32000)),
-    ("ularge",  (8, 32100)),
+    ("sub1", (2, 1)),
+    ("sub32", (2, 31)),
+    ("eq32", (2, 32)),
+    ("over32", (2, 33)),
+    ("unaligned", (4, 100)),
+    ("stress", (32, 32000)),
+    ("ularge", (8, 32100)),
 ]
 
 
@@ -196,9 +199,12 @@ class TestApplyTokenBitmaskFunction(unittest.TestCase):
             bitmask = make_bitmask(4, 320, "all_masked")
             logits_npu = logits.npu().contiguous()
             bitmask_npu = bitmask.npu().contiguous()
-            out = torch.ops.npu.apply_token_bitmask(logits_npu, bitmask_npu).float().cpu()
-            self.assertTrue(torch.all(out == float("-inf")),
-                            f"all_masked failed for {dtype}")
+            out = (
+                torch.ops.npu.apply_token_bitmask(logits_npu, bitmask_npu).float().cpu()
+            )
+            self.assertTrue(
+                torch.all(out == float("-inf")), f"all_masked failed for {dtype}"
+            )
 
     @torch.no_grad()
     def test_all_unmasked(self):
@@ -208,7 +214,9 @@ class TestApplyTokenBitmaskFunction(unittest.TestCase):
             bitmask = make_bitmask(4, 320, "all_unmasked")
             logits_npu = logits.npu().contiguous()
             bitmask_npu = bitmask.npu().contiguous()
-            out = torch.ops.npu.apply_token_bitmask(logits_npu, bitmask_npu).float().cpu()
+            out = (
+                torch.ops.npu.apply_token_bitmask(logits_npu, bitmask_npu).float().cpu()
+            )
             torch.testing.assert_close(out, logits.float(), atol=1e-2, rtol=1e-2)
 
     @torch.no_grad()
@@ -217,7 +225,9 @@ class TestApplyTokenBitmaskFunction(unittest.TestCase):
         for dtype in SUPPORTED_DTYPES:
             logits = torch.randn(4, 320, dtype=dtype)
             bitmask = make_bitmask(4, 320, "half_masked")
-            self.assertTrue(_run_and_compare(logits, bitmask, label=f"half_masked/{dtype}"))
+            self.assertTrue(
+                _run_and_compare(logits, bitmask, label=f"half_masked/{dtype}")
+            )
 
     @torch.no_grad()
     def test_single_row(self):
@@ -225,7 +235,9 @@ class TestApplyTokenBitmaskFunction(unittest.TestCase):
         for dtype in SUPPORTED_DTYPES:
             logits = torch.randn(1, 128, dtype=dtype)
             bitmask = make_bitmask(1, 128, "random")
-            self.assertTrue(_run_and_compare(logits, bitmask, label=f"single_row/{dtype}"))
+            self.assertTrue(
+                _run_and_compare(logits, bitmask, label=f"single_row/{dtype}")
+            )
 
     @torch.no_grad()
     def test_with_indices(self):
@@ -235,8 +247,11 @@ class TestApplyTokenBitmaskFunction(unittest.TestCase):
             logits = torch.randn(batch, vocab, dtype=dtype)
             bitmask = make_bitmask(batch, vocab, "random")
             indices = torch.tensor([0, 2, 5, 7], dtype=torch.int32)
-            self.assertTrue(_run_and_compare(logits, bitmask, indices=indices,
-                                             label=f"indices/{dtype}"))
+            self.assertTrue(
+                _run_and_compare(
+                    logits, bitmask, indices=indices, label=f"indices/{dtype}"
+                )
+            )
 
     @torch.no_grad()
     def test_indices_all_rows(self):
@@ -249,12 +264,20 @@ class TestApplyTokenBitmaskFunction(unittest.TestCase):
 
             logits_npu1 = logits.npu().contiguous()
             bitmask_npu = bitmask.npu().contiguous()
-            out1 = torch.ops.npu.apply_token_bitmask(logits_npu1, bitmask_npu).float().cpu()
+            out1 = (
+                torch.ops.npu.apply_token_bitmask(logits_npu1, bitmask_npu)
+                .float()
+                .cpu()
+            )
 
             logits_npu2 = logits.npu().contiguous()
-            out2 = torch.ops.npu.apply_token_bitmask(
-                logits_npu2, bitmask_npu, indices.npu()
-            ).float().cpu()
+            out2 = (
+                torch.ops.npu.apply_token_bitmask(
+                    logits_npu2, bitmask_npu, indices.npu()
+                )
+                .float()
+                .cpu()
+            )
 
             torch.testing.assert_close(out1, out2, atol=0.0, rtol=0.0)
 
@@ -262,6 +285,7 @@ class TestApplyTokenBitmaskFunction(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Performance tests
 # ---------------------------------------------------------------------------
+
 
 def run_perf_test(batch, vocab, dtype, warmup=5, iters=50, indices=None):
     """Benchmark apply_token_bitmask, return avg latency in ms."""
@@ -299,17 +323,19 @@ def perf_suite():
 
     configs = [
         # (label, batch, vocab, dtype)
-        ("decode-typical",  16,   32000, torch.float16),
-        ("decode-large",    64,   32000, torch.float16),
-        ("prefill-base",     1,  128256, torch.float16),
-        ("prefill-large",    4,  128256, torch.float16),
-        ("decode-bf16",     16,   32000, torch.bfloat16),
-        ("decode-fp32",     16,   32000, torch.float32),
-        ("small",            1,     320, torch.float16),
+        ("decode-typical", 16, 32000, torch.float16),
+        ("decode-large", 64, 32000, torch.float16),
+        ("prefill-base", 1, 128256, torch.float16),
+        ("prefill-large", 4, 128256, torch.float16),
+        ("decode-bf16", 16, 32000, torch.bfloat16),
+        ("decode-fp32", 16, 32000, torch.float32),
+        ("small", 1, 320, torch.float16),
     ]
 
-    print(f"\n{'Config':<20s} {'Batch':>5s} {'Vocab':>7s} {'Dtype':>8s} "
-          f"{'Latency(ms)':>12s} {'Bandwidth(GB/s)':>16s}")
+    print(
+        f"\n{'Config':<20s} {'Batch':>5s} {'Vocab':>7s} {'Dtype':>8s} "
+        f"{'Latency(ms)':>12s} {'Bandwidth(GB/s)':>16s}"
+    )
     print("-" * 80)
 
     for label, batch, vocab, dtype in configs:
@@ -318,8 +344,10 @@ def perf_suite():
             total_bytes = batch * vocab * 4 * 2  # approx: read logits + mask
             bw = total_bytes / (latency * 1e-3) / 1e9 if latency > 0 else 0
             dtype_str = str(dtype).replace("torch.", "")
-            print(f"{label:<20s} {batch:>5d} {vocab:>7d} {dtype_str:>8s} "
-                  f"{latency:>12.3f} {bw:>16.2f}")
+            print(
+                f"{label:<20s} {batch:>5d} {vocab:>7d} {dtype_str:>8s} "
+                f"{latency:>12.3f} {bw:>16.2f}"
+            )
         except Exception as e:
             print(f"{label:<20s} {batch:>5d} {vocab:>7d} {'ERROR':>8s} {str(e):>12s}")
 
@@ -330,10 +358,14 @@ def perf_suite():
         indices = torch.randperm(batch, dtype=torch.int32)[:num_idx]
         try:
             latency = run_perf_test(batch, vocab, torch.float16, indices=indices)
-            print(f"  indices={num_idx:>3d}  batch={batch:>3d}  vocab={vocab:>6d}  "
-                  f"latency={latency:.3f} ms")
+            print(
+                f"  indices={num_idx:>3d}  batch={batch:>3d}  vocab={vocab:>6d}  "
+                f"latency={latency:.3f} ms"
+            )
         except Exception as e:
-            print(f"  indices={num_idx:>3d}  batch={batch:>3d}  vocab={vocab:>6d}  ERROR: {e}")
+            print(
+                f"  indices={num_idx:>3d}  batch={batch:>3d}  vocab={vocab:>6d}  ERROR: {e}"
+            )
 
     print()
 
@@ -344,9 +376,15 @@ def perf_suite():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="apply_token_bitmask test")
-    parser.add_argument("--perf", action="store_true", help="Run performance benchmark only")
-    parser.add_argument("--category", type=str, default=None,
-                        help="Run specific category: boundary | llm | general | all")
+    parser.add_argument(
+        "--perf", action="store_true", help="Run performance benchmark only"
+    )
+    parser.add_argument(
+        "--category",
+        type=str,
+        default=None,
+        help="Run specific category: boundary | llm | general | all",
+    )
     args = parser.parse_args()
 
     if args.perf:
@@ -358,16 +396,31 @@ if __name__ == "__main__":
     suite = unittest.TestSuite()
 
     if args.category == "boundary":
-        for name in ["test_all_masked", "test_all_unmasked", "test_half_masked",
-                      "test_single_row", "test_with_indices", "test_indices_all_rows"]:
-            suite.addTests(loader.loadTestsFromName(
-                f"test_apply_token_bitmask_sgl.TestApplyTokenBitmaskFunction.{name}"))
+        for name in [
+            "test_all_masked",
+            "test_all_unmasked",
+            "test_half_masked",
+            "test_single_row",
+            "test_with_indices",
+            "test_indices_all_rows",
+        ]:
+            suite.addTests(
+                loader.loadTestsFromName(
+                    f"test_apply_token_bitmask_sgl.TestApplyTokenBitmaskFunction.{name}"
+                )
+            )
     elif args.category == "llm":
-        suite.addTests(loader.loadTestsFromName(
-            "test_apply_token_bitmask_sgl.TestApplyTokenBitmaskFunction.test_llm_shapes"))
+        suite.addTests(
+            loader.loadTestsFromName(
+                "test_apply_token_bitmask_sgl.TestApplyTokenBitmaskFunction.test_llm_shapes"
+            )
+        )
     elif args.category == "general":
-        suite.addTests(loader.loadTestsFromName(
-            "test_apply_token_bitmask_sgl.TestApplyTokenBitmaskFunction.test_general_shapes"))
+        suite.addTests(
+            loader.loadTestsFromName(
+                "test_apply_token_bitmask_sgl.TestApplyTokenBitmaskFunction.test_general_shapes"
+            )
+        )
     else:
         suite.addTests(loader.loadTestsFromTestCase(TestApplyTokenBitmaskFunction))
 
