@@ -38,10 +38,10 @@ def init_base_weights(
 
     w13_weight_scale = (
         torch.rand([num_local_experts, moe_intermediate_size, 1]) * 0.0004 + 0.0015
-    ).bfloat16()
+    ).float()
     w2_weight_scale = (
         torch.rand([num_local_experts, hidden_in, 1]) * 0.0004 + 0.0015
-    ).bfloat16()
+    ).float()
 
     return w13_weight, w13_weight_scale, w2_weight, w2_weight_scale
 
@@ -212,7 +212,7 @@ def baseline_test(
     hidden_states = torch_npu.npu_grouped_matmul(
         x=[hidden_states],
         weight=[w2],
-        scale=[w2_scale],
+        scale=[w2_scale.to(output_dtype)],
         per_token_scale=[swiglu_out_scale],
         split_item=2,
         group_list_type=group_list_type,
@@ -260,7 +260,7 @@ def test(
         num_ranks - rank_offset < 257
     ), "Too many ranks (exceeding test precision limit)"
 
-    x = torch.rand((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * 10 - 5
+    x = torch.randn((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
 
     # ----- Routing(topk_idx) -----
     if args.active_ranks:
@@ -459,9 +459,10 @@ def test(
     avg_diff = torch.mean(torch.abs(fused_output - baseline_output)).item()
     baseline_output_avg = torch.mean(torch.abs(baseline_output)).item()
     fused_output_avg = torch.mean(torch.abs(fused_output)).item()
+    diff2 = calc_diff(fused_output, baseline_output)
 
     print(
-        f"[Rank {rank}] baseline_avg={baseline_output_avg:.6e}, fused_avg={fused_output_avg:.6e}, "
+        f"[Rank {rank}] baseline_avg={baseline_output_avg:.6e}, diff2={diff2:.6e}, fused_avg={fused_output_avg:.6e}, "
         f"max_diff={max_diff:.6e}, avg_diff={avg_diff:.6e}",
         flush=True,
     )
