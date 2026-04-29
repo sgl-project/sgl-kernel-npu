@@ -17,11 +17,12 @@
 #include "error_log.h"
 // #include "hcom_topo_info.h"
 #include "register/op_def_registry.h"
-#include "../op_kernel/dispatch_ffn_combine_tiling.h"
+#include "../op_kernel/dispatch_ffn_combine_bf16_tiling.h"
 #include <vector>
 #include <map>
 #include <algorithm>
-#include "../op_kernel/dispatch_ffn_combine_kernel/moe_init_routing_quant_v2/moe_init_routing_quant_v2_tiling.h"
+#include "../op_kernel/dispatch_ffn_combine_bf16_kernel/moe_init_routing_v2/moe_init_routing_v2_tiling.h"
+#include "mc2_tiling_utils.h"
 
 using namespace AscendC;
 using namespace ge;
@@ -29,8 +30,7 @@ using namespace ge;
 #define HCCL_BUFFSIZE "HCCL_BUFFSIZE"
 
 namespace {
-// 1. Constant definitions
-const char *K_INNER_DEBUG = "DispatchFFNCombine Tiling Debug";
+const char *K_INNER_DEBUG = "DispatchFFNCombineBF16 Tiling Debug";
 constexpr uint32_t ATTR_GROUP_INDEX = 0;
 constexpr uint32_t ATTR_EP_RANK_SIZE_INDEX = 1;
 constexpr uint32_t ATTR_EP_RANK_ID_INDEX = 2;
@@ -51,38 +51,20 @@ constexpr uint64_t MB_SIZE = 1024 * 1024UL;
 
 namespace optiling {
 
-static uint64_t GetMaxWindowSize()
+static int32_t CeilDev(int32_t num, int32_t div)
 {
-    uint16_t defaultWindowSize = 200;
-    const char *hccl_buffsize_env = getenv(HCCL_BUFFSIZE);
-    if (hccl_buffsize_env != nullptr) {
-        try {
-            std::string envStr(hccl_buffsize_env);
-            unsigned long val = std::stoul(envStr);
-            if (val <= std::numeric_limits<uint16_t>::max()) {
-                defaultWindowSize = static_cast<uint16_t>(val);
-            } else {
-                OP_LOGW(K_INNER_DEBUG, "HCCL_BUFFSIZE value %lu is out of range, using default.", val);
-            }
-        } catch (const std::exception &e) {
-            OP_LOGE(K_INNER_DEBUG, "Exception encountered when parsing env HCCL_BUFFSIZE: %s", e.what());
-        }
-    } else {
-        OP_LOGD(K_INNER_DEBUG, "Env HCCL_BUFFSIZE not set");
+    if (div == 0) {
+        return 0;
     }
-    const uint64_t maxWindowSize = static_cast<uint64_t>(defaultWindowSize) * MB_SIZE;
-    OP_LOGD(K_INNER_DEBUG, "Get maxWindowSize is %lu", maxWindowSize);
-    return maxWindowSize;
+    return (num + div - 1) / div;
 }
 
-// Parse and validate rankId, group, worldSize, and isTransB attributes
-static ge::graphStatus DispatchFFNCombineCheckAttrAndSetTiling(gert::TilingContext *context,
-                                                               DispatchFFNCombineInfo &info)
+static ge::graphStatus DispatchFFNCombineBF16CheckAttrAndSetTiling(gert::TilingContext *context,
+                                                                   DispatchFFNCombineBF16Info &info)
 {
     auto attrs = context->GetAttrs();
     OP_TILING_CHECK(attrs == nullptr, OP_LOGE(K_INNER_DEBUG, "attrs is null."), return ge::GRAPH_FAILED);
 
-    // TODO: set, validate, and print tiling data related to attributes
     auto groupPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_GROUP_INDEX));
     auto epRankSizePtr = attrs->GetAttrPointer<int>(ATTR_EP_RANK_SIZE_INDEX);
     auto epRankIdPtr = attrs->GetAttrPointer<int>(ATTR_EP_RANK_ID_INDEX);
@@ -107,7 +89,7 @@ static ge::graphStatus DispatchFFNCombineCheckAttrAndSetTiling(gert::TilingConte
     OP_TILING_CHECK(epRankId >= epRankSize, OP_LOGE(K_INNER_DEBUG, "epRankId must < epRankSize."),
                     return ge::GRAPH_FAILED);
 
-    // (void)ge::HcomTopoInfo::Instance().GetGroupRankSize(groupPtr, rankSize); // 读取有问题 rankSize=-305170928
+    // (void)ge::HcomTopoInfo::Instance().GetGroupRankSize(groupPtr, rankSize);
     info.worldSize = epRankSize;
 
     OP_LOGD(K_INNER_DEBUG, "maxOutputSize=%d ", info.maxOutputSize);
@@ -116,9 +98,8 @@ static ge::graphStatus DispatchFFNCombineCheckAttrAndSetTiling(gert::TilingConte
     return ge::GRAPH_SUCCESS;
 }
 
-// Extract shapes of input tensors A and B to compute M, K, N
-static ge::graphStatus DispatchFFNCombineCheckShapeAndSetTiling(gert::TilingContext *context,
-                                                                DispatchFFNCombineInfo &info)
+static ge::graphStatus DispatchFFNCombineBF16CheckShapeAndSetTiling(gert::TilingContext *context,
+                                                                    DispatchFFNCombineBF16Info &info)
 {
     const char *nodeName = context->GetNodeName();
 
@@ -128,6 +109,7 @@ static ge::graphStatus DispatchFFNCombineCheckShapeAndSetTiling(gert::TilingCont
     uint32_t K = aStorageShape->GetStorageShape().GetDim(1);
 
     auto wTensor = context->GetInputShape(WEIGHT_INDEX);
+    uint32_t wTensorDims = wTensor->GetOriginShape().GetDimNum();
     uint32_t expertPerRank = wTensor->GetStorageShape().GetDim(0);
     uint32_t N = wTensor->GetStorageShape().GetDim(2);
 
@@ -150,9 +132,8 @@ static ge::graphStatus DispatchFFNCombineCheckShapeAndSetTiling(gert::TilingCont
     return ge::GRAPH_SUCCESS;
 }
 
-// Get hardware info such as AI Core count and UB capacity for the current chip platform.
-static ge::graphStatus DispatchFFNCombineGetPlatformInfoAndSetTiling(gert::TilingContext *context,
-                                                                     DispatchFFNCombineInfo &info)
+static ge::graphStatus DispatchFFNCombineBF16GetPlatformInfoAndSetTiling(gert::TilingContext *context,
+                                                                         DispatchFFNCombineBF16Info &info)
 {
     auto ascendcPlatform = platform_ascendc::PlatformAscendC(context->GetPlatformInfo());
     uint32_t aivNum = ascendcPlatform.GetCoreNumAiv();
@@ -167,7 +148,7 @@ static ge::graphStatus DispatchFFNCombineGetPlatformInfoAndSetTiling(gert::Tilin
     return ge::GRAPH_SUCCESS;
 }
 
-void SetTilingData(CoCTiling &cocTilingData, DispatchFFNCombineInfo &info)
+void SetTilingData(CoCTiling &cocTilingData, DispatchFFNCombineBF16Info &info)
 {
     cocTilingData.m0 = 128;
     cocTilingData.k0 = 256;
@@ -181,31 +162,26 @@ void SetTilingData(CoCTiling &cocTilingData, DispatchFFNCombineInfo &info)
     cocTilingData.lenPerLoop = cocTilingData.m0 * cocTilingData.n0 / 2;
 }
 
-// Main scheduling function:
-// Get tilingData ➝ check Attr ➝ check Shape ➝ get platform info
-// ➝ call SetTilingData (based on rank count) ➝ set blockDim ➝ set tilingKey ➝ set workspace ➝ configure communication
-// parameters
-
-static ge::graphStatus DispatchFFNCombineTilingFuncImpl(gert::TilingContext *context)
+static ge::graphStatus DispatchFFNCombineBF16TilingFuncImpl(gert::TilingContext *context)
 {
     const char *nodeName = context->GetNodeName();
-    OP_LOGI(nodeName, "Enter DispatchFFNCombine tiling func.");
+    OP_LOGI(nodeName, "Enter DispatchFFNCombineBF16 tiling func.");
 
     // 1. tilingData
-    DispatchFFNCombineTilingData *tilingData = context->GetTilingData<DispatchFFNCombineTilingData>();
+    DispatchFFNCombineBF16TilingData *tilingData = context->GetTilingData<DispatchFFNCombineBF16TilingData>();
     OP_TILING_CHECK(tilingData == nullptr, OP_LOGE(nodeName, "tilingData is nullptr."), return ge::GRAPH_FAILED);
-    OP_LOGI(nodeName, "DispatchFFNCombine get tilingData.");
-    DispatchFFNCombineInfo &info = tilingData->dispatchFFNCombineInfo;
-    OP_LOGI(nodeName, "DispatchFFNCombine get tilingData info.");
+    OP_LOGI(nodeName, "DispatchFFNCombineBF16 get tilingData.");
+    DispatchFFNCombineBF16Info &info = tilingData->dispatchFFNCombineBF16Info;
+    OP_LOGI(nodeName, "DispatchFFNCombineBF16 get tilingData info.");
 
-    OP_TILING_CHECK(DispatchFFNCombineCheckAttrAndSetTiling(context, info) != ge::GRAPH_SUCCESS,
-                    OP_LOGE(context->GetNodeName(), "DispatchFFNCombine CheckAttrAndSetTiling Failed"),
+    OP_TILING_CHECK(DispatchFFNCombineBF16CheckAttrAndSetTiling(context, info) != ge::GRAPH_SUCCESS,
+                    OP_LOGE(context->GetNodeName(), "DispatchFFNCombineBF16 CheckAttrAndSetTiling Failed"),
                     return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(DispatchFFNCombineCheckShapeAndSetTiling(context, info) != ge::GRAPH_SUCCESS,
-                    OP_LOGE(context->GetNodeName(), "DispatchFFNCombine CheckShapeAndSetTiling Failed"),
+    OP_TILING_CHECK(DispatchFFNCombineBF16CheckShapeAndSetTiling(context, info) != ge::GRAPH_SUCCESS,
+                    OP_LOGE(context->GetNodeName(), "DispatchFFNCombineBF16 CheckShapeAndSetTiling Failed"),
                     return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(DispatchFFNCombineGetPlatformInfoAndSetTiling(context, info) != ge::GRAPH_SUCCESS,
-                    OP_LOGE(context->GetNodeName(), "DispatchFFNCombine GetPlatformInfoAndSetTiling Failed"),
+    OP_TILING_CHECK(DispatchFFNCombineBF16GetPlatformInfoAndSetTiling(context, info) != ge::GRAPH_SUCCESS,
+                    OP_LOGE(context->GetNodeName(), "DispatchFFNCombineBF16 GetPlatformInfoAndSetTiling Failed"),
                     return ge::GRAPH_FAILED);
 
     SetTilingData(tilingData->cocTiling, info);
@@ -226,13 +202,13 @@ static ge::graphStatus DispatchFFNCombineTilingFuncImpl(gert::TilingContext *con
 
     OP_LOGD(K_INNER_DEBUG, "tilingKey=%d", tilingKey);
 
-    optiling::MoeInitRoutingQuantV2TilingBase moeInitRoutingQuantV2TilingBase;
+    optiling::MoeInitRoutingV2TilingBase moeInitRoutingQuantV2TilingBase;
     int64_t inuptXDtypeSize = sizeof(int16_t);
     int64_t scaleDim0 = 0;
     int64_t ubSize = 196352;
     int64_t expertCapacity = 0;
     int64_t expertNum = info.expertPerRank * info.worldSize;
-    int64_t activeNum = 0;
+    int64_t activeNum = info.M * info.topK;
     int64_t dropPadMode = 0;
     int64_t expertTokensCountOrCumsumFlag = 2;
     bool expertTokensBeforeCapacityFlag = false;
@@ -244,28 +220,30 @@ static ge::graphStatus DispatchFFNCombineTilingFuncImpl(gert::TilingContext *con
     uint64_t initRoutingQuantTilingKey = moeInitRoutingQuantV2TilingBase.tilingKey_;
     size_t initRoutingWorkspace = moeInitRoutingQuantV2TilingBase.workspaceSize_;
 
-    tilingData->cocTiling.moeInitRoutingQuantV2TilingData = moeInitRoutingQuantV2TilingBase.quantTilingData;
+    tilingData->cocTiling.moeInitRoutingQuantV2TilingData = moeInitRoutingQuantV2TilingBase.moeInitRoutingTilingData;
     tilingData->cocTiling.moeInitRoutingQuantV2TilingData.vbsComputeParamsOp =
-        moeInitRoutingQuantV2TilingBase.quantTilingData.vbsComputeParamsOp;
+        moeInitRoutingQuantV2TilingBase.moeInitRoutingTilingData.vbsComputeParamsOp;
     tilingData->cocTiling.moeInitRoutingQuantV2TilingData.vmsMiddleComputeParamsOp =
-        moeInitRoutingQuantV2TilingBase.quantTilingData.vmsMiddleComputeParamsOp;
+        moeInitRoutingQuantV2TilingBase.moeInitRoutingTilingData.vmsMiddleComputeParamsOp;
     tilingData->cocTiling.moeInitRoutingQuantV2TilingData.sortOutComputeParamsOp =
-        moeInitRoutingQuantV2TilingBase.quantTilingData.sortOutComputeParamsOp;
+        moeInitRoutingQuantV2TilingBase.moeInitRoutingTilingData.sortOutComputeParamsOp;
     tilingData->cocTiling.moeInitRoutingQuantV2TilingData.srcToDstComputeParamsOp =
-        moeInitRoutingQuantV2TilingBase.quantTilingData.srcToDstComputeParamsOp;
+        moeInitRoutingQuantV2TilingBase.moeInitRoutingTilingData.srcToDstComputeParamsOp;
     tilingData->cocTiling.moeInitRoutingQuantV2TilingData.srcToDstCapacityComputeParamsOp =
-        moeInitRoutingQuantV2TilingBase.quantTilingData.srcToDstCapacityComputeParamsOp;
+        moeInitRoutingQuantV2TilingBase.moeInitRoutingTilingData.srcToDstCapacityComputeParamsOp;
     tilingData->cocTiling.moeInitRoutingQuantV2TilingData.gatherOutComputeParamsOp =
-        moeInitRoutingQuantV2TilingBase.quantTilingData.gatherOutComputeParamsOp;
+        moeInitRoutingQuantV2TilingBase.moeInitRoutingTilingData.gatherOutComputeParamsOp;
     tilingData->cocTiling.initRoutingQuantTilingKey = initRoutingQuantTilingKey;
+    // OP_LOGE(initRoutingTilingKey, " initRoutingTilingKey.");
+    OP_LOGD(K_INNER_DEBUG, "tilingKey=%ld", initRoutingQuantTilingKey);
 
-    uint64_t maxWindowSize = GetMaxWindowSize();
-    uint64_t actualSize = static_cast<uint64_t>(info.M) * info.topK * info.K * sizeof(int8_t) * 3 + 10 * MB_SIZE;
+    uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize();
+    uint64_t actualSize = static_cast<uint64_t>(info.M) * info.topK * info.K * sizeof(int16_t) * 3 + 10 * MB_SIZE;
     OP_TILING_CHECK(
         (actualSize > maxWindowSize),
         OP_LOGE(nodeName,
                 "HCCL_BUFFSIZE is too SMALL, m = %lu, k = %lu, topK = %lu"
-                " expected HCCL_BUFFSIZE is ((m * k * topK * sizeof(int8_t)) * 3 + 10MB)= %luMB, HCCL_BUFFSIZE=%luMB.",
+                " expected HCCL_BUFFSIZE is ((m * k * topK * sizeof(int16_t)) * 3 + 10MB)= %luMB, HCCL_BUFFSIZE=%luMB.",
                 info.M, info.K, info.topK, (actualSize + MB_SIZE - 1) / MB_SIZE, maxWindowSize / MB_SIZE),
         return ge::GRAPH_FAILED);
 
@@ -279,9 +257,11 @@ static ge::graphStatus DispatchFFNCombineTilingFuncImpl(gert::TilingContext *con
     uint64_t cocWorkspace = (info.M + 256 - 1) / 256 * 256 * info.topK * sizeof(int32_t) +
                             info.worldSize * info.worldSize * info.expertPerRank * sizeof(int32_t) * 3 +
                             info.maxOutputSize * sizeof(float) * 2 + info.maxOutputSize * info.N * sizeof(int16_t) +
-                            info.maxOutputSize * n2 * sizeof(int16_t) + info.maxOutputSize * info.K * sizeof(int8_t) +
-                            info.maxOutputSize * k2 * sizeof(int8_t) + info.worldSize * sizeof(int32_t) * 16 +
+                            info.maxOutputSize * n2 * sizeof(int16_t) + info.maxOutputSize * info.K * sizeof(int16_t) +
+                            info.maxOutputSize * k2 * sizeof(int16_t) + info.worldSize * sizeof(int32_t) * 16 +
                             (info.expertPerRank + info.worldSize) * sizeof(int32_t) * 16;
+    // std::max(info.maxOutputSize * info.N * sizeof(int16_t), info.maxOutputSize * n2 * sizeof(int16_t)) +
+    // std::max(info.maxOutputSize * info.K * sizeof(int8_t), info.maxOutputSize * k2 * sizeof(int8_t));
 
     workSpaces[0] = SYSTEM_NEED_WORKSPACE + std::max(cocWorkspace, initRoutingWorkspace);
 
@@ -294,23 +274,23 @@ static ge::graphStatus DispatchFFNCombineTilingFuncImpl(gert::TilingContext *con
     mc2CcTilingConfig.GetTiling(tilingData->mc2InitTiling);
     mc2CcTilingConfig.GetTiling(tilingData->mc2CcTiling);
 
-    OP_LOGI(nodeName, "Leave DispatchFFNCombine tiling func.");
+    OP_LOGI(nodeName, "Leave DispatchFFNCombineBF16 tiling func.");
     return ge::GRAPH_SUCCESS;
 }
 
-static ge::graphStatus DispatchFFNCombineTilingFunc(gert::TilingContext *context)
+static ge::graphStatus DispatchFFNCombineBF16TilingFunc(gert::TilingContext *context)
 {
-    return DispatchFFNCombineTilingFuncImpl(context);
+    return DispatchFFNCombineBF16TilingFuncImpl(context);
 }
 
-struct DispatchFFNCombineCompileInfo {};
-ge::graphStatus TilingParseForDispatchFFNCombine(gert::TilingParseContext *context)
+struct DispatchFFNCombineBF16CompileInfo {};
+ge::graphStatus TilingParseForDispatchFFNCombineBF16(gert::TilingParseContext *context)
 {
     (void)context;
     return ge::GRAPH_SUCCESS;
 }
 
-IMPL_OP_OPTILING(DispatchFFNCombine)
-    .Tiling(DispatchFFNCombineTilingFunc)
-    .TilingParse<DispatchFFNCombineCompileInfo>(TilingParseForDispatchFFNCombine);
+IMPL_OP_OPTILING(DispatchFFNCombineBF16)
+    .Tiling(DispatchFFNCombineBF16TilingFunc)
+    .TilingParse<DispatchFFNCombineBF16CompileInfo>(TilingParseForDispatchFFNCombineBF16);
 }  // namespace optiling
