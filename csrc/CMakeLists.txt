@@ -19,6 +19,9 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgmv_shrink.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmv_expand.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmv_shrink.cpp
+    ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmc_expand.cpp
+    ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmc_shrink.cpp
+    ${PROJECT_OP_SRC_BASE}/lora/op_host/tiling/sgemmc_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/lightning_indexer.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/tiling/lightning_indexer_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
@@ -51,6 +54,10 @@ ascendc_library(no_workspace_kernel STATIC
     ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_kernel/recurrent_gated_delta_rule_kernel.cpp
 )
 
+ascendc_include_directories(no_workspace_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/utils/kernel
+)
+
 # kernel side files with workspace
 set(WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_kernel/mla_preprocess_kernel.cpp
@@ -59,6 +66,8 @@ set(WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_kernel/lightning_indexer_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel/causal_conv1d_update.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel/causal_conv1d.cpp
+    ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmc_expand_kernel.cpp
+    ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmc_shrink_kernel.cpp
 )
 if(BUILD_CATLASS_MODULE)
     list(APPEND WORKSPACE_KERNEL_SRCS
@@ -75,6 +84,10 @@ if(BUILD_CATLASS_MODULE)
         ${CATLASS_DIR}/include
     )
 endif()
+
+ascendc_include_directories(workspace_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/utils/kernel
+)
 
 ascendc_compile_definitions(workspace_kernel PRIVATE
        -DHAVE_WORKSPACE
@@ -115,6 +128,7 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${TORCH_DIR}/include
         ${TORCH_DIR}/include/torch/csrc/api/include
         ${TORCH_NPU_DIR}/include
+        ${ASCEND_INCLUDE_DIR}
         ${ASCEND_INCLUDE_DIR}/external
         ${ASCEND_INCLUDE_DIR}/experiment/platform
         ${ASCEND_INCLUDE_DIR}/experiment/runtime
