@@ -10,10 +10,12 @@ from typing import Any, Callable, Dict, Optional, Tuple
 import torch
 import triton
 import triton.language as tl
+import triton.runtime.driver as driver
 import triton.language.extra.libdevice as tldevice
 
 is_gather_supported = hasattr(triton.language, "gather")
 SUPPRESS_LEVEL = int(os.getenv("GDN_RECOMPUTE_SUPPRESS_LEVEL", "0"))
+_NUM_VECTORCORE = -1
 
 if os.environ.get("FLA_USE_FAST_OPS", "0") == "1":
     exp = tldevice.fast_expf
@@ -440,3 +442,15 @@ def fused_qkvzba_split_reshape_cat(
         rows_per_iter,
     )
     return mixed_qkv, z, b, a
+
+
+def get_npu_properties():
+    device = torch.npu.current_device()
+    return driver.active.utils.get_device_properties(device)
+
+
+def get_vectorcore_num():
+    global _NUM_VECTORCORE
+    if _NUM_VECTORCORE == -1:
+        _NUM_VECTORCORE = get_npu_properties()["num_vectorcore"]
+    return _NUM_VECTORCORE

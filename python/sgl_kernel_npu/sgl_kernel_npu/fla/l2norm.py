@@ -9,7 +9,7 @@ import torch.nn as nn
 import triton
 import triton.language as tl
 import triton.runtime.driver as driver
-from sgl_kernel_npu.fla.utils import input_guard
+from sgl_kernel_npu.fla.utils import input_guard, get_vectorcore_num
 
 BT_LIST = [8, 16, 32, 64, 128]
 
@@ -93,7 +93,7 @@ def l2norm_fwd(
         NB = triton.cdiv(T, 2048)
 
         bt = 109
-        num_core = get_npu_properties()["num_vectorcore"]
+        num_core = get_vectorcore_num()
         main_bs = triton.cdiv(T, num_core)
         grid = (num_core,)
 
