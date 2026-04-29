@@ -132,15 +132,16 @@ def chunk_fwd_o_npu(
     g: Optional[torch.Tensor] = None,  # cumsum of log decay
     scale: Optional[float] = None,
     cu_seqlens: Optional[torch.LongTensor] = None,
+    chunk_indices: Optional[torch.Tensor] = None,
+    chunk_offsets: Optional[torch.Tensor] = None,
     chunk_size: int = 64,
 ) -> torch.Tensor:
     B, T, Hg, K, V = *q.shape, v.shape[-1]
     H = v.shape[-2]
     # BT = min(chunk_size, max(16, triton.next_power_of_2(T)))
     BT = chunk_size
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
+    if cu_seqlens is not None and chunk_indices is None:
+        chunk_indices = prepare_chunk_indices(cu_seqlens, BT)
     NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
     if scale is None:
         scale = k.shape[-1] ** -0.5
@@ -149,9 +150,11 @@ def chunk_fwd_o_npu(
     if cu_seqlens is None:
         N, chunk_offsets = B, None
     else:
+        if chunk_offsets is None:
+            chunk_offsets = prepare_chunk_offsets(cu_seqlens, BT)
         N, chunk_offsets = (
             len(cu_seqlens) - 1,
-            prepare_chunk_offsets(cu_seqlens, BT),
+            chunk_offsets,
         )
 
     def grid(meta):

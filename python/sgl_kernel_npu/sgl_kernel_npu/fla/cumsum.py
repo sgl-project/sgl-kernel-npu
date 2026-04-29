@@ -99,6 +99,7 @@ def chunk_local_cumsum_scalar_npu(
     reverse: bool = False,
     scale: float = None,
     cu_seqlens: Optional[torch.Tensor] = None,
+    block_indices: Optional[torch.Tensor] = None,
     head_first: bool = False,
     output_dtype: Optional[torch.dtype] = torch.float,
 ) -> torch.Tensor:
@@ -110,11 +111,8 @@ def chunk_local_cumsum_scalar_npu(
         chunk_size.bit_length() - 1
     ), "chunk_size must be a power of 2"
     OPTIM_BLOCK_SIZE = triton.next_power_of_2((2**18) // (H * chunk_size))
-    block_indices = (
-        prepare_chunk_indices(cu_seqlens, chunk_size=OPTIM_BLOCK_SIZE)
-        if cu_seqlens is not None
-        else None
-    )
+    if cu_seqlens is not None and block_indices is None:
+        block_indices = prepare_chunk_indices(cu_seqlens, chunk_size=OPTIM_BLOCK_SIZE)
     num_blocks = (
         len(block_indices)
         if cu_seqlens is not None
@@ -148,6 +146,7 @@ def chunk_local_cumsum(
     reverse: bool = False,
     scale: float = None,
     cu_seqlens: Optional[torch.Tensor] = None,
+    block_indices: Optional[torch.Tensor] = None,
     head_first: bool = False,
     output_dtype: Optional[torch.dtype] = torch.float,
     **kwargs,
@@ -163,6 +162,7 @@ def chunk_local_cumsum(
             reverse=reverse,
             scale=scale,
             cu_seqlens=cu_seqlens,
+            block_indices=block_indices,
             head_first=head_first,
             output_dtype=output_dtype,
         )

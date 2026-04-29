@@ -702,24 +702,60 @@ def prepare_data(
     cache_indices: Optional[torch.Tensor] = None,
     has_initial_state: Optional[torch.Tensor] = None,
     conv_states: Optional[torch.Tensor] = None,
+    has_initial_state_any: Optional[bool] = None,
+    seq_lens_cpu: Optional[torch.Tensor] = None,
 ):
+    import warnings
+
+    if has_initial_state_any is None:
+        warnings.warn(
+            "causal_conv1d.prepare_data fell back to has_initial_state.any() device sync; "
+            "pass has_initial_state_any from host metadata.",
+            stacklevel=3,
+        )
+        has_initial_state_any = (
+            bool(has_initial_state.any()) if has_initial_state is not None else False
+        )
+
     initial_states = (
-        torch.index_select(conv_states, 0, cache_indices)
-        * has_initial_state[:, None, None]
-        if has_initial_state is not None and has_initial_state.any()
+        torch.index_select(conv_states, 0, cache_indices) * has_initial_state[:, None, None]
+        if has_initial_state is not None and has_initial_state_any
         else None
     )
 
-    seqlens = query_start_loc[1:] - query_start_loc[:-1]
+    if seq_lens_cpu is not None:
+        if isinstance(seq_lens_cpu, torch.Tensor):
+            seqlens = seq_lens_cpu.to(dtype=torch.int32, device=weight.device)
+            max_T_host = int(seq_lens_cpu.max())
+            cu_seq_len_host = int(seq_lens_cpu.sum())
+        else:
+            seqlens = torch.tensor(seq_lens_cpu, dtype=torch.int32, device=weight.device)
+            max_T_host = max(seq_lens_cpu)
+            cu_seq_len_host = sum(seq_lens_cpu)
+    else:
+        seqlens = query_start_loc[1:] - query_start_loc[:-1]
+        max_T_host = None
+        cu_seq_len_host = None
 
     if x.ndim == 3:
         return x, initial_states, seqlens, None
 
     dtype, device = weight.dtype, weight.device
     batch_size = seqlens.size(0)
-    max_T = seqlens.max()
-    dim, cu_seq_len = x.size(0), query_start_loc[-1]
 
+    if max_T_host is not None:
+        max_T = max_T_host
+        cu_seq_len = cu_seq_len_host
+    else:
+        warnings.warn(
+            "causal_conv1d.prepare_data fell back to device sync for max_seqlen/cu_seq_len; "
+            "pass them from host metadata.",
+            stacklevel=3,
+        )
+        max_T = int(seqlens.max())
+        cu_seq_len = int(query_start_loc[-1])
+
+    dim = x.size(0)
     x_flat = torch.zeros(size=(dim, batch_size * max_T), dtype=dtype, device=device)
 
     base_idx = torch.arange(batch_size, device=device, dtype=torch.int32) * max_T
@@ -733,6 +769,50 @@ def prepare_data(
     return x_pad, initial_states, seqlens, indices
 
 
+def _is_direct_causal_conv1d_available() -> bool:
+    return hasattr(torch.ops, "npu") and hasattr(torch.ops.npu, "causal_conv1d")
+
+
+def _prepare_direct_prefill_inputs(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    conv_states: torch.Tensor,
+    input_layout: Optional[str],
+):
+    dim = weight.size(0)
+    if input_layout is None:
+        if x.size(-1) == dim:
+            input_layout = "token_dim"
+        elif x.size(0) == dim:
+            input_layout = "dim_token"
+        else:
+            return None
+
+    if input_layout == "token_dim":
+        op_x = x.contiguous()
+        output_layout = "token_dim"
+    elif input_layout == "dim_token":
+        op_x = x.transpose(0, 1).contiguous()
+        output_layout = "dim_token"
+    else:
+        raise ValueError(
+            "input_layout must be one of None, 'token_dim', or 'dim_token', "
+            f"got {input_layout!r}"
+        )
+
+    op_weight = weight.transpose(0, 1).contiguous()
+    if conv_states.size(-1) == dim:
+        op_conv_states = conv_states if conv_states.is_contiguous() else conv_states.contiguous()
+        conv_states_layout = "token_dim"
+    elif conv_states.size(1) == dim:
+        op_conv_states = conv_states.transpose(1, 2).contiguous()
+        conv_states_layout = "dim_token"
+    else:
+        return None
+
+    return op_x, op_weight, op_conv_states, output_layout, conv_states_layout
+
+
 def causal_conv1d_fn_npu(
     x: torch.Tensor,
     weight: torch.Tensor,
@@ -743,6 +823,9 @@ def causal_conv1d_fn_npu(
     conv_states: Optional[torch.Tensor] = None,
     activation: Optional[str] = "silu",
     pad_slot_id: int = PAD_SLOT_ID,
+    has_initial_state_any: Optional[bool] = None,
+    seq_lens_cpu: Optional[torch.Tensor] = None,
+    input_layout: Optional[str] = None,
     **kwargs,
 ):
     """
@@ -780,10 +863,62 @@ def causal_conv1d_fn_npu(
         x = x.contiguous()
     bias = bias.contiguous() if bias is not None else None
 
-    assert query_start_loc[-1] <= x.shape[-1], f"{query_start_loc=}, {x.shape=}"
+    if (
+        x.ndim == 2
+        and query_start_loc is not None
+        and cache_indices is not None
+        and has_initial_state is not None
+        and conv_states is not None
+        and _is_direct_causal_conv1d_available()
+    ):
+        direct_inputs = _prepare_direct_prefill_inputs(
+            x, weight, conv_states, input_layout
+        )
+        if direct_inputs is not None:
+            (
+                op_x,
+                op_weight,
+                op_conv_states,
+                output_layout,
+                conv_states_layout,
+            ) = direct_inputs
+            out = torch.ops.npu.causal_conv1d(
+                op_x,
+                op_weight,
+                op_conv_states,
+                query_start_loc,
+                cache_indices,
+                has_initial_state,
+                bias=bias,
+                activation_mode=activation in ["silu", "swish"],
+                pad_slot_id=pad_slot_id,
+            )
+            if op_conv_states.data_ptr() != conv_states.data_ptr():
+                if conv_states_layout == "token_dim":
+                    conv_states.copy_(op_conv_states)
+                else:
+                    conv_states.copy_(op_conv_states.transpose(1, 2))
+            return (
+                out
+                if output_layout == "token_dim"
+                else out.transpose(0, 1).contiguous()
+            )
+
+    fallback_layout = input_layout
+    x_for_prepare = x
+    if x.ndim == 2 and fallback_layout is None:
+        dim_w = weight.size(0)
+        if x.size(0) == dim_w:
+            fallback_layout = "dim_token"
+        elif x.size(-1) == dim_w:
+            fallback_layout = "token_dim"
+    if x.ndim == 2 and fallback_layout == "token_dim":
+        x_for_prepare = x.transpose(0, 1).contiguous()
 
     x_pad, initial_state_pad, seqlens, indices = prepare_data(
-        x, weight, query_start_loc, cache_indices, has_initial_state, conv_states
+        x_for_prepare, weight, query_start_loc, cache_indices, has_initial_state, conv_states,
+        has_initial_state_any=has_initial_state_any,
+        seq_lens_cpu=seq_lens_cpu,
     )
 
     out, final_states_out = causal_conv1d_fn_native(
@@ -804,10 +939,12 @@ def causal_conv1d_fn_npu(
     out = out.transpose(1, 2).contiguous().view(out.size(0) * out.size(2), out.size(1))
     out_final = torch.index_select(out, 0, indices).transpose(0, 1).contiguous()
 
-    pad_seq_len = x.size(-1) - out_final.size(-1)
+    pad_seq_len = x_for_prepare.size(-1) - out_final.size(-1)
     if pad_seq_len > 0:
         out_final = F.pad(out_final, (0, pad_seq_len))
 
+    if fallback_layout == "token_dim":
+        return out_final.transpose(0, 1).contiguous()  # [cu_seq_len, dim]
     return out_final  # [dim, cu_seq_len]
 
 
