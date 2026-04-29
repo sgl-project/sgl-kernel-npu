@@ -104,8 +104,9 @@ HOST_API at::Tensor apply_token_bitmask(
     uint32_t blockDim = static_cast<uint32_t>(std::min(static_cast<int64_t>(numIndices), coreNum));
     if (blockDim == 0) blockDim = 1;
 
-    uint32_t rowsPerCore = static_cast<uint32_t>(numIndices) / blockDim;
-    uint32_t rowsLastCore = static_cast<uint32_t>(numIndices) - rowsPerCore * (blockDim - 1);
+    // Evenly distribute rows: first (numIndices % blockDim) cores get one extra row
+    uint32_t baseRows = static_cast<uint32_t>(numIndices) / blockDim;
+    uint32_t extraCores = static_cast<uint32_t>(numIndices) % blockDim;
 
     // Compute tileLength from UB size
     // UB per tile (double buffered, BUFFER_NUM=2):
@@ -152,19 +153,19 @@ HOST_API at::Tensor apply_token_bitmask(
         EXEC_KERNEL_CMD(apply_token_bitmask_fp32, blockDim,
                         workingLogits, workingBitmask,
                         numRowsU32, vocabSizeU32, logitsStrideU32, bitmaskStrideU32,
-                        rowsPerCore, rowsLastCore,
+                        baseRows, extraCores,
                         tileLength, blockDim, dtypeSizeU32);
     } else if (dtype == at::kHalf) {
         EXEC_KERNEL_CMD(apply_token_bitmask_fp16, blockDim,
                         workingLogits, workingBitmask,
                         numRowsU32, vocabSizeU32, logitsStrideU32, bitmaskStrideU32,
-                        rowsPerCore, rowsLastCore,
+                        baseRows, extraCores,
                         tileLength, blockDim, dtypeSizeU32);
     } else {
         EXEC_KERNEL_CMD(apply_token_bitmask_bf16, blockDim,
                         workingLogits, workingBitmask,
                         numRowsU32, vocabSizeU32, logitsStrideU32, bitmaskStrideU32,
-                        rowsPerCore, rowsLastCore,
+                        baseRows, extraCores,
                         tileLength, blockDim, dtypeSizeU32);
     }
 
