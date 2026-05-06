@@ -116,6 +116,16 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
           "Tensor(d!) workspace, Tensor cu_seqlens, int block_dim, "
           "int batch_size, int seq_len, int total_tokens) -> ()");
 
+    m.def("chunk_o_debug(Tensor q, Tensor k, Tensor v, Tensor s, Tensor g_t, "
+          "Tensor mask, Tensor(a!) workspace_qk, Tensor(b!) workspace_qs, "
+          "Tensor(c!) workspace_gated, Tensor(d!) out, Tensor cu_seqlens, "
+          "int block_dim, int batch_size, int seq_len, int total_tokens) -> ()");
+
+    m.def("tri_inverse_debug(Tensor(a!) tensor_out, Tensor tensor_in, "
+          "Tensor minus_identity, Tensor cu_seqlens, int block_dim, "
+          "int matrix_size, int num_matrices, int num_bsnd_heads, "
+          "bool is_lower) -> ()");
+
 #ifdef BUILD_CATLASS_MODULE
     m.def("catlass_matmul_basic(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, str? format_mode=None) -> ()");
 #endif
@@ -181,6 +191,10 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("chunk_cumsum_debug", TORCH_FN(sglang::npu_kernel::chunk_cumsum_debug));
 
     m.impl("chunk_h_debug", TORCH_FN(sglang::npu_kernel::chunk_h_debug));
+
+    m.impl("chunk_o_debug", TORCH_FN(sglang::npu_kernel::chunk_o_debug));
+
+    m.impl("tri_inverse_debug", TORCH_FN(sglang::npu_kernel::tri_inverse_debug));
 
 #ifdef BUILD_CATLASS_MODULE
     m.impl("catlass_matmul_basic", TORCH_FN(sglang::npu_kernel::catlass_matmul_basic));

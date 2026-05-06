@@ -36,6 +36,8 @@ list(APPEND OP_SRCS
     ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
     ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/chunk_cumsum.cpp
     ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/chunk_h.cpp
+    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/chunk_o.cpp
+    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/tri_inverse_debug.cpp
 )
 
 # set the so name
@@ -138,10 +140,39 @@ ascendc_compile_definitions(chunk_h_debug_kernel PRIVATE
     -DGDN_C=128
 )
 
+ascendc_library(chunk_o_debug_kernel STATIC
+    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/chunk_o_kernel.cpp
+)
+ascendc_include_directories(chunk_o_debug_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn
+    ${PROJECT_SOURCE_DIR}/thirdparty/pto-isa/include
+    ${ASCEND_INCLUDE_DIR}
+    ${ASCEND_INCLUDE_DIR}/experiment/runtime
+    ${ASCEND_INCLUDE_DIR}/experiment/msprof
+)
+ascendc_compile_definitions(chunk_o_debug_kernel PRIVATE
+    -DGDN_H=16
+    -DGDN_HG=16
+    -DGDN_D=128
+    -DGDN_C=128
+)
+
+ascendc_library(tri_inverse_debug_kernel STATIC
+    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/tri_inverse_debug_kernel.cpp
+)
+ascendc_include_directories(tri_inverse_debug_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn
+    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/include
+    ${PROJECT_SOURCE_DIR}/thirdparty/pto-isa/include
+    ${ASCEND_INCLUDE_DIR}
+)
+
 # create shared library libsgl_kernel_npu.so
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
+        tri_inverse_debug_kernel
+        chunk_o_debug_kernel
         chunk_h_debug_kernel
         chunk_cumsum_debug_kernel
         mega_chunk_gdn_kernel
