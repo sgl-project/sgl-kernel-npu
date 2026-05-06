@@ -129,6 +129,18 @@ void mega_chunk_gdn(const at::Tensor &q, const at::Tensor &k,
                     int64_t block_dim, int64_t batch_size, int64_t seq_len,
                     int64_t total_tokens, int64_t num_matrices);
 
+void chunk_cumsum_debug(const at::Tensor &g, at::Tensor &g_sum,
+                        const at::Tensor &cu_seqlens, int64_t block_dim,
+                        int64_t batch_size, int64_t seq_len);
+
+void chunk_h_debug(const at::Tensor &k, const at::Tensor &w,
+                   const at::Tensor &u, const at::Tensor &g_t,
+                   at::Tensor &s, at::Tensor &v_new,
+                   at::Tensor &final_state, at::Tensor &workspace,
+                   const at::Tensor &cu_seqlens, int64_t block_dim,
+                   int64_t batch_size, int64_t seq_len,
+                   int64_t total_tokens);
+
 at::Tensor lightning_indexer(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
     const c10::optional<at::Tensor> &actual_seq_lengths_query,

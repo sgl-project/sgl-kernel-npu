@@ -108,6 +108,14 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor(s!) o_workspace_gated, int block_dim, int batch_size, "
         "int seq_len, int total_tokens, int num_matrices) -> ()");
 
+    m.def("chunk_cumsum_debug(Tensor g, Tensor(a!) g_sum, Tensor cu_seqlens, "
+          "int block_dim, int batch_size, int seq_len) -> ()");
+
+    m.def("chunk_h_debug(Tensor k, Tensor w, Tensor u, Tensor g_t, "
+          "Tensor(a!) s, Tensor(b!) v_new, Tensor(c!) final_state, "
+          "Tensor(d!) workspace, Tensor cu_seqlens, int block_dim, "
+          "int batch_size, int seq_len, int total_tokens) -> ()");
+
 #ifdef BUILD_CATLASS_MODULE
     m.def("catlass_matmul_basic(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, str? format_mode=None) -> ()");
 #endif
@@ -169,6 +177,10 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("recurrent_gated_delta_rule", TORCH_FN(sglang::npu_kernel::recurrent_gated_delta_rule));
 
     m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
+
+    m.impl("chunk_cumsum_debug", TORCH_FN(sglang::npu_kernel::chunk_cumsum_debug));
+
+    m.impl("chunk_h_debug", TORCH_FN(sglang::npu_kernel::chunk_h_debug));
 
 #ifdef BUILD_CATLASS_MODULE
     m.impl("catlass_matmul_basic", TORCH_FN(sglang::npu_kernel::catlass_matmul_basic));
