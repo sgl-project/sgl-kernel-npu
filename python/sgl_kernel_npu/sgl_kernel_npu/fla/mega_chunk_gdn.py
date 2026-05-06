@@ -1,0 +1,233 @@
+import os
+from functools import lru_cache
+from typing import Optional
+
+import torch
+
+
+NUM_VALUE_HEADS = 16
+NUM_KEY_HEADS = 16
+HEAD_DIM = 128
+CHUNK_SIZE = 128
+
+
+def _device_key(device: torch.device) -> tuple[str, int]:
+    return device.type, 0 if device.index is None else device.index
+
+
+def _device_from_key(device_type: str, device_index: int) -> torch.device:
+    return torch.device(device_type, device_index)
+
+
+@lru_cache(maxsize=16)
+def _masks(device_type: str, device_index: int) -> tuple[torch.Tensor, torch.Tensor]:
+    device = _device_from_key(device_type, device_index)
+    mask_lower = torch.tril(
+        torch.ones(CHUNK_SIZE, CHUNK_SIZE, device=device), diagonal=-1
+    ).float()
+    mask_full = torch.tril(
+        torch.ones(CHUNK_SIZE, CHUNK_SIZE, device=device), diagonal=0
+    ).float()
+    return mask_lower, mask_full
+
+
+@lru_cache(maxsize=16)
+def _minus_identity(device_type: str, device_index: int) -> torch.Tensor:
+    device = _device_from_key(device_type, device_index)
+    minus_identity = torch.zeros(
+        CHUNK_SIZE, CHUNK_SIZE, device=device, dtype=torch.float16
+    )
+    minus_identity.fill_diagonal_(-1)
+    return minus_identity
+
+
+def _total_chunks(cu_seqlens: torch.Tensor) -> int:
+    cu = cu_seqlens.cpu().tolist()
+    total = 0
+    for start, end in zip(cu, cu[1:]):
+        total += (end - start + CHUNK_SIZE - 1) // CHUNK_SIZE
+    return total
+
+
+def _block_dim(device: torch.device) -> int:
+    try:
+        props = torch.npu.get_device_properties(device)
+        return max(1, int(getattr(props, "cube_core_num", 24)))
+    except (RuntimeError, AttributeError, AssertionError):
+        return 24
+
+
+def mega_chunk_gdn_unsupported_reason(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    g: torch.Tensor,
+    beta: torch.Tensor,
+    initial_state: Optional[torch.Tensor],
+) -> Optional[str]:
+    if os.getenv("SGL_KERNEL_NPU_GDN_DISABLE_MEGA") == "1":
+        return "disabled by SGL_KERNEL_NPU_GDN_DISABLE_MEGA=1"
+    if initial_state is not None:
+        return "initial_state is not supported by the mega kernel yet"
+    if not hasattr(torch.ops.npu, "mega_chunk_gdn"):
+        return "torch.ops.npu.mega_chunk_gdn is not registered"
+    if q.device.type != "npu":
+        return "inputs are not on NPU"
+    if q.dim() != 4 or k.dim() != 4 or v.dim() != 4:
+        return "q, k, and v must have shape [B, T, H, D]"
+    if q.shape[0] != 1:
+        return "only packed B=1 input is supported"
+    if q.shape != k.shape:
+        return "q and k shapes must match"
+    if q.shape[-2] != NUM_KEY_HEADS or v.shape[-2] != NUM_VALUE_HEADS:
+        return "this build supports NumKeyHeads=16 and NumValueHeads=16"
+    if q.shape[-1] != HEAD_DIM or v.shape[-1] != HEAD_DIM:
+        return "this build supports head dimension 128"
+    if q.dtype != torch.float16 or k.dtype != torch.float16 or v.dtype != torch.float16:
+        return "q, k, and v must be float16"
+    if beta.dtype != torch.float16:
+        return "beta must be float16"
+    if g.dtype != torch.float32:
+        return "g must be float32"
+    return None
+
+
+def run_mega_chunk_gdn(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    g: torch.Tensor,
+    beta: torch.Tensor,
+    scale: Optional[float],
+    initial_state: Optional[torch.Tensor],
+    output_final_state: bool,
+    cu_seqlens: Optional[torch.Tensor],
+) -> tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    Optional[torch.Tensor],
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+]:
+    reason = mega_chunk_gdn_unsupported_reason(q, k, v, g, beta, initial_state)
+    if reason is not None:
+        raise RuntimeError(f"mega_chunk_gdn cannot run: {reason}")
+
+    if scale is None:
+        scale = k.shape[-1] ** -0.5
+
+    _, total_tokens, _, _ = q.shape
+    device_type, device_index = _device_key(q.device)
+    if cu_seqlens is None:
+        cu32 = torch.tensor([0, total_tokens], dtype=torch.int32, device=q.device)
+    else:
+        cu32 = cu_seqlens.to(torch.int32).contiguous()
+
+    num_sequences = cu32.numel() - 1
+    num_chunks = _total_chunks(cu32)
+    num_matrices = num_chunks * NUM_VALUE_HEADS
+
+    mask_lower, mask_full = _masks(device_type, device_index)
+    minus_identity = _minus_identity(device_type, device_index)
+
+    g_sum = torch.empty_like(g, dtype=torch.float32)
+    g_t = torch.empty(NUM_VALUE_HEADS, total_tokens, device=q.device, dtype=torch.float32)
+    beta_t = torch.empty(NUM_VALUE_HEADS, total_tokens, device=q.device, dtype=torch.float16)
+
+    A = torch.zeros(1, total_tokens, NUM_VALUE_HEADS, CHUNK_SIZE, device=q.device, dtype=torch.float16)
+    A_inv_f32 = torch.zeros_like(A, dtype=torch.float32)
+    A_inv = torch.zeros_like(A)
+
+    w = torch.empty_like(v)
+    u = torch.empty_like(v)
+    h = torch.zeros(num_chunks * NUM_VALUE_HEADS, HEAD_DIM, HEAD_DIM, device=q.device, dtype=torch.float16)
+    v_new = torch.empty_like(v)
+    final_state = torch.zeros(
+        num_sequences * NUM_VALUE_HEADS,
+        HEAD_DIM,
+        HEAD_DIM,
+        device=q.device,
+        dtype=torch.float16,
+    )
+
+    block_dim = _block_dim(q.device)
+    kkt_workspace = torch.zeros(block_dim * 2, CHUNK_SIZE, CHUNK_SIZE, device=q.device, dtype=torch.float16)
+    wy_workspace_a1 = torch.zeros(block_dim, CHUNK_SIZE, CHUNK_SIZE, device=q.device, dtype=torch.float16)
+    wy_workspace_a2 = torch.zeros_like(wy_workspace_a1)
+    h_workspace = torch.zeros(block_dim * 4, HEAD_DIM, HEAD_DIM, device=q.device, dtype=torch.float16)
+    o_workspace_qk = torch.zeros(block_dim, CHUNK_SIZE, CHUNK_SIZE, device=q.device, dtype=torch.float16)
+    o_workspace_qs = torch.zeros(block_dim, CHUNK_SIZE, HEAD_DIM, device=q.device, dtype=torch.float16)
+    o_workspace_gated = torch.zeros_like(o_workspace_qk)
+    out = torch.empty_like(v)
+
+    print('actually running the torch.ops so handing over to cpp')
+    torch.ops.npu.mega_chunk_gdn(
+        q,
+        k,
+        v,
+        g,
+        beta,
+        mask_lower,
+        mask_full,
+        minus_identity,
+        cu32,
+        out,
+        g_sum,
+        g_t,
+        beta_t,
+        A,
+        A_inv_f32,
+        A_inv,
+        w,
+        u,
+        h,
+        v_new,
+        final_state,
+        kkt_workspace,
+        wy_workspace_a1,
+        wy_workspace_a2,
+        h_workspace,
+        o_workspace_qk,
+        o_workspace_qs,
+        o_workspace_gated,
+        block_dim,
+        num_sequences,
+        total_tokens,
+        total_tokens,
+        num_matrices,
+    )
+
+    h = h.view(1, num_chunks, NUM_VALUE_HEADS, HEAD_DIM, HEAD_DIM)
+    if output_final_state:
+        final_state_out = final_state.view(
+            num_sequences, NUM_VALUE_HEADS, HEAD_DIM, HEAD_DIM
+        ).to(torch.float32)
+    else:
+        final_state_out = None
+    return g_sum, (out * scale).to(q.dtype), A_inv, final_state_out, w, h, v_new
+
+
+def maybe_run_mega_chunk_gdn(
+    q: torch.Tensor,
+    k: torch.Tensor,
+    v: torch.Tensor,
+    g: torch.Tensor,
+    beta: torch.Tensor,
+    scale: Optional[float],
+    initial_state: Optional[torch.Tensor],
+    output_final_state: bool,
+    cu_seqlens: Optional[torch.Tensor],
+):
+    force = os.getenv("SGL_KERNEL_NPU_GDN_FORCE_MEGA") == "1"
+    reason = mega_chunk_gdn_unsupported_reason(q, k, v, g, beta, initial_state)
+    print('should we run mega?', reason)
+    if reason is not None:
+        if force:
+            raise RuntimeError(f"mega_chunk_gdn was forced but cannot run: {reason}")
+        return None
+    print('Running mega!')
+    return run_mega_chunk_gdn(
+        q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
+    )

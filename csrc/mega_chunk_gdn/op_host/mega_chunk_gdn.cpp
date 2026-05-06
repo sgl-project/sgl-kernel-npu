@@ -1,0 +1,99 @@
+// Copyright (c) 2026 Huawei Technologies Co., Ltd
+// All rights reserved.
+
+#include <cstdint>
+#include <limits>
+#include <stdexcept>
+
+#include "aclrtlaunch_launch_mega_kernel.h"
+#include "defines.h"
+#include "runtime/rt_ffts.h"
+#include "torch_helper.h"
+
+namespace sglang {
+namespace npu_kernel {
+
+namespace {
+constexpr int64_t kValueHeads = 16;
+constexpr int64_t kKeyHeads = 16;
+constexpr int64_t kHeadDim = 128;
+constexpr int64_t kChunkSize = 128;
+
+void check_shape(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v,
+                 const at::Tensor &g, const at::Tensor &beta,
+                 const at::Tensor &cu_seqlens)
+{
+    TORCH_CHECK(q.dim() == 4, "q must have shape [B, T, Hg, D]");
+    TORCH_CHECK(k.dim() == 4, "k must have shape [B, T, Hg, D]");
+    TORCH_CHECK(v.dim() == 4, "v must have shape [B, T, H, D]");
+    TORCH_CHECK(g.dim() == 3, "g must have shape [B, T, H]");
+    TORCH_CHECK(beta.dim() == 3, "beta must have shape [B, T, H]");
+
+    TORCH_CHECK(q.size(0) == 1, "mega_chunk_gdn currently supports packed B=1 input");
+    TORCH_CHECK(q.sizes() == k.sizes(), "q and k must have the same shape");
+    TORCH_CHECK(q.size(1) == v.size(1), "q/k and v sequence lengths must match");
+    TORCH_CHECK(q.size(2) == kKeyHeads, "mega_chunk_gdn was built for NumKeyHeads=16");
+    TORCH_CHECK(v.size(2) == kValueHeads, "mega_chunk_gdn was built for NumValueHeads=16");
+    TORCH_CHECK(q.size(3) == kHeadDim && v.size(3) == kHeadDim,
+                "mega_chunk_gdn was built for head dimension 128");
+
+    TORCH_CHECK(g.size(0) == 1 && beta.size(0) == 1, "g and beta must use packed B=1 layout");
+    TORCH_CHECK(g.size(1) == q.size(1) && beta.size(1) == q.size(1),
+                "g/beta sequence lengths must match q");
+    TORCH_CHECK(g.size(2) == kValueHeads && beta.size(2) == kValueHeads,
+                "g/beta must use NumValueHeads=16");
+
+    TORCH_CHECK(q.scalar_type() == at::kHalf, "q must be float16");
+    TORCH_CHECK(k.scalar_type() == at::kHalf, "k must be float16");
+    TORCH_CHECK(v.scalar_type() == at::kHalf, "v must be float16");
+    TORCH_CHECK(beta.scalar_type() == at::kHalf, "beta must be float16");
+    TORCH_CHECK(g.scalar_type() == at::kFloat, "g must be float32");
+    TORCH_CHECK(cu_seqlens.scalar_type() == at::kInt, "cu_seqlens must be int32");
+
+    TORCH_CHECK(q.is_contiguous() && k.is_contiguous() && v.is_contiguous(),
+                "q, k, and v must be contiguous");
+    TORCH_CHECK(g.is_contiguous() && beta.is_contiguous() && cu_seqlens.is_contiguous(),
+                "g, beta, and cu_seqlens must be contiguous");
+}
+}  // namespace
+
+HOST_API void mega_chunk_gdn(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v,
+                             const at::Tensor &g, const at::Tensor &beta,
+                             const at::Tensor &mask_lower, const at::Tensor &mask_full,
+                             const at::Tensor &minus_identity, const at::Tensor &cu_seqlens,
+                             at::Tensor &out, at::Tensor &g_sum, at::Tensor &g_t,
+                             at::Tensor &beta_t, at::Tensor &a, at::Tensor &a_inv_f32,
+                             at::Tensor &a_inv, at::Tensor &w, at::Tensor &u,
+                             at::Tensor &s, at::Tensor &v_new, at::Tensor &final_state,
+                             at::Tensor &kkt_workspace, at::Tensor &wy_workspace_a1,
+                             at::Tensor &wy_workspace_a2, at::Tensor &h_workspace,
+                             at::Tensor &o_workspace_qk, at::Tensor &o_workspace_qs,
+                             at::Tensor &o_workspace_gated, int64_t block_dim,
+                             int64_t batch_size, int64_t seq_len, int64_t total_tokens,
+                             int64_t num_matrices)
+{
+    check_shape(q, k, v, g, beta, cu_seqlens);
+    TORCH_CHECK(block_dim > 0 && block_dim <= std::numeric_limits<uint32_t>::max(),
+                "block_dim is out of uint32 range");
+    TORCH_CHECK(batch_size == cu_seqlens.numel() - 1, "batch_size must match cu_seqlens");
+    TORCH_CHECK(seq_len == q.size(1), "seq_len must match q.shape[1]");
+    TORCH_CHECK(total_tokens == q.size(1), "total_tokens must match packed token count");
+    TORCH_CHECK(num_matrices >= 0 && num_matrices <= std::numeric_limits<uint32_t>::max(),
+                "num_matrices is out of uint32 range");
+
+    uint32_t ffts_len = 0;
+    uint64_t ffts_addr = 0;
+    rtGetC2cCtrlAddr(&ffts_addr, &ffts_len);
+    uint32_t num_matrices_u32 = static_cast<uint32_t>(num_matrices);
+    uint32_t block_dim_u32 = static_cast<uint32_t>(block_dim);
+
+    EXEC_KERNEL_CMD(launch_mega_kernel, block_dim_u32, q, k, v, g, beta, mask_lower,
+                    mask_full, minus_identity, cu_seqlens, out, g_sum, g_t, beta_t, a,
+                    a_inv_f32, a_inv, w, u, s, v_new, final_state, kkt_workspace,
+                    wy_workspace_a1, wy_workspace_a2, h_workspace, o_workspace_qk,
+                    o_workspace_qs, o_workspace_gated, batch_size, seq_len,
+                    total_tokens, num_matrices_u32, ffts_addr);
+}
+
+}  // namespace npu_kernel
+}  // namespace sglang

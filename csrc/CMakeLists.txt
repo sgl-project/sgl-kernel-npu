@@ -32,6 +32,9 @@ if(BUILD_CATLASS_MODULE)
         ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_matmul_basic.cpp
     )
 endif()
+list(APPEND OP_SRCS
+    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
+)
 
 # set the so name
 set(OP_PLUGIN_NAME sgl_kernel_npu)
@@ -83,10 +86,29 @@ ascendc_compile_definitions(workspace_kernel PRIVATE
        -DHAVE_TILING
 )
 
+ascendc_library(mega_chunk_gdn_kernel STATIC
+    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/mega_kernel.cpp
+)
+ascendc_include_directories(mega_chunk_gdn_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn
+    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/include
+    ${PROJECT_SOURCE_DIR}/thirdparty/pto-isa/include
+    ${ASCEND_INCLUDE_DIR}
+    ${ASCEND_INCLUDE_DIR}/experiment/runtime
+    ${ASCEND_INCLUDE_DIR}/experiment/msprof
+)
+ascendc_compile_definitions(mega_chunk_gdn_kernel PRIVATE
+    -DGDN_H=16
+    -DGDN_HG=16
+    -DGDN_D=128
+    -DGDN_C=128
+)
+
 # create shared library libsgl_kernel_npu.so
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
+        mega_chunk_gdn_kernel
         workspace_kernel
         no_workspace_kernel
         torch_npu
@@ -120,4 +142,5 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${ASCEND_INCLUDE_DIR}/external
         ${ASCEND_INCLUDE_DIR}/experiment/platform
         ${ASCEND_INCLUDE_DIR}/experiment/runtime
+        ${ASCEND_INCLUDE_DIR}/experiment/msprof
 )
