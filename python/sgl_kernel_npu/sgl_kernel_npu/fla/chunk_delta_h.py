@@ -228,7 +228,9 @@ def chunk_gated_delta_rule_fwd_h_npu(
 
     if cu_seqlens is not None and chunk_indices is None:
         _ref = cu_seqlens_cpu if cu_seqlens_cpu is not None else cu_seqlens
-        chunk_indices = prepare_chunk_indices(_ref, chunk_size).to(device=cu_seqlens.device)
+        chunk_indices = prepare_chunk_indices(_ref, chunk_size).to(
+            device=cu_seqlens.device
+        )
     # N: the actual number of sequences in the batch with either equal or variable lengths
     if cu_seqlens is None:
         N, NT, chunk_offsets = B, triton.cdiv(T, BT), None

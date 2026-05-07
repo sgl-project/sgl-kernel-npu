@@ -114,7 +114,9 @@ def chunk_local_cumsum_scalar_npu(
     OPTIM_BLOCK_SIZE = triton.next_power_of_2((2**18) // (H * chunk_size))
     if cu_seqlens is not None and block_indices is None:
         _ref = cu_seqlens_cpu if cu_seqlens_cpu is not None else cu_seqlens
-        block_indices = prepare_chunk_indices(_ref, chunk_size=OPTIM_BLOCK_SIZE).to(device=cu_seqlens.device)
+        block_indices = prepare_chunk_indices(_ref, chunk_size=OPTIM_BLOCK_SIZE).to(
+            device=cu_seqlens.device
+        )
     num_blocks = (
         len(block_indices)
         if cu_seqlens is not None

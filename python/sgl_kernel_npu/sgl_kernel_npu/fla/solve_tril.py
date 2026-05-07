@@ -470,14 +470,13 @@ def merge_16x16_to_64x64_inverse_kernel_reorder_all_masked(
         zero_block = tl.zeros((32, 32), dtype=ptr_Ai.dtype.element_ty)
         tl.store(ptr_Ai, zero_block, mask=mask_store)
 
+
 def solve_tril_merge_launch_shape(
     num_chunks: int, max_programs: int = 2048
 ) -> tuple[int, int]:
     num_programs = min(num_chunks, max_programs)
     chunks_per_program = (num_chunks + num_programs - 1) // num_programs
     return num_programs, chunks_per_program
-
-
 
 
 def solve_tril_npu(
