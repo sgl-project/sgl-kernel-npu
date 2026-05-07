@@ -108,14 +108,16 @@ def recompute_w_u_fwd_npu(
     g_cumsum: torch.Tensor,
     A: torch.Tensor,
     cu_seqlens: Optional[torch.LongTensor],
+    cu_seqlens_cpu: Optional[torch.Tensor] = None,
+    chunk_indices: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     B, T, Hg, K, V = *k.shape, v.shape[-1]
     H = v.shape[-2]
     BT = A.shape[-1]
 
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
+    if cu_seqlens is not None and chunk_indices is None:
+        _ref = cu_seqlens_cpu if cu_seqlens_cpu is not None else cu_seqlens
+        chunk_indices = prepare_chunk_indices(_ref, BT).to(device=cu_seqlens.device)
     NT = triton.cdiv(T, BT) if cu_seqlens is None else len(chunk_indices)
     BK = 128
     BV = 128

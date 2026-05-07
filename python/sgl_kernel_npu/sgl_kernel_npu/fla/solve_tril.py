@@ -470,10 +470,22 @@ def merge_16x16_to_64x64_inverse_kernel_reorder_all_masked(
         zero_block = tl.zeros((32, 32), dtype=ptr_Ai.dtype.element_ty)
         tl.store(ptr_Ai, zero_block, mask=mask_store)
 
+def solve_tril_merge_launch_shape(
+    num_chunks: int, max_programs: int = 2048
+) -> tuple[int, int]:
+    num_programs = min(num_chunks, max_programs)
+    chunks_per_program = (num_chunks + num_programs - 1) // num_programs
+    return num_programs, chunks_per_program
+
+
+
 
 def solve_tril_npu(
     A: torch.Tensor,
     cu_seqlens: Optional[torch.Tensor] = None,
+    cu_seqlens_cpu: Optional[torch.Tensor] = None,
+    chunk_indices_large_block: Optional[torch.Tensor] = None,
+    chunk_indices_bt: Optional[torch.Tensor] = None,
     output_dtype: torch.dtype = torch.float,
 ) -> torch.Tensor:
     """
@@ -502,11 +514,12 @@ def solve_tril_npu(
     LARGE_BLOCK_T = 608 * 2
     # assert A.shape[1]%LARGE_BLOCK_T == 0 # or last N_BLOCKS have not enough block which leads to tl.arange failed
 
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, LARGE_BLOCK_T)
-        if cu_seqlens is not None
-        else None
-    )
+    chunk_indices = chunk_indices_large_block
+    if cu_seqlens is not None and chunk_indices is None:
+        _ref = cu_seqlens_cpu if cu_seqlens_cpu is not None else cu_seqlens
+        chunk_indices = prepare_chunk_indices(_ref, LARGE_BLOCK_T).to(
+            device=cu_seqlens.device
+        )
     NT = len(chunk_indices) if cu_seqlens is not None else triton.cdiv(T, LARGE_BLOCK_T)
     solve_tril_16x16_kernel_paral_v3[NT, B * H](
         A=A,
@@ -530,13 +543,13 @@ def solve_tril_npu(
         if BT == 32
         else merge_16x16_to_64x64_inverse_kernel_reorder_all_masked
     )
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, BT) if cu_seqlens is not None else None
-    )
+    chunk_indices = chunk_indices_bt
+    if cu_seqlens is not None and chunk_indices is None:
+        _ref = cu_seqlens_cpu if cu_seqlens_cpu is not None else cu_seqlens
+        chunk_indices = prepare_chunk_indices(_ref, BT).to(device=cu_seqlens.device)
     NT = len(chunk_indices) if cu_seqlens is not None else triton.cdiv(T, BT)
     if BT != 32:
-        CHUNKS_PER_PROGRAM = min(NT, 2048)
-        num_programs = triton.cdiv(NT, CHUNKS_PER_PROGRAM)
+        num_programs, CHUNKS_PER_PROGRAM = solve_tril_merge_launch_shape(NT)
         merge_fn[num_programs, B * H](
             A=A,
             Ad=Ad,

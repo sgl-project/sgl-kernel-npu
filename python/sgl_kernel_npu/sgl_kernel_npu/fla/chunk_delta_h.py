@@ -218,25 +218,25 @@ def chunk_gated_delta_rule_fwd_h_npu(
     chunk_size: int = 64,  # SY: remove this argument and force chunk size 64?
     save_new_value: bool = True,
     cu_seqlens: Optional[torch.LongTensor] = None,
+    cu_seqlens_cpu: Optional[torch.Tensor] = None,
+    chunk_indices: Optional[torch.Tensor] = None,
+    chunk_offsets: Optional[torch.Tensor] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     B, T, Hg, K, V = *k.shape, u.shape[-1]
     H = u.shape[-2]
     BT = chunk_size
 
-    chunk_indices = (
-        prepare_chunk_indices(cu_seqlens, chunk_size)
-        if cu_seqlens is not None
-        else None
-    )
+    if cu_seqlens is not None and chunk_indices is None:
+        _ref = cu_seqlens_cpu if cu_seqlens_cpu is not None else cu_seqlens
+        chunk_indices = prepare_chunk_indices(_ref, chunk_size).to(device=cu_seqlens.device)
     # N: the actual number of sequences in the batch with either equal or variable lengths
     if cu_seqlens is None:
         N, NT, chunk_offsets = B, triton.cdiv(T, BT), None
     else:
-        N, NT, chunk_offsets = (
-            len(cu_seqlens) - 1,
-            len(chunk_indices),
-            prepare_chunk_offsets(cu_seqlens, BT),
-        )
+        if chunk_offsets is None:
+            _ref = cu_seqlens_cpu if cu_seqlens_cpu is not None else cu_seqlens
+            chunk_offsets = prepare_chunk_offsets(_ref, BT).to(device=cu_seqlens.device)
+        N, NT, chunk_offsets = (len(cu_seqlens) - 1, len(chunk_indices), chunk_offsets)
     assert K <= 256, "current kernel does not support head dimension larger than 256."
     h = k.new_empty(B, NT, H, K, V)
     final_state = (

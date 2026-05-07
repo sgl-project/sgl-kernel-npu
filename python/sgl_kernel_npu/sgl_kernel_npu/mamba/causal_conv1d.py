@@ -647,6 +647,14 @@ def causal_conv1d_update_v2(
     return out.to(original_x_dtype)
 
 
+def _as_cpu_list(values):
+    if values is None:
+        return None
+    if isinstance(values, torch.Tensor):
+        return values.detach().cpu().tolist()
+    return list(values)
+
+
 def causal_conv1d_fn_native(
     x: torch.Tensor,
     weight: torch.Tensor,
@@ -702,11 +710,14 @@ def prepare_data(
     cache_indices: Optional[torch.Tensor] = None,
     has_initial_state: Optional[torch.Tensor] = None,
     conv_states: Optional[torch.Tensor] = None,
+    query_start_list: Optional[list[int]] = None,
 ):
     initial_states = (
         torch.index_select(conv_states, 0, cache_indices)
         * has_initial_state[:, None, None]
-        if has_initial_state is not None and has_initial_state.any()
+        if has_initial_state is not None
+        and conv_states is not None
+        and cache_indices is not None
         else None
     )
 
@@ -717,8 +728,11 @@ def prepare_data(
 
     dtype, device = weight.dtype, weight.device
     batch_size = seqlens.size(0)
-    max_T = seqlens.max()
-    dim, cu_seq_len = x.size(0), query_start_loc[-1]
+    max_T = max(
+        query_start_list[i + 1] - query_start_list[i]
+        for i in range(len(query_start_list) - 1)
+    )
+    dim, cu_seq_len = x.size(0), query_start_list[-1]
 
     x_flat = torch.zeros(size=(dim, batch_size * max_T), dtype=dtype, device=device)
 
@@ -780,10 +794,35 @@ def causal_conv1d_fn_npu(
         x = x.contiguous()
     bias = bias.contiguous() if bias is not None else None
 
-    assert query_start_loc[-1] <= x.shape[-1], f"{query_start_loc=}, {x.shape=}"
+    seq_lens_cpu = _as_cpu_list(kwargs.get("seq_lens_cpu"))
+    if seq_lens_cpu is None:
+        assert query_start_loc is not None, "query_start_loc is required"
+        query_start_list = _as_cpu_list(query_start_loc)
+    else:
+        query_start_list = [0]
+        for seq_len in seq_lens_cpu:
+            query_start_list.append(query_start_list[-1] + int(seq_len))
+
+    assert query_start_list[-1] <= x.shape[-1], f"{query_start_list=}, {x.shape=}"
+
+    if query_start_loc is None:
+        query_start_loc = torch.tensor(
+            query_start_list, dtype=torch.int32, device=x.device
+        )
+    batch_size = len(query_start_list) - 1
+    if cache_indices is None:
+        cache_indices = torch.arange(batch_size, dtype=torch.long, device=x.device)
+    if has_initial_state is None:
+        has_initial_state = torch.zeros(batch_size, dtype=torch.bool, device=x.device)
 
     x_pad, initial_state_pad, seqlens, indices = prepare_data(
-        x, weight, query_start_loc, cache_indices, has_initial_state, conv_states
+        x,
+        weight,
+        query_start_loc,
+        cache_indices,
+        has_initial_state,
+        conv_states,
+        query_start_list,
     )
 
     out, final_states_out = causal_conv1d_fn_native(
