@@ -153,8 +153,7 @@ AICORE void chunk_o_kernel(
     __gm__ half *O_handle,
     __gm__ int32_t *cu_seqlens,
     int64_t batch_size, int64_t seq_len,
-    int64_t total_tokens,
-    uint64_t ffts_addr)
+    int64_t total_tokens)
 {
   // Half the chunk — each Vec sub-block handles C/2 rows independently.
   constexpr int32_t HalfChunk = ChunkSize / 2;
@@ -190,8 +189,7 @@ AICORE void chunk_o_kernel(
   constexpr int32_t OHalfUbAddr  = 164608;
   constexpr int32_t OUbAddr      = QKUbAddr;
 
-  // Initialize the cross-core FFTS signaling base address for this AI core.
-  set_ffts_base_addr(ffts_addr);
+  // FFTS is configured by the generated or standalone launch wrapper.
   // cid = which AI core am I? (0..block_num-1). Used to partition work items.
   auto cid = get_block_idx();
   // block_num = total number of AI cores running this kernel in parallel.
@@ -1208,6 +1206,7 @@ extern "C" __global__ AICORE void launch_chunk_o(
     int64_t total_tokens,
     uint64_t ffts_addr)
 {
+  set_ffts_base_addr(ffts_addr);
   chunk_o_kernel<GDN_H, GDN_HG, GDN_D, GDN_C>(
       reinterpret_cast<__gm__ half *>(Q_handle),
       reinterpret_cast<__gm__ half *>(K_handle),
@@ -1220,7 +1219,7 @@ extern "C" __global__ AICORE void launch_chunk_o(
       reinterpret_cast<__gm__ half *>(workspace_qk_gated),
       reinterpret_cast<__gm__ half *>(O_handle),
       reinterpret_cast<__gm__ int32_t *>(cu_seqlens),
-      batch_size, seq_len, total_tokens, ffts_addr);
+      batch_size, seq_len, total_tokens);
 }
 
 // ── Host launcher (called from Python ctypes) ─────────────────────────
