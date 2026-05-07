@@ -143,7 +143,7 @@ using L1MatZN = pto::Tile<pto::TileType::Mat, T, R, C, pto::BLayout::RowMajor,
 
 template <int32_t NumHeads, int32_t NumKeyHeads, int32_t HiddenSize,
           int32_t ChunkSize>
-AICORE void chunk_o_kernel(
+static inline AICORE void chunk_o_kernel(
     __gm__ half *Q_handle, __gm__ half *K_handle, __gm__ half *V_handle,
     __gm__ half *S_handle, __gm__ float *G_handle,
     __gm__ float *Msk_handle,
