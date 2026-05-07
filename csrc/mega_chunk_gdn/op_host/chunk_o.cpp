@@ -56,12 +56,6 @@ HOST_API void chunk_o_debug(const at::Tensor &q,
     TORCH_CHECK(cu_seqlens.numel() == batch_size + 1, "batch_size must match cu_seqlens");
     TORCH_CHECK(seq_len == q.size(1), "seq_len must match q.shape[1]");
     TORCH_CHECK(total_tokens == g_t.size(1), "total_tokens must match g_t.shape[1]");
-    TORCH_CHECK(q.is_contiguous() && k.is_contiguous() && v.is_contiguous() &&
-                    s.is_contiguous() && g_t.is_contiguous() && mask.is_contiguous() &&
-                    workspace_qk.is_contiguous() && workspace_qs.is_contiguous() &&
-                    workspace_gated.is_contiguous() && out.is_contiguous() &&
-                    cu_seqlens.is_contiguous(),
-                "all chunk_o_debug tensors must be contiguous");
     TORCH_CHECK(block_dim > 0 && block_dim <= std::numeric_limits<uint32_t>::max(),
                 "block_dim is out of uint32 range");
 
