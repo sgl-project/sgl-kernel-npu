@@ -57,7 +57,6 @@ def chunk_gated_delta_rule_native(
     use_qk_l2norm_in_kernel=False,
     tri_inv_fn: typing.Callable = inv_tril_inplace,
 ):
-    print('testing native!')
     initial_dtype = query.dtype
     if use_qk_l2norm_in_kernel:
         query = F.normalize(query, p=2, dim=-1)

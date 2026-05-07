@@ -28,6 +28,12 @@ def _assert_close(name: str, actual: torch.Tensor, expected: torch.Tensor) -> No
 
 
 def _native_reference(q, k, v, g, beta, cu_seqlens):
+    if q.shape[2] != v.shape[2]:
+        assert v.shape[2] % q.shape[2] == 0
+        group_size = v.shape[2] // q.shape[2]
+        q = q.repeat_interleave(group_size, dim=2)
+        k = k.repeat_interleave(group_size, dim=2)
+
     if cu_seqlens is None:
         return chunk_gated_delta_rule_native(
             query=q,
@@ -64,7 +70,8 @@ def _native_reference(q, k, v, g, beta, cu_seqlens):
         (128, None),
     ],
 )
-def test_mega_chunk_gdn_e2e(monkeypatch, total_tokens, cu_list):
+@pytest.mark.parametrize("num_value_heads", [16, 32, 48, 64])
+def test_mega_chunk_gdn_e2e(monkeypatch, total_tokens, cu_list, num_value_heads):
     if not hasattr(torch.ops.npu, "mega_chunk_gdn"):
         pytest.skip("mega_chunk_gdn op is not registered")
 
@@ -72,11 +79,12 @@ def test_mega_chunk_gdn_e2e(monkeypatch, total_tokens, cu_list):
 
     torch.manual_seed(0)
     device = torch.device("npu")
-    H = 16
+    Hg = 16
+    H = num_value_heads
     D = 128
 
-    q_cpu = F.normalize(torch.randn(1, total_tokens, H, D), p=2, dim=-1).to(torch.float16)
-    k_cpu = F.normalize(torch.randn(1, total_tokens, H, D), p=2, dim=-1).to(torch.float16)
+    q_cpu = F.normalize(torch.randn(1, total_tokens, Hg, D), p=2, dim=-1).to(torch.float16)
+    k_cpu = F.normalize(torch.randn(1, total_tokens, Hg, D), p=2, dim=-1).to(torch.float16)
     v_cpu = torch.randn(1, total_tokens, H, D, dtype=torch.float16)
     g_cpu = F.logsigmoid(torch.randn(1, total_tokens, H, dtype=torch.float32))
     beta_cpu = torch.rand(1, total_tokens, H, dtype=torch.float16)

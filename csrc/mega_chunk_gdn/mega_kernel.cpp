@@ -28,6 +28,9 @@
 #ifndef MEMORY_BASE
 #define MEMORY_BASE
 #endif
+#ifndef GDN_KERNEL_NAME
+#define GDN_KERNEL_NAME launch_mega_kernel
+#endif
 
 #include <pto/pto-inst.hpp>
 #include "include/kernel_utils.h"
@@ -269,7 +272,7 @@ AICORE inline void mega_solve_tril(
             num_bsnd_heads, cu_seqlens, is_lower);
 }
 
-extern "C" __global__ AICORE void launch_mega_kernel(
+extern "C" __global__ AICORE void GDN_KERNEL_NAME(
     __gm__ uint8_t* q_ptr,
     __gm__ uint8_t* k_ptr,
     __gm__ uint8_t* v_ptr,
