@@ -141,21 +141,6 @@ void chunk_h_debug(const at::Tensor &k, const at::Tensor &w,
                    int64_t batch_size, int64_t seq_len,
                    int64_t total_tokens);
 
-void chunk_o_debug(const at::Tensor &q, const at::Tensor &k,
-                   const at::Tensor &v, const at::Tensor &s,
-                   const at::Tensor &g_t, const at::Tensor &mask,
-                   at::Tensor &workspace_qk, at::Tensor &workspace_qs,
-                   at::Tensor &workspace_gated, at::Tensor &out,
-                   const at::Tensor &cu_seqlens, int64_t block_dim,
-                   int64_t batch_size, int64_t seq_len,
-                   int64_t total_tokens);
-
-void tri_inverse_debug(at::Tensor &tensor_out, const at::Tensor &tensor_in,
-                       const at::Tensor &minus_identity,
-                       const at::Tensor &cu_seqlens, int64_t block_dim,
-                       int64_t matrix_size, int64_t num_matrices,
-                       int64_t num_bsnd_heads, bool is_lower);
-
 at::Tensor lightning_indexer(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
     const c10::optional<at::Tensor> &actual_seq_lengths_query,

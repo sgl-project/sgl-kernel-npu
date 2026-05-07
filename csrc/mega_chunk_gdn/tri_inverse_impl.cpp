@@ -12,13 +12,11 @@ for the full License text.
 #endif
 #include <pto/pto-inst.hpp>
 
+#include "kernel_utils.h"
+
 #define GM_ADDR __gm__ uint8_t*  // To avoid #include "kernel_operator.h"
 using namespace pto;
-
-template <typename T1, typename T2>
-AICORE inline T1 TriCeilDiv(T1 value, T2 divisor) {
-  return (value + divisor - 1) / divisor;
-}
+using namespace kernel_utils;
 
 #define BSND_OFFSET(tile_id, N, S, D) \
   (((tile_id) / (N)) * (S) * (N) * (D) + ((tile_id) % (N)) * (D))
@@ -57,7 +55,7 @@ AICORE inline BSNDVarlenTileInfo GetBSNDVarlenTileInfoFromCuSeqlens(
   for (uint32_t seq_idx = 0;; ++seq_idx) {
     const uint32_t seq_end = static_cast<uint32_t>(cu_seqlens[seq_idx + 1]);
     const uint32_t seq_len = seq_end - seq_start;
-    const uint32_t seq_num_chunks = TriCeilDiv(seq_len, matrix_size);
+    const uint32_t seq_num_chunks = CeilDiv(seq_len, matrix_size);
     if (chunk_idx < accumulated_chunks + seq_num_chunks) {
       const uint32_t local_chunk_idx = chunk_idx - accumulated_chunks;
       const uint32_t row_start = seq_start + local_chunk_idx * matrix_size;
@@ -586,7 +584,7 @@ AICORE inline void TriInvRecUnrollKernel(__gm__ StoreT* M_inv,
       c_l0_tile[0]);
 
   const uint32_t max_iters_per_aic =
-      TriCeilDiv(total_tiles, (uint32_t)(NumTilesPerCubeIter * get_block_num()));
+      CeilDiv(total_tiles, (uint32_t)(NumTilesPerCubeIter * get_block_num()));
 
   /* Main iteration - Compute all tiles */
   uint32_t bsnd_tile_offsets[NumTilesPerCubeIter] = {0};
@@ -710,11 +708,11 @@ AICORE inline void TriInvRecUnrollKernel(__gm__ StoreT* M_inv,
  */
 template <typename InputT, typename OutputT, uint32_t MatrixSize,
           uint32_t NumTilesPerCubeIter, bool IsBSND, typename StoreT = OutputT>
-AICORE inline void runKernelTriInvRecUnroll(__gm__ StoreT* M_inv, __gm__ InputT* M,
-                                            __gm__ InputT* I_neg, uint32_t total_tiles,
-                                            uint32_t num_bsnd_heads = 0,
-                                            __gm__ int32_t* cu_seqlens = nullptr,
-                                            uint32_t is_lower = 0) {
+AICORE void runKernelTriInvRecUnroll(__gm__ StoreT* M_inv, __gm__ InputT* M,
+                                     __gm__ InputT* I_neg, uint32_t total_tiles,
+                                     uint32_t num_bsnd_heads = 0,
+                                     __gm__ int32_t* cu_seqlens = nullptr,
+                                     uint32_t is_lower = 0) {
 #if (__CHECK_FEATURE_AT_PRECOMPILE) || \
     (__CCE_AICORE__ == 220 && defined(__DAV_C220_CUBE__))  // Cube compilation
 
@@ -727,13 +725,13 @@ AICORE inline void runKernelTriInvRecUnroll(__gm__ StoreT* M_inv, __gm__ InputT*
 }
 
 template <typename InputT, uint32_t NumTilesPerCubeIter, bool IsBSND>
-AICORE inline void run_tri_inv_rec_unroll(__gm__ float* tensor_out,
-                                          __gm__ InputT* tensor_in,
-                                          __gm__ InputT* minus_identity_in,
-                                          uint32_t matrix_size, uint32_t num_matrices,
-                                          uint32_t num_bsnd_heads,
-                                          __gm__ int32_t* cu_seqlens = nullptr,
-                                          uint32_t is_lower = 0) {
+AICORE void run_tri_inv_rec_unroll(__gm__ float* tensor_out,
+                                   __gm__ InputT* tensor_in,
+                                   __gm__ InputT* minus_identity_in,
+                                   uint32_t matrix_size, uint32_t num_matrices,
+                                   uint32_t num_bsnd_heads,
+                                   __gm__ int32_t* cu_seqlens = nullptr,
+                                   uint32_t is_lower = 0) {
   static_assert(std::is_same_v<InputT, half>,
                 "tri_inv_rec_unroll supports only fp16.");
   switch (matrix_size) {
