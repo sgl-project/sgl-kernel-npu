@@ -3,7 +3,7 @@ from typing import Tuple
 import torch
 import triton
 import triton.language as tl
-from sgl_kernel_npu.fla.utils import get_vectorcore_num
+from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 UNIFIED_BUFFER_SIZE = 1572864
 
@@ -64,7 +64,7 @@ def fused_gdn_gating_npu(
     batch, num_heads = a.shape
     seq_len = 1
 
-    num_cores = get_vectorcore_num()
+    num_cores = get_device_properties()[1]
 
     BLK_HEADS = 8
     COL_ITER = triton.cdiv(num_heads, BLK_HEADS)
