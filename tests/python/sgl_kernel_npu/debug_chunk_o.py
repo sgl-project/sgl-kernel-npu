@@ -52,34 +52,41 @@ def main():
     h = 16
     hg = 16
     d = 128
-    cu = torch.tensor([0, 64, total_tokens], device=device, dtype=torch.int32)
-    batch_size = cu.numel() - 1
+    cu_cpu = torch.tensor([0, 64, total_tokens], dtype=torch.int32)
+    batch_size = cu_cpu.numel() - 1
 
     torch.manual_seed(42)
-    q = F.normalize(torch.randn(1, total_tokens, hg, d, device=device, dtype=torch.float16), dim=-1, p=2)
-    k = F.normalize(torch.randn(1, total_tokens, hg, d, device=device, dtype=torch.float16), dim=-1, p=2)
-    w = torch.randn(1, total_tokens, h, d, device=device, dtype=torch.float16)
-    u = torch.randn(1, total_tokens, h, d, device=device, dtype=torch.float16)
-    g_in = F.logsigmoid(torch.randn(1, total_tokens, h, device=device, dtype=torch.float32))
-    g_sum = ref_cumsum(g_in.cpu(), chunk_size, cu.cpu()).to(device)
-    g_t = transpose_gates(g_sum)
+    k_cpu = F.normalize(torch.randn(1, total_tokens, hg, d, dtype=torch.float16), dim=-1, p=2)
+    q_cpu = F.normalize(torch.randn(1, total_tokens, hg, d, dtype=torch.float16), dim=-1, p=2)
+    w_cpu = torch.randn(1, total_tokens, h, d, dtype=torch.float16)
+    u_cpu = torch.randn(1, total_tokens, h, d, dtype=torch.float16)
+    g_in_cpu = F.logsigmoid(torch.randn(1, total_tokens, h, dtype=torch.float32))
+    g_sum_cpu = ref_cumsum(g_in_cpu, chunk_size, cu_cpu)
 
-    num_chunks = total_chunks(cu, chunk_size)
-    s = torch.zeros(num_chunks * h, d, d, device=device, dtype=torch.float16)
-    v_new = torch.empty(1, total_tokens, h, d, device=device, dtype=torch.float16)
-    final_state = torch.zeros(batch_size * h, d, d, device=device, dtype=torch.float16)
-    h_workspace = torch.zeros(bd * 4, d, d, device=device, dtype=torch.float16)
-    torch.ops.npu.chunk_h_debug(
-        k, w, u, g_t, s, v_new, final_state, h_workspace, cu,
-        bd, batch_size, total_tokens, total_tokens
-    )
-    torch.npu.synchronize()
+    num_chunks = total_chunks(cu_cpu, chunk_size)
+    s_ref, v_ref, _ = ref_chunk_h(k_cpu, w_cpu, u_cpu, g_sum_cpu, chunk_size, cu_cpu)
+    s_cpu = s_ref.reshape(num_chunks * h, d, d).to(torch.float16).contiguous()
+    v_new_cpu = v_ref.to(torch.float16).contiguous()
 
-    mask = torch.tril(torch.ones(chunk_size, chunk_size, device=device), diagonal=0).float()
+    q = q_cpu.to(device).contiguous()
+    k = k_cpu.to(device).contiguous()
+    v_new = v_new_cpu.to(device).contiguous()
+    s = s_cpu.to(device).contiguous()
+    g_t = transpose_gates(g_sum_cpu).to(device).contiguous()
+    cu = cu_cpu.to(device).contiguous()
+    mask = torch.tril(torch.ones(chunk_size, chunk_size), diagonal=0).float().to(device).contiguous()
     ws_qk = torch.zeros(bd, chunk_size, chunk_size, device=device, dtype=torch.float16)
     ws_qs = torch.zeros(bd, chunk_size, d, device=device, dtype=torch.float16)
     ws_gated = torch.zeros_like(ws_qk)
     out = torch.empty(1, total_tokens, h, d, device=device, dtype=torch.float16)
+    for name, tensor in {
+        "q": q, "k": k, "v_new": v_new, "s": s, "g_t": g_t, "mask": mask,
+        "ws_qk": ws_qk, "ws_qs": ws_qs, "ws_gated": ws_gated,
+        "out": out, "cu": cu,
+    }.items():
+        assert tensor.is_contiguous(), f"{name} must be contiguous"
+
+    print("launching chunk_o_debug only")
     torch.ops.npu.chunk_o_debug(
         q, k, v_new, s, g_t, mask, ws_qk, ws_qs, ws_gated, out, cu,
         bd, batch_size, total_tokens, total_tokens
@@ -87,7 +94,7 @@ def main():
     torch.npu.synchronize()
 
     s_cpu = s.float().cpu().view(num_chunks, h, d, d)
-    expected = ref_chunk_o(q.cpu(), k.cpu(), v_new.cpu(), s_cpu, g_sum.cpu(), chunk_size, cu.cpu())
+    expected = ref_chunk_o(q_cpu, k_cpu, v_new_cpu, s_cpu, g_sum_cpu, chunk_size, cu_cpu)
     actual = out.float().cpu()
     print("o max_abs:", (actual - expected).abs().max().item())
     print("o ok:", stats_ok(actual, expected.float()))
