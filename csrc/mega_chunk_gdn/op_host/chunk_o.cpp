@@ -5,6 +5,7 @@
 
 #include "aclrtlaunch_launch_chunk_o_debug.h"
 #include "defines.h"
+#include "runtime/rt_ffts.h"
 #include "torch_helper.h"
 
 namespace sglang {
@@ -65,9 +66,13 @@ HOST_API void chunk_o_debug(const at::Tensor &q,
                 "block_dim is out of uint32 range");
 
     uint32_t block_dim_u32 = static_cast<uint32_t>(block_dim);
+    uint32_t ffts_len = 0;
+    uint64_t ffts_addr = 0;
+    rtGetC2cCtrlAddr(&ffts_addr, &ffts_len);
+
     EXEC_KERNEL_CMD(launch_chunk_o_debug, block_dim_u32, q, k, v, s, g_t, mask,
                     workspace_qk, workspace_qs, workspace_gated, out, cu_seqlens,
-                    batch_size, seq_len, total_tokens);
+                    batch_size, seq_len, total_tokens, ffts_addr);
 }
 
 }  // namespace npu_kernel

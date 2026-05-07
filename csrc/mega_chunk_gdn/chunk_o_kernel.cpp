@@ -20,7 +20,8 @@ extern "C" __global__ AICORE void launch_chunk_o_debug(
     __gm__ uint8_t* cu_seqlens_ptr,
     int64_t batch_size,
     int64_t seq_len,
-    int64_t total_tokens)
+    int64_t total_tokens,
+    uint64_t sync_addr)
 {
     chunk_o_kernel<GDN_H, GDN_HG, GDN_D, GDN_C>(
         reinterpret_cast<__gm__ half*>(q_ptr),
@@ -34,5 +35,5 @@ extern "C" __global__ AICORE void launch_chunk_o_debug(
         reinterpret_cast<__gm__ half*>(workspace_gated_ptr),
         reinterpret_cast<__gm__ half*>(o_ptr),
         reinterpret_cast<__gm__ int32_t*>(cu_seqlens_ptr),
-        batch_size, seq_len, total_tokens);
+        batch_size, seq_len, total_tokens, sync_addr);
 }
