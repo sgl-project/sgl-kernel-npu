@@ -12,11 +12,12 @@ for the full License text.
 #endif
 #include <pto/pto-inst.hpp>
 
-#include "kernel_utils.h"
-
 #define GM_ADDR __gm__ uint8_t*  // To avoid #include "kernel_operator.h"
 using namespace pto;
-using namespace kernel_utils;
+
+AICORE inline uint32_t CeilDiv(uint32_t value, uint32_t divisor) {
+  return (value + divisor - 1) / divisor;
+}
 
 #define BSND_OFFSET(tile_id, N, S, D) \
   (((tile_id) / (N)) * (S) * (N) * (D) + ((tile_id) % (N)) * (D))

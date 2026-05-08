@@ -33,7 +33,6 @@
 #endif
 
 #include <pto/pto-inst.hpp>
-#include "include/kernel_utils.h"
 #include "acl/acl.h"
 #include <type_traits>
 using namespace pto;

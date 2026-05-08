@@ -90,11 +90,10 @@ set(MEGA_CHUNK_GDN_KERNEL_TARGETS)
 function(add_mega_chunk_gdn_kernel H HG)
     set(target "mega_chunk_gdn_kernel_h${H}_hg${HG}")
     ascendc_library(${target} STATIC
-        ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/mega_kernel.cpp
+        ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel/mega_kernel.cpp
     )
     ascendc_include_directories(${target} PRIVATE
-        ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn
-        ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/include
+        ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel
         ${PROJECT_SOURCE_DIR}/thirdparty/pto-isa/include
         ${ASCEND_INCLUDE_DIR}
         ${ASCEND_INCLUDE_DIR}/experiment/runtime
