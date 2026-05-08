@@ -304,10 +304,8 @@ extern "C" __global__ AICORE void GDN_KERNEL_NAME(
     int64_t batch_size,
     int64_t seq_len,
     int64_t total_tokens,
-    uint32_t num_matrices,
-    uint64_t sync_addr)
+    uint32_t num_matrices)
 {
-    set_ffts_base_addr(sync_addr);
 
     constexpr int32_t H = GDN_H;
     constexpr int32_t HG = GDN_HG;
@@ -318,7 +316,7 @@ extern "C" __global__ AICORE void GDN_KERNEL_NAME(
         reinterpret_cast<__gm__ float *>(g_in_ptr),
         reinterpret_cast<__gm__ float *>(g_sum_ptr),
         reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr),
-        batch_size, seq_len, sync_addr);
+        batch_size, seq_len);
 
 #ifdef MEGA_STOP_AFTER_CUMSUM
     pipe_barrier(PIPE_ALL);
@@ -355,7 +353,7 @@ extern "C" __global__ AICORE void GDN_KERNEL_NAME(
         reinterpret_cast<__gm__ half *>(kkt_ws_ptr),
         reinterpret_cast<__gm__ half *>(A_ptr),
         reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr),
-        batch_size, seq_len, total_tokens, sync_addr);
+        batch_size, seq_len, total_tokens);
 
 #if defined(__DAV_C220_CUBE__)
     pipe_barrier(PIPE_ALL);
@@ -406,7 +404,7 @@ extern "C" __global__ AICORE void GDN_KERNEL_NAME(
         reinterpret_cast<__gm__ half *>(w_ptr),
         reinterpret_cast<__gm__ half *>(u_ptr),
         reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr),
-        batch_size, seq_len, total_tokens, sync_addr);
+        batch_size, seq_len, total_tokens);
 
 #if defined(__DAV_C220_VEC__)
     if (get_block_idx() < num_matrices) {
@@ -433,7 +431,7 @@ extern "C" __global__ AICORE void GDN_KERNEL_NAME(
         reinterpret_cast<__gm__ half *>(fs_ptr),
         reinterpret_cast<__gm__ half *>(h_ws_ptr),
         reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr),
-        batch_size, seq_len, total_tokens, sync_addr);
+        batch_size, seq_len, total_tokens);
 
 #ifdef MEGA_STOP_AFTER_H
     pipe_barrier(PIPE_ALL);
@@ -454,7 +452,7 @@ extern "C" __global__ AICORE void GDN_KERNEL_NAME(
         reinterpret_cast<__gm__ half *>(o_ws_gated_ptr),
         reinterpret_cast<__gm__ half *>(o_ptr),
         reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr),
-        batch_size, seq_len, total_tokens, sync_addr);
+        batch_size, seq_len, total_tokens);
 
 #if defined(__DAV_C220_CUBE__)
     if (get_block_idx() < num_matrices) {

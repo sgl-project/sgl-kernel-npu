@@ -50,7 +50,6 @@
 
 #include <pto/pto-inst.hpp>
 #include "acl/acl.h"
-#include <runtime/rt_ffts.h>
 using namespace pto;
 
 // GDN_H, GDN_C: Compile-time constants injected by the build system.
@@ -87,8 +86,7 @@ template <int32_t NumHeads, int32_t ChunkSize>
 AICORE void cumsum_kernel(
     __gm__ float *g_ptr, __gm__ float *g_sum_ptr,
     __gm__ int32_t *cu_seqlens,
-    int64_t batch_size, int64_t seq_len,
-    uint64_t ffts_addr)
+    int64_t batch_size, int64_t seq_len)
 {
   // get_block_idx(): Returns this AI core's index (0..block_num-1).
   //   Like blockIdx.x in CUDA — identifies which core this code runs on.
@@ -98,10 +96,6 @@ AICORE void cumsum_kernel(
   auto cid = get_block_idx();
   auto block_num = get_block_num();
   auto vid = get_subblockid();
-  // set_ffts_base_addr(ffts_addr): Configure the base address for FFTS
-  // (Fast Fine-grained Task Synchronization) — the cross-core signaling mechanism.
-  // Required before any cross-core sync (ffts_cross_core_sync / wait_flag_dev).
-  set_ffts_base_addr(ffts_addr);
 
 // #if defined(__DAV_C220_VEC__): This block only compiles for the Vec core pass.
 // The bisheng compiler makes 3 passes over the same source file:
@@ -388,41 +382,3 @@ AICORE void cumsum_kernel(
   }
 #endif
 }
-
-#ifdef GDN_ENABLE_STANDALONE_COMPONENT_KERNELS
-// ── Device-side kernel entry point ─────────────────────────────────
-// extern "C" __global__ AICORE: marks this as an NPU kernel function
-//   (like __global__ in CUDA). Each AI core runs one instance of this function.
-// Parameters are passed as uint8_t* (raw bytes) and reinterpret_cast'd to
-// typed pointers — this is the standard NPU kernel calling convention.
-extern "C" __global__ AICORE void launch_cumsum(
-    __gm__ uint8_t *g_ptr, __gm__ uint8_t *g_sum_ptr,
-    __gm__ uint8_t *cu_seqlens,
-    int64_t batch_size, int64_t seq_len,
-    uint64_t ffts_addr)
-{
-  cumsum_kernel<GDN_H, GDN_C>(
-      reinterpret_cast<__gm__ float *>(g_ptr),
-      reinterpret_cast<__gm__ float *>(g_sum_ptr),
-      reinterpret_cast<__gm__ int32_t *>(cu_seqlens),
-      batch_size, seq_len, ffts_addr);
-}
-
-// ── Host-side launcher (called from Python via ctypes) ────────────
-// call_kernel(): CPU function that launches the NPU kernel.
-//   block_dim = number of AI cores to use (like CUDA grid size)
-//   stream = NPU stream for async execution (like CUDA stream)
-//   rtGetC2cCtrlAddr: gets the FFTS control address for cross-core sync
-//   <<<block_dim, nullptr, stream>>>: NPU kernel launch syntax (like CUDA <<<>>>)
-extern "C" void call_kernel(
-    uint32_t block_dim, void *stream,
-    uint8_t *g_ptr, uint8_t *g_sum_ptr, uint8_t *cu_seqlens,
-    int64_t batch_size, int64_t seq_len)
-{
-  uint32_t fftsLen{0};
-  uint64_t fftsAddr{0};
-  rtGetC2cCtrlAddr(&fftsAddr, &fftsLen);
-  launch_cumsum<<<block_dim, nullptr, stream>>>(
-      g_ptr, g_sum_ptr, cu_seqlens, batch_size, seq_len, fftsAddr);
-}
-#endif

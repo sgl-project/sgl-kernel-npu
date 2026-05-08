@@ -80,7 +80,6 @@
 
 #include <pto/pto-inst.hpp>
 #include "acl/acl.h"
-#include <runtime/rt_ffts.h>
 using namespace pto;
 
 // ── Compile-time configuration (overridable at build time via -D flags) ──
@@ -153,8 +152,7 @@ static inline AICORE void chunk_o_kernel(
     __gm__ half *O_handle,
     __gm__ int32_t *cu_seqlens,
     int64_t batch_size, int64_t seq_len,
-    int64_t total_tokens,
-    uint64_t ffts_addr)
+    int64_t total_tokens)
 {
   // Half the chunk — each Vec sub-block handles C/2 rows independently.
   constexpr int32_t HalfChunk = ChunkSize / 2;
@@ -190,8 +188,6 @@ static inline AICORE void chunk_o_kernel(
   constexpr int32_t OHalfUbAddr  = 164608;
   constexpr int32_t OUbAddr      = QKUbAddr;
 
-  // Initialize the cross-core FFTS signaling base address for this AI core.
-  set_ffts_base_addr(ffts_addr);
   // cid = which AI core am I? (0..block_num-1). Used to partition work items.
   auto cid = get_block_idx();
   // block_num = total number of AI cores running this kernel in parallel.
@@ -1189,63 +1185,3 @@ static inline AICORE void chunk_o_kernel(
   }
 #endif
 }
-
-#ifdef GDN_ENABLE_STANDALONE_COMPONENT_KERNELS
-// ── Device kernel entry point ─────────────────────────────────────────
-// extern "C" __global__ AICORE: NPU kernel function.
-// Runs on each AI core independently. Args are uint8_t* (type-erased)
-// because the NPU launch ABI passes all pointers as raw bytes; we
-// reinterpret_cast them to the correct types before calling the template.
-extern "C" __global__ AICORE void launch_chunk_o(
-    __gm__ uint8_t *Q_handle, __gm__ uint8_t *K_handle,
-    __gm__ uint8_t *V_handle, __gm__ uint8_t *S_handle,
-    __gm__ uint8_t *G_handle, __gm__ uint8_t *Msk_handle,
-    __gm__ uint8_t *workspace_qk, __gm__ uint8_t *workspace_qs_qkv,
-    __gm__ uint8_t *workspace_qk_gated,
-    __gm__ uint8_t *O_handle,
-    __gm__ uint8_t *cu_seqlens,
-    int64_t batch_size, int64_t seq_len,
-    int64_t total_tokens,
-    uint64_t ffts_addr)
-{
-  chunk_o_kernel<GDN_H, GDN_HG, GDN_D, GDN_C>(
-      reinterpret_cast<__gm__ half *>(Q_handle),
-      reinterpret_cast<__gm__ half *>(K_handle),
-      reinterpret_cast<__gm__ half *>(V_handle),
-      reinterpret_cast<__gm__ half *>(S_handle),
-      reinterpret_cast<__gm__ float *>(G_handle),
-      reinterpret_cast<__gm__ float *>(Msk_handle),
-      reinterpret_cast<__gm__ half *>(workspace_qk),
-      reinterpret_cast<__gm__ half *>(workspace_qs_qkv),
-      reinterpret_cast<__gm__ half *>(workspace_qk_gated),
-      reinterpret_cast<__gm__ half *>(O_handle),
-      reinterpret_cast<__gm__ int32_t *>(cu_seqlens),
-      batch_size, seq_len, total_tokens, ffts_addr);
-}
-
-// ── Host launcher (called from Python ctypes) ─────────────────────────
-// Launches kernel on block_dim AI cores via NPU stream.
-// rtGetC2cCtrlAddr obtains the FFTS (cross-core sync) control address that
-// the kernel needs for Cube↔Vec flag signaling.
-extern "C" void call_kernel(
-    uint32_t block_dim, void *stream,
-    uint8_t *q, uint8_t *k, uint8_t *v, uint8_t *s, uint8_t *g_sum,
-    uint8_t *mask,
-    uint8_t *workspace_qk, uint8_t *workspace_qs_qkv,
-    uint8_t *workspace_qk_gated,
-    uint8_t *o,
-    uint8_t *cu_seqlens,
-    int64_t batch_size, int64_t seq_len,
-    int64_t total_tokens)
-{
-  uint32_t fftsLen{0};
-  uint64_t fftsAddr{0};
-  rtGetC2cCtrlAddr(&fftsAddr, &fftsLen);
-  launch_chunk_o<<<block_dim, nullptr, stream>>>(
-      q, k, v, s, g_sum, mask,
-      workspace_qk, workspace_qs_qkv, workspace_qk_gated,
-      o,
-      cu_seqlens,
-      batch_size, seq_len, total_tokens, fftsAddr);
-}
-#endif

@@ -70,7 +70,6 @@
 
 #include <pto/pto-inst.hpp>   // PTO (Performance Tile Operator): NPU kernel API
 #include "acl/acl.h"          // ACL (Ascend Computing Language): runtime API
-#include <runtime/rt_ffts.h>  // FFTS: cross-core synchronization primitives
 using namespace pto;
 
 // ── Compile-time constants (set by the JIT compiler from Python) ──────
@@ -143,8 +142,7 @@ AICORE void kkt_kernel(
     __gm__ half *workspace_handle, __gm__ half *A_handle,
     __gm__ int32_t *cu_seqlens,
     int64_t batch_size, int64_t seq_len,
-    int64_t total_tokens,
-    uint64_t ffts_addr)
+    int64_t total_tokens)
 {
   constexpr int32_t HalfChunk = ChunkSize / 2;
   constexpr int32_t ChunkSquare = ChunkSize * ChunkSize;
@@ -175,10 +173,6 @@ AICORE void kkt_kernel(
   // a_ub_half overlaps g_r_2d — safe because they're never live simultaneously
   constexpr int32_t AUbHalfAddr  = GR2dUbAddr;
 
-  // set_ffts_base_addr: Tell the hardware where the cross-core flag table lives.
-  // This is a one-time setup so ffts_cross_core_sync / wait_flag_dev know
-  // which memory region to read/write for inter-core signaling.
-  set_ffts_base_addr(ffts_addr);
   auto cid = get_block_idx();       // Which AI core am I? (like CUDA blockIdx.x)
   auto block_num = get_block_num();  // Total AI cores launched (like CUDA gridDim.x)
   // ── Vec sub-block parallelism ─────────────────────────────────────────
@@ -644,58 +638,3 @@ AICORE void kkt_kernel(
   }
 #endif
 }
-
-#ifdef GDN_ENABLE_STANDALONE_COMPONENT_KERNELS
-// ── NPU kernel entry point ────────────────────────────────────────────
-// extern "C" __global__ AICORE: NPU kernel entry point (like CUDA __global__).
-// Parameters passed as uint8_t* and reinterpret_cast'd — standard NPU convention.
-// The NPU runtime passes raw byte pointers; we cast them to typed pointers here.
-// GDN_H, GDN_D, GDN_C are compile-time constants set by #define at the top.
-extern "C" __global__ AICORE void launch_scaled_dot_kkt(
-    __gm__ uint8_t *K_handle, __gm__ uint8_t *Beta_handle,
-    __gm__ uint8_t *G_handle, __gm__ uint8_t *Msk_handle,
-    __gm__ uint8_t *workspace_handle, __gm__ uint8_t *A_handle,
-    __gm__ uint8_t *cu_seqlens,
-    int64_t batch_size, int64_t seq_len,
-    int64_t total_tokens,
-    uint64_t ffts_addr)
-{
-  kkt_kernel<GDN_H, GDN_HG, GDN_D, GDN_C>(
-      reinterpret_cast<__gm__ half *>(K_handle),
-      reinterpret_cast<__gm__ half *>(Beta_handle),
-      reinterpret_cast<__gm__ float *>(G_handle),
-      reinterpret_cast<__gm__ float *>(Msk_handle),
-      reinterpret_cast<__gm__ half *>(workspace_handle),
-      reinterpret_cast<__gm__ half *>(A_handle),
-      reinterpret_cast<__gm__ int32_t *>(cu_seqlens),
-      batch_size, seq_len, total_tokens, ffts_addr);
-}
-
-// ── Host-side launcher ────────────────────────────────────────────────
-// call_kernel(): Host-side launcher invoked from Python via ctypes.
-//   block_dim = number of AI cores (like CUDA grid size)
-//   <<<block_dim, nullptr, stream>>>: NPU kernel launch syntax
-//     - block_dim: how many AI cores to use (each runs kkt_kernel independently)
-//     - nullptr: no shared memory (NPU doesn't have CUDA-style shared mem)
-//     - stream: async execution stream (like CUDA streams)
-//
-// rtGetC2cCtrlAddr: Get the hardware address of the cross-core (Cube↔Vec) flag
-// table. This address is passed to the kernel so it can call ffts_cross_core_sync.
-extern "C" void call_kernel(
-    uint32_t block_dim, void *stream,
-    uint8_t *K_handle, uint8_t *Beta_handle,
-    uint8_t *G_handle, uint8_t *Msk_handle,
-    uint8_t *workspace_handle, uint8_t *A_handle,
-    uint8_t *cu_seqlens,
-    int64_t batch_size, int64_t seq_len,
-    int64_t total_tokens)
-{
-  uint32_t fftsLen{0};
-  uint64_t fftsAddr{0};
-  rtGetC2cCtrlAddr(&fftsAddr, &fftsLen);
-  launch_scaled_dot_kkt<<<block_dim, nullptr, stream>>>(
-      K_handle, Beta_handle, G_handle, Msk_handle,
-      workspace_handle, A_handle, cu_seqlens,
-      batch_size, seq_len, total_tokens, fftsAddr);
-}
-#endif

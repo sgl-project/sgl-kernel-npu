@@ -90,7 +90,6 @@
 #include <pto/pto-inst.hpp>
 #include <type_traits>
 #include "acl/acl.h"
-#include <runtime/rt_ffts.h>
 using namespace pto;
 
 #ifdef __CCE_AICORE__
@@ -293,8 +292,7 @@ AICORE void chunk_h_kernel(
     __gm__ half *S_handle, __gm__ half *V_handle, __gm__ half *FS_handle,
     __gm__ half *workspace_handle,
     __gm__ int32_t *cu_seqlens,
-    int64_t batch_size, int64_t seq_len, int64_t total_tokens,
-    uint64_t ffts_addr)
+    int64_t batch_size, int64_t seq_len, int64_t total_tokens)
 {
   // chunk_h advances the recurrent hidden state chunk by chunk:
   //   ws_i      = W_i @ S_i
@@ -319,7 +317,6 @@ AICORE void chunk_h_kernel(
   //   Vec does the elementwise gating/decay and carries the running state.
   auto cid = get_block_idx();
   auto block_num = get_block_num();
-  set_ffts_base_addr(ffts_addr);
 
   constexpr int32_t D = HiddenSize;
   constexpr int32_t C = ChunkSize;
@@ -875,47 +872,3 @@ AICORE void chunk_h_kernel(
   }
 #endif
 }
-
-#ifndef GDN_HG
-#define GDN_HG GDN_H
-#endif
-
-#ifdef GDN_ENABLE_STANDALONE_COMPONENT_KERNELS
-extern "C" __global__ AICORE void launch_chunk_h(
-    __gm__ uint8_t *K, __gm__ uint8_t *W, __gm__ uint8_t *U,
-    __gm__ uint8_t *G,
-    __gm__ uint8_t *S, __gm__ uint8_t *V, __gm__ uint8_t *FS,
-    __gm__ uint8_t *workspace,
-    __gm__ uint8_t *cu_seqlens,
-    int64_t batch_size, int64_t seq_len, int64_t total_tokens,
-    uint64_t ffts_addr)
-{
-  chunk_h_kernel<GDN_H, GDN_HG, GDN_D, GDN_C>(
-      reinterpret_cast<__gm__ half *>(K),
-      reinterpret_cast<__gm__ half *>(W),
-      reinterpret_cast<__gm__ half *>(U),
-      reinterpret_cast<__gm__ float *>(G),
-      reinterpret_cast<__gm__ half *>(S),
-      reinterpret_cast<__gm__ half *>(V),
-      reinterpret_cast<__gm__ half *>(FS),
-      reinterpret_cast<__gm__ half *>(workspace),
-      reinterpret_cast<__gm__ int32_t *>(cu_seqlens),
-      batch_size, seq_len, total_tokens, ffts_addr);
-}
-
-extern "C" void call_kernel(
-    uint32_t block_dim, void *stream,
-    uint8_t *K, uint8_t *W, uint8_t *U, uint8_t *G,
-    uint8_t *S, uint8_t *V, uint8_t *FS,
-    uint8_t *workspace,
-    uint8_t *cu_seqlens,
-    int64_t batch_size, int64_t seq_len, int64_t total_tokens)
-{
-  uint32_t fftsLen{0};
-  uint64_t fftsAddr{0};
-  rtGetC2cCtrlAddr(&fftsAddr, &fftsLen);
-  launch_chunk_h<<<block_dim, nullptr, stream>>>(
-      K, W, U, G, S, V, FS, workspace, cu_seqlens,
-      batch_size, seq_len, total_tokens, fftsAddr);
-}
-#endif

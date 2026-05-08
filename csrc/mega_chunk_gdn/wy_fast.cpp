@@ -53,7 +53,6 @@
 
 #include <pto/pto-inst.hpp>
 #include "acl/acl.h"
-#include <runtime/rt_ffts.h>
 #include <type_traits>
 using namespace pto;
 
@@ -272,8 +271,7 @@ AICORE void wy_fast_kernel(
     __gm__ half *workspace_a1_handle, __gm__ half *workspace_a2_handle,
     __gm__ half *W_handle, __gm__ half *U_handle,
     __gm__ int32_t *cu_seqlens,
-    int64_t batch_size, int64_t seq_len, int64_t total_tokens,
-    uint64_t ffts_addr)
+    int64_t batch_size, int64_t seq_len, int64_t total_tokens)
 {
   // WY recompute materializes two diagonal reweightings of the same A tile:
   //   A2[:, j] = A[:, j] * beta_j
@@ -330,7 +328,6 @@ AICORE void wy_fast_kernel(
   constexpr int32_t WsA1Size = ChunkSize * ChunkSize;
   constexpr int32_t WsA2Size = ChunkSize * ChunkSize;
 
-  set_ffts_base_addr(ffts_addr);
   auto cid = get_block_idx();
   auto block_num = get_block_num();
   auto vid = get_subblockid();
@@ -968,48 +965,3 @@ AICORE void wy_fast_kernel(
   }
 #endif
 }
-
-#ifdef GDN_ENABLE_STANDALONE_COMPONENT_KERNELS
-extern "C" __global__ AICORE void launch_wy_fast(
-    __gm__ uint8_t *K_handle, __gm__ uint8_t *V_handle,
-    __gm__ uint8_t *Beta_handle, __gm__ uint8_t *G_handle,
-    __gm__ uint8_t *A_handle,
-    __gm__ uint8_t *workspace_a1_handle, __gm__ uint8_t *workspace_a2_handle,
-    __gm__ uint8_t *W_handle, __gm__ uint8_t *U_handle,
-    __gm__ uint8_t *cu_seqlens,
-    int64_t batch_size, int64_t seq_len, int64_t total_tokens,
-    uint64_t ffts_addr)
-{
-  wy_fast_kernel<GDN_H, GDN_HG, GDN_D, GDN_C>(
-      reinterpret_cast<__gm__ half *>(K_handle),
-      reinterpret_cast<__gm__ half *>(V_handle),
-      reinterpret_cast<__gm__ half *>(Beta_handle),
-      reinterpret_cast<__gm__ float *>(G_handle),
-      reinterpret_cast<__gm__ half *>(A_handle),
-      reinterpret_cast<__gm__ half *>(workspace_a1_handle),
-      reinterpret_cast<__gm__ half *>(workspace_a2_handle),
-      reinterpret_cast<__gm__ half *>(W_handle),
-      reinterpret_cast<__gm__ half *>(U_handle),
-      reinterpret_cast<__gm__ int32_t *>(cu_seqlens),
-      batch_size, seq_len, total_tokens, ffts_addr);
-}
-
-extern "C" void call_kernel(
-    uint32_t block_dim, void *stream,
-    uint8_t *k, uint8_t *v, uint8_t *beta, uint8_t *g_sum, uint8_t *A,
-    uint8_t *workspace_a1, uint8_t *workspace_a2,
-    uint8_t *w, uint8_t *u,
-    uint8_t *cu_seqlens,
-    int64_t batch_size, int64_t seq_len, int64_t total_tokens)
-{
-  uint32_t fftsLen{0};
-  uint64_t fftsAddr{0};
-  rtGetC2cCtrlAddr(&fftsAddr, &fftsLen);
-  launch_wy_fast<<<block_dim, nullptr, stream>>>(
-      k, v, beta, g_sum, A,
-      workspace_a1, workspace_a2,
-      w, u,
-      cu_seqlens,
-      batch_size, seq_len, total_tokens, fftsAddr);
-}
-#endif

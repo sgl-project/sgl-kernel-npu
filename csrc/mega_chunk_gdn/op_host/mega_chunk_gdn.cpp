@@ -10,7 +10,6 @@
 #include "aclrtlaunch_launch_mega_kernel_h48_hg16.h"
 #include "aclrtlaunch_launch_mega_kernel_h64_hg16.h"
 #include "defines.h"
-#include "runtime/rt_ffts.h"
 #include "torch_helper.h"
 
 namespace sglang {
@@ -89,9 +88,6 @@ HOST_API void mega_chunk_gdn(const at::Tensor &q, const at::Tensor &k, const at:
     TORCH_CHECK(num_matrices >= 0 && num_matrices <= std::numeric_limits<uint32_t>::max(),
                 "num_matrices is out of uint32 range");
 
-    uint32_t ffts_len = 0;
-    uint64_t ffts_addr = 0;
-    rtGetC2cCtrlAddr(&ffts_addr, &ffts_len);
     uint32_t num_matrices_u32 = static_cast<uint32_t>(num_matrices);
     uint32_t block_dim_u32 = static_cast<uint32_t>(block_dim);
 
@@ -100,8 +96,7 @@ HOST_API void mega_chunk_gdn(const at::Tensor &q, const at::Tensor &k, const at:
                     minus_identity, cu_seqlens, out, g_sum, g_t, beta_t, a, a_inv_f32,       \
                     a_inv, w, u, s, v_new, final_state, kkt_workspace, wy_workspace_a1,      \
                     wy_workspace_a2, h_workspace, o_workspace_qk, o_workspace_qs,            \
-                    o_workspace_gated, batch_size, seq_len, total_tokens, num_matrices_u32,  \
-                    ffts_addr)
+                    o_workspace_gated, batch_size, seq_len, total_tokens, num_matrices_u32)
 
     switch (v.size(2)) {
         case 16:
