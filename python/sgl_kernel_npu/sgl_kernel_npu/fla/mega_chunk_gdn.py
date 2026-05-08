@@ -1,4 +1,3 @@
-import os
 from functools import lru_cache
 from typing import Optional
 
@@ -57,45 +56,44 @@ def _block_dim(device: torch.device) -> int:
         return 24
 
 
-def mega_chunk_gdn_unsupported_reason(
+def mega_gdn_supported(
     q: torch.Tensor,
     k: torch.Tensor,
     v: torch.Tensor,
     g: torch.Tensor,
     beta: torch.Tensor,
     initial_state: Optional[torch.Tensor],
-) -> Optional[str]:
-    if os.getenv("SGL_KERNEL_NPU_GDN_DISABLE_MEGA") == "1":
-        return "disabled by SGL_KERNEL_NPU_GDN_DISABLE_MEGA=1"
-    if initial_state is not None:
-        return "initial_state is not supported by the mega kernel yet"
+    output_final_state: bool = False,
+) -> bool:
+    if initial_state is not None or output_final_state:
+        return False
     if not hasattr(torch.ops.npu, "mega_chunk_gdn"):
-        return "torch.ops.npu.mega_chunk_gdn is not registered"
-    if q.device.type != "npu":
-        return "inputs are not on NPU"
-    if q.dim() != 4 or k.dim() != 4 or v.dim() != 4:
-        return "q, k, and v must have shape [B, T, H, D]"
-    if q.shape[0] != 1:
-        return "only packed B=1 input is supported"
-    if q.shape != k.shape:
-        return "q and k shapes must match"
-    if v.shape[0] != 1 or v.shape[1] != q.shape[1]:
-        return "v must use packed B=1 layout and match q/k sequence length"
-    if q.shape[-2] != NUM_KEY_HEADS:
-        return "this build supports NumKeyHeads=16"
-    if v.shape[-2] not in SUPPORTED_VALUE_HEADS:
-        return "this build supports NumValueHeads in (16, 32, 48, 64)"
-    if g.shape != beta.shape or g.shape != (1, q.shape[1], v.shape[-2]):
-        return "g and beta must have shape [1, T, NumValueHeads]"
-    if q.shape[-1] != HEAD_DIM or v.shape[-1] != HEAD_DIM:
-        return "this build supports head dimension 128"
-    if q.dtype != torch.float16 or k.dtype != torch.float16 or v.dtype != torch.float16:
-        return "q, k, and v must be float16"
-    if beta.dtype != torch.float16:
-        return "beta must be float16"
+        return False
+
+    if q.dim() != 4 or v.dim() != 4:
+        return False
+    if k.shape != q.shape:
+        return False
+    if q.shape[0] != 1 or v.shape[0] != 1 or q.shape[1] != v.shape[1]:
+        return False
+
+    if q.shape[2] != NUM_KEY_HEADS or q.shape[3] != HEAD_DIM:
+        return False
+    if v.shape[2] not in SUPPORTED_VALUE_HEADS or v.shape[3] != HEAD_DIM:
+        return False
+
+    if g.shape != beta.shape:
+        return False
+    if g.shape != (1, q.shape[1], v.shape[2]):
+        return False
+
+    if q.dtype != torch.float16 or k.dtype != torch.float16:
+        return False
+    if v.dtype != torch.float16 or beta.dtype != torch.float16:
+        return False
     if g.dtype != torch.float32:
-        return "g must be float32"
-    return None
+        return False
+    return True
 
 
 def run_mega_chunk_gdn(
@@ -117,10 +115,6 @@ def run_mega_chunk_gdn(
     torch.Tensor,
     torch.Tensor,
 ]:
-    reason = mega_chunk_gdn_unsupported_reason(q, k, v, g, beta, initial_state)
-    if reason is not None:
-        raise RuntimeError(f"mega_chunk_gdn cannot run: {reason}")
-
     if scale is None:
         scale = k.shape[-1] ** -0.5
 
@@ -213,25 +207,3 @@ def run_mega_chunk_gdn(
     else:
         final_state_out = None
     return g_sum, (out * scale).to(q.dtype), A_inv, final_state_out, w, h, v_new
-
-
-def maybe_run_mega_chunk_gdn(
-    q: torch.Tensor,
-    k: torch.Tensor,
-    v: torch.Tensor,
-    g: torch.Tensor,
-    beta: torch.Tensor,
-    scale: Optional[float],
-    initial_state: Optional[torch.Tensor],
-    output_final_state: bool,
-    cu_seqlens: Optional[torch.Tensor],
-):
-    force = os.getenv("SGL_KERNEL_NPU_GDN_FORCE_MEGA") == "1"
-    reason = mega_chunk_gdn_unsupported_reason(q, k, v, g, beta, initial_state)
-    if reason is not None:
-        if force:
-            raise RuntimeError(f"mega_chunk_gdn was forced but cannot run: {reason}")
-        return None
-    return run_mega_chunk_gdn(
-        q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
-    )

@@ -2,10 +2,8 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-from sgl_kernel_npu.fla.chunk import (
-    chunk_gated_delta_rule_fwd,
-    chunk_gated_delta_rule_native,
-)
+from sgl_kernel_npu.fla.chunk import chunk_gated_delta_rule_native
+from sgl_kernel_npu.fla.mega_chunk_gdn import run_mega_chunk_gdn
 
 
 def _has_npu() -> bool:
@@ -35,7 +33,7 @@ def _native_reference(q, k, v, g, beta, cu_seqlens):
         k = k.repeat_interleave(group_size, dim=2)
 
     if cu_seqlens is None:
-        return chunk_gated_delta_rule_native(
+        out, _ = chunk_gated_delta_rule_native(
             query=q,
             key=k,
             value=v,
@@ -43,13 +41,13 @@ def _native_reference(q, k, v, g, beta, cu_seqlens):
             beta=beta,
             chunk_size=128,
             initial_state=None,
-            output_final_state=True,
+            output_final_state=False,
         )
+        return out
 
     outs = []
-    states = []
     for start, end in zip(cu_seqlens, cu_seqlens[1:]):
-        out, state = chunk_gated_delta_rule_native(
+        out, _ = chunk_gated_delta_rule_native(
             query=q[:, start:end],
             key=k[:, start:end],
             value=v[:, start:end],
@@ -57,25 +55,24 @@ def _native_reference(q, k, v, g, beta, cu_seqlens):
             beta=beta[:, start:end],
             chunk_size=128,
             initial_state=None,
-            output_final_state=True,
+            output_final_state=False,
         )
         outs.append(out)
-        states.append(state)
-    return torch.cat(outs, dim=1), torch.cat(states, dim=0)
+    return torch.cat(outs, dim=1)
 
 
 @pytest.mark.parametrize(
     ("total_tokens", "cu_list"),
     [
-        (128, None),
+        (129, None),
+        (256, [0, 96, 128, 256]),
+        (2560, [0, 96, 128, 2560]),
     ],
 )
 @pytest.mark.parametrize("num_value_heads", [16, 32, 48, 64])
-def test_mega_chunk_gdn_e2e(monkeypatch, total_tokens, cu_list, num_value_heads):
+def test_mega_chunk_gdn_e2e(total_tokens, cu_list, num_value_heads):
     if not hasattr(torch.ops.npu, "mega_chunk_gdn"):
         pytest.skip("mega_chunk_gdn op is not registered")
-
-    monkeypatch.setenv("SGL_KERNEL_NPU_GDN_FORCE_MEGA", "1")
 
     torch.manual_seed(0)
     device = torch.device("npu")
@@ -95,19 +92,20 @@ def test_mega_chunk_gdn_e2e(monkeypatch, total_tokens, cu_list, num_value_heads)
     g = g_cpu.to(device)
     beta = beta_cpu.to(device)
     cu = None if cu_list is None else torch.tensor(cu_list, dtype=torch.long, device=device)
+    scale = D**-0.5
 
-    _, actual, _, actual_state, _, _, _ = chunk_gated_delta_rule_fwd(
+    _, actual, _, _, _, _, _ = run_mega_chunk_gdn(
         q=q,
         k=k,
         v=v,
         g=g,
         beta=beta,
-        scale=D**-0.5,
+        scale=scale,
         initial_state=None,
         output_final_state=False,
         cu_seqlens=cu,
     )
     torch.npu.synchronize()
 
-    expected, _ = _native_reference(q_cpu, k_cpu, v_cpu, g_cpu, beta_cpu, cu_list)
-    _assert_close("output", actual, expected)
+    expected = _native_reference(q_cpu, k_cpu, v_cpu, g_cpu, beta_cpu, cu_list)
+    _assert_close("mega_vs_native", actual, expected)

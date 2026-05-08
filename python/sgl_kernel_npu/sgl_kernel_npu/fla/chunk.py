@@ -16,7 +16,10 @@ from sgl_kernel_npu.fla.chunk_scaled_dot_kkt import (
 )
 from sgl_kernel_npu.fla.cumsum import chunk_local_cumsum
 from sgl_kernel_npu.fla.l2norm import l2norm_fwd
-from sgl_kernel_npu.fla.mega_chunk_gdn import maybe_run_mega_chunk_gdn
+from sgl_kernel_npu.fla.mega_chunk_gdn import (
+    mega_gdn_supported,
+    run_mega_chunk_gdn,
+)
 from sgl_kernel_npu.fla.solve_tril import solve_tril_npu as solve_tril
 from sgl_kernel_npu.fla.utils import SUPPRESS_LEVEL, input_guard
 from sgl_kernel_npu.fla.wy_fast import recompute_w_u_fwd_npu as recompute_w_u_fwd
@@ -208,18 +211,13 @@ def chunk_gated_delta_rule_fwd(
     output_final_state: bool,
     cu_seqlens: Optional[torch.LongTensor] = None,
 ):
-    print('came to chunk_gated_delta_rule_fwd')
-    mega_result = maybe_run_mega_chunk_gdn(
-        q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
-    )
-    print('wether we decided to run mega:')
-    if mega_result is not None:
-        print('yes we ran mega')
-        g, o, A, final_state, w, h, v_new = mega_result
+    if mega_gdn_supported(q, k, v, g, beta, initial_state, output_final_state):
+        g, o, A, final_state, w, h, v_new = run_mega_chunk_gdn(
+            q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
+        )
         if SUPPRESS_LEVEL < 3:
             return g, o, A, final_state, None, h, None
         return g, o, A, final_state, w, h, v_new
-    print('no we did not run mega')
 
     g = chunk_local_cumsum(g, chunk_size=64, cu_seqlens=cu_seqlens)
     # obtain WY representation. u is actually the new v.
