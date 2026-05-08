@@ -869,6 +869,8 @@ AICORE void chunk_h_kernel(
       TASSIGN(fs_store, S_UB_HALF);
       TSTORE(fs_global, fs_store);
     }
+    set_flag(PIPE_MTE3, PIPE_S, EVENT_ID0);
+    wait_flag(PIPE_MTE3, PIPE_S, EVENT_ID0);
   }
 #endif
 }

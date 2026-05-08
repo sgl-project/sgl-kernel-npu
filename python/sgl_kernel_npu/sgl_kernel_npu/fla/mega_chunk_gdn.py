@@ -63,9 +63,8 @@ def mega_gdn_supported(
     g: torch.Tensor,
     beta: torch.Tensor,
     initial_state: Optional[torch.Tensor],
-    output_final_state: bool = False,
 ) -> bool:
-    if initial_state is not None or output_final_state:
+    if initial_state is not None:
         return False
     if not hasattr(torch.ops.npu, "mega_chunk_gdn"):
         return False
