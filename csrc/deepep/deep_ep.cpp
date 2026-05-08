@@ -35,12 +35,17 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
     EP_HOST_ASSERT(0 <= rank and rank < num_ranks);
 
     if (moe_all_to_all_group_name.empty()) {
-        char *ranktable_file = std::getenv("RANK_TABLE_FILE");
-        EP_HOST_ASSERT(ranktable_file != nullptr)
-        ACL_CHECK(aclrtGetDevice(&device_id));
+        // char *ranktable_file = std::getenv("RANK_TABLE_FILE");
+        // EP_HOST_ASSERT(ranktable_file != nullptr)
+        // ACL_CHECK(aclrtGetDevice(&device_id));
 
-        // ep domain
-        HCCL_CHECK(HcclCommInitClusterInfo(ranktable_file, device_id, &ep_comm));
+        // // ep domain
+        // HCCL_CHECK(HcclCommInitClusterInfo(ranktable_file, device_id, &ep_comm));
+        HcclRootInfo rootInfo;
+        HcclGetRootInfo(&rootInfo);
+        ACL_CHECK(aclrtGetDevice(&device_id));
+        // 初始化通信域
+        HcclCommInitRootInfo(num_ranks, &rootInfo, device_id, &ep_comm);
     } else {
         EP_HOST_ASSERT(moe_all_to_all_group_name.size() < HCOMM_NAME_LEN);
     }
@@ -291,7 +296,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, total_recv_token,
                  max_bs, recv_tokens_per_expert);
     auto send_token_idx_small = this->send_token_idx_small;
-
     real_max_bs = static_cast<int64_t>(std::max(max_bs.item<int>(), static_cast<int>(num_worst_tokens)));
 
     // dispatch算子内部按照 min(per_round_tokens, real_max_bs)来预留显存
@@ -862,28 +866,31 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         EP_HOST_ASSERT(isLayered == false);
         active_mask = (topk_idx >= 0).to(torch::kBool);
     }
-
-    EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2, x, topk_idx,
-                 scales,        // smooth scales,
-                 active_mask,   // active_mask
-                 hcom_ep_name,  // ep
-                 num_ranks,     // rankSize
-                 rank,          // rankId
-                 num_experts,
-                 hcom_tp_name,            // tp
-                 tp_size,                 // tp_size
-                 tp_rank,                 // tp_rank
+    EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2,
+                 new_x,                   // x
+                 topk_idx,                // expertIds
+                 scales,                  // scalesOptional
+                 active_mask,             // xActiveMaskOptional
+                 hcom_ep_name,            // groupEp
+                 num_ranks,               // epWorldSize
+                 rank,                    // epRankId
+                 num_experts,             // moeExpertNum
+                 hcom_tp_name,            // groupTp
+                 tp_size,                 // tpWorldSize
+                 tp_rank,                 // tpRankId
                  expert_shard_type,       // expert_shard_type
                  shared_expert_num,       // shared_expert_num
                  shared_expert_rank_num,  // shared_expert_rank_num
                  quant_mode,
                  global_bs,               // global_bs
                  expert_token_nums_type,  // expert_token_nums_type
-                 comm_alg, packed_recv_x,
+                 comm_alg,
+                 packed_recv_x,         // expandXOut
                  packed_recv_x_scales,  // dynamicScalesOut
-                 expandIdx,
-                 packed_recv_count,  // expertTokenNumsOut
-                 ep_recv_count, tp_recv_count);
+                 expandIdx,             // assistInfoForCombineOut
+                 packed_recv_count,     // expertTokenNumsOut
+                 ep_recv_count,         // epRecvCountsOut
+                 tp_recv_count);        // tpRecvCountsOut
 
     // Return values
     return {packed_recv_x, packed_recv_x_scales,        packed_recv_count, expandIdx, ep_recv_count,
