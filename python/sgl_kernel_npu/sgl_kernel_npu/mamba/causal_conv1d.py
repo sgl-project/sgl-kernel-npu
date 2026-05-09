@@ -715,9 +715,7 @@ def prepare_data(
     initial_states = (
         torch.index_select(conv_states, 0, cache_indices)
         * has_initial_state[:, None, None]
-        if has_initial_state is not None
-        and conv_states is not None
-        and cache_indices is not None
+        if has_initial_state is not None and has_initial_state.any()
         else None
     )
 
@@ -728,11 +726,15 @@ def prepare_data(
 
     dtype, device = weight.dtype, weight.device
     batch_size = seqlens.size(0)
-    max_T = max(
-        query_start_list[i + 1] - query_start_list[i]
-        for i in range(len(query_start_list) - 1)
-    )
-    dim, cu_seq_len = x.size(0), query_start_list[-1]
+    if query_start_list is None:
+        max_T = seqlens.max()
+        dim, cu_seq_len = x.size(0), query_start_loc[-1]
+    else:
+        max_T = max(
+            query_start_list[i + 1] - query_start_list[i]
+            for i in range(len(query_start_list) - 1)
+        )
+        dim, cu_seq_len = x.size(0), query_start_list[-1]
 
     x_flat = torch.zeros(size=(dim, batch_size * max_T), dtype=dtype, device=device)
 
@@ -794,22 +796,22 @@ def causal_conv1d_fn_npu(
         x = x.contiguous()
     bias = bias.contiguous() if bias is not None else None
 
-    seq_lens_cpu = _as_cpu_list(kwargs.get("seq_lens_cpu"))
-    if seq_lens_cpu is None:
-        assert query_start_loc is not None, "query_start_loc is required"
-        query_start_list = _as_cpu_list(query_start_loc)
-    else:
+    query_start_list = None
+    if query_start_loc is None:
+        seq_lens_cpu = _as_cpu_list(kwargs.get("seq_lens_cpu"))
+        assert seq_lens_cpu is not None, "query_start_loc or seq_lens_cpu is required"
         query_start_list = [0]
         for seq_len in seq_lens_cpu:
             query_start_list.append(query_start_list[-1] + int(seq_len))
-
-    assert query_start_list[-1] <= x.shape[-1], f"{query_start_list=}, {x.shape=}"
-
-    if query_start_loc is None:
+        assert query_start_list[-1] <= x.shape[-1], f"{query_start_list=}, {x.shape=}"
         query_start_loc = torch.tensor(
             query_start_list, dtype=torch.int32, device=x.device
         )
-    batch_size = len(query_start_list) - 1
+        batch_size = len(query_start_list) - 1
+    else:
+        assert query_start_loc[-1] <= x.shape[-1], f"{query_start_loc=}, {x.shape=}"
+        batch_size = query_start_loc.shape[0] - 1
+
     if cache_indices is None:
         cache_indices = torch.arange(batch_size, dtype=torch.long, device=x.device)
     if has_initial_state is None:
