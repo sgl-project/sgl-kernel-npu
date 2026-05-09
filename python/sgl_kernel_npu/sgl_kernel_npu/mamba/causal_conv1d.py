@@ -715,7 +715,10 @@ def prepare_data(
     initial_states = (
         torch.index_select(conv_states, 0, cache_indices)
         * has_initial_state[:, None, None]
-        if has_initial_state is not None and has_initial_state.any()
+        if has_initial_state is not None
+        and conv_states is not None
+        and cache_indices is not None
+        and has_initial_state.any()
         else None
     )
 
@@ -814,8 +817,6 @@ def causal_conv1d_fn_npu(
 
     if cache_indices is None:
         cache_indices = torch.arange(batch_size, dtype=torch.long, device=x.device)
-    if has_initial_state is None:
-        has_initial_state = torch.zeros(batch_size, dtype=torch.bool, device=x.device)
 
     x_pad, initial_state_pad, seqlens, indices = prepare_data(
         x,
