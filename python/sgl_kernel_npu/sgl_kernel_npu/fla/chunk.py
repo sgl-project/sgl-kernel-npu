@@ -376,6 +376,12 @@ def chunk_gated_delta_rule_npu(
         len(beta.shape) == 3
     ), "beta must be of shape [B, T, H] if head_first=False, or [B, H, T] otherwise."
 
+    # cu_seqlens_cpu and prebuilt_meta are only meaningful in varlen mode.
+    # Clear them when cu_seqlens is None to prevent silent misuse.
+    if cu_seqlens is None:
+        cu_seqlens_cpu = None
+        prebuilt_meta = None
+
     if head_first:
         raise DeprecationWarning(
             "head_first is deprecated and will be removed in a future version. "
