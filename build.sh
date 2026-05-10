@@ -95,28 +95,28 @@ fi
 echo "Use SOC_VERSION: $SOC_VERSION"
 
 ## ====================== 【关键修复：CANN 8.3 ASCConfig.cmake】 ======================
-#echo "=== Fixing ASCConfig for CANN 8.3 / A2 ==="
-#
-## 优先使用 latest，如果不存在则找实际版本
-#if [ -z "$ASCEND_HOME_PATH" ] || [ "$ASCEND_HOME_PATH" = "/usr/local/Ascend/ascend-toolkit/latest" ]; then
-#    if [ -d "/usr/local/Ascend/ascend-toolkit/8.3.RC2" ]; then
-#        export ASCEND_HOME_PATH="/usr/local/Ascend/ascend-toolkit/8.3.RC2"
-#    fi
-#fi
-#
-#echo "using ASCEND_HOME_PATH: $ASCEND_HOME_PATH"
-#
-## 主动查找并设置 ASCConfig.cmake 路径
-#ASC_CONFIG_CMAKE=$(find "$ASCEND_HOME_PATH" -name "ASCConfig.cmake" -type f 2>/dev/null | head -n1)
-#if [ -n "$ASC_CONFIG_CMAKE" ]; then
-#    ASC_CMAKE_DIR=$(dirname "$ASC_CONFIG_CMAKE")
-#    echo "Found ASCConfig.cmake at: $ASC_CONFIG_CMAKE"
-#    export CMAKE_PREFIX_PATH="$ASC_CMAKE_DIR:$CMAKE_PREFIX_PATH"
-#    export ASC_DIR="$ASC_CMAKE_DIR"
-#    echo "Set CMAKE_PREFIX_PATH and ASC_DIR successfully"
-#else
-#    echo "Warning: Cannot find ASCConfig.cmake"
-#fi
+echo "=== Fixing ASCConfig for CANN 8.3 / A2 ==="
+
+# 优先使用 latest，如果不存在则找实际版本
+if [ -z "$ASCEND_HOME_PATH" ] || [ "$ASCEND_HOME_PATH" = "/usr/local/Ascend/ascend-toolkit/latest" ]; then
+    if [ -d "/usr/local/Ascend/ascend-toolkit/8.3.RC2" ]; then
+        export ASCEND_HOME_PATH="/usr/local/Ascend/ascend-toolkit/8.3.RC2"
+    fi
+fi
+
+echo "using ASCEND_HOME_PATH: $ASCEND_HOME_PATH"
+
+# 主动查找并设置 ASCConfig.cmake 路径
+ASC_CONFIG_CMAKE=$(find "$ASCEND_HOME_PATH" -name "ASCConfig.cmake" -type f 2>/dev/null | head -n1)
+if [ -n "$ASC_CONFIG_CMAKE" ]; then
+    ASC_CMAKE_DIR=$(dirname "$ASC_CONFIG_CMAKE")
+    echo "Found ASCConfig.cmake at: $ASC_CONFIG_CMAKE"
+    export CMAKE_PREFIX_PATH="$ASC_CMAKE_DIR:$CMAKE_PREFIX_PATH"
+    export ASC_DIR="$ASC_CMAKE_DIR"
+    echo "Set CMAKE_PREFIX_PATH and ASC_DIR successfully"
+else
+    echo "Warning: Cannot find ASCConfig.cmake"
+fi
 
 ### Get Current CANN Toolkit Installation Path
 _CANN_TOOLKIT_INSTALL_PATH=$(cat /etc/Ascend/ascend_cann_install.info | grep "Toolkit_InstallPath" | awk -F'=' '{print $2}')
