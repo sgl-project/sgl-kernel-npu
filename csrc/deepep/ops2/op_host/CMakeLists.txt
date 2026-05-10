@@ -1,13 +1,38 @@
 # =====================================================
 # Detect CANN version include path globally
 # =====================================================
+if(DEFINED ENV{ASCEND_CANN_PACKAGE_PATH} AND NOT "$ENV{ASCEND_CANN_PACKAGE_PATH}" STREQUAL "")
+    set(CANN_ROOT "$ENV{ASCEND_CANN_PACKAGE_PATH}")
+elseif(DEFINED ASCEND_CANN_PACKAGE_PATH AND NOT "${ASCEND_CANN_PACKAGE_PATH}" STREQUAL "")
+    set(CANN_ROOT "${ASCEND_CANN_PACKAGE_PATH}")
+elseif(DEFINED ENV{ASCEND_TOOLKIT_HOME})
+    set(CANN_ROOT "$ENV{ASCEND_TOOLKIT_HOME}")
+else()
+    set(CANN_ROOT "/usr/local/Ascend/ascend-toolkit/latest")
+endif()
+
+set(CANN83_PATH "${CANN_ROOT}/include/platform/platform_infos_def.h")
+set(CANN82_PATH "${CANN_ROOT}/include/experiment/platform/platform/platform_infos_def.h")
+
+if(EXISTS "${CANN83_PATH}")
+    add_definitions(-DUSE_CANN83_PATH)
+    set(ACTIVE_CANN_MACRO "-DUSE_CANN83_PATH")
+    message(STATUS ">>> [op_host] Detected CANN 8.3+, defined USE_CANN83_PATH")
+elseif(EXISTS "${CANN82_PATH}")
+    add_definitions(-DUSE_CANN82_PATH)
+    set(ACTIVE_CANN_MACRO "-DUSE_CANN82_PATH")
+    message(STATUS ">>> [op_host] Detected CANN 8.2, defined USE_CANN82_PATH")
+else()
+    message(FATAL_ERROR ">>> [op_host] platform_infos_def.h not found!\n  Checked:\n   - ${CANN83_PATH}\n   - ${CANN82_PATH}")
+endif()
+
 aux_source_directory(${CMAKE_CURRENT_SOURCE_DIR} ops_srcs)
 
 #1、使用npu_op_code_gen生成aclnn单算子调用代码、入图所需的原型定义代码等。
 npu_op_code_gen(
      SRC ${ops_srcs}                                                           # Host侧实现文件集合
      PACKAGE ${package_name}                                                   # 与npu_op_package的package_name对应
-     COMPILE_OPTIONS -g                                                        # 编译选项
+     COMPILE_OPTIONS -g ${ACTIVE_CANN_MACRO}                                                        # 编译选项
      OUT_DIR ${ASCEND_AUTOGEN_PATH}                                            # 指定生成文件的保存路径
 )
 #2、单算子调用场景，使用npu_op_library编译aclnn单算子调用库。
