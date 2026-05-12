@@ -508,12 +508,8 @@ static void SetHcommCfg(const gert::TilingContext *context, CamMoeDispatchNormal
     std::string algConfigAllGatherStr = "AllGather=level0:ring";
 
     AscendC::Mc2CcTilingConfig mc2CcTilingConfig(groupEp, opType1, algConfigAllToAllStr);
-//#ifdef USE_CANN83_PATH
-//    OP_LOGD(nodeName, "CANN 8.3 detected, skip SetCommEngine");
-//#else
-//    mc2CcTilingConfig.SetCommEngine(mc2tiling::AIV_ENGINE);   // 通过不拉起AICPU，提高算子退出性能
-//    OP_LOGD(nodeName, "SetCommEngine(AIV_ENGINE) enabled for better performance");
-//#endif
+
+    mc2CcTilingConfig.SetCommEngine(mc2tiling::AIV_ENGINE);   // 通过不拉起AICPU，提高算子退出性能
     mc2CcTilingConfig.GetTiling(tiling->mc2InitTiling);
     mc2CcTilingConfig.GetTiling(tiling->mc2CcTiling1);
 
