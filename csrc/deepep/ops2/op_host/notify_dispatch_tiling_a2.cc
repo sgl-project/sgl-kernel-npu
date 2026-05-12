@@ -17,7 +17,7 @@
 #include "../op_kernel/notify_dispatch_tiling_a2.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "tiling/hccl/hccl_tiling.h"
-#ifdef USE_CANN83_PATH
+#if defined(USE_CANN83_PATH) || defined(USE_CANN85_PATH)
 #include "platform/platform_infos_def.h"
 #elif defined(USE_CANN82_PATH)
 #include "experiment/platform/platform/platform_infos_def.h"
