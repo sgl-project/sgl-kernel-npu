@@ -259,6 +259,7 @@ def chunk_gated_delta_rule_npu(
     cu_seqlens: Optional[torch.LongTensor] = None,
     head_first: bool = False,
     use_qk_l2norm_in_kernel: bool = False,
+    state_format: str = "KV"
 ):
     r"""
     Args:
@@ -276,7 +277,7 @@ def chunk_gated_delta_rule_npu(
             Scale factor for the RetNet attention scores.
             If not provided, it will default to `1 / sqrt(K)`. Default: `None`.
         initial_state (Optional[torch.Tensor]):
-            Initial state of shape `[N, H, K, V]` for `N` input sequences.
+            Initial state of shape `[N, H, K, V]` or `[N, H, V, K]` for `N` input sequences.
             For equal-length input sequences, `N` equals the batch size `B`.
             Default: `None`.
         output_final_state (Optional[bool]):
@@ -287,7 +288,10 @@ def chunk_gated_delta_rule_npu(
         head_first (Optional[bool]):
             Whether the inputs are in the head-first format, which is not supported for variable-length inputs.
             Default: `False`.
-
+        state_format: (Optional[str]):
+            'KV': Shape of initial_state is [N, H, K, V]
+            'VK': Shape of initial_state is [N, H, V, K]
+            Default: `KV`.
     Returns:
         o (torch.Tensor):
             Outputs of shape `[B, T, H, V]` if `head_first=False` else `[B, H, T, V]`.
@@ -323,7 +327,8 @@ def chunk_gated_delta_rule_npu(
             cu_seqlens=cu_seqlens
         )
     """
-
+    if state_format == 'VK':
+        initial_state = initial_state.transpose(-1, -2)
     assert q.dtype == k.dtype == v.dtype
     assert (
         q.dtype != torch.float32
