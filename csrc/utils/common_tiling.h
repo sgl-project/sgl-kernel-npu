@@ -19,6 +19,27 @@
 
 namespace host_utils {
 
+enum class DataType : int32_t {
+    DT_FLOAT16 = 0,   // fp16 type
+    DT_BFLOAT16 = 1,  // bfloat16 type
+    DT_FLOAT = 2,     // float type
+    DT_DOUBLE = 3,    // double type
+    DT_BOOL = 4,      // bool type
+    DT_INT8 = 5,      // int8 type
+    DT_INT16,         // int16 type
+    DT_INT32,         // int32 type
+    DT_INT64,         // int64 type
+    DT_UINT8,         // unsigned int8 type
+    DT_UINT16,        // unsigned int16 type
+    DT_UINT32,        // unsigned int32 type
+    DT_UINT64,        // unsigned int64 type
+    DT_COMPLEX64,     // complex64 type
+    DT_COMPLEX128,    // complex128 type
+
+    DT_UNDEFINED,
+    DT_MAX  // max type
+};
+
 constexpr uint32_t FP16_SIZE = 2;
 constexpr uint32_t FP32_SIZE = 4;
 constexpr uint32_t BLOCK_SIZE = 16;
@@ -236,5 +257,7 @@ inline __attribute__((always_inline)) void PpMatmulTilingCheck(const PpTilingDat
     TORCH_CHECK(tilingData.nLoop > 0, "nLoop is invalid");
     TORCH_CHECK(tilingData.blockDim > 0, "nLoop is invalid");
 }
+
 }  // namespace host_utils
+
 #endif

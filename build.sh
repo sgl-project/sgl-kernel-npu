@@ -1,6 +1,7 @@
 #!/bin/bash
 set -e
 
+BUILD_ATTENTIONS_MODULE="ON"
 BUILD_DEEPEP_MODULE="ON"
 BUILD_DEEPEP_OPS="ON"
 BUILD_KERNELS_MODULE="ON"
@@ -254,11 +255,37 @@ function make_sgl_kernel_npu_package()
     cd -
 }
 
+function build_attentions_kernels()
+{
+    CUSTOM_OPP_DIR="${CURRENT_DIR}/python/attentions/attentions"
+    KERNEL_DIR="csrc/attentions/build"
+
+    cd "$KERNEL_DIR" || exit
+
+    echo "run build attentions library"
+
+    chmod +x build.sh
+    ./build.sh
+    cd -
+}
+
+function make_attentions_package() {
+    cd python/attentions || exit
+
+    rm -rf "$CURRENT_DIR"/python/attentions/dist
+    python3 setup.py clean --all
+    python3 setup.py bdist_wheel
+    mv -v "$CURRENT_DIR"/python/attentions/dist/attentions*.whl ${OUTPUT_DIR}/
+    rm -rf "$CURRENT_DIR"/python/attentions/dist
+    cd -
+}
+
 function main()
 {
     create_deepep_cmake
     build_kernels
     build_deepep_kernels
+    build_attentions_kernels
     if pip3 show wheel;then
         echo "wheel has been installed"
     else
@@ -271,6 +298,10 @@ function main()
     if [[ "$BUILD_KERNELS_MODULE" == "ON" ]]; then
         make_sgl_kernel_npu_package
     fi
+    if [[ "$BUILD_ATTENTIONS_MODULE" == "ON" ]]; then
+        make_attentions_package
+    fi
+
 
 }
 
