@@ -18,14 +18,7 @@
 #include "register/op_def_registry.h"
 #include "../op_kernel/moe_distribute_combine_tiling.h"
 #include "../op_kernel/moe_distribute_combine_v2_tiling.h"
-
-#ifdef USE_CANN83_PATH
 #include "platform/platform_infos_def.h"
-#elif defined(USE_CANN82_PATH)
-#include "experiment/platform/platform/platform_infos_def.h"
-#else
-#error "CANN version not supported or platform_infos_def.h not found. Check CANN_VERSION_MACRO definition."
-#endif
 
 using namespace AscendC;
 using namespace ge;
@@ -68,19 +61,23 @@ constexpr uint32_t ATTR_ZERO_EXPERT_NUM_INDEX = 15;
 constexpr uint32_t ATTR_COPY_EXPERT_NUM_INDEX = 16;
 constexpr uint32_t ATTR_CONST_EXPERT_NUM_INDEX = 17;
 
+// tiling key
 constexpr uint32_t INT8_COMM_QUANT = 2U;
 constexpr uint64_t INIT_TILINGKEY = 10000;
+constexpr uint64_t TILING_KEY_A5_TYPE = 50000;
+constexpr uint64_t TILING_KEY_A3_TYPE = 30000;
+constexpr uint64_t TILING_KEY_A2_TYPE = 20000;
 constexpr uint64_t TILINGKEY_TP_WORLD_SIZE = 100;
 constexpr uint64_t TP_WORLD_SIZE_TWO = 2;
 constexpr uint32_t TILINGKEY_INT8_COMM_QUANT = 20U;
+// not used
+constexpr uint64_t TILING_KEY_LAYERED_COMM_A2 = 3000UL;
+constexpr uint64_t TILING_KEY_INT8_COMM_QUANT_A2 = 100UL;
 
 constexpr uint32_t THREE_DIMS = 3U;
 constexpr uint32_t TWO_DIMS = 2U;
 constexpr uint32_t ONE_DIM = 1U;
 constexpr uint32_t ASSIST_INFO_DIMS = 1U;
-constexpr uint64_t TILING_KEY_BASE_A2 = 2000UL;
-constexpr uint64_t TILING_KEY_LAYERED_COMM_A2 = 3000UL;
-constexpr uint64_t TILING_KEY_INT8_COMM_QUANT_A2 = 100UL;
 constexpr uint32_t ARR_LENGTH = 128U;
 constexpr uint32_t OP_TYPE_ALL_TO_ALL = 8U;      // numeric representation of AlltoAll
 constexpr uint32_t OP_TYPE_REDUCE_SCATTER = 7U;  // numeric representation of AlltoAll
@@ -1078,6 +1075,7 @@ static void SetHCommCfg(const gert::TilingContext *context, MoeDistributeCombine
     std::string algConfigReduceScatterStr = "ReduceScatter=level0:ring";
 
     AscendC::Mc2CcTilingConfig mc2CcTilingConfig(groupEp, opType1, algConfigAllToAllStr);
+    mc2CcTilingConfig.SetCommEngine(mc2tiling::AIV_ENGINE);  // 通过不拉起AICPU，提高算子退出性能
     mc2CcTilingConfig.GetTiling(tiling->mc2InitTiling);
     mc2CcTilingConfig.GetTiling(tiling->mc2CcTiling1);
 
@@ -1173,7 +1171,17 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
     SetHCommCfg(context, tilingData, groupEp, groupTp);
 
     uint64_t tpWorldSize = static_cast<uint64_t>(tilingData->moeDistributeCombineV2Info.tpWorldSize);
-    uint64_t tilingKey = INIT_TILINGKEY;
+    uint64_t tilingKey = TILING_KEY_A3_TYPE;
+    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
+    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
+    std::string socVersion;
+    (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
+
+    if (socVersion == "Ascend950") {
+        tilingKey = TILING_KEY_A5_TYPE;
+    } else if (socVersion == "Ascend910B") {
+        tilingKey = TILING_KEY_A2_TYPE;
+    }
     CalTilingKey(tilingKey, tpWorldSize, commQuantMode);
     OP_LOGD(nodeName, "tilingKey is %lu", tilingKey);
     context->SetTilingKey(tilingKey);
