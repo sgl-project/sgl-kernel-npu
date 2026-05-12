@@ -82,6 +82,13 @@ jobs:
         with:
           clean: true
 
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-${{ runner.arch }}-ccache-all-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'build.sh') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-ccache-all-
+
       - name: Install dependencies
         run: |
           # speed up by using infra cache services
@@ -432,6 +439,13 @@ jobs:
         with:
           clean: true
 
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-${{ runner.arch }}-ccache-deepep-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'build.sh') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-ccache-deepep-
+
       - name: Install dependencies
         run: |
           # speed up by using infra cache services
@@ -781,6 +795,13 @@ jobs:
         uses: actions/checkout@v4
         with:
           clean: true
+
+      - name: Cache ccache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-${{ runner.arch }}-ccache-deepep2-${{ hashFiles('CMakeLists.txt', 'cmake/**', 'build.sh') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-ccache-deepep2-
 
       - name: Install dependencies
         run: |
