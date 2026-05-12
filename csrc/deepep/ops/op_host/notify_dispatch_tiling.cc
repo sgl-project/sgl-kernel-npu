@@ -18,14 +18,7 @@
 #include "../op_kernel/notify_dispatch_tiling.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "tiling/hccl/hccl_tiling.h"
-
-#ifdef USE_CANN83_PATH
 #include "platform/platform_infos_def.h"
-#elif defined(USE_CANN82_PATH)
-#include "experiment/platform/platform/platform_infos_def.h"
-#else
-#error "CANN version not supported or platform_infos_def.h not found. Check CANN_VERSION_MACRO definition."
-#endif
 
 using namespace ge;
 namespace {
@@ -69,6 +62,7 @@ constexpr static int TILING_KEY_BFLOAT16 = 21;
 constexpr static int TILING_KEY_FLOAT = 22;
 constexpr static int TILING_KEY_INT = 23;
 constexpr static int TILING_KEY_A2_TYPE = 100;
+constexpr static int TILING_KEY_A5_TYPE = 200;
 
 constexpr static int ALL_TO_ALL_CORE_NUM = 32;
 }  // namespace
@@ -154,9 +148,12 @@ static void SetHcommCfg(const gert::TilingContext *context, NotifyDispatchTiling
     const char *nodeName = context->GetNodeName();
     OP_LOGD(nodeName, "NotifyDispatch commGroup = %s", commGroup.c_str());
     uint32_t opType1 = OP_TYPE_ALL_TO_ALL;
+    // uint32_t opType2 = OP_TYPE_ALL_GATHER;
     std::string algConfigAllToAllStr = "AlltoAll=level0:fullmesh;level1:pairwise";
+    // std::string algConfigAllGatherStr = "AllGather=level0:ring";
 
     AscendC::Mc2CcTilingConfig mc2CcTilingConfig(commGroup, opType1, algConfigAllToAllStr);
+    mc2CcTilingConfig.SetCommEngine(mc2tiling::AIV_ENGINE);  // 通过不拉起AICPU，提高算子退出性能
     mc2CcTilingConfig.GetTiling(tiling->mc2InitTiling);
     mc2CcTilingConfig.GetTiling(tiling->mc2CcTiling1);
 }
@@ -322,8 +319,11 @@ static ge::graphStatus NotifyDispatchTilingFuncImpl(gert::TilingContext *context
 
     if (socVersion == "Ascend910B") {
         tilingKey = tilingKey + TILING_KEY_A2_TYPE;
+    } else if (socVersion == "Ascend950") {
+        tilingKey = tilingKey + TILING_KEY_A5_TYPE;
     }
     context->SetTilingKey(tilingKey);
+    OP_LOGD(nodeName, "tilingKey=%d socVersion=%s", tilingKey, socVersion.c_str());
 
     auto ascendcPlatform = platform_ascendc::PlatformAscendC(context->GetPlatformInfo());
     uint32_t blockDim;
