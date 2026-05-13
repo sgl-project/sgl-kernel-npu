@@ -36,11 +36,16 @@ npu_op_code_gen(
      OUT_DIR ${ASCEND_AUTOGEN_PATH}                                            # 指定生成文件的保存路径
 )
 #2、单算子调用场景，使用npu_op_library编译aclnn单算子调用库。
-file(GLOB autogen_aclnn_src ${ASCEND_AUTOGEN_PATH}/aclnnInner_*.cpp)                # 将通过npu_op_code_gen生成的aclnn相关源文件添加至源文件列表中
+file(GLOB_RECURSE pregen_file
+        "${CMAKE_CURRENT_SOURCE_DIR}/op_api/*"
+)
+file(COPY ${pregen_file} DESTINATION ${ASCEND_AUTOGEN_PATH})
+file(GLOB aclnn_src ${ASCEND_AUTOGEN_PATH}/aclnn*.cpp)
+file(GLOB aclnn_inc ${ASCEND_AUTOGEN_PATH}/aclnn_*.h)
 
 set_source_files_properties(${autogen_aclnn_src} PROPERTIES GENERATED TRUE)    # 设置对应的文件属性为编译过程中生成的文件
 npu_op_library(cust_opapi ACLNN                                                # 指定library名称与类型，以及参与编译的源文件
-     ${autogen_aclnn_src}
+     ${aclnn_src}
 )
 target_compile_options(cust_opapi PRIVATE                                      # 为对应library添加编译选项，与通用的cmake语法一致
      -fvisibility=hidden
