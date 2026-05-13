@@ -74,13 +74,13 @@ def split_qkv_rmsnorm_rope_kernel(
         sin = (tl.load(sin_ptr + sc_offsets)).reshape(1, ROPE_DIM)
         cos = (tl.load(cos_ptr + sc_offsets)).reshape(1, ROPE_DIM)
         if DO_PARTIAL:
-            rot_x = tl.extract_slice(
+            rot_x = al.extract_slice(
                 normalized_values,
                 offsets=(0, 0),
                 sizes=(Q_BLOCK_SIZE // HEAD_DIM, ROPE_DIM),
                 strides=(1, 1),
             )
-            pass_x = tl.extract_slice(
+            pass_x = al.extract_slice(
                 normalized_values,
                 offsets=(0, ROPE_DIM),
                 sizes=(Q_BLOCK_SIZE // HEAD_DIM, PASS_DIM),
@@ -88,27 +88,27 @@ def split_qkv_rmsnorm_rope_kernel(
             )
         else:
             rot_x = normalized_values
-        x1 = tl.extract_slice(
+        x1 = al.extract_slice(
             rot_x,
             offsets=(0, 0),
             sizes=(Q_BLOCK_SIZE // HEAD_DIM, HALF_ROPE_DIM),
             strides=(1, 1),
         )
-        x2 = tl.extract_slice(
+        x2 = al.extract_slice(
             rot_x,
             offsets=(0, HALF_ROPE_DIM),
             sizes=(Q_BLOCK_SIZE // HEAD_DIM, HALF_ROPE_DIM),
             strides=(1, 1),
         )
         cat_x = tl.zeros((Q_BLOCK_SIZE // HEAD_DIM, ROPE_DIM), dtype=tl.bfloat16)
-        cat_x = tl.insert_slice(
+        cat_x = al.insert_slice(
             cat_x,
             -x2,
             offsets=(0, 0),
             sizes=(Q_BLOCK_SIZE // HEAD_DIM, HALF_ROPE_DIM),
             strides=(1, 1),
         )
-        cat_x = tl.insert_slice(
+        cat_x = al.insert_slice(
             cat_x,
             x1,
             offsets=(0, HALF_ROPE_DIM),
@@ -117,14 +117,14 @@ def split_qkv_rmsnorm_rope_kernel(
         )
         roped_q = cat_x * sin + rot_x * cos
         if DO_PARTIAL:
-            normalized_values = tl.insert_slice(
+            normalized_values = al.insert_slice(
                 normalized_values,
                 roped_q,
                 offsets=(0, 0),
                 sizes=(Q_BLOCK_SIZE // HEAD_DIM, ROPE_DIM),
                 strides=(1, 1),
             )
-            normalized_values = tl.insert_slice(
+            normalized_values = al.insert_slice(
                 normalized_values,
                 pass_x,
                 offsets=(0, ROPE_DIM),
@@ -182,13 +182,13 @@ def split_qkv_rmsnorm_rope_kernel(
         cos = (tl.load(cos_ptr + sc_offsets)).reshape(1, ROPE_DIM)
 
         if DO_PARTIAL:
-            rot_x = tl.extract_slice(
+            rot_x = al.extract_slice(
                 normalized_values,
                 offsets=(0, 0),
                 sizes=(KV_BLOCK_SIZE // HEAD_DIM, ROPE_DIM),
                 strides=(1, 1),
             )
-            pass_x = tl.extract_slice(
+            pass_x = al.extract_slice(
                 normalized_values,
                 offsets=(0, ROPE_DIM),
                 sizes=(KV_BLOCK_SIZE // HEAD_DIM, PASS_DIM),
@@ -196,27 +196,27 @@ def split_qkv_rmsnorm_rope_kernel(
             )
         else:
             rot_x = normalized_values
-        x1 = tl.extract_slice(
+        x1 = al.extract_slice(
             rot_x,
             offsets=(0, 0),
             sizes=(KV_BLOCK_SIZE // HEAD_DIM, HALF_ROPE_DIM),
             strides=(1, 1),
         )
-        x2 = tl.extract_slice(
+        x2 = al.extract_slice(
             rot_x,
             offsets=(0, HALF_ROPE_DIM),
             sizes=(KV_BLOCK_SIZE // HEAD_DIM, HALF_ROPE_DIM),
             strides=(1, 1),
         )
         cat_x = tl.zeros((KV_BLOCK_SIZE // HEAD_DIM, ROPE_DIM), dtype=tl.bfloat16)
-        cat_x = tl.insert_slice(
+        cat_x = al.insert_slice(
             cat_x,
             -x2,
             offsets=(0, 0),
             sizes=(KV_BLOCK_SIZE // HEAD_DIM, HALF_ROPE_DIM),
             strides=(1, 1),
         )
-        cat_x = tl.insert_slice(
+        cat_x = al.insert_slice(
             cat_x,
             x1,
             offsets=(0, HALF_ROPE_DIM),
@@ -225,14 +225,14 @@ def split_qkv_rmsnorm_rope_kernel(
         )
         roped_k = cat_x * sin + rot_x * cos
         if DO_PARTIAL:
-            normalized_values = tl.insert_slice(
+            normalized_values = al.insert_slice(
                 normalized_values,
                 roped_k,
                 offsets=(0, 0),
                 sizes=(KV_BLOCK_SIZE // HEAD_DIM, ROPE_DIM),
                 strides=(1, 1),
             )
-            normalized_values = tl.insert_slice(
+            normalized_values = al.insert_slice(
                 normalized_values,
                 pass_x,
                 offsets=(0, ROPE_DIM),
@@ -376,14 +376,14 @@ def split_qkvgate_gemma_rmsnorm_rope_kernel(
             .to(tl.float32)
             .reshape(Q_BLOCK_SIZE // HEAD_DIM, HEAD_DIM * 2)
         )
-        q = tl.extract_slice(
+        q = al.extract_slice(
             input_values,
             offsets=(0, 0),
             sizes=(Q_BLOCK_SIZE // HEAD_DIM, HEAD_DIM),
             strides=(1, 1),
         ).reshape(Q_BLOCK_SIZE // HEAD_DIM, HEAD_DIM)
 
-        gate = tl.extract_slice(
+        gate = al.extract_slice(
             input_values,
             offsets=(0, HEAD_DIM),
             sizes=(Q_BLOCK_SIZE // HEAD_DIM, HEAD_DIM),
@@ -400,39 +400,39 @@ def split_qkvgate_gemma_rmsnorm_rope_kernel(
         sc_offsets = row_idx * ROPE_DIM + tl.arange(0, ROPE_DIM)
         sin = (tl.load(sin_ptr + sc_offsets)).to(tl.float32).reshape(1, ROPE_DIM)
         cos = (tl.load(cos_ptr + sc_offsets)).to(tl.float32).reshape(1, ROPE_DIM)
-        rot_x = tl.extract_slice(
+        rot_x = al.extract_slice(
             normalized_values,
             offsets=(0, 0),
             sizes=(Q_BLOCK_SIZE // HEAD_DIM, ROPE_DIM),
             strides=(1, 1),
         )
-        pass_x = tl.extract_slice(
+        pass_x = al.extract_slice(
             normalized_values,
             offsets=(0, ROPE_DIM),
             sizes=(Q_BLOCK_SIZE // HEAD_DIM, PASS_DIM),
             strides=(1, 1),
         )
-        x1 = tl.extract_slice(
+        x1 = al.extract_slice(
             rot_x,
             offsets=(0, 0),
             sizes=(Q_BLOCK_SIZE // HEAD_DIM, HALF_ROPE_DIM),
             strides=(1, 1),
         )
-        x2 = tl.extract_slice(
+        x2 = al.extract_slice(
             rot_x,
             offsets=(0, HALF_ROPE_DIM),
             sizes=(Q_BLOCK_SIZE // HEAD_DIM, HALF_ROPE_DIM),
             strides=(1, 1),
         )
         cat_x = tl.zeros((Q_BLOCK_SIZE // HEAD_DIM, ROPE_DIM), dtype=tl.float32)
-        cat_x = tl.insert_slice(
+        cat_x = al.insert_slice(
             cat_x,
             -x2,
             offsets=(0, 0),
             sizes=(Q_BLOCK_SIZE // HEAD_DIM, HALF_ROPE_DIM),
             strides=(1, 1),
         )
-        cat_x = tl.insert_slice(
+        cat_x = al.insert_slice(
             cat_x,
             x1,
             offsets=(0, HALF_ROPE_DIM),
@@ -440,14 +440,14 @@ def split_qkvgate_gemma_rmsnorm_rope_kernel(
             strides=(1, 1),
         )
         roped_q = cat_x * sin + rot_x * cos
-        normalized_values = tl.insert_slice(
+        normalized_values = al.insert_slice(
             normalized_values,
             roped_q,
             offsets=(0, 0),
             sizes=(Q_BLOCK_SIZE // HEAD_DIM, ROPE_DIM),
             strides=(1, 1),
         )
-        normalized_values = tl.insert_slice(
+        normalized_values = al.insert_slice(
             normalized_values,
             pass_x,
             offsets=(0, ROPE_DIM),
@@ -497,39 +497,39 @@ def split_qkvgate_gemma_rmsnorm_rope_kernel(
         sin = (tl.load(sin_ptr + sc_offsets)).to(tl.float32).reshape(1, ROPE_DIM)
         cos = (tl.load(cos_ptr + sc_offsets)).to(tl.float32).reshape(1, ROPE_DIM)
 
-        rot_x = tl.extract_slice(
+        rot_x = al.extract_slice(
             normalized_values,
             offsets=(0, 0),
             sizes=(KV_BLOCK_SIZE // HEAD_DIM, ROPE_DIM),
             strides=(1, 1),
         )
-        pass_x = tl.extract_slice(
+        pass_x = al.extract_slice(
             normalized_values,
             offsets=(0, ROPE_DIM),
             sizes=(KV_BLOCK_SIZE // HEAD_DIM, PASS_DIM),
             strides=(1, 1),
         )
-        x1 = tl.extract_slice(
+        x1 = al.extract_slice(
             rot_x,
             offsets=(0, 0),
             sizes=(KV_BLOCK_SIZE // HEAD_DIM, HALF_ROPE_DIM),
             strides=(1, 1),
         )
-        x2 = tl.extract_slice(
+        x2 = al.extract_slice(
             rot_x,
             offsets=(0, HALF_ROPE_DIM),
             sizes=(KV_BLOCK_SIZE // HEAD_DIM, HALF_ROPE_DIM),
             strides=(1, 1),
         )
         cat_x = tl.zeros((KV_BLOCK_SIZE // HEAD_DIM, ROPE_DIM), dtype=tl.float32)
-        cat_x = tl.insert_slice(
+        cat_x = al.insert_slice(
             cat_x,
             -x2,
             offsets=(0, 0),
             sizes=(KV_BLOCK_SIZE // HEAD_DIM, HALF_ROPE_DIM),
             strides=(1, 1),
         )
-        cat_x = tl.insert_slice(
+        cat_x = al.insert_slice(
             cat_x,
             x1,
             offsets=(0, HALF_ROPE_DIM),
@@ -537,14 +537,14 @@ def split_qkvgate_gemma_rmsnorm_rope_kernel(
             strides=(1, 1),
         )
         roped_k = cat_x * sin + rot_x * cos
-        normalized_values = tl.insert_slice(
+        normalized_values = al.insert_slice(
             normalized_values,
             roped_k,
             offsets=(0, 0),
             sizes=(KV_BLOCK_SIZE // HEAD_DIM, ROPE_DIM),
             strides=(1, 1),
         )
-        normalized_values = tl.insert_slice(
+        normalized_values = al.insert_slice(
             normalized_values,
             pass_x,
             offsets=(0, ROPE_DIM),
