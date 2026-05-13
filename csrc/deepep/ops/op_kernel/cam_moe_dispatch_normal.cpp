@@ -7,8 +7,8 @@ using namespace AscendC;
 using namespace CamMoeDispatchNormalImpl;
 using namespace CamMoeDispatchNormalA5Impl;
 
-#define TILINGKEY_A3_NO_QUANT 10000
-#define TILINGKEY_A3_QUANT 10002
+#define TILINGKEY_A3_NO_QUANT 13000
+#define TILINGKEY_A3_QUANT 13002
 #define TILINGKEY_A5_NO_QUANT 15000
 #define TILINGKEY_A5_QUANT 15002
 
