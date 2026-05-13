@@ -36,6 +36,7 @@
 //   S  [total_chunks, H, D, D] half — per-chunk state snapshots (output)
 //   V  [total_tokens, H, D]  half   — residual-corrected values (output)
 //   FS [batch, H, D, D]      half   — final state per sequence (output)
+//   H0 [batch, H, D, D]      half   — optional initial state per sequence
 //   workspace [per-core scratch]     — Cube↔Vec communication buffer
 //
 // NPU memory hierarchy:
@@ -290,6 +291,7 @@ AICORE void chunk_h_kernel(
     __gm__ half *K_handle, __gm__ half *W_handle, __gm__ half *U_handle,
     __gm__ float *G_handle,
     __gm__ half *S_handle, __gm__ half *V_handle, __gm__ half *FS_handle,
+    __gm__ half *H0_handle, int64_t has_initial_state,
     __gm__ half *workspace_handle,
     __gm__ int32_t *cu_seqlens,
     int64_t batch_size, int64_t seq_len, int64_t total_tokens)
@@ -560,10 +562,22 @@ AICORE void chunk_h_kernel(
     TEXPANDS(zero_ub, 0.0f);
     set_flag(PIPE_V, PIPE_S, EVENT_ID0);
     wait_flag(PIPE_V, PIPE_S, EVENT_ID0);
-    // Start each sequence/head recurrence from S_0 = 0.
-    TEXPANDS(s_ub, 0.0f);
-
-    TCVT(s_ub_half, s_ub, pto::RoundMode::CAST_NONE);
+    if (has_initial_state != 0) {
+      int64_t h0_offset = (seq_idx * H + head) * DD + vid * HalfC * D;
+      GmShape2D h0_shape(HalfC, D);
+      GmStride2D h0_stride(D);
+      GmTensor2D<half> h0_global(H0_handle + h0_offset, h0_shape, h0_stride);
+      DynVecTile<half, HalfC, D> h0_load(HalfC, D);
+      TASSIGN(h0_load, S_UB_HALF);
+      TLOAD(h0_load, h0_global);
+      set_flag(PIPE_MTE2, PIPE_V, EVENT_ID0);
+      wait_flag(PIPE_MTE2, PIPE_V, EVENT_ID0);
+      TCVT(s_ub, s_ub_half, pto::RoundMode::CAST_NONE);
+    } else {
+      // Start each sequence/head recurrence from S_0 = 0.
+      TEXPANDS(s_ub, 0.0f);
+      TCVT(s_ub_half, s_ub, pto::RoundMode::CAST_NONE);
+    }
     set_flag(PIPE_V, PIPE_MTE3, EVENT_ID0);
     wait_flag(PIPE_V, PIPE_MTE3, EVENT_ID0);
     {
@@ -576,6 +590,17 @@ AICORE void chunk_h_kernel(
       DynVecTile<half, HalfC, D> s_store(HalfC, D);
       TASSIGN(s_store, S_UB_HALF);
       TSTORE(s_global, s_store);
+    }
+    {
+      int64_t s_out_offset = (chunk_offset * H + head) * DD;
+      GmShape2D s_out_shape(HalfC, D);
+      GmStride2D s_out_stride(D);
+      GmTensor2D<half> s_out_global(
+          S_handle + s_out_offset + vid * HalfC * D, s_out_shape,
+          s_out_stride);
+      DynVecTile<half, HalfC, D> s_out_store(HalfC, D);
+      TASSIGN(s_out_store, S_UB_HALF);
+      TSTORE(s_out_global, s_out_store);
     }
     ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (3 << 8));
 

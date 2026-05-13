@@ -102,6 +102,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor(a!) out, Tensor(b!) g_sum, Tensor(c!) g_t, Tensor(d!) beta_t, "
         "Tensor(e!) A, Tensor(f!) A_inv_f32, Tensor(g!) A_inv, Tensor(h!) w, "
         "Tensor(i!) u, Tensor(j!) s, Tensor(k!) v_new, Tensor(l!) final_state, "
+        "Tensor initial_state, bool has_initial_state, "
         "Tensor(m!) kkt_workspace, Tensor(n!) wy_workspace_a1, "
         "Tensor(o!) wy_workspace_a2, Tensor(p!) h_workspace, "
         "Tensor(q!) o_workspace_qk, Tensor(r!) o_workspace_qs, "

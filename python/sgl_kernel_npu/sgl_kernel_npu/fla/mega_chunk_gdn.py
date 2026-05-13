@@ -63,9 +63,8 @@ def mega_gdn_supported(
     g: torch.Tensor,
     beta: torch.Tensor,
     initial_state: Optional[torch.Tensor],
+    cu_seqlens: Optional[torch.Tensor] = None,
 ) -> bool:
-    if initial_state is not None:
-        return False
     if not hasattr(torch.ops.npu, "mega_chunk_gdn"):
         return False
 
@@ -92,6 +91,18 @@ def mega_gdn_supported(
         return False
     if g.dtype != torch.float32:
         return False
+
+    if initial_state is not None:
+        if initial_state.dim() != 4:
+            return False
+        num_sequences = 1 if cu_seqlens is None else cu_seqlens.numel() - 1
+        if initial_state.shape != (
+            num_sequences,
+            v.shape[2],
+            HEAD_DIM,
+            HEAD_DIM,
+        ):
+            return False
     return True
 
 
@@ -151,6 +162,8 @@ def run_mega_chunk_gdn(
         device=q.device,
         dtype=torch.float16,
     )
+    has_initial_state = initial_state is not None
+    # TODO: should we check that initial_state is contiguous and fp16?
 
     block_dim = _block_dim(q.device)
     kkt_workspace = torch.zeros(block_dim * 2, CHUNK_SIZE, CHUNK_SIZE, device=q.device, dtype=torch.float16)
@@ -184,6 +197,8 @@ def run_mega_chunk_gdn(
         h,
         v_new,
         final_state,
+        initial_state,
+        has_initial_state,
         kkt_workspace,
         wy_workspace_a1,
         wy_workspace_a2,

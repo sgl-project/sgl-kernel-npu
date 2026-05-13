@@ -211,7 +211,7 @@ def chunk_gated_delta_rule_fwd(
     output_final_state: bool,
     cu_seqlens: Optional[torch.LongTensor] = None,
 ):
-    if mega_gdn_supported(q, k, v, g, beta, initial_state, output_final_state):
+    if mega_gdn_supported(q, k, v, g, beta, initial_state, cu_seqlens):
         g, o, A, final_state, w, h, v_new = run_mega_chunk_gdn(
             q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
         )

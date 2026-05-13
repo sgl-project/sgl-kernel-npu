@@ -293,6 +293,8 @@ extern "C" __global__ AICORE void GDN_KERNEL_NAME(
     __gm__ uint8_t* s_ptr,
     __gm__ uint8_t* v_new_ptr,
     __gm__ uint8_t* fs_ptr,
+    __gm__ uint8_t* h0_ptr,
+    int64_t has_initial_state,
     __gm__ uint8_t* kkt_ws_ptr,
     __gm__ uint8_t* wy_ws_a1_ptr,
     __gm__ uint8_t* wy_ws_a2_ptr,
@@ -428,6 +430,8 @@ extern "C" __global__ AICORE void GDN_KERNEL_NAME(
         reinterpret_cast<__gm__ half *>(s_ptr),
         reinterpret_cast<__gm__ half *>(v_new_ptr),
         reinterpret_cast<__gm__ half *>(fs_ptr),
+        reinterpret_cast<__gm__ half *>(h0_ptr),
+        has_initial_state,
         reinterpret_cast<__gm__ half *>(h_ws_ptr),
         reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr),
         batch_size, seq_len, total_tokens);
