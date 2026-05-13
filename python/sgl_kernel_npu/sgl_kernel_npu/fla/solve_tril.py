@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 import triton
 import triton.language as tl
+import triton.language.extra.cann.extension as al
 from sgl_kernel_npu.fla.utils import (
     exp,
     prepare_chunk_indices,
