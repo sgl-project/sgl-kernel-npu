@@ -11,6 +11,7 @@ import torch
 import torch.nn.functional as F
 import triton
 import triton.language as tl
+import triton.language.extra.cann.extension as al
 
 PAD_SLOT_ID = -1
 
