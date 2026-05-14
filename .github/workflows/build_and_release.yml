@@ -63,14 +63,6 @@ jobs:
             ./build.sh -a memory-saver
           "
 
-      - name: Build DeepEP for 910b
-        if: matrix.npu_hardware == '910b'
-        run: |
-          env -i PATH=${PATH} bash --login -c "
-            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
-            ./build.sh -a deepep2
-          "
-
       - name: Build DeepEP for a3
         if: matrix.npu_hardware == 'a3'
         run: |
