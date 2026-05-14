@@ -17,8 +17,9 @@
 #include "../op_kernel/dispatch_layout_tiling.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "tiling/hccl/hccl_tiling.h"
+#include "soc_version_compat.h"
 
-#ifdef USE_CANN83_PATH
+#if defined(USE_CANN83_PATH) || defined(USE_CANN85_PATH)
 #include "platform/platform_infos_def.h"
 #elif defined(USE_CANN82_PATH)
 #include "experiment/platform/platform/platform_infos_def.h"
@@ -73,6 +74,7 @@ static void PrintTilingDataInfo(const char *nodeName, DispatchLayoutTilingData &
 
 static bool CheckIfA2MultiMachine(gert::TilingContext *context, DispatchLayoutTilingData &tilingData)
 {
+#if defined(USE_CANN83_PATH) || defined(USE_CANN82_PATH)
     fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
     fe::PlatFormInfos &platformInfo = *platformInfoPtr;
 
@@ -86,6 +88,16 @@ static bool CheckIfA2MultiMachine(gert::TilingContext *context, DispatchLayoutTi
         return true;
     }
     return false;
+#else
+    // For CANN 8.5+, use platform_ascendc API
+    uint32_t numRanks = tilingData.dispatchLayoutInfo.numRanks;
+    uint32_t localRankSize = tilingData.dispatchLayoutInfo.localRankSize;
+
+    if (Cam::CheckIsA2ChipCompat() && numRanks > localRankSize) {
+        return true;
+    }
+    return false;
+#endif
 }
 
 static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, const char *nodeName,

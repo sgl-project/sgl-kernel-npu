@@ -14,7 +14,7 @@
 #include "register/op_def_registry.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "tiling/hccl/hccl_tiling.h"
-#ifdef USE_CANN83_PATH
+#if defined(USE_CANN83_PATH) || defined(USE_CANN85_PATH)
 #include "platform/platform_infos_def.h"
 #elif defined(USE_CANN82_PATH)
 #include "experiment/platform/platform/platform_infos_def.h"
@@ -24,6 +24,7 @@
 #include "error_log.h"
 #include "../op_kernel/cam_moe_distribute_dispatch_tiling.h"
 #include "tiling_args.h"
+#include "soc_version_compat.h"
 
 using namespace AscendC;
 using namespace ge;
@@ -779,6 +780,7 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext &context, const char *no
 
 static bool CheckIsA2(const gert::TilingContext &context)
 {
+#if defined(USE_CANN83_PATH) || defined(USE_CANN82_PATH)
     const char *nodeName = context.GetNodeName();
     fe::PlatFormInfos *platformInfoPtr = context.GetPlatformInfo();
     OP_TILING_CHECK(platformInfoPtr == nullptr, OP_LOGE(nodeName, "platformInfoPtr is nullptr."), return 0);
@@ -790,6 +792,10 @@ static bool CheckIsA2(const gert::TilingContext &context)
         return true;
     }
     return false;
+#else
+    // For CANN 8.5+, use platform_ascendc API
+    return Cam::CheckIsA2ChipCompat();
+#endif
 }
 
 static ge::graphStatus MoeDistributeDispatchA3TilingFuncImpl(gert::TilingContext &context)

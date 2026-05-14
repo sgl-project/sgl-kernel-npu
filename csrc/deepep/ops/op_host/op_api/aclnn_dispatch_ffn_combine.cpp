@@ -18,7 +18,6 @@
 #include <sys/stat.h>
 #include <sys/file.h>
 #include <climits>
-#include "../op_host/error_log.h"
 
 #ifdef __cplusplus
 extern "C" {

@@ -39,7 +39,7 @@
 #include "tiling/tiling_api.h"
 #include "error_log.h"
 #include "register/op_def_registry.h"
-#ifdef USE_CANN83_PATH
+#if defined(USE_CANN83_PATH) || defined(USE_CANN85_PATH)
 #include "platform/platform_infos_def.h"
 #elif defined(USE_CANN82_PATH)
 #include "experiment/platform/platform/platform_infos_def.h"

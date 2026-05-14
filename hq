@@ -1,0 +1,3127 @@
+[33mcommit cb53dbc47686ac29464ee8df65b6084fc8fa9381[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mfeature/add-three-functions[m[33m)[m
+Author: 探照灯 <51809194+1329009851@users.noreply.github.com>
+Date:   Tue May 12 17:10:51 2026 +0800
+
+    chore: CANN 8.5 adaptation and platform compatibility fixes
+    
+    - Add automatic CANN version detection
+    - Create compatibility layer for CANN 8.5 API changes
+    - Update build scripts and CI configurations
+    - Fix platform compatibility issues
+    - Add CANN_8.5_ADAPTATION.md and PLATFORM_COMPAT_FIX.md documentation
+    - Add diagnose_cann.sh script for environment diagnosis
+    - Update other modules and tests
+
+[33mcommit 18906837595f8ab1eefef979a58cf132a465fb16[m
+Author: 探照灯 <51809194+1329009851@users.noreply.github.com>
+Date:   Tue May 12 17:10:46 2026 +0800
+
+    feat: Add low-latency communication operators for large EP scenario
+    
+    - Add A2 chip low-latency operator support
+    - Add soc_version_compat.h for CANN 8.5 compatibility
+    - Support low-latency communication for Decode stage
+    - Optimize layered and non-layered operator implementation
+    - Update LOW_LATENCY_API documentation
+
+[33mcommit 2d6862056f4968349cd0e6b1d111ec0e4be95716[m
+Author: 探照灯 <51809194+1329009851@users.noreply.github.com>
+Date:   Tue May 12 17:10:40 2026 +0800
+
+    feat: Support PD disaggregated deployment for DeepEP-Ascend
+    
+    - Modify communication domain initialization using HcclCommInitRootInfo
+    - Support mixed deployment of Prefill and Decode nodes
+    - Add dispatch_ffn_combine operator optimization
+    - Update buffer.py to support PD separation scenario
+    - Improve documentation for PD disaggregated configuration
+
+[33mcommit 5c085efb743b9c807a749a610b33e15b83d7d0d9[m
+Author: 探照灯 <51809194+1329009851@users.noreply.github.com>
+Date:   Tue May 12 17:10:35 2026 +0800
+
+    feat: Add normal communication operators for large EP scenario
+    
+    - Add A5-adapted normal communication operator implementation
+    - Add cam_moe_dispatch_normal_a5.h and cam_moe_combine_normal_a5.h
+    - Support high-throughput communication for large EP scenario
+    - Optimize dispatch and combine operator performance
+    - Add mc2_hcom_topo_info.h for topology information
+    - Implement moe_distribute_dispatch_v2_a5.h and moe_distribute_combine_v2_a5.h
+    - Add notify_dispatch_a5.h for notification mechanism
+
+[33mcommit 272f65368a980b64f65d225c18b5262eda18adfe[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m, [m[1;32mmain[m[33m)[m
+Merge: 975890c 640d5a7
+Author: 探照灯 <51809194+1329009851@users.noreply.github.com>
+Date:   Fri Jan 23 14:33:05 2026 +0800
+
+    Merge branch 'sgl-project:main' into main
+
+[33mcommit 640d5a748d9d43b009026d611933e62964347f3c[m[33m ([m[1;31morigin/sgl-cmake[m[33m)[m
+Author: Anastasios Zouzias <zouzias@users.noreply.github.com>
+Date:   Thu Jan 22 15:17:59 2026 +0100
+
+    (test) add solve_tril from upstream (#339)
+    
+    * (test) add solve_tril from upstream
+
+[33mcommit 925c2d5d7ebe4526be4644a59085ff661b4c91a7[m
+Author: Anastasios Zouzias <zouzias@users.noreply.github.com>
+Date:   Thu Jan 22 15:17:42 2026 +0100
+
+    Add AscendC triangular inverse (#332)
+    
+    * (tri_inv) ascendc triangular inverse column sweep
+
+[33mcommit baf643dadc873e55789bd9049d3d957782d400b8[m
+Author: luanyundu <49431685+luanyundu@users.noreply.github.com>
+Date:   Thu Jan 22 21:21:24 2026 +0800
+
+    support the situation that topk maybe -1 on machine A3 (#313)
+    
+    * fix dispatch_layout to support topk -1 feature
+    
+    * add combine code and fix layout bug
+    
+    * adapt multi-round feature
+    
+    * fix run bugs
+    
+    * a3 dispatch surpourt topkidx with -1
+    
+    * fix review bugs
+    
+    * remove topk_idx_map and valid_count
+    
+    * a2 surport topk with -1
+    
+    * a2_bugfix
+    
+    * linting
+    
+    * recover dispatchlayout
+    
+    ---------
+    
+    Co-authored-by: zzx_passion <zhuzixiang2@h-partners.com>
+    Co-authored-by: zzx_passion <119287840+zzx-study@users.noreply.github.com>
+
+[33mcommit 975890cd464b80fea68ceff14b4a5e662bd13b4b[m
+Merge: 7d26203 f5cab95
+Author: 探照灯 <51809194+1329009851@users.noreply.github.com>
+Date:   Thu Jan 22 12:12:12 2026 +0800
+
+    Merge pull request #2 from 1329009851/sgl
+    
+    Revised for review of comments
+
+[33mcommit 7d26203e57aa6bf24404787fb581f0a4e20aafbc[m
+Author: 探照灯 <51809194+1329009851@users.noreply.github.com>
+Date:   Thu Jan 22 12:11:51 2026 +0800
+
+    Update notify_dispatch.h
+    
+    Revised for review of comments
+
+[33mcommit f5cab95f5128bf93a88a9b6e9a29cad5b571e979[m
+Merge: 300f5e8 f9772dc
+Author: 探照灯 <51809194+1329009851@users.noreply.github.com>
+Date:   Thu Jan 22 12:03:18 2026 +0800
+
+    Merge branch 'sgl-project:main' into sgl
+
+[33mcommit e553a17989794d9197aff60e0b0089957a3da3e8[m
+Merge: 3e5fefd f9772dc
+Author: 探照灯 <51809194+1329009851@users.noreply.github.com>
+Date:   Thu Jan 22 12:03:04 2026 +0800
+
+    Merge branch 'sgl-project:main' into main
+
+[33mcommit f9772dc457e8fae91ec2172da84a62f9a533f66a[m
+Author: RxZ <zrxliuxue@163.com>
+Date:   Thu Jan 22 11:36:49 2026 +0800
+
+    chunk_gated_delta_rule_npu output final state (#341)
+
+[33mcommit 300f5e867f0bb79d3095be6b6b18c4a322f51dca[m
+Author: 探照灯 <51809194+1329009851@users.noreply.github.com>
+Date:   Thu Jan 22 11:35:40 2026 +0800
+
+    Update notify_dispatch.h
+    
+    Revised for review of comments
+
+[33mcommit 3e5fefdddebfa2db2c2353c7e6b2137b2da42857[m
+Merge: f08c369 21c8eb1
+Author: 探照灯 <51809194+1329009851@users.noreply.github.com>
+Date:   Thu Jan 22 11:26:51 2026 +0800
+
+    Merge branch 'sgl-project:main' into main
+
+[33mcommit 21c8eb1fe6ab2888b9f29b7aa435c47d7022e8f4[m
+Author: zzx_passion <119287840+zzx-study@users.noreply.github.com>
+Date:   Thu Jan 22 09:53:05 2026 +0800
+
+    The environment variable DEEPEP_HCCL_BUFFSIZE is added, and the priority of DEEPEP_HCCL_BUFFSIZE is higher than that of HCCL_BUFFSIZE. (#329)
+
+[33mcommit 58510b8db5dbdf4e727dd5bac2bfc9c16a92fde6[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Wed Jan 21 16:47:21 2026 +0800
+
+    Added the low_latency operator API documentation. (#337)
+
+[33mcommit 46b73decdf67d03b533b58efddbfa96353ffcc3a[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Wed Jan 21 15:56:12 2026 +0800
+
+    Added the verification of num_max_dispatch_tokens_per_rank to the decode operator adaptation layer. (#330)
+
+[33mcommit ef80a675ca1d2866ba81f667d4c791b5b076c270[m
+Author: luanyundu <49431685+luanyundu@users.noreply.github.com>
+Date:   Wed Jan 21 15:47:08 2026 +0800
+
+    Document get_dispatch_layout API (#338)
+    
+    Add documentation for get_dispatch_layout API including function definition, input parameters, return values, and usage examples.
+
+[33mcommit 4e604f8ce9ff61c911299fa42ea51211b624ab44[m
+Author: KanielZhou <36097092+kaniel-outis@users.noreply.github.com>
+Date:   Wed Jan 21 15:36:23 2026 +0800
+
+    【Doc】add fused deep moe doc (#335)
+    
+    * add fused deep moe doc
+    
+    * fix lint
+    
+    * Update FUSED_DEEP_MOE_EN.md
+    
+    fix br
+    
+    * Update FUSED_DEEP_MOE_CN.md
+    
+    fix br
+    
+    ---------
+    
+    Co-authored-by: Kaniel_Zhou <zhoudeyang@huawei.com>
+
+[33mcommit 19a999d27803a47a8204fc19a7d32f2f9c07185b[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Wed Jan 21 14:39:04 2026 +0800
+
+    add deepep normal api doc (#336)
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit f08c369aaaf991e1d4bedf0207745ccf3acede19[m
+Author: 探照灯 <51809194+1329009851@users.noreply.github.com>
+Date:   Wed Jan 21 09:32:04 2026 +0800
+
+    Update notify_dispatch.h
+    
+    Modifying the code format
+
+[33mcommit 989d0bee33c0af80dc0984df334e59c13784d9e3[m
+Merge: 3170822 8c53dd8
+Author: 探照灯 <51809194+1329009851@users.noreply.github.com>
+Date:   Tue Jan 20 20:15:14 2026 +0800
+
+    Merge pull request #1 from 1329009851/sgl
+    
+    Update notify_dispatch.h
+
+[33mcommit 8c53dd838937577c445f4d92e0041de4d48cccaf[m
+Author: 探照灯 <51809194+1329009851@users.noreply.github.com>
+Date:   Tue Jan 20 20:14:24 2026 +0800
+
+    Update notify_dispatch.h
+    
+    Modify the notifydispatch file to support DEEPEP_NORMAL_LONG_SEQ_ROUND up to 128.
+
+[33mcommit 3170822670c6826153c5bee126533874a7ffa7af[m
+Author: luanyundu <49431685+luanyundu@users.noreply.github.com>
+Date:   Tue Jan 20 20:11:38 2026 +0800
+
+    remove the limit that A2 internode only support topk 8 (#323)
+    
+    * remove the limit that A2 internode only support topk 8
+    
+    * improve the DFX log
+
+[33mcommit a0619a7dd0617d9033f6b70388318fbcc3c2458d[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Mon Jan 19 19:33:17 2026 +0800
+
+    Optimize the performance of the Combine Ant Moving function and the use of HCCL buffer (#314)
+    
+    * Optimize the performance of the Combine Ant Moving function using double buffer.
+    
+    * Optimize the performance of the Combine Ant Moving function.
+    
+    * lint
+    
+    * Optimized the use of HCCL by the normal operator.
+
+[33mcommit d1f47b61aef0be3c6d62ef3fb32ea818ca317183[m
+Author: BourneSun0527 <sunbowen18@h-partners.com>
+Date:   Mon Jan 19 19:23:42 2026 +0800
+
+    deepep adapt custom cann installation path (#327)
+
+[33mcommit 38ad69db7e43e7aa96f4a26977b94e3c8db4fab5[m
+Author: Even Zhou <even.y.zhou@outlook.com>
+Date:   Mon Jan 19 11:59:27 2026 +0800
+
+    [Chore] CANN version bump to 8.5.0 (#326)
+    
+    * build for cann 8.5.0
+    
+    * fix missing dep
+    
+    * fix yaml package
+    
+    * fix missing dep
+    
+    * fix missing dep
+    
+    * fix missing dep
+    
+    * fix missing dep
+    
+    * fix missing dep
+
+[33mcommit e19eb1ff1209366e3d3e70040b667f9ea863a93d[m
+Author: wangyibo1005 <74347676+wangyibo1005@users.noreply.github.com>
+Date:   Sat Jan 17 10:00:58 2026 +0800
+
+    add dfx for operator FusedDeepMoe (#317)
+    
+    * support small bs = 1 or 2
+    
+    * support small bs = 1 or 2
+    
+    * support small bs = 1 or 2
+    
+    * support small bs = 1 or 2
+    
+    * shallow fused topk=-1
+    
+    * add dfx for operator FusedDeepMoe
+    
+    Signed-off-by: Wangyibo1005 <2633333316@qq.com>
+    
+    ---------
+    
+    Signed-off-by: Wangyibo1005 <2633333316@qq.com>
+    Co-authored-by: EnigmaTHU <wang-yb22@mails.tsinghua.edu.cn>
+
+[33mcommit 8fc2e05cfddc31c652285637b0d0a1537fbfe814[m
+Author: Kelon <kelonlu@163.com>
+Date:   Fri Jan 16 13:07:17 2026 +0800
+
+    Integrate ccache for faster compilation (#318)
+    
+    * Integrate ccache for faster compilation
+
+[33mcommit 86da4c53f0f7674e7db242bbefde9d705c57200c[m
+Author: BourneSun0527 <sunbowen18@h-partners.com>
+Date:   Wed Jan 14 15:05:12 2026 +0800
+
+    Modify contribution guide (#315)
+
+[33mcommit b62dc615f511afa9f9b391f939633883e529b9d5[m
+Author: Kelon <kelonlu@163.com>
+Date:   Wed Jan 14 15:04:49 2026 +0800
+
+    fix bmm transpose in cann 8.5 (#316)
+
+[33mcommit fca808e4db68eafb059aec68256c336d917c2479[m
+Author: zhuyutong <1932295311@qq.com>
+Date:   Tue Jan 13 15:34:17 2026 +0800
+
+    fix little batchsize and int8 quant on ci (#302)
+    
+    * fix little batchsize and int8量化
+    
+    * fix some pipeline errors
+    
+    * delete little bs command.
+    Please enter the commit message for your changes. Lines starting
+    
+    * fix grammatical error
+    
+    * delete little bs of intranode
+
+[33mcommit 5402f3399de46cb26748e4fa9ae106a5c2bde270[m
+Author: Todobe <43903496+Todobe@users.noreply.github.com>
+Date:   Mon Jan 12 20:35:52 2026 +0800
+
+    optimize sinks attention (#260)
+
+[33mcommit d756fa4fbd18014d3173860d93b3a51a85a0a93e[m
+Author: Todobe <43903496+Todobe@users.noreply.github.com>
+Date:   Mon Jan 12 20:35:33 2026 +0800
+
+    add swiglu_oai_triton (#270)
+
+[33mcommit 25542f2cfb2041e8b8a4c11b056b019ff525127f[m
+Author: Even Zhou <even.y.zhou@outlook.com>
+Date:   Mon Jan 12 19:21:50 2026 +0800
+
+    update tag to 2026.01.12 (#312)
+
+[33mcommit c85d785077c3f8c5248c23ba499bc3fac2cdb242[m
+Author: Yue Xu <xuyue32@huawei.com>
+Date:   Mon Jan 12 19:15:32 2026 +0800
+
+    feat:add performance compare (#311)
+    
+    * feat:add performance compare
+    
+    * feat:lintcode
+
+[33mcommit 432dc8f8a7fae5c9351a7e2bcb4cfdbe3bbbef8f[m
+Author: RxZ <zrxliuxue@163.com>
+Date:   Fri Jan 9 18:39:38 2026 +0800
+
+    support add_gemma_rms_norm (#310)
+
+[33mcommit ea4949d710d1d7028e49145feb58caaf0b25f375[m
+Author: RxZ <zrxliuxue@163.com>
+Date:   Wed Jan 7 21:10:56 2026 +0800
+
+    optimize gdn gating and fused_qkvzba_split_reshape_cat (#306)
+
+[33mcommit bacee3f42783cd09c32d1640558ce7aebba8581c[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Wed Jan 7 14:07:43 2026 +0800
+
+    fix layout numTokensPerExpertTensor partial Initialization bug (#303)
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit 788ded6db1988e57032a6915b2564333e93aa4ce[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Wed Jan 7 09:15:22 2026 +0800
+
+    Supplement A2 doc, software and hardware compatibility info (#294)
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit f2ac4b0508db00cd9c5bc029c4ee44c7ff534867[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Wed Jan 7 08:57:53 2026 +0800
+
+    Added an environment variable to control whether to enable the Combine Ant Migration feature. (#304)
+
+[33mcommit 3fc6a43c05011df08c58bc7cb39a77a909c3043f[m
+Author: BourneSun0527 <sunbowen18@h-partners.com>
+Date:   Mon Jan 5 14:11:55 2026 +0800
+
+    Support build with cann 8.5 (#283)
+
+[33mcommit 38d3844b1f65b7455834c23658049eb4d1c83884[m
+Author: Vladimir Serov <serov.vladimir.zser@gmail.com>
+Date:   Thu Jan 1 16:57:58 2026 +0300
+
+    LoRA: Optimization LoRA kernels and refactoring (#284)
+    
+    1. Add sgemmv_expand and sgemmv_shrink kernels for supporting
+       SGLang approach for LoRA adapters memory organization
+    2. Add unittest for LoRA kernels
+
+[33mcommit 95728843b6d4d5648b1caa3ae12f9b3e0c9a5b9a[m
+Author: zhengfaan <zhengfaan@outlook.com>
+Date:   Wed Dec 31 14:41:38 2025 +0800
+
+    fix a2 single combine aclnn params
+
+[33mcommit 1aa940dfecd2fc300d4c819a48ffa9e2f6cc631b[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Wed Dec 31 14:34:17 2025 +0800
+
+    Resolving the UB out-of-bounds issue caused by A2 dual-machine mixed operation (#288)
+
+[33mcommit 8d83ca0ee5a50e33ea2ce8b32884cd611c1aab91[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Wed Dec 31 14:34:11 2025 +0800
+
+    fix notify magic auto-increment bug (#291)
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit fa9a7f62f6ea24a186fbaffa0adc7da560cacbde[m
+Author: Liwansi <62291011+Liwansi@users.noreply.github.com>
+Date:   Tue Dec 30 14:53:36 2025 +0800
+
+    split_qkv_rmsnorm_rope bugfix (#290)
+
+[33mcommit 1b964ad4aedebba4e375f7f4be9d57a55d8f5fed[m
+Author: shengzhaotian <shengzhao_tian@163.com>
+Date:   Mon Dec 29 23:22:37 2025 +0800
+
+    Optimize prepare_lens by removing device transfer (#289)
+    
+    * Optimize prepare_lens by removing device transfer
+    
+    Removed unnecessary device transfer for cu_seqlens in prepare_lens function.
+    
+    * Refactor prepare_lens to simplify tensor conversion
+
+[33mcommit aaad3e7fec9572339a9f31a049242e306582b8f0[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Sat Dec 27 22:31:29 2025 +0800
+
+    Fix the performance degradation issue of the single-wheel operation in Ant Moving. (#287)
+
+[33mcommit c7fcd82be5dd7a1de406f14afaabcad5461ecfe6[m
+Author: Liwansi <62291011+Liwansi@users.noreply.github.com>
+Date:   Fri Dec 26 15:55:31 2025 +0800
+
+    modify split_qkv_rmsnorm_rope (#282)
+
+[33mcommit 821c399994b927c9816738583b6b5eef134d48a1[m
+Author: Even Zhou <even.y.zhou@outlook.com>
+Date:   Thu Dec 25 22:27:27 2025 +0800
+
+    bump version to 2025.12.25 (#281)
+
+[33mcommit f93fe1749a1678ab01d76d59d610879e5fb69e9a[m
+Author: shengzhaotian <shengzhao_tian@163.com>
+Date:   Thu Dec 25 20:36:03 2025 +0800
+
+    l2 norm const parameter change (#276)
+
+[33mcommit ebf10b315c777ed79eb3a74713e10a2e17097c1b[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Thu Dec 25 18:29:59 2025 +0800
+
+    Fix the issue of HCCL buffer tiling verification failure during one round of testing. (#280)
+
+[33mcommit f1c4d57903cc13444acc49cc2add50e2778ee832[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Thu Dec 25 09:06:39 2025 +0800
+
+    fix a2 deepep doc (#279)
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit 27d97f385106d1916f6db7aa3b072c0844e618ec[m
+Author: Even Zhou <even.y.zhou@outlook.com>
+Date:   Wed Dec 24 21:52:20 2025 +0800
+
+    prepare build and release for a2 (#273)
+    
+    * prepare build and release for a2
+    
+    * add ld_library_path
+    
+    * fix compile error
+    
+    * fix compile error
+    
+    * matrix build for 910b/a3
+    
+    * add packing
+    
+    * fix syntax error
+    
+    * clear things up
+    
+    * clear things up
+
+[33mcommit 0a6a3aa4ce894a20059643befc9859571e923a8e[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Wed Dec 24 17:35:52 2025 +0800
+
+    add deepep a2 doc (#277)
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit e368d3cebc6ac4faa6d92095a331ec842d8d3d86[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Wed Dec 24 15:27:19 2025 +0800
+
+    Add the long-sequence ant migration feature for the prefill combine operator. (#267)
+    
+    * Add the long-sequence ant migration feature for the prefill combine operator.
+    
+    * Add prefill dispatch operator supports 32k long sequences.
+    
+    * Review and revise comments
+    
+    * Fixed an issue where the memory of the 4096 bs combine UB is exhausted in one round.
+    
+    ---------
+    
+    Co-authored-by: WSEmma <wusemma@163.com>
+
+[33mcommit 2b7b940c1bceb39fe1f9c488495bb055a26dbbee[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Wed Dec 24 11:50:56 2025 +0800
+
+    Fixing Chinese character encoding issues (#275)
+
+[33mcommit 1221875d0c4095f8628d52811d21ebb1d0660e91[m
+Author: litangss <ltcs11@outlook.com>
+Date:   Mon Dec 22 15:20:30 2025 +0800
+
+    [Bugfix] fix TorchNpuHelper rename bugs (#265)
+
+[33mcommit 513c1a297b182d5265e421ea29b558e0ae97eb8b[m
+Author: shengzhaotian <shengzhao_tian@163.com>
+Date:   Mon Dec 22 09:12:04 2025 +0800
+
+    qwen3-next op optimize (#257)
+    
+    * qwen3-next op optimize
+
+[33mcommit ee702ce72a306cf0207d7be52ea7d5cd43b130b8[m
+Author: Yijie Zhu <762412795@qq.com>
+Date:   Fri Dec 19 14:50:08 2025 +0800
+
+    fixup bug in conv1d_update_fn (#259)
+
+[33mcommit 92f5bb9698b75fe757c24aa11d0577d2a1f2652b[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Wed Dec 17 11:10:52 2025 +0800
+
+    add long sequence feature for normal deep_ep (#254)
+    
+    * add notify dispatch long sequence version
+    
+    Co-authored-by: WSEmma <wusemma@163.com>
+    
+    * add long sequence feature for normal deep_ep
+    
+    Co-authored-by: WSEmma <wusemma@163.com>
+    
+    * Fix HCCL_BUFFSIZE check bug and review suggestions
+    
+    Co-authored-by: WSEmma <wusemma@163.com>
+    
+    * fix errors
+    
+    Co-authored-by: WSEmma <wusemma@163.com>
+    
+    * bugfix: Fix the issue of the framework pressure test getting stuck during operation.
+    
+    * Fix the issue in get_dispatch_layout where the number of cores was hardcoded to 48, causing the end-to-end test to hang.
+    
+    * A2 Single-Operator Adaptation for Long Sequence Interface
+    
+    * lint modification
+    
+    ---------
+    
+    Co-authored-by: luanyundu <1425036963@qq.com>
+    Co-authored-by: WSEmma <wusemma@163.com>
+
+[33mcommit 8294a34d460118d119c946e78187c32480abd39b[m
+Author: BourneSun0527 <sunbowen18@h-partners.com>
+Date:   Tue Dec 16 18:35:57 2025 +0800
+
+    modify md file (#255)
+
+[33mcommit c8d3516fc52794e807c4eec696ed86b9df0fd6de[m
+Author: Even Zhou <even.y.zhou@outlook.com>
+Date:   Sun Dec 14 16:11:35 2025 +0800
+
+    sgl-kernel-npu add release version (#253)
+    
+    * add release_version
+    
+    * add release version
+    
+    * clearup
+
+[33mcommit f97b7854ba5328457df1f9ff896eafdaf7a1ea46[m
+Author: goosj <169110346+goosj@users.noreply.github.com>
+Date:   Tue Dec 9 21:14:04 2025 +0800
+
+    add a script for generalize test (#131)
+    
+    * add a script for generalize test
+    
+    * add a script for generalize test
+    
+    * add a script for generalize test
+    
+    * add a script for generalize test
+    
+    * fix suggestions
+    
+    * fix lint
+    
+    * fix lint
+    
+    * fix suggestion
+    
+    * fix suggestion
+    
+    * fix suggestion
+    
+    * fix lint
+
+[33mcommit c7e1588130715d908a95b92d871cf0924e03ed80[m
+Author: BourneSun0527 <sunbowen18@h-partners.com>
+Date:   Tue Dec 9 16:57:45 2025 +0800
+
+    fixing release ci (#248)
+
+[33mcommit e1fae460ad99c2d9695f02171d868d811ffa9aa1[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Tue Dec 9 10:57:13 2025 +0800
+
+    fix normal and low_latency layerd rdma_data_size when mixed running (#246)
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit 57ad5c61fba0967aa28563a428ab7a89a81b5915[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Tue Dec 9 10:55:53 2025 +0800
+
+    Fixing the issue where the A2 notify_dispatch operator gets stuck on cann8.3 (#245)
+
+[33mcommit 3f61eab6ec6901e4e012db0cd8cf58dbf5764f4e[m
+Author: Even Zhou <even.y.zhou@outlook.com>
+Date:   Sat Dec 6 21:44:51 2025 +0800
+
+    rework release build (#237)
+    
+    * build and release
+    
+    * build and release
+    
+    * fix build error
+    
+    * fix build error
+    
+    * fix build error
+    
+    * fix build error
+    
+    * fix build error
+    
+    * fix torch_npu version casuing build issue
+
+[33mcommit 241cfd0074cef685377281e4946960ebd679fc9f[m
+Author: BourneSun0527 <sunbowen18@h-partners.com>
+Date:   Fri Dec 5 16:26:36 2025 +0800
+
+    release build (#231)
+
+[33mcommit 95fe320599c69e986c59e66d84854195abe1b9fd[m
+Author: goosj <169110346+goosj@users.noreply.github.com>
+Date:   Fri Dec 5 09:12:42 2025 +0800
+
+    Add two mixed-race tests: normal and low latency, normal and fused deep moe. (#206)
+    
+    * Add mixed running test cases for intranode and low latency.
+    
+    * fix lint
+    
+    * update scripts
+    
+    * fix lint
+    
+    * fix suggestions
+    
+    * fix lint
+    
+    * Add two mixed-race tests: normal and low latency, normal and fused deep moe.
+    
+    * Deleting the unnecessary script
+    
+    * fix suggestions
+    
+    * fix lint
+    
+    * fix suggestions
+    
+    * add tests to pr-test-npu.yml
+    
+    * fix question
+    
+    * fix question
+    
+    * fix question
+
+[33mcommit f01adae6b60e551d61317b8599d8be6044419272[m
+Author: litangss <ltcs11@outlook.com>
+Date:   Thu Dec 4 21:05:47 2025 +0800
+
+    [Feat] add chunk_gated_delta_rule triton support (#232)
+    
+    * [Feat] add chunk_gated_delta_rule triton support
+    
+    * apply for pre-commit
+    
+    * refactor ops file
+    
+    * apply for pre-commit
+
+[33mcommit f057d77f0af5a16c3acce3f38df7914b1ef36f63[m
+Author: litangss <ltcs11@outlook.com>
+Date:   Thu Dec 4 20:54:12 2025 +0800
+
+    [Bugfix] add padding cases for causal_conv1d_update (#235)
+    
+    * fix padding cases for causal_conv1d_update
+    
+    * apply for pre-commit
+
+[33mcommit 10e8d585ef948215a8008e3431a14e6681883939[m
+Author: KanielZhou <36097092+kaniel-outis@users.noreply.github.com>
+Date:   Thu Dec 4 19:19:39 2025 +0800
+
+    [DFX] Adaptable to multiple model validations for fused moe (#229)
+    
+    * Adaptable to multiple model validations
+    
+    * fix clean code
+    
+    * fix bug
+    
+    * fix bug
+    
+    * add qwen3-235B-A22B test
+    
+    * change to --moe-intermediate-size
+    
+    * change to --moe-intermediate-size
+    
+    * pipeline
+    
+    * fix pr test npu
+    
+    * fix lint
+    
+    * fix avg_diff
+    
+    ---------
+    
+    Co-authored-by: Kaniel_Zhou <zhoudeyang@huawei.com>
+
+[33mcommit 7d0443691593a41473656aec957c6aa92619dfff[m
+Author: Todobe <43903496+Todobe@users.noreply.github.com>
+Date:   Thu Dec 4 14:46:12 2025 +0800
+
+    Add swiglu_oai for GPT-OSS (#233)
+    
+    * add swiglu_oai_native
+    
+    * change name: swiglu_oai
+    
+    * mov swiglu_oai to activation
+
+[33mcommit 978c4322e7195816b97e954703d42dd37edadd6c[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Wed Dec 3 14:35:24 2025 +0800
+
+    A2 dispatch/combine layered operator adaptation for SGLang interface (#209)
+    
+    * Modify deepep README_CN.md
+    
+    * A2 dispatch/combine layered operator adaptation for SGLang interface
+    
+    * Fix ELASTIC_INFO_INDEX value in moe_distribute_dispatch
+
+[33mcommit cbbddb1d33ab86575901db9fd0c7e05f2382b980[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Wed Dec 3 14:34:31 2025 +0800
+
+    normal_dispatch num_recv_tokens_per_expert_list support prefixSum (#221)
+    
+    * normal_dispatch num_recv_tokens_per_expert_list support prefixSum
+    
+    * fix codecheck
+    
+    ---------
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit 0d21dc7c6627c7780f2c442543589cb1dc755b33[m
+Author: goosj <169110346+goosj@users.noreply.github.com>
+Date:   Wed Dec 3 10:03:16 2025 +0800
+
+    Add performance testing section to the moe script (#198)
+    
+    * Add performance testing section to the moe script
+    
+    * Add performance testing section to the moe script
+    
+    * Add performance testing section to the moe script
+    
+    * update bench func
+    
+    * fix lint
+    
+    * resolve converastions
+    
+    * Add baseline section
+    
+    * fix Suggestions
+    
+    * fix lint
+    
+    * fix Suggestions
+
+[33mcommit 5f205fbe217c58270c577434ab28fea64dd104ef[m
+Author: Todobe <43903496+Todobe@users.noreply.github.com>
+Date:   Wed Dec 3 09:49:39 2025 +0800
+
+    add zero_experts_compute_identity (#214)
+    
+    * add zero_experts_compute_identity
+    
+    * modify block size calculation
+    
+    * add TODO
+
+[33mcommit 922158c9748e3933c176633b3e67827dffce359e[m
+Author: Todobe <43903496+Todobe@users.noreply.github.com>
+Date:   Tue Dec 2 22:41:11 2025 +0800
+
+    add sinks_attenton for GPT-OSS (#216)
+    
+    * add sinks_attenton
+    
+    * add comment & get kernel num from utils
+
+[33mcommit fbaf1ab08f65fd083812a8d2b6864bc9508bcbb6[m
+Author: monkeyLoveding <125486029+monkeyLoveding@users.noreply.github.com>
+Date:   Tue Dec 2 19:15:13 2025 +0800
+
+    try Fixing missing.so files (#228)
+    
+    * npu-kernel出包测试
+    
+    * npu-kernel出包测试
+    
+    * npu-kernel出包测试
+    
+    * npu-kernel出包测试
+    
+    * npu-kernel出包测试
+    
+    * release 发包修改
+    
+    * code recovery
+    
+    * shengbang 文件加入执行权限
+    
+    * shengbang 文件加入执行权限
+    
+    * sh文件结尾空行
+    
+    * pybind11
+    
+    * release镜像更换
+    
+    * 测试
+    
+    * 代码同步
+    
+    * so目录测试
+    
+    * so目录测试
+    
+    * so目录测试
+    
+    * so目录测试
+    
+    * so目录测试
+    
+    * so目录测试
+    
+    * so目录测试
+    
+    * so目录测试
+    
+    * so目录测试
+
+[33mcommit bf93214ee67249b48eec1d798f440af493ecfb9f[m
+Author: monkeyLoveding <125486029+monkeyLoveding@users.noreply.github.com>
+Date:   Tue Dec 2 17:01:44 2025 +0800
+
+    Fixing missing.so files (#226)
+    
+    * npu-kernel出包测试
+    
+    * npu-kernel出包测试
+    
+    * npu-kernel出包测试
+    
+    * npu-kernel出包测试
+    
+    * npu-kernel出包测试
+    
+    * release 发包修改
+    
+    * code recovery
+    
+    * shengbang 文件加入执行权限
+    
+    * shengbang 文件加入执行权限
+    
+    * sh文件结尾空行
+    
+    * pybind11
+    
+    * release镜像更换
+    
+    * 测试
+    
+    * 代码同步
+    
+    * so目录测试
+    
+    * so目录测试
+    
+    * so目录测试
+    
+    * so目录测试
+    
+    * so目录测试
+    
+    * so目录测试
+    
+    * so目录测试
+
+[33mcommit 33866dda2acd4ab67b71e55873ce8dfed904ff07[m
+Author: Kelon <kelonlu@163.com>
+Date:   Tue Dec 2 16:32:34 2025 +0800
+
+    [Feat] Lightning indexer op & GE helper engineering (#203)
+    
+    * [Feat] Lightning indexer op & GE helper engineering
+
+[33mcommit 001e3a70906de7c4f90e94663ddfecf7fa1b3da2[m
+Author: BourneSun0527 <sunbowen18@h-partners.com>
+Date:   Tue Dec 2 10:50:10 2025 +0800
+
+    Add cann path to LD_LIBRARY_PATH (#225)
+
+[33mcommit dd9b9aa54a7b3ff1134a45ddf7a18a19f03c81cb[m
+Author: BourneSun0527 <sunbowen18@h-partners.com>
+Date:   Tue Dec 2 10:16:30 2025 +0800
+
+    switch release machine (#224)
+
+[33mcommit cf8f4334ac1d1648ce67318252aa70800759a207[m
+Author: BourneSun0527 <sunbowen18@h-partners.com>
+Date:   Tue Dec 2 09:45:52 2025 +0800
+
+    Release workflow switch to cpu (#222)
+
+[33mcommit 3a90dfa17d1ad6db11c15ac06d0feb6dbe466fcc[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Tue Dec 2 09:18:57 2025 +0800
+
+    optimizer internode_dispatch hostbound (#211)
+    
+    * optimizer intranode hostbound, fix notify a2 single
+    
+    * optimizer internode hostbound, fix notify a2
+    
+    * fix internode hostbound
+    
+    * fix codelint
+    
+    ---------
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit 0044d931154c4a6991db2ec93f8e40688089b5bf[m
+Author: BourneSun0527 <sunbowen18@h-partners.com>
+Date:   Mon Dec 1 21:07:07 2025 +0800
+
+    Upload wheel to release (#218) (#220)
+
+[33mcommit 75da4cf368731f461c5fea5d6e5bb2f2a2e0c08e[m
+Author: BourneSun0527 <sunbowen18@h-partners.com>
+Date:   Mon Dec 1 16:15:33 2025 +0800
+
+    Upload wheel to release (#218)
+
+[33mcommit d7102333be0091eedbcbfd9e85e29d02cedba5ba[m
+Author: monkeyLoveding <125486029+monkeyLoveding@users.noreply.github.com>
+Date:   Mon Dec 1 14:28:50 2025 +0800
+
+    add pybind11 (#217)
+    
+    * npu-kernel出包测试
+    
+    * npu-kernel出包测试
+    
+    * npu-kernel出包测试
+    
+    * npu-kernel出包测试
+    
+    * npu-kernel出包测试
+    
+    * release 发包修改
+    
+    * code recovery
+    
+    * shengbang 文件加入执行权限
+    
+    * shengbang 文件加入执行权限
+    
+    * sh文件结尾空行
+    
+    * pybind11
+
+[33mcommit 1ff2ea9cae9b5a4ecfb17e7be782b14acbf20a79[m
+Author: chenxu140 <chenxu140@huawei.com>
+Date:   Mon Dec 1 14:07:36 2025 +0800
+
+    bugfix: The rint interface causes ub to be unaligned. (#208)
+    
+    * bugfix: The rint interface causes ub to be unaligned.
+
+[33mcommit 072780e21284a2dced78651c798570b2d2aa2877[m
+Author: monkeyLoveding <125486029+monkeyLoveding@users.noreply.github.com>
+Date:   Mon Dec 1 11:06:28 2025 +0800
+
+    Add release package dependencies (#215)
+    
+    * npu-kernel出包测试
+    
+    * npu-kernel出包测试
+    
+    * npu-kernel出包测试
+    
+    * npu-kernel出包测试
+    
+    * npu-kernel出包测试
+    
+    * release 发包修改
+    
+    * code recovery
+    
+    * shengbang 文件加入执行权限
+    
+    * shengbang 文件加入执行权限
+    
+    * sh文件结尾空行
+
+[33mcommit a1b06c398b2fdbe60cb7a145fc6b257b8740a583[m
+Author: litangss <ltcs11@outlook.com>
+Date:   Mon Dec 1 09:28:40 2025 +0800
+
+    add catlass ops demo (#200)
+    
+    * add catlass ops demo
+
+[33mcommit da5a4e02b94994e4e7bd133865baaa481999a699[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Thu Nov 27 20:23:29 2025 +0800
+
+    notify_dispatch kernel change magic from int32_t to uint64_t (#202)
+    
+    * notify a3 change mogic to uint64_t
+    
+    * notify a2 change magic to uint64_t
+    
+    * fix codelint
+    
+    * notify a2 single change magic to uint64_t
+    
+    * solve config
+    
+    ---------
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit e96553356bf65d16a7e21c673d25d572643260cf[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Thu Nov 27 17:04:22 2025 +0800
+
+    Modify deepep README_CN.md (#187)
+    
+    * Modify deepep README_CN.md
+    
+    * update markdown
+    
+    Update A3 kernel implementation details in README_CN.
+    
+    * Update README for A3 kernel implementation details
+    
+    ---------
+    
+    Co-authored-by: Yue Xu <coolxy06@qq.com>
+
+[33mcommit 7c40ab108529625920a3b4a03fb555b23bd46641[m
+Author: hw-csong <songchenyi@huawei.com>
+Date:   Thu Nov 27 16:58:04 2025 +0800
+
+    Add alloc_extend_kernel (#196)
+
+[33mcommit 3085bab5aa79652dfcfa4bce00bc09b821e997cd[m
+Author: lih827 <383084552@qq.com>
+Date:   Thu Nov 27 16:16:19 2025 +0800
+
+    calculate dispatch normal input parameters using npu instead of cpu (#177)
+    
+    * move cpu calculation to notify_dispatch & intranode_dispatch adpation
+    
+    * calculate sendtokenidx{bs * topk} in layout
+    
+    * codecheck fix & remove redundent code
+    
+    * sync layout modifications to ops2
+    
+    * remove kernel printf
+    
+    * change recv_num_tokens_per_expert_list dtype to int64_t
+    
+    * change magicVal from int32_t to uint64_t
+    
+    * change recv_num_tokens_per_expert_list to List[int]
+
+[33mcommit 7fe4eeb703d6d14e799830e620d5197f32b236fc[m
+Author: luanyundu <49431685+luanyundu@users.noreply.github.com>
+Date:   Wed Nov 26 16:22:30 2025 +0800
+
+    support long cat on a3 (#182)
+    
+    * Support topk -1 for low_latency on A3
+    
+    * fix lint problems
+    
+    * resolve review suggestions
+    
+    * modify the interface to v2
+    
+    * fix lint problems
+    
+    * fix review suggestions
+
+[33mcommit fe870cd39b5ec0ee5fe68a04e7e9a7e6ad718f11[m
+Author: DubhepPan <845021026@qq.com>
+Date:   Wed Nov 26 14:29:38 2025 +0800
+
+    Add two scripts (#119)
+    
+    * Create enumerate_test_intranode.sh
+    
+    * Create enumerate_test_low_latency.sh
+    
+    * Update enumerate_test_intranode.sh
+    
+    * Update enumerate_test_low_latency.sh
+    
+    * Update enumerate_test_intranode.sh
+    
+    * Update pr-test-npu.yml
+    
+    * Update pr-test-npu.yml
+    
+    * Update enumerate_test_low_latency.sh
+    
+    * Update enumerate_test_intranode.sh
+    
+    * Update pr-test-npu.yml
+    
+    * Update pr-test-npu.yml
+    
+    * Update pr-test-npu.yml
+    
+    * Update CMakeLists.txt
+    
+    * Update enumerate_test_intranode.sh
+    
+    * Update enumerate_test_low_latency.sh
+    
+    * Create daily-build-test.yml
+    
+    * Update pr-test-npu.yml
+    
+    * Update pr-test-npu.yml
+    
+    * Update CMakeLists.txt
+    
+    * Update pr-test-npu.yml
+    
+    * Update pr-test-npu.yml
+    
+    * Update daily-build-test.yml
+    
+    * Update daily-build-test.yml
+    
+    * Update daily-build-test.yml
+    
+    * Update enumerate_test_intranode.sh
+    
+    * Update daily-build-test.yml
+    
+    * Update enumerate_test_intranode.sh
+    
+    * Update daily-build-test.yml
+    
+    * Update daily-build-test.yml
+    
+    * Update daily-build-test.yml
+    
+    * Update and rename enumerate_test_intranode.sh to enumerate_test_intranode_part_one.sh
+    
+    * Create enumerate_test_intranode_part_two.sh
+    
+    * Update daily-build-test.yml
+    
+    * Update daily-build-test.yml
+    
+    * Update daily-build-test.yml
+    
+    * Update enumerate_test_intranode_part_two.sh
+    
+    * Update enumerate_test_intranode_part_two.sh
+    
+    * Update enumerate_test_intranode_part_one.sh
+    
+    * Update enumerate_test_intranode_part_one.sh
+    
+    * Update enumerate_test_intranode_part_one.sh
+    
+    * Update daily-build-test.yml
+    
+    * Update enumerate_test_intranode_part_one.sh
+    
+    * Delete scripts/enumerate_test_intranode_part_two.sh
+    
+    * Rename enumerate_test_intranode_part_one.sh to enumerate_test_intranode.sh
+    
+    * Update daily-build-test.yml
+    
+    * Update daily-build-test.yml
+    
+    * Update enumerate_test_low_latency.sh
+    
+    * Update daily-build-test.yml
+    
+    * Update daily-build-test.yml
+    
+    * Update daily-build-test.yml
+    
+    * Update pr-test-npu.yml
+    
+    * Update daily-build-test.yml
+    
+    * Update pr-test-npu.yml
+
+[33mcommit 0c7956aca322207bef0f365315bab2c7491dbd1a[m
+Author: BourneSun0527 <sunbowen18@h-partners.com>
+Date:   Tue Nov 25 14:44:16 2025 +0800
+
+    Add packages to release (#204)
+
+[33mcommit 96d5c5a0aae7a560840ba06caf921a2bac6dc096[m
+Author: KanielZhou <36097092+kaniel-outis@users.noreply.github.com>
+Date:   Mon Nov 24 11:33:23 2025 +0800
+
+    [Test] Testing the generalization of fused moe  (#167)
+    
+    * Testing the generalization of fusion operators
+    
+    * fix lint
+    
+    * fix lint
+    
+    * add to build
+    
+    * fix word
+    
+    * fix word
+    
+    * fix word
+    
+    * fix word
+    
+    * update test case
+    
+    * update test case
+    
+    * update test case
+    
+    * update test case
+    
+    * update test case
+    
+    * update test case
+    
+    * fix cleancode
+    
+    * fix lint
+    
+    ---------
+    
+    Co-authored-by: Kaniel_Zhou <zhoudeyang@huawei.com>
+
+[33mcommit 59b1d8a2817ef9f5927f7d6fdc0d3e9e7a4e3cb7[m
+Author: luanyundu <49431685+luanyundu@users.noreply.github.com>
+Date:   Fri Nov 21 16:33:40 2025 +0800
+
+    Support run normal mode deepep on a single A2 machine (#201)
+
+[33mcommit 86bb664b81ba5a6557f6c35a4044565fd88ebca4[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Thu Nov 20 11:40:58 2025 +0800
+
+    add test internode for deepep (#193)
+    
+    * add test internode for deepep
+    
+    * fix codecheck
+    
+    * fix codecheck
+    
+    ---------
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit a8e003ca24607d3aa9b97228f07eb350150cc982[m
+Author: Even Zhou <even.y.zhou@outlook.com>
+Date:   Thu Nov 20 00:40:14 2025 +0800
+
+    upgrade cann to 8.3.rc1 (#195)
+
+[33mcommit 33753fc0761ee51e23ef221b5c51ae03d39659d3[m
+Author: chenxu140 <chenxu140@huawei.com>
+Date:   Wed Nov 19 18:38:12 2025 +0800
+
+    add_norm_bias and split_qkv_norm_rope for qwen3 (#157)
+    
+    * add_norm_bias and split_qkv_norm_rope for qwen3
+
+[33mcommit 56f2754801a95b5abd9e6e5114bcf50ed81f80d8[m
+Author: husf <hushoufeng@huawei.com>
+Date:   Wed Nov 19 18:20:57 2025 +0800
+
+    op transfer kv fixbug (#194)
+    
+    * fix bug for mla
+    
+    * remove synchrozize operation for transfer_kv_dim_exchange
+    
+    * delete comment
+
+[33mcommit b2360967b826d95fc00a30f6c83083c447f620f4[m
+Author: goosj <169110346+goosj@users.noreply.github.com>
+Date:   Mon Nov 17 19:13:53 2025 +0800
+
+    update a verification of HCCL_BUFFSIZE for moe (#183)
+    
+    * update a verification of HCCL_BUFFSIZE for moe
+    
+    * update a verification of HCCL_BUFFSIZE for moe
+    
+    * update a verification of HCCL_BUFFSIZE for moe
+
+[33mcommit f8b28fc693b6485ad21edd5acd772767b120ac2d[m
+Author: Mayyyy <30303931+hustmf@users.noreply.github.com>
+Date:   Mon Nov 17 10:57:12 2025 +0800
+
+    fix cann version check (#188)
+    
+    Co-authored-by: may_feimei <meifei5@huawei.com>
+
+[33mcommit 879d6c6374224083655cd5ca647a10bd2680d4a7[m
+Author: RxZ <zrxliuxue@163.com>
+Date:   Mon Nov 17 10:05:08 2025 +0800
+
+    Add triton decode attention kernels (#184)
+    
+    * Create attention
+    
+    * Update and rename attention to attention.py
+    
+    * add triton decode attention kernels
+
+[33mcommit 5661954f47616c8e54aa6775d64e53bf796398ad[m
+Author: wangqiankun13 <wangqiankun13@huawei.com>
+Date:   Fri Nov 14 10:46:26 2025 +0800
+
+    Support device with different counts of AICore (FusedDeepMoe operator) (#180)
+
+[33mcommit 99bc16d62b02892372e136fa12f56dce7692f90d[m
+Author: Kelon <kelonlu@163.com>
+Date:   Fri Nov 14 09:13:55 2025 +0800
+
+    Add README files for mlapo and batch_transpose_matmul (#104)
+
+[33mcommit 68db27715a8e738980fb416e7c2e997e94becab8[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Thu Nov 13 20:44:49 2025 +0800
+
+    deepep low_latency d&c support a2 single server (#176)
+    
+    * add lowlatency a2 dispatch single server
+    
+    * add lowlatency a2 combine single server
+    
+    * fix a2 dispatch tiling
+    
+    * fix a2 combine tiling
+    
+    * fix a2 d&c kernel
+    
+    * fix codelint
+    
+    ---------
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit 4d299287864b240e10520364d9e13de054e79295[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Thu Nov 13 15:35:52 2025 +0800
+
+    optimize deepep setup, package name with cann version (#178)
+    
+    Co-authored-by: z00799692 <zhengfaan@outlook.com>
+
+[33mcommit 63a2952a5f3582ed855d11e32515de40838600a3[m
+Author: ruiqiangworking <rqren2018@gmail.com>
+Date:   Wed Nov 12 15:40:10 2025 +0800
+
+    remove redundant check (#175)
+    
+    Co-authored-by: ruiqiang <renruiqiang@huawei.com>
+
+[33mcommit d56b60b40ecd9c8f617cfde338b6d0d5321bb167[m
+Author: ruiqiangworking <rqren2018@gmail.com>
+Date:   Tue Nov 11 10:23:23 2025 +0800
+
+     dispatch and combine batchsize support 4096 for A2 (#173)
+    
+    * batchsize support 4096
+    
+    * add bs check for a2 dispatch normal
+    
+    ---------
+    
+    Co-authored-by: ruiqiang <renruiqiang@huawei.com>
+
+[33mcommit 715fb0cb7e3a707fd6792e8dfb8fc40f58c28054[m
+Author: Yue Xu <xuyue32@huawei.com>
+Date:   Mon Nov 10 20:14:35 2025 +0800
+
+    feat:tiny bugfix&Performance Optimization (#170)
+
+[33mcommit 2d155ff3f867d0411992b8c793abb09c1c712c55[m
+Author: ruiqiangworking <rqren2018@gmail.com>
+Date:   Fri Nov 7 16:14:59 2025 +0800
+
+    optimize a2 layered combine kernel code (#172)
+    
+    * optimize a2 combine
+    
+    * fix build
+    
+    ---------
+    
+    Co-authored-by: ruiqiang <renruiqiang@huawei.com>
+
+[33mcommit 96dfd27fbc15bf893f96d8d7837d818086d23d04[m
+Author: ranjiewen <ranjiewen@foxmail.com>
+Date:   Fri Nov 7 11:55:53 2025 +0800
+
+    feat: add verify_tree_greedy_kernel triton kernel (#165)
+    
+    * feat: add verify_tree_greedy_kernel triton kernel
+
+[33mcommit e33aa85f6a382182fdca1df96768d94558cfdcf7[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Fri Nov 7 11:35:32 2025 +0800
+
+    Modified the deep_ep README and add A2 operator performance data. (#168)
+
+[33mcommit 2165f44408ad269ed571d353931e474aea454cd6[m
+Author: luanyundu <49431685+luanyundu@users.noreply.github.com>
+Date:   Fri Nov 7 10:56:39 2025 +0800
+
+    add layout to ops2 directory (#171)
+    
+    * add layout to ops2 directory
+    
+    * modify review suggestion
+    
+    ---------
+    
+    Co-authored-by: linzihan <linzihan3@huawei.com>
+
+[33mcommit 321ac667d1869cf3813b6f9dd06777c3ae728e8f[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Fri Nov 7 09:50:02 2025 +0800
+
+    deepep support internode api (#169)
+    
+    * deepep add internode api
+    
+    * deepep add notify dispatch for a2
+    
+    * add a2 dispatch normal & combine normal
+    
+    * codecheck
+    
+    ---------
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+    Co-authored-by: lih827 <383084552@qq.com>
+
+[33mcommit 15801a85c0532d5efca8abf46bda27cc21c86e9a[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Thu Nov 6 20:01:22 2025 +0800
+
+    Added custom low_latency operators for dispatch/combine in the A2 dec… (#166)
+    
+    * Added custom low_latency operators for dispatch/combine in the A2 decoding phase
+    
+    * util makeself
+    
+    * util .py
+    
+    * fix 512bs
+    
+    * combine support larger bs
+    
+    * fix linting
+    
+    * Add the       opk_weights to the low_latency_dispatch function in test_fused_deep_moe.py.
+    
+    * Modify the layered + quantized diff to 1e-4
+    
+    * modify dispatch_low_latency in buffer.py
+    
+    ---------
+    
+    Co-authored-by: ruiqiang <renruiqiang@huawei.com>
+
+[33mcommit aae2a1adb5d7b8bff25ff6fa3fca8efcde53ea56[m
+Author: luanyundu <49431685+luanyundu@users.noreply.github.com>
+Date:   Thu Nov 6 11:38:44 2025 +0800
+
+    improve layout kernel on a2 (#164)
+    
+    * improve layout kernel on a2
+    
+    * fix lint problems
+    
+    * fix review suggestion
+    
+    ---------
+    
+    Co-authored-by: linzihan <linzihan3@huawei.com>
+
+[33mcommit 02318a4b698f8b1c4ff41e261419117a6ded04b4[m
+Author: husf <hushoufeng@huawei.com>
+Date:   Wed Nov 5 23:20:45 2025 +0800
+
+    support kvcacheio (#163)
+
+[33mcommit e1356249d1b005e13b8ff4c2ff9bb8f526a922e1[m
+Author: wangyibo1005 <74347676+wangyibo1005@users.noreply.github.com>
+Date:   Wed Nov 5 17:03:35 2025 +0800
+
+    support shallow fused topk=-1 (#160)
+    
+    * support small bs = 1 or 2
+    
+    * support small bs = 1 or 2
+    
+    * support small bs = 1 or 2
+    
+    * support small bs = 1 or 2
+    
+    * shallow fused topk=-1
+    
+    ---------
+    
+    Co-authored-by: EnigmaTHU <wang-yb22@mails.tsinghua.edu.cn>
+
+[33mcommit 3cbe6e63439ac705ccea35e5c1e386ce9a7efc44[m
+Author: hw-csong <songchenyi@huawei.com>
+Date:   Wed Nov 5 16:04:11 2025 +0800
+
+    [New Ops] build tree efficient (#161)
+    
+    * add build_tree_efficient ops
+    
+    * add test cases for build_tree_efficient ascendc ops
+    
+    * Add build tree README.md
+
+[33mcommit 938b17cbc1f307e0e075b8ec0fbf1e4d59470bcb[m
+Author: Liwansi <62291011+Liwansi@users.noreply.github.com>
+Date:   Wed Nov 5 14:13:46 2025 +0800
+
+    swiglu quant bugfix (#162)
+
+[33mcommit 1d2b1b397778873d7b786d76f221e1b9c07ae93d[m
+Author: KanielZhou <36097092+kaniel-outis@users.noreply.github.com>
+Date:   Tue Nov 4 19:36:27 2025 +0800
+
+    [DFX] adapt cann8.3 (#159)
+    
+    * adapt cann8.3
+    
+    * fix lint
+    
+    ---------
+    
+    Co-authored-by: Kaniel_Zhou <zhoudeyang@huawei.com>
+
+[33mcommit 65dbcc23ed8e8e5a139299d108d99ebc735efca1[m
+Author: LinyuanLi <lilinyuan4@huawei.com>
+Date:   Mon Nov 3 21:59:55 2025 +0800
+
+    add mla_preprocess test script (#153)
+    
+    * add mla_preprocess test script
+
+[33mcommit 9b3d25bd84d933bdd6984503ac4e6b491ddd5644[m
+Author: KanielZhou <36097092+kaniel-outis@users.noreply.github.com>
+Date:   Mon Nov 3 10:21:00 2025 +0800
+
+    [DFX] Compatible with CAN 8.2 and CAN 8.3 (#158)
+    
+    * [DFX]【compatibility】Compatible with CAN 8.2 and CAN 8.3
+    
+    * cleancode
+    
+    ---------
+    
+    Co-authored-by: Kaniel_Zhou <zhoudeyang@huawei.com>
+
+[33mcommit 7100dd72b345b4c0cf0e196c0be8671c228c70b8[m
+Author: Yue Xu <xuyue32@huawei.com>
+Date:   Fri Oct 31 14:10:48 2025 +0800
+
+    feat:adapt x86_64 compilation (#143)
+    
+    * feat:adapt x86_64 compilation
+    
+    * fix:lintcode
+
+[33mcommit 1a31daafe5c1e458ea3f6e09605ed7f92bfd2bf3[m
+Author: wangyibo1005 <74347676+wangyibo1005@users.noreply.github.com>
+Date:   Fri Oct 31 14:07:55 2025 +0800
+
+    support small bs = 1 or 2 (#150)
+    
+    * support small bs = 1 or 2
+    
+    * support small bs = 1 or 2
+    
+    * support small bs = 1 or 2
+    
+    * support small bs = 1 or 2
+    
+    ---------
+    
+    Co-authored-by: EnigmaTHU <wang-yb22@mails.tsinghua.edu.cn>
+
+[33mcommit f4718efd24fde7ceee31a5884d187f7ad0ce7182[m
+Author: DubhepPan <845021026@qq.com>
+Date:   Fri Oct 31 14:06:56 2025 +0800
+
+    Update CMakeLists.txt (#152)
+
+[33mcommit 97fb68c737bcfec8f6d4d3470501c3f140c5b7a1[m
+Author: Even Zhou <even.y.zhou@outlook.com>
+Date:   Thu Oct 30 15:17:46 2025 +0800
+
+    [Kernel] add Flash-Linear-Attention/layernorm_gated Triton op (#154)
+    
+    * add layernorm_gated kernel
+    
+    * add triton utils
+    
+    * using triton-utils
+    
+    * fix linting
+    
+    * add cache for get_device_properties()
+    
+    * convert int32 compare to fp32
+    
+    * Revert "convert int32 compare to fp32"
+    
+    This reverts commit 4f896f94d4041a5eb84aea9be47190054772ed0e.
+    
+    * add todo for this kernel
+
+[33mcommit d54224c4d16edddc9c0ea0e1ca08fd51e58fa2f9[m
+Author: fy <hit_fuyong@163.com>
+Date:   Thu Oct 30 08:51:45 2025 +0800
+
+    impl fused_swiglu_quant with group_list for deepep-low-latency (#155)
+    
+    * impl fused_swiglu_quant with group_list for deepep-low-latency
+    
+    * add a comment
+    
+    * cleancode
+    
+    * cleancode
+
+[33mcommit b489f670e334b00d3040d9c0fb130053c6395222[m
+Author: husf <hushoufeng@huawei.com>
+Date:   Wed Oct 29 21:56:35 2025 +0800
+
+    add op transfer_kv_dim_exchange (#148)
+    
+    * add op transfer_kv
+
+[33mcommit 2a455ede11b3e069d0c99bd02aa466cf68201b0f[m
+Author: LinyuanLi <liliny163@163.com>
+Date:   Wed Oct 29 14:29:13 2025 +0800
+
+    support cachemode int8_nzcache with bf16 in mla_preprocess (#135)
+    
+    * support cahcemode int8_nzcache with bf16 in mla_preprocess
+    
+    * fix Lint
+
+[33mcommit d2d5b8c4a6b202ec24931e5da69fa3e8adfc682a[m
+Author: LinyuanLi <liliny163@163.com>
+Date:   Wed Oct 29 14:27:58 2025 +0800
+
+    refactor: make hiddenStateDim a class member in MlaTilingData, Follow up on closed PR #82 (#133)
+
+[33mcommit ee7bc7d75bc83466834f191e8de83acca21fc0ed[m
+Author: luanyundu <49431685+luanyundu@users.noreply.github.com>
+Date:   Tue Oct 28 14:59:28 2025 +0800
+
+    add env to decide whether send out prefix sum or not (#151)
+    
+    Co-authored-by: linzihan <linzihan3@huawei.com>
+
+[33mcommit 3d1cd71d18a02a531e143960280d2277ff036907[m
+Author: wangyibo1005 <74347676+wangyibo1005@users.noreply.github.com>
+Date:   Tue Oct 28 10:11:16 2025 +0800
+
+    1 (#132)
+    
+    add test
+    
+    add test v2
+    
+    add script parameter
+    
+    123
+    
+    Co-authored-by: EnigmaTHU <wang-yb22@mails.tsinghua.edu.cn>
+
+[33mcommit 7eceb6a1d19088c4e4ebf73ae84b5fdda47c7e14[m
+Author: luanyundu <49431685+luanyundu@users.noreply.github.com>
+Date:   Mon Oct 27 20:58:58 2025 +0800
+
+    add a2 dispatch layout and update its test (#149)
+    
+    * add a2 dispatch layout and update its test
+    
+    * fix lint bugs
+    
+    * fix lint bugs
+    
+    * fix conversation
+    
+    ---------
+    
+    Co-authored-by: linzihan <linzihan3@huawei.com>
+
+[33mcommit e8c6ab4532d72b8abfd86e2dbdc1044160b0c33c[m
+Author: goosj <169110346+goosj@users.noreply.github.com>
+Date:   Thu Oct 23 15:16:55 2025 +0800
+
+    Update README.md of DeepEp (#144)
+
+[33mcommit c6a2ceffed56b043cfd856d162d54d2d5d870611[m
+Author: Vladimir Serov <serov.vladimir1@huawei.com>
+Date:   Thu Oct 23 09:19:55 2025 +0300
+
+    LoRA: moving kernels from vllm-ascend repo (#128)
+    
+    * LoRA: moving kernels from vllm-ascend repo
+    
+    * Update copyright description
+
+[33mcommit 42e0d727d33a1d0d096618d65523ba01aa833f7c[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Thu Oct 23 09:48:34 2025 +0800
+
+    Change the padding generation from randperm back to arange (#140)
+    
+    Co-authored-by: oagniqgnat <tangqingao@huawei.com>
+
+[33mcommit 4dc412c31982b4ff6c7e80ee25d0ae5c49e52962[m
+Author: Even Zhou <even.y.zhou@outlook.com>
+Date:   Wed Oct 22 18:43:55 2025 +0800
+
+    remove unused codes (#142)
+
+[33mcommit 9d88b22f49dff589bca0340e65f616106edf9167[m
+Author: Even Zhou <even.y.zhou@outlook.com>
+Date:   Sun Oct 19 16:18:38 2025 +0800
+
+    update qwen3-next performance kernels (#130)
+
+[33mcommit 7d3b6025ce09933e29bd84a9447215fa9a493e6a[m
+Author: wangqiankun13 <wangqiankun13@huawei.com>
+Date:   Sat Oct 18 17:22:46 2025 +0800
+
+    Delete left useless code (#129)
+
+[33mcommit 2a4a5559f879993c4fa804a9b9dd560e34ecad69[m
+Author: wangqiankun13 <wangqiankun13@huawei.com>
+Date:   Sat Oct 18 09:49:24 2025 +0800
+
+    Support different token hidden sizes and gmm hidden sizes(FusedDeepMoe (#123)
+    
+    Operator).
+
+[33mcommit c4e7608fdd7747d447be36b0119c0cfb2bddfc3b[m
+Author: KanielZhou <36097092+kaniel-outis@users.noreply.github.com>
+Date:   Thu Oct 16 21:23:28 2025 +0800
+
+    [FusedDeepMoe] Support EPLB (#118)
+    
+    * Add files via upload
+    
+    * Add files via upload
+    
+    * Delete act directory
+    
+    * 1.eplb and ep_recv_count
+    2.random
+    3.update fused moe interface
+    
+    * 1.eplb and ep_recv_count
+    2.random
+    3.update fused moe interface
+    
+    * 1.eplb and ep_recv_count
+    2.random
+    3.update fused moe interface
+    
+    * 1.add test for eplb
+    2.update output for fused_deep_moe
+    
+    * 1.update test fused deep moe
+    2.add test in ci
+    
+    * 1.update x to new_x
+    
+    * 1.update line
+    
+    * 1.update readme
+    
+    * 1.update readme
+    
+    * 1.update quantMode
+    
+    * 1.update infos
+    
+    * 1.update infos
+    
+    ---------
+    
+    Co-authored-by: wangyibo1005 <74347676+wangyibo1005@users.noreply.github.com>
+    Co-authored-by: Kaniel_Zhou <zhoudeyang@huawei.com>
+
+[33mcommit 0318326b3ac145c96c51d9f271440d15b03e5d90[m
+Author: wangyibo1005 <74347676+wangyibo1005@users.noreply.github.com>
+Date:   Tue Oct 14 21:23:49 2025 +0800
+
+    eplb (#116)
+    
+    eplb_clean
+    
+    eplb_repair
+    
+    eplb_recvCount
+    
+    backword
+    
+    re
+    
+    re
+    
+    re
+    
+    Co-authored-by: EnigmaTHU <wang-yb22@mails.tsinghua.edu.cn>
+
+[33mcommit 9f3fe16d00132082105c295b7a5c5c3a1ddd92dd[m
+Author: jia-rundong <74397815+jia-rundong@users.noreply.github.com>
+Date:   Tue Oct 14 14:15:32 2025 +0800
+
+    Not use download.pytorch.org (#121)
+    
+    * Update npu_ci_install_dependency.sh
+    
+    * Update pr-test-npu.yml
+    
+    * Update build.sh
+    
+    * Update pr-test-npu.yml
+
+[33mcommit 7e11591628d8301dd53585ba27b09e4a24b12eab[m
+Author: Todobe <43903496+Todobe@users.noreply.github.com>
+Date:   Tue Oct 14 09:07:08 2025 +0800
+
+    mlapo fit different hidden state dim (#82)
+    
+    * mlapo fit different hidden state dim
+    
+    * fix code assisit
+    
+    * clean code
+    
+    * clean code
+
+[33mcommit 3a1fb13ff27bfa456f7d0ac3e84fe23ad50533d4[m
+Author: Yue Xu <xuyue32@huawei.com>
+Date:   Mon Oct 13 18:32:21 2025 +0800
+
+    feat:add moe fused operator test draft (#120)
+
+[33mcommit 2a2aef20cd5d322ba8953408da4799b2b39034bc[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Thu Oct 9 10:53:45 2025 +0800
+
+    Fix the severe performance degradation issue of the top9 dispatch in normal mode compared to top8. (#117)
+    
+    Co-authored-by: oagniqgnat <tangqingao@huawei.com>
+
+[33mcommit dd005e326b3878fd7164f8ef186352ccf42a47dd[m
+Author: KanielZhou <36097092+kaniel-outis@users.noreply.github.com>
+Date:   Sun Sep 28 17:36:49 2025 +0800
+
+    Synchronous fusion moe (#108)
+    
+    * Synchronous fusion moe
+    
+    * Synchronous fusion moe
+    
+    * add new files for fused moe
+    
+    * upadte catlass
+    
+    * update cleancode
+    
+    * upadte codespell
+    
+    ---------
+    
+    Co-authored-by: Kaniel_Zhou <zhoudeyang@huawei.com>
+
+[33mcommit dbb3cc2d103b191d25eeca0fc59d0d05e47f5a96[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Fri Sep 26 17:10:59 2025 +0800
+
+    Update README (#115)
+    
+    Co-authored-by: oagniqgnat <tangqingao@huawei.com>
+
+[33mcommit bf9af58fc1340e35d29c0cfe07f52d288aeff79d[m
+Author: jia-rundong <74397815+jia-rundong@users.noreply.github.com>
+Date:   Fri Sep 26 16:26:48 2025 +0800
+
+    Support debug info for build (#99)
+    
+    * add debug log
+    
+    * add debug log cpp
+    
+    * add debug log cpp
+    
+    * add debug log cpp
+    
+    * add debug log
+    
+    * add debug log
+    
+    * add debug log
+    
+    * add debug log
+    
+    * add debug log
+    
+    * add debug log
+    
+    * add debug log
+    
+    * add debug log
+    
+    * add debug log
+    
+    * add debug log
+    
+    * add debug log
+    
+    ---------
+    
+    Co-authored-by: jiarundong <j30079061@china.huawei.com>
+
+[33mcommit b2e930947da9e73faeb860ba22c9f2a10479eead[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Fri Sep 26 16:20:25 2025 +0800
+
+    Add performace of normal and low latency dispatch/combine comm (#106)
+    
+    Co-authored-by: oagniqgnat <tangqingao@huawei.com>
+
+[33mcommit 41ba5d7401ab7789d182dae5fe3cda92335e95e7[m
+Author: Yue Xu <948800153@qq.com>
+Date:   Fri Sep 26 09:03:25 2025 +0800
+
+    feat:add env var to switch quant (#112)
+    
+    * feat:add env var to switch quant
+    
+    * Update python/deep_ep/deep_ep/buffer.py
+    
+    Co-authored-by: gemini-code-assist[bot] <176961590+gemini-code-assist[bot]@users.noreply.github.com>
+    
+    * Update buffer.py
+    
+    ---------
+    
+    Co-authored-by: gemini-code-assist[bot] <176961590+gemini-code-assist[bot]@users.noreply.github.com>
+
+[33mcommit 1c03ce91d4756bbcd7f2480e764694ac4f6193ad[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Thu Sep 25 20:22:29 2025 +0800
+
+    Modify test_low_latency to support int8 quantization testing. (#109)
+    
+    Co-authored-by: oagniqgnat <tangqingao@huawei.com>
+
+[33mcommit 6d7b5915d65afe4fe43ae6cf7ff16d548089b24c[m
+Author: KanielZhou <36097092+kaniel-outis@users.noreply.github.com>
+Date:   Thu Sep 25 19:51:57 2025 +0800
+
+    update fused moe readme (#110)
+    
+    * update readme
+    
+    * update readme
+    
+    ---------
+    
+    Co-authored-by: Kaniel_Zhou <zhoudeyang@huawei.com>
+
+[33mcommit 273083419f52a24e964857fa022b46eaf503ce83[m
+Author: Kelon <kelonlu@163.com>
+Date:   Wed Sep 24 16:17:16 2025 +0800
+
+    [feat] add batch_matmul_transpose op (#77)
+    
+    * [feat] add pp_matmul_einsum op
+
+[33mcommit 7467cc93ca006368eaae1880b673aa0379fe8b68[m
+Author: lbk-sys <85090337+lbk-sys@users.noreply.github.com>
+Date:   Wed Sep 24 09:57:10 2025 +0800
+
+    fix for sglang verl and readme (#98)
+    
+    * fix for sglang verl and readme
+    
+    Signed-off-by: lbk-sys <hello_lbk@163.com>
+    
+    * fix for commits
+    
+    Signed-off-by: libaokui <libaokui@hauwei.com>
+    
+    ---------
+    
+    Signed-off-by: lbk-sys <hello_lbk@163.com>
+    Signed-off-by: libaokui <libaokui@hauwei.com>
+    Co-authored-by: libaokui <libaokui@hauwei.com>
+
+[33mcommit 72619b7d6efd1e6a5ae6fcfdc50ce2351bedc990[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Tue Sep 23 20:14:44 2025 +0800
+
+    Added --pressure-test function in test_low_latency (#101)
+
+[33mcommit f124fb01da237a521587f7b71a1ccebbb3370ddc[m
+Author: luanyundu <49431685+luanyundu@users.noreply.github.com>
+Date:   Tue Sep 23 20:12:49 2025 +0800
+
+    unfold layout expert limit and fix bug (#107)
+    
+    Co-authored-by: linzihan <linzihan3@huawei.com>
+
+[33mcommit a40ab10a5b33f053011b257a7a5c11c1a5d1f646[m
+Author: KanielZhou <36097092+kaniel-outis@users.noreply.github.com>
+Date:   Mon Sep 22 15:53:11 2025 +0800
+
+    fix some bug for fused moe (#102)
+    
+    * fix some bug for fused moe
+    
+    * fix some bug for fused moe
+    
+    * fix bug in dynamic batch situation and share expert of FusedDeepMoe operator
+    
+    * fix bug in dynamic batch situation and share expert of FusedDeepMoe operator
+    
+    ---------
+    
+    Co-authored-by: Kaniel_Zhou <zhoudeyang@huawei.com>
+
+[33mcommit c9c3710e8e66016833f2b784c7810c663622c546[m
+Author: KanielZhou <36097092+kaniel-outis@users.noreply.github.com>
+Date:   Sat Sep 20 11:49:55 2025 +0800
+
+    fused_moe_for_sglang (#94)
+    
+    * Fused_moe_for_sglang
+    
+    * update cleancode
+    
+    * update cleancode
+    
+    * update cleancode
+    
+    * update cleancode
+    
+    ---------
+    
+    Co-authored-by: Kaniel_Zhou <zhoudeyang@huawei.com>
+
+[33mcommit a83ac24882c9f500f3c295689c89bbb3c609ca6d[m
+Author: wangyibo1005 <74347676+wangyibo1005@users.noreply.github.com>
+Date:   Fri Sep 19 14:21:58 2025 +0800
+
+    add FusedDeepMoe (#92)
+    
+    pre-commit and MACRO CHANGE
+    
+    pre-commit codespell
+    
+    pre-commit co
+    
+    Co-authored-by: EnigmaTHU <wang-yb22@mails.tsinghua.edu.cn>
+
+[33mcommit ff12c2018fbb49a5e414bc7603614b2b0af2cec0[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Fri Sep 19 09:32:48 2025 +0800
+
+    Add diagnostic modules to dispatch and combine (#95)
+
+[33mcommit 32d54379185e1f99693c749ad31147b5ac7feac5[m
+Author: jia-rundong <74397815+jia-rundong@users.noreply.github.com>
+Date:   Tue Sep 16 15:36:57 2025 +0800
+
+    Add CI to test args -a deepep (#84)
+    
+    * add build args
+    
+    * add build args
+    
+    * add build args
+    
+    * add build args
+    
+    * add build args
+    
+    * Update pr-test-npu.yml
+    
+    * Update pr-test-npu.yml
+    
+    * Update pr-test-npu.yml
+    
+    ---------
+    
+    Co-authored-by: jiarundong <j30079061@china.huawei.com>
+
+[33mcommit 5d0d8a3ff467fd7c2add98887d4892de0c967d18[m
+Author: oagniqgnat <50540669+oagniqgnat@users.noreply.github.com>
+Date:   Tue Sep 16 15:05:04 2025 +0800
+
+    Compilation warnings pending cleanup (#86)
+
+[33mcommit 1784e2788cdab53c9e33c624f37e7933800c4bac[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Tue Sep 16 14:57:00 2025 +0800
+
+    Reapply fix for hccl buffer use and verify (#91)
+    
+    * Reapply "Separate the buffers used by D/C and notify_dispatch to avoid conflic…" (#89)
+    
+    This reverts commit 608d1cc29cee478f34b8f80f32d42564a51e8228.
+    
+    * Reapply "Fix the memory verification issue within intranode dispatch (#83)" (#88)
+    
+    This reverts commit 93298de481189a9228edce5f618720a72f6bdc1d.
+    
+    * fix codecheck
+    
+    ---------
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit 608d1cc29cee478f34b8f80f32d42564a51e8228[m
+Author: Even Zhou <even.y.zhou@outlook.com>
+Date:   Sat Sep 13 05:30:14 2025 +0800
+
+    Revert "Separate the buffers used by D/C and notify_dispatch to avoid conflic…" (#89)
+    
+    This reverts commit 29aec86ff9721bb5cf709d15d19d38bb14b329e7.
+
+[33mcommit 93298de481189a9228edce5f618720a72f6bdc1d[m
+Author: Even Zhou <even.y.zhou@outlook.com>
+Date:   Sat Sep 13 04:35:21 2025 +0800
+
+    Revert "Fix the memory verification issue within intranode dispatch (#83)" (#88)
+    
+    This reverts commit 50903a999272ddf72700acb048a66da7f1dcc4fc.
+
+[33mcommit 0e59a9099450e59a98944b9e75100dd2c428c269[m
+Author: Even Zhou <even.y.zhou@outlook.com>
+Date:   Sat Sep 13 00:56:53 2025 +0800
+
+    [Feature] add fla and mamba kernels (#87)
+    
+    * [Feature] add fla and mamba kernels
+    
+    * fix linting
+    
+    * fix import error
+    
+    * remove extra funs in utils.py
+    
+    * fix misnaming
+    
+    * add missing fn
+
+[33mcommit 50903a999272ddf72700acb048a66da7f1dcc4fc[m
+Author: lih827 <383084552@qq.com>
+Date:   Fri Sep 12 14:14:20 2025 +0800
+
+    Fix the memory verification issue within intranode dispatch (#83)
+    
+    * Fix the memory verification issue within the communication domain by
+    validating the total memory usage of all operators sharing the same
+    communication group
+    
+    * fix review issue
+    
+    * fix clang format
+    
+    * fix no newline at end of file
+    
+    * fix issue
+
+[33mcommit 57366feaeccd30d521c3dde388a25a679c673f83[m
+Author: shengzhaotian <shengzhao_tian@163.com>
+Date:   Tue Sep 9 19:26:24 2025 +0800
+
+    mlapo support bf16 KV Cache NZ format (#79)
+
+[33mcommit 2b13cb61002ac9c723d0872fe257c5fd43578b86[m
+Author: lbk-sys <85090337+lbk-sys@users.noreply.github.com>
+Date:   Mon Sep 8 10:43:10 2025 +0800
+
+    torch memory saver for npu. (#74)
+    
+    * torch memory saver for npu.
+    Co-authored-by:yuzichang18 <17888833550@163.com>
+    
+    Signed-off-by: libaokui <libaokui@hauwei.com>
+    
+    * rm pycache
+    Co-authored-by:yuzichang18 <17888833550@163.com>
+    
+    Signed-off-by: libaokui <libaokui@hauwei.com>
+    
+    * rm pycache 2
+    Co-authored-by:yuzichang18 <17888833550@163.com>
+    
+    Signed-off-by: libaokui <libaokui@hauwei.com>
+    
+    * fix comment
+    Co-authored-by: yuzichang18 <17888833550@163.com>
+    
+    Signed-off-by: libaokui <libaokui@hauwei.com>
+    
+    * update project instruct
+    Co-authored-by: yuzichang18<17888833550@163.com>
+    
+    Signed-off-by: libaokui <libaokui@huawei.com>
+    
+    * rm data
+    Co-authored-by: yuzichang18<17888833550@163.com>
+    
+    Signed-off-by: libaokui <libaokui@huawei.com>
+    
+    * rm data2
+    Co-authored-by: yuzichang18<17888833550@163.com>
+    
+    Signed-off-by: libaokui <libaokui@huawei.com>
+    
+    * fix
+    Co-authored-by: yuzichang18<17888833550@163.com>
+    
+    Signed-off-by: libaokui <libaokui@hauwei.com>
+    
+    * fix commit
+    
+    Signed-off-by: libaokui <libaokui@hauwei.com>
+    
+    * fix ci
+    
+    Signed-off-by: libaokui <libaokui@hauwei.com>
+    
+    * fix ci test
+    
+    Signed-off-by: libaokui <libaokui@hauwei.com>
+    
+    * fix ci
+    
+    Signed-off-by: libaokui <libaokui@hauwei.com>
+    
+    ---------
+    
+    Signed-off-by: libaokui <libaokui@hauwei.com>
+    Signed-off-by: libaokui <libaokui@huawei.com>
+    Co-authored-by: libaokui <libaokui@hauwei.com>
+    Co-authored-by: libaokui <libaokui@huawei.com>
+
+[33mcommit fb4c40065e7cca3296394b54cd3e7007e10b989e[m
+Author: Yue Xu <948800153@qq.com>
+Date:   Sat Sep 6 13:57:35 2025 +0800
+
+    feat:add activerank test para (#75)
+    
+    * feat:add activerank test para
+    
+    * fix:robust parse
+
+[33mcommit 29aec86ff9721bb5cf709d15d19d38bb14b329e7[m
+Author: lih827 <383084552@qq.com>
+Date:   Thu Sep 4 16:45:46 2025 +0800
+
+    Separate the buffers used by D/C and notify_dispatch to avoid conflicts (#67)
+
+[33mcommit 47f067ed1a62f1d3eb9a73ec365c8ad5f664165a[m
+Author: BourneSun0527 <sunbowen18@h-partners.com>
+Date:   Thu Sep 4 14:19:05 2025 +0800
+
+    add linting (#71)
+    
+    add cleancode check
+
+[33mcommit 79130f9b209c1235912a5469b751bf1bb1303721[m
+Author: jia-rundong <74397815+jia-rundong@users.noreply.github.com>
+Date:   Wed Sep 3 16:27:44 2025 +0800
+
+    Use Ascend name (#62)
+    
+    * Update buffer.py
+    
+    * Update config.hpp
+    
+    * Update deep_ep.cpp
+    
+    * Update deep_ep.hpp
+    
+    * Update pybind_extension.cpp
+    
+    * Use Ascend name
+    
+    ---------
+    
+    Co-authored-by: jiarundong <j30079061@china.huawei.com>
+
+[33mcommit eb8a6f5894b5d38569cdd1e703b3b40fe36ca127[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Wed Sep 3 15:40:07 2025 +0800
+
+    normal_dispatch enable quant (#66)
+    
+    * normal_dispatch enable quant
+    
+    * fix test for dispatch
+    
+    ---------
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit 861250038c40c10f4c8667e299a78812984b2ac7[m
+Author: shengzhaotian <shengzhao_tian@163.com>
+Date:   Wed Sep 3 15:27:37 2025 +0800
+
+    Solve the mlapo operator's precision anomaly in acl graph (#68)
+    
+    * fix mlapo in acl graph
+
+[33mcommit 955df343885363dad000a4c616050cce721696ff[m
+Author: luanyundu <49431685+luanyundu@users.noreply.github.com>
+Date:   Tue Sep 2 11:29:44 2025 +0800
+
+    Add test low latency (#65)
+    
+    * Add test low latency
+    
+    * Update test_low_latency.py for review
+    
+    change review suggestions
+    
+    * Update pr-test-npu.yml for updated low lantency test
+    
+    Update pr-test-npu.yml for updated low lantency test
+    
+    * Update test_low_latency.py
+    
+    Add seperate profiling
+    
+    * Update pr-test-npu.yml
+    
+    ---------
+    
+    Co-authored-by: luanyundu <linzihan3@huawei.com>
+
+[33mcommit 29f613689590866ee5de3eaf9beec6d0ec8116a8[m
+Author: Michelle Wu <WuXue_351@163.com>
+Date:   Mon Sep 1 10:41:35 2025 +0800
+
+    Update speculative tree ops (#64)
+    
+    * Update speculative.py
+
+[33mcommit 95cb56279ecb6be86f3e0185850a8499a0c39fba[m
+Author: kip-cxj <939544916@qq.com>
+Date:   Sat Aug 30 15:44:04 2025 +0800
+
+    combine use dedicated memory (#63)
+    
+    * combine use dedicated memory
+    
+    combine use dedicated memory ensure that there is no intersection with the memory used by dispatch
+    
+    * update actual memory size used by moe
+    
+    * modify combine
+    
+    * remove temporary plan
+
+[33mcommit fee6d02f2f5ff22d9dc7e9547244512509101964[m
+Author: luanyundu <49431685+luanyundu@users.noreply.github.com>
+Date:   Sat Aug 30 15:37:10 2025 +0800
+
+    Kernel layout (#57)
+    
+    * Update deep_ep.cpp
+    
+    kernel-layout commit1
+    
+    * Create dispatch_layout_tiling.cc
+    
+    kernel layout commit2
+    
+    * Create dispatch_layout.cpp
+    
+    kernel layout commit3
+    
+    * Create aclnn_dispatch_layout.cpp
+    
+    kernel layout commit4
+    
+    * Create aclnn_dispatch_layout.h
+    
+    kernel layout commit5
+    
+    * Create dispatch_layout_tiling.h
+    
+    kernel layout commit6
+    
+    * Create dispatch_layout.cpp
+    
+    kernel layout commit7
+    
+    * Create dispatch_layout.h
+    
+    kernel layout commit8
+
+[33mcommit 55ef7b6c6a3fdee0b6bcdd68b82214c57aca331e[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Sat Aug 30 15:30:08 2025 +0800
+
+    fix notify dispatch (#61)
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit 438e24bebeabef5b936a766a6d17f50c649be637[m
+Author: jia-rundong <74397815+jia-rundong@users.noreply.github.com>
+Date:   Sat Aug 30 15:29:42 2025 +0800
+
+    Support build option deepep/kernels (#59)
+    
+    * support build option deepep/kernels
+    
+    * support build option deepep/kernels
+    
+    * Update build.sh
+    
+    * Update CMakeLists.txt
+    
+    * Update CMakeLists.txt
+    
+    * Update test_intranode.py
+    
+    * Update test_intranode.py
+    
+    * Update build.sh
+    
+    * Split deepep adapter and kernels
+    
+    ---------
+    
+    Co-authored-by: jiarundong <j30079061@china.huawei.com>
+
+[33mcommit 81b139b8fd9c150ead55f08899b8aa075dbacb14[m
+Author: RxZ <40632011+RuixuanZhang06@users.noreply.github.com>
+Date:   Fri Aug 29 16:43:20 2025 +0800
+
+    support cache loc update op (#60)
+    
+    Co-authored-by: ruixuandev <zhangruixuan5@huawei.com>
+
+[33mcommit 4cbda1fa25bc278a6133d10203a50b4e4d23983d[m
+Author: Kelon <kelonlu@163.com>
+Date:   Thu Aug 28 15:19:31 2025 +0800
+
+    [fix] rename assign cache op (#48)
+    
+    * rename assign cache op
+
+[33mcommit c2c4d4ed2900f38c3966bbad62680f31c2480b30[m
+Author: jia-rundong <74397815+jia-rundong@users.noreply.github.com>
+Date:   Thu Aug 28 11:10:39 2025 +0800
+
+    Update README.md (#58)
+
+[33mcommit 1b7f2efb1a252c9f261b1cbb760de74a515da24e[m
+Author: ranjiewen <ranjiewen@foxmail.com>
+Date:   Wed Aug 27 22:20:47 2025 +0800
+
+    alloc_extend for tokens slots alloc (#43)
+    
+    alloc_extend for tokens slots alloc
+
+[33mcommit 6b79a4aeaee8408af2b9826b0c7799912f6c40fa[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Wed Aug 27 19:18:04 2025 +0800
+
+    fix combine memory problem (#54)
+    
+    * scale the size of globalbs for normal dispath and combine
+    
+    * set hccl buffersize for ut
+    
+    ---------
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit 6faf06b685357d51d6c8e4f0847d494fd848e8dc[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Wed Aug 27 19:17:12 2025 +0800
+
+    fix dispatch return param recv_count mismatch (#49)
+    
+    * fix low_latency_dispatch api return param mismatch
+    
+    * fix normal dispatch num_recv_tokens_per_expert_list
+    
+    * fix codecheck
+    
+    ---------
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit f8bd1d222818ab236ee2cc115b6af7e3eeee9491[m
+Author: shengzhaotian <shengzhao_tian@163.com>
+Date:   Wed Aug 27 17:24:08 2025 +0800
+
+    Fusion operator for MLA Preprocess (#51)
+    
+    Fusion operator for MLA Preprocess
+
+[33mcommit f909432976b38c7a79ffb796724181252d5f9f88[m
+Author: jia-rundong <74397815+jia-rundong@users.noreply.github.com>
+Date:   Wed Aug 27 17:14:24 2025 +0800
+
+    Support only build deepep (#53)
+    
+    * Update build.sh
+    
+    * Update CMakeLists.txt
+    
+    * Update CMakeLists.txt
+    
+    * Update build.sh
+
+[33mcommit 6d3845dc2830d2c64261345b051821a1143c8f41[m
+Author: minibao <3190792@qq.com>
+Date:   Wed Aug 27 14:25:08 2025 +0800
+
+    refined clang-format and disabled unused-variable check (#52)
+    
+    * - added clang-format for code style
+    - reformated helloworld.cpp with it
+    
+    * - disabled unused-variable compiling warning
+    - refined clang-format
+    - refined helloworld.cpp includes order
+    
+    ---------
+    
+    Co-authored-by: minibao <b00525613@china.huawei.com>
+
+[33mcommit 9a81776dade6cac344bc4eb86ca7cff67324af81[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Tue Aug 26 21:03:00 2025 +0800
+
+    adapter a2 with empty tp (#50)
+    
+    * tp need empty for a2
+    
+    * fix cleancode
+    
+    ---------
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit 73e03eed096943f64cf83c93a97ee2d140232857[m
+Author: RxZ <40632011+RuixuanZhang06@users.noreply.github.com>
+Date:   Tue Aug 26 14:20:23 2025 +0800
+
+    support fused cache assign op (#46)
+    
+    Co-authored-by: ruixuandev <zhangruixuan5@huawei.com>
+
+[33mcommit 3388504268514bc021c640b32da011dea0940b61[m
+Author: minibao <3190792@qq.com>
+Date:   Tue Aug 26 11:40:07 2025 +0800
+
+    - added clang-format for code style (#45)
+    
+    - reformated helloworld.cpp with it
+    
+    Co-authored-by: minibao <b00525613@china.huawei.com>
+
+[33mcommit 9041800414a3038f91b78e74ca050b055e14ac36[m
+Author: RxZ <40632011+RuixuanZhang06@users.noreply.github.com>
+Date:   Mon Aug 25 17:35:17 2025 +0800
+
+    support offset: int64 and fix buffer waste (#41)
+    
+    Co-authored-by: ruixuandev <zhangruixuan5@huawei.com>
+
+[33mcommit 1e8873393785483a7a193db05de04233f4597dd5[m
+Author: jia-rundong <74397815+jia-rundong@users.noreply.github.com>
+Date:   Mon Aug 25 17:03:49 2025 +0800
+
+    Add UT for D_C precision (#38)
+    
+    * intranode UT
+    
+    * intranode UT
+    
+    * add UT for D_C precision
+    
+    * add UT for D_C precision
+    
+    * Add UT for D_C precision
+    
+    * Update test_intranode.py
+    
+    * always clear container
+    
+    * test UT
+    
+    * test test_intranode.py
+    
+    * test test_intranode.py
+    
+    * test test_intranode.py
+    
+    * test test_intranode.py
+    
+    * test test_intranode.py
+    
+    * test test_intranode.py
+    
+    * use k8s ci
+    
+    * use k8s ci
+    
+    * use k8s ci
+    
+    * use k8s ci
+    
+    * use k8s ci
+    
+    * use k8s ci
+    
+    * use k8s ci
+    
+    * use k8s ci
+    
+    * use k8s ci
+    
+    * use k8s ci
+    
+    * use k8s ci
+    
+    * use k8s ci
+    
+    * use k8s ci
+    
+    * use k8s ci a3-16
+    
+    * link deepep so
+    
+    * Update pr-test-npu.yml
+    
+    * Update pr-test-npu.yml
+    
+    * Update npu_ci_install_dependency.sh
+    
+    * link deepep so
+    
+    * test source env
+    
+    * test source env
+    
+    * Update pr-test-npu.yml
+    
+    * test source env
+    
+    * test source env
+    
+    * test source env
+    
+    * test source env
+    
+    * test source env
+    
+    ---------
+    
+    Co-authored-by: jiarundong <j30079061@china.huawei.com>
+
+[33mcommit ea15f2b7236dadf0eb1f692ff70e6b0ef011f4a8[m
+Author: Kelon <kelonlu@163.com>
+Date:   Mon Aug 25 09:34:17 2025 +0800
+
+    [feat] Add assign cache op (#29)
+    
+    [feat] Add assign cache op (#29)
+
+[33mcommit d0b5f3ead10af5b4879f24e0c19e33682eead384[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Thu Aug 21 09:10:56 2025 +0800
+
+    support normal dispatch and combine (#33)
+    
+    * support normal dispatch and combine
+    
+    * fix param for normal combine
+    
+    * fix build
+    
+    ---------
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+    Co-authored-by: zhengfaan <zhengfaan@huawei.com>
+
+[33mcommit 016340987baa6fb13b9c922ecb38465999d9191f[m
+Author: ZFA <92495905+zuje123@users.noreply.github.com>
+Date:   Wed Aug 20 21:37:07 2025 +0800
+
+    add notify dispatch kernel for prefill stage (#37)
+    
+    * add notify dispatch kernel for prefill
+    
+    * fix codecheck
+    
+    ---------
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit 5fb20914e4930d72c49b811c7248056e6597c545[m
+Author: yuankunhan103 <handuola201@163.com>
+Date:   Wed Aug 20 21:36:45 2025 +0800
+
+     add combine normal kernel for prefill moe stage (#36)
+
+[33mcommit b10ed2ab10d0f7ade6d2208093c58c17d593758e[m
+Author: yuankunhan103 <handuola201@163.com>
+Date:   Wed Aug 20 20:10:12 2025 +0800
+
+    add dispatch normal kernel for prefill moe stage (#34)
+
+[33mcommit 9ed11bfdd1c5ab51daef3af4795cfbecb5b45a95[m
+Author: Michelle Wu <92331285+MichelleWu351@users.noreply.github.com>
+Date:   Wed Aug 20 19:32:13 2025 +0800
+
+    MTP build tree op and verify tree op (#35)
+    
+    mtp tree native op
+    ---------
+    
+    Co-authored-by: wuxue <wuxue15@huawei.com>
+
+[33mcommit 4950dddb6aaddf0ad945cbbd2909f825d2ee544b[m
+Author: jia-rundong <74397815+jia-rundong@users.noreply.github.com>
+Date:   Tue Aug 19 09:39:25 2025 +0800
+
+    Add build deepep step (#32)
+    
+    * build deepep
+    
+    * build deepep
+    
+    * test build deepep
+    
+    * revert test code
+    
+    * link deepep so
+    
+    ---------
+    
+    Co-authored-by: jiarundong <j30079061@china.huawei.com>
+
+[33mcommit 187ebdffb74e3114a5840f91cb7244a1a1edbf88[m
+Author: RxZ <40632011+RuixuanZhang06@users.noreply.github.com>
+Date:   Sat Aug 16 15:45:42 2025 +0800
+
+    Add cache_assign op and packaing functionality for sgl_kernel_npu (#31)
+    
+    * add cache_assign op
+    
+    * Add packaing functionality for sgl_kernel_npu and include a README file
+    
+    * Merge head files of ops and simplify #inclue <*.h> in *.cpp
+    
+    ---------
+    
+    Co-authored-by: ruixuandev <zhangruixuan5@huawei.com>
+
+[33mcommit 1e5eb466e36b4915459ac051986be3516e4bf1bc[m
+Author: RxZ <40632011+RuixuanZhang06@users.noreply.github.com>
+Date:   Thu Aug 14 17:30:26 2025 +0800
+
+    fix SOC_VERSION not found in build.sh (#28)
+    
+    * fix deepep cmake
+    
+    * Pass in SOC_VERSION via a parameter in build.sh
+    
+    * Enableb CI for build.sh and cmake
+    
+    * fix SOC_VERSION not found in build.sh
+    
+    ---------
+    
+    Co-authored-by: ruixuandev <zhangruixuan5@huawei.com>
+
+[33mcommit 3d56c5e8451f5500183e9a7f20ef08871ed715d3[m
+Author: RxZ <40632011+RuixuanZhang06@users.noreply.github.com>
+Date:   Thu Aug 14 16:20:47 2025 +0800
+
+    Pass the SOC_VERSION as a parameter in build.sh (#27)
+    
+    * fix deepep cmake
+    
+    * Pass in SOC_VERSION via a parameter in build.sh
+    
+    * Enableb CI for build.sh and cmake
+    
+    ---------
+    
+    Co-authored-by: ruixuandev <zhangruixuan5@huawei.com>
+
+[33mcommit 242f7366b66524276717a599d8626ca253333afd[m
+Author: RxZ <40632011+RuixuanZhang06@users.noreply.github.com>
+Date:   Wed Aug 13 17:16:09 2025 +0800
+
+    fix deepep cmake (#24)
+    
+    Co-authored-by: ruixuandev <zhangruixuan5@huawei.com>
+
+[33mcommit 5d6c27a52dc9f317fefb1646987faae0f4e974da[m
+Author: minibao <3190792@qq.com>
+Date:   Wed Aug 13 17:02:29 2025 +0800
+
+    added cmake project for whole project (#21)
+    
+    added helloworld ops as example
+    restructure deepep build project
+    
+    Co-authored-by: xiaomingbao008 <baoxiaoming@huawei.com>
+
+[33mcommit 22bced2fb6e1bea3920c407976eee40e01f5a228[m
+Author: jia-rundong <74397815+jia-rundong@users.noreply.github.com>
+Date:   Tue Aug 12 17:19:20 2025 +0800
+
+    add CI workflow for Intranode test and Low-latency test (#23)
+    
+    * add ci workflow
+    
+    * ci use a3
+    
+    * accept review
+    
+    * set yes for pip unistall
+    
+    * use docker
+    
+    * remove redundant docker file
+    
+    * fix: no error report when clean config, use full path in docker
+    
+    * fix typo
+    
+    * clean workspace
+    
+    * standardize the format
+    
+    * standardize the format
+    
+    * clear docker after ci
+    
+    * clear docker after ci
+    
+    ---------
+    
+    Co-authored-by: jiarundong <j30079061@china.huawei.com>
+
+[33mcommit d96c62d0d0f3071beab3b59106c73f0fae8cf75e[m
+Author: zuje123 <92495905+zuje123@users.noreply.github.com>
+Date:   Mon Aug 4 17:22:39 2025 +0800
+
+    support shared expert (#16)
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit 7d490592736cec32de9a6a058ca4283513059646[m
+Author: Yue Xu <948800153@qq.com>
+Date:   Sat Aug 2 17:49:01 2025 +0800
+
+    [Feat] Support Buffer::get_dispatch_layout interface (#15)
+    
+    * feat:support dispatch layout
+    
+    * feat:performance optimization
+
+[33mcommit a3f14f8e88ad3815ec17f071a57e59bb8f3ffcc9[m
+Author: zuje123 <92495905+zuje123@users.noreply.github.com>
+Date:   Thu Jul 31 19:13:20 2025 +0800
+
+    set ABI to adapt to different torch_npu versions (#13)
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit d5a8f8c773263a9f633203f959638ad9881282ac[m
+Author: zuje123 <92495905+zuje123@users.noreply.github.com>
+Date:   Thu Jul 31 10:28:08 2025 +0800
+
+    solve C++ ABI incompatibility (#12)
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit ae1e4b8e1c0b8d7877f0888d658edd3348aa3db4[m
+Author: zuje123 <92495905+zuje123@users.noreply.github.com>
+Date:   Thu Jul 31 10:22:43 2025 +0800
+
+    update deepep readme (#11)
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit 273248d6801415af72d54ff4d61cfb3b91de167b[m
+Author: zuje123 <92495905+zuje123@users.noreply.github.com>
+Date:   Thu Jul 31 10:16:02 2025 +0800
+
+    add deepep test example (#10)
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit efaeb3e10797f08b73de52c54e26c9fcfc38f262[m
+Author: zuje123 <92495905+zuje123@users.noreply.github.com>
+Date:   Thu Jul 31 09:57:26 2025 +0800
+
+    remove meaningless print (#9)
+    
+    Co-authored-by: zhengfaan <zhengfaan@outlook.com>
+
+[33mcommit a8d02c6a7e46ca5015332ed8bee63ac214fe1926[m
+Merge: 902c9f7 3019b65
+Author: Even Zhou <even.y.zhou@outlook.com>
+Date:   Sat Jul 26 19:28:15 2025 +0800
+
+    Merge pull request #5 from sgl-project/br_feature/bootstrap_730
+    
+    Merge br_feature/bootstrap_730 into main
+
+[33mcommit 3019b65d214f499cc7df642e15a891a0d1393aef[m
+Merge: eb0080e c541332
+Author: Even Zhou <990523evenzh@gmail.com>
+Date:   Fri Jul 25 16:03:29 2025 +0800
+
+    add deep_ep_ascend (#2)
+    
+    * add deep_ep_ascend
+    
+    * 修改检视意见
+    
+    ---------
+    
+    Co-authored-by: XuYue <x00575210@china.huawei.com>
+    Co-authored-by: zukezz <zhengfaan@huawei.com>
+
+[33mcommit c5413327b7fe28e831c4625fb61ed6393aad30f8[m
+Merge: a3861c0 450070c
+Author: Yue Xu <948800153@qq.com>
+Date:   Fri Jul 25 15:56:33 2025 +0800
+
+    Merge pull request #5 from zuje123/br_fix2
+    
+    修改检视意见
+
+[33mcommit 450070c2c83ef606508eb65af500406740dea02f[m
+Author: zukezz <zhengfaan@huawei.com>
+Date:   Fri Jul 25 15:55:00 2025 +0800
+
+    修改检视意见
+
+[33mcommit a3861c033a178efee551093378454cf35b04327a[m
+Author: XuYue <x00575210@china.huawei.com>
+Date:   Fri Jul 25 15:35:34 2025 +0800
+
+    add deep_ep_ascend
+
+[33mcommit eb0080e043be18877d1f5c0abb916ca6bde016e1[m
+Merge: 902c9f7 3736ff2
+Author: Even Zhou <even.y.zhou@outlook.com>
+Date:   Wed Jul 23 14:13:24 2025 +0800
+
+    Merge pull request #1 from xiaomingbao008/br_feature/bootstrap_730
+
+[33mcommit 3736ff2af58c99ed63a9c7614bb7cba9089f30d7[m
+Author: xiaomingbao008 <baoxiaoming@huawei.com>
+Date:   Wed Jul 23 12:40:14 2025 +0800
+
+    created code structure which follow the rule of sgl-kernel
+
+[33mcommit 902c9f7fae0552c6a13b7750af060a530b25eba2[m
+Author: Yineng Zhang <me@zhyncs.com>
+Date:   Tue Jul 22 01:57:26 2025 -0700
+
+    Initial commit

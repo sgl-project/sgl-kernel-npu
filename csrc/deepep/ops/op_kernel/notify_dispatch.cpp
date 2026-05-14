@@ -1,8 +1,10 @@
 #include "kernel_operator.h"
 #include "notify_dispatch.h"
 #include "notify_dispatch_tiling.h"
+#include "notify_dispatch_a5.h"
 
 #define TILING_KEY_INT 23
+#define TILING_KEY_A5 223
 
 #define KERNEL_USE_WORKSPACE (1 * 1024 * 1024)
 
@@ -43,6 +45,10 @@ extern "C" __global__ __aicore__ void notify_dispatch(GM_ADDR sendData, GM_ADDR 
 
     if (TILING_KEY_IS(TILING_KEY_INT)) {
         NotifyDispatch<int> opKernel(rank, rankSize, extraFlag);
+        opKernel.Init(KERNELS_ARGS_CALL_ALL2ALL());
+        opKernel.Process();
+    } else if (TILING_KEY_IS(TILING_KEY_A5)) {
+        NotifyDispatchA5<int> opKernel(rank, rankSize, extraFlag);
         opKernel.Init(KERNELS_ARGS_CALL_ALL2ALL());
         opKernel.Process();
     }

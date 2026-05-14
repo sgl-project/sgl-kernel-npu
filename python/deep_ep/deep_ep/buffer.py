@@ -45,6 +45,7 @@ class Buffer:
             allow_mnnvl: This parameter is deprecated and retained to ensure compatibility with DeepEP.
         """
 
+        self.group = group
         self.rank = group.rank()
         self.group_size = group.size()
         self.num_nvl_bytes = num_nvl_bytes
@@ -184,6 +185,8 @@ class Buffer:
             is_token_in_rank: `[num_tokens, num_ranks]` with `torch.int`, whether a token be sent to a rank.
             event: the event after executing the kernel (valid only if `async_finish` is set).
         """
+        self.num_experts = num_experts
+
         (
             num_tokens_per_rank,
             num_tokens_per_rdma_rank,
@@ -303,6 +306,7 @@ class Buffer:
             handle: the returned communication handle.
             event: the event after executing the kernel (valid only if `async_finish` is set).
         """
+
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
 
@@ -518,6 +522,7 @@ class Buffer:
             recv_topk_weights: the reduced top-k weights from its dispatch ranks.
             event: the event after executing the kernel (valid only if `async_finish` is set).
         """
+
         # Internode
         if self.runtime.get_num_rdma_ranks() > 1:
             return self.internode_combine(
