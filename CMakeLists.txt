@@ -48,7 +48,6 @@ set(PROJECT_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/output)
 include(cmake/config_git_last_commit.cmake)
 include(cmake/config_envs.cmake)
 include(cmake/config_ascend.cmake)
-
 find_program(CCACHE_PROGRAM ccache)
 if(CCACHE_PROGRAM)
     message(STATUS "Found ccache: ${CCACHE_PROGRAM}")
