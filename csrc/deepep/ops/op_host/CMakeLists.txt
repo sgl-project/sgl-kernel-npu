@@ -19,6 +19,7 @@ message(STATUS ">>> [DEBUG] ASCEND_COMPUTE_UNIT = ${ASCEND_COMPUTE_UNIT}")
 file(COPY ${pregen_file} DESTINATION ${ASCEND_AUTOGEN_PATH})
 file(GLOB aclnn_src ${ASCEND_AUTOGEN_PATH}/aclnn*.cpp)
 file(GLOB autogen_aclnn_src ${ASCEND_AUTOGEN_PATH}/aclnnInner_*.cpp)                # 将通过npu_op_code_gen生成的aclnn相关源文件添加至源文件列表中
+# TDS: A5 Adaptation of reserved code.
 #if("${ASCEND_COMPUTE_UNIT}" STREQUAL "ascend950")
 #     list(REMOVE_ITEM aclnn_src
 #          message(STATUS ">>> [INFO] Matched ascend950 (A5), removing ffn combine sources.")

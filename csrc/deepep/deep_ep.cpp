@@ -35,12 +35,7 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
     EP_HOST_ASSERT(0 <= rank and rank < num_ranks);
 
     if (moe_all_to_all_group_name.empty()) {
-        // char *ranktable_file = std::getenv("RANK_TABLE_FILE");
-        // EP_HOST_ASSERT(ranktable_file != nullptr)
-        // ACL_CHECK(aclrtGetDevice(&device_id));
-
-        // // ep domain
-        // HCCL_CHECK(HcclCommInitClusterInfo(ranktable_file, device_id, &ep_comm));
+        // ep domain
         HcclRootInfo rootInfo;
         HcclGetRootInfo(&rootInfo);
         ACL_CHECK(aclrtGetDevice(&device_id));
@@ -795,7 +790,6 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
                              bool round_scale, bool use_ue8m0, bool async, bool return_recv_hook)
 {
     EP_HOST_ASSERT(low_latency_mode);
-    at::Tensor new_x = x;
     EP_HOST_ASSERT(num_max_dispatch_tokens_per_rank >= x.size(0));
 
     auto num_tokens = static_cast<int>(x.size(0)), hidden = static_cast<int>(x.size(1));
@@ -867,7 +861,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         active_mask = (topk_idx >= 0).to(torch::kBool);
     }
     EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2,
-                 new_x,                   // x
+                 x,                       // x
                  topk_idx,                // expertIds
                  scales,                  // scalesOptional
                  active_mask,             // xActiveMaskOptional

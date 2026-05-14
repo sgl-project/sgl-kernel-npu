@@ -17,7 +17,6 @@
 #define MC2_HCOM_TOPOLOGY_H
 
 #include <memory>
-// #include "hccl/hcom.h"
 
 #ifdef BUILD_OPEN_PROJECT
 #include "hccl/hccl_rank_graph.h"

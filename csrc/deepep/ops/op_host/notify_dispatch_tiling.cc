@@ -148,9 +148,7 @@ static void SetHcommCfg(const gert::TilingContext *context, NotifyDispatchTiling
     const char *nodeName = context->GetNodeName();
     OP_LOGD(nodeName, "NotifyDispatch commGroup = %s", commGroup.c_str());
     uint32_t opType1 = OP_TYPE_ALL_TO_ALL;
-    // uint32_t opType2 = OP_TYPE_ALL_GATHER;
     std::string algConfigAllToAllStr = "AlltoAll=level0:fullmesh;level1:pairwise";
-    // std::string algConfigAllGatherStr = "AllGather=level0:ring";
 
     AscendC::Mc2CcTilingConfig mc2CcTilingConfig(commGroup, opType1, algConfigAllToAllStr);
 
