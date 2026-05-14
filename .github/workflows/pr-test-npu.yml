@@ -82,6 +82,20 @@ jobs:
         with:
           clean: true
 
+      - name: Get build hash
+        id: get_build_hash
+        run: |
+          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
+            -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
+          echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
+
+      - name: Restore build cache
+        id: cache-build
+        uses: runs-on/cache@v4
+        with:
+          path: output
+          key: sgl-kernel-npu-build-v1-${{ runner.os }}-a3-cann8.5.0-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+
       - name: Install dependencies
         run: |
           # speed up by using infra cache services
@@ -94,7 +108,14 @@ jobs:
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Prepare Deepep
-        run: bash scripts/prepare_deepep_in_container.sh
+        run: |
+          if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
+            pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
+            cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
+            ln -s deep_ep/deep_ep_cpp*.so || true
+          else
+            bash scripts/prepare_deepep_in_container.sh
+          fi
 
       - name: Run test intranode
         timeout-minutes: 10
@@ -432,6 +453,20 @@ jobs:
         with:
           clean: true
 
+      - name: Get build hash
+        id: get_build_hash
+        run: |
+          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
+            -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
+          echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
+
+      - name: Restore build cache
+        id: cache-build
+        uses: runs-on/cache@v4
+        with:
+          path: output
+          key: sgl-kernel-npu-build-v1-${{ runner.os }}-a3-cann8.5.0-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+
       - name: Install dependencies
         run: |
           # speed up by using infra cache services
@@ -444,7 +479,14 @@ jobs:
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Prepare Deepep
-        run: bash scripts/prepare_deepep_in_container.sh -a deepep
+        run: |
+          if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
+            pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
+            cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
+            ln -s deep_ep/deep_ep_cpp*.so || true
+          else
+            bash scripts/prepare_deepep_in_container.sh -a deepep
+          fi
 
       - name: Run test intranode
         timeout-minutes: 10
@@ -788,6 +830,20 @@ jobs:
         with:
           clean: true
 
+      - name: Get build hash
+        id: get_build_hash
+        run: |
+          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
+            -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
+          echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
+
+      - name: Restore build cache
+        id: cache-build
+        uses: runs-on/cache@v4
+        with:
+          path: output
+          key: sgl-kernel-npu-build-v1-${{ runner.os }}-a2-cann8.5.0-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+
       - name: Install dependencies
         run: |
           # speed up by using infra cache services
@@ -800,7 +856,14 @@ jobs:
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Prepare Deepep
-        run: bash scripts/prepare_deepep_in_container.sh -a deepep2
+        run: |
+          if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
+            pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
+            cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
+            ln -s deep_ep/deep_ep_cpp*.so || true
+          else
+            bash scripts/prepare_deepep_in_container.sh -a deepep2
+          fi
 
       - name: Run test intranode
         timeout-minutes: 10
