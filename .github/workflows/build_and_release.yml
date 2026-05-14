@@ -69,7 +69,7 @@ jobs:
           env -i PATH=${PATH} bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
             ./build.sh -a deepep2
-          "    
+          "
 
       - name: Build DeepEP for a3
         if: matrix.npu_hardware == 'a3'
