@@ -9,6 +9,7 @@ import torch
 import torch.nn.functional as F
 import triton
 import triton.language as tl
+import triton.language.extra.cann.extension as al
 from sgl_kernel_npu.fla.utils import (
     exp,
     prepare_chunk_indices,
@@ -61,7 +62,7 @@ def solve_tril_16x16_kernel_paral(
         b_A_subrec16 = tl.load(p_A_subrec16, boundary_check=(0, 1)).to(
             tl.float32
         )  # (16, 16)
-        b_A = tl.insert_slice(
+        b_A = al.insert_slice(
             ful=b_A,
             sub=b_A_subrec16[None, :, :],  # (1, 16, 16)
             offsets=[blkid, 0, 0],
@@ -82,7 +83,7 @@ def solve_tril_16x16_kernel_paral(
     o_i = tl.arange(0, 16)
     for i in range(1, 16):
 
-        nblks_vec16 = -tl.extract_slice(
+        nblks_vec16 = -al.extract_slice(
             local_ori_A, (i, 0), (1, 16 * N_BLOCKS), (16 * N_BLOCKS, 1)
         )
         b_a = tl.reshape(nblks_vec16, (N_BLOCKS, 16))
@@ -168,7 +169,7 @@ def solve_tril_16x16_kernel_paral_v3(
             b_A_subrec16 = tl.load(ptr_A_subrec16, mask=load_mask, other=0.0).to(
                 tl.float32
             )
-            b_A = tl.insert_slice(
+            b_A = al.insert_slice(
                 ful=b_A,
                 sub=b_A_subrec16[None, :, :],  # (1, 16, 16)
                 offsets=[blkid, 0, 0],
@@ -189,7 +190,7 @@ def solve_tril_16x16_kernel_paral_v3(
 
         for i in range(1, 16):
 
-            nblks_vec16 = -tl.extract_slice(
+            nblks_vec16 = -al.extract_slice(
                 local_ori_A, (i, 0), (1, 16 * N_BLOCKS), (16 * N_BLOCKS, 1)
             )
             b_a = tl.reshape(nblks_vec16, (N_BLOCKS, 16))
@@ -199,7 +200,7 @@ def solve_tril_16x16_kernel_paral_v3(
             b_a = b_a + dot_product  # (N_BLOCKS, 16)
 
             b_a_new_expanded = b_a[:, None, :]  # (N_BLOCKS, 1, 16)
-            b_A = tl.insert_slice(
+            b_A = al.insert_slice(
                 ful=b_A,
                 sub=b_a_new_expanded,
                 offsets=[0, i, 0],
@@ -407,9 +408,9 @@ def merge_16x16_to_64x64_inverse_kernel_reorder_all_masked(
 
         # ------------------ Build Ai_22_32 (32x32) ------------------
         Ai_22_32 = tl.zeros((32, 32), tl.float32)
-        Ai_22_32 = tl.insert_slice(Ai_22_32, Ai_33, (0, 0), (16, 16), (1, 1))
-        Ai_22_32 = tl.insert_slice(Ai_22_32, Ai_44, (16, 16), (16, 16), (1, 1))
-        Ai_22_32 = tl.insert_slice(Ai_22_32, Ai_43, (16, 0), (16, 16), (1, 1))
+        Ai_22_32 = al.insert_slice(Ai_22_32, Ai_33, (0, 0), (16, 16), (1, 1))
+        Ai_22_32 = al.insert_slice(Ai_22_32, Ai_44, (16, 16), (16, 16), (1, 1))
+        Ai_22_32 = al.insert_slice(Ai_22_32, Ai_43, (16, 0), (16, 16), (1, 1))
 
         # ------------------ Load A_21_32 (A block at row i_t*64+32, col 0, 32x32) ------------------
         offs_m = i_t * 64 + 32 + tl.arange(0, 32)
@@ -422,9 +423,9 @@ def merge_16x16_to_64x64_inverse_kernel_reorder_all_masked(
 
         # ------------------ Build Ai_11_32 (32x32) ------------------
         Ai_11_32 = tl.zeros((32, 32), tl.float32)
-        Ai_11_32 = tl.insert_slice(Ai_11_32, Ai_11, (0, 0), (16, 16), (1, 1))
-        Ai_11_32 = tl.insert_slice(Ai_11_32, Ai_22, (16, 16), (16, 16), (1, 1))
-        Ai_11_32 = tl.insert_slice(Ai_11_32, Ai_21, (16, 0), (16, 16), (1, 1))
+        Ai_11_32 = al.insert_slice(Ai_11_32, Ai_11, (0, 0), (16, 16), (1, 1))
+        Ai_11_32 = al.insert_slice(Ai_11_32, Ai_22, (16, 16), (16, 16), (1, 1))
+        Ai_11_32 = al.insert_slice(Ai_11_32, Ai_21, (16, 0), (16, 16), (1, 1))
 
         Ai_21_32 = -tl.dot(tmp, Ai_11_32, input_precision="ieee")
 

@@ -1,5 +1,6 @@
 import triton
 import triton.language as tl
+import triton.language.extra.cann.extension as al
 
 
 @triton.jit
@@ -39,18 +40,18 @@ def verify_tree_greedy_kernel(
         target_predict + cur_tokens_offset, mask=mask_draft_mask, other=0
     )
 
-    last_accepted_idx = tl.get_element(cur_retrive_index, (0,))
+    last_accepted_idx = al.get_element(cur_retrive_index, (0,))
     tl.store(accept_index + req_idx * num_draft_tokens, last_accepted_idx)
     num_accepted = 0
 
     rejected = False
     for i in range(1, num_draft_tokens):
         if not rejected:
-            draft_token = tl.get_element(cur_candidates, (i,))
-            target_token = tl.get_element(cur_target, (i - 1,))
+            draft_token = al.get_element(cur_candidates, (i,))
+            target_token = al.get_element(cur_target, (i - 1,))
 
             if draft_token == target_token:
-                draft_idx = tl.get_element(cur_retrive_index, (i,))
+                draft_idx = al.get_element(cur_retrive_index, (i,))
                 tl.store(predicts + last_accepted_idx, target_token)
                 num_accepted += 1
                 tl.store(
@@ -59,7 +60,7 @@ def verify_tree_greedy_kernel(
                 last_accepted_idx = draft_idx
             else:
                 rejected = True
-    target_token = tl.get_element(
+    target_token = al.get_element(
         cur_target, (last_accepted_idx - num_draft_tokens * req_idx,)
     )
     tl.store(accept_token_num + req_idx, num_accepted)
