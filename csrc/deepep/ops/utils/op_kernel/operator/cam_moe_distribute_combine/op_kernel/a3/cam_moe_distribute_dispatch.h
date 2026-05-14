@@ -540,7 +540,7 @@ __aicore__ inline void CamMoeDistributeDispatch<TemplateDispatchTypeFunc>::Allto
             Add(tableInt16LocalTensor_[row * moeExpertRankNumInt16Aligned_],
                 tableInt16LocalTensor_[row * moeExpertRankNumInt16Aligned_],
                 tableInt16LocalTensor_[(row - 1) * moeExpertRankNumInt16Aligned_], moeExpertRankNumInt16Aligned_);
-            pipe_barrier(PIPE_V);
+            PipeBarrier<PIPE_V>();
         }
 
         // 计算完成后，下标为的i的行为下标为i+1的token在远端的偏移，最后一行为总count
@@ -650,7 +650,7 @@ __aicore__ inline void CamMoeDistributeDispatch<TemplateDispatchTypeFunc>::Quant
     floatLocalTemp = receiveDataCastFloatBuf_.Get<float>();
     Cast(floatLocalTemp, xInTensor_, RoundMode::CAST_NONE, axisH_);
     xInQueue_.FreeTensor<XType>(xInTensor_);
-    pipe_barrier(PIPE_V);
+    PipeBarrier<PIPE_V>();
     if constexpr (IsSmoothScaleExist) {
         if constexpr (DynamicQuant) {
             SyncFunc<AscendC::HardEvent::V_MTE2>();  // ub复用，循环同步
@@ -658,28 +658,28 @@ __aicore__ inline void CamMoeDistributeDispatch<TemplateDispatchTypeFunc>::Quant
         DataCopy(smoothScalesTensor_, scalesGMTensor_[expertIndex * axisH_], axisH_);
         SyncFunc<AscendC::HardEvent::MTE2_V>();
         Mul(floatLocalTemp, floatLocalTemp, smoothScalesTensor_, axisH_);
-        pipe_barrier(PIPE_V);
+        PipeBarrier<PIPE_V>();
     }
     if constexpr (DynamicQuant) {
         LocalTensor<float> floatLocalAbsTemp = smoothScalesBuf_.Get<float>();
         rowMaxTensor_ = rowMaxBuf_.Get<float>();
         Abs(floatLocalAbsTemp, floatLocalTemp, axisH_);
-        pipe_barrier(PIPE_V);
+        PipeBarrier<PIPE_V>();
         ReduceMax(rowMaxTensor_, floatLocalAbsTemp, floatLocalAbsTemp, axisH_, false);
         SyncFunc<AscendC::HardEvent::V_S>();
         dynamicScale = float(127.0) / rowMaxTensor_.GetValue(0);
         SyncFunc<AscendC::HardEvent::S_V>();
         Muls(floatLocalTemp, floatLocalTemp, dynamicScale, axisH_);
-        pipe_barrier(PIPE_V);
+        PipeBarrier<PIPE_V>();
     }
     LocalTensor<half> halfLocalTemp = floatLocalTemp.ReinterpretCast<half>();
     LocalTensor<int32_t> int32LocalTemp = floatLocalTemp.ReinterpretCast<int32_t>();
     Cast(int32LocalTemp, floatLocalTemp, RoundMode::CAST_RINT, axisH_);
-    pipe_barrier(PIPE_V);
+    PipeBarrier<PIPE_V>();
     SetDeqScale((half)1.000000e+00f);
     PipeBarrier<PIPE_V>();
     Cast(halfLocalTemp, int32LocalTemp, RoundMode::CAST_ROUND, axisH_);
-    pipe_barrier(PIPE_V);
+    PipeBarrier<PIPE_V>();
     Cast(xOutTensor_, halfLocalTemp, RoundMode::CAST_TRUNC, axisH_);
     floatLocalTemp = xOutTensor_.template ReinterpretCast<float>();
     floatLocalTemp.SetValue(axisH_ / sizeof(float), float(1.0) / dynamicScale);  // int8->float32
@@ -746,7 +746,7 @@ __aicore__ inline void CamMoeDistributeDispatch<TemplateDispatchTypeFunc>::WaitD
         SyncFunc<AscendC::HardEvent::MTE2_V>();
         GatherMask(gatherMaskOutTensor, statusFp32Tensor_, gatherTmpTensor, true, mask,
                    {1, (uint16_t)recStatusNumPerCore, 1, 0}, rsvdCnt);
-        pipe_barrier(PIPE_V);
+        PipeBarrier<PIPE_V>();
         Sum(statusSumOutTensor, gatherMaskOutTensor, sumParams);
         SyncFunc<AscendC::HardEvent::V_S>();
         sumOfFlag = statusSumOutTensor.GetValue(0);

@@ -575,9 +575,9 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::CustomAdd(L
     if constexpr (AscendC::IsSameType<ExpandXType, bfloat16_t>::value) {
         Cast(winTpSendCountFloatTensor_, src0, RoundMode::CAST_NONE, dataCnt);
         Cast(gmTpSendCountFloatTensor_, src1, RoundMode::CAST_NONE, dataCnt);
-        pipe_barrier(PIPE_V);
+        PipeBarrier<PIPE_V>();
         Add(winTpSendCountFloatTensor_, winTpSendCountFloatTensor_, gmTpSendCountFloatTensor_, dataCnt);
-        pipe_barrier(PIPE_V);
+        PipeBarrier<PIPE_V>();
         Cast(dst, winTpSendCountFloatTensor_, RoundMode::CAST_ROUND, dataCnt);
     } else {
         Add(dst, src0, src1, dataCnt);
