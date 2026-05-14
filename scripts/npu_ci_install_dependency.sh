@@ -28,11 +28,11 @@ done
 case "${TORCH_VERSION}" in
     "2.8.0")
         TORCHVISION_VERSION="0.23.0"
-        TORCH_NPU_URL="https://gitcode.com/Ascend/pytorch/releases/download/v7.3.0-pytorch2.8.0/torch_npu-2.8.0.post2-cp311-cp311-manylinux_2_28_${ARCHITECT}.whl"
+        TORCH_NPU_URL="https://gitcode.com/Ascend/pytorch/releases/download/v26.0.0-pytorch2.8.0/torch_npu-2.8.0.post4-cp311-cp311-manylinux_2_28_${ARCHITECT}.whl"
         ;;
     "2.10.0")
         TORCHVISION_VERSION="0.25.0"
-        TORCH_NPU_URL="https://gitcode.com/Ascend/pytorch/releases/download/7.3.0.alpha002/torch_npu-2.10.0rc2-cp311-cp311-manylinux_2_28_${ARCHITECT}.whl"
+        TORCH_NPU_URL="https://gitcode.com/Ascend/pytorch/releases/download/v26.0.0-pytorch2.10.0/torch_npu-2.10.0-cp311-cp311-manylinux_2_28_${ARCHITECT}.whl"
         ;;
     *)
         echo "Unsupported torch version: ${TORCH_VERSION}"
