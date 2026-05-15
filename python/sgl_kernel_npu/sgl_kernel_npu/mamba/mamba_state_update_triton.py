@@ -63,24 +63,33 @@ def move_cache_dynamic_last_kernel_h_block(
         )
         src_addr = src_base_addr + tl.cast(last_step_val, tl.int64) * draft_stride
 
-        # Process h dimension in blocks
+        # Tile H/V/K all three dims to stay within Ascend UB limit.
         for h_start in range(0, h_dim, H_BLOCK_SIZE):
             h_real = h_start + h_offsets
             h_mask = h_real < h_dim
 
-            v_mask = v_offsets < dim_v
-            k_mask = k_offsets < dim_k
+            for v_start in range(0, dim_v, BLOCK_V):
+                v_real = v_start + v_offsets
+                v_mask = v_real < dim_v
 
-            mask = h_mask[:, None, None] & v_mask[None, :, None] & k_mask[None, None, :]
+                for k_start in range(0, dim_k, BLOCK_K):
+                    k_real = k_start + k_offsets
+                    k_mask = k_real < dim_k
 
-            linear_offset = (
-                h_real[:, None, None] * dim_v * dim_k
-                + v_offsets[None, :, None] * dim_k
-                + k_offsets[None, None, :]
-            )
+                    mask = (
+                        h_mask[:, None, None]
+                        & v_mask[None, :, None]
+                        & k_mask[None, None, :]
+                    )
 
-            src_block = tl.load(src_addr + linear_offset, mask=mask, other=0)
-            tl.store(dst_base_addr + linear_offset, src_block, mask=mask)
+                    linear_offset = (
+                        h_real[:, None, None] * dim_v * dim_k
+                        + v_real[None, :, None] * dim_k
+                        + k_real[None, None, :]
+                    )
+
+                    src_block = tl.load(src_addr + linear_offset, mask=mask, other=0)
+                    tl.store(dst_base_addr + linear_offset, src_block, mask=mask)
 
 
 def move_intermediate_cache(
@@ -123,6 +132,12 @@ def move_intermediate_cache(
     # Grid: one thread per valid index
     grid = (len(dst_indices_tensor),)
 
+    # Cap block sizes to avoid UB overflow.
+    # next_power_of_2 can produce oversized blocks for large V/K.
+    _MAX_VK_BLOCK = 64
+    block_v = min(triton.next_power_of_2(V), _MAX_VK_BLOCK)
+    block_k = min(triton.next_power_of_2(K), _MAX_VK_BLOCK)
+
     move_cache_dynamic_last_kernel_h_block[grid](
         dst_cache_ptr=ssm_states,
         src_cache_ptr=intermediate_state_cache,
@@ -138,9 +153,9 @@ def move_intermediate_cache(
         dim_v=V,
         dim_k=K,
         num_layers=L,
-        H_BLOCK_SIZE=h_block_size,  # Process 2 h elements per block
-        BLOCK_V=triton.next_power_of_2(V),  # Block size for dim_v
-        BLOCK_K=triton.next_power_of_2(K),  # Block size for dim_k
+        H_BLOCK_SIZE=h_block_size,
+        BLOCK_V=block_v,
+        BLOCK_K=block_k,
     )
 
     return ssm_states
