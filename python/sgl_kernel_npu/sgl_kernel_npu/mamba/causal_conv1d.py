@@ -11,6 +11,7 @@ import torch
 import torch.nn.functional as F
 import triton
 import triton.language as tl
+import triton.language.extra.cann.extension as al
 
 PAD_SLOT_ID = -1
 
@@ -965,14 +966,14 @@ def _causal_conv1d_update_kernel_no_cache_len_no_mtp(
         )
 
         x_new_T = tl.full([cat_len * DIM_BLOCK], 0, x_ptr.dtype.element_ty)
-        x_new_T = tl.insert_slice(
+        x_new_T = al.insert_slice(
             x_new_T,
             conv_state_T,
             offsets=(0,),
             sizes=(state_len * DIM_BLOCK,),
             strides=(1,),
         )  # [cat_len , DIM_BLOCK].view(-1)
-        x_new_T = tl.insert_slice(
+        x_new_T = al.insert_slice(
             x_new_T,
             x_T,
             offsets=(state_len * DIM_BLOCK,),
@@ -980,7 +981,7 @@ def _causal_conv1d_update_kernel_no_cache_len_no_mtp(
             strides=(1,),
         )
 
-        new_conv_state_T = tl.extract_slice(
+        new_conv_state_T = al.extract_slice(
             x_new_T, (seq_len * DIM_BLOCK,), (state_len * DIM_BLOCK,), (1,)
         )  # [state_len, DIM_BLOCK].view(-1)
         new_conv_state = (
@@ -1031,7 +1032,7 @@ def _causal_conv1d_update_kernel_no_cache_len_no_mtp(
             )
         else:
             for i in range(seq_len):
-                x_conv_part = tl.extract_slice(
+                x_conv_part = al.extract_slice(
                     x_new_T, ((conv_begin + i) * DIM_BLOCK), (width * DIM_BLOCK), (1,)
                 ).to(tl.float32)
                 result = (
