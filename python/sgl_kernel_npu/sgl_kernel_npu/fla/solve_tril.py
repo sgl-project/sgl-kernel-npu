@@ -614,14 +614,6 @@ def merge_16x16_to_64x64_inverse_kernel(
     tl.store(ptr_Ai, zero_block, mask=mask_store)
 
 
-def solve_tril_merge_launch_shape(
-    num_chunks: int, max_programs: int = 2048
-) -> tuple[int, int]:
-    num_programs = min(num_chunks, max_programs)
-    chunks_per_program = (num_chunks + num_programs - 1) // num_programs
-    return num_programs, chunks_per_program
-
-
 def solve_tril_npu(
     A: torch.Tensor,
     cu_seqlens: Optional[torch.Tensor] = None,
@@ -691,8 +683,7 @@ def solve_tril_npu(
         chunk_indices = prepare_chunk_indices(_ref, BT).to(device=cu_seqlens.device)
     NT = len(chunk_indices) if cu_seqlens is not None else triton.cdiv(T, BT)
     if BT != 32:
-        num_programs, CHUNKS_PER_PROGRAM = solve_tril_merge_launch_shape(NT)
-        merge_fn[num_programs, B * H](
+        merge_fn[NT, B * H](
             A=A,
             Ad=Ad,
             Ai=Ai,
