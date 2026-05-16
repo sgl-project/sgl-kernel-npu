@@ -26,7 +26,6 @@
     } while (0)
 
 #define OP_LOGD(opname, ...)
-// #define OP_LOGD(opname, ...) printf("[DEBUG]" __VA_ARGS__); printf("\n");
 
 namespace optiling {
 
