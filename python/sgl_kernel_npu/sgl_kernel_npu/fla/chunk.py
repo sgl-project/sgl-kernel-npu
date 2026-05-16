@@ -432,9 +432,11 @@ def chunk_gated_delta_rule_npu(
     if head_first:
         o = rearrange(o, "b t h ... -> b h t ...")
     if cu_seqlens is not None:
-        _cu_seqlens_for_len = (
-            cu_seqlens_cpu if cu_seqlens_cpu is not None else cu_seqlens
-        )
-        act_sq = _cu_seqlens_for_len[-1].cpu().item()
+        if cu_seqlens_cpu is not None:
+            # CPU tensor index → Python int, zero D2H sync.
+            act_sq = int(cu_seqlens_cpu[-1])
+        else:
+            # legacy fallback: triggers a D2H sync; callers should pass cu_seqlens_cpu.
+            act_sq = int(cu_seqlens[-1].cpu())
         o = o[:, :act_sq, :, :]
     return o, final_state, h
