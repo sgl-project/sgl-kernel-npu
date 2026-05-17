@@ -63,6 +63,7 @@ private:
     __aicore__ inline void QuantInit();
     __aicore__ inline void ReduceMaxInplace(const LocalTensor<float> &srcLocal, uint32_t count);
     __aicore__ inline void QuantProcess();
+    __aicore__ inline void GetRInSrcrankOffsetForRound(int32_t index);
     __aicore__ inline GM_ADDR GetWindAddrByRankId(uint8_t ctxIdx, const int32_t rankId)
     {
         uint32_t curRankId = ((ctxIdx == COMM_EP_IDX) ? epRankId : tpRankId);
@@ -668,6 +669,18 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::WaitRoundStatus()
 }
 
 template <CamTypeClass>
+__aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::GetRInSrcrankOffsetForRound(int32_t index)
+{
+    tpipe_->InitBuffer(rInSrcrankOffsetBuf, moeExpertNum * sizeof(int32_t));  // 4k
+    rInSrcrankOffsetTensor = rInSrcrankOffsetBuf.Get<int32_t>();
+
+    for (uint32_t i = 0; i < moeExpertNum; ++i) {
+        rInSrcrankOffsetTensor.SetValue(i, rInSrcrankOffsetGT.GetValue(i * round + index));
+    }
+    SyncFunc<AscendC::HardEvent::S_MTE2>();
+}
+
+template <CamTypeClass>
 __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::ShareToOutputLongSeq()
 {
     if (startStatusId >= moeExpertNum) {
@@ -690,11 +703,12 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::ShareToOutputLongSeq()
     DataCopyPad(srcrankInExpertOffsetTensor, srcrankInExpertOffsetGT, srcrankInExpertOffsetParams,
                 srcrankInExpertOffsetCopyPadExtParams);
 
-    tpipe_->InitBuffer(rInSrcrankOffsetBuf, round * moeExpertNum * sizeof(int32_t));
-    rInSrcrankOffsetTensor = rInSrcrankOffsetBuf.Get<int32_t>();
-    DataCopyExtParams CParams{1U, static_cast<uint32_t>(sizeof(int32_t) * moeExpertNum * round), 0U, 0U, 0U};
-    DataCopyPadExtParams<int32_t> CCopyPadExtParams{false, 0U, 0U, 0U};
-    DataCopyPad(rInSrcrankOffsetTensor, rInSrcrankOffsetGT, CParams, CCopyPadExtParams);
+    // tpipe_->InitBuffer(rInSrcrankOffsetBuf, round * moeExpertNum * sizeof(int32_t));
+    // rInSrcrankOffsetTensor = rInSrcrankOffsetBuf.Get<int32_t>();
+    // DataCopyExtParams CParams{1U, static_cast<uint32_t>(sizeof(int32_t) * moeExpertNum * round), 0U, 0U, 0U};
+    // DataCopyPadExtParams<int32_t> CCopyPadExtParams{false, 0U, 0U, 0U};
+    // DataCopyPad(rInSrcrankOffsetTensor, rInSrcrankOffsetGT, CParams, CCopyPadExtParams);
+    GetRInSrcrankOffsetForRound(roundIndex); // 仅读取本轮需要用到的offset
 
     uint32_t fromRank, count, preCount, recvOffset, targetOffset, local_e;
     DataCopyPadExtParams<ExpandXOutType> copyPadExtParams{false, 0U, 0U, 0U};
@@ -718,7 +732,8 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::ShareToOutputLongSeq()
         recvOffset = recvOffsetTensor(i);
 
         // 目标地址 = 专家全局起始 + B[es_idx]（源rank在专家内偏移） + r_in_srcrank_offset[c_idx]（轮次在源rank内偏移）
-        int32_t rInSrcrankIndex = local_e * epRankSize * round + fromRank * round + roundIndex;
+        // int32_t rInSrcrankIndex = local_e * epRankSize * round + fromRank * round + roundIndex;
+        int32_t rInSrcrankIndex = local_e * epRankSize + fromRank;
         int32_t expertGlobalOffset = expertGlobalOffsetTensor(local_e);
         int32_t srcrankInExpertOffset = srcrankInExpertOffsetTensor(i);
         int32_t rInSrcrankOffset = rInSrcrankOffsetTensor(rInSrcrankIndex);
