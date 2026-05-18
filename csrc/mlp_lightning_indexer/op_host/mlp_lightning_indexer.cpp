@@ -36,7 +36,8 @@ at::Tensor BuildTilingTensor(const LITilingData &tilingData)
     auto tilingCpu = at::empty({static_cast<int64_t>(sizeof(LITilingData))},
                                at::TensorOptions().dtype(at::kByte).device(at::kCPU));
     std::memcpy(tilingCpu.data_ptr<uint8_t>(), &tilingData, sizeof(LITilingData));
-    return TorchNpuHelper::CopyTensorHostToDevice(tilingCpu).view({static_cast<int64_t>(sizeof(LITilingData))});
+    return sglang::npu_kernel::TorchNpuHelper::CopyTensorHostToDevice(tilingCpu)
+        .view({static_cast<int64_t>(sizeof(LITilingData))});
 }
 
 }  // namespace
@@ -75,7 +76,8 @@ HOST_API std::tuple<at::Tensor, at::Tensor> mlp_lightning_indexer(
     auto [sparse_indices, sparse_values] =
         ConstructOutputs(query, key, sparse_count, std::string(layout_query), std::string(layout_key));
 
-    opDef.SetToContext(context, query.scalar_type());
+    auto queryScalarType = query.scalar_type();
+    opDef.SetToContext(context, queryScalarType);
     context->RegisterTensor(query, true);
     context->RegisterTensor(key, true);
     context->RegisterTensor(weights, true);
@@ -100,7 +102,8 @@ HOST_API std::tuple<at::Tensor, at::Tensor> mlp_lightning_indexer(
         at::empty({static_cast<int64_t>(context->GetWorkspaceSize())},
                   at::TensorOptions().dtype(at::kByte).device(query.device()));
 
-    EXEC_KERNEL_CMD(mlp_lightning_indexer, tilingData.usedCoreNum, query, key, weights, cur_seq_lengths_query,
+    uint32_t blockDim = tilingData.usedCoreNum;
+    EXEC_KERNEL_CMD(mlp_lightning_indexer, blockDim, query, key, weights, cur_seq_lengths_query,
                     cur_seq_lengths_key, block_table, init_tensor, local_tensor, sparse_indices, sparse_values,
                     workspace, tilingTensor);
     return {sparse_indices, sparse_values};
