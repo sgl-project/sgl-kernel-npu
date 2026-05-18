@@ -817,8 +817,9 @@ def causal_conv1d_fn_npu(
     if query_start_loc is None:
         seq_lens_cpu = kwargs.get("seq_lens_cpu")
         assert seq_lens_cpu is not None, "query_start_loc or seq_lens_cpu is required"
-        assert not (isinstance(seq_lens_cpu, torch.Tensor) and seq_lens_cpu.device.type != "cpu"), \
-            "seq_lens_cpu must be a host list or CPU tensor (no D2H sync allowed)"
+        assert not (
+            isinstance(seq_lens_cpu, torch.Tensor) and seq_lens_cpu.device.type != "cpu"
+        ), "seq_lens_cpu must be a host list or CPU tensor (no D2H sync allowed)"
         query_start_list = [0]
         for seq_len in seq_lens_cpu:
             query_start_list.append(query_start_list[-1] + int(seq_len))
@@ -831,8 +832,7 @@ def causal_conv1d_fn_npu(
             cu_seq_len = query_start_list[-1]
         if max_query_len is None:
             max_query_len = max(
-                query_start_list[i + 1] - query_start_list[i]
-                for i in range(batch_size)
+                query_start_list[i + 1] - query_start_list[i] for i in range(batch_size)
             )
     else:
         if cu_seq_len is not None:
