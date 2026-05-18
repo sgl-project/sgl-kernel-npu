@@ -61,7 +61,7 @@ jobs:
       )
     runs-on: linux-aarch64-a3-16
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-a3-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
     env:
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
       PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
@@ -82,20 +82,6 @@ jobs:
         with:
           clean: true
 
-      - name: Get build hash
-        id: get_build_hash
-        run: |
-          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
-            -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
-          echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
-
-      - name: Restore build cache
-        id: cache-build
-        uses: runs-on/cache@v4
-        with:
-          path: output
-          key: sgl-kernel-npu-build-v1-${{ runner.os }}-a3-cann8.5.0-${{ steps.get_build_hash.outputs.BUILD_HASH }}
-
       - name: Install dependencies
         run: |
           # speed up by using infra cache services
@@ -108,14 +94,7 @@ jobs:
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Prepare Deepep
-        run: |
-          if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
-            pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
-            cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
-            ln -s deep_ep/deep_ep_cpp*.so || true
-          else
-            bash scripts/prepare_deepep_in_container.sh
-          fi
+        run: bash scripts/prepare_deepep_in_container.sh
 
       - name: Run test intranode
         timeout-minutes: 10
@@ -453,20 +432,6 @@ jobs:
         with:
           clean: true
 
-      - name: Get build hash
-        id: get_build_hash
-        run: |
-          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
-            -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
-          echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
-
-      - name: Restore build cache
-        id: cache-build
-        uses: runs-on/cache@v4
-        with:
-          path: output
-          key: sgl-kernel-npu-build-v1-${{ runner.os }}-a3-cann8.5.0-${{ steps.get_build_hash.outputs.BUILD_HASH }}
-
       - name: Install dependencies
         run: |
           # speed up by using infra cache services
@@ -479,14 +444,7 @@ jobs:
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Prepare Deepep
-        run: |
-          if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
-            pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
-            cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
-            ln -s deep_ep/deep_ep_cpp*.so || true
-          else
-            bash scripts/prepare_deepep_in_container.sh -a deepep
-          fi
+        run: bash scripts/prepare_deepep_in_container.sh -a deepep
 
       - name: Run test intranode
         timeout-minutes: 10
@@ -809,7 +767,7 @@ jobs:
       )
     runs-on: linux-aarch64-a2-8
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-910b-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-910b-ubuntu22.04-py3.11
     env:
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
       PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
@@ -830,20 +788,6 @@ jobs:
         with:
           clean: true
 
-      - name: Get build hash
-        id: get_build_hash
-        run: |
-          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
-            -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
-          echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
-
-      - name: Restore build cache
-        id: cache-build
-        uses: runs-on/cache@v4
-        with:
-          path: output
-          key: sgl-kernel-npu-build-v1-${{ runner.os }}-a2-cann8.5.0-${{ steps.get_build_hash.outputs.BUILD_HASH }}
-
       - name: Install dependencies
         run: |
           # speed up by using infra cache services
@@ -856,14 +800,7 @@ jobs:
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Prepare Deepep
-        run: |
-          if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
-            pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
-            cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
-            ln -s deep_ep/deep_ep_cpp*.so || true
-          else
-            bash scripts/prepare_deepep_in_container.sh -a deepep2
-          fi
+        run: bash scripts/prepare_deepep_in_container.sh -a deepep2
 
       - name: Run test intranode
         timeout-minutes: 10
@@ -1108,7 +1045,7 @@ jobs:
     with:
       soc_version: a2
       runner: linux-aarch64-a2-0
-      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-910b-ubuntu22.04-py3.11'
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-910b-ubuntu22.04-py3.11'
       test_config_name: ${{ matrix.test_config.name }}
       node_size: ${{ matrix.test_config.node_size }}
       test_case: ${{ matrix.test_config.test_case }}
