@@ -75,9 +75,6 @@ def mega_gdn_supported(
     initial_state: Optional[torch.Tensor],
     cu_seqlens: Optional[torch.Tensor] = None,
 ) -> bool:
-    if not hasattr(torch.ops.npu, "mega_chunk_gdn"):
-        return False
-
     if q.dim() != 4 or v.dim() != 4:
         return False
     if k.shape != q.shape:
@@ -95,23 +92,8 @@ def mega_gdn_supported(
     if g.shape != (1, q.shape[1], v.shape[2]):
         return False
 
-    if q.dtype not in (torch.float16, torch.bfloat16) or k.dtype not in (
-        torch.float16,
-        torch.bfloat16,
-    ):
-        return False
-    if v.dtype not in (torch.float16, torch.bfloat16) or beta.dtype not in (
-        torch.float16,
-        torch.float32,
-    ):
-        return False
-    if g.dtype != torch.float32:
-        return False
-
     if initial_state is not None:
         if initial_state.dim() != 4:
-            return False
-        if initial_state.dtype not in (torch.float16, torch.float32) or initial_state.device != q.device:
             return False
         num_sequences = 1 if cu_seqlens is None else cu_seqlens.numel() - 1
         if initial_state.shape != (
@@ -146,14 +128,8 @@ def run_mega_chunk_gdn(
     if scale is None:
         scale = k.shape[-1] ** -0.5
 
-    q_dtype = q.dtype
-    k_dtype = k.dtype
-    v_dtype = v.dtype
-
-    q = q.to(torch.float16).contiguous()
-    k = k.to(torch.float16).contiguous()
-    v = v.to(torch.float16).contiguous()
-    beta = beta.to(torch.float16).contiguous()
+    q_dtype, k_dtype, v_dtype = q.dtype, k.dtype, v.dtype
+    q, k, v, beta = (t.half() for t in (q, k, v, beta))
 
     _, total_tokens, _, head_dim = q.shape
     num_value_heads = v.shape[-2]
@@ -161,7 +137,7 @@ def run_mega_chunk_gdn(
     if cu_seqlens is None:
         cu32 = torch.tensor([0, total_tokens], dtype=torch.int32, device=q.device)
     else:
-        cu32 = cu_seqlens.to(torch.int32).contiguous()
+        cu32 = cu_seqlens.to(torch.int32)
 
     num_sequences = cu32.numel() - 1
     num_chunks = _total_chunks(cu32)
@@ -190,11 +166,7 @@ def run_mega_chunk_gdn(
         dtype=torch.float16,
     )
     has_initial_state = initial_state is not None
-    initial_state_arg = (
-        initial_state.to(torch.float16).contiguous()
-        if has_initial_state
-        else final_state
-    )
+    initial_state = initial_state.half() if has_initial_state else final_state
 
     block_dim = _block_dim(q.device)
     kkt_workspace = torch.zeros(block_dim * 2, CHUNK_SIZE, CHUNK_SIZE, device=q.device, dtype=torch.float16)
@@ -228,7 +200,7 @@ def run_mega_chunk_gdn(
         h,
         v_new,
         final_state,
-        initial_state_arg,
+        initial_state,
         has_initial_state,
         kkt_workspace,
         wy_workspace_a1,
