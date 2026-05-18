@@ -649,14 +649,6 @@ def causal_conv1d_update_v2(
     return out.to(original_x_dtype)
 
 
-def _as_cpu_list(values):
-    if values is None:
-        return None
-    if isinstance(values, torch.Tensor):
-        return values.detach().cpu().tolist()
-    return list(values)
-
-
 def causal_conv1d_fn_native(
     x: torch.Tensor,
     weight: torch.Tensor,
@@ -823,8 +815,10 @@ def causal_conv1d_fn_npu(
 
     query_start_list = None
     if query_start_loc is None:
-        seq_lens_cpu = _as_cpu_list(kwargs.get("seq_lens_cpu"))
+        seq_lens_cpu = kwargs.get("seq_lens_cpu")
         assert seq_lens_cpu is not None, "query_start_loc or seq_lens_cpu is required"
+        assert not (isinstance(seq_lens_cpu, torch.Tensor) and seq_lens_cpu.device.type != "cpu"), \
+            "seq_lens_cpu must be a host list or CPU tensor (no D2H sync allowed)"
         query_start_list = [0]
         for seq_len in seq_lens_cpu:
             query_start_list.append(query_start_list[-1] + int(seq_len))
