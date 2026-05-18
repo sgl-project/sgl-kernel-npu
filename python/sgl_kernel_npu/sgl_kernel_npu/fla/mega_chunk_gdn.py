@@ -4,8 +4,9 @@ from typing import Optional
 import torch
 
 
-SUPPORTED_VALUE_HEADS = (16, 32, 48, 64)
-NUM_KEY_HEADS = 16
+GLOBAL_VALUE_HEADS = (16, 32, 48, 64)
+GLOBAL_KEY_HEADS = 16
+SUPPORTED_TP_DEGREES = (1, 2, 4, 8)
 HEAD_DIM = 128
 CHUNK_SIZE = 128
 
@@ -56,6 +57,15 @@ def _block_dim(device: torch.device) -> int:
         return 24
 
 
+def _head_pair_supported(num_value_heads: int, num_key_heads: int) -> bool:
+    if num_key_heads <= 0 or GLOBAL_KEY_HEADS % num_key_heads != 0:
+        return False
+    tp_degree = GLOBAL_KEY_HEADS // num_key_heads
+    if tp_degree not in SUPPORTED_TP_DEGREES:
+        return False
+    return num_value_heads * tp_degree in GLOBAL_VALUE_HEADS
+
+
 def mega_gdn_supported(
     q: torch.Tensor,
     k: torch.Tensor,
@@ -75,9 +85,9 @@ def mega_gdn_supported(
     if q.shape[0] != 1 or v.shape[0] != 1 or q.shape[1] != v.shape[1]:
         return False
 
-    if q.shape[2] != NUM_KEY_HEADS or q.shape[3] != HEAD_DIM:
+    if not _head_pair_supported(v.shape[2], q.shape[2]):
         return False
-    if v.shape[2] not in SUPPORTED_VALUE_HEADS or v.shape[3] != HEAD_DIM:
+    if q.shape[3] != HEAD_DIM or v.shape[3] != HEAD_DIM:
         return False
 
     if g.shape != beta.shape:
@@ -85,15 +95,23 @@ def mega_gdn_supported(
     if g.shape != (1, q.shape[1], v.shape[2]):
         return False
 
-    if q.dtype != torch.float16 or k.dtype != torch.float16:
+    if q.dtype not in (torch.float16, torch.bfloat16) or k.dtype not in (
+        torch.float16,
+        torch.bfloat16,
+    ):
         return False
-    if v.dtype != torch.float16 or beta.dtype != torch.float16:
+    if v.dtype not in (torch.float16, torch.bfloat16) or beta.dtype not in (
+        torch.float16,
+        torch.float32,
+    ):
         return False
     if g.dtype != torch.float32:
         return False
 
     if initial_state is not None:
         if initial_state.dim() != 4:
+            return False
+        if initial_state.dtype not in (torch.float16, torch.float32) or initial_state.device != q.device:
             return False
         num_sequences = 1 if cu_seqlens is None else cu_seqlens.numel() - 1
         if initial_state.shape != (
@@ -127,6 +145,15 @@ def run_mega_chunk_gdn(
 ]:
     if scale is None:
         scale = k.shape[-1] ** -0.5
+
+    q_dtype = q.dtype
+    k_dtype = k.dtype
+    v_dtype = v.dtype
+
+    q = q.to(torch.float16).contiguous()
+    k = k.to(torch.float16).contiguous()
+    v = v.to(torch.float16).contiguous()
+    beta = beta.to(torch.float16).contiguous()
 
     _, total_tokens, _, head_dim = q.shape
     num_value_heads = v.shape[-2]
@@ -163,7 +190,11 @@ def run_mega_chunk_gdn(
         dtype=torch.float16,
     )
     has_initial_state = initial_state is not None
-    # TODO: should we check that initial_state is contiguous and fp16?
+    initial_state_arg = (
+        initial_state.to(torch.float16).contiguous()
+        if has_initial_state
+        else final_state
+    )
 
     block_dim = _block_dim(q.device)
     kkt_workspace = torch.zeros(block_dim * 2, CHUNK_SIZE, CHUNK_SIZE, device=q.device, dtype=torch.float16)
@@ -197,7 +228,7 @@ def run_mega_chunk_gdn(
         h,
         v_new,
         final_state,
-        initial_state,
+        initial_state_arg,
         has_initial_state,
         kkt_workspace,
         wy_workspace_a1,
@@ -220,4 +251,12 @@ def run_mega_chunk_gdn(
         ).to(torch.float32)
     else:
         final_state_out = None
-    return g_sum, (out * scale).to(q.dtype), A_inv, final_state_out, w, h, v_new
+    return (
+        g_sum,
+        (out * scale).to(q_dtype),
+        A_inv.to(k_dtype),
+        final_state_out,
+        w.to(k_dtype),
+        h.to(k_dtype),
+        v_new.to(v_dtype),
+    )

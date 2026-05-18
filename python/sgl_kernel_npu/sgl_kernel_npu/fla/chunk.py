@@ -1,6 +1,7 @@
 # Adapted from https://github.com/fla-org/flash-linear-attention/blob/main/fla/ops/gated_delta_rule/chunk.py
 # -*- coding: utf-8 -*-
 # Copyright (c) 2023-2025, Songlin Yang, Yu Zhang
+import os
 import typing
 from typing import Optional
 
@@ -23,6 +24,10 @@ from sgl_kernel_npu.fla.mega_chunk_gdn import (
 from sgl_kernel_npu.fla.solve_tril import solve_tril_npu as solve_tril
 from sgl_kernel_npu.fla.utils import SUPPRESS_LEVEL, input_guard
 from sgl_kernel_npu.fla.wy_fast import recompute_w_u_fwd_npu as recompute_w_u_fwd
+
+
+def _use_triton_backend():
+    return os.getenv("GDN_ATTN_BACKEND_TRITON", "0") == "1"
 
 
 def fast_inv_tril(A: torch.Tensor):
@@ -211,7 +216,9 @@ def chunk_gated_delta_rule_fwd(
     output_final_state: bool,
     cu_seqlens: Optional[torch.LongTensor] = None,
 ):
-    if mega_gdn_supported(q, k, v, g, beta, initial_state, cu_seqlens):
+    if not _use_triton_backend() and mega_gdn_supported(
+        q, k, v, g, beta, initial_state, cu_seqlens
+    ):
         g, o, A, final_state, w, h, v_new = run_mega_chunk_gdn(
             q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
         )

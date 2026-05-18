@@ -114,6 +114,9 @@ add_mega_chunk_gdn_kernel(16 16)
 add_mega_chunk_gdn_kernel(32 16)
 add_mega_chunk_gdn_kernel(48 16)
 add_mega_chunk_gdn_kernel(64 16)
+add_mega_chunk_gdn_kernel(16 8)
+add_mega_chunk_gdn_kernel(32 8)
+add_mega_chunk_gdn_kernel(16 4)
 
 # create shared library libsgl_kernel_npu.so
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
