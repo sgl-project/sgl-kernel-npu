@@ -249,4 +249,63 @@ def test_mlp_lightning_indexer_runtime_tnd_pa_bsnd_matches_reference(dtype: torc
     assert actual_indices.dtype == torch.int32
     assert actual_values.shape == expected_values.shape
     assert torch.equal(actual_indices, expected_indices)
-    torch.testing.assert_close(actual_values, expected_values.float(), atol=1e-2, rtol=1e-2)
+    torch.testing.assert_close(actual_values, expected_values.float(), atol=1e-3, rtol=1e-3)
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16], ids=["fp16", "bf16"])
+def test_mlp_lightning_indexer_runtime_tnd_pa_bsnd_sparse_mode_3_matches_reference(dtype: torch.dtype):
+    torch.manual_seed(1)
+
+    q_lens = [2, 3]
+    k_lens = [16, 32]
+    cur_seq_lengths_query = torch.tensor([0, q_lens[0], sum(q_lens)], dtype=torch.int64)
+    cur_seq_lengths_key = torch.tensor([0, k_lens[0], sum(k_lens)], dtype=torch.int64)
+
+    t = sum(q_lens)
+    n1 = 8
+    n2 = 1
+    d = 128
+    block_size = 16
+    sparse_count = 8
+    sparse_mode = 3
+
+    query = torch.randn((t, n1, d), dtype=dtype)
+    key = torch.randn((3, block_size, n2, d), dtype=dtype)
+    weights = torch.randn((t, n1), dtype=torch.float32)
+    block_table = torch.tensor([[0, 0], [1, 2]], dtype=torch.int32)
+
+    expected_indices, expected_values = _reference_mlp_lightning_indexer_tnd_pa_bsnd(
+        query=query.cpu(),
+        key=key.cpu(),
+        weights=weights.cpu(),
+        cur_seq_lengths_query=cur_seq_lengths_query,
+        cur_seq_lengths_key=cur_seq_lengths_key,
+        block_table=block_table,
+        sparse_count=sparse_count,
+        sparse_mode=sparse_mode,
+    )
+
+    actual_indices, actual_values = torch.ops.npu.mlp_lightning_indexer(
+        query.to(DEVICE),
+        key.to(DEVICE),
+        weights.to(DEVICE),
+        cur_seq_lengths_query=cur_seq_lengths_query.to(DEVICE),
+        cur_seq_lengths_key=cur_seq_lengths_key.to(DEVICE),
+        block_table=block_table.to(DEVICE),
+        layout_query="TND",
+        layout_key="PA_BSND",
+        sparse_count=sparse_count,
+        kv_block_len=1,
+        q_block_len=1,
+        init_num=0,
+        local_num=0,
+        sparse_mode=sparse_mode,
+        return_value=True,
+    )
+    actual_indices = actual_indices.cpu()
+    actual_values = actual_values.cpu().float()
+
+    assert actual_indices.dtype == torch.int32
+    assert actual_values.shape == expected_values.shape
+    assert torch.equal(actual_indices, expected_indices)
+    torch.testing.assert_close(actual_values, expected_values.float(), atol=1e-3, rtol=1e-3)
