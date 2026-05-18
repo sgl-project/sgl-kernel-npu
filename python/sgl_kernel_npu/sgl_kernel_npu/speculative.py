@@ -220,7 +220,7 @@ def reconstruct_indices_from_tree_mask_triton_kernel(
     retrive_index_ptr,
     retrive_next_token_ptr,
     retrive_next_sibling_ptr,
-    batch_size: tl.constexpr,
+    batch_size,
     D: tl.constexpr,
     batch_per_core: tl.constexpr,
 ):
