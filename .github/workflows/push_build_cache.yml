@@ -48,7 +48,7 @@ jobs:
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v1-${{ runner.os }}-a3-cann8.5.0-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+          key: sgl-kernel-npu-build-v2-${{ runner.os }}-a3-cann8.5.0-${{ steps.get_build_hash.outputs.BUILD_HASH }}
 
       - name: Install dependencies
         if: steps.cache-build.outputs.cache-hit != 'true'
@@ -60,7 +60,7 @@ jobs:
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
 
-      - name: Build (deepep2 for a3)
+      - name: Build (a3)
         if: steps.cache-build.outputs.cache-hit != 'true'
         run: |
           env -i PATH=${PATH} bash --login -c "
@@ -99,7 +99,7 @@ jobs:
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v1-${{ runner.os }}-a2-cann8.5.0-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+          key: sgl-kernel-npu-build-v2-${{ runner.os }}-a2-cann8.5.0-${{ steps.get_build_hash.outputs.BUILD_HASH }}
 
       - name: Install dependencies
         if: steps.cache-build.outputs.cache-hit != 'true'
@@ -111,10 +111,10 @@ jobs:
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
 
-      - name: Build (deepep2 for a2)
+      - name: Build (a2)
         if: steps.cache-build.outputs.cache-hit != 'true'
         run: |
           env -i PATH=${PATH} bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
-            bash build.sh
+            bash build.sh -a deepep2
           "
