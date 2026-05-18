@@ -16,7 +16,7 @@
 #ifndef TEMPLATE_TILING_KEY_LI_H_
 #define TEMPLATE_TILING_KEY_LI_H_
 
-#include "ascendc/host_api/tiling/template_argument.h"
+#include <cstdint>
 
 #define LI_TPL_FP16 1
 #define LI_TPL_INT32 3
@@ -26,44 +26,17 @@
 #define LI_LAYOUT_TND 1
 #define LI_LAYOUT_PA_BSND 2
 
-#define ASCENDC_TPL_4_BW 4
+// 本仓只需要 host/kernel 生成完全一致的 tiling key，用于运行时 switch 分派。
+// 这里用一个稳定的本地 bit-pack 编码，替代外部 template_argument.h 宏体系。
+constexpr inline uint32_t LiGetTplTilingKey(uint32_t dt_q, uint32_t dt_k, uint32_t dt_out,
+                                            uint32_t page_attention, uint32_t layout_t,
+                                            uint32_t k_layout_t)
+{
+    return ((dt_q & 0x3FU) << 24) | ((dt_k & 0x3FU) << 18) | ((dt_out & 0x3FU) << 12) |
+           ((page_attention & 0x1U) << 11) | ((layout_t & 0xFU) << 7) | ((k_layout_t & 0xFU) << 3);
+}
 
-// 模板参数支持的范围定义
-ASCENDC_TPL_ARGS_DECL(LightningIndexer, // 算子OpType
-                      ASCENDC_TPL_DTYPE_DECL(DT_Q, LI_TPL_FP16, LI_TPL_BF16),
-                      ASCENDC_TPL_DTYPE_DECL(DT_K, LI_TPL_FP16, LI_TPL_BF16),
-                      ASCENDC_TPL_DTYPE_DECL(DT_OUT, LI_TPL_INT32), ASCENDC_TPL_BOOL_DECL(PAGE_ATTENTION, 0, 1),
-                      ASCENDC_TPL_UINT_DECL(LAYOUT_T, ASCENDC_TPL_4_BW, ASCENDC_TPL_UI_LIST, LI_LAYOUT_BSND,
-                                             LI_LAYOUT_TND),
-                      ASCENDC_TPL_UINT_DECL(K_LAYOUT_T, ASCENDC_TPL_4_BW, ASCENDC_TPL_UI_LIST,
-                                            LI_LAYOUT_PA_BSND, LI_LAYOUT_BSND, LI_LAYOUT_TND), );
-
-// 支持的模板参数组合
-// 用于调用GET_TPL_TILING_KEY获取TilingKey时，接口内部校验TilingKey是否合法
-ASCENDC_TPL_SEL(
-    ASCENDC_TPL_ARGS_SEL(ASCENDC_TPL_DTYPE_SEL(DT_Q, LI_TPL_FP16), ASCENDC_TPL_DTYPE_SEL(DT_K, LI_TPL_FP16),
-                         ASCENDC_TPL_DTYPE_SEL(DT_OUT, LI_TPL_INT32),
-                         ASCENDC_TPL_BOOL_SEL(PAGE_ATTENTION, 1),
-                         ASCENDC_TPL_UINT_SEL(LAYOUT_T, ASCENDC_TPL_UI_LIST, LI_LAYOUT_BSND, LI_LAYOUT_TND),
-                         ASCENDC_TPL_UINT_SEL(K_LAYOUT_T, ASCENDC_TPL_UI_LIST, LI_LAYOUT_PA_BSND), ),
-
-    ASCENDC_TPL_ARGS_SEL(ASCENDC_TPL_DTYPE_SEL(DT_Q, LI_TPL_BF16), ASCENDC_TPL_DTYPE_SEL(DT_K, LI_TPL_BF16),
-                         ASCENDC_TPL_DTYPE_SEL(DT_OUT, LI_TPL_INT32),
-                         ASCENDC_TPL_BOOL_SEL(PAGE_ATTENTION, 1),
-                         ASCENDC_TPL_UINT_SEL(LAYOUT_T, ASCENDC_TPL_UI_LIST, LI_LAYOUT_BSND, LI_LAYOUT_TND),
-                         ASCENDC_TPL_UINT_SEL(K_LAYOUT_T, ASCENDC_TPL_UI_LIST, LI_LAYOUT_PA_BSND), ),
-
-    ASCENDC_TPL_ARGS_SEL(ASCENDC_TPL_DTYPE_SEL(DT_Q, LI_TPL_FP16), ASCENDC_TPL_DTYPE_SEL(DT_K, LI_TPL_FP16),
-                         ASCENDC_TPL_DTYPE_SEL(DT_OUT, LI_TPL_INT32),
-                         ASCENDC_TPL_BOOL_SEL(PAGE_ATTENTION, 0),
-                         ASCENDC_TPL_UINT_SEL(LAYOUT_T, ASCENDC_TPL_UI_LIST, LI_LAYOUT_BSND, LI_LAYOUT_TND),
-                         ASCENDC_TPL_UINT_SEL(K_LAYOUT_T, ASCENDC_TPL_UI_LIST,
-                          LI_LAYOUT_BSND, LI_LAYOUT_TND), ),
-
-    ASCENDC_TPL_ARGS_SEL(ASCENDC_TPL_DTYPE_SEL(DT_Q, LI_TPL_BF16), ASCENDC_TPL_DTYPE_SEL(DT_K, LI_TPL_BF16),
-                         ASCENDC_TPL_DTYPE_SEL(DT_OUT, LI_TPL_INT32),
-                         ASCENDC_TPL_BOOL_SEL(PAGE_ATTENTION, 0),
-                         ASCENDC_TPL_UINT_SEL(LAYOUT_T, ASCENDC_TPL_UI_LIST, LI_LAYOUT_BSND, LI_LAYOUT_TND),
-                         ASCENDC_TPL_UINT_SEL(K_LAYOUT_T, ASCENDC_TPL_UI_LIST, LI_LAYOUT_BSND, LI_LAYOUT_TND), ), );
+#define GET_TPL_TILING_KEY(DT_Q, DT_K, DT_OUT, PAGE_ATTENTION, LAYOUT_T, K_LAYOUT_T) \
+    LiGetTplTilingKey((DT_Q), (DT_K), (DT_OUT), (PAGE_ATTENTION), (LAYOUT_T), (K_LAYOUT_T))
 
 #endif
