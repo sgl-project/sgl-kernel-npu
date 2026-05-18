@@ -90,34 +90,18 @@ private:
     __aicore__ GM_ADDR GetWinAddrByRankId(const int32_t rankId, const uint8_t domain)
     {
         if (domain == EP_DOMAIN) {
-            return (GM_ADDR)((epRankIdOriginal_ == rankId)
-                                 ? epWinContext_->localWindowsIn
-                                 : ((HcclRankRelationResV2 *)(epWinContext_->remoteRes[rankId].nextDevicePtr))
-                                       ->windowsIn) +
-                   winDataSizeOffset_;
+            return GetBaseWindAddrByRankId(epWinContext_, rankId, epRankIdOriginal_) + winDataSizeOffset_;
         } else {
-            return (GM_ADDR)((tpRankId_ == rankId)
-                                 ? tpWinContext_->localWindowsIn
-                                 : ((HcclRankRelationResV2 *)(tpWinContext_->remoteRes[rankId].nextDevicePtr))
-                                       ->windowsIn) +
-                   winDataSizeOffset_;
+            return GetBaseWindAddrByRankId(tpWinContext_, rankId, tpRankId_) + winDataSizeOffset_;
         }
     }
 
     __aicore__ GM_ADDR GetWinStateAddrByRankId(const int32_t rankId, const uint8_t domain)
     {
         if (domain == EP_DOMAIN) {
-            return (GM_ADDR)((epRankIdOriginal_ == rankId)
-                                 ? epWinContext_->localWindowsExp
-                                 : ((HcclRankRelationResV2 *)(epWinContext_->remoteRes[rankId].nextDevicePtr))
-                                       ->windowsExp) +
-                   winStatusOffset_;
+            return GetBaseWindStateAddrByRankId(epWinContext_, rankId, epRankIdOriginal_) + winStatusOffset_;
         } else {
-            return (GM_ADDR)((tpRankId_ == rankId)
-                                 ? tpWinContext_->localWindowsExp
-                                 : ((HcclRankRelationResV2 *)(tpWinContext_->remoteRes[rankId].nextDevicePtr))
-                                       ->windowsExp) +
-                   winStatusOffset_;
+            return GetBaseWindStateAddrByRankId(tpWinContext_, rankId, tpRankId_) + winStatusOffset_;
         }
     }
 
@@ -183,8 +167,8 @@ private:
     uint32_t constExpertNum_{0};
     uint32_t moeExpertNum_{0};
     uint32_t globalBS_{0};
-    __gm__ HcclOpResParam *epWinContext_{nullptr};
-    __gm__ HcclOpResParam *tpWinContext_{nullptr};
+    __gm__ HcclOpParam *epWinContext_{nullptr};
+    __gm__ HcclOpParam *tpWinContext_{nullptr};
     uint32_t tpStateOffsetOnWin_{0};
     uint32_t bsKNum_{0};
     uint32_t startTokenId_{0};
@@ -400,8 +384,8 @@ MoeDistributeCombineV2<TemplateMC2TypeFunc>::InitAttrs(const MoeDistributeCombin
     InitTilingAttrs(tilingData);
     uint32_t sharedExpertRankNum = tilingData->moeDistributeCombineV2Info.sharedExpertRankNum;
     auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
-    epWinContext_ = (__gm__ HcclOpResParam *)contextGM0;
-    statusDataSpaceGm_ = (GM_ADDR)(epWinContext_->localWindowsExp);
+    epWinContext_ = (__gm__ HcclOpParam *)contextGM0;
+    statusDataSpaceGm_ = GetStatusDataSpaceGm(epWinContext_);
     selfDataStatusGMTensor_.SetGlobalBuffer(
         (__gm__ uint32_t *)(statusDataSpaceGm_ + STATE_WIN_OFFSET + coreIdx_ * WIN_ADDR_ALIGN));
     TBuf<> dataStateBuf;
@@ -490,7 +474,7 @@ __aicore__ inline void MoeDistributeCombineV2<TemplateMC2TypeFunc>::Init(
     SplitCoreCal();
     if constexpr (IsNeedReduceScatter) {
         auto contextGM1 = AscendC::GetHcclContext<1>();
-        tpWinContext_ = (__gm__ HcclOpResParam *)contextGM1;
+        tpWinContext_ = (__gm__ HcclOpParam *)contextGM1;
         tpSendCountGM_.SetGlobalBuffer((__gm__ int32_t *)tpSendCount);
         tpWorldSize_ = tilingData->moeDistributeCombineV2Info.tpWorldSize;
         tpRankId_ = tilingData->moeDistributeCombineV2Info.tpRankId;

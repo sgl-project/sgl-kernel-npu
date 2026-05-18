@@ -6,18 +6,11 @@
 
 #include "comm_args.h"
 #include "data_copy.h"
-#include "moe_distribute_base.h"
+#include "moe_distribute_v2_base.h"
 
 using namespace AscendC;
 using namespace Moe;
-
-template <AscendC::HardEvent event>
-__aicore__ inline void SyncFunc()
-{
-    int32_t eventID = static_cast<int32_t>(GetTPipePtr()->FetchEventID(event));
-    AscendC::SetFlag<event>(eventID);
-    AscendC::WaitFlag<event>(eventID);
-}
+using namespace MoeDistributeV2Base;
 
 #define KERNELS_ARGS_FUN_ALL2ALL()                                                                                  \
     GM_ADDR sendDataInput, GM_ADDR tokenPerExpertDataInput, GM_ADDR sendDataOffsetOutput, GM_ADDR recvDataOutput,   \
