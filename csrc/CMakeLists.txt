@@ -24,6 +24,9 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_host/tiling/sgemmc_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/lightning_indexer.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/tiling/lightning_indexer_tiling.cpp
+    ${PROJECT_OP_SRC_BASE}/compute_n_gram_ids/op_host/compute_n_gram_ids.cpp
+    ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_host/mlp_lightning_indexer.cpp
+    ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_host/tiling/mlp_lightning_indexer_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/causal_conv1d_update.cpp
     ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_host/recurrent_gated_delta_rule.cpp
@@ -84,6 +87,8 @@ set(WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/alloc_extend/op_kernel/alloc_extend_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/build_tree/op_kernel/build_tree_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_kernel/lightning_indexer_kernel.cpp
+    ${PROJECT_OP_SRC_BASE}/compute_n_gram_ids/op_kernel/compute_n_gram_ids.cpp
+    ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_kernel/mlp_lightning_indexer.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel/causal_conv1d_update.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel/causal_conv1d.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmc_expand_kernel.cpp
@@ -156,6 +161,12 @@ target_link_directories(${OP_PLUGIN_NAME} PRIVATE
 target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/utils
         ${PROJECT_SOURCE_DIR}/include
+        ${PROJECT_OP_SRC_BASE}/compute_n_gram_ids/op_host
+        ${PROJECT_OP_SRC_BASE}/compute_n_gram_ids/op_kernel
+        ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_host
+        ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_host/tiling
+        ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_kernel
+        ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/utils/inc
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/tiling
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host
