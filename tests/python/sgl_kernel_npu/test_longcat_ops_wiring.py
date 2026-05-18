@@ -42,7 +42,8 @@ class TestLongcatOpsWiring(unittest.TestCase):
         self.assertIn("liInfo.returnValue = static_cast<int8_t>(*attrs->GetAttrPointer<bool>(ATTR_RETURN_VALUE_INDEX));", tiling)
         self.assertIn("ConvertType(const c10::optional<at::Tensor> &at_tensor)", helper)
         self.assertIn("return nullptr;", helper)
-        self.assertIn("EXEC_KERNEL_CMD(mlp_lightning_indexer, tilingData.usedCoreNum, query, key, weights, cur_seq_lengths_query,", wrapper)
+        self.assertIn("uint32_t blockDim = tilingData.usedCoreNum;", wrapper)
+        self.assertIn("EXEC_KERNEL_CMD(mlp_lightning_indexer, blockDim, query, key, weights, cur_seq_lengths_query,", wrapper)
         self.assertIn("cur_seq_lengths_key, block_table, init_tensor, local_tensor, sparse_indices, sparse_values,", wrapper)
 
 
