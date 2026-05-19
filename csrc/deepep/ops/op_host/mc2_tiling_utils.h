@@ -65,12 +65,7 @@ constexpr size_t RES_LEN = 64;
 constexpr size_t MAX_MSG_NUM = 16;
 constexpr uint8_t MC2_DEBUG_ONLY_AICPU = 4;  // 只通信不计算
 constexpr char HCCL_DETERMINISTIC[] = "HCCL_DETERMINISTIC";
-/**
-当前通信API未提供枚举，后续会提供
-0：默认值 1：HOST_TS（A2/3支持 A5不支持）2：AICPU_TS（A2/3支持 A5不支持）
-3：AIV 4：AIV_ONLY（A2/3支持 A5不支持） 5：CCU_MS（A2/3支持 A5不支持）
-6：CCU_SCHED（A2/3支持 A5不支持） 7：AICPU_UB/ROCE（A5不支持）
-**/
+
 constexpr uint8_t AIV_ENGINE = 3;
 constexpr uint8_t A5_CCU_ENGINE = 5;
 constexpr uint8_t Y_INDEX = 3;

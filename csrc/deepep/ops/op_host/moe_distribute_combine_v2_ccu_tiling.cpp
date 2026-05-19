@@ -1,19 +1,3 @@
-/**
- * Copyright (c) 2025 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
- * CANN Open Software License Agreement Version 2.0 (the "License").
- * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
- */
-
-/*!
- * \file moe_distribute_combine_tiling_a5.cc
- * \brief
- */
-
-#include "moe_distribute_combine_v2_ccu_tiling.h"
 
 #include <fcntl.h>
 #include <cstdio>
@@ -32,6 +16,7 @@
 #include "error_log.h"
 #include "register/tilingdata_base.h"
 #include "mc2_tiling_utils.h"
+#include "moe_distribute_combine_v2_ccu_tiling.h"
 #include "../op_kernel/moe_distribute_combine_v2_tiling.h"
 #include "moe_distribute_combine_tiling_helper.h"
 namespace {
@@ -77,7 +62,6 @@ const int64_t MAX_EP_WORLD_SIZE_V2 = 768;
 const int64_t MIN_EP_WORLD_SIZE_V2 = 2;
 const int64_t MAX_SHARED_EXPERT_NUM_V2 = 4;
 const int64_t MIN_SHARED_EXPERT_NUM_V2 = 0;
-const int64_t K_UPPER_BOUND_V1 = 8;
 const int64_t K_UPPER_BOUND_V2 = 16;
 const int64_t BUFFER_NUM = 2;
 
@@ -464,7 +448,6 @@ inline ge::graphStatus CheckEpSendCountAndTpSendCountShape(const gert::TilingCon
                     OP_LOGE(nodeName,
                             "The epSendCountDim0 not greater than or equal to epSendCount * tpWorldSize, "
                             "epSendCountDim0=%ld, epSendCount=%ld, tpWorldSize=%ld.",
-
                             epSendCountDim0, epSendCount, tpWorldSize),
                     return ge::GRAPH_FAILED);
     if (tpWorldSize == MAX_TP_WORLD_SIZE) {
