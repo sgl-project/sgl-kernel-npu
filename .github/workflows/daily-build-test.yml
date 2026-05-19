@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   # 将测试任务拆分为独立的job，可以并行运行
-  daily-enumerate-intranode:
+  daily-enumerate-intranode-cann900-a3:
     runs-on: linux-aarch64-a3-16
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-a3-ubuntu22.04-py3.11
@@ -52,7 +52,7 @@ jobs:
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Prepare Deepep
-        run: bash scripts/prepare_deepep_in_container.sh
+        run: bash scripts/prepare_deepep_in_container.sh -a deepep
 
       - name: Run enumerate test intranode
         timeout-minutes: 340  # 5小时 40分钟
@@ -69,13 +69,13 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: intranode-results-${{ github.sha }}-${{ github.run_id }}
+          name: intranode-results-cann900-a3-${{ github.sha }}-${{ github.run_id }}
           path: |
             test-results/
             logs/
           retention-days: 30
 
-  daily-enumerate-low-latency:
+  daily-enumerate-low-latency-cann900-a3:
     runs-on: linux-aarch64-a3-16
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-a3-ubuntu22.04-py3.11
@@ -104,7 +104,7 @@ jobs:
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Prepare Deepep
-        run: bash scripts/prepare_deepep_in_container.sh
+        run: bash scripts/prepare_deepep_in_container.sh -a deepep
 
       - name: Run enumerate test low latency
         timeout-minutes: 300  # 5小时
@@ -121,7 +121,310 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: low-latency-results-${{ github.sha }}-${{ github.run_id }}
+          name: low-latency-results-cann900-a3-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            test-results/
+            logs/
+          retention-days: 30
+
+  daily-enumerate-intranode-cann900-a2:
+    runs-on: linux-aarch64-a2-8
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-910b-ubuntu22.04-py3.11
+    timeout-minutes: 350
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      # 以下步骤和原有intranode任务完全一致，直接复制即可
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+          bash scripts/npu_ci_install_dependency.sh
+      - name: Prepare Deepep
+        run: bash scripts/prepare_deepep_in_container.sh -a deepep2
+      - name: Run enumerate test intranode
+        timeout-minutes: 340
+        env:
+          HCCL_BUFFSIZE: 4096
+          TEST_ENV: daily-build
+        run: |
+          echo "Starting daily enumerate intranode test at $(date)"
+          chmod +x scripts/enumerate_test_intranode.sh
+          bash scripts/enumerate_test_intranode.sh
+          echo "Completed daily enumerate intranode test at $(date)"
+      - name: Upload intranode artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: intranode-results-cann900-a2-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            test-results/
+            logs/
+          retention-days: 30
+
+  daily-enumerate-low-latency-cann900-a2:
+    runs-on: linux-aarch64-a2-8
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-910b-ubuntu22.04-py3.11
+    timeout-minutes: 330
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      # 以下步骤和原有low-latency任务完全一致，直接复制即可
+      - name: Clean workspace and checkout
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+          bash scripts/npu_ci_install_dependency.sh
+      - name: Prepare Deepep
+        run: bash scripts/prepare_deepep_in_container.sh -a deepep2
+      - name: Run enumerate test low latency
+        timeout-minutes: 300
+        env:
+          HCCL_BUFFSIZE: 4096
+          TEST_ENV: daily-build
+        run: |
+          echo "Starting daily enumerate low latency test at $(date)"
+          chmod +x scripts/enumerate_test_low_latency.sh
+          bash scripts/enumerate_test_low_latency.sh
+          echo "Completed daily enumerate low latency test at $(date)"
+      - name: Upload low latency artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: low-latency-results-cann900-a2-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            test-results/
+            logs/
+          retention-days: 30
+
+  daily-enumerate-intranode-cann850-a3:
+    runs-on: linux-aarch64-a3-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
+    timeout-minutes: 350
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      # 步骤和原有intranode完全一致，仅修改产物name
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+          bash scripts/npu_ci_install_dependency.sh
+      - name: Prepare Deepep
+        run: bash scripts/prepare_deepep_in_container.sh -a deepep
+      - name: Run enumerate test intranode
+        timeout-minutes: 340
+        env:
+          HCCL_BUFFSIZE: 4096
+          TEST_ENV: daily-build
+        run: |
+          echo "Starting daily enumerate intranode test at $(date)"
+          chmod +x scripts/enumerate_test_intranode.sh
+          bash scripts/enumerate_test_intranode.sh
+          echo "Completed daily enumerate intranode test at $(date)"
+      - name: Upload intranode artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: intranode-results-cann850-a3-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            test-results/
+            logs/
+          retention-days: 30
+
+  daily-enumerate-low-latency-cann850-a3:
+    runs-on: linux-aarch64-a3-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
+    timeout-minutes: 330
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      # 步骤和原有low-latency完全一致，仅修改产物name
+      - name: Clean workspace and checkout
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+          bash scripts/npu_ci_install_dependency.sh
+      - name: Prepare Deepep
+        run: bash scripts/prepare_deepep_in_container.sh -a deepep
+      - name: Run enumerate test low latency
+        timeout-minutes: 300
+        env:
+          HCCL_BUFFSIZE: 4096
+          TEST_ENV: daily-build
+        run: |
+          echo "Starting daily enumerate low latency test at $(date)"
+          chmod +x scripts/enumerate_test_low_latency.sh
+          bash scripts/enumerate_test_low_latency.sh
+          echo "Completed daily enumerate low latency test at $(date)"
+      - name: Upload low latency artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: low-latency-results-cann850-a3-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            test-results/
+            logs/
+          retention-days: 30
+
+  daily-enumerate-intranode-cann850-a2:
+    runs-on: linux-aarch64-a2-8
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-910b-ubuntu22.04-py3.11
+    timeout-minutes: 350
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      # 步骤和原有intranode完全一致，仅修改产物name
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+          bash scripts/npu_ci_install_dependency.sh
+      - name: Prepare Deepep
+        run: bash scripts/prepare_deepep_in_container.sh -a deepep2
+      - name: Run enumerate test intranode
+        timeout-minutes: 340
+        env:
+          HCCL_BUFFSIZE: 4096
+          TEST_ENV: daily-build
+        run: |
+          echo "Starting daily enumerate intranode test at $(date)"
+          chmod +x scripts/enumerate_test_intranode.sh
+          bash scripts/enumerate_test_intranode.sh
+          echo "Completed daily enumerate intranode test at $(date)"
+      - name: Upload intranode artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: intranode-results-cann850-a2-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            test-results/
+            logs/
+          retention-days: 30
+
+  daily-enumerate-low-latency-cann850-a2:
+    runs-on: linux-aarch64-a2-8
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-910b-ubuntu22.04-py3.11
+    timeout-minutes: 330
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      # 步骤和原有low-latency完全一致，仅修改产物name
+      - name: Clean workspace and checkout
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+      - uses: actions/checkout@v4
+        with:
+          clean: true
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+          bash scripts/npu_ci_install_dependency.sh
+      - name: Prepare Deepep
+        run: bash scripts/prepare_deepep_in_container.sh -a deepep2
+      - name: Run enumerate test low latency
+        timeout-minutes: 300
+        env:
+          HCCL_BUFFSIZE: 4096
+          TEST_ENV: daily-build
+        run: |
+          echo "Starting daily enumerate low latency test at $(date)"
+          chmod +x scripts/enumerate_test_low_latency.sh
+          bash scripts/enumerate_test_low_latency.sh
+          echo "Completed daily enumerate low latency test at $(date)"
+      - name: Upload low latency artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: low-latency-results-cann850-a2-${{ github.sha }}-${{ github.run_id }}
           path: |
             test-results/
             logs/
@@ -129,7 +432,12 @@ jobs:
 
   finish:
     if: always()
-    needs: [daily-enumerate-intranode, daily-enumerate-low-latency]
+    needs: [
+      daily-enumerate-intranode-cann900-a3, daily-enumerate-low-latency-cann900-a3,
+      daily-enumerate-intranode-cann900-a2, daily-enumerate-low-latency-cann900-a2,
+      daily-enumerate-intranode-cann850-a3, daily-enumerate-low-latency-cann850-a3,
+      daily-enumerate-intranode-cann850-a2, daily-enumerate-low-latency-cann850-a2
+    ]
     runs-on: ubuntu-latest
     steps:
       - name: Generate comprehensive test report
@@ -139,9 +447,13 @@ jobs:
           echo "**Execution Time**: $(date)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Job Status:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Intranode Test Part One**: ${{ needs.daily-enumerate-intranode_part_one.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Intranode Test Part Two**: ${{ needs.daily-enumerate-intranode_part_two.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Low Latency Test**: ${{ needs.daily-enumerate-low-latency.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Smoke Test**: ${{ needs.daily-smoke-test.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **cann9.0.0+a3 Intranode Test**: ${{ needs.daily-enumerate-intranode-cann900-a3.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **cann9.0.0+a3 Low Latency Test**: ${{ needs.daily-enumerate-low-latency-cann900-a3.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **cann9.0.0+a2(910b) Intranode Test**: ${{ needs.daily-enumerate-intranode-cann900-a2.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **cann9.0.0+a2(910b) Low Latency Test**: ${{ needs.daily-enumerate-low-latency-cann900-a2.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **cann8.5.0+a3 Intranode Test**: ${{ needs.daily-enumerate-intranode-cann850-a3.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **cann8.5.0+a3 Low Latency Test**: ${{ needs.daily-enumerate-low-latency-cann850-a3.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **cann8.5.0+a2(910b) Intranode Test**: ${{ needs.daily-enumerate-intranode-cann850-a2.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **cann8.5.0+a2(910b) Low Latency Test**: ${{ needs.daily-enumerate-low-latency-cann850-a2.result }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Workflow Run**: [$GITHUB_RUN_ID](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> $GITHUB_STEP_SUMMARY
