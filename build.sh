@@ -139,7 +139,7 @@ COMPILE_OPTIONS=""
 
 function update_submodules()
 {
-    PTO_ISA_DIR="thirdparty/pto-isa"
+    PTO_ISA_DIR="third-party/pto-isa"
     if [[ -d "${PTO_ISA_DIR}/include/pto" ]]; then return 0; fi
 
     echo "Updating submodule: ${PTO_ISA_DIR}"

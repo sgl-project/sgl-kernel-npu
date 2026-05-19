@@ -107,7 +107,7 @@ function(add_mega_chunk_gdn_kernel H HG)
     )
     ascendc_include_directories(${target} PRIVATE
         ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel
-        ${PROJECT_SOURCE_DIR}/thirdparty/pto-isa/include
+        ${PROJECT_SOURCE_DIR}/third-party/pto-isa/include
         ${ASCEND_INCLUDE_DIR}
         ${ASCEND_INCLUDE_DIR}/experiment/runtime
         ${ASCEND_INCLUDE_DIR}/experiment/msprof
