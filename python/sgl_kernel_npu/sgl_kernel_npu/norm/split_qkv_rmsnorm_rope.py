@@ -76,15 +76,27 @@ def split_qkv_rmsnorm_rope_kernel(
         sin = (tl.load(sin_ptr + sc_offsets)).reshape(1, ROPE_DIM)
         cos = (tl.load(cos_ptr + sc_offsets)).reshape(1, ROPE_DIM)
         if not DO_HALF:
-            sin_half = al.extract_slice(sin, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 1))
-            cos_half = al.extract_slice(cos, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 1))
-            sin = tl.zeros((1, ROPE_DIM), dtype=tl.bfloat16)
-            sin = al.insert_slice(sin, sin_half, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 2))
-            sin = al.insert_slice(sin, sin_half, offsets=(0, 1), sizes=(1, HALF_ROPE_DIM), strides=(1, 2))
-            
-            cos = tl.zeros((1, ROPE_DIM), dtype=tl.bfloat16)
-            cos = al.insert_slice(cos, cos_half, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 2))
-            cos = al.insert_slice(cos, cos_half, offsets=(0, 1), sizes=(1, HALF_ROPE_DIM), strides=(1, 2))
+            sin_half = al.extract_slice(
+                sin, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 1)
+            )
+            cos_half = al.extract_slice(
+                cos, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 1)
+            )
+            sin = tl.zeros((1, ROPE_DIM), dtype=sin_half.dtype)
+            sin = al.insert_slice(
+                sin, sin_half, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 2)
+            )
+            sin = al.insert_slice(
+                sin, sin_half, offsets=(0, 1), sizes=(1, HALF_ROPE_DIM), strides=(1, 2)
+            )
+
+            cos = tl.zeros((1, ROPE_DIM), dtype=cos_half.dtype)
+            cos = al.insert_slice(
+                cos, cos_half, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 2)
+            )
+            cos = al.insert_slice(
+                cos, cos_half, offsets=(0, 1), sizes=(1, HALF_ROPE_DIM), strides=(1, 2)
+            )
         if DO_PARTIAL:
             rot_x = al.extract_slice(
                 normalized_values,
@@ -222,17 +234,29 @@ def split_qkv_rmsnorm_rope_kernel(
         sc_offsets = row_idx * ROPE_DIM + tl.arange(0, ROPE_DIM)
         sin = (tl.load(sin_ptr + sc_offsets)).reshape(1, ROPE_DIM)
         cos = (tl.load(cos_ptr + sc_offsets)).reshape(1, ROPE_DIM)
-        
+
         if not DO_HALF:
-            sin_half = al.extract_slice(sin, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 1))
-            cos_half = al.extract_slice(cos, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 1))
-            sin = tl.zeros((1, ROPE_DIM), dtype=tl.bfloat16)
-            sin = al.insert_slice(sin, sin_half, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 2))
-            sin = al.insert_slice(sin, sin_half, offsets=(0, 1), sizes=(1, HALF_ROPE_DIM), strides=(1, 2))
-            
-            cos = tl.zeros((1, ROPE_DIM), dtype=tl.bfloat16)
-            cos = al.insert_slice(cos, cos_half, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 2))
-            cos = al.insert_slice(cos, cos_half, offsets=(0, 1), sizes=(1, HALF_ROPE_DIM), strides=(1, 2))
+            sin_half = al.extract_slice(
+                sin, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 1)
+            )
+            cos_half = al.extract_slice(
+                cos, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 1)
+            )
+            sin = tl.zeros((1, ROPE_DIM), dtype=sin_half.dtype)
+            sin = al.insert_slice(
+                sin, sin_half, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 2)
+            )
+            sin = al.insert_slice(
+                sin, sin_half, offsets=(0, 1), sizes=(1, HALF_ROPE_DIM), strides=(1, 2)
+            )
+
+            cos = tl.zeros((1, ROPE_DIM), dtype=cos_half.dtype)
+            cos = al.insert_slice(
+                cos, cos_half, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 2)
+            )
+            cos = al.insert_slice(
+                cos, cos_half, offsets=(0, 1), sizes=(1, HALF_ROPE_DIM), strides=(1, 2)
+            )
 
         if DO_PARTIAL:
             rot_x = al.extract_slice(
