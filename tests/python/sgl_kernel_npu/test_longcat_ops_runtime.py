@@ -1,3 +1,5 @@
+import os
+
 import pytest
 import torch
 
@@ -131,6 +133,47 @@ def _reference_mlp_lightning_indexer_tnd_pa_bsnd(
         out_val[q_start:q_end, 0, :] = topk_values.to(query.dtype)
 
     return out_idx, out_val
+
+
+def _build_multi_batch_pa_case(
+    q_lens: list[int],
+    k_lens: list[int],
+    dtype: torch.dtype,
+    n1: int = 8,
+    n2: int = 1,
+    d: int = 128,
+    block_size: int = 16,
+):
+    assert len(q_lens) == len(k_lens)
+    assert all(k_len % block_size == 0 for k_len in k_lens)
+
+    cur_seq_lengths_query = torch.tensor(
+        [0, *torch.tensor(q_lens, dtype=torch.int64).cumsum(0).tolist()],
+        dtype=torch.int64,
+    )
+    cur_seq_lengths_key = torch.tensor(
+        [0, *torch.tensor(k_lens, dtype=torch.int64).cumsum(0).tolist()],
+        dtype=torch.int64,
+    )
+
+    t = sum(q_lens)
+    total_blocks = sum(k_len // block_size for k_len in k_lens)
+    max_blocks = max(k_len // block_size for k_len in k_lens)
+
+    query = torch.randn((t, n1, d), dtype=dtype)
+    key = torch.randn((total_blocks, block_size, n2, d), dtype=dtype)
+    weights = torch.randn((t, n1), dtype=torch.float32)
+
+    block_table = torch.full((len(q_lens), max_blocks), -1, dtype=torch.int32)
+    block_cursor = 0
+    for batch_id, k_len in enumerate(k_lens):
+        block_num = k_len // block_size
+        block_table[batch_id, :block_num] = torch.arange(
+            block_cursor, block_cursor + block_num, dtype=torch.int32
+        )
+        block_cursor += block_num
+
+    return query, key, weights, cur_seq_lengths_query, cur_seq_lengths_key, block_table
 
 
 def test_compute_n_gram_ids_runtime_matches_reference():
@@ -309,3 +352,100 @@ def test_mlp_lightning_indexer_runtime_tnd_pa_bsnd_sparse_mode_3_matches_referen
     assert actual_values.shape == expected_values.shape
     assert torch.equal(actual_indices, expected_indices)
     torch.testing.assert_close(actual_values, expected_values.float(), atol=1e-3, rtol=1e-3)
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16], ids=["fp16", "bf16"])
+def test_mlp_lightning_indexer_runtime_tnd_pa_bsnd_sparse_mode_3_bs8_matches_reference(dtype: torch.dtype):
+    torch.manual_seed(2)
+
+    q_lens = [1, 2, 1, 3, 2, 4, 1, 2]
+    k_lens = [16, 32, 48, 64, 80, 96, 112, 128]
+    sparse_count = 16
+    sparse_mode = 3
+
+    (
+        query,
+        key,
+        weights,
+        cur_seq_lengths_query,
+        cur_seq_lengths_key,
+        block_table,
+    ) = _build_multi_batch_pa_case(q_lens=q_lens, k_lens=k_lens, dtype=dtype)
+
+    expected_indices, expected_values = _reference_mlp_lightning_indexer_tnd_pa_bsnd(
+        query=query.cpu(),
+        key=key.cpu(),
+        weights=weights.cpu(),
+        cur_seq_lengths_query=cur_seq_lengths_query,
+        cur_seq_lengths_key=cur_seq_lengths_key,
+        block_table=block_table,
+        sparse_count=sparse_count,
+        sparse_mode=sparse_mode,
+    )
+
+    actual_indices, actual_values = torch.ops.npu.mlp_lightning_indexer(
+        query.to(DEVICE),
+        key.to(DEVICE),
+        weights.to(DEVICE),
+        cur_seq_lengths_query=cur_seq_lengths_query.to(DEVICE),
+        cur_seq_lengths_key=cur_seq_lengths_key.to(DEVICE),
+        block_table=block_table.to(DEVICE),
+        layout_query="TND",
+        layout_key="PA_BSND",
+        sparse_count=sparse_count,
+        kv_block_len=1,
+        q_block_len=1,
+        init_num=0,
+        local_num=0,
+        sparse_mode=sparse_mode,
+        return_value=True,
+    )
+    actual_indices = actual_indices.cpu()
+    actual_values = actual_values.cpu().float()
+
+    assert actual_indices.dtype == torch.int32
+    assert actual_values.shape == expected_values.shape
+    assert torch.equal(actual_indices, expected_indices)
+    torch.testing.assert_close(actual_values, expected_values.float(), atol=1e-3, rtol=1e-3)
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16], ids=["fp16", "bf16"])
+def test_mlp_lightning_indexer_runtime_tnd_pa_bsnd_sparse_mode_3_bs8_sglang_repro(dtype: torch.dtype):
+    torch.manual_seed(3)
+
+    q_lens = [32, 48, 16, 64, 24, 40, 56, 72]
+    k_lens = [128, 256, 192, 384, 320, 448, 512, 640]
+    sparse_count = 128
+    init_num = 16
+    local_num = 64
+
+    (
+        query,
+        key,
+        weights,
+        cur_seq_lengths_query,
+        cur_seq_lengths_key,
+        block_table,
+    ) = _build_multi_batch_pa_case(q_lens=q_lens, k_lens=k_lens, dtype=dtype)
+
+    actual_indices, actual_values = torch.ops.npu.mlp_lightning_indexer(
+        query.to(DEVICE),
+        key.to(DEVICE),
+        weights.to(DEVICE),
+        cur_seq_lengths_query=cur_seq_lengths_query.to(DEVICE),
+        cur_seq_lengths_key=cur_seq_lengths_key.to(DEVICE),
+        block_table=block_table.to(DEVICE),
+        layout_query="TND",
+        layout_key="PA_BSND",
+        sparse_count=sparse_count,
+        kv_block_len=1,
+        q_block_len=1,
+        init_num=init_num,
+        local_num=local_num,
+        sparse_mode=3,
+        return_value=True,
+    )
+
+    assert actual_indices.shape == (sum(q_lens), 1, sparse_count)
+    assert actual_indices.dtype == torch.int32
+    assert actual_values.shape == (sum(q_lens), 1, sparse_count)
