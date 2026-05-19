@@ -214,10 +214,10 @@ jobs:
           HCCL_BUFFSIZE: 4096
           TEST_ENV: daily-build
         run: |
-          echo "Starting daily enumerate low latency test at $(date)"
-          chmod +x scripts/enumerate_test_low_latency.sh
-          bash scripts/enumerate_test_low_latency.sh
-          echo "Completed daily enumerate low latency test at $(date)"
+          echo "Starting daily enumerate low latency test (a2) at $(date)"
+          chmod +x scripts/enumerate_test_low_latency_a2.sh
+          bash scripts/enumerate_test_low_latency_a2.sh
+          echo "Completed daily enumerate low latency test (a2) at $(date)"
       - name: Upload low latency artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -416,10 +416,10 @@ jobs:
           HCCL_BUFFSIZE: 4096
           TEST_ENV: daily-build
         run: |
-          echo "Starting daily enumerate low latency test at $(date)"
-          chmod +x scripts/enumerate_test_low_latency.sh
-          bash scripts/enumerate_test_low_latency.sh
-          echo "Completed daily enumerate low latency test at $(date)"
+          echo "Starting daily enumerate low latency test (a2) at $(date)"
+          chmod +x scripts/enumerate_test_low_latency_a2.sh
+          bash scripts/enumerate_test_low_latency_a2.sh
+          echo "Completed daily enumerate low latency test (a2) at $(date)"
       - name: Upload low latency artifacts
         if: always()
         uses: actions/upload-artifact@v4
