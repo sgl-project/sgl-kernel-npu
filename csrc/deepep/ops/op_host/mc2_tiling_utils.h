@@ -39,6 +39,14 @@ public:
         OP_LOGI("", "Get maxWindowSize is %lu", maxWindowSize);
         return maxWindowSize;
     }
+
+    static int64_t CeilAlign(int64_t num1, int64_t num2)
+    {
+        if (num2 == 0) {
+            return 0;
+        }
+        return (num1 + num2 - 1) / num2 * num2;
+    }
 };
 
 namespace mc2tiling {
@@ -55,14 +63,9 @@ constexpr uint32_t AIC_NUM_910D = 32;
 constexpr uint64_t MC2_TILINGKEY_OFFSET = uint64_t(1000000000000000000UL);  // 10^18
 constexpr size_t RES_LEN = 64;
 constexpr size_t MAX_MSG_NUM = 16;
-constexpr uint8_t MC2_DEBUG_ONLY_AICPU = 4;  // 只通信不计算
+constexpr uint8_t MC2_DEBUG_ONLY_AICPU = 4;  // ֻͨ�Ų�����
 constexpr char HCCL_DETERMINISTIC[] = "HCCL_DETERMINISTIC";
-/**
-当前通信API未提供枚举，后续会提供
-0：默认值 1：HOST_TS（A2/3支持 A5不支持）2：AICPU_TS（A2/3支持 A5不支持）
-3：AIV 4：AIV_ONLY（A2/3支持 A5不支持） 5：CCU_MS（A2/3支持 A5不支持）
-6：CCU_SCHED（A2/3支持 A5不支持） 7：AICPU_UB/ROCE（A5不支持）
-**/
+
 constexpr uint8_t AIV_ENGINE = 3;
 constexpr uint8_t A5_CCU_ENGINE = 5;
 constexpr uint8_t Y_INDEX = 3;
@@ -92,6 +95,23 @@ constexpr uint32_t AICPU_NUM_BLOCKS_A2 = 6U;
 
 constexpr auto DEFAULT_KEY_FOR_FITTING_MAP = "0_0";
 
+enum class AicpuComType {
+    HCCL_CMD_INVALID = 0,
+    HCCL_CMD_BROADCAST = 1,
+    HCCL_CMD_ALLREDUCE,
+    HCCL_CMD_REDUCE,
+    HCCL_CMD_SEND,
+    HCCL_CMD_RECEIVE,
+    HCCL_CMD_ALLGATHER,
+    HCCL_CMD_REDUCE_SCATTER,
+    HCCL_CMD_ALLTOALLV,
+    HCCL_CMD_ALLTOALLVC,
+    HCCL_CMD_ALLTOALL,
+    HCCL_CMD_GATHER,
+    HCCL_CMD_HALFALLTOALLV = 20,
+    HCCL_CMD_MAX
+};
+
 inline std::string GetSocVersion(const gert::TilingContext *context)
 {
     fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
@@ -106,9 +126,9 @@ inline ge::graphStatus GetEpWinSize(const gert::TilingContext *context, const ch
 {
     auto attrs = context->GetAttrs();
     if (mc2tiling::GetSocVersion(context) == "Ascend910_95") {
-        // A5 暂不支持 Hccl CommGetBufSizeCfg 接口，此处暂作规避
+        // A5 �ݲ�֧�� Hccl CommGetBufSizeCfg �ӿڣ��˴��������
         hcclBufferSizeEp = Mc2TilingUtils::GetMaxWindowSize();
-        // A5 上前 1MB 作为状态区，剩余空间用作数据区
+        // A5 ��ǰ 1MB ��Ϊ״̬����ʣ��ռ�����������
         maxWindowSizeEp = hcclBufferSizeEp - MTE_STATE_ZONE_SIZE;
     } else {
         OP_LOGI(nodeName, "GetEpWinSize not in Ascend910_95!");
