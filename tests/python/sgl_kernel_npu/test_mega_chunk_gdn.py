@@ -1,7 +1,6 @@
 import pytest
 import torch
 import torch.nn.functional as F
-
 from sgl_kernel_npu.fla.chunk import chunk_gated_delta_rule_native
 from sgl_kernel_npu.fla.mega_chunk_gdn import run_mega_chunk_gdn
 
@@ -35,7 +34,9 @@ def _assert_close(name: str, actual: torch.Tensor, expected: torch.Tensor) -> No
     assert ratio < 0.05, f"{name} max_abs={max_abs:.6f} rmse_ratio={ratio:.6f}"
 
 
-def _native_reference(q, k, v, g, beta, cu_seqlens, initial_state=None, output_final_state=False):
+def _native_reference(
+    q, k, v, g, beta, cu_seqlens, initial_state=None, output_final_state=False
+):
     if q.shape[2] != v.shape[2]:
         assert v.shape[2] % q.shape[2] == 0
         group_size = v.shape[2] // q.shape[2]
@@ -98,8 +99,12 @@ def test_mega_chunk_gdn_e2e(total_tokens, cu_list, num_value_heads):
     H = num_value_heads
     D = 128
 
-    q_cpu = F.normalize(torch.randn(1, total_tokens, Hg, D), p=2, dim=-1).to(torch.float16)
-    k_cpu = F.normalize(torch.randn(1, total_tokens, Hg, D), p=2, dim=-1).to(torch.float16)
+    q_cpu = F.normalize(torch.randn(1, total_tokens, Hg, D), p=2, dim=-1).to(
+        torch.float16
+    )
+    k_cpu = F.normalize(torch.randn(1, total_tokens, Hg, D), p=2, dim=-1).to(
+        torch.float16
+    )
     v_cpu = torch.randn(1, total_tokens, H, D, dtype=torch.float16)
     g_cpu = F.logsigmoid(torch.randn(1, total_tokens, H, dtype=torch.float32))
     beta_cpu = torch.rand(1, total_tokens, H, dtype=torch.float16)
@@ -109,7 +114,11 @@ def test_mega_chunk_gdn_e2e(total_tokens, cu_list, num_value_heads):
     v = v_cpu.to(device)
     g = g_cpu.to(device)
     beta = beta_cpu.to(device)
-    cu = None if cu_list is None else torch.tensor(cu_list, dtype=torch.long, device=device)
+    cu = (
+        None
+        if cu_list is None
+        else torch.tensor(cu_list, dtype=torch.long, device=device)
+    )
     scale = D**-0.5
 
     _, actual, _, _, _, _, _ = run_mega_chunk_gdn(
@@ -138,7 +147,9 @@ def test_mega_chunk_gdn_e2e(total_tokens, cu_list, num_value_heads):
 )
 @pytest.mark.parametrize("num_value_heads", [16, 32])
 @pytest.mark.parametrize("state_kind", ["zero", "random"])
-def test_mega_chunk_gdn_initial_state(total_tokens, cu_list, num_value_heads, state_kind):
+def test_mega_chunk_gdn_initial_state(
+    total_tokens, cu_list, num_value_heads, state_kind
+):
     if not hasattr(torch.ops.npu, "mega_chunk_gdn"):
         pytest.skip("mega_chunk_gdn op is not registered")
 
@@ -149,8 +160,12 @@ def test_mega_chunk_gdn_initial_state(total_tokens, cu_list, num_value_heads, st
     D = 128
     num_sequences = 1 if cu_list is None else len(cu_list) - 1
 
-    q_cpu = F.normalize(torch.randn(1, total_tokens, Hg, D), p=2, dim=-1).to(torch.float16)
-    k_cpu = F.normalize(torch.randn(1, total_tokens, Hg, D), p=2, dim=-1).to(torch.float16)
+    q_cpu = F.normalize(torch.randn(1, total_tokens, Hg, D), p=2, dim=-1).to(
+        torch.float16
+    )
+    k_cpu = F.normalize(torch.randn(1, total_tokens, Hg, D), p=2, dim=-1).to(
+        torch.float16
+    )
     v_cpu = torch.randn(1, total_tokens, H, D, dtype=torch.float16)
     g_cpu = F.logsigmoid(torch.randn(1, total_tokens, H, dtype=torch.float32))
     beta_cpu = torch.rand(1, total_tokens, H, dtype=torch.float16)
@@ -165,7 +180,11 @@ def test_mega_chunk_gdn_initial_state(total_tokens, cu_list, num_value_heads, st
     g = g_cpu.to(device)
     beta = beta_cpu.to(device)
     h0 = h0_cpu.to(device)
-    cu = None if cu_list is None else torch.tensor(cu_list, dtype=torch.long, device=device)
+    cu = (
+        None
+        if cu_list is None
+        else torch.tensor(cu_list, dtype=torch.long, device=device)
+    )
     scale = D**-0.5
 
     _, actual, _, actual_final_state, _, _, _ = run_mega_chunk_gdn(
@@ -213,8 +232,12 @@ def test_mega_chunk_gdn_all_supported_head_configs(num_value_heads, num_key_head
     Hg = num_key_heads
     D = 128
 
-    q_cpu = F.normalize(torch.randn(1, total_tokens, Hg, D), p=2, dim=-1).to(torch.float16)
-    k_cpu = F.normalize(torch.randn(1, total_tokens, Hg, D), p=2, dim=-1).to(torch.float16)
+    q_cpu = F.normalize(torch.randn(1, total_tokens, Hg, D), p=2, dim=-1).to(
+        torch.float16
+    )
+    k_cpu = F.normalize(torch.randn(1, total_tokens, Hg, D), p=2, dim=-1).to(
+        torch.float16
+    )
     v_cpu = torch.randn(1, total_tokens, H, D, dtype=torch.float16)
     g_cpu = F.logsigmoid(torch.randn(1, total_tokens, H, dtype=torch.float32))
     beta_cpu = torch.rand(1, total_tokens, H, dtype=torch.float16)

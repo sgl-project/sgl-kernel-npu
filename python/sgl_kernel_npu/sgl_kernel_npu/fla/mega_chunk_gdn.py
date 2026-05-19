@@ -3,7 +3,6 @@ from typing import Optional
 
 import torch
 
-
 GLOBAL_VALUE_HEADS = (16, 32, 48, 64)
 GLOBAL_KEY_HEADS = 16
 SUPPORTED_TP_DEGREES = (1, 2, 4, 8)
@@ -147,16 +146,33 @@ def run_mega_chunk_gdn(
     minus_identity = _minus_identity(device_type, device_index)
 
     g_sum = torch.empty_like(g, dtype=torch.float32)
-    g_t = torch.empty(num_value_heads, total_tokens, device=q.device, dtype=torch.float32)
-    beta_t = torch.empty(num_value_heads, total_tokens, device=q.device, dtype=torch.float16)
+    g_t = torch.empty(
+        num_value_heads, total_tokens, device=q.device, dtype=torch.float32
+    )
+    beta_t = torch.empty(
+        num_value_heads, total_tokens, device=q.device, dtype=torch.float16
+    )
 
-    A = torch.zeros(1, total_tokens, num_value_heads, CHUNK_SIZE, device=q.device, dtype=torch.float16)
+    A = torch.zeros(
+        1,
+        total_tokens,
+        num_value_heads,
+        CHUNK_SIZE,
+        device=q.device,
+        dtype=torch.float16,
+    )
     A_inv_f32 = torch.zeros_like(A, dtype=torch.float32)
     A_inv = torch.zeros_like(A)
 
     w = torch.empty_like(v)
     u = torch.empty_like(v)
-    h = torch.zeros(num_chunks * num_value_heads, head_dim, head_dim, device=q.device, dtype=torch.float16)
+    h = torch.zeros(
+        num_chunks * num_value_heads,
+        head_dim,
+        head_dim,
+        device=q.device,
+        dtype=torch.float16,
+    )
     v_new = torch.empty_like(v)
     final_state = torch.zeros(
         num_sequences * num_value_heads,
@@ -169,12 +185,22 @@ def run_mega_chunk_gdn(
     initial_state = initial_state.half() if has_initial_state else final_state
 
     block_dim = _block_dim(q.device)
-    kkt_workspace = torch.zeros(block_dim * 2, CHUNK_SIZE, CHUNK_SIZE, device=q.device, dtype=torch.float16)
-    wy_workspace_a1 = torch.zeros(block_dim, CHUNK_SIZE, CHUNK_SIZE, device=q.device, dtype=torch.float16)
+    kkt_workspace = torch.zeros(
+        block_dim * 2, CHUNK_SIZE, CHUNK_SIZE, device=q.device, dtype=torch.float16
+    )
+    wy_workspace_a1 = torch.zeros(
+        block_dim, CHUNK_SIZE, CHUNK_SIZE, device=q.device, dtype=torch.float16
+    )
     wy_workspace_a2 = torch.zeros_like(wy_workspace_a1)
-    h_workspace = torch.zeros(block_dim * 4, head_dim, head_dim, device=q.device, dtype=torch.float16)
-    o_workspace_qk = torch.zeros(block_dim, CHUNK_SIZE, CHUNK_SIZE, device=q.device, dtype=torch.float16)
-    o_workspace_qs = torch.zeros(block_dim, CHUNK_SIZE, head_dim, device=q.device, dtype=torch.float16)
+    h_workspace = torch.zeros(
+        block_dim * 4, head_dim, head_dim, device=q.device, dtype=torch.float16
+    )
+    o_workspace_qk = torch.zeros(
+        block_dim, CHUNK_SIZE, CHUNK_SIZE, device=q.device, dtype=torch.float16
+    )
+    o_workspace_qs = torch.zeros(
+        block_dim, CHUNK_SIZE, head_dim, device=q.device, dtype=torch.float16
+    )
     o_workspace_gated = torch.zeros_like(o_workspace_qk)
     out = torch.empty_like(v)
 

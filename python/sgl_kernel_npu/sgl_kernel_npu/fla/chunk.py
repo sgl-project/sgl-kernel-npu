@@ -17,10 +17,7 @@ from sgl_kernel_npu.fla.chunk_scaled_dot_kkt import (
 )
 from sgl_kernel_npu.fla.cumsum import chunk_local_cumsum
 from sgl_kernel_npu.fla.l2norm import l2norm_fwd
-from sgl_kernel_npu.fla.mega_chunk_gdn import (
-    mega_gdn_supported,
-    run_mega_chunk_gdn,
-)
+from sgl_kernel_npu.fla.mega_chunk_gdn import mega_gdn_supported, run_mega_chunk_gdn
 from sgl_kernel_npu.fla.solve_tril import solve_tril_npu as solve_tril
 from sgl_kernel_npu.fla.utils import SUPPRESS_LEVEL, input_guard
 from sgl_kernel_npu.fla.wy_fast import recompute_w_u_fwd_npu as recompute_w_u_fwd
