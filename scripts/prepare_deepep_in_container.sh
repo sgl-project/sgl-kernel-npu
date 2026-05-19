@@ -17,6 +17,11 @@ done
 
 shift $((OPTIND -1))
 
+# build.sh now uses git to init submodules
+if [[ -n "${GITHUB_WORKSPACE:-}" ]]; then
+    git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+fi
+
 cd ${GITHUB_WORKSPACE}
 if [ -n "$BUILD_ARGS" ]; then
     bash build.sh -a "$BUILD_ARGS"
