@@ -1,6 +1,9 @@
+#include <cstring>
 #include <tuple>
+#include <unordered_map>
 
 #include "aclrtlaunch_mlp_lightning_indexer.h"
+#include "common.h"
 #include "defines.h"
 #include "ge_helper.h"
 #include "mlp_lightning_indexer_def.h"
@@ -14,6 +17,12 @@ constexpr int SIZE = 8;
 constexpr int DIM_0 = 0;
 constexpr int DIM_1 = 1;
 constexpr int DIM_2 = 2;
+constexpr uint32_t MAX_CAPTURE_NUM = 1024U;
+
+uint32_t actualCaptureNum = 0U;
+static std::unordered_map<uint64_t, uint32_t> captureMap;
+static at::Tensor globalTilingBuffer;
+static c10::DeviceIndex cachedDeviceIndex = -1;
 
 std::tuple<at::Tensor, at::Tensor> ConstructOutputs(const at::Tensor &query, const at::Tensor &key,
                                                     int64_t sparse_count, const std::string &layout_query,
@@ -31,13 +40,45 @@ std::tuple<at::Tensor, at::Tensor> ConstructOutputs(const at::Tensor &query, con
     return std::make_tuple(sparseIndices, sparseValues);
 }
 
-at::Tensor BuildTilingTensor(const LITilingData &tilingData)
+at::Tensor GetOrCreateCachedTilingTensor(const LITilingData &tilingData, const at::Tensor &device_anchor)
 {
-    auto tilingCpu = at::empty({static_cast<int64_t>(sizeof(LITilingData))},
-                               at::TensorOptions().dtype(at::kByte).device(at::kCPU));
-    std::memcpy(tilingCpu.data_ptr<uint8_t>(), &tilingData, sizeof(LITilingData));
-    return sglang::npu_kernel::TorchNpuHelper::CopyTensorHostToDevice(tilingCpu)
-        .view({static_cast<int64_t>(sizeof(LITilingData))});
+    const int64_t tiling_size = static_cast<int64_t>(sizeof(LITilingData));
+    auto hash_key = std::make_tuple(
+        tilingData.bSize, tilingData.n2Size, tilingData.gSize, tilingData.s1Size, tilingData.s2Size,
+        tilingData.sparseCount, tilingData.blockLen, tilingData.qBlockLen, tilingData.initNum, tilingData.localNum,
+        tilingData.usedCoreNum, tilingData.blockSize, tilingData.maxBlockNumPerBatch, tilingData.sparseMode,
+        tilingData.preTokens, tilingData.nextTokens, tilingData.returnValue, tilingData.tilingKey);
+    uint64_t hash_value = host_utils::TupleHasher::Hash(hash_key);
+    c10::DeviceIndex device_index = device_anchor.get_device();
+
+    if (!globalTilingBuffer.defined() || cachedDeviceIndex != device_index) {
+        globalTilingBuffer =
+            at::empty({tiling_size * MAX_CAPTURE_NUM},
+                      at::TensorOptions().dtype(at::kByte).device(device_anchor.device()));
+        captureMap.clear();
+        actualCaptureNum = 0U;
+        cachedDeviceIndex = device_index;
+    }
+
+    auto it = captureMap.find(hash_value);
+    if (it != captureMap.end()) {
+        return at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + tiling_size * it->second, tiling_size, at::kByte);
+    }
+
+    auto tiling_cpu = at::zeros({tiling_size}, at::TensorOptions().dtype(at::kByte).device(at::kCPU));
+    std::memcpy(tiling_cpu.data_ptr<uint8_t>(), &tilingData, sizeof(LITilingData));
+    auto device_tiling =
+        sglang::npu_kernel::TorchNpuHelper::CopyTensorHostToDevice(tiling_cpu).view({tiling_size});
+
+    if (actualCaptureNum >= MAX_CAPTURE_NUM) {
+        return device_tiling;
+    }
+
+    uint32_t slot = actualCaptureNum++;
+    captureMap.emplace(hash_value, slot);
+    globalTilingBuffer.slice(0, static_cast<int64_t>(slot) * tiling_size, static_cast<int64_t>(slot + 1) * tiling_size)
+        .copy_(device_tiling);
+    return at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + tiling_size * slot, tiling_size, at::kByte);
 }
 
 }  // namespace
@@ -96,7 +137,7 @@ HOST_API std::tuple<at::Tensor, at::Tensor> mlp_lightning_indexer(
     LightningIndexerTiling tiling(context.get());
     TORCH_CHECK(tiling.DoTiling(&liInfo) == ge::GRAPH_SUCCESS, "mlp_lightning_indexer DoTiling failed");
     const auto &tilingData = tiling.GetTilingData();
-    auto tilingTensor = BuildTilingTensor(tilingData);
+    auto tilingTensor = GetOrCreateCachedTilingTensor(tilingData, query);
 
     auto workspace =
         at::empty({static_cast<int64_t>(context->GetWorkspaceSize())},

@@ -24,6 +24,10 @@ class TestLongcatOpsWiring(unittest.TestCase):
         self.assertIn("uint32_t total_task = static_cast<uint32_t>(batch_size * (oe_n - 1) * oe_k);", host)
         self.assertIn("block_dim = std::min(aiv_num, std::max(total_task, 1U));", host)
         self.assertIn("auto output = at::empty({tokens.size(0), (oe_n - 1) * oe_k},", host)
+        self.assertIn("constexpr uint32_t MAX_CAPTURE_NUM = 1024U;", host)
+        self.assertIn("static std::unordered_map<uint64_t, uint32_t> captureMap;", host)
+        self.assertIn("static at::Tensor globalTilingBuffer;", host)
+        self.assertIn("host_utils::TupleHasher::Hash", host)
 
     def test_mlp_lightning_indexer_contract_and_optional_launch(self):
         header = read_repo_file("include/sgl_kenel_npu_ops.h")
@@ -45,6 +49,11 @@ class TestLongcatOpsWiring(unittest.TestCase):
         self.assertIn("uint32_t blockDim = tilingData.usedCoreNum;", wrapper)
         self.assertIn("EXEC_KERNEL_CMD(mlp_lightning_indexer, blockDim, query, key, weights, cur_seq_lengths_query,", wrapper)
         self.assertIn("cur_seq_lengths_key, block_table, init_tensor, local_tensor, sparse_indices, sparse_values,", wrapper)
+        self.assertIn("constexpr uint32_t MAX_CAPTURE_NUM = 1024U;", wrapper)
+        self.assertIn("static std::unordered_map<uint64_t, uint32_t> captureMap;", wrapper)
+        self.assertIn("static at::Tensor globalTilingBuffer;", wrapper)
+        self.assertIn("GetOrCreateCachedTilingTensor", wrapper)
+        self.assertIn("host_utils::TupleHasher::Hash", wrapper)
 
     def test_update_oe_token_table_wiring_is_complete(self):
         header = read_repo_file("include/sgl_kenel_npu_ops.h")
@@ -63,6 +72,10 @@ class TestLongcatOpsWiring(unittest.TestCase):
         self.assertIn("EXEC_KERNEL_CMD(update_oe_token_table, block_dim, tokens, req_lens, row_indices, column_starts,", host)
         self.assertIn("Duplicate(minusTensor, static_cast<int32_t>(-1), count);", kernel)
         self.assertIn("auto alignCnt = CeilDiv(count, BLOCK_SIZE) * BLOCK_SIZE;", kernel)
+        self.assertIn("constexpr uint32_t MAX_CAPTURE_NUM = 1024U;", host)
+        self.assertIn("static std::unordered_map<uint64_t, uint32_t> captureMap;", host)
+        self.assertIn("static at::Tensor globalTilingBuffer;", host)
+        self.assertIn("host_utils::TupleHasher::Hash", host)
 
 
 if __name__ == "__main__":

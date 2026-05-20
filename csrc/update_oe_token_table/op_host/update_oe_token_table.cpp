@@ -2,9 +2,12 @@
 
 #include <algorithm>
 #include <cstring>
+#include <tuple>
 #include <type_traits>
+#include <unordered_map>
 
 #include "aclrtlaunch_update_oe_token_table.h"
+#include "common.h"
 #include "defines.h"
 #include "torch_helper.h"
 #include "tiling/platform/platform_ascendc.h"
@@ -16,6 +19,12 @@ constexpr uint32_t PADDING_BYTE = 32U;
 constexpr int64_t BLOCK_SIZE = 32;
 constexpr int64_t DOUBLE_BUFFER = 2;
 constexpr int64_t WORKSPACE_SIZE = 16 * 1024;
+constexpr uint32_t MAX_CAPTURE_NUM = 1024U;
+
+uint32_t actualCaptureNum = 0U;
+static std::unordered_map<uint64_t, uint32_t> captureMap;
+static at::Tensor globalTilingBuffer;
+static c10::DeviceIndex cachedDeviceIndex = -1;
 
 template <typename T>
 typename std::enable_if<std::is_integral<T>::value, T>::type CeilDiv(T x, T y)
@@ -81,8 +90,8 @@ void CheckUpdateOeTokenTableInputs(const at::Tensor &tokens, const at::Tensor &r
                 "tokens and oe_token_table must be on the same device");
 }
 
-at::Tensor BuildTilingTensor(uint32_t &block_dim, int64_t batch_size, int64_t max_context_len,
-                             int64_t ignore_token_num)
+UpdateOeTokenTableTilingData BuildTilingData(uint32_t &block_dim, int64_t batch_size, int64_t max_context_len,
+                                             int64_t ignore_token_num)
 {
     auto ascendc_platform = platform_ascendc::PlatformAscendCManager::GetInstance();
     uint32_t aiv_num = static_cast<uint32_t>(ascendc_platform->GetCoreNumAiv());
@@ -105,21 +114,59 @@ at::Tensor BuildTilingTensor(uint32_t &block_dim, int64_t batch_size, int64_t ma
 
     block_dim = used_core_num;
 
+    UpdateOeTokenTableTilingData tiling_data;
+    tiling_data.usedCoreNum = used_core_num;
+    tiling_data.blockFactor = block_factor;
+    tiling_data.tailBlockFactor = tail_block_factor;
+    tiling_data.ubFactor = static_cast<uint32_t>(ub_factor);
+    tiling_data.batchSize = static_cast<uint32_t>(batch_size);
+    tiling_data.maxContextLen = static_cast<uint32_t>(max_context_len);
+    tiling_data.ignoreTokenNum = static_cast<uint32_t>(ignore_token_num);
+
+    return tiling_data;
+}
+
+at::Tensor GetOrCreateCachedTilingTensor(const UpdateOeTokenTableTilingData &tiling_data,
+                                         const at::Tensor &device_anchor)
+{
     int32_t tiling_size = static_cast<int32_t>(
         ((sizeof(UpdateOeTokenTableTilingData) + PADDING_BYTE - 1) / PADDING_BYTE) * PADDING_BYTE);
-    auto tiling_buffer = at::empty({tiling_size}, at::TensorOptions().dtype(at::kByte).device(at::kCPU));
-    auto *tiling_data =
-        reinterpret_cast<UpdateOeTokenTableTilingData *>(tiling_buffer.data_ptr<uint8_t>());
+    auto hash_key = std::make_tuple(tiling_data.usedCoreNum, tiling_data.blockFactor, tiling_data.tailBlockFactor,
+                                    tiling_data.ubFactor, tiling_data.batchSize, tiling_data.maxContextLen,
+                                    tiling_data.ignoreTokenNum);
+    uint64_t hash_value = host_utils::TupleHasher::Hash(hash_key);
+    c10::DeviceIndex device_index = device_anchor.get_device();
 
-    tiling_data->usedCoreNum = used_core_num;
-    tiling_data->blockFactor = block_factor;
-    tiling_data->tailBlockFactor = tail_block_factor;
-    tiling_data->ubFactor = static_cast<uint32_t>(ub_factor);
-    tiling_data->batchSize = static_cast<uint32_t>(batch_size);
-    tiling_data->maxContextLen = static_cast<uint32_t>(max_context_len);
-    tiling_data->ignoreTokenNum = static_cast<uint32_t>(ignore_token_num);
+    if (!globalTilingBuffer.defined() || cachedDeviceIndex != device_index) {
+        globalTilingBuffer =
+            at::empty({static_cast<int64_t>(tiling_size) * MAX_CAPTURE_NUM},
+                      at::TensorOptions().dtype(at::kByte).device(device_anchor.device()));
+        captureMap.clear();
+        actualCaptureNum = 0U;
+        cachedDeviceIndex = device_index;
+    }
 
-    return TorchNpuHelper::CopyTensorHostToDevice(tiling_buffer);
+    auto it = captureMap.find(hash_value);
+    if (it != captureMap.end()) {
+        return at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + static_cast<int64_t>(tiling_size) * it->second,
+                             tiling_size, at::kByte);
+    }
+
+    auto tiling_cpu = at::zeros({tiling_size}, at::TensorOptions().dtype(at::kByte).device(at::kCPU));
+    std::memcpy(tiling_cpu.data_ptr<uint8_t>(), &tiling_data, sizeof(UpdateOeTokenTableTilingData));
+    auto device_tiling = TorchNpuHelper::CopyTensorHostToDevice(tiling_cpu).view({static_cast<int64_t>(tiling_size)});
+
+    if (actualCaptureNum >= MAX_CAPTURE_NUM) {
+        return device_tiling;
+    }
+
+    uint32_t slot = actualCaptureNum++;
+    captureMap.emplace(hash_value, slot);
+    globalTilingBuffer
+        .slice(0, static_cast<int64_t>(slot) * tiling_size, static_cast<int64_t>(slot + 1) * tiling_size)
+        .copy_(device_tiling);
+    return at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + static_cast<int64_t>(tiling_size) * slot,
+                         tiling_size, at::kByte);
 }
 
 }  // namespace
@@ -133,7 +180,8 @@ HOST_API at::Tensor update_oe_token_table(const at::Tensor &tokens, const at::Te
                                   oe_token_table, batch_size, max_context_len);
 
     uint32_t block_dim = 1;
-    auto tiling_tensor = BuildTilingTensor(block_dim, batch_size, max_context_len, ignore_tokens.numel());
+    auto tiling_data = BuildTilingData(block_dim, batch_size, max_context_len, ignore_tokens.numel());
+    auto tiling_tensor = GetOrCreateCachedTilingTensor(tiling_data, oe_token_table);
     auto workspace_tensor =
         at::empty({WORKSPACE_SIZE}, at::TensorOptions().dtype(at::kByte).device(oe_token_table.device()));
 
