@@ -2,6 +2,7 @@
 #include "aclnnInner_moe_distribute_dispatch_v2.h"
 #include <algorithm>
 #include "graph/types.h"
+#include <cstring>
 
 #ifdef __cplusplus
 extern "C" {
@@ -11,6 +12,7 @@ static constexpr int32_t DISPATCH_DYNAMIC_QUANT_MODE = 2;
 enum NnopbaseHcclServerType {
     NNOPBASE_HCCL_SERVER_TYPE_AICPU = 0,
     NNOPBASE_HCCL_SERVER_TYPE_MTE,
+    NNOPBASE_HCCL_SERVER_TYPE_CCU,
     NNOPBASE_HCCL_SERVER_TYPE_END
 };
 
@@ -36,19 +38,24 @@ aclnnStatus aclnnMoeDistributeDispatchV2GetWorkspaceSize(
     const aclTensor *expertTokenNumsOut, const aclTensor *epRecvCountsOut, const aclTensor *tpRecvCountsOut,
     uint64_t *workspaceSize, aclOpExecutor **executor)
 {
-    return aclnnInnerMoeDistributeDispatchV2GetWorkspaceSize(
+    aclnnStatus getWorkspaceSizesRes = aclnnInnerMoeDistributeDispatchV2GetWorkspaceSize(
         x, expertIds, scalesOptional, xActiveMaskOptional, nullptr, groupEp, epWorldSize, epRankId, moeExpertNum,
         groupTp, tpWorldSize, tpRankId, expertShardType, sharedExpertNum, sharedExpertRankNum, quantMode, globalBs,
         expertTokenNumsType, commAlg, 0, 0, 0, expandXOut, dynamicScalesOut, assistInfoForCombineOut,
         expertTokenNumsOut, epRecvCountsOut, tpRecvCountsOut, workspaceSize, executor);
+    if (NnopbaseSetHcclServerType) {
+        if (std::strcmp(commAlg, "ccu") == 0) {
+            NnopbaseSetHcclServerType(*executor, NNOPBASE_HCCL_SERVER_TYPE_CCU);
+        } else {
+            NnopbaseSetHcclServerType(*executor, NNOPBASE_HCCL_SERVER_TYPE_MTE);
+        }
+    }
+    return getWorkspaceSizesRes;
 }
 
 aclnnStatus aclnnMoeDistributeDispatchV2(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
                                          aclrtStream stream)
 {
-    if (NnopbaseSetHcclServerType) {
-        NnopbaseSetHcclServerType(executor, NNOPBASE_HCCL_SERVER_TYPE_MTE);
-    }
     return aclnnInnerMoeDistributeDispatchV2(workspace, workspaceSize, executor, stream);
 }
 #ifdef __cplusplus

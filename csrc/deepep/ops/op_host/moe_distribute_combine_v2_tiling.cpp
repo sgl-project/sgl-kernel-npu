@@ -19,6 +19,7 @@
 #include "../op_kernel/moe_distribute_combine_tiling.h"
 #include "../op_kernel/moe_distribute_combine_v2_tiling.h"
 #include "platform/platform_infos_def.h"
+#include "moe_distribute_combine_v2_ccu_tiling.h"
 
 using namespace AscendC;
 using namespace ge;
@@ -64,6 +65,7 @@ constexpr uint32_t ATTR_CONST_EXPERT_NUM_INDEX = 17;
 // tiling key
 constexpr uint32_t INT8_COMM_QUANT = 2U;
 constexpr uint64_t INIT_TILINGKEY = 10000;
+constexpr uint64_t TILING_KEY_CCU_TYPE = 60000;
 constexpr uint64_t TILING_KEY_A5_TYPE = 50000;
 constexpr uint64_t TILING_KEY_A3_TYPE = 30000;
 constexpr uint64_t TILING_KEY_A2_TYPE = 20000;
@@ -91,6 +93,9 @@ constexpr int64_t MAX_TP_WORLD_SIZE = 2;
 constexpr int64_t BS_UPPER_BOUND = 512;
 
 constexpr size_t SYSTEM_NEED_WORKSPACE = 16UL * 1024UL * 1024UL;
+constexpr int32_t BUFFER_NUM = 2;
+constexpr uint64_t COMM_ALIGN = 512U;
+constexpr int64_t COUNT_OFFSET = 512;
 constexpr size_t MASK_CALC_NEED_WORKSPACE = 10UL * 1024UL;
 constexpr int32_t HCCL_BUFFER_SIZE_DEFAULT = 200 * 1024 * 1024;  // Bytes
 constexpr uint32_t VERSION_2 = 2;
@@ -109,6 +114,7 @@ constexpr uint64_t DOUBLE_DATA_BUFFER = 2UL;
 constexpr uint64_t MAX_OUT_DTYPE_SIZE = 2UL;
 constexpr uint64_t UB_ALIGN = 32UL;
 constexpr int64_t ELASTIC_METAINFO_OFFSET = 4;
+
 }  // namespace
 
 namespace optiling {
@@ -1086,12 +1092,35 @@ static void SetHCommCfg(const gert::TilingContext *context, MoeDistributeCombine
     mc2CcTilingConfig.GetTiling(tiling->mc2CcTiling2);
 }
 
+static void CcuSetCommTiling(const gert::TilingContext *context, MoeDistributeCombineV2TilingData &tilingData,
+                             const std::string groupEp, const std::string groupTp)
+{
+    const char *nodeName = context->GetNodeName();
+    OP_LOGD(nodeName, "MoeDistributeCombineV2 groupEp = %s, groupTp = %s", groupEp.c_str(), groupTp.c_str());
+    // Only HalfAllToAllV is set, as A5 does not support TP communication.
+    // Setting op types other than HalfAllToAllV will result in an error.
+    uint32_t opType = static_cast<uint32_t>(mc2tiling::AicpuComType::HCCL_CMD_HALFALLTOALLV);
+    std::string algConfigStr = "AlltoAll=level0:fullmesh;level1:pairwise";
+
+    AscendC::Mc2CcTilingConfig mc2CcTilingConfig(groupEp, opType, algConfigStr);
+    mc2CcTilingConfig.SetCommEngine(mc2tiling::A5_CCU_ENGINE);
+    mc2CcTilingConfig.GetTiling(tilingData.mc2InitTiling);
+    mc2CcTilingConfig.GetTiling(tilingData.mc2CcTiling1);
+
+    mc2CcTilingConfig.SetGroupName(groupTp);
+    mc2CcTilingConfig.GetTiling(tilingData.mc2CcTiling2);
+}
+
 static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext *context)
 {
     const char *nodeName = context->GetNodeName();
     OP_LOGD(nodeName, "Enter MoeDistributeCombineV2 Tiling func");
     MoeDistributeCombineV2TilingData *tilingData = context->GetTilingData<MoeDistributeCombineV2TilingData>();
     OP_TILING_CHECK(tilingData == nullptr, OP_LOGE(nodeName, "tilingData is nullptr."), return ge::GRAPH_FAILED);
+    auto attrs = context->GetAttrs();
+    auto commAlgPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_COMM_ALG_INDEX));
+    bool ccuFlag = strcmp(commAlgPtr, "ccu") == 0;
+    OP_LOGD(nodeName, "commAlgPtr %s", commAlgPtr);
     std::string groupEp = "";
     std::string groupTp = "";
     bool isShared = true;
@@ -1104,6 +1133,28 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
     OP_TILING_CHECK(
         GetAttrAndSetTilingData(context, *tilingData, nodeName, groupEp, groupTp, commQuantMode) == ge::GRAPH_FAILED,
         OP_LOGE(nodeName, "Getting attr failed."), return ge::GRAPH_FAILED);
+    uint64_t tpWorldSize = static_cast<uint64_t>(tilingData->moeDistributeCombineV2Info.tpWorldSize);
+    uint32_t blockDim = 1U;
+    if (ccuFlag) {
+        return MoeDistributeCombineTilingImpl(context);
+    }
+    uint64_t tilingKey = TILING_KEY_A3_TYPE;
+    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
+    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
+    std::string socVersion;
+    (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
+    SetHCommCfg(context, tilingData, groupEp, groupTp);
+    OP_TILING_CHECK(SetWorkspace(context, nodeName) != ge::GRAPH_SUCCESS,
+                    OP_LOGE(context->GetNodeName(), "Tiling set workspace Failed"), return ge::GRAPH_FAILED);
+
+    if (socVersion == "Ascend950") {
+        tilingKey = ccuFlag ? TILING_KEY_CCU_TYPE : TILING_KEY_A5_TYPE;
+    } else if (socVersion == "Ascend910B") {
+        tilingKey = TILING_KEY_A2_TYPE;
+    }
+    CalTilingKey(tilingKey, tpWorldSize, commQuantMode);
+    OP_LOGD(nodeName, "tilingKey is %lu", tilingKey);
+    context->SetTilingKey(tilingKey);
 
     const gert::StorageShape *xActiveMaskStorageShape = context->GetOptionalInputShape(X_ACTIVE_MASK_INDEX);
     isActiveMask = (xActiveMaskStorageShape != nullptr);
@@ -1165,28 +1216,6 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
             actualSize / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
         return ge::GRAPH_FAILED);
     tilingData->moeDistributeCombineV2Info.totalWinSize = maxWindowSize;
-
-    OP_TILING_CHECK(SetWorkspace(context, nodeName) != ge::GRAPH_SUCCESS,
-                    OP_LOGE(context->GetNodeName(), "Tiling set workspace Failed"), return ge::GRAPH_FAILED);
-
-    SetHCommCfg(context, tilingData, groupEp, groupTp);
-
-    uint64_t tpWorldSize = static_cast<uint64_t>(tilingData->moeDistributeCombineV2Info.tpWorldSize);
-    uint64_t tilingKey = TILING_KEY_A3_TYPE;
-    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
-    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
-    std::string socVersion;
-    (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
-
-    if (socVersion == "Ascend950") {
-        tilingKey = TILING_KEY_A5_TYPE;
-    } else if (socVersion == "Ascend910B") {
-        tilingKey = TILING_KEY_A2_TYPE;
-    }
-    CalTilingKey(tilingKey, tpWorldSize, commQuantMode);
-    OP_LOGD(nodeName, "tilingKey is %lu", tilingKey);
-    context->SetTilingKey(tilingKey);
-    uint32_t blockDim = 1U;
 
     auto ascendcPlatform = platform_ascendc::PlatformAscendC(context->GetPlatformInfo());
     uint64_t aivNum = ascendcPlatform.GetCoreNumAiv();

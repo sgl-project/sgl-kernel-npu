@@ -1,7 +1,11 @@
-#include "moe_distribute_combine_v2.h"
-#include "moe_distribute_combine_v2_a5.h"
 #include "kernel_operator.h"
 #include "moe_distribute_combine_v2_tiling.h"
+#include "moe_distribute_combine_v2.h"
+#include "moe_distribute_combine_v2_a5.h"
+#ifdef __DAV_C310__
+#include "moe_distribute_combine_v2_ccu.h"
+using namespace MoeDistributeCombineA5CCUImpl;
+#endif
 
 using namespace AscendC;
 using namespace MoeDistributeCombineV2Impl;
@@ -74,5 +78,14 @@ extern "C" __global__ __aicore__ void moe_distribute_combine_v2(
                 &tilingData);
         op.Process();
     }
+#ifdef __DAV_C310__
+    if (TILING_KEY_IS(60000)) {
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
+        MoeDistributeCombineA5<DTYPE_EXPAND_X, int32_t> op;
+        op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, xActiveMask, scales, sharedExpertX,
+                XOut, workspaceGM, &pipe, &tilingData);
+        op.Process();
+    }
+#endif
 #endif
 }

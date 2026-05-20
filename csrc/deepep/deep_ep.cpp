@@ -824,6 +824,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     int64_t tp_rank = 0;
     int64_t expert_shard_type = 0;
     int outType = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
+    int isCcu = get_value_from_env("MOE_ENABLE_CCU", 0);
     char *comm_alg;
     int64_t expert_token_nums_type = outType;
 
@@ -852,6 +853,8 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
 
     if (soc_version == op::SocVersion::ASCEND910B) {
         comm_alg = "fullmesh";
+    } else if (isCcu == 1) {
+        comm_alg = "ccu";
     } else {
         comm_alg = "fullmesh_v1";
     }
@@ -919,6 +922,7 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     at::Tensor tp_send_counts = at::empty({1}, at::dtype(at::kInt).device(device));
     at::Tensor x_active_mask, activation_scale, weight_scale, group_list, expand_scales;
     int enable_neg_one = get_value_from_env("MOE_ENABLE_TOPK_NEG_ONE", 0);
+    int isCcu = get_value_from_env("MOE_ENABLE_CCU", 0);
     int64_t tp_world_size = 1;
     int64_t tp_rankId = 0;
     int64_t expert_shared_type = 0;
@@ -946,6 +950,8 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
 
     if (soc_version == op::SocVersion::ASCEND910B) {
         comm_alg = "fullmesh";
+    } else if (isCcu == 1) {
+        comm_alg = "ccu";
     } else {
         comm_alg = "fullmesh_v1";
     }
@@ -954,7 +960,6 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
         EP_HOST_ASSERT(isLayered == false);
         x_active_mask = (expert_ids >= 0).to(torch::kBool);
     }
-
     EXEC_NPU_CMD(aclnnMoeDistributeCombineV2, expand_x, expert_ids, expand_idx, ep_send_counts, expert_scales,
                  tp_send_counts, x_active_mask, activation_scale, weight_scale, group_list, expand_scales,
                  shared_expert_x, hcom_ep_name, num_ranks, rank, num_experts, hcom_tp_name, tp_world_size, tp_rankId,
