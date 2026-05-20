@@ -8,6 +8,7 @@ import torch.distributed as dist
 import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
+from .alltoall import alltoall_combine, alltoall_dispatch, alltoall_get_dispatch_layout
 from .utils import EventOverlap, log_parameters
 
 
@@ -51,6 +52,13 @@ class Buffer:
         self.num_nvl_bytes = num_nvl_bytes
         self.num_rdma_bytes = num_rdma_bytes
         self.low_latency_mode = low_latency_mode
+        self.alltoall_mode = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+        self._alltoall_layout = None
+        print(f"========== debug ========= {self.alltoall_mode=}")
+        if self.alltoall_mode:
+            assert (
+                self.low_latency_mode is False
+            ), "DeepEP alltoall mode only support with normal mode"
         try:
             backend = group._get_backend(torch.device("npu"))
             moe_all_to_all_group_name = backend.get_hccl_comm_name(self.rank)
@@ -187,6 +195,10 @@ class Buffer:
         """
         self.num_experts = num_experts
 
+        # All-to-all
+        if self.alltoall_mode:
+            return alltoall_get_dispatch_layout(self, topk_idx, num_experts)
+
         (
             num_tokens_per_rank,
             num_tokens_per_rdma_rank,
@@ -309,6 +321,10 @@ class Buffer:
 
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
+
+        # All-to-all
+        if self.alltoall_mode:
+            return alltoall_dispatch(self, x, topk_idx, topk_weights)
 
         # Internode
         if self.runtime.get_num_rdma_ranks() > 1:
@@ -522,6 +538,9 @@ class Buffer:
             recv_topk_weights: the reduced top-k weights from its dispatch ranks.
             event: the event after executing the kernel (valid only if `async_finish` is set).
         """
+        # All-to-all
+        if self.alltoall_mode:
+            return alltoall_combine(self, x, handle)
 
         # Internode
         if self.runtime.get_num_rdma_ranks() > 1:
