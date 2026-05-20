@@ -132,7 +132,7 @@ def alltoall_get_dispatch_layout(buffer, topk_idx, num_experts):  #! 已检查
     }
     buffer._alltoall_layout = layout
 
-    num_tokens_per_rank = torch.tensor(input_splits, dtype=torch.int32, device="npu")
+    num_tokens_per_rank = torch.tensor(input_splits, device="npu")
     is_token_in_rank = torch.zeros(
         (topk_idx.size(0), group_size), dtype=torch.bool, device="npu"
     )
