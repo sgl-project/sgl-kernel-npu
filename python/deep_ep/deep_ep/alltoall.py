@@ -148,13 +148,11 @@ def alltoall_get_dispatch_layout(buffer, topk_idx, num_experts):  #! 已检查
 
 def alltoall_dispatch(buffer, x, topk_idx, topk_weights):
     layout = buffer._alltoall_layout
-    (
-        num_local_experts,
-        input_splits,
-        output_splits,
-        num_global_tokens_per_local_expert,
-        global_tokens_indices,
-    ) = layout
+    num_local_experts = layout["num_local_experts"]
+    input_splits = layout["input_splits"]
+    output_splits = layout["output_splits"]
+    num_global_tokens_per_local_expert = layout["num_global_tokens_per_local_expert"]
+    global_tokens_indices = layout["global_tokens_indices"]
 
     hidden_shape = x.shape
     x = x.view(-1, hidden_shape[-1])
@@ -230,16 +228,14 @@ def alltoall_dispatch(buffer, x, topk_idx, topk_weights):
 
 
 def alltoall_combine(buffer, x, handle):
-    (
-        input_splits,
-        output_splits,
-        topk_weights,
-        reversed_local_mapping,
-        reversed_global_mapping,
-        hidden_shape,
-        hidden_shape_before_permute,
-        num_local_experts,
-    ) = handle
+    input_splits = handle["input_splits"]
+    output_splits = handle["output_splits"]
+    topk_weights = handle["topk_weights"]
+    reversed_local_mapping = handle["reversed_local_mapping"]
+    reversed_global_mapping = handle["reversed_global_mapping"]
+    hidden_shape = handle["hidden_shape"]
+    hidden_shape_before_permute = handle["hidden_shape_before_permute"]
+    num_local_experts = handle["num_local_experts"]
 
     if x.shape[0] > 0 and num_local_experts > 1 and reversed_global_mapping is not None:
         x = torch_npu.npu_moe_token_unpermute(x, reversed_global_mapping)
