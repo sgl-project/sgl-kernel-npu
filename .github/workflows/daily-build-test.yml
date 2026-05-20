@@ -58,7 +58,7 @@ jobs:
             deepep_arg: deepep2
             container_image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-910b-ubuntu22.04-py3.11
             low_latency_script: enumerate_test_low_latency_a2.sh
-            hccl_buffsize: 3000
+            hccl_buffsize: 4096
           - name: cann8.5.0-a2
             cann_version: 8.5.0
             npu_hardware: a2
@@ -66,11 +66,10 @@ jobs:
             deepep_arg: deepep2
             container_image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-910b-ubuntu22.04-py3.11
             low_latency_script: enumerate_test_low_latency_a2.sh
-            hccl_buffsize: 3000
+            hccl_buffsize: 4096
 
     steps:
-      - name: Clean git config (intranode only)
-        if: matrix.test_type == 'intranode'
+      - name: Clean git config
         run: |
           CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
           git config --global --unset "$CONFIG_KEY" || true
