@@ -27,7 +27,6 @@ jobs:
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
       UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     strategy:
-      fail-fast: false
       matrix:
         test_type: [intranode, low_latency]
         cann_version: [9.0.0, 8.5.0]
