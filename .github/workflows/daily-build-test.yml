@@ -28,7 +28,6 @@ jobs:
       UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     strategy:
       fail-fast: false
-      max-parallel: 4  # 限制同时运行4个任务，避免耗尽a2/a3 runner资源
       matrix:
         test_type: [intranode, low_latency]
         cann_version: [9.0.0, 8.5.0]
