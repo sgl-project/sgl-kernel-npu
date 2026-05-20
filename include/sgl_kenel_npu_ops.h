@@ -163,6 +163,12 @@ at::Tensor compute_n_gram_ids(
     const at::Tensor &column_starts, int64_t batch_size, int64_t oe_n,
     int64_t oe_k, int64_t max_context_len);
 
+at::Tensor update_oe_token_table(
+    const at::Tensor &tokens, const at::Tensor &req_lens,
+    const at::Tensor &row_indices, const at::Tensor &column_starts,
+    const at::Tensor &ignore_tokens, int64_t batch_size,
+    int64_t max_context_len, const at::Tensor &oe_token_table);
+
 std::tuple<at::Tensor, at::Tensor> mlp_lightning_indexer(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
     const c10::optional<at::Tensor> &cur_seq_lengths_query,

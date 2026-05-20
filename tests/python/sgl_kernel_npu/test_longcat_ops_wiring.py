@@ -46,6 +46,23 @@ class TestLongcatOpsWiring(unittest.TestCase):
         self.assertIn("EXEC_KERNEL_CMD(mlp_lightning_indexer, blockDim, query, key, weights, cur_seq_lengths_query,", wrapper)
         self.assertIn("cur_seq_lengths_key, block_table, init_tensor, local_tensor, sparse_indices, sparse_values,", wrapper)
 
+    def test_update_oe_token_table_wiring_is_complete(self):
+        header = read_repo_file("include/sgl_kenel_npu_ops.h")
+        registry = read_repo_file("csrc/pytorch_extensions.cpp")
+        cmake = read_repo_file("csrc/CMakeLists.txt")
+        host = read_repo_file("csrc/update_oe_token_table/op_host/update_oe_token_table.cpp")
+        kernel = read_repo_file("csrc/update_oe_token_table/op_kernel/update_oe_token_table.h")
+
+        self.assertIn("at::Tensor update_oe_token_table(", header)
+        self.assertIn('"update_oe_token_table(Tensor tokens, Tensor req_lens, Tensor row_indices, Tensor column_starts, "', registry)
+        self.assertIn('m.impl("update_oe_token_table", TORCH_FN(sglang::npu_kernel::update_oe_token_table));', registry)
+        self.assertIn("${PROJECT_OP_SRC_BASE}/update_oe_token_table/op_host/update_oe_token_table.cpp", cmake)
+        self.assertIn("${PROJECT_OP_SRC_BASE}/update_oe_token_table/op_kernel/update_oe_token_table.cpp", cmake)
+        self.assertIn("int64_t ignore_ub_size = CeilAlign(ignore_token_num * static_cast<int64_t>(sizeof(int32_t)), BLOCK_SIZE);", host)
+        self.assertIn("int32_t ub_factor =", host)
+        self.assertIn("EXEC_KERNEL_CMD(update_oe_token_table, block_dim, tokens, req_lens, row_indices, column_starts,", host)
+        self.assertIn("Duplicate(minusTensor, static_cast<int32_t>(-1), count);", kernel)
+
 
 if __name__ == "__main__":
     unittest.main()

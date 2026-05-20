@@ -140,6 +140,10 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor column_starts, int batch_size, int oe_n, int oe_k, int max_context_len) -> Tensor");
 
     m.def(
+        "update_oe_token_table(Tensor tokens, Tensor req_lens, Tensor row_indices, Tensor column_starts, "
+        "Tensor ignore_tokens, int batch_size, int max_context_len, Tensor(a!) oe_token_table) -> Tensor(a!)");
+
+    m.def(
         "mlp_lightning_indexer(Tensor query, Tensor key, Tensor weights, "
         "Tensor? cur_seq_lengths_query=None, Tensor? cur_seq_lengths_key=None, "
         "Tensor? block_table=None, Tensor? init_tensor=None, Tensor? local_tensor=None, "
@@ -215,6 +219,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
 
     m.impl("compute_n_gram_ids", TORCH_FN(sglang::npu_kernel::compute_n_gram_ids));
+
+    m.impl("update_oe_token_table", TORCH_FN(sglang::npu_kernel::update_oe_token_table));
 
     m.impl("mlp_lightning_indexer", TORCH_FN(sglang::npu_kernel::mlp_lightning_indexer));
 

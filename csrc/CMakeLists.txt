@@ -25,6 +25,7 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/lightning_indexer.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/tiling/lightning_indexer_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/compute_n_gram_ids/op_host/compute_n_gram_ids.cpp
+    ${PROJECT_OP_SRC_BASE}/update_oe_token_table/op_host/update_oe_token_table.cpp
     ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_host/mlp_lightning_indexer.cpp
     ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_host/tiling/mlp_lightning_indexer_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
@@ -88,6 +89,7 @@ set(WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/build_tree/op_kernel/build_tree_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_kernel/lightning_indexer_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/compute_n_gram_ids/op_kernel/compute_n_gram_ids.cpp
+    ${PROJECT_OP_SRC_BASE}/update_oe_token_table/op_kernel/update_oe_token_table.cpp
     ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_kernel/mlp_lightning_indexer.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel/causal_conv1d_update.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel/causal_conv1d.cpp
@@ -163,6 +165,8 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_SOURCE_DIR}/include
         ${PROJECT_OP_SRC_BASE}/compute_n_gram_ids/op_host
         ${PROJECT_OP_SRC_BASE}/compute_n_gram_ids/op_kernel
+        ${PROJECT_OP_SRC_BASE}/update_oe_token_table/op_host
+        ${PROJECT_OP_SRC_BASE}/update_oe_token_table/op_kernel
         ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_host
         ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_host/tiling
         ${PROJECT_OP_SRC_BASE}/mlp_lightning_indexer/op_kernel
