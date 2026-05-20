@@ -63,12 +63,12 @@ ComputeNGramIdsTilingData BuildTilingData(uint32_t &block_dim, int64_t batch_siz
     block_dim = std::min(aiv_num, std::max(total_task, 1U));
 
     ComputeNGramIdsTilingData tiling_data;
-    tiling_data->coreNum = block_dim;
-    tiling_data->batchSize = static_cast<uint32_t>(batch_size);
-    tiling_data->totalTask = total_task;
-    tiling_data->oeN = static_cast<uint32_t>(oe_n);
-    tiling_data->oeK = static_cast<uint32_t>(oe_k);
-    tiling_data->maxContextLen = static_cast<uint32_t>(max_context_len);
+    tiling_data.coreNum = block_dim;
+    tiling_data.batchSize = static_cast<uint32_t>(batch_size);
+    tiling_data.totalTask = total_task;
+    tiling_data.oeN = static_cast<uint32_t>(oe_n);
+    tiling_data.oeK = static_cast<uint32_t>(oe_k);
+    tiling_data.maxContextLen = static_cast<uint32_t>(max_context_len);
 
     return tiling_data;
 }
