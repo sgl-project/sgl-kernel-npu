@@ -117,7 +117,7 @@ private:
     __aicore__ inline void IsIgnoreToken(const LocalTensor<int32_t> &isIgnoreTensor, uint32_t count)
     {
         auto tokenTensor = tokenQue_.DeQue<int32_t>();
-        auto alignCnt = CeilAlign(count, BLOCK_SIZE) * BLOCK_SIZE;
+        auto alignCnt = CeilDiv(count, BLOCK_SIZE) * BLOCK_SIZE;
         auto minusTensor = minusQue_.Get<int32_t>();
         Duplicate(minusTensor, static_cast<int32_t>(-1), count);
         PipeBarrier<PIPE_V>();

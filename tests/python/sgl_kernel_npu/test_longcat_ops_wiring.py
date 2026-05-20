@@ -62,6 +62,7 @@ class TestLongcatOpsWiring(unittest.TestCase):
         self.assertIn("int32_t ub_factor =", host)
         self.assertIn("EXEC_KERNEL_CMD(update_oe_token_table, block_dim, tokens, req_lens, row_indices, column_starts,", host)
         self.assertIn("Duplicate(minusTensor, static_cast<int32_t>(-1), count);", kernel)
+        self.assertIn("auto alignCnt = CeilDiv(count, BLOCK_SIZE) * BLOCK_SIZE;", kernel)
 
 
 if __name__ == "__main__":
