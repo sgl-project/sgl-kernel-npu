@@ -95,17 +95,24 @@ fi
 
 echo "Use SOC_VERSION: $SOC_VERSION"
 
-## ====================== 【关键修复：CANN 8.3 ASCConfig.cmake】 ======================
-echo "=== Fixing ASCConfig for CANN 8.3 / A2 ==="
 
-# 优先使用 latest，如果不存在则找实际版本
-if [ -z "$ASCEND_HOME_PATH" ] || [ "$ASCEND_HOME_PATH" = "/usr/local/Ascend/ascend-toolkit/latest" ]; then
-    if [ -d "/usr/local/Ascend/ascend-toolkit/8.3.RC2" ]; then
-        export ASCEND_HOME_PATH="/usr/local/Ascend/ascend-toolkit/8.3.RC2"
+# Prioritize using the ASCEND_HOME_PATH environment variable
+# If empty or points to latest, automatically select the actual installation version
+if [ -z "$ASCEND_HOME_PATH" ] || [[ "$ASCEND_HOME_PATH" == *"/latest" ]]; then
+    REAL_ASCEND_PATH=$(ls -d /usr/local/Ascend/ascend-toolkit/* \
+        | grep -v latest \
+        | sort -V \
+        | tail -1)
+
+    if [ -n "$REAL_ASCEND_PATH" ]; then
+        export ASCEND_HOME_PATH="$REAL_ASCEND_PATH"
+    else
+        echo "Error: Cannot find Ascend toolkit installation"
+        exit 1
     fi
 fi
 
-echo "using ASCEND_HOME_PATH: $ASCEND_HOME_PATH"
+echo "ASCEND_HOME_PATH=${ASCEND_HOME_PATH}"
 
 # 主动查找并设置 ASCConfig.cmake 路径
 ASC_CONFIG_CMAKE=$(find "$ASCEND_HOME_PATH" -name "ASCConfig.cmake" -type f 2>/dev/null | head -n1)
@@ -120,8 +127,8 @@ else
 fi
 
 # Get Current CANN Toolkit Installation Path
-_CANN_TOOLKIT_INSTALL_PATH=$(cat /etc/Ascend/ascend_cann_install.info | grep "Toolkit_InstallPath" | awk -F'=' '{print $2}')
-source ${_CANN_TOOLKIT_INSTALL_PATH}/set_env.sh
+#_CANN_TOOLKIT_INSTALL_PATH=$(cat /etc/Ascend/ascend_cann_install.info | grep "Toolkit_InstallPath" | awk -F'=' '{print $2}')
+#source ${_CANN_TOOLKIT_INSTALL_PATH}/set_env.sh
 echo -e "\e[1;32mDetected CANN Toolkit Installation Path: ${_CANN_TOOLKIT_INSTALL_PATH}\e[0m"
 echo -e "\e[1;33mDouble Checking Environment Variables:\e[0m"
 echo -e "\e[1;32mASCEND_HOME_PATH: ${ASCEND_HOME_PATH}\e[0m"
