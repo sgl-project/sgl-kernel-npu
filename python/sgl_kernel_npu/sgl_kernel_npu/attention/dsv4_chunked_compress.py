@@ -20,88 +20,118 @@ def _dsv4_chunked_prefill_compress_kernel(
     BLOCK_SRC: tl.constexpr,
     BLOCK_D: tl.constexpr,
     N_OUT: tl.constexpr,
+    NUM_COL_BLOCKS: tl.constexpr,
     NUM_PROGRAMS: tl.constexpr,
     OVERLAP: tl.constexpr,
 ):
     pid = tl.program_id(0)
     cols = tl.arange(0, BLOCK_D)
-    srcs = tl.arange(0, BLOCK_SRC)
-    col_mask = cols < HEAD_DIM
     n_src = 2 * RATIO if OVERLAP else RATIO
     first_k = PREFIX_LEN // RATIO
+    num_tasks = N_OUT * NUM_COL_BLOCKS
 
-    for out_i in tl.range(pid, N_OUT, NUM_PROGRAMS):
+    for task in tl.range(pid, num_tasks, NUM_PROGRAMS):
+        out_i = task // NUM_COL_BLOCKS
+        col_block = task - out_i * NUM_COL_BLOCKS
         k = first_k + out_i
-        if OVERLAP:
-            is_prev = srcs[:, None] >= RATIO
-        else:
-            is_prev = srcs[:, None] < 0
-        ape_j = tl.where(is_prev, srcs[:, None] - RATIO, srcs[:, None])
-        src_global = tl.where(
-            is_prev,
-            (k - 1) * RATIO + ape_j,
-            k * RATIO + ape_j,
-        )
-        src_mask = srcs[:, None] < n_src
-        zero_src = is_prev & (k == 0) if OVERLAP else srcs[:, None] < 0
-        from_state = src_global < PREFIX_LEN
-        chunk_local = src_global - PREFIX_LEN
+        head_cols = col_block * BLOCK_D + cols
+        col_mask = head_cols < HEAD_DIM
 
-        if OVERLAP:
-            data_col = tl.where(~is_prev, HEAD_DIM + cols[None, :], cols[None, :])
-        else:
-            data_col = cols[None, :]
-        mask = src_mask & col_mask[None, :] & ~zero_src
+        acc = tl.full((BLOCK_D,), 0.0, tl.float32)
+        denom = tl.full((BLOCK_D,), 0.0, tl.float32)
+        score_max = tl.full((BLOCK_D,), -float("inf"), tl.float32)
 
-        chunk_offsets = chunk_local * COFF_D + data_col
-        chunk_kv_vals = tl.load(
-            chunk_kv + chunk_offsets,
-            mask=mask & ~from_state,
-            other=0.0,
-        )
-        chunk_score_vals = tl.load(
-            chunk_score + chunk_offsets,
-            mask=mask & ~from_state,
-            other=-float("inf"),
-        )
-        ape_vals = tl.load(
-            ape + ape_j * COFF_D + data_col,
-            mask=mask & ~from_state,
-            other=0.0,
-        )
-        chunk_score_vals += ape_vals
+        for src_i in tl.range(0, BLOCK_SRC):
+            src_mask = src_i < n_src
+            if OVERLAP:
+                is_prev = src_i >= RATIO
+            else:
+                is_prev = src_i < 0
+            ape_j = tl.where(is_prev, src_i - RATIO, src_i)
+            src_global = tl.where(
+                is_prev,
+                (k - 1) * RATIO + ape_j,
+                k * RATIO + ape_j,
+            )
+            zero_src = is_prev & (k == 0) if OVERLAP else src_i < 0
+            from_state = src_global < PREFIX_LEN
+            chunk_local = src_global - PREFIX_LEN
 
-        state_page = tl.load(
-            page_table + src_global // PAGE_SIZE,
-            mask=src_mask & from_state & ~zero_src,
-            other=0,
-        )
-        state_slot = state_page * PAGE_SIZE + (src_global % PAGE_SIZE)
-        state_base = state_slot * (2 * COFF_D)
-        state_kv_vals = tl.load(
-            state_kv_score + state_base + data_col,
-            mask=mask & from_state,
-            other=0.0,
-        )
-        state_score_vals = tl.load(
-            state_kv_score + state_base + COFF_D + data_col,
-            mask=mask & from_state,
-            other=-float("inf"),
-        )
+            if OVERLAP:
+                data_col = tl.where(~is_prev, HEAD_DIM + head_cols, head_cols)
+            else:
+                data_col = head_cols
+            mask = src_mask & col_mask & ~zero_src
 
-        kv_vals = tl.where(from_state, state_kv_vals, chunk_kv_vals).to(tl.float32)
-        score_vals = tl.where(from_state, state_score_vals, chunk_score_vals).to(
-            tl.float32
-        )
-        score_vals = tl.where(mask, score_vals, -float("inf"))
-        kv_vals = tl.where(mask, kv_vals, 0.0)
+            chunk_offsets = chunk_local * COFF_D + data_col
+            chunk_kv_vals = tl.load(
+                chunk_kv + chunk_offsets,
+                mask=mask & ~from_state,
+                other=0.0,
+            )
+            chunk_score_vals = tl.load(
+                chunk_score + chunk_offsets,
+                mask=mask & ~from_state,
+                other=-float("inf"),
+            )
+            ape_vals = tl.load(
+                ape + ape_j * COFF_D + data_col,
+                mask=mask & ~from_state,
+                other=0.0,
+            )
+            chunk_score_vals += ape_vals
 
-        score_max = tl.max(score_vals, axis=0)
-        weights = tl.exp(score_vals - score_max[None, :])
-        denom = tl.sum(weights, axis=0)
-        acc = tl.sum(kv_vals * weights, axis=0) / denom
+            state_page = tl.load(
+                page_table + src_global // PAGE_SIZE,
+                mask=src_mask & from_state & ~zero_src,
+                other=0,
+            )
+            state_slot = state_page * PAGE_SIZE + (src_global % PAGE_SIZE)
+            state_base = state_slot * (2 * COFF_D)
+            state_kv_vals = tl.load(
+                state_kv_score + state_base + data_col,
+                mask=mask & from_state,
+                other=0.0,
+            )
+            state_score_vals = tl.load(
+                state_kv_score + state_base + COFF_D + data_col,
+                mask=mask & from_state,
+                other=-float("inf"),
+            )
+
+            kv_vals = tl.where(from_state, state_kv_vals, chunk_kv_vals).to(
+                tl.float32
+            )
+            score_vals = tl.where(
+                from_state, state_score_vals, chunk_score_vals
+            ).to(tl.float32)
+            score_vals = tl.where(mask, score_vals, -float("inf"))
+            kv_vals = tl.where(mask, kv_vals, 0.0)
+
+            new_score_max = tl.maximum(score_max, score_vals)
+            old_delta = tl.where(
+                score_max == -float("inf"), 0.0, score_max - new_score_max
+            )
+            new_delta = tl.where(
+                score_vals == -float("inf"), 0.0, score_vals - new_score_max
+            )
+            old_scale = tl.where(
+                new_score_max == -float("inf"),
+                0.0,
+                tl.exp(old_delta),
+            )
+            new_scale = tl.where(
+                score_vals == -float("inf"),
+                0.0,
+                tl.exp(new_delta),
+            )
+            acc = acc * old_scale + kv_vals * new_scale
+            denom = denom * old_scale + new_scale
+            score_max = new_score_max
+
+        acc = acc / denom
         tl.store(
-            out + out_i * HEAD_DIM + cols,
+            out + out_i * HEAD_DIM + head_cols,
             acc.to(out.dtype.element_ty),
             mask=col_mask,
         )
@@ -135,9 +165,10 @@ def dsv4_chunked_prefill_compress(
         return out
 
     _, num_vectorcore = get_device_properties()
-    num_programs = min(n_out, num_vectorcore)
+    block_d = min(triton.next_power_of_2(head_dim), 64)
+    num_col_blocks = triton.cdiv(head_dim, block_d)
+    num_programs = min(n_out * num_col_blocks, num_vectorcore)
     block_src = triton.next_power_of_2(2 * ratio if overlap else ratio)
-    block_d = triton.next_power_of_2(head_dim)
     _dsv4_chunked_prefill_compress_kernel[(num_programs,)](
         chunk_kv,
         chunk_score,
@@ -153,6 +184,7 @@ def dsv4_chunked_prefill_compress(
         BLOCK_SRC=block_src,
         BLOCK_D=block_d,
         N_OUT=n_out,
+        NUM_COL_BLOCKS=num_col_blocks,
         NUM_PROGRAMS=num_programs,
         OVERLAP=overlap,
         num_warps=1,
