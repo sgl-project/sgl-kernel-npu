@@ -68,7 +68,7 @@ def _gather_along_first_dim(input_, group):  #! 已检查
 def alltoall_get_dispatch_layout(buffer, topk_idx, num_experts):  #! 已检查
     group = buffer.group
     group_size = buffer.group_size
-    num_local_experts = num_experts // group_size  # todo 检查这个
+    num_local_experts = num_experts // group_size
     ep_rank = buffer.rank
 
     num_local_tokens_per_expert = torch.histc(

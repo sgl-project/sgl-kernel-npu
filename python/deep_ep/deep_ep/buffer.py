@@ -54,9 +54,6 @@ class Buffer:
         self.low_latency_mode = low_latency_mode
         self.alltoall_mode = os.getenv("DEEP_USE_ALLTOALL_MODE") == "1"
         self._alltoall_layout = None
-        print(
-            f"========== debug ========= {self.alltoall_mode=}, {self.low_latency_mode=}"
-        )
         try:
             backend = group._get_backend(torch.device("npu"))
             moe_all_to_all_group_name = backend.get_hccl_comm_name(self.rank)
