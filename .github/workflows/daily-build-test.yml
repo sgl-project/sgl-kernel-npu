@@ -15,59 +15,22 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  daily-enumerate-tests:
-    name: ${{ matrix.test_type == 'intranode' && 'Intranode' || 'Low Latency' }} (${{ matrix.config.name }})
-    runs-on: ${{ matrix.config.runner }}
+  run-daily-tests:
+    name: ${{ matrix.test_type == 'intranode' && 'Intranode' || 'Low Latency' }} (CANN ${{ matrix.cann_version }}, ${{ matrix.hardware }})
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-16' || 'linux-aarch64-a2-8' }}
     container:
-      image: ${{ matrix.config.container_image }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}-ubuntu22.04-py3.11
     timeout-minutes: ${{ matrix.test_type == 'intranode' && 350 || 330 }}
     env:
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
       PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
-      UV_INDEX_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
-      HCCL_BUFFSIZE: ${{ matrix.config.hccl_buffsize }}
-      TEST_ENV: daily-build
-
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     strategy:
-      fail-fast: false
-      max-parallel: 4  # 限制同时运行4个任务，避免耗尽a2/a3 runner资源
       matrix:
-        test_type: [intranode, low-latency]
-        config:
-          - name: cann9.0.0-a3
-            cann_version: 9.0.0
-            npu_hardware: a3
-            runner: linux-aarch64-a3-16
-            deepep_arg: deepep
-            container_image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-a3-ubuntu22.04-py3.11
-            low_latency_script: enumerate_test_low_latency.sh
-            hccl_buffsize: 4096
-          - name: cann8.5.0-a3
-            cann_version: 8.5.0
-            npu_hardware: a3
-            runner: linux-aarch64-a3-16
-            deepep_arg: deepep
-            container_image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
-            low_latency_script: enumerate_test_low_latency.sh
-            hccl_buffsize: 4096
-          - name: cann9.0.0-a2
-            cann_version: 9.0.0
-            npu_hardware: a2
-            runner: linux-aarch64-a2-8
-            deepep_arg: deepep2
-            container_image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-910b-ubuntu22.04-py3.11
-            low_latency_script: enumerate_test_low_latency_a2.sh
-            hccl_buffsize: 4096
-          - name: cann8.5.0-a2
-            cann_version: 8.5.0
-            npu_hardware: a2
-            runner: linux-aarch64-a2-8
-            deepep_arg: deepep2
-            container_image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-910b-ubuntu22.04-py3.11
-            low_latency_script: enumerate_test_low_latency_a2.sh
-            hccl_buffsize: 4096
-
+        test_type: [intranode, low_latency]
+        cann_version: [9.0.0, 8.5.0]
+        hardware: [a3, a2]
     steps:
       - name: Clean git config
         run: |
@@ -92,32 +55,26 @@ jobs:
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
 
-      - name: Prepare DeepEP
-        run: bash scripts/prepare_deepep_in_container.sh -a ${{ matrix.config.deepep_arg }}
+      - name: Prepare Deepep
+        run: bash scripts/prepare_deepep_in_container.sh -a ${{ matrix.hardware == 'a3' && 'deepep' || 'deepep2' }}
 
-      - name: Run intranode test
-        if: matrix.test_type == 'intranode'
-        timeout-minutes: 340
+      - name: Run enumerate test
+        timeout-minutes: ${{ matrix.test_type == 'intranode' && 340 || 300 }}
+        env:
+          HCCL_BUFFSIZE: 4096
+          TEST_ENV: daily-build
         run: |
-          echo "Starting daily enumerate intranode test (${{ matrix.config.name }}) at $(date)"
-          chmod +x scripts/enumerate_test_intranode.sh
-          bash scripts/enumerate_test_intranode.sh
-          echo "Completed intranode test at $(date)"
+          SCRIPT_NAME="enumerate_test_${{ matrix.test_type }}${{ matrix.test_type == 'low_latency' && (matrix.hardware == 'a2' && '_a2' || '') || '' }}.sh"
+          echo "Starting daily enumerate ${{ matrix.test_type }} test (${{ matrix.cann_version }}, ${{ matrix.hardware }}) at $(date)"
+          chmod +x scripts/${SCRIPT_NAME}
+          bash scripts/${SCRIPT_NAME}
+          echo "Completed daily enumerate ${{ matrix.test_type }} test at $(date)"
 
-      - name: Run low-latency test
-        if: matrix.test_type == 'low-latency'
-        timeout-minutes: 300
-        run: |
-          echo "Starting daily enumerate low latency test (${{ matrix.config.name }}) at $(date)"
-          chmod +x scripts/${{ matrix.config.low_latency_script }}
-          bash scripts/${{ matrix.config.low_latency_script }}
-          echo "Completed low latency test at $(date)"
-
-      - name: Upload test artifacts
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.test_type }}-${{ matrix.config.name }}-${{ github.sha }}-${{ github.run_id }}
+          name: ${{ matrix.test_type }}-${{ matrix.cann_version }}-${{ matrix.hardware }}-results-${{ github.sha }}-${{ github.run_id }}
           path: |
             test-results/
             logs/
@@ -125,14 +82,14 @@ jobs:
 
   finish:
     if: always()
-    needs: daily-enumerate-tests
+    needs: [ run-daily-tests ]
     runs-on: ubuntu-latest
     steps:
       - name: Generate test report
         run: |
           echo "## Daily Enumerate Tests Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Overall Status**: ${{ needs.daily-enumerate-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Overall Status**: ${{ needs.run-daily-tests.result }}" >> $GITHUB_STEP_SUMMARY
           echo "**Execution Time**: $(date)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Workflow Run**: [$GITHUB_RUN_ID](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> $GITHUB_STEP_SUMMARY
