@@ -3,7 +3,25 @@ from typing import Optional
 
 import torch
 
-GLOBAL_VALUE_HEADS = (16, 32, 48, 64)
+SUPPORTED_HEAD_PAIRS = frozenset(
+    (  # TODO: fix list
+        (8, 2),
+        (16, 4),
+        (16, 8),
+        (16, 16),
+        (24, 8),
+        (32, 4),
+        (32, 8),
+        (32, 16),
+        (32, 32),
+        (48, 8),
+        (48, 12),
+        (48, 16),
+        (64, 4),
+        (64, 8),
+        (64, 16),
+    )
+)
 HEAD_DIM = 128
 CHUNK_SIZE = 128
 
@@ -55,9 +73,7 @@ def _block_dim(device: torch.device) -> int:
 
 
 def _head_pair_supported(num_value_heads: int, num_key_heads: int) -> bool:
-    if num_value_heads not in GLOBAL_VALUE_HEADS or num_key_heads <= 0:
-        return False
-    return num_value_heads % num_key_heads == 0
+    return (num_value_heads, num_key_heads) in SUPPORTED_HEAD_PAIRS
 
 
 def mega_gdn_supported(

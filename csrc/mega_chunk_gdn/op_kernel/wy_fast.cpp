@@ -56,10 +56,6 @@
 #include <type_traits>
 using namespace pto;
 
-#ifndef GDN_H
-#define GDN_H 16
-#endif
-
 #ifndef GDN_D
 #define GDN_D 128
 #endif

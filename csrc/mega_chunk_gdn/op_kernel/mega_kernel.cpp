@@ -1,7 +1,7 @@
 // mega_kernel.cpp — GDN Mega-Kernel (group-value / GQA): all PTO stages in one launch
 //
-// Same pipeline as pto_mega_kernel, with value heads (H) compiled per variant and
-// key heads (Hg) passed at runtime.
+// Same pipeline as pto_mega_kernel, with value heads (H) and key heads (Hg)
+// passed at runtime. H dispatches to finite compile-time specializations.
 //
 // Stages:
 //   1. cumsum      (Vec)
@@ -12,9 +12,6 @@
 //   6. chunk_h     (Cube+Vec)
 //   7. chunk_o     (Cube+Vec)
 
-#ifndef GDN_H
-#define GDN_H 16
-#endif
 #ifndef GDN_D
 #define GDN_D 128
 #endif
@@ -89,17 +86,20 @@ AICORE inline void mega_transpose_TH_to_HT(__gm__ T *src, __gm__ T *dst, int64_t
     constexpr int32_t BLOCK = 128;
     constexpr int32_t H = static_cast<int32_t>(H_val);
     constexpr int32_t ES = static_cast<int32_t>(sizeof(T));
+    constexpr int32_t MinTransposeCols = 16;
+    constexpr int32_t AlignElems = ((32 / ES) > MinTransposeCols) ? (32 / ES) : MinTransposeCols;
+    constexpr int32_t HP = ((H + AlignElems - 1) / AlignElems) * AlignElems;
     constexpr int32_t SRC_UB = 0;
-    constexpr int32_t DST_UB = SRC_UB + BLOCK * H * ES;
-    constexpr int32_t TMP_UB = DST_UB + H * BLOCK * ES;
+    constexpr int32_t DST_UB = SRC_UB + BLOCK * HP * ES;
+    constexpr int32_t TMP_UB = DST_UB + HP * BLOCK * ES;
 
     using UBSrcFull =
-        Tile<TileType::Vec, T, BLOCK, H, BLayout::RowMajor, BLOCK, H, SLayout::NoneBox, 512, PadValue::Zero>;
+        Tile<TileType::Vec, T, BLOCK, HP, BLayout::RowMajor, BLOCK, HP, SLayout::NoneBox, 512, PadValue::Zero>;
     using UBSrcDyn =
-        Tile<TileType::Vec, T, BLOCK, H, BLayout::RowMajor, DYNAMIC, DYNAMIC, SLayout::NoneBox, 512, PadValue::Zero>;
-    using UBDst = Tile<TileType::Vec, T, H, BLOCK, BLayout::RowMajor, H, BLOCK, SLayout::NoneBox, 512>;
-    using UBDstDyn = Tile<TileType::Vec, T, H, BLOCK, BLayout::RowMajor, DYNAMIC, DYNAMIC, SLayout::NoneBox, 512>;
-    using UBTmp = Tile<TileType::Vec, T, BLOCK, H, BLayout::RowMajor, BLOCK, H, SLayout::NoneBox, 512>;
+        Tile<TileType::Vec, T, BLOCK, HP, BLayout::RowMajor, DYNAMIC, DYNAMIC, SLayout::NoneBox, 512, PadValue::Zero>;
+    using UBDst = Tile<TileType::Vec, T, HP, BLOCK, BLayout::RowMajor, HP, BLOCK, SLayout::NoneBox, 512>;
+    using UBDstDyn = Tile<TileType::Vec, T, HP, BLOCK, BLayout::RowMajor, DYNAMIC, DYNAMIC, SLayout::NoneBox, 512>;
+    using UBTmp = Tile<TileType::Vec, T, BLOCK, HP, BLayout::RowMajor, BLOCK, HP, SLayout::NoneBox, 512>;
 
     using UBRow = Tile<TileType::Vec, T, 1, BLOCK, BLayout::RowMajor, 1, BLOCK, SLayout::NoneBox, 512>;
     using UBRowDyn = Tile<TileType::Vec, T, 1, BLOCK, BLayout::RowMajor, DYNAMIC, DYNAMIC, SLayout::NoneBox, 512>;
@@ -130,7 +130,7 @@ AICORE inline void mega_transpose_TH_to_HT(__gm__ T *src, __gm__ T *dst, int64_t
             UBSrcDyn ld(valid, H);
             TASSIGN(ld, SRC_UB);
             TLOAD(ld, gm);
-            if (valid != BLOCK) TFILLPAD_INPLACE(ub_src, ld);
+            if (valid != BLOCK || H != HP) TFILLPAD_INPLACE(ub_src, ld);
         }
         set_flag(PIPE_MTE2, PIPE_V, EVENT_ID0);
         wait_flag(PIPE_MTE2, PIPE_V, EVENT_ID0);
@@ -264,18 +264,18 @@ AICORE inline void mega_solve_tril(__gm__ half *out, __gm__ half *in, __gm__ hal
                                                                               num_bsnd_heads, cu_seqlens, is_lower);
 }
 
-// Note the codegen parser does not support arguments of form "type *name", only "type* name"
-extern "C" __global__ AICORE void
-GDN_KERNEL_NAME(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr, GM_ADDR g_in_ptr, GM_ADDR beta_ptr, GM_ADDR msk_lower_ptr,
-                GM_ADDR msk_full_ptr, GM_ADDR minus_id_ptr, GM_ADDR cu_seqlens_ptr, GM_ADDR o_ptr, GM_ADDR g_sum_ptr,
-                GM_ADDR g_t_ptr, GM_ADDR beta_t_ptr, GM_ADDR A_ptr, GM_ADDR A_inv_f32_ptr, GM_ADDR A_inv_ptr,
-                GM_ADDR w_ptr, GM_ADDR u_ptr, GM_ADDR s_ptr, GM_ADDR v_new_ptr, GM_ADDR fs_ptr, GM_ADDR h0_ptr,
-                int64_t has_initial_state, GM_ADDR kkt_ws_ptr, GM_ADDR wy_ws_a1_ptr, GM_ADDR wy_ws_a2_ptr,
-                GM_ADDR h_ws_ptr, GM_ADDR o_ws_qk_ptr, GM_ADDR o_ws_qs_ptr, GM_ADDR o_ws_gated_ptr,
-                uint32_t num_key_heads, int64_t batch_size, int64_t seq_len, int64_t total_tokens,
-                uint32_t num_matrices)
+template <int32_t H>
+AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr, GM_ADDR g_in_ptr, GM_ADDR beta_ptr,
+                                    GM_ADDR msk_lower_ptr, GM_ADDR msk_full_ptr, GM_ADDR minus_id_ptr,
+                                    GM_ADDR cu_seqlens_ptr, GM_ADDR o_ptr, GM_ADDR g_sum_ptr, GM_ADDR g_t_ptr,
+                                    GM_ADDR beta_t_ptr, GM_ADDR A_ptr, GM_ADDR A_inv_f32_ptr, GM_ADDR A_inv_ptr,
+                                    GM_ADDR w_ptr, GM_ADDR u_ptr, GM_ADDR s_ptr, GM_ADDR v_new_ptr, GM_ADDR fs_ptr,
+                                    GM_ADDR h0_ptr, int64_t has_initial_state, GM_ADDR kkt_ws_ptr,
+                                    GM_ADDR wy_ws_a1_ptr, GM_ADDR wy_ws_a2_ptr, GM_ADDR h_ws_ptr,
+                                    GM_ADDR o_ws_qk_ptr, GM_ADDR o_ws_qs_ptr, GM_ADDR o_ws_gated_ptr,
+                                    uint32_t num_key_heads, int64_t batch_size, int64_t seq_len,
+                                    int64_t total_tokens, uint32_t num_matrices)
 {
-    constexpr int32_t H = GDN_H;
     constexpr int32_t D = GDN_D;
     constexpr int32_t C = GDN_C;
 
@@ -403,4 +403,41 @@ GDN_KERNEL_NAME(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr, GM_ADDR g_in_ptr, G
         wait_flag_dev(3);
     }
 #endif
+}
+
+// Note the codegen parser does not support arguments of form "type *name", only "type* name"
+extern "C" __global__ AICORE void
+GDN_KERNEL_NAME(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr, GM_ADDR g_in_ptr, GM_ADDR beta_ptr, GM_ADDR msk_lower_ptr,
+                GM_ADDR msk_full_ptr, GM_ADDR minus_id_ptr, GM_ADDR cu_seqlens_ptr, GM_ADDR o_ptr, GM_ADDR g_sum_ptr,
+                GM_ADDR g_t_ptr, GM_ADDR beta_t_ptr, GM_ADDR A_ptr, GM_ADDR A_inv_f32_ptr, GM_ADDR A_inv_ptr,
+                GM_ADDR w_ptr, GM_ADDR u_ptr, GM_ADDR s_ptr, GM_ADDR v_new_ptr, GM_ADDR fs_ptr, GM_ADDR h0_ptr,
+                int64_t has_initial_state, GM_ADDR kkt_ws_ptr, GM_ADDR wy_ws_a1_ptr, GM_ADDR wy_ws_a2_ptr,
+                GM_ADDR h_ws_ptr, GM_ADDR o_ws_qk_ptr, GM_ADDR o_ws_qs_ptr, GM_ADDR o_ws_gated_ptr,
+                uint32_t num_heads, uint32_t num_key_heads, int64_t batch_size, int64_t seq_len,
+                int64_t total_tokens, uint32_t num_matrices)
+{
+#define DISPATCH_MEGA_H(H)                                                                                         \
+    case H:                                                                                                        \
+        mega_kernel_impl<H>(q_ptr, k_ptr, v_ptr, g_in_ptr, beta_ptr, msk_lower_ptr, msk_full_ptr, minus_id_ptr,    \
+                            cu_seqlens_ptr, o_ptr, g_sum_ptr, g_t_ptr, beta_t_ptr, A_ptr, A_inv_f32_ptr, A_inv_ptr, \
+                            w_ptr, u_ptr, s_ptr, v_new_ptr, fs_ptr, h0_ptr, has_initial_state, kkt_ws_ptr,          \
+                            wy_ws_a1_ptr, wy_ws_a2_ptr, h_ws_ptr, o_ws_qk_ptr, o_ws_qs_ptr, o_ws_gated_ptr,         \
+                            num_key_heads, batch_size, seq_len, total_tokens, num_matrices);                       \
+        return
+
+    switch (num_heads) {
+        DISPATCH_MEGA_H(2);
+        DISPATCH_MEGA_H(4);
+        DISPATCH_MEGA_H(8);
+        DISPATCH_MEGA_H(12);
+        DISPATCH_MEGA_H(16);
+        DISPATCH_MEGA_H(24);
+        DISPATCH_MEGA_H(32);
+        DISPATCH_MEGA_H(48);
+        DISPATCH_MEGA_H(64);
+        default:
+            return;
+    }
+
+#undef DISPATCH_MEGA_H
 }

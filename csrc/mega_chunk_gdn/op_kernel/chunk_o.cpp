@@ -82,14 +82,6 @@
 #include "acl/acl.h"
 using namespace pto;
 
-// ── Compile-time configuration (overridable at build time via -D flags) ──
-// GDN_H: number of attention heads (default 16)
-// GDN_D: hidden dimension per head (default 128)
-// GDN_C: chunk size in tokens (default 128)
-#ifndef GDN_H
-#define GDN_H 16
-#endif
-
 #ifndef GDN_D
 #define GDN_D 128
 #endif

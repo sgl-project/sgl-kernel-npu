@@ -72,13 +72,8 @@
 #include "acl/acl.h"         // ACL (Ascend Computing Language): runtime API
 using namespace pto;
 
-// ── Compile-time constants (set by the JIT compiler from Python) ──────
-// These are typically passed as -DGDN_H=16 -DGDN_D=128 -DGDN_C=128 on the
-// compiler command line. The #ifndef guards provide defaults for IDE tooling.
-#ifndef GDN_H
-#define GDN_H 16  // H = number of value heads (gates A β,g index here)
-#endif
-
+// NumHeads, HiddenSize, and ChunkSize are template parameters. The mega kernel
+// dispatches NumHeads from a runtime value to a finite set of specializations.
 #ifndef GDN_D
 #define GDN_D 128  // D = hidden dimension per head
 #endif
