@@ -170,8 +170,6 @@ def alltoall_dispatch(buffer, x, topk_idx, topk_weights):
         )
         scale_handle.wait()
         dynamic_scale.untyped_storage().resize_(0)
-    else:
-        dynamic_scale_after_all2all = None
 
     _, global_input_tokens, handle = async_all_to_all(
         permutated_tokens,
@@ -211,9 +209,13 @@ def alltoall_dispatch(buffer, x, topk_idx, topk_weights):
         "num_local_experts": num_local_experts,
     }
 
+    recv_x = (
+        (dispatch_out, dynamic_scale_after_all2all) if input_quant else dispatch_out
+    )
+
     return (
-        dispatch_out,
-        dynamic_scale_after_all2all,
+        recv_x,
+        None,
         None,
         num_recv_tokens_per_expert_list,
         combine_handle,
