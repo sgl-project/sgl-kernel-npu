@@ -19,7 +19,7 @@ def make_page_table(total_len: int, page_size: int) -> torch.Tensor:
     return torch.arange(num_pages, dtype=torch.int64)
 
 
-def fill_state(
+def fill_state_pool(
     kv_full: torch.Tensor,
     score_full: torch.Tensor,
     ape: torch.Tensor,
@@ -39,11 +39,25 @@ def fill_state(
     return state
 
 
+def gather_state_window(
+    state_pool: torch.Tensor,
+    page_table: torch.Tensor,
+    state_base: int,
+    prefix_len: int,
+    page_size: int,
+) -> torch.Tensor:
+    if prefix_len <= state_base:
+        return state_pool.new_empty((0, state_pool.shape[-1]))
+    gps = torch.arange(state_base, prefix_len, dtype=torch.long)
+    slots = page_table[gps // page_size].to(torch.long) * page_size + (gps % page_size)
+    return state_pool[slots].contiguous()
+
+
 def reference_chunked_compress(
     kv_full: torch.Tensor,
     score_full: torch.Tensor,
-    state_kv_score: torch.Tensor,
-    page_table: torch.Tensor,
+    state_kv_score_window: torch.Tensor,
+    state_base: int,
     ape: torch.Tensor,
     case: CaseConfig,
 ) -> torch.Tensor:
@@ -73,10 +87,9 @@ def reference_chunked_compress(
 
             gp = (k - 1) * case.ratio + j if is_prev else k * case.ratio + j
             if gp < prefix_len:
-                slot = int(page_table[gp // case.page_size]) * case.page_size
-                slot += gp % case.page_size
-                kv_row = state_kv_score[slot, :coff_d]
-                score_row = state_kv_score[slot, coff_d:]
+                state_row = gp - state_base
+                kv_row = state_kv_score_window[state_row, :coff_d]
+                score_row = state_kv_score_window[state_row, coff_d:]
             else:
                 local_idx = gp - prefix_len
                 kv_row = chunk_kv[local_idx]
@@ -84,11 +97,11 @@ def reference_chunked_compress(
 
             if overlap:
                 if is_prev:
-                    kv_row = kv_row[d:]
-                    score_row = score_row[d:]
-                else:
                     kv_row = kv_row[:d]
                     score_row = score_row[:d]
+                else:
+                    kv_row = kv_row[d:]
+                    score_row = score_row[d:]
             kv_rows.append(kv_row)
             score_rows.append(score_row)
 
@@ -114,7 +127,7 @@ def run_case(case: CaseConfig, device: torch.device, atol: float, rtol: float):
     score_full = torch.randn(total_len, coff * case.head_dim, dtype=torch.float32) * 0.3
     ape = torch.randn(case.ratio, coff * case.head_dim, dtype=torch.float32) * 0.5
     page_table = make_page_table(total_len, case.page_size)
-    state = fill_state(
+    state_pool = fill_state_pool(
         kv_full,
         score_full,
         ape,
@@ -123,19 +136,27 @@ def run_case(case: CaseConfig, device: torch.device, atol: float, rtol: float):
         page_table,
         case.page_size,
     )
+    state_base = max(
+        0,
+        (case.prefix_len // case.ratio - (1 if overlap else 0)) * case.ratio,
+    )
+    state_window = gather_state_window(
+        state_pool, page_table, state_base, case.prefix_len, case.page_size
+    )
 
-    ref = reference_chunked_compress(kv_full, score_full, state, page_table, ape, case)
+    ref = reference_chunked_compress(
+        kv_full, score_full, state_window, state_base, ape, case
+    )
     out = dsv4_chunked_prefill_compress(
         kv_full[case.prefix_len :].contiguous().to(device),
         score_full[case.prefix_len :].contiguous().to(device),
-        state.contiguous().to(device),
-        page_table.contiguous().to(device),
+        state_window.contiguous().to(device),
         ape.contiguous().to(device),
         prefix_len=case.prefix_len,
         chunk_len=case.chunk_len,
         ratio=case.ratio,
         overlap=overlap,
-        page_size=case.page_size,
+        state_base=state_base,
     )
     torch.npu.synchronize()
     out_cpu = out.cpu()

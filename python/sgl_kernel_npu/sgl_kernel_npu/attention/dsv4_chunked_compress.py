@@ -8,12 +8,11 @@ from sgl_kernel_npu.utils.triton_utils import get_device_properties
 def _dsv4_chunked_prefill_compress_kernel(
     chunk_kv,
     chunk_score,
-    state_kv_score,
-    page_table,
+    state_kv_score_window,
     ape,
     out,
     PREFIX_LEN: tl.constexpr,
-    PAGE_SIZE: tl.constexpr,
+    STATE_BASE: tl.constexpr,
     RATIO: tl.constexpr,
     HEAD_DIM: tl.constexpr,
     COFF_D: tl.constexpr,
@@ -60,7 +59,7 @@ def _dsv4_chunked_prefill_compress_kernel(
             safe_chunk_local = tl.maximum(chunk_local, 0)
 
             if OVERLAP:
-                data_col = tl.where(is_prev, HEAD_DIM + head_cols, head_cols)
+                data_col = tl.where(is_prev, head_cols, HEAD_DIM + head_cols)
             else:
                 data_col = head_cols
             mask = src_mask & col_mask & ~zero_src
@@ -83,23 +82,15 @@ def _dsv4_chunked_prefill_compress_kernel(
             )
             chunk_score_vals += ape_vals
 
-            state_page_idx = tl.where(
-                from_state & ~zero_src, safe_src_global // PAGE_SIZE, 0
-            )
-            state_page = tl.load(
-                page_table + state_page_idx,
-                mask=src_mask & from_state & ~zero_src,
-                other=0,
-            )
-            state_slot = state_page * PAGE_SIZE + (safe_src_global % PAGE_SIZE)
-            state_base = state_slot * (2 * COFF_D)
+            state_row = tl.maximum(safe_src_global - STATE_BASE, 0)
+            state_offset = state_row * (2 * COFF_D)
             state_kv_vals = tl.load(
-                state_kv_score + state_base + data_col,
+                state_kv_score_window + state_offset + data_col,
                 mask=mask & from_state,
                 other=0.0,
             )
             state_score_vals = tl.load(
-                state_kv_score + state_base + COFF_D + data_col,
+                state_kv_score_window + state_offset + COFF_D + data_col,
                 mask=mask & from_state,
                 other=-float("inf"),
             )
@@ -145,22 +136,23 @@ def _dsv4_chunked_prefill_compress_kernel(
 def dsv4_chunked_prefill_compress(
     chunk_kv: torch.Tensor,
     chunk_score: torch.Tensor,
-    state_kv_score: torch.Tensor,
-    page_table: torch.Tensor,
+    state_kv_score_window: torch.Tensor,
     ape: torch.Tensor,
     *,
     prefix_len: int,
     chunk_len: int,
     ratio: int,
     overlap: bool,
-    page_size: int,
+    state_base: int,
 ) -> torch.Tensor:
     assert ratio in (4, 128), f"unsupported DeepSeek-V4 compress ratio: {ratio}"
     assert overlap == (ratio == 4), "DeepSeek-V4 overlap is only valid for ratio=4"
     assert chunk_kv.is_contiguous()
     assert chunk_score.is_contiguous()
-    assert state_kv_score.is_contiguous()
+    assert state_kv_score_window.is_contiguous()
     assert ape.is_contiguous()
+    assert 0 <= state_base <= prefix_len
+    assert state_kv_score_window.shape[-1] == 2 * ape.shape[1]
 
     n_out = (prefix_len + chunk_len) // ratio - prefix_len // ratio
     coff = 2 if overlap else 1
@@ -177,12 +169,11 @@ def dsv4_chunked_prefill_compress(
     _dsv4_chunked_prefill_compress_kernel[(num_programs,)](
         chunk_kv,
         chunk_score,
-        state_kv_score,
-        page_table,
+        state_kv_score_window,
         ape,
         out,
         PREFIX_LEN=prefix_len,
-        PAGE_SIZE=page_size,
+        STATE_BASE=state_base,
         RATIO=ratio,
         HEAD_DIM=head_dim,
         COFF_D=ape.shape[1],
