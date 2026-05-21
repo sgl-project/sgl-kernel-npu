@@ -68,6 +68,7 @@ def alltoall_get_dispatch_layout(buffer, topk_idx, num_experts):
     group_size = buffer.group_size
     num_local_experts = num_experts // group_size
     ep_rank = buffer.rank
+    device = topk_idx.device
 
     num_local_tokens_per_expert = torch.histc(
         topk_idx, bins=num_experts, min=0, max=num_experts
@@ -100,10 +101,13 @@ def alltoall_get_dispatch_layout(buffer, topk_idx, num_experts):
 
     num_tokens_per_expert = num_global_tokens_per_local_expert.sum(axis=0)
 
-    expert_ids_per_ep_rank = torch.tensor(
-        [i % num_local_experts for i in range(num_experts)],
-        dtype=torch.int32,
-        device=topk_idx.device,
+    expert_ids_per_ep_rank = (
+        torch.arange(
+            num_experts,
+            dtype=torch.int32,
+            device=device,
+        )
+        % num_local_experts
     )
 
     num_global_tokens_per_local_expert_ravel = (
@@ -127,9 +131,11 @@ def alltoall_get_dispatch_layout(buffer, topk_idx, num_experts):
     }
     buffer._alltoall_layout = layout
 
-    num_tokens_per_rank = torch.tensor(input_splits, device="npu")
+    num_tokens_per_rank = num_local_tokens_per_expert.reshape(
+        group_size, num_local_experts
+    ).sum(axis=1)
     is_token_in_rank = torch.zeros(
-        (topk_idx.size(0), group_size), dtype=torch.bool, device="npu"
+        (topk_idx.size(0), group_size), dtype=torch.bool, device=device
     )
 
     return (
