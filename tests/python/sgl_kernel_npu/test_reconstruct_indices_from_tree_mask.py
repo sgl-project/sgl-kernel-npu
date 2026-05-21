@@ -1,8 +1,11 @@
 import torch
-from sgl_kernel_npu.speculative import reconstruct_indices_from_tree_mask_triton, reconstruct_indices_from_tree_mask_torch_wrapper
-
+from sgl_kernel_npu.speculative import (
+    reconstruct_indices_from_tree_mask_torch_wrapper,
+    reconstruct_indices_from_tree_mask_triton,
+)
 
 logger = logging.getLogger(__name__)
+
 
 def test_alignment():
     print(
