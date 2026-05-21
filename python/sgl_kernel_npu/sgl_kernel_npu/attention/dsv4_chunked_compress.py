@@ -56,14 +56,16 @@ def _dsv4_chunked_prefill_compress_kernel(
             zero_src = is_prev & (k == 0) if OVERLAP else src_i < 0
             from_state = src_global < PREFIX_LEN
             chunk_local = src_global - PREFIX_LEN
+            safe_src_global = tl.maximum(src_global, 0)
+            safe_chunk_local = tl.maximum(chunk_local, 0)
 
             if OVERLAP:
-                data_col = tl.where(~is_prev, HEAD_DIM + head_cols, head_cols)
+                data_col = tl.where(is_prev, HEAD_DIM + head_cols, head_cols)
             else:
                 data_col = head_cols
             mask = src_mask & col_mask & ~zero_src
 
-            chunk_offsets = chunk_local * COFF_D + data_col
+            chunk_offsets = safe_chunk_local * COFF_D + data_col
             chunk_kv_vals = tl.load(
                 chunk_kv + chunk_offsets,
                 mask=mask & ~from_state,
@@ -81,12 +83,15 @@ def _dsv4_chunked_prefill_compress_kernel(
             )
             chunk_score_vals += ape_vals
 
+            state_page_idx = tl.where(
+                from_state & ~zero_src, safe_src_global // PAGE_SIZE, 0
+            )
             state_page = tl.load(
-                page_table + src_global // PAGE_SIZE,
+                page_table + state_page_idx,
                 mask=src_mask & from_state & ~zero_src,
                 other=0,
             )
-            state_slot = state_page * PAGE_SIZE + (src_global % PAGE_SIZE)
+            state_slot = state_page * PAGE_SIZE + (safe_src_global % PAGE_SIZE)
             state_base = state_slot * (2 * COFF_D)
             state_kv_vals = tl.load(
                 state_kv_score + state_base + data_col,

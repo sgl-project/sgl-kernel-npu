@@ -84,11 +84,11 @@ def reference_chunked_compress(
 
             if overlap:
                 if is_prev:
-                    kv_row = kv_row[:d]
-                    score_row = score_row[:d]
-                else:
                     kv_row = kv_row[d:]
                     score_row = score_row[d:]
+                else:
+                    kv_row = kv_row[:d]
+                    score_row = score_row[:d]
             kv_rows.append(kv_row)
             score_rows.append(score_row)
 
