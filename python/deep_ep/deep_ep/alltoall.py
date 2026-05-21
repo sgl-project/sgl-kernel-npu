@@ -78,7 +78,7 @@ def alltoall_get_dispatch_layout(buffer, topk_idx, num_experts):  #! 已检查
     input_splits = (
         num_local_tokens_per_expert.reshape(group_size, num_local_experts)
         .sum(axis=1)
-        .to(device="cpu", non_blocking=True)
+        .cpu()
         .numpy()
         .tolist()
     )
@@ -97,10 +97,7 @@ def alltoall_get_dispatch_layout(buffer, topk_idx, num_experts):  #! 已检查
     ]
 
     output_splits = (
-        num_global_tokens_per_local_expert.sum(axis=-1)
-        .to(device="cpu", non_blocking=True)
-        .numpy()
-        .tolist()
+        num_global_tokens_per_local_expert.sum(axis=-1).cpu().numpy().tolist()
     )
 
     num_tokens_per_expert = num_global_tokens_per_local_expert.sum(axis=0)
@@ -200,10 +197,7 @@ def alltoall_dispatch(buffer, x, topk_idx, topk_weights):
         reversed_global_mapping = None
 
     num_recv_tokens_per_expert_list = (
-        num_global_tokens_per_local_expert.sum(axis=0)
-        .to(device="cpu", non_blocking=True)
-        .numpy()
-        .tolist()
+        num_global_tokens_per_local_expert.sum(axis=0).cpu().numpy().tolist()
     )
 
     combine_handle = {
