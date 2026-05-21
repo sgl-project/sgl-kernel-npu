@@ -16,9 +16,15 @@ SUPPORTED_HEAD_CONFIGS = [
     pytest.param(32, 16, id="H32-Hg16"),
     pytest.param(48, 16, id="H48-Hg16"),
     pytest.param(64, 16, id="H64-Hg16"),
+    pytest.param(32, 32, id="H32-Hg32"),
     pytest.param(16, 8, id="H16-Hg8"),
     pytest.param(32, 8, id="H32-Hg8"),
+    pytest.param(48, 8, id="H48-Hg8"),
+    pytest.param(64, 8, id="H64-Hg8"),
     pytest.param(16, 4, id="H16-Hg4"),
+    pytest.param(32, 4, id="H32-Hg4"),
+    pytest.param(64, 4, id="H64-Hg4"),
+    pytest.param(48, 12, id="H48-Hg12"),
 ]
 
 

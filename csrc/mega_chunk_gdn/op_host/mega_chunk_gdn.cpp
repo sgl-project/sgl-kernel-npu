@@ -5,52 +5,36 @@
 #include <limits>
 #include <stdexcept>
 
-// TP=1, global key heads=16
-#include "aclrtlaunch_launch_mega_kernel_h16_hg16.h"
-#include "aclrtlaunch_launch_mega_kernel_h32_hg16.h"
-#include "aclrtlaunch_launch_mega_kernel_h48_hg16.h"
-#include "aclrtlaunch_launch_mega_kernel_h64_hg16.h"
-// TP=2, local key heads=8
-#include "aclrtlaunch_launch_mega_kernel_h16_hg8.h"
-#include "aclrtlaunch_launch_mega_kernel_h32_hg8.h"
-// TP=4, local key heads=4
-#include "aclrtlaunch_launch_mega_kernel_h16_hg4.h"
+#include "aclrtlaunch_launch_mega_kernel_h16.h"
+#include "aclrtlaunch_launch_mega_kernel_h32.h"
+#include "aclrtlaunch_launch_mega_kernel_h48.h"
+#include "aclrtlaunch_launch_mega_kernel_h64.h"
 #include "defines.h"
 #include "torch_helper.h"
 
 #define SGLANG_FOR_EACH_MEGA_CHUNK_GDN_VARIANT(MACRO) \
-    MACRO(16, 16)                                     \
-    MACRO(32, 16)                                     \
-    MACRO(48, 16)                                     \
-    MACRO(64, 16)                                     \
-    MACRO(16, 8)                                      \
-    MACRO(32, 8)                                      \
-    MACRO(16, 4)
+    MACRO(16)                                         \
+    MACRO(32)                                         \
+    MACRO(48)                                         \
+    MACRO(64)
 
 namespace sglang {
 namespace npu_kernel {
 
 namespace {
-constexpr int64_t kGlobalKeyHeads = 16;
 constexpr int64_t kHeadDim = 128;
 
-bool is_supported_global_value_heads(int64_t value_heads)
+bool is_supported_value_heads(int64_t value_heads)
 {
     return value_heads == 16 || value_heads == 32 || value_heads == 48 || value_heads == 64;
 }
 
-bool is_supported_tp_degree(int64_t tp_degree)
-{
-    return tp_degree == 1 || tp_degree == 2 || tp_degree == 4 || tp_degree == 8;
-}
-
 bool is_supported_head_pair(int64_t value_heads, int64_t key_heads)
 {
-    if (key_heads <= 0 || kGlobalKeyHeads % key_heads != 0) {
+    if (!is_supported_value_heads(value_heads) || key_heads <= 0) {
         return false;
     }
-    int64_t tp_degree = kGlobalKeyHeads / key_heads;
-    return is_supported_tp_degree(tp_degree) && is_supported_global_value_heads(value_heads * tp_degree);
+    return value_heads % key_heads == 0;
 }
 
 void check_shape(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, const at::Tensor &g,
@@ -119,19 +103,20 @@ HOST_API void mega_chunk_gdn(const at::Tensor &q, const at::Tensor &k, const at:
 
     uint32_t num_matrices_u32 = static_cast<uint32_t>(num_matrices);
     uint32_t block_dim_u32 = static_cast<uint32_t>(block_dim);
+    uint32_t num_key_heads_u32 = static_cast<uint32_t>(q.size(2));
     int64_t has_initial_state_i64 = has_initial_state ? 1 : 0;
 
-#define LAUNCH_MEGA_CHUNK_GDN(H, HG)                                                                             \
-    EXEC_KERNEL_CMD(launch_mega_kernel_h##H##_hg##HG, block_dim_u32, q, k, v, g, beta, mask_lower, mask_full,    \
-                    minus_identity, cu_seqlens, out, g_sum, g_t, beta_t, a, a_inv_f32, a_inv, w, u, s, v_new,    \
-                    final_state, initial_state, has_initial_state_i64, kkt_workspace, wy_workspace_a1,           \
-                    wy_workspace_a2, h_workspace, o_workspace_qk, o_workspace_qs, o_workspace_gated, batch_size, \
+#define LAUNCH_MEGA_CHUNK_GDN(H)                                                                                     \
+    EXEC_KERNEL_CMD(launch_mega_kernel_h##H, block_dim_u32, q, k, v, g, beta, mask_lower, mask_full, minus_identity, \
+                    cu_seqlens, out, g_sum, g_t, beta_t, a, a_inv_f32, a_inv, w, u, s, v_new, final_state,           \
+                    initial_state, has_initial_state_i64, kkt_workspace, wy_workspace_a1, wy_workspace_a2,           \
+                    h_workspace, o_workspace_qk, o_workspace_qs, o_workspace_gated, num_key_heads_u32, batch_size,   \
                     seq_len, total_tokens, num_matrices_u32)
 
-#define DISPATCH_MEGA_CHUNK_GDN(H, HG)       \
-    if (v.size(2) == H && q.size(2) == HG) { \
-        LAUNCH_MEGA_CHUNK_GDN(H, HG);        \
-        return;                              \
+#define DISPATCH_MEGA_CHUNK_GDN(H) \
+    if (v.size(2) == H) {          \
+        LAUNCH_MEGA_CHUNK_GDN(H);  \
+        return;                    \
     }
 
     SGLANG_FOR_EACH_MEGA_CHUNK_GDN_VARIANT(DISPATCH_MEGA_CHUNK_GDN)

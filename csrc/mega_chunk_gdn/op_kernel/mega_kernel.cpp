@@ -1,8 +1,7 @@
 // mega_kernel.cpp — GDN Mega-Kernel (group-value / GQA): all PTO stages in one launch
 //
-// Same pipeline as pto_mega_kernel, but scaled_dot_kkt / wy_fast / chunk_h / chunk_o use
-// templates (H, Hg) from dynamic_bsnd_groupvalue; cumsum still uses H (value heads) like
-// dynamic_bsnd.
+// Same pipeline as pto_mega_kernel, with value heads (H) compiled per variant and
+// key heads (Hg) passed at runtime.
 //
 // Stages:
 //   1. cumsum      (Vec)
@@ -15,9 +14,6 @@
 
 #ifndef GDN_H
 #define GDN_H 16
-#endif
-#ifndef GDN_HG
-#define GDN_HG GDN_H
 #endif
 #ifndef GDN_D
 #define GDN_D 128
@@ -275,13 +271,17 @@ GDN_KERNEL_NAME(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr, GM_ADDR g_in_ptr, G
                 GM_ADDR g_t_ptr, GM_ADDR beta_t_ptr, GM_ADDR A_ptr, GM_ADDR A_inv_f32_ptr, GM_ADDR A_inv_ptr,
                 GM_ADDR w_ptr, GM_ADDR u_ptr, GM_ADDR s_ptr, GM_ADDR v_new_ptr, GM_ADDR fs_ptr, GM_ADDR h0_ptr,
                 int64_t has_initial_state, GM_ADDR kkt_ws_ptr, GM_ADDR wy_ws_a1_ptr, GM_ADDR wy_ws_a2_ptr,
-                GM_ADDR h_ws_ptr, GM_ADDR o_ws_qk_ptr, GM_ADDR o_ws_qs_ptr, GM_ADDR o_ws_gated_ptr, int64_t batch_size,
-                int64_t seq_len, int64_t total_tokens, uint32_t num_matrices)
+                GM_ADDR h_ws_ptr, GM_ADDR o_ws_qk_ptr, GM_ADDR o_ws_qs_ptr, GM_ADDR o_ws_gated_ptr,
+                uint32_t num_key_heads, int64_t batch_size, int64_t seq_len, int64_t total_tokens,
+                uint32_t num_matrices)
 {
     constexpr int32_t H = GDN_H;
-    constexpr int32_t HG = GDN_HG;
     constexpr int32_t D = GDN_D;
     constexpr int32_t C = GDN_C;
+
+    if (num_key_heads == 0 || (static_cast<uint32_t>(H) % num_key_heads) != 0) {
+        return;
+    }
 
     mk_cumsum::cumsum_kernel<H, C>(reinterpret_cast<__gm__ float *>(g_in_ptr),
                                    reinterpret_cast<__gm__ float *>(g_sum_ptr),
@@ -310,11 +310,11 @@ GDN_KERNEL_NAME(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr, GM_ADDR g_in_ptr, G
 
     SyncAllImpl<false>();
 
-    mk_kkt::kkt_kernel<H, HG, D, C>(
+    mk_kkt::kkt_kernel<H, D, C>(
         reinterpret_cast<__gm__ half *>(k_ptr), reinterpret_cast<__gm__ half *>(beta_t_ptr),
         reinterpret_cast<__gm__ float *>(g_t_ptr), reinterpret_cast<__gm__ float *>(msk_lower_ptr),
         reinterpret_cast<__gm__ half *>(kkt_ws_ptr), reinterpret_cast<__gm__ half *>(A_ptr),
-        reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len, total_tokens);
+        reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len, total_tokens, num_key_heads);
 
 #if defined(__DAV_C220_CUBE__)
     pipe_barrier(PIPE_ALL);
@@ -351,13 +351,13 @@ GDN_KERNEL_NAME(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr, GM_ADDR g_in_ptr, G
     return;
 #endif
 
-    mk_wy::wy_fast_kernel<H, HG, D, C>(
+    mk_wy::wy_fast_kernel<H, D, C>(
         reinterpret_cast<__gm__ half *>(k_ptr), reinterpret_cast<__gm__ half *>(v_ptr),
         reinterpret_cast<__gm__ half *>(beta_t_ptr), reinterpret_cast<__gm__ float *>(g_t_ptr),
         reinterpret_cast<__gm__ half *>(A_inv_ptr), reinterpret_cast<__gm__ half *>(wy_ws_a1_ptr),
         reinterpret_cast<__gm__ half *>(wy_ws_a2_ptr), reinterpret_cast<__gm__ half *>(w_ptr),
         reinterpret_cast<__gm__ half *>(u_ptr), reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len,
-        total_tokens);
+        total_tokens, num_key_heads);
 
 #if defined(__DAV_C220_VEC__)
     if (get_block_idx() < num_matrices) {
@@ -374,13 +374,13 @@ GDN_KERNEL_NAME(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr, GM_ADDR g_in_ptr, G
 
     SyncAllImpl<false>();
 
-    mk_h::chunk_h_kernel<H, HG, D, C>(
+    mk_h::chunk_h_kernel<H, D, C>(
         reinterpret_cast<__gm__ half *>(k_ptr), reinterpret_cast<__gm__ half *>(w_ptr),
         reinterpret_cast<__gm__ half *>(u_ptr), reinterpret_cast<__gm__ float *>(g_t_ptr),
         reinterpret_cast<__gm__ half *>(s_ptr), reinterpret_cast<__gm__ half *>(v_new_ptr),
         reinterpret_cast<__gm__ half *>(fs_ptr), reinterpret_cast<__gm__ half *>(h0_ptr), has_initial_state,
         reinterpret_cast<__gm__ half *>(h_ws_ptr), reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size,
-        seq_len, total_tokens);
+        seq_len, total_tokens, num_key_heads);
 
 #ifdef MEGA_STOP_AFTER_H
     pipe_barrier(PIPE_ALL);
@@ -389,13 +389,13 @@ GDN_KERNEL_NAME(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr, GM_ADDR g_in_ptr, G
 
     SyncAllImpl<false>();
 
-    mk_o::chunk_o_kernel<H, HG, D, C>(
+    mk_o::chunk_o_kernel<H, D, C>(
         reinterpret_cast<__gm__ half *>(q_ptr), reinterpret_cast<__gm__ half *>(k_ptr),
         reinterpret_cast<__gm__ half *>(v_new_ptr), reinterpret_cast<__gm__ half *>(s_ptr),
         reinterpret_cast<__gm__ float *>(g_t_ptr), reinterpret_cast<__gm__ float *>(msk_full_ptr),
         reinterpret_cast<__gm__ half *>(o_ws_qk_ptr), reinterpret_cast<__gm__ half *>(o_ws_qs_ptr),
         reinterpret_cast<__gm__ half *>(o_ws_gated_ptr), reinterpret_cast<__gm__ half *>(o_ptr),
-        reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len, total_tokens);
+        reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len, total_tokens, num_key_heads);
 
 #if defined(__DAV_C220_CUBE__)
     if (get_block_idx() < num_matrices) {

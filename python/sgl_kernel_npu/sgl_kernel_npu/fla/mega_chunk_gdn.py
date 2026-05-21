@@ -4,8 +4,6 @@ from typing import Optional
 import torch
 
 GLOBAL_VALUE_HEADS = (16, 32, 48, 64)
-GLOBAL_KEY_HEADS = 16
-SUPPORTED_TP_DEGREES = (1, 2, 4, 8)
 HEAD_DIM = 128
 CHUNK_SIZE = 128
 
@@ -57,12 +55,9 @@ def _block_dim(device: torch.device) -> int:
 
 
 def _head_pair_supported(num_value_heads: int, num_key_heads: int) -> bool:
-    if num_key_heads <= 0 or GLOBAL_KEY_HEADS % num_key_heads != 0:
+    if num_value_heads not in GLOBAL_VALUE_HEADS or num_key_heads <= 0:
         return False
-    tp_degree = GLOBAL_KEY_HEADS // num_key_heads
-    if tp_degree not in SUPPORTED_TP_DEGREES:
-        return False
-    return num_value_heads * tp_degree in GLOBAL_VALUE_HEADS
+    return num_value_heads % num_key_heads == 0
 
 
 def mega_gdn_supported(
