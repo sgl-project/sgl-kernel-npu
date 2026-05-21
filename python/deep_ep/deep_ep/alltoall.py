@@ -9,9 +9,7 @@ from .utils import EventOverlap
 COMM_STREAM = None
 
 
-def async_all_to_all(
-    input_, output_split_sizes, input_split_sizes, group, event=None
-):  #! 已检查
+def async_all_to_all(input_, output_split_sizes, input_split_sizes, group, event=None):
     if output_split_sizes is None:
         # Equal split (all2all)
         a2a_out = torch.empty_like(input_)
@@ -51,7 +49,7 @@ def async_all_to_all(
     return input_, a2a_out, handle
 
 
-def _gather_along_first_dim(input_, group):  #! 已检查
+def _gather_along_first_dim(input_, group):
     world_size = torch.distributed.get_world_size(group)
     if world_size == 1:
         return input_
@@ -65,7 +63,7 @@ def _gather_along_first_dim(input_, group):  #! 已检查
     return output
 
 
-def alltoall_get_dispatch_layout(buffer, topk_idx, num_experts):  #! 已检查
+def alltoall_get_dispatch_layout(buffer, topk_idx, num_experts):
     group = buffer.group
     group_size = buffer.group_size
     num_local_experts = num_experts // group_size
