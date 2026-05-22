@@ -125,7 +125,8 @@ def _dsv4_chunked_prefill_compress_kernel(
             denom = denom * old_scale + new_scale
             score_max = new_score_max
 
-        acc = acc / denom
+        safe_denom = tl.where(denom == 0.0, 1.0, denom)
+        acc = acc / safe_denom
         tl.store(
             out + out_i * HEAD_DIM + head_cols,
             acc.to(out.dtype.element_ty),
