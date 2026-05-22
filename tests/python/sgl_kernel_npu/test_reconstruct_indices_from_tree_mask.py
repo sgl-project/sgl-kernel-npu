@@ -1,3 +1,5 @@
+import logging
+
 import torch
 from sgl_kernel_npu.speculative import (
     reconstruct_indices_from_tree_mask_torch_wrapper,
@@ -8,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 def test_alignment():
-    print(
+    logger.info(
         "=== reconstruct_indices_from_tree_mask_triton vs reconstruct_indices_from_tree_mask_torch_wrapper ==="
     )
 
@@ -16,7 +18,7 @@ def test_alignment():
     D = 4
 
     for bs in test_bs_list:
-        print(f"\nTest case: batch_size={bs}, draft_token_num={D}")
+        logger.info(f"\nTest case: batch_size={bs}, draft_token_num={D}")
 
         tree_mask = torch.rand(bs, D, D, device="npu") < 0.3
         i_indices = torch.arange(D, device="npu").reshape(1, D, 1).expand(bs, D, D)
@@ -63,6 +65,6 @@ def test_alignment():
         assert torch.all(ntk_torch == ntk_triton), f"retrive_next_token diff"
         assert torch.all(nsb_torch == nsb_triton), f"retrive_next_sibling diff"
 
-        print("all close")
+        logger.info("all close")
 
-    print("\n=== Success ===")
+    logger.info("\n=== Success ===")
