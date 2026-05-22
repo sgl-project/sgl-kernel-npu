@@ -171,7 +171,9 @@ def run_case(
     torch.testing.assert_close(out_cpu, ref, atol=atol, rtol=rtol)
     max_diff = (out_cpu - ref).abs().max().item() if ref.numel() else 0.0
     dtype_tag = "fp32" if dtype == torch.float32 else "bf16"
-    print(f"[PASS] {case.name}[{dtype_tag}]: shape={tuple(ref.shape)} max_diff={max_diff:.6g}")
+    print(
+        f"[PASS] {case.name}[{dtype_tag}]: shape={tuple(ref.shape)} max_diff={max_diff:.6g}"
+    )
 
 
 def run_equivalence_case(
@@ -210,7 +212,9 @@ def run_equivalence_case(
     # Non-chunked reference: prefix=0, all 2*ratio tokens. Yields [k=0, k=1].
     nc_case = CaseConfig(f"{name}_nc", ratio, 0, total_len, head_dim, page_size)
     empty_state = torch.empty((0, 2 * coff * head_dim), dtype=torch.float32)
-    ref_all = reference_chunked_compress(kv_full, score_full, empty_state, 0, ape, nc_case)
+    ref_all = reference_chunked_compress(
+        kv_full, score_full, empty_state, 0, ape, nc_case
+    )
     ref_k1 = ref_all[1]
 
     # Chunked kernel: prefix=ratio, only second half. Must yield one output == k=1.
@@ -298,8 +302,12 @@ def main():
     # reference (prefix_len=0, full 2*ratio tokens). Catches convention bugs
     # that the self-referential reference_chunked_compress would miss.
     run_equivalence_case("overlap_ratio4_hd16", 4, 16, 4, device, args.atol, args.rtol)
-    run_equivalence_case("overlap_ratio4_hd128", 4, 128, 4, device, args.atol, args.rtol)
-    run_equivalence_case("non_overlap_ratio128_hd16", 128, 16, 16, device, args.atol, args.rtol)
+    run_equivalence_case(
+        "overlap_ratio4_hd128", 4, 128, 4, device, args.atol, args.rtol
+    )
+    run_equivalence_case(
+        "non_overlap_ratio128_hd16", 128, 16, 16, device, args.atol, args.rtol
+    )
     run_equivalence_case(
         "non_overlap_ratio128_hd128", 128, 128, 16, device, args.atol, args.rtol
     )

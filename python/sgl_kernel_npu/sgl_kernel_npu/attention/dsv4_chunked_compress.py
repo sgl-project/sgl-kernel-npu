@@ -95,12 +95,10 @@ def _dsv4_chunked_prefill_compress_kernel(
                 other=-float("inf"),
             )
 
-            kv_vals = tl.where(from_state, state_kv_vals, chunk_kv_vals).to(
+            kv_vals = tl.where(from_state, state_kv_vals, chunk_kv_vals).to(tl.float32)
+            score_vals = tl.where(from_state, state_score_vals, chunk_score_vals).to(
                 tl.float32
             )
-            score_vals = tl.where(
-                from_state, state_score_vals, chunk_score_vals
-            ).to(tl.float32)
             score_vals = tl.where(mask, score_vals, -float("inf"))
             kv_vals = tl.where(mask, kv_vals, 0.0)
 
