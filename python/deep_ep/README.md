@@ -20,7 +20,7 @@ Supporting Software
 - PyTorch >= 2.5.1, torch-npu >= 2.5.1-7.0.0
 
 ## Quick Start
-DeepEP-Ascend supports both A2 and A3 and needs to generate packages separately on A2 and A3.
+DeepEP-Ascend supports A2, A3 and A5 and needs to generate packages separately on A2, A3 and A5.
 ### Compile and Run
 1. Prepare the CANN environment variables (modify according to the installation path)
 ```bash
