@@ -29,6 +29,11 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
 2. Build the project
 Before executing the engineering build script build.sh, modify `_ASCEND_INSTALL_PATH` on line 7 of build.sh according to the CANN installation path.
+- A5
+    ```bash
+    # Building Project
+    bash build.sh -a deepep Ascend950
+    ```
 - A3
     ```bash
     # Building Project

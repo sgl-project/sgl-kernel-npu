@@ -31,6 +31,11 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
 2、构建项目
 执行工程构建脚本 build.sh前，根据CANN安装路径，修改`build.sh:line7`的`_ASCEND_INSTALL_PATH`。
+- A5
+    ```bash
+    # Building Project
+    bash build.sh -a deepep Ascend950
+    ```
 - A3
     ```bash
     # Building Project
