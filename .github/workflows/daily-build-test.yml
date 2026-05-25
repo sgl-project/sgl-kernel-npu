@@ -64,6 +64,9 @@ jobs:
           HCCL_BUFFSIZE: 4096
           TEST_ENV: daily-build
         run: |
+          if [ "${{ matrix.cann_version }}" = "9.0.0" ]; then
+            export MOE_ENABLE_CCU=0
+          fi
           SCRIPT_NAME="enumerate_test_${{ matrix.test_type }}${{ matrix.test_type == 'low_latency' && (matrix.hardware == 'a2' && '_a2' || '') || '' }}.sh"
           echo "Starting daily enumerate ${{ matrix.test_type }} test (${{ matrix.cann_version }}, ${{ matrix.hardware }}) at $(date)"
           chmod +x scripts/${SCRIPT_NAME}
