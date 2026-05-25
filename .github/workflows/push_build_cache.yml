@@ -45,12 +45,23 @@ jobs:
             -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
           echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
 
+          CANN_RAW=$(cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg 2>/dev/null || echo "unknown")
+          CANN_VERSION=$(echo "$CANN_RAW" | tr -cd '[:alnum:].-' | head -c 32)
+          [ -z "$CANN_VERSION" ] && CANN_VERSION="unknown"
+          echo "CANN_VERSION=$CANN_VERSION" >> $GITHUB_OUTPUT
+          echo "Resolved CANN version: $CANN_VERSION (raw: $CANN_RAW)"
+
       - name: Restore build cache
         id: cache-build
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v1-${{ runner.os }}-a3-cann8.5.0-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
 
       - name: Install dependencies
         if: steps.cache-build.outputs.cache-hit != 'true'
@@ -98,12 +109,23 @@ jobs:
             -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
           echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
 
+          CANN_RAW=$(cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg 2>/dev/null || echo "unknown")
+          CANN_VERSION=$(echo "$CANN_RAW" | tr -cd '[:alnum:].-' | head -c 32)
+          [ -z "$CANN_VERSION" ] && CANN_VERSION="unknown"
+          echo "CANN_VERSION=$CANN_VERSION" >> $GITHUB_OUTPUT
+          echo "Resolved CANN version: $CANN_VERSION (raw: $CANN_RAW)"
+
       - name: Restore build cache
         id: cache-build
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v1-${{ runner.os }}-a2-cann8.5.0-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
 
       - name: Install dependencies
         if: steps.cache-build.outputs.cache-hit != 'true'
