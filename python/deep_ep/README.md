@@ -17,7 +17,7 @@ Supporting Software
 - Driver Ascend HDK 25.0.RC1.1, CANN Community Edition 8.2.RC1.alpha003 and later versions (refer to the "[CANN Software Installation Guide](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha003/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)" to install the CANN development kit package, as well as the supporting firmware and drivers)
 - Before installing CANN software, you need to install the relevant [dependency list](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha003/softwareinst/instg/instg_0045.html)
 - Python >= 3.9
-- PyTorch >= 2.10.0, torch-npu >= 2.10.0-7.0.0
+- PyTorch >= 2.8.0, torch-npu >= 2.8.0-7.0.0
 - Recommendation: Python 3.11
 
 ## Quick Start
