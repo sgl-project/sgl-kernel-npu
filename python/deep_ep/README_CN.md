@@ -20,6 +20,7 @@ DeepEP的ascend实现
 - 安装CANN软件前需安装相关[依赖列表](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha003/softwareinst/instg/instg_0045.html)
 - Python >= 3.9
 - PyTorch >= 2.10.0, torch-npu >= 2.10.0-7.0.0
+- Recommendation: Python 3.11
 
 ## 快速上手
 DeepEP-Ascend支持A2，A3和A5，需要在A2,A3和A5上分别生成包。

@@ -18,6 +18,7 @@ Supporting Software
 - Before installing CANN software, you need to install the relevant [dependency list](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha003/softwareinst/instg/instg_0045.html)
 - Python >= 3.9
 - PyTorch >= 2.10.0, torch-npu >= 2.10.0-7.0.0
+- Recommendation: Python 3.11
 
 ## Quick Start
 DeepEP-Ascend supports A2, A3 and A5 and needs to generate packages separately on A2, A3 and A5.
