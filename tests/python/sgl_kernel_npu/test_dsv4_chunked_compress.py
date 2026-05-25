@@ -184,16 +184,17 @@ def run_equivalence_case(
     device: torch.device,
     atol: float,
     rtol: float,
+    extra_chunks: int = 0,
 ) -> None:
     """Cross-validate chunked path against the non-chunked reference.
 
-    Uses total_len = 2*ratio tokens. The non-chunked reference processes
-    everything at once (prefix_len=0, chunk_len=2*ratio) and returns two
-    compressed outputs; we take k=1. The chunked kernel receives only the
-    second half (prefix_len=ratio, chunk_len=ratio) and must agree on k=1.
-    This catches any convention mismatch between the kernel and the non-chunked
-    _overlap_transform path that would be invisible to the self-referential
-    reference_chunked_compress check.
+    With extra_chunks=0 (default): total_len=2*ratio, prefix_len=ratio,
+    chunk_len=ratio → kernel emits n_out=1, validated against non-chunked k=1.
+
+    With extra_chunks=N: total_len=(2+N)*ratio, prefix_len=ratio,
+    chunk_len=(1+N)*ratio → kernel emits n_out=1+N, all outputs validated
+    against the non-chunked reference. This exercises the out_i loop and the
+    store address arithmetic (out + out_i * HEAD_DIM) for out_i > 0.
     """
     from sgl_kernel_npu.attention.dsv4_chunked_compress import (
         dsv4_chunked_prefill_compress,
@@ -201,23 +202,24 @@ def run_equivalence_case(
 
     overlap = ratio == 4
     coff = 2 if overlap else 1
-    total_len = 2 * ratio
     prefix_len = ratio
-    chunk_len = ratio
+    chunk_len = (1 + extra_chunks) * ratio
+    total_len = prefix_len + chunk_len
+    n_out_expected = chunk_len // ratio  # == 1 + extra_chunks
 
     kv_full = torch.randn(total_len, coff * head_dim, dtype=torch.float32)
     score_full = torch.randn(total_len, coff * head_dim, dtype=torch.float32) * 0.3
     ape = torch.randn(ratio, coff * head_dim, dtype=torch.float32) * 0.5
 
-    # Non-chunked reference: prefix=0, all 2*ratio tokens. Yields [k=0, k=1].
+    # Non-chunked reference: prefix=0, all total_len tokens. Yields outputs k=0..n_out.
+    # We compare against outputs k=1..n_out (the part the chunked kernel covers).
     nc_case = CaseConfig(f"{name}_nc", ratio, 0, total_len, head_dim, page_size)
     empty_state = torch.empty((0, 2 * coff * head_dim), dtype=torch.float32)
     ref_all = reference_chunked_compress(
         kv_full, score_full, empty_state, 0, ape, nc_case
     )
-    ref_k1 = ref_all[1]
+    ref_chunked = ref_all[1:]  # shape (n_out_expected, head_dim)
 
-    # Chunked kernel: prefix=ratio, only second half. Must yield one output == k=1.
     page_table = make_page_table(total_len, page_size)
     state_pool = fill_state_pool(
         kv_full, score_full, ape, prefix_len, ratio, page_table, page_size
@@ -239,10 +241,13 @@ def run_equivalence_case(
     )
     torch.npu.synchronize()
     out_cpu = out.cpu()
-    assert out_cpu.shape[0] == 1, f"expected 1 output, got {out_cpu.shape[0]}"
-    torch.testing.assert_close(out_cpu[0], ref_k1, atol=atol, rtol=rtol)
-    diff = (out_cpu[0] - ref_k1).abs().max().item()
-    print(f"[PASS] equivalence/{name}: max_diff={diff:.6g}")
+    assert out_cpu.shape[0] == n_out_expected, (
+        f"expected {n_out_expected} outputs, got {out_cpu.shape[0]}"
+    )
+    torch.testing.assert_close(out_cpu, ref_chunked, atol=atol, rtol=rtol)
+    diff = (out_cpu - ref_chunked).abs().max().item()
+    suffix = f"_x{1 + extra_chunks}" if extra_chunks else ""
+    print(f"[PASS] equivalence/{name}{suffix}: n_out={n_out_expected} max_diff={diff:.6g}")
 
 
 def main():
@@ -279,6 +284,11 @@ def main():
         CaseConfig("n_out_zero_non_overlap", 128, 128, 64, 16, 16),
         # prefix_len=4, chunk_len=2, ratio=4 → (4+2)//4 - 4//4 = 1-1 = 0
         CaseConfig("n_out_zero_overlap", 4, 4, 2, 16, 4),
+        # ── overlap with prefix_len exactly a multiple of ratio and n_out > 0.
+        # k=1: prev sources [0,4) all from state, current sources [4,8) all from chunk —
+        # a clean state/chunk partition that no other case covers.
+        CaseConfig("overlap_aligned_prefix_multi_out", 4, 4, 8, 16, 4),
+        CaseConfig("overlap_aligned_prefix_multi_out_hd128", 4, 4, 8, 128, 4),
     ]
     for case in fp32_cases:
         run_case(case, device, args.atol, args.rtol, dtype=torch.float32)
@@ -310,6 +320,35 @@ def main():
     )
     run_equivalence_case(
         "non_overlap_ratio128_hd128", 128, 128, 16, device, args.atol, args.rtol
+    )
+
+    # ── Multi-output equivalence: extra_chunks=2 → n_out=3, validates
+    # out_i loop and store address (out + out_i * HEAD_DIM) for out_i > 0.
+    run_equivalence_case(
+        "overlap_ratio4_hd16", 4, 16, 4, device, args.atol, args.rtol, extra_chunks=2
+    )
+    run_equivalence_case(
+        "overlap_ratio4_hd128", 4, 128, 4, device, args.atol, args.rtol, extra_chunks=2
+    )
+    run_equivalence_case(
+        "non_overlap_ratio128_hd16",
+        128,
+        16,
+        16,
+        device,
+        args.atol,
+        args.rtol,
+        extra_chunks=2,
+    )
+    run_equivalence_case(
+        "non_overlap_ratio128_hd128",
+        128,
+        128,
+        16,
+        device,
+        args.atol,
+        args.rtol,
+        extra_chunks=2,
     )
 
     print("All DeepSeek-V4 chunked compress Triton tests passed.")

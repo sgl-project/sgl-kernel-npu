@@ -152,6 +152,16 @@ def dsv4_chunked_prefill_compress(
     assert ape.is_contiguous()
     assert 0 <= state_base <= prefix_len
     assert state_kv_score_window.shape[-1] == 2 * ape.shape[1]
+    # In overlap mode chunk_kv/chunk_score use a 2*HEAD_DIM packed column layout
+    # (prev-half in [:HEAD_DIM], current-half in [HEAD_DIM:]), matching ape.shape[1].
+    # Non-overlap mode uses HEAD_DIM columns, also matching ape.shape[1].
+    assert chunk_kv.shape[1] == ape.shape[1], (
+        f"chunk_kv col-dim {chunk_kv.shape[1]} != ape col-dim {ape.shape[1]}; "
+        "chunk_kv must use the same column packing as ape (2*HEAD_DIM in overlap mode)"
+    )
+    assert chunk_score.shape[1] == ape.shape[1], (
+        f"chunk_score col-dim {chunk_score.shape[1]} != ape col-dim {ape.shape[1]}"
+    )
 
     n_out = (prefix_len + chunk_len) // ratio - prefix_len // ratio
     coff = 2 if overlap else 1
