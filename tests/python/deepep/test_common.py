@@ -76,7 +76,7 @@ def normal_test(
     assert (
         calc_diff(
             combined_x.float(),
-            x * topk_weights_recv.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
+            x * topk_weights_recv.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1).to(x.dtype),
         )
         < 5e-5
     )
