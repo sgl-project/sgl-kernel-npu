@@ -728,7 +728,6 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::ShareToOutputLongSeq()
         recvOffset = recvOffsetTensor(i);
 
         // 目标地址 = 专家全局起始 + B[es_idx]（源rank在专家内偏移） + r_in_srcrank_offset[c_idx]（轮次在源rank内偏移）
-        // int32_t rInSrcrankIndex = local_e * epRankSize * round + fromRank * round + roundIndex;
         int32_t rInSrcrankIndex = local_e * epRankSize + fromRank;
         int32_t expertGlobalOffset = expertGlobalOffsetTensor(local_e);
         int32_t srcrankInExpertOffset = srcrankInExpertOffsetTensor(i);
@@ -756,7 +755,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::ShareToOutputLongSeq()
                 DataCopyPad(dynamicScalesOutGT[writeOffset + j], xOutFp32Tensor[hUBAlignSize / sizeof(float)],
                             floatDataCopyParams);
             }
-            dstTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(expandXOutGM) +  (uint64_t)h * (writeOffset + j), h);
+            dstTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(expandXOutGM) + (uint64_t)h * (writeOffset + j), h);
             DataCopyPad(dstTokenGT, xTmpTensor, expandXCopyParams);
             xQueue.FreeTensor(xTmpTensor);
         }
