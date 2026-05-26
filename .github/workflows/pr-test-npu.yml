@@ -81,6 +81,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           clean: true
+          submodules: recursive
 
       - name: Install dependencies
         run: |
@@ -431,6 +432,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           clean: true
+          submodules: recursive
 
       - name: Install dependencies
         run: |
@@ -787,6 +789,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           clean: true
+          submodules: recursive
 
       - name: Install dependencies
         run: |
