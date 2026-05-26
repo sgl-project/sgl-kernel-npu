@@ -658,7 +658,9 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::WaitRoundStatus()
         Sum(tempRoundStateTensorLocal, stateTensorLocal, sumPerRankParams);
         SyncFunc<AscendC::HardEvent::V_S>();
         current = tempRoundStateTensorLocal.GetValue(0);
-        int64_t systemCycleAfter = AscendC::GetSystemCycle();
+        if (isEnableDiagnose) {
+            int64_t systemCycleAfter = AscendC::GetSystemCycle();
+        }
     }
 
     SyncFunc<AscendC::HardEvent::S_V>();
@@ -702,13 +704,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::ShareToOutputLongSeq()
     DataCopyPadExtParams<int32_t> srcrankInExpertOffsetCopyPadExtParams{false, 0U, 0U, 0U};
     DataCopyPad(srcrankInExpertOffsetTensor, srcrankInExpertOffsetGT, srcrankInExpertOffsetParams,
                 srcrankInExpertOffsetCopyPadExtParams);
-
-    // tpipe_->InitBuffer(rInSrcrankOffsetBuf, round * moeExpertNum * sizeof(int32_t));
-    // rInSrcrankOffsetTensor = rInSrcrankOffsetBuf.Get<int32_t>();
-    // DataCopyExtParams CParams{1U, static_cast<uint32_t>(sizeof(int32_t) * moeExpertNum * round), 0U, 0U, 0U};
-    // DataCopyPadExtParams<int32_t> CCopyPadExtParams{false, 0U, 0U, 0U};
-    // DataCopyPad(rInSrcrankOffsetTensor, rInSrcrankOffsetGT, CParams, CCopyPadExtParams);
-    GetRInSrcrankOffsetForRound(roundIndex); // 仅读取本轮需要用到的offset
+    GetRInSrcrankOffsetForRound(roundIndex);  // 仅读取本轮需要用到的offset
 
     uint32_t fromRank, count, preCount, recvOffset, targetOffset, local_e;
     DataCopyPadExtParams<ExpandXOutType> copyPadExtParams{false, 0U, 0U, 0U};
@@ -742,6 +738,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::ShareToOutputLongSeq()
         GM_ADDR recvStart =
             (__gm__ uint8_t *)(GetWindAddrByRankId(COMM_EP_IDX, fromRank)) + recvOffset * hOutGMAlignSize;
         GlobalTensor<ExpandXOutType> srcTokenGT, dstTokenGT;
+
         for (uint32_t j = 0; j < count; ++j) {
             srcTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(recvStart + j * hOutGMAlignSize));
             xTmpTensor = xQueue.AllocTensor<ExpandXOutType>();
@@ -759,10 +756,8 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::ShareToOutputLongSeq()
                 DataCopyPad(dynamicScalesOutGT[writeOffset + j], xOutFp32Tensor[hUBAlignSize / sizeof(float)],
                             floatDataCopyParams);
             }
-
-            dstTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(expandXOutGM) + (writeOffset + j) * h, h);
+            dstTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(expandXOutGM) +  (uint64_t)h * (writeOffset + j), h);
             DataCopyPad(dstTokenGT, xTmpTensor, expandXCopyParams);
-
             xQueue.FreeTensor(xTmpTensor);
         }
     }

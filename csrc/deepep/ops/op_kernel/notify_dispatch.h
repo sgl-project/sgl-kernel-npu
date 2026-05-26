@@ -66,7 +66,7 @@ public:
         maxBs_ = maxBs;
         recvTokensPerExpert_ = recvTokensPerExpert;
         if (round == 1) {
-            batchRounds = 1; // 没有开蚂蚁搬家，不需要多轮处理, 避免UB分配过大
+            batchRounds = 1;  // 没有开蚂蚁搬家，不需要多轮处理, 避免UB分配过大
         } else {
             if (numLocalExperts >= (EXPERT_NORMAL_NUM / 4)) {
                 batchRounds = BATCH_ROUND;
