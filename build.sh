@@ -137,23 +137,11 @@ echo "outpath: ${OUTPUT_DIR}"
 
 COMPILE_OPTIONS=""
 
-function check_submodules()
-{
-    PTO_ISA_DIR="third-party/pto-isa"
-    if [[ -d "${PTO_ISA_DIR}/include/pto" ]]; then return 0; fi
-
-    echo "Missing submodule. Run 'git submodule update --init --recursive' before build.sh." 1>&2
-    exit 1
-}
 
 function build_kernels()
 {
     if [[ "$ONLY_BUILD_DEEPEP_KERNELs_MODULE" == "ON" ]]; then return 0; fi
     if [[ "$ONLY_BUILD_MEMORY_SAVER_MODULE" == "ON" ]]; then return 0; fi
-
-    if [[ "$BUILD_KERNELS_MODULE" == "ON" ]]; then
-        check_submodules
-    fi
 
     CMAKE_DIR=""
     BUILD_DIR="build"
