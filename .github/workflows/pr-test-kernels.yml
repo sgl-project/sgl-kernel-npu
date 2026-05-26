@@ -1,0 +1,477 @@
+name: PR Test - Kernel Operators (Ascend NPU)
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "csrc/**"
+      - "python/sgl_kernel_npu/**"
+      - "tests/python/sgl_kernel_npu/**"
+      - "build.sh"
+      - "cmake/**"
+      - "scripts/prepare_kernel_tests.sh"
+      - "scripts/run_kernel_tests.sh"
+      - ".github/workflows/pr-test-kernels.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: pr-test-kernels-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  get-changed-files:
+    name: Check changed files
+    runs-on: ubuntu-latest
+    outputs:
+      norm_changed: ${{ steps.match-groups.outputs.norm_any_changed }}
+      attention_changed: ${{ steps.match-groups.outputs.attention_any_changed }}
+      cache_changed: ${{ steps.match-groups.outputs.cache_any_changed }}
+      speculative_changed: ${{ steps.match-groups.outputs.speculative_any_changed }}
+      mamba_changed: ${{ steps.match-groups.outputs.mamba_any_changed }}
+      fla_changed: ${{ steps.match-groups.outputs.fla_any_changed }}
+      fused_changed: ${{ steps.match-groups.outputs.fused_any_changed }}
+      common_changed: ${{ steps.match-groups.outputs.common_any_changed }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Match changed files
+        id: match-groups
+        uses: tj-actions/changed-files@v45
+        with:
+          files_yaml: |
+            norm:
+              - csrc/rmsnorm/**
+              - csrc/add_rmsnorm_bias/**
+              - csrc/l1_norm/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/norm/**
+              - tests/python/sgl_kernel_npu/test_add_rmsnorm_bias.py
+              - tests/python/sgl_kernel_npu/test_rmsnorm_split.py
+              - tests/python/sgl_kernel_npu/test_rmsnorm_without_weight.py
+              - tests/python/sgl_kernel_npu/test_l1_norm.py
+              - tests/python/sgl_kernel_npu/test_scale_shift.py
+            attention:
+              - csrc/attentions/**
+              - csrc/mla_preprocess/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/attention/**
+              - tests/python/sgl_kernel_npu/test_decode_attention.py
+              - tests/python/sgl_kernel_npu/test_mla_preprocess.py
+              - tests/python/sgl_kernel_npu/test_split_qkv_rmsnorm_rope.py
+              - tests/python/sgl_kernel_npu/test_split_qkv_rmsnorm_rope_pos_cache_half_npu.py
+              - tests/python/sgl_kernel_npu/test_split_qkv_tp_rmsnorm_rope.py
+            cache:
+              - csrc/alloc_extend/**
+              - csrc/cache_location_assign/**
+              - csrc/assign_cache_op/**
+              - csrc/lightning_indexer/**
+              - csrc/transfer_kv_dim_exchange/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/mem_cache/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/kvcacheio/**
+              - tests/python/sgl_kernel_npu/test_alloc_extend_slot.py
+              - tests/python/sgl_kernel_npu/test_cache_assign.py
+              - tests/python/sgl_kernel_npu/test_cache_update.py
+              - tests/python/sgl_kernel_npu/test_inplace_assign_cache.py
+              - tests/python/sgl_kernel_npu/test_lightning_indexer.py
+              - tests/python/sgl_kernel_npu/test_transfer_kv_dim_exchange.py
+            speculative:
+              - csrc/build_tree/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/sample/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/speculative/**
+              - tests/python/sgl_kernel_npu/test_build_tree.py
+              - tests/python/sgl_kernel_npu/test_verify_tree.py
+              - tests/python/sgl_kernel_npu/test_apply_token_bitmask.py
+            mamba:
+              - csrc/causal_conv1d/**
+              - csrc/causal_conv1d_update/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/mamba/**
+              - tests/python/sgl_kernel_npu/test_conv1d_prefill.py
+              - tests/python/sgl_kernel_npu/test_conv1d_update.py
+              - tests/python/sgl_kernel_npu/test_mamba_conv.py
+              - tests/python/sgl_kernel_npu/test_mamba_state_update.py
+            fla:
+              - csrc/recurrent_gated_delta_rule/**
+              - csrc/mega_chunk_gdn/**
+              - csrc/tri_inv/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/fla/**
+              - tests/python/sgl_kernel_npu/test_gated_delta.py
+              - tests/python/sgl_kernel_npu/test_gated_delta_ascendc_tri_inv.py
+              - tests/python/sgl_kernel_npu/test_mega_chunk_gdn.py
+              - tests/python/sgl_kernel_npu/test_recurrent_gated_delta_rule.py
+              - tests/python/sgl_kernel_npu/test_fused_gdn_gating_without_sigmoid.py
+              - tests/python/sgl_kernel_npu/test_solve_tril.py
+              - tests/python/sgl_kernel_npu/test_triangular_inverse.py
+            fused:
+              - csrc/batch_matmul_transpose/**
+              - csrc/catlass/**
+              - csrc/lora/**
+              - csrc/apply_token_bitmask/**
+              - csrc/helloworld/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/activation/**
+              - python/sgl_kernel_npu/sgl_kernel_npu/moe/**
+              - tests/python/sgl_kernel_npu/test_swiglu_quant.py
+              - tests/python/sgl_kernel_npu/test_batch_matmul_transpose.py
+              - tests/python/sgl_kernel_npu/test_catlass_matmul_basic.py
+              - tests/python/sgl_kernel_npu/test_qkvzba_split_reshape_cat.py
+              - tests/python/sgl_kernel_npu/test_lora_kernels.py
+              - tests/python/sgl_kernel_npu/test_hello_world.py
+            common:
+              - build.sh
+              - cmake/**
+              - CMakeLists.txt
+              - scripts/prepare_kernel_tests.sh
+              - scripts/run_kernel_tests.sh
+              - .github/workflows/pr-test-kernels.yml
+
+  test-norm-ops:
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.norm_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    runs-on: linux-aarch64-a3-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+
+          bash scripts/npu_ci_install_dependency.sh
+
+      - name: Build and install kernel module
+        run: bash scripts/prepare_kernel_tests.sh
+
+      - name: Run norm operator tests
+        timeout-minutes: 15
+        run: bash scripts/run_kernel_tests.sh norm
+
+  test-attention-ops:
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.attention_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    runs-on: linux-aarch64-a3-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+
+          bash scripts/npu_ci_install_dependency.sh
+
+      - name: Build and install kernel module
+        run: bash scripts/prepare_kernel_tests.sh
+
+      - name: Run attention operator tests
+        timeout-minutes: 20
+        run: bash scripts/run_kernel_tests.sh attention
+
+  test-cache-ops:
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.cache_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    runs-on: linux-aarch64-a3-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+
+          bash scripts/npu_ci_install_dependency.sh
+
+      - name: Build and install kernel module
+        run: bash scripts/prepare_kernel_tests.sh
+
+      - name: Run cache operator tests
+        timeout-minutes: 15
+        run: bash scripts/run_kernel_tests.sh cache
+
+  test-speculative-ops:
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.speculative_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    runs-on: linux-aarch64-a3-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+
+          bash scripts/npu_ci_install_dependency.sh
+
+      - name: Build and install kernel module
+        run: bash scripts/prepare_kernel_tests.sh
+
+      - name: Run speculative decoding operator tests
+        timeout-minutes: 15
+        run: bash scripts/run_kernel_tests.sh speculative
+
+  test-mamba-ops:
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.mamba_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    runs-on: linux-aarch64-a3-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+
+          bash scripts/npu_ci_install_dependency.sh
+
+      - name: Build and install kernel module
+        run: bash scripts/prepare_kernel_tests.sh
+
+      - name: Run mamba operator tests
+        timeout-minutes: 15
+        run: bash scripts/run_kernel_tests.sh mamba
+
+  test-fla-ops:
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.fla_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    runs-on: linux-aarch64-a3-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+
+          bash scripts/npu_ci_install_dependency.sh
+
+      - name: Build and install kernel module
+        run: bash scripts/prepare_kernel_tests.sh
+
+      - name: Run FLA/GDN operator tests
+        timeout-minutes: 20
+        run: bash scripts/run_kernel_tests.sh fla
+
+  test-fused-ops:
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.fused_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    runs-on: linux-aarch64-a3-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+
+          bash scripts/npu_ci_install_dependency.sh
+
+      - name: Build and install kernel module
+        run: bash scripts/prepare_kernel_tests.sh
+
+      - name: Run fused operator tests
+        timeout-minutes: 20
+        run: bash scripts/run_kernel_tests.sh fused
+
+  finish:
+    if: always()
+    needs:
+      - test-norm-ops
+      - test-attention-ops
+      - test-cache-ops
+      - test-speculative-ops
+      - test-mamba-ops
+      - test-fla-ops
+      - test-fused-ops
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check all dependent job statuses
+        run: |
+          results=(${{ join(needs.*.result, ' ') }})
+          for result in "${results[@]}"; do
+            if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
+              echo "Job failed with result: $result"
+              exit 1
+            fi
+          done
+          echo "All kernel operator tests passed"

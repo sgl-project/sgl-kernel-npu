@@ -1,0 +1,163 @@
+name: Daily Kernel Operator Tests (Ascend NPU)
+
+on:
+  schedule:
+    - cron: "0 18 * * *"
+  pull_request:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/daily-test-kernels.yml"
+      - "scripts/prepare_kernel_tests.sh"
+      - "scripts/run_kernel_tests.sh"
+      - "scripts/run_memory_saver_tests.sh"
+  workflow_dispatch:
+
+concurrency:
+  group: daily-kernel-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  run-daily-kernel-tests:
+    name: Kernel Tests (CANN ${{ matrix.cann_version }}, ${{ matrix.hardware }})
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-16' || 'linux-aarch64-a2-8' }}
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}-ubuntu22.04-py3.11
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        cann_version: [8.5.0, 9.0.0]
+        hardware: [a3]
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+
+          bash scripts/npu_ci_install_dependency.sh
+
+      - name: Build and install kernel module
+        run: bash scripts/prepare_kernel_tests.sh
+
+      - name: Run all kernel operator tests
+        timeout-minutes: 60
+        env:
+          HCCL_BUFFSIZE: 4096
+        run: |
+          if [ "${{ matrix.cann_version }}" = "9.0.0" ]; then
+            export MOE_ENABLE_CCU=0
+          fi
+          bash scripts/run_kernel_tests.sh all
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernel-test-results-${{ matrix.cann_version }}-${{ matrix.hardware }}-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            test-results/
+            logs/
+          retention-days: 30
+
+  run-daily-memory-saver-tests:
+    name: Memory Saver Tests (CANN ${{ matrix.cann_version }}, ${{ matrix.hardware }})
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-16' || 'linux-aarch64-a2-8' }}
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}-ubuntu22.04-py3.11
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        cann_version: [8.5.0]
+        hardware: [a3]
+        hook_mode: [torch, preload]
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+
+          bash scripts/npu_ci_install_dependency.sh
+
+      - name: Build and install memory saver module
+        run: |
+          if [[ -n "${GITHUB_WORKSPACE:-}" ]]; then
+            git config --global --add safe.directory "${GITHUB_WORKSPACE}"
+          fi
+          cd ${GITHUB_WORKSPACE}
+          bash build.sh -a memory-saver
+          pip install ${GITHUB_WORKSPACE}/output/torch_memory_saver*.whl --no-cache-dir
+
+      - name: Run memory saver tests (hook_mode=${{ matrix.hook_mode }})
+        timeout-minutes: 30
+        run: bash scripts/run_memory_saver_tests.sh ${{ matrix.hook_mode }} with-multi-device
+
+      - name: Upload test artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: memory-saver-test-results-${{ matrix.cann_version }}-${{ matrix.hardware }}-${{ matrix.hook_mode }}-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            test-results/
+            logs/
+          retention-days: 30
+
+  finish:
+    if: always()
+    needs: [run-daily-kernel-tests, run-daily-memory-saver-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate test report
+        run: |
+          echo "## Daily Kernel Operator Tests Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Overall Status**: Kernel=${{ needs.run-daily-kernel-tests.result }}, MemorySaver=${{ needs.run-daily-memory-saver-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Execution Time**: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Workflow Run**: [$GITHUB_RUN_ID](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> $GITHUB_STEP_SUMMARY
