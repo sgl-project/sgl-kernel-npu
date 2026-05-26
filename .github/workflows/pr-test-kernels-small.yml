@@ -1,0 +1,75 @@
+name: PR Test - Kernel Operators Small Batch (Ascend NPU)
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "csrc/**"
+      - "python/sgl_kernel_npu/**"
+      - "tests/python/sgl_kernel_npu/**"
+      - "build.sh"
+      - "cmake/**"
+      - "scripts/prepare_kernel_tests.sh"
+      - "scripts/run_kernel_tests.sh"
+      - ".github/workflows/pr-test-kernels-small.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: pr-test-kernels-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-kernel-ops:
+    runs-on: linux-aarch64-a3-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+
+          bash scripts/npu_ci_install_dependency.sh
+
+      - name: Build and install kernel module
+        run: bash scripts/prepare_kernel_tests.sh
+
+      - name: "Run kernel tests (small batch: 8 core tests)"
+        timeout-minutes: 30
+        run: bash scripts/run_kernel_tests.sh small
+
+  finish:
+    if: always()
+    needs: [test-kernel-ops]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check test results
+        run: |
+          if [ "${{ needs.test-kernel-ops.result }}" = "failure" ] || [ "${{ needs.test-kernel-ops.result }}" = "cancelled" ]; then
+            echo "Kernel operator tests failed"
+            exit 1
+          fi
+          echo "All kernel operator tests passed"
