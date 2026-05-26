@@ -241,13 +241,15 @@ def run_equivalence_case(
     )
     torch.npu.synchronize()
     out_cpu = out.cpu()
-    assert out_cpu.shape[0] == n_out_expected, (
-        f"expected {n_out_expected} outputs, got {out_cpu.shape[0]}"
-    )
+    assert (
+        out_cpu.shape[0] == n_out_expected
+    ), f"expected {n_out_expected} outputs, got {out_cpu.shape[0]}"
     torch.testing.assert_close(out_cpu, ref_chunked, atol=atol, rtol=rtol)
     diff = (out_cpu - ref_chunked).abs().max().item()
     suffix = f"_x{1 + extra_chunks}" if extra_chunks else ""
-    print(f"[PASS] equivalence/{name}{suffix}: n_out={n_out_expected} max_diff={diff:.6g}")
+    print(
+        f"[PASS] equivalence/{name}{suffix}: n_out={n_out_expected} max_diff={diff:.6g}"
+    )
 
 
 def main():

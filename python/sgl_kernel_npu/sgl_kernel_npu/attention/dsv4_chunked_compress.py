@@ -159,9 +159,9 @@ def dsv4_chunked_prefill_compress(
         f"chunk_kv col-dim {chunk_kv.shape[1]} != ape col-dim {ape.shape[1]}; "
         "chunk_kv must use the same column packing as ape (2*HEAD_DIM in overlap mode)"
     )
-    assert chunk_score.shape[1] == ape.shape[1], (
-        f"chunk_score col-dim {chunk_score.shape[1]} != ape col-dim {ape.shape[1]}"
-    )
+    assert (
+        chunk_score.shape[1] == ape.shape[1]
+    ), f"chunk_score col-dim {chunk_score.shape[1]} != ape col-dim {ape.shape[1]}"
 
     n_out = (prefix_len + chunk_len) // ratio - prefix_len // ratio
     coff = 2 if overlap else 1
