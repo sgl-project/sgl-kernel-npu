@@ -79,6 +79,7 @@ while [ $attempt -lt $max_retries ]; do
 
     echo "============================================= build.sh debug ============================================="
     echo "build.sh sha256: $(sha256sum build.sh | awk '{print $1}')"
+    cat build.sh | grep pto
     echo "build.sh submodule references: "
     grep -n "submodule\|pto-isa" build.sh || true
     echo "=========================================================================================================="
