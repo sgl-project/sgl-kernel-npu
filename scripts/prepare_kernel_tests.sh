@@ -8,4 +8,3 @@ fi
 cd "${GITHUB_WORKSPACE}"
 bash build.sh -a kernels
 pip install ${GITHUB_WORKSPACE}/output/sgl_kernel_npu*.whl --no-cache-dir
-uv pip install triton expecttest einops pytest
