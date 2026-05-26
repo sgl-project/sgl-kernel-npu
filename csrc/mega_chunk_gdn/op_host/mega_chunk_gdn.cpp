@@ -90,7 +90,6 @@ HOST_API void mega_chunk_gdn(const at::Tensor &q, const at::Tensor &k, const at:
     uint32_t num_key_heads_u32 = static_cast<uint32_t>(q.size(2));
     int64_t has_initial_state_i64 = has_initial_state ? 1 : 0;
 
-    printf("the number of heads is: %u\n", num_heads_u32);
     EXEC_KERNEL_CMD(launch_mega_kernel, block_dim_u32, q, k, v, g, beta, mask_lower, mask_full, minus_identity,
                     cu_seqlens, out, g_sum, g_t, beta_t, a, a_inv_f32, a_inv, w, u, s, v_new, final_state,
                     initial_state, has_initial_state_i64, kkt_workspace, wy_workspace_a1, wy_workspace_a2, h_workspace,
