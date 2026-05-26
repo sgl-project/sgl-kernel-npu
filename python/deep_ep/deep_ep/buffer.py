@@ -585,7 +585,6 @@ class Buffer:
         Normally, you should not directly call this function.
         """
         x, x_scales = x if isinstance(x, tuple) else (x, None)
-        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
         if handle is not None:
             raise NotImplementedError(
                 "Optional communication handle is not supported yet."
