@@ -60,6 +60,8 @@ jobs:
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Build and install kernel module
+        env:
+          CANN_VERSION: ${{ matrix.cann_version }}
         run: bash scripts/prepare_kernel_tests.sh
 
       - name: Run all kernel operator tests
