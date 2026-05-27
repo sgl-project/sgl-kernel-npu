@@ -15,18 +15,23 @@ export UV_SYSTEM_PYTHON=true
 # CANN 8.5.0 -> triton-ascend 3.2.0, CANN 9.0.0 -> triton-ascend 3.2.1
 if [ -n "${TRITON_ASCEND_WHL:-}" ]; then
     pip install ${TRITON_ASCEND_WHL}
-elif [ -n "${CANN_VERSION:-}" ]; then
-    case "${CANN_VERSION}" in
-        9.0.0)
-            pip install triton-ascend==3.2.1 --extra-index-url=https://triton-ascend.osinfra.cn/pypi/simple
+else
+    CANN_VER="${CANN_VERSION:-8.5.0}"
+    case "$CANN_VER" in
+        8.5.*)
+            TRITON_ASCEND_VER="3.2.0"
+            ;;
+        9.0.*)
+            TRITON_ASCEND_VER="3.2.1"
             ;;
         *)
-            pip install triton-ascend==3.2.0 --extra-index-url=https://triton-ascend.osinfra.cn/pypi/simple
+            echo "WARNING: Unknown CANN version $CANN_VER, defaulting to triton-ascend 3.2.0"
+            TRITON_ASCEND_VER="3.2.0"
             ;;
     esac
-else
-    pip install triton-ascend==3.2.0 --extra-index-url=https://triton-ascend.osinfra.cn/pypi/simple
+    echo "Installing triton-ascend==${TRITON_ASCEND_VER} for CANN ${CANN_VER}"
+    pip install triton-ascend==${TRITON_ASCEND_VER} --extra-index-url=https://triton-ascend.osinfra.cn/pypi/simple
 fi
 
 # Install other test dependencies
-uv pip install expecttest einops pytest packaging torchair
+uv pip install expecttest einops pytest packaging
