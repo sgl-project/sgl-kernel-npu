@@ -309,8 +309,6 @@ class Buffer:
 
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
-        quant_type = config.normal_quant_type.lower()
-        use_quant = quant_type in ("fp8", "int8")  # or more precise mapping
 
         # Internode
         if self.runtime.get_num_rdma_ranks() > 1:
@@ -334,6 +332,8 @@ class Buffer:
         if isinstance(x, tuple):
             raise NotImplementedError("Not support fp8")
         x_scales = None
+        quant_type = config.normal_quant_type.lower()
+        use_quant = quant_type in ("fp8", "int8")  # or more precise mapping
 
         if handle is not None:
             raise NotImplementedError(
@@ -434,6 +434,8 @@ class Buffer:
         if isinstance(x, tuple):
             raise NotImplementedError("Not support fp8")
         x_scales = None
+        quant_type = config.normal_quant_type.lower()
+        use_quant = quant_type in ("fp8", "int8")  # or more precise mapping
 
         if handle is not None:
             raise NotImplementedError(
@@ -583,6 +585,8 @@ class Buffer:
         Normally, you should not directly call this function.
         """
         x, x_scales = x if isinstance(x, tuple) else (x, None)
+        quant_type = config.normal_quant_type.lower()
+        use_quant = quant_type in ("fp8", "int8")  # or more precise mapping
         if handle is not None:
             raise NotImplementedError(
                 "Optional communication handle is not supported yet."
