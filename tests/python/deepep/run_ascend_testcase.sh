@@ -6,7 +6,6 @@ mkdir -p $LOCAL_BUILD_DIR
 chmod -R 777 $LOCAL_BUILD_DIR
 
 echo "============================================= Copy code to local directory ============================================"
-echo "Running new version!"
 echo "Source path: $SGLANG_SOURCE_PATH"
 echo "Local build path: $LOCAL_BUILD_DIR"
 cp -r $SGLANG_SOURCE_PATH/* $LOCAL_BUILD_DIR/
@@ -77,12 +76,6 @@ while [ $attempt -lt $max_retries ]; do
     find ./csrc/deepep/ops2/build_out -type d -exec chmod 755 {} \; 2>/dev/null || true
     rm -rf ./output ./build ./csrc/deepep/ops2/build_out 2>/dev/null || true
     sleep 1
-
-    echo "============================================= build.sh debug ============================================="
-    echo "build.sh sha256: $(sha256sum build.sh | awk '{print $1}')"
-    echo "build.sh submodule references:"
-    grep -n "submodule\|pto-isa" build.sh || true
-    echo "=========================================================================================================="
 
     bash build.sh -a deepep2
     if ls ./output/deep_ep*.whl 1> /dev/null 2>&1; then
