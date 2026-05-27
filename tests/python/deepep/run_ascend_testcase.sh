@@ -6,6 +6,7 @@ mkdir -p $LOCAL_BUILD_DIR
 chmod -R 777 $LOCAL_BUILD_DIR
 
 echo "============================================= Copy code to local directory ============================================"
+echo "Running new version!"
 echo "Source path: $SGLANG_SOURCE_PATH"
 echo "Local build path: $LOCAL_BUILD_DIR"
 cp -r $SGLANG_SOURCE_PATH/* $LOCAL_BUILD_DIR/
@@ -26,7 +27,7 @@ pip config set global.extra-index-url "https://pypi.tuna.tsinghua.edu.cn/simple"
 pip config set global.trusted-host "${CACHING_URL} pypi.tuna.tsinghua.edu.cn"
 
 pip3 install kubernetes
-pip3 install xgrammar==0.1.25
+pip3 install --no-deps xgrammar==0.1.25
 
 unset https_proxy
 unset http_proxy
