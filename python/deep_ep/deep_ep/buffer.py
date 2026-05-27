@@ -252,7 +252,6 @@ class Buffer:
         expert_alignment: int = 1,
         num_worst_tokens: int = 0,
         config: Optional[Config] = None,
-        use_quant: Optional[bool] = None,
         previous_event: Optional[EventOverlap] = None,
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
@@ -289,7 +288,6 @@ class Buffer:
             num_worst_tokens: the worst number of tokens to receive, if specified, there will be no CPU sync, and it
                 will be CUDA-graph compatible. Please also notice that this flag is for intranode only.
             config: the performance tuning config.
-            use_quant: use quant or not.
             previous_event: the event to wait before actually executing the kernel.
             async_finish: the current stream will not wait for the communication kernels to be finished if set.
             allocate_on_comm_stream: control whether all the allocated tensors' ownership to be on the communication stream.
@@ -311,6 +309,8 @@ class Buffer:
 
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
+        quant_type = config.normal_quant_type.lower()
+        use_quant = quant_type in ("fp8", "int8")  # or more precise mapping
 
         # Internode
         if self.runtime.get_num_rdma_ranks() > 1:
@@ -325,7 +325,6 @@ class Buffer:
                 topk_weights,
                 expert_alignment,
                 config,
-                use_quant,
                 previous_event,
                 async_finish,
                 allocate_on_comm_stream,
@@ -568,7 +567,6 @@ class Buffer:
         topk_weights: Optional[torch.Tensor] = None,
         expert_alignment: int = 1,
         config: Optional[Config] = None,
-        use_quant: Optional[bool] = None,
         previous_event: Optional[EventOverlap] = None,
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
