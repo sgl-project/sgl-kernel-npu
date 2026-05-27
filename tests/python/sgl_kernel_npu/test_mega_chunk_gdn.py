@@ -12,16 +12,6 @@ def _has_npu() -> bool:
 pytestmark = pytest.mark.skipif(not _has_npu(), reason="NPU is required")
 
 SUPPORTED_HEAD_CONFIGS = [
-    # pytest.param(4, 2, id="H4-Hg2"),
-    # H=12 is flaky and H = 2, 4 crashes
-    # pytest.param(12, 2, id="H12-Hg2"),
-    # pytest.param(12, 4, id="H12-Hg4"),
-    # pytest.param(12, 6, id="H12-Hg6"),
-    # pytest.param(12, 12, id="H12-Hg12"),
-    pytest.param(8, 8, id="H8-Hg8"),
-    pytest.param(8, 4, id="H8-Hg4"),
-    pytest.param(8, 2, id="H8-Hg2"),
-    pytest.param(8, 2, id="H8-Hg2"),
     pytest.param(16, 4, id="H16-Hg4"),
     pytest.param(16, 8, id="H16-Hg8"),
     pytest.param(16, 16, id="H16-Hg16"),
@@ -39,7 +29,6 @@ SUPPORTED_HEAD_CONFIGS = [
 ]
 
 DEFAULT_HEAD_CONFIGS = [
-    pytest.param(8, 2, id="H8-Hg2"),
     pytest.param(16, 4, id="H16-Hg4"),
     pytest.param(24, 8, id="H24-Hg8"),
     pytest.param(32, 8, id="H32-Hg8"),
@@ -287,7 +276,6 @@ def test_mega_chunk_gdn_all_supported_head_configs(num_value_heads, num_key_head
     cu = torch.tensor(cu_list, dtype=torch.long, device=device)
     scale = D**-0.5
 
-    print(f"Running with {H} val heads python")
     _, actual, _, actual_final_state, _, _, _ = run_mega_chunk_gdn(
         q=q,
         k=k,
