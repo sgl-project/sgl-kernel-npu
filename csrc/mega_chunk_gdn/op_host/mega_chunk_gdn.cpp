@@ -25,43 +25,44 @@ void check_shape(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, 
                  const at::Tensor &beta, const at::Tensor &cu_seqlens, const at::Tensor &initial_state,
                  bool has_initial_state)
 {
-    TORCH_CHECK(q.dim() == 4, "q must have shape [B, T, Hg, D]");
-    TORCH_CHECK(k.dim() == 4, "k must have shape [B, T, Hg, D]");
-    TORCH_CHECK(v.dim() == 4, "v must have shape [B, T, H, D]");
-    TORCH_CHECK(g.dim() == 3, "g must have shape [B, T, H]");
-    TORCH_CHECK(beta.dim() == 3, "beta must have shape [B, T, H]");
+    const char *err = "Try running the alternative backend by setting GDN_ATTN_BACKEND_TRITON=1.";
+    auto check = [&err](bool condition, const char *message) { TORCH_CHECK(condition, message, " ", err); };
 
-    TORCH_CHECK(q.size(0) == 1, "mega_chunk_gdn currently supports packed B=1 input");
-    TORCH_CHECK(q.sizes() == k.sizes(), "q and k must have the same shape");
-    TORCH_CHECK(q.size(1) == v.size(1), "q/k and v sequence lengths must match");
-    TORCH_CHECK(is_supported_head_pair(v.size(2), q.size(2)),
-                "unsupported mega_chunk_gdn (NumValueHeads, NumKeyHeads) pair");
-    TORCH_CHECK(q.size(3) == kHeadDim && v.size(3) == kHeadDim, "mega_chunk_gdn supports head dimension 128");
+    check(q.dim() == 4, "q must have shape [B, T, Hg, D]");
+    check(k.dim() == 4, "k must have shape [B, T, Hg, D]");
+    check(v.dim() == 4, "v must have shape [B, T, H, D]");
+    check(g.dim() == 3, "g must have shape [B, T, H]");
+    check(beta.dim() == 3, "beta must have shape [B, T, H]");
 
-    TORCH_CHECK(g.size(0) == 1 && beta.size(0) == 1, "g and beta must use packed B=1 layout");
-    TORCH_CHECK(g.size(1) == q.size(1) && beta.size(1) == q.size(1), "g/beta sequence lengths must match q");
-    TORCH_CHECK(g.size(2) == v.size(2) && beta.size(2) == v.size(2), "g/beta must use the same NumValueHeads as v");
+    check(q.size(0) == 1, "mega_chunk_gdn currently supports packed B=1 input");
+    check(q.sizes() == k.sizes(), "q and k must have the same shape");
+    check(q.size(1) == v.size(1), "q/k and v sequence lengths must match");
+    check(is_supported_head_pair(v.size(2), q.size(2)), "unsupported mega_chunk_gdn (NumValueHeads, NumKeyHeads) pair");
+    check(q.size(3) == kHeadDim && v.size(3) == kHeadDim, "mega_chunk_gdn supports head dimension 128");
 
-    TORCH_CHECK(q.scalar_type() == at::kHalf, "q must be float16");
-    TORCH_CHECK(k.scalar_type() == at::kHalf, "k must be float16");
-    TORCH_CHECK(v.scalar_type() == at::kHalf, "v must be float16");
-    TORCH_CHECK(beta.scalar_type() == at::kHalf, "beta must be float16");
-    TORCH_CHECK(g.scalar_type() == at::kFloat, "g must be float32");
-    TORCH_CHECK(cu_seqlens.scalar_type() == at::kInt, "cu_seqlens must be int32");
+    check(g.size(0) == 1 && beta.size(0) == 1, "g and beta must use packed B=1 layout");
+    check(g.size(1) == q.size(1) && beta.size(1) == q.size(1), "g/beta sequence lengths must match q");
+    check(g.size(2) == v.size(2) && beta.size(2) == v.size(2), "g/beta must use the same NumValueHeads as v");
 
-    TORCH_CHECK(q.is_contiguous() && k.is_contiguous() && v.is_contiguous(), "q, k, and v must be contiguous");
-    TORCH_CHECK(g.is_contiguous() && beta.is_contiguous() && cu_seqlens.is_contiguous(),
-                "g, beta, and cu_seqlens must be contiguous");
+    check(q.scalar_type() == at::kHalf, "q must be float16");
+    check(k.scalar_type() == at::kHalf, "k must be float16");
+    check(v.scalar_type() == at::kHalf, "v must be float16");
+    check(beta.scalar_type() == at::kHalf, "beta must be float16");
+    check(g.scalar_type() == at::kFloat, "g must be float32");
+    check(cu_seqlens.scalar_type() == at::kInt, "cu_seqlens must be int32");
+
+    check(q.is_contiguous() && k.is_contiguous() && v.is_contiguous(), "q, k, and v must be contiguous");
+    check(g.is_contiguous() && beta.is_contiguous() && cu_seqlens.is_contiguous(),
+          "g, beta, and cu_seqlens must be contiguous");
 
     if (has_initial_state) {
-        TORCH_CHECK(initial_state.dim() == 4, "initial_state must have shape [N, H, D, D]");
-        TORCH_CHECK(initial_state.size(0) == cu_seqlens.numel() - 1,
-                    "initial_state.size(0) must match cu_seqlens sequences");
-        TORCH_CHECK(initial_state.size(1) == v.size(2), "initial_state.size(1) must match NumValueHeads");
-        TORCH_CHECK(initial_state.size(2) == kHeadDim && initial_state.size(3) == kHeadDim,
-                    "initial_state must use head dimensions 128 x 128");
-        TORCH_CHECK(initial_state.scalar_type() == at::kHalf, "initial_state must be float16");
-        TORCH_CHECK(initial_state.is_contiguous(), "initial_state must be contiguous");
+        check(initial_state.dim() == 4, "initial_state must have shape [N, H, D, D]");
+        check(initial_state.size(0) == cu_seqlens.numel() - 1, "initial_state.size(0) must match cu_seqlens sequences");
+        check(initial_state.size(1) == v.size(2), "initial_state.size(1) must match NumValueHeads");
+        check(initial_state.size(2) == kHeadDim && initial_state.size(3) == kHeadDim,
+              "initial_state must use head dimensions 128 x 128");
+        check(initial_state.scalar_type() == at::kHalf, "initial_state must be float16");
+        check(initial_state.is_contiguous(), "initial_state must be contiguous");
     }
 }
 }  // namespace
