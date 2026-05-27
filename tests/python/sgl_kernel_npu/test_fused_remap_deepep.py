@@ -129,8 +129,8 @@ def test_fused_remap_deepep_empty():
         routed_scaling_factor=2.5,
     )
 
-    assert out_ids.shape[0] == 0
-    assert out_weights.shape[0] == 0
+    assert out_ids.shape == (0, 7)
+    assert out_weights.shape == (0, 7)
 
 
 if __name__ == "__main__":

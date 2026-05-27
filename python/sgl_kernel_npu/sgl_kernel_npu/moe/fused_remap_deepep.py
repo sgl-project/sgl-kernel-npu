@@ -11,7 +11,7 @@ def _fused_remap_deepep_kernel(
     out_weights_ptr,
     N,
     K,
-    K_PLUS_N,
+    TOTAL_COLS,
     num_local_routed,
     num_local_experts,
     ep_rank,
@@ -23,7 +23,7 @@ def _fused_remap_deepep_kernel(
         return
 
     cols = tl.arange(0, BLOCK)
-    mask = cols < K_PLUS_N
+    mask = cols < TOTAL_COLS
     is_routed = cols < K
 
     safe_cols = tl.where(is_routed, cols, tl.zeros_like(cols))
@@ -35,13 +35,13 @@ def _fused_remap_deepep_kernel(
     shared_ids = ep_rank * num_local_experts + num_local_routed + shared_idx
 
     final_ids = tl.where(is_routed, remapped_ids, shared_ids)
-    tl.store(out_ids_ptr + row * K_PLUS_N + cols, final_ids, mask=mask)
+    tl.store(out_ids_ptr + row * TOTAL_COLS + cols, final_ids, mask=mask)
 
     routed_weights = tl.load(
         topk_weights_ptr + row * K + safe_cols, mask=is_routed, other=0.0
     )
     final_weights = tl.where(is_routed, routed_weights, shared_weight)
-    tl.store(out_weights_ptr + row * K_PLUS_N + cols, final_weights, mask=mask)
+    tl.store(out_weights_ptr + row * TOTAL_COLS + cols, final_weights, mask=mask)
 
 
 def fused_remap_deepep(
@@ -66,21 +66,25 @@ def fused_remap_deepep(
         routed_scaling_factor: scaling factor for routed experts (0 or 1 means no scaling).
     """
     if topk_ids.shape[0] == 0:
-        return topk_ids, topk_weights
+        total_cols = topk_ids.shape[1] + num_fused_shared_experts
+        return (
+            topk_ids.new_empty((0, total_cols), dtype=topk_ids.dtype),
+            topk_weights.new_empty((0, total_cols), dtype=topk_weights.dtype),
+        )
 
     num_local_routed = num_physical_routed_experts // ep_size
     num_local_experts = num_local_routed + num_fused_shared_experts
 
     N = topk_ids.shape[0]
     K = topk_ids.shape[1]
-    K_PLUS_N = K + num_fused_shared_experts
+    TOTAL_COLS = K + num_fused_shared_experts
 
     shared_weight = 1.0 if not routed_scaling_factor else 1.0 / routed_scaling_factor
 
-    out_ids = topk_ids.new_empty((N, K_PLUS_N), dtype=topk_ids.dtype)
-    out_weights = topk_weights.new_empty((N, K_PLUS_N), dtype=topk_weights.dtype)
+    out_ids = topk_ids.new_empty((N, TOTAL_COLS), dtype=topk_ids.dtype)
+    out_weights = topk_weights.new_empty((N, TOTAL_COLS), dtype=topk_weights.dtype)
 
-    BLOCK = max(32, K_PLUS_N)
+    BLOCK = max(32, triton.next_power_of_2(TOTAL_COLS))
     _fused_remap_deepep_kernel[(N,)](
         topk_ids,
         topk_weights,
@@ -88,7 +92,7 @@ def fused_remap_deepep(
         out_weights,
         N=N,
         K=K,
-        K_PLUS_N=K_PLUS_N,
+        TOTAL_COLS=TOTAL_COLS,
         num_local_routed=num_local_routed,
         num_local_experts=num_local_experts,
         ep_rank=ep_rank,
