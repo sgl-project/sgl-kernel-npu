@@ -35,6 +35,8 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Get build hash
         id: get_build_hash
@@ -86,6 +88,8 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Get build hash
         id: get_build_hash
