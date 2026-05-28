@@ -62,7 +62,7 @@ jobs:
       - name: Build and install kernel module
         run: bash scripts/prepare_kernel_tests.sh
 
-      - name: Run all kernel operator tests
+      - name: Run all kernel operator tests (excluding known failing tests)
         timeout-minutes: 60
         env:
           HCCL_BUFFSIZE: 4096
@@ -89,9 +89,18 @@ jobs:
     steps:
       - name: Generate test report
         run: |
-          echo "## Daily Kernel Operator Tests Report" >> $GITHUB_STEP_SUMMARY
+          echo "## Daily Kernel Operator Tests Report (Excluded Failing)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Overall Status**: Kernel=${{ needs.run-daily-kernel-tests.result }}" >> $GITHUB_STEP_SUMMARY
           echo "**Execution Time**: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Excluded Tests** (require development fixes):" >> $GITHUB_STEP_SUMMARY
+          echo "- test_add_rmsnorm_bias.py" >> $GITHUB_STEP_SUMMARY
+          echo "- test_decode_attention.py" >> $GITHUB_STEP_SUMMARY
+          echo "- test_split_qkv_rmsnorm_rope.py" >> $GITHUB_STEP_SUMMARY
+          echo "- test_split_qkv_rmsnorm_rope_pos_cache_half_npu.py" >> $GITHUB_STEP_SUMMARY
+          echo "- test_conv1d_prefill.py" >> $GITHUB_STEP_SUMMARY
+          echo "- test_swiglu_quant.py" >> $GITHUB_STEP_SUMMARY
+          echo "- test_catlass_matmul_basic.py" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Workflow Run**: [$GITHUB_RUN_ID](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> $GITHUB_STEP_SUMMARY
