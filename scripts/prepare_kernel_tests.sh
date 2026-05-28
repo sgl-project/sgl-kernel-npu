@@ -12,7 +12,9 @@ pip install ${GITHUB_WORKSPACE}/output/sgl_kernel_npu*.whl --no-cache-dir
 export UV_SYSTEM_PYTHON=true
 
 # Install Triton-Ascend (CANN-customized triton with triton.language.extra.cann)
-# CANN 8.5.0 -> triton-ascend 3.2.0, CANN 9.0.0 -> triton-ascend 3.2.1
+# Official version mapping (strict 1:1):
+#   CANN 8.5.0 -> triton-ascend 3.2.0
+#   CANN 9.0.0 -> triton-ascend 3.2.1
 if [ -n "${TRITON_ASCEND_WHL:-}" ]; then
     pip install ${TRITON_ASCEND_WHL}
 else

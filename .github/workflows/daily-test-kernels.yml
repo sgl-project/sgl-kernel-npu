@@ -29,7 +29,7 @@ jobs:
         cann_version: [8.5.0, 9.0.0]
         hardware: [a3]
     env:
-      CANN_VERSION: "{{ matrix.cann_version }}"
+      CANN_VERSION: "${{ matrix.cann_version }}"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
       PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
@@ -61,8 +61,6 @@ jobs:
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Build and install kernel module
-        env:
-          CANN_VERSION: ${{ matrix.cann_version }}
         run: bash scripts/prepare_kernel_tests.sh
 
       - name: Run all kernel operator tests
@@ -98,7 +96,7 @@ jobs:
         hardware: [a3]
         hook_mode: [torch, preload]
     env:
-      CANN_VERSION: "{{ matrix.cann_version }}"
+      CANN_VERSION: "${{ matrix.cann_version }}"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
       PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
