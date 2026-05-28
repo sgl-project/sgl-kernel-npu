@@ -100,36 +100,22 @@ ascendc_compile_definitions(workspace_kernel PRIVATE
 )
 
 set(MEGA_CHUNK_GDN_KERNEL_TARGETS)
-function(add_mega_chunk_gdn_kernel H HG)
-    set(target "mega_chunk_gdn_kernel_h${H}_hg${HG}")
-    ascendc_library(${target} STATIC
-        ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel/mega_kernel.cpp
-    )
-    ascendc_include_directories(${target} PRIVATE
-        ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel
-        ${PROJECT_SOURCE_DIR}/third-party/pto-isa/include
-        ${ASCEND_INCLUDE_DIR}
-        ${ASCEND_INCLUDE_DIR}/experiment/runtime
-        ${ASCEND_INCLUDE_DIR}/experiment/msprof
-    )
-    ascendc_compile_definitions(${target} PRIVATE
-        -DGDN_KERNEL_NAME=launch_mega_kernel_h${H}_hg${HG}
-        -DGDN_H=${H}
-        -DGDN_HG=${HG}
-        -DGDN_D=128
-        -DGDN_C=128
-    )
-    list(APPEND MEGA_CHUNK_GDN_KERNEL_TARGETS ${target})
-    set(MEGA_CHUNK_GDN_KERNEL_TARGETS ${MEGA_CHUNK_GDN_KERNEL_TARGETS} PARENT_SCOPE)
-endfunction()
-
-add_mega_chunk_gdn_kernel(16 16)
-add_mega_chunk_gdn_kernel(32 16)
-add_mega_chunk_gdn_kernel(48 16)
-add_mega_chunk_gdn_kernel(64 16)
-add_mega_chunk_gdn_kernel(16 8)
-add_mega_chunk_gdn_kernel(32 8)
-add_mega_chunk_gdn_kernel(16 4)
+set(MEGA_CHUNK_GDN_KERNEL_TARGETS mega_chunk_gdn_kernel)
+ascendc_library(mega_chunk_gdn_kernel STATIC
+    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel/mega_kernel.cpp
+)
+ascendc_include_directories(mega_chunk_gdn_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel
+    ${PROJECT_SOURCE_DIR}/third-party/pto-isa/include
+    ${ASCEND_INCLUDE_DIR}
+    ${ASCEND_INCLUDE_DIR}/experiment/runtime
+    ${ASCEND_INCLUDE_DIR}/experiment/msprof
+)
+ascendc_compile_definitions(mega_chunk_gdn_kernel PRIVATE
+    -DGDN_KERNEL_NAME=launch_mega_kernel
+    -DGDN_D=128
+    -DGDN_C=128
+)
 
 # create shared library libsgl_kernel_npu.so
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
