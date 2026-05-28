@@ -52,15 +52,8 @@
 #include "acl/acl.h"
 using namespace pto;
 
-// GDN_H, GDN_C: Compile-time constants injected by the build system.
-//   GDN_H = number of attention heads (e.g., 16)
-//   GDN_C = chunk size in tokens (e.g., 128)
-// Using compile-time constants allows the compiler to optimize tile sizes,
-// unroll loops, and compute UB addresses at compile time.
-#ifndef GDN_H
-#define GDN_H 16
-#endif
-
+// NumHeads and ChunkSize are template parameters so the compiler can optimize
+// tile sizes, unroll loops, and compute UB addresses at compile time.
 #ifndef GDN_C
 #define GDN_C 128
 #endif

@@ -262,11 +262,11 @@ gemm_v0(std::conditional_t<transpose_A, TileMatL1<T1, K, M, validK, validM>, Til
 
 #endif
 
-template <int32_t NumHeads, int32_t NumKeyHeads, int32_t HiddenSize, int32_t ChunkSize>
+template <int32_t NumHeads, int32_t HiddenSize, int32_t ChunkSize>
 AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ half *U_handle, __gm__ float *G_handle,
                            __gm__ half *S_handle, __gm__ half *V_handle, __gm__ half *FS_handle, __gm__ half *H0_handle,
                            int64_t has_initial_state, __gm__ half *workspace_handle, __gm__ int32_t *cu_seqlens,
-                           int64_t batch_size, int64_t seq_len, int64_t total_tokens)
+                           int64_t batch_size, int64_t seq_len, int64_t total_tokens, uint32_t num_key_heads)
 {
     // chunk_h advances the recurrent hidden state chunk by chunk:
     //   ws_i      = W_i @ S_i
@@ -295,12 +295,12 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
     constexpr int32_t D = HiddenSize;
     constexpr int32_t C = ChunkSize;
     constexpr int32_t H = NumHeads;
-    constexpr int32_t Hg = NumKeyHeads;
-    static_assert(Hg > 0 && H % Hg == 0, "NumHeads must be divisible by NumKeyHeads");
-    constexpr int32_t GROUP = H / Hg;
+    const int32_t Hg = static_cast<int32_t>(num_key_heads);
+    if (Hg <= 0 || (H % Hg) != 0) return;
+    const int32_t GROUP = H / Hg;
     constexpr int32_t HalfC = C / 2;
     constexpr int32_t BSND_QKV_STRIDE = H * D;
-    constexpr int32_t BSND_K_STRIDE = Hg * D;
+    const int32_t BSND_K_STRIDE = Hg * D;
     constexpr int32_t DD = D * D;
 
     constexpr int32_t WS_WS = 0;
