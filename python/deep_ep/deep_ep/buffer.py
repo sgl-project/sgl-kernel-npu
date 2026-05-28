@@ -9,6 +9,7 @@ import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
 from .utils import EventOverlap, log_parameters
+from .ops_dispatch_combine import MoeDistributeBuffer
 
 
 class FuseMode(IntEnum):
@@ -65,6 +66,10 @@ class Buffer:
             low_latency_mode,
             moe_all_to_all_group_name,
         )
+        self.low_latency_use_ops = os.getenv("DEEP_LOW_LATENCY_USE_OPS") == "1"
+        if self.low_latency_use_ops:
+            self.ops_runtime = MoeDistributeBuffer(group_name=moe_all_to_all_group_name, group_size=self.group_size,
+                rank=self.rank)
 
     @staticmethod
     def get_dispatch_config(num_ranks: int) -> Config:
@@ -696,6 +701,7 @@ class Buffer:
         use_ue8m0: bool = False,
         async_finish: bool = False,
         return_recv_hook: bool = False,
+        topk_weights: Optional[torch.Tensor] = None,
     ) -> Tuple[
         Tuple[torch.Tensor, torch.Tensor], torch.Tensor, Tuple, EventOverlap, Callable
     ]:
@@ -740,33 +746,60 @@ class Buffer:
             hook: the receiving hook function (valid only if `return_recv_hook` is set).
         """
         topk_ids = topk_idx.int()
-        (
-            packed_recv_x,
-            packed_recv_x_scales,
-            packed_recv_count,
-            packed_recv_src_info,
-            packed_recv_layout_range,
-            event,
-            hook,
-        ) = self.runtime.low_latency_dispatch(
-            x,
-            topk_ids,
-            cumulative_local_expert_recv_stats,
-            num_max_dispatch_tokens_per_rank,
-            num_experts,
-            use_fp8,
-            round_scale,
-            use_ue8m0,
-            async_finish,
-            return_recv_hook,
-        )
+
+        if self.low_latency_use_ops:
+            comm_alg='hierarchy'
+            if comm_alg == 'hierarchy':
+                assert topk_weights is not None, "When comm_alg='hierarchy', topk_weights can not be None"
+
+            (
+                packed_recv_x,
+                packed_recv_x_scales,
+                packed_recv_count,
+                packed_recv_src_info,
+                packed_recv_layout_range,
+                expand_scales,
+            ) = self.ops_runtime.npu_low_latency_dispatch(
+                x=x,
+                topk_idx=topk_ids,
+                num_experts=num_experts,
+                quant_mode=2 if use_fp8 else 0,
+                comm_alg=comm_alg,
+                topk_weights=topk_weights,
+                num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
+            )
+            event = EventOverlap(EventHandle())
+            hook = lambda *args, **kwargs: None
+        else:
+            (
+                packed_recv_x,
+                packed_recv_x_scales,
+                packed_recv_count,
+                packed_recv_src_info,
+                packed_recv_layout_range,
+                event,
+                hook,
+            ) = self.runtime.low_latency_dispatch(
+                x,
+                topk_ids,
+                cumulative_local_expert_recv_stats,
+                num_max_dispatch_tokens_per_rank,
+                num_experts,
+                use_fp8,
+                round_scale,
+                use_ue8m0,
+                async_finish,
+                return_recv_hook,
+            )
+
         handle = (
-            packed_recv_src_info,
-            packed_recv_layout_range,
+            packed_recv_src_info,   # expand_idx
+            packed_recv_layout_range,   # ep_recv_counts
             num_max_dispatch_tokens_per_rank,
-            x.size(1),
+            x.size(1),  # num_tokens
             num_experts,
-            packed_recv_count,
+            packed_recv_count,  # expert_token_nums
+            expand_scales if self.low_latency_use_ops else None,
         )
         tensors_to_record = (
             x,
@@ -831,21 +864,41 @@ class Buffer:
             hidden,
             num_experts,
             packed_recv_count,
+            expand_scales,
         ) = handle
-        combined_x, event, hook = self.runtime.low_latency_combine(
-            x,
-            topk_ids,
-            topk_weights,
-            src_info,
-            layout_range,
-            num_max_dispatch_tokens_per_rank,
-            num_experts,
-            packed_recv_count,
-            zero_copy,
-            async_finish,
-            return_recv_hook,
-            out,
-        )
+
+        if self.low_latency_use_ops:
+            comm_alg='hierarchy'
+
+            combined_x = self.ops_runtime.npu_low_latency_combine(
+                x=x,
+                topk_idx=topk_ids,
+                topk_weights=topk_weights,
+                assist_info_for_combine=src_info,
+                ep_send_counts=layout_range,
+                num_experts=num_experts,
+                comm_alg=comm_alg,
+                expand_scales=expand_scales,
+                num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
+            )
+            event = EventOverlap(EventHandle())
+            hook = lambda *args, **kwargs: None
+        else:
+            combined_x, event, hook = self.runtime.low_latency_combine(
+                x,
+                topk_ids,
+                topk_weights,
+                src_info,
+                layout_range,
+                num_max_dispatch_tokens_per_rank,
+                num_experts,
+                packed_recv_count,
+                zero_copy,
+                async_finish,
+                return_recv_hook,
+                out,
+            )
+
         tensors_to_record = (
             x,
             topk_idx,
