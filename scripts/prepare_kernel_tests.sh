@@ -6,6 +6,12 @@ if [[ -n "${GITHUB_WORKSPACE:-}" ]]; then
 fi
 
 cd "${GITHUB_WORKSPACE}"
+
+# Build kernel module with CATLASS support enabled (required for test_catlass_matmul_basic.py)
+# Note: The error message indicates "BUILD_KERNELS_MODULE" is needed for catlass ops.
+# We set both environment variables in case build.sh reads either of them.
+export BUILD_KERNELS_MODULE=ON
+export BUILD_CATLASS_MODULE=ON
 bash build.sh -a kernels
 pip install ${GITHUB_WORKSPACE}/output/sgl_kernel_npu*.whl --no-cache-dir
 
@@ -36,4 +42,4 @@ else
 fi
 
 # Install other test dependencies
-uv pip install expecttest einops pytest packaging
+uv pip install expecttest einops pytest packaging sglang
