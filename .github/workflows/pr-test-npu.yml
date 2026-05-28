@@ -1131,7 +1131,6 @@ jobs:
     needs: get-changed-files
     if: ${{ (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
       (needs.get-changed-files.outputs.ops2_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')}}
-    continue-on-error: true
     strategy:
       fail-fast: false
       max-parallel: 1
