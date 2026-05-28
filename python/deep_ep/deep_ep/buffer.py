@@ -412,7 +412,6 @@ class Buffer:
         expert_alignment: int = 1,
         num_worst_tokens: int = 0,
         config: Optional[Config] = None,
-        use_quant: Optional[bool] = None,
         previous_event: Optional[EventOverlap] = None,
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
