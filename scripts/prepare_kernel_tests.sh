@@ -42,4 +42,4 @@ else
 fi
 
 # Install other test dependencies
-uv pip install expecttest einops pytest packaging sglang
+uv pip install expecttest einops pytest packaging
