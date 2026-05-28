@@ -333,7 +333,7 @@ class Buffer:
             raise NotImplementedError("Not support fp8")
         x_scales = None
         quant_type = config.normal_quant_type.lower()
-        use_quant = quant_type in ("fp8", "int8")  # or more precise mapping
+        use_quant = quant_type in ("fp8", "int8")
 
         if handle is not None:
             raise NotImplementedError(
@@ -435,7 +435,7 @@ class Buffer:
             raise NotImplementedError("Not support fp8")
         x_scales = None
         quant_type = config.normal_quant_type.lower()
-        use_quant = quant_type in ("fp8", "int8")  # or more precise mapping
+        use_quant = quant_type in ("fp8", "int8")
 
         if handle is not None:
             raise NotImplementedError(
@@ -586,7 +586,7 @@ class Buffer:
         """
         x, x_scales = x if isinstance(x, tuple) else (x, None)
         quant_type = config.normal_quant_type.lower()
-        use_quant = quant_type in ("fp8", "int8")  # or more precise mapping
+        use_quant = quant_type in ("fp8", "int8")
         if handle is not None:
             raise NotImplementedError(
                 "Optional communication handle is not supported yet."
