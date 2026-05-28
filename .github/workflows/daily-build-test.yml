@@ -130,7 +130,7 @@ jobs:
   run-pr-tests:
     name: Run PR Test Suite
     # needs: [daily-enumerate-intranode, daily-enumerate-low-latency]   # 如需串行则加上
-    uses: ./.github/workflows/pr-test-npu.yml@main
+    uses: ./.github/workflows/pr-test-npu.yml
     secrets: inherit
 
   finish:
