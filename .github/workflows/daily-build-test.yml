@@ -129,9 +129,15 @@ jobs:
             logs/
           retention-days: 30
 
+  run-pr-tests:
+    name: Run PR Test Suite
+    # needs: [daily-enumerate-intranode, daily-enumerate-low-latency]   # 如需串行则加上
+    uses: ./.github/workflows/pr-test-npu.yml
+    secrets: inherit
+
   finish:
     if: always()
-    needs: [daily-enumerate-intranode, daily-enumerate-low-latency]
+    needs: [daily-enumerate-intranode, daily-enumerate-low-latency, run-pr-tests]
     runs-on: ubuntu-latest
     steps:
       - name: Generate comprehensive test report
@@ -145,5 +151,6 @@ jobs:
           echo "- **Intranode Test Part Two**: ${{ needs.daily-enumerate-intranode_part_two.result }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Low Latency Test**: ${{ needs.daily-enumerate-low-latency.result }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Smoke Test**: ${{ needs.daily-smoke-test.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **PR Tests**: ${{ needs.run-pr-tests.result }}" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Workflow Run**: [$GITHUB_RUN_ID](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> $GITHUB_STEP_SUMMARY

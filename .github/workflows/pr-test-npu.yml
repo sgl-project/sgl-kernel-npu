@@ -12,9 +12,10 @@ on:
       - "scripts/**"
       - ".github/workflows/pr-test-npu.yml"
   workflow_dispatch:
+  workflow_call:
 
 concurrency:
-  group: pr-test-npu-${{ github.ref }}
+  group: pr-test-npu-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -54,7 +55,8 @@ jobs:
   test-all-build:
     needs: get-changed-files
     if: |
-      github.event_name == 'workflow_dispatch' || (
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' || (
         (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false &&
         (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
@@ -405,7 +407,8 @@ jobs:
   test-build-deepep-a3:
     needs: get-changed-files
     if: |
-      github.event_name == 'workflow_dispatch' || (
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' || (
         (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false &&
         (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
@@ -767,7 +770,8 @@ jobs:
   test-build-deepep-a2:
     needs: get-changed-files
     if: |
-      github.event_name == 'workflow_dispatch' || (
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' || (
         (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false &&
         (needs.get-changed-files.outputs.ops2_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
@@ -1039,8 +1043,12 @@ jobs:
   test-build-deepep-internode:
     name: multi-node
     needs: get-changed-files
-    if: ${{ (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
-      (needs.get-changed-files.outputs.ops2_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')}}
+    if: |
+      github.event_name == 'workflow_dispatch' || 
+      github.event_name == 'workflow_call' || (
+        (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        (needs.get-changed-files.outputs.ops2_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
     strategy:
       fail-fast: false
       max-parallel: 1
