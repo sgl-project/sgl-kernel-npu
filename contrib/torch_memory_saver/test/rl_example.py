@@ -3,7 +3,7 @@ This example demonstrates the core functionalities of torch_memory_saver, and th
 as a short tutorial for readers who want to understand the library. It validates how virtual addresses
 remain unchanged while physical memory is released during pause and reallocated upon resume, illustrating the
 mechanisms of pausing and resuming memory regions, the implications for data consistency, and the preservation
-of functional integrity for tensor operations and CUDA graphs.
+of functional integrity for tensor operations and NPU graphs.
 """
 
 import logging
@@ -29,7 +29,7 @@ def _ptr(x):
     Get the virtual address of a tensor.
 
     Virtual Address is the address that the process sees, not the actual physical memory address.
-    It needs to be mapped to actual NPU physical memory through the CUDA driver.
+    It needs to be mapped to actual NPU physical memory through the CANN driver.
     In torch_memory_saver, this virtual address remains unchanged during pause/resume operations.
     """
     assert isinstance(x, torch.Tensor)
@@ -108,15 +108,14 @@ class KVCache:
         return (arg + self.kv_buffer.mean(dim=1)).mean()
 
 
-# https://pytorch.org/blog/accelerating-pytorch-with-cuda-graphs/
-def create_cuda_graph(fn: Callable):
+def create_npu_graph(fn: Callable):
     """
-    Create CUDA graph for validating the impact of memory management on CUDA graphs.
+    Create NPU graph for validating the impact of memory management on NPU graphs.
 
     Validation objectives:
-    1. Whether CUDA graphs can still work normally after pause/resume.
-    2. The importance of virtual address remaining unchanged for CUDA graphs.
-    3. CUDA graphs can still execute correctly even when physical memory is reallocated.
+    1. Whether NPU graphs can still work normally after pause/resume.
+    2. The importance of virtual address remaining unchanged for NPU graphs.
+    3. NPU graphs can still execute correctly even when physical memory is reallocated.
     """
     s = torch.npu.Stream()
     s.wait_stream(torch.npu.current_stream())
@@ -145,7 +144,7 @@ def run(hook_mode: str):
        - Disconnect the mapping from virtual address to physical memory.
        - Release physical memory back to NPU memory pool.
        - Keep virtual address unchanged.
-       - Accessing paused tensors will cause CUDA errors.
+       - Accessing paused tensors will cause CANN errors.
 
     3. Resume mechanism.
        - Allocate new physical memory from NPU memory pool.
@@ -160,7 +159,7 @@ def run(hook_mode: str):
 
     5. Functional integrity.
        - Tensor operations can still work normally even when physical memory is reallocated.
-       - CUDA graphs can still execute correctly (because virtual address remains unchanged).
+       - NPU graphs can still execute correctly (because virtual address remains unchanged).
        - Selective pause/resume functionality works normally.
     """
 
@@ -175,28 +174,28 @@ def run(hook_mode: str):
         f"Original addresses - KV cache: {original_kv_cache_ptr}, Model weights: {original_model_weights_ptr}"
     )
 
-    # Create static input/output tensors for CUDA graphs
+    # Create static input/output tensors for NPU graphs
     # These tensors are not managed by torch_memory_saver, addresses will change normally
     static_input = torch.zeros((20_480,), dtype=torch.float32, device="npu")
     static_output = torch.zeros((), dtype=torch.float32, device="npu")
 
     def fn():
-        """Function executed in CUDA graph: combine KV cache and model computation"""
+        """Function executed in NPU graph: combine KV cache and model computation"""
         nonlocal static_output
         kv_output = cache.execute(static_input[:5])
         model_output = model.forward(static_input)
         static_output = kv_output + model_output
 
-    # Create CUDA graph
-    g = create_cuda_graph(fn)
+    # Create NPU graph
+    g = create_npu_graph(fn)
 
-    # First execution of CUDA graph
+    # First execution of NPU graph
     static_input[...] = 100
     g.replay()
     print(f"First execution result: {static_output.item()}")
     if static_output != 2048101:
         raise ValueError(f"Expected 2048101, got {static_output}")
-    print("✓ CUDA graph first execution passed!")
+    print("✓ NPU graph first execution passed!")
 
     time.sleep(1)
 
@@ -244,15 +243,15 @@ def run(hook_mode: str):
     with torch.no_grad():
         model.linear.weight[...] = 2
 
-    # Second execution of CUDA graph, validate functional integrity
-    # Even when physical memory is reallocated, CUDA graph can still work normally
-    # This is because virtual address remains unchanged, addresses recorded in CUDA graph are still valid
+    # Second execution of NPU graph, validate functional integrity
+    # Even when physical memory is reallocated, NPU graph can still work normally
+    # This is because virtual address remains unchanged, addresses recorded in NPU graph are still valid
     static_input[...] = 200
     g.replay()
     print(f"Second execution result: {static_output.item()}")
     if static_output != 8192202:
         raise ValueError(f"Expected 8192202, got {static_output}")
-    print("✓ CUDA graph second execution passed!")
+    print("✓ NPU graph second execution passed!")
 
     time.sleep(1)
 
