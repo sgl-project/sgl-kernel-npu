@@ -1,4 +1,5 @@
 #include "core.h"
+#include "api_forwarder.h"
 #include "utils.h"
 
 TorchMemorySaver::TorchMemorySaver() {}
@@ -35,14 +36,29 @@ aclError TorchMemorySaver::free(void *ptr) {
   AllocationMetadata metadata;
   {
     const std::lock_guard<std::mutex> lock(allocator_metadata_mutex_);
-    SIMPLE_CHECK(allocation_metadata_.count(ptr),
-                 "Trying to free a pointer not allocated here");
+    if (allocation_metadata_.count(ptr) == 0) {
+      return APIForwarder::call_real_aclrt_free(ptr);
+    }
     metadata = allocation_metadata_[ptr];
     allocation_metadata_.erase(ptr);
   }
-  int ret = aclrtUnmapMem(ptr);
+
+  static constexpr int32_t kSyncTimeoutMs = 3000;
+  int ret = aclrtSynchronizeDeviceWithTimeout(kSyncTimeoutMs);
+  SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtSynchronizeDeviceWithTimeout failed.");
+  ret = aclrtUnmapMem(ptr);
+  SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtUnmapMem failed.");
   ret = aclrtFreePhysical(metadata.allocHandle);
+  SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtFreePhysical failed.");
   ret = aclrtReleaseMemAddress(ptr);
+  SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtReleaseMemAddress failed.");
+
+  if (nullptr != metadata.cpu_backup) {
+    ret = aclrtFreeHost(metadata.cpu_backup);
+    SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtFreeHost failed.");
+    metadata.cpu_backup = nullptr;
+  }
+
 #ifdef TMS_DEBUG_LOG
   std::cout << "[torch_memory_saver.cpp] TorchMemorySaver.cuda_free "
             << " ptr=" << ptr << " metadata.size=" << metadata.size
@@ -73,7 +89,9 @@ void TorchMemorySaver::pause(const std::string &tag) {
     }
 
     int ret = aclrtUnmapMem(ptr);
+    SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtUnmapMem failed.");
     ret = aclrtFreePhysical(metadata.allocHandle);
+    SIMPLE_CHECK(ret == ACL_SUCCESS, "aclrtFreePhysical failed.");
 
 #ifdef TMS_DEBUG_LOG
     std::cout << "[torch_memory_saver.cpp] TorchMemorySaver.pause"
