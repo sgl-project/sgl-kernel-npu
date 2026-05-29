@@ -44,7 +44,7 @@ class NotifyDispatch
     // Synchronization flag occupies length
     constexpr static int64_t FLAG_UNIT_INT_NUM = 4;
     constexpr static int64_t MAGIC_MASK = ~((1LL << 32) - 1);
-    constexpr static int32_t EXPERT_NORMAL_NUM = 256;
+    constexpr static int32_t EXPERT_NORMAL_NUM = 512;
     constexpr static int32_t BATCH_ROUND = 16;
 
 public:
@@ -65,10 +65,18 @@ public:
         recvOffset_ = recvOffset;
         maxBs_ = maxBs;
         recvTokensPerExpert_ = recvTokensPerExpert;
-        if (numLocalExperts >= (EXPERT_NORMAL_NUM / 2)) {
-            batchRounds = BATCH_ROUND;
+        if (round == 1) {
+            batchRounds = 1;  // 没有开蚂蚁搬家，不需要多轮处理, 避免UB分配过大
         } else {
-            batchRounds = numExperts > EXPERT_NORMAL_NUM ? BATCH_ROUND : BATCH_ROUND * 2;
+            if (numLocalExperts >= (EXPERT_NORMAL_NUM / 4)) {
+                batchRounds = BATCH_ROUND;
+            } else if (numExperts > EXPERT_NORMAL_NUM) {  // >512
+                batchRounds = BATCH_ROUND / 2;
+            } else if (numExperts <= EXPERT_NORMAL_NUM / 2) {  // <=256
+                batchRounds = BATCH_ROUND * 2;
+            } else {  // 256< exp <= 512
+                batchRounds = BATCH_ROUND;
+            }
         }
         tokenPerExpertDataAlignLen = Ceil(batchRounds * numExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
         sendDataOffsetAlignLen = Ceil(batchRounds * numExperts * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;

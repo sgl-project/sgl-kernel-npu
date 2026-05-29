@@ -17,7 +17,7 @@ from sgl_kernel_npu.fla.chunk_scaled_dot_kkt import (
 )
 from sgl_kernel_npu.fla.cumsum import chunk_local_cumsum
 from sgl_kernel_npu.fla.l2norm import l2norm_fwd
-from sgl_kernel_npu.fla.mega_chunk_gdn import mega_gdn_supported, run_mega_chunk_gdn
+from sgl_kernel_npu.fla.mega_chunk_gdn import run_mega_chunk_gdn
 from sgl_kernel_npu.fla.solve_tril import solve_tril_npu as solve_tril
 from sgl_kernel_npu.fla.utils import SUPPRESS_LEVEL, input_guard
 from sgl_kernel_npu.fla.wy_fast import recompute_w_u_fwd_npu as recompute_w_u_fwd
@@ -213,9 +213,7 @@ def chunk_gated_delta_rule_fwd(
     output_final_state: bool,
     cu_seqlens: Optional[torch.LongTensor] = None,
 ):
-    if not _use_triton_backend() and mega_gdn_supported(
-        q, k, v, g, beta, initial_state, cu_seqlens
-    ):
+    if not _use_triton_backend():
         g, o, A, final_state, w, h, v_new = run_mega_chunk_gdn(
             q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
         )

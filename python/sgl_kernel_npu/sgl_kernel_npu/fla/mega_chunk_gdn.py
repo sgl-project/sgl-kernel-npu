@@ -3,9 +3,7 @@ from typing import Optional
 
 import torch
 
-GLOBAL_VALUE_HEADS = (16, 32, 48, 64)
-GLOBAL_KEY_HEADS = 16
-SUPPORTED_TP_DEGREES = (1, 2, 4, 8)
+SUPPORTED_HEAD = (16, 24, 32, 48, 64)
 HEAD_DIM = 128
 CHUNK_SIZE = 128
 
@@ -54,55 +52,6 @@ def _block_dim(device: torch.device) -> int:
         return max(1, int(getattr(props, "cube_core_num", 24)))
     except (RuntimeError, AttributeError, AssertionError):
         return 24
-
-
-def _head_pair_supported(num_value_heads: int, num_key_heads: int) -> bool:
-    if num_key_heads <= 0 or GLOBAL_KEY_HEADS % num_key_heads != 0:
-        return False
-    tp_degree = GLOBAL_KEY_HEADS // num_key_heads
-    if tp_degree not in SUPPORTED_TP_DEGREES:
-        return False
-    return num_value_heads * tp_degree in GLOBAL_VALUE_HEADS
-
-
-def mega_gdn_supported(
-    q: torch.Tensor,
-    k: torch.Tensor,
-    v: torch.Tensor,
-    g: torch.Tensor,
-    beta: torch.Tensor,
-    initial_state: Optional[torch.Tensor],
-    cu_seqlens: Optional[torch.Tensor] = None,
-) -> bool:
-    if q.dim() != 4 or v.dim() != 4:
-        return False
-    if k.shape != q.shape:
-        return False
-    if q.shape[0] != 1 or v.shape[0] != 1 or q.shape[1] != v.shape[1]:
-        return False
-
-    if not _head_pair_supported(v.shape[2], q.shape[2]):
-        return False
-    if q.shape[3] != HEAD_DIM or v.shape[3] != HEAD_DIM:
-        return False
-
-    if g.shape != beta.shape:
-        return False
-    if g.shape != (1, q.shape[1], v.shape[2]):
-        return False
-
-    if initial_state is not None:
-        if initial_state.dim() != 4:
-            return False
-        num_sequences = 1 if cu_seqlens is None else cu_seqlens.numel() - 1
-        if initial_state.shape != (
-            num_sequences,
-            v.shape[2],
-            HEAD_DIM,
-            HEAD_DIM,
-        ):
-            return False
-    return True
 
 
 def run_mega_chunk_gdn(
