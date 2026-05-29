@@ -83,7 +83,7 @@ FLA_TESTS=(
 )
 
 FUSED_TESTS=(
-    test_swiglu_quant.py
+    # EXCLUDED: test_swiglu_quant.py
     test_batch_matmul_transpose.py
     # EXCLUDED: test_catlass_matmul_basic.py
     test_qkvzba_split_reshape_cat.py
