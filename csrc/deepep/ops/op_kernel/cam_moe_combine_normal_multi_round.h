@@ -213,7 +213,7 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitG
     GM_ADDR sendCostStatsOut)
 {
     recvXGM_.SetGlobalBuffer((__gm__ RecvXType *)recvX);
-    tokenSrcInfoGM_.SetGlobalBuffer((__gm__ SrcInfoType *)tokenSrcInfo);
+    tokenSrcInfoGM_.SetGlobalBuffer((__gm__ SrcInfoType *)tokenSrcInfo);  // expand_idx
     epRecvCountGM_.SetGlobalBuffer((__gm__ int32_t *)epRecvCount);
     tokenIdxGM_.SetGlobalBuffer((__gm__ int32_t *)tokenIdx);
     topkWeightsGM_.SetGlobalBuffer((__gm__ float *)topkWeights);
@@ -264,10 +264,11 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitR
         return;
     }
     uint32_t sendBlockLen = perCoreBlockNum_ * sizeof(int32_t);
+    uint32_t sendBlockAlignLen = Ceil(perCoreBlockNum_ * sizeof(int32_t), UB_32_ALIGN) * UB_32_ALIGN;
     tpipe_->Reset();
-    tpipe_->InitBuffer(tempRecvCountBuf_, sendBlockLen);     // 64B
-    tpipe_->InitBuffer(roundNeedSendCntBuf_, sendBlockLen);  // 64B
-    tpipe_->InitBuffer(roundSendOffsetBuf_, sendBlockLen);   // 64B
+    tpipe_->InitBuffer(tempRecvCountBuf_, sendBlockAlignLen);     // 64B
+    tpipe_->InitBuffer(roundNeedSendCntBuf_, sendBlockAlignLen);  // 64B
+    tpipe_->InitBuffer(roundSendOffsetBuf_, sendBlockAlignLen);   // 64B
 
     // 拷贝 epRecvCountGM_ 到 UB
     LocalTensor<int32_t> tempRecvCountTensor = tempRecvCountBuf_.Get<int32_t>();
@@ -291,7 +292,8 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitR
     // 创建 srcInfoLT_
     // 为了支持一轮最大8192 bs，这里按照一批BATCH_SRC_INFO_LEN个srcInfo拷贝，这样可以保证UB占用少
     uint32_t srcInfoLen = static_cast<uint32_t>(BATCH_SRC_INFO_CNT * TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType));
-    tpipe_->InitBuffer(srcInfoBuf_, srcInfoLen);  // 128*3*4/1024=1.5KB
+    uint32_t srcInfoAlignLen = Ceil(srcInfoLen, UB_32_ALIGN) * UB_32_ALIGN;
+    tpipe_->InitBuffer(srcInfoBuf_, srcInfoAlignLen);  // 128*3*4/1024=1.5KB
     srcInfoLT_ = srcInfoBuf_.Get<SrcInfoType>();
 
     // 创建 setStatusLT_
@@ -323,8 +325,8 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitR
     // 创建topkWeightsLT_，存放每一轮每个核的权重信息
     uint32_t maxTopkWeightsLen = (perRoundTokens_ / aivNum_ + 1) * axisK_ * sizeof(float);
     tokenIdx32AlignLen_ = (perRoundTokens_ / aivNum_ + 1) * axisK_ * sizeof(int32_t);
-    tpipe_->InitBuffer(tokenIdxBuf_, tokenIdx32AlignLen_);
-    tpipe_->InitBuffer(topkWeightsBuf_, maxTopkWeightsLen);  // 512 分48核 需要352B
+    tpipe_->InitBuffer(tokenIdxBuf_, Ceil(tokenIdx32AlignLen_, UB_32_ALIGN) * UB_32_ALIGN);
+    tpipe_->InitBuffer(topkWeightsBuf_, Ceil(maxTopkWeightsLen, UB_32_ALIGN) * UB_32_ALIGN);  // 512 分48核 需要352B
     tokenIdxLT_ = tokenIdxBuf_.Get<int32_t>();
     topkWeightsLT_ = topkWeightsBuf_.Get<float>();
 }
@@ -414,7 +416,6 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::CopyB
             }
             ++roundActualSendCount;
         }
-
         roundSendOffsetLT_(blockIndex) += roundActualSendCount;
         roundNeedSendCntLT_(blockIndex) -= roundActualSendCount;
         needSendTokenCnt_ -= roundActualSendCount;
@@ -437,8 +438,10 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::CopyB
                                                                                              uint32_t srcTopkId,
                                                                                              uint32_t tkIndex)
 {
-    uint32_t tokenOffset = tkIndex * axisH_;
-    GM_ADDR dstGM = GetBufferAddrByRankId(srcRankId) + (srcTokenId * axisK_ + srcTopkId) * h512AlignRecvXLen_;
+    uint64_t tokenOffset = tkIndex * (uint64_t)axisH_;
+
+    GM_ADDR dstGM = (__gm__ uint8_t *)(reinterpret_cast<uint64_t>(GetBufferAddrByRankId(srcRankId)) +
+                                       (uint64_t)h512AlignRecvXLen_ * (srcTokenId * axisK_ + srcTopkId));
     GlobalTensor<XType> dstWindow;
     dstWindow.SetGlobalBuffer((__gm__ XType *)dstGM);
     DataCopyExtParams xOutCopyParams{1U, static_cast<uint32_t>(hRecvXTypeLen_), 0U, 0U, 0U};
@@ -510,6 +513,7 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::ReadB
     LocalTensor<float> weightedMulBufLocal = weightedMulBuf_.Get<float>();
     LocalTensor<float> sumFloatBufLocal = sumFloatBuf_.Get<float>();
     Duplicate(sumFloatBufLocal, static_cast<float>(0), axisH_);
+
     const DataCopyExtParams xOutCopyParams{1U, static_cast<uint32_t>(hRecvXTypeLen_), 0U, 0U, 0U};
     uint32_t xOutTokenIdx = recvXTokenIdx + xOutTokenOffset_;
 
@@ -519,8 +523,8 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::ReadB
             continue;
         }
         float scale = topkWeightsLT_.GetValue(topkWeightTokenIdx * axisK_ + topkId);
-        GM_ADDR localTokenAddr =
-            GetBufferAddrByRankId(epRankId_) + (recvXTokenIdx * axisK_ + topkId) * h512AlignRecvXLen_;
+        GM_ADDR localTokenAddr = (__gm__ uint8_t *)(GetBufferAddrByRankId(epRankId_) +
+                                                    (uint64_t)h512AlignRecvXLen_ * (recvXTokenIdx * axisK_ + topkId));
         GlobalTensor<XType> localTokenTensor;
         localTokenTensor.SetGlobalBuffer((__gm__ XType *)localTokenAddr);
 
@@ -529,6 +533,7 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::ReadB
         DataCopyPad(tmpToken, localTokenTensor, xOutCopyParams, copyPadExtParams);
         weightedSumQueue_.EnQue(tmpToken);
         tmpToken = weightedSumQueue_.DeQue<XType>();
+
         Cast(tokenFloatLocal, tmpToken, AscendC::RoundMode::CAST_NONE, axisH_);
         PipeBarrier<PIPE_V>();
         AscendC::Muls(weightedMulBufLocal, tokenFloatLocal, scale, axisH_);
@@ -540,7 +545,7 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::ReadB
     LocalTensor<XType> xOutLocal = xOutBuf_.Get<XType>();
     Cast(xOutLocal, sumFloatBufLocal, AscendC::RoundMode::CAST_RINT, axisH_);
     SyncFunc<AscendC::HardEvent::V_MTE3>();
-    DataCopyPad(xOutGlobal_[xOutTokenIdx * axisH_], xOutLocal, xOutCopyParams);
+    DataCopyPad(xOutGlobal_[xOutTokenIdx * (uint64_t)axisH_], xOutLocal, xOutCopyParams);
 }
 
 template <TemplateMC2TypeClass>

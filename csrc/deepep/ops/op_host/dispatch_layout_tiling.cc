@@ -37,7 +37,7 @@ constexpr uint32_t ATTR_LOCAL_RANKSIZE_INDEX = 4;
 constexpr uint32_t ATTR_PER_ROUND_TOKENS_INDEX = 5;
 constexpr uint32_t ATTR_RANK_ID_INDEX = 6;
 const int64_t MAX_COMM_WORLD_SIZE = 384;
-const int64_t MAX_MOE_EXPERTS_NUM = 512;
+const int64_t MAX_MOE_EXPERTS_NUM = 1024;
 const int64_t MAX_LOCAL_RANKSIZE = 8;
 
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
