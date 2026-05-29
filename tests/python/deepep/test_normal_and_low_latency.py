@@ -86,7 +86,11 @@ def low_latency_test(
     )
 
     diff = calc_diff(
-        x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1).to(x.dtype),
+        x
+        * topk_weights.masked_fill(topk_idx == -1, 0)
+        .sum(dim=1)
+        .view(-1, 1)
+        .to(x.dtype),
         combined_x,
     )
     assert torch.isnan(combined_x).sum().item() == 0

@@ -400,7 +400,12 @@ def test_main(
         ref_x = x_pure_rand if current_x is x_pure_rand else x
         diff = calc_diff(
             check_x,
-            ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1).to(ref_x.dtype),
+            ref_x
+            * handle[7]
+            .masked_fill(topk_idx == -1, 0)
+            .sum(dim=1)
+            .view(-1, 1)
+            .to(ref_x.dtype),
         )
         assert diff < 5e-5
 
