@@ -21,7 +21,7 @@ jobs:
     name: build-cache-a3
     runs-on: linux-aarch64-a3-16
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-a3-ubuntu22.04-py3.11
     env:
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
       PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
@@ -50,7 +50,7 @@ jobs:
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v1-${{ runner.os }}-a3-cann8.5.0-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+          key: sgl-kernel-npu-build-v1-${{ runner.os }}-a3-cann9.0.0-${{ steps.get_build_hash.outputs.BUILD_HASH }}
 
       - name: Install dependencies
         if: steps.cache-build.outputs.cache-hit != 'true'
@@ -74,7 +74,7 @@ jobs:
     name: build-cache-a2
     runs-on: linux-aarch64-a2-8
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-910b-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-910b-ubuntu22.04-py3.11
     env:
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
       PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
@@ -103,7 +103,7 @@ jobs:
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v1-${{ runner.os }}-a2-cann8.5.0-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+          key: sgl-kernel-npu-build-v1-${{ runner.os }}-a2-cann9.0.0-${{ steps.get_build_hash.outputs.BUILD_HASH }}
 
       - name: Install dependencies
         if: steps.cache-build.outputs.cache-hit != 'true'
