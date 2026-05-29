@@ -14,9 +14,9 @@ Ascend Implementation of DeepEP
 Supported Hardware Models: Atlas A2 and A3 Series Products
 Platform: aarch64/x86
 Supporting Software
-- Driver Ascend HDK 25.0.RC1.1, CANN Community Edition 8.2.RC1.alpha003 and later versions (refer to the "[CANN Software Installation Guide](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha003/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)" to install the CANN development kit package, as well as the supporting firmware and drivers)
+- Driver Ascend HDK 25.1.RC1.1, CANN Community Edition 8.5.RC1.alpha003 and later versions (refer to the "[CANN Software Installation Guide](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha003/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)" to install the CANN development kit package, as well as the supporting firmware and drivers)
 - Before installing CANN software, you need to install the relevant [dependency list](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha003/softwareinst/instg/instg_0045.html)
-- Python >= 3.9
+- Python >= 3.11
 - PyTorch >= 2.5.1, torch-npu >= 2.5.1-7.0.0
 
 ## Quick Start
