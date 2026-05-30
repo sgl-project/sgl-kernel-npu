@@ -83,7 +83,7 @@ jobs:
           clean: true
           submodules: recursive
 
-- name: Get build hash
+      - name: Get build hash
         id: get_build_hash
         run: |
           BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
@@ -95,7 +95,7 @@ jobs:
           [ -z "$CANN_VERSION" ] && CANN_VERSION="unknown"
           echo "CANN_VERSION=$CANN_VERSION" >> $GITHUB_OUTPUT
 
-- name: Restore build cache
+      - name: Restore build cache
         id: cache-build
         uses: runs-on/cache@v4
         with:
@@ -453,7 +453,7 @@ jobs:
           clean: true
           submodules: recursive
 
-- name: Get build hash
+      - name: Get build hash
         id: get_build_hash
         run: |
           BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
@@ -465,7 +465,7 @@ jobs:
           [ -z "$CANN_VERSION" ] && CANN_VERSION="unknown"
           echo "CANN_VERSION=$CANN_VERSION" >> $GITHUB_OUTPUT
 
-- name: Restore build cache
+      - name: Restore build cache
         id: cache-build
         uses: runs-on/cache@v4
         with:
@@ -834,7 +834,7 @@ jobs:
           clean: true
           submodules: recursive
 
-- name: Get build hash
+      - name: Get build hash
         id: get_build_hash
         run: |
           BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
@@ -846,7 +846,7 @@ jobs:
           [ -z "$CANN_VERSION" ] && CANN_VERSION="unknown"
           echo "CANN_VERSION=$CANN_VERSION" >> $GITHUB_OUTPUT
 
-- name: Restore build cache
+      - name: Restore build cache
         id: cache-build
         uses: runs-on/cache@v4
         with:
