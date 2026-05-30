@@ -45,6 +45,12 @@ jobs:
             -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
           echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
 
+          CANN_RAW=$(cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg 2>/dev/null || echo "unknown")
+          CANN_VERSION=$(echo "$CANN_RAW" | tr -cd '[:alnum:].-' | head -c 32)
+          [ -z "$CANN_VERSION" ] && CANN_VERSION="unknown"
+          echo "CANN_VERSION=$CANN_VERSION" >> $GITHUB_OUTPUT
+          echo "Resolved CANN version: $CANN_VERSION (raw: $CANN_RAW)"
+
       - name: Restore build cache
         id: cache-build
         uses: runs-on/cache@v4
@@ -97,6 +103,12 @@ jobs:
           BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
             -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
           echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
+
+          CANN_RAW=$(cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg 2>/dev/null || echo "unknown")
+          CANN_VERSION=$(echo "$CANN_RAW" | tr -cd '[:alnum:].-' | head -c 32)
+          [ -z "$CANN_VERSION" ] && CANN_VERSION="unknown"
+          echo "CANN_VERSION=$CANN_VERSION" >> $GITHUB_OUTPUT
+          echo "Resolved CANN version: $CANN_VERSION (raw: $CANN_RAW)"
 
       - name: Restore build cache
         id: cache-build
