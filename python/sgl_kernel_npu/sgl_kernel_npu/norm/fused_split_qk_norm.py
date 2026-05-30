@@ -115,16 +115,16 @@ def fused_split_qk_norm(
         k_nope,
         k_pe,
         q_a_layernorm.weight,
-        q_a_layernorm.bias,
+        getattr(q_a_layernorm, "bias", None),
         kv_a_layernorm.weight,
-        kv_a_layernorm.bias,
+        getattr(kv_a_layernorm, "bias", None),
         total_hidden,
         q_lora_rank,
         kv_lora_rank,
         qk_rope_dim,
         eps,
-        q_a_layernorm.bias is not None,
-        kv_a_layernorm.bias is not None,
+        getattr(q_a_layernorm, "bias", None) is not None,
+        getattr(kv_a_layernorm, "bias", None) is not None,
     )
 
     # Restore original shape by adding a sequence dimension
