@@ -301,6 +301,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
     winDataSizeOffset = dataState * (baseWindSize / 2) +
                         min(realMaxBatchSize, perRoundTokens) * topK * hSizeAlignCombine;  // *2 是因为double buffer
     shareGM = GetWindAddrByRankId(COMM_EP_IDX, epRankId);
+
     hCommuCopyOutParams = {1U, static_cast<uint32_t>(hScaleIdxSize), 0U, 0U, 0U};
 }
 
@@ -337,7 +338,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantInit()
 
 template <CamTypeClass>
 __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ReduceMaxInplace(const LocalTensor<float> &srcLocal,
-                                                                           uint32_t count)
+                                                                             uint32_t count)
 {
     uint64_t repsFp32 = count >> 6;        // 6 is count / elemPerRefFp32
     uint64_t offsetsFp32 = repsFp32 << 6;  // 6 is repsFp32 * elemPerRefFp32
@@ -362,7 +363,9 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantProcess()
 {
     float dynamicScale = 0.0;
     float maxVal = 0.0f;
-//! OK
+    if constexpr (Std::IsSame<ExpandXOutType, int8_t>::value) {
+        maxVal = INT8_MAX_VALUE;
+    }
 #ifdef __DAV_C310__
     if constexpr (Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value) {
         maxVal = FP8_E5M2_MAX_VALUE;
@@ -372,52 +375,39 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantProcess()
         maxVal = INT8_MAX_VALUE;
     }
 #endif
-//! stuck here!
-
     LocalTensor<float> tokenF32LT = tokenCastFloatBuf.Get<float>();
-//! stuck here!
     if constexpr (IS_MX_QUANT) {
-        // size requirements
-        // xOutTensor_
-    //// should not use here, just ref from ops transformer
-    //    pipe_->InitBuffer(tokenInQue_, BUFFER_NUM, perTokenInSize_);
-    //    pipe_->InitBuffer(tokenOutQue_, BUFFER_NUM, perTokenMergeSize_);
-
-        // tokenF32LT must at least be tokenB32Size = axisH_ * sizeof(float);
-
-        // this line required
         QuantDynamicMxFp8(xOutTensor, xInTensor, tokenF32LT);
         xInQueue.FreeTensor<XType>(xInTensor);
         return;
     }
     Cast(tokenF32LT, xInTensor, RoundMode::CAST_NONE, h);  // 1. tokenF16 -> tokenF32
     xInQueue.FreeTensor<XType>(xInTensor);
-// stuck!!
-    // // PipeBarrier<PIPE_V>();
+    PipeBarrier<PIPE_V>();
     LocalTensor<float> tokenF32AbsLT = tokenAbsFloatBuf.Get<float>();
     Abs(tokenF32AbsLT, tokenF32LT, h);  // 2. tokenF32 -> tokenF32Abs
-    // PipeBarrier<PIPE_V>();
+    PipeBarrier<PIPE_V>();
     ReduceMaxInplace(tokenF32AbsLT, h);  // 3. tokenF32Abs -> max
     SyncFunc<AscendC::HardEvent::V_S>();
     dynamicScale = float(maxVal) / tokenF32AbsLT.GetValue(0);  // 4. maxVal / max 计算出最大值量化的scale
     SyncFunc<AscendC::HardEvent::S_V>();
     Muls(tokenF32LT, tokenF32LT, dynamicScale, h);  // 5. tokenF32 * scale 得出量化后的token
-    // PipeBarrier<PIPE_V>();
+    PipeBarrier<PIPE_V>();
 
     if constexpr (Std::IsSame<ExpandXOutType, int8_t>::value) {
         LocalTensor<int32_t> tokenI32LT = tokenF32LT.ReinterpretCast<int32_t>();
         Cast(tokenI32LT, tokenF32LT, RoundMode::CAST_RINT, h);  // 6. tokenF32 -> tokenI32
         LocalTensor<half> tokenHalfLT = tokenF32LT.ReinterpretCast<half>();
-        // PipeBarrier<PIPE_V>();
+        PipeBarrier<PIPE_V>();
         SetDeqScale((half)1.000000e+00f);
-        // PipeBarrier<PIPE_V>();
+        PipeBarrier<PIPE_V>();
         Cast(tokenHalfLT, tokenI32LT, RoundMode::CAST_ROUND, h);  // 7. tokenI32 -> tokenHalf
-        // PipeBarrier<PIPE_V>();
+        PipeBarrier<PIPE_V>();
         Cast(xOutTensor, tokenHalfLT, RoundMode::CAST_TRUNC, h);  // 8. tokenHalf -> tokenI8
     }
-#ifdef __DAV_C310__ 
+#ifdef __DAV_C310__
     else if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value ||
-        Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value) {
+                       Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value) {
         Cast(xOutTensor, tokenF32LT, RoundMode::CAST_RINT, h);  // 1. tokenF32->tokenF8
     }
 #endif
@@ -428,7 +418,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantProcess()
 
 template <CamTypeClass>
 __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::FillTriple(LocalTensor<ExpandXOutType> &xOutTensor,
-                                                                     uint32_t tokenIndex, uint32_t k)
+                                                                       uint32_t tokenIndex, uint32_t k)
 {
     SyncFunc<AscendC::HardEvent::MTE3_S>();
     LocalTensor<int32_t> xOutTint32 = xOutTensor.template ReinterpretCast<int32_t>();
@@ -500,10 +490,9 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::InputToShare()
     DataCopyPad(sendTokenIdxTensor, sendTokenIdxGT[roundIndex * perRoundTokens * topK + startTokenId],
                 sendTokenIdxParams, copyPadExtParams);
     SyncFunc<AscendC::HardEvent::MTE2_S>();
-//okhere
+
     DataCopyExtParams xCopyParams = {1U, static_cast<uint32_t>(h * sizeof(XType)), 0U, 0U, 0U};
     for (int32_t tokenIndex = startTokenId; tokenIndex < endTokenId; ++tokenIndex) {
-//okhere
         uint32_t dstExpertId = expertIdsTensor(tokenIndex - startTokenId);
         if (dstExpertId < 0 || dstExpertId >= moeExpertNum) {
             continue;
@@ -511,24 +500,16 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::InputToShare()
         int32_t curExpertCnt = sendTokenIdxTensor(tokenIndex - startTokenId);
         int32_t dstExpertOffset = sendOffsetTensor(dstExpertId);
         GM_ADDR rankGM = (__gm__ uint8_t *)(shareGM + hOutGMAlignSize * (dstExpertOffset + curExpertCnt));
-        //okhere 
         dstGT.SetGlobalBuffer((__gm__ ExpandXOutType *)rankGM);
-        // okhere
+
         if constexpr (DynamicQuant) {
             xInTensor = xInQueue.AllocTensor<XType>();
-//stuckhere
             DataCopyPad(xInTensor, xGT[(roundIndex * perRoundTokens + tokenIndex / topK) * h], xCopyParams,
                         tokenCopyPadExtParams);
-
             xInQueue.EnQue(xInTensor);
             xInTensor = xInQueue.DeQue<XType>();
-            // #DBG
-            // #DBG xInQueue.FreeTensor<XType>(xInTensor);
-//  stuckhere
             xOutTensor = xOutQueue.AllocTensor<ExpandXOutType>();
-//  stuckhere
             QuantProcess();
-            // LocalTensor<ExpandXOutType> &xOutTensor
             xOutQueue.EnQue(xOutTensor);
             xOutTensor = xOutQueue.DeQue<ExpandXOutType>();
             if(epRankId == 1 && (GetBlockIdx() == 0 || GetBlockIdx() == 1)) {
@@ -788,10 +769,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
     DataCopyPad(rInSrcrankOffsetTensor, rInSrcrankOffsetGT, CParams, CCopyPadExtParams);
 
     uint32_t fromRank, count, preCount, recvOffset, targetOffset, local_e;
-    // DataCopyPadExtParams<ExpandXOutType> copyPadExtParams{false, 0U, 0U, 0U};
     DataCopyParams tokenInParams = {1U, static_cast<uint16_t>(axisHCommu_ * sizeof(ExpandXOutType)), 0U, 0U}; // compare with
-    // hCommuCopyOutParams_ = {1U, static_cast<uint32_t>(axisHCommu * sizeof(ExpandXOutType)), 0U, 0U, 0U};
-    // perTokenMergeSize_ = Align256(axisH_) * sizeof(ExpandXOutType)+= Align2(Ceil32(axisH_));
     DataCopyPadParams padParams = {true, 0, 0, 0};
 
     DataCopyExtParams dataCopyExandIdxParams{1U, sizeof(int32_t) * EXPAND_IDX_INFO, 0U, 0U, 0U};
@@ -828,7 +806,6 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
         for (uint32_t j = 0; j < count; ++j) {
             srcTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(recvStart + j * hOutGMAlignSize));
             xTmpTensor = xQueue.AllocTensor<ExpandXOutType>();
-            // DataCopyPad(xTmpTensor, srcTokenGT, hCommuCopyOutParams, copyPadExtParams);
 
             if(epRankId == 0 && (GetBlockIdx() == 0 || GetBlockIdx() == 1)) {
                 printf("#DBG0417 s2o 1 rank0, blk%d, dump srcTokenGT:\n", blockIdx);
@@ -910,7 +887,6 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Process()
     if ASCEND_IS_AIV {
         uint32_t realRound = (realMaxBatchSize + perRoundTokens - 1) / perRoundTokens;
         while (roundIndex < realRound) {
-            // stuck here
             InputToShare();
             SetStatus();
             WaitStatus();

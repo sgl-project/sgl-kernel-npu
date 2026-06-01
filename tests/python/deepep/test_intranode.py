@@ -441,7 +441,6 @@ def test_main(
             "handle": handle,
             "config": config,
             "async_finish": False,
-            # "topk_weights": handle[5],
             "topk_weights": handle[7],
         }
         combined_x, combined_topk_weights, event = buffer.combine(**combine_args)
@@ -450,7 +449,6 @@ def test_main(
         ref_x = x_pure_rand if current_x is x_pure_rand else x
         diff = calc_diff(
             check_x,
-            # ref_x * handle[5].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
             ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
         )
         golden = ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
@@ -468,8 +466,6 @@ def test_main(
             print(" passed", flush=True)
     if local_rank == 0:
         print("", flush=True)
-    #DBG0416
-    return
 
     # Tune dispatch performance
     fp8_factor = (1 + 4 / 128) / 2
@@ -516,7 +512,6 @@ def test_main(
         "handle": handle,
         "config": config,
         "async_finish": False,
-        # "topk_weights": handle[5],
         "topk_weights": handle[7],
     }
     t = bench(lambda: buffer.combine(**tune_args))[0]

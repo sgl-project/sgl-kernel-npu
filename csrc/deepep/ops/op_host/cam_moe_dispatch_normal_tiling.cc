@@ -72,16 +72,16 @@ constexpr size_t MAX_GROUP_NAME_LENGTH = 128UL;
 constexpr int64_t MAX_EP_WORLD_SIZE = 384;
 constexpr int64_t MIN_EP_WORLD_SIZE = 2;
 constexpr int64_t MAX_TP_WORLD_SIZE = 2;
-constexpr int64_t BS_UPPER_BOUND = 65536;  // 最大bs
+constexpr int64_t BS_UPPER_BOUND = 131072;  // 最大bs
 
 constexpr uint32_t TILINGKEY_TP_WORLD_SIZE = 100;
 constexpr uint32_t TP_WORLD_SIZE_TWO = 2;
-constexpr int64_t MOE_EXPERT_MAX_NUM = 512;
+constexpr int64_t MOE_EXPERT_MAX_NUM = 1024;
 constexpr int64_t K_MAX = 16;
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
 constexpr uint32_t WORKSPACE_ELEMENT_OFFSET = 512;
 constexpr int64_t H_MIN = 1024;
-constexpr int64_t H_MAX = 7168;
+constexpr int64_t H_MAX = 8192;
 constexpr uint64_t MB_SIZE = 1024UL * 1024UL;
 
 constexpr uint64_t TRIPLE = 3;
@@ -194,11 +194,9 @@ static bool CheckTensorDim(gert::TilingContext *context, const char *nodeName, c
 static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeName, const uint32_t quantMode,
                                 const bool isEnableDiagnose)
 {
-    printf("#DBG start check tensor data type\n");
-
     auto xDesc = context->GetInputDesc(X_INDEX);
     
-    // todo check
+// todo check
     OP_TILING_CHECK(xDesc == nullptr, OP_LOGE(nodeName, "xDesc is null."), return false);
     OP_TILING_CHECK((xDesc->GetDataType() != ge::DT_BF16) && (xDesc->GetDataType() != ge::DT_FLOAT16),
                     OP_LOGE(nodeName, "x dataType is invalid, dataType should be bf16 or float16, but is ."),
@@ -219,7 +217,7 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
             expandXDesc->GetDataType() != ge::DT_FLOAT8_E5M2,
             OP_LOGE(nodeName, "expandX dataType is invalid, dataType should be int8, fp8e4m3 or fp8e5m2, but is %s",
                     geDataTypeMap.at(expandXDesc->GetDataType()).c_str()),
-            return false);
+                        return false);
     } else {
         OP_TILING_CHECK(
             expandXDesc->GetDataType() != xDesc->GetDataType(),
@@ -235,7 +233,7 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
             dynamicScalesDesc->GetDataType() != ge::DT_FLOAT8_E8M0,
             OP_LOGE(nodeName, "dynamicScales dataType is invalid, dataType should be float or fp8e8m0, but is %s",
                     geDataTypeMap.at(dynamicScalesDesc->GetDataType()).c_str()),
-            return false);
+                        return false);
     }
 // end todo
 
@@ -514,7 +512,6 @@ static ge::graphStatus CheckTensorShape(gert::TilingContext *context, const char
 static ge::graphStatus TilingCheckCamMoeDispatchNormal(gert::TilingContext *context, const char *nodeName,
                                                        const uint32_t quantMode, const bool isEnableDiagnose)
 {
-    printf("#DBG start check tensor\n");
     OP_TILING_CHECK(!CheckTensorDim(context, nodeName, quantMode, isEnableDiagnose),
                     OP_LOGE(nodeName, "params shape is invalid."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(!CheckTensorDataType(context, nodeName, quantMode, isEnableDiagnose),
@@ -569,7 +566,6 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext *context, const char *no
 
 static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext *context)
 {
-    printf("#DBG start CamMoeDispatchNormalA3TilingFuncImpl\n");
     const char *nodeName = context->GetNodeName();
     CamMoeDispatchNormalTilingData *tilingData = context->GetTilingData<CamMoeDispatchNormalTilingData>();
     OP_TILING_CHECK(tilingData == nullptr, OP_LOGE(nodeName, "tilingData is nullptr."), return ge::GRAPH_FAILED);
