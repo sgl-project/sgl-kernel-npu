@@ -31,7 +31,7 @@ extern "C" __global__ __aicore__ void cam_moe_dispatch_normal(
         return;
     } else if (TILING_KEY_IS(TILINGKEY_A5_NO_QUANT)) {
         GET_TILING_DATA_WITH_STRUCT(CamMoeDispatchNormalTilingData, tilingData, tilingGM);
-        CamMoeDispatchNormalA5<DTYPE_X, DTYPE_RECV_X, false, false, false> op;
+        CamMoeDispatchNormalA5<DTYPE_X, DTYPE_RECV_X, DTYPE_X_SCALES, false, false, false> op;
         op.Init(x, expertIds, send_offset, send_token_idx, recv_offset, recv_count, expert_global_offset,
                 srcrank_in_expert_offset, r_in_srcrank_offset, expandXOut, dynamicScalesOut, assist_info_for_combine,
                 waitRecvCostStatsOut, workspaceGM, &pipe, &tilingData);
@@ -49,11 +49,21 @@ extern "C" __global__ __aicore__ void cam_moe_dispatch_normal(
         return;
     } else if (TILING_KEY_IS(TILINGKEY_A5_QUANT)) {
         GET_TILING_DATA_WITH_STRUCT(CamMoeDispatchNormalTilingData, tilingData, tilingGM);
-        CamMoeDispatchNormalA5<DTYPE_X, DTYPE_RECV_X, true, false, false> op;
+        CamMoeDispatchNormalA5<DTYPE_X, DTYPE_RECV_X, DTYPE_X_SCALES, true, false, false> op;
         op.Init(x, expertIds, send_offset, send_token_idx, recv_offset, recv_count, expert_global_offset,
                 srcrank_in_expert_offset, r_in_srcrank_offset, expandXOut, dynamicScalesOut, assist_info_for_combine,
                 waitRecvCostStatsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
+    }
+#elif (ORIG_DTYPE_RECV_X == DT_FLOAT8_E5M2 || ORIG_DTYPE_RECV_X == DT_FLOAT8_E4M3FN || ORIG_DTYPE_RECV_X == DT_HIFLOAT8)
+    if (TILING_KEY_IS(TILINGKEY_A5_QUANT)) {
+        GET_TILING_DATA_WITH_STRUCT(CamMoeDispatchNormalTilingData, tilingData, tilingGM);
+        CamMoeDispatchNormalA5<DTYPE_X, DTYPE_RECV_X, DTYPE_X_SCALES, true, false, false> op;
+        op.Init(x, expertIds, send_offset, send_token_idx, recv_offset, recv_count, expert_global_offset,
+                srcrank_in_expert_offset, r_in_srcrank_offset, expandXOut, dynamicScalesOut, assist_info_for_combine,
+                waitRecvCostStatsOut, workspaceGM, &pipe, &tilingData);
+        op.Process();
+        return;
     }
 #endif
 }

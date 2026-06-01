@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 
 #include "register/tilingdata_base.h"
 #include "tiling/tiling_api.h"
@@ -71,16 +72,16 @@ constexpr size_t MAX_GROUP_NAME_LENGTH = 128UL;
 constexpr int64_t MAX_EP_WORLD_SIZE = 384;
 constexpr int64_t MIN_EP_WORLD_SIZE = 2;
 constexpr int64_t MAX_TP_WORLD_SIZE = 2;
-constexpr int64_t BS_UPPER_BOUND = 131072;  // 最大bs
+constexpr int64_t BS_UPPER_BOUND = 65536;  // 最大bs
 
 constexpr uint32_t TILINGKEY_TP_WORLD_SIZE = 100;
 constexpr uint32_t TP_WORLD_SIZE_TWO = 2;
-constexpr int64_t MOE_EXPERT_MAX_NUM = 1024;
+constexpr int64_t MOE_EXPERT_MAX_NUM = 512;
 constexpr int64_t K_MAX = 16;
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
 constexpr uint32_t WORKSPACE_ELEMENT_OFFSET = 512;
 constexpr int64_t H_MIN = 1024;
-constexpr int64_t H_MAX = 8192;
+constexpr int64_t H_MAX = 7168;
 constexpr uint64_t MB_SIZE = 1024UL * 1024UL;
 
 constexpr uint64_t TRIPLE = 3;
@@ -92,6 +93,21 @@ constexpr uint64_t UB_ALIGN = 32UL;
 constexpr int64_t DISPATCH_STATUS_MAX_SUPPORT_NUM = 1280UL;
 }  // namespace
 
+static const std::unordered_map<DataType, std::string> geDataTypeMap = {
+    {ge::DT_UINT8, "DT_UINT8"},
+    {ge::DT_INT8, "DT_INT8"},
+    {ge::DT_INT16, "DT_INT16"},
+    {ge::DT_INT32, "DT_INT32"},
+    {ge::DT_INT64, "DT_INT64"},
+    {ge::DT_FLOAT16, "DT_FLOAT16"},
+    {ge::DT_FLOAT, "DT_FLOAT"},
+    {ge::DT_DOUBLE, "DT_DOUBLE"},
+    {ge::DT_BOOL, "DT_BOOL"},
+    {ge::DT_BF16, "DT_BF16"},
+    {ge::DT_FLOAT8_E4M3FN, "DT_FLOAT8_E4M3FN"},
+    {ge::DT_FLOAT8_E5M2, "DT_FLOAT8_E5M2"},
+    {ge::DT_FLOAT8_E8M0, "DT_FLOAT8_E8M0"}
+};
 namespace optiling {
 static void PrintTilingDataInfo(const char *nodeName, CamMoeDispatchNormalTilingData &tilingData)
 {
@@ -178,7 +194,11 @@ static bool CheckTensorDim(gert::TilingContext *context, const char *nodeName, c
 static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeName, const uint32_t quantMode,
                                 const bool isEnableDiagnose)
 {
+    printf("#DBG start check tensor data type\n");
+
     auto xDesc = context->GetInputDesc(X_INDEX);
+    
+    // todo check
     OP_TILING_CHECK(xDesc == nullptr, OP_LOGE(nodeName, "xDesc is null."), return false);
     OP_TILING_CHECK((xDesc->GetDataType() != ge::DT_BF16) && (xDesc->GetDataType() != ge::DT_FLOAT16),
                     OP_LOGE(nodeName, "x dataType is invalid, dataType should be bf16 or float16, but is ."),
@@ -193,23 +213,40 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     auto expandXDesc = context->GetOutputDesc(OUTPUT_EXPAND_X_INDEX);
     OP_TILING_CHECK(expandXDesc == nullptr, OP_LOGE(nodeName, "expandXDesc is null."), return false);
     if (quantMode != NO_SCALES) {
-        OP_TILING_CHECK(expandXDesc->GetDataType() != ge::DT_INT8,
-                        OP_LOGE(nodeName, "expandX dataType is invalid, dataType should be int8, but is."),
-                        return false);
+        OP_TILING_CHECK(
+            expandXDesc->GetDataType() != ge::DT_INT8 &&
+            expandXDesc->GetDataType() != ge::DT_FLOAT8_E4M3FN &&
+            expandXDesc->GetDataType() != ge::DT_FLOAT8_E5M2,
+            OP_LOGE(nodeName, "expandX dataType is invalid, dataType should be int8, fp8e4m3 or fp8e5m2, but is %s",
+                    geDataTypeMap.at(expandXDesc->GetDataType()).c_str()),
+            return false);
     } else {
         OP_TILING_CHECK(
             expandXDesc->GetDataType() != xDesc->GetDataType(),
-            OP_LOGE(nodeName, "expandX dataType is invalid, dataType should be equal to x dataType , but is."),
+            OP_LOGE(nodeName, "expandX dataType is invalid, dataType should be equal to x dataType , but is %s",
+                geDataTypeMap.at(expandXDesc->GetDataType()).c_str()),
             return false);
     }
 
     if (quantMode == DYNAMIC_SCALES) {
         auto dynamicScalesDesc = context->GetOutputDesc(OUTPUT_DYNAMIC_SCALES_INDEX);
         OP_TILING_CHECK(dynamicScalesDesc == nullptr, OP_LOGE(nodeName, "dynamicScalesDesc is null."), return false);
-        OP_TILING_CHECK(dynamicScalesDesc->GetDataType() != ge::DT_FLOAT,
-                        OP_LOGE(nodeName, "dynamicScales dataType is invalid, dataType should be float, but is ."),
-                        return false);
+        OP_TILING_CHECK(dynamicScalesDesc->GetDataType() != ge::DT_FLOAT &&
+            dynamicScalesDesc->GetDataType() != ge::DT_FLOAT8_E8M0,
+            OP_LOGE(nodeName, "dynamicScales dataType is invalid, dataType should be float or fp8e8m0, but is %s",
+                    geDataTypeMap.at(dynamicScalesDesc->GetDataType()).c_str()),
+            return false);
     }
+// end todo
+
+    printf("datatype: x: %s, expandX: %s, dynamicScale: %s\n, if dynamicScale is N/A, please set quant\n    ",
+        geDataTypeMap.at(xDesc->GetDataType()).c_str(),
+        geDataTypeMap.at(expandXDesc->GetDataType()).c_str(),
+        quantMode == DYNAMIC_SCALES ? geDataTypeMap.at(context->GetOutputDesc(OUTPUT_DYNAMIC_SCALES_INDEX)->GetDataType()).c_str() : "N/A");
+    OP_LOGI(nodeName, "datatype: x: %s, expandX: %s, dynamicScale: %s",
+        geDataTypeMap.at(xDesc->GetDataType()).c_str(),
+        geDataTypeMap.at(expandXDesc->GetDataType()).c_str(),
+        geDataTypeMap.at(dynamicScalesDesc->GetDataType()).c_str());
 
     auto assistInfoDesc = context->GetOutputDesc(OUTPUT_ASSIST_INFO_INDEX);
     OP_TILING_CHECK(assistInfoDesc == nullptr, OP_LOGE(nodeName, "assistInfoDesc is null."), return false);
@@ -477,6 +514,7 @@ static ge::graphStatus CheckTensorShape(gert::TilingContext *context, const char
 static ge::graphStatus TilingCheckCamMoeDispatchNormal(gert::TilingContext *context, const char *nodeName,
                                                        const uint32_t quantMode, const bool isEnableDiagnose)
 {
+    printf("#DBG start check tensor\n");
     OP_TILING_CHECK(!CheckTensorDim(context, nodeName, quantMode, isEnableDiagnose),
                     OP_LOGE(nodeName, "params shape is invalid."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(!CheckTensorDataType(context, nodeName, quantMode, isEnableDiagnose),
@@ -531,6 +569,7 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext *context, const char *no
 
 static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext *context)
 {
+    printf("#DBG start CamMoeDispatchNormalA3TilingFuncImpl\n");
     const char *nodeName = context->GetNodeName();
     CamMoeDispatchNormalTilingData *tilingData = context->GetTilingData<CamMoeDispatchNormalTilingData>();
     OP_TILING_CHECK(tilingData == nullptr, OP_LOGE(nodeName, "tilingData is nullptr."), return ge::GRAPH_FAILED);
