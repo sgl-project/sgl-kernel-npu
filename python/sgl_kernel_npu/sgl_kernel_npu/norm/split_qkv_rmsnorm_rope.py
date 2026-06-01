@@ -38,9 +38,9 @@ def split_qkv_rmsnorm_rope_kernel(
     row_step = tl.num_programs(0)
     # q
     if NORMS:
-        weight_values = tl.load(q_weight_ptr + tl.arange(0, HEAD_DIM))
+        weight_values = tl.load(q_weight_ptr + tl.arange(0, HEAD_DIM)).to(tl.float32)
     if BIAS:
-        bias_values = tl.load(q_bias_ptr + tl.arange(0, HEAD_DIM))
+        bias_values = tl.load(q_bias_ptr + tl.arange(0, HEAD_DIM)).to(tl.float32)
     input_offset = row_pid * total_hidden_size
     output_offset = row_pid * q_hidden_size
     input_offset_step = row_step * total_hidden_size
@@ -65,16 +65,16 @@ def split_qkv_rmsnorm_rope_kernel(
             if BIAS:
                 normalized_values = (
                     normalized_values * weight_values + bias_values
-                ).to(tl.bfloat16)
+                )
             else:
-                normalized_values = (normalized_values * weight_values).to(tl.bfloat16)
+                normalized_values = (normalized_values * weight_values)
         else:
-            normalized_values = input_values.to(tl.bfloat16)
+            normalized_values = input_values
 
         # rope
         sc_offsets = row_idx * ROPE_DIM + tl.arange(0, ROPE_DIM)
-        sin = (tl.load(sin_ptr + sc_offsets)).reshape(1, ROPE_DIM)
-        cos = (tl.load(cos_ptr + sc_offsets)).reshape(1, ROPE_DIM)
+        sin = (tl.load(sin_ptr + sc_offsets)).to(tl.float32).reshape(1, ROPE_DIM)
+        cos = (tl.load(cos_ptr + sc_offsets)).to(tl.float32).reshape(1, ROPE_DIM)
         if not DO_HALF:
             sin_half = al.extract_slice(
                 sin, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 1)
@@ -82,7 +82,7 @@ def split_qkv_rmsnorm_rope_kernel(
             cos_half = al.extract_slice(
                 cos, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 1)
             )
-            sin = tl.zeros((1, ROPE_DIM), dtype=sin_half.dtype)
+            sin = tl.zeros((1, ROPE_DIM), dtype=tl.float32)
             sin = al.insert_slice(
                 sin, sin_half, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 2)
             )
@@ -90,7 +90,7 @@ def split_qkv_rmsnorm_rope_kernel(
                 sin, sin_half, offsets=(0, 1), sizes=(1, HALF_ROPE_DIM), strides=(1, 2)
             )
 
-            cos = tl.zeros((1, ROPE_DIM), dtype=cos_half.dtype)
+            cos = tl.zeros((1, ROPE_DIM), dtype=tl.float32)
             cos = al.insert_slice(
                 cos, cos_half, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 2)
             )
@@ -138,7 +138,7 @@ def split_qkv_rmsnorm_rope_kernel(
                 sizes=(Q_BLOCK_SIZE // HEAD_DIM, HALF_ROPE_DIM),
                 strides=(1, 2),
             )
-        cat_x = tl.zeros((Q_BLOCK_SIZE // HEAD_DIM, ROPE_DIM), dtype=tl.bfloat16)
+        cat_x = tl.zeros((Q_BLOCK_SIZE // HEAD_DIM, ROPE_DIM), dtype=tl.float32)
         if DO_HALF:
             cat_x = al.insert_slice(
                 cat_x,
@@ -198,9 +198,9 @@ def split_qkv_rmsnorm_rope_kernel(
 
     # k
     if NORMS:
-        weight_values = tl.load(k_weight_ptr + tl.arange(0, HEAD_DIM))
+        weight_values = tl.load(k_weight_ptr + tl.arange(0, HEAD_DIM)).to(tl.float32)
     if BIAS:
-        bias_values = tl.load(k_bias_ptr + tl.arange(0, HEAD_DIM))
+        bias_values = tl.load(k_bias_ptr + tl.arange(0, HEAD_DIM)).to(tl.float32)
     input_offset = row_pid * total_hidden_size + q_hidden_size
     output_offset = row_pid * kv_hidden_size
     output_offset_step = row_step * kv_hidden_size
@@ -224,16 +224,16 @@ def split_qkv_rmsnorm_rope_kernel(
             if BIAS:
                 normalized_values = (
                     normalized_values * weight_values + bias_values
-                ).to(tl.bfloat16)
+                )
             else:
-                normalized_values = (normalized_values * weight_values).to(tl.bfloat16)
+                normalized_values = (normalized_values * weight_values)
         else:
-            normalized_values = input_values.to(tl.bfloat16)
+            normalized_values = input_values
 
         # # rope
         sc_offsets = row_idx * ROPE_DIM + tl.arange(0, ROPE_DIM)
-        sin = (tl.load(sin_ptr + sc_offsets)).reshape(1, ROPE_DIM)
-        cos = (tl.load(cos_ptr + sc_offsets)).reshape(1, ROPE_DIM)
+        sin = (tl.load(sin_ptr + sc_offsets)).to(tl.float32).reshape(1, ROPE_DIM)
+        cos = (tl.load(cos_ptr + sc_offsets)).to(tl.float32).reshape(1, ROPE_DIM)
 
         if not DO_HALF:
             sin_half = al.extract_slice(
@@ -242,7 +242,7 @@ def split_qkv_rmsnorm_rope_kernel(
             cos_half = al.extract_slice(
                 cos, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 1)
             )
-            sin = tl.zeros((1, ROPE_DIM), dtype=sin_half.dtype)
+            sin = tl.zeros((1, ROPE_DIM), dtype=tl.float32)
             sin = al.insert_slice(
                 sin, sin_half, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 2)
             )
@@ -250,7 +250,7 @@ def split_qkv_rmsnorm_rope_kernel(
                 sin, sin_half, offsets=(0, 1), sizes=(1, HALF_ROPE_DIM), strides=(1, 2)
             )
 
-            cos = tl.zeros((1, ROPE_DIM), dtype=cos_half.dtype)
+            cos = tl.zeros((1, ROPE_DIM), dtype=tl.float32)
             cos = al.insert_slice(
                 cos, cos_half, offsets=(0, 0), sizes=(1, HALF_ROPE_DIM), strides=(1, 2)
             )
@@ -299,7 +299,7 @@ def split_qkv_rmsnorm_rope_kernel(
                 sizes=(KV_BLOCK_SIZE // HEAD_DIM, HALF_ROPE_DIM),
                 strides=(1, 2),
             )
-        cat_x = tl.zeros((KV_BLOCK_SIZE // HEAD_DIM, ROPE_DIM), dtype=tl.bfloat16)
+        cat_x = tl.zeros((KV_BLOCK_SIZE // HEAD_DIM, ROPE_DIM), dtype=tl.float32)
         if DO_HALF:
             cat_x = al.insert_slice(
                 cat_x,
