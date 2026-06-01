@@ -5,6 +5,10 @@ import torch
 import torch.nn.functional as F
 from sgl_kernel_npu.fla.solve_tril import solve_tril_npu as solve_tril
 
+pytestmark = pytest.mark.skip(
+    reason="solve_tril API is not consistent with upstream fla."
+)
+
 NPU_DEVICE = "npu"
 
 
