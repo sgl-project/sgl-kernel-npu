@@ -63,11 +63,9 @@ def split_qkv_rmsnorm_rope_kernel(
                 input_values * reciprocal_std
             )  # (Q_BLOCK_SIZE//HEAD_DIM, HEAD_DIM)
             if BIAS:
-                normalized_values = (
-                    normalized_values * weight_values + bias_values
-                )
+                normalized_values = normalized_values * weight_values + bias_values
             else:
-                normalized_values = (normalized_values * weight_values)
+                normalized_values = normalized_values * weight_values
         else:
             normalized_values = input_values
 
@@ -222,11 +220,9 @@ def split_qkv_rmsnorm_rope_kernel(
                 input_values * reciprocal_std
             )  # (KV_BLOCK_SIZE/HEAD_DIM, HEAD_DIM)
             if BIAS:
-                normalized_values = (
-                    normalized_values * weight_values + bias_values
-                )
+                normalized_values = normalized_values * weight_values + bias_values
             else:
-                normalized_values = (normalized_values * weight_values)
+                normalized_values = normalized_values * weight_values
         else:
             normalized_values = input_values
 
