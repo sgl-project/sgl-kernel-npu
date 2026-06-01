@@ -185,21 +185,21 @@ jobs:
       - name: Run test low latency (A3 - 16 processes)
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 1913
+          HCCL_BUFFSIZE: 4500
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=16
 
       - name: Run test low latency (A3 - 16 processes, large params)
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 1913
+          HCCL_BUFFSIZE: 4500
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=16 --num-tokens=128 --hidden=4096 --num-topk=8 --num-experts=64
 
       - name: Run test low latency (A3 - 16 processes, larger params)
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 1913
+          HCCL_BUFFSIZE: 5000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=16 --num-tokens=512 --hidden=7168 --num-topk=9 --num-experts=256
 
@@ -402,21 +402,21 @@ jobs:
       - name: Run test low latency (A3 - 16 processes)
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 1913
+          HCCL_BUFFSIZE: 4500
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=16
 
       - name: Run test low latency (A3 - 16 processes, large params)
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 1913
+          HCCL_BUFFSIZE: 4500
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=16 --num-tokens=128 --hidden=4096 --num-topk=8 --num-experts=64
 
       - name: Run test low latency (A3 - 16 processes, larger params)
         timeout-minutes: 10
         env:
-          HCCL_BUFFSIZE: 1913
+          HCCL_BUFFSIZE: 5000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=16 --num-tokens=512 --hidden=7168 --num-topk=9 --num-experts=256
 
