@@ -460,10 +460,8 @@ GDN_KERNEL_NAME(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr, GM_ADDR g_in_ptr, G
         return
 
     switch (num_heads) {
-        // DISPATCH_MEGA_H(2);
-        // DISPATCH_MEGA_H(4);
-        // DISPATCH_MEGA_H(8);
-        // DISPATCH_MEGA_H(12);
+        DISPATCH_MEGA_H(8);
+        DISPATCH_MEGA_H(12);
         DISPATCH_MEGA_H(16);
         DISPATCH_MEGA_H(24);
         DISPATCH_MEGA_H(32);
