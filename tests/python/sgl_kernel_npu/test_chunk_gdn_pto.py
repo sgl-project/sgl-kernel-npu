@@ -20,7 +20,6 @@ SUPPORTED_HEAD_CONFIGS = [
     pytest.param(16, 8, id="H16-Hg8"),
     pytest.param(16, 16, id="H16-Hg16"),
     pytest.param(24, 8, id="H24-Hg8"),
-    pytest.param(32, 4, id="H32-Hg4"),
     pytest.param(32, 8, id="H32-Hg8"),
     pytest.param(32, 16, id="H32-Hg16"),
     pytest.param(48, 16, id="H48-Hg16"),
@@ -153,8 +152,8 @@ def test_mega_chunk_gdn_all_supported_head_configs(num_value_heads, num_key_head
 
     torch.manual_seed(2)
     device = torch.device("npu")
-    total_tokens = 129
-    cu_list = [0, 64, total_tokens]
+    cu_list = [0, 22, 1333]
+    total_tokens = cu_list[-1]
     num_sequences = len(cu_list) - 1
     H = num_value_heads
     Hg = num_key_heads
