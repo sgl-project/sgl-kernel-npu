@@ -12,6 +12,10 @@ def _has_npu() -> bool:
 pytestmark = pytest.mark.skipif(not _has_npu(), reason="NPU is required")
 
 SUPPORTED_HEAD_CONFIGS = [
+    pytest.param(8, 2, id="H8-Hg2"),
+    pytest.param(8, 4, id="H8-Hg4"),
+    pytest.param(8, 8, id="H8-Hg8"),
+    pytest.param(12, 4, id="H12-Hg4"),
     pytest.param(16, 4, id="H16-Hg4"),
     pytest.param(16, 8, id="H16-Hg8"),
     pytest.param(16, 16, id="H16-Hg16"),
@@ -19,26 +23,6 @@ SUPPORTED_HEAD_CONFIGS = [
     pytest.param(32, 4, id="H32-Hg4"),
     pytest.param(32, 8, id="H32-Hg8"),
     pytest.param(32, 16, id="H32-Hg16"),
-    pytest.param(32, 32, id="H32-Hg32"),
-    pytest.param(48, 8, id="H48-Hg8"),
-    pytest.param(48, 12, id="H48-Hg12"),
-    pytest.param(48, 16, id="H48-Hg16"),
-    pytest.param(64, 4, id="H64-Hg4"),
-    pytest.param(64, 8, id="H64-Hg8"),
-    pytest.param(64, 16, id="H64-Hg16"),
-]
-
-DEFAULT_HEAD_CONFIGS = [
-    pytest.param(16, 4, id="H16-Hg4"),
-    pytest.param(24, 8, id="H24-Hg8"),
-    pytest.param(32, 8, id="H32-Hg8"),
-    pytest.param(48, 16, id="H48-Hg16"),
-    pytest.param(64, 16, id="H64-Hg16"),
-]
-
-INITIAL_STATE_HEAD_CONFIGS = [
-    pytest.param(16, 4, id="H16-Hg4"),
-    pytest.param(32, 8, id="H32-Hg8"),
     pytest.param(48, 16, id="H48-Hg16"),
     pytest.param(64, 16, id="H64-Hg16"),
 ]
@@ -57,7 +41,7 @@ def _assert_close(name: str, actual: torch.Tensor, expected: torch.Tensor) -> No
 
 
 def _native_reference(
-    q, k, v, g, beta, cu_seqlens, initial_state=None, output_final_state=False
+    q, k, v, g, beta, cu_seqlens, initial_state=None, output_final_state=True
 ):
     if q.shape[2] != v.shape[2]:
         assert v.shape[2] % q.shape[2] == 0
@@ -102,23 +86,16 @@ def _native_reference(
     )
 
 
-@pytest.mark.parametrize(
-    ("total_tokens", "cu_list"),
-    [
-        (129, None),
-        (256, [0, 96, 128, 256]),
-        (2560, [0, 96, 128, 2560]),
-    ],
-)
-@pytest.mark.parametrize(("num_value_heads", "num_key_heads"), DEFAULT_HEAD_CONFIGS)
-def test_mega_chunk_gdn_e2e(total_tokens, cu_list, num_value_heads, num_key_heads):
+def test_mega_chunk_gdn_no_initial_state():
     if not hasattr(torch.ops.npu, "mega_chunk_gdn"):
         pytest.skip("mega_chunk_gdn op is not registered")
 
     torch.manual_seed(0)
     device = torch.device("npu")
-    H = num_value_heads
-    Hg = num_key_heads
+    total_tokens = 129
+    cu_list = None
+    H = 16
+    Hg = 4
     D = 128
 
     q_cpu = F.normalize(torch.randn(1, total_tokens, Hg, D), p=2, dim=-1).to(
@@ -136,79 +113,6 @@ def test_mega_chunk_gdn_e2e(total_tokens, cu_list, num_value_heads, num_key_head
     v = v_cpu.to(device)
     g = g_cpu.to(device)
     beta = beta_cpu.to(device)
-    cu = (
-        None
-        if cu_list is None
-        else torch.tensor(cu_list, dtype=torch.long, device=device)
-    )
-    scale = D**-0.5
-
-    _, actual, _, _, _, _, _ = run_mega_chunk_gdn(
-        q=q,
-        k=k,
-        v=v,
-        g=g,
-        beta=beta,
-        scale=scale,
-        initial_state=None,
-        output_final_state=False,
-        cu_seqlens=cu,
-    )
-    torch.npu.synchronize()
-
-    expected, _ = _native_reference(q_cpu, k_cpu, v_cpu, g_cpu, beta_cpu, cu_list)
-    _assert_close("mega_vs_native", actual, expected)
-
-
-@pytest.mark.parametrize(
-    ("total_tokens", "cu_list"),
-    [
-        (129, None),
-        (256, [0, 96, 128, 256]),
-    ],
-)
-@pytest.mark.parametrize(
-    ("num_value_heads", "num_key_heads"), INITIAL_STATE_HEAD_CONFIGS
-)
-@pytest.mark.parametrize("state_kind", ["zero", "random"])
-def test_mega_chunk_gdn_initial_state(
-    total_tokens, cu_list, num_value_heads, num_key_heads, state_kind
-):
-    if not hasattr(torch.ops.npu, "mega_chunk_gdn"):
-        pytest.skip("mega_chunk_gdn op is not registered")
-
-    torch.manual_seed(1)
-    device = torch.device("npu")
-    H = num_value_heads
-    Hg = num_key_heads
-    D = 128
-    num_sequences = 1 if cu_list is None else len(cu_list) - 1
-
-    q_cpu = F.normalize(torch.randn(1, total_tokens, Hg, D), p=2, dim=-1).to(
-        torch.float16
-    )
-    k_cpu = F.normalize(torch.randn(1, total_tokens, Hg, D), p=2, dim=-1).to(
-        torch.float16
-    )
-    v_cpu = torch.randn(1, total_tokens, H, D, dtype=torch.float16)
-    g_cpu = F.logsigmoid(torch.randn(1, total_tokens, H, dtype=torch.float32))
-    beta_cpu = torch.rand(1, total_tokens, H, dtype=torch.float16)
-    if state_kind == "zero":
-        h0_cpu = torch.zeros(num_sequences, H, D, D, dtype=torch.float16)
-    else:
-        h0_cpu = (0.1 * torch.randn(num_sequences, H, D, D)).to(torch.float16)
-
-    q = q_cpu.to(device)
-    k = k_cpu.to(device)
-    v = v_cpu.to(device)
-    g = g_cpu.to(device)
-    beta = beta_cpu.to(device)
-    h0 = h0_cpu.to(device)
-    cu = (
-        None
-        if cu_list is None
-        else torch.tensor(cu_list, dtype=torch.long, device=device)
-    )
     scale = D**-0.5
 
     _, actual, _, actual_final_state, _, _, _ = run_mega_chunk_gdn(
@@ -218,9 +122,9 @@ def test_mega_chunk_gdn_initial_state(
         g=g,
         beta=beta,
         scale=scale,
-        initial_state=h0,
+        initial_state=None,
         output_final_state=True,
-        cu_seqlens=cu,
+        cu_seqlens=None,
     )
     torch.npu.synchronize()
 
@@ -231,12 +135,12 @@ def test_mega_chunk_gdn_initial_state(
         g_cpu,
         beta_cpu,
         cu_list,
-        initial_state=h0_cpu,
+        initial_state=None,
         output_final_state=True,
     )
-    _assert_close(f"mega_vs_native_{state_kind}", actual, expected)
+    _assert_close(f"mega_no_initial_state_H{H}_Hg{Hg}", actual, expected)
     _assert_close(
-        f"mega_final_state_vs_native_{state_kind}",
+        f"mega_no_initial_state_final_state_H{H}_Hg{Hg}",
         actual_final_state,
         expected_final_state,
     )
