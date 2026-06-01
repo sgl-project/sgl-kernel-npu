@@ -207,6 +207,7 @@ jobs:
       - name: Run test normal and low latency (A3 - 8 processes)
         timeout-minutes: 10
         env:
+          HCCL_BUFFSIZE: 5000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-processes=8
 
@@ -423,6 +424,7 @@ jobs:
       - name: Run test normal and low latency (A3 - 8 processes)
         timeout-minutes: 10
         env:
+          HCCL_BUFFSIZE: 5000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-processes=8
 
@@ -624,6 +626,7 @@ jobs:
       - name: Run test normal and low latency (A2 - 8 processes)
         timeout-minutes: 10
         env:
+          HCCL_BUFFSIZE: 5000
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --num-processes=8
 
