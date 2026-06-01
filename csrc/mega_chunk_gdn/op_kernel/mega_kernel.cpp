@@ -87,8 +87,10 @@ AICORE inline void mega_transpose_TH_to_HT(__gm__ T *src, __gm__ T *dst, int64_t
     constexpr int32_t BLOCK = 128;
     constexpr int32_t H = static_cast<int32_t>(H_val);
     constexpr int32_t ES = static_cast<int32_t>(sizeof(T));
+    constexpr int32_t AlignBytes = 32;
+    constexpr int32_t AlignRows = AlignBytes / ES;
     constexpr int32_t MinTransposeCols = 16;
-    constexpr int32_t AlignElems = ((32 / ES) > MinTransposeCols) ? (32 / ES) : MinTransposeCols;
+    constexpr int32_t AlignElems = (AlignRows > MinTransposeCols) ? AlignRows : MinTransposeCols;
     constexpr int32_t HP = ((H + AlignElems - 1) / AlignElems) * AlignElems;
     constexpr int32_t SRC_UB = 0;
     constexpr int32_t DST_UB = SRC_UB + BLOCK * HP * ES;
@@ -104,11 +106,42 @@ AICORE inline void mega_transpose_TH_to_HT(__gm__ T *src, __gm__ T *dst, int64_t
 
     using UBRow = Tile<TileType::Vec, T, 1, BLOCK, BLayout::RowMajor, 1, BLOCK, SLayout::NoneBox, 512>;
     using UBRowDyn = Tile<TileType::Vec, T, 1, BLOCK, BLayout::RowMajor, DYNAMIC, DYNAMIC, SLayout::NoneBox, 512>;
+    using UBHeadDyn = Tile<TileType::Vec, T, AlignRows, BLOCK, BLayout::ColMajor, 1, DYNAMIC, SLayout::NoneBox, 512>;
 
     using Gm2D = Shape<1, 1, 1, DYNAMIC, DYNAMIC>;
     using Gm1D = Shape<1, 1, 1, 1, DYNAMIC>;
     using GmSrcS = Stride<1, 1, 1, H, 1>;
+    using GmHeadS = Stride<1, 1, 1, 1, H>;
     using GmS1 = Stride<1, 1, 1, 1, 1>;
+
+    if constexpr (H < MinTransposeCols) {
+        int64_t num_tok_blocks = (T_len + BLOCK - 1) / BLOCK;
+        for (int64_t bi = static_cast<int64_t>(cid); bi < num_tok_blocks; bi += static_cast<int64_t>(block_num)) {
+            int64_t t0 = bi * BLOCK;
+            int32_t valid = (t0 + BLOCK <= T_len) ? BLOCK : static_cast<int32_t>(T_len - t0);
+
+            for (int32_t h = 0; h < H; ++h) {
+                Gm1D gs;
+                gs.shape[4] = valid;
+                UBHeadDyn row(valid);
+                TASSIGN(row, SRC_UB);
+                {
+                    // DN layout makes each token a one-element burst with stride H.
+                    GlobalTensor<T, Gm1D, GmHeadS, Layout::DN> gm(src + t0 * H + h, gs);
+                    TLOAD(row, gm);
+                }
+                set_flag(PIPE_MTE2, PIPE_MTE3, EVENT_ID0);
+                wait_flag(PIPE_MTE2, PIPE_MTE3, EVENT_ID0);
+                {
+                    GlobalTensor<T, Gm1D, GmS1, Layout::DN> gm(dst + h * T_len + t0, gs);
+                    TSTORE(gm, row);
+                }
+                set_flag(PIPE_MTE3, PIPE_MTE2, EVENT_ID0);
+                wait_flag(PIPE_MTE3, PIPE_MTE2, EVENT_ID0);
+            }
+        }
+        return;
+    }
 
     UBSrcFull ub_src;
     TASSIGN(ub_src, SRC_UB);

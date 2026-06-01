@@ -17,8 +17,9 @@ constexpr int64_t kHeadDim = 128;
 
 bool is_supported_head_pair(int64_t value_heads, int64_t key_heads)
 {
-    return (value_heads == 16 || value_heads == 24 || value_heads == 32 || value_heads == 48 || value_heads == 64) &&
-           value_heads % key_heads == 0;
+    return value_heads % key_heads == 0 &&
+           (value_heads == 8 || value_heads == 12 || value_heads == 16 || value_heads == 24 || value_heads == 32 ||
+            value_heads == 48 || value_heads == 64);
 }
 
 void check_shape(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, const at::Tensor &g,
