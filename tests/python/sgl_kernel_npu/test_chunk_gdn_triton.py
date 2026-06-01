@@ -15,6 +15,11 @@ LAUNCH_CNT = max(2, LAUNCH_MIN)  # specify your run cnt for profiling
 device = "npu"
 
 
+@pytest.fixture(autouse=True)
+def force_triton_backend(monkeypatch):
+    monkeypatch.setenv("GDN_ATTN_BACKEND_TRITON", "1")
+
+
 def get_abs_err(x, y):
     return (x.detach() - y.detach()).flatten().abs().max().item()
 

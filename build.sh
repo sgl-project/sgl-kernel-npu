@@ -85,7 +85,6 @@ export DEBUG_MODE=$DEBUG_MODE
 # Chip mapping:
 # - deepep  → A3+ (Ascend910_9382)
 # - deepep2 → A2  (Ascend910B1)
-# - A5 is not open-sourced yet
 
 if [[ "$BUILD_DEEPEP_OPS" == "ON" ]]; then
     SOC_VERSION="${1:-Ascend910_9382}"
@@ -137,21 +136,11 @@ echo "outpath: ${OUTPUT_DIR}"
 
 COMPILE_OPTIONS=""
 
-function update_submodules()
-{
-    PTO_ISA_DIR="third-party/pto-isa"
-    if [[ -d "${PTO_ISA_DIR}/include/pto" ]]; then return 0; fi
-
-    echo "Updating submodule: ${PTO_ISA_DIR}"
-    git submodule update --init --recursive "${PTO_ISA_DIR}"
-}
 
 function build_kernels()
 {
     if [[ "$ONLY_BUILD_DEEPEP_KERNELs_MODULE" == "ON" ]]; then return 0; fi
     if [[ "$ONLY_BUILD_MEMORY_SAVER_MODULE" == "ON" ]]; then return 0; fi
-
-    update_submodules
 
     CMAKE_DIR=""
     BUILD_DIR="build"

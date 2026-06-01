@@ -12,13 +12,35 @@ def _has_npu() -> bool:
 pytestmark = pytest.mark.skipif(not _has_npu(), reason="NPU is required")
 
 SUPPORTED_HEAD_CONFIGS = [
+    pytest.param(16, 4, id="H16-Hg4"),
+    pytest.param(16, 8, id="H16-Hg8"),
     pytest.param(16, 16, id="H16-Hg16"),
+    pytest.param(24, 8, id="H24-Hg8"),
+    pytest.param(32, 4, id="H32-Hg4"),
+    pytest.param(32, 8, id="H32-Hg8"),
     pytest.param(32, 16, id="H32-Hg16"),
+    pytest.param(32, 32, id="H32-Hg32"),
+    pytest.param(48, 8, id="H48-Hg8"),
+    pytest.param(48, 12, id="H48-Hg12"),
+    pytest.param(48, 16, id="H48-Hg16"),
+    pytest.param(64, 4, id="H64-Hg4"),
+    pytest.param(64, 8, id="H64-Hg8"),
+    pytest.param(64, 16, id="H64-Hg16"),
+]
+
+DEFAULT_HEAD_CONFIGS = [
+    pytest.param(16, 4, id="H16-Hg4"),
+    pytest.param(24, 8, id="H24-Hg8"),
+    pytest.param(32, 8, id="H32-Hg8"),
     pytest.param(48, 16, id="H48-Hg16"),
     pytest.param(64, 16, id="H64-Hg16"),
-    pytest.param(16, 8, id="H16-Hg8"),
-    pytest.param(32, 8, id="H32-Hg8"),
+]
+
+INITIAL_STATE_HEAD_CONFIGS = [
     pytest.param(16, 4, id="H16-Hg4"),
+    pytest.param(32, 8, id="H32-Hg8"),
+    pytest.param(48, 16, id="H48-Hg16"),
+    pytest.param(64, 16, id="H64-Hg16"),
 ]
 
 
@@ -88,15 +110,15 @@ def _native_reference(
         (2560, [0, 96, 128, 2560]),
     ],
 )
-@pytest.mark.parametrize("num_value_heads", [16, 32, 48, 64])
-def test_mega_chunk_gdn_e2e(total_tokens, cu_list, num_value_heads):
+@pytest.mark.parametrize(("num_value_heads", "num_key_heads"), DEFAULT_HEAD_CONFIGS)
+def test_mega_chunk_gdn_e2e(total_tokens, cu_list, num_value_heads, num_key_heads):
     if not hasattr(torch.ops.npu, "mega_chunk_gdn"):
         pytest.skip("mega_chunk_gdn op is not registered")
 
     torch.manual_seed(0)
     device = torch.device("npu")
-    Hg = 16
     H = num_value_heads
+    Hg = num_key_heads
     D = 128
 
     q_cpu = F.normalize(torch.randn(1, total_tokens, Hg, D), p=2, dim=-1).to(
@@ -145,18 +167,20 @@ def test_mega_chunk_gdn_e2e(total_tokens, cu_list, num_value_heads):
         (256, [0, 96, 128, 256]),
     ],
 )
-@pytest.mark.parametrize("num_value_heads", [16, 32])
+@pytest.mark.parametrize(
+    ("num_value_heads", "num_key_heads"), INITIAL_STATE_HEAD_CONFIGS
+)
 @pytest.mark.parametrize("state_kind", ["zero", "random"])
 def test_mega_chunk_gdn_initial_state(
-    total_tokens, cu_list, num_value_heads, state_kind
+    total_tokens, cu_list, num_value_heads, num_key_heads, state_kind
 ):
     if not hasattr(torch.ops.npu, "mega_chunk_gdn"):
         pytest.skip("mega_chunk_gdn op is not registered")
 
     torch.manual_seed(1)
     device = torch.device("npu")
-    Hg = 16
     H = num_value_heads
+    Hg = num_key_heads
     D = 128
     num_sequences = 1 if cu_list is None else len(cu_list) - 1
 

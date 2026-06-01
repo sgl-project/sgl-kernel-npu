@@ -87,6 +87,11 @@ If you need to access Ascend NPU computing resources for development or testing,
 
 ## Quick Start
 
+Before building from source, initialize the submodule(s):
+```bash
+git submodule update --init --recursive
+```
+
 DeepEP-Ascend: Ascend Implementation of DeepEP. [README](https://github.com/sgl-project/sgl-kernel-npu/blob/main/python/deep_ep/README.md)
 
 SGLang-Kernel-NPU: Other SGLang Kernels for Ascend NPU. [README](https://github.com/sgl-project/sgl-kernel-npu/blob/main/python/sgl_kernel_npu/README.md)
