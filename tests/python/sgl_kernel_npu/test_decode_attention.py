@@ -1,7 +1,11 @@
 import torch
 import triton
 import triton.language as tl
-from sgl_kernel_npu.attention import decode_gqa, decode_gqa_high_performance, decode_mla
+from sgl_kernel_npu.attention.decode_attention import (
+    decode_gqa,
+    decode_gqa_high_performance,
+    decode_mla,
+)
 
 
 def get_device() -> torch.device:
