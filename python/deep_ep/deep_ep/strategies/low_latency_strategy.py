@@ -301,7 +301,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         expert_shard_type=0,
         shared_expert_num=0,
         shared_expert_rank_num=0,
-        num_max_dispatch_tokens_per_rank=0
+        num_max_dispatch_tokens_per_rank=0,
     ):
 
         shared_expert_rank_num = int(os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0))
@@ -366,7 +366,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         expert_shared_type=0,
         shared_expert_num=0,
         shared_expert_rank_num=0,
-        num_max_dispatch_tokens_per_rank=0
+        num_max_dispatch_tokens_per_rank=0,
     ):
 
         shared_expert_rank_num = int(os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0))

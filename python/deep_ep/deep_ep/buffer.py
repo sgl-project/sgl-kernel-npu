@@ -46,7 +46,7 @@ class Buffer:
                 to the number of local experts.
             allow_nvlink_for_low_latency_mode: This parameter is deprecated and retained to ensure compatibility with DeepEP.
             allow_mnnvl: This parameter is deprecated and retained to ensure compatibility with DeepEP.
-            normal_strategy: the strategy to use for normal mode dispatch/combine, support: default.
+            normal_strategy: the strategy to use for normal mode dispatch/combine, support: default, alltoall.
             low_latency_strategy: the strategy to use for low latency mode dispatch/combine, support: default, ops.
         """
 
@@ -56,8 +56,6 @@ class Buffer:
         self.num_nvl_bytes = num_nvl_bytes
         self.num_rdma_bytes = num_rdma_bytes
         self.low_latency_mode = low_latency_mode
-        # self.alltoall_mode = os.getenv("DEEP_USE_ALLTOALL_MODE") == "1"
-        # self._alltoall_layout = None
         try:
             backend = group._get_backend(torch.device("npu"))
             moe_all_to_all_group_name = backend.get_hccl_comm_name(self.rank)
@@ -91,7 +89,9 @@ class Buffer:
             group=self.group,
         )
 
-    def _init_low_latency_strategy(self, strategy_name: str, comm_alg: str = "hierarchy"):
+    def _init_low_latency_strategy(
+        self, strategy_name: str, comm_alg: str = "hierarchy"
+    ):
         """Initialize low latency mode communication strategy"""
         strategy_cls = get_low_latency_strategy(strategy_name)
 

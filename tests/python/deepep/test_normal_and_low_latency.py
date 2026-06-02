@@ -71,6 +71,7 @@ def low_latency_test(
         hidden,
         _,
         _,
+        _,
     ) = handle
 
     out = torch.empty((aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu")
