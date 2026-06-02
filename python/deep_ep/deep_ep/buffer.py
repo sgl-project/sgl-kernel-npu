@@ -9,7 +9,7 @@ import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
 from .utils import EventOverlap, log_parameters
-from .ops_dispatch_combine import MoeDistributeBuffer
+from .ep_strategy import get_normal_strategy, get_low_latency_strategy
 
 
 class FuseMode(IntEnum):
@@ -30,6 +30,8 @@ class Buffer:
         num_qps_per_rank: int = 12,
         allow_nvlink_for_low_latency_mode: bool = True,
         allow_mnnvl: bool = False,
+        normal_strategy: str = "default",
+        low_latency_strategy: str = "default",
     ) -> None:
         """
         Initialize the communication buffer.
@@ -44,6 +46,8 @@ class Buffer:
                 to the number of local experts.
             allow_nvlink_for_low_latency_mode: This parameter is deprecated and retained to ensure compatibility with DeepEP.
             allow_mnnvl: This parameter is deprecated and retained to ensure compatibility with DeepEP.
+            normal_strategy: the strategy to use for normal mode dispatch/combine, support: default.
+            low_latency_strategy: the strategy to use for low latency mode dispatch/combine, support: default, ops.
         """
 
         self.group = group
@@ -58,6 +62,9 @@ class Buffer:
         except Exception as e:
             print("get_hccl_comm_name failed", e)
             moe_all_to_all_group_name = ""
+        
+        self.moe_all_to_all_group_name = moe_all_to_all_group_name
+        
         self.runtime = deep_ep_cpp.Buffer(
             self.rank,
             self.group_size,
@@ -66,10 +73,36 @@ class Buffer:
             low_latency_mode,
             moe_all_to_all_group_name,
         )
-        self.low_latency_use_ops = os.getenv("DEEP_LOW_LATENCY_USE_OPS") == "1"
-        if self.low_latency_use_ops:
-            self.ops_runtime = MoeDistributeBuffer(group_name=moe_all_to_all_group_name, group_size=self.group_size,
-                rank=self.rank)
+        
+        # Initialize normal mode strategy
+        self._init_normal_strategy(normal_strategy)
+        
+        # Initialize low latency mode strategy
+        self._init_low_latency_strategy(low_latency_strategy)
+    
+    def _init_normal_strategy(self, strategy_name: str):
+        """Initialize normal mode communication strategy"""
+        strategy_cls = get_normal_strategy(strategy_name)
+        self.normal_strategy = strategy_cls(
+            runtime=self.runtime,
+            group_name=self.moe_all_to_all_group_name,
+            group_size=self.group_size,
+            rank=self.rank,
+        )
+    
+    def _init_low_latency_strategy(self, strategy_name: str):
+        """Initialize low latency mode communication strategy"""
+        strategy_cls = get_low_latency_strategy(strategy_name)
+        
+        # Pass different init kwargs based on strategy type
+        init_kwargs = {
+            "runtime": self.runtime,
+            "group_name": self.moe_all_to_all_group_name,
+            "group_size": self.group_size,
+            "rank": self.rank,
+        }
+        
+        self.low_latency_strategy = strategy_cls(**init_kwargs)
 
     @staticmethod
     def get_dispatch_config(num_ranks: int) -> Config:
@@ -190,27 +223,13 @@ class Buffer:
             is_token_in_rank: `[num_tokens, num_ranks]` with `torch.int`, whether a token be sent to a rank.
             event: the event after executing the kernel (valid only if `async_finish` is set).
         """
-        self.num_experts = num_experts
-
-        (
-            num_tokens_per_rank,
-            num_tokens_per_rdma_rank,
-            num_tokens_per_expert,
-            is_token_in_rank,
-            event,
-        ) = self.runtime.get_dispatch_layout(
-            topk_idx,
-            num_experts,
-            getattr(previous_event, "event", None),
-            async_finish,
-            allocate_on_comm_stream,
-        )
-        return (
-            num_tokens_per_rank,
-            num_tokens_per_rdma_rank,
-            num_tokens_per_expert,
-            is_token_in_rank,
-            EventOverlap(event),
+        # Delegate to normal strategy
+        return self.normal_strategy.get_dispatch_layout(
+            topk_idx=topk_idx,
+            num_experts=num_experts,
+            previous_event=previous_event,
+            async_finish=async_finish,
+            allocate_on_comm_stream=allocate_on_comm_stream,
         )
 
     # internal interface, Only use in test
@@ -311,96 +330,27 @@ class Buffer:
             handle: the returned communication handle.
             event: the event after executing the kernel (valid only if `async_finish` is set).
         """
-
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
-
-        # Internode
-        if self.runtime.get_num_rdma_ranks() > 1:
-            return self.internode_dispatch(
-                x,
-                handle,
-                num_tokens_per_rank,
-                num_tokens_per_rdma_rank,
-                is_token_in_rank,
-                num_tokens_per_expert,
-                topk_idx,
-                topk_weights,
-                expert_alignment,
-                config,
-                previous_event,
-                async_finish,
-                allocate_on_comm_stream,
-            )
-
-        # Launch the kernel with cached or non-cached mode
-        if isinstance(x, tuple):
-            raise NotImplementedError("Not support fp8")
-        x_scales = None
-        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
-
-        if handle is not None:
-            raise NotImplementedError(
-                "Optional communication handle is not supported yet."
-            )
-        else:
-            assert (
-                num_tokens_per_rank is not None
-                and is_token_in_rank is not None
-                and num_tokens_per_expert is not None
-            )
-            (
-                recv_x,
-                recv_x_scales,
-                recv_topk_idx,
-                recv_topk_weights,
-                num_recv_tokens_per_expert_list,
-                rank_prefix_matrix,
-                channel_prefix_matrix,
-                recv_channel_prefix_matrix,
-                recv_src_idx,
-                send_head,
-                event,
-            ) = self.runtime.intranode_dispatch(
-                x,
-                x_scales,
-                topk_idx,
-                topk_weights,
-                num_tokens_per_rank,
-                is_token_in_rank,
-                num_tokens_per_expert,
-                0,
-                None,
-                None,
-                dispatch_wait_recv_cost_stats,
-                expert_alignment,
-                num_worst_tokens,
-                config,
-                getattr(previous_event, "event", None),
-                async_finish,
-                allocate_on_comm_stream,
-                use_quant,
-            )
-            handle = (
-                rank_prefix_matrix,
-                channel_prefix_matrix,
-                recv_channel_prefix_matrix,
-                recv_src_idx,
-                is_token_in_rank,
-                send_head,
-                topk_idx,
-                topk_weights,
-            )
-            return (
-                (recv_x, recv_x_scales) if use_quant else recv_x,
-                recv_topk_idx,
-                recv_topk_weights,
-                num_recv_tokens_per_expert_list,
-                handle,
-                EventOverlap(event),
-            )
-
-        # noinspection PyTypeChecker
+        
+        # Delegate to normal strategy
+        return self.normal_strategy.dispatch(
+            x=x,
+            handle=handle,
+            num_tokens_per_rank=num_tokens_per_rank,
+            num_tokens_per_rdma_rank=num_tokens_per_rdma_rank,
+            is_token_in_rank=is_token_in_rank,
+            num_tokens_per_expert=num_tokens_per_expert,
+            topk_idx=topk_idx,
+            topk_weights=topk_weights,
+            expert_alignment=expert_alignment,
+            num_worst_tokens=num_worst_tokens,
+            config=config,
+            previous_event=previous_event,
+            async_finish=async_finish,
+            allocate_on_comm_stream=allocate_on_comm_stream,
+            dispatch_wait_recv_cost_stats=dispatch_wait_recv_cost_stats,
+        )
 
     @log_parameters(["topk_idx"])
     def notify_verify(
@@ -527,37 +477,21 @@ class Buffer:
             recv_topk_weights: the reduced top-k weights from its dispatch ranks.
             event: the event after executing the kernel (valid only if `async_finish` is set).
         """
-
-        # Internode
-        if self.runtime.get_num_rdma_ranks() > 1:
-            return self.internode_combine(
-                x,
-                handle,
-                topk_weights,
-                bias,
-                config,
-                previous_event,
-                async_finish,
-                allocate_on_comm_stream,
-            )
-
-        # NOTES: the second `_` is for the sending side, so we should use the third one
-        (
-            rank_prefix_matrix,
-            _,
-            channel_prefix_matrix,
-            src_idx,
-            is_recv_token_in_rank,
-            send_head,
-            topk_idx,
-            topk_weights_ori,
-        ) = handle
-
-        # Launch the kernel
-        recv_x, recv_topk_weights, event = self.runtime.intranode_combine(
-            x, topk_idx, topk_weights_ori, src_idx, send_head, combine_send_cost_stats
+        # Default config
+        config = self.get_combine_config(self.group_size) if config is None else config
+        
+        # Delegate to normal strategy
+        return self.normal_strategy.combine(
+            x=x,
+            handle=handle,
+            topk_weights=topk_weights,
+            bias=bias,
+            config=config,
+            previous_event=previous_event,
+            async_finish=async_finish,
+            allocate_on_comm_stream=allocate_on_comm_stream,
+            combine_send_cost_stats=combine_send_cost_stats,
         )
-        return recv_x, recv_topk_weights, EventOverlap(event)
 
     def internode_dispatch(
         self,
@@ -745,78 +679,19 @@ class Buffer:
             event: the event after executing the kernel (valid only if `async_finish` is set).
             hook: the receiving hook function (valid only if `return_recv_hook` is set).
         """
-        topk_ids = topk_idx.int()
-
-        if self.low_latency_use_ops:
-            comm_alg='hierarchy'
-            if comm_alg == 'hierarchy':
-                assert topk_weights is not None, "When comm_alg='hierarchy', topk_weights can not be None"
-
-            (
-                packed_recv_x,
-                packed_recv_x_scales,
-                packed_recv_count,
-                packed_recv_src_info,
-                packed_recv_layout_range,
-                expand_scales,
-            ) = self.ops_runtime.npu_low_latency_dispatch(
-                x=x,
-                topk_idx=topk_ids,
-                num_experts=num_experts,
-                quant_mode=2 if use_fp8 else 0,
-                comm_alg=comm_alg,
-                topk_weights=topk_weights,
-                num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
-            )
-            event = EventOverlap(EventHandle())
-            hook = lambda *args, **kwargs: None
-        else:
-            (
-                packed_recv_x,
-                packed_recv_x_scales,
-                packed_recv_count,
-                packed_recv_src_info,
-                packed_recv_layout_range,
-                event,
-                hook,
-            ) = self.runtime.low_latency_dispatch(
-                x,
-                topk_ids,
-                cumulative_local_expert_recv_stats,
-                num_max_dispatch_tokens_per_rank,
-                num_experts,
-                use_fp8,
-                round_scale,
-                use_ue8m0,
-                async_finish,
-                return_recv_hook,
-            )
-
-        handle = (
-            packed_recv_src_info,   # expand_idx
-            packed_recv_layout_range,   # ep_recv_counts
-            num_max_dispatch_tokens_per_rank,
-            x.size(1),  # num_tokens
-            num_experts,
-            packed_recv_count,  # expert_token_nums
-            expand_scales if self.low_latency_use_ops else None,
-        )
-        tensors_to_record = (
-            x,
-            topk_idx,
-            packed_recv_x,
-            packed_recv_x_scales,
-            packed_recv_count,
-            packed_recv_src_info,
-            packed_recv_layout_range,
-            cumulative_local_expert_recv_stats,
-        )
-        return (
-            (packed_recv_x, packed_recv_x_scales) if use_fp8 else packed_recv_x,
-            packed_recv_count,
-            handle,
-            EventOverlap(event, tensors_to_record if async_finish else None),
-            hook,
+        # Delegate to low latency strategy
+        return self.low_latency_strategy.low_latency_dispatch(
+            x=x,
+            topk_idx=topk_idx,
+            num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
+            num_experts=num_experts,
+            cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
+            use_fp8=use_fp8,
+            round_scale=round_scale,
+            use_ue8m0=use_ue8m0,
+            async_finish=async_finish,
+            return_recv_hook=return_recv_hook,
+            topk_weights=topk_weights,
         )
 
     @log_parameters(["topk_idx"])
@@ -856,61 +731,16 @@ class Buffer:
             event: the event after executing the kernel (valid only if `async_finish` is set).
             hook: the receiving hook function (valid only if `return_recv_hook` is set).
         """
-        topk_ids = topk_idx.int()
-        (
-            src_info,
-            layout_range,
-            num_max_dispatch_tokens_per_rank,
-            hidden,
-            num_experts,
-            packed_recv_count,
-            expand_scales,
-        ) = handle
-
-        if self.low_latency_use_ops:
-            comm_alg='hierarchy'
-
-            combined_x = self.ops_runtime.npu_low_latency_combine(
-                x=x,
-                topk_idx=topk_ids,
-                topk_weights=topk_weights,
-                assist_info_for_combine=src_info,
-                ep_send_counts=layout_range,
-                num_experts=num_experts,
-                comm_alg=comm_alg,
-                expand_scales=expand_scales,
-                num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
-            )
-            event = EventOverlap(EventHandle())
-            hook = lambda *args, **kwargs: None
-        else:
-            combined_x, event, hook = self.runtime.low_latency_combine(
-                x,
-                topk_ids,
-                topk_weights,
-                src_info,
-                layout_range,
-                num_max_dispatch_tokens_per_rank,
-                num_experts,
-                packed_recv_count,
-                zero_copy,
-                async_finish,
-                return_recv_hook,
-                out,
-            )
-
-        tensors_to_record = (
-            x,
-            topk_idx,
-            topk_weights,
-            src_info,
-            layout_range,
-            combined_x,
-        )
-        return (
-            combined_x,
-            EventOverlap(event, tensors_to_record if async_finish else None),
-            hook,
+        # Delegate to low latency strategy
+        return self.low_latency_strategy.low_latency_combine(
+            x=x,
+            topk_idx=topk_idx,
+            topk_weights=topk_weights,
+            handle=handle,
+            zero_copy=zero_copy,
+            async_finish=async_finish,
+            return_recv_hook=return_recv_hook,
+            out=out,
         )
 
     def fused_deep_moe(
