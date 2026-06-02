@@ -91,7 +91,7 @@ class Buffer:
             group=self.group,
         )
 
-    def _init_low_latency_strategy(self, strategy_name: str):
+    def _init_low_latency_strategy(self, strategy_name: str, comm_alg: str = "hierarchy"):
         """Initialize low latency mode communication strategy"""
         strategy_cls = get_low_latency_strategy(strategy_name)
 
@@ -100,6 +100,8 @@ class Buffer:
             "runtime": self.runtime,
             "group": self.group,
         }
+        if strategy_name == "ops":
+            init_kwargs["comm_alg"] = comm_alg
 
         self.low_latency_strategy = strategy_cls(**init_kwargs)
 

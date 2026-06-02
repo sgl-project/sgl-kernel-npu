@@ -165,8 +165,16 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
     This strategy uses the ops-transformer op for A3 RoCE.
     """
 
-    def __init__(self, runtime, group: dist.ProcessGroup):
+    def __init__(self, runtime, group: dist.ProcessGroup, comm_alg: str = "hierarchy"):
         super().__init__(group)
+        comm_alg_support_list = ["hierarchy", "fullmesh_v1", "fullmesh_v2", "ccu", ""]
+        torch._check(
+            comm_alg in comm_alg_support_list,
+            lambda: (
+                f"comm_alg only support {comm_alg_support_list=}, but got {comm_alg=}."
+            ),
+        )
+        self.comm_alg = comm_alg
 
     def get_name(self) -> str:
         return "ops"
@@ -196,8 +204,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
     ]:
 
         topk_ids = topk_idx.int()
-        comm_alg = "hierarchy"
-        if comm_alg == "hierarchy":
+        if self.comm_alg == "hierarchy":
             assert (
                 topk_weights is not None
             ), "When comm_alg='hierarchy', topk_weights can not be None"
@@ -214,7 +221,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             topk_idx=topk_ids,
             num_experts=num_experts,
             quant_mode=2 if use_fp8 else 0,
-            comm_alg=comm_alg,
+            comm_alg=self.comm_alg,
             topk_weights=topk_weights,
             num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
         )
@@ -270,7 +277,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             assist_info_for_combine=src_info,
             ep_send_counts=layout_range,
             num_experts=num_experts,
-            comm_alg="hierarchy",
+            comm_alg=self.comm_alg,
             expand_scales=expand_scales,
             num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
         )
@@ -297,8 +304,8 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         num_max_dispatch_tokens_per_rank=0
     ):
 
-        shared_expert_rank_num = os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0)
-        expert_token_nums_type = os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1)
+        shared_expert_rank_num = int(os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0))
+        expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
         global_bs = num_max_dispatch_tokens_per_rank * self.group_size
         if comm_alg == "hierarchy":
             assert (
@@ -362,7 +369,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         num_max_dispatch_tokens_per_rank=0
     ):
 
-        shared_expert_rank_num = os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0)
+        shared_expert_rank_num = int(os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0))
         global_bs = num_max_dispatch_tokens_per_rank * self.group_size
         if comm_alg == "hierarchy":
             assert (
