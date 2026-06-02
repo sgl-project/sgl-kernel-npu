@@ -404,8 +404,7 @@ def test_main(
             * handle[7]
             .masked_fill(topk_idx == -1, 0)
             .sum(dim=1)
-            .view(-1, 1)
-            .to(ref_x.dtype),
+            .view(-1, 1),
         )
         assert diff < 5e-5
 

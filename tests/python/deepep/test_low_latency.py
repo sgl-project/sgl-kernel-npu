@@ -189,8 +189,7 @@ def test(
                 x
                 * topk_weights.masked_fill(topk_idx == -1, 0)
                 .sum(dim=1)
-                .view(-1, 1)
-                .to(x.dtype),
+                .view(-1, 1),
                 combined_x,
             )
             assert torch.isnan(combined_x).sum().item() == 0
