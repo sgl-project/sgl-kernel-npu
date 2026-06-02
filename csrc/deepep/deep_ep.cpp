@@ -175,7 +175,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                            const std::optional<at::Tensor> &cached_channel_prefix_matrix,
                            const std::optional<at::Tensor> &dispatch_wait_recv_cost_stats, int expert_alignment,
                            int num_worst_tokens, const Config &config, std::optional<EventHandle> &previous_event,
-                           bool async, bool allocate_on_comm_stream, bool use_quant)
+                           bool async, bool allocate_on_comm_stream, bool use_quant, const std::string &quant_type)
 {
     printf("DBG0416 intranode_dispatch: rank %d ,x.dim() %d, x.is_contiguous() %d\n", rank, x.dim(), x.is_contiguous());
     // One channel use two blocks, even-numbered blocks for sending, odd-numbered blocks for receiving.

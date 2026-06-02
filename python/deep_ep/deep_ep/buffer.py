@@ -340,10 +340,30 @@ class Buffer:
             )
 
         # Launch the kernel with cached or non-cached mode
-        if isinstance(x, tuple):
-            raise NotImplementedError("Not support fp8")
-        x_scales = None
-        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+        if isinstance(x, torch.Tensor):
+                # BF16 no quant
+                data = x
+                scales = None
+                quant_type = "bf16"
+                use_quant = False
+            elif isinstance(x, tuple) and len(x) == 2:
+                data, scales = x
+                if data.dtype == torch.float8_e4m3n:
+                    # new float8_e4m3n
+                    quant_type = "fp8_e4m3"
+                    use_quant = True
+                elif data.dtype == torch.float8_e5m2n:
+                    # new float8_e5m2n
+                    quant_type = "fp8_e5m2"
+                    use_quant = True
+                elif data.dtype == torch.int8:
+                    ## already used quant int8
+                    quant_type = "int8"
+                    use_quant = True
+                else:
+                    raise TypeError(f"Unsupported quantized dtype: {data.dtype}")
+            else:
+                raise TypeError(f"Unsupported x type: {type(x)}")
 
         if handle is not None:
             raise NotImplementedError(
@@ -368,8 +388,8 @@ class Buffer:
                 send_head,
                 event,
             ) = self.runtime.intranode_dispatch(
-                x,
-                x_scales,
+                data,
+                scales,
                 topk_idx,
                 topk_weights,
                 num_tokens_per_rank,
@@ -386,6 +406,7 @@ class Buffer:
                 async_finish,
                 allocate_on_comm_stream,
                 use_quant,
+                quant_type = quant_type,
             )
             handle = (
                 rank_prefix_matrix,
