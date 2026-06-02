@@ -70,7 +70,7 @@ jobs:
           BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
             -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
           echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
-          
+
           # 动态读取当前容器内的 CANN 版本，确保与 pr-test-npu.yml 中的 key 完全一致
           CANN_RAW=$(cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg 2>/dev/null || echo "unknown")
           CANN_VERSION=$(echo "$CANN_RAW" | tr -cd '[:alnum:].-' | head -c 32)
