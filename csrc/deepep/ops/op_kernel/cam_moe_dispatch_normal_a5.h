@@ -7,7 +7,9 @@
 #include "cam_moe_dispatch_normal_tiling.h"
 #include "comm_args.h"
 #include "moe_distribute_v2_base.h"
+#ifdef __DAV_C310__
 #include "../quantize_functions.h"
+#endif
 
 namespace CamMoeDispatchNormalA5Impl {
 constexpr uint8_t BUFFER_NUM = 2;
@@ -74,8 +76,10 @@ private:
     __aicore__ inline void QuantInit();
     __aicore__ inline void ReduceMaxInplace(const LocalTensor<float> &srcLocal, uint32_t count);
     __aicore__ inline void QuantProcess();
+#ifdef __DAV_C310__
     __aicore__ inline void QuantDynamicMxFp8(
         LocalTensor<ExpandXOutType>& outLocal, LocalTensor<XType>& inLocal, LocalTensor<float>& tokenF32LT_);
+#endif
     __aicore__ inline GM_ADDR GetWindAddrByRankId(uint8_t ctxIdx, const int32_t rankId)
     {
         uint32_t curRankId = ((ctxIdx == COMM_EP_IDX) ? epRankId : tpRankId);
@@ -305,6 +309,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
     hCommuCopyOutParams = {1U, static_cast<uint32_t>(hScaleIdxSize), 0U, 0U, 0U};
 }
 
+#ifdef __DAV_C310__
 template <CamTypeClass>
 __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantDynamicMxFp8(
     LocalTensor<ExpandXOutType>& outLocal, LocalTensor<XType>& inLocal, LocalTensor<float>& tokenF32LT_)
@@ -324,6 +329,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantDynamicMxFp8(
             srcAddr, halfScaleLocalAddr, outLocalAddr, axisH_);
     }
 }
+#endif
 
 template <CamTypeClass>
 __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantInit()
@@ -376,11 +382,13 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantProcess()
     }
 #endif
     LocalTensor<float> tokenF32LT = tokenCastFloatBuf.Get<float>();
+#ifdef __DAV_C310__
     if constexpr (IS_MX_QUANT) {
         QuantDynamicMxFp8(xOutTensor, xInTensor, tokenF32LT);
         xInQueue.FreeTensor<XType>(xInTensor);
         return;
     }
+#endif
     Cast(tokenF32LT, xInTensor, RoundMode::CAST_NONE, h);  // 1. tokenF16 -> tokenF32
     xInQueue.FreeTensor<XType>(xInTensor);
     PipeBarrier<PIPE_V>();

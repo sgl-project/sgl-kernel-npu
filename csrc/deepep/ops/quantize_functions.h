@@ -20,6 +20,8 @@
 
 namespace quant {
 
+#ifdef __DAV_C310__
+
 constexpr int DIGIT_TWO = 2;
 constexpr uint16_t MAX_EXP_FOR_BF16 = 0x7f80;
 constexpr uint16_t BF16_EXP_BIAS = 0x7f00;
@@ -363,6 +365,8 @@ __aicore__ inline void ComputePerTileDynamic(__ubuf__ T *srcAddr, __ubuf__ float
         }
     }
 }
+
+#endif  // __DAV_C310__
 
 } // namespace quant
 #endif

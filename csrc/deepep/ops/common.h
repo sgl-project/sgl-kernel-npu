@@ -96,6 +96,7 @@ __aicore__ inline T Align512(T x)
     return (x + ALIGN_UP_TO_512_MASK) & (~ALIGN_UP_TO_512_MASK);
 }
 
+#ifdef __DAV_C310__
 template <MicroAPI::HistogramsType htype, typename T, typename U>
 static __aicore__ inline void HistogramsVf(__local_mem__ U* dst, __local_mem__ T* src, uint16_t repeatElm,
                                            uint16_t halfRepeat, uint32_t totalElm, uint16_t repeatTimes)
@@ -177,6 +178,7 @@ __aicore__ inline void GetReduceSum(LocalTensor<int32_t>& dstLocal, LocalTensor<
                         repeat0DstStride);
     PipeBarrier<PIPE_V>();
 }
+#endif  // __DAV_C310__
 
 }  // namespace AscendC
 

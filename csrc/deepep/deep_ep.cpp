@@ -307,6 +307,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     auto expandx_out = use_quant ? torch::empty({num_recv_tokens, hidden}, at::dtype(at::kChar).device(x.device()))
                                  : torch::empty({num_recv_tokens, hidden}, x.options());
     auto dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
+#ifdef __DAV_C310__
     if (is_mxfp8_quant) {
         // expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e5m2).device(x.device()));
         expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
@@ -314,10 +315,11 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     // at::kFloat8_e4m3fn   at::ScalarType::Float8_e4m3fn   ACL_FLOAT8_E4M3FN
     // at::kFloat8_e5m2     at::ScalarType::Float8_e5m2     ACL_FLOAT8_E5M2
     // at::kFloat8_e8m0fnu  at::ScalarType::Float8_e8m0fnu  ACL_FLOAT8_E8M0
-    // c10x::Float8_e4m3fn  
+    // c10x::Float8_e4m3fn
     // c10::Float8_e5m2
     // ref: $ASCEND_HOME_PATH/include/acl/acl_base_rt.h
     }
+#endif
     auto expand_idx_out = torch::empty({num_recv_tokens * 3}, at::dtype(at::kInt).device(x.device()));
     if (topk_idx.has_value()) {
         recv_topk_idx = at::empty({trt, num_topk}, topk_idx->options());

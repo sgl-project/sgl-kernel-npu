@@ -55,7 +55,10 @@ extern "C" __global__ __aicore__ void cam_moe_dispatch_normal(
                 waitRecvCostStatsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
     }
-#elif (ORIG_DTYPE_RECV_X == DT_FLOAT8_E5M2 || ORIG_DTYPE_RECV_X == DT_FLOAT8_E4M3FN || ORIG_DTYPE_RECV_X == DT_HIFLOAT8)
+#endif
+
+#ifdef __DAV_C310__
+#if (ORIG_DTYPE_RECV_X == DT_FLOAT8_E5M2 || ORIG_DTYPE_RECV_X == DT_FLOAT8_E4M3FN || ORIG_DTYPE_RECV_X == DT_HIFLOAT8)
     if (TILING_KEY_IS(TILINGKEY_A5_QUANT)) {
         GET_TILING_DATA_WITH_STRUCT(CamMoeDispatchNormalTilingData, tilingData, tilingGM);
         CamMoeDispatchNormalA5<DTYPE_X, DTYPE_RECV_X, DTYPE_X_SCALES, true, false, false> op;
@@ -66,4 +69,5 @@ extern "C" __global__ __aicore__ void cam_moe_dispatch_normal(
         return;
     }
 #endif
+#endif  // __DAV_C310__
 }
