@@ -10,18 +10,12 @@ separated by mode:
 # Import all strategy classes to register them
 from ..ep_strategy import (
     EPCommStrategy,
-    NormalEPCommStrategy,
     LowLatencyEPCommStrategy,
-    register_normal_strategy,
-    register_low_latency_strategy,
-    get_normal_strategy,
+    NormalEPCommStrategy,
     get_low_latency_strategy,
-)
-
-# Import normal strategies
-from .normal_strategy import (
-    DefaultNormalCommStrategy,
-    AlltoAllNormalCommStrategy,
+    get_normal_strategy,
+    register_low_latency_strategy,
+    register_normal_strategy,
 )
 
 # Import low latency strategies
@@ -29,6 +23,9 @@ from .low_latency_strategy import (
     DefaultLowLatencyCommStrategy,
     OpsLowLatencyCommStrategy,
 )
+
+# Import normal strategies
+from .normal_strategy import AlltoAllNormalCommStrategy, DefaultNormalCommStrategy
 
 __all__ = [
     # Base classes

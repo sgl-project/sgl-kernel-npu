@@ -8,8 +8,8 @@ import torch.distributed as dist
 import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
+from .ep_strategy import get_low_latency_strategy, get_normal_strategy
 from .utils import EventOverlap, log_parameters
-from .ep_strategy import get_normal_strategy, get_low_latency_strategy
 
 
 class FuseMode(IntEnum):
@@ -64,9 +64,9 @@ class Buffer:
         except Exception as e:
             print("get_hccl_comm_name failed", e)
             moe_all_to_all_group_name = ""
-        
+
         self.moe_all_to_all_group_name = moe_all_to_all_group_name
-        
+
         self.runtime = deep_ep_cpp.Buffer(
             self.rank,
             self.group_size,
@@ -75,13 +75,13 @@ class Buffer:
             low_latency_mode,
             moe_all_to_all_group_name,
         )
-        
+
         # Initialize normal mode strategy
         self._init_normal_strategy(normal_strategy)
-        
+
         # Initialize low latency mode strategy
         self._init_low_latency_strategy(low_latency_strategy)
-    
+
     def _init_normal_strategy(self, strategy_name: str):
         """Initialize normal mode communication strategy"""
         strategy_cls = get_normal_strategy(strategy_name)
@@ -90,17 +90,17 @@ class Buffer:
             runtime=self.runtime,
             group=self.group,
         )
-    
+
     def _init_low_latency_strategy(self, strategy_name: str):
         """Initialize low latency mode communication strategy"""
         strategy_cls = get_low_latency_strategy(strategy_name)
-        
+
         # Pass different init kwargs based on strategy type
         init_kwargs = {
             "runtime": self.runtime,
             "group": self.group,
         }
-        
+
         self.low_latency_strategy = strategy_cls(**init_kwargs)
 
     @staticmethod
@@ -331,7 +331,7 @@ class Buffer:
         """
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
-        
+
         # Delegate to normal strategy
         return self.normal_strategy.dispatch(
             x=x,
@@ -478,7 +478,7 @@ class Buffer:
         """
         # Default config
         config = self.get_combine_config(self.group_size) if config is None else config
-        
+
         # Delegate to normal strategy
         return self.normal_strategy.combine(
             x=x,

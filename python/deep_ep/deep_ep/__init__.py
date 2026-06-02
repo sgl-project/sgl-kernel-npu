@@ -13,8 +13,7 @@ os.environ["LD_LIBRARY_PATH"] = f"{lib_path}:{os.environ.get('LD_LIBRARY_PATH', 
 
 from deep_ep_cpp import Config
 
-from .buffer import Buffer
-from .utils import EventOverlap
-
 # Import strategies to register them
 from . import strategies
+from .buffer import Buffer
+from .utils import EventOverlap
