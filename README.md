@@ -81,7 +81,16 @@ SGLang-Kernel-NPU provides a comprehensive set of optimized inference kernels:
 - Batch MatMul with transpose
 
 
+## Accessing Ascend NPU
+If you need to access Ascend NPU computing resources for development or testing, please visit the [HiDevLab - Online Development](https://hidevlab.huawei.com/online-develop-intro) page on the Huawei HiDevLab platform to apply for free access.
+
+
 ## Quick Start
+
+Before building from source, initialize the submodule(s):
+```bash
+git submodule update --init --recursive
+```
 
 DeepEP-Ascend: Ascend Implementation of DeepEP. [README](https://github.com/sgl-project/sgl-kernel-npu/blob/main/python/deep_ep/README.md)
 

@@ -21,6 +21,8 @@
 #include "mc2_tiling_utils.h"
 #include "../op_kernel/cam_moe_combine_normal_tiling.h"
 #include "tiling_args.h"
+#include "tiling/platform/platform_ascendc.h"
+#include "tiling/hccl/hccl_tiling.h"
 
 using namespace AscendC;
 using namespace ge;
@@ -46,6 +48,7 @@ constexpr uint32_t ATTR_MOE_EXPERT_NUM_INDEX = 6;
 constexpr uint32_t ATTR_REAL_MAX_BS_INDEX = 7;
 constexpr uint32_t ATTR_MAX_ROUND_INDEX = 8;
 constexpr uint32_t ATTR_PER_ROUND_TOKENS_INDEX = 9;
+constexpr uint32_t OP_TYPE_ALL_GATHER = 6;
 
 constexpr uint32_t TWO_DIMS = 2U;
 constexpr uint32_t ONE_DIM = 1U;
@@ -56,14 +59,14 @@ constexpr size_t MAX_GROUP_NAME_LENGTH = 128UL;
 constexpr int64_t MAX_EP_WORLD_SIZE = 384;
 constexpr int64_t MIN_EP_WORLD_SIZE = 2;
 constexpr int64_t MAX_TP_WORLD_SIZE = 2;
-constexpr int64_t BS_UPPER_BOUND = 65536;
+constexpr int64_t BS_UPPER_BOUND = 131072;
 
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
 constexpr int32_t HCCL_BUFFER_SIZE_DEFAULT = 200 * 1024 * 1024;  // Bytes
-constexpr int64_t MOE_EXPERT_MAX_NUM = 512;
+constexpr int64_t MOE_EXPERT_MAX_NUM = 1024;
 constexpr int64_t K_MAX = 16;
 constexpr int64_t H_MIN = 1024;
-constexpr int64_t H_MAX = 7168;
+constexpr int64_t H_MAX = 8192;
 constexpr uint64_t MB_SIZE = 1024UL * 1024UL;
 constexpr uint64_t TRIPLE = 3;
 constexpr uint64_t WIN_ADDR_ALIGN = 512UL;
@@ -73,6 +76,9 @@ constexpr uint64_t MAX_OUT_DTYPE_SIZE = 2UL;
 constexpr uint64_t UB_ALIGN = 32UL;
 constexpr int64_t DISPATCH_STATUS_MAX_SUPPORT_NUM = 1280UL;
 constexpr uint64_t INIT_TILINGKEY = 10000UL;
+constexpr uint64_t TILING_KEY_A5_TYPE = 5000UL;
+constexpr uint64_t TILING_KEY_A3_TYPE = 3000UL;
+constexpr uint64_t TILING_KEY_A2_TYPE = 2000UL;
 
 enum class CommQuantMode : int32_t { NON_QUANT = 0, INT12_QUANT = 1, INT8_QUANT = 2 };
 using CommQuantModeType = std::underlying_type<CommQuantMode>;
@@ -500,11 +506,13 @@ static void SetHCommCfg(gert::TilingContext *context, CamMoeCombineNormalTilingD
     const char *nodeName = context->GetNodeName();
     OP_LOGD(nodeName, "CamMoeCombineNormal groupEp = %s, groupTp = %s", groupEp.c_str(), groupTp.c_str());
     uint32_t opType1 = OP_TYPE_ALL_TO_ALL;
-    uint32_t opType2 = OP_TYPE_REDUCE_SCATTER;
+    uint32_t opType2 = OP_TYPE_ALL_GATHER;
     std::string algConfigAllToAllStr = "AlltoAll=level0:fullmesh;level1:pairwise";
-    std::string algConfigReduceScatterStr = "ReduceScatter=level0:ring";
+    std::string algConfigReduceScatterStr = "AllGather=level0:ring";
 
     AscendC::Mc2CcTilingConfig mc2CcTilingConfig(groupEp, opType1, algConfigAllToAllStr);
+
+    mc2CcTilingConfig.SetCommEngine(mc2tiling::AIV_ENGINE);  // 通过不拉起AICPU，提高算子退出性能
     mc2CcTilingConfig.GetTiling(tiling->mc2InitTiling);
     mc2CcTilingConfig.GetTiling(tiling->mc2CcTiling1);
 
@@ -556,7 +564,7 @@ static ge::graphStatus CamMoeCombineNormalA3TilingFuncImpl(gert::TilingContext *
     uint32_t maxRound = tilingData->camMoeCombineNormalInfo.maxRound;
     // combine数据区 token首地址对齐512
     uint64_t tokenNeedSizeCombine = ((h * MAX_OUT_DTYPE_SIZE + WIN_ADDR_ALIGN - 1UL) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
-    tokenNeedSizeCombine = maxRound > 1 ? maxRound * 2 : maxRound;
+    tokenNeedSizeCombine = maxRound > 1 ? tokenNeedSizeCombine * 2 : tokenNeedSizeCombine;
     uint64_t actualSize = (realBs * k * tokenNeedSizeCombine + COMBINE_STATE_WIN_OFFSET + NOTIFY_DISPATCH_WIN_OFFSET) *
                           DOUBLE_DATA_BUFFER;
     OP_TILING_CHECK(
@@ -596,6 +604,18 @@ static ge::graphStatus CamMoeCombineNormalA3TilingFuncImpl(gert::TilingContext *
     if (maxRound > 1) {
         tilingKey += 1;
     }
+
+    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
+    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
+    std::string socVersion;
+    (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
+
+    if (socVersion == "Ascend950") {
+        tilingKey = tilingKey + TILING_KEY_A5_TYPE;
+    } else {
+        tilingKey = tilingKey + TILING_KEY_A3_TYPE;
+    }
+
     OP_LOGD(nodeName, "tilingKey is %lu", tilingKey);
     context->SetTilingKey(tilingKey);
 

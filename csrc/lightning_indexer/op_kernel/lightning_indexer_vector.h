@@ -119,7 +119,7 @@ __aicore__ inline uint64_t FindNearestPower2(uint64_t value)
         return value;
     } else {
         const uint64_t pow = 63 - clz(value);  // clz返回前导0的个数，对于64位整数，最大有效位位置 = 63 - 前导0个数
-        return (1 << pow);
+        return (1ULL << pow);
     }
 }
 

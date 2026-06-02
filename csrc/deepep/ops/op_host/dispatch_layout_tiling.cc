@@ -17,14 +17,7 @@
 #include "../op_kernel/dispatch_layout_tiling.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "tiling/hccl/hccl_tiling.h"
-
-#ifdef USE_CANN83_PATH
 #include "platform/platform_infos_def.h"
-#elif defined(USE_CANN82_PATH)
-#include "experiment/platform/platform/platform_infos_def.h"
-#else
-#error "CANN version not supported or platform_infos_def.h not found. Check CANN_VERSION_MACRO definition."
-#endif
 
 using namespace ge;
 namespace {
@@ -44,7 +37,7 @@ constexpr uint32_t ATTR_LOCAL_RANKSIZE_INDEX = 4;
 constexpr uint32_t ATTR_PER_ROUND_TOKENS_INDEX = 5;
 constexpr uint32_t ATTR_RANK_ID_INDEX = 6;
 const int64_t MAX_COMM_WORLD_SIZE = 384;
-const int64_t MAX_MOE_EXPERTS_NUM = 512;
+const int64_t MAX_MOE_EXPERTS_NUM = 1024;
 const int64_t MAX_LOCAL_RANKSIZE = 8;
 
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;

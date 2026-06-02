@@ -795,11 +795,11 @@ __aicore__ inline void MoeDistributeDispatchV2Single<TemplateMC2TypeA2SingleFunc
     CAM_PRINT("[AlltoAllDispatch1] rank:%d, aivId:%d ...\n", epRankId_, aivId_);
     activeMaskBsCnt_ = axisBS_;
     sendToMoeExpTokenCnt_ = axisBS_ * axisK_;
-    if (isTokenMaskFlag_) {
+    if (axisBS_ != 0 && isTokenMaskFlag_) {
         TokenActiveMaskCal();
     }
     CAM_PRINT("[AlltoAllDispatch2] rank:%d, aivId:%d, isTokenMaskFlag_:%d ...\n", epRankId_, aivId_, isTokenMaskFlag_);
-    if (isExpertMaskFlag_) {
+    if (axisBS_ != 0 && isExpertMaskFlag_) {
         ExpertActiveMaskCal();
     }
     CAM_PRINT("[AlltoAllDispatch3] rank:%d, aivId:%d, isExpertMaskFlag_:%d ...\n", epRankId_, aivId_,

@@ -16,7 +16,6 @@
 
 #include "tensorutils.h"
 
-
 using namespace matmul;
 using namespace AscendC;
 
@@ -24,7 +23,7 @@ constexpr uint64_t BUFFER_NUM = 1;
 constexpr uint64_t MAX_MTP = 8;
 constexpr uint64_t BF16_NUM_PER_BLOCK = 16;
 constexpr uint64_t FP32_NUM_PER_BLOCK = 8;
-constexpr uint32_t REPEAT_LENTH = 64; // 256Byte for float
+constexpr uint32_t REPEAT_LENTH = 64;  // 256Byte for float
 constexpr uint32_t MAX_REPEAT_TIME = 255;
 constexpr float EPSILON_FOR_STABILITY = 1e-6f;
 
@@ -48,22 +47,12 @@ struct RGDRInitParams {
 };
 
 template <typename inType, typename outType>
-class RGDR {
+class RGDR
+{
 public:
-    __aicore__ inline RGDR(
-        uint32_t B,
-        uint32_t S,
-        uint32_t nk,
-        uint32_t dk,
-        uint32_t nv,
-        uint32_t dv,
-        bool hasIntermediateState,
-        bool hasAcceptedTokens,
-        bool hasGama,
-        uint32_t vStep,
-        uint32_t ubRestBytes,
-        float scale
-    )
+    __aicore__ inline RGDR(uint32_t B, uint32_t S, uint32_t nk, uint32_t dk, uint32_t nv, uint32_t dv,
+                           bool hasIntermediateState, bool hasAcceptedTokens, bool hasGama, uint32_t vStep,
+                           uint32_t ubRestBytes, float scale)
     {
         B_ = B;
         S_ = S;
@@ -126,10 +115,8 @@ public:
         uint32_t singleVSize = vStep_ * sizeof(float);
         uint32_t vSize = MAX_MTP * alignV_ * sizeof(float);
         uint32_t kSize = MAX_MTP * alignK_ * sizeof(float);
-        uint32_t betaUbNum =
-            Ceil(MAX_MTP * NV_, BF16_NUM_PER_BLOCK) * BF16_NUM_PER_BLOCK; // 8: 8 * 4 = 32B;
-        uint32_t sumLocalNum =
-            Ceil(MAX_MTP, FP32_NUM_PER_BLOCK) * FP32_NUM_PER_BLOCK;
+        uint32_t betaUbNum = Ceil(MAX_MTP * NV_, BF16_NUM_PER_BLOCK) * BF16_NUM_PER_BLOCK;  // 8: 8 * 4 = 32B;
+        uint32_t sumLocalNum = Ceil(MAX_MTP, FP32_NUM_PER_BLOCK) * FP32_NUM_PER_BLOCK;
 
         uint32_t inQSize = BUFFER_NUM * MAX_MTP * alignK_ * sizeof(inType);
         uint32_t inVSize = BUFFER_NUM * MAX_MTP * alignV_ * sizeof(inType);
@@ -138,40 +125,38 @@ public:
         uint32_t inBetaSize = BUFFER_NUM * MAX_MTP * NV_ * sizeof(inType);
         uint32_t outStateSize = BUFFER_NUM * alignK_ * vStep_ * sizeof(outType);
         uint32_t outAttnSize = BUFFER_NUM * vStep_ * sizeof(outType);
-        uint32_t totalBufferSize =
-            inQSize * 2 +  // Q and K queues (each double buffered)
-            inVSize +      // V queue (double buffered)
-            inStateSize +  // State input queue (double buffered)
-            inGamaSize +   // Gamma queue
-            inBetaSize +   // Beta queue
-            outStateSize + // State output queue (double buffered)
-            outAttnSize;
+        uint32_t totalBufferSize = inQSize * 2 +   // Q and K queues (each double buffered)
+                                   inVSize +       // V queue (double buffered)
+                                   inStateSize +   // State input queue (double buffered)
+                                   inGamaSize +    // Gamma queue
+                                   inBetaSize +    // Beta queue
+                                   outStateSize +  // State output queue (double buffered)
+                                   outAttnSize;
 
         pipe_->InitBuffer(stageBuff, totalBufferSize);
         uint32_t totalBufferOffset = 0;
-        qLocal = stageBuff.GetWithOffset<inType>(
-            static_cast<uint32_t>(BUFFER_NUM * MAX_MTP * alignK_), totalBufferOffset);
+        qLocal =
+            stageBuff.GetWithOffset<inType>(static_cast<uint32_t>(BUFFER_NUM * MAX_MTP * alignK_), totalBufferOffset);
         totalBufferOffset += inQSize;
-        kLocal = stageBuff.GetWithOffset<inType>(
-            static_cast<uint32_t>(BUFFER_NUM * MAX_MTP * alignK_), totalBufferOffset);
+        kLocal =
+            stageBuff.GetWithOffset<inType>(static_cast<uint32_t>(BUFFER_NUM * MAX_MTP * alignK_), totalBufferOffset);
         totalBufferOffset += inQSize;
-        vLocal = stageBuff.GetWithOffset<inType>(
-            static_cast<uint32_t>(BUFFER_NUM * MAX_MTP * alignV_), totalBufferOffset);
+        vLocal =
+            stageBuff.GetWithOffset<inType>(static_cast<uint32_t>(BUFFER_NUM * MAX_MTP * alignV_), totalBufferOffset);
         totalBufferOffset += inVSize;
-        stateLocal = stageBuff.GetWithOffset<inType>(
-            static_cast<uint32_t>(BUFFER_NUM * alignK_ * vStep_), totalBufferOffset);
+        stateLocal =
+            stageBuff.GetWithOffset<inType>(static_cast<uint32_t>(BUFFER_NUM * alignK_ * vStep_), totalBufferOffset);
         totalBufferOffset += inStateSize;
-        gamaLocal = stageBuff.GetWithOffset<float>(
-            static_cast<uint32_t>(BUFFER_NUM * MAX_MTP * NV_), totalBufferOffset);
+        gamaLocal =
+            stageBuff.GetWithOffset<float>(static_cast<uint32_t>(BUFFER_NUM * MAX_MTP * NV_), totalBufferOffset);
         totalBufferOffset += inGamaSize;
-        betaLocal = stageBuff.GetWithOffset<inType>(
-            static_cast<uint32_t>(BUFFER_NUM * MAX_MTP * NV_), totalBufferOffset);
+        betaLocal =
+            stageBuff.GetWithOffset<inType>(static_cast<uint32_t>(BUFFER_NUM * MAX_MTP * NV_), totalBufferOffset);
         totalBufferOffset += inBetaSize;
-        stateOutLocal = stageBuff.GetWithOffset<inType>(
-            static_cast<uint32_t>(BUFFER_NUM * alignK_ * vStep_), totalBufferOffset);
+        stateOutLocal =
+            stageBuff.GetWithOffset<inType>(static_cast<uint32_t>(BUFFER_NUM * alignK_ * vStep_), totalBufferOffset);
         totalBufferOffset += outStateSize;
-        attnOutLocal = stageBuff.GetWithOffset<inType>(
-            static_cast<uint32_t>(BUFFER_NUM * vStep_), totalBufferOffset);
+        attnOutLocal = stageBuff.GetWithOffset<inType>(static_cast<uint32_t>(BUFFER_NUM * vStep_), totalBufferOffset);
         pipe_->InitBuffer(tmpBuff, restUbSize_);
         uint32_t buffOffset = 0;
         deltaInUb = tmpBuff.GetWithOffset<float>(static_cast<uint32_t>(vStep_), buffOffset);
@@ -233,9 +218,9 @@ public:
             uint64_t seq0 = batchIdx * S_;
             uint64_t seq1 = seq0 + cuSeqlensGm_.GetValue(batchIdx);
 
-            uint64_t stateOffset = hasAcceptedTokens_ ?
-                    ssmStateIndicesGm_.GetValue(seq0 + numAcceptedTokensGm_.GetValue(batchIdx) - 1) :
-                    ssmStateIndicesGm_.GetValue(seq0);
+            uint64_t stateOffset = hasAcceptedTokens_
+                                       ? ssmStateIndicesGm_.GetValue(seq0 + numAcceptedTokensGm_.GetValue(batchIdx) - 1)
+                                       : ssmStateIndicesGm_.GetValue(seq0);
             uint64_t recurrentStateOffset = 0;
             if (hasIntermediateState_) {
                 recurrentStateOffset = cacheIndicesGm_.GetValue(batchIdx);
@@ -254,7 +239,7 @@ public:
             ProcessHead(seq0, seq1, headIdx, stateOffset, recurrentStateOffset);
             in_empty_Beta.set();
         }
-        in_empty_Beta.release(); // wait
+        in_empty_Beta.release();  // wait
         out_empty_Attn.release();
     }
 
@@ -282,22 +267,20 @@ private:
      * Note: This method is specifically designed and invoked only when
      * curSingleV == 64 and alignK_ == 128.
      */
-    __aicore__ inline void ReduceSum_AR_64x128_ReuseSource(
-        const LocalTensor<float>& dstTensor,
-        const LocalTensor<float>& srcTensor,
-        const uint32_t srcShape[2]
-    )
+    __aicore__ inline void ReduceSum_AR_64x128_ReuseSource(const LocalTensor<float> &dstTensor,
+                                                           const LocalTensor<float> &srcTensor,
+                                                           const uint32_t srcShape[2])
     {
         const uint32_t B32_DATA_NUM_PER_REPEAT = 64;
         const uint32_t B32_DATA_NUM_PER_BLOCK = 8;
-        uint32_t first = srcShape[0];      // 64
-        uint32_t last = srcShape[1];       // 128
-        uint32_t padLast = 128;            // AlignUp(128, 8) = 128（已对齐）
+        uint32_t first = srcShape[0];  // 64
+        uint32_t last = srcShape[1];   // 128
+        uint32_t padLast = 128;        // AlignUp(128, 8) = 128（已对齐）
         LocalTensor<float> tmpBuf = srcTensor;
 
-        uint32_t splitK = 128;     // 1 << FindClosestPowerOfTwo(128) = 128
-        uint32_t tail = 0;         // last - splitK = 0
-        uint32_t perRowReduceSize = 64; // splitK >> 1 = 64
+        uint32_t splitK = 128;           // 1 << FindClosestPowerOfTwo(128) = 128
+        uint32_t tail = 0;               // last - splitK = 0
+        uint32_t perRowReduceSize = 64;  // splitK >> 1 = 64
         SetMaskCount();
 
         uint32_t perRowSize = padLast;
@@ -307,18 +290,18 @@ private:
 
         SetMaskNorm();
         SetVectorMask<float, MaskMode::NORMAL>(B32_DATA_NUM_PER_REPEAT);  // 64
-        uint32_t srcOffset = perRowReduceSize;  // 64
-        uint32_t tmpOffset = 0;                 // 0
+        uint32_t srcOffset = perRowReduceSize;                            // 64
+        uint32_t tmpOffset = 0;                                           // 0
 
         Add<float, false>(tmpBuf[tmpOffset], tmpBuf[tmpOffset], srcTensor[srcOffset], MASK_PLACEHOLDER, first,
-            {1, 1, 1, dstRepStride, src0RepStride, src1RepStride});
+                          {1, 1, 1, dstRepStride, src0RepStride, src1RepStride});
         PipeBarrier<PIPE_V>();
-        uint16_t blockCount = first;        // 64
-        uint16_t blockLen = perRowReduceSize / B32_DATA_NUM_PER_BLOCK;  // 64 / 8 = 8
+        uint16_t blockCount = first;                                                 // 64
+        uint16_t blockLen = perRowReduceSize / B32_DATA_NUM_PER_BLOCK;               // 64 / 8 = 8
         uint16_t srcStride = (padLast - perRowReduceSize) / B32_DATA_NUM_PER_BLOCK;  // (128 - 64) / 8 = 8
         uint16_t dstStride = 0;
 
-        DataCopy(tmpBuf, tmpBuf, { blockCount, blockLen, srcStride, dstStride});
+        DataCopy(tmpBuf, tmpBuf, {blockCount, blockLen, srcStride, dstStride});
         PipeBarrier<PIPE_V>();
 
         ResetMask();
@@ -399,9 +382,9 @@ private:
         }
     }
 
-    __aicore__ inline void Compute(uint32_t curSingleV, uint64_t curQKOffset,
-        uint64_t curVOffset, uint64_t seq_i, uint64_t attnOffset, int32_t seq0,
-        int32_t seq1, uint64_t head_i, uint64_t stateOffset, uint64_t v_i)
+    __aicore__ inline void Compute(uint32_t curSingleV, uint64_t curQKOffset, uint64_t curVOffset, uint64_t seq_i,
+                                   uint64_t attnOffset, int32_t seq0, int32_t seq1, uint64_t head_i,
+                                   uint64_t stateOffset, uint64_t v_i)
     {
         uint32_t qk_head_idx = head_i / (NV_ / NK_);
         int32_t seqLen = seq1 - seq0;
@@ -420,7 +403,7 @@ private:
         uint32_t vSrcStride = tokenStrideSize_ - realV_ * sizeof(inType);
 
         DataCopyExtParams qkInParams{static_cast<uint16_t>(seqLen), static_cast<uint32_t>(realK_ * sizeof(inType)),
-                                    qkSrcStride, 0, 0};
+                                     qkSrcStride, 0, 0};
         DataCopyPadExtParams<inType> qkPadParams{true, 0, static_cast<uint8_t>(alignK_ - realK_), 0};
 
         DataCopyExtParams vInParams{static_cast<uint16_t>(seqLen), static_cast<uint32_t>(realV_ * sizeof(inType)),
@@ -466,8 +449,8 @@ private:
             // {1, 8} * {1, alignK_} => {1, alignK_}
             uint32_t index = i * VEC_FLOAT;  // 0, 64
 
-            Mul<float, false>(broadTmpInUb[index], stateInUb[index], kInUb[curQKOffset + index],
-                MASK_PLACEHOLDER, curSingleV, {1, 1, 1, 16, 16, 0});
+            Mul<float, false>(broadTmpInUb[index], stateInUb[index], kInUb[curQKOffset + index], MASK_PLACEHOLDER,
+                              curSingleV, {1, 1, 1, 16, 16, 0});
             AscendC::PipeBarrier<PIPE_V>();
         }
 
@@ -502,8 +485,8 @@ private:
         for (uint32_t i = 0; i < alignK_ / VEC_FLOAT; i++) {
             // {1, 8} * {1, alignK_} => {1, alignK_}
             uint32_t index = i * VEC_FLOAT;  // 0, 64
-            MulAddDst<float, float, false>(stateInUb[index], broadTmpInUb, kInUb[curQKOffset + index],
-                MASK_PLACEHOLDER, curSingleV, {1, 0, 1, 16, 1, 0});
+            MulAddDst<float, float, false>(stateInUb[index], broadTmpInUb, kInUb[curQKOffset + index], MASK_PLACEHOLDER,
+                                           curSingleV, {1, 0, 1, 16, 1, 0});
             AscendC::PipeBarrier<PIPE_V>();
         }
 
@@ -514,8 +497,7 @@ private:
         out_ready_Attn.set();
         out_ready_Attn.wait();
 
-        uint64_t curStateOutOffset =
-            ((ssmStateIndicesGm_.GetValue(seq_i) * NV_ + head_i) * realV_ + v_i) * realK_;
+        uint64_t curStateOutOffset = ((ssmStateIndicesGm_.GetValue(seq_i) * NV_ + head_i) * realV_ + v_i) * realK_;
 
         CopyOutState(curStateOutOffset, curSingleV);
 
@@ -523,8 +505,8 @@ private:
             // {1, 8} * {1, alignK_} => {1, alignK_}
             uint32_t index = i * VEC_FLOAT;  // 0, 64
 
-            Mul<float, false>(broadTmpInUb[index], stateInUb[index], qInUb[curQKOffset + index],
-                MASK_PLACEHOLDER, curSingleV, {1, 1, 1, 16, 16, 0});
+            Mul<float, false>(broadTmpInUb[index], stateInUb[index], qInUb[curQKOffset + index], MASK_PLACEHOLDER,
+                              curSingleV, {1, 1, 1, 16, 16, 0});
             AscendC::PipeBarrier<PIPE_V>();
         }
 
@@ -559,7 +541,7 @@ private:
         DataCopyPad(finalStateGm_[stateOffset], stateOutLocal, stateOutParams);
     }
 
-   __aicore__ inline void CopyInGamaBeta(int32_t seq0, int32_t seq1)
+    __aicore__ inline void CopyInGamaBeta(int32_t seq0, int32_t seq1)
     {
         int32_t seqLen = seq1 - seq0;
         uint64_t bBatchSize = Ceil(seqLen * NV_, BF16_NUM_PER_BLOCK) * BF16_NUM_PER_BLOCK;
@@ -594,7 +576,8 @@ private:
         WaitFlag<HardEvent::V_S>(eventIDS);
     }
 
-    __aicore__ inline void ProcessHead(int32_t seq0, int32_t seq1, uint64_t head_i, uint64_t stateOffset, uint64_t recurrentStateOffset)
+    __aicore__ inline void ProcessHead(int32_t seq0, int32_t seq1, uint64_t head_i, uint64_t stateOffset,
+                                       uint64_t recurrentStateOffset)
     {
         qkvcopyFlag_ = false;
         for (uint64_t v_i = 0; v_i < realV_; v_i += vStep_) {
@@ -677,7 +660,6 @@ private:
     SEvent<HardEvent::V_MTE3> out_ready_Attn;
     SEvent<HardEvent::MTE3_V> out_empty_Attn;
 
-
     bool hasIntermediateState_;
     bool needRecurrentInit_;
     bool hasAcceptedTokens_;
@@ -690,40 +672,17 @@ private:
     bool qkvcopyFlag_;
 };
 
-extern "C" __global__ __aicore__ void
-recurrent_gated_delta_rule(
-    GM_ADDR mixqkv,
-    GM_ADDR beta,
-    GM_ADDR initState,
-    GM_ADDR cuSeqlens,
-    GM_ADDR ssmStateIndices,
-    GM_ADDR mtpRecurrentState,
-    GM_ADDR cacheIndices,
-    GM_ADDR g,
-    GM_ADDR gk,
-    GM_ADDR numAcceptedTokens,
-    GM_ADDR out,
-    GM_ADDR stateOut,
-    uint32_t b,
-    uint32_t s,
-    uint32_t nk,
-    uint32_t dk,
-    uint32_t nv,
-    uint32_t dv,
-    bool hasIntermediateState,
-    bool hasAcceptedTokens,
-    bool hasGama,
-    uint32_t vStep,
-    uint32_t ubRestBytes,
-    float scale)
+extern "C" __global__ __aicore__ void recurrent_gated_delta_rule(
+    GM_ADDR mixqkv, GM_ADDR beta, GM_ADDR initState, GM_ADDR cuSeqlens, GM_ADDR ssmStateIndices,
+    GM_ADDR mtpRecurrentState, GM_ADDR cacheIndices, GM_ADDR g, GM_ADDR gk, GM_ADDR numAcceptedTokens, GM_ADDR out,
+    GM_ADDR stateOut, uint32_t b, uint32_t s, uint32_t nk, uint32_t dk, uint32_t nv, uint32_t dv,
+    bool hasIntermediateState, bool hasAcceptedTokens, bool hasGama, uint32_t vStep, uint32_t ubRestBytes, float scale)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     TPipe pipe;
 
-    RGDR<bfloat16_t, bfloat16_t> op(
-        b, s, nk, dk, nv, dv, hasIntermediateState,
-        hasAcceptedTokens, hasGama, vStep, ubRestBytes, scale
-    );
+    RGDR<bfloat16_t, bfloat16_t> op(b, s, nk, dk, nv, dv, hasIntermediateState, hasAcceptedTokens, hasGama, vStep,
+                                    ubRestBytes, scale);
 
     RGDRInitParams initParams{
         mixqkv,

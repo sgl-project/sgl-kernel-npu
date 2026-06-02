@@ -223,6 +223,14 @@ MAX_ROWS_PER_ITER = 64
 UB_SPECIFICATION = 85
 
 
+# =============================================================================
+# Fused kernel — reads INTERLEAVED input format
+# Used by Qwen3-Next whose checkpoint stores fused in_proj_qkvz weights
+# in per-head-group interleaved layout:
+#   [g0_q, g0_k, g0_v, g0_z, g1_q, g1_k, g1_v, g1_z, ...]
+# =============================================================================
+
+
 @triton.jit(do_not_specialize=["total_rows", "rows_per_vec"])
 def fused_qkvzba_split_reshape_cat_kernel(
     mixed_qkv,
@@ -439,4 +447,209 @@ def fused_qkvzba_split_reshape_cat(
         ba_out_row_stride,
         rows_per_iter,
     )
+    return mixed_qkv, z, b, a
+
+
+# =============================================================================
+# Fused kernel — reads CONTIGUOUS input format
+# Used by Qwen3.5 whose checkpoint stores in_proj_qkv and in_proj_z separately.
+# After MergedColumnParallelLinear loads them, the matmul output is contiguous:
+#   mixed_qkvz: [all_q | all_k | all_v | all_z]
+#   mixed_ba:   [all_b | all_a]
+#
+# Output format is identical to the interleaved kernel (same downstream consumer).
+# =============================================================================
+
+
+@triton.jit
+def fused_qkvzba_split_reshape_cat_contiguous_kernel(
+    mixed_qkv,
+    z,
+    b,
+    a,
+    mixed_qkvz,
+    mixed_ba,
+    NUM_HEADS_QK: tl.constexpr,
+    NUM_HEADS_V: tl.constexpr,
+    HEAD_QK: tl.constexpr,
+    HEAD_V: tl.constexpr,
+    total_rows,
+    rows_per_vec,
+    QKVZ_ROW_STRIDE: tl.constexpr,
+    BA_ROW_STRIDE: tl.constexpr,
+    QKV_ROW_STRIDE: tl.constexpr,
+    Z_ROW_STRIDE: tl.constexpr,
+    BA_OUT_ROW_STRIDE: tl.constexpr,
+    ROWS_PER_ITER: tl.constexpr,
+    BLOCK_SIZE_COL: tl.constexpr,
+):
+    vec_id = tl.program_id(0)
+
+    TOTAL_Q: tl.constexpr = NUM_HEADS_QK * HEAD_QK
+    TOTAL_K: tl.constexpr = NUM_HEADS_QK * HEAD_QK
+    TOTAL_V: tl.constexpr = NUM_HEADS_V * HEAD_V
+
+    row_start = vec_id * rows_per_vec
+    row_end = tl.minimum(row_start + rows_per_vec, total_rows)
+    row_offset = row_start
+
+    iter_count = (row_end - row_start + ROWS_PER_ITER - 1) // ROWS_PER_ITER
+
+    for _ in tl.range(iter_count):
+        row_indices = tl.arange(0, ROWS_PER_ITER) + row_offset
+        row_mask = row_indices < row_end
+
+        for col_start in tl.static_range(0, TOTAL_Q, BLOCK_SIZE_COL):
+            col_range = tl.arange(0, BLOCK_SIZE_COL) + col_start
+            col_mask = col_range < TOTAL_Q
+            combined_mask = row_mask[:, None] & col_mask[None, :]
+
+            q_src = row_indices[:, None] * QKVZ_ROW_STRIDE + col_range[None, :]
+            q_dst = row_indices[:, None] * QKV_ROW_STRIDE + col_range[None, :]
+
+            q_data = tl.load(mixed_qkvz + q_src, mask=combined_mask)
+            tl.store(mixed_qkv + q_dst, q_data, mask=combined_mask)
+
+        for col_start in tl.static_range(0, TOTAL_K, BLOCK_SIZE_COL):
+            col_range = tl.arange(0, BLOCK_SIZE_COL) + col_start
+            col_mask = col_range < TOTAL_K
+            combined_mask = row_mask[:, None] & col_mask[None, :]
+
+            k_src = (
+                row_indices[:, None] * QKVZ_ROW_STRIDE + TOTAL_Q + col_range[None, :]
+            )
+            k_dst = row_indices[:, None] * QKV_ROW_STRIDE + TOTAL_Q + col_range[None, :]
+
+            k_data = tl.load(mixed_qkvz + k_src, mask=combined_mask)
+            tl.store(mixed_qkv + k_dst, k_data, mask=combined_mask)
+
+        for col_start in tl.static_range(0, TOTAL_V, BLOCK_SIZE_COL):
+            col_range = tl.arange(0, BLOCK_SIZE_COL) + col_start
+            col_mask = col_range < TOTAL_V
+            combined_mask = row_mask[:, None] & col_mask[None, :]
+
+            v_src = (
+                row_indices[:, None] * QKVZ_ROW_STRIDE
+                + TOTAL_Q
+                + TOTAL_K
+                + col_range[None, :]
+            )
+            v_dst = (
+                row_indices[:, None] * QKV_ROW_STRIDE
+                + TOTAL_Q
+                + TOTAL_K
+                + col_range[None, :]
+            )
+
+            v_data = tl.load(mixed_qkvz + v_src, mask=combined_mask)
+            tl.store(mixed_qkv + v_dst, v_data, mask=combined_mask)
+
+        for col_start in tl.static_range(0, TOTAL_V, BLOCK_SIZE_COL):
+            col_range = tl.arange(0, BLOCK_SIZE_COL) + col_start
+            col_mask = col_range < TOTAL_V
+            combined_mask = row_mask[:, None] & col_mask[None, :]
+
+            z_src = (
+                row_indices[:, None] * QKVZ_ROW_STRIDE
+                + TOTAL_Q
+                + TOTAL_K
+                + TOTAL_V
+                + col_range[None, :]
+            )
+            z_dst = row_indices[:, None] * Z_ROW_STRIDE + col_range[None, :]
+
+            z_data = tl.load(mixed_qkvz + z_src, mask=combined_mask)
+            tl.store(z + z_dst, z_data, mask=combined_mask)
+
+        ba_range = tl.arange(0, NUM_HEADS_V)
+        b_src = row_indices[:, None] * BA_ROW_STRIDE + ba_range[None, :]
+        b_dst = row_indices[:, None] * BA_OUT_ROW_STRIDE + ba_range[None, :]
+
+        b_data = tl.load(mixed_ba + b_src, mask=row_mask[:, None])
+        tl.store(b + b_dst, b_data, mask=row_mask[:, None])
+
+        a_src = row_indices[:, None] * BA_ROW_STRIDE + NUM_HEADS_V + ba_range[None, :]
+        a_data = tl.load(mixed_ba + a_src, mask=row_mask[:, None])
+        tl.store(a + b_dst, a_data, mask=row_mask[:, None])
+
+        row_offset += ROWS_PER_ITER
+
+
+def fused_qkvzba_split_reshape_cat_contiguous(
+    mixed_qkvz,
+    mixed_ba,
+    num_heads_qk,
+    num_heads_v,
+    head_qk,
+    head_v,
+    block_size_col=1024,
+):
+    batch, seq_len = mixed_qkvz.shape[0], 1
+    total_rows = batch * seq_len
+
+    total_q = num_heads_qk * head_qk
+    total_k = num_heads_qk * head_qk
+    total_v = num_heads_v * head_v
+
+    qkvz_row_stride = total_q + total_k + total_v + total_v
+    ba_row_stride = num_heads_v * 2
+    qkv_row_stride = total_q + total_k + total_v
+    z_row_stride = num_heads_v * head_v
+    ba_out_row_stride = num_heads_v
+
+    mixed_qkv = torch.empty(
+        [batch * seq_len, qkv_row_stride],
+        dtype=mixed_qkvz.dtype,
+        device=mixed_qkvz.device,
+    )
+    z = torch.empty(
+        [batch * seq_len, num_heads_v, head_v],
+        dtype=mixed_qkvz.dtype,
+        device=mixed_qkvz.device,
+    )
+    b = torch.empty(
+        [batch * seq_len, num_heads_v],
+        dtype=mixed_ba.dtype,
+        device=mixed_ba.device,
+    )
+    a = torch.empty_like(b)
+
+    num_vectorcore = get_device_properties()[1]
+    grid_size = min(num_vectorcore, total_rows)
+    grid_size = max(1, grid_size)
+
+    dtype_size = mixed_qkvz.element_size()
+    ub_size_bytes = UB_SPECIFICATION * 1024
+
+    target_elements_per_iter = (ub_size_bytes * 0.4) // dtype_size
+    rows_per_iter = max(1, int(target_elements_per_iter // block_size_col))
+    rows_per_iter = triton.next_power_of_2(rows_per_iter)
+    rows_per_iter = min(rows_per_iter, MAX_ROWS_PER_ITER)
+
+    rows_per_vec = triton.cdiv(total_rows, grid_size)
+    rows_per_vec = max(rows_per_vec, rows_per_iter)
+
+    grid = (grid_size,)
+    fused_qkvzba_split_reshape_cat_contiguous_kernel[grid](
+        mixed_qkv,
+        z,
+        b,
+        a,
+        mixed_qkvz,
+        mixed_ba,
+        num_heads_qk,
+        num_heads_v,
+        head_qk,
+        head_v,
+        total_rows,
+        rows_per_vec,
+        qkvz_row_stride,
+        ba_row_stride,
+        qkv_row_stride,
+        z_row_stride,
+        ba_out_row_stride,
+        rows_per_iter,
+        block_size_col,
+    )
+
     return mixed_qkv, z, b, a

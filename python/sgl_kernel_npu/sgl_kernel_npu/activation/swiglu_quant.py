@@ -1,6 +1,7 @@
 import torch
 import triton
 import triton.language as tl
+import triton.language.extra.cann.extension as al
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
@@ -40,8 +41,8 @@ def _swiglu_quant_kernel(
         # swiglu
         x_offsets = row_idx * TOTAL_COLS + tl.arange(0, TOTAL_COLS)
         cur_x = tl.load(x_ptr + x_offsets)
-        x1 = tl.extract_slice(cur_x, offsets=(0,), sizes=(HALF_COLS,), strides=(1,))
-        x2 = tl.extract_slice(
+        x1 = al.extract_slice(cur_x, offsets=(0,), sizes=(HALF_COLS,), strides=(1,))
+        x2 = al.extract_slice(
             cur_x, offsets=(HALF_COLS,), sizes=(HALF_COLS,), strides=(1,)
         )
         out = x1 * tl.sigmoid(x1) * x2
@@ -53,7 +54,7 @@ def _swiglu_quant_kernel(
             tl.store(scale_ptr + row_idx, scale.to(scale_ptr.dtype.element_ty))
             # out = tl.math.rint(out / scale.reshape(SUB_BLOCK_SIZE, 1))   # ub overflow
             for col_blk_idx in range(0, HALF_COLS, COL_BLOCK_SIZE):
-                tmp_out = tl.extract_slice(
+                tmp_out = al.extract_slice(
                     out, offsets=(col_blk_idx,), sizes=(COL_BLOCK_SIZE,), strides=(1,)
                 )
                 tmp_out = (tmp_out.to(tl.float32) / scale).to(x_ptr.dtype.element_ty)

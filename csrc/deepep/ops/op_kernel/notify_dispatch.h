@@ -6,18 +6,11 @@
 
 #include "comm_args.h"
 #include "data_copy.h"
-#include "moe_distribute_base.h"
+#include "moe_distribute_v2_base.h"
 
 using namespace AscendC;
 using namespace Moe;
-
-template <AscendC::HardEvent event>
-__aicore__ inline void SyncFunc()
-{
-    int32_t eventID = static_cast<int32_t>(GetTPipePtr()->FetchEventID(event));
-    AscendC::SetFlag<event>(eventID);
-    AscendC::WaitFlag<event>(eventID);
-}
+using namespace MoeDistributeV2Base;
 
 #define KERNELS_ARGS_FUN_ALL2ALL()                                                                                  \
     GM_ADDR sendDataInput, GM_ADDR tokenPerExpertDataInput, GM_ADDR sendDataOffsetOutput, GM_ADDR recvDataOutput,   \
@@ -51,7 +44,7 @@ class NotifyDispatch
     // Synchronization flag occupies length
     constexpr static int64_t FLAG_UNIT_INT_NUM = 4;
     constexpr static int64_t MAGIC_MASK = ~((1LL << 32) - 1);
-    constexpr static int32_t EXPERT_NORMAL_NUM = 256;
+    constexpr static int32_t EXPERT_NORMAL_NUM = 512;
     constexpr static int32_t BATCH_ROUND = 16;
 
 public:
@@ -72,7 +65,19 @@ public:
         recvOffset_ = recvOffset;
         maxBs_ = maxBs;
         recvTokensPerExpert_ = recvTokensPerExpert;
-        batchRounds = numExperts > EXPERT_NORMAL_NUM ? BATCH_ROUND : BATCH_ROUND * 2;
+        if (round == 1) {
+            batchRounds = 1;  // 没有开蚂蚁搬家，不需要多轮处理, 避免UB分配过大
+        } else {
+            if (numLocalExperts >= (EXPERT_NORMAL_NUM / 4)) {
+                batchRounds = BATCH_ROUND;
+            } else if (numExperts > EXPERT_NORMAL_NUM) {  // >512
+                batchRounds = BATCH_ROUND / 2;
+            } else if (numExperts <= EXPERT_NORMAL_NUM / 2) {  // <=256
+                batchRounds = BATCH_ROUND * 2;
+            } else {  // 256< exp <= 512
+                batchRounds = BATCH_ROUND;
+            }
+        }
         tokenPerExpertDataAlignLen = Ceil(batchRounds * numExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
         sendDataOffsetAlignLen = Ceil(batchRounds * numExperts * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
         sendDataAlignLen = Ceil(batchRounds * numExperts * sendPerGroup * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;

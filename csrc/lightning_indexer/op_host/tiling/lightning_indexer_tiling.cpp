@@ -69,7 +69,7 @@ ge::graphStatus LIInfoParser::GetNpuInfo()
     auto ascendcPlatform = *platform_ascendc::PlatformAscendCManager::GetInstance();
     uint32_t aivNum = ascendcPlatform.GetCoreNumAiv();
     uint32_t aicNum = ascendcPlatform.GetCoreNumAic();
-    TORCH_CHECK(aivNum != 0 && aivNum != 0, OPS_LOG_E(opName_, "num of core obtained is 0"));
+    TORCH_CHECK(aivNum != 0 && aicNum != 0, OPS_LOG_E(opName_, "num of core obtained is 0"));
 
     socVersion_ = ascendcPlatform.GetSocVersion();
     TORCH_CHECK(socVersion_ == platform_ascendc::SocVersion::ASCEND910B ||
@@ -364,7 +364,11 @@ ge::graphStatus LIInfoParser::GetS2SizeForPageAttention()
         return ge::GRAPH_FAILED;
     }
     maxBlockNumPerBatch_ = opParamInfo_.blockTable.tensor->GetStorageShape().GetDim(1);
-    s2Size_ = maxBlockNumPerBatch_ * blockSize_;
+    const int64_t s2SizeTemp = static_cast<int64_t>(maxBlockNumPerBatch_) * static_cast<int64_t>(blockSize_);
+    if (s2SizeTemp > static_cast<int64_t>(std::numeric_limits<uint32_t>::max())) {
+        return ge::GRAPH_FAILED;
+    }
+    s2Size_ = static_cast<uint32_t>(s2SizeTemp);
     return ge::GRAPH_SUCCESS;
 }
 
@@ -409,6 +413,8 @@ ge::graphStatus LIInfoParser::ValidateInputShapesMatch()
     if (qLayout_ == DataLayout::TND) {
         // -----------------------check BatchSize-------------------
         // bSize_ 来源于act_seq_q
+        TORCH_CHECK(opParamInfo_.actualSeqLengths.tensor != nullptr, opName_, ": actualSeqLengths tensor is null");
+
         TORCH_CHECK((opParamInfo_.actualSeqLengths.tensor->GetShapeSize() == bSize_) &&
                         (opParamInfo_.blockTable.tensor == nullptr ||
                          opParamInfo_.blockTable.tensor->GetStorageShape().GetDim(0) == bSize_),

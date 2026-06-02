@@ -51,14 +51,6 @@ constexpr uint64_t MB_SIZE = 1024 * 1024UL;
 
 namespace optiling {
 
-static int32_t CeilDev(int32_t num, int32_t div)
-{
-    if (div == 0) {
-        return 0;
-    }
-    return (num + div - 1) / div;
-}
-
 static uint64_t GetMaxWindowSize()
 {
     uint16_t defaultWindowSize = 200;

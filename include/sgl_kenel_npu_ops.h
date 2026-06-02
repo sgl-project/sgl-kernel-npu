@@ -99,25 +99,42 @@ void sgemmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
                    at::Tensor &lora_scales, at::Tensor &y);
 
 at::Tensor recurrent_gated_delta_rule(
-    at::Tensor &mix_qkv,
-    at::Tensor &recurrent_state,
-    at::Tensor &beta,
-    double scale,
-    at::Tensor &actual_seq_lengths,
-    at::Tensor &ssm_state_indices,
-    int64_t nk,
-    int64_t nv,
-    c10::optional<at::Tensor> intermediate_state_opt,
+    at::Tensor &mix_qkv, at::Tensor &recurrent_state, at::Tensor &beta,
+    double scale, at::Tensor &actual_seq_lengths, at::Tensor &ssm_state_indices,
+    int64_t nk, int64_t nv, c10::optional<at::Tensor> intermediate_state_opt,
     c10::optional<at::Tensor> cache_indices_opt,
     c10::optional<at::Tensor> num_accepted_tokens_opt,
-    c10::optional<at::Tensor> g_opt,
-    c10::optional<at::Tensor> gk_opt);
+    c10::optional<at::Tensor> g_opt, c10::optional<at::Tensor> gk_opt);
+
+at::Tensor sgemmc_expand(at::Tensor &x, at::Tensor &weight,
+                         at::Tensor &lora_indices, at::Tensor &seq_len,
+                         at::Tensor &lora_ranks, at::Tensor &slice_offsets,
+                         at::Tensor &y);
+
+void sgemmc_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
+                   at::Tensor &seq_len, at::Tensor &lora_ranks,
+                   at::Tensor &lora_scales, at::Tensor &y, int64_t slice_count);
 
 #ifdef BUILD_CATLASS_MODULE
 void catlass_matmul_basic(const at::Tensor &tensor_a,
                           const at::Tensor &tensor_b, at::Tensor &tensor_c,
                           c10::optional<c10::string_view> format_mode);
 #endif
+
+void mega_chunk_gdn(
+    const at::Tensor &q, const at::Tensor &k, const at::Tensor &v,
+    const at::Tensor &g, const at::Tensor &beta, const at::Tensor &mask_lower,
+    const at::Tensor &mask_full, const at::Tensor &minus_identity,
+    const at::Tensor &cu_seqlens, at::Tensor &out, at::Tensor &g_sum,
+    at::Tensor &g_t, at::Tensor &beta_t, at::Tensor &a, at::Tensor &a_inv_f32,
+    at::Tensor &a_inv, at::Tensor &w, at::Tensor &u, at::Tensor &s,
+    at::Tensor &v_new, at::Tensor &final_state, const at::Tensor &initial_state,
+    bool has_initial_state, at::Tensor &kkt_workspace,
+    at::Tensor &wy_workspace_a1, at::Tensor &wy_workspace_a2,
+    at::Tensor &h_workspace, at::Tensor &o_workspace_qk,
+    at::Tensor &o_workspace_qs, at::Tensor &o_workspace_gated,
+    int64_t block_dim, int64_t batch_size, int64_t seq_len,
+    int64_t total_tokens, int64_t num_matrices);
 
 at::Tensor lightning_indexer(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
@@ -138,6 +155,9 @@ at::Tensor lightning_indexer(
  * is inversed.
  */
 at::Tensor tri_inv_col_sweep(const at::Tensor &tensor_in);
+at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask,
+                               c10::optional<at::Tensor> indices);
+
 } // namespace npu_kernel
 
 } // namespace sglang

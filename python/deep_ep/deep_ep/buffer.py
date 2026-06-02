@@ -8,6 +8,7 @@ import torch.distributed as dist
 import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
+from .alltoall import alltoall_combine, alltoall_dispatch, alltoall_get_dispatch_layout
 from .utils import EventOverlap, log_parameters
 
 
@@ -45,11 +46,14 @@ class Buffer:
             allow_mnnvl: This parameter is deprecated and retained to ensure compatibility with DeepEP.
         """
 
+        self.group = group
         self.rank = group.rank()
         self.group_size = group.size()
         self.num_nvl_bytes = num_nvl_bytes
         self.num_rdma_bytes = num_rdma_bytes
         self.low_latency_mode = low_latency_mode
+        self.alltoall_mode = os.getenv("DEEP_USE_ALLTOALL_MODE") == "1"
+        self._alltoall_layout = None
         try:
             backend = group._get_backend(torch.device("npu"))
             moe_all_to_all_group_name = backend.get_hccl_comm_name(self.rank)
@@ -184,6 +188,12 @@ class Buffer:
             is_token_in_rank: `[num_tokens, num_ranks]` with `torch.int`, whether a token be sent to a rank.
             event: the event after executing the kernel (valid only if `async_finish` is set).
         """
+        self.num_experts = num_experts
+
+        # All-to-all
+        if self.alltoall_mode:
+            return alltoall_get_dispatch_layout(self, topk_idx, num_experts)
+
         (
             num_tokens_per_rank,
             num_tokens_per_rdma_rank,
@@ -303,8 +313,13 @@ class Buffer:
             handle: the returned communication handle.
             event: the event after executing the kernel (valid only if `async_finish` is set).
         """
+
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
+
+        # All-to-all
+        if self.alltoall_mode:
+            return alltoall_dispatch(self, x, topk_idx, topk_weights)
 
         # Internode
         if self.runtime.get_num_rdma_ranks() > 1:
@@ -518,6 +533,10 @@ class Buffer:
             recv_topk_weights: the reduced top-k weights from its dispatch ranks.
             event: the event after executing the kernel (valid only if `async_finish` is set).
         """
+        # All-to-all
+        if self.alltoall_mode:
+            return alltoall_combine(self, x, handle)
+
         # Internode
         if self.runtime.get_num_rdma_ranks() > 1:
             return self.internode_combine(

@@ -1,6 +1,7 @@
 import torch
 import triton
 import triton.language as tl
+import triton.language.extra.cann.extension as al
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
@@ -43,7 +44,7 @@ def rmsnorm_bias_kernel(
             for block_offset in range(0, hidden_size, COL_BLOCK_SIZE):
                 col_indices = block_offset + block_cols
                 valid_mask2 = col_indices < hidden_size
-                block_buffered_values = tl.extract_slice(
+                block_buffered_values = al.extract_slice(
                     buffered_values, (block_offset,), (COL_BLOCK_SIZE,), (1,)
                 )
                 # quant tl.multiple_of(index_x * NUM_COLUMNS, NUM_COLUMNS)

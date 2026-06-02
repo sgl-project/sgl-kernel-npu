@@ -655,12 +655,6 @@ static bool CheckAttrs(const gert::TilingContext *context, MoeDistributeCombineV
                 "bs=%ld, epWorldSize=%u.",
                 *globalBsPtr, expertIdsDim0, epWorldSize),
         return false);
-    OP_TILING_CHECK(((*globalBsPtr > (expertIdsDim0 * static_cast<int64_t>(epWorldSize))) && isActiveMask),
-                    OP_LOGE(nodeName,
-                            "Different bs on different rank cannot work when isActiveMask=true, globalBS=%ld, "
-                            "bs=%ld, epWorldSize=%u.",
-                            *globalBsPtr, expertIdsDim0, epWorldSize),
-                    return false);
 
     tilingData.moeDistributeCombineV2Info.globalBs = static_cast<uint32_t>(*globalBsPtr);
     if (*globalBsPtr == 0) {
@@ -1428,7 +1422,7 @@ static ge::graphStatus MoeDistributeCombineV2TilingFunc(gert::TilingContext *con
     if (socVersion == "Ascend910B") {
         ret = MoeDistributeCombineA2TilingFuncImpl(context);
     } else {
-        // ret = MoeDistributeCombineA3TilingFuncImpl(context);
+        OP_LOGE(nodeName, "socVersion is not support");
     }
 
     return ret;

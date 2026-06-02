@@ -16,7 +16,6 @@
 #include "../../act/layout/layout.hpp"
 #include "../../tla/layout.hpp"
 
-using namespace tla;
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 namespace Act::detail {
@@ -29,39 +28,47 @@ struct TagToLayout {
 
 template <class Element>
 struct TagToLayout<Element, layout::RowMajor> {
-    using type = Layout<Shape<uint32_t, uint32_t>, Stride<int64_t, Int<1>>, Shape<uint32_t, uint32_t>>;
+    using type =
+        tla::Layout<tla::Shape<uint32_t, uint32_t>, tla::Stride<int64_t, tla::Int<1>>, tla::Shape<uint32_t, uint32_t>>;
 };
 
 template <class Element>
 struct TagToLayout<Element, layout::ColumnMajor> {
-    using type = Layout<Shape<uint32_t, uint32_t>, Stride<Int<1>, int64_t>, Shape<uint32_t, uint32_t>>;
+    using type =
+        tla::Layout<tla::Shape<uint32_t, uint32_t>, tla::Stride<tla::Int<1>, int64_t>, tla::Shape<uint32_t, uint32_t>>;
 };
 
 template <class Element>
 struct TagToLayout<Element, layout::zN> {
     static constexpr uint32_t ELE_NUM_PER_C0 = BYTE_PER_C0 / sizeof(Element);
     static constexpr uint32_t ELE_NUM_PER_FRACTAL = BYTE_PER_FRACTAL / sizeof(Element);
-    using type = Layout<Shape<Shape<Int<C0_NUM_PER_FRACTAL>, uint32_t>, Shape<Int<ELE_NUM_PER_C0>, uint32_t>>,
-                        Stride<Stride<Int<ELE_NUM_PER_C0>, Int<ELE_NUM_PER_FRACTAL>>, Stride<Int<1>, int64_t>>,
-                        Shape<uint32_t, uint32_t>>;
+    using type = tla::Layout<
+        tla::Shape<tla::Shape<tla::Int<C0_NUM_PER_FRACTAL>, uint32_t>, tla::Shape<tla::Int<ELE_NUM_PER_C0>, uint32_t>>,
+        tla::Stride<tla::Stride<tla::Int<ELE_NUM_PER_C0>, tla::Int<ELE_NUM_PER_FRACTAL>>,
+                    tla::Stride<tla::Int<1>, int64_t>>,
+        tla::Shape<uint32_t, uint32_t>>;
 };
 
 template <class Element>
 struct TagToLayout<Element, layout::zZ> {
     static constexpr uint32_t ELE_NUM_PER_C0 = BYTE_PER_C0 / sizeof(Element);
     static constexpr uint32_t ELE_NUM_PER_FRACTAL = BYTE_PER_FRACTAL / sizeof(Element);
-    using type = Layout<Shape<Shape<Int<C0_NUM_PER_FRACTAL>, uint32_t>, Shape<Int<ELE_NUM_PER_C0>, uint32_t>>,
-                        Stride<Stride<Int<ELE_NUM_PER_C0>, int64_t>, Stride<Int<1>, Int<ELE_NUM_PER_FRACTAL>>>,
-                        Shape<uint32_t, uint32_t>>;
+    using type = tla::Layout<
+        tla::Shape<tla::Shape<tla::Int<C0_NUM_PER_FRACTAL>, uint32_t>, tla::Shape<tla::Int<ELE_NUM_PER_C0>, uint32_t>>,
+        tla::Stride<tla::Stride<tla::Int<ELE_NUM_PER_C0>, int64_t>,
+                    tla::Stride<tla::Int<1>, tla::Int<ELE_NUM_PER_FRACTAL>>>,
+        tla::Shape<uint32_t, uint32_t>>;
 };
 
 template <class Element>
 struct TagToLayout<Element, layout::nZ> {
     static constexpr uint32_t ELE_NUM_PER_C0 = BYTE_PER_C0 / sizeof(Element);
     static constexpr uint32_t ELE_NUM_PER_FRACTAL = BYTE_PER_FRACTAL / sizeof(Element);
-    using type = Layout<Shape<Shape<Int<ELE_NUM_PER_C0>, uint32_t>, Shape<Int<C0_NUM_PER_FRACTAL>, uint32_t>>,
-                        Stride<Stride<Int<1>, int64_t>, Stride<Int<ELE_NUM_PER_C0>, Int<ELE_NUM_PER_FRACTAL>>>,
-                        Shape<uint32_t, uint32_t>>;
+    using type = tla::Layout<
+        tla::Shape<tla::Shape<tla::Int<ELE_NUM_PER_C0>, uint32_t>, tla::Shape<tla::Int<C0_NUM_PER_FRACTAL>, uint32_t>>,
+        tla::Stride<tla::Stride<tla::Int<1>, int64_t>,
+                    tla::Stride<tla::Int<ELE_NUM_PER_C0>, tla::Int<ELE_NUM_PER_FRACTAL>>>,
+        tla::Shape<uint32_t, uint32_t>>;
 };
 
 // Convenience aliases
@@ -69,9 +76,11 @@ template <class Element, class LayoutTag>
 using TagToLayout_t = typename TagToLayout<Element, LayoutTag>::type;
 
 constexpr uint32_t ELE_NUM_PER_FRACTAL_L0C = 256;
-using LayoutL0C = Layout<Shape<Shape<Int<C0_NUM_PER_FRACTAL>, uint32_t>, Shape<Int<C0_NUM_PER_FRACTAL>, uint32_t>>,
-                         Stride<Stride<Int<C0_NUM_PER_FRACTAL>, Int<ELE_NUM_PER_FRACTAL_L0C>>, Stride<Int<1>, int64_t>>,
-                         Shape<uint32_t, uint32_t>>;
+using LayoutL0C = tla::Layout<
+    tla::Shape<tla::Shape<tla::Int<C0_NUM_PER_FRACTAL>, uint32_t>, tla::Shape<tla::Int<C0_NUM_PER_FRACTAL>, uint32_t>>,
+    tla::Stride<tla::Stride<tla::Int<C0_NUM_PER_FRACTAL>, tla::Int<ELE_NUM_PER_FRACTAL_L0C>>,
+                tla::Stride<tla::Int<1>, int64_t>>,
+    tla::Shape<uint32_t, uint32_t>>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 

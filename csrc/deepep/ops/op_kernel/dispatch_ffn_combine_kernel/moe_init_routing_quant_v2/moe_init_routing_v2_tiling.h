@@ -1,5 +1,7 @@
 #pragma once
 
+#include <type_traits>
+#include <limits>
 #include "tiling_base.h"
 
 namespace optiling {
@@ -51,8 +53,12 @@ inline static int64_t GetPerOrLastValue(int64_t x, int64_t y)
 }
 
 template <class T>
-constexpr T CeilDiv(const T dividend, const T divisor)
+static T CeilDiv(const T dividend, const T divisor)
 {
+    static_assert(std::is_arithmetic<T>::value, "T must be an arithmetic type");
+    if (divisor == 0 || dividend + divisor - 1 < dividend) {
+        return std::numeric_limits<T>::max();
+    }
     return (dividend + divisor - 1) / divisor;
 }
 

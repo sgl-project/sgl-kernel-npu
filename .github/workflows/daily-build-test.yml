@@ -19,8 +19,13 @@ jobs:
   daily-enumerate-intranode:
     runs-on: linux-aarch64-a3-16
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.3.rc1-a3-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
     timeout-minutes: 350  # 5小时50分钟，留出缓冲时间
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
 
     steps:
       - name: Clean git config
@@ -36,6 +41,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           clean: true
+          submodules: recursive
 
       - name: Install dependencies
         run: |
@@ -43,6 +49,7 @@ jobs:
           sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
           pip config set global.index-url http://${CACHING_URL}/pypi/simple
           pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Prepare Deepep
@@ -72,8 +79,13 @@ jobs:
   daily-enumerate-low-latency:
     runs-on: linux-aarch64-a3-16
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.3.rc1-a3-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
     timeout-minutes: 330  # 5.5小时
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
 
     steps:
       - name: Clean workspace and checkout
@@ -82,6 +94,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           clean: true
+          submodules: recursive
 
       - name: Install dependencies
         run: |
@@ -89,6 +102,7 @@ jobs:
           sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
           pip config set global.index-url http://${CACHING_URL}/pypi/simple
           pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Prepare Deepep

@@ -182,60 +182,61 @@ def _layer_norm_fwd_1pass_kernel_npu(
     if HAS_BIAS:
         B += group * N
 
-    # Compute row indices for this program
-    rows = pid_m * BLOCK_M + tl.arange(0, BLOCK_M)
-    cols = tl.arange(0, BLOCK_N)
-
-    # Mask for valid rows and cols
-    row_mask = rows < M
-    col_mask = cols < N
-
     # Load weight once (broadcasted over rows)
+    cols = tl.arange(0, BLOCK_N)
+    col_mask = cols < N
     w = tl.load(W + cols, mask=col_mask).to(tl.float32)
     if HAS_BIAS:
         b = tl.load(B + cols, mask=col_mask).to(tl.float32)
 
-    # Load X: shape [BLOCK_M, BLOCK_N]
-    x_ptrs = X + rows[:, None] * stride_x_row + cols[None, :] + group * N
-    x = tl.load(x_ptrs, mask=row_mask[:, None] & col_mask[None, :]).to(tl.float32)
+    for row_block_start in tl.range(pid_m * BLOCK_M, M, BLOCK_M * tl.num_programs(0)):
+        # Compute row indices for this program
+        rows = row_block_start + tl.arange(0, BLOCK_M)
+        row_mask = rows < M
 
-    # Load Z if needed
-    if HAS_Z:
-        z_ptrs = Z + rows[:, None] * stride_z_row + cols[None, :] + group * N
-        z = tl.load(z_ptrs, mask=row_mask[:, None] & col_mask[None, :]).to(tl.float32)
-        if not NORM_BEFORE_GATE:
-            x *= z * tl.sigmoid(z)
+        # Load X: shape [BLOCK_M, BLOCK_N]
+        x_ptrs = X + rows[:, None] * stride_x_row + cols[None, :] + group * N
+        x = tl.load(x_ptrs, mask=row_mask[:, None] & col_mask[None, :]).to(tl.float32)
 
-    # Compute statistics per row
-    if not IS_RMS_NORM:
-        mean = tl.sum(x, axis=1) / N  # [BLOCK_M]
-        xbar = tl.where(col_mask[None, :], x - mean[:, None], 0.0)
-        var = tl.sum(xbar * xbar, axis=1) / N
-        tl.store(Mean + rows, mean, mask=row_mask)
-    else:
-        xbar = tl.where(col_mask[None, :], x, 0.0)
-        var = tl.sum(xbar * xbar, axis=1) / N
+        # Load Z if needed
+        if HAS_Z:
+            z_ptrs = Z + rows[:, None] * stride_z_row + cols[None, :] + group * N
+            z = tl.load(z_ptrs, mask=row_mask[:, None] & col_mask[None, :]).to(
+                tl.float32
+            )
+            if not NORM_BEFORE_GATE:
+                x *= z * tl.sigmoid(z)
 
-    rstd = 1.0 / tl.sqrt(var + eps)  # [BLOCK_M]
-    tl.store(Rstd + rows, rstd, mask=row_mask)
+        # Compute statistics per row
+        if not IS_RMS_NORM:
+            mean = tl.sum(x, axis=1) / N  # [BLOCK_M]
+            xbar = tl.where(col_mask[None, :], x - mean[:, None], 0.0)
+            var = tl.sum(xbar * xbar, axis=1) / N
+            tl.store(Mean + rows, mean, mask=row_mask)
+        else:
+            xbar = tl.where(col_mask[None, :], x, 0.0)
+            var = tl.sum(xbar * xbar, axis=1) / N
 
-    # Normalize
-    if not IS_RMS_NORM:
-        x_hat = (x - mean[:, None]) * rstd[:, None]
-    else:
-        x_hat = x * rstd[:, None]
+        rstd = 1.0 / tl.sqrt(var + eps)  # [BLOCK_M]
+        tl.store(Rstd + rows, rstd, mask=row_mask)
 
-    y = x_hat * w[None, :]
-    if HAS_BIAS:
-        y += b[None, :]
+        # Normalize
+        if not IS_RMS_NORM:
+            x_hat = (x - mean[:, None]) * rstd[:, None]
+        else:
+            x_hat = x * rstd[:, None]
 
-    # Post-gate
-    if HAS_Z and NORM_BEFORE_GATE:
-        y *= z * tl.sigmoid(z)
+        y = x_hat * w[None, :]
+        if HAS_BIAS:
+            y += b[None, :]
 
-    # Store output
-    y_ptrs = Y + rows[:, None] * stride_y_row + cols[None, :] + group * N
-    tl.store(y_ptrs, y, mask=row_mask[:, None] & col_mask[None, :])
+        # Post-gate
+        if HAS_Z and NORM_BEFORE_GATE:
+            y *= z * tl.sigmoid(z)
+
+        # Store output
+        y_ptrs = Y + rows[:, None] * stride_y_row + cols[None, :] + group * N
+        tl.store(y_ptrs, y, mask=row_mask[:, None] & col_mask[None, :])
 
 
 def layer_norm_fwd_npu(
@@ -284,10 +285,12 @@ def layer_norm_fwd_npu(
         raise RuntimeError("Feature dim too large.")
 
     # Choose BLOCK_M: e.g., 16, 32, 64 — depends on NPU vector core capacity
-    BLOCK_M = 64  # Tune this based on your NPU's register/shared memory
+    BLOCK_M = 48
+    _, num_vectorcore = get_device_properties()
+    num_blocks_m = min(triton.cdiv(M, BLOCK_M), num_vectorcore)
 
     # Now grid is (num blocks over M, num groups)
-    grid = (triton.cdiv(M, BLOCK_M), ngroups)
+    grid = (num_blocks_m, ngroups)
     _layer_norm_fwd_1pass_kernel_npu[grid](
         x,
         out,

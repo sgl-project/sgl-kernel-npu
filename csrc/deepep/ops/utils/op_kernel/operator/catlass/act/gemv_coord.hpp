@@ -27,9 +27,9 @@ struct GemvShape {
     static constexpr uint32_t M = M_;
     static constexpr uint32_t N = N_;
 
-    static constexpr int64_t MN = M * N;
+    static constexpr uint64_t MN = static_cast<uint64_t>(M) * static_cast<uint64_t>(N);
 
-    static constexpr int64_t COUNT = MN;
+    static constexpr uint64_t COUNT = MN;
 
     /// Returns a Coord object
     ACT_HOST_DEVICE

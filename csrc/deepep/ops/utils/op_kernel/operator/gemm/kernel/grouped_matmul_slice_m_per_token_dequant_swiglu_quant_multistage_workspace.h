@@ -38,6 +38,8 @@ constexpr int32_t BUFFER_NUM = 2;
 constexpr int32_t GATHER_SECOND_NUM = 2;
 constexpr uint32_t MAX_QUANT_ROW_ONCE = 8;
 constexpr uint32_t QUANT_SPACE_FACTOR = 176 * 1024 / 11;  // 量化使用UB不超过176KB
+constexpr uint64_t CYCLE_TO_TIME = 50;
+constexpr uint64_t TIMEOUT_DETECTION_THRESHOLD = 5000000000UL;
 #define OPT_RANK_OFFSET 512
 
 #define CEIL_UP(x) ((x + UB_ALIGN - 1) / UB_ALIGN * UB_ALIGN)
@@ -334,6 +336,9 @@ __aicore__ inline static void CheckSyncFlag(__gm__ uint8_t *flagAddr, uint8_t id
     AscendC::PipeBarrier<PIPE_ALL>();
     AscendC::GlobalTensor<uint8_t> global;
     global.SetGlobalBuffer(flagAddr + idx * SOFT_SYNC_SPACE_SIZE);
+
+    uint64_t timeoutCheckStart = static_cast<uint64_t>(AscendC::GetSystemCycle());
+    uint64_t timeoutCheckEnd, timeoutCheckDuration;
     while (true) {
         __asm__ __volatile__("");
         AscendC::DataCacheCleanAndInvalid<uint8_t, AscendC::CacheLine::SINGLE_CACHE_LINE,
@@ -347,6 +352,9 @@ __aicore__ inline static void CheckSyncFlag(__gm__ uint8_t *flagAddr, uint8_t id
             __asm__ __volatile__("");
             break;
         }
+        timeoutCheckEnd = static_cast<uint64_t>(AscendC::GetSystemCycle());
+        timeoutCheckDuration = (timeoutCheckEnd - timeoutCheckStart) / CYCLE_TO_TIME;
+        assert(timeoutCheckDuration < TIMEOUT_DETECTION_THRESHOLD);
     }
     AscendC::PipeBarrier<PIPE_ALL>();
 }

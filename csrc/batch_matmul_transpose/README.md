@@ -33,5 +33,5 @@ tensor_a = torch.randn(m, b, k, dtype=dtype, device="npu")
 tensor_b = torch.randn(b, k, n, dtype=dtype, device="npu")
 res = torch.empty((m, b, n), dtype=dtype, device="npu")
 
-torch.ops.npu.batch_matmul_transpose(tensor_a, b_tensor, res)
+torch.ops.npu.batch_matmul_transpose(tensor_a, tensor_b, res)
 ```

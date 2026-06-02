@@ -279,10 +279,10 @@ __aicore__ inline void MoeDistributeCombineV2<TemplateMC2TypeA2Func>::Init(
 
     BuffInit();
 
-    if (isInputTokenMaskFlag_) {
+    if (axisBS_ != 0 && isInputTokenMaskFlag_) {
         TokenActiveMaskCal();  // 计算一维mask
     }
-    if (isInputExpertMaskFlag_) {
+    if (axisBS_ != 0 && isInputExpertMaskFlag_) {
         tpipe_->InitBuffer(expertMaskBuf_, Ceil(axisBS_ * axisK_ * sizeof(bool), UB_ALIGN) * UB_ALIGN);
         expertMaskTensor_ = expertMaskBuf_.Get<bool>();
         DataCopyPadExtParams<bool> maskCopyPadParams{false, 0U, 0U, 0U};

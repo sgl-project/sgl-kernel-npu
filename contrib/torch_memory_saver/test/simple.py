@@ -15,7 +15,6 @@ def run(hook_mode: str):
         pauseable_tensor = torch.full(
             (1_000_000_000,), 100, dtype=torch.uint8, device="npu"
         )
-    torch.npu.synchronize()
     original_address = pauseable_tensor.data_ptr()
     print(f"Pauseable tensor virtual address: 0x{original_address:x}")
     print(f"{normal_tensor=} {pauseable_tensor=}")
@@ -44,7 +43,6 @@ def run(hook_mode: str):
 
     print("sleep...")
     time.sleep(1)
-    torch.npu.synchronize()
     print(f"{normal_tensor=} {pauseable_tensor=}")
 
     get_and_print_npu_memory("Before empty cache")
@@ -56,7 +54,6 @@ def run(hook_mode: str):
     get_and_print_npu_memory("Before empty cache (tensor deleted)")
     torch.npu.empty_cache()
     get_and_print_npu_memory("After empty cache (tensor deleted)")
-    torch.npu.synchronize()
 
 
 if __name__ == "__main__":

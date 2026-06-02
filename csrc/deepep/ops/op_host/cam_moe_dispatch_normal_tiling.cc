@@ -21,6 +21,9 @@
 #include "../op_kernel/cam_moe_dispatch_normal_tiling.h"
 #include "tiling_args.h"
 
+#include "tiling/platform/platform_ascendc.h"
+#include "tiling/hccl/hccl_tiling.h"
+
 using namespace AscendC;
 using namespace ge;
 using namespace Moe;
@@ -55,6 +58,10 @@ constexpr uint32_t TWO_DIMS = 2;
 constexpr uint32_t ONE_DIM = 1;
 constexpr uint32_t DYNAMIC_SCALE_DIM_NUM = 1;
 constexpr uint64_t INIT_TILINGKEY = 10000;
+constexpr uint64_t TILING_KEY_A5_TYPE = 5000;
+constexpr uint64_t TILING_KEY_A3_TYPE = 3000;
+constexpr uint64_t TILING_KEY_A2_TYPE = 2000;
+
 constexpr uint32_t OP_TYPE_ALL_TO_ALL = 8;
 constexpr uint32_t NO_SCALES = 0;
 constexpr uint32_t DYNAMIC_SCALES = 2;
@@ -64,16 +71,16 @@ constexpr size_t MAX_GROUP_NAME_LENGTH = 128UL;
 constexpr int64_t MAX_EP_WORLD_SIZE = 384;
 constexpr int64_t MIN_EP_WORLD_SIZE = 2;
 constexpr int64_t MAX_TP_WORLD_SIZE = 2;
-constexpr int64_t BS_UPPER_BOUND = 65536;  // 最大bs
+constexpr int64_t BS_UPPER_BOUND = 131072;  // 最大bs
 
 constexpr uint32_t TILINGKEY_TP_WORLD_SIZE = 100;
 constexpr uint32_t TP_WORLD_SIZE_TWO = 2;
-constexpr int64_t MOE_EXPERT_MAX_NUM = 512;
+constexpr int64_t MOE_EXPERT_MAX_NUM = 1024;
 constexpr int64_t K_MAX = 16;
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
 constexpr uint32_t WORKSPACE_ELEMENT_OFFSET = 512;
 constexpr int64_t H_MIN = 1024;
-constexpr int64_t H_MAX = 7168;
+constexpr int64_t H_MAX = 8192;
 constexpr uint64_t MB_SIZE = 1024UL * 1024UL;
 
 constexpr uint64_t TRIPLE = 3;
@@ -501,6 +508,8 @@ static void SetHcommCfg(const gert::TilingContext *context, CamMoeDispatchNormal
     std::string algConfigAllGatherStr = "AllGather=level0:ring";
 
     AscendC::Mc2CcTilingConfig mc2CcTilingConfig(groupEp, opType1, algConfigAllToAllStr);
+
+    mc2CcTilingConfig.SetCommEngine(mc2tiling::AIV_ENGINE);  // 通过不拉起AICPU，提高算子退出性能
     mc2CcTilingConfig.GetTiling(tiling->mc2InitTiling);
     mc2CcTilingConfig.GetTiling(tiling->mc2CcTiling1);
 
@@ -593,7 +602,19 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
     uint32_t tpWorldSize = tilingData->camMoeDispatchNormalInfo.tpWorldSize;
     uint64_t tilingKey = INIT_TILINGKEY;
     CalTilingKey(tilingKey, quantMode, tpWorldSize);
-    OP_LOGD(nodeName, "tilingKey is %lu", tilingKey);
+
+    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
+    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
+    std::string socVersion;
+    (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
+
+    if (socVersion == "Ascend950") {
+        tilingKey = tilingKey + TILING_KEY_A5_TYPE;
+    } else {
+        tilingKey = tilingKey + TILING_KEY_A3_TYPE;
+    }
+
+    OP_LOGD(nodeName, "tilingKey is %lu socVersion %s", tilingKey, socVersion.c_str());
     context->SetTilingKey(tilingKey);
     uint32_t blockDim = 1U;
     auto ascendcPlatform = platform_ascendc::PlatformAscendC(context->GetPlatformInfo());

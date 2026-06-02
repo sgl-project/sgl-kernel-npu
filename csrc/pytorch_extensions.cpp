@@ -15,6 +15,8 @@
 
 #include "torch_helper.h"
 #include "sgl_kenel_npu_ops.h"
+#include "causal_conv1d_update/op_host/causal_conv1d_update.h"
+#include "causal_conv1d/op_host/causal_conv1d.h"
 
 namespace {
 TORCH_LIBRARY_FRAGMENT(npu, m)
@@ -70,14 +72,17 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "bgmv_expand(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y,"
         "            int slice_offset, int slice_size) -> Tensor");
 
-    m.def("bgmv_shrink(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y, float scale) -> ()");
+    m.def(
+        "bgmv_shrink(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y,"
+        "            float scale) -> ()");
 
     m.def(
         "sgmv_expand(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! y,"
         "            int slice_offset, int slice_size) -> Tensor");
 
     m.def(
-        "sgmv_shrink(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! y, float scale) -> ()");
+        "sgmv_shrink(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! y,"
+        " float scale) -> ()");
 
     m.def(
         "sgemmv_expand(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! lora_ranks,"
@@ -94,6 +99,27 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor(b!)? intermediate_state=None, Tensor? cache_indices=None, "
         "Tensor? num_accepted_tokens=None, Tensor? g=None, Tensor? gk=None) -> Tensor");
 
+    m.def(
+        "sgemmc_expand(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! lora_ranks,"
+        "              Tensor! sliceOffsets, Tensor! y) -> Tensor");
+
+    m.def(
+        "sgemmc_shrink(Tensor! x, Tensor! weight, Tensor! lora_indices, Tensor! seq_len, Tensor! lora_ranks,"
+        "              Tensor! lora_scales, Tensor! y, int slice_count) -> ()");
+
+    m.def(
+        "mega_chunk_gdn(Tensor q, Tensor k, Tensor v, Tensor g, Tensor beta, "
+        "Tensor mask_lower, Tensor mask_full, Tensor minus_identity, Tensor cu_seqlens, "
+        "Tensor(a!) out, Tensor(b!) g_sum, Tensor(c!) g_t, Tensor(d!) beta_t, "
+        "Tensor(e!) A, Tensor(f!) A_inv_f32, Tensor(g!) A_inv, Tensor(h!) w, "
+        "Tensor(i!) u, Tensor(j!) s, Tensor(k!) v_new, Tensor(l!) final_state, "
+        "Tensor initial_state, bool has_initial_state, "
+        "Tensor(m!) kkt_workspace, Tensor(n!) wy_workspace_a1, "
+        "Tensor(o!) wy_workspace_a2, Tensor(p!) h_workspace, "
+        "Tensor(q!) o_workspace_qk, Tensor(r!) o_workspace_qs, "
+        "Tensor(s!) o_workspace_gated, int block_dim, int batch_size, "
+        "int seq_len, int total_tokens, int num_matrices) -> ()");
+
 #ifdef BUILD_CATLASS_MODULE
     m.def("catlass_matmul_basic(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, str? format_mode=None) -> ()");
 #endif
@@ -104,7 +130,18 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "str? layout_query=None, str? layout_key=None, "
         "int? sparse_count=None, int? sparse_mode=None) -> Tensor");
 
+    m.def("apply_token_bitmask(Tensor logits, Tensor bitmask, Tensor? indices=None) -> Tensor");
     m.def("triangular_inverse(Tensor x) -> Tensor");
+
+    m.def(
+        "causal_conv1d_update(Tensor x, Tensor weight, Tensor(a!) conv_state, "
+        "Tensor conv_state_indices, Tensor? bias=None, Tensor? num_accepted_tokens=None, "
+        "Tensor? query_start_loc=None, bool activation_mode=False, int pad_slot_id=-1) -> Tensor");
+
+    m.def(
+        "causal_conv1d(Tensor x, Tensor weight, Tensor conv_states, "
+        "Tensor query_start_loc, Tensor cache_indices, Tensor has_initial_state, "
+        "Tensor? bias=None, bool activation_mode=False, int pad_slot_id=-1) -> Tensor");
 }
 }  // namespace
 
@@ -143,6 +180,12 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
     m.impl("recurrent_gated_delta_rule", TORCH_FN(sglang::npu_kernel::recurrent_gated_delta_rule));
 
+    m.impl("sgemmc_expand", TORCH_FN(sglang::npu_kernel::sgemmc_expand));
+
+    m.impl("sgemmc_shrink", TORCH_FN(sglang::npu_kernel::sgemmc_shrink));
+
+    m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
+
 #ifdef BUILD_CATLASS_MODULE
     m.impl("catlass_matmul_basic", TORCH_FN(sglang::npu_kernel::catlass_matmul_basic));
 #endif
@@ -150,5 +193,36 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
 
     m.impl("triangular_inverse", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
+
+    m.impl("apply_token_bitmask", [](at::Tensor logits, at::Tensor bitmask, const c10::optional<at::Tensor> &indices) {
+        auto indices_or_empty = indices.has_value() ? *indices : at::empty({0}, logits.options().dtype(at::kInt));
+        return sglang::npu_kernel::apply_token_bitmask(logits, bitmask, indices_or_empty);
+    });
+
+    m.impl("causal_conv1d_update",
+           [](const at::Tensor &x, const at::Tensor &weight, const at::Tensor &conv_state,
+              const at::Tensor &conv_state_indices, const c10::optional<at::Tensor> &bias,
+              const c10::optional<at::Tensor> &num_accepted_tokens, const c10::optional<at::Tensor> &query_start_loc,
+              bool activation_mode, int64_t pad_slot_id) {
+               // Handle optional parameters - convert None to empty tensors
+               auto bias_or_empty = bias.has_value() ? *bias : at::empty({0}, x.options());
+               auto num_accepted_or_empty =
+                   num_accepted_tokens.has_value() ? *num_accepted_tokens : at::empty({0}, x.options().dtype(at::kInt));
+               auto query_loc_or_empty =
+                   query_start_loc.has_value() ? *query_start_loc : at::empty({0}, x.options().dtype(at::kInt));
+
+               return sglang::npu_kernel::causal_conv1d_update_impl(x, weight, conv_state, conv_state_indices,
+                                                                    bias_or_empty, num_accepted_or_empty,
+                                                                    query_loc_or_empty, activation_mode, pad_slot_id);
+           });
+
+    m.impl("causal_conv1d", [](const at::Tensor &x, const at::Tensor &weight, const at::Tensor &conv_states,
+                               const at::Tensor &query_start_loc, const at::Tensor &cache_indices,
+                               const at::Tensor &has_initial_state, const c10::optional<at::Tensor> &bias,
+                               bool activation_mode, int64_t pad_slot_id) {
+        auto bias_or_empty = bias.has_value() ? *bias : at::empty({0}, x.options());
+        return sglang::npu_kernel::causal_conv1d_impl(x, weight, conv_states, query_start_loc, cache_indices,
+                                                      has_initial_state, bias_or_empty, activation_mode, pad_slot_id);
+    });
 }
 }  // namespace

@@ -35,12 +35,12 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
     EP_HOST_ASSERT(0 <= rank and rank < num_ranks);
 
     if (moe_all_to_all_group_name.empty()) {
-        char *ranktable_file = std::getenv("RANK_TABLE_FILE");
-        EP_HOST_ASSERT(ranktable_file != nullptr)
-        ACL_CHECK(aclrtGetDevice(&device_id));
-
         // ep domain
-        HCCL_CHECK(HcclCommInitClusterInfo(ranktable_file, device_id, &ep_comm));
+        HcclRootInfo rootInfo;
+        HcclGetRootInfo(&rootInfo);
+        ACL_CHECK(aclrtGetDevice(&device_id));
+        // 初始化通信域
+        HcclCommInitRootInfo(num_ranks, &rootInfo, device_id, &ep_comm);
     } else {
         EP_HOST_ASSERT(moe_all_to_all_group_name.size() < HCOMM_NAME_LEN);
     }
@@ -291,7 +291,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, total_recv_token,
                  max_bs, recv_tokens_per_expert);
     auto send_token_idx_small = this->send_token_idx_small;
-
     real_max_bs = static_cast<int64_t>(std::max(max_bs.item<int>(), static_cast<int>(num_worst_tokens)));
 
     // dispatch算子内部按照 min(per_round_tokens, real_max_bs)来预留显存
@@ -791,7 +790,6 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
                              bool round_scale, bool use_ue8m0, bool async, bool return_recv_hook)
 {
     EP_HOST_ASSERT(low_latency_mode);
-    at::Tensor new_x = x;
     EP_HOST_ASSERT(num_max_dispatch_tokens_per_rank >= x.size(0));
 
     auto num_tokens = static_cast<int>(x.size(0)), hidden = static_cast<int>(x.size(1));
@@ -826,6 +824,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     int64_t tp_rank = 0;
     int64_t expert_shard_type = 0;
     int outType = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
+    int isCcu = get_value_from_env("MOE_ENABLE_CCU", 0);
     char *comm_alg;
     int64_t expert_token_nums_type = outType;
 
@@ -854,6 +853,8 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
 
     if (soc_version == op::SocVersion::ASCEND910B) {
         comm_alg = "fullmesh";
+    } else if (isCcu == 1) {
+        comm_alg = "ccu";
     } else {
         comm_alg = "fullmesh_v1";
     }
@@ -862,28 +863,31 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         EP_HOST_ASSERT(isLayered == false);
         active_mask = (topk_idx >= 0).to(torch::kBool);
     }
-
-    EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2, x, topk_idx,
-                 scales,        // smooth scales,
-                 active_mask,   // active_mask
-                 hcom_ep_name,  // ep
-                 num_ranks,     // rankSize
-                 rank,          // rankId
-                 num_experts,
-                 hcom_tp_name,            // tp
-                 tp_size,                 // tp_size
-                 tp_rank,                 // tp_rank
+    EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2,
+                 x,                       // x
+                 topk_idx,                // expertIds
+                 scales,                  // scalesOptional
+                 active_mask,             // xActiveMaskOptional
+                 hcom_ep_name,            // groupEp
+                 num_ranks,               // epWorldSize
+                 rank,                    // epRankId
+                 num_experts,             // moeExpertNum
+                 hcom_tp_name,            // groupTp
+                 tp_size,                 // tpWorldSize
+                 tp_rank,                 // tpRankId
                  expert_shard_type,       // expert_shard_type
                  shared_expert_num,       // shared_expert_num
                  shared_expert_rank_num,  // shared_expert_rank_num
                  quant_mode,
                  global_bs,               // global_bs
                  expert_token_nums_type,  // expert_token_nums_type
-                 comm_alg, packed_recv_x,
+                 comm_alg,
+                 packed_recv_x,         // expandXOut
                  packed_recv_x_scales,  // dynamicScalesOut
-                 expandIdx,
-                 packed_recv_count,  // expertTokenNumsOut
-                 ep_recv_count, tp_recv_count);
+                 expandIdx,             // assistInfoForCombineOut
+                 packed_recv_count,     // expertTokenNumsOut
+                 ep_recv_count,         // epRecvCountsOut
+                 tp_recv_count);        // tpRecvCountsOut
 
     // Return values
     return {packed_recv_x, packed_recv_x_scales,        packed_recv_count, expandIdx, ep_recv_count,
@@ -918,6 +922,7 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     at::Tensor tp_send_counts = at::empty({1}, at::dtype(at::kInt).device(device));
     at::Tensor x_active_mask, activation_scale, weight_scale, group_list, expand_scales;
     int enable_neg_one = get_value_from_env("MOE_ENABLE_TOPK_NEG_ONE", 0);
+    int isCcu = get_value_from_env("MOE_ENABLE_CCU", 0);
     int64_t tp_world_size = 1;
     int64_t tp_rankId = 0;
     int64_t expert_shared_type = 0;
@@ -945,6 +950,8 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
 
     if (soc_version == op::SocVersion::ASCEND910B) {
         comm_alg = "fullmesh";
+    } else if (isCcu == 1) {
+        comm_alg = "ccu";
     } else {
         comm_alg = "fullmesh_v1";
     }
@@ -953,7 +960,6 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
         EP_HOST_ASSERT(isLayered == false);
         x_active_mask = (expert_ids >= 0).to(torch::kBool);
     }
-
     EXEC_NPU_CMD(aclnnMoeDistributeCombineV2, expand_x, expert_ids, expand_idx, ep_send_counts, expert_scales,
                  tp_send_counts, x_active_mask, activation_scale, weight_scale, group_list, expand_scales,
                  shared_expert_x, hcom_ep_name, num_ranks, rank, num_experts, hcom_tp_name, tp_world_size, tp_rankId,
