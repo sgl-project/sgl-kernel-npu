@@ -12,6 +12,7 @@ constexpr int PADDING_SIZE = 1;
 constexpr size_t HCOMM_NAME_LEN = 128;
 constexpr uint32_t NO_SCALES = 0;
 constexpr uint32_t DYNAMIC_SCALES = 2;
+constexpr uint32_t MXFP8_SCALES = 3;
 constexpr int LOCAL_RANK_SIZE = 8;
 constexpr int MAX_BATCH_SIZE = 4096;
 constexpr int EXPERT_DATA_SIZE = 1 + MAX_BATCH_SIZE;  // 4097
@@ -184,7 +185,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 
     int64_t tp_size = 1;
     int64_t tp_rank = 0;
-    int64_t quant_mode = use_quant ? DYNAMIC_SCALES : NO_SCALES;
+    bool is_mxfp8_quant = false;
     auto recv_topk_idx = std::optional<at::Tensor>();
     auto recv_topk_weights = std::optional<at::Tensor>();
     // Wait streams
@@ -193,7 +194,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     auto channel_prefix_matrix = at::empty({num_ranks, num_channels}, at::dtype(at::kInt).device(x.device()));
     auto recv_channel_prefix_matrix = at::empty({num_ranks, num_channels}, at::dtype(at::kInt).device(x.device()));
     at::Tensor new_x = x;
-    printf("#DBG0416 intranode_dispatch: rank %d, num_tokens %d, hidden %d, x.dim() %d, x.is_contiguous() %d, new_x.dim() %d, new_x.is_contiguous() %d\n", 
+    printf("#DBG0416 intranode_dispatch: rank %d, num_tokens %d, hidden %d, x.dim() %d, x.is_contiguous() %d, new_x.dim() %d, new_x.is_contiguous() %d\n",
         rank, x.size(0), x.size(1), new_x.dim(), new_x.is_contiguous(), new_x.dim(), new_x.is_contiguous());
 
     EP_HOST_ASSERT(num_tokens_per_rank.has_value());
@@ -303,7 +304,10 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 
     int64_t trt = total_recv_token.item<int>();
     int num_recv_tokens = (trt == 0) ? 1 : trt;
-    bool is_mxfp8_quant = true; // use mxfp8quant 
+#ifdef __DAV_C310__
+    is_mxfp8_quant = use_quant; // todo change
+#endif
+    int64_t quant_mode = use_quant ? (is_mxfp8_quant ? MXFP8_SCALES : DYNAMIC_SCALES) : NO_SCALES; 
     auto expandx_out = use_quant ? torch::empty({num_recv_tokens, hidden}, at::dtype(at::kChar).device(x.device()))
                                  : torch::empty({num_recv_tokens, hidden}, x.options());
     auto dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));

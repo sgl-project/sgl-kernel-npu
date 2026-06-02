@@ -66,6 +66,7 @@ constexpr uint64_t TILING_KEY_A2_TYPE = 2000;
 constexpr uint32_t OP_TYPE_ALL_TO_ALL = 8;
 constexpr uint32_t NO_SCALES = 0;
 constexpr uint32_t DYNAMIC_SCALES = 2;
+constexpr uint32_t MXFP8_SCALES = 3;
 constexpr uint32_t OP_TYPE_ALL_GATHER = 6;
 
 constexpr size_t MAX_GROUP_NAME_LENGTH = 128UL;
@@ -210,12 +211,17 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
 
     auto expandXDesc = context->GetOutputDesc(OUTPUT_EXPAND_X_INDEX);
     OP_TILING_CHECK(expandXDesc == nullptr, OP_LOGE(nodeName, "expandXDesc is null."), return false);
-    if (quantMode != NO_SCALES) {
+    if (quantMode == DYNAMIC_SCALES) {
         OP_TILING_CHECK(
-            expandXDesc->GetDataType() != ge::DT_INT8 &&
+            expandXDesc->GetDataType() != ge::DT_INT8,
+            OP_LOGE(nodeName, "expandX dataType is invalid for INT8 quant, dataType should be int8, but is %s",
+                    geDataTypeMap.at(expandXDesc->GetDataType()).c_str()),
+                        return false);
+    } else if (quantMode == MXFP8_SCALES) {
+        OP_TILING_CHECK(
             expandXDesc->GetDataType() != ge::DT_FLOAT8_E4M3FN &&
             expandXDesc->GetDataType() != ge::DT_FLOAT8_E5M2,
-            OP_LOGE(nodeName, "expandX dataType is invalid, dataType should be int8, fp8e4m3 or fp8e5m2, but is %s",
+            OP_LOGE(nodeName, "expandX dataType is invalid for MXFP8 quant, dataType should be fp8e4m3 or fp8e5m2, but is %s",
                     geDataTypeMap.at(expandXDesc->GetDataType()).c_str()),
                         return false);
     } else {
@@ -229,9 +235,15 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     if (quantMode == DYNAMIC_SCALES) {
         auto dynamicScalesDesc = context->GetOutputDesc(OUTPUT_DYNAMIC_SCALES_INDEX);
         OP_TILING_CHECK(dynamicScalesDesc == nullptr, OP_LOGE(nodeName, "dynamicScalesDesc is null."), return false);
-        OP_TILING_CHECK(dynamicScalesDesc->GetDataType() != ge::DT_FLOAT &&
-            dynamicScalesDesc->GetDataType() != ge::DT_FLOAT8_E8M0,
-            OP_LOGE(nodeName, "dynamicScales dataType is invalid, dataType should be float or fp8e8m0, but is %s",
+        OP_TILING_CHECK(dynamicScalesDesc->GetDataType() != ge::DT_FLOAT,
+            OP_LOGE(nodeName, "dynamicScales dataType is invalid for INT8 quant, dataType should be float, but is %s",
+                    geDataTypeMap.at(dynamicScalesDesc->GetDataType()).c_str()),
+                        return false);
+    } else if (quantMode == MXFP8_SCALES) {
+        auto dynamicScalesDesc = context->GetOutputDesc(OUTPUT_DYNAMIC_SCALES_INDEX);
+        OP_TILING_CHECK(dynamicScalesDesc == nullptr, OP_LOGE(nodeName, "dynamicScalesDesc is null."), return false);
+        OP_TILING_CHECK(dynamicScalesDesc->GetDataType() != ge::DT_FLOAT8_E8M0,
+            OP_LOGE(nodeName, "dynamicScales dataType is invalid for MXFP8 quant, dataType should be fp8e8m0, but is %s",
                     geDataTypeMap.at(dynamicScalesDesc->GetDataType()).c_str()),
                         return false);
     }
@@ -373,8 +385,8 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
                             MOE_EXPERT_MAX_NUM, moeExpertNum),
                     return ge::GRAPH_FAILED);
     OP_TILING_CHECK(
-        (*quantModePtr < static_cast<int64_t>(NO_SCALES)) || (*quantModePtr > static_cast<int64_t>(DYNAMIC_SCALES)),
-        OP_LOGE(nodeName, "quantMode is invalid, only support [0, %u], but got quantMode=%ld.", DYNAMIC_SCALES,
+        (*quantModePtr < static_cast<int64_t>(NO_SCALES)) || (*quantModePtr > static_cast<int64_t>(MXFP8_SCALES)),
+        OP_LOGE(nodeName, "quantMode is invalid, only support [0, %u], but got quantMode=%ld.", MXFP8_SCALES,
                 *quantModePtr),
         return ge::GRAPH_FAILED);
 
