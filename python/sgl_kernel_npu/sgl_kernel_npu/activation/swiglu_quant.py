@@ -49,7 +49,7 @@ def _swiglu_quant_kernel(
 
         # quant
         if SCALE:
-            scale = tl.max(tl.abs(out)).to(tl.float32) / DTYPE_MAX
+            scale = tl.max(tl.abs(out.to(tl.float32))) / DTYPE_MAX
             # store scale
             tl.store(scale_ptr + row_idx, scale.to(scale_ptr.dtype.element_ty))
             # out = tl.math.rint(out / scale.reshape(SUB_BLOCK_SIZE, 1))   # ub overflow
@@ -57,9 +57,9 @@ def _swiglu_quant_kernel(
                 tmp_out = al.extract_slice(
                     out, offsets=(col_blk_idx,), sizes=(COL_BLOCK_SIZE,), strides=(1,)
                 )
-                tmp_out = (tmp_out.to(tl.float32) / scale).to(x_ptr.dtype.element_ty)
-                # tmp_out = tl.clamp(tmp_out, -128, 127)
-                tmp_out = tmp_out.cast(tl.int8, overflow_mode="saturate")
+                tmp_out = tmp_out.to(tl.float32) / scale
+                tmp_out = tl.floor(tmp_out + 0.5)
+                tmp_out = tl.clamp(tmp_out, -128, 127).to(tl.int8)
 
                 o_offsets = (
                     row_idx * HALF_COLS + col_blk_idx + tl.arange(0, COL_BLOCK_SIZE)
