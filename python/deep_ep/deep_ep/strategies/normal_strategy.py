@@ -4,7 +4,7 @@ All normal mode strategy implementations are in this file.
 """
 
 import os
-from typing import Callable, Tuple, Optional, List, Union
+from typing import Callable, List, Optional, Tuple, Union
 
 import torch
 import torch_npu
@@ -20,17 +20,17 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
     Normal mode strategy using Custom operator implementation (deep_ep_cpp).
     This is the default and most optimized implementation for normal mode.
     """
-    
+
     def __init__(self, runtime, group_name: str, group_size: int, rank: int):
         super().__init__(group_name, group_size, rank)
         self.runtime = runtime
-    
+
     def get_name(self) -> str:
         return "custom"
-    
+
     def get_supported_modes(self) -> List[str]:
         return ["normal"]
-    
+
     def get_dispatch_layout(
         self,
         topk_idx: torch.Tensor,
@@ -64,7 +64,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             is_token_in_rank,
             EventOverlap(event),
         )
-    
+
     def dispatch(
         self,
         x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
@@ -93,20 +93,39 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         # Internode dispatch
         if self.runtime.get_num_rdma_ranks() > 1:
             return self._internode_dispatch(
-                x, handle, num_tokens_per_rank, num_tokens_per_rdma_rank,
-                is_token_in_rank, num_tokens_per_expert, topk_idx, topk_weights,
-                expert_alignment, config, previous_event, async_finish,
+                x,
+                handle,
+                num_tokens_per_rank,
+                num_tokens_per_rdma_rank,
+                is_token_in_rank,
+                num_tokens_per_expert,
+                topk_idx,
+                topk_weights,
+                expert_alignment,
+                config,
+                previous_event,
+                async_finish,
                 allocate_on_comm_stream,
             )
-        
+
         # Intranode dispatch
         return self._intranode_dispatch(
-            x, handle, num_tokens_per_rank, is_token_in_rank,
-            num_tokens_per_expert, topk_idx, topk_weights, expert_alignment,
-            num_worst_tokens, config, previous_event, async_finish,
-            allocate_on_comm_stream, dispatch_wait_recv_cost_stats,
+            x,
+            handle,
+            num_tokens_per_rank,
+            is_token_in_rank,
+            num_tokens_per_expert,
+            topk_idx,
+            topk_weights,
+            expert_alignment,
+            num_worst_tokens,
+            config,
+            previous_event,
+            async_finish,
+            allocate_on_comm_stream,
+            dispatch_wait_recv_cost_stats,
         )
-    
+
     def _intranode_dispatch(
         self,
         x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
@@ -133,19 +152,21 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
     ]:
         if isinstance(x, tuple):
             raise NotImplementedError("Not support fp8")
-        
+
         x_scales = None
         use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
-        
+
         if handle is not None:
-            raise NotImplementedError("Optional communication handle is not supported yet.")
-        
+            raise NotImplementedError(
+                "Optional communication handle is not supported yet."
+            )
+
         assert (
             num_tokens_per_rank is not None
             and is_token_in_rank is not None
             and num_tokens_per_expert is not None
         )
-        
+
         (
             recv_x,
             recv_x_scales,
@@ -178,7 +199,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             allocate_on_comm_stream,
             use_quant,
         )
-        
+
         handle = (
             rank_prefix_matrix,
             channel_prefix_matrix,
@@ -189,7 +210,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             topk_idx,
             topk_weights,
         )
-        
+
         return (
             (recv_x, recv_x_scales) if use_quant else recv_x,
             recv_topk_idx,
@@ -198,7 +219,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             handle,
             EventOverlap(event),
         )
-    
+
     def _internode_dispatch(
         self,
         x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
@@ -224,16 +245,18 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
     ]:
         x, x_scales = x if isinstance(x, tuple) else (x, None)
         use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
-        
+
         if handle is not None:
-            raise NotImplementedError("Optional communication handle is not supported yet.")
-        
+            raise NotImplementedError(
+                "Optional communication handle is not supported yet."
+            )
+
         assert (
             num_tokens_per_rank is not None
             and is_token_in_rank is not None
             and num_tokens_per_expert is not None
         )
-        
+
         (
             recv_x,
             recv_x_scales,
@@ -262,7 +285,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             allocate_on_comm_stream,
             use_quant,
         )
-        
+
         handle = (
             recv_src_idx,
             is_token_in_rank,
@@ -274,7 +297,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             count_outer,
             expand_scales,
         )
-        
+
         return (
             (recv_x, recv_x_scales) if use_quant else recv_x,
             recv_topk_idx,
@@ -283,7 +306,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             handle,
             EventOverlap(event),
         )
-    
+
     def combine(
         self,
         x: torch.Tensor,
@@ -299,16 +322,28 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         # Internode combine
         if self.runtime.get_num_rdma_ranks() > 1:
             return self._internode_combine(
-                x, handle, topk_weights, bias, config, previous_event,
-                async_finish, allocate_on_comm_stream,
+                x,
+                handle,
+                topk_weights,
+                bias,
+                config,
+                previous_event,
+                async_finish,
+                allocate_on_comm_stream,
             )
-        
+
         # Intranode combine
         return self._intranode_combine(
-            x, handle, topk_weights, config, previous_event,
-            async_finish, allocate_on_comm_stream, combine_send_cost_stats,
+            x,
+            handle,
+            topk_weights,
+            config,
+            previous_event,
+            async_finish,
+            allocate_on_comm_stream,
+            combine_send_cost_stats,
         )
-    
+
     def _intranode_combine(
         self,
         x: torch.Tensor,
@@ -330,13 +365,13 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             topk_idx,
             topk_weights_ori,
         ) = handle
-        
+
         recv_x, recv_topk_weights, event = self.runtime.intranode_combine(
             x, topk_idx, topk_weights_ori, src_idx, send_head, combine_send_cost_stats
         )
-        
+
         return recv_x, recv_topk_weights, EventOverlap(event)
-    
+
     def _internode_combine(
         self,
         x: torch.Tensor,
@@ -359,10 +394,17 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             count_outer,
             expand_scales,
         ) = handle
-        
+
         recv_x, recv_topk_weights, event = self.runtime.internode_combine(
-            x, topk_idx, topk_weights_ori, src_idx, send_head,
-            offset_inner, offset_outer, count_outer, expand_scales,
+            x,
+            topk_idx,
+            topk_weights_ori,
+            src_idx,
+            send_head,
+            offset_inner,
+            offset_outer,
+            count_outer,
+            expand_scales,
         )
-        
+
         return recv_x, recv_topk_weights, EventOverlap(event)

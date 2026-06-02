@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import Tuple, Callable, Optional, List, Union, Dict, Type
+from typing import Callable, Dict, List, Optional, Tuple, Type, Union
+
 import torch
+
 from .utils import EventOverlap
 
 
@@ -16,7 +18,7 @@ class EPCommStrategy(ABC):
     def get_name(self) -> str:
         """Get the name of the strategy"""
         pass
-    
+
     @abstractmethod
     def get_supported_modes(self) -> List[str]:
         """Get list of supported modes ['normal', 'low_latency']"""
@@ -39,7 +41,7 @@ class NormalEPCommStrategy(EPCommStrategy):
     ]:
         """get dispatch layout"""
         pass
-    
+
     @abstractmethod
     def dispatch(
         self,
@@ -68,7 +70,7 @@ class NormalEPCommStrategy(EPCommStrategy):
     ]:
         """Normal dispatch"""
         pass
-    
+
     @abstractmethod
     def combine(
         self,
@@ -88,7 +90,7 @@ class NormalEPCommStrategy(EPCommStrategy):
 
 class LowLatencyEPCommStrategy(EPCommStrategy):
     """LowLatency EP communication strategies base class."""
-    
+
     @abstractmethod
     def low_latency_dispatch(
         self,
@@ -112,7 +114,7 @@ class LowLatencyEPCommStrategy(EPCommStrategy):
     ]:
         """LowLatency dispatch"""
         pass
-    
+
     @abstractmethod
     def low_latency_combine(
         self,
@@ -140,29 +142,37 @@ _LOW_LATENCY_STRATEGY_REGISTRY: Dict[str, Type[LowLatencyEPCommStrategy]] = {}
 
 def register_normal_strategy(name: str):
     """Decorator to register a normal mode strategy."""
+
     def decorator(cls: Type[NormalEPCommStrategy]):
         _NORMAL_STRATEGY_REGISTRY[name] = cls
         return cls
+
     return decorator
 
 
 def register_low_latency_strategy(name: str):
     """Decorator to register a low latency mode strategy."""
+
     def decorator(cls: Type[LowLatencyEPCommStrategy]):
         _LOW_LATENCY_STRATEGY_REGISTRY[name] = cls
         return cls
+
     return decorator
 
 
 def get_normal_strategy(name: str) -> Type[NormalEPCommStrategy]:
     """Get a normal mode strategy class by name."""
     if name not in _NORMAL_STRATEGY_REGISTRY:
-        raise ValueError(f"Unknown normal strategy: {name}. Available: {list(_NORMAL_STRATEGY_REGISTRY.keys())}")
+        raise ValueError(
+            f"Unknown normal strategy: {name}. Available: {list(_NORMAL_STRATEGY_REGISTRY.keys())}"
+        )
     return _NORMAL_STRATEGY_REGISTRY[name]
 
 
 def get_low_latency_strategy(name: str) -> Type[LowLatencyEPCommStrategy]:
     """Get a low latency mode strategy class by name."""
     if name not in _LOW_LATENCY_STRATEGY_REGISTRY:
-        raise ValueError(f"Unknown low latency strategy: {name}. Available: {list(_LOW_LATENCY_STRATEGY_REGISTRY.keys())}")
+        raise ValueError(
+            f"Unknown low latency strategy: {name}. Available: {list(_LOW_LATENCY_STRATEGY_REGISTRY.keys())}"
+        )
     return _LOW_LATENCY_STRATEGY_REGISTRY[name]
