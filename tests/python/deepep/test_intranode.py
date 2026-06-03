@@ -392,16 +392,17 @@ def test_main(
             # print(f"{recv_scale=}", flush=True)
             # print(f"{rank=}, {recv_x[1].shape=}, {recv_x[0].shape=}, , {recv_x_data=}", flush=True)
             print(f"{rank=}, {recv_x[1].shape=}, {recv_x[0].shape=}, ", flush=True)
-        recv_x_original = recv_x[0].clone()
-        quant_scales = recv_x[1].clone()
+        recv_x_original = recv_x[0].clone() if isinstance(recv_x, tuple) else recv_x.clone()
+        quant_scales = recv_x[1].clone() if isinstance(recv_x, tuple) else None
         recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
 
         save_data = {
             "dispatch_args": {k: v for k, v in dispatch_args.items() if k != "config"},
             "recv_x_original": recv_x_original.view(torch.uint8),
-            "quant_scales": quant_scales.view(torch.uint8),
             "recv_x_disquanted": recv_x,
         }
+        if quant_scales is not None:
+            save_data["quant_scales"] = quant_scales.view(torch.uint8)
         # save_data = {
         #     "dispatch_args": {k: v for k, v in dispatch_args.items() if k != "config"},
         #     "recv_x": recv_x_original[0].cpu().numpy().tobytes(),
