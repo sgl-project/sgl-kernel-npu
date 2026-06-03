@@ -346,24 +346,24 @@ class Buffer:
                 scales = None
                 quant_type = "bf16"
                 use_quant = False
-            elif isinstance(x, tuple) and len(x) == 2:
-                data, scales = x
-                if data.dtype == torch.float8_e4m3n:
-                    # new float8_e4m3n
-                    quant_type = "fp8_e4m3"
-                    use_quant = True
-                elif data.dtype == torch.float8_e5m2n:
-                    # new float8_e5m2n
-                    quant_type = "fp8_e5m2"
-                    use_quant = True
-                elif data.dtype == torch.int8:
-                    ## already used quant int8
-                    quant_type = "int8"
-                    use_quant = True
-                else:
-                    raise TypeError(f"Unsupported quantized dtype: {data.dtype}")
+        elif isinstance(x, tuple) and len(x) == 2:
+            data, scales = x
+            if data.dtype == torch.float8_e4m3n:
+                # new float8_e4m3n
+                quant_type = "fp8_e4m3"
+                use_quant = True
+            elif data.dtype == torch.float8_e5m2n:
+                # new float8_e5m2n
+                quant_type = "fp8_e5m2"
+                use_quant = True
+            elif data.dtype == torch.int8:
+                ## already used quant int8
+                quant_type = "int8"
+                use_quant = True
             else:
-                raise TypeError(f"Unsupported x type: {type(x)}")
+                raise TypeError(f"Unsupported quantized dtype: {data.dtype}")
+        else:
+            raise TypeError(f"Unsupported x type: {type(x)}")
 
         if handle is not None:
             raise NotImplementedError(
