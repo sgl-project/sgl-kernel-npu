@@ -16,7 +16,7 @@ DeepEP的ascend实现
 硬件型号支持：Atlas A2,A3系列产品能适配cann8.5和cann9.0, Atlas A5只能适配cann9.0
 平台：aarch64/x86
 配套软件
-- 驱动 Ascend HDK 25.1.RC1.1、CANN社区版8.5.RC1.alpha003及之后版本（参考《[CANN软件安装指南](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)》安装CANN开发套件包以及配套固件和驱动）
+- 驱动 Ascend HDK 25.1.RC1.1、CANN社区版8.5.0及之后版本（参考《[CANN软件安装指南](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)》安装CANN开发套件包以及配套固件和驱动）
 - 安装CANN软件前需安装相关[依赖列表](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850/softwareinst/instg/instg_0045.html)
 - Python >= 3.9, Recommendation: Python 3.11
 - PyTorch >= 2.8.0 torch-npu >= 2.8.0

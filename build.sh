@@ -94,7 +94,6 @@ fi
 
 echo "Use SOC_VERSION: $SOC_VERSION"
 
-## ====================== 【关键修复：CANN 8.3 ASCConfig.cmake】 ======================
 echo "=== Fixing ASCConfig for CANN 8.3 / A2 ==="
 
 # Prioritize using the ASCEND_HOME_PATH environment variable

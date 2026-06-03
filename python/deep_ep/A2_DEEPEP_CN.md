@@ -5,7 +5,7 @@ A2场景下使用DeepEp说明
 硬件型号支持：Atlas A2 系列产品
 平台：aarch64/x86
 配套软件
-- 驱动 Ascend HDK ≥ 25.3.RC1、CANN ≥ 8.5.RC1
+- 驱动 Ascend HDK ≥ 25.3.RC1、CANN ≥ 8.5.0
 
 # 构建DeepEp包
 执行工程构建脚本 build.sh
