@@ -406,7 +406,7 @@ class Buffer:
                 async_finish,
                 allocate_on_comm_stream,
                 use_quant,
-                quant_type=quant_type,
+                quant_type,
             )
             handle = (
                 rank_prefix_matrix,
