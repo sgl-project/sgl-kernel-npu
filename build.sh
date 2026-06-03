@@ -127,7 +127,11 @@ else
 fi
 
 # Get Current CANN Toolkit Installation Path
-_CANN_TOOLKIT_INSTALL_PATH=$(cat /etc/Ascend/ascend_cann_install.info | grep "Toolkit_InstallPath" | awk -F'=' '{print $2}')
+if [ -n "$ASCEND_HOME_PATH" ]; then
+    _CANN_TOOLKIT_INSTALL_PATH="$ASCEND_HOME_PATH"
+else
+    _CANN_TOOLKIT_INSTALL_PATH=$(cat /etc/Ascend/ascend_cann_install.info | grep "Toolkit_InstallPath" | awk -F'=' '{print $2}')
+fi
 source ${_CANN_TOOLKIT_INSTALL_PATH}/set_env.sh
 echo -e "\e[1;32mDetected CANN Toolkit Installation Path: ${_CANN_TOOLKIT_INSTALL_PATH}\e[0m"
 echo -e "\e[1;33mDouble Checking Environment Variables:\e[0m"
