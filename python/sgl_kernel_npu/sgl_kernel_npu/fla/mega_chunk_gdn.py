@@ -3,7 +3,6 @@ from typing import Optional
 
 import torch
 
-SUPPORTED_HEAD = (16, 24, 32, 48, 64)
 HEAD_DIM = 128
 CHUNK_SIZE = 128
 
