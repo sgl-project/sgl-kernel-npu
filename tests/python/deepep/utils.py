@@ -132,27 +132,26 @@ def per_token_cast_back(x_fp8: torch.Tensor, x_scales: torch.Tensor):
             flush=True,
         )
         torch.save(x_scales_bits, "x_scales_bits.pt")
+        # x_fp8 形状: (bs, h)
+        # x_scales 形状: (bs, h/32) 或 (bs * h/32,)
+        bs, h = x_fp8.shape
+        scale_per_32 = h // 32
+        # 将 x_fp8 转为 float32 并 reshape 为 (bs, h/32, 32)
+        x_fp32 = x_fp8.to(torch.float32).view(bs, -1, 32)
+        typeinfo = torch.finfo(x_fp8.dtype)
+        x_fp32 = torch.clamp(x_fp32, typeinfo.min, typeinfo.max)
+        # 将 x_scales reshape 为 (bs, -1, 1) 用于广播
+        x_scales_fp32 = x_scales_fp32.view(bs, -1, 1)
+        # 逐元素乘法：每个 32 元素的组乘以对应的 scale
+        result = (x_fp32 * x_scales_fp32).view(bs, h).to(torch.bfloat16)
+        return result
     else:
-        x_scales_fp32 = x_scales.to(torch.float32)
-
-    # x_fp8 形状: (bs, h)
-    # x_scales 形状: (bs, h/32) 或 (bs * h/32,)
-    bs, h = x_fp8.shape
-    scale_per_32 = h // 32
-
-    # 将 x_fp8 转为 float32 并 reshape 为 (bs, h/32, 32)
-    x_fp32 = x_fp8.to(torch.float32).view(bs, -1, 32)
-
-    typeinfo = torch.finfo(x_fp8.dtype)
-    x_fp32 = torch.clamp(x_fp32, typeinfo.min, typeinfo.max)
-
-    # 将 x_scales reshape 为 (bs, -1, 1) 用于广播
-    x_scales_fp32 = x_scales_fp32.view(bs, -1, 1)
-
-    # 逐元素乘法：每个 32 元素的组乘以对应的 scale
-    result = (x_fp32 * x_scales_fp32).view(bs, h).to(torch.bfloat16)
-
-    return result
+        if x_scales.dtype == torch.int:
+            x_scales = x_scales.view(dtype=torch.int8).to(torch.int) << 23
+            x_scales = x_scales.view(dtype=torch.float)
+        x_fp32 = x_fp8.to(torch.float32).view(x_fp8.size(0), -1, 128)
+        x_scales = x_scales.view(x_fp8.size(0), -1, 1)
+        return (x_fp32 * x_scales).view(x_fp8.shape).to(torch.bfloat16)
 
 
 def calc_diff(x: torch.Tensor, y: torch.Tensor):

@@ -392,7 +392,9 @@ def test_main(
             # print(f"{recv_scale=}", flush=True)
             # print(f"{rank=}, {recv_x[1].shape=}, {recv_x[0].shape=}, , {recv_x_data=}", flush=True)
             print(f"{rank=}, {recv_x[1].shape=}, {recv_x[0].shape=}, ", flush=True)
-        recv_x_original = recv_x[0].clone() if isinstance(recv_x, tuple) else recv_x.clone()
+        recv_x_original = (
+            recv_x[0].clone() if isinstance(recv_x, tuple) else recv_x.clone()
+        )
         quant_scales = recv_x[1].clone() if isinstance(recv_x, tuple) else None
         recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
 
