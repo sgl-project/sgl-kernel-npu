@@ -12,9 +12,10 @@ on:
       - "scripts/**"
       - ".github/workflows/pr-test-npu.yml"
   workflow_dispatch:
+  workflow_call:
 
 concurrency:
-  group: pr-test-npu-${{ github.ref }}
+  group: pr-test-npu-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -50,10 +51,11 @@ jobs:
               - scripts/**
               - .github/workflows/pr-test-npu.yml
 
-  test-all-build:
+  test-all-build-core:
     needs: get-changed-files
     if: |
-      github.event_name == 'workflow_dispatch' || (
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' || (
         (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false &&
         (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
@@ -256,6 +258,82 @@ jobs:
           HCCL_BUFFSIZE: 2300
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --enable-dynamic-tokens
+      - name: Run test generalization of fused deep moe
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2048
+        run: bash scripts/generalization_test_fused_deep_moe.sh
+      - name: Run test combine only
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3900
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --test-type="low_latency"
+
+  test-all-build-moe:
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' || (
+        (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    runs-on: linux-aarch64-a3-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py3.11
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    strategy:
+      matrix:
+        cann_version: [8.5.0, 9.0.0]
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          submodules: recursive
+      - name: Get build hash
+        id: get_build_hash
+        run: |
+          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
+            -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
+          echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
+          CANN_RAW=$(cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg 2>/dev/null || echo "unknown")
+          CANN_VERSION=$(echo "$CANN_RAW" | tr -cd '[:alnum:].-' | head -c 32)
+          [ -z "$CANN_VERSION" ] && CANN_VERSION="unknown"
+          echo "CANN_VERSION=$CANN_VERSION" >> $GITHUB_OUTPUT
+      - name: Restore build cache
+        id: cache-build
+        uses: runs-on/cache@v4
+        with:
+          path: output
+          key: sgl-kernel-npu-build-v2-${{ runner.os }}-a3-cann${{ steps.get_build_hash.outputs.CANN_VERSION }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+      - name: Install dependencies
+        run: |
+          # speed up by using infra cache services
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+          bash scripts/npu_ci_install_dependency.sh
+      - name: Prepare Deepep
+        run: bash scripts/prepare_deepep_in_container.sh
+      - name: Set CANN 9.0.0 env
+        if: matrix.cann_version == '9.0.0'
+        run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
       - name: Run test base fused deep moe
         timeout-minutes: 10
         env:
@@ -367,23 +445,12 @@ jobs:
           HCCL_BUFFSIZE: 3769
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --test-loop=100 --enable-dynamic-tokens
-      - name: Run test generalization of fused deep moe
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 2048
-        run: bash scripts/generalization_test_fused_deep_moe.sh
-      - name: Run test combine only
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 3900
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --test-type="low_latency"
 
-  test-build-deepep-a3:
+  test-build-deepep-a3-core:
     needs: get-changed-files
     if: |
-      github.event_name == 'workflow_dispatch' || (
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' || (
         (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false &&
         (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
@@ -589,6 +656,82 @@ jobs:
           HCCL_BUFFSIZE: 2300
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --enable-dynamic-tokens
+      - name: Run test generalization of fused deep moe
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2048
+        run: bash scripts/generalization_test_fused_deep_moe.sh
+      - name: Run test combine only
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 3900
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --test-type="low_latency"
+
+  test-build-deepep-a3-moe:
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' || (
+        (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    runs-on: linux-aarch64-a3-16
+    container:
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py3.11
+    env:
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    strategy:
+      matrix:
+        cann_version: [8.5.0, 9.0.0]
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          submodules: recursive
+      - name: Get build hash
+        id: get_build_hash
+        run: |
+          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
+            -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
+          echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
+          CANN_RAW=$(cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg 2>/dev/null || echo "unknown")
+          CANN_VERSION=$(echo "$CANN_RAW" | tr -cd '[:alnum:].-' | head -c 32)
+          [ -z "$CANN_VERSION" ] && CANN_VERSION="unknown"
+          echo "CANN_VERSION=$CANN_VERSION" >> $GITHUB_OUTPUT
+      - name: Restore build cache
+        id: cache-build
+        uses: runs-on/cache@v4
+        with:
+          path: output
+          key: sgl-kernel-npu-build-v2-${{ runner.os }}-a3-cann${{ steps.get_build_hash.outputs.CANN_VERSION }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+      - name: Install dependencies
+        run: |
+          # speed up by using infra cache services
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+          bash scripts/npu_ci_install_dependency.sh
+      - name: Prepare Deepep
+        run: bash scripts/prepare_deepep_in_container.sh -a deepep
+      - name: Set CANN 9.0.0 env
+        if: matrix.cann_version == '9.0.0'
+        run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
       - name: Run test base fused deep moe
         timeout-minutes: 10
         env:
@@ -702,18 +845,6 @@ jobs:
           HCCL_BUFFSIZE: 3769
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --test-loop=100 --enable-dynamic-tokens
-      - name: Run test generalization of fused deep moe
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 2048
-        run: bash scripts/generalization_test_fused_deep_moe.sh
-      - name: Run test combine only
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 3900
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --test-type="low_latency"
       - name: Run test fused deep moe for fuse_mode.DISPATCH_FFN_COMBINE
         timeout-minutes: 10
         env:
@@ -723,7 +854,8 @@ jobs:
   test-build-deepep-a2:
     needs: get-changed-files
     if: |
-      github.event_name == 'workflow_dispatch' || (
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' || (
         (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false &&
         (needs.get-changed-files.outputs.ops2_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
@@ -983,8 +1115,12 @@ jobs:
   test-build-deepep-internode:
     name: multi-node
     needs: get-changed-files
-    if: ${{ (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
-      (needs.get-changed-files.outputs.ops2_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')}}
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'workflow_call' || (
+        (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
+        (needs.get-changed-files.outputs.ops2_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
     strategy:
       fail-fast: false
       max-parallel: 1
@@ -1006,8 +1142,10 @@ jobs:
   finish:
     if: always()
     needs:
-      - test-all-build
-      - test-build-deepep-a3
+      - test-all-build-core
+      - test-all-build-moe
+      - test-build-deepep-a3-core
+      - test-build-deepep-a3-moe
       - test-build-deepep-a2
       - test-build-deepep-internode
     runs-on: ubuntu-latest
