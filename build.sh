@@ -212,6 +212,8 @@ function build_memory_saver()
 
 function create_deepep_cmake()
 {
+    if [[ "$BUILD_DEEPEP_MODULE" != "ON" ]]; then return 0; fi
+
     cd csrc || exit
     chmod +x deepep_cmake_build.sh
     chmod +x deepep/build.sh
