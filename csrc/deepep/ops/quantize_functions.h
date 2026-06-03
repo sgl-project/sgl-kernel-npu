@@ -29,7 +29,7 @@ constexpr uint16_t MAX_EXP_FOR_FP8 = 0x00ff;
 constexpr uint16_t NAN_CUSTOMIZATION = 0x7f81;
 constexpr uint16_t SPECIAL_EXP_THRESHOLD = 0x0040;
 constexpr int16_t SHR_NUM_FOR_BF16 = 7;
-constexpr uint16_t FP8_E4M3_MAX_EXP = 0x0400; // elem_emax右移7位(BF16E8M7)
+constexpr uint16_t FP8_E4M3_MAX_EXP = 0x0400;  // elem_emax右移7位(BF16E8M7)
 constexpr uint16_t FP8_E5M2_MAX_EXP = 0x0780;
 constexpr int64_t OUT_ELE_NUM_ONE_BLK = 64;
 constexpr float FP8_E5M2_MAX_VALUE = 57344.0f;
@@ -368,5 +368,5 @@ __aicore__ inline void ComputePerTileDynamic(__ubuf__ T *srcAddr, __ubuf__ float
 
 #endif  // __DAV_C310__
 
-} // namespace quant
+}  // namespace quant
 #endif

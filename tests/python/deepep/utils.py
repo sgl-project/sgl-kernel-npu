@@ -91,7 +91,9 @@ def bench(fn, num_warmups: int = 50, num_tests: int = 50, post_fn=None):
     times = np.array(times[1:])  # Remove the first timing
     return np.average(times), np.min(times), np.max(times)
 
+
 _FP8E8M0_TO_FLOAT32_TABLE = None
+
 
 def _fp8e8m0_to_float32_lookup(bits: torch.Tensor) -> torch.Tensor:
     global _FP8E8M0_TO_FLOAT32_TABLE
@@ -101,13 +103,14 @@ def _fp8e8m0_to_float32_lookup(bits: torch.Tensor) -> torch.Tensor:
             val = 2.0 ** (i - 127)
             table.append(val)
         _FP8E8M0_TO_FLOAT32_TABLE = torch.tensor(table, dtype=torch.float32)
-    
+
     return _FP8E8M0_TO_FLOAT32_TABLE[bits.to(torch.long)]
+
 
 def per_token_cast_back(x_fp8: torch.Tensor, x_scales: torch.Tensor):
     if x_fp8.numel() == 0:
         return x_fp8.to(torch.bfloat16)
-    
+
     # x_scales 现在是 FP8 E8M0 格式（uint8 或 int8 存储）
     # 需要先解码为 float32
     print(f"{x_scales.dtype=}", flush=True)
@@ -116,30 +119,39 @@ def per_token_cast_back(x_fp8: torch.Tensor, x_scales: torch.Tensor):
         # 将存储的整数视为 FP8 E8M0 的位表示，转换为 float32
         x_scales_bits = x_scales.view(torch.uint8)
         x_scales_fp32 = _fp8e8m0_to_float32_lookup(x_scales_bits)
-        print(f"{x_scales_bits.shape=}, {x_scales_fp32[:1024]=}, {x_scales_bits[:1024]=}", flush=True)
-        print(f"{x_scales_bits.shape=}, {x_scales_fp32[5376//2-1000:5376//2]=}, {x_scales_bits[5376//2-1000:5376//2]=}", flush=True)
-        print(f"{x_scales_bits.shape=}, {x_scales_fp32[5376//2:5376//2+1000]=}, {x_scales_bits[5376//2:5376//2+1000]=}", flush=True)
+        print(
+            f"{x_scales_bits.shape=}, {x_scales_fp32[:1024]=}, {x_scales_bits[:1024]=}",
+            flush=True,
+        )
+        print(
+            f"{x_scales_bits.shape=}, {x_scales_fp32[5376//2-1000:5376//2]=}, {x_scales_bits[5376//2-1000:5376//2]=}",
+            flush=True,
+        )
+        print(
+            f"{x_scales_bits.shape=}, {x_scales_fp32[5376//2:5376//2+1000]=}, {x_scales_bits[5376//2:5376//2+1000]=}",
+            flush=True,
+        )
         torch.save(x_scales_bits, "x_scales_bits.pt")
     else:
         x_scales_fp32 = x_scales.to(torch.float32)
-    
+
     # x_fp8 形状: (bs, h)
     # x_scales 形状: (bs, h/32) 或 (bs * h/32,)
     bs, h = x_fp8.shape
     scale_per_32 = h // 32
-    
+
     # 将 x_fp8 转为 float32 并 reshape 为 (bs, h/32, 32)
     x_fp32 = x_fp8.to(torch.float32).view(bs, -1, 32)
 
     typeinfo = torch.finfo(x_fp8.dtype)
     x_fp32 = torch.clamp(x_fp32, typeinfo.min, typeinfo.max)
-    
+
     # 将 x_scales reshape 为 (bs, -1, 1) 用于广播
     x_scales_fp32 = x_scales_fp32.view(bs, -1, 1)
-    
+
     # 逐元素乘法：每个 32 元素的组乘以对应的 scale
     result = (x_fp32 * x_scales_fp32).view(bs, h).to(torch.bfloat16)
-    
+
     return result
 
 

@@ -341,11 +341,11 @@ class Buffer:
 
         # Launch the kernel with cached or non-cached mode
         if isinstance(x, torch.Tensor):
-                # BF16 no quant
-                data = x
-                scales = None
-                quant_type = "bf16"
-                use_quant = False
+            # BF16 no quant
+            data = x
+            scales = None
+            quant_type = "bf16"
+            use_quant = False
         elif isinstance(x, tuple) and len(x) == 2:
             data, scales = x
             if data.dtype == torch.float8_e4m3n:
@@ -406,7 +406,7 @@ class Buffer:
                 async_finish,
                 allocate_on_comm_stream,
                 use_quant,
-                quant_type = quant_type,
+                quant_type=quant_type,
             )
             handle = (
                 rank_prefix_matrix,

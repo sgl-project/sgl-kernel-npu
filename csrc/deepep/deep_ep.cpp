@@ -194,7 +194,9 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     auto channel_prefix_matrix = at::empty({num_ranks, num_channels}, at::dtype(at::kInt).device(x.device()));
     auto recv_channel_prefix_matrix = at::empty({num_ranks, num_channels}, at::dtype(at::kInt).device(x.device()));
     at::Tensor new_x = x;
-    printf("#DBG0416 intranode_dispatch: rank %d, num_tokens %d, hidden %d, x.dim() %d, x.is_contiguous() %d, new_x.dim() %d, new_x.is_contiguous() %d\n",
+    printf(
+        "#DBG0416 intranode_dispatch: rank %d, num_tokens %d, hidden %d, x.dim() %d, x.is_contiguous() %d, new_x.dim() "
+        "%d, new_x.is_contiguous() %d\n",
         rank, x.size(0), x.size(1), new_x.dim(), new_x.is_contiguous(), new_x.dim(), new_x.is_contiguous());
 
     EP_HOST_ASSERT(num_tokens_per_rank.has_value());
@@ -305,7 +307,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int64_t trt = total_recv_token.item<int>();
     int num_recv_tokens = (trt == 0) ? 1 : trt;
     is_mxfp8_quant = use_quant && (quant_type == "fp8_e4m3" || quant_type == "fp8_e5m2");
-    int64_t quant_mode = use_quant ? (is_mxfp8_quant ? MXFP8_SCALES : DYNAMIC_SCALES) : NO_SCALES; 
+    int64_t quant_mode = use_quant ? (is_mxfp8_quant ? MXFP8_SCALES : DYNAMIC_SCALES) : NO_SCALES;
     auto expandx_out = use_quant ? torch::empty({num_recv_tokens, hidden}, at::dtype(at::kChar).device(x.device()))
                                  : torch::empty({num_recv_tokens, hidden}, x.options());
     auto dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
@@ -316,7 +318,8 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         } else {
             expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
         }
-        dynamic_scales_out = torch::empty({num_recv_tokens * hidden / 32}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
+        dynamic_scales_out =
+            torch::empty({num_recv_tokens * hidden / 32}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
     }
 #endif
     auto expand_idx_out = torch::empty({num_recv_tokens * 3}, at::dtype(at::kInt).device(x.device()));
@@ -325,8 +328,10 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         recv_topk_weights = at::empty({trt, num_topk}, topk_weights->options());
     }
 
-    printf("#DBG ===============DEEPEP intranode_dispatch before EXEC_NPU_CMD aclnnCamMoeDispatchNormal, num_recv_tokens: %d, real_max_bs: %d, global_bs: %d\n",
-           num_recv_tokens, static_cast<int>(real_max_bs), static_cast<int>(global_bs));
+    printf(
+        "#DBG ===============DEEPEP intranode_dispatch before EXEC_NPU_CMD aclnnCamMoeDispatchNormal, num_recv_tokens: "
+        "%d, real_max_bs: %d, global_bs: %d\n",
+        num_recv_tokens, static_cast<int>(real_max_bs), static_cast<int>(global_bs));
 
     EXEC_NPU_CMD(aclnnCamMoeDispatchNormal, new_x, expert_ids, send_data_offset, send_token_idx_small, recv_offset,
                  recv_count, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, hcom_ep_name,
@@ -338,9 +343,10 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     auto recv_token_per_exp_ptr = recv_token_per_exp_cpu.data_ptr<int32_t>();
     printf("#DBG ===============DEEPEP intranode_dispatch after EXEC_NPU_CMD aclnnCamMoeDispatchNormal\n");
     // if (is_mxfp8_quant) {
-    //     // pytorch python api doesnot support float8 output, need to convert it to int8/uint8 for further processing
-    //     //? not working: RuntimeError: copy_d2d_baseformat_opapi:build/CMakeFiles/torch_npu.dir/compiler_depend.ts:90 NPU function error: call aclnnInplaceCopy failed, error code is 561103
-    //     dynamic_scales_out = dynamic_scales_out.to(at::kChar);
+    //     // pytorch python api does not support float8 output, need to convert it to int8/uint8 for further processing
+    //     //? not working: RuntimeError: copy_d2d_baseformat_opapi:build/CMakeFiles/torch_npu.dir/compiler_depend.ts:90
+    //     NPU function error: call aclnnInplaceCopy failed, error code is 561103 dynamic_scales_out =
+    //     dynamic_scales_out.to(at::kChar);
     // }
 
     int token_cnt = 0;

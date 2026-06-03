@@ -79,13 +79,14 @@ extern thread_local int g_hashOffset;
 inline aclDataType kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(at::ScalarType::NumOptions) + 1] = {};
 
 static struct MapInitializer {
-    MapInitializer() {
-        #define DEFINE_ENUM(t, n) kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(t)] = (n);
-    AT_ALL_SCALAR_TYPE_AND_ACL_DATATYPE_PAIR(DEFINE_ENUM)
+    MapInitializer()
+    {
+#define DEFINE_ENUM(t, n) kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(t)] = (n);
+        AT_ALL_SCALAR_TYPE_AND_ACL_DATATYPE_PAIR(DEFINE_ENUM)
 #ifdef __DAV_C310__
-    kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(at::ScalarType::Float8_e4m3fn)] = ACL_FLOAT8_E4M3FN;
-    kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(at::ScalarType::Float8_e5m2)] = ACL_FLOAT8_E5M2;
-    kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(at::ScalarType::Float8_e8m0fnu)] = ACL_FLOAT8_E8M0;
+        kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(at::ScalarType::Float8_e4m3fn)] = ACL_FLOAT8_E4M3FN;
+        kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(at::ScalarType::Float8_e5m2)] = ACL_FLOAT8_E5M2;
+        kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(at::ScalarType::Float8_e8m0fnu)] = ACL_FLOAT8_E8M0;
 #endif
 #undef DEFINE_ENUM
     }
