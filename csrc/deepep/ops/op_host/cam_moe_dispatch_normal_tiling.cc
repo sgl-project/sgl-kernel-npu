@@ -252,7 +252,7 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
 
     printf("datatype: x: %s, expandX: %s, dynamicScale: %s\n, if dynamicScale is N/A, please set quant\n    ",
            geDataTypeMap.at(xDesc->GetDataType()).c_str(), geDataTypeMap.at(expandXDesc->GetDataType()).c_str(),
-           quantMode == DYNAMIC_SCALES
+           (quantMode == DYNAMIC_SCALES || quantMode == MXFP8_SCALES)
                ? geDataTypeMap.at(context->GetOutputDesc(OUTPUT_DYNAMIC_SCALES_INDEX)->GetDataType()).c_str()
                : "N/A");
     OP_LOGI(nodeName, "datatype: x: %s, expandX: %s, dynamicScale: %s", geDataTypeMap.at(xDesc->GetDataType()).c_str(),
@@ -298,7 +298,7 @@ static bool CheckTensorFormat(gert::TilingContext *context, const char *nodeName
         static_cast<ge::Format>(ge::GetPrimaryFormat(expandXDesc->GetStorageFormat())) == ge::FORMAT_FRACTAL_NZ,
         OP_LOGE(nodeName, "expandX format is invalid."), return false);
 
-    if (quantMode == DYNAMIC_SCALES) {
+    if (quantMode == DYNAMIC_SCALES || quantMode == MXFP8_SCALES) {
         auto dynamicScalesDesc = context->GetOutputDesc(OUTPUT_DYNAMIC_SCALES_INDEX);
         OP_TILING_CHECK(dynamicScalesDesc == nullptr, OP_LOGE(nodeName, "dynamicScalesDesc is null."), return false);
         OP_TILING_CHECK(static_cast<ge::Format>(ge::GetPrimaryFormat(dynamicScalesDesc->GetStorageFormat())) ==
