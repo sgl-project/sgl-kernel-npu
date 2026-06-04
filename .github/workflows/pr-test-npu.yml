@@ -110,7 +110,20 @@ jobs:
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
       - name: Prepare Deepep
-        run: bash scripts/prepare_deepep_in_container.sh
+        # cache hit 时跳过 build.sh（避免重新生成 wheel 与缓存内其他版本 wheel 冲突），
+        # 但仍 install 缓存中的 wheel（因为脚本里包含 build+install 两步）
+        if: steps.cache-build.outputs.cache-hit != 'true'
+        run: |
+          # 防御性清理：移除 output/ 中可能残留的旧 wheel，避免 pip install 通配符同时匹配两个版本
+          bash scripts/prepare_deepep_in_container.sh
+      - name: Install deep_ep from cache
+        if: steps.cache-build.outputs.cache-hit == 'true'
+        run: |
+          # 防御性清理 + 仅 install，不重建
+          rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+          pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
+          cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
+          ln -s deep_ep/deep_ep_cpp*.so || true
       - name: Set CANN 9.0.0 env
         if: matrix.cann_version == '9.0.0'
         run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
@@ -330,7 +343,20 @@ jobs:
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
       - name: Prepare Deepep
-        run: bash scripts/prepare_deepep_in_container.sh
+        # cache hit 时跳过 build.sh（避免重新生成 wheel 与缓存内其他版本 wheel 冲突），
+        # 但仍 install 缓存中的 wheel（因为脚本里包含 build+install 两步）
+        if: steps.cache-build.outputs.cache-hit != 'true'
+        run: |
+          # 防御性清理：移除 output/ 中可能残留的旧 wheel，避免 pip install 通配符同时匹配两个版本
+          bash scripts/prepare_deepep_in_container.sh
+      - name: Install deep_ep from cache
+        if: steps.cache-build.outputs.cache-hit == 'true'
+        run: |
+          # 防御性清理 + 仅 install，不重建
+          rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+          pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
+          cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
+          ln -s deep_ep/deep_ep_cpp*.so || true
       - name: Set CANN 9.0.0 env
         if: matrix.cann_version == '9.0.0'
         run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
@@ -505,7 +531,18 @@ jobs:
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
       - name: Prepare Deepep
+        # cache hit 时跳过 build.sh（避免重新生成 wheel 与缓存内其他版本 wheel 冲突），
+        # 但仍 install 缓存中的 wheel（因为脚本里包含 build+install 两步）
+        if: steps.cache-build.outputs.cache-hit != 'true'
         run: bash scripts/prepare_deepep_in_container.sh -a deepep
+      - name: Install deep_ep from cache
+        if: steps.cache-build.outputs.cache-hit == 'true'
+        run: |
+          # 防御性清理 + 仅 install，不重建
+          rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+          pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
+          cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
+          ln -s deep_ep/deep_ep_cpp*.so || true
       - name: Set CANN 9.0.0 env
         if: matrix.cann_version == '9.0.0'
         run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
@@ -728,7 +765,18 @@ jobs:
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
       - name: Prepare Deepep
+        # cache hit 时跳过 build.sh（避免重新生成 wheel 与缓存内其他版本 wheel 冲突），
+        # 但仍 install 缓存中的 wheel（因为脚本里包含 build+install 两步）
+        if: steps.cache-build.outputs.cache-hit != 'true'
         run: bash scripts/prepare_deepep_in_container.sh -a deepep
+      - name: Install deep_ep from cache
+        if: steps.cache-build.outputs.cache-hit == 'true'
+        run: |
+          # 防御性清理 + 仅 install，不重建
+          rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+          pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
+          cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
+          ln -s deep_ep/deep_ep_cpp*.so || true
       - name: Set CANN 9.0.0 env
         if: matrix.cann_version == '9.0.0'
         run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
@@ -910,7 +958,18 @@ jobs:
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
       - name: Prepare Deepep
+        # cache hit 时跳过 build.sh（避免重新生成 wheel 与缓存内其他版本 wheel 冲突），
+        # 但仍 install 缓存中的 wheel（因为脚本里包含 build+install 两步）
+        if: steps.cache-build.outputs.cache-hit != 'true'
         run: bash scripts/prepare_deepep_in_container.sh -a deepep2
+      - name: Install deep_ep from cache
+        if: steps.cache-build.outputs.cache-hit == 'true'
+        run: |
+          # 防御性清理 + 仅 install，不重建
+          rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+          pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
+          cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
+          ln -s deep_ep/deep_ep_cpp*.so || true
       - name: Set CANN 9.0.0 env
         if: matrix.cann_version == '9.0.0'
         run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
