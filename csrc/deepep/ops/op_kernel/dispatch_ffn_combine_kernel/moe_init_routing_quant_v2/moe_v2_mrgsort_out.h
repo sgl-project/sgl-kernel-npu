@@ -84,6 +84,9 @@ __aicore__ inline void MoeV2MrgsortOut::ClearCache()
 
 __aicore__ inline void MoeV2MrgsortOut::SetInput(GlobalTensor<float> &gmInput, LocalTensor<float> &ubInput)
 {
+    if (this->listNum >= 4) {
+        return;
+    }
     this->gmInputs[listNum] = gmInput;
     this->ubInputs[listNum] = ubInput;
     this->listNum += 1;

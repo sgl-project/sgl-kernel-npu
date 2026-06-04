@@ -370,6 +370,8 @@ private:
     CATLASS_DEVICE
     void GMM1(Params const &params)
     {
+
+        assert(params.EP > 0);
         icache_preload(8);
         BlockScheduler blockScheduler;
         BlockMmad blockMmad(resource);
