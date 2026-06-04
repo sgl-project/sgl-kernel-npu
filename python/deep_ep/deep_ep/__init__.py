@@ -16,4 +16,5 @@ from deep_ep_cpp import Config
 # Import strategies to register them
 from . import strategies
 from .buffer import Buffer
+from .ep_strategy import LowLatencyStrategy, NormalStrategy
 from .utils import EventOverlap

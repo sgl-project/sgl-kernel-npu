@@ -8,7 +8,12 @@ import torch.distributed as dist
 import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
-from .ep_strategy import get_low_latency_strategy, get_normal_strategy
+from .ep_strategy import (
+    LowLatencyStrategy,
+    NormalStrategy,
+    get_low_latency_strategy,
+    get_normal_strategy,
+)
 from .utils import EventOverlap, log_parameters
 
 
@@ -30,8 +35,8 @@ class Buffer:
         num_qps_per_rank: int = 12,
         allow_nvlink_for_low_latency_mode: bool = True,
         allow_mnnvl: bool = False,
-        normal_strategy: str = "default",
-        low_latency_strategy: str = "default",
+        normal_strategy: Union[str, NormalStrategy] = NormalStrategy.DEFAULT,
+        low_latency_strategy: Union[str, NormalStrategy] = LowLatencyStrategy.DEFAULT,
     ) -> None:
         """
         Initialize the communication buffer.
@@ -74,15 +79,23 @@ class Buffer:
             moe_all_to_all_group_name,
         )
 
+        # set strategy by env
+        if os.getenv("DEEP_NORMAL_USE_ALLTOALL") == "1":
+            normal_strategy = NormalStrategy.ALLTOALL
+        if os.getenv("DEEP_LOW_LATENCY_USE_OPS") == "1":
+            low_latency_strategy = LowLatencyStrategy.OPS
+
         # Initialize normal mode strategy
         self._init_normal_strategy(normal_strategy)
 
         # Initialize low latency mode strategy
         self._init_low_latency_strategy(low_latency_strategy)
 
-    def _init_normal_strategy(self, strategy_name: str):
+    def _init_normal_strategy(self, strategy: Union[str, NormalStrategy]):
         """Initialize normal mode communication strategy"""
-        strategy_cls = get_normal_strategy(strategy_name)
+        if isinstance(strategy, NormalStrategy):
+            strategy = strategy.value
+        strategy_cls = get_normal_strategy(strategy)
 
         self.normal_strategy = strategy_cls(
             runtime=self.runtime,
@@ -90,17 +103,19 @@ class Buffer:
         )
 
     def _init_low_latency_strategy(
-        self, strategy_name: str, comm_alg: str = "hierarchy"
+        self, strategy: Union[str, NormalStrategy], comm_alg: str = "hierarchy"
     ):
         """Initialize low latency mode communication strategy"""
-        strategy_cls = get_low_latency_strategy(strategy_name)
+        if isinstance(strategy, LowLatencyStrategy):
+            strategy = strategy.value
+        strategy_cls = get_low_latency_strategy(strategy)
 
         # Pass different init kwargs based on strategy type
         init_kwargs = {
             "runtime": self.runtime,
             "group": self.group,
         }
-        if strategy_name == "ops":
+        if strategy == "ops":
             init_kwargs["comm_alg"] = comm_alg
 
         self.low_latency_strategy = strategy_cls(**init_kwargs)

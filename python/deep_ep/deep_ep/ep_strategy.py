@@ -7,6 +7,26 @@ import torch.distributed as dist
 from .utils import EventOverlap
 
 
+# Normal mode strategy names
+class NormalStrategy:
+    DEFAULT = "default"
+    ALLTOALL = "alltoall"
+
+    @classmethod
+    def get_all_strategies(cls) -> list:
+        return [cls.DEFAULT, cls.ALLTOALL]
+
+
+# Low latency mode strategy names
+class LowLatencyStrategy:
+    DEFAULT = "default"
+    OPS = "ops"
+
+    @classmethod
+    def get_all_strategies(cls) -> list:
+        return [cls.DEFAULT, cls.OPS]
+
+
 class EPCommStrategy(ABC):
     """Abstract base class for EP communication strategies"""
 

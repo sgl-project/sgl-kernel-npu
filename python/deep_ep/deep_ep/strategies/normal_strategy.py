@@ -30,7 +30,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         self.runtime = runtime
 
     def get_name(self) -> str:
-        return "custom"
+        return "default"
 
     def get_supported_modes(self) -> List[str]:
         return ["normal"]
@@ -94,7 +94,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         Tuple,
         EventOverlap,
     ]:
-        # Internode dispatch
+
         if self.runtime.get_num_rdma_ranks() > 1:
             return self._internode_dispatch(
                 x,
@@ -112,7 +112,6 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
                 allocate_on_comm_stream,
             )
 
-        # Intranode dispatch
         return self._intranode_dispatch(
             x,
             handle,
@@ -323,7 +322,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         allocate_on_comm_stream: bool = False,
         combine_send_cost_stats: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], EventOverlap]:
-        # Internode combine
+
         if self.runtime.get_num_rdma_ranks() > 1:
             return self._internode_combine(
                 x,
@@ -336,7 +335,6 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
                 allocate_on_comm_stream,
             )
 
-        # Intranode combine
         return self._intranode_combine(
             x,
             handle,
@@ -682,7 +680,7 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         return output, None, EventOverlap()
 
     def _async_all_to_all(
-        input_, output_split_sizes, input_split_sizes, group, event=None
+        self, input_, output_split_sizes, input_split_sizes, group, event=None
     ):
         """Async all-to-all operation"""
         global COMM_STREAM
@@ -724,7 +722,7 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
 
         return input_, a2a_out, handle
 
-    def _gather_along_first_dim(input_, group):
+    def _gather_along_first_dim(self, input_, group):
         """Gather tensors along first dimension"""
         world_size = torch.distributed.get_world_size(group)
         if world_size == 1:

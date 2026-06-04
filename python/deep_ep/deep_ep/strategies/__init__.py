@@ -7,7 +7,6 @@ separated by mode:
 - low_latency_strategy.py: All low latency mode strategies
 """
 
-# Import all strategy classes to register them
 from ..ep_strategy import (
     EPCommStrategy,
     LowLatencyEPCommStrategy,
@@ -17,14 +16,10 @@ from ..ep_strategy import (
     register_low_latency_strategy,
     register_normal_strategy,
 )
-
-# Import low latency strategies
 from .low_latency_strategy import (
     DefaultLowLatencyCommStrategy,
     OpsLowLatencyCommStrategy,
 )
-
-# Import normal strategies
 from .normal_strategy import AlltoAllNormalCommStrategy, DefaultNormalCommStrategy
 
 __all__ = [
