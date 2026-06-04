@@ -23,6 +23,25 @@ message(STATUS "CMAKE_PREFIX_PATH = ${CMAKE_PREFIX_PATH}")
 
 file(GLOB SOURCES_DEEPEP *.cpp)
 
+
+
+if(DEFINED ENV{soc_version})
+    set(SOC_VERSION $ENV{soc_version})
+    message(STATUS "soc_version detected: ${SOC_VERSION}")
+    
+    # 根据 soc_version 添加编译定义
+    if(${SOC_VERSION} STREQUAL "Ascend950")
+        add_compile_definitions(__DAV_C310__)
+        message(STATUS "__DAV_C310__ enabled for soc_version: ${SOC_VERSION}")
+    else()
+        message(STATUS "__DAV_C310__ not enabled for soc_version: ${SOC_VERSION}")
+    endif()
+else()
+    message(STATUS "soc_version environment variable not set")
+endif()
+
+
+
 pybind11_add_module(deep_ep_cpp pybind_extension.cpp ${SOURCES_DEEPEP})
 set_target_properties(deep_ep_cpp PROPERTIES CXX_STANDARD 17)
 target_include_directories( deep_ep_cpp PRIVATE

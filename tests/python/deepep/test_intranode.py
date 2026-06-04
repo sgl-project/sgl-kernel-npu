@@ -35,6 +35,13 @@ def test_main(
     num_topk, num_experts = args.num_topk, args.num_experts
     enable_diagnose = args.enable_diagnose
     enable_dynamic_tokens = args.enable_dynamic_tokens
+    quant_type = args.quant_type # no, int8, fp8
+    if quant_type == "no":
+        quant_type_tensor = None
+    elif quant_type == "int8":
+        quant_type_tensor =  torch.tensor([], dtype=torch.int8, device="npu")
+    elif quant_type == "fp8":
+        quant_type_tensor = torch.tensor([], dtype=torch.float8_e4m3fn, device="npu")
     num_servers = num_ranks // num_local_ranks
     expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
 
@@ -281,7 +288,7 @@ def test_main(
     ):
         for current_x in filter(lambda elem: elem is not None, (x_pure_rand,)):
             dispatch_args = {
-                "x": current_x,
+                "x": current_x if quant_type_tensor is None else (current_x, quant_type_tensor),
                 "num_tokens_per_rank": ref_num_tokens_per_rank,
                 "is_token_in_rank": ref_is_token_in_rank,
                 "num_tokens_per_expert": ref_num_tokens_per_expert,
@@ -353,7 +360,7 @@ def test_main(
                 flush=True,
             )
         dispatch_args = {
-            "x": current_x,
+            "x": current_x if quant_type_tensor is None else (current_x, quant_type_tensor),
             "num_tokens_per_rank": ref_num_tokens_per_rank,
             "is_token_in_rank": ref_is_token_in_rank,
             "num_tokens_per_expert": ref_num_tokens_per_expert,
@@ -483,7 +490,7 @@ def test_main(
         )
 
         tune_args = {
-            "x": current_x,
+            "x": current_x if quant_type_tensor is None else (current_x, quant_type_tensor),
             "config": config,
             "num_tokens_per_rank": ref_num_tokens_per_rank,
             "is_token_in_rank": ref_is_token_in_rank,
@@ -501,7 +508,7 @@ def test_main(
             print("", flush=True)
 
     dispatch_args = {
-        "x": x,
+        "x": x if quant_type_tensor is None else (x, quant_type_tensor),
         "num_tokens_per_rank": ref_num_tokens_per_rank,
         "is_token_in_rank": ref_is_token_in_rank,
         "num_tokens_per_expert": ref_num_tokens_per_expert,
@@ -610,6 +617,13 @@ if __name__ == "__main__":
         "--enable-dynamic-tokens",
         action="store_true",
         help="Whether to enable dynamic tokens for testing",
+    )
+    parser.add_argument(
+        "--quant-type",
+        dest="quant_type",
+        type=str,
+        default="no",
+        help="quant type: no, int8, fp8",
     )
     args = parser.parse_args()
 
