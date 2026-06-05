@@ -361,7 +361,9 @@ class Buffer:
                 quant_type = "int8"
                 use_quant = True
             else:
-                raise TypeError(f"Unsupported quantized dtype: {quant_type_tensor.dtype}")
+                raise TypeError(
+                    f"Unsupported quantized dtype: {quant_type_tensor.dtype}"
+                )
         else:
             raise TypeError(f"Unsupported x type: {type(x)}")
         scales = None
