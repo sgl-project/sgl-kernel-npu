@@ -31,6 +31,13 @@ constexpr uint16_t SPECIAL_EXP_THRESHOLD = 0x0040;
 constexpr int16_t SHR_NUM_FOR_BF16 = 7;
 constexpr uint16_t FP8_E4M3_MAX_EXP = 0x0400;  // elem_emax右移7位(BF16E8M7)
 constexpr uint16_t FP8_E5M2_MAX_EXP = 0x0780;
+constexpr uint16_t FP4_E2M1_BF16_MAX_EXP = 0x0100;
+constexpr uint16_t FP4_E1M2_BF16_MAX_EXP = 0x0000;
+constexpr uint16_t SPECIAL_VALUE_E2M1 = 0x00ff;
+constexpr uint16_t SPECIAL_VALUE_E1M2 = 0x007f;
+constexpr uint16_t INVALID_FLOAT16 = 0x7c00;
+constexpr uint16_t NEW_MANTISSA = 0x0008;
+constexpr uint32_t FP4_ELEMS_PER_BYTE = 2;
 constexpr int64_t OUT_ELE_NUM_ONE_BLK = 64;
 constexpr float FP8_E5M2_MAX_VALUE = 57344.0f;
 constexpr float FP8_E4M3_MAX_VALUE = 448.0f;
@@ -66,15 +73,21 @@ __aicore__ inline void ComputeMaxExp(__ubuf__ T *srcAddr, __ubuf__ uint16_t *max
         MicroAPI::RegTensor<T> vdExp1;
         MicroAPI::RegTensor<bfloat16_t> vdExp0BF16;
         MicroAPI::RegTensor<bfloat16_t> vdExp1BF16;
+        MicroAPI::RegTensor<uint16_t> vdExpSelect0;
+        MicroAPI::RegTensor<uint16_t> vdExpSelect1;
         MicroAPI::RegTensor<uint16_t> vdExpExtract0;
         MicroAPI::RegTensor<uint16_t> vdExpExtract1;
 
         MicroAPI::RegTensor<uint16_t> expMaskBF16;
         MicroAPI::Duplicate(expMaskBF16, MAX_EXP_FOR_BF16);
 
+        MicroAPI::RegTensor<uint16_t> invalidMaskFP16;
+        MicroAPI::Duplicate(invalidMaskFP16, INVALID_FLOAT16);
         MicroAPI::RegTensor<uint16_t> vdMaxExp;
         MicroAPI::MaskReg scaleMask1;
         MicroAPI::MaskReg scaleMask2;
+        MicroAPI::MaskReg invalidDataMask0;
+        MicroAPI::MaskReg invalidDataMask1;
         MicroAPI::UnalignReg u1;
         static constexpr MicroAPI::CastTrait castTraitHalf2Bf16 = {
             MicroAPI::RegLayout::UNKNOWN, MicroAPI::SatMode::UNKNOWN, MicroAPI::MaskMergeMode::ZEROING,
@@ -85,10 +98,16 @@ __aicore__ inline void ComputeMaxExp(__ubuf__ T *srcAddr, __ubuf__ uint16_t *max
             MicroAPI::DataCopy<T, MicroAPI::PostLiteral::POST_MODE_UPDATE, MicroAPI::LoadDist::DIST_DINTLV_B16>(
                 vdExp0, vdExp1, srcAddr, vlForHalfNumber * DIGIT_TWO);
             if constexpr (Std::IsSame<T, half>::value) {
+                MicroAPI::And(vdExpSelect0, (MicroAPI::RegTensor<uint16_t> &)vdExp0, invalidMaskFP16, scaleMask1);
+                MicroAPI::And(vdExpSelect1, (MicroAPI::RegTensor<uint16_t> &)vdExp1, invalidMaskFP16, scaleMask1);
+                MicroAPI::Compare<uint16_t, CMPMODE::NE>(invalidDataMask0, vdExpSelect0, invalidMaskFP16, scaleMask1);
+                MicroAPI::Compare<uint16_t, CMPMODE::NE>(invalidDataMask1, vdExpSelect1, invalidMaskFP16, scaleMask1);
                 MicroAPI::Cast<bfloat16_t, T, castTraitHalf2Bf16>(vdExp0BF16, vdExp0, scaleMask1);
                 MicroAPI::Cast<bfloat16_t, T, castTraitHalf2Bf16>(vdExp1BF16, vdExp1, scaleMask1);
                 MicroAPI::And(vdExpExtract0, (MicroAPI::RegTensor<uint16_t> &)vdExp0BF16, expMaskBF16, scaleMask1);
                 MicroAPI::And(vdExpExtract1, (MicroAPI::RegTensor<uint16_t> &)vdExp1BF16, expMaskBF16, scaleMask1);
+                MicroAPI::Select<uint16_t>(vdExpExtract0, vdExpExtract0, expMaskBF16, invalidDataMask0);
+                MicroAPI::Select<uint16_t>(vdExpExtract1, vdExpExtract1, expMaskBF16, invalidDataMask1);
             } else {
                 MicroAPI::And(vdExpExtract0, (MicroAPI::RegTensor<uint16_t> &)vdExp0, expMaskBF16, scaleMask1);
                 MicroAPI::And(vdExpExtract1, (MicroAPI::RegTensor<uint16_t> &)vdExp1, expMaskBF16, scaleMask1);
@@ -109,7 +128,16 @@ __aicore__ inline void ComputeScale(__ubuf__ uint16_t *maxExpAddr, __ubuf__ uint
                                     __ubuf__ uint16_t *halfScaleLocalAddr, uint32_t totalScaleInUB)
 {
     uint32_t vlForHalfNumber = GetVRegSizeDispatch() / sizeof(uint16_t);
-    uint16_t f8Emax = std::is_same<T, fp8_e4m3fn_t>::value ? FP8_E4M3_MAX_EXP : FP8_E5M2_MAX_EXP;
+    uint16_t maxExponent;
+    if constexpr (Std::IsSame<T, fp8_e4m3fn_t>::value) {
+        maxExponent = FP8_E4M3_MAX_EXP;
+    } else if constexpr (Std::IsSame<T, fp8_e5m2_t>::value) {
+        maxExponent = FP8_E5M2_MAX_EXP;
+    } else if constexpr (Std::IsSame<T, fp4x2_e2m1_t>::value) {
+        maxExponent = FP4_E2M1_BF16_MAX_EXP;
+    } else {
+        maxExponent = FP4_E1M2_BF16_MAX_EXP;
+    }
     uint16_t loopNumScale = Ceil(totalScaleInUB, vlForHalfNumber);
 
     __VEC_SCOPE__
@@ -122,7 +150,7 @@ __aicore__ inline void ComputeScale(__ubuf__ uint16_t *maxExpAddr, __ubuf__ uint
         MicroAPI::MaskReg zeroMask;
         MicroAPI::MaskReg preMaskScale;
         MicroAPI::RegTensor<uint16_t> maxExpValue;
-        MicroAPI::Duplicate(maxExpValue, f8Emax);
+        MicroAPI::Duplicate(maxExpValue, maxExponent);
         MicroAPI::RegTensor<uint16_t> sharedExp;
         MicroAPI::RegTensor<uint16_t> scaleValue;
         MicroAPI::RegTensor<uint16_t> scaleBias;
@@ -170,7 +198,7 @@ __aicore__ inline void ComputeScale(__ubuf__ uint16_t *maxExpAddr, __ubuf__ uint
 }
 
 template <typename T, typename U, RoundMode toBf16RoundMode, RoundMode roundMode>
-__aicore__ inline void ComputeData(__ubuf__ T *srcAddr, __ubuf__ uint16_t *halfScaleLocalAddr,
+__aicore__ inline void ComputeFp8Data(__ubuf__ T *srcAddr, __ubuf__ uint16_t *halfScaleLocalAddr,
                                    __ubuf__ int8_t *outLocalAddr, uint32_t totalCountInUB)
 {
     uint32_t vlForHalfNumber = GetVRegSizeDispatch() / sizeof(T);
@@ -286,6 +314,98 @@ __aicore__ inline void ComputeData(__ubuf__ T *srcAddr, __ubuf__ uint16_t *halfS
                 outLocalAddr, (MicroAPI::RegTensor<int8_t> &)vdExp1FP8Zero, OUT_ELE_NUM_ONE_BLK, dataMask4);
             MicroAPI::DataCopy<int8_t, MicroAPI::PostLiteral::POST_MODE_UPDATE, MicroAPI::StoreDist::DIST_PACK4_B32>(
                 outLocalAddr, (MicroAPI::RegTensor<int8_t> &)vdExp1FP8One, OUT_ELE_NUM_ONE_BLK, dataMask4);
+        }
+    }
+}
+
+template <typename T, typename U>
+__aicore__ inline void FP16Convert(
+    MicroAPI::RegTensor<half>& output, MicroAPI::RegTensor<half>& input, MicroAPI::MaskReg& mask)
+{
+    __VEC_SCOPE__
+    {
+        MicroAPI::RegTensor<uint16_t> specialValueTensor;
+        MicroAPI::RegTensor<uint16_t> newMantissa;
+        MicroAPI::RegTensor<uint16_t> andResult;
+        MicroAPI::RegTensor<uint16_t> newValue;
+        MicroAPI::MaskReg specialMask;
+        MicroAPI::MaskReg nonzeroMask;
+        uint16_t specialValue = SPECIAL_VALUE_E1M2;
+        if constexpr (Std::IsSame<U, fp4x2_e2m1_t>::value) {
+            specialValue = SPECIAL_VALUE_E2M1;
+        }
+        MicroAPI::Duplicate(specialValueTensor, specialValue);
+        MicroAPI::Duplicate(newMantissa, NEW_MANTISSA);
+        MicroAPI::And(andResult, (MicroAPI::RegTensor<uint16_t>&)input, specialValueTensor, mask);
+        MicroAPI::CompareScalar<uint16_t, CMPMODE::GT>(nonzeroMask, andResult, 0, mask);
+        MicroAPI::CompareScalar<uint16_t, CMPMODE::LT>(specialMask, andResult, NEW_MANTISSA, mask);
+        MicroAPI::MaskAnd(specialMask, specialMask, nonzeroMask, mask);
+        MicroAPI::Or(newValue, (MicroAPI::RegTensor<uint16_t>&)input, newMantissa, mask);
+        MicroAPI::Select<uint16_t>(
+            (MicroAPI::RegTensor<uint16_t>&)output, newValue, (MicroAPI::RegTensor<uint16_t>&)input,
+            specialMask);
+    }
+}
+
+template <typename T, typename U, RoundMode toBf16RoundMode, RoundMode roundMode>
+__aicore__ inline void ComputeFp4Data(__ubuf__ T* srcAddr, __ubuf__ uint16_t* halfScaleLocalAddr,
+    __ubuf__ int8_t* outLocalAddr, uint32_t totalCountInUB)
+{
+    uint32_t vlForHalfNumber = GetVRegSizeDispatch() / sizeof(T);
+    uint16_t elementAfterReduce = GetVRegSizeDispatch() / GetUbBlockSizeDispatch();
+    uint16_t loopNum = Ceil(totalCountInUB, 2 * vlForHalfNumber);
+    __VEC_SCOPE__
+    {
+        MicroAPI::MaskReg dataMask1;
+        MicroAPI::RegTensor<uint16_t> halfScaleForMul;
+        MicroAPI::RegTensor<T> vdExp0;
+        MicroAPI::RegTensor<T> vdExp1;
+
+        MicroAPI::RegTensor<bfloat16_t> vdExp0BF16;
+        MicroAPI::RegTensor<bfloat16_t> vdExp1BF16;
+
+        MicroAPI::RegTensor<U> vdExp0FP4;
+        MicroAPI::RegTensor<U> vdExp1FP4;
+
+        static constexpr MicroAPI::CastTrait castTrait = {
+            MicroAPI::RegLayout::ZERO, MicroAPI::SatMode::UNKNOWN,
+            MicroAPI::MaskMergeMode::ZEROING, roundMode};
+        static constexpr MicroAPI::CastTrait castTraitHalf2Bf16 = {
+            MicroAPI::RegLayout::UNKNOWN, MicroAPI::SatMode::UNKNOWN,
+            MicroAPI::MaskMergeMode::ZEROING, toBf16RoundMode};
+        for (uint16_t i = 0; i < loopNum; i++) {
+            dataMask1 = MicroAPI::UpdateMask<T>(totalCountInUB);
+            MicroAPI::DataCopy<T, MicroAPI::PostLiteral::POST_MODE_UPDATE,
+                MicroAPI::LoadDist::DIST_DINTLV_B16>(vdExp0, vdExp1, srcAddr, vlForHalfNumber * DIGIT_TWO);
+            MicroAPI::DataCopy<uint16_t, MicroAPI::PostLiteral::POST_MODE_UPDATE,
+                MicroAPI::LoadDist::DIST_E2B_B16>(halfScaleForMul, halfScaleLocalAddr, elementAfterReduce);
+            if constexpr (Std::IsSame<T, half>::value) {
+                if constexpr (roundMode == RoundMode::CAST_RINT) {
+                    FP16Convert<T, U>(vdExp0, vdExp0, dataMask1);
+                    FP16Convert<T, U>(vdExp1, vdExp1, dataMask1);
+                }
+                MicroAPI::Cast<bfloat16_t, T, castTraitHalf2Bf16>(vdExp0BF16, vdExp0, dataMask1);
+                MicroAPI::Cast<bfloat16_t, T, castTraitHalf2Bf16>(vdExp1BF16, vdExp1, dataMask1);
+                MicroAPI::Mul(
+                    vdExp0BF16, vdExp0BF16, (MicroAPI::RegTensor<bfloat16_t>&)halfScaleForMul, dataMask1);
+                MicroAPI::Mul(
+                    vdExp1BF16, vdExp1BF16, (MicroAPI::RegTensor<bfloat16_t>&)halfScaleForMul, dataMask1);
+                MicroAPI::Interleave(vdExp0BF16, vdExp1BF16, vdExp0BF16, vdExp1BF16);
+                MicroAPI::Cast<U, bfloat16_t, castTrait>(vdExp0FP4, vdExp0BF16, dataMask1);
+                MicroAPI::Cast<U, bfloat16_t, castTrait>(vdExp1FP4, vdExp1BF16, dataMask1);
+            } else {
+                MicroAPI::Mul(vdExp0, vdExp0, (MicroAPI::RegTensor<T>&)halfScaleForMul, dataMask1);
+                MicroAPI::Mul(vdExp1, vdExp1, (MicroAPI::RegTensor<T>&)halfScaleForMul, dataMask1);
+                MicroAPI::Interleave(vdExp0, vdExp1, vdExp0, vdExp1);
+                MicroAPI::Cast<U, T, castTrait>(vdExp0FP4, vdExp0, dataMask1);
+                MicroAPI::Cast<U, T, castTrait>(vdExp1FP4, vdExp1, dataMask1);
+            }
+            MicroAPI::DataCopy<int8_t, MicroAPI::PostLiteral::POST_MODE_UPDATE,
+                MicroAPI::StoreDist::DIST_PACK4_B32>(outLocalAddr,
+                (MicroAPI::RegTensor<int8_t>&)vdExp0FP4, OUT_ELE_NUM_ONE_BLK, dataMask1);
+            MicroAPI::DataCopy<int8_t, MicroAPI::PostLiteral::POST_MODE_UPDATE,
+                MicroAPI::StoreDist::DIST_PACK4_B32>(outLocalAddr,
+                (MicroAPI::RegTensor<int8_t>&)vdExp1FP4, OUT_ELE_NUM_ONE_BLK, dataMask1);
         }
     }
 }

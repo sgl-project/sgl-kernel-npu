@@ -35,13 +35,15 @@ def test_main(
     num_topk, num_experts = args.num_topk, args.num_experts
     enable_diagnose = args.enable_diagnose
     enable_dynamic_tokens = args.enable_dynamic_tokens
-    quant_type = args.quant_type  # no, int8, fp8
+    quant_type = args.quant_type  # no, int8, fp8, fp4_e2m1
     if quant_type == "no":
         quant_type_tensor = None
     elif quant_type == "int8":
         quant_type_tensor = torch.tensor([], dtype=torch.int8, device="npu")
     elif quant_type == "fp8":
         quant_type_tensor = torch.tensor([], dtype=torch.float8_e4m3fn, device="npu")
+    elif quant_type == "fp4_e2m1":
+        quant_type_tensor = torch.tensor([], dtype=torch.float4_e2m1fn_x2, device="npu")
     num_servers = num_ranks // num_local_ranks
     expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
 
@@ -635,7 +637,7 @@ if __name__ == "__main__":
         dest="quant_type",
         type=str,
         default="no",
-        help="quant type: no, int8, fp8",
+        help="quant type: no, int8, fp8, fp4_e2m1",
     )
     args = parser.parse_args()
 

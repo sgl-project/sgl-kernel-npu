@@ -33,6 +33,7 @@ constexpr float FP8_E5M2_MAX_VALUE = 448.0f;
 constexpr float FP8_E4M3_MAX_VALUE = 57344.0f;
 constexpr float HIFP8_MAX_VALUE = 32768.0f;
 constexpr float INT8_MAX_VALUE = 127.0f;
+constexpr uint32_t FP4_ELEMS_PER_BYTE = 2;
 
 template <AscendC::HardEvent event>
 __aicore__ inline void SyncFunc()
@@ -77,8 +78,8 @@ private:
     __aicore__ inline void ReduceMaxInplace(const LocalTensor<float> &srcLocal, uint32_t count);
     __aicore__ inline void QuantProcess();
 #ifdef __DAV_C310__
-    __aicore__ inline void QuantDynamicMxFp8(LocalTensor<ExpandXOutType> &outLocal, LocalTensor<XType> &inLocal,
-                                             LocalTensor<float> &tokenF32LT_);
+    __aicore__ inline void QuantDynamicMx(LocalTensor<ExpandXOutType> &outLocal, LocalTensor<XType> &inLocal,
+                                          LocalTensor<float> &tokenF32LT_);
 #endif
     __aicore__ inline GM_ADDR GetWindAddrByRankId(uint8_t ctxIdx, const int32_t rankId)
     {
@@ -256,7 +257,11 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
 
     expandXOutGM = expandXOut;
     axisH_ = h;
-    hUBAlignSize = Ceil(h * sizeof(ExpandXOutType), UB_ALIGN) * UB_ALIGN;
+    if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value || Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
+        hUBAlignSize = Ceil(Ceil(axisH_, FP4_ELEMS_PER_BYTE), UB_ALIGN) * UB_ALIGN;
+    } else {
+        hUBAlignSize = Ceil(h * sizeof(ExpandXOutType), UB_ALIGN) * UB_ALIGN;
+    }
     uint32_t hScaleSizeAlign = hUBAlignSize + UB_ALIGN;
     uint32_t quantScalePerToken = IsMxQuant ? Ceil(axisH_, 32) : 1;
     uint32_t quantScalePerTokenAlign = Ceil(quantScalePerToken * sizeof(XScalesType), UB_ALIGN) * UB_ALIGN;
@@ -313,21 +318,30 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
 
 #ifdef __DAV_C310__
 template <CamTypeClass>
-__aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantDynamicMxFp8(LocalTensor<ExpandXOutType> &outLocal,
-                                                                              LocalTensor<XType> &inLocal,
-                                                                              LocalTensor<float> &tokenF32LT_)
+__aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantDynamicMx(LocalTensor<ExpandXOutType> &outLocal,
+                                                                             LocalTensor<XType> &inLocal,
+                                                                             LocalTensor<float> &tokenF32LT_)
 {
-    if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value || Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value) {
-        uint32_t mxScaleNum = Align2(Ceil32(axisH_));
-        __ubuf__ XType *srcAddr = (__ubuf__ XType *)inLocal.GetPhyAddr();
-        __ubuf__ uint16_t *maxExpAddr = (__ubuf__ uint16_t *)tokenF32LT_.GetPhyAddr();
-        __ubuf__ uint16_t *halfScaleLocalAddr = (__ubuf__ uint16_t *)tokenF32LT_[Align32(mxScaleNum)].GetPhyAddr();
-        __ubuf__ int8_t *outLocalAddr = (__ubuf__ int8_t *)outLocal.GetPhyAddr();
-        __ubuf__ uint16_t *mxScaleLocalAddr = (__ubuf__ uint16_t *)outLocal[Align256<uint32_t>(axisH_)].GetPhyAddr();
+    uint32_t mxScaleNum = Align2(Ceil32(axisH_));
+    __ubuf__ XType *srcAddr = (__ubuf__ XType *)inLocal.GetPhyAddr();
+    __ubuf__ uint16_t *maxExpAddr = (__ubuf__ uint16_t *)tokenF32LT_.GetPhyAddr();
+    __ubuf__ uint16_t *halfScaleLocalAddr = (__ubuf__ uint16_t *)tokenF32LT_[Align32(mxScaleNum)].GetPhyAddr();
+    __ubuf__ int8_t *outLocalAddr = (__ubuf__ int8_t *)outLocal.GetPhyAddr();
+    __ubuf__ uint16_t *mxScaleLocalAddr;
 
-        quant::ComputeMaxExp(srcAddr, maxExpAddr, axisH_);
-        quant::ComputeScale<ExpandXOutType>(maxExpAddr, mxScaleLocalAddr, halfScaleLocalAddr, mxScaleNum);
-        quant::ComputeData<XType, ExpandXOutType, AscendC::RoundMode::CAST_TRUNC, AscendC::RoundMode::CAST_RINT>(
+    if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value || Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
+        mxScaleLocalAddr = (__ubuf__ uint16_t *)outLocal[Align256<uint32_t>(Ceil(axisH_, FP4_ELEMS_PER_BYTE))].GetPhyAddr();
+    } else {
+        mxScaleLocalAddr = (__ubuf__ uint16_t *)outLocal[Align256<uint32_t>(axisH_)].GetPhyAddr();
+    }
+
+    quant::ComputeMaxExp(srcAddr, maxExpAddr, axisH_);
+    quant::ComputeScale<ExpandXOutType>(maxExpAddr, mxScaleLocalAddr, halfScaleLocalAddr, mxScaleNum);
+    if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value || Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value) {
+        quant::ComputeFp8Data<XType, ExpandXOutType, AscendC::RoundMode::CAST_TRUNC, AscendC::RoundMode::CAST_RINT>(
+            srcAddr, halfScaleLocalAddr, outLocalAddr, axisH_);
+    } else if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value || Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
+        quant::ComputeFp4Data<XType, ExpandXOutType, AscendC::RoundMode::CAST_TRUNC, AscendC::RoundMode::CAST_RINT>(
             srcAddr, halfScaleLocalAddr, outLocalAddr, axisH_);
     }
 }
@@ -386,7 +400,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantProcess()
     LocalTensor<float> tokenF32LT = tokenCastFloatBuf.Get<float>();
 #ifdef __DAV_C310__
     if constexpr (IsMxQuant) {
-        QuantDynamicMxFp8(xOutTensor, xInTensor, tokenF32LT);
+        QuantDynamicMx(xOutTensor, xInTensor, tokenF32LT);
         xInQueue.FreeTensor<XType>(xInTensor);
         return;
     }
