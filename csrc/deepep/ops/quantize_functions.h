@@ -187,7 +187,7 @@ __aicore__ inline void ComputeData(__ubuf__ T *srcAddr, __ubuf__ uint16_t *halfS
         MicroAPI::MaskReg invalidDataMask2;
         MicroAPI::MaskReg invalidDataMask3;
         MicroAPI::MaskReg invalidDataMask4;
-        
+
         MicroAPI::MaskReg maskAll = MicroAPI::CreateMask<uint16_t, MicroAPI::MaskPattern::ALL>();
         MicroAPI::RegTensor<uint16_t> halfScaleForMul;
         MicroAPI::RegTensor<float> floatScaleForMul;
@@ -204,7 +204,6 @@ __aicore__ inline void ComputeData(__ubuf__ T *srcAddr, __ubuf__ uint16_t *halfS
 
         MicroAPI::Duplicate(maxFp8ValuePos, max_fp8_in_float);
         MicroAPI::Duplicate(maxFp8ValueNeg, -max_fp8_in_float);
-        
 
         MicroAPI::RegTensor<float> vdExp0FP32Zero;
         MicroAPI::RegTensor<float> vdExp0FP32One;
@@ -230,8 +229,6 @@ __aicore__ inline void ComputeData(__ubuf__ T *srcAddr, __ubuf__ uint16_t *halfS
                 vdExp0, vdExp1, srcAddr, vlForHalfNumber * DIGIT_TWO);
             MicroAPI::DataCopy<uint16_t, MicroAPI::PostLiteral::POST_MODE_UPDATE, MicroAPI::LoadDist::DIST_E2B_B16>(
                 halfScaleForMul, halfScaleLocalAddr, elementAfterReduce);
-
-
 
             if constexpr (Std::IsSame<T, half>::value) {
                 MicroAPI::Cast<float, T, castTraitZero>(vdExp0FP32Zero, vdExp0, dataMask1);
@@ -262,7 +259,6 @@ __aicore__ inline void ComputeData(__ubuf__ T *srcAddr, __ubuf__ uint16_t *halfS
                 MicroAPI::Select<T>(vdExp0, maxFp8ValuePos, vdExp0, invalidDataMask1);
                 MicroAPI::Compare<T, CMPMODE::LT>(invalidDataMask2, vdExp0, maxFp8ValueNeg, dataMask1);
                 MicroAPI::Select<T>(vdExp0, maxFp8ValueNeg, vdExp0, invalidDataMask2);
-
 
                 // clamp vdExp1
                 MicroAPI::Compare<T, CMPMODE::GT>(invalidDataMask3, vdExp1, maxFp8ValuePos, dataMask2);
