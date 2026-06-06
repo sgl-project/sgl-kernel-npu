@@ -183,11 +183,28 @@ __aicore__ inline void ComputeData(__ubuf__ T *srcAddr, __ubuf__ uint16_t *halfS
         MicroAPI::MaskReg dataMask2;
         MicroAPI::MaskReg dataMask3;
         MicroAPI::MaskReg dataMask4;
+        MicroAPI::MaskReg invalidDataMask1;
+        MicroAPI::MaskReg invalidDataMask2;
+        MicroAPI::MaskReg invalidDataMask3;
+        MicroAPI::MaskReg invalidDataMask4;
+        
         MicroAPI::MaskReg maskAll = MicroAPI::CreateMask<uint16_t, MicroAPI::MaskPattern::ALL>();
         MicroAPI::RegTensor<uint16_t> halfScaleForMul;
         MicroAPI::RegTensor<float> floatScaleForMul;
         MicroAPI::RegTensor<T> vdExp0;
         MicroAPI::RegTensor<T> vdExp1;
+        MicroAPI::RegTensor<T> maxFp8ValuePos;
+        MicroAPI::RegTensor<T> maxFp8ValueNeg;
+        float max_fp8_in_float;
+        if constexpr (Std::IsSame<U, fp8_e4m3fn_t>::value) {
+            max_fp8_in_float = FP8_E4M3_MAX_VALUE;
+        } else if constexpr (Std::IsSame<U, fp8_e5m2_t>::value) {
+            max_fp8_in_float = FP8_E5M2_MAX_VALUE;
+        }
+
+        MicroAPI::Duplicate(maxFp8ValuePos, max_fp8_in_float);
+        MicroAPI::Duplicate(maxFp8ValueNeg, -max_fp8_in_float);
+        
 
         MicroAPI::RegTensor<float> vdExp0FP32Zero;
         MicroAPI::RegTensor<float> vdExp0FP32One;
@@ -213,6 +230,9 @@ __aicore__ inline void ComputeData(__ubuf__ T *srcAddr, __ubuf__ uint16_t *halfS
                 vdExp0, vdExp1, srcAddr, vlForHalfNumber * DIGIT_TWO);
             MicroAPI::DataCopy<uint16_t, MicroAPI::PostLiteral::POST_MODE_UPDATE, MicroAPI::LoadDist::DIST_E2B_B16>(
                 halfScaleForMul, halfScaleLocalAddr, elementAfterReduce);
+
+
+
             if constexpr (Std::IsSame<T, half>::value) {
                 MicroAPI::Cast<float, T, castTraitZero>(vdExp0FP32Zero, vdExp0, dataMask1);
                 MicroAPI::Cast<float, T, castTraitOne>(vdExp0FP32One, vdExp0, dataMask1);
@@ -228,6 +248,7 @@ __aicore__ inline void ComputeData(__ubuf__ T *srcAddr, __ubuf__ uint16_t *halfS
                 MicroAPI::Interleave(vdExp1FP32Zero, vdExp1FP32One, vdExp1FP32Zero, vdExp1FP32One);
                 MicroAPI::Interleave(vdExp0FP32Zero, vdExp1FP32Zero, vdExp0FP32Zero, vdExp1FP32Zero);
                 MicroAPI::Interleave(vdExp0FP32One, vdExp1FP32One, vdExp0FP32One, vdExp1FP32One);
+                // requires clamp to U max value
                 MicroAPI::Cast<U, float, castTrait32to8>(vdExp0FP8Zero, vdExp0FP32Zero, dataMask3);
                 MicroAPI::Cast<U, float, castTrait32to8>(vdExp0FP8One, vdExp1FP32Zero, dataMask3);
                 MicroAPI::Cast<U, float, castTrait32to8>(vdExp1FP8Zero, vdExp0FP32One, dataMask4);
@@ -235,6 +256,20 @@ __aicore__ inline void ComputeData(__ubuf__ T *srcAddr, __ubuf__ uint16_t *halfS
             } else {
                 MicroAPI::Mul(vdExp0, vdExp0, (MicroAPI::RegTensor<T> &)halfScaleForMul, dataMask1);
                 MicroAPI::Mul(vdExp1, vdExp1, (MicroAPI::RegTensor<T> &)halfScaleForMul, dataMask1);
+
+                // clamp vdExp0
+                MicroAPI::Compare<T, CMPMODE::GT>(invalidDataMask1, vdExp0, maxFp8ValuePos, dataMask1);
+                MicroAPI::Select<T>(vdExp0, maxFp8ValuePos, vdExp0, invalidDataMask1);
+                MicroAPI::Compare<T, CMPMODE::LT>(invalidDataMask2, vdExp0, maxFp8ValueNeg, dataMask1);
+                MicroAPI::Select<T>(vdExp0, maxFp8ValueNeg, vdExp0, invalidDataMask2);
+
+
+                // clamp vdExp1
+                MicroAPI::Compare<T, CMPMODE::GT>(invalidDataMask3, vdExp1, maxFp8ValuePos, dataMask2);
+                MicroAPI::Select<T>(vdExp1, maxFp8ValuePos, vdExp1, invalidDataMask3);
+                MicroAPI::Compare<T, CMPMODE::LT>(invalidDataMask4, vdExp1, maxFp8ValueNeg, dataMask2);
+                MicroAPI::Select<T>(vdExp1, maxFp8ValueNeg, vdExp1, invalidDataMask4);
+
                 MicroAPI::Interleave(vdExp0, vdExp1, vdExp0, vdExp1);
                 MicroAPI::Cast<float, T, castTraitZero>(vdExp0FP32Zero, vdExp0, dataMask1);
                 MicroAPI::Cast<float, T, castTraitOne>(vdExp0FP32One, vdExp0, dataMask1);
