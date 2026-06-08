@@ -113,25 +113,10 @@ def per_token_cast_back(x_fp8: torch.Tensor, x_scales: torch.Tensor):
 
     # x_scales 现在是 FP8 E8M0 格式（uint8 或 int8 存储）
     # 需要先解码为 float32
-    print(f"{x_scales.dtype=}", flush=True)
-    # if x_scales.dtype in [torch.int8, torch.uint8]:
     if x_scales.dtype != torch.float32:
         # 将存储的整数视为 FP8 E8M0 的位表示，转换为 float32
         x_scales_bits = x_scales.view(torch.uint8)
         x_scales_fp32 = _fp8e8m0_to_float32_lookup(x_scales_bits)
-        print(
-            f"{x_scales_bits.shape=}, {x_scales_fp32[:1024]=}, {x_scales_bits[:1024]=}",
-            flush=True,
-        )
-        print(
-            f"{x_scales_bits.shape=}, {x_scales_fp32[5376//2-1000:5376//2]=}, {x_scales_bits[5376//2-1000:5376//2]=}",
-            flush=True,
-        )
-        print(
-            f"{x_scales_bits.shape=}, {x_scales_fp32[5376//2:5376//2+1000]=}, {x_scales_bits[5376//2:5376//2+1000]=}",
-            flush=True,
-        )
-        torch.save(x_scales_bits, "x_scales_bits.pt")
         # x_fp8 形状: (bs, h)
         # x_scales 形状: (bs, h/32) 或 (bs * h/32,)
         bs, h = x_fp8.shape

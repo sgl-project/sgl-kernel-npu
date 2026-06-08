@@ -378,13 +378,6 @@ def test_main(
                 topk_weights_pure_rand if current_x is x_pure_rand else topk_weights
             ),
         }
-        # DBG0416
-        print(f"{rank=}, {current_x.dtype=}, {current_x.shape=}", flush=True)
-        # print(f"{rank=},{current_x[:,:2]=}, {topk_idx.shape=},{topk_idx=}, {current_x.is_contiguous()=}", flush=True)
-
-        # print(f"{rank=}, {current_x.shape=}, {topk_idx.shape=}, {current_x[:,:2]=}, {topk_idx=}", flush=True)
-        # # testnew_x.dim() == 2 and new_x.is_contiguous()
-        # print(f"{rank=}, {current_x.shape=}, {current_x.is_contiguous()=}", flush=True)
 
         (
             recv_x,
@@ -394,46 +387,8 @@ def test_main(
             handle,
             event,
         ) = buffer.dispatch(**dispatch_args)
-        # DBG0416
-        if isinstance(recv_x, tuple):
-            # print(f"{rank=}, {recv_x[1].shape=}, {recv_x[0].shape=}, {recv_x[1]=}, {recv_x[0]=}, {recv_x=}", flush=True)
-            # cannot print recvx_0
-            # expandx_shape = recv_x[0].shape
-            # scale_shape = recv_x[1].shape
-            # scale_dtype = recv_x[1].dtype
-            # print(f"{rank=}, {scale_shape=}, {expandx_shape=}, {recv_x[1][:10]},", flush=True)
-            recv_x_data = recv_x[0][:, :64] if recv_x[0].shape[0] >= 1 else None
-            # recv_scale = recv_x[1][:5]
-            # print(f"{recv_scale=}", flush=True)
-            # print(f"{rank=}, {recv_x[1].shape=}, {recv_x[0].shape=}, , {recv_x_data=}", flush=True)
-            print(f"{rank=}, {recv_x[1].shape=}, {recv_x[0].shape=}, ", flush=True)
-        recv_x_original = (
-            recv_x[0].clone() if isinstance(recv_x, tuple) else recv_x.clone()
-        )
-        quant_scales = recv_x[1].clone() if isinstance(recv_x, tuple) else None
         recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
 
-        save_data = {
-            "dispatch_args": {k: v for k, v in dispatch_args.items() if k != "config"},
-            "recv_x_original": recv_x_original.view(torch.uint8),
-            "recv_x_disquanted": recv_x,
-        }
-        if quant_scales is not None:
-            save_data["quant_scales"] = quant_scales.view(torch.uint8)
-        # save_data = {
-        #     "dispatch_args": {k: v for k, v in dispatch_args.items() if k != "config"},
-        #     "recv_x": recv_x_original[0].cpu().numpy().tobytes(),
-        #     "quant_scales": recv_x_original[1].cpu().numpy().tobytes(),
-        #     "recv_x": recv_x.cpu().numpy().tobytes()
-        # }
-        # add a day hour minute timestamp for the filename
-        from datetime import datetime
-
-        now = datetime.now()
-        timestr = f"{now.month}{now.day}_{now.hour}{now.minute}"
-        save_folder = "dump_tensors"
-        os.makedirs(save_folder, exist_ok=True)
-        # torch.save(save_data, f"{save_folder}/dispatch_debug_time{timestr}_{rank}.pt")
         # Checks
         rank_prefix_matrix = handle[0]
         local_expert_token = gbl_num_tokens_per_expert.view(num_ranks, -1)[rank]
