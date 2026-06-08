@@ -522,11 +522,12 @@ static ge::graphStatus CheckTensorShape(gert::TilingContext *context, const char
     const int64_t expandXDim0 = expandXStorageShape->GetStorageShape().GetDim(0);
     const int64_t expandXDim1 = expandXStorageShape->GetStorageShape().GetDim(1);
 
-    OP_TILING_CHECK(xDim1 != expandXDim1,
+    int64_t expectedExpandXDim1 = (quantMode == MXFP4_SCALES) ? xDim1 / 2 : xDim1;
+    OP_TILING_CHECK(expectedExpandXDim1 != expandXDim1,
                     OP_LOGE(nodeName,
-                            "expandX's dim1 not equal to xShape's dim1, "
-                            "xShape's dim1 is %ld, expandX's dim1 is %ld.",
-                            xDim1, expandXDim1),
+                            "expandX's dim1 not equal to expected dim1, "
+                            "xShape's dim1 is %ld, expected expandX's dim1 is %ld, expandX's dim1 is %ld, quantMode=%u.",
+                            xDim1, expectedExpandXDim1, expandXDim1, quantMode),
                     return ge::GRAPH_FAILED);
 
     // 校验dynamicScales的维度
