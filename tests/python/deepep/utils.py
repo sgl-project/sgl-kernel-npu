@@ -92,6 +92,41 @@ def bench(fn, num_warmups: int = 50, num_tests: int = 50, post_fn=None):
     return np.average(times), np.min(times), np.max(times)
 
 
+def _fp4_e2m1_to_float32_unpack(fp4_bytes: torch.Tensor) -> torch.Tensor:
+    """Unpack FP4 E2M1 (fp4x2_e2m1fn_x2) packed bytes to float32.
+    Each byte contains 2 FP4 values: high nibble = element 0, low nibble = element 1.
+    FP4 E2M1: 1 sign bit, 2 exponent bits (bias=1), 1 mantissa bit (implicit leading 1).
+    """
+    # fp4_bytes shape: (bs, h/2) as uint8
+    original_shape = fp4_bytes.shape
+    flat = fp4_bytes.flatten().to(torch.uint8)
+
+    # Extract high and low nibbles
+    high_nibbles = (flat >> 4) & 0xF  # element 0
+    low_nibbles = flat & 0xF          # element 1
+
+    # Decode FP4 E2M1: bit layout is [sign(1), exp(2), mantissa(1)]
+    # Value = sign * 2^(exp - bias) * (1 + mantissa * 0.5)
+    # bias = 1 for E2M1
+    bias = 1
+    signs_high = ((high_nibbles >> 3) & 1).to(torch.float32) * -1 + (1 - ((high_nibbles >> 3) & 1).to(torch.float32)) * 1
+    signs_low = ((low_nibbles >> 3) & 1).to(torch.float32) * -1 + (1 - ((low_nibbles >> 3) & 1).to(torch.float32)) * 1
+    exps_high = (high_nibbles & 0x7) >> 1  # 2 exponent bits
+    exps_low = (low_nibbles & 0x7) >> 1
+    mant_high = (high_nibbles & 1).to(torch.float32)  # 1 mantissa bit
+    mant_low = (low_nibbles & 1).to(torch.float32)
+
+    # Compute float32 values
+    vals_high = signs_high * torch.pow(2.0, exps_high.to(torch.float32) - bias) * (1.0 + mant_high * 0.5)
+    vals_low = signs_low * torch.pow(2.0, exps_low.to(torch.float32) - bias) * (1.0 + mant_low * 0.5)
+
+    # Interleave: result shape has 2x elements, element 0 then element 1 per byte
+    result = torch.stack([vals_high, vals_low], dim=1).reshape(-1)
+    # Reshape to (bs, h) where h = original_shape[-1] * 2
+    new_shape = list(original_shape[:-1]) + [original_shape[-1] * 2]
+    return result.reshape(new_shape)
+
+
 _FP8E8M0_TO_FLOAT32_TABLE = None
 
 
@@ -119,6 +154,20 @@ def per_token_cast_back(x_fp8: torch.Tensor, x_scales: torch.Tensor):
         # 将存储的整数视为 FP8 E8M0 的位表示，转换为 float32
         x_scales_bits = x_scales.view(torch.uint8)
         x_scales_fp32 = _fp8e8m0_to_float32_lookup(x_scales_bits)
+
+        if x_fp8.dtype == torch.float4_e2m1fn_x2:
+            # FP4 dequant: each fp4x2 packs 2 elements, shape is (bs, h/2)
+            # Scale is per 32 original elements: (bs * h/32)
+            bs, h_half = x_fp8.shape
+            h = h_half * 2
+            # Unpack fp4x2 to bf16 on CPU (NPU may not support fp4->bf16 cast)
+            x_fp4_uint8 = x_fp8.view(torch.uint8).cpu()
+            x_fp32 = _fp4_e2m1_to_float32_unpack(x_fp4_uint8).to(x_fp8.device)
+            x_fp32 = x_fp32.view(bs, -1, 32)
+            x_scales_fp32 = x_scales_fp32.view(bs, -1, 1)
+            result = (x_fp32 * x_scales_fp32).view(bs, h).to(torch.bfloat16)
+            return result
+
         print(
             f"{x_scales_bits.shape=}, {x_scales_fp32[:1024]=}, {x_scales_bits[:1024]=}",
             flush=True,
