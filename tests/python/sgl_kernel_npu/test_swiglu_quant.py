@@ -3,6 +3,7 @@ import torch
 import torch_npu
 from sgl_kernel_npu.activation.swiglu_quant import swiglu_quant
 
+
 def swiglu_silu_clamp_mul_native(x: torch.Tensor, limit: float = 7.0) -> torch.Tensor:
     """Out-variant of swiglustep activation.
 
@@ -15,6 +16,7 @@ def swiglu_silu_clamp_mul_native(x: torch.Tensor, limit: float = 7.0) -> torch.T
     up = up.clamp(min=-limit, max=limit)
     out = gate * up
     return out
+
 
 def test_swiglu_quant():
     def to_numpy(x: torch.Tensor) -> np.ndarray:
@@ -78,6 +80,7 @@ def test_swiglu_quant_with_limit():
 
     diff_rate = torch.sum(torch.abs(diff)) / (real_tokens * h // 2)
     assert diff_rate < 2e-2
+
 
 if __name__ == "__main__":
     test_swiglu_quant()
