@@ -118,8 +118,6 @@ def test_main(
         )
         topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
 
-    # DBG0416
-    # topk_idx = torch.tensor([list(range(num_topk))]*num_tokens, device="npu")  # for test_topk_minus1 scenario
     topk_weights = (
         torch.ones((num_tokens, num_topk), dtype=torch.float32, device="npu") * rank
     )
@@ -354,10 +352,6 @@ def test_main(
                 )
 
     for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x)):
-        # #DBG0416
-        # for current_x in (x, 1):
-        # if isinstance(x, int): break
-        # for current_x in filter(lambda elem: elem is not None, (x)):
         if local_rank == 0:
             print(
                 f'[testing] Running with {"FP8" if isinstance(current_x, tuple) else "BF16"}, with top-k {num_topk} ...',
@@ -428,8 +422,8 @@ def test_main(
         )
         golden = ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
 
-        max_diff = torch.max(torch.abs(check_x - ref_x) / golden).item()
-        avg_diff = torch.mean(torch.abs(check_x - ref_x) / golden).item()
+        max_diff = torch.max(torch.abs(check_x - golden) / golden).item()
+        avg_diff = torch.mean(torch.abs(check_x - golden) / golden).item()
         print(f"{rank=}, {avg_diff=:.5f}, {max_diff=:.5f}, cosine_diff={diff:.5f}")
         assert diff < 5e-5
 
