@@ -807,39 +807,53 @@ std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Te
 Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
                              const std::optional<at::Tensor> &cumulative_local_expert_recv_stats,
                              int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts, bool use_fp8,
-                             bool round_scale, bool use_ue8m0, bool async, bool return_recv_hook)
+                             bool round_scale, bool use_ue8m0, bool async, bool return_recv_hook,
+                             const std::string &quant_type)
 {
     EP_HOST_ASSERT(low_latency_mode);
     EP_HOST_ASSERT(num_max_dispatch_tokens_per_rank >= x.size(0));
 
     auto num_tokens = static_cast<int>(x.size(0)), hidden = static_cast<int>(x.size(1));
-    auto num_scales = hidden / 128, num_topk = static_cast<int>(topk_idx.size(1));
+    auto num_topk = static_cast<int>(topk_idx.size(1));
     int32_t num_local_experts = num_experts / (num_ranks - shared_expert_rank_num);
     int64_t global_bs = num_max_dispatch_tokens_per_rank * num_ranks;
     auto num_max_tokens = 0;
     if (rank < shared_expert_rank_num) {
         num_max_tokens = global_bs / shared_expert_rank_num;
         num_local_experts = 1;
-    } else {  // moe expert
+    } else {
         num_max_tokens = global_bs * std::min(num_topk, num_local_experts);
     }
     auto max_size = std::max(num_tokens * num_topk, num_max_tokens * 128);
 
-    // Allocate packed tensors
+    bool is_mxfp8_quant = use_fp8 && (quant_type == "fp8_e4m3" || quant_type == "fp8_e5m2");
+
     auto device = x.device();
     auto packed_recv_x = at::empty({num_max_tokens, hidden}, x.options().dtype(use_fp8 ? at::kChar : at::kBFloat16));
-    auto packed_recv_x_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
+    std::optional<at::Tensor> packed_recv_x_scales;
+    if (use_fp8 && !is_mxfp8_quant) {
+        packed_recv_x_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
+    }
+#ifdef __DAV_C310__
+    if (is_mxfp8_quant) {
+        if (quant_type == "fp8_e5m2") {
+            packed_recv_x = at::empty({num_max_tokens, hidden}, at::dtype(at::kFloat8_e5m2).device(device));
+        } else {
+            packed_recv_x = at::empty({num_max_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(device));
+        }
+        packed_recv_x_scales = at::empty({num_max_tokens * hidden / 32}, at::dtype(at::kFloat8_e8m0fnu).device(device));
+    }
+#endif
     auto expandIdx = at::empty({max_size}, at::dtype(at::kInt).device(device));
 
     int32_t server_num = num_ranks / LOCAL_RANK_SIZE;
-    at::Tensor ep_recv_count =
-        at::empty({num_local_experts * num_ranks}, at::dtype(at::kInt).device(device));  // A2 non-layered / A3
+    at::Tensor ep_recv_count = at::empty({num_local_experts * num_ranks}, at::dtype(at::kInt).device(device));
     auto tp_recv_count = at::empty({1}, at::dtype(at::kInt).device(device));
     auto packed_recv_count = at::empty({num_local_experts}, at::dtype(at::kLong).device(device));
     at::Tensor scales;
     at::Tensor active_mask;
     int enable_neg_one = get_value_from_env("MOE_ENABLE_TOPK_NEG_ONE", 0);
-    int64_t quant_mode = use_fp8 ? 2 : 0;
+    int64_t quant_mode = use_fp8 ? (is_mxfp8_quant ? MXFP8_SCALES : DYNAMIC_SCALES) : NO_SCALES;
     int64_t tp_size = 1;
     int64_t tp_rank = 0;
     int64_t expert_shard_type = 0;
@@ -848,7 +862,6 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     char *comm_alg;
     int64_t expert_token_nums_type = outType;
 
-    // get ep & tp name
     char hcom_ep_name[HCOMM_NAME_LEN];
     if (!moe_all_to_all_group_name.empty()) {
         std::memcpy(hcom_ep_name, moe_all_to_all_group_name.data(), moe_all_to_all_group_name.size() + 1);
@@ -856,7 +869,6 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
     }
     char hcom_tp_name[HCOMM_NAME_LEN] = {0};
-    // Wait streams
     std::optional<EventHandle> event;
     bool isLayered = false;
 
@@ -864,7 +876,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         const char *hcclIntraPcieEnable = getenv("HCCL_INTRA_PCIE_ENABLE");
         const char *hcclIntraRoceEnable = getenv("HCCL_INTRA_ROCE_ENABLE");
         if (hcclIntraPcieEnable != nullptr && hcclIntraRoceEnable != nullptr && strcmp(hcclIntraPcieEnable, "1") == 0 &&
-            strcmp(hcclIntraRoceEnable, "0") == 0) {  // A2 layered
+            strcmp(hcclIntraRoceEnable, "0") == 0) {
             isLayered = true;
             int64_t recv_count_tensor_size = num_experts + 2 * global_bs * num_topk * server_num;
             ep_recv_count = at::empty({recv_count_tensor_size}, at::dtype(at::kInt).device(device));
@@ -902,16 +914,20 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
                  global_bs,               // global_bs
                  expert_token_nums_type,  // expert_token_nums_type
                  comm_alg,
-                 packed_recv_x,         // expandXOut
-                 packed_recv_x_scales,  // dynamicScalesOut
-                 expandIdx,             // assistInfoForCombineOut
-                 packed_recv_count,     // expertTokenNumsOut
-                 ep_recv_count,         // epRecvCountsOut
-                 tp_recv_count);        // tpRecvCountsOut
+                 packed_recv_x,  // expandXOut
+                 packed_recv_x_scales.value_or(at::empty({1}, at::dtype(at::kFloat).device(device))),
+                 expandIdx,          // assistInfoForCombineOut
+                 packed_recv_count,  // expertTokenNumsOut
+                 ep_recv_count,      // epRecvCountsOut
+                 tp_recv_count);     // tpRecvCountsOut
 
-    // Return values
-    return {packed_recv_x, packed_recv_x_scales,        packed_recv_count, expandIdx, ep_recv_count,
-            event,         std::function<void()>([] {})};
+    return {packed_recv_x,
+            packed_recv_x_scales,
+            packed_recv_count,
+            expandIdx,
+            ep_recv_count,
+            event,
+            std::optional<std::function<void()>>(std::function<void()>([] {}))};
 }
 
 std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>> Buffer::low_latency_combine(

@@ -752,7 +752,8 @@ class Buffer:
                 monitoring.
             use_fp8: whether to enable FP8 casting, with this, the received data will be a tuple of FP8 tensor and scaling factors.
             round_scale: whether round the scaling factors into power of 2.
-            use_ue8m0: whether use UE8M0 as scaling factor format (available only with `round_scale=True`).
+            use_ue8m0: whether use UE8M0 as scaling factor format. On NPU, this triggers MXFP8 per-block quantization
+                (quant_mode=3) with e8m0fnu scale format.
             async_finish: the current stream will not wait for the communication kernels to be finished if set.
             return_recv_hook: return a receiving hook if set. If set, the kernel will just do the RDMA request issues,
                 but **without actually receiving the data**. You must call the received hook to make sure the data's arrival.
@@ -760,23 +761,20 @@ class Buffer:
 
         Returns:
             recv_x: a tensor or tuple with received tokens for each expert.
-                With `use_fp8=True`: the first element is a `torch.Tensor` shaped as
-                `[num_local_experts, num_max_dispatch_tokens_per_rank * num_ranks, hidden]` with `torch.float8_e4m3fn`.
-                The second tensor is the corresponding scales for the first element with shape
-                `[num_local_experts, num_max_dispatch_tokens_per_rank * num_ranks, hidden // 128]` with `torch.float`,
-                if `use_ue8m0=False`. With `use_ue8m0=True`, the second one is packed and shaped as
-                `[num_local_experts, num_max_dispatch_tokens_per_rank * num_ranks, hidden // 512]` with type `torch.int`.
-                Notice that, the last-two-dimension of the scaling tensors are in column-major for TMA compatibility.
-                With `use_fp8=False`, the result would be a tensor shaped as
-                `[num_local_experts, num_max_dispatch_tokens_per_rank * num_ranks, hidden]` with `torch.bfloat16`.
-                Moreover, not all tokens are valid, only some of the `num_max_dispatch_tokens_per_rank * num_ranks` are,
-                as we do not synchronize CPU received count with GPU (also not incompatible with CUDA graph if synced).
+                With `use_fp8=True and use_ue8m0=False`: the first element is an INT8 tensor, the second is per-token float scales.
+                With `use_fp8=True and use_ue8m0=True`: the first element is a FP8 tensor (e4m3fn), the second is
+                per-block e8m0fnu scales (MXFP8 quantization).
+                With `use_fp8=False`: a bfloat16 tensor.
             recv_count: a tensor shaped `[num_local_experts]` with type `torch.int`, indicating how many tokens each
-                expert receives. As mentioned before, not all tokens are valid in `recv_x`.
+                expert receives.
             handle: the communication handle to be used in the `low_latency_combine` function.
             event: the event after executing the kernel (valid only if `async_finish` is set).
             hook: the receiving hook function (valid only if `return_recv_hook` is set).
         """
+        quant_type = ""
+        if use_fp8 and use_ue8m0:
+            quant_type = "fp8_e4m3"
+
         topk_ids = topk_idx.int()
         (
             packed_recv_x,
@@ -797,6 +795,7 @@ class Buffer:
             use_ue8m0,
             async_finish,
             return_recv_hook,
+            quant_type,
         )
         handle = (
             packed_recv_src_info,
@@ -816,6 +815,7 @@ class Buffer:
             packed_recv_layout_range,
             cumulative_local_expert_recv_stats,
         )
+        is_mxfp8_quant = use_fp8 and quant_type == "fp8_e4m3"
         return (
             (packed_recv_x, packed_recv_x_scales) if use_fp8 else packed_recv_x,
             packed_recv_count,
