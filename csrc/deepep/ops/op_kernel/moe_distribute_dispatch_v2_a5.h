@@ -7,6 +7,9 @@
 #include "moe_distribute_v2_base.h"
 #include "moe_distribute_dispatch_v2_tiling.h"
 #include "check_winsize.h"
+#ifdef __DAV_C310__
+#include "quantize_functions.h"
+#endif
 
 namespace MoeDistributeDispatchV2A5Impl {
 constexpr uint8_t BUFFER_NUM = 2;  // 多buf
@@ -78,6 +81,9 @@ private:
     __aicore__ inline void ZeroComputeExpertMaskCal();
     __aicore__ inline void ReduceMaxInplace(const LocalTensor<float> &srcLocal, uint32_t count);
     __aicore__ inline void QuantProcess(uint32_t expertIndex);
+#ifdef __DAV_C310__
+    __aicore__ inline void MxQuantProcess(uint32_t expertIndex);
+#endif
     __aicore__ inline void SetStatus();
     __aicore__ inline void BufferInit();
     __aicore__ inline void InitElasticInfo(bool isWaitDispatch = false);
@@ -125,6 +131,9 @@ private:
     GlobalTensor<int32_t> expertIdsGMTensor_;
     GlobalTensor<float> scalesGMTensor_;
     GlobalTensor<float> dynamicScalesOutGMTensor_;
+#ifdef __DAV_C310__
+    GlobalTensor<fp8_e8m0fnu_t> mxScalesOutGMTensor_;
+#endif
     GlobalTensor<int64_t> expertTokenNumsOutGMTensor_;
     GlobalTensor<float> windowInstatusFp32Tensor_;
     GlobalTensor<bool> xActiveMaskGMTensor_;
@@ -355,6 +364,11 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::Init(
     xActiveMaskGMTensor_.SetGlobalBuffer((__gm__ bool *)xActiveMask);
     expertIdsGMTensor_.SetGlobalBuffer((__gm__ int32_t *)expertIds);
     dynamicScalesOutGMTensor_.SetGlobalBuffer((__gm__ float *)dynamicScalesOut);
+#ifdef __DAV_C310__
+    if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value || Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value) {
+        mxScalesOutGMTensor_.SetGlobalBuffer((__gm__ fp8_e8m0fnu_t *)dynamicScalesOut);
+    }
+#endif
     expertTokenNumsOutGMTensor_.SetGlobalBuffer((__gm__ int64_t *)expertTokenNumsOut);
     expandIdxGMTensor_.SetGlobalBuffer((__gm__ int32_t *)(expandIdxOut));
     expandXOutGM_ = expandXOut;
@@ -402,7 +416,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::Init(
     uint32_t statusBufSize = statusBufCntAlign * UB_ALIGN;
     tpipe_->InitBuffer(statusBuf_, statusBufSize);
     totalUsedUB_ += statusBufSize;
-    statusTensor_ = statusBuf_.Get<int32_t>();  // 保存发送数据量及flag，同时用于计算windows中的偏移
+    statusTensor_ = statusBuf_.Get<int32_t>();                   // 保存发送数据量及flag，同时用于计算windows中的偏移
     Duplicate<int32_t>(statusTensor_, 0, recvWinBlockNum_ * 8);  // 8 = UB_ALIGN / sizeof(int32_t)
     statusSpaceGm_ = GetWindStateAddrByRankId(COMM_EP_IDX, epRankIdOriginal_);
 #if defined(ASCENDC_OOM) && ASCENDC_OOM == 1
@@ -1041,6 +1055,35 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::QuantProc
     tokenF32LT.SetValue(hOutSizeAlign_ / sizeof(float), float(1.0) / dynamicScale);
     SyncFunc<AscendC::HardEvent::S_MTE3>();
 }
+
+#ifdef __DAV_C310__
+template <TemplateMC2TypeClass>
+__aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::MxQuantProcess(uint32_t expertIndex)
+{
+    if constexpr (!(Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value ||
+                    Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value)) {
+        return;
+    }
+
+    uint32_t mxScaleNum = Align2(Ceil(axisH_, 32));
+    uint32_t totalScaleInUB = mxScaleNum;
+    __ubuf__ uint16_t *maxExpAddr = (__ubuf__ uint16_t *)smoothScalesBuf_.Get<uint16_t>();
+    __ubuf__ uint16_t *mxScaleLocalAddr = (__ubuf__ uint16_t *)(maxExpAddr + mxScaleNum);
+    __ubuf__ uint16_t *halfScaleLocalAddr = (__ubuf__ uint16_t *)(mxScaleLocalAddr + mxScaleNum);
+    __ubuf__ ExpandXOutType *srcAddr = (__ubuf__ ExpandXOutType *)xInTensor_.GetPhyAddr();
+    quant::ComputeMaxExp<XType>((__ubuf__ XType *)xInTensor_.GetPhyAddr(), maxExpAddr, axisH_);
+    quant::ComputeScale<ExpandXOutType>(maxExpAddr, mxScaleLocalAddr, halfScaleLocalAddr, totalScaleInUB);
+    quant::ComputeFp8Data<XType, ExpandXOutType, RoundMode::CAST_TRUNC, RoundMode::CAST_RINT>(
+        (__ubuf__ XType *)xInTensor_.GetPhyAddr(), halfScaleLocalAddr, (__ubuf__ int8_t *)xOutTensor_.GetPhyAddr(),
+        axisH_);
+
+    uint32_t tokenIdxInRecv = expertIndex;
+    for (uint32_t s = 0; s < mxScaleNum; s++) {
+        mxScalesOutGMTensor_.SetValue(tokenIdxInRecv * mxScaleNum + s, (fp8_e8m0fnu_t)(mxScaleLocalAddr[s] & 0xFF));
+    }
+    PipeBarrier<PIPE_V>();
+}
+#endif
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::SyncCntOnCore(

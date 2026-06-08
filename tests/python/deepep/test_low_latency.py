@@ -20,8 +20,8 @@ from utils import (
 
 
 def test(
-    aligned_num_tokens: int,  # 对齐后的最大token数
-    num_tokens: int,  # 当前rank的实际token数，有效token数
+    aligned_num_tokens: int,
+    num_tokens: int,
     hidden: int,
     num_experts: int,
     num_topk: int,
@@ -30,6 +30,7 @@ def test(
     group: dist.ProcessGroup,
     buffer: Buffer,
     drop_percent: float,
+    quant_type: str = "no",
     seed: int = 0,
 ):
     torch.manual_seed(seed + rank)
@@ -75,7 +76,9 @@ def test(
     cumulative_local_expert_recv_stats = torch.zeros(
         (num_local_experts,), dtype=torch.int, device="npu"
     )
-    for dispatch_use_fp8 in (True, False):
+    use_ue8m0 = quant_type == "mxfp8"
+    dispatch_fp8_modes = (True, False) if quant_type != "mxfp8" else (True,)
+    for dispatch_use_fp8 in dispatch_fp8_modes:
         packed_recv_x, packed_recv_count, handle, event, hook = (
             buffer.low_latency_dispatch(
                 x,
@@ -83,13 +86,15 @@ def test(
                 aligned_num_tokens,
                 num_experts,
                 use_fp8=dispatch_use_fp8,
-                round_scale=False,
-                use_ue8m0=False,
+                round_scale=use_ue8m0 and dispatch_use_fp8,
+                use_ue8m0=use_ue8m0 and dispatch_use_fp8,
                 cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
                 async_finish=not return_recv_hook,
                 return_recv_hook=return_recv_hook,
             )
         )
+        if isinstance(packed_recv_x, tuple):
+            print(f"{packed_recv_x[0].dtype=}, {packed_recv_x[1].dtype=}", flush=True)
         simulated_gemm_x = (
             per_token_cast_back(*packed_recv_x) if dispatch_use_fp8 else packed_recv_x
         )
@@ -185,18 +190,17 @@ def test(
         )
 
         if do_check:
-            diff = calc_diff(
-                x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
-                combined_x,
-            )
+            golden = x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
+            diff = calc_diff(golden, combined_x)
             assert torch.isnan(combined_x).sum().item() == 0
+            max_diff = torch.max(torch.abs(combined_x - golden) / golden).item()
+            avg_diff = torch.mean(torch.abs(combined_x - golden) / golden).item()
+            print(f"{rank=}, {avg_diff=:.5f}, {max_diff=:.5f}, cosine_diff={diff:.5f}")
             if dispatch_use_fp8:
                 assert diff < 1e-4, f"Error: {diff=}"
             else:
                 assert diff < 1e-5, f"Error: {diff=}"
             hash_value ^= hash_tensor(combined_x)
-
-            print(f"rank {rank} PASSED")
 
     # noinspection PyShadowingNames
     def test_func(zero_copy: bool, return_recv_hook: bool):
@@ -323,6 +327,8 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         num_qps_per_rank=use_experts // use_ranks if use_ranks > 0 else 1,
     )
 
+    quant_type = args.quant_type
+
     test(
         aligned_num_tokens,
         raw_num_tokens,
@@ -334,6 +340,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         group,
         buffer,
         drop_percent,
+        quant_type=quant_type,
         seed=1,
     )
 
@@ -352,6 +359,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
             group,
             buffer,
             drop_percent,
+            quant_type=quant_type,
             seed=seed,
         )
         for i in range(20):
@@ -367,6 +375,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
                     group,
                     buffer,
                     drop_percent,
+                    quant_type=quant_type,
                     seed=seed,
                 )
                 == ref_hash
@@ -408,6 +417,13 @@ if __name__ == "__main__":
         "--enable-dynamic-tokens",
         action="store_true",
         help="Enable dynamic and inconsistent num_tokens across different ranks",
+    )
+    parser.add_argument(
+        "--quant-type",
+        dest="quant_type",
+        type=str,
+        default="no",
+        help="quant type: no, int8, fp8, mxfp8",
     )
     args = parser.parse_args()
 
