@@ -799,7 +799,11 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
 
     DataCopyExtParams dataCopyExandIdxParams{1U, sizeof(int32_t) * EXPAND_IDX_INFO, 0U, 0U, 0U};
     DataCopyExtParams dataCopyOutParams{1U, static_cast<uint32_t>(statusNumPerCore * sizeof(int32_t)), 0U, 0U, 0U};
-    DataCopyExtParams expandXCopyParams = {1U, static_cast<uint32_t>(h * sizeof(ExpandXOutType)), 0U, 0U, 0U};
+    uint32_t expandXElemCount = h;
+    if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value || Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
+        expandXElemCount = Ceil(h, FP4_ELEMS_PER_BYTE);
+    }
+    DataCopyExtParams expandXCopyParams = {1U, static_cast<uint32_t>(expandXElemCount * sizeof(ExpandXOutType)), 0U, 0U, 0U};
     LocalTensor<int32_t> xTmpTensorInt;
     AscendC::TQueSync<PIPE_MTE2, PIPE_S> recvCountLocalSync;
     recvCountLocalSync.SetFlag(0);
@@ -902,7 +906,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
                 // }
             }
 
-            dstTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(expandXOutGM) + (writeOffset + j) * h, h);
+            dstTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(expandXOutGM) + (writeOffset + j) * expandXElemCount, expandXElemCount);
             DataCopyPad(dstTokenGT, xTmpTensor, expandXCopyParams);
 
             xQueue.FreeTensor(xTmpTensor);
