@@ -84,7 +84,9 @@ def _swiglu_quant_kernel(
             tl.store(out_ptr + o_offsets, out.to(out_ptr.dtype.element_ty))
 
 
-def swiglu_quant(x, group_list, group_list_type, need_quant=True, do_limit=False, limit=7.0):
+def swiglu_quant(
+    x, group_list, group_list_type, need_quant=True, do_limit=False, limit=7.0
+):
     # group_list_type must be 0 cusum or 1 count
     if group_list_type not in [0, 1]:
         raise ValueError(f"group_list_type must be 0 or 1, but got {group_list_type}")
