@@ -343,7 +343,8 @@ class Buffer:
         if isinstance(x, tuple):
             raise NotImplementedError("Not support fp8")
         x_scales = None
-        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+        quant_type = config.normal_quant_type.lower()
+        use_quant = quant_type in ("fp8", "int8")
 
         if handle is not None:
             raise NotImplementedError(
@@ -443,7 +444,8 @@ class Buffer:
         if isinstance(x, tuple):
             raise NotImplementedError("Not support fp8")
         x_scales = None
-        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+        quant_type = config.normal_quant_type.lower()
+        use_quant = quant_type in ("fp8", "int8")
 
         if handle is not None:
             raise NotImplementedError(
@@ -596,7 +598,8 @@ class Buffer:
         Normally, you should not directly call this function.
         """
         x, x_scales = x if isinstance(x, tuple) else (x, None)
-        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+        quant_type = config.normal_quant_type.lower()
+        use_quant = quant_type in ("fp8", "int8")
         if handle is not None:
             raise NotImplementedError(
                 "Optional communication handle is not supported yet."
