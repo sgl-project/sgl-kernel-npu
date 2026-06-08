@@ -42,7 +42,7 @@ def _swiglu_quant_kernel(
     for row_idx in range(row_begin, row_end):
         # swiglu
         x_offsets = row_idx * TOTAL_COLS + tl.arange(0, TOTAL_COLS)
-        cur_x = tl.load(x_ptr + x_offsets)
+        cur_x = tl.load(x_ptr + x_offsets).to(tl.float32)
         x1 = al.extract_slice(cur_x, offsets=(0,), sizes=(HALF_COLS,), strides=(1,))
         x2 = al.extract_slice(
             cur_x, offsets=(HALF_COLS,), sizes=(HALF_COLS,), strides=(1,)
