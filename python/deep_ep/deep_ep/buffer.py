@@ -349,7 +349,7 @@ class Buffer:
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
 
-# Delegate to normal strategy
+        # Delegate to normal strategy
         return self.normal_strategy.dispatch(
             x=x,
             handle=handle,
