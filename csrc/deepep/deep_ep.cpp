@@ -895,7 +895,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         EP_HOST_ASSERT(isLayered == false);
         active_mask = (topk_idx >= 0).to(torch::kBool);
     }
-    at::Tensor packed_recv_x_scales_val = packed_recv_x_scales.value_or(at::empty({1}, at::dtype(at::kFloat).device(device)));
+at::Tensor packed_recv_x_scales_value = packed_recv_x_scales.value_or(at::empty({1}, at::dtype(at::kFloat).device(device)));
     EXEC_NPU_CMD(aclnnMoeDistributeDispatchV2,
                  x,                       // x
                  topk_idx,                // expertIds
@@ -916,7 +916,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
                  expert_token_nums_type,  // expert_token_nums_type
                  comm_alg,
                  packed_recv_x,  // expandXOut
-                 packed_recv_x_scales_val,
+packed_recv_x_scales_value,
                  expandIdx,          // assistInfoForCombineOut
                  packed_recv_count,  // expertTokenNumsOut
                  ep_recv_count,      // epRecvCountsOut
