@@ -11,16 +11,16 @@ DeepEP-Ascend
 Ascend Implementation of DeepEP
 
 ## Software and hardware
-Supported Hardware Models: Atlas A2 and A3 Series Products
+Supported Hardware Models: Atlas A2, A3 support cann8.5 and cann9.0. Atlas A5 only supports cann9.0.
 Platform: aarch64/x86
 Supporting Software
-- Driver Ascend HDK 25.0.RC1.1, CANN Community Edition 8.2.RC1.alpha003 and later versions (refer to the "[CANN Software Installation Guide](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha003/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)" to install the CANN development kit package, as well as the supporting firmware and drivers)
-- Before installing CANN software, you need to install the relevant [dependency list](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha003/softwareinst/instg/instg_0045.html)
-- Python >= 3.9
-- PyTorch >= 2.5.1, torch-npu >= 2.5.1-7.0.0
+- Driver Ascend HDK 25.1.RC1.1, CANN Community Edition 8.5.0 and later versions (refer to the "[CANN Software Installation Guide](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)" to install the CANN development kit package, as well as the supporting firmware and drivers)
+- Before installing CANN software, you need to install the relevant [dependency list](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850/softwareinst/instg/instg_0045.html)
+- Python >= 3.9, Recommendation: Python 3.11
+- PyTorch >= 2.8.0, torch-npu >= 2.8.0
 
 ## Quick Start
-DeepEP-Ascend supports both A2 and A3 and needs to generate packages separately on A2 and A3.
+DeepEP-Ascend supports A2, A3 and A5 and needs to generate packages separately on A2, A3 and A5.
 ### Compile and Run
 1. Prepare the CANN environment variables (modify according to the installation path)
 ```bash
@@ -28,7 +28,11 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 ```
 
 2. Build the project
-Before executing the engineering build script build.sh, modify `_ASCEND_INSTALL_PATH` on line 7 of build.sh according to the CANN installation path.
+- A5
+    ```bash
+    # Building Project
+    bash build.sh -a deepep Ascend950
+    ```
 - A3
     ```bash
     # Building Project

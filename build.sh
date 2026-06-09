@@ -85,7 +85,6 @@ export DEBUG_MODE=$DEBUG_MODE
 # Chip mapping:
 # - deepep  → A3+ (Ascend910_9382)
 # - deepep2 → A2  (Ascend910B1)
-# - A5 is not open-sourced yet
 
 if [[ "$BUILD_DEEPEP_OPS" == "ON" ]]; then
     SOC_VERSION="${1:-Ascend910_9382}"
@@ -95,13 +94,21 @@ fi
 
 echo "Use SOC_VERSION: $SOC_VERSION"
 
-## ====================== 【关键修复：CANN 8.3 ASCConfig.cmake】 ======================
 echo "=== Fixing ASCConfig for CANN 8.3 / A2 ==="
 
-# 优先使用 latest，如果不存在则找实际版本
-if [ -z "$ASCEND_HOME_PATH" ] || [ "$ASCEND_HOME_PATH" = "/usr/local/Ascend/ascend-toolkit/latest" ]; then
-    if [ -d "/usr/local/Ascend/ascend-toolkit/8.3.RC2" ]; then
-        export ASCEND_HOME_PATH="/usr/local/Ascend/ascend-toolkit/8.3.RC2"
+# Prioritize using the ASCEND_HOME_PATH environment variable
+# If empty or points to latest, automatically select the actual installation version
+if [ -z "$ASCEND_HOME_PATH" ] || [[ "$ASCEND_HOME_PATH" == *"/latest" ]]; then
+    REAL_ASCEND_PATH=$(ls -d /usr/local/Ascend/ascend-toolkit/* \
+        | grep -v latest \
+        | sort -V \
+        | tail -1)
+
+    if [ -n "$REAL_ASCEND_PATH" ]; then
+        export ASCEND_HOME_PATH="$REAL_ASCEND_PATH"
+    else
+        echo "Error: Cannot find Ascend toolkit installation"
+        exit 1
     fi
 fi
 
@@ -120,7 +127,11 @@ else
 fi
 
 # Get Current CANN Toolkit Installation Path
-_CANN_TOOLKIT_INSTALL_PATH=$(cat /etc/Ascend/ascend_cann_install.info | grep "Toolkit_InstallPath" | awk -F'=' '{print $2}')
+if [ -n "$ASCEND_HOME_PATH" ]; then
+    _CANN_TOOLKIT_INSTALL_PATH="$ASCEND_HOME_PATH"
+else
+    _CANN_TOOLKIT_INSTALL_PATH=$(cat /etc/Ascend/ascend_cann_install.info | grep "Toolkit_InstallPath" | awk -F'=' '{print $2}')
+fi
 source ${_CANN_TOOLKIT_INSTALL_PATH}/set_env.sh
 echo -e "\e[1;32mDetected CANN Toolkit Installation Path: ${_CANN_TOOLKIT_INSTALL_PATH}\e[0m"
 echo -e "\e[1;33mDouble Checking Environment Variables:\e[0m"
@@ -136,6 +147,7 @@ mkdir -p $OUTPUT_DIR
 echo "outpath: ${OUTPUT_DIR}"
 
 COMPILE_OPTIONS=""
+
 
 function build_kernels()
 {
@@ -157,6 +169,7 @@ function build_kernels()
     -DCMAKE_PREFIX_PATH="$ASC_CMAKE_DIR" \
     -DASC_DIR="$ASC_CMAKE_DIR" \
     -DSOC_VERSION=Ascend910_9382 \
+    -DDEEPEP_IS_A5_BUILD=$([[ "$SOC_VERSION" == "Ascend950" ]] && echo "ON" || echo "OFF") \
     -DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE \
     -DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE \
     -B "$BUILD_DIR" \
@@ -212,6 +225,8 @@ function build_memory_saver()
 
 function create_deepep_cmake()
 {
+    if [[ "$BUILD_DEEPEP_MODULE" != "ON" ]]; then return 0; fi
+
     cd csrc || exit
     chmod +x deepep_cmake_build.sh
     chmod +x deepep/build.sh

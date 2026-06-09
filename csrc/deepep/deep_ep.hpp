@@ -72,7 +72,7 @@ public:
                        const std::optional<at::Tensor> &cached_channel_prefix_matrix,
                        const std::optional<at::Tensor> &dispatch_wait_recv_cost_stats, int expert_alignment,
                        int num_worst_tokens, const Config &config, std::optional<EventHandle> &previous_event,
-                       bool async, bool allocate_on_comm_stream, bool use_quant);
+                       bool async, bool allocate_on_comm_stream, bool use_quant, const std::string &quant_type);
 
     std::tuple<at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor, at::Tensor,
                at::Tensor>

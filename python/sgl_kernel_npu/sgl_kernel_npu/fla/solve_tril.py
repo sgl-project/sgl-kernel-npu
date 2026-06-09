@@ -553,9 +553,9 @@ def merge_16x16_to_64x64_inverse_kernel(
 
     # build Ai_22_32 (32 * 32)
     Ai_22_32 = tl.zeros((32, 32), tl.float32)
-    Ai_22_32 = tl.insert_slice(Ai_22_32, Ai_33, (0, 0), (16, 16), (1, 1))
-    Ai_22_32 = tl.insert_slice(Ai_22_32, Ai_44, (16, 16), (16, 16), (1, 1))
-    Ai_22_32 = tl.insert_slice(Ai_22_32, Ai_43, (16, 0), (16, 16), (1, 1))
+    Ai_22_32 = al.insert_slice(Ai_22_32, Ai_33, (0, 0), (16, 16), (1, 1))
+    Ai_22_32 = al.insert_slice(Ai_22_32, Ai_44, (16, 16), (16, 16), (1, 1))
+    Ai_22_32 = al.insert_slice(Ai_22_32, Ai_43, (16, 0), (16, 16), (1, 1))
 
     # load A_21_32 (A block at row i_t * 64 + 32, col 0, 32 * 32)
     offs_m = i_t * 64 + 32 + tl.arange(0, 32)
@@ -567,9 +567,9 @@ def merge_16x16_to_64x64_inverse_kernel(
 
     # build Ai_11_32 (32 * 32)
     Ai_11_32 = tl.zeros((32, 32), tl.float32)
-    Ai_11_32 = tl.insert_slice(Ai_11_32, Ai_11, (0, 0), (16, 16), (1, 1))
-    Ai_11_32 = tl.insert_slice(Ai_11_32, Ai_22, (16, 16), (16, 16), (1, 1))
-    Ai_11_32 = tl.insert_slice(Ai_11_32, Ai_21, (16, 0), (16, 16), (1, 1))
+    Ai_11_32 = al.insert_slice(Ai_11_32, Ai_11, (0, 0), (16, 16), (1, 1))
+    Ai_11_32 = al.insert_slice(Ai_11_32, Ai_22, (16, 16), (16, 16), (1, 1))
+    Ai_11_32 = al.insert_slice(Ai_11_32, Ai_21, (16, 0), (16, 16), (1, 1))
 
     Ai_21_32 = -tl.dot(tmp, Ai_11_32, input_precision="ieee")
 

@@ -13,16 +13,16 @@ DeepEP的ascend实现
 
 
 ## 软硬件配套说明
-硬件型号支持：Atlas A2 和 A3 系列产品
+硬件型号支持：Atlas A2,A3系列产品能适配cann8.5和cann9.0, Atlas A5只能适配cann9.0
 平台：aarch64/x86
 配套软件
-- 驱动 Ascend HDK 25.0.RC1.1、CANN社区版8.2.RC1.alpha003及之后版本（参考《[CANN软件安装指南](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha003/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)》安装CANN开发套件包以及配套固件和驱动）
-- 安装CANN软件前需安装相关[依赖列表](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha003/softwareinst/instg/instg_0045.html)
-- Python >= 3.9
-- PyTorch >= 2.5.1, torch-npu >= 2.5.1-7.0.0
+- 驱动 Ascend HDK 25.1.RC1.1、CANN社区版8.5.0及之后版本（参考《[CANN软件安装指南](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)》安装CANN开发套件包以及配套固件和驱动）
+- 安装CANN软件前需安装相关[依赖列表](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850/softwareinst/instg/instg_0045.html)
+- Python >= 3.9, Recommendation: Python 3.11
+- PyTorch >= 2.8.0 torch-npu >= 2.8.0
 
 ## 快速上手
-DeepEP-Ascend支持A2和A3，需要在A2和A3上分别生成包。
+DeepEP-Ascend支持A2，A3和A5，需要在A2,A3和A5上分别生成包。
 ### 编译执行
 1、准备CANN的环境变量（根据安装路径修改）
 ```bash
@@ -30,7 +30,11 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 ```
 
 2、构建项目
-执行工程构建脚本 build.sh前，根据CANN安装路径，修改`build.sh:line7`的`_ASCEND_INSTALL_PATH`。
+- A5
+    ```bash
+    # Building Project
+    bash build.sh -a deepep Ascend950
+    ```
 - A3
     ```bash
     # Building Project

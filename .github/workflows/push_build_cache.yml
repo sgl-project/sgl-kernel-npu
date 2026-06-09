@@ -17,16 +17,42 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build-cache-a3:
-    name: build-cache-a3
-    runs-on: linux-aarch64-a3-16
+  build-cache:
+    name: Build Cache - ${{ matrix.arch }} - CANN ${{ matrix.cann_version }}
+    runs-on: ${{ matrix.runner }}
+
+    # 定义矩阵策略：覆盖 A3/A2 硬件 和 8.5.0/9.0.0 CANN 版本
+    strategy:
+      matrix:
+        include:
+          # --- A3 环境 (910C) ---
+          - arch: a3
+            runner: linux-aarch64-a3-16
+            cann_version: "8.5.0"
+            image_tag: "8.5.0-a3-ubuntu22.04-py3.11"
+          - arch: a3
+            runner: linux-aarch64-a3-16
+            cann_version: "9.0.0"
+            image_tag: "9.0.0-a3-ubuntu22.04-py3.11"
+
+          # --- A2 环境 (910B) ---
+          - arch: a2
+            runner: linux-aarch64-a2-8
+            cann_version: "8.5.0"
+            image_tag: "8.5.0-910b-ubuntu22.04-py3.11"
+          - arch: a2
+            runner: linux-aarch64-a2-8
+            cann_version: "9.0.0"
+            image_tag: "9.0.0-910b-ubuntu22.04-py3.11"
+
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-a3-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.image_tag }}
     env:
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
       PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
       UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+
     steps:
       - name: Clean git config
         run: |
@@ -35,6 +61,8 @@ jobs:
 
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - name: Get build hash
         id: get_build_hash
@@ -43,12 +71,19 @@ jobs:
             -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
           echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
 
+          # 动态读取当前容器内的 CANN 版本，确保与 pr-test-npu.yml 中的 key 完全一致
+          CANN_RAW=$(cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg 2>/dev/null || echo "unknown")
+          CANN_VERSION=$(echo "$CANN_RAW" | tr -cd '[:alnum:].-' | head -c 32)
+          [ -z "$CANN_VERSION" ] && CANN_VERSION="unknown"
+          echo "CANN_VERSION=$CANN_VERSION" >> $GITHUB_OUTPUT
+          echo "Resolved CANN version: $CANN_VERSION (raw: $CANN_RAW)"
+
       - name: Restore build cache
         id: cache-build
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v1-${{ runner.os }}-a3-cann8.5.0-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+          key: sgl-kernel-npu-build-v2-${{ runner.os }}-${{ matrix.arch }}-cann${{ steps.get_build_hash.outputs.CANN_VERSION }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
 
       - name: Install dependencies
         if: steps.cache-build.outputs.cache-hit != 'true'
@@ -60,60 +95,10 @@ jobs:
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
 
-      - name: Build (deepep2 for a3)
+      - name: Build artifacts
         if: steps.cache-build.outputs.cache-hit != 'true'
         run: |
-          env -i PATH=${PATH} bash --login -c "
-            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
-            bash build.sh
-          "
-
-  build-cache-a2:
-    name: build-cache-a2
-    runs-on: linux-aarch64-a2-8
-    container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:8.5.0-910b-ubuntu22.04-py3.11
-    env:
-      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
-      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
-      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
-      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
-    steps:
-      - name: Clean git config
-        run: |
-          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
-          git config --global --unset "$CONFIG_KEY" || true
-
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Get build hash
-        id: get_build_hash
-        run: |
-          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
-            -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
-          echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
-
-      - name: Restore build cache
-        id: cache-build
-        uses: runs-on/cache@v4
-        with:
-          path: output
-          key: sgl-kernel-npu-build-v1-${{ runner.os }}-a2-cann8.5.0-${{ steps.get_build_hash.outputs.BUILD_HASH }}
-
-      - name: Install dependencies
-        if: steps.cache-build.outputs.cache-hit != 'true'
-        run: |
-          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
-          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
-          pip config set global.index-url http://${CACHING_URL}/pypi/simple
-          pip config set global.trusted-host ${CACHING_URL}
-          pip install uv
-          bash scripts/npu_ci_install_dependency.sh
-
-      - name: Build (deepep2 for a2)
-        if: steps.cache-build.outputs.cache-hit != 'true'
-        run: |
+          echo "🚀 Building for arch: ${{ matrix.arch }}, CANN: ${{ steps.get_build_hash.outputs.CANN_VERSION }}"
           env -i PATH=${PATH} bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
             bash build.sh
