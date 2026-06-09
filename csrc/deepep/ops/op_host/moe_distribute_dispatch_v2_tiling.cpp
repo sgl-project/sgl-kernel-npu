@@ -343,8 +343,8 @@ static bool CheckTensorDataType(const gert::TilingContext *context, const char *
         auto dynamicScalesDesc = context->GetOutputDesc(OUTPUT_DYNAMIC_SCALES_INDEX);
         OP_TILING_CHECK(dynamicScalesDesc == nullptr, OP_LOGE(nodeName, "dynamicScalesDesc is null."), return false);
         OP_TILING_CHECK(
-            dynamicScalesDesc->GetDataType() != ge::DT_FLOAT8_E8M0FNU,
-            OP_LOGE(nodeName, "dynamicScales dataType is invalid, dataType should be float8_e8m0fnu, but is %d.",
+            dynamicScalesDesc->GetDataType() != ge::DT_FLOAT8_E8M0,
+            OP_LOGE(nodeName, "dynamicScales dataType is invalid, dataType should be float8_e8m0, but is %d.",
                     static_cast<ge::DataType>(dynamicScalesDesc->GetDataType())),
             return false);
     }
