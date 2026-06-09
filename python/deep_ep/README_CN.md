@@ -20,11 +20,10 @@ DeepEP的ascend实现
 >>>>>>> af200c072b61983fe138d2fe7a0ae765a66c3526
 平台：aarch64/x86
 配套软件
-- 驱动 Ascend HDK 25.0.RC1.1、CANN社区版8.2.RC1.alpha003及之后版本（参考《[CANN软件安装指南](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha003/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)》安装CANN开发套件包以及配套固件和驱动）
-- 安装CANN软件前需安装相关[依赖列表](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/82RC1alpha003/softwareinst/instg/instg_0045.html)
-- Python >= 3.9
+- 驱动 Ascend HDK 25.1.RC1.1、CANN社区版8.5.0及之后版本（参考《[CANN软件安装指南](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850/softwareinst/instg/instg_0001.html?Mode=PmIns&OS=Ubuntu&Software=cannToolKit)》安装CANN开发套件包以及配套固件和驱动）
+- 安装CANN软件前需安装相关[依赖列表](https://www.hiascend.com/document/detail/zh/CANNCommunityEdition/850/softwareinst/instg/instg_0045.html)
+- Python >= 3.9, Recommendation: Python 3.11
 - PyTorch >= 2.8.0 torch-npu >= 2.8.0
-- Recommendation: Python 3.11
 
 ## 快速上手
 <<<<<<< HEAD

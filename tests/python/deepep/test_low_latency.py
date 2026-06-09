@@ -88,6 +88,7 @@ def test(
                 cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
                 async_finish=not return_recv_hook,
                 return_recv_hook=return_recv_hook,
+                topk_weights=topk_weights,
             )
         )
         simulated_gemm_x = (
@@ -168,6 +169,7 @@ def test(
             hidden,
             num_experts,
             packed_recv_count,
+            expand_scales,
         ) = handle
 
         out = torch.empty(
@@ -209,6 +211,7 @@ def test(
             use_fp8=dispatch_use_fp8,
             async_finish=False,
             return_recv_hook=return_recv_hook,
+            topk_weights=topk_weights,
         )
         combined_x, event, hook = buffer.low_latency_combine(
             simulated_gemm_x,
@@ -321,6 +324,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         num_rdma_bytes=num_rdma_bytes,
         low_latency_mode=True,
         num_qps_per_rank=use_experts // use_ranks if use_ranks > 0 else 1,
+        low_latency_strategy=args.low_latency_strategy,
     )
 
     test(
@@ -408,6 +412,13 @@ if __name__ == "__main__":
         "--enable-dynamic-tokens",
         action="store_true",
         help="Enable dynamic and inconsistent num_tokens across different ranks",
+    )
+    parser.add_argument(
+        "--low-latency-strategy",
+        type=str,
+        default="default",
+        choices=["default", "ops"],
+        help="Low latency strategy to use: 'default' (deep_ep_cpp) or 'ops' (torch_npu ops)",
     )
     args = parser.parse_args()
 
