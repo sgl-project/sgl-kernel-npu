@@ -48,9 +48,9 @@ constexpr float HIFP8_MAX_VALUE = 32768.0f;
 constexpr float INT8_MAX_VALUE = 127.0f;
 
 #define TemplateMC2TypeClass                                                                               \
-    typename XType, typename ExpandXOutType, bool StaticQuant, bool DynamicQuant, bool IsSmoothScaleExist, \
+    typename XType, typename ExpandXOutType, bool StaticQuant, typename XScalesType, bool DynamicQuant, bool IsSmoothScaleExist, \
         bool IsNeedAllgather
-#define TemplateMC2TypeFunc XType, ExpandXOutType, StaticQuant, DynamicQuant, IsSmoothScaleExist, IsNeedAllgather
+#define TemplateMC2TypeFunc XType, ExpandXOutType, XScalesType, StaticQuant, DynamicQuant, IsMxQuant, IsSmoothScaleExist, IsNeedAllgather
 
 using namespace AscendC;
 using namespace MoeDistributeV2Base;
@@ -82,7 +82,8 @@ private:
     __aicore__ inline void ReduceMaxInplace(const LocalTensor<float> &srcLocal, uint32_t count);
     __aicore__ inline void QuantProcess(uint32_t expertIndex);
 #ifdef __DAV_C310__
-    __aicore__ inline void MxQuantProcess(uint32_t expertIndex);
+    __aicore__ inline void QuantDynamicMxFp8(LocalTensor<ExpandXOutType> &outLocal, LocalTensor<XType> &inLocal,
+                                             LocalTensor<float> &tokenF32LT_);
 #endif
     __aicore__ inline void SetStatus();
     __aicore__ inline void BufferInit();
@@ -130,10 +131,7 @@ private:
     GlobalTensor<XType> xGMTensor_;
     GlobalTensor<int32_t> expertIdsGMTensor_;
     GlobalTensor<float> scalesGMTensor_;
-    GlobalTensor<float> dynamicScalesOutGMTensor_;
-#ifdef __DAV_C310__
-    GlobalTensor<fp8_e8m0fnu_t> mxScalesOutGMTensor_;
-#endif
+    GlobalTensor<XScalesType> dynamicScalesOutGT;
     GlobalTensor<int64_t> expertTokenNumsOutGMTensor_;
     GlobalTensor<float> windowInstatusFp32Tensor_;
     GlobalTensor<bool> xActiveMaskGMTensor_;
@@ -201,6 +199,8 @@ private:
     GM_ADDR statusDataSpaceGm_;
 
     // tiling侧已确保数据上限，相乘不会越界，因此统一采用uint32_t进行处理
+    uint16_t axisHCommu_{0};
+    uint32_t axisH_{0};
     uint32_t axisBS_{0};
     uint32_t axisMaxBS_{0};
     uint32_t axisH_{0};
@@ -363,12 +363,8 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::Init(
     xGMTensor_.SetGlobalBuffer((__gm__ XType *)x);
     xActiveMaskGMTensor_.SetGlobalBuffer((__gm__ bool *)xActiveMask);
     expertIdsGMTensor_.SetGlobalBuffer((__gm__ int32_t *)expertIds);
-    dynamicScalesOutGMTensor_.SetGlobalBuffer((__gm__ float *)dynamicScalesOut);
-#ifdef __DAV_C310__
-    if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value || Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value) {
-        mxScalesOutGMTensor_.SetGlobalBuffer((__gm__ fp8_e8m0fnu_t *)dynamicScalesOut);
-    }
-#endif
+    dynamicScalesOutGT.SetGlobalBuffer((__gm__ XScalesType *)dynamicScalesOut);
+
     expertTokenNumsOutGMTensor_.SetGlobalBuffer((__gm__ int64_t *)expertTokenNumsOut);
     expandIdxGMTensor_.SetGlobalBuffer((__gm__ int32_t *)(expandIdxOut));
     expandXOutGM_ = expandXOut;
@@ -376,12 +372,26 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::Init(
     sendTpCountOutGM_ = tpSendCountsOut;
     recvCntWorkspaceGM_ = workspaceGM;
 
+    axisH_ = h;
     hOutSize_ = axisH_ * sizeof(ExpandXOutType);
     hOutSizeAlign_ = Ceil(hOutSize_, UB_ALIGN) * UB_ALIGN;  // scale起始放置偏移
     uint32_t hScaleSizeAlign = hOutSizeAlign_ + UB_ALIGN;   // 填充三元组起始偏移
     tokenQuantAlign_ = hScaleSizeAlign / sizeof(int32_t);
+    uint32_t quantScalePerToken = IsMxQuant ? Ceil(axisH_, 32) : 1;
+    uint32_t quantScalePerTokenAlign = Ceil(quantScalePerToken * sizeof(XScalesType), UB_ALIGN) * UB_ALIGN;
+
+    hScaleSizeAlign =
+        hUBAlignSize +
+        quantScalePerTokenAlign;  // ((7168*1 + 32) + 3*4) + 7168/32 = 7168 + 32 + 12 + 224 = 7436B, 需要对齐512B
+
     // 实际搬运大小，搬运token_align32B + 32B(float) + 3*4B(三元组)
     uint32_t hScaleIdxSize = hScaleSizeAlign + EXPAND_IDX_INFO * sizeof(int32_t);
+    if (IsMxQuant) {
+        hScaleIdxSize +=
+            Ceil(axisH_, 32);  // ((7168*1 + 32) + 3*4) + 7168/32 = 7168 + 32 + 12 + 224 = 7436B, 需要对齐512B
+    }
+    uint32_t axisHCommu = hScaleIdxSize / sizeof(ExpandXOutType);  // 有效搬运长度
+    axisHCommu_ = static_cast<uint16_t>(axisHCommu);
     hAlignWinSize_ = Ceil(hScaleIdxSize, WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;  // win区token起始地址对齐512
     hAlignWinCnt_ = hAlignWinSize_ / sizeof(ExpandXOutType);
     expertPerSizeOnWin_ = axisMaxBS_ * hAlignWinSize_;
@@ -1021,6 +1031,13 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::QuantProc
 #endif
 
     LocalTensor<float> tokenF32LT = receiveDataCastFloatBuf_.Get<float>();
+#ifdef __DAV_C310__
+    if constexpr (IsMxQuant) {
+        QuantDynamicMxFp8(xOutTensor, xInTensor, tokenF32LT);
+        xInQueue.FreeTensor<XType>(xInTensor);
+        return;
+    }
+#endif
     Cast(tokenF32LT, xInTensor_, RoundMode::CAST_NONE, axisH_);  // 1. tokenF16 -> tokenF32
     xInQueue_.FreeTensor<XType>(xInTensor_);
     // PipeBarrier<PIPE_V>();
@@ -1057,31 +1074,24 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::QuantProc
 }
 
 #ifdef __DAV_C310__
-template <TemplateMC2TypeClass>
-__aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::MxQuantProcess(uint32_t expertIndex)
+template <CamTypeClass>
+__aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::QuantDynamicMxFp8(LocalTensor<ExpandXOutType> &outLocal,
+                                                                              LocalTensor<XType> &inLocal,
+                                                                              LocalTensor<float> &tokenF32LT_)
 {
-    if constexpr (!(Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value ||
-                    Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value)) {
-        return;
-    }
+    if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value || Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value) {
+        uint32_t mxScaleNum = Align2(Ceil32(axisH_));Expand commentComment on line R321Resolved
+            __ubuf__ XType *srcAddr = (__ubuf__ XType *)inLocal.GetPhyAddr();
+        __ubuf__ uint16_t *maxExpAddr = (__ubuf__ uint16_t *)tokenF32LT_.GetPhyAddr();
+        __ubuf__ uint16_t *halfScaleLocalAddr = (__ubuf__ uint16_t *)tokenF32LT_[Align32(mxScaleNum)].GetPhyAddr();
+        __ubuf__ int8_t *outLocalAddr = (__ubuf__ int8_t *)outLocal.GetPhyAddr();
+        __ubuf__ uint16_t *mxScaleLocalAddr = (__ubuf__ uint16_t *)outLocal[Align256<uint32_t>(axisH_)].GetPhyAddr();
 
-    uint32_t mxScaleNum = Align2(Ceil(axisH_, 32));
-    uint32_t totalScaleInUB = mxScaleNum;
-    __ubuf__ uint16_t *maxExpAddr = (__ubuf__ uint16_t *)smoothScalesBuf_.Get<uint16_t>();
-    __ubuf__ uint16_t *mxScaleLocalAddr = (__ubuf__ uint16_t *)(maxExpAddr + mxScaleNum);
-    __ubuf__ uint16_t *halfScaleLocalAddr = (__ubuf__ uint16_t *)(mxScaleLocalAddr + mxScaleNum);
-    __ubuf__ ExpandXOutType *srcAddr = (__ubuf__ ExpandXOutType *)xInTensor_.GetPhyAddr();
-    quant::ComputeMaxExp<XType>((__ubuf__ XType *)xInTensor_.GetPhyAddr(), maxExpAddr, axisH_);
-    quant::ComputeScale<ExpandXOutType>(maxExpAddr, mxScaleLocalAddr, halfScaleLocalAddr, totalScaleInUB);
-    quant::ComputeFp8Data<XType, ExpandXOutType, RoundMode::CAST_TRUNC, RoundMode::CAST_RINT>(
-        (__ubuf__ XType *)xInTensor_.GetPhyAddr(), halfScaleLocalAddr, (__ubuf__ int8_t *)xOutTensor_.GetPhyAddr(),
-        axisH_);
-
-    uint32_t tokenIdxInRecv = expertIndex;
-    for (uint32_t s = 0; s < mxScaleNum; s++) {
-        mxScalesOutGMTensor_.SetValue(tokenIdxInRecv * mxScaleNum + s, (fp8_e8m0fnu_t)(mxScaleLocalAddr[s] & 0xFF));
+        quant::ComputeMaxExp(srcAddr, maxExpAddr, axisH_);
+        quant::ComputeScale<ExpandXOutType>(maxExpAddr, mxScaleLocalAddr, halfScaleLocalAddr, mxScaleNum);
+        quant::ComputeData<XType, ExpandXOutType, AscendC::RoundMode::CAST_TRUNC, AscendC::RoundMode::CAST_RINT>(
+            srcAddr, halfScaleLocalAddr, outLocalAddr, axisH_);
     }
-    PipeBarrier<PIPE_V>();
 }
 #endif
 
@@ -1291,7 +1301,9 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::LocalWind
     uint32_t beginIdx = outCountLocal.GetValue(0);
     preCnt_ = beginIdx;
     statusTensor_ = waitStatusBuf_.Get<int32_t>();
-    DataCopyPadExtParams<ExpandXOutType> copyPadExtParams{false, 0U, 0U, 0U};
+    DataCopyParams tokenInParams = {1U, static_cast<uint16_t>(axisHCommu_ * sizeof(ExpandXOutType)), 0U,
+                                    0U};  // compare with
+    DataCopyPadParams padParams = {true, 0, 0, 0};
     DataCopyExtParams dataCopyExpandIdxParams{1U, sizeof(int32_t) * EXPAND_IDX_INFO, 0U, 0U, 0U};
     DataCopyExtParams dataCopyOutParams{1U, static_cast<uint32_t>(sendExpertNum_ * sizeof(int32_t)), 0U, 0U, 0U};
     for (uint32_t index = startExpertId_; index < endExpertId_; index++) {
@@ -1312,11 +1324,12 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::LocalWind
         GlobalTensor<ExpandXOutType> expandXOutGlobal;
         tokGlobal.SetL2CacheHint(CacheMode::CACHE_MODE_DISABLE);
         LocalTensor<int32_t> xTmpTensorInt;
+        uint16_t scaleNumForOneToken = IsMxQuant ? Ceil(axisH_, 32) : 1;
         for (uint32_t j = 0; j < count; j++) {
             tokGlobal.SetGlobalBuffer((__gm__ ExpandXOutType *)(wAddr + j * hAlignWinSize_));
             // 将数据从Window拷贝到UB
             xTmpTensor_ = xQueue_.AllocTensor<ExpandXOutType>();
-            DataCopyPad(xTmpTensor_, tokGlobal, hCommuCopyOutParams_, copyPadExtParams);
+            DataCopyPad(xTmpTensor, srcTokenGT, tokenInParams, padParams);
             xQueue_.EnQue(xTmpTensor_);
             xTmpTensor_ = xQueue_.DeQue<ExpandXOutType>();
             xTmpTensorInt = xTmpTensor_.template ReinterpretCast<int32_t>();
@@ -1324,8 +1337,10 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::LocalWind
                         dataCopyExpandIdxParams);
             if constexpr (DynamicQuant || StaticQuant) {
                 xOutFp32Tensor_ = xTmpTensor_.template ReinterpretCast<float>();
-                DataCopyPad(dynamicScalesOutGMTensor_[beginIdx + j], xOutFp32Tensor_[hOutSizeAlign_ / sizeof(float)],
-                            floatDataCopyParams_);
+                DataCopyParams scaleOutputDataCopyParams = {1U, static_cast<uint16_t>(scaleNumForOneToken), 0U, 0U};
+                LocalTensor<XScalesType> xOutXScalesTypeTensor = xTmpTensor.template ReinterpretCast<XScalesType>();
+                DataCopyPad(dynamicScalesOutGT[(writeOffset + j) * scaleNumForOneToken],
+                            xOutXScalesTypeTensor[hUBAlignSize / sizeof(XScalesType)], scaleOutputDataCopyParams);
             }
             if constexpr (IsNeedAllgather) {
                 DataCopyPad(winTpGatherOutGMTensor_[(beginIdx + j) * hAlignWinCnt_], xTmpTensor_, hCommuCopyOutParams_);
@@ -1438,7 +1453,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::Allgather
         DataCopyPad(expandXOutGlobal, xTmpTensor_, expandXCopyParams_);
         if constexpr (StaticQuant || DynamicQuant) {
             xOutFp32Tensor_ = xTmpTensor_.template ReinterpretCast<float>();
-            DataCopyPad(dynamicScalesOutGMTensor_[preCount + totalCnt_ + i],
+            DataCopyPad(dynamicScalesOutGT[preCount + totalCnt_ + i],
                         xOutFp32Tensor_[hOutSizeAlign_ / sizeof(float)], floatDataCopyParams_);
         }
         xQueue_.FreeTensor(xTmpTensor_);

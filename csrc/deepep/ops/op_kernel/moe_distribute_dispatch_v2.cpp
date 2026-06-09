@@ -13,10 +13,10 @@ using namespace MoeDistributeDispatchV2Impl;
 using namespace MoeDistributeDispatchV2A5Impl;
 
 /*
- * A3 tilingkey说明
+ * Tilingkey说明
  * 5位的十进制数
  * 第1位（个位）：quantMode:
- *     0: 不量化, 1: 静态量化, 2: 动态量化
+ *     0: 不量化, 1: 静态量化, 2: 动态量化, 3: 量化类型: mxfp8
  * 第2位（十位）：是否有smoothScale:
  *     0: 无, 1: 有
  * 第3位（百位）：是否做tp域allgather:
@@ -55,7 +55,7 @@ extern "C" __global__ __aicore__ void moe_distribute_dispatch_v2(GM_ADDR x, GM_A
     }
     if (TILING_KEY_IS(50000)) {
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
-        MoeDistributeDispatchV2A5<DTYPE_X, DTYPE_EXPAND_X, false, false, false, false> op;
+        MoeDistributeDispatchV2A5<DTYPE_X, DTYPE_EXPAND_X, DTYPE_X_SCALES, false, false, false, false, false> op;
         op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
                 expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
@@ -122,7 +122,7 @@ extern "C" __global__ __aicore__ void moe_distribute_dispatch_v2(GM_ADDR x, GM_A
     }
     if (TILING_KEY_IS(50002)) {
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
-        MoeDistributeDispatchV2A5<DTYPE_X, DTYPE_EXPAND_X, false, true, false, false> op;
+        MoeDistributeDispatchV2A5<DTYPE_X, DTYPE_EXPAND_X, DTYPE_X_SCALES, false, true, false, false, false> op;
         op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
                 expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
@@ -142,7 +142,7 @@ extern "C" __global__ __aicore__ void moe_distribute_dispatch_v2(GM_ADDR x, GM_A
 #ifdef __DAV_C310__
     if (TILING_KEY_IS(50003)) {
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
-        MoeDistributeDispatchV2A5<DTYPE_X, DTYPE_EXPAND_X, false, true, false, false> op;
+        MoeDistributeDispatchV2A5<DTYPE_X, DTYPE_EXPAND_X, DTYPE_X_SCALES, false, true, true, false, false> op;
         op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
                 expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
