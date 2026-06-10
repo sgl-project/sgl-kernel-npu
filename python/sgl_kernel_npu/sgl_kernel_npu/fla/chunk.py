@@ -23,8 +23,8 @@ from sgl_kernel_npu.fla.utils import SUPPRESS_LEVEL, input_guard
 from sgl_kernel_npu.fla.wy_fast import recompute_w_u_fwd_npu as recompute_w_u_fwd
 
 
-def _use_triton_backend():
-    return os.getenv("GDN_ATTN_BACKEND_TRITON", "0") == "1"
+def _use_mega_gdn():
+    return os.getenv("GDN_USE_MEGA_GDN", "0") == "1"
 
 
 def fast_inv_tril(A: torch.Tensor):
@@ -213,7 +213,7 @@ def chunk_gated_delta_rule_fwd(
     output_final_state: bool,
     cu_seqlens: Optional[torch.LongTensor] = None,
 ):
-    if not _use_triton_backend():
+    if _use_mega_gdn():
         g, o, A, final_state, w, h, v_new = run_mega_chunk_gdn(
             q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
         )

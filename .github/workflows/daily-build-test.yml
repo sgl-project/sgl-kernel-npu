@@ -82,10 +82,16 @@ jobs:
             test-results/
             logs/
           retention-days: 30
+run-pr-tests:
+    name: Run PR Test Suite
+    needs: [ run-daily-tests ]
+    if: success() || failure()
+    uses: ./.github/workflows/pr-test-npu.yml
+    secrets: inherit
 
   finish:
     if: always()
-    needs: [ run-daily-tests ]
+    needs: [ run-daily-tests, run-pr-tests ]
     runs-on: ubuntu-latest
     steps:
       - name: Generate test report
@@ -93,8 +99,15 @@ jobs:
           echo "## Daily Enumerate Tests Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Overall Status**: ${{ needs.run-daily-tests.result }}" >> $GITHUB_STEP_SUMMARY
+echo "**PR Tests Status**: ${{ needs.run-pr-tests.result }}" >> $GITHUB_STEP_SUMMARY
           echo "**Execution Time**: $(date)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Workflow Run**: [$GITHUB_RUN_ID](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "See individual job status in the run details above." >> $GITHUB_STEP_SUMMARY
+echo "" >> $GITHUB_STEP_SUMMARY
+          # Fail the workflow if PR tests failed (since they should be reliable when daily passes)
+          if [ "${{ needs.run-pr-tests.result }}" = "failure" ] || [ "${{ needs.run-pr-tests.result }}" = "cancelled" ]; then
+            echo "PR test suite failed with status: ${{ needs.run-pr-tests.result }}"
+            exit 1
+          fi

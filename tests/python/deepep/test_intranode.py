@@ -475,8 +475,8 @@ def test_main(
         )
         golden = ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
 
-        max_diff = torch.max(torch.abs(check_x - ref_x) / golden).item()
-        avg_diff = torch.mean(torch.abs(check_x - ref_x) / golden).item()
+        max_diff = torch.max(torch.abs(check_x - golden) / golden).item()
+        avg_diff = torch.mean(torch.abs(check_x - golden) / golden).item()
         print(f"{rank=}, {avg_diff=:.5f}, {max_diff=:.5f}, cosine_diff={diff:.5f}")
         assert diff < 5e-5
 

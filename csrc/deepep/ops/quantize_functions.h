@@ -128,7 +128,7 @@ __aicore__ inline void ComputeScale(__ubuf__ uint16_t *maxExpAddr, __ubuf__ uint
                                     __ubuf__ uint16_t *halfScaleLocalAddr, uint32_t totalScaleInUB)
 {
     uint32_t vlForHalfNumber = GetVRegSizeDispatch() / sizeof(uint16_t);
-    uint16_t maxExponent;
+uint16_t maxExponent;
     if constexpr (Std::IsSame<T, fp8_e4m3fn_t>::value) {
         maxExponent = FP8_E4M3_MAX_EXP;
     } else if constexpr (Std::IsSame<T, fp8_e5m2_t>::value) {
@@ -150,7 +150,7 @@ __aicore__ inline void ComputeScale(__ubuf__ uint16_t *maxExpAddr, __ubuf__ uint
         MicroAPI::MaskReg zeroMask;
         MicroAPI::MaskReg preMaskScale;
         MicroAPI::RegTensor<uint16_t> maxExpValue;
-        MicroAPI::Duplicate(maxExpValue, maxExponent);
+MicroAPI::Duplicate(maxExpValue, maxExponent);
         MicroAPI::RegTensor<uint16_t> sharedExp;
         MicroAPI::RegTensor<uint16_t> scaleValue;
         MicroAPI::RegTensor<uint16_t> scaleBias;
@@ -409,7 +409,6 @@ __aicore__ inline void ComputeFp4Data(__ubuf__ T* srcAddr, __ubuf__ uint16_t* ha
         }
     }
 }
-
 template <typename T, typename U, RoundMode RMode, bool HasSmooth>
 __aicore__ inline void ComputePerTileDynamic(__ubuf__ T *srcAddr, __ubuf__ float *smoothLocalAddr,
                                              __ubuf__ float *scaleOutLocalAddr, __ubuf__ int8_t *outLocalAddr,

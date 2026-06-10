@@ -314,7 +314,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                                  : torch::empty({num_recv_tokens, hidden}, x.options());
     auto dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
 #ifdef __DAV_C310__
-    printf("###3#DBG0604 enter 0 __DAV_C310__ \n");
     if (is_mxfp8_quant) {
         if (quant_type == "fp8_e5m2") {
             expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e5m2).device(x.device()));
@@ -328,21 +327,12 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         dynamic_scales_out =
             torch::empty({num_recv_tokens * hidden / 32}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
     }
-    printf("####DBG0604 after 1 __DAV_C310__ \n");
 #endif
-    printf("####DBG0604 after 2 __DAV_C310__ \n");
     auto expand_idx_out = torch::empty({num_recv_tokens * 3}, at::dtype(at::kInt).device(x.device()));
     if (topk_idx.has_value()) {
         recv_topk_idx = at::empty({trt, num_topk}, topk_idx->options());
         recv_topk_weights = at::empty({trt, num_topk}, topk_weights->options());
     }
-
-    printf(
-        "#DBG ===============DEEPEP intranode_dispatch before EXEC_NPU_CMD aclnnCamMoeDispatchNormal, num_recv_tokens: "
-        "%d, real_max_bs: %d, global_bs: %d, quant_mode:%d, is_mxfp8_quant:%d, quant_type:%s, expandx_out.dtype:%s, "
-        "dynamic_scales_out.dtype:%s\n",
-        num_recv_tokens, static_cast<int>(real_max_bs), static_cast<int>(global_bs), quant_mode, is_mxfp8_quant,
-        quant_type.c_str(), expandx_out.dtype().name().data(), dynamic_scales_out.dtype().name().data());
 
     EXEC_NPU_CMD(aclnnCamMoeDispatchNormal, new_x, expert_ids, send_data_offset, send_token_idx_small, recv_offset,
                  recv_count, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, hcom_ep_name,
@@ -352,7 +342,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  per_round_tokens, expandx_out, dynamic_scales_out, expand_idx_out, dispatch_wait_recv_cost_stats_out);
     auto recv_token_per_exp_cpu = recv_tokens_per_expert.to(at::kCPU);
     auto recv_token_per_exp_ptr = recv_token_per_exp_cpu.data_ptr<int32_t>();
-    printf("#DBG ===============DEEPEP intranode_dispatch after EXEC_NPU_CMD aclnnCamMoeDispatchNormal\n");
     // if (is_mxfp8_quant) {
     //     // pytorch python api does not support float8 output, need to convert it to int8/uint8 for further processing
     //     //? not working: RuntimeError: copy_d2d_baseformat_opapi:build/CMakeFiles/torch_npu.dir/compiler_depend.ts:90
