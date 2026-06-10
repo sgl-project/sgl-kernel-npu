@@ -215,6 +215,14 @@ def chunk_gated_delta_rule_fwd(
     cu_seqlens_cpu: Optional[torch.Tensor] = None,
     prebuilt_meta=None,
 ):
+    if _use_mega_gdn():
+        g, o, A, final_state, w, h, v_new = run_mega_chunk_gdn(
+            q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
+        )
+        if SUPPRESS_LEVEL < 3:
+            return g, o, A, final_state, None, h, None
+        return g, o, A, final_state, w, h, v_new
+    
     block_indices_cumsum = (
         None if prebuilt_meta is None else prebuilt_meta.block_indices_cumsum
     )
@@ -228,14 +236,6 @@ def chunk_gated_delta_rule_fwd(
         None if prebuilt_meta is None else prebuilt_meta.chunk_indices_large_block
     )
 
-    if _use_mega_gdn():
-        g, o, A, final_state, w, h, v_new = run_mega_chunk_gdn(
-            q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
-        )
-        if SUPPRESS_LEVEL < 3:
-            return g, o, A, final_state, None, h, None
-        return g, o, A, final_state, w, h, v_new
-
     g = chunk_local_cumsum(
         g,
         chunk_size=64,
@@ -243,7 +243,6 @@ def chunk_gated_delta_rule_fwd(
         cu_seqlens_cpu=cu_seqlens_cpu,
         block_indices=block_indices_cumsum,
     )
-
     # obtain WY representation. u is actually the new v.
     A = chunk_scaled_dot_kkt_fwd(
         k=k,
