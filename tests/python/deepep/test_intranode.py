@@ -478,9 +478,11 @@ def test_main(
             ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
         )
         golden = ref_x * handle[7].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
-
-        max_diff = torch.max(torch.abs(check_x - golden) / golden).item()
-        avg_diff = torch.mean(torch.abs(check_x - golden) / golden).item()
+        # translate all zeros to eps in golden
+        eps = 1e-8
+        golden_nozero = torch.where(golden == 0, eps, golden)
+        max_diff = torch.max(torch.abs(check_x - golden) / golden_nozero).item()
+        avg_diff = torch.mean(torch.abs(check_x - golden) / golden_nozero).item()
         print(f"{rank=}, {avg_diff=:.5f}, {max_diff=:.5f}, cosine_diff={diff:.5f}")
         assert diff < 5e-5
 
