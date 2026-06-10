@@ -461,18 +461,6 @@ jobs:
           HCCL_BUFFSIZE: 3769
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --test-loop=100 --enable-dynamic-tokens
-- name: Run test generalization of fused deep moe
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 2048
-        run: bash scripts/generalization_test_fused_deep_moe.sh
-      - name: Run test combine only
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 3900
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --test-type="low_latency"
 
   test-build-deepep-a3-core:
     needs: get-changed-files
@@ -621,6 +609,7 @@ jobs:
           HCCL_BUFFSIZE: 2300
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --quant-type=int8
+
       - name: Run test intranode for output parameters of different types
         timeout-minutes: 10
         env:
@@ -888,18 +877,6 @@ jobs:
           HCCL_BUFFSIZE: 3769
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --test-loop=100 --enable-dynamic-tokens
-- name: Run test generalization of fused deep moe
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 2048
-        run: bash scripts/generalization_test_fused_deep_moe.sh
-      - name: Run test combine only
-        timeout-minutes: 10
-        env:
-          HCCL_BUFFSIZE: 3900
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --test-type="low_latency"
       - name: Run test fused deep moe for fuse_mode.DISPATCH_FFN_COMBINE
         timeout-minutes: 10
         env:

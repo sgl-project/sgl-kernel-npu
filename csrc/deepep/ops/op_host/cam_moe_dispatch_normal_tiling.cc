@@ -107,7 +107,7 @@ static const std::unordered_map<DataType, std::string> geDataTypeMap = {{ge::DT_
                                                                         {ge::DT_BF16, "DT_BF16"},
                                                                         {ge::DT_FLOAT8_E4M3FN, "DT_FLOAT8_E4M3FN"},
                                                                         {ge::DT_FLOAT8_E5M2, "DT_FLOAT8_E5M2"},
-{ge::DT_FLOAT8_E8M0, "DT_FLOAT8_E8M0"},
+                                                                        {ge::DT_FLOAT8_E8M0, "DT_FLOAT8_E8M0"},
                                                                         {ge::DT_FLOAT4_E2M1, "DT_FLOAT4_E2M1"},
                                                                         {ge::DT_FLOAT4_E1M2, "DT_FLOAT4_E1M2"}};
 namespace optiling {
@@ -198,7 +198,6 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
 {
     auto xDesc = context->GetInputDesc(X_INDEX);
 
-// todo check
     OP_TILING_CHECK(xDesc == nullptr, OP_LOGE(nodeName, "xDesc is null."), return false);
     OP_TILING_CHECK((xDesc->GetDataType() != ge::DT_BF16) && (xDesc->GetDataType() != ge::DT_FLOAT16),
                     OP_LOGE(nodeName, "x dataType is invalid, dataType should be bf16 or float16, but is ."),
@@ -267,6 +266,10 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
                     geDataTypeMap.at(dynamicScalesDesc->GetDataType()).c_str()),
             return false);
     }
+        
+    OP_LOGI(nodeName, "datatype: x: %s, expandX: %s, dynamicScale: %s", geDataTypeMap.at(xDesc->GetDataType()).c_str(),
+            geDataTypeMap.at(expandXDesc->GetDataType()).c_str(),
+            geDataTypeMap.at(dynamicScalesDesc->GetDataType()).c_str());
 
     auto assistInfoDesc = context->GetOutputDesc(OUTPUT_ASSIST_INFO_INDEX);
     OP_TILING_CHECK(assistInfoDesc == nullptr, OP_LOGE(nodeName, "assistInfoDesc is null."), return false);

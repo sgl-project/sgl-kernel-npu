@@ -120,8 +120,6 @@ def test_main(
         )
         topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
 
-    # DBG0416
-    # topk_idx = torch.tensor([list(range(num_topk))]*num_tokens, device="npu")  # for test_topk_minus1 scenario
     topk_weights = (
         torch.ones((num_tokens, num_topk), dtype=torch.float32, device="npu") * rank
     )

@@ -290,7 +290,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int expert_token_nums_type = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
     EP_HOST_ASSERT(expert_token_nums_type == 1 or expert_token_nums_type == 0);
 
-    // printf("=================DEEPEP intranode_dispatch start\n");
     EXEC_NPU_CMD(aclnnNotifyDispatch, send_data, new_num_tokens_per_expert, send_count, num_tokens,
                  hcom_ep_name,  // commGroup
                  num_ranks,     // rankSize
@@ -299,7 +298,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, total_recv_token,
                  max_bs, recv_tokens_per_expert);
     auto send_token_idx_small = this->send_token_idx_small;
-    // printf("=================DEEPEP intranode_dispatch end\n");
     real_max_bs = static_cast<int64_t>(std::max(max_bs.item<int>(), static_cast<int>(num_worst_tokens)));
 
     // dispatch算子内部按照 min(per_round_tokens, real_max_bs)来预留显存
@@ -342,12 +340,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  per_round_tokens, expandx_out, dynamic_scales_out, expand_idx_out, dispatch_wait_recv_cost_stats_out);
     auto recv_token_per_exp_cpu = recv_tokens_per_expert.to(at::kCPU);
     auto recv_token_per_exp_ptr = recv_token_per_exp_cpu.data_ptr<int32_t>();
-    // if (is_mxfp8_quant) {
-    //     // pytorch python api does not support float8 output, need to convert it to int8/uint8 for further processing
-    //     //? not working: RuntimeError: copy_d2d_baseformat_opapi:build/CMakeFiles/torch_npu.dir/compiler_depend.ts:90
-    //     NPU function error: call aclnnInplaceCopy failed, error code is 561103 dynamic_scales_out =
-    //     dynamic_scales_out.to(at::kChar);
-    // }
 
     int token_cnt = 0;
     // 多轮处理为一维
