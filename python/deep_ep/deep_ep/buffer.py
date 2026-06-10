@@ -672,7 +672,8 @@ class Buffer:
                 monitoring.
             use_fp8: whether to enable FP8 casting, with this, the received data will be a tuple of FP8 tensor and scaling factors.
             round_scale: whether round the scaling factors into power of 2.
-            use_ue8m0: whether use UE8M0 as scaling factor format (available only with `round_scale=True`).
+                        use_ue8m0: whether use UE8M0 as scaling factor format. On NPU, this triggers MXFP8 per-block quantization
+                (quant_mode=3) with e8m0fnu scale format.
             async_finish: the current stream will not wait for the communication kernels to be finished if set.
             return_recv_hook: return a receiving hook if set. If set, the kernel will just do the RDMA request issues,
                 but **without actually receiving the data**. You must call the received hook to make sure the data's arrival.
@@ -698,6 +699,7 @@ class Buffer:
             hook: the receiving hook function (valid only if `return_recv_hook` is set).
         """
         # Delegate to low latency strategy
+        # use_fp8 = True, use_ue8m0 = True = mxfp8
         return self.low_latency_strategy.low_latency_dispatch(
             x=x,
             topk_idx=topk_idx,
