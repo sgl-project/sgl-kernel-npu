@@ -307,7 +307,8 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int num_recv_tokens = (trt == 0) ? 1 : trt;
     is_mxfp8_quant = use_quant && (quant_type == "fp8_e4m3" || quant_type == "fp8_e5m2");
     bool is_mxfp4_quant = use_quant && (quant_type == "fp4_e2m1");
-    int64_t quant_mode = use_quant ? (is_mxfp8_quant ? MXFP8_SCALES : (is_mxfp4_quant ? MXFP4_SCALES : DYNAMIC_SCALES)) : NO_SCALES;
+    int64_t quant_mode =
+        use_quant ? (is_mxfp8_quant ? MXFP8_SCALES : (is_mxfp4_quant ? MXFP4_SCALES : DYNAMIC_SCALES)) : NO_SCALES;
     auto expandx_out = use_quant ? torch::empty({num_recv_tokens, hidden}, at::dtype(at::kChar).device(x.device()))
                                  : torch::empty({num_recv_tokens, hidden}, x.options());
     auto dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
@@ -331,16 +332,18 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         recv_topk_idx = at::empty({trt, num_topk}, topk_idx->options());
         recv_topk_weights = at::empty({trt, num_topk}, topk_weights->options());
     }
-   printf(
-       "#DBG ===============DEEPEP intranode_dispatch before EXEC_NPU_CMD aclnnCamM
-oeDispatchNormal, num_recv_tokens: "
-       "%d, real_max_bs: %d, global_bs: %d, quant_mode:%d, is_mxfp8_quant:%d, quant
-_type:%s, expandx_out.dtype:%s, "
-      "dynamic_scales_out.dtype:%s\n",
-       num_recv_tokens, static_cast<int>(real_max_bs), static_cast<int>(global_bs),
- quant_mode, is_mxfp8_quant,
-       quant_type.c_str(), expandx_out.dtype().name().data(), dynamic_scales_out.dt
-ype().name().data());
+    printf("#DBG ===============DEEPEP intranode_dispatch before EXEC_NPU_CMD aclnnCamM
+           oeDispatchNormal,
+           num_recv_tokens
+           : "
+             "%d, real_max_bs: %d, global_bs: %d, quant_mode:%d, is_mxfp8_quant:%d, quant
+           _type
+           : % s, expandx_out.dtype
+           : % s,
+             "
+             "dynamic_scales_out.dtype:%s\n",
+             num_recv_tokens, static_cast<int>(real_max_bs), static_cast<int>(global_bs), quant_mode, is_mxfp8_quant,
+             quant_type.c_str(), expandx_out.dtype().name().data(), dynamic_scales_out.dt ype().name().data());
 
     EXEC_NPU_CMD(aclnnCamMoeDispatchNormal, new_x, expert_ids, send_data_offset, send_token_idx_small, recv_offset,
                  recv_count, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, hcom_ep_name,

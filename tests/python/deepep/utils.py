@@ -110,7 +110,7 @@ def _fp4_e2m1_to_float32_unpack(fp4_bytes: torch.Tensor) -> torch.Tensor:
         if exp == 0 and mant == 0:
             fp4_table[i] = 0.0
         elif exp == 3:
-            fp4_table[i] = float('nan')
+            fp4_table[i] = float("nan")
         else:
             fp4_table[i] = sign * (2.0 ** (exp - 1)) * (1.0 + mant * 0.5)
 
@@ -122,6 +122,8 @@ def _fp4_e2m1_to_float32_unpack(fp4_bytes: torch.Tensor) -> torch.Tensor:
     result = torch.stack([vals_high, vals_low], dim=1).reshape(-1)
     new_shape = list(original_shape[:-1]) + [original_shape[-1] * 2]
     return result.reshape(new_shape)
+
+
 _FP8E8M0_TO_FLOAT32_TABLE = None
 
 
@@ -149,7 +151,6 @@ def per_token_cast_back(x_fp8: torch.Tensor, x_scales: torch.Tensor):
         x_scales_bits = x_scales.view(torch.uint8)
         x_scales_fp32 = _fp8e8m0_to_float32_lookup(x_scales_bits)
 
-
         if x_fp8.dtype == torch.float4_e2m1fn_x2:
             # FP4 dequant: each fp4x2 packs 2 elements, shape is (bs, h/2)
             # Scale is per 32 original elements: (bs * h/32)
@@ -160,7 +161,9 @@ def per_token_cast_back(x_fp8: torch.Tensor, x_scales: torch.Tensor):
             x_fp32 = _fp4_e2m1_to_float32_unpack(x_fp4_uint8)  # CPU float32
             x_fp32 = x_fp32.view(bs, -1, 32)
             x_scales_bits_cpu = x_scales_bits.cpu()
-            x_scales_fp32_cpu = _fp8e8m0_to_float32_lookup(x_scales_bits_cpu).view(bs, -1, 1)
+            x_scales_fp32_cpu = _fp8e8m0_to_float32_lookup(x_scales_bits_cpu).view(
+                bs, -1, 1
+            )
             result_cpu = (x_fp32 * x_scales_fp32_cpu).view(bs, h).to(torch.bfloat16)
             return result_cpu.to(x_fp8.device)
         print(f"{x_scales.dtype=}", flush=True)
@@ -174,7 +177,7 @@ def per_token_cast_back(x_fp8: torch.Tensor, x_scales: torch.Tensor):
         )
         print(
             f"{x_scales_bits.shape=}, {x_scales_fp32[5376//2:5376//2+1000]=}, {x_scales_bits[5376//2:5376//2+1000]=}",
-           flush=True,
+            flush=True,
         )
         torch.save(x_scales_bits, "x_scales_bits.pt")
 

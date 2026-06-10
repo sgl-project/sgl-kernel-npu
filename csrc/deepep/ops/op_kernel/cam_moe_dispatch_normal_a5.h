@@ -79,7 +79,7 @@ private:
     __aicore__ inline void QuantProcess();
 #ifdef __DAV_C310__
     __aicore__ inline void QuantDynamicMx(LocalTensor<ExpandXOutType> &outLocal, LocalTensor<XType> &inLocal,
-                                             LocalTensor<float> &tokenF32LT_);
+                                          LocalTensor<float> &tokenF32LT_);
 #endif
     __aicore__ inline GM_ADDR GetWindAddrByRankId(uint8_t ctxIdx, const int32_t rankId)
     {
@@ -257,10 +257,11 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
 
     expandXOutGM = expandXOut;
     axisH_ = h;
-    if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value || Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
+    if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
+                  Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
         hUBAlignSize = Ceil(Ceil(axisH_, FP4_ELEMS_PER_BYTE), UB_ALIGN) * UB_ALIGN;
     } else {
-    hUBAlignSize = Ceil(h * sizeof(ExpandXOutType), UB_ALIGN) * UB_ALIGN;
+        hUBAlignSize = Ceil(h * sizeof(ExpandXOutType), UB_ALIGN) * UB_ALIGN;
     }
     uint32_t hScaleSizeAlign = hUBAlignSize + UB_ALIGN;
     uint32_t quantScalePerToken = IsMxQuant ? Ceil(axisH_, 32) : 1;
@@ -319,28 +320,31 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
 #ifdef __DAV_C310__
 template <CamTypeClass>
 __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantDynamicMx(LocalTensor<ExpandXOutType> &outLocal,
-                                                                              LocalTensor<XType> &inLocal,
-                                                                              LocalTensor<float> &tokenF32LT_)
+                                                                           LocalTensor<XType> &inLocal,
+                                                                           LocalTensor<float> &tokenF32LT_)
 {
-            uint32_t mxScaleNum = Align2(Ceil32(axisH_));
-        __ubuf__ XType *srcAddr = (__ubuf__ XType *)inLocal.GetPhyAddr();
-        __ubuf__ uint16_t *maxExpAddr = (__ubuf__ uint16_t *)tokenF32LT_.GetPhyAddr();
-        __ubuf__ uint16_t *halfScaleLocalAddr = (__ubuf__ uint16_t *)tokenF32LT_[Align32(mxScaleNum)].GetPhyAddr();
-        __ubuf__ int8_t *outLocalAddr = (__ubuf__ int8_t *)outLocal.GetPhyAddr();
+    uint32_t mxScaleNum = Align2(Ceil32(axisH_));
+    __ubuf__ XType *srcAddr = (__ubuf__ XType *)inLocal.GetPhyAddr();
+    __ubuf__ uint16_t *maxExpAddr = (__ubuf__ uint16_t *)tokenF32LT_.GetPhyAddr();
+    __ubuf__ uint16_t *halfScaleLocalAddr = (__ubuf__ uint16_t *)tokenF32LT_[Align32(mxScaleNum)].GetPhyAddr();
+    __ubuf__ int8_t *outLocalAddr = (__ubuf__ int8_t *)outLocal.GetPhyAddr();
     __ubuf__ uint16_t *mxScaleLocalAddr;
 
-    if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value || Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
-        mxScaleLocalAddr = (__ubuf__ uint16_t *)outLocal[Align256<uint32_t>(Ceil(axisH_, FP4_ELEMS_PER_BYTE))].GetPhyAddr();
+    if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
+                  Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
+        mxScaleLocalAddr =
+            (__ubuf__ uint16_t *)outLocal[Align256<uint32_t>(Ceil(axisH_, FP4_ELEMS_PER_BYTE))].GetPhyAddr();
     } else {
         mxScaleLocalAddr = (__ubuf__ uint16_t *)outLocal[Align256<uint32_t>(axisH_)].GetPhyAddr();
     }
 
-        quant::ComputeMaxExp(srcAddr, maxExpAddr, axisH_);
-        quant::ComputeScale<ExpandXOutType>(maxExpAddr, mxScaleLocalAddr, halfScaleLocalAddr, mxScaleNum);
+    quant::ComputeMaxExp(srcAddr, maxExpAddr, axisH_);
+    quant::ComputeScale<ExpandXOutType>(maxExpAddr, mxScaleLocalAddr, halfScaleLocalAddr, mxScaleNum);
     if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value || Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value) {
         quant::ComputeFp8Data<XType, ExpandXOutType, AscendC::RoundMode::CAST_TRUNC, AscendC::RoundMode::CAST_RINT>(
             srcAddr, halfScaleLocalAddr, outLocalAddr, axisH_);
-    } else if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value || Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
+    } else if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
+                         Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
         quant::ComputeFp4Data<XType, ExpandXOutType, AscendC::RoundMode::CAST_TRUNC, AscendC::RoundMode::CAST_RINT>(
             srcAddr, halfScaleLocalAddr, outLocalAddr, axisH_);
     }
@@ -800,10 +804,12 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
     DataCopyExtParams dataCopyExandIdxParams{1U, sizeof(int32_t) * EXPAND_IDX_INFO, 0U, 0U, 0U};
     DataCopyExtParams dataCopyOutParams{1U, static_cast<uint32_t>(statusNumPerCore * sizeof(int32_t)), 0U, 0U, 0U};
     uint32_t expandXElemCount = h;
-    if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value || Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
+    if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
+                  Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
         expandXElemCount = Ceil(h, FP4_ELEMS_PER_BYTE);
     }
-    DataCopyExtParams expandXCopyParams = {1U, static_cast<uint32_t>(expandXElemCount * sizeof(ExpandXOutType)), 0U, 0U, 0U};
+    DataCopyExtParams expandXCopyParams = {1U, static_cast<uint32_t>(expandXElemCount * sizeof(ExpandXOutType)), 0U, 0U,
+                                           0U};
     LocalTensor<int32_t> xTmpTensorInt;
     AscendC::TQueSync<PIPE_MTE2, PIPE_S> recvCountLocalSync;
     recvCountLocalSync.SetFlag(0);
@@ -853,7 +859,8 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
                 // DataCopyExtParams scaleOutputDataCopyParams = {scaleNumForOneToken, sizeof(XScalesType), 0U, 0U, 0U};
                 DataCopyParams scaleOutputDataCopyParams = {1U, static_cast<uint16_t>(scaleNumForOneToken), 0U, 0U};
                 LocalTensor<XScalesType> xOutXScalesTypeTensor = xTmpTensor.template ReinterpretCast<XScalesType>();
-                -                if (epRankId == 0 && (GetBlockIdx() == 0 || GetBlockIdx() == 1)) {
+                -if (epRankId == 0 && (GetBlockIdx() == 0 || GetBlockIdx() == 1))
+                {
                     printf("#DBG0417 s2o 2 rank0, blk%d, dump xTmpTensor:\n", blockIdx);
                     // DumpTensor(dstGT,536,1024);
                     DumpAccChkPoint(xTmpTensor, 845, 7136, 256);
@@ -865,7 +872,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
                     DumpAccChkPoint(xOutXScalesTypeTensor, 850, 7136, 256);
                 }
                 if (IsMxQuant)
-                   // DataCopyPad(dynamicScalesOutUint8GT[(writeOffset + j)*scaleNumForOneToken],
+                    // DataCopyPad(dynamicScalesOutUint8GT[(writeOffset + j)*scaleNumForOneToken],
                     //             xOutXScalesTypeTensor[hUBAlignSize / sizeof(XScalesType)].template
                     //             ReinterpretCast<uint8_t>(), scaleOutputDataCopyParams);
                     DataCopyPad(dynamicScalesOutGT[(writeOffset + j) * scaleNumForOneToken],
@@ -874,7 +881,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
                     DataCopyPad(dynamicScalesOutGT[(writeOffset + j) * scaleNumForOneToken],
                                 xOutXScalesTypeTensor[hUBAlignSize / sizeof(XScalesType)], scaleOutputDataCopyParams);
                 }
-                 if (epRankId == 0 && (GetBlockIdx() == 0 || GetBlockIdx() == 1)) {
+                if (epRankId == 0 && (GetBlockIdx() == 0 || GetBlockIdx() == 1)) {
                     printf(
                         "#DBG0417 s2o 3.5 rank0, blk%d, hUBAlignSize%d, sizeof(XScalesType):%d, dump "
                         "dynamicScalesOutGT:\n",
@@ -890,7 +897,8 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
                 }
             }
 
-            dstTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(expandXOutGM) + (writeOffset + j) * expandXElemCount, expandXElemCount);
+            dstTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(expandXOutGM) + (writeOffset + j) * expandXElemCount,
+                                       expandXElemCount);
             DataCopyPad(dstTokenGT, xTmpTensor, expandXCopyParams);
 
             xQueue.FreeTensor(xTmpTensor);
