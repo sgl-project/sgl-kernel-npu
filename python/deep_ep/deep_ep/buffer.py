@@ -11,6 +11,7 @@ from deep_ep_cpp import Config, EventHandle
 from .ep_strategy import (
     LowLatencyStrategy,
     NormalStrategy,
+    StrategyMap,
     get_low_latency_strategy,
     get_normal_strategy,
 )
@@ -36,7 +37,9 @@ class Buffer:
         allow_nvlink_for_low_latency_mode: bool = True,
         allow_mnnvl: bool = False,
         normal_strategy: Union[str, NormalStrategy] = NormalStrategy.DEFAULT,
-        low_latency_strategy: Union[str, NormalStrategy] = LowLatencyStrategy.DEFAULT,
+        low_latency_strategy: Union[
+            str, LowLatencyStrategy
+        ] = LowLatencyStrategy.DEFAULT,
     ) -> None:
         """
         Initialize the communication buffer.
@@ -80,10 +83,12 @@ class Buffer:
         )
 
         # set strategy by env
-        if os.getenv("DEEP_NORMAL_USE_ALLTOALL") == "1":
-            normal_strategy = NormalStrategy.ALLTOALL
-        if os.getenv("DEEP_LOW_LATENCY_USE_OPS") == "1":
-            low_latency_strategy = LowLatencyStrategy.OPS
+        normal_mode = os.getenv("DEEP_NORMAL_MODE", "default").lower()
+        low_latency_mode = os.getenv("DEEP_LOW_LATENCY_MODE", "default").lower()
+
+        normal_strategy, low_latency_strategy = StrategyMap.get_strategy(
+            normal_mode, low_latency_mode
+        )
 
         # Initialize normal mode strategy
         self._init_normal_strategy(normal_strategy)

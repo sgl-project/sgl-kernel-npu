@@ -70,6 +70,7 @@ def test(
     # Check dispatch correctness
     do_check = True
     return_recv_hook = False
+    all_to_all_mode = os.getenv("DEEP_LOW_LATENCY_MODE", "default") == "alltoall"
     hash_value, num_times = 0, 0
 
     cumulative_local_expert_recv_stats = torch.zeros(
@@ -114,7 +115,7 @@ def test(
         )
         dist.all_gather_into_tensor(all_topk_idx, topk_idx_padded, group=group)
 
-        for i in range(num_local_experts if do_check else 0):
+        for i in range(num_local_experts if do_check and not all_to_all_mode else 0):
             expert_id = rank * num_local_experts + i
             temp = aligned_num_tokens / num_local_experts
             recv_count = packed_recv_count[i]
@@ -162,15 +163,16 @@ def test(
                 )
 
         # Check combine correctness
-        (
-            src_info,
-            layout_range,
-            num_max_dispatch_tokens_per_rank,
-            hidden,
-            num_experts,
-            packed_recv_count,
-            expand_scales,
-        ) = handle
+        if not all_to_all_mode:
+            (
+                src_info,
+                layout_range,
+                num_max_dispatch_tokens_per_rank,
+                hidden,
+                num_experts,
+                packed_recv_count,
+                expand_scales,
+            ) = handle
 
         out = torch.empty(
             (aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
@@ -239,6 +241,8 @@ def test(
         f"avg_t={avg_t * 1e6:.2f} us, min_t={min_t * 1e6:.2f} us, max_t={max_t * 1e6:.2f} us",
         flush=True,
     )
+    if all_to_all_mode:
+        return hash_value
 
     # Separate profiling
     # return_recv_hook=True is not supported now

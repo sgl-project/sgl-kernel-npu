@@ -21,10 +21,46 @@ class NormalStrategy:
 class LowLatencyStrategy:
     DEFAULT = "default"
     OPS = "ops"
+    ALLTOALL = "alltoall"
 
     @classmethod
     def get_all_strategies(cls) -> list:
-        return [cls.DEFAULT, cls.OPS]
+        return [cls.DEFAULT, cls.OPS, cls.ALLTOALL]
+
+
+# Normal mode strategy and Low latency mode strategy
+class StrategyMap:
+    strategy_map = {
+        ("default", "default"): (
+            NormalStrategy.DEFAULT,
+            LowLatencyStrategy.DEFAULT,
+        ),
+        ("alltoall", "alltoall"): (
+            NormalStrategy.ALLTOALL,
+            LowLatencyStrategy.ALLTOALL,
+        ),
+        ("default", "ops"): (
+            NormalStrategy.DEFAULT,
+            LowLatencyStrategy.OPS,
+        ),
+    }
+
+    @classmethod
+    def get_strategy(
+        cls,
+        normal_mode: str,
+        low_latency_mode: str,
+    ):
+        key = (normal_mode.lower(), low_latency_mode.lower())
+
+        if key not in cls.strategy_map:
+            raise ValueError(
+                f"Unsupported mode combination: "
+                f"DEEP_NORMAL_MODE={normal_mode}, "
+                f"DEEP_LOW_LATENCY_MODE={low_latency_mode}"
+            )
+
+        return cls.strategy_map[key]
 
 
 class EPCommStrategy(ABC):
