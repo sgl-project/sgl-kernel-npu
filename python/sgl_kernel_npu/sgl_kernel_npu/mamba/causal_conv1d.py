@@ -482,6 +482,7 @@ def causal_conv1d_update_v2(
     block_idx_last_scheduled_token: torch.Tensor | None = None,
     initial_state_idx: torch.Tensor | None = None,
     validate_data=False,
+    **kwargs,  # back-compat catch-all: silently accept future host-side kwargs
 ):
     """
     x: Input tensor which can take the following shapes:
@@ -703,11 +704,25 @@ def prepare_data(
     cache_indices: Optional[torch.Tensor] = None,
     has_initial_state: Optional[torch.Tensor] = None,
     conv_states: Optional[torch.Tensor] = None,
+    query_start_list: Optional[list[int]] = None,
+    has_initial_state_any: Optional[bool] = None,
+    max_query_len: Optional[int] = None,
+    cu_seq_len: Optional[int] = None,
 ):
+    # host-side decision for "any initial state present"; fallback only when
+    # caller did not pre-compute it (legacy path).
+    if has_initial_state_any is None and has_initial_state is not None:
+        has_initial_state_any = bool(has_initial_state.any())  # legacy D2H fallback
+    use_initial = (
+        has_initial_state is not None
+        and conv_states is not None
+        and cache_indices is not None
+        and bool(has_initial_state_any)
+    )
     initial_states = (
         torch.index_select(conv_states, 0, cache_indices)
         * has_initial_state[:, None, None]
-        if has_initial_state is not None and has_initial_state.any()
+        if use_initial
         else None
     )
 
@@ -718,8 +733,18 @@ def prepare_data(
 
     dtype, device = weight.dtype, weight.device
     batch_size = seqlens.size(0)
-    max_T = seqlens.max()
-    dim, cu_seq_len = x.size(0), query_start_loc[-1]
+    if query_start_list is not None:
+        max_T = max(
+            query_start_list[i + 1] - query_start_list[i]
+            for i in range(len(query_start_list) - 1)
+        )
+        cu_seq_len_host = query_start_list[-1]
+    else:
+        max_T = max_query_len if max_query_len is not None else int(seqlens.max())
+        cu_seq_len_host = (
+            cu_seq_len if cu_seq_len is not None else int(query_start_loc[-1])
+        )
+    dim = x.size(0)
 
     x_flat = torch.zeros(size=(dim, batch_size * max_T), dtype=dtype, device=device)
 
@@ -728,7 +753,7 @@ def prepare_data(
     mask = base_t < seqlens.unsqueeze(1)
     indices = (base_idx.unsqueeze(1) + base_t)[mask]
 
-    x_flat.index_copy_(1, indices, x[..., :cu_seq_len])
+    x_flat.index_copy_(1, indices, x[..., :cu_seq_len_host])
     x_pad = x_flat.view(dim, batch_size, max_T).transpose(0, 1).contiguous()
 
     return x_pad, initial_states, seqlens, indices
@@ -781,10 +806,56 @@ def causal_conv1d_fn_npu(
         x = x.contiguous()
     bias = bias.contiguous() if bias is not None else None
 
-    assert query_start_loc[-1] <= x.shape[-1], f"{query_start_loc=}, {x.shape=}"
+    # Host-side pre-built inputs (preferred path: zero D2H sync).
+    # Callers (e.g. SGLang ascend_gdn_backend.init_forward_metadata) should
+    # populate these so the wrapper never reads scalars off a device tensor.
+    max_query_len = kwargs.get("max_query_len")
+    cu_seq_len = kwargs.get("cu_seq_len")
+    has_initial_state_any = kwargs.get("has_initial_state_any")
+
+    query_start_list = None
+    if query_start_loc is None:
+        seq_lens_cpu = kwargs.get("seq_lens_cpu")
+        assert seq_lens_cpu is not None, "query_start_loc or seq_lens_cpu is required"
+        assert not (
+            isinstance(seq_lens_cpu, torch.Tensor) and seq_lens_cpu.device.type != "cpu"
+        ), "seq_lens_cpu must be a host list or CPU tensor (no D2H sync allowed)"
+        query_start_list = [0]
+        for seq_len in seq_lens_cpu:
+            query_start_list.append(query_start_list[-1] + int(seq_len))
+        assert query_start_list[-1] <= x.shape[-1], f"{query_start_list=}, {x.shape=}"
+        query_start_loc = torch.tensor(
+            query_start_list, dtype=torch.int32, device=x.device
+        )
+        batch_size = len(query_start_list) - 1
+        if cu_seq_len is None:
+            cu_seq_len = query_start_list[-1]
+        if max_query_len is None:
+            max_query_len = max(
+                query_start_list[i + 1] - query_start_list[i] for i in range(batch_size)
+            )
+    else:
+        if cu_seq_len is not None:
+            assert cu_seq_len <= x.shape[-1], f"{cu_seq_len=}, {x.shape=}"
+        else:
+            # legacy fallback: triggers D2H; callers should pass cu_seq_len host int
+            assert int(query_start_loc[-1]) <= x.shape[-1]
+        batch_size = query_start_loc.shape[0] - 1
+
+    if cache_indices is None:
+        cache_indices = torch.arange(batch_size, dtype=torch.long, device=x.device)
 
     x_pad, initial_state_pad, seqlens, indices = prepare_data(
-        x, weight, query_start_loc, cache_indices, has_initial_state, conv_states
+        x,
+        weight,
+        query_start_loc,
+        cache_indices,
+        has_initial_state,
+        conv_states,
+        query_start_list,
+        has_initial_state_any=has_initial_state_any,
+        max_query_len=max_query_len,
+        cu_seq_len=cu_seq_len,
     )
 
     out, final_states_out = causal_conv1d_fn_native(
