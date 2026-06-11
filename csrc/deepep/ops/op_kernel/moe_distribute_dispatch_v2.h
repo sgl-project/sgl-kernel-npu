@@ -1333,11 +1333,19 @@ __aicore__ inline void MoeDistributeDispatchV2<TemplateMC2TypeFunc>::AllGatherSe
     rankGM =
         (__gm__ uint8_t *)(GetWindStateAddrByRankId(COMM_TP_IDX, tpRankId_) + WIN_ADDR_ALIGN * aivId_);  // 计算地址偏移
     tpwindowInstatusFp32Tensor_.SetGlobalBuffer((__gm__ float *)(rankGM));
+    uint64_t timeoutCheckStart = static_cast<uint64_t>(GetSystemCycle());
+    uint64_t timeoutCheckEnd;
+    uint64_t timeoutCheckDuration;
     while (sumOfFlag != sumTarget_) {
         DataCopy(statusFp32Tensor_, tpwindowInstatusFp32Tensor_, UB_ALIGN);
         SyncFunc<AscendC::HardEvent::MTE2_S>();
         sumOfFlag = statusFp32Tensor_.GetValue(0);
         SyncFunc<AscendC::HardEvent::S_MTE2>();
+        timeoutCheckEnd = static_cast<uint64_t>(GetSystemCycle());
+        timeoutCheckDuration = (timeoutCheckEnd - timeoutCheckStart) / CYCLES_PER_US;
+        if (timeoutCheckDuration > TIMEOUT_DETECTION_THRESHOLD) {
+            TimeOutDetection();
+        }
     }
     tpwindowInstatusFp32Tensor_(0) = static_cast<float>(0.0);
     DataCacheCleanAndInvalid<float, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(tpwindowInstatusFp32Tensor_);
