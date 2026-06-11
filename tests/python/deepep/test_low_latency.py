@@ -70,7 +70,7 @@ def test(
     # Check dispatch correctness
     do_check = True
     return_recv_hook = False
-    all_to_all_mode = os.getenv("DEEP_LOW_LATENCY_MODE", "default") == "alltoall"
+    all_to_all_mode = os.getenv("DEEP_USE_MODE", "default") == "alltoall"
     hash_value, num_times = 0, 0
 
     cumulative_local_expert_recv_stats = torch.zeros(
