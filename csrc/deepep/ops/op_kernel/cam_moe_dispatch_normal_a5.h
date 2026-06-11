@@ -112,7 +112,6 @@ private:
     GlobalTensor<int32_t> expertGlobalOffsetGT;
     GlobalTensor<int32_t> srcrankInExpertOffsetGT;
     GlobalTensor<int32_t> rInSrcrankOffsetGT;
-    GlobalTensor<XScalesType> dynamicScalesOutGT;
     GlobalTensor<int32_t> expandIdxOutGT;
     GlobalTensor<ExpandXOutType> dstGT;
     GlobalTensor<int32_t> dstStatusGT;
@@ -153,6 +152,7 @@ private:
     TBuf<> rInSrcrankOffsetBuf;
 
     GM_ADDR expandXOutGM;
+    GM_ADDR dynamicScalesOutGM;
     GM_ADDR shareGM;
 
     uint16_t axisHCommu_{0};
@@ -245,7 +245,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
     expertGlobalOffsetGT.SetGlobalBuffer((__gm__ int32_t *)(expert_global_offset));
     srcrankInExpertOffsetGT.SetGlobalBuffer((__gm__ int32_t *)(srcrank_in_expert_offset));
     rInSrcrankOffsetGT.SetGlobalBuffer((__gm__ int32_t *)(r_in_srcrank_offset));
-    dynamicScalesOutGT.SetGlobalBuffer((__gm__ XScalesType *)dynamicScalesOut);
+    dynamicScalesOutGM = dynamicScalesOut;
 
     expandIdxOutGT.SetGlobalBuffer((__gm__ int32_t *)(expandIdxOut));
     if (isEnableDiagnose) {
@@ -541,23 +541,8 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::InputToShare()
             QuantProcess();
             xOutQueue.EnQue(xOutTensor);
             xOutTensor = xOutQueue.DeQue<ExpandXOutType>();
-            if (epRankId == 1 && (GetBlockIdx() == 0 || GetBlockIdx() == 1)) {
-                printf("#DBG0417 1 rank0, blk%d, dump xOutTensor:\n", blockIdx);
-                // DumpTensor(xOutTensor,526,1024);
-                DumpAccChkPoint(xOutTensor, 526, 7136, 256);
-            }
             FillTriple(xOutTensor, (roundIndex * perRoundTokens + tokenIndex / topK), tokenIndex % topK);
-            if (epRankId == 1 && (GetBlockIdx() == 0 || GetBlockIdx() == 1)) {
-                printf("#DBG0417 2 rank0, blk%d, dump xOutTensor:\n", blockIdx);
-                // DumpTensor(xOutTensor,531,1024);
-                DumpAccChkPoint(xOutTensor, 531, 7136, 256);
-            }
             DataCopyPad(dstGT, xOutTensor, hCommuCopyOutParams);
-            if (epRankId == 1 && (GetBlockIdx() == 0 || GetBlockIdx() == 1)) {
-                printf("#DBG0417 3 rank0, blk%d, dump xOutTensor:\n", blockIdx);
-                // DumpTensor(dstGT,536,1024);
-                DumpAccChkPoint(dstGT, 536, 7136, 256);
-            }
             xOutQueue.FreeTensor(xOutTensor);
         } else {
             xTmpTensor = xQueue.AllocTensor<ExpandXOutType>();
@@ -838,15 +823,9 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
             (__gm__ uint8_t *)(GetWindAddrByRankId(COMM_EP_IDX, fromRank)) + recvOffset * hOutGMAlignSize;
         GlobalTensor<ExpandXOutType> srcTokenGT, dstTokenGT;
 
-        uint16_t scaleNumForOneToken = IsMxQuant ? Ceil(axisH_, 32) : 1;
         for (uint32_t j = 0; j < count; ++j) {
             srcTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(recvStart + j * hOutGMAlignSize));
             xTmpTensor = xQueue.AllocTensor<ExpandXOutType>();
-            if (epRankId == 0 && (GetBlockIdx() == 0 || GetBlockIdx() == 1)) {
-                printf("#DBG0417 s2o 1 rank0, blk%d, dump srcTokenGT:\n", blockIdx);
-                // DumpTensor(dstGT,536,1024);
-                DumpAccChkPoint(srcTokenGT, 827, 7136, 256);
-            }
             DataCopyPad(xTmpTensor, srcTokenGT, tokenInParams, padParams);
 
             xQueue.EnQue(xTmpTensor);
@@ -856,39 +835,24 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
                         dataCopyExandIdxParams);  // todo check expandXCopyParams_
 
             if constexpr (DynamicQuant) {
-                // todo check DataCopyExtParams -> DataCopyParams also works for nonquant and int8quant
-                // DataCopyExtParams scaleOutputDataCopyParams = {scaleNumForOneToken, sizeof(XScalesType), 0U, 0U, 0U};
-                DataCopyParams scaleOutputDataCopyParams = {1U, static_cast<uint16_t>(scaleNumForOneToken), 0U, 0U};
-                LocalTensor<XScalesType> xOutXScalesTypeTensor = xTmpTensor.template ReinterpretCast<XScalesType>();
-                if (epRankId == 0 && (GetBlockIdx() == 0 || GetBlockIdx() == 1))
-                {
-                    printf("#DBG0417 s2o 2 rank0, blk%d, dump xTmpTensor:\n", blockIdx);
-                    // DumpTensor(dstGT,536,1024);
-                    DumpAccChkPoint(xTmpTensor, 845, 7136, 256);
+                uint32_t scaleOutBytesPerToken = IsMxQuant ? Ceil(axisH_, 32) : sizeof(XScalesType);
+                DataCopyExtParams scaleOutputDataCopyParams = {1U, static_cast<uint16_t>(scaleOutBytesPerToken), 0U, 0U, 0U};
+                LocalTensor<uint8_t> scaleLT = xTmpTensor.template ReinterpretCast<uint8_t>();
+                uint32_t scaleUBOffset;
+                if constexpr (IsMxQuant) {
+                    if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
+                                  Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
+                        scaleUBOffset = Align256<uint32_t>(Ceil(axisH_, FP4_ELEMS_PER_BYTE));
+                    } else {
+                        scaleUBOffset = Align256<uint32_t>(axisH_);
+                    }
+                } else {
+                    scaleUBOffset = hUBAlignSize / sizeof(ExpandXOutType);
                 }
-                if (epRankId == 0 && (GetBlockIdx() == 0 || GetBlockIdx() == 1)) {
-                    printf("#DBG0417 s2o 3 rank0, blk%d, hUBAlignSize:%d, dump xOutXScalesTypeTensor:\n", blockIdx,
-                           hUBAlignSize);
-                    // DumpTensor(dstGT,536,1024);
-                    DumpAccChkPoint(xOutXScalesTypeTensor, 850, 7136, 256);
-                }
-                    DataCopyPad(dynamicScalesOutGT[(writeOffset + j) * scaleNumForOneToken],
-                                xOutXScalesTypeTensor[hUBAlignSize / sizeof(XScalesType)], scaleOutputDataCopyParams);
-
-                if (epRankId == 0 && (GetBlockIdx() == 0 || GetBlockIdx() == 1)) {
-                    printf(
-                        "#DBG0417 s2o 3.5 rank0, blk%d, hUBAlignSize%d, sizeof(XScalesType):%d, dump "
-                        "dynamicScalesOutGT:\n",
-                        blockIdx, hUBAlignSize, sizeof(XScalesType));
-                    // DumpTensor(dstGT,536,1024);
-                    DumpAccChkPoint(xOutXScalesTypeTensor[hUBAlignSize / sizeof(XScalesType)], 859, 0, 224);
-                    printf(
-                        "#DBG0417 s2o 4 rank0, blk%d, (writeOffset + j)*scaleNumForOneToken:(%d+%d)*%d, dump "
-                        "dynamicScalesOutGT:\n",
-                        blockIdx, writeOffset, j, scaleNumForOneToken);
-                    // DumpTensor(dstGT,536,1024);
-                    DumpAccChkPoint(dynamicScalesOutGT[(writeOffset + j) * scaleNumForOneToken], 863, 7136, 256);
-                }
+                GlobalTensor<uint8_t> dynamicScalesOutU8GT;
+                dynamicScalesOutU8GT.SetGlobalBuffer((__gm__ uint8_t *)dynamicScalesOutGM);
+                DataCopyPad(dynamicScalesOutU8GT[(writeOffset + j) * scaleOutBytesPerToken],
+                            scaleLT[scaleUBOffset], scaleOutputDataCopyParams);
             }
 
             dstTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(expandXOutGM) + (writeOffset + j) * expandXElemCount,

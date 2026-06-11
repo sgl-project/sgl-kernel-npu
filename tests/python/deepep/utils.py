@@ -109,8 +109,6 @@ def _fp4_e2m1_to_float32_unpack(fp4_bytes: torch.Tensor) -> torch.Tensor:
         mant = i & 1
         if exp == 0 and mant == 0:
             fp4_table[i] = 0.0
-        elif exp == 3:
-            fp4_table[i] = float("nan")
         else:
             fp4_table[i] = sign * (2.0 ** (exp - 1)) * (1.0 + mant * 0.5)
 
