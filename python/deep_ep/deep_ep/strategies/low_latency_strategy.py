@@ -479,9 +479,7 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             for r in range(group_size)
         ]
         output_list = [
-            torch.empty(
-                chunk_size, hidden, dtype=expanded_x_2d.dtype, device=device
-            )
+            torch.empty(chunk_size, hidden, dtype=expanded_x_2d.dtype, device=device)
             for r in range(group_size)
         ]
         dist.all_to_all(output_list, input_list, group=group)
