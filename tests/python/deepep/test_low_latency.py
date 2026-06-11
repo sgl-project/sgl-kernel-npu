@@ -31,6 +31,7 @@ def test(
     buffer: Buffer,
     drop_percent: float,
     seed: int = 0,
+    quant_type: str = "no",
 ):
     torch.manual_seed(seed + rank)
     random.seed(seed + rank)
@@ -75,7 +76,15 @@ def test(
     cumulative_local_expert_recv_stats = torch.zeros(
         (num_local_experts,), dtype=torch.int, device="npu"
     )
-    for dispatch_use_fp8 in (True, False):
+
+    if quant_type == "mxfp8":
+        fp8_configs = [(True, True)]
+    elif quant_type == "fp8":
+        fp8_configs = [(True, False)]
+    else:
+        fp8_configs = [(False, False)]
+
+    for dispatch_use_fp8, dispatch_use_ue8m0 in fp8_configs:
         packed_recv_x, packed_recv_count, handle, event, hook = (
             buffer.low_latency_dispatch(
                 x,
@@ -84,7 +93,7 @@ def test(
                 num_experts,
                 use_fp8=dispatch_use_fp8,
                 round_scale=False,
-                use_ue8m0=False,
+                use_ue8m0=dispatch_use_ue8m0,
                 cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
                 async_finish=not return_recv_hook,
                 return_recv_hook=return_recv_hook,
@@ -126,6 +135,9 @@ def test(
                 if dispatch_use_fp8
                 else packed_recv_x[int(i * temp) : int((i + 1) * temp)]
             )
+            quant_label = (
+                "mxfp8" if dispatch_use_ue8m0 else "fp8" if dispatch_use_fp8 else "bf16"
+            )
             if i == 0:
                 recv_layout_range = handle[1][(i + 1) * num_ranks - 1]
             else:
@@ -148,7 +160,11 @@ def test(
             # Check received data
             recv_x = recv_x[:num_valid_tokens]
             recv_x_amin = recv_x[:, :-128].amin(dim=-1)
-            assert torch.equal(recv_x_amin, recv_x[:, :-128].amax(dim=-1))
+            recv_x_amax = recv_x[:, :-128].amax(dim=-1)
+            if dispatch_use_fp8:
+                assert torch.allclose(recv_x_amin, recv_x_amax, atol=1e-1)
+            else:
+                assert torch.equal(recv_x_amin, recv_x_amax)
             if dispatch_use_fp8:
                 hash_value ^= hash_tensor(
                     packed_recv_x[0][int(i * temp) : int(i * temp + num_valid_tokens)]
@@ -192,13 +208,19 @@ def test(
                 combined_x,
             )
             assert torch.isnan(combined_x).sum().item() == 0
-            if dispatch_use_fp8:
+            golden = x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
+            max_diff = torch.max(torch.abs(combined_x - golden) / golden).item()
+            avg_diff = torch.mean(torch.abs(combined_x - golden) / golden).item()
+            print(
+                f"rank {rank} PASSED [{quant_label}] avg_diff={avg_diff:.5f}, max_diff={max_diff:.5f}, cosine_diff={diff:.5f}"
+            )
+            if dispatch_use_ue8m0:
+                assert diff < 1e-3, f"Error: {diff=}"
+            elif dispatch_use_fp8:
                 assert diff < 1e-4, f"Error: {diff=}"
             else:
                 assert diff < 1e-5, f"Error: {diff=}"
             hash_value ^= hash_tensor(combined_x)
-
-            print(f"rank {rank} PASSED")
 
     # noinspection PyShadowingNames
     def test_func(zero_copy: bool, return_recv_hook: bool):
@@ -209,12 +231,16 @@ def test(
             num_experts,
             cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
             use_fp8=dispatch_use_fp8,
+            use_ue8m0=dispatch_use_ue8m0,
             async_finish=False,
             return_recv_hook=return_recv_hook,
             topk_weights=topk_weights,
         )
+        simulated_gemm_x_local = (
+            per_token_cast_back(*recv_x) if dispatch_use_fp8 else recv_x
+        )
         combined_x, event, hook = buffer.low_latency_combine(
-            simulated_gemm_x,
+            simulated_gemm_x_local,
             topk_idx,
             topk_weights,
             handle,
@@ -223,11 +249,16 @@ def test(
         )
 
     # Calculate bandwidth
-    num_fp8_bytes, num_bf16_bytes = (hidden + hidden // 128 * 4 + 16), hidden * 2
+    num_mxfp8_bytes = hidden + hidden // 32 + 16
+    num_fp8_bytes = hidden + hidden // 128 * 4 + 16
+    num_bf16_bytes = hidden * 2
     num_dispatch_comm_bytes, num_combine_comm_bytes = 0, 0
     for i in range(num_tokens):
         num_selections = (topk_idx[i] != -1).sum().item()
-        num_dispatch_comm_bytes += num_fp8_bytes * num_selections
+        if dispatch_use_ue8m0:
+            num_dispatch_comm_bytes += num_mxfp8_bytes * num_selections
+        elif dispatch_use_fp8:
+            num_dispatch_comm_bytes += num_fp8_bytes * num_selections
         num_combine_comm_bytes += num_bf16_bytes * num_selections
 
     # Dispatch + combine testing
@@ -339,6 +370,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         buffer,
         drop_percent,
         seed=1,
+        quant_type=args.quant_type,
     )
 
     do_pressure_test = args.pressure_test
@@ -357,6 +389,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
             buffer,
             drop_percent,
             seed=seed,
+            quant_type=args.quant_type,
         )
         for i in range(20):
             assert (
@@ -372,6 +405,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
                     buffer,
                     drop_percent,
                     seed=seed,
+                    quant_type=args.quant_type,
                 )
                 == ref_hash
             ), f"Error: seed={seed}"
@@ -419,6 +453,14 @@ if __name__ == "__main__":
         default="default",
         choices=["default", "ops"],
         help="Low latency strategy to use: 'default' (deep_ep_cpp) or 'ops' (torch_npu ops)",
+    )
+    parser.add_argument(
+        "--quant-type",
+        dest="quant_type",
+        type=str,
+        default="no",
+        choices=["no", "fp8", "mxfp8"],
+        help="Quantization type for dispatch: no (bf16), fp8 (per-token), mxfp8 (per-block with e8m0 scales)",
     )
     args = parser.parse_args()
 

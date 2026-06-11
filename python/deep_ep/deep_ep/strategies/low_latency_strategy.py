@@ -220,7 +220,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             x=x,
             topk_idx=topk_ids,
             num_experts=num_experts,
-            quant_mode=2 if use_fp8 else 0,
+            quant_mode=3 if use_ue8m0 else 2 if use_fp8 else 0,
             comm_alg=self.comm_alg,
             topk_weights=topk_weights,
             num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
