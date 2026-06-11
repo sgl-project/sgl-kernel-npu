@@ -13,6 +13,7 @@ using namespace CamMoeDispatchNormalA5Impl;
 #define TILINGKEY_A5_QUANT 15002
 #define TILINGKEY_A5_MXFP8_QUANT 15003
 #define TILINGKEY_A5_MXFP4_QUANT 15004
+#define FLOAT_OVERFLOW_MODE_CTRL 60
 
 extern "C" __global__ __aicore__ void cam_moe_dispatch_normal(
     GM_ADDR x, GM_ADDR expertIds, GM_ADDR send_offset, GM_ADDR send_token_idx, GM_ADDR recv_offset, GM_ADDR recv_count,
@@ -60,6 +61,7 @@ extern "C" __global__ __aicore__ void cam_moe_dispatch_normal(
 #endif
 
 #ifdef __DAV_C310__
+        int64_t oriOverflowMode = AscendC::GetCtrlSpr<FLOAT_OVERFLOW_MODE_CTRL, FLOAT_OVERFLOW_MODE_CTRL>();
 #if (ORIG_DTYPE_RECV_X == DT_FLOAT8_E5M2 || ORIG_DTYPE_RECV_X == DT_FLOAT8_E4M3FN || ORIG_DTYPE_RECV_X == DT_HIFLOAT8)
     if (TILING_KEY_IS(TILINGKEY_A5_MXFP8_QUANT)) {
         GET_TILING_DATA_WITH_STRUCT(CamMoeDispatchNormalTilingData, tilingData, tilingGM);
