@@ -92,6 +92,36 @@ def bench(fn, num_warmups: int = 50, num_tests: int = 50, post_fn=None):
     return np.average(times), np.min(times), np.max(times)
 
 
+def _fp4_e2m1_to_float32_unpack(fp4_bytes: torch.Tensor) -> torch.Tensor:
+    """Unpack FP4 E2M1 (fp4x2_e2m1fn_x2) packed bytes to float32 (all on CPU).
+    Each byte contains 2 FP4 values: high nibble = element 0, low nibble = element 1.
+    FP4 E2M1: 1 sign bit, 2 exponent bits (bias=1), 1 mantissa bit (implicit leading 1).
+    Special: exp=00,m=0 -> zero; exp=11 -> NaN
+    """
+    original_shape = fp4_bytes.shape
+    flat = fp4_bytes.flatten().cpu().to(torch.int32)
+
+    # Pre-compute all 16 FP4 E2M1 values as a lookup table
+    fp4_table = torch.zeros(16, dtype=torch.float32)
+    for i in range(16):
+        sign = 1.0 if (i >> 3) == 0 else -1.0
+        exp = (i & 0x7) >> 1
+        mant = i & 1
+        if exp == 0 and mant == 0:
+            fp4_table[i] = 0.0
+        else:
+            fp4_table[i] = sign * (2.0 ** (exp - 1)) * (1.0 + mant * 0.5)
+
+    high_nibbles = (flat >> 4) & 0xF
+    low_nibbles = flat & 0xF
+    vals_high = fp4_table[high_nibbles]
+    vals_low = fp4_table[low_nibbles]
+
+    result = torch.stack([vals_high, vals_low], dim=1).reshape(-1)
+    new_shape = list(original_shape[:-1]) + [original_shape[-1] * 2]
+    return result.reshape(new_shape)
+
+
 _FP8E8M0_TO_FLOAT32_TABLE = None
 
 
@@ -113,10 +143,42 @@ def per_token_cast_back(x_fp8: torch.Tensor, x_scales: torch.Tensor):
 
     # x_scales 现在是 FP8 E8M0 格式（uint8 或 int8 存储）
     # 需要先解码为 float32
+
     if x_scales.dtype != torch.float32:
         # 将存储的整数视为 FP8 E8M0 的位表示，转换为 float32
         x_scales_bits = x_scales.view(torch.uint8)
         x_scales_fp32 = _fp8e8m0_to_float32_lookup(x_scales_bits)
+
+        if x_fp8.dtype == torch.float4_e2m1fn_x2:
+            # FP4 dequant: each fp4x2 packs 2 elements, shape is (bs, h/2)
+            # Scale is per 32 original elements: (bs * h/32)
+            # Do entire dequant on CPU to avoid NPU FP4 dtype issues
+            bs, h_half = x_fp8.shape
+            h = h_half * 2
+            x_fp4_uint8 = x_fp8.view(torch.uint8).cpu()
+            x_fp32 = _fp4_e2m1_to_float32_unpack(x_fp4_uint8)  # CPU float32
+            x_fp32 = x_fp32.view(bs, -1, 32)
+            x_scales_bits_cpu = x_scales_bits.cpu()
+            x_scales_fp32_cpu = _fp8e8m0_to_float32_lookup(x_scales_bits_cpu).view(
+                bs, -1, 1
+            )
+            result_cpu = (x_fp32 * x_scales_fp32_cpu).view(bs, h).to(torch.bfloat16)
+            return result_cpu.to(x_fp8.device)
+        print(f"{x_scales.dtype=}", flush=True)
+        print(
+            f"{x_scales_bits.shape=}, {x_scales_fp32[:1024]=}, {x_scales_bits[:1024]=}",
+            flush=True,
+        )
+        print(
+            f"{x_scales_bits.shape=}, {x_scales_fp32[5376//2-1000:5376//2]=}, {x_scales_bits[5376//2-1000:5376//2]=}",
+            flush=True,
+        )
+        print(
+            f"{x_scales_bits.shape=}, {x_scales_fp32[5376//2:5376//2+1000]=}, {x_scales_bits[5376//2:5376//2+1000]=}",
+            flush=True,
+        )
+        torch.save(x_scales_bits, "x_scales_bits.pt")
+
         # x_fp8 形状: (bs, h)
         # x_scales 形状: (bs, h/32) 或 (bs * h/32,)
         bs, h = x_fp8.shape

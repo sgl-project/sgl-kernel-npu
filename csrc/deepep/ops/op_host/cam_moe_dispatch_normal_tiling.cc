@@ -67,6 +67,7 @@ constexpr uint32_t OP_TYPE_ALL_TO_ALL = 8;
 constexpr uint32_t NO_SCALES = 0;
 constexpr uint32_t DYNAMIC_SCALES = 2;
 constexpr uint32_t MXFP8_SCALES = 3;
+constexpr uint32_t MXFP4_SCALES = 4;
 constexpr uint32_t OP_TYPE_ALL_GATHER = 6;
 
 constexpr size_t MAX_GROUP_NAME_LENGTH = 128UL;
@@ -106,7 +107,9 @@ static const std::unordered_map<DataType, std::string> geDataTypeMap = {{ge::DT_
                                                                         {ge::DT_BF16, "DT_BF16"},
                                                                         {ge::DT_FLOAT8_E4M3FN, "DT_FLOAT8_E4M3FN"},
                                                                         {ge::DT_FLOAT8_E5M2, "DT_FLOAT8_E5M2"},
-                                                                        {ge::DT_FLOAT8_E8M0, "DT_FLOAT8_E8M0"}};
+                                                                        {ge::DT_FLOAT8_E8M0, "DT_FLOAT8_E8M0"},
+                                                                        {ge::DT_FLOAT4_E2M1, "DT_FLOAT4_E2M1"},
+                                                                        {ge::DT_FLOAT4_E1M2, "DT_FLOAT4_E1M2"}};
 namespace optiling {
 static void PrintTilingDataInfo(const char *nodeName, CamMoeDispatchNormalTilingData &tilingData)
 {
@@ -221,6 +224,13 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
                     "expandX dataType is invalid for MXFP8 quant, dataType should be fp8e4m3 or fp8e5m2, but is %s",
                     geDataTypeMap.at(expandXDesc->GetDataType()).c_str()),
             return false);
+    } else if (quantMode == MXFP4_SCALES) {
+        OP_TILING_CHECK(
+            expandXDesc->GetDataType() != ge::DT_FLOAT4_E2M1 && expandXDesc->GetDataType() != ge::DT_FLOAT4_E1M2,
+            OP_LOGE(nodeName,
+                    "expandX dataType is invalid for MXFP4 quant, dataType should be fp4e2m1 or fp4e1m2, but is %s",
+                    geDataTypeMap.at(expandXDesc->GetDataType()).c_str()),
+            return false);
     } else {
         OP_TILING_CHECK(
             expandXDesc->GetDataType() != xDesc->GetDataType(),
@@ -246,7 +256,22 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
                     "dynamicScales dataType is invalid for MXFP8 quant, dataType should be fp8e8m0, but is %s",
                     geDataTypeMap.at(dynamicScalesDesc->GetDataType()).c_str()),
             return false);
+    } else if (quantMode == MXFP4_SCALES) {
+        auto dynamicScalesDesc = context->GetOutputDesc(OUTPUT_DYNAMIC_SCALES_INDEX);
+        OP_TILING_CHECK(dynamicScalesDesc == nullptr, OP_LOGE(nodeName, "dynamicScalesDesc is null."), return false);
+        OP_TILING_CHECK(
+            dynamicScalesDesc->GetDataType() != ge::DT_FLOAT8_E8M0,
+            OP_LOGE(nodeName,
+                    "dynamicScales dataType is invalid for MXFP4 quant, dataType should be fp8e8m0, but is %s",
+                    geDataTypeMap.at(dynamicScalesDesc->GetDataType()).c_str()),
+            return false);
     }
+    printf("datatype: x: %s, expandX: %s, dynamicScale: %s\n, if dynamicScale is N/A, please set quant\n ",
+           geDataTypeMap.at(xDesc->GetDataType()).c_str(),
+           geDataTypeMap.at(expandXDesc->GetDataType()).c_str(),
+           (quantMode == DYNAMIC_SCALES || quantMode == MXFP8_SCALES || quantMode == MXFP4_SCALES)
+               ? geDataTypeMap.at(context->GetOutputDesc(OUTPUT_DYNAMIC_SCALES_INDEX)->GetDataType()).c_str()
+               : "N/A");
 
     OP_LOGI(nodeName, "datatype: x: %s, expandX: %s, dynamicScale: %s", geDataTypeMap.at(xDesc->GetDataType()).c_str(),
             geDataTypeMap.at(expandXDesc->GetDataType()).c_str(),
@@ -291,7 +316,7 @@ static bool CheckTensorFormat(gert::TilingContext *context, const char *nodeName
         static_cast<ge::Format>(ge::GetPrimaryFormat(expandXDesc->GetStorageFormat())) == ge::FORMAT_FRACTAL_NZ,
         OP_LOGE(nodeName, "expandX format is invalid."), return false);
 
-    if (quantMode == DYNAMIC_SCALES || quantMode == MXFP8_SCALES) {
+    if (quantMode == DYNAMIC_SCALES || quantMode == MXFP8_SCALES || quantMode == MXFP4_SCALES) {
         auto dynamicScalesDesc = context->GetOutputDesc(OUTPUT_DYNAMIC_SCALES_INDEX);
         OP_TILING_CHECK(dynamicScalesDesc == nullptr, OP_LOGE(nodeName, "dynamicScalesDesc is null."), return false);
         OP_TILING_CHECK(static_cast<ge::Format>(ge::GetPrimaryFormat(dynamicScalesDesc->GetStorageFormat())) ==
@@ -379,8 +404,8 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
                             MOE_EXPERT_MAX_NUM, moeExpertNum),
                     return ge::GRAPH_FAILED);
     OP_TILING_CHECK(
-        (*quantModePtr < static_cast<int64_t>(NO_SCALES)) || (*quantModePtr > static_cast<int64_t>(MXFP8_SCALES)),
-        OP_LOGE(nodeName, "quantMode is invalid, only support [0, %u], but got quantMode=%ld.", MXFP8_SCALES,
+        (*quantModePtr < static_cast<int64_t>(NO_SCALES)) || (*quantModePtr > static_cast<int64_t>(MXFP4_SCALES)),
+        OP_LOGE(nodeName, "quantMode is invalid, only support [0, %u], but got quantMode=%ld.", MXFP4_SCALES,
                 *quantModePtr),
         return ge::GRAPH_FAILED);
 
@@ -496,12 +521,14 @@ static ge::graphStatus CheckTensorShape(gert::TilingContext *context, const char
     const int64_t expandXDim0 = expandXStorageShape->GetStorageShape().GetDim(0);
     const int64_t expandXDim1 = expandXStorageShape->GetStorageShape().GetDim(1);
 
-    OP_TILING_CHECK(xDim1 != expandXDim1,
-                    OP_LOGE(nodeName,
-                            "expandX's dim1 not equal to xShape's dim1, "
-                            "xShape's dim1 is %ld, expandX's dim1 is %ld.",
-                            xDim1, expandXDim1),
-                    return ge::GRAPH_FAILED);
+    int64_t expectedExpandXDim1 = (quantMode == MXFP4_SCALES) ? xDim1 / 2 : xDim1;
+    OP_TILING_CHECK(
+        expectedExpandXDim1 != expandXDim1,
+        OP_LOGE(nodeName,
+                "expandX's dim1 not equal to expected dim1, "
+                "xShape's dim1 is %ld, expected expandX's dim1 is %ld, expandX's dim1 is %ld, quantMode=%u.",
+                xDim1, expectedExpandXDim1, expandXDim1, quantMode),
+        return ge::GRAPH_FAILED);
 
     // 校验dynamicScales的维度
     if (quantMode != NO_SCALES) {
