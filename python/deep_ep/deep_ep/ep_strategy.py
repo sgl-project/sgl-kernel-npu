@@ -31,15 +31,15 @@ class LowLatencyStrategy:
 # Normal mode strategy and Low latency mode strategy
 class StrategyMap:
     strategy_map = {
-        ("default", "default"): (
+        ("default"): (
             NormalStrategy.DEFAULT,
             LowLatencyStrategy.DEFAULT,
         ),
-        ("alltoall", "alltoall"): (
+        ("alltoall"): (
             NormalStrategy.ALLTOALL,
             LowLatencyStrategy.ALLTOALL,
         ),
-        ("default", "ops"): (
+        ("ops"): (
             NormalStrategy.DEFAULT,
             LowLatencyStrategy.OPS,
         ),
@@ -48,16 +48,13 @@ class StrategyMap:
     @classmethod
     def get_strategy(
         cls,
-        normal_mode: str,
-        low_latency_mode: str,
+        deep_mode: str,
     ):
-        key = (normal_mode.lower(), low_latency_mode.lower())
+        key = deep_mode.lower()
 
         if key not in cls.strategy_map:
             raise ValueError(
-                f"Unsupported mode combination: "
-                f"DEEP_NORMAL_MODE={normal_mode}, "
-                f"DEEP_LOW_LATENCY_MODE={low_latency_mode}"
+                f"Unsupported mode combination: " f"DEEP_USE_MODE={deep_mode}, "
             )
 
         return cls.strategy_map[key]

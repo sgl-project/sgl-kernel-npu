@@ -83,12 +83,9 @@ class Buffer:
         )
 
         # set strategy by env
-        normal_mode = os.getenv("DEEP_NORMAL_MODE", "default").lower()
-        low_latency_mode = os.getenv("DEEP_LOW_LATENCY_MODE", "default").lower()
+        deep_mode = os.getenv("DEEP_USE_MODE", "default").lower()
 
-        normal_strategy, low_latency_strategy = StrategyMap.get_strategy(
-            normal_mode, low_latency_mode
-        )
+        normal_strategy, low_latency_strategy = StrategyMap.get_strategy(deep_mode)
 
         # Initialize normal mode strategy
         self._init_normal_strategy(normal_strategy)

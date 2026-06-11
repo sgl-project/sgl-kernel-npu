@@ -98,11 +98,11 @@ Strategies are configured via environment variables at Buffer initialization:
 
 | Environment Variable | Value | Normal Strategy | Low-Latency Strategy |
 |---------------------|-------|-----------------|---------------------|
-| `DEEP_NORMAL_MODE=default`, `DEEP_LOW_LATENCY_MODE=default` | default | `DefaultNormalCommStrategy` (deep_ep_cpp custom ops) | `DefaultLowLatencyCommStrategy` (deep_ep_cpp custom ops) |
-| `DEEP_NORMAL_MODE=alltoall`, `DEEP_LOW_LATENCY_MODE=alltoall` | alltoall | `AlltoAllNormalCommStrategy` (torch.distributed alltoallv) | `AllToAllLowLatencyCommStrategy` (torch.distributed alltoall) |
-| `DEEP_NORMAL_MODE=default`, `DEEP_LOW_LATENCY_MODE=ops` | ops | `DefaultNormalCommStrategy` (deep_ep_cpp custom ops) | `OpsLowLatencyCommStrategy` (torch_npu ops) |
+| `DEEP_USE_MODE=default` | default | `DefaultNormalCommStrategy` (deep_ep_cpp custom ops) | `DefaultLowLatencyCommStrategy` (deep_ep_cpp custom ops) |
+| `DEEP_USE_MODE=alltoall` | alltoall | `AlltoAllNormalCommStrategy` (torch.distributed alltoallv) | `AllToAllLowLatencyCommStrategy` (torch.distributed alltoall) |
+| `DEEP_USE_MODE=default` | ops | `DefaultNormalCommStrategy` (deep_ep_cpp custom ops) | `OpsLowLatencyCommStrategy` (torch_npu ops) |
 
-> **Note**: Invalid combinations (e.g., `DEEP_NORMAL_MODE=alltoall` + `DEEP_LOW_LATENCY_MODE=default`) will raise a `ValueError`.
+> **Note**: Invalid env (e.g., `DEEP_USE_MODE=error`) will raise a `ValueError`.
 
 
 ## API Overview
@@ -165,8 +165,7 @@ See [Fused Deep MoE API](doc/FUSED_DEEP_MOE_EN.md) for details.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DEEP_NORMAL_MODE` | `default` | Normal mode strategy: `default` or `alltoall`. |
-| `DEEP_LOW_LATENCY_MODE` | `default` | Low-latency mode strategy: `default`, `ops`, or `alltoall`. |
+| `DEEP_USE_MODE` | `default` | Normal mode strategy and Low-latency mode strategy: `default`, `ops`, or `alltoall`. |
 | `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | Enable INT8 quantization in normal dispatch. A2 internode does NOT support quantization in normal mode. |
 | `SGLANG_DEEPEP_BF16_DISPATCH` | `0` | Disable quantization in low_latency_dispatch (BF16 dispatch). Set to `1` to disable; only effective in decode phase. |
 | `MOE_EXPERT_TOKEN_NUMS_TYPE` | `1` | Dispatch return type for `num_recv_tokens_per_expert_list`: `1` = per-expert token count, `0` = prefix sum. |
