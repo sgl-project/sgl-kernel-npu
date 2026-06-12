@@ -148,7 +148,7 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitMagic()
     selfMagicTensor.SetGlobalBuffer(
         (__gm__ int32_t *)((GM_ADDR)epWinContext_->localWindowsExp + MAGIC_WIN_OFFSET + coreIdx_ * WIN_512_ALIGN));
     DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(selfMagicTensor);
-    magic_ = selfMagicTensor(0);
+    magic_ = selfMagicTensor(1);
     selfMagicTensor(0) = ((magic_ == 0) ? 1 : 0);
     DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(selfMagicTensor);
 }
