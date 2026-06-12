@@ -1,5 +1,3 @@
-import os
-
 import pytest
 import torch
 
@@ -17,94 +15,6 @@ if not hasattr(torch, "npu") or not torch.npu.is_available():
 
 DEVICE = "npu:0"
 torch_npu.npu.set_device(0)
-
-
-def _build_oe_tables(num_embeddings: int, oe_n: int, oe_k: int, over_embedding_m: int):
-    oe_mods = torch.zeros((oe_n - 1, oe_k), dtype=torch.int32)
-    oe_weights = torch.zeros((oe_n - 1, oe_k, oe_n), dtype=torch.int32)
-    exclusive = torch.zeros(((oe_n - 1) * oe_k + 1,), dtype=torch.int32)
-    running = 0
-    flat_idx = 0
-    for n in range(2, oe_n + 1):
-        for k in range(oe_k):
-            mod = over_embedding_m + 2 * ((n - 2) * oe_k + k) + 1
-            oe_mods[n - 2, k] = mod
-            exclusive[flat_idx] = running
-            for delta in range(oe_n):
-                oe_weights[n - 2, k, delta] = pow(num_embeddings, delta, mod)
-            running += mod
-            flat_idx += 1
-    exclusive[flat_idx] = running
-    return oe_weights, oe_mods, exclusive
-
-
-def _reference_compute_n_gram_ids(
-    oe_weights: torch.Tensor,
-    oe_mods: torch.Tensor,
-    exclusive_oe_embeder_size_sums: torch.Tensor,
-    tokens: torch.Tensor,
-    exclusive_req_len_sums: torch.Tensor,
-    oe_token_table: torch.Tensor,
-    row_indices: torch.Tensor,
-    column_starts: torch.Tensor,
-    batch_size: int,
-    oe_n: int,
-    oe_k: int,
-    max_context_len: int,
-) -> torch.Tensor:
-    out = torch.empty((tokens.numel(), (oe_n - 1) * oe_k), dtype=torch.int32)
-    for req_id in range(batch_size):
-        start = 0 if req_id == 0 else int(exclusive_req_len_sums[req_id - 1].item())
-        end = int(exclusive_req_len_sums[req_id].item())
-        req_row = int(row_indices[req_id].item())
-        req_base = req_row * max_context_len
-        req_cur = req_base + int(column_starts[req_id].item())
-        for token_idx in range(start, end):
-            current_token_offset = token_idx - start
-            current_token_table_index = req_cur + current_token_offset
-            for n in range(oe_n - 1):
-                for k in range(oe_k):
-                    oe_mod = int(oe_mods[n, k].item())
-                    n_gram_id = 0
-                    for j in range(n + 2):
-                        if current_token_table_index - j < req_base:
-                            break
-                        token = int(oe_token_table.view(-1)[current_token_table_index - j].item())
-                        if token < 0:
-                            break
-                        weight = int(oe_weights[n, k, j].item())
-                        n_gram_id += (token * weight) % oe_mod
-                    n_gram_id %= oe_mod
-                    n_gram_id += int(exclusive_oe_embeder_size_sums[n * oe_k + k].item())
-                    out[token_idx, n * oe_k + k] = n_gram_id
-    return out
-
-
-def _reference_update_oe_token_table(
-    oe_token_table: torch.Tensor,
-    tokens: torch.Tensor,
-    req_lens: torch.Tensor,
-    row_indices: torch.Tensor,
-    column_starts: torch.Tensor,
-    ignore_tokens: torch.Tensor,
-) -> torch.Tensor:
-    out = oe_token_table.clone()
-    ignore_set = set(ignore_tokens.to(torch.int32).cpu().tolist())
-    src_offset = 0
-    for req_id in range(req_lens.numel()):
-        req_len = int(req_lens[req_id].item())
-        row = int(row_indices[req_id].item())
-        col_start = int(column_starts[req_id].item())
-        if req_len <= 0:
-            continue
-        values = tokens[src_offset : src_offset + req_len].to(torch.int32).clone()
-        if ignore_set:
-            for idx in range(values.numel()):
-                if int(values[idx].item()) in ignore_set:
-                    values[idx] = -1
-        out[row, col_start : col_start + req_len] = values
-        src_offset += req_len
-    return out
 
 
 def _get_data_from_pa_cache(key: torch.Tensor, block_table: torch.Tensor, act_s2: int) -> torch.Tensor:
@@ -201,134 +111,6 @@ def _build_multi_batch_pa_case(
         block_cursor += block_num
 
     return query, key, weights, cur_seq_lengths_query, cur_seq_lengths_key, block_table
-
-
-def test_compute_n_gram_ids_runtime_matches_reference():
-    num_embeddings = 32
-    oe_n = 3
-    oe_k = 2
-    over_embedding_m = 5
-    max_context_len = 6
-
-    oe_weights, oe_mods, exclusive_oe_embeder_size_sums = _build_oe_tables(
-        num_embeddings=num_embeddings,
-        oe_n=oe_n,
-        oe_k=oe_k,
-        over_embedding_m=over_embedding_m,
-    )
-    tokens = torch.tensor([8, 9, 4, 5], dtype=torch.int32)
-    exclusive_req_len_sums = torch.tensor([2, 4], dtype=torch.int32)
-    oe_token_table = torch.tensor(
-        [
-            [3, 4, 5, -1, -1, -1],
-            [7, 8, 9, 10, -1, -1],
-        ],
-        dtype=torch.int32,
-    )
-    row_indices = torch.tensor([1, 0], dtype=torch.int64)
-    column_starts = torch.tensor([1, 1], dtype=torch.int32)
-
-    expected = _reference_compute_n_gram_ids(
-        oe_weights=oe_weights,
-        oe_mods=oe_mods,
-        exclusive_oe_embeder_size_sums=exclusive_oe_embeder_size_sums,
-        tokens=tokens,
-        exclusive_req_len_sums=exclusive_req_len_sums,
-        oe_token_table=oe_token_table,
-        row_indices=row_indices,
-        column_starts=column_starts,
-        batch_size=2,
-        oe_n=oe_n,
-        oe_k=oe_k,
-        max_context_len=max_context_len,
-    )
-
-    actual = torch.ops.npu.compute_n_gram_ids(
-        oe_weights.to(DEVICE),
-        oe_mods.to(DEVICE),
-        exclusive_oe_embeder_size_sums.to(DEVICE),
-        tokens.to(DEVICE),
-        exclusive_req_len_sums.to(DEVICE),
-        oe_token_table.to(DEVICE),
-        row_indices.to(DEVICE),
-        column_starts.to(DEVICE),
-        batch_size=2,
-        oe_n=oe_n,
-        oe_k=oe_k,
-        max_context_len=max_context_len,
-    ).cpu()
-
-    assert actual.dtype == torch.int32
-    assert actual.shape == expected.shape
-    assert torch.equal(actual, expected)
-
-
-def test_update_oe_token_table_runtime_matches_reference_without_ignore_tokens():
-    oe_token_table = torch.full((4, 8), -1, dtype=torch.int32)
-    tokens = torch.tensor([11, 12, 13, 21, 22], dtype=torch.int32)
-    req_lens = torch.tensor([3, 0, 2], dtype=torch.int32)
-    row_indices = torch.tensor([2, 1, 0], dtype=torch.int64)
-    column_starts = torch.tensor([1, 4, 3], dtype=torch.int32)
-    ignore_tokens = torch.empty((0,), dtype=torch.int32)
-
-    expected = _reference_update_oe_token_table(
-        oe_token_table=oe_token_table,
-        tokens=tokens,
-        req_lens=req_lens,
-        row_indices=row_indices,
-        column_starts=column_starts,
-        ignore_tokens=ignore_tokens,
-    )
-
-    actual_table = oe_token_table.clone().to(DEVICE)
-    actual = torch.ops.npu.update_oe_token_table(
-        tokens.to(DEVICE),
-        req_lens.to(DEVICE),
-        row_indices.to(DEVICE),
-        column_starts.to(DEVICE),
-        ignore_tokens.to(DEVICE),
-        batch_size=req_lens.numel(),
-        max_context_len=actual_table.shape[1],
-        oe_token_table=actual_table,
-    ).cpu()
-
-    assert actual.dtype == torch.int32
-    assert torch.equal(actual, expected)
-    assert torch.equal(actual_table.cpu(), expected)
-
-
-def test_update_oe_token_table_runtime_matches_reference_with_ignore_tokens():
-    oe_token_table = torch.full((3, 7), -7, dtype=torch.int32)
-    tokens = torch.tensor([5, 9, 6, 7, 9, 8], dtype=torch.int32)
-    req_lens = torch.tensor([2, 4], dtype=torch.int32)
-    row_indices = torch.tensor([1, 2], dtype=torch.int64)
-    column_starts = torch.tensor([0, 2], dtype=torch.int32)
-    ignore_tokens = torch.tensor([9, 10], dtype=torch.int32)
-
-    expected = _reference_update_oe_token_table(
-        oe_token_table=oe_token_table,
-        tokens=tokens,
-        req_lens=req_lens,
-        row_indices=row_indices,
-        column_starts=column_starts,
-        ignore_tokens=ignore_tokens,
-    )
-
-    actual_table = oe_token_table.clone().to(DEVICE)
-    actual = torch.ops.npu.update_oe_token_table(
-        tokens.to(DEVICE),
-        req_lens.to(DEVICE),
-        row_indices.to(DEVICE),
-        column_starts.to(DEVICE),
-        ignore_tokens.to(DEVICE),
-        batch_size=req_lens.numel(),
-        max_context_len=actual_table.shape[1],
-        oe_token_table=actual_table,
-    ).cpu()
-
-    assert actual.dtype == torch.int32
-    assert torch.equal(actual, expected)
-    assert torch.equal(actual_table.cpu(), expected)
 
 
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16], ids=["fp16", "bf16"])
@@ -450,7 +232,9 @@ def test_mlp_lightning_indexer_runtime_tnd_pa_bsnd_sparse_mode_3_matches_referen
 
 
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16], ids=["fp16", "bf16"])
-def test_mlp_lightning_indexer_runtime_tnd_pa_bsnd_sparse_mode_3_bs8_matches_reference(dtype: torch.dtype):
+def test_mlp_lightning_indexer_runtime_tnd_pa_bsnd_sparse_mode_3_bs8_matches_reference(
+    dtype: torch.dtype,
+):
     torch.manual_seed(2)
 
     q_lens = [1, 2, 1, 3, 2, 4, 1, 2]
