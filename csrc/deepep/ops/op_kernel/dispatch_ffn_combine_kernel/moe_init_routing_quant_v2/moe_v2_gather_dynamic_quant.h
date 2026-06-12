@@ -201,6 +201,9 @@ __aicore__ inline void MoeV2GatherDynamicQuant<T>::CopyOutXQuant1H(int64_t progr
             if (outIndex == -1 || (this->dropPadMode == DROPLESS_MODE && outIndex >= this->activateRows)) {
                 continue;
             }
+            if (!(0 <= outIndex && outIndex < activateRows)) {
+                continue;
+            }
             // Scale is placed after the data position
             DataCopyPad(expandedXGm[outIndex * cols_scale_], outLocal, copyOutParams);
         }

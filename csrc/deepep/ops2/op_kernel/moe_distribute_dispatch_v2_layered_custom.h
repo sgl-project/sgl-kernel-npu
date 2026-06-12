@@ -1268,7 +1268,7 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeA2layeredFu
 
     for (uint32_t i = 0; i < localMoeExpertNum_; ++i) {
         if (expertTokenNumsType_ == 1) {
-            if (i * worldSize_ - 1 >= 512 || i * worldSize_ + worldSize_ - 1 >= 512) {
+            if (i * worldSize_ + worldSize_ - 1 >= 512) {
                 break;
             }
             int32_t preValue = (i == 0) ? 0 : tokenCntUB(i * worldSize_ - 1);
