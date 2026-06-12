@@ -595,8 +595,6 @@ struct CopyGmToL1<Arch::AtlasA2, Gemm::GemmType<Element, layout::RowMajor>,
     {
         uint32_t rows = layoutSrc.shape(0);
         uint32_t cols = layoutSrc.shape(1);
-        // uint32_t srcStride = (layoutSrc.stride(0) - layoutSrc.shape(1)) / ELE_NUM_PER_BLK;
-        // uint32_t dstStride = (layoutDst.stride(0) - layoutDst.shape(1)) / ELE_NUM_PER_BLK;
         uint32_t srcStride = 0;
         uint32_t dstStride = 0;
 
