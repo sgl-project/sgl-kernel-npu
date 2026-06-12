@@ -76,11 +76,21 @@ extern thread_local int g_hashOffset;
     _(at::ScalarType::Undefined, ACL_DT_UNDEFINED)   \
     _(at::ScalarType::NumOptions, ACL_DT_UNDEFINED)
 
-constexpr aclDataType kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(at::ScalarType::NumOptions) + 1] = {
-#define DEFINE_ENUM(_1, n) (n),
-    AT_ALL_SCALAR_TYPE_AND_ACL_DATATYPE_PAIR(DEFINE_ENUM)
+inline aclDataType kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(at::ScalarType::NumOptions) + 1] = {};
+
+static struct MapInitializer {
+    MapInitializer()
+    {
+#define DEFINE_ENUM(t, n) kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(t)] = (n);
+        AT_ALL_SCALAR_TYPE_AND_ACL_DATATYPE_PAIR(DEFINE_ENUM)
+#ifdef __DAV_C310__
+        kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(at::ScalarType::Float8_e4m3fn)] = ACL_FLOAT8_E4M3FN;
+        kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(at::ScalarType::Float8_e5m2)] = ACL_FLOAT8_E5M2;
+        kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(at::ScalarType::Float8_e8m0fnu)] = ACL_FLOAT8_E8M0;
+#endif
 #undef DEFINE_ENUM
-};
+    }
+} map_initializer;
 
 #define GET_OP_API_FUNC(apiName) reinterpret_cast<_##apiName>(GetOpApiFuncAddr(#apiName))
 

@@ -429,7 +429,9 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
     axisHExpandXTypeSize_ = axisH_ * static_cast<uint32_t>(sizeof(ExpandXType));
 
     uint64_t winSizeMin =
-        moeExpertNum_ * axisBS_ * (axisHExpandXTypeSize_ + EXTRA_TOKEN_INFO_NUM * axisK_ * sizeof(uint32_t)) +
+        static_cast<uint64_t>(moeExpertNum_) * axisBS_ *
+            (static_cast<uint64_t>(axisHExpandXTypeSize_) +
+             static_cast<uint64_t>(EXTRA_TOKEN_INFO_NUM) * axisK_ * sizeof(uint32_t)) +
         IPC_DATA_OFFSET + RDMA_DATA_SIZE;  // 考虑负载极其不均衡时，HCCL BUFFSIZE需要开的大小
 
     assert(winContext_->winSize >= winSizeMin,
@@ -625,13 +627,18 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
     if (coreIdx_ < stepCoreNum_) {
         LocalTensor<uint64_t> inUb = statusBuf_.Get<uint64_t>();
         uint32_t waitFlagAddr = coreIdx_ % stepCoreNum_;
-        while (true) {
+        constexpr uint32_t maxRetryTimes = 1000000U;
+        uint32_t retryTimes = 0U;
+        while (retryTimes < maxRetryTimes) {
             DataCopy(inUb, shareFlagGlobal_[waitFlagAddr * FLAG_SINGLE_CNT], FLAG_SINGLE_CNT);
             PipeBarrier<PIPE_ALL>();
             if (inUb(0) >= (GM2IPC_SYNC_FLAG + magicValue)) {
                 break;
             }
+            retryTimes++;
         }
+        assert(retryTimes < maxRetryTimes, "WaitIPC timeout: epRankId:%u, coreIdx:%u, waitFlagAddr:%u\n", rankId_,
+               coreIdx_, waitFlagAddr);
         inUb(0) = 0;
         PipeBarrier<PIPE_ALL>();
         DataCopy(shareFlagGlobal_[waitFlagAddr * FLAG_SINGLE_CNT], inUb,

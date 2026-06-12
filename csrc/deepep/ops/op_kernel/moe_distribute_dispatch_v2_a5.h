@@ -1248,6 +1248,9 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::LocalWind
     uint32_t beginIdx = outCountLocal.GetValue(0);
     preCnt_ = beginIdx;
     statusTensor_ = waitStatusBuf_.Get<int32_t>();
+    if (statusTensor_.GetSize() < recStatusNumPerCore_ * 8) {
+        return;
+    }
     DataCopyPadExtParams<ExpandXOutType> copyPadExtParams{false, 0U, 0U, 0U};
     DataCopyExtParams dataCopyExpandIdxParams{1U, sizeof(int32_t) * EXPAND_IDX_INFO, 0U, 0U, 0U};
     DataCopyExtParams dataCopyOutParams{1U, static_cast<uint32_t>(sendExpertNum_ * sizeof(int32_t)), 0U, 0U, 0U};

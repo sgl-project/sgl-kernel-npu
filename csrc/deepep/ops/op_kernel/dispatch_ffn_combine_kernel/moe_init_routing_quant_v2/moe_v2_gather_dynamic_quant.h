@@ -439,6 +439,9 @@ __aicore__ inline void MoeV2GatherDynamicQuant<T>::CopyOutPartialXQuant1H(int64_
             if (outIndex == -1 || (this->dropPadMode == DROPLESS_MODE && outIndex >= this->activateRows)) {
                 continue;
             }
+            if (!(0 <= outIndex && outIndex < activateRows)) {
+                continue;
+            }
             DataCopyPad(dynamicQuantScaleGm[outIndex], quantScaleLocal, {1, 4, 0, 0, 0});
             for (int64_t j = 0; j < this->colLoops; j++) {
                 colsTileLength = this->perLoopCols;

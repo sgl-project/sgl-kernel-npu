@@ -111,6 +111,7 @@ private:
 
     __aicore__ GM_ADDR GetWinStateAddrByRankId(const int32_t rankId, const uint8_t domain)
     {
+        assert(tpWinContext_ != nullptr);
         if (domain == EP_DOMAIN) {
             return (GM_ADDR)((epRankId_ == rankId)
                                  ? epWinContext_->localWindowsExp

@@ -50,8 +50,16 @@ aclnnStatus aclnnMoeDistributeCombineV2GetWorkspaceSize(
         nullptr, nullptr, nullptr, nullptr, nullptr, groupEp, epWorldSize, epRankId, moeExpertNum, groupTp, tpWorldSize,
         tpRankId, expertShardType, sharedExpertNum, sharedExpertRankNum, globalBs, outDtype, commQuantMode,
         groupListType, commAlg, 0, 0, 0, xOut, sendCostStats, workspaceSize, executor);
+    
+    if (executor == nullptr) {
+        return getWorkspaceSizesRes;
+    }
+    
+    if (*executor == nullptr) {
+        return getWorkspaceSizesRes;
+    }
     if (NnopbaseSetHcclServerType) {
-        if (std::strcmp(commAlg, "ccu") == 0) {
+        if (commAlg != nullptr && std::strcmp(commAlg, "ccu") == 0) {
             NnopbaseSetHcclServerType(*executor, NNOPBASE_HCCL_SERVER_TYPE_CCU);
         } else {
             NnopbaseSetHcclServerType(*executor, NNOPBASE_HCCL_SERVER_TYPE_MTE);

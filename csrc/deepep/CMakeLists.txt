@@ -25,6 +25,13 @@ file(GLOB SOURCES_DEEPEP *.cpp)
 
 pybind11_add_module(deep_ep_cpp pybind_extension.cpp ${SOURCES_DEEPEP})
 set_target_properties(deep_ep_cpp PROPERTIES CXX_STANDARD 17)
+
+# Define __DAV_C310__ for C310/A5 chip builds so that #ifdef __DAV_C310__ guards
+# work in host/pybind compilation context (they only exist natively in AscendC device compilation)
+# DEEPEP_IS_A5_BUILD is passed from build.sh when SOC_VERSION=Ascend950
+if("${DEEPEP_IS_A5_BUILD}" STREQUAL "ON")
+    target_compile_definitions(deep_ep_cpp PRIVATE __DAV_C310__)
+endif()
 target_include_directories( deep_ep_cpp PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/csrc
     ${CMAKE_CURRENT_SOURCE_DIR}/csrc/deepep
