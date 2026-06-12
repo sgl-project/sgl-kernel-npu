@@ -637,8 +637,9 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
             }
             retryTimes++;
         }
-        assert(retryTimes < maxRetryTimes, "WaitIPC timeout: epRankId:%u, coreIdx:%u, waitFlagAddr:%u\n", rankId_,
-               coreIdx_, waitFlagAddr);
+        if (retryTimes >= maxRetryTimes) {
+            trap();
+        }
         inUb(0) = 0;
         PipeBarrier<PIPE_ALL>();
         DataCopy(shareFlagGlobal_[waitFlagAddr * FLAG_SINGLE_CNT], inUb,
