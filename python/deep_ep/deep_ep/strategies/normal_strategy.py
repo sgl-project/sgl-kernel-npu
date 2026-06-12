@@ -153,11 +153,36 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         Tuple,
         EventOverlap,
     ]:
-        if isinstance(x, tuple):
-            raise NotImplementedError("Not support fp8")
+        # Determine quant type
+        if isinstance(x, torch.Tensor):
+            # BF16 no quant
+            data = x
+            x_scales = None
+            quant_type = "bf16"
+            use_quant = False
+        elif isinstance(x, tuple) and len(x) == 2:
+            data, quant_type_tensor = x
+            if quant_type_tensor.dtype == torch.float8_e4m3fn:
+                quant_type = "fp8_e4m3"
+                use_quant = True
+            elif quant_type_tensor.dtype == torch.float8_e5m2:
+                quant_type = "fp8_e5m2"
+                use_quant = True
+            elif quant_type_tensor.dtype == torch.int8:
+                quant_type = "int8"
+                use_quant = True
+            else:
+                raise TypeError(
+                    f"Unsupported quantized dtype: {quant_type_tensor.dtype}"
+                )
+            x_scales = None
+        else:
+            raise TypeError(f"Unsupported x type: {type(x)}")
 
-        x_scales = None
-        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+        if not use_quant:
+            use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+            if use_quant:
+                quant_type = "int8"
 
         if handle is not None:
             raise NotImplementedError(
@@ -183,7 +208,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             send_head,
             event,
         ) = self.runtime.intranode_dispatch(
-            x,
+            data,
             x_scales,
             topk_idx,
             topk_weights,
@@ -201,6 +226,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             async_finish,
             allocate_on_comm_stream,
             use_quant,
+            quant_type,
         )
 
         handle = (

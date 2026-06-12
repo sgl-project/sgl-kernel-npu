@@ -169,6 +169,7 @@ function build_kernels()
     -DCMAKE_PREFIX_PATH="$ASC_CMAKE_DIR" \
     -DASC_DIR="$ASC_CMAKE_DIR" \
     -DSOC_VERSION=Ascend910_9382 \
+    -DDEEPEP_IS_A5_BUILD=$([[ "$SOC_VERSION" == "Ascend950" ]] && echo "ON" || echo "OFF") \
     -DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE \
     -DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE \
     -B "$BUILD_DIR" \
