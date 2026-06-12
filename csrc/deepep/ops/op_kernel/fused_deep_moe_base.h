@@ -13,5 +13,6 @@
 
 #define TemplateMC2TypeClass typename ExpandXType, typename ExpandIdxType, bool IsNeedReduceScatter, uint32_t EXEC_FLAG
 #define TemplateMC2TypeFunc ExpandXType, ExpandIdxType, IsNeedReduceScatter, EXEC_FLAG
+#define WINDOWS_EXP_OFFSET 16
 
 #endif  // FUSED_DEEP_MOE_BASE_H
