@@ -595,8 +595,16 @@ struct CopyGmToL1<Arch::AtlasA2, Gemm::GemmType<Element, layout::RowMajor>,
     {
         uint32_t rows = layoutSrc.shape(0);
         uint32_t cols = layoutSrc.shape(1);
-        uint32_t srcStride = (layoutSrc.stride(0) - layoutSrc.shape(1)) / ELE_NUM_PER_BLK;
-        uint32_t dstStride = (layoutDst.stride(0) - layoutDst.shape(1)) / ELE_NUM_PER_BLK;
+        uint32_t srcStride = 0;
+        uint32_t dstStride = 0;
+
+        if (layoutSrc.stride(0) >= layoutSrc.shape(1)) {
+            srcStride = (layoutSrc.stride(0) - layoutSrc.shape(1)) / ELE_NUM_PER_BLK;
+        }
+
+        if (layoutDst.stride(0) >= layoutDst.shape(1)) {
+            dstStride = (layoutDst.stride(0) - layoutDst.shape(1)) / ELE_NUM_PER_BLK;
+        }
 
         if ((layoutSrc.shape(1) == layoutSrc.stride(0)) && (layoutDst.shape(1) == layoutDst.stride(0))) {
             DataCopy(dstTensor, srcTensor, rows * cols);
@@ -605,8 +613,9 @@ struct CopyGmToL1<Arch::AtlasA2, Gemm::GemmType<Element, layout::RowMajor>,
             for (uint32_t i = 0; i < rLoops; ++i) {
                 uint32_t rActual = (i < rLoops - 1) ? MAX_REPEAT : rows - i * MAX_REPEAT;
                 AscendC::DataCopyParams dataCopyParams(rActual, cols / ELE_NUM_PER_BLK, srcStride, dstStride);
-                DataCopy(dstTensor[i * MAX_REPEAT * layoutDst.stride(0)],
-                         srcTensor[i * MAX_REPEAT * layoutSrc.stride(0)], dataCopyParams);
+                uint64_t dstOffset64 = (uint64_t)i * MAX_REPEAT * layoutDst.stride(0);
+                uint64_t srcOffset64 = (uint64_t)i * MAX_REPEAT * layoutSrc.stride(0);
+                DataCopy(dstTensor[dstOffset64], srcTensor[srcOffset64], dataCopyParams);
             }
         } else {
             for (uint32_t i = 0; i < rows; ++i) {

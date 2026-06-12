@@ -20,6 +20,7 @@ DeepEP-Ascend uses a **strategy-based architecture** that allows flexible select
 ## Software and Hardware
 
 Supported Hardware Models: Atlas A2, A3 (support CANN 8.5 and CANN 9.0), and Atlas A5 (only supports CANN 9.0).
+
 Platform: aarch64/x86
 
 Supporting Software:
