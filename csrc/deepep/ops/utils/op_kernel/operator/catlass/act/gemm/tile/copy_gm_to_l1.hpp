@@ -615,8 +615,7 @@ struct CopyGmToL1<Arch::AtlasA2, Gemm::GemmType<Element, layout::RowMajor>,
                 AscendC::DataCopyParams dataCopyParams(rActual, cols / ELE_NUM_PER_BLK, srcStride, dstStride);
                 uint64_t dstOffset64 = (uint64_t)i * MAX_REPEAT * layoutDst.stride(0);
                 uint64_t srcOffset64 = (uint64_t)i * MAX_REPEAT * layoutSrc.stride(0);
-                DataCopy(dstTensor[dstOffset],
-                         srcTensor[srcOffset], dataCopyParams);
+                DataCopy(dstTensor[dstOffset], srcTensor[srcOffset], dataCopyParams);
             }
         } else {
             for (uint32_t i = 0; i < rows; ++i) {

@@ -217,9 +217,9 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     OPS_ERR_IF(epRankIdPtr == nullptr, OPS_LOG_E(nodeName, "epRankIdPtr is nullptr."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(moeExpertNumPtr == nullptr, OPS_LOG_E(nodeName, "moeExpertNumPtr is nullptr."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(sharedExpertNumPtr == nullptr, OPS_LOG_E(nodeName, "sharedExpertNumPtr is nullptr."),
-            return ge::GRAPH_FAILED);
+               return ge::GRAPH_FAILED);
     OPS_ERR_IF(sharedExpertRankNumPtr == nullptr, OPS_LOG_E(nodeName, "sharedExpertRankNumPtr is nullptr."),
-            return ge::GRAPH_FAILED);
+               return ge::GRAPH_FAILED);
     OPS_ERR_IF(quantModePtr == nullptr, OPS_LOG_E(nodeName, "quantModePtr is nullptr."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(globalBsPtr == nullptr, OPS_LOG_E(nodeName, "globalBsPtr is nullptr."), return ge::GRAPH_FAILED);
 
