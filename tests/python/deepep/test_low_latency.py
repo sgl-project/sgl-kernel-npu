@@ -45,13 +45,6 @@ def test(
         num_ranks - rank_offset < 257
     ), "Too many ranks (exceeding test precision limit)"
 
-    if quant_type == "no":
-        quant_type_tensor = None
-    elif quant_type == "fp8":
-        quant_type_tensor = torch.tensor([], dtype=torch.float8_e4m3fn, device="npu")
-    elif quant_type == "mxfp8":
-        quant_type_tensor = torch.tensor([], dtype=torch.float8_e4m3fn, device="npu")
-
     x = torch.ones((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * (
         rank - rank_offset
     )
@@ -102,15 +95,9 @@ def test(
                     flush=True,
                 )
 
-            dispatch_x = (
-                current_x
-                if quant_type_tensor is None
-                else (current_x, quant_type_tensor)
-            )
-
             packed_recv_x, packed_recv_count, handle, event, hook = (
                 buffer.low_latency_dispatch(
-                    dispatch_x,
+                    current_x,
                     topk_idx,
                     aligned_num_tokens,
                     num_experts,
@@ -247,7 +234,7 @@ def test(
     # noinspection PyShadowingNames
     def test_func(zero_copy: bool, return_recv_hook: bool):
         recv_x, recv_count, handle, event, hook = buffer.low_latency_dispatch(
-            dispatch_x,
+            current_x,
             topk_idx,
             aligned_num_tokens,
             num_experts,
