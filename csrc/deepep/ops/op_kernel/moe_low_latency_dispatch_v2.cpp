@@ -16,7 +16,7 @@ using namespace MoeDistributeDispatchV2A5Impl;
  * Tilingkey说明
  * 5位的十进制数
  * 第1位（个位）：quantMode:
- *     0: 不量化, 1: 静态量化, 2: 动态量化, 3: 量化类型: mxfp8
+ *     0: 不量化, 1: 静态量化, 2: 动态量化, 3: 量化类型: mxfp8, 4: 量化类型: mxfp4
  * 第2位（十位）：是否有smoothScale:
  *     0: 无, 1: 有
  * 第3位（百位）：是否做tp域allgather:
@@ -36,6 +36,10 @@ extern "C" __global__ __aicore__ void moe_low_latency_dispatch_v2(GM_ADDR x, GM_
 {
     REGISTER_TILING_DEFAULT(MoeDistributeDispatchV2TilingData);
     TPipe pipe;
+
+#ifdef __DAV_C310__
+    int64_t oriOverflowMode = AscendC::GetCtrlSpr<FLOAT_OVERFLOW_MODE_CTRL, FLOAT_OVERFLOW_MODE_CTRL>();
+#endif
 #if (ORIG_DTYPE_EXPAND_X == DT_BF16 || ORIG_DTYPE_EXPAND_X == DT_FLOAT16)
     if (TILING_KEY_IS(30000)) {
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
@@ -141,6 +145,17 @@ extern "C" __global__ __aicore__ void moe_low_latency_dispatch_v2(GM_ADDR x, GM_
 #elif (ORIG_DTYPE_EXPAND_X == DT_FLOAT8_E4M3FN || ORIG_DTYPE_EXPAND_X == DT_FLOAT8_E5M2)
 #ifdef __DAV_C310__
     if (TILING_KEY_IS(50003)) {
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchV2A5<DTYPE_X, DTYPE_EXPAND_X, DTYPE_DYNAMIC_SCALES, false, true, true, false, false> op;
+        op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
+                expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
+        op.Process();
+        return;
+    }
+#endif
+#elif (ORIG_DTYPE_EXPAND_X == DT_FLOAT4_E2M1 || ORIG_DTYPE_EXPAND_X == DT_FLOAT4_E1M2)
+#ifdef __DAV_C310__
+    if (TILING_KEY_IS(50004)) {
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
         MoeDistributeDispatchV2A5<DTYPE_X, DTYPE_EXPAND_X, DTYPE_DYNAMIC_SCALES, false, true, true, false, false> op;
         op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
