@@ -26,15 +26,29 @@ namespace npu_kernel {
 HOST_API at::Tensor softfp8_w8a16_matmul(const at::Tensor &mat1, const at::Tensor &mat2, const at::Tensor &scale,
                                          const std::string &outDType)
 {
+    constexpr int64_t kBlockSize = 128;
     at::ScalarType scalar_type = mat1.scalar_type();
 
     TORCH_CHECK(scalar_type == at::kBFloat16, "only support bf16");
     TORCH_CHECK(mat1.dim() == 2, "x should be [M, K]");
+    TORCH_CHECK(mat2.scalar_type() == at::kByte, "weight should be uint8 storing fp8 bits");
     TORCH_CHECK(mat2.dim() == 2, "weight should be [K, N]");
+    TORCH_CHECK(scale.scalar_type() == at::kFloat, "scale should be float32");
+    TORCH_CHECK(scale.dim() == 2, "scale should be [ceil(k/128), ceil(n/128)]");
 
-    uint32_t m = mat1.size(0);
-    uint32_t k = mat1.size(1);
-    uint32_t n = mat2.size(1);
+    int64_t m64 = mat1.size(0);
+    int64_t k64 = mat1.size(1);
+    int64_t n64 = mat2.size(1);
+    int64_t scale_rows = (k64 + kBlockSize - 1) / kBlockSize;
+    int64_t scale_cols = (n64 + kBlockSize - 1) / kBlockSize;
+
+    TORCH_CHECK(mat2.size(0) == k64, "weight shape mismatch: expect K dim to equal mat1.size(1)");
+    TORCH_CHECK(scale.size(0) == scale_rows && scale.size(1) == scale_cols,
+                "scale shape mismatch: expect [ceil(k/128), ceil(n/128)]");
+
+    uint32_t m = static_cast<uint32_t>(m64);
+    uint32_t k = static_cast<uint32_t>(k64);
+    uint32_t n = static_cast<uint32_t>(n64);
 
     void *x_ptr = mat1.data_ptr();
     void *w_ptr = mat2.data_ptr();

@@ -50,7 +50,70 @@ def apply_block_scale(weight_fp8, scale, K, N, block_size=BLOCK_SIZE):
     return deq.to(torch.bfloat16)
 
 
+def print_mm_case_summary(
+    M,
+    N,
+    K,
+    seed,
+    b_fp8,
+    b_int8,
+    scales,
+    out_op,
+    out_golden,
+    ok,
+    bad_cnt,
+    total,
+    diff,
+    atol,
+    rtol,
+):
+    """Print a compact summary for one matmul correctness case."""
+    g = out_golden.to(torch.float32).cpu()
+    o = out_op.to(torch.float32).cpu()
+
+    if M <= 8 and N <= 16:
+        print("out_op:")
+        print(out_op)
+        print("out_golden:")
+        print(out_golden)
+
+    max_abs = diff.max().item()
+    max_rel = (diff / (g.abs() + 1e-6)).max().item()
+    mean_abs = diff.mean().item()
+    mean_rel = (diff / (g.abs() + 1e-6)).mean().item()
+
+    print(f"[M,N,K]=[{M},{N},{K}] out_dtype={out_op.dtype}, seed={seed}")
+    print(
+        f"weight_fp8 shape={tuple(b_fp8.shape)} dtype={b_fp8.dtype} stride={b_fp8.stride()}"
+    )
+    print(
+        f"weight_bits shape={tuple(b_int8.shape)} dtype={b_int8.dtype} stride={b_int8.stride()}"
+    )
+    print(
+        f"scale shape={tuple(scales.shape)} dtype={scales.dtype} stride={scales.stride()}"
+    )
+    print(
+        f"allclose={ok}  bad={bad_cnt}/{total}  "
+        f"max_abs={max_abs:.6g}  mean_abs={mean_abs:.6g}  "
+        f"max_rel={max_rel:.6g}  mean_rel={mean_rel:.6g}"
+    )
+
+    if not ok:
+        idx = (diff > (atol + rtol * g.abs())).view(-1).nonzero()
+        if idx.numel() > 0:
+            i = int(idx[0].item())
+            row = i // N
+            col = i % N
+            print(
+                f"first_bad at ({row},{col}): "
+                f"op={o[row, col].item():.6g} "
+                f"golden={g[row, col].item():.6g} "
+                f"diff={diff[row, col].item():.6g}"
+            )
+
+
 def compare_fp8_w8a16(M, N, K):
+    """Run one softfp8 w8a16 matmul case and compare NPU output to reference."""
     atol = 1e-2
     rtol = 1e-2
     seed = 0
@@ -59,7 +122,7 @@ def compare_fp8_w8a16(M, N, K):
     scale_K = (K + BLOCK_SIZE - 1) // BLOCK_SIZE
     scale_N = (N + BLOCK_SIZE - 1) // BLOCK_SIZE
 
-    a_bf16 = torch.full([M, K], 1, dtype=torch.bfloat16)
+    a_bf16 = torch.randn([M, K], dtype=torch.float32).to(torch.bfloat16)
     b_fp32 = torch.randn([K, N], dtype=torch.float32) * 0.5
     b_fp8 = b_fp32.to(torch.float8_e4m3fn)
     b_int8 = b_fp8.view(torch.uint8)
@@ -83,52 +146,30 @@ def compare_fp8_w8a16(M, N, K):
     g = out_golden.to(torch.float32).cpu()
     o = out_op.to(torch.float32).cpu()
 
-    if M <= 8 and N <= 16:
-        print("out_op:")
-        print(out_op)
-        print("out_golden:")
-        print(out_golden)
-
     diff = (o - g).abs()
 
     ok = torch.allclose(o, g, atol=atol, rtol=rtol)
-    max_abs = diff.max().item()
-    max_rel = (diff / (g.abs() + 1e-6)).max().item()
-    mean_abs = diff.mean().item()
-    mean_rel = (diff / (g.abs() + 1e-6)).mean().item()
 
     bad = diff > (atol + rtol * g.abs())
     bad_cnt = int(bad.sum().item())
     total = bad.numel()
-
-    print(f"[M,N,K]=[{M},{N},{K}] out_dtype=bf16, seed={seed}")
-    print(
-        f"weight_fp8 shape={tuple(b_fp8.shape)} dtype={b_fp8.dtype} stride={b_fp8.stride()}"
+    print_mm_case_summary(
+        M,
+        N,
+        K,
+        seed,
+        b_fp8,
+        b_int8,
+        scales,
+        out_op,
+        out_golden,
+        ok,
+        bad_cnt,
+        total,
+        diff,
+        atol,
+        rtol,
     )
-    print(
-        f"weight_bits shape={tuple(b_int8.shape)} dtype={b_int8.dtype} stride={b_int8.stride()}"
-    )
-    print(
-        f"scale shape={tuple(scales.shape)} dtype={scales.dtype} stride={scales.stride()}"
-    )
-    print(
-        f"allclose={ok}  bad={bad_cnt}/{total}  "
-        f"max_abs={max_abs:.6g}  mean_abs={mean_abs:.6g}  "
-        f"max_rel={max_rel:.6g}  mean_rel={mean_rel:.6g}"
-    )
-
-    if not ok:
-        idx = bad.view(-1).nonzero()
-        if idx.numel() > 0:
-            i = int(idx[0].item())
-            row = i // N
-            col = i % N
-            print(
-                f"first_bad at ({row},{col}): "
-                f"op={o[row, col].item():.6g} "
-                f"golden={g[row, col].item():.6g} "
-                f"diff={diff[row, col].item():.6g}"
-            )
 
     return ok
 

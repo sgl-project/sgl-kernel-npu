@@ -27,16 +27,34 @@ HOST_API at::Tensor softfp8_w8a16_grouped_matmul(const at::Tensor &mat1, const a
                                                  const at::Tensor &scale, const at::Tensor &groupList,
                                                  const std::string &outDType)
 {
+    constexpr int64_t kBlockSize = 128;
     at::ScalarType scalar_type = mat1.scalar_type();
 
     TORCH_CHECK(scalar_type == at::kBFloat16, "only support bf16");
     TORCH_CHECK(mat1.dim() == 2, "x should be [M, K]");
+    TORCH_CHECK(mat2.scalar_type() == at::kByte, "weight should be uint8 storing fp8 bits");
     TORCH_CHECK(mat2.dim() == 3, "weight should be [g, k, n]");
+    TORCH_CHECK(scale.scalar_type() == at::kFloat, "scale should be float32");
+    TORCH_CHECK(scale.dim() == 3, "scale should be [g, ceil(k/128), ceil(n/128)]");
+    TORCH_CHECK(groupList.scalar_type() == at::kLong, "groupList should be int64");
+    TORCH_CHECK(groupList.dim() == 1, "groupList should be 1D");
 
-    uint32_t m = mat1.size(0);
-    uint32_t k = mat1.size(1);
-    uint32_t n = mat2.size(2);
-    uint32_t g = mat2.size(0);
+    int64_t m64 = mat1.size(0);
+    int64_t k64 = mat1.size(1);
+    int64_t n64 = mat2.size(2);
+    int64_t g64 = mat2.size(0);
+    int64_t scale_rows = (k64 + kBlockSize - 1) / kBlockSize;
+    int64_t scale_cols = (n64 + kBlockSize - 1) / kBlockSize;
+
+    TORCH_CHECK(mat2.size(1) == k64, "weight shape mismatch: expect K dim to equal mat1.size(1)");
+    TORCH_CHECK(scale.size(0) == g64 && scale.size(1) == scale_rows && scale.size(2) == scale_cols,
+                "scale shape mismatch: expect [g, ceil(k/128), ceil(n/128)]");
+    TORCH_CHECK(groupList.numel() == g64, "groupList length should equal group count g");
+
+    uint32_t m = static_cast<uint32_t>(m64);
+    uint32_t k = static_cast<uint32_t>(k64);
+    uint32_t n = static_cast<uint32_t>(n64);
+    uint32_t g = static_cast<uint32_t>(g64);
 
     void *x_ptr = mat1.data_ptr();
     void *w_ptr = mat2.data_ptr();

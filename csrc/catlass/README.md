@@ -191,12 +191,12 @@ print(c.shape, c.dtype)  # (m, n), bf16
 ## Function Description | 功能描述
 
 ### English:
-Catlass-based soft-FP8 (W8A16) grouped-matmul (GMM). Activations are BF16 [M, K], weights are [g, K, N] (FP8 bits stored as int8), and groupList describes how the M dimension is partitioned across groups.
+Catlass-based soft-FP8 (W8A16) grouped-matmul (GMM). Activations are BF16 [M, K], weights are [g, K, N] (FP8 bits stored as uint8), and groupList describes how the M dimension is partitioned across groups.
 
 This operator is applicable to Atlas A2/A3 and enables FP8 computation on Ascend 910B/C hardware that does not support native FP8 computation.
 
 ### 中文:
-基于 Catlass 的 soft-FP8（W8A16）分组矩阵乘（GMM）：输入激活 BF16 [M, K]，权重 [g, K, N]（FP8 bit 以 int8 存储），groupList 描述 M 维如何按组切分。
+基于 Catlass 的 soft-FP8（W8A16）分组矩阵乘（GMM）：输入激活 BF16 [M, K]，权重 [g, K, N]（FP8 bit 以 uint8 存储），groupList 描述 M 维如何按组切分。
 
 此算子适用于Atlas A2/A3，可在不支持原生FP8计算的Ascend 910B/C 硬件上支持FP8计算。
 
@@ -211,8 +211,8 @@ import torch
 
 torch.ops.npu.softfp8_w8a16_grouped_matmul(
     mat1: torch.Tensor,       # bf16, [M, K]
-    mat2: torch.Tensor,       # int8 (FP8 bits), [g, K, N]
-    scale: torch.Tensor,      # fp32, per-block scale (block size is (128, 128))
+    mat2: torch.Tensor,       # uint8 (FP8 bits), [g, K, N]
+    scale: torch.Tensor,      # fp32, [g, ceil(K/128), ceil(N/128)]
     groupList: torch.Tensor,  # prefix-sum describing groups (see "Constraints")
     outDType: str = "bf16"
 ) -> torch.Tensor             # [M, N]
@@ -234,9 +234,9 @@ extern "C" __global__ __aicore__ void catlass_fp8w8a16_gmm_bfloat16_t(
 | Parameter Name (参数名称) | DataType (数据类型) | Description | 说明 |
 |:--|:--|:--|:--|
 | mat1 | torch.Tensor | BF16 activation, shape (M, K) | BF16 输入矩阵 (M, K) |
-| mat2 | torch.Tensor | grouped weights, shape (g, K, N) | 分组权重 (g, K, N) |
-| scale | torch.Tensor | FP32 scale table for dequant ((128,128) block-wise) | 反量化 scale 表（按 (128,128) block） |
-| groupList | torch.Tensor | prefix-sum group descriptor over M | M 维分组的前缀和描述 |
+| mat2 | torch.Tensor | grouped weights stored as uint8 FP8 bits, shape (g, K, N) | 以 uint8 FP8 bit 存储的分组权重 (g, K, N) |
+| scale | torch.Tensor | FP32 per-group scale table, shape (g, ceil(K/128), ceil(N/128)) | 按 group 存放的 FP32 scale 表，形状为 (g, ceil(K/128), ceil(N/128)) |
+| groupList | torch.Tensor | int64 prefix-sum group descriptor over M | int64 类型的 M 维分组前缀和描述 |
 | outDType | str | output dtype string (now only support "bf16") | 输出 dtype 字符串（当前仅支持 "bf16"） |
 
 ---
@@ -253,18 +253,22 @@ extern "C" __global__ __aicore__ void catlass_fp8w8a16_gmm_bfloat16_t(
 
 ### English:
 - mat1 must be BF16 and 2D: [M, K].
-- mat2 must be 3D: [g, K, N].
+- mat2 must be uint8 and 3D: [g, K, N].
+- scale must be float32 and 3D: [g, ceil(K/128), ceil(N/128)].
 - groupList must be a prefix-sum representation of the group sizes along M:
-  - 1D tensor of length g
+  - int64 1D tensor of length g
+  - the first element is the size of the first group, and the remaining elements are prefix sums
 - Currently only supports ND format and RowMajor layout (standard contiguous row-major tensors). Other formats (e.g., NZ) are not supported.
 - Scale is block-wise (commonly groupSize=128), and must match the kernel's dequant packing strategy.
 - This op is built only when BUILD_CATLASS_MODULE=ON.
 
 ### 中文:
 - mat1 必须是 BF16 且为 2D：[M, K]。
-- mat2 必须为 3D：[g, K, N]。
+- mat2 必须是 uint8 且为 3D：[g, K, N]。
+- scale 必须是 float32 且为 3D：[g, ceil(K/128), ceil(N/128)]。
 - groupList 必须用前缀和形式表示每组的 M 大小：
-  - 1D 张量，长度为 g
+  - int64 的 1D 张量，长度为 g
+  - 第一个元素是第一组大小，后续元素为前缀和
 - 当前仅支持 ND 与 RowMajor（行主序、连续内存）。其它格式（如 NZ）暂不支持。
 - scale 为按 block 的布局（常见 groupSize=128），需要与 kernel 的权重打包/反量化策略一致。
 - 仅在 BUILD_CATLASS_MODULE=ON 时参与构建。
@@ -278,24 +282,27 @@ import torch_npu
 import sgl_kernel_npu
 
 device = "npu"
-g = 4
 K, N = 256, 256
+group_sizes = [256, 128, 512, 64]
+g = len(group_sizes)
 
-Ms = [256, 128, 512, 64]
-groupList = [0]
-for mi in Ms:
-    groupList.append(groupList[-1] + mi)
-M = groupList[-1]
+groupList = []
+running = 0
+for mi in group_sizes:
+    running += mi
+    groupList.append(running)
+M = running
 
 a = torch.randn(M, K, dtype=torch.bfloat16, device=device)
 
-# NOTE: placeholder FP8-bits in int8
-w = torch.randint(-128, 127, (g, K, N), dtype=torch.int8, device=device)
+# NOTE: placeholder FP8-bits in uint8
+w = torch.randint(0, 256, (g, K, N), dtype=torch.uint8, device=device)
 
-groupList_t = torch.tensor(groupList, dtype=torch.int32, device=device)
+groupList_t = torch.tensor(groupList, dtype=torch.int64, device=device)
 
-# scale layout depends on packing strategy; here is a placeholder
-scale = torch.ones(1, dtype=torch.float32, device=device)
+scale_rows = (K + 127) // 128
+scale_cols = (N + 127) // 128
+scale = torch.ones((g, scale_rows, scale_cols), dtype=torch.float32, device=device)
 
 c = torch.ops.npu.softfp8_w8a16_grouped_matmul(a, w, scale, groupList_t, "bf16")
 print(c.shape, c.dtype)  # (M, N), bf16
