@@ -153,8 +153,10 @@
          tiling->hasInitStateWorkspace = 0;
      }
  
-     const uint64_t tilingKey = GET_TPL_TILING_KEY(runModeKey, widthKey, fnPlanKey);
-     context->SetTilingKey(tilingKey);
+     tiling->runModeKey = runModeKey;
+     tiling->widthKey = widthKey;
+     tiling->fnPlanKey = fnPlanKey;
+
      return ge::GRAPH_SUCCESS;
  }
  
@@ -164,9 +166,9 @@
      return ge::GRAPH_SUCCESS;
  }
  
- IMPL_OP_OPTILING(CausalConv1d)
-     .Tiling(CausalConv1dTilingFunc)
-     .TilingParse<CausalConv1dCompileInfo>(TilingParseForCausalConv1d);
+ // IMPL_OP_OPTILING(CausalConv1d)
+ //     .Tiling(CausalConv1dTilingFunc)
+ //     .TilingParse<CausalConv1dCompileInfo>(TilingParseForCausalConv1d);  // Disabled: eager path only
  
  }
  

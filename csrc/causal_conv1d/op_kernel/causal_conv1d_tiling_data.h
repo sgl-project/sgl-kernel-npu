@@ -58,5 +58,10 @@ struct CausalConv1dTilingData {
     int64_t tokenTileStartSeq[128];
     int64_t tokenTileEndSeq[128];
     int64_t hasInitStateWorkspace;
+
+    int64_t dtypeKey;
+    int64_t runModeKey;
+    int64_t widthKey;
+    int64_t fnPlanKey;
 };
 #endif // CAUSAL_CONV1D_TILING_DATA_H_

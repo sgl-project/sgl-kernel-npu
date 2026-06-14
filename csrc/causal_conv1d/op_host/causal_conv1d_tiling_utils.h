@@ -19,8 +19,8 @@ namespace optiling::causal_conv1d_host {
 
 constexpr uint32_t X_INDEX = 0;
 constexpr uint32_t WEIGHT_INDEX = 1;
-constexpr uint32_t BIAS_INDEX = 2;
-constexpr uint32_t CONV_STATES_INDEX = 3;
+constexpr uint32_t CONV_STATES_INDEX = 2;
+constexpr uint32_t BIAS_INDEX = 3;
 constexpr uint32_t QUERY_START_LOC_INDEX = 4;
 constexpr uint32_t CACHE_INDICES_INDEX = 5;
 constexpr uint32_t INITIAL_STATE_MODE_INDEX = 6;

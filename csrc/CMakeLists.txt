@@ -145,10 +145,9 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/tiling
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/stub
-        ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel
-        ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/tiling
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/stub
+        ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel
         ${TORCH_DIR}/include
         ${TORCH_DIR}/include/torch/csrc/api/include
         ${TORCH_NPU_DIR}/include

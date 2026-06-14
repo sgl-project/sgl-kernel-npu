@@ -38,5 +38,5 @@ static ge::graphStatus InferShapeCausalConv1d(gert::InferShapeContext* context)
     return GRAPH_SUCCESS;
 }
 
-IMPL_OP_INFERSHAPE(CausalConv1d).InferShape(InferShapeCausalConv1d);
+// IMPL_OP_INFERSHAPE(CausalConv1d).InferShape(InferShapeCausalConv1d);  // Disabled: eager path only
 } // namespace ops

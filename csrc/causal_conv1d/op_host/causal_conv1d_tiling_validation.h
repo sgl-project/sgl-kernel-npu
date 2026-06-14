@@ -328,14 +328,27 @@
              OP_CHECK_IF(natShape.GetDim(0) != batch, OP_LOGE(context, "numAcceptedTokens.size must equal batch"),
                          return ge::GRAPH_FAILED);
  
-             if (inputMode == 1) {
-                 const int64_t reqStateLen = (width - 1) + (seqLen - 1);
-                 OP_CHECK_IF(stateLen < reqStateLen,
-                             OP_LOGE(context,
-                                     "spec decode requires stateLen >= (width-1) + (seqlen-1), got stateLen=%ld req=%ld",
-                                     stateLen, reqStateLen),
-                             return ge::GRAPH_FAILED);
-             }
+              if (inputMode == 1) {
+                  const int64_t reqStateLen = (width - 1) + (seqLen - 1);
+                  OP_CHECK_IF(stateLen < reqStateLen,
+                              OP_LOGE(context,
+                                      "spec decode requires stateLen >= (width-1) + (seqlen-1), got stateLen=%ld req=%ld",
+                                      stateLen, reqStateLen),
+                              return ge::GRAPH_FAILED);
+              } else if (inputMode == 0 && qslData != nullptr) {
+                  int64_t maxSegLen = 0;
+                  for (int64_t i = 0; i + 1 < qslSize; ++i) {
+                      int64_t segLen = qslData[i + 1] - qslData[i];
+                      if (segLen > maxSegLen) { maxSegLen = segLen; }
+                  }
+                  const int64_t reqStateLen = (width - 1) + (maxSegLen - 1);
+                  OP_CHECK_IF(stateLen < reqStateLen,
+                              OP_LOGE(context,
+                                      "spec decode varlen requires stateLen >= (width-1) + (max_seg_len-1), "
+                                      "got stateLen=%ld req=%ld max_seg_len=%ld",
+                                      stateLen, reqStateLen, maxSegLen),
+                              return ge::GRAPH_FAILED);
+              }
  
              const gert::Tensor *natTensor = context->GetOptionalInputTensor(NUM_ACCEPTED_TOKENS_INDEX);
              const int64_t *natData = (natTensor != nullptr) ? natTensor->GetData<int64_t>() : nullptr;
@@ -446,6 +459,7 @@
      tiling.stateLen = stateLen;
      tiling.numCacheLines = numCacheLines;
      tiling.batch = batch;
+     tiling.dtypeKey = (xDtype == ge::DT_BF16) ? 0 : 1;
      return ge::GRAPH_SUCCESS;
  }
  

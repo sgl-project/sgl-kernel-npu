@@ -109,17 +109,21 @@
  template <CAUSAL_CONV1D_TEMPLATE_ARGS>
  class CausalConv1d {
  public:
-     __aicore__ inline CausalConv1d() = default;
- 
- protected:
-     static constexpr bool kIsUpdateMode = (runModeKey == CAUSAL_CONV1D_TPL_RUN_MODE_UPDATE);
-     static constexpr int32_t kTemplateWidth = DecodeWidthTplKey(widthKey);
-     static constexpr bool kHasCompileTimeWidth =
-         (runModeKey == CAUSAL_CONV1D_TPL_RUN_MODE_FN) && (kTemplateWidth >= 2) && (kTemplateWidth <= MAX_WIDTH);
-     static constexpr FnExecutionPlan kFnExecutionPlan = static_cast<FnExecutionPlan>(fnPlanKey);
- 
-     __aicore__ inline void ResetRuntimeState(const CausalConv1dTilingData *tilingData);
-     __aicore__ inline void InitSharedBuffersAndEvents();
+    __aicore__ inline CausalConv1d() = default;
+
+    __aicore__ inline void ResetRuntimeState(const __gm__ CausalConv1dTilingData *tilingData)
+    {
+        tilingData_ = tilingData;
+    }
+
+protected:
+    static constexpr bool kIsUpdateMode = (runModeKey == CAUSAL_CONV1D_TPL_RUN_MODE_UPDATE);
+    static constexpr int32_t kTemplateWidth = DecodeWidthTplKey(widthKey);
+    static constexpr bool kHasCompileTimeWidth =
+        (runModeKey == CAUSAL_CONV1D_TPL_RUN_MODE_FN) && (kTemplateWidth >= 2) && (kTemplateWidth <= MAX_WIDTH);
+    static constexpr FnExecutionPlan kFnExecutionPlan = static_cast<FnExecutionPlan>(fnPlanKey);
+
+    __aicore__ inline void InitSharedBuffersAndEvents();
      __aicore__ inline void LoadWeightAndBias(int32_t channelStart, int32_t baseDim);
      __aicore__ inline void InitRing(int32_t cacheIdx, bool hasInit, int32_t stateTokenOffset, int32_t start,
                                      int32_t len, int32_t channelStart, int32_t baseDim, int32_t dim);
@@ -158,7 +162,7 @@
      __aicore__ inline void ProcessFnChunk(int32_t seq, int32_t cacheIdx, bool hasInit, int32_t seqStart,
                                            int32_t seqLen, int32_t chunkStart, int32_t chunkLen, int32_t channelStart,
                                            int32_t baseDim, int32_t dim);
-     __aicore__ inline const CausalConv1dTilingData *GetTilingData() const;
+     __aicore__ inline const __gm__ CausalConv1dTilingData *GetTilingData() const;
      __aicore__ inline bool HasActivation() const;
      __aicore__ inline bool HasBias() const;
      __aicore__ inline bool IsUpdateMode() const;
@@ -197,22 +201,16 @@
      GlobalTensor<int64_t> queryStartLocGm;
      GlobalTensor<int64_t> cacheIndicesGm;
      GlobalTensor<int64_t> initialStateModeGm;
-     GlobalTensor<int64_t> numAcceptedTokensGm;
+     GlobalTensor<int32_t> numAcceptedTokensGm;
      GlobalTensor<T> yGm;
      GlobalTensor<int32_t> initStateSyncGm_;
      GlobalTensor<T> initStateWorkspaceGm_;
  
-     const CausalConv1dTilingData *tilingData_{nullptr};
- };
- 
- template <CAUSAL_CONV1D_TEMPLATE_ARGS>
- __aicore__ inline void CAUSAL_CONV1D_CLASS::ResetRuntimeState(const CausalConv1dTilingData *tilingData)
- {
-     tilingData_ = tilingData;
- }
- 
- template <CAUSAL_CONV1D_TEMPLATE_ARGS>
- __aicore__ inline void CAUSAL_CONV1D_CLASS::InitSharedBuffersAndEvents()
+    const __gm__ CausalConv1dTilingData *tilingData_{nullptr};
+};
+
+template <CAUSAL_CONV1D_TEMPLATE_ARGS>
+__aicore__ inline void CAUSAL_CONV1D_CLASS::InitSharedBuffersAndEvents()
  {
      pipe.InitBuffer(inBuf, RING_SLOTS * MAX_BLOCK_DIM * sizeof(T));
      pipe.InitBuffer(outBuf, 2 * MAX_BLOCK_DIM * sizeof(T));
@@ -896,81 +894,79 @@
      }
  }
  
- template <CAUSAL_CONV1D_TEMPLATE_ARGS>
- template <int32_t kWindowMode>
- __aicore__ inline void CAUSAL_CONV1D_CLASS::ProcessDefaultByWindowMode()
- {
-     const int32_t dim = tilingData_->dim;
-     const int32_t batch = tilingData_->batch;
-     const int32_t seqLen = tilingData_->seqLen;
-     const int32_t baseDim = static_cast<int32_t>(tilingData_->baseDim);
-     const int32_t baseDimCnt = static_cast<int32_t>(tilingData_->baseDimCnt);
-     const int32_t width = static_cast<int32_t>(tilingData_->width);
-     const bool hasCacheIndices = (tilingData_->hasCacheIndices != 0);
-     const bool hasInit = true;
-     const bool isSpecDecodingGlobal = IsUpdateSpecDecodingEnabled();
+  template <CAUSAL_CONV1D_TEMPLATE_ARGS>
+  template <int32_t kWindowMode>
+  __aicore__ inline void CAUSAL_CONV1D_CLASS::ProcessDefaultByWindowMode()
+  {
+      const int32_t dim = tilingData_->dim;
+      const int32_t batch = tilingData_->batch;
+      const int32_t seqLen = tilingData_->seqLen;
+      const int32_t baseDim = static_cast<int32_t>(tilingData_->baseDim);
+      const int32_t baseDimCnt = static_cast<int32_t>(tilingData_->baseDimCnt);
+      const int32_t width = static_cast<int32_t>(tilingData_->width);
+      const bool hasCacheIndices = (tilingData_->hasCacheIndices != 0);
+      const bool hasInit = true;
+      const bool isSpecDecodingGlobal = IsUpdateSpecDecodingEnabled();
+  
+      const uint32_t blockIdx = GetBlockIdx();
+      const uint32_t blockNum = GetBlockNum();
+  
+      if (baseDim <= 0 || baseDimCnt <= 0 || baseDim > MAX_BLOCK_DIM || width < 2 || width > MAX_WIDTH) {
+          ReleaseEvents();
+          return;
+      }
+  
+      const int64_t gridSize = static_cast<int64_t>(batch) * baseDimCnt;
+      for (int64_t task = static_cast<int64_t>(blockIdx); task < gridSize; task += static_cast<int64_t>(blockNum)) {
+          const int32_t seq = static_cast<int32_t>(task / baseDimCnt);
+          const int32_t baseDimIdx = static_cast<int32_t>(task % baseDimCnt);
+          const int32_t channelStart = baseDimIdx * baseDim;
+          if (channelStart >= dim) {
+              continue;
+          }
+          const int32_t curBaseDim = (channelStart + baseDim <= dim) ? baseDim : (dim - channelStart);
+  
+          int32_t start = 0;
+          int32_t len = 0;
+          if (!ResolveSeqTaskWindowByMode<kWindowMode>(seq, seqLen, start, len)) {
+              continue;
+          }
+  
+          int32_t cacheIdx = 0;
+          if (!ResolveSeqCacheIndex(seq, hasCacheIndices, cacheIdx)) {
+              continue;
+          }
+  
+          LoadWeightAndBias(channelStart, curBaseDim);
+
+          if (isSpecDecodingGlobal) {
+              int32_t accepted = static_cast<int32_t>(numAcceptedTokensGm.GetValue(seq));
+              int32_t stateTokenOffset = accepted - 1;
+              const int32_t maxOffset = static_cast<int32_t>(tilingData_->stateLen - (width - 1));
+              if (stateTokenOffset < 0) {
+                  stateTokenOffset = 0;
+              } else if (stateTokenOffset > maxOffset) {
+                  stateTokenOffset = maxOffset;
+              }
+
+              InitRing(cacheIdx, hasInit, stateTokenOffset, start, len, channelStart, curBaseDim, dim);
+              RunSeq(start, len, channelStart, curBaseDim, dim);
+              DrainTaskMte3();
+              WriteBackStateSpec(cacheIdx, hasInit, stateTokenOffset, start, len, channelStart, curBaseDim, dim);
+          } else {
+              InitRing(cacheIdx, hasInit, 0, start, len, channelStart, curBaseDim, dim);
+              RunSeq(start, len, channelStart, curBaseDim, dim);
+              WriteBackState(cacheIdx, len, channelStart, curBaseDim, dim);
+          }
+
+          DrainTaskMte3();
+      }
+  }
  
-     const uint32_t blockIdx = GetBlockIdx();
-     const uint32_t blockNum = GetBlockNum();
- 
-     if (baseDim <= 0 || baseDimCnt <= 0 || baseDim > MAX_BLOCK_DIM || width < 2 || width > MAX_WIDTH) {
-         ReleaseEvents();
-         return;
-     }
- 
-     const int64_t gridSize = static_cast<int64_t>(batch) * baseDimCnt;
-     for (int64_t task = static_cast<int64_t>(blockIdx); task < gridSize; task += static_cast<int64_t>(blockNum)) {
-         const int32_t seq = static_cast<int32_t>(task / baseDimCnt);
-         const int32_t baseDimIdx = static_cast<int32_t>(task % baseDimCnt);
-         const int32_t channelStart = baseDimIdx * baseDim;
-         if (channelStart >= dim) {
-             continue;
-         }
-         const int32_t curBaseDim = (channelStart + baseDim <= dim) ? baseDim : (dim - channelStart);
- 
-         int32_t start = 0;
-         int32_t len = 0;
-         if (!ResolveSeqTaskWindowByMode<kWindowMode>(seq, seqLen, start, len)) {
-             continue;
-         }
- 
-         int32_t cacheIdx = 0;
-         if (!ResolveSeqCacheIndex(seq, hasCacheIndices, cacheIdx)) {
-             continue;
-         }
- 
-         int32_t stateTokenOffset = 0;
-         if (isSpecDecodingGlobal) {
-             int32_t accepted = static_cast<int32_t>(numAcceptedTokensGm.GetValue(seq));
-             stateTokenOffset = accepted - 1;
-             const int32_t maxOffset = static_cast<int32_t>(tilingData_->stateLen - (width - 1));
-             if (stateTokenOffset < 0) {
-                 stateTokenOffset = 0;
-             } else if (stateTokenOffset > maxOffset) {
-                 stateTokenOffset = maxOffset;
-             }
-         }
- 
-         LoadWeightAndBias(channelStart, curBaseDim);
- 
-         InitRing(cacheIdx, hasInit, stateTokenOffset, start, len, channelStart, curBaseDim, dim);
-         RunSeq(start, len, channelStart, curBaseDim, dim);
- 
-         if (isSpecDecodingGlobal) {
-             DrainTaskMte3();
-             WriteBackStateSpec(cacheIdx, hasInit, stateTokenOffset, start, len, channelStart, curBaseDim, dim);
-         } else {
-             WriteBackState(cacheIdx, len, channelStart, curBaseDim, dim);
-         }
- 
-         DrainTaskMte3();
-     }
- }
- 
- template <CAUSAL_CONV1D_TEMPLATE_ARGS>
- __aicore__ inline const CausalConv1dTilingData *CAUSAL_CONV1D_CLASS::GetTilingData() const
- {
-     return tilingData_;
+template <CAUSAL_CONV1D_TEMPLATE_ARGS>
+__aicore__ inline const __gm__ CausalConv1dTilingData *CAUSAL_CONV1D_CLASS::GetTilingData() const
+{
+    return tilingData_;
  }
  
  template <CAUSAL_CONV1D_TEMPLATE_ARGS>

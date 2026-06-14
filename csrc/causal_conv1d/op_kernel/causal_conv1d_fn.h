@@ -19,20 +19,20 @@
  template <typename T, uint32_t widthKey, uint32_t fnPlanKey>
  class CausalConv1dFn : public CausalConv1d<T, CAUSAL_CONV1D_TPL_RUN_MODE_FN, widthKey, fnPlanKey> {
  public:
-     __aicore__ inline void Init(GM_ADDR x, GM_ADDR weight, GM_ADDR bias, GM_ADDR convStates, GM_ADDR queryStartLoc,
-                                 GM_ADDR cacheIndices, GM_ADDR initialStateMode, GM_ADDR numAcceptedTokens, GM_ADDR y,
-                                 GM_ADDR workspace, const CausalConv1dTilingData *tilingData)
-     {
-         (void)numAcceptedTokens;
-         this->ResetRuntimeState(tilingData);
-         this->xGm.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(x));
-         this->weightGm.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(weight));
-         this->biasGm.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(bias));
-         this->convStatesGm.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(convStates));
-         this->queryStartLocGm.SetGlobalBuffer(reinterpret_cast<__gm__ int64_t *>(queryStartLoc));
-         this->cacheIndicesGm.SetGlobalBuffer(reinterpret_cast<__gm__ int64_t *>(cacheIndices));
-         this->initialStateModeGm.SetGlobalBuffer(reinterpret_cast<__gm__ int64_t *>(initialStateMode));
-         this->yGm.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(y));
+      __aicore__ inline void Init(GM_ADDR x, GM_ADDR weight, GM_ADDR bias, GM_ADDR convStates, GM_ADDR queryStartLoc,
+                                  GM_ADDR cacheIndices, GM_ADDR initialStateMode, GM_ADDR numAcceptedTokens, GM_ADDR y,
+                                  GM_ADDR workspace, const __gm__ CausalConv1dTilingData *tilingData)
+    {
+        (void)numAcceptedTokens;
+        this->ResetRuntimeState(tilingData);
+        this->xGm.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(x));
+        this->weightGm.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(weight));
+        this->biasGm.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(bias));
+        this->convStatesGm.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(convStates));
+        this->queryStartLocGm.SetGlobalBuffer(reinterpret_cast<__gm__ int64_t *>(queryStartLoc));
+        this->cacheIndicesGm.SetGlobalBuffer(reinterpret_cast<__gm__ int64_t *>(cacheIndices));
+        this->initialStateModeGm.SetGlobalBuffer(reinterpret_cast<__gm__ int64_t *>(initialStateMode));
+        this->yGm.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(y));
          if (tilingData->hasInitStateWorkspace != 0) {
              const uint64_t syncElems =
                  static_cast<uint64_t>(GetBlockNum()) * INIT_STATE_SYNCALL_NEED_SIZE;
@@ -56,11 +56,11 @@
      }
  };
  
- template <typename T, uint32_t widthKey, uint32_t fnPlanKey>
- __aicore__ inline void RunCausalConv1dFn(GM_ADDR x, GM_ADDR weight, GM_ADDR bias, GM_ADDR convStates,
-                                          GM_ADDR queryStartLoc, GM_ADDR cacheIndices, GM_ADDR initialStateMode,
-                                          GM_ADDR numAcceptedTokens, GM_ADDR y, GM_ADDR workspace,
-                                          const CausalConv1dTilingData *tilingData)
+template <typename T, uint32_t widthKey, uint32_t fnPlanKey>
+__aicore__ inline void RunCausalConv1dFn(GM_ADDR x, GM_ADDR weight, GM_ADDR bias, GM_ADDR convStates,
+                                         GM_ADDR queryStartLoc, GM_ADDR cacheIndices, GM_ADDR initialStateMode,
+                                         GM_ADDR numAcceptedTokens, GM_ADDR y, GM_ADDR workspace,
+                                         const __gm__ CausalConv1dTilingData *tilingData)
  {
      CausalConv1dFn<T, widthKey, fnPlanKey> op;
      op.Init(x, weight, bias, convStates, queryStartLoc, cacheIndices, initialStateMode, numAcceptedTokens, y, workspace,

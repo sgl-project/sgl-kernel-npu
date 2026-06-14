@@ -23,7 +23,7 @@ class CausalConv1dUpdate
 public:
     __aicore__ inline void Init(GM_ADDR x, GM_ADDR weight, GM_ADDR bias, GM_ADDR convStates, GM_ADDR queryStartLoc,
                                 GM_ADDR cacheIndices, GM_ADDR, GM_ADDR numAcceptedTokens, GM_ADDR y, GM_ADDR workspace,
-                                const CausalConv1dTilingData *tilingData)
+                                const __gm__ CausalConv1dTilingData *tilingData)
     {
         (void)workspace;
         this->ResetRuntimeState(tilingData);
@@ -33,14 +33,14 @@ public:
         this->convStatesGm.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(convStates));
         this->queryStartLocGm.SetGlobalBuffer(reinterpret_cast<__gm__ int64_t *>(queryStartLoc));
         this->cacheIndicesGm.SetGlobalBuffer(reinterpret_cast<__gm__ int64_t *>(cacheIndices));
-        this->numAcceptedTokensGm.SetGlobalBuffer(reinterpret_cast<__gm__ int64_t *>(numAcceptedTokens));
+        this->numAcceptedTokensGm.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(numAcceptedTokens));
         this->yGm.SetGlobalBuffer(reinterpret_cast<__gm__ T *>(y));
         this->InitSharedBuffersAndEvents();
     }
 
     __aicore__ inline void Process()
     {
-        const CausalConv1dTilingData *tilingData = this->GetTilingData();
+        const __gm__ CausalConv1dTilingData *tilingData = this->GetTilingData();
         const int32_t dim = tilingData->dim;
         const int32_t baseDimCnt = static_cast<int32_t>(tilingData->baseDimCnt);
         const int32_t width = static_cast<int32_t>(tilingData->width);
@@ -60,7 +60,7 @@ template <typename T>
 __aicore__ inline void RunCausalConv1dUpdate(GM_ADDR x, GM_ADDR weight, GM_ADDR bias, GM_ADDR convStates,
                                              GM_ADDR queryStartLoc, GM_ADDR cacheIndices, GM_ADDR initialStateMode,
                                              GM_ADDR numAcceptedTokens, GM_ADDR y, GM_ADDR workspace,
-                                             const CausalConv1dTilingData *tilingData)
+                                             const __gm__ CausalConv1dTilingData *tilingData)
 {
     CausalConv1dUpdate<T> op;
     op.Init(x, weight, bias, convStates, queryStartLoc, cacheIndices, initialStateMode, numAcceptedTokens, y, workspace,

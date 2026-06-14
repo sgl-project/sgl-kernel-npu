@@ -31,13 +31,13 @@ public:
             .DataType({ge::DT_FLOAT16, ge::DT_BF16})
             .FormatList({ge::FORMAT_ND})
             .AutoContiguous();
-        this->Input("bias")
-            .ParamType(OPTIONAL)
+        this->Input("convStates")
+            .ParamType(REQUIRED)
             .DataType({ge::DT_FLOAT16, ge::DT_BF16})
             .FormatList({ge::FORMAT_ND})
             .AutoContiguous();
-        this->Input("convStates")
-            .ParamType(REQUIRED)
+        this->Input("bias")
+            .ParamType(OPTIONAL)
             .DataType({ge::DT_FLOAT16, ge::DT_BF16})
             .FormatList({ge::FORMAT_ND})
             .AutoContiguous();
@@ -89,6 +89,6 @@ public:
         this->AICore().AddConfig("ascend950", aicoreConfig);
     }
 };
-OP_ADD(CausalConv1d);
+// OP_ADD(CausalConv1d);  // Disabled: use eager path (EXEC_KERNEL_CMD) for graph mode compatibility
 
 } // namespace ops
