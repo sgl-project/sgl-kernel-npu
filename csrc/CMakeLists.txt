@@ -62,9 +62,6 @@ set(NO_WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_kernel/apply_token_bitmask.cpp
 )
 
-ascendc_include_directories(no_workspace_kernel PRIVATE
-    ${PROJECT_OP_SRC_BASE}/utils/kernel
-)
 if(BUILD_CATLASS_MODULE)
     list(APPEND NO_WORKSPACE_KERNEL_SRCS
         ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_gmm_fp8_kernel.cpp
@@ -72,6 +69,9 @@ if(BUILD_CATLASS_MODULE)
     )
 endif()
 ascendc_library(no_workspace_kernel STATIC ${NO_WORKSPACE_KERNEL_SRCS})
+ascendc_include_directories(no_workspace_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/utils/kernel
+)
 if(BUILD_CATLASS_MODULE)
     ascendc_include_directories(no_workspace_kernel PRIVATE
         ${CATLASS_DIR}/include
