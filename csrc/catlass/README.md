@@ -104,8 +104,8 @@ import torch
 
 torch.ops.npu.softfp8_w8a16_matmul(
     mat1: torch.Tensor,     # bf16, [m, k]
-    mat2: torch.Tensor,     # int8 (FP8 bits), [k, n]
-    scale: torch.Tensor,    # fp32, per-block scale (block size is (128, 128))
+    mat2: torch.Tensor,     # uint8 (FP8 bits), [k, n]
+    scale: torch.Tensor,    # fp32, [ceil(k/128), ceil(n/128)]
     outDType: str = "bf16"  # output dtype string
 ) -> torch.Tensor           # [m, n]
 ```
@@ -125,8 +125,8 @@ extern "C" __global__ __aicore__ void catlass_fp8w8a16_matmul_bfloat16_t(
 | Parameter Name (参数名称) | DataType (数据类型) | Description | 说明 |
 |:--|:--|:--|:--|
 | mat1 | torch.Tensor | BF16 activation matrix, shape (m, k) | BF16 左矩阵，形状 (m, k) |
-| mat2 | torch.Tensor | FP8(E4M3) bits stored in int8, shape (k, n) | 以 int8 存储的 FP8 bit 权重，形状 (k, n) |
-| scale | torch.Tensor | FP32 scale table for dequant ((128,128) block-wise) | 反量化 scale 表（按 (128,128) block） |
+| mat2 | torch.Tensor | FP8(E4M3) bits stored in uint8, shape (k, n) | 以 uint8 存储的 FP8 bit 权重，形状 (k, n) |
+| scale | torch.Tensor | FP32 scale table with shape (ceil(k/128), ceil(n/128)) | 反量化 scale 表，形状为 (ceil(k/128), ceil(n/128)) |
 | outDType | str | output dtype string (now only support "bf16") | 输出 dtype 字符串（当前仅支持 "bf16"） |
 
 ---
@@ -143,7 +143,9 @@ extern "C" __global__ __aicore__ void catlass_fp8w8a16_matmul_bfloat16_t(
 
 ### English:
 - mat1 must be BF16 and 2D: [m, k].
-- mat2 must be 2D: [k, n].
+- mat2 must be uint8 and 2D: [k, n].
+- scale must be float32 and 2D: [ceil(k/128), ceil(n/128)].
+- mat2.size(0) must equal k.
 - Currently only supports ND format and RowMajor layout (i.e., standard contiguous row-major tensors). Other formats (e.g., NZ) are not supported.
 - Scale is block-wise; for the common setting groupSize = 128, a typical scale table shape is:
   - scale_rows = ceil(k / 128)
@@ -152,7 +154,9 @@ extern "C" __global__ __aicore__ void catlass_fp8w8a16_matmul_bfloat16_t(
 
 ### 中文:
 - mat1 必须是 BF16 且为 2D：[m, k]。
-- mat2 必须为 2D：[k, n]。
+- mat2 必须是 uint8 且为 2D：[k, n]。
+- scale 必须是 float32 且为 2D：[ceil(k/128), ceil(n/128)]。
+- mat2.size(0) 必须等于 k。
 - 当前仅支持 ND 与 RowMajor（行主序、连续内存）。其它格式（如 NZ）暂不支持。
 - scale 为按 block 的布局；常见 groupSize = 128 时，典型 scale 形状为：
   - scale_rows = ceil(k / 128)
@@ -175,8 +179,8 @@ scale_cols = (n + groupSize - 1) // groupSize
 
 a = torch.randn(m, k, dtype=torch.bfloat16, device=device)
 
-# NOTE: mat2 expects FP8 bits stored as int8; here is a placeholder.
-b = torch.randint(-128, 127, (k, n), dtype=torch.int8, device=device)
+# NOTE: mat2 expects FP8 bits stored as uint8; here is a placeholder.
+b = torch.randint(0, 256, (k, n), dtype=torch.uint8, device=device)
 
 scale = torch.ones(scale_rows, scale_cols, dtype=torch.float32, device=device)
 
