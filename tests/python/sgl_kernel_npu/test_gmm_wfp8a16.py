@@ -5,7 +5,9 @@ import torch_npu
 BLOCK_SIZE = 128
 
 
-def apply_group_block_scale(weight_fp8, scale, group_count, k, n, block_size=BLOCK_SIZE):
+def apply_group_block_scale(
+    weight_fp8, scale, group_count, k, n, block_size=BLOCK_SIZE
+):
     """
     Reference dequant for grouped FP8 tensor + per-group per-(128,128) block scale.
     weight_fp8: torch.float8_e4m3fn, shape [g, K, N]
@@ -49,11 +51,9 @@ def apply_group_block_scale(weight_fp8, scale, group_count, k, n, block_size=BLO
         group_count, scale_k, scale_n, 1, 1
     )
 
-    deq = (
-        blocked.permute(0, 1, 3, 2, 4)
-        .contiguous()
-        .view(group_count, k_pad, n_pad)
-    )[:, :k, :n]
+    deq = (blocked.permute(0, 1, 3, 2, 4).contiguous().view(group_count, k_pad, n_pad))[
+        :, :k, :n
+    ]
 
     return deq.to(torch.bfloat16)
 
@@ -120,7 +120,9 @@ def print_gmm_case_summary(
     mean_abs = diff.mean().item()
     mean_rel = (diff / (g.abs() + 1e-6)).mean().item()
 
-    print(f"[group_sizes,M,N,K]=[{group_sizes},{m},{n},{k}] out_dtype={out_op.dtype}, seed={seed}")
+    print(
+        f"[group_sizes,M,N,K]=[{group_sizes},{m},{n},{k}] out_dtype={out_op.dtype}, seed={seed}"
+    )
     print(
         f"weight_fp8 shape={tuple(b_fp8.shape)} dtype={b_fp8.dtype} stride={b_fp8.stride()}"
     )
