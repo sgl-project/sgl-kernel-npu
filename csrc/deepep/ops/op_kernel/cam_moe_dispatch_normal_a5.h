@@ -840,17 +840,17 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
                                                                0U};
                 LocalTensor<uint8_t> scaleLT = xTmpTensor.template ReinterpretCast<uint8_t>();
                 uint32_t scaleUBOffset;
-                if constexpr (IsMxQuant) {
 #ifdef __DAV_C310__
+                if constexpr (IsMxQuant) {
                     if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
                                   Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
                         scaleUBOffset = Align256<uint32_t>(Ceil(axisH_, FP4_ELEMS_PER_BYTE));
-                    } else
-#endif
-                    {
+                    } else {
                         scaleUBOffset = Align256<uint32_t>(axisH_);
                     }
-                } else {
+                } else
+#endif
+                {
                     scaleUBOffset = hUBAlignSize / sizeof(ExpandXOutType);
                 }
                 GlobalTensor<uint8_t> dynamicScalesOutU8GT;
