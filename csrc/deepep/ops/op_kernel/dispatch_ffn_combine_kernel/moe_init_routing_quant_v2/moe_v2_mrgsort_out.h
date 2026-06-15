@@ -85,6 +85,7 @@ __aicore__ inline void MoeV2MrgsortOut::ClearCache()
 
 __aicore__ inline void MoeV2MrgsortOut::SetInput(GlobalTensor<float> &gmInput, LocalTensor<float> &ubInput)
 {
+    // gmInputs, ubInputs数组初始化长度为4
     if (this->listNum >= listNumLimit) {
         return;
     }
