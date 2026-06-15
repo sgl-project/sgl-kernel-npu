@@ -17,9 +17,10 @@
 
 namespace ops {
 
-class CausalConv1d : public OpDef {
+class CausalConv1d : public OpDef
+{
 public:
-    explicit CausalConv1d(const char* name) : OpDef(name)
+    explicit CausalConv1d(const char *name) : OpDef(name)
     {
         this->Input("x")
             .ParamType(REQUIRED)
@@ -91,4 +92,4 @@ public:
 };
 // OP_ADD(CausalConv1d);  // Disabled: use eager path (EXEC_KERNEL_CMD) for graph mode compatibility
 
-} // namespace ops
+}  // namespace ops

@@ -21,16 +21,16 @@ using namespace ge;
 namespace ops {
 static constexpr int64_t IDX_0 = 0;
 
-static ge::graphStatus InferShapeCausalConv1d(gert::InferShapeContext* context)
+static ge::graphStatus InferShapeCausalConv1d(gert::InferShapeContext *context)
 {
     OP_LOGD(context->GetNodeName(), "Begin to do InferShapeCausalConv1d");
 
     // get input shapes
-    const gert::Shape* xShape = context->GetInputShape(IDX_0);
+    const gert::Shape *xShape = context->GetInputShape(IDX_0);
     OP_CHECK_NULL_WITH_CONTEXT(context, xShape);
 
     // get output shapes
-    gert::Shape* yShape = context->GetOutputShape(IDX_0);
+    gert::Shape *yShape = context->GetOutputShape(IDX_0);
     OP_CHECK_NULL_WITH_CONTEXT(context, yShape);
     *yShape = *xShape;
 
@@ -39,4 +39,4 @@ static ge::graphStatus InferShapeCausalConv1d(gert::InferShapeContext* context)
 }
 
 // IMPL_OP_INFERSHAPE(CausalConv1d).InferShape(InferShapeCausalConv1d);  // Disabled: eager path only
-} // namespace ops
+}  // namespace ops

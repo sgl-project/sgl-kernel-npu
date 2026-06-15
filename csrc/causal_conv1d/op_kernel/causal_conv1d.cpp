@@ -23,10 +23,10 @@ using namespace NsCausalConv1d;
 namespace {
 
 template <typename T>
-__aicore__ inline void DispatchFn(GM_ADDR x, GM_ADDR weight, GM_ADDR bias, GM_ADDR convStates,
-                                  GM_ADDR queryStartLoc, GM_ADDR cacheIndices, GM_ADDR initialStateMode,
-                                  GM_ADDR numAcceptedTokens, GM_ADDR y, GM_ADDR workspace,
-                                  const __gm__ CausalConv1dTilingData *tilingData, uint32_t widthKey, uint32_t fnPlanKey)
+__aicore__ inline void DispatchFn(GM_ADDR x, GM_ADDR weight, GM_ADDR bias, GM_ADDR convStates, GM_ADDR queryStartLoc,
+                                  GM_ADDR cacheIndices, GM_ADDR initialStateMode, GM_ADDR numAcceptedTokens, GM_ADDR y,
+                                  GM_ADDR workspace, const __gm__ CausalConv1dTilingData *tilingData, uint32_t widthKey,
+                                  uint32_t fnPlanKey)
 {
     if (fnPlanKey == CAUSAL_CONV1D_TPL_FN_PLAN_CUTBS) {
         if (widthKey == CAUSAL_CONV1D_TPL_WIDTH_2) {
@@ -59,11 +59,12 @@ __aicore__ inline void DispatchFn(GM_ADDR x, GM_ADDR weight, GM_ADDR bias, GM_AD
     }
 }
 
-} // namespace
+}  // namespace
 
 extern "C" __global__ __aicore__ void causal_conv1d(GM_ADDR x, GM_ADDR weight, GM_ADDR convStates, GM_ADDR bias,
-                                                     GM_ADDR queryStartLoc, GM_ADDR cacheIndices, GM_ADDR initialStateMode,
-                                                     GM_ADDR numAcceptedTokens, GM_ADDR y, GM_ADDR workspace, GM_ADDR tiling)
+                                                    GM_ADDR queryStartLoc, GM_ADDR cacheIndices,
+                                                    GM_ADDR initialStateMode, GM_ADDR numAcceptedTokens, GM_ADDR y,
+                                                    GM_ADDR workspace, GM_ADDR tiling)
 {
     REGISTER_TILING_DEFAULT(CausalConv1dTilingData);
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIV_1_0);
@@ -80,25 +81,23 @@ extern "C" __global__ __aicore__ void causal_conv1d(GM_ADDR x, GM_ADDR weight, G
 
     if (runModeKey == CAUSAL_CONV1D_TPL_RUN_MODE_UPDATE) {
         if (dtypeKey == 0) {
-            RunCausalConv1dUpdate<bfloat16_t>(
-                x, weight, bias, convStates, queryStartLoc, cacheIndices, initialStateMode, numAcceptedTokens, y,
-                userWorkspace, tilingData);
+            RunCausalConv1dUpdate<bfloat16_t>(x, weight, bias, convStates, queryStartLoc, cacheIndices,
+                                              initialStateMode, numAcceptedTokens, y, userWorkspace, tilingData);
         } else {
-            RunCausalConv1dUpdate<half>(
-                x, weight, bias, convStates, queryStartLoc, cacheIndices, initialStateMode, numAcceptedTokens, y,
-                userWorkspace, tilingData);
+            RunCausalConv1dUpdate<half>(x, weight, bias, convStates, queryStartLoc, cacheIndices, initialStateMode,
+                                        numAcceptedTokens, y, userWorkspace, tilingData);
         }
         return;
     }
 
     if (dtypeKey == 0) {
-        uint32_t effectiveFnPlan = (fnPlanKey == CAUSAL_CONV1D_TPL_FN_PLAN_CUTBSD) ? fnPlanKey
-                                                                                     : CAUSAL_CONV1D_TPL_FN_PLAN_CUTBS;
+        uint32_t effectiveFnPlan =
+            (fnPlanKey == CAUSAL_CONV1D_TPL_FN_PLAN_CUTBSD) ? fnPlanKey : CAUSAL_CONV1D_TPL_FN_PLAN_CUTBS;
         DispatchFn<bfloat16_t>(x, weight, bias, convStates, queryStartLoc, cacheIndices, initialStateMode,
                                numAcceptedTokens, y, userWorkspace, tilingData, widthKey, effectiveFnPlan);
     } else {
-        uint32_t effectiveFnPlan = (fnPlanKey == CAUSAL_CONV1D_TPL_FN_PLAN_CUTBSD) ? fnPlanKey
-                                                                                     : CAUSAL_CONV1D_TPL_FN_PLAN_CUTBS;
+        uint32_t effectiveFnPlan =
+            (fnPlanKey == CAUSAL_CONV1D_TPL_FN_PLAN_CUTBSD) ? fnPlanKey : CAUSAL_CONV1D_TPL_FN_PLAN_CUTBS;
         DispatchFn<half>(x, weight, bias, convStates, queryStartLoc, cacheIndices, initialStateMode, numAcceptedTokens,
                          y, userWorkspace, tilingData, widthKey, effectiveFnPlan);
     }

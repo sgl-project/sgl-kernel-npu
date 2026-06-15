@@ -22,17 +22,17 @@ using namespace AscendC::MicroAPI;
 
 constexpr uint16_t V_LENGTH = VECTOR_REG_WIDTH / sizeof(float);
 
-constexpr CastTrait castTraitB16ToB32 = {
-    RegLayout::ZERO, SatMode::UNKNOWN, MaskMergeMode::ZEROING, RoundMode::UNKNOWN};
+constexpr CastTrait castTraitB16ToB32 = {RegLayout::ZERO, SatMode::UNKNOWN, MaskMergeMode::ZEROING, RoundMode::UNKNOWN};
 
 template <typename T, bool hasActivation>
-__aicore__ inline void ComputeFnRollingOutputRegbase(LocalTensor<T> ring, LocalTensor<float> currF, 
-    LocalTensor<float> state0F, LocalTensor<float> weightF, uint32_t dataCount) 
+__aicore__ inline void ComputeFnRollingOutputRegbase(LocalTensor<T> ring, LocalTensor<float> currF,
+                                                     LocalTensor<float> state0F, LocalTensor<float> weightF,
+                                                     uint32_t dataCount)
 {
-    __ubuf__ T* ringAddr = (__ubuf__ T*)ring.GetPhyAddr();
-    __ubuf__ float* currFAddr = (__ubuf__ float*)currF.GetPhyAddr();
-    __ubuf__ float* state0FAddr = (__ubuf__ float*)state0F.GetPhyAddr();
-    __ubuf__ float* weightFAddr = (__ubuf__ float*)weightF.GetPhyAddr();
+    __ubuf__ T *ringAddr = (__ubuf__ T *)ring.GetPhyAddr();
+    __ubuf__ float *currFAddr = (__ubuf__ float *)currF.GetPhyAddr();
+    __ubuf__ float *state0FAddr = (__ubuf__ float *)state0F.GetPhyAddr();
+    __ubuf__ float *weightFAddr = (__ubuf__ float *)weightF.GetPhyAddr();
 
     uint16_t colLoopTimes = static_cast<uint16_t>(Ceil(dataCount, V_LENGTH));
     __VEC_SCOPE__
@@ -65,8 +65,9 @@ __aicore__ inline void ComputeFnRollingOutputRegbase(LocalTensor<T> ring, LocalT
 }
 
 template <typename T>
-static __simd_vf__ inline void AdvanceFnLocalPartialsWidthTwo(__ubuf__ T* ringAddr, __ubuf__ float* weight0FAddr, 
-    __ubuf__ float* state0FAddr, uint32_t dataCount, uint16_t colLoopTimes)
+static __simd_vf__ inline void AdvanceFnLocalPartialsWidthTwo(__ubuf__ T *ringAddr, __ubuf__ float *weight0FAddr,
+                                                              __ubuf__ float *state0FAddr, uint32_t dataCount,
+                                                              uint16_t colLoopTimes)
 {
     RegTensor<T> ring;
     RegTensor<float> currF;
@@ -84,9 +85,11 @@ static __simd_vf__ inline void AdvanceFnLocalPartialsWidthTwo(__ubuf__ T* ringAd
 }
 
 template <typename T>
-static __simd_vf__ inline void AdvanceFnLocalPartialsWidthThree(__ubuf__ T* ringAddr, __ubuf__ float* weight0FAddr, 
-    __ubuf__ float* weight1FAddr, __ubuf__ float* state0FAddr, __ubuf__ float* state1FAddr, uint32_t dataCount, 
-    uint16_t colLoopTimes)
+static __simd_vf__ inline void AdvanceFnLocalPartialsWidthThree(__ubuf__ T *ringAddr, __ubuf__ float *weight0FAddr,
+                                                                __ubuf__ float *weight1FAddr,
+                                                                __ubuf__ float *state0FAddr,
+                                                                __ubuf__ float *state1FAddr, uint32_t dataCount,
+                                                                uint16_t colLoopTimes)
 {
     RegTensor<T> ring;
     RegTensor<float> currF;
@@ -111,9 +114,10 @@ static __simd_vf__ inline void AdvanceFnLocalPartialsWidthThree(__ubuf__ T* ring
 }
 
 template <typename T>
-static __simd_vf__ inline void AdvanceFnLocalPartialsWidthFour(__ubuf__ T* ringAddr, __ubuf__ float* weight0FAddr, 
-    __ubuf__ float* weight1FAddr, __ubuf__ float* weight2FAddr, __ubuf__ float* state0FAddr, __ubuf__ float* state1FAddr, 
-    __ubuf__ float* state2FAddr, uint32_t dataCount, uint16_t colLoopTimes)
+static __simd_vf__ inline void
+AdvanceFnLocalPartialsWidthFour(__ubuf__ T *ringAddr, __ubuf__ float *weight0FAddr, __ubuf__ float *weight1FAddr,
+                                __ubuf__ float *weight2FAddr, __ubuf__ float *state0FAddr, __ubuf__ float *state1FAddr,
+                                __ubuf__ float *state2FAddr, uint32_t dataCount, uint16_t colLoopTimes)
 {
     RegTensor<T> ring;
     RegTensor<float> currF;
@@ -145,32 +149,35 @@ static __simd_vf__ inline void AdvanceFnLocalPartialsWidthFour(__ubuf__ T* ringA
 }
 
 template <typename T, int32_t kTemplateWidth>
-__aicore__ inline void AdvanceFnLocalPartialsRegbase(LocalTensor<T> ring, LocalTensor<float> weightF, 
-    LocalTensor<float> state0F, LocalTensor<float> state1F, LocalTensor<float> state2F, uint32_t dataCount, 
-    uint32_t weightStep)
+__aicore__ inline void AdvanceFnLocalPartialsRegbase(LocalTensor<T> ring, LocalTensor<float> weightF,
+                                                     LocalTensor<float> state0F, LocalTensor<float> state1F,
+                                                     LocalTensor<float> state2F, uint32_t dataCount,
+                                                     uint32_t weightStep)
 {
     uint16_t colLoopTimes = static_cast<uint16_t>(Ceil(dataCount, V_LENGTH));
 
-    __ubuf__ T* ringAddr = (__ubuf__ T*)ring.GetPhyAddr();
-    __ubuf__ float* weight0FAddr = (__ubuf__ float*)weightF.GetPhyAddr();
-    __ubuf__ float* state0FAddr = (__ubuf__ float*)state0F.GetPhyAddr();
+    __ubuf__ T *ringAddr = (__ubuf__ T *)ring.GetPhyAddr();
+    __ubuf__ float *weight0FAddr = (__ubuf__ float *)weightF.GetPhyAddr();
+    __ubuf__ float *state0FAddr = (__ubuf__ float *)state0F.GetPhyAddr();
     if constexpr (kTemplateWidth == 2) {
-        AscendC::VF_CALL<AdvanceFnLocalPartialsWidthTwo<T>>(ringAddr, weight0FAddr, state0FAddr, dataCount, colLoopTimes);
+        AscendC::VF_CALL<AdvanceFnLocalPartialsWidthTwo<T>>(ringAddr, weight0FAddr, state0FAddr, dataCount,
+                                                            colLoopTimes);
     } else if constexpr (kTemplateWidth == 3) {
-        __ubuf__ float* weight1FAddr = weight0FAddr + weightStep;
-        __ubuf__ float* state1FAddr = (__ubuf__ float*)state1F.GetPhyAddr();
-        AscendC::VF_CALL<AdvanceFnLocalPartialsWidthThree<T>>(ringAddr, weight0FAddr, weight1FAddr, state0FAddr, 
-            state1FAddr, dataCount, colLoopTimes);
+        __ubuf__ float *weight1FAddr = weight0FAddr + weightStep;
+        __ubuf__ float *state1FAddr = (__ubuf__ float *)state1F.GetPhyAddr();
+        AscendC::VF_CALL<AdvanceFnLocalPartialsWidthThree<T>>(ringAddr, weight0FAddr, weight1FAddr, state0FAddr,
+                                                              state1FAddr, dataCount, colLoopTimes);
     } else if constexpr (kTemplateWidth == 4) {
-        __ubuf__ float* weight1FAddr = weight0FAddr + weightStep;
-        __ubuf__ float* weight2FAddr = weight1FAddr + weightStep;
-        __ubuf__ float* state1FAddr = (__ubuf__ float*)state1F.GetPhyAddr();
-        __ubuf__ float* state2FAddr = (__ubuf__ float*)state2F.GetPhyAddr();
-        AscendC::VF_CALL<AdvanceFnLocalPartialsWidthFour<T>>(ringAddr, weight0FAddr, weight1FAddr, weight2FAddr, 
-            state0FAddr, state1FAddr, state2FAddr, dataCount, colLoopTimes);
+        __ubuf__ float *weight1FAddr = weight0FAddr + weightStep;
+        __ubuf__ float *weight2FAddr = weight1FAddr + weightStep;
+        __ubuf__ float *state1FAddr = (__ubuf__ float *)state1F.GetPhyAddr();
+        __ubuf__ float *state2FAddr = (__ubuf__ float *)state2F.GetPhyAddr();
+        AscendC::VF_CALL<AdvanceFnLocalPartialsWidthFour<T>>(ringAddr, weight0FAddr, weight1FAddr, weight2FAddr,
+                                                             state0FAddr, state1FAddr, state2FAddr, dataCount,
+                                                             colLoopTimes);
     }
 }
 
-} // namespace NsCausalConv1d
+}  // namespace NsCausalConv1d
 
-#endif // CAUSAL_CONV1D_REGBASE_H
+#endif  // CAUSAL_CONV1D_REGBASE_H

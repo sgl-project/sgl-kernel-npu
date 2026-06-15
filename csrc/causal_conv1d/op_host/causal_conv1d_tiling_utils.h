@@ -160,6 +160,6 @@ inline const char *GetFnTilingCaseName(FnTilingCaseKind caseKind)
     }
 }
 
-} // namespace optiling::causal_conv1d_host
+}  // namespace optiling::causal_conv1d_host
 
-#endif // CAUSAL_CONV1D_TILING_UTILS_H
+#endif  // CAUSAL_CONV1D_TILING_UTILS_H

@@ -137,9 +137,8 @@ inline DimTileChoice ChooseFnTokenDimCoSplitBaseDimChoice(gert::TilingContext *c
 
     if (coreNum == 0 || result.baseDimCnt <= 1 || result.baseDimCnt >= static_cast<int64_t>(coreNum) ||
         (coreNum % result.baseDimCnt == 0)) {
-        OP_LOGD(context,
-                "FnDimCoSplit: dim[%ld], ubLimitedBaseDim[%ld], baseDimCnt[%ld], coreNum[%u], adjusted[%d].", dim,
-                result.baseDim, result.baseDimCnt, coreNum, 0);
+        OP_LOGD(context, "FnDimCoSplit: dim[%ld], ubLimitedBaseDim[%ld], baseDimCnt[%ld], coreNum[%u], adjusted[%d].",
+                dim, result.baseDim, result.baseDimCnt, coreNum, 0);
         return result;
     }
 
@@ -149,16 +148,14 @@ inline DimTileChoice ChooseFnTokenDimCoSplitBaseDimChoice(gert::TilingContext *c
     }
 
     if (adjustedBaseDimCnt >= static_cast<int64_t>(coreNum)) {
-        OP_LOGD(context,
-                "FnDimCoSplit: keep baseDimCnt[%ld] because no divisible adjustment exists under coreNum[%u].",
+        OP_LOGD(context, "FnDimCoSplit: keep baseDimCnt[%ld] because no divisible adjustment exists under coreNum[%u].",
                 result.baseDimCnt, coreNum);
         return result;
     }
 
     const int64_t adjustedBaseDim = AlignUpInt64(CeilDivInt64(dim, adjustedBaseDimCnt), DIM_ALIGN_ELEMS);
     if (adjustedBaseDim <= 0 || adjustedBaseDim > ubLimitedBaseDim || adjustedBaseDim > MAX_DIM_TILE_SIZE) {
-        OP_LOGD(context,
-                "FnDimCoSplit: rejected adjusted baseDim[%ld] with baseDimCnt[%ld], ubLimitedBaseDim[%ld].",
+        OP_LOGD(context, "FnDimCoSplit: rejected adjusted baseDim[%ld] with baseDimCnt[%ld], ubLimitedBaseDim[%ld].",
                 adjustedBaseDim, adjustedBaseDimCnt, ubLimitedBaseDim);
         return result;
     }
@@ -167,8 +164,8 @@ inline DimTileChoice ChooseFnTokenDimCoSplitBaseDimChoice(gert::TilingContext *c
     result.baseDimCnt = CeilDivInt64(dim, result.baseDim);
     result.gridSize = result.baseDimCnt;
     OP_LOGD(context,
-            "FnDimCoSplit: dim[%ld], ubLimitedBaseDim[%ld], adjustedBaseDim[%ld], baseDimCnt[%ld], coreNum[%u].",
-            dim, ubLimitedBaseDim, result.baseDim, result.baseDimCnt, coreNum);
+            "FnDimCoSplit: dim[%ld], ubLimitedBaseDim[%ld], adjustedBaseDim[%ld], baseDimCnt[%ld], coreNum[%u].", dim,
+            ubLimitedBaseDim, result.baseDim, result.baseDimCnt, coreNum);
     return result;
 }
 
@@ -225,8 +222,7 @@ inline FnTokenSeqRangePlan BuildFnTokenSeqRangePlan(const int64_t *qslData, int6
 inline VarlenTokenTileChoice ChooseUnifiedFnTokenBlockPlan(gert::TilingContext *context,
                                                            const CausalConv1dTilingData &tiling,
                                                            const DimTileChoice &baseDimChoice,
-                                                           FnExecutionPlan fnExecutionPlan,
-                                                           uint32_t coreNum)
+                                                           FnExecutionPlan fnExecutionPlan, uint32_t coreNum)
 {
     VarlenTokenTileChoice tokenBlockChoice;
     if ((tiling.inputMode != 0 && tiling.inputMode != 1) || tiling.batch <= 0 || tiling.cuSeqlen <= 0 ||
@@ -307,6 +303,6 @@ inline FnHostPlan ChooseFnHostPlan(gert::TilingContext *context, const CausalCon
     return plan;
 }
 
-} // namespace optiling::causal_conv1d_host
+}  // namespace optiling::causal_conv1d_host
 
-#endif // CAUSAL_CONV1D_TILING_PLANNER_H
+#endif  // CAUSAL_CONV1D_TILING_PLANNER_H

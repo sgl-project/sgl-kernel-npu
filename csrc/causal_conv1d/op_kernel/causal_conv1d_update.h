@@ -17,9 +17,9 @@
 namespace NsCausalConv1d {
 
 template <typename T>
-class CausalConv1dUpdate
-    : public CausalConv1d<T, CAUSAL_CONV1D_TPL_RUN_MODE_UPDATE, CAUSAL_CONV1D_TPL_WIDTH_RUNTIME,
-                          CAUSAL_CONV1D_TPL_FN_PLAN_INVALID> {
+class CausalConv1dUpdate : public CausalConv1d<T, CAUSAL_CONV1D_TPL_RUN_MODE_UPDATE, CAUSAL_CONV1D_TPL_WIDTH_RUNTIME,
+                                               CAUSAL_CONV1D_TPL_FN_PLAN_INVALID>
+{
 public:
     __aicore__ inline void Init(GM_ADDR x, GM_ADDR weight, GM_ADDR bias, GM_ADDR convStates, GM_ADDR queryStartLoc,
                                 GM_ADDR cacheIndices, GM_ADDR, GM_ADDR numAcceptedTokens, GM_ADDR y, GM_ADDR workspace,
@@ -68,6 +68,6 @@ __aicore__ inline void RunCausalConv1dUpdate(GM_ADDR x, GM_ADDR weight, GM_ADDR 
     op.Process();
 }
 
-} // namespace NsCausalConv1d
+}  // namespace NsCausalConv1d
 
-#endif // CAUSAL_CONV1D_UPDATE_H
+#endif  // CAUSAL_CONV1D_UPDATE_H

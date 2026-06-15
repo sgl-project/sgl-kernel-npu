@@ -61,6 +61,6 @@ struct CalcBufLayout {
     }
 };
 
-} // namespace NsCausalConv1dCommon
+}  // namespace NsCausalConv1dCommon
 
-#endif // CAUSAL_CONV1D_COMMON_H
+#endif  // CAUSAL_CONV1D_COMMON_H

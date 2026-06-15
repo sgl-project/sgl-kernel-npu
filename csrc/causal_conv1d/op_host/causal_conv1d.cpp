@@ -4,9 +4,9 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
- * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, EITHER EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See
+ * LICENSE in the root of the software repository for the full text of the License.
  */
 
 /*!
@@ -112,9 +112,9 @@ inline int64_t AlignUp(int64_t value, int64_t align)
 }
 
 void ComputeTilingData(int64_t dim, int64_t cuSeqlen, int64_t seqLen, int64_t batch, int64_t inputMode, int64_t width,
-                       int64_t stateLen, int64_t numCacheLines, int64_t activationMode, int64_t padSlotId,
-                       bool hasBias, bool hasCacheIndices, bool hasInitialState, bool hasNumAccept,
-                       bool isBf16, int32_t numCores, int64_t runMode, CausalConv1dTilingData &td)
+                       int64_t stateLen, int64_t numCacheLines, int64_t activationMode, int64_t padSlotId, bool hasBias,
+                       bool hasCacheIndices, bool hasInitialState, bool hasNumAccept, bool isBf16, int32_t numCores,
+                       int64_t runMode, CausalConv1dTilingData &td)
 {
     (void)padSlotId;
     std::memset(&td, 0, sizeof(td));
@@ -137,8 +137,9 @@ void ComputeTilingData(int64_t dim, int64_t cuSeqlen, int64_t seqLen, int64_t ba
 
     td.dtypeKey = isBf16 ? 0 : 1;
     td.runModeKey = static_cast<uint32_t>(runMode);
-    td.widthKey = (width == 2) ? CAUSAL_CONV1D_TPL_WIDTH_2
-                               : (width == 3) ? CAUSAL_CONV1D_TPL_WIDTH_3 : CAUSAL_CONV1D_TPL_WIDTH_4;
+    td.widthKey = (width == 2)   ? CAUSAL_CONV1D_TPL_WIDTH_2
+                  : (width == 3) ? CAUSAL_CONV1D_TPL_WIDTH_3
+                                 : CAUSAL_CONV1D_TPL_WIDTH_4;
 
     if (dim <= MAX_DIM_TILE && numCores > 0) {
         td.baseDim = dim;
@@ -146,7 +147,9 @@ void ComputeTilingData(int64_t dim, int64_t cuSeqlen, int64_t seqLen, int64_t ba
         td.fnPlanKey = CAUSAL_CONV1D_TPL_FN_PLAN_CUTBS;
         int64_t tokenCoreBudget = numCores;
         int64_t idealBlockSize = CeilDiv(cuSeqlen, tokenCoreBudget);
-        if (idealBlockSize <= 0) { idealBlockSize = 1; }
+        if (idealBlockSize <= 0) {
+            idealBlockSize = 1;
+        }
         td.tokenBlockSize = idealBlockSize;
         td.tokenBlockCnt = CeilDiv(cuSeqlen, td.tokenBlockSize);
     } else {
@@ -154,9 +157,13 @@ void ComputeTilingData(int64_t dim, int64_t cuSeqlen, int64_t seqLen, int64_t ba
         td.baseDimCnt = CeilDiv(dim, td.baseDim);
         td.fnPlanKey = CAUSAL_CONV1D_TPL_FN_PLAN_CUTBSD;
         int64_t tokenCoreBudget = (numCores > 0) ? (numCores / td.baseDimCnt) : 1;
-        if (tokenCoreBudget <= 0) { tokenCoreBudget = 1; }
+        if (tokenCoreBudget <= 0) {
+            tokenCoreBudget = 1;
+        }
         int64_t idealBlockSize = CeilDiv(cuSeqlen, tokenCoreBudget);
-        if (idealBlockSize <= 0) { idealBlockSize = 1; }
+        if (idealBlockSize <= 0) {
+            idealBlockSize = 1;
+        }
         td.tokenBlockSize = idealBlockSize;
         td.tokenBlockCnt = CeilDiv(cuSeqlen, td.tokenBlockSize);
     }
@@ -177,13 +184,13 @@ int64_t ComputeWorkspaceSize(int32_t blockDim, int64_t batch, int64_t width, int
            batch * historyCount * dim * kDtypeSize;
 }
 
-} // namespace
+}  // namespace
 
-HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &weight,
-                                       const at::Tensor &bias, const at::Tensor &conv_states,
-                                       const at::Tensor &query_start_loc, const at::Tensor &cache_indices,
-                                       const at::Tensor &has_initial_state, const at::Tensor &num_accepted_tokens,
-                                       int64_t activation_mode, int64_t pad_slot_id, int64_t run_mode)
+HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &weight, const at::Tensor &bias,
+                                       const at::Tensor &conv_states, const at::Tensor &query_start_loc,
+                                       const at::Tensor &cache_indices, const at::Tensor &has_initial_state,
+                                       const at::Tensor &num_accepted_tokens, int64_t activation_mode,
+                                       int64_t pad_slot_id, int64_t run_mode)
 {
     TORCH_CHECK(x.defined(), "x tensor must be defined");
     TORCH_CHECK(weight.defined(), "weight tensor must be defined");
@@ -230,18 +237,17 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
     at::Tensor y = at::empty_like(x);
 
     at::Tensor bias_tensor = hasBias ? bias : at::empty({0}, x.options());
-    at::Tensor query_start_loc_tensor =
-        (query_start_loc.defined() && query_start_loc.numel() > 0)
-            ? query_start_loc.to(at::kLong) : at::empty({0}, x.options().dtype(at::kLong));
+    at::Tensor query_start_loc_tensor = (query_start_loc.defined() && query_start_loc.numel() > 0)
+                                            ? query_start_loc.to(at::kLong)
+                                            : at::empty({0}, x.options().dtype(at::kLong));
     at::Tensor cache_indices_tensor =
         hasCacheIndices ? cache_indices.to(at::kLong) : at::empty({0}, x.options().dtype(at::kLong));
     at::Tensor has_initial_state_tensor =
         hasInitialState ? has_initial_state.to(at::kLong) : at::empty({0}, x.options().dtype(at::kLong));
     at::Tensor num_accepted_tokens_tensor;
     if (hasNumAccept) {
-        static auto globalNumAcceptBuffer = at::empty(
-            {static_cast<int64_t>(MAX_CAPTURE_NUM)},
-            at::TensorOptions().dtype(at::kInt).device(x.options().device()));
+        static auto globalNumAcceptBuffer = at::empty({static_cast<int64_t>(MAX_CAPTURE_NUM)},
+                                                      at::TensorOptions().dtype(at::kInt).device(x.options().device()));
         int64_t n = num_accepted_tokens.numel();
         if (n > static_cast<int64_t>(MAX_CAPTURE_NUM)) {
             num_accepted_tokens_tensor = num_accepted_tokens.to(at::kInt);
@@ -257,12 +263,15 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
     int32_t maxAivCore = static_cast<int32_t>(ascendc_platform->GetCoreNumAiv());
 
     CausalConv1dTilingData tilingData;
-    ComputeTilingData(dim, cuSeqlen, seqLen, batch, inputMode, width, stateLen, numCacheLines, activationInt, pad_slot_id, hasBias,
-                      hasCacheIndices, hasInitialState, hasNumAccept, isBf16, maxAivCore, run_mode, tilingData);
+    ComputeTilingData(dim, cuSeqlen, seqLen, batch, inputMode, width, stateLen, numCacheLines, activationInt,
+                      pad_slot_id, hasBias, hasCacheIndices, hasInitialState, hasNumAccept, isBf16, maxAivCore,
+                      run_mode, tilingData);
 
     int64_t totalBlocks = tilingData.tokenBlockCnt * tilingData.baseDimCnt;
     int32_t blockDim = std::min(maxAivCore, static_cast<int32_t>(totalBlocks));
-    if (blockDim <= 0) { blockDim = 1; }
+    if (blockDim <= 0) {
+        blockDim = 1;
+    }
 
     int32_t libApiWorkspaceSize = static_cast<int32_t>(ascendc_platform->GetLibApiWorkSpaceSize());
 
@@ -272,39 +281,52 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
         totalWorkspace = libApiWorkspaceSize;
     }
 
-    int32_t tilingSize = (static_cast<int32_t>(sizeof(CausalConv1dTilingData)) + PADDING_BYTE - 1) / PADDING_BYTE * PADDING_BYTE;
+    int32_t tilingSize =
+        (static_cast<int32_t>(sizeof(CausalConv1dTilingData)) + PADDING_BYTE - 1) / PADDING_BYTE * PADDING_BYTE;
 
-    CausalConv1dTilingKey key{dim, cuSeqlen, seqLen, batch, inputMode, width, stateLen, numCacheLines,
-                              activationInt, pad_slot_id, run_mode,
-                              hasBias ? 1 : 0, hasCacheIndices ? 1 : 0, hasInitialState ? 1 : 0, hasNumAccept ? 1 : 0};
+    CausalConv1dTilingKey key{dim,
+                              cuSeqlen,
+                              seqLen,
+                              batch,
+                              inputMode,
+                              width,
+                              stateLen,
+                              numCacheLines,
+                              activationInt,
+                              pad_slot_id,
+                              run_mode,
+                              hasBias ? 1 : 0,
+                              hasCacheIndices ? 1 : 0,
+                              hasInitialState ? 1 : 0,
+                              hasNumAccept ? 1 : 0};
     uint64_t hashValue = CausalConv1dTilingKeyHash{}(key);
 
     static auto globalTilingBuffer = at::empty({tilingSize * static_cast<int64_t>(MAX_CAPTURE_NUM)},
-                                                at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+                                               at::TensorOptions().dtype(at::kByte).device(x.options().device()));
 
     at::Tensor tilingTensor;
     if (g_causalConv1dCaptureMap.find(hashValue) != g_causalConv1dCaptureMap.end()) {
-        tilingTensor = at::from_blob(
-            globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * g_causalConv1dCaptureMap[hashValue]),
-            tilingSize, at::kByte);
+        tilingTensor =
+            at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * g_causalConv1dCaptureMap[hashValue]),
+                          tilingSize, at::kByte);
     } else if (g_causalConv1dCaptureNum >= MAX_CAPTURE_NUM) {
         auto cpuTiling = at::empty({tilingSize}, at::kByte);
         std::memcpy(cpuTiling.data_ptr(), &tilingData, sizeof(CausalConv1dTilingData));
         tilingTensor = TorchNpuHelper::CopyTensorHostToDevice(cpuTiling);
     } else {
         g_causalConv1dCaptureMap[hashValue] = g_causalConv1dCaptureNum;
-        void *dstAddr = static_cast<void *>(
-            globalTilingBuffer.data_ptr<uint8_t>() + g_causalConv1dCaptureNum * tilingSize);
-        aclrtMemcpy(dstAddr, static_cast<size_t>(tilingSize),
-                    &tilingData, sizeof(CausalConv1dTilingData), ACL_MEMCPY_HOST_TO_DEVICE);
+        void *dstAddr =
+            static_cast<void *>(globalTilingBuffer.data_ptr<uint8_t>() + g_causalConv1dCaptureNum * tilingSize);
+        aclrtMemcpy(dstAddr, static_cast<size_t>(tilingSize), &tilingData, sizeof(CausalConv1dTilingData),
+                    ACL_MEMCPY_HOST_TO_DEVICE);
         g_causalConv1dCaptureNum++;
-        tilingTensor = at::from_blob(
-            globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * g_causalConv1dCaptureMap[hashValue]),
-            tilingSize, at::kByte);
+        tilingTensor =
+            at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * g_causalConv1dCaptureMap[hashValue]),
+                          tilingSize, at::kByte);
     }
 
-    auto workspaceTensor = at::empty({totalWorkspace},
-                                     at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+    auto workspaceTensor =
+        at::empty({totalWorkspace}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
 
     EXEC_KERNEL_CMD(causal_conv1d, blockDim, x, weight, conv_states, bias_tensor, query_start_loc_tensor,
                     cache_indices_tensor, has_initial_state_tensor, num_accepted_tokens_tensor, y, workspaceTensor,
