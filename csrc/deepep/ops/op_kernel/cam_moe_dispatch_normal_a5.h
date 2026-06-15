@@ -705,8 +705,8 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::WaitRoundStatus()
     if (blockIdx >= 1) {
         return;
     }
-    tpipe_->InitBuffer(roundStatusBuf, epRankSize * UB_ALIGN);
-    tpipe_->InitBuffer(tempRoundStatusBuf, epRankSize * UB_ALIGN);
+    tpipe_->InitBuffer(roundStatusBuf, epRankSize * sizeof(float));
+    tpipe_->InitBuffer(tempRoundStatusBuf, epRankSize * sizeof(float));
     uint32_t count = epRankSize * FLOAT_NUM_PER_ALIGN;
     uint32_t inner = (count * sizeof(float) + 32 - 1) / 32 * 32 / sizeof(float);
     GM_ADDR roundStateGM = GetRoundStateAddrByRankId(COMM_EP_IDX, epRankId);

@@ -1287,7 +1287,6 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeA2layeredFu
     LocalTensor<float> localUBfloat = tBuf.GetWithOffset<float>(tokenUbSize_ / sizeof(float), TBUF_TEMP_OFFSET);
     LocalTensor<int32_t> localUBint32 = tBuf.GetWithOffset<int32_t>(tokenUbSize_ / sizeof(int32_t), TBUF_TEMP_OFFSET);
 
-    // int32_t sumTokenCnt = (0 == srPreCnt) ? 0 : tokenCntUB(srPreCnt - 1);
     int32_t sumTokenCnt;
     if (srPreCnt - 1 >= 512 || srPreCnt == 0) {
         sumTokenCnt = 0;

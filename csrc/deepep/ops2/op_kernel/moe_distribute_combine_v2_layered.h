@@ -626,19 +626,19 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
     if (coreIdx_ < stepCoreNum_) {
         LocalTensor<uint64_t> inUb = statusBuf_.Get<uint64_t>();
         uint32_t waitFlagAddr = coreIdx_ % stepCoreNum_;
-        constexpr uint32_t maxRetryTimes = 1000000U;
-        uint32_t retryTimes = 0U;
-        while (retryTimes < maxRetryTimes) {
+        // constexpr uint32_t maxRetryTimes = 1000000U;
+        // uint32_t retryTimes = 0U;
+        while (true) {
             DataCopy(inUb, shareFlagGlobal_[waitFlagAddr * FLAG_SINGLE_CNT], FLAG_SINGLE_CNT);
             PipeBarrier<PIPE_ALL>();
             if (inUb(0) >= (GM2IPC_SYNC_FLAG + magicValue)) {
                 break;
             }
-            retryTimes++;
+            // retryTimes++;
         }
-        if (retryTimes >= maxRetryTimes) {
-            trap();
-        }
+        // if (retryTimes >= maxRetryTimes) {
+        //     trap();
+        // }
         inUb(0) = 0;
         PipeBarrier<PIPE_ALL>();
         DataCopy(shareFlagGlobal_[waitFlagAddr * FLAG_SINGLE_CNT], inUb,
