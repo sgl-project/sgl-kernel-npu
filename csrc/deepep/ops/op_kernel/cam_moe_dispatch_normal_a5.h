@@ -254,10 +254,13 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
 
     expandXOutGM = expandXOut;
     axisH_ = h;
+#ifdef __DAV_C310__
     if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
                   Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
         hUBAlignSize = Ceil(Ceil(axisH_, FP4_ELEMS_PER_BYTE), UB_ALIGN) * UB_ALIGN;
-    } else {
+    } else
+#endif
+    {
         hUBAlignSize = Ceil(h * sizeof(ExpandXOutType), UB_ALIGN) * UB_ALIGN;
     }
     uint32_t hScaleSizeAlign = hUBAlignSize + UB_ALIGN;
@@ -785,10 +788,12 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
     DataCopyExtParams dataCopyExandIdxParams{1U, sizeof(int32_t) * EXPAND_IDX_INFO, 0U, 0U, 0U};
     DataCopyExtParams dataCopyOutParams{1U, static_cast<uint32_t>(statusNumPerCore * sizeof(int32_t)), 0U, 0U, 0U};
     uint32_t expandXElemCount = h;
+#ifdef __DAV_C310__
     if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
                   Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
         expandXElemCount = Ceil(h, FP4_ELEMS_PER_BYTE);
     }
+#endif
     DataCopyExtParams expandXCopyParams = {1U, static_cast<uint32_t>(expandXElemCount * sizeof(ExpandXOutType)), 0U, 0U,
                                            0U};
     LocalTensor<int32_t> xTmpTensorInt;
@@ -836,10 +841,13 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
                 LocalTensor<uint8_t> scaleLT = xTmpTensor.template ReinterpretCast<uint8_t>();
                 uint32_t scaleUBOffset;
                 if constexpr (IsMxQuant) {
+#ifdef __DAV_C310__
                     if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
                                   Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
                         scaleUBOffset = Align256<uint32_t>(Ceil(axisH_, FP4_ELEMS_PER_BYTE));
-                    } else {
+                    } else
+#endif
+                    {
                         scaleUBOffset = Align256<uint32_t>(axisH_);
                     }
                 } else {
