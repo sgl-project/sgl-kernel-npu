@@ -378,10 +378,9 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::Init(
     axisH_ = h;
     hUBAlignSize = Ceil(h * sizeof(ExpandXOutType), UB_ALIGN) * UB_ALIGN;
 
-    hOutSize_ = axisH_ * sizeof(ExpandXOutType);
+    hOutSize_ = axisH_ * sizeof(ExpandXOutType); // 7168
     hOutSizeAlign_ = Ceil(hOutSize_, UB_ALIGN) * UB_ALIGN;  // scale起始放置偏移
     uint32_t hScaleSizeAlign = hOutSizeAlign_ + UB_ALIGN;   // 填充三元组起始偏移
-    tokenQuantAlign_ = hScaleSizeAlign / sizeof(int32_t);
     uint32_t quantScalePerToken = IsMxQuant ? Ceil(axisH_, 32) : 1;
     uint32_t quantScalePerTokenAlign = Ceil(quantScalePerToken * sizeof(XScalesType), UB_ALIGN) * UB_ALIGN;
 
@@ -389,6 +388,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::Init(
         hUBAlignSize +
         quantScalePerTokenAlign;  // ((7168*1 + 32) + 3*4) + 7168/32 = 7168 + 32 + 12 + 224 = 7436B, 需要对齐512B
 
+    tokenQuantAlign_ = hScaleSizeAlign / sizeof(int32_t);
     // 实际搬运大小，搬运token_align32B + 32B(float) + 3*4B(三元组)
     uint32_t hScaleIdxSize = hScaleSizeAlign + EXPAND_IDX_INFO * sizeof(int32_t);
     if (IsMxQuant) {
@@ -1352,15 +1352,11 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::LocalWind
                 xOutFp32Tensor_ = xTmpTensor_.template ReinterpretCast<float>();
                 DataCopyParams scaleOutputDataCopyParams = {1U, static_cast<uint16_t>(scaleNumForOneToken), 0U, 0U};
                 LocalTensor<XScalesType> xOutXScalesTypeTensor = xTmpTensor_.template ReinterpretCast<XScalesType>();
-                if constexpr (DynamicQuant || StaticQuant) {
-                    printf("1352 quant\n");
-                    DataCopyPad(dynamicScalesOutGT_[(beginIdx + j) * scaleNumForOneToken],
-                                xOutXScalesTypeTensor[hUBAlignSize / sizeof(XScalesType)], scaleOutputDataCopyParams);
-                } else {
-                    printf("1352 not quant\n");
-                    DataCopyPad(dynamicScalesOutGT_[beginIdx + j], xOutFp32Tensor_[hOutSizeAlign_ / sizeof(float)],
-                                floatDataCopyParams_);
-                }
+                DataCopyPad(dynamicScalesOutGT_[(beginIdx + j) * scaleNumForOneToken],
+                            xOutXScalesTypeTensor[hUBAlignSize / sizeof(XScalesType)], scaleOutputDataCopyParams);
+            } else {
+                DataCopyPad(dynamicScalesOutGT_[beginIdx + j], xOutFp32Tensor_[hOutSizeAlign_ / sizeof(float)],
+                            floatDataCopyParams_);
             }
             if constexpr (IsNeedAllgather) {
                 DataCopyPad(winTpGatherOutGMTensor_[(beginIdx + j) * hAlignWinCnt_], xTmpTensor_, hCommuCopyOutParams_);
