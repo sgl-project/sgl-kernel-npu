@@ -19,18 +19,6 @@ message(STATUS ">>> [DEBUG] ASCEND_COMPUTE_UNIT = ${ASCEND_COMPUTE_UNIT}")
 file(COPY ${pregen_file} DESTINATION ${ASCEND_AUTOGEN_PATH})
 file(GLOB aclnn_src ${ASCEND_AUTOGEN_PATH}/aclnn*.cpp)
 file(GLOB autogen_aclnn_src ${ASCEND_AUTOGEN_PATH}/aclnnInner_*.cpp)                # 将通过npu_op_code_gen生成的aclnn相关源文件添加至源文件列表中
-# TDS: A5 Adaptation of reserved code.
-#if("${ASCEND_COMPUTE_UNIT}" STREQUAL "ascend950")
-#     list(REMOVE_ITEM aclnn_src
-#          message(STATUS ">>> [INFO] Matched ascend950 (A5), removing ffn combine sources.")
-#          "${CMAKE_CURRENT_SOURCE_DIR}/op_api/aclnn_dispatch_ffn_combine.cpp"
-#          "${CMAKE_CURRENT_SOURCE_DIR}/op_api/aclnn_dispatch_ffn_combine.h"
-#     )  # ffn算子没有适配A5
-#     list(REMOVE_ITEM autogen_aclnn_src
-#          "${ASCEND_AUTOGEN_PATH}/aclnnInner_dispatch_ffn_combine.cpp"
-#          "${ASCEND_AUTOGEN_PATH}/aclnnInner_dispatch_ffn_combine.h"
-#     )  # ffn算子没有适配A5
-#endif()
 
 set_source_files_properties(${autogen_aclnn_src} PROPERTIES GENERATED TRUE)    # 设置对应的文件属性为编译过程中生成的文件
 npu_op_library(cust_opapi ACLNN                                                # 指定library名称与类型，以及参与编译的源文件
@@ -39,6 +27,9 @@ npu_op_library(cust_opapi ACLNN                                                #
 target_compile_options(cust_opapi PRIVATE                                      # 为对应library添加编译选项，与通用的cmake语法一致
      -fvisibility=hidden
 )
+if("${ASCEND_COMPUTE_UNIT}" STREQUAL "ascend950")
+    target_compile_definitions(cust_opapi PRIVATE __DAV_C310__)
+endif()
 
 #3、算子入图场景，使用npu_op_library编译算子入图所需的算子原型库。
 file(GLOB proto_src ${ASCEND_AUTOGEN_PATH}/op_proto.cc)                        # 将通过npu_op_code_gen生成的原型定义相关源文件添加至源文件列表中
@@ -50,6 +41,9 @@ npu_op_library(cust_op_proto GRAPH                                             #
 target_compile_options(cust_op_proto PRIVATE                                   # 为对应library添加编译选项，与通用的cmake语法一致
      -fvisibility=hidden
 )
+if("${ASCEND_COMPUTE_UNIT}" STREQUAL "ascend950")
+    target_compile_definitions(cust_op_proto PRIVATE __DAV_C310__)
+endif()
 
 #4、使用npu_op_library编译Tiling相关库。
 file(GLOB fallback_src ${ASCEND_AUTOGEN_PATH}/fallback_*.cpp)                  # 将通过npu_op_code_gen生成的Tiling相关源文件添加至源文件列表中
@@ -62,6 +56,9 @@ npu_op_library(cust_optiling  TILING                                           #
 target_compile_options(cust_optiling PRIVATE                                   # 为对应library添加编译选项，与通用的cmake语法一致
      -fvisibility=hidden
 )
+if("${ASCEND_COMPUTE_UNIT}" STREQUAL "ascend950")
+    target_compile_definitions(cust_optiling PRIVATE __DAV_C310__)
+endif()
 
 #5、使用npu_op_package_add添加上述Host侧库到对应package中。
 npu_op_package_add(${package_name}                                             # 与npu_op_package的package_name对应

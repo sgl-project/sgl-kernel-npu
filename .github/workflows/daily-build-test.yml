@@ -15,9 +15,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # 将测试任务拆分为独立的job，可以并行运行
-  daily-enumerate-intranode:
-    runs-on: linux-aarch64-a3-16
+  run-daily-tests:
+    name: ${{ matrix.test_type == 'intranode' && 'Intranode' || 'Low Latency' }} (CANN ${{ matrix.cann_version }}, ${{ matrix.hardware }})
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-16' || 'linux-aarch64-a2-8' }}
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:9.0.0-a3-ubuntu22.04-py3.11
     timeout-minutes: 350  # 5小时50分钟，留出缓冲时间
@@ -26,7 +26,11 @@ jobs:
       PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
       UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
-
+    strategy:
+      matrix:
+        test_type: [intranode, low_latency]
+        cann_version: [9.0.0, 8.5.0]
+        hardware: [a3, a2]
     steps:
       - name: Clean git config
         run: |
@@ -41,7 +45,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           clean: true
-          submodules: recursive
 
       - name: Install dependencies
         run: |
@@ -53,24 +56,28 @@ jobs:
           bash scripts/npu_ci_install_dependency.sh
 
       - name: Prepare Deepep
-        run: bash scripts/prepare_deepep_in_container.sh
+        run: bash scripts/prepare_deepep_in_container.sh -a ${{ matrix.hardware == 'a3' && 'deepep' || 'deepep2' }}
 
-      - name: Run enumerate test intranode
-        timeout-minutes: 340  # 5小时 40分钟
+      - name: Run enumerate test
+        timeout-minutes: ${{ matrix.test_type == 'intranode' && 340 || 300 }}
         env:
           HCCL_BUFFSIZE: 4096
           TEST_ENV: daily-build
         run: |
-          echo "Starting daily enumerate intranode test at $(date)"
-          chmod +x scripts/enumerate_test_intranode.sh
-          bash scripts/enumerate_test_intranode.sh
-          echo "Completed daily enumerate intranode test at $(date)"
+          if [ "${{ matrix.cann_version }}" = "9.0.0" ]; then
+            export MOE_ENABLE_CCU=0
+          fi
+          SCRIPT_NAME="enumerate_test_${{ matrix.test_type }}${{ matrix.test_type == 'low_latency' && (matrix.hardware == 'a2' && '_a2' || '') || '' }}.sh"
+          echo "Starting daily enumerate ${{ matrix.test_type }} test (${{ matrix.cann_version }}, ${{ matrix.hardware }}) at $(date)"
+          chmod +x scripts/${SCRIPT_NAME}
+          bash scripts/${SCRIPT_NAME}
+          echo "Completed daily enumerate ${{ matrix.test_type }} test at $(date)"
 
-      - name: Upload intranode artifacts
+      - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: intranode-results-${{ github.sha }}-${{ github.run_id }}
+          name: ${{ matrix.test_type }}-${{ matrix.cann_version }}-${{ matrix.hardware }}-results-${{ github.sha }}-${{ github.run_id }}
           path: |
             test-results/
             logs/
@@ -131,19 +138,23 @@ jobs:
 
   finish:
     if: always()
-    needs: [daily-enumerate-intranode, daily-enumerate-low-latency]
+    needs: [ run-daily-tests, run-pr-tests ]
     runs-on: ubuntu-latest
     steps:
-      - name: Generate comprehensive test report
+      - name: Generate test report
         run: |
           echo "## Daily Enumerate Tests Report" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Overall Status**: ${{ needs.run-daily-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "**PR Tests Status**: ${{ needs.run-pr-tests.result }}" >> $GITHUB_STEP_SUMMARY
           echo "**Execution Time**: $(date)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Job Status:" >> $GITHUB_STEP_SUMMARY
-          echo "- **Intranode Test Part One**: ${{ needs.daily-enumerate-intranode_part_one.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Intranode Test Part Two**: ${{ needs.daily-enumerate-intranode_part_two.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Low Latency Test**: ${{ needs.daily-enumerate-low-latency.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Smoke Test**: ${{ needs.daily-smoke-test.result }}" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Workflow Run**: [$GITHUB_RUN_ID](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "See individual job status in the run details above." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          # Fail the workflow if PR tests failed (since they should be reliable when daily passes)
+          if [ "${{ needs.run-pr-tests.result }}" = "failure" ] || [ "${{ needs.run-pr-tests.result }}" = "cancelled" ]; then
+            echo "PR test suite failed with status: ${{ needs.run-pr-tests.result }}"
+            exit 1
+          fi

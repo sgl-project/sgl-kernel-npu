@@ -70,6 +70,7 @@ def test(
     # Check dispatch correctness
     do_check = True
     return_recv_hook = False
+    all_to_all_mode = os.getenv("DEEP_USE_MODE", "default") == "alltoall"
     hash_value, num_times = 0, 0
 
     cumulative_local_expert_recv_stats = torch.zeros(
@@ -88,6 +89,7 @@ def test(
                 cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
                 async_finish=not return_recv_hook,
                 return_recv_hook=return_recv_hook,
+                topk_weights=topk_weights,
             )
         )
         simulated_gemm_x = (
@@ -113,7 +115,7 @@ def test(
         )
         dist.all_gather_into_tensor(all_topk_idx, topk_idx_padded, group=group)
 
-        for i in range(num_local_experts if do_check else 0):
+        for i in range(num_local_experts if do_check and not all_to_all_mode else 0):
             expert_id = rank * num_local_experts + i
             temp = aligned_num_tokens / num_local_experts
             recv_count = packed_recv_count[i]
@@ -161,14 +163,16 @@ def test(
                 )
 
         # Check combine correctness
-        (
-            src_info,
-            layout_range,
-            num_max_dispatch_tokens_per_rank,
-            hidden,
-            num_experts,
-            packed_recv_count,
-        ) = handle
+        if not all_to_all_mode:
+            (
+                src_info,
+                layout_range,
+                num_max_dispatch_tokens_per_rank,
+                hidden,
+                num_experts,
+                packed_recv_count,
+                expand_scales,
+            ) = handle
 
         out = torch.empty(
             (aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
@@ -209,6 +213,7 @@ def test(
             use_fp8=dispatch_use_fp8,
             async_finish=False,
             return_recv_hook=return_recv_hook,
+            topk_weights=topk_weights,
         )
         combined_x, event, hook = buffer.low_latency_combine(
             simulated_gemm_x,
@@ -236,6 +241,8 @@ def test(
         f"avg_t={avg_t * 1e6:.2f} us, min_t={min_t * 1e6:.2f} us, max_t={max_t * 1e6:.2f} us",
         flush=True,
     )
+    if all_to_all_mode:
+        return hash_value
 
     # Separate profiling
     # return_recv_hook=True is not supported now
@@ -321,6 +328,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         num_rdma_bytes=num_rdma_bytes,
         low_latency_mode=True,
         num_qps_per_rank=use_experts // use_ranks if use_ranks > 0 else 1,
+        low_latency_strategy=args.low_latency_strategy,
     )
 
     test(
@@ -408,6 +416,13 @@ if __name__ == "__main__":
         "--enable-dynamic-tokens",
         action="store_true",
         help="Enable dynamic and inconsistent num_tokens across different ranks",
+    )
+    parser.add_argument(
+        "--low-latency-strategy",
+        type=str,
+        default="default",
+        choices=["default", "ops"],
+        help="Low latency strategy to use: 'default' (deep_ep_cpp) or 'ops' (torch_npu ops)",
     )
     args = parser.parse_args()
 
