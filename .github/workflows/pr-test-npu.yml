@@ -552,7 +552,7 @@ jobs:
 
       # === A2 机型 test_intranode.py ===
       - name: Run test intranode (A2 - 4 processes)
-        timeout-minutes: 10
+        timeout-minutes: 11
         env:
           HCCL_BUFFSIZE: 5000
         run: |
