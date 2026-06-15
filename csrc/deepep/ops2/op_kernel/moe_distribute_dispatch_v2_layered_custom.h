@@ -51,6 +51,7 @@ public:
     constexpr static int32_t IPC_FLAG_STEP_1 = 0x0d0d0d0d;
     constexpr static uint32_t TBUF_TEMP_OFFSET = 8 * 1024;
     constexpr static uint32_t MAX_BS_NUM = 512U;  // 适配bs=512
+    constexpr static uint32_t BUFFSIZE = 512U;
     constexpr static uint32_t TBUF_OFFSET_ALIGN_B32_CNT = 2 * 1024 / sizeof(int32_t);
     constexpr static uint64_t SHOULD_SEND_FLAG_VALUE = 0x0f0f0f0f;
     constexpr static uint64_t END_OF_WRITE_FLAG_VALUE = 0xffffffff;
@@ -1259,11 +1260,11 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeA2layeredFu
     int log2WorldSize = ScalarGetSFFValue<1>(worldSize_);
 #pragma unroll 8
     for (uint32_t i = 0; i < tempSize; ++i) {
-        if (i >= MAX_BS_NUM || i << 3 >= MAX_BS_NUM) {
+        if (i >= BUFFSIZE || i << 3 >= BUFFSIZE) {
             break;
         }
-        if (i << 3 >= MAX_BS_NUM) {
-            cntSum += tokenCntUB(MAX_BS_NUM - 1);
+        if (i << 3 >= BUFFSIZE) {
+            cntSum += tokenCntUB(BUFFSIZE - 1);
         } else {
             cntSum += tokenCntUB(i << 3);
         }
@@ -1272,17 +1273,17 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeA2layeredFu
 
     for (uint32_t i = 0; i < localMoeExpertNum_; ++i) {
         if (expertTokenNumsType_ == 1) {
-            if (i * worldSize_ + worldSize_ - 1 >= MAX_BS_NUM) {
+            if (i * worldSize_ + worldSize_ - 1 >= BUFFSIZE) {
                 break;
             }
             int32_t preValue;
             if (i == 0) {
                 preValue = 0;
             } else {
-                if (i * worldSize_ - 1 < MAX_BS_NUM) {
+                if (i * worldSize_ - 1 < BUFFSIZE) {
                     preValue = tokenCntUB(i * worldSize_ - 1);
                 } else {
-                    preValue = tokenCntUB(MAX_BS_NUM - 1);
+                    preValue = tokenCntUB(BUFFSIZE - 1);
                 }
             }
             tokenCntByExpUB(i) = static_cast<int64_t>(tokenCntUB(i * worldSize_ + worldSize_ - 1) - preValue);

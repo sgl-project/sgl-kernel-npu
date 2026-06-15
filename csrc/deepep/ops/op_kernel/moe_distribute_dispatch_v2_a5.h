@@ -1235,9 +1235,8 @@ template <TemplateMC2TypeClass>
 __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::LocalWindowCopy()
 {
     statusTensor_ = waitStatusBuf_.Get<int32_t>();
-    if (statusTensor_.GetSize() < recStatusNumPerCore_ * 8) {
-        return;
-    }
+    assert(statusTensor_.GetSize() < recStatusNumPerCore_ * 8);
+    
     DataCopyParams dataStateParams{1U, sizeof(uint32_t), 0U, 0U};
     dataStateLocalTensor_ = gatherMaskOutBuf_.Get<uint32_t>();
     dataStateLocalTensor_.SetValue(0, FLAG_AFTER_WAIT);
