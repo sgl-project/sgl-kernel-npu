@@ -1263,7 +1263,7 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeA2layeredFu
             break;
         }
         if (i << 3 >= MAX_BS_NUM) {
-            cntSum += tokenCntUB(MAX_BS_NUM-1);
+            cntSum += tokenCntUB(MAX_BS_NUM - 1);
         } else {
             cntSum += tokenCntUB(i << 3);
         }
@@ -1284,7 +1284,7 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeA2layeredFu
                 } else {
                     preValue = tokenCntUB(MAX_BS_NUM - 1);
                 }
-            } 
+            }
             tokenCntByExpUB(i) = static_cast<int64_t>(tokenCntUB(i * worldSize_ + worldSize_ - 1) - preValue);
         } else {
             tokenCntByExpUB(i) = static_cast<int64_t>(tokenCntUB(i * worldSize_ + worldSize_ - 1));
