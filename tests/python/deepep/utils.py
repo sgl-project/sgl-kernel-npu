@@ -164,20 +164,6 @@ def per_token_cast_back(x_fp8: torch.Tensor, x_scales: torch.Tensor):
             )
             result_cpu = (x_fp32 * x_scales_fp32_cpu).view(bs, h).to(torch.bfloat16)
             return result_cpu.to(x_fp8.device)
-        print(f"{x_scales.dtype=}", flush=True)
-        print(
-            f"{x_scales_bits.shape=}, {x_scales_fp32[:1024]=}, {x_scales_bits[:1024]=}",
-            flush=True,
-        )
-        print(
-            f"{x_scales_bits.shape=}, {x_scales_fp32[5376//2-1000:5376//2]=}, {x_scales_bits[5376//2-1000:5376//2]=}",
-            flush=True,
-        )
-        print(
-            f"{x_scales_bits.shape=}, {x_scales_fp32[5376//2:5376//2+1000]=}, {x_scales_bits[5376//2:5376//2+1000]=}",
-            flush=True,
-        )
-        torch.save(x_scales_bits, "x_scales_bits.pt")
 
         # x_fp8 形状: (bs, h)
         # x_scales 形状: (bs, h/32) 或 (bs * h/32,)

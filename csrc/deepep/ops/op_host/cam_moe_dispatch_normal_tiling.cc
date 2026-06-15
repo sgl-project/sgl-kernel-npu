@@ -266,12 +266,6 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
                     geDataTypeMap.at(dynamicScalesDesc->GetDataType()).c_str()),
             return false);
     }
-    printf("datatype: x: %s, expandX: %s, dynamicScale: %s\n, if dynamicScale is N/A, please set quant\n ",
-           geDataTypeMap.at(xDesc->GetDataType()).c_str(),
-           geDataTypeMap.at(expandXDesc->GetDataType()).c_str(),
-           (quantMode == DYNAMIC_SCALES || quantMode == MXFP8_SCALES || quantMode == MXFP4_SCALES)
-               ? geDataTypeMap.at(context->GetOutputDesc(OUTPUT_DYNAMIC_SCALES_INDEX)->GetDataType()).c_str()
-               : "N/A");
 
     OP_LOGI(nodeName, "datatype: x: %s, expandX: %s, dynamicScale: %s", geDataTypeMap.at(xDesc->GetDataType()).c_str(),
             geDataTypeMap.at(expandXDesc->GetDataType()).c_str(),
