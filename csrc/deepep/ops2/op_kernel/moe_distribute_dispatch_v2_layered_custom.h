@@ -1259,19 +1259,32 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeA2layeredFu
     int log2WorldSize = ScalarGetSFFValue<1>(worldSize_);
 #pragma unroll 8
     for (uint32_t i = 0; i < tempSize; ++i) {
-        if (i >= 512 || i << 3 >= 512) {
+        if (i >= MAX_BS_NUM || i << 3 >= MAX_BS_NUM) {
             break;
         }
-        cntSum += tokenCntUB(i << 3);
+        if (i << 3 >= MAX_BS_NUM) {
+            cntSum += tokenCntUB(MAX_BS_NUM-1);
+        } else {
+            cntSum += tokenCntUB(i << 3);
+        }
         tokenCntUB(i) = cntSum;
     }
 
     for (uint32_t i = 0; i < localMoeExpertNum_; ++i) {
         if (expertTokenNumsType_ == 1) {
-            if (i * worldSize_ + worldSize_ - 1 >= 512) {
+            if (i * worldSize_ + worldSize_ - 1 >= MAX_BS_NUM) {
                 break;
             }
-            int32_t preValue = (i == 0) ? 0 : tokenCntUB(i * worldSize_ - 1);
+            int32_t preValue;
+            if (i == 0) {
+                preValue = 0;
+            } else {
+                if (i * worldSize_ - 1 < MAX_BS_NUM) {
+                    preValue = tokenCntUB(i * worldSize_ - 1);
+                } else {
+                    preValue = tokenCntUB(MAX_BS_NUM - 1);
+                }
+            } 
             tokenCntByExpUB(i) = static_cast<int64_t>(tokenCntUB(i * worldSize_ + worldSize_ - 1) - preValue);
         } else {
             tokenCntByExpUB(i) = static_cast<int64_t>(tokenCntUB(i * worldSize_ + worldSize_ - 1));
@@ -1288,7 +1301,7 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeA2layeredFu
     LocalTensor<int32_t> localUBint32 = tBuf.GetWithOffset<int32_t>(tokenUbSize_ / sizeof(int32_t), TBUF_TEMP_OFFSET);
 
     int32_t sumTokenCnt;
-    if (srPreCnt - 1 >= 512 || srPreCnt == 0) {
+    if (srPreCnt - 1 >= MAX_BS_NUM || srPreCnt == 0) {
         sumTokenCnt = 0;
     } else {
         sumTokenCnt = tokenCntUB(srPreCnt - 1);
