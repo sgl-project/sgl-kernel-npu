@@ -11,6 +11,7 @@
 #include <cmath>
 #include <cstdint>
 #include <string>
+#include <unordered_map>
 
 #include "mc2_tiling_utils.h"
 #include "register/tilingdata_base.h"
@@ -118,6 +119,20 @@ constexpr int64_t COUNT_OFFSET = 512;
 constexpr uint64_t STATIC_SCALE_DIM_0 = 1;
 constexpr uint64_t ONE_DIM_SCALE_COL_NUM = 1;
 }  // namespace
+
+static const std::unordered_map<DataType, std::string> geDataTypeMap = {{ge::DT_UINT8, "DT_UINT8"},
+                                                                        {ge::DT_INT8, "DT_INT8"},
+                                                                        {ge::DT_INT16, "DT_INT16"},
+                                                                        {ge::DT_INT32, "DT_INT32"},
+                                                                        {ge::DT_INT64, "DT_INT64"},
+                                                                        {ge::DT_FLOAT16, "DT_FLOAT16"},
+                                                                        {ge::DT_FLOAT, "DT_FLOAT"},
+                                                                        {ge::DT_DOUBLE, "DT_DOUBLE"},
+                                                                        {ge::DT_BOOL, "DT_BOOL"},
+                                                                        {ge::DT_BF16, "DT_BF16"},
+                                                                        {ge::DT_FLOAT8_E4M3FN, "DT_FLOAT8_E4M3FN"},
+                                                                        {ge::DT_FLOAT8_E5M2, "DT_FLOAT8_E5M2"},
+                                                                        {ge::DT_FLOAT8_E8M0, "DT_FLOAT8_E8M0"}};
 
 namespace optiling {
 static void PrintTilingDataInfo(const char *nodeName, MoeDistributeDispatchV2TilingData &tilingData)
@@ -312,23 +327,23 @@ static bool CheckTensorDataType(const gert::TilingContext *context, const char *
     auto expandXDesc = context->GetOutputDesc(OUTPUT_EXPAND_X_INDEX);
     OP_TILING_CHECK(expandXDesc == nullptr, OP_LOGE(nodeName, "expandXDesc is null."), return false);
     if (quantMode == DYNAMIC_SCALES) {
-        OP_TILING_CHECK(expandXDesc->GetDataType() != ge::DT_INT8,
-                        OP_LOGE(nodeName, "expandX dataType is invalid, dataType should be int8, but is %d.",
-                                static_cast<ge::DataType>(expandXDesc->GetDataType())),
-                        return false);
+        OP_TILING_CHECK(
+            expandXDesc->GetDataType() != ge::DT_INT8,
+            OP_LOGE(nodeName, "expandX dataType is invalid for INT8 quant, dataType should be int8, but is %s",
+                    geDataTypeMap.at(expandXDesc->GetDataType()).c_str()),
+            return false);
     } else if (quantMode == MXFP8_SCALES) {
         OP_TILING_CHECK(
-            (expandXDesc->GetDataType() != ge::DT_FLOAT8_E4M3FN) && (expandXDesc->GetDataType() != ge::DT_FLOAT8_E5M2),
+            expandXDesc->GetDataType() != ge::DT_FLOAT8_E4M3FN && expandXDesc->GetDataType() != ge::DT_FLOAT8_E5M2,
             OP_LOGE(nodeName,
-                    "expandX dataType is invalid, dataType should be float8_e4m3fn or float8_e5m2, but is %d.",
-                    static_cast<ge::DataType>(expandXDesc->GetDataType())),
+                    "expandX dataType is invalid for MXFP8 quant, dataType should be fp8e4m3 or fp8e5m2, but is %s",
+                    geDataTypeMap.at(expandXDesc->GetDataType()).c_str()),
             return false);
     } else {
         OP_TILING_CHECK(
             expandXDesc->GetDataType() != xDesc->GetDataType(),
-            OP_LOGE(nodeName, "expandX dataType is invalid, dataType should be equal to x dataType %d, but is %d.",
-                    static_cast<ge::DataType>(xDesc->GetDataType()),
-                    static_cast<ge::DataType>(expandXDesc->GetDataType())),
+            OP_LOGE(nodeName, "expandX dataType is invalid, dataType should be equal to x dataType , but is %s",
+                    geDataTypeMap.at(expandXDesc->GetDataType()).c_str()),
             return false);
     }
 

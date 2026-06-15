@@ -376,6 +376,8 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::Init(
     recvCntWorkspaceGM_ = workspaceGM;
 
     axisH_ = h;
+    hUBAlignSize = Ceil(h * sizeof(ExpandXOutType), UB_ALIGN) * UB_ALIGN;
+
     hOutSize_ = axisH_ * sizeof(ExpandXOutType);
     hOutSizeAlign_ = Ceil(hOutSize_, UB_ALIGN) * UB_ALIGN;  // scale起始放置偏移
     uint32_t hScaleSizeAlign = hOutSizeAlign_ + UB_ALIGN;   // 填充三元组起始偏移
@@ -707,6 +709,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::SendToMoe
                                             hAlignWinSize_ * curExpertCnt);  // 计算地址偏移
         dstWinGMTensor.SetGlobalBuffer((__gm__ ExpandXOutType *)rankGM);
         if constexpr (DynamicQuant || StaticQuant) {
+            printf("SendToMoeExpert: quant 710\n");
             xInTensor_ = xInQueue_.AllocTensor<XType>();
             DataCopyPad(xInTensor_, xGMTensor_[tokenIndex * axisH_], xCopyParams_, copyPadExtParams);
             xInQueue_.EnQue(xInTensor_);
@@ -716,9 +719,10 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::SendToMoe
             xOutQueue_.EnQue(xOutTensor_);
             xOutTensor_ = xOutQueue_.DeQue<ExpandXOutType>();
             FillTriple(xOutTensor_, tokenIndex, topKIndex);
-            DataCopyPad(dstWinGMTensor, xOutTensor_, hCommuCopyOutParams_);
+            DataCopyPad(dstWinGMTensor, xOutTensor_, hCommuCopyOutParams_); // TDS
             xOutQueue_.FreeTensor(xOutTensor_);
         } else {
+            printf("SendToMoeExpert: not quant\n");
             xTmpTensor_ = xQueue_.AllocTensor<ExpandXOutType>();
             DataCopyPad(xTmpTensor_, xGMTensor_[tokenIndex * axisH_], xCopyParams_, copyPadExtParams);
             xQueue_.EnQue(xTmpTensor_);
@@ -1302,6 +1306,8 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::LocalWind
     uint32_t beginIdx = outCountLocal.GetValue(0);
     preCnt_ = beginIdx;
     statusTensor_ = waitStatusBuf_.Get<int32_t>();
+
+    //DataCopyPadExtParams<ExpandXOutType> copyPadExtParams{false, 0U, 0U, 0U};
     DataCopyParams tokenInParams = {1U, static_cast<uint16_t>(axisHCommu_ * sizeof(ExpandXOutType)), 0U,
                                     0U};  // compare with
     DataCopyPadParams padParams = {true, 0, 0, 0};
@@ -1330,7 +1336,13 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::LocalWind
             tokGlobal.SetGlobalBuffer((__gm__ ExpandXOutType *)(wAddr + j * hAlignWinSize_));
             // 将数据从Window拷贝到UB
             xTmpTensor_ = xQueue_.AllocTensor<ExpandXOutType>();
-            DataCopyPad(xTmpTensor_, tokGlobal, tokenInParams, padParams);
+            if constexpr (DynamicQuant || StaticQuant) {
+                printf("1338 quant\n");
+                DataCopyPad(xTmpTensor_, tokGlobal, tokenInParams, padParams);
+            } else {
+                printf("1338 not quant\n");
+                DataCopyPad(xTmpTensor_, tokGlobal, tokenInParams, padParams);
+            }
             xQueue_.EnQue(xTmpTensor_);
             xTmpTensor_ = xQueue_.DeQue<ExpandXOutType>();
             xTmpTensorInt = xTmpTensor_.template ReinterpretCast<int32_t>();
@@ -1340,8 +1352,15 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::LocalWind
                 xOutFp32Tensor_ = xTmpTensor_.template ReinterpretCast<float>();
                 DataCopyParams scaleOutputDataCopyParams = {1U, static_cast<uint16_t>(scaleNumForOneToken), 0U, 0U};
                 LocalTensor<XScalesType> xOutXScalesTypeTensor = xTmpTensor_.template ReinterpretCast<XScalesType>();
-                DataCopyPad(dynamicScalesOutGT_[(beginIdx + j) * scaleNumForOneToken],
-                            xOutXScalesTypeTensor[hUBAlignSize / sizeof(XScalesType)], scaleOutputDataCopyParams);
+                if constexpr (DynamicQuant || StaticQuant) {
+                    printf("1352 quant\n");
+                    DataCopyPad(dynamicScalesOutGT_[(beginIdx + j) * scaleNumForOneToken],
+                                xOutXScalesTypeTensor[hUBAlignSize / sizeof(XScalesType)], scaleOutputDataCopyParams);
+                } else {
+                    printf("1352 not quant\n");
+                    DataCopyPad(dynamicScalesOutGT_[beginIdx + j], xOutFp32Tensor_[hOutSizeAlign_ / sizeof(float)],
+                                floatDataCopyParams_);
+                }
             }
             if constexpr (IsNeedAllgather) {
                 DataCopyPad(winTpGatherOutGMTensor_[(beginIdx + j) * hAlignWinCnt_], xTmpTensor_, hCommuCopyOutParams_);
