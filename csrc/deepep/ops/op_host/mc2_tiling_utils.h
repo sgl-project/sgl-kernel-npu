@@ -63,7 +63,7 @@ constexpr uint32_t AIC_NUM_910D = 32;
 constexpr uint64_t MC2_TILINGKEY_OFFSET = uint64_t(1000000000000000000UL);  // 10^18
 constexpr size_t RES_LEN = 64;
 constexpr size_t MAX_MSG_NUM = 16;
-constexpr uint8_t MC2_DEBUG_ONLY_AICPU = 4;  // Ö»Í¨ÐÅ²»¼ÆËã
+constexpr uint8_t MC2_DEBUG_ONLY_AICPU = 4;  // Ö»Í¨ï¿½Å²ï¿½ï¿½ï¿½ï¿½ï¿½
 constexpr char HCCL_DETERMINISTIC[] = "HCCL_DETERMINISTIC";
 
 constexpr uint8_t AIV_ENGINE = 3;
@@ -126,12 +126,15 @@ inline ge::graphStatus GetEpWinSize(const gert::TilingContext *context, const ch
 {
     auto attrs = context->GetAttrs();
     if (mc2tiling::GetSocVersion(context) == "Ascend910_95") {
-        // A5 ÔÝ²»Ö§³Ö Hccl CommGetBufSizeCfg ½Ó¿Ú£¬´Ë´¦ÔÝ×÷¹æ±Ü
+        // A5 ï¿½Ý²ï¿½Ö§ï¿½ï¿½ Hccl CommGetBufSizeCfg ï¿½Ó¿Ú£ï¿½ï¿½Ë´ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
         hcclBufferSizeEp = Mc2TilingUtils::GetMaxWindowSize();
-        // A5 ÉÏÇ° 1MB ×÷Îª×´Ì¬Çø£¬Ê£Óà¿Õ¼äÓÃ×÷Êý¾ÝÇø
+        // A5 ï¿½ï¿½Ç° 1MB ï¿½ï¿½Îª×´Ì¬ï¿½ï¿½ï¿½ï¿½Ê£ï¿½ï¿½Õ¼ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
         maxWindowSizeEp = hcclBufferSizeEp - MTE_STATE_ZONE_SIZE;
     } else {
-        OP_LOGI(nodeName, "GetEpWinSize not in Ascend910_95!");
+        hcclBufferSizeEp = 0;
+        maxWindowSizeEp = 0;
+        OP_LOGE(nodeName, "GetEpWinSize not in Ascend910_95!");
+        return ge::GRAPH_FAILED;
     }
     return ge::GRAPH_SUCCESS;
 }
