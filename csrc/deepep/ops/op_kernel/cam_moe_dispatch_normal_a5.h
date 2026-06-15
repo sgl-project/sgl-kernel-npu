@@ -8,7 +8,7 @@
 #include "comm_args.h"
 #include "moe_distribute_v2_base.h"
 #ifdef __DAV_C310__
-#include "../quantize_functions.h"
+#include "quantize_functions.h"
 #endif
 
 namespace CamMoeDispatchNormalA5Impl {
