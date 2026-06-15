@@ -117,7 +117,7 @@ def _fp4_e2m1_to_float32_unpack(fp4_bytes: torch.Tensor) -> torch.Tensor:
     vals_high = fp4_table[high_nibbles]
     vals_low = fp4_table[low_nibbles]
 
-    result = torch.stack([vals_high, vals_low], dim=1).reshape(-1)
+    result = torch.stack([vals_low, vals_high], dim=1).reshape(-1)
     new_shape = list(original_shape[:-1]) + [original_shape[-1] * 2]
     return result.reshape(new_shape)
 

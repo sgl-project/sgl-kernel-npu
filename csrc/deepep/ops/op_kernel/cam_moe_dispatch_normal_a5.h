@@ -326,15 +326,9 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantDynamicMx(Local
         __ubuf__ uint16_t *maxExpAddr = (__ubuf__ uint16_t *)tokenF32LT_.GetPhyAddr();
         __ubuf__ uint16_t *halfScaleLocalAddr = (__ubuf__ uint16_t *)tokenF32LT_[Align32(mxScaleNum)].GetPhyAddr();
         __ubuf__ int8_t *outLocalAddr = (__ubuf__ int8_t *)outLocal.GetPhyAddr();
-    __ubuf__ uint16_t *mxScaleLocalAddr;
-
-    if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
-                  Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
-        mxScaleLocalAddr =
-            (__ubuf__ uint16_t *)outLocal[Align256<uint32_t>(Ceil(axisH_, FP4_ELEMS_PER_BYTE))].GetPhyAddr();
-    } else {
+        __ubuf__ uint16_t *mxScaleLocalAddr;
+        // For outLocal of type fp4x2_e2m1_t (where sizeof(fp4x2_e2m1_t) = 1B), outLocal[axisH_] represents an offset of axisH_ * 0.5B
         mxScaleLocalAddr = (__ubuf__ uint16_t *)outLocal[Align256<uint32_t>(axisH_)].GetPhyAddr();
-    }
 
         quant::ComputeMaxExp(srcAddr, maxExpAddr, axisH_);
         quant::ComputeScale<ExpandXOutType>(maxExpAddr, mxScaleLocalAddr, halfScaleLocalAddr, mxScaleNum);
