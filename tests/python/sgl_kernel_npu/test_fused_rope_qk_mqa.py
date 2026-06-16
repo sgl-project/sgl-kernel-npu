@@ -1,6 +1,7 @@
 import torch
 from sgl_kernel_npu.norm.fused_rope_qk_mqa import fused_rope_qk_mqa
 
+
 def apply_rotary_emb(
     x: torch.Tensor,
     cos: torch.Tensor,
@@ -29,30 +30,29 @@ def apply_rotary_emb(
     else:
         return torch.stack((o1, o2), dim=-1).flatten(-2)
 
+
 def forward_native(
     query: torch.Tensor,
     key: torch.Tensor,
     cos_sin,
     head_size,
     rotary_dim,
-    is_neox_style
-    ):
+    is_neox_style,
+):
     num_tokens = query.shape[0]
     cos, sin = cos_sin.chunk(2, dim=-1)
     query_shape = query.shape
 
     query = query.view(num_tokens, -1, head_size)
-    query_rot = query[..., : rotary_dim]
-    query_pass = query[..., rotary_dim :]
-    query_rot = apply_rotary_emb(
-            query_rot, cos, sin, is_neox_style
-        )
+    query_rot = query[..., :rotary_dim]
+    query_pass = query[..., rotary_dim:]
+    query_rot = apply_rotary_emb(query_rot, cos, sin, is_neox_style)
     query = torch.cat((query_rot, query_pass), dim=-1).reshape(query_shape)
 
     key_shape = key.shape
     key = key.view(num_tokens, -1, head_size)
-    key_rot = key[..., : rotary_dim]
-    key_pass = key[..., rotary_dim :]
+    key_rot = key[..., :rotary_dim]
+    key_pass = key[..., rotary_dim:]
     key_rot = apply_rotary_emb(key_rot, cos, sin, is_neox_style)
     key = torch.cat((key_rot, key_pass), dim=-1).reshape(key_shape)
     return query, key
@@ -68,7 +68,6 @@ def test_fused_rope_qk_mqa():
         (64, 32, 1, 128, 64),
     ]
 
-
     for is_neox_style in [
         True,
         False,
@@ -82,7 +81,6 @@ def test_fused_rope_qk_mqa():
             rotary_dim,
         ) in test_cases:
 
-
             print(
                 f"test "
                 f"neox={is_neox_style}, "
@@ -92,7 +90,6 @@ def test_fused_rope_qk_mqa():
                 f"rotary={rotary_dim}"
             )
 
-
             query = torch.randn(
                 num_tokens,
                 q_heads,
@@ -101,7 +98,6 @@ def test_fused_rope_qk_mqa():
                 dtype=torch.float16,
             )
 
-
             key = torch.randn(
                 num_tokens,
                 kv_heads,
@@ -109,7 +105,6 @@ def test_fused_rope_qk_mqa():
                 device=device,
                 dtype=torch.float16,
             )
-
 
             cos = torch.randn(
                 num_tokens,
@@ -125,15 +120,13 @@ def test_fused_rope_qk_mqa():
                 dtype=torch.float16,
             )
 
-
             cos_sin = torch.cat(
                 [
                     cos,
                     sin,
                 ],
-                dim=-1
+                dim=-1,
             )
-
 
             # reference
             q_ref, k_ref = forward_native(
@@ -145,7 +138,6 @@ def test_fused_rope_qk_mqa():
                 is_neox_style,
             )
 
-
             # kernel
             q_out, k_out = fused_rope_qk_mqa(
                 query.clone(),
@@ -155,12 +147,10 @@ def test_fused_rope_qk_mqa():
                 is_neox_style,
             )
 
-
             torch.testing.assert_close(
                 q_out,
                 q_ref,
             )
-
 
             torch.testing.assert_close(
                 k_out,
@@ -168,8 +158,5 @@ def test_fused_rope_qk_mqa():
             )
 
 
-
 if __name__ == "__main__":
     test_fused_rope_qk_mqa()
-
-
