@@ -709,7 +709,6 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::SendToMoe
                                             hAlignWinSize_ * curExpertCnt);  // 计算地址偏移
         dstWinGMTensor.SetGlobalBuffer((__gm__ ExpandXOutType *)rankGM);
         if constexpr (DynamicQuant || StaticQuant) {
-            printf("SendToMoeExpert: quant 710\n");
             xInTensor_ = xInQueue_.AllocTensor<XType>();
             DataCopyPad(xInTensor_, xGMTensor_[tokenIndex * axisH_], xCopyParams_, copyPadExtParams);
             xInQueue_.EnQue(xInTensor_);
@@ -719,10 +718,9 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::SendToMoe
             xOutQueue_.EnQue(xOutTensor_);
             xOutTensor_ = xOutQueue_.DeQue<ExpandXOutType>();
             FillTriple(xOutTensor_, tokenIndex, topKIndex);
-            DataCopyPad(dstWinGMTensor, xOutTensor_, hCommuCopyOutParams_); // TDS
+            DataCopyPad(dstWinGMTensor, xOutTensor_, hCommuCopyOutParams_);
             xOutQueue_.FreeTensor(xOutTensor_);
         } else {
-            printf("SendToMoeExpert: not quant\n");
             xTmpTensor_ = xQueue_.AllocTensor<ExpandXOutType>();
             DataCopyPad(xTmpTensor_, xGMTensor_[tokenIndex * axisH_], xCopyParams_, copyPadExtParams);
             xQueue_.EnQue(xTmpTensor_);
@@ -1336,13 +1334,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::LocalWind
             tokGlobal.SetGlobalBuffer((__gm__ ExpandXOutType *)(wAddr + j * hAlignWinSize_));
             // 将数据从Window拷贝到UB
             xTmpTensor_ = xQueue_.AllocTensor<ExpandXOutType>();
-            if constexpr (DynamicQuant || StaticQuant) {
-                printf("1338 quant\n");
-                DataCopyPad(xTmpTensor_, tokGlobal, tokenInParams, padParams);
-            } else {
-                printf("1338 not quant\n");
-                DataCopyPad(xTmpTensor_, tokGlobal, tokenInParams, padParams);
-            }
+            DataCopyPad(xTmpTensor_, tokGlobal, tokenInParams, padParams);
             xQueue_.EnQue(xTmpTensor_);
             xTmpTensor_ = xQueue_.DeQue<ExpandXOutType>();
             xTmpTensorInt = xTmpTensor_.template ReinterpretCast<int32_t>();

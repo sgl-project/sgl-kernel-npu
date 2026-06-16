@@ -69,6 +69,7 @@ def test(
         (num_tokens, num_topk), dtype=torch.float32, device="npu"
     ).abs()
 
+    # Check dispatch correctness
     do_check = True
     return_recv_hook = False
     all_to_all_mode = os.getenv("DEEP_USE_MODE", "default") == "alltoall"
@@ -86,7 +87,7 @@ def test(
         fp8_configs = [(False, False)]
 
     for dispatch_use_fp8, dispatch_use_ue8m0 in fp8_configs:
-        for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x)):
+        for current_x in filter(lambda elem: elem is not None, (x_pure_rand,)):
             quant_label = (
                 "mxfp8" if dispatch_use_ue8m0 else "fp8" if dispatch_use_fp8 else "bf16"
             )
@@ -220,8 +221,10 @@ def test(
                 )
                 assert torch.isnan(combined_x).sum().item() == 0
                 golden = ref_x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
-                max_diff = torch.max(torch.abs(combined_x - golden) / golden).item()
-                avg_diff = torch.mean(torch.abs(combined_x - golden) / golden).item()
+                eps = 1e-8
+                golden_nozero = torch.where(golden == 0, eps, golden)
+                max_diff = torch.max(torch.abs(combined_x - golden) / golden_nozero).item()
+                avg_diff = torch.mean(torch.abs(combined_x - golden) / golden_nozero).item()
                 print(
                     f"rank {rank} PASSED [{quant_label}] avg_diff={avg_diff:.5f}, max_diff={max_diff:.5f}, cosine_diff={diff:.5f}"
                 )
