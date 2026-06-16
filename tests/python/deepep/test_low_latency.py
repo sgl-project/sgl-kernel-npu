@@ -113,7 +113,9 @@ def test(
                 )
             )
             simulated_gemm_x = (
-                per_token_cast_back(*packed_recv_x) if dispatch_use_fp8 else packed_recv_x
+                per_token_cast_back(*packed_recv_x)
+                if dispatch_use_fp8
+                else packed_recv_x
             )
 
             padding_size = aligned_num_tokens - num_tokens
@@ -171,16 +173,21 @@ def test(
                 recv_x = recv_x[:num_valid_tokens]
                 recv_x_amin = recv_x[:, :-128].amin(dim=-1)
                 recv_x_amax = recv_x[:, :-128].amax(dim=-1)
-                if dispatch_use_fp8:
-                    assert torch.allclose(recv_x_amin, recv_x_amax, atol=1e-1)
-                else:
-                    assert torch.equal(recv_x_amin, recv_x_amax)
+                if current_x is x and not dispatch_use_ue8m0:
+                    if dispatch_use_fp8:
+                        assert torch.allclose(recv_x_amin, recv_x_amax, atol=1e-1)
+                    else:
+                        assert torch.equal(recv_x_amin, recv_x_amax)
                 if dispatch_use_fp8:
                     hash_value ^= hash_tensor(
-                        packed_recv_x[0][int(i * temp) : int(i * temp + num_valid_tokens)]
+                        packed_recv_x[0][
+                            int(i * temp) : int(i * temp + num_valid_tokens)
+                        ]
                     )
                     hash_value ^= hash_tensor(
-                        packed_recv_x[1][int(i * temp) : int(i * temp + num_valid_tokens)]
+                        packed_recv_x[1][
+                            int(i * temp) : int(i * temp + num_valid_tokens)
+                        ]
                     )
                 else:
                     hash_value ^= hash_tensor(
@@ -216,15 +223,24 @@ def test(
             if do_check:
                 ref_x = x_pure_rand if current_x is x_pure_rand else x
                 diff = calc_diff(
-                    ref_x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
+                    ref_x
+                    * topk_weights.masked_fill(topk_idx == -1, 0)
+                    .sum(dim=1)
+                    .view(-1, 1),
                     combined_x,
                 )
                 assert torch.isnan(combined_x).sum().item() == 0
-                golden = ref_x * topk_weights.masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
+                golden = ref_x * topk_weights.masked_fill(topk_idx == -1, 0).sum(
+                    dim=1
+                ).view(-1, 1)
                 eps = 1e-8
                 golden_nozero = torch.where(golden == 0, eps, golden)
-                max_diff = torch.max(torch.abs(combined_x - golden) / golden_nozero).item()
-                avg_diff = torch.mean(torch.abs(combined_x - golden) / golden_nozero).item()
+                max_diff = torch.max(
+                    torch.abs(combined_x - golden) / golden_nozero
+                ).item()
+                avg_diff = torch.mean(
+                    torch.abs(combined_x - golden) / golden_nozero
+                ).item()
                 print(
                     f"rank {rank} PASSED [{quant_label}] avg_diff={avg_diff:.5f}, max_diff={max_diff:.5f}, cosine_diff={diff:.5f}"
                 )

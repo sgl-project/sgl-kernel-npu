@@ -378,7 +378,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::Init(
     axisH_ = h;
     hUBAlignSize = Ceil(h * sizeof(ExpandXOutType), UB_ALIGN) * UB_ALIGN;
 
-    hOutSize_ = axisH_ * sizeof(ExpandXOutType); // 7168
+    hOutSize_ = axisH_ * sizeof(ExpandXOutType);            // 7168
     hOutSizeAlign_ = Ceil(hOutSize_, UB_ALIGN) * UB_ALIGN;  // scale起始放置偏移
     uint32_t hScaleSizeAlign = hOutSizeAlign_ + UB_ALIGN;   // 填充三元组起始偏移
     uint32_t quantScalePerToken = IsMxQuant ? Ceil(axisH_, 32) : 1;
@@ -1305,7 +1305,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::LocalWind
     preCnt_ = beginIdx;
     statusTensor_ = waitStatusBuf_.Get<int32_t>();
 
-    //DataCopyPadExtParams<ExpandXOutType> copyPadExtParams{false, 0U, 0U, 0U};
+    // DataCopyPadExtParams<ExpandXOutType> copyPadExtParams{false, 0U, 0U, 0U};
     DataCopyParams tokenInParams = {1U, static_cast<uint16_t>(axisHCommu_ * sizeof(ExpandXOutType)), 0U,
                                     0U};  // compare with
     DataCopyPadParams padParams = {true, 0, 0, 0};
