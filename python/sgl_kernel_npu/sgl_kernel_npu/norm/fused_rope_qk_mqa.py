@@ -24,7 +24,6 @@ def fused_rope_qk_mqa_kernel_opt(
     stride_okt,
     stride_okh,
     stride_okd,
-    T,
     Hq: tl.constexpr,
     Hk: tl.constexpr,
     D_HEAD: tl.constexpr,
@@ -32,8 +31,6 @@ def fused_rope_qk_mqa_kernel_opt(
     IS_NEOX_STYLE: tl.constexpr,
 ):
     pid_t = tl.program_id(0)
-    if pid_t >= T:
-        return
 
     # -------- rotary indices
     d = tl.arange(0, D_ROPE // 2)
@@ -121,7 +118,6 @@ def fused_rope_qk_mqa(
             out_k.stride(0),
             out_k.stride(1),
             out_k.stride(2),
-            T=T,
             Hq=Hq,
             Hk=Hk,
             D_HEAD=D,
