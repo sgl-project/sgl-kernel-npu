@@ -958,6 +958,8 @@ static bool CheckAttrs(const gert::TilingContext *context, MoeDistributeCombineV
                     OP_LOGE(nodeName, "Check shared expert related attributes failed."), return false);
 
     // 校验moe专家数量能否均分给多机
+    OP_TILING_CHECK(epWorldSize <= sharedExpertRankNum,
+                    OP_LOGE(nodeName, "epWorldSize must be greater than sharedExpertRankNum."), return false);
     OP_TILING_CHECK(moeExpertNum % (epWorldSize - sharedExpertRankNum) != 0,
                     OP_LOGE(nodeName,
                             "moeExpertNum should be divisible by (epWorldSize - sharedExpertRankNum), "
