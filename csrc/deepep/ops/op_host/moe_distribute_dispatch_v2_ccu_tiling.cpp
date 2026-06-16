@@ -147,9 +147,7 @@ inline ge::graphStatus CheckTpAttrs(const char *nodeName, const int64_t tpWorldS
             OP_LOGE(nodeName, "The expected value of tpRankId is 0 in NoTp mode, but the actual value is %ld.",
                     tpRankId),
             return ge::GRAPH_FAILED);
-        if (groupTpPtr != nullptr) {
-            groupTp = std::string(groupTpPtr);
-        }
+        groupTp = groupTpPtr != nullptr ? std::string(groupTpPtr) : groupTp;
         return ge::GRAPH_SUCCESS;
     }
     groupTp = std::string(groupTpPtr);

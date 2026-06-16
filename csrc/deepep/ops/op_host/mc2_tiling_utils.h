@@ -63,7 +63,7 @@ constexpr uint32_t AIC_NUM_910D = 32;
 constexpr uint64_t MC2_TILINGKEY_OFFSET = uint64_t(1000000000000000000UL);  // 10^18
 constexpr size_t RES_LEN = 64;
 constexpr size_t MAX_MSG_NUM = 16;
-constexpr uint8_t MC2_DEBUG_ONLY_AICPU = 4;  // ֻͨ�Ų�����
+constexpr uint8_t MC2_DEBUG_ONLY_AICPU = 4;  // 只通信不计算
 constexpr char HCCL_DETERMINISTIC[] = "HCCL_DETERMINISTIC";
 
 constexpr uint8_t AIV_ENGINE = 3;
@@ -126,9 +126,9 @@ inline ge::graphStatus GetEpWinSize(const gert::TilingContext *context, const ch
 {
     auto attrs = context->GetAttrs();
     if (mc2tiling::GetSocVersion(context) == "Ascend910_95") {
-        // A5 �ݲ�֧�� Hccl CommGetBufSizeCfg �ӿڣ��˴��������
+        // A5 暂不支持 Hccl CommGetBufSizeCfg 接口，此处暂作规避
         hcclBufferSizeEp = Mc2TilingUtils::GetMaxWindowSize();
-        // A5 ��ǰ 1MB ��Ϊ״̬����ʣ��ռ�����������
+        // A5 上前 1MB 作为状态区，剩余空间用作数据区
         maxWindowSizeEp = hcclBufferSizeEp - MTE_STATE_ZONE_SIZE;
     } else {
         hcclBufferSizeEp = 0;
