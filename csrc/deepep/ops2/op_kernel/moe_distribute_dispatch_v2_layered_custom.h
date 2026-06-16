@@ -51,7 +51,6 @@ public:
     constexpr static int32_t IPC_FLAG_STEP_1 = 0x0d0d0d0d;
     constexpr static uint32_t TBUF_TEMP_OFFSET = 8 * 1024;
     constexpr static uint32_t MAX_BS_NUM = 512U;  // 适配bs=512
-    constexpr static uint32_t BUFFSIZE = 512U;
     constexpr static uint32_t TBUF_OFFSET_ALIGN_B32_CNT = 2 * 1024 / sizeof(int32_t);
     constexpr static uint64_t SHOULD_SEND_FLAG_VALUE = 0x0f0f0f0f;
     constexpr static uint64_t END_OF_WRITE_FLAG_VALUE = 0xffffffff;
@@ -1260,32 +1259,13 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeA2layeredFu
     int log2WorldSize = ScalarGetSFFValue<1>(worldSize_);
 #pragma unroll 8
     for (uint32_t i = 0; i < tempSize; ++i) {
-        if (i >= BUFFSIZE || i << 3 >= BUFFSIZE) {
-            break;
-        }
-        if (i << 3 >= BUFFSIZE) {
-            cntSum += tokenCntUB(BUFFSIZE - 1);
-        } else {
-            cntSum += tokenCntUB(i << 3);
-        }
+        cntSum += tokenCntUB(i << 3);
         tokenCntUB(i) = cntSum;
     }
 
     for (uint32_t i = 0; i < localMoeExpertNum_; ++i) {
         if (expertTokenNumsType_ == 1) {
-            if (i * worldSize_ + worldSize_ - 1 >= BUFFSIZE) {
-                break;
-            }
-            int32_t preValue;
-            if (i == 0) {
-                preValue = 0;
-            } else {
-                if (i * worldSize_ - 1 < BUFFSIZE) {
-                    preValue = tokenCntUB(i * worldSize_ - 1);
-                } else {
-                    preValue = tokenCntUB(BUFFSIZE - 1);
-                }
-            }
+            int32_t preValue = (i == 0) ? 0 : tokenCntUB(i * worldSize_ - 1);
             tokenCntByExpUB(i) = static_cast<int64_t>(tokenCntUB(i * worldSize_ + worldSize_ - 1) - preValue);
         } else {
             tokenCntByExpUB(i) = static_cast<int64_t>(tokenCntUB(i * worldSize_ + worldSize_ - 1));
@@ -1300,13 +1280,7 @@ __aicore__ inline void MoeDistributeDispatchV2Layered<TemplateMC2TypeA2layeredFu
     LocalTensor<uint8_t> localUB = tBuf.GetWithOffset<uint8_t>(tokenUbSize_ / sizeof(uint8_t), TBUF_TEMP_OFFSET);
     LocalTensor<float> localUBfloat = tBuf.GetWithOffset<float>(tokenUbSize_ / sizeof(float), TBUF_TEMP_OFFSET);
     LocalTensor<int32_t> localUBint32 = tBuf.GetWithOffset<int32_t>(tokenUbSize_ / sizeof(int32_t), TBUF_TEMP_OFFSET);
-
-    int32_t sumTokenCnt;
-    if (srPreCnt - 1 >= MAX_BS_NUM || srPreCnt == 0) {
-        sumTokenCnt = 0;
-    } else {
-        sumTokenCnt = tokenCntUB(srPreCnt - 1);
-    }
+    int32_t sumTokenCnt = (0 == srPreCnt) ? 0 : tokenCntUB(srPreCnt - 1);
     for (uint32_t idx = 0; idx < srCntCurCore; ++idx) {
         // 循环本Core需要处理的Rank数
         uint32_t srIdx = srPreCnt + idx;
