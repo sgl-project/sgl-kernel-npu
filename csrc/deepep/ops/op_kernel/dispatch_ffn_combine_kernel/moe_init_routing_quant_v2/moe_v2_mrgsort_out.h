@@ -60,6 +60,7 @@ private:
     LocalTensor<int32_t> ubOutputInt2;
 
     int64_t listNum{0};
+    int64_t listNumLimit{4};
     int64_t remainListNum{0};
     int64_t outOffset{0};
     int64_t offsets[4];
@@ -84,7 +85,8 @@ __aicore__ inline void MoeV2MrgsortOut::ClearCache()
 
 __aicore__ inline void MoeV2MrgsortOut::SetInput(GlobalTensor<float> &gmInput, LocalTensor<float> &ubInput)
 {
-    if (this->listNum >= 4) {
+    // gmInputs, ubInputs数组初始化长度为4
+    if (this->listNum >= listNumLimit) {
         return;
     }
     this->gmInputs[listNum] = gmInput;
