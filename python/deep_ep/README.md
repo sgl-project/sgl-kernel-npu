@@ -20,6 +20,7 @@ DeepEP-Ascend uses a **strategy-based architecture** that allows flexible select
 ## Software and Hardware
 
 Supported Hardware Models: Atlas A2, A3 (support CANN 8.5 and CANN 9.0), and Atlas A5 (only supports CANN 9.0).
+
 Platform: aarch64/x86
 
 Supporting Software:
@@ -120,7 +121,7 @@ The `Buffer` class is the primary interface. Below is a summary of the core APIs
 | `fused_deep_moe(x, topk_idx, topk_weights, ...)` | Fused | Fused dispatch + FFN + combine in a single call. |
 | `get_dispatch_config(num_ranks)` | — | Get recommended Config for normal dispatch. |
 | `get_combine_config(num_ranks)` | — | Get recommended Config for normal combine. |
-| `clean_low_latency_buffer(...)` | — | Clean buffer before switching from normal to low-latency mode. |
+| `clean_low_latency_buffer(...)` | — | Compatibility no-op in the current backend; kept for callers that invoke it before switching to low-latency mode. |
 
 For detailed API documentation, see:
 - [Normal Mode API (dispatch/combine)](doc/NORMAL_API.md)
