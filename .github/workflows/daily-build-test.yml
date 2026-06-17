@@ -92,7 +92,7 @@ jobs:
 
   multi-node-internode:
     name: multi-node
-    needs: [ run-daily-tests ]
+    needs: [ run-daily-tests, run-pr-tests ]
     if: success() || failure()
     strategy:
       fail-fast: false
