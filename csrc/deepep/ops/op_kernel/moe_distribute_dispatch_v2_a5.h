@@ -8,7 +8,7 @@
 #include "moe_distribute_dispatch_v2_tiling.h"
 #include "check_winsize.h"
 #ifdef __DAV_C310__
-#include "../quantize_functions.h"
+#include "quantize_functions.h"
 #endif
 
 namespace MoeDistributeDispatchV2A5Impl {
