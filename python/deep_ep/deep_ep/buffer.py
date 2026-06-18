@@ -11,6 +11,7 @@ from deep_ep_cpp import Config, EventHandle
 from .ep_strategy import (
     LowLatencyStrategy,
     NormalStrategy,
+    StrategyMap,
     get_low_latency_strategy,
     get_normal_strategy,
 )
@@ -36,7 +37,9 @@ class Buffer:
         allow_nvlink_for_low_latency_mode: bool = True,
         allow_mnnvl: bool = False,
         normal_strategy: Union[str, NormalStrategy] = NormalStrategy.DEFAULT,
-        low_latency_strategy: Union[str, NormalStrategy] = LowLatencyStrategy.DEFAULT,
+        low_latency_strategy: Union[
+            str, LowLatencyStrategy
+        ] = LowLatencyStrategy.DEFAULT,
     ) -> None:
         """
         Initialize the communication buffer.
@@ -80,10 +83,9 @@ class Buffer:
         )
 
         # set strategy by env
-        if os.getenv("DEEP_NORMAL_USE_ALLTOALL") == "1":
-            normal_strategy = NormalStrategy.ALLTOALL
-        if os.getenv("DEEP_LOW_LATENCY_USE_OPS") == "1":
-            low_latency_strategy = LowLatencyStrategy.OPS
+        deep_mode = os.getenv("DEEP_USE_MODE", "default").lower()
+
+        normal_strategy, low_latency_strategy = StrategyMap.get_strategy(deep_mode)
 
         # Initialize normal mode strategy
         self._init_normal_strategy(normal_strategy)
@@ -263,10 +265,10 @@ class Buffer:
         self, num_max_dispatch_tokens_per_rank: int, hidden: int, num_experts: int
     ) -> None:
         """
-        As low-latency kernels require part of the buffer to be zero-initialized, so it is vital to clean the buffer
-            if the buffer is dirty at some time.
-        For example, after running the normal dispatch/combine, you must run this function before executing any
-            low-latency kernel.
+        Compatibility hook for cleaning low-latency buffers.
+
+        The current backend implementation is a no-op and does not clear any device/RDMA buffer. This method is kept for
+        API compatibility with DeepEP callers that invoke it when switching from normal mode to low-latency mode.
 
         Arguments:
             num_max_dispatch_tokens_per_rank: the maximum number of tokens to dispatch, all the ranks must hold the same value.

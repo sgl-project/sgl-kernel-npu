@@ -279,6 +279,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
             Ceil(axisH_,
                  32);  // when axisH_=7168, ((7168*1 + 32) + 3*4) + 7168/32 = 7168 + 32 + 12 + 224 = 7436B, 需要对齐512B
     }
+    hOutUBAlignSize = Ceil(hScaleIdxSize, UB_ALIGN) * UB_ALIGN;
     uint32_t axisHCommu = hScaleIdxSize / sizeof(ExpandXOutType);  // 有效搬运长度
     axisHCommu_ = static_cast<uint16_t>(axisHCommu);
     // todo check if is required: hScaleIdxSize + axisH/32
@@ -719,8 +720,8 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::WaitRoundStatus()
     if (blockIdx >= 1) {
         return;
     }
-    tpipe_->InitBuffer(roundStatusBuf, epRankSize * sizeof(float));
-    tpipe_->InitBuffer(tempRoundStatusBuf, epRankSize * sizeof(float));
+    tpipe_->InitBuffer(roundStatusBuf, epRankSize * FLOAT_NUM_PER_ALIGN * sizeof(float));
+    tpipe_->InitBuffer(tempRoundStatusBuf, epRankSize * FLOAT_NUM_PER_ALIGN * sizeof(float));
     uint32_t count = epRankSize * FLOAT_NUM_PER_ALIGN;
     uint32_t inner = (count * sizeof(float) + 32 - 1) / 32 * 32 / sizeof(float);
     GM_ADDR roundStateGM = GetRoundStateAddrByRankId(COMM_EP_IDX, epRankId);

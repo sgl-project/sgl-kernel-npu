@@ -1056,6 +1056,10 @@ static ge::graphStatus MoeDistributeCombineA2CheckAttrAndSetTiling(gert::TilingC
 
     const gert::StorageShape *expertIdStorageShape = context->GetInputShape(EXPERT_IDS_INDEX);
     OP_TILING_CHECK(expertIdStorageShape == nullptr, OP_LOGE(K_INNER_DEBUG, "xShape is null."), return false);
+    OP_TILING_CHECK(expertIdStorageShape->GetStorageShape().GetDimNum() < 1,
+                    OP_LOGE(K_INNER_DEBUG, "expertIdStorageShape dimNum is %ld, expected at least 1.",
+                            expertIdStorageShape->GetStorageShape().GetDimNum()),
+                    return false);
     int32_t globalBs = *epWorldSizePtr * expertIdStorageShape->GetStorageShape().GetDim(0);
 
     // 判断是否满足uint32_t及其他限制
@@ -1414,6 +1418,7 @@ static ge::graphStatus MoeDistributeCombineV2TilingFunc(gert::TilingContext *con
                     return ge::GRAPH_FAILED);
 
     fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
+    OP_TILING_CHECK(platformInfoPtr == nullptr, OP_LOGE(nodeName, "platformInfoPtr is null."), return ge::GRAPH_FAILED);
     fe::PlatFormInfos &platformInfo = *platformInfoPtr;
 
     std::string socVersion;
