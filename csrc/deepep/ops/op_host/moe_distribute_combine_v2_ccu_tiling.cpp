@@ -121,7 +121,7 @@ inline ge::graphStatus CheckEpAndTpWorldSize(const gert::TilingContext *context,
                             MAX_TP_WORLD_SIZE, *tpWorldSizePtr),
                     return ge::GRAPH_FAILED);
     groupEp = std::string(groupEpPtr);
-    groupTp = std::string(groupTpPtr);
+    groupTp = (groupTpPtr != nullptr) ? std::string(groupTpPtr) : std::string();
     return ge::GRAPH_SUCCESS;
 }
 

@@ -265,10 +265,10 @@ class Buffer:
         self, num_max_dispatch_tokens_per_rank: int, hidden: int, num_experts: int
     ) -> None:
         """
-        As low-latency kernels require part of the buffer to be zero-initialized, so it is vital to clean the buffer
-            if the buffer is dirty at some time.
-        For example, after running the normal dispatch/combine, you must run this function before executing any
-            low-latency kernel.
+        Compatibility hook for cleaning low-latency buffers.
+
+        The current backend implementation is a no-op and does not clear any device/RDMA buffer. This method is kept for
+        API compatibility with DeepEP callers that invoke it when switching from normal mode to low-latency mode.
 
         Arguments:
             num_max_dispatch_tokens_per_rank: the maximum number of tokens to dispatch, all the ranks must hold the same value.

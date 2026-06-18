@@ -439,7 +439,7 @@ __aicore__ inline void ComputePerTileDynamic(__ubuf__ T *srcAddr, __ubuf__ float
         constexpr static MicroAPI::CastTrait castTrait16toi8 = {
             MicroAPI::RegLayout::ZERO, MicroAPI::SatMode::SAT, MicroAPI::MaskMergeMode::ZEROING, RoundMode::CAST_TRUNC};
 
-        for (uint32_t i = 0; i < loopNum; i++) {
+        for (uint16_t i = 0; i < loopNum; i++) {
             dataMask1 = MicroAPI::UpdateMask<T>(totalCountInUB);
             dataMask2 = MicroAPI::UpdateMask<float>(totalCntForB32);
             dataMask3 = MicroAPI::UpdateMask<float>(totalCntForB32);
