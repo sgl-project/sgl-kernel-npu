@@ -212,6 +212,17 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     auto quantModePtr = attrs->GetAttrPointer<int64_t>(ATTR_QUANT_MODE_INDEX);
     auto globalBsPtr = attrs->GetAttrPointer<int64_t>(ATTR_GLOBAL_BS_INDEX);
 
+    OPS_ERR_IF(groupEpPtr == nullptr, OPS_LOG_E(nodeName, "groupEpPtr is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(epRankSizePtr == nullptr, OPS_LOG_E(nodeName, "epRankSizePtr is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(epRankIdPtr == nullptr, OPS_LOG_E(nodeName, "epRankIdPtr is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(moeExpertNumPtr == nullptr, OPS_LOG_E(nodeName, "moeExpertNumPtr is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(sharedExpertNumPtr == nullptr, OPS_LOG_E(nodeName, "sharedExpertNumPtr is nullptr."),
+               return ge::GRAPH_FAILED);
+    OPS_ERR_IF(sharedExpertRankNumPtr == nullptr, OPS_LOG_E(nodeName, "sharedExpertRankNumPtr is nullptr."),
+               return ge::GRAPH_FAILED);
+    OPS_ERR_IF(quantModePtr == nullptr, OPS_LOG_E(nodeName, "quantModePtr is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(globalBsPtr == nullptr, OPS_LOG_E(nodeName, "globalBsPtr is nullptr."), return ge::GRAPH_FAILED);
+
     uint32_t epRankSize = static_cast<uint32_t>(*epRankSizePtr);
     uint32_t epRankId = static_cast<uint32_t>(*epRankIdPtr);
     uint32_t moeExpertNum = static_cast<uint32_t>(*moeExpertNumPtr);

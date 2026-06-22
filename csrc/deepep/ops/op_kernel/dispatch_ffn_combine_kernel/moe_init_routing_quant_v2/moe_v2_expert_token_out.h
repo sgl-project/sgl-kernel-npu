@@ -258,6 +258,9 @@ __aicore__ inline void MoeV2ExpertTokenOut::Init(GM_ADDR expertTokensCountOrCums
                                                  GM_ADDR expandedRowIdx, GM_ADDR workspace,
                                                  const TilingData *tilingData, TPipe *tPipe)
 {
+    if (tilingData == nullptr) {
+        return;
+    }
     int64_t blockNum = GetBlockNum();
     this->pipe = tPipe;
     // this->blockIdx = GetBlockIdx();

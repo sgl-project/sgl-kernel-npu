@@ -469,7 +469,8 @@ __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5Ty
     }
 
     LocalTensor<float> tokenF32Tmp = outLocal.template ReinterpretCast<float>();
-    tokenF32Tmp(Align32<uint32_t>(axisH_) / sizeof(float)) = static_cast<float>(1.0) / dynamicScale;
+    uint32_t scaleF32Idx = Align32(axisH_) * sizeof(ExpandXOutType) / sizeof(float);
+    tokenF32Tmp(scaleF32Idx) = static_cast<float>(1.0) / dynamicScale;
     SyncFunc<AscendC::HardEvent::S_MTE3>();
 }
 
@@ -913,7 +914,7 @@ __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5Ty
 {
     DataCopyParams scaleOutParams = {1U, static_cast<uint16_t>(scaleOutBytes_), 0U, 0U};
     if constexpr (QuantMode == PERTOKEN_DYNAMIC_QUANT || ((QuantMode == UNQUANT) && IsSmoothScaleExist)) {
-        auto scaleLT = quantTok[Align32<uint32_t>(axisH_)].template ReinterpretCast<uint8_t>();
+        auto scaleLT = quantTok[Align32(axisH_)].template ReinterpretCast<uint8_t>();
         DataCopyPad(dynamicScaleGT_[currentTokenIndex * scaleOutBytes_], scaleLT, scaleOutParams);
     }
 }

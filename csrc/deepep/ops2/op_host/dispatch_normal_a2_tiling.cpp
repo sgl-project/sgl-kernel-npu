@@ -1063,6 +1063,7 @@ static uint64_t MoeDistributeDispatchA2CalcTilingKey(const gert::TilingContext &
     const char *nodeName = context.GetNodeName();
     OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "attrs is null."), return 0);
     auto quantModePtr = attrs->GetAttrPointer<int>(ATTR_QUANT_MODE_INDEX);
+    OP_TILING_CHECK(quantModePtr == nullptr, OP_LOGE(nodeName, "quantModePtr is null."), return 0);
     tilingKey += static_cast<uint64_t>(*quantModePtr);
 
     const gert::StorageShape *scalesStorageShape = context.GetOptionalInputShape(SCALES_INDEX);

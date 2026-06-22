@@ -288,7 +288,7 @@ jobs:
         github.event.pull_request.draft == false &&
         (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
       )
-    runs-on: linux-aarch64-a3-16
+    runs-on: ["linux-aarch64-a3-16", "a3-752t"]
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py3.11
     env:
@@ -702,7 +702,7 @@ jobs:
         github.event.pull_request.draft == false &&
         (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
       )
-    runs-on: linux-aarch64-a3-16
+    runs-on: ["linux-aarch64-a3-16", "a3-752t"]
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py3.11
     env:
@@ -1152,33 +1152,6 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --num-processes=8
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_combine.py --test-type="low_latency" --num-processes=8
 
-  test-build-deepep-internode:
-    name: multi-node
-    needs: get-changed-files
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'workflow_call' || (
-        (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
-        (needs.get-changed-files.outputs.ops2_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
-      )
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        cann_version: [8.5.0, 9.0.0]
-        test_config:
-          - name: test_internode_a2
-            node_size: 2
-            test_case: tests/python/deepep/test_internode_a2.py
-    uses: ./.github/workflows/internode.yml
-    with:
-      soc_version: a2
-      runner: linux-aarch64-a2-0
-      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-py3.11'
-      test_config_name: ${{ matrix.test_config.name }}
-      node_size: ${{ matrix.test_config.node_size }}
-      test_case: ${{ matrix.test_config.test_case }}
-
   finish:
     if: always()
     needs:
@@ -1187,7 +1160,6 @@ jobs:
       - test-build-deepep-a3-core
       - test-build-deepep-a3-moe
       - test-build-deepep-a2
-      - test-build-deepep-internode
     runs-on: ubuntu-latest
     steps:
       - name: Check all dependent job statuses

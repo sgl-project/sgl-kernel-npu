@@ -147,6 +147,8 @@ inline ge::graphStatus CheckTpAttrs(const char *nodeName, const int64_t tpWorldS
             OP_LOGE(nodeName, "The expected value of tpRankId is 0 in NoTp mode, but the actual value is %ld.",
                     tpRankId),
             return ge::GRAPH_FAILED);
+        groupTp = groupTpPtr != nullptr ? std::string(groupTpPtr) : groupTp;
+        return ge::GRAPH_SUCCESS;
     }
     groupTp = std::string(groupTpPtr);
     return ge::GRAPH_SUCCESS;
@@ -768,6 +770,10 @@ static ge::graphStatus CheckExpertIdsAndSetK(const gert::TilingContext *context,
     const gert::StorageShape *expertIdStorageShape = context->GetInputShape(EXPERT_IDS_INDEX);
     OP_TILING_CHECK(expertIdStorageShape == nullptr, OP_LOGE(nodeName, "expertIdShape is null."),
                     return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(expertIdStorageShape->GetStorageShape().GetDimNum() < 2,
+                    OP_LOGE(nodeName, "expertIdStorageShape dimNum is %ld, expected at least 2.",
+                            expertIdStorageShape->GetStorageShape().GetDimNum()),
+                    return ge::GRAPH_FAILED);
     const int64_t expertIdsDim0 = expertIdStorageShape->GetStorageShape().GetDim(0);
     const int64_t expertIdsDim1 = expertIdStorageShape->GetStorageShape().GetDim(1);
     const int64_t moeExpertNum = static_cast<int64_t>(tilingData.moeDistributeDispatchV2Info.moeExpertNum);
@@ -815,6 +821,10 @@ static ge::graphStatus CheckTensorShape(const gert::TilingContext *context,
         uint32_t maxBs = globalBs / epWorldSizeU32;
         uint32_t maxSharedGroupNum = 0;
         if ((sharedExpertNum != 0U) && (sharedExpertRankNum != 0U)) {
+            OP_TILING_CHECK(sharedExpertRankNum < sharedExpertNum,
+                            OP_LOGE(nodeName, "sharedExpertRankNum %u is less than sharedExpertNum %u.",
+                                    sharedExpertRankNum, sharedExpertNum),
+                            return ge::GRAPH_FAILED);
             rankNumPerSharedExpert = sharedExpertRankNum / sharedExpertNum;
             maxSharedGroupNum = (epWorldSizeU32 + rankNumPerSharedExpert - 1U) / rankNumPerSharedExpert;
         }
