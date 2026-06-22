@@ -35,6 +35,10 @@ def routing_prep(topk_ids: torch.Tensor, num_experts: int):
         (the quant stage reads ``x[sort_idx[m] // top_k]``).
 
     Done on fp32 so both argsorts stay on AICore (int sort falls back to AICpu).
+
+    Precondition: every value in ``topk_ids`` must be in ``[0, num_experts)``. An
+    out-of-range id makes ``group_list[-1] < M_total``; the kernel processes rows only up
+    to ``group_list[-1]``, so the surplus tokens would be silently dropped from the output.
     """
     flat = topk_ids.reshape(-1).to(torch.float32)
     sorted_ids, sort_idx = torch.sort(flat)

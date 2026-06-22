@@ -17,10 +17,10 @@
 //     SYNC_AIV_FLAG / SyncAllImpl.
 //   - int4_cvt.hpp (does its own unconditional `using namespace pto`) included VEC-only.
 //
-// STAGE A (this build, default): NO in-kernel Stage 0. The block-diag Hadamard is applied
-// by Python before the kernel (the existing pyhadamard mode), so the cube branch does ONLY
-// the two int4 matmuls. Build WITHOUT -DMEGA_CUBE_HADAMARD; the kernel bakes in
-// MEGA_HADAMARD_KERNEL_SKIP semantics for the Stage 1 quant scale (kInvSqrtN=1).
+// In-kernel Hadamard (this build): Stage 0 runs the block-diagonal Hadamard rotation of the
+// activations on the cube (stage0_hadamard -> xrot_ws) before the two int4 matmuls; the
+// matching rotation is baked into the gate_up weights offline, so the kernel is self-contained
+// (no pre-pass, no separate Hadamard op for the model graph to thread through).
 //
 // Weights in HBM are FRACTAL_NZ int4 (the make_nz_weight_int4 layout from
 // mm_impl_int4_grouped / hybrid_proof), NOT the RowMajor packing the PTO cube path used.
@@ -814,7 +814,6 @@ static AICORE void stage5_scatter_combine_int4(__gm__ int32_t *d_gm_i32, __gm__ 
 #if defined(__DAV_C220_CUBE__)
 using aT_h = MatmulType<TPosition::GM, CubeFormat::ND, int4b_t>;
 using bT_h = MatmulType<TPosition::GM, CubeFormat::NZ, int4b_t>;
-using cT_h = MatmulType<TPosition::GM, CubeFormat::ND, int32_t>;
 using biasT_h = MatmulType<TPosition::GM, CubeFormat::ND, int32_t>;
 // isVecND2NZ (4th arg): false => MTE2 does ND->NZ inline on AIC (no AIV cooperation).
 // In this fused MIX kernel the AIV cores are BUSY running the PTO vec stages, so they
@@ -828,19 +827,18 @@ using biasT_h = MatmulType<TPosition::GM, CubeFormat::ND, int32_t>;
 #define MEGA_CUBE_MTE2PRELOAD 0
 #endif
 constexpr MatmulConfig MM_CFG_H = GetMDLConfig(false, false, MEGA_CUBE_MTE2PRELOAD, false, false, false, true);
-using MMImpl_h = MatmulImpl<aT_h, bT_h, cT_h, biasT_h, MM_CFG_H>;
 
 // LEVER 2: down matmul emits fp16 with the per-channel w2 dequant folded into the FIXPIPE
 // (SetQuantVector / GetTensorC half), exactly like vendor grouped_matmul_a4w4. The cube int4
 // accumulator (int32) is multiplied by the per-N uint64 dequant scale on drain -> half d_ws.
 // Halves S5's load (fp16 vs int32) AND removes S5's per-channel TMUL. The per-TOKEN activation
 // scale `is` and the routing weight `topk_w` are per-row, so they stay in S5 (cube can only
-// fold the per-N-channel weight scale). cT = half (the only difference vs MMImpl_h).
+// fold the per-N-channel weight scale). cT = half (fp16 C output instead of an int32 accumulator).
 using cT_dq = MatmulType<TPosition::GM, CubeFormat::ND, half>;
 using MMImpl_dq = MatmulImpl<aT_h, bT_h, cT_dq, biasT_h, MM_CFG_H>;
 
-// Grouped int4 matmul with per-channel fp16 dequant on drain. Mirrors grouped_matmul_int4_impl
-// but: C is half, and before each Iterate it binds the per-(expert,N-channel) uint64 dequant
+// Grouped int4 matmul with per-channel fp16 dequant on drain: C is half, and before each
+// Iterate it binds the per-(expert,N-channel) uint64 dequant
 // scale via SetQuantVector(scaleGm[g*N + tailN]). scale_gm is the uint64-packed w2 scale [E,N].
 AICORE inline void grouped_matmul_int4_dequant_impl(MMImpl_dq &mm, const TCubeTiling *tilingPtr, __gm__ int8_t *a_gm,
                                                     __gm__ int8_t *w_gm, __gm__ half *c_gm, __gm__ uint64_t *scale_gm,
@@ -1004,74 +1002,12 @@ static AICORE void stage0_hadamard(__gm__ half *x_gm, __gm__ half *b1_gm, __gm__
     wait_flag(PIPE_FIX, PIPE_M, we);
 }
 
-// Grouped int4 matmul over experts [e_lo, e_hi), single Init by caller. Mirrors
-// mm_impl_int4_grouped: flat (m_tile, n_tile) round-robin across cores, FRACTAL_NZ B
-// (per-expert contiguous block of K*N int4), int32 ND C.
-//   a_gm:  [M_total, K/2]      int4 packed ND   (xq_ws / iq_ws)
-//   w_gm:  [E, N/64, K/16, 16, 64] int4 packed NZ  (weight)
-//   c_gm:  [M_total, N]        int32 ND          (gu_ws / d_ws)
-//   gl_gm: [E]                 int64 cumulative row counts
-AICORE inline void grouped_matmul_int4_impl(MMImpl_h &mm, const TCubeTiling *tilingPtr, __gm__ int8_t *a_gm,
-                                            __gm__ int8_t *w_gm, __gm__ int32_t *c_gm, __gm__ int64_t *gl_gm,
-                                            uint32_t E, uint32_t e_lo, uint32_t e_hi)
-{
-    const int32_t K_RT = tilingPtr->Ka;
-    const int32_t N_RT = tilingPtr->N;
-    const uint32_t coreNum = GetBlockNum();
-    const uint32_t coreIdx = GetBlockIdx();
-    const int32_t singleN = tilingPtr->singleCoreN;
-    const uint32_t blockDimN = (N_RT + singleN - 1) / singleN;
-    const uint32_t e_end = (e_hi == 0) ? E : e_hi;
-
-    GlobalTensor<int4b_t> xGm;
-    xGm.SetGlobalBuffer(reinterpret_cast<__gm__ int4b_t *>(a_gm));
-    GlobalTensor<int4b_t> wGm;
-    wGm.SetGlobalBuffer(reinterpret_cast<__gm__ int4b_t *>(w_gm));
-    GlobalTensor<int32_t> yGm;
-    yGm.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(c_gm));
-
-    // offsetM (global row base of expert e) = gl_gm[e-1]. preOffset tracks cum row count.
-    int32_t preOffset = (e_lo > 0) ? (int32_t)gl_gm[e_lo - 1] : 0;
-    uint32_t offsetM = (uint32_t)preOffset;
-    uint32_t globalBlk = 0;
-
-    for (uint32_t g = e_lo; g < e_end; ++g) {
-        int32_t cum = static_cast<int32_t>(gl_gm[g]);
-        int32_t m = cum - preOffset;
-        preOffset = cum;
-        if (m <= 0) continue;
-
-        const uint32_t blockDimM = (static_cast<uint32_t>(m) + tilingPtr->singleCoreM - 1) / tilingPtr->singleCoreM;
-        mm.SetOrgShape(m, N_RT, K_RT);
-
-        for (uint32_t mIdx = 0; mIdx < blockDimM; ++mIdx) {
-            for (uint32_t nIdx = 0; nIdx < blockDimN; ++nIdx, ++globalBlk) {
-                if ((globalBlk % coreNum) != coreIdx) continue;
-                uint32_t curSingleM = (mIdx == blockDimM - 1)
-                                          ? (static_cast<uint32_t>(m) - mIdx * tilingPtr->singleCoreM)
-                                          : tilingPtr->singleCoreM;
-                uint32_t tailN = nIdx * singleN;
-                uint32_t curSingleN = (nIdx == blockDimN - 1) ? (N_RT - tailN) : singleN;
-                uint64_t xOffset = static_cast<uint64_t>(offsetM + mIdx * tilingPtr->singleCoreM) * K_RT;
-                uint64_t wOffset = static_cast<uint64_t>(g) * N_RT * K_RT + static_cast<uint64_t>(tailN) * K_RT;
-                uint64_t yOffset = static_cast<uint64_t>(offsetM + mIdx * tilingPtr->singleCoreM) * N_RT + tailN;
-                mm.SetSingleShape(curSingleM, curSingleN, K_RT);
-                mm.SetTensorA(xGm[xOffset]);
-                mm.SetTensorB(wGm[wOffset]);
-                mm.Iterate();
-                mm.GetTensorC(yGm[yOffset], 0, false);
-            }
-        }
-        offsetM += static_cast<uint32_t>(m);
-    }
-}
 #endif  // __DAV_C220_CUBE__
 
 // ====================================================================================
 //  HYBRID MEGA KERNEL — full W4A4 MoE chain, single launch, SAFESYNC overlap schedule.
-//  Stage A: NO in-kernel Stage 0 (Python pre-applies the block-diag Hadamard). Cube branch
-//  does ONLY the two int4 matmuls. Vec branch runs Stage 1/3/5. B0..B5 barrier sequence
-//  matches mega_kernel.cpp (without the MEGA_CUBE_HADAMARD publish barrier).
+//  Cube branch runs Stage 0 (in-kernel block-diag Hadamard -> xrot_ws) then the two int4
+//  matmuls; vec branch runs Stage 1/3/5. B0..B5 barrier sequence as in mega_kernel.cpp.
 //
 //  Two tiling structs: tiling_gu (gate_up K=H_DIM,N=N_GU) and tiling_dn (down K=I_DIM,N=H_DIM).
 // ====================================================================================
