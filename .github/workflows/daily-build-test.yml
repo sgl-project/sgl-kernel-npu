@@ -56,7 +56,7 @@ jobs:
         run: bash scripts/prepare_deepep_in_container.sh
 
       - name: Run enumerate test intranode
-        timeout-minutes: 340  # 5小时 40分钟
+        timeout-minutes: 330  # 5小时 40分钟
         env:
           HCCL_BUFFSIZE: 4096
           TEST_ENV: daily-build
