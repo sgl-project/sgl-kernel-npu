@@ -305,15 +305,16 @@ __aicore__ inline void MoeDistributeCombineA5<TemplateMoeDistributeCombineA5Type
     uint32_t outPreExpertCount = 0;
     uint32_t localExpertNum = isShareExpertRank_ ? 1 : localExpertNum_;
     for (uint32_t k = 0; k < localExpertNum; ++k) {
-        uint32_t expertOffset = k * epWorldSize_;
+        uint64_t expertOffset = static_cast<uint64_t>(k) * epWorldSize_;
         uint32_t inPreCount = startRank > 0 ? inputCountLT_(expertOffset + startRank - 1) : inPreExpertCount;
         for (uint32_t i = 0; i < rankNum; ++i) {
             uint32_t curRankId = startRank + i;
             uint32_t curSumNum = inputCountLT_(expertOffset + curRankId);
             uint32_t curTokenNum = curSumNum - inPreCount;
-            uint32_t tokenBeginIdx = inPreCount * axisH_;
+            uint64_t tokenBeginIdx = static_cast<uint64_t>(inPreCount) * axisH_;
 
-            GM_ADDR dstGM = sendBufGM_ + curRankId * perRankDataSize_ + offsetLT(i) * perTokenSize_;
+            GM_ADDR dstGM = sendBufGM_ + static_cast<uint64_t>(curRankId) * perRankDataSize_ +
+                            static_cast<uint64_t>(offsetLT(i)) * perTokenSize_;
             SyncFunc<AscendC::HardEvent::S_MTE2>();
             for (uint32_t j = 0; j < curTokenNum; ++j) {
                 auto t = tokenQue_.AllocTensor<ExpandXType>();
@@ -330,16 +331,16 @@ __aicore__ inline void MoeDistributeCombineA5<TemplateMoeDistributeCombineA5Type
             offsetLT(i) += curTokenNum;
 
             inPreCount = curSumNum;
-            uint64_t countByte = curTokenNum * perTokenSize_;
+            uint64_t countByte = static_cast<uint64_t>(curTokenNum) * perTokenSize_;
             uint64_t halfSize = countByte / HALF_DATA_DIV;
             sizeLT(i) += halfSize;
             sizeLT(i + eachCnt) += countByte - halfSize;
 
-            sendOffsetLT(i) = curRankId * perRankDataSize_;
-            sendOffsetLT(i + eachCnt) = curRankId * perRankDataSize_ + sizeLT(i);
+            sendOffsetLT(i) = static_cast<uint64_t>(curRankId) * perRankDataSize_;
+            sendOffsetLT(i + eachCnt) = static_cast<uint64_t>(curRankId) * perRankDataSize_ + sizeLT(i);
         }
 
-        inPreExpertCount = inputCountLT_((k + 1) * epWorldSize_ - 1);
+        inPreExpertCount = inputCountLT_(static_cast<uint64_t>(k + 1) * epWorldSize_ - 1);
     }
 }
 
