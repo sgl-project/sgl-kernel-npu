@@ -252,8 +252,7 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
         OP_TILING_CHECK(dynamicScalesDesc == nullptr, OP_LOGE(nodeName, "dynamicScalesDesc is null."), return false);
         OP_TILING_CHECK(
             dynamicScalesDesc->GetDataType() != ge::DT_FLOAT8_E8M0,
-            OP_LOGE(nodeName,
-                    "dynamicScales dataType is invalid for MXFP quant, dataType should be fp8e8m0, but is %s",
+            OP_LOGE(nodeName, "dynamicScales dataType is invalid for MXFP quant, dataType should be fp8e8m0, but is %s",
                     geDataTypeMap.at(dynamicScalesDesc->GetDataType()).c_str()),
             return false);
     }

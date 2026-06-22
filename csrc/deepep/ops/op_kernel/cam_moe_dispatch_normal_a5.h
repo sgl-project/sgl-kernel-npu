@@ -269,8 +269,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
     uint32_t quantScalePerTokenAlign = Ceil(quantScalePerToken * sizeof(XScalesType), UB_ALIGN) * UB_ALIGN;
 
     hScaleSizeAlign =
-        hUBAlignSize +
-        quantScalePerTokenAlign;  // ((7168*1 + 32) + 3*4) + 7168/MX_BLOCK_SIZE = 7436B, 需要对齐512B
+        hUBAlignSize + quantScalePerTokenAlign;  // ((7168*1 + 32) + 3*4) + 7168/MX_BLOCK_SIZE = 7436B, 需要对齐512B
 
     expandIdxStartIdx = hScaleSizeAlign / sizeof(int32_t);
 
