@@ -288,7 +288,7 @@ jobs:
         github.event.pull_request.draft == false &&
         (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
       )
-    runs-on: linux-aarch64-a3-16
+    runs-on: ["linux-aarch64-a3-16", "a3-752t"]
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py3.11
     env:
@@ -702,7 +702,7 @@ jobs:
         github.event.pull_request.draft == false &&
         (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
       )
-    runs-on: linux-aarch64-a3-16
+    runs-on: ["linux-aarch64-a3-16", "a3-752t"]
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py3.11
     env:
