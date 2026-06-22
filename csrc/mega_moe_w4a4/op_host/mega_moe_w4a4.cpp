@@ -32,6 +32,11 @@ void check_shape(const at::Tensor &x, const at::Tensor &w13, const at::Tensor &w
     const char *err = "Run the vendor-separated W4A4 MoE path by setting SGLANG_NPU_MEGA_MOE_W4A4=0.";
     auto check = [&err](bool condition, const char *message) { TORCH_CHECK(condition, message, " ", err); };
 
+    check(x.is_contiguous(), "x must be contiguous (fix this in Python)");
+    check(w13.is_contiguous(), "w13 must be contiguous (fix this in Python)");
+    check(w2.is_contiguous(), "w2 must be contiguous (fix this in Python)");
+    check(group_list.is_contiguous(), "group_list must be contiguous (fix this in Python)");
+
     check(x.dim() == 2 && x.size(1) == kHidden, "x must have shape [T_orig, 2048] (H_DIM)");
     // x is the raw routed activations; this build is the self-contained variant — the
     // block-diagonal Hadamard is applied in-kernel on the cube (Stage 0 -> xrot_ws, with
@@ -39,6 +44,7 @@ void check_shape(const at::Tensor &x, const at::Tensor &w13, const at::Tensor &w
     check(x.scalar_type() == at::kHalf, "x must be float16 (routed activations)");
     check(group_list.scalar_type() == at::kLong, "group_list must be int64 (cumulative per-expert token counts)");
     check(group_list.numel() == E, "group_list must have E entries");
+    check(E > 0 && E <= std::numeric_limits<uint32_t>::max(), "E out of uint32 range (must be positive)");
     check(E % 2 == 0, "E must be even (SAFESYNC NC=2 expert-chunk split)");
     check(M_total >= 0 && M_total <= std::numeric_limits<uint32_t>::max(), "M_total out of uint32 range");
     check(T_orig == x.size(0), "T_orig must match x.shape[0]");
@@ -63,6 +69,10 @@ HOST_API void mega_moe_w4a4(const at::Tensor &x, const at::Tensor &w13, const at
                             int64_t E, int64_t top_k, int64_t T_orig, int64_t block_dim)
 {
     check_shape(x, w13, w2, group_list, M_total, E, top_k, T_orig);
+    // topk_w is read as half in the combine stage (stage5); fp32 weights would be byte-misread.
+    TORCH_CHECK(topk_w.scalar_type() == at::kHalf && topk_w.is_contiguous(),
+                "topk_w must be a contiguous float16 tensor (read as half in the combine stage). "
+                "Run the vendor-separated W4A4 MoE path by setting SGLANG_NPU_MEGA_MOE_W4A4=0.");
     TORCH_CHECK(block_dim > 0 && block_dim <= std::numeric_limits<uint32_t>::max(), "block_dim out of uint32 range");
 
     uint32_t block_dim_u32 = static_cast<uint32_t>(block_dim);

@@ -1143,7 +1143,11 @@ W4A4_MEGA_KERNEL_NAME(GM_ADDR x_gm, GM_ADDR w13_gm, GM_ADDR w13_scale_gm, GM_ADD
     TPipe pipe;
     AscendCUtils::SetOverflow(1);
 
-    // Load both tiling structs (GM -> local).
+    // Load both tiling structs (GM -> local). The Python host packs each as a 50-int32
+    // TCubeTiling (see _TILING_FIELDS in mega_moe_w4a4.py); pin that contract so a CANN
+    // struct-layout change fails the build instead of silently reading past the workspace.
+    static_assert(sizeof(TCubeTiling) == 50 * sizeof(int32_t),
+                  "TCubeTiling must be 50 int32 fields to match the Python host wrapper");
     TCubeTiling tiling_gu, tiling_dn;
     {
         __gm__ int32_t *src = reinterpret_cast<__gm__ int32_t *>(tiling_gu_gm);
@@ -1158,10 +1162,8 @@ W4A4_MEGA_KERNEL_NAME(GM_ADDR x_gm, GM_ADDR w13_gm, GM_ADDR w13_scale_gm, GM_ADD
             dst[i] = src[i];
     }
 
-    MMImpl_h mm;
-    mm.SetSubBlockIdx(0);
-    // LEVER 2: separate fp16-output MatmulImpl for the down stage (per-channel w2 dequant
-    // folded into the FIXPIPE). gate_up still uses int32 `mm` (S3 needs the raw int32 acc).
+    // Both matmul stages use the fp16-output MatmulImpl with the per-channel weight scale
+    // folded into the FIXPIPE dequant (gate_up folds w13 scale, down folds w2 scale).
     MMImpl_dq mm_dq;
     mm_dq.SetSubBlockIdx(0);
 #endif
