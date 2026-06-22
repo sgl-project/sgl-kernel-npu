@@ -34,6 +34,7 @@ constexpr float FP8_E4M3_MAX_VALUE = 57344.0f;
 constexpr float HIFP8_MAX_VALUE = 32768.0f;
 constexpr float INT8_MAX_VALUE = 127.0f;
 constexpr uint32_t FP4_ELEMS_PER_BYTE = 2;
+constexpr uint32_t MX_BLOCK_SIZE = 32U;
 #define FLOAT_OVERFLOW_MODE_CTRL 60
 
 template <AscendC::HardEvent event>
@@ -264,25 +265,23 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
         hUBAlignSize = Ceil(h * sizeof(ExpandXOutType), UB_ALIGN) * UB_ALIGN;
     }
     uint32_t hScaleSizeAlign = hUBAlignSize + UB_ALIGN;
-    uint32_t quantScalePerToken = IsMxQuant ? Ceil(axisH_, 32) : 1;
+    uint32_t quantScalePerToken = IsMxQuant ? Ceil(axisH_, MX_BLOCK_SIZE) : 1;
     uint32_t quantScalePerTokenAlign = Ceil(quantScalePerToken * sizeof(XScalesType), UB_ALIGN) * UB_ALIGN;
 
     hScaleSizeAlign =
         hUBAlignSize +
-        quantScalePerTokenAlign;  // ((7168*1 + 32) + 3*4) + 7168/32 = 7168 + 32 + 12 + 224 = 7436B, 需要对齐512B
+        quantScalePerTokenAlign;  // ((7168*1 + 32) + 3*4) + 7168/MX_BLOCK_SIZE = 7436B, 需要对齐512B
 
     expandIdxStartIdx = hScaleSizeAlign / sizeof(int32_t);
 
     hScaleIdxSize = hScaleSizeAlign + EXPAND_IDX_INFO * sizeof(int32_t);
     if (IsMxQuant) {
-        hScaleIdxSize +=
-            Ceil(axisH_,
-                 32);  // when axisH_=7168, ((7168*1 + 32) + 3*4) + 7168/32 = 7168 + 32 + 12 + 224 = 7436B, 需要对齐512B
+        hScaleIdxSize += Ceil(axisH_, MX_BLOCK_SIZE);
     }
     hOutUBAlignSize = Ceil(hScaleIdxSize, UB_ALIGN) * UB_ALIGN;
     uint32_t axisHCommu = hScaleIdxSize / sizeof(ExpandXOutType);  // 有效搬运长度
     axisHCommu_ = static_cast<uint16_t>(axisHCommu);
-    // todo check if is required: hScaleIdxSize + axisH/32
+    // todo check if is required: hScaleIdxSize + axisH/MX_BLOCK_SIZE
     hOutGMAlignSize = Ceil(hScaleIdxSize, WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
     hGMAlignCnt = hOutGMAlignSize / sizeof(ExpandXOutType);
 
@@ -836,7 +835,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
                         dataCopyExandIdxParams);  // todo check expandXCopyParams_
 
             if constexpr (DynamicQuant) {
-                uint32_t scaleOutBytesPerToken = IsMxQuant ? Ceil(axisH_, 32) : sizeof(XScalesType);
+                uint32_t scaleOutBytesPerToken = IsMxQuant ? Ceil(axisH_, MX_BLOCK_SIZE) : sizeof(XScalesType);
                 DataCopyExtParams scaleOutputDataCopyParams = {1U, static_cast<uint16_t>(scaleOutBytesPerToken), 0U, 0U,
                                                                0U};
                 LocalTensor<uint8_t> scaleLT = xTmpTensor.template ReinterpretCast<uint8_t>();
