@@ -251,6 +251,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Init(
     expandIdxStartIdx = hScaleSizeAlign / sizeof(int32_t);
 
     hScaleIdxSize = hScaleSizeAlign + EXPAND_IDX_INFO * sizeof(int32_t);
+    hOutUBAlignSize = Ceil(hScaleIdxSize, UB_ALIGN) * UB_ALIGN;
     hOutGMAlignSize = Ceil(hScaleIdxSize, WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
     hGMAlignCnt = hOutGMAlignSize / sizeof(ExpandXOutType);
 
@@ -376,7 +377,6 @@ template <CamTypeClass>
 __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::InputToShare()
 {
     tpipe_->Reset();
-    hOutUBAlignSize = Ceil(hScaleIdxSize, UB_ALIGN) * UB_ALIGN;
     if constexpr (DynamicQuant) {
         QuantInit();
     } else {
@@ -636,8 +636,8 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::WaitRoundStatus()
     if (blockIdx >= 1) {
         return;
     }
-    tpipe_->InitBuffer(roundStatusBuf, epRankSize * sizeof(float));
-    tpipe_->InitBuffer(tempRoundStatusBuf, epRankSize * sizeof(float));
+    tpipe_->InitBuffer(roundStatusBuf, epRankSize * FLOAT_NUM_PER_ALIGN * sizeof(float));
+    tpipe_->InitBuffer(tempRoundStatusBuf, epRankSize * FLOAT_NUM_PER_ALIGN * sizeof(float));
     uint32_t count = epRankSize * FLOAT_NUM_PER_ALIGN;
     uint32_t inner = (count * sizeof(float) + 32 - 1) / 32 * 32 / sizeof(float);
     GM_ADDR roundStateGM = GetRoundStateAddrByRankId(COMM_EP_IDX, epRankId);

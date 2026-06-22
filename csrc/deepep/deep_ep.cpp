@@ -823,8 +823,15 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     auto device = x.device();
     auto packed_recv_x = at::empty({num_max_tokens, hidden}, x.options().dtype(use_fp8 ? at::kChar : at::kBFloat16));
     auto packed_recv_x_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
-    auto expandIdx = at::empty({max_size}, at::dtype(at::kInt).device(device));
+#ifdef __DAV_C310__
+    if (use_fp8 && use_ue8m0) {
+        packed_recv_x = torch::empty({num_max_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
+        packed_recv_x_scales =
+            torch::empty({num_max_tokens * hidden / 32}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
+    }
+#endif
 
+    auto expandIdx = at::empty({max_size}, at::dtype(at::kInt).device(device));
     int32_t server_num = num_ranks / LOCAL_RANK_SIZE;
     at::Tensor ep_recv_count =
         at::empty({num_local_experts * num_ranks}, at::dtype(at::kInt).device(device));  // A2 non-layered / A3
@@ -833,7 +840,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     at::Tensor scales;
     at::Tensor active_mask;
     int enable_neg_one = get_value_from_env("MOE_ENABLE_TOPK_NEG_ONE", 0);
-    int64_t quant_mode = use_fp8 ? 2 : 0;
+    int64_t quant_mode = use_fp8 ? (use_ue8m0 ? 3 : 2) : 0;
     int64_t tp_size = 1;
     int64_t tp_rank = 0;
     int64_t expert_shard_type = 0;

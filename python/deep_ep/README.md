@@ -20,6 +20,7 @@ DeepEP-Ascend uses a **strategy-based architecture** that allows flexible select
 ## Software and Hardware
 
 Supported Hardware Models: Atlas A2, A3 (support CANN 8.5 and CANN 9.0), and Atlas A5 (only supports CANN 9.0).
+
 Platform: aarch64/x86
 
 Supporting Software:
@@ -120,7 +121,7 @@ The `Buffer` class is the primary interface. Below is a summary of the core APIs
 | `fused_deep_moe(x, topk_idx, topk_weights, ...)` | Fused | Fused dispatch + FFN + combine in a single call. |
 | `get_dispatch_config(num_ranks)` | — | Get recommended Config for normal dispatch. |
 | `get_combine_config(num_ranks)` | — | Get recommended Config for normal combine. |
-| `clean_low_latency_buffer(...)` | — | Clean buffer before switching from normal to low-latency mode. |
+| `clean_low_latency_buffer(...)` | — | Compatibility no-op in the current backend; kept for callers that invoke it before switching to low-latency mode. |
 
 For detailed API documentation, see:
 - [Normal Mode API (dispatch/combine)](doc/NORMAL_API.md)
@@ -142,8 +143,13 @@ High-throughput dispatch and combine for training and prefill phases:
 
 Optimized for inference with small batch sizes (128 tokens/batch):
 - **A3**: Supports `default`, `ops`, and `alltoall` strategies. `ops` strategy supports `comm_alg` options: `hierarchy`, `fullmesh_v1`, `fullmesh_v2`, `ccu`.
+- **A5 (C310)**: Supports `default` and `ops` strategies with MXFP8 per-block quantization (`use_ue8m0=True`, quant_mode=3). Data format: `float8_e4m3fn` + `float8_e8m0fnu` scales.
 - **A2 Intranode**: Supports up to `bs=512` for low_latency dispatch/combine.
 - **A2 Internode**: Hierarchical (HCCS + RDMA) or non-hierarchical (pure RDMA) implementation. Supports up to `bs=512`.
+
+Quantization modes in low_latency_dispatch:
+- **BF16**: `use_fp8=False` — no quantization, bfloat16 communication.
+- **MXFP8 per-block**: `use_fp8=True, use_ue8m0=True` — per-block MXFP8 quantization (quant_mode=3), `float8_e4m3fn` data + `float8_e8m0fnu` scales (A5/C310 only).
 
 
 ## Fused MoE
@@ -166,7 +172,7 @@ See [Fused Deep MoE API](doc/FUSED_DEEP_MOE_EN.md) for details.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DEEP_USE_MODE` | `default` | Normal mode strategy and Low-latency mode strategy: `default`, `ops`, or `alltoall`. |
-| `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | Enable INT8 quantization in normal dispatch. A2 internode does NOT support quantization in normal mode. |
+| `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **Deprecated.** Enable INT8 quantization in normal dispatch. A2 internode does NOT support quantization in normal mode. MXFP8 per-block quantization (A5/C310 only) is triggered by passing a tuple `(float8_e4m3fn_tensor, float8_e8m0fnu_tensor)` as `x`. |
 | `SGLANG_DEEPEP_BF16_DISPATCH` | `0` | Disable quantization in low_latency_dispatch (BF16 dispatch). Set to `1` to disable; only effective in decode phase. |
 | `MOE_EXPERT_TOKEN_NUMS_TYPE` | `1` | Dispatch return type for `num_recv_tokens_per_expert_list`: `1` = per-expert token count, `0` = prefix sum. |
 | `MOE_SHARED_EXPERT_RANK_NUM` | `0` | Number of shared expert ranks (used by ops strategy). |
