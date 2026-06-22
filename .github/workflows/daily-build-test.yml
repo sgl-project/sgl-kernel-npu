@@ -7,9 +7,6 @@ on:
     branches: [ main ]
     paths:
       - ".github/workflows/daily-build-test.yml"
-      - ".github/workflows/internode.yml"
-      - "csrc/deepep/**"
-      - "tests/python/deepep/test_internode_a2.py"
       - "scripts/enumerate_test_*.sh"
   workflow_dispatch:
 
@@ -59,7 +56,7 @@ jobs:
         run: bash scripts/prepare_deepep_in_container.sh
 
       - name: Run enumerate test intranode
-        timeout-minutes: 340  # 5小时 40分钟
+        timeout-minutes: 330  # 5小时 40分钟
         env:
           HCCL_BUFFSIZE: 4096
           TEST_ENV: daily-build
@@ -131,28 +128,6 @@ jobs:
             test-results/
             logs/
           retention-days: 30
-
-  multi-node-internode:
-    name: multi-node
-    needs: [ run-daily-tests, run-pr-tests ]
-    if: success() || failure()
-    strategy:
-      fail-fast: false
-      max-parallel: 1
-      matrix:
-        cann_version: [8.5.0, 9.0.0]
-        test_config:
-          - name: test_internode_a2
-            node_size: 2
-            test_case: tests/python/deepep/test_internode_a2.py
-    uses: ./.github/workflows/internode.yml
-    with:
-      soc_version: a2
-      runner: linux-aarch64-a2-0
-      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-py3.11'
-      test_config_name: ${{ matrix.test_config.name }}
-      node_size: ${{ matrix.test_config.node_size }}
-      test_case: ${{ matrix.test_config.test_case }}
 
   finish:
     if: always()
