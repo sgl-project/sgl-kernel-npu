@@ -10,8 +10,8 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#ifndef BLOCK_SPARSE_ATTENTION_TILING_CONTEXT_H
-#define BLOCK_SPARSE_ATTENTION_TILING_CONTEXT_H
+#ifndef ADA_BLOCK_SPARSE_ATTENTION_TILING_CONTEXT_H
+#define ADA_BLOCK_SPARSE_ATTENTION_TILING_CONTEXT_H
 #include <cstdint>
 #include <vector>
 #include <queue>
@@ -107,7 +107,7 @@ struct ContextParamsForBSATiling {
     const char *layout = nullptr;
     const int32_t *numKeyValueHeads = nullptr;
     size_t *workspaceSize = nullptr;
-    const BlockSparseAttentionCompileInfo *compileInfoPtr = nullptr;
+    const AdaBlockSparseAttentionCompileInfo *compileInfoPtr = nullptr;
     ge::DataType deqScaleType = ge::DataType::DT_FLOAT16;
     ge::DataType deqScale2Type = ge::DataType::DT_FLOAT16;
     ge::DataType quantScale2Type = ge::DataType::DT_FLOAT16;

@@ -11,8 +11,8 @@
  */
 
 #include "kernel_operator.h"
-#include "block_sparse_attention_s1s2_bns1_x910.h"
-#include "block_sparse_attention_empty_tensor.h"
+#include "ada_block_sparse_attention_s1s2_bns1_x910.h"
+#include "ada_block_sparse_attention_empty_tensor.h"
 
 #define INVOKE_BSA_GENERAL_OP_IMPL(templateClass, ...)                                                               \
     TPipe tPipe;                                                                                                     \
@@ -30,12 +30,12 @@
     } while (0)
 
 #define INVOKE_BSA_TILING_DATA(tiling)                                                   \
-    GET_TILING_DATA_WITH_STRUCT(BlockSparseAttentionTilingData, tiling_data_in, tiling); \
-    const BlockSparseAttentionTilingData *__restrict tiling_data = &tiling_data_in;      \
+    GET_TILING_DATA_WITH_STRUCT(AdaBlockSparseAttentionTilingData, tiling_data_in, tiling); \
+    const AdaBlockSparseAttentionTilingData *__restrict tiling_data = &tiling_data_in;      \
     const TCubeTiling *__restrict bmm1tiling = &(tiling_data->bmm1TilingDataRect);       \
     const TCubeTiling *__restrict bmm2tiling = &(tiling_data->bmm2TilingDataRect)
 
-extern "C" __global__ __aicore__ void block_sparse_attention_FIAS(
+extern "C" __global__ __aicore__ void ada_block_sparse_attention_FIAS(
     __gm__ uint8_t *query, __gm__ uint8_t *key, __gm__ uint8_t *value, __gm__ uint8_t *pseShift,
     __gm__ uint8_t *attenMask, __gm__ uint8_t *actualSeqLengths, __gm__ uint8_t *actualSeqLengthsKV,
     __gm__ uint8_t *deq_scale1, __gm__ uint8_t *quant_scale1, __gm__ uint8_t *deq_scale2, __gm__ uint8_t *quant_scale2,
@@ -47,7 +47,7 @@ extern "C" __global__ __aicore__ void block_sparse_attention_FIAS(
     __gm__ uint8_t *sparseMask, __gm__ uint8_t *sparseCntTable, __gm__ uint8_t *attentionOut,
     __gm__ uint8_t *softmaxLse, __gm__ uint8_t *workspace, __gm__ uint8_t *tiling)
 {
-    GET_TILING_DATA_MEMBER(BlockSparseAttentionTilingData, promptAttentionBaseParams, baseParams, tiling);
+    GET_TILING_DATA_MEMBER(AdaBlockSparseAttentionTilingData, promptAttentionBaseParams, baseParams, tiling);
 
     __gm__ uint8_t *user = GetUserWorkspace(workspace);
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
@@ -62,9 +62,9 @@ extern "C" __global__ __aicore__ void block_sparse_attention_FIAS(
     TILING_KEY_IS(1000000000002001012);
 
 #if TILING_KEY_VAR == 1000000000000101012 || TILING_KEY_VAR == 1000000000002101012
-    INVOKE_BSA_GENERAL_OP_IMPL(BlockSparseAttentionS1s2Bns1X910, BSAType<BSALayout::BSH, half, bool>);
+    INVOKE_BSA_GENERAL_OP_IMPL(AdaBlockSparseAttentionS1s2Bns1X910, BSAType<BSALayout::BSH, half, bool>);
 #elif TILING_KEY_VAR == 1000000000000001012 || TILING_KEY_VAR == 1000000000002001012
-    INVOKE_BSA_GENERAL_OP_IMPL(BlockSparseAttentionS1s2Bns1X910, BSAType<BSALayout::BNSD, half, uint8_t>);
+    INVOKE_BSA_GENERAL_OP_IMPL(AdaBlockSparseAttentionS1s2Bns1X910, BSAType<BSALayout::BNSD, half, uint8_t>);
 #endif
 #endif
 
@@ -75,24 +75,24 @@ extern "C" __global__ __aicore__ void block_sparse_attention_FIAS(
     TILING_KEY_IS(1000000000002011112);
 #if TILING_KEY_VAR == 1000000000000111112 || TILING_KEY_VAR == 1000000000002111112
     // BSH layout bf16 cvdiff
-    INVOKE_BSA_GENERAL_OP_IMPL(BlockSparseAttentionS1s2Bns1X910, BSAType<BSALayout::BSH, bfloat16_t, bool, bfloat16_t>);
+    INVOKE_BSA_GENERAL_OP_IMPL(AdaBlockSparseAttentionS1s2Bns1X910, BSAType<BSALayout::BSH, bfloat16_t, bool, bfloat16_t>);
 #elif TILING_KEY_VAR == 1000000000000011112 || TILING_KEY_VAR == 1000000000002011112
     // BNSD layout bf16 cvdiff
-    INVOKE_BSA_GENERAL_OP_IMPL(BlockSparseAttentionS1s2Bns1X910,
+    INVOKE_BSA_GENERAL_OP_IMPL(AdaBlockSparseAttentionS1s2Bns1X910,
                                BSAType<BSALayout::BNSD, bfloat16_t, bool, bfloat16_t>);
 #endif
 
 #endif
 }
 
-extern "C" __global__ __aicore__ void block_sparse_attention(
+extern "C" __global__ __aicore__ void ada_block_sparse_attention(
     __gm__ uint8_t *query, __gm__ uint8_t *key, __gm__ uint8_t *value, __gm__ uint8_t *pseShift,
     __gm__ uint8_t *attenMask, __gm__ uint8_t *actualSeqLengths, __gm__ uint8_t *actualSeqLengthsKV,
     __gm__ uint8_t *deq_scale1, __gm__ uint8_t *quant_scale1, __gm__ uint8_t *deq_scale2, __gm__ uint8_t *quant_scale2,
     __gm__ uint8_t *quant_offset2, __gm__ uint8_t *sparseMask, __gm__ uint8_t *sparseCntTable,
     __gm__ uint8_t *attentionOut, __gm__ uint8_t *workspace, __gm__ uint8_t *tiling)
 {
-    block_sparse_attention_FIAS(query, key, value, pseShift, attenMask, actualSeqLengths, actualSeqLengthsKV,
+    ada_block_sparse_attention_FIAS(query, key, value, pseShift, attenMask, actualSeqLengths, actualSeqLengthsKV,
                                 deq_scale1, quant_scale1, deq_scale2, quant_scale2, quant_offset2, nullptr, nullptr,
                                 nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
                                 nullptr, nullptr, nullptr, sparseMask, sparseCntTable, attentionOut, nullptr, workspace,

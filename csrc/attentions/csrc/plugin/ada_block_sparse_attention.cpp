@@ -15,13 +15,14 @@
 #include "torch_npu/csrc/framework/utils/OpAdapter.h"
 #include "torch_npu/csrc/core/npu/NPUFormat.h"
 #include "pytorch_npu_helper.h"
-#include "block_sparse_attention.h"
+#include "ada_block_sparse_attention.h"
 
 using namespace at;
 
-constexpr std::string_view BLOCK_SPARSE_ATTENTION_NAME = "aclnnBlockSparseAttention";
 
-at::Tensor block_sparse_attention(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+constexpr std::string_view ADA_BLOCK_SPARSE_ATTENTION_NAME = "aclnnAdaBlockSparseAttention";
+
+at::Tensor ada_block_sparse_attention(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
                                   const at::Tensor &sparse_mask, const at::Tensor &sparse_count_table,
                                   std::string input_layout, int64_t sparse_size, int64_t num_heads,
                                   int64_t num_key_value_heads, double scale_value, bool causal, int64_t inner_precise,
@@ -39,7 +40,7 @@ at::Tensor block_sparse_attention(const at::Tensor &query, const at::Tensor &key
     auto actSeqLen = actual_seq_lengths.value_or(at::IntArrayRef{});
     auto actSeqLenKv = actual_seq_lengths_kv.value_or(at::IntArrayRef{});
 
-    EXEC_NPU_CMD<BLOCK_SPARSE_ATTENTION_NAME>(
+    EXEC_NPU_CMD<ADA_BLOCK_SPARSE_ATTENTION_NAME>(
         query, key, value, nulltensor, nulltensor, actSeqLen, actSeqLenKv, nulltensor, nulltensor, nulltensor,
         nulltensor, nulltensor, sparse_mask, sparse_count_table, num_heads, scale_value, pre_tokens, next_tokens,
         inputLayoutPtr, num_key_value_heads, sparseMode, inner_precise, sparse_size, causal, attention_out);
