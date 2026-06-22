@@ -694,6 +694,7 @@ jobs:
       - test-all-build
       - test-build-deepep-a3
       - test-build-deepep-a2
+      - test-build-deepep-internode
     runs-on: ubuntu-latest
     steps:
       - name: Check all dependent job statuses
