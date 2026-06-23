@@ -171,6 +171,9 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             elif quant_type_tensor.dtype == torch.int8:
                 quant_type = "int8"
                 use_quant = True
+            elif quant_type_tensor.dtype == torch.float4_e2m1fn_x2:
+                quant_type = "fp4_e2m1"
+                use_quant = True
             else:
                 raise TypeError(
                     f"Unsupported quantized dtype: {quant_type_tensor.dtype}"

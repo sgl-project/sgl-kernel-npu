@@ -8,7 +8,7 @@
 #include "comm_args.h"
 #include "moe_distribute_v2_base.h"
 #ifdef __DAV_C310__
-#include "../quantize_functions.h"
+#include "quantize_functions.h"
 #endif
 
 namespace CamMoeDispatchNormalA5Impl {
@@ -33,6 +33,9 @@ constexpr float FP8_E5M2_MAX_VALUE = 448.0f;
 constexpr float FP8_E4M3_MAX_VALUE = 57344.0f;
 constexpr float HIFP8_MAX_VALUE = 32768.0f;
 constexpr float INT8_MAX_VALUE = 127.0f;
+constexpr uint32_t FP4_ELEMS_PER_BYTE = 2;
+constexpr uint32_t MX_BLOCK_SIZE = 32U;
+#define FLOAT_OVERFLOW_MODE_CTRL 60
 
 template <AscendC::HardEvent event>
 __aicore__ inline void SyncFunc()
@@ -77,8 +80,8 @@ private:
     __aicore__ inline void ReduceMaxInplace(const LocalTensor<float> &srcLocal, uint32_t count);
     __aicore__ inline void QuantProcess();
 #ifdef __DAV_C310__
-    __aicore__ inline void QuantDynamicMxFp8(LocalTensor<ExpandXOutType> &outLocal, LocalTensor<XType> &inLocal,
-                                             LocalTensor<float> &tokenF32LT_);
+    __aicore__ inline void QuantDynamicMx(LocalTensor<ExpandXOutType> &outLocal, LocalTensor<XType> &inLocal,
+                                          LocalTensor<float> &tokenF32LT_);
 #endif
     __aicore__ inline GM_ADDR GetWindAddrByRankId(uint8_t ctxIdx, const int32_t rankId)
     {
@@ -110,8 +113,6 @@ private:
     GlobalTensor<int32_t> expertGlobalOffsetGT;
     GlobalTensor<int32_t> srcrankInExpertOffsetGT;
     GlobalTensor<int32_t> rInSrcrankOffsetGT;
-    GlobalTensor<XScalesType> dynamicScalesOutGT;
-    GlobalTensor<uint8_t> dynamicScalesOutUint8GT;
     GlobalTensor<int32_t> expandIdxOutGT;
     GlobalTensor<ExpandXOutType> dstGT;
     GlobalTensor<int32_t> dstStatusGT;
@@ -152,6 +153,7 @@ private:
     TBuf<> rInSrcrankOffsetBuf;
 
     GM_ADDR expandXOutGM;
+    GM_ADDR dynamicScalesOutGM;
     GM_ADDR shareGM;
 
     uint16_t axisHCommu_{0};
@@ -244,10 +246,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
     expertGlobalOffsetGT.SetGlobalBuffer((__gm__ int32_t *)(expert_global_offset));
     srcrankInExpertOffsetGT.SetGlobalBuffer((__gm__ int32_t *)(srcrank_in_expert_offset));
     rInSrcrankOffsetGT.SetGlobalBuffer((__gm__ int32_t *)(r_in_srcrank_offset));
-    dynamicScalesOutGT.SetGlobalBuffer((__gm__ XScalesType *)dynamicScalesOut);
-    if (IsMxQuant) {
-        dynamicScalesOutUint8GT.SetGlobalBuffer((__gm__ uint8_t *)dynamicScalesOut);
-    }
+    dynamicScalesOutGM = dynamicScalesOut;
 
     expandIdxOutGT.SetGlobalBuffer((__gm__ int32_t *)(expandIdxOut));
     if (isEnableDiagnose) {
@@ -256,26 +255,32 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
 
     expandXOutGM = expandXOut;
     axisH_ = h;
-    hUBAlignSize = Ceil(h * sizeof(ExpandXOutType), UB_ALIGN) * UB_ALIGN;
+#ifdef __DAV_C310__
+    if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
+                  Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
+        hUBAlignSize = Ceil(Ceil(axisH_, FP4_ELEMS_PER_BYTE), UB_ALIGN) * UB_ALIGN;
+    } else
+#endif
+    {
+        hUBAlignSize = Ceil(h * sizeof(ExpandXOutType), UB_ALIGN) * UB_ALIGN;
+    }
     uint32_t hScaleSizeAlign = hUBAlignSize + UB_ALIGN;
-    uint32_t quantScalePerToken = IsMxQuant ? Ceil(axisH_, 32) : 1;
+    uint32_t quantScalePerToken = IsMxQuant ? Ceil(axisH_, MX_BLOCK_SIZE) : 1;
     uint32_t quantScalePerTokenAlign = Ceil(quantScalePerToken * sizeof(XScalesType), UB_ALIGN) * UB_ALIGN;
 
     hScaleSizeAlign =
-        hUBAlignSize +
-        quantScalePerTokenAlign;  // ((7168*1 + 32) + 3*4) + 7168/32 = 7168 + 32 + 12 + 224 = 7436B, 需要对齐512B
+        hUBAlignSize + quantScalePerTokenAlign;  // ((7168*1 + 32) + 3*4) + 7168/MX_BLOCK_SIZE = 7436B, 需要对齐512B
 
     expandIdxStartIdx = hScaleSizeAlign / sizeof(int32_t);
 
     hScaleIdxSize = hScaleSizeAlign + EXPAND_IDX_INFO * sizeof(int32_t);
     if (IsMxQuant) {
-        hScaleIdxSize +=
-            Ceil(axisH_, 32);  // ((7168*1 + 32) + 3*4) + 7168/32 = 7168 + 32 + 12 + 224 = 7436B, 需要对齐512B
+        hScaleIdxSize += Ceil(axisH_, MX_BLOCK_SIZE);
     }
     hOutUBAlignSize = Ceil(hScaleIdxSize, UB_ALIGN) * UB_ALIGN;
     uint32_t axisHCommu = hScaleIdxSize / sizeof(ExpandXOutType);  // 有效搬运长度
     axisHCommu_ = static_cast<uint16_t>(axisHCommu);
-    // todo check if is required: hScaleIdxSize + axisH/32
+    // todo check if is required: hScaleIdxSize + axisH/MX_BLOCK_SIZE
     hOutGMAlignSize = Ceil(hScaleIdxSize, WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
     hGMAlignCnt = hOutGMAlignSize / sizeof(ExpandXOutType);
 
@@ -314,21 +319,28 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
 
 #ifdef __DAV_C310__
 template <CamTypeClass>
-__aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantDynamicMxFp8(LocalTensor<ExpandXOutType> &outLocal,
-                                                                              LocalTensor<XType> &inLocal,
-                                                                              LocalTensor<float> &tokenF32LT_)
+__aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantDynamicMx(LocalTensor<ExpandXOutType> &outLocal,
+                                                                           LocalTensor<XType> &inLocal,
+                                                                           LocalTensor<float> &tokenF32LT_)
 {
-    if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value || Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value) {
-        uint32_t mxScaleNum = Align2(Ceil32(axisH_));
-        __ubuf__ XType *srcAddr = (__ubuf__ XType *)inLocal.GetPhyAddr();
-        __ubuf__ uint16_t *maxExpAddr = (__ubuf__ uint16_t *)tokenF32LT_.GetPhyAddr();
-        __ubuf__ uint16_t *halfScaleLocalAddr = (__ubuf__ uint16_t *)tokenF32LT_[Align32(mxScaleNum)].GetPhyAddr();
-        __ubuf__ int8_t *outLocalAddr = (__ubuf__ int8_t *)outLocal.GetPhyAddr();
-        __ubuf__ uint16_t *mxScaleLocalAddr = (__ubuf__ uint16_t *)outLocal[Align256<uint32_t>(axisH_)].GetPhyAddr();
+    uint32_t mxScaleNum = Align2(Ceil32(axisH_));
+    __ubuf__ XType *srcAddr = (__ubuf__ XType *)inLocal.GetPhyAddr();
+    __ubuf__ uint16_t *maxExpAddr = (__ubuf__ uint16_t *)tokenF32LT_.GetPhyAddr();
+    __ubuf__ uint16_t *halfScaleLocalAddr = (__ubuf__ uint16_t *)tokenF32LT_[Align32(mxScaleNum)].GetPhyAddr();
+    __ubuf__ int8_t *outLocalAddr = (__ubuf__ int8_t *)outLocal.GetPhyAddr();
+    __ubuf__ uint16_t *mxScaleLocalAddr;
+    // For outLocal of type fp4x2_e2m1_t (where sizeof(fp4x2_e2m1_t) = 1B), outLocal[axisH_] represents an offset of
+    // axisH_ * 0.5B
+    mxScaleLocalAddr = (__ubuf__ uint16_t *)outLocal[Align256<uint32_t>(axisH_)].GetPhyAddr();
 
-        quant::ComputeMaxExp(srcAddr, maxExpAddr, axisH_);
-        quant::ComputeScale<ExpandXOutType>(maxExpAddr, mxScaleLocalAddr, halfScaleLocalAddr, mxScaleNum);
-        quant::ComputeData<XType, ExpandXOutType, AscendC::RoundMode::CAST_TRUNC, AscendC::RoundMode::CAST_RINT>(
+    quant::ComputeMaxExp(srcAddr, maxExpAddr, axisH_);
+    quant::ComputeScale<ExpandXOutType>(maxExpAddr, mxScaleLocalAddr, halfScaleLocalAddr, mxScaleNum);
+    if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value || Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value) {
+        quant::ComputeFp8Data<XType, ExpandXOutType, AscendC::RoundMode::CAST_TRUNC, AscendC::RoundMode::CAST_RINT>(
+            srcAddr, halfScaleLocalAddr, outLocalAddr, axisH_);
+    } else if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
+                         Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
+        quant::ComputeFp4Data<XType, ExpandXOutType, AscendC::RoundMode::CAST_TRUNC, AscendC::RoundMode::CAST_RINT>(
             srcAddr, halfScaleLocalAddr, outLocalAddr, axisH_);
     }
 }
@@ -387,7 +399,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::QuantProcess()
     LocalTensor<float> tokenF32LT = tokenCastFloatBuf.Get<float>();
 #ifdef __DAV_C310__
     if constexpr (IsMxQuant) {
-        QuantDynamicMxFp8(xOutTensor, xInTensor, tokenF32LT);
+        QuantDynamicMx(xOutTensor, xInTensor, tokenF32LT);
         xInQueue.FreeTensor<XType>(xInTensor);
         return;
     }
@@ -443,6 +455,10 @@ template <CamTypeClass>
 __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::InputToShare()
 {
     tpipe_->Reset();
+#ifdef __DAV_C310__
+    AscendC::SetCtrlSpr<FLOAT_OVERFLOW_MODE_CTRL, FLOAT_OVERFLOW_MODE_CTRL>(0);
+#endif
+    hOutUBAlignSize = Ceil(hScaleIdxSize, UB_ALIGN) * UB_ALIGN;
     if constexpr (DynamicQuant) {
         QuantInit();
     } else {
@@ -522,11 +538,8 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::InputToShare()
             QuantProcess();
             xOutQueue.EnQue(xOutTensor);
             xOutTensor = xOutQueue.DeQue<ExpandXOutType>();
-
             FillTriple(xOutTensor, (roundIndex * perRoundTokens + tokenIndex / topK), tokenIndex % topK);
-
             DataCopyPad(dstGT, xOutTensor, hCommuCopyOutParams);
-
             xOutQueue.FreeTensor(xOutTensor);
         } else {
             xTmpTensor = xQueue.AllocTensor<ExpandXOutType>();
@@ -773,7 +786,15 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
 
     DataCopyExtParams dataCopyExandIdxParams{1U, sizeof(int32_t) * EXPAND_IDX_INFO, 0U, 0U, 0U};
     DataCopyExtParams dataCopyOutParams{1U, static_cast<uint32_t>(statusNumPerCore * sizeof(int32_t)), 0U, 0U, 0U};
-    DataCopyExtParams expandXCopyParams = {1U, static_cast<uint32_t>(h * sizeof(ExpandXOutType)), 0U, 0U, 0U};
+    uint32_t expandXElemCount = h;
+#ifdef __DAV_C310__
+    if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
+                  Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
+        expandXElemCount = Ceil(h, FP4_ELEMS_PER_BYTE);
+    }
+#endif
+    DataCopyExtParams expandXCopyParams = {1U, static_cast<uint32_t>(expandXElemCount * sizeof(ExpandXOutType)), 0U, 0U,
+                                           0U};
     LocalTensor<int32_t> xTmpTensorInt;
     AscendC::TQueSync<PIPE_MTE2, PIPE_S> recvCountLocalSync;
     recvCountLocalSync.SetFlag(0);
@@ -801,11 +822,9 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
             (__gm__ uint8_t *)(GetWindAddrByRankId(COMM_EP_IDX, fromRank)) + recvOffset * hOutGMAlignSize;
         GlobalTensor<ExpandXOutType> srcTokenGT, dstTokenGT;
 
-        uint16_t scaleNumForOneToken = IsMxQuant ? Ceil(axisH_, 32) : 1;
         for (uint32_t j = 0; j < count; ++j) {
             srcTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(recvStart + j * hOutGMAlignSize));
             xTmpTensor = xQueue.AllocTensor<ExpandXOutType>();
-
             DataCopyPad(xTmpTensor, srcTokenGT, tokenInParams, padParams);
 
             xQueue.EnQue(xTmpTensor);
@@ -815,20 +834,32 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
                         dataCopyExandIdxParams);  // todo check expandXCopyParams_
 
             if constexpr (DynamicQuant) {
-                // todo check DataCopyExtParams -> DataCopyParams also works for nonquant and int8quant
-                // DataCopyExtParams scaleOutputDataCopyParams = {scaleNumForOneToken, sizeof(XScalesType), 0U, 0U, 0U};
-                DataCopyParams scaleOutputDataCopyParams = {1U, static_cast<uint16_t>(scaleNumForOneToken), 0U, 0U};
-                LocalTensor<XScalesType> xOutXScalesTypeTensor = xTmpTensor.template ReinterpretCast<XScalesType>();
-                if (IsMxQuant)
-                    DataCopyPad(dynamicScalesOutGT[(writeOffset + j) * scaleNumForOneToken],
-                                xOutXScalesTypeTensor[hUBAlignSize / sizeof(XScalesType)], scaleOutputDataCopyParams);
-                else {
-                    DataCopyPad(dynamicScalesOutGT[(writeOffset + j) * scaleNumForOneToken],
-                                xOutXScalesTypeTensor[hUBAlignSize / sizeof(XScalesType)], scaleOutputDataCopyParams);
+                uint32_t scaleOutBytesPerToken = IsMxQuant ? Ceil(axisH_, MX_BLOCK_SIZE) : sizeof(XScalesType);
+                DataCopyExtParams scaleOutputDataCopyParams = {1U, static_cast<uint16_t>(scaleOutBytesPerToken), 0U, 0U,
+                                                               0U};
+                LocalTensor<uint8_t> scaleLT = xTmpTensor.template ReinterpretCast<uint8_t>();
+                uint32_t scaleUBOffset;
+#ifdef __DAV_C310__
+                if constexpr (IsMxQuant) {
+                    if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
+                                  Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
+                        scaleUBOffset = Align256<uint32_t>(Ceil(axisH_, FP4_ELEMS_PER_BYTE));
+                    } else {
+                        scaleUBOffset = Align256<uint32_t>(axisH_);
+                    }
+                } else
+#endif
+                {
+                    scaleUBOffset = hUBAlignSize / sizeof(ExpandXOutType);
                 }
+                GlobalTensor<uint8_t> dynamicScalesOutU8GT;
+                dynamicScalesOutU8GT.SetGlobalBuffer((__gm__ uint8_t *)dynamicScalesOutGM);
+                DataCopyPad(dynamicScalesOutU8GT[(writeOffset + j) * scaleOutBytesPerToken], scaleLT[scaleUBOffset],
+                            scaleOutputDataCopyParams);
             }
 
-            dstTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(expandXOutGM) + (writeOffset + j) * h, h);
+            dstTokenGT.SetGlobalBuffer((__gm__ ExpandXOutType *)(expandXOutGM) + (writeOffset + j) * expandXElemCount,
+                                       expandXElemCount);
             DataCopyPad(dstTokenGT, xTmpTensor, expandXCopyParams);
 
             xQueue.FreeTensor(xTmpTensor);
