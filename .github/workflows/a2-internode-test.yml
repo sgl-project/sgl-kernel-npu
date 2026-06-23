@@ -1,0 +1,41 @@
+name: A2 Internode Test (Ascend NPU)
+
+on:
+  pull_request:
+    branches: [ main ]
+    paths:
+      - "build.sh"
+      - "cmake/**"
+      - "python/deep_ep**"
+      - "csrc/deepep**"
+      - "tests/python/deepep**"
+      - "scripts/**"
+      - ".github/workflows/a2-internode-test.yml"
+      - ".github/workflows/internode.yml"
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  group: a2-internode-test-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  multi-node-internode:
+    name: multi-node
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        cann_version: [8.5.0, 9.0.0]
+        test_config:
+          - name: test_internode_a2
+            node_size: 2
+            test_case: tests/python/deepep/test_internode_a2.py
+    uses: ./.github/workflows/internode.yml
+    with:
+      soc_version: a2
+      runner: linux-aarch64-a2-0
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-py3.11'
+      test_config_name: ${{ matrix.test_config.name }}
+      node_size: ${{ matrix.test_config.node_size }}
+      test_case: ${{ matrix.test_config.test_case }}
