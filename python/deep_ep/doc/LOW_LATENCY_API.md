@@ -1,6 +1,8 @@
 # Low-Latency Mode API
 
 > **English** | [中文](#中文)
+>
+> **适用平台**：A2 | A3 | A5
 
 ---
 

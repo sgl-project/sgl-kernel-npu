@@ -1,6 +1,8 @@
 # Fused Deep MoE API
 
 > **English** | [中文](#中文)
+>
+> **适用平台**：A3 only（仅 A3）
 
 ---
 
