@@ -222,7 +222,6 @@ def mega_moe_forward(
         w2_nz,
         w2_scale_u64,
         group_list,
-        expanded_row_idx,
         sort_idx,
         topk_weights,
         xq_ws,

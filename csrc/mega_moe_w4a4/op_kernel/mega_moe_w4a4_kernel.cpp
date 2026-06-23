@@ -74,8 +74,6 @@ using namespace pto;
 constexpr uint32_t H_DIM = 2048;
 #ifdef I_DIM_OVERRIDE
 constexpr uint32_t I_DIM = I_DIM_OVERRIDE;
-#define mega_kernel_hybrid mega_kernel_hybrid_q36
-#define call_mega_kernel_hybrid call_mega_kernel_hybrid_qwen36
 #else
 constexpr uint32_t I_DIM = 512;
 #endif
@@ -1013,8 +1011,8 @@ static AICORE void stage0_hadamard(__gm__ half *x_gm, __gm__ half *b1_gm, __gm__
 // ====================================================================================
 extern "C" __global__ AICORE void
 W4A4_MEGA_KERNEL_NAME(GM_ADDR x_gm, GM_ADDR w13_gm, GM_ADDR w13_scale_gm, GM_ADDR w2_gm, GM_ADDR w2_scale_gm,
-                      GM_ADDR group_list_gm, GM_ADDR eri_gm, GM_ADDR sort_idx_gm, GM_ADDR topk_w_gm, GM_ADDR xq_ws,
-                      GM_ADDR xs_ws, GM_ADDR gu_ws, GM_ADDR iq_ws, GM_ADDR is_ws, GM_ADDR d_ws, GM_ADDR y_gm,
+                      GM_ADDR group_list_gm, GM_ADDR sort_idx_gm, GM_ADDR topk_w_gm, GM_ADDR xq_ws, GM_ADDR xs_ws,
+                      GM_ADDR gu_ws, GM_ADDR iq_ws, GM_ADDR is_ws, GM_ADDR d_ws, GM_ADDR y_gm,
                       GM_ADDR tiling_gu_gm,  // TCubeTiling for gate_up (K=H_DIM, N=N_GU)
                       GM_ADDR tiling_dn_gm,  // TCubeTiling for down    (K=I_DIM, N=H_DIM)
                       GM_ADDR b1_gm,         // [NB,64,64] fp16 normalized H-64 blocks (Stage B cube-Hadamard)

@@ -123,6 +123,10 @@ def run(E, T, K, seed=0):
         f"finite={torch.isfinite(y_k).all().item()} nonzero={(y_k != 0).any().item()} "
         f"cos={cos:.4f}"
     )
+    assert torch.isfinite(y_k).all(), "mega output contains NaN/Inf"
+    assert (
+        cos >= 0.99
+    ), f"cosine similarity {cos:.4f} below 0.99 (expected ~0.999 vs torch reference)"
     return cos
 
 

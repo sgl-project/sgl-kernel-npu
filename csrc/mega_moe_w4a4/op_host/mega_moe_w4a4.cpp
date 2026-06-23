@@ -62,11 +62,11 @@ void check_shape(const at::Tensor &x, const at::Tensor &w13, const at::Tensor &w
 // W4A4_MEGA_KERNEL_NAME (== launch_mega_moe_w4a4).
 HOST_API void mega_moe_w4a4(const at::Tensor &x, const at::Tensor &w13, const at::Tensor &w13_scale,
                             const at::Tensor &w2, const at::Tensor &w2_scale, const at::Tensor &group_list,
-                            const at::Tensor &eri, const at::Tensor &sort_idx, const at::Tensor &topk_w,
-                            at::Tensor &xq_ws, at::Tensor &xs_ws, at::Tensor &gu_ws, at::Tensor &iq_ws,
-                            at::Tensor &is_ws, at::Tensor &d_ws, at::Tensor &y, const at::Tensor &tiling_gu,
-                            const at::Tensor &tiling_dn, const at::Tensor &b1, at::Tensor &xrot_ws, int64_t M_total,
-                            int64_t E, int64_t top_k, int64_t T_orig, int64_t block_dim)
+                            const at::Tensor &sort_idx, const at::Tensor &topk_w, at::Tensor &xq_ws, at::Tensor &xs_ws,
+                            at::Tensor &gu_ws, at::Tensor &iq_ws, at::Tensor &is_ws, at::Tensor &d_ws, at::Tensor &y,
+                            const at::Tensor &tiling_gu, const at::Tensor &tiling_dn, const at::Tensor &b1,
+                            at::Tensor &xrot_ws, int64_t M_total, int64_t E, int64_t top_k, int64_t T_orig,
+                            int64_t block_dim)
 {
     check_shape(x, w13, w2, group_list, M_total, E, top_k, T_orig);
     // topk_w is read as half in the combine stage (stage5); fp32 weights would be byte-misread.
@@ -81,9 +81,9 @@ HOST_API void mega_moe_w4a4(const at::Tensor &x, const at::Tensor &w13, const at
     uint32_t top_k_u32 = static_cast<uint32_t>(top_k);
     uint32_t T_orig_u32 = static_cast<uint32_t>(T_orig);
 
-    EXEC_KERNEL_CMD(launch_mega_moe_w4a4, block_dim_u32, x, w13, w13_scale, w2, w2_scale, group_list, eri, sort_idx,
-                    topk_w, xq_ws, xs_ws, gu_ws, iq_ws, is_ws, d_ws, y, tiling_gu, tiling_dn, b1, xrot_ws, M_total_u32,
-                    E_u32, top_k_u32, T_orig_u32);
+    EXEC_KERNEL_CMD(launch_mega_moe_w4a4, block_dim_u32, x, w13, w13_scale, w2, w2_scale, group_list, sort_idx, topk_w,
+                    xq_ws, xs_ws, gu_ws, iq_ws, is_ws, d_ws, y, tiling_gu, tiling_dn, b1, xrot_ws, M_total_u32, E_u32,
+                    top_k_u32, T_orig_u32);
 }
 
 }  // namespace npu_kernel

@@ -122,7 +122,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 
     m.def(
         "mega_moe_w4a4(Tensor x, Tensor w13, Tensor w13_scale, Tensor w2, Tensor w2_scale, "
-        "Tensor group_list, Tensor eri, Tensor sort_idx, Tensor topk_w, "
+        "Tensor group_list, Tensor sort_idx, Tensor topk_w, "
         "Tensor(a!) xq_ws, Tensor(b!) xs_ws, Tensor(c!) gu_ws, Tensor(d!) iq_ws, "
         "Tensor(e!) is_ws, Tensor(f!) d_ws, Tensor(g!) y, Tensor tiling_gu, Tensor tiling_dn, "
         "Tensor b1, Tensor(h!) xrot_ws, int M_total, int E, int top_k, int T_orig, "

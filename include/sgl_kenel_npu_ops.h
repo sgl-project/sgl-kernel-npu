@@ -149,13 +149,13 @@ void mega_chunk_gdn(
 void mega_moe_w4a4(const at::Tensor &x, const at::Tensor &w13,
                    const at::Tensor &w13_scale, const at::Tensor &w2,
                    const at::Tensor &w2_scale, const at::Tensor &group_list,
-                   const at::Tensor &eri, const at::Tensor &sort_idx,
-                   const at::Tensor &topk_w, at::Tensor &xq_ws,
-                   at::Tensor &xs_ws, at::Tensor &gu_ws, at::Tensor &iq_ws,
-                   at::Tensor &is_ws, at::Tensor &d_ws, at::Tensor &y,
-                   const at::Tensor &tiling_gu, const at::Tensor &tiling_dn,
-                   const at::Tensor &b1, at::Tensor &xrot_ws, int64_t M_total,
-                   int64_t E, int64_t top_k, int64_t T_orig, int64_t block_dim);
+                   const at::Tensor &sort_idx, const at::Tensor &topk_w,
+                   at::Tensor &xq_ws, at::Tensor &xs_ws, at::Tensor &gu_ws,
+                   at::Tensor &iq_ws, at::Tensor &is_ws, at::Tensor &d_ws,
+                   at::Tensor &y, const at::Tensor &tiling_gu,
+                   const at::Tensor &tiling_dn, const at::Tensor &b1,
+                   at::Tensor &xrot_ws, int64_t M_total, int64_t E,
+                   int64_t top_k, int64_t T_orig, int64_t block_dim);
 
 at::Tensor lightning_indexer(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
