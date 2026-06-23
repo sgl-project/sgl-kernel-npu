@@ -85,7 +85,6 @@ set(WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/build_tree/op_kernel/build_tree_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_kernel/lightning_indexer_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel/causal_conv1d_update.cpp
-    ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel/causal_conv1d.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmc_expand_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmc_shrink_kernel.cpp
 )
@@ -132,11 +131,24 @@ ascendc_compile_definitions(mega_chunk_gdn_kernel PRIVATE
     -DGDN_C=128
 )
 
+# PTO-ISA causal_conv1d kernel (depthwise conv + bias + SiLU), built like mega_chunk_gdn.
+ascendc_library(causal_conv1d_kernel STATIC
+    ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel/causal_conv1d.cpp
+)
+ascendc_include_directories(causal_conv1d_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel
+    ${PROJECT_SOURCE_DIR}/third_party/pto-isa/include
+    ${ASCEND_INCLUDE_DIR}
+    ${ASCEND_INCLUDE_DIR}/experiment/runtime
+    ${ASCEND_INCLUDE_DIR}/experiment/msprof
+)
+
 # create shared library libsgl_kernel_npu.so
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${MEGA_CHUNK_GDN_KERNEL_TARGETS}
+        causal_conv1d_kernel
         workspace_kernel
         no_workspace_kernel
         torch_npu

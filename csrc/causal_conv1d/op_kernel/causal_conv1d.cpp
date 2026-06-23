@@ -1,104 +1,440 @@
-/**
- * This program is free software, you can redistribute it and/or modify it.
- * Copyright (c) 2025 Huawei Technologies Co., Ltd.
- * This file is a part of the CANN Open Software.
- * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
- * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
- * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
- */
+// causal_conv1d.cpp — PTO-ISA depthwise causal conv1d + bias + (opt) SiLU.
+//
+// Drop-in alternative to sgl's AscendC causal_conv1d, but written on the PTO tile
+// ISA (like csrc/mega_chunk_gdn). Same op:
+//   y[t,c] = act( bias[c] + sum_{k=0..3} W[k,c]*xext[t+k,c] ),
+//   xext = [history(K-1 rows, from conv_states if has_initial_state else 0), x]
+// Per channel a K=4 depthwise filter. fp16/bf16 I/O, fp32 accumulate. Weights and
+// bias are passed as fp32 (host casts the tiny [K,dim]/[dim] tensors once).
+//
+// Work grid (in-kernel, uniform task striding): batch x blocksPerSeq x lchunks.
+//   blocksPerSeq = ceil(dim/col_w) (channel tiles), lchunks splits the L axis so
+//   all cores stay busy even at small batch. Causal halo = K-1 replayed rows per
+//   chunk. State writeback is a SEPARATE launch (causal_conv1d_wb_*) to avoid a race
+//   between chunk-0's history read and the tail chunk's state write.
+//
+// Scalars (qsl/cidx/hinit) are read by direct __gm__ pointer indexing (same as
+// mega_kernel's cu_seqlens). NOTE codegen needs "type* name", not "type *name".
 
-/*!
- * \file causal_conv1d.cpp
- * \brief causal_conv1d kernel entry with runtime dispatch
- */
+#include <pto/pto-inst.hpp>
 
-#include "causal_conv1d_fn.h"
-#include "causal_conv1d_update.h"
+#ifndef GM_ADDR
+#define GM_ADDR __gm__ uint8_t*
+#endif
 
-using namespace AscendC;
-using namespace NsCausalConv1d;
+using namespace pto;
 
-namespace {
+namespace cc1d {
 
-template <typename T>
-__aicore__ inline void DispatchFn(GM_ADDR x, GM_ADDR weight, GM_ADDR bias, GM_ADDR convStates, GM_ADDR queryStartLoc,
-                                  GM_ADDR cacheIndices, GM_ADDR initialStateMode, GM_ADDR numAcceptedTokens, GM_ADDR y,
-                                  GM_ADDR workspace, const __gm__ CausalConv1dTilingData *tilingData, uint32_t widthKey,
-                                  uint32_t fnPlanKey)
-{
-    if (fnPlanKey == CAUSAL_CONV1D_TPL_FN_PLAN_CUTBS) {
-        if (widthKey == CAUSAL_CONV1D_TPL_WIDTH_2) {
-            RunCausalConv1dFn<T, CAUSAL_CONV1D_TPL_WIDTH_2, CAUSAL_CONV1D_TPL_FN_PLAN_CUTBS>(
-                x, weight, bias, convStates, queryStartLoc, cacheIndices, initialStateMode, numAcceptedTokens, y,
-                workspace, tilingData);
-        } else if (widthKey == CAUSAL_CONV1D_TPL_WIDTH_3) {
-            RunCausalConv1dFn<T, CAUSAL_CONV1D_TPL_WIDTH_3, CAUSAL_CONV1D_TPL_FN_PLAN_CUTBS>(
-                x, weight, bias, convStates, queryStartLoc, cacheIndices, initialStateMode, numAcceptedTokens, y,
-                workspace, tilingData);
-        } else {
-            RunCausalConv1dFn<T, CAUSAL_CONV1D_TPL_WIDTH_4, CAUSAL_CONV1D_TPL_FN_PLAN_CUTBS>(
-                x, weight, bias, convStates, queryStartLoc, cacheIndices, initialStateMode, numAcceptedTokens, y,
-                workspace, tilingData);
-        }
-    } else {
-        if (widthKey == CAUSAL_CONV1D_TPL_WIDTH_2) {
-            RunCausalConv1dFn<T, CAUSAL_CONV1D_TPL_WIDTH_2, CAUSAL_CONV1D_TPL_FN_PLAN_CUTBSD>(
-                x, weight, bias, convStates, queryStartLoc, cacheIndices, initialStateMode, numAcceptedTokens, y,
-                workspace, tilingData);
-        } else if (widthKey == CAUSAL_CONV1D_TPL_WIDTH_3) {
-            RunCausalConv1dFn<T, CAUSAL_CONV1D_TPL_WIDTH_3, CAUSAL_CONV1D_TPL_FN_PLAN_CUTBSD>(
-                x, weight, bias, convStates, queryStartLoc, cacheIndices, initialStateMode, numAcceptedTokens, y,
-                workspace, tilingData);
-        } else {
-            RunCausalConv1dFn<T, CAUSAL_CONV1D_TPL_WIDTH_4, CAUSAL_CONV1D_TPL_FN_PLAN_CUTBSD>(
-                x, weight, bias, convStates, queryStartLoc, cacheIndices, initialStateMode, numAcceptedTokens, y,
-                workspace, tilingData);
-        }
-    }
+// Filter width K, per-tile channel width MAX_W and the per-core UB size are
+// compile-time constants (no preprocessor config). Ascend 910B2 AIV UB = 192 KiB;
+// the UB static_assert in convChunk rejects oversized K/MAX_W/dtype combinations.
+constexpr uint32_t K = 4;
+constexpr uint32_t MAX_W = 3072;
+constexpr uint32_t UB_BYTES_PER_CORE = 192u * 1024u;
+
+// Smallest power of two >= num. accumRingSize = roundUpToPowerOfTwo(K) is the accumulator ring size,
+// so the K outputs in flight map to distinct slots via `& (accumRingSize - 1)`.
+AICORE constexpr uint32_t roundUpToPowerOfTwo(uint32_t num) {
+  if (num != 0u) --num;
+  num |= (num >> 1u);
+  num |= (num >> 2u);
+  num |= (num >> 4u);
+  num |= (num >> 8u);
+  num |= (num >> 16u);
+  ++num;
+  return num;
 }
 
-}  // namespace
-
-extern "C" __global__ __aicore__ void causal_conv1d(GM_ADDR x, GM_ADDR weight, GM_ADDR convStates, GM_ADDR bias,
-                                                    GM_ADDR queryStartLoc, GM_ADDR cacheIndices,
-                                                    GM_ADDR initialStateMode, GM_ADDR numAcceptedTokens, GM_ADDR y,
-                                                    GM_ADDR workspace, GM_ADDR tiling)
-{
-    REGISTER_TILING_DEFAULT(CausalConv1dTilingData);
-    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIV_1_0);
-    GM_ADDR userWorkspace = workspace;
-    if (workspace != nullptr) {
-        userWorkspace = AscendC::GetUserWorkspace(workspace);
-    }
-
-    auto tilingData = reinterpret_cast<__gm__ CausalConv1dTilingData *>(tiling);
-    auto runModeKey = static_cast<uint32_t>(tilingData->runModeKey);
-    auto widthKey = static_cast<uint32_t>(tilingData->widthKey);
-    auto fnPlanKey = static_cast<uint32_t>(tilingData->fnPlanKey);
-    auto dtypeKey = static_cast<uint32_t>(tilingData->dtypeKey);
-
-    if (runModeKey == CAUSAL_CONV1D_TPL_RUN_MODE_UPDATE) {
-        if (dtypeKey == 0) {
-            RunCausalConv1dUpdate<bfloat16_t>(x, weight, bias, convStates, queryStartLoc, cacheIndices,
-                                              initialStateMode, numAcceptedTokens, y, userWorkspace, tilingData);
-        } else {
-            RunCausalConv1dUpdate<half>(x, weight, bias, convStates, queryStartLoc, cacheIndices, initialStateMode,
-                                        numAcceptedTokens, y, userWorkspace, tilingData);
-        }
-        return;
-    }
-
-    if (dtypeKey == 0) {
-        uint32_t effectiveFnPlan =
-            (fnPlanKey == CAUSAL_CONV1D_TPL_FN_PLAN_CUTBSD) ? fnPlanKey : CAUSAL_CONV1D_TPL_FN_PLAN_CUTBS;
-        DispatchFn<bfloat16_t>(x, weight, bias, convStates, queryStartLoc, cacheIndices, initialStateMode,
-                               numAcceptedTokens, y, userWorkspace, tilingData, widthKey, effectiveFnPlan);
-    } else {
-        uint32_t effectiveFnPlan =
-            (fnPlanKey == CAUSAL_CONV1D_TPL_FN_PLAN_CUTBSD) ? fnPlanKey : CAUSAL_CONV1D_TPL_FN_PLAN_CUTBS;
-        DispatchFn<half>(x, weight, bias, convStates, queryStartLoc, cacheIndices, initialStateMode, numAcceptedTokens,
-                         y, userWorkspace, tilingData, widthKey, effectiveFnPlan);
-    }
+template <typename TileT>
+AICORE inline void applySiluToTile(TileT& dst, TileT& src, TileT& tmp) {
+  using T = typename TileT::DType;
+  TMULS(tmp, src, (T)-1);
+  pipe_barrier(PIPE_V);
+  TEXP(tmp, tmp);
+  pipe_barrier(PIPE_V);
+  TADDS(tmp, tmp, (T)1);
+  pipe_barrier(PIPE_V);
+  TDIV(dst, src, tmp);
 }
+
+// One conv chunk: outputs [l0,l1) for channels [c0,c0+lanes) of a sequence whose
+// tokens start at element row `start` (token index). history from convStates.
+template <typename IoElemType>
+AICORE inline void convChunk(__gm__ IoElemType* x, __gm__ IoElemType* y, __gm__ float* wgt,
+                             __gm__ float* bia, __gm__ IoElemType* convStates,
+                             uint32_t dim, uint32_t stateLen, uint32_t start,
+                             uint32_t len, uint32_t cacheIdx, bool hasInit,
+                             uint32_t c0, int32_t lanes, uint32_t l0, uint32_t l1,
+                             uint32_t activation, uint32_t hasBias) {
+  using GlobalShape = pto::Shape<1, 1, 1, 1, DYNAMIC>;
+  using GlobalStride = pto::Stride<1, 1, 1, 1, 1>;
+  using GlobalIoTensor = pto::GlobalTensor<IoElemType, GlobalShape, GlobalStride>;
+  using GlobalAccumTensor = pto::GlobalTensor<float, GlobalShape, GlobalStride>;
+  using IoTile = Tile<TileType::Vec, IoElemType, 1, MAX_W, BLayout::RowMajor, 1, DYNAMIC>;
+  using AccumTile = Tile<TileType::Vec, float, 1, MAX_W, BLayout::RowMajor, 1, DYNAMIC>;
+
+  constexpr uint32_t accumTileBytes = MAX_W * sizeof(float);
+  constexpr uint32_t ioTileBytes = MAX_W * sizeof(IoElemType);
+  constexpr uint32_t accumRingSize = roundUpToPowerOfTwo(K);  // accumulator ring size (pow2 >= K)
+  static_assert(K <= accumRingSize, "accumulator ring must hold all K taps");
+
+  // UB byte offsets. fp32 region: K weights (weight k at k*accumTileBytes) | bias |
+  // accumRingSize accumulators | K-1 temps | xin_f.  Then the I/O region: 4 ioTileBytes-sized tiles
+  // (input load double-buffered: xin_h[0] | out0 | out1 | xin_h[1]).
+  constexpr uint32_t ubBiasOffset = K * accumTileBytes;
+  constexpr uint32_t ubAccumRingBase = (K + 1u) * accumTileBytes;
+  constexpr uint32_t ubProductBase = (K + 1u + accumRingSize) * accumTileBytes;  // temp k at ubProductBase+(k-1)*accumTileBytes
+  constexpr uint32_t ubInputFp32 = (2u * K + accumRingSize) * accumTileBytes;
+  constexpr uint32_t ubIoBase = (2u * K + accumRingSize + 1u) * accumTileBytes;  // I/O region base
+  static_assert(ubIoBase + 4u * ioTileBytes <= UB_BYTES_PER_CORE,
+                "conv1d UB exceeds UB_BYTES_PER_CORE: lower K/MAX_W or raise it");
+  // NOTE: keep these `const`, NOT `constexpr`. These arrays are indexed by a
+  // runtime value in the hot loop; making them constexpr makes the ascendc/cce
+  // compiler emit ~5x slower device code (measured 951us vs 186us at B8/L512/
+  // d6144). (Harmless under the bisheng JIT path, but not here.)
+  const uint32_t ubOutputOffset[2] = {ubIoBase + ioTileBytes, ubIoBase + 2u * ioTileBytes};
+  const uint32_t ubInputOffset[2] = {ubIoBase, ubIoBase + 3u * ioTileBytes};
+
+  // weights (fp32) resident
+  for (uint32_t k = 0; k < K; ++k) {
+    GlobalAccumTensor wG(wgt + (uint64_t)k * dim + c0, {lanes});
+    AccumTile wT(lanes);
+    TASSIGN(wT, k * accumTileBytes);
+    TLOAD(wT, wG);
+  }
+  if (hasBias) {
+    GlobalAccumTensor bG(bia + c0, {lanes});
+    AccumTile bT(lanes);
+    TASSIGN(bT, ubBiasOffset);
+    TLOAD(bT, bG);
+  }
+  set_flag(PIPE_MTE2, PIPE_V, EVENT_ID3);
+  wait_flag(PIPE_MTE2, PIPE_V, EVENT_ID3);
+
+  // double-buffered input: two load slots with independent handshakes.
+  // EVENT_ID3 is reused here (the weight/bias load above already consumed it).
+  const event_t IEV[2] = {EVENT_ID0, EVENT_ID3};
+  set_flag(PIPE_V, PIPE_MTE2, IEV[0]);  // xin_h[0] initially free
+  set_flag(PIPE_V, PIPE_MTE2, IEV[1]);  // xin_h[1] initially free
+  set_flag(PIPE_MTE3, PIPE_V, EVENT_ID1);
+  set_flag(PIPE_MTE3, PIPE_V, EVENT_ID2);
+
+  // first input row to process (signed): l0==0 with history -> replay K-1 rows.
+  const bool zeroPad = (l0 == 0u) && !hasInit;
+  int32_t jstart;
+  if (l0 == 0u)
+    jstart = hasInit ? -(int32_t)(K - 1) : 0;
+  else
+    jstart = (int32_t)l0 - (int32_t)(K - 1);
+
+  // PROLOGUE: load the first input row (jstart) so iter 0 can prefetch the next.
+  // Input row index e: e>=0 -> x[start+e]; e<0 -> conv_states history row (K-1)+e.
+  if (jstart < (int32_t)l1) {
+    IoTile xin_h0(lanes);
+    TASSIGN(xin_h0, ubInputOffset[0]);
+    wait_flag(PIPE_V, PIPE_MTE2, IEV[0]);
+    if (jstart >= 0) {
+      GlobalIoTensor xG(x + (uint64_t)(start + (uint32_t)jstart) * dim + c0, {lanes});
+      TLOAD(xin_h0, xG);
+    } else {
+      const uint32_t hi = (uint32_t)((int32_t)(K - 1) + jstart);
+      GlobalIoTensor hG(convStates + ((uint64_t)cacheIdx * stateLen + hi) * dim + c0, {lanes});
+      TLOAD(xin_h0, hG);
+    }
+    set_flag(PIPE_MTE2, PIPE_V, IEV[0]);
+  }
+
+  for (int32_t j = jstart; j < (int32_t)l1; ++j) {
+    const uint32_t par = (uint32_t)(j - jstart) & 1u;
+    IoTile xin_h(lanes);
+    AccumTile xin_f(lanes);
+    TASSIGN(xin_h, ubInputOffset[par]);
+    TASSIGN(xin_f, ubInputFp32);
+
+    // (1) consume current row (loaded by prologue / previous prefetch) in buffer par
+    wait_flag(PIPE_MTE2, PIPE_V, IEV[par]);
+    TCVT(xin_f, xin_h, pto::RoundMode::CAST_NONE);
+    set_flag(PIPE_V, PIPE_MTE2, IEV[par]);
+
+    // (2) prefetch next row (x or conv_states history) into the OTHER buffer
+    if (j + 1 < (int32_t)l1) {
+      const int32_t e = j + 1;
+      const uint32_t p1 = par ^ 1u;
+      IoTile xin_hn(lanes);
+      TASSIGN(xin_hn, ubInputOffset[p1]);
+      wait_flag(PIPE_V, PIPE_MTE2, IEV[p1]);
+      if (e >= 0) {
+        GlobalIoTensor xG(x + (uint64_t)(start + (uint32_t)e) * dim + c0, {lanes});
+        TLOAD(xin_hn, xG);
+      } else {
+        const uint32_t hi = (uint32_t)((int32_t)(K - 1) + e);
+        GlobalIoTensor hG(convStates + ((uint64_t)cacheIdx * stateLen + hi) * dim + c0, {lanes});
+        TLOAD(xin_hn, hG);
+      }
+      set_flag(PIPE_MTE2, PIPE_V, IEV[p1]);
+    }
+
+    pipe_barrier(PIPE_V);
+
+    const bool startAll = zeroPad && (j == 0);
+    for (uint32_t k = 0; k < K; ++k) {
+      const int32_t out = j + (int32_t)(K - 1) - (int32_t)k;
+      if (out < (int32_t)l0 || out >= (int32_t)l1) continue;
+      AccumTile wT(lanes);
+      TASSIGN(wT, k * accumTileBytes);
+      if (startAll || k == 0) {
+        AccumTile acc(lanes);
+        TASSIGN(acc, ubAccumRingBase + ((uint32_t)out & (accumRingSize - 1u)) * accumTileBytes);
+        TMUL(acc, xin_f, wT);
+      } else {
+        AccumTile t(lanes);
+        TASSIGN(t, ubProductBase + (k - 1u) * accumTileBytes);
+        TMUL(t, xin_f, wT);
+      }
+    }
+    pipe_barrier(PIPE_V);
+    if (!startAll) {
+      for (uint32_t k = 1; k < K; ++k) {
+        const int32_t out = j + (int32_t)(K - 1) - (int32_t)k;
+        if (out < (int32_t)l0 || out >= (int32_t)l1) continue;
+        AccumTile acc(lanes);
+        AccumTile t(lanes);
+        TASSIGN(acc, ubAccumRingBase + ((uint32_t)out & (accumRingSize - 1u)) * accumTileBytes);
+        TASSIGN(t, ubProductBase + (k - 1u) * accumTileBytes);
+        TADD(acc, acc, t);
+      }
+    }
+    pipe_barrier(PIPE_V);
+
+    if (j < (int32_t)l0) continue;  // halo row
+
+    const uint32_t slot = (uint32_t)j & (accumRingSize - 1u);
+    const uint32_t ob = (uint32_t)j & 1u;
+    const event_t oev = (event_t)(1u + ob);
+    AccumTile acc(lanes);
+    AccumTile tmp(lanes);
+    IoTile outT(lanes);
+    TASSIGN(acc, ubAccumRingBase + slot * accumTileBytes);
+    TASSIGN(tmp, ubProductBase);
+    TASSIGN(outT, ubOutputOffset[ob]);
+
+    if (hasBias) {
+      AccumTile bT(lanes);
+      TASSIGN(bT, ubBiasOffset);
+      TADD(acc, acc, bT);
+      pipe_barrier(PIPE_V);
+    }
+    if (activation) {
+      applySiluToTile(acc, acc, tmp);
+      pipe_barrier(PIPE_V);
+    }
+    wait_flag(PIPE_MTE3, PIPE_V, oev);
+    TCVT(outT, acc, pto::RoundMode::CAST_NONE);
+    GlobalIoTensor yG(y + (uint64_t)(start + (uint32_t)j) * dim + c0, {lanes});
+    set_flag(PIPE_V, PIPE_MTE3, oev);
+    wait_flag(PIPE_V, PIPE_MTE3, oev);
+    TSTORE(yG, outT);
+    set_flag(PIPE_MTE3, PIPE_V, oev);
+  }
+
+  wait_flag(PIPE_V, PIPE_MTE2, IEV[0]);
+  wait_flag(PIPE_V, PIPE_MTE2, IEV[1]);
+  wait_flag(PIPE_MTE3, PIPE_V, EVENT_ID1);
+  wait_flag(PIPE_MTE3, PIPE_V, EVENT_ID2);
+}
+
+template <typename IoElemType>
+AICORE void runConv(__gm__ IoElemType* x, __gm__ float* wgt, __gm__ float* bia,
+                    __gm__ IoElemType* convStates, __gm__ int32_t* qsl,
+                    __gm__ int32_t* cidx, __gm__ uint8_t* hinit, __gm__ IoElemType* y,
+                    uint32_t dim, uint32_t batch, uint32_t inputMode,
+                    uint32_t seqLen, uint32_t stateLen, uint32_t col_w,
+                    uint32_t blocksPerSeq, uint32_t lchunks, uint32_t activation,
+                    uint32_t hasBias, int32_t padSlot) {
+  set_mask_norm();
+  set_vector_mask(-1, -1);
+  const uint32_t num_cores = get_block_num();
+  const uint32_t core_id = get_block_idx();
+  const uint32_t gridSize = batch * blocksPerSeq * lchunks;
+
+  for (uint32_t task = core_id; task < gridSize; task += num_cores) {
+    const uint32_t lc = task % lchunks;
+    const uint32_t t2 = task / lchunks;
+    const uint32_t db = t2 % blocksPerSeq;
+    const uint32_t seq = t2 / blocksPerSeq;
+
+    uint32_t start, len;
+    if (inputMode == 0u) {
+      const int32_t s0 = qsl[seq];
+      const int32_t s1 = qsl[seq + 1];
+      start = (uint32_t)s0;
+      len = (uint32_t)(s1 - s0);
+    } else {
+      start = seq * seqLen;
+      len = seqLen;
+    }
+    if (len == 0u) continue;
+    const int32_t ci = cidx[seq];
+    if (ci == padSlot) continue;
+    const bool hasInit = hinit[seq] != 0;
+
+    const uint32_t lc_len = (len + lchunks - 1) / lchunks;
+    const uint32_t l0 = lc * lc_len;
+    if (l0 >= len) continue;
+    uint32_t l1 = l0 + lc_len;
+    if (l1 > len) l1 = len;
+
+    const uint32_t c0 = db * col_w;
+    const uint32_t rem = dim - c0;
+    const int32_t lanes = rem > col_w ? (int32_t)col_w : (int32_t)rem;
+
+    convChunk<IoElemType>(x, y, wgt, bia, convStates, dim, stateLen, start, len,
+                   (uint32_t)ci, hasInit, c0, lanes, l0, l1, activation, hasBias);
+  }
+}
+
+// Writeback: convStates[ci, 0:K-1, c0:] = last K-1 rows of xext (x tail / old hist).
+template <typename IoElemType>
+AICORE void runWriteback(__gm__ IoElemType* x, __gm__ IoElemType* convStates,
+                         __gm__ int32_t* qsl, __gm__ int32_t* cidx,
+                         __gm__ uint8_t* hinit, uint32_t dim, uint32_t batch,
+                         uint32_t inputMode, uint32_t seqLen, uint32_t stateLen,
+                         uint32_t col_w, uint32_t blocksPerSeq, int32_t padSlot) {
+  using GlobalShape = pto::Shape<1, 1, 1, 1, DYNAMIC>;
+  using GlobalStride = pto::Stride<1, 1, 1, 1, 1>;
+  using GlobalIoTensor = pto::GlobalTensor<IoElemType, GlobalShape, GlobalStride>;
+  using IoTile = Tile<TileType::Vec, IoElemType, 1, MAX_W, BLayout::RowMajor, 1, DYNAMIC>;
+  using AccumTile = Tile<TileType::Vec, float, 1, MAX_W, BLayout::RowMajor, 1, DYNAMIC>;
+  constexpr uint32_t ioTileBytes = MAX_W * sizeof(IoElemType);
+  // compile-time scalar offset (constexpr is fine for scalars; only runtime-
+  // indexed constexpr *arrays* hurt ascendc codegen -- see convChunk note).
+  constexpr uint32_t SCRATCH_F32 = (K - 1) * ioTileBytes;  // fp32 scratch for zeroing
+
+  set_mask_norm();
+  set_vector_mask(-1, -1);
+  const uint32_t num_cores = get_block_num();
+  const uint32_t core_id = get_block_idx();
+  const uint32_t gridSize = batch * blocksPerSeq;
+
+  for (uint32_t task = core_id; task < gridSize; task += num_cores) {
+    const uint32_t db = task % blocksPerSeq;
+    const uint32_t seq = task / blocksPerSeq;
+    uint32_t start, len;
+    if (inputMode == 0u) {
+      const int32_t s0 = qsl[seq];
+      const int32_t s1 = qsl[seq + 1];
+      start = (uint32_t)s0;
+      len = (uint32_t)(s1 - s0);
+    } else {
+      start = seq * seqLen;
+      len = seqLen;
+    }
+    if (len == 0u) continue;
+    const int32_t ci = cidx[seq];
+    if (ci == padSlot) continue;
+    const bool hasInit = hinit[seq] != 0;
+    const uint32_t c0 = db * col_w;
+    const uint32_t rem = dim - c0;
+    const int32_t lanes = rem > col_w ? (int32_t)col_w : (int32_t)rem;
+
+    // Phase A (MTE2): load K-1 source rows = xext[len .. len+K-2].
+    // xext index e: e>=K-1 -> x[e-(K-1)];  e<K-1 -> history (convStates if hasInit
+    // else zero). For the zero case load x[start] (finite) as a placeholder and
+    // zero it in phase B (avoids multiplying uninitialised UB).
+    for (uint32_t i = 0; i < (K - 1); ++i) {
+      const int32_t e = (int32_t)len + (int32_t)i;
+      const int32_t xrow = e - (int32_t)(K - 1);
+      IoTile row(lanes);
+      TASSIGN(row, i * ioTileBytes);
+      if (xrow >= 0) {
+        GlobalIoTensor sG(x + (uint64_t)(start + (uint32_t)xrow) * dim + c0, {lanes});
+        TLOAD(row, sG);
+      } else if (hasInit) {
+        GlobalIoTensor hG(convStates + ((uint64_t)ci * stateLen + (uint32_t)e) * dim + c0, {lanes});
+        TLOAD(row, hG);
+      } else {
+        GlobalIoTensor sG(x + (uint64_t)start * dim + c0, {lanes});  // placeholder (len>=1)
+        TLOAD(row, sG);
+      }
+    }
+    set_flag(PIPE_MTE2, PIPE_V, EVENT_ID3);
+    wait_flag(PIPE_MTE2, PIPE_V, EVENT_ID3);
+    // Phase B (V): zero the pure-history rows when there is no initial state.
+    // (TMULS has no bf16 overload, so zero via an fp32 round-trip of the finite
+    //  placeholder: IoElemType -> fp32 -> *0 -> IoElemType. Works for fp16 and bf16.)
+    for (uint32_t i = 0; i < (K - 1); ++i) {
+      const int32_t e = (int32_t)len + (int32_t)i;
+      const int32_t xrow = e - (int32_t)(K - 1);
+      if (xrow < 0 && !hasInit) {
+        IoTile row(lanes);
+        AccumTile f32(lanes);
+        TASSIGN(row, i * ioTileBytes);
+        TASSIGN(f32, SCRATCH_F32);
+        TCVT(f32, row, pto::RoundMode::CAST_NONE);
+        pipe_barrier(PIPE_V);
+        TMULS(f32, f32, 0.0f);
+        pipe_barrier(PIPE_V);
+        TCVT(row, f32, pto::RoundMode::CAST_NONE);
+      }
+    }
+    pipe_barrier(PIPE_V);
+    set_flag(PIPE_V, PIPE_MTE3, EVENT_ID1);
+    wait_flag(PIPE_V, PIPE_MTE3, EVENT_ID1);
+    // Phase C (MTE3): store to convStates[ci, 0:K-1, c0:].
+    for (uint32_t i = 0; i < (K - 1); ++i) {
+      IoTile row(lanes);
+      TASSIGN(row, i * ioTileBytes);
+      GlobalIoTensor dG(convStates + ((uint64_t)ci * stateLen + i) * dim + c0, {lanes});
+      TSTORE(dG, row);
+    }
+    set_flag(PIPE_MTE3, PIPE_V, EVENT_ID1);
+    wait_flag(PIPE_MTE3, PIPE_V, EVENT_ID1);
+  }
+}
+
+}  // namespace cc1d
+
+// Vector-only kernel: the body (and template instantiation) is compiled ONLY for
+// the vector target; the cube (AIC) pass gets an empty body (no vector intrinsics).
+#if defined(__DAV_VEC__)
+#define CONV_BODY(T)                                                                         \
+  cc1d::runConv<T>((__gm__ T*)x, (__gm__ float*)wgt, (__gm__ float*)bia,                  \
+                      (__gm__ T*)convStates, (__gm__ int32_t*)qsl, (__gm__ int32_t*)cidx,    \
+                      (__gm__ uint8_t*)hinit, (__gm__ T*)y, dim, batch, inputMode, seqLen,   \
+                      stateLen, col_w, blocksPerSeq, lchunks, activation, hasBias, padSlot)
+#define WB_BODY(T)                                                                           \
+  cc1d::runWriteback<T>((__gm__ T*)x, (__gm__ T*)convStates, (__gm__ int32_t*)qsl,        \
+                           (__gm__ int32_t*)cidx, (__gm__ uint8_t*)hinit, dim, batch,        \
+                           inputMode, seqLen, stateLen, col_w, blocksPerSeq, padSlot)
+#else
+#define CONV_BODY(T)                                                                         \
+  (void)x; (void)wgt; (void)bia; (void)convStates; (void)qsl; (void)cidx; (void)hinit;       \
+  (void)y; (void)dim; (void)batch; (void)inputMode; (void)seqLen; (void)stateLen;            \
+  (void)col_w; (void)blocksPerSeq; (void)lchunks; (void)activation; (void)hasBias; (void)padSlot
+#define WB_BODY(T)                                                                           \
+  (void)x; (void)convStates; (void)qsl; (void)cidx; (void)hinit; (void)dim; (void)batch;     \
+  (void)inputMode; (void)seqLen; (void)stateLen; (void)col_w; (void)blocksPerSeq; (void)padSlot
+#endif
+
+#define DEF_CONV(SUF, T)                                                                     \
+  extern "C" __global__ AICORE void causal_conv1d_##SUF(                                 \
+      GM_ADDR x, GM_ADDR wgt, GM_ADDR bia, GM_ADDR convStates, GM_ADDR qsl, GM_ADDR cidx,    \
+      GM_ADDR hinit, GM_ADDR y, uint32_t dim, uint32_t batch, uint32_t inputMode,            \
+      uint32_t seqLen, uint32_t stateLen, uint32_t col_w, uint32_t blocksPerSeq,             \
+      uint32_t lchunks, uint32_t activation, uint32_t hasBias, int32_t padSlot) {            \
+    CONV_BODY(T);                                                                            \
+  }
+
+#define DEF_WB(SUF, T)                                                                       \
+  extern "C" __global__ AICORE void causal_conv1d_wb_##SUF(                                       \
+      GM_ADDR x, GM_ADDR convStates, GM_ADDR qsl, GM_ADDR cidx, GM_ADDR hinit, uint32_t dim, \
+      uint32_t batch, uint32_t inputMode, uint32_t seqLen, uint32_t stateLen, uint32_t col_w,\
+      uint32_t blocksPerSeq, int32_t padSlot) {                                              \
+    WB_BODY(T);                                                                              \
+  }
+
+DEF_CONV(half, half)
+DEF_CONV(bf16, bfloat16_t)
+DEF_WB(half, half)
+DEF_WB(bf16, bfloat16_t)
