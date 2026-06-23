@@ -319,19 +319,22 @@ def run_negative_cases(device: torch.device, dtype: torch.dtype, pad_slot_id: in
         ("width == 4", "width=4"),
     )
 
-    expect_failure(
-        "unsupported_dim",
-        lambda: torch.ops.npu.causal_conv1d(
-            torch.randn((2, 4, 3072), device=device, dtype=dtype),
-            torch.randn((4, 3072), device=device, dtype=dtype),
-            torch.randn((8, 5, 3072), device=device, dtype=dtype),
-            query_start_loc,
-            cache_indices,
-            has_initial_state,
-            bias=torch.randn((3072,), device=device, dtype=dtype),
-        ),
-        ("4096", "8192", "1024"),
+    # NOTE: the previous AscendC kernel only supported a fixed set of dims
+    # (e.g. 1024/4096/8192) and rejected others such as 3072. The PTO kernel is
+    # generic over `dim` (it tiles the channel axis), so dim=3072 is now a valid
+    # case rather than an error; correctness across arbitrary dims is covered by
+    # the positive cases and the fp32-reference sweep.
+    dim3072 = torch.ops.npu.causal_conv1d(
+        torch.randn((2, 4, 3072), device=device, dtype=dtype),
+        torch.randn((4, 3072), device=device, dtype=dtype),
+        torch.randn((8, 5, 3072), device=device, dtype=dtype),
+        query_start_loc,
+        cache_indices,
+        has_initial_state,
+        bias=torch.randn((3072,), device=device, dtype=dtype),
     )
+    assert dim3072.shape[-1] == 3072, "PTO causal_conv1d should support dim=3072"
+    print("[PASS] supports_dim_3072 (PTO kernel is generic over dim)")
 
     expect_failure(
         "missing_required_query_start_loc",
