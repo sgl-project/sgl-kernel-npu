@@ -1,3 +1,13 @@
+# Low-Latency Mode API
+
+> **English** | [中文](#中文)
+
+---
+
+<a id="中文"></a>
+
+## 中文
+
 **文件**：`buffer.py`
 
 **核心类**：`Buffer`

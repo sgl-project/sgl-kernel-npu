@@ -127,7 +127,7 @@ For detailed API documentation, see:
 - [Normal Mode API (dispatch/combine)](doc/NORMAL_API.md)
 - [Low-Latency Mode API](doc/LOW_LATENCY_API.md)
 - [get_dispatch_layout API](doc/GET_DISPATCH_LAYOUT_API.md)
-- [Fused Deep MoE API (English)](doc/FUSED_DEEP_MOE_EN.md) | [中文](doc/FUSED_DEEP_MOE_CN.md)
+- [Fused Deep MoE API](doc/FUSED_DEEP_MOE.md)
 
 
 ## Communication Modes
@@ -164,7 +164,7 @@ Quantization modes (`quant_mode`):
 - `1`: INT8 quantization (default)
 - FP8 will be supported in A5 release.
 
-See [Fused Deep MoE API](doc/FUSED_DEEP_MOE_EN.md) for details.
+See [Fused Deep MoE API](doc/FUSED_DEEP_MOE.md) for details.
 
 
 ## Environment Variables
@@ -193,7 +193,7 @@ See [Fused Deep MoE API](doc/FUSED_DEEP_MOE_EN.md) for details.
 - **Must set** `HCCL_BUFFSIZE` (e.g., `export HCCL_BUFFSIZE=1024`).
 - **Must disable** `HCCL_OP_EXPANSION_MODE`.
 
-For detailed A2 usage, see [A2_DEEPEP_CN.md](A2_DEEPEP_CN.md).
+For detailed A2 usage, see [A2_DEEPEP_CN.md](doc/A2_DEEPEP_CN.md).
 
 ### A2 Dual Node
 

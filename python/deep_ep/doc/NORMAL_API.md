@@ -1,3 +1,20 @@
+# Normal Mode API
+
+> **English** | [中文](#中文)
+
+---
+
+> **File**: `buffer.py`
+> **Core class**: `Buffer`
+> **Dependencies**: `torch`, `deep_ep_cpp`
+> **Purpose**: Efficiently perform **Token Dispatch** and **Token Combine** (i.e., distribute-reduce) operations in **multi-NPU (Intranode)** and **cross-node (Internode)** environments.
+
+---
+
+<a id="中文"></a>
+
+## 中文
+
 > **文件**：`buffer.py`
 > **核心类**：`Buffer`
 > **依赖**：`torch`, `deep_ep_cpp`
