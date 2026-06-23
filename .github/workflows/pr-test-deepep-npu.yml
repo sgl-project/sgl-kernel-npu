@@ -6,7 +6,7 @@ on:
     paths:
       - "build.sh"
       - "cmake/**"
-      - "python/deep_ep**"
+      - "python/deep_ep/deep_ep**"
       - "csrc/deepep**"
       - "tests/python/deepep**"
       - "scripts/**"
