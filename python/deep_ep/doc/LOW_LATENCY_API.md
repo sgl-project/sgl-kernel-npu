@@ -1,8 +1,14 @@
 # Low-Latency Mode API
 
-> **English** | [中文](#中文)
->
-> **适用平台**：A2 | A3 | A5
+<div align="center">
+
+[![Mode](https://img.shields.io/badge/Mode-Low--Latency-orange)]()
+[![Platform](https://img.shields.io/badge/Platform-A2%20%7C%20A3%20%7C%20A5-green)]()
+[![Latency](https://img.shields.io/badge/Latency-<150us-red)]()
+
+English | [中文](#中文)
+
+</div>
 
 ---
 

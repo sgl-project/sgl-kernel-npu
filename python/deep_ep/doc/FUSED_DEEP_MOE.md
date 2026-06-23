@@ -1,8 +1,17 @@
 # Fused Deep MoE API
 
-> **English** | [中文](#中文)
->
-> **适用平台**：A3 only（仅 A3）
+<div align="center">
+
+[![Mode](https://img.shields.io/badge/Mode-Fused-purple)]()
+[![Platform](https://img.shields.io/badge/Platform-A3%20only-red)]()
+[![Quant](https://img.shields.io/badge/Quantization-INT8-yellow)]()
+
+English | [中文](#中文)
+
+</div>
+
+> [!IMPORTANT]
+> **A3 only.** This API is NOT available on A2 or A5. A5 FP8/MXFP8 support is planned for future release.
 
 ---
 

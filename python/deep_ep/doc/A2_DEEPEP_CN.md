@@ -1,6 +1,13 @@
 # A2场景下使用DeepEp说明
 
-> **适用平台**：A2 only（仅 A2）
+<div align="center">
+
+[![Platform](https://img.shields.io/badge/Platform-A2%20only-red)]()
+
+</div>
+
+> [!IMPORTANT]
+> **A2 only.** 本文档仅适用于 Atlas A2 系列。
 
 
 # 软硬件配套说明
