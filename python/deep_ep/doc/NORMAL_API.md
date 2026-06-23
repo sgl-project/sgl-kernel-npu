@@ -1,22 +1,27 @@
-> **文件**：`buffer.py`
-> **核心类**：`Buffer`
-> **依赖**：`torch`, `deep_ep_cpp`
-> **目的**：在 **多 NPU（Intranode）** 与 **跨节点（Internode）** 环境下，高效完成 **Token Dispatch** 与 **Token Combine**（即分发‑归约）操作。
+# Normal Mode API
+
+<div align="center">
+
+[![Mode](https://img.shields.io/badge/Mode-Normal-blue)]()
+[![Platforms](https://img.shields.io/badge/Platforms-A2%20%7C%20A3%20%7C%20A5-green)]()
+
+English | [中文](#中文)
+
+</div>
+
+Buffer class dispatch/combine API for high-throughput token distribution in training and prefill phases.
 
 ---
 
-## `dispatch`
+## English
 
-### 功能说明
+### `dispatch`
 
-将本地 token 按 **top‑k** 选择结果分发到其他 rank（包括同节点 intra‑node 与跨节点 inter‑node 两种模式），并返回收到的 token、对应的 top‑k 信息以及用于后续 **combine** 的通信句柄。
-
-### 接口原型
+Dispatches local tokens to other ranks based on top-k routing, returns received tokens and a handle for `combine`.
 
 ```python
-dispatch(
+recv_x, recv_topk_idx, recv_topk_weights, num_recv_tokens, handle, event = buffer.dispatch(
     x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
-    handle: Optional[Tuple] = None,
     num_tokens_per_rank: Optional[torch.Tensor] = None,
     num_tokens_per_rdma_rank: Optional[torch.Tensor] = None,
     is_token_in_rank: Optional[torch.Tensor] = None,
@@ -30,84 +35,68 @@ dispatch(
     async_finish: bool = False,
     allocate_on_comm_stream: bool = False,
     dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
-) -> Tuple[
-    Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
-    Optional[torch.Tensor],
-    Optional[torch.Tensor],
-    List[int],
-    Tuple,
-    EventOverlap
-]
+)
 ```
 
-### 参数说明
+#### Parameters
 
-| 参数 | 类型 | 必要 | 默认 | 说明 |
-|------|------|------|------|------|
-| **x** | `torch.Tensor` 或 `(torch.Tensor, torch.Tensor)` | ✅ | – | Shape为 `[num_tokens, hidden]`，dtype=`torch.bfloat16`。当前仅支持 `torch.Tensor` 类型。|
-| **handle** | `Optional[Tuple]` | ❌ | `None` | 预先创建的通信句柄（目前仅支持 `None`）。|
-| **num_tokens_per_rank** | `torch.Tensor` (`int32`) | ✅（intranode） | `None` | Shape为 `[num_ranks]`，每个 rank 将接收的 token 数。 |
-| **num_tokens_per_rdma_rank** | `torch.Tensor` | ✅（internode） | `None` | Shape为 `[num_rdma_ranks]`，跨节点（RDMA）时每个 remote rank 接收的 token 数。 |
-| **is_token_in_rank** | `torch.Tensor` (`int`) | ✅ | `None` | `[num_tokens, num_ranks]` 指明每个 token 是否需要发送到对应 rank。 |
-| **num_tokens_per_expert** | `torch.Tensor` (`int`) | ✅ | `None` | `[num_experts]`，当前rank发送给每个expert的 token 数。 |
-| **topk_idx** | `torch.Tensor` (`int64`) | ✅ | `None` | `[num_tokens, num_topk]`，每个 token 选中的 expert 索引，`-1` 表示无选中。 |
-| **topk_weights** | `torch.Tensor` (`float`) | ✅ | `None` | `[num_tokens, num_topk]`，对应的权重。 |
-| **expert_alignment** | `int` | ❌ | `1` | 对每个本地 expert 接收的 token 数进行对齐的粒度。 |
-| **num_worst_tokens** | `int` | ❌ | `0` | 当前未使用。 |
-| **config** | `deep_ep_cpp.Config` | ❌ | `None` | 当前未使用。 |
-| **previous_event** | `EventOverlap` | ❌ | `None` | 在执行 kernel 前必须等待的前置事件。 |
-| **async_finish** | `bool` | ❌ | `False` | 若 `True`，当前 stream 不会阻塞等待通信完成，返回的 `event` 可用于后续同步。 |
-| **allocate_on_comm_stream** | `bool` | ❌ | `False` | 当前未使用。 |
-| **dispatch_wait_recv_cost_stats** | `torch.Tensor` (`int64`) | ❌ | `None` | Shape为 `[num_ranks]`，记录当前 rank 从每个 rank 收到全部 token 所耗时间（统计信息）。 |
+| Parameter | Type | Required | Description |
+|:---|:---|:---:|:---|
+| `x` | `Tensor` or `(Tensor, Tensor)` | ✅ | Input tokens. Plain `bfloat16` tensor for BF16 mode; tuple for quantized mode — see [Quantization](#quantization-modes). |
+| `num_tokens_per_rank` | `Tensor` (int32) `[num_ranks]` | ✅* | Token count per destination rank. |
+| `num_tokens_per_rdma_rank` | `Tensor` | ✅* | Token count per RDMA rank. |
+| `is_token_in_rank` | `Tensor` (int) `[num_tokens, num_ranks]` | ✅ | Whether each token is sent to each rank. |
+| `num_tokens_per_expert` | `Tensor` (int) `[num_experts]` | ✅ | Token count per expert. |
+| `topk_idx` | `Tensor` (int64) `[num_tokens, num_topk]` | ✅ | Expert indices (`-1` = none). |
+| `topk_weights` | `Tensor` (float) `[num_tokens, num_topk]` | ✅ | Expert weights per token. |
+| `expert_alignment` | `int` | — | Alignment granularity (default `1`). |
 
-> **内部逻辑**
->
-> 1. **模式判定**：`self.runtime.get_num_rdma_ranks() > 1` → **Internode**，否则 **Intranode**。
-> 2. **返回的 `handle`**：内部保存了后续 `combine` 所需的所有索引/前缀矩阵等信息，**必须原样传递**给 `combine`。
+<details>
+<summary><b>Advanced Parameters</b></summary>
 
-### 返回值说明
+| Parameter | Type | Default | Description |
+|:---|:---|:---|:---|
+| `num_worst_tokens` | `int` | `0` | Currently unused. |
+| `config` | `Config` | `None` | Performance tuning config (currently unused). |
+| `previous_event` | `EventOverlap` | `None` | Event to wait before kernel execution. |
+| `async_finish` | `bool` | `False` | If True, stream won't block on completion. |
+| `allocate_on_comm_stream` | `bool` | `False` | Currently unused. |
+| `dispatch_wait_recv_cost_stats` | `Tensor` (int64) `[num_ranks]` | `None` | Per-rank receive timing statistics. |
 
-| 返回值 | 类型 | 说明 |
-|--------|------|------|
-| **recv_x** | `torch.Tensor` 或 `(torch.Tensor, torch.Tensor)` | 接收到的 token。<br>若开启 int8 量化，则返回 `(int8_tensor, scales_float_tensor)`；否则直接返回 `bfloat16` tensor。 |
-| **recv_topk_idx** | `Optional[torch.Tensor]` (`int64`) | 接收到的 top‑k expert 索引（形状 `[recv_token_cnt, num_topk]`），若未使用 top‑k 则为 `None`。 |
-| **recv_topk_weights** | `Optional[torch.Tensor]` (`float`) | 对应的 top‑k 权重，形状同上。 |
-| **num_recv_tokens_per_expert_list** | `List[int]` | 每个 **本地 expert** 实际收到的 token 数（已对齐）。<br>若 `num_worst_tokens>0`，列表为空（因为不做同步）。 |
-| **handle** | `Tuple` | 供 `combine` 使用的通信句柄。 |
-| **event** | `EventOverlap` | 若 `async_finish=True`，返回的 NPU 事件对象，可用于后续 `event.wait()` 同步。 |
+</details>
 
-### 约束说明
+*Required for intranode / internode routing respectively.
 
-- 参数里Shape使用的变量如下：
-    - num_tokens: 表示batch sequence size，即本卡输入输出的token数量。(当输入num_tokens=0时，会经过padding到1)
-        - A2系列双机取值范围：(0, 4096]；单机取值范围：(0, 8192]；
-        - A3系列取值范围，不开蚂蚁搬家：(0, 8192]，开蚂蚁搬家：(0, 32k]；
-    - hidden: 表示hidden size隐藏层大小。
-        - A2系列取值范围：(0, 7168]，且保证是32的整数倍；
-        - A3系列取值范围：[1024, 7168]；
-    - num_experts：表示专家数量，取值范围：(0, 512]。
-    - num_topk：表示选取topk个专家。
-        - A2系列双机取值范围：[2, 16]；单机取值范围：(0, 16]；
-        - A3系列取值范围：(0, 16]。
-- HCCL_BUFFSIZE: 调用接口前需检查HCCL_BUFFSIZE环境变量取值是否合理，该环境变量表示单个通信域占用内存大小，单位MB，不配置时默认为200MB。
-- HCCL_INTRA_PCIE_ENABLE和HCCL_INTRA_ROCE_ENABLE：
-    - A2系列双机场景需要配置，`HCCL_INTRA_PCIE_ENABLE=1` 和 `HCCL_INTRA_ROCE_ENABLE=0`；
-- 量化：设置环境变量 `DEEP_NORMAL_MODE_USE_INT8_QUANT=1` 时，会把 `x` 量化为 `int8` 并返回 `(tensor, scales)`。
+#### Returns
+
+| Return | Type | Description |
+|:---|:---|:---|
+| `recv_x` | `Tensor` or `(Tensor, Tensor)` | Received tokens. See [Quantization](#quantization-modes) for format. |
+| `recv_topk_idx` | `Optional[Tensor]` (int64) | Received top-k indices. |
+| `recv_topk_weights` | `Optional[Tensor]` (float) | Received top-k weights. |
+| `num_recv_tokens_per_expert_list` | `List[int]` | Per-local-expert received token count. |
+| `handle` | `Tuple` | Communication handle — **must pass unchanged to `combine`**. |
+| `event` | `EventOverlap` | NPU event for async synchronization. |
+
+#### Internal routing
+
+`DefaultNormalCommStrategy` auto-selects:
+- **Intranode** when `num_rdma_ranks <= 1` (A3, A5, A2 single)
+- **Internode** when `num_rdma_ranks > 1` (A2 dual-node)
+
+> [!WARNING]
+> `AlltoAllNormalCommStrategy` (DEEP_USE_MODE=alltoall) does NOT support tuple quantization input. When using alltoall strategy, only plain `bfloat16` tensor or INT8 via `DEEP_NORMAL_MODE_USE_INT8_QUANT` env var is supported.
 
 ---
 
-## `combine`
+### `combine`
 
-### 功能说明
-
-对 `dispatch` 之后收到的 token 进行 归约，即把同一 token 在不同 rank 上的副本整合（乘权重再相加）。
-
-### 接口原型
+Reduces tokens from dispatch across ranks (weighted addition).
 
 ```python
-combine(
-    x: torch.Tensor,
-    handle: Tuple,
+recv_x, recv_topk_weights, event = buffer.combine(
+    x: torch.Tensor,          # [num_tokens, hidden], bfloat16
+    handle: Tuple,            # from dispatch — must be unchanged
     topk_weights: Optional[torch.Tensor] = None,
     bias: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]] = None,
     config: Optional[Config] = None,
@@ -115,38 +104,191 @@ combine(
     async_finish: bool = False,
     allocate_on_comm_stream: bool = False,
     combine_send_cost_stats: Optional[torch.Tensor] = None,
-) -> Tuple[
-    torch.Tensor,
-    Optional[torch.Tensor],
-    EventOverlap
-]
+)
 ```
 
-### 参数说明
+#### Returns
 
-| 参数 | 类型 | 必要 | 默认 | 说明 |
-|------|------|------|------|------|
-| **x** | `torch.Tensor` (`bfloat16`) | ✅ | – | 本 rank 需要发送回原始 rank 的 token，形状 `[num_tokens, hidden]`。 |
-| **handle** | `Tuple` | ✅ | – | `dispatch` 返回的 **handle**（必须保持不变）。 |
-| **topk_weights** | `torch.Tensor` (`float`) | ❌ | `None` | 若在 `dispatch` 时使用了 top‑k 权重，则在 combine 时把权重一起归约。 |
-| **bias** | `torch.Tensor` 或 `(Tensor, Tensor)` | ❌ | `None` | 预留参数（目前未在实现里使用）。 |
-| **config** | `deep_ep_cpp.Config` | ❌ | `None` | 性能调优配置，目前未使用。 |
-| **previous_event** | `EventOverlap` | ❌ | `None` | 在执行 kernel 前需要等待的前置事件。 |
-| **async_finish** | `bool` | ❌ | `False` | 同 `dispatch`，若为 `True`，返回的 `event` 用于手动同步。 |
-| **allocate_on_comm_stream** | `bool` | ❌ | `False` | 是否把临时 tensor 放在通信 stream。 |
-| **combine_send_cost_stats** | `torch.Tensor` (`int64`) | ❌ | `None` | 长度 `[num_ranks]`，记录本 rank 向其他 rank 发送所有 token 所耗时间（统计信息）。 |
+| Return | Type | Description |
+|:---|:---|:---|
+| `recv_x` | `Tensor` (bfloat16) `[recv_token_cnt, hidden]` | Reduced tokens. |
+| `recv_topk_weights` | `Optional[Tensor]` (float) | Reduced top-k weights. |
+| `event` | `EventOverlap` | NPU event for async synchronization. |
 
-### 返回值说明
+---
+
+### Quantization Modes
+
+| Mode | quant_mode | Trigger | Output Format | Platform |
+|:---|:---:|:---|:---|:---|
+| **BF16** (no quant) | `0` | Plain `bfloat16` tensor as `x` | `bfloat16` tensor `[recv_tokens, hidden]` | A2 ✅ A3 ✅ A5 ✅ |
+| **INT8 per-token** | `2` | Tuple `(bf16_data, int8_empty_tensor)` or env var `DEEP_NORMAL_MODE_USE_INT8_QUANT=1` ⛔ deprecated | `(int8_tensor, float32_scales)` — scales `[recv_tokens]` | A2 ✅ A3 ✅ A5 ✅ |
+| **MXFP8 per-block** | `3` | Tuple `(bf16_data, fp8_e4m3fn_empty_tensor)` — **second element dtype determines quant type** | `(float8_e4m3fn, float8_e8m0fnu_scales)` — scales `[recv_tokens, hidden // 32]` | A2 ❌ A3 ❌ **A5 ✅** |
+
+> [!IMPORTANT]
+> The second tuple element is a **type discriminator** — an empty tensor whose dtype selects the quantization mode:
+> - `torch.int8` → INT8 per-token (quant_mode=2)
+> - `torch.float8_e4m3fn` → MXFP8 per-block (quant_mode=3)
+>
+> The first element is always **BF16 data** — the kernel performs quantization internally.
+
+> [!WARNING]
+> - A2 dual-node internode does NOT support any quantization in normal mode.
+> - MXFP8 per-block tuple input is only supported in **intranode** dispatch (not internode).
+> - AlltoAll strategy does NOT support tuple quantization input.
+
+**INT8 tuple input example:**
+```python
+x_tuple = (x_bf16, torch.tensor([], dtype=torch.int8, device="npu"))
+recv_x, recv_topk_idx, recv_topk_weights, num_recv_tokens, handle, event = buffer.dispatch(x=x_tuple, ...)
+# recv_x is a tuple: (int8_tensor, float32_scales)
+```
+
+**MXFP8 tuple input example:**
+```python
+x_tuple = (x_bf16, torch.tensor([], dtype=torch.float8_e4m3fn, device="npu"))
+recv_x, recv_topk_idx, recv_topk_weights, num_recv_tokens, handle, event = buffer.dispatch(x=x_tuple, ...)
+# recv_x is a tuple: (float8_e4m3fn_data, float8_e8m0fnu_scales)
+```
+
+---
+
+### Platform Constraints
+
+| Parameter | A2 Single | A2 Dual | A3 | A5 (C310) |
+|:---|:---|:---|:---|:---|
+| `num_tokens` | (0, 8192] | (0, 4096] | (0, 8192] / (0, 32k] long-seq | — |
+| `hidden` | (0, 7168], ÷ 32 | (0, 7168], ÷ 32 | [1024, 7168] | — |
+| `num_topk` | (0, 16] | [2, 16] | (0, 16] | — |
+| `num_experts` | (0, 512] | (0, 512] | (0, 512] | (0, 512] |
+| Quantization (intranode) | INT8 ✅ | ❌ None | INT8 ✅, MXFP8 ✅ | INT8 ✅, MXFP8 ✅ |
+| Quantization (internode) | INT8 ✅ | ❌ None | INT8 ✅ | — |
+| Strategies | default | default | default, alltoall | default, alltoall |
+
+---
+
+<a id="中文"></a>
+
+## 中文
+
+### `dispatch`
+
+将本地 token 按 top-k 路由分发到其他 rank，返回接收到的 token 和供 `combine` 使用的通信句柄。
+
+```python
+recv_x, recv_topk_idx, recv_topk_weights, num_recv_tokens, handle, event = buffer.dispatch(
+    x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+    num_tokens_per_rank: Optional[torch.Tensor] = None,
+    num_tokens_per_rdma_rank: Optional[torch.Tensor] = None,
+    is_token_in_rank: Optional[torch.Tensor] = None,
+    num_tokens_per_expert: Optional[torch.Tensor] = None,
+    topk_idx: Optional[torch.Tensor] = None,
+    topk_weights: Optional[torch.Tensor] = None,
+    expert_alignment: int = 1,
+)
+```
+
+#### 参数
+
+| 参数 | 类型 | 必要 | 说明 |
+|:---|:---|:---:|:---|
+| `x` | `Tensor` 或 `(Tensor, Tensor)` | ✅ | 输入 token。普通 `bfloat16` tensor 用于 BF16 模式；tuple 用于量化模式——见[量化模式](#量化模式-1)。 |
+| `num_tokens_per_rank` | `Tensor` (int32) `[num_ranks]` | ✅* | 每个目标 rank 接收的 token 数。 |
+| `num_tokens_per_rdma_rank` | `Tensor` | ✅* | 每个 RDMA rank 接收的 token 数。 |
+| `is_token_in_rank` | `Tensor` (int) `[num_tokens, num_ranks]` | ✅ | 每个 token 是否发送到对应 rank。 |
+| `num_tokens_per_expert` | `Tensor` (int) `[num_experts]` | ✅ | 每个专家的 token 数。 |
+| `topk_idx` | `Tensor` (int64) `[num_tokens, num_topk]` | ✅ | 专家索引，`-1` 表示无选中。 |
+| `topk_weights` | `Tensor` (float) `[num_tokens, num_topk]` | ✅ | 专家权重。 |
+| `expert_alignment` | `int` | — | 对齐粒度（默认 `1`）。 |
+
+<details>
+<summary><b>高级参数</b></summary>
+
+| 参数 | 类型 | 默认 | 说明 |
+|:---|:---|:---|:---|
+| `num_worst_tokens` | `int` | `0` | 当前未使用。 |
+| `async_finish` | `bool` | `False` | 若 True，不阻塞等待通信完成。 |
+
+</details>
+
+*intranode / internode 路由分别必填。
+
+#### 返回值
 
 | 返回值 | 类型 | 说明 |
-|--------|------|------|
-| **recv_x** | `torch.Tensor` (`bfloat16`) | 归约后的 token，形状 `[recv_token_cnt, hidden]`。 |
-| **recv_topk_weights** | `Optional[torch.Tensor]` (`float`) | 若 `topk_weights` 不为 `None`，则返回归约后的权重；否则为 `None`。 |
-| **event** | `EventOverlap` | 同 `dispatch`，仅在 `async_finish=True` 时有意义。 |
+|:---|:---|:---|
+| `recv_x` | `Tensor` 或 `(Tensor, Tensor)` | 接收的 token。格式见[量化模式](#量化模式-1)。 |
+| `recv_topk_idx` | `Optional[Tensor]` (int64) | 接收的 top-k 索引。 |
+| `handle` | `Tuple` | 通信句柄，**必须原样传给 `combine`**。 |
 
-### 约束说明
+#### 内部路由
 
-- `dispatch`和`combine`必须配套使用。
-- HCCL_BUFFSIZE: 调用接口前需检查HCCL_BUFFSIZE环境变量取值是否合理，该环境变量表示单个通信域占用内存大小，单位MB，不配置时默认为200MB。
-- HCCL_INTRA_PCIE_ENABLE和HCCL_INTRA_ROCE_ENABLE：
-    - A2系列双机场景需要配置，`HCCL_INTRA_PCIE_ENABLE=1` 和 `HCCL_INTRA_ROCE_ENABLE=0`；
+`DefaultNormalCommStrategy` 自动选择：
+- **Intranode**：`num_rdma_ranks <= 1`（A3、A5、A2 单机）
+- **Internode**：`num_rdma_ranks > 1`（A2 双机）
+
+> [!WARNING]
+> `AlltoAllNormalCommStrategy`（DEEP_USE_MODE=alltoall）**不支持** tuple 量化输入。使用 alltoall 策略时，仅支持普通 `bfloat16` tensor 或通过 `DEEP_NORMAL_MODE_USE_INT8_QUANT` 环境变量启用 INT8。
+
+---
+
+### `combine`
+
+对 dispatch 返回的 token 进行归约（加权相加）。
+
+#### 返回值
+
+| 返回值 | 类型 | 说明 |
+|:---|:---|:---|
+| `recv_x` | `Tensor` (bfloat16) `[recv_token_cnt, hidden]` | 归约后的 token。 |
+| `recv_topk_weights` | `Optional[Tensor]` (float) | 归约后的权重。 |
+
+---
+
+### 量化模式
+
+| 模式 | quant_mode | 触发方式 | 输出格式 | 平台 |
+|:---|:---:|:---|:---|:---|
+| **BF16**（不量化） | `0` | 普通 `bfloat16` tensor | `bfloat16` tensor `[recv_tokens, hidden]` | A2 ✅ A3 ✅ A5 ✅ |
+| **INT8 per-token** | `2` | tuple `(bf16_data, int8空tensor)` 或环境变量 `DEEP_NORMAL_MODE_USE_INT8_QUANT=1` ⛔ 已弃用 | `(int8_tensor, float32_scales)` — scales `[recv_tokens]` | A2 ✅ A3 ✅ A5 ✅ |
+| **MXFP8 per-block** | `3` | tuple `(bf16_data, fp8_e4m3fn空tensor)` — **第二个元素 dtype 决定量化类型** | `(float8_e4m3fn, float8_e8m0fnu_scales)` — scales `[recv_tokens, hidden // 32]` | A2 ❌ A3 ❌ **A5 ✅** |
+
+> [!IMPORTANT]
+> 第二个 tuple 元素是**类型标识**——空 tensor，其 dtype 选择量化模式：
+> - `torch.int8` → INT8 per-token（quant_mode=2）
+> - `torch.float8_e4m3fn` → MXFP8 per-block（quant_mode=3）
+>
+> 第一个元素始终是 **BF16 数据**——内核内部执行量化。
+
+> [!WARNING]
+> - A2 双机 internode 在 normal 模式下**不支持任何量化**。
+> - MXFP8 per-block tuple 输入仅在 **intranode** dispatch 支持（不支持 internode）。
+> - AlltoAll 策略**不支持** tuple 量化输入。
+
+**INT8 tuple 示例：**
+```python
+x_tuple = (x_bf16, torch.tensor([], dtype=torch.int8, device="npu"))
+recv_x, ..., handle, event = buffer.dispatch(x=x_tuple, ...)
+# recv_x 为 tuple: (int8_tensor, float32_scales)
+```
+
+**MXFP8 tuple 示例：**
+```python
+x_tuple = (x_bf16, torch.tensor([], dtype=torch.float8_e4m3fn, device="npu"))
+recv_x, ..., handle, event = buffer.dispatch(x=x_tuple, ...)
+# recv_x 为 tuple: (float8_e4m3fn_data, float8_e8m0fnu_scales)
+```
+
+---
+
+### 平台约束
+
+| 参数 | A2 单机 | A2 双机 | A3 | A5 (C310) |
+|:---|:---|:---|:---|:---|
+| `num_tokens` | (0, 8192] | (0, 4096] | (0, 8192] / (0, 32k] 长序列 | — |
+| `hidden` | (0, 7168]，÷ 32 | (0, 7168]，÷ 32 | [1024, 7168] | — |
+| `num_topk` | (0, 16] | [2, 16] | (0, 16] | — |
+| `num_experts` | (0, 512] | (0, 512] | (0, 512] | (0, 512] |
+| 量化（intranode） | INT8 ✅ | ❌ 不支持 | INT8 ✅，MXFP8 ✅ | INT8 ✅，MXFP8 ✅ |
+| 量化（internode） | INT8 ✅ | ❌ 不支持 | INT8 ✅ | — |
+| 策略 | default | default | default, alltoall | default, alltoall |

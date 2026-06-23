@@ -1,111 +1,282 @@
-**文件**：`buffer.py`
+# Low-Latency Mode API
 
-**核心类**：`Buffer`
+<div align="center">
 
-**依赖**：`torch`, `deep_ep_cpp`
+[![Mode](https://img.shields.io/badge/Mode-Low--Latency-orange)]()
+[![Latency](https://img.shields.io/badge/Latency-<150us-red)]()
+[![Platforms](https://img.shields.io/badge/Platforms-A2%20%7C%20A3%20%7C%20A5-green)]()
 
-**目的**：在 **多 NPU（Intranode）** 与 **跨节点（Internode）** 环境下，高效完成 低时延**Token Dispatch** 与 **Token Combine**（即分发?归约）操作。
+English | [中文](#中文)
 
-# low_latency_dispatch
+</div>
 
-## python侧接口
+Buffer class low_latency_dispatch/combine API for decode-phase inference with sub-150us latency.
 
-```python
-# noinspection PyTypeChecker
-def low_latency_dispatch(self, x: torch.Tensor, topk_idx: torch.Tensor,
-                         num_max_dispatch_tokens_per_rank: int, num_experts: int,
-                         cumulative_local_expert_recv_stats: Optional[torch.Tensor] = None,
-                         use_fp8: bool = True, round_scale: bool = False, use_ue8m0: bool = False,
-                         async_finish: bool = False, return_recv_hook: bool = False) -> \
-        Tuple[Tuple[torch.Tensor, torch.Tensor], torch.Tensor, Tuple, EventOverlap, Callable]:
-"""
-        A low-latency implementation for dispatch.
+---
 
-Arguments:
-	x：带有`torch.bfloat16`的`torch.Tensor`，形状为`[num_tokens，隐藏的]`，只有几个隐藏的形状是支持，要分发的令牌数必须小于`num_max_dispatch_tokens_per_rank`。
-	topk_idx：带有`torch.int64`的`torch.Tensor`，形状为`[num_tokens, num_topk]`，只有几个top-k形状都支持。支持`-1`个索引（不选择任何专家）。
-	num_max_dispatch_tokens_per_rank：要分发的令牌的最大数量，所有Rank必须持有相同的值。
-	num_experts：所有专家的个数。
-	accumulation_local_expert_recv_stats：用于统计的累积专家计数张量，它应该具有形状`[num_local_experts]`并键入为`torch.int`。这对于在线服务EP负载平衡监控非常有用。
-	use_fp8：是否启用FP8铸造，有了此，接收的数据将是FP8张量和缩放因子的元组。
-	Round_scale：是否将缩放因子四舍五入为2的次幂。
-	use_ue8m0：是否使用UE8M0作为缩放因子格式（仅适用于`round_scale=True`）。
-	async_finish：如果设置了，当前流不会等待通信内核完成。
-	return_recv_hook：如果设置了，则返回接收钩子。如果设置，内核将只处理RDMA请求问题，但是并没有实际接收到数据，你必须调用接收的钩子来确保数据的到达。如果不设置此标志，内核将确保数据的到达。
+## English
 
-Returns:
-	recv_x：一个张量或元组，包含每个专家的接收令牌。当 `use_fp8=True` 时：第一个元素是一个形状为 `[num_local_experts, num_max_dispatch_tokens_per_rank * num_ranks, hidden]` 的 `torch.Tensor`，使用 `torch.float8_e4m3fn` 类型。第二个张量是第一个元素的相应比例，形状为 `[num_local_experts, num_max_dispatch_tokens_per_rank * num_ranks, hidden // 128]`，使用 `torch.float` 类型，如果 `use_ue8m0=False`。如果 `use_ue8m0=True`，第二个张量是打包的，形状为 `[num_local_experts, num_max_dispatch_tokens_per_rank * num_ranks, hidden // 512]`，类型为 `torch.int`。注意，比例张量的最后两个维度是列主序的，以兼容 TMA。当 `use_fp8=False` 时，结果将是一个形状为 `[num_local_experts, num_max_dispatch_tokens_per_rank * num_ranks, hidden]` 的张量，使用 `torch.bfloat16` 类型。此外，并非所有令牌都是有效的，只有部分 `num_max_dispatch_tokens_per_rank * num_ranks` 是有效的，因为我们没有将 CPU 接收计数与 GPU 同步（即使同步也不会与 CUDA 图不兼容）。
-	recv_count：一个形状为 `[num_local_experts]` 的张量，类型为 `torch.int`，表示每个专家接收的令牌数量。如前所述，`recv_x` 中并非所有令牌都是有效的。
-	handle：在 `low_latency_combine` 函数中使用的通信句柄。
-	event：执行内核后的事件（仅在 `async_finish` 设置时有效）。
-	hook：接收钩子函数（仅在 `return_recv_hook` 设置时有效）。
-"""
-```
+### `low_latency_dispatch`
 
-| **参数类别** | **参数名**                           | **类型**                 | **默认值** | **详细描述**                                                 | **是否必要** | **注意事项**                                                 |
-| ------------ | ------------------------------------ | ------------------------ | ---------- | ------------------------------------------------------------ | ---------- | ------------------------------------------------------------ |
-| **核心输入** | `x`                                  | `torch.Tensor`           | -          | 输入token数据，形状`[num_tokens, hidden]`，类型`torch.bfloat16`。`num_tokens <= 512`| 是        | token数必须小于`num_max_dispatch_tokens_per_rank`, A2 算子实现要求 0 < hidden <= 7168 and hidden % 32 = 0           |
-|              | `topk_idx`                           | `torch.Tensor`           | -          | 专家索引，形状`[num_tokens, num_topk]`，类型`torch.int64`，支持`-1`（不选择任何专家） | 是        | 决定token路由到哪个专家                                      |
-| **配置参数** | `num_max_dispatch_tokens_per_rank`   | `int`                    | -          | 每个rank最大分发token数，所有rank必须相同                    | 是        | 影响内存分配和性能上限                                       |
-|              | `num_experts`                        | `int`                    | -          | 专家总数                                                     | 是        | 用于路由决策和负载均衡                                       |
-| **统计监控** | `cumulative_local_expert_recv_stats` | `Optional[torch.Tensor]` | `None`     | 累计专家接收统计，形状`[num_local_experts]`，类型`torch.int` | -          | 用于在线服务EP负载均衡监控。DeepEp-Ascend不需要              |
-| **精度控制** | `use_fp8`                            | `bool`                   | `True`     | 是否启用FP8量化。NPU上默认启用per-token动态量化（quant_mode=2），通信数据为INT8格式，缩放因子为per-token float32。 | -        | 显著减少通信带宽                                             |
-|              | `round_scale`                        | `bool`                   | `False`    | 是否将缩放因子四舍五入为2的幂                                | -          | 与`use_ue8m0`配合使用                                        |
-|              | `use_ue8m0`                          | `bool`                   | `False`    | 是否使用E8M0（UE8M0）作为缩放因子格式。NPU上启用后触发MXFP8 per-block量化（quant_mode=3），通信数据为`float8_e4m3fn`，缩放因子为per-block `float8_e8m0fnu`（每32个元素一个scale）。需要`use_fp8=True`。 | -          | 进一步减少通信带宽，适用于A5（C310）平台                     |
-| **异步控制** | `async_finish`                       | `bool`                   | `False`    | 如果设置，当前流不会等待通信内核完成                         | -          | 提高GPU利用率，需手动同步。DeepEp-Ascend不需要               |
-|              | `return_recv_hook`                   | `bool`                   | `False`    | 如果设置，返回接收钩子，内核只发RDMA请求不接收数据           | -          | 实现真正的异步通信，必须调用钩子确保数据到达。DeepEp-Ascend不需要 |
-| **返回值**   | `recv_x`                             | `Tuple/Tensor`           | -          | 接收的token数据：<br>- BF16 (`use_fp8=False`): `bfloat16_tensor`，形状`[num_max_tokens, hidden]`<br>- FP8 per-token (`use_fp8=True, use_ue8m0=False`): `(INT8_tensor, float32_scales)`，缩放因子形状`[num_max_tokens]`<br>- MXFP8 per-block (`use_fp8=True, use_ue8m0=True`): `(float8_e4m3fn_tensor, float8_e8m0fnu_scales)`，缩放因子形状`[num_max_tokens * hidden / 32]` | 是        | 并非所有token都有效，需结合`recv_count`使用                  |
-|              | `recv_count`                         | `torch.Tensor`           | -          | 每个专家接收的token数量，形状`[num_local_experts]`，类型`torch.int` | 是        | 指示`recv_x`中有效token数量                                  |
-|              | `handle`                             | `tuple`                  | -          | 通信句柄，包含`(src_info, layout_range, num_max_dispatch_tokens_per_rank, hidden, num_experts, packed_recv_count)` | 是        | 必须传递给`low_latency_combine`                              |
-|              | `event`                              | `EventOverlap`           | -          | 内核执行后的事件（仅在`async_finish=True`时有效）            | -          | 用于事件同步和记录。DeepEp-Ascend不需要                      |
-|              | `hook`                               | `Callable`               | -          | 接收钩子函数（仅在`return_recv_hook=True`时有效）            | -          | 调用以确保数据到达。DeepEp-Ascend不需要                      |
-
-# low_latency_combine
-
-## Python 侧接口
+Low-latency token dispatch for decode phase.
 
 ```python
-def low_latency_combine(self, x: torch.Tensor,
-                        topk_idx: torch.Tensor,
-                        topk_weights: torch.Tensor,
-                        handle: tuple,
-                        zero_copy: bool = False,
-                        async_finish: bool = False,
-                        return_recv_hook: bool = False,
-                        out: Optional[torch.Tensor] = None) -> \
-            Tuple[torch.Tensor,
-                  EventOverlap,
-                  Callable]:
-"""
-Combine算子的低时延实现
-
-参数：
-	x：数据类型为 torch.bfloat16、形状为 [num_local_experts, num_max_dispatch_tokens_per_rank * num_ranks, hidden] 的张量，指需发送至原始 rank 进行 reduce 运算的本地 token。
-	topk_idx：数据类型为torch.int64、形状为[num_combined_tokens, num_topk]的张量，代表由调度令牌选中的专家索引。支持-1索引（表示不选中任何专家）。需注意，num_combined_tokens等于dispatched token 的数量。
-	topk_weights：数据类型为 torch.float、形状为 [num_tokens, num_topk] 的张量，指需发送至初始 rank 进行 reduce 运算的token 的 Top-K 权重。接收的 token 将通过该张量中的权重进行归约。
-	handle：由 dispatch 函数提供的通信句柄。
-	zero_copy：表示张量是否已复制到 RDMA（远程直接内存访问）缓冲区中，需与get_next_low_latency_combine_buffer协同使用。
-	async_finish：若设置为 True，当前 stream 将不会等待通信核心运算完成（即采用异步执行方式）。
-	return_recv_hook：若设为 True，将返回接收钩子（receiving hook）。此时，内核仅会发起 RDMA 请求，不会实际接收数据。必须调用接收钩子，以确保数据到达。若不设置此标志，内核将确保数据到达。
-	out：原地（in-place）输出张量。若设置该参数，内核会将结果写入此张量，并直接返回该张量。
-
-返回值（Returns）：
-	combined_x：归约后的 token 张量，形状为[num_combined_tokens, hidden]，数据类型为torch.bfloat16。
-	event：执行内核后的事件（仅当async_finish设为 True 时有效）。
-	hook：接收钩子函数（仅当return_recv_hook设为 True 时有效）。
-"""
+recv_x, recv_count, handle, event, hook = buffer.low_latency_dispatch(
+    x: torch.Tensor,                                  # [num_tokens, hidden], bfloat16
+    topk_idx: torch.Tensor,                           # [num_tokens, num_topk], int64
+    num_max_dispatch_tokens_per_rank: int,
+    num_experts: int,
+    cumulative_local_expert_recv_stats: Optional[torch.Tensor] = None,
+    use_fp8: bool = True,
+    round_scale: bool = False,
+    use_ue8m0: bool = False,
+    async_finish: bool = False,
+    return_recv_hook: bool = False,
+    topk_weights: Optional[torch.Tensor] = None,
+)
 ```
 
-| **参数类别** | **参数名**         | **类型**                 | **默认值** | **详细描述**                                                 | **是否必要** | **注意事项**                                |
-| ------------ | ------------------ | ------------------------ | ---------- | ------------------------------------------------------------ | ---------- | ------------------------------------------- |
-| **核心输入** | `x`                | `torch.Tensor`           | -          | 本地计算的token，形状`[num_local_experts, num_max_dispatch_tokens_per_rank * num_ranks, hidden]`，类型`torch.bfloat16` | 是        | 每个专家处理后的结果                        |
-|              | `topk_idx`         | `torch.Tensor`           | -          | 专家索引，形状`[num_combined_tokens, num_topk]`，类型`torch.int64`，`num_combined_tokens`等于分发token数 | 是        | 必须与dispatch时的索引匹配                  |
-|              | `topk_weights`     | `torch.Tensor`           | -          | 专家权重，形状`[num_combined_tokens, num_topk]`，类型`torch.float`，用于归约时加权 | 是        | 决定最终token的加权结果                     |
-| **通信控制** | `handle`           | `tuple`                  | -          | 由dispatch函数返回的通信句柄，包含路由信息和统计信息         | 是        | **必须**从对应的dispatch调用获取            |
-| **优化控制** | `zero_copy`        | `bool`                   | `False`    | 张量是否已复制到RDMA缓冲区，需与`get_next_low_latency_combine_buffer`配合使用 | -          | 减少内存拷贝开销。DeepEp-Ascend不需要       |
-| **异步控制** | `async_finish`     | `bool`                   | `False`    | 如果设置，当前流不会等待通信内核完成                         | -          | 提高GPU利用率。DeepEp-Ascend不需要          |
-|              | `return_recv_hook` | `bool`                   | `False`    | 如果设置，返回接收钩子，内核只发RDMA请求不接收数据           | -          | 实现真正的异步通信。DeepEp-Ascend不需要     |
-| **输出控制** | `out`              | `Optional[torch.Tensor]` | `None`     | 原地输出张量，如果设置，结果直接写入此张量                   | -          | 避免额外内存分配。DeepEp-Ascend不需要       |
-| **返回值**   | `combined_x`       | `torch.Tensor`           | -          | 归约后的token张量，形状`[num_combined_tokens, hidden]`，类型`torch.bfloat16` | 是        | 最终的专家混合结果                          |
-|              | `event`            | `EventOverlap`           | -          | 内核执行后的事件（仅在`async_finish=True`时有效）            | -          | 用于事件同步和记录。DeepEp-Ascend不需要     |
-|              | `hook`             | `Callable`               | -          | 接收钩子函数（仅在`return_recv_hook=True`时有效）            | -          | 必须调用以确保数据到达。DeepEp-Ascend不需要 |
+#### Parameters
+
+| Parameter | Type | Default | Description |
+|:---|:---|:---|:---|
+| `x` | `Tensor` (bfloat16) `[num_tokens, hidden]` | — | Input tokens. Only `torch.Tensor` (no tuple). Quantization controlled by `use_fp8`/`use_ue8m0` flags. |
+| `topk_idx` | `Tensor` (int64) `[num_tokens, num_topk]` | — | Expert indices (`-1` = none). |
+| `num_max_dispatch_tokens_per_rank` | `int` | — | Max tokens per rank. All ranks must agree. |
+| `num_experts` | `int` | — | Total expert count. |
+| `use_fp8` | `bool` | `True` | Enable quantization. See [Quantization](#quantization-modes). |
+| `round_scale` | `bool` | `False` | Round scales to power of 2. **Independent** from `use_ue8m0` — not required for MXFP8. |
+| `use_ue8m0` | `bool` | `False` | Use E8M0 scale format (MXFP8 per-block). **A5/C310 only.** Requires `use_fp8=True`. Does NOT require `round_scale=True`. |
+
+<details>
+<summary><b>Platform-specific Parameters</b></summary>
+
+| Parameter | Type | Default | Description |
+|:---|:---|:---|:---|
+| `cumulative_local_expert_recv_stats` | `Optional[Tensor]` `[num_local_experts]` (int) | `None` | Expert receive stats for load balancing monitoring. Unused on Ascend. |
+| `async_finish` | `bool` | `False` | No-op on Ascend. |
+| `return_recv_hook` | `bool` | `False` | No-op on Ascend. |
+| `topk_weights` | `Optional[Tensor]` | `None` | Required when using ops strategy `comm_alg="hierarchy"`. |
+
+</details>
+
+#### Returns
+
+| Return | Type | Description |
+|:---|:---|:---|
+| `recv_x` | `Tensor` or `(Tensor, Tensor)` | Received tokens. See [Quantization](#quantization-modes). |
+| `recv_count` | `Tensor` (int) `[num_local_experts]` | Valid token count per expert. |
+| `handle` | `Tuple` | Communication handle for `low_latency_combine`. |
+| `event` | `EventOverlap` | NPU event (no-op on Ascend). |
+| `hook` | `Callable` | Receive hook (no-op on Ascend). |
+
+---
+
+### `low_latency_combine`
+
+Reduces tokens from low_latency_dispatch across ranks.
+
+```python
+combined_x, event, hook = buffer.low_latency_combine(
+    x: torch.Tensor,          # [num_local_experts, num_max * num_ranks, hidden], bfloat16
+    topk_idx: torch.Tensor,
+    topk_weights: torch.Tensor,
+    handle: tuple,
+    zero_copy: bool = False,
+    async_finish: bool = False,
+    return_recv_hook: bool = False,
+    out: Optional[torch.Tensor] = None,
+)
+```
+
+#### Returns
+
+| Return | Type | Description |
+|:---|:---|:---|
+| `combined_x` | `Tensor` (bfloat16) `[num_combined_tokens, hidden]` | Reduced tokens. |
+| `event` | `EventOverlap` | NPU event (no-op on Ascend). |
+| `hook` | `Callable` | Receive hook (no-op on Ascend). |
+
+<details>
+<summary><b>Parameters (no-op on Ascend)</b></summary>
+
+| Parameter | Type | Default | Description |
+|:---|:---|:---|:---|
+| `zero_copy` | `bool` | `False` | No-op on Ascend. |
+| `async_finish` | `bool` | `False` | No-op on Ascend. |
+| `return_recv_hook` | `bool` | `False` | No-op on Ascend. |
+| `out` | `Optional[Tensor]` | `None` | No-op on Ascend. |
+
+</details>
+
+---
+
+### Quantization Modes
+
+Three quantization modes controlled by `use_fp8` and `use_ue8m0` flags:
+
+| Mode | quant_mode | Flags | Output Format | Platform |
+|:---|:---:|:---|:---|:---|
+| **BF16** (no quant) | `0` | `use_fp8=False` | `bfloat16` `[experts, max_tokens × ranks, hidden]` | A2 ✅ A3 ✅ A5 ✅ |
+| **INT8 per-token** | `2` | `use_fp8=True, use_ue8m0=False` (**default**) | `(int8_tensor, float32_scales)` — scales `[experts, max_tokens × ranks]` | A2 ✅ A3 ✅ A5 ✅ |
+| **MXFP8 per-block** | `3` | `use_fp8=True, use_ue8m0=True` | `(float8_e4m3fn, float8_e8m0fnu)` — scales packed `[experts, max_tokens × ranks, hidden // 512]` (int) | A2 ❌ A3 ❌ **A5 ✅** |
+
+> [!NOTE]
+> Despite the name `use_fp8`, the **default mode** (`use_fp8=True, use_ue8m0=False`) produces **INT8 per-token** data, not FP8. The quantization formula is: `quant_mode = 3 if use_ue8m0 else 2 if use_fp8 else 0`.
+
+> [!IMPORTANT]
+> `use_ue8m0` does NOT require `round_scale=True`. These are independent parameters — `round_scale` rounds scales to powers of 2 for specific hardware optimizations, but MXFP8 per-block works regardless of `round_scale` setting.
+
+---
+
+### Strategy & `comm_alg` Options
+
+| Strategy | `DEEP_USE_MODE` | Platforms | Notes |
+|:---|:---|:---|:---|
+| DefaultLowLatencyCommStrategy | `default` | A2, A3, A5 | Custom ops. Internally: A2=fullmesh, A3=fullmesh_v1, A5=ccu/fullmesh_v1. |
+| OpsLowLatencyCommStrategy | `ops` | A2, A3, A5 | torch_npu ops. Supports `comm_alg`. |
+| AllToAllLowLatencyCommStrategy | `alltoall` | A2, A3, A5 | torch.distributed alltoall. |
+
+**`comm_alg` for ops strategy:**
+
+| `comm_alg` | A2 | A3 | A5 | Notes |
+|:---|:---:|:---:|:---:|:---|
+| `""` | ✅ | ✅ | ✅ | Default |
+| `hierarchy` | ❌ | ✅ | ❌ | A3 only. Requires `topk_weights`. |
+| `fullmesh_v1` | ✅ | ✅ | ✅ | Standard full-mesh. |
+| `fullmesh_v2` | ❌ | ✅ | ❌ | A3 only. Has restrictions. |
+| `ccu` | ❌ | — | ✅ | A5 CCU engine. |
+
+> [!WARNING]
+> `comm_alg` is hardcoded to `"hierarchy"` in `Buffer.__init__`. To use a different `comm_alg`, modify the source code or pass a `low_latency_strategy` parameter — though note that `Buffer.__init__` currently overrides strategy parameters with `DEEP_USE_MODE`.
+
+---
+
+### Platform Constraints
+
+| | A2 | A3 | A5 (C310) |
+|:---|:---|:---|:---|
+| `num_tokens` | ≤ 512 | ≤ 512 | ≤ 512 |
+| `hidden` | (0, 7168], ÷ 32 | [1024, 7168] | — |
+| `num_experts` | (0, 512] | (0, 512] | (0, 512] |
+| INT8 per-token | ✅ | ✅ | ✅ |
+| MXFP8 per-block | ❌ | ❌ | ✅ |
+
+---
+
+<a id="中文"></a>
+
+## 中文
+
+### `low_latency_dispatch`
+
+Decode 阶段的低时延 token 分发。
+
+```python
+recv_x, recv_count, handle, event, hook = buffer.low_latency_dispatch(
+    x: torch.Tensor,                                  # [num_tokens, hidden], bfloat16
+    topk_idx: torch.Tensor,                           # [num_tokens, num_topk], int64
+    num_max_dispatch_tokens_per_rank: int,
+    num_experts: int,
+    use_fp8: bool = True,
+    round_scale: bool = False,
+    use_ue8m0: bool = False,
+)
+```
+
+#### 参数
+
+| 参数 | 类型 | 默认 | 说明 |
+|:---|:---|:---|:---|
+| `x` | `Tensor` (bfloat16) `[num_tokens, hidden]` | — | 输入 token，仅 Tensor（不支持 tuple）。量化由 `use_fp8`/`use_ue8m0` 控制。 |
+| `topk_idx` | `Tensor` (int64) `[num_tokens, num_topk]` | — | 专家索引，`-1` 无选中。 |
+| `num_max_dispatch_tokens_per_rank` | `int` | — | 每 rank 最大 token 数，所有 rank 一致。 |
+| `num_experts` | `int` | — | 专家总数。 |
+| `use_fp8` | `bool` | `True` | 启用量化。详见[量化模式](#量化模式-1)。 |
+| `round_scale` | `bool` | `False` | 缩放因子四舍五入为 2 的幂。**独立于** `use_ue8m0`——MXFP8 不需要此参数。 |
+| `use_ue8m0` | `bool` | `False` | E8M0 格式缩放因子 → MXFP8 per-block（**仅 A5/C310**）。需 `use_fp8=True`，**不需要** `round_scale=True`。 |
+
+<details>
+<summary><b>平台相关参数</b></summary>
+
+| 参数 | 类型 | 默认 | 说明 |
+|:---|:---|:---|:---|
+| `cumulative_local_expert_recv_stats` | `Optional[Tensor]` | `None` | 负载均衡统计，Ascend 上未使用。 |
+| `async_finish` | `bool` | `False` | Ascend 上无实际作用。 |
+| `return_recv_hook` | `bool` | `False` | Ascend 上无实际作用。 |
+| `topk_weights` | `Optional[Tensor]` | `None` | ops 策略 `comm_alg="hierarchy"` 时必填。 |
+
+</details>
+
+#### 返回值
+
+| 返回值 | 类型 | 说明 |
+|:---|:---|:---|
+| `recv_x` | `Tensor` 或 `(Tensor, Tensor)` | 接收 token。格式见[量化模式](#量化模式-1)。 |
+| `recv_count` | `Tensor` (int) `[num_local_experts]` | 每个专家的有效 token 数。 |
+| `handle` | `Tuple` | 供 `low_latency_combine` 使用。 |
+
+---
+
+### `low_latency_combine`
+
+对 low_latency_dispatch 返回的 token 进行归约。
+
+#### 返回值
+
+| 返回值 | 类型 | 说明 |
+|:---|:---|:---|
+| `combined_x` | `Tensor` (bfloat16) `[num_combined_tokens, hidden]` | 归约后的 token。 |
+
+---
+
+### 量化模式
+
+三种量化模式由 `use_fp8` 和 `use_ue8m0` 控制：
+
+| 模式 | quant_mode | 标志 | 输出格式 | 平台 |
+|:---|:---:|:---|:---|:---|
+| **BF16**（不量化） | `0` | `use_fp8=False` | `bfloat16` `[experts, max_tokens × ranks, hidden]` | A2 ✅ A3 ✅ A5 ✅ |
+| **INT8 per-token** | `2` | `use_fp8=True, use_ue8m0=False`（**默认**） | `(int8_tensor, float32_scales)` — scales `[experts, max_tokens × ranks]` | A2 ✅ A3 ✅ A5 ✅ |
+| **MXFP8 per-block** | `3` | `use_fp8=True, use_ue8m0=True` | `(float8_e4m3fn, float8_e8m0fnu)` — scales packed `[experts, max_tokens × ranks, hidden // 512]` | A2 ❌ A3 ❌ **A5 ✅** |
+
+> [!NOTE]
+> 尽管参数名 `use_fp8`，**默认模式**（`use_fp8=True, use_ue8m0=False`）产出的是 **INT8 per-token** 数据，不是 FP8。量化公式为：`quant_mode = 3 if use_ue8m0 else 2 if use_fp8 else 0`。
+
+> [!IMPORTANT]
+> `use_ue8m0` **不需要** `round_scale=True`。这两个参数是独立的——`round_scale` 将缩放因子四舍五入为 2 的幂用于特定硬件优化，但 MXFP8 per-block 无论 `round_scale` 设置如何均可工作。
+
+---
+
+### 策略与 `comm_alg` 选项
+
+| 策略 | `DEEP_USE_MODE` | 平台 | 说明 |
+|:---|:---|:---|:---|
+| DefaultLowLatencyCommStrategy | `default` | A2/A3/A5 | 自定义算子。内部：A2=fullmesh, A3=fullmesh_v1, A5=ccu。 |
+| OpsLowLatencyCommStrategy | `ops` | A2/A3/A5 | torch_npu 算子，支持 `comm_alg`。 |
+| AllToAllLowLatencyCommStrategy | `alltoall` | A2/A3/A5 | torch.distributed alltoall。 |
+
+**ops 策略 `comm_alg`：**
+
+| `comm_alg` | A2 | A3 | A5 | 说明 |
+|:---|:---:|:---:|:---:|:---|
+| `""` | ✅ | ✅ | ✅ | 默认 |
+| `hierarchy` | ❌ | ✅ | ❌ | 仅 A3，需 `topk_weights`。 |
+| `fullmesh_v1` | ✅ | ✅ | ✅ | 标准 full-mesh。 |
+| `fullmesh_v2` | ❌ | ✅ | ❌ | 仅 A3，有额外限制。 |
+| `ccu` | ❌ | — | ✅ | A5 CCU 引擎。 |
+
+> [!WARNING]
+> `comm_alg` 在 `Buffer.__init__` 中硬编码为 `"hierarchy"`。要使用其他 `comm_alg` 需修改源码或传入 `low_latency_strategy` 参数——但注意 `Buffer.__init__` 目前会用 `DEEP_USE_MODE` 覆盖策略参数。
+
+---
+
+### 平台约束
+
+| | A2 | A3 | A5 (C310) |
+|:---|:---|:---|:---|
+| `num_tokens` | ≤ 512 | ≤ 512 | ≤ 512 |
+| `hidden` | (0, 7168]，÷ 32 | [1024, 7168] | — |
+| `num_experts` | (0, 512] | (0, 512] | (0, 512] |
+| INT8 per-token | ✅ | ✅ | ✅ |
+| MXFP8 per-block | ❌ | ❌ | ✅ |
