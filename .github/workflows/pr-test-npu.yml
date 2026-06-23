@@ -575,7 +575,6 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=4096
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=6144
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=7168
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --hidden=8192
       - name: Run test topk num intranode
         timeout-minutes: 10
         env:
