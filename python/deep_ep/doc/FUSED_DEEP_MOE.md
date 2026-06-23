@@ -15,24 +15,41 @@ English | [中文](#中文)
 
 ---
 
-## DeepEP-DeepFusedMoE
-
+## English
 
 ### Introduction
-In Mixture of Experts (MoE) models, the fused_deep_moe operator implements the hyper-fusion of Dispatch + Experts FFN (2×GMM) + Combine functionalities.
+
+In Mixture of Experts (MoE) models, the `fused_deep_moe` operator implements the hyper-fusion of Dispatch + Experts FFN (2×GMM) + Combine functionalities.
 This operator completes token distribution, expert computation (matrix multiplication, activation, quantization/dequantization), and result aggregation in a single call. Compared with traditional multi-operator implementations, it significantly reduces communication overhead and end-to-end latency.
 The communication latency (Batch size = 32 / 155μs, Dispatch = 80μs, Combine = 75μs) is reduced to less than 85μs, with a 70μs reduction in single-layer communication latency and a 4ms reduction in inference end-to-end latency.
 
-* In MoE-based large models, each token (a vector with consistent length across all tokens) needs to be processed by multiple experts, and the processed results are collected and accumulated. Different experts are distributed across different NPU cards, and each card supports deploying multiple experts.
+Two fuse modes are available via the `FuseMode` enum:
 
-* The operation/operator for distributing tokens to multiple experts is called dispatch. The corresponding alcnn operator is already available in CANN.
-* Expert processing mainly consists of computational operations: matrix multiplication, activation, and matrix multiplication in sequence, resulting in new tokens with unchanged length after processing.
-  * Since multiple experts may reside on a single card, a single computation operator processes multiple experts simultaneously. Thus, the computational steps on one card are grouped matrix multiplication, activation, and grouped matrix multiplication in sequence.
-  * To reduce memory overhead and accelerate computation, quantization-dequantization operations are typically introduced. The complete computational flow becomes: grouped matrix multiplication → dequantization → activation → quantization → grouped matrix multiplication → dequantization.
-  * ATB currently provides a large computation operator GmmDepSwigluQuantGmmDep that can complete all the above computational steps in one go.
-* The operation/operator for collecting and accumulating processed results is called combine. The corresponding alcnn operator is already available in CANN.
+| FuseMode | Value | CANN Operator | Description |
+|----------|-------|---------------|-------------|
+| `FuseMode.FUSED_DEEP_MOE` | `1` | `aclnnFusedDeepMoe` | Full fusion: InitRouting + AllToAll + GMM1 + DequantSwigluQuant + GMM2 + Dequant + Unpermute/Combine in a single AscendC kernel. |
+| `FuseMode.DISPATCH_FFN_COMBINE` | `2` | `aclnnDispatchFFNCombine` | Separate dispatch handling: InitRouting + AllToAll dispatch + GMM1 + DequantSwigluQuant + GMM2 + Dequant + Combine in a single AscendC kernel, using a different internal fusion strategy. |
 
-### Python-API
+> [!NOTE]
+> `FuseMode` is **not** exported from the package's top-level `__init__.py`. Import it explicitly:
+> ```python
+> from deep_ep.buffer import FuseMode
+> ```
+> Or use integer values directly: `fuse_mode=1` (FUSED_DEEP_MOE) or `fuse_mode=2` (DISPATCH_FFN_COMBINE).
+
+#### Key Differences Between Fuse Modes
+
+| Aspect | `FUSED_DEEP_MOE` | `DISPATCH_FFN_COMBINE` |
+|--------|-------------------|------------------------|
+| **Weight scale dtype** | `float32` (auto-converted to `float` internally) | `int64` (float32 values reinterpreted as int64 bit patterns) |
+| **Weight layout (GMM1)** | Permuted via `reshape_fusion_gmm_weight()` (tile-N permutation) | Standard NZ format, no additional permutation needed |
+| **`num_max_dispatch_tokens_per_rank`** semantics | Max tokens to dispatch per rank | Max tokens received in dispatch (i.e., `max_bs × num_ranks × topk`) |
+| **Second return value** | `ep_recv_count`, shape `[num_local_experts × num_ranks]` | `expert_token_nums`, shape `[num_local_experts]` (per-rank only) |
+| **Shared expert support** | Supported | **Not supported** |
+| **BF16 weight support** | Available | **Not available** — only INT8 weights are supported currently |
+
+### Python API
+
 ```python
 def fused_deep_moe(
     x: torch.Tensor,
@@ -45,52 +62,83 @@ def fused_deep_moe(
     num_max_dispatch_tokens_per_rank: int,
     num_experts: int,
     quant_mode: int = 1,
+    fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
 ) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
 ### Parameter Description
-| Parameter | Type | Shape | Description                                                                                                                                                                                                                                                                                                                                                                                                                                |
-|-----------|------|-------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **x** | `torch.Tensor` | `[bs, hidden]` | Input token representations, where each row is the hidden vector of a token (commonly `bfloat16`).<br><br>**bs** (batch size): Range **[1, 256]**.<br>**hidden**: Represents the hidden dimension size, typically determined by the model's hidden layer width (e.g., 2048, 4096, 6144, 7168). Range **[512, 7168]**, and must be divisible by **32** to meet the alignment requirements of underlying matrix multiplication and communication. |
-| **topk_idx** | `torch.Tensor` | `[bs, num_topk]` | Expert indices for each token, `int64` type. A value of `-1` indicates the token is not dispatched.                                                                                                                                                                                                                                                                                                                                        |
-| **topk_weights** | `torch.Tensor` | `[bs, num_topk]` | Weighting coefficients for aggregating expert outputs (`float32`).                                                                                                                                                                                                                                                                                                                                                                         |
-| **gmm1_permuted_weight** | `torch.Tensor` | e.g., `[G, 7168, 4096]` | First-stage (up-projection) expert weights, permuted to fit Grouped MatMul.                                                                                                                                                                                                                                                                                                                                                                |
-| **gmm1_permuted_weight_scale** | `torch.Tensor` | e.g., `[G, 4096]` | Quantization scale for first-stage weights, required in quantization mode (`float32`).                                                                                                                                                                                                                                                                                                                                                     |
-| **gmm2_weight** | `torch.Tensor` | e.g., `[G, 7168, 2048]` | Second-stage (down-projection) expert weights.                                                                                                                                                                                                                                                                                                                                                                                             |
-| **gmm2_weight_scale** | `torch.Tensor` | e.g., `[G, 7168]` | Quantization scale for second-stage weights.                                                                                                                                                                                                                                                                                                                                                                                               |
-| **num_max_dispatch_tokens_per_rank** | `int` | Scalar | Maximum number of tokens to dispatch per rank, used for buffer/memory allocation.                                                                                                                                                                                                                                                                                                                                                          |
-| **num_experts** | `int` | Scalar | Total number of global experts.                                                                                                                                                                                                                                                                                                                                                                                                            |
-| **quant_mode** | `int` | Scalar, default `1` | Indicates quantization mode:<br>`1`: int8;<br>fp8 will be supported in A5 release.                                                                                                                                                                                                                                                                                                                                                         |
+
+| Parameter | Type | Shape | Description |
+|-----------|------|-------|-------------|
+| **x** | `torch.Tensor` | `[bs, hidden]` | Input token representations, where each row is the hidden vector of a token (commonly `bfloat16`). **bs** range **[1, 256]**. **hidden** range **[512, 7168]**, must be divisible by **32**. |
+| **topk_idx** | `torch.Tensor` | `[bs, num_topk]` | Expert indices for each token, `int64` type. A value of `-1` indicates the token is not dispatched. |
+| **topk_weights** | `torch.Tensor` | `[bs, num_topk]` | Weighting coefficients for aggregating expert outputs (`float32`). |
+| **gmm1_permuted_weight** | `torch.Tensor` | e.g., `[G, 7168, 4096]` | First-stage (up-projection) expert weights. For `FUSED_DEEP_MOE`, permuted to fit Grouped MatMul via `reshape_fusion_gmm_weight()`; for `DISPATCH_FFN_COMBINE`, standard NZ format without permutation. |
+| **gmm1_permuted_weight_scale** | `torch.Tensor` | e.g., `[G, 4096]` | Quantization scale for first-stage weights. For `FUSED_DEEP_MOE`, `float32` dtype (auto-converted internally); for `DISPATCH_FFN_COMBINE`, **`int64` dtype** (float32 scale values reinterpreted as int64 bit patterns). |
+| **gmm2_weight** | `torch.Tensor` | e.g., `[G, 7168, 2048]` | Second-stage (down-projection) expert weights. |
+| **gmm2_weight_scale** | `torch.Tensor` | e.g., `[G, 7168]` | Quantization scale for second-stage weights. Same dtype rules as `gmm1_permuted_weight_scale`. |
+| **num_max_dispatch_tokens_per_rank** | `int` | Scalar | For `FUSED_DEEP_MOE`: maximum number of tokens to dispatch per rank, used for buffer/memory allocation. For `DISPATCH_FFN_COMBINE`: maximum number of tokens received in dispatch (typically `max_bs × num_ranks × topk`). All ranks must hold the same value. |
+| **num_experts** | `int` | Scalar | Total number of global experts. |
+| **quant_mode** | `int` | Scalar, default `1` | Quantization mode: `1` = INT8 (default). FP8 will be supported in A5 release. |
+| **fuse_mode** | `FuseMode` | Scalar, default `FuseMode.FUSED_DEEP_MOE` | Fuse mode selection. `FUSED_DEEP_MOE` (1): full fusion via `aclnnFusedDeepMoe`. `DISPATCH_FFN_COMBINE` (2): separate dispatch handling via `aclnnDispatchFFNCombine`. |
 
 ### Return Values
-| Parameter                     | 	Type             | 	Shape                         | Description                                                                     |
-|-------------------------------| -------------- | -------------------------- |------------------------------------------------------------------------|
-| **output**                      | `torch.Tensor` | `[bs, hidden]`             | Fused expert outputs.                                                 |
-| **ep_recv_count**             | `torch.Tensor` | `[num_local_experts]`           | Number of tokens received by each card in the EP communication domain, which is used for subsequent communication synchronization or load balancing statistics.
-|
+
+#### For `fuse_mode=FUSED_DEEP_MOE` (default)
+
+| Parameter | Type | Shape | Description |
+|-----------|------|-------|-------------|
+| **output** | `torch.Tensor` | `[bs, hidden]` | Fused expert outputs. |
+| **ep_recv_count** | `torch.Tensor` | `[num_local_experts × num_ranks]` | Number of tokens received by each expert across all ranks in the EP communication domain, used for subsequent communication synchronization or load balancing statistics. |
+
+#### For `fuse_mode=DISPATCH_FFN_COMBINE`
+
+| Parameter | Type | Shape | Description |
+|-----------|------|-------|-------------|
+| **output** | `torch.Tensor` | `[bs, hidden]` | Fused expert outputs. |
+| **expert_token_nums** | `torch.Tensor` | `[num_local_experts]` | Number of tokens received by each local expert on this rank, used for subsequent communication synchronization or load balancing statistics. |
 
 ---
 
 <a id="中文"></a>
 
-## DeepEP-DeepFusedMoE
+## 中文
 
 ### 介绍
-在 MoE（Mixture of Experts，混合专家模型）中，fused_deep_moe 算子实现 Dispatch + Experts FFN (2×GMM) + Combine 的超融合功能。
+
+在 MoE（Mixture of Experts，混合专家模型）中，`fused_deep_moe` 算子实现 Dispatch + Experts FFN (2×GMM) + Combine 的超融合功能。
 
 该算子在一次调用中完成 token 分发、专家计算（矩阵乘、激活、量化/反量化）以及结果合并操作，相比传统多算子实现显著降低通信开销和端到端时延。
 
 通信时长（Batch size = 32 / 155μs，Dispatch = 80μs，Combine = 75μs）降低到85μs以内，单层通信时长降低70μs，推理端到端时延降低4ms。
 
-- 在MoE类大模型中，每个token（一个向量，所有token长度一致）需要交给多个专家处理，并将处理后的结果收回并累加到一起。不同专家分布在不同的NPU卡上，每张卡支持部署多个专家。
-- token交给多个专家的操作/算子被称为dispatch（分发）。当前CANN中已有对应的alcnn算子。
-- 专家处理主要是一系列计算动作，依次为矩阵乘、激活、矩阵乘，处理后得到的新token长度不变。
-  - 由于一张卡上可能部署多个专家，一个计算算子会同时处理多个专家，因此单卡的计算动作依次为分组矩阵乘（Grouped MatMul）、激活、分组矩阵乘。
-  - 为减少显存开销、加速计算，通常会引入量化-反量化操作，完整计算流程为：分组矩阵乘 → 反量化 → 激活 → 量化 → 分组矩阵乘 → 反量化。
-  - 当前ATB已提供大计算算子GmmDepSwigluQuantGmmDep，可一次性完成上述所有计算动作。
-- 将处理后的结果收回并累加到一起的操作/算子，被称为combine（合并）。当前CANN中已有对应的alcnn算子。
+通过 `FuseMode` 枚举提供两种融合模式：
 
-### Python-API
+| FuseMode | 值 | CANN 算子 | 说明 |
+|----------|---|-----------|------|
+| `FuseMode.FUSED_DEEP_MOE` | `1` | `aclnnFusedDeepMoe` | 完整融合：InitRouting + AllToAll + GMM1 + DequantSwigluQuant + GMM2 + Dequant + Unpermute/Combine 在单个 AscendC kernel 中完成。 |
+| `FuseMode.DISPATCH_FFN_COMBINE` | `2` | `aclnnDispatchFFNCombine` | 分离 dispatch 处理：InitRouting + AllToAll 分发 + GMM1 + DequantSwigluQuant + GMM2 + Dequant + Combine 在单个 AscendC kernel 中完成，采用不同的内部融合策略。 |
+
+> [!NOTE]
+> `FuseMode` **未**从包顶层 `__init__.py` 导出，需显式导入：
+> ```python
+> from deep_ep.buffer import FuseMode
+> ```
+> 或直接使用整数值：`fuse_mode=1`（FUSED_DEEP_MOE）或 `fuse_mode=2`（DISPATCH_FFN_COMBINE）。
+
+#### 两种融合模式的关键差异
+
+| 方面 | `FUSED_DEEP_MOE` | `DISPATCH_FFN_COMBINE` |
+|------|-------------------|------------------------|
+| **权重 scale 数据类型** | `float32`（内部自动转换为 `float`） | `int64`（float32 scale 值重新解释为 int64 位模式） |
+| **GMM1 权重布局** | 经 `reshape_fusion_gmm_weight()` 做 tile-N 重排（permute） | 标准 NZ 格式，无需额外重排 |
+| **`num_max_dispatch_tokens_per_rank`** 语义 | 每个 rank 最多分发的 token 数 | dispatch 中最多接收的 token 数（即 `max_bs × num_ranks × topk`） |
+| **第二返回值** | `ep_recv_count`，形状 `[num_local_experts × num_ranks]` | `expert_token_nums`，形状 `[num_local_experts]`（仅本 rank） |
+| **共享专家支持** | 支持 | **不支持** |
+| **BF16 权重支持** | 可用 | **不可用** — 当前仅支持 INT8 权重 |
+
+### Python API
+
 ```python
 def fused_deep_moe(
     x: torch.Tensor,
@@ -103,26 +151,38 @@ def fused_deep_moe(
     num_max_dispatch_tokens_per_rank: int,
     num_experts: int,
     quant_mode: int = 1,
+    fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
 ) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
 ### 参数说明
-| 参数 | 类型 | 形状                    | 说明                                                                                                                                                                                                                         |
-|------|------|-----------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **x** | `torch.Tensor` | `[bs, hidden]`        | 输入 token 表示，每行一个 token 的隐藏向量（常用 `bfloat16`）。<br><br>**bs**（batch size）取值范围为 **[1, 256]**。<br>**hidden**  表示隐藏维度大小，通常取决于模型隐层宽度（如 2048、4096、6144、7168 等）。取值范围 **[512, 7168]**，且必须能被 **32** 整除，以满足底层矩阵乘与通信对齐要求。 |
-| **topk_idx** | `torch.Tensor` | `[bs, num_topk]`      | 每个 token 的专家索引，`int64` 类型。若值为 `-1` 表示该 token 不分发。                                                                                                                                                                          |
-| **topk_weights** | `torch.Tensor` | `[bs, num_topk]`      | 合并专家输出的加权系数（`float32`）。                                                                                                                                                                                                    |
-| **gmm1_permuted_weight** | `torch.Tensor` | 例如 `[G, 7168, 4096]` | 第一阶段（上投）专家权重，已做 permute 以适配 Grouped MatMul。                                                                                                                                                                                |
-| **gmm1_permuted_weight_scale** | `torch.Tensor` | 例如 `[G, 4096]`       | 第一阶段权重量化 scale，量化模式下必需（`float32`）。                                                                                                                                                                                         |
-| **gmm2_weight** | `torch.Tensor` | 例如 `[G, 7168, 2048]` | 第二阶段（下投）专家权重。                                                                                                                                                                                                              |
-| **gmm2_weight_scale** | `torch.Tensor` | 例如 `[G, 7168]`       | 第二阶段权重量化 scale。                                                                                                                                                                                                            |
-| **num_max_dispatch_tokens_per_rank** | `int` | 标量                    | 每个 rank 最多分发的 token 数，用于 buffer/内存分配。                                                                                                                                                                                      |
-| **num_experts** | `int` | 标量                    | 全局专家总数。                                                                                                                                                                                                                    |
-| **quant_mode** | `int` | 标量，默认 `1`             | 表示量化模式：<br>`1`： 表示int8；<br>后续A5支持fp8。                                                                                                                                                                                              |
 
+| 参数 | 类型 | 形状 | 说明 |
+|------|------|------|------|
+| **x** | `torch.Tensor` | `[bs, hidden]` | 输入 token 表示，每行一个 token 的隐藏向量（常用 `bfloat16`）。**bs** 取值范围 **[1, 256]**。**hidden** 取值范围 **[512, 7168]**，且必须能被 **32** 整除。 |
+| **topk_idx** | `torch.Tensor` | `[bs, num_topk]` | 每个 token 的专家索引，`int64` 类型。若值为 `-1` 表示该 token 不分发。 |
+| **topk_weights** | `torch.Tensor` | `[bs, num_topk]` | 合并专家输出的加权系数（`float32`）。 |
+| **gmm1_permuted_weight** | `torch.Tensor` | 例如 `[G, 7168, 4096]` | 第一阶段（上投）专家权重。`FUSED_DEEP_MOE` 模式下需经 `reshape_fusion_gmm_weight()` 做 permute 重排；`DISPATCH_FFN_COMBINE` 模式下使用标准 NZ 格式，无需额外重排。 |
+| **gmm1_permuted_weight_scale** | `torch.Tensor` | 例如 `[G, 4096]` | 第一阶段权重量化 scale。`FUSED_DEEP_MOE` 模式下为 `float32` dtype（内部自动转换）；`DISPATCH_FFN_COMBINE` 模式下为 **`int64` dtype**（float32 scale 值重新解释为 int64 位模式）。 |
+| **gmm2_weight** | `torch.Tensor` | 例如 `[G, 7168, 2048]` | 第二阶段（下投）专家权重。 |
+| **gmm2_weight_scale** | `torch.Tensor` | 例如 `[G, 7168]` | 第二阶段权重量化 scale。数据类型规则同 `gmm1_permuted_weight_scale`。 |
+| **num_max_dispatch_tokens_per_rank** | `int` | 标量 | `FUSED_DEEP_MOE` 模式：每个 rank 最多分发的 token 数，用于 buffer/内存分配。`DISPATCH_FFN_COMBINE` 模式：dispatch 中最多接收的 token 数（通常为 `max_bs × num_ranks × topk`）。所有 rank 必须持有相同值。 |
+| **num_experts** | `int` | 标量 | 全局专家总数。 |
+| **quant_mode** | `int` | 标量，默认 `1` | 量化模式：`1` = INT8（默认）；后续 A5 支持 FP8。 |
+| **fuse_mode** | `FuseMode` | 标量，默认 `FuseMode.FUSED_DEEP_MOE` | 融合模式选择。`FUSED_DEEP_MOE`（1）：通过 `aclnnFusedDeepMoe` 完整融合。`DISPATCH_FFN_COMBINE`（2）：通过 `aclnnDispatchFFNCombine` 分离 dispatch 处理。 |
 
 ### 返回值
-| 参数                              | 类型             | 形状                         | 说明                                   |
-|---------------------------------| -------------- | -------------------------- |--------------------------------------|
-| **output**                      | `torch.Tensor` | `[bs, hidden]`             | 融合专家输出。                              |
-| **ep_recv_count**               | `torch.Tensor` | `[num_local_experts]`           | 表示EP通信域各卡收到的token数量，用于后续通信同步或负载均衡统计。 |
+
+#### `fuse_mode=FUSED_DEEP_MOE`（默认）
+
+| 参数 | 类型 | 形状 | 说明 |
+|------|------|------|------|
+| **output** | `torch.Tensor` | `[bs, hidden]` | 融合专家输出。 |
+| **ep_recv_count** | `torch.Tensor` | `[num_local_experts × num_ranks]` | EP 通信域各专家在各 rank 收到的 token 数量，用于后续通信同步或负载均衡统计。 |
+
+#### `fuse_mode=DISPATCH_FFN_COMBINE`
+
+| 参数 | 类型 | 形状 | 说明 |
+|------|------|------|------|
+| **output** | `torch.Tensor` | `[bs, hidden]` | 融合专家输出。 |
+| **expert_token_nums** | `torch.Tensor` | `[num_local_experts]` | 本 rank 各本地专家收到的 token 数量，用于后续通信同步或负载均衡统计。 |
