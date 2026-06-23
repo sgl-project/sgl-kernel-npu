@@ -15,6 +15,7 @@
  */
 
 #include <cstring>
+#include <limits>
 #include <unordered_map>
 #include "acl/acl.h"
 #include <ATen/Operators.h>
@@ -46,6 +47,7 @@ constexpr uint32_t CAUSAL_CONV1D_TPL_RUN_MODE_UPDATE = 1;
 constexpr uint32_t CAUSAL_CONV1D_TPL_WIDTH_2 = 1;
 constexpr uint32_t CAUSAL_CONV1D_TPL_WIDTH_3 = 2;
 constexpr uint32_t CAUSAL_CONV1D_TPL_WIDTH_4 = 3;
+constexpr uint32_t CAUSAL_CONV1D_TPL_FN_PLAN_INVALID = 0;
 constexpr uint32_t CAUSAL_CONV1D_TPL_FN_PLAN_CUTBS = 1;
 constexpr uint32_t CAUSAL_CONV1D_TPL_FN_PLAN_CUTBSD = 2;
 
@@ -111,6 +113,60 @@ inline int64_t AlignUp(int64_t value, int64_t align)
     return CeilDiv(value, align) * align;
 }
 
+struct UpdateDimTileChoice {
+    int64_t baseDim = 0;
+    int64_t baseDimCnt = 0;
+    int64_t gridSize = 0;
+};
+
+// Mirror of the GE update-mode tiling policy (ChooseCanonicalUpdateBaseDimChoice):
+// pick a baseDim from a fixed candidate set that ideally divides dim and makes the
+// batch*baseDimCnt grid land as close as possible to (>=) the AIV core count, so the
+// batch-parallel update kernel keeps all cores busy. Falls back to ceil-division when
+// no candidate divides dim exactly.
+UpdateDimTileChoice ChooseUpdateBaseDimChoice(int64_t batch, int64_t dim, int32_t numCores)
+{
+    const int64_t candidates[] = {4096, 2048, 1024, 512, 384, 192};
+    const int64_t coreNum = (numCores > 0) ? static_cast<int64_t>(numCores) : 1;
+
+    auto chooseOnce = [&](bool requireExactDiv) -> UpdateDimTileChoice {
+        UpdateDimTileChoice bestOver;
+        int64_t bestOverGap = std::numeric_limits<int64_t>::max();
+        UpdateDimTileChoice bestUnder;
+
+        for (int64_t candBaseDim : candidates) {
+            if (candBaseDim <= 0) {
+                continue;
+            }
+            if (requireExactDiv && (dim % candBaseDim != 0)) {
+                continue;
+            }
+            const int64_t baseDimCnt = requireExactDiv ? (dim / candBaseDim) : CeilDiv(dim, candBaseDim);
+            const int64_t gridSize = batch * baseDimCnt;
+            if (gridSize <= 0) {
+                continue;
+            }
+            if (gridSize >= coreNum) {
+                const int64_t gap = gridSize - coreNum;
+                if (gap < bestOverGap) {
+                    bestOver = {candBaseDim, baseDimCnt, gridSize};
+                    bestOverGap = gap;
+                }
+            } else if (gridSize > bestUnder.gridSize ||
+                       (gridSize == bestUnder.gridSize && candBaseDim < bestUnder.baseDim)) {
+                bestUnder = {candBaseDim, baseDimCnt, gridSize};
+            }
+        }
+        return (bestOver.baseDim != 0) ? bestOver : bestUnder;
+    };
+
+    UpdateDimTileChoice result = chooseOnce(true);
+    if (result.baseDim == 0) {
+        result = chooseOnce(false);
+    }
+    return result;
+}
+
 void ComputeTilingData(int64_t dim, int64_t cuSeqlen, int64_t seqLen, int64_t batch, int64_t inputMode, int64_t width,
                        int64_t stateLen, int64_t numCacheLines, int64_t activationMode, int64_t padSlotId, bool hasBias,
                        bool hasCacheIndices, bool hasInitialState, bool hasNumAccept, bool isBf16, int32_t numCores,
@@ -141,7 +197,21 @@ void ComputeTilingData(int64_t dim, int64_t cuSeqlen, int64_t seqLen, int64_t ba
                   : (width == 3) ? CAUSAL_CONV1D_TPL_WIDTH_3
                                  : CAUSAL_CONV1D_TPL_WIDTH_4;
 
-    if (dim <= MAX_DIM_TILE && numCores > 0) {
+    if (runMode == CAUSAL_CONV1D_TPL_RUN_MODE_UPDATE) {
+        UpdateDimTileChoice choice = ChooseUpdateBaseDimChoice(batch, dim, numCores);
+        if (choice.baseDim <= 0 || choice.baseDimCnt <= 0) {
+            choice.baseDim = (dim > 0 && dim <= MAX_DIM_TILE) ? dim : MAX_DIM_TILE;
+            choice.baseDimCnt = (choice.baseDim > 0) ? CeilDiv(dim, choice.baseDim) : 1;
+            if (choice.baseDimCnt <= 0) {
+                choice.baseDimCnt = 1;
+            }
+        }
+        td.baseDim = choice.baseDim;
+        td.baseDimCnt = choice.baseDimCnt;
+        td.fnPlanKey = CAUSAL_CONV1D_TPL_FN_PLAN_INVALID;
+        td.tokenBlockSize = 0;
+        td.tokenBlockCnt = 0;
+    } else if (dim <= MAX_DIM_TILE && numCores > 0) {
         td.baseDim = dim;
         td.baseDimCnt = 1;
         td.fnPlanKey = CAUSAL_CONV1D_TPL_FN_PLAN_CUTBS;
@@ -259,7 +329,9 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
                       pad_slot_id, hasBias, hasCacheIndices, hasInitialState, hasNumAccept, isBf16, maxAivCore,
                       run_mode, tilingData);
 
-    int64_t totalBlocks = tilingData.tokenBlockCnt * tilingData.baseDimCnt;
+    int64_t totalBlocks = (run_mode == CAUSAL_CONV1D_TPL_RUN_MODE_UPDATE)
+                              ? (tilingData.batch * tilingData.baseDimCnt)
+                              : (tilingData.tokenBlockCnt * tilingData.baseDimCnt);
     int32_t blockDim = std::min(maxAivCore, static_cast<int32_t>(totalBlocks));
     if (blockDim <= 0) {
         blockDim = 1;
