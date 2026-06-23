@@ -130,17 +130,8 @@ def reference_causal_conv1d(
         x_ext_raw = torch.cat([hist_raw, x_seg_raw], dim=0)
         x_ext = x_ext_raw.float()
 
-        x0 = x_ext[3 : 3 + length]
-        x1 = x_ext[2 : 2 + length]
-        x2 = x_ext[1 : 1 + length]
-        x3 = x_ext[0 : 0 + length]
-
-        acc = (
-            x3 * weight_fp32[0]
-            + x2 * weight_fp32[1]
-            + x1 * weight_fp32[2]
-            + x0 * weight_fp32[3]
-        )
+        # generic K-tap causal conv: out[t] = sum_j x_ext[t + j] * weight[j]
+        acc = sum(x_ext[j : j + length] * weight_fp32[j] for j in range(width))
         if bias_fp32 is not None:
             acc = acc + bias_fp32
         if activation_mode:
@@ -306,17 +297,17 @@ def run_negative_cases(device: torch.device, dtype: torch.dtype, pad_slot_id: in
     bias = torch.randn((dim,), device=device, dtype=dtype)
 
     expect_failure(
-        "width_not_4",
+        "unsupported_width",
         lambda: torch.ops.npu.causal_conv1d(
             x,
-            torch.randn((3, dim), device=device, dtype=dtype),
+            torch.randn((7, dim), device=device, dtype=dtype),
             conv_states,
             query_start_loc,
             cache_indices,
             has_initial_state,
             bias=bias,
         ),
-        ("width == 4", "width=4"),
+        ("2, 3, 4, 5, 8, 16, 32, 64", "width"),
     )
 
     # NOTE: the previous AscendC kernel only supported a fixed set of dims
@@ -484,6 +475,111 @@ def main():
             batch=2,
             seq_len=5,
             cache_indices=[1, 7],
+            has_initial_state=[True, False],
+        ),
+        CaseConfig(
+            name="dense3d_width3_bias_act",
+            dtype=torch.bfloat16,
+            dim=2048,
+            width=3,
+            state_len=4,
+            num_cache_lines=12,
+            activation_mode=True,
+            use_bias=True,
+            input_mode="3d",
+            batch=3,
+            seq_len=7,
+            cache_indices=[0, 5, 9],
+            has_initial_state=[True, False, True],
+        ),
+        CaseConfig(
+            name="varlen2d_width2_fp16_act",
+            dtype=torch.float16,
+            dim=2048,
+            width=2,
+            state_len=3,
+            num_cache_lines=16,
+            activation_mode=True,
+            use_bias=False,
+            input_mode="2d",
+            batch=4,
+            lengths=[3, 5, 1, 4],
+            cache_indices=[1, 6, args.pad_slot_id, 11],
+            has_initial_state=[True, True, False, True],
+        ),
+        CaseConfig(
+            name="dense3d_width5_bias_act",
+            dtype=torch.bfloat16,
+            dim=2048,
+            width=5,
+            state_len=5,
+            num_cache_lines=12,
+            activation_mode=True,
+            use_bias=True,
+            input_mode="3d",
+            batch=2,
+            seq_len=9,
+            cache_indices=[0, 6],
+            has_initial_state=[True, True],
+        ),
+        CaseConfig(
+            name="varlen2d_width8_fp16_act",
+            dtype=torch.float16,
+            dim=6144,
+            width=8,
+            state_len=8,
+            num_cache_lines=16,
+            activation_mode=True,
+            use_bias=True,
+            input_mode="2d",
+            batch=3,
+            lengths=[10, 4, 7],
+            cache_indices=[2, 9, 14],
+            has_initial_state=[True, False, True],
+        ),
+        CaseConfig(
+            name="dense3d_width16_bias_act",
+            dtype=torch.bfloat16,
+            dim=2048,
+            width=16,
+            state_len=16,
+            num_cache_lines=8,
+            activation_mode=True,
+            use_bias=True,
+            input_mode="3d",
+            batch=2,
+            seq_len=20,
+            cache_indices=[0, 4],
+            has_initial_state=[True, False],
+        ),
+        CaseConfig(
+            name="dense3d_width32_fp16_act",
+            dtype=torch.float16,
+            dim=2048,
+            width=32,
+            state_len=32,
+            num_cache_lines=8,
+            activation_mode=True,
+            use_bias=False,
+            input_mode="3d",
+            batch=2,
+            seq_len=40,
+            cache_indices=[1, 5],
+            has_initial_state=[True, True],
+        ),
+        CaseConfig(
+            name="varlen2d_width64_bias_act",
+            dtype=torch.bfloat16,
+            dim=2048,
+            width=64,
+            state_len=64,
+            num_cache_lines=8,
+            activation_mode=True,
+            use_bias=True,
+            input_mode="2d",
+            batch=2,
+            lengths=[70, 50],
+            cache_indices=[0, 3],
             has_initial_state=[True, False],
         ),
     ]
