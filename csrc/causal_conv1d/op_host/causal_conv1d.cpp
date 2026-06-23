@@ -246,15 +246,7 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
         hasInitialState ? has_initial_state.to(at::kLong) : at::empty({0}, x.options().dtype(at::kLong));
     at::Tensor num_accepted_tokens_tensor;
     if (hasNumAccept) {
-        static auto globalNumAcceptBuffer = at::empty({static_cast<int64_t>(MAX_CAPTURE_NUM)},
-                                                      at::TensorOptions().dtype(at::kInt).device(x.options().device()));
-        int64_t n = num_accepted_tokens.numel();
-        if (n > static_cast<int64_t>(MAX_CAPTURE_NUM)) {
-            num_accepted_tokens_tensor = num_accepted_tokens.to(at::kInt);
-        } else {
-            globalNumAcceptBuffer.slice(0, 0, n).copy_(num_accepted_tokens.to(at::kInt));
-            num_accepted_tokens_tensor = globalNumAcceptBuffer.slice(0, 0, n);
-        }
+        num_accepted_tokens_tensor = num_accepted_tokens.to(at::kInt);
     } else {
         num_accepted_tokens_tensor = at::empty({0}, x.options().dtype(at::kInt));
     }
@@ -304,21 +296,25 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
     static auto globalTilingBuffer = at::empty({tilingSize * static_cast<int64_t>(MAX_CAPTURE_NUM)},
                                                at::TensorOptions().dtype(at::kByte).device(x.options().device()));
 
+    auto copyTilingToDevice = [&]() {
+        auto cpuTiling = at::empty({tilingSize}, at::kByte);
+        std::memcpy(cpuTiling.data_ptr(), &tilingData, sizeof(CausalConv1dTilingData));
+        return TorchNpuHelper::CopyTensorHostToDevice(cpuTiling);
+    };
+
     at::Tensor tilingTensor;
     if (g_causalConv1dCaptureMap.find(hashValue) != g_causalConv1dCaptureMap.end()) {
         tilingTensor =
             at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * g_causalConv1dCaptureMap[hashValue]),
                           tilingSize, at::kByte);
     } else if (g_causalConv1dCaptureNum >= MAX_CAPTURE_NUM) {
-        auto cpuTiling = at::empty({tilingSize}, at::kByte);
-        std::memcpy(cpuTiling.data_ptr(), &tilingData, sizeof(CausalConv1dTilingData));
-        tilingTensor = TorchNpuHelper::CopyTensorHostToDevice(cpuTiling);
+        tilingTensor = copyTilingToDevice();
     } else {
         g_causalConv1dCaptureMap[hashValue] = g_causalConv1dCaptureNum;
-        void *dstAddr =
-            static_cast<void *>(globalTilingBuffer.data_ptr<uint8_t>() + g_causalConv1dCaptureNum * tilingSize);
-        aclrtMemcpy(dstAddr, static_cast<size_t>(tilingSize), &tilingData, sizeof(CausalConv1dTilingData),
-                    ACL_MEMCPY_HOST_TO_DEVICE);
+        auto deviceTiling = copyTilingToDevice();
+        globalTilingBuffer
+            .slice(0, g_causalConv1dCaptureNum * tilingSize, g_causalConv1dCaptureNum * tilingSize + tilingSize)
+            .copy_(deviceTiling);
         g_causalConv1dCaptureNum++;
         tilingTensor =
             at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * g_causalConv1dCaptureMap[hashValue]),
