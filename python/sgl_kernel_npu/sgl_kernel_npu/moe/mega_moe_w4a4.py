@@ -2,10 +2,9 @@
 # All rights reserved.
 #
 # Host orchestration for the fused W4A4 INT4 MoE "mega" kernel (Qwen3.x-MoE, Ascend 910B).
-# One launch of torch.ops.npu.mega_moe_w4a4 runs the whole routed-expert path. This mirrors
-# the vllm-ascend JIT loader (vllm_ascend/ops/mega_moe_w4a4.py) but targets the build-time
-# kernel registered by libsgl_kernel_npu.so: tilings / workspaces / weight repack / scale
-# pack are prepared here, and the op_host does only shape checks + EXEC_KERNEL_CMD.
+# One launch of torch.ops.npu.mega_moe_w4a4 runs the whole routed-expert path, targeting the
+# build-time kernel registered by libsgl_kernel_npu.so: tilings / workspaces / weight repack /
+# scale pack are prepared here, and the op_host does only shape checks + EXEC_KERNEL_CMD.
 
 import math
 from functools import lru_cache

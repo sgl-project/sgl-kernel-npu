@@ -58,11 +58,10 @@ using namespace pto;
 #endif
 
 // ---- sgl-kernel-npu build: macro-named entry for the ascendc aclrtlaunch codegen ----
-// The vllm-ascend build launched this via a hand-written `extern "C" call_...` + ctypes
-// with a manually fetched FFTS base addr. Under sgl-kernel-npu's ascendc_library build the
-// host stub (aclrtlaunch_<name>.h) is generated from the `__global__` signature and the
-// runtime sets the FFTS base addr before launch (matches csrc/mega_chunk_gdn), so the entry
-// takes no ffts arg and uses GM_ADDR pointers like the GDN mega kernel.
+// Under sgl-kernel-npu's ascendc_library build the host stub (aclrtlaunch_<name>.h) is
+// generated from the `__global__` signature and the runtime sets the FFTS base addr before
+// launch (matches csrc/mega_chunk_gdn), so the entry takes no ffts arg and uses GM_ADDR
+// pointers like the GDN mega kernel.
 #ifndef GM_ADDR
 #define GM_ADDR __gm__ uint8_t *
 #endif
@@ -87,16 +86,6 @@ constexpr uint32_t M_TILE_CUBE = 32;  // M-pad granularity (matches mega_kernel.
 #define MEGA_HADAMARD_N 64
 #endif
 constexpr uint32_t HADAMARD_N = MEGA_HADAMARD_N;
-
-// ISOLATION GATE: -DMEGA_STOP_AFTER_N=k makes the kernel execute only stages 1..k
-// (vec) and the cube stages they need, replacing the later stage BODIES with no-ops
-// while keeping every HxSyncAllImpl barrier so the AIV/AIC FFTS rendezvous stays
-// balanced. Used to pin which stage first faults under the vLLM profile_run. Default
-// (undefined) = full kernel. Stage numbering: 1=stage1 quant+scatter (vec),
-// 2=gate_up matmul (cube), 3=swiglu+quant (vec), 4=down matmul (cube), 5=combine (vec).
-#ifndef MEGA_STOP_AFTER_N
-#define MEGA_STOP_AFTER_N 5
-#endif
 
 #define UB_ALIGN(x) (((unsigned)(x) + 255u) & ~255u)
 
@@ -1050,30 +1039,21 @@ W4A4_MEGA_KERNEL_NAME(GM_ADDR x_gm, GM_ADDR w13_gm, GM_ADDR w13_scale_gm, GM_ADD
                            top_k, (uint32_t)tl, (uint32_t)th);
     }
     HxSyncAllImpl<false>();  // B2
-#if MEGA_STOP_AFTER_N >= 3
     stage3_int4_swiglu_quant_grouped_v2((__gm__ half *)gu_ws, (__gm__ float *)xs_ws, (__gm__ float *)w13_scale_gm,
                                         gl_ov, (__gm__ int8_t *)iq_ws, (__gm__ float *)is_ws, M_total, E, 0u, eA);
-#endif
     HxSyncAllImpl<false>();  // B3
-#if MEGA_STOP_AFTER_N >= 3
     stage3_int4_swiglu_quant_grouped_v2((__gm__ half *)gu_ws, (__gm__ float *)xs_ws, (__gm__ float *)w13_scale_gm,
                                         gl_ov, (__gm__ int8_t *)iq_ws, (__gm__ float *)is_ws, M_total, E, eA, E);
-#endif
     HxSyncAllImpl<false>();  // B4 (cube S4(0) done)
-#if MEGA_STOP_AFTER_N >= 5
     stage5_scatter_combine_int4((__gm__ int32_t *)d_ws, (__gm__ float *)is_ws, (__gm__ float *)w2_scale_gm,
                                 (__gm__ int32_t *)sort_idx_gm, (__gm__ half *)topk_w_gm, gl_ov, (__gm__ half *)y_gm,
                                 M_total, E, top_k, T_orig, 0u, eA);
-#endif
     HxSyncAllImpl<false>();  // B5 (cube S4(1) done)
-#if MEGA_STOP_AFTER_N >= 5
     stage5_scatter_combine_int4((__gm__ int32_t *)d_ws, (__gm__ float *)is_ws, (__gm__ float *)w2_scale_gm,
                                 (__gm__ int32_t *)sort_idx_gm, (__gm__ half *)topk_w_gm, gl_ov, (__gm__ half *)y_gm,
                                 M_total, E, top_k, T_orig, eA, E);
-#endif
 
 #elif defined(__DAV_C220_CUBE__)
-#if MEGA_STOP_AFTER_N >= 2
     TPipe pipe;
     AscendCUtils::SetOverflow(1);
 
@@ -1100,7 +1080,6 @@ W4A4_MEGA_KERNEL_NAME(GM_ADDR x_gm, GM_ADDR w13_gm, GM_ADDR w13_scale_gm, GM_ADD
     // folded into the FIXPIPE dequant (gate_up folds w13 scale, down folds w2 scale).
     MMImpl_dq mm_dq;
     mm_dq.SetSubBlockIdx(0);
-#endif
 
     // Stage B: PTO fp16 block-diag Hadamard FIRST (raw L0/L1 tiles, EVENT_ID4), then publish
     // xrot_ws to vec. The AscendC MatmulImpl is Init'd only AFTER S0 finishes (option a).
@@ -1115,17 +1094,12 @@ W4A4_MEGA_KERNEL_NAME(GM_ADDR x_gm, GM_ADDR w13_gm, GM_ADDR w13_scale_gm, GM_ADD
     // written. gate_up at B1->B2 overlaps vec Stage-3(chunk0) etc.
     //   B0 idle | B1 idle | gate_up(c0) [B1..B2] | gate_up(c1) [B2..B3] |
     //   down(c0) [B3..B4] | down(c1) [B4..B5]
-    HxSyncAllImpl<false>();  // B0
-#if MEGA_STOP_AFTER_N >= 2
+    HxSyncAllImpl<false>();         // B0
     mm_dq.Init(&tiling_gu, &pipe);  // S3FP16: gate_up emits fp16 via the dequant cube (per-channel w13 scale folded in)
-#endif
-    HxSyncAllImpl<false>();  // B1
-#if MEGA_STOP_AFTER_N >= 2
+    HxSyncAllImpl<false>();         // B1
     grouped_matmul_int4_dequant_impl(mm_dq, &tiling_gu, (__gm__ int8_t *)xq_ws, (__gm__ int8_t *)w13_gm,
                                      (__gm__ half *)gu_ws, (__gm__ uint64_t *)w13_scale_gm, gl_ov, E, 0u, eA);
-#endif
     HxSyncAllImpl<false>();  // B2
-#if MEGA_STOP_AFTER_N >= 2
     grouped_matmul_int4_dequant_impl(mm_dq, &tiling_gu, (__gm__ int8_t *)xq_ws, (__gm__ int8_t *)w13_gm,
                                      (__gm__ half *)gu_ws, (__gm__ uint64_t *)w13_scale_gm, gl_ov, E, eA, E);
     // Drain the MatmulImpl pipeline (L0A/L0B prefetch + unit-flag state) BEFORE the
@@ -1135,26 +1109,20 @@ W4A4_MEGA_KERNEL_NAME(GM_ADDR x_gm, GM_ADDR w13_gm, GM_ADDR w13_scale_gm, GM_ADD
     // = CopyCubeInA/B Destroy + TBufPoolL0 ResetCache.
     mm_dq.End();  // S3FP16: gate_up ran on mm_dq (fp16 dequant cube)
     pipe_barrier(PIPE_ALL);
-#endif
     HxSyncAllImpl<false>();  // B3
-#if MEGA_STOP_AFTER_N >= 4
     // Down matmul emits fp16 with the per-channel w2 dequant (uint64 scale = w2_scale_gm)
     // folded into the FIXPIPE. d_ws is half. The per-token `is`/topk_w stay in S5.
     mm_dq.Init(&tiling_dn, &pipe);
     grouped_matmul_int4_dequant_impl(mm_dq, &tiling_dn, (__gm__ int8_t *)iq_ws, (__gm__ int8_t *)w2_gm,
                                      (__gm__ half *)d_ws, (__gm__ uint64_t *)w2_scale_gm, gl_ov, E, 0u, eA);
-#endif
     HxSyncAllImpl<false>();  // B4
-#if MEGA_STOP_AFTER_N >= 4
     grouped_matmul_int4_dequant_impl(mm_dq, &tiling_dn, (__gm__ int8_t *)iq_ws, (__gm__ int8_t *)w2_gm,
                                      (__gm__ half *)d_ws, (__gm__ uint64_t *)w2_scale_gm, gl_ov, E, eA, E);
     mm_dq.End();
     pipe_barrier(PIPE_ALL);
-#endif
     HxSyncAllImpl<false>();  // B5
 #endif
 }
 
-// The vllm-ascend `extern "C" call_mega_kernel_hybrid(...)` + ctypes launcher is intentionally
-// dropped here: under sgl-kernel-npu the host side is op_host/mega_moe_w4a4.cpp, which invokes
-// the kernel through EXEC_KERNEL_CMD(W4A4_MEGA_KERNEL_NAME, block_dim, ...).
+// The host side is op_host/mega_moe_w4a4.cpp, which invokes the kernel through
+// EXEC_KERNEL_CMD(W4A4_MEGA_KERNEL_NAME, block_dim, ...).

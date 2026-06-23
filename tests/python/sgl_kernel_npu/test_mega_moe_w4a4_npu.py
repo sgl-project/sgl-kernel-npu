@@ -1,7 +1,7 @@
 """NPU correctness check for the sgl-kernel-npu W4A4 fused mega-MoE op.
 
 Compares torch.ops.npu.mega_moe_w4a4 (via the sgl wrapper) against a pure-torch
-W4A4 + block-diag-64 Hadamard MoE oracle. Mirrors vllm-ascend/w4a4_torch_baseline.py.
+W4A4 + block-diag-64 Hadamard MoE oracle.
 
 Run: ASCEND_RT_VISIBLE_DEVICES=0 python tests/python/sgl_kernel_npu/test_mega_moe_w4a4_npu.py
 """
