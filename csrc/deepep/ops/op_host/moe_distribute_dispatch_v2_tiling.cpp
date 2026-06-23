@@ -238,7 +238,7 @@ static bool CheckTensorDim(const gert::TilingContext *context, const char *nodeN
     OP_LOGD(nodeName, "expandX dim0 = %ld", expandXStorageShape->GetStorageShape().GetDim(0));
     OP_LOGD(nodeName, "expandX dim1 = %ld", expandXStorageShape->GetStorageShape().GetDim(1));
 
-    if (quantMode == DYNAMIC_SCALES || quantMode == MXFP8_SCALES  || quantMode == MXFP4_SCALES) {
+    if (quantMode == DYNAMIC_SCALES || quantMode == MXFP8_SCALES || quantMode == MXFP4_SCALES) {
         const gert::StorageShape *dynamicScalesStorageShape = context->GetOutputShape(OUTPUT_DYNAMIC_SCALES_INDEX);
         OP_TILING_CHECK(dynamicScalesStorageShape == nullptr, OP_LOGE(nodeName, "dynamicScalesShape is null."),
                         return false);
@@ -344,11 +344,12 @@ static bool CheckTensorDataType(const gert::TilingContext *context, const char *
                     "expandX dataType is invalid for MXFP8 quant, dataType should be fp8e4m3 or fp8e5m2, but is %s",
                     geDataTypeMap.at(expandXDesc->GetDataType()).c_str()),
             return false);
-    }  else if (quantMode == MXFP4_SCALES) {
+    } else if (quantMode == MXFP4_SCALES) {
         OP_TILING_CHECK(
             (expandXDesc->GetDataType() != ge::DT_FLOAT4_E2M1) && (expandXDesc->GetDataType() != ge::DT_FLOAT4_E1M2),
             OP_LOGE(nodeName,
-                    "expandX dataType is invalid for MXFP4 quant, dataType should be float4_e2m1 or float4_e1m2, but is %s.",
+                    "expandX dataType is invalid for MXFP4 quant, dataType should be float4_e2m1 or float4_e1m2, but "
+                    "is %s.",
                     geDataTypeMap.at(expandXDesc->GetDataType()).c_str()),
             return false);
     } else {
@@ -371,8 +372,10 @@ static bool CheckTensorDataType(const gert::TilingContext *context, const char *
         OP_TILING_CHECK(dynamicScalesDesc == nullptr, OP_LOGE(nodeName, "dynamicScalesDesc is null."), return false);
         OP_TILING_CHECK(
             dynamicScalesDesc->GetDataType() != ge::DT_FLOAT8_E8M0,
-            OP_LOGE(nodeName, "dynamicScales dataType is invalid for MXFP8/MXFP4 quant, dataType should be float8_e8m0, but is %s.",
-                    geDataTypeMap.at(dynamicScalesDesc->GetDataType()).c_str()),
+            OP_LOGE(
+                nodeName,
+                "dynamicScales dataType is invalid for MXFP8/MXFP4 quant, dataType should be float8_e8m0, but is %s.",
+                geDataTypeMap.at(dynamicScalesDesc->GetDataType()).c_str()),
             return false);
     }
 
@@ -1054,14 +1057,13 @@ static ge::graphStatus CheckTensorShape(const gert::TilingContext *context, cons
         int64_t expectedDynamicScalesDim0 = (quantMode == MXFP4_SCALES || quantMode == MXFP4_SCALES)
                                                 ? ((static_cast<int64_t>(A) * xDim1) / MX_BLOCK_SIZE) * tpWorldSize
                                                 : static_cast<int64_t>(A) * tpWorldSize;
-        OP_TILING_CHECK(
-            dynamicScalesDim0 < expectedDynamicScalesDim0,
-            OP_LOGE(
-                nodeName,
-                "dynamicScales's dim0 should be equal to or greater than expectedDynamicScalesDim0, dynamicScales's dim0 is %ld, "
-                "expectedDynamicScalesDim0 is %ld.",
-                dynamicScalesDim0, expectedDynamicScalesDim0),
-            return ge::GRAPH_FAILED);
+        OP_TILING_CHECK(dynamicScalesDim0 < expectedDynamicScalesDim0,
+                        OP_LOGE(nodeName,
+                                "dynamicScales's dim0 should be equal to or greater than expectedDynamicScalesDim0, "
+                                "dynamicScales's dim0 is %ld, "
+                                "expectedDynamicScalesDim0 is %ld.",
+                                dynamicScalesDim0, expectedDynamicScalesDim0),
+                        return ge::GRAPH_FAILED);
     }
 
     // 校验assistInfo的维度
