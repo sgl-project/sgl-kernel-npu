@@ -1,4 +1,4 @@
-name: PR Test for SGL-KERNEL-NPU (Ascend NPU)
+name: PR Test for SGL-KERNEL-NPU DeepEP (Ascend NPU)
 
 on:
   pull_request:
@@ -6,16 +6,16 @@ on:
     paths:
       - "build.sh"
       - "cmake/**"
-      - "python/**"
-      - "csrc/**"
-      - "tests/**"
+      - "python/deep_ep/deep_ep**"
+      - "csrc/deepep**"
+      - "tests/python/deepep**"
       - "scripts/**"
-      - ".github/workflows/pr-test-npu.yml"
+      - ".github/workflows/pr-test-deepep-npu.yml"
   workflow_dispatch:
   workflow_call:
 
 concurrency:
-  group: pr-test-npu-${{ github.ref }}-${{ github.event_name }}
+  group: pr-test-deepep-npu-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
@@ -49,7 +49,7 @@ jobs:
               - python/**
               - tests/**
               - scripts/**
-              - .github/workflows/pr-test-npu.yml
+              - .github/workflows/pr-test-deepep-npu.yml
 
   test-all-build-core:
     needs: get-changed-files
