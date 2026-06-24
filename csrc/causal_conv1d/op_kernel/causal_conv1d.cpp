@@ -4,10 +4,11 @@
 // csrc/mega_chunk_gdn). Same op:
 //   y[t,c] = act( bias[c] + sum_{k=0..K-1} W[k,c]*xext[t+k,c] ),
 //   xext = [history(K-1 rows, from conv_states if has_initial_state else 0), x]
-// Per channel a K-tap depthwise filter. K (the filter width) is a compile-time
-// template parameter; one entry per dtype switches on the runtime `width` into
-// the matching compile-time runConv<K> (supported widths {2,3,4,5,8}). fp16/bf16
-// I/O, fp32 accumulate. Weights/bias are passed fp32 (host casts the tiny tensors).
+// Per channel a K-tap depthwise filter. The filter width K is a RUNTIME argument;
+// the compile-time template parameter is the accumulator-ring size RS (a power of
+// two, K <= RS). The host routes a request to the RS = roundUpToPow2(K) variant, so
+// any width in [2, 64] is served by the six compiled RS variants {2,4,8,16,32,64}.
+// fp16/bf16 I/O, fp32 accumulate. Weights/bias are passed fp32 (host casts them).
 //
 // Work grid (in-kernel, uniform task striding): batch x blocksPerSeq x lchunks.
 //   blocksPerSeq = ceil(dim/col_w) (channel tiles), lchunks splits the L axis so
@@ -33,26 +34,12 @@ using namespace pto;
 
 namespace cc1d {
 
-// Filter width K and per-tile channel width MAX_W are both template parameters,
-// so each (K, MAX_W) compiles its own fully-unrolled variant. A larger K needs a
-// smaller MAX_W to fit UB; the host computes the matching MAX_W per width (its
-// maxWForK) and launches that entry. Ascend 910B2 AIV UB = 192 KiB; the UB
-// static_assert in convChunk checks the chosen (K, MAX_W) layout fits.
+// RS (compile-time, power of two) sizes the accumulator ring and the entire UB
+// layout; K (runtime, <= RS) only drives loop bounds, so one RS variant serves
+// every width with roundUpToPow2(width) == RS. MAX_W is the compile-time per-RS
+// channel-tile capacity. Ascend 910B2 AIV UB = 192 KiB; the static_assert in
+// convChunk checks the chosen (RS, MAX_W) layout fits.
 constexpr uint32_t UB_BYTES_PER_CORE = 192u * 1024u;
-
-// Smallest power of two >= num. accumRingSize = roundUpToPowerOfTwo(K) is the accumulator ring size,
-// so the K outputs in flight map to distinct slots via `& (accumRingSize - 1)`.
-AICORE constexpr uint32_t roundUpToPowerOfTwo(uint32_t num)
-{
-    if (num != 0u) --num;
-    num |= (num >> 1u);
-    num |= (num >> 2u);
-    num |= (num >> 4u);
-    num |= (num >> 8u);
-    num |= (num >> 16u);
-    ++num;
-    return num;
-}
 
 template <typename TileT>
 AICORE inline void applySiluToTile(TileT &dst, TileT &src, TileT &tmp)
@@ -69,9 +56,9 @@ AICORE inline void applySiluToTile(TileT &dst, TileT &src, TileT &tmp)
 
 // One conv chunk: outputs [l0,l1) for channels [c0,c0+lanes) of a sequence whose
 // tokens start at element row `start` (token index). history from convStates.
-template <typename IoElemType, uint32_t K, uint32_t MAX_W>
+template <typename IoElemType, uint32_t RS, uint32_t MAX_W>
 AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ float *wgt, __gm__ float *bia,
-                             __gm__ IoElemType *convStates, uint32_t dim, uint32_t stateLen, uint32_t start,
+                             __gm__ IoElemType *convStates, uint32_t dim, uint32_t stateLen, uint32_t K, uint32_t start,
                              uint32_t len, uint32_t cacheIdx, bool hasInit, uint32_t c0, int32_t lanes, uint32_t l0,
                              uint32_t l1, uint32_t activation, uint32_t hasBias)
 {
@@ -84,20 +71,19 @@ AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ 
 
     constexpr uint32_t accumTileBytes = MAX_W * sizeof(float);
     constexpr uint32_t ioTileBytes = MAX_W * sizeof(IoElemType);
-    constexpr uint32_t accumRingSize = roundUpToPowerOfTwo(K);  // accumulator ring size (pow2 >= K)
-    static_assert(K <= accumRingSize, "accumulator ring must hold all K taps");
 
-    // UB byte offsets. fp32 region: K weights (weight k at k*accumTileBytes) | bias |
-    // accumRingSize accumulators | K-1 temps | xin_f.  Then the I/O region: 4 ioTileBytes-sized tiles
-    // (input load double-buffered: xin_h[0] | out0 | out1 | xin_h[1]).
-    constexpr uint32_t ubBiasOffset = K * accumTileBytes;
-    constexpr uint32_t ubAccumRingBase = (K + 1u) * accumTileBytes;
-    constexpr uint32_t ubProductBase =
-        (K + 1u + accumRingSize) * accumTileBytes;  // temp k at ubProductBase+(k-1)*accumTileBytes
-    constexpr uint32_t ubInputFp32 = (2u * K + accumRingSize) * accumTileBytes;
-    constexpr uint32_t ubIoBase = (2u * K + accumRingSize + 1u) * accumTileBytes;  // I/O region base
+    // UB byte offsets, all compile-time on RS: the layout is sized for the worst
+    // case K == RS so no offset depends on the runtime K. fp32 region: RS weights
+    // (weight k at k*accumTileBytes) | bias | RS accumulators | RS-1 temps | xin_f.
+    // Then the I/O region: 4 ioTileBytes-sized tiles (input load double-buffered:
+    // xin_h[0] | out0 | out1 | xin_h[1]).
+    constexpr uint32_t ubBiasOffset = RS * accumTileBytes;
+    constexpr uint32_t ubAccumRingBase = (RS + 1u) * accumTileBytes;
+    constexpr uint32_t ubProductBase = (2u * RS + 1u) * accumTileBytes;  // temp k at ubProductBase+(k-1)*accumTileBytes
+    constexpr uint32_t ubInputFp32 = (3u * RS) * accumTileBytes;
+    constexpr uint32_t ubIoBase = (3u * RS + 1u) * accumTileBytes;  // I/O region base
     static_assert(ubIoBase + 4u * ioTileBytes <= UB_BYTES_PER_CORE,
-                  "conv1d UB exceeds UB_BYTES_PER_CORE: lower K/MAX_W or raise it");
+                  "conv1d UB exceeds UB_BYTES_PER_CORE: lower RS/MAX_W or raise it");
     // NOTE: keep these `const`, NOT `constexpr`. These arrays are indexed by a
     // runtime value in the hot loop; making them constexpr makes the ascendc/cce
     // compiler emit ~5x slower device code (measured 951us vs 186us at B8/L512/
@@ -194,7 +180,7 @@ AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ 
             TASSIGN(wT, k * accumTileBytes);
             if (startAll || k == 0) {
                 AccumTile acc(lanes);
-                TASSIGN(acc, ubAccumRingBase + ((uint32_t)out & (accumRingSize - 1u)) * accumTileBytes);
+                TASSIGN(acc, ubAccumRingBase + ((uint32_t)out & (RS - 1u)) * accumTileBytes);
                 TMUL(acc, xin_f, wT);
             } else {
                 AccumTile t(lanes);
@@ -209,7 +195,7 @@ AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ 
                 if (out < (int32_t)l0 || out >= (int32_t)l1) continue;
                 AccumTile acc(lanes);
                 AccumTile t(lanes);
-                TASSIGN(acc, ubAccumRingBase + ((uint32_t)out & (accumRingSize - 1u)) * accumTileBytes);
+                TASSIGN(acc, ubAccumRingBase + ((uint32_t)out & (RS - 1u)) * accumTileBytes);
                 TASSIGN(t, ubProductBase + (k - 1u) * accumTileBytes);
                 TADD(acc, acc, t);
             }
@@ -218,7 +204,7 @@ AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ 
 
         if (j < (int32_t)l0) continue;  // halo row
 
-        const uint32_t slot = (uint32_t)j & (accumRingSize - 1u);
+        const uint32_t slot = (uint32_t)j & (RS - 1u);
         const uint32_t ob = (uint32_t)j & 1u;
         const event_t oev = (event_t)(1u + ob);
         AccumTile acc(lanes);
@@ -253,10 +239,10 @@ AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ 
     wait_flag(PIPE_MTE3, PIPE_V, EVENT_ID2);
 }
 
-template <typename IoElemType, uint32_t K, uint32_t MAX_W>
+template <typename IoElemType, uint32_t RS, uint32_t MAX_W>
 AICORE void runConv(__gm__ IoElemType *x, __gm__ float *wgt, __gm__ float *bia, __gm__ IoElemType *convStates,
                     __gm__ int32_t *qsl, __gm__ int32_t *cidx, __gm__ uint8_t *hinit, __gm__ IoElemType *y,
-                    uint32_t dim, uint32_t batch, uint32_t inputMode, uint32_t seqLen, uint32_t stateLen,
+                    uint32_t dim, uint32_t batch, uint32_t inputMode, uint32_t seqLen, uint32_t stateLen, uint32_t K,
                     uint32_t col_w, uint32_t blocksPerSeq, uint32_t lchunks, uint32_t activation, uint32_t hasBias,
                     int32_t padSlot)
 {
@@ -297,16 +283,16 @@ AICORE void runConv(__gm__ IoElemType *x, __gm__ float *wgt, __gm__ float *bia, 
         const uint32_t rem = dim - c0;
         const int32_t lanes = rem > col_w ? (int32_t)col_w : (int32_t)rem;
 
-        convChunk<IoElemType, K, MAX_W>(x, y, wgt, bia, convStates, dim, stateLen, start, len, (uint32_t)ci, hasInit,
-                                        c0, lanes, l0, l1, activation, hasBias);
+        convChunk<IoElemType, RS, MAX_W>(x, y, wgt, bia, convStates, dim, stateLen, K, start, len, (uint32_t)ci,
+                                         hasInit, c0, lanes, l0, l1, activation, hasBias);
     }
 }
 
 // Writeback: convStates[ci, 0:K-1, c0:] = last K-1 rows of xext (x tail / old hist).
-template <typename IoElemType, uint32_t K, uint32_t MAX_W>
+template <typename IoElemType, uint32_t RS, uint32_t MAX_W>
 AICORE void runWriteback(__gm__ IoElemType *x, __gm__ IoElemType *convStates, __gm__ int32_t *qsl, __gm__ int32_t *cidx,
                          __gm__ uint8_t *hinit, uint32_t dim, uint32_t batch, uint32_t inputMode, uint32_t seqLen,
-                         uint32_t stateLen, uint32_t col_w, uint32_t blocksPerSeq, int32_t padSlot)
+                         uint32_t stateLen, uint32_t K, uint32_t col_w, uint32_t blocksPerSeq, int32_t padSlot)
 {
     using GlobalShape = pto::Shape<1, 1, 1, 1, DYNAMIC>;
     using GlobalStride = pto::Stride<1, 1, 1, 1, 1>;
@@ -314,9 +300,9 @@ AICORE void runWriteback(__gm__ IoElemType *x, __gm__ IoElemType *convStates, __
     using IoTile = Tile<TileType::Vec, IoElemType, 1, MAX_W, BLayout::RowMajor, 1, DYNAMIC>;
     using AccumTile = Tile<TileType::Vec, float, 1, MAX_W, BLayout::RowMajor, 1, DYNAMIC>;
     constexpr uint32_t ioTileBytes = MAX_W * sizeof(IoElemType);
-    // compile-time scalar offset (constexpr is fine for scalars; only runtime-
-    // indexed constexpr *arrays* hurt ascendc codegen -- see convChunk note).
-    constexpr uint32_t SCRATCH_F32 = (K - 1) * ioTileBytes;  // fp32 scratch for zeroing
+    // compile-time scratch offset past the RS-1 reserved row slots (sized for the
+    // worst case K==RS so it never depends on the runtime K).
+    constexpr uint32_t SCRATCH_F32 = (RS - 1u) * ioTileBytes;  // fp32 scratch for zeroing
 
     set_mask_norm();
     set_vector_mask(-1, -1);
@@ -407,112 +393,59 @@ AICORE void runWriteback(__gm__ IoElemType *x, __gm__ IoElemType *convStates, __
 
 }  // namespace cc1d
 
-// Vector-only kernel: the template instantiations are compiled ONLY for the
-// vector target; the cube (AIC) pass gets an empty body.
-//
-// One uniform mechanism for every width: each supported K is its own dedicated,
-// fully-unrolled entry templated on (K, MAX_W) -- both fixed at the call site per
-// width (the host selects which entry to launch by weight.size(0)). No runtime
-// width switch, no special-cased width: every width is a separate launch symbol
-// with the launch cost of a single-width kernel. K=4 keeps the bare names; other
-// widths use a _k<N> suffix. To add a width: add a DEF_CONV/DEF_WB pair (with its
-// UB-fitting MAX_W), the host dispatch case, and the aclrtlaunch include.
+// Vector-only kernel (the cube/AIC pass gets empty bodies). One conv + writeback
+// entry per (RS, dtype): templated on the compile-time ring size RS and tile width
+// MAX_W, with the width K passed at runtime; the host launches the rs<RS> variant.
 #if defined(__DAV_VEC__)
-#define CONV_BODY(T, KK, MW)                                                                                        \
-    cc1d::runConv<T, KK, MW>((__gm__ T *)x, (__gm__ float *)wgt, (__gm__ float *)bia, (__gm__ T *)convStates,       \
-                             (__gm__ int32_t *)qsl, (__gm__ int32_t *)cidx, (__gm__ uint8_t *)hinit, (__gm__ T *)y, \
-                             dim, batch, inputMode, seqLen, stateLen, col_w, blocksPerSeq, lchunks, activation,     \
+#define CONV_BODY(T, RS, MW)                                                                                           \
+    cc1d::runConv<T, RS, MW>((__gm__ T *)x, (__gm__ float *)wgt, (__gm__ float *)bia, (__gm__ T *)convStates,          \
+                             (__gm__ int32_t *)qsl, (__gm__ int32_t *)cidx, (__gm__ uint8_t *)hinit, (__gm__ T *)y,    \
+                             dim, batch, inputMode, seqLen, stateLen, width, col_w, blocksPerSeq, lchunks, activation, \
                              hasBias, padSlot)
-#define WB_BODY(T, KK, MW)                                                                                        \
-    cc1d::runWriteback<T, KK, MW>((__gm__ T *)x, (__gm__ T *)convStates, (__gm__ int32_t *)qsl,                   \
+#define WB_BODY(T, RS, MW)                                                                                        \
+    cc1d::runWriteback<T, RS, MW>((__gm__ T *)x, (__gm__ T *)convStates, (__gm__ int32_t *)qsl,                   \
                                   (__gm__ int32_t *)cidx, (__gm__ uint8_t *)hinit, dim, batch, inputMode, seqLen, \
-                                  stateLen, col_w, blocksPerSeq, padSlot)
-#else
-#define CONV_BODY(T, KK, MW) \
-    (void)x;                 \
-    (void)wgt;               \
-    (void)bia;               \
-    (void)convStates;        \
-    (void)qsl;               \
-    (void)cidx;              \
-    (void)hinit;             \
-    (void)y;                 \
-    (void)dim;               \
-    (void)batch;             \
-    (void)inputMode;         \
-    (void)seqLen;            \
-    (void)stateLen;          \
-    (void)col_w;             \
-    (void)blocksPerSeq;      \
-    (void)lchunks;           \
-    (void)activation;        \
-    (void)hasBias;           \
-    (void)padSlot
-#define WB_BODY(T, KK, MW) \
-    (void)x;               \
-    (void)convStates;      \
-    (void)qsl;             \
-    (void)cidx;            \
-    (void)hinit;           \
-    (void)dim;             \
-    (void)batch;           \
-    (void)inputMode;       \
-    (void)seqLen;          \
-    (void)stateLen;        \
-    (void)col_w;           \
-    (void)blocksPerSeq;    \
-    (void)padSlot
+                                  stateLen, width, col_w, blocksPerSeq, padSlot)
+#else  // cube pass: empty bodies; void the params to silence unused warnings.
+#define CONV_BODY(T, RS, MW)                                                                                      \
+    (void)x, (void)wgt, (void)bia, (void)convStates, (void)qsl, (void)cidx, (void)hinit, (void)y, (void)dim,      \
+        (void)batch, (void)inputMode, (void)seqLen, (void)stateLen, (void)width, (void)col_w, (void)blocksPerSeq, \
+        (void)lchunks, (void)activation, (void)hasBias, (void)padSlot
+#define WB_BODY(T, RS, MW)                                                                                  \
+    (void)x, (void)convStates, (void)qsl, (void)cidx, (void)hinit, (void)dim, (void)batch, (void)inputMode, \
+        (void)seqLen, (void)stateLen, (void)width, (void)col_w, (void)blocksPerSeq, (void)padSlot
 #endif
 
 #define CONV_PARAMS                                                                                               \
     GM_ADDR x, GM_ADDR wgt, GM_ADDR bia, GM_ADDR convStates, GM_ADDR qsl, GM_ADDR cidx, GM_ADDR hinit, GM_ADDR y, \
-        uint32_t dim, uint32_t batch, uint32_t inputMode, uint32_t seqLen, uint32_t stateLen, uint32_t col_w,     \
-        uint32_t blocksPerSeq, uint32_t lchunks, uint32_t activation, uint32_t hasBias, int32_t padSlot
-#define WB_PARAMS                                                                                          \
-    GM_ADDR x, GM_ADDR convStates, GM_ADDR qsl, GM_ADDR cidx, GM_ADDR hinit, uint32_t dim, uint32_t batch, \
-        uint32_t inputMode, uint32_t seqLen, uint32_t stateLen, uint32_t col_w, uint32_t blocksPerSeq, int32_t padSlot
+        uint32_t dim, uint32_t batch, uint32_t inputMode, uint32_t seqLen, uint32_t stateLen, uint32_t width,     \
+        uint32_t col_w, uint32_t blocksPerSeq, uint32_t lchunks, uint32_t activation, uint32_t hasBias,           \
+        int32_t padSlot
+#define WB_PARAMS                                                                                                      \
+    GM_ADDR x, GM_ADDR convStates, GM_ADDR qsl, GM_ADDR cidx, GM_ADDR hinit, uint32_t dim, uint32_t batch,             \
+        uint32_t inputMode, uint32_t seqLen, uint32_t stateLen, uint32_t width, uint32_t col_w, uint32_t blocksPerSeq, \
+        int32_t padSlot
 
-#define DEF_CONV(SUF, T, KK, MW)                                       \
+#define DEF_CONV(SUF, T, RS, MW)                                       \
     extern "C" __global__ AICORE void causal_conv1d_##SUF(CONV_PARAMS) \
     {                                                                  \
-        CONV_BODY(T, KK, MW);                                          \
+        CONV_BODY(T, RS, MW);                                          \
     }
-#define DEF_WB(SUF, T, KK, MW)                                          \
+#define DEF_WB(SUF, T, RS, MW)                                          \
     extern "C" __global__ AICORE void causal_conv1d_wb_##SUF(WB_PARAMS) \
     {                                                                   \
-        WB_BODY(T, KK, MW);                                             \
+        WB_BODY(T, RS, MW);                                             \
     }
 
-// (K, MAX_W) per width: a larger K uses a smaller MAX_W to fit the 192 KiB UB.
-DEF_CONV(half, half, 4, 3072)
-DEF_CONV(bf16, bfloat16_t, 4, 3072)
-DEF_CONV(k2_half, half, 2, 3072)
-DEF_CONV(k2_bf16, bfloat16_t, 2, 3072)
-DEF_CONV(k3_half, half, 3, 3072)
-DEF_CONV(k3_bf16, bfloat16_t, 3, 3072)
-DEF_CONV(k5_half, half, 5, 2048)
-DEF_CONV(k5_bf16, bfloat16_t, 5, 2048)
-DEF_CONV(k8_half, half, 8, 1536)
-DEF_CONV(k8_bf16, bfloat16_t, 8, 1536)
-DEF_CONV(k16_half, half, 16, 896)
-DEF_CONV(k16_bf16, bfloat16_t, 16, 896)
-DEF_CONV(k32_half, half, 32, 384)
-DEF_CONV(k32_bf16, bfloat16_t, 32, 384)
-DEF_CONV(k64_half, half, 64, 128)
-DEF_CONV(k64_bf16, bfloat16_t, 64, 128)
-DEF_WB(half, half, 4, 3072)
-DEF_WB(bf16, bfloat16_t, 4, 3072)
-DEF_WB(k2_half, half, 2, 3072)
-DEF_WB(k2_bf16, bfloat16_t, 2, 3072)
-DEF_WB(k3_half, half, 3, 3072)
-DEF_WB(k3_bf16, bfloat16_t, 3, 3072)
-DEF_WB(k5_half, half, 5, 2048)
-DEF_WB(k5_bf16, bfloat16_t, 5, 2048)
-DEF_WB(k8_half, half, 8, 1536)
-DEF_WB(k8_bf16, bfloat16_t, 8, 1536)
-DEF_WB(k16_half, half, 16, 896)
-DEF_WB(k16_bf16, bfloat16_t, 16, 896)
-DEF_WB(k32_half, half, 32, 384)
-DEF_WB(k32_bf16, bfloat16_t, 32, 384)
-DEF_WB(k64_half, half, 64, 128)
-DEF_WB(k64_bf16, bfloat16_t, 64, 128)
+// Ring sizes the kernel is compiled for -- must match FOR_EACH_RING_SIZE in
+// op_host/causal_conv1d.cpp. Each row is (ringSize, maxTileWidth); a larger ring uses
+// a smaller tile to fit the 192 KiB UB.
+#define FOR_EACH_RING_SIZE(DO) DO(2, 3072) DO(4, 3072) DO(8, 1536) DO(16, 896) DO(32, 384) DO(64, 128)
+#define DEFINE_ENTRIES(ringSize, maxTileWidth)                        \
+    DEF_CONV(rs##ringSize##_half, half, ringSize, maxTileWidth)       \
+    DEF_CONV(rs##ringSize##_bf16, bfloat16_t, ringSize, maxTileWidth) \
+    DEF_WB(rs##ringSize##_half, half, ringSize, maxTileWidth)         \
+    DEF_WB(rs##ringSize##_bf16, bfloat16_t, ringSize, maxTileWidth)
+FOR_EACH_RING_SIZE(DEFINE_ENTRIES)
+#undef DEFINE_ENTRIES
+#undef FOR_EACH_RING_SIZE
