@@ -107,7 +107,7 @@ Strategies are configured via environment variables at Buffer initialization:
 |---------------------|-------|-----------------|---------------------|
 | `DEEP_USE_MODE=default` | default | `DefaultNormalCommStrategy` (deep_ep_cpp custom ops) | `DefaultLowLatencyCommStrategy` (deep_ep_cpp custom ops) |
 | `DEEP_USE_MODE=alltoall` | alltoall | `AlltoAllNormalCommStrategy` (torch.distributed alltoallv) | `AllToAllLowLatencyCommStrategy` (torch.distributed alltoall) |
-| `DEEP_USE_MODE=default` | ops | `DefaultNormalCommStrategy` (deep_ep_cpp custom ops) | `OpsLowLatencyCommStrategy` (torch_npu ops) |
+| `DEEP_USE_MODE=ops` | ops | `DefaultNormalCommStrategy` (deep_ep_cpp custom ops) | `OpsLowLatencyCommStrategy` (torch_npu ops) |
 
 > **Note**: Invalid env (e.g., `DEEP_USE_MODE=error`) will raise a `ValueError`.
 
@@ -175,14 +175,12 @@ See [Fused Deep MoE API](doc/FUSED_DEEP_MOE.md) for details.
 |----------|---------|-------------|
 | `DEEP_USE_MODE` | `default` | Normal mode strategy and Low-latency mode strategy: `default`, `ops`, or `alltoall`. |
 | `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **Deprecated.** Enable INT8 quantization in normal dispatch. A2 internode does NOT support quantization in normal mode. MXFP8 per-block quantization (A5 only) is triggered by passing a tuple `(float8_e4m3fn_tensor, float8_e8m0fnu_tensor)` as `x`. |
-| `SGLANG_DEEPEP_BF16_DISPATCH` | `0` | Disable quantization in low_latency_dispatch (BF16 dispatch). Set to `1` to disable; only effective in decode phase. |
 | `MOE_EXPERT_TOKEN_NUMS_TYPE` | `1` | Dispatch return type for `num_recv_tokens_per_expert_list`: `1` = per-expert token count, `0` = prefix sum. |
 | `MOE_SHARED_EXPERT_RANK_NUM` | `0` | Number of shared expert ranks (used by ops strategy). |
 | `HCCL_BUFFSIZE` | `200` (MB) | HCCL buffer size in MB. **Must be set** when using DeepEP on A2. |
 | `HCCL_INTRA_PCIE_ENABLE` | `0` | Set to `1` for A2 dual-node hierarchical communication. |
 | `HCCL_INTRA_ROCE_ENABLE` | `1` | Set to `0` for A2 dual-node hierarchical communication. |
 | `HCCL_OP_EXPANSION_MODE` | — | **Must be disabled** on A2 when using DeepEP (remove or unset this variable). |
-| `DEBUG_MODE` | `OFF` | Set to `ON` to enable DEBUG logging for parameter tracing. |
 
 ### Platform-Specific Notes
 
@@ -413,14 +411,12 @@ low_latency_dispatch 量化模式：
 |------|--------|------|
 | `DEEP_USE_MODE` | `default` | Normal 模式策略 and Low-latency 模式策略：`default`、`ops` 或 `alltoall`。 |
 | `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **已弃用。** 在 Normal dispatch 中启用 INT8 量化。A2 双机 Normal 模式**不支持**量化。MXFP8 per-block 量化（仅 A5）通过传入 tuple `(float8_e4m3fn_tensor, float8_e8m0fnu_tensor)` 作为 `x` 参数触发。 |
-| `SGLANG_DEEPEP_BF16_DISPATCH` | `0` | 在 low_latency_dispatch 中关闭量化（BF16 dispatch）。设为 `1` 关闭量化；仅在 Decode 阶段生效。 |
 | `MOE_EXPERT_TOKEN_NUMS_TYPE` | `1` | dispatch 返回的 `num_recv_tokens_per_expert_list` 类型：`1` = 各专家 token 数，`0` = 前缀和。 |
 | `MOE_SHARED_EXPERT_RANK_NUM` | `0` | 共享专家 rank 数（ops 策略使用）。 |
 | `HCCL_BUFFSIZE` | `200`（MB） | HCCL 缓冲区大小（MB）。A2 使用 DeepEP 时**必须设置**。 |
 | `HCCL_INTRA_PCIE_ENABLE` | `0` | A2 双机分层通信时设为 `1`。 |
 | `HCCL_INTRA_ROCE_ENABLE` | `1` | A2 双机分层通信时设为 `0`。 |
 | `HCCL_OP_EXPANSION_MODE` | — | A2 使用 DeepEP 时**必须禁用**（移除或取消设置此变量）。 |
-| `DEBUG_MODE` | `OFF` | 设为 `ON` 启用 DEBUG 日志用于参数追踪。 |
 
 ### 平台特定说明
 
