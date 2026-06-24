@@ -4,43 +4,42 @@
 
 #include "acl/acl.h"
 #include "tiling/platform/platform_ascendc.h"
-// AscendC generates one launch stub (aclrtlaunch_<entry>.h) per __global__ kernel
-// entry, and EXEC_KERNEL_CMD(entry, ...) needs the matching declaration. We compile
-// a dedicated conv + writeback entry per (width, dtype), so there is one include per
-// entry: widths {2,3,4,5,8,16,32,64} (4 = the bare name) x {half, bf16} x {conv, wb}.
-#include "aclrtlaunch_causal_conv1d_half.h"
-#include "aclrtlaunch_causal_conv1d_bf16.h"
-#include "aclrtlaunch_causal_conv1d_k2_half.h"
-#include "aclrtlaunch_causal_conv1d_k2_bf16.h"
-#include "aclrtlaunch_causal_conv1d_k3_half.h"
-#include "aclrtlaunch_causal_conv1d_k3_bf16.h"
-#include "aclrtlaunch_causal_conv1d_k5_half.h"
-#include "aclrtlaunch_causal_conv1d_k5_bf16.h"
-#include "aclrtlaunch_causal_conv1d_k8_half.h"
-#include "aclrtlaunch_causal_conv1d_k8_bf16.h"
-#include "aclrtlaunch_causal_conv1d_k16_half.h"
-#include "aclrtlaunch_causal_conv1d_k16_bf16.h"
-#include "aclrtlaunch_causal_conv1d_k32_half.h"
-#include "aclrtlaunch_causal_conv1d_k32_bf16.h"
-#include "aclrtlaunch_causal_conv1d_k64_half.h"
-#include "aclrtlaunch_causal_conv1d_k64_bf16.h"
-#include "aclrtlaunch_causal_conv1d_wb_half.h"
-#include "aclrtlaunch_causal_conv1d_wb_bf16.h"
-#include "aclrtlaunch_causal_conv1d_wb_k2_half.h"
-#include "aclrtlaunch_causal_conv1d_wb_k2_bf16.h"
-#include "aclrtlaunch_causal_conv1d_wb_k3_half.h"
-#include "aclrtlaunch_causal_conv1d_wb_k3_bf16.h"
-#include "aclrtlaunch_causal_conv1d_wb_k5_half.h"
-#include "aclrtlaunch_causal_conv1d_wb_k5_bf16.h"
-#include "aclrtlaunch_causal_conv1d_wb_k8_half.h"
-#include "aclrtlaunch_causal_conv1d_wb_k8_bf16.h"
-#include "aclrtlaunch_causal_conv1d_wb_k16_half.h"
-#include "aclrtlaunch_causal_conv1d_wb_k16_bf16.h"
-#include "aclrtlaunch_causal_conv1d_wb_k32_half.h"
-#include "aclrtlaunch_causal_conv1d_wb_k32_bf16.h"
-#include "aclrtlaunch_causal_conv1d_wb_k64_half.h"
-#include "aclrtlaunch_causal_conv1d_wb_k64_bf16.h"
 #include "torch_helper.h"
+
+// Ring sizes the kernel is compiled for -- must match FOR_EACH_RING_SIZE in
+// op_kernel/causal_conv1d.cpp. Each row is (ringSize, maxTileWidth); this one list
+// drives the launch-stub declarations, the per-ring tile-width lookup, and the dispatch.
+#define FOR_EACH_RING_SIZE(DO) DO(2, 3072) DO(4, 3072) DO(8, 1536) DO(16, 896) DO(32, 384) DO(64, 128)
+
+// AscendC emits one host launch stub (aclrtlaunch_<entry>) per kernel entry. A macro
+// can't generate #include directives, so rather than pull in 24 generated headers we
+// forward-declare the stubs from the ring-size list (their definitions come from the
+// linked causal_conv1d_kernel lib; same approach as causal_conv1d_update).
+
+// EXEC_KERNEL_CMD launches via ACLRT_LAUNCH_KERNEL(name) -> the aclrtlaunch_<name> symbol.
+#ifndef ACLRT_LAUNCH_KERNEL
+#define ACLRT_LAUNCH_KERNEL(kernel_func) aclrtlaunch_##kernel_func
+#endif
+// clang-format off
+// Launch-stub arg types = (blockDim, stream, then the kernel params with GM_ADDR ->
+// void*); must mirror CONV_PARAMS / WB_PARAMS in op_kernel/causal_conv1d.cpp.
+#define CONV_STUB_PARAMS                                                                                       \
+    uint32_t, aclrtStream, void *, void *, void *, void *, void *, void *, void *, void *, uint32_t, uint32_t, \
+        uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, int32_t
+#define WRITEBACK_STUB_PARAMS                                                                                  \
+    uint32_t, aclrtStream, void *, void *, void *, void *, void *, uint32_t, uint32_t, uint32_t, uint32_t,     \
+        uint32_t, uint32_t, uint32_t, uint32_t, int32_t
+// Worker macro: one ring size -> the conv + writeback stub, each for half and bf16.
+#define DECLARE_LAUNCH_STUBS(ringSize, maxTileWidth)                                             \
+    extern "C" uint32_t aclrtlaunch_causal_conv1d_rs##ringSize##_half(CONV_STUB_PARAMS);         \
+    extern "C" uint32_t aclrtlaunch_causal_conv1d_rs##ringSize##_bf16(CONV_STUB_PARAMS);         \
+    extern "C" uint32_t aclrtlaunch_causal_conv1d_wb_rs##ringSize##_half(WRITEBACK_STUB_PARAMS); \
+    extern "C" uint32_t aclrtlaunch_causal_conv1d_wb_rs##ringSize##_bf16(WRITEBACK_STUB_PARAMS);
+FOR_EACH_RING_SIZE(DECLARE_LAUNCH_STUBS)  // expand the list -> all 24 launch-stub declarations
+#undef DECLARE_LAUNCH_STUBS
+#undef WRITEBACK_STUB_PARAMS
+#undef CONV_STUB_PARAMS
+// clang-format on
 
 namespace sglang {
 namespace npu_kernel {
@@ -48,35 +47,43 @@ namespace {  // file-local helpers (internal linkage; avoids clashes with other 
 
 // Minimum rows per sequence chunk when splitting the L axis to fill cores (smaller
 // chunks expose more parallelism but replay more causal-halo rows per chunk).
-constexpr uint32_t LC_MIN = 32;
+constexpr uint32_t MIN_CHUNK_ROWS = 32;
 
-// Per-tile channel width for filter width K -- MUST match the (K, MAX_W) the
-// kernel's DEF_CONV/DEF_WB instantiations are compiled with. A larger K needs a
-// smaller tile to fit the 192 KiB UB (the accumulator ring grows with K).
-constexpr uint32_t maxWForK(uint32_t k)
+// Accumulator-ring size = smallest power of two >= width. The kernel templates on the
+// ring size (compile-time) and takes the width at runtime; the host computes the ring
+// size here and launches the matching variant, so any width <= ring size reuses it.
+constexpr uint32_t roundUpToPow2(uint32_t width)
 {
-    switch (k) {
-        case 2:
-        case 3:
-        case 4:
-            return 3072u;
-        case 5:
-            return 2048u;
-        case 8:
-            return 1536u;
-        case 16:
-            return 896u;
-        case 32:
-            return 384u;
-        default:
-            return 128u;  // k == 64
-    }
+    uint32_t n = (width != 0u) ? width - 1u : 0u;
+    n |= n >> 1u;
+    n |= n >> 2u;
+    n |= n >> 4u;
+    n |= n >> 8u;
+    n |= n >> 16u;
+    return n + 1u;
 }
 
-// Filter widths the kernel is compiled for (each has a dedicated entry).
-constexpr bool isSupportedWidth(uint32_t k)
+// Per-ring channel-tile width -- MUST match the (ringSize, maxTileWidth) the kernel is
+// compiled with (both derive from FOR_EACH_RING_SIZE). A larger ring needs a smaller
+// tile to fit the 192 KiB UB.
+#define MAX_WIDTH_CASE(ringSize, maxTileWidth) \
+    case ringSize:                             \
+        return maxTileWidth##u;
+constexpr uint32_t maxTileWidthForRing(uint32_t ringSize)
 {
-    return k == 2 || k == 3 || k == 4 || k == 5 || k == 8 || k == 16 || k == 32 || k == 64;
+    switch (ringSize) {
+        FOR_EACH_RING_SIZE(MAX_WIDTH_CASE)
+        default:
+            return 0u;
+    }
+}
+#undef MAX_WIDTH_CASE
+
+// Supported filter widths: any width in [2, 64], routed to the roundUpToPow2(width)
+// ring variant. width > 64 would need ring 128, which does not fit UB.
+constexpr bool isSupportedWidth(uint32_t width)
+{
+    return width >= 2u && width <= 64u;
 }
 
 constexpr uint32_t ceil_div(uint32_t a, uint32_t b)
@@ -98,12 +105,12 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
     TORCH_CHECK(x.dim() == 2 || x.dim() == 3, "x must be 2D [cu_seqlen, dim] or 3D [batch, seq_len, dim]");
     TORCH_CHECK(weight.dim() == 2, "weight must be 2D [width, dim], got shape ", weight.sizes());
     const uint32_t width = static_cast<uint32_t>(weight.size(0));
-    TORCH_CHECK(isSupportedWidth(width), "Only widths 2, 3, 4, 5, 8, 16, 32, 64 are supported, got ", weight.size(0));
+    TORCH_CHECK(isSupportedWidth(width), "Only filter widths 2..64 are supported, got ", weight.size(0));
     TORCH_CHECK(conv_states.dim() == 3, "conv_states must be 3D [num_cache_lines, state_len, dim]");
-    const at::ScalarType dt = x.scalar_type();
-    TORCH_CHECK(dt == at::kHalf || dt == at::kBFloat16, "Only BF16 and FP16 are supported, got ", dt);
-    TORCH_CHECK(weight.scalar_type() == dt, "weight dtype must match x dtype");
-    TORCH_CHECK(conv_states.scalar_type() == dt, "conv_states dtype must match x dtype");
+    const at::ScalarType dtype = x.scalar_type();
+    TORCH_CHECK(dtype == at::kHalf || dtype == at::kBFloat16, "Only BF16 and FP16 are supported, got ", dtype);
+    TORCH_CHECK(weight.scalar_type() == dtype, "weight dtype must match x dtype");
+    TORCH_CHECK(conv_states.scalar_type() == dtype, "conv_states dtype must match x dtype");
     TORCH_CHECK(query_start_loc.scalar_type() == at::kInt, "query_start_loc dtype must be int32");
     TORCH_CHECK(cache_indices.scalar_type() == at::kInt, "cache_indices dtype must be int32");
     TORCH_CHECK(has_initial_state.scalar_type() == at::kBool, "has_initial_state dtype must be bool");
@@ -140,9 +147,10 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
     // the cores we split the channel axis into tiles and the L axis into chunks. ----
     const uint32_t avgSeqLen =
         (inputMode == 1) ? seqLen : std::max<uint32_t>(1u, static_cast<uint32_t>(x.size(0)) / batch);
-    const uint32_t maxChannelsPerTile = maxWForK(width);  // UB-bound tile width for this K
+    const uint32_t ringSize = roundUpToPow2(width);                     // compile-time ring variant to launch
+    const uint32_t maxChannelsPerTile = maxTileWidthForRing(ringSize);  // UB-bound tile width for this ring
     const uint32_t targetTilesPerSeq = std::max<uint32_t>(1u, ceil_div(core_num, batch));
-    const uint32_t maxSeqChunks = std::max<uint32_t>(1u, avgSeqLen / LC_MIN);
+    const uint32_t maxSeqChunks = std::max<uint32_t>(1u, avgSeqLen / MIN_CHUNK_ROWS);
 
     uint32_t channelTiles =
         std::max<uint32_t>(ceil_div(dim, maxChannelsPerTile), ceil_div(targetTilesPerSeq, maxSeqChunks));
@@ -169,51 +177,41 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
     const uint32_t biasFlag = has_bias ? 1u : 0u;
     const int32_t padSlot = static_cast<int32_t>(pad_slot_id);
 
-    // One dedicated entry per (width, dtype), selected by width. launch(suffix) fires
-    // the conv + writeback pair for entry `causal_conv1d_<suffix>` (e.g. k5_half; width
-    // 4 is the bare `half`/`bf16`). dispatch(dt) pastes the dtype so it's named once.
-#define launch(suffix)                                                                                                 \
-    do {                                                                                                               \
-        EXEC_KERNEL_CMD(causal_conv1d_##suffix, blockDimConv, x, weight_f32, bias_f32, conv_states, query_start_loc,   \
-                        cache_indices, has_initial_state, y, dim, batch, inputMode, seqLen, stateLen, channelsPerTile, \
-                        channelTiles, seqChunks, actFlag, biasFlag, padSlot);                                          \
-        EXEC_KERNEL_CMD(causal_conv1d_wb_##suffix, blockDimWb, x, conv_states, query_start_loc, cache_indices,         \
-                        has_initial_state, dim, batch, inputMode, seqLen, stateLen, channelsPerTile, channelTiles,     \
-                        padSlot);                                                                                      \
+    // Launch the ring = roundUpToPow2(width) variant (entry suffix rs<ring>) and pass
+    // the actual width as the runtime K. launch(suffix) fires the conv + writeback pair;
+    // the per-dtype switch over the ring-size list selects the entry.
+#define launch(suffix)                                                                                               \
+    do {                                                                                                             \
+        EXEC_KERNEL_CMD(causal_conv1d_##suffix, blockDimConv, x, weight_f32, bias_f32, conv_states, query_start_loc, \
+                        cache_indices, has_initial_state, y, dim, batch, inputMode, seqLen, stateLen, width,         \
+                        channelsPerTile, channelTiles, seqChunks, actFlag, biasFlag, padSlot);                       \
+        EXEC_KERNEL_CMD(causal_conv1d_wb_##suffix, blockDimWb, x, conv_states, query_start_loc, cache_indices,       \
+                        has_initial_state, dim, batch, inputMode, seqLen, stateLen, width, channelsPerTile,          \
+                        channelTiles, padSlot);                                                                      \
     } while (0)
-#define dispatch(dt)                 \
-    switch (width) {                 \
-        case 2:                      \
-            launch(k2_##dt);         \
-            break;                   \
-        case 3:                      \
-            launch(k3_##dt);         \
-            break;                   \
-        case 4:                      \
-            launch(dt);              \
-            break;                   \
-        case 5:                      \
-            launch(k5_##dt);         \
-            break;                   \
-        case 8:                      \
-            launch(k8_##dt);         \
-            break;                   \
-        case 16:                     \
-            launch(k16_##dt);        \
-            break;                   \
-        case 32:                     \
-            launch(k32_##dt);        \
-            break;                   \
-        default:                     \
-            launch(k64_##dt);        \
-            break; /* width == 64 */ \
-    }
-    if (dt == at::kHalf) {
-        dispatch(half);
+#define DISPATCH_HALF(ringSize, maxTileWidth) \
+    case ringSize:                            \
+        launch(rs##ringSize##_half);          \
+        break;
+#define DISPATCH_BF16(ringSize, maxTileWidth) \
+    case ringSize:                            \
+        launch(rs##ringSize##_bf16);          \
+        break;
+    if (dtype == at::kHalf) {
+        switch (ringSize) {
+            FOR_EACH_RING_SIZE(DISPATCH_HALF)
+            default:
+                break;
+        }
     } else {
-        dispatch(bf16);
+        switch (ringSize) {
+            FOR_EACH_RING_SIZE(DISPATCH_BF16)
+            default:
+                break;
+        }
     }
-#undef dispatch
+#undef DISPATCH_BF16
+#undef DISPATCH_HALF
 #undef launch
     return y;
 }

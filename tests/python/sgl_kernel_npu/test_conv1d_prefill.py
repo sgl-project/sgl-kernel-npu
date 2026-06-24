@@ -296,18 +296,20 @@ def run_negative_cases(device: torch.device, dtype: torch.dtype, pad_slot_id: in
     has_initial_state = make_device_bool_tensor([True, False], device)
     bias = torch.randn((dim,), device=device, dtype=dtype)
 
+    # width 65 would need RS=128 (does not fit UB); widths 2..64 are all supported
+    # (any K, routed to the RS = roundUpToPow2(K) variant), so 65 is the first reject.
     expect_failure(
         "unsupported_width",
         lambda: torch.ops.npu.causal_conv1d(
             x,
-            torch.randn((7, dim), device=device, dtype=dtype),
+            torch.randn((65, dim), device=device, dtype=dtype),
             conv_states,
             query_start_loc,
             cache_indices,
             has_initial_state,
             bias=bias,
         ),
-        ("2, 3, 4, 5, 8, 16, 32, 64", "width"),
+        ("2..64", "width"),
     )
 
     # NOTE: the previous AscendC kernel only supported a fixed set of dims
@@ -579,6 +581,69 @@ def main():
             input_mode="2d",
             batch=2,
             lengths=[70, 50],
+            cache_indices=[0, 3],
+            has_initial_state=[True, False],
+        ),
+        # Non-power-of-two widths: K is passed at runtime and routed to the
+        # RS = roundUpToPow2(K) variant, so these exercise K < RS in each RS group
+        # (7->rs8, 12->rs16, 24->rs32, 48->rs64). widths 3 and 5 above cover rs4/rs8.
+        CaseConfig(
+            name="dense3d_width7_fp16_bias_act",
+            dtype=torch.float16,
+            dim=2048,
+            width=7,
+            state_len=7,
+            num_cache_lines=12,
+            activation_mode=True,
+            use_bias=True,
+            input_mode="3d",
+            batch=2,
+            seq_len=12,
+            cache_indices=[0, 5],
+            has_initial_state=[True, False],
+        ),
+        CaseConfig(
+            name="varlen2d_width12_bias_act",
+            dtype=torch.bfloat16,
+            dim=2048,
+            width=12,
+            state_len=12,
+            num_cache_lines=10,
+            activation_mode=True,
+            use_bias=True,
+            input_mode="2d",
+            batch=2,
+            lengths=[20, 14],
+            cache_indices=[0, 4],
+            has_initial_state=[True, True],
+        ),
+        CaseConfig(
+            name="dense3d_width24_fp16_act",
+            dtype=torch.float16,
+            dim=2048,
+            width=24,
+            state_len=24,
+            num_cache_lines=8,
+            activation_mode=True,
+            use_bias=False,
+            input_mode="3d",
+            batch=2,
+            seq_len=30,
+            cache_indices=[1, 5],
+            has_initial_state=[True, True],
+        ),
+        CaseConfig(
+            name="varlen2d_width48_bias_act",
+            dtype=torch.bfloat16,
+            dim=2048,
+            width=48,
+            state_len=48,
+            num_cache_lines=8,
+            activation_mode=True,
+            use_bias=True,
+            input_mode="2d",
+            batch=2,
+            lengths=[60, 50],
             cache_indices=[0, 3],
             has_initial_state=[True, False],
         ),
