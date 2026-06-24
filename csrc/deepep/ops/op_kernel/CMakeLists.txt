@@ -26,4 +26,4 @@ npu_op_package_add(${package_name}
     LIBRARY ascendc_kernels
 )
 
-npu_op_kernel_options("" ALL OPTIONS -DASCENDC_DUMP=0 --cce-auto-sync=off ${_DISPATCH_FFN_INC_OPTS})
+npu_op_kernel_options("" ALL OPTIONS -DASCENDC_DUMP=1 --cce-auto-sync=off ${_DISPATCH_FFN_INC_OPTS})

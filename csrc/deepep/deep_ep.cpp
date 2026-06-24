@@ -920,7 +920,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
                  quant_mode,
                  global_bs,               // global_bs
                  expert_token_nums_type,  // expert_token_nums_type
-                 comm_alg,
+                 "hierarchy",
                  packed_recv_x,         // expandXOut
                  packed_recv_x_scales,  // dynamicScalesOut
                  expandIdx,             // assistInfoForCombineOut
@@ -1007,7 +1007,7 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
                  tp_send_counts, x_active_mask, activation_scale, weight_scale, group_list, expand_scales,
                  shared_expert_x, hcom_ep_name, num_ranks, rank, num_experts, hcom_tp_name, tp_world_size, tp_rankId,
                  expert_shared_type, shared_expert_num, shared_expert_rank_num, global_bs, out_dtype, comm_quant_mode,
-                 group_list_type, comm_alg, combined_x, combine_send_cost_stats_out);
+                 group_list_type, "hierarchy", combined_x, combine_send_cost_stats_out);
 
     return {combined_x, event, std::function<void()>([] {})};
 }
