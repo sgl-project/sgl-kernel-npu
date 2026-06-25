@@ -309,8 +309,8 @@ AICORE void runConv(__gm__ IoElemType *x, __gm__ IoElemType *wgt, __gm__ IoElemT
         const uint32_t rem = dim - c0;
         const int32_t lanes = (int32_t)(rem > col_w ? col_w : rem);
 
-        convChunk<IoElemType, RS, MAX_W>(x, y, wgt, bia, convStates, dim, stateLen, K, start, ci, hasInit, c0,
-                                         lanes, l0, l1, activation, hasBias);
+        convChunk<IoElemType, RS, MAX_W>(x, y, wgt, bia, convStates, dim, stateLen, K, start, ci, hasInit, c0, lanes,
+                                         l0, l1, activation, hasBias);
     }
 }
 
