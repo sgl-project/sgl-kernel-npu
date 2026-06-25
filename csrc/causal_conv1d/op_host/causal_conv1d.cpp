@@ -185,14 +185,14 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
     // Launch the ring = roundUpToPow2(width) variant (entry suffix rs<ring>) and pass
     // the actual width as the runtime K. launch(suffix) fires the conv + writeback pair;
     // the per-dtype switch over the ring-size list selects the entry.
-#define launch(suffix)                                                                                               \
-    do {                                                                                                             \
-        EXEC_KERNEL_CMD(causal_conv1d_##suffix, blockDimConv, x, weight, biasArg, conv_states, query_start_loc,      \
-                        cache_indices, has_initial_state, y, dim, batch, inputMode, seqLen, stateLen, width,         \
-                        channelsPerTile, channelTiles, seqChunks, actFlag, biasFlag, padSlot);                       \
-        EXEC_KERNEL_CMD(causal_conv1d_wb_##suffix, blockDimWb, x, conv_states, query_start_loc, cache_indices,       \
-                        has_initial_state, dim, batch, inputMode, seqLen, stateLen, width, channelsPerTile,          \
-                        channelTiles, padSlot);                                                                      \
+#define launch(suffix)                                                                                          \
+    do {                                                                                                        \
+        EXEC_KERNEL_CMD(causal_conv1d_##suffix, blockDimConv, x, weight, biasArg, conv_states, query_start_loc, \
+                        cache_indices, has_initial_state, y, dim, batch, inputMode, seqLen, stateLen, width,    \
+                        channelsPerTile, channelTiles, seqChunks, actFlag, biasFlag, padSlot);                  \
+        EXEC_KERNEL_CMD(causal_conv1d_wb_##suffix, blockDimWb, x, conv_states, query_start_loc, cache_indices,  \
+                        has_initial_state, dim, batch, inputMode, seqLen, stateLen, width, channelsPerTile,     \
+                        channelTiles, padSlot);                                                                 \
     } while (0)
 #define DISPATCH_HALF(ringSize, maxTileWidth) \
     case ringSize:                            \
