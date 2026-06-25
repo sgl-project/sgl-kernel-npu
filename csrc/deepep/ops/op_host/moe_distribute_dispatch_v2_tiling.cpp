@@ -1162,7 +1162,7 @@ static void CalTilingKey(uint64_t &tilingKey, const bool isScales, const uint32_
     if (isSetCommAlg) {
         tilingKey += static_cast<uint64_t>(TILINGKEY_COMM_ALG);
     }
-    OP_LOGD(nodeName, "MoeDistributeDispatchV2 tilingKey = %u", tilingKey);
+    OP_LOGD(nodeName, "MoeDistributeDispatchV2 tilingKey = %lu", tilingKey);
 
     return;
 }

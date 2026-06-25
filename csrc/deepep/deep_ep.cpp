@@ -10,10 +10,10 @@
 namespace deep_ep {
 constexpr int PADDING_SIZE = 1;
 constexpr size_t HCOMM_NAME_LEN = 128;
-constexpr uint32_t NO_SCALES = 0;
-constexpr uint32_t DYNAMIC_SCALES = 2;
-constexpr uint32_t MXFP8_SCALES = 3;
-constexpr uint32_t MXFP4_SCALES = 4;
+constexpr int64_t NO_SCALES = 0;
+constexpr int64_t DYNAMIC_SCALES = 2;
+constexpr int64_t MXFP8_SCALES = 3;
+constexpr int64_t MXFP4_SCALES = 4;
 constexpr uint32_t MX_BLOCK_SIZE = 32;
 constexpr uint32_t MXFP4_HALF = 2;
 constexpr int LOCAL_RANK_SIZE = 8;
