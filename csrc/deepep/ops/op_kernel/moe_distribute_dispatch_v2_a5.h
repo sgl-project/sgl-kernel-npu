@@ -8,7 +8,7 @@
 #include "moe_distribute_dispatch_v2_tiling.h"
 #include "check_winsize.h"
 #ifdef __DAV_C310__
-#include "../quantize_functions.h"
+#include "quantize_functions.h"
 #endif
 
 namespace MoeDistributeDispatchV2A5Impl {
@@ -1092,7 +1092,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::QuantDyna
 
         quant::ComputeMaxExp(srcAddr, maxExpAddr, axisH_);
         quant::ComputeScale<ExpandXOutType>(maxExpAddr, mxScaleLocalAddr, halfScaleLocalAddr, mxScaleNum);
-        quant::ComputeData<XType, ExpandXOutType, AscendC::RoundMode::CAST_TRUNC, AscendC::RoundMode::CAST_RINT>(
+        quant::ComputeFp8Data<XType, ExpandXOutType, AscendC::RoundMode::CAST_TRUNC, AscendC::RoundMode::CAST_RINT>(
             srcAddr, halfScaleLocalAddr, outLocalAddr, axisH_);
     }
 }

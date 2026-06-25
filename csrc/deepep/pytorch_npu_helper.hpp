@@ -87,6 +87,7 @@ static struct MapInitializer {
         kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(at::ScalarType::Float8_e4m3fn)] = ACL_FLOAT8_E4M3FN;
         kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(at::ScalarType::Float8_e5m2)] = ACL_FLOAT8_E5M2;
         kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(at::ScalarType::Float8_e8m0fnu)] = ACL_FLOAT8_E8M0;
+        kATenScalarTypeToAclDataTypeTable[static_cast<int64_t>(at::ScalarType::Float4_e2m1fn_x2)] = ACL_FLOAT4_E2M1;
 #endif
 #undef DEFINE_ENUM
     }
