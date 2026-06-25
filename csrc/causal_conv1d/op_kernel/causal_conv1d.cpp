@@ -58,9 +58,9 @@ AICORE inline void applySiluToTile(TileT &dst, TileT &src, TileT &tmp)
 // tokens start at element row `start` (token index). history from convStates.
 template <typename IoElemType, uint32_t RS, uint32_t MAX_W>
 AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ IoElemType *wgt, __gm__ IoElemType *bia,
-                             __gm__ IoElemType *convStates, uint32_t dim, uint32_t stateLen, uint32_t K, uint32_t start,
-                             uint32_t len, uint32_t cacheIdx, bool hasInit, uint32_t c0, int32_t lanes, uint32_t l0,
-                             uint32_t l1, uint32_t activation, uint32_t hasBias)
+                             __gm__ IoElemType *convStates, uint32_t dim, uint32_t stateLen, uint32_t K, int32_t start,
+                             int32_t cacheIdx, bool hasInit, uint32_t c0, int32_t lanes, int32_t l0, int32_t l1,
+                             uint32_t activation, uint32_t hasBias)
 {
     using GlobalShape = pto::Shape<1, 1, 1, 1, DYNAMIC>;
     using GlobalStride = pto::Stride<1, 1, 1, 1, 1>;
@@ -143,32 +143,33 @@ AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ 
     set_flag(PIPE_MTE3, PIPE_V, EVENT_ID2);
 
     // first input row to process (signed): l0==0 with history -> replay K-1 rows.
-    const bool zeroPad = (l0 == 0u) && !hasInit;
+    const int32_t halo = (int32_t)K - 1;  // K-1 as signed (history rows go negative)
+    const bool zeroPad = (l0 == 0) && !hasInit;
     int32_t jstart;
-    if (l0 == 0u)
-        jstart = hasInit ? -(int32_t)(K - 1) : 0;
+    if (l0 == 0)
+        jstart = hasInit ? -halo : 0;
     else
-        jstart = (int32_t)l0 - (int32_t)(K - 1);
+        jstart = l0 - halo;
 
     // PROLOGUE: load the first input row (jstart) so iter 0 can prefetch the next.
     // Input row index e: e>=0 -> x[start+e]; e<0 -> conv_states history row (K-1)+e.
-    if (jstart < (int32_t)l1) {
+    if (jstart < l1) {
         IoTile xin_h0(lanes);
         TASSIGN(xin_h0, ubInputOffset[0]);
         wait_flag(PIPE_V, PIPE_MTE2, IEV[0]);
         if (jstart >= 0) {
-            GlobalIoTensor xG(x + (uint64_t)(start + (uint32_t)jstart) * dim + c0, {lanes});
+            GlobalIoTensor xG(x + (uint64_t)(start + jstart) * dim + c0, {lanes});
             TLOAD(xin_h0, xG);
         } else {
-            const uint32_t hi = (uint32_t)((int32_t)(K - 1) + jstart);
+            const int32_t hi = halo + jstart;
             GlobalIoTensor hG(convStates + ((uint64_t)cacheIdx * stateLen + hi) * dim + c0, {lanes});
             TLOAD(xin_h0, hG);
         }
         set_flag(PIPE_MTE2, PIPE_V, IEV[0]);
     }
 
-    for (int32_t j = jstart; j < (int32_t)l1; ++j) {
-        const uint32_t par = (uint32_t)(j - jstart) & 1u;
+    for (int32_t j = jstart; j < l1; ++j) {
+        const uint32_t par = (j - jstart) & 1u;
         IoTile xin_h(lanes);
         AccumTile xin_f(lanes);
         TASSIGN(xin_h, ubInputOffset[par]);
@@ -180,17 +181,17 @@ AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ 
         set_flag(PIPE_V, PIPE_MTE2, IEV[par]);
 
         // (2) prefetch next row (x or conv_states history) into the OTHER buffer
-        if (j + 1 < (int32_t)l1) {
+        if (j + 1 < l1) {
             const int32_t e = j + 1;
             const uint32_t p1 = par ^ 1u;
             IoTile xin_hn(lanes);
             TASSIGN(xin_hn, ubInputOffset[p1]);
             wait_flag(PIPE_V, PIPE_MTE2, IEV[p1]);
             if (e >= 0) {
-                GlobalIoTensor xG(x + (uint64_t)(start + (uint32_t)e) * dim + c0, {lanes});
+                GlobalIoTensor xG(x + (uint64_t)(start + e) * dim + c0, {lanes});
                 TLOAD(xin_hn, xG);
             } else {
-                const uint32_t hi = (uint32_t)((int32_t)(K - 1) + e);
+                const int32_t hi = halo + e;
                 GlobalIoTensor hG(convStates + ((uint64_t)cacheIdx * stateLen + hi) * dim + c0, {lanes});
                 TLOAD(xin_hn, hG);
             }
@@ -201,13 +202,13 @@ AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ 
 
         const bool startAll = zeroPad && (j == 0);
         for (uint32_t k = 0; k < K; ++k) {
-            const int32_t out = j + (int32_t)(K - 1) - (int32_t)k;
-            if (out < (int32_t)l0 || out >= (int32_t)l1) continue;
+            const int32_t out = j + halo - (int32_t)k;
+            if (out < l0 || out >= l1) continue;
             AccumTile wT(lanes);
             TASSIGN(wT, k * accumTileBytes);
             if (startAll || k == 0) {
                 AccumTile acc(lanes);
-                TASSIGN(acc, ubAccumRingBase + ((uint32_t)out & (RS - 1u)) * accumTileBytes);
+                TASSIGN(acc, ubAccumRingBase + (out & (RS - 1u)) * accumTileBytes);
                 TMUL(acc, xin_f, wT);
             } else {
                 AccumTile t(lanes);
@@ -218,21 +219,21 @@ AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ 
         pipe_barrier(PIPE_V);
         if (!startAll) {
             for (uint32_t k = 1; k < K; ++k) {
-                const int32_t out = j + (int32_t)(K - 1) - (int32_t)k;
-                if (out < (int32_t)l0 || out >= (int32_t)l1) continue;
+                const int32_t out = j + halo - (int32_t)k;
+                if (out < l0 || out >= l1) continue;
                 AccumTile acc(lanes);
                 AccumTile t(lanes);
-                TASSIGN(acc, ubAccumRingBase + ((uint32_t)out & (RS - 1u)) * accumTileBytes);
+                TASSIGN(acc, ubAccumRingBase + (out & (RS - 1u)) * accumTileBytes);
                 TASSIGN(t, ubProductBase + (k - 1u) * accumTileBytes);
                 TADD(acc, acc, t);
             }
         }
         pipe_barrier(PIPE_V);
 
-        if (j < (int32_t)l0) continue;  // halo row
+        if (j < l0) continue;  // halo row
 
-        const uint32_t slot = (uint32_t)j & (RS - 1u);
-        const uint32_t ob = (uint32_t)j & 1u;
+        const uint32_t slot = j & (RS - 1u);
+        const uint32_t ob = j & 1u;
         const event_t oev = (event_t)(1u + ob);
         AccumTile acc(lanes);
         AccumTile tmp(lanes);
@@ -253,7 +254,7 @@ AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ 
         }
         wait_flag(PIPE_MTE3, PIPE_V, oev);
         TCVT(outT, acc, pto::RoundMode::CAST_NONE);
-        GlobalIoTensor yG(y + (uint64_t)(start + (uint32_t)j) * dim + c0, {lanes});
+        GlobalIoTensor yG(y + (uint64_t)(start + j) * dim + c0, {lanes});
         set_flag(PIPE_V, PIPE_MTE3, oev);
         wait_flag(PIPE_V, PIPE_MTE3, oev);
         TSTORE(yG, outT);
@@ -285,33 +286,31 @@ AICORE void runConv(__gm__ IoElemType *x, __gm__ IoElemType *wgt, __gm__ IoElemT
         const uint32_t db = t2 % blocksPerSeq;
         const uint32_t seq = t2 / blocksPerSeq;
 
-        uint32_t start, len;
+        int32_t start, len;
         if (inputMode == 0u) {
-            const int32_t s0 = qsl[seq];
-            const int32_t s1 = qsl[seq + 1];
-            start = (uint32_t)s0;
-            len = (uint32_t)(s1 - s0);
+            start = qsl[seq];
+            len = qsl[seq + 1] - start;
         } else {
             start = seq * seqLen;
             len = seqLen;
         }
-        if (len == 0u) continue;
+        if (len == 0) continue;
         const int32_t ci = cidx[seq];
         if (ci == padSlot) continue;
         const bool hasInit = hinit[seq] != 0;
 
         const uint32_t lc_len = (len + lchunks - 1) / lchunks;
-        const uint32_t l0 = lc * lc_len;
+        const int32_t l0 = lc * lc_len;
         if (l0 >= len) continue;
-        uint32_t l1 = l0 + lc_len;
+        int32_t l1 = l0 + lc_len;
         if (l1 > len) l1 = len;
 
         const uint32_t c0 = db * col_w;
         const uint32_t rem = dim - c0;
-        const int32_t lanes = rem > col_w ? (int32_t)col_w : (int32_t)rem;
+        const int32_t lanes = (int32_t)(rem > col_w ? col_w : rem);
 
-        convChunk<IoElemType, RS, MAX_W>(x, y, wgt, bia, convStates, dim, stateLen, K, start, len, (uint32_t)ci,
-                                         hasInit, c0, lanes, l0, l1, activation, hasBias);
+        convChunk<IoElemType, RS, MAX_W>(x, y, wgt, bia, convStates, dim, stateLen, K, start, ci, hasInit, c0,
+                                         lanes, l0, l1, activation, hasBias);
     }
 }
 
@@ -344,39 +343,38 @@ AICORE void runWriteback(__gm__ IoElemType *x, __gm__ IoElemType *convStates, __
     for (uint32_t task = core_id; task < gridSize; task += num_cores) {
         const uint32_t db = task % blocksPerSeq;
         const uint32_t seq = task / blocksPerSeq;
-        uint32_t start, len;
+        int32_t start, len;
         if (inputMode == 0u) {
-            const int32_t s0 = qsl[seq];
-            const int32_t s1 = qsl[seq + 1];
-            start = (uint32_t)s0;
-            len = (uint32_t)(s1 - s0);
+            start = qsl[seq];
+            len = qsl[seq + 1] - start;
         } else {
             start = seq * seqLen;
             len = seqLen;
         }
-        if (len == 0u) continue;
+        if (len == 0) continue;
         const int32_t ci = cidx[seq];
         if (ci == padSlot) continue;
         const bool hasInit = hinit[seq] != 0;
         const uint32_t c0 = db * col_w;
         const uint32_t rem = dim - c0;
-        const int32_t lanes = rem > col_w ? (int32_t)col_w : (int32_t)rem;
+        const int32_t lanes = (int32_t)(rem > col_w ? col_w : rem);
+        const int32_t halo = (int32_t)K - 1;
 
         wait_flag(PIPE_MTE3, PIPE_MTE2, EVENT_ID0);  // previous task's store done -> UB free to reload
         // Phase A (MTE2): load K-1 source rows = xext[len .. len+K-2].
         // xext index e: e>=K-1 -> x[e-(K-1)];  e<K-1 -> history (convStates if hasInit
         // else zero). For the zero case load x[start] (finite) as a placeholder and
         // zero it in phase B (avoids multiplying uninitialised UB).
-        for (uint32_t i = 0; i < (K - 1); ++i) {
-            const int32_t e = (int32_t)len + (int32_t)i;
-            const int32_t xrow = e - (int32_t)(K - 1);
+        for (int32_t i = 0; i < halo; ++i) {
+            const int32_t e = len + i;
+            const int32_t xrow = e - halo;
             IoTile row(lanes);
             TASSIGN(row, i * ioTileBytes);
             if (xrow >= 0) {
-                GlobalIoTensor sG(x + (uint64_t)(start + (uint32_t)xrow) * dim + c0, {lanes});
+                GlobalIoTensor sG(x + (uint64_t)(start + xrow) * dim + c0, {lanes});
                 TLOAD(row, sG);
             } else if (hasInit) {
-                GlobalIoTensor hG(convStates + ((uint64_t)ci * stateLen + (uint32_t)e) * dim + c0, {lanes});
+                GlobalIoTensor hG(convStates + ((uint64_t)ci * stateLen + e) * dim + c0, {lanes});
                 TLOAD(row, hG);
             } else {
                 GlobalIoTensor sG(x + (uint64_t)start * dim + c0, {lanes});  // placeholder (len>=1)
@@ -388,9 +386,9 @@ AICORE void runWriteback(__gm__ IoElemType *x, __gm__ IoElemType *convStates, __
         // Phase B (V): zero the pure-history rows when there is no initial state.
         // (TMULS has no bf16 overload, so zero via an fp32 round-trip of the finite
         //  placeholder: IoElemType -> fp32 -> *0 -> IoElemType. Works for fp16 and bf16.)
-        for (uint32_t i = 0; i < (K - 1); ++i) {
-            const int32_t e = (int32_t)len + (int32_t)i;
-            const int32_t xrow = e - (int32_t)(K - 1);
+        for (int32_t i = 0; i < halo; ++i) {
+            const int32_t e = len + i;
+            const int32_t xrow = e - halo;
             if (xrow < 0 && !hasInit) {
                 IoTile row(lanes);
                 AccumTile f32(lanes);
@@ -407,7 +405,7 @@ AICORE void runWriteback(__gm__ IoElemType *x, __gm__ IoElemType *convStates, __
         set_flag(PIPE_V, PIPE_MTE3, EVENT_ID1);
         wait_flag(PIPE_V, PIPE_MTE3, EVENT_ID1);
         // Phase C (MTE3): store to convStates[ci, 0:K-1, c0:].
-        for (uint32_t i = 0; i < (K - 1); ++i) {
+        for (int32_t i = 0; i < halo; ++i) {
             IoTile row(lanes);
             TASSIGN(row, i * ioTileBytes);
             GlobalIoTensor dG(convStates + ((uint64_t)ci * stateLen + i) * dim + c0, {lanes});
