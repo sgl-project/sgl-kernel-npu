@@ -8,7 +8,7 @@
 // the compile-time template parameter is the accumulator-ring size RS (a power of
 // two, K <= RS). The host routes a request to the RS = roundUpToPow2(K) variant, so
 // any width in [2, 64] is served by the six compiled RS variants {2,4,8,16,32,64}.
-// fp16/bf16 I/O, fp32 accumulate. Weights/bias are passed fp32 (host casts them).
+// fp16/bf16 I/O, fp32 accumulate. Weights/bias enter native and are cast to fp32 on device.
 //
 // Work grid (in-kernel, uniform task striding): batch x blocksPerSeq x lchunks.
 //   blocksPerSeq = ceil(dim/col_w) (channel tiles), lchunks splits the L axis so
@@ -57,7 +57,7 @@ AICORE inline void applySiluToTile(TileT &dst, TileT &src, TileT &tmp)
 // One conv chunk: outputs [l0,l1) for channels [c0,c0+lanes) of a sequence whose
 // tokens start at element row `start` (token index). history from convStates.
 template <typename IoElemType, uint32_t RS, uint32_t MAX_W>
-AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ float *wgt, __gm__ float *bia,
+AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ IoElemType *wgt, __gm__ IoElemType *bia,
                              __gm__ IoElemType *convStates, uint32_t dim, uint32_t stateLen, uint32_t K, uint32_t start,
                              uint32_t len, uint32_t cacheIdx, bool hasInit, uint32_t c0, int32_t lanes, uint32_t l0,
                              uint32_t l1, uint32_t activation, uint32_t hasBias)
@@ -65,7 +65,6 @@ AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ 
     using GlobalShape = pto::Shape<1, 1, 1, 1, DYNAMIC>;
     using GlobalStride = pto::Stride<1, 1, 1, 1, 1>;
     using GlobalIoTensor = pto::GlobalTensor<IoElemType, GlobalShape, GlobalStride>;
-    using GlobalAccumTensor = pto::GlobalTensor<float, GlobalShape, GlobalStride>;
     using IoTile = Tile<TileType::Vec, IoElemType, 1, MAX_W, BLayout::RowMajor, 1, DYNAMIC>;
     using AccumTile = Tile<TileType::Vec, float, 1, MAX_W, BLayout::RowMajor, 1, DYNAMIC>;
 
@@ -91,21 +90,49 @@ AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ 
     const uint32_t ubOutputOffset[2] = {ubIoBase + ioTileBytes, ubIoBase + 2u * ioTileBytes};
     const uint32_t ubInputOffset[2] = {ubIoBase, ubIoBase + 3u * ioTileBytes};
 
-    // weights (fp32) resident
+    // weights/bias arrive native (fp16/bf16); cast them to the resident fp32 tiles on
+    // device. The accumulator/temp/xin_f region is idle until the input loop, so use it
+    // as scratch: stage all K(+bias) native tiles there (the loads pipeline on MTE2 just
+    // like a plain load), one MTE2->V barrier, then cast each (the TCVTs pipeline on V).
+    // EVENT_ID3 here is the same load barrier the original used and is reused below.
+    constexpr uint32_t ubStageBase = ubAccumRingBase;  // accumulators + temps + xin_f are free here
+    static_assert((RS + 1u) * ioTileBytes <= 2u * RS * accumTileBytes,
+                  "conv1d: native weight/bias staging does not fit the scratch region");
+    // The PREVIOUS task's output phase reads this same region with V (TCVT(outT, acc));
+    // drain V before our staging MTE2 overwrites it -- otherwise a cross-task WAR
+    // corrupts that task's output. Self-contained on ID0 (clean here; reused by the loop).
+    set_flag(PIPE_V, PIPE_MTE2, EVENT_ID0);
+    wait_flag(PIPE_V, PIPE_MTE2, EVENT_ID0);
     for (uint32_t k = 0; k < K; ++k) {
-        GlobalAccumTensor wG(wgt + (uint64_t)k * dim + c0, {lanes});
-        AccumTile wT(lanes);
-        TASSIGN(wT, k * accumTileBytes);
-        TLOAD(wT, wG);
+        GlobalIoTensor wG(wgt + (uint64_t)k * dim + c0, {lanes});
+        IoTile wStage(lanes);
+        TASSIGN(wStage, ubStageBase + k * ioTileBytes);
+        TLOAD(wStage, wG);
     }
     if (hasBias) {
-        GlobalAccumTensor bG(bia + c0, {lanes});
-        AccumTile bT(lanes);
-        TASSIGN(bT, ubBiasOffset);
-        TLOAD(bT, bG);
+        GlobalIoTensor bG(bia + c0, {lanes});
+        IoTile bStage(lanes);
+        TASSIGN(bStage, ubStageBase + K * ioTileBytes);
+        TLOAD(bStage, bG);
     }
     set_flag(PIPE_MTE2, PIPE_V, EVENT_ID3);
-    wait_flag(PIPE_MTE2, PIPE_V, EVENT_ID3);
+    wait_flag(PIPE_MTE2, PIPE_V, EVENT_ID3);  // all native tiles staged before any cast
+    for (uint32_t k = 0; k < K; ++k) {
+        IoTile wStage(lanes);
+        AccumTile wT(lanes);
+        TASSIGN(wStage, ubStageBase + k * ioTileBytes);
+        TASSIGN(wT, k * accumTileBytes);
+        TCVT(wT, wStage, pto::RoundMode::CAST_NONE);
+    }
+    if (hasBias) {
+        IoTile bStage(lanes);
+        AccumTile bT(lanes);
+        TASSIGN(bStage, ubStageBase + K * ioTileBytes);
+        TASSIGN(bT, ubBiasOffset);
+        TCVT(bT, bStage, pto::RoundMode::CAST_NONE);
+    }
+    // The cast TCVTs (V) finish before the input loop's first TMUL/TCVT (also V, in
+    // program order) reuses this scratch region -- no extra sync needed.
 
     // double-buffered input: two load slots with independent handshakes.
     // EVENT_ID3 is reused here (the weight/bias load above already consumed it).
@@ -240,7 +267,7 @@ AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ 
 }
 
 template <typename IoElemType, uint32_t RS, uint32_t MAX_W>
-AICORE void runConv(__gm__ IoElemType *x, __gm__ float *wgt, __gm__ float *bia, __gm__ IoElemType *convStates,
+AICORE void runConv(__gm__ IoElemType *x, __gm__ IoElemType *wgt, __gm__ IoElemType *bia, __gm__ IoElemType *convStates,
                     __gm__ int32_t *qsl, __gm__ int32_t *cidx, __gm__ uint8_t *hinit, __gm__ IoElemType *y,
                     uint32_t dim, uint32_t batch, uint32_t inputMode, uint32_t seqLen, uint32_t stateLen, uint32_t K,
                     uint32_t col_w, uint32_t blocksPerSeq, uint32_t lchunks, uint32_t activation, uint32_t hasBias,
@@ -398,7 +425,7 @@ AICORE void runWriteback(__gm__ IoElemType *x, __gm__ IoElemType *convStates, __
 // MAX_W, with the width K passed at runtime; the host launches the rs<RS> variant.
 #if defined(__DAV_VEC__)
 #define CONV_BODY(T, RS, MW)                                                                                           \
-    cc1d::runConv<T, RS, MW>((__gm__ T *)x, (__gm__ float *)wgt, (__gm__ float *)bia, (__gm__ T *)convStates,          \
+    cc1d::runConv<T, RS, MW>((__gm__ T *)x, (__gm__ T *)wgt, (__gm__ T *)bia, (__gm__ T *)convStates,                  \
                              (__gm__ int32_t *)qsl, (__gm__ int32_t *)cidx, (__gm__ uint8_t *)hinit, (__gm__ T *)y,    \
                              dim, batch, inputMode, seqLen, stateLen, width, col_w, blocksPerSeq, lchunks, activation, \
                              hasBias, padSlot)
