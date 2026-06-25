@@ -465,7 +465,7 @@ AICORE void runWriteback(__gm__ IoElemType *x, __gm__ IoElemType *convStates, __
 // Ring sizes the kernel is compiled for -- must match FOR_EACH_RING_SIZE in
 // op_host/causal_conv1d.cpp. Each row is (ringSize, maxTileWidth); a larger ring uses
 // a smaller tile to fit the 192 KiB UB.
-#define FOR_EACH_RING_SIZE(DO) DO(2, 3072) DO(4, 3072) DO(8, 1536) DO(16, 896) DO(32, 384) DO(64, 128)
+#define FOR_EACH_RING_SIZE(DO) DO(2, 4096) DO(4, 3072) DO(8, 1536) DO(16, 896) DO(32, 384) DO(64, 128)
 #define DEFINE_ENTRIES(ringSize, maxTileWidth)                        \
     DEF_CONV(rs##ringSize##_half, half, ringSize, maxTileWidth)       \
     DEF_CONV(rs##ringSize##_bf16, bfloat16_t, ringSize, maxTileWidth) \

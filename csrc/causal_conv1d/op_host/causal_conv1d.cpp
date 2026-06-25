@@ -9,7 +9,7 @@
 // Ring sizes the kernel is compiled for -- must match FOR_EACH_RING_SIZE in
 // op_kernel/causal_conv1d.cpp. Each row is (ringSize, maxTileWidth); this one list
 // drives the launch-stub declarations, the per-ring tile-width lookup, and the dispatch.
-#define FOR_EACH_RING_SIZE(DO) DO(2, 3072) DO(4, 3072) DO(8, 1536) DO(16, 896) DO(32, 384) DO(64, 128)
+#define FOR_EACH_RING_SIZE(DO) DO(2, 4096) DO(4, 3072) DO(8, 1536) DO(16, 896) DO(32, 384) DO(64, 128)
 
 // AscendC emits one host launch stub (aclrtlaunch_<entry>) per kernel entry. A macro
 // can't generate #include directives, so rather than pull in 24 generated headers we
