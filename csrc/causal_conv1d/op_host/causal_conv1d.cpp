@@ -134,6 +134,11 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
     TORCH_CHECK(dim % 16 == 0, "dim must be multiple of 16 for fp16/bf16 alignment, but got ", dim);
     TORCH_CHECK(weight.size(1) == static_cast<int64_t>(dim), "weight.shape[1] must equal dim");
     TORCH_CHECK(conv_states.size(2) == static_cast<int64_t>(dim), "conv_states.shape[2] must equal dim");
+    if (has_bias) {  // bias is read in the I/O dtype and cast to fp32 in the kernel
+        TORCH_CHECK(bias.dim() == 1 && bias.size(0) == static_cast<int64_t>(dim), "bias must be 1D [dim]");
+        TORCH_CHECK(bias.scalar_type() == dtype, "bias dtype must match x dtype");
+        TORCH_CHECK(bias.is_contiguous(), "bias must be contiguous");
+    }
     const uint32_t stateLen = static_cast<uint32_t>(conv_states.size(1));
     TORCH_CHECK(stateLen >= width - 1, "state_len must be >= width-1");
 
@@ -164,9 +169,9 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
     const uint32_t seqChunks =
         std::min<uint32_t>(std::max<uint32_t>(1u, ceil_div(targetTilesPerSeq, channelTiles)), maxSeqChunks);
 
-    // weight/bias are tiny ([width, dim]/[dim]); cast once to fp32 (the kernel accumulates in fp32).
-    auto weight_f32 = weight.to(at::kFloat).contiguous();
-    auto bias_f32 = has_bias ? bias.to(at::kFloat).contiguous() : at::empty({0}, x.options().dtype(at::kFloat));
+    // weight/bias enter in the I/O dtype (fp16/bf16) and are cast to fp32 inside the
+    // kernel; pass a native empty placeholder when there is no bias.
+    const at::Tensor biasArg = has_bias ? bias : at::empty({0}, x.options());
     at::Tensor y = at::empty_like(x);
 
     // conv has one task per (batch, channel tile, seq chunk); the writeback only
@@ -182,7 +187,7 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
     // the per-dtype switch over the ring-size list selects the entry.
 #define launch(suffix)                                                                                               \
     do {                                                                                                             \
-        EXEC_KERNEL_CMD(causal_conv1d_##suffix, blockDimConv, x, weight_f32, bias_f32, conv_states, query_start_loc, \
+        EXEC_KERNEL_CMD(causal_conv1d_##suffix, blockDimConv, x, weight, biasArg, conv_states, query_start_loc,      \
                         cache_indices, has_initial_state, y, dim, batch, inputMode, seqLen, stateLen, width,         \
                         channelsPerTile, channelTiles, seqChunks, actFlag, biasFlag, padSlot);                       \
         EXEC_KERNEL_CMD(causal_conv1d_wb_##suffix, blockDimWb, x, conv_states, query_start_loc, cache_indices,       \
