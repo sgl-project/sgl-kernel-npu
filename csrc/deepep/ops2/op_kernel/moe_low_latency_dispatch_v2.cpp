@@ -36,11 +36,11 @@ using namespace MoeDistributeDispatchA2Impl;
           2  quantMode
 */
 extern "C" __global__ __aicore__ void moe_low_latency_dispatch_v2(GM_ADDR x, GM_ADDR expertIds, GM_ADDR scales,
-                                                                 GM_ADDR xActiveMask, GM_ADDR elasticInfo,
-                                                                 GM_ADDR expandXOut, GM_ADDR dynamicScalesOut,
-                                                                 GM_ADDR assistInfoOut, GM_ADDR expertTokenNumsOut,
-                                                                 GM_ADDR epSendCountsOut, GM_ADDR tpSendCountsOut,
-                                                                 GM_ADDR workspaceGM, GM_ADDR tilingGM)
+                                                                  GM_ADDR xActiveMask, GM_ADDR elasticInfo,
+                                                                  GM_ADDR expandXOut, GM_ADDR dynamicScalesOut,
+                                                                  GM_ADDR assistInfoOut, GM_ADDR expertTokenNumsOut,
+                                                                  GM_ADDR epSendCountsOut, GM_ADDR tpSendCountsOut,
+                                                                  GM_ADDR workspaceGM, GM_ADDR tilingGM)
 {
     REGISTER_TILING_DEFAULT(MoeDistributeDispatchV2TilingData);
     REGISTER_TILING_FOR_TILINGKEY("TILING_KEY_VAR >= 2000000000", MoeDistributeDispatchV2TilingData);
