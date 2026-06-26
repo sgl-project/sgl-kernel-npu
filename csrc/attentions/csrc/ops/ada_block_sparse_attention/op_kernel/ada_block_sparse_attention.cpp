@@ -29,10 +29,10 @@
         op.Process();                                                                                                \
     } while (0)
 
-#define INVOKE_BSA_TILING_DATA(tiling)                                                   \
+#define INVOKE_BSA_TILING_DATA(tiling)                                                      \
     GET_TILING_DATA_WITH_STRUCT(AdaBlockSparseAttentionTilingData, tiling_data_in, tiling); \
     const AdaBlockSparseAttentionTilingData *__restrict tiling_data = &tiling_data_in;      \
-    const TCubeTiling *__restrict bmm1tiling = &(tiling_data->bmm1TilingDataRect);       \
+    const TCubeTiling *__restrict bmm1tiling = &(tiling_data->bmm1TilingDataRect);          \
     const TCubeTiling *__restrict bmm2tiling = &(tiling_data->bmm2TilingDataRect)
 
 extern "C" __global__ __aicore__ void ada_block_sparse_attention_FIAS(
@@ -75,7 +75,8 @@ extern "C" __global__ __aicore__ void ada_block_sparse_attention_FIAS(
     TILING_KEY_IS(1000000000002011112);
 #if TILING_KEY_VAR == 1000000000000111112 || TILING_KEY_VAR == 1000000000002111112
     // BSH layout bf16 cvdiff
-    INVOKE_BSA_GENERAL_OP_IMPL(AdaBlockSparseAttentionS1s2Bns1X910, BSAType<BSALayout::BSH, bfloat16_t, bool, bfloat16_t>);
+    INVOKE_BSA_GENERAL_OP_IMPL(AdaBlockSparseAttentionS1s2Bns1X910,
+                               BSAType<BSALayout::BSH, bfloat16_t, bool, bfloat16_t>);
 #elif TILING_KEY_VAR == 1000000000000011112 || TILING_KEY_VAR == 1000000000002011112
     // BNSD layout bf16 cvdiff
     INVOKE_BSA_GENERAL_OP_IMPL(AdaBlockSparseAttentionS1s2Bns1X910,
@@ -93,8 +94,8 @@ extern "C" __global__ __aicore__ void ada_block_sparse_attention(
     __gm__ uint8_t *attentionOut, __gm__ uint8_t *workspace, __gm__ uint8_t *tiling)
 {
     ada_block_sparse_attention_FIAS(query, key, value, pseShift, attenMask, actualSeqLengths, actualSeqLengthsKV,
-                                deq_scale1, quant_scale1, deq_scale2, quant_scale2, quant_offset2, nullptr, nullptr,
-                                nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
-                                nullptr, nullptr, nullptr, sparseMask, sparseCntTable, attentionOut, nullptr, workspace,
-                                tiling);
+                                    deq_scale1, quant_scale1, deq_scale2, quant_scale2, quant_offset2, nullptr, nullptr,
+                                    nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr, nullptr,
+                                    nullptr, nullptr, nullptr, sparseMask, sparseCntTable, attentionOut, nullptr,
+                                    workspace, tiling);
 }

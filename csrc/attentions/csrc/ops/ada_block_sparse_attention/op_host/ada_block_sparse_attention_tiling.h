@@ -514,9 +514,10 @@ class AdaBlockSparseAttentionTiling
 public:
     explicit AdaBlockSparseAttentionTiling(fe::PlatFormInfos *platFormInfo) : ascendcPlatform(platFormInfo) {}
     ge::graphStatus RunBigKernelTilingWithParams(ContextParamsForBSATiling &contextKeyParams, uint64_t &tilingKey,
-                                                 uint32_t &blockDimToBeSet, AdaBlockSparseAttentionTilingData &tilingData);
+                                                 uint32_t &blockDimToBeSet,
+                                                 AdaBlockSparseAttentionTilingData &tilingData);
     ge::graphStatus AdaBlockSparseAttentionSetTilingData(gert::TilingContext *context,
-                                                      AdaBlockSparseAttentionTilingData &tilingData);
+                                                         AdaBlockSparseAttentionTilingData &tilingData);
     bool CheckNonEmptyShapeExceptions(ContextParamsForBSATiling &contextKeyParams, const gert::StorageShape *shape,
                                       const std::string &sName);
     bool fromBSA_ = true;
@@ -527,44 +528,45 @@ protected:
     ge::graphStatus ConvertContextToBSAParams(gert::TilingContext *context, ContextParamsForBSATiling &contextKeyParams,
                                               AdaBlockSparseAttentionTilingData &tilingData);
     ge::graphStatus TilingGetTilingKeyAttentionAscendC(uint64_t &tilingKey, ContextParamsForBSATiling &contextKeyParams,
-                                                       bool useNewTiling, AdaBlockSparseAttentionTilingData &tilingData);
+                                                       bool useNewTiling,
+                                                       AdaBlockSparseAttentionTilingData &tilingData);
     void AdaBlockSparseAttentionSplitNS(ContextParamsForBSATiling &contextKeyParams,
-                                     AdaBlockSparseAttentionTilingData &tilingData, uint32_t curCoreNum,
-                                     std::vector<int64_t> &actualSeqLengths);
+                                        AdaBlockSparseAttentionTilingData &tilingData, uint32_t curCoreNum,
+                                        std::vector<int64_t> &actualSeqLengths);
     void AdaBlockSparseAttentionSplitNSTable(ContextParamsForBSATiling &contextKeyParams,
-                                          AdaBlockSparseAttentionTilingData &tilingData, uint32_t curCoreNum,
-                                          std::vector<int64_t> &actualSeqLengths,
-                                          std::vector<int64_t> &actualSeqLengthsKV, int64_t actualSharedPrefixLen,
-                                          bool useBalanceTiling);
+                                             AdaBlockSparseAttentionTilingData &tilingData, uint32_t curCoreNum,
+                                             std::vector<int64_t> &actualSeqLengths,
+                                             std::vector<int64_t> &actualSeqLengthsKV, int64_t actualSharedPrefixLen,
+                                             bool useBalanceTiling);
 
     void GetPreNextTokensLeftUp(AdaBlockSparseAttentionTilingData &tilingData, uint32_t actualSeqLength,
                                 uint32_t actualSeqLengthKV, int64_t &preTokensLeftUp, int64_t &nextTokensLeftUp);
     void SetSplitCoreMode(AdaBlockSparseAttentionTilingData &tilingData, uint32_t sOuterFactor);
     void AdaBlockSparseAttentionSplitSeqOneN(AdaBlockSparseAttentionTilingData &tilingData, uint32_t curCoreNum,
-                                          bool isVectorCore);
+                                             bool isVectorCore);
     bool EnableMTE2BmmPipe(AdaBlockSparseAttentionTilingData &tilingData, matmul_tiling::MatmulApiTiling &bmm,
                            TCubeTiling &bmmTilingData, uint32_t sOuterFactor, uint32_t sInnerFactor);
     void EnableBmmDoubleBuffer(TCubeTiling &bmmTilingData);
     void AdaBlockSparseAttention310PSetBmm1(matmul_tiling::MatmulApiTiling &bmm1);
     void AdaBlockSparseAttention310PSetBmm2(matmul_tiling::MatmulApiTiling &bmm2);
     bool AdaBlockSparseAttentionCheckBmm1(AdaBlockSparseAttentionTilingData &tilingData, TCubeTiling &bmm1TilingData,
-                                       int64_t l1SizeRemain, int64_t l0CSize, uint32_t sOuterFactor,
-                                       uint32_t sInnerFactor, bool allGM = false, bool autoBaseMNK = false);
+                                          int64_t l1SizeRemain, int64_t l0CSize, uint32_t sOuterFactor,
+                                          uint32_t sInnerFactor, bool allGM = false, bool autoBaseMNK = false);
     bool AdaBlockSparseAttentionCheckBmm2(AdaBlockSparseAttentionTilingData &tilingData, TCubeTiling &bmm1TilingData,
-                                       int64_t l1SizeRemain, int64_t l0CSize, uint32_t sOuterFactor,
-                                       uint32_t sInnerFactor, uint32_t dSplitFactor, bool allGM = false,
-                                       bool autoBaseMNK = false);
+                                          int64_t l1SizeRemain, int64_t l0CSize, uint32_t sOuterFactor,
+                                          uint32_t sInnerFactor, uint32_t dSplitFactor, bool allGM = false,
+                                          bool autoBaseMNK = false);
     void AdaBlockSparseAttentionSetTensorSize(AdaBlockSparseAttentionTilingData &tilingData,
-                                           PromptAttentionSingleCoreTensorSize &tensorSize, uint32_t sOuterFactor,
-                                           uint32_t sInnerFactor);
-    bool AdaBlockSparseAttentionCheckArgsLegal(AdaBlockSparseAttentionTilingData &tilingData, int64_t ubSize, int64_t l1Size,
-                                            int64_t l0CSize, uint32_t typeByteSize, uint32_t &sOuterFactor,
-                                            uint32_t sInnerFactor, bool &updateDiv, uint32_t maskTypeSize,
-                                            uint32_t dSplitFactor);
+                                              PromptAttentionSingleCoreTensorSize &tensorSize, uint32_t sOuterFactor,
+                                              uint32_t sInnerFactor);
+    bool AdaBlockSparseAttentionCheckArgsLegal(AdaBlockSparseAttentionTilingData &tilingData, int64_t ubSize,
+                                               int64_t l1Size, int64_t l0CSize, uint32_t typeByteSize,
+                                               uint32_t &sOuterFactor, uint32_t sInnerFactor, bool &updateDiv,
+                                               uint32_t maskTypeSize, uint32_t dSplitFactor);
     ge::graphStatus AdjustBasicBlock(AdaBlockSparseAttentionTilingData &tilingData, uint32_t &sOuterFactor);
     ge::graphStatus AdaBlockSparseAttentionApiTiling(AdaBlockSparseAttentionTilingData &tilingData, uint32_t typeSize,
-                                                  uint32_t sOuterFactor, uint32_t softmaxSInnerFactor,
-                                                  uint32_t softmaxSOuterFactor);
+                                                     uint32_t sOuterFactor, uint32_t softmaxSInnerFactor,
+                                                     uint32_t softmaxSOuterFactor);
     ge::graphStatus GetRectangleFactor(uint32_t seqSplit, std::queue<uint32_t> &sQueue, int32_t threshold = 16);
     ge::graphStatus SetInputLayout(const char *layout);
     bool GetApiTmpSize(const uint32_t sOuterFactor, const uint32_t sInnerFactor, const uint32_t typeByteSize);
@@ -573,8 +575,9 @@ protected:
     bool SetTilingHeadNumRatio(ContextParamsForBSATiling &contextKeyParams, const int32_t numQueryHeads,
                                const int32_t numKeyValueHeads, AdaBlockSparseAttentionTilingData &tilingData);
     void AdaBlockSparseAttentionInitOutputSplit(uint64_t totalSize, AdaBlockSparseAttentionTilingData &tilingData,
-                                             uint32_t curCoreNum);
-    void AdaBlockSparseAttentionInitSoftmaxLseOutputSplit(uint64_t totalSize, AdaBlockSparseAttentionTilingData &tilingData);
+                                                uint32_t curCoreNum);
+    void AdaBlockSparseAttentionInitSoftmaxLseOutputSplit(uint64_t totalSize,
+                                                          AdaBlockSparseAttentionTilingData &tilingData);
     void Align(uint32_t &num);
     ge::graphStatus GetBasicShape(uint32_t &b, uint32_t &s, uint32_t &h, uint32_t &seqInnerSize,
                                   const gert::StorageShape *queryShape, const gert::StorageShape *keyShape,
@@ -604,13 +607,13 @@ protected:
     ge::graphStatus CheckPostQuantParams(const ContextParamsForBSATiling &contextKeyParams, uint32_t h,
                                          uint32_t n) const;
     ge::graphStatus AdaBlockSparseAttentionCVDiffSetTensorSize(AdaBlockSparseAttentionTilingData &tilingData,
-                                                            PromptAttentionSingleCoreTensorSize &tensorSize,
-                                                            uint32_t sOuterFactor, uint32_t sInnerFactor,
-                                                            uint32_t softmaxSOuterFactor);
+                                                               PromptAttentionSingleCoreTensorSize &tensorSize,
+                                                               uint32_t sOuterFactor, uint32_t sInnerFactor,
+                                                               uint32_t softmaxSOuterFactor);
     bool AdaBlockSparseAttentionComputeCVDiffParams(AdaBlockSparseAttentionTilingData &tilingData, int64_t ubSize,
-                                                 int64_t l1Size, int64_t l0CSize, uint32_t typeByteSize,
-                                                 uint32_t &sOuterFactor, uint32_t &sInnerFactor, uint32_t maskTypeSize,
-                                                 uint32_t &softmaxSOuterFactor);
+                                                    int64_t l1Size, int64_t l0CSize, uint32_t typeByteSize,
+                                                    uint32_t &sOuterFactor, uint32_t &sInnerFactor,
+                                                    uint32_t maskTypeSize, uint32_t &softmaxSOuterFactor);
     bool FindOptimalTilingBasicBLock(AdaBlockSparseAttentionTilingData &tilingData, uint32_t &sOuterFactor,
                                      uint32_t &sInnerFactor, uint32_t &softmaxSOuterFactor, int64_t ubSize,
                                      uint32_t typeByteSize, uint32_t maskTypeSize);
@@ -633,10 +636,10 @@ protected:
                                                const gert::StorageShape *queryShape) const;
     void UpdateTilingKeyFlag(ContextParamsForBSATiling &contextKeyParams, uint64_t &tilingKey);
     int64_t AdaBlockSparseAttentionSetMsdUbSize(AdaBlockSparseAttentionTilingData &tilingData,
-                                             PromptAttentionSingleCoreTensorSize &tensorSize,
-                                             int32_t sInnerFactorTmp) const;
-    ge::graphStatus CheckIOType(ContextParamsForBSATiling &contextKeyParams, AdaBlockSparseAttentionTilingData &tilingData,
-                                int32_t &outputDataTypeSize);
+                                                PromptAttentionSingleCoreTensorSize &tensorSize,
+                                                int32_t sInnerFactorTmp) const;
+    ge::graphStatus CheckIOType(ContextParamsForBSATiling &contextKeyParams,
+                                AdaBlockSparseAttentionTilingData &tilingData, int32_t &outputDataTypeSize);
     ge::graphStatus CheckD(ContextParamsForBSATiling &contextKeyParams);  // codespell:ignore
     ge::graphStatus CheckDimNums(ContextParamsForBSATiling &contextKeyParams);
     ge::graphStatus CheckMaskType(ContextParamsForBSATiling &contextKeyParams,

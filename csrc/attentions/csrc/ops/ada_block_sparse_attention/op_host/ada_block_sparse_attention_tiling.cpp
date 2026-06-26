@@ -456,7 +456,8 @@ static ge::graphStatus ConvertContextToBSAParams(gert::TilingContext *context,
     return ge::GRAPH_SUCCESS;
 }
 
-void AdaBlockSparseAttentionTiling::UpdateTilingKeyFlag(ContextParamsForBSATiling &contextKeyParams, uint64_t &tilingKey)
+void AdaBlockSparseAttentionTiling::UpdateTilingKeyFlag(ContextParamsForBSATiling &contextKeyParams,
+                                                        uint64_t &tilingKey)
 {
     uint64_t binaryFlag = 0;
     auto queryDtype = contextKeyParams.inputDataType;
@@ -473,7 +474,7 @@ void AdaBlockSparseAttentionTiling::UpdateTilingKeyFlag(ContextParamsForBSATilin
 }
 
 bool AdaBlockSparseAttentionTiling::GetApiTmpSize(const uint32_t sOuterFactor, const uint32_t sInnerFactor,
-                                               const uint32_t typeByteSize)
+                                                  const uint32_t typeByteSize)
 {
     auto tmpShape = Shape({sOuterFactor, sInnerFactor});
     if (curShortSocName == platform_ascendc::SocVersion::ASCEND310P) {
@@ -574,9 +575,8 @@ ge::graphStatus AdaBlockSparseAttentionTiling::TilingGetTilingKeyAttentionAscend
     return ge::GRAPH_SUCCESS;
 }
 
-void AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionInitOutputSplit(uint64_t totalSize,
-                                                                     AdaBlockSparseAttentionTilingData &tilingData,
-                                                                     uint32_t curCoreNum)
+void AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionInitOutputSplit(
+    uint64_t totalSize, AdaBlockSparseAttentionTilingData &tilingData, uint32_t curCoreNum)
 {
     PromptAttentionInitOutputParams *initParams = &tilingData.promptAttentionInitOutputParams;
     // Upward rounding, coreNum has been verified to be non-zero when obtained.
@@ -600,8 +600,8 @@ void AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionInitSoftmaxLseOutputS
 }
 
 void AdaBlockSparseAttentionTiling::GetPreNextTokensLeftUp(AdaBlockSparseAttentionTilingData &tilingData,
-                                                        uint32_t actualSeqLength, uint32_t actualSeqLengthKV,
-                                                        int64_t &preTokensLeftUp, int64_t &nextTokensLeftUp)
+                                                           uint32_t actualSeqLength, uint32_t actualSeqLengthKV,
+                                                           int64_t &preTokensLeftUp, int64_t &nextTokensLeftUp)
 {
     PromptAttentionBaseParams *baseParams = &tilingData.promptAttentionBaseParams;
     int64_t sparsePreTokens = baseParams->get_preTokens();
@@ -620,7 +620,8 @@ void AdaBlockSparseAttentionTiling::GetPreNextTokensLeftUp(AdaBlockSparseAttenti
     }
 }
 
-void AdaBlockSparseAttentionTiling::SetSplitCoreMode(AdaBlockSparseAttentionTilingData &tilingData, uint32_t sOuterFactor)
+void AdaBlockSparseAttentionTiling::SetSplitCoreMode(AdaBlockSparseAttentionTilingData &tilingData,
+                                                     uint32_t sOuterFactor)
 {
     PromptAttentionBaseParams *baseParams = &tilingData.promptAttentionBaseParams;
 
@@ -677,7 +678,7 @@ void AdaBlockSparseAttentionTiling::SetSplitCoreMode(AdaBlockSparseAttentionTili
 }
 
 void AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionSplitSeqOneN(AdaBlockSparseAttentionTilingData &tilingData,
-                                                                  uint32_t curCoreNum, bool isVectorCore)
+                                                                        uint32_t curCoreNum, bool isVectorCore)
 {
     PromptAttentionBaseParams *baseParams = &tilingData.promptAttentionBaseParams;
     PromptAttentionSingleCoreParams *singleCoreParams = &tilingData.promptAttentionSingleCoreParams;
@@ -753,8 +754,8 @@ void AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionSplitSeqOneN(AdaBlock
 }
 
 bool AdaBlockSparseAttentionTiling::EnableMTE2BmmPipe(AdaBlockSparseAttentionTilingData &tilingData,
-                                                   matmul_tiling::MatmulApiTiling &bmm, TCubeTiling &bmmTilingData,
-                                                   uint32_t sOuterFactor, uint32_t sInnerFactor)
+                                                      matmul_tiling::MatmulApiTiling &bmm, TCubeTiling &bmmTilingData,
+                                                      uint32_t sOuterFactor, uint32_t sInnerFactor)
 {
     // When the size is greater than 16, use xiaoe speculative inference.
     if (tilingData.promptAttentionBaseParams.get_seqSize() > 16) {
@@ -773,7 +774,8 @@ bool AdaBlockSparseAttentionTiling::EnableMTE2BmmPipe(AdaBlockSparseAttentionTil
     }
     int32_t ret = 0;
     ret = bmm.SetFixSplit(baseM, baseN, baseK);
-    OPS_ERR_IF(ret != 0, OPS_REPORT_VECTOR_INNER_ERR("AdaBlockSparseAttention", "bmm SetFixSplit failed, ret = %d!", ret),
+    OPS_ERR_IF(ret != 0,
+               OPS_REPORT_VECTOR_INNER_ERR("AdaBlockSparseAttention", "bmm SetFixSplit failed, ret = %d!", ret),
                return false);
     bool res = bmm.GetTiling(bmmTilingData) != -1;
     return res;
@@ -820,9 +822,10 @@ AdaBlockSparseAttentionTiling::CheckKeyValueParamsConsistency(const ContextParam
 }
 
 bool AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionCheckBmm1(AdaBlockSparseAttentionTilingData &tilingData,
-                                                               TCubeTiling &bmm1TilingData, int64_t l1SizeRemain,
-                                                               int64_t l0CSize, uint32_t sOuterFactor,
-                                                               uint32_t sInnerFactor, bool allGM, bool autoBaseMNK)
+                                                                     TCubeTiling &bmm1TilingData, int64_t l1SizeRemain,
+                                                                     int64_t l0CSize, uint32_t sOuterFactor,
+                                                                     uint32_t sInnerFactor, bool allGM,
+                                                                     bool autoBaseMNK)
 {
     int32_t ret = 0;
     matmul_tiling::MatmulApiTiling bmm1(ascendPlatformInfo);
@@ -891,7 +894,7 @@ bool AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionCheckBmm1(AdaBlockSpa
 }
 
 void AdaBlockSparseAttentionTiling::GetMatMulType(matmul_tiling::DataType &mmInputType,
-                                               matmul_tiling::DataType &mmOutputType)
+                                                  matmul_tiling::DataType &mmOutputType)
 {
     if (inputType == ge::DT_FLOAT16 && innerPrecise == HIGH_PRECISION) {
         mmInputType = matmul_tiling::DataType::DT_FLOAT16;
@@ -906,10 +909,10 @@ void AdaBlockSparseAttentionTiling::GetMatMulType(matmul_tiling::DataType &mmInp
 }
 
 bool AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionCheckBmm2(AdaBlockSparseAttentionTilingData &tilingData,
-                                                               TCubeTiling &bmm2TilingData, int64_t l1SizeRemain,
-                                                               int64_t l0CSize, uint32_t sOuterFactor,
-                                                               uint32_t sInnerFactor, uint32_t dSplitFactor, bool allGM,
-                                                               bool autoBaseMNK)
+                                                                     TCubeTiling &bmm2TilingData, int64_t l1SizeRemain,
+                                                                     int64_t l0CSize, uint32_t sOuterFactor,
+                                                                     uint32_t sInnerFactor, uint32_t dSplitFactor,
+                                                                     bool allGM, bool autoBaseMNK)
 {
     int32_t ret = 0;
     matmul_tiling::MatmulApiTiling bmm2(ascendPlatformInfo);
@@ -977,9 +980,10 @@ bool AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionCheckBmm2(AdaBlockSpa
             uint32_t baseN = std::min(uint32_t(128), tilingData.promptAttentionBaseParams.get_headSize());
             uint32_t baseK = 128U;
             ret = bmm2.SetFixSplit(baseM, baseN, baseK);
-            OPS_ERR_IF(ret != 0,
-                       OPS_REPORT_VECTOR_INNER_ERR("AdaBlockSparseAttention", "bmm2 SetFixSplit failed, ret = %d!", ret),
-                       return false);
+            OPS_ERR_IF(
+                ret != 0,
+                OPS_REPORT_VECTOR_INNER_ERR("AdaBlockSparseAttention", "bmm2 SetFixSplit failed, ret = %d!", ret),
+                return false);
         }
         ret = bmm2.GetTiling(bmm2TilingData);
     } else {
@@ -1016,9 +1020,9 @@ bool AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionCheckBmm2(AdaBlockSpa
     return true;
 }
 
-void AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionSetTensorSize(AdaBlockSparseAttentionTilingData &tilingData,
-                                                                   PromptAttentionSingleCoreTensorSize &tensorSize,
-                                                                   uint32_t sOuterFactor, uint32_t sInnerFactor)
+void AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionSetTensorSize(
+    AdaBlockSparseAttentionTilingData &tilingData, PromptAttentionSingleCoreTensorSize &tensorSize,
+    uint32_t sOuterFactor, uint32_t sInnerFactor)
 {
     if (tilingData.promptAttentionBaseParams.get_useMask() == 0U && usePseShift == 0U) {
         // In scenarios where attentionMask is not configured and there is no pse,
@@ -1090,9 +1094,9 @@ void AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionSetTensorSize(AdaBloc
     }
 }
 
-int64_t AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionSetMsdUbSize(AdaBlockSparseAttentionTilingData &tilingData,
-                                                                     PromptAttentionSingleCoreTensorSize &tensorSize,
-                                                                     int32_t sInnerFactorTmp) const
+int64_t AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionSetMsdUbSize(
+    AdaBlockSparseAttentionTilingData &tilingData, PromptAttentionSingleCoreTensorSize &tensorSize,
+    int32_t sInnerFactorTmp) const
 {
     int64_t msdUbSize = 0;
 
@@ -1100,7 +1104,7 @@ int64_t AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionSetMsdUbSize(AdaBl
 }
 
 uint32_t AdaBlockSparseAttentionTiling::CalculateL1SizeUsed(AdaBlockSparseAttentionTilingData &tilingData,
-                                                         const uint32_t typeByteSize)
+                                                            const uint32_t typeByteSize)
 {
     if (curShortSocName == platform_ascendc::SocVersion::ASCEND310P) {
         // 3：Two extra tscm buffers are needed for a1, b1 or b1, b2.
@@ -1112,10 +1116,9 @@ uint32_t AdaBlockSparseAttentionTiling::CalculateL1SizeUsed(AdaBlockSparseAttent
     return 0;
 }
 
-ge::graphStatus AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionApiTiling(AdaBlockSparseAttentionTilingData &tilingData,
-                                                                          uint32_t typeSize, uint32_t sOuterFactor,
-                                                                          uint32_t softmaxSInnerFactor,
-                                                                          uint32_t softmaxSOuterFactor)
+ge::graphStatus AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionApiTiling(
+    AdaBlockSparseAttentionTilingData &tilingData, uint32_t typeSize, uint32_t sOuterFactor,
+    uint32_t softmaxSInnerFactor, uint32_t softmaxSOuterFactor)
 {
     auto softmaxShapeRect = Shape({softmaxSOuterFactor, softmaxSInnerFactor});
 
@@ -1154,7 +1157,7 @@ ge::graphStatus AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionSetTilingD
 }
 
 ge::graphStatus AdaBlockSparseAttentionTiling::GetRectangleFactor(uint32_t seqFactorThreshold,
-                                                               std::queue<uint32_t> &sQueue, int32_t threshold)
+                                                                  std::queue<uint32_t> &sQueue, int32_t threshold)
 {
     for (int i = seqFactorThreshold; i >= threshold; i = (i - threshold)) {  // threshold 16
         sQueue.push(i);
@@ -1196,7 +1199,7 @@ ge::graphStatus AdaBlockSparseAttentionTiling::SetInputLayout(const char *layout
 }
 
 bool AdaBlockSparseAttentionTiling::CheckInputDimAndHeadNum(ContextParamsForBSATiling &contextKeyParams,
-                                                         const uint32_t nQAttr, const uint32_t nKVAttr)
+                                                            const uint32_t nQAttr, const uint32_t nKVAttr)
 {
     uint32_t nQ = nQAttr;
     uint32_t nKV = nKVAttr;
@@ -1260,8 +1263,8 @@ bool AdaBlockSparseAttentionTiling::CheckInputDimAndHeadNum(ContextParamsForBSAT
 }
 
 bool AdaBlockSparseAttentionTiling::SetTilingHeadNumRatio(ContextParamsForBSATiling &contextKeyParams,
-                                                       const int32_t numQueryHeads, const int32_t numKeyValueHeads,
-                                                       AdaBlockSparseAttentionTilingData &tilingData)
+                                                          const int32_t numQueryHeads, const int32_t numKeyValueHeads,
+                                                          AdaBlockSparseAttentionTilingData &tilingData)
 {
     const int32_t nQ = numQueryHeads;
     const int32_t nKV = numKeyValueHeads;
@@ -1294,7 +1297,8 @@ bool AdaBlockSparseAttentionTiling::SetTilingHeadNumRatio(ContextParamsForBSATil
 }
 
 bool AdaBlockSparseAttentionTiling::CheckNonEmptyShapeExceptions(ContextParamsForBSATiling &contextKeyParams,
-                                                              const gert::StorageShape *shape, const std::string &sName)
+                                                                 const gert::StorageShape *shape,
+                                                                 const std::string &sName)
 {
     OPS_ERR_IF(shape == nullptr,
                OPS_REPORT_VECTOR_INNER_ERR(contextKeyParams.opName, "%s shape is null.", sName.c_str()), return true);
@@ -1305,8 +1309,8 @@ bool AdaBlockSparseAttentionTiling::CheckNonEmptyShapeExceptions(ContextParamsFo
 }
 
 bool AdaBlockSparseAttentionTiling::CheckBaseApiNonEmptyShapeExceptions(ContextParamsForBSATiling &contextKeyParams,
-                                                                     const gert::StorageShape *shape,
-                                                                     const std::string &sName)
+                                                                        const gert::StorageShape *shape,
+                                                                        const std::string &sName)
 {
     OPS_ERR_IF(shape == nullptr,
                OPS_REPORT_VECTOR_INNER_ERR(contextKeyParams.opName, "%s shape is null.", sName.c_str()), return true);
@@ -1318,9 +1322,9 @@ bool AdaBlockSparseAttentionTiling::CheckBaseApiNonEmptyShapeExceptions(ContextP
 }
 
 bool AdaBlockSparseAttentionTiling::CheckActualSeqLength(ContextParamsForBSATiling &contextKeyParams, uint32_t b,
-                                                      uint32_t sQ, uint32_t sKV, const gert::Tensor *actualSeqLenQ,
-                                                      const gert::Tensor *actualSeqLenKV, InputLayout inLayout,
-                                                      AdaBlockSparseAttentionTilingData &tilingData)
+                                                         uint32_t sQ, uint32_t sKV, const gert::Tensor *actualSeqLenQ,
+                                                         const gert::Tensor *actualSeqLenKV, InputLayout inLayout,
+                                                         AdaBlockSparseAttentionTilingData &tilingData)
 {
     if (contextKeyParams.fromTilingSink != 0) {
         return true;
@@ -1421,8 +1425,8 @@ bool AdaBlockSparseAttentionTiling::CheckActualSeqLength(ContextParamsForBSATili
 }
 
 bool AdaBlockSparseAttentionTiling::CheckPseShiftTypeAndShape(ContextParamsForBSATiling &contextKeyParams,
-                                                           const gert::StorageShape *pseShiftShape, uint32_t b,
-                                                           uint32_t n, uint32_t s1, uint32_t s2)
+                                                              const gert::StorageShape *pseShiftShape, uint32_t b,
+                                                              uint32_t n, uint32_t s1, uint32_t s2)
 {
     if (contextKeyParams.fromTilingSink != 0) {
         return true;
@@ -1490,8 +1494,8 @@ bool AdaBlockSparseAttentionTiling::CheckPseShiftTypeAndShape(ContextParamsForBS
 }
 
 bool AdaBlockSparseAttentionTiling::CheckPATypeAndShape(ContextParamsForBSATiling &contextKeyParams,
-                                                     const gert::Tensor *actualSeqLenKV, int32_t b, int32_t n,
-                                                     int32_t h, int32_t headNumRatio)
+                                                        const gert::Tensor *actualSeqLenKV, int32_t b, int32_t n,
+                                                        int32_t h, int32_t headNumRatio)
 {
     const int32_t *blockSize = contextKeyParams.blockSize;
     OPS_ERR_IF((*blockSize % BLOCK_SIZE_BASE != 0 || *blockSize < BLOCK_SIZE_BASE || *blockSize > BLOCK_SIZE_MAX),
@@ -1650,9 +1654,9 @@ bool AdaBlockSparseAttentionTiling::CheckPATypeAndShape(ContextParamsForBSATilin
 }
 
 bool AdaBlockSparseAttentionTiling::CheckAttenMaskShape(ContextParamsForBSATiling &contextKeyParams,
-                                                     const int32_t *sparseMode,
-                                                     const gert::StorageShape *attenMaskShape, const uint32_t sQ,
-                                                     const uint32_t sK, const uint32_t batchSize)
+                                                        const int32_t *sparseMode,
+                                                        const gert::StorageShape *attenMaskShape, const uint32_t sQ,
+                                                        const uint32_t sK, const uint32_t batchSize)
 {
     if (contextKeyParams.fromTilingSink != 0) {
         return true;
@@ -1739,10 +1743,10 @@ bool AdaBlockSparseAttentionTiling::CheckAttenMaskShape(ContextParamsForBSATilin
 }
 
 bool AdaBlockSparseAttentionTiling::CheckAntiquantParamsShape(ContextParamsForBSATiling &contextKeyParams,
-                                                           const gert::StorageShape *antiquantScaleShape,
-                                                           const gert::StorageShape *antiquantOffsetShape,
-                                                           const uint32_t n, const uint32_t d, const uint32_t h,
-                                                           AdaBlockSparseAttentionTilingData &tilingData)
+                                                              const gert::StorageShape *antiquantScaleShape,
+                                                              const gert::StorageShape *antiquantOffsetShape,
+                                                              const uint32_t n, const uint32_t d, const uint32_t h,
+                                                              AdaBlockSparseAttentionTilingData &tilingData)
 {
     OPS_ERR_IF(contextKeyParams.antiquantScale == nullptr || antiquantScaleShape == nullptr,
                OPS_REPORT_VECTOR_INNER_ERR(contextKeyParams.opName, "antiquant scale is nullptr"), return false);
@@ -1854,7 +1858,7 @@ bool AdaBlockSparseAttentionTiling::CheckAntiquantParamsShape(ContextParamsForBS
 }
 
 ge::graphStatus AdaBlockSparseAttentionTiling::CheckPostQuantParams(const ContextParamsForBSATiling &contextKeyParams,
-                                                                 uint32_t h, uint32_t n) const
+                                                                    uint32_t h, uint32_t n) const
 {
     if (n == 0) {
         return ge::GRAPH_FAILED;
@@ -1956,7 +1960,7 @@ ge::graphStatus AdaBlockSparseAttentionTiling::CheckPostQuantParams(const Contex
 }
 
 ge::graphStatus AdaBlockSparseAttentionTiling::AdjustBasicBlock(AdaBlockSparseAttentionTilingData &tilingData,
-                                                             uint32_t &sOuterFactor)
+                                                                uint32_t &sOuterFactor)
 {
     PromptAttentionBaseParams *baseParams = &tilingData.promptAttentionBaseParams;
     uint32_t headNumSize = baseParams->get_headNumSize();
@@ -1986,10 +1990,10 @@ void AdaBlockSparseAttentionTiling::Align(uint32_t &num)
 
 // Code for ut, no practical to use.
 ge::graphStatus AdaBlockSparseAttentionTiling::GetBasicShape310P(uint32_t &b, uint32_t &bKV, uint32_t &s, uint32_t &h,
-                                                              uint32_t &seqInnerSize,
-                                                              const gert::StorageShape *queryShape,
-                                                              const gert::StorageShape *keyShape, const uint32_t n,
-                                                              size_t actualLenDims, size_t actualLenDimsKV)
+                                                                 uint32_t &seqInnerSize,
+                                                                 const gert::StorageShape *queryShape,
+                                                                 const gert::StorageShape *keyShape, const uint32_t n,
+                                                                 size_t actualLenDims, size_t actualLenDimsKV)
 {
     OPS_ERR_IF(queryShape == nullptr, OPS_REPORT_VECTOR_INNER_ERR("GetBasicShape310P", "queryShape is null."),
                return ge::GRAPH_FAILED);
@@ -2066,7 +2070,7 @@ ge::graphStatus AdaBlockSparseAttentionTiling::GetBasicShape310P(uint32_t &b, ui
 }
 
 ge::graphStatus AdaBlockSparseAttentionTiling::GetAndCheckEmptyQueryShape(ContextParamsForBSATiling &contextKeyParams,
-                                                                       const gert::StorageShape *queryShape) const
+                                                                          const gert::StorageShape *queryShape) const
 {
     OPS_ERR_IF(queryShape == nullptr, OPS_REPORT_VECTOR_INNER_ERR(contextKeyParams.opName, "queryShape is null."),
                return ge::GRAPH_FAILED);
@@ -2133,8 +2137,8 @@ ge::graphStatus AdaBlockSparseAttentionTiling::GetAndCheckEmptyQueryShape(Contex
 }
 
 void AdaBlockSparseAttentionTiling::SetBaseApiTilingData(ContextParamsForBSATiling &contextKeyParams,
-                                                      std::vector<int64_t> &actualSeqLengths,
-                                                      std::vector<int64_t> &actualSeqLengthsKV)
+                                                         std::vector<int64_t> &actualSeqLengths,
+                                                         std::vector<int64_t> &actualSeqLengthsKV)
 {
     const gert::StorageShape *queryShape = contextKeyParams.queryInputShape;
     const gert::StorageShape *keyShape = contextKeyParams.keyInputShape;
@@ -2236,8 +2240,8 @@ void AdaBlockSparseAttentionTiling::SetBaseApiTilingData(ContextParamsForBSATili
 }
 
 void AdaBlockSparseAttentionTiling::SetBaseApiSeqTilingData(ContextParamsForBSATiling &contextKeyParams,
-                                                         std::vector<int64_t> &actualSeqLengths,
-                                                         std::vector<int64_t> &actualSeqLengthsKV)
+                                                            std::vector<int64_t> &actualSeqLengths,
+                                                            std::vector<int64_t> &actualSeqLengthsKV)
 {
     PromptAttentionBaseApiBaseParams *baseParams = &baseApiTilingData.promptAttentionBaseApiBaseParams;
 
@@ -2417,7 +2421,7 @@ int64_t AdaBlockSparseAttentionTiling::GetNFromOutputShape(const gert::StorageSh
 }
 
 void AdaBlockSparseAttentionTiling::GetActualSeqLenData(int64_t inputIdx, std::array<int64_t, MAX_VAR_LEN_SEQ_LEN> &res,
-                                                     int64_t &actualLen)
+                                                        int64_t &actualLen)
 {
     auto actualSeqLenTensor = contextKeyParamsPtr->actualSeqenceLengthQ;
     if (inputIdx == ACTUAL_SEQ_KV_INDEX) {
@@ -2453,8 +2457,8 @@ void AdaBlockSparseAttentionTiling::GetActualSeqLenData(int64_t inputIdx, std::a
 }
 
 bool AdaBlockSparseAttentionTiling::BalanceLoad(const std::vector<int64_t> &sparseValidArray,
-                                             BSAMultiCoreParams &multiCoreParams, std::vector<int64_t> &localValue,
-                                             std::vector<int64_t> &sparseStartIdx)
+                                                BSAMultiCoreParams &multiCoreParams, std::vector<int64_t> &localValue,
+                                                std::vector<int64_t> &sparseStartIdx)
 {
     // to avoid buffer overflow, or maybe sometimes we want to only verify single core
     int64_t validAiCoreNum = isSameAB ? std::min(static_cast<int64_t>(multiCoreParams.get_coreNum() / 2), MAX_AIC_NUM)
@@ -2503,8 +2507,8 @@ bool AdaBlockSparseAttentionTiling::BalanceLoad(const std::vector<int64_t> &spar
 }
 
 bool AdaBlockSparseAttentionTiling::InitLoadValue(const std::vector<int64_t> &sparseValidArray, int64_t validAivNum,
-                                               int64_t totalSize, const std::vector<int64_t> &sparseStartIdx,
-                                               std::vector<int64_t> &localValue)
+                                                  int64_t totalSize, const std::vector<int64_t> &sparseStartIdx,
+                                                  std::vector<int64_t> &localValue)
 {
     for (int64_t idx = 0; idx < validAivNum; ++idx) {
         int64_t start = sparseStartIdx[idx];
@@ -2519,7 +2523,7 @@ bool AdaBlockSparseAttentionTiling::InitLoadValue(const std::vector<int64_t> &sp
 }
 
 bool AdaBlockSparseAttentionTiling::SetSparseStartIdxTND(const std::vector<int64_t> &sparseValidArray,
-                                                      BSAMultiCoreParams &multiCoreParams)
+                                                         BSAMultiCoreParams &multiCoreParams)
 {
     // to avoid buffer overflow, or maybe sometimes we want to only verify single core
     int64_t validAiCoreNum = isSameAB ? std::min(static_cast<int64_t>(multiCoreParams.get_coreNum() / 2), MAX_AIC_NUM)
@@ -2735,7 +2739,8 @@ void AdaBlockSparseAttentionTiling::MatchTemplate(uint32_t valueD)
     (void)CalcUBSize();
 }
 
-ge::graphStatus AdaBlockSparseAttentionTiling::CheckInputShapeWhenLayoutIsTND(ContextParamsForBSATiling &contextKeyParams)
+ge::graphStatus
+AdaBlockSparseAttentionTiling::CheckInputShapeWhenLayoutIsTND(ContextParamsForBSATiling &contextKeyParams)
 {
     std::string layoutStr(contextKeyParams.layout);
     const gert::Tensor *actSeqLenData = contextKeyParams.actualSeqenceLengthQ;
@@ -2950,9 +2955,9 @@ ge::graphStatus AdaBlockSparseAttentionTiling::CheckActSeqWhenLayoutIsTND(Contex
     return ge::GRAPH_SUCCESS;
 }
 
-ge::graphStatus AdaBlockSparseAttentionTiling::RunBigKernelTilingWithParams(ContextParamsForBSATiling &contextKeyParams,
-                                                                         uint64_t &tilingKey, uint32_t &blockDimToBeSet,
-                                                                         AdaBlockSparseAttentionTilingData &tilingData)
+ge::graphStatus AdaBlockSparseAttentionTiling::RunBigKernelTilingWithParams(
+    ContextParamsForBSATiling &contextKeyParams, uint64_t &tilingKey, uint32_t &blockDimToBeSet,
+    AdaBlockSparseAttentionTilingData &tilingData)
 {
     uint64_t l0CSize;
     uint64_t l1Size;
@@ -3979,7 +3984,8 @@ ge::graphStatus AdaBlockSparseAttentionTiling::RunBigKernelTilingWithParams(Cont
     }
 
     if (contextKeyParams.isSoftMaxLseEnable) {
-        AdaBlockSparseAttentionInitSoftmaxLseOutputSplit(SoftmaxLseOutShape->GetStorageShape().GetShapeSize(), tilingData);
+        AdaBlockSparseAttentionInitSoftmaxLseOutputSplit(SoftmaxLseOutShape->GetStorageShape().GetShapeSize(),
+                                                         tilingData);
     }
 
     ge::graphStatus tilingRet =
@@ -3995,7 +4001,7 @@ ge::graphStatus AdaBlockSparseAttentionTiling::RunBigKernelTilingWithParams(Cont
         tilingKey = DSPLIT_S2_TILING_KEY;
     }
     tilingRet = AdaBlockSparseAttentionApiTiling(tilingData, outputDataTypeSize, sOuterFactor, softmaxSInnerFactor,
-                                              softmaxSOuterFactor);
+                                                 softmaxSOuterFactor);
     OPS_ERR_IF(tilingRet != ge::GRAPH_SUCCESS,
                OPS_REPORT_VECTOR_INNER_ERR(contextKeyParams.opName, "Get apiTiling fail"), return tilingRet);
 
@@ -4009,8 +4015,8 @@ ge::graphStatus AdaBlockSparseAttentionTiling::RunBigKernelTilingWithParams(Cont
 }
 
 ge::graphStatus AdaBlockSparseAttentionTiling::CheckIOType(ContextParamsForBSATiling &contextKeyParams,
-                                                        AdaBlockSparseAttentionTilingData &tilingData,
-                                                        int32_t &outputDataTypeSize)
+                                                           AdaBlockSparseAttentionTilingData &tilingData,
+                                                           int32_t &outputDataTypeSize)
 {
     outputType = contextKeyParams.outputDataType;
     inputType = contextKeyParams.inputDataType;
@@ -4188,8 +4194,8 @@ ge::graphStatus AdaBlockSparseAttentionTiling::CheckD(ContextParamsForBSATiling 
 }
 
 ge::graphStatus AdaBlockSparseAttentionTiling::CheckMaskType(ContextParamsForBSATiling &contextKeyParams,
-                                                          AdaBlockSparseAttentionTilingData &tilingData,
-                                                          uint32_t &maskElemSize)
+                                                             AdaBlockSparseAttentionTilingData &tilingData,
+                                                             uint32_t &maskElemSize)
 {
     if (contextKeyParams.attentionMask != nullptr) {
         auto maskDataType = contextKeyParams.maskDataType;
@@ -4278,10 +4284,10 @@ ge::graphStatus AdaBlockSparseAttentionTiling::CheckBaseApiMaskVal(
 }
 
 ge::graphStatus AdaBlockSparseAttentionTiling::CheckBaseApiAlibiMask(ContextParamsForBSATiling &contextKeyParams,
-                                                                  const gert::StorageShape *pseShiftShape,
-                                                                  uint32_t batchSize, int32_t maxSeqLen,
-                                                                  int32_t maxKvSeqLen, uint32_t kvHead,
-                                                                  bool compressHead)
+                                                                     const gert::StorageShape *pseShiftShape,
+                                                                     uint32_t batchSize, int32_t maxSeqLen,
+                                                                     int32_t maxKvSeqLen, uint32_t kvHead,
+                                                                     bool compressHead)
 {
     uint32_t maskDim = pseShiftShape->GetStorageShape().GetDimNum();
     uint32_t headNum = *contextKeyParams.headsNumber;
@@ -4337,10 +4343,10 @@ ge::graphStatus AdaBlockSparseAttentionTiling::CheckBaseApiAlibiMask(ContextPara
 }
 
 ge::graphStatus AdaBlockSparseAttentionTiling::CheckBaseApiNormMask(ContextParamsForBSATiling &contextKeyParams,
-                                                                 const gert::StorageShape *pseShiftShape,
-                                                                 int32_t maskType, uint32_t batchSize,
-                                                                 int32_t maxSeqLen, int32_t maxKvSeqLen,
-                                                                 bool compressHead)
+                                                                    const gert::StorageShape *pseShiftShape,
+                                                                    int32_t maskType, uint32_t batchSize,
+                                                                    int32_t maxSeqLen, int32_t maxKvSeqLen,
+                                                                    bool compressHead)
 {
     if (maskType == SPARSE_MODE_NORM) {
         OPS_ERR_IF(
@@ -4364,8 +4370,8 @@ ge::graphStatus AdaBlockSparseAttentionTiling::CheckBaseApiNormMask(ContextParam
 }
 
 ge::graphStatus AdaBlockSparseAttentionTiling::CheckBaseApiMaskBasic(ContextParamsForBSATiling &contextKeyParams,
-                                                                  const gert::StorageShape *pseShiftShape,
-                                                                  bool isLongSeq, uint32_t batchSize)
+                                                                     const gert::StorageShape *pseShiftShape,
+                                                                     bool isLongSeq, uint32_t batchSize)
 {
     OPS_ERR_IF(contextKeyParams.pseShift == nullptr,
                OPS_REPORT_VECTOR_INNER_ERR(contextKeyParams.opName, "maskType is not no mask, but mask is nullptr."),
@@ -4404,7 +4410,7 @@ ge::graphStatus AdaBlockSparseAttentionTiling::CheckBaseApiMaskBasic(ContextPara
 }
 
 ge::graphStatus AdaBlockSparseAttentionTiling::SetBaseApiAlibiMaskInfo(ContextParamsForBSATiling &contextKeyParams,
-                                                                    const gert::StorageShape *pseShiftShape)
+                                                                       const gert::StorageShape *pseShiftShape)
 {
     uint32_t maskDim = pseShiftShape->GetStorageShape().GetDimNum();
     PromptAttentionBaseApiBaseParams *baseParams = &baseApiTilingData.promptAttentionBaseApiBaseParams;
@@ -4430,7 +4436,7 @@ ge::graphStatus AdaBlockSparseAttentionTiling::SetBaseApiAlibiMaskInfo(ContextPa
 }
 
 void AdaBlockSparseAttentionTiling::SetBaseApiOtherMaskInfo(ContextParamsForBSATiling &contextKeyParams,
-                                                         const gert::StorageShape *pseShiftShape)
+                                                            const gert::StorageShape *pseShiftShape)
 {
     uint32_t maskDim = pseShiftShape->GetStorageShape().GetDimNum();
     PromptAttentionBaseApiBaseParams *baseParams = &baseApiTilingData.promptAttentionBaseApiBaseParams;
@@ -4454,7 +4460,7 @@ void AdaBlockSparseAttentionTiling::SetBaseApiOtherMaskInfo(ContextParamsForBSAT
 }
 
 ge::graphStatus AdaBlockSparseAttentionTiling::SetBaseApiPseInfo(ContextParamsForBSATiling &contextKeyParams,
-                                                              const gert::StorageShape *pseShiftShape)
+                                                                 const gert::StorageShape *pseShiftShape)
 {
     const int32_t *sparseMode = contextKeyParams.sparseMode;
     uint32_t maskType = *sparseMode;
@@ -4480,7 +4486,7 @@ ge::graphStatus AdaBlockSparseAttentionTiling::SetBaseApiPseInfo(ContextParamsFo
 }
 
 ge::graphStatus AdaBlockSparseAttentionTiling::CheckBaseApiPse(ContextParamsForBSATiling &contextKeyParams,
-                                                            const gert::StorageShape *pseShiftShape)
+                                                               const gert::StorageShape *pseShiftShape)
 {
     const int32_t *sparseMode = contextKeyParams.sparseMode;
     if (pseShiftShape == nullptr) {
@@ -4529,7 +4535,7 @@ ge::graphStatus AdaBlockSparseAttentionTiling::CheckBaseApiPse(ContextParamsForB
 }
 
 void AdaBlockSparseAttentionTiling::SetMaskSize(const gert::StorageShape *attenMaskShape,
-                                             AdaBlockSparseAttentionTilingData &tilingData)
+                                                AdaBlockSparseAttentionTilingData &tilingData)
 {
     auto maskKVsSize = 2048;  // 2048 : default the last first dim.
     auto maskQsSize = 2048;   // 2048 : default the last second dim.
@@ -4785,10 +4791,10 @@ ge::graphStatus AdaBlockSparseAttentionTiling::CheckBaseApiOptionalInput(Context
 }
 
 void AdaBlockSparseAttentionTiling::InferTilingMod(const ContextParamsForBSATiling &contextKeyParams,
-                                                const std::vector<int64_t> &actualSeqLengths,
-                                                const std::vector<int64_t> &actualSeqLengthsKV,
-                                                uint32_t actualSeqArrayLen, uint32_t hDivN, uint32_t seqInnerSize,
-                                                int32_t sparseModeVal)
+                                                   const std::vector<int64_t> &actualSeqLengths,
+                                                   const std::vector<int64_t> &actualSeqLengthsKV,
+                                                   uint32_t actualSeqArrayLen, uint32_t hDivN, uint32_t seqInnerSize,
+                                                   int32_t sparseModeVal)
 {
     if (hDivN > DSPLIT_THRESHOLDS_512) {  // D segmentation threshold // S1S2D splits into fp16 and int8 types
         splitD = 1;
@@ -4822,8 +4828,8 @@ void AdaBlockSparseAttentionTiling::InferTilingMod(const ContextParamsForBSATili
 }
 
 ge::graphStatus AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionCVDiffSetTensorSize(
-    AdaBlockSparseAttentionTilingData &tilingData, PromptAttentionSingleCoreTensorSize &tensorSize, uint32_t sOuterFactor,
-    uint32_t sInnerFactor, uint32_t softmaxSOuterFactor)
+    AdaBlockSparseAttentionTilingData &tilingData, PromptAttentionSingleCoreTensorSize &tensorSize,
+    uint32_t sOuterFactor, uint32_t sInnerFactor, uint32_t softmaxSOuterFactor)
 {
     tensorSize.set_attenMaskUbSize(softmaxSOuterFactor * sInnerFactor);
     tensorSize.set_mmResUbSize(tensorSize.get_attenMaskUbSize());
@@ -4842,24 +4848,25 @@ ge::graphStatus AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionCVDiffSetT
 }
 
 bool AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionComputeCVDiffParams(
-    AdaBlockSparseAttentionTilingData &tilingData, int64_t ubSize, int64_t l1Size, int64_t l0CSize, uint32_t typeByteSize,
-    uint32_t &sOuterFactor, uint32_t &sInnerFactor, uint32_t maskTypeSize, uint32_t &softmaxSOuterFactor)
+    AdaBlockSparseAttentionTilingData &tilingData, int64_t ubSize, int64_t l1Size, int64_t l0CSize,
+    uint32_t typeByteSize, uint32_t &sOuterFactor, uint32_t &sInnerFactor, uint32_t maskTypeSize,
+    uint32_t &softmaxSOuterFactor)
 {
     bool res = false;
     int32_t l1SizeRemain = l1Size;
 
     AdaBlockSparseAttentionCVDiffSetTensorSize(tilingData, tilingData.promptAttentionTensorSizeRect, sOuterFactor,
-                                            sInnerFactor, softmaxSOuterFactor);
+                                               sInnerFactor, softmaxSOuterFactor);
     const uint32_t dSplitFactorBmm2 = 128U;
     SetSplitCoreMode(tilingData, sOuterFactor);
-    res = AdaBlockSparseAttentionCheckBmm1(tilingData, tilingData.bmm1TilingDataRect, l1SizeRemain, l0CSize, sOuterFactor,
-                                        sInnerFactor, true, true);
+    res = AdaBlockSparseAttentionCheckBmm1(tilingData, tilingData.bmm1TilingDataRect, l1SizeRemain, l0CSize,
+                                           sOuterFactor, sInnerFactor, true, true);
     OPS_ERR_IF(res == false,
                OPS_REPORT_VECTOR_INNER_ERR(contextKeyParamsPtr->opName, "AdaBlockSparseAttentionCheckmm1 failed!"),
                return false);
 
-    res = AdaBlockSparseAttentionCheckBmm2(tilingData, tilingData.bmm2TilingDataRect, l1SizeRemain, l0CSize, sOuterFactor,
-                                        sInnerFactor, dSplitFactorBmm2, true, true);
+    res = AdaBlockSparseAttentionCheckBmm2(tilingData, tilingData.bmm2TilingDataRect, l1SizeRemain, l0CSize,
+                                           sOuterFactor, sInnerFactor, dSplitFactorBmm2, true, true);
     OPS_ERR_IF(res == false,
                OPS_REPORT_VECTOR_INNER_ERR(contextKeyParamsPtr->opName, "AdaBlockSparseAttentionCheckBmm2 failed!"),
                return false);
@@ -4868,9 +4875,9 @@ bool AdaBlockSparseAttentionTiling::AdaBlockSparseAttentionComputeCVDiffParams(
 }
 
 bool AdaBlockSparseAttentionTiling::FindOptimalTilingBasicBLock(AdaBlockSparseAttentionTilingData &tilingData,
-                                                             uint32_t &sOuterFactor, uint32_t &sInnerFactor,
-                                                             uint32_t &softmaxSOuterFactor, int64_t ubSize,
-                                                             uint32_t typeByteSize, uint32_t maskTypeSize)
+                                                                uint32_t &sOuterFactor, uint32_t &sInnerFactor,
+                                                                uint32_t &softmaxSOuterFactor, int64_t ubSize,
+                                                                uint32_t typeByteSize, uint32_t maskTypeSize)
 {
     auto tmpShape = Shape({softmaxSOuterFactor, sInnerFactor});
     int64_t softmaxTmpSize = 0;
@@ -4959,13 +4966,13 @@ bool AdaBlockSparseAttentionTiling::FindOptimalTilingBasicBLock(AdaBlockSparseAt
             }
 
             if (AdaBlockSparseAttentionCVDiffSetTensorSize(tilingData, tilingData.promptAttentionTensorSizeRect,
-                                                        sOuterFactorTmp, sInnerFactorTmp,
-                                                        softmaxSOuterFactorTmp) != ge::GRAPH_SUCCESS) {
+                                                           sOuterFactorTmp, sInnerFactorTmp,
+                                                           softmaxSOuterFactorTmp) != ge::GRAPH_SUCCESS) {
                 return false;
             }
 
-            msdUbSize =
-                AdaBlockSparseAttentionSetMsdUbSize(tilingData, tilingData.promptAttentionTensorSizeRect, sInnerFactorTmp);
+            msdUbSize = AdaBlockSparseAttentionSetMsdUbSize(tilingData, tilingData.promptAttentionTensorSizeRect,
+                                                            sInnerFactorTmp);
 
             queueBufferSize = tilingData.promptAttentionTensorSizeRect.get_attenMaskUbSize();
             pseShiftBufferSize = tilingData.promptAttentionTensorSizeRect.get_pseShiftUbSize();
@@ -5014,9 +5021,10 @@ bool AdaBlockSparseAttentionTiling::FindOptimalTilingBasicBLock(AdaBlockSparseAt
 }
 
 ge::graphStatus AdaBlockSparseAttentionTiling::AdjustCVTilingCVDiff(int64_t ubSize, int64_t l1Size, int64_t l0CSize,
-                                                                 uint32_t maskElemSize, uint32_t &sOuterFactor,
-                                                                 uint32_t &sInnerFactor, uint32_t &softmaxSOuterFactor,
-                                                                 AdaBlockSparseAttentionTilingData &tilingData)
+                                                                    uint32_t maskElemSize, uint32_t &sOuterFactor,
+                                                                    uint32_t &sInnerFactor,
+                                                                    uint32_t &softmaxSOuterFactor,
+                                                                    AdaBlockSparseAttentionTilingData &tilingData)
 {
     // New softmax tiling strategy, unified big tiling for mm1 mm2 (e.g. mm1=256x512, mm2=256xhead_size),
     // softmax calculates multiple long tiling based on the UB space by horizontally cutting the big tiling into
@@ -5033,8 +5041,9 @@ ge::graphStatus AdaBlockSparseAttentionTiling::AdjustCVTilingCVDiff(int64_t ubSi
         ((inputType == ge::DT_FLOAT16) && (innerPrecise == HIGH_PRECISION)) || (inputType == ge::DT_BF16);
     softmaxSOuterFactor = softmaxUbSize / rectangleFactor / (isFloatBmm1Res ? 2 : 1);  // 2: isFloatBmm1Res
 
-    bool res = AdaBlockSparseAttentionComputeCVDiffParams(tilingData, ubSize, l1Size, l0CSize, softmaxDataTypeSize,
-                                                       minFactor, rectangleFactor, maskElemSize, softmaxSOuterFactor);
+    bool res =
+        AdaBlockSparseAttentionComputeCVDiffParams(tilingData, ubSize, l1Size, l0CSize, softmaxDataTypeSize, minFactor,
+                                                   rectangleFactor, maskElemSize, softmaxSOuterFactor);
     OPS_ERR_IF(
         res == false,
         OPS_REPORT_VECTOR_INNER_ERR(contextKeyParamsPtr->opName, "AdaBlockSparseAttentionComputeCVDiffParams failed!"),

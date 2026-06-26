@@ -489,8 +489,8 @@ __aicore__ inline void AdaBlockSparseAttentionS1s2Bns1X910<BSAT>::Bmm1ResDoVecBm
 
 template <typename BSAT>
 __aicore__ inline void AdaBlockSparseAttentionS1s2Bns1X910<BSAT>::SInnerLoopFunc(int curBatch, int32_t sparseBlockCount,
-                                                                              uint32_t sparseMaskIdRowOffset,
-                                                                              int32_t lastSparseBlockId)
+                                                                                 uint32_t sparseMaskIdRowOffset,
+                                                                                 int32_t lastSparseBlockId)
 {
     constexpr uint32_t softmaxInnerBasicSize = 64;
     BSAComputeParam *&params = this->tailParams;
@@ -572,9 +572,9 @@ __aicore__ inline void AdaBlockSparseAttentionS1s2Bns1X910<BSAT>::ComputeEachCor
 
 template <typename BSAT>
 __aicore__ inline int AdaBlockSparseAttentionS1s2Bns1X910<BSAT>::TaskAlloc(const int32_t coreIdx,
-                                                                        int &allocatedQtaskAllCore,
-                                                                        const int sOuterBlockNum, const int coreNum,
-                                                                        uint32_t bid, uint32_t nid)
+                                                                           int &allocatedQtaskAllCore,
+                                                                           const int sOuterBlockNum, const int coreNum,
+                                                                           uint32_t bid, uint32_t nid)
 {
     const int onceAlloc = coreNum;  //* Align<int>(coreNum/2, 8);
     int taskId = -1;
@@ -612,7 +612,7 @@ __aicore__ inline int AdaBlockSparseAttentionS1s2Bns1X910<BSAT>::TaskAlloc(const
 
 template <typename BSAT>
 __aicore__ inline void AdaBlockSparseAttentionS1s2Bns1X910<BSAT>::GetTaskCost(uint64_t sparseBlockCountOffsetBase,
-                                                                           uint32_t sOuterBlockNum)
+                                                                              uint32_t sOuterBlockNum)
 {
     auto cntUb = this->tmpBuff.template Get<int32_t>();
     auto colCount = Align<uint32_t>(sOuterBlockNum, BYTE_BLOCK_BSA / sizeof(int32_t));  // for corenum
@@ -713,8 +713,8 @@ __aicore__ inline void AdaBlockSparseAttentionS1s2Bns1X910<BSAT>::ComputeEachCor
 
 template <typename BSAT>
 __aicore__ inline void AdaBlockSparseAttentionS1s2Bns1X910<BSAT>::CalcSparsePos(TBuf<> &tbuf, uint32_t srcOffset,
-                                                                             uint32_t s1Count, uint32_t s2,
-                                                                             uint32_t realS2)
+                                                                                uint32_t s1Count, uint32_t s2,
+                                                                                uint32_t realS2)
 {
     auto mask = tbuf.Get<int8_t>();
     auto computeSize = s1Count * Align<uint32_t>(s2, BYTE_BLOCK_BSA);
@@ -743,7 +743,8 @@ __aicore__ inline void AdaBlockSparseAttentionS1s2Bns1X910<BSAT>::CalcSparsePos(
 }
 
 template <typename BSAT>
-__aicore__ inline void AdaBlockSparseAttentionS1s2Bns1X910<BSAT>::InitEachCoreWorkspace(uint32_t coreIdx, int32_t blockNum)
+__aicore__ inline void AdaBlockSparseAttentionS1s2Bns1X910<BSAT>::InitEachCoreWorkspace(uint32_t coreIdx,
+                                                                                        int32_t blockNum)
 {
     this->spmTmpSize = this->tilingData->promptAttentionTensorSizeRect.spmTmpSize;
     this->mmResUbSize = this->tilingData->promptAttentionTensorSizeRect.mmResUbSize;

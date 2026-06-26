@@ -526,10 +526,10 @@ __aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::Init(
 
 template <typename T, typename U, CubeFormat FORMAT, typename O, Mode M>
 __aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::InitQuant(__gm__ uint8_t *deq_scale1,
-                                                                               __gm__ uint8_t *scale1,
-                                                                               __gm__ uint8_t *deq_scale2,
-                                                                               __gm__ uint8_t *scale2,
-                                                                               __gm__ uint8_t *offset2)
+                                                                                  __gm__ uint8_t *scale1,
+                                                                                  __gm__ uint8_t *deq_scale2,
+                                                                                  __gm__ uint8_t *scale2,
+                                                                                  __gm__ uint8_t *offset2)
 {
     if (deq_scale1 != nullptr) {
         if (tilingData->promptAttentionBaseParams.deqScaleFlag == 1) {
@@ -560,9 +560,9 @@ __aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::InitQuan
 
 template <typename T, typename U, CubeFormat FORMAT, typename O, Mode M>
 __aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::InitMsd(__gm__ uint8_t *key_antiquant_scale,
-                                                                             __gm__ uint8_t *key_antiquant_offset,
-                                                                             __gm__ uint8_t *value_antiquant_scale,
-                                                                             __gm__ uint8_t *value_antiquant_offset)
+                                                                                __gm__ uint8_t *key_antiquant_offset,
+                                                                                __gm__ uint8_t *value_antiquant_scale,
+                                                                                __gm__ uint8_t *value_antiquant_offset)
 {
     return;
 }
@@ -622,8 +622,8 @@ __aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::InitTens
 }
 
 template <typename T, typename U, CubeFormat FORMAT, typename O, Mode M>
-__aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::ElewiseCompute(LocalTensor<mmOutputType> &mmResUb,
-                                                                                    uint32_t computeSize, uint32_t type)
+__aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::ElewiseCompute(
+    LocalTensor<mmOutputType> &mmResUb, uint32_t computeSize, uint32_t type)
 {
     if (useMask) {
         if (maskTypeByteNum == BOOLBYTENUM) {
@@ -768,9 +768,9 @@ __aicore__ inline bool AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::IsSoftma
 // quant: add quant functions
 template <typename T, typename U, CubeFormat FORMAT, typename O, Mode M>
 __aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::QuantCompute(LocalTensor<int8_t> quantResUb,
-                                                                                  LocalTensor<mmOutputType> mmResUb,
-                                                                                  float scale, float offset,
-                                                                                  uint32_t computeSize)
+                                                                                     LocalTensor<mmOutputType> mmResUb,
+                                                                                     float scale, float offset,
+                                                                                     uint32_t computeSize)
 {
     AscendQuant(quantResUb, mmResUb, scale, offset, computeSize);
 }
@@ -827,8 +827,8 @@ __aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::Bmm2Upda
 }
 
 template <typename T, typename U, CubeFormat FORMAT, typename O, Mode M>
-__aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::Bmm2Compute(uint32_t offset,
-                                                                                 LocalTensor<mmOutputType> &bmm2ResL1)
+__aicore__ inline void
+AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::Bmm2Compute(uint32_t offset, LocalTensor<mmOutputType> &bmm2ResL1)
 {
 #if (__CCE_AICORE__ > 200)
     if constexpr (IsSameType<mmInputType, bfloat16_t>::value ||
@@ -859,7 +859,8 @@ __aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::Bmm2Comp
 }
 
 template <typename T, typename U, CubeFormat FORMAT, typename O, Mode M>
-__aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::UpdateVmul(LocalTensor<softmaxType> &softmaxExpUb)
+__aicore__ inline void
+AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::UpdateVmul(LocalTensor<softmaxType> &softmaxExpUb)
 {
     LocalTensor<mmOutputType> bmm2ResPreUb = tempBmm2Ub.Get<mmOutputType>(bmm2ResUbSize);
 
@@ -921,7 +922,8 @@ __aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::ComputeA
 }
 
 template <typename T, typename U, CubeFormat FORMAT, typename O, Mode M>
-__aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::ComputeAttenMaskOffsetPre(int sInnerOffsetDataSize)
+__aicore__ inline void
+AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::ComputeAttenMaskOffsetPre(int sInnerOffsetDataSize)
 {
     if (attentionMaskType == 0 || attentionMaskType == 1) {
         return;
@@ -1214,7 +1216,7 @@ __aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::CalPseSh
 
 template <typename T, typename U, CubeFormat FORMAT, typename O, Mode M>
 __aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::LoopSOuterOffsetInit(uint32_t seqListOffsetSize,
-                                                                                          int sIdx)
+                                                                                             int sIdx)
 {
     uint64_t attenMaskBatchOffset = 0;
     if (attenMaskBatch != 1) {
@@ -1277,7 +1279,8 @@ AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::LoopSOuterOffsetInitWithBNSD(ui
 }
 
 template <typename T, typename U, CubeFormat FORMAT, typename O, Mode M>
-__aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::Bmm2UpdateAdd(LocalTensor<mmOutputType> &bmm2ResUb)
+__aicore__ inline void
+AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::Bmm2UpdateAdd(LocalTensor<mmOutputType> &bmm2ResUb)
 {
     LocalTensor<mmOutputType> bmm2ResPreUb = tempBmm2Ub.Get<mmOutputType>(bmm2ResUbSize);
     Add(bmm2ResPreUb, bmm2ResUb, bmm2ResPreUb, bmm2ResUbSize);
@@ -1324,7 +1327,7 @@ __aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::GetSingl
 
 template <typename T, typename U, CubeFormat FORMAT, typename O, Mode M>
 __aicore__ inline void AdaBlockSparseAttentionBase<T, U, FORMAT, O, M>::GetSparseParam(int32_t *preTokens,
-                                                                                    int32_t *nextTokens)
+                                                                                       int32_t *nextTokens)
 {
     if (attentionMaskType == 3) {  // SPARSE_MODE_RIGHT_DOWN : 3
         *preTokens = 214748647;

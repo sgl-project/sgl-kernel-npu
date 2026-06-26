@@ -19,15 +19,15 @@
 
 using namespace at;
 
-
 constexpr std::string_view ADA_BLOCK_SPARSE_ATTENTION_NAME = "aclnnAdaBlockSparseAttention";
 
 at::Tensor ada_block_sparse_attention(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
-                                  const at::Tensor &sparse_mask, const at::Tensor &sparse_count_table,
-                                  std::string input_layout, int64_t sparse_size, int64_t num_heads,
-                                  int64_t num_key_value_heads, double scale_value, bool causal, int64_t inner_precise,
-                                  int64_t pre_tokens, int64_t next_tokens, c10::OptionalIntArrayRef actual_seq_lengths,
-                                  c10::OptionalIntArrayRef actual_seq_lengths_kv)
+                                      const at::Tensor &sparse_mask, const at::Tensor &sparse_count_table,
+                                      std::string input_layout, int64_t sparse_size, int64_t num_heads,
+                                      int64_t num_key_value_heads, double scale_value, bool causal,
+                                      int64_t inner_precise, int64_t pre_tokens, int64_t next_tokens,
+                                      c10::OptionalIntArrayRef actual_seq_lengths,
+                                      c10::OptionalIntArrayRef actual_seq_lengths_kv)
 {
     TORCH_CHECK(input_layout != "TND", "input_layout currently does not support 'TND'.");
     at::Tensor attention_out =

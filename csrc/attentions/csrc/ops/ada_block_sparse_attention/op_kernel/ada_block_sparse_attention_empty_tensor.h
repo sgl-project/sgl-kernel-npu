@@ -23,8 +23,8 @@ class AdaBlockSparseAttentionEmptyTensor
 {
 public:
     __aicore__ inline AdaBlockSparseAttentionEmptyTensor(){};
-    __aicore__ inline void Init(__gm__ uint8_t *attentionOut, const AdaBlockSparseAttentionTilingData *__restrict tiling,
-                                TPipe *tPipe);
+    __aicore__ inline void Init(__gm__ uint8_t *attentionOut,
+                                const AdaBlockSparseAttentionTilingData *__restrict tiling, TPipe *tPipe);
     __aicore__ inline void Process();
 
 protected:
@@ -34,9 +34,8 @@ protected:
 };
 
 template <typename T>
-__aicore__ inline void AdaBlockSparseAttentionEmptyTensor<T>::Init(__gm__ uint8_t *attentionOut,
-                                                                const AdaBlockSparseAttentionTilingData *__restrict tiling,
-                                                                TPipe *tPipe)
+__aicore__ inline void AdaBlockSparseAttentionEmptyTensor<T>::Init(
+    __gm__ uint8_t *attentionOut, const AdaBlockSparseAttentionTilingData *__restrict tiling, TPipe *tPipe)
 {
     pipe = tPipe;
     attentionOutGm.SetGlobalBuffer((__gm__ T *)attentionOut);
