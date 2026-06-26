@@ -35,7 +35,7 @@ using namespace MoeDistributeDispatchA2Impl;
          10  isScales
           2  quantMode
 */
-extern "C" __global__ __aicore__ void moe_distribute_dispatch_v2(GM_ADDR x, GM_ADDR expertIds, GM_ADDR scales,
+extern "C" __global__ __aicore__ void moe_low_latency_dispatch_v2(GM_ADDR x, GM_ADDR expertIds, GM_ADDR scales,
                                                                  GM_ADDR xActiveMask, GM_ADDR elasticInfo,
                                                                  GM_ADDR expandXOut, GM_ADDR dynamicScalesOut,
                                                                  GM_ADDR assistInfoOut, GM_ADDR expertTokenNumsOut,
