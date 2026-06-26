@@ -43,7 +43,7 @@ aclnnStatus aclnnMoeLowLatencyCombineV2GetWorkspaceSize(
     int64_t sharedExpertRankNum, int64_t globalBs, int64_t outDtype, int64_t commQuantMode, int64_t groupListType,
     char *commAlg, aclTensor *xOut, const aclTensor *sendCostStats, uint64_t *workspaceSize, aclOpExecutor **executor)
 {
-    return aclnnInnerMoeDistributeCombineV2GetWorkspaceSize(
+    return aclnnInnerMoeLowLatencyCombineV2GetWorkspaceSize(
         expandX, expertIds, assistInfoForCombine, epSendCounts, expertScales, tpSendCountsOptional, xActiveMaskOptional,
         activationScaleOptional, weightScaleOptional, groupListOptional, expandScalesOptional, sharedExpertXOptional,
         nullptr, nullptr, nullptr, nullptr, nullptr, groupEp, epWorldSize, epRankId, moeExpertNum, groupTp, tpWorldSize,
