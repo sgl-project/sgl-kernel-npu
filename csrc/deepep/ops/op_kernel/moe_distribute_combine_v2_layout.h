@@ -78,8 +78,9 @@ public:
     constexpr static uint64_t RDMA_TOKEN_END_FLAG = 321ULL;
     constexpr static uint32_t MAX_BS_NUM = 512U;  // 适配bs=512
     constexpr static uint32_t FLAG_SINGLE_CNT = 4;
-    constexpr static uint32_t FLAG_TOTAL_SIZE =
-        MAX_BS_NUM * FLAG_SINGLE_CNT > IPC_DATA_OFFSET ? IPC_DATA_OFFSET : MAX_BS_NUM * FLAG_SINGLE_CNT;
+    constexpr static uint32_t FLAG_TOTAL_SIZE = MAX_BS_NUM * SERVER_RANK_SIZE * FLAG_SINGLE_CNT > IPC_DATA_OFFSET ?
+                                                    IPC_DATA_OFFSET :
+                                                    MAX_BS_NUM* SERVER_RANK_SIZE* FLAG_SINGLE_CNT;
 
     template <AscendC::HardEvent event>
     __aicore__ inline void SyncFunc()
@@ -362,7 +363,6 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
     GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tiling, MoeDistributeCombineV2TilingData tilingData)
 {
     tpipe_ = pipe;
-    REGISTER_TILING_DEFAULT(MoeDistributeCombineV2TilingData);
     expandXGM_ = expandX;
     expertIdsGM_ = expertIds;
     expandIdxGM_ = expandIdx;

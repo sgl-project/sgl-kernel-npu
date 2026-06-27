@@ -33,9 +33,10 @@ __aicore__ inline void ExecMoeDistributeCombineV2(GM_ADDR expandX, GM_ADDR exper
 /*
  * A3 tilingkey说明
  * 5位的十进制数
- * 第1位（个位）：无意义占位使用
- * 第2位（十位）：通信量化选项：
- *     0：无量化, 2:int8量化
+ * 第1位（个位）：quantMode:
+ *     0: 不量化, 1: 静态量化, 2: 动态量化, 3: 量化类型: mxfp8
+ * 第2位（十位）：是否有smoothScale:
+ *     0: 无, 1: 有
  * 第3位（百位）：是否做tp域allgather:
  *     0: 不做, 1: 做
  * 第4位（千位）：
@@ -92,6 +93,18 @@ extern "C" __global__ __aicore__ void moe_low_latency_combine_v2(
         MoeDistributeCombineA5<DTYPE_EXPAND_X, int32_t> op;
         op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, xActiveMask, scales, sharedExpertX,
                 XOut, workspaceGM, &pipe, &tilingData);
+        op.Process();
+    } else if (TILING_KEY_IS(32002)) {
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
+        MoeDistributeCombineA2Impl::MoeDistributeCombineV2Layered<DTYPE_EXPAND_X, int32_t, DTYPE_EXPAND_X> op;
+        op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe, tilingGM,
+            tilingData);
+        op.Process();
+    } else if (TILING_KEY_IS(32012)) {
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
+        MoeDistributeCombineA2Impl::MoeDistributeCombineV2Layered<DTYPE_EXPAND_X, int32_t, DTYPE_EXPAND_X> op;
+        op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe, tilingGM,
+            tilingData);
         op.Process();
     }
 #endif
