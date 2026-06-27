@@ -314,7 +314,7 @@ def test(
         dist.barrier()
         dispatch_t, combine_t = bench_kineto(
             partial(test_func, zero_copy=False, return_recv_hook=return_recv_hook),
-            kernel_names=("MoeDistributeDispatchV2", "MoeDistributeCombineV2"),
+            kernel_names=("MoeLowLatencyDispatchV2", "MoeLowLatencyCombineV2"),
             barrier_comm_profiling=True,
             suppress_kineto_output=True,
             num_kernels_per_period=2 if return_recv_hook else 1,

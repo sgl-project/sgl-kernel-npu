@@ -27,12 +27,12 @@ using namespace MoeDistributeDispatchV2A5Impl;
  *     20000: A2, 30000: A3, 50000: A5
  */
 
-extern "C" __global__ __aicore__ void moe_distribute_dispatch_v2(GM_ADDR x, GM_ADDR expertIds, GM_ADDR scales,
-                                                                 GM_ADDR xActiveMask, GM_ADDR elasticInfo,
-                                                                 GM_ADDR expandXOut, GM_ADDR dynamicScalesOut,
-                                                                 GM_ADDR assistInfoOut, GM_ADDR expertTokenNumsOut,
-                                                                 GM_ADDR epSendCountsOut, GM_ADDR tpSendCountsOut,
-                                                                 GM_ADDR workspaceGM, GM_ADDR tilingGM)
+extern "C" __global__ __aicore__ void moe_low_latency_dispatch_v2(GM_ADDR x, GM_ADDR expertIds, GM_ADDR scales,
+                                                                  GM_ADDR xActiveMask, GM_ADDR elasticInfo,
+                                                                  GM_ADDR expandXOut, GM_ADDR dynamicScalesOut,
+                                                                  GM_ADDR assistInfoOut, GM_ADDR expertTokenNumsOut,
+                                                                  GM_ADDR epSendCountsOut, GM_ADDR tpSendCountsOut,
+                                                                  GM_ADDR workspaceGM, GM_ADDR tilingGM)
 {
     REGISTER_TILING_DEFAULT(MoeDistributeDispatchV2TilingData);
     TPipe pipe;

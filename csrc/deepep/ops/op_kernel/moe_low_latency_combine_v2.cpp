@@ -42,7 +42,7 @@ __aicore__ inline void ExecMoeDistributeCombineV2(GM_ADDR expandX, GM_ADDR exper
  *     20000: A2, 30000: A3, 50000: A5
  */
 
-extern "C" __global__ __aicore__ void moe_distribute_combine_v2(
+extern "C" __global__ __aicore__ void moe_low_latency_combine_v2(
     GM_ADDR expandX, GM_ADDR expertIds, GM_ADDR assistInfoForCombine, GM_ADDR epSendCount, GM_ADDR scales,
     GM_ADDR tpSendCount, GM_ADDR xActiveMask, GM_ADDR activationScale, GM_ADDR weightScale, GM_ADDR groupList,
     GM_ADDR expandScales, GM_ADDR sharedExpertX, GM_ADDR elasticInfo, GM_ADDR oriX, GM_ADDR constExpertAlpha1,

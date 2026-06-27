@@ -1259,7 +1259,7 @@ ge::graphStatus TilingParseForMoeDistributeCombineV2(gert::TilingParseContext *c
     return ge::GRAPH_SUCCESS;
 }
 
-IMPL_OP_OPTILING(MoeDistributeCombineV2)
+IMPL_OP_OPTILING(MoeLowLatencyCombineV2)
     .Tiling(MoeDistributeCombineV2TilingFunc)
     .TilingParse<MoeDistributeCombineCompileInfo>(TilingParseForMoeDistributeCombineV2);
 }  // namespace optiling

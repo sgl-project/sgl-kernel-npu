@@ -22,10 +22,10 @@
 #include "register/op_def_registry.h"
 
 namespace ops {
-class MoeDistributeDispatchV2 : public OpDef
+class MoeLowLatencyDispatchV2 : public OpDef
 {
 public:
-    explicit MoeDistributeDispatchV2(const char *name) : OpDef(name)
+    explicit MoeLowLatencyDispatchV2(const char *name) : OpDef(name)
     {
         this->Input("x")
             .ParamType(REQUIRED)
@@ -124,6 +124,6 @@ public:
     }
 };
 
-OP_ADD(MoeDistributeDispatchV2);
+OP_ADD(MoeLowLatencyDispatchV2);
 
 }  // namespace ops
