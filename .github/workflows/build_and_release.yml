@@ -161,7 +161,7 @@ jobs:
           env -i PATH=${PATH} bash --login -c "
             pip install packaging
             bash build.sh --pkg --experimental --soc=ascend910b --ops=\"sparse_attn_sharedkv,sparse_attn_sharedkv_metadata,quant_lightning_indexer,quant_lightning_indexer_metadata,compressor\"
-          "  
+          "
 
       - name: Pack up packages
         run: |
