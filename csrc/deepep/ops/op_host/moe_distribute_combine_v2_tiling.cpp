@@ -1083,8 +1083,8 @@ static void SetHCommCfg(const gert::TilingContext *context, MoeDistributeCombine
     auto commAlgPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_COMM_ALG_INDEX));
     uint32_t opType1 = OP_TYPE_ALL_TO_ALL;
     uint32_t opType2 = OP_TYPE_REDUCE_SCATTER;
-    std::string algConfigAllToAllStr = strcmp(commAlgPtr, "hierarchy") == 0 ?
-"AlltoAll=level1:hierarchy" : "AlltoAll=level0:fullmesh;level1:pairwise";
+    std::string algConfigAllToAllStr =
+        strcmp(commAlgPtr, "hierarchy") == 0 ? "AlltoAll=level1:hierarchy" : "AlltoAll=level0:fullmesh;level1:pairwise";
     std::string algConfigReduceScatterStr = "ReduceScatter=level0:ring";
 
     AscendC::Mc2CcTilingConfig mc2CcTilingConfig(groupEp, opType1, algConfigAllToAllStr);
@@ -1129,7 +1129,7 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
     OP_TILING_CHECK(
         (strlen(commAlgPtr) != 0) && (strcmp(commAlgPtr, "fullmesh_v1") != 0) &&
             (strcmp(commAlgPtr, "fullmesh_v2") != 0 && (strcmp(commAlgPtr, "ccu") != 0) &&
-            (strcmp(commAlgPtr, "hierarchy") != 0)),
+             (strcmp(commAlgPtr, "hierarchy") != 0)),
         OP_LOGE(nodeName,
                 "Attr commAlg is invalid, current only support fullmesh_v1 and fullmesh_v2, but got commAlg = %s.",
                 commAlgPtr),
@@ -1196,11 +1196,9 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
     OP_TILING_CHECK(!CheckAttrs(context, *tilingData, nodeName, localMoeExpertNum, isActiveMask),
                     OP_LOGE(nodeName, "attr check failed."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(
-        hierarchyFlag &&
-            (tilingData->moeDistributeCombineV2Info.epWorldSize < HIERARCHY_SERVER_RANK_SIZE ||
-             tilingData->moeDistributeCombineV2Info.epWorldSize % HIERARCHY_SERVER_RANK_SIZE != 0U),
-        OP_LOGE(nodeName,
-                "hierarchy commAlg requires epWorldSize to be a multiple of %u, but got epWorldSize=%u.",
+        hierarchyFlag && (tilingData->moeDistributeCombineV2Info.epWorldSize < HIERARCHY_SERVER_RANK_SIZE ||
+                          tilingData->moeDistributeCombineV2Info.epWorldSize % HIERARCHY_SERVER_RANK_SIZE != 0U),
+        OP_LOGE(nodeName, "hierarchy commAlg requires epWorldSize to be a multiple of %u, but got epWorldSize=%u.",
                 HIERARCHY_SERVER_RANK_SIZE, tilingData->moeDistributeCombineV2Info.epWorldSize),
         return ge::GRAPH_FAILED);
 
@@ -1249,18 +1247,15 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
     uint64_t ubSize = 0UL;
     ascendcPlatform.GetCoreMemSize(platform_ascendc::CoreMemType::UB, ubSize);
     blockDim = ascendcPlatform.CalcTschBlockDim(aivNum, 0, aivNum);
-    uint64_t hierarchyServerNum =
-        tilingData->moeDistributeCombineV2Info.epWorldSize / HIERARCHY_SERVER_RANK_SIZE;
+    uint64_t hierarchyServerNum = tilingData->moeDistributeCombineV2Info.epWorldSize / HIERARCHY_SERVER_RANK_SIZE;
     OP_TILING_CHECK(
         hierarchyFlag && hierarchyServerNum > HIERARCHY_IPC_REDUCE_USED_CORE_NUM,
-        OP_LOGE(nodeName,
-                "hierarchy commAlg requires serverNum to be no greater than %u, but got serverNum=%lu.",
+        OP_LOGE(nodeName, "hierarchy commAlg requires serverNum to be no greater than %u, but got serverNum=%lu.",
                 HIERARCHY_IPC_REDUCE_USED_CORE_NUM, hierarchyServerNum),
         return ge::GRAPH_FAILED);
     OP_TILING_CHECK(
         hierarchyFlag && aivNum < HIERARCHY_IPC_REDUCE_USED_CORE_NUM + hierarchyServerNum,
-        OP_LOGE(nodeName,
-                "hierarchy commAlg requires at least %lu AIV cores, but got aivNum=%lu, epWorldSize=%u.",
+        OP_LOGE(nodeName, "hierarchy commAlg requires at least %lu AIV cores, but got aivNum=%lu, epWorldSize=%u.",
                 HIERARCHY_IPC_REDUCE_USED_CORE_NUM + hierarchyServerNum, aivNum,
                 tilingData->moeDistributeCombineV2Info.epWorldSize),
         return ge::GRAPH_FAILED);

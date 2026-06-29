@@ -78,9 +78,9 @@ public:
     constexpr static uint64_t RDMA_TOKEN_END_FLAG = 321ULL;
     constexpr static uint32_t MAX_BS_NUM = 512U;  // 适配bs=512
     constexpr static uint32_t FLAG_SINGLE_CNT = 4;
-    constexpr static uint32_t FLAG_TOTAL_SIZE = MAX_BS_NUM * SERVER_RANK_SIZE * FLAG_SINGLE_CNT > IPC_DATA_OFFSET ?
-                                                    IPC_DATA_OFFSET :
-                                                    MAX_BS_NUM* SERVER_RANK_SIZE* FLAG_SINGLE_CNT;
+    constexpr static uint32_t FLAG_TOTAL_SIZE = MAX_BS_NUM * SERVER_RANK_SIZE * FLAG_SINGLE_CNT > IPC_DATA_OFFSET
+                                                    ? IPC_DATA_OFFSET
+                                                    : MAX_BS_NUM *SERVER_RANK_SIZE *FLAG_SINGLE_CNT;
 
     template <AscendC::HardEvent event>
     __aicore__ inline void SyncFunc()
@@ -251,7 +251,7 @@ private:
         if (curRankId == rankId) {
             return (GM_ADDR)(winContext_->localWindowsIn);
         }
-        return (GM_ADDR)(((HcclRankRelationResV2*)(winContext_->remoteRes[rankId].nextDevicePtr))->windowsIn);
+        return (GM_ADDR)(((HcclRankRelationResV2 *)(winContext_->remoteRes[rankId].nextDevicePtr))->windowsIn);
     }
     __aicore__ inline GM_ADDR GetWindowOutAddrByRankId(const int32_t rankId)
     {
@@ -259,7 +259,7 @@ private:
         if (curRankId == rankId) {
             return (GM_ADDR)(winContext_->localWindowsOut);
         }
-        return (GM_ADDR)(((HcclRankRelationResV2*)(winContext_->remoteRes[rankId].nextDevicePtr))->windowsOut);
+        return (GM_ADDR)(((HcclRankRelationResV2 *)(winContext_->remoteRes[rankId].nextDevicePtr))->windowsOut);
     }
 };
 

@@ -84,7 +84,7 @@ extern "C" __global__ __aicore__ void moe_low_latency_combine_v2(
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
         MoeDistributeCombineA2Impl::MoeDistributeCombineV2Layered<DTYPE_EXPAND_X, int32_t, DTYPE_EXPAND_X> op;
         op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe, tilingGM,
-            tilingData);
+                tilingData);
         op.Process();
     }
 #ifdef __DAV_C310__
@@ -98,13 +98,13 @@ extern "C" __global__ __aicore__ void moe_low_latency_combine_v2(
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
         MoeDistributeCombineA2Impl::MoeDistributeCombineV2Layered<DTYPE_EXPAND_X, int32_t, DTYPE_EXPAND_X> op;
         op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe, tilingGM,
-            tilingData);
+                tilingData);
         op.Process();
     } else if (TILING_KEY_IS(32012)) {
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
         MoeDistributeCombineA2Impl::MoeDistributeCombineV2Layered<DTYPE_EXPAND_X, int32_t, DTYPE_EXPAND_X> op;
         op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe, tilingGM,
-            tilingData);
+                tilingData);
         op.Process();
     }
 #endif

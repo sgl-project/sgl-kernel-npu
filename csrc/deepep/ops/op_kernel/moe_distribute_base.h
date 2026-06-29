@@ -251,6 +251,7 @@ struct HcclOpResParam {
     MemDetails1 userMemRes[768];  // 下标为rank id
     uint32_t userMemType = 0;
 <<<<<<< HEAD
+<<<<<<< HEAD
 
     HcclStreamParam aicpuOrderStreamParam;  // 按序下发的stream
     uint64_t aicpuOrderNotifyAddr;
@@ -259,6 +260,10 @@ struct HcclOpResParam {
 =======
     
     HcclStreamParam aicpuOrderStreamParam; // 按序下发的stream
+=======
+
+    HcclStreamParam aicpuOrderStreamParam;  // 按序下发的stream
+>>>>>>> b494b94 (fixed Lint issues)
     uint64_t aicpuOrderNotifyAddr;
     uint64_t aicpuOrderNotifySize;
 >>>>>>> bdbf9d1 (修改combine算子适配支持A3跨机)
@@ -266,6 +271,7 @@ struct HcclOpResParam {
     bool isARSDoubleRing;
     // 读取HCCL_ENTRY_LOG_ENABLE环境变量，用于增加算子kernel展开信息
     bool opEntry{false};
+<<<<<<< HEAD
 <<<<<<< HEAD
     uint32_t hcclSdmaQos;          // HCCL SDMA QOS TAG
     uint64_t sizeOfAiRMAInfo = 0;  // 用于内存校验
@@ -275,6 +281,11 @@ struct HcclOpResParam {
     uint64_t sizeOfAiRMAInfo = 0; //用于内存校验
     uint64_t aiRMAInfo = 0; //HcclAiRMAInfo* 单个结构体指针
 >>>>>>> bdbf9d1 (修改combine算子适配支持A3跨机)
+=======
+    uint32_t hcclSdmaQos;          // HCCL SDMA QOS TAG
+    uint64_t sizeOfAiRMAInfo = 0;  // 用于内存校验
+    uint64_t aiRMAInfo = 0;        // HcclAiRMAInfo* 单个结构体指针
+>>>>>>> b494b94 (fixed Lint issues)
 };
 
 // Transport 内存类型
