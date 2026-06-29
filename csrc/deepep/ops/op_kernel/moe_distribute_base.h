@@ -250,6 +250,18 @@ struct HcclOpResParam {
 
     MemDetails1 userMemRes[768];  // 下标为rank id
     uint32_t userMemType = 0;
+
+    HcclStreamParam aicpuOrderStreamParam;  // 按序下发的stream
+    uint64_t aicpuOrderNotifyAddr;
+    uint64_t aicpuOrderNotifySize;
+    // ARS算法属性
+    uint32_t multiSuperPodDiffDeviceNumMode;
+    bool isARSDoubleRing;
+    // 读取HCCL_ENTRY_LOG_ENABLE环境变量，用于增加算子kernel展开信息
+    bool opEntry{false};
+    uint32_t hcclSdmaQos;          // HCCL SDMA QOS TAG
+    uint64_t sizeOfAiRMAInfo = 0;  // 用于内存校验
+    uint64_t aiRMAInfo = 0;        // HcclAiRMAInfo* 单个结构体指针
 };
 
 // Transport 内存类型
