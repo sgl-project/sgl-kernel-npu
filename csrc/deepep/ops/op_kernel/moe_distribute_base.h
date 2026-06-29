@@ -259,9 +259,9 @@ struct HcclOpResParam {
     // 读取HCCL_ENTRY_LOG_ENABLE环境变量，用于增加算子kernel展开信息
     bool opEntry{false};
 
-    uint32_t hcclSdmaQos;   // HCCL SDMA QOS TAG
-    uint64_t sizeOfAiRMAInfo = 0; //用于内存校验
-    uint64_t aiRMAInfo = 0; //HcclAiRMAInfo* 单个结构体指针
+    uint32_t hcclSdmaQos;          // HCCL SDMA QOS TAG
+    uint64_t sizeOfAiRMAInfo = 0;  // 用于内存校验
+    uint64_t aiRMAInfo = 0;        // HcclAiRMAInfo* 单个结构体指针
 };
 
 // Transport 内存类型
