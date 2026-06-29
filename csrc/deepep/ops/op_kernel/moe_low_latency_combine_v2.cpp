@@ -34,7 +34,7 @@ __aicore__ inline void ExecMoeDistributeCombineV2(GM_ADDR expandX, GM_ADDR exper
  * A3 tilingkey说明
  * 5位的十进制数
  * 第1位（个位）：quantMode:
- *     0: 不量化, 1: 静态量化, 2: 动态量化, 3: 量化类型: mxfp8
+ *     0: 不量化, 1: 静态量化, 2: 动态量化
  * 第2位（十位）：是否有smoothScale:
  *     0: 无, 1: 有
  * 第3位（百位）：是否做tp域allgather:
