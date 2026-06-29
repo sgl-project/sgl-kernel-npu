@@ -1195,12 +1195,6 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
     // 检查属性的取值是否合法
     OP_TILING_CHECK(!CheckAttrs(context, *tilingData, nodeName, localMoeExpertNum, isActiveMask),
                     OP_LOGE(nodeName, "attr check failed."), return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(
-        hierarchyFlag && (tilingData->moeDistributeCombineV2Info.epWorldSize < HIERARCHY_SERVER_RANK_SIZE ||
-                          tilingData->moeDistributeCombineV2Info.epWorldSize % HIERARCHY_SERVER_RANK_SIZE != 0U),
-        OP_LOGE(nodeName, "hierarchy commAlg requires epWorldSize to be a multiple of %u, but got epWorldSize=%u.",
-                HIERARCHY_SERVER_RANK_SIZE, tilingData->moeDistributeCombineV2Info.epWorldSize),
-        return ge::GRAPH_FAILED);
 
     uint32_t sharedExpertNum = tilingData->moeDistributeCombineV2Info.sharedExpertNum;
     uint32_t sharedExpertRankNum = tilingData->moeDistributeCombineV2Info.sharedExpertRankNum;
@@ -1248,6 +1242,11 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
     ascendcPlatform.GetCoreMemSize(platform_ascendc::CoreMemType::UB, ubSize);
     blockDim = ascendcPlatform.CalcTschBlockDim(aivNum, 0, aivNum);
     uint64_t hierarchyServerNum = tilingData->moeDistributeCombineV2Info.epWorldSize / HIERARCHY_SERVER_RANK_SIZE;
+    /*
+    校验hierarchyServerNum 不大于 HIERARCHY_IPC_REDUCE_USED_CORE_NUM因为 kernel 里固定只拿前 32 个 AIV core 做 hierarchy 的第一阶段处理
+    这条校验的本质是：每个 server 至少要分到 1 个 AIV core 做 SumToWindow()，而当前 kernel 只预留了 32 个 core 给这部分逻辑，
+    因此 server 数不能超过 32
+    */
     OP_TILING_CHECK(
         hierarchyFlag && hierarchyServerNum > HIERARCHY_IPC_REDUCE_USED_CORE_NUM,
         OP_LOGE(nodeName, "hierarchy commAlg requires serverNum to be no greater than %u, but got serverNum=%lu.",
