@@ -168,7 +168,7 @@ def swiglu_oai_quant(
     _, num_vectorcore = get_device_properties()
 
     if group_list is not None:
-        # ── MoE grouped path ──────────────────────────────────────────
+        # MoE grouped path
         if group_list_type not in (0, 1):
             raise ValueError(f"group_list_type must be 0 or 1, got {group_list_type}")
         num_experts = group_list.shape[0]
@@ -202,7 +202,7 @@ def swiglu_oai_quant(
             multibuffer=True,
         )
     else:
-        # ── Dense MLP path ────────────────────────────────────────────
+        # Dense MLP path
         _swiglu_oai_quant_kernel_dense[(num_vectorcore,)](
             x,
             out,
