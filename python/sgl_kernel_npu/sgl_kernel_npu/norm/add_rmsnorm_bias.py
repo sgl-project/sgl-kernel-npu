@@ -178,9 +178,9 @@ def add_gemma_rms_norm_kernel(
         if HAS_RESIDUAL:
             residual = tl.load(residual_ptr + offset_hidden, mask=mask_bs)
             add_val = x + residual
+            tl.store(add_output_ptr + offset_hidden, add_val, mask=mask_bs)
         else:
             add_val = x
-        tl.store(add_output_ptr + offset_hidden, add_val, mask=mask_bs)
 
         x_fp32 = add_val.to(tl.float32)
         w = tl.load(weight_ptr + offset_d).to(tl.float32)
@@ -206,8 +206,10 @@ def add_gemma_rms_norm(
     if residual is None:
         HAS_RESIDUAL = False
         residual = hidden_state
+        add_output = hidden_state
     else:
         HAS_RESIDUAL = True
+        add_output = torch.empty_like(hidden_state)
     
     _, num_vectorcore = get_device_properties()
     grid = (num_vectorcore,)
