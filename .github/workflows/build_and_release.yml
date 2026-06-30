@@ -98,3 +98,158 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           files: ./output/*.zip
+
+  build-ops-transformer:
+    defaults:
+      run:
+        shell: bash
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        arch: [ x86_64, aarch64 ]
+        npu_hardware: [ 910b, a3 ]
+        cann_version: [ 9.0.0 ]
+        torch_version: [ 2.10.0 ]
+        # Ref: https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    container:
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.11
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Mark repository safe
+        run: |
+          git config --system --add safe.directory ${GITHUB_WORKSPACE}
+
+      - name: Install dependency
+        run: |
+          bash scripts/npu_ci_install_dependency.sh --torch-version ${{ matrix.torch_version }}
+
+      - name: Debug tag info
+        if: github.event_name == 'release'
+        run: |
+          echo "github.ref = ${{ github.ref }}"
+          echo "tag from release event = ${{ github.event.release.tag_name }}"
+
+      - name: Build ops-transformer for a3
+        if: matrix.npu_hardware == 'a3'
+        run: |
+          cd ../
+          git clone https://gitcode.com/cann/ops-transformer.git
+          cd ops-transformer
+          git checkout bcc6304
+          env -i PATH=${PATH} bash --login -c "
+            pip install packaging
+            bash build.sh --pkg --experimental --soc=ascend910_93 --ops=\"sparse_attn_sharedkv,sparse_attn_sharedkv_metadata,quant_lightning_indexer,quant_lightning_indexer_metadata,compressor\"
+          "
+
+      - name: Build ops-transformer for 910b
+        if: matrix.npu_hardware == '910b'
+        run: |
+          cd ../
+          git clone https://gitcode.com/cann/ops-transformer.git
+          cd ops-transformer
+          git checkout bcc6304
+          env -i PATH=${PATH} bash --login -c "
+            pip install packaging
+            bash build.sh --pkg --experimental --soc=ascend910b --ops=\"sparse_attn_sharedkv,sparse_attn_sharedkv_metadata,quant_lightning_indexer,quant_lightning_indexer_metadata,compressor\"
+          "
+
+      - name: Pack up packages
+        run: |
+          PACKAGE_NAME="ops-transformer-${{ github.event.release.tag_name }}-cann${{ matrix.torch_version }}-cann${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-${{ matrix.arch }}.zip"
+          cd ../ops-transformer/build_out
+          zip -v ${PACKAGE_NAME} ./*.run
+          ls -al
+
+      - name: Upload Release Artifacts
+        if: github.event_name != 'pull_request'
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: ../ops-transformer/build_out/*.zip
+
+
+    build-cuntom-ops:
+      defaults:
+        run:
+          shell: bash
+      permissions:
+        contents: write
+      strategy:
+        matrix:
+          arch: [ x86_64, aarch64 ]
+          npu_hardware: [ 910b, a3 ]
+          cann_version: [ 9.0.0 ]
+          torch_version: [ 2.10.0 ]
+          # Ref: https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
+          include:
+            - arch: x86_64
+              runner: ubuntu-24.04
+            - arch: aarch64
+              runner: ubuntu-24.04-arm
+      runs-on: ${{ matrix.runner }}
+      container:
+        image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.11
+
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v6
+
+        - name: Mark repository safe
+          run: |
+            git config --system --add safe.directory ${GITHUB_WORKSPACE}
+
+        - name: Install dependency
+          run: |
+            bash scripts/npu_ci_install_dependency.sh --torch-version ${{ matrix.torch_version }}
+
+        - name: Debug tag info
+          if: github.event_name == 'release'
+          run: |
+            echo "github.ref = ${{ github.ref }}"
+            echo "tag from release event = ${{ github.event.release.tag_name }}"
+
+        - name: Build cann-custom
+          run: |
+            cd ../
+            git clone https://gitcode.com/cann/cann-recipes-infer.git
+            cd cann-recipes-infer
+            git checkout 35a476c
+            env -i PATH=${PATH} bash --login -c "
+              cd ops/ascendc/torch_ops_extension
+              pip install ninja
+              bash build_and_install.sh
+            "
+            env -i PATH=${PATH} bash --login -c "
+              cd ops/ascendc
+              bash build.sh
+            "
+
+        - name: Pack up packages
+          run: |
+            PACKAGE_NAME="custom-ops-${{ github.event.release.tag_name }}-cann${{ matrix.torch_version }}-cann${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-${{ matrix.arch }}.zip"
+            cd ../cann-recipes-infer
+            mkdir output
+            cp ./ops/ascendc/torch_ops_extension/dist/custom_ops-*.whl ./output
+            cp ./ops/ascendc/output/CANN-custom_ops-*.run ./output
+            cd output
+            zip -v ${PACKAGE_NAME} ./*.run ./*.whl
+            ls -al
+
+        - name: Upload Release Artifacts
+          if: github.event_name != 'pull_request'
+          uses: softprops/action-gh-release@v2
+          env:
+            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          with:
+            files: ../cann-recipes-infer/output/*.zip
