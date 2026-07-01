@@ -73,7 +73,7 @@ constexpr int64_t K_MAX = 16;
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
 constexpr uint32_t WORKSPACE_ELEMENT_OFFSET = 512;
 constexpr int64_t H_MIN = 1024;
-constexpr int64_t H_MAX = 7168;
+constexpr int64_t H_MAX = 10000;
 constexpr uint64_t MB_SIZE = 1024UL * 1024UL;
 
 constexpr uint64_t TRIPLE = 3;
