@@ -99,11 +99,11 @@ private:
     {
         uint32_t curRankId = ctxIdx == COMM_EP_IDX ? epRankId_ : tpRankId_;
         if (curRankId == rankId) {
-            return (GM_ADDR)(winContext_[ctxIdx]->localWindowsExp) + dataState_ * WIN_STATE_OFFSET;
+            return (GM_ADDR)(winContext_[ctxIdx]->localWindowsExp) + dataState_ * WIN_STATE_OFFSET + WINDOWS_EXP_OFFSET;
         }
         return (GM_ADDR)(((HcclRankRelationResV2 *)(winContext_[ctxIdx]->remoteRes[rankId].nextDevicePtr))
                              ->windowsExp) +
-               dataState_ * WIN_STATE_OFFSET;
+               dataState_ * WIN_STATE_OFFSET + WINDOWS_EXP_OFFSET;
     }
 
     __aicore__ inline uint32_t MIN(uint32_t x, uint32_t y)
@@ -232,7 +232,7 @@ __aicore__ inline void CamMoeDistributeDispatch<TemplateDispatchTypeFunc>::Init(
     winContext_[COMM_EP_IDX] = (__gm__ HcclOpResParam *)AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
     winContext_[COMM_TP_IDX] = (__gm__ HcclOpResParam *)AscendC::GetHcclContext<1>();  // 没有相关公共宏
 
-    statusDataSpaceGm = (GM_ADDR)(winContext_[COMM_EP_IDX]->localWindowsExp);
+    statusDataSpaceGm = (GM_ADDR)(winContext_[COMM_EP_IDX]->localWindowsExp + WINDOWS_EXP_OFFSET);
     selfDataStatusTensor.SetGlobalBuffer((__gm__ int32_t *)(statusDataSpaceGm + STATE_WIN_OFFSET));
 
     __asm__ __volatile__("");
