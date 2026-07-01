@@ -420,7 +420,7 @@ __aicore__ inline void MoeDistributeCombineV2Layered<TemplateMC2TypeA2layeredFun
     bufferIdGlobal_.SetGlobalBuffer((__gm__ uint32_t *)(windowInGM_ + dataSpaceSize_ + worldSize_ * STATE_OFFSET));
     bufferId_ = bufferIdGlobal_(0);
     windowInGM_ = windowInGM_ + halfWinSize_ * bufferId_;
-    windowOutGM_ = GetWindowOutAddrByRankId(rankId_);
+    windowOutGM_ = GetWindowOutAddrByRankId(rankId_) + halfWinSize_ * bufferId_;
 
     coreIdx_ = GetBlockIdx();
 
