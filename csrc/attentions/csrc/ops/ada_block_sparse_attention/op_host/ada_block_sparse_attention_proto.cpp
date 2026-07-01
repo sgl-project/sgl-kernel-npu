@@ -40,13 +40,13 @@ static constexpr uint32_t BSA_INPUT_ACTUAL_SEQ_LENGTHS_KV_INDEX = 6;
 static constexpr uint32_t BSA_QUANT_SCALE2_INDEX = 10;
 }  // namespace ops
 namespace ops {
-static ge::graphStatus InferShapeBlockSparseAttention(gert::InferShapeContext *context)
+static ge::graphStatus InferShapeAdaBlockSparseAttention(gert::InferShapeContext *context)
 {
     if (context == nullptr) {
-        // OPS_LOG_E("BlockSparseAttention", "Context for inferring shape is nullptr!");
+        // OPS_LOG_E("AdaBlockSparseAttention", "Context for inferring shape is nullptr!");
         return ge::GRAPH_FAILED;
     }
-    // OPS_LOG_D(context->GetNodeName(), "Enter BlockSparseAttention inferShape impl.");
+    // OPS_LOG_D(context->GetNodeName(), "Enter AdaBlockSparseAttention inferShape impl.");
     // query shape : (B, S, H)
     const gert::Shape *queryShape = context->GetInputShape(BSA_QUERY_INDEX);
     // OPS_LOG_E_IF_NULL(context, queryShape, return ge::GRAPH_FAILED)
@@ -158,7 +158,7 @@ static ge::graphStatus InferShapeBlockSparseAttention(gert::InferShapeContext *c
     return ge::GRAPH_SUCCESS;
 }
 
-static ge::graphStatus InferDataTypeBlockSparseAttention(gert::InferDataTypeContext *context)
+static ge::graphStatus InferDataTypeAdaBlockSparseAttention(gert::InferDataTypeContext *context)
 {
     if (context == nullptr) {
         return ge::GRAPH_FAILED;
@@ -175,8 +175,8 @@ static ge::graphStatus InferDataTypeBlockSparseAttention(gert::InferDataTypeCont
     return GRAPH_SUCCESS;
 }
 
-IMPL_OP_INFERSHAPE(BlockSparseAttention)
-    .InferShape(InferShapeBlockSparseAttention)
-    .InferDataType(InferDataTypeBlockSparseAttention)
+IMPL_OP_INFERSHAPE(AdaBlockSparseAttention)
+    .InferShape(InferShapeAdaBlockSparseAttention)
+    .InferDataType(InferDataTypeAdaBlockSparseAttention)
     .InputsDataDependency({BSA_INPUT_ACTUAL_SEQ_LENGTHS_INDEX, BSA_INPUT_ACTUAL_SEQ_LENGTHS_KV_INDEX});
 }  // namespace ops

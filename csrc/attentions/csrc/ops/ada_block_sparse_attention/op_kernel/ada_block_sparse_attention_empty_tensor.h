@@ -10,8 +10,8 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#ifndef BLOCK_SPARSE_ATTENTION_EMPTY_TENSOR_H
-#define BLOCK_SPARSE_ATTENTION_EMPTY_TENSOR_H
+#ifndef ADA_BLOCK_SPARSE_ATTENTION_EMPTY_TENSOR_H
+#define ADA_BLOCK_SPARSE_ATTENTION_EMPTY_TENSOR_H
 
 #include "kernel_tiling/kernel_tiling.h"
 #include "kernel_operator.h"
@@ -19,24 +19,23 @@
 #include "kernel_data_copy_transpose.h"
 
 template <typename T>
-class BlockSparseAttentionEmptyTensor
+class AdaBlockSparseAttentionEmptyTensor
 {
 public:
-    __aicore__ inline BlockSparseAttentionEmptyTensor(){};
-    __aicore__ inline void Init(__gm__ uint8_t *attentionOut, const BlockSparseAttentionTilingData *__restrict tiling,
-                                TPipe *tPipe);
+    __aicore__ inline AdaBlockSparseAttentionEmptyTensor(){};
+    __aicore__ inline void Init(__gm__ uint8_t *attentionOut,
+                                const AdaBlockSparseAttentionTilingData *__restrict tiling, TPipe *tPipe);
     __aicore__ inline void Process();
 
 protected:
     TPipe *pipe;
-    const BlockSparseAttentionTilingData *__restrict tilingData;
+    const AdaBlockSparseAttentionTilingData *__restrict tilingData;
     GlobalTensor<T> attentionOutGm;
 };
 
 template <typename T>
-__aicore__ inline void BlockSparseAttentionEmptyTensor<T>::Init(__gm__ uint8_t *attentionOut,
-                                                                const BlockSparseAttentionTilingData *__restrict tiling,
-                                                                TPipe *tPipe)
+__aicore__ inline void AdaBlockSparseAttentionEmptyTensor<T>::Init(
+    __gm__ uint8_t *attentionOut, const AdaBlockSparseAttentionTilingData *__restrict tiling, TPipe *tPipe)
 {
     pipe = tPipe;
     attentionOutGm.SetGlobalBuffer((__gm__ T *)attentionOut);
@@ -44,7 +43,7 @@ __aicore__ inline void BlockSparseAttentionEmptyTensor<T>::Init(__gm__ uint8_t *
 }
 
 template <typename T>
-__aicore__ inline void BlockSparseAttentionEmptyTensor<T>::Process()
+__aicore__ inline void AdaBlockSparseAttentionEmptyTensor<T>::Process()
 {
     uint32_t tmp_block_idx = GetBlockIdx();
     auto &initParams = tilingData->promptAttentionInitOutputParams;

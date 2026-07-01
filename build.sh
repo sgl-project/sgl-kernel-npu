@@ -10,6 +10,7 @@ BUILD_MEMORY_SAVER_MODULE="ON"
 ONLY_BUILD_DEEPEP_ADAPTER_MODULE="OFF"
 ONLY_BUILD_DEEPEP_KERNELs_MODULE="OFF"
 ONLY_BUILD_MEMORY_SAVER_MODULE="OFF"
+ONLY_BUILD_ATTENTIONS_MODULE="OFF"
 
 DEBUG_MODE="OFF"
 
@@ -19,6 +20,7 @@ while getopts ":a:hd" opt; do
             BUILD_DEEPEP_MODULE="OFF"
             BUILD_KERNELS_MODULE="OFF"
             BUILD_MEMORY_SAVER_MODULE="OFF"
+            BUILD_ATTENTIONS_MODULE="OFF"
             case "$OPTARG" in
                 deepep )
                     BUILD_DEEPEP_MODULE="ON"
@@ -43,9 +45,13 @@ while getopts ":a:hd" opt; do
                     BUILD_MEMORY_SAVER_MODULE="ON"
                     ONLY_BUILD_MEMORY_SAVER_MODULE="ON"
                     ;;
+                attentions )
+                    BUILD_ATTENTIONS_MODULE="ON"
+                    ONLY_BUILD_ATTENTIONS_MODULE="ON"
+                    ;;
                 * )
                     echo "Error: Invalid Value"
-                    echo "Allowed value: deepep|kernels|deepep-adapter|deepep-kernels|memory-saver"
+                    echo "Allowed value: deepep|kernels|deepep-adapter|deepep-kernels|memory-saver|attentions"
                     exit 1
                     ;;
             esac
@@ -62,6 +68,7 @@ while getopts ":a:hd" opt; do
             echo "    deepep-adapter    Only build deepep adapter layer and use old build of deepep kernels."
             echo "    deepep-kernels    Only build deepep kernels and use old build of deepep adapter layer."
             echo "    memory-saver      Only build torch_memory_saver (under contrib)."
+            echo "    attentions        Only build attentions."
             exit 1
             ;;
         \? )
@@ -153,6 +160,7 @@ function build_kernels()
 {
     if [[ "$ONLY_BUILD_DEEPEP_KERNELs_MODULE" == "ON" ]]; then return 0; fi
     if [[ "$ONLY_BUILD_MEMORY_SAVER_MODULE" == "ON" ]]; then return 0; fi
+    if [[ "$ONLY_BUILD_ATTENTIONS_MODULE" == "ON" ]]; then return 0; fi
 
     CMAKE_DIR=""
     BUILD_DIR="build"
@@ -272,6 +280,7 @@ function make_sgl_kernel_npu_package()
 
 function build_attentions_kernels()
 {
+    if [[ "$BUILD_ATTENTIONS_MODULE" != "ON" ]]; then return 0; fi
     CUSTOM_OPP_DIR="${CURRENT_DIR}/python/attentions/attentions"
     KERNEL_DIR="csrc/attentions/build"
 
