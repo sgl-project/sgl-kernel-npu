@@ -210,7 +210,7 @@ def add_gemma_rms_norm(
     else:
         HAS_RESIDUAL = True
         add_output = torch.empty_like(hidden_state)
-    
+
     _, num_vectorcore = get_device_properties()
     grid = (num_vectorcore,)
     add_output = torch.empty_like(hidden_state)
