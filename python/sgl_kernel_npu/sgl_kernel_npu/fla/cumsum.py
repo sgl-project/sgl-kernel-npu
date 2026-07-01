@@ -89,7 +89,7 @@ def chunk_local_cumsum_scalar_kernel(
         b_o = tl.trans(b_o, (1, 0, 2))
         b_o = tl.reshape(b_o, (BLOCK_T, H))
 
-    tl.store(ptr_o, b_o.to(s.dtype.element_ty), boundary_check=(0,))
+    tl.store(ptr_o, b_o.to(o.dtype.element_ty), boundary_check=(0,))
     return
 
 
@@ -99,6 +99,8 @@ def chunk_local_cumsum_scalar_npu(
     reverse: bool = False,
     scale: float = None,
     cu_seqlens: Optional[torch.Tensor] = None,
+    cu_seqlens_cpu: Optional[torch.Tensor] = None,
+    block_indices: Optional[torch.Tensor] = None,
     head_first: bool = False,
     output_dtype: Optional[torch.dtype] = torch.float,
 ) -> torch.Tensor:
@@ -110,11 +112,11 @@ def chunk_local_cumsum_scalar_npu(
         chunk_size.bit_length() - 1
     ), "chunk_size must be a power of 2"
     OPTIM_BLOCK_SIZE = triton.next_power_of_2((2**18) // (H * chunk_size))
-    block_indices = (
-        prepare_chunk_indices(cu_seqlens, chunk_size=OPTIM_BLOCK_SIZE)
-        if cu_seqlens is not None
-        else None
-    )
+    if cu_seqlens is not None and block_indices is None:
+        _ref = cu_seqlens_cpu if cu_seqlens_cpu is not None else cu_seqlens
+        block_indices = prepare_chunk_indices(_ref, chunk_size=OPTIM_BLOCK_SIZE).to(
+            device=cu_seqlens.device
+        )
     num_blocks = (
         len(block_indices)
         if cu_seqlens is not None
@@ -148,6 +150,8 @@ def chunk_local_cumsum(
     reverse: bool = False,
     scale: float = None,
     cu_seqlens: Optional[torch.Tensor] = None,
+    cu_seqlens_cpu: Optional[torch.Tensor] = None,
+    block_indices: Optional[torch.Tensor] = None,
     head_first: bool = False,
     output_dtype: Optional[torch.dtype] = torch.float,
     **kwargs,
@@ -163,6 +167,8 @@ def chunk_local_cumsum(
             reverse=reverse,
             scale=scale,
             cu_seqlens=cu_seqlens,
+            cu_seqlens_cpu=cu_seqlens_cpu,
+            block_indices=block_indices,
             head_first=head_first,
             output_dtype=output_dtype,
         )
