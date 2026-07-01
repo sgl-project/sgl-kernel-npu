@@ -134,6 +134,24 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "str? layout_query=None, str? layout_key=None, "
         "int? sparse_count=None, int? sparse_mode=None) -> Tensor");
 
+    m.def(
+        "compute_n_gram_ids(Tensor oe_weights, Tensor oe_mods, Tensor exclusive_oe_embeder_size_sums, "
+        "Tensor tokens, Tensor exclusive_req_len_sums, Tensor oe_token_table, Tensor row_indices, "
+        "Tensor column_starts, int batch_size, int oe_n, int oe_k, int max_context_len) -> Tensor");
+
+    m.def(
+        "update_oe_token_table(Tensor tokens, Tensor req_lens, Tensor row_indices, Tensor column_starts, "
+        "Tensor ignore_tokens, int batch_size, int max_context_len, Tensor(a!) oe_token_table) -> Tensor(a!)");
+
+    m.def(
+        "mlp_lightning_indexer(Tensor query, Tensor key, Tensor weights, "
+        "Tensor? cur_seq_lengths_query=None, Tensor? cur_seq_lengths_key=None, "
+        "Tensor? block_table=None, Tensor? init_tensor=None, Tensor? local_tensor=None, "
+        "str layout_query='BSND', str layout_key='PA_BSND', int sparse_count=2048, int kv_block_len=1, "
+        "int q_block_len=1, int init_num=0, int local_num=0, int sparse_mode=3, "
+        "int pre_tokens=9223372036854775807, int next_tokens=9223372036854775807, bool return_value=False) "
+        "-> (Tensor, Tensor)");
+
     m.def("apply_token_bitmask(Tensor logits, Tensor bitmask, Tensor? indices=None) -> Tensor");
     m.def("triangular_inverse(Tensor x) -> Tensor");
 
@@ -199,6 +217,12 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 #endif
 
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
+
+    m.impl("compute_n_gram_ids", TORCH_FN(sglang::npu_kernel::compute_n_gram_ids));
+
+    m.impl("update_oe_token_table", TORCH_FN(sglang::npu_kernel::update_oe_token_table));
+
+    m.impl("mlp_lightning_indexer", TORCH_FN(sglang::npu_kernel::mlp_lightning_indexer));
 
     m.impl("triangular_inverse", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
 
