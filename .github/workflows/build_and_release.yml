@@ -165,7 +165,7 @@ jobs:
 
       - name: Pack up packages
         run: |
-          PACKAGE_NAME="ops-transformer-${{ github.event.release.tag_name }}-cann${{ matrix.torch_version }}-cann${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-${{ matrix.arch }}.zip"
+          PACKAGE_NAME="ops-transformer-${{ github.event.release.tag_name }}-torch${{ matrix.torch_version }}-cann${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-${{ matrix.arch }}.zip"
           cd ../ops-transformer/build_out
           zip -v ${PACKAGE_NAME} ./*.run
           ls -al
@@ -236,7 +236,7 @@ jobs:
 
       - name: Pack up packages
         run: |
-          PACKAGE_NAME="custom-ops-${{ github.event.release.tag_name }}-cann${{ matrix.torch_version }}-cann${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-${{ matrix.arch }}.zip"
+          PACKAGE_NAME="custom-ops-${{ github.event.release.tag_name }}-torch${{ matrix.torch_version }}-cann${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-${{ matrix.arch }}.zip"
           cd ../cann-recipes-infer
           mkdir output
           cp ./ops/ascendc/torch_ops_extension/dist/custom_ops-*.whl ./output
