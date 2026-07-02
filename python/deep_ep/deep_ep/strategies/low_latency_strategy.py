@@ -209,7 +209,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             dtype=torch.bool,
             device=x.device,
         )
-        x_active_mask[:x.size(0)] = True
+        x_active_mask[: x.size(0)] = True
         padding_size = num_max_dispatch_tokens_per_rank - x.size(0)
         if self.comm_alg == "hierarchy":
             assert (
