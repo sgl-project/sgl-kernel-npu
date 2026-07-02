@@ -1,3 +1,21 @@
+# Low-Latency Mode API
+
+<div align="center">
+
+[![Mode](https://img.shields.io/badge/Mode-Low--Latency-orange)]()
+[![Platform](https://img.shields.io/badge/Platform-A2%20%7C%20A3%20%7C%20A5-green)]()
+[![Latency](https://img.shields.io/badge/Latency-<150us-red)]()
+
+English | [中文](#中文)
+
+</div>
+
+---
+
+<a id="中文"></a>
+
+## 中文
+
 **文件**：`buffer.py`
 
 **核心类**：`Buffer`

@@ -787,38 +787,69 @@ class Buffer:
         """
         A fused low-latency implementation for MoE expert forward and combination.
 
+        Two fuse modes are available via the FuseMode enum:
+        - FuseMode.FUSED_DEEP_MOE (1): Full fusion via aclnnFusedDeepMoe.
+          InitRouting + AllToAll + GMM1 + DequantSwigluQuant + GMM2 + Dequant
+          + Unpermute/Combine in a single AscendC kernel.
+        - FuseMode.DISPATCH_FFN_COMBINE (2): Separate dispatch handling via aclnnDispatchFFNCombine.
+          InitRouting + AllToAll dispatch + GMM1 + DequantSwigluQuant + GMM2 + Dequant
+          + Combine in a single AscendC kernel, using a different internal fusion strategy.
+
         Arguments:
             x: `[bs, hidden]` with `torch.bfloat16` (or supported precision),
                 the token representations to be processed by selected experts.
             topk_idx: `[bs, num_topk]` with `torch.int64`, the selected expert indices
                 for each token. `-1` indices are supported (meaning no expert selected).
-            topk_weights: `[bs, num_topk]` with `torch.float`, the expert weights selected by the dispatched
-                tokens. The received tokens will be reduced with the weights in this tensor.
-            gmm1_permuted_weight: weight tensor for the first stage (e.g., projection) with
-                a permuted layout according to grouped-matmul requirements.
-            gmm1_permuted_weight_scale: quantization scale tensor corresponding to
-                `gmm1PermutedWeight`. Typically `torch.float32` or `torch.float16`,
-                depending on `quantMode`.
-            gmm2_weight: weight tensor for the second stage (e.g., projection or FFN output).
-            gmm2_weight_scale: quantization scale tensor corresponding to `gmm2Weight`.
-
-            num_max_dispatch_tokens_per_rank: the maximum number of tokens to dispatch, when fuse_mode is DISPATCH_FFN_COMBINE,
-                it indicates the maximum number of tokens received in dispatch. All the ranks must hold the same value.
-            num_experts: the number of experts.
-            quant_mode: int type, optional number, displays the quantization model. Supported values: 1 means int8 (default)
-            fuse_mode: Fuse mode enum (default: FuseMode.FUSED_DEEP_MOE).
+            topk_weights: `[bs, num_topk]` with `torch.float32`, the expert weights selected
+                by the dispatched tokens. The received tokens will be reduced with the
+                weights in this tensor.
+            gmm1_permuted_weight: weight tensor for the first stage (up-projection).
+                For FUSED_DEEP_MOE mode, requires tile-N permuted layout to fit
+                Grouped MatMul (see `reshape_fusion_gmm_weight` in test code for
+                reference implementation). For DISPATCH_FFN_COMBINE mode, standard
+                NZ format without permutation.
+            gmm1_permuted_weight_scale: quantization scale tensor for the first stage.
+                For FUSED_DEEP_MOE mode, `torch.float32` dtype (auto-converted to
+                float internally). For DISPATCH_FFN_COMBINE mode, `torch.int64` dtype
+                (float32 scale values reinterpreted as int64 bit patterns; NOT
+                auto-converted by this method — the caller must perform the conversion).
+            gmm2_weight: weight tensor for the second stage (down-projection).
+            gmm2_weight_scale: quantization scale tensor for the second stage.
+                Same dtype rules as gmm1_permuted_weight_scale.
+            num_max_dispatch_tokens_per_rank: for FUSED_DEEP_MOE mode, the maximum
+                number of tokens to dispatch per rank, used for buffer/memory allocation.
+                For DISPATCH_FFN_COMBINE mode, the maximum number of tokens received in
+                dispatch (typically max_bs * num_ranks * topk). All ranks must hold the
+                same value.
+            num_experts: the total number of global experts.
+            quant_mode: quantization mode. Supported values: 0 = no quantization (BF16),
+                1 = INT8 (default). FP8 will be supported in A5 release.
+            fuse_mode: FuseMode enum (default: FuseMode.FUSED_DEEP_MOE).
+                FuseMode is not exported from the package's top-level __init__.py;
+                import via `from deep_ep.buffer import FuseMode` or use integer
+                values 1 or 2 directly.
 
         Notes:
+            - DISPATCH_FFN_COMBINE mode does NOT support shared experts (unlike
+              FUSED_DEEP_MOE mode which does).
+            - DISPATCH_FFN_COMBINE mode does NOT support BF16 weights (only INT8).
             - The first dimension of `topk_idx` defines the batch size `bs`.
             - The second dimension of `x` defines the hidden dimension `hidden`.
             - Exact shapes of weight/scale tensors depend on GMM permutation and sharding.
             - If optional scale tensors are empty, the kernel skips those transforms.
 
         Returns:
-            output: `torch.Tensor`, shape `[bs, hidden]` and usually `torch.bfloat16`,
-                the fused expert output.
-            ep_recv_count: `torch.Tensor`, a 1D tensor of type `torch.int32`
-                indicating the number of tokens received by each expert across all ranks.
+            For fuse_mode=FUSED_DEEP_MOE:
+                output: `torch.Tensor`, shape `[bs, hidden]`, the fused expert output.
+                ep_recv_count: `torch.Tensor`, a 1D tensor of type `torch.int32`,
+                    shape `[num_local_experts * num_ranks]`, indicating the number of
+                    tokens received by each expert across all ranks.
+
+            For fuse_mode=DISPATCH_FFN_COMBINE:
+                output: `torch.Tensor`, shape `[bs, hidden]`, the fused expert output.
+                expert_token_nums: `torch.Tensor`, a 1D tensor of type `torch.int32`,
+                    shape `[num_local_experts]`, indicating the number of tokens received
+                    by each local expert on this rank only.
         """
         topk_ids = topk_idx.int()
         if fuse_mode == FuseMode.FUSED_DEEP_MOE:

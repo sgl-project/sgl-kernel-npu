@@ -1,3 +1,28 @@
+# Normal Mode API
+
+<div align="center">
+
+[![Mode](https://img.shields.io/badge/Mode-Normal-blue)]()
+[![Platform](https://img.shields.io/badge/Platform-A2%20%7C%20A3%20%7C%20A5-green)]()
+[![Quant](https://img.shields.io/badge/Quantization-INT8%20%7C%20MXFP8-yellow)]()
+
+English | [中文](#中文)
+
+</div>
+
+---
+
+> **File**: `buffer.py`
+> **Core class**: `Buffer`
+> **Dependencies**: `torch`, `deep_ep_cpp`
+> **Purpose**: Efficiently perform **Token Dispatch** and **Token Combine** (i.e., distribute-reduce) operations in **multi-NPU (Intranode)** and **cross-node (Internode)** environments.
+
+---
+
+<a id="中文"></a>
+
+## 中文
+
 > **文件**：`buffer.py`
 > **核心类**：`Buffer`
 > **依赖**：`torch`, `deep_ep_cpp`
