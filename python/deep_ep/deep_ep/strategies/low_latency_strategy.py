@@ -204,6 +204,13 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
     ]:
 
         topk_ids = topk_idx.int()
+        x_active_mask = torch.zeros(
+            num_max_dispatch_tokens_per_rank,
+            dtype=torch.bool,
+            device=x.device,
+        )
+        x_active_mask[:x.size(0)] = True
+        padding_size = num_max_dispatch_tokens_per_rank - x.size(0)
         if self.comm_alg == "hierarchy":
             assert (
                 topk_weights is not None
@@ -214,13 +221,21 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             dtype=x.dtype,
             device=x.device,
         )
-        x_padding = torch.cat((x, x_padding), dim=0)
-        x_active_mask = torch.zeros(
-            num_max_dispatch_tokens_per_rank,
-            dtype=torch.bool,
-            device=x.device,
+        x = torch.cat((x, x_padding), dim=0)
+        topk_padding = torch.empty(
+            padding_size,
+            topk_ids.size(1),
+            dtype=topk_ids.dtype,
+            device=topk_ids.device,
         )
-        x_active_mask[:x.size(0)] = True
+        topk_ids = torch.cat((topk_ids, topk_padding), dim=0)
+        weight_padding = torch.empty(
+            padding_size,
+            topk_weights.size(1),
+            dtype=topk_weights.dtype,
+            device=topk_weights.device,
+        )
+        topk_weights = torch.cat((topk_weights, weight_padding), dim=0)
 
         (
             packed_recv_x,
@@ -230,7 +245,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             packed_recv_layout_range,
             expand_scales,
         ) = self._npu_low_latency_dispatch(
-            x=x_padding,
+            x=x,
             topk_idx=topk_ids,
             num_experts=num_experts,
             quant_mode=3 if use_ue8m0 else 2 if use_fp8 else 0,
@@ -275,6 +290,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
     ) -> Tuple[torch.Tensor, EventOverlap, Callable]:
 
         topk_ids = topk_idx.int()
+        src_num = topk_idx.size(0)
         (
             src_info,
             layout_range,
@@ -285,6 +301,21 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             expand_scales,
             x_active_mask,
         ) = handle
+        padding_size = num_max_dispatch_tokens_per_rank - topk_ids.size(0)
+        topk_padding = torch.empty(
+            padding_size,
+            topk_ids.size(1),
+            dtype=topk_ids.dtype,
+            device=topk_ids.device,
+        )
+        topk_ids = torch.cat((topk_ids, topk_padding), dim=0)
+        weight_padding = torch.empty(
+            padding_size,
+            topk_weights.size(1),
+            dtype=topk_weights.dtype,
+            device=topk_weights.device,
+        )
+        topk_weights = torch.cat((topk_weights, weight_padding), dim=0)
 
         combined_x = self._npu_low_latency_combine(
             x=x,
@@ -301,7 +332,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
 
         event = EventOverlap(EventHandle())
         hook = lambda *args, **kwargs: None
-
+        combined_x = combined_x[:src_num, :]
         return combined_x, event, hook
 
     def _npu_low_latency_dispatch(
