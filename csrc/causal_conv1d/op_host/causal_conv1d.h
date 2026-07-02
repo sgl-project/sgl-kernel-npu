@@ -1,10 +1,7 @@
 /*!
  * \file causal_conv1d.h
- * \brief causal_conv1d host-side function declaration
- * Adapted from: https://github.com/vllm-project/vllm-ascend/tree/main/csrc/causal_conv1d
-                 https://gitcode.com/cann/ops-transformer/tree/master/attention/fused_causal_conv1d
+ * \brief host-side declaration for the PTO-ISA causal_conv1d (drop-in alternative).
  */
-
 #ifndef CAUSAL_CONV1D_HOST_H_
 #define CAUSAL_CONV1D_HOST_H_
 
