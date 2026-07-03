@@ -221,21 +221,21 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             dtype=x.dtype,
             device=x.device,
         )
-        x = torch.cat((x, x_padding), dim=0)
+        x_padding = torch.cat((x, x_padding), dim=0)
         topk_padding = torch.empty(
             padding_size,
             topk_ids.size(1),
             dtype=topk_ids.dtype,
             device=topk_ids.device,
         )
-        topk_ids = torch.cat((topk_ids, topk_padding), dim=0)
+        topk_padding = torch.cat((topk_ids, topk_padding), dim=0)
         weight_padding = torch.empty(
             padding_size,
             topk_weights.size(1),
             dtype=topk_weights.dtype,
             device=topk_weights.device,
         )
-        topk_weights = torch.cat((topk_weights, weight_padding), dim=0)
+        weight_padding = torch.cat((topk_weights, weight_padding), dim=0)
 
         (
             packed_recv_x,
@@ -245,12 +245,12 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             packed_recv_layout_range,
             expand_scales,
         ) = self._npu_low_latency_dispatch(
-            x=x,
-            topk_idx=topk_ids,
+            x=x_padding,
+            topk_idx=topk_padding,
             num_experts=num_experts,
             quant_mode=3 if use_ue8m0 else 2 if use_fp8 else 0,
             comm_alg=self.comm_alg,
-            topk_weights=topk_weights,
+            topk_weights=weight_padding,
             x_active_mask=x_active_mask,
             num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
         )
@@ -264,6 +264,8 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             packed_recv_count,
             expand_scales,
             x_active_mask,
+            topk_padding,
+            weight_padding
         )
 
         event = EventOverlap(EventHandle())
@@ -300,27 +302,14 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             packed_recv_count,
             expand_scales,
             x_active_mask,
+            topk_padding,
+            weight_padding
         ) = handle
-        padding_size = num_max_dispatch_tokens_per_rank - topk_ids.size(0)
-        topk_padding = torch.empty(
-            padding_size,
-            topk_ids.size(1),
-            dtype=topk_ids.dtype,
-            device=topk_ids.device,
-        )
-        topk_ids = torch.cat((topk_ids, topk_padding), dim=0)
-        weight_padding = torch.empty(
-            padding_size,
-            topk_weights.size(1),
-            dtype=topk_weights.dtype,
-            device=topk_weights.device,
-        )
-        topk_weights = torch.cat((topk_weights, weight_padding), dim=0)
 
         combined_x = self._npu_low_latency_combine(
             x=x,
-            topk_idx=topk_ids,
-            topk_weights=topk_weights,
+            topk_idx=topk_padding,
+            topk_weights=weight_padding,
             assist_info_for_combine=src_info,
             ep_send_counts=layout_range,
             num_experts=num_experts,
