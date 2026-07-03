@@ -265,7 +265,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             expand_scales,
             x_active_mask,
             topk_padding,
-            weight_padding
+            weight_padding,
         )
 
         event = EventOverlap(EventHandle())
@@ -303,7 +303,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             expand_scales,
             x_active_mask,
             topk_padding,
-            weight_padding
+            weight_padding,
         ) = handle
 
         combined_x = self._npu_low_latency_combine(
