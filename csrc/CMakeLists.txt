@@ -29,6 +29,8 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_host/recurrent_gated_delta_rule.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/causal_conv1d.cpp
     ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_host/apply_token_bitmask.cpp
+    ${PROJECT_OP_SRC_BASE}/unidex_copy/op_host/unidex_copy.cpp
+    ${PROJECT_OP_SRC_BASE}/slot_map_lookup/op_host/slot_map_lookup.cpp
     )
 if(BUILD_CATLASS_MODULE)
     list(APPEND OP_SRCS
@@ -60,6 +62,8 @@ set(NO_WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/tri_inv/op_kernel/tri_inv_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_kernel/recurrent_gated_delta_rule_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_kernel/apply_token_bitmask.cpp
+    ${PROJECT_OP_SRC_BASE}/unidex_copy/op_kernel/unidex_copy_kernel.cpp
+    ${PROJECT_OP_SRC_BASE}/slot_map_lookup/op_kernel/slot_map_lookup_kernel.cpp
 )
 
 if(BUILD_CATLASS_MODULE)
