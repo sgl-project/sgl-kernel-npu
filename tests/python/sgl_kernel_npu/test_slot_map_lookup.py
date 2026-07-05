@@ -27,6 +27,8 @@ def reference_lookup(slot_map, req_indices, topk_indices):
 
 
 class TestSlotMapLookup(unittest.TestCase):
+    BLOCK_DIMS = (1, 2, 8, 16, 24, 32, 48)
+
     def setUp(self):
         self.slot_map = torch.full((3, 64), -1, dtype=torch.int32, device="npu")
         self.slot_map[0, 0] = 10
@@ -35,29 +37,21 @@ class TestSlotMapLookup(unittest.TestCase):
 
     def _assert_lookup(self, topk_indices):
         req_indices = torch.tensor([0, 1, -1], dtype=torch.int32, device="npu")
-        actual_token, actual_pos = slot_map_lookup(
-            self.slot_map,
-            req_indices,
-            topk_indices,
-            block_dim=8,
-        )
-        torch.npu.synchronize()
         expected_token, expected_pos = reference_lookup(
             self.slot_map, req_indices, topk_indices
         )
-        actual_token_cpu = actual_token.cpu().bool()
-        token_diff = actual_token_cpu != expected_token
-        if token_diff.any():
-            print("total token mismatch:", token_diff.sum().item())
-            for batch_idx in range(token_diff.size(0)):
-                print(
-                    f"batch={batch_idx}, "
-                    f"mismatch={token_diff[batch_idx].sum().item()}, "
-                    f"actual={torch.unique(actual_token_cpu[batch_idx], return_counts=True)}"
-                )
 
-        self.assertTrue(torch.equal(actual_token_cpu, expected_token))
-        self.assertTrue(torch.equal(actual_pos.cpu(), expected_pos))
+        for block_dim in self.BLOCK_DIMS:
+            with self.subTest(block_dim=block_dim):
+                actual_token, actual_pos = slot_map_lookup(
+                    self.slot_map,
+                    req_indices,
+                    topk_indices,
+                    block_dim=block_dim,
+                )
+                torch.npu.synchronize()
+                self.assertTrue(torch.equal(actual_token.cpu().bool(), expected_token))
+                self.assertTrue(torch.equal(actual_pos.cpu(), expected_pos))
 
     def test_lookup_with_invalid_indices(self):
         topk_indices = torch.zeros((3, 2048), dtype=torch.int32, device="npu")

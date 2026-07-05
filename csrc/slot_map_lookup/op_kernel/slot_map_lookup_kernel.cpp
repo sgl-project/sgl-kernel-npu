@@ -84,8 +84,6 @@ public:
 
             // ========== Previous tile: UB -> Vector -> UB -> MTE3 -> GM ==========
             if (iter > 0) {
-                AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(prevBuf);
-
                 AscendC::LocalTensor<int32_t> prevPosLocal = posBaseLocal[prevBuf * TOPK_TILE_LEN];
                 AscendC::LocalTensor<int32_t> prevTokenLocal = tokenBaseLocal[prevBuf * TOPK_TILE_LEN];
                 AscendC::LocalTensor<int32_t> prevSlotLineLocal =
@@ -94,6 +92,7 @@ public:
 
                 // V: Gather slot_id from UB lines, compute tokenOnDevice = min(slot_id+1, 1)
                 if (!slotSkipV[prevBuf]) {
+                    AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(prevBuf);
                     for (uint32_t g = 0; g < slotTileLen[prevBuf]; g += MTE_BATCH_LEN) {
                         AscendC::Gather(prevPosLocal[g], prevSlotLineLocal, prevMteOffsetLocal[g],
                                         static_cast<uint32_t>(0), static_cast<uint32_t>(MTE_BATCH_LEN));
@@ -141,10 +140,14 @@ public:
             // Invalid req_id: fill defaults directly in UB, skip V stage
             const int32_t req_id = reqIndicesGm.GetValue(b);
             if (req_id < 0 || static_cast<uint32_t>(req_id) >= size) {
+                // Reusing this buffer must wait for its previous MTE3 copy-out.
+                // MTE3_MTE2 alone only blocks MTE2, so bridge MTE2 -> V before
+                // writing the output buffers directly from the V pipeline.
+                AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(curBuf);
+                AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(curBuf);
                 AscendC::Duplicate(tokenLocal, static_cast<int32_t>(0), TOPK_TILE_LEN);
                 AscendC::Duplicate(posLocal, static_cast<int32_t>(-1), TOPK_TILE_LEN);
                 slotSkipV[curBuf] = true;
-                AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(curBuf);
                 continue;
             }
             slotSkipV[curBuf] = false;
