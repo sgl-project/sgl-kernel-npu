@@ -20,8 +20,14 @@ Supporting Software
 ```bash
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 ```
+2. update submodule
+```bash
+git submodule sync --recursive
+git submodule update --init --recursive
+git submodule status --recursive
+```
 
-2. Build the project
+3. Build the project
 Executing the engineering build script build.sh
 ```bash
 # Building Project
