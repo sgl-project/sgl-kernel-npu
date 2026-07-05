@@ -291,6 +291,8 @@ def test(
             num_dispatch_comm_bytes += num_mxfp8_bytes * num_selections
         elif dispatch_use_fp8:
             num_dispatch_comm_bytes += num_fp8_bytes * num_selections
+        else:
+            num_dispatch_comm_bytes += num_bf16_bytes * num_selections
         num_combine_comm_bytes += num_bf16_bytes * num_selections
 
     # Dispatch + combine testing
