@@ -20,7 +20,7 @@ Supporting Software
 ```bash
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 ```
-2. update submodule
+2. Update submodules
 ```bash
 git submodule sync --recursive
 git submodule update --init --recursive
