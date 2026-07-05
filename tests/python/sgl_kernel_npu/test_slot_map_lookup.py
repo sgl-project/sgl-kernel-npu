@@ -27,7 +27,7 @@ def reference_lookup(slot_map, req_indices, topk_indices):
 
 
 class TestSlotMapLookup(unittest.TestCase):
-    BLOCK_DIMS = (1, 2, 8, 16, 24, 32, 48)
+    BLOCK_DIMS = (0, 1, 2, 8, 16, 24, 32, 48)
 
     def setUp(self):
         self.slot_map = torch.full((3, 64), -1, dtype=torch.int32, device="npu")

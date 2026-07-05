@@ -13,6 +13,7 @@
 
 #include "defines.h"
 #include "torch_helper.h"
+#include "tiling/platform/platform_ascendc.h"
 
 #include "aclrtlaunch_slot_map_lookup.h"
 
@@ -122,7 +123,13 @@ HOST_API void slot_map_lookup(const at::Tensor &slot_map, const at::Tensor &req_
                     static_cast<uint32_t>(device_token_pos.size(1)) == topk,
                 "device_token_pos shape must match [bs, topk] = [", bs, ", ", topk, "]");
 
-    const uint32_t effectiveBlockDim = block_dim > 0 ? static_cast<uint32_t>(block_dim) : 8;
+    auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
+    const uint32_t maxAivCoreNum = static_cast<uint32_t>(ascendcPlatform->GetCoreNumAiv());
+    TORCH_CHECK(maxAivCoreNum > 0, "failed to get the available AIV core count");
+
+    const uint32_t effectiveBlockDim = block_dim > 0 ? static_cast<uint32_t>(block_dim) : maxAivCoreNum;
+    TORCH_CHECK(effectiveBlockDim <= maxAivCoreNum, "block_dim must not exceed the available AIV core count ",
+                maxAivCoreNum, ", got ", effectiveBlockDim);
 
     auto npuStream = c10_npu::getCurrentNPUStream();
     slot_map.record_stream(npuStream);
