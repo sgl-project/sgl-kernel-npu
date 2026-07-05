@@ -196,15 +196,13 @@ def test(
 
         # Check combine correctness
         if not all_to_all_mode:
-            (
-                src_info,
-                layout_range,
-                num_max_dispatch_tokens_per_rank,
-                hidden,
-                num_experts,
-                packed_recv_count,
-                expand_scales,
-            ) = handle
+            src_info = handle[0]
+            layout_range = handle[1]
+            num_max_dispatch_tokens_per_rank = handle[2]
+            hidden = handle[3]
+            num_experts = handle[4]
+            packed_recv_count = handle[5]
+            expand_scales = handle[6]
 
             out = torch.empty(
                 (aligned_num_tokens, hidden), dtype=torch.bfloat16, device="npu"
@@ -312,9 +310,17 @@ def test(
     for return_recv_hook in (False,):
         enable_neg_one = int(os.getenv("MOE_ENABLE_TOPK_NEG_ONE", 0))
         dist.barrier()
+        enable_topk_neg_one = os.getenv("MOE_ENABLE_TOPK_NEG_ONE", "").lower()
+
+        if enable_topk_neg_one == "ops":
+            dispatch_name = "MoeLowLatencyDispatchV2"
+            combine_name = "MoeLowLatencyCombineV2"
+        else:
+            dispatch_name = "MoeDistributeDispatchV2"
+            combine_name = "MoeDistributeCombineV2"
         dispatch_t, combine_t = bench_kineto(
             partial(test_func, zero_copy=False, return_recv_hook=return_recv_hook),
-            kernel_names=("MoeLowLatencyDispatchV2", "MoeLowLatencyCombineV2"),
+            kernel_names=(dispatch_name, combine_name),
             barrier_comm_profiling=True,
             suppress_kineto_output=True,
             num_kernels_per_period=2 if return_recv_hook else 1,
