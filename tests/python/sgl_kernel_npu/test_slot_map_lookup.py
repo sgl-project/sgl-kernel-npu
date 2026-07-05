@@ -45,7 +45,18 @@ class TestSlotMapLookup(unittest.TestCase):
         expected_token, expected_pos = reference_lookup(
             self.slot_map, req_indices, topk_indices
         )
-        self.assertTrue(torch.equal(actual_token.cpu().bool(), expected_token))
+        actual_token_cpu = actual_token.cpu().bool()
+        token_diff = actual_token_cpu != expected_token
+        if token_diff.any():
+            print("total token mismatch:", token_diff.sum().item())
+            for batch_idx in range(token_diff.size(0)):
+                print(
+                    f"batch={batch_idx}, "
+                    f"mismatch={token_diff[batch_idx].sum().item()}, "
+                    f"actual={torch.unique(actual_token_cpu[batch_idx], return_counts=True)}"
+                )
+
+        self.assertTrue(torch.equal(actual_token_cpu, expected_token))
         self.assertTrue(torch.equal(actual_pos.cpu(), expected_pos))
 
     def test_lookup_with_invalid_indices(self):
