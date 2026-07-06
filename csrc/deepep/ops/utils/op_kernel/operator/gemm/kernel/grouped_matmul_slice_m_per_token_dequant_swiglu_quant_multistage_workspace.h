@@ -49,7 +49,7 @@ constexpr uint64_t TIMEOUT_DETECTION_THRESHOLD = 5000000000UL;
     (((epRankId == rankId)                                                                                        \
           ? ((GM_ADDR)(winContext_->localWindowsExp))                                                             \
           : ((GM_ADDR)(((HcclRankRelationResV2 *)(winContext_->remoteRes[rankId].nextDevicePtr))->windowsExp))) + \
-     dataState * WIN_STATE_OFFSET)
+     dataState * WIN_STATE_OFFSET + WINDOWS_EXP_OFFSET)
 #define GET_WIND_ADDR_BY_RANK_ID(rankId)                                                                         \
     (((epRankId == rankId)                                                                                       \
           ? ((GM_ADDR)(winContext_->localWindowsIn))                                                             \
@@ -521,7 +521,7 @@ public:
         winContext_ = (__gm__ HcclOpResParam *)AscendC::GetHcclContext<AscendC::HCCL_GROUP_ID_0>();
 
         // 更新状态，影响CV交互使用的信号值
-        statusDataSpaceGm = (GM_ADDR)(winContext_->localWindowsExp);
+        statusDataSpaceGm = (GM_ADDR)(winContext_->localWindowsExp + WINDOWS_EXP_OFFSET);
         AscendC::GlobalTensor<int32_t> selfDataStatusTensor;
         selfDataStatusTensor.SetGlobalBuffer((__gm__ int32_t *)(statusDataSpaceGm + STATE_WIN_OFFSET));
         __asm__ __volatile__("");
@@ -1421,7 +1421,7 @@ void AivInitParams(Params const &params)
     stateOffset = STATE_OFFSET;
     expertPerSizeOnWin = maxAxisBs * tokenLength * sizeof(XType);
     winContext_ = (__gm__ HcclOpResParam *)AscendC::GetHcclContext<AscendC::HCCL_GROUP_ID_0>();
-    statusDataSpaceGm = (GM_ADDR)(winContext_->localWindowsExp);
+    statusDataSpaceGm = (GM_ADDR)(winContext_->localWindowsExp + WINDOWS_EXP_OFFSET);
 }
 
 ACT_DEVICE
