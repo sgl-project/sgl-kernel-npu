@@ -315,11 +315,11 @@ def test(
         enable_topk_neg_one = os.getenv("MOE_ENABLE_TOPK_NEG_ONE", "").lower()
 
         if enable_topk_neg_one == "ops":
-            dispatch_name = "MoeLowLatencyDispatchV2"
-            combine_name = "MoeLowLatencyCombineV2"
-        else:
             dispatch_name = "MoeDistributeDispatchV2"
             combine_name = "MoeDistributeCombineV2"
+        else:
+            dispatch_name = "MoeLowLatencyDispatchV2"
+            combine_name = "MoeLowLatencyCombineV2"
         dispatch_t, combine_t = bench_kineto(
             partial(test_func, zero_copy=False, return_recv_hook=return_recv_hook),
             kernel_names=(dispatch_name, combine_name),
