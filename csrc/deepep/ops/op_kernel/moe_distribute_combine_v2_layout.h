@@ -62,7 +62,7 @@ public:
     constexpr static uint32_t B64_PER_BLOCK = 4U;
     constexpr static uint32_t SERVER_RANK_SIZE = 16U;
     constexpr static uint32_t IPC_DATA_OFFSET = 4U * 1024U * 1024U;
-    constexpr static uint32_t RDMA_DATA_SIZE = 800U * 1024U * 1024U;
+    constexpr static uint32_t RDMA_DATA_SIZE = 100U * 1024U * 1024U;
     constexpr static uint32_t VEC_LEN = 256U;
     constexpr static uint32_t MAGIC_OFFSET = 2U * 1024U * 1024U - 32U * 32U;
     constexpr static uint32_t EXTRA_TOKEN_INFO_NUM = 4U;  // 专家信息 权重信息 量化Scale 到达标志位
@@ -74,7 +74,7 @@ public:
     constexpr static uint32_t WEIGHT_VALUE_NUM = 16U;
     constexpr static uint64_t GM2IPC_SYNC_FLAG = 12345ULL;
     constexpr static uint64_t RDMA_TOKEN_ARRIVED_FLAG = 123ULL;
-    constexpr static uint32_t NOTIFY_DATA_SIZE = 400U * 1024U * 1024U;
+    constexpr static uint32_t NOTIFY_DATA_SIZE = 0U * 1024U * 1024U;  // A3 RoCE直连暂不支持混部，不考虑prefill的偏移
     constexpr static uint64_t RDMA_TOKEN_END_FLAG = 321ULL;
     constexpr static uint32_t MAX_BS_NUM = 512U;  // 适配bs=512
     constexpr static uint32_t FLAG_SINGLE_CNT = 4;

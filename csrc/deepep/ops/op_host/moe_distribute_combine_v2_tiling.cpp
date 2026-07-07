@@ -1222,18 +1222,33 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
     uint64_t actualSize = ((maxBs * tokenNeedSizeDispatch * epWorldSize * static_cast<uint64_t>(localMoeExpertNum)) +
                            (maxBs * tokenNeedSizeCombine * (k + static_cast<uint64_t>(sharedExpertNum)))) *
                           DOUBLE_DATA_BUFFER;
-    OP_TILING_CHECK(
-        (actualSize > maxWindowSize),
-        OP_LOGE(
-            nodeName,
-            "HCCL_BUFFSIZE is too SMALL, maxBs = %lu, h = %lu, epWorldSize = %lu,"
-            " localMoeExpertNum = %u, sharedExpertNum = %u, tokenNeedSizeDispatch = %lu, tokenNeedSizeCombine = %lu,"
-            " k = %lu, NEEDED_HCCL_BUFFSIZE(((maxBs * tokenNeedSizeDispatch * ep_worldsize * localMoeExpertNum) +"
-            " (maxBs * tokenNeedSizeCombine * (k + sharedExpertNum))) * 2) = %luMB,"
-            " HCCL_BUFFSIZE=%luMB.",
-            maxBs, h, epWorldSize, localMoeExpertNum, sharedExpertNum, tokenNeedSizeDispatch, tokenNeedSizeCombine, k,
-            actualSize / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
-        return ge::GRAPH_FAILED);
+    bool isLayout = strcmp(commAlgPtr, "hierarchy") == 0;
+    if (isLayout) {
+        actualSize = (maxBs * tokenNeedSizeDispatch * epWorldSize * static_cast<uint64_t>(localMoeExpertNum)) +
+                     RDMA_DATA_SIZE + NOTIFY_DATA_SIZE;
+        OP_TILING_CHECK((actualSize > maxWindowSize),
+                        OP_LOGE(nodeName,
+                                "HCCL_BUFFSIZE_EP is too SMALL, maxBs = %lu, h = %lu,"
+                                "NEEDED_HCCL_BUFFSIZE_HIERARCHY((moeExpertNum * maxBs * (h * MAX_OUT_DTYPE_SIZE + (3 * "
+                                "(k + 7) / 8 * 8) *"
+                                "sizeof(uint32_t) + 64) + 100 * 1024 * 1024)) = %luMB, HCCL_BUFFSIZE=%luMB.",
+                                maxBs, h, actualSize / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
+                        return ge::GRAPH_FAILED);
+    } else {
+        OP_TILING_CHECK(
+            (actualSize > maxWindowSize),
+            OP_LOGE(
+                nodeName,
+                "HCCL_BUFFSIZE is too SMALL, maxBs = %lu, h = %lu, epWorldSize = %lu,"
+                " localMoeExpertNum = %u, sharedExpertNum = %u, tokenNeedSizeDispatch = %lu, tokenNeedSizeCombine = "
+                "%lu,"
+                " k = %lu, NEEDED_HCCL_BUFFSIZE(((maxBs * tokenNeedSizeDispatch * ep_worldsize * localMoeExpertNum) +"
+                " (maxBs * tokenNeedSizeCombine * (k + sharedExpertNum))) * 2) = %luMB,"
+                " HCCL_BUFFSIZE=%luMB.",
+                maxBs, h, epWorldSize, localMoeExpertNum, sharedExpertNum, tokenNeedSizeDispatch, tokenNeedSizeCombine,
+                k, actualSize / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
+            return ge::GRAPH_FAILED);
+    }
     tilingData->moeDistributeCombineV2Info.totalWinSize = maxWindowSize;
 
     auto ascendcPlatform = platform_ascendc::PlatformAscendC(context->GetPlatformInfo());
@@ -1246,7 +1261,7 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
     校验hierarchyServerNum 不大于 HIERARCHY_IPC_REDUCE_USED_CORE_NUM因为 kernel 里固定只拿前 32 个 AIV core 做 hierarchy
     的第一阶段处理 这条校验的本质是：每个 server 至少要分到 1 个 AIV core 做 SumToWindow()，而当前 kernel 只预留了 32 个
     core 给这部分逻辑， 因此 server 数不能超过 32
-    */
+     */
     OP_TILING_CHECK(
         hierarchyFlag && hierarchyServerNum > HIERARCHY_IPC_REDUCE_USED_CORE_NUM,
         OP_LOGE(nodeName, "hierarchy commAlg requires serverNum to be no greater than %u, but got serverNum=%lu.",

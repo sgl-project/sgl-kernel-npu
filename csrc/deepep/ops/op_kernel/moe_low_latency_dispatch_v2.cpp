@@ -3,7 +3,6 @@
 #include "moe_distribute_dispatch_v2_tiling.h"
 #include "moe_distribute_dispatch_tiling.h"
 #include "moe_distribute_dispatch_v2_a5.h"
-#include "moe_distribute_dispatch_v2_layout.h"
 #ifdef __DAV_C310__
 #include "moe_distribute_dispatch_v2_ccu.h"
 using namespace MoeDistributeDispatchA5CCUImpl;
@@ -22,7 +21,7 @@ using namespace MoeDistributeDispatchV2A5Impl;
  * 第3位（百位）：是否做tp域allgather:
  *     0: 不做, 1: 做
  * 第4位（千位）：是否走fullmesh_v2模板:
- *     0: 不做, 1: 做, 2: 走hierarchy模板
+ *     0: 不做, 1: 做
  * 第5位（万位）: A2/A3/A5
  *     20000: A2, 30000: A3, 50000: A5
  */
@@ -58,14 +57,6 @@ extern "C" __global__ __aicore__ void moe_low_latency_dispatch_v2(GM_ADDR x, GM_
         MoeDistributeDispatchV2A5<DTYPE_X, DTYPE_EXPAND_X, DTYPE_DYNAMIC_SCALES, false, false, false, false, false> op;
         op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
                 expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
-        op.Process();
-        return;
-    }
-    if (TILING_KEY_IS(32000)) {
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
-        MoeDistributeDispatchV2Layered<DTYPE_X, DTYPE_EXPAND_X, false, false, false> op;
-        op.Init(x, expertIds, scales, expandXOut, dynamicScalesOut, assistInfoOut, expertTokenNumsOut, epSendCountsOut,
-                workspaceGM, &pipe, tilingData);
         op.Process();
         return;
     }
@@ -133,22 +124,6 @@ extern "C" __global__ __aicore__ void moe_low_latency_dispatch_v2(GM_ADDR x, GM_
         MoeDistributeDispatchV2A5<DTYPE_X, DTYPE_EXPAND_X, DTYPE_DYNAMIC_SCALES, false, true, false, false, false> op;
         op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
                 expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
-        op.Process();
-        return;
-    }
-    if (TILING_KEY_IS(32002)) {
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
-        MoeDistributeDispatchV2Layered<DTYPE_X, DTYPE_EXPAND_X, false, true, false> op;
-        op.Init(x, expertIds, scales, expandXOut, dynamicScalesOut, assistInfoOut, expertTokenNumsOut, epSendCountsOut,
-                workspaceGM, &pipe, tilingData);
-        op.Process();
-        return;
-    }
-    if (TILING_KEY_IS(32012)) {
-        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
-        MoeDistributeDispatchV2Layered<DTYPE_X, DTYPE_EXPAND_X, false, true, true> op;
-        op.Init(x, expertIds, scales, expandXOut, dynamicScalesOut, assistInfoOut, expertTokenNumsOut, epSendCountsOut,
-                workspaceGM, &pipe, tilingData);
         op.Process();
         return;
     }

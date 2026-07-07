@@ -204,7 +204,6 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
     ]:
 
         topk_ids = topk_idx.int()
-        num_max_dispatch_tokens_per_rank = x.size(0)
         if self.comm_alg == "hierarchy":
             assert (
                 topk_weights is not None
