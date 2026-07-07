@@ -84,7 +84,7 @@ def test(
     elif quant_type == "fp8":
         fp8_configs = [(True, False)]
     else:
-        fp8_configs = [(False, False)]
+        fp8_configs = [(False, False), (True, False)]
 
     for dispatch_use_fp8, dispatch_use_ue8m0 in fp8_configs:
         for current_x in filter(lambda elem: elem is not None, (x_pure_rand,)):
@@ -312,9 +312,9 @@ def test(
     for return_recv_hook in (False,):
         enable_neg_one = int(os.getenv("MOE_ENABLE_TOPK_NEG_ONE", 0))
         dist.barrier()
-        enable_topk_neg_one = os.getenv("MOE_ENABLE_TOPK_NEG_ONE", "").lower()
+        is_layout = os.getenv("DEEP_USE_MODE", "").lower()
 
-        if enable_topk_neg_one == "ops":
+        if is_layout == "ops":
             dispatch_name = "MoeDistributeDispatchV2"
             combine_name = "MoeDistributeCombineV2"
         else:
