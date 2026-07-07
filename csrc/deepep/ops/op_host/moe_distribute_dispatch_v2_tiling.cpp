@@ -87,7 +87,6 @@ constexpr uint64_t TILING_KEY_A5_TYPE = 50000;
 constexpr uint64_t TILING_KEY_A3_TYPE = 30000;
 constexpr uint64_t TILING_KEY_A2_TYPE = 20000;
 constexpr uint32_t TILINGKEY_COMM_ALG = 1000;
-
 constexpr uint32_t TILINGKEY_TP_WORLD_SIZE = 100;
 constexpr uint32_t TILINGKEY_SCALES = 10;
 
@@ -1155,7 +1154,6 @@ static void SetHcommCfg(const gert::TilingContext *context, MoeDistributeDispatc
     auto attrs = context->GetAttrs();
     auto groupEpPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_GROUP_EP_INDEX));
     auto groupTpPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_GROUP_TP_INDEX));
-
     std::string groupTp = (groupTpPtr != nullptr) ? std::string(groupTpPtr) : std::string();
     std::string groupEp = std::string(groupEpPtr);
     const char *nodeName = context->GetNodeName();
@@ -1339,7 +1337,6 @@ static ge::graphStatus MoeDistributeDispatchA3TilingFuncImpl(gert::TilingContext
     }
     uint32_t tpWorldSize = tilingData->moeDistributeDispatchV2Info.tpWorldSize;
     CalTilingKey(tilingKey, isScales, quantMode, tpWorldSize, isSetCommAlg);
-
     OP_LOGD(nodeName, "tilingKey is %lu", tilingKey);
     context->SetTilingKey(tilingKey);
     SetHcommCfg(context, tilingData);
