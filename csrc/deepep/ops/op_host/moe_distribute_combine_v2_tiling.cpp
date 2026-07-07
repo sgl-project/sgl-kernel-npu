@@ -42,7 +42,8 @@ constexpr uint32_t CONST_EXPERT_ALPHA_1_INDEX = 14;
 constexpr uint32_t CONST_EXPERT_ALPHA_2_INDEX = 15;
 constexpr uint32_t CONST_EXPERT_V_INDEX = 16;
 constexpr uint32_t OUTPUT_X_INDEX = 0;
-
+constexpr uint32_t RDMA_DATA_SIZE = 100U * 1024U * 1024U;
+constexpr uint32_t NOTIFY_DATA_SIZE = 0U * 1024U * 1024U;  // A3 RoCE直连暂不支持混部，不考虑prefill的偏移
 constexpr uint32_t ATTR_GROUP_EP_INDEX = 0;
 constexpr uint32_t ATTR_EP_WORLD_SIZE_INDEX = 1;
 constexpr uint32_t ATTR_EP_RANK_ID_INDEX = 2;
