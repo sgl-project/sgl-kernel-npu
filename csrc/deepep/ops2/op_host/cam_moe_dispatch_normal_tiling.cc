@@ -377,6 +377,7 @@ static ge::graphStatus CheckAttrs(gert::TilingContext *context, const char *node
 
     // 校验输入x的dim 0并设bs
     const gert::StorageShape *xStorageShape = context->GetInputShape(X_INDEX);
+    OP_TILING_CHECK(xStorageShape == nullptr, OP_LOGE(nodeName, "xStorageShape is nullptr."), return ge::GRAPH_FAILED);
     const int64_t xDim0 = xStorageShape->GetStorageShape().GetDim(0);
     OP_TILING_CHECK((xDim0 > BS_UPPER_BOUND) || (xDim0 < 0),
                     OP_LOGE(nodeName, "xDim0(BS) is invalid. Should be between [0, %ld], but got xDim0=%ld.",
@@ -400,6 +401,10 @@ static ge::graphStatus CheckAttrs(gert::TilingContext *context, const char *node
     auto roundPtr = attrs->GetAttrPointer<int64_t>(ATTR_ROUND_INDEX);
     auto perRoundTokensPtr = attrs->GetAttrPointer<int64_t>(ATTR_PER_ROUND_TOKENS_INDEX);
     auto realMaxBsPtr = attrs->GetAttrPointer<int64_t>(ATTR_REAL_MAX_BS_INDEX);
+    OP_TILING_CHECK(roundPtr == nullptr, OP_LOGE(nodeName, "roundPtr is nullptr."), return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(perRoundTokensPtr == nullptr, OP_LOGE(nodeName, "perRoundTokensPtr is nullptr."),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(realMaxBsPtr == nullptr, OP_LOGE(nodeName, "realMaxBsPtr is nullptr."), return ge::GRAPH_FAILED);
     tilingData.camMoeDispatchNormalInfo.round = static_cast<uint32_t>(*roundPtr);
     tilingData.camMoeDispatchNormalInfo.perRoundTokens = static_cast<uint32_t>(*perRoundTokensPtr);
     tilingData.camMoeDispatchNormalInfo.realMaxBs = static_cast<uint32_t>(*realMaxBsPtr);
@@ -516,7 +521,7 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext *context, const char *no
     OP_TILING_CHECK(workSpaces == nullptr, OP_LOGE(nodeName, "workSpaces is nullptr."), return ge::GRAPH_FAILED);
     auto ascendcPlatform = platform_ascendc::PlatformAscendC(context->GetPlatformInfo());
     uint32_t aivNum = ascendcPlatform.GetCoreNumAiv();
-    workSpaces[0] = static_cast<uint64_t>(SYSTEM_NEED_WORKSPACE + WORKSPACE_ELEMENT_OFFSET * aivNum * aivNum);
+    workSpaces[0] = static_cast<uint64_t>(SYSTEM_NEED_WORKSPACE) + static_cast<uint64_t>(WORKSPACE_ELEMENT_OFFSET) * aivNum * aivNum;
     return ge::GRAPH_SUCCESS;
 }
 

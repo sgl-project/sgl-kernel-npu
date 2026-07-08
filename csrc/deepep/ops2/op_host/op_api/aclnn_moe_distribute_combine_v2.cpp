@@ -43,6 +43,9 @@ aclnnStatus aclnnMoeLowLatencyCombineV2GetWorkspaceSize(
     int64_t sharedExpertRankNum, int64_t globalBs, int64_t outDtype, int64_t commQuantMode, int64_t groupListType,
     char *commAlg, aclTensor *xOut, const aclTensor *sendCostStats, uint64_t *workspaceSize, aclOpExecutor **executor)
 {
+    if (workspaceSize == nullptr || executor == nullptr) {
+        return ACLNN_ERR_INNER_NULLPTR;
+    }
     return aclnnInnerMoeLowLatencyCombineV2GetWorkspaceSize(
         expandX, expertIds, assistInfoForCombine, epSendCounts, expertScales, tpSendCountsOptional, xActiveMaskOptional,
         activationScaleOptional, weightScaleOptional, groupListOptional, expandScalesOptional, sharedExpertXOptional,
@@ -54,6 +57,9 @@ aclnnStatus aclnnMoeLowLatencyCombineV2GetWorkspaceSize(
 aclnnStatus aclnnMoeLowLatencyCombineV2(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
                                         aclrtStream stream)
 {
+    if (executor == nullptr) {
+        return ACLNN_ERR_INNER_NULLPTR;
+    }
     if (NnopbaseSetHcclServerType) {
         if (op::GetCurrentPlatformInfo().GetSocVersion() == op::SocVersion::ASCEND910B) {
             NnopbaseSetHcclServerType(executor, NNOPBASE_HCCL_SERVER_TYPE_AICPU);
