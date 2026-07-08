@@ -105,7 +105,7 @@ private:
     __aicore__ inline void ReduceMaxInplace(const LocalTensor<float> &srcLocal, uint32_t count);
     __aicore__ inline void CopyScalesToOut(uint32_t currentTokenIndex, uint32_t scaleOutBytes,
                                         LocalTensor<XOutType> &quantTok, DataCopyExtParams &scaleOutParams);
-    // __aicore__ inline void QuantProcess(uint32_t expertIndex);
+
     __aicore__ inline void QuantProcess();
     __aicore__ inline void QuantDynamicPerToken();
 #ifdef __DAV_C310__
@@ -624,7 +624,6 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::QuantInit
     scalesGMTensor_.SetGlobalBuffer((__gm__ float *)scales);
     if constexpr (DynamicQuant) {
         tpipe_->InitBuffer(rowMaxBuf_, UB_ALIGN);  // 32B
-        // rowMaxTensor_ = rowMaxBuf_.Get<float>(); // 待确认
     }
     uint32_t tmpTotalUB = totalUsedUB_ + BUFFER_NUM * hAlignSize + hOutAlignUbSize_ * BUFFER_NUM;
     bufferNum_ = tmpTotalUB > MAX_UB_SIZE ? BUFFER_SINGLE : BUFFER_NUM;
