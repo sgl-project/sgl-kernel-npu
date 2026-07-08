@@ -21,6 +21,10 @@
 #include "graph/types.h"
 #include "aclnn/opdev/platform.h"
 
+#ifndef ACLNN_ERR_INNER_NULLPTR
+#define ACLNN_ERR_INNER_NULLPTR (-1)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
