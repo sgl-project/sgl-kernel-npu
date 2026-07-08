@@ -638,8 +638,8 @@ static ge::graphStatus CheckAttrs(gert::TilingContext *context, const char *node
     // 校验输入x的dim 0并设bs
     const gert::StorageShape *xStorageShape = context->GetInputShape(X_INDEX);
     OP_TILING_CHECK(xStorageShape == nullptr, OP_LOGE(nodeName, "xStorageShape is nullptr."), return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(xStorageShape->GetStorageShape().GetDimNum() == 0,
-                    OP_LOGE(nodeName, "xStorageShape dimNum is 0."), return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(xStorageShape->GetStorageShape().GetDimNum() == 0, OP_LOGE(nodeName, "xStorageShape dimNum is 0."),
+                    return ge::GRAPH_FAILED);
     const int64_t xDim0 = xStorageShape->GetStorageShape().GetDim(0);
     OP_TILING_CHECK((xDim0 > BS_UPPER_BOUND) || (xDim0 < 0),
                     OP_LOGE(nodeName, "xDim0(BS) is invalid. Should be between [0, %ld], but got xDim0=%ld.",
