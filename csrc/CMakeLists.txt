@@ -31,6 +31,8 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_host/apply_token_bitmask.cpp
     ${PROJECT_OP_SRC_BASE}/unidex_copy/op_host/unidex_copy.cpp
     ${PROJECT_OP_SRC_BASE}/slot_map_lookup/op_host/slot_map_lookup.cpp
+    ${PROJECT_OP_SRC_BASE}/mem_cache/shm_allocator.cpp
+    ${PROJECT_OP_SRC_BASE}/mem_cache/shm_allocator_op.cpp
     )
 if(BUILD_CATLASS_MODULE)
     list(APPEND OP_SRCS
@@ -46,6 +48,10 @@ list(APPEND OP_SRCS
 
 # set the so name
 set(OP_PLUGIN_NAME sgl_kernel_npu)
+
+if(NOT DEFINED ASCEND_DRIVER_PATH)
+    set(ASCEND_DRIVER_PATH "/usr/local/Ascend/driver")
+endif()
 
 # kernel side files without workspace
 set(NO_WORKSPACE_KERNEL_SRCS
@@ -165,6 +171,7 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/stub
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host
+        ${PROJECT_OP_SRC_BASE}/mem_cache
         ${TORCH_DIR}/include
         ${TORCH_DIR}/include/torch/csrc/api/include
         ${TORCH_NPU_DIR}/include
@@ -172,4 +179,6 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${ASCEND_INCLUDE_DIR}/external
         ${ASCEND_INCLUDE_DIR}/experiment/platform
         ${ASCEND_INCLUDE_DIR}/experiment/runtime
+        ${ASCEND_DRIVER_PATH}/include
+        ${ASCEND_DRIVER_PATH}/kernel/inc
 )

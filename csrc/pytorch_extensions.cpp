@@ -158,6 +158,10 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "slot_map_lookup(Tensor slot_map, Tensor req_indices, Tensor topk_indices, "
         "Tensor(a!) token_on_device, Tensor(b!) device_token_pos, "
         "int block_dim=0) -> ()");
+
+    m.def("shm_allocator_create_and_register(int size, int device_id, str name) -> (int, int)");
+
+    m.def("shm_allocator_free_all(int device_id) -> ()");
 }
 }  // namespace
 
@@ -222,6 +226,10 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("unidex_copy", TORCH_FN(sglang::npu_kernel::unidex_copy));
 
     m.impl("slot_map_lookup", TORCH_FN(sglang::npu_kernel::slot_map_lookup));
+
+    m.impl("shm_allocator_create_and_register", TORCH_FN(sglang::npu_kernel::shm_allocator_create_and_register));
+
+    m.impl("shm_allocator_free_all", TORCH_FN(sglang::npu_kernel::shm_allocator_free_all));
 
     m.impl("causal_conv1d_update",
            [](const at::Tensor &x, const at::Tensor &weight, const at::Tensor &conv_state,

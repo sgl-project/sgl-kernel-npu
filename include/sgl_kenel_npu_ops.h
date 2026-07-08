@@ -200,6 +200,22 @@ void slot_map_lookup(const at::Tensor &slot_map, const at::Tensor &req_indices,
                      at::Tensor &token_on_device, at::Tensor &device_token_pos,
                      int64_t block_dim);
 
+/**
+ * @brief Create host shared memory and register it to the NPU device.
+ *
+ * Returns:
+ *   host pointer as int64_t
+ *   device-visible pointer as int64_t
+ */
+std::tuple<int64_t, int64_t>
+shm_allocator_create_and_register(int64_t size, int64_t device_id,
+                                  c10::string_view name);
+
+/**
+ * @brief Unregister and free all shared-memory entries for one device.
+ */
+void shm_allocator_free_all(int64_t device_id);
+
 } // namespace npu_kernel
 
 } // namespace sglang
