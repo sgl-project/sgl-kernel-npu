@@ -65,15 +65,10 @@ class MoeDistributeDispatchV2A5
 public:
 #if defined(__NPU_ARCH__) && (__NPU_ARCH__ == 3510)
     using XInType = typename std::conditional<
-            (Std::IsSame<XType, fp4x2_e2m1_t>::value) || (Std::IsSame<XType, fp4x2_e1m2_t>::value),
-            uint8_t,
-            XType
-        >::type;
-    using XOutType = typename std::conditional<
-            (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value) || (Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value),
-            uint8_t,
-            ExpandXOutType
-        >::type;
+        (Std::IsSame<XType, fp4x2_e2m1_t>::value) || (Std::IsSame<XType, fp4x2_e1m2_t>::value), uint8_t, XType>::type;
+    using XOutType = typename std::conditional<(Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value) ||
+                                                   (Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value),
+                                               uint8_t, ExpandXOutType>::type;
 #else
     using XInType = XType;
     using XOutType = ExpandXOutType;
@@ -104,7 +99,7 @@ private:
     __aicore__ inline void ZeroComputeExpertMaskCal();
     __aicore__ inline void ReduceMaxInplace(const LocalTensor<float> &srcLocal, uint32_t count);
     __aicore__ inline void CopyScalesToOut(uint32_t currentTokenIndex, uint32_t scaleOutBytes,
-                                        LocalTensor<XOutType> &quantTok, DataCopyExtParams &scaleOutParams);
+                                           LocalTensor<XOutType> &quantTok, DataCopyExtParams &scaleOutParams);
 
     __aicore__ inline void QuantProcess();
     __aicore__ inline void QuantDynamicPerToken();
@@ -340,7 +335,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::Init(
     GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut, GM_ADDR expertTokenNumsOut, GM_ADDR sendCountsOut,
     GM_ADDR tpSendCountsOut, GM_ADDR workspaceGM, TPipe *pipe, const MoeDistributeDispatchV2TilingData *tilingData)
 {
-#ifdef __DAV_C310__ // A3不支持MX量化，无需使能饱和模式
+#ifdef __DAV_C310__  // A3不支持MX量化，无需使能饱和模式
     AscendC::SetCtrlSpr<FLOAT_OVERFLOW_MODE_CTRL, FLOAT_OVERFLOW_MODE_CTRL>(0);
 #endif
     tpipe_ = pipe;
@@ -374,11 +369,10 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::Init(
     copyOutAxisH_ = axisH_;
 #ifdef __DAV_C310__
     if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
-        Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
+                  Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
         copyOutAxisH_ = Ceil(axisH_, FP4_ELEMS_PER_BYTE);
     }
-    if constexpr (Std::IsSame<XType, fp4x2_e2m1_t>::value ||
-        Std::IsSame<XType, fp4x2_e1m2_t>::value) {
+    if constexpr (Std::IsSame<XType, fp4x2_e2m1_t>::value || Std::IsSame<XType, fp4x2_e1m2_t>::value) {
         copyInAxisH_ = Ceil(axisH_, FP4_ELEMS_PER_BYTE);
     }
 #endif
@@ -443,7 +437,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::Init(
      */
     axisH_ = h;
     QuantVariableInit();
-    hAlignWinSize_ = Ceil(hScaleIdxSize_, WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN; // win区token起始地址对齐512
+    hAlignWinSize_ = Ceil(hScaleIdxSize_, WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;  // win区token起始地址对齐512
     hAlignWinCnt_ = hAlignWinSize_ / sizeof(XOutType);
     hOutAlignUbSize_ = Ceil(hScaleIdxSize_, UB_ALIGN) * UB_ALIGN;
 
@@ -484,8 +478,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::Init(
     statusSpaceGm_ = GetWindStateAddrByRankId(COMM_EP_IDX, epRankIdOriginal_);
 #if defined(ASCENDC_OOM) && ASCENDC_OOM == 1
     for (int tempepRankId = 0; tempepRankId < epWorldSize_; tempepRankId++) {
-        OOMCheckAddrRange<XOutType>((__gm__ XOutType *)(GetWindAddrByRankId(COMM_EP_IDX, tempepRankId)),
-                                          totalWinSize_);
+        OOMCheckAddrRange<XOutType>((__gm__ XOutType *)(GetWindAddrByRankId(COMM_EP_IDX, tempepRankId)), totalWinSize_);
         OOMCheckAddrRange<float>((__gm__ float *)(GetWindStateAddrByRankId(COMM_EP_IDX, tempepRankId)), STATE_SIZE);
     }
 #endif
@@ -511,7 +504,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::Init(
 #if defined(ASCENDC_OOM) && ASCENDC_OOM == 1
         for (int temptpRankId = 0; temptpRankId < tpWorldSize_; temptpRankId++) {
             OOMCheckAddrRange<XOutType>((__gm__ XOutType *)(GetWindAddrByRankId(COMM_TP_IDX, temptpRankId)),
-                                              totalWinSize_);
+                                        totalWinSize_);
             OOMCheckAddrRange<int32_t>((__gm__ int32_t *)(GetWindStateAddrByRankId(COMM_TP_IDX, temptpRankId)),
                                        STATE_SIZE);
         }
@@ -575,7 +568,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::Init(
     subExpIdTensor_ = subExpBuf_.Get<int32_t>();
 
     floatDataCopyParams_ = {1U, sizeof(float), 0U, 0U, 0U};
-    uint32_t axisHCommu = hScaleIdxSize_ / sizeof(XOutType);  // 有效搬运长度
+    uint32_t axisHCommu = hScaleIdxSize_ / sizeof(XOutType);                                 // 有效搬运长度
     xCopyParams_ = {1U, static_cast<uint32_t>(copyInAxisH_ * sizeof(XInType)), 0U, 0U, 0U};  // axisH_
     hCommuCopyOutParams_ = {1U, static_cast<uint32_t>(axisHCommu * sizeof(XOutType)), 0U, 0U, 0U};
     expandXCopyParams_ = {1U, static_cast<uint32_t>(copyOutAxisH_ * sizeof(XOutType)), 0U, 0U, 0U};
@@ -586,26 +579,28 @@ template <TemplateMC2TypeClass>
 __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::QuantVariableInit()
 {
     hOutSize_ = copyOutAxisH_ * sizeof(XOutType);
-    hOutSizeAlign_ = Ceil(hOutSize_, UB_ALIGN) * UB_ALIGN; // scale起始放置偏移
-    hUBAlignSize = Ceil(axisH_ * sizeof(XInType), UB_ALIGN) * UB_ALIGN; // 用于搬入token数据xInQueue_大小申请 hAlignSize_
+    hOutSizeAlign_ = Ceil(hOutSize_, UB_ALIGN) * UB_ALIGN;  // scale起始放置偏移
+    hUBAlignSize =
+        Ceil(axisH_ * sizeof(XInType), UB_ALIGN) * UB_ALIGN;  // 用于搬入token数据xInQueue_大小申请 hAlignSize_
     if constexpr (DynamicQuant && !IsMxQuant) {
-        hOutSizeAlign_ += UB_ALIGN; 
-        scaleOutBytes_ = sizeof(float); // PERTOKEN量化一个token生成一个scale
+        hOutSizeAlign_ += UB_ALIGN;
+        scaleOutBytes_ = sizeof(float);  // PERTOKEN量化一个token生成一个scale
     }
 #ifdef __DAV_C310__
     else if constexpr (IsMxQuant) {
         if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
-            Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
+                      Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
             hOutSizeAlign_ = Align256(Ceil(axisH_, FP4_ELEMS_PER_BYTE));
         } else {
             hOutSizeAlign_ = Align256(axisH_) * sizeof(XOutType);
         }
-        hUBAlignSize = Align128(axisH_) * sizeof(XInType); // MX量化计算scale时每次搬入128个数据
-        hOutSizeAlign_ += Align2(Ceil32(axisH_)); 
-        scaleOutBytes_ = Align2(Ceil32(axisH_)) * sizeof(fp8_e8m0_t); // MX量化每32个值生成一个scale，且scale数量需为偶数
+        hUBAlignSize = Align128(axisH_) * sizeof(XInType);  // MX量化计算scale时每次搬入128个数据
+        hOutSizeAlign_ += Align2(Ceil32(axisH_));
+        scaleOutBytes_ =
+            Align2(Ceil32(axisH_)) * sizeof(fp8_e8m0_t);  // MX量化每32个值生成一个scale，且scale数量需为偶数
     }
 #endif
-    uint32_t hScaleSizeAlign = Ceil(hOutSizeAlign_, UB_ALIGN) * UB_ALIGN; //保证后面填充三元组的起始地址对齐32
+    uint32_t hScaleSizeAlign = Ceil(hOutSizeAlign_, UB_ALIGN) * UB_ALIGN;  // 保证后面填充三元组的起始地址对齐32
     tokenQuantAlign_ = hScaleSizeAlign / sizeof(int32_t);
     // 实际搬运大小，搬运Align32(token_align + scaleOutBytes) + 3*4B(三元组)
     hScaleIdxSize_ = hScaleSizeAlign + EXPAND_IDX_INFO * sizeof(int32_t);
@@ -657,8 +652,8 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::SplitToCo
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::FillTriple(
-    LocalTensor<XOutType> &xOutTensor, uint32_t tokenIndex, uint32_t k)
+__aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::FillTriple(LocalTensor<XOutType> &xOutTensor,
+                                                                                  uint32_t tokenIndex, uint32_t k)
 {
     SyncFunc<AscendC::HardEvent::MTE3_S>();
     LocalTensor<int32_t> xOutTint32 = xOutTensor.template ReinterpretCast<int32_t>();
@@ -670,8 +665,8 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::FillTripl
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::ProcessToken(
-            GlobalTensor<XOutType>& outTokenGT, uint32_t tokenIndex, uint32_t topKIndex,
-            DataCopyPadExtParams<XInType>& padParams, uint32_t expertIndex)
+    GlobalTensor<XOutType> &outTokenGT, uint32_t tokenIndex, uint32_t topKIndex,
+    DataCopyPadExtParams<XInType> &padParams, uint32_t expertIndex)
 {
     if constexpr (IsMxQuant || DynamicQuant || StaticQuant) {
         xInTensor_ = xInQueue_.AllocTensor<XInType>();
@@ -1103,7 +1098,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::QuantProc
 {
     if constexpr (DynamicQuant && !IsMxQuant) {
         QuantDynamicPerToken();
-    } 
+    }
 #ifdef __DAV_C310__
     else if constexpr (IsMxQuant) {
         QuantDynamicMx();
@@ -1158,7 +1153,8 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::QuantDyna
     }
 #endif
     LocalTensor<float> tokenF32Tmp = xOutTensor_.template ReinterpretCast<float>();
-    tokenF32Tmp.SetValue((Ceil(axisH_, UB_ALIGN) * UB_ALIGN) / sizeof(float), float(1.0) / dynamicScale); // int8->float32
+    tokenF32Tmp.SetValue((Ceil(axisH_, UB_ALIGN) * UB_ALIGN) / sizeof(float),
+                         float(1.0) / dynamicScale);  // int8->float32
     SyncFunc<AscendC::HardEvent::S_MTE3>();
 }
 
@@ -1167,29 +1163,28 @@ template <TemplateMC2TypeClass>
 __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::QuantDynamicMx()
 {
     uint32_t mxScaleNum = Align2(Ceil32(axisH_));
-    __ubuf__ XInType* srcAddr = (__ubuf__ XInType*)xInTensor_.GetPhyAddr();
-    __ubuf__ uint16_t* maxExpAddr = (__ubuf__ uint16_t*)floatLocalTemp_.GetPhyAddr();
-    __ubuf__ uint16_t* halfScaleLocalAddr = (__ubuf__ uint16_t*)floatLocalTemp_[Align32(mxScaleNum)].GetPhyAddr();
-    __ubuf__ int8_t* outLocalAddr = (__ubuf__ int8_t*)xOutTensor_.GetPhyAddr();
-    __ubuf__ uint16_t* mxScaleLocalAddr = (__ubuf__ uint16_t*)xOutTensor_[Align256<uint32_t>(axisH_)].GetPhyAddr();
+    __ubuf__ XInType *srcAddr = (__ubuf__ XInType *)xInTensor_.GetPhyAddr();
+    __ubuf__ uint16_t *maxExpAddr = (__ubuf__ uint16_t *)floatLocalTemp_.GetPhyAddr();
+    __ubuf__ uint16_t *halfScaleLocalAddr = (__ubuf__ uint16_t *)floatLocalTemp_[Align32(mxScaleNum)].GetPhyAddr();
+    __ubuf__ int8_t *outLocalAddr = (__ubuf__ int8_t *)xOutTensor_.GetPhyAddr();
+    __ubuf__ uint16_t *mxScaleLocalAddr = (__ubuf__ uint16_t *)xOutTensor_[Align256<uint32_t>(axisH_)].GetPhyAddr();
     if constexpr (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
-        Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
-        mxScaleLocalAddr = (__ubuf__ uint16_t*)xOutTensor_[
-            Align256<uint32_t>(Ceil(axisH_, FP4_ELEMS_PER_BYTE))].GetPhyAddr();
+                  Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value) {
+        mxScaleLocalAddr =
+            (__ubuf__ uint16_t *)xOutTensor_[Align256<uint32_t>(Ceil(axisH_, FP4_ELEMS_PER_BYTE))].GetPhyAddr();
     }
 
-    quant::ComputeMaxExp(srcAddr, maxExpAddr, axisH_); // 计算最大Exp
+    quant::ComputeMaxExp(srcAddr, maxExpAddr, axisH_);  // 计算最大Exp
     // 计算scales并填充
     quant::ComputeScale<ExpandXOutType>(maxExpAddr, mxScaleLocalAddr, halfScaleLocalAddr, mxScaleNum);
-    if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value ||
-        Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value) {
+    if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value || Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value) {
         // 计算量化后的expandx并填充
-        quant::ComputeFp8Data<XInType, ExpandXOutType, AscendC::RoundMode::CAST_TRUNC,
-            AscendC::RoundMode::CAST_RINT>(srcAddr, halfScaleLocalAddr, outLocalAddr, axisH_);
+        quant::ComputeFp8Data<XInType, ExpandXOutType, AscendC::RoundMode::CAST_TRUNC, AscendC::RoundMode::CAST_RINT>(
+            srcAddr, halfScaleLocalAddr, outLocalAddr, axisH_);
     } else {
         // 计算量化后的expandx并填充
-        quant::ComputeFp4Data<XInType, ExpandXOutType, AscendC::RoundMode::CAST_TRUNC,
-            AscendC::RoundMode::CAST_RINT>(srcAddr, halfScaleLocalAddr, outLocalAddr, axisH_);
+        quant::ComputeFp4Data<XInType, ExpandXOutType, AscendC::RoundMode::CAST_TRUNC, AscendC::RoundMode::CAST_RINT>(
+            srcAddr, halfScaleLocalAddr, outLocalAddr, axisH_);
     }
 }
 #endif
@@ -1466,18 +1461,19 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::LocalWind
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::CopyScalesToOut(uint32_t currentTokenIndex, uint32_t scaleOutBytes,
-                                        LocalTensor<XOutType> &quantTok, DataCopyExtParams &scaleOutParams)
+__aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::CopyScalesToOut(
+    uint32_t currentTokenIndex, uint32_t scaleOutBytes, LocalTensor<XOutType> &quantTok,
+    DataCopyExtParams &scaleOutParams)
 {
     if constexpr (DynamicQuant || IsMxQuant) {
         auto scaleLT = quantTok[(Ceil(axisH_, UB_ALIGN) * UB_ALIGN)].template ReinterpretCast<uint8_t>();
 #ifdef __DAV_C310__
         if constexpr (IsMxQuant && (Std::IsSame<ExpandXOutType, fp4x2_e2m1_t>::value ||
-            Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value)) {
-            scaleLT = quantTok[
-                Align256<uint32_t>(Ceil(axisH_, FP4_ELEMS_PER_BYTE))].template ReinterpretCast<uint8_t>();
+                                    Std::IsSame<ExpandXOutType, fp4x2_e1m2_t>::value)) {
+            scaleLT =
+                quantTok[Align256<uint32_t>(Ceil(axisH_, FP4_ELEMS_PER_BYTE))].template ReinterpretCast<uint8_t>();
         } else if constexpr (IsMxQuant && (Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value ||
-            Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value)) {
+                                           Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value)) {
             scaleLT = quantTok[Align256<uint32_t>(axisH_)].template ReinterpretCast<uint8_t>();
         }
 #endif
@@ -1566,8 +1562,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::Allgather
         DataCopyPad(xTmpTensor_, tokGlobal, hCommuCopyOutParams_, copyPadExtParams);
         xQueue_.EnQue(xTmpTensor_);
         xTmpTensor_ = xQueue_.DeQue<XOutType>();
-        expandXOutGlobal.SetGlobalBuffer(
-            (__gm__ XOutType *)(expandXOutGM_ + (preCount + totalCnt_ + i) * hOutSize_));
+        expandXOutGlobal.SetGlobalBuffer((__gm__ XOutType *)(expandXOutGM_ + (preCount + totalCnt_ + i) * hOutSize_));
         DataCopyPad(expandXOutGlobal, xTmpTensor_, expandXCopyParams_);
         // copy scale
         CopyScalesToOut(preCount + totalCnt_ + i, scaleOutBytes_, xTmpTensor_, scaleOutParams_);
