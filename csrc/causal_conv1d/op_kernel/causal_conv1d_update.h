@@ -12,7 +12,7 @@
 #ifndef CUSTOM_CAUSAL_CONV1D_UPDATE_H
 #define CUSTOM_CAUSAL_CONV1D_UPDATE_H
 
-#include "custom_causal_conv1d.h"
+#include "causal_conv1d.h"
 
 namespace NsCausalConv1d {
 
