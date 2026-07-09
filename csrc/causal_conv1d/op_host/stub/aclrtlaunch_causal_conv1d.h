@@ -7,7 +7,7 @@
 #endif
 
 extern "C" uint32_t aclrtlaunch_causal_conv1d(uint32_t numBlocks, aclrtStream stream, void *x, void *weight,
-                                                     void *convStates, void *bias, void *queryStartLoc,
-                                                     void *cacheIndices, void *initialStateMode,
-                                                     void *numAcceptedTokens, void *y, void *workspace, void *tiling);
+                                              void *convStates, void *bias, void *queryStartLoc, void *cacheIndices,
+                                              void *initialStateMode, void *numAcceptedTokens, void *y, void *workspace,
+                                              void *tiling);
 #endif

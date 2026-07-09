@@ -24,10 +24,10 @@ namespace sglang {
 namespace npu_kernel {
 
 HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &weight, const at::Tensor &bias,
-                                              const at::Tensor &conv_states, const at::Tensor &query_start_loc,
-                                              const at::Tensor &cache_indices, const at::Tensor &has_initial_state,
-                                              const at::Tensor &num_accepted_tokens, int64_t activation_mode,
-                                              int64_t pad_slot_id, int64_t run_mode);
+                                       const at::Tensor &conv_states, const at::Tensor &query_start_loc,
+                                       const at::Tensor &cache_indices, const at::Tensor &has_initial_state,
+                                       const at::Tensor &num_accepted_tokens, int64_t activation_mode,
+                                       int64_t pad_slot_id, int64_t run_mode);
 
 }  // namespace npu_kernel
 }  // namespace sglang
