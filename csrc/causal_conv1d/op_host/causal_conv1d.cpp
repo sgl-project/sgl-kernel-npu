@@ -1,223 +1,405 @@
-#include "causal_conv1d.h"
+/**
+ * This program is free software, you can redistribute it and/or modify it.
+ * Copyright (c) 2025 Huawei Technologies Co., Ltd.
+ * This file is a part of the CANN Open Software.
+ * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, EITHER EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See
+ * LICENSE in the root of the software repository for the full text of the License.
+ */
 
-#include <algorithm>
+/*!
+ * \file causal_conv1d.cpp
+ * \brief causal_conv1d host-side implementation
+ */
 
+#include <cstring>
+#include <limits>
+#include <unordered_map>
 #include "acl/acl.h"
+#include <ATen/Operators.h>
+#include <torch/all.h>
+#include <torch/library.h>
+#include "torch_npu/csrc/core/npu/NPUStream.h"
+#include "torch_npu/csrc/core/npu/DeviceUtils.h"
 #include "tiling/platform/platform_ascendc.h"
+#include "stub/aclrtlaunch_custom_causal_conv1d.h"
+#include "defines.h"
 #include "torch_helper.h"
-
-// Ring sizes the kernel is compiled for -- must match FOR_EACH_RING_SIZE in
-// op_kernel/causal_conv1d.cpp. Each row is (ringSize, maxTileWidth); this one list
-// drives the launch-stub declarations, the per-ring tile-width lookup, and the dispatch.
-#define FOR_EACH_RING_SIZE(DO) DO(2, 4096) DO(4, 3072) DO(8, 1536) DO(16, 896) DO(32, 384) DO(64, 128)
-
-// AscendC emits one host launch stub (aclrtlaunch_<entry>) per kernel entry. A macro
-// can't generate #include directives, so rather than pull in 24 generated headers we
-// forward-declare the stubs from the ring-size list (their definitions come from the
-// linked causal_conv1d_kernel lib; same approach as causal_conv1d_update).
-
-// EXEC_KERNEL_CMD launches via ACLRT_LAUNCH_KERNEL(name) -> the aclrtlaunch_<name> symbol.
-#ifndef ACLRT_LAUNCH_KERNEL
-#define ACLRT_LAUNCH_KERNEL(kernel_func) aclrtlaunch_##kernel_func
-#endif
-// clang-format off
-// Launch-stub arg types = (blockDim, stream, then the kernel params with GM_ADDR ->
-// void*); must mirror CONV_PARAMS / WB_PARAMS in op_kernel/causal_conv1d.cpp.
-#define CONV_STUB_PARAMS                                                                                       \
-    uint32_t, aclrtStream, void *, void *, void *, void *, void *, void *, void *, void *, uint32_t, uint32_t, \
-        uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, uint32_t, int32_t
-#define WRITEBACK_STUB_PARAMS                                                                                  \
-    uint32_t, aclrtStream, void *, void *, void *, void *, void *, uint32_t, uint32_t, uint32_t, uint32_t,     \
-        uint32_t, uint32_t, uint32_t, uint32_t, int32_t
-// Worker macro: one ring size -> the conv + writeback stub, each for half and bf16.
-#define DECLARE_LAUNCH_STUBS(ringSize, maxTileWidth)                                             \
-    extern "C" uint32_t aclrtlaunch_causal_conv1d_rs##ringSize##_half(CONV_STUB_PARAMS);         \
-    extern "C" uint32_t aclrtlaunch_causal_conv1d_rs##ringSize##_bf16(CONV_STUB_PARAMS);         \
-    extern "C" uint32_t aclrtlaunch_causal_conv1d_wb_rs##ringSize##_half(WRITEBACK_STUB_PARAMS); \
-    extern "C" uint32_t aclrtlaunch_causal_conv1d_wb_rs##ringSize##_bf16(WRITEBACK_STUB_PARAMS);
-FOR_EACH_RING_SIZE(DECLARE_LAUNCH_STUBS)  // expand the list -> all 24 launch-stub declarations
-#undef DECLARE_LAUNCH_STUBS
-#undef WRITEBACK_STUB_PARAMS
-#undef CONV_STUB_PARAMS
-// clang-format on
+#include "common.h"
+#include "custom_causal_conv1d.h"
+#include "../op_kernel/custom_causal_conv1d_tiling_data.h"
 
 namespace sglang {
 namespace npu_kernel {
-namespace {  // file-local helpers (internal linkage; avoids clashes with other ops)
 
-// Minimum rows per sequence chunk when splitting the L axis to fill cores (smaller
-// chunks expose more parallelism but replay more causal-halo rows per chunk).
-constexpr uint32_t MIN_CHUNK_ROWS = 32;
+constexpr uint32_t PADDING_BYTE = 32U;
+constexpr int64_t DIM_ALIGN = 16;
+constexpr int64_t MAX_DIM_TILE = 4096;
+constexpr int32_t MAX_WIDTH = 4;
+constexpr int32_t MIN_WIDTH = 2;
+constexpr int64_t ASCENDC_RESERVED_WORKSPACE = 16 * 1024 * 1024;
+constexpr uint32_t MAX_CAPTURE_NUM = 1024;
 
-// Accumulator-ring size = smallest power of two >= width. The kernel templates on the
-// ring size (compile-time) and takes the width at runtime; the host computes the ring
-// size here and launches the matching variant, so any width <= ring size reuses it.
-constexpr uint32_t roundUpToPow2(uint32_t width)
-{
-    uint32_t n = (width != 0u) ? width - 1u : 0u;
-    n |= n >> 1u;
-    n |= n >> 2u;
-    n |= n >> 4u;
-    n |= n >> 8u;
-    n |= n >> 16u;
-    return n + 1u;
-}
+constexpr uint32_t CAUSAL_CONV1D_TPL_RUN_MODE_FN = 0;
+constexpr uint32_t CAUSAL_CONV1D_TPL_RUN_MODE_UPDATE = 1;
+constexpr uint32_t CAUSAL_CONV1D_TPL_WIDTH_2 = 1;
+constexpr uint32_t CAUSAL_CONV1D_TPL_WIDTH_3 = 2;
+constexpr uint32_t CAUSAL_CONV1D_TPL_WIDTH_4 = 3;
+constexpr uint32_t CAUSAL_CONV1D_TPL_FN_PLAN_INVALID = 0;
+constexpr uint32_t CAUSAL_CONV1D_TPL_FN_PLAN_CUTBS = 1;
+constexpr uint32_t CAUSAL_CONV1D_TPL_FN_PLAN_CUTBSD = 2;
 
-// Per-ring channel-tile width -- MUST match the (ringSize, maxTileWidth) the kernel is
-// compiled with (both derive from FOR_EACH_RING_SIZE). A larger ring needs a smaller
-// tile to fit the 192 KiB UB.
-#define MAX_WIDTH_CASE(ringSize, maxTileWidth) \
-    case ringSize:                             \
-        return maxTileWidth##u;
-constexpr uint32_t maxTileWidthForRing(uint32_t ringSize)
-{
-    switch (ringSize) {
-        FOR_EACH_RING_SIZE(MAX_WIDTH_CASE)
-        default:
-            return 0u;
+static uint32_t g_causalConv1dCaptureNum = 0;
+static std::unordered_map<uint64_t, uint32_t> g_causalConv1dCaptureMap;
+
+struct CausalConv1dTilingKey {
+    int64_t dim;
+    int64_t cuSeqlen;
+    int64_t seqLen;
+    int64_t batch;
+    int64_t inputMode;
+    int64_t width;
+    int64_t stateLen;
+    int64_t numCacheLines;
+    int64_t activationMode;
+    int64_t padSlotId;
+    int64_t runMode;
+    int64_t hasBias;
+    int64_t hasCacheIndices;
+    int64_t hasInitialState;
+    int64_t hasNumAccept;
+};
+
+struct CausalConv1dTilingKeyHash {
+    static inline std::size_t HashCombine(std::size_t seed, std::size_t value)
+    {
+        seed ^= value + 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
+        return seed;
     }
-}
-#undef MAX_WIDTH_CASE
 
-// Supported filter widths: any width in [2, 64], routed to the roundUpToPow2(width)
-// ring variant. width > 64 would need ring 128, which does not fit UB.
-constexpr bool isSupportedWidth(uint32_t width)
+    std::size_t operator()(const CausalConv1dTilingKey &k) const
+    {
+        std::size_t h = 0;
+        h = HashCombine(h, static_cast<std::size_t>(k.dim));
+        h = HashCombine(h, static_cast<std::size_t>(k.cuSeqlen));
+        h = HashCombine(h, static_cast<std::size_t>(k.seqLen));
+        h = HashCombine(h, static_cast<std::size_t>(k.batch));
+        h = HashCombine(h, static_cast<std::size_t>(k.inputMode));
+        h = HashCombine(h, static_cast<std::size_t>(k.width));
+        h = HashCombine(h, static_cast<std::size_t>(k.stateLen));
+        h = HashCombine(h, static_cast<std::size_t>(k.numCacheLines));
+        h = HashCombine(h, static_cast<std::size_t>(k.activationMode));
+        h = HashCombine(h, static_cast<std::size_t>(k.padSlotId));
+        h = HashCombine(h, static_cast<std::size_t>(k.runMode));
+        h = HashCombine(h, static_cast<std::size_t>(k.hasBias));
+        h = HashCombine(h, static_cast<std::size_t>(k.hasCacheIndices));
+        h = HashCombine(h, static_cast<std::size_t>(k.hasInitialState));
+        h = HashCombine(h, static_cast<std::size_t>(k.hasNumAccept));
+        return h;
+    }
+};
+
+namespace {
+
+inline int64_t CeilDiv(int64_t x, int64_t y)
 {
-    return width >= 2u && width <= 64u;
+    return (x + y - 1) / y;
 }
 
-constexpr uint32_t ceil_div(uint32_t a, uint32_t b)
+inline int64_t AlignUp(int64_t value, int64_t align)
 {
-    return (a + b - 1) / b;
+    return CeilDiv(value, align) * align;
 }
-constexpr uint32_t round_up_128(uint32_t x)
+
+struct UpdateDimTileChoice {
+    int64_t baseDim = 0;
+    int64_t baseDimCnt = 0;
+    int64_t gridSize = 0;
+};
+
+// Mirror of the GE update-mode tiling policy (ChooseCanonicalUpdateBaseDimChoice):
+// pick a baseDim from a fixed candidate set that ideally divides dim and makes the
+// batch*baseDimCnt grid land as close as possible to (>=) the AIV core count, so the
+// batch-parallel update kernel keeps all cores busy. Falls back to ceil-division when
+// no candidate divides dim exactly.
+UpdateDimTileChoice ChooseUpdateBaseDimChoice(int64_t batch, int64_t dim, int32_t numCores)
 {
-    return ((x + 127u) / 128u) * 128u;
+    const int64_t candidates[] = {4096, 2048, 1024, 512, 384, 192};
+    const int64_t coreNum = (numCores > 0) ? static_cast<int64_t>(numCores) : 1;
+
+    auto chooseOnce = [&](bool requireExactDiv) -> UpdateDimTileChoice {
+        UpdateDimTileChoice bestOver;
+        int64_t bestOverGap = std::numeric_limits<int64_t>::max();
+        UpdateDimTileChoice bestUnder;
+
+        for (int64_t candBaseDim : candidates) {
+            if (candBaseDim <= 0) {
+                continue;
+            }
+            if (requireExactDiv && (dim % candBaseDim != 0)) {
+                continue;
+            }
+            const int64_t baseDimCnt = requireExactDiv ? (dim / candBaseDim) : CeilDiv(dim, candBaseDim);
+            const int64_t gridSize = batch * baseDimCnt;
+            if (gridSize <= 0) {
+                continue;
+            }
+            if (gridSize >= coreNum) {
+                const int64_t gap = gridSize - coreNum;
+                if (gap < bestOverGap) {
+                    bestOver = {candBaseDim, baseDimCnt, gridSize};
+                    bestOverGap = gap;
+                }
+            } else if (gridSize > bestUnder.gridSize ||
+                       (gridSize == bestUnder.gridSize && candBaseDim < bestUnder.baseDim)) {
+                bestUnder = {candBaseDim, baseDimCnt, gridSize};
+            }
+        }
+        return (bestOver.baseDim != 0) ? bestOver : bestUnder;
+    };
+
+    UpdateDimTileChoice result = chooseOnce(true);
+    if (result.baseDim == 0) {
+        result = chooseOnce(false);
+    }
+    return result;
+}
+
+void ComputeTilingData(int64_t dim, int64_t cuSeqlen, int64_t seqLen, int64_t batch, int64_t inputMode, int64_t width,
+                       int64_t stateLen, int64_t numCacheLines, int64_t activationMode, int64_t padSlotId, bool hasBias,
+                       bool hasCacheIndices, bool hasInitialState, bool hasNumAccept, bool isBf16, int32_t numCores,
+                       int64_t runMode, CausalConv1dTilingData &td)
+{
+    (void)padSlotId;
+    std::memset(&td, 0, sizeof(td));
+
+    td.dim = dim;
+    td.cuSeqlen = cuSeqlen;
+    td.seqLen = seqLen;
+    td.inputMode = inputMode;
+    td.width = width;
+    td.stateLen = stateLen;
+    td.numCacheLines = numCacheLines;
+    td.batch = batch;
+    td.activationMode = activationMode;
+    td.padSlotId = padSlotId;
+    td.hasBias = hasBias ? 1 : 0;
+    td.hasCacheIndices = hasCacheIndices ? 1 : 0;
+    td.hasInitialStateMode = hasInitialState ? 1 : 0;
+    td.hasInitStateWorkspace = hasInitialState ? 1 : 0;
+    td.hasNumAcceptedTokens = hasNumAccept ? 1 : 0;
+
+    td.dtypeKey = isBf16 ? 0 : 1;
+    td.runModeKey = static_cast<uint32_t>(runMode);
+    td.widthKey = (width == 2)   ? CAUSAL_CONV1D_TPL_WIDTH_2
+                  : (width == 3) ? CAUSAL_CONV1D_TPL_WIDTH_3
+                                 : CAUSAL_CONV1D_TPL_WIDTH_4;
+
+    if (runMode == CAUSAL_CONV1D_TPL_RUN_MODE_UPDATE) {
+        UpdateDimTileChoice choice = ChooseUpdateBaseDimChoice(batch, dim, numCores);
+        if (choice.baseDim <= 0 || choice.baseDimCnt <= 0) {
+            choice.baseDim = (dim > 0 && dim <= MAX_DIM_TILE) ? dim : MAX_DIM_TILE;
+            choice.baseDimCnt = (choice.baseDim > 0) ? CeilDiv(dim, choice.baseDim) : 1;
+            if (choice.baseDimCnt <= 0) {
+                choice.baseDimCnt = 1;
+            }
+        }
+        td.baseDim = choice.baseDim;
+        td.baseDimCnt = choice.baseDimCnt;
+        td.fnPlanKey = CAUSAL_CONV1D_TPL_FN_PLAN_INVALID;
+        td.tokenBlockSize = 0;
+        td.tokenBlockCnt = 0;
+    } else if (dim <= MAX_DIM_TILE && numCores > 0) {
+        td.baseDim = dim;
+        td.baseDimCnt = 1;
+        td.fnPlanKey = CAUSAL_CONV1D_TPL_FN_PLAN_CUTBS;
+        int64_t tokenCoreBudget = numCores;
+        int64_t idealBlockSize = CeilDiv(cuSeqlen, tokenCoreBudget);
+        if (idealBlockSize <= 0) {
+            idealBlockSize = 1;
+        }
+        td.tokenBlockSize = idealBlockSize;
+        td.tokenBlockCnt = CeilDiv(cuSeqlen, td.tokenBlockSize);
+    } else {
+        td.baseDim = MAX_DIM_TILE;
+        td.baseDimCnt = CeilDiv(dim, td.baseDim);
+        td.fnPlanKey = CAUSAL_CONV1D_TPL_FN_PLAN_CUTBSD;
+        int64_t tokenCoreBudget = (numCores > 0) ? (numCores / td.baseDimCnt) : 1;
+        if (tokenCoreBudget <= 0) {
+            tokenCoreBudget = 1;
+        }
+        int64_t idealBlockSize = CeilDiv(cuSeqlen, tokenCoreBudget);
+        if (idealBlockSize <= 0) {
+            idealBlockSize = 1;
+        }
+        td.tokenBlockSize = idealBlockSize;
+        td.tokenBlockCnt = CeilDiv(cuSeqlen, td.tokenBlockSize);
+    }
+
+    td.hasExplicitTokenSeqRanges = 0;
+    td.explicitTokenSeqRangeCount = 0;
+}
+
+int64_t ComputeWorkspaceSize(int32_t blockDim, int64_t batch, int64_t width, int64_t dim, bool hasInitialState)
+{
+    if (!hasInitialState) {
+        return 0;
+    }
+    constexpr int64_t kDtypeSize = 2;
+    constexpr int64_t kSyncBytesPerBlock = 32;
+    int64_t historyCount = (width - 1 > 0) ? width - 1 : 0;
+    return ASCENDC_RESERVED_WORKSPACE + static_cast<int64_t>(blockDim) * kSyncBytesPerBlock +
+           batch * historyCount * dim * kDtypeSize;
 }
 
 }  // namespace
 
-HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &weight, const at::Tensor &conv_states,
-                                       const at::Tensor &query_start_loc, const at::Tensor &cache_indices,
-                                       const at::Tensor &has_initial_state, const at::Tensor &bias,
-                                       bool activation_mode, int64_t pad_slot_id)
+HOST_API at::Tensor custom_causal_conv1d_impl(const at::Tensor &x, const at::Tensor &weight, const at::Tensor &bias,
+                                              const at::Tensor &conv_states, const at::Tensor &query_start_loc,
+                                              const at::Tensor &cache_indices, const at::Tensor &has_initial_state,
+                                              const at::Tensor &num_accepted_tokens, int64_t activation_mode,
+                                              int64_t pad_slot_id, int64_t run_mode)
 {
-    TORCH_CHECK(x.dim() == 2 || x.dim() == 3, "x must be 2D [cu_seqlen, dim] or 3D [batch, seq_len, dim]");
-    TORCH_CHECK(weight.dim() == 2, "weight must be 2D [width, dim], got shape ", weight.sizes());
-    const uint32_t width = static_cast<uint32_t>(weight.size(0));
-    TORCH_CHECK(isSupportedWidth(width), "Only filter widths 2..64 are supported, got ", weight.size(0));
-    TORCH_CHECK(conv_states.dim() == 3, "conv_states must be 3D [num_cache_lines, state_len, dim]");
+    TORCH_CHECK(x.defined(), "x tensor must be defined");
+    TORCH_CHECK(weight.defined(), "weight tensor must be defined");
+    TORCH_CHECK(conv_states.defined(), "conv_states tensor must be defined");
+
+    TORCH_CHECK(x.dim() == 2 || x.dim() == 3, "x must be 2D or 3D tensor");
+    TORCH_CHECK(weight.dim() == 2, "weight must be 2D tensor");
+
     const at::ScalarType dtype = x.scalar_type();
-    TORCH_CHECK(dtype == at::kHalf || dtype == at::kBFloat16, "Only BF16 and FP16 are supported, got ", dtype);
+    TORCH_CHECK(dtype == at::kBFloat16 || dtype == at::kHalf, "Only BF16 and FP16 are supported");
     TORCH_CHECK(weight.scalar_type() == dtype, "weight dtype must match x dtype");
     TORCH_CHECK(conv_states.scalar_type() == dtype, "conv_states dtype must match x dtype");
-    TORCH_CHECK(query_start_loc.scalar_type() == at::kInt, "query_start_loc dtype must be int32");
-    TORCH_CHECK(cache_indices.scalar_type() == at::kInt, "cache_indices dtype must be int32");
-    TORCH_CHECK(has_initial_state.scalar_type() == at::kBool, "has_initial_state dtype must be bool");
-    TORCH_CHECK(x.is_contiguous() && weight.is_contiguous() && conv_states.is_contiguous(),
-                "inputs must be contiguous");
 
-    const bool has_bias = bias.numel() > 0;
-    uint32_t inputMode, batch, seqLen, dim;
-    if (x.dim() == 2) {
-        inputMode = 0;
-        dim = static_cast<uint32_t>(x.size(1));
-        seqLen = 0;
-        batch = static_cast<uint32_t>(query_start_loc.size(0) - 1);
-    } else {
-        inputMode = 1;
-        batch = static_cast<uint32_t>(x.size(0));
-        seqLen = static_cast<uint32_t>(x.size(1));
-        dim = static_cast<uint32_t>(x.size(2));
+    TORCH_CHECK(x.is_contiguous(), "x must be contiguous");
+    TORCH_CHECK(weight.is_contiguous(), "weight must be contiguous");
+    TORCH_CHECK(conv_states.is_contiguous(), "conv_states must be contiguous");
+
+    int64_t dim = (x.dim() == 2) ? x.size(1) : x.size(2);
+    int64_t width = weight.size(0);
+    TORCH_CHECK(width >= MIN_WIDTH && width <= MAX_WIDTH, "Only support width in [2,4]");
+
+    int64_t inputMode = (x.dim() == 2) ? 0 : 1;
+    int64_t seqLen = (inputMode == 1) ? x.size(1) : 0;
+    int64_t batch = (inputMode == 1) ? x.size(0) : 0;
+    int64_t cuSeqlen = (inputMode == 0) ? x.size(0) : batch * seqLen;
+
+    if (inputMode == 0) {
+        int64_t qslSize = query_start_loc.size(0);
+        TORCH_CHECK(qslSize >= 2, "query_start_loc must have at least 2 elements");
+        batch = qslSize - 1;
     }
-    TORCH_CHECK(batch > 0 && dim > 0, "bad batch/dim");
-    TORCH_CHECK(dim % 16 == 0, "dim must be multiple of 16 for fp16/bf16 alignment, but got ", dim);
-    TORCH_CHECK(weight.size(1) == static_cast<int64_t>(dim), "weight.shape[1] must equal dim");
-    TORCH_CHECK(conv_states.size(2) == static_cast<int64_t>(dim), "conv_states.shape[2] must equal dim");
-    if (has_bias) {  // bias is read in the I/O dtype and cast to fp32 in the kernel
-        TORCH_CHECK(bias.dim() == 1 && bias.size(0) == static_cast<int64_t>(dim), "bias must be 1D [dim]");
-        TORCH_CHECK(bias.scalar_type() == dtype, "bias dtype must match x dtype");
-        TORCH_CHECK(bias.is_contiguous(), "bias must be contiguous");
-    }
-    const uint32_t stateLen = static_cast<uint32_t>(conv_states.size(1));
-    TORCH_CHECK(stateLen >= width - 1, "state_len must be >= width-1");
 
-    auto plat = platform_ascendc::PlatformAscendCManager::GetInstance();
-    TORCH_CHECK(plat != nullptr, "no AscendC platform");
-    const uint32_t core_num = static_cast<uint32_t>(plat->GetCoreNumAiv());
-    TORCH_CHECK(core_num > 0, "bad core_num");
+    int64_t numCacheLines = conv_states.size(0);
+    int64_t stateLen = conv_states.size(1);
 
-    // ---- launch grid: (channel tile) x (sequence chunk) work units, sized to
-    // fill all AIV cores. Batch parallelism comes first; if batch alone can't fill
-    // the cores we split the channel axis into tiles and the L axis into chunks. ----
-    const uint32_t avgSeqLen =
-        (inputMode == 1) ? seqLen : std::max<uint32_t>(1u, static_cast<uint32_t>(x.size(0)) / batch);
-    const uint32_t ringSize = roundUpToPow2(width);                     // compile-time ring variant to launch
-    const uint32_t maxChannelsPerTile = maxTileWidthForRing(ringSize);  // UB-bound tile width for this ring
-    const uint32_t targetTilesPerSeq = std::max<uint32_t>(1u, ceil_div(core_num, batch));
-    const uint32_t maxSeqChunks = std::max<uint32_t>(1u, avgSeqLen / MIN_CHUNK_ROWS);
+    int64_t activationInt = activation_mode;
 
-    uint32_t channelTiles =
-        std::max<uint32_t>(ceil_div(dim, maxChannelsPerTile), ceil_div(targetTilesPerSeq, maxSeqChunks));
-    channelTiles = std::min<uint32_t>(channelTiles, ceil_div(dim, 128u));  // >= 128 channels (one lane) per tile
-    channelTiles = std::max<uint32_t>(1u, channelTiles);
+    bool hasBias = bias.defined() && bias.numel() > 0;
+    bool hasCacheIndices = cache_indices.defined() && cache_indices.numel() > 0;
+    bool hasInitialState = has_initial_state.defined() && has_initial_state.numel() > 0;
+    bool hasNumAccept = num_accepted_tokens.defined() && num_accepted_tokens.numel() > 0;
+    bool isBf16 = (dtype == at::kBFloat16);
 
-    uint32_t channelsPerTile = round_up_128(ceil_div(dim, channelTiles));
-    channelsPerTile = std::min<uint32_t>(std::max<uint32_t>(channelsPerTile, 128u), maxChannelsPerTile);
-    channelsPerTile = std::min<uint32_t>(channelsPerTile, dim);
-    channelTiles = ceil_div(dim, channelsPerTile);
-    const uint32_t seqChunks =
-        std::min<uint32_t>(std::max<uint32_t>(1u, ceil_div(targetTilesPerSeq, channelTiles)), maxSeqChunks);
-
-    // weight/bias enter in the I/O dtype (fp16/bf16) and are cast to fp32 inside the
-    // kernel; pass a native empty placeholder when there is no bias.
-    const at::Tensor biasArg = has_bias ? bias : at::empty({0}, x.options());
     at::Tensor y = at::empty_like(x);
 
-    // conv has one task per (batch, channel tile, seq chunk); the writeback only
-    // touches the sequence tail, so it drops the seq-chunk axis. Cap block dim at the cores.
-    const uint32_t blockDimConv = std::min<uint32_t>(batch * channelTiles * seqChunks, core_num);
-    const uint32_t blockDimWb = std::min<uint32_t>(batch * channelTiles, core_num);
-    const uint32_t actFlag = activation_mode ? 1u : 0u;
-    const uint32_t biasFlag = has_bias ? 1u : 0u;
-    const int32_t padSlot = static_cast<int32_t>(pad_slot_id);
-
-    // Launch the ring = roundUpToPow2(width) variant (entry suffix rs<ring>) and pass
-    // the actual width as the runtime K. launch(suffix) fires the conv + writeback pair;
-    // the per-dtype switch over the ring-size list selects the entry.
-#define launch(suffix)                                                                                          \
-    do {                                                                                                        \
-        EXEC_KERNEL_CMD(causal_conv1d_##suffix, blockDimConv, x, weight, biasArg, conv_states, query_start_loc, \
-                        cache_indices, has_initial_state, y, dim, batch, inputMode, seqLen, stateLen, width,    \
-                        channelsPerTile, channelTiles, seqChunks, actFlag, biasFlag, padSlot);                  \
-        EXEC_KERNEL_CMD(causal_conv1d_wb_##suffix, blockDimWb, x, conv_states, query_start_loc, cache_indices,  \
-                        has_initial_state, dim, batch, inputMode, seqLen, stateLen, width, channelsPerTile,     \
-                        channelTiles, padSlot);                                                                 \
-    } while (0)
-#define DISPATCH_HALF(ringSize, maxTileWidth) \
-    case ringSize:                            \
-        launch(rs##ringSize##_half);          \
-        break;
-#define DISPATCH_BF16(ringSize, maxTileWidth) \
-    case ringSize:                            \
-        launch(rs##ringSize##_bf16);          \
-        break;
-    if (dtype == at::kHalf) {
-        switch (ringSize) {
-            FOR_EACH_RING_SIZE(DISPATCH_HALF)
-            default:
-                break;
-        }
+    at::Tensor bias_tensor = hasBias ? bias : at::empty({0}, x.options());
+    at::Tensor query_start_loc_tensor = (query_start_loc.defined() && query_start_loc.numel() > 0)
+                                            ? query_start_loc.to(at::kLong)
+                                            : at::empty({0}, x.options().dtype(at::kLong));
+    at::Tensor cache_indices_tensor =
+        hasCacheIndices ? cache_indices.to(at::kLong) : at::empty({0}, x.options().dtype(at::kLong));
+    at::Tensor has_initial_state_tensor =
+        hasInitialState ? has_initial_state.to(at::kLong) : at::empty({0}, x.options().dtype(at::kLong));
+    at::Tensor num_accepted_tokens_tensor;
+    if (hasNumAccept) {
+        num_accepted_tokens_tensor = num_accepted_tokens.to(at::kInt);
     } else {
-        switch (ringSize) {
-            FOR_EACH_RING_SIZE(DISPATCH_BF16)
-            default:
-                break;
-        }
+        num_accepted_tokens_tensor = at::empty({0}, x.options().dtype(at::kInt));
     }
-#undef DISPATCH_BF16
-#undef DISPATCH_HALF
-#undef launch
+
+    auto ascendc_platform = platform_ascendc::PlatformAscendCManager::GetInstance();
+    int32_t maxAivCore = static_cast<int32_t>(ascendc_platform->GetCoreNumAiv());
+
+    CausalConv1dTilingData tilingData;
+    ComputeTilingData(dim, cuSeqlen, seqLen, batch, inputMode, width, stateLen, numCacheLines, activationInt,
+                      pad_slot_id, hasBias, hasCacheIndices, hasInitialState, hasNumAccept, isBf16, maxAivCore,
+                      run_mode, tilingData);
+
+    int64_t totalBlocks = (run_mode == CAUSAL_CONV1D_TPL_RUN_MODE_UPDATE)
+                              ? (tilingData.batch * tilingData.baseDimCnt)
+                              : (tilingData.tokenBlockCnt * tilingData.baseDimCnt);
+    int32_t blockDim = std::min(maxAivCore, static_cast<int32_t>(totalBlocks));
+    if (blockDim <= 0) {
+        blockDim = 1;
+    }
+
+    int32_t libApiWorkspaceSize = static_cast<int32_t>(ascendc_platform->GetLibApiWorkSpaceSize());
+
+    int64_t ws = ComputeWorkspaceSize(blockDim, batch, width, dim, hasInitialState);
+    int64_t totalWorkspace = std::max(static_cast<int64_t>(libApiWorkspaceSize), ws);
+    if (totalWorkspace <= 0) {
+        totalWorkspace = libApiWorkspaceSize;
+    }
+
+    int32_t tilingSize =
+        (static_cast<int32_t>(sizeof(CausalConv1dTilingData)) + PADDING_BYTE - 1) / PADDING_BYTE * PADDING_BYTE;
+
+    CausalConv1dTilingKey key{dim,
+                              cuSeqlen,
+                              seqLen,
+                              batch,
+                              inputMode,
+                              width,
+                              stateLen,
+                              numCacheLines,
+                              activationInt,
+                              pad_slot_id,
+                              run_mode,
+                              hasBias ? 1 : 0,
+                              hasCacheIndices ? 1 : 0,
+                              hasInitialState ? 1 : 0,
+                              hasNumAccept ? 1 : 0};
+    uint64_t hashValue = CausalConv1dTilingKeyHash{}(key);
+
+    static auto globalTilingBuffer = at::empty({tilingSize * static_cast<int64_t>(MAX_CAPTURE_NUM)},
+                                               at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+
+    auto copyTilingToDevice = [&]() {
+        auto cpuTiling = at::empty({tilingSize}, at::kByte);
+        std::memcpy(cpuTiling.data_ptr(), &tilingData, sizeof(CausalConv1dTilingData));
+        return TorchNpuHelper::CopyTensorHostToDevice(cpuTiling);
+    };
+
+    at::Tensor tilingTensor;
+    if (g_causalConv1dCaptureMap.find(hashValue) != g_causalConv1dCaptureMap.end()) {
+        tilingTensor =
+            at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * g_causalConv1dCaptureMap[hashValue]),
+                          tilingSize, at::kByte);
+    } else if (g_causalConv1dCaptureNum >= MAX_CAPTURE_NUM) {
+        tilingTensor = copyTilingToDevice();
+    } else {
+        g_causalConv1dCaptureMap[hashValue] = g_causalConv1dCaptureNum;
+        auto deviceTiling = copyTilingToDevice();
+        globalTilingBuffer
+            .slice(0, g_causalConv1dCaptureNum * tilingSize, g_causalConv1dCaptureNum * tilingSize + tilingSize)
+            .copy_(deviceTiling);
+        g_causalConv1dCaptureNum++;
+        tilingTensor =
+            at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * g_causalConv1dCaptureMap[hashValue]),
+                          tilingSize, at::kByte);
+    }
+
+    auto workspaceTensor =
+        at::empty({totalWorkspace}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+
+    EXEC_KERNEL_CMD(custom_causal_conv1d, blockDim, x, weight, conv_states, bias_tensor, query_start_loc_tensor,
+                    cache_indices_tensor, has_initial_state_tensor, num_accepted_tokens_tensor, y, workspaceTensor,
+                    tilingTensor);
+
     return y;
 }
 
