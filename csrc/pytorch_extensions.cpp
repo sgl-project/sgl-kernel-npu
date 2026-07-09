@@ -16,7 +16,7 @@
 #include "torch_helper.h"
 #include "sgl_kenel_npu_ops.h"
 #include "causal_conv1d_update/op_host/causal_conv1d_update.h"
-#include "custom_causal_conv1d/op_host/custom_causal_conv1d.h"
+#include "causal_conv1d/op_host/causal_conv1d.h"
 
 namespace {
 TORCH_LIBRARY_FRAGMENT(npu, m)
@@ -143,7 +143,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor? query_start_loc=None, bool activation_mode=False, int pad_slot_id=-1) -> Tensor");
 
     m.def(
-        "custom_causal_conv1d(Tensor x, Tensor weight, Tensor conv_states, Tensor? bias=None, "
+        "causal_conv1d(Tensor x, Tensor weight, Tensor conv_states, Tensor? bias=None, "
         "Tensor? query_start_loc=None, Tensor? cache_indices=None, Tensor? has_initial_state=None, "
         "Tensor? num_accepted_tokens=None, int activation_mode=0, int pad_slot_id=-1, "
         "int run_mode=0) -> Tensor");
@@ -225,7 +225,7 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
                                                                     query_loc_or_empty, activation_mode, pad_slot_id);
            });
 
-    m.impl("custom_causal_conv1d",
+    m.impl("causal_conv1d",
            [](const at::Tensor &x, const at::Tensor &weight, const at::Tensor &conv_states,
               const c10::optional<at::Tensor> &bias, const c10::optional<at::Tensor> &query_start_loc,
               const c10::optional<at::Tensor> &cache_indices, const c10::optional<at::Tensor> &has_initial_state,
@@ -243,7 +243,7 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
                                                        ? *num_accepted_tokens
                                                        : at::empty({0}, x.options().dtype(at::kLong));
 
-               return sglang::npu_kernel::custom_causal_conv1d_impl(
+               return sglang::npu_kernel::causal_conv1d_impl(
                    x, weight, bias_or_empty, conv_states, query_start_loc_or_empty, cache_indices_or_empty,
                    has_initial_state_or_empty, num_accepted_tokens_or_empty, activation_mode, pad_slot_id, run_mode);
            });
