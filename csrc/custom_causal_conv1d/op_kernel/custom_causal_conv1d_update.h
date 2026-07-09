@@ -9,10 +9,10 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef CAUSAL_CONV1D_UPDATE_H
-#define CAUSAL_CONV1D_UPDATE_H
+#ifndef CUSTOM_CAUSAL_CONV1D_UPDATE_H
+#define CUSTOM_CAUSAL_CONV1D_UPDATE_H
 
-#include "causal_conv1d.h"
+#include "custom_causal_conv1d.h"
 
 namespace NsCausalConv1d {
 
@@ -70,4 +70,4 @@ __aicore__ inline void RunCausalConv1dUpdate(GM_ADDR x, GM_ADDR weight, GM_ADDR 
 
 }  // namespace NsCausalConv1d
 
-#endif  // CAUSAL_CONV1D_UPDATE_H
+#endif  // CUSTOM_CAUSAL_CONV1D_UPDATE_H

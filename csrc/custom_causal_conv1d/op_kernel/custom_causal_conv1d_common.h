@@ -13,8 +13,8 @@
  * \file causal_conv1d_common.h
  */
 
-#ifndef CAUSAL_CONV1D_COMMON_H
-#define CAUSAL_CONV1D_COMMON_H
+#ifndef CUSTOM_CAUSAL_CONV1D_COMMON_H
+#define CUSTOM_CAUSAL_CONV1D_COMMON_H
 
 #include "kernel_operator.h"
 
@@ -63,4 +63,4 @@ struct CalcBufLayout {
 
 }  // namespace NsCausalConv1dCommon
 
-#endif  // CAUSAL_CONV1D_COMMON_H
+#endif  // CUSTOM_CAUSAL_CONV1D_COMMON_H

@@ -13,8 +13,8 @@
  * \file causal_conv1d_regbase.h
  * \brief
  */
-#ifndef CAUSAL_CONV1D_REGBASE_H
-#define CAUSAL_CONV1D_REGBASE_H
+#ifndef CUSTOM_CAUSAL_CONV1D_REGBASE_H
+#define CUSTOM_CAUSAL_CONV1D_REGBASE_H
 
 namespace NsCausalConv1d {
 using namespace AscendC;
@@ -180,4 +180,4 @@ __aicore__ inline void AdvanceFnLocalPartialsRegbase(LocalTensor<T> ring, LocalT
 
 }  // namespace NsCausalConv1d
 
-#endif  // CAUSAL_CONV1D_REGBASE_H
+#endif  // CUSTOM_CAUSAL_CONV1D_REGBASE_H

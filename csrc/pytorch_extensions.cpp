@@ -16,7 +16,7 @@
 #include "torch_helper.h"
 #include "sgl_kenel_npu_ops.h"
 #include "causal_conv1d_update/op_host/causal_conv1d_update.h"
-#include "custom_causal_conv1d/op_host/causal_conv1d.h"
+#include "custom_causal_conv1d/op_host/custom_causal_conv1d.h"
 
 namespace {
 TORCH_LIBRARY_FRAGMENT(npu, m)

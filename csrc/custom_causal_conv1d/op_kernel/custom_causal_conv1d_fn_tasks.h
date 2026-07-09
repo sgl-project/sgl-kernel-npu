@@ -9,8 +9,8 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-#ifndef CAUSAL_CONV1D_FN_TASKS_H
-#define CAUSAL_CONV1D_FN_TASKS_H
+#ifndef CUSTOM_CAUSAL_CONV1D_FN_TASKS_H
+#define CUSTOM_CAUSAL_CONV1D_FN_TASKS_H
 
 struct FnDirectBlockTask {
     bool valid = false;
@@ -301,6 +301,6 @@ __aicore__ inline void CAUSAL_CONV1D_CLASS::ProcessVarlenTokenTiled()
         cursor = tileEnd;
         ++seq;
     }
-}
+    }
 
-#endif
+#endif  // CUSTOM_CAUSAL_CONV1D_FN_TASKS_H

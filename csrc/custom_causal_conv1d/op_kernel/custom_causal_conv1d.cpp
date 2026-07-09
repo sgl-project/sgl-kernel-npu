@@ -14,8 +14,8 @@
  * \brief causal_conv1d kernel entry with runtime dispatch
  */
 
-#include "causal_conv1d_fn.h"
-#include "causal_conv1d_update.h"
+#include "custom_causal_conv1d_fn.h"
+#include "custom_causal_conv1d_update.h"
 
 using namespace AscendC;
 using namespace NsCausalConv1d;
@@ -61,10 +61,10 @@ __aicore__ inline void DispatchFn(GM_ADDR x, GM_ADDR weight, GM_ADDR bias, GM_AD
 
 }  // namespace
 
-extern "C" __global__ __aicore__ void causal_conv1d(GM_ADDR x, GM_ADDR weight, GM_ADDR convStates, GM_ADDR bias,
-                                                    GM_ADDR queryStartLoc, GM_ADDR cacheIndices,
-                                                    GM_ADDR initialStateMode, GM_ADDR numAcceptedTokens, GM_ADDR y,
-                                                    GM_ADDR workspace, GM_ADDR tiling)
+extern "C" __global__ __aicore__ void custom_causal_conv1d(GM_ADDR x, GM_ADDR weight, GM_ADDR convStates,
+                                                           GM_ADDR bias, GM_ADDR queryStartLoc, GM_ADDR cacheIndices,
+                                                           GM_ADDR initialStateMode, GM_ADDR numAcceptedTokens,
+                                                           GM_ADDR y, GM_ADDR workspace, GM_ADDR tiling)
 {
     REGISTER_TILING_DEFAULT(CausalConv1dTilingData);
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIV_1_0);

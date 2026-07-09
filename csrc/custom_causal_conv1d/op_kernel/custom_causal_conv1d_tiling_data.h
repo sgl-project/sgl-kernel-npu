@@ -13,8 +13,8 @@
  * \file causal_conv1d_tiling_data.h
  */
 
-#ifndef CAUSAL_CONV1D_TILING_DATA_H_
-#define CAUSAL_CONV1D_TILING_DATA_H_
+#ifndef CUSTOM_CAUSAL_CONV1D_TILING_DATA_H_
+#define CUSTOM_CAUSAL_CONV1D_TILING_DATA_H_
 
 #include <cstdint>
 
@@ -63,4 +63,4 @@ struct CausalConv1dTilingData {
     int64_t widthKey;
     int64_t fnPlanKey;
 };
-#endif  // CAUSAL_CONV1D_TILING_DATA_H_
+#endif  // CUSTOM_CAUSAL_CONV1D_TILING_DATA_H_

@@ -13,16 +13,16 @@
  * \file causal_conv1d.h
  */
 
-#ifndef CAUSAL_CONV1D_H
-#define CAUSAL_CONV1D_H
+#ifndef CUSTOM_CAUSAL_CONV1D_H
+#define CUSTOM_CAUSAL_CONV1D_H
 
 #include "kernel_operator.h"
 #include "kernel_tiling/kernel_tiling.h"
-#include "causal_conv1d_tiling_data.h"
-#include "causal_conv1d_tiling_key.h"
-#include "causal_conv1d_common.h"
+#include "custom_causal_conv1d_tiling_data.h"
+#include "custom_causal_conv1d_tiling_key.h"
+#include "custom_causal_conv1d_common.h"
 #if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
-#include "arch35/causal_conv1d_regbase.h"
+#include "arch35/custom_causal_conv1d_regbase.h"
 #endif
 
 namespace NsCausalConv1d {
@@ -1012,10 +1012,10 @@ __aicore__ inline bool CAUSAL_CONV1D_CLASS::IsUpdateSpecDecodingEnabled() const
     return kIsUpdateMode && (tilingData_->hasNumAcceptedTokens != 0) && (tilingData_->width == 4);
 }
 
-#include "causal_conv1d_fn_tasks.h"
+#include "custom_causal_conv1d_fn_tasks.h"
 
 #undef CAUSAL_CONV1D_CLASS
 #undef CAUSAL_CONV1D_TEMPLATE_ARGS
 
 }  // namespace NsCausalConv1d
-#endif  // CAUSAL_CONV1D_H
+#endif  // CUSTOM_CAUSAL_CONV1D_H

@@ -24,12 +24,12 @@
 #include "torch_npu/csrc/core/npu/NPUStream.h"
 #include "torch_npu/csrc/core/npu/DeviceUtils.h"
 #include "tiling/platform/platform_ascendc.h"
-#include "stub/aclrtlaunch_causal_conv1d.h"
+#include "stub/aclrtlaunch_custom_causal_conv1d.h"
 #include "defines.h"
 #include "torch_helper.h"
 #include "common.h"
-#include "causal_conv1d.h"
-#include "../op_kernel/causal_conv1d_tiling_data.h"
+#include "custom_causal_conv1d.h"
+#include "../op_kernel/custom_causal_conv1d_tiling_data.h"
 
 namespace sglang {
 namespace npu_kernel {
@@ -256,11 +256,11 @@ int64_t ComputeWorkspaceSize(int32_t blockDim, int64_t batch, int64_t width, int
 
 }  // namespace
 
-HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &weight, const at::Tensor &bias,
-                                       const at::Tensor &conv_states, const at::Tensor &query_start_loc,
-                                       const at::Tensor &cache_indices, const at::Tensor &has_initial_state,
-                                       const at::Tensor &num_accepted_tokens, int64_t activation_mode,
-                                       int64_t pad_slot_id, int64_t run_mode)
+HOST_API at::Tensor custom_causal_conv1d_impl(const at::Tensor &x, const at::Tensor &weight, const at::Tensor &bias,
+                                              const at::Tensor &conv_states, const at::Tensor &query_start_loc,
+                                              const at::Tensor &cache_indices, const at::Tensor &has_initial_state,
+                                              const at::Tensor &num_accepted_tokens, int64_t activation_mode,
+                                              int64_t pad_slot_id, int64_t run_mode)
 {
     TORCH_CHECK(x.defined(), "x tensor must be defined");
     TORCH_CHECK(weight.defined(), "weight tensor must be defined");
@@ -396,7 +396,7 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
     auto workspaceTensor =
         at::empty({totalWorkspace}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
 
-    EXEC_KERNEL_CMD(causal_conv1d, blockDim, x, weight, conv_states, bias_tensor, query_start_loc_tensor,
+    EXEC_KERNEL_CMD(custom_causal_conv1d, blockDim, x, weight, conv_states, bias_tensor, query_start_loc_tensor,
                     cache_indices_tensor, has_initial_state_tensor, num_accepted_tokens_tensor, y, workspaceTensor,
                     tilingTensor);
 
