@@ -61,8 +61,8 @@ __aicore__ inline void DispatchFn(GM_ADDR x, GM_ADDR weight, GM_ADDR bias, GM_AD
 
 }  // namespace
 
-extern "C" __global__ __aicore__ void custom_causal_conv1d(GM_ADDR x, GM_ADDR weight, GM_ADDR convStates,
-                                                           GM_ADDR bias, GM_ADDR queryStartLoc, GM_ADDR cacheIndices,
+extern "C" __global__ __aicore__ void custom_causal_conv1d(GM_ADDR x, GM_ADDR weight, GM_ADDR convStates, GM_ADDR bias,
+                                                           GM_ADDR queryStartLoc, GM_ADDR cacheIndices,
                                                            GM_ADDR initialStateMode, GM_ADDR numAcceptedTokens,
                                                            GM_ADDR y, GM_ADDR workspace, GM_ADDR tiling)
 {

@@ -301,6 +301,6 @@ __aicore__ inline void CAUSAL_CONV1D_CLASS::ProcessVarlenTokenTiled()
         cursor = tileEnd;
         ++seq;
     }
-    }
+}
 
 #endif  // CUSTOM_CAUSAL_CONV1D_FN_TASKS_H
