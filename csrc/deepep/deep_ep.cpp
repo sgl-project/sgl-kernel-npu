@@ -14,6 +14,7 @@ constexpr int64_t NO_SCALES = 0;
 constexpr int64_t DYNAMIC_SCALES = 2;
 constexpr int64_t MXFP8_SCALES = 3;
 constexpr int64_t MXFP4_SCALES = 4;
+constexpr int64_t PER_TOKEN_FP8_SCALES = 5;
 constexpr uint32_t MX_BLOCK_SIZE = 32;
 constexpr uint32_t MXFP4_HALF = 2;
 constexpr int LOCAL_RANK_SIZE = 8;
@@ -813,10 +814,14 @@ std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Te
 Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
                              const std::optional<at::Tensor> &cumulative_local_expert_recv_stats,
                              int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts, bool use_fp8,
-                             bool round_scale, bool use_ue8m0, bool use_mxfp4, bool async, bool return_recv_hook)
+                             bool round_scale, bool use_ue8m0, bool use_mxfp4, bool async, bool return_recv_hook,
+                             const std::string &quant_mode_name)
 {
     EP_HOST_ASSERT(low_latency_mode);
     EP_HOST_ASSERT(num_max_dispatch_tokens_per_rank >= x.size(0));
+    static_cast<void>(use_fp8);
+    static_cast<void>(use_ue8m0);
+    static_cast<void>(use_mxfp4);
 
     auto num_tokens = static_cast<int>(x.size(0)), hidden = static_cast<int>(x.size(1));
     auto num_scales = hidden / 128, num_topk = static_cast<int>(topk_idx.size(1));
@@ -831,15 +836,21 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     }
     auto max_size = std::max(num_tokens * num_topk, num_max_tokens * 128);
 
-    int64_t quant_mode = 0;  // 默认为 unquant (0)
-    if (use_mxfp4) {
-        quant_mode = 4;  // fp4(fp4_e2m1)
-    } else if (use_fp8) {
-        if (use_ue8m0) {
-            quant_mode = 3;  // fp8(fp8_e4m3)
-        } else {
-            quant_mode = 2;  // int8
-        }
+    int64_t quant_mode = NO_SCALES;
+    if (quant_mode_name == "int8") {
+        quant_mode = DYNAMIC_SCALES;
+    } else if (quant_mode_name == "mx_fp8_e4m3" || quant_mode_name == "mx_fp8_e5m2") {
+        quant_mode = MXFP8_SCALES;
+    } else if (quant_mode_name == "mx_fp4_e2m1") {
+        quant_mode = MXFP4_SCALES;
+    } else if (quant_mode_name == "pertoken_fp8_e4m3" || quant_mode_name == "pertoken_fp8_e5m2") {
+#ifdef __DAV_C310__
+        quant_mode = PER_TOKEN_FP8_SCALES;
+#else
+        EP_HOST_ASSERT(false);
+#endif
+    } else {
+        EP_HOST_ASSERT(quant_mode_name == "none");
     }
     // Allocate packed tensors
     auto device = x.device();
@@ -852,8 +863,15 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         packed_recv_x_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
     }
 #ifdef __DAV_C310__
-    else if (quant_mode == 3) {  // fp8_e4m3
-        packed_recv_x = at::empty({num_max_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(device));
+    else if (quant_mode == PER_TOKEN_FP8_SCALES) {  // per-token fp8_e4m3
+        packed_recv_x = quant_mode_name == "pertoken_fp8_e5m2"
+                            ? at::empty({num_max_tokens, hidden}, at::dtype(at::kFloat8_e5m2).device(device))
+                            : at::empty({num_max_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(device));
+        packed_recv_x_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
+    } else if (quant_mode == 3) {  // MXFP8
+        packed_recv_x = quant_mode_name == "mx_fp8_e5m2"
+                            ? at::empty({num_max_tokens, hidden}, at::dtype(at::kFloat8_e5m2).device(device))
+                            : at::empty({num_max_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(device));
         packed_recv_x_scales =
             at::empty({num_max_tokens * hidden / MX_BLOCK_SIZE}, at::dtype(at::kFloat8_e8m0fnu).device(device));
     } else if (quant_mode == 4) {  // fp4_e2m1
