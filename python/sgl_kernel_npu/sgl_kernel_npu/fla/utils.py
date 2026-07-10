@@ -113,8 +113,8 @@ def tensor_cache(fn: Callable[..., torch.Tensor]) -> Callable[..., torch.Tensor]
         for i, entry in enumerate(cache_entries):
             last_args, last_kwargs, last_result = entry
             if len(args) == len(last_args) and len(kwargs) == len(last_kwargs):
-                if all(a is b for a, b in zip(args, last_args)) and all(
-                    k in last_kwargs and v is last_kwargs[k] for k, v in kwargs.items()
+                if all((a is b) if isinstance(a, torch.Tensor) else (a == b and type(a) == type(b)) for a, b in zip(args, last_args)) and all(
+                    k in last_kwargs and (v is last_kwargs[k]) if isinstance(v, torch.Tensor) else (v == last_kwargs[k] and type(v) == type(last_kwargs[k])) for k, v in kwargs.items()
                 ):
                     cache_entries = (
                         cache_entries[:i]
