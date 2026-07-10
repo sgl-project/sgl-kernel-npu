@@ -259,7 +259,35 @@ def chunk_gated_delta_rule_fwd(
         return g, o, A, final_state, w, h, v_new
 
 
-@input_guard
+class ChunkGatedDeltaRuleFunction(torch.autograd.Function):
+    @staticmethod
+    @input_guard
+    def forward(
+        ctx,
+        q: torch.Tensor,
+        k: torch.Tensor,
+        v: torch.Tensor,
+        g: torch.Tensor,
+        beta: torch.Tensor,
+        scale: float,
+        initial_state: torch.Tensor,
+        output_final_state: bool,
+        cu_seqlens: torch.LongTensor | None = None,
+        use_qk_l2norm_in_kernel: bool = False,
+    ):
+        if use_qk_l2norm_in_kernel:
+            q = l2norm_fwd(q)
+            k = l2norm_fwd(k)
+        
+        _, o, _, final_state, _, h, _ = chunk_gated_delta_rule_fwd(
+        q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens)
+        
+        ctx.scale = scale
+        ctx.use_qk_l2norm_in_kernel = use_qk_l2norm_in_kernel
+        
+        return o.to(q.dtype), final_state, h
+
+
 @torch.compiler.disable
 def chunk_gated_delta_rule_npu(
     q: torch.Tensor,
@@ -375,14 +403,18 @@ def chunk_gated_delta_rule_npu(
     if scale is None:
         scale = k.shape[-1] ** -0.5
 
-    if use_qk_l2norm_in_kernel:
-        q = l2norm_fwd(q)
-        k = l2norm_fwd(k)
-
-    _, o, _, final_state, _, h, _ = chunk_gated_delta_rule_fwd(
-        q, k, v, g, beta, scale, initial_state, output_final_state, cu_seqlens
+    o, final_state, h = ChunkGatedDeltaRuleFunction.apply(
+        q,
+        k,
+        v,
+        g,
+        beta,
+        scale,
+        initial_state,
+        output_final_state,
+        cu_seqlens,
+        use_qk_l2norm_in_kernel,
     )
-    o = o.to(q.dtype)
     if head_first:
         o = rearrange(o, "b t h ... -> b h t ...")
     return o, final_state, h
