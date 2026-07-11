@@ -132,9 +132,17 @@ int AllocHostMemory(uint64_t size, void **host_ptr, int *shm_id)
         return -2;
     }
 
+    // Keep the current mapping alive, but reclaim the segment automatically
+    // after the last attachment is detached, including on abnormal process exit.
+    if (shmctl(id, IPC_RMID, nullptr) == -1) {
+        (void)shmdt(ptr);
+        (void)shmctl(id, IPC_RMID, nullptr);
+        return -3;
+    }
+
     std::memset(ptr, 0, size);
     *host_ptr = ptr;
-    *shm_id = id;
+    *shm_id = -1;
     return 0;
 }
 
