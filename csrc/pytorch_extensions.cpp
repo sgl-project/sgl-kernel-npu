@@ -166,6 +166,15 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 }  // namespace
 
 namespace {
+TORCH_LIBRARY_IMPL(npu, CatchAll, m)
+{
+    // These control-plane operators have no Tensor arguments, so backend
+    // dispatch cannot infer PrivateUse1 from their inputs.
+    m.impl("shm_allocator_create_and_register", TORCH_FN(sglang::npu_kernel::shm_allocator_create_and_register));
+
+    m.impl("shm_allocator_free_all", TORCH_FN(sglang::npu_kernel::shm_allocator_free_all));
+}
+
 TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 {
     m.impl("helloworld", TORCH_FN(sglang::npu_kernel::helloworld));
@@ -226,10 +235,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("unidex_copy", TORCH_FN(sglang::npu_kernel::unidex_copy));
 
     m.impl("slot_map_lookup", TORCH_FN(sglang::npu_kernel::slot_map_lookup));
-
-    m.impl("shm_allocator_create_and_register", TORCH_FN(sglang::npu_kernel::shm_allocator_create_and_register));
-
-    m.impl("shm_allocator_free_all", TORCH_FN(sglang::npu_kernel::shm_allocator_free_all));
 
     m.impl("causal_conv1d_update",
            [](const at::Tensor &x, const at::Tensor &weight, const at::Tensor &conv_state,
