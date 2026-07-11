@@ -387,7 +387,7 @@ __aicore__ inline void ComputePerTileDynamic(__ubuf__ T *srcAddr, __ubuf__ float
 {
     uint32_t vlB16 = GetVRegSizeDispatch() / sizeof(T);
     uint32_t vlB32 = GetVRegSizeDispatch() / sizeof(float);
-    uint16_t loopNum = Ceil(totalCountInUB, vlB16);
+    uint32_t loopNum = Ceil(totalCountInUB, vlB16);
     uint32_t totalCntForB32 = totalCountInUB;
     float maxVal = 0.0f;
     if constexpr (Std::IsSame<U, fp8_e5m2_t>::value) {

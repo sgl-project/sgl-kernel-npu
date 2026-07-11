@@ -22,10 +22,10 @@
 #include "register/op_def_registry.h"
 
 namespace ops {
-class MoeDistributeCombineV2 : public OpDef
+class MoeLowLatencyCombineV2 : public OpDef
 {
 public:
-    explicit MoeDistributeCombineV2(const char *name) : OpDef(name)
+    explicit MoeLowLatencyCombineV2(const char *name) : OpDef(name)
     {
         this->Input("expand_x")
             .ParamType(REQUIRED)
@@ -177,6 +177,6 @@ public:
     }
 };
 
-OP_ADD(MoeDistributeCombineV2);
+OP_ADD(MoeLowLatencyCombineV2);
 
 }  // namespace ops

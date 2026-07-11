@@ -33,6 +33,9 @@ FILE(GLOB OP_SRCS
 if(BUILD_CATLASS_MODULE)
     list(APPEND OP_SRCS
         ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_matmul_basic.cpp
+        ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_op_utils.cpp
+        ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_gmm_fp8.cpp
+        ${PROJECT_OP_SRC_BASE}/catlass/op_host/catlass_matmul_fp8.cpp
     )
 endif()
 list(APPEND OP_SRCS
@@ -43,7 +46,7 @@ list(APPEND OP_SRCS
 set(OP_PLUGIN_NAME sgl_kernel_npu)
 
 # kernel side files without workspace
-ascendc_library(no_workspace_kernel STATIC
+set(NO_WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/helloworld/op_kernel/kernel_helloworld.cpp
     ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_kernel/cache_loc_assign_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_kernel/assign_cache_op.cpp
@@ -59,9 +62,21 @@ ascendc_library(no_workspace_kernel STATIC
     ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_kernel/apply_token_bitmask.cpp
 )
 
+if(BUILD_CATLASS_MODULE)
+    list(APPEND NO_WORKSPACE_KERNEL_SRCS
+        ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_gmm_fp8_kernel.cpp
+        ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_matmul_fp8_kernel.cpp
+    )
+endif()
+ascendc_library(no_workspace_kernel STATIC ${NO_WORKSPACE_KERNEL_SRCS})
 ascendc_include_directories(no_workspace_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/utils/kernel
 )
+if(BUILD_CATLASS_MODULE)
+    ascendc_include_directories(no_workspace_kernel PRIVATE
+        ${CATLASS_DIR}/include
+    )
+endif()
 
 # kernel side files with workspace
 set(WORKSPACE_KERNEL_SRCS
@@ -106,7 +121,7 @@ ascendc_library(mega_chunk_gdn_kernel STATIC
 )
 ascendc_include_directories(mega_chunk_gdn_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel
-    ${PROJECT_SOURCE_DIR}/third-party/pto-isa/include
+    ${PROJECT_SOURCE_DIR}/third_party/pto-isa/include
     ${ASCEND_INCLUDE_DIR}
     ${ASCEND_INCLUDE_DIR}/experiment/runtime
     ${ASCEND_INCLUDE_DIR}/experiment/msprof
@@ -145,10 +160,7 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/tiling
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/stub
-        ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel
-        ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/tiling
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host
-        ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/stub
         ${TORCH_DIR}/include
         ${TORCH_DIR}/include/torch/csrc/api/include
         ${TORCH_NPU_DIR}/include

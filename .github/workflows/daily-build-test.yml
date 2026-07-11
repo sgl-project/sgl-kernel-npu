@@ -87,12 +87,34 @@ jobs:
     name: Run PR Test Suite
     needs: [ run-daily-tests ]
     if: success() || failure()
-    uses: ./.github/workflows/pr-test-npu.yml
+    uses: ./.github/workflows/pr-test-deepep-npu.yml
     secrets: inherit
+
+  multi-node-internode:
+    name: multi-node
+    needs: [ run-daily-tests, run-pr-tests ]
+    if: success() || failure()
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        cann_version: [8.5.0, 9.0.0]
+        test_config:
+          - name: test_internode_a2
+            node_size: 2
+            test_case: tests/python/deepep/test_internode_a2.py
+    uses: ./.github/workflows/internode.yml
+    with:
+      soc_version: a2
+      runner: linux-aarch64-a2-0
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-py3.11'
+      test_config_name: ${{ matrix.test_config.name }}
+      node_size: ${{ matrix.test_config.node_size }}
+      test_case: ${{ matrix.test_config.test_case }}
 
   finish:
     if: always()
-    needs: [ run-daily-tests, run-pr-tests ]
+    needs: [ run-daily-tests, run-pr-tests, multi-node-internode ]
     runs-on: ubuntu-latest
     steps:
       - name: Generate test report
@@ -101,6 +123,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Overall Status**: ${{ needs.run-daily-tests.result }}" >> $GITHUB_STEP_SUMMARY
           echo "**PR Tests Status**: ${{ needs.run-pr-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Multi-node Status**: ${{ needs.multi-node-internode.result }}" >> $GITHUB_STEP_SUMMARY
           echo "**Execution Time**: $(date)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Workflow Run**: [$GITHUB_RUN_ID](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> $GITHUB_STEP_SUMMARY
@@ -110,5 +133,9 @@ jobs:
           # Fail the workflow if PR tests failed (since they should be reliable when daily passes)
           if [ "${{ needs.run-pr-tests.result }}" = "failure" ] || [ "${{ needs.run-pr-tests.result }}" = "cancelled" ]; then
             echo "PR test suite failed with status: ${{ needs.run-pr-tests.result }}"
+            exit 1
+          fi
+          if [ "${{ needs.multi-node-internode.result }}" = "failure" ] || [ "${{ needs.multi-node-internode.result }}" = "cancelled" ]; then
+            echo "Multi-node internode test failed with status: ${{ needs.multi-node-internode.result }}"
             exit 1
           fi

@@ -204,10 +204,38 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
     ]:
 
         topk_ids = topk_idx.int()
+        x_active_mask = torch.zeros(
+            num_max_dispatch_tokens_per_rank,
+            dtype=torch.bool,
+            device=x.device,
+        )
+        x_active_mask[: x.size(0)] = True
+        padding_size = num_max_dispatch_tokens_per_rank - x.size(0)
         if self.comm_alg == "hierarchy":
             assert (
                 topk_weights is not None
             ), "When comm_alg='hierarchy', topk_weights can not be None"
+        x_padding = torch.empty(
+            padding_size,
+            x.size(1),
+            dtype=x.dtype,
+            device=x.device,
+        )
+        x_padding = torch.cat((x, x_padding), dim=0)
+        topk_padding = torch.empty(
+            padding_size,
+            topk_ids.size(1),
+            dtype=topk_ids.dtype,
+            device=topk_ids.device,
+        )
+        topk_padding = torch.cat((topk_ids, topk_padding), dim=0)
+        weight_padding = torch.empty(
+            padding_size,
+            topk_weights.size(1),
+            dtype=topk_weights.dtype,
+            device=topk_weights.device,
+        )
+        weight_padding = torch.cat((topk_weights, weight_padding), dim=0)
 
         (
             packed_recv_x,
@@ -217,12 +245,13 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             packed_recv_layout_range,
             expand_scales,
         ) = self._npu_low_latency_dispatch(
-            x=x,
-            topk_idx=topk_ids,
+            x=x_padding,
+            topk_idx=topk_padding,
             num_experts=num_experts,
-            quant_mode=2 if use_fp8 else 0,
+            quant_mode=3 if use_ue8m0 else 2 if use_fp8 else 0,
             comm_alg=self.comm_alg,
-            topk_weights=topk_weights,
+            topk_weights=weight_padding,
+            x_active_mask=x_active_mask,
             num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
         )
 
@@ -234,6 +263,9 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             num_experts,
             packed_recv_count,
             expand_scales,
+            x_active_mask,
+            topk_padding,
+            weight_padding,
         )
 
         event = EventOverlap(EventHandle())
@@ -260,6 +292,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
     ) -> Tuple[torch.Tensor, EventOverlap, Callable]:
 
         topk_ids = topk_idx.int()
+        src_num = topk_idx.size(0)
         (
             src_info,
             layout_range,
@@ -268,23 +301,27 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             num_experts,
             packed_recv_count,
             expand_scales,
+            x_active_mask,
+            topk_padding,
+            weight_padding,
         ) = handle
 
         combined_x = self._npu_low_latency_combine(
             x=x,
-            topk_idx=topk_ids,
-            topk_weights=topk_weights,
+            topk_idx=topk_padding,
+            topk_weights=weight_padding,
             assist_info_for_combine=src_info,
             ep_send_counts=layout_range,
             num_experts=num_experts,
             comm_alg=self.comm_alg,
             expand_scales=expand_scales,
+            x_active_mask=x_active_mask,
             num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
         )
 
         event = EventOverlap(EventHandle())
         hook = lambda *args, **kwargs: None
-
+        combined_x = combined_x[:src_num, :]
         return combined_x, event, hook
 
     def _npu_low_latency_dispatch(
@@ -306,7 +343,6 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
 
         shared_expert_rank_num = int(os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0))
         expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
-        global_bs = num_max_dispatch_tokens_per_rank * self.group_size
         if comm_alg == "hierarchy":
             assert (
                 shared_expert_num == 0
@@ -336,7 +372,6 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             shared_expert_rank_num=shared_expert_rank_num,
             quant_mode=quant_mode,
             expert_token_nums_type=expert_token_nums_type,
-            global_bs=global_bs,
             comm_alg=comm_alg,  # A3: 支持""，"fullmesh_v1"，"fullmesh_v2", "hierarchy"
         )
 
@@ -370,7 +405,6 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
     ):
 
         shared_expert_rank_num = int(os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0))
-        global_bs = num_max_dispatch_tokens_per_rank * self.group_size
         if comm_alg == "hierarchy":
             assert (
                 shared_expert_num == 0
@@ -394,9 +428,189 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             expert_shard_type=expert_shared_type,
             shared_expert_num=shared_expert_num,
             shared_expert_rank_num=shared_expert_rank_num,
-            global_bs=global_bs,
             comm_quant_mode=comm_quant_mode,
             comm_alg=comm_alg,  # A3: 支持""，"hierarchy"两种
         )
 
         return combine_x
+
+
+@register_low_latency_strategy("alltoall")
+class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
+    """
+    Low latency mode strategy using torch_npu alltoall.
+    This strategy uses the alltoall for A3 RoCE.
+    """
+
+    def __init__(self, runtime, group: dist.ProcessGroup):
+        super().__init__(group)
+
+    def get_name(self) -> str:
+        return "alltoall"
+
+    def get_supported_modes(self) -> List[str]:
+        return ["low_latency"]
+
+    def low_latency_dispatch(
+        buffer,
+        x,
+        topk_idx,
+        num_max_dispatch_tokens_per_rank,
+        num_experts,
+        cumulative_local_expert_recv_stats=None,
+        use_fp8=True,
+        round_scale=False,
+        use_ue8m0=False,
+        async_finish=False,
+        return_recv_hook=False,
+        topk_weights: Optional[torch.Tensor] = None,
+    ):
+        group = buffer.group
+        group_size = buffer.group_size
+        num_local_experts = num_experts // group_size
+        ep_rank = buffer.rank
+        device = x.device
+        hidden = x.size(1)
+        aligned_num_tokens = num_max_dispatch_tokens_per_rank
+        num_tokens = x.size(0)
+        padding_size = aligned_num_tokens - num_tokens
+        x_padding = torch.zeros(
+            (padding_size, hidden),
+            dtype=x.dtype,
+            device=x.device,
+        )
+        topk_padding = torch.zeros(
+            padding_size,
+            topk_idx.size(1),
+            dtype=topk_idx.dtype,
+            device=topk_idx.device,
+        )
+        topk_padding = torch.cat((topk_idx, topk_padding), dim=0)
+        x_padding = torch.cat((x, x_padding), dim=0)
+
+        topk_idx_int = topk_padding.to(torch.int32)
+        expert_capacity = aligned_num_tokens
+
+        (expanded_x, expanded_row_idx, _, _) = torch_npu.npu_moe_init_routing_v2(
+            x_padding,
+            topk_idx_int,
+            quant_mode=-1,
+            expert_num=num_experts,
+            expert_tokens_num_type=1,
+            expert_tokens_num_flag=True,
+            row_idx_type=0,
+            drop_pad_mode=1,
+            expert_capacity=expert_capacity,
+            active_expert_range=[0, num_experts],
+        )
+
+        expanded_x_2d = expanded_x.reshape(num_experts * expert_capacity, hidden)
+        chunk_size = num_local_experts * expert_capacity
+
+        input_list = [
+            expanded_x_2d[r * chunk_size : (r + 1) * chunk_size].contiguous()
+            for r in range(group_size)
+        ]
+        output_list = [
+            torch.empty(chunk_size, hidden, dtype=expanded_x_2d.dtype, device=device)
+            for r in range(group_size)
+        ]
+        dist.all_to_all(output_list, input_list, group=group)
+        recv_x_raw = torch.cat(output_list, dim=0)
+
+        recv_all = recv_x_raw.reshape(
+            group_size, num_local_experts, expert_capacity, hidden
+        )
+        recv_all = recv_all.permute(1, 0, 2, 3).contiguous()
+        recv_x = recv_all.reshape(
+            num_local_experts * group_size * expert_capacity, hidden
+        )
+        recv_x_out = (torch_npu.npu_dynamic_quant(recv_x)) if use_fp8 else recv_x
+
+        packed_recv_count = torch.full(
+            (num_local_experts,),
+            expert_capacity * group_size,
+            dtype=torch.int64,
+            device=x.device,
+        )
+
+        handle_tuple = (
+            expanded_row_idx,
+            expert_capacity,
+            hidden,
+            num_tokens,
+            num_local_experts,
+            group_size,
+            packed_recv_count,
+        )
+
+        return (
+            recv_x_out,
+            packed_recv_count,
+            handle_tuple,
+            EventOverlap(),
+            lambda: None,
+        )
+
+    def low_latency_combine(
+        buffer,
+        x,
+        topk_idx,
+        topk_weights,
+        handle,
+        zero_copy=False,
+        async_finish=False,
+        return_recv_hook=False,
+        out=None,
+    ):
+        expanded_row_idx = handle[0]
+        expert_capacity = handle[1]
+        hidden = handle[2]
+        num_tokens = handle[3]
+        num_local_experts = handle[4]
+        group_size = handle[5]
+
+        device = x.device
+        group = buffer.group
+
+        x_reordered = x.reshape(num_local_experts, group_size, expert_capacity, hidden)
+        x_reordered = x_reordered.permute(1, 0, 2, 3).contiguous()
+        x_reordered = x_reordered.reshape(
+            group_size * num_local_experts * expert_capacity, hidden
+        )
+
+        chunk_size = num_local_experts * expert_capacity
+        input_list = [
+            x_reordered[r * chunk_size : (r + 1) * chunk_size].contiguous()
+            for r in range(group_size)
+        ]
+        output_list = [
+            torch.empty(chunk_size, hidden, dtype=x.dtype, device=device)
+            for r in range(group_size)
+        ]
+        dist.all_to_all(output_list, input_list, group=group)
+        recv_all_raw = torch.cat(output_list, dim=0)
+
+        recv_all_raw = recv_all_raw.reshape(
+            group_size * num_local_experts, expert_capacity, hidden
+        )
+        topk_weights_padding = torch.empty(
+            expert_capacity,
+            topk_weights.size(1),
+            dtype=x.dtype,
+            device=x.device,
+        )
+        topk_weights_padding[:num_tokens].copy_(topk_weights)
+        output = torch_npu.npu_moe_finalize_routing(
+            expanded_permuted_rows=recv_all_raw,
+            skip1=None,
+            skip2=None,
+            bias=None,
+            scales=topk_weights_padding,
+            expanded_src_to_dst_row=expanded_row_idx,
+            export_for_source_row=None,
+            drop_pad_mode=3,
+        )
+        output = output[:num_tokens, :]
+
+        return output, EventOverlap(), lambda: None

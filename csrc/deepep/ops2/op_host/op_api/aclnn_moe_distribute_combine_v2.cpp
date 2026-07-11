@@ -17,7 +17,7 @@
 #include <cstdio>
 
 #include "aclnn_moe_distribute_combine_v2.h"
-#include "aclnnInner_moe_distribute_combine_v2.h"
+#include "aclnnInner_moe_low_latency_combine_v2.h"
 #include "graph/types.h"
 #include "aclnn/opdev/platform.h"
 
@@ -33,7 +33,7 @@ enum NnopbaseHcclServerType {
 
 extern "C" void __attribute__((weak)) NnopbaseSetHcclServerType(void *executor, NnopbaseHcclServerType sType);
 
-aclnnStatus aclnnMoeDistributeCombineV2GetWorkspaceSize(
+aclnnStatus aclnnMoeLowLatencyCombineV2GetWorkspaceSize(
     const aclTensor *expandX, const aclTensor *expertIds, const aclTensor *assistInfoForCombine,
     const aclTensor *epSendCounts, const aclTensor *expertScales, const aclTensor *tpSendCountsOptional,
     const aclTensor *xActiveMaskOptional, const aclTensor *activationScaleOptional,
@@ -43,7 +43,7 @@ aclnnStatus aclnnMoeDistributeCombineV2GetWorkspaceSize(
     int64_t sharedExpertRankNum, int64_t globalBs, int64_t outDtype, int64_t commQuantMode, int64_t groupListType,
     char *commAlg, aclTensor *xOut, const aclTensor *sendCostStats, uint64_t *workspaceSize, aclOpExecutor **executor)
 {
-    return aclnnInnerMoeDistributeCombineV2GetWorkspaceSize(
+    return aclnnInnerMoeLowLatencyCombineV2GetWorkspaceSize(
         expandX, expertIds, assistInfoForCombine, epSendCounts, expertScales, tpSendCountsOptional, xActiveMaskOptional,
         activationScaleOptional, weightScaleOptional, groupListOptional, expandScalesOptional, sharedExpertXOptional,
         nullptr, nullptr, nullptr, nullptr, nullptr, groupEp, epWorldSize, epRankId, moeExpertNum, groupTp, tpWorldSize,
@@ -51,7 +51,7 @@ aclnnStatus aclnnMoeDistributeCombineV2GetWorkspaceSize(
         groupListType, commAlg, 0, 0, 0, xOut, sendCostStats, workspaceSize, executor);
 }
 
-aclnnStatus aclnnMoeDistributeCombineV2(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
+aclnnStatus aclnnMoeLowLatencyCombineV2(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
                                         aclrtStream stream)
 {
     if (NnopbaseSetHcclServerType) {
@@ -62,7 +62,7 @@ aclnnStatus aclnnMoeDistributeCombineV2(void *workspace, uint64_t workspaceSize,
         }
     }
 
-    return aclnnInnerMoeDistributeCombineV2(workspace, workspaceSize, executor, stream);
+    return aclnnInnerMoeLowLatencyCombineV2(workspace, workspaceSize, executor, stream);
 }
 
 #ifdef __cplusplus
