@@ -250,7 +250,7 @@ jobs:
           env -i PATH=${PATH} bash --login -c "
             cd ops/ascendc
             bash build.sh -c \"ascend910b\"
-          "    
+          "
 
       - name: Pack up packages
         run: |
