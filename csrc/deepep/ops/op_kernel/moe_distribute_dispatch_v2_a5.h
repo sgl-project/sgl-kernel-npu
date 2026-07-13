@@ -7,6 +7,7 @@
 #include "moe_distribute_v2_base.h"
 #include "moe_distribute_dispatch_v2_tiling.h"
 #include "check_winsize.h"
+#include "common.h"
 #ifdef __DAV_C310__
 #include "quantize_functions.h"
 #endif
