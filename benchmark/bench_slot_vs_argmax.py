@@ -258,7 +258,7 @@ def parse_args():
     parser.add_argument("--size", type=int, default=16)
     parser.add_argument("--bs", type=int, default=4)
     parser.add_argument("--topk-len", type=int, default=2048)
-    parser.add_argument("--device-len", type=int, default=12800,
+    parser.add_argument("--device-len", type=int, default=2048,
                         help="Physical length of device KV list used by any+argmax.")
     parser.add_argument("--max-context-len", type=int, default=128000)
     parser.add_argument("--hit-ratio", type=float, default=0.5)
