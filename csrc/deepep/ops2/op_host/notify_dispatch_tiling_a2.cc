@@ -32,7 +32,7 @@ class Mc2TilingUtils
 public:
     static uint64_t GetMaxWindowSize()
     {
-        uint16_t defaultWindowSize = 200;
+        uint32_t defaultWindowSize = 200;
         const char *hcclBuffSize = getenv("DEEPEP_HCCL_BUFFSIZE") == nullptr ? "HCCL_BUFFSIZE" : "DEEPEP_HCCL_BUFFSIZE";
         if (getenv(hcclBuffSize) == nullptr) {
             OP_LOGD("", "Env HCCL_BUFFSIZE don't set");

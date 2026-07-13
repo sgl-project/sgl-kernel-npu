@@ -903,6 +903,7 @@ static ge::graphStatus MoeDistributeDispatchA2CheckShapeAndSetTiling(const gert:
     auto attrs = context.GetAttrs();
     OP_TILING_CHECK(attrs == nullptr, OP_LOGE(K_INNER_DEBUG, "attrs is null."), return ge::GRAPH_FAILED);
     auto quantModePtr = attrs->GetAttrPointer<int>(ATTR_QUANT_MODE_INDEX);
+    OP_TILING_CHECK(quantModePtr == nullptr, OP_LOGE(K_INNER_DEBUG, "quantModePtr is null."), return GRAPH_FAILED);
     OP_TILING_CHECK(h % BLOCK_SIZE_A2 != 0 || h <= 0 || h > MAX_HIDDEN_SIZE_A2,
                     OP_LOGE(K_INNER_DEBUG, "hiddensize is invalid."), return GRAPH_FAILED);
     OP_TILING_CHECK(
@@ -1121,6 +1122,7 @@ static ge::graphStatus MoeDistributeDispatchA2TilingFuncImpl(gert::TilingContext
     auto attrs = context.GetAttrs();
     OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "attrs is nullptr."), return ge::GRAPH_FAILED);
     auto group = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_GROUP_EP_INDEX));
+    OP_TILING_CHECK(group == nullptr, OP_LOGE(nodeName, "group is nullptr."), return ge::GRAPH_FAILED);
     uint32_t opType = 18;  // batch write=18,
     std::string algConfig = "MultiPut=level0:fullmesh";
     AscendC::Mc2CcTilingConfig mc2CcTilingConfig(group, opType, algConfig);
