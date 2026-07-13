@@ -218,7 +218,8 @@ jobs:
           echo "github.ref = ${{ github.ref }}"
           echo "tag from release event = ${{ github.event.release.tag_name }}"
 
-      - name: Build cann-custom
+      - name: Build cann-custom for a3
+        if: matrix.npu_hardware == 'a3'
         run: |
           cd ../
           git clone https://gitcode.com/cann/cann-recipes-infer.git
@@ -231,8 +232,25 @@ jobs:
           "
           env -i PATH=${PATH} bash --login -c "
             cd ops/ascendc
-            bash build.sh
+            bash build.sh -c \"ascend910_93\"
           "
+
+      - name: Build cann-custom for 910b
+        if: matrix.npu_hardware == '910b'
+        run: |
+          cd ../
+          git clone https://gitcode.com/cann/cann-recipes-infer.git
+          cd cann-recipes-infer
+          git checkout 35a476c
+          env -i PATH=${PATH} bash --login -c "
+            cd ops/ascendc/torch_ops_extension
+            pip install ninja
+            bash build_and_install.sh
+          "
+          env -i PATH=${PATH} bash --login -c "
+            cd ops/ascendc
+            bash build.sh -c \"ascend910b\"
+          "    
 
       - name: Pack up packages
         run: |
