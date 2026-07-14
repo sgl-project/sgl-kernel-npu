@@ -163,10 +163,16 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         elif isinstance(x, tuple) and len(x) == 2:
             data, quant_type_tensor = x
             if quant_type_tensor.dtype == torch.float8_e4m3fn:
-                quant_type = "fp8_e4m3"
+                if os.getenv("DEEP_NORMAL_MODE_SCALAR_FP8") == "1":
+                    quant_type = "scalar_fp8_e4m3"
+                else:
+                    quant_type = "fp8_e4m3"
                 use_quant = True
             elif quant_type_tensor.dtype == torch.float8_e5m2:
-                quant_type = "fp8_e5m2"
+                if os.getenv("DEEP_NORMAL_MODE_SCALAR_FP8") == "1":
+                    quant_type = "scalar_fp8_e5m2"
+                else:
+                    quant_type = "fp8_e5m2"
                 use_quant = True
             elif quant_type_tensor.dtype == torch.int8:
                 quant_type = "int8"

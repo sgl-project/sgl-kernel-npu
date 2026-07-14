@@ -14,6 +14,7 @@ constexpr uint32_t NO_SCALES = 0;
 constexpr uint32_t DYNAMIC_SCALES = 2;
 constexpr uint32_t MXFP8_SCALES = 3;
 constexpr uint32_t MXFP4_SCALES = 4;
+constexpr uint32_t SCALAR_FP8_SCALES = 5;
 constexpr int LOCAL_RANK_SIZE = 8;
 constexpr int MAX_BATCH_SIZE = 4096;
 constexpr int EXPERT_DATA_SIZE = 1 + MAX_BATCH_SIZE;  // 4097
@@ -301,8 +302,12 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int num_recv_tokens = (trt == 0) ? 1 : trt;
     is_mxfp8_quant = use_quant && (quant_type == "fp8_e4m3" || quant_type == "fp8_e5m2");
     bool is_mxfp4_quant = use_quant && (quant_type == "fp4_e2m1");
+    bool is_scalar_fp8_quant = use_quant && (quant_type == "scalar_fp8_e4m3" || quant_type == "scalar_fp8_e5m2");
     int64_t quant_mode =
-        use_quant ? (is_mxfp8_quant ? MXFP8_SCALES : (is_mxfp4_quant ? MXFP4_SCALES : DYNAMIC_SCALES)) : NO_SCALES;
+        use_quant ? (is_mxfp8_quant ? MXFP8_SCALES
+                                    : (is_mxfp4_quant ? MXFP4_SCALES
+                                                      : (is_scalar_fp8_quant ? SCALAR_FP8_SCALES : DYNAMIC_SCALES)))
+                  : NO_SCALES;
     at::Tensor expandx_out;
     at::Tensor dynamic_scales_out;
 #ifdef __DAV_C310__
@@ -314,6 +319,13 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         }
         dynamic_scales_out =
             torch::empty({num_recv_tokens * hidden / 32}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
+    } else if (quant_mode == SCALAR_FP8_SCALES) {
+        if (quant_type == "scalar_fp8_e5m2") {
+            expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e5m2).device(x.device()));
+        } else {
+            expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
+        }
+        dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
     } else if (quant_mode == MXFP4_SCALES) {
         expandx_out = torch::empty({num_recv_tokens, hidden / 2}, at::dtype(at::kFloat4_e2m1fn_x2).device(x.device()));
         dynamic_scales_out =
