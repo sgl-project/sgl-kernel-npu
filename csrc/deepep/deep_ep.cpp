@@ -304,9 +304,9 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     bool is_mxfp4_quant = use_quant && (quant_type == "fp4_e2m1");
     bool is_scalar_fp8_quant = use_quant && (quant_type == "scalar_fp8_e4m3" || quant_type == "scalar_fp8_e5m2");
     int64_t quant_mode =
-        use_quant ? (is_mxfp8_quant ? MXFP8_SCALES
-                                    : (is_mxfp4_quant ? MXFP4_SCALES
-                                                      : (is_scalar_fp8_quant ? SCALAR_FP8_SCALES : DYNAMIC_SCALES)))
+        use_quant ? (is_mxfp8_quant
+                         ? MXFP8_SCALES
+                         : (is_mxfp4_quant ? MXFP4_SCALES : (is_scalar_fp8_quant ? SCALAR_FP8_SCALES : DYNAMIC_SCALES)))
                   : NO_SCALES;
     at::Tensor expandx_out;
     at::Tensor dynamic_scales_out;

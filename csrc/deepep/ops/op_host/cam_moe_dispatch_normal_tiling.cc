@@ -228,9 +228,10 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     } else if (quantMode == SCALAR_FP8_SCALES) {
         OP_TILING_CHECK(
             expandXDesc->GetDataType() != ge::DT_FLOAT8_E4M3FN && expandXDesc->GetDataType() != ge::DT_FLOAT8_E5M2,
-            OP_LOGE(nodeName,
-                    "expandX dataType is invalid for scalar FP8 quant, dataType should be fp8e4m3 or fp8e5m2, but is %s",
-                    geDataTypeMap.at(expandXDesc->GetDataType()).c_str()),
+            OP_LOGE(
+                nodeName,
+                "expandX dataType is invalid for scalar FP8 quant, dataType should be fp8e4m3 or fp8e5m2, but is %s",
+                geDataTypeMap.at(expandXDesc->GetDataType()).c_str()),
             return false);
     } else if (quantMode == MXFP4_SCALES) {
         OP_TILING_CHECK(

@@ -267,7 +267,10 @@ def test_main(
     # Random data
     x = torch.ones((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * rank
     x_pure_rand = torch.randn((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
-    print(f"[seed check] rank {rank} x_pure_rand hash: {x_pure_rand.view(torch.int8).sum().item()}", flush=True)
+    print(
+        f"[seed check] rank {rank} x_pure_rand hash: {x_pure_rand.view(torch.int8).sum().item()}",
+        flush=True,
+    )
     topk_weights = (
         torch.ones((num_tokens, num_topk), dtype=torch.float32, device="npu") * rank
     )
@@ -366,11 +369,7 @@ def test_main(
                 flush=True,
             )
         dispatch_args = {
-            "x": (
-                current_x
-                if not use_fp8
-                else (current_x, quant_type_tensor)
-            ),
+            "x": (current_x if not use_fp8 else (current_x, quant_type_tensor)),
             "num_tokens_per_rank": ref_num_tokens_per_rank,
             "is_token_in_rank": ref_is_token_in_rank,
             "num_tokens_per_expert": ref_num_tokens_per_expert,
@@ -553,7 +552,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         group, int(2e9), 0, low_latency_mode=False, num_qps_per_rank=1
     )
     print(f"[Rank {rank}] Buffer created OK.", flush=True)
-    seed = int.from_bytes(os.urandom(4), 'little')
+    seed = int.from_bytes(os.urandom(4), "little")
     print(f"[seed] rank {rank} seed={seed}", flush=True)
     torch.manual_seed(seed)
     torch.npu.manual_seed(seed)
