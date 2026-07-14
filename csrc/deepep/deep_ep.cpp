@@ -10,11 +10,13 @@
 namespace deep_ep {
 constexpr int PADDING_SIZE = 1;
 constexpr size_t HCOMM_NAME_LEN = 128;
-constexpr uint32_t NO_SCALES = 0;
-constexpr uint32_t DYNAMIC_SCALES = 2;
-constexpr uint32_t MXFP8_SCALES = 3;
-constexpr uint32_t MXFP4_SCALES = 4;
-constexpr uint32_t SCALAR_FP8_SCALES = 5;
+constexpr int64_t NO_SCALES = 0;
+constexpr int64_t DYNAMIC_SCALES = 2;
+constexpr int64_t MXFP8_SCALES = 3;
+constexpr int64_t MXFP4_SCALES = 4;
+constexpr int64_t SCALAR_FP8_SCALES = 5;
+constexpr uint32_t MX_BLOCK_SIZE = 32;
+constexpr uint32_t MXFP4_HALF = 2;
 constexpr int LOCAL_RANK_SIZE = 8;
 constexpr int MAX_BATCH_SIZE = 4096;
 constexpr int EXPERT_DATA_SIZE = 1 + MAX_BATCH_SIZE;  // 4097
@@ -318,7 +320,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
             expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
         }
         dynamic_scales_out =
-            torch::empty({num_recv_tokens * hidden / 32}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
+            torch::empty({num_recv_tokens * hidden / MX_BLOCK_SIZE}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
     } else if (quant_mode == SCALAR_FP8_SCALES) {
         if (quant_type == "scalar_fp8_e5m2") {
             expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e5m2).device(x.device()));
@@ -327,9 +329,10 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         }
         dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
     } else if (quant_mode == MXFP4_SCALES) {
-        expandx_out = torch::empty({num_recv_tokens, hidden / 2}, at::dtype(at::kFloat4_e2m1fn_x2).device(x.device()));
+        expandx_out =
+            torch::empty({num_recv_tokens, hidden / MXFP4_HALF}, at::dtype(at::kFloat4_e2m1fn_x2).device(x.device()));
         dynamic_scales_out =
-            torch::empty({num_recv_tokens * hidden / 32}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
+            torch::empty({num_recv_tokens * hidden / MX_BLOCK_SIZE}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
     } else
 #endif
     {
@@ -822,7 +825,7 @@ std::tuple<at::Tensor, std::optional<at::Tensor>, at::Tensor, at::Tensor, at::Te
 Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
                              const std::optional<at::Tensor> &cumulative_local_expert_recv_stats,
                              int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts, bool use_fp8,
-                             bool round_scale, bool use_ue8m0, bool async, bool return_recv_hook)
+                             bool round_scale, bool use_ue8m0, bool use_mxfp4, bool async, bool return_recv_hook)
 {
     EP_HOST_ASSERT(low_latency_mode);
     EP_HOST_ASSERT(num_max_dispatch_tokens_per_rank >= x.size(0));
@@ -840,15 +843,36 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     }
     auto max_size = std::max(num_tokens * num_topk, num_max_tokens * 128);
 
+    int64_t quant_mode = 0;  // 默认为 unquant (0)
+    if (use_mxfp4) {
+        quant_mode = 4;  // fp4(fp4_e2m1)
+    } else if (use_fp8) {
+        if (use_ue8m0) {
+            quant_mode = 3;  // fp8(fp8_e4m3)
+        } else {
+            quant_mode = 2;  // int8
+        }
+    }
     // Allocate packed tensors
     auto device = x.device();
-    auto packed_recv_x = at::empty({num_max_tokens, hidden}, x.options().dtype(use_fp8 ? at::kChar : at::kBFloat16));
-    auto packed_recv_x_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
+    at::Tensor packed_recv_x, packed_recv_x_scales;
+    if (quant_mode == 0) {
+        packed_recv_x = at::empty({num_max_tokens, hidden}, at::dtype(at::kBFloat16).device(device));
+        packed_recv_x_scales = at::empty({1}, at::dtype(at::kFloat).device(device));
+    } else if (quant_mode == 2) {
+        packed_recv_x = at::empty({num_max_tokens, hidden}, at::dtype(at::kChar).device(device));
+        packed_recv_x_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
+    }
 #ifdef __DAV_C310__
-    if (use_fp8 && use_ue8m0) {
-        packed_recv_x = torch::empty({num_max_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
+    else if (quant_mode == 3) {  // fp8_e4m3
+        packed_recv_x = at::empty({num_max_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(device));
         packed_recv_x_scales =
-            torch::empty({num_max_tokens * hidden / 32}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
+            at::empty({num_max_tokens * hidden / MX_BLOCK_SIZE}, at::dtype(at::kFloat8_e8m0fnu).device(device));
+    } else if (quant_mode == 4) {  // fp4_e2m1
+        packed_recv_x =
+            at::empty({num_max_tokens, hidden / MXFP4_HALF}, at::dtype(at::kFloat4_e2m1fn_x2).device(device));
+        packed_recv_x_scales =
+            at::empty({num_max_tokens * hidden / MX_BLOCK_SIZE}, at::dtype(at::kFloat8_e8m0fnu).device(device));
     }
 #endif
 
@@ -861,7 +885,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     at::Tensor scales;
     at::Tensor active_mask;
     int enable_neg_one = get_value_from_env("MOE_ENABLE_TOPK_NEG_ONE", 0);
-    int64_t quant_mode = use_fp8 ? (use_ue8m0 ? 3 : 2) : 0;
+
     int64_t tp_size = 1;
     int64_t tp_rank = 0;
     int64_t expert_shard_type = 0;

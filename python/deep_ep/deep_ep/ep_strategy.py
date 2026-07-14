@@ -182,6 +182,7 @@ class LowLatencyEPCommStrategy(EPCommStrategy):
         use_fp8: bool,
         round_scale: bool,
         use_ue8m0: bool,
+        use_mxfp4: bool,
         async_finish: bool,
         return_recv_hook: bool,
         topk_weights: Optional[torch.Tensor],
