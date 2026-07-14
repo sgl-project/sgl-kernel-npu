@@ -1,6 +1,10 @@
 #include "causal_conv1d.h"
 
 #include <algorithm>
+#include <limits>
+#include <numeric>
+#include <utility>
+#include <vector>
 
 #include "acl/acl.h"
 #include "tiling/platform/platform_ascendc.h"
@@ -86,13 +90,52 @@ constexpr bool isSupportedWidth(uint32_t width)
     return width >= 2u && width <= 64u;
 }
 
-constexpr uint32_t ceil_div(uint32_t a, uint32_t b)
+template<class T>
+constexpr T ceil_div(T a, T b)
 {
     return (a + b - 1) / b;
 }
 constexpr uint32_t round_up_128(uint32_t x)
 {
     return ((x + 127u) / 128u) * 128u;
+}
+
+std::pair<uint32_t, uint32_t> tiling_causal_conv1d(uint64_t numCores, uint64_t batch, const uint64_t dim, const uint64_t seqLength, const uint64_t width, const uint64_t maxChannels)
+{
+    constexpr uint64_t overhead = 10;
+    
+    // 128 = Number of Vector Lanes in FP16/BF16
+    constexpr uint64_t minChannels = 128;   // Must divide maxChannels
+
+    uint64_t gcdCoreBatch = std::gcd(numCores, batch);
+    numCores /= gcdCoreBatch;
+    batch /= gcdCoreBatch;
+    
+    double bestScore = std::numeric_limits<double>::infinity();
+    uint64_t channelsPerTile = minChannels;
+    uint64_t seqChunks = 1u;
+
+    std::vector<uint64_t> divisors;
+    divisors.reserve(numCores);
+    for (uint64_t i = 1u; i <= numCores; ++i) {
+        if (numCores % i == 0u) divisors.emplace_back(i);
+    }
+
+    for (uint64_t channels = maxChannels; channels > 0u; channels += minChannels) {
+        for (uint64_t numChunks : divisors) {
+            uint64_t depth = ceil_div(batch * ceil_div(dim, channels), numCores / numChunks);
+            uint64_t tokens = ceil_div(seqLength, numChunks);
+            uint64_t work = (tokens + width) * channels + overhead;
+            double score = static_cast<double>(depth) * static_cast<double>(work);
+            if (score < bestScore) {
+                bestScore = score;
+                channelsPerTile = channels;
+                seqChunks = numChunks;
+            }
+        }
+    }
+
+    return {static_cast<uint32_t>(channelsPerTile), static_cast<uint32_t>(seqChunks)};
 }
 
 }  // namespace
@@ -154,20 +197,9 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
         (inputMode == 1) ? seqLen : std::max<uint32_t>(1u, static_cast<uint32_t>(x.size(0)) / batch);
     const uint32_t ringSize = roundUpToPow2(width);                     // compile-time ring variant to launch
     const uint32_t maxChannelsPerTile = maxTileWidthForRing(ringSize);  // UB-bound tile width for this ring
-    const uint32_t targetTilesPerSeq = std::max<uint32_t>(1u, ceil_div(core_num, batch));
-    const uint32_t maxSeqChunks = std::max<uint32_t>(1u, avgSeqLen / MIN_CHUNK_ROWS);
 
-    uint32_t channelTiles =
-        std::max<uint32_t>(ceil_div(dim, maxChannelsPerTile), ceil_div(targetTilesPerSeq, maxSeqChunks));
-    channelTiles = std::min<uint32_t>(channelTiles, ceil_div(dim, 128u));  // >= 128 channels (one lane) per tile
-    channelTiles = std::max<uint32_t>(1u, channelTiles);
-
-    uint32_t channelsPerTile = round_up_128(ceil_div(dim, channelTiles));
-    channelsPerTile = std::min<uint32_t>(std::max<uint32_t>(channelsPerTile, 128u), maxChannelsPerTile);
-    channelsPerTile = std::min<uint32_t>(channelsPerTile, dim);
-    channelTiles = ceil_div(dim, channelsPerTile);
-    const uint32_t seqChunks =
-        std::min<uint32_t>(std::max<uint32_t>(1u, ceil_div(targetTilesPerSeq, channelTiles)), maxSeqChunks);
+    const auto [channelsPerTile, seqChunks] = tiling_causal_conv1d(core_num, batch, dim, avgSeqLen, width, maxChannelsPerTile);
+    const uint32_t channelTiles = ceil_div(dim, channelsPerTile);
 
     // weight/bias enter in the I/O dtype (fp16/bf16) and are cast to fp32 inside the
     // kernel; pass a native empty placeholder when there is no bias.
