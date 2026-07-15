@@ -86,6 +86,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -127,6 +128,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             async_finish,
             allocate_on_comm_stream,
             dispatch_wait_recv_cost_stats,
+            quant_mode,
         )
 
     def _intranode_dispatch(
@@ -145,6 +147,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         async_finish: bool,
         allocate_on_comm_stream: bool,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor],
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -163,13 +166,13 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         elif isinstance(x, tuple) and len(x) == 2:
             data, quant_type_tensor = x
             if quant_type_tensor.dtype == torch.float8_e4m3fn:
-                if os.getenv("DEEP_NORMAL_MODE_SCALAR_FP8") == "1":
+                if quant_mode == "scalar_fp8":
                     quant_type = "scalar_fp8_e4m3"
                 else:
                     quant_type = "fp8_e4m3"
                 use_quant = True
             elif quant_type_tensor.dtype == torch.float8_e5m2:
-                if os.getenv("DEEP_NORMAL_MODE_SCALAR_FP8") == "1":
+                if quant_mode == "scalar_fp8":
                     quant_type = "scalar_fp8_e5m2"
                 else:
                     quant_type = "fp8_e5m2"

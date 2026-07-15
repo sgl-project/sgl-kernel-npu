@@ -298,6 +298,7 @@ class Buffer:
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -375,6 +376,7 @@ class Buffer:
             async_finish=async_finish,
             allocate_on_comm_stream=allocate_on_comm_stream,
             dispatch_wait_recv_cost_stats=dispatch_wait_recv_cost_stats,
+            quant_mode=quant_mode,
         )
 
     @log_parameters(["topk_idx"])

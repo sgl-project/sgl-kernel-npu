@@ -46,10 +46,7 @@ def test_main(
         quant_type_tensor = torch.tensor([], dtype=torch.float8_e4m3fn, device="npu")
     elif quant_type == "fp4":
         quant_type_tensor = torch.tensor([], dtype=torch.float4_e2m1fn_x2, device="npu")
-    if quant_type == "scalar_fp8":
-        os.environ["DEEP_NORMAL_MODE_SCALAR_FP8"] = "1"
-    else:
-        os.environ.pop("DEEP_NORMAL_MODE_SCALAR_FP8", None)
+    dispatch_quant_mode = "scalar_fp8" if quant_type == "scalar_fp8" else None
     num_servers = num_ranks // num_local_ranks
     expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
 
@@ -378,6 +375,7 @@ def test_main(
             "topk_weights": (
                 topk_weights_pure_rand if current_x is x_pure_rand else topk_weights
             ),
+            "quant_mode": dispatch_quant_mode,
         }
 
         (
