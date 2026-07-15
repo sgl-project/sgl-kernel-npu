@@ -121,7 +121,7 @@ std::pair<uint32_t, uint32_t> tiling_causal_conv1d(uint64_t numCores, uint64_t b
         if (numCores % i == 0u) divisors.emplace_back(i);
     }
 
-    for (uint64_t channels = maxChannels; channels > 0u; channels += minChannels) {
+    for (uint64_t channels = maxChannels; channels <= maxChannels; channels -= minChannels) {
         for (uint64_t numChunks : divisors) {
             uint64_t depth = ceil_div(batch * ceil_div(dim, channels), numCores / numChunks);
             uint64_t tokens = ceil_div(seqLength, numChunks);
