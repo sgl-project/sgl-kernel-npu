@@ -138,6 +138,28 @@ High-throughput dispatch and combine for training and prefill phases:
 - **A3**: Pure HCCS intranode communication, full-mesh HCCS internode communication. No hierarchical implementation needed.
 - **A2 Intranode**: Pure HCCS communication, supports up to `bs=8000` for normal dispatch/combine.
 - **A2 Internode**: Hierarchical (HCCS intranode + RDMA internode) or non-hierarchical (pure RDMA) implementation. Supports up to `bs=4096`.
+- **A5 (C310)**: Supports scalar FP8 per-token quantization and MXFP8 per-block quantization (A5/C310 only).
+
+#### Quantization Modes in Normal Dispatch
+
+| Mode | `quant_mode` | Data Format | Scale Format | Granularity | Platform |
+|------|-------------|-------------|--------------|-------------|----------|
+| BF16 (no quant) | `None` (default) | `bfloat16` | — | — | All |
+| INT8 dynamic | `None` + env var | `int8` | `float32` | per-token | All |
+| MXFP8 per-block | `None` + fp8 tuple | `float8_e4m3fn` | `float8_e8m0fnu` | per 32 elements | A5/C310 |
+| **Scalar FP8** | `"scalar_fp8"` | `float8_e4m3fn` | `float32` | per-token | A5/C310 |
+
+Usage:
+```python
+# BF16 (no quantization)
+buffer.dispatch(x=data, ...)
+
+# Scalar FP8 per-token quantization (A5 only)
+buffer.dispatch(x=(data, fp8_signal_tensor), quant_mode="scalar_fp8", ...)
+
+# MXFP8 per-block quantization (A5 only)
+buffer.dispatch(x=(data, fp8_signal_tensor), ...)  # quant_mode=None defaults to MXFP8
+```
 
 ### Low-Latency Mode (Decode)
 
@@ -211,6 +233,7 @@ For detailed A2 usage, see [A2_DEEPEP_CN.md](A2_DEEPEP_CN.md).
 
 - Only supports CANN 9.0.
 - Build with: `bash build.sh -a deepep Ascend950`.
+- Supports scalar FP8 per-token quantization (`quant_mode="scalar_fp8"`) and MXFP8 per-block quantization in normal dispatch.
 
 
 ## Test
