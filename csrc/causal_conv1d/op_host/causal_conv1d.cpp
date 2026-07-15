@@ -4,7 +4,6 @@
 #include <limits>
 #include <numeric>
 #include <utility>
-#include <vector>
 
 #include "acl/acl.h"
 #include "tiling/platform/platform_ascendc.h"
@@ -119,7 +118,7 @@ std::pair<uint32_t, uint32_t> tiling_causal_conv1d(uint64_t numCores, uint64_t b
     const uint64_t depthNumerator = batch * numChannels;
     
     const uint64_t uppBnd = numCores / std::gcd(numCores, numChannels);
-    for (uint64_t numChunks = 1u; numChunks <= uppBnd; ++i) {
+    for (uint64_t numChunks = 1u; numChunks <= uppBnd; ++numChunks) {
         uint64_t depth = ceil_div(depthNumerator * numChunks, numCores);
         uint64_t tokens = ceil_div(seqLength, numChunks);
         uint64_t work = tokens + width;
