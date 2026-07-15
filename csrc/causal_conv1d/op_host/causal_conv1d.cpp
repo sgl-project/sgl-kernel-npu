@@ -105,8 +105,6 @@ std::pair<uint32_t, uint32_t> tiling_causal_conv1d(uint64_t numCores, uint64_t b
     // 128 = Number of Vector Lanes in FP16/BF16
     constexpr uint64_t minChannels = 128;   // Must divide maxChannels
 
-    constexpr uint64_t overhead = minChannels * 32u;
-
     uint64_t gcdCoreBatch = std::gcd(numCores, batch);
     numCores /= gcdCoreBatch;
     batch /= gcdCoreBatch;
@@ -117,12 +115,12 @@ std::pair<uint32_t, uint32_t> tiling_causal_conv1d(uint64_t numCores, uint64_t b
     uint64_t seqChunks = 1u;
     double bestScore = std::numeric_limits<double>::infinity();
 
-    const uint64_t depthNumerator = batch * ceil_div(dim, channelsPerTile);
+    numChannels = ceil_div(dim, channelsPerTile);
+    const uint64_t depthNumerator = batch * numChannels;
     
-    for (uint64_t numChunks = 1u; numChunks <= numCores; ++i) {
-        if (numCores % numChunks != 0u) continue;
-
-        uint64_t depth = ceil_div(depthNumerator, numCores / numChunks);
+    const uint64_t uppBnd = numCores / std::gcd(numCores, numChannels);
+    for (uint64_t numChunks = 1u; numChunks <= uppBnd; ++i) {
+        uint64_t depth = ceil_div(depthNumerator * numChunks, numCores);
         uint64_t tokens = ceil_div(seqLength, numChunks);
         uint64_t work = tokens + width;
         double score = static_cast<double>(depth) * static_cast<double>(work);
