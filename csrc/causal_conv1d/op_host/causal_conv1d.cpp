@@ -110,29 +110,28 @@ std::pair<uint32_t, uint32_t> tiling_causal_conv1d(uint64_t numCores, uint64_t b
     uint64_t gcdCoreBatch = std::gcd(numCores, batch);
     numCores /= gcdCoreBatch;
     batch /= gcdCoreBatch;
-
-    double bestScore = std::numeric_limits<double>::infinity();
-    uint64_t channelsPerTile = minChannels;
-    uint64_t seqChunks = 1u;
-
+    
     std::vector<uint64_t> divisors;
     divisors.reserve(numCores);
     for (uint64_t i = 1u; i <= numCores; ++i) {
         if (numCores % i == 0u) divisors.emplace_back(i);
     }
+    
+    uint64_t numChannels = ceil_div(dim, maxChannels);
+    uint64_t channelsPerTile = ceil_div(dim / numChannels, minChannels) * minChannels;
+    
+    uint64_t seqChunks = 1u;
+    double bestScore = std::numeric_limits<double>::infinity();
 
-    for (uint64_t channels = maxChannels; channels >= minChannels; channels -= minChannels) {
-        const uint64_t depthNumerator = batch * ceil_div(dim, channels);
-        for (uint64_t numChunks : divisors) {
-            uint64_t depth = ceil_div(depthNumerator, numCores / numChunks);
-            uint64_t tokens = ceil_div(seqLength, numChunks);
-            uint64_t work = (tokens + width) * channels + overhead;
-            double score = static_cast<double>(depth) * static_cast<double>(work);
-            if (score < bestScore) {
-                bestScore = score;
-                channelsPerTile = channels;
-                seqChunks = numChunks;
-            }
+    const uint64_t depthNumerator = batch * ceil_div(dim, channelsPerTile);
+    for (uint64_t numChunks : divisors) {
+        uint64_t depth = ceil_div(depthNumerator, numCores / numChunks);
+        uint64_t tokens = ceil_div(seqLength, numChunks);
+        uint64_t work = tokens + width;
+        double score = static_cast<double>(depth) * static_cast<double>(work);
+        if (score < bestScore) {
+            bestScore = score;
+            seqChunks = numChunks;
         }
     }
 
