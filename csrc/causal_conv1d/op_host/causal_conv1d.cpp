@@ -110,13 +110,7 @@ std::pair<uint32_t, uint32_t> tiling_causal_conv1d(uint64_t numCores, uint64_t b
     uint64_t gcdCoreBatch = std::gcd(numCores, batch);
     numCores /= gcdCoreBatch;
     batch /= gcdCoreBatch;
-    
-    std::vector<uint64_t> divisors;
-    divisors.reserve(numCores);
-    for (uint64_t i = 1u; i <= numCores; ++i) {
-        if (numCores % i == 0u) divisors.emplace_back(i);
-    }
-    
+
     uint64_t numChannels = ceil_div(dim, maxChannels);
     uint64_t channelsPerTile = ceil_div(dim / numChannels, minChannels) * minChannels;
     
@@ -124,7 +118,10 @@ std::pair<uint32_t, uint32_t> tiling_causal_conv1d(uint64_t numCores, uint64_t b
     double bestScore = std::numeric_limits<double>::infinity();
 
     const uint64_t depthNumerator = batch * ceil_div(dim, channelsPerTile);
-    for (uint64_t numChunks : divisors) {
+    
+    for (uint64_t numChunks = 1u; numChunks <= numCores; ++i) {
+        if (numCores % numChunks != 0u) continue;
+
         uint64_t depth = ceil_div(depthNumerator, numCores / numChunks);
         uint64_t tokens = ceil_div(seqLength, numChunks);
         uint64_t work = tokens + width;
