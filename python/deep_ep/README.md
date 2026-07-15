@@ -93,18 +93,6 @@ DeepEP-Ascend employs a **strategy-based architecture** where communication impl
 | **EventOverlap** | `utils.py` | Event synchronization utility for async operations. |
 | **FuseMode** | `buffer.py` | Enum for fused MoE computation modes. |
 
-### Strategy Selection
-
-Strategies are configured via environment variables at Buffer initialization:
-
-| Environment Variable | Value | Normal Strategy | Low-Latency Strategy |
-|---------------------|-------|-----------------|---------------------|
-| `DEEP_USE_MODE=default` | default | `DefaultNormalCommStrategy` (deep_ep_cpp custom ops) | `DefaultLowLatencyCommStrategy` (deep_ep_cpp custom ops) |
-| `DEEP_USE_MODE=alltoall` | alltoall | `AlltoAllNormalCommStrategy` (torch.distributed alltoallv) | `AllToAllLowLatencyCommStrategy` (torch.distributed alltoall) |
-| `DEEP_USE_MODE=default` | ops | `DefaultNormalCommStrategy` (deep_ep_cpp custom ops) | `OpsLowLatencyCommStrategy` (torch_npu ops) |
-
-> **Note**: Invalid env (e.g., `DEEP_USE_MODE=error`) will raise a `ValueError`.
-
 
 ## API Overview
 
