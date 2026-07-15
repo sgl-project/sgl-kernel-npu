@@ -89,7 +89,7 @@ constexpr bool isSupportedWidth(uint32_t width)
     return width >= 2u && width <= 64u;
 }
 
-template<class T>
+template <class T>
 constexpr T ceil_div(T a, T b)
 {
     return (a + b - 1) / b;
@@ -99,10 +99,12 @@ constexpr uint32_t round_up_128(uint32_t x)
     return ((x + 127u) / 128u) * 128u;
 }
 
-std::pair<uint32_t, uint32_t> tiling_causal_conv1d(uint64_t numCores, uint64_t batch, const uint64_t dim, const uint64_t seqLength, const uint64_t width, const uint64_t maxChannels)
+std::pair<uint32_t, uint32_t> tiling_causal_conv1d(uint64_t numCores, uint64_t batch, const uint64_t dim,
+                                                   const uint64_t seqLength, const uint64_t width,
+                                                   const uint64_t maxChannels)
 {
     // 128 = Number of Vector Lanes in FP16/BF16
-    constexpr uint64_t minChannels = 128;   // Must divide maxChannels
+    constexpr uint64_t minChannels = 128;  // Must divide maxChannels
 
     uint64_t gcdCoreBatch = std::gcd(numCores, batch);
     numCores /= gcdCoreBatch;
@@ -110,13 +112,13 @@ std::pair<uint32_t, uint32_t> tiling_causal_conv1d(uint64_t numCores, uint64_t b
 
     uint64_t numChannels = ceil_div(dim, maxChannels);
     uint64_t channelsPerTile = ceil_div(dim / numChannels, minChannels) * minChannels;
-    
+
     uint64_t seqChunks = 1u;
     double bestScore = std::numeric_limits<double>::infinity();
 
     numChannels = ceil_div(dim, channelsPerTile);
     const uint64_t depthNumerator = batch * numChannels;
-    
+
     const uint64_t uppBnd = numCores / std::gcd(numCores, numChannels);
     for (uint64_t numChunks = 1u; numChunks <= uppBnd; ++numChunks) {
         uint64_t depth = ceil_div(depthNumerator * numChunks, numCores);
@@ -192,7 +194,8 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
     const uint32_t ringSize = roundUpToPow2(width);                     // compile-time ring variant to launch
     const uint32_t maxChannelsPerTile = maxTileWidthForRing(ringSize);  // UB-bound tile width for this ring
 
-    const auto [channelsPerTile, seqChunks] = tiling_causal_conv1d(core_num, batch, dim, avgSeqLen, width, maxChannelsPerTile);
+    const auto [channelsPerTile, seqChunks] =
+        tiling_causal_conv1d(core_num, batch, dim, avgSeqLen, width, maxChannelsPerTile);
     const uint32_t channelTiles = ceil_div(dim, channelsPerTile);
 
     // weight/bias enter in the I/O dtype (fp16/bf16) and are cast to fp32 inside the
