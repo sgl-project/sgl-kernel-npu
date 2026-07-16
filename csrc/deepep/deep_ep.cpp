@@ -14,7 +14,7 @@ constexpr int64_t NO_SCALES = 0;
 constexpr int64_t DYNAMIC_SCALES = 2;
 constexpr int64_t MXFP8_SCALES = 3;
 constexpr int64_t MXFP4_SCALES = 4;
-constexpr int64_t SCALAR_FP8_SCALES = 5;
+constexpr int64_t PERTOKEN_FP8_SCALES = 5;
 constexpr uint32_t MX_BLOCK_SIZE = 32;
 constexpr uint32_t MXFP4_HALF = 2;
 constexpr int LOCAL_RANK_SIZE = 8;
@@ -304,12 +304,13 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int num_recv_tokens = (trt == 0) ? 1 : trt;
     is_mxfp8_quant = use_quant && (quant_type == "mx_fp8_e4m3" || quant_type == "mx_fp8_e5m2");
     bool is_mxfp4_quant = use_quant && (quant_type == "mx_fp4_e2m1");
-    bool is_scalar_fp8_quant = use_quant && (quant_type == "pertoken_fp8_e4m3" || quant_type == "pertoken_fp8_e5m2");
+    bool is_pertoken_fp8_quant = use_quant && (quant_type == "pertoken_fp8_e4m3" || quant_type == "pertoken_fp8_e5m2");
     int64_t quant_mode =
-        use_quant ? (is_mxfp8_quant
-                         ? MXFP8_SCALES
-                         : (is_mxfp4_quant ? MXFP4_SCALES : (is_scalar_fp8_quant ? SCALAR_FP8_SCALES : DYNAMIC_SCALES)))
-                  : NO_SCALES;
+        use_quant
+            ? (is_mxfp8_quant
+                   ? MXFP8_SCALES
+                   : (is_mxfp4_quant ? MXFP4_SCALES : (is_pertoken_fp8_quant ? PERTOKEN_FP8_SCALES : DYNAMIC_SCALES)))
+            : NO_SCALES;
     at::Tensor expandx_out;
     at::Tensor dynamic_scales_out;
 #ifdef __DAV_C310__
@@ -321,7 +322,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         }
         dynamic_scales_out =
             torch::empty({num_recv_tokens * hidden / MX_BLOCK_SIZE}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
-    } else if (quant_mode == SCALAR_FP8_SCALES) {
+    } else if (quant_mode == PERTOKEN_FP8_SCALES) {
         EP_HOST_ASSERT_S(quant_type != "pertoken_fp8_e5m2",
                          "pertoken_fp8_e5m2 is not supported yet, please use pertoken_fp8_e4m3 instead");
         expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
