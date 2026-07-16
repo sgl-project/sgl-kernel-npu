@@ -4,18 +4,167 @@
 
 [![Mode](https://img.shields.io/badge/Mode-Normal-blue)]()
 [![Platform](https://img.shields.io/badge/Platform-A2%20%7C%20A3%20%7C%20A5-green)]()
-[![Quant](https://img.shields.io/badge/Quantization-INT8%20%7C%20MXFP8-yellow)]()
+[![Quant](https://img.shields.io/badge/Quantization-INT8%20%7C%20MXFP8%20%7C%20MXFP4-yellow)]()
 
 English | [中文](#中文)
 
 </div>
 
----
-
 > **File**: `buffer.py`
 > **Core class**: `Buffer`
 > **Dependencies**: `torch`, `deep_ep_cpp`
 > **Purpose**: Efficiently perform **Token Dispatch** and **Token Combine** (i.e., distribute-reduce) operations in **multi-NPU (Intranode)** and **cross-node (Internode)** environments.
+
+---
+
+## `dispatch`
+
+### Description
+
+Dispatches local tokens to other ranks based on **top‑k** selection results (intranode and internode modes), and returns received tokens, top‑k information, and a communication handle for subsequent **combine**.
+
+### Interface
+
+```python
+dispatch(
+    x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+    handle: Optional[Tuple] = None,
+    num_tokens_per_rank: Optional[torch.Tensor] = None,
+    num_tokens_per_rdma_rank: Optional[torch.Tensor] = None,
+    is_token_in_rank: Optional[torch.Tensor] = None,
+    num_tokens_per_expert: Optional[torch.Tensor] = None,
+    topk_idx: Optional[torch.Tensor] = None,
+    topk_weights: Optional[torch.Tensor] = None,
+    expert_alignment: int = 1,
+    num_worst_tokens: int = 0,
+    config: Optional[Config] = None,
+    previous_event: Optional[EventOverlap] = None,
+    async_finish: bool = False,
+    allocate_on_comm_stream: bool = False,
+    dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
+) -> Tuple[
+    Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
+    Optional[torch.Tensor],
+    Optional[torch.Tensor],
+    List[int],
+    Tuple,
+    EventOverlap
+]
+```
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| **x** | `torch.Tensor` or `(torch.Tensor, torch.Tensor)` | Yes | – | Shape `[num_tokens, hidden]`, dtype=`torch.bfloat16`. Currently only supports `torch.Tensor` type. |
+| **handle** | `Optional[Tuple]` | No | `None` | Pre-created communication handle (currently only supports `None`). |
+| **num_tokens_per_rank** | `torch.Tensor` (`int32`) | Yes (intranode) | `None` | Shape `[num_ranks]`, number of tokens each rank will receive. |
+| **num_tokens_per_rdma_rank** | `torch.Tensor` | Yes (internode) | `None` | Shape `[num_rdma_ranks]`, number of tokens each remote rank receives in cross-node (RDMA) mode. |
+| **is_token_in_rank** | `torch.Tensor` (`int`) | Yes | `None` | `[num_tokens, num_ranks]` indicating whether each token needs to be sent to the corresponding rank. |
+| **num_tokens_per_expert** | `torch.Tensor` (`int`) | Yes | `None` | `[num_experts]`, number of tokens the current rank sends to each expert. |
+| **topk_idx** | `torch.Tensor` (`int64`) | Yes | `None` | `[num_tokens, num_topk]`, selected expert indices for each token. `-1` means no expert selected. |
+| **topk_weights** | `torch.Tensor` (`float`) | Yes | `None` | `[num_tokens, num_topk]`, corresponding weights. |
+| **expert_alignment** | `int` | No | `1` | Alignment granularity for the number of tokens received per local expert. |
+| **num_worst_tokens** | `int` | No | `0` | Currently unused. |
+| **config** | `deep_ep_cpp.Config` | No | `None` | Currently unused. |
+| **previous_event** | `EventOverlap` | No | `None` | An event that must be waited for before executing the kernel. |
+| **async_finish** | `bool` | No | `False` | If `True`, the current stream will not block until communication completes; the returned `event` can be used for subsequent synchronization. |
+| **allocate_on_comm_stream** | `bool` | No | `False` | Currently unused. |
+| **dispatch_wait_recv_cost_stats** | `torch.Tensor` (`int64`) | No | `None` | Shape `[num_ranks]`, recording the time cost for the current rank to receive all tokens from each rank (statistics). |
+
+> **Internal Logic**
+>
+> 1. **Mode determination**: `self.runtime.get_num_rdma_ranks() > 1` → **Internode**, otherwise **Intranode**.
+> 2. **Returned `handle`**: Internally saves all index/prefix matrix information needed by subsequent `combine`, **must be passed unchanged** to `combine`.
+
+### Return Values
+
+| Return Value | Type | Description |
+|--------------|------|-------------|
+| **recv_x** | `torch.Tensor` or `(torch.Tensor, torch.Tensor)` | Received tokens.<br>If INT8 quantization is enabled, returns `(int8_tensor, scales_float_tensor)`; otherwise returns `bfloat16` tensor directly. |
+| **recv_topk_idx** | `Optional[torch.Tensor]` (`int64`) | Received top‑k expert indices, shape `[recv_token_cnt, num_topk]`. `None` if top‑k is not used. |
+| **recv_topk_weights** | `Optional[torch.Tensor]` (`float`) | Corresponding top‑k weights, same shape as above. |
+| **num_recv_tokens_per_expert_list** | `List[int]` | Number of tokens actually received per **local expert** (aligned). Empty list if `num_worst_tokens>0` (no synchronization). |
+| **handle** | `Tuple` | Communication handle for `combine`. |
+| **event** | `EventOverlap` | NPU event object if `async_finish=True`, usable for `event.wait()` synchronization. |
+
+### Constraints
+
+- Shape variables used in parameters:
+    - num_tokens: batch sequence size, i.e., the number of input/output tokens on this card. (When num_tokens=0, it will be padded to 1)
+        - A2 series internode range: (0, 4096]; intranode range: (0, 8192];
+        - A3 series range: without "ant moving home" (0, 8192], with "ant moving home" (0, 32k];
+    - hidden: hidden size.
+        - A2 series range: (0, 7168], must be divisible by 32;
+        - A3 series range: [1024, 7168];
+    - num_experts: number of experts, range: (0, 512].
+    - num_topk: number of top‑k experts selected.
+        - A2 series internode range: [2, 16]; intranode range: (0, 16];
+        - A3 series range: (0, 16].
+- HCCL_BUFFSIZE: Check the HCCL_BUFFSIZE environment variable before calling the API. It represents the memory size (MB) occupied by a single communication domain, default 200MB.
+- HCCL_INTRA_PCIE_ENABLE and HCCL_INTRA_ROCE_ENABLE:
+    - A2 series internode scenario: set `HCCL_INTRA_PCIE_ENABLE=1` and `HCCL_INTRA_ROCE_ENABLE=0`;
+- Quantization: Setting `DEEP_NORMAL_MODE_USE_INT8_QUANT=1` quantizes `x` to INT8 and returns `(tensor, scales)`.
+- MXFP8 / MXFP4 quantization (A5/C310 only): Triggered by passing `x` as a tuple `(data_tensor, scale_tensor)`:
+    - MXFP8 per-block: `data_tensor` dtype `float8_e4m3fn` or `float8_e5m2`, `scale_tensor` dtype `float8_e8m0fnu`, shape `[num_tokens, hidden / 32]`.
+    - MXFP4 per-block: `data_tensor` dtype `float4_e2m1fn_x2`, shape `[num_tokens, hidden / 2]`; `scale_tensor` dtype `float8_e8m0fnu`, shape `[num_tokens, hidden / 32]`.
+
+---
+
+## `combine`
+
+### Description
+
+Reduces (combines) tokens received from `dispatch`, i.e., integrates copies of the same token across different ranks (multiply by weights and sum).
+
+### Interface
+
+```python
+combine(
+    x: torch.Tensor,
+    handle: Tuple,
+    topk_weights: Optional[torch.Tensor] = None,
+    bias: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]] = None,
+    config: Optional[Config] = None,
+    previous_event: Optional[EventOverlap] = None,
+    async_finish: bool = False,
+    allocate_on_comm_stream: bool = False,
+    combine_send_cost_stats: Optional[torch.Tensor] = None,
+) -> Tuple[
+    torch.Tensor,
+    Optional[torch.Tensor],
+    EventOverlap
+]
+```
+
+### Parameters
+
+| Parameter | Type | Required | Default | Description |
+|-----------|------|----------|---------|-------------|
+| **x** | `torch.Tensor` (`bfloat16`) | Yes | – | Tokens this rank needs to send back to the original rank, shape `[num_tokens, hidden]`. |
+| **handle** | `Tuple` | Yes | – | The **handle** returned by `dispatch` (must remain unchanged). |
+| **topk_weights** | `torch.Tensor` (`float`) | No | `None` | If top‑k weights were used in `dispatch`, these weights are used in combine reduction. |
+| **bias** | `torch.Tensor` or `(Tensor, Tensor)` | No | `None` | Reserved parameter (currently unused in implementation). |
+| **config** | `deep_ep_cpp.Config` | No | `None` | Performance tuning configuration, currently unused. |
+| **previous_event** | `EventOverlap` | No | `None` | An event that must be waited for before executing the kernel. |
+| **async_finish** | `bool` | No | `False` | Same as `dispatch`; if `True`, the returned `event` is used for manual synchronization. |
+| **allocate_on_comm_stream** | `bool` | No | `False` | Whether to place temporary tensors on the communication stream. |
+| **combine_send_cost_stats** | `torch.Tensor` (`int64`) | No | `None` | Shape `[num_ranks]`, recording the time cost for this rank to send all tokens to other ranks (statistics). |
+
+### Return Values
+
+| Return Value | Type | Description |
+|--------------|------|-------------|
+| **recv_x** | `torch.Tensor` (`bfloat16`) | Reduced tokens, shape `[recv_token_cnt, hidden]`. |
+| **recv_topk_weights** | `Optional[torch.Tensor]` (`float`) | If `topk_weights` is not `None`, returns the reduced weights; otherwise `None`. |
+| **event** | `EventOverlap` | Same as `dispatch`, only meaningful when `async_finish=True`. |
+
+### Constraints
+
+- `dispatch` and `combine` must be used together.
+- HCCL_BUFFSIZE: Check the HCCL_BUFFSIZE environment variable before calling the API. It represents the memory size (MB) occupied by a single communication domain, default 200MB.
+- HCCL_INTRA_PCIE_ENABLE and HCCL_INTRA_ROCE_ENABLE:
+    - A2 series internode scenario: set `HCCL_INTRA_PCIE_ENABLE=1` and `HCCL_INTRA_ROCE_ENABLE=0`;
 
 ---
 
@@ -118,6 +267,9 @@ dispatch(
 - HCCL_INTRA_PCIE_ENABLE和HCCL_INTRA_ROCE_ENABLE：
     - A2系列双机场景需要配置，`HCCL_INTRA_PCIE_ENABLE=1` 和 `HCCL_INTRA_ROCE_ENABLE=0`；
 - 量化：设置环境变量 `DEEP_NORMAL_MODE_USE_INT8_QUANT=1` 时，会把 `x` 量化为 `int8` 并返回 `(tensor, scales)`。
+- MXFP8 / MXFP4 量化（仅 A5/C310）：传入 `x` 为 tuple `(data_tensor, scale_tensor)` 时触发：
+    - MXFP8 per-block：`data_tensor` dtype 为 `float8_e4m3fn` 或 `float8_e5m2`，`scale_tensor` dtype 为 `float8_e8m0fnu`，shape 为 `[num_tokens, hidden / 32]`。
+    - MXFP4 per-block：`data_tensor` dtype 为 `float4_e2m1fn_x2`，shape 为 `[num_tokens, hidden / 2]`；`scale_tensor` dtype 为 `float8_e8m0fnu`，shape 为 `[num_tokens, hidden / 32]`。
 
 ---
 
