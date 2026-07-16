@@ -18,6 +18,104 @@
 #include "causal_conv1d_update/op_host/causal_conv1d_update.h"
 #include "causal_conv1d/op_host/causal_conv1d.h"
 
+#include <ATen/core/Formatting.h>
+#include "acl/acl.h"
+#include "torch_npu/csrc/core/npu/NPUGuard.h"
+
+#include <iostream>
+#include <memory>
+#include <mutex>
+#include <string>
+
+namespace sglang {
+namespace npu_kernel {
+
+namespace {
+
+struct DevicePrintPayload {
+    std::string message;
+    at::Tensor host_tensor_snapshot;
+};
+
+std::mutex &get_device_print_mutex()
+{
+    static std::mutex device_print_mutex;
+    return device_print_mutex;
+}
+
+void device_print_callback(void *args)
+{
+    auto *payload = static_cast<DevicePrintPayload *>(args);
+    if (payload == nullptr) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> guard(get_device_print_mutex());
+    if (!payload->message.empty()) {
+        std::cout << payload->message;
+    }
+
+    if (payload->host_tensor_snapshot.defined()) {
+        if (!payload->message.empty()) {
+            std::cout << std::endl;
+        }
+        at::print(std::cout, payload->host_tensor_snapshot.contiguous(), 120);
+    }
+
+    std::cout << std::endl;
+    std::cout.flush();
+}
+
+void enqueue_device_print(std::unique_ptr<DevicePrintPayload> payload, aclrtStream stream)
+{
+    auto *raw_payload = payload.release();
+    const aclError ret = aclrtLaunchHostFunc(stream, device_print_callback, raw_payload);
+    if (ret != ACL_SUCCESS) {
+        delete raw_payload;
+    }
+    TORCH_CHECK(ret == ACL_SUCCESS, "aclrtLaunchHostFunc failed, error code: ", ret);
+}
+
+}  // namespace
+
+void device_print_string(c10::string_view msg)
+{
+    auto payload = std::make_unique<DevicePrintPayload>();
+    payload->message = std::string(msg);
+    enqueue_device_print(std::move(payload), c10_npu::getCurrentNPUStream().stream());
+}
+
+void device_print_tensor(const at::Tensor &tensor)
+{
+    TORCH_CHECK(tensor.defined(), "tensor must be defined");
+    TORCH_CHECK(tensor.device().is_cpu() || tensor.device().type() == c10::DeviceType::PrivateUse1,
+                "device_print only supports CPU and NPU tensors, but got device ", tensor.device());
+
+    auto payload = std::make_unique<DevicePrintPayload>();
+    if (tensor.device().is_cpu()) {
+        payload->host_tensor_snapshot = tensor.contiguous().clone();
+        enqueue_device_print(std::move(payload), c10_npu::getCurrentNPUStream().stream());
+        return;
+    }
+
+    const c10_npu::OptionalNPUGuard npu_guard(tensor.device());
+    aclrtStream stream = c10_npu::getCurrentNPUStream().stream();
+    at::Tensor contiguous_tensor = tensor.contiguous();
+    payload->host_tensor_snapshot =
+        at::empty_like(contiguous_tensor, contiguous_tensor.options().device(at::kCPU).pinned_memory(true));
+
+    const size_t num_bytes = contiguous_tensor.numel() * contiguous_tensor.element_size();
+    const aclError memcpy_ret =
+        aclrtMemcpyAsync(payload->host_tensor_snapshot.data_ptr(), num_bytes, contiguous_tensor.data_ptr(), num_bytes,
+                         ACL_MEMCPY_DEVICE_TO_HOST, stream);
+    TORCH_CHECK(memcpy_ret == ACL_SUCCESS, "aclrtMemcpyAsync failed, error code: ", memcpy_ret);
+
+    enqueue_device_print(std::move(payload), stream);
+}
+
+}  // namespace npu_kernel
+}  // namespace sglang
+
 namespace {
 TORCH_LIBRARY_FRAGMENT(npu, m)
 {
@@ -147,6 +245,8 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor? query_start_loc=None, Tensor? cache_indices=None, Tensor? has_initial_state=None, "
         "Tensor? num_accepted_tokens=None, int activation_mode=0, int pad_slot_id=-1, "
         "int run_mode=0) -> Tensor");
+    m.def("device_print(str msg) -> ()");
+    m.def("device_print_tensor(Tensor tensor) -> ()");
 }
 }  // namespace
 
@@ -246,5 +346,13 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
             x, weight, bias_or_empty, conv_states, query_start_loc_or_empty, cache_indices_or_empty,
             has_initial_state_or_empty, num_accepted_tokens_or_empty, activation_mode, pad_slot_id, run_mode);
     });
+}
+}  // namespace
+
+namespace {
+TORCH_LIBRARY_IMPL(npu, CompositeExplicitAutograd, m)
+{
+    m.impl("device_print", TORCH_FN(sglang::npu_kernel::device_print_string));
+    m.impl("device_print_tensor", TORCH_FN(sglang::npu_kernel::device_print_tensor));
 }
 }  // namespace
