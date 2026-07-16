@@ -144,21 +144,28 @@ High-throughput dispatch and combine for training and prefill phases:
 
 | Mode | `quant_mode` | Data Format | Scale Format | Granularity | Platform |
 |------|-------------|-------------|--------------|-------------|----------|
-| BF16 (no quant) | `None` (default) | `bfloat16` | — | — | All |
-| INT8 dynamic | `None` + env var | `int8` | `float32` | per-token | All |
-| MXFP8 per-block | `None` + fp8 tuple | `float8_e4m3fn` | `float8_e8m0fnu` | per 32 elements | A5/C310 |
-| **Scalar FP8** | `"scalar_fp8"` | `float8_e4m3fn` | `float32` | per-token | A5/C310 |
+| BF16 (no quant) | `"bf16"` (default) | `bfloat16` | — | — | All |
+| INT8 dynamic | `"int8"` | `int8` | `float32` | per-token | All |
+| MXFP8 per-block | `"fp8_e4m3"` / `"fp8_e5m2"` | `float8_e4m3fn` / `float8_e5m2` | `float8_e8m0fnu` | per 32 elements | A5/C310 |
+| Scalar FP8 | `"scalar_fp8_e4m3"` / `"scalar_fp8_e5m2"` | `float8_e4m3fn` / `float8_e5m2` | `float32` | per-token | A5/C310 |
+| MXFP4 | `"fp4_e2m1"` | `float4_e2m1fn_x2` | `float8_e8m0fnu` | per 32 elements | A5/C310 |
 
 Usage:
 ```python
 # BF16 (no quantization)
 buffer.dispatch(x=data, ...)
 
+# INT8 per-token quantization
+buffer.dispatch(x=data, quant_mode="int8", ...)
+
 # Scalar FP8 per-token quantization (A5 only)
-buffer.dispatch(x=(data, fp8_signal_tensor), quant_mode="scalar_fp8", ...)
+buffer.dispatch(x=data, quant_mode="scalar_fp8_e4m3", ...)
 
 # MXFP8 per-block quantization (A5 only)
-buffer.dispatch(x=(data, fp8_signal_tensor), ...)  # quant_mode=None defaults to MXFP8
+buffer.dispatch(x=data, quant_mode="fp8_e4m3", ...)
+
+# MXFP4 quantization (A5 only)
+buffer.dispatch(x=data, quant_mode="fp4_e2m1", ...)
 ```
 
 ### Low-Latency Mode (Decode)
@@ -194,7 +201,7 @@ See [Fused Deep MoE API](doc/FUSED_DEEP_MOE_EN.md) for details.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DEEP_USE_MODE` | `default` | Normal mode strategy and Low-latency mode strategy: `default`, `ops`, or `alltoall`. |
-| `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **Deprecated.** Enable INT8 quantization in normal dispatch. A2 internode does NOT support quantization in normal mode. MXFP8 per-block quantization (A5/C310 only) is triggered by passing a tuple `(float8_e4m3fn_tensor, float8_e8m0fnu_tensor)` as `x`. |
+| `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **Removed.** INT8 quantization is now specified via `quant_mode="int8"` parameter in `dispatch()`. |
 | `SGLANG_DEEPEP_BF16_DISPATCH` | `0` | Disable quantization in low_latency_dispatch (BF16 dispatch). Set to `1` to disable; only effective in decode phase. |
 | `MOE_EXPERT_TOKEN_NUMS_TYPE` | `1` | Dispatch return type for `num_recv_tokens_per_expert_list`: `1` = per-expert token count, `0` = prefix sum. |
 | `MOE_SHARED_EXPERT_RANK_NUM` | `0` | Number of shared expert ranks (used by ops strategy). |
