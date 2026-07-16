@@ -302,9 +302,9 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 
     int64_t trt = total_recv_token.item<int>();
     int num_recv_tokens = (trt == 0) ? 1 : trt;
-    is_mxfp8_quant = use_quant && (quant_type == "fp8_e4m3" || quant_type == "fp8_e5m2");
-    bool is_mxfp4_quant = use_quant && (quant_type == "fp4_e2m1");
-    bool is_scalar_fp8_quant = use_quant && (quant_type == "scalar_fp8_e4m3" || quant_type == "scalar_fp8_e5m2");
+    is_mxfp8_quant = use_quant && (quant_type == "mx_fp8_e4m3" || quant_type == "mx_fp8_e5m2");
+    bool is_mxfp4_quant = use_quant && (quant_type == "mx_fp4_e2m1");
+    bool is_scalar_fp8_quant = use_quant && (quant_type == "pertoken_fp8_e4m3" || quant_type == "pertoken_fp8_e5m2");
     int64_t quant_mode =
         use_quant ? (is_mxfp8_quant
                          ? MXFP8_SCALES
@@ -314,7 +314,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     at::Tensor dynamic_scales_out;
 #ifdef __DAV_C310__
     if (quant_mode == MXFP8_SCALES) {
-        if (quant_type == "fp8_e5m2") {
+        if (quant_type == "mx_fp8_e5m2") {
             expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e5m2).device(x.device()));
         } else {
             expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
@@ -322,7 +322,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         dynamic_scales_out =
             torch::empty({num_recv_tokens * hidden / MX_BLOCK_SIZE}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
     } else if (quant_mode == SCALAR_FP8_SCALES) {
-        if (quant_type == "scalar_fp8_e5m2") {
+        if (quant_type == "pertoken_fp8_e5m2") {
             expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e5m2).device(x.device()));
         } else {
             expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));

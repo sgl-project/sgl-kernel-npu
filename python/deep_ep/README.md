@@ -146,9 +146,9 @@ High-throughput dispatch and combine for training and prefill phases:
 |------|-------------|-------------|--------------|-------------|----------|
 | BF16 (no quant) | `"bf16"` (default) | `bfloat16` | — | — | All |
 | INT8 dynamic | `"int8"` | `int8` | `float32` | per-token | All |
-| MXFP8 per-block | `"fp8_e4m3"` / `"fp8_e5m2"` | `float8_e4m3fn` / `float8_e5m2` | `float8_e8m0fnu` | per 32 elements | A5/C310 |
-| Scalar FP8 | `"scalar_fp8_e4m3"` / `"scalar_fp8_e5m2"` | `float8_e4m3fn` / `float8_e5m2` | `float32` | per-token | A5/C310 |
-| MXFP4 | `"fp4_e2m1"` | `float4_e2m1fn_x2` | `float8_e8m0fnu` | per 32 elements | A5/C310 |
+| MXFP8 per-block | `"mx_fp8_e4m3"` / `"mx_fp8_e5m2"` | `float8_e4m3fn` / `float8_e5m2` | `float8_e8m0fnu` | per 32 elements | A5/C310 |
+| Scalar FP8 | `"pertoken_fp8_e4m3"` / `"pertoken_fp8_e5m2"` | `float8_e4m3fn` / `float8_e5m2` | `float32` | per-token | A5/C310 |
+| MXFP4 | `"mx_fp4_e2m1"` | `float4_e2m1fn_x2` | `float8_e8m0fnu` | per 32 elements | A5/C310 |
 
 Usage:
 ```python
@@ -159,13 +159,13 @@ buffer.dispatch(x=data, ...)
 buffer.dispatch(x=data, quant_mode="int8", ...)
 
 # Scalar FP8 per-token quantization (A5 only)
-buffer.dispatch(x=data, quant_mode="scalar_fp8_e4m3", ...)
+buffer.dispatch(x=data, quant_mode="pertoken_fp8_e4m3", ...)
 
 # MXFP8 per-block quantization (A5 only)
-buffer.dispatch(x=data, quant_mode="fp8_e4m3", ...)
+buffer.dispatch(x=data, quant_mode="mx_fp8_e4m3", ...)
 
 # MXFP4 quantization (A5 only)
-buffer.dispatch(x=data, quant_mode="fp4_e2m1", ...)
+buffer.dispatch(x=data, quant_mode="mx_fp4_e2m1", ...)
 ```
 
 ### Low-Latency Mode (Decode)
@@ -240,7 +240,7 @@ For detailed A2 usage, see [A2_DEEPEP_CN.md](A2_DEEPEP_CN.md).
 
 - Only supports CANN 9.0.
 - Build with: `bash build.sh -a deepep Ascend950`.
-- Supports scalar FP8 per-token quantization (`quant_mode="scalar_fp8"`) and MXFP8 per-block quantization in normal dispatch.
+- Supports scalar FP8 per-token quantization (`quant_mode="pertoken_fp8_e4m3"`) and MXFP8 per-block quantization in normal dispatch.
 
 
 ## Test

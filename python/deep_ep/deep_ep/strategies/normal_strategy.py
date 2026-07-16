@@ -160,11 +160,11 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         VALID_QUANT_MODES = {
             "bf16",
             "int8",
-            "fp8_e4m3",
-            "fp8_e5m2",
-            "scalar_fp8_e4m3",
-            "scalar_fp8_e5m2",
-            "fp4_e2m1",
+            "mx_fp8_e4m3",
+            "mx_fp8_e5m2",
+            "pertoken_fp8_e4m3",
+            "pertoken_fp8_e5m2",
+            "mx_fp4_e2m1",
         }
         if quant_mode is None:
             quant_mode = "bf16"

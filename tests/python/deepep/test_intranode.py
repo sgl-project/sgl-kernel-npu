@@ -41,11 +41,11 @@ def test_main(
     elif quant_type == "int8":
         dispatch_quant_mode = "int8"
     elif quant_type == "fp8":
-        dispatch_quant_mode = "fp8_e4m3"
+        dispatch_quant_mode = "mx_fp8_e4m3"
     elif quant_type == "scalar_fp8":
-        dispatch_quant_mode = "scalar_fp8_e4m3"
+        dispatch_quant_mode = "pertoken_fp8_e4m3"
     elif quant_type == "fp4":
-        dispatch_quant_mode = "fp4_e2m1"
+        dispatch_quant_mode = "mx_fp4_e2m1"
     num_servers = num_ranks // num_local_ranks
     expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
 
@@ -477,7 +477,7 @@ def test_main(
     if dispatch_quant_mode not in ("bf16", "int8", None):
         num_recv_tokens = dispatch_bf16_recv_bytes // (hidden * 2)
         fp8_data_bytes = num_recv_tokens * hidden
-        if dispatch_quant_mode == "scalar_fp8_e4m3":
+        if dispatch_quant_mode == "pertoken_fp8_e4m3":
             fp8_scale_bytes = num_recv_tokens * 4
         else:
             fp8_scale_bytes = num_recv_tokens * hidden // 32
