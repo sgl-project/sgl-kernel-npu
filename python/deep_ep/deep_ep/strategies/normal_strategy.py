@@ -71,7 +71,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
 
     def dispatch(
         self,
-        x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+        x: torch.Tensor,
         handle: Optional[Tuple],
         num_tokens_per_rank: Optional[torch.Tensor],
         num_tokens_per_rdma_rank: Optional[torch.Tensor],
@@ -133,7 +133,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
 
     def _intranode_dispatch(
         self,
-        x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+        x: torch.Tensor,
         handle: Optional[Tuple],
         num_tokens_per_rank: Optional[torch.Tensor],
         is_token_in_rank: Optional[torch.Tensor],
@@ -172,7 +172,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             raise ValueError(
                 f"Invalid quant_mode: {quant_mode}. Valid options: {VALID_QUANT_MODES}"
             )
-        data = x[0] if isinstance(x, tuple) else x
+        data = x
         x_scales = None
         quant_type = quant_mode
         use_quant = quant_mode != "bf16"
@@ -244,7 +244,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
 
     def _internode_dispatch(
         self,
-        x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+        x: torch.Tensor,
         handle: Optional[Tuple],
         num_tokens_per_rank: Optional[torch.Tensor],
         num_tokens_per_rdma_rank: Optional[torch.Tensor],
@@ -265,8 +265,8 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         Tuple,
         EventOverlap,
     ]:
-        x, x_scales = x if isinstance(x, tuple) else (x, None)
-        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+        x_scales = None
+        use_quant = False
 
         if handle is not None:
             raise NotImplementedError(
@@ -544,7 +544,7 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
 
     def dispatch(
         self,
-        x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+        x: torch.Tensor,
         handle: Optional[Tuple],
         num_tokens_per_rank: Optional[torch.Tensor],
         num_tokens_per_rdma_rank: Optional[torch.Tensor],

@@ -125,7 +125,7 @@ class NormalEPCommStrategy(EPCommStrategy):
     @abstractmethod
     def dispatch(
         self,
-        x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+        x: torch.Tensor,
         handle: Optional[Tuple],
         num_tokens_per_rank: Optional[torch.Tensor],
         num_tokens_per_rdma_rank: Optional[torch.Tensor],

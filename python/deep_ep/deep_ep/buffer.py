@@ -283,7 +283,7 @@ class Buffer:
     @log_parameters(["topk_idx"])
     def dispatch(
         self,
-        x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+        x: torch.Tensor,
         handle: Optional[Tuple] = None,
         num_tokens_per_rank: Optional[torch.Tensor] = None,
         num_tokens_per_rdma_rank: Optional[torch.Tensor] = None,
@@ -382,7 +382,7 @@ class Buffer:
     @log_parameters(["topk_idx"])
     def notify_verify(
         self,
-        x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+        x: torch.Tensor,
         handle: Optional[Tuple] = None,
         num_tokens_per_rank: Optional[torch.Tensor] = None,
         num_tokens_per_rdma_rank: Optional[torch.Tensor] = None,
@@ -411,8 +411,6 @@ class Buffer:
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
         # Launch the kernel with cached or non-cached mode
-        if isinstance(x, tuple):
-            raise NotImplementedError("Not support fp8")
         x_scales = None
         use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
 
@@ -522,7 +520,7 @@ class Buffer:
 
     def internode_dispatch(
         self,
-        x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+        x: torch.Tensor,
         handle: Optional[Tuple] = None,
         num_tokens_per_rank: Optional[torch.Tensor] = None,
         num_tokens_per_rdma_rank: Optional[torch.Tensor] = None,
@@ -547,8 +545,8 @@ class Buffer:
         Internode dispatch implementation, for more details, please refer to the `dispatch` docs.
         Normally, you should not directly call this function.
         """
-        x, x_scales = x if isinstance(x, tuple) else (x, None)
-        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+        x_scales = None
+        use_quant = False
         if handle is not None:
             raise NotImplementedError(
                 "Optional communication handle is not supported yet."
