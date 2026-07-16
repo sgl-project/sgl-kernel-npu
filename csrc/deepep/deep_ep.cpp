@@ -322,11 +322,9 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         dynamic_scales_out =
             torch::empty({num_recv_tokens * hidden / MX_BLOCK_SIZE}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
     } else if (quant_mode == SCALAR_FP8_SCALES) {
-        if (quant_type == "pertoken_fp8_e5m2") {
-            expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e5m2).device(x.device()));
-        } else {
-            expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
-        }
+        EP_HOST_ASSERT_S(quant_type != "pertoken_fp8_e5m2",
+                         "pertoken_fp8_e5m2 is not supported yet, please use pertoken_fp8_e4m3 instead");
+        expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
         dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
     } else if (quant_mode == MXFP4_SCALES) {
         expandx_out =
