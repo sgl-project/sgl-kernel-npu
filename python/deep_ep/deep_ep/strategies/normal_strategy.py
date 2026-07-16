@@ -157,25 +157,39 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         EventOverlap,
     ]:
         # Determine quant type
-        if isinstance(x, torch.Tensor):
-            # BF16 no quant
+        # New API: quant_mode directly specifies the quantization type
+        VALID_QUANT_MODES = {
+            "bf16",
+            "int8",
+            "fp8_e4m3",
+            "fp8_e5m2",
+            "scalar_fp8_e4m3",
+            "scalar_fp8_e5m2",
+            "fp4_e2m1",
+        }
+        if quant_mode is not None:
+            if quant_mode not in VALID_QUANT_MODES:
+                raise ValueError(
+                    f"Invalid quant_mode: {quant_mode}. Valid options: {VALID_QUANT_MODES}"
+                )
+            data = x[0] if isinstance(x, tuple) else x
+            x_scales = None
+            quant_type = quant_mode
+            use_quant = quant_mode != "bf16"
+        elif isinstance(x, torch.Tensor):
+            # BF16 no quant (backward compat)
             data = x
             x_scales = None
             quant_type = "bf16"
             use_quant = False
         elif isinstance(x, tuple) and len(x) == 2:
+            # Old API: infer from signal tensor dtype (backward compat)
             data, quant_type_tensor = x
             if quant_type_tensor.dtype == torch.float8_e4m3fn:
-                if quant_mode == "scalar_fp8":
-                    quant_type = "scalar_fp8_e4m3"
-                else:
-                    quant_type = "fp8_e4m3"
+                quant_type = "fp8_e4m3"
                 use_quant = True
             elif quant_type_tensor.dtype == torch.float8_e5m2:
-                if quant_mode == "scalar_fp8":
-                    quant_type = "scalar_fp8_e5m2"
-                else:
-                    quant_type = "fp8_e5m2"
+                quant_type = "fp8_e5m2"
                 use_quant = True
             elif quant_type_tensor.dtype == torch.int8:
                 quant_type = "int8"
