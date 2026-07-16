@@ -355,7 +355,10 @@ def test_main(
                 )
 
     for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x)):
-        use_fp8 = dispatch_quant_mode not in ("bf16", "int8", None) and current_x is x_pure_rand
+        use_fp8 = (
+            dispatch_quant_mode not in ("bf16", "int8", None)
+            and current_x is x_pure_rand
+        )
         if local_rank == 0:
             print(
                 f'[testing] Running with {"FP8" if use_fp8 else "BF16"}, with top-k {num_topk} ...',
