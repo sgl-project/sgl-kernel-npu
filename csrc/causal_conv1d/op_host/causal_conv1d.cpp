@@ -111,7 +111,7 @@ std::pair<uint32_t, uint32_t> tiling_causal_conv1d(uint64_t numCores, uint64_t b
     batch /= gcdCoreBatch;
 
     uint64_t numChannels = ceil_div(dim, maxChannels);
-    uint64_t channelsPerTile = ceil_div(dim / numChannels, minChannels) * minChannels;
+    uint64_t channelsPerTile = ceil_div(ceil_div(dim, numChannels), minChannels) * minChannels;
 
     uint64_t seqChunks = 1u;
     double bestScore = std::numeric_limits<double>::infinity();
