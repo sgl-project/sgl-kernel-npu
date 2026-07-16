@@ -228,7 +228,7 @@ low_latency_dispatch 量化模式：
 ### A2 双机
 
 - 适用条件：P/D 节点 ranks > 8（跨节点通信）。
-- **Normal 模式不支持量化**（`DEEP_NORMAL_MODE_USE_INT8_QUANT=0`）。
+- **Normal 模式不支持量化**（A2 双机使用 BF16 `quant_mode`）。
 - **必须设置** `HCCL_INTRA_PCIE_ENABLE=1` 和 `HCCL_INTRA_ROCE_ENABLE=0` 启用分层通信。
 - **性能上限**：normal 最大 `bs=4096`，low_latency 最大 `bs=512`。
 

@@ -227,7 +227,7 @@ For detailed A2 usage, see [A2_DEEPEP_CN.md](A2_DEEPEP_CN.md).
 ### A2 Dual Node
 
 - Applicable when P/D node ranks > 8 (cross-node communication).
-- **Normal mode does NOT support quantization** (`DEEP_NORMAL_MODE_USE_INT8_QUANT=0`).
+- **Normal mode does NOT support quantization** (use BF16 `quant_mode` for A2 internode).
 - **Must set** `HCCL_INTRA_PCIE_ENABLE=1` and `HCCL_INTRA_ROCE_ENABLE=0` for hierarchical communication.
 - **Performance limits**: normal up to `bs=4096`, low_latency up to `bs=512`.
 

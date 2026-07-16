@@ -436,7 +436,7 @@ def test_main(
         for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x)):
             if local_rank == 0:
                 print(
-                    f'[testing] Running with BF16, with top-k {num_topk} ...',
+                    f"[testing] Running with BF16, with top-k {num_topk} ...",
                     flush=True,
                 )
             # Test dispatch
@@ -548,7 +548,7 @@ def test_main(
             )
             if local_rank == 0:
                 print(
-                    f'[tuning] Dispatch (BF16) {recv_bytes / 1e9 / t:.2f} GB/s (HCCS), '
+                    f"[tuning] Dispatch (BF16) {recv_bytes / 1e9 / t:.2f} GB/s (HCCS), "
                     f"{rdma_send_bytes / 1e9 / t:.2f} GB/s (RDMA), avg_t: {t * 1e6:.2f} us, notify_t: {notify_t  * 1e6:.2f} us",
                     flush=True,
                 )
