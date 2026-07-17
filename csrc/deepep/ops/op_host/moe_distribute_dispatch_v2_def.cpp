@@ -1,14 +1,15 @@
 #include "register/op_def_registry.h"
 
 namespace ops {
-class MoeDistributeDispatchV2 : public OpDef
+class MoeLowLatencyDispatchV2 : public OpDef
 {
 public:
-    explicit MoeDistributeDispatchV2(const char *name) : OpDef(name)
+    explicit MoeLowLatencyDispatchV2(const char *name) : OpDef(name)
     {
         this->Input("x")
             .ParamType(REQUIRED)
-            .DataType({ge::DT_BF16, ge::DT_BF16, ge::DT_FLOAT16, ge::DT_FLOAT16, ge::DT_BF16, ge::DT_BF16})
+            .DataType({ge::DT_BF16, ge::DT_BF16, ge::DT_FLOAT16, ge::DT_FLOAT16, ge::DT_BF16, ge::DT_BF16, ge::DT_BF16,
+                       ge::DT_BF16, ge::DT_FLOAT16, ge::DT_FLOAT16})
             .FormatList({ge::FORMAT_ND})
             .AutoContiguous();
         this->Input("expert_ids")
@@ -34,12 +35,14 @@ public:
 
         this->Output("expand_x")
             .ParamType(REQUIRED)
-            .DataType({ge::DT_BF16, ge::DT_INT8, ge::DT_FLOAT16, ge::DT_INT8, ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E5M2})
+            .DataType({ge::DT_BF16, ge::DT_INT8, ge::DT_FLOAT16, ge::DT_INT8, ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E5M2,
+                       ge::DT_FLOAT4_E2M1, ge::DT_FLOAT4_E1M2, ge::DT_FLOAT4_E2M1, ge::DT_FLOAT4_E1M2})
             .FormatList({ge::FORMAT_ND});
 
         this->Output("dynamic_scales")
             .ParamType(REQUIRED)
-            .DataType({ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT8_E8M0, ge::DT_FLOAT8_E8M0})
+            .DataType({ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT8_E8M0, ge::DT_FLOAT8_E8M0,
+                       ge::DT_FLOAT8_E8M0, ge::DT_FLOAT8_E8M0, ge::DT_FLOAT8_E8M0, ge::DT_FLOAT8_E8M0})
             .FormatList({ge::FORMAT_ND});
 
         this->Output("assist_info_for_combine")
@@ -88,6 +91,6 @@ public:
     }
 };
 
-OP_ADD(MoeDistributeDispatchV2);
+OP_ADD(MoeLowLatencyDispatchV2);
 
 }  // namespace ops

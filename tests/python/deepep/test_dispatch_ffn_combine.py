@@ -475,10 +475,10 @@ def test(
         lambda: baseline_test(**baseline_args),
         (
             "aclnnInplaceOne_OnesLikeAiCore_OnesLike",
-            "MoeDistributeDispatchV2",
+            "MoeLowLatencyDispatchV2",
             "aclnnGroupedMatmulWeightNz_GroupedMatmul_GroupedMatmul",
             "DequantSwigluQuant",
-            "MoeDistributeCombineV2",
+            "MoeLowLatencyCombineV2",
         ),
         barrier_comm_profiling=True,
     )

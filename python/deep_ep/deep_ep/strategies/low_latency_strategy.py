@@ -42,6 +42,7 @@ class DefaultLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         use_fp8: bool = True,
         round_scale: bool = False,
         use_ue8m0: bool = False,
+        use_mxfp4: bool = False,
         async_finish: bool = False,
         return_recv_hook: bool = False,
         topk_weights: Optional[torch.Tensor] = None,
@@ -71,6 +72,7 @@ class DefaultLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             use_fp8,
             round_scale,
             use_ue8m0,
+            use_mxfp4,
             async_finish,
             return_recv_hook,
         )
@@ -192,6 +194,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         use_fp8: bool = True,
         round_scale: bool = False,
         use_ue8m0: bool = False,
+        use_mxfp4: bool = False,
         async_finish: bool = False,
         return_recv_hook: bool = False,
         topk_weights: Optional[torch.Tensor] = None,
@@ -204,10 +207,38 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
     ]:
 
         topk_ids = topk_idx.int()
+        x_active_mask = torch.zeros(
+            num_max_dispatch_tokens_per_rank,
+            dtype=torch.bool,
+            device=x.device,
+        )
+        x_active_mask[: x.size(0)] = True
+        padding_size = num_max_dispatch_tokens_per_rank - x.size(0)
         if self.comm_alg == "hierarchy":
             assert (
                 topk_weights is not None
             ), "When comm_alg='hierarchy', topk_weights can not be None"
+        x_padding = torch.empty(
+            padding_size,
+            x.size(1),
+            dtype=x.dtype,
+            device=x.device,
+        )
+        x_padding = torch.cat((x, x_padding), dim=0)
+        topk_padding = torch.empty(
+            padding_size,
+            topk_ids.size(1),
+            dtype=topk_ids.dtype,
+            device=topk_ids.device,
+        )
+        topk_padding = torch.cat((topk_ids, topk_padding), dim=0)
+        weight_padding = torch.empty(
+            padding_size,
+            topk_weights.size(1),
+            dtype=topk_weights.dtype,
+            device=topk_weights.device,
+        )
+        weight_padding = torch.cat((topk_weights, weight_padding), dim=0)
 
         (
             packed_recv_x,
@@ -217,12 +248,13 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             packed_recv_layout_range,
             expand_scales,
         ) = self._npu_low_latency_dispatch(
-            x=x,
-            topk_idx=topk_ids,
+            x=x_padding,
+            topk_idx=topk_padding,
             num_experts=num_experts,
             quant_mode=3 if use_ue8m0 else 2 if use_fp8 else 0,
             comm_alg=self.comm_alg,
-            topk_weights=topk_weights,
+            topk_weights=weight_padding,
+            x_active_mask=x_active_mask,
             num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
         )
 
@@ -234,6 +266,9 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             num_experts,
             packed_recv_count,
             expand_scales,
+            x_active_mask,
+            topk_padding,
+            weight_padding,
         )
 
         event = EventOverlap(EventHandle())
@@ -260,6 +295,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
     ) -> Tuple[torch.Tensor, EventOverlap, Callable]:
 
         topk_ids = topk_idx.int()
+        src_num = topk_idx.size(0)
         (
             src_info,
             layout_range,
@@ -268,23 +304,27 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             num_experts,
             packed_recv_count,
             expand_scales,
+            x_active_mask,
+            topk_padding,
+            weight_padding,
         ) = handle
 
         combined_x = self._npu_low_latency_combine(
             x=x,
-            topk_idx=topk_ids,
-            topk_weights=topk_weights,
+            topk_idx=topk_padding,
+            topk_weights=weight_padding,
             assist_info_for_combine=src_info,
             ep_send_counts=layout_range,
             num_experts=num_experts,
             comm_alg=self.comm_alg,
             expand_scales=expand_scales,
+            x_active_mask=x_active_mask,
             num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
         )
 
         event = EventOverlap(EventHandle())
         hook = lambda *args, **kwargs: None
-
+        combined_x = combined_x[:src_num, :]
         return combined_x, event, hook
 
     def _npu_low_latency_dispatch(
@@ -306,7 +346,6 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
 
         shared_expert_rank_num = int(os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0))
         expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
-        global_bs = num_max_dispatch_tokens_per_rank * self.group_size
         if comm_alg == "hierarchy":
             assert (
                 shared_expert_num == 0
@@ -336,7 +375,6 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             shared_expert_rank_num=shared_expert_rank_num,
             quant_mode=quant_mode,
             expert_token_nums_type=expert_token_nums_type,
-            global_bs=global_bs,
             comm_alg=comm_alg,  # A3: 支持""，"fullmesh_v1"，"fullmesh_v2", "hierarchy"
         )
 
@@ -370,7 +408,6 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
     ):
 
         shared_expert_rank_num = int(os.getenv("MOE_SHARED_EXPERT_RANK_NUM", 0))
-        global_bs = num_max_dispatch_tokens_per_rank * self.group_size
         if comm_alg == "hierarchy":
             assert (
                 shared_expert_num == 0
@@ -394,7 +431,6 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             expert_shard_type=expert_shared_type,
             shared_expert_num=shared_expert_num,
             shared_expert_rank_num=shared_expert_rank_num,
-            global_bs=global_bs,
             comm_quant_mode=comm_quant_mode,
             comm_alg=comm_alg,  # A3: 支持""，"hierarchy"两种
         )
@@ -428,6 +464,7 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         use_fp8=True,
         round_scale=False,
         use_ue8m0=False,
+        use_mxfp4=False,
         async_finish=False,
         return_recv_hook=False,
         topk_weights: Optional[torch.Tensor] = None,
