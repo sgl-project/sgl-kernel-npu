@@ -119,6 +119,7 @@ static ge::graphStatus CheckGmm1Shape(gert::TilingContext &context, FusedDeepMoe
     uint32_t elementDims = gmm1FirstTensorElementShape.GetDimNum();
     uint32_t epRankId = tilingData.fusedDeepMoeInfo.epRankId;
     uint32_t localExpertNum = moeExpertNumPerRank;
+    bool isMxFp4 = tilingData.fusedDeepMoeInfo.mxActStorageFp4 == MX_FP4_QUANT_MODE;
 
     OPS_ERR_IF(elementDims != TWO_DIMS && elementDims != THREE_DIMS,
                     OPS_LOG_E(nodeName, "gmm1Weight shape is invalid."),
@@ -150,6 +151,9 @@ static ge::graphStatus CheckGmm1Shape(gert::TilingContext &context, FusedDeepMoe
                                     static_cast<uint64_t>(gmm1FirstTensorElementShape.GetDim(SINGLE_HIDDEN_INDEX));
         }
         tilingData.fusedDeepMoeInfo.isTensorList = false;
+    }
+    if (isMxFp4) {
+        tilingData.fusedDeepMoeInfo.gmm1HLen = tilingData.fusedDeepMoeInfo.gmm1HLen * 2;
     }
     return ge::GRAPH_SUCCESS;
 }
@@ -192,6 +196,10 @@ static ge::graphStatus CheckShareExpertShapes(gert::TilingContext &context, Fuse
         OPS_LOG_E(nodeName, "shareGmm1 hidden size must be divisible by %u, but got %lu.",
             GMM1_HIDDEN_ALIGN, shareGmm1HLen),
         return ge::GRAPH_FAILED);
+    bool isMxFp4 = tilingData.fusedDeepMoeInfo.mxActStorageFp4 == MX_FP4_QUANT_MODE;
+    if (isMxFp4) {
+        tilingData.fusedDeepMoeInfo.shareGmm1HLen = tilingData.fusedDeepMoeInfo.shareGmm1HLen * 2;
+    }
 
     // Check share_gmm1_weight_scale: [shareGmm1HLen] (1D) or [1, shareGmm1HLen] (2D)
     // const gert::StorageShape* shareGmm1ScaleStorageShape = context.GetOptionalInputShape(INPUT_SHARE_GMM1_WEIGHT_SCALE_INDEX);
@@ -512,6 +520,22 @@ ge::graphStatus CheckSmoothScales(const gert::TilingContext &context, const char
     return ge::GRAPH_SUCCESS;
 }
 
+static bool IsMxFp4GmmWeight(ge::DataType dtype)
+{
+    return dtype == ge::DT_FLOAT4_E2M1 || dtype == ge::DT_FLOAT4_E1M2;
+}
+
+static ge::graphStatus SetMxActStorageFromGmmWeight(const gert::TilingContext &context, const char *nodeName,
+                                                    FusedDeepMoeTilingData &tilingData)
+{
+    auto gmm1Tensor = context.GetDynamicInputTensor(INPUT_GMM1_WEIGHT_INDEX, 0);
+    OPS_ERR_IF(gmm1Tensor == nullptr, OPS_LOG_E(nodeName, "gmm1Weight is null."), return ge::GRAPH_FAILED);
+    ge::DataType gmm1WeightDtype = gmm1Tensor->GetDataType();
+    tilingData.fusedDeepMoeInfo.mxActStorageFp4 =
+        IsMxFp4GmmWeight(gmm1WeightDtype) ? MX_FP4_QUANT_MODE : 0U;
+    return ge::GRAPH_SUCCESS;
+}
+
 static ge::graphStatus CheckData(const char *nodeName, FusedDeepMoeTilingData &tilingData)
 {
     uint32_t batchSize = tilingData.fusedDeepMoeInfo.bs;
@@ -533,6 +557,16 @@ static ge::graphStatus CheckData(const char *nodeName, FusedDeepMoeTilingData &t
         OPS_LOG_E(nodeName, "gmm1 hidden size must be divisible by %u, but got %u.",
             GMM1_HIDDEN_ALIGN, gmm1HLen),
         return ge::GRAPH_FAILED);
+    if (tilingData.fusedDeepMoeInfo.mxActStorageFp4 == MX_FP4_QUANT_MODE) {
+        OPS_ERR_IF(tokenLength % 2 != 0,
+            OPS_LOG_E(nodeName, "tokenLength(h) must be even for MX FP4 gmm weight, but got %u.",
+                tokenLength),
+            return ge::GRAPH_FAILED);
+        OPS_ERR_IF(gmm1HLen % 2 != 0,
+            OPS_LOG_E(nodeName, "gmm1 hidden size must be even for MX FP4 gmm weight, but got %u.",
+                gmm1HLen),
+            return ge::GRAPH_FAILED);
+    }
     uint32_t topK = tilingData.fusedDeepMoeInfo.k;
     OPS_ERR_IF(topK > SUPPORT_TOP_K, OPS_LOG_E(nodeName, "topK(k) must <= %u.", SUPPORT_TOP_K),
                     return ge::GRAPH_FAILED);
@@ -585,6 +619,7 @@ static ge::graphStatus GetAttrAndSetTilingData(const gert::TilingContext &contex
     OPS_ERR_IF((moeExpertNum % epRankSize) != 0,
                     OPS_LOG_E(nodeName, "moeExpertNum must be divisible by epRankSize."),
                     return ge::GRAPH_FAILED);
+    OPS_ERR_IF(quantModePtr == nullptr, OPS_LOG_E(nodeName, "quantModePtr is nullptr."), return ge::GRAPH_FAILED);
 
     groupEp = std::string(groupEpPtr);
     tilingData.fusedDeepMoeInfo.epRankSize = epRankSize;
@@ -628,6 +663,14 @@ static ge::graphStatus CheckHcclBufferSize(const char *nodeName, const FusedDeep
     return ge::GRAPH_SUCCESS;
 }
 
+static size_t MxActStorageBytes(size_t logicalElems, bool isMxFp4)
+{
+    if (isMxFp4) {
+        return (logicalElems + 1U) / 2U;
+    }
+    return logicalElems * sizeof(fp8_e4m3_t);
+}
+
 static ge::graphStatus SetWorkSpace(gert::TilingContext &context, const char *nodeName,
                                     FusedDeepMoeTilingData &tilingData, bool calShareExpert)
 {
@@ -651,9 +694,10 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext &context, const char *no
     uint64_t x2MxScaleNum = CeilUp(Ceil(gmm2HLen, 32), 2);
     uint64_t shareX2MxScaleNum = CeilUp(Ceil(shareGmm2HLen, 32), 2);;
     maxTokenNum = globalBs * std::min(topK, moeExpertNumPerRank);
+    bool isMxFp4 = tilingData.fusedDeepMoeInfo.mxActStorageFp4 == MX_FP4_QUANT_MODE;
 
-    size_t x1TokenSize = (shareExpertTokenNum * h + maxTokenNum * h) * sizeof(fp8_e4m3_t);
-    size_t x2TokenSize = (shareExpertTokenNum * shareGmm2HLen + maxTokenNum * gmm2HLen) * sizeof(fp8_e4m3_t);
+    size_t x1TokenSize = MxActStorageBytes(shareExpertTokenNum * h + maxTokenNum * h, isMxFp4);
+    size_t x2TokenSize = MxActStorageBytes(shareExpertTokenNum * shareGmm2HLen + maxTokenNum * gmm2HLen, isMxFp4);
     size_t maxTokenSize = CeilUp(x1TokenSize < x2TokenSize ? x2TokenSize : x1TokenSize, GM_ALIGN_SIZE);
     // size_t tokenScaleSize = CeilUp((shareExpertTokenNum + maxTokenNum) * sizeof(float), GM_ALIGN_SIZE);
     size_t x1MxScaleSize = (shareExpertTokenNum * shareX1MxScaleNum + maxTokenNum * x1MxScaleNum) * sizeof(fp8_e8m0_t);
@@ -673,8 +717,8 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext &context, const char *no
 #ifdef ENABLE_REUSE_MEMORY
     tilingData.workSpaceOffset.shareX1TokenOffset = offset;
     tilingData.workSpaceOffset.shareX2TokenOffset = offset;
-    tilingData.workSpaceOffset.x1TokenOffset = offset + shareExpertTokenNum * h * sizeof(fp8_e4m3_t);
-    tilingData.workSpaceOffset.x2TokenOffset = offset + shareExpertTokenNum * shareGmm2HLen * sizeof(fp8_e4m3_t);
+    tilingData.workSpaceOffset.x1TokenOffset = offset + MxActStorageBytes(shareExpertTokenNum * h, isMxFp4);
+    tilingData.workSpaceOffset.x2TokenOffset = offset + MxActStorageBytes(shareExpertTokenNum * shareGmm2HLen, isMxFp4);
     offset += maxTokenSize;
     tilingData.workSpaceOffset.shareX1ScaleOffset = offset;
     tilingData.workSpaceOffset.shareX2ScaleOffset = offset;
@@ -691,13 +735,13 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext &context, const char *no
     tilingData.workSpaceOffset.y2TokenOffset = offset;
 #else
     tilingData.workSpaceOffset.shareX1TokenOffset = offset;
-    offset += CeilUp(shareExpertTokenNum * h * sizeof(fp8_e4m3_t), GM_ALIGN_SIZE);
+    offset += CeilUp(MxActStorageBytes(shareExpertTokenNum * h, isMxFp4), GM_ALIGN_SIZE);
     tilingData.workSpaceOffset.shareX2TokenOffset = offset;
-    offset += CeilUp(shareExpertTokenNum * shareGmm2HLen * sizeof(fp8_e4m3_t), GM_ALIGN_SIZE);
+    offset += CeilUp(MxActStorageBytes(shareExpertTokenNum * shareGmm2HLen, isMxFp4), GM_ALIGN_SIZE);
     tilingData.workSpaceOffset.x1TokenOffset = offset;
-    offset += CeilUp(maxTokenNum * h * sizeof(fp8_e4m3_t), GM_ALIGN_SIZE);
+    offset += CeilUp(MxActStorageBytes(maxTokenNum * h, isMxFp4), GM_ALIGN_SIZE);
     tilingData.workSpaceOffset.x2TokenOffset = offset;
-    offset += CeilUp(maxTokenNum * gmm2HLen * sizeof(fp8_e4m3_t), GM_ALIGN_SIZE);
+    offset += CeilUp(MxActStorageBytes(maxTokenNum * gmm2HLen, isMxFp4), GM_ALIGN_SIZE);
     tilingData.workSpaceOffset.shareX1ScaleOffset = offset;
     offset += CeilUp(shareExpertTokenNum * x1MxScaleNum * sizeof(fp8_e8m0_t), GM_ALIGN_SIZE);
     tilingData.workSpaceOffset.shareX2ScaleOffset = offset;
@@ -763,6 +807,8 @@ static ge::graphStatus FusedDeepMoeTilingFuncImpl(gert::TilingContext &context)
     tilingData->fusedDeepMoeInfo.k = topK;
     OPS_ERR_IF(GetAttrAndSetTilingData(context, nodeName, *tilingData, groupEp) != ge::GRAPH_SUCCESS,
                     OPS_LOG_E(nodeName, "Get attr and set tiling data failed."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(SetMxActStorageFromGmmWeight(context, nodeName, *tilingData) != ge::GRAPH_SUCCESS,
+                    OPS_LOG_E(nodeName, "Set mx act storage from gmm weight failed."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(CheckWeightTensorList(context, *tilingData) != ge::GRAPH_SUCCESS,
            OPS_LOG_E(nodeName, "CheckWeightTensorList failed."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(CheckHcclBufferSize(nodeName, *tilingData) != ge::GRAPH_SUCCESS,
@@ -836,3 +882,4 @@ IMPL_OP_OPTILING(FusedDeepMoe)
     .TilingParse<FusedDeepMoeCompileInfo>(TilingParseForFusedDeepMoe);
 }  // namespace optiling
 #endif  // defined(__DAV_C310__)
+

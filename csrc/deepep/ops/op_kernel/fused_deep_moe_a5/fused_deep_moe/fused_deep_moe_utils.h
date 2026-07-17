@@ -49,25 +49,25 @@ __aicore__ inline T FlushAndSpinValue(AscendC::GlobalTensor<T> &globalTensor, ui
         return value;
 }
 
-__aicore__ inline void EncreaseSyncFlag(__gm__ uint8_t *flagAddr, uint8_t idx)
+__aicore__ inline void EncreaseSyncFlag(__gm__ int32_t *flagAddr, int32_t idx)
 {
     // flag++, like set flag
     AscendC::PipeBarrier<PIPE_ALL>();
-    AscendC::GlobalTensor<uint8_t> global;
-    global.SetGlobalBuffer(flagAddr + idx * CVSoftSync::SOFT_SYNC_SPACE_SIZE);
-    uint8_t value = FlushAndGetValue<uint8_t>(global, 0);
-    SetValueAndFlush<uint8_t>(global, 0, value + 1);
+    AscendC::GlobalTensor<int32_t> global;
+    global.SetGlobalBuffer(flagAddr + idx * CVSoftSync::SOFT_SYNC_SPACE_SIZE / sizeof(int32_t));
+    int32_t value = FlushAndGetValue<int32_t>(global, 0);
+    SetValueAndFlush<int32_t>(global, 0, value + 1);
     AscendC::PipeBarrier<PIPE_ALL>();
 }
 
-__aicore__ inline void CheckSyncFlag(__gm__ uint8_t *flagAddr, uint8_t idx, uint32_t target)
+__aicore__ inline void CheckSyncFlag(__gm__ int32_t *flagAddr, int32_t idx, uint32_t target)
 {
     //  check flag, like wait flag
     AscendC::PipeBarrier<PIPE_ALL>();
-    AscendC::GlobalTensor<uint8_t> global;
-    global.SetGlobalBuffer(flagAddr + idx * CVSoftSync::SOFT_SYNC_SPACE_SIZE);
+    AscendC::GlobalTensor<int32_t> global;
+    global.SetGlobalBuffer(flagAddr + idx * CVSoftSync::SOFT_SYNC_SPACE_SIZE / sizeof(int32_t));
     while (true) {
-        uint8_t value = FlushAndGetValue<uint8_t>(global, 0);
+        int32_t value = FlushAndGetValue<int32_t>(global, 0);
         if (value >= target) {
             break;
         }

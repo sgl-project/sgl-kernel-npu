@@ -20,6 +20,8 @@ import gc
 import os
 import sys
 from pathlib import Path
+import random
+import datetime
 
 import numpy as np
 import torch
@@ -49,12 +51,28 @@ BASE_KWARGS = {
     "with_share": False,
     "with_smooth": False,
     "enable_nz": False,
-    "share_expert_intermediate_size": 2048
+    "share_expert_intermediate_size": 2048,
+    "debug": False,
+    "once": False,
+    "balance": False,
+    "weight_dtype": "fp8_e4m3",
+    "act_dtype": "fp8_e4m3",
+}
+
+DTYPE_MAP = {
+    "fp8_e4m3": (torch.float8_e4m3fn, torch.float8_e4m3fn),
+    "fp8_e5m2": (torch.float8_e5m2, torch.float8_e5m2),
+    "fp4_e2m1": (torch_npu.float4_e2m1fn_x2, torch.float4_e2m1fn_x2),
 }
 
 debug = False
 once = False
-balance = True
+balance = False
+weight_dtype = torch.float8_e4m3fn
+act_dtype = torch.float8_e4m3fn
+torch_origin_weight_dtype = weight_dtype
+torch_origin_act_dtype = act_dtype
+round_mode_kwargs = {}
 
 def redirect_output(log_file_path):
     log_path = Path(LOG_NAME) / log_file_path
@@ -148,11 +166,13 @@ class SmallOps(DecodeMoeOps):
 
     def share_compute(self, x):
         output_dtype = x.dtype
-        x1, x1_scale = torch_npu.npu_dynamic_mx_quant(x, dst_type=torch.float8_e4m3fn)
+        x1, x1_scale = torch_npu.npu_dynamic_mx_quant(x, dst_type=act_dtype, **round_mode_kwargs)
+        x1 = x1.view(torch_origin_act_dtype)
         x1_scale = x1_scale.view(torch.float8_e8m0fnu)
         y1_fp = torch_npu.npu_quant_matmul(x1, self.share_gmm1_weight, self.share_gmm1_weight_scale, pertoken_scale=x1_scale, output_dtype=output_dtype)
         swiglu_out = torch_npu.npu_swiglu(y1_fp)
-        x2, x2_scale = torch_npu.npu_dynamic_mx_quant(swiglu_out, dst_type=torch.float8_e4m3fn)
+        x2, x2_scale = torch_npu.npu_dynamic_mx_quant(swiglu_out, dst_type=act_dtype, **round_mode_kwargs)
+        x2 = x2.view(torch_origin_act_dtype)
         x2_scale = x2_scale.view(torch.float8_e8m0fnu)
         y2_fp = torch_npu.npu_quant_matmul(x2, self.share_gmm2_weight, self.share_gmm2_weight_scale, pertoken_scale=x2_scale, output_dtype=output_dtype)
         if debug and (self.global_rank_id == 0 or True):
@@ -167,11 +187,7 @@ class SmallOps(DecodeMoeOps):
             torch.save(y2_fp.cpu(), f"rank_{self.global_rank_id}_small_share_share_output.pt")
         return y2_fp
 
-    def _apply_ops(self, x, expert_ids, expert_scales, x_active_mask):
-        if self.with_share:
-            share_output = self.share_compute(x)
-        else:
-            share_output = None
+    def _run_bs_leq_512_once(self, x, expert_ids, expert_scales, x_active_mask):
         outputs = torch_npu.npu_moe_distribute_dispatch_v2(
             x=x,
             expert_ids=expert_ids,
@@ -189,9 +205,120 @@ class SmallOps(DecodeMoeOps):
             shared_expert_num=1,
             shared_expert_rank_num=self.shared_expert_rank_num,
             quant_mode=4,
-            global_bs=self.global_batch_size,
+            global_bs=min(self.global_batch_size, 512 * self.ep_world_size),
+            expert_token_nums_type=1,
+            y_dtype=act_dtype,
+        )
+        expand_x, dynamic_scales, assist_info_for_combine, expert_token_nums, ep_send_counts, tp_send_counts, expand_scales = outputs
+        output_dtype = x.dtype
+        dynamic_scales = dynamic_scales.view(*(dynamic_scales.shape[:-1]), -1, 2).view(torch.float8_e8m0fnu)
+
+        y1_fp = torch_npu.npu_grouped_matmul(
+            x=[expand_x],
+            weight=[self.gmm1_weight],
+            scale=[self.gmm1_weight_scale],
+            per_token_scale=[dynamic_scales],
+            split_item=2,
+            group_list_type=1,
+            group_type=0,
+            group_list=expert_token_nums,
+            output_dtype=output_dtype)[0]
+        swiglu_out = torch_npu.npu_swiglu(y1_fp)
+        x2, x2_scale = torch_npu.npu_dynamic_mx_quant(swiglu_out, dst_type=act_dtype, **round_mode_kwargs)
+        x2 = x2.view(torch_origin_act_dtype)
+        x2_scale = x2_scale.view(torch.float8_e8m0fnu)
+        y2_fp = torch_npu.npu_grouped_matmul(
+            x=[x2],
+            weight=[self.gmm2_weight],
+            scale=[self.gmm2_weight_scale],
+            per_token_scale=[x2_scale],
+            split_item=2,
+            group_list_type=1,
+            group_type=0,
+            group_list=expert_token_nums,
+            output_dtype=output_dtype)[0]
+        combine_output = torch_npu.npu_moe_distribute_combine_v2(
+            expand_x=y2_fp,
+            expert_ids=expert_ids,
+            assist_info_for_combine=assist_info_for_combine,
+            ep_send_counts=ep_send_counts,
+            expert_scales=expert_scales,
+            x_active_mask=x_active_mask,
+            group_ep=self.ep_hcomm_info,
+            ep_world_size=self.ep_world_size,
+            ep_rank_id=self.global_rank_id,
+            moe_expert_num=self.moe_expert_num,
+            tp_send_counts=tp_send_counts,
+            expand_scales=expand_scales,
+            group_tp=self.tp_hcomm_info,
+            tp_world_size=1,
+            tp_rank_id=0,
+            expert_shard_type=0,
+            shared_expert_num=1,
+            shared_expert_rank_num=self.shared_expert_rank_num,
+            global_bs=min(self.global_batch_size, 512 * self.ep_world_size))
+        return (combine_output, expert_token_nums)
+
+    def _split_small_ops(self, x, expert_ids, expert_scales, x_active_mask):
+        max_bs = 512
+        bs = x.shape[0]
+        iter_times = bs // max_bs
+        remain_bs = bs % max_bs
+        combine_output_list = []
+        expert_token_nums_list = []
+        for iter_idx in range(iter_times):
+            start = iter_idx * max_bs
+            end = (iter_idx + 1) * max_bs
+            combine_output, expert_token_nums = self._run_bs_leq_512_once(
+                x[start:end],
+                expert_ids[start:end],
+                expert_scales[start:end],
+                None if x_active_mask is None else x_active_mask[start:end],
+            )
+            combine_output_list.append(combine_output)
+            expert_token_nums_list.append(expert_token_nums)
+        if remain_bs > 0:
+            start = iter_times * max_bs
+            combine_output, expert_token_nums = self._run_bs_leq_512_once(
+                x[start:bs],
+                expert_ids[start:bs],
+                expert_scales[start:bs],
+                None if x_active_mask is None else x_active_mask[start:bs],
+            )
+            combine_output_list.append(combine_output)
+            expert_token_nums_list.append(expert_token_nums)
+        combine_output = torch.cat(combine_output_list, dim=0)
+        expert_token_nums = torch.stack(expert_token_nums_list, dim=0).sum(dim=0)
+        return (combine_output, expert_token_nums)
+
+    def _apply_ops(self, x, expert_ids, expert_scales, x_active_mask):
+        if self.with_share:
+            share_output = self.share_compute(x)
+        else:
+            share_output = None
+        if x.shape[0] > 512:
+            combine_output, expert_token_nums = self._split_small_ops(x, expert_ids, expert_scales, x_active_mask)
+            return (combine_output, share_output, expert_token_nums)
+        outputs = torch_npu.npu_moe_distribute_dispatch_v2(
+            x=x,
+            expert_ids=expert_ids,
+            expert_scales=expert_scales,
+            scales=self.smooth_scales,
+            x_active_mask=x_active_mask,
+            group_ep=self.ep_hcomm_info,
+            ep_world_size=self.ep_world_size,
+            ep_rank_id=self.global_rank_id,
+            moe_expert_num=self.moe_expert_num,
+            group_tp=self.tp_hcomm_info,
+            tp_world_size=1,
+            tp_rank_id=0,
+            expert_shard_type=0,
+            shared_expert_num=1,
+            shared_expert_rank_num=self.shared_expert_rank_num,
+            quant_mode=4,
+            global_bs=min(self.global_batch_size, 512 * self.ep_world_size),
             expert_token_nums_type=1,  # 0代表前缀和，1代表各自数量
-            y_dtype=torch.float8_e4m3fn,
+            y_dtype=act_dtype,
             # scales_dtype=torch.float8_e8m0fnu
         )
         expand_x, dynamic_scales, assist_info_for_combine, expert_token_nums, ep_send_counts, tp_send_counts, expand_scales = outputs
@@ -209,7 +336,8 @@ class SmallOps(DecodeMoeOps):
             group_list=expert_token_nums,
             output_dtype=output_dtype)[0]
         swiglu_out = torch_npu.npu_swiglu(y1_fp)
-        x2, x2_scale = torch_npu.npu_dynamic_mx_quant(swiglu_out, dst_type=torch.float8_e4m3fn)
+        x2, x2_scale = torch_npu.npu_dynamic_mx_quant(swiglu_out, dst_type=act_dtype, **round_mode_kwargs)
+        x2 = x2.view(torch_origin_act_dtype)
         x2_scale = x2_scale.view(torch.float8_e8m0fnu)
         y2_fp = torch_npu.npu_grouped_matmul(x=[x2],
                                           weight=[self.gmm2_weight],
@@ -370,10 +498,12 @@ def generate_datas(batch_size,
         expert_ids = expert_ids % moe_expert_num
 
     gmm1_weight_bf16 = torch.rand([local_expert_num, gmm1_input_dim, gmm1_output_dim]).bfloat16().npu() * 2 - 1
-    gmm1_weight, gmm1_weight_scale = torch_npu.npu_dynamic_mx_quant(gmm1_weight_bf16, dst_type=torch.float8_e4m3fn, axis=1)
+    gmm1_weight, gmm1_weight_scale = torch_npu.npu_dynamic_mx_quant(gmm1_weight_bf16, dst_type=weight_dtype, axis=1)
+    gmm1_weight = gmm1_weight.view(torch_origin_weight_dtype)
     gmm1_weight_scale = gmm1_weight_scale.view(torch.float8_e8m0fnu)
     gmm2_weight_bf16 = torch.rand([local_expert_num, gmm2_input_dim, gmm2_output_dim]).bfloat16().npu() * 2 - 1
-    gmm2_weight, gmm2_weight_scale = torch_npu.npu_dynamic_mx_quant(gmm2_weight_bf16, dst_type=torch.float8_e4m3fn, axis=1)
+    gmm2_weight, gmm2_weight_scale = torch_npu.npu_dynamic_mx_quant(gmm2_weight_bf16, dst_type=weight_dtype, axis=1)
+    gmm2_weight = gmm2_weight.view(torch_origin_weight_dtype)
     gmm2_weight_scale = gmm2_weight_scale.view(torch.float8_e8m0fnu)
 
     expert_scales = torch.rand(actual_bs, top_k)
@@ -387,10 +517,12 @@ def generate_datas(batch_size,
         share_gmm2_input_dim = share_expert_intermediate_size if share_expert_intermediate_size is not None else moe_intermediate_size
         share_gmm1_output_dim = share_gmm2_input_dim * 2
         share_mm1_weight_bf16 = torch.rand([gmm1_input_dim, share_gmm1_output_dim]).bfloat16().npu() * 2 - 1
-        share_mm1_weight, share_mm1_weight_scale = torch_npu.npu_dynamic_mx_quant(share_mm1_weight_bf16, dst_type=torch.float8_e4m3fn, axis=0)
+        share_mm1_weight, share_mm1_weight_scale = torch_npu.npu_dynamic_mx_quant(share_mm1_weight_bf16, dst_type=weight_dtype, axis=0)
+        share_mm1_weight = share_mm1_weight.view(torch_origin_weight_dtype)
         share_mm1_weight_scale = share_mm1_weight_scale.view(torch.float8_e8m0fnu)
         share_mm2_weight_bf16 = torch.rand([share_gmm2_input_dim, gmm2_output_dim]).bfloat16().npu() * 2 - 1
-        share_mm2_weight, share_mm2_weight_scale = torch_npu.npu_dynamic_mx_quant(share_mm2_weight_bf16, dst_type=torch.float8_e4m3fn, axis=0)
+        share_mm2_weight, share_mm2_weight_scale = torch_npu.npu_dynamic_mx_quant(share_mm2_weight_bf16, dst_type=weight_dtype, axis=0)
+        share_mm2_weight = share_mm2_weight.view(torch_origin_weight_dtype)
         share_mm2_weight_scale = share_mm2_weight_scale.view(torch.float8_e8m0fnu)
 
     if test_bfloat16:
@@ -430,7 +562,19 @@ def run_once(local_rank_id,
              with_share=False,
              with_smooth=False,
              enable_nz=False,
-             share_expert_intermediate_size=None):
+             share_expert_intermediate_size=None,
+             debug_arg=False,
+             once_arg=False,
+             balance_arg=False,
+             weight_dtype_str="fp8_e4m3",
+             act_dtype_str="fp8_e4m3"):
+    global debug, once, balance
+    global weight_dtype, act_dtype, torch_origin_weight_dtype, torch_origin_act_dtype
+    debug = debug_arg
+    once = once_arg
+    balance = balance_arg
+    weight_dtype, torch_origin_weight_dtype = DTYPE_MAP[weight_dtype_str]
+    act_dtype, torch_origin_act_dtype = DTYPE_MAP[act_dtype_str]
     # 配置日志输出文件名
     log_file = redirect_output(f"local_rank_{local_rank_id}.log"
                                ) if output_to_file(local_rank_id) else None
@@ -456,6 +600,13 @@ def run_once(local_rank_id,
     torch_npu.npu.synchronize(device_id)
 
     # 构建必要参数和权重数据
+    if not balance:
+        date = datetime.datetime.now()
+        month, day = date.month, date.day
+        random.seed(month * 100 + device_id * 10 + day)
+        torch.manual_seed(month * 10 + device_id + day)
+        torch.npu.manual_seed(month + device_id + day)
+
     parameter = (batch_size, token_hidden_size, moe_intermediate_size,
                  ep_world_size, moe_expert_num, global_rank_id, top_k,
                  test_bfloat16, enable_dynamic_bs, with_mc2_mask,
@@ -479,7 +630,7 @@ def run_once(local_rank_id,
         config.mode = "reduce-overhead"
         npu_backend = torchair.get_npu_backend(compiler_config=config)
         fused_ops = torch.compile(fused_ops, backend=npu_backend)
-    warm_iter = 0 if (debug or once) else 10
+    warm_iter = 0 if (debug or once) else 5
     test_iter = 1 if (debug or once) else 100
 
     for _ in range(warm_iter):
@@ -593,6 +744,11 @@ if __name__ == "__main__":
     parser.add_argument("--enable_nz", action="store_true", default=False)
     parser.add_argument("--all-features", action="store_true", default=False)
     parser.add_argument("--share_expert_intermediate_size", type=int)
+    parser.add_argument("--debug", action="store_true", default=False)
+    parser.add_argument("--once", action="store_true", default=False)
+    parser.add_argument("--balance", action="store_true", default=False)
+    parser.add_argument("--wa_dtype", type=str, default="fp8_e4m3",
+                        choices=list(DTYPE_MAP.keys()))
     args = parser.parse_args()
     BASE_KWARGS["batch_size"] = args.batch_size
     BASE_KWARGS["token_hidden_size"] = args.token_hidden_size
@@ -610,6 +766,11 @@ if __name__ == "__main__":
     BASE_KWARGS["enable_nz"] = args.enable_nz
     BASE_KWARGS["share_expert_intermediate_size"] = args.share_expert_intermediate_size \
         if args.share_expert_intermediate_size is not None else args.moe_intermediate_size
+    BASE_KWARGS["debug"] = args.debug
+    BASE_KWARGS["once"] = args.once
+    BASE_KWARGS["balance"] = args.balance
+    BASE_KWARGS["weight_dtype"] = args.wa_dtype
+    BASE_KWARGS["act_dtype"] = args.wa_dtype
     print(f"{BASE_KWARGS=}")
     test_fused_deep_moe_base()
     if args.all_features:

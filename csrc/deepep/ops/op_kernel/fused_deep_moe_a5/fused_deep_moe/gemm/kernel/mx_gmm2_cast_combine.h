@@ -169,7 +169,7 @@ public:
 
         uint32_t currentM = 0;
         uint32_t startCoreIdx = 0;
-        aicSetFunc = {syncGmAddr + GMM2::SOFT_SYNC_OFFSET, static_cast<uint8_t>(AscendC::GetBlockIdx())};
+        aicSetFunc = {reinterpret_cast<__gm__ int32_t *>(syncGmAddr + GMM2::SOFT_SYNC_OFFSET), static_cast<int32_t>(AscendC::GetBlockIdx())};
         Callback callbackAfterFixpipe = MakeCallback(&aicSetFunc);
         {
             AscendC::GlobalTensor<ElementGroupList> groupList;
@@ -401,7 +401,7 @@ public:
                         tla::MakeCoord(totalM + blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N),
                         tla::MakeShape(actualBlockShape.m(), actualBlockShape.n()));
 
-                    CheckSyncFlag(syncGmAddr + GMM2::SOFT_SYNC_OFFSET, static_cast<uint8_t>(coreIdx), target);
+                    CheckSyncFlag(reinterpret_cast<__gm__ int32_t*>(syncGmAddr + GMM2::SOFT_SYNC_OFFSET), static_cast<int32_t>(coreIdx), target);
                     target += 1;
                     blockEpilogue(tensorBlockC, tensorBlockD, actualBlockShape, groupIdx, totalM + blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N);
                 }
@@ -445,7 +445,7 @@ public:
                             tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N),
                             tla::MakeShape(actualBlockShape.m(), actualBlockShape.n()));
 
-                        CheckSyncFlag(syncGmAddr + GMM2::SOFT_SYNC_OFFSET, static_cast<uint8_t>(coreIdx), target);
+                        CheckSyncFlag(reinterpret_cast<__gm__ int32_t*>(syncGmAddr + GMM2::SOFT_SYNC_OFFSET), static_cast<int32_t>(coreIdx), target);
                         target += 1;
                         blockEpilogue(tensorBlockC, tensorBlockD, actualBlockShape, UINT32_MAX, 0, 0);
                     }
@@ -509,8 +509,8 @@ private:
             EncreaseSyncFlag(flagAddr, idx);
         }
 
-        __gm__ uint8_t *flagAddr;
-        uint8_t idx;
+        __gm__ int32_t *flagAddr;
+        int32_t idx;
     };
 
     AicSetFunc aicSetFunc;
@@ -526,3 +526,4 @@ private:
 } // namespace Catlass::Gemm::Kernel
 
 #endif // CATLASS_GEMM_KERNEL_MX_GMM2_CAST_COMBINE_H
+

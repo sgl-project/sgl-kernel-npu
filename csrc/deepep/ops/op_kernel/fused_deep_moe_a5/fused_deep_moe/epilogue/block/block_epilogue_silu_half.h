@@ -169,13 +169,13 @@ public:
             if (isLeft) {
                 Cast(ubC, ubI, AscendC::RoundMode::CAST_NONE, count);
                 AscendC::PipeBarrier<PIPE_V>();
+                AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(eventUbDMTE3VList[ubListId]);
                 Muls(ubD, ubC, (ElementCompute)-1, count);
                 AscendC::PipeBarrier<PIPE_V>();
                 Exp(ubD, ubD, count);
                 AscendC::PipeBarrier<PIPE_V>();
                 Adds(ubD, ubD, (ElementCompute)1, count);
                 AscendC::PipeBarrier<PIPE_V>();
-                AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(eventUbDMTE3VList[ubListId]);
                 Div(ubD, ubC, ubD, count);
             } else {
                 AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(eventUbDMTE3VList[ubListId]);

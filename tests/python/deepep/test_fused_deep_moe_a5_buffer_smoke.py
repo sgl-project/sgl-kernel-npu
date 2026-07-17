@@ -13,6 +13,15 @@ from utils import init_dist
 torch_npu.npu.config.allow_internal_format = True
 
 
+def debug_log(args: argparse.Namespace, rank: int, stage: str, **kwargs):
+    if not getattr(args, "debug", False):
+        return
+    suffix = ""
+    if kwargs:
+        suffix = " " + " ".join(f"{k}={v}" for k, v in kwargs.items())
+    print(f"[rank {rank}] {stage}{suffix}", flush=True)
+
+
 def tensor_format(tensor: torch.Tensor):
     try:
         return torch_npu.get_npu_format(tensor)
@@ -20,8 +29,17 @@ def tensor_format(tensor: torch.Tensor):
         return "unavailable"
 
 
+def tensor_meta(tensor: torch.Tensor):
+    return {
+        "shape": tuple(tensor.shape),
+        "dtype": str(tensor.dtype),
+        "format": tensor_format(tensor),
+        "contiguous": bool(tensor.is_contiguous()),
+    }
+
+
 def make_umdk_static_inputs(rank: int, world_size: int, args: argparse.Namespace):
-    """Build the static MXFP8 TensorList payload used by umdk/test_fp8_fused.py."""
+    """Build the static MXFP8 payload used by umdk/test_fp8_fused.py."""
     assert args.num_experts % world_size == 0
     local_experts = args.num_experts // world_size
 
@@ -50,31 +68,15 @@ def make_umdk_static_inputs(rank: int, world_size: int, args: argparse.Namespace
     )
     gmm2_scale = gmm2_scale_raw.view(torch.float8_e8m0fnu)
 
-    raw_inputs = (
+    return (
         x,
         expert_ids,
         expert_scales,
-        gmm1_weight.view(torch.int8),
-        gmm1_scale.view(torch.int8),
-        gmm2_weight.view(torch.int8),
-        gmm2_scale.view(torch.int8),
+        gmm1_weight,
+        gmm1_scale,
+        gmm2_weight,
+        gmm2_scale,
     )
-
-    expected_scale_formats = {
-        "gmm1_scale_raw": tensor_format(gmm1_scale_raw),
-        "gmm1_scale": tensor_format(gmm1_scale),
-        "gmm1_scale_raw_int8": tensor_format(raw_inputs[4]),
-        "gmm2_scale_raw": tensor_format(gmm2_scale_raw),
-        "gmm2_scale": tensor_format(gmm2_scale),
-        "gmm2_scale_raw_int8": tensor_format(raw_inputs[6]),
-    }
-    if len(set(expected_scale_formats.values())) != 1:
-        raise RuntimeError(
-            "A5 smoke input format is not aligned with the UMDK static path: "
-            + ", ".join(f"{name}={fmt}" for name, fmt in expected_scale_formats.items())
-        )
-
-    return raw_inputs
 
 
 @torch.inference_mode()
@@ -95,9 +97,48 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
             gmm2_weight,
             gmm2_scale,
         ) = make_umdk_static_inputs(rank, world_size, args)
+        debug_log(
+            args,
+            rank,
+            "inputs.ready",
+            x_shape=tuple(x.shape),
+            gmm1_shape=tuple(gmm1_weight.shape),
+            gmm2_shape=tuple(gmm2_weight.shape),
+        )
+        debug_log(
+            args,
+            rank,
+            "inputs.meta",
+            expected_count=args.batch_size * world_size * args.topk // args.num_experts,
+            expert_ids_min=int(expert_ids.min().item()),
+            expert_ids_max=int(expert_ids.max().item()),
+            x_dtype=x.dtype,
+            gmm1_weight_dtype=gmm1_weight.dtype,
+            gmm1_weight_format=tensor_format(gmm1_weight),
+            gmm1_scale_dtype=gmm1_scale.dtype,
+            gmm1_scale_format=tensor_format(gmm1_scale),
+            gmm2_weight_dtype=gmm2_weight.dtype,
+            gmm2_weight_format=tensor_format(gmm2_weight),
+            gmm2_scale_dtype=gmm2_scale.dtype,
+            gmm2_scale_format=tensor_format(gmm2_scale),
+        )
 
         dist.barrier()
+        debug_log(args, rank, "warmup.begin")
 
+        debug_log(
+            args,
+            rank,
+            "warmup.fused_inputs",
+            x_meta=tensor_meta(x),
+            expert_ids_meta=tensor_meta(expert_ids),
+            expert_scales_meta=tensor_meta(expert_scales),
+            gmm1_weight_meta=tensor_meta(gmm1_weight),
+            gmm1_scale_meta=tensor_meta(gmm1_scale),
+            gmm2_weight_meta=tensor_meta(gmm2_weight),
+            gmm2_scale_meta=tensor_meta(gmm2_scale),
+        )
+        debug_log(args, rank, "warmup.fused.begin")
         buffer.fused_deep_moe(
             x,
             expert_ids,
@@ -111,7 +152,13 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
             args.quant_mode,
         )
         torch.npu.synchronize()
+        debug_log(args, rank, "warmup.fused.end")
+        dist.barrier()
+        if rank == 0 and args.debug:
+            print("Warmup completed.", flush=True)
 
+        debug_log(args, rank, "verify.begin")
+        debug_log(args, rank, "verify.fused.begin")
         output, ep_recv_count = buffer.fused_deep_moe(
             x,
             expert_ids,
@@ -125,6 +172,14 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
             args.quant_mode,
         )
         torch.npu.synchronize()
+        debug_log(
+            args,
+            rank,
+            "verify.fused.end",
+            output_shape=tuple(output.shape),
+            ep_recv_count_shape=tuple(ep_recv_count.shape),
+            output_format=tensor_format(output),
+        )
 
         local_experts = args.num_experts // world_size
         expected_count = args.batch_size * world_size * args.topk // args.num_experts
@@ -136,6 +191,12 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
         torch.testing.assert_close(
             ep_recv_count,
             torch.full((local_experts,), expected_count, dtype=torch.int32, device="npu"),
+        )
+        debug_log(
+            args,
+            rank,
+            "verify.done",
+            ep_recv_count=ep_recv_count.cpu().tolist(),
         )
 
         if rank == 0:
@@ -159,6 +220,7 @@ def main():
     parser.add_argument("--num-experts", type=int, default=32)
     parser.add_argument("--topk", type=int, default=8)
     parser.add_argument("--quant-mode", type=int, default=0)
+    parser.add_argument("--debug", action="store_true")
     parser.add_argument(
         "--master-addr",
         help="Override MASTER_ADDR for the HCCL process-group rendezvous.",

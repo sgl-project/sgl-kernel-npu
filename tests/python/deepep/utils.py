@@ -88,7 +88,8 @@ def bench(fn, num_warmups: int = 50, num_tests: int = 50, post_fn=None):
         elapsed_time = start.elapsed_time(end) / 1e3  # ms -> s
         times.append(elapsed_time)
 
-    times = np.array(times[1:])  # Remove the first timing
+    samples = times[1:] if len(times) >= 2 else times
+    times = np.array(samples)
     return np.average(times), np.min(times), np.max(times)
 
 

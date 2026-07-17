@@ -52,7 +52,8 @@ struct FusedDeepMoeInfo {
     uint32_t epRankId;             // epRankId
     uint32_t moeExpertNum;         // moe expert number
     uint32_t moeExpertNumPerRank;  // moe expert number per rank
-    uint32_t quantMode;            // quant mode
+    uint32_t quantMode;            // reserved, from quant_mode attr
+    uint32_t mxActStorageFp4;      // non-zero when gmm weight dtype is FP4; workspace sizing only
     uint32_t globalBs;             // globalBs = BS * worldSize
     uint32_t bs;                   // bs
     uint32_t k;                    // k
@@ -103,6 +104,7 @@ constexpr uint32_t GMM2_SWIZZLE_OFFSET = 3;
 constexpr uint32_t GMM2_SWIZZLE_DIRECTION = 0;
 
 // constexpr uint32_t WORKSPACE_STAGES = 4;
+constexpr uint32_t MX_FP4_QUANT_MODE = 4U;
 
 constexpr uint32_t EXEC_FLAG_DEEP_FUSE = (1U << 0);
 constexpr uint32_t EXEC_FLAG_TENSOR_LIST = (1U << 1);

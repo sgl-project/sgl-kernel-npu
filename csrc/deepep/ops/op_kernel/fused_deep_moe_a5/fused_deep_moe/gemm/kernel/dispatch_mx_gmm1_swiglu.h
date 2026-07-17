@@ -41,7 +41,7 @@ constexpr uint32_t SUM_TMP_TENSOR_SIZE = 1024;
 constexpr uint32_t UB_ALIGN = 32;
 constexpr uint32_t TOKEN_EXTRA_SPACE = 512;
 constexpr uint32_t INT32_COUNT_PER_BLOCK = 8;
-constexpr int64_t LOOP_TMP_SIZE = 4096;
+constexpr int64_t REDUCE_SUM_WORK_SIZE = 4096; // 最大支持64k-fp32累加
 constexpr int32_t SUB_AIV_NUM = 2;
 constexpr int32_t ODD_EVEN_BASE = 2;
 constexpr int32_t BUFFER_NUM = 2;
@@ -67,6 +67,24 @@ using namespace Cam;
 namespace Catlass::Gemm::Kernel {
 
 #if (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510)
+
+template <typename ElementMx>
+CATLASS_DEVICE constexpr uint32_t MxCount2Byte(uint32_t count)
+{
+    if constexpr (AscendC::Std::is_one_of_v<ElementMx, float4_e2m1x2_t, float4_e1m2x2_t>) {
+        return (count + 1U) / 2U;
+    }
+    return count * sizeof(ElementMx);
+}
+
+template <typename ElementMx>
+CATLASS_DEVICE constexpr uint32_t MxByte2Count(uint32_t byte)
+{
+    if constexpr (AscendC::Std::is_one_of_v<ElementMx, float4_e2m1x2_t, float4_e1m2x2_t>) {
+        return byte * 2U;
+    }
+    return byte / sizeof(ElementMx);
+}
 
 // Template for GroupedMxMatmulSliceM kernel
 template <
@@ -291,7 +309,7 @@ public:
 
         uint32_t currentM = 0;
         uint32_t startCoreIdx = 0;
-        aicSetFunc = {statusDataSpaceGm + SOFT_SYNC_OFFSET, static_cast<uint8_t>(AscendC::GetBlockIdx())};
+        aicSetFunc = {reinterpret_cast<__gm__ int32_t *>(statusDataSpaceGm + SOFT_SYNC_OFFSET), static_cast<int32_t>(AscendC::GetBlockIdx())};
         Callback callbackAfterFixpipe = MakeCallback(&aicSetFunc);
         if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
             currentM = params.bs;
@@ -485,7 +503,7 @@ public:
 
     // template <>
     CATLASS_DEVICE
-    void QuantDynamicMxFp8(
+    void QuantDynamicMx(
         AscendC::LocalTensor<ElementA>& outLocal, AscendC::LocalTensor<XType>& inLocal, AscendC::LocalTensor<float>& tokenF32LT, uint32_t quantLength, uint32_t mxScaleNumPerToken)
     {
         __ubuf__ XType* srcAddr = (__ubuf__ XType*)inLocal.GetPhyAddr();
@@ -496,25 +514,19 @@ public:
 
         quant::ComputeMaxExp(srcAddr, maxExpAddr, quantLength);
         quant::ComputeScale<ElementA>(maxExpAddr, mxScaleLocalAddr, halfScaleLocalAddr, mxScaleNumPerToken);
-        quant::ComputeFp8Data<XType, ElementA, AscendC::RoundMode::CAST_TRUNC, AscendC::RoundMode::CAST_RINT>(
-            srcAddr, halfScaleLocalAddr, outLocalAddr, quantLength);
+        if constexpr (AscendC::Std::is_one_of_v<ElementA, float4_e2m1x2_t, float4_e1m2x2_t>) {
+            quant::ComputeFp4Data<XType, ElementA, AscendC::RoundMode::CAST_TRUNC, AscendC::RoundMode::CAST_RINT>(
+                srcAddr, halfScaleLocalAddr, outLocalAddr, quantLength);
+        } else {
+            quant::ComputeFp8Data<XType, ElementA, AscendC::RoundMode::CAST_TRUNC, AscendC::RoundMode::CAST_RINT>(
+                srcAddr, halfScaleLocalAddr, outLocalAddr, quantLength);
+        }
     }
 
     CATLASS_DEVICE
     void TokenActiveMaskCal(GM_ADDR gmXActiveMask, int64_t ubOffset)
     {
         int64_t subUbOffset = ubOffset;
-        AscendC::LocalTensor<bool> maskInputTensor = (resource.ubBuf.template
-                                                            GetBufferByByte<bool>(subUbOffset));
-        AscendC::LocalTensor<int8_t> maskInputInt8Tensor = maskInputTensor.template ReinterpretCast<int8_t>();
-        subUbOffset += CEIL_UP(axisBS * sizeof(bool));
-        AscendC::LocalTensor<half> maskTmpTensor = (resource.ubBuf.template
-                                                            GetBufferByByte<half>(subUbOffset));
-        subUbOffset += CEIL_UP(axisBS * sizeof(half));
-        AscendC::LocalTensor<half> sumOutTensor = (resource.ubBuf.template
-                                                            GetBufferByByte<half>(subUbOffset));
-        subUbOffset += CEIL_UP(SUM_TMP_TENSOR_SIZE);
-        AscendC::LocalTensor<uint8_t> sharedTmpBuffer = resource.ubBuf.template GetBufferByByte<uint8_t>(subUbOffset);
 
         AscendC::GlobalTensor<bool> xActiveMaskGMTensor;
         xActiveMaskGMTensor.SetGlobalBuffer((__gm__ bool *)gmXActiveMask);
@@ -539,23 +551,15 @@ public:
     {
         // calculate index in remote
         int64_t subUbOffset = ubOffset;
-        AscendC::LocalTensor<int32_t> dstExpIdTensor_ = (resource.ubBuf.template GetBufferByByte<int32_t>(ubOffset));
-        subUbOffset += LOOP_TMP_SIZE;
-        AscendC::LocalTensor<int32_t> subExpIdTensor_ = (resource.ubBuf.template GetBufferByByte<int32_t>(ubOffset));
-        subUbOffset += LOOP_TMP_SIZE;
-        AscendC::LocalTensor<float> workLocalTensor_ = (resource.ubBuf.template GetBufferByByte<float>(ubOffset));
-        subUbOffset += LOOP_TMP_SIZE;
         AscendC::Duplicate<int32_t>(dstExpIdTensor_, dstExpertId, tokenIndex);
         AscendC::PipeBarrier<PIPE_V>();
-        AscendC::Sub(subExpIdTensor_, expertIdsTensor_, dstExpIdTensor_, tokenIndex);
+        AscendC::Sub(dstExpIdTensor_, expertIdsTensor_, dstExpIdTensor_, tokenIndex);
         AscendC::PipeBarrier<PIPE_V>();
-        AscendC::LocalTensor<float> tmpFp32 = subExpIdTensor_.ReinterpretCast<float>();
-        AscendC::LocalTensor<float> tmpoutFp32 = dstExpIdTensor_.ReinterpretCast<float>();
-        AscendC::Abs(tmpoutFp32, tmpFp32, tokenIndex);
+        AscendC::Abs(dstExpIdFp32Tensor_, dstExpIdFp32Tensor_, tokenIndex);
         AscendC::PipeBarrier<PIPE_V>();
-        AscendC::Mins(subExpIdTensor_, dstExpIdTensor_, 1, tokenIndex);
+        AscendC::Mins(dstExpIdTensor_, dstExpIdTensor_, 1, tokenIndex);
         AscendC::PipeBarrier<PIPE_V>();
-        AscendC::ReduceSum<float>(tmpoutFp32, tmpFp32, workLocalTensor_, tokenIndex);
+        AscendC::ReduceSum<float>(dstExpIdFp32Tensor_, dstExpIdFp32Tensor_, reduceSumWorkLocalTensor, tokenIndex);
         AscendC::SetFlag<AscendC::HardEvent::V_S>(0);
         AscendC::WaitFlag<AscendC::HardEvent::V_S>(0);
         int32_t curOtherExpertCnt = dstExpIdTensor_(0);
@@ -582,8 +586,6 @@ public:
             return;
         }
 
-        AscendC::LocalTensor<int32_t> statusTensor_ = resource.ubBuf.template GetBufferByByte<int32_t>(ubOffset);
-        ubOffset += CEIL_UP(CEIL(expertCntUp, INT32_COUNT_PER_BLOCK) * INT32_COUNT_PER_BLOCK * UB_BLOCK_SIZE);
         AscendC::Duplicate(statusTensor_, (int32_t)0,
                            expertCntUp * INT32_COUNT_PER_BLOCK);
         if (state == 0) {
@@ -628,11 +630,7 @@ public:
         AscendC::LocalTensor<ElementA> &yInt8Tensor, int64_t ubOffset)
     {
         int64_t subUbOffset = ubOffset;
-        AscendC::LocalTensor<float> xFp32TmpTensor = resource.ubBuf.template GetBufferByByte<float>(subUbOffset);
-        subUbOffset += CEIL_UP(tokenLength * sizeof(float));
-        AscendC::LocalTensor<ElementC> tokenF32LT = resource.ubBuf.template GetBufferByByte<ElementC>(subUbOffset);
-        subUbOffset += x1MxScaleNum * 2 * sizeof(float);
-        AscendC::LocalTensor<int32_t> yInt32Tensor = yInt8Tensor[tokenLength+x1MxScaleNum].template ReinterpretCast<int32_t>();
+        AscendC::LocalTensor<int32_t> yInt32Tensor = (yInt8Tensor[tokenLength].template ReinterpretCast<ElementMxScaleA>())[x1MxScaleNum].template ReinterpretCast<int32_t>();
         if constexpr(EXEC_FLAG & EXEC_FLAG_SMOOTH_QUANT) {
             AscendC::Cast(xFp32TmpTensor, xInTensor, AscendC::RoundMode::CAST_NONE, tokenLength);
             AscendC::PipeBarrier<PIPE_V>();
@@ -641,7 +639,7 @@ public:
             AscendC::Cast(xInTensor, xFp32TmpTensor, AscendC::RoundMode::CAST_RINT, tokenLength);
             AscendC::PipeBarrier<PIPE_V>();
         }
-        QuantDynamicMxFp8(yInt8Tensor, xInTensor, tokenF32LT, tokenLength, x1MxScaleNum);
+        QuantDynamicMx(yInt8Tensor, xInTensor, tokenF32LT, tokenLength, x1MxScaleNum);
         yInt32Tensor.SetValue(0, tokenFlag);
         AscendC::SetFlag<AscendC::HardEvent::S_MTE3>(0);
     }
@@ -662,38 +660,16 @@ public:
         if (startTokenId >= expertIdsCnt) {
             return;
         }
-        AscendC::LocalTensor<int32_t> expertCountTensor = (resource.ubBuf.template GetBufferByByte<int32_t>(ubOffset));
-        ubOffset += CEIL_UP(expertIdsCnt * sizeof(int32_t));
         AscendC::Duplicate(expertCountTensor, (int32_t)0, expertIdsCnt);
         AscendC::SetFlag<AscendC::HardEvent::V_S>(1);
         AscendC::WaitFlag<AscendC::HardEvent::V_S>(1);
-
-        AscendC::LocalTensor<XType> xInTensor[BUFFER_NUM];
-        AscendC::LocalTensor<ElementA> yInt8Tensor[BUFFER_NUM];
-        AscendC::LocalTensor<ElementMxScaleA> yScaleTensor[BUFFER_NUM];
-        AscendC::LocalTensor<float> yFp32Tensor[BUFFER_NUM];
-        AscendC::LocalTensor<float> moeSmoothScaleTensor[BUFFER_NUM];
 
         AscendC::GlobalTensor<XType> srcWinGMTensor;
         srcWinGMTensor.SetGlobalBuffer((__gm__ XType *)gmX);
         AscendC::GlobalTensor<float> moeSmoothScaleGMTensor;
 
-        xInTensor[0] = resource.ubBuf.template GetBufferByByte<XType>(ubOffset);
-        ubOffset += CEIL_UP(tokenLength * sizeof(XType));
-        xInTensor[1] = resource.ubBuf.template GetBufferByByte<XType>(ubOffset);
-        ubOffset += CEIL_UP(tokenLength * sizeof(XType));
-        yInt8Tensor[0] = resource.ubBuf.template GetBufferByByte<ElementA>(ubOffset);
-        yScaleTensor[0] = yInt8Tensor[0][tokenLength].template ReinterpretCast<ElementMxScaleA>();
-        ubOffset += CEIL_UP(axisHCommu * sizeof(ElementA));
-        yInt8Tensor[1] = resource.ubBuf.template GetBufferByByte<ElementA>(ubOffset);
-        yScaleTensor[1] = yInt8Tensor[1][tokenLength].template ReinterpretCast<ElementMxScaleA>();
-        ubOffset += CEIL_UP(axisHCommu * sizeof(ElementA));
         if constexpr(EXEC_FLAG & EXEC_FLAG_SMOOTH_QUANT) {
             moeSmoothScaleGMTensor.SetGlobalBuffer((__gm__ float*) gmMoeSmoothScales);
-            moeSmoothScaleTensor[0] = resource.ubBuf.template GetBufferByByte<float>(ubOffset);
-            ubOffset += CEIL_UP(tokenLength * sizeof(float));
-            moeSmoothScaleTensor[1] = resource.ubBuf.template GetBufferByByte<float>(ubOffset);
-            ubOffset += CEIL_UP(tokenLength * sizeof(float));
         }
         AscendC::GlobalTensor<ElementA> dstWinGMTensor;
         AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(0);
@@ -742,7 +718,7 @@ public:
 
                 AscendC::DataCopy(dstWinGMTensor, yInt8Tensor[index], tokenLength);
                 AscendC::PipeBarrier<PIPE_MTE3>();
-                AscendC::DataCopy(dstWinGMTensor[tokenLength], yInt8Tensor[index][tokenLength], scaleParamPad);
+                AscendC::DataCopy(dstWinGMTensor[tokenLength], yInt8Tensor[index][tokenLength], MxByte2Count<ElementA>(scaleFlagSize));
                 AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(eventId);
                 AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(eventId);
             }
@@ -765,17 +741,52 @@ public:
     SendCoreFunc(GM_ADDR gmX, GM_ADDR gmExpertIds, GM_ADDR gmMoeSmoothScales,
                  GM_ADDR gmExpandIdx, GM_ADDR gmXActiveMask)
     {
-        ubOffset = 0;
         if constexpr (EXEC_FLAG & EXEC_FLAG_X_ACTIVE_MASK) {
+            ubOffset = 0;
+            maskInputTensor = resource.ubBuf.template GetBufferByByte<bool>(ubOffset);
+            ubOffset += CEIL_UP(axisBS * sizeof(bool));
+            maskInputInt8Tensor = maskInputTensor.template ReinterpretCast<int8_t>();
+            maskTmpTensor = resource.ubBuf.template GetBufferByByte<half>(ubOffset);
+            ubOffset += CEIL_UP(axisBS * sizeof(half));
+            sumOutTensor = resource.ubBuf.template GetBufferByByte<half>(ubOffset);
+            ubOffset += CEIL_UP(SUM_TMP_TENSOR_SIZE);
+            sharedTmpBuffer = resource.ubBuf.template GetBufferByByte<uint8_t>(ubOffset);
             TokenActiveMaskCal(gmXActiveMask, ubOffset);
         }
+
+        ubOffset = 0;
         expertIdsCnt = activeMaskBsCnt * axisK;
+        expertIdsTensor_ = (resource.ubBuf.template GetBufferByByte<int32_t>(ubOffset));
+        ubOffset += CEIL_UP(expertIdsCnt * sizeof(int32_t));
+        statusTensor_ = resource.ubBuf.template GetBufferByByte<int32_t>(ubOffset);
+        ubOffset += CEIL_UP(CEIL(expertCntUp, INT32_COUNT_PER_BLOCK) * INT32_COUNT_PER_BLOCK * UB_BLOCK_SIZE);
+        expertCountTensor = (resource.ubBuf.template GetBufferByByte<int32_t>(ubOffset));
+        ubOffset += CEIL_UP(expertIdsCnt * sizeof(int32_t));
+
+        for (uint32_t i = 0; i < BUFFER_NUM; ++i) {
+            xInTensor[i] = resource.ubBuf.template GetBufferByByte<XType>(ubOffset);
+            ubOffset += CEIL_UP(tokenLength * sizeof(XType));
+            yInt8Tensor[i] = resource.ubBuf.template GetBufferByByte<ElementA>(ubOffset);
+            yScaleTensor[i] = yInt8Tensor[i][tokenLength].template ReinterpretCast<ElementMxScaleA>();
+            ubOffset += CEIL_UP(hCommuSize);
+            if constexpr(EXEC_FLAG & EXEC_FLAG_SMOOTH_QUANT) { 
+                moeSmoothScaleTensor[i] = resource.ubBuf.template GetBufferByByte<float>(ubOffset);
+                ubOffset += CEIL_UP(tokenLength * sizeof(float));
+            }
+        }
+        xFp32TmpTensor = resource.ubBuf.template GetBufferByByte<float>(ubOffset);
+        ubOffset += CEIL_UP(tokenLength * sizeof(float));
+        tokenF32LT = resource.ubBuf.template GetBufferByByte<ElementC>(ubOffset);
+        ubOffset += x1MxScaleNum * 2 * sizeof(float);
+
+        dstExpIdTensor_ = resource.ubBuf.template GetBufferByByte<int32_t>(ubOffset);
+        dstExpIdFp32Tensor_ = dstExpIdTensor_.ReinterpretCast<float>();
+        ubOffset += CEIL_UP(expertIdsCnt * sizeof(float));
+        reduceSumWorkLocalTensor = resource.ubBuf.template GetBufferByByte<float>(ubOffset);
+        ubOffset += REDUCE_SUM_WORK_SIZE;
 
         AscendC::GlobalTensor<int32_t> expertIdsGMTensor_;
         expertIdsGMTensor_.SetGlobalBuffer((__gm__ int32_t *)gmExpertIds);
-        expertIdsTensor_ = (resource.ubBuf.template GetBufferByByte<int32_t>(ubOffset));
-        ubOffset += CEIL_UP(expertIdsCnt * sizeof(int32_t));
-
         AscendC::DataCopyExtParams expertIdsCntParams = {1U, static_cast<uint32_t>(expertIdsCnt * sizeof(uint32_t)),
                                                          0U, 0U, 0U};
         AscendC::DataCopyPadExtParams<int32_t> copyPadParams{false, 0U, 0U, 0U};
@@ -786,7 +797,6 @@ public:
         CalAndSendTokenCount();
         AscendC::PipeBarrier<PIPE_ALL>();
         sendToMoeAivNum = sendCoreNum;
-        AscendC::SetDeqScale((half)1.000000e+00f);
         SendToMoeExprt(gmX, gmExpandIdx, gmMoeSmoothScales);
         AscendC::PipeBarrier<PIPE_ALL>();
     }
@@ -794,7 +804,7 @@ public:
     CATLASS_DEVICE
     void shareQuantCoreFunc(GM_ADDR gmX, GM_ADDR gmShareSmoothScales, GM_ADDR gmShareX1Token, GM_ADDR gmShareX1Scale)
     {
-        int64_t subUbOffset = 0;
+        ubOffset = 0;
         uint32_t quantTokenPerCore = axisBS / shareQuantCoreNum;
         uint32_t remainTokenNum = axisBS % shareQuantCoreNum;
         uint32_t startTokenId = quantTokenPerCore * shareQuantCoreIdx;
@@ -808,7 +818,6 @@ public:
         if (startTokenId >= axisBS) {
             return;
         }
-        AscendC::SetDeqScale(static_cast<half>(1.0));
         AscendC::GlobalTensor<XType> srcXGMTensor;
         srcXGMTensor.SetGlobalBuffer((__gm__ XType*)gmX);
         AscendC::GlobalTensor<ElementA> dstXInt8GMTensor;
@@ -818,22 +827,22 @@ public:
         AscendC::GlobalTensor<float> shareSmoothScaleGMTensor;
         shareSmoothScaleGMTensor.SetGlobalBuffer((__gm__ float*)gmShareSmoothScales);
 
-        AscendC::LocalTensor<XType> xInTensor[BUFFER_NUM];
-        AscendC::LocalTensor<ElementA> yInt8Tensor[BUFFER_NUM];
-        AscendC::LocalTensor<ElementMxScaleA> yFp32Tensor[BUFFER_NUM];
-        xInTensor[0] = resource.ubBuf.template GetBufferByByte<XType>(subUbOffset);
-        subUbOffset += CEIL_UP(tokenLength * sizeof(XType));
-        xInTensor[1] = resource.ubBuf.template GetBufferByByte<XType>(subUbOffset);
-        subUbOffset += CEIL_UP(tokenLength * sizeof(XType));
-        yInt8Tensor[0] = resource.ubBuf.template GetBufferByByte<ElementA>(subUbOffset);
-        yFp32Tensor[0] = yInt8Tensor[0][tokenLength].template ReinterpretCast<ElementMxScaleA>();
-        subUbOffset += CEIL_UP(axisHCommu * sizeof(ElementA));
-        yInt8Tensor[1] = resource.ubBuf.template GetBufferByByte<ElementA>(subUbOffset);
-        yFp32Tensor[1] = yInt8Tensor[1][tokenLength].template ReinterpretCast<ElementMxScaleA>();
-        subUbOffset += CEIL_UP(axisHCommu * sizeof(ElementA));
-        AscendC::LocalTensor shareSmoothScaleTensor = resource.ubBuf.template GetBufferByByte<float>(subUbOffset);
+        for (uint32_t i = 0; i < BUFFER_NUM; ++i) {
+            xInTensor[i] = resource.ubBuf.template GetBufferByByte<XType>(ubOffset);
+            ubOffset += CEIL_UP(tokenLength * sizeof(XType));
+            yInt8Tensor[i] = resource.ubBuf.template GetBufferByByte<ElementA>(ubOffset);
+            yScaleTensor[i] = yInt8Tensor[i][tokenLength].template ReinterpretCast<ElementMxScaleA>();
+            ubOffset += CEIL_UP(hCommuSize);
+        }
+        xFp32TmpTensor = resource.ubBuf.template GetBufferByByte<float>(ubOffset);
+        ubOffset += CEIL_UP(tokenLength * sizeof(float));
+        tokenF32LT = resource.ubBuf.template GetBufferByByte<ElementC>(ubOffset);
+        ubOffset += x1MxScaleNum * 2 * sizeof(float);
+        tmpLocalTensor = resource.ubBuf.template GetBufferByByte<int32_t>(ubOffset);
+        ubOffset += CEIL_UP(UB_BLOCK_SIZE);
         if constexpr(EXEC_FLAG & EXEC_FLAG_SMOOTH_QUANT) {
-            subUbOffset += CEIL_UP(tokenLength * sizeof(float));
+            shareSmoothScaleTensor = resource.ubBuf.template GetBufferByByte<float>(ubOffset);
+            ubOffset += CEIL_UP(tokenLength * sizeof(float));
             AscendC::DataCopy(shareSmoothScaleTensor, shareSmoothScaleGMTensor, tokenLength);
             AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID2);
             AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID2);
@@ -852,13 +861,13 @@ public:
             AscendC::DataCopy(xInTensor[index], srcXGMTensor[tokenIndex * tokenLength], tokenLength);
             AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(eventId);
             AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(eventId);
-            QuantToken(xInTensor[index], shareSmoothScaleTensor, yInt8Tensor[index], subUbOffset);
+            QuantToken(xInTensor[index], shareSmoothScaleTensor, yInt8Tensor[index], ubOffset);
             AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(eventId);
             AscendC::WaitFlag<AscendC::HardEvent::S_MTE3>(0);
             AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(eventId);
             AscendC::DataCopy(dstXInt8GMTensor[tokenIndex * tokenLength], yInt8Tensor[index], tokenLength);
             AscendC::DataCopyPad(
-                dstXScaleGMTensor[tokenIndex * x1MxScaleNum], yFp32Tensor[index], dataCopyParamsFloat);
+                dstXScaleGMTensor[tokenIndex * x1MxScaleNum], yScaleTensor[index], dataCopyParamsFloat);
             AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(eventId);
             AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(eventId);
         }
@@ -869,8 +878,6 @@ public:
 
         // Set GM to info AIC
         AscendC::PipeBarrier<PIPE_ALL>();
-        tmpLocalTensor = resource.ubBuf.template GetBufferByByte<int32_t>(subUbOffset);
-        subUbOffset += CEIL_UP(UB_BLOCK_SIZE);
         tmpLocalTensor.SetValue(CV_FLAG_INDEX, vToCFlag);
         AscendC::SetFlag<AscendC::HardEvent::S_MTE3>(0);
 
@@ -978,7 +985,7 @@ public:
 
             tokGlobal.SetGlobalBuffer((__gm__ ElementA *)(wAddr + currentTokenIdxInRank * hCommuSize));
             tokGlobalInt32.SetGlobalBuffer((__gm__ int32_t *)(wAddr + currentTokenIdxInRank * hCommuSize + hOutSize + scaleSize));
-            expandXOutGlobal.SetGlobalBuffer((__gm__ ElementA *)(gmX1) + currentTokenIdx * tokenLength, tokenLength);
+            expandXOutGlobal.SetGlobalBuffer((__gm__ ElementA *)(gmX1 + currentTokenIdx * hOutSize), tokenLength);
             while (true) {
                 AscendC::DataCopy(tmpLocalTensor, tokGlobalInt32, INT32_COUNT_PER_BLOCK);
                 AscendC::SetFlag<AscendC::HardEvent::MTE2_S>(0);
@@ -990,11 +997,11 @@ public:
                 SPIN_WAIT_CYCLES();
             }
             AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(0);
-            AscendC::DataCopy(xTmpTensor_, tokGlobal, axisHCommu);
+            AscendC::DataCopy(xTmpTensor_, tokGlobal, MxByte2Count<ElementA>(hCommuSize));
             AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE3>(0);
             AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE3>(0);
             AscendC::DataCopyPad(dynamicScalesOutGMTensor_[currentTokenIdx * x1MxScaleNum],
-                xOutFp32Tensor_[tokenLength], dataCopyParamsFloat);
+                xOutFp32Tensor_, dataCopyParamsFloat);
             AscendC::DataCopy(expandXOutGlobal, xTmpTensor_, tokenLength);
             AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(0);
 
@@ -1025,8 +1032,8 @@ public:
         ubOffset += CEIL_UP(SUM_TMP_TENSOR_SIZE);
 
         xTmpTensor_ = resource.ubBuf.template GetBufferByByte<ElementA>(ubOffset);
-        xOutFp32Tensor_ = xTmpTensor_.template ReinterpretCast<ElementMxScaleA>();
-        ubOffset += CEIL_UP(axisHCommu * sizeof(ElementA));
+        xOutFp32Tensor_ = xTmpTensor_[tokenLength].template ReinterpretCast<ElementMxScaleA>();
+        ubOffset += CEIL_UP(hCommuSize);
 
         tmpLocalTensor = resource.ubBuf.template GetBufferByByte<int32_t>(ubOffset);
         ubOffset += CEIL_UP(UB_BLOCK_SIZE);
@@ -1039,6 +1046,7 @@ public:
 
         ubOffset += CEIL_UP((expertCntUp / recvCoreNum + 1) * sizeof(int32_t));
         reduceSumWorkLocalTensor = resource.ubBuf.template GetBufferByByte<float>(ubOffset);
+        ubOffset += REDUCE_SUM_WORK_SIZE; 
 
         RecvCount(ubOffset);
 
@@ -1143,11 +1151,11 @@ public:
         tokenLength = params.tokenLen;
 
         x1MxScaleNum = CEIL(tokenLength, 32);
-        hOutSize = tokenLength * sizeof(ElementA);
-        scaleSize = x1MxScaleNum * sizeof(ElementMxScaleA);
-        scaleParamPad =  CEIL(scaleSize + sizeof(int32_t), TOKEN_EXTRA_SPACE) * TOKEN_EXTRA_SPACE; // scale and flag
-        hCommuSize = hOutSize + scaleParamPad;
-        axisHCommu = hCommuSize / sizeof(ElementA);
+        hOutSize = MxCount2Byte<ElementA>(tokenLength);
+        scaleSize = MxCount2Byte<ElementMxScaleA>(x1MxScaleNum);
+        scaleFlagSize =  CEIL(scaleSize + sizeof(int32_t), TOKEN_EXTRA_SPACE) * TOKEN_EXTRA_SPACE; // scale and flag
+        hCommuSize = hOutSize + scaleFlagSize;
+        axisHCommu = MxByte2Count<ElementA>(hCommuSize);
         axisBS = params.bs;
         activeMaskBsCnt = axisBS;
         axisK = params.topK;
@@ -1232,6 +1240,7 @@ public:
     void PostSwigluDynamicQuant(__gm__ ElementC *swigluOutAddr, __gm__ ElementA *x2Addr, __gm__ ElementMxScaleA *x2ScaleAddr,
                                 uint32_t tokenNum, uint32_t mmOutDim, uint32_t &startCoreIdx) {
         uint32_t quantLength = mmOutDim / 2;
+        uint32_t quantTokenSize = MxCount2Byte<ElementA>(quantLength);
         uint32_t mxScaleNumPerToken = CeilDiv(CeilDiv(quantLength, 32), 2) * 2;
         AscendC::GlobalTensor<ElementC> gmSwigluOutTensor;
         gmSwigluOutTensor.SetGlobalBuffer(swigluOutAddr);
@@ -1253,7 +1262,7 @@ public:
         AscendC::LocalTensor<XType> bf16TokenLocalTensor = resource.ubBuf.template GetBufferByByte<XType>(ubOffset);
         ubOffset += mmOutDim * sizeof(XType);
         AscendC::LocalTensor<ElementA> fp8TokenLocalTensor = resource.ubBuf.template GetBufferByByte<ElementA>(ubOffset);
-        ubOffset += quantLength * sizeof(ElementA) + CEIL_UP(mxScaleNumPerToken * sizeof(ElementMxScaleB));
+        ubOffset += quantTokenSize + CEIL_UP(mxScaleNumPerToken * sizeof(ElementMxScaleB));
         AscendC::LocalTensor<uint8_t> mxScaleLocalTensor = fp8TokenLocalTensor[quantLength].template ReinterpretCast<uint8_t>();
         AscendC::LocalTensor<ElementC> tokenF32LT = resource.ubBuf.template GetBufferByByte<ElementC>(ubOffset);
         ubOffset += CEIL_UP(mxScaleNumPerToken * 2 * sizeof(float));
@@ -1270,7 +1279,7 @@ public:
             AscendC::PipeBarrier<PIPE_V>();
             AscendC::Cast(bf16TokenLocalTensor, fp32TokenLocalTensor, AscendC::RoundMode::CAST_RINT, quantLength);
             AscendC::PipeBarrier<PIPE_V>();
-            QuantDynamicMxFp8(fp8TokenLocalTensor, bf16TokenLocalTensor, tokenF32LT, quantLength, mxScaleNumPerToken);
+            QuantDynamicMx(fp8TokenLocalTensor, bf16TokenLocalTensor, tokenF32LT, quantLength, mxScaleNumPerToken);
             AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(0);
             AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(0);
             AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(0);
@@ -1353,7 +1362,7 @@ public:
                     tla::MakeShape(actualBlockShape.m(), actualBlockShape.n()));
 
                 bool isLeft = (blockCoord.n() * L1_TILE_N < params.shareProblemShape.n() / 2);
-                CheckSyncFlag(statusDataSpaceGm + SOFT_SYNC_OFFSET, static_cast<uint8_t>(compCoreIdx), target);
+                CheckSyncFlag(reinterpret_cast<__gm__ int32_t*>(statusDataSpaceGm + SOFT_SYNC_OFFSET), static_cast<int32_t>(compCoreIdx), target);
                 target += 1;
                 blockEpilogue(tensorBlockC, tensorBlockD, actualBlockShape, isLeft);
             }
@@ -1376,7 +1385,7 @@ public:
                     groupTokenNumStateTensor.SetGlobalBuffer((__gm__ int32_t *)
                                                             (statusDataSpaceGm + GROUP_TOKEN_NUM_OFFSET) +
                                                             groupIdx * GROUP_INFO_SIZE);
-                    CheckSyncFlag(statusDataSpaceGm + SOFT_SYNC_OFFSET, static_cast<uint8_t>(compCoreIdx), target);
+                    CheckSyncFlag(reinterpret_cast<__gm__ int32_t*>(statusDataSpaceGm + SOFT_SYNC_OFFSET), static_cast<int32_t>(compCoreIdx), target);
                     target += 1;
                     currentM = FlushAndGetValue<int32_t>(groupTokenNumStateTensor, GROUP_TOKEN_COUNT);
                 } else {
@@ -1408,7 +1417,7 @@ public:
                         tla::MakeShape(actualBlockShape.m(), actualBlockShape.n()));
 
                     bool isLeft = (blockCoord.n() * L1_TILE_N < params.problemShape.n() / 2);
-                    CheckSyncFlag(statusDataSpaceGm + SOFT_SYNC_OFFSET, static_cast<uint8_t>(compCoreIdx), target);
+                    CheckSyncFlag(reinterpret_cast<__gm__ int32_t*>(statusDataSpaceGm + SOFT_SYNC_OFFSET), static_cast<int32_t>(compCoreIdx), target);
                     target += 1;
                     blockEpilogue(tensorBlockC, tensorBlockD, actualBlockShape, isLeft);
                 }
@@ -1448,8 +1457,8 @@ private:
             EncreaseSyncFlag(flagAddr, idx);
         }
 
-        __gm__ uint8_t *flagAddr;
-        uint8_t idx;
+        __gm__ int32_t *flagAddr;
+        int32_t idx;
     };
 
     AicSetFunc aicSetFunc;
@@ -1471,7 +1480,7 @@ private:
 
     // token info
     uint32_t hOutSize{0};
-    uint32_t scaleParamPad{0};
+    uint32_t scaleFlagSize{0};
     uint32_t scaleSize{0};
     uint32_t hCommuSize{0};
     uint32_t axisHCommu{0};
@@ -1525,6 +1534,27 @@ private:
     uint32_t aicStateGlobalCoreIdx{0};
     uint32_t sendToMoeAivNum{0};
     uint32_t sendToShareAivNum{0};
+
+    AscendC::LocalTensor<bool> maskInputTensor;
+    AscendC::LocalTensor<int8_t> maskInputInt8Tensor;
+    AscendC::LocalTensor<half> maskTmpTensor;
+    AscendC::LocalTensor<half> sumOutTensor;
+    AscendC::LocalTensor<uint8_t> sharedTmpBuffer;
+
+    AscendC::LocalTensor<int32_t> dstExpIdTensor_;
+    AscendC::LocalTensor<float> dstExpIdFp32Tensor_;
+
+    AscendC::LocalTensor<float> xFp32TmpTensor;
+    AscendC::LocalTensor<ElementC> tokenF32LT;
+    AscendC::LocalTensor<int32_t> yInt32Tensor;
+
+    AscendC::LocalTensor<int32_t> expertCountTensor;
+
+    AscendC::LocalTensor<XType> xInTensor[BUFFER_NUM];
+    AscendC::LocalTensor<ElementA> yInt8Tensor[BUFFER_NUM];
+    AscendC::LocalTensor<ElementMxScaleA> yScaleTensor[BUFFER_NUM];
+    AscendC::LocalTensor<float> moeSmoothScaleTensor[BUFFER_NUM];
+    AscendC::LocalTensor<float> shareSmoothScaleTensor;
 
     AscendC::LocalTensor<int32_t> statusTensor_;
     AscendC::LocalTensor<float> statusFp32Tensor_;

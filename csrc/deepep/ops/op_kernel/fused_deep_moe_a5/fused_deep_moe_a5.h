@@ -70,10 +70,12 @@ CATLASS_DEVICE void DispatchMxGmm1SwigluQuantFunc(
     const FusedDeepMoeInfo &fusedDeepMoeInfo)
 {
     static_assert((std::is_same_v<ElementA, float8_e5m2_t> ||
-        std::is_same_v<ElementA, float8_e4m3_t> || std::is_same_v<ElementA, float4_e2m1x2_t>) &&
+        std::is_same_v<ElementA, float8_e4m3_t> || std::is_same_v<ElementA, float4_e2m1x2_t> ||
+        std::is_same_v<ElementA, float4_e1m2x2_t>) &&
         (std::is_same_v<ElementB, float8_e5m2_t> || std::is_same_v<ElementB, float8_e4m3_t> ||
-            std::is_same_v<ElementB, float4_e2m1x2_t> ) && std::is_same_v<ElementMxScale, float8_e8m0_t>,
-        "ElementA and ElementB must be float8_e5m2_t, float8_e4m3_t, or float4_e2m1x2_t, ElementMxScale must be float8_e8m0_t");
+            std::is_same_v<ElementB, float4_e2m1x2_t> || std::is_same_v<ElementB, float4_e1m2x2_t>) &&
+        std::is_same_v<ElementMxScale, float8_e8m0_t>,
+        "ElementA and ElementB must be float8_e5m2_t, float8_e4m3_t, float4_e2m1x2_t, or float4_e1m2x2_t, ElementMxScale must be float8_e8m0_t");
 
     uint32_t m = routedProblemShape.m();
     uint32_t n = routedProblemShape.n();
@@ -139,10 +141,12 @@ CATLASS_DEVICE void MxGmm2CastCombineFunc(
     void *combiner)
 {
     static_assert((std::is_same_v<ElementA, float8_e5m2_t> ||
-        std::is_same_v<ElementA, float8_e4m3_t> || std::is_same_v<ElementA, float4_e2m1x2_t>) &&
+        std::is_same_v<ElementA, float8_e4m3_t> || std::is_same_v<ElementA, float4_e2m1x2_t> ||
+        std::is_same_v<ElementA, float4_e1m2x2_t>) &&
         (std::is_same_v<ElementB, float8_e5m2_t> || std::is_same_v<ElementB, float8_e4m3_t> ||
-            std::is_same_v<ElementB, float4_e2m1x2_t> ) && std::is_same_v<ElementMxScale, float8_e8m0_t>,
-        "ElementA and ElementB must be float8_e5m2_t, float8_e4m3_t, or float4_e2m1x2_t, ElementMxScale must be float8_e8m0_t");
+            std::is_same_v<ElementB, float4_e2m1x2_t> || std::is_same_v<ElementB, float4_e1m2x2_t>) &&
+        std::is_same_v<ElementMxScale, float8_e8m0_t>,
+        "ElementA and ElementB must be float8_e5m2_t, float8_e4m3_t, float4_e2m1x2_t, or float4_e1m2x2_t, ElementMxScale must be float8_e8m0_t");
 
     uint32_t m = routedProblemShape.m();
     uint32_t n = routedProblemShape.n();
@@ -316,8 +320,8 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Init(
 template <TemplateMC2TypeClass>
 __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Process()
 {
-    using ElementA = float8_e4m3_t;
-    using ElementB = float8_e4m3_t;
+    using ElementA = WeightType;
+    using ElementB = WeightType;
     GemmCoord gmm1ProblemShape{maxTokenNum_, gmm1OutputDim_, tokenHiddenSize_};
     GemmCoord shareGmm1ProblemShape{bs_, shareGmm1OutputDim_, tokenHiddenSize_};
 

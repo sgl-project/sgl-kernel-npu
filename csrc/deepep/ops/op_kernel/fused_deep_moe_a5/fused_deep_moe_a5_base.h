@@ -12,9 +12,9 @@
 #include "op_kernel/moe_distribute_base.h"
 
 #define TemplateMC2TypeClass                                                                      \
-        typename ExpandXType, bool WEIGHT_NZ, typename ExpandIdxType, \
+        typename ExpandXType, typename WeightType, bool WEIGHT_NZ, typename ExpandIdxType, \
         bool IsNeedReduceScatter, uint32_t EXEC_FLAG
-#define TemplateMC2TypeFunc ExpandXType, WEIGHT_NZ, ExpandIdxType, IsNeedReduceScatter, EXEC_FLAG
+#define TemplateMC2TypeFunc ExpandXType, WeightType, WEIGHT_NZ, ExpandIdxType, IsNeedReduceScatter, EXEC_FLAG
 
 #define TemplateDispatchTypeClass                                                                                  \
             typename XType, typename ExpandXOutType, bool StaticQuant, bool DynamicQuant, bool IsSmoothScaleExist, \
