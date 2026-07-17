@@ -35,17 +35,8 @@ def test_main(
     num_topk, num_experts = args.num_topk, args.num_experts
     enable_diagnose = args.enable_diagnose
     enable_dynamic_tokens = args.enable_dynamic_tokens
-    quant_type = args.quant_type  # no, int8, fp8, fp4, scalar_fp8
-    if quant_type == "no":
-        dispatch_quant_mode = "bf16"
-    elif quant_type == "int8":
-        dispatch_quant_mode = "int8"
-    elif quant_type == "fp8":
-        dispatch_quant_mode = "mx_fp8_e4m3"
-    elif quant_type == "scalar_fp8":
-        dispatch_quant_mode = "pertoken_fp8_e4m3"
-    elif quant_type == "fp4":
-        dispatch_quant_mode = "mx_fp4_e2m1"
+    quant_type = args.quant_type
+    dispatch_quant_mode = quant_type
     num_servers = num_ranks // num_local_ranks
     expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
 
@@ -441,7 +432,7 @@ def test_main(
         max_diff = torch.max(torch.abs(check_x - golden) / golden_nozero).item()
         avg_diff = torch.mean(torch.abs(check_x - golden) / golden_nozero).item()
         print(f"{rank=}, {avg_diff=:.8f}, {max_diff=:.8f}, cosine_diff={diff:.8f}")
-        diff_threshold = 2e-3 if quant_type == "scalar_fp8" else 5e-5
+        diff_threshold = 2e-3 if quant_type.startswith("pertoken_fp8") else 5e-5
         assert diff < diff_threshold
 
         # For later tuning
@@ -619,8 +610,8 @@ if __name__ == "__main__":
         "--quant-type",
         dest="quant_type",
         type=str,
-        default="no",
-        help="quant type: no, int8, fp8, fp4, scalar_fp8",
+        default="bf16",
+        help="quant type: bf16, int8, mx_fp8_e4m3, mx_fp8_e5m2, pertoken_fp8_e4m3, pertoken_fp8_e5m2, mx_fp4_e2m1",
     )
     args = parser.parse_args()
 
