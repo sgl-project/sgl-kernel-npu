@@ -705,6 +705,15 @@ class Buffer:
             event: the event after executing the kernel (valid only if `async_finish` is set).
             hook: the receiving hook function (valid only if `return_recv_hook` is set).
         """
+        # Preserve the legacy quantization behavior and return structure when callers do not pass quant_mode.
+        if quant_mode is None:
+            if use_mxfp4:
+                quant_mode = "mx_fp4_e2m1"
+            elif use_fp8 and use_ue8m0:
+                quant_mode = "mx_fp8_e4m3"
+            elif use_fp8:
+                quant_mode = "int8"
+
         return self.low_latency_strategy.low_latency_dispatch(
             x=x,
             topk_idx=topk_idx,
