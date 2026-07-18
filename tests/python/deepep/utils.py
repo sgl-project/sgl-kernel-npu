@@ -310,6 +310,143 @@ def bench_kineto(
     return kernel_durations if is_tuple else kernel_durations[0]
 
 
+def _load_chrome_trace_events(trace_path: Union[str, Path]):
+    profile_data = json.loads(Path(trace_path).read_text())
+    if isinstance(profile_data, dict):
+        profile_data = profile_data.get("traceEvents", [])
+    return [
+        event
+        for event in profile_data
+        if isinstance(event, dict)
+        and "name" in event
+        and "dur" in event
+        and "ts" in event
+        and isinstance(event["name"], str)
+    ]
+
+
+def _normalize_event_patterns(
+    ordered_event_patterns: Union[str, tuple, list],
+):
+    if isinstance(ordered_event_patterns, str):
+        ordered_event_patterns = [ordered_event_patterns]
+    normalized = []
+    for pattern in ordered_event_patterns:
+        if isinstance(pattern, str):
+            normalized.append((pattern,))
+        else:
+            normalized.append(tuple(pattern))
+    return tuple(normalized)
+
+
+def profile_npu_event_sequences(
+    fn,
+    ordered_event_patterns: Union[str, tuple, list],
+    num_warmups: int = 0,
+    num_tests: int = 30,
+    suppress_kineto_output: bool = False,
+    trace_path: Optional[str] = None,
+    allow_no_match: bool = False,
+):
+    if num_warmups < 0:
+        raise ValueError("num_warmups must be non-negative")
+    if num_tests <= 0:
+        raise ValueError("num_tests must be positive")
+
+    total_iters = num_warmups + num_tests
+    suppress = suppress_stdout_stderr if suppress_kineto_output else empty_suppress
+    with suppress():
+        schedule = torch_npu.profiler.schedule(
+            wait=0, warmup=0, active=total_iters, repeat=1
+        )
+        with torch_npu.profiler.profile(
+            activities=[torch_npu.profiler.ProfilerActivity.NPU], schedule=schedule
+        ) as prof:
+            for _ in range(total_iters):
+                fn()
+                prof.step()
+            torch.npu.synchronize()
+
+    temp_path = Path(tempfile.gettempdir()) / f"trace_{uuid.uuid4().hex}.json"
+    prof.export_chrome_trace(temp_path)
+    events = _load_chrome_trace_events(temp_path)
+
+    if trace_path is not None:
+        trace_path = Path(trace_path)
+        if trace_path.exists():
+            trace_path.unlink()
+        prof.export_chrome_trace(trace_path)
+
+    ordered_event_patterns = _normalize_event_patterns(ordered_event_patterns)
+    discovered_names = sorted({event["name"] for event in events})
+    events = sorted(events, key=lambda event: event["ts"])
+
+    iteration_durations = []
+    iteration_event_names = []
+    iteration_step_durations = []
+    current_duration = 0.0
+    current_event_names = []
+    current_step_durations = []
+    current_pattern_idx = 0
+    expected_patterns = len(ordered_event_patterns)
+
+    for event in events:
+        name = event["name"]
+        if current_pattern_idx >= expected_patterns:
+            current_pattern_idx = 0
+            current_duration = 0.0
+            current_event_names = []
+            current_step_durations = []
+
+        candidates = ordered_event_patterns[current_pattern_idx]
+        if any(candidate in name for candidate in candidates):
+            event_duration = event["dur"] / 1e6
+            current_duration += event_duration
+            current_event_names.append(name)
+            current_step_durations.append(event_duration)
+            current_pattern_idx += 1
+            if current_pattern_idx == expected_patterns:
+                iteration_durations.append(current_duration)
+                iteration_event_names.append(tuple(current_event_names))
+                iteration_step_durations.append(tuple(current_step_durations))
+                current_duration = 0.0
+                current_event_names = []
+                current_step_durations = []
+                current_pattern_idx = 0
+
+    os.unlink(temp_path)
+
+    if len(iteration_durations) == 0 and not allow_no_match:
+        raise AssertionError(
+            "No matched NPU event sequence found. "
+            f"Patterns={ordered_event_patterns}. "
+            f"Discovered events={discovered_names}"
+        )
+
+    if len(iteration_durations) < total_iters and not allow_no_match:
+        raise AssertionError(
+            "Matched NPU event iterations are fewer than expected. "
+            f"Expected at least {total_iters}, got {len(iteration_durations)}. "
+            f"Patterns={ordered_event_patterns}. "
+            f"Discovered events={discovered_names}"
+        )
+
+    dropped_warmups = min(num_warmups, len(iteration_durations))
+    if dropped_warmups:
+        iteration_durations = iteration_durations[dropped_warmups:]
+        iteration_event_names = iteration_event_names[dropped_warmups:]
+        iteration_step_durations = iteration_step_durations[dropped_warmups:]
+
+    durations = np.array(iteration_durations, dtype=np.float64)
+    step_durations = np.array(iteration_step_durations, dtype=np.float64)
+    debug_info = {
+        "matched_total_iterations": len(iteration_durations) + dropped_warmups,
+        "dropped_warmup_iterations": dropped_warmups,
+        "counted_iterations": len(iteration_durations),
+    }
+    return durations, discovered_names, iteration_event_names, step_durations, debug_info
+
+
 def hash_tensor(t: torch.Tensor):
     return t.view(torch.int8).sum().item()
 
