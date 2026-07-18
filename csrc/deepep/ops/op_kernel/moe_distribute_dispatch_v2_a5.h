@@ -43,9 +43,9 @@ constexpr uint8_t MOE_NUM_IDX = 3;
 constexpr int32_t BITS_PER_BYTE = 8;
 constexpr uint32_t MAX_UB_SIZE = 170U * 1024U;
 
-// related to FP8/4 and INT8 quantization
-constexpr float FP8_E5M2_MAX_VALUE = 448.0f;
-constexpr float FP8_E4M3_MAX_VALUE = 57344.0f;
+// related to FP8 and INT8 quantization
+constexpr float FP8_E5M2_MAX_VALUE = 57344.0f;
+constexpr float FP8_E4M3_MAX_VALUE = 448.0f;
 constexpr float HIFP8_MAX_VALUE = 32768.0f;
 constexpr float INT8_MAX_VALUE = 127.0f;
 constexpr uint32_t FP4_ELEMS_PER_BYTE = 2;
@@ -1131,7 +1131,8 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::QuantDyna
     // PipeBarrier<PIPE_V>();
     ReduceMaxInplace(tokenF32AbsLT, axisH_);  // 3. tokenF32Abs -> max
     SyncFunc<AscendC::HardEvent::V_S>();
-    dynamicScale = float(maxVal) / tokenF32AbsLT.GetValue(0);  // 4. maxVal / max 计算出最大值量化的scale
+    float tokenAbsMax = tokenF32AbsLT.GetValue(0);
+    dynamicScale = tokenAbsMax > 0.0f ? maxVal / tokenAbsMax : 1.0f;  // 4. maxVal / max 计算出最大值量化的scale
     SyncFunc<AscendC::HardEvent::S_V>();
     Muls(floatLocalTemp_, floatLocalTemp_, dynamicScale, axisH_);  // 5. tokenF32 * scale 得出量化后的token
     // PipeBarrier<PIPE_V>();

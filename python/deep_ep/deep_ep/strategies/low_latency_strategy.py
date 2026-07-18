@@ -46,6 +46,7 @@ class DefaultLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         async_finish: bool = False,
         return_recv_hook: bool = False,
         topk_weights: Optional[torch.Tensor] = None,
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         torch.Tensor,
@@ -54,6 +55,18 @@ class DefaultLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         Callable,
     ]:
         topk_ids = topk_idx.int()
+
+        valid_quant_modes = {
+            None,
+            "int8",
+            "mx_fp8_e4m3",
+            "mx_fp8_e5m2",
+            "pertoken_fp8_e4m3",
+            "pertoken_fp8_e5m2",
+            "mx_fp4_e2m1",
+        }
+        if quant_mode not in valid_quant_modes:
+            raise ValueError(f"Unsupported quant_mode: {quant_mode}")
 
         (
             packed_recv_x,
@@ -75,6 +88,7 @@ class DefaultLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             use_mxfp4,
             async_finish,
             return_recv_hook,
+            "none" if quant_mode is None else quant_mode,
         )
 
         handle = (
@@ -99,7 +113,11 @@ class DefaultLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         )
 
         return (
-            (packed_recv_x, packed_recv_x_scales) if use_fp8 else packed_recv_x,
+            (
+                (packed_recv_x, packed_recv_x_scales)
+                if quant_mode is not None
+                else packed_recv_x
+            ),
             packed_recv_count,
             handle,
             EventOverlap(event, tensors_to_record if async_finish else None),
@@ -198,6 +216,7 @@ class OpsLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         async_finish: bool = False,
         return_recv_hook: bool = False,
         topk_weights: Optional[torch.Tensor] = None,
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         torch.Tensor,
@@ -468,6 +487,7 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         async_finish=False,
         return_recv_hook=False,
         topk_weights: Optional[torch.Tensor] = None,
+        quant_mode: Optional[str] = None,
     ):
         group = buffer.group
         group_size = buffer.group_size

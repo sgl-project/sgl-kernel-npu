@@ -114,7 +114,8 @@ public:
     low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
                          const std::optional<at::Tensor> &cumulative_local_expert_recv_stats,
                          int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts, bool use_fp8, bool round_scale,
-                         bool use_ue8m0, bool use_mxfp4, bool async, bool return_recv_hook);
+                         bool use_ue8m0, bool use_mxfp4, bool async, bool return_recv_hook,
+                         const std::string &quant_mode_name);
 
     std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<void()>>> low_latency_combine(
         const at::Tensor &x, const at::Tensor &topk_idx, const at::Tensor &topk_weights, const at::Tensor &src_info,

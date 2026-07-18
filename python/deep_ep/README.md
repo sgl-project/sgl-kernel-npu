@@ -131,12 +131,13 @@ High-throughput dispatch and combine for training and prefill phases:
 
 Optimized for inference with small batch sizes (128 tokens/batch):
 - **A3**: Supports `default`, `ops`, and `alltoall` strategies. `ops` strategy supports `comm_alg` options: `hierarchy`, `fullmesh_v1`, `fullmesh_v2`, `ccu`.
-- **A5 (C310)**: Supports `default` and `ops` strategies with MXFP8 per-block quantization (`use_ue8m0=True`, quant_mode=3). Data format: `float8_e4m3fn` + `float8_e8m0fnu` scales.
+- **A5 (C310)**: Supports `default` and `ops` strategies with per-token FP8 dynamic quantization (`use_fp8=True, use_ue8m0=False`, quant_mode=5) and MXFP8 per-block quantization (`use_ue8m0=True`, quant_mode=3).
 - **A2 Intranode**: Supports up to `bs=512` for low_latency dispatch/combine.
 - **A2 Internode**: Hierarchical (HCCS + RDMA) or non-hierarchical (pure RDMA) implementation. Supports up to `bs=512`.
 
 Quantization modes in low_latency_dispatch:
 - **BF16**: `use_fp8=False` — no quantization, bfloat16 communication.
+- **FP8 per-token dynamic**: `use_fp8=True, use_ue8m0=False` — dynamic quantization with one `float32` scale per token. A5/C310 uses `float8_e4m3fn` payload; A2/A3 keep the existing `int8` payload.
 - **MXFP8 per-block**: `use_fp8=True, use_ue8m0=True` — per-block MXFP8 quantization (quant_mode=3), `float8_e4m3fn` data + `float8_e8m0fnu` scales (A5/C310 only).
 
 
