@@ -62,6 +62,8 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
     bash build.sh -a deepep2
     ```
 
+> **Tip**: Add `-d` flag to enable debug logging (e.g., `bash build.sh -a deepep -d`).
+
 #### Installation
 
 1. Pip install the `.whl` file into your Python environment
@@ -159,7 +161,9 @@ Optimized for inference with small batch sizes (128 tokens/batch):
 
 Quantization modes in low_latency_dispatch:
 - **BF16**: `use_fp8=False` — no quantization, bfloat16 communication.
-- **MXFP8 per-block**: `use_fp8=True, use_ue8m0=True` — per-block MXFP8 quantization (quant_mode=3), `float8_e4m3fn` data + `float8_e8m0fnu` scales (A5 only).
+- **INT8 per-token**: `use_fp8=True, use_ue8m0=False` — per-token INT8 with `float32` scales (quant_mode=2). Available on all strategies (default/ops/alltoall) and platforms (A2/A3/A5).
+- **MXFP8 per-block**: `use_fp8=True, use_ue8m0=True` — per-block MXFP8 quantization (quant_mode=3), `float8_e4m3fn` data + `float8_e8m0fnu` scales. **A5 only**; supported on `default` and `ops` strategies, not on `alltoall`.
+- **MXFP4 per-block**: `use_fp8=True, use_mxfp4=True` — per-block MXFP4 quantization (quant_mode=4), `float4_e2m1fn_x2` data + `float8_e8m0fnu` scales. **A5 only**; only supported on `default` strategy (ops/alltoall strategies silently ignore `use_mxfp4`).
 
 ### Fused MoE
 
@@ -304,6 +308,8 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
     bash build.sh -a deepep2
     ```
 
+> **提示**：可加 `-d` 参数启用 DEBUG 日志（如 `bash build.sh -a deepep -d`）。
+
 #### 安装
 
 1、执行 pip 安装命令，将 `.whl` 安装到你的 Python 环境下
@@ -401,7 +407,9 @@ normal_dispatch 量化模式：
 
 low_latency_dispatch 量化模式：
 - **BF16**：`use_fp8=False` — 不量化，bfloat16 通信。
-- **MXFP8 per-block**：`use_fp8=True, use_ue8m0=True` — per-block MXFP8 量化（quant_mode=3），`float8_e4m3fn` 数据 + `float8_e8m0fnu` 缩放因子（仅 A5）。
+- **INT8 per-token**：`use_fp8=True, use_ue8m0=False` — per-token INT8 + `float32` 缩放因子（quant_mode=2）。全策略（default/ops/alltoall）全平台（A2/A3/A5）支持。
+- **MXFP8 per-block**：`use_fp8=True, use_ue8m0=True` — per-block MXFP8 量化（quant_mode=3），`float8_e4m3fn` 数据 + `float8_e8m0fnu` 缩放因子。**仅 A5**；`default` 和 `ops` 策略支持，`alltoall` 策略不支持。
+- **MXFP4 per-block**：`use_fp8=True, use_mxfp4=True` — per-block MXFP4 量化（quant_mode=4），`float4_e2m1fn_x2` 数据 + `float8_e8m0fnu` 缩放因子。**仅 A5**；仅 `default` 策略支持（ops/alltoall 策略会静默忽略 `use_mxfp4`）。
 
 ### 融合 MoE
 
