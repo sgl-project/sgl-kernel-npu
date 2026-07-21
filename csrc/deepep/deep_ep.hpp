@@ -52,6 +52,8 @@ public:
 
     bool is_available() const;
 
+    bool is_a5_build() const;
+
     int get_num_rdma_ranks() const;
 
     int get_rdma_rank() const;
