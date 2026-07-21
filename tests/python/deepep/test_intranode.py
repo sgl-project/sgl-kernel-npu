@@ -432,7 +432,7 @@ def test_main(
         max_diff = torch.max(torch.abs(check_x - golden) / golden_nozero).item()
         avg_diff = torch.mean(torch.abs(check_x - golden) / golden_nozero).item()
         print(f"{rank=}, {avg_diff=:.8f}, {max_diff=:.8f}, cosine_diff={diff:.8f}")
-        diff_threshold = 2e-3 if quant_type.startswith("pertoken_fp8") else 5e-5
+        diff_threshold = 2e-3 if "_fp8_" in quant_type or "_fp4_" in quant_type else 5e-5
         assert diff < diff_threshold
 
         # For later tuning
