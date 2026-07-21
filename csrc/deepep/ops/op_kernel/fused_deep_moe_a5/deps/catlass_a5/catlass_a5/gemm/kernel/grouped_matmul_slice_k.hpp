@@ -19,10 +19,7 @@
 
 namespace Catlass::Gemm::Kernel {
 
-template<
-    class ArchTag_,
-    class Element_
->
+template <class ArchTag_, class Element_>
 struct MemFill {
 public:
     using ArchTag = ArchTag_;
@@ -35,8 +32,7 @@ public:
     }
 
     CATLASS_DEVICE
-    void operator()(AscendC::GlobalTensor<Element> const &dst,
-                    uint32_t elementCount, Element fillValue)
+    void operator()(AscendC::GlobalTensor<Element> const &dst, uint32_t elementCount, Element fillValue)
     {
         const uint32_t maxBurstSize = MAX_BURST_BYTES / sizeof(Element);
         const uint32_t ubBufferSize = ubBuffer.GetSize() > maxBurstSize ? maxBurstSize : ubBuffer.GetSize();
@@ -52,15 +48,17 @@ public:
         // fill the main block by datacopy
         if (batchCount > 0) {
             for (int index = 0; index < batchCount; ++index) {
-                AscendC::DataCopyPad(dst[currentOffset], ubBuffer,
+                AscendC::DataCopyPad(
+                    dst[currentOffset], ubBuffer,
                     AscendC::DataCopyExtParams(1, static_cast<uint32_t>(ubBufferSize * sizeof(Element)), 0, 0, 0));
                 currentOffset += ubBufferSize;
             }
         }
-        
+
         // fill the tail block by datacopy
         if (tailElements != 0) {
-            AscendC::DataCopyPad(dst[currentOffset], ubBuffer,
+            AscendC::DataCopyPad(
+                dst[currentOffset], ubBuffer,
                 AscendC::DataCopyExtParams(1, static_cast<uint32_t>(tailElements * sizeof(Element)), 0, 0, 0));
         }
     }
@@ -74,13 +72,9 @@ private:
 };
 
 // Template for grouped matmul kernel. Compute grouped C = A * B
-template <
-    class BlockMmad_,
-    class BlockEpilogue_,
-    class BlockScheduler_,
-    class ElementGroupList_
->
-class GroupedMatmulSliceK {
+template <class BlockMmad_, class BlockEpilogue_, class BlockScheduler_, class ElementGroupList_>
+class GroupedMatmulSliceK
+{
 public:
     using BlockMmad = BlockMmad_;
     using ArchTag = typename BlockMmad::ArchTag;
@@ -115,21 +109,21 @@ public:
         Params() {}
 
         CATLASS_HOST_DEVICE
-        Params(
-            GemmCoord const &problemShape_, uint32_t problemCount_, GM_ADDR ptrGroupList_,
-            GM_ADDR ptrA_, LayoutA const &layoutA_,
-            GM_ADDR ptrB_, LayoutB const &layoutB_,
-            GM_ADDR ptrC_, LayoutC const &layoutC_
-        ) : problemShape(problemShape_),
-            problemCount(problemCount_), ptrGroupList(reinterpret_cast<__gm__ ElementGroupList *>(ptrGroupList_)),
-            ptrA(reinterpret_cast<__gm__ ElementA *>(ptrA_)), layoutA(layoutA_),
-            ptrB(reinterpret_cast<__gm__ ElementB *>(ptrB_)), layoutB(layoutB_),
-            ptrC(reinterpret_cast<__gm__ ElementC *>(ptrC_)), layoutC(layoutC_)
-        {
-        }
+        Params(GemmCoord const &problemShape_, uint32_t problemCount_, GM_ADDR ptrGroupList_, GM_ADDR ptrA_,
+               LayoutA const &layoutA_, GM_ADDR ptrB_, LayoutB const &layoutB_, GM_ADDR ptrC_, LayoutC const &layoutC_)
+            : problemShape(problemShape_),
+              problemCount(problemCount_),
+              ptrGroupList(reinterpret_cast<__gm__ ElementGroupList *>(ptrGroupList_)),
+              ptrA(reinterpret_cast<__gm__ ElementA *>(ptrA_)),
+              layoutA(layoutA_),
+              ptrB(reinterpret_cast<__gm__ ElementB *>(ptrB_)),
+              layoutB(layoutB_),
+              ptrC(reinterpret_cast<__gm__ ElementC *>(ptrC_)),
+              layoutC(layoutC_)
+        {}
     };
 
-    struct Arguments{
+    struct Arguments {
         GemmCoord problemShape;
         uint32_t problemCount;
         uint8_t *ptrGroupList;
@@ -145,7 +139,7 @@ public:
     {
         return 0;
     }
-    static Params ToUnderlyingArguments(const Arguments &args, void* workspace)
+    static Params ToUnderlyingArguments(const Arguments &args, void *workspace)
     {
         uint32_t m = args.problemShape.m();
         uint32_t n = args.problemShape.n();
@@ -153,10 +147,8 @@ public:
         LayoutA layoutA = LayoutA::template MakeLayout<ElementA>(m, k);
         LayoutB layoutB = LayoutB::template MakeLayout<ElementB>(k, n);
         LayoutC layoutC = LayoutC::template MakeLayout<ElementC>(m, n);
-        Params params{args.problemShape, args.problemCount, args.ptrGroupList,
-            args.ptrA, layoutA,
-            args.ptrB, layoutB,
-            args.ptrC, layoutC};
+        Params params{args.problemShape, args.problemCount, args.ptrGroupList, args.ptrA, layoutA,
+                      args.ptrB,         layoutB,           args.ptrC,         layoutC};
         return params;
     }
 
@@ -168,13 +160,11 @@ public:
     ~GroupedMatmulSliceK() {}
 
     template <int32_t CORE_TYPE = g_coreType>
-    CATLASS_DEVICE
-    void operator()(Params const &params);
+    CATLASS_DEVICE void operator()(Params const &params);
 
     /// Executes matmul
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIC>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params)
     {
         BlockScheduler blockScheduler;
         BlockMmad blockMmad(resource);
@@ -197,8 +187,8 @@ public:
 
         uint32_t startCoreIdx = 0;
         for (uint32_t groupIdx = 0; groupIdx < params.problemCount; ++groupIdx) {
-            uint32_t currentK = (groupIdx == 0) ? groupList.GetValue(groupIdx) :
-                (groupList.GetValue(groupIdx) - groupList.GetValue(groupIdx - 1));
+            uint32_t currentK = (groupIdx == 0) ? groupList.GetValue(groupIdx)
+                                                : (groupList.GetValue(groupIdx) - groupList.GetValue(groupIdx - 1));
             GemmCoord problemShape{params.problemShape.m(), params.problemShape.n(), currentK};
 
             if (currentK == 0) {
@@ -237,11 +227,8 @@ public:
                 int64_t gmOffsetC = layoutC.GetOffset(offsetC);
 
                 // Compute block-scoped matrix multiply-add
-                blockMmad(
-                    gmA[inGroupOffsetA + gmOffsetA], layoutA,
-                    gmB[inGroupOffsetB + gmOffsetB], layoutB,
-                    gmC[inGroupOffsetC + gmOffsetC], layoutC,
-                    actualBlockShape);
+                blockMmad(gmA[inGroupOffsetA + gmOffsetA], layoutA, gmB[inGroupOffsetB + gmOffsetB], layoutB,
+                          gmC[inGroupOffsetC + gmOffsetC], layoutC, actualBlockShape);
             }
 
             inGroupOffsetA += static_cast<int64_t>(problemShape.m()) * problemShape.k();
@@ -259,8 +246,7 @@ public:
     }
 
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIV>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIV>(Params const &params)
     {
         MemFill0 memFill0(resource);
         AscendC::GlobalTensor<ElementC> gmC;
@@ -271,8 +257,8 @@ public:
         int64_t inGroupOffsetC = 0;
 
         for (uint32_t groupIdx = 0; groupIdx < params.problemCount; ++groupIdx) {
-            uint32_t currentK = (groupIdx == 0) ? groupList.GetValue(groupIdx) :
-                (groupList.GetValue(groupIdx) - groupList.GetValue(groupIdx - 1));
+            uint32_t currentK = (groupIdx == 0) ? groupList.GetValue(groupIdx)
+                                                : (groupList.GetValue(groupIdx) - groupList.GetValue(groupIdx - 1));
             GemmCoord problemShape{params.problemShape.m(), params.problemShape.n(), currentK};
 
             if (currentK == 0) {
@@ -287,6 +273,6 @@ private:
     Arch::Resource<ArchTag> resource;
 };
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel
 
-#endif // CATLASS_GEMM_KERNEL_GROUPED_MATMUL_K_HPP
+#endif  // CATLASS_GEMM_KERNEL_GROUPED_MATMUL_K_HPP

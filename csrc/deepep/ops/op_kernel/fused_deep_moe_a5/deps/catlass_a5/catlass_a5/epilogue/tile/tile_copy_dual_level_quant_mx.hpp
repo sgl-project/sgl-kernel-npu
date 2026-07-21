@@ -31,27 +31,21 @@ namespace Catlass::Epilogue::Tile {
  *
  * A 与 B 的差异由 kernel 在传入 GM tensor + layout 时解决,本结构不感知。
  */
-template <
-    class ArchTag,
-    class InputType,
-    class OutputType,
-    class Scale1Type,
-    class Scale2Type
->
+template <class ArchTag, class InputType, class OutputType, class Scale1Type, class Scale2Type>
 struct TileCopyDualLevelQuantMx {
-    using ElementInput  = typename InputType::Element;
+    using ElementInput = typename InputType::Element;
     using ElementOutput = typename OutputType::Element;
     using ElementScale1 = typename Scale1Type::Element;
     using ElementScale2 = typename Scale2Type::Element;
 
-    using CopyGmToUbInput  = CopyGm2Ub<ArchTag, InputType>;
+    using CopyGmToUbInput = CopyGm2Ub<ArchTag, InputType>;
     using CopyUbToGmOutput = CopyUb2Gm<ArchTag, OutputType>;
     using CopyUbToGmScale1 = CopyUb2Gm<ArchTag, Scale1Type>;
     using CopyUbToGmScale2 = CopyUb2Gm<ArchTag, Scale2Type>;
 };
 
-} // namespace Catlass::Epilogue::Tile
+}  // namespace Catlass::Epilogue::Tile
 
-#endif // (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510)
+#endif  // (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510)
 
-#endif // CATLASS_EPILOGUE_TILE_TILE_COPY_DUAL_LEVEL_QUANT_MX_HPP
+#endif  // CATLASS_EPILOGUE_TILE_TILE_COPY_DUAL_LEVEL_QUANT_MX_HPP

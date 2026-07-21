@@ -28,9 +28,8 @@ namespace Catlass::Gemm::Kernel {
 
 #if (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510)
 
-template <
-    class ArchTag_, class ElementIn_, class ElementSmoothScale_, class ElementQuantX_, class ElementMxScale_,
-    class LayoutTag_, class L1TileShape_>
+template <class ArchTag_, class ElementIn_, class ElementSmoothScale_, class ElementQuantX_, class ElementMxScale_,
+          class LayoutTag_, class L1TileShape_>
 struct SmoothQuant {
     using ArchTag = ArchTag_;
     static_assert(std::is_same_v<ArchTag, Arch::Ascend950>, "unsupported ArchTag");
@@ -73,27 +72,26 @@ struct SmoothQuant {
     CopyUb2L1A copyUb2L1A;
 
     CATLASS_DEVICE
-    SmoothQuant(Arch::Resource<ArchTag>& resource)
+    SmoothQuant(Arch::Resource<ArchTag> &resource)
     {
-        static constexpr int8_t FLOAT_OVERFLOW_MODE_CTRL = 60; // 饱和模式控制位
+        static constexpr int8_t FLOAT_OVERFLOW_MODE_CTRL = 60;  // 饱和模式控制位
         // <startBit, endBit>
-        AscendC::SetCtrlSpr<FLOAT_OVERFLOW_MODE_CTRL, FLOAT_OVERFLOW_MODE_CTRL>(0); // 0: 单指令饱和 1: 全局饱和
+        AscendC::SetCtrlSpr<FLOAT_OVERFLOW_MODE_CTRL, FLOAT_OVERFLOW_MODE_CTRL>(0);  // 0: 单指令饱和 1: 全局饱和
     }
 
     CATLASS_DEVICE
-    ~SmoothQuant()
-    {}
+    ~SmoothQuant() {}
 
     template <class TensorX, class TensorSmoothScale, class TensorQuantX, class TensorMxScale, class SmoothQuantParams>
-    CATLASS_DEVICE void operator()(
-        TensorX& gmTensorX, TensorSmoothScale& gmTensorSmoothScale, TensorQuantX& gmTensorQuantX,
-        TensorMxScale& gmTensorMxScale, ElementIn qmaxInv, SmoothQuantParams& smoothQuantParams)
+    CATLASS_DEVICE void operator()(TensorX &gmTensorX, TensorSmoothScale &gmTensorSmoothScale,
+                                   TensorQuantX &gmTensorQuantX, TensorMxScale &gmTensorMxScale, ElementIn qmaxInv,
+                                   SmoothQuantParams &smoothQuantParams)
     {
-        auto& l1ATensorList = smoothQuantParams.tensorLists.l1.l1A;
-        auto& tensorLists = smoothQuantParams.tensorLists.ub;
-        auto& eventLists = smoothQuantParams.eventLists;
+        auto &l1ATensorList = smoothQuantParams.tensorLists.l1.l1A;
+        auto &tensorLists = smoothQuantParams.tensorLists.ub;
+        auto &eventLists = smoothQuantParams.eventLists;
 
-        auto& xListId = smoothQuantParams.listId;
+        auto &xListId = smoothQuantParams.listId;
 
         uint32_t aivIdx = AscendC::GetSubBlockIdx();
         uint32_t aivNum = AscendC::GetSubBlockNum();
@@ -162,16 +160,16 @@ struct SmoothQuant {
                 bool isPadNext = (kL1ActualNext != kAlignedNext);
 
                 // X
-                auto gmTensorTileXNext = GetTile(
-                    gmTensorX, tla::MakeCoord(mRowsPerCore * aivIdx, L1_TILE_K * kL1IdxNext),
-                    tla::MakeShape(mL1Actual, kL1ActualNext));
+                auto gmTensorTileXNext =
+                    GetTile(gmTensorX, tla::MakeCoord(mRowsPerCore * aivIdx, L1_TILE_K * kL1IdxNext),
+                            tla::MakeShape(mL1Actual, kL1ActualNext));
                 auto layoutXNext = tla::MakeLayout<ElementIn, LayoutTagIn>(mL1Actual, kAlignedNext);
                 auto tensorXNext = tla::MakeTensor(tensorLists.x[xListIdNext], layoutXNext, Arch::PositionUB{});
                 auto tensorTileXNext =
                     GetTile(tensorXNext, tla::MakeCoord(0, 0), tla::MakeShape(mL1Actual, kL1ActualNext));
                 // SmoothScale
-                auto gmTensorSmoothTileNext = GetTile(
-                    gmTensorSmoothScale, tla::MakeCoord(0, L1_TILE_K * kL1IdxNext), tla::MakeShape(1, kL1ActualNext));
+                auto gmTensorSmoothTileNext = GetTile(gmTensorSmoothScale, tla::MakeCoord(0, L1_TILE_K * kL1IdxNext),
+                                                      tla::MakeShape(1, kL1ActualNext));
                 auto layoutSmoothNext = tla::MakeLayout<ElementIn, LayoutTagIn>(tla::Int<1>{}, kAlignedNext);
                 auto tensorSmoothScaleNext =
                     tla::MakeTensor(tensorLists.smoothScale[xListIdNext], layoutSmoothNext, Arch::PositionUB{});
@@ -180,15 +178,15 @@ struct SmoothQuant {
 
                 if (isPadNext) {
                     if constexpr (HAS_SMOOTH) {
-                        AscendC::Duplicate(
-                            tensorLists.x[xListIdNext], static_cast<ElementIn>(0), mL1Actual * kAlignedNext);
-                        AscendC::Duplicate(
-                            tensorLists.smoothScale[xListIdNext], static_cast<ElementIn>(0), kAlignedNext);
+                        AscendC::Duplicate(tensorLists.x[xListIdNext], static_cast<ElementIn>(0),
+                                           mL1Actual * kAlignedNext);
+                        AscendC::Duplicate(tensorLists.smoothScale[xListIdNext], static_cast<ElementIn>(0),
+                                           kAlignedNext);
                     } else {
                         AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(eventLists.pad);
                         AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(eventLists.pad);
-                        AscendC::Duplicate(
-                            tensorLists.x[xListIdNext], static_cast<ElementIn>(0), mL1Actual * kAlignedNext);
+                        AscendC::Duplicate(tensorLists.x[xListIdNext], static_cast<ElementIn>(0),
+                                           mL1Actual * kAlignedNext);
                     }
                     AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(eventLists.pad);
                     AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(eventLists.pad);
@@ -226,9 +224,8 @@ struct SmoothQuant {
 
                 // compute X' = X * smooth
                 AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(eventLists.ubIn[xListId]);
-                ComputeSmoothX(
-                    GetUbAddr(tensorLists.x[xListId]), GetUbAddr(tensorLists.smoothScale[xListId]),
-                    GetUbAddr(tensorLists.smoothX[xListId]), realUbFactorDim0, kAligned);
+                ComputeSmoothX(GetUbAddr(tensorLists.x[xListId]), GetUbAddr(tensorLists.smoothScale[xListId]),
+                               GetUbAddr(tensorLists.smoothX[xListId]), realUbFactorDim0, kAligned);
                 AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(eventLists.ubIn[xListId]);
 
                 auto tensorSmoothX = tla::MakeTensor(tensorLists.smoothX[xListId], layoutX, Arch::PositionUB{});
@@ -245,9 +242,8 @@ struct SmoothQuant {
                 AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(eventLists.ubIn[xListId]);
 
                 // compute MaxExp
-                ComputeMaxExp(
-                    GetUbAddr(tensorLists.smoothX[xListId]), GetUbAddr(tensorLists.maxExp), totalCountInUB, loopNum,
-                    qmaxInv);
+                ComputeMaxExp(GetUbAddr(tensorLists.smoothX[xListId]), GetUbAddr(tensorLists.maxExp), totalCountInUB,
+                              loopNum, qmaxInv);
             } else {
                 // copy ub to l1
                 AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE3>(eventLists.ubIn[xListId]);
@@ -258,14 +254,13 @@ struct SmoothQuant {
 
                 // compute MaxExp
                 AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(eventLists.ubIn[xListId]);
-                ComputeMaxExp(
-                    GetUbAddr(tensorLists.x[xListId]), GetUbAddr(tensorLists.maxExp), totalCountInUB, loopNum, qmaxInv);
+                ComputeMaxExp(GetUbAddr(tensorLists.x[xListId]), GetUbAddr(tensorLists.maxExp), totalCountInUB, loopNum,
+                              qmaxInv);
             }
 
             AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(eventLists.ubOutMxScale[xListId]);
-            ComputeScale(
-                GetUbAddr(tensorLists.maxExp), GetUbAddr<uint16_t>(tensorLists.mxScale[xListId]),
-                GetUbAddr(tensorLists.halfScale), totalScaleInUB, loopNumScale);
+            ComputeScale(GetUbAddr(tensorLists.maxExp), GetUbAddr<uint16_t>(tensorLists.mxScale[xListId]),
+                         GetUbAddr(tensorLists.halfScale), totalScaleInUB, loopNumScale);
             AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(eventLists.ubOutMxScale[xListId]);
 
             // copyOut MxScale
@@ -292,9 +287,9 @@ struct SmoothQuant {
             AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(eventLists.ubOutQuntX[xListId]);
 
             // CopyOut QuantX
-            auto gmTensorTileQuantX = GetTile(
-                gmTensorQuantX, tla::MakeCoord(mRowsPerCore * aivIdx, kL1Idx * L1_TILE_K / DIGIT_TWO),
-                tla::MakeShape(mL1Actual, CeilDiv<2>(kL1Actual)));
+            auto gmTensorTileQuantX =
+                GetTile(gmTensorQuantX, tla::MakeCoord(mRowsPerCore * aivIdx, kL1Idx * L1_TILE_K / DIGIT_TWO),
+                        tla::MakeShape(mL1Actual, CeilDiv<2>(kL1Actual)));
             auto layoutQuantX = tla::MakeLayout<int8_t, LayoutTagIn>(mL1Actual, CeilDiv<2>(kAligned));
             auto tensorQuantX = tla::MakeTensor(tensorLists.quantX[xListId], layoutQuantX, Arch::PositionUB{});
             auto tensorTileQuantX =
@@ -308,15 +303,15 @@ struct SmoothQuant {
     }
 
     template <class DstElement = void, class BuiltinTensor = EmptyClass>
-    CATLASS_DEVICE auto GetUbAddr(BuiltinTensor const& tensor)
+    CATLASS_DEVICE auto GetUbAddr(BuiltinTensor const &tensor)
     {
         static_assert(!std::is_same_v<BuiltinTensor, EmptyClass>, "tensor is not a BuiltinTensor");
         using Element = std::conditional_t<std::is_void_v<DstElement>, typename BuiltinTensor::PrimType, DstElement>;
-        return reinterpret_cast<__ubuf__ Element*>(tensor.GetPhyAddr());
+        return reinterpret_cast<__ubuf__ Element *>(tensor.GetPhyAddr());
     }
 
     template <class TensorDst, class TensorSrc>
-    CATLASS_DEVICE void CopyGm2Ub(TensorDst const& dstTensor, TensorSrc const& srcTensor, const bool isPad = false)
+    CATLASS_DEVICE void CopyGm2Ub(TensorDst const &dstTensor, TensorSrc const &srcTensor, const bool isPad = false)
     {
         using ElementSrc = ElementIn;
         static constexpr uint32_t ELE_NUM_PER_BLK = BYTE_PER_BLK / sizeof(ElementSrc);
@@ -350,7 +345,7 @@ struct SmoothQuant {
     }
 
     template <class TensorDst, class TensorSrc>
-    CATLASS_DEVICE void CopyOutMxScale(TensorDst const& dstTensor, TensorSrc const& srcTensor)
+    CATLASS_DEVICE void CopyOutMxScale(TensorDst const &dstTensor, TensorSrc const &srcTensor)
     {
         using ElementSrc = uint8_t;
         static constexpr uint32_t ELE_NUM_PER_C0 = BYTE_PER_C0 / sizeof(ElementSrc);
@@ -365,12 +360,12 @@ struct SmoothQuant {
             0);
         auto dstOffset = dstTensor.layout()(dstTensor.coord());
         auto srcOffset = srcTensor.layout()(srcTensor.coord());
-        AscendC::DataCopyPad<ElementSrc, AscendC::PaddingMode::Compact>(
-            dstTensor.data()[dstOffset], srcTensor.data()[srcOffset], dataCopyParams);
+        AscendC::DataCopyPad<ElementSrc, AscendC::PaddingMode::Compact>(dstTensor.data()[dstOffset],
+                                                                        srcTensor.data()[srcOffset], dataCopyParams);
     }
 
     template <class TensorDst, class TensorSrc>
-    CATLASS_DEVICE void CopyOutFp4x2(TensorDst const& dstTensor, TensorSrc const& srcTensor)
+    CATLASS_DEVICE void CopyOutFp4x2(TensorDst const &dstTensor, TensorSrc const &srcTensor)
     {
         using ElementSrc = int8_t;
         static constexpr uint32_t ELE_NUM_PER_C0 = BYTE_PER_C0 / sizeof(ElementSrc);
@@ -384,8 +379,8 @@ struct SmoothQuant {
         AscendC::DataCopyPad(dstTensor.data()[dstOffset], srcTensor.data()[srcOffset], dataCopyParams);
     }
 
-    __simd_vf__ inline void ComputeSmoothX(
-        __ubuf__ T* srcAddr, __ubuf__ T* srcSmoothAddr, __ubuf__ T* smoothXAddr, uint16_t dim0, uint16_t dim1)
+    __simd_vf__ inline void ComputeSmoothX(__ubuf__ T *srcAddr, __ubuf__ T *srcSmoothAddr, __ubuf__ T *smoothXAddr,
+                                           uint16_t dim0, uint16_t dim1)
     {
         using namespace AscendC::MicroAPI;
         RegTensor<T> vdX;
@@ -395,21 +390,21 @@ struct SmoothQuant {
         uint16_t loopNum = CeilDiv<ELE_NUM_REG_VF>(dim1);
         for (uint16_t i = 0; i < dim0; i++) {
             uint32_t calNum = dim1;
-            __ubuf__ T* srcAddr1 = srcAddr + i * dim1;
-            __ubuf__ T* srcSmoothAddr1 = srcSmoothAddr;
+            __ubuf__ T *srcAddr1 = srcAddr + i * dim1;
+            __ubuf__ T *srcSmoothAddr1 = srcSmoothAddr;
             for (uint16_t j = 0; j < loopNum; j++) {
                 mulMask = UpdateMask<T>(calNum);
                 DataCopy<T, PostLiteral::POST_MODE_UPDATE, LoadDist::DIST_NORM>(vdX, srcAddr1, ELE_NUM_REG_VF);
-                DataCopy<T, PostLiteral::POST_MODE_UPDATE, LoadDist::DIST_NORM>(
-                    vdSmooth, srcSmoothAddr1, ELE_NUM_REG_VF);
+                DataCopy<T, PostLiteral::POST_MODE_UPDATE, LoadDist::DIST_NORM>(vdSmooth, srcSmoothAddr1,
+                                                                                ELE_NUM_REG_VF);
                 Mul(vdXdst, vdX, vdSmooth, mulMask);
                 StoreAlign(smoothXAddr + i * dim1 + ELE_NUM_REG_VF * j, vdXdst, mulMask);
             }
         }
     }
 
-    __simd_vf__ inline void ComputeMaxExp(
-        __ubuf__ T* srcAddr, __ubuf__ uint16_t* maxExpAddr, uint32_t totalCountInUB, uint16_t loopNum, T qmaxInv)
+    __simd_vf__ inline void ComputeMaxExp(__ubuf__ T *srcAddr, __ubuf__ uint16_t *maxExpAddr, uint32_t totalCountInUB,
+                                          uint16_t loopNum, T qmaxInv)
     {
         using namespace AscendC::MicroAPI;
         RegTensor<T> vdExp0;
@@ -430,15 +425,15 @@ struct SmoothQuant {
         MaskReg invalidDataMask0;
         MaskReg invalidDataMask1;
         UnalignReg u1;
-        static constexpr CastTrait castTraitHalf2Bf16 = {
-            RegLayout::UNKNOWN, SatMode::UNKNOWN, MaskMergeMode::ZEROING, AscendC::RoundMode::CAST_TRUNC};
+        static constexpr CastTrait castTraitHalf2Bf16 = {RegLayout::UNKNOWN, SatMode::UNKNOWN, MaskMergeMode::ZEROING,
+                                                         AscendC::RoundMode::CAST_TRUNC};
 
         RegTensor<uint16_t> mantissaMaskHalf;
         RegTensor<uint16_t> mantissaMaskBf16;
         RegTensor<uint16_t> mantissaZero;
         RegTensor<uint16_t> CeilAdd;
-        Duplicate(mantissaMaskBf16, 0x007f); // bf16 类型的尾数掩码
-        Duplicate(mantissaMaskHalf, 0x03ff); // half 类型的尾数掩码
+        Duplicate(mantissaMaskBf16, 0x007f);  // bf16 类型的尾数掩码
+        Duplicate(mantissaMaskHalf, 0x03ff);  // half 类型的尾数掩码
         Duplicate(mantissaZero, 0);
         Duplicate(CeilAdd, 128);
         RegTensor<uint16_t> vdMantissa0;
@@ -454,8 +449,8 @@ struct SmoothQuant {
         for (uint16_t i = 0; i < loopNum; i++) {
             scaleMask1 = UpdateMask<T>(totalCountInUB);
             // scaleMask2 = UpdateMask<T>(totalCountInUB);
-            DataCopy<T, PostLiteral::POST_MODE_UPDATE, LoadDist::DIST_DINTLV_B16>(
-                vdExp0, vdExp1, srcAddr, ELE_NUM_REG_VF * DIGIT_TWO);
+            DataCopy<T, PostLiteral::POST_MODE_UPDATE, LoadDist::DIST_DINTLV_B16>(vdExp0, vdExp1, srcAddr,
+                                                                                  ELE_NUM_REG_VF * DIGIT_TWO);
 
             // v = 2^(x-127)*(1+尾数/128)
             // log2(v) = x-127
@@ -464,30 +459,30 @@ struct SmoothQuant {
                 Mul(vdExp0, vdExp0, vdQmax, scaleMask1);
                 Mul(vdExp1, vdExp1, vdQmax, scaleMask1);
                 // 提取指数部分
-                And(vdExpSelect0, (RegTensor<uint16_t>&)vdExp0, invalidmaskfp16, scaleMask1);
-                And(vdExpSelect1, (RegTensor<uint16_t>&)vdExp1, invalidmaskfp16, scaleMask1);
+                And(vdExpSelect0, (RegTensor<uint16_t> &)vdExp0, invalidmaskfp16, scaleMask1);
+                And(vdExpSelect1, (RegTensor<uint16_t> &)vdExp1, invalidmaskfp16, scaleMask1);
                 // 新增：提取尾数部分
-                And(vdMantissa0, (RegTensor<uint16_t>&)vdExp0, mantissaMaskHalf, scaleMask1);
-                And(vdMantissa1, (RegTensor<uint16_t>&)vdExp1, mantissaMaskHalf, scaleMask1);
+                And(vdMantissa0, (RegTensor<uint16_t> &)vdExp0, mantissaMaskHalf, scaleMask1);
+                And(vdMantissa1, (RegTensor<uint16_t> &)vdExp1, mantissaMaskHalf, scaleMask1);
                 // 指数部分与无效值比较，不同的位取1
                 Compare<uint16_t, AscendC::CMPMODE::NE>(invalidDataMask0, vdExpSelect0, invalidmaskfp16, scaleMask1);
                 Compare<uint16_t, AscendC::CMPMODE::NE>(invalidDataMask1, vdExpSelect1, invalidmaskfp16, scaleMask1);
                 Cast<bfloat16_t, T, castTraitHalf2Bf16>(vdExp0BF16, vdExp0, scaleMask1);
                 Cast<bfloat16_t, T, castTraitHalf2Bf16>(vdExp1BF16, vdExp1, scaleMask1);
                 // 提取bf16的指数部分
-                And(vdExpExtract0, (RegTensor<uint16_t>&)vdExp0BF16, expMaskBF16, scaleMask1);
-                And(vdExpExtract1, (RegTensor<uint16_t>&)vdExp1BF16, expMaskBF16, scaleMask1);
+                And(vdExpExtract0, (RegTensor<uint16_t> &)vdExp0BF16, expMaskBF16, scaleMask1);
+                And(vdExpExtract1, (RegTensor<uint16_t> &)vdExp1BF16, expMaskBF16, scaleMask1);
                 Select<uint16_t>(vdExpExtract0, vdExpExtract0, expMaskBF16, invalidDataMask0);
                 Select<uint16_t>(vdExpExtract1, vdExpExtract1, expMaskBF16, invalidDataMask1);
             } else {
                 Mul(vdExp0, vdExp0, vdQmax, scaleMask1);
                 Mul(vdExp1, vdExp1, vdQmax, scaleMask1);
-                And(vdExpExtract0, (RegTensor<uint16_t>&)vdExp0, expMaskBF16, scaleMask1);
-                And(vdExpExtract1, (RegTensor<uint16_t>&)vdExp1, expMaskBF16, scaleMask1);
+                And(vdExpExtract0, (RegTensor<uint16_t> &)vdExp0, expMaskBF16, scaleMask1);
+                And(vdExpExtract1, (RegTensor<uint16_t> &)vdExp1, expMaskBF16, scaleMask1);
 
                 // 新增：提取尾数部分
-                And(vdMantissa0, (RegTensor<uint16_t>&)vdExp0, mantissaMaskBf16, scaleMask1);
-                And(vdMantissa1, (RegTensor<uint16_t>&)vdExp1, mantissaMaskBf16, scaleMask1);
+                And(vdMantissa0, (RegTensor<uint16_t> &)vdExp0, mantissaMaskBf16, scaleMask1);
+                And(vdMantissa1, (RegTensor<uint16_t> &)vdExp1, mantissaMaskBf16, scaleMask1);
             }
             // 尾数部分若不为0,为指数加一,实现向上取整
             Compare<uint16_t, AscendC::CMPMODE::NE>(hasMantissa0, vdMantissa0, mantissaZero, scaleMask1);
@@ -505,9 +500,9 @@ struct SmoothQuant {
         DataCopyUnAlignPost(maxExpAddr, u1, 0);
     }
 
-    __simd_vf__ inline void ComputeScale(
-        __ubuf__ uint16_t* maxExpAddr, __ubuf__ uint16_t* mxScaleLocalAddr, __ubuf__ uint16_t* halfScaleLocalAddr,
-        uint32_t totalScaleInUB, uint16_t loopNumScale)
+    __simd_vf__ inline void ComputeScale(__ubuf__ uint16_t *maxExpAddr, __ubuf__ uint16_t *mxScaleLocalAddr,
+                                         __ubuf__ uint16_t *halfScaleLocalAddr, uint32_t totalScaleInUB,
+                                         uint16_t loopNumScale)
     {
         using namespace AscendC::MicroAPI;
         RegTensor<uint16_t> expMask;
@@ -541,7 +536,7 @@ struct SmoothQuant {
         for (uint16_t i = 0; i < loopNumScale; i++) {
             preMaskScale = UpdateMask<uint16_t>(totalScaleInUB);
             DataCopy<uint16_t, PostLiteral::POST_MODE_UPDATE>(vdMaxExp, maxExpAddr, ELE_NUM_REG_VF);
-            Compare<uint16_t, AscendC::CMPMODE::NE>(cmpResult, vdMaxExp, expMask, preMaskScale); // INF/NAN
+            Compare<uint16_t, AscendC::CMPMODE::NE>(cmpResult, vdMaxExp, expMask, preMaskScale);  // INF/NAN
             Compare<uint16_t, AscendC::CMPMODE::NE>(zeroMask, vdMaxExp, zeroRegTensor, preMaskScale);
             Compare<uint16_t, AscendC::CMPMODE::LE>(invalidDataMask, vdMaxExp, maxExpValue, preMaskScale);
 
@@ -561,15 +556,14 @@ struct SmoothQuant {
             Select<uint16_t>(halfScale, halfScale, zeroRegTensor, zeroMask);
             Select<uint16_t>(halfScale, specialExpRegTensor, halfScale, specialDataMask);
 
-            DataCopy<uint16_t, PostLiteral::POST_MODE_UPDATE>(
-                halfScaleLocalAddr, halfScale, ELE_NUM_REG_VF, preMaskScale);
+            DataCopy<uint16_t, PostLiteral::POST_MODE_UPDATE>(halfScaleLocalAddr, halfScale, ELE_NUM_REG_VF,
+                                                              preMaskScale);
         }
     }
 
     template <AscendC::RoundMode toBf16RoundMode, AscendC::RoundMode roundMode>
-    __simd_vf__ inline void ComputeFp4x2(
-        __ubuf__ T* srcAddr, __ubuf__ uint16_t* halfScaleLocalAddr, __ubuf__ int8_t* outLocalAddr,
-        uint32_t totalCountInUB, uint16_t loopNum)
+    __simd_vf__ inline void ComputeFp4x2(__ubuf__ T *srcAddr, __ubuf__ uint16_t *halfScaleLocalAddr,
+                                         __ubuf__ int8_t *outLocalAddr, uint32_t totalCountInUB, uint16_t loopNum)
     {
         using namespace AscendC::MicroAPI;
         MaskReg dataMask1;
@@ -588,12 +582,12 @@ struct SmoothQuant {
         RegTensor<bfloat16_t> vdBF16Exp0FP4;
         RegTensor<bfloat16_t> vdBF16Exp1FP4;
         static constexpr CastTrait castTrait = {RegLayout::ZERO, SatMode::UNKNOWN, MaskMergeMode::ZEROING, roundMode};
-        static constexpr CastTrait castTraitHalf2Bf16 = {
-            RegLayout::UNKNOWN, SatMode::UNKNOWN, MaskMergeMode::ZEROING, toBf16RoundMode};
+        static constexpr CastTrait castTraitHalf2Bf16 = {RegLayout::UNKNOWN, SatMode::UNKNOWN, MaskMergeMode::ZEROING,
+                                                         toBf16RoundMode};
         for (uint16_t i = 0; i < loopNum; i++) {
             dataMask1 = UpdateMask<T>(totalCountInUB);
-            DataCopy<T, PostLiteral::POST_MODE_UPDATE, LoadDist::DIST_DINTLV_B16>(
-                vdExp0, vdExp1, srcAddr, ELE_NUM_REG_VF * DIGIT_TWO);
+            DataCopy<T, PostLiteral::POST_MODE_UPDATE, LoadDist::DIST_DINTLV_B16>(vdExp0, vdExp1, srcAddr,
+                                                                                  ELE_NUM_REG_VF * DIGIT_TWO);
             DataCopy<uint16_t, PostLiteral::POST_MODE_UPDATE, LoadDist::DIST_E2B_B16>(
                 halfScaleForMul, halfScaleLocalAddr, ELE_AFTER_REDUCE);
 
@@ -604,28 +598,28 @@ struct SmoothQuant {
                 }
                 Cast<bfloat16_t, T, castTraitHalf2Bf16>(vdExp0BF16, vdExp0, dataMask1);
                 Cast<bfloat16_t, T, castTraitHalf2Bf16>(vdExp1BF16, vdExp1, dataMask1);
-                Mul(vdExp0BF16, vdExp0BF16, (RegTensor<bfloat16_t>&)halfScaleForMul, dataMask1);
-                Mul(vdExp1BF16, vdExp1BF16, (RegTensor<bfloat16_t>&)halfScaleForMul, dataMask1);
+                Mul(vdExp0BF16, vdExp0BF16, (RegTensor<bfloat16_t> &)halfScaleForMul, dataMask1);
+                Mul(vdExp1BF16, vdExp1BF16, (RegTensor<bfloat16_t> &)halfScaleForMul, dataMask1);
                 Interleave(vdExp0BF16, vdExp1BF16, vdExp0BF16, vdExp1BF16);
                 Cast<U, bfloat16_t, castTrait>(vdExp0FP4, vdExp0BF16, dataMask1);
                 Cast<U, bfloat16_t, castTrait>(vdExp1FP4, vdExp1BF16, dataMask1);
 
             } else {
-                Mul(vdExp0, vdExp0, (RegTensor<T>&)halfScaleForMul, dataMask1);
-                Mul(vdExp1, vdExp1, (RegTensor<T>&)halfScaleForMul, dataMask1);
+                Mul(vdExp0, vdExp0, (RegTensor<T> &)halfScaleForMul, dataMask1);
+                Mul(vdExp1, vdExp1, (RegTensor<T> &)halfScaleForMul, dataMask1);
                 Interleave(vdExp0, vdExp1, vdExp0, vdExp1);
                 Cast<U, T, castTrait>(vdExp0FP4, vdExp0, dataMask1);
                 Cast<U, T, castTrait>(vdExp1FP4, vdExp1, dataMask1);
             }
             DataCopy<int8_t, PostLiteral::POST_MODE_UPDATE, StoreDist::DIST_PACK4_B32>(
-                outLocalAddr, (RegTensor<int8_t>&)vdExp0FP4, OUT_ELE_NUM_ONE_BLK, dataMask1);
+                outLocalAddr, (RegTensor<int8_t> &)vdExp0FP4, OUT_ELE_NUM_ONE_BLK, dataMask1);
             DataCopy<int8_t, PostLiteral::POST_MODE_UPDATE, StoreDist::DIST_PACK4_B32>(
-                outLocalAddr, (RegTensor<int8_t>&)vdExp1FP4, OUT_ELE_NUM_ONE_BLK, dataMask1);
+                outLocalAddr, (RegTensor<int8_t> &)vdExp1FP4, OUT_ELE_NUM_ONE_BLK, dataMask1);
         }
     }
 
     template <class HalfReg, class MaskReg>
-    __simd_callee__ inline void FP16Convert(HalfReg& output, HalfReg& input, MaskReg& mask)
+    __simd_callee__ inline void FP16Convert(HalfReg &output, HalfReg &input, MaskReg &mask)
     {
         using namespace AscendC::MicroAPI;
         RegTensor<uint16_t> specialValueTensor;
@@ -643,12 +637,12 @@ struct SmoothQuant {
         Duplicate(specialValueTensor, specialValue);
         Duplicate(newMantissa, NEW_MANTISSA);
         // andResult: half的后八位
-        And(andResult, (RegTensor<uint16_t>&)input, specialValueTensor, mask);
+        And(andResult, (RegTensor<uint16_t> &)input, specialValueTensor, mask);
         CompareScalar<uint16_t, AscendC::CMPMODE::GT>(nonzeroMask, andResult, 0, mask);
         CompareScalar<uint16_t, AscendC::CMPMODE::LT>(specialMask, andResult, NEW_MANTISSA, mask);
         MaskAnd(specialMask, specialMask, nonzeroMask, mask);
-        Or(newValue, (RegTensor<uint16_t>&)input, newMantissa, mask);
-        Select<uint16_t>((RegTensor<uint16_t>&)output, newValue, (RegTensor<uint16_t>&)input, specialMask);
+        Or(newValue, (RegTensor<uint16_t> &)input, newMantissa, mask);
+        Select<uint16_t>((RegTensor<uint16_t> &)output, newValue, (RegTensor<uint16_t> &)input, specialMask);
     }
 
 private:
@@ -674,10 +668,10 @@ private:
     static constexpr uint16_t FP4_EMAX = std::is_same_v<U, fp4x2_e2m1_t> ? FP4_E2M1_BF16_MAX_EXP : FP4_E1M2_MAX_EXP;
 };
 
-template <
-    class SmoothQuant_, class BlockMmad1_, class BlockMmad2_, class BlockMmad3_, class BlockEpilogue_,
-    class BlockScheduler_>
-class SvdQuantMatmulTla {
+template <class SmoothQuant_, class BlockMmad1_, class BlockMmad2_, class BlockMmad3_, class BlockEpilogue_,
+          class BlockScheduler_>
+class SvdQuantMatmulTla
+{
 public:
     using SmoothQuant = SmoothQuant_;
     using BlockMmad1 = BlockMmad1_;
@@ -686,10 +680,10 @@ public:
     using BlockEpilogue = BlockEpilogue_;
     // Check ArchTag
     using ArchTag = typename BlockMmad1::ArchTag;
-    static_assert(
-        std::is_same_v<ArchTag, typename BlockMmad2::ArchTag>, "BlockMmad1 and BlockMmad2 is not the same ArchTag");
-    static_assert(
-        std::is_same_v<ArchTag, typename BlockMmad3::ArchTag>, "BlockMmad1 and BlockMmad3 is not the same ArchTag");
+    static_assert(std::is_same_v<ArchTag, typename BlockMmad2::ArchTag>,
+                  "BlockMmad1 and BlockMmad2 is not the same ArchTag");
+    static_assert(std::is_same_v<ArchTag, typename BlockMmad3::ArchTag>,
+                  "BlockMmad1 and BlockMmad3 is not the same ArchTag");
 
     using ElementX = typename BlockMmad1::ElementA;
     using LayoutX = typename BlockMmad1::LayoutA;
@@ -704,11 +698,10 @@ public:
     using ElementMxScaleW = typename BlockMmad3::TileCopy::ElementMxScaleB;
     using LayoutMxScaleW = typename BlockMmad3::TileCopy::LayoutMxScaleB;
 
-    static_assert(
-        std::is_same_v<typename BlockMmad1::ElementC, typename BlockMmad2::ElementA>,
-        "Element of C1 and A2 is not same");
-    static_assert(
-        std::is_same_v<typename BlockMmad1::LayoutC, typename BlockMmad2::LayoutA>, "Layout of C1 and A2 is not same");
+    static_assert(std::is_same_v<typename BlockMmad1::ElementC, typename BlockMmad2::ElementA>,
+                  "Element of C1 and A2 is not same");
+    static_assert(std::is_same_v<typename BlockMmad1::LayoutC, typename BlockMmad2::LayoutA>,
+                  "Layout of C1 and A2 is not same");
     using ElementC1 = typename BlockMmad1::ElementC;
     using LayoutC1 = typename BlockMmad1::LayoutC;
 
@@ -754,17 +747,15 @@ public:
 
         // Methods
         CATLASS_HOST_DEVICE
-        Params()
-        {}
+        Params() {}
 
         CATLASS_HOST_DEVICE
-        Params(
-            GemmCoord const& problemShape_, uint32_t problemRank_, float qmax_, GM_ADDR ptrX_, LayoutX layoutX_,
-            GM_ADDR ptrSmoothScale_, LayoutSmoothScale layoutSmoothScale_, GM_ADDR ptrSvd1_, LayoutSvd1 layoutSvd1_,
-            GM_ADDR ptrSvd2_, LayoutSvd2 layoutSvd2_, GM_ADDR ptrW_, LayoutW layoutW_, GM_ADDR ptrMxScaleW_,
-            LayoutMxScaleW layoutMxScaleW_, GM_ADDR ptrBias_, GM_ADDR ptrC1_, LayoutC1 layoutC1_, GM_ADDR ptrQuantX_,
-            LayoutQuantXV layoutQuantXV_, LayoutQuantXC layoutQuantXC_, GM_ADDR ptrMxScaleX_,
-            LayoutMxScaleX layoutMxScaleX_, GM_ADDR ptrY_, LayoutY layoutY_)
+        Params(GemmCoord const &problemShape_, uint32_t problemRank_, float qmax_, GM_ADDR ptrX_, LayoutX layoutX_,
+               GM_ADDR ptrSmoothScale_, LayoutSmoothScale layoutSmoothScale_, GM_ADDR ptrSvd1_, LayoutSvd1 layoutSvd1_,
+               GM_ADDR ptrSvd2_, LayoutSvd2 layoutSvd2_, GM_ADDR ptrW_, LayoutW layoutW_, GM_ADDR ptrMxScaleW_,
+               LayoutMxScaleW layoutMxScaleW_, GM_ADDR ptrBias_, GM_ADDR ptrC1_, LayoutC1 layoutC1_, GM_ADDR ptrQuantX_,
+               LayoutQuantXV layoutQuantXV_, LayoutQuantXC layoutQuantXC_, GM_ADDR ptrMxScaleX_,
+               LayoutMxScaleX layoutMxScaleX_, GM_ADDR ptrY_, LayoutY layoutY_)
             : problemShape(problemShape_),
               problemRank(problemRank_),
               qmax(qmax_),
@@ -797,29 +788,29 @@ public:
         GemmCoord problemShape;
         uint32_t problemRank;
         float qmax;
-        uint8_t* ptrX;
+        uint8_t *ptrX;
         LayoutX layoutX;
-        uint8_t* ptrSvd1;
+        uint8_t *ptrSvd1;
         LayoutSvd1 layoutSvd1;
-        uint8_t* ptrSvd2;
+        uint8_t *ptrSvd2;
         LayoutSvd1 layoutSvd2;
-        uint8_t* ptrW;
+        uint8_t *ptrW;
         LayoutW layoutW;
-        uint8_t* ptrMxScaleW;
+        uint8_t *ptrMxScaleW;
         LayoutMxScaleW layoutMxScaleW;
-        uint8_t* ptrSmoothScale;
+        uint8_t *ptrSmoothScale;
         LayoutSmoothScale layoutSmoothScale;
-        uint8_t* ptrBias;
-        uint8_t* ptrY;
+        uint8_t *ptrBias;
+        uint8_t *ptrY;
         LayoutY layoutY;
     };
 
-    static bool CanImplement(const Arguments& args)
+    static bool CanImplement(const Arguments &args)
     {
         return args.problemRank <= BlockMmad1::L1_TILE_N;
     }
 
-    static size_t GetWorkspaceSize(const Arguments& args)
+    static size_t GetWorkspaceSize(const Arguments &args)
     {
         size_t sizeC1 = args.problemShape.m() * args.problemRank * sizeof(typename SmoothQuant::ElementIn);
         size_t sizeQuantX = args.problemShape.m() * CeilDiv<2>(args.problemShape.k());
@@ -827,7 +818,7 @@ public:
         return sizeC1 + sizeQuantX + sizeMxScaleX;
     }
 
-    static Params ToUnderlyingArguments(const Arguments& args, uint8_t* workspace)
+    static Params ToUnderlyingArguments(const Arguments &args, uint8_t *workspace)
     {
         uint32_t m = args.problemShape.m(), k = args.problemShape.k(), r = args.problemRank;
         uint32_t mxScaleK = CeilDiv<MX_SCALE_GROUP_NUM>(k);
@@ -835,9 +826,9 @@ public:
         size_t sizeC1 = m * r * sizeof(typename SmoothQuant::ElementIn);
         size_t sizeQuantX = m * CeilDiv<2>(k);
         size_t sizeMxScaleX = m * RoundUp<2>(CeilDiv<MX_SCALE_GROUP_NUM>(k));
-        uint8_t* gmC1 = workspace;
-        uint8_t* gmQuantX = workspace + sizeC1;
-        uint8_t* gmMxScaleX = workspace + sizeC1 + sizeQuantX;
+        uint8_t *gmC1 = workspace;
+        uint8_t *gmQuantX = workspace + sizeC1;
+        uint8_t *gmMxScaleX = workspace + sizeC1 + sizeQuantX;
 
         auto layoutC1 = tla::MakeLayout<typename BlockMmad1::ElementC, typename BlockMmad1::TileCopy::LayoutTagC>(m, r);
         auto layoutQuantXC = tla::MakeLayout<int8_t, typename BlockMmad3::TileCopy::LayoutTagA>(m, k);
@@ -877,23 +868,20 @@ public:
     }
 
     CATLASS_DEVICE
-    SvdQuantMatmulTla()
-    {}
+    SvdQuantMatmulTla() {}
 
     template <class BlockMmad1, class SmoothQuant>
     struct SmoothQuantParams {
-        static_assert(
-            std::is_same_v<typename BlockMmad1::ElementA, typename SmoothQuant::ElementIn>,
-            "Element of A1 and SmoothQuant's input is not same");
-        static_assert(
-            std::is_same_v<typename BlockMmad1::L1TileShape, typename SmoothQuant::L1TileShape>,
-            "L1TileShape of Mmad1 and SmoothQuant is not same");
+        static_assert(std::is_same_v<typename BlockMmad1::ElementA, typename SmoothQuant::ElementIn>,
+                      "Element of A1 and SmoothQuant's input is not same");
+        static_assert(std::is_same_v<typename BlockMmad1::L1TileShape, typename SmoothQuant::L1TileShape>,
+                      "L1TileShape of Mmad1 and SmoothQuant is not same");
         static_assert(BlockMmad1::L1A_STAGES == SmoothQuant::STAGES, "");
         using ElementX = typename BlockMmad1::ElementA;
         static constexpr uint32_t TILE_ROWS = BlockMmad1::L1_TILE_M;
         static constexpr uint32_t TILE_COLS = RoundUp<SmoothQuant::UB_MX_SCALE_GROUP_NUM>(BlockMmad1::L1_TILE_K);
-        static_assert(
-            BlockMmad1::L1_TILE_K % SmoothQuant::UB_MX_SCALE_GROUP_NUM == 0, "Mmad1's L1_TILE_K must be 64 aligned");
+        static_assert(BlockMmad1::L1_TILE_K % SmoothQuant::UB_MX_SCALE_GROUP_NUM == 0,
+                      "Mmad1's L1_TILE_K must be 64 aligned");
         static constexpr uint32_t AIV_NUM = SmoothQuant::AIV_NUM;
 
         static constexpr uint32_t STAGES = BlockMmad1::L1A_STAGES;
@@ -904,8 +892,8 @@ public:
             } l1;
             struct UbTensorLists {
                 AscendC::LocalTensor<typename SmoothQuant::ElementIn> x[STAGES];
-                AscendC::LocalTensor<typename SmoothQuant::GmSmoothType> smoothScale[STAGES]; // optional
-                AscendC::LocalTensor<typename SmoothQuant::ElementIn> smoothX[STAGES];        // optional
+                AscendC::LocalTensor<typename SmoothQuant::GmSmoothType> smoothScale[STAGES];  // optional
+                AscendC::LocalTensor<typename SmoothQuant::ElementIn> smoothX[STAGES];         // optional
                 AscendC::LocalTensor<uint16_t> maxExp;
                 AscendC::LocalTensor<uint16_t> halfScale;
                 AscendC::LocalTensor<int8_t> quantX[STAGES];
@@ -921,14 +909,14 @@ public:
             } gmMmad1;
             struct GlobalQuantTensors {
                 AscendC::GlobalTensor<typename SmoothQuant::ElementIn> gmX;
-                AscendC::GlobalTensor<typename SmoothQuant::GmSmoothType> gmSmooth; // optional
+                AscendC::GlobalTensor<typename SmoothQuant::GmSmoothType> gmSmooth;  // optional
                 AscendC::GlobalTensor<int8_t> gmQuantX;
                 AscendC::GlobalTensor<ElementMxScaleX> gmMxScaleX;
             } gmQuant;
         } tensorLists;
         struct EventLists {
-            Arch::FlagID flagAicFinishMte1[2][STAGES]; // 2 vectors
-            Arch::FlagID flagAivFinishMte3[2][STAGES]; // 2 vectors
+            Arch::FlagID flagAicFinishMte1[2][STAGES];  // 2 vectors
+            Arch::FlagID flagAivFinishMte3[2][STAGES];  // 2 vectors
             uint32_t ubIn[STAGES];
             uint32_t ubOutQuntX[STAGES];
             uint32_t ubOutMxScale[STAGES];
@@ -964,27 +952,27 @@ public:
         } tileSizes;
 
         CATLASS_DEVICE
-        SmoothQuantParams(Arch::Resource<ArchTag>& resource, Params const& params)
+        SmoothQuantParams(Arch::Resource<ArchTag> &resource, Params const &params)
         {
             // init gm tensors
-            tensorLists.gmMmad1.gmA.SetGlobalBuffer((__gm__ typename BlockMmad1::ElementA*)params.ptrX);
-            tensorLists.gmMmad1.gmB.SetGlobalBuffer((__gm__ typename BlockMmad1::ElementB*)params.ptrSvd1);
-            tensorLists.gmMmad1.gmC.SetGlobalBuffer((__gm__ typename BlockMmad1::ElementC*)params.ptrC1);
+            tensorLists.gmMmad1.gmA.SetGlobalBuffer((__gm__ typename BlockMmad1::ElementA *)params.ptrX);
+            tensorLists.gmMmad1.gmB.SetGlobalBuffer((__gm__ typename BlockMmad1::ElementB *)params.ptrSvd1);
+            tensorLists.gmMmad1.gmC.SetGlobalBuffer((__gm__ typename BlockMmad1::ElementC *)params.ptrC1);
             tensorLists.gmMmad1.layoutA = params.layoutX;
             tensorLists.gmMmad1.layoutB = params.layoutSvd1;
             tensorLists.gmMmad1.layoutC = params.layoutC1;
 
-            tensorLists.gmQuant.gmX.SetGlobalBuffer((__gm__ typename SmoothQuant::ElementIn*)params.ptrX);
+            tensorLists.gmQuant.gmX.SetGlobalBuffer((__gm__ typename SmoothQuant::ElementIn *)params.ptrX);
             if constexpr (SmoothQuant::HAS_SMOOTH) {
                 tensorLists.gmQuant.gmSmooth.SetGlobalBuffer(
-                    (__gm__ typename SmoothQuant::GmSmoothType*)params.ptrSmoothScale);
+                    (__gm__ typename SmoothQuant::GmSmoothType *)params.ptrSmoothScale);
             }
-            tensorLists.gmQuant.gmQuantX.SetGlobalBuffer((__gm__ int8_t*)params.ptrQuantX);
-            tensorLists.gmQuant.gmMxScaleX.SetGlobalBuffer((__gm__ ElementMxScaleX*)params.ptrMxScaleX);
+            tensorLists.gmQuant.gmQuantX.SetGlobalBuffer((__gm__ int8_t *)params.ptrQuantX);
+            tensorLists.gmQuant.gmMxScaleX.SetGlobalBuffer((__gm__ ElementMxScaleX *)params.ptrMxScaleX);
 
             // --------------------------------------------------------------------------------------------------------
             // init ub/l1 tensors
-            auto& ubTensorLists = tensorLists.ub;
+            auto &ubTensorLists = tensorLists.ub;
             uint32_t ubBufAddrOffset = 0;
             // input tensors
             for (uint32_t i = 0; i < STAGES; i++) {
@@ -1080,27 +1068,22 @@ public:
         // Check L1 tile shape
         using L1TileShape2 = typename BlockMmad2::L1TileShape;
         using L1TileShape3 = typename BlockMmad3::L1TileShape;
-        static_assert(
-            tla::get<0>(L1TileShape2{}) == tla::get<0>(L1TileShape3{}),
-            "BlockMmad2 and BlockMmad3 L1Tile M is not same");
-        static_assert(
-            tla::get<1>(L1TileShape2{}) == tla::get<1>(L1TileShape3{}),
-            "BlockMmad2 and BlockMmad3 L1Tile N is not same");
+        static_assert(tla::get<0>(L1TileShape2{}) == tla::get<0>(L1TileShape3{}),
+                      "BlockMmad2 and BlockMmad3 L1Tile M is not same");
+        static_assert(tla::get<1>(L1TileShape2{}) == tla::get<1>(L1TileShape3{}),
+                      "BlockMmad2 and BlockMmad3 L1Tile N is not same");
         static constexpr uint32_t L1_TILE_M = tla::get<0>(L1TileShape3{});
         static constexpr uint32_t L1_TILE_N = tla::get<1>(L1TileShape3{});
         static constexpr uint32_t L1_TILE_K2 = tla::get<2>(L1TileShape2{});
         static constexpr uint32_t L1_TILE_K3 = tla::get<2>(L1TileShape3{});
 
         // check C
-        static_assert(
-            std::is_same_v<typename BlockMmad2::ElementAccumulator, typename BlockMmad3::ElementAccumulator>,
-            "ElementAccumulator of Mmad2 and Mmad3 is not same");
-        static_assert(
-            std::is_same_v<typename BlockMmad2::ElementC, typename BlockMmad3::ElementC>,
-            "ElementC of Mmad2 and Mmad3 is not same");
-        static_assert(
-            std::is_same_v<typename BlockMmad2::LayoutC, typename BlockMmad3::LayoutC>,
-            "LayoutC of Mmad2 and Mmad3 is not same");
+        static_assert(std::is_same_v<typename BlockMmad2::ElementAccumulator, typename BlockMmad3::ElementAccumulator>,
+                      "ElementAccumulator of Mmad2 and Mmad3 is not same");
+        static_assert(std::is_same_v<typename BlockMmad2::ElementC, typename BlockMmad3::ElementC>,
+                      "ElementC of Mmad2 and Mmad3 is not same");
+        static_assert(std::is_same_v<typename BlockMmad2::LayoutC, typename BlockMmad3::LayoutC>,
+                      "LayoutC of Mmad2 and Mmad3 is not same");
 
         // half*half->(float)->half
         struct TensorLists2 {
@@ -1181,7 +1164,7 @@ public:
         } listIds;
 
         CATLASS_DEVICE
-        Mmad23Params(Arch::Resource<ArchTag>& resource, Params const& params)
+        Mmad23Params(Arch::Resource<ArchTag> &resource, Params const &params)
         {
 #ifdef __DAV_VEC__
             return;
@@ -1190,24 +1173,24 @@ public:
                 AscendC::SetMMLayoutTransform(true);
             }
 
-            tensorLists2.global.gmA.SetGlobalBuffer((__gm__ typename BlockMmad2::ElementA*)params.ptrC1);
-            tensorLists2.global.gmB.SetGlobalBuffer((__gm__ typename BlockMmad2::ElementB*)params.ptrSvd2);
-            tensorLists2.global.gmC.SetGlobalBuffer((__gm__ typename BlockMmad2::ElementC*)params.ptrY);
+            tensorLists2.global.gmA.SetGlobalBuffer((__gm__ typename BlockMmad2::ElementA *)params.ptrC1);
+            tensorLists2.global.gmB.SetGlobalBuffer((__gm__ typename BlockMmad2::ElementB *)params.ptrSvd2);
+            tensorLists2.global.gmC.SetGlobalBuffer((__gm__ typename BlockMmad2::ElementC *)params.ptrY);
             tensorLists2.global.layoutA = params.layoutC1;
             tensorLists2.global.layoutB = params.layoutSvd2;
             tensorLists2.global.layoutC = params.layoutY;
             if constexpr (BlockMmad2::HAS_BIAS) {
                 tensorLists2.global.gmBias.SetGlobalBuffer(
-                    (__gm__ typename BlockMmad2::GlobalTensorBiasType*)params.ptrBias);
+                    (__gm__ typename BlockMmad2::GlobalTensorBiasType *)params.ptrBias);
             }
 
-            tensorLists3.global.gmA.SetGlobalBuffer((__gm__ typename BlockMmad3::ElementA*)params.ptrQuantX);
-            tensorLists3.global.gmB.SetGlobalBuffer((__gm__ typename BlockMmad3::ElementB*)params.ptrW);
+            tensorLists3.global.gmA.SetGlobalBuffer((__gm__ typename BlockMmad3::ElementA *)params.ptrQuantX);
+            tensorLists3.global.gmB.SetGlobalBuffer((__gm__ typename BlockMmad3::ElementB *)params.ptrW);
             tensorLists3.global.gmMxScaleA.SetGlobalBuffer(
-                (__gm__ typename BlockMmad3::ElementMxScaleA*)params.ptrMxScaleX);
+                (__gm__ typename BlockMmad3::ElementMxScaleA *)params.ptrMxScaleX);
             tensorLists3.global.gmMxScaleB.SetGlobalBuffer(
-                (__gm__ typename BlockMmad3::ElementMxScaleB*)params.ptrMxScaleW);
-            tensorLists3.global.gmC.SetGlobalBuffer((__gm__ typename BlockMmad3::ElementC*)params.ptrY);
+                (__gm__ typename BlockMmad3::ElementMxScaleB *)params.ptrMxScaleW);
+            tensorLists3.global.gmC.SetGlobalBuffer((__gm__ typename BlockMmad3::ElementC *)params.ptrY);
             tensorLists3.global.layoutA = params.layoutQuantXC;
             tensorLists3.global.layoutB = params.layoutW;
             tensorLists3.global.layoutMxScaleA = params.layoutMxScaleX;
@@ -1340,7 +1323,7 @@ public:
         }
     };
 
-    CATLASS_DEVICE void operator()(Params const& params)
+    CATLASS_DEVICE void operator()(Params const &params)
     {
         Arch::Resource<ArchTag> resource;
 
@@ -1366,12 +1349,12 @@ public:
         AscendC::PipeBarrier<PIPE_ALL>();
     }
 
-    CATLASS_DEVICE void SmoothQuantMmad1(Arch::Resource<ArchTag>& resource, Params const& params)
+    CATLASS_DEVICE void SmoothQuantMmad1(Arch::Resource<ArchTag> &resource, Params const &params)
     {
         SmoothQuantParams<BlockMmad1, SmoothQuant> smoothQuantParams(resource, params);
 
-        auto& gmMmad1 = smoothQuantParams.tensorLists.gmMmad1;
-        auto& gmQuant = smoothQuantParams.tensorLists.gmQuant;
+        auto &gmMmad1 = smoothQuantParams.tensorLists.gmMmad1;
+        auto &gmQuant = smoothQuantParams.tensorLists.gmQuant;
 
         auto tensorA1 = tla::MakeTensor(gmMmad1.gmA, gmMmad1.layoutA, Arch::PositionGM{});
         auto tensorB1 = tla::MakeTensor(gmMmad1.gmB, gmMmad1.layoutB, Arch::PositionGM{});
@@ -1391,7 +1374,7 @@ public:
         uint32_t aiCoreNum = AscendC::GetBlockNum();
         SmoothQuant smoothQuant(resource);
 
-        ElementX qmaxInv{1.0f}; // 1/qmax
+        ElementX qmaxInv{1.0f};  // 1/qmax
         if constexpr (std::is_same_v<ElementX, half>) {
             qmaxInv = AscendC::Cast<float, half, AscendC::RoundMode::CAST_ODD>(1.0f / params.qmax);
         } else if constexpr (std::is_same_v<ElementX, bfloat16_t>) {
@@ -1400,7 +1383,7 @@ public:
 #endif
 
         static constexpr uint32_t L1_TILE_M = BlockMmad1::L1_TILE_M;
-        GemmCoord mmadShape1{params.problemShape.m(), params.problemRank, params.problemShape.k()}; // m r k
+        GemmCoord mmadShape1{params.problemShape.m(), params.problemRank, params.problemShape.k()};  // m r k
         uint32_t normalBlockNum1 = RoundDown(mmadShape1.m(), aiCoreNum * L1_TILE_M) / L1_TILE_M;
         uint32_t mTailLen = mmadShape1.m() - normalBlockNum1 * L1_TILE_M;
         for (uint32_t normalLoopIdx = aiCoreIdx; normalLoopIdx < normalBlockNum1 + aiCoreNum;
@@ -1421,34 +1404,30 @@ public:
             }
 
             // shared tensor A
-            auto tensorBlockA = GetTile(
-                tensorA1, tla::MakeCoord(coord.m(), coord.k()),
-                tla::MakeShape(actualBlockShape.m(), actualBlockShape.k()));
+            auto tensorBlockA = GetTile(tensorA1, tla::MakeCoord(coord.m(), coord.k()),
+                                        tla::MakeShape(actualBlockShape.m(), actualBlockShape.k()));
 #ifdef __DAV_CUBE__
-            auto tensorBlockB = GetTile(
-                tensorB1, tla::MakeCoord(coord.k(), coord.n()),
-                tla::MakeShape(actualBlockShape.k(), actualBlockShape.n()));
-            auto tensorBlockC = GetTile(
-                tensorC1, tla::MakeCoord(coord.m(), coord.n()),
-                tla::MakeShape(actualBlockShape.m(), actualBlockShape.n()));
+            auto tensorBlockB = GetTile(tensorB1, tla::MakeCoord(coord.k(), coord.n()),
+                                        tla::MakeShape(actualBlockShape.k(), actualBlockShape.n()));
+            auto tensorBlockC = GetTile(tensorC1, tla::MakeCoord(coord.m(), coord.n()),
+                                        tla::MakeShape(actualBlockShape.m(), actualBlockShape.n()));
             blockMmad1(tensorBlockA, tensorBlockB, tensorBlockC, actualBlockShape, smoothQuantParams);
 #elif defined __DAV_VEC__
-            auto& tensorBlockX = tensorBlockA;
+            auto &tensorBlockX = tensorBlockA;
             auto tensorBlockSmooth =
                 GetTile(tensorSmooth, tla::MakeCoord(0, coord.k()), tla::MakeShape(1, actualBlockShape.k()));
-            auto tensorBlockQuantX = GetTile(
-                tensorQuantX, tla::MakeCoord(coord.m(), coord.k() / 2),
-                tla::MakeShape(actualBlockShape.m(), CeilDiv<2>(actualBlockShape.k())));
-            auto tensorBlockMxScale = GetTile(
-                tensorMxScale, tla::MakeCoord(coord.m(), coord.k() / MX_SCALE_GROUP_NUM),
-                tla::MakeShape(actualBlockShape.m(), CeilDiv<MX_SCALE_GROUP_NUM>(actualBlockShape.k())));
-            smoothQuant(
-                tensorBlockX, tensorBlockSmooth, tensorBlockQuantX, tensorBlockMxScale, qmaxInv, smoothQuantParams);
+            auto tensorBlockQuantX = GetTile(tensorQuantX, tla::MakeCoord(coord.m(), coord.k() / 2),
+                                             tla::MakeShape(actualBlockShape.m(), CeilDiv<2>(actualBlockShape.k())));
+            auto tensorBlockMxScale =
+                GetTile(tensorMxScale, tla::MakeCoord(coord.m(), coord.k() / MX_SCALE_GROUP_NUM),
+                        tla::MakeShape(actualBlockShape.m(), CeilDiv<MX_SCALE_GROUP_NUM>(actualBlockShape.k())));
+            smoothQuant(tensorBlockX, tensorBlockSmooth, tensorBlockQuantX, tensorBlockMxScale, qmaxInv,
+                        smoothQuantParams);
 #endif
         }
     }
 
-    CATLASS_DEVICE void Mmad23(Arch::Resource<ArchTag>& resource, Params const& params)
+    CATLASS_DEVICE void Mmad23(Arch::Resource<ArchTag> &resource, Params const &params)
     {
 #ifdef __DAV_VEC__
         return;
@@ -1460,11 +1439,11 @@ public:
         BlockMmad3 blockMmad3;
         using Mmad23Params = Mmad23Params<BlockMmad2, BlockMmad3>;
         Mmad23Params mmad23Params(resource, params);
-        auto& gmList2 = mmad23Params.tensorLists2.global;
-        auto& gmList3 = mmad23Params.tensorLists3.global;
+        auto &gmList2 = mmad23Params.tensorLists2.global;
+        auto &gmList3 = mmad23Params.tensorLists3.global;
 
-        BlockScheduler matmulBlockScheduler23(
-            params.problemShape, MakeCoord(Mmad23Params::L1_TILE_M, Mmad23Params::L1_TILE_N));
+        BlockScheduler matmulBlockScheduler23(params.problemShape,
+                                              MakeCoord(Mmad23Params::L1_TILE_M, Mmad23Params::L1_TILE_N));
         uint32_t coreLoops23 = matmulBlockScheduler23.GetCoreLoops();
 
         auto tensorA2 = tla::MakeTensor(gmList2.gmA, gmList2.layoutA, Arch::PositionGM{});
@@ -1495,20 +1474,20 @@ public:
             if (loopIdx < normalBlockNum23) {
                 blockCoord = matmulBlockScheduler23.GetBlockCoord(loopIdx);
                 coord = GemmCoord{blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N, 0};
-                actualBlockShape3 = matmulBlockScheduler23.GetActualBlockShape(blockCoord);   // m1 n1 k
+                actualBlockShape3 = matmulBlockScheduler23.GetActualBlockShape(blockCoord);  // m1 n1 k
                 actualBlockShape2 =
-                    GemmCoord{actualBlockShape3.m(), actualBlockShape3.n(), params.problemRank}; // m1 n1 r
+                    GemmCoord{actualBlockShape3.m(), actualBlockShape3.n(), params.problemRank};  // m1 n1 r
             } else {
-                uint32_t coreNumPerTailBlock = aiCoreNum / tailBlockNum23;         // 每个尾块分到的核数
-                uint32_t tailBlockUsedCore = coreNumPerTailBlock * tailBlockNum23; // 参与尾轮计算的核数
+                uint32_t coreNumPerTailBlock = aiCoreNum / tailBlockNum23;          // 每个尾块分到的核数
+                uint32_t tailBlockUsedCore = coreNumPerTailBlock * tailBlockNum23;  // 参与尾轮计算的核数
                 if (aiCoreIdx >= tailBlockUsedCore) {
                     break;
                 }
 
-                uint32_t tailLoopIdx = normalBlockNum23 + aiCoreIdx / coreNumPerTailBlock; // aiCore所在的尾块
-                uint32_t coreIdxInTailBlock = aiCoreIdx % coreNumPerTailBlock;             // aiCore在尾块中的idx
+                uint32_t tailLoopIdx = normalBlockNum23 + aiCoreIdx / coreNumPerTailBlock;  // aiCore所在的尾块
+                uint32_t coreIdxInTailBlock = aiCoreIdx % coreNumPerTailBlock;              // aiCore在尾块中的idx
                 blockCoord = matmulBlockScheduler23.GetBlockCoord(tailLoopIdx);
-                GemmCoord tailBlockShape3 = matmulBlockScheduler23.GetActualBlockShape(blockCoord); // m1 n1 k
+                GemmCoord tailBlockShape3 = matmulBlockScheduler23.GetActualBlockShape(blockCoord);  // m1 n1 k
 
                 // 尾块自动切 M/N
                 if (tailBlockShape3.m() >= tailBlockShape3.n()) {
@@ -1530,45 +1509,38 @@ public:
                 }
             }
 
-            auto tensorBlockA2 = GetTile(
-                tensorA2, tla::MakeCoord(coord.m(), coord.k()),
-                tla::MakeShape(actualBlockShape2.m(), actualBlockShape2.k()));
-            auto tensorBlockB2 = GetTile(
-                tensorB2, tla::MakeCoord(coord.k(), coord.n()),
-                tla::MakeShape(actualBlockShape2.k(), actualBlockShape2.n()));
+            auto tensorBlockA2 = GetTile(tensorA2, tla::MakeCoord(coord.m(), coord.k()),
+                                         tla::MakeShape(actualBlockShape2.m(), actualBlockShape2.k()));
+            auto tensorBlockB2 = GetTile(tensorB2, tla::MakeCoord(coord.k(), coord.n()),
+                                         tla::MakeShape(actualBlockShape2.k(), actualBlockShape2.n()));
 
-            auto tensorBlockA3 = GetTile(
-                tensorA3, tla::MakeCoord(coord.m(), coord.k()),
-                tla::MakeShape(actualBlockShape3.m(), actualBlockShape3.k()));
-            auto tensorBlockB3 = GetTile(
-                tensorB3, tla::MakeCoord(coord.k(), coord.n()),
-                tla::MakeShape(actualBlockShape3.k(), actualBlockShape3.n()));
-            auto tensorBlockMxScaleA3 = GetTile(
-                tensorMxScaleA3, tla::MakeCoord(coord.m(), coord.k() / MX_SCALE_GROUP_NUM),
-                tla::MakeShape(actualBlockShape3.m(), CeilDiv<MX_SCALE_GROUP_NUM>(actualBlockShape3.k())));
-            auto tensorBlockMxScaleB3 = GetTile(
-                tensorMxScaleB3, tla::MakeCoord(coord.k() / MX_SCALE_GROUP_NUM, coord.n()),
-                tla::MakeShape(CeilDiv<MX_SCALE_GROUP_NUM>(actualBlockShape3.k()), actualBlockShape3.n()));
+            auto tensorBlockA3 = GetTile(tensorA3, tla::MakeCoord(coord.m(), coord.k()),
+                                         tla::MakeShape(actualBlockShape3.m(), actualBlockShape3.k()));
+            auto tensorBlockB3 = GetTile(tensorB3, tla::MakeCoord(coord.k(), coord.n()),
+                                         tla::MakeShape(actualBlockShape3.k(), actualBlockShape3.n()));
+            auto tensorBlockMxScaleA3 =
+                GetTile(tensorMxScaleA3, tla::MakeCoord(coord.m(), coord.k() / MX_SCALE_GROUP_NUM),
+                        tla::MakeShape(actualBlockShape3.m(), CeilDiv<MX_SCALE_GROUP_NUM>(actualBlockShape3.k())));
+            auto tensorBlockMxScaleB3 =
+                GetTile(tensorMxScaleB3, tla::MakeCoord(coord.k() / MX_SCALE_GROUP_NUM, coord.n()),
+                        tla::MakeShape(CeilDiv<MX_SCALE_GROUP_NUM>(actualBlockShape3.k()), actualBlockShape3.n()));
 
-            auto tensorBlockC = GetTile(
-                tensorC, tla::MakeCoord(coord.m(), coord.n()),
-                tla::MakeShape(actualBlockShape2.m(), actualBlockShape2.n()));
+            auto tensorBlockC = GetTile(tensorC, tla::MakeCoord(coord.m(), coord.n()),
+                                        tla::MakeShape(actualBlockShape2.m(), actualBlockShape2.n()));
 
             if constexpr (BlockMmad2::HAS_BIAS) {
                 auto tensorBlockBias =
                     GetTile(tensorBias, tla::MakeCoord(coord.n()), tla::MakeShape(actualBlockShape2.n()));
-                blockMmad2(
-                    tensorBlockA2, tensorBlockB2, tensorBlockC, actualBlockShape2, mmad23Params.tensorLists2.local,
-                    mmad23Params.eventLists, mmad23Params.listIds, false, tensorBlockBias);
+                blockMmad2(tensorBlockA2, tensorBlockB2, tensorBlockC, actualBlockShape2,
+                           mmad23Params.tensorLists2.local, mmad23Params.eventLists, mmad23Params.listIds, false,
+                           tensorBlockBias);
             } else {
-                blockMmad2(
-                    tensorBlockA2, tensorBlockB2, tensorBlockC, actualBlockShape2, mmad23Params.tensorLists2.local,
-                    mmad23Params.eventLists, mmad23Params.listIds, false);
+                blockMmad2(tensorBlockA2, tensorBlockB2, tensorBlockC, actualBlockShape2,
+                           mmad23Params.tensorLists2.local, mmad23Params.eventLists, mmad23Params.listIds, false);
             }
-            blockMmad3(
-                tensorBlockA3, tensorBlockB3, tensorBlockC, tensorBlockMxScaleA3, tensorBlockMxScaleB3,
-                actualBlockShape3, mmad23Params.tensorLists3.local, mmad23Params.eventLists, mmad23Params.listIds,
-                true);
+            blockMmad3(tensorBlockA3, tensorBlockB3, tensorBlockC, tensorBlockMxScaleA3, tensorBlockMxScaleB3,
+                       actualBlockShape3, mmad23Params.tensorLists3.local, mmad23Params.eventLists,
+                       mmad23Params.listIds, true);
         }
     }
 
@@ -1595,8 +1567,8 @@ private:
     static constexpr Arch::FlagID flagFinishQuant{0};
 };
 
-#endif // (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510)
+#endif  // (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510)
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel
 
-#endif // CATLASS_GEMM_SVD_QUANT_MATMUL_KERNEL_TLA_HPP
+#endif  // CATLASS_GEMM_SVD_QUANT_MATMUL_KERNEL_TLA_HPP

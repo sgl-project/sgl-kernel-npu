@@ -4,8 +4,9 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
+ * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * the software repository for the full text of the License.
  */
 
 #ifndef CATLASS_GEMM_KERNEL_SPARSE_MATMUL_TLA_HPP
@@ -23,14 +24,9 @@
 
 namespace Catlass::Gemm::Kernel {
 
-
-template <
-    class ProblemShape_,
-    class BlockMmad_,
-    class BlockEpilogue_,
-    class BlockScheduler_
->
-class KernelSparseMatmul {
+template <class ProblemShape_, class BlockMmad_, class BlockEpilogue_, class BlockScheduler_>
+class KernelSparseMatmul
+{
 public:
     CATLASS_DEVICE
     KernelSparseMatmul() {}
@@ -69,16 +65,16 @@ public:
      * @brief Kernel arguments for the host side
      */
     struct BlockMmadArguments {
-        GM_ADDR aGmAddr{nullptr};       ///< The global memory address of matrix A
-        GM_ADDR bGmAddr{nullptr};       ///< The global memory address of matrix B
-        GM_ADDR cGmAddr{nullptr};       ///< The global memory address of matrix C
-        GM_ADDR biasGmAddr{nullptr};    ///< The global memory address of bias
-        GM_ADDR indexGmAddr{nullptr};   ///< The global memory address of index
+        GM_ADDR aGmAddr{nullptr};      ///< The global memory address of matrix A
+        GM_ADDR bGmAddr{nullptr};      ///< The global memory address of matrix B
+        GM_ADDR cGmAddr{nullptr};      ///< The global memory address of matrix C
+        GM_ADDR biasGmAddr{nullptr};   ///< The global memory address of bias
+        GM_ADDR indexGmAddr{nullptr};  ///< The global memory address of index
         LayoutA layoutA;
         LayoutB layoutB;
         LayoutC layoutC;
     };
-    
+
     /**
      * @struct BlockSchedulerArguments
      * @brief Kernel arguments for the host side
@@ -107,22 +103,20 @@ public:
     using AGlobalTensorType = AscendC::GlobalTensor<AType>;
     using BGlobalTensorType = AscendC::GlobalTensor<BType>;
     using CGlobalTensorType = AscendC::GlobalTensor<CType>;
-    using ATlaTensor = tla::Tensor<AGlobalTensorType, LayoutA, tla::Coord<tla::_0, tla::_0>,
-                                AscendC::TPosition::GM>;
-    using BTlaTensor = tla::Tensor<BGlobalTensorType, LayoutB, tla::Coord<tla::_0, tla::_0>,
-                                AscendC::TPosition::GM>;
-    using CTlaTensor = tla::Tensor<CGlobalTensorType, LayoutC, tla::Coord<tla::_0, tla::_0>,
-                                AscendC::TPosition::GM>;
+    using ATlaTensor = tla::Tensor<AGlobalTensorType, LayoutA, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::GM>;
+    using BTlaTensor = tla::Tensor<BGlobalTensorType, LayoutB, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::GM>;
+    using CTlaTensor = tla::Tensor<CGlobalTensorType, LayoutC, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::GM>;
 
     // NZ layout for index (B transpose)
-    using BIndexLayout = tla::Layout<
-        tla::Shape<tla::Shape<tla::Int<8>, int64_t>, tla::Shape<tla::Int<16>, int64_t> >, // 8 = 32 / (sizeof(uint8) * 4)
-        tla::Stride<tla::Stride<tla::Int<1>, int64_t>, tla::Stride<tla::Int<8>, tla::_128>>   // 128 = 16 * 8
-    >;
+    using BIndexLayout =
+        tla::Layout<tla::Shape<tla::Shape<tla::Int<8>, int64_t>,
+                               tla::Shape<tla::Int<16>, int64_t>>,  // 8 = 32 / (sizeof(uint8) * 4)
+                    tla::Stride<tla::Stride<tla::Int<1>, int64_t>, tla::Stride<tla::Int<8>, tla::_128>>  // 128 = 16 * 8
+                    >;
 
     using IndexGlobalTensorType = AscendC::GlobalTensor<IndexType>;
-    using IndexTensor = tla::Tensor<IndexGlobalTensorType, BIndexLayout, tla::Coord<tla::_0, tla::_0>,
-                                    AscendC::TPosition::GM>;
+    using IndexTensor =
+        tla::Tensor<IndexGlobalTensorType, BIndexLayout, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::GM>;
 
     // attribute
     AGlobalTensorType aGlobal_;
@@ -155,10 +149,10 @@ public:
      * @brief Structure to hold parameters for the problem
      */
     struct Params {
-        ProblemShape problemShape;              ///< Problem shape
-        BlockMmadParams mmadParams;             ///< MMAD parameters
-        BlockSchedulerParams schedulerParams;   ///< Scheduler parameters
-        Params() = default;                     ///< Default constructor
+        ProblemShape problemShape;             ///< Problem shape
+        BlockMmadParams mmadParams;            ///< MMAD parameters
+        BlockSchedulerParams schedulerParams;  ///< Scheduler parameters
+        Params() = default;                    ///< Default constructor
     };
 
     /**
@@ -167,7 +161,7 @@ public:
      * @return TupleShape representation of the input ProblemShape
      */
     CATLASS_DEVICE
-    static TupleShape ToShapeTuple(ProblemShape const& shape)
+    static TupleShape ToShapeTuple(ProblemShape const &shape)
     {
         return {shape.m, shape.n, shape.k, shape.b};
     }
@@ -177,7 +171,7 @@ public:
      * @param [in] params: parameters to be initialized
      */
     CATLASS_DEVICE
-    void Init(Params const& params)
+    void Init(Params const &params)
     {
         problemShape_ = ToShapeTuple(params.problemShape);
         blockMmadParams_ = params.mmadParams;
@@ -185,25 +179,26 @@ public:
         int64_t n = tla::get<1>(problemShape_);
         int64_t k = tla::get<2>(problemShape_);
         // Init Tensor
-        aGlobal_.SetGlobalBuffer(reinterpret_cast<__gm__ AType*>(blockMmadParams_.aGmAddr), m * k);
+        aGlobal_.SetGlobalBuffer(reinterpret_cast<__gm__ AType *>(blockMmadParams_.aGmAddr), m * k);
         aTlaTensor_ = tla::MakeTensor(aGlobal_, blockMmadParams_.layoutA, Arch::PositionGM{});
 
-        bGlobal_.SetGlobalBuffer(reinterpret_cast<__gm__ BType*>(blockMmadParams_.bGmAddr), (k / DENSE_MATRIX_B_OFFSET) * n);
+        bGlobal_.SetGlobalBuffer(reinterpret_cast<__gm__ BType *>(blockMmadParams_.bGmAddr),
+                                 (k / DENSE_MATRIX_B_OFFSET) * n);
         bTlaTensor_ = tla::MakeTensor(bGlobal_, blockMmadParams_.layoutB, Arch::PositionGM{});
 
-        cGlobal_.SetGlobalBuffer(reinterpret_cast<__gm__ CType*>(blockMmadParams_.cGmAddr), m * n);
+        cGlobal_.SetGlobalBuffer(reinterpret_cast<__gm__ CType *>(blockMmadParams_.cGmAddr), m * n);
         cTlaTensor_ = tla::MakeTensor(cGlobal_, blockMmadParams_.layoutC, Arch::PositionGM{});
 
-        
         BIndexLayout indexLayout = tla::MakeLayout(
             tla::MakeShape(tla::MakeShape(tla::Int<INDEX_MATRIX_OFFSET>{},
                                           CeilDiv<int64_t>(k / INDEX_MATRIX_OFFSET, INDEX_MATRIX_OFFSET)),
-                           tla::MakeShape(tla::Int<C0_NUM_PER_FRACTAL>{},
-                                          CeilDiv<int64_t>(n, C0_NUM_PER_FRACTAL))),
-            tla::MakeStride(tla::MakeStride(tla::Int<1>{}, RoundUp<int64_t>(n, C0_NUM_PER_FRACTAL) * INDEX_MATRIX_OFFSET),
-                            tla::MakeStride(tla::Int<INDEX_MATRIX_OFFSET>{}, tla::Int<INDEX_MATRIX_OFFSET * C0_NUM_PER_FRACTAL>{})));
-        indexGlobal_.SetGlobalBuffer(reinterpret_cast<__gm__ IndexType*>(blockMmadParams_.indexGmAddr),
-                                    n * k / INDEX_MATRIX_OFFSET);
+                           tla::MakeShape(tla::Int<C0_NUM_PER_FRACTAL>{}, CeilDiv<int64_t>(n, C0_NUM_PER_FRACTAL))),
+            tla::MakeStride(
+                tla::MakeStride(tla::Int<1>{}, RoundUp<int64_t>(n, C0_NUM_PER_FRACTAL) * INDEX_MATRIX_OFFSET),
+                tla::MakeStride(tla::Int<INDEX_MATRIX_OFFSET>{},
+                                tla::Int<INDEX_MATRIX_OFFSET * C0_NUM_PER_FRACTAL>{})));
+        indexGlobal_.SetGlobalBuffer(reinterpret_cast<__gm__ IndexType *>(blockMmadParams_.indexGmAddr),
+                                     n * k / INDEX_MATRIX_OFFSET);
         indexTlaTensor_ = tla::MakeTensor(indexGlobal_, indexLayout, Arch::PositionGM{});
     }
 
@@ -214,8 +209,7 @@ public:
      * @return Tuple of offsets for A, B, C, and index
      */
     template <class BlockCoord>
-    CATLASS_DEVICE
-    tla::Coord<int64_t, int64_t, int64_t, int64_t> GetOffset(const BlockCoord& blockCoord)
+    CATLASS_DEVICE tla::Coord<int64_t, int64_t, int64_t, int64_t> GetOffset(const BlockCoord &blockCoord)
     {
         int64_t m = tla::get<0>(problemShape_);
         int64_t n = tla::get<1>(problemShape_);
@@ -225,11 +219,9 @@ public:
         tla::Coord<int64_t, int64_t> cCoord = tla::MakeCoord(tla::get<0>(blockCoord), tla::get<1>(blockCoord));
 
         int64_t offsetA = aTlaTensor_.layout()(aCoord) + tla::get<3>(blockCoord) * m * k;
-        int64_t offsetB =
-            bTlaTensor_.layout()(bCoord) + tla::get<3>(blockCoord) * n * k / DENSE_MATRIX_B_OFFSET;
+        int64_t offsetB = bTlaTensor_.layout()(bCoord) + tla::get<3>(blockCoord) * n * k / DENSE_MATRIX_B_OFFSET;
         int64_t offsetC = cTlaTensor_.layout()(cCoord) + tla::get<3>(blockCoord) * m * n;
-        int64_t offsetIndex =
-            indexTlaTensor_.layout()(bCoord) + tla::get<3>(blockCoord) * n * k / INDEX_MATRIX_OFFSET;
+        int64_t offsetIndex = indexTlaTensor_.layout()(bCoord) + tla::get<3>(blockCoord) * n * k / INDEX_MATRIX_OFFSET;
 
         return {offsetA, offsetB, offsetC, offsetIndex};
     }
@@ -240,31 +232,31 @@ public:
      * @return Status of the check
      */
     CATLASS_HOST_DEVICE
-    static Status CheckShape(ProblemShape const& shape)
+    static Status CheckShape(ProblemShape const &shape)
     {
         uint32_t m = shape.m;
         uint32_t n = shape.n;
         uint32_t k = shape.k;
         uint32_t b = shape.b;
-        if (b > 1) { // Sparse only support batch 1
+        if (b > 1) {  // Sparse only support batch 1
             return Status::kInvalid;
         }
-        if (k % 8 != 0) { // 8: Sparse k must be multiple of 8
+        if (k % 8 != 0) {  // 8: Sparse k must be multiple of 8
             return Status::kInvalid;
         }
         // Check matrix size exceeds limit
-        if (!tla::detail::isColumnMajor<LayoutA>::value && k > MATRIX_INNER_DIM_LIMIT_SIZE) { // mk matrix k limit
+        if (!tla::detail::isColumnMajor<LayoutA>::value && k > MATRIX_INNER_DIM_LIMIT_SIZE) {  // mk matrix k limit
             return Status::kInvalid;
         }
 
-        if (tla::detail::isColumnMajor<LayoutA>::value && m > MATRIX_INNER_DIM_LIMIT_SIZE) { // km matrix m limit
+        if (tla::detail::isColumnMajor<LayoutA>::value && m > MATRIX_INNER_DIM_LIMIT_SIZE) {  // km matrix m limit
             return Status::kInvalid;
         }
-        if (!tla::detail::isColumnMajor<LayoutB>::value && n > MATRIX_INNER_DIM_LIMIT_SIZE) { // kn matrix n limit
+        if (!tla::detail::isColumnMajor<LayoutB>::value && n > MATRIX_INNER_DIM_LIMIT_SIZE) {  // kn matrix n limit
             return Status::kInvalid;
         }
 
-        if (tla::detail::isColumnMajor<LayoutB>::value && k > MATRIX_INNER_DIM_LIMIT_SIZE) { // nk matrix k limit
+        if (tla::detail::isColumnMajor<LayoutB>::value && k > MATRIX_INNER_DIM_LIMIT_SIZE) {  // nk matrix k limit
             return Status::kInvalid;
         }
         return Status::kSuccess;
@@ -276,12 +268,12 @@ public:
      * @return Status of the check
      */
     CATLASS_HOST_DEVICE
-    static bool CanImplement(Arguments const& args)
+    static bool CanImplement(Arguments const &args)
     {
         // Check mmad args
         Status BlockMmadCanImplement;
-        if (L0_M * L0_K * sizeof(AType) * STAGES > L0A_SIZE ||
-            L0_N * L0_K * sizeof(BType) * STAGES > L0B_SIZE || L0_M * L0_N * sizeof(CType) > L0C_SIZE ||
+        if (L0_M * L0_K * sizeof(AType) * STAGES > L0A_SIZE || L0_N * L0_K * sizeof(BType) * STAGES > L0B_SIZE ||
+            L0_M * L0_N * sizeof(CType) > L0C_SIZE ||
             (L1_M * L1_K * sizeof(AType) + L1_K * L1_N * sizeof(BType)) * STAGES > L1_SIZE) {
             BlockMmadCanImplement = Status::kInvalid;
         } else {
@@ -311,11 +303,11 @@ public:
      * @return Initialized parameters
      */
     CATLASS_HOST_DEVICE
-    static Params ToUnderlyingArguments(Arguments const& args, GM_ADDR workspace)
+    static Params ToUnderlyingArguments(Arguments const &args, GM_ADDR workspace)
     {
-        BlockMmadParams mmadParams = {args.mmadArgs.aGmAddr, args.mmadArgs.bGmAddr,
-                                    args.mmadArgs.cGmAddr, args.mmadArgs.biasGmAddr, args.mmadArgs.indexGmAddr,
-                                    args.mmadArgs.layoutA, args.mmadArgs.layoutB, args.mmadArgs.layoutC};
+        BlockMmadParams mmadParams = {args.mmadArgs.aGmAddr,    args.mmadArgs.bGmAddr,     args.mmadArgs.cGmAddr,
+                                      args.mmadArgs.biasGmAddr, args.mmadArgs.indexGmAddr, args.mmadArgs.layoutA,
+                                      args.mmadArgs.layoutB,    args.mmadArgs.layoutC};
         // mmad params with epiligue takes workspaceGm as output
         Params params = {args.problemShape, mmadParams, args.schedulerArgs};
         return params;
@@ -326,7 +318,7 @@ public:
      * @param [in] params: parameters for the problem
      */
     CATLASS_DEVICE
-    void operator()(Params const& params)
+    void operator()(Params const &params)
     {
         if ASCEND_IS_AIV {
             return;
@@ -375,6 +367,6 @@ public:
     }
 };
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel
 
-#endif // CATLASS_GEMM_KERNEL_SPARSE_MATMUL_TLA_HPP
+#endif  // CATLASS_GEMM_KERNEL_SPARSE_MATMUL_TLA_HPP

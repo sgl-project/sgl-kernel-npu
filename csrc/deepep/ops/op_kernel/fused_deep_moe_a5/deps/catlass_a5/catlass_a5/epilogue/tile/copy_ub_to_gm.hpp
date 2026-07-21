@@ -18,10 +18,7 @@
 
 namespace Catlass::Epilogue::Tile {
 
-template <
-    class ArchTag,
-    class GmType
->
+template <class ArchTag, class GmType>
 struct CopyUb2Gm {
     static_assert(DEPENDENT_FALSE<ArchTag>, "Unsupported copy ub to gm, can not find the specialization.");
 };
@@ -37,23 +34,15 @@ struct CopyUb2Gm<Arch::AtlasA2, Gemm::GemmType<Element, layout::RowMajor>> {
     CopyUb2Gm() = default;
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::GlobalTensor<Element> const &dstTensor,
-        AscendC::LocalTensor<Element> const &srcTensor,
-        layout::RowMajor const &layoutDst,
-        layout::RowMajor const &layoutSrc)
+    void operator()(AscendC::GlobalTensor<Element> const &dstTensor, AscendC::LocalTensor<Element> const &srcTensor,
+                    layout::RowMajor const &layoutDst, layout::RowMajor const &layoutSrc)
     {
-        AscendC::DataCopyExtParams dataCopyParams(
-            layoutDst.shape(0),
-            layoutDst.shape(1) * sizeof(Element),
-            (layoutSrc.stride(0) - layoutSrc.shape(1)) / ELE_NUM_PER_C0,
-            (layoutDst.stride(0) - layoutDst.shape(1)) * sizeof(Element),
-            0
-        );
+        AscendC::DataCopyExtParams dataCopyParams(layoutDst.shape(0), layoutDst.shape(1) * sizeof(Element),
+                                                  (layoutSrc.stride(0) - layoutSrc.shape(1)) / ELE_NUM_PER_C0,
+                                                  (layoutDst.stride(0) - layoutDst.shape(1)) * sizeof(Element), 0);
         AscendC::DataCopyPad(dstTensor, srcTensor, dataCopyParams);
     }
 };
-
 
 // new add vectorlayout version
 template <typename Element>
@@ -67,28 +56,15 @@ struct CopyUb2Gm<Arch::AtlasA2, Gemm::GemmType<Element, layout::VectorLayout>> {
     CopyUb2Gm() = default;
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::GlobalTensor<Element> const &dstTensor,
-        AscendC::LocalTensor<Element> const &srcTensor,
-        layout::VectorLayout const &layoutDst,
-        layout::VectorLayout const &layoutSrc)
+    void operator()(AscendC::GlobalTensor<Element> const &dstTensor, AscendC::LocalTensor<Element> const &srcTensor,
+                    layout::VectorLayout const &layoutDst, layout::VectorLayout const &layoutSrc)
     {
-        AscendC::DataCopyExtParams dataCopyParams(
-            1,
-            layoutDst.shape(0) * sizeof(Element),
-            0,
-            0,
-            0
-        );
+        AscendC::DataCopyExtParams dataCopyParams(1, layoutDst.shape(0) * sizeof(Element), 0, 0, 0);
         AscendC::DataCopyPad(dstTensor, srcTensor, dataCopyParams);
     };
 };
 
-
-template <
-    class ArchTag,
-    class GmType
->
+template <class ArchTag, class GmType>
 struct CopyUb2GmAligned {
     static_assert(DEPENDENT_FALSE<ArchTag>, "Unsupported copy ub to gm aligned, can not find the specialization.");
 };
@@ -107,11 +83,8 @@ struct CopyUb2GmAligned<Arch::AtlasA2, Gemm::GemmType<Element, layout::RowMajor>
     CopyUb2GmAligned() = default;
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::GlobalTensor<Element> const &dstTensor,
-        AscendC::LocalTensor<Element> const &srcTensor,
-        layout::RowMajor const &layoutDst,
-        layout::RowMajor const &layoutSrc)
+    void operator()(AscendC::GlobalTensor<Element> const &dstTensor, AscendC::LocalTensor<Element> const &srcTensor,
+                    layout::RowMajor const &layoutDst, layout::RowMajor const &layoutSrc)
     {
         uint32_t rows = layoutDst.shape(0);
         uint32_t cols = layoutDst.shape(1);
@@ -124,9 +97,7 @@ struct CopyUb2GmAligned<Arch::AtlasA2, Gemm::GemmType<Element, layout::RowMajor>
             uint32_t rLoops = CeilDiv(rows, MAX_REPEAT);
             for (uint32_t i = 0; i < rLoops; ++i) {
                 uint32_t rActual = (i < rLoops - 1) ? MAX_REPEAT : rows - i * MAX_REPEAT;
-                AscendC::DataCopyParams dataCopyParams(
-                    rActual, cols / ELE_NUM_PER_BLK, srcStride, dstStride
-                );
+                AscendC::DataCopyParams dataCopyParams(rActual, cols / ELE_NUM_PER_BLK, srcStride, dstStride);
                 DataCopy(dstTensor[i * MAX_REPEAT * layoutDst.stride(0)],
                          srcTensor[i * MAX_REPEAT * layoutSrc.stride(0)], dataCopyParams);
             }
@@ -141,7 +112,7 @@ struct CopyUb2GmAligned<Arch::AtlasA2, Gemm::GemmType<Element, layout::RowMajor>
 //////////////////////////// CopyUb2Gm(Ascend950, No TLA) ////////////////////////////
 
 #if (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510) || (defined(__NPU_ARCH__) && __NPU_ARCH__ == 3510)
-//Partial specialization for CopyUb2Gm(Ascend950, no-tla), RowMajor in and RowMajor out.
+// Partial specialization for CopyUb2Gm(Ascend950, no-tla), RowMajor in and RowMajor out.
 template <typename Element>
 struct CopyUb2Gm<Arch::Ascend950, Gemm::GemmType<Element, layout::RowMajor>> {
     using LayoutDst = layout::RowMajor;
@@ -153,19 +124,12 @@ struct CopyUb2Gm<Arch::Ascend950, Gemm::GemmType<Element, layout::RowMajor>> {
     CopyUb2Gm() = default;
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::GlobalTensor<Element> const &dstTensor,
-        AscendC::LocalTensor<Element> const &srcTensor,
-        layout::RowMajor const &layoutDst,
-        layout::RowMajor const &layoutSrc)
+    void operator()(AscendC::GlobalTensor<Element> const &dstTensor, AscendC::LocalTensor<Element> const &srcTensor,
+                    layout::RowMajor const &layoutDst, layout::RowMajor const &layoutSrc)
     {
-        AscendC::DataCopyExtParams dataCopyParams(
-            layoutDst.shape(0),
-            layoutDst.shape(1) * sizeof(Element),
-            (layoutSrc.stride(0) - layoutSrc.shape(1)) / ELE_NUM_PER_C0,
-            (layoutDst.stride(0) - layoutDst.shape(1)) * sizeof(Element),
-            0
-        );
+        AscendC::DataCopyExtParams dataCopyParams(layoutDst.shape(0), layoutDst.shape(1) * sizeof(Element),
+                                                  (layoutSrc.stride(0) - layoutSrc.shape(1)) / ELE_NUM_PER_C0,
+                                                  (layoutDst.stride(0) - layoutDst.shape(1)) * sizeof(Element), 0);
         AscendC::DataCopyPad(dstTensor, srcTensor, dataCopyParams);
     }
 };
@@ -181,30 +145,21 @@ struct CopyUb2Gm<Arch::Ascend950, Gemm::GemmType<Element, layout::VectorLayout>>
     CopyUb2Gm() = default;
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::GlobalTensor<Element> const &dstTensor,
-        AscendC::LocalTensor<Element> const &srcTensor,
-        LayoutDst const &layoutDst,
-        LayoutSrc const &layoutSrc)
+    void operator()(AscendC::GlobalTensor<Element> const &dstTensor, AscendC::LocalTensor<Element> const &srcTensor,
+                    LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
     {
-        AscendC::DataCopyExtParams dataCopyParams(
-            1,
-            layoutDst.shape(0) * sizeof(Element),
-            0,
-            0,
-            0
-        );
+        AscendC::DataCopyExtParams dataCopyParams(1, layoutDst.shape(0) * sizeof(Element), 0, 0, 0);
         if constexpr (AscendC::Std::is_one_of_v<Element, float8_e4m3_t, float8_e5m2_t, float4_e2m1x2_t,
-                          float4_e1m2x2_t>) {
+                                                float4_e1m2x2_t>) {
             AscendC::DataCopyPad(dstTensor.template ReinterpretCast<int8_t>(),
-                srcTensor.template ReinterpretCast<int8_t>(), dataCopyParams);
+                                 srcTensor.template ReinterpretCast<int8_t>(), dataCopyParams);
         } else {
             AscendC::DataCopyPad(dstTensor, srcTensor, dataCopyParams);
         }
     };
 };
-#endif // CATLASS_ARCH == 3510 || __NPU_ARCH__ == 3510
+#endif  // CATLASS_ARCH == 3510 || __NPU_ARCH__ == 3510
 
-}  // Catlass::Epilogue::Tile
+}  // namespace Catlass::Epilogue::Tile
 
 #endif

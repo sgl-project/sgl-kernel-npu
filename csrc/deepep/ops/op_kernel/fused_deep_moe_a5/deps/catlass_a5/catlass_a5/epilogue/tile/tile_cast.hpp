@@ -19,11 +19,9 @@ template <
     /// Tag indicating architecture
     class ArchTag_,
     /// Compute data type
-    class DstType_,
-    class SrcType_,
+    class DstType_, class SrcType_,
     /// Length of the compute buffer
-    class TileShape_
->
+    class TileShape_>
 struct TileCast {
     using ArchTag = ArchTag_;
     using ElementDst = typename DstType_::Element;
@@ -34,15 +32,12 @@ struct TileCast {
     TileCast() {}
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<ElementDst> const &ubOut,
-        AscendC::LocalTensor<ElementSrc> const &ubIn
-    )
+    void operator()(AscendC::LocalTensor<ElementDst> const &ubOut, AscendC::LocalTensor<ElementSrc> const &ubIn)
     {
         AscendC::Cast(ubOut, ubIn, AscendC::RoundMode::CAST_RINT, TileShape::COUNT);
     }
 };
 
-} // namespace Catlass::Epilogue::Tile
+}  // namespace Catlass::Epilogue::Tile
 
 #endif

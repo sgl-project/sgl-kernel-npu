@@ -21,10 +21,7 @@
 
 namespace Catlass::Epilogue::Fusion {
 
-template<
-  class Element,
-  class Layout
->
+template <class Element, class Layout>
 struct VisitorAuxStore : VisitorImpl<> {
     using VisitorImpl<>::VisitorImpl;
 
@@ -40,48 +37,45 @@ struct VisitorAuxStore : VisitorImpl<> {
         GM_ADDR ptr_aux;
         Layout layout;
 
-            Params() {}
+        Params() {}
 
-            Params(GM_ADDR ptr_aux_, Layout const& layout_)
-            : ptr_aux(ptr_aux_), layout(layout_) {}
+        Params(GM_ADDR ptr_aux_, Layout const &layout_) : ptr_aux(ptr_aux_), layout(layout_) {}
     };
 
     template <class ProblemShape>
-    static constexpr Params
-    to_underlying_arguments(ProblemShape const&, Arguments const& args, void*) {
+    static constexpr Params to_underlying_arguments(ProblemShape const &, Arguments const &args, void *)
+    {
         return Params(args.ptr_aux, args.layout);
     }
 
     template <class ProblemShape>
-    static size_t
-    get_workspace_size(ProblemShape const&, Arguments const&) {
+    static size_t get_workspace_size(ProblemShape const &, Arguments const &)
+    {
         return 0;
     }
 
     template <class ProblemShape>
-    static bool
-    can_implement(ProblemShape const&, Arguments const& args) {
+    static bool can_implement(ProblemShape const &, Arguments const &args)
+    {
         return args.ptr_aux != nullptr;
     }
 
     VisitorAuxStore() {}
 
-    VisitorAuxStore(Params const& params_) : params(params_) {}
+    VisitorAuxStore(Params const &params_) : params(params_) {}
 
     struct Callbacks : EmptyCallbacks {
-        Params const* params_ptr;
+        Params const *params_ptr;
 
         CATLASS_DEVICE
-        Callbacks(Params const* params_ptr_)
-            : params_ptr(params_ptr_) {}
+        Callbacks(Params const *params_ptr_) : params_ptr(params_ptr_) {}
 
         template <VisitStage Stage, class ArchTag, class TensorC, typename ElementInput>
-        CATLASS_DEVICE AscendC::LocalTensor<ElementInput> const& visit(
-            TensorC const& tensorTile,
-            MatrixCoord const& alignedTileShape,
-            MatrixCoord const& globalOffset,
-            AscendC::LocalTensor<ElementInput> const& input
-        ) {
+        CATLASS_DEVICE AscendC::LocalTensor<ElementInput> const &visit(TensorC const &tensorTile,
+                                                                       MatrixCoord const &alignedTileShape,
+                                                                       MatrixCoord const &globalOffset,
+                                                                       AscendC::LocalTensor<ElementInput> const &input)
+        {
             static_assert(std::is_same_v<ElementInput, Element>,
                           "VisitorAuxStore: element type mismatch. Insert VisitorCast<...> before store.");
             if constexpr (Stage == VisitStage::STORE) {
@@ -90,26 +84,24 @@ struct VisitorAuxStore : VisitorImpl<> {
                     // 从tensor获取actualTileShape
                     auto actualRows = tla::get<0>(tensorTile.shape());
                     auto actualCols = tla::get<1>(tensorTile.shape());
-                    
+
                     // TLA Layout: 创建aux tensor并使用GetTile创建tile视图
                     AscendC::GlobalTensor<Element> gmAux;
-                    gmAux.SetGlobalBuffer((__gm__ Element*)(params_ptr->ptr_aux));
+                    gmAux.SetGlobalBuffer((__gm__ Element *)(params_ptr->ptr_aux));
                     auto tensorAux = tla::MakeTensor(gmAux, params_ptr->layout, Arch::PositionGM{});
-                    
+
                     // 使用globalOffset创建aux tensor的tile视图
-                    auto tensorTileAux = GetTile(tensorAux,
-                        tla::MakeCoord(globalOffset.row(), globalOffset.column()),
-                        tla::MakeShape(actualRows, actualCols));
-                    
+                    auto tensorTileAux = GetTile(tensorAux, tla::MakeCoord(globalOffset.row(), globalOffset.column()),
+                                                 tla::MakeShape(actualRows, actualCols));
+
                     // 创建UB tensor
-                    auto layoutUb = tla::MakeLayout(
-                        tla::MakeShape(actualRows, actualCols),
-                        tla::MakeStride(alignedTileShape.column(), tla::Int<1>{})
-                    );
+                    auto layoutUb = tla::MakeLayout(tla::MakeShape(actualRows, actualCols),
+                                                    tla::MakeStride(alignedTileShape.column(), tla::Int<1>{}));
                     auto tensorUb = tla::MakeTensor(input, layoutUb, Arch::PositionUB{});
-                    
+
                     // 使用TLA tile copy
-                    using CopyUb2GmTlaT = Epilogue::Tile::CopyUb2GmTla<ArchTag, decltype(tensorUb), decltype(tensorTileAux)>;
+                    using CopyUb2GmTlaT =
+                        Epilogue::Tile::CopyUb2GmTla<ArchTag, decltype(tensorUb), decltype(tensorTileAux)>;
                     CopyUb2GmTlaT copyUb2GmTla{};
                     copyUb2GmTla(tensorTileAux, tensorUb);
                 }
@@ -120,20 +112,14 @@ struct VisitorAuxStore : VisitorImpl<> {
     };
 
     template <class ArchTag>
-    CATLASS_DEVICE auto get_callbacks(
-        Arch::Resource<ArchTag>& resource,
-        uint32_t& ub_offset,
-        uint32_t compute_length
-    ) {
+    CATLASS_DEVICE auto get_callbacks(Arch::Resource<ArchTag> &resource, uint32_t &ub_offset, uint32_t compute_length)
+    {
         return Callbacks(&params);
     }
 
     Params params;
 };
 
-} // namespace Catlass::Epilogue::Fusion
+}  // namespace Catlass::Epilogue::Fusion
 
 #endif
-
-
-

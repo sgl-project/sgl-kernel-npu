@@ -33,22 +33,17 @@ struct TileRowBroadcastAdd {
     using TileShape = TileShape_;
 
     CATLASS_DEVICE
-    TileRowBroadcastAdd()
-    {
-    }
+    TileRowBroadcastAdd() {}
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<ElementCompute> const &ubOut,
-        AscendC::LocalTensor<ElementCompute> const &ubIn0,
-        AscendC::LocalTensor<ElementCompute> const &ubIn1,
-        MatrixCoord const &actualTileShape
-    )
+    void operator()(AscendC::LocalTensor<ElementCompute> const &ubOut,
+                    AscendC::LocalTensor<ElementCompute> const &ubIn0,
+                    AscendC::LocalTensor<ElementCompute> const &ubIn1, MatrixCoord const &actualTileShape)
     {
         constexpr uint32_t maxRepeatTimes = 255;
         constexpr uint32_t eleNumPerBlk = BYTE_PER_BLK / sizeof(ElementCompute);
 
-        constexpr uint32_t blkNumPerColumn = TileShape::COLUMN / eleNumPerBlk; // 保证整除
+        constexpr uint32_t blkNumPerColumn = TileShape::COLUMN / eleNumPerBlk;  // 保证整除
         AscendC::BinaryRepeatParams repeatParams;
         repeatParams.dstBlkStride = 1;
         repeatParams.src0BlkStride = 1;
@@ -65,15 +60,14 @@ struct TileRowBroadcastAdd {
             for (uint32_t colOffset = 0; colOffset < TileShape::COLUMN; colOffset += colNumPerCompute) {
                 uint32_t residueN = TileShape::COLUMN - colOffset;
                 uint64_t mask = (residueN > colNumPerCompute) ? colNumPerCompute : residueN;
-                AscendC::Add(
-                    ubOut[rowOffset * TileShape::COLUMN + colOffset], ubIn0[rowOffset * TileShape::COLUMN + colOffset],
-                    ubIn1[colOffset], mask, repeatTimes, repeatParams
-                );
+                AscendC::Add(ubOut[rowOffset * TileShape::COLUMN + colOffset],
+                             ubIn0[rowOffset * TileShape::COLUMN + colOffset], ubIn1[colOffset], mask, repeatTimes,
+                             repeatParams);
             }
         }
     }
 };
 
-} // namespace Catlass::Epilogue::Tile
+}  // namespace Catlass::Epilogue::Tile
 
 #endif

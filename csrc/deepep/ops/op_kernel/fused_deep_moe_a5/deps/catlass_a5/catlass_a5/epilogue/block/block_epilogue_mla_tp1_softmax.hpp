@@ -21,15 +21,8 @@
 
 namespace Catlass::Epilogue::Block {
 
-template <
-    class OutputType_,
-    class InputType_,
-    class MaskType_>
-class BlockEpilogue<
-    EpilogueAtlasA2MLATP1Softmax,
-    OutputType_,
-    InputType_,
-    MaskType_>
+template <class OutputType_, class InputType_, class MaskType_>
+class BlockEpilogue<EpilogueAtlasA2MLATP1Softmax, OutputType_, InputType_, MaskType_>
 {
 public:
     // Type aliases
@@ -318,13 +311,13 @@ public:
     CATLASS_DEVICE
     void SubCoreCompute(AscendC::GlobalTensor<ElementOutput> gOutput, AscendC::GlobalTensor<ElementInput> gInput,
                         uint32_t m, uint32_t nReal, uint32_t nStride, uint32_t pingpongFlag, uint32_t rowOffset,
-                        uint32_t sUbOffset, uint32_t nIdx, uint32_t *glFlag, uint32_t taskPingPongFlag, uint32_t gSPingPongFlag)
+                        uint32_t sUbOffset, uint32_t nIdx, uint32_t *glFlag, uint32_t taskPingPongFlag,
+                        uint32_t gSPingPongFlag)
     {
         uint32_t round_m = (m + FLOAT_BLOCK_SIZE - 1) / FLOAT_BLOCK_SIZE * FLOAT_BLOCK_SIZE;
         AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(gSPingPongFlag);
         // input QK
         AscendC::DataCopy(lsUbTensor[sUbOffset], gInput, AscendC::DataCopyParams(m, nStride / FLOAT_BLOCK_SIZE, 0, 0));
-
 
         AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(pingpongFlag);
         AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(pingpongFlag);
@@ -353,7 +346,6 @@ public:
             RowmaxTAILTILE(lsUbTensor[sUbOffset], lmUbTensor[rowOffset], tvUbTensor, round_m, nReal, nStride);
         }
 
-
         if (nIdx == 0) {
             AscendC::DataCopy(hmUbTensor[rowOffset], lmUbTensor[rowOffset],
                               AscendC::DataCopyParams(1, round_m / FLOAT_BLOCK_SIZE, 0, 0));
@@ -362,8 +354,9 @@ public:
         } else {
             SetVecMask(m);
             // *** hm = vmax(lm, gm)
-            AscendC::Max<float, false>(hmUbTensor[rowOffset], lmUbTensor[rowOffset], gmUbTensor[taskPingPongFlag][rowOffset], (uint64_t)0,
-                                       1, AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
+            AscendC::Max<float, false>(hmUbTensor[rowOffset], lmUbTensor[rowOffset],
+                                       gmUbTensor[taskPingPongFlag][rowOffset], (uint64_t)0, 1,
+                                       AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
 
             AscendC::PipeBarrier<PIPE_V>();
             // *** dm = gm - hm
@@ -374,8 +367,8 @@ public:
             AscendC::PipeBarrier<PIPE_V>();
             // *** dm = exp(dm)
             AscendC::Exp<float, false>(dmUbTensor[gSPingPongFlag * UB_FLOAT_LINE_SIZE + rowOffset],
-                                       dmUbTensor[gSPingPongFlag * UB_FLOAT_LINE_SIZE + rowOffset],
-                                       (uint64_t)0, 1, AscendC::UnaryRepeatParams(1, 1, 8, 8));
+                                       dmUbTensor[gSPingPongFlag * UB_FLOAT_LINE_SIZE + rowOffset], (uint64_t)0, 1,
+                                       AscendC::UnaryRepeatParams(1, 1, 8, 8));
         }
 
         AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
@@ -397,7 +390,6 @@ public:
                 lsUbTensor[sUbOffset][subIdx * FLOAT_VECTOR_SIZE], lsUbTensor[sUbOffset][subIdx * FLOAT_VECTOR_SIZE],
                 tvUbTensor, (uint64_t)0, m,
                 AscendC::BinaryRepeatParams(1, 1, 0, nStride / FLOAT_BLOCK_SIZE, nStride / FLOAT_BLOCK_SIZE, 1));
-
         }
         if (nReal % FLOAT_VECTOR_SIZE > 0) {
             SetVecMask(nReal % FLOAT_VECTOR_SIZE);
@@ -406,7 +398,6 @@ public:
                 lsUbTensor[sUbOffset][nReal / FLOAT_VECTOR_SIZE * FLOAT_VECTOR_SIZE], tvUbTensor, (uint64_t)0, m,
                 AscendC::BinaryRepeatParams(1, 1, 0, nStride / FLOAT_BLOCK_SIZE, nStride / FLOAT_BLOCK_SIZE, 1));
             AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
-
         }
         AscendC::PipeBarrier<PIPE_V>();
 
@@ -424,7 +415,6 @@ public:
         } else {
             RowsumTAILTILE(lsUbTensor[sUbOffset], llUbTensor[rowOffset], tvUbTensor, round_m, nReal, nStride);
         }
-
 
         // *** lp = castfp32to16(ls)
         if (std::is_same<ElementOutput, bfloat16_t>::value) {
@@ -457,8 +447,9 @@ public:
             AscendC::PipeBarrier<PIPE_V>();
 
             // // *** gl = ll + gl
-            AscendC::Add<float, false>(glUbTensor[taskPingPongFlag][rowOffset], glUbTensor[taskPingPongFlag][rowOffset], llUbTensor[rowOffset], (uint64_t)0,
-                                       1, AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
+            AscendC::Add<float, false>(glUbTensor[taskPingPongFlag][rowOffset], glUbTensor[taskPingPongFlag][rowOffset],
+                                       llUbTensor[rowOffset], (uint64_t)0, 1,
+                                       AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
             AscendC::PipeBarrier<PIPE_V>();
 
             AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
@@ -500,7 +491,6 @@ public:
             SubCoreCompute(gOutputThisSubBlock, gInputThisSubBlock, currM, qkN, qkRoundN, pingpongFlag, rowOffset,
                            sUbOffset, nIdx, glFlag, taskPingPongFlag, gSPingPongFlag);
             pingpongFlag = 1 - pingpongFlag;
-
         }
     }
 
@@ -520,9 +510,8 @@ private:
     AscendC::LocalTensor<float> glUbTensor[2];
 
     Arch::CrossCoreFlag qkReady{QK_READY_ID};
-
 };
 
-} // namespace Catlass::Epilogue::Block
+}  // namespace Catlass::Epilogue::Block
 
-#endif // CATLASS_EPILOGUE_BLOCK_BLOCK_EPILOGUE_MLA_TP1_SOFTMAX_HPP
+#endif  // CATLASS_EPILOGUE_BLOCK_BLOCK_EPILOGUE_MLA_TP1_SOFTMAX_HPP

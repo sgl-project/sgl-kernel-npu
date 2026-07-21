@@ -20,10 +20,8 @@ namespace Catlass::Epilogue::Fusion {
 template <typename T>
 struct Exp {
     CATLASS_DEVICE
-    void operator()(AscendC::LocalTensor<T>& dst,
-                    uint32_t compute_length,
-                    AscendC::LocalTensor<T> const& src
-    ) const {
+    void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length, AscendC::LocalTensor<T> const &src) const
+    {
         AscendC::Exp(dst, src, compute_length);
     }
 };
@@ -31,11 +29,8 @@ struct Exp {
 template <typename T>
 struct Relu {
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<T> const& src
-    ) const {
+    void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length, AscendC::LocalTensor<T> const &src) const
+    {
         AscendC::Relu(dst, src, compute_length);
     }
 };
@@ -43,11 +38,8 @@ struct Relu {
 template <typename T>
 struct Sqrt {
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<T> const& src
-    ) const {
+    void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length, AscendC::LocalTensor<T> const &src) const
+    {
         AscendC::Sqrt(dst, src, compute_length);
     }
 };
@@ -55,11 +47,8 @@ struct Sqrt {
 template <typename T>
 struct RsqrtFast {
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<T> const& src
-    ) const {
+    void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length, AscendC::LocalTensor<T> const &src) const
+    {
         AscendC::Rsqrt(dst, src, compute_length);
     }
 };
@@ -69,27 +58,17 @@ struct LeakyRelu {
     T scalar;
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<T> const& src
-    ) const {
+    void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length, AscendC::LocalTensor<T> const &src) const
+    {
         AscendC::LeakyRelu(dst, src, scalar, compute_length);
     }
 };
 
-template <
-    typename T,
-    typename S,
-    AscendC::RoundMode RoundMode = AscendC::RoundMode::CAST_NONE
->
+template <typename T, typename S, AscendC::RoundMode RoundMode = AscendC::RoundMode::CAST_NONE>
 struct Cast {
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<S> const& src
-    ) const {
+    void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length, AscendC::LocalTensor<S> const &src) const
+    {
         static_assert(!std::is_same_v<T, S>, "Cast: input type mismatch");
         AscendC::Cast(dst, src, RoundMode, compute_length);
     }
@@ -98,10 +77,8 @@ struct Cast {
 template <typename T>
 struct Silu {
     CATLASS_DEVICE
-    void operator()(AscendC::LocalTensor<T>& dst,
-                    uint32_t compute_length,
-                    AscendC::LocalTensor<T> const& src
-    ) const {
+    void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length, AscendC::LocalTensor<T> const &src) const
+    {
         AscendC::Silu(dst, src, compute_length);
     }
 };
@@ -110,14 +87,10 @@ struct Silu {
 template <typename T>
 struct Mul {
     template <typename... Inputs>
-    CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<T> const& src0,
-        AscendC::LocalTensor<T> const& src1,
-        Inputs const&... rest
-    ) const {
+    CATLASS_DEVICE void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length,
+                                   AscendC::LocalTensor<T> const &src0, AscendC::LocalTensor<T> const &src1,
+                                   Inputs const &...rest) const
+    {
         AscendC::Mul(dst, src0, src1, compute_length);
         if constexpr (sizeof...(rest) > 0) {
             AscendC::PipeBarrier<PIPE_V>();
@@ -129,13 +102,10 @@ struct Mul {
 template <typename T>
 struct Muls {
     T scalarValue;
-    
+
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<T> const& src
-    ) const {
+    void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length, AscendC::LocalTensor<T> const &src) const
+    {
         AscendC::Muls(dst, src, scalarValue, compute_length);
     }
 };
@@ -145,11 +115,8 @@ struct Maxs {
     T scalarValue;
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<T> const& src
-    ) const {
+    void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length, AscendC::LocalTensor<T> const &src) const
+    {
         AscendC::Maxs(dst, src, scalarValue, compute_length);
     }
 };
@@ -159,11 +126,8 @@ struct Mins {
     T scalarValue;
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<T> const& src
-    ) const {
+    void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length, AscendC::LocalTensor<T> const &src) const
+    {
         AscendC::Mins(dst, src, scalarValue, compute_length);
     }
 };
@@ -171,14 +135,10 @@ struct Mins {
 template <typename T>
 struct Add {
     template <typename... Inputs>
-    CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<T> const& src0,
-        AscendC::LocalTensor<T> const& src1,
-        Inputs const&... rest
-    ) const {
+    CATLASS_DEVICE void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length,
+                                   AscendC::LocalTensor<T> const &src0, AscendC::LocalTensor<T> const &src1,
+                                   Inputs const &...rest) const
+    {
         AscendC::Add(dst, src0, src1, compute_length);
         if constexpr (sizeof...(rest) > 0) {
             AscendC::PipeBarrier<PIPE_V>();
@@ -190,13 +150,10 @@ struct Add {
 template <typename T>
 struct Adds {
     T scalarValue;
-    
+
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<T> const& src
-    ) const {
+    void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length, AscendC::LocalTensor<T> const &src) const
+    {
         AscendC::Adds(dst, src, scalarValue, compute_length);
     }
 };
@@ -204,14 +161,10 @@ struct Adds {
 template <typename T>
 struct Sub {
     template <typename... Inputs>
-    CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<T> const& src0,
-        AscendC::LocalTensor<T> const& src1,
-        Inputs const&... rest
-    ) const {
+    CATLASS_DEVICE void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length,
+                                   AscendC::LocalTensor<T> const &src0, AscendC::LocalTensor<T> const &src1,
+                                   Inputs const &...rest) const
+    {
         AscendC::Sub(dst, src0, src1, compute_length);
         if constexpr (sizeof...(rest) > 0) {
             AscendC::PipeBarrier<PIPE_V>();
@@ -223,14 +176,10 @@ struct Sub {
 template <typename T>
 struct Div {
     template <typename... Inputs>
-    CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<T> const& src0,
-        AscendC::LocalTensor<T> const& src1,
-        Inputs const&... rest
-    ) const {
+    CATLASS_DEVICE void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length,
+                                   AscendC::LocalTensor<T> const &src0, AscendC::LocalTensor<T> const &src1,
+                                   Inputs const &...rest) const
+    {
         AscendC::Div(dst, src0, src1, compute_length);
         if constexpr (sizeof...(rest) > 0) {
             AscendC::PipeBarrier<PIPE_V>();
@@ -242,33 +191,25 @@ struct Div {
 template <typename T>
 struct Max {
     template <typename... Inputs>
-    CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<T> const& src0,
-        AscendC::LocalTensor<T> const& src1,
-        Inputs const&... rest
-    ) const {
+    CATLASS_DEVICE void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length,
+                                   AscendC::LocalTensor<T> const &src0, AscendC::LocalTensor<T> const &src1,
+                                   Inputs const &...rest) const
+    {
         AscendC::Max(dst, src0, src1, compute_length);
         if constexpr (sizeof...(rest) > 0) {
             AscendC::PipeBarrier<PIPE_V>();
             operator()(dst, compute_length, dst, rest...);
         }
-    }   
+    }
 };
 
 template <typename T>
 struct Min {
     template <typename... Inputs>
-    CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<T> const& src0,
-        AscendC::LocalTensor<T> const& src1,
-        Inputs const&... rest
-    ) const {
+    CATLASS_DEVICE void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length,
+                                   AscendC::LocalTensor<T> const &src0, AscendC::LocalTensor<T> const &src1,
+                                   Inputs const &...rest) const
+    {
         AscendC::Min(dst, src0, src1, compute_length);
         if constexpr (sizeof...(rest) > 0) {
             AscendC::PipeBarrier<PIPE_V>();
@@ -277,33 +218,27 @@ struct Min {
     }
 };
 
-//其他类op
+// 其他类op
 template <typename T>
 struct AddRelu {
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<T> const& src0,
-        AscendC::LocalTensor<T> const& src1
-    ) const {
+    void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length, AscendC::LocalTensor<T> const &src0,
+                    AscendC::LocalTensor<T> const &src1) const
+    {
         AscendC::Add(dst, src0, src1, compute_length);
         AscendC::PipeBarrier<PIPE_V>();
         AscendC::Relu(dst, dst, compute_length);
     }
 };
 
-#if (defined (CATLASS_ARCH) && CATLASS_ARCH == 3510)
-//Prelu
+#if (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510)
+// Prelu
 template <typename T>
 struct Prelu {
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<T> const& src0,
-        AscendC::LocalTensor<T> const& src1
-    ) const {
+    void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length, AscendC::LocalTensor<T> const &src0,
+                    AscendC::LocalTensor<T> const &src1) const
+    {
         AscendC::Prelu(dst, src0, src1, compute_length);
     }
 };
@@ -311,11 +246,8 @@ struct Prelu {
 template <typename T>
 struct Reciprocal {
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<T> const& src
-    ) const {
+    void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length, AscendC::LocalTensor<T> const &src) const
+    {
         AscendC::Divs(dst, T(1), src, compute_length);
     }
 };
@@ -323,11 +255,8 @@ struct Reciprocal {
 template <typename T>
 struct Rsqrt {
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<T>& dst,
-        uint32_t compute_length,
-        AscendC::LocalTensor<T> const& src
-    ) const {
+    void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length, AscendC::LocalTensor<T> const &src) const
+    {
         AscendC::Sqrt(dst, src, compute_length);
         AscendC::PipeBarrier<PIPE_V>();
         AscendC::Divs(dst, T(1), dst, compute_length);
@@ -337,10 +266,8 @@ struct Rsqrt {
 template <typename T>
 struct Sigmoid {
     CATLASS_DEVICE
-    void operator()(AscendC::LocalTensor<T>& dst,
-                    uint32_t compute_length,
-                    AscendC::LocalTensor<T> const& src
-    ) const {
+    void operator()(AscendC::LocalTensor<T> &dst, uint32_t compute_length, AscendC::LocalTensor<T> const &src) const
+    {
         AscendC::Muls(dst, src, T(-1), compute_length);
         AscendC::PipeBarrier<PIPE_V>();
         AscendC::Exp(dst, dst, compute_length);
@@ -352,6 +279,6 @@ struct Sigmoid {
 };
 #endif
 
-} // namespace Catlass::Epilogue::Fusion
+}  // namespace Catlass::Epilogue::Fusion
 
 #endif

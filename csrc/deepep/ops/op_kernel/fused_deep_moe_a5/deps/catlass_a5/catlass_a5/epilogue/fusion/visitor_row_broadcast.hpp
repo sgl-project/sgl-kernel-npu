@@ -32,94 +32,88 @@ struct VisitorRowBroadcast : VisitorImpl<> {
 
     struct Arguments {
         GM_ADDR ptr_row = nullptr;  // GM address of 1 x N row vector
-        Layout layout = {};          // layout over (1, N)
+        Layout layout = {};         // layout over (1, N)
     };
 
     struct Params {
         GM_ADDR ptr_row;
         Layout layout;
-        
+
         Params() {}
 
-        Params(GM_ADDR ptr_row_, Layout const& layout_)
-            : ptr_row(ptr_row_), layout(layout_) {}
+        Params(GM_ADDR ptr_row_, Layout const &layout_) : ptr_row(ptr_row_), layout(layout_) {}
     };
 
     template <class ProblemShape>
-    static constexpr Params
-    to_underlying_arguments(ProblemShape const&, Arguments const& args, void*) {
+    static constexpr Params to_underlying_arguments(ProblemShape const &, Arguments const &args, void *)
+    {
         return Params(args.ptr_row, args.layout);
     }
 
     template <class ProblemShape>
-    static size_t
-    get_workspace_size(ProblemShape const&, Arguments const&) {
+    static size_t get_workspace_size(ProblemShape const &, Arguments const &)
+    {
         return 0;
     }
 
     template <class ProblemShape>
-    static bool
-    can_implement(ProblemShape const&, Arguments const& args) {
+    static bool can_implement(ProblemShape const &, Arguments const &args)
+    {
         return args.ptr_row != nullptr;
     }
 
     VisitorRowBroadcast() {}
 
-    VisitorRowBroadcast(Params const& params_) : params(params_) {}
+    VisitorRowBroadcast(Params const &params_) : params(params_) {}
 
     struct Callbacks : EmptyCallbacks {
         AscendC::LocalTensor<Element> ubOut;
-        Params const* params_ptr;
+        Params const *params_ptr;
         uint32_t compute_length;
 
         CATLASS_DEVICE
-        Callbacks(
-            AscendC::LocalTensor<Element> ubOut_,
-            Params const* params_ptr_,
-            uint32_t compute_length_)
-            : ubOut(ubOut_), params_ptr(params_ptr_), compute_length(compute_length_) {}
+        Callbacks(AscendC::LocalTensor<Element> ubOut_, Params const *params_ptr_, uint32_t compute_length_)
+            : ubOut(ubOut_), params_ptr(params_ptr_), compute_length(compute_length_)
+        {}
 
         template <VisitStage Stage, class ArchTag, class TensorC, typename... Args>
-        CATLASS_DEVICE AscendC::LocalTensor<Element> const& visit(
-            TensorC const& tensorTile,
-            MatrixCoord const& alignedTileShape,
-            MatrixCoord const& globalOffset,
-            Args const&... /*unused*/
-        ) {
+        CATLASS_DEVICE AscendC::LocalTensor<Element> const &visit(TensorC const &tensorTile,
+                                                                  MatrixCoord const &alignedTileShape,
+                                                                  MatrixCoord const &globalOffset,
+                                                                  Args const &.../*unused*/
+        )
+        {
             // 从tensor获取actualTileShape
-            auto& actualRows = tla::get<0>(tensorTile.shape());
-            auto& actualCols = tla::get<1>(tensorTile.shape());
-            auto& alignedCols = alignedTileShape.column();
-            
+            auto &actualRows = tla::get<0>(tensorTile.shape());
+            auto &actualCols = tla::get<1>(tensorTile.shape());
+            auto &alignedCols = alignedTileShape.column();
+
             if constexpr (Stage == VisitStage::LOAD) {
                 // 创建UB tensor用于存储第一行（1 x actualCols）
-                auto layoutUbRow = tla::MakeLayout(
-                    tla::MakeShape(tla::Int<1>{}, actualCols),
-                    tla::MakeStride(alignedCols, tla::Int<1>{})
-                );
+                auto layoutUbRow = tla::MakeLayout(tla::MakeShape(tla::Int<1>{}, actualCols),
+                                                   tla::MakeStride(alignedCols, tla::Int<1>{}));
                 auto tensorUbRow = tla::MakeTensor(ubOut, layoutUbRow, Arch::PositionUB{});
-                
+
                 // TLA Layout: 创建GM row tensor并使用GetTile创建tile视图
                 AscendC::GlobalTensor<Element> gmRow;
-                gmRow.SetGlobalBuffer((__gm__ Element*)(params_ptr->ptr_row));
+                gmRow.SetGlobalBuffer((__gm__ Element *)(params_ptr->ptr_row));
                 auto tensorRow = tla::MakeTensor(gmRow, params_ptr->layout, Arch::PositionGM{});
-                
-                auto tensorTileRow = GetTile(tensorRow,
-                    tla::MakeCoord(uint32_t(0), globalOffset.column()),
-                    tla::MakeShape(tla::Int<1>{}, actualCols));
-                
+
+                auto tensorTileRow = GetTile(tensorRow, tla::MakeCoord(uint32_t(0), globalOffset.column()),
+                                             tla::MakeShape(tla::Int<1>{}, actualCols));
+
                 // 使用TLA tile copy
-                using CopyGm2UbTlaT = Epilogue::Tile::CopyGm2UbTla<ArchTag, decltype(tensorTileRow), decltype(tensorUbRow)>;
+                using CopyGm2UbTlaT =
+                    Epilogue::Tile::CopyGm2UbTla<ArchTag, decltype(tensorTileRow), decltype(tensorUbRow)>;
                 CopyGm2UbTlaT copyGm2UbTla{};
                 copyGm2UbTla(tensorUbRow, tensorTileRow);
             }
             if constexpr (Stage == VisitStage::COMPUTE) {
                 for (uint32_t r = 1; r < actualRows; ++r) {
                     // copy row 0 -> row r，使用 aligned stride
-                    AscendC::DataCopy(
-                        ubOut[r * alignedCols],   // dst start at offset r*alignedCols
-                        ubOut[0],                  // src start at offset 0
-                        alignedCols);
+                    AscendC::DataCopy(ubOut[r * alignedCols],  // dst start at offset r*alignedCols
+                                      ubOut[0],                // src start at offset 0
+                                      alignedCols);
                 }
             }
             return ubOut;
@@ -127,10 +121,7 @@ struct VisitorRowBroadcast : VisitorImpl<> {
     };
 
     template <class ArchTag>
-    CATLASS_DEVICE auto get_callbacks(
-        Arch::Resource<ArchTag>& resource,
-        uint32_t& ub_offset,
-        uint32_t compute_length)
+    CATLASS_DEVICE auto get_callbacks(Arch::Resource<ArchTag> &resource, uint32_t &ub_offset, uint32_t compute_length)
     {
         auto ubOut = resource.ubBuf.template GetBufferByByte<Element>(ub_offset);
         ub_offset += compute_length * sizeof(Element);
@@ -141,7 +132,6 @@ struct VisitorRowBroadcast : VisitorImpl<> {
     Params params;
 };
 
-} // namespace Catlass::Epilogue::Fusion
+}  // namespace Catlass::Epilogue::Fusion
 
 #endif
-

@@ -47,11 +47,10 @@ public:
     VectorLayout(Shape shape, Stride stride) : shape_(shape), stride_(stride) {}
 
     template <class Element>
-    CATLASS_HOST_DEVICE
-    static VectorLayout MakeLayoutInUb(TensorCoord const &tileShape)
+    CATLASS_HOST_DEVICE static VectorLayout MakeLayoutInUb(TensorCoord const &tileShape)
     {
         constexpr uint32_t ELE_NUM_PER_BLK = BytesToBits(BYTE_PER_BLK) / SizeOfBits<Element>::value;
-        return VectorLayout{ELE_NUM_PER_BLK>(tileShape[0])};
+        return VectorLayout{ELE_NUM_PER_BLK > (tileShape[0])};
     }
 
     CATLASS_HOST_DEVICE
@@ -129,6 +128,6 @@ private:
     Stride stride_;
 };
 
-} // namespace Catlass::layout
+}  // namespace Catlass::layout
 
 #endif  // CATLASS_LAYOUT_VECTOR_HPP

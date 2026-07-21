@@ -65,8 +65,7 @@ static ge::graphStatus InferShape(gert::InferShapeContext *context)
     auto epRankSizePtr = attrs->GetAttrPointer<int64_t>(ATTR_EP_RANK_SIZE_INDEX);
     auto moeExpertNumPtr = attrs->GetAttrPointer<int64_t>(ATTR_MOE_EXPERT_NUM_INDEX);
 
-    OPS_ERR_IF(moeExpertNumPtr == nullptr, OPS_LOG_E(nodeName, "moeExpertNumPtr is nullptr."),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF(moeExpertNumPtr == nullptr, OPS_LOG_E(nodeName, "moeExpertNumPtr is nullptr."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(epRankSizePtr == nullptr, OPS_LOG_E(nodeName, "epRankSizePtr is nullptr."), return ge::GRAPH_FAILED);
     uint32_t epRankSize = static_cast<uint32_t>(*epRankSizePtr);
     uint32_t moeExpertNum = static_cast<uint32_t>(*moeExpertNumPtr);

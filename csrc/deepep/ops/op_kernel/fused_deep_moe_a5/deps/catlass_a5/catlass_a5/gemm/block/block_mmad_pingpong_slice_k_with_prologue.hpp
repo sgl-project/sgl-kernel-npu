@@ -22,28 +22,10 @@
 
 namespace Catlass::Gemm::Block {
 
-template <
-    bool ENABLE_UNIT_FLAG_,
-    class L1TileShape_,
-    class L0TileShape_,
-    class AType_,
-    class BType_,
-    class CType_,
-    class BiasType_,
-    class TileCopy_,
-    class TileMmad_
->
-struct BlockMmad <
-    MmadAtlasA2PingpongSliceKWithPrologue<ENABLE_UNIT_FLAG_>,
-    L1TileShape_,
-    L0TileShape_,
-    AType_,
-    BType_,
-    CType_,
-    BiasType_,
-    TileCopy_,
-    TileMmad_
-> {
+template <bool ENABLE_UNIT_FLAG_, class L1TileShape_, class L0TileShape_, class AType_, class BType_, class CType_,
+          class BiasType_, class TileCopy_, class TileMmad_>
+struct BlockMmad<MmadAtlasA2PingpongSliceKWithPrologue<ENABLE_UNIT_FLAG_>, L1TileShape_, L0TileShape_, AType_, BType_,
+                 CType_, BiasType_, TileCopy_, TileMmad_> {
 public:
     // Type Aliases
     using DispatchPolicy = MmadAtlasA2PingpongSliceKWithPrologue<ENABLE_UNIT_FLAG_>;
@@ -65,7 +47,7 @@ public:
 
     using PrologueA = typename TileCopy_::PrologueA;
     using PrologueB = typename TileCopy_::PrologueB;
-    using PrologueC = typename TileCopy_::PrologueB; // NOTE: SHOULD BE Epilogue
+    using PrologueC = typename TileCopy_::PrologueB;  // NOTE: SHOULD BE Epilogue
 
     using ElementAccumulator =
         typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
@@ -98,11 +80,11 @@ public:
     static constexpr uint32_t L0B_TILE_SIZE = L0TileShape::K * L0TileShape::N * sizeof(ElementB);
     static_assert((L0A_TILE_SIZE * STAGES) <= L0A_SIZE, "L0TileShape exceeding the L0A space!");
     static_assert((L0B_TILE_SIZE * STAGES) <= L0B_SIZE, "L0TileShape exceeding the L0B space!");
-    
+
     // 32B (256b) aligned
-    static_assert(Gemm::helper::TileShapeAlignChecker<L1TileShape, L0TileShape, ElementA, ElementB>::_ALIGN == 256, 
-        "Tile shape must be 32B aligned.");
-    
+    static_assert(Gemm::helper::TileShapeAlignChecker<L1TileShape, L0TileShape, ElementA, ElementB>::_ALIGN == 256,
+                  "Tile shape must be 32B aligned.");
+
     struct Params {
         typename Tile::PrologueTraits<PrologueA>::Params prologueAParams{};
         typename Tile::PrologueTraits<PrologueB>::Params prologueBParams{};
@@ -113,11 +95,11 @@ public:
 
     /// Construct
     CATLASS_DEVICE
-    BlockMmad(Arch::Resource<ArchTag> &resource, Params const &params_ = {}, 
-        uint32_t l1BufAddrStart = 0) : params(params_)
+    BlockMmad(Arch::Resource<ArchTag> &resource, Params const &params_ = {}, uint32_t l1BufAddrStart = 0)
+        : params(params_)
     {
         // PREVIOUSLY:
-        // Initilize PrologueA & PrologueB instantly
+        // Initialize PrologueA & PrologueB instantly
         // prologueA(resource, params_.prologueAParams), prologueB(resource, params_.prologueBParams)
         uint32_t l1AOffset = l1BufAddrStart;
         uint32_t l1BOffset = l1BufAddrStart + L1A_SIZE * STAGES;
@@ -171,7 +153,8 @@ public:
 
     /// Destructor
     CATLASS_DEVICE
-    ~BlockMmad() {
+    ~BlockMmad()
+    {
         if constexpr (g_coreType == AscendC::AIC) {
             for (uint32_t i = 0; i < STAGES; i++) {
                 AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(l1AEventList[i]);
@@ -195,18 +178,12 @@ public:
             Catlass::Arch::CrossCoreWaitFlag(flag0[0]);
             Catlass::Arch::CrossCoreWaitFlag(flag0[1]);
         }
-        
     }
 
     /// Perform a block-scoped matrix multiply-accumulate
     CATLASS_DEVICE
-    void operator()(
-        AscendC::GlobalTensor<ElementA> const &gmA, 
-        AscendC::GlobalTensor<ElementB> const &gmB, 
-        AscendC::GlobalTensor<ElementC> const &gmC,
-        GemmCoord actualBlockShape,
-        GemmCoord problemShape
-    )
+    void operator()(AscendC::GlobalTensor<ElementA> const &gmA, AscendC::GlobalTensor<ElementB> const &gmB,
+                    AscendC::GlobalTensor<ElementC> const &gmC, GemmCoord actualBlockShape, GemmCoord problemShape)
     {
         MNScalerMatmulImpl(gmA, gmB, gmC, {}, actualBlockShape, problemShape);
     }
@@ -214,51 +191,33 @@ public:
     /// Prologue
     // template <class T = PrologueA, class U = PrologueB>
     CATLASS_DEVICE
-    void Prologue(
-        AscendC::GlobalTensor<typename PrologueA::ElementDst> const &gmDstA, 
-        AscendC::GlobalTensor<typename PrologueA::ElementSrc> const &gmSrcA, typename PrologueA::LayoutSrc const &layoutSrcA,
-        AscendC::GlobalTensor<typename PrologueB::ElementDst> const &gmDstB, 
-        AscendC::GlobalTensor<typename PrologueB::ElementSrc> const &gmSrcB, typename PrologueB::LayoutSrc const &layoutSrcB,
-        AscendC::GlobalTensor<half> const &gmDstC, 
-        AscendC::GlobalTensor<ElementC> const &gmSrcC, LayoutC const &layoutSrcC,
-        GemmCoord const &blockCoord, GemmCoord const &nextBlockCoord, 
-        GemmCoord const &actualBlockShape, GemmCoord const &nextActualBlockShape,
-        GemmCoord const &problemShape,
-        bool isFirstBlock, bool hasNextBlock,
-        uint32_t &bufferIndex
-    )
+    void Prologue(AscendC::GlobalTensor<typename PrologueA::ElementDst> const &gmDstA,
+                  AscendC::GlobalTensor<typename PrologueA::ElementSrc> const &gmSrcA,
+                  typename PrologueA::LayoutSrc const &layoutSrcA,
+                  AscendC::GlobalTensor<typename PrologueB::ElementDst> const &gmDstB,
+                  AscendC::GlobalTensor<typename PrologueB::ElementSrc> const &gmSrcB,
+                  typename PrologueB::LayoutSrc const &layoutSrcB, AscendC::GlobalTensor<half> const &gmDstC,
+                  AscendC::GlobalTensor<ElementC> const &gmSrcC, LayoutC const &layoutSrcC, GemmCoord const &blockCoord,
+                  GemmCoord const &nextBlockCoord, GemmCoord const &actualBlockShape,
+                  GemmCoord const &nextActualBlockShape, GemmCoord const &problemShape, bool isFirstBlock,
+                  bool hasNextBlock, uint32_t &bufferIndex)
     {
-        PrologueImpl(
-            gmDstA, gmSrcA, layoutSrcA,
-            gmDstB, gmSrcB, layoutSrcB,
-            gmDstC, gmSrcC, layoutSrcC,
-            blockCoord, nextBlockCoord,
-            actualBlockShape, nextActualBlockShape, problemShape,
-            isFirstBlock, hasNextBlock, bufferIndex
-        );
+        PrologueImpl(gmDstA, gmSrcA, layoutSrcA, gmDstB, gmSrcB, layoutSrcB, gmDstC, gmSrcC, layoutSrcC, blockCoord,
+                     nextBlockCoord, actualBlockShape, nextActualBlockShape, problemShape, isFirstBlock, hasNextBlock,
+                     bufferIndex);
     }
 
 protected:
     CATLASS_DEVICE
-    void PrologueImpl(
-        AscendC::GlobalTensor<typename PrologueA::ElementDst> const & gmDstA,
-        AscendC::GlobalTensor<typename PrologueA::ElementSrc> const & gmSrcA,
-        typename PrologueA::LayoutSrc const & layoutSrcA,
-        AscendC::GlobalTensor<typename PrologueB::ElementDst> const & gmDstB,
-        AscendC::GlobalTensor<typename PrologueB::ElementSrc> const & gmSrcB,
-        typename PrologueB::LayoutSrc const & layoutSrcB,
-        AscendC::GlobalTensor<half> const &gmDstC,
-        AscendC::GlobalTensor<ElementC> const &gmSrcC,
-        LayoutC const &layoutSrcC,
-        GemmCoord blockCoord,
-        GemmCoord nextBlockCoord,
-        GemmCoord actualBlockShape,
-        GemmCoord nextActualBlockShape,
-        GemmCoord problemShape,
-        bool const isFirstBlock, 
-        bool const hasNextBlock,
-        uint32_t &bufferIndex
-    )
+    void PrologueImpl(AscendC::GlobalTensor<typename PrologueA::ElementDst> const &gmDstA,
+                      AscendC::GlobalTensor<typename PrologueA::ElementSrc> const &gmSrcA,
+                      typename PrologueA::LayoutSrc const &layoutSrcA,
+                      AscendC::GlobalTensor<typename PrologueB::ElementDst> const &gmDstB,
+                      AscendC::GlobalTensor<typename PrologueB::ElementSrc> const &gmSrcB,
+                      typename PrologueB::LayoutSrc const &layoutSrcB, AscendC::GlobalTensor<half> const &gmDstC,
+                      AscendC::GlobalTensor<ElementC> const &gmSrcC, LayoutC const &layoutSrcC, GemmCoord blockCoord,
+                      GemmCoord nextBlockCoord, GemmCoord actualBlockShape, GemmCoord nextActualBlockShape,
+                      GemmCoord problemShape, bool const isFirstBlock, bool const hasNextBlock, uint32_t &bufferIndex)
     {
         // 当前任务块 Current block
         // 计算基础偏移量
@@ -268,26 +227,24 @@ protected:
 
         gmOffsetA = layoutSrcA.GetOffset(MakeCoord(blockCoord.m() * (L1TileShape::M * params.mScalar), 0U));
         gmOffsetNextA = layoutSrcA.GetOffset(MakeCoord(nextBlockCoord.m() * (L1TileShape::M * params.mScalar), 0U));
-        gmOffsetWA = (AscendC::GetBlockIdx() / AIVPERCORE) * 
-                    (params.mScalar * L1TileShape::M) * params.splitkLength * STAGES;
+        gmOffsetWA =
+            (AscendC::GetBlockIdx() / AIVPERCORE) * (params.mScalar * L1TileShape::M) * params.splitkLength * STAGES;
         gmOffsetWADelta = (params.mScalar * L1TileShape::M) * params.splitkLength;
 
         gmOffsetB = layoutSrcB.GetOffset(MakeCoord(0U, blockCoord.n() * (L1TileShape::N * params.nScalar)));
         gmOffsetNextB = layoutSrcB.GetOffset(MakeCoord(0U, nextBlockCoord.n() * (L1TileShape::N * params.nScalar)));
-        gmOffsetWB = (AscendC::GetBlockIdx() / AIVPERCORE) * 
-                    (params.nScalar * L1TileShape::N) * params.splitkLength * STAGES;
+        gmOffsetWB =
+            (AscendC::GetBlockIdx() / AIVPERCORE) * (params.nScalar * L1TileShape::N) * params.splitkLength * STAGES;
         gmOffsetWBDelta = params.splitkLength * (params.nScalar * L1TileShape::N);
 
-        MatrixCoord offsetC{blockCoord.m() * (L1TileShape::M * params.mScalar), 
-                        blockCoord.n() * (L1TileShape::N * params.nScalar)};        
+        MatrixCoord offsetC{blockCoord.m() * (L1TileShape::M * params.mScalar),
+                            blockCoord.n() * (L1TileShape::N * params.nScalar)};
         gmOffsetC = layoutSrcC.GetOffset(offsetC);
-        gmOffsetWC = (AscendC::GetBlockIdx() / AIVPERCORE) * 
-                (params.mScalar * L1TileShape::M) * (params.nScalar * L1TileShape::N);
+        gmOffsetWC = (AscendC::GetBlockIdx() / AIVPERCORE) * (params.mScalar * L1TileShape::M) *
+                     (params.nScalar * L1TileShape::N);
 
-        uint32_t srcAStride = layoutSrcA.stride(
-            std::is_same_v<LayoutA, Catlass::layout::RowMajor> ? 0:1);
-        uint32_t srcBStride = layoutSrcB.stride(
-            std::is_same_v<LayoutB, Catlass::layout::RowMajor> ? 0:1);
+        uint32_t srcAStride = layoutSrcA.stride(std::is_same_v<LayoutA, Catlass::layout::RowMajor> ? 0 : 1);
+        uint32_t srcBStride = layoutSrcB.stride(std::is_same_v<LayoutB, Catlass::layout::RowMajor> ? 0 : 1);
         uint32_t mShape_ = actualBlockShape.m();
         uint32_t nShape_ = actualBlockShape.n();
 
@@ -298,11 +255,11 @@ protected:
         uint32_t kLoop = (problemShape.k() + params.splitkLength - 1) / params.splitkLength;
         uint32_t kResidueLenght = problemShape.k() % params.splitkLength;
         for (uint32_t ldk = 0; ldk < kLoop; ldk++) {
-            uint32_t kActual = (problemShape.k() < (ldk + 1) * params.splitkLength)
-                                       ? kResidueLenght : params.splitkLength;
+            uint32_t kActual =
+                (problemShape.k() < (ldk + 1) * params.splitkLength) ? kResidueLenght : params.splitkLength;
             uint32_t kActual_ = kActual;
 
-            if (ldk == 0 && isFirstBlock) { // 首块
+            if (ldk == 0 && isFirstBlock) {  // 首块
                 Catlass::Arch::CrossCoreWaitFlag(flag0[crossCoreBufferIndexAIV]);
 
                 uint32_t kActualAligned_ = RoundUp<256, uint32_t>(kActual_);
@@ -310,30 +267,19 @@ protected:
                 LayoutA layoutDstA(actualBlockShape.m(), kActualAligned_);
                 LayoutB layoutWB(kActual_, actualBlockShape.n(), srcBStride);
                 LayoutB layoutDstB(kActualAligned_, actualBlockShape.n());
-                
+
                 PrologueA prologueA(resource, params.prologueAParams);
                 PrologueB prologueB(resource, params.prologueBParams);
-                prologueA(
-                    gmDstA[gmOffsetWA + crossCoreBufferIndexAIV * gmOffsetWADelta],
-                    layoutDstA,
-                    gmSrcA[gmOffsetA],
-                    layoutWA,
-                    bufferIndex
-                );
-                prologueB(
-                    gmDstB[gmOffsetWB + crossCoreBufferIndexAIV * gmOffsetWBDelta],
-                    layoutDstB,
-                    gmSrcB[gmOffsetB],
-                    layoutWB,
-                    bufferIndex
-                );
+                prologueA(gmDstA[gmOffsetWA + crossCoreBufferIndexAIV * gmOffsetWADelta], layoutDstA, gmSrcA[gmOffsetA],
+                          layoutWA, bufferIndex);
+                prologueB(gmDstB[gmOffsetWB + crossCoreBufferIndexAIV * gmOffsetWBDelta], layoutDstB, gmSrcB[gmOffsetB],
+                          layoutWB, bufferIndex);
             }
-            if (ldk < kLoop - 1) { // 后续块
-                kActual_ = (problemShape.k() < (ldk + 2) * params.splitkLength)
-                                       ? kResidueLenght : params.splitkLength;
+            if (ldk < kLoop - 1) {  // 后续块
+                kActual_ = (problemShape.k() < (ldk + 2) * params.splitkLength) ? kResidueLenght : params.splitkLength;
 
                 Catlass::Arch::CrossCoreSetFlag<0x2, PIPE_MTE3>(flag1[crossCoreBufferIndexAIV]);
-                Catlass::Arch::CrossCoreWaitFlag(flag0[1 - crossCoreBufferIndexAIV]);         
+                Catlass::Arch::CrossCoreWaitFlag(flag0[1 - crossCoreBufferIndexAIV]);
                 gmOffsetA += layoutSrcA.GetOffset(MakeCoord(0U, kActual));
                 gmOffsetB += layoutSrcB.GetOffset(MakeCoord(kActual, 0U));
 
@@ -345,24 +291,14 @@ protected:
 
                 PrologueA prologueA(resource, params.prologueAParams);
                 PrologueB prologueB(resource, params.prologueBParams);
-                prologueA(
-                    gmDstA[gmOffsetWA + (1 - crossCoreBufferIndexAIV) * gmOffsetWADelta],
-                    layoutDstA,
-                    gmSrcA[gmOffsetA],
-                    layoutWA,
-                    bufferIndex
-                );
-                prologueB(
-                    gmDstB[gmOffsetWB + (1 - crossCoreBufferIndexAIV) * gmOffsetWBDelta],
-                    layoutDstB,
-                    gmSrcB[gmOffsetB],
-                    layoutWB,
-                    bufferIndex
-                );
+                prologueA(gmDstA[gmOffsetWA + (1 - crossCoreBufferIndexAIV) * gmOffsetWADelta], layoutDstA,
+                          gmSrcA[gmOffsetA], layoutWA, bufferIndex);
+                prologueB(gmDstB[gmOffsetWB + (1 - crossCoreBufferIndexAIV) * gmOffsetWBDelta], layoutDstB,
+                          gmSrcB[gmOffsetB], layoutWB, bufferIndex);
             }
-            if ((ldk == kLoop - 1) && hasNextBlock) { // SliceK尾部块
+            if ((ldk == kLoop - 1) && hasNextBlock) {  // SliceK尾部块
                 kActual_ = (problemShape.k() < params.splitkLength) ? kResidueLenght : params.splitkLength;
-                
+
                 Catlass::Arch::CrossCoreSetFlag<0x2, PIPE_MTE3>(flag1[crossCoreBufferIndexAIV]);
                 Catlass::Arch::CrossCoreWaitFlag(flag0[1 - crossCoreBufferIndexAIV]);
 
@@ -374,55 +310,33 @@ protected:
 
                 PrologueA prologueA(resource, params.prologueAParams);
                 PrologueB prologueB(resource, params.prologueBParams);
-                prologueA(
-                    gmDstA[gmOffsetWA + (1 - crossCoreBufferIndexAIV) * gmOffsetWADelta],
-                    layoutDstA,
-                    gmSrcA[gmOffsetNextA],
-                    layoutWA,
-                    bufferIndex
-                );
-                prologueB(
-                    gmDstB[gmOffsetWB + (1 - crossCoreBufferIndexAIV) * gmOffsetWBDelta],
-                    layoutDstB,
-                    gmSrcB[gmOffsetNextB],
-                    layoutWB,
-                    bufferIndex
-                );
+                prologueA(gmDstA[gmOffsetWA + (1 - crossCoreBufferIndexAIV) * gmOffsetWADelta], layoutDstA,
+                          gmSrcA[gmOffsetNextA], layoutWA, bufferIndex);
+                prologueB(gmDstB[gmOffsetWB + (1 - crossCoreBufferIndexAIV) * gmOffsetWBDelta], layoutDstB,
+                          gmSrcB[gmOffsetNextB], layoutWB, bufferIndex);
             }
-           
-            if (ldk == kLoop - 1) { // 尾部块
+
+            if (ldk == kLoop - 1) {  // 尾部块
                 if (!hasNextBlock) {
                     Catlass::Arch::CrossCoreSetFlag<0x2, PIPE_MTE3>(flag1[crossCoreBufferIndexAIV]);
                 }
                 Catlass::Arch::CrossCoreWaitFlag(flag4);
 
-                Catlass::layout::RowMajor layoutBlockC(
-                    actualBlockShape.m(), actualBlockShape.n(), params.nScalar * L1TileShape::N);
-                Catlass::layout::RowMajor layoutBlockDstC(
-                    problemShape.m(), problemShape.n());
+                Catlass::layout::RowMajor layoutBlockC(actualBlockShape.m(), actualBlockShape.n(),
+                                                       params.nScalar * L1TileShape::N);
+                Catlass::layout::RowMajor layoutBlockDstC(problemShape.m(), problemShape.n());
 
                 PrologueC epCast;
-                epCast.EpCastFp32ToFp16(
-                    gmDstC[gmOffsetC],
-                    layoutBlockDstC,
-                    gmSrcC[gmOffsetWC],
-                    layoutBlockC
-                );
+                epCast.EpCastFp32ToFp16(gmDstC[gmOffsetC], layoutBlockDstC, gmSrcC[gmOffsetWC], layoutBlockC);
             }
-                crossCoreBufferIndexAIV = 1 - crossCoreBufferIndexAIV;
-            } // end: for-loop (ldk)
-
+            crossCoreBufferIndexAIV = 1 - crossCoreBufferIndexAIV;
+        }  // end: for-loop (ldk)
     }
 
     CATLASS_DEVICE
-    void MNScalerMatmulImpl(
-        AscendC::GlobalTensor<ElementA> const &gmWA, 
-        AscendC::GlobalTensor<ElementB> const &gmWB, 
-        AscendC::GlobalTensor<ElementC> const &gmWC,
-        [[maybe_unused]] GemmCoord blockCoord,
-        GemmCoord actualBlockShape,
-        GemmCoord problemShape
-    )
+    void MNScalerMatmulImpl(AscendC::GlobalTensor<ElementA> const &gmWA, AscendC::GlobalTensor<ElementB> const &gmWB,
+                            AscendC::GlobalTensor<ElementC> const &gmWC, [[maybe_unused]] GemmCoord blockCoord,
+                            GemmCoord actualBlockShape, GemmCoord problemShape)
     {
         constexpr bool isLayoutAColumnMajor = std::is_same_v<LayoutA, Catlass::layout::ColumnMajor>;
         constexpr bool isLayoutBColumnMajor = std::is_same_v<LayoutB, Catlass::layout::ColumnMajor>;
@@ -434,96 +348,92 @@ protected:
 
         uint32_t nextMIdx, nextNIdx;
         // SPLIT-K MainLoop
-        for (uint32_t ldk = 0; ldk < kLoop; ldk++) {           // K-loop
+        for (uint32_t ldk = 0; ldk < kLoop; ldk++) {  // K-loop
             bool isFirstKSlice = (ldk == 0);
-            uint32_t kActual = (problemShape.k() < (ldk + 1) * params.splitkLength) ? 
-                            problemShape.k() % params.splitkLength : params.splitkLength;
+            uint32_t kActual = (problemShape.k() < (ldk + 1) * params.splitkLength)
+                                   ? problemShape.k() % params.splitkLength
+                                   : params.splitkLength;
             uint32_t kActualAligned = RoundUp<256>(kActual);
 
-            uint32_t srcStrideA = isLayoutAColumnMajor ? actualBlockShape.m(): kActualAligned;
-            uint32_t srcStrideB = isLayoutBColumnMajor ? kActualAligned: actualBlockShape.n();
+            uint32_t srcStrideA = isLayoutAColumnMajor ? actualBlockShape.m() : kActualAligned;
+            uint32_t srcStrideB = isLayoutBColumnMajor ? kActualAligned : actualBlockShape.n();
 
             // CV 同步
             Catlass::Arch::CrossCoreWaitFlag(flag1[crossCoreBufferIndexAIC]);
-            
+
             // M-N-loop
-            for (uint32_t mIdx=0; mIdx < mLoop; mIdx++) {       // M-loop
-                for (uint32_t nIdx = 0; nIdx < nLoop; nIdx++) { // N-loop
+            for (uint32_t mIdx = 0; mIdx < mLoop; mIdx++) {      // M-loop
+                for (uint32_t nIdx = 0; nIdx < nLoop; nIdx++) {  // N-loop
                     bool isFirstBlock = (mIdx == 0 && nIdx == 0);
-                    bool hasNextBlock = !(mIdx == mLoop-1 && nIdx == nLoop-1);
+                    bool hasNextBlock = !(mIdx == mLoop - 1 && nIdx == nLoop - 1);
 
                     // 当前偏移及实际尺寸计算(No padding)
-                    int64_t gmOffsetWA_ = AscendC::GetBlockIdx() * (L1TileShape::M * params.mScalar) * 
-                                params.splitkLength * STAGES;
-                    int64_t gmOffsetWB_ = AscendC::GetBlockIdx() * (L1TileShape::N * params.nScalar) *  
-                                params.splitkLength * STAGES;
-                    gmOffsetWA_ += crossCoreBufferIndexAIC ? params.splitkLength * 
-                                (L1TileShape::M * params.mScalar) : 0;
-                    gmOffsetWB_ += crossCoreBufferIndexAIC ? params.splitkLength * 
-                                (L1TileShape::N * params.nScalar) : 0;
-                    int64_t gmOffsetWA = isLayoutAColumnMajor ? gmOffsetWA_ + mIdx * L1TileShape::M :
-                                gmOffsetWA_ + mIdx * L1TileShape::M * kActualAligned;
-                    int64_t gmOffsetWB = isLayoutBColumnMajor ? gmOffsetWB_ + nIdx * L1TileShape::N * 
-                                kActualAligned : gmOffsetWB_ + nIdx * L1TileShape::N;       
-                    int64_t gmOffsetWC = AscendC::GetBlockIdx() * (L1TileShape::M * params.mScalar) * 
-                                (L1TileShape::N * params.nScalar) + mIdx * L1TileShape::M * 
-                                (L1TileShape::N * params.nScalar) + nIdx * L1TileShape::N;
+                    int64_t gmOffsetWA_ =
+                        AscendC::GetBlockIdx() * (L1TileShape::M * params.mScalar) * params.splitkLength * STAGES;
+                    int64_t gmOffsetWB_ =
+                        AscendC::GetBlockIdx() * (L1TileShape::N * params.nScalar) * params.splitkLength * STAGES;
+                    gmOffsetWA_ +=
+                        crossCoreBufferIndexAIC ? params.splitkLength * (L1TileShape::M * params.mScalar) : 0;
+                    gmOffsetWB_ +=
+                        crossCoreBufferIndexAIC ? params.splitkLength * (L1TileShape::N * params.nScalar) : 0;
+                    int64_t gmOffsetWA = isLayoutAColumnMajor ? gmOffsetWA_ + mIdx * L1TileShape::M
+                                                              : gmOffsetWA_ + mIdx * L1TileShape::M * kActualAligned;
+                    int64_t gmOffsetWB = isLayoutBColumnMajor ? gmOffsetWB_ + nIdx * L1TileShape::N * kActualAligned
+                                                              : gmOffsetWB_ + nIdx * L1TileShape::N;
+                    int64_t gmOffsetWC =
+                        AscendC::GetBlockIdx() * (L1TileShape::M * params.mScalar) * (L1TileShape::N * params.nScalar) +
+                        mIdx * L1TileShape::M * (L1TileShape::N * params.nScalar) + nIdx * L1TileShape::N;
 
-                    uint32_t mActual = (mIdx == mLoop-1 && actualBlockShape.m() % L1TileShape::M != 0) ? 
-                                actualBlockShape.m() % L1TileShape::M: L1TileShape::M;
-                    uint32_t nActual = (nIdx == nLoop-1 && actualBlockShape.n() % L1TileShape::N != 0) ? 
-                                actualBlockShape.n() % L1TileShape::N: L1TileShape::N;
+                    uint32_t mActual = (mIdx == mLoop - 1 && actualBlockShape.m() % L1TileShape::M != 0)
+                                           ? actualBlockShape.m() % L1TileShape::M
+                                           : L1TileShape::M;
+                    uint32_t nActual = (nIdx == nLoop - 1 && actualBlockShape.n() % L1TileShape::N != 0)
+                                           ? actualBlockShape.n() % L1TileShape::N
+                                           : L1TileShape::N;
                     LayoutA layoutWA(mActual, kActual, srcStrideA);
                     LayoutB layoutWB(kActual, nActual, srcStrideB);
                     LayoutC layoutWC(mActual, nActual, params.nScalar * L1TileShape::N);
                     GemmCoord actualSmallBlockShape(mActual, nActual, kActual);
-                    
+
                     // Next实际尺寸(No padding)
                     int64_t gmOffsetWANext, gmOffsetWBNext, gmOffsetWCNext;
                     LayoutA layoutWANext;
                     LayoutB layoutWBNext;
                     LayoutC layoutWCNext;
-                    GemmCoord nextSmallBlockShape;  
+                    GemmCoord nextSmallBlockShape;
                     if (hasNextBlock) {
                         uint32_t nextNIdx = (nIdx + 1) % nLoop;
-                        uint32_t nextMIdx = mIdx +  static_cast<uint32_t>(nextNIdx == 0);
+                        uint32_t nextMIdx = mIdx + static_cast<uint32_t>(nextNIdx == 0);
 
-                        gmOffsetWANext = isLayoutAColumnMajor ? gmOffsetWA_ + nextMIdx * L1TileShape::M :
-                                gmOffsetWA_ + nextMIdx * L1TileShape::M * kActualAligned;
-                        gmOffsetWBNext = isLayoutBColumnMajor ? gmOffsetWB_ + nextNIdx * L1TileShape::N * 
-                                kActualAligned : gmOffsetWB_ + nextNIdx * L1TileShape::N;
-                        gmOffsetWCNext = AscendC::GetBlockIdx() * (L1TileShape::M * params.mScalar) * 
-                                (L1TileShape::N * params.nScalar) + nextMIdx * L1TileShape::M * 
-                                (L1TileShape::N * params.nScalar) + nextNIdx * L1TileShape::N;
-                        
-                        uint32_t mActualNext = (nextMIdx == mLoop-1 && actualBlockShape.m() % L1TileShape::M != 0) ? 
-                                actualBlockShape.m() % L1TileShape::M: L1TileShape::M;
-                        uint32_t nActualNext = (nextNIdx == nLoop-1 && actualBlockShape.n() % L1TileShape::N != 0) ? 
-                                actualBlockShape.n() % L1TileShape::N: L1TileShape::N;
+                        gmOffsetWANext = isLayoutAColumnMajor
+                                             ? gmOffsetWA_ + nextMIdx * L1TileShape::M
+                                             : gmOffsetWA_ + nextMIdx * L1TileShape::M * kActualAligned;
+                        gmOffsetWBNext = isLayoutBColumnMajor ? gmOffsetWB_ + nextNIdx * L1TileShape::N * kActualAligned
+                                                              : gmOffsetWB_ + nextNIdx * L1TileShape::N;
+                        gmOffsetWCNext = AscendC::GetBlockIdx() * (L1TileShape::M * params.mScalar) *
+                                             (L1TileShape::N * params.nScalar) +
+                                         nextMIdx * L1TileShape::M * (L1TileShape::N * params.nScalar) +
+                                         nextNIdx * L1TileShape::N;
+
+                        uint32_t mActualNext = (nextMIdx == mLoop - 1 && actualBlockShape.m() % L1TileShape::M != 0)
+                                                   ? actualBlockShape.m() % L1TileShape::M
+                                                   : L1TileShape::M;
+                        uint32_t nActualNext = (nextNIdx == nLoop - 1 && actualBlockShape.n() % L1TileShape::N != 0)
+                                                   ? actualBlockShape.n() % L1TileShape::N
+                                                   : L1TileShape::N;
                         layoutWANext = LayoutA(mActualNext, kActual, srcStrideA);
                         layoutWBNext = LayoutB(kActual, nActualNext, srcStrideB);
                         layoutWCNext = LayoutC(mActualNext, nActualNext, params.nScalar * L1TileShape::N);
-                        nextSmallBlockShape = GemmCoord(mActualNext, nActualNext, kActual);  
+                        nextSmallBlockShape = GemmCoord(mActualNext, nActualNext, kActual);
                     }
-                    
+
                     // 完成一个128 * 256的小结果矩阵基本块的运算
-                    smallBlockMmadImpl(gmWA[gmOffsetWA],
-                        layoutWA,
-                        gmWB[gmOffsetWB],
-                        layoutWB,
-                        gmWC[gmOffsetWC],
-                        layoutWC,
-                        gmWA[gmOffsetWANext],
-                        layoutWANext,
-                        gmWB[gmOffsetWBNext],
-                        layoutWBNext,
-                        actualSmallBlockShape,
-                        nextSmallBlockShape,
-                        isFirstKSlice,
-                        isFirstBlock,
-                        hasNextBlock);
-                }                          // End of 'N-loop'
-            }                              // End of 'M-loop'
+                    smallBlockMmadImpl(gmWA[gmOffsetWA], layoutWA, gmWB[gmOffsetWB], layoutWB, gmWC[gmOffsetWC],
+                                       layoutWC, gmWA[gmOffsetWANext], layoutWANext, gmWB[gmOffsetWBNext], layoutWBNext,
+                                       actualSmallBlockShape, nextSmallBlockShape, isFirstKSlice, isFirstBlock,
+                                       hasNextBlock);
+                }  // End of 'N-loop'
+            }  // End of 'M-loop'
 
             Catlass::Arch::CrossCoreSetFlag<0x2, PIPE_FIX>(flag0[crossCoreBufferIndexAIC]);
             crossCoreBufferIndexAIC = 1 - crossCoreBufferIndexAIC;
@@ -531,19 +441,17 @@ protected:
                 // cast 256 * 512的fp32大结果基本块为fp16
                 Catlass::Arch::CrossCoreSetFlag<0x2, PIPE_FIX>(flag4);
             }
-        }                                  // End of 'K-loop'
+        }  // End of 'K-loop'
     }
 
     CATLASS_DEVICE
-    void smallBlockMmadImpl(
-        AscendC::GlobalTensor<ElementA> const &gmWA, LayoutA const &layoutA,
-        AscendC::GlobalTensor<ElementB> const &gmWB, LayoutB const &layoutB,
-        AscendC::GlobalTensor<ElementC> const &gmC, LayoutC const &layoutC,
-        AscendC::GlobalTensor<ElementA> const &gmNextWA, LayoutA const &layoutNextA,
-        AscendC::GlobalTensor<ElementB> const &gmNextWB, LayoutB const &layoutNextB,
-        GemmCoord const &actualShape, GemmCoord const &nextActualShape,
-        bool isFirstKSlice, bool isFirstBlock, bool hasNextBlock
-    )
+    void smallBlockMmadImpl(AscendC::GlobalTensor<ElementA> const &gmWA, LayoutA const &layoutA,
+                            AscendC::GlobalTensor<ElementB> const &gmWB, LayoutB const &layoutB,
+                            AscendC::GlobalTensor<ElementC> const &gmC, LayoutC const &layoutC,
+                            AscendC::GlobalTensor<ElementA> const &gmNextWA, LayoutA const &layoutNextA,
+                            AscendC::GlobalTensor<ElementB> const &gmNextWB, LayoutB const &layoutNextB,
+                            GemmCoord const &actualShape, GemmCoord const &nextActualShape, bool isFirstKSlice,
+                            bool isFirstBlock, bool hasNextBlock)
     {
         uint32_t mRound = RoundUp<L1AAlignHelper::M_ALIGNED>(actualShape.m());
         uint32_t nRound = RoundUp<L1BAlignHelper::N_ALIGNED>(actualShape.n());
@@ -583,8 +491,8 @@ protected:
             // preload next tile from GM to L1
             if (kLoopIdx < kTileCount - 1) {
                 uint32_t kLoopIdxNext = kLoopIdx + 1;
-                kActualNext = (kLoopIdxNext < kTileCount - 1) ?
-                    L1TileShape::K : (actualShape.k() - kLoopIdxNext * L1TileShape::K);
+                kActualNext = (kLoopIdxNext < kTileCount - 1) ? L1TileShape::K
+                                                              : (actualShape.k() - kLoopIdxNext * L1TileShape::K);
 
                 // Get L1 tensor for next stage
                 auto l1ATensor = l1ATensorList[l1ListIdNext];
@@ -640,12 +548,12 @@ protected:
             uint32_t kPartLoop = CeilDiv<L0TileShape::K>(kActual);
 
             for (int mPartIdx = 0; mPartIdx < mPartLoop; mPartIdx++) {
-                uint32_t mPartActual = (mPartIdx < mPartLoop - 1) ?
-                    L0TileShape::M : (mRound - mPartIdx * L0TileShape::M);
+                uint32_t mPartActual =
+                    (mPartIdx < mPartLoop - 1) ? L0TileShape::M : (mRound - mPartIdx * L0TileShape::M);
 
                 for (int kPartIdx = 0; kPartIdx < kPartLoop; kPartIdx++) {
-                    uint32_t kPartActual = (kPartIdx < kPartLoop - 1) ?
-                        L0TileShape::K : (kActual - kPartIdx * L0TileShape::K);
+                    uint32_t kPartActual =
+                        (kPartIdx < kPartLoop - 1) ? L0TileShape::K : (kActual - kPartIdx * L0TileShape::K);
 
                     // Locate the current tile on L0A
                     auto l0ATile = l0ATensorList[l0AListId];
@@ -667,8 +575,8 @@ protected:
                     }
 
                     for (int nPartIdx = 0; nPartIdx < nPartLoop; nPartIdx++) {
-                        uint32_t nPartActual = (nPartIdx < nPartLoop - 1) ?
-                            L0TileShape::N : (nRound - nPartIdx * L0TileShape::N);
+                        uint32_t nPartActual =
+                            (nPartIdx < nPartLoop - 1) ? L0TileShape::N : (nRound - nPartIdx * L0TileShape::N);
 
                         // Locate the current tile on L0B
                         auto l0BTile = l0BTensorList[l0BListId];
@@ -747,6 +655,7 @@ protected:
             AscendC::SetAtomicNone();
         }
     }
+
 protected:
     /// Data members
     Params params;
@@ -796,10 +705,10 @@ protected:
 
     // Buffer index (for prologue)
     uint32_t bufferIndex{0};
-    
+
     Tile::PrologueTraits<PrologueA> prologueA;
     Tile::PrologueTraits<PrologueB> prologueB;
 };
 
-} // namespace Catlass::Gemm::Block
-#endif // CATLASS_GEMM_BLOCK_BLOCK_MMAD_PINGPONG_SLICE_K_WITH_PROLOGUE_HPP
+}  // namespace Catlass::Gemm::Block
+#endif  // CATLASS_GEMM_BLOCK_BLOCK_MMAD_PINGPONG_SLICE_K_WITH_PROLOGUE_HPP

@@ -22,18 +22,9 @@
 
 namespace Catlass::Epilogue::Block {
 
-template <
-    class L0TileShape_,
-    class ElementOut_,
-    class ElementIn_,
-    bool SPLIT_M_
->
-class BlockEpilogue<
-    EpilogueAscend950Fixpipe<SPLIT_M_>,
-    L0TileShape_,
-    ElementOut_,
-    ElementIn_
-> {
+template <class L0TileShape_, class ElementOut_, class ElementIn_, bool SPLIT_M_>
+class BlockEpilogue<EpilogueAscend950Fixpipe<SPLIT_M_>, L0TileShape_, ElementOut_, ElementIn_>
+{
 public:
     using DispatchPolicy = EpilogueAscend950Fixpipe<SPLIT_M_>;
     using ArchTag = typename DispatchPolicy::ArchTag;
@@ -44,12 +35,11 @@ public:
     static constexpr int64_t ML0_ = tla::get<0>(L0TileShape_{});
     static constexpr int64_t NL0_ = tla::get<1>(L0TileShape_{});
 
-    CATLASS_DEVICE 
+    CATLASS_DEVICE
     BlockEpilogue() = default;
 
     template <class TensorOut, class TensorIn>
-    CATLASS_DEVICE 
-    void operator()(TensorOut& tensorOut, TensorIn& tensorIn)
+    CATLASS_DEVICE void operator()(TensorOut &tensorOut, TensorIn &tensorIn)
     {
         if (!SPLIT_M && AscendC::GetSubBlockIdx() > 0) {
             return;
@@ -59,21 +49,19 @@ public:
         int64_t blockShapeN = tla::get<1>(tensorOut.shape());
         int64_t halfBlockShapeM = CeilDiv(blockShapeM, AscendC::GetTaskRation());
         if constexpr (SPLIT_M) {
-            blockShapeM = (static_cast<uint64_t>(blockShapeM) & 1UL) > 0UL ? 
-                (halfBlockShapeM - AscendC::GetSubBlockIdx()) : halfBlockShapeM;
-        } 
-        
+            blockShapeM = (static_cast<uint64_t>(blockShapeM) & 1UL) > 0UL
+                              ? (halfBlockShapeM - AscendC::GetSubBlockIdx())
+                              : halfBlockShapeM;
+        }
+
         // real copy data size
         int64_t copySize = blockShapeM * blockShapeN;
         if (copySize <= 0) {
             return;
         }
 
-        auto tensorTileOut = GetTile(
-            tensorOut,
-            tla::MakeCoord(halfBlockShapeM * (AscendC::GetSubBlockIdx() & 0x1), 0),
-            tla::MakeShape(blockShapeM, blockShapeN)
-        );
+        auto tensorTileOut = GetTile(tensorOut, tla::MakeCoord(halfBlockShapeM * (AscendC::GetSubBlockIdx() & 0x1), 0),
+                                     tla::MakeShape(blockShapeM, blockShapeN));
 
         using CopyUbToGm = Epilogue::Tile::CopyUb2GmTla<ArchTag, TensorIn, decltype(tensorTileOut)>;
         CopyUbToGm copyUbToGm;
@@ -81,6 +69,6 @@ public:
     }
 };
 
-} // namespace Catlass::Epilogue::Block
+}  // namespace Catlass::Epilogue::Block
 
-#endif // CATLASS_EPILOGUE_BLOCK_EPILOGUE_FIXPIPE_HPP
+#endif  // CATLASS_EPILOGUE_BLOCK_EPILOGUE_FIXPIPE_HPP

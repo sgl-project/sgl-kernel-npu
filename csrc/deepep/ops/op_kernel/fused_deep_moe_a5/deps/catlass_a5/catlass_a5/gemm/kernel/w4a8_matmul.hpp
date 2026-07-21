@@ -23,12 +23,9 @@
 
 namespace Catlass::Gemm::Kernel {
 
-template <
-    class BlockMmad_,
-    class BlockEpilogue_,
-    class BlockScheduler_
->
-class W4A8Matmul {
+template <class BlockMmad_, class BlockEpilogue_, class BlockScheduler_>
+class W4A8Matmul
+{
 public:
     using BlockMmad = BlockMmad_;
     using ArchTag = typename BlockMmad::ArchTag;
@@ -67,19 +64,19 @@ public:
         Params() {}
 
         CATLASS_HOST_DEVICE
-        Params(
-            GemmCoord const &problemShape_,
-            GM_ADDR ptrA_, LayoutA const &layoutA_,
-            GM_ADDR ptrPrologueB_, LayoutPrologueB const &layoutPrologueB_,
-            GM_ADDR ptrC_, LayoutC const &layoutC_,
-            MmadParams const &mmadParams_,
-            GM_ADDR ptrWorkspace_
-        ):  problemShape(problemShape_),
-            ptrA(ptrA_), layoutA(layoutA_),
-            ptrPrologueB(ptrPrologueB_), layoutPrologueB(layoutPrologueB_),
-            ptrC(ptrC_), layoutC(layoutC_),
-            mmadParams(mmadParams_),
-            ptrWorkspace(ptrWorkspace_) {}
+        Params(GemmCoord const &problemShape_, GM_ADDR ptrA_, LayoutA const &layoutA_, GM_ADDR ptrPrologueB_,
+               LayoutPrologueB const &layoutPrologueB_, GM_ADDR ptrC_, LayoutC const &layoutC_,
+               MmadParams const &mmadParams_, GM_ADDR ptrWorkspace_)
+            : problemShape(problemShape_),
+              ptrA(ptrA_),
+              layoutA(layoutA_),
+              ptrPrologueB(ptrPrologueB_),
+              layoutPrologueB(layoutPrologueB_),
+              ptrC(ptrC_),
+              layoutC(layoutC_),
+              mmadParams(mmadParams_),
+              ptrWorkspace(ptrWorkspace_)
+        {}
     };
 
     struct Arguments {
@@ -106,14 +103,15 @@ public:
 
     static Params ToUnderlyingArguments(const Arguments &args, uint8_t *workspace)
     {
-        Params params{
-            args.problemShape,
-            args.deviceA, args.layoutA,
-            args.devicePrologueB, args.layoutPrologueB,
-            args.deviceC, args.layoutC,
-            {{}, {}, {args.scalar}},
-            workspace
-        };
+        Params params{args.problemShape,
+                      args.deviceA,
+                      args.layoutA,
+                      args.devicePrologueB,
+                      args.layoutPrologueB,
+                      args.deviceC,
+                      args.layoutC,
+                      {{}, {}, {args.scalar}},
+                      workspace};
         return params;
     }
 
@@ -122,13 +120,11 @@ public:
     W4A8Matmul() {}
 
     template <int32_t CORE_TYPE = g_coreType>
-    CATLASS_DEVICE
-    void operator()(Params const &params);
+    CATLASS_DEVICE void operator()(Params const &params);
 
     /// Executes matmul
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIC>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params)
     {
         auto aicoreNum = AscendC::GetBlockNum();
         auto aicoreIdx = AscendC::GetBlockIdx();
@@ -161,18 +157,12 @@ public:
             auto gmBlockC = gmC[params.layoutC.GetOffset(offsetCoord.GetCoordMN())];
             auto layoutBlockC = params.layoutC.GetTileLayout(actualBlockShape.GetCoordMN());
 
-            blockMmad(
-                gmBlockA, layoutBlockA,
-                gmBlockB, layoutBlockB,
-                gmBlockC, layoutBlockC,
-                actualBlockShape
-            );
+            blockMmad(gmBlockA, layoutBlockA, gmBlockB, layoutBlockB, gmBlockC, layoutBlockC, actualBlockShape);
         }
     }
 
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIV>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIV>(Params const &params)
     {
         auto aicoreNum = AscendC::GetBlockNum();
         auto aicoreIdx = AscendC::GetBlockIdx() / AscendC::GetSubBlockNum();
@@ -199,11 +189,7 @@ public:
             auto layoutBlockPrologueB = params.layoutPrologueB.GetTileLayout(actualBlockShape.GetCoordKN());
 
             // Compute block-scoped matrix multiply-add
-            blockMmad.Prologue(
-                gmBlockPrologueB, layoutBlockPrologueB,
-                gmBlockB, layoutBlockB,
-                actualBlockShape
-            );
+            blockMmad.Prologue(gmBlockPrologueB, layoutBlockPrologueB, gmBlockB, layoutBlockB, actualBlockShape);
         }
     }
 
@@ -211,6 +197,6 @@ private:
     Arch::Resource<ArchTag> resource;
 };
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel
 
-#endif // CATLASS_GEMM_KERNEL_W4A8_MATMUL_LOCAL_HPP
+#endif  // CATLASS_GEMM_KERNEL_W4A8_MATMUL_LOCAL_HPP

@@ -56,7 +56,8 @@ struct CombineCalcInfo {
 };
 
 template <TemplateMC2TypeClass>
-class CamMoeDistributeCombine {
+class CamMoeDistributeCombine
+{
 public:
     __aicore__ inline CamMoeDistributeCombine(){};
     __aicore__ inline void Init(GM_ADDR expandX, GM_ADDR expertIds, GM_ADDR expandIdx, GM_ADDR epSendCount,
@@ -96,18 +97,22 @@ private:
     __aicore__ GM_ADDR GetWinAddrByRankId(const int32_t rankId, const uint8_t domain, const uint8_t expertLocalId = 0U)
     {
         if (domain == EP_DOMAIN) {
-            return Mc2Kernel::GetBaseWindAddrByRankId(epWinContext_, rankId, epRankId_) + winDataSizeOffset_ + expertLocalId * expertPerSizeOnWin_ + rankId * OPT_RANK_OFFSET;
+            return Mc2Kernel::GetBaseWindAddrByRankId(epWinContext_, rankId, epRankId_) + winDataSizeOffset_ +
+                   expertLocalId * expertPerSizeOnWin_ + rankId * OPT_RANK_OFFSET;
         } else {
-            return Mc2Kernel::GetBaseWindAddrByRankId(tpWinContext_, rankId, tpRankId_) + winDataSizeOffset_ + rankId * OPT_RANK_OFFSET;
+            return Mc2Kernel::GetBaseWindAddrByRankId(tpWinContext_, rankId, tpRankId_) + winDataSizeOffset_ +
+                   rankId * OPT_RANK_OFFSET;
         }
     }
 
     __aicore__ GM_ADDR GetWinStateAddrByRankId(const int32_t rankId, const uint8_t domain)
     {
         if (domain == EP_DOMAIN) {
-            return Mc2Kernel::GetBaseWindStateAddrByRankId(epWinContext_, rankId, epRankId_) + dataState_ * WIN_STATE_OFFSET;
+            return Mc2Kernel::GetBaseWindStateAddrByRankId(epWinContext_, rankId, epRankId_) +
+                   dataState_ * WIN_STATE_OFFSET;
         } else {
-            return Mc2Kernel::GetBaseWindStateAddrByRankId(tpWinContext_, rankId, tpRankId_) + dataState_ * WIN_STATE_OFFSET;
+            return Mc2Kernel::GetBaseWindStateAddrByRankId(tpWinContext_, rankId, tpRankId_) +
+                   dataState_ * WIN_STATE_OFFSET;
         }
     }
 
@@ -240,7 +245,7 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::Init(
     expandIdxGM_.SetGlobalBuffer((__gm__ ExpandIdxType *)expandIdx);
     epSendCountGM_.SetGlobalBuffer((__gm__ int32_t *)epSendCount);
     expandScalesGM_.SetGlobalBuffer((__gm__ float *)scales);
-    xActiveMaskGM_.SetGlobalBuffer((__gm__ bool*)xActiveMask);
+    xActiveMaskGM_.SetGlobalBuffer((__gm__ bool *)xActiveMask);
     expandOutGlobal_.SetGlobalBuffer((__gm__ ExpandXType *)XOut);
     axisBS_ = tilingData->fusedDeepMoeInfo.bs;
     activeMaskBsCnt_ = axisBS_;
@@ -671,8 +676,7 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::LocalWindow
                 continue;
             }
             float scaleVal = expandScalesLocal.GetValue(index);
-            GM_ADDR wAddr = (__gm__ uint8_t *)(epWindowGM_) +
-                            expertPerSizeOnWin_ * moeExpert +
+            GM_ADDR wAddr = (__gm__ uint8_t *)(epWindowGM_) + expertPerSizeOnWin_ * moeExpert +
                             indexCountsLocal.GetValue(index) * axisHExpandXTypeSize_ +
                             tokenOffset * sizeof(ExpandXType);
             rowTmpGlobal_.SetGlobalBuffer((__gm__ ExpandXType *)wAddr);

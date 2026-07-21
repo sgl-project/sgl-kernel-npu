@@ -23,9 +23,9 @@
 namespace Catlass::Gemm::Block {
 
 template <bool ENABLE_UNIT_FLAG_, bool ENABLE_SHUFFLE_K_, class L1TileShape_, class L0TileShape_, class AType_,
-    class BType_, class CType_, class BiasType_, class TileCopy_, class TileMmad_>
+          class BType_, class CType_, class BiasType_, class TileCopy_, class TileMmad_>
 struct BlockMmad<MmadAtlasA2DynamicStreamk<ENABLE_UNIT_FLAG_, ENABLE_SHUFFLE_K_>, L1TileShape_, L0TileShape_, AType_,
-    BType_, CType_, BiasType_, TileCopy_, TileMmad_> {
+                 BType_, CType_, BiasType_, TileCopy_, TileMmad_> {
 public:
     // Type Aliases
     using DispatchPolicy = MmadAtlasA2DynamicStreamk<ENABLE_UNIT_FLAG_, ENABLE_SHUFFLE_K_>;
@@ -74,8 +74,8 @@ public:
 
         kPartLenMax = min(L0A_PINGPONG_BUF_SIZE / sizeof(ElementA) / l1TileShape.m() / L1AAlignHelper::ELE_NUM_PER_C0 *
                               L1AAlignHelper::ELE_NUM_PER_C0,
-            L0B_PINGPONG_BUF_SIZE / sizeof(ElementB) / l1TileShape.n() / L1BAlignHelper::ELE_NUM_PER_C0 *
-                L1BAlignHelper::ELE_NUM_PER_C0);
+                          L0B_PINGPONG_BUF_SIZE / sizeof(ElementB) / l1TileShape.n() / L1BAlignHelper::ELE_NUM_PER_C0 *
+                              L1BAlignHelper::ELE_NUM_PER_C0);
 
         if constexpr (std::is_same_v<ElementA, float> && std::is_same_v<ElementB, float>) {
             kPartLenMax = RoundDown<C0_NUM_PER_FRACTAL>(kPartLenMax);
@@ -122,14 +122,13 @@ public:
 
     /// Perform a block-scoped matrix multiply-accumulate
     CATLASS_DEVICE
-    void operator()(
-        AscendC::GlobalTensor<ElementA> const &gmBlockA, LayoutA const &layoutA,
-        AscendC::GlobalTensor<ElementB> const &gmBlockB, LayoutB const &layoutB,
-        AscendC::GlobalTensor<ElementC> const &gmBlockC, LayoutC const &layoutC,
-        AscendC::GlobalTensor<float> const &gmW, LayoutC const &layoutW,
-        AscendC::GlobalTensor<ElementA> const &gmNextBlockA, AscendC::GlobalTensor<ElementB> const &gmNextBlockB,
-        GemmCoord const &actualShape, GemmCoord const &actualShapeNext,
-        bool isFirstBlock, bool hasNextBlock, bool isSkBlock)
+    void operator()(AscendC::GlobalTensor<ElementA> const &gmBlockA, LayoutA const &layoutA,
+                    AscendC::GlobalTensor<ElementB> const &gmBlockB, LayoutB const &layoutB,
+                    AscendC::GlobalTensor<ElementC> const &gmBlockC, LayoutC const &layoutC,
+                    AscendC::GlobalTensor<float> const &gmW, LayoutC const &layoutW,
+                    AscendC::GlobalTensor<ElementA> const &gmNextBlockA,
+                    AscendC::GlobalTensor<ElementB> const &gmNextBlockB, GemmCoord const &actualShape,
+                    GemmCoord const &actualShapeNext, bool isFirstBlock, bool hasNextBlock, bool isSkBlock)
     {
         uint32_t mRound = RoundUp<L1AAlignHelper::M_ALIGNED>(actualShape.m());
         uint32_t nRound = RoundUp<L1BAlignHelper::N_ALIGNED>(actualShape.n());
@@ -184,8 +183,9 @@ public:
                 auto l1ATensor = l1ATensorList[l1ListIdNext];
                 auto l1BTensor = l1BTensorList[l1ListIdNext];
                 // Get GM tensor for next stage
-                kActualNext = (shuffleKIdxNext < kTileCount - 1) ? l1TileShape.k()
-                                                                 : (actualShape.k() - shuffleKIdxNext * l1TileShape.k());
+                kActualNext = (shuffleKIdxNext < kTileCount - 1)
+                                  ? l1TileShape.k()
+                                  : (actualShape.k() - shuffleKIdxNext * l1TileShape.k());
                 MatrixCoord gmTileACoord{0, shuffleKIdxNext * l1TileShape.k()};
                 MatrixCoord gmTileBCoord{shuffleKIdxNext * l1TileShape.k(), 0};
                 auto gmTileA = gmBlockA[layoutA.GetOffset(gmTileACoord)];
@@ -210,9 +210,8 @@ public:
                 auto l1ATensor = l1ATensorList[l1ListIdNext];
                 auto l1BTensor = l1BTensorList[l1ListIdNext];
                 // Get GM tensor for next stage
-                kActualNext = (firstTileIdx < kTileCount - 1)
-                                  ? l1TileShape.k()
-                                  : (actualShapeNext.k() - firstTileIdx * l1TileShape.k());
+                kActualNext = (firstTileIdx < kTileCount - 1) ? l1TileShape.k()
+                                                              : (actualShapeNext.k() - firstTileIdx * l1TileShape.k());
                 MatrixCoord gmTileACoord{0, firstTileIdx * l1TileShape.k()};
                 MatrixCoord gmTileBCoord{firstTileIdx * l1TileShape.k(), 0};
                 auto gmTileA = gmNextBlockA[layoutA.GetOffset(gmTileACoord)];
@@ -241,8 +240,7 @@ public:
             uint32_t l0BBufId = 0;
 
             for (int kPartIdx = 0; kPartIdx < kPartLoop; kPartIdx++) {
-                uint32_t kPartActual =
-                    (kPartIdx < kPartLoop - 1) ? kPartLenMax : (kActual - kPartIdx * kPartLenMax);
+                uint32_t kPartActual = (kPartIdx < kPartLoop - 1) ? kPartLenMax : (kActual - kPartIdx * kPartLenMax);
 
                 // Locate the current tile on L0A
                 auto l0ATile = l0ATensorList[l0ABufId];
@@ -312,7 +310,7 @@ public:
                 AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(l0BEventList[l0BBufId]);
 
                 l0BBufId = (l0BBufId + 1 < STAGES) ? (l0BBufId + 1) : 0;
-                
+
                 AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(l0AEventList[l0ABufId]);
                 l0ABufId = (l0ABufId + 1 < STAGES) ? (l0ABufId + 1) : 0;
             }
@@ -341,6 +339,7 @@ public:
             }
         }
     }
+
 protected:
     /// Data members
     AscendC::LocalTensor<ElementA> l1ATensorList[STAGES];
@@ -363,7 +362,7 @@ protected:
     CopyGmToL1B copyGmToL1B;
     CopyL1ToL0A copyL1ToL0A;
     CopyL1ToL0B copyL1ToL0B;
-    CopyL0CToGmNormalBlock copyL0CToGmNormalBlock; 
+    CopyL0CToGmNormalBlock copyL0CToGmNormalBlock;
     CopyL0CToGmStreamkBlock copyL0CToGmStreamkBlock;
 };
 

@@ -41,7 +41,8 @@ struct TileCopyGemvAiv {
     using ElementA = typename AType::Element;
     using ElementX = typename XType::Element;
     using ElementY = typename YType::Element;
-    using ElementAccumulator = typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementX>::ElementAccumulator;
+    using ElementAccumulator =
+        typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementX>::ElementAccumulator;
 
     // the function of aiv
     using VecCopyGmToUb = Gemv::Tile::VecCopyGmToUB<ArchTag, XType>;
@@ -64,7 +65,8 @@ template <
 struct TileCopyGemvAic {
     using ElementA = typename AType::Element;
     using ElementX = typename XType::Element;
-    using ElementAccumulator = typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementX>::ElementAccumulator;
+    using ElementAccumulator =
+        typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementX>::ElementAccumulator;
 
     // the function of aic
     using L1XType = typename Gemv::helper::L1AndL0TypeSelectorGemv<XType, AType>::L1AType;
@@ -80,6 +82,6 @@ struct TileCopyGemvAic {
     using CopyL0CToGm = Gemm::Tile::CopyL0CToGm<ArchTag, ElementAccumulator, YType>;
 };
 
-} // namespace Catlass::Gemv::Tile
+}  // namespace Catlass::Gemv::Tile
 
-#endif // CATLASS_GEMV_TILE_TILE_COPY_HPP
+#endif  // CATLASS_GEMV_TILE_TILE_COPY_HPP

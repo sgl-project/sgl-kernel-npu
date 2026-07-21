@@ -33,18 +33,17 @@ struct MmadPingpongDispatchChecker<MmadAtlasA2Pingpong<ENABLE_UNIT_FLAG>> {
     static constexpr bool value = true;
 };
 
-template <class ArchTag, bool ENABLE_UNIT_FLAG, bool USE_HF32_MODE, 
-    uint32_t L0C_STAGES, bool ENABLE_L1_RESIDENT, uint32_t L1A_STAGES, 
-    uint32_t L1B_STAGES, uint32_t L0A_STAGES, uint32_t L0B_STAGES>
-struct MmadPingpongDispatchChecker<MmadPingpong<ArchTag, ENABLE_UNIT_FLAG, USE_HF32_MODE, 
-    L0C_STAGES, ENABLE_L1_RESIDENT, L1A_STAGES, L1B_STAGES, L0A_STAGES, L0B_STAGES>> {
+template <class ArchTag, bool ENABLE_UNIT_FLAG, bool USE_HF32_MODE, uint32_t L0C_STAGES, bool ENABLE_L1_RESIDENT,
+          uint32_t L1A_STAGES, uint32_t L1B_STAGES, uint32_t L0A_STAGES, uint32_t L0B_STAGES>
+struct MmadPingpongDispatchChecker<MmadPingpong<ArchTag, ENABLE_UNIT_FLAG, USE_HF32_MODE, L0C_STAGES,
+                                                ENABLE_L1_RESIDENT, L1A_STAGES, L1B_STAGES, L0A_STAGES, L0B_STAGES>> {
     static constexpr bool value = true;
 };
 
 /// helper to determine the ping-pong stages
 template <class DispatchPolicy>
 struct DispatchStagesGetter {
-    static constexpr uint32_t STAGES = 1; // Fall back
+    static constexpr uint32_t STAGES = 1;  // Fall back
 };
 
 template <bool ENABLE_UNIT_FLAG>
@@ -52,39 +51,20 @@ struct DispatchStagesGetter<MmadAtlasA2Pingpong<ENABLE_UNIT_FLAG>> {
     static constexpr uint32_t STAGES = 2;
 };
 
-template <class ArchTag, bool ENABLE_UNIT_FLAG, bool USE_HF32_MODE, 
-    uint32_t L0C_STAGES, bool ENABLE_L1_RESIDENT, uint32_t L1A_STAGES, 
-    uint32_t L1B_STAGES, uint32_t L0A_STAGES, uint32_t L0B_STAGES>
-struct DispatchStagesGetter<MmadPingpong<ArchTag, ENABLE_UNIT_FLAG, USE_HF32_MODE, 
-    L0C_STAGES, ENABLE_L1_RESIDENT, L1A_STAGES, L1B_STAGES, L0A_STAGES, L0B_STAGES>> {
+template <class ArchTag, bool ENABLE_UNIT_FLAG, bool USE_HF32_MODE, uint32_t L0C_STAGES, bool ENABLE_L1_RESIDENT,
+          uint32_t L1A_STAGES, uint32_t L1B_STAGES, uint32_t L0A_STAGES, uint32_t L0B_STAGES>
+struct DispatchStagesGetter<MmadPingpong<ArchTag, ENABLE_UNIT_FLAG, USE_HF32_MODE, L0C_STAGES, ENABLE_L1_RESIDENT,
+                                         L1A_STAGES, L1B_STAGES, L0A_STAGES, L0B_STAGES>> {
     // Strategy: select the lowest stage as the common STAGES
     static constexpr uint32_t L1_STAGES = L1A_STAGES > L1B_STAGES ? L1B_STAGES : L1A_STAGES;
     static constexpr uint32_t L0_STAGES = L0A_STAGES > L0B_STAGES ? L0B_STAGES : L0A_STAGES;
     static constexpr uint32_t STAGES = L1_STAGES > L0_STAGES ? L0_STAGES : L1_STAGES;
 };
 
-template <
-    class DispatchPolicy_,
-    class L1TileShape_,
-    class L0TileShape_,
-    class AType_,
-    class BType_,
-    class CType_,
-    class BiasType_,
-    class TileCopy_,
-    class TileMmad_
->
-struct BlockMmad <
-    DispatchPolicy_,
-    L1TileShape_,
-    L0TileShape_,
-    AType_,
-    BType_,
-    CType_,
-    BiasType_,
-    TileCopy_,
-    TileMmad_,
-    std::enable_if_t<MmadPingpongDispatchChecker<DispatchPolicy_>::value>> {
+template <class DispatchPolicy_, class L1TileShape_, class L0TileShape_, class AType_, class BType_, class CType_,
+          class BiasType_, class TileCopy_, class TileMmad_>
+struct BlockMmad<DispatchPolicy_, L1TileShape_, L0TileShape_, AType_, BType_, CType_, BiasType_, TileCopy_, TileMmad_,
+                 std::enable_if_t<MmadPingpongDispatchChecker<DispatchPolicy_>::value>> {
 public:
     // Type Aliases
     using DispatchPolicy = DispatchPolicy_;
@@ -126,7 +106,7 @@ public:
 
     // Check ArchTag
     static_assert(std::is_same_v<ArchTag, Arch::AtlasA2> || std::is_same_v<ArchTag, Arch::Ascend950>,
-        "ArchTag can only be AtlasA2 or Ascend950!");
+                  "ArchTag can only be AtlasA2 or Ascend950!");
 
     // Check LayoutC
     static_assert(std::is_same_v<LayoutC, layout::RowMajor>, "LayoutC only support RowMajor yet!");
@@ -144,13 +124,13 @@ public:
 
     // Check tileshape
     static_assert(L1TileShape::M == L0TileShape::M && L1TileShape::N == L0TileShape::N,
-        "The situation where the basic blocks of L1 and L0 differ on the m and n axes is not supported yet");
+                  "The situation where the basic blocks of L1 and L0 differ on the m and n axes is not supported yet");
     static_assert(L0TileShape::K <= L1TileShape::K, "L0TileShape::K cannot exceed L1TileShape::K");
-    
+
     // 32B (256b) aligned
-    static_assert(Gemm::helper::TileShapeAlignChecker<L1TileShape, L0TileShape, ElementA, ElementB>::_ALIGN == 256, 
-        "Tile shape must be 32B aligned.");
-    
+    static_assert(Gemm::helper::TileShapeAlignChecker<L1TileShape, L0TileShape, ElementA, ElementB>::_ALIGN == 256,
+                  "Tile shape must be 32B aligned.");
+
     /// Construct
     CATLASS_DEVICE
     BlockMmad(Arch::Resource<ArchTag> &resource, uint32_t l1BufAddrStart = 0)
@@ -196,11 +176,9 @@ public:
 
     /// Perform a block-scoped matrix multiply-accumulate
     CATLASS_DEVICE
-    void operator()(
-        AscendC::GlobalTensor<ElementA> const &gmA, LayoutA const &layoutA,
-        AscendC::GlobalTensor<ElementB> const &gmB, LayoutB const &layoutB,
-        AscendC::GlobalTensor<ElementC> const &gmC, LayoutC const &layoutC,
-        GemmCoord const &actualShape)
+    void operator()(AscendC::GlobalTensor<ElementA> const &gmA, LayoutA const &layoutA,
+                    AscendC::GlobalTensor<ElementB> const &gmB, LayoutB const &layoutB,
+                    AscendC::GlobalTensor<ElementC> const &gmC, LayoutC const &layoutC, GemmCoord const &actualShape)
     {
         uint32_t mRound = RoundUp<L1AAlignHelper::M_ALIGNED>(actualShape.m());
         uint32_t nRound = RoundUp<L1BAlignHelper::N_ALIGNED>(actualShape.n());
@@ -238,8 +216,8 @@ public:
             // preload next tile from GM to L1
             if (kLoopIdx < kTileCount - 1) {
                 uint32_t kLoopIdxNext = kLoopIdx + 1;
-                kActualNext = (kLoopIdxNext < kTileCount - 1) ?
-                    L1TileShape::K : (actualShape.k() - kLoopIdxNext * L1TileShape::K);
+                kActualNext = (kLoopIdxNext < kTileCount - 1) ? L1TileShape::K
+                                                              : (actualShape.k() - kLoopIdxNext * L1TileShape::K);
 
                 // Get L1 tensor for next stage
                 auto l1ATensor = l1ATensorList[l1ListIdNext];
@@ -271,12 +249,12 @@ public:
             uint32_t kPartLoop = CeilDiv<L0TileShape::K>(kActual);
 
             for (int mPartIdx = 0; mPartIdx < mPartLoop; mPartIdx++) {
-                uint32_t mPartActual = (mPartIdx < mPartLoop - 1) ?
-                    L0TileShape::M : (mRound - mPartIdx * L0TileShape::M);
+                uint32_t mPartActual =
+                    (mPartIdx < mPartLoop - 1) ? L0TileShape::M : (mRound - mPartIdx * L0TileShape::M);
 
                 for (int kPartIdx = 0; kPartIdx < kPartLoop; kPartIdx++) {
-                    uint32_t kPartActual = (kPartIdx < kPartLoop - 1) ?
-                        L0TileShape::K : (kActual - kPartIdx * L0TileShape::K);
+                    uint32_t kPartActual =
+                        (kPartIdx < kPartLoop - 1) ? L0TileShape::K : (kActual - kPartIdx * L0TileShape::K);
 
                     // Locate the current tile on L0A
                     auto l0ATile = l0ATensorList[l0AListId];
@@ -298,8 +276,8 @@ public:
                     }
 
                     for (int nPartIdx = 0; nPartIdx < nPartLoop; nPartIdx++) {
-                        uint32_t nPartActual = (nPartIdx < nPartLoop - 1) ?
-                            L0TileShape::N : (nRound - nPartIdx * L0TileShape::N);
+                        uint32_t nPartActual =
+                            (nPartIdx < nPartLoop - 1) ? L0TileShape::N : (nRound - nPartIdx * L0TileShape::N);
 
                         // Locate the current tile on L0B
                         auto l0BTile = l0BTensorList[l0BListId];
@@ -400,6 +378,6 @@ protected:
     CopyL0CToGm copyL0CToGm;
 };
 
-} // namespace Catlass::Gemm::Block
+}  // namespace Catlass::Gemm::Block
 
-#endif // CATLASS_GEMM_BLOCK_BLOCK_MMAD_PINGPONG_HPP
+#endif  // CATLASS_GEMM_BLOCK_BLOCK_MMAD_PINGPONG_HPP

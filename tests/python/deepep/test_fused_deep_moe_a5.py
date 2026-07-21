@@ -8,7 +8,6 @@ import deep_ep
 import torch
 import torch.distributed as dist
 import torch_npu
-
 from utils import calc_diff, init_dist, profile_npu_event_sequences
 
 torch_npu.npu.config.allow_internal_format = True
@@ -16,10 +15,18 @@ torch_npu.npu.config.allow_internal_format = True
 FUSED_EVENT_PATTERNS = (("FusedDeepMoe", "aclnnFusedDeepMoe"),)
 SMALL_OP_EVENT_PATTERNS = (
     ("MoeDistributeDispatchV2", "MoeDistributeDispatchV3"),
-    ("GroupedMatmul", "GroupedMatMul", "aclnnGroupedMatmulV4_GroupedMatmul_GroupedMatmul"),
+    (
+        "GroupedMatmul",
+        "GroupedMatMul",
+        "aclnnGroupedMatmulV4_GroupedMatmul_GroupedMatmul",
+    ),
     ("Swiglu", "SwiGlu"),
     ("DynamicMxQuant", "DynamicMXQuant"),
-    ("GroupedMatmul", "GroupedMatMul", "aclnnGroupedMatmulV4_GroupedMatmul_GroupedMatmul"),
+    (
+        "GroupedMatmul",
+        "GroupedMatMul",
+        "aclnnGroupedMatmulV4_GroupedMatmul_GroupedMatmul",
+    ),
     ("MoeDistributeCombineV2", "MoeDistributeCombineV3"),
 )
 SMALL_OP_EVENT_LABELS = ("dispatch", "gmm1", "swiglu", "requant", "gmm2", "combine")
@@ -49,19 +56,29 @@ def make_umdk_static_inputs(
         dtype=torch.int32,
     ).view(args.num_tokens, args.num_topk)
     expert_ids = expert_ids.remainder(args.num_experts).npu()
-    expert_scales = torch.rand((args.num_tokens, args.num_topk), dtype=torch.float32).npu()
+    expert_scales = torch.rand(
+        (args.num_tokens, args.num_topk), dtype=torch.float32
+    ).npu()
 
-    gmm1_fp = torch.rand(
-        (local_experts, args.hidden, args.moe_intermediate_size * 2)
-    ).bfloat16().npu() * 2 - 1
+    gmm1_fp = (
+        torch.rand((local_experts, args.hidden, args.moe_intermediate_size * 2))
+        .bfloat16()
+        .npu()
+        * 2
+        - 1
+    )
     gmm1_weight, gmm1_scale_raw = torch_npu.npu_dynamic_mx_quant(
         gmm1_fp, dst_type=torch.float8_e4m3fn, axis=1
     )
     gmm1_scale = gmm1_scale_raw.view(torch.float8_e8m0fnu)
 
-    gmm2_fp = torch.rand(
-        (local_experts, args.moe_intermediate_size, args.hidden)
-    ).bfloat16().npu() * 2 - 1
+    gmm2_fp = (
+        torch.rand((local_experts, args.moe_intermediate_size, args.hidden))
+        .bfloat16()
+        .npu()
+        * 2
+        - 1
+    )
     gmm2_weight, gmm2_scale_raw = torch_npu.npu_dynamic_mx_quant(
         gmm2_fp, dst_type=torch.float8_e4m3fn, axis=1
     )
@@ -220,6 +237,25 @@ def run_buffer_fused(
     return output, ep_recv_count
 
 
+def run_buffer_fused_with_burn_in(
+    buffer: deep_ep.Buffer,
+    inputs: Dict[str, torch.Tensor],
+    args: argparse.Namespace,
+    fused_burn_in_repeats: int = 1,
+    warmup_burn_in_buffers: Tuple[torch.Tensor, torch.Tensor] = None,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    # The extra burn-in is only used for the first profiler warmup iteration.
+    # It intentionally stays on the same execution path as the fused op so the
+    # host has more time to enqueue the remaining fused iterations while this
+    # warmup is still occupying device time.
+    if fused_burn_in_repeats > 1 and warmup_burn_in_buffers is not None:
+        burn_in_lhs, burn_in_rhs = warmup_burn_in_buffers
+        for _ in range(fused_burn_in_repeats):
+            _ = torch.matmul(burn_in_lhs, burn_in_rhs)
+
+    return run_buffer_fused(buffer, inputs, args)
+
+
 def format_triplet(name: str, values_us: Tuple[float, float, float]) -> str:
     avg_us, min_us, max_us = values_us
     return f"{name}: avg={avg_us:.2f} us, min={min_us:.2f} us, max={max_us:.2f} us"
@@ -244,7 +280,9 @@ def summarize_profile_breakdown(step_durations_s) -> List[Tuple[float, float, fl
     ]
 
 
-def print_profile_match_debug(rank: int, title: str, discovered_names, matched_sequences):
+def print_profile_match_debug(
+    rank: int, title: str, discovered_names, matched_sequences
+):
     if rank != 0:
         return
     if matched_sequences:
@@ -274,7 +312,9 @@ def print_rank_skew_summary(gathered_small, gathered_small_breakdown, gathered_f
     # per-rank stage averages together so rank-to-rank skew can be judged
     # without manually correlating multiple profiler tables or traces.
     small_tensor = torch.stack(gathered_small).cpu()
-    fused_tensor = torch.stack(gathered_fused).cpu() if gathered_fused is not None else None
+    fused_tensor = (
+        torch.stack(gathered_fused).cpu() if gathered_fused is not None else None
+    )
     breakdown_tensor = torch.stack(gathered_small_breakdown).cpu()
 
     print("rank skew summary:", flush=True)
@@ -297,7 +337,9 @@ def print_rank_skew_summary(gathered_small, gathered_small_breakdown, gathered_f
         combine_avg = float(breakdown_avg[5].item())
         small_avg = float(small_tensor[rank_idx, 0].item())
         fused_avg = (
-            float(fused_tensor[rank_idx, 0].item()) if fused_tensor is not None else float("nan")
+            float(fused_tensor[rank_idx, 0].item())
+            if fused_tensor is not None
+            else float("nan")
         )
         fused_text = f"{fused_avg * 1e6:.2f}" if fused_tensor is not None else "-"
         print(
@@ -309,7 +351,11 @@ def print_rank_skew_summary(gathered_small, gathered_small_breakdown, gathered_f
 
     mean_breakdown_avg = breakdown_tensor[:, :, 0].mean(dim=0)
     mean_small_avg = float(small_tensor[:, 0].mean().item())
-    mean_fused_avg = float(fused_tensor[:, 0].mean().item()) if fused_tensor is not None else float("nan")
+    mean_fused_avg = (
+        float(fused_tensor[:, 0].mean().item())
+        if fused_tensor is not None
+        else float("nan")
+    )
     mean_fused_text = f"{mean_fused_avg * 1e6:.2f}" if fused_tensor is not None else "-"
     print(
         f"| {'mean':>4} | {float(mean_breakdown_avg[0].item()) * 1e6:>13.2f} | "
@@ -349,18 +395,26 @@ def build_trace_path(trace_dir: str, rank: int, tag: str) -> str:
     return os.path.join(trace_dir, f"{tag}_rank{rank}.json")
 
 
-def format_stats_row(name: str, stats_s: Tuple[float, float, float], ratio_pct: float = None) -> str:
+def format_stats_row(
+    name: str, stats_s: Tuple[float, float, float], ratio_pct: float = None
+) -> str:
     avg_us, min_us, max_us = (value * 1e6 for value in stats_s)
     ratio_str = "-" if ratio_pct is None else f"{ratio_pct:6.2f}%"
-    return (
-        f"| {name:<12} | {avg_us:>12.2f} | {min_us:>12.2f} | {max_us:>12.2f} | {ratio_str:>8} |"
-    )
+    return f"| {name:<12} | {avg_us:>12.2f} | {min_us:>12.2f} | {max_us:>12.2f} | {ratio_str:>8} |"
 
 
-def print_stats_table(title: str, rows: List[Tuple[str, Tuple[float, float, float], float]]):
+def print_stats_table(
+    title: str, rows: List[Tuple[str, Tuple[float, float, float], float]]
+):
     print(title, flush=True)
-    print("| Stage        |    Avg (us) |    Min (us) |    Max (us) |  Share % |", flush=True)
-    print("|--------------|-------------:|-------------:|-------------:|---------:|", flush=True)
+    print(
+        "| Stage        |    Avg (us) |    Min (us) |    Max (us) |  Share % |",
+        flush=True,
+    )
+    print(
+        "|--------------|-------------:|-------------:|-------------:|---------:|",
+        flush=True,
+    )
     for name, stats_s, ratio_pct in rows:
         print(format_stats_row(name, stats_s, ratio_pct), flush=True)
 
@@ -371,7 +425,9 @@ def build_small_rows(
 ) -> List[Tuple[str, Tuple[float, float, float], float]]:
     rows = []
     for label, stats_tuple in zip(SMALL_OP_EVENT_LABELS, breakdown_stats):
-        ratio_pct = stats_tuple[0] / total_stats[0] * 100.0 if total_stats[0] > 0 else 0.0
+        ratio_pct = (
+            stats_tuple[0] / total_stats[0] * 100.0 if total_stats[0] > 0 else 0.0
+        )
         rows.append((label, stats_tuple, ratio_pct))
     rows.append(("total", total_stats, 100.0))
     return rows
@@ -493,11 +549,15 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
         group_fused = dist.new_group(ranks)
         group_small = dist.new_group(ranks)
         buffer = deep_ep.Buffer(group_fused, low_latency_mode=True)
-        assert buffer.runtime.is_a5_build(), "The installed DeepEP wheel is not an A5 build"
+        assert (
+            buffer.runtime.is_a5_build()
+        ), "The installed DeepEP wheel is not an A5 build"
 
         inputs = make_umdk_static_inputs(rank, world_size, args)
         warmup_burn_in_buffers = make_small_warmup_burn_in_buffers(args)
-        hcomm_name_small = group_small._get_backend(torch.device("npu")).get_hccl_comm_name(rank)
+        hcomm_name_small = group_small._get_backend(
+            torch.device("npu")
+        ).get_hccl_comm_name(rank)
         local_experts = args.num_experts // world_size
         expected_counts, total_assignments = get_uniform_expected_counts(
             args.num_tokens,
@@ -554,16 +614,30 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
         avg_diff, max_diff, cosine_diff = summarize_output_diff(
             small_output[:valid_token_num], fused_output[:valid_token_num]
         )
-        small_absmax, small_mean = summarize_tensor_stats(small_output[:valid_token_num])
-        fused_absmax, fused_mean = summarize_tensor_stats(fused_output[:valid_token_num])
+        small_absmax, small_mean = summarize_tensor_stats(
+            small_output[:valid_token_num]
+        )
+        fused_absmax, fused_mean = summarize_tensor_stats(
+            fused_output[:valid_token_num]
+        )
         diag_tensor = torch.tensor(
-            [avg_diff, max_diff, cosine_diff, small_absmax, small_mean, fused_absmax, fused_mean],
+            [
+                avg_diff,
+                max_diff,
+                cosine_diff,
+                small_absmax,
+                small_mean,
+                fused_absmax,
+                fused_mean,
+            ],
             dtype=torch.float32,
             device="npu",
         )
         gathered_diag = [torch.empty_like(diag_tensor) for _ in range(world_size)]
         dist.all_gather(gathered_diag, diag_tensor)
-        gathered_fused_counts = [torch.empty_like(fused_counts) for _ in range(world_size)]
+        gathered_fused_counts = [
+            torch.empty_like(fused_counts) for _ in range(world_size)
+        ]
         dist.all_gather(gathered_fused_counts, fused_counts)
         dist.barrier()
         torch.testing.assert_close(
@@ -654,6 +728,28 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                 if args.trace_dir is not None
                 else None
             )
+            fused_profile_call_idx = 0
+
+            def fused_profile_fn():
+                nonlocal fused_profile_call_idx
+                # Only the first profiler warmup iteration gets the extra
+                # burn-in. The extra work is excluded from the profiled
+                # iterations, so it only helps keep the device occupied longer
+                # during launch without changing the measured fused KPI.
+                fused_burn_in_repeats = (
+                    SMALL_FIRST_WARMUP_GMM_BURN_IN_REPEATS
+                    if fused_profile_call_idx == 0 and args.num_warmups > 0
+                    else 1
+                )
+                fused_profile_call_idx += 1
+                return run_buffer_fused_with_burn_in(
+                    buffer,
+                    inputs,
+                    args,
+                    fused_burn_in_repeats=fused_burn_in_repeats,
+                    warmup_burn_in_buffers=warmup_burn_in_buffers,
+                )
+
             (
                 fused_durations,
                 fused_event_names,
@@ -661,7 +757,7 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                 _,
                 fused_debug_info,
             ) = profile_npu_event_sequences(
-                lambda: run_buffer_fused(buffer, inputs, args),
+                fused_profile_fn,
                 FUSED_EVENT_PATTERNS,
                 num_warmups=args.num_warmups,
                 num_tests=args.num_tests,
@@ -684,8 +780,12 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
         dist.barrier()
 
         if small_stats is not None:
-            small_stats_tensor = torch.tensor(small_stats, dtype=torch.float32, device="npu")
-            gathered_small = [torch.empty_like(small_stats_tensor) for _ in range(world_size)]
+            small_stats_tensor = torch.tensor(
+                small_stats, dtype=torch.float32, device="npu"
+            )
+            gathered_small = [
+                torch.empty_like(small_stats_tensor) for _ in range(world_size)
+            ]
             dist.all_gather(gathered_small, small_stats_tensor)
             small_breakdown_tensor = torch.tensor(
                 small_breakdown_stats, dtype=torch.float32, device="npu"
@@ -699,8 +799,12 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
             gathered_small_breakdown = None
 
         if fused_stats is not None:
-            fused_stats_tensor = torch.tensor(fused_stats, dtype=torch.float32, device="npu")
-            gathered_fused = [torch.empty_like(fused_stats_tensor) for _ in range(world_size)]
+            fused_stats_tensor = torch.tensor(
+                fused_stats, dtype=torch.float32, device="npu"
+            )
+            gathered_fused = [
+                torch.empty_like(fused_stats_tensor) for _ in range(world_size)
+            ]
             dist.all_gather(gathered_fused, fused_stats_tensor)
         else:
             gathered_fused = None
@@ -715,9 +819,12 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
             if gathered_small is not None:
                 small_mean = torch.stack(gathered_small).mean(dim=0).cpu().tolist()
                 total_small_stats = tuple(small_mean)
-                small_breakdown_mean = torch.stack(gathered_small_breakdown).mean(dim=0).cpu().tolist()
+                small_breakdown_mean = (
+                    torch.stack(gathered_small_breakdown).mean(dim=0).cpu().tolist()
+                )
                 mean_breakdown_stats = [
-                    tuple(float(v) for v in stats_values) for stats_values in small_breakdown_mean
+                    tuple(float(v) for v in stats_values)
+                    for stats_values in small_breakdown_mean
                 ]
                 print_stats_table(
                     "small-op breakdown (mean over ranks):",
@@ -766,39 +873,57 @@ def main():
         description="A5 fused vs small-op correctness and profiler performance comparison"
     )
     parser.add_argument(
-        "--num-processes", type=int, default=8,
+        "--num-processes",
+        type=int,
+        default=8,
         help="Number of spawned ranks/devices to use for the test.",
     )
     parser.add_argument(
-        "--num-tokens", type=int, default=32,
+        "--num-tokens",
+        type=int,
+        default=32,
         help="Per-rank token count for the routed tokens.",
     )
     parser.add_argument(
-        "--hidden", type=int, default=7168,
+        "--hidden",
+        type=int,
+        default=7168,
         help="Hidden size of the MoE input/output tensor.",
     )
     parser.add_argument(
-        "--moe-intermediate-size", type=int, default=3072,
+        "--moe-intermediate-size",
+        type=int,
+        default=3072,
         help="Per-expert intermediate size; 2x this value must satisfy the A5 GMM1 constraint.",
     )
     parser.add_argument(
-        "--num-experts", type=int, default=32,
+        "--num-experts",
+        type=int,
+        default=64,
         help="Global number of routed experts across all ranks.",
     )
     parser.add_argument(
-        "--num-topk", type=int, default=8,
+        "--num-topk",
+        type=int,
+        default=6,
         help="Top-k experts selected for each token.",
     )
     parser.add_argument(
-        "--num-warmups", type=int, default=1,
+        "--num-warmups",
+        type=int,
+        default=5,
         help="Number of profiler-only warmup iterations to exclude from performance statistics.",
     )
     parser.add_argument(
-        "--num-tests", type=int, default=10,
+        "--num-tests",
+        type=int,
+        default=30,
         help="Number of counted performance iterations when --profile-num-tests is not set.",
     )
     parser.add_argument(
-        "--quant-mode", type=int, default=0,
+        "--quant-mode",
+        type=int,
+        default=0,
         help="Fused operator quant mode; currently supports 0 and 1.",
     )
     parser.add_argument(
@@ -806,11 +931,15 @@ def main():
         help="Optional directory to export profiler chrome traces.",
     )
     parser.add_argument(
-        "--dump-profile-events", "--debug", dest="dump_profile_events", action="store_true",
+        "--dump-profile-events",
+        "--debug",
+        dest="dump_profile_events",
+        action="store_true",
         help="Print matched profiler iterations and discovered event names for debugging.",
     )
     parser.add_argument(
-        "--print-per-rank-profile", action="store_true",
+        "--print-per-rank-profile",
+        action="store_true",
         help="Print per-rank small-op/fused profiler tables in addition to the mean-over-ranks summary.",
     )
     args = parser.parse_args()
@@ -844,4 +973,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

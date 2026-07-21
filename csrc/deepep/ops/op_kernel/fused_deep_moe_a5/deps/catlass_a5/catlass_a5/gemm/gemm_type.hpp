@@ -24,6 +24,6 @@ struct GemmType {
     static constexpr AscendC::TPosition POSITION = POSITION_;
 };
 
-} // namespace Catlass::Gemm
+}  // namespace Catlass::Gemm
 
-#endif // CATLASS_GEMM_GEMM_TYPE_HPP
+#endif  // CATLASS_GEMM_GEMM_TYPE_HPP

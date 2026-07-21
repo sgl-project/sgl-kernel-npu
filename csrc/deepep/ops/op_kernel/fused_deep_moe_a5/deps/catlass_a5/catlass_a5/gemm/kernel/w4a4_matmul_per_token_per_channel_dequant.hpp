@@ -23,18 +23,12 @@
 #include "catlass_a5/layout/layout.hpp"
 #include "catlass_a5/matrix_coord.hpp"
 
-
-
 namespace Catlass::Gemm::Kernel {
 
-template <
-    class BlockMmad_,
-    class BlockEpilogue_,
-    class BlockScheduler_,
-    uint32_t WORKSPACE_STAGES_,
-    class ElementScale_,
-    class LayoutScale_>
-class W4A4MatmulPerTokenPerChannelDequant {
+template <class BlockMmad_, class BlockEpilogue_, class BlockScheduler_, uint32_t WORKSPACE_STAGES_,
+          class ElementScale_, class LayoutScale_>
+class W4A4MatmulPerTokenPerChannelDequant
+{
 public:
     using BlockMmad = BlockMmad_;
     using ArchTag = typename BlockMmad::ArchTag;
@@ -59,10 +53,8 @@ public:
     using BlockScheduler = BlockScheduler_;
 
     using EpilogueTileShape = typename BlockEpilogue::TileShape;
-    static_assert(
-        L1TileShape::N == EpilogueTileShape::COLUMN,
-        "l1TileShape::N must be equal to EpilogueTileShape::COLUMN"
-    );
+    static_assert(L1TileShape::N == EpilogueTileShape::COLUMN,
+                  "l1TileShape::N must be equal to EpilogueTileShape::COLUMN");
 
     static constexpr uint32_t WORKSPACE_STAGES = WORKSPACE_STAGES_;
 
@@ -84,39 +76,25 @@ public:
 
         // Methods
         CATLASS_HOST_DEVICE
-        Params()
-        {
-        }
+        Params() {}
 
         CATLASS_HOST_DEVICE
-        Params(
-            GemmCoord problemShape_,
-            GM_ADDR ptrA_,
-            LayoutA layoutA_,
-            GM_ADDR ptrB_,
-            LayoutB layoutB_,
-            GM_ADDR ptrScale_,
-            LayoutScale layoutScale_,
-            GM_ADDR ptrPerTokenScale_,
-            LayoutPerTokenScale layoutPerTokenScale_,
-            GM_ADDR ptrD_,
-            LayoutD layoutD_,
-            GM_ADDR ptrWorkspace_
-        )
-            : problemShape(problemShape_)
-            , ptrA(reinterpret_cast<__gm__ ElementA *>(ptrA_))
-            , layoutA(layoutA_)
-            , ptrB(reinterpret_cast<__gm__ ElementB *>(ptrB_))
-            , layoutB(layoutB_)
-            , ptrScale(reinterpret_cast<__gm__ ElementScale *>(ptrScale_))
-            , layoutScale(layoutScale_)
-            , ptrPerTokenScale(reinterpret_cast<__gm__ ElementPerTokenScale *>(ptrPerTokenScale_))
-            , layoutPerTokenScale(layoutPerTokenScale_)
-            , ptrD(reinterpret_cast<__gm__ ElementD *>(ptrD_))
-            , layoutD(layoutD_)
-            , ptrWorkspace(ptrWorkspace_)
-        {
-        }
+        Params(GemmCoord problemShape_, GM_ADDR ptrA_, LayoutA layoutA_, GM_ADDR ptrB_, LayoutB layoutB_,
+               GM_ADDR ptrScale_, LayoutScale layoutScale_, GM_ADDR ptrPerTokenScale_,
+               LayoutPerTokenScale layoutPerTokenScale_, GM_ADDR ptrD_, LayoutD layoutD_, GM_ADDR ptrWorkspace_)
+            : problemShape(problemShape_),
+              ptrA(reinterpret_cast<__gm__ ElementA *>(ptrA_)),
+              layoutA(layoutA_),
+              ptrB(reinterpret_cast<__gm__ ElementB *>(ptrB_)),
+              layoutB(layoutB_),
+              ptrScale(reinterpret_cast<__gm__ ElementScale *>(ptrScale_)),
+              layoutScale(layoutScale_),
+              ptrPerTokenScale(reinterpret_cast<__gm__ ElementPerTokenScale *>(ptrPerTokenScale_)),
+              layoutPerTokenScale(layoutPerTokenScale_),
+              ptrD(reinterpret_cast<__gm__ ElementD *>(ptrD_)),
+              layoutD(layoutD_),
+              ptrWorkspace(ptrWorkspace_)
+        {}
     };
 
     struct Arguments {
@@ -170,19 +148,18 @@ public:
 
     static Params ToUnderlyingArguments(const Arguments &args, uint8_t *workspace)
     {
-        Params params{
-            args.problemShape,
-            args.ptrA,
-            args.layoutA,
-            args.ptrB,
-            args.layoutB,
-            args.ptrScale,
-            args.layoutScale,
-            args.ptrPerTokenScale,
-            args.layoutPerTokenScale,
-            args.ptrD,
-            args.layoutD,
-            workspace};
+        Params params{args.problemShape,
+                      args.ptrA,
+                      args.layoutA,
+                      args.ptrB,
+                      args.layoutB,
+                      args.ptrScale,
+                      args.layoutScale,
+                      args.ptrPerTokenScale,
+                      args.layoutPerTokenScale,
+                      args.ptrD,
+                      args.layoutD,
+                      workspace};
         return params;
     }
 
@@ -262,16 +239,12 @@ public:
 
             // Compute block-scoped matrix multiply-add
             if constexpr (BlockMmad::DispatchPolicy::ASYNC) {
-                blockMmad(
-                    gmScale[gmOffsetScale], layoutScale, gmA[gmOffsetA], layoutA, gmB[gmOffsetB], layoutB,
-                    gmC[gmOffsetC], layoutC, actualBlockShape, callbackBeforeFixpipe, callbackAfterFixpipe
-                );
+                blockMmad(gmScale[gmOffsetScale], layoutScale, gmA[gmOffsetA], layoutA, gmB[gmOffsetB], layoutB,
+                          gmC[gmOffsetC], layoutC, actualBlockShape, callbackBeforeFixpipe, callbackAfterFixpipe);
             } else {
                 callbackBeforeFixpipe();
-                blockMmad(
-                    gmScale[gmOffsetScale], layoutScale, gmA[gmOffsetA], layoutA, gmB[gmOffsetB], layoutB,
-                    gmC[gmOffsetC], layoutC, actualBlockShape
-                );
+                blockMmad(gmScale[gmOffsetScale], layoutScale, gmA[gmOffsetA], layoutA, gmB[gmOffsetB], layoutB,
+                          gmC[gmOffsetC], layoutC, actualBlockShape);
                 callbackAfterFixpipe();
             }
 
@@ -283,8 +256,8 @@ public:
         }
 
         while (stageUsed > 0) {
-            uint32_t aivComputeStageId = (stageId >= stageUsed) ? (stageId - stageUsed)
-                                                                : (stageId + WORKSPACE_STAGES - stageUsed);
+            uint32_t aivComputeStageId =
+                (stageId >= stageUsed) ? (stageId - stageUsed) : (stageId + WORKSPACE_STAGES - stageUsed);
             Arch::CrossCoreWaitFlag(flagAivFinishComputeList[aivComputeStageId]);
             --stageUsed;
         }
@@ -310,9 +283,8 @@ public:
 
         GemmCoord problemShape{params.problemShape.m(), params.problemShape.n(), params.problemShape.k()};
 
-        LayoutPerTokenScale layoutPerTokenScale = params.layoutPerTokenScale.GetTileLayout(
-            problemShape.template GetCoordByAxis<0>()
-        );
+        LayoutPerTokenScale layoutPerTokenScale =
+            params.layoutPerTokenScale.GetTileLayout(problemShape.template GetCoordByAxis<0>());
         LayoutD layoutD = params.layoutD.GetTileLayout(problemShape.GetCoordMN());
 
         EpilogueParams epilogueParams{params.ptrPerTokenScale, layoutPerTokenScale, params.ptrD, layoutD};
@@ -346,13 +318,8 @@ private:
     friend struct AicSetFunc;
 
     struct AicWaitFunc {
-        using MatmulKernel = W4A4MatmulPerTokenPerChannelDequant<
-            BlockMmad,
-            BlockEpilogue,
-            BlockScheduler,
-            WORKSPACE_STAGES,
-            ElementScale,
-            LayoutScale>;
+        using MatmulKernel = W4A4MatmulPerTokenPerChannelDequant<BlockMmad, BlockEpilogue, BlockScheduler,
+                                                                 WORKSPACE_STAGES, ElementScale, LayoutScale>;
 
         CATLASS_DEVICE
         AicWaitFunc() = default;
@@ -368,13 +335,8 @@ private:
     };
 
     struct AicSetFunc {
-        using MatmulKernel = W4A4MatmulPerTokenPerChannelDequant<
-            BlockMmad,
-            BlockEpilogue,
-            BlockScheduler,
-            WORKSPACE_STAGES,
-            ElementScale,
-            LayoutScale>;
+        using MatmulKernel = W4A4MatmulPerTokenPerChannelDequant<BlockMmad, BlockEpilogue, BlockScheduler,
+                                                                 WORKSPACE_STAGES, ElementScale, LayoutScale>;
 
         CATLASS_DEVICE
         AicSetFunc() = default;
@@ -397,6 +359,6 @@ private:
     Arch::Resource<ArchTag> resource;
 };
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel
 
-#endif // CATLASS_GEMM_KERNEL_W4A4_MATMUL_PER_CHANNEL_HPP
+#endif  // CATLASS_GEMM_KERNEL_W4A4_MATMUL_PER_CHANNEL_HPP

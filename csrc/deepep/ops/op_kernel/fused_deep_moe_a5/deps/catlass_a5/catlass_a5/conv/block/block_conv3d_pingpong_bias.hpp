@@ -22,54 +22,18 @@
 
 namespace Catlass::Conv::Block {
 
-template <
-    uint32_t L1A_STAGES_,
-    uint32_t L1B_STAGES_,
-    uint32_t L0A_STAGES_,
-    uint32_t L0B_STAGES_,
-    uint32_t L0C_STAGES_,
-    bool ENABLE_UNIT_FLAG_,
-    class CoreTileShape_,
-    class FmapL1TileShape_,
-    class FilterL1TileShape_,
-    class L0TileShape_,
-    class FmapType_,
-    class FilterType_,
-    class OutType_,
-    class BiasType_,
-    class TileCopy_,
-    class TileMmad_
->
-struct BlockConv <
-    ConvAtlasA2Pingpong<
-        L1A_STAGES_,
-        L1B_STAGES_,
-        L0A_STAGES_,
-        L0B_STAGES_,
-        L0C_STAGES_,
-        ENABLE_UNIT_FLAG_
-    >,
-    CoreTileShape_,
-    FmapL1TileShape_,
-    FilterL1TileShape_,
-    L0TileShape_,
-    FmapType_,
-    FilterType_,
-    OutType_,
-    BiasType_,
-    TileCopy_,
-    TileMmad_
-> {
+template <uint32_t L1A_STAGES_, uint32_t L1B_STAGES_, uint32_t L0A_STAGES_, uint32_t L0B_STAGES_, uint32_t L0C_STAGES_,
+          bool ENABLE_UNIT_FLAG_, class CoreTileShape_, class FmapL1TileShape_, class FilterL1TileShape_,
+          class L0TileShape_, class FmapType_, class FilterType_, class OutType_, class BiasType_, class TileCopy_,
+          class TileMmad_>
+struct BlockConv<
+    ConvAtlasA2Pingpong<L1A_STAGES_, L1B_STAGES_, L0A_STAGES_, L0B_STAGES_, L0C_STAGES_, ENABLE_UNIT_FLAG_>,
+    CoreTileShape_, FmapL1TileShape_, FilterL1TileShape_, L0TileShape_, FmapType_, FilterType_, OutType_, BiasType_,
+    TileCopy_, TileMmad_> {
 public:
     // Type Aliases
-    using DispatchPolicy = ConvAtlasA2Pingpong<
-        L1A_STAGES_,
-        L1B_STAGES_,
-        L0A_STAGES_,
-        L0B_STAGES_,
-        L0C_STAGES_,
-        ENABLE_UNIT_FLAG_
-    >;
+    using DispatchPolicy =
+        ConvAtlasA2Pingpong<L1A_STAGES_, L1B_STAGES_, L0A_STAGES_, L0B_STAGES_, L0C_STAGES_, ENABLE_UNIT_FLAG_>;
     using ArchTag = typename DispatchPolicy::ArchTag;
     using CoreTileShape = CoreTileShape_;
     using FmapL1TileShape = FmapL1TileShape_;
@@ -140,16 +104,15 @@ public:
     BlockConv(Arch::Resource<ArchTag> &resource, Conv3dParams const &conv3dParams_, uint32_t l1BufAddrStart = 0)
         : conv3dParams(conv3dParams_)
     {
-        copyL1ToL0A = CopyL1ToL0A::MakeCopyL1ToL0A(conv3dParams.sW(), conv3dParams.sH(),
-                                                   conv3dParams.kw(), conv3dParams.kh(),
-                                                   conv3dParams.dW(), conv3dParams.dH());
-        uint64_t bl1Spacesize = FilterL1TileShape::Kd * FilterL1TileShape::Ci1 *
-                                conv3dParams.khkwcin0() * FilterL1TileShape::nBL1 * sizeof(ElementFilter);
-        uint64_t hoAL1Max = FmapL1TileShape::mAL1  / conv3dParams.wo() + 2;
+        copyL1ToL0A = CopyL1ToL0A::MakeCopyL1ToL0A(conv3dParams.sW(), conv3dParams.sH(), conv3dParams.kw(),
+                                                   conv3dParams.kh(), conv3dParams.dW(), conv3dParams.dH());
+        uint64_t bl1Spacesize = FilterL1TileShape::Kd * FilterL1TileShape::Ci1 * conv3dParams.khkwcin0() *
+                                FilterL1TileShape::nBL1 * sizeof(ElementFilter);
+        uint64_t hoAL1Max = FmapL1TileShape::mAL1 / conv3dParams.wo() + 2;
         uint64_t hiAL1Max = (hoAL1Max - 1) * conv3dParams.sH() + conv3dParams.dilatedKernelH();
         hiAL1Max = hiAL1Max > conv3dParams.hi() ? conv3dParams.hi() : hiAL1Max;
-        uint64_t al1Spacesize = FmapL1TileShape::Kd * FmapL1TileShape::Ci1 * hiAL1Max *
-                                conv3dParams.wicin0()  * sizeof(ElementFmap);
+        uint64_t al1Spacesize =
+            FmapL1TileShape::Kd * FmapL1TileShape::Ci1 * hiAL1Max * conv3dParams.wicin0() * sizeof(ElementFmap);
 
         for (uint32_t i = 0; i < L0A_STAGES; i++) {
             l0ATensorList[i] = resource.l0ABuf.template GetBufferByByte<ElementFmap>(L0A_PINGPONG_BUF_SIZE * i);
@@ -211,22 +174,21 @@ public:
 
     // Perform a block-scoped conv3d
     CATLASS_DEVICE
-    void operator()(
-        AscendC::GlobalTensor<ElementFmap> const &fmapGm, LayoutFmap const &layoutFmap,
-        AscendC::GlobalTensor<ElementFilter> const &filterGm, LayoutFilter const &layoutFilter,
-        AscendC::GlobalTensor<ElementOut> const &outGm, LayoutFmap const &layoutOut,
-        AscendC::GlobalTensor<ElementBias> const &biasGm,
-        Conv3d6HdCoord const &actualBlockShape, Conv3d6HdCoord const &actualIdxStartFmap)
+    void operator()(AscendC::GlobalTensor<ElementFmap> const &fmapGm, LayoutFmap const &layoutFmap,
+                    AscendC::GlobalTensor<ElementFilter> const &filterGm, LayoutFilter const &layoutFilter,
+                    AscendC::GlobalTensor<ElementOut> const &outGm, LayoutFmap const &layoutOut,
+                    AscendC::GlobalTensor<ElementBias> const &biasGm, Conv3d6HdCoord const &actualBlockShape,
+                    Conv3d6HdCoord const &actualIdxStartFmap)
     {
         // Initialization of the loop parameter in the K direction
         InitKLoopParams();
         // Loop parameters in the M/Cout/D direction
         InitOutLoopParams(actualBlockShape);
-        
+
         // The starting position of the input
         iterParams.diStartPos = actualIdxStartFmap.d();
         iterParams.hwStartPos = actualIdxStartFmap.hw();
-        
+
         // Start the batch iterate
         for (uint32_t batchIter = 0; batchIter < actualBlockShape.n(); ++batchIter) {
             auto gmBatchFmap = fmapGm[batchIter * conv3dParams.fmapOneBatchSize()];
@@ -252,21 +214,28 @@ public:
                 }
                 // Refresh the cycle round
                 iterParams.l12l0LoopM = iterParams.mAL1Iter == iterParams.maxMAL1Iter
-                    ? CeilDiv(iterParams.mAL1Tail, L0TileShape::mL0)
-                    : iterParams.mAL1DivmL0;
+                                            ? CeilDiv(iterParams.mAL1Tail, L0TileShape::mL0)
+                                            : iterParams.mAL1DivmL0;
                 iterParams.maxML0Iter = iterParams.l12l0LoopM - 1;
                 iterParams.l12l0LoopN = iterParams.nBL1Iter == iterParams.maxNBL1Iter
-                    ? CeilDiv(iterParams.nBL1Tail, L0TileShape::nL0)
-                    : iterParams.nBL1DivnL0;
+                                            ? CeilDiv(iterParams.nBL1Tail, L0TileShape::nL0)
+                                            : iterParams.nBL1DivnL0;
                 iterParams.maxNL0Iter = iterParams.l12l0LoopN - 1;
                 // Start the K-axis iterate
-                uint32_t n = (iterParams.nBL1Iter == iterParams.maxNBL1Iter && iterParams.nBL0Iter == iterParams.maxNL0Iter) ? iterParams.nL0Tail : L0TileShape::nL0;
-                uint32_t m = (iterParams.mAL1Iter == iterParams.maxMAL1Iter && iterParams.mAL0Iter == iterParams.maxML0Iter) ? iterParams.mAL0Tail : L0TileShape::mL0;
-                
+                uint32_t n =
+                    (iterParams.nBL1Iter == iterParams.maxNBL1Iter && iterParams.nBL0Iter == iterParams.maxNL0Iter)
+                        ? iterParams.nL0Tail
+                        : L0TileShape::nL0;
+                uint32_t m =
+                    (iterParams.mAL1Iter == iterParams.maxMAL1Iter && iterParams.mAL0Iter == iterParams.maxML0Iter)
+                        ? iterParams.mAL0Tail
+                        : L0TileShape::mL0;
+
                 tileParams.l0CurrentM = CeilDiv(m, BLOCK_L0_M) * BLOCK_L0_M;
                 tileParams.l0CurrentN = CeilDiv(n, BLOCK_L0_N) * BLOCK_L0_N;
 
-                uint32_t biasGmOffset = iterParams.nBL1Iter * FilterL1TileShape::nBL1 + iterParams.nBL0Iter * L0TileShape::nL0;
+                uint32_t biasGmOffset =
+                    iterParams.nBL1Iter * FilterL1TileShape::nBL1 + iterParams.nBL0Iter * L0TileShape::nL0;
 
                 auto layoutTileBias = layout::VectorLayout(actualBlockShape.c1() * conv3dParams.n0());
                 auto layoutBiasInL1 = layout::VectorLayout(tileParams.l0CurrentN);
@@ -295,9 +264,14 @@ public:
                 }
                 AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(L0A_STAGES + L0B_STAGES);
                 iterParams.kIter = 0;
-                auto layoutCInL0 = LayoutCInL0::MakeLayoutInL0C(MakeCoord(m, CeilDiv(n, conv3dParams.cout0()) * conv3dParams.cout0()));
-                LayoutFmap layoutOutGm = layoutOut.GetTileLayout(MakeCoord((uint32_t)1, conv3dParams.dout(), conv3dParams.cout1(), conv3dParams.ho(), conv3dParams.wo(), conv3dParams.cout0()));
-                uint32_t cout1L1Idx = (FilterL1TileShape::nBL1 * iterParams.nBL1Iter + L0TileShape::nL0 * iterParams.nBL0Iter) / conv3dParams.cout0();
+                auto layoutCInL0 =
+                    LayoutCInL0::MakeLayoutInL0C(MakeCoord(m, CeilDiv(n, conv3dParams.cout0()) * conv3dParams.cout0()));
+                LayoutFmap layoutOutGm =
+                    layoutOut.GetTileLayout(MakeCoord((uint32_t)1, conv3dParams.dout(), conv3dParams.cout1(),
+                                                      conv3dParams.ho(), conv3dParams.wo(), conv3dParams.cout0()));
+                uint32_t cout1L1Idx =
+                    (FilterL1TileShape::nBL1 * iterParams.nBL1Iter + L0TileShape::nL0 * iterParams.nBL0Iter) /
+                    conv3dParams.cout0();
                 uint32_t howoIdx = FmapL1TileShape::mAL1 * iterParams.mAL1Iter + L0TileShape::mL0 * iterParams.mAL0Iter;
                 Conv3d6HdCoord gmTileOutOffset{0, iterParams.dOutIter, cout1L1Idx, howoIdx};
                 auto gmTileOut = gmBatchOut[layoutOut.GetOffset(gmTileOutOffset)];
@@ -315,6 +289,7 @@ public:
             iterParams.nBL1Iter = 0;
         }
     }
+
 protected:
     struct IterParams {
         uint8_t isFirstIterate = true;
@@ -330,7 +305,7 @@ protected:
         uint8_t mL0IsDivisibleByWo = false;
 
         uint8_t isGroupOptDimTail = false;
-        
+
         uint32_t kAL1Iter = 0;
         uint32_t kBL1Iter = 0;
         uint32_t mAL1Iter = 0;
@@ -359,7 +334,7 @@ protected:
         uint32_t ddr2l1LoopD = 0;
         uint32_t l12l0LoopM = 0;
         uint32_t ddr2l0LoopK = 0;
-        
+
         uint32_t kL0Tail = 0;
         uint32_t kAL1Tail = 0;
         uint32_t kBL1Tail = 0;
@@ -443,10 +418,14 @@ protected:
 
         // The k-axis loop iteration parameters of the B-matrix
         iterParams.maxKBL1Iter = CeilDiv(conv3dParams.kdcin1(), FilterL1TileShape::Kd * FilterL1TileShape::Ci1) - 1;
-        iterParams.multiKBL1 = CeilDiv(FilterL1TileShape::Kd * FilterL1TileShape::Ci1 * conv3dParams.khkwcin0(), L0TileShape::kL0);
+        iterParams.multiKBL1 =
+            CeilDiv(FilterL1TileShape::Kd * FilterL1TileShape::Ci1 * conv3dParams.khkwcin0(), L0TileShape::kL0);
         iterParams.kBL1fullload = conv3dParams.kdcin1() == FilterL1TileShape::Kd * FilterL1TileShape::Ci1;
-        uint32_t kBL1TailCheck = conv3dParams.alignCinKhKwKd() % (FilterL1TileShape::Kd * FilterL1TileShape::Ci1 * conv3dParams.khkwcin0());
-        iterParams.kBL1Tail = kBL1TailCheck == 0 ? FilterL1TileShape::Kd * FilterL1TileShape::Ci1 * conv3dParams.khkwcin0() : kBL1TailCheck;
+        uint32_t kBL1TailCheck =
+            conv3dParams.alignCinKhKwKd() % (FilterL1TileShape::Kd * FilterL1TileShape::Ci1 * conv3dParams.khkwcin0());
+        iterParams.kBL1Tail = kBL1TailCheck == 0
+                                  ? FilterL1TileShape::Kd * FilterL1TileShape::Ci1 * conv3dParams.khkwcin0()
+                                  : kBL1TailCheck;
 
         // The k-axis loop iteration parameters of matrix A
         uint32_t kAL1 = FmapL1TileShape::Kd * FmapL1TileShape::Ci1 * conv3dParams.khkwcin0();
@@ -456,11 +435,12 @@ protected:
         uint32_t kAL1TailCheck = conv3dParams.alignCinKhKwKd() % kAL1;
         iterParams.kAL1Tail = kAL1TailCheck == 0 ? kAL1 : kAL1TailCheck;
         uint8_t L0ASet2dFlag = conv3dParams.padhead() != 0 || conv3dParams.padtail() != 0 ||
-                conv3dParams.padtop() >= conv3dParams.kh() || conv3dParams.padbottom() >= conv3dParams.kh();
+                               conv3dParams.padtop() >= conv3dParams.kh() ||
+                               conv3dParams.padbottom() >= conv3dParams.kh();
         bool kAL1TailCase = iterParams.kAL1Tail != kAL1;
         iterParams.preloadAL1DbFlag = L1A_STAGES == 2 && !iterParams.kAL1fullload && !L0ASet2dFlag && !kAL1TailCase;
         iterParams.preloadABL1DbFlag = L1A_STAGES == 2 && L1B_STAGES == 2 && !iterParams.kAL1fullload &&
-                                         !iterParams.kBL1fullload && !L0ASet2dFlag && !kAL1TailCase;
+                                       !iterParams.kBL1fullload && !L0ASet2dFlag && !kAL1TailCase;
     }
 
     CATLASS_DEVICE
@@ -555,7 +535,7 @@ protected:
 
     CATLASS_DEVICE
     void ReduceKPreloadDbFmap(AscendC::GlobalTensor<ElementFmap> const &gmBatchFmap, LayoutFmap const &layoutFmap,
-                             AscendC::GlobalTensor<ElementFilter> const &filterGm, LayoutFilter const &layoutFilter)
+                              AscendC::GlobalTensor<ElementFilter> const &filterGm, LayoutFilter const &layoutFilter)
     {
         AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(l1AEventList[l1AListId]);
         LoadAL1Process(gmBatchFmap, 0, layoutFmap, l1AListId);
@@ -588,7 +568,8 @@ protected:
                 l1AListIdNext = (l1AListId + 1 < L1A_STAGES) ? (l1AListId + 1) : 0;
                 AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(l1AEventList[l1AListIdNext]);
                 AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE1>(l1AEventList[l1AListId]);
-            } else if (iterParams.kIter < maxKAL1PreloadIter && (!iterParams.kAL1fullload && iterParams.kIter % iterParams.multiKAL1 == 0)) {
+            } else if (iterParams.kIter < maxKAL1PreloadIter &&
+                       (!iterParams.kAL1fullload && iterParams.kIter % iterParams.multiKAL1 == 0)) {
                 l1AListId = l1AListIdNext;
                 l1AListIdNext = (l1AListId + 1 < L1A_STAGES) ? (l1AListId + 1) : 0;
                 AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(l1AEventList[l1AListIdNext]);
@@ -650,7 +631,8 @@ protected:
                 l1AListIdNext = (l1AListId + 1 < L1A_STAGES) ? (l1AListId + 1) : 0;
                 AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(l1AEventList[l1AListIdNext]);
                 AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE1>(l1AEventList[l1AListId]);
-            } else if (iterParams.kIter < maxKAL1PreloadIter && (!iterParams.kAL1fullload && iterParams.kIter % iterParams.multiKAL1 == 0)) {
+            } else if (iterParams.kIter < maxKAL1PreloadIter &&
+                       (!iterParams.kAL1fullload && iterParams.kIter % iterParams.multiKAL1 == 0)) {
                 l1AListId = l1AListIdNext;
                 l1AListIdNext = (l1AListId + 1 < L1A_STAGES) ? (l1AListId + 1) : 0;
                 AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(l1AEventList[l1AListIdNext]);
@@ -665,7 +647,8 @@ protected:
                 l1BListIdNext = (l1BListId + 1 < L1B_STAGES) ? (l1BListId + 1) : 0;
                 AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(l1BEventList[l1BListIdNext]);
                 AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE1>(l1BEventList[l1BListId]);
-            } else if (iterParams.kIter < maxKBL1PreloadIter && (!iterParams.kBL1fullload && iterParams.kIter % iterParams.multiKBL1 == 0)) {
+            } else if (iterParams.kIter < maxKBL1PreloadIter &&
+                       (!iterParams.kBL1fullload && iterParams.kIter % iterParams.multiKBL1 == 0)) {
                 l1BListId = l1BListIdNext;
                 l1BListIdNext = (l1BListId + 1 < L1B_STAGES) ? (l1BListId + 1) : 0;
                 AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(l1BEventList[l1BListIdNext]);
@@ -683,18 +666,23 @@ protected:
     }
 
     CATLASS_DEVICE
-    void LoadAL1Process(AscendC::GlobalTensor<ElementFmap> const &gmBatchFmap, uint32_t kAL1Iter, LayoutFmap const &layoutFmap, uint32_t l1ListId)
+    void LoadAL1Process(AscendC::GlobalTensor<ElementFmap> const &gmBatchFmap, uint32_t kAL1Iter,
+                        LayoutFmap const &layoutFmap, uint32_t l1ListId)
     {
         iterParams.kAL1Iter = kAL1Iter;
-        uint32_t currentML1 = iterParams.mAL1Iter == iterParams.maxMAL1Iter ? iterParams.mAL1Tail : FmapL1TileShape::mAL1;
+        uint32_t currentML1 =
+            iterParams.mAL1Iter == iterParams.maxMAL1Iter ? iterParams.mAL1Tail : FmapL1TileShape::mAL1;
         uint32_t currentM = iterParams.hwStartPos + iterParams.mAL1Iter * FmapL1TileShape::mAL1;
         uint32_t hoStartIdx = currentM / conv3dParams.wo();
         uint32_t hoEndIdx = CeilDiv(currentM + currentML1, conv3dParams.wo());
         uint32_t orgHiLoadL1 = ((hoEndIdx - hoStartIdx) - 1) * conv3dParams.sH() + conv3dParams.dilatedKernelH();
         uint32_t tmpCurCoreHiStartIdx = (iterParams.hwStartPos / conv3dParams.wo()) * conv3dParams.sH();
-        uint32_t curCoreHiStartIdx = tmpCurCoreHiStartIdx <= conv3dParams.padtop() ? 0 : tmpCurCoreHiStartIdx - conv3dParams.padtop();
+        uint32_t curCoreHiStartIdx =
+            tmpCurCoreHiStartIdx <= conv3dParams.padtop() ? 0 : tmpCurCoreHiStartIdx - conv3dParams.padtop();
         uint32_t currentCin1LoadL1 = iterParams.kAL1Iter * FmapL1TileShape::Kd * FmapL1TileShape::Ci1;
-        uint32_t kAL1Tmp = iterParams.kAL1Iter == iterParams.maxKAL1Iter ? iterParams.kAL1Tail : FmapL1TileShape::Kd * FmapL1TileShape::Ci1 * conv3dParams.khkwcin0();
+        uint32_t kAL1Tmp = iterParams.kAL1Iter == iterParams.maxKAL1Iter
+                               ? iterParams.kAL1Tail
+                               : FmapL1TileShape::Kd * FmapL1TileShape::Ci1 * conv3dParams.khkwcin0();
         uint32_t orgCin1LoadL1 = kAL1Tmp / conv3dParams.kh() / conv3dParams.kw() / conv3dParams.cin0();
         uint32_t kdL1Idx = (currentCin1LoadL1 / conv3dParams.cin1()) % conv3dParams.kd();
         uint32_t cin1L1Idx = currentCin1LoadL1 % conv3dParams.cin1();
@@ -727,12 +715,13 @@ protected:
             padBottomL1 = hiEndIdxWithPad - hiWithPad;
         }
 
-        uint32_t diStartWithPad = iterParams.diStartPos + iterParams.dOutIter * conv3dParams.sD() + kdL1Idx * conv3dParams.dD();
+        uint32_t diStartWithPad =
+            iterParams.diStartPos + iterParams.dOutIter * conv3dParams.sD() + kdL1Idx * conv3dParams.dD();
         uint32_t diEndWithPad = cin1LoadL1 <= conv3dParams.cin1()
                                     ? diStartWithPad + 1
                                     : diStartWithPad + (cin1LoadL1 / conv3dParams.cin1() - 1) * conv3dParams.dD() + 1;
         uint32_t diIdx = iterParams.diStartPos <= conv3dParams.padhead() ? diStartWithPad - conv3dParams.padhead()
-                                                            : diStartWithPad - iterParams.diStartPos;
+                                                                         : diStartWithPad - iterParams.diStartPos;
         uint32_t diWithPad = conv3dParams.di() + conv3dParams.padhead();
         uint32_t cin1LoadL1PadHead = 0;
         uint32_t cin1LoadL1PadTail = 0;
@@ -778,14 +767,17 @@ protected:
             }
 
             Conv3d6HdCoord gmTileFmapOffset{0, diIdx, cin1L1Idx, hiIdx * conv3dParams.wi()};
-            auto layoutTileFmap = layoutFmap.GetTileLayout(MakeCoord((uint32_t)1, conv3dParams.dD(), conv3dParams.cin1(), conv3dParams.hi(), conv3dParams.wi(), conv3dParams.cin0()));
+            auto layoutTileFmap =
+                layoutFmap.GetTileLayout(MakeCoord((uint32_t)1, conv3dParams.dD(), conv3dParams.cin1(),
+                                                   conv3dParams.hi(), conv3dParams.wi(), conv3dParams.cin0()));
             auto gmTileFmap = gmBatchFmap[layoutTileFmap.GetOffset(gmTileFmapOffset)];
-            layoutFmapInL1 = LayoutFmapInL1::MakeLayout(1, 1, cin1LoadL1, iterParams.hiLoadL1, conv3dParams.wi() ,conv3dParams.cin0());
+            layoutFmapInL1 = LayoutFmapInL1::MakeLayout(1, 1, cin1LoadL1, iterParams.hiLoadL1, conv3dParams.wi(),
+                                                        conv3dParams.cin0());
 
             copyGmToL1A(l1ATensorList[l1ListId][aL1Offset], gmTileFmap, layoutFmapInL1, layoutTileFmap);
 
             if (set2dFlagDTail) {
-                aL1Offset += cin1LoadL1 * iterParams.hiLoadL1 * conv3dParams.wi()* conv3dParams.cin0();
+                aL1Offset += cin1LoadL1 * iterParams.hiLoadL1 * conv3dParams.wi() * conv3dParams.cin0();
                 AscendC::InitConstValueParams<ElementFmap> initConstValueParams;
                 initConstValueParams.repeatTimes = cin1LoadL1PadTail / conv3dParams.cin1();
                 initConstValueParams.blockNum = conv3dParams.cin1() * iterParams.hiLoadL1 * conv3dParams.wi();
@@ -795,16 +787,25 @@ protected:
                 set2dFlagDTail = false;
             }
         }
-        layoutFmapInL1 = LayoutFmapInL1::MakeLayout(1, 1, orgCin1LoadL1, orgHiLoadL1, conv3dParams.wi() ,conv3dParams.cin0());
+        layoutFmapInL1 =
+            LayoutFmapInL1::MakeLayout(1, 1, orgCin1LoadL1, orgHiLoadL1, conv3dParams.wi(), conv3dParams.cin0());
     }
 
     CATLASS_DEVICE
-    void LoadBL1Process(AscendC::GlobalTensor<ElementFilter> const &filterGm, uint32_t kBL1Iter, LayoutFilter const &layoutFilter, uint32_t l1ListId)
+    void LoadBL1Process(AscendC::GlobalTensor<ElementFilter> const &filterGm, uint32_t kBL1Iter,
+                        LayoutFilter const &layoutFilter, uint32_t l1ListId)
     {
         iterParams.kBL1Iter = kBL1Iter;
-        uint32_t currentNBL1 = ((iterParams.nBL1Iter != iterParams.maxNBL1Iter) || (FilterL1TileShape::nBL1 >= conv3dParams.alignCout())) ? FilterL1TileShape::nBL1 : iterParams.nBL1TailAlign;
-        uint32_t currentKBL1 = iterParams.kBL1Iter == iterParams.maxKBL1Iter ? iterParams.kBL1Tail : FilterL1TileShape::Kd * FilterL1TileShape::Ci1 * conv3dParams.khkwcin0();
-        Conv3dFracZ3dCoord gmTileFilterOffset{iterParams.kBL1Iter * FilterL1TileShape::Kd * FilterL1TileShape::Ci1 * conv3dParams.khkw(), iterParams.nBL1Iter * FilterL1TileShape::nBL1};
+        uint32_t currentNBL1 =
+            ((iterParams.nBL1Iter != iterParams.maxNBL1Iter) || (FilterL1TileShape::nBL1 >= conv3dParams.alignCout()))
+                ? FilterL1TileShape::nBL1
+                : iterParams.nBL1TailAlign;
+        uint32_t currentKBL1 = iterParams.kBL1Iter == iterParams.maxKBL1Iter
+                                   ? iterParams.kBL1Tail
+                                   : FilterL1TileShape::Kd * FilterL1TileShape::Ci1 * conv3dParams.khkwcin0();
+        Conv3dFracZ3dCoord gmTileFilterOffset{
+            iterParams.kBL1Iter * FilterL1TileShape::Kd * FilterL1TileShape::Ci1 * conv3dParams.khkw(),
+            iterParams.nBL1Iter * FilterL1TileShape::nBL1};
         auto layoutTileFilter = layoutFilter;
         auto gmTileFiler = filterGm[layoutTileFilter.GetOffset(gmTileFilterOffset)];
         layoutFilterInL1 = LayoutFilterInL1::template MakeLayout<ElementFilter>(currentKBL1, currentNBL1);
@@ -812,7 +813,8 @@ protected:
     }
 
     CATLASS_DEVICE
-    void ReduceKL0AL0BPingPong(const uint16_t& l0abFlag, uint32_t l1aListId, uint32_t l1bListId) {
+    void ReduceKL0AL0BPingPong(const uint16_t &l0abFlag, uint32_t l1aListId, uint32_t l1bListId)
+    {
         auto l0ATile = l0ATensorList[l0abFlag];
         auto l0BTile = l0BTensorList[l0abFlag];
         AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(l0AEventList[l0abFlag]);
@@ -825,14 +827,19 @@ protected:
             InitConstValue(l0ATensorList[l0abFlag], initConstValueParams);
         } else {
             uint32_t kStartPt = iterParams.kAL0Iter * L0TileShape::kL0;
-            uint32_t mStartPt = iterParams.mL0IsDivisibleByWo ?
-                iterParams.mAL0Iter * L0TileShape::mL0 + iterParams.hwStartPos % conv3dParams.wo() :
-                iterParams.mAL0Iter * L0TileShape::mL0 + (iterParams.hwStartPos + iterParams.mAL1Iter * FmapL1TileShape::mAL1) % conv3dParams.wo();
-            LayoutAInL0 layoutAInL0 = LayoutAInL0::template MakeLayout<ElementFilter>(tileParams.l0CurrentM, currentKL0);
-            copyL1ToL0A(l0ATile, l1ATensorList[l1aListId], layoutAInL0, layoutFmapInL1, kStartPt, mStartPt, iterParams.hiLoadL1, conv3dParams.wi(), iterParams.padList);
+            uint32_t mStartPt =
+                iterParams.mL0IsDivisibleByWo
+                    ? iterParams.mAL0Iter * L0TileShape::mL0 + iterParams.hwStartPos % conv3dParams.wo()
+                    : iterParams.mAL0Iter * L0TileShape::mL0 +
+                          (iterParams.hwStartPos + iterParams.mAL1Iter * FmapL1TileShape::mAL1) % conv3dParams.wo();
+            LayoutAInL0 layoutAInL0 =
+                LayoutAInL0::template MakeLayout<ElementFilter>(tileParams.l0CurrentM, currentKL0);
+            copyL1ToL0A(l0ATile, l1ATensorList[l1aListId], layoutAInL0, layoutFmapInL1, kStartPt, mStartPt,
+                        iterParams.hiLoadL1, conv3dParams.wi(), iterParams.padList);
         }
         iterParams.kBL0Iter = iterParams.kIter % iterParams.multiKBL1;
-        uint32_t tilingNBSrc_ = (iterParams.nBL1Iter != iterParams.maxNBL1Iter) ? FilterL1TileShape::nBL1 : iterParams.nBL1TailAlign;
+        uint32_t tilingNBSrc_ =
+            (iterParams.nBL1Iter != iterParams.maxNBL1Iter) ? FilterL1TileShape::nBL1 : iterParams.nBL1TailAlign;
         MatrixCoord l1TileFilterOffset{iterParams.kBL0Iter * L0TileShape::kL0, iterParams.nBL0Iter * L0TileShape::nL0};
         auto l1BTile = l1BTensorList[l1bListId][layoutFilterInL1.GetOffset(l1TileFilterOffset)];
         LayoutBInL0 layoutBInL0 = LayoutBInL0::template MakeLayout<ElementFilter>(currentKL0, tileParams.l0CurrentN);
@@ -854,7 +861,8 @@ protected:
             tileMmad(l0CTile, l0ATile, l0BTile, l0BiasTensor, tileParams.l0CurrentM, tileParams.l0CurrentN, currentKL0,
                      true, unitFlag);
         } else {
-            tileMmad(l0CTile, l0ATile, l0BTile, tileParams.l0CurrentM, tileParams.l0CurrentN, currentKL0, false, unitFlag);
+            tileMmad(l0CTile, l0ATile, l0BTile, tileParams.l0CurrentM, tileParams.l0CurrentN, currentKL0, false,
+                     unitFlag);
         }
         AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(l0AEventList[l0abFlag]);
         AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(l0BEventList[l0abFlag]);
@@ -862,4 +870,4 @@ protected:
 };
 }  // namespace Catlass::Conv::Block
 
-#endif // CATLASS_CONV_BLOCK_BLOCK_CONV3D_PINGPONG_BIAS_HPP
+#endif  // CATLASS_CONV_BLOCK_BLOCK_CONV3D_PINGPONG_BIAS_HPP

@@ -7,7 +7,6 @@ import deep_ep
 import torch
 import torch.distributed as dist
 import torch_npu
-
 from utils import init_dist
 
 torch_npu.npu.config.allow_internal_format = True
@@ -52,17 +51,25 @@ def make_umdk_static_inputs(rank: int, world_size: int, args: argparse.Namespace
     expert_ids = expert_ids.remainder(args.num_experts).npu()
     expert_scales = torch.rand((args.batch_size, args.topk), dtype=torch.float32).npu()
 
-    gmm1_fp = torch.rand(
-        (local_experts, args.hidden, args.moe_intermediate_size * 2)
-    ).bfloat16().npu() * 2 - 1
+    gmm1_fp = (
+        torch.rand((local_experts, args.hidden, args.moe_intermediate_size * 2))
+        .bfloat16()
+        .npu()
+        * 2
+        - 1
+    )
     gmm1_weight, gmm1_scale_raw = torch_npu.npu_dynamic_mx_quant(
         gmm1_fp, dst_type=torch.float8_e4m3fn, axis=1
     )
     gmm1_scale = gmm1_scale_raw.view(torch.float8_e8m0fnu)
 
-    gmm2_fp = torch.rand(
-        (local_experts, args.moe_intermediate_size, args.hidden)
-    ).bfloat16().npu() * 2 - 1
+    gmm2_fp = (
+        torch.rand((local_experts, args.moe_intermediate_size, args.hidden))
+        .bfloat16()
+        .npu()
+        * 2
+        - 1
+    )
     gmm2_weight, gmm2_scale_raw = torch_npu.npu_dynamic_mx_quant(
         gmm2_fp, dst_type=torch.float8_e4m3fn, axis=1
     )
@@ -86,7 +93,9 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
         rank, world_size, group = init_dist(local_rank, num_processes)
         torch.manual_seed(2026 + rank)
         buffer = deep_ep.Buffer(group, low_latency_mode=True)
-        assert buffer.runtime.is_a5_build(), "The installed DeepEP wheel is not an A5 build"
+        assert (
+            buffer.runtime.is_a5_build()
+        ), "The installed DeepEP wheel is not an A5 build"
 
         (
             x,
@@ -190,7 +199,9 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
         assert ep_recv_count.dtype == torch.int32
         torch.testing.assert_close(
             ep_recv_count,
-            torch.full((local_experts,), expected_count, dtype=torch.int32, device="npu"),
+            torch.full(
+                (local_experts,), expected_count, dtype=torch.int32, device="npu"
+            ),
         )
         debug_log(
             args,
@@ -212,7 +223,9 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="A5 Buffer FusedDeepMoe static smoke test")
+    parser = argparse.ArgumentParser(
+        description="A5 Buffer FusedDeepMoe static smoke test"
+    )
     parser.add_argument("--num-processes", type=int, default=8)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--hidden", type=int, default=7168)

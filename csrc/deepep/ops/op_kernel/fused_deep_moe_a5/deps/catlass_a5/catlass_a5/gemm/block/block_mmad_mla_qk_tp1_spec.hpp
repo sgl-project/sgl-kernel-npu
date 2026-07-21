@@ -25,25 +25,10 @@
 namespace Catlass::Gemm::Block {
 ////////////////////////////////////////////////////////////////////
 
-template <
-    class L1TileShape_,
-    class L0TileShape_,
-    class AType_,
-    class BType_,
-    class CType_,
-    class BiasType_,
-    class TileCopy_,
-    class TileMmad_>
-struct BlockMmad<
-    MmadAtlasA2MLAQKTp1Spec,
-    L1TileShape_,
-    L0TileShape_,
-    AType_,
-    BType_,
-    CType_,
-    BiasType_,
-    TileCopy_,
-    TileMmad_> {
+template <class L1TileShape_, class L0TileShape_, class AType_, class BType_, class CType_, class BiasType_,
+          class TileCopy_, class TileMmad_>
+struct BlockMmad<MmadAtlasA2MLAQKTp1Spec, L1TileShape_, L0TileShape_, AType_, BType_, CType_, BiasType_, TileCopy_,
+                 TileMmad_> {
 public:
     // Type Aliases
     using DispatchPolicy = MmadAtlasA2MLAQKTp1Spec;
@@ -117,7 +102,8 @@ public:
                     AscendC::GlobalTensor<ElementB> gB, AscendC::GlobalTensor<ElementB> gBRope,
                     AscendC::GlobalTensor<int32_t> gblockTable, AscendC::GlobalTensor<ElementC> gC, LayoutA layoutA,
                     LayoutA layoutARope, LayoutB layoutB, LayoutB layoutBRope, LayoutC layoutC, GemmCoord actualShape,
-                    uint32_t &nIdx, uint32_t &nLoop, uint32_t &blockSize, uint32_t kvSeqlen, uint32_t &qkInLoopPingpongIdx, uint32_t &qkLoopPingpongIdx)
+                    uint32_t &nIdx, uint32_t &nLoop, uint32_t &blockSize, uint32_t kvSeqlen,
+                    uint32_t &qkInLoopPingpongIdx, uint32_t &qkLoopPingpongIdx)
     {
         uint32_t rowNum = actualShape.m();
         uint32_t stackSeqTile = actualShape.n();
@@ -172,7 +158,6 @@ public:
                             layoutACatSplitKInL0, layoutACatSplitKInL1);
                 AscendC::SetFlag<AscendC::HardEvent::MTE1_M>(L0ABPingPongFlag);
 
-
                 if (embedSplitIdx == 0 || embedSplitIdx == 2) {
                     // copy K to l1b
                     AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(L1BPingPongFlag);
@@ -194,7 +179,6 @@ public:
                                 layoutUnitBRope);
                     AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE1>(L1BRopePingPongFlag);
                     AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE1>(L1BRopePingPongFlag);
-
                 }
                 // copy K to l0b
                 AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(L0ABPingPongFlag + 2);
@@ -208,7 +192,6 @@ public:
                     copyL1ToL0B(l0BTensor[L0ABPingPongFlag], l1BRopeTensor[L1BRopePingPongFlag], layoutBCatSplitKInL0,
                                 layoutBCatSplitKInL1);
                 }
-
 
                 if (embedSplitIdx == 1 || embedSplitIdx == 3) {
                     AscendC::SetFlag<AscendC::HardEvent::MTE1_MTE2>(L1BPingPongFlag);
@@ -230,7 +213,6 @@ public:
                 AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(L0ABPingPongFlag);
                 AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(L0ABPingPongFlag + 2);
                 qkInLoopPingpongIdx++;
-
             }
             // copy S to gm
             AscendC::SetFlag<AscendC::HardEvent::M_FIX>(L0CPingPongFlag);
@@ -264,6 +246,6 @@ protected:
 
 ////////////////////////////////////////////////////////////////////
 
-} // namespace Catlass::Gemm::Block
+}  // namespace Catlass::Gemm::Block
 
-#endif // CATLASS_GEMM_BLOCK_BLOCK_MMAD_MLA_QK_TP1_SPEC_HPP
+#endif  // CATLASS_GEMM_BLOCK_BLOCK_MMAD_MLA_QK_TP1_SPEC_HPP

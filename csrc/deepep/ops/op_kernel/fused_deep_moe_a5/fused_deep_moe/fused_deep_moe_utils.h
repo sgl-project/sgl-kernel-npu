@@ -13,40 +13,40 @@
 #include "../fused_deep_moe_a5_base.h"
 
 namespace CVSoftSync {
-    constexpr uint32_t SOFT_SYNC_SPACE_SIZE = 512;
+constexpr uint32_t SOFT_SYNC_SPACE_SIZE = 512;
 }
 
-template<typename T>
+template <typename T>
 __aicore__ inline T FlushAndGetValue(AscendC::GlobalTensor<T> &globalTensor, uint64_t index)
 {
-        __asm__ __volatile__("");
-        AscendC::DataCacheCleanAndInvalid<T, AscendC::CacheLine::SINGLE_CACHE_LINE,
-                                          AscendC::DcciDst::CACHELINE_OUT>(globalTensor[index]);
-        __asm__ __volatile__("");
-        T value = globalTensor.GetValue(index);
-        return value;
+    __asm__ __volatile__("");
+    AscendC::DataCacheCleanAndInvalid<T, AscendC::CacheLine::SINGLE_CACHE_LINE, AscendC::DcciDst::CACHELINE_OUT>(
+        globalTensor[index]);
+    __asm__ __volatile__("");
+    T value = globalTensor.GetValue(index);
+    return value;
 }
 
-template<typename T>
+template <typename T>
 __aicore__ inline void SetValueAndFlush(AscendC::GlobalTensor<T> &globalTensor, uint64_t index, T value)
 {
-        globalTensor.SetValue(index, value);
-        __asm__ __volatile__("");
-        AscendC::DataCacheCleanAndInvalid<T, AscendC::CacheLine::SINGLE_CACHE_LINE,
-                                          AscendC::DcciDst::CACHELINE_OUT>(globalTensor[index]);
-        __asm__ __volatile__("");
+    globalTensor.SetValue(index, value);
+    __asm__ __volatile__("");
+    AscendC::DataCacheCleanAndInvalid<T, AscendC::CacheLine::SINGLE_CACHE_LINE, AscendC::DcciDst::CACHELINE_OUT>(
+        globalTensor[index]);
+    __asm__ __volatile__("");
 }
 
-template<typename T>
+template <typename T>
 __aicore__ inline T FlushAndSpinValue(AscendC::GlobalTensor<T> &globalTensor, uint64_t index)
 {
-        T value = FlushAndGetValue(globalTensor, index);
-        if (value == 0) {
-            SetValueAndFlush(globalTensor, index, 1);
-        } else {
-            SetValueAndFlush(globalTensor, index, 0);
-        }
-        return value;
+    T value = FlushAndGetValue(globalTensor, index);
+    if (value == 0) {
+        SetValueAndFlush(globalTensor, index, 1);
+    } else {
+        SetValueAndFlush(globalTensor, index, 0);
+    }
+    return value;
 }
 
 __aicore__ inline void EncreaseSyncFlag(__gm__ int32_t *flagAddr, int32_t idx)

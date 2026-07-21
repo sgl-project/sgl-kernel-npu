@@ -15,10 +15,7 @@
 
 namespace Catlass {
 
-template <
-    uint32_t ROW_ = 1,
-    uint32_t COLUMN_ = 1
->
+template <uint32_t ROW_ = 1, uint32_t COLUMN_ = 1>
 struct MatrixShape {
     static constexpr uint32_t ROW = ROW_;
     static constexpr uint32_t COLUMN = COLUMN_;
@@ -68,19 +65,31 @@ struct MatrixCoord : public Coord<2, uint32_t> {
 
     /// Returns the row of the coordinate
     CATLASS_HOST_DEVICE
-    Index const &row() const { return this->At(ROW_INDEX); }
+    Index const &row() const
+    {
+        return this->At(ROW_INDEX);
+    }
 
     /// Returns the row of the coordinate
     CATLASS_HOST_DEVICE
-    Index &row() { return this->At(ROW_INDEX); }
+    Index &row()
+    {
+        return this->At(ROW_INDEX);
+    }
 
     /// Returns the column of the coordinate
     CATLASS_HOST_DEVICE
-    Index const &column() const { return this->At(COLUMN_INDEX); }
+    Index const &column() const
+    {
+        return this->At(COLUMN_INDEX);
+    }
 
     /// Returns the column of the coordinate
     CATLASS_HOST_DEVICE
-    Index &column() { return this->At(COLUMN_INDEX); }
+    Index &column()
+    {
+        return this->At(COLUMN_INDEX);
+    }
 
     /// Element-wise addition
     CATLASS_HOST_DEVICE
@@ -98,6 +107,6 @@ struct MatrixCoord : public Coord<2, uint32_t> {
     }
 };
 
-} // namespace Catlass
+}  // namespace Catlass
 
 #endif

@@ -22,10 +22,10 @@
 
 namespace Catlass::Gemm::Block {
 
-template <uint32_t STAGES_, bool ENABLE_UNIT_FLAG_, class L1TileShape_, class L0TileShape_,
-    class AType_, class BType_, class CType_, class BiasType_, class TileCopy_, class TileMmad_>
-struct BlockMmad<MmadAtlasA2DynamicSmall<STAGES_, ENABLE_UNIT_FLAG_>, L1TileShape_, L0TileShape_,
-    AType_, BType_, CType_, BiasType_, TileCopy_, TileMmad_> {
+template <uint32_t STAGES_, bool ENABLE_UNIT_FLAG_, class L1TileShape_, class L0TileShape_, class AType_, class BType_,
+          class CType_, class BiasType_, class TileCopy_, class TileMmad_>
+struct BlockMmad<MmadAtlasA2DynamicSmall<STAGES_, ENABLE_UNIT_FLAG_>, L1TileShape_, L0TileShape_, AType_, BType_,
+                 CType_, BiasType_, TileCopy_, TileMmad_> {
 public:
     // Type Aliases
     using DispatchPolicy = MmadAtlasA2DynamicSmall<STAGES_, ENABLE_UNIT_FLAG_>;
@@ -73,8 +73,8 @@ public:
 
         kPartLenMax = min(L0A_PINGPONG_BUF_SIZE / sizeof(ElementA) / l1TileShape.m() / L1AAlignHelper::ELE_NUM_PER_C0 *
                               L1AAlignHelper::ELE_NUM_PER_C0,
-            L0B_PINGPONG_BUF_SIZE / sizeof(ElementB) / l1TileShape.n() / L1BAlignHelper::ELE_NUM_PER_C0 *
-                L1BAlignHelper::ELE_NUM_PER_C0);
+                          L0B_PINGPONG_BUF_SIZE / sizeof(ElementB) / l1TileShape.n() / L1BAlignHelper::ELE_NUM_PER_C0 *
+                              L1BAlignHelper::ELE_NUM_PER_C0);
 
         if constexpr (std::is_same_v<ElementA, float> && std::is_same_v<ElementB, float>) {
             kPartLenMax = RoundDown<C0_NUM_PER_FRACTAL>(kPartLenMax);
@@ -122,9 +122,9 @@ public:
     /// Perform a block-scoped matrix multiply-accumulate
     CATLASS_DEVICE
     void operator()(AscendC::GlobalTensor<ElementA> const &gmBlockA, LayoutA const &layoutA,
-        AscendC::GlobalTensor<ElementB> const &gmBlockB, LayoutB const &layoutB,
-        AscendC::GlobalTensor<ElementC> const &gmBlockC, LayoutC const &layoutC,
-        GemmCoord const &actualShape)
+                    AscendC::GlobalTensor<ElementB> const &gmBlockB, LayoutB const &layoutB,
+                    AscendC::GlobalTensor<ElementC> const &gmBlockC, LayoutC const &layoutC,
+                    GemmCoord const &actualShape)
     {
         uint32_t mRound = RoundUp<L1AAlignHelper::M_ALIGNED>(actualShape.m());
         uint32_t nRound = RoundUp<L1BAlignHelper::N_ALIGNED>(actualShape.n());

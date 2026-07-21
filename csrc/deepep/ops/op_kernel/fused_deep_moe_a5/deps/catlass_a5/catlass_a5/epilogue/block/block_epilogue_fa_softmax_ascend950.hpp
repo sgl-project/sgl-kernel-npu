@@ -22,21 +22,11 @@
 
 namespace Catlass::Epilogue::Block {
 
-template <
-    class L1TileShape_,
-    class PType_,
-    class SType_,
-    class MaskType_,
-    bool ATTENTION_MASK_FLAG_,
-    bool ENABLE_P_SCALE_
->
-class BlockEpilogue<
-    EpilogueAscend950FASoftmax<ATTENTION_MASK_FLAG_, ENABLE_P_SCALE_>,
-    L1TileShape_,
-    PType_,
-    SType_,
-    MaskType_
-> {
+template <class L1TileShape_, class PType_, class SType_, class MaskType_, bool ATTENTION_MASK_FLAG_,
+          bool ENABLE_P_SCALE_>
+class BlockEpilogue<EpilogueAscend950FASoftmax<ATTENTION_MASK_FLAG_, ENABLE_P_SCALE_>, L1TileShape_, PType_, SType_,
+                    MaskType_>
+{
 public:
     using DispatchPolicy = EpilogueAscend950FASoftmax<ATTENTION_MASK_FLAG_, ENABLE_P_SCALE_>;
     using ArchTag = typename DispatchPolicy::ArchTag;
@@ -58,7 +48,8 @@ public:
     static constexpr uint32_t ELE_NUM_PER_C0 = BYTE_PER_C0 / sizeof(ElementP);
 
     CATLASS_DEVICE
-    BlockEpilogue(Arch::Resource<ArchTag> &resource, ElementS scaleValue_, uint32_t &ubBufAddrStart, ElementS pScaleValue_ = 0.0)
+    BlockEpilogue(Arch::Resource<ArchTag> &resource, ElementS scaleValue_, uint32_t &ubBufAddrStart,
+                  ElementS pScaleValue_ = 0.0)
     {
         int32_t eventVMTE2 = 0;
         int32_t eventMTE2V = 0;
@@ -105,41 +96,21 @@ public:
     }
 
     template <class TensorDst, class TensorSrc, class TensorMask>
-    CATLASS_DEVICE void operator()(
-        TensorDst &vf1OutL1,
-        AscendC::LocalTensor<ElementS>&sumUb,
-        AscendC::LocalTensor<ElementS>&lastMaxUb,
-        AscendC::LocalTensor<ElementS>&expMaxUb,
-        TensorSrc &bmm1Res, 
-        TensorMask attenMaskGm,
-        bool isUpdate,
-        int8_t taskIdMod2,
-        int8_t taskIdMod3,
-        uint64_t MM1_RES_INTRA_EVENT,
-        uint64_t SYNC_V1_C2_FLAG
-    )
-    {     
+    CATLASS_DEVICE void operator()(TensorDst &vf1OutL1, AscendC::LocalTensor<ElementS> &sumUb,
+                                   AscendC::LocalTensor<ElementS> &lastMaxUb, AscendC::LocalTensor<ElementS> &expMaxUb,
+                                   TensorSrc &bmm1Res, TensorMask attenMaskGm, bool isUpdate, int8_t taskIdMod2,
+                                   int8_t taskIdMod3, uint64_t MM1_RES_INTRA_EVENT, uint64_t SYNC_V1_C2_FLAG)
+    {
         uint32_t m = tla::get<0>(bmm1Res.shape());
         uint32_t n = tla::get<1>(bmm1Res.shape());
         uint32_t blockStride = AscendC::CeilDivision(m, ELE_NUM_PER_C0) * ELE_NUM_PER_C0;
         auto vf1UbLayout = tla::MakeLayout(
-            tla::MakeShape(
-                tla::MakeShape(m, tla::Int<1>{}),
-                tla::MakeShape(
-                    tla::Int<ELE_NUM_PER_C0>{},
-                    AscendC::CeilDivision(S2_BASE_SIZE, tla::Int<ELE_NUM_PER_C0>{})
-                )
-            ),
-            tla::MakeStride(
-                tla::MakeStride(tla::Int<ELE_NUM_PER_C0>{}, tla::Int<ELE_NUM_PER_C0>{} * m),
-                tla::MakeStride(tla::Int<1>{}, blockStride * ELE_NUM_PER_C0)
-            )
-        );
-        auto vf1OutUb = tla::MakeTensor(
-            vf1OutUbList[taskIdMod2],
-            vf1UbLayout,
-            Arch::PositionUB{}
-        );
+            tla::MakeShape(tla::MakeShape(m, tla::Int<1>{}),
+                           tla::MakeShape(tla::Int<ELE_NUM_PER_C0>{},
+                                          AscendC::CeilDivision(S2_BASE_SIZE, tla::Int<ELE_NUM_PER_C0>{}))),
+            tla::MakeStride(tla::MakeStride(tla::Int<ELE_NUM_PER_C0>{}, tla::Int<ELE_NUM_PER_C0>{} * m),
+                            tla::MakeStride(tla::Int<1>{}, blockStride * ELE_NUM_PER_C0)));
+        auto vf1OutUb = tla::MakeTensor(vf1OutUbList[taskIdMod2], vf1UbLayout, Arch::PositionUB{});
 
         constexpr int16_t vlSize = static_cast<int16_t>(AscendC::GetVecLen() / sizeof(ElementS));
         uint32_t tailN = (n - 1) % vlSize + 1;
@@ -154,15 +125,8 @@ public:
         __ubuf__ ElementS *expSumUbAddr;
         if constexpr (ATTENTION_MASK_FLAG) {
             AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(taskIdMod2);
-            auto layoutUb = tla::MakeLayout(
-                tla::MakeShape(m, n),
-                tla::MakeStride(S2_BASE_SIZE, tla::Int<1>{})
-            );
-            auto attenMaskUb = tla::MakeTensor(
-                attenMaskUbList[taskIdMod2],
-                layoutUb,
-                Arch::PositionUB{}
-            );
+            auto layoutUb = tla::MakeLayout(tla::MakeShape(m, n), tla::MakeStride(S2_BASE_SIZE, tla::Int<1>{}));
+            auto attenMaskUb = tla::MakeTensor(attenMaskUbList[taskIdMod2], layoutUb, Arch::PositionUB{});
             using CopyGmToUbMask = Tile::CopyGm2UbTla<ArchTag, TensorMask, decltype(attenMaskUb)>;
             CopyGmToUbMask copyGm2UbMask;
             copyGm2UbMask(attenMaskUb, attenMaskGm);
@@ -233,8 +197,7 @@ public:
         if (likely(isUpdate)) {
             __ubuf__ ElementS *sumUbAddr = (__ubuf__ ElementS *)sumUb.GetPhyAddr();
             __ubuf__ ElementS *expMaxUbAddr = (__ubuf__ ElementS *)expMaxUb.GetPhyAddr();
-            UpdateExpSumAndExpMax<ElementS>(
-                sumUbAddr, expMaxUbAddr, lastMaxUbAddr, expSumUbAddr, nowMaxUbAddr, tailM);
+            UpdateExpSumAndExpMax<ElementS>(sumUbAddr, expMaxUbAddr, lastMaxUbAddr, expSumUbAddr, nowMaxUbAddr, tailM);
         }
     }
 
@@ -260,16 +223,12 @@ private:
     AscendC::LocalTensor<ElementS> expSumUb;
     AscendC::LocalTensor<ElementS> nowMaxUb;
 
-    enum class NRangeIndex  {
-        N0_64 = 0,
-        N65_127,
-        N128,
-        N128_INF
-    };
+    enum class NRangeIndex { N0_64 = 0, N65_127, N128, N128_INF };
 
     template <typename ElementS, uint16_t S2BaseSize, NRangeIndex NRange, bool HasAtten = false>
-    __simd_vf__ inline void ComputeMaskandScale(__ubuf__ ElementS *srcUb, __ubuf__ uint8_t *maskUb, __ubuf__ uint8_t *maskUbUnroll,
-        __ubuf__ ElementS *newMaxUb, uint16_t m, uint32_t tailN, ElementS dScale)
+    __simd_vf__ inline void ComputeMaskandScale(__ubuf__ ElementS *srcUb, __ubuf__ uint8_t *maskUb,
+                                                __ubuf__ uint8_t *maskUbUnroll, __ubuf__ ElementS *newMaxUb, uint16_t m,
+                                                uint32_t tailN, ElementS dScale)
     {
         using namespace AscendC::MicroAPI;
         RegTensor<float> minVreg;
@@ -283,11 +242,11 @@ private:
         MaskReg pregFull = CreateMask<float, MaskPattern::ALL>();
         MaskReg pregTailN = UpdateMask<uint32_t>(tailN);
 
-        if constexpr (NRange < NRangeIndex::N128 || HasAtten){ 
+        if constexpr (NRange < NRangeIndex::N128 || HasAtten) {
             Duplicate(minVreg, MIN_VALUE);
         }
         for (uint16_t i = 0; i < m; ++i) {
-            if constexpr (NRange > NRangeIndex::N0_64){
+            if constexpr (NRange > NRangeIndex::N0_64) {
                 LoadAlign(srcVreg0, srcUb + i * S2BaseSize);
                 LoadAlign(srcVreg1, srcUb + i * S2BaseSize + FLOAT_REP_SIZE);
                 Muls(srcVreg0, srcVreg0, dScale, pregFull);
@@ -300,11 +259,12 @@ private:
                     Select(srcVreg0, minVreg, srcVreg0, pregCompare0);
                     Select(srcVreg1, minVreg, srcVreg1, pregCompare1);
                 }
-                if constexpr(NRange < NRangeIndex::N128){
+                if constexpr (NRange < NRangeIndex::N128) {
                     Select(srcVreg1, srcVreg1, minVreg, pregTailN);
                 }
-                StoreAlign<ElementS, StoreDist::DIST_NORM_B32>(srcUb + i * S2BaseSize, srcVreg0, pregFull); 
-                StoreAlign<ElementS, StoreDist::DIST_NORM_B32>(srcUb + i * S2BaseSize + FLOAT_REP_SIZE, srcVreg1, pregFull); 
+                StoreAlign<ElementS, StoreDist::DIST_NORM_B32>(srcUb + i * S2BaseSize, srcVreg0, pregFull);
+                StoreAlign<ElementS, StoreDist::DIST_NORM_B32>(srcUb + i * S2BaseSize + FLOAT_REP_SIZE, srcVreg1,
+                                                               pregFull);
                 Max(maxTmpVreg, srcVreg0, srcVreg1, pregFull);
                 ReduceMax(maxVreg, maxTmpVreg, pregFull);
             } else {
@@ -324,10 +284,8 @@ private:
         StoreUnAlignPost(newMaxUb, maxUreg, 0);
     }
 
-
     template <typename ElementS>
-    __simd_vf__ inline void UpdateMax(
-        __ubuf__ ElementS *nowMaxUb, __ubuf__ ElementS *lastMaxUb, uint32_t tailM)
+    __simd_vf__ inline void UpdateMax(__ubuf__ ElementS *nowMaxUb, __ubuf__ ElementS *lastMaxUb, uint32_t tailM)
     {
         using namespace AscendC::MicroAPI;
         RegTensor<float> nowMaxVreg;
@@ -343,7 +301,8 @@ private:
 
     template <typename ElementP, typename ElementS, uint16_t S2BaseSize, NRangeIndex NRange>
     __simd_vf__ inline void ComputeExpSubSum(__ubuf__ ElementP *expUb, __ubuf__ ElementS *srcUb,
-        __ubuf__ ElementS *nowMaxUb, __ubuf__ ElementS *expSumUb, uint16_t m, uint32_t blockStride)
+                                             __ubuf__ ElementS *nowMaxUb, __ubuf__ ElementS *expSumUb, uint16_t m,
+                                             uint32_t blockStride)
     {
         using namespace AscendC::MicroAPI;
         constexpr static CastTrait castTraitZero = {
@@ -388,9 +347,8 @@ private:
                 Add(expVreg, expVreg0, expVreg1, pregFull);
                 Cast<ElementP, ElementS, castTraitZero>(expDstVreg0, expVreg0, pregFull);
                 Cast<ElementP, ElementS, castTraitOne>(expDstVreg1, expVreg1, pregFull);
-                Or((RegTensor<uint16_t>&)expDstVreg, 
-                    (RegTensor<uint16_t>&)expDstVreg0, (RegTensor<uint16_t>&)expDstVreg1,
-                    pregFull16);
+                Or((RegTensor<uint16_t> &)expDstVreg, (RegTensor<uint16_t> &)expDstVreg0,
+                   (RegTensor<uint16_t> &)expDstVreg1, pregFull16);
                 StoreAlign<ElementP, DataCopyMode::DATA_BLOCK_COPY, PostLiteral::POST_MODE_UPDATE>(
                     expUb, expDstVreg, blockStride, REPEAT_STRIDE, pregFull16);
             } else {
@@ -412,7 +370,8 @@ private:
 
     template <typename ElementP, typename ElementS, uint16_t S2BaseSize, NRangeIndex NRange>
     __simd_vf__ inline void ComputeExpSubSumFp8(__ubuf__ ElementP *expUb, __ubuf__ ElementS *srcUb,
-        __ubuf__ ElementS *nowMaxUb, __ubuf__ ElementS *expSumUb, uint16_t m, uint32_t blockStride)
+                                                __ubuf__ ElementS *nowMaxUb, __ubuf__ ElementS *expSumUb, uint16_t m,
+                                                uint32_t blockStride)
     {
         using namespace AscendC::MicroAPI;
         constexpr static CastTrait castTraitRintZero = {
@@ -466,9 +425,8 @@ private:
                 Add(expVreg, expVreg0, expVreg1, pregFull);
                 Cast<ElementP, ElementS, castTraitRintZero>(expDstVreg0, expVreg0, pregFull);
                 Cast<ElementP, ElementS, castTraitRintTwo>(expDstVreg1, expVreg1, pregFull);
-                Or((RegTensor<uint8_t>&)expDstVreg, 
-                    (RegTensor<uint8_t>&)expDstVreg0, (RegTensor<uint8_t>&)expDstVreg1,
-                    pregFull8);
+                Or((RegTensor<uint8_t> &)expDstVreg, (RegTensor<uint8_t> &)expDstVreg0,
+                   (RegTensor<uint8_t> &)expDstVreg1, pregFull8);
                 DeInterleave(expDstVreg0, expDstVreg1, expDstVreg, expDstVreg);
                 StoreAlign<ElementP, DataCopyMode::DATA_BLOCK_COPY, PostLiteral::POST_MODE_UPDATE>(
                     expUb, expDstVreg0, blockStride, REPEAT_STRIDE, pregHalf8);
@@ -492,7 +450,8 @@ private:
 
     template <typename ElementS>
     __simd_vf__ inline void UpdateExpSumAndExpMax(__ubuf__ ElementS *sumUb, __ubuf__ ElementS *expMaxUb,
-        __ubuf__ ElementS *maxUb, __ubuf__ ElementS *expSumUb, __ubuf__ ElementS *nowMaxUb, uint32_t tailM)
+                                                  __ubuf__ ElementS *maxUb, __ubuf__ ElementS *expSumUb,
+                                                  __ubuf__ ElementS *nowMaxUb, uint32_t tailM)
     {
         using namespace AscendC::MicroAPI;
         RegTensor<float> nowMaxVreg;

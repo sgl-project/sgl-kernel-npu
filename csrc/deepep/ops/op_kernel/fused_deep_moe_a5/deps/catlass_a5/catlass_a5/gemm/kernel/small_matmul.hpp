@@ -21,12 +21,9 @@
 namespace Catlass::Gemm::Kernel {
 
 // Template for Matmul kernel. Compute C = A * B
-template <
-    class BlockMmad_,
-    class BlockEpilogue_,
-    class BlockScheduler_
->
-class SmallMatmul {
+template <class BlockMmad_, class BlockEpilogue_, class BlockScheduler_>
+class SmallMatmul
+{
 public:
     using BlockMmad = BlockMmad_;
     using ArchTag = typename BlockMmad::ArchTag;
@@ -53,14 +50,19 @@ public:
 
         // Methods
         CATLASS_HOST_DEVICE
-        Params()
-        {}
+        Params() {}
 
         CATLASS_HOST_DEVICE
-        Params(GemmCoord const &problemShape_, GM_ADDR ptrA_, LayoutA layoutA_, GM_ADDR ptrB_,
-               LayoutB layoutB_, GM_ADDR ptrC_, LayoutC layoutC_)
-            : problemShape(problemShape_), ptrA(ptrA_), layoutA(layoutA_), ptrB(ptrB_), layoutB(layoutB_),
-              ptrC(ptrC_), layoutC(layoutC_) {}
+        Params(GemmCoord const &problemShape_, GM_ADDR ptrA_, LayoutA layoutA_, GM_ADDR ptrB_, LayoutB layoutB_,
+               GM_ADDR ptrC_, LayoutC layoutC_)
+            : problemShape(problemShape_),
+              ptrA(ptrA_),
+              layoutA(layoutA_),
+              ptrB(ptrB_),
+              layoutB(layoutB_),
+              ptrC(ptrC_),
+              layoutC(layoutC_)
+        {}
     };
 
     struct Arguments {
@@ -117,10 +119,12 @@ public:
         if (loopIdx < totalLoops) {
             // Compute block location
             GemmCoord blockCoord{loopIdx / nLoops, loopIdx % nLoops, 0};
-            uint32_t mActual = (blockCoord.m() == (mLoops - 1)) ?
-                (params.problemShape.m() - blockCoord.m()  * L1TileShape::M) : L1TileShape::M;
-            uint32_t nActual = (blockCoord.n() == (nLoops - 1)) ?
-                (params.problemShape.n() - blockCoord.n()  * L1TileShape::N) : L1TileShape::N;
+            uint32_t mActual = (blockCoord.m() == (mLoops - 1))
+                                   ? (params.problemShape.m() - blockCoord.m() * L1TileShape::M)
+                                   : L1TileShape::M;
+            uint32_t nActual = (blockCoord.n() == (nLoops - 1))
+                                   ? (params.problemShape.n() - blockCoord.n() * L1TileShape::N)
+                                   : L1TileShape::N;
             GemmCoord actualBlockShape{mActual, nActual, params.problemShape.k()};
 
             // Compute initial location in logical coordinates
@@ -132,9 +136,7 @@ public:
             int64_t gmOffsetC = params.layoutC.GetOffset(offsetC);
 
             // Compute block-scoped matrix multiply-add
-            blockMmad(gmA[gmOffsetA], params.layoutA,
-                      gmB[gmOffsetB], params.layoutB,
-                      gmC[gmOffsetC], params.layoutC,
+            blockMmad(gmA[gmOffsetA], params.layoutA, gmB[gmOffsetB], params.layoutB, gmC[gmOffsetC], params.layoutC,
                       actualBlockShape);
         }
 
@@ -142,6 +144,6 @@ public:
     }
 };
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel
 
-#endif // CATLASS_GEMM_KERNEL_SMALL_MATMUL_HPP
+#endif  // CATLASS_GEMM_KERNEL_SMALL_MATMUL_HPP

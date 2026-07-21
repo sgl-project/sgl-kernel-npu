@@ -21,7 +21,6 @@
 using fp8_e8m0_t = int8_t;
 using fp8_e4m3_t = int8_t;
 
-
 using namespace ge;
 using namespace Cam;
 namespace {
@@ -101,7 +100,7 @@ static uint32_t CountTensorListLen(const gert::TilingContext &context, int descI
 
 static bool CheckOptionalInputExist(const gert::TilingContext &context, int descIndex)
 {
-    const gert::StorageShape* tensorStorageShape = context.GetOptionalInputShape(descIndex);
+    const gert::StorageShape *tensorStorageShape = context.GetOptionalInputShape(descIndex);
     bool tensorExist = (tensorStorageShape != nullptr);
     return tensorExist;
 }
@@ -113,8 +112,7 @@ static ge::graphStatus CheckGmm1Shape(gert::TilingContext &context, FusedDeepMoe
     uint32_t h = tilingData.fusedDeepMoeInfo.h;
     uint32_t gmm1ListLen = CountTensorListLen(context, INPUT_GMM1_WEIGHT_INDEX);
     auto gmm1FirstTensorElement = context.GetDynamicInputTensor(INPUT_GMM1_WEIGHT_INDEX, 0);
-    OPS_ERR_IF(gmm1FirstTensorElement == nullptr,
-        OPS_LOG_E(nodeName, "gmm1Weight is null."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(gmm1FirstTensorElement == nullptr, OPS_LOG_E(nodeName, "gmm1Weight is null."), return ge::GRAPH_FAILED);
     auto gmm1FirstTensorElementShape = gmm1FirstTensorElement->GetOriginShape();
     uint32_t elementDims = gmm1FirstTensorElementShape.GetDimNum();
     uint32_t epRankId = tilingData.fusedDeepMoeInfo.epRankId;
@@ -122,33 +120,32 @@ static ge::graphStatus CheckGmm1Shape(gert::TilingContext &context, FusedDeepMoe
     bool isMxFp4 = tilingData.fusedDeepMoeInfo.mxActStorageFp4 == MX_FP4_QUANT_MODE;
 
     OPS_ERR_IF(elementDims != TWO_DIMS && elementDims != THREE_DIMS,
-                    OPS_LOG_E(nodeName, "gmm1Weight shape is invalid."),
-                    return ge::GRAPH_FAILED);
-    if (gmm1ListLen > 1) { // List
+               OPS_LOG_E(nodeName, "gmm1Weight shape is invalid."), return ge::GRAPH_FAILED);
+    if (gmm1ListLen > 1) {  // List
         OPS_ERR_IF(gmm1ListLen != localExpertNum,
-                OPS_LOG_E(nodeName, "gmm1 listlen does not equals to localExpertNum."), return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "gmm1 listlen does not equals to localExpertNum."), return ge::GRAPH_FAILED);
         OPS_ERR_IF(h != gmm1FirstTensorElementShape.GetDim(0),
-                OPS_LOG_E(nodeName, "gmm1Weight input length does not equals to token hidden size."),
-                return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "gmm1Weight input length does not equals to token hidden size."),
+                   return ge::GRAPH_FAILED);
         tilingData.fusedDeepMoeInfo.gmm1HLen =
-                                    static_cast<uint64_t>(gmm1FirstTensorElementShape.GetDim(TENSOR_HIDDEN_INDEX));
+            static_cast<uint64_t>(gmm1FirstTensorElementShape.GetDim(TENSOR_HIDDEN_INDEX));
         tilingData.fusedDeepMoeInfo.isTensorList = true;
-    } else { // Single
+    } else {                            // Single
         if (elementDims == TWO_DIMS) {  // one localExpert perRank
             OPS_ERR_IF(h != gmm1FirstTensorElementShape.GetDim(0),
-                OPS_LOG_E(nodeName, "gmm1Weight input length does not equals to token hidden size."),
-                return ge::GRAPH_FAILED);
+                       OPS_LOG_E(nodeName, "gmm1Weight input length does not equals to token hidden size."),
+                       return ge::GRAPH_FAILED);
             tilingData.fusedDeepMoeInfo.gmm1HLen =
-                                    static_cast<uint64_t>(gmm1FirstTensorElementShape.GetDim(SINGLE_HIDDEN_INDEX - 1));
-        } else {    // multi localExperts perRank
+                static_cast<uint64_t>(gmm1FirstTensorElementShape.GetDim(SINGLE_HIDDEN_INDEX - 1));
+        } else {  // multi localExperts perRank
             OPS_ERR_IF(localExpertNum != gmm1FirstTensorElementShape.GetDim(0),
-                OPS_LOG_E(nodeName, "gmm1Weight does not match local expert number per rank."),
-                return ge::GRAPH_FAILED);
+                       OPS_LOG_E(nodeName, "gmm1Weight does not match local expert number per rank."),
+                       return ge::GRAPH_FAILED);
             OPS_ERR_IF(h != gmm1FirstTensorElementShape.GetDim(1),
-                OPS_LOG_E(nodeName, "gmm1Weight input length does not equals to token hidden size."),
-                return ge::GRAPH_FAILED);
+                       OPS_LOG_E(nodeName, "gmm1Weight input length does not equals to token hidden size."),
+                       return ge::GRAPH_FAILED);
             tilingData.fusedDeepMoeInfo.gmm1HLen =
-                                    static_cast<uint64_t>(gmm1FirstTensorElementShape.GetDim(SINGLE_HIDDEN_INDEX));
+                static_cast<uint64_t>(gmm1FirstTensorElementShape.GetDim(SINGLE_HIDDEN_INDEX));
         }
         tilingData.fusedDeepMoeInfo.isTensorList = false;
     }
@@ -164,46 +161,49 @@ static ge::graphStatus CheckShareExpertShapes(gert::TilingContext &context, Fuse
     uint32_t h = tilingData.fusedDeepMoeInfo.h;
 
     // Check share_gmm1_weight: [h, shareGmm1HLen] (2D) or [1, h, shareGmm1HLen] (3D)
-    const gert::StorageShape* shareGmm1WeightStorageShape = context.GetOptionalInputShape(INPUT_SHARE_GMM1_WEIGHT_INDEX);
+    const gert::StorageShape *shareGmm1WeightStorageShape =
+        context.GetOptionalInputShape(INPUT_SHARE_GMM1_WEIGHT_INDEX);
     auto shareGmm1OriginShape = shareGmm1WeightStorageShape->GetOriginShape();
     uint32_t gmm1WeightDims = shareGmm1OriginShape.GetDimNum();
     OPS_ERR_IF(gmm1WeightDims != TWO_DIMS && gmm1WeightDims != THREE_DIMS,
-                    OPS_LOG_E(nodeName, "shareGmm1Weight shape is invalid."),
-                    return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "shareGmm1Weight shape is invalid."), return ge::GRAPH_FAILED);
 
     uint64_t shareGmm1HLen = 0;
     if (gmm1WeightDims == TWO_DIMS) {  // [h, shareGmm1HLen] format
         OPS_ERR_IF(h != shareGmm1OriginShape.GetDim(0),
-            OPS_LOG_E(nodeName, "shareGmm1Weight dim0 should be h(%u), but got %ld.", h, shareGmm1OriginShape.GetDim(0)),
-            return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "shareGmm1Weight dim0 should be h(%u), but got %ld.", h,
+                             shareGmm1OriginShape.GetDim(0)),
+                   return ge::GRAPH_FAILED);
         shareGmm1HLen = static_cast<uint64_t>(shareGmm1OriginShape.GetDim(1));
-    } else {    // [1, h, shareGmm1HLen] format (three dims)
+    } else {  // [1, h, shareGmm1HLen] format (three dims)
         OPS_ERR_IF(1 != shareGmm1OriginShape.GetDim(0),
-            OPS_LOG_E(nodeName, "shareGmm1Weight dim0 should be 1 for shared expert, but got %ld.", shareGmm1OriginShape.GetDim(0)),
-            return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "shareGmm1Weight dim0 should be 1 for shared expert, but got %ld.",
+                             shareGmm1OriginShape.GetDim(0)),
+                   return ge::GRAPH_FAILED);
         OPS_ERR_IF(h != shareGmm1OriginShape.GetDim(1),
-            OPS_LOG_E(nodeName, "shareGmm1Weight dim1 should be h(%u), but got %ld.", h, shareGmm1OriginShape.GetDim(1)),
-            return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "shareGmm1Weight dim1 should be h(%u), but got %ld.", h,
+                             shareGmm1OriginShape.GetDim(1)),
+                   return ge::GRAPH_FAILED);
         shareGmm1HLen = static_cast<uint64_t>(shareGmm1OriginShape.GetDim(2));
     }
     tilingData.fusedDeepMoeInfo.shareGmm1HLen = shareGmm1HLen;
-    OPS_ERR_IF(
-        shareGmm1HLen < MIN_GMM1_HIDDEN || shareGmm1HLen > MAX_GMM1_HIDDEN,
-        OPS_LOG_E(nodeName, "shareGmm1 hidden size is invalid. Only support [%u, %u].",
-            MIN_GMM1_HIDDEN, MAX_GMM1_HIDDEN),
-        return ge::GRAPH_FAILED);
+    OPS_ERR_IF(shareGmm1HLen < MIN_GMM1_HIDDEN || shareGmm1HLen > MAX_GMM1_HIDDEN,
+               OPS_LOG_E(nodeName, "shareGmm1 hidden size is invalid. Only support [%u, %u].", MIN_GMM1_HIDDEN,
+                         MAX_GMM1_HIDDEN),
+               return ge::GRAPH_FAILED);
     OPS_ERR_IF(shareGmm1HLen % GMM1_HIDDEN_ALIGN != 0,
-        OPS_LOG_E(nodeName, "shareGmm1 hidden size must be divisible by %u, but got %lu.",
-            GMM1_HIDDEN_ALIGN, shareGmm1HLen),
-        return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "shareGmm1 hidden size must be divisible by %u, but got %lu.", GMM1_HIDDEN_ALIGN,
+                         shareGmm1HLen),
+               return ge::GRAPH_FAILED);
     bool isMxFp4 = tilingData.fusedDeepMoeInfo.mxActStorageFp4 == MX_FP4_QUANT_MODE;
     if (isMxFp4) {
         tilingData.fusedDeepMoeInfo.shareGmm1HLen = tilingData.fusedDeepMoeInfo.shareGmm1HLen * 2;
     }
 
     // Check share_gmm1_weight_scale: [shareGmm1HLen] (1D) or [1, shareGmm1HLen] (2D)
-    // const gert::StorageShape* shareGmm1ScaleStorageShape = context.GetOptionalInputShape(INPUT_SHARE_GMM1_WEIGHT_SCALE_INDEX);
-    // OPS_ERR_IF(shareGmm1ScaleStorageShape == nullptr,
+    // const gert::StorageShape* shareGmm1ScaleStorageShape =
+    // context.GetOptionalInputShape(INPUT_SHARE_GMM1_WEIGHT_SCALE_INDEX); OPS_ERR_IF(shareGmm1ScaleStorageShape ==
+    // nullptr,
     //     OPS_LOG_E(nodeName, "shareGmm1Scale is null."), return ge::GRAPH_FAILED);
     // auto shareGmm1ScaleOriginShape = shareGmm1ScaleStorageShape->GetOriginShape();
     // uint32_t gmm1ScaleDims = shareGmm1ScaleOriginShape.GetDimNum();
@@ -228,8 +228,8 @@ static ge::graphStatus CheckShareExpertShapes(gert::TilingContext &context, Fuse
     // }
 
     // // Check share_gmm2_weight: [shareGmm1HLen/2, h] (2D) or [1, shareGmm1HLen/2, h] (3D)
-    // const gert::StorageShape* shareGmm2WeightStorageShape = context.GetOptionalInputShape(INPUT_SHARE_GMM2_WEIGHT_INDEX);
-    // OPS_ERR_IF(shareGmm2WeightStorageShape == nullptr,
+    // const gert::StorageShape* shareGmm2WeightStorageShape =
+    // context.GetOptionalInputShape(INPUT_SHARE_GMM2_WEIGHT_INDEX); OPS_ERR_IF(shareGmm2WeightStorageShape == nullptr,
     //     OPS_LOG_E(nodeName, "shareGmm2Weight is null."), return ge::GRAPH_FAILED);
     // auto shareGmm2OriginShape = shareGmm2WeightStorageShape->GetOriginShape();
     // uint32_t gmm2WeightDims = shareGmm2OriginShape.GetDimNum();
@@ -244,24 +244,25 @@ static ge::graphStatus CheckShareExpertShapes(gert::TilingContext &context, Fuse
     //                 shareGmm2InputDim, shareGmm2OriginShape.GetDim(0)),
     //         return ge::GRAPH_FAILED);
     //     OPS_ERR_IF(h != shareGmm2OriginShape.GetDim(1),
-    //         OPS_LOG_E(nodeName, "shareGmm2Weight dim1 should be h(%u), but got %ld.", h, shareGmm2OriginShape.GetDim(1)),
-    //         return ge::GRAPH_FAILED);
+    //         OPS_LOG_E(nodeName, "shareGmm2Weight dim1 should be h(%u), but got %ld.", h,
+    //         shareGmm2OriginShape.GetDim(1)), return ge::GRAPH_FAILED);
     // } else {    // [1, shareGmm1HLen/2, h] format (three dims)
     //     OPS_ERR_IF(1 != shareGmm2OriginShape.GetDim(0),
-    //         OPS_LOG_E(nodeName, "shareGmm2Weight dim0 should be 1 for shared expert, but got %ld.", shareGmm2OriginShape.GetDim(0)),
-    //         return ge::GRAPH_FAILED);
+    //         OPS_LOG_E(nodeName, "shareGmm2Weight dim0 should be 1 for shared expert, but got %ld.",
+    //         shareGmm2OriginShape.GetDim(0)), return ge::GRAPH_FAILED);
     //     OPS_ERR_IF(static_cast<uint64_t>(shareGmm2OriginShape.GetDim(1)) != shareGmm2InputDim,
     //         OPS_LOG_E(nodeName, "shareGmm2Weight dim1 should be shareGmm1HLen/2(%lu), but got %ld.",
     //                 shareGmm2InputDim, shareGmm2OriginShape.GetDim(1)),
     //         return ge::GRAPH_FAILED);
     //     OPS_ERR_IF(h != shareGmm2OriginShape.GetDim(2),
-    //         OPS_LOG_E(nodeName, "shareGmm2Weight dim2 should be h(%u), but got %ld.", h, shareGmm2OriginShape.GetDim(2)),
-    //         return ge::GRAPH_FAILED);
+    //         OPS_LOG_E(nodeName, "shareGmm2Weight dim2 should be h(%u), but got %ld.", h,
+    //         shareGmm2OriginShape.GetDim(2)), return ge::GRAPH_FAILED);
     // }
 
     // // Check share_gmm2_weight_scale: [h] (1D) or [1, h] (2D)
-    // const gert::StorageShape* shareGmm2ScaleStorageShape = context.GetOptionalInputShape(INPUT_SHARE_GMM2_WEIGHT_SCALE_INDEX);
-    // OPS_ERR_IF(shareGmm2ScaleStorageShape == nullptr,
+    // const gert::StorageShape* shareGmm2ScaleStorageShape =
+    // context.GetOptionalInputShape(INPUT_SHARE_GMM2_WEIGHT_SCALE_INDEX); OPS_ERR_IF(shareGmm2ScaleStorageShape ==
+    // nullptr,
     //     OPS_LOG_E(nodeName, "shareGmm2Scale is null."), return ge::GRAPH_FAILED);
     // auto shareGmm2ScaleOriginShape = shareGmm2ScaleStorageShape->GetOriginShape();
     // uint32_t gmm2ScaleDims = shareGmm2ScaleOriginShape.GetDimNum();
@@ -296,22 +297,19 @@ static ge::graphStatus CheckShareExpertDtypes(gert::TilingContext &context, Fuse
     auto shareGmm1ScaleTensor = context.GetOptionalInputTensor(INPUT_SHARE_GMM1_WEIGHT_SCALE_INDEX);
     auto shareGmm2ScaleTensor = context.GetOptionalInputTensor(INPUT_SHARE_GMM2_WEIGHT_SCALE_INDEX);
     OPS_ERR_IF((shareGmm1ScaleTensor->GetDataType() != gmm1ScaleTensor->GetDataType()),
-            OPS_LOG_E(nodeName, "share expert weight1 scale datatype (%d) must be same with routed experts'(%d).",
-                    static_cast<ge::DataType>(shareGmm1ScaleTensor->GetDataType()),
-                    static_cast<ge::DataType>(gmm1ScaleTensor->GetDataType())
-                ),
-            return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "share expert weight1 scale datatype (%d) must be same with routed experts'(%d).",
+                         static_cast<ge::DataType>(shareGmm1ScaleTensor->GetDataType()),
+                         static_cast<ge::DataType>(gmm1ScaleTensor->GetDataType())),
+               return ge::GRAPH_FAILED);
     OPS_ERR_IF((shareGmm2ScaleTensor->GetDataType() != gmm2ScaleTensor->GetDataType()),
-            OPS_LOG_E(nodeName, "share expert weight2 scale datatype (%d) must be same with routed experts'(%d).",
-                    static_cast<ge::DataType>(shareGmm2ScaleTensor->GetDataType()),
-                    static_cast<ge::DataType>(gmm2ScaleTensor->GetDataType())
-                ),
-            return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "share expert weight2 scale datatype (%d) must be same with routed experts'(%d).",
+                         static_cast<ge::DataType>(shareGmm2ScaleTensor->GetDataType()),
+                         static_cast<ge::DataType>(gmm2ScaleTensor->GetDataType())),
+               return ge::GRAPH_FAILED);
     return ge::GRAPH_SUCCESS;
 }
 
-static ge::graphStatus CheckGmm1ScaleShape(gert::TilingContext &context,
-                                           const FusedDeepMoeTilingData &tilingData)
+static ge::graphStatus CheckGmm1ScaleShape(gert::TilingContext &context, const FusedDeepMoeTilingData &tilingData)
 {
     const char *nodeName = context.GetNodeName();
     uint32_t moeExpertNumPerRank = tilingData.fusedDeepMoeInfo.moeExpertNumPerRank;
@@ -322,31 +320,36 @@ static ge::graphStatus CheckGmm1ScaleShape(gert::TilingContext &context,
 
     uint32_t gmm1ScaleListLen = CountTensorListLen(context, INPUT_GMM1_WEIGHT_SCALE_INDEX);
     auto gmm1ScaleFirstTensorElement = context.GetDynamicInputTensor(INPUT_GMM1_WEIGHT_SCALE_INDEX, 0);
-    OPS_ERR_IF(gmm1ScaleFirstTensorElement == nullptr,
-        OPS_LOG_E(nodeName, "gmm1Scale is null."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(gmm1ScaleFirstTensorElement == nullptr, OPS_LOG_E(nodeName, "gmm1Scale is null."),
+               return ge::GRAPH_FAILED);
     auto gmm1ScaleFirstTensorElementShape = gmm1ScaleFirstTensorElement->GetOriginShape();
     uint32_t elementDims = gmm1ScaleFirstTensorElementShape.GetDimNum();
     OPS_ERR_IF(elementDims != 1 && elementDims != 2, OPS_LOG_E(nodeName, "gmm1WeightScale shape is invalid."),
-            return ge::GRAPH_FAILED);
-    if (gmm1ScaleListLen > 1) { // List
+               return ge::GRAPH_FAILED);
+    if (gmm1ScaleListLen > 1) {  // List
         OPS_ERR_IF(gmm1ScaleListLen != localExpertNum,
-                OPS_LOG_E(nodeName, "gmm1scale listlen does not equals to localExpertNum."), return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "gmm1scale listlen does not equals to localExpertNum."),
+                   return ge::GRAPH_FAILED);
         OPS_ERR_IF(n != gmm1ScaleFirstTensorElementShape.GetDim(0),
-                OPS_LOG_E(nodeName, "gmm1Scale length does not equals to gmm1 hidden size."), return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "gmm1Scale length does not equals to gmm1 hidden size."),
+                   return ge::GRAPH_FAILED);
         listFlag = true;
-    } else { // Single
-        if (elementDims == 1) { // one localExpert perRank
+    } else {                     // Single
+        if (elementDims == 1) {  // one localExpert perRank
             OPS_ERR_IF(n != gmm1ScaleFirstTensorElementShape.GetDim(0),
-                OPS_LOG_E(nodeName, "gmm1Scale length does not equals to gmm1 hidden size."), return ge::GRAPH_FAILED);
-        } else { // multi localExperts perRank
+                       OPS_LOG_E(nodeName, "gmm1Scale length does not equals to gmm1 hidden size."),
+                       return ge::GRAPH_FAILED);
+        } else {  // multi localExperts perRank
             OPS_ERR_IF(localExpertNum != gmm1ScaleFirstTensorElementShape.GetDim(0),
-                OPS_LOG_E(nodeName, "gmm1Scale does not match local expert number perRank."), return ge::GRAPH_FAILED);
+                       OPS_LOG_E(nodeName, "gmm1Scale does not match local expert number perRank."),
+                       return ge::GRAPH_FAILED);
             OPS_ERR_IF(n != gmm1ScaleFirstTensorElementShape.GetDim(1),
-                OPS_LOG_E(nodeName, "gmm1Scale length does not equals to gmm1 hidden size."), return ge::GRAPH_FAILED);
+                       OPS_LOG_E(nodeName, "gmm1Scale length does not equals to gmm1 hidden size."),
+                       return ge::GRAPH_FAILED);
         }
     }
     OPS_ERR_IF(listFlag != tilingData.fusedDeepMoeInfo.isTensorList,
-        OPS_LOG_E(nodeName, "gmm1Scale listFlag does not match gmm1Weight listFlag."), return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "gmm1Scale listFlag does not match gmm1Weight listFlag."), return ge::GRAPH_FAILED);
 
     return ge::GRAPH_SUCCESS;
 }
@@ -363,43 +366,41 @@ static ge::graphStatus CheckGmm2Shape(const gert::TilingContext &context, const 
 
     uint32_t gmm2ListLen = CountTensorListLen(context, INPUT_GMM2_WEIGHT_INDEX);
     auto gmm2FirstTensorElement = context.GetDynamicInputTensor(INPUT_GMM2_WEIGHT_INDEX, 0);
-    OPS_ERR_IF(gmm2FirstTensorElement == nullptr,
-        OPS_LOG_E(nodeName, "gmm2Weight is null."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(gmm2FirstTensorElement == nullptr, OPS_LOG_E(nodeName, "gmm2Weight is null."), return ge::GRAPH_FAILED);
     auto gmm2FirstTensorElementShape = gmm2FirstTensorElement->GetOriginShape();
     uint32_t elementDims = gmm2FirstTensorElementShape.GetDimNum();
     OPS_ERR_IF(elementDims != 2 && elementDims != 3, OPS_LOG_E(nodeName, "gmm2Weight shape is invalid."),
-            return ge::GRAPH_FAILED);
-    if (gmm2ListLen > 1) { // List
+               return ge::GRAPH_FAILED);
+    if (gmm2ListLen > 1) {  // List
         OPS_ERR_IF(gmm2ListLen != localExpertNum,
-                OPS_LOG_E(nodeName, "gmm2 does not match local expert number perRank."), return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "gmm2 does not match local expert number perRank."), return ge::GRAPH_FAILED);
         OPS_ERR_IF(n / 2 != gmm2FirstTensorElementShape.GetDim(0),
-                OPS_LOG_E(nodeName, "gmm2 does not match half of gmm1 hidden size."), return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "gmm2 does not match half of gmm1 hidden size."), return ge::GRAPH_FAILED);
         OPS_ERR_IF(h != gmm2FirstTensorElementShape.GetDim(1),
-                OPS_LOG_E(nodeName, "gmm2 does not match token hidden size."), return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "gmm2 does not match token hidden size."), return ge::GRAPH_FAILED);
         listFlag = true;
-    } else { // Single
-        if (elementDims == TWO_DIMS) { // one localExpert perRank
+    } else {                            // Single
+        if (elementDims == TWO_DIMS) {  // one localExpert perRank
             OPS_ERR_IF(n / 2 != gmm2FirstTensorElementShape.GetDim(0),
-                OPS_LOG_E(nodeName, "gmm2 does not match half of gmm1 hidden size."), return ge::GRAPH_FAILED);
+                       OPS_LOG_E(nodeName, "gmm2 does not match half of gmm1 hidden size."), return ge::GRAPH_FAILED);
             OPS_ERR_IF(h != gmm2FirstTensorElementShape.GetDim(1),
-                OPS_LOG_E(nodeName, "gmm2 does not match token hidden size."), return ge::GRAPH_FAILED);
-        } else { // multi localExperts perRank
+                       OPS_LOG_E(nodeName, "gmm2 does not match token hidden size."), return ge::GRAPH_FAILED);
+        } else {  // multi localExperts perRank
             OPS_ERR_IF(localExpertNum != gmm2FirstTensorElementShape.GetDim(0),
-                OPS_LOG_E(nodeName, "gmm2 does not match local expert num perRank."), return ge::GRAPH_FAILED);
+                       OPS_LOG_E(nodeName, "gmm2 does not match local expert num perRank."), return ge::GRAPH_FAILED);
             OPS_ERR_IF(n / 2 != gmm2FirstTensorElementShape.GetDim(1),
-                OPS_LOG_E(nodeName, "gmm2 does not match half of gmm1 hidden size."), return ge::GRAPH_FAILED);
+                       OPS_LOG_E(nodeName, "gmm2 does not match half of gmm1 hidden size."), return ge::GRAPH_FAILED);
             OPS_ERR_IF(h != gmm2FirstTensorElementShape.GetDim(2),
-                OPS_LOG_E(nodeName, "gmm2 does not match token hidden size."), return ge::GRAPH_FAILED);
+                       OPS_LOG_E(nodeName, "gmm2 does not match token hidden size."), return ge::GRAPH_FAILED);
         }
     }
     OPS_ERR_IF(listFlag != tilingData.fusedDeepMoeInfo.isTensorList,
-        OPS_LOG_E(nodeName, "gmm2 listFlag does not match gmm1Weight listFlag."), return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "gmm2 listFlag does not match gmm1Weight listFlag."), return ge::GRAPH_FAILED);
 
     return ge::GRAPH_SUCCESS;
 }
 
-static ge::graphStatus CheckGmm2ScaleShape(gert::TilingContext &context,
-                                           const FusedDeepMoeTilingData &tilingData)
+static ge::graphStatus CheckGmm2ScaleShape(gert::TilingContext &context, const FusedDeepMoeTilingData &tilingData)
 {
     const char *nodeName = context.GetNodeName();
     uint32_t moeExpertNumPerRank = tilingData.fusedDeepMoeInfo.moeExpertNumPerRank;
@@ -410,37 +411,38 @@ static ge::graphStatus CheckGmm2ScaleShape(gert::TilingContext &context,
 
     uint32_t gmm2ScaleListLen = CountTensorListLen(context, INPUT_GMM2_WEIGHT_SCALE_INDEX);
     auto gmm2ScaleFirstTensorElement = context.GetDynamicInputTensor(INPUT_GMM2_WEIGHT_SCALE_INDEX, 0);
-    OPS_ERR_IF(gmm2ScaleFirstTensorElement == nullptr,
-        OPS_LOG_E(nodeName, "gmm2Scale is null."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(gmm2ScaleFirstTensorElement == nullptr, OPS_LOG_E(nodeName, "gmm2Scale is null."),
+               return ge::GRAPH_FAILED);
     auto gmm2ScaleFirstTensorElementShape = gmm2ScaleFirstTensorElement->GetOriginShape();
     uint32_t elementDims = gmm2ScaleFirstTensorElementShape.GetDimNum();
     OPS_ERR_IF(elementDims != 1 && elementDims != 2, OPS_LOG_E(nodeName, "gmm2WeightScale shape is invalid."),
-            return ge::GRAPH_FAILED);
-    if (gmm2ScaleListLen > 1) { // List
+               return ge::GRAPH_FAILED);
+    if (gmm2ScaleListLen > 1) {  // List
         OPS_ERR_IF(gmm2ScaleListLen != localExpertNum,
-                OPS_LOG_E(nodeName, "gmm2scale listlen does not equals to localExpertNum."), return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "gmm2scale listlen does not equals to localExpertNum."),
+                   return ge::GRAPH_FAILED);
         OPS_ERR_IF(h != gmm2ScaleFirstTensorElementShape.GetDim(0),
-                OPS_LOG_E(nodeName, "gmm2Scale does not match token hidden size."), return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "gmm2Scale does not match token hidden size."), return ge::GRAPH_FAILED);
         listFlag = true;
-    } else { // Single
-        if (elementDims == 1) { // one localExpert perRank
+    } else {                     // Single
+        if (elementDims == 1) {  // one localExpert perRank
             OPS_ERR_IF(h != gmm2ScaleFirstTensorElementShape.GetDim(0),
-                OPS_LOG_E(nodeName, "gmm2Scale does not match token hidden size."), return ge::GRAPH_FAILED);
-        } else { // multi localExperts perRank
+                       OPS_LOG_E(nodeName, "gmm2Scale does not match token hidden size."), return ge::GRAPH_FAILED);
+        } else {  // multi localExperts perRank
             OPS_ERR_IF(localExpertNum != gmm2ScaleFirstTensorElementShape.GetDim(0),
-                OPS_LOG_E(nodeName, "gmm2Scale does not match local expert number perRank."), return ge::GRAPH_FAILED);
+                       OPS_LOG_E(nodeName, "gmm2Scale does not match local expert number perRank."),
+                       return ge::GRAPH_FAILED);
             OPS_ERR_IF(h != gmm2ScaleFirstTensorElementShape.GetDim(1),
-                OPS_LOG_E(nodeName, "gmm2Scale does not match token hidden size."), return ge::GRAPH_FAILED);
+                       OPS_LOG_E(nodeName, "gmm2Scale does not match token hidden size."), return ge::GRAPH_FAILED);
         }
     }
     OPS_ERR_IF(listFlag != tilingData.fusedDeepMoeInfo.isTensorList,
-        OPS_LOG_E(nodeName, "gmm2Scale listFlag does not match gmm1Weight listFlag."), return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "gmm2Scale listFlag does not match gmm1Weight listFlag."), return ge::GRAPH_FAILED);
 
     return ge::GRAPH_SUCCESS;
 }
 
-static ge::graphStatus CheckWeightTensorList(gert::TilingContext &context,
-                                             FusedDeepMoeTilingData &tilingData)
+static ge::graphStatus CheckWeightTensorList(gert::TilingContext &context, FusedDeepMoeTilingData &tilingData)
 {
     if (CheckGmm1Shape(context, tilingData) == ge::GRAPH_SUCCESS) {
         return ge::GRAPH_SUCCESS;
@@ -458,63 +460,62 @@ ge::graphStatus CheckXActiveMaskShape(const gert::TilingContext &context, const 
                                       const FusedDeepMoeTilingData &tilingData)
 {
     uint32_t batchSize = tilingData.fusedDeepMoeInfo.bs;
-    const gert::StorageShape* xActiveMaskStorageShape = context.GetOptionalInputShape(
-    INPUT_SHARE_X_ACTIVE_MASK_INDEX);
+    const gert::StorageShape *xActiveMaskStorageShape = context.GetOptionalInputShape(INPUT_SHARE_X_ACTIVE_MASK_INDEX);
     OPS_ERR_IF(xActiveMaskStorageShape->GetStorageShape().GetDimNum() != ONE_DIMS,
-                OPS_LOG_E(nodeName, " xActiveMask scale shape dims must be 1, but current dim num is %lu.",
-                        xActiveMaskStorageShape->GetStorageShape().GetDimNum()),
-                return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, " xActiveMask scale shape dims must be 1, but current dim num is %lu.",
+                         xActiveMaskStorageShape->GetStorageShape().GetDimNum()),
+               return ge::GRAPH_FAILED);
     const int64_t xActiveMaskDim0 = xActiveMaskStorageShape->GetStorageShape().GetDim(0);
-    OPS_ERR_IF(xActiveMaskDim0 != batchSize, OPS_LOG_E(nodeName,
-                "xActiveMask Dim0 must be batchSize(%u), but current dim is %ld.", batchSize, xActiveMaskDim0),
-                return ge::GRAPH_FAILED);
+    OPS_ERR_IF(xActiveMaskDim0 != batchSize,
+               OPS_LOG_E(nodeName, "xActiveMask Dim0 must be batchSize(%u), but current dim is %ld.", batchSize,
+                         xActiveMaskDim0),
+               return ge::GRAPH_FAILED);
     return ge::GRAPH_SUCCESS;
 }
 
 ge::graphStatus CheckSmoothScales(const gert::TilingContext &context, const char *nodeName,
-                                      const FusedDeepMoeTilingData &tilingData, bool calShareExpert)
+                                  const FusedDeepMoeTilingData &tilingData, bool calShareExpert)
 {
     uint32_t moeExpertNum = tilingData.fusedDeepMoeInfo.moeExpertNum;
     uint32_t h = tilingData.fusedDeepMoeInfo.h;
     auto expertSmoothScalesTensor = context.GetOptionalInputTensor(INPUT_SMOOTH_SCALE_INDEX);
-    const gert::StorageShape* expertSmoothScalesStorageShape = context.GetOptionalInputShape(
-        INPUT_SMOOTH_SCALE_INDEX);
+    const gert::StorageShape *expertSmoothScalesStorageShape = context.GetOptionalInputShape(INPUT_SMOOTH_SCALE_INDEX);
     auto expertSmoothScalesOriginShape = expertSmoothScalesStorageShape->GetOriginShape();
     OPS_ERR_IF((expertSmoothScalesTensor->GetDataType() != ge::DT_FLOAT),
-                    OPS_LOG_E(nodeName, "expertSmoothScales datatype is invalid, datatype should be float32, but is %d.",
-                            static_cast<ge::DataType>(expertSmoothScalesTensor->GetDataType())),
-                    return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "expertSmoothScales datatype is invalid, datatype should be float32, but is %d.",
+                         static_cast<ge::DataType>(expertSmoothScalesTensor->GetDataType())),
+               return ge::GRAPH_FAILED);
     OPS_ERR_IF(expertSmoothScalesStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS,
-                    OPS_LOG_E(nodeName, "expertSmoothScales shape dims must be 2, but current dim num is %lu.",
-                            expertSmoothScalesStorageShape->GetStorageShape().GetDimNum()),
-                    return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "expertSmoothScales shape dims must be 2, but current dim num is %lu.",
+                         expertSmoothScalesStorageShape->GetStorageShape().GetDimNum()),
+               return ge::GRAPH_FAILED);
     OPS_ERR_IF(expertSmoothScalesOriginShape.GetDim(0) != moeExpertNum,
-        OPS_LOG_E(nodeName, "expertSmoothScales dim-0 must be equal moeExpertNum."),
-        return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "expertSmoothScales dim-0 must be equal moeExpertNum."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(expertSmoothScalesOriginShape.GetDim(1) != h,
-        OPS_LOG_E(nodeName, "expertSmoothScales dim-1 must be equal to token hidden size."),
-        return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "expertSmoothScales dim-1 must be equal to token hidden size."),
+               return ge::GRAPH_FAILED);
 
     if (calShareExpert) {
         bool shareSmoothScalesExist = CheckOptionalInputExist(context, INPUT_SHARE_SMOOTH_SCALE_INDEX);
-        OPS_ERR_IF(!shareSmoothScalesExist, OPS_LOG_E(nodeName,
-                    "When routed expert smooth scales exist, shared expert smooth scales must exist, too."),
-                    return ge::GRAPH_FAILED);
+        OPS_ERR_IF(
+            !shareSmoothScalesExist,
+            OPS_LOG_E(nodeName, "When routed expert smooth scales exist, shared expert smooth scales must exist, too."),
+            return ge::GRAPH_FAILED);
         auto shareSmoothScalesTensor = context.GetOptionalInputTensor(INPUT_SHARE_SMOOTH_SCALE_INDEX);
-        const gert::StorageShape* shareSmoothScalesStorageShape = context.GetOptionalInputShape(
-            INPUT_SHARE_SMOOTH_SCALE_INDEX);
+        const gert::StorageShape *shareSmoothScalesStorageShape =
+            context.GetOptionalInputShape(INPUT_SHARE_SMOOTH_SCALE_INDEX);
         auto shareSmoothScalesOriginShape = shareSmoothScalesStorageShape->GetOriginShape();
         OPS_ERR_IF((shareSmoothScalesTensor->GetDataType() != ge::DT_FLOAT),
-                OPS_LOG_E(nodeName, "shareSmoothScales datatype is invalid, datatype should be float32, but is %d.",
-                        static_cast<ge::DataType>(shareSmoothScalesTensor->GetDataType())),
-                return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "shareSmoothScales datatype is invalid, datatype should be float32, but is %d.",
+                             static_cast<ge::DataType>(shareSmoothScalesTensor->GetDataType())),
+                   return ge::GRAPH_FAILED);
         OPS_ERR_IF(shareSmoothScalesStorageShape->GetStorageShape().GetDimNum() != ONE_DIMS,
-                        OPS_LOG_E(nodeName, "shareSmoothScales shape dims must be 1, but current dim num is %lu.",
-                                shareSmoothScalesStorageShape->GetStorageShape().GetDimNum()),
-                        return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "shareSmoothScales shape dims must be 1, but current dim num is %lu.",
+                             shareSmoothScalesStorageShape->GetStorageShape().GetDimNum()),
+                   return ge::GRAPH_FAILED);
         OPS_ERR_IF(shareSmoothScalesOriginShape.GetDim(0) != h,
-            OPS_LOG_E(nodeName, "shareSmoothScales dim-0 must be equal to token hidden size."),
-            return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "shareSmoothScales dim-0 must be equal to token hidden size."),
+                   return ge::GRAPH_FAILED);
     }
 
     return ge::GRAPH_SUCCESS;
@@ -531,8 +532,7 @@ static ge::graphStatus SetMxActStorageFromGmmWeight(const gert::TilingContext &c
     auto gmm1Tensor = context.GetDynamicInputTensor(INPUT_GMM1_WEIGHT_INDEX, 0);
     OPS_ERR_IF(gmm1Tensor == nullptr, OPS_LOG_E(nodeName, "gmm1Weight is null."), return ge::GRAPH_FAILED);
     ge::DataType gmm1WeightDtype = gmm1Tensor->GetDataType();
-    tilingData.fusedDeepMoeInfo.mxActStorageFp4 =
-        IsMxFp4GmmWeight(gmm1WeightDtype) ? MX_FP4_QUANT_MODE : 0U;
+    tilingData.fusedDeepMoeInfo.mxActStorageFp4 = IsMxFp4GmmWeight(gmm1WeightDtype) ? MX_FP4_QUANT_MODE : 0U;
     return ge::GRAPH_SUCCESS;
 }
 
@@ -540,9 +540,9 @@ static ge::graphStatus CheckData(const char *nodeName, FusedDeepMoeTilingData &t
 {
     uint32_t batchSize = tilingData.fusedDeepMoeInfo.bs;
     OPS_ERR_IF(batchSize < MIN_BATCH_SIZE, OPS_LOG_E(nodeName, "batchSize(bs) must >= %u.", MIN_BATCH_SIZE),
-                    return ge::GRAPH_FAILED);
+               return ge::GRAPH_FAILED);
     OPS_ERR_IF(batchSize > MAX_BATCH_SIZE, OPS_LOG_E(nodeName, "batchSize(bs) must <= %u.", MAX_BATCH_SIZE),
-                    return ge::GRAPH_FAILED);
+               return ge::GRAPH_FAILED);
     uint32_t tokenLength = tilingData.fusedDeepMoeInfo.h;
     OPS_ERR_IF(
         tokenLength < MIN_TOKEN_LENGTH || tokenLength > MAX_TOKEN_LENGTH,
@@ -553,27 +553,24 @@ static ge::graphStatus CheckData(const char *nodeName, FusedDeepMoeTilingData &t
         gmm1HLen < MIN_GMM1_HIDDEN || gmm1HLen > MAX_GMM1_HIDDEN,
         OPS_LOG_E(nodeName, "gmm1 hidden size is invalid. Only support [%u, %u].", MIN_GMM1_HIDDEN, MAX_GMM1_HIDDEN),
         return ge::GRAPH_FAILED);
-    OPS_ERR_IF(gmm1HLen % GMM1_HIDDEN_ALIGN != 0,
-        OPS_LOG_E(nodeName, "gmm1 hidden size must be divisible by %u, but got %u.",
-            GMM1_HIDDEN_ALIGN, gmm1HLen),
+    OPS_ERR_IF(
+        gmm1HLen % GMM1_HIDDEN_ALIGN != 0,
+        OPS_LOG_E(nodeName, "gmm1 hidden size must be divisible by %u, but got %u.", GMM1_HIDDEN_ALIGN, gmm1HLen),
         return ge::GRAPH_FAILED);
     if (tilingData.fusedDeepMoeInfo.mxActStorageFp4 == MX_FP4_QUANT_MODE) {
         OPS_ERR_IF(tokenLength % 2 != 0,
-            OPS_LOG_E(nodeName, "tokenLength(h) must be even for MX FP4 gmm weight, but got %u.",
-                tokenLength),
-            return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "tokenLength(h) must be even for MX FP4 gmm weight, but got %u.", tokenLength),
+                   return ge::GRAPH_FAILED);
         OPS_ERR_IF(gmm1HLen % 2 != 0,
-            OPS_LOG_E(nodeName, "gmm1 hidden size must be even for MX FP4 gmm weight, but got %u.",
-                gmm1HLen),
-            return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "gmm1 hidden size must be even for MX FP4 gmm weight, but got %u.", gmm1HLen),
+                   return ge::GRAPH_FAILED);
     }
     uint32_t topK = tilingData.fusedDeepMoeInfo.k;
     OPS_ERR_IF(topK > SUPPORT_TOP_K, OPS_LOG_E(nodeName, "topK(k) must <= %u.", SUPPORT_TOP_K),
-                    return ge::GRAPH_FAILED);
+               return ge::GRAPH_FAILED);
     OPS_ERR_IF(topK > tilingData.fusedDeepMoeInfo.moeExpertNum,
-        OPS_LOG_E(nodeName, "topK(k) must <= moeExpertNum(%u).",
-                tilingData.fusedDeepMoeInfo.moeExpertNum),
-        return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "topK(k) must <= moeExpertNum(%u).", tilingData.fusedDeepMoeInfo.moeExpertNum),
+               return ge::GRAPH_FAILED);
     uint32_t globalBatchSize = tilingData.fusedDeepMoeInfo.globalBs;
     uint32_t epRankSize = tilingData.fusedDeepMoeInfo.epRankSize;
     if (globalBatchSize == 0) {
@@ -582,8 +579,7 @@ static ge::graphStatus CheckData(const char *nodeName, FusedDeepMoeTilingData &t
     } else {
         OPS_ERR_IF(globalBatchSize < 0, OPS_LOG_E(nodeName, "globalBatchSize must >= 0."), return ge::GRAPH_FAILED);
         OPS_ERR_IF(globalBatchSize % epRankSize > 0,
-                        OPS_LOG_E(nodeName, "globalBatchSize must be divisible by epRankSize."),
-                        return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "globalBatchSize must be divisible by epRankSize."), return ge::GRAPH_FAILED);
     }
 
     return ge::GRAPH_SUCCESS;
@@ -611,14 +607,13 @@ static ge::graphStatus GetAttrAndSetTilingData(const gert::TilingContext &contex
     OPS_ERR_IF(epRankId < 0, OPS_LOG_E(nodeName, "epRankId must >= 0."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(epRankId >= epRankSize, OPS_LOG_E(nodeName, "epRankId must < epRankSize."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(moeExpertNum > MAX_MOE_EXERT_NUM, OPS_LOG_E(nodeName, "moeExpertNum must <= %u.", MAX_MOE_EXERT_NUM),
-                    return ge::GRAPH_FAILED);
+               return ge::GRAPH_FAILED);
     OPS_ERR_IF(moeExpertNumPerRank * epRankSize > MAX_MOE_EXERT_NUM,
-                    OPS_LOG_E(nodeName, "moeExpertNumPerRank * epRankSize must <= %u.", MAX_MOE_EXERT_NUM),
-                    return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "moeExpertNumPerRank * epRankSize must <= %u.", MAX_MOE_EXERT_NUM),
+               return ge::GRAPH_FAILED);
     OPS_ERR_IF(moeExpertNum <= 0, OPS_LOG_E(nodeName, "moeExpertNum must > 0."), return ge::GRAPH_FAILED);
-    OPS_ERR_IF((moeExpertNum % epRankSize) != 0,
-                    OPS_LOG_E(nodeName, "moeExpertNum must be divisible by epRankSize."),
-                    return ge::GRAPH_FAILED);
+    OPS_ERR_IF((moeExpertNum % epRankSize) != 0, OPS_LOG_E(nodeName, "moeExpertNum must be divisible by epRankSize."),
+               return ge::GRAPH_FAILED);
     OPS_ERR_IF(quantModePtr == nullptr, OPS_LOG_E(nodeName, "quantModePtr is nullptr."), return ge::GRAPH_FAILED);
 
     groupEp = std::string(groupEpPtr);
@@ -653,13 +648,13 @@ static ge::graphStatus CheckHcclBufferSize(const char *nodeName, const FusedDeep
     uint64_t bufferDemand = moeExpertNumPerRank * globalBatchSize * h * TOKEN_DTYPE_BYTE_SIZE * DOUBLE_BUFFER;
     uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize();
     OPS_ERR_IF(bufferDemand > maxWindowSize,
-                    OPS_LOG_E(nodeName,
-                            "HCCL_BUFFSIZE is too SMALL, globalBatchSize = %u, h = %u, moeExpertNumPerRank = %u,"
-                            " NEEDED_HCCL_BUFFSIZE(moeExpertNumPerRank * globalBatchSize * h *"
-                            " TOKEN_DTYPE_BYTE_SIZE * doubleBuffer) B=%luMB, HCCL_BUFFSIZE=%luMB.",
-                            globalBatchSize, h, moeExpertNumPerRank, (bufferDemand + MB_SIZE - 1) / MB_SIZE,
-                            maxWindowSize / MB_SIZE),
-                    return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName,
+                         "HCCL_BUFFSIZE is too SMALL, globalBatchSize = %u, h = %u, moeExpertNumPerRank = %u,"
+                         " NEEDED_HCCL_BUFFSIZE(moeExpertNumPerRank * globalBatchSize * h *"
+                         " TOKEN_DTYPE_BYTE_SIZE * doubleBuffer) B=%luMB, HCCL_BUFFSIZE=%luMB.",
+                         globalBatchSize, h, moeExpertNumPerRank, (bufferDemand + MB_SIZE - 1) / MB_SIZE,
+                         maxWindowSize / MB_SIZE),
+               return ge::GRAPH_FAILED);
     return ge::GRAPH_SUCCESS;
 }
 
@@ -692,7 +687,8 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext &context, const char *no
     uint64_t x1MxScaleNum = CeilUp(Ceil(h, 32), 2);
     uint64_t shareX1MxScaleNum = x1MxScaleNum;
     uint64_t x2MxScaleNum = CeilUp(Ceil(gmm2HLen, 32), 2);
-    uint64_t shareX2MxScaleNum = CeilUp(Ceil(shareGmm2HLen, 32), 2);;
+    uint64_t shareX2MxScaleNum = CeilUp(Ceil(shareGmm2HLen, 32), 2);
+    ;
     maxTokenNum = globalBs * std::min(topK, moeExpertNumPerRank);
     bool isMxFp4 = tilingData.fusedDeepMoeInfo.mxActStorageFp4 == MX_FP4_QUANT_MODE;
 
@@ -707,8 +703,8 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext &context, const char *no
     size_t swigluOutSize = (maxTokenNum * gmm1HLen + shareExpertTokenNum * shareGmm1HLen) * sizeof(float);
     size_t gmm2SwapSize = (maxTokenNum * h + shareExpertTokenNum * h) * sizeof(float);
     size_t maxSwapSwigluSize = CeilUp(gmm1SwapSize < gmm2SwapSize ? gmm2SwapSize : gmm1SwapSize, GM_ALIGN_SIZE);
-    size_t gmm2DepOutSize = CeilUp(moeExpertNumPerRank > 1 ?
-        0 : maxTokenNum * h * TOKEN_DTYPE_BYTE_SIZE, GM_ALIGN_SIZE);
+    size_t gmm2DepOutSize =
+        CeilUp(moeExpertNumPerRank > 1 ? 0 : maxTokenNum * h * TOKEN_DTYPE_BYTE_SIZE, GM_ALIGN_SIZE);
     size_t groupListSize = CeilUp(moeExpertNumPerRank * sizeof(int64_t), GM_ALIGN_SIZE);
     size_t expandIdxSize = CeilUp(batchSize * topK * sizeof(int32_t), GM_ALIGN_SIZE);
     size_t epSendCountSize = CeilUp(epRankSize * moeExpertNumPerRank * sizeof(int32_t), GM_ALIGN_SIZE);
@@ -784,9 +780,9 @@ static ge::graphStatus FusedDeepMoeTilingFuncImpl(gert::TilingContext &context)
     const gert::StorageShape *xStorageShape = context.GetInputShape(INPUT_X_INDEX);
     OPS_ERR_IF(xStorageShape == nullptr, OPS_LOG_E(nodeName, "x shape is null."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(xStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS,
-                    OPS_LOG_E(nodeName, "x shape dims must be 2, but current dim num is %lu.",
-                            xStorageShape->GetStorageShape().GetDimNum()),
-                    return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "x shape dims must be 2, but current dim num is %lu.",
+                         xStorageShape->GetStorageShape().GetDimNum()),
+               return ge::GRAPH_FAILED);
     const int64_t batchSize = xStorageShape->GetStorageShape().GetDim(0);
     tilingData->fusedDeepMoeInfo.bs = batchSize;
     const int64_t hiddenSize = xStorageShape->GetStorageShape().GetDim(1);
@@ -794,54 +790,54 @@ static ge::graphStatus FusedDeepMoeTilingFuncImpl(gert::TilingContext &context)
 
     const gert::StorageShape *expertIdsStorageShape = context.GetInputShape(INPUT_EXPERT_IDS_INDEX);
     OPS_ERR_IF(expertIdsStorageShape == nullptr, OPS_LOG_E(nodeName, "expertIds shape is null."),
-                    return ge::GRAPH_FAILED);
+               return ge::GRAPH_FAILED);
     OPS_ERR_IF(expertIdsStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS,
-                    OPS_LOG_E(nodeName, "expertIds shape dims must be 2, but current dim num is %lu.",
-                            expertIdsStorageShape->GetStorageShape().GetDimNum()),
-                    return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "expertIds shape dims must be 2, but current dim num is %lu.",
+                         expertIdsStorageShape->GetStorageShape().GetDimNum()),
+               return ge::GRAPH_FAILED);
     OPS_ERR_IF(expertIdsStorageShape->GetStorageShape().GetDim(0) != batchSize,
-                    OPS_LOG_E(nodeName, "expertIds dim 0 must be batchSize(%ld), but get %ld.",
-                            batchSize, expertIdsStorageShape->GetStorageShape().GetDim(0)),
-                    return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "expertIds dim 0 must be batchSize(%ld), but get %ld.", batchSize,
+                         expertIdsStorageShape->GetStorageShape().GetDim(0)),
+               return ge::GRAPH_FAILED);
     const int64_t topK = expertIdsStorageShape->GetStorageShape().GetDim(1);
     tilingData->fusedDeepMoeInfo.k = topK;
     OPS_ERR_IF(GetAttrAndSetTilingData(context, nodeName, *tilingData, groupEp) != ge::GRAPH_SUCCESS,
-                    OPS_LOG_E(nodeName, "Get attr and set tiling data failed."), return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "Get attr and set tiling data failed."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(SetMxActStorageFromGmmWeight(context, nodeName, *tilingData) != ge::GRAPH_SUCCESS,
-                    OPS_LOG_E(nodeName, "Set mx act storage from gmm weight failed."), return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "Set mx act storage from gmm weight failed."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(CheckWeightTensorList(context, *tilingData) != ge::GRAPH_SUCCESS,
-           OPS_LOG_E(nodeName, "CheckWeightTensorList failed."), return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "CheckWeightTensorList failed."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(CheckHcclBufferSize(nodeName, *tilingData) != ge::GRAPH_SUCCESS,
-           OPS_LOG_E(nodeName, "CheckHcclBuffSize failed."), return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "CheckHcclBuffSize failed."), return ge::GRAPH_FAILED);
     auto ascendcPlatform = platform_ascendc::PlatformAscendC(context.GetPlatformInfo());
     uint32_t aicNum = ascendcPlatform.GetCoreNumAic();
     uint32_t aivNum = ascendcPlatform.GetCoreNumAiv();
     tilingData->fusedDeepMoeInfo.aicNum = aicNum;
     tilingData->fusedDeepMoeInfo.aivNum = aivNum;
     OPS_ERR_IF(CheckData(nodeName, *tilingData) != ge::GRAPH_SUCCESS, OPS_LOG_E(nodeName, "CheckData failed."),
-                    return ge::GRAPH_FAILED);
-    const gert::StorageShape* xActiveMaskStorageShape = context.GetOptionalInputShape(
-        INPUT_SHARE_X_ACTIVE_MASK_INDEX);
+               return ge::GRAPH_FAILED);
+    const gert::StorageShape *xActiveMaskStorageShape = context.GetOptionalInputShape(INPUT_SHARE_X_ACTIVE_MASK_INDEX);
     bool xActiveMaskEnable = (xActiveMaskStorageShape != nullptr);
     if (xActiveMaskEnable) {
         OPS_ERR_IF(CheckXActiveMaskShape(context, nodeName, *tilingData) != ge::GRAPH_SUCCESS,
-                OPS_LOG_E(nodeName, "CheckXActiveMaskShape failed."), return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "CheckXActiveMaskShape failed."), return ge::GRAPH_FAILED);
     }
-    const gert::StorageShape* shareGmm1WeightStorageShape = context.GetOptionalInputShape(INPUT_SHARE_GMM1_WEIGHT_INDEX);
+    const gert::StorageShape *shareGmm1WeightStorageShape =
+        context.GetOptionalInputShape(INPUT_SHARE_GMM1_WEIGHT_INDEX);
     bool calShareExpert = (shareGmm1WeightStorageShape != nullptr);
     if (calShareExpert) {
         OPS_ERR_IF(CheckShareExpertDtypes(context, *tilingData) != ge::GRAPH_SUCCESS,
-                OPS_LOG_E(nodeName, "CheckShareExpertDtypes failed."), return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "CheckShareExpertDtypes failed."), return ge::GRAPH_FAILED);
         OPS_ERR_IF(CheckShareExpertShapes(context, *tilingData) != ge::GRAPH_SUCCESS,
-                OPS_LOG_E(nodeName, "CheckShareExpertShapes failed."), return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "CheckShareExpertShapes failed."), return ge::GRAPH_FAILED);
     }
     bool expertSmoothScalesExist = CheckOptionalInputExist(context, INPUT_SMOOTH_SCALE_INDEX);
     if (expertSmoothScalesExist) {
         OPS_ERR_IF(CheckSmoothScales(context, nodeName, *tilingData, calShareExpert) != ge::GRAPH_SUCCESS,
-                OPS_LOG_E(nodeName, "CheckSmoothScales failed."), return ge::GRAPH_FAILED);
+                   OPS_LOG_E(nodeName, "CheckSmoothScales failed."), return ge::GRAPH_FAILED);
     }
     OPS_ERR_IF(SetWorkSpace(context, nodeName, *tilingData, calShareExpert) != ge::GRAPH_SUCCESS,
-                    OPS_LOG_E(nodeName, "Tiling set workspace failed."), return ge::GRAPH_FAILED);
+               OPS_LOG_E(nodeName, "Tiling set workspace failed."), return ge::GRAPH_FAILED);
     SetHcommCfg(context, *tilingData, groupEp);
     uint64_t tilingKey = 0;
     if (xActiveMaskEnable) {
@@ -882,4 +878,3 @@ IMPL_OP_OPTILING(FusedDeepMoe)
     .TilingParse<FusedDeepMoeCompileInfo>(TilingParseForFusedDeepMoe);
 }  // namespace optiling
 #endif  // defined(__DAV_C310__)
-

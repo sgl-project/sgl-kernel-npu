@@ -13,7 +13,7 @@
 
 #include <tuple>
 
-#define TLA_REQUIRES(...)   typename std::enable_if<(__VA_ARGS__)>::type* = nullptr
+#define TLA_REQUIRES(...) typename std::enable_if<(__VA_ARGS__)>::type * = nullptr
 
 #define TLA_REQUIRES_T(...) typename std::enable_if<(__VA_ARGS__)>::type
 
@@ -29,7 +29,6 @@ struct remove_cvref {
 template <class T>
 using remove_cvref_t = typename remove_cvref<T>::type;
 
-
 // tuple_size, tuple_element
 template <class T, class = void>
 struct tuple_size;
@@ -41,6 +40,6 @@ struct tuple_size<T, std::void_t<typename std::tuple_size<T>::type>>
 template <class T>
 constexpr size_t tuple_size_v = tuple_size<T>::value;
 
-} // end namespace tla
+}  // end namespace tla
 
-#endif // TLA_UTIL_TYPE_TRAITS_HPP
+#endif  // TLA_UTIL_TYPE_TRAITS_HPP

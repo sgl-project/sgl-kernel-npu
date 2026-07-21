@@ -23,12 +23,9 @@
 namespace Catlass::Gemm::Kernel {
 
 // Template for Matmul kernel. Compute C = A * B
-template <
-    class BlockMmad_,
-    class BlockEpilogue_,
-    class BlockScheduler_
->
-class TailMultiCoreSplitkMatmulTla {
+template <class BlockMmad_, class BlockEpilogue_, class BlockScheduler_>
+class TailMultiCoreSplitkMatmulTla
+{
 public:
     using BlockMmad = BlockMmad_;
     using ArchTag = typename BlockMmad::ArchTag;
@@ -68,10 +65,18 @@ public:
         Params() {}
 
         CATLASS_HOST_DEVICE
-        Params(GemmCoord const &problemShape_, GM_ADDR ptrA_, LayoutA layoutA_, GM_ADDR ptrB_,
-               LayoutB layoutB_, GM_ADDR ptrC_, LayoutC layoutC_, GM_ADDR ptrWorkspace_, GM_ADDR ptrBias_ = nullptr)
-            : problemShape(problemShape_), ptrA(ptrA_), layoutA(layoutA_), ptrB(ptrB_), layoutB(layoutB_),
-              ptrC(ptrC_), layoutC(layoutC_), ptrWorkspace(ptrWorkspace_), ptrBias(ptrBias_) {}
+        Params(GemmCoord const &problemShape_, GM_ADDR ptrA_, LayoutA layoutA_, GM_ADDR ptrB_, LayoutB layoutB_,
+               GM_ADDR ptrC_, LayoutC layoutC_, GM_ADDR ptrWorkspace_, GM_ADDR ptrBias_ = nullptr)
+            : problemShape(problemShape_),
+              ptrA(ptrA_),
+              layoutA(layoutA_),
+              ptrB(ptrB_),
+              layoutB(layoutB_),
+              ptrC(ptrC_),
+              layoutC(layoutC_),
+              ptrWorkspace(ptrWorkspace_),
+              ptrBias(ptrBias_)
+        {}
     };
 
     struct Arguments {
@@ -93,7 +98,7 @@ public:
 
     static size_t GetWorkspaceSize(const Arguments &args)
     {
-        size_t minSpaceSize = 10 * 1024 * 1024; // 2M
+        size_t minSpaceSize = 10 * 1024 * 1024;  // 2M
         size_t workspaceSize =
             static_cast<size_t>(L1_TILE_M) * L1_TILE_N * sizeof(ElementAccumulator) * args.aicCoreNum;
         return minSpaceSize > workspaceSize ? minSpaceSize : workspaceSize;
@@ -101,17 +106,8 @@ public:
 
     static Params ToUnderlyingArguments(const Arguments &args, uint8_t *workspace)
     {
-        Params params{
-            args.problemShape,
-            args.ptrA,
-            args.layoutA,
-            args.ptrB,
-            args.layoutB,
-            args.ptrC,
-            args.layoutC,
-            workspace,
-            args.ptrBias
-        };
+        Params params{args.problemShape, args.ptrA,    args.layoutA, args.ptrB,   args.layoutB,
+                      args.ptrC,         args.layoutC, workspace,    args.ptrBias};
         return params;
     }
 
@@ -120,13 +116,11 @@ public:
     TailMultiCoreSplitkMatmulTla() {}
 
     template <int32_t CORE_TYPE = g_coreType>
-    CATLASS_DEVICE
-    void operator()(Params const &params);
+    CATLASS_DEVICE void operator()(Params const &params);
 
     /// Executes one Matmul
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIC>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params)
     {
         uint32_t blockDim = AscendC::GetBlockNum();
         uint32_t blockIdx = AscendC::GetBlockIdx();
@@ -192,18 +186,12 @@ public:
             GemmCoord actualBlockShape = matmulBlockScheduler.GetActualBlockShape(blockCoord, actualLoopIdx);
 
             // Make tiled views
-            auto tensorBlockA = GetTile(
-                tensorA, tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.k() * L1_TILE_K),
-                tla::MakeShape(actualBlockShape.m(), actualBlockShape.k())
-            );
-            auto tensorBlockB = GetTile(
-                tensorB, tla::MakeCoord(blockCoord.k() * L1_TILE_K, blockCoord.n() * L1_TILE_N),
-                tla::MakeShape(actualBlockShape.k(), actualBlockShape.n())
-            );
-            auto tensorBlockC = GetTile(
-                tensorC, tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N),
-                tla::MakeShape(actualBlockShape.m(), actualBlockShape.n())
-            );
+            auto tensorBlockA = GetTile(tensorA, tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.k() * L1_TILE_K),
+                                        tla::MakeShape(actualBlockShape.m(), actualBlockShape.k()));
+            auto tensorBlockB = GetTile(tensorB, tla::MakeCoord(blockCoord.k() * L1_TILE_K, blockCoord.n() * L1_TILE_N),
+                                        tla::MakeShape(actualBlockShape.k(), actualBlockShape.n()));
+            auto tensorBlockC = GetTile(tensorC, tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N),
+                                        tla::MakeShape(actualBlockShape.m(), actualBlockShape.n()));
             auto tensorBlockW =
                 GetTile(tensorW, tla::MakeCoord(0, 0), tla::MakeShape(actualBlockShape.m(), actualBlockShape.n()));
 
@@ -212,9 +200,8 @@ public:
                 if constexpr (std::is_void_v<ElementBias>) {
                     blockMmad(tensorBlockA, tensorBlockB, tensorBlockC, actualBlockShape);
                 } else {
-                    auto tensorBlockBias = GetTile(
-                        tensorBias, tla::MakeCoord(blockCoord.n() * L1_TILE_N), tla::MakeShape(actualBlockShape.n())
-                    );
+                    auto tensorBlockBias = GetTile(tensorBias, tla::MakeCoord(blockCoord.n() * L1_TILE_N),
+                                                   tla::MakeShape(actualBlockShape.n()));
                     blockMmad(tensorBlockA, tensorBlockB, tensorBlockC, actualBlockShape, tensorBlockBias);
                 }
             } else {
@@ -222,9 +209,8 @@ public:
                     blockMmad(tensorBlockA, tensorBlockB, tensorBlockW, actualBlockShape);
                 } else {
                     if (blockCoord.k() == 0) {
-                        auto tensorBlockBias = GetTile(
-                            tensorBias, tla::MakeCoord(blockCoord.n() * L1_TILE_N), tla::MakeShape(actualBlockShape.n())
-                        );
+                        auto tensorBlockBias = GetTile(tensorBias, tla::MakeCoord(blockCoord.n() * L1_TILE_N),
+                                                       tla::MakeShape(actualBlockShape.n()));
                         blockMmad(tensorBlockA, tensorBlockB, tensorBlockW, actualBlockShape, tensorBlockBias);
                     } else {
                         blockMmad(tensorBlockA, tensorBlockB, tensorBlockW, actualBlockShape);
@@ -244,8 +230,7 @@ public:
     }
 
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIV>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIV>(Params const &params)
     {
         Catlass::Arch::CrossCoreWaitFlag<0x2, PIPE_MTE2>(flagAicFinishStore);
         Catlass::Arch::CrossCoreBarrier<0x0, PIPE_MTE2>();
@@ -305,23 +290,22 @@ public:
             AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID0);
             AscendC::DataCopyExtParams dataCopyParamsIn(
                 tilesActual, tileLen * sizeof(ElementAccumulator), (L1_TILE_N - tileLen) * sizeof(ElementAccumulator),
-                (RoundUp(tileLen, ELE_NUM_ALIGN) - tileLen) * sizeof(ElementAccumulator) / BYTE_PER_BLK, 0
-            );
+                (RoundUp(tileLen, ELE_NUM_ALIGN) - tileLen) * sizeof(ElementAccumulator) / BYTE_PER_BLK, 0);
             AscendC::DataCopyPadExtParams<ElementAccumulator> padParams(false, 0, 0, 0);
 
             uint64_t srcOffset = startCoreIdx * L1_TILE_M * L1_TILE_N + loopIdx * tilePerCore * L1_TILE_N;
             for (uint32_t sliceIdx = 0; sliceIdx < splitkFactor; ++sliceIdx) {
-                AscendC::DataCopyPad(
-                    accumulatorBuffer[computeNum * sliceIdx], gmWorkspace[srcOffset + sliceIdx * L1_TILE_M * L1_TILE_N],
-                    dataCopyParamsIn, padParams
-                );
+                AscendC::DataCopyPad(accumulatorBuffer[computeNum * sliceIdx],
+                                     gmWorkspace[srcOffset + sliceIdx * L1_TILE_M * L1_TILE_N], dataCopyParamsIn,
+                                     padParams);
             }
 
             AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID0);
             AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID0);
 
             for (uint32_t sliceIdx = 1; sliceIdx < splitkFactor; ++sliceIdx) {
-                AscendC::Add(accumulatorBuffer, accumulatorBuffer, accumulatorBuffer[computeNum * sliceIdx], computeNum);
+                AscendC::Add(accumulatorBuffer, accumulatorBuffer, accumulatorBuffer[computeNum * sliceIdx],
+                             computeNum);
                 AscendC::PipeBarrier<PIPE_V>();
             }
 
@@ -338,12 +322,12 @@ public:
 
             // layoutC can only be RowMajor
             uint64_t dstStride = tla::get<0>(params.layoutC.stride());
-            uint64_t dstOffset = (static_cast<uint64_t>(blockCoord.m()) * L1_TILE_M + loopIdx * tilePerCore) * dstStride
-                                 + static_cast<uint64_t>(blockCoord.n()) * L1_TILE_N;
-            AscendC::DataCopyExtParams dataCopyParamsOut(
-                tilesActual, tileLen * sizeof(ElementC), (RoundUp(tileLen, ELE_NUM_ALIGN) - tileLen) / ELE_NUM_ALIGN,
-                (dstStride - tileLen) * sizeof(ElementC), 0
-            );
+            uint64_t dstOffset =
+                (static_cast<uint64_t>(blockCoord.m()) * L1_TILE_M + loopIdx * tilePerCore) * dstStride +
+                static_cast<uint64_t>(blockCoord.n()) * L1_TILE_N;
+            AscendC::DataCopyExtParams dataCopyParamsOut(tilesActual, tileLen * sizeof(ElementC),
+                                                         (RoundUp(tileLen, ELE_NUM_ALIGN) - tileLen) / ELE_NUM_ALIGN,
+                                                         (dstStride - tileLen) * sizeof(ElementC), 0);
             AscendC::DataCopyPad(gmC[dstOffset], outputBuffer, dataCopyParamsOut);
 
             AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(EVENT_ID0);
@@ -359,6 +343,6 @@ private:
     Arch::Resource<ArchTag> resource;
 };
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel
 
-#endif // CATLASS_GEMM_KERNEL_TAIL_SPLITK_MATMUL_TLA_HPP
+#endif  // CATLASS_GEMM_KERNEL_TAIL_SPLITK_MATMUL_TLA_HPP

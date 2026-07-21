@@ -25,13 +25,9 @@
 namespace Catlass::Gemm::Kernel {
 
 // Template for Matmul kernel. Compute C = A * B
-template <
-    class BlockMmad_,
-    class BlockEpilogue_,
-    class BlockScheduler_,
-    class ReduceAdd_
->
-class PaddingSplitkMatmul {
+template <class BlockMmad_, class BlockEpilogue_, class BlockScheduler_, class ReduceAdd_>
+class PaddingSplitkMatmul
+{
 public:
     using BlockMmad = BlockMmad_;
     using ArchTag = typename BlockMmad::ArchTag;
@@ -76,16 +72,25 @@ public:
         Params() {}
 
         CATLASS_HOST_DEVICE
-        Params(GemmCoord const &problemShape_, bool aNeedPadding_, bool bNeedPadding_,
-               GM_ADDR ptrA_, LayoutA layoutA_, GM_ADDR ptrB_, LayoutB layoutB_,
-               GM_ADDR ptrC_, LayoutC layoutC_,
-               GM_ADDR ptrWA_, LayoutA layoutWA_,
+        Params(GemmCoord const &problemShape_, bool aNeedPadding_, bool bNeedPadding_, GM_ADDR ptrA_, LayoutA layoutA_,
+               GM_ADDR ptrB_, LayoutB layoutB_, GM_ADDR ptrC_, LayoutC layoutC_, GM_ADDR ptrWA_, LayoutA layoutWA_,
                GM_ADDR ptrWB_, LayoutB layoutWB_, GM_ADDR ptrWC_, uint32_t splitkFactor_)
-            : problemShape(problemShape_), aNeedPadding(aNeedPadding_), bNeedPadding(bNeedPadding_),
-              ptrA(ptrA_), layoutA(layoutA_), ptrB(ptrB_), layoutB(layoutB_),
-              ptrC(ptrC_), layoutC(layoutC_),
-              ptrWA(ptrWA_), layoutWA(layoutWA_), ptrWB(ptrWB_), layoutWB(layoutWB_),
-              ptrWC(ptrWC_), splitkFactor(splitkFactor_) {}
+            : problemShape(problemShape_),
+              aNeedPadding(aNeedPadding_),
+              bNeedPadding(bNeedPadding_),
+              ptrA(ptrA_),
+              layoutA(layoutA_),
+              ptrB(ptrB_),
+              layoutB(layoutB_),
+              ptrC(ptrC_),
+              layoutC(layoutC_),
+              ptrWA(ptrWA_),
+              layoutWA(layoutWA_),
+              ptrWB(ptrWB_),
+              layoutWB(layoutWB_),
+              ptrWC(ptrWC_),
+              splitkFactor(splitkFactor_)
+        {}
     };
 
     struct Arguments {
@@ -122,13 +127,13 @@ public:
         uint32_t k0 = L1TileShape::K;
 
         uint32_t baseTilesCount = CeilDiv(m, m0) * CeilDiv(n, n0);
-        splitkFactor = (aicCoreNum / baseTilesCount < maxSplitkFactor) ? (aicCoreNum / baseTilesCount) : maxSplitkFactor;
+        splitkFactor =
+            (aicCoreNum / baseTilesCount < maxSplitkFactor) ? (aicCoreNum / baseTilesCount) : maxSplitkFactor;
         // Prevent the split factor form being less than 1
         splitkFactor = (splitkFactor > static_cast<uint32_t>(1)) ? splitkFactor : static_cast<uint32_t>(1);
         if (baseTilesCount < aicCoreNum) {
-            while (splitkFactor + 1 <= maxSplitkFactor &&
-                CeilDiv(baseTilesCount * splitkFactor, aicCoreNum) >=
-                CeilDiv(baseTilesCount, aicCoreNum) * splitkFactor) {
+            while (splitkFactor + 1 <= maxSplitkFactor && CeilDiv(baseTilesCount * splitkFactor, aicCoreNum) >=
+                                                              CeilDiv(baseTilesCount, aicCoreNum) * splitkFactor) {
                 splitkFactor += 1;
             }
         }
@@ -159,8 +164,7 @@ public:
         if (align == 0) {
             return layout;
         }
-        return layout::RowMajor(layout.shape(0), layout.shape(1),
-            (layout.shape(1) + align - 1) / align * align);
+        return layout::RowMajor(layout.shape(0), layout.shape(1), (layout.shape(1) + align - 1) / align * align);
     }
 
     static layout::ColumnMajor GetWorkspaceLayout(layout::ColumnMajor layout, uint32_t align)
@@ -169,8 +173,7 @@ public:
         if (align == 0) {
             return layout;
         }
-        return layout::ColumnMajor(layout.shape(0), layout.shape(1),
-            (layout.shape(0) + align - 1) / align * align);
+        return layout::ColumnMajor(layout.shape(0), layout.shape(1), (layout.shape(0) + align - 1) / align * align);
     }
 
     static size_t GetWorkspaceLen(layout::RowMajor layout)
@@ -190,11 +193,9 @@ public:
         LayoutB layoutB = LayoutB::template MakeLayout<ElementB>(problemShape.k(), problemShape.n());
         size_t sizeWA = GetWorkspaceLen(GetWorkspaceLayout(layoutA, args.align)) * args.elementSize;
         size_t sizeWB = GetWorkspaceLen(GetWorkspaceLayout(layoutB, args.align)) * args.elementSize;
-        size_t sizeWC = args.elementSize * args.problemShape.m() * args.problemShape.n() *
-                        GetSplitkFactor(args.problemShape.m(),
-                                        args.problemShape.n(),
-                                        args.problemShape.k(),
-                                        args.aicCoreNum);
+        size_t sizeWC =
+            args.elementSize * args.problemShape.m() * args.problemShape.n() *
+            GetSplitkFactor(args.problemShape.m(), args.problemShape.n(), args.problemShape.k(), args.aicCoreNum);
         return sizeWA + sizeWB + sizeWC;
     }
 
@@ -240,10 +241,7 @@ public:
             workspaceWB,
             GetWorkspaceLayout(layoutB, args.align),
             workspaceWC,
-            GetSplitkFactor(args.problemShape.m(),
-                            args.problemShape.n(),
-                            args.problemShape.k(),
-                            args.aicCoreNum)};
+            GetSplitkFactor(args.problemShape.m(), args.problemShape.n(), args.problemShape.k(), args.aicCoreNum)};
         return params;
     }
 
@@ -252,20 +250,18 @@ public:
     PaddingSplitkMatmul() {}
 
     template <int32_t CORE_TYPE = g_coreType>
-    CATLASS_DEVICE
-    void operator()(Params const &params);
+    CATLASS_DEVICE void operator()(Params const &params);
 
     /// Executes one Matmul
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIC>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params)
     {
         if (params.aNeedPadding || params.bNeedPadding) {
             Catlass::Arch::CrossCoreWaitFlag(flagAivFinishPadding);
         }
 
-        BlockScheduler matmulBlockScheduler(params.problemShape,
-            GemmCoord(L1TileShape::M, L1TileShape::N, L1TileShape::K), params.splitkFactor);
+        BlockScheduler matmulBlockScheduler(
+            params.problemShape, GemmCoord(L1TileShape::M, L1TileShape::N, L1TileShape::K), params.splitkFactor);
         uint32_t coreLoops = matmulBlockScheduler.GetCoreLoops();
 
         Arch::Resource<ArchTag> resource;
@@ -282,8 +278,8 @@ public:
         for (uint32_t loopIdx = AscendC::GetBlockIdx(); loopIdx < coreLoops; loopIdx += AscendC::GetBlockNum()) {
             // Compute block location
             GemmCoord blockCoord = matmulBlockScheduler.GetBlockCoord(loopIdx);
-            GemmCoord actualBlockShape = matmulBlockScheduler.GetActualBlockShape(
-                blockCoord, matmulBlockScheduler.GetSplitkSliceIdx(loopIdx));
+            GemmCoord actualBlockShape =
+                matmulBlockScheduler.GetActualBlockShape(blockCoord, matmulBlockScheduler.GetSplitkSliceIdx(loopIdx));
 
             // Compute initial location in logical coordinates
             MatrixCoord offsetA{blockCoord.m() * L1TileShape::M, blockCoord.k() * L1TileShape::K};
@@ -291,14 +287,13 @@ public:
             MatrixCoord offsetC{blockCoord.m() * L1TileShape::M, blockCoord.n() * L1TileShape::N};
             uint64_t gmOffsetA = params.layoutWA.GetOffset(offsetA);
             uint64_t gmOffsetB = params.layoutWB.GetOffset(offsetB);
-            uint64_t gmOffsetC = params.layoutC.GetOffset(offsetC)
-                + static_cast<uint64_t>(params.problemShape.m()) * static_cast<uint64_t>(params.problemShape.n())
-                * static_cast<uint64_t>(matmulBlockScheduler.GetSplitkSliceIdx(loopIdx));
+            uint64_t gmOffsetC = params.layoutC.GetOffset(offsetC) +
+                                 static_cast<uint64_t>(params.problemShape.m()) *
+                                     static_cast<uint64_t>(params.problemShape.n()) *
+                                     static_cast<uint64_t>(matmulBlockScheduler.GetSplitkSliceIdx(loopIdx));
 
             // Compute block-scoped matrix multiply-add
-            blockMmad(gmA[gmOffsetA], params.layoutWA,
-                      gmB[gmOffsetB], params.layoutWB,
-                      gmC[gmOffsetC], params.layoutC,
+            blockMmad(gmA[gmOffsetA], params.layoutWA, gmB[gmOffsetB], params.layoutWB, gmC[gmOffsetC], params.layoutC,
                       actualBlockShape);
         }
 
@@ -308,8 +303,7 @@ public:
     }
 
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIV>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIV>(Params const &params)
     {
         if (params.aNeedPadding) {
             AscendC::GlobalTensor<ElementA> gmA;
@@ -344,12 +338,12 @@ public:
 
         AscendC::GlobalTensor<ElementOut> gmC;
         AscendC::GlobalTensor<ElementAccumulator> gmWC;
-        gmC.SetGlobalBuffer(reinterpret_cast<__gm__ ElementOut*>(params.ptrC));
-        gmWC.SetGlobalBuffer(reinterpret_cast<__gm__ ElementAccumulator*>(params.ptrWC));
+        gmC.SetGlobalBuffer(reinterpret_cast<__gm__ ElementOut *>(params.ptrC));
+        gmWC.SetGlobalBuffer(reinterpret_cast<__gm__ ElementAccumulator *>(params.ptrWC));
         ReduceAdd reduceAdd(resource);
         reduceAdd(gmC, gmWC,
-            static_cast<uint64_t>(params.problemShape.m()) * static_cast<uint64_t>(params.problemShape.n()),
-            params.splitkFactor);
+                  static_cast<uint64_t>(params.problemShape.m()) * static_cast<uint64_t>(params.problemShape.n()),
+                  params.splitkFactor);
 
         AscendC::PipeBarrier<PIPE_ALL>();
     }
@@ -362,6 +356,6 @@ private:
     Arch::Resource<ArchTag> resource;
 };
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel
 
-#endif // CATLASS_GEMM_KERNEL_PADDING_SPLITK_MATMUL_HPP
+#endif  // CATLASS_GEMM_KERNEL_PADDING_SPLITK_MATMUL_HPP

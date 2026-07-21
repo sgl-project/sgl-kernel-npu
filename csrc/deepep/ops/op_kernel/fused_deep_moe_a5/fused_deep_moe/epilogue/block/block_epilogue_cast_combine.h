@@ -25,12 +25,8 @@
 namespace Catlass::Epilogue::Block {
 
 template <uint32_t EXEC_FLAG_, class ElementC_, class ElementD_, class TileShape_>
-class BlockEpilogue <
-    EpilogueAtlasA5CastCombine<EXEC_FLAG_>,
-    ElementC_,
-    ElementD_,
-    TileShape_
-> {
+class BlockEpilogue<EpilogueAtlasA5CastCombine<EXEC_FLAG_>, ElementC_, ElementD_, TileShape_>
+{
 public:
     // Type aliases
     using DispatchPolicy = EpilogueAtlasA5CastCombine<EXEC_FLAG_>;
@@ -51,9 +47,7 @@ public:
     using EpilogueTileSwizzle = Catlass::Epilogue::Tile::EpilogueHorizontalTileSwizzle;
 
     // Check the element type of C and D
-    static_assert(std::is_same_v<ElementC, float>,
-        "Element type of C must be float");
-
+    static_assert(std::is_same_v<ElementC, float>, "Element type of C must be float");
 
     // Epilogue params definition
     struct Params {
@@ -67,7 +61,8 @@ public:
 
         CATLASS_HOST_DEVICE
         Params(GM_ADDR ptrC_, LayoutC layoutC_, GM_ADDR ptrD_, LayoutD layoutD_)
-            : ptrC(ptrC_), layoutC(layoutC_), ptrD(ptrD_), layoutD(layoutD_) {}
+            : ptrC(ptrC_), layoutC(layoutC_), ptrD(ptrD_), layoutD(layoutD_)
+        {}
     };
 
     CATLASS_DEVICE
@@ -87,9 +82,7 @@ public:
     CATLASS_DEVICE
     BlockEpilogue(Arch::Resource<ArchTag> &resource, MoeDistributeCombineImpl::CombineCalcInfo &calcInfo,
                   Params const &params = Params{})
-        : resource(resource),
-          calcInfo(calcInfo),
-          params(params)
+        : resource(resource), calcInfo(calcInfo), params(params)
     {
         uint32_t ubOffset = 0;
         int32_t eventVMTE2 = 0;
@@ -136,10 +129,10 @@ public:
         }
     }
 
-
     CATLASS_DEVICE GM_ADDR GetWinAddrByRankId(const int32_t rankId, const uint8_t expertLocalId = 0U)
     {
-        return Mc2Kernel::GetBaseWindAddrByRankId(calcInfo.epWinContext_, rankId, calcInfo.epRankId_) + calcInfo.winDataSizeOffset_ + expertLocalId * calcInfo.expertPerSizeOnWin_ + rankId * OPT_RANK_OFFSET;
+        return Mc2Kernel::GetBaseWindAddrByRankId(calcInfo.epWinContext_, rankId, calcInfo.epRankId_) +
+               calcInfo.winDataSizeOffset_ + expertLocalId * calcInfo.expertPerSizeOnWin_ + rankId * OPT_RANK_OFFSET;
     }
 
     CATLASS_DEVICE void SetCombineSendEpRank(uint32_t epRank, uint32_t &remoteEpRank, uint32_t &localEpRank)
@@ -148,8 +141,9 @@ public:
         localEpRank = calcInfo.epRankId_;
     }
 
-    CATLASS_DEVICE void DoCombineSend(AscendC::LocalTensor<ElementD> &ubD, uint32_t expertIdx,
-        uint32_t startToken, uint32_t tokenOffset, uint32_t tokenNum, uint32_t tokenLength, uint32_t tileColumn)
+    CATLASS_DEVICE void DoCombineSend(AscendC::LocalTensor<ElementD> &ubD, uint32_t expertIdx, uint32_t startToken,
+                                      uint32_t tokenOffset, uint32_t tokenNum, uint32_t tokenLength,
+                                      uint32_t tileColumn)
     {
         const uint32_t copyTokenLen = tileColumn * sizeof(ElementD);
         const uint32_t copyTokenSrcStride = 0;
@@ -182,15 +176,8 @@ public:
     }
 
     template <class TensorC, class TensorD>
-    CATLASS_DEVICE
-    void operator() (
-        TensorC &tensorBlockC,
-        TensorD &tensorBlockD,
-        GemmCoord const &actualBlockShapeMNK,
-        uint32_t expertIdx,
-        uint32_t tokenIdx,
-        uint32_t tokenOffset
-    )
+    CATLASS_DEVICE void operator()(TensorC &tensorBlockC, TensorD &tensorBlockD, GemmCoord const &actualBlockShapeMNK,
+                                   uint32_t expertIdx, uint32_t tokenIdx, uint32_t tokenOffset)
     {
         if (actualBlockShapeMNK.k() == 0) {
             return;
@@ -216,15 +203,12 @@ public:
             uint32_t count = actualTileShape[0] * actualTileShape[1];
 
             // build tensor C block in GM
-            auto tensorSubBlockC = GetTile(
-                tensorBlockC, tla::MakeCoord(tileOffsetInBlockRow, tileOffsetInBlockColumn),
-                tla::MakeShape(actualTileShape.row(), actualTileShape.column())
-            );
+            auto tensorSubBlockC = GetTile(tensorBlockC, tla::MakeCoord(tileOffsetInBlockRow, tileOffsetInBlockColumn),
+                                           tla::MakeShape(actualTileShape.row(), actualTileShape.column()));
             // build tensor C block in UB
             auto &ubC = ubCList[ubListId];
-            auto layoutUbC = tla::MakeLayout(
-                tla::MakeShape(actualTileShape.row(), actualTileShape.column()), tla::MakeStride(ubTileStride, tla::Int<1>{})
-            );
+            auto layoutUbC = tla::MakeLayout(tla::MakeShape(actualTileShape.row(), actualTileShape.column()),
+                                             tla::MakeStride(ubTileStride, tla::Int<1>{}));
             auto tensorUbC = tla::MakeTensor(ubC, layoutUbC, Arch::PositionUB{});
             using CopyGmToUbC = typename Catlass::Epilogue::Tile::CopyGm2UbTla<ArchTag, TensorC, decltype(tensorUbC)>;
             CopyGmToUbC copyGmToUbC;
@@ -242,10 +226,8 @@ public:
             AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(eventUbCVMTE2List[ubListId]);
 
             // build tensor D block in GM
-            auto tensorSubBlockD = GetTile(
-                tensorBlockD, tla::MakeCoord(tileOffsetInBlockRow, tileOffsetInBlockColumn),
-                tla::MakeShape(actualTileShape.row(), actualTileShape.column())
-            );
+            auto tensorSubBlockD = GetTile(tensorBlockD, tla::MakeCoord(tileOffsetInBlockRow, tileOffsetInBlockColumn),
+                                           tla::MakeShape(actualTileShape.row(), actualTileShape.column()));
             // build tensor D block in UB
             auto tensorUbD = tla::MakeTensor(ubD, layoutUbC, Arch::PositionUB{});
             using CopyUbToGmD = typename Catlass::Epilogue::Tile::CopyUb2GmTla<ArchTag, decltype(tensorUbD), TensorD>;
@@ -256,7 +238,8 @@ public:
                 if (expertIdx == UINT32_MAX) {
                     copyUbToGmD(tensorSubBlockD, tensorUbD);
                 } else {
-                    DoCombineSend(ubD, expertIdx, tokenIdx + loopIdx * TileShape::ROW, tokenOffset, actualTileShape[0], tla::get<0>(tensorBlockD.stride()), TileShape::COLUMN);
+                    DoCombineSend(ubD, expertIdx, tokenIdx + loopIdx * TileShape::ROW, tokenOffset, actualTileShape[0],
+                                  tla::get<0>(tensorBlockD.stride()), TileShape::COLUMN);
                 }
             } else {
                 copyUbToGmD(tensorSubBlockD, tensorUbD);
@@ -285,7 +268,6 @@ private:
     int32_t eventMTE2S{0};
     uint32_t expertOffset;
     uint32_t ubListId{0};
-
 };
 
 }  // namespace Catlass::Epilogue::Block

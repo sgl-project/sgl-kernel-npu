@@ -4,8 +4,9 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
+ * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * the software repository for the full text of the License.
  */
 
 #ifndef CATLASS_GEMM_BLOCK_BLOCK_MMAD_PINGPONG_FULL_LOADA_ASCEND950_TLA_HPP
@@ -22,41 +23,18 @@
 
 namespace Catlass::Gemm::Block {
 
-template <
-    class ArchTag_,
-    bool ENABLE_UNIT_FLAG_,
-    bool USE_HF32_MODE_,
-    uint32_t L0C_STAGES_,
-    bool ENABLE_L1_RESIDENT_,
-    uint32_t L1A_STAGES_,
-    uint32_t L1B_STAGES_,
-    uint32_t L0A_STAGES_,
-    uint32_t L0B_STAGES_,
-    class L1TileShape_,
-    class L0TileShape_,
-    class ElementA_,
-    class ElementB_,
-    class ElementC_,
-    class ElementBias_,
-    class TileCopy_,
-    class TileMmad_
->
-struct BlockMmadTla <
-    MmadAscend950FullLoadA<ArchTag_, ENABLE_UNIT_FLAG_, USE_HF32_MODE_, L0C_STAGES_, ENABLE_L1_RESIDENT_, L1A_STAGES_, 
-        L1B_STAGES_, L0A_STAGES_, L0B_STAGES_>,
-    L1TileShape_,
-    L0TileShape_,
-    ElementA_,
-    ElementB_,
-    ElementC_,
-    ElementBias_,
-    TileCopy_,
-    TileMmad_
-> {
+template <class ArchTag_, bool ENABLE_UNIT_FLAG_, bool USE_HF32_MODE_, uint32_t L0C_STAGES_, bool ENABLE_L1_RESIDENT_,
+          uint32_t L1A_STAGES_, uint32_t L1B_STAGES_, uint32_t L0A_STAGES_, uint32_t L0B_STAGES_, class L1TileShape_,
+          class L0TileShape_, class ElementA_, class ElementB_, class ElementC_, class ElementBias_, class TileCopy_,
+          class TileMmad_>
+struct BlockMmadTla<MmadAscend950FullLoadA<ArchTag_, ENABLE_UNIT_FLAG_, USE_HF32_MODE_, L0C_STAGES_,
+                                           ENABLE_L1_RESIDENT_, L1A_STAGES_, L1B_STAGES_, L0A_STAGES_, L0B_STAGES_>,
+                    L1TileShape_, L0TileShape_, ElementA_, ElementB_, ElementC_, ElementBias_, TileCopy_, TileMmad_> {
 public:
     // Type Aliases
-    using DispatchPolicy = MmadAscend950FullLoadA<ArchTag_, ENABLE_UNIT_FLAG_, USE_HF32_MODE_, L0C_STAGES_, ENABLE_L1_RESIDENT_, 
-        L1A_STAGES_, L1B_STAGES_, L0A_STAGES_, L0B_STAGES_>;
+    using DispatchPolicy =
+        MmadAscend950FullLoadA<ArchTag_, ENABLE_UNIT_FLAG_, USE_HF32_MODE_, L0C_STAGES_, ENABLE_L1_RESIDENT_,
+                               L1A_STAGES_, L1B_STAGES_, L0A_STAGES_, L0B_STAGES_>;
     using ArchTag = typename DispatchPolicy::ArchTag;
     using TileCopy = TileCopy_;
     using L1TileShape = L1TileShape_;
@@ -85,9 +63,9 @@ public:
     using LayoutTagL0B = typename TileCopy::LayoutTagL0B;
 
     static_assert(tla::is_tuple<L1TileShape>::value && tla::is_static<L1TileShape>::value,
-        "L1TileShape must be tla::tuple and static!");
+                  "L1TileShape must be tla::tuple and static!");
     static_assert(tla::is_tuple<L0TileShape>::value && tla::is_static<L0TileShape>::value,
-        "L0TileShape must be tla::tuple and static!");
+                  "L0TileShape must be tla::tuple and static!");
 
     static constexpr bool ENABLE_UNIT_FLAG = DispatchPolicy::ENABLE_UNIT_FLAG;
     static constexpr bool USE_HF32_MODE = DispatchPolicy::USE_HF32_MODE;
@@ -113,10 +91,9 @@ public:
     static constexpr uint32_t L0C_TILE_SIZE = L1_TILE_M * L1_TILE_N * sizeof(ElementAccumulator);
 
     // Check HF32_MODE
-    static_assert(
-        !USE_HF32_MODE || (USE_HF32_MODE && std::is_same_v<ElementA, float> && std::is_same_v<ElementB, float>),
-        "HF32 MODE only supports in float!"
-    );
+    static_assert(!USE_HF32_MODE ||
+                      (USE_HF32_MODE && std::is_same_v<ElementA, float> && std::is_same_v<ElementB, float>),
+                  "HF32 MODE only supports in float!");
 
     // Check l1AStages
     static_assert(L1A_STAGES == 1, "L1A_STAGES only supports 1!");
@@ -127,8 +104,9 @@ public:
     // Check LayoutC
     static_assert(tla::detail::isRowMajor<LayoutC>::value ||
                       ((std::is_same_v<ElementC, half> || std::is_same_v<ElementC, bfloat16_t> ||
-                          std::is_same_v<ElementC, float>) && tla::detail::iszN<ElementC, LayoutC>::value),
-        "LayoutC only supports zN in half or bfloat16 or float, RowMajor in all dtype yet!");
+                        std::is_same_v<ElementC, float>) &&
+                       tla::detail::iszN<ElementC, LayoutC>::value),
+                  "LayoutC only supports zN in half or bfloat16 or float, RowMajor in all dtype yet!");
 
     // Check L0TileShape
     static_assert(L0A_TILE_SIZE * L0A_STAGES <= ArchTag::L0A_SIZE, "L0TileShape exceeding the L0A space!");
@@ -136,21 +114,21 @@ public:
     static_assert(L0C_TILE_SIZE * L0C_STAGES <= ArchTag::L0C_SIZE, "L0TileShape exceeding the L0C space!");
 
     static_assert(L1_TILE_M == L0_TILE_M && L1_TILE_N == L0_TILE_N,
-        "The situation where the basic blocks of L1 and L0 differ on the m and n axes is not supported yet");
+                  "The situation where the basic blocks of L1 and L0 differ on the m and n axes is not supported yet");
     static_assert(L0_TILE_K <= L1_TILE_K, "L0TileShape::K cannot exceed L1TileShape::K");
 
-    static_assert((!HAS_BIAS && (L1A_STAGES + L1B_STAGES) <= 8) || (HAS_BIAS && (L1A_STAGES + L1B_STAGES) <= 7), 
-        "L1 Buffer overflow: Exceeds the supported range of EVENT(0~7)");
+    static_assert((!HAS_BIAS && (L1A_STAGES + L1B_STAGES) <= 8) || (HAS_BIAS && (L1A_STAGES + L1B_STAGES) <= 7),
+                  "L1 Buffer overflow: Exceeds the supported range of EVENT(0~7)");
 
-    static_assert((!HAS_BIAS && (L0A_STAGES + L0B_STAGES) <= 8) || (HAS_BIAS && (L0A_STAGES + L0B_STAGES) <= 7), 
-        "L0 Buffer overflow: Exceeds the supported range of EVENT_ID(0~7)");
+    static_assert((!HAS_BIAS && (L0A_STAGES + L0B_STAGES) <= 8) || (HAS_BIAS && (L0A_STAGES + L0B_STAGES) <= 7),
+                  "L0 Buffer overflow: Exceeds the supported range of EVENT_ID(0~7)");
 
     static constexpr auto L1B_LAYOUT =
         tla::MakeLayout<ElementB, LayoutTagL1B>(tla::Int<L1_TILE_K>{}, tla::Int<L1_TILE_N>{});
     static constexpr auto L1BIAS_LAYOUT = tla::MakeLayout(tla::Int<L1_TILE_N>{});
     static constexpr auto L0BIAS_LAYOUT = tla::MakeLayout(tla::Int<L0_TILE_N>{});
 
-    // When enableing L1 resident mode, restore the pointer and coordinates that record the last state
+    // When enabling L1 resident mode, restore the pointer and coordinates that record the last state
     // to the initial state. if tow blockmmad instances need to be consecutively invoked at the kernel layer,
     // RestoreStatus() must be inserted between them.
     CATLASS_DEVICE
@@ -268,16 +246,16 @@ public:
     /// Perform a block-scoped matrix multiply-accumulate
     template <class TensorA, class TensorB, class TensorC, class TensorBias = EmptyClass>
     CATLASS_DEVICE void operator()(TensorA &tensorA, TensorB &tensorB, TensorC &tensorC, GemmCoord const &actualShape,
-        bool needLoadL1, TensorBias const &tensorBias = {})
+                                   bool needLoadL1, TensorBias const &tensorBias = {})
     {
         // Check L1TileShape
         if constexpr (HAS_BIAS) {
             static constexpr uint32_t BIAS_BUF_SIZE = L0_TILE_N * sizeof(ElementAccumulator);
             static constexpr uint32_t L1_BIAS_SIZE = L1_TILE_N * sizeof(ElementBias);
             static_assert(BIAS_BUF_SIZE <= ArchTag::BIAS_SIZE,
-                "BIAS_BUF_SIZE exceeding the BT space! Reduce L0_TILE_N");
+                          "BIAS_BUF_SIZE exceeding the BT space! Reduce L0_TILE_N");
             static_assert(L1A_TILE_SIZE * L1A_STAGES + L1B_TILE_SIZE * L1B_STAGES + L1_BIAS_SIZE <= ArchTag::L1_SIZE,
-                "L1TileShape exceeding the L1 space!");
+                          "L1TileShape exceeding the L1 space!");
         }
 
         using CopyGmToL1A = typename TileCopy_::template CopyGmToL1A<TensorA>;
@@ -322,14 +300,13 @@ public:
         auto tensorL1B = tla::MakeTensor(l1BTensorList[l1BListId], L1B_LAYOUT, Arch::PositionL1{});
         auto tensorTileB = GetTile(tensorB, tla::MakeCoord(0, 0), tla::MakeShape(kL1Actual, nBlockActual));
         if constexpr (ENABLE_L1_RESIDENT) {
-            if (lastAddrB[l1BListId] != tensorTileB.data().GetPhyAddr()
-                || tla::get<0>(tensorTileB.coord()) != lastCoordB[l1BListId].row()
-                || tla::get<1>(tensorTileB.coord()) != lastCoordB[l1BListId].column()) {
+            if (lastAddrB[l1BListId] != tensorTileB.data().GetPhyAddr() ||
+                tla::get<0>(tensorTileB.coord()) != lastCoordB[l1BListId].row() ||
+                tla::get<1>(tensorTileB.coord()) != lastCoordB[l1BListId].column()) {
                 copyGmToL1B(tensorL1B, tensorTileB);
                 lastCoordB[l1BListId] = MatrixCoord{tla::get<0>(tensorTileB.coord()), tla::get<1>(tensorTileB.coord())};
                 lastAddrB[l1BListId] = const_cast<__gm__ typename AscendC::GlobalTensor<ElementB>::PrimType *>(
-                    tensorTileB.data().GetPhyAddr()
-                );
+                    tensorTileB.data().GetPhyAddr());
             }
         } else {
             copyGmToL1B(tensorL1B, tensorTileB);
@@ -368,21 +345,20 @@ public:
                 auto tensorL1B = tla::MakeTensor(l1BTensor, L1B_LAYOUT, Arch::PositionL1{});
                 // Get GM tile for next stage
                 auto tensorTileB = GetTile(tensorB, tla::MakeCoord(kL1IdxNext * L1_TILE_K, 0),
-                    tla::MakeShape(kL1ActualNext, nBlockActual));
+                                           tla::MakeShape(kL1ActualNext, nBlockActual));
 
                 // load next matrix B tile from GM to L1
                 AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(l1BEventList[l1BListIdNext]);
                 if constexpr (ENABLE_L1_RESIDENT) {
-                    if (lastAddrB[l1BListIdNext] != tensorTileB.data().GetPhyAddr()
-                        || tla::get<0>(tensorTileB.coord()) != lastCoordB[l1BListIdNext].row()
-                        || tla::get<1>(tensorTileB.coord()) != lastCoordB[l1BListIdNext].column()) {
+                    if (lastAddrB[l1BListIdNext] != tensorTileB.data().GetPhyAddr() ||
+                        tla::get<0>(tensorTileB.coord()) != lastCoordB[l1BListIdNext].row() ||
+                        tla::get<1>(tensorTileB.coord()) != lastCoordB[l1BListIdNext].column()) {
                         copyGmToL1B(tensorL1B, tensorTileB);
                         lastCoordB[l1BListIdNext] =
                             MatrixCoord{tla::get<0>(tensorTileB.coord()), tla::get<1>(tensorTileB.coord())};
                         lastAddrB[l1BListIdNext] =
                             const_cast<__gm__ typename AscendC::GlobalTensor<ElementB>::PrimType *>(
-                                tensorTileB.data().GetPhyAddr()
-                            );
+                                tensorTileB.data().GetPhyAddr());
                     }
                 } else {
                     copyGmToL1B(tensorL1B, tensorTileB);
@@ -409,8 +385,8 @@ public:
                     auto layoutAInL0 = tla::MakeLayout<ElementA, LayoutTagL0A>(mL0Actual, kL0Actual);
                     auto tensorL0A = tla::MakeTensor(l0ATile, layoutAInL0, Arch::PositionL0A{});
                     // Locate the current tile of matrix A on L1
-                    auto tensorTileL1A = GetTileA(tensorL1A, mL0Idx * L0_TILE_M, kL0Idx * L0_TILE_K + kL1Idx * L1_TILE_K,
-                                                  mL0Actual, kL0Actual);
+                    auto tensorTileL1A = GetTileA(tensorL1A, mL0Idx * L0_TILE_M,
+                                                  kL0Idx * L0_TILE_K + kL1Idx * L1_TILE_K, mL0Actual, kL0Actual);
 
                     AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(l0AEventList[l0AListId]);
 
@@ -426,8 +402,7 @@ public:
                         auto layoutBInL0 = tla::MakeLayout<ElementB, LayoutTagL0B>(kL0Actual, nL0Actual);
                         auto tensorL0B = tla::MakeTensor(l0BTile, layoutBInL0, Arch::PositionL0B{});
                         // Locate the current tile of matrix B on L1
-                        auto tensorTileL1B = GetTile(tensorL1B,
-                                                     tla::MakeCoord(kL0Idx * L0_TILE_K, nL0Idx * L0_TILE_N),
+                        auto tensorTileL1B = GetTile(tensorL1B, tla::MakeCoord(kL0Idx * L0_TILE_K, nL0Idx * L0_TILE_N),
                                                      tla::MakeShape(kL0Actual, nL0Actual));
 
                         // Wait for mmad finished
@@ -453,8 +428,7 @@ public:
                                 AscendC::WaitFlag<AscendC::HardEvent::M_MTE1>(L0A_STAGES + L0B_STAGES);
                                 auto l1Bias = l1BiasTensor.template ReinterpretCast<ElementBias>();
                                 auto tensorL1Bias = tla::MakeTensor(l1Bias, L1BIAS_LAYOUT, Arch::PositionL1{});
-                                auto tensorTileL1Bias = GetTile(tensorL1Bias,
-                                                                tla::MakeCoord(nL0Idx * L0_TILE_N),
+                                auto tensorTileL1Bias = GetTile(tensorL1Bias, tla::MakeCoord(nL0Idx * L0_TILE_N),
                                                                 tla::MakeShape(nL0Actual));
                                 // Load bias to l0 biastable
                                 copyL1ToBT(tensorL0Bias, tensorTileL1Bias);
@@ -468,8 +442,7 @@ public:
                         AscendC::SetFlag<AscendC::HardEvent::MTE1_M>(l0CEventList[l0CListId]);
 
                         // Locate the current tile on L0C
-                        auto tensorTileL0C = GetTile(tensorL0C,
-                                                     tla::MakeCoord(mL0Idx * L0_TILE_M, nL0Idx * L0_TILE_N),
+                        auto tensorTileL0C = GetTile(tensorL0C, tla::MakeCoord(mL0Idx * L0_TILE_M, nL0Idx * L0_TILE_N),
                                                      tla::MakeShape(mL0Actual, nL0Actual));
 
                         // Compute the matrix multiplication on L0A and L0B and write the result to the accumulator
@@ -479,8 +452,8 @@ public:
                         // If the unit flag is enabled, the unit flag is set according to the calculation progress
                         uint8_t unitFlag = 0b00;
                         if constexpr (ENABLE_UNIT_FLAG) {
-                            if ((kL1Idx == kL1Loop - 1) && (mL0Idx == mL0Loop - 1) &&
-                                (kL0Idx == kL0Loop - 1) && (nL0Idx == nL0Loop - 1)) {
+                            if ((kL1Idx == kL1Loop - 1) && (mL0Idx == mL0Loop - 1) && (kL0Idx == kL0Loop - 1) &&
+                                (nL0Idx == nL0Loop - 1)) {
                                 unitFlag = 0b11;
                             } else {
                                 unitFlag = 0b10;
@@ -489,16 +462,16 @@ public:
 
                         if constexpr (HAS_BIAS && !std::is_same_v<TensorBias, EmptyClass>) {
                             if (initC) {
-                                tileMmad(tensorTileL0C, tensorL0A, tensorL0B, tensorL0Bias,
-                                    mL0Actual, nL0Actual, kL0Actual, initC, unitFlag);
+                                tileMmad(tensorTileL0C, tensorL0A, tensorL0B, tensorL0Bias, mL0Actual, nL0Actual,
+                                         kL0Actual, initC, unitFlag);
                                 AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(L0A_STAGES + L0B_STAGES);
                             } else {
-                                tileMmad(tensorTileL0C, tensorL0A, tensorL0B,
-                                    mL0Actual, nL0Actual, kL0Actual, initC, unitFlag);
+                                tileMmad(tensorTileL0C, tensorL0A, tensorL0B, mL0Actual, nL0Actual, kL0Actual, initC,
+                                         unitFlag);
                             }
                         } else {
-                            tileMmad(tensorTileL0C, tensorL0A, tensorL0B,
-                                mL0Actual, nL0Actual, kL0Actual, initC, unitFlag);
+                            tileMmad(tensorTileL0C, tensorL0A, tensorL0B, mL0Actual, nL0Actual, kL0Actual, initC,
+                                     unitFlag);
                         }
 
                         // Notify to move the next L0B tile
@@ -526,7 +499,7 @@ public:
     }
 
 protected:
-    template<class TensorA>
+    template <class TensorA>
     CATLASS_DEVICE auto GetTileA(TensorA &tensorA, uint32_t mIndex, uint32_t kIndex, uint32_t mSize, uint32_t kSize)
     {
         if constexpr (tla::detail::isVector<LayoutA>::value) {
@@ -552,11 +525,11 @@ protected:
     int32_t l0BEventList[L0B_STAGES];
     int32_t l0CEventList[L0C_STAGES];
 
-    __gm__ typename AscendC::GlobalTensor<ElementA>::PrimType* lastAddrA[L1A_STAGES];
-    __gm__ typename AscendC::GlobalTensor<ElementB>::PrimType* lastAddrB[L1B_STAGES];
+    __gm__ typename AscendC::GlobalTensor<ElementA>::PrimType *lastAddrA[L1A_STAGES];
+    __gm__ typename AscendC::GlobalTensor<ElementB>::PrimType *lastAddrB[L1B_STAGES];
     MatrixCoord lastCoordA[L1A_STAGES];
     MatrixCoord lastCoordB[L1B_STAGES];
-    
+
     // The id of current stage
     uint32_t l1AListId{0};
     uint32_t l1BListId{0};
@@ -570,6 +543,6 @@ protected:
     CopyL1ToBT copyL1ToBT;
 };
 
-} // namespace Catlass::Gemm::Block
+}  // namespace Catlass::Gemm::Block
 
-#endif // CATLASS_GEMM_BLOCK_BLOCK_MMAD_PINGPONG_FULL_LOADA_ASCEND950_TLA_HPP
+#endif  // CATLASS_GEMM_BLOCK_BLOCK_MMAD_PINGPONG_FULL_LOADA_ASCEND950_TLA_HPP

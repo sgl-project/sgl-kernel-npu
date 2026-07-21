@@ -15,24 +15,25 @@ namespace {
 //   quant: FP8 E4M3, FP8 E5M2, FP4 E2M1, FP4 E1M2
 //   x:     BF16, FP16
 //   layout: ND, FRACTAL_NZ
-#define FUSED_DEEP_MOE_ACT_DTYPES                                                                                      \
-    ge::DT_BF16, ge::DT_BF16, ge::DT_FLOAT16, ge::DT_FLOAT16, ge::DT_BF16, ge::DT_BF16, ge::DT_FLOAT16,             \
-        ge::DT_FLOAT16, ge::DT_BF16, ge::DT_BF16, ge::DT_FLOAT16, ge::DT_FLOAT16, ge::DT_BF16, ge::DT_BF16,         \
+#define FUSED_DEEP_MOE_ACT_DTYPES                                                                           \
+    ge::DT_BF16, ge::DT_BF16, ge::DT_FLOAT16, ge::DT_FLOAT16, ge::DT_BF16, ge::DT_BF16, ge::DT_FLOAT16,     \
+        ge::DT_FLOAT16, ge::DT_BF16, ge::DT_BF16, ge::DT_FLOAT16, ge::DT_FLOAT16, ge::DT_BF16, ge::DT_BF16, \
         ge::DT_FLOAT16, ge::DT_FLOAT16
 
-#define FUSED_DEEP_MOE_GMM_WEIGHT_DTYPES                                                                               \
-    ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E5M2,     \
-        ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E5M2, ge::DT_FLOAT4_E2M1, ge::DT_FLOAT4_E2M1,         \
-        ge::DT_FLOAT4_E2M1, ge::DT_FLOAT4_E2M1, ge::DT_FLOAT4_E1M2, ge::DT_FLOAT4_E1M2, ge::DT_FLOAT4_E1M2,         \
+#define FUSED_DEEP_MOE_GMM_WEIGHT_DTYPES                                                                        \
+    ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E4M3FN, ge::DT_FLOAT8_E5M2, \
+        ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E5M2, ge::DT_FLOAT8_E5M2, ge::DT_FLOAT4_E2M1, ge::DT_FLOAT4_E2M1,     \
+        ge::DT_FLOAT4_E2M1, ge::DT_FLOAT4_E2M1, ge::DT_FLOAT4_E1M2, ge::DT_FLOAT4_E1M2, ge::DT_FLOAT4_E1M2,     \
         ge::DT_FLOAT4_E1M2
 
-#define FUSED_DEEP_MOE_GMM_WEIGHT_FORMATS                                                                              \
+#define FUSED_DEEP_MOE_GMM_WEIGHT_FORMATS                                                                             \
     ge::FORMAT_ND, ge::FORMAT_FRACTAL_NZ, ge::FORMAT_ND, ge::FORMAT_FRACTAL_NZ, ge::FORMAT_ND, ge::FORMAT_FRACTAL_NZ, \
-        ge::FORMAT_ND, ge::FORMAT_FRACTAL_NZ, ge::FORMAT_ND, ge::FORMAT_FRACTAL_NZ, ge::FORMAT_ND,                   \
+        ge::FORMAT_ND, ge::FORMAT_FRACTAL_NZ, ge::FORMAT_ND, ge::FORMAT_FRACTAL_NZ, ge::FORMAT_ND,                    \
         ge::FORMAT_FRACTAL_NZ, ge::FORMAT_ND, ge::FORMAT_FRACTAL_NZ, ge::FORMAT_ND, ge::FORMAT_FRACTAL_NZ
 }  // namespace
 
-class FusedDeepMoe : public OpDef {
+class FusedDeepMoe : public OpDef
+{
 public:
     explicit FusedDeepMoe(const char *name) : OpDef(name)
     {
@@ -110,18 +111,12 @@ public:
             .DataTypeList({ge::DT_BOOL})
             .FormatList({ge::FORMAT_ND})
             .AutoContiguous();
-        this->Output("output")
-            .ParamType(REQUIRED)
-            .DataType({FUSED_DEEP_MOE_ACT_DTYPES})
-            .FormatList({ge::FORMAT_ND});
+        this->Output("output").ParamType(REQUIRED).DataType({FUSED_DEEP_MOE_ACT_DTYPES}).FormatList({ge::FORMAT_ND});
         this->Output("share_output")
             .ParamType(REQUIRED)
             .DataType({FUSED_DEEP_MOE_ACT_DTYPES})
             .FormatList({ge::FORMAT_ND});
-        this->Output("expert_token_nums")
-            .ParamType(REQUIRED)
-            .DataTypeList({ge::DT_INT64})
-            .FormatList({ge::FORMAT_ND});
+        this->Output("expert_token_nums").ParamType(REQUIRED).DataTypeList({ge::DT_INT64}).FormatList({ge::FORMAT_ND});
 
         this->Attr("group_ep").String();
         this->Attr("ep_rank_size").Int();
@@ -149,4 +144,3 @@ public:
 OP_ADD(FusedDeepMoe);
 }  // namespace ops
 #endif  // defined(__DAV_C310__)
-

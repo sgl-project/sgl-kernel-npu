@@ -30,7 +30,7 @@ struct coord_elem_type {
 };
 template <class Coord, int I>
 struct coord_elem_type<Coord, I,
-    std::enable_if_t<(I >= 0) && (I < (int)tla::tuple_size<tla::remove_cvref_t<Coord>>::value)>> {
+                       std::enable_if_t<(I >= 0) && (I < (int)tla::tuple_size<tla::remove_cvref_t<Coord>>::value)>> {
     using type = tla::remove_cvref_t<decltype(tla::get<I>(std::declval<Coord>()))>;
 };
 
@@ -47,8 +47,8 @@ struct underscore_count_from<Coord, I, std::enable_if_t<(I >= 0)>> {
 };
 template <class Coord>
 struct underscore_count
-    : tla::integral_constant<int,
-        underscore_count_from<Coord, (int)tla::tuple_size<tla::remove_cvref_t<Coord>>::value - 1>::value> {};
+    : tla::integral_constant<
+          int, underscore_count_from<Coord, (int)tla::tuple_size<tla::remove_cvref_t<Coord>>::value - 1>::value> {};
 
 // Build index sequences for underscore dims (stable 0..R-1 recursion).
 template <class Coord, int I, int R, int... Is>
@@ -59,8 +59,7 @@ struct underscore_indices_impl<Coord, R, R, Is...> {
 };
 template <class Coord, int I, int R, int... Is>
 struct underscore_indices_impl
-    : std::conditional_t<coord_elem_is_underscore<Coord, I>::value,
-                         underscore_indices_impl<Coord, I + 1, R, Is..., I>,
+    : std::conditional_t<coord_elem_is_underscore<Coord, I>::value, underscore_indices_impl<Coord, I + 1, R, Is..., I>,
                          underscore_indices_impl<Coord, I + 1, R, Is...>> {};
 
 template <class Coord>
@@ -69,7 +68,8 @@ using underscore_indices =
 
 // Replace every tla::_ with 0 for offset computation.
 template <class T>
-CATLASS_HOST_DEVICE constexpr decltype(auto) underscore_to_zero(T const& x) {
+CATLASS_HOST_DEVICE constexpr decltype(auto) underscore_to_zero(T const &x)
+{
     if constexpr (tla::is_underscore<T>::value) {
         return tla::_0{};
     } else {
@@ -78,27 +78,29 @@ CATLASS_HOST_DEVICE constexpr decltype(auto) underscore_to_zero(T const& x) {
 }
 
 template <class Coord, int... I>
-CATLASS_HOST_DEVICE constexpr auto replace_underscore_with_zero_impl(Coord const& c, seq<I...>) {
+CATLASS_HOST_DEVICE constexpr auto replace_underscore_with_zero_impl(Coord const &c, seq<I...>)
+{
     return tla::MakeCoord(underscore_to_zero(tla::get<I>(c))...);
 }
 
 template <class Coord>
-CATLASS_HOST_DEVICE constexpr auto replace_underscore_with_zero(Coord const& c) {
-    static_assert(tla::is_tuple<tla::remove_cvref_t<Coord>>::value,
-                  "Coord must be tla::tuple for underscore slicing.");
+CATLASS_HOST_DEVICE constexpr auto replace_underscore_with_zero(Coord const &c)
+{
+    static_assert(tla::is_tuple<tla::remove_cvref_t<Coord>>::value, "Coord must be tla::tuple for underscore slicing.");
     return replace_underscore_with_zero_impl(c, tuple_seq<Coord>{});
 }
 
 // Build a layout from selected top-level indices of `layout`.
 template <class Layout, int... Is>
-CATLASS_HOST_DEVICE constexpr auto select_layout(Layout const& layout, seq<Is...>) {
-    auto shape_new  = tla::MakeTuple(tla::get<Is>(layout.shape())...);
+CATLASS_HOST_DEVICE constexpr auto select_layout(Layout const &layout, seq<Is...>)
+{
+    auto shape_new = tla::MakeTuple(tla::get<Is>(layout.shape())...);
     auto stride_new = tla::MakeTuple(tla::get<Is>(layout.stride())...);
     auto origin_new = tla::MakeTuple(tla::get<Is>(layout.originShape())...);
     return tla::MakeLayout(shape_new, stride_new, origin_new);
 }
 
-} // namespace detail
+}  // namespace detail
 
 //
 // slice_and_offset
@@ -112,9 +114,8 @@ CATLASS_HOST_DEVICE constexpr auto select_layout(Layout const& layout, seq<Is...
 // - This function does not perform runtime bounds checks against originShape(); out-of-bounds is undefined behavior.
 // - Returned `offset` is an element offset intended for `BuiltinTensor::operator[](offset)` view creation.
 template <class CoordArg, class Layout, class BaseCoord>
-CATLASS_HOST_DEVICE constexpr auto slice_and_offset(CoordArg const& coord_arg,
-                                                   Layout const& layout,
-                                                   BaseCoord const& base_coord)
+CATLASS_HOST_DEVICE constexpr auto slice_and_offset(CoordArg const &coord_arg, Layout const &layout,
+                                                    BaseCoord const &base_coord)
 {
     static_assert(tla::is_tuple<tla::remove_cvref_t<CoordArg>>::value, "slice_and_offset expects a tuple CoordArg.");
     static_assert(depth_v<CoordArg> == 1, "slice_and_offset only supports one-level CoordArg (no nested tuples).");
@@ -142,12 +143,11 @@ CATLASS_HOST_DEVICE constexpr auto slice_and_offset(CoordArg const& coord_arg,
 
 // Convenience overload (no base_coord): assume base_coord == 0.
 template <class CoordArg, class Layout>
-CATLASS_HOST_DEVICE constexpr auto slice_and_offset(CoordArg const& coord_arg, Layout const& layout)
+CATLASS_HOST_DEVICE constexpr auto slice_and_offset(CoordArg const &coord_arg, Layout const &layout)
 {
     using Z = detail::MakeZeroTuple<Layout::rank>;
     return slice_and_offset(coord_arg, layout, Z{});
 }
-
 
 //
 // Tensor
@@ -156,15 +156,13 @@ CATLASS_HOST_DEVICE constexpr auto slice_and_offset(CoordArg const& coord_arg, L
 namespace detail {
 
 template <class A, class B, int... Is>
-CATLASS_DEVICE constexpr
-auto HadamardU32(A const& a, B const& b, seq<Is...>)
+CATLASS_DEVICE constexpr auto HadamardU32(A const &a, B const &b, seq<Is...>)
 {
     return MakeCoord((static_cast<uint32_t>(get<Is>(a)) * static_cast<uint32_t>(get<Is>(b)))...);
 }
 
 template <class TensorT, class CoordT, class ShapeT, int R>
-CATLASS_DEVICE constexpr
-auto GetTileImpl(TensorT const& tensor, CoordT const& coord, ShapeT const& shape, Int<R>)
+CATLASS_DEVICE constexpr auto GetTileImpl(TensorT const &tensor, CoordT const &coord, ShapeT const &shape, Int<R>)
 {
     static_assert(is_tuple<CoordT>::value && depth_v<CoordT> == 1 && rank_v<CoordT> == R, "Coord rank mismatch.");
     static_assert(is_tuple<ShapeT>::value && depth_v<ShapeT> == 1 && rank_v<ShapeT> == R, "Shape rank mismatch.");
@@ -175,11 +173,13 @@ auto GetTileImpl(TensorT const& tensor, CoordT const& coord, ShapeT const& shape
 }
 
 template <class TensorT, class TileCoord, class TileShape, int R>
-CATLASS_DEVICE constexpr
-auto TileViewImpl(TensorT const& tensor, TileCoord const& tileCoord, TileShape const& tileShape, Int<R>)
+CATLASS_DEVICE constexpr auto TileViewImpl(TensorT const &tensor, TileCoord const &tileCoord,
+                                           TileShape const &tileShape, Int<R>)
 {
-    static_assert(is_tuple<TileCoord>::value && depth_v<TileCoord> == 1 && rank_v<TileCoord> == R, "TileCoord rank mismatch.");
-    static_assert(is_tuple<TileShape>::value && depth_v<TileShape> == 1 && rank_v<TileShape> == R, "TileShape rank mismatch.");
+    static_assert(is_tuple<TileCoord>::value && depth_v<TileCoord> == 1 && rank_v<TileCoord> == R,
+                  "TileCoord rank mismatch.");
+    static_assert(is_tuple<TileShape>::value && depth_v<TileShape> == 1 && rank_v<TileShape> == R,
+                  "TileShape rank mismatch.");
 
     auto elementOffset = HadamardU32(tileCoord, tileShape, tuple_seq<TileCoord>{});
     auto layoutNew = GetTileLayout(tensor.layout(), tileShape, elementOffset);
@@ -187,7 +187,7 @@ auto TileViewImpl(TensorT const& tensor, TileCoord const& tileCoord, TileShape c
     return MakeTensor(tensor.data(), layoutNew, coordNew, Catlass::Arch::PositionType<TensorT::position>{});
 }
 
-} // namespace detail
+}  // namespace detail
 
 template <class BuiltinTensor, class Layout_, class Coord_, AscendC::TPosition Position>
 struct Tensor {
@@ -196,63 +196,55 @@ struct Tensor {
     using Coord = Coord_;
     static constexpr AscendC::TPosition position = Position;
 
-    CATLASS_HOST_DEVICE constexpr
-    Tensor() {}
+    CATLASS_HOST_DEVICE constexpr Tensor() {}
 
-    CATLASS_HOST_DEVICE constexpr
-    Tensor(BuiltinTensor const& builtinTensor, Layout const& layout, Coord const& coord = {})
-        : rep_(builtinTensor, layout, coord) {}
+    CATLASS_HOST_DEVICE constexpr Tensor(BuiltinTensor const &builtinTensor, Layout const &layout,
+                                         Coord const &coord = {})
+        : rep_(builtinTensor, layout, coord)
+    {}
 
     //
     // Accessors
     //
 
-    static constexpr int rank  = Layout::rank;
+    static constexpr int rank = Layout::rank;
 
-    CATLASS_HOST_DEVICE constexpr
-    decltype(auto) tensor() const
+    CATLASS_HOST_DEVICE constexpr decltype(auto) tensor() const
     {
         return *this;
     }
 
-    CATLASS_HOST_DEVICE constexpr
-    decltype(auto) data() const
+    CATLASS_HOST_DEVICE constexpr decltype(auto) data() const
     {
         return get<0>(rep_);
     }
 
-    CATLASS_HOST_DEVICE constexpr
-    decltype(auto) data()
+    CATLASS_HOST_DEVICE constexpr decltype(auto) data()
     {
         return get<0>(rep_);
     }
 
-    CATLASS_HOST_DEVICE constexpr
-    decltype(auto) layout() const
+    CATLASS_HOST_DEVICE constexpr decltype(auto) layout() const
     {
         return get<1>(rep_);
     }
 
-    CATLASS_HOST_DEVICE constexpr
-    decltype(auto) coord() const
+    CATLASS_HOST_DEVICE constexpr decltype(auto) coord() const
     {
         return get<2>(rep_);
     }
 
-    CATLASS_HOST_DEVICE constexpr
-    decltype(auto) shape() const
+    CATLASS_HOST_DEVICE constexpr decltype(auto) shape() const
     {
         return layout().shape();
     }
 
-    CATLASS_HOST_DEVICE constexpr
-    decltype(auto) stride() const
+    CATLASS_HOST_DEVICE constexpr decltype(auto) stride() const
     {
         return layout().stride();
     }
 
-    CATLASS_HOST_DEVICE constexpr
-    decltype(auto) originShape() const
+    CATLASS_HOST_DEVICE constexpr decltype(auto) originShape() const
     {
         return layout().originShape();
     }
@@ -261,17 +253,18 @@ struct Tensor {
     // Indexing / slicing
     //
     // - No underscore: returns `data()[layout()(coord()+coord_arg)]`
-    // - Underscores (0..rank, one-level coord): returns a subtensor view over the underscored dimensions (kept in-order)
+    // - Underscores (0..rank, one-level coord): returns a subtensor view over the underscored dimensions (kept
+    // in-order)
     //   Notes:
     //   - Coord must be one-level (no nested tuples in coord elements).
     //   - Fixed (non-underscore) indices are expected to be within originShape(). This implementation does not
     //     generally perform runtime bounds checks/cropping; out-of-bounds indices result in undefined behavior.
     template <class CoordArg>
-    CATLASS_HOST_DEVICE constexpr
-    decltype(auto) operator()(CoordArg const& coord_arg) const
+    CATLASS_HOST_DEVICE constexpr decltype(auto) operator()(CoordArg const &coord_arg) const
     {
         if constexpr (tla::is_tuple<tla::remove_cvref_t<CoordArg>>::value) {
-            static_assert(depth_v<CoordArg> == 1, "Underscore slicing only supports one-level Coord (no nested tuples).");
+            static_assert(depth_v<CoordArg> == 1,
+                          "Underscore slicing only supports one-level Coord (no nested tuples).");
             static_assert(tla::tuple_size<tla::remove_cvref_t<CoordArg>>::value == Layout::rank,
                           "Tensor::operator()(coord): Coord rank must equal tensor rank (Layout::rank).");
 
@@ -285,7 +278,8 @@ struct Tensor {
 
                 using CoordZ = detail::MakeZeroTuple<(size_t)k>;
                 auto data_new = data()[static_cast<uint64_t>(offset)];
-                return Tensor<decltype(data_new), decltype(layout_proj), CoordZ, position>(data_new, layout_proj, CoordZ{});
+                return Tensor<decltype(data_new), decltype(layout_proj), CoordZ, position>(data_new, layout_proj,
+                                                                                           CoordZ{});
             } else {
                 // No underscore: point view at coord() + coord_arg
                 auto full = Add(coord(), coord_arg);
@@ -300,8 +294,8 @@ struct Tensor {
     }
 
     template <class Coord0, class Coord1, class... Coords>
-    CATLASS_HOST_DEVICE constexpr
-    decltype(auto) operator()(Coord0 const& c0, Coord1 const& c1, Coords const&... cs) const
+    CATLASS_HOST_DEVICE constexpr decltype(auto) operator()(Coord0 const &c0, Coord1 const &c1,
+                                                            Coords const &...cs) const
     {
         return operator()(MakeCoord(c0, c1, cs...));
     }
@@ -310,16 +304,15 @@ struct Tensor {
 };
 
 template <class BuiltinTensor, class Layout, class PositionType>
-CATLASS_HOST_DEVICE constexpr
-auto MakeTensor(BuiltinTensor const& builtinTensor, Layout const& layout, PositionType)
+CATLASS_HOST_DEVICE constexpr auto MakeTensor(BuiltinTensor const &builtinTensor, Layout const &layout, PositionType)
 {
     using Coord = detail::MakeZeroTuple<Layout::rank>;
     return Tensor<BuiltinTensor, Layout, Coord, PositionType::value>(builtinTensor, layout);
 }
 
 template <class BuiltinTensor, class Layout, class Coord, class PositionType>
-CATLASS_HOST_DEVICE constexpr
-auto MakeTensor(BuiltinTensor const& builtinTensor, Layout const& layout, Coord const& coord, PositionType)
+CATLASS_HOST_DEVICE constexpr auto MakeTensor(BuiltinTensor const &builtinTensor, Layout const &layout,
+                                              Coord const &coord, PositionType)
 {
     return Tensor<BuiltinTensor, Layout, Coord, PositionType::value>(builtinTensor, layout, coord);
 }
@@ -330,15 +323,13 @@ auto MakeTensor(BuiltinTensor const& builtinTensor, Layout const& layout, Coord 
 // and layout.originShape() is the actual logical size (may be smaller than shape).
 // Supports tensors of any rank (rank >= 1).
 template <class Tensor, class Coord, class Shape>
-CATLASS_DEVICE constexpr
-auto GetTile(Tensor const& tensor, Coord const& coord, Shape const& shape)
+CATLASS_DEVICE constexpr auto GetTile(Tensor const &tensor, Coord const &coord, Shape const &shape)
 {
     static_assert(Tensor::rank >= 1, "GetTile requires tensor rank >= 1.");
-    static_assert(Tensor::rank == rank_v<Coord> && Tensor::rank == rank_v<Shape>, 
+    static_assert(Tensor::rank == rank_v<Coord> && Tensor::rank == rank_v<Shape>,
                   "GetTile: coord and shape must have the same rank as the tensor.");
     return detail::GetTileImpl(tensor, coord, shape, Int<Tensor::rank>{});
 }
-
 
 // 从 tensor 中获取一个 tile，自动处理边界情况（tail tile）。
 // tileCoord 是 tile 单位坐标；tileShape 是用于内存布局的 tile 尺寸。
@@ -346,11 +337,10 @@ auto GetTile(Tensor const& tensor, Coord const& coord, Shape const& shape)
 // TileView(tensor, tileCoord, tileShape) = GetTile(tensor, tileCoord ⊙ tileShape, tileShape)
 // Supports tensors of any rank (rank >= 1).
 template <class TensorT, class TileCoord, class TileShape>
-CATLASS_DEVICE constexpr
-auto TileView(TensorT const& tensor, TileCoord const& tileCoord, TileShape const& tileShape)
+CATLASS_DEVICE constexpr auto TileView(TensorT const &tensor, TileCoord const &tileCoord, TileShape const &tileShape)
 {
     static_assert(TensorT::rank >= 1, "TileView requires tensor rank >= 1.");
-    static_assert(TensorT::rank == rank_v<TileCoord> && TensorT::rank == rank_v<TileShape>, 
+    static_assert(TensorT::rank == rank_v<TileCoord> && TensorT::rank == rank_v<TileShape>,
                   "TileView: tileCoord and tileShape must have the same rank as the tensor.");
     return detail::TileViewImpl(tensor, tileCoord, tileShape, Int<TensorT::rank>{});
 }
@@ -358,10 +348,8 @@ auto TileView(TensorT const& tensor, TileCoord const& tileCoord, TileShape const
 // 创建一个与另一个 Tensor 类似的 Tensor：
 // 目标 layout 根据 LayoutTagDst 构造，从 LikeTensor::Element 推断 ElementDst，从 likeTensor 的 originShape 提取尺寸。
 template <class LayoutTagDst, class BuiltinTensor, class LikeTensor, class PositionType>
-CATLASS_HOST_DEVICE constexpr
-auto MakeTensorLike(BuiltinTensor const& builtinTensor,
-                      LikeTensor const& likeTensor,
-                      PositionType)
+CATLASS_HOST_DEVICE constexpr auto MakeTensorLike(BuiltinTensor const &builtinTensor, LikeTensor const &likeTensor,
+                                                  PositionType)
 {
     using ElementDst = typename LikeTensor::Element;
     static_assert(std::is_same_v<typename BuiltinTensor::PrimType, ElementDst>,
@@ -372,11 +360,8 @@ auto MakeTensorLike(BuiltinTensor const& builtinTensor,
 // 创建一个与另一个 Tensor 类似的 Tensor：
 // 使用 layoutBase 的 shape/stride，但继承 likeTensor 的 originShape，从 LikeTensor::Element 推断 ElementDst。
 template <class LayoutTagDst, class BuiltinTensor, class LikeTensor, class PositionType, class LayoutBase>
-CATLASS_HOST_DEVICE constexpr
-auto MakeTensorLike(BuiltinTensor const& builtinTensor,
-                      LikeTensor const& likeTensor,
-                      PositionType,
-                      LayoutBase const& layoutBase)
+CATLASS_HOST_DEVICE constexpr auto MakeTensorLike(BuiltinTensor const &builtinTensor, LikeTensor const &likeTensor,
+                                                  PositionType, LayoutBase const &layoutBase)
 {
     using ElementDst = typename LikeTensor::Element;
     static_assert(std::is_same_v<typename BuiltinTensor::PrimType, ElementDst>,
@@ -385,13 +370,12 @@ auto MakeTensorLike(BuiltinTensor const& builtinTensor,
 }
 
 // 创建一个与另一个 Tensor 类似的 Tensor：
-// 目标 layout 根据 LayoutTagDst 构造，从 LikeTensor::Element 推断 ElementDst，从 likeTensor 的 originShape 提取尺寸。(调用MakeLayout，可能会因分型布局合法要求对shape进行以分型为粒度的向上取整)
-// 允许 BuiltinTensor 的元素类型与 LikeTensor 的元素类型不同（例如 L0C 使用 ElementAccumulator 而不是 ElementC）。
+// 目标 layout 根据 LayoutTagDst 构造，从 LikeTensor::Element 推断 ElementDst，从 likeTensor 的 originShape
+// 提取尺寸。(调用MakeLayout，可能会因分型布局合法要求对shape进行以分型为粒度的向上取整) 允许 BuiltinTensor 的元素类型与
+// LikeTensor 的元素类型不同（例如 L0C 使用 ElementAccumulator 而不是 ElementC）。
 template <class LayoutTagDst, class ElementDst, class BuiltinTensor, class LikeTensor, class PositionType>
-CATLASS_HOST_DEVICE constexpr
-auto MakeTensorLike(BuiltinTensor const& builtinTensor,
-                      LikeTensor const& likeTensor,
-                      PositionType)
+CATLASS_HOST_DEVICE constexpr auto MakeTensorLike(BuiltinTensor const &builtinTensor, LikeTensor const &likeTensor,
+                                                  PositionType)
 {
     static_assert(LikeTensor::rank == 1 || LikeTensor::rank == 2,
                   "MakeTensorLike<LayoutTag, Element>(..., likeTensor) expects rank-1 or rank-2 likeTensor.");
@@ -401,33 +385,39 @@ auto MakeTensorLike(BuiltinTensor const& builtinTensor,
     if constexpr (LikeTensor::rank == 1) {
         auto layoutNominal = MakeLayout<ElementDst, LayoutTagDst>(get<0>(likeTensor.layout().originShape()));
         using Coord0 = detail::MakeZeroTuple<decltype(layoutNominal)::rank>;
-        return Tensor<BuiltinTensor, decltype(layoutNominal), Coord0, PositionType::value>(builtinTensor, layoutNominal);
+        return Tensor<BuiltinTensor, decltype(layoutNominal), Coord0, PositionType::value>(builtinTensor,
+                                                                                           layoutNominal);
     } else {
-        static_assert(LikeTensor::rank == 2, "MakeTensorLike<LayoutTag, Element>(..., likeTensor) expects rank-1 or rank-2 likeTensor.");
-        auto layoutNominal = MakeLayout<ElementDst, LayoutTagDst>(get<0>(likeTensor.layout().originShape()), get<1>(likeTensor.layout().originShape()));
+        static_assert(LikeTensor::rank == 2,
+                      "MakeTensorLike<LayoutTag, Element>(..., likeTensor) expects rank-1 or rank-2 likeTensor.");
+        auto layoutNominal = MakeLayout<ElementDst, LayoutTagDst>(get<0>(likeTensor.layout().originShape()),
+                                                                  get<1>(likeTensor.layout().originShape()));
         using Coord0 = detail::MakeZeroTuple<decltype(layoutNominal)::rank>;
-        return Tensor<BuiltinTensor, decltype(layoutNominal), Coord0, PositionType::value>(builtinTensor, layoutNominal);
+        return Tensor<BuiltinTensor, decltype(layoutNominal), Coord0, PositionType::value>(builtinTensor,
+                                                                                           layoutNominal);
     }
 }
 
 // 创建一个与另一个 Tensor 类似的 Tensor：
-// 使用 layoutBase 的 shape/stride，但继承 likeTensor 的 originShape。允许 BuiltinTensor 的元素类型与 LikeTensor 的元素类型不同。
-template <class LayoutTagDst, class ElementDst, class BuiltinTensor, class LikeTensor, class PositionType, class LayoutBase>
-CATLASS_HOST_DEVICE constexpr
-auto MakeTensorLike(BuiltinTensor const& builtinTensor,
-                      LikeTensor const& likeTensor,
-                      PositionType,
-                      LayoutBase const& layoutBase)
+// 使用 layoutBase 的 shape/stride，但继承 likeTensor 的 originShape。允许 BuiltinTensor 的元素类型与 LikeTensor
+// 的元素类型不同。
+template <class LayoutTagDst, class ElementDst, class BuiltinTensor, class LikeTensor, class PositionType,
+          class LayoutBase>
+CATLASS_HOST_DEVICE constexpr auto MakeTensorLike(BuiltinTensor const &builtinTensor, LikeTensor const &likeTensor,
+                                                  PositionType, LayoutBase const &layoutBase)
 {
-    static_assert(LikeTensor::rank == 1 || LikeTensor::rank == 2, "MakeTensorLike<LayoutTag, Element>(..., likeTensor, layoutBase) expects rank-1 or rank-2 likeTensor.");
+    static_assert(
+        LikeTensor::rank == 1 || LikeTensor::rank == 2,
+        "MakeTensorLike<LayoutTag, Element>(..., likeTensor, layoutBase) expects rank-1 or rank-2 likeTensor.");
     static_assert(std::is_same_v<typename BuiltinTensor::PrimType, ElementDst>,
                   "BuiltinTensor element type must match specified ElementDst type");
 
     auto layoutFixedStride = MakeLayout(layoutBase.shape(), layoutBase.stride(), likeTensor.originShape());
     using Coord0 = detail::MakeZeroTuple<decltype(layoutFixedStride)::rank>;
-    return Tensor<BuiltinTensor, decltype(layoutFixedStride), Coord0, PositionType::value>(builtinTensor, layoutFixedStride);
+    return Tensor<BuiltinTensor, decltype(layoutFixedStride), Coord0, PositionType::value>(builtinTensor,
+                                                                                           layoutFixedStride);
 }
 
-} // end namespace tla
+}  // end namespace tla
 
-#endif // TLA_TENSOR_HPP
+#endif  // TLA_TENSOR_HPP

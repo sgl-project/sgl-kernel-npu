@@ -21,14 +21,10 @@
 
 namespace Catlass::Gemm::Kernel {
 
-template <
-    class PrologueA_,
-    class PrologueB_,
-    class BlockMmad_,
-    class BlockEpilogue_,
-    class BlockScheduler_,
-    class RemovePaddingC_>
-class DynamicLocalPaddingCPaddingCommonMatmul {
+template <class PrologueA_, class PrologueB_, class BlockMmad_, class BlockEpilogue_, class BlockScheduler_,
+          class RemovePaddingC_>
+class DynamicLocalPaddingCPaddingCommonMatmul
+{
 public:
     using PrologueA = PrologueA_;
     using PrologueB = PrologueB_;
@@ -51,10 +47,10 @@ public:
         using type = void;
     };
 
-    using LayoutA = std::
-        conditional_t<std::is_void_v<PrologueA>, typename BlockMmad::LayoutA, typename LayoutHelper<PrologueA>::type>;
-    using LayoutB = std::
-        conditional_t<std::is_void_v<PrologueB>, typename BlockMmad::LayoutB, typename LayoutHelper<PrologueB>::type>;
+    using LayoutA = std::conditional_t<std::is_void_v<PrologueA>, typename BlockMmad::LayoutA,
+                                       typename LayoutHelper<PrologueA>::type>;
+    using LayoutB = std::conditional_t<std::is_void_v<PrologueB>, typename BlockMmad::LayoutB,
+                                       typename LayoutHelper<PrologueB>::type>;
 
     using BlockScheduler = BlockScheduler_;
 
@@ -79,52 +75,34 @@ public:
 
         // Methods
         CATLASS_HOST_DEVICE
-        Params()
-        {
-        }
+        Params() {}
 
         CATLASS_HOST_DEVICE
-        Params(
-            GemmCoord const &problemShape_,
-            GemmCoord const &l1TileShape_,
-            GM_ADDR ptrA_,
-            LayoutA &layoutA_,
-            GM_ADDR ptrB_,
-            LayoutB &layoutB_,
-            GM_ADDR ptrC_,
-            LayoutC &layoutC_,
-            GM_ADDR ptrWA_,
-            GM_ADDR ptrWB_,
-            GM_ADDR ptrWC_,
-            uint32_t swizzleOffset_,
-            uint32_t swizzleDirection_,
-            uint32_t m1Factor_,
-            uint32_t n1Factor_
-        )
-            : problemShape(problemShape_)
-            , l1TileShape(l1TileShape_)
-            , ptrA(ptrA_)
-            , layoutA(layoutA_)
-            , ptrB(ptrB_)
-            , layoutB(layoutB_)
-            , ptrC(ptrC_)
-            , layoutC(layoutC_)
-            , ptrWA(ptrWA_)
-            , ptrWB(ptrWB_)
-            , ptrWC(ptrWC_)
-            , swizzleOffset(swizzleOffset_)
-            , swizzleDirection(swizzleDirection_)
-            , m1Factor(m1Factor_)
-            , n1Factor(n1Factor_)
-        {
-        }
+        Params(GemmCoord const &problemShape_, GemmCoord const &l1TileShape_, GM_ADDR ptrA_, LayoutA &layoutA_,
+               GM_ADDR ptrB_, LayoutB &layoutB_, GM_ADDR ptrC_, LayoutC &layoutC_, GM_ADDR ptrWA_, GM_ADDR ptrWB_,
+               GM_ADDR ptrWC_, uint32_t swizzleOffset_, uint32_t swizzleDirection_, uint32_t m1Factor_,
+               uint32_t n1Factor_)
+            : problemShape(problemShape_),
+              l1TileShape(l1TileShape_),
+              ptrA(ptrA_),
+              layoutA(layoutA_),
+              ptrB(ptrB_),
+              layoutB(layoutB_),
+              ptrC(ptrC_),
+              layoutC(layoutC_),
+              ptrWA(ptrWA_),
+              ptrWB(ptrWB_),
+              ptrWC(ptrWC_),
+              swizzleOffset(swizzleOffset_),
+              swizzleDirection(swizzleDirection_),
+              m1Factor(m1Factor_),
+              n1Factor(n1Factor_)
+        {}
     };
 
     // Methods
     CATLASS_DEVICE
-    DynamicLocalPaddingCPaddingCommonMatmul()
-    {
-    }
+    DynamicLocalPaddingCPaddingCommonMatmul() {}
 
     template <int32_t CORE_TYPE = g_coreType>
     CATLASS_DEVICE void operator()(Params const &params, Catlass::Arch::Resource<ArchTag> &resource);
@@ -141,7 +119,8 @@ public:
             if constexpr (PrologueA::paddingTag == Catlass::Gemm::Kernel::PaddingTag::PADDING_ND) {
                 layoutWA = PrologueA::GetWorkspaceLayout(params.layoutA, 512 / sizeof(ElementA));
             } else if constexpr (PrologueA::paddingTag == Catlass::Gemm::Kernel::PaddingTag::PADDING_BLOCK_ND) {
-                layoutWA = PrologueA::GetWorkspaceLayout(params.layoutA, params.l1TileShape.m(), params.l1TileShape.k());
+                layoutWA =
+                    PrologueA::GetWorkspaceLayout(params.layoutA, params.l1TileShape.m(), params.l1TileShape.k());
             } else if constexpr (PrologueA::paddingTag == Catlass::Gemm::Kernel::PaddingTag::PADDING_NZ) {
                 layoutWA = PrologueA::GetWorkspaceLayout(params.layoutA);
             }
@@ -158,7 +137,8 @@ public:
             if constexpr (PrologueB::paddingTag == Catlass::Gemm::Kernel::PaddingTag::PADDING_ND) {
                 layoutWB = PrologueB::GetWorkspaceLayout(params.layoutB, 512 / sizeof(ElementB));
             } else if constexpr (PrologueB::paddingTag == Catlass::Gemm::Kernel::PaddingTag::PADDING_BLOCK_ND) {
-                layoutWB = PrologueB::GetWorkspaceLayout(params.layoutB, params.l1TileShape.k(), params.l1TileShape.n());
+                layoutWB =
+                    PrologueB::GetWorkspaceLayout(params.layoutB, params.l1TileShape.k(), params.l1TileShape.n());
             } else if constexpr (PrologueB::paddingTag == Catlass::Gemm::Kernel::PaddingTag::PADDING_NZ) {
                 layoutWB = PrologueB::GetWorkspaceLayout(params.layoutB);
             }
@@ -178,9 +158,8 @@ public:
 
             MatrixCoord gmTileShape(params.l1TileShape.m() * params.m1Factor, params.l1TileShape.n() * params.n1Factor);
 
-            BlockScheduler matmulBlockScheduler(
-                params.problemShape, gmTileShape, params.swizzleOffset, params.swizzleDirection
-            );
+            BlockScheduler matmulBlockScheduler(params.problemShape, gmTileShape, params.swizzleOffset,
+                                                params.swizzleDirection);
             AscendC::GlobalTensor<ElementC> gmC;
             gmC.SetGlobalBuffer((__gm__ ElementC *)params.ptrC);
             AscendC::GlobalTensor<ElementC> gmWC;
@@ -194,8 +173,8 @@ public:
                 // Compute initial location in logical coordinates
                 GemmCoord blockCoord = matmulBlockScheduler.GetBlockCoord(loopIdx);
                 GemmCoord actualBlockShape = matmulBlockScheduler.GetActualBlockShape(blockCoord);
-                uint64_t gmOffsetWC = static_cast<size_t>(aiCoreIdx * GMWC_BUFFER_NUM + cvSyncId) * gmTileShape.row()
-                                      * gmTileShape.column();
+                uint64_t gmOffsetWC = static_cast<size_t>(aiCoreIdx * GMWC_BUFFER_NUM + cvSyncId) * gmTileShape.row() *
+                                      gmTileShape.column();
                 LayoutC layoutWC = LayoutC{actualBlockShape.m(), actualBlockShape.n(), gmTileShape.column()};
                 MatrixCoord coordC{blockCoord.m() * gmTileShape.row(), blockCoord.n() * gmTileShape.column()};
                 int64_t gmOffsetC = params.layoutC.GetOffset(coordC);
@@ -260,9 +239,8 @@ public:
 
         MatrixCoord gmTileShape(params.l1TileShape.m() * params.m1Factor, params.l1TileShape.n() * params.n1Factor);
 
-        BlockScheduler matmulBlockScheduler(
-            params.problemShape, gmTileShape, params.swizzleOffset, params.swizzleDirection
-        );
+        BlockScheduler matmulBlockScheduler(params.problemShape, gmTileShape, params.swizzleOffset,
+                                            params.swizzleDirection);
         uint32_t coreLoops = matmulBlockScheduler.GetCoreLoops();
 
         BlockMmad blockMmad(params.l1TileShape, resource);
@@ -276,7 +254,6 @@ public:
         uint32_t aiCoreNum = AscendC::GetBlockNum();
 
         for (uint32_t loopIdx = AscendC::GetBlockIdx(); loopIdx < coreLoops; loopIdx += AscendC::GetBlockNum()) {
-
             if constexpr (!std::is_void_v<RemovePaddingC>) {
                 Catlass::Arch::CrossCoreWaitFlag(cvSyncFlagList[cvSyncId]);
             }
@@ -299,10 +276,8 @@ public:
                 gmNextBlockCoord = gmNextBlockCoord * GemmCoord(params.m1Factor, params.n1Factor, 0);
             }
 
-            MatrixCoord innerLoopsMN = CeilDiv(
-                MakeCoord(gmActualBlockShape.m(), gmActualBlockShape.n()),
-                MakeCoord(params.l1TileShape.m(), params.l1TileShape.n())
-            );
+            MatrixCoord innerLoopsMN = CeilDiv(MakeCoord(gmActualBlockShape.m(), gmActualBlockShape.n()),
+                                               MakeCoord(params.l1TileShape.m(), params.l1TileShape.n()));
             uint32_t innerLoops = innerLoopsMN.row() * innerLoopsMN.column();
 
             GemmCoord blockCoord;
@@ -346,11 +321,8 @@ public:
                 }
 
                 if (innerLoopIdx + 1 < innerLoops) {
-                    nextBlockCoord = gmBlockCoord
-                                     + GemmCoord(
-                                         (innerLoopIdx + 1) / innerLoopsMN.column(),
-                                         (innerLoopIdx + 1) % innerLoopsMN.column(), 0
-                                     );
+                    nextBlockCoord = gmBlockCoord + GemmCoord((innerLoopIdx + 1) / innerLoopsMN.column(),
+                                                              (innerLoopIdx + 1) % innerLoopsMN.column(), 0);
 
                 } else if (hasGmNextBlock) {
                     nextBlockCoord = gmNextBlockCoord;
@@ -363,32 +335,27 @@ public:
                 int64_t gmOffsetB = layoutB.GetOffset(coordB);
                 actualBlockShape = GetActualBlockShape(params.problemShape, params.l1TileShape, blockCoord);
 
-                MatrixCoord coordNextA{
-                    nextBlockCoord.m() * params.l1TileShape.m(), nextBlockCoord.k() * params.l1TileShape.k()
-                };
-                MatrixCoord coordNextB{
-                    nextBlockCoord.k() * params.l1TileShape.k(), nextBlockCoord.n() * params.l1TileShape.n()
-                };
+                MatrixCoord coordNextA{nextBlockCoord.m() * params.l1TileShape.m(),
+                                       nextBlockCoord.k() * params.l1TileShape.k()};
+                MatrixCoord coordNextB{nextBlockCoord.k() * params.l1TileShape.k(),
+                                       nextBlockCoord.n() * params.l1TileShape.n()};
                 int64_t gmOffsetNextA = layoutA.GetOffset(coordNextA);
                 int64_t gmOffsetNextB = layoutB.GetOffset(coordNextB);
                 nextActualBlockShape = GetActualBlockShape(params.problemShape, params.l1TileShape, nextBlockCoord);
 
                 int64_t gmOffsetC{0};
                 if constexpr (!std::is_void_v<RemovePaddingC>) {
-                    gmOffsetC = static_cast<size_t>(aiCoreIdx * GMWC_BUFFER_NUM + cvSyncId) * gmTileShape.row()
-                                    * gmTileShape.column()
-                                + layoutC.GetOffset(
-                                    MakeCoord(mIdx * params.l1TileShape.m(), nIdx * params.l1TileShape.n())
-                                );
+                    gmOffsetC =
+                        static_cast<size_t>(aiCoreIdx * GMWC_BUFFER_NUM + cvSyncId) * gmTileShape.row() *
+                            gmTileShape.column() +
+                        layoutC.GetOffset(MakeCoord(mIdx * params.l1TileShape.m(), nIdx * params.l1TileShape.n()));
                 } else {
                     gmOffsetC = layoutC.GetOffset(coordC);
                 }
 
                 // Compute block-scoped matrix multiply-add
-                blockMmad(
-                    gmA[gmOffsetA], layoutA, gmB[gmOffsetB], layoutB, gmC[gmOffsetC], layoutC, gmA[gmOffsetNextA],
-                    gmB[gmOffsetNextB], actualBlockShape, nextActualBlockShape, isFirstBlock, hasNextBlock
-                );
+                blockMmad(gmA[gmOffsetA], layoutA, gmB[gmOffsetB], layoutB, gmC[gmOffsetC], layoutC, gmA[gmOffsetNextA],
+                          gmB[gmOffsetNextB], actualBlockShape, nextActualBlockShape, isFirstBlock, hasNextBlock);
             }
 
             if constexpr (!std::is_void_v<RemovePaddingC>) {
@@ -408,11 +375,11 @@ private:
     static constexpr Arch::FlagID FLAG_AIV_FINISH_STORE = 0;
     Arch::CrossCoreFlag flagAivFinishPadding{FLAG_AIV_FINISH_STORE};
     static constexpr uint32_t GMWC_BUFFER_NUM = 4;
-    Arch::CrossCoreFlag cvSyncFlagList[GMWC_BUFFER_NUM] =
-        {Arch::FlagID{0}, Arch::FlagID{1}, Arch::FlagID{2}, Arch::FlagID{3}};
+    Arch::CrossCoreFlag cvSyncFlagList[GMWC_BUFFER_NUM] = {Arch::FlagID{0}, Arch::FlagID{1}, Arch::FlagID{2},
+                                                           Arch::FlagID{3}};
     uint32_t cvSyncId{0};
 };
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel
 
-#endif // CATLASS_GEMM_KERNEL_DYNAMIC_LOCAL_PADDING_C_PADDING_COMMON_MATMUL_HPP
+#endif  // CATLASS_GEMM_KERNEL_DYNAMIC_LOCAL_PADDING_C_PADDING_COMMON_MATMUL_HPP

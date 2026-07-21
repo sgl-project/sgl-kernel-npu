@@ -19,12 +19,9 @@
 namespace Catlass::Gemm::Kernel {
 
 // Template for matmul add kernel. Compute D = A * B + X
-template <
-    class BlockMmad_,
-    class BlockEpilogue_,
-    class BlockScheduler_
->
-class MatmulBias {
+template <class BlockMmad_, class BlockEpilogue_, class BlockScheduler_>
+class MatmulBias
+{
 public:
     using BlockMmad = BlockMmad_;
     using ArchTag = typename BlockMmad::ArchTag;
@@ -57,14 +54,17 @@ public:
         Params() {}
 
         CATLASS_HOST_DEVICE
-        Params(
-            GemmCoord const &problemShape_,
-            GM_ADDR ptrA_, LayoutA const &layoutA_,
-            GM_ADDR ptrB_, LayoutB const &layoutB_,
-            GM_ADDR ptrC_, LayoutC const &layoutC_,
-            GM_ADDR ptrBias_
-        ) : problemShape(problemShape_), ptrA(ptrA_), layoutA(layoutA_), ptrB(ptrB_), layoutB(layoutB_),
-            ptrC(ptrC_), layoutC(layoutC_), ptrBias(ptrBias_) {}
+        Params(GemmCoord const &problemShape_, GM_ADDR ptrA_, LayoutA const &layoutA_, GM_ADDR ptrB_,
+               LayoutB const &layoutB_, GM_ADDR ptrC_, LayoutC const &layoutC_, GM_ADDR ptrBias_)
+            : problemShape(problemShape_),
+              ptrA(ptrA_),
+              layoutA(layoutA_),
+              ptrB(ptrB_),
+              layoutB(layoutB_),
+              ptrC(ptrC_),
+              layoutC(layoutC_),
+              ptrBias(ptrBias_)
+        {}
     };
 
     struct Arguments {
@@ -90,15 +90,7 @@ public:
         LayoutA layoutA = LayoutA::template MakeLayout<ElementA>(args.problemShape.m(), args.problemShape.k());
         LayoutB layoutB = LayoutB::template MakeLayout<ElementB>(args.problemShape.k(), args.problemShape.n());
         LayoutC layoutC = LayoutC::template MakeLayout<ElementC>(args.problemShape.m(), args.problemShape.n());
-        Params params{
-            args.problemShape,
-            args.ptrA,
-            layoutA,
-            args.ptrB,
-            layoutB,
-            args.ptrC,
-            layoutC,
-            args.ptrBias};
+        Params params{args.problemShape, args.ptrA, layoutA, args.ptrB, layoutB, args.ptrC, layoutC, args.ptrBias};
         return params;
     }
 
@@ -107,12 +99,10 @@ public:
     MatmulBias() {}
 
     template <int32_t CORE_TYPE = g_coreType>
-    CATLASS_DEVICE
-    void operator()(Params const &params);
+    CATLASS_DEVICE void operator()(Params const &params);
 
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIC>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params)
     {
         BlockScheduler matmulBlockScheduler(params.problemShape, MakeCoord(L1TileShape::M, L1TileShape::N));
         uint32_t coreLoops = matmulBlockScheduler.GetCoreLoops();
@@ -145,22 +135,18 @@ public:
             int64_t gmOffsetBias = blockCoord.n() * L1TileShape::N;
 
             // Compute block-scoped matrix multiply-add
-            blockMmad(
-                gmA[gmOffsetA], params.layoutA,
-                gmB[gmOffsetB], params.layoutB,
-                gmC[gmOffsetC], params.layoutC,
-                gmBias[gmOffsetBias],
-                actualBlockShape);
+            blockMmad(gmA[gmOffsetA], params.layoutA, gmB[gmOffsetB], params.layoutB, gmC[gmOffsetC], params.layoutC,
+                      gmBias[gmOffsetBias], actualBlockShape);
         }
 
         AscendC::PipeBarrier<PIPE_ALL>();
     }
 
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIV>(Params const &params) {}
+    CATLASS_DEVICE void operator()<AscendC::AIV>(Params const &params)
+    {}
 };
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel
 
-#endif // CATLASS_GEMM_KERNEL_MATMUL_BIAS_HPP
+#endif  // CATLASS_GEMM_KERNEL_MATMUL_BIAS_HPP

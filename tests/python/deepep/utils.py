@@ -444,7 +444,13 @@ def profile_npu_event_sequences(
         "dropped_warmup_iterations": dropped_warmups,
         "counted_iterations": len(iteration_durations),
     }
-    return durations, discovered_names, iteration_event_names, step_durations, debug_info
+    return (
+        durations,
+        discovered_names,
+        iteration_event_names,
+        step_durations,
+        debug_info,
+    )
 
 
 def hash_tensor(t: torch.Tensor):

@@ -8,7 +8,6 @@
  * See LICENSE in the root of the software repository for the full text of the License.
  */
 
-
 #ifndef CATLASS_GEMM_KERNEL_MATMUL_FULL_DEQUANT_HPP
 #define CATLASS_GEMM_KERNEL_MATMUL_FULL_DEQUANT_HPP
 
@@ -24,17 +23,13 @@
 
 namespace Catlass::Gemm::Kernel {
 
-template <
-    class ProblemShape_,
-    class BlockMmad_,
-    class BlockEpilogue_,
-    class BlockScheduler_
->
-class KernelMatmulDequant{
+template <class ProblemShape_, class BlockMmad_, class BlockEpilogue_, class BlockScheduler_>
+class KernelMatmulDequant
+{
 public:
-    CATLASS_DEVICE 
+    CATLASS_DEVICE
     KernelMatmulDequant() = default;
-    CATLASS_DEVICE 
+    CATLASS_DEVICE
     ~KernelMatmulDequant() = default;
 
     using ProblemShape = ProblemShape_;
@@ -64,9 +59,9 @@ public:
 
     using BlockEpilogueArguments = typename BlockEpilogue::Arguments;
     using BlockEpilogueParams = typename BlockEpilogue::Params;
-    
+
     // ND layout
-    using NDLayout = tla::Layout<tla::Shape<int64_t, int64_t>, tla::Stride<int64_t, tla::Int<1>>>; 
+    using NDLayout = tla::Layout<tla::Shape<int64_t, int64_t>, tla::Stride<int64_t, tla::Int<1>>>;
 
     struct DequantMatmulArguments {
         GM_ADDR x1;
@@ -96,14 +91,11 @@ private:
     using CLocalTensorType = AscendC::LocalTensor<ElementC>;
     using OutputTensorType = AscendC::GlobalTensor<OutputType>;
 
-    using AGmTensor = tla::Tensor<AGlobalTensorType, NDLayout, tla::Coord<tla::_0, tla::_0>,
-                                  AscendC::TPosition::GM>;
-    using BGmTensor = tla::Tensor<BGlobalTensorType, NDLayout, tla::Coord<tla::_0, tla::_0>,
-                                  AscendC::TPosition::GM>;
-    using CUbTensor = tla::Tensor<CLocalTensorType, NDLayout, tla::Coord<tla::_0, tla::_0>,
-                                  AscendC::TPosition::VECCALC>;
-    using OutputTensor = tla::Tensor<OutputTensorType, NDLayout, tla::Coord<tla::_0, tla::_0>,
-                                     AscendC::TPosition::GM>;
+    using AGmTensor = tla::Tensor<AGlobalTensorType, NDLayout, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::GM>;
+    using BGmTensor = tla::Tensor<BGlobalTensorType, NDLayout, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::GM>;
+    using CUbTensor =
+        tla::Tensor<CLocalTensorType, NDLayout, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::VECCALC>;
+    using OutputTensor = tla::Tensor<OutputTensorType, NDLayout, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::GM>;
     AGlobalTensorType aGm_;
     BGlobalTensorType bGm_;
     CLocalTensorType cUb_;
@@ -121,53 +113,53 @@ private:
     constexpr static int16_t COUNT_FLAG = 3;
 
 public:
-    CATLASS_DEVICE 
-    void Init(Params const& params) 
+    CATLASS_DEVICE
+    void Init(Params const &params)
     {
         int64_t m = params.problemShape.m;
         int64_t n = params.problemShape.n;
         int64_t k = params.problemShape.k;
 
         AscendC::GlobalTensor<ElementA> tempA;
-        tempA.SetGlobalBuffer(reinterpret_cast<__gm__ ElementA*>(params.mmadParams.x1), m * k);
+        tempA.SetGlobalBuffer(reinterpret_cast<__gm__ ElementA *>(params.mmadParams.x1), m * k);
         aGm_.address_ = tempA.address_;
         AscendC::GlobalTensor<ElementB> tempB;
-        tempB.SetGlobalBuffer(reinterpret_cast<__gm__ ElementB*>(params.mmadParams.x2), k * n);
+        tempB.SetGlobalBuffer(reinterpret_cast<__gm__ ElementB *>(params.mmadParams.x2), k * n);
         bGm_.address_ = tempB.address_;
         AscendC::GlobalTensor<OutputType> tempOut;
-        tempOut.SetGlobalBuffer(reinterpret_cast<__gm__ OutputType*>(params.mmadParams.y), m * n);
+        tempOut.SetGlobalBuffer(reinterpret_cast<__gm__ OutputType *>(params.mmadParams.y), m * n);
         outputGm_.address_ = tempOut.address_;
-        
-        NDLayout aLayout = tla::MakeLayout(tla::MakeShape(m, k),tla::MakeStride(k, tla::Int<1>{}));
+
+        NDLayout aLayout = tla::MakeLayout(tla::MakeShape(m, k), tla::MakeStride(k, tla::Int<1>{}));
         aGmTensor_ = tla::MakeTensor(aGm_, aLayout, Arch::PositionGM{});
 
-        NDLayout bLayout = tla::MakeLayout(tla::MakeShape(k, n),tla::MakeStride(n, tla::Int<1>{}));
+        NDLayout bLayout = tla::MakeLayout(tla::MakeShape(k, n), tla::MakeStride(n, tla::Int<1>{}));
         bGmTensor_ = tla::MakeTensor(bGm_, bLayout, Arch::PositionGM{});
 
-        NDLayout outLayout = tla::MakeLayout(tla::MakeShape(m, n),tla::MakeStride(n, tla::Int<1>{}));
+        NDLayout outLayout = tla::MakeLayout(tla::MakeShape(m, n), tla::MakeStride(n, tla::Int<1>{}));
         outputTensor_ = tla::MakeTensor(outputGm_, outLayout, Arch::PositionGM{});
     }
 
-    CATLASS_HOST_DEVICE 
+    CATLASS_HOST_DEVICE
     static Status CheckShape(ProblemShape const &shape)
     {
         return Status::kSuccess;
     }
 
-    CATLASS_HOST_DEVICE 
-    static bool CanImplement(Arguments const& args)
+    CATLASS_HOST_DEVICE
+    static bool CanImplement(Arguments const &args)
     {
         return true;
     }
 
-    CATLASS_HOST_DEVICE 
+    CATLASS_HOST_DEVICE
     static size_t GetWorkspaceSize(const Arguments &args)
     {
         return 0;
     }
 
-    CATLASS_HOST_DEVICE 
-    static Params ToUnderlyingArguments(Arguments const& args, GM_ADDR workspace)
+    CATLASS_HOST_DEVICE
+    static Params ToUnderlyingArguments(Arguments const &args, GM_ADDR workspace)
     {
         Params params = {
             args.problemShape,
@@ -176,13 +168,13 @@ public:
         };
         return params;
     }
-    
+
     CATLASS_DEVICE void operator()(Params const &params)
     {
         Arch::Resource<ArchTag> resource;
         BlockMmad blockMmad(resource);
         BlockEpilogue epilogue;
-        
+
         int64_t curBlockIdx = AscendC::GetBlockIdx();
         int64_t blockNum = AscendC::GetBlockNum();
         constexpr bool enable2UB = (AscendC::IsSameType<ElementC, ElementAccumulator>::value);
@@ -195,12 +187,8 @@ public:
         if (curBlockIdx >= blockNum) {
             return;
         }
-        
-        GemmCoord ps {
-            params.problemShape.m,
-            params.problemShape.n,
-            params.problemShape.k
-        };
+
+        GemmCoord ps{params.problemShape.m, params.problemShape.n, params.problemShape.k};
 
         Init(params);
         int64_t calM = enable2UB ? CeilDiv(l1M, AscendC::GetTaskRation()) : l1M;
@@ -249,39 +237,28 @@ public:
             if ASCEND_IS_AIC {
                 if (enableCVSync) {
                     count_id = count / COUNT_ID_MAX % COUNT_FLAG;
-                    AscendC::CrossCoreWaitFlag<AIC_SYNC_AIV_MODE_4, PIPE_FIX>(
-                        AIV_SYNC_AIC_FLAG + count_id);
+                    AscendC::CrossCoreWaitFlag<AIC_SYNC_AIV_MODE_4, PIPE_FIX>(AIV_SYNC_AIC_FLAG + count_id);
                     if constexpr (enable2UB) {
-                        AscendC::CrossCoreWaitFlag<AIC_SYNC_AIV_MODE_4, PIPE_FIX>(
-                            AIV_SYNC_AIC_FLAG + count_id + FLAG_ID_MAX);
+                        AscendC::CrossCoreWaitFlag<AIC_SYNC_AIV_MODE_4, PIPE_FIX>(AIV_SYNC_AIC_FLAG + count_id +
+                                                                                  FLAG_ID_MAX);
                     }
                 }
-                
-                auto aInputTlaTensor = GetTile(aGmTensor_,
-                                               tla::MakeCoord(mCoord, kCoord),
-                                               tla::MakeShape(blockM, blockK));
-                auto bInputTlaTensor = GetTile(bGmTensor_,
-                                               tla::MakeCoord(kCoord, nCoord),
-                                               tla::MakeShape(blockK, blockN));
-                auto cOutputTlaTensor = GetTile(tensorC,
-                                               tla::MakeCoord(0, 0),
-                                               tla::MakeShape(blockM, alignN));
-                
-                blockMmad(
-                    aInputTlaTensor,
-                    bInputTlaTensor,
-                    cOutputTlaTensor,
-                    actualBlockShape
-                );
+
+                auto aInputTlaTensor =
+                    GetTile(aGmTensor_, tla::MakeCoord(mCoord, kCoord), tla::MakeShape(blockM, blockK));
+                auto bInputTlaTensor =
+                    GetTile(bGmTensor_, tla::MakeCoord(kCoord, nCoord), tla::MakeShape(blockK, blockN));
+                auto cOutputTlaTensor = GetTile(tensorC, tla::MakeCoord(0, 0), tla::MakeShape(blockM, alignN));
+
+                blockMmad(aInputTlaTensor, bInputTlaTensor, cOutputTlaTensor, actualBlockShape);
                 // Compute block-level mmad with epilogue
                 enableCVSync = true;
                 count++;
                 count_id = count / COUNT_ID_MAX % COUNT_FLAG;
-                AscendC::CrossCoreSetFlag<AIC_SYNC_AIV_MODE_4, PIPE_FIX>(
-                    AIC_SYNC_AIV_FLAG + count_id);
+                AscendC::CrossCoreSetFlag<AIC_SYNC_AIV_MODE_4, PIPE_FIX>(AIC_SYNC_AIV_FLAG + count_id);
                 if constexpr (enable2UB) {
-                    AscendC::CrossCoreSetFlag<AIC_SYNC_AIV_MODE_4, PIPE_FIX>(
-                        AIC_SYNC_AIV_FLAG + count_id + FLAG_ID_MAX);
+                    AscendC::CrossCoreSetFlag<AIC_SYNC_AIV_MODE_4, PIPE_FIX>(AIC_SYNC_AIV_FLAG + count_id +
+                                                                             FLAG_ID_MAX);
                 }
             }
             // AIV Process
@@ -289,32 +266,27 @@ public:
                 // Synchronize with aic
                 count++;
                 count_id = count / COUNT_ID_MAX % COUNT_FLAG;
-                AscendC::CrossCoreWaitFlag<AIC_SYNC_AIV_MODE_4, PIPE_V>(
-                    AIC_SYNC_AIV_FLAG + count_id);
-                // Calulate epilogue
-                auto cUbTlaTensor = GetTile(tensorC,
-                                            tla::MakeCoord(mCoord, nCoord),
-                                            tla::MakeShape(blockM, blockN));
+                AscendC::CrossCoreWaitFlag<AIC_SYNC_AIV_MODE_4, PIPE_V>(AIC_SYNC_AIV_FLAG + count_id);
+                // Calculate epilogue
+                auto cUbTlaTensor = GetTile(tensorC, tla::MakeCoord(mCoord, nCoord), tla::MakeShape(blockM, blockN));
                 epilogue(cUbTlaTensor);
                 // Notify aic
-                AscendC::CrossCoreSetFlag<AIC_SYNC_AIV_MODE_4, PIPE_MTE3>(
-                    AIV_SYNC_AIC_FLAG + count_id);
+                AscendC::CrossCoreSetFlag<AIC_SYNC_AIV_MODE_4, PIPE_MTE3>(AIV_SYNC_AIC_FLAG + count_id);
             }
         }
         // Match extra event after aic process finished
         if ASCEND_IS_AIC {
             if (enableCVSync) {
                 count_id = count / COUNT_ID_MAX % COUNT_FLAG;
-                AscendC::CrossCoreWaitFlag<AIC_SYNC_AIV_MODE_4, PIPE_FIX>(
-                    AIV_SYNC_AIC_FLAG + count_id);
+                AscendC::CrossCoreWaitFlag<AIC_SYNC_AIV_MODE_4, PIPE_FIX>(AIV_SYNC_AIC_FLAG + count_id);
                 if constexpr (enable2UB) {
-                    AscendC::CrossCoreWaitFlag<AIC_SYNC_AIV_MODE_4, PIPE_FIX>(
-                        AIV_SYNC_AIC_FLAG + count_id + FLAG_ID_MAX);
+                    AscendC::CrossCoreWaitFlag<AIC_SYNC_AIV_MODE_4, PIPE_FIX>(AIV_SYNC_AIC_FLAG + count_id +
+                                                                              FLAG_ID_MAX);
                 }
             }
         }
     }
 };
 
-} // namespace Catlass::Gemm::Kernel
-#endif //CATLASS_GEMM_KERNEL_MATMUL_FULL_DEQUANT_HPP
+}  // namespace Catlass::Gemm::Kernel
+#endif  // CATLASS_GEMM_KERNEL_MATMUL_FULL_DEQUANT_HPP

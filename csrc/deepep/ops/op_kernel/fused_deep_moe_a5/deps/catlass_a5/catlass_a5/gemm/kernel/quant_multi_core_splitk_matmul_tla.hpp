@@ -4,8 +4,9 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
+ * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * the software repository for the full text of the License.
  */
 
 #ifndef CATLASS_GEMM_KERNEL_QUANT_MULTI_CORE_SPLITK_MATMUL_TLA_HPP
@@ -26,19 +27,15 @@
 
 namespace Catlass::Gemm::Kernel {
 
-template <
-    class BlockMmad_,
-    class BlockEpilogue_,
-    class BlockScheduler_,
-    class ReduceAdd_
->
-class QuantMultiCoreSplitkMatmulTla {
+template <class BlockMmad_, class BlockEpilogue_, class BlockScheduler_, class ReduceAdd_>
+class QuantMultiCoreSplitkMatmulTla
+{
 public:
     using BlockMmad = BlockMmad_;
     using BlockEpilogue = BlockEpilogue_;
     using SplitkScheduler = BlockScheduler_;
     using ReduceAdd = ReduceAdd_;
-    
+
     using EpilogueScheduler = typename Gemm::Block::GemmIdentityBlockSwizzle<3, 0>;
     using L1TileShape = typename BlockMmad::L1TileShape;
 
@@ -61,11 +58,10 @@ public:
 
     using EpilogueParams = typename BlockEpilogue::Params;
 
-
     static constexpr uint32_t L1_TILE_M = tla::get<0>(L1TileShape{});
     static constexpr uint32_t L1_TILE_N = tla::get<1>(L1TileShape{});
     static constexpr uint32_t L1_TILE_K = tla::get<2>(L1TileShape{});
-    
+
     struct Params {
         GemmCoord problemShape;
 
@@ -91,33 +87,24 @@ public:
         Params() {}
 
         CATLASS_HOST_DEVICE
-        Params(
-            GemmCoord const &problemShape_,
-            GM_ADDR ptrA_,
-            LayoutA layoutA_,
-            GM_ADDR ptrB_,
-            LayoutB layoutB_,
-            GM_ADDR ptrScale_,
-            LayoutScale layoutScale_,
-            GM_ADDR ptrPerTokenScale_,
-            LayoutPerTokenScale layoutPerTokenScale_,
-            GM_ADDR ptrD_,
-            LayoutD layoutD_,
-            GM_ADDR ptrWorkspace_,
-            uint32_t splitkFactor_)
+        Params(GemmCoord const &problemShape_, GM_ADDR ptrA_, LayoutA layoutA_, GM_ADDR ptrB_, LayoutB layoutB_,
+               GM_ADDR ptrScale_, LayoutScale layoutScale_, GM_ADDR ptrPerTokenScale_,
+               LayoutPerTokenScale layoutPerTokenScale_, GM_ADDR ptrD_, LayoutD layoutD_, GM_ADDR ptrWorkspace_,
+               uint32_t splitkFactor_)
             : problemShape(problemShape_),
-            ptrA(ptrA_),
-            layoutA(layoutA_),
-            ptrB(ptrB_),
-            layoutB(layoutB_),
-            ptrScale(ptrScale_),
-            layoutScale(layoutScale_),
-            ptrPerTokenScale(ptrPerTokenScale_),
-            layoutPerTokenScale(layoutPerTokenScale_),
-            ptrD(ptrD_),
-            layoutD(layoutD_),
-            ptrWorkspace(ptrWorkspace_),
-            splitkFactor(splitkFactor_) {}
+              ptrA(ptrA_),
+              layoutA(layoutA_),
+              ptrB(ptrB_),
+              layoutB(layoutB_),
+              ptrScale(ptrScale_),
+              layoutScale(layoutScale_),
+              ptrPerTokenScale(ptrPerTokenScale_),
+              layoutPerTokenScale(layoutPerTokenScale_),
+              ptrD(ptrD_),
+              layoutD(layoutD_),
+              ptrWorkspace(ptrWorkspace_),
+              splitkFactor(splitkFactor_)
+        {}
     };
 
     struct Arguments {
@@ -172,42 +159,35 @@ public:
 
     static Params ToUnderlyingArguments(const Arguments &args, uint8_t *workspace)
     {
-        uint32_t splitkFactor = GetSplitkFactor(
-            args.problemShape.m(), args.problemShape.n(), args.problemShape.k(), args.aicCoreNum);
+        uint32_t splitkFactor =
+            GetSplitkFactor(args.problemShape.m(), args.problemShape.n(), args.problemShape.k(), args.aicCoreNum);
 
-        return Params{
-            args.problemShape,
-            args.ptrA,
-            args.layoutA,
-            args.ptrB,
-            args.layoutB,
-            args.ptrScale,
-            args.layoutScale,
-            args.ptrPerTokenScale,
-            args.layoutPerTokenScale,
-            args.ptrD,
-            args.layoutD,
-            workspace,
-            splitkFactor};
+        return Params{args.problemShape,
+                      args.ptrA,
+                      args.layoutA,
+                      args.ptrB,
+                      args.layoutB,
+                      args.ptrScale,
+                      args.layoutScale,
+                      args.ptrPerTokenScale,
+                      args.layoutPerTokenScale,
+                      args.ptrD,
+                      args.layoutD,
+                      workspace,
+                      splitkFactor};
     }
 
     CATLASS_DEVICE
-    QuantMultiCoreSplitkMatmulTla()
-        : flagAicFinish(0)
-    {}
+    QuantMultiCoreSplitkMatmulTla() : flagAicFinish(0) {}
 
     template <int32_t CORE_TYPE = g_coreType>
-    CATLASS_DEVICE
-    void operator()(Params const &params);
+    CATLASS_DEVICE void operator()(Params const &params);
 
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIC>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params)
     {
-        SplitkScheduler matmulBlockScheduler(
-            params.problemShape,
-            GemmCoord(L1_TILE_M, L1_TILE_N, L1_TILE_K),
-            params.splitkFactor);
+        SplitkScheduler matmulBlockScheduler(params.problemShape, GemmCoord(L1_TILE_M, L1_TILE_N, L1_TILE_K),
+                                             params.splitkFactor);
         uint32_t coreLoops = matmulBlockScheduler.GetCoreLoops();
 
         AscendC::GlobalTensor<ElementA> gmA;
@@ -226,8 +206,7 @@ public:
         auto tensorB = tla::MakeTensor(gmB, params.layoutB, Arch::PositionGM{});
 
         auto layoutPartial = tla::MakeLayout<ElementAccumulator, layout::RowMajor>(
-            params.problemShape.m() * params.splitkFactor,
-            params.problemShape.n());
+            params.problemShape.m() * params.splitkFactor, params.problemShape.n());
         auto tensorPartial = tla::MakeTensor(gmPartial, layoutPartial, Arch::PositionGM{});
 
         BlockMmad blockMmad(resource);
@@ -237,23 +216,18 @@ public:
             uint32_t splitkSliceIdx = matmulBlockScheduler.GetSplitkSliceIdx(loopIdx);
             GemmCoord actualBlockShape = matmulBlockScheduler.GetActualBlockShape(blockCoord, splitkSliceIdx);
 
-            auto tensorBlockA = GetTile(
-                tensorA,
-                tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.k() * L1_TILE_K),
-                tla::MakeShape(actualBlockShape.m(), actualBlockShape.k()));
+            auto tensorBlockA = GetTile(tensorA, tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.k() * L1_TILE_K),
+                                        tla::MakeShape(actualBlockShape.m(), actualBlockShape.k()));
 
-            auto tensorBlockB = GetTile(
-                tensorB,
-                tla::MakeCoord(blockCoord.k() * L1_TILE_K, blockCoord.n() * L1_TILE_N),
-                tla::MakeShape(actualBlockShape.k(), actualBlockShape.n()));
+            auto tensorBlockB = GetTile(tensorB, tla::MakeCoord(blockCoord.k() * L1_TILE_K, blockCoord.n() * L1_TILE_N),
+                                        tla::MakeShape(actualBlockShape.k(), actualBlockShape.n()));
 
-            auto tensorBlockPartial = GetTile(
-                tensorPartial,
-                tla::MakeCoord(
-                    splitkSliceIdx * params.problemShape.m() + blockCoord.m() * L1_TILE_M,
-                    blockCoord.n() * L1_TILE_N),
-                tla::MakeShape(actualBlockShape.m(), actualBlockShape.n()));
-            
+            auto tensorBlockPartial =
+                GetTile(tensorPartial,
+                        tla::MakeCoord(splitkSliceIdx * params.problemShape.m() + blockCoord.m() * L1_TILE_M,
+                                       blockCoord.n() * L1_TILE_N),
+                        tla::MakeShape(actualBlockShape.m(), actualBlockShape.n()));
+
             blockMmad(tensorBlockA, tensorBlockB, tensorBlockPartial, actualBlockShape);
         }
 
@@ -266,8 +240,7 @@ public:
     }
 
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIV>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIV>(Params const &params)
     {
         Catlass::Arch::CrossCoreWaitFlag(flagAicFinish);
         Catlass::Arch::CrossCoreBarrier<0x0, PIPE_MTE2>();
@@ -279,11 +252,9 @@ public:
         gmReduced.SetGlobalBuffer(reinterpret_cast<__gm__ ElementC *>(GetReducedWorkspace(params)));
 
         ReduceAdd reduceAdd(resource);
-        reduceAdd(
-            gmReduced,
-            gmPartial,
-            static_cast<uint64_t>(params.problemShape.m()) * static_cast<uint64_t>(params.problemShape.n()),
-            params.splitkFactor);
+        reduceAdd(gmReduced, gmPartial,
+                  static_cast<uint64_t>(params.problemShape.m()) * static_cast<uint64_t>(params.problemShape.n()),
+                  params.splitkFactor);
 
         AscendC::PipeBarrier<PIPE_ALL>();
         Catlass::Arch::CrossCoreBarrier<0x0, PIPE_MTE2>();
@@ -294,8 +265,8 @@ public:
         uint32_t coreIdx = AscendC::GetBlockIdx() / AscendC::GetSubBlockNum();
         uint32_t coreNum = AscendC::GetBlockNum() / AscendC::GetSubBlockNum();
 
-        auto layoutReduced = tla::MakeLayout<ElementC, layout::RowMajor>(
-            params.problemShape.m(), params.problemShape.n());
+        auto layoutReduced =
+            tla::MakeLayout<ElementC, layout::RowMajor>(params.problemShape.m(), params.problemShape.n());
         auto tensorC = tla::MakeTensor(gmReduced, layoutReduced, Arch::PositionGM{});
 
         AscendC::GlobalTensor<ElementScale> gmScale;
@@ -312,45 +283,27 @@ public:
 
         blockScheduler.Update(params.problemShape, MakeCoord(L1_TILE_M, L1_TILE_N));
 
-        blockEpilogue.UpdateParams(EpilogueParams{
-            params.ptrScale,
-            params.layoutScale,
-            params.ptrPerTokenScale,
-            params.layoutPerTokenScale,
-            params.ptrD,
-            params.layoutD});
+        blockEpilogue.UpdateParams(EpilogueParams{params.ptrScale, params.layoutScale, params.ptrPerTokenScale,
+                                                  params.layoutPerTokenScale, params.ptrD, params.layoutD});
         uint32_t coreLoops = blockScheduler.GetCoreLoops();
 
         for (uint32_t loopIdx = coreIdx; loopIdx < coreLoops; loopIdx += coreNum) {
             GemmCoord blockCoord = blockScheduler.GetBlockCoord(loopIdx);
             GemmCoord actualBlockShapeMNK = blockScheduler.GetActualBlockShape(blockCoord);
 
-            auto tensorBlockC = GetTile(
-                tensorC,
-                tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N),
-                tla::MakeShape(actualBlockShapeMNK.m(), actualBlockShapeMNK.n()));
+            auto tensorBlockC = GetTile(tensorC, tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N),
+                                        tla::MakeShape(actualBlockShapeMNK.m(), actualBlockShapeMNK.n()));
 
-            auto tensorBlockScale = GetTile(
-                tensorScale,
-                tla::MakeCoord(0, blockCoord.n() * L1_TILE_N),
-                tla::MakeShape(tla::Int<1>{}, actualBlockShapeMNK.n()));
+            auto tensorBlockScale = GetTile(tensorScale, tla::MakeCoord(0, blockCoord.n() * L1_TILE_N),
+                                            tla::MakeShape(tla::Int<1>{}, actualBlockShapeMNK.n()));
 
-            auto tensorBlockPerTokenScale = GetTile(
-                tensorPerTokenScale,
-                tla::MakeCoord(0, blockCoord.m() * L1_TILE_M),
-                tla::MakeShape(tla::Int<1>{}, actualBlockShapeMNK.m()));
+            auto tensorBlockPerTokenScale = GetTile(tensorPerTokenScale, tla::MakeCoord(0, blockCoord.m() * L1_TILE_M),
+                                                    tla::MakeShape(tla::Int<1>{}, actualBlockShapeMNK.m()));
 
-            auto tensorBlockD = GetTile(
-                tensorD,
-                tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N),
-                tla::MakeShape(actualBlockShapeMNK.m(), actualBlockShapeMNK.n()));
+            auto tensorBlockD = GetTile(tensorD, tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N),
+                                        tla::MakeShape(actualBlockShapeMNK.m(), actualBlockShapeMNK.n()));
 
-            blockEpilogue(
-                tensorBlockC,
-                tensorBlockScale,
-                tensorBlockPerTokenScale,
-                tensorBlockD,
-                actualBlockShapeMNK);
+            blockEpilogue(tensorBlockC, tensorBlockScale, tensorBlockPerTokenScale, tensorBlockD, actualBlockShapeMNK);
         }
 
         AscendC::PipeBarrier<PIPE_ALL>();
@@ -372,8 +325,7 @@ private:
     CATLASS_HOST_DEVICE
     static GM_ADDR GetReducedWorkspace(Params const &params)
     {
-        size_t partialBytes =
-            GetLenMN(params.problemShape) * params.splitkFactor * sizeof(ElementAccumulator);
+        size_t partialBytes = GetLenMN(params.problemShape) * params.splitkFactor * sizeof(ElementAccumulator);
         return params.ptrWorkspace + partialBytes;
     }
 
@@ -382,6 +334,6 @@ private:
     Arch::Resource<ArchTag> resource;
 };
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel
 
-#endif // CATLASS_GEMM_KERNEL_QUANT_MULTI_CORE_SPLITK_MATMUL_TLA_HPP
+#endif  // CATLASS_GEMM_KERNEL_QUANT_MULTI_CORE_SPLITK_MATMUL_TLA_HPP

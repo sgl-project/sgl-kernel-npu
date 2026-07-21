@@ -20,11 +20,9 @@
 namespace Catlass::Gemv::Kernel {
 
 // template for gemv kernel, Compute z = αAx + βy
-template <
-    class BlockGemv_,
-    class BlockEpilogue_
->
-class KernelGemvAiv {
+template <class BlockGemv_, class BlockEpilogue_>
+class KernelGemvAiv
+{
 public:
     using BlockGemv = BlockGemv_;
     using ArchTag = typename BlockGemv::ArchTag;
@@ -36,7 +34,6 @@ public:
     using ElementY = typename BlockGemv::ElementY;
     using LayoutY = typename BlockGemv::LayoutY;
     using ElementAccumulator = typename BlockGemv::ElementAccumulator;
-
 
     /// Parameters structure
     struct Params {
@@ -58,13 +55,23 @@ public:
         Params() {}
 
         CATLASS_HOST_DEVICE
-        Params(GemvCoord const &problemShape_,  GM_ADDR ptrA_, LayoutA layoutA_,  GM_ADDR ptrX_,LayoutX layoutX_,
-        GM_ADDR ptrY_,LayoutY layoutY_,GM_ADDR ptrZ_,float alpha_,float beta_,uint32_t split_)
-            : problemShape(problemShape_), ptrA(ptrA_), layoutA(layoutA_), ptrX(ptrX_),layoutX(layoutX_),
-            ptrY(ptrY_),layoutY(layoutY_),ptrZ(ptrZ_),alpha(alpha_),beta(beta_),split(split_) {}
+        Params(GemvCoord const &problemShape_, GM_ADDR ptrA_, LayoutA layoutA_, GM_ADDR ptrX_, LayoutX layoutX_,
+               GM_ADDR ptrY_, LayoutY layoutY_, GM_ADDR ptrZ_, float alpha_, float beta_, uint32_t split_)
+            : problemShape(problemShape_),
+              ptrA(ptrA_),
+              layoutA(layoutA_),
+              ptrX(ptrX_),
+              layoutX(layoutX_),
+              ptrY(ptrY_),
+              layoutY(layoutY_),
+              ptrZ(ptrZ_),
+              alpha(alpha_),
+              beta(beta_),
+              split(split_)
+        {}
     };
 
-    //TODO: add arguments
+    // TODO: add arguments
     struct Arguments {
         GemvCoord problemShape;
         GM_ADDR ptrA;
@@ -94,17 +101,8 @@ public:
         LayoutA layoutA{m, n};
         LayoutX layoutX{n};
         LayoutY layoutY{m};
-        Params params{problemShape,
-            args.ptrA,
-            layoutA,
-            args.ptrX,
-            layoutX,
-            args.ptrY,
-            layoutY,
-            args.ptrZ,
-            args.alpha,
-            args.beta,
-            args.split};
+        Params params{problemShape, args.ptrA, layoutA,    args.ptrX, layoutX,   args.ptrY,
+                      layoutY,      args.ptrZ, args.alpha, args.beta, args.split};
         return params;
     }
 
@@ -113,17 +111,15 @@ public:
     KernelGemvAiv() {}
 
     template <int32_t CORE_TYPE = g_coreType>
-    CATLASS_DEVICE
-    void operator()(Params const &params) {};
+    CATLASS_DEVICE void operator()(Params const &params) {};
 
     /// Executes one Matmul
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIC>(Params const &params) {}
+    CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params)
+    {}
 
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIV>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIV>(Params const &params)
     {
         AscendC::SetAtomicNone();
         Arch::Resource<ArchTag> resource;
@@ -160,11 +156,10 @@ public:
         uint32_t aiv_num = AscendC::GetBlockNum() * AscendC::GetTaskRation();
         for (uint32_t loop_id = 0; loop_id < loopnum; loop_id++) {
             uint32_t aiv_id = AscendC::GetBlockIdx();
-            if (loop_id % aiv_num != aiv_id)
-                continue;
+            if (loop_id % aiv_num != aiv_id) continue;
             uint32_t m_actual = ((int32_t)loop_id > (int32_t)(loopnum - params.split - 1))
-                                        ? params.problemShape.m() - ((loop_id / params.split) * maxmPerBlock_round)
-                                        : maxmPerBlock_round;
+                                    ? params.problemShape.m() - ((loop_id / params.split) * maxmPerBlock_round)
+                                    : maxmPerBlock_round;
             uint32_t n_actual = params.problemShape.n();
 
             if constexpr (std::is_same_v<LayoutA, Catlass::layout::ColumnMajor>) {
@@ -186,19 +181,14 @@ public:
 
             float realbeta = (loop_id % params.split == 0) ? Realbeta : 0.0f;
 
-            blockGemv(gmA[offset_matrix], params.layoutA,
-                gmX[offset_vector_in], params.layoutX,
-                gmY[offset_vector_out], params.layoutY,
-                gmZ[offset_vector_out],
-                actualBlockShape,
-                params.alpha,
-                realbeta);
+            blockGemv(gmA[offset_matrix], params.layoutA, gmX[offset_vector_in], params.layoutX, gmY[offset_vector_out],
+                      params.layoutY, gmZ[offset_vector_out], actualBlockShape, params.alpha, realbeta);
         }
 
         AscendC::PipeBarrier<PIPE_ALL>();
     }
 };
 
-}
+}  // namespace Catlass::Gemv::Kernel
 
-#endif // CATLASS_GEMV_KERNEL_GEMV_AIV_HPP
+#endif  // CATLASS_GEMV_KERNEL_GEMV_AIV_HPP

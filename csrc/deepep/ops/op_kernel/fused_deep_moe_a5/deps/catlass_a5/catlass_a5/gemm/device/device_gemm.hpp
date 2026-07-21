@@ -19,16 +19,19 @@
 namespace Catlass::Gemm::Device {
 
 template <class GemmKernel>
-class DeviceGemm {
+class DeviceGemm
+{
 public:
     using Kernel = GemmKernel;
     /// Argument structure: User API
     using Arguments = typename GemmKernel::Arguments;
     /// Argument structure: Kernel API
     using Params = typename GemmKernel::Params;
+
 private:
     /// kernel API parameters object
     Params params_;
+
 public:
     DeviceGemm() {}
     ~DeviceGemm() {}
@@ -69,13 +72,13 @@ public:
     /// Supplied params struct must be construct by calling matmul Kernel::to_underlying arguments
     inline Status Run(aclrtStream stream, uint32_t blockDim, uint64_t hardwareSyncAddr)
     {
-#if (defined (CATLASS_ARCH) && CATLASS_ARCH == 2201)
+#if (defined(CATLASS_ARCH) && CATLASS_ARCH == 2201)
         if (hardwareSyncAddr == 0) {
             Catlass::KernelAdapter<GemmKernel><<<blockDim, nullptr, stream>>>(params_);
         } else {
             Catlass::KernelAdapter<GemmKernel><<<blockDim, nullptr, stream>>>(params_, hardwareSyncAddr);
         }
-#elif (defined (CATLASS_ARCH) && CATLASS_ARCH == 3510)
+#elif (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510)
         Catlass::KernelAdapter<GemmKernel><<<blockDim, nullptr, stream>>>(params_);
 #endif
         return Status::kSuccess;
@@ -94,5 +97,5 @@ public:
 };
 ///////////////////////////////////////////////////////////////////////////////////
 
-} // namespace Catlass::Gemm::Device
+}  // namespace Catlass::Gemm::Device
 #endif

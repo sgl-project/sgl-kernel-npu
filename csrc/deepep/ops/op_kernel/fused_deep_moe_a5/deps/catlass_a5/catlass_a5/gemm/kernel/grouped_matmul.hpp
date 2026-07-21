@@ -22,8 +22,7 @@ namespace Catlass::Gemm::Kernel {
 namespace detail {
 
 template <class T>
-CATLASS_DEVICE
-void UnpackListParam(T *const dst, GM_ADDR src, uint32_t len)
+CATLASS_DEVICE void UnpackListParam(T *const dst, GM_ADDR src, uint32_t len)
 {
     for (uint32_t i = 0; i * sizeof(uint64_t) < len * sizeof(T); ++i) {
         reinterpret_cast<uint64_t *>(dst)[i] = reinterpret_cast<__gm__ uint64_t *>(src)[i];
@@ -33,12 +32,9 @@ void UnpackListParam(T *const dst, GM_ADDR src, uint32_t len)
 }  // namespace detail
 
 // Template for grouped matmul kernel. Compute grouped C = A * B
-template <
-    class BlockMmad_,
-    class BlockEpilogue_,
-    class BlockScheduler_
->
-class GroupedMatmul {
+template <class BlockMmad_, class BlockEpilogue_, class BlockScheduler_>
+class GroupedMatmul
+{
 public:
     using BlockMmad = BlockMmad_;
     using ArchTag = typename BlockMmad::ArchTag;
@@ -71,20 +67,20 @@ public:
         Params() {}
 
         CATLASS_HOST_DEVICE
-        Params(
-            uint32_t problemCount_, GM_ADDR ptrProblemShape_,
-            GM_ADDR ptrA_, GM_ADDR ptrLayoutA_,
-            GM_ADDR ptrB_, GM_ADDR ptrLayoutB_,
-            GM_ADDR ptrC_, GM_ADDR ptrLayoutC_
-        ) : problemCount(problemCount_), ptrProblemShape(ptrProblemShape_),
-            ptrA(ptrA_), ptrLayoutA(ptrLayoutA_),
-            ptrB(ptrB_), ptrLayoutB(ptrLayoutB_),
-            ptrC(ptrC_), ptrLayoutC(ptrLayoutC_)
-        {
-        }
+        Params(uint32_t problemCount_, GM_ADDR ptrProblemShape_, GM_ADDR ptrA_, GM_ADDR ptrLayoutA_, GM_ADDR ptrB_,
+               GM_ADDR ptrLayoutB_, GM_ADDR ptrC_, GM_ADDR ptrLayoutC_)
+            : problemCount(problemCount_),
+              ptrProblemShape(ptrProblemShape_),
+              ptrA(ptrA_),
+              ptrLayoutA(ptrLayoutA_),
+              ptrB(ptrB_),
+              ptrLayoutB(ptrLayoutB_),
+              ptrC(ptrC_),
+              ptrLayoutC(ptrLayoutC_)
+        {}
     };
 
-    struct Arguments{
+    struct Arguments {
         uint32_t problemCount;
         uint8_t *ptrProblemShape;
         uint8_t *ptrA;
@@ -105,14 +101,10 @@ public:
     {
         return 0;
     }
-    static Params ToUnderlyingArguments(const Arguments &args, void* workspace)
+    static Params ToUnderlyingArguments(const Arguments &args, void *workspace)
     {
-        Params params{
-            args.problemCount,
-            args.ptrProblemShape,
-            args.ptrA, args.ptrLayoutA,
-            args.ptrB, args.ptrLayoutB,
-            args.ptrC, args.ptrLayoutC};
+        Params params{args.problemCount, args.ptrProblemShape, args.ptrA, args.ptrLayoutA,
+                      args.ptrB,         args.ptrLayoutB,      args.ptrC, args.ptrLayoutC};
         return params;
     }
 
@@ -123,13 +115,11 @@ public:
     ~GroupedMatmul() {}
 
     template <int32_t CORE_TYPE = g_coreType>
-    CATLASS_DEVICE
-    void operator()(Params const &params);
+    CATLASS_DEVICE void operator()(Params const &params);
 
     /// Executes matmul
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIC>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params)
     {
         GemmCoord problemShapeList[MAX_TENSOR_COUNT];
         LayoutA layoutAList[MAX_TENSOR_COUNT];
@@ -192,11 +182,8 @@ public:
                 int64_t gmOffsetC = layoutC.GetOffset(offsetC);
 
                 // Compute block-scoped matrix multiply-add
-                blockMmad(
-                    gmA[inGroupOffsetA + gmOffsetA], layoutA,
-                    gmB[inGroupOffsetB + gmOffsetB], layoutB,
-                    gmC[inGroupOffsetC + gmOffsetC], layoutC,
-                    actualBlockShape);
+                blockMmad(gmA[inGroupOffsetA + gmOffsetA], layoutA, gmB[inGroupOffsetB + gmOffsetB], layoutB,
+                          gmC[inGroupOffsetC + gmOffsetC], layoutC, actualBlockShape);
             }
 
             inGroupOffsetA += static_cast<int64_t>(problemShape.m()) * problemShape.k();
@@ -214,10 +201,10 @@ public:
     }
 
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIV>(Params const &params) {}
+    CATLASS_DEVICE void operator()<AscendC::AIV>(Params const &params)
+    {}
 };
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel
 
-#endif // CATLASS_GEMM_KERNEL_GROUPED_MATMUL_HPP
+#endif  // CATLASS_GEMM_KERNEL_GROUPED_MATMUL_HPP

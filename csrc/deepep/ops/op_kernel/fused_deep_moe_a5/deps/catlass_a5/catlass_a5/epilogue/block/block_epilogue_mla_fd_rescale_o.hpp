@@ -20,14 +20,8 @@
 
 namespace Catlass::Epilogue::Block {
 
-template <
-    class OutputType_,
-    class InputType_,
-    uint32_t ComputeEleNum_>
-class BlockEpilogue<
-    EpilogueAtlasA2MLAFDRescaleO<ComputeEleNum_>,
-    OutputType_,
-    InputType_>
+template <class OutputType_, class InputType_, uint32_t ComputeEleNum_>
+class BlockEpilogue<EpilogueAtlasA2MLAFDRescaleO<ComputeEleNum_>, OutputType_, InputType_>
 {
 public:
     // Type aliases
@@ -108,57 +102,40 @@ public:
     }
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::GlobalTensor<ElementOutput> gOutput,
-        AscendC::GlobalTensor<ElementInput> gOCoreTmp,
-        AscendC::GlobalTensor<ElementInput> gl,
-        uint32_t actualHeads, uint32_t headsProcess, uint32_t headSize, uint32_t kvSplitCoreNum)
+    void operator()(AscendC::GlobalTensor<ElementOutput> gOutput, AscendC::GlobalTensor<ElementInput> gOCoreTmp,
+                    AscendC::GlobalTensor<ElementInput> gl, uint32_t actualHeads, uint32_t headsProcess,
+                    uint32_t headSize, uint32_t kvSplitCoreNum)
     {
         uint32_t kvSplitRound = (kvSplitCoreNum + FLOAT_BLOCK_SIZE - 1) / FLOAT_BLOCK_SIZE * FLOAT_BLOCK_SIZE;
 
         AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID2);
-        AscendC::DataCopyPad(
-            lIn, gl,
-            AscendC::DataCopyExtParams(
-                actualHeads, kvSplitCoreNum * sizeof(ElementInput), (maxKvSplitCoreNum - kvSplitCoreNum) * sizeof(ElementInput),
-                (KV_SPLIT_MAX - kvSplitCoreNum) / FLOAT_BLOCK_SIZE, 0),
-            AscendC::DataCopyPadExtParams<ElementInput>(false, 0, 0, 0));
+        AscendC::DataCopyPad(lIn, gl,
+                             AscendC::DataCopyExtParams(actualHeads, kvSplitCoreNum * sizeof(ElementInput),
+                                                        (maxKvSplitCoreNum - kvSplitCoreNum) * sizeof(ElementInput),
+                                                        (KV_SPLIT_MAX - kvSplitCoreNum) / FLOAT_BLOCK_SIZE, 0),
+                             AscendC::DataCopyPadExtParams<ElementInput>(false, 0, 0, 0));
 
-            AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID2);
-            AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID2);
+        AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID2);
+        AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID2);
 
         SetMask(kvSplitCoreNum);
-        AscendC::WholeReduceMax<float, false>(
-            lMax, lIn, (int32_t)0, actualHeads, 1, 1, 8,
-            AscendC::ReduceOrder::ORDER_ONLY_VALUE);
+        AscendC::WholeReduceMax<float, false>(lMax, lIn, (int32_t)0, actualHeads, 1, 1, 8,
+                                              AscendC::ReduceOrder::ORDER_ONLY_VALUE);
         AscendC::PipeBarrier<PIPE_V>();
 
         for (uint32_t i = 0; i < kvSplitRound / FLOAT_BLOCK_SIZE; i++) {
             AscendC::Brcb(
-                lExp[i * FLOAT_BLOCK_SIZE],
-                lMax,
-                (headsProcess + FLOAT_BLOCK_SIZE - 1) / FLOAT_BLOCK_SIZE,
-                AscendC::BrcbRepeatParams(KV_SPLIT_MAX / FLOAT_BLOCK_SIZE,
-                                          8 * KV_SPLIT_MAX / FLOAT_BLOCK_SIZE));
+                lExp[i * FLOAT_BLOCK_SIZE], lMax, (headsProcess + FLOAT_BLOCK_SIZE - 1) / FLOAT_BLOCK_SIZE,
+                AscendC::BrcbRepeatParams(KV_SPLIT_MAX / FLOAT_BLOCK_SIZE, 8 * KV_SPLIT_MAX / FLOAT_BLOCK_SIZE));
         }
         AscendC::PipeBarrier<PIPE_V>();
 
         SetMask(kvSplitCoreNum);
-        AscendC::Sub<float, false>(
-            lExp,
-            lIn,
-            lExp,
-            (uint64_t)0,
-            actualHeads,
-            AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
+        AscendC::Sub<float, false>(lExp, lIn, lExp, (uint64_t)0, actualHeads,
+                                   AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
         AscendC::PipeBarrier<PIPE_V>();
 
-        AscendC::Exp<float, false>(
-            lExp,
-            lExp,
-            (uint64_t)0,
-            actualHeads,
-            AscendC::UnaryRepeatParams(1, 1, 8, 8));
+        AscendC::Exp<float, false>(lExp, lExp, (uint64_t)0, actualHeads, AscendC::UnaryRepeatParams(1, 1, 8, 8));
         AscendC::PipeBarrier<PIPE_V>();
 
         AscendC::RepeatReduceSum<float, false>(lSum, lExp, actualHeads, 0, 0, 1, 1, 8);
@@ -172,40 +149,26 @@ public:
 
         for (uint32_t i = 0; i < kvSplitRound / FLOAT_BLOCK_SIZE; i++) {
             AscendC::Brcb(
-                lExp[i * FLOAT_BLOCK_SIZE],
-                lSum,
-                (headsProcess + FLOAT_BLOCK_SIZE - 1) / FLOAT_BLOCK_SIZE,
-                AscendC::BrcbRepeatParams(KV_SPLIT_MAX / FLOAT_BLOCK_SIZE,
-                                          8 * KV_SPLIT_MAX / FLOAT_BLOCK_SIZE));
+                lExp[i * FLOAT_BLOCK_SIZE], lSum, (headsProcess + FLOAT_BLOCK_SIZE - 1) / FLOAT_BLOCK_SIZE,
+                AscendC::BrcbRepeatParams(KV_SPLIT_MAX / FLOAT_BLOCK_SIZE, 8 * KV_SPLIT_MAX / FLOAT_BLOCK_SIZE));
         }
         AscendC::PipeBarrier<PIPE_V>();
 
         SetMask(kvSplitCoreNum);
-        AscendC::Sub<float, false>(
-            lExp,
-            lIn,
-            lExp,
-            (uint64_t)0,
-            actualHeads,
-            AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
+        AscendC::Sub<float, false>(lExp, lIn, lExp, (uint64_t)0, actualHeads,
+                                   AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
         AscendC::PipeBarrier<PIPE_V>();
         AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID2);
 
-        AscendC::Exp<float, false>(
-            lExp,
-            lExp,
-            (uint64_t)0,
-            actualHeads,
-            AscendC::UnaryRepeatParams(1, 1, 8, 8));
+        AscendC::Exp<float, false>(lExp, lExp, (uint64_t)0, actualHeads, AscendC::UnaryRepeatParams(1, 1, 8, 8));
         AscendC::PipeBarrier<PIPE_V>();
 
         // preload
         AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID0);
         AscendC::DataCopyPad(
             oIn[0], gOCoreTmp,
-            AscendC::DataCopyExtParams(
-                actualHeads, headSize * sizeof(ElementInput),
-                (maxKvSplitCoreNum * headSize - headSize) * sizeof(ElementInput), 0, 0),
+            AscendC::DataCopyExtParams(actualHeads, headSize * sizeof(ElementInput),
+                                       (maxKvSplitCoreNum * headSize - headSize) * sizeof(ElementInput), 0, 0),
             AscendC::DataCopyPadExtParams<ElementInput>(false, 0, 0, 0));
         AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID0);
 
@@ -221,9 +184,8 @@ public:
                 AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(oInEventList[nextBufferId]);
                 AscendC::DataCopyPad(
                     oIn[nextBufferId], gOCoreTmp[(i + 1) * headSize],
-                    AscendC::DataCopyExtParams(
-                        actualHeads, headSize * sizeof(ElementInput),
-                        (maxKvSplitCoreNum * headSize - headSize) * sizeof(ElementInput), 0, 0),
+                    AscendC::DataCopyExtParams(actualHeads, headSize * sizeof(ElementInput),
+                                               (maxKvSplitCoreNum * headSize - headSize) * sizeof(ElementInput), 0, 0),
                     AscendC::DataCopyPadExtParams<ElementInput>(false, 0, 0, 0));
                 AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(oInEventList[nextBufferId]);
             }
@@ -233,33 +195,26 @@ public:
                 float a = lExp[j * KV_SPLIT_MAX + i].GetValue(0);
                 AscendC::SetFlag<AscendC::HardEvent::S_V>(oTempEventList[bufferId]);
                 AscendC::WaitFlag<AscendC::HardEvent::S_V>(oTempEventList[bufferId]);
-                AscendC::Duplicate<float, false>(
-                    lBrcb[bufferId][j * FLOAT_BLOCK_SIZE], a, uint64_t(0), 1, 0, 0);
+                AscendC::Duplicate<float, false>(lBrcb[bufferId][j * FLOAT_BLOCK_SIZE], a, uint64_t(0), 1, 0, 0);
             }
             AscendC::PipeBarrier<PIPE_V>();
 
-            // caculate current o
+            // calculate current o
             AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(oInEventList[bufferId]);
             uint32_t loops = (headSize + FLOAT_ELENUM_PER_VECCALC - 1) / FLOAT_ELENUM_PER_VECCALC;
             if (i > 0) {
                 for (uint32_t j = 0; j < loops; j++) {
-                    AscendC::Mul<float, false>(
-                        oTemp[bufferId][j * FLOAT_ELENUM_PER_VECCALC], lBrcb[bufferId],
-                        oIn[bufferId][j * FLOAT_ELENUM_PER_VECCALC], (uint64_t)0,
-                        actualHeads,
-                        AscendC::BinaryRepeatParams(
-                            1, 0, 1, headSize / FLOAT_BLOCK_SIZE, 1,
-                            headSize / FLOAT_BLOCK_SIZE));
+                    AscendC::Mul<float, false>(oTemp[bufferId][j * FLOAT_ELENUM_PER_VECCALC], lBrcb[bufferId],
+                                               oIn[bufferId][j * FLOAT_ELENUM_PER_VECCALC], (uint64_t)0, actualHeads,
+                                               AscendC::BinaryRepeatParams(1, 0, 1, headSize / FLOAT_BLOCK_SIZE, 1,
+                                                                           headSize / FLOAT_BLOCK_SIZE));
                 }
             } else {
                 for (uint32_t j = 0; j < loops; j++) {
-                    AscendC::Mul<float, false>(
-                        oSum[j * FLOAT_ELENUM_PER_VECCALC], lBrcb[bufferId],
-                        oIn[bufferId][j * FLOAT_ELENUM_PER_VECCALC], (uint64_t)0,
-                        actualHeads,
-                        AscendC::BinaryRepeatParams(
-                            1, 0, 1, headSize / FLOAT_BLOCK_SIZE, 1,
-                            headSize / FLOAT_BLOCK_SIZE));
+                    AscendC::Mul<float, false>(oSum[j * FLOAT_ELENUM_PER_VECCALC], lBrcb[bufferId],
+                                               oIn[bufferId][j * FLOAT_ELENUM_PER_VECCALC], (uint64_t)0, actualHeads,
+                                               AscendC::BinaryRepeatParams(1, 0, 1, headSize / FLOAT_BLOCK_SIZE, 1,
+                                                                           headSize / FLOAT_BLOCK_SIZE));
                 }
             }
             AscendC::PipeBarrier<PIPE_V>();
@@ -281,10 +236,8 @@ public:
 
         AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0);
         AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0);
-        AscendC::DataCopyPad(
-            gOutput, out,
-            AscendC::DataCopyExtParams(
-                actualHeads, headSize * sizeof(ElementOutput), 0, 0, 0));
+        AscendC::DataCopyPad(gOutput, out,
+                             AscendC::DataCopyExtParams(actualHeads, headSize * sizeof(ElementOutput), 0, 0, 0));
         AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID0);
     }
 
@@ -304,5 +257,5 @@ private:
     int32_t oTempEventList[STAGES] = {0, 1};
     int32_t oInEventList[STAGES] = {0, 1};
 };
-} // namespace Catlass::Epilogue::Block
-#endif // CATLASS_EPILOGUE_BLOCK_BLOCK_EPILOGUE_MLA_FD_RESCALE_O_HPP
+}  // namespace Catlass::Epilogue::Block
+#endif  // CATLASS_EPILOGUE_BLOCK_BLOCK_EPILOGUE_MLA_FD_RESCALE_O_HPP

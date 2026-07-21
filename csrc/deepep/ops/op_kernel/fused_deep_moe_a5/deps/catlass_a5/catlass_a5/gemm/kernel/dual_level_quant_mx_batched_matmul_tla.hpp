@@ -43,13 +43,9 @@ namespace Catlass::Gemm::Kernel {
  *   BlockScheduler_ - AIC MN tile scheduler
  *   ElementInput_   - float16_t | bfloat16_t
  */
-template <
-    class BlockMmad_,
-    class BlockQuant_,
-    class BlockScheduler_,
-    typename ElementInput_
->
-class DualLevelQuantMxBatchedMatmulTla {
+template <class BlockMmad_, class BlockQuant_, class BlockScheduler_, typename ElementInput_>
+class DualLevelQuantMxBatchedMatmulTla
+{
 public:
     using BlockMmad = BlockMmad_;
     using BlockQuant = BlockQuant_;
@@ -71,12 +67,12 @@ public:
 
     // Quantization types (from BlockQuant,AIV 侧)
     using ElementInput = ElementInput_;
-    using LayoutInput  = typename BlockQuant::LayoutInput;   // 实际为 RowMajor (A/B 物理都是 RowMajor)
+    using LayoutInput = typename BlockQuant::LayoutInput;  // 实际为 RowMajor (A/B 物理都是 RowMajor)
     using LayoutOutput = typename BlockQuant::LayoutOutput;
     using ElementScale1 = typename BlockQuant::ElementScale1;
-    using LayoutScale1  = typename BlockQuant::LayoutScale1;
+    using LayoutScale1 = typename BlockQuant::LayoutScale1;
     using ElementScale2 = typename BlockQuant::ElementScale2;
-    using LayoutScale2  = typename BlockQuant::LayoutScale2;
+    using LayoutScale2 = typename BlockQuant::LayoutScale2;
 
     // Host 侧 layout 类型别名
     using LayoutInputA = LayoutInput;
@@ -98,11 +94,10 @@ public:
 
     // *** P2-A: tile 尺寸必须从 BlockQuant 派生,不可写死 ***
     static constexpr uint32_t QUANT_TILE_ROWS = BlockQuant::SUB_TILE_M;
-    static constexpr uint32_t QUANT_TILE_K    = BlockQuant::SUB_TILE_K;
+    static constexpr uint32_t QUANT_TILE_K = BlockQuant::SUB_TILE_K;
     static_assert(QUANT_TILE_ROWS == BlockQuant::SUB_TILE_M,
                   "QuantAllScheduler row tile must match BlockQuant::SUB_TILE_M");
-    static_assert(QUANT_TILE_K == BlockQuant::SUB_TILE_K,
-                  "QuantAllScheduler K tile must match BlockQuant::SUB_TILE_K");
+    static_assert(QUANT_TILE_K == BlockQuant::SUB_TILE_K, "QuantAllScheduler K tile must match BlockQuant::SUB_TILE_K");
 
     static constexpr uint32_t LEVEL0_BLOCK_SIZE = BlockQuant::LEVEL0_BLOCK_SIZE;
     static constexpr uint32_t LEVEL1_BLOCK_SIZE = BlockQuant::LEVEL1_BLOCK_SIZE;
@@ -248,13 +243,13 @@ public:
         params.ptrMxScaleA = args.ptrScaleA2;
         params.layoutMxScaleA = args.layoutMxScaleA;
         params.layoutScaleA2 = args.layoutScaleA2;
-        params.strideMxScaleA = static_cast<int64_t>(m) *
-            static_cast<int64_t>(CeilDiv<MX_BASEK_FACTOR>(k) * MX_SCALE_COPY_GROUP_NUM);
+        params.strideMxScaleA =
+            static_cast<int64_t>(m) * static_cast<int64_t>(CeilDiv<MX_BASEK_FACTOR>(k) * MX_SCALE_COPY_GROUP_NUM);
         params.ptrMxScaleB = args.ptrScaleB2;
         params.layoutMxScaleB = args.layoutMxScaleB;
         params.layoutScaleB2 = args.layoutScaleB2;
-        params.strideMxScaleB = static_cast<int64_t>(CeilDiv<MX_BASEK_FACTOR>(k) * MX_SCALE_COPY_GROUP_NUM) *
-            static_cast<int64_t>(n);
+        params.strideMxScaleB =
+            static_cast<int64_t>(CeilDiv<MX_BASEK_FACTOR>(k) * MX_SCALE_COPY_GROUP_NUM) * static_cast<int64_t>(n);
 
         params.ptrC = args.ptrC;
         params.layoutC = args.layoutC;
@@ -278,8 +273,7 @@ public:
     // -----------------------------------------------------------------------
 
     template <int32_t CORE_TYPE = g_coreType>
-    CATLASS_DEVICE
-    void operator()(Params const &params);
+    CATLASS_DEVICE void operator()(Params const &params);
 
     // -----------------------------------------------------------------------
     // AIV path: 全量量化 A 与 B,然后参与 V↔C 全核同步通知 AIC
@@ -295,8 +289,7 @@ public:
     //       AIV 与 AIC 两侧必须配对调用 SyncAll<false>(),次数和参数完全一致。
     // -----------------------------------------------------------------------
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIV>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIV>(Params const &params)
     {
         AscendC::ICachePreLoad(1);
 
@@ -311,7 +304,7 @@ public:
         // AIV worker 编号: 详见 design.md §4.2 末尾的说明
         //   GetBlockIdx()  → 全局 AIV subblock 序号  (与旧 BlockEpilogue 用法一致)
         //   GetBlockNum() * GetSubBlockNum() → 全部 AIV subblock 数
-        uint32_t aivWorkerId  = AscendC::GetBlockIdx();
+        uint32_t aivWorkerId = AscendC::GetBlockIdx();
         uint32_t aivWorkerNum = AscendC::GetBlockNum() * AscendC::GetSubBlockNum();
 
         Arch::Resource<MmadArchTag> resource;
@@ -341,87 +334,75 @@ public:
             QuantTask t = scheduler.GetTask(task);
 
             uint32_t rowStart = t.rowTile * QUANT_TILE_ROWS;
-            uint32_t kStart   = t.kTile   * QUANT_TILE_K;
+            uint32_t kStart = t.kTile * QUANT_TILE_K;
 
             if (t.isA) {
                 uint32_t actualRows = (rowStart + QUANT_TILE_ROWS <= m) ? QUANT_TILE_ROWS : (m - rowStart);
-                uint32_t actualK    = (kStart + QUANT_TILE_K <= k)      ? QUANT_TILE_K    : (k - kStart);
-                MatrixCoord absOffset{ rowStart, kStart };
-                MatrixCoord actualShape{ actualRows, actualK };
+                uint32_t actualK = (kStart + QUANT_TILE_K <= k) ? QUANT_TILE_K : (k - kStart);
+                MatrixCoord absOffset{rowStart, kStart};
+                MatrixCoord actualShape{actualRows, actualK};
 
                 // Input GM tile (P2-B: 走 layout API,不手写 stride)
-                int64_t inputOff = t.batchIdx * params.strideInputA
-                                 + params.layoutInputA.GetOffset(absOffset);
+                int64_t inputOff = t.batchIdx * params.strideInputA + params.layoutInputA.GetOffset(absOffset);
                 auto gmInputTile = gmInputA[inputOff];
                 auto layoutInputTile = params.layoutInputA.GetTileLayout(actualShape);
 
                 // FP4 output byte tile
-                int64_t outputByteOff = t.batchIdx * params.strideQuantABytes
-                                      + BlockQuant::GetPackedFp4ByteOffset(params.layoutOutputA, absOffset);
+                int64_t outputByteOff = t.batchIdx * params.strideQuantABytes +
+                                        BlockQuant::GetPackedFp4ByteOffset(params.layoutOutputA, absOffset);
                 auto gmOutputTile = gmQuantA[outputByteOff];
                 auto layoutOutputTile = BlockQuant::MakePackedFp4ByteGmLayout(params.layoutOutputA, actualShape);
 
                 // Scale1 tile [rows, ceil(actualK/512)]
-                MatrixCoord s1AbsOffset{ rowStart, kStart / LEVEL0_BLOCK_SIZE };
-                MatrixCoord s1ActualShape{ actualRows, CeilDiv<LEVEL0_BLOCK_SIZE>(actualK) };
-                int64_t s1Off = t.batchIdx * params.strideScaleA1
-                              + params.layoutScaleA1.GetOffset(s1AbsOffset);
+                MatrixCoord s1AbsOffset{rowStart, kStart / LEVEL0_BLOCK_SIZE};
+                MatrixCoord s1ActualShape{actualRows, CeilDiv<LEVEL0_BLOCK_SIZE>(actualK)};
+                int64_t s1Off = t.batchIdx * params.strideScaleA1 + params.layoutScaleA1.GetOffset(s1AbsOffset);
                 auto gmScale1Tile = gmScaleA1[s1Off];
                 auto layoutScale1Tile = params.layoutScaleA1.GetTileLayout(s1ActualShape);
 
                 // Scale2 tile [rows, round_up(ceil(actualK/32), 2)].
-                MatrixCoord s2AbsOffset{ rowStart, kStart / LEVEL1_BLOCK_SIZE };
+                MatrixCoord s2AbsOffset{rowStart, kStart / LEVEL1_BLOCK_SIZE};
                 uint32_t s2Cols = RoundUp<2>(CeilDiv<LEVEL1_BLOCK_SIZE>(actualK));
-                MatrixCoord s2ActualShape{ actualRows, s2Cols };
-                int64_t s2Off = t.batchIdx * params.strideMxScaleA
-                              + params.layoutScaleA2.GetOffset(s2AbsOffset);
+                MatrixCoord s2ActualShape{actualRows, s2Cols};
+                int64_t s2Off = t.batchIdx * params.strideMxScaleA + params.layoutScaleA2.GetOffset(s2AbsOffset);
                 auto gmScale2Tile = gmScaleA2[s2Off];
                 auto layoutScale2Tile = params.layoutScaleA2.GetTileLayout(s2ActualShape);
 
-                blockQuant.QuantizeTilePerRow(
-                    gmInputTile,  layoutInputTile,
-                    gmOutputTile, layoutOutputTile,
-                    gmScale1Tile, layoutScale1Tile,
-                    gmScale2Tile, layoutScale2Tile,
-                    actualShape);
+                blockQuant.QuantizeTilePerRow(gmInputTile, layoutInputTile, gmOutputTile, layoutOutputTile,
+                                              gmScale1Tile, layoutScale1Tile, gmScale2Tile, layoutScale2Tile,
+                                              actualShape);
             } else {
                 // B: 物理布局也是 RowMajor [N, K]。AIC 的 ColumnMajor [K, N] 视图与之 byte 等价。
                 uint32_t actualRows = (rowStart + QUANT_TILE_ROWS <= n) ? QUANT_TILE_ROWS : (n - rowStart);
-                uint32_t actualK    = (kStart + QUANT_TILE_K <= k)      ? QUANT_TILE_K    : (k - kStart);
-                MatrixCoord absOffset{ rowStart, kStart };
-                MatrixCoord actualShape{ actualRows, actualK };
+                uint32_t actualK = (kStart + QUANT_TILE_K <= k) ? QUANT_TILE_K : (k - kStart);
+                MatrixCoord absOffset{rowStart, kStart};
+                MatrixCoord actualShape{actualRows, actualK};
 
-                int64_t inputOff = t.batchIdx * params.strideInputB
-                                 + params.layoutInputB.GetOffset(absOffset);
+                int64_t inputOff = t.batchIdx * params.strideInputB + params.layoutInputB.GetOffset(absOffset);
                 auto gmInputTile = gmInputB[inputOff];
                 auto layoutInputTile = params.layoutInputB.GetTileLayout(actualShape);
 
-                int64_t outputByteOff = t.batchIdx * params.strideQuantBBytes
-                                      + BlockQuant::GetPackedFp4ByteOffset(params.layoutOutputB, absOffset);
+                int64_t outputByteOff = t.batchIdx * params.strideQuantBBytes +
+                                        BlockQuant::GetPackedFp4ByteOffset(params.layoutOutputB, absOffset);
                 auto gmOutputTile = gmQuantB[outputByteOff];
                 auto layoutOutputTile = BlockQuant::MakePackedFp4ByteGmLayout(params.layoutOutputB, actualShape);
 
-                MatrixCoord s1AbsOffset{ rowStart, kStart / LEVEL0_BLOCK_SIZE };
-                MatrixCoord s1ActualShape{ actualRows, CeilDiv<LEVEL0_BLOCK_SIZE>(actualK) };
-                int64_t s1Off = t.batchIdx * params.strideScaleB1
-                              + params.layoutScaleB1.GetOffset(s1AbsOffset);
+                MatrixCoord s1AbsOffset{rowStart, kStart / LEVEL0_BLOCK_SIZE};
+                MatrixCoord s1ActualShape{actualRows, CeilDiv<LEVEL0_BLOCK_SIZE>(actualK)};
+                int64_t s1Off = t.batchIdx * params.strideScaleB1 + params.layoutScaleB1.GetOffset(s1AbsOffset);
                 auto gmScale1Tile = gmScaleB1[s1Off];
                 auto layoutScale1Tile = params.layoutScaleB1.GetTileLayout(s1ActualShape);
 
-                MatrixCoord s2AbsOffset{ rowStart, kStart / LEVEL1_BLOCK_SIZE };
+                MatrixCoord s2AbsOffset{rowStart, kStart / LEVEL1_BLOCK_SIZE};
                 uint32_t s2Cols = RoundUp<2>(CeilDiv<LEVEL1_BLOCK_SIZE>(actualK));
-                MatrixCoord s2ActualShape{ actualRows, s2Cols };
-                int64_t s2Off = t.batchIdx * params.strideMxScaleB
-                              + params.layoutScaleB2.GetOffset(s2AbsOffset);
+                MatrixCoord s2ActualShape{actualRows, s2Cols};
+                int64_t s2Off = t.batchIdx * params.strideMxScaleB + params.layoutScaleB2.GetOffset(s2AbsOffset);
                 auto gmScale2Tile = gmScaleB2[s2Off];
                 auto layoutScale2Tile = params.layoutScaleB2.GetTileLayout(s2ActualShape);
 
-                blockQuant.QuantizeTilePerRow(
-                    gmInputTile,  layoutInputTile,
-                    gmOutputTile, layoutOutputTile,
-                    gmScale1Tile, layoutScale1Tile,
-                    gmScale2Tile, layoutScale2Tile,
-                    actualShape);
+                blockQuant.QuantizeTilePerRow(gmInputTile, layoutInputTile, gmOutputTile, layoutOutputTile,
+                                              gmScale1Tile, layoutScale1Tile, gmScale2Tile, layoutScale2Tile,
+                                              actualShape);
             }
         }
 
@@ -440,8 +421,7 @@ public:
     //      但仍必须参与 SyncAll<false>(),否则 AIV 侧的 V↔C 同步会卡死
     // -----------------------------------------------------------------------
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIC>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params)
     {
         AscendC::SyncAll<false>();
 
@@ -469,8 +449,7 @@ public:
             gmA.SetL2CacheHint(AscendC::CacheMode::CACHE_MODE_DISABLE);
         }
 
-        for (uint32_t loopIdx = AscendC::GetBlockIdx(); loopIdx < coreLoops;
-             loopIdx += AscendC::GetBlockNum()) {
+        for (uint32_t loopIdx = AscendC::GetBlockIdx(); loopIdx < coreLoops; loopIdx += AscendC::GetBlockNum()) {
             uint32_t batchIdx = matmulBlockScheduler.GetBatchIdx(loopIdx);
             GemmCoord blockCoord = matmulBlockScheduler.GetBlockCoord(loopIdx);
             GemmCoord actualBlockShape = matmulBlockScheduler.GetActualBlockShape(blockCoord);
@@ -483,39 +462,29 @@ public:
 
             auto tensorA = tla::MakeTensor(gmA[batchOffsetA], params.layoutQuantA, Arch::PositionGM{});
             auto tensorB = tla::MakeTensor(gmB[batchOffsetB], params.layoutQuantB, Arch::PositionGM{});
-            auto tensorMxScaleA = tla::MakeTensor(
-                gmMxScaleA[batchOffsetMxScaleA], params.layoutMxScaleA, Arch::PositionGM{});
-            auto tensorMxScaleB = tla::MakeTensor(
-                gmMxScaleB[batchOffsetMxScaleB], params.layoutMxScaleB, Arch::PositionGM{});
+            auto tensorMxScaleA =
+                tla::MakeTensor(gmMxScaleA[batchOffsetMxScaleA], params.layoutMxScaleA, Arch::PositionGM{});
+            auto tensorMxScaleB =
+                tla::MakeTensor(gmMxScaleB[batchOffsetMxScaleB], params.layoutMxScaleB, Arch::PositionGM{});
             auto tensorC = tla::MakeTensor(gmC[batchOffsetC], params.layoutC, Arch::PositionGM{});
 
-            auto tensorBlockA = GetTile(
-                tensorA,
-                tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.k() * L1_TILE_K),
-                tla::MakeShape(actualBlockShape.m(), actualBlockShape.k()));
-            auto tensorBlockB = GetTile(
-                tensorB,
-                tla::MakeCoord(blockCoord.k() * L1_TILE_K, blockCoord.n() * L1_TILE_N),
-                tla::MakeShape(actualBlockShape.k(), actualBlockShape.n()));
-            auto tensorBlockMxScaleA = GetTile(
-                tensorMxScaleA,
-                tla::MakeCoord(blockCoord.m() * L1_TILE_M,
-                               blockCoord.k() * L1_TILE_K / MX_SCALE_GROUP_NUM),
-                tla::MakeShape(actualBlockShape.m(),
-                               CeilDiv<MX_SCALE_GROUP_NUM>(actualBlockShape.k())));
-            auto tensorBlockMxScaleB = GetTile(
-                tensorMxScaleB,
-                tla::MakeCoord(blockCoord.k() * L1_TILE_K / MX_SCALE_GROUP_NUM,
-                               blockCoord.n() * L1_TILE_N),
-                tla::MakeShape(CeilDiv<MX_SCALE_GROUP_NUM>(actualBlockShape.k()),
-                               actualBlockShape.n()));
-            auto tensorBlockC = GetTile(
-                tensorC,
-                tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N),
-                tla::MakeShape(actualBlockShape.m(), actualBlockShape.n()));
+            auto tensorBlockA = GetTile(tensorA, tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.k() * L1_TILE_K),
+                                        tla::MakeShape(actualBlockShape.m(), actualBlockShape.k()));
+            auto tensorBlockB = GetTile(tensorB, tla::MakeCoord(blockCoord.k() * L1_TILE_K, blockCoord.n() * L1_TILE_N),
+                                        tla::MakeShape(actualBlockShape.k(), actualBlockShape.n()));
+            auto tensorBlockMxScaleA =
+                GetTile(tensorMxScaleA,
+                        tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.k() * L1_TILE_K / MX_SCALE_GROUP_NUM),
+                        tla::MakeShape(actualBlockShape.m(), CeilDiv<MX_SCALE_GROUP_NUM>(actualBlockShape.k())));
+            auto tensorBlockMxScaleB =
+                GetTile(tensorMxScaleB,
+                        tla::MakeCoord(blockCoord.k() * L1_TILE_K / MX_SCALE_GROUP_NUM, blockCoord.n() * L1_TILE_N),
+                        tla::MakeShape(CeilDiv<MX_SCALE_GROUP_NUM>(actualBlockShape.k()), actualBlockShape.n()));
+            auto tensorBlockC = GetTile(tensorC, tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N),
+                                        tla::MakeShape(actualBlockShape.m(), actualBlockShape.n()));
 
-            blockMmad(tensorBlockA, tensorBlockB, tensorBlockC,
-                      actualBlockShape, tensorBlockMxScaleA, tensorBlockMxScaleB);
+            blockMmad(tensorBlockA, tensorBlockB, tensorBlockC, actualBlockShape, tensorBlockMxScaleA,
+                      tensorBlockMxScaleB);
         }
 
         AscendC::PipeBarrier<PIPE_ALL>();
@@ -555,7 +524,7 @@ private:
         {
             aRowTiles = CeilDiv<QUANT_TILE_ROWS>(m);
             bRowTiles = CeilDiv<QUANT_TILE_ROWS>(n);
-            kTiles    = CeilDiv<QUANT_TILE_K>(k);
+            kTiles = CeilDiv<QUANT_TILE_K>(k);
         }
 
         CATLASS_DEVICE
@@ -569,22 +538,22 @@ private:
         {
             uint32_t tasksPerBatchA = aRowTiles * kTiles;
             uint32_t tasksPerBatchB = bRowTiles * kTiles;
-            uint32_t tasksPerBatch  = tasksPerBatchA + tasksPerBatchB;
+            uint32_t tasksPerBatch = tasksPerBatchA + tasksPerBatchB;
 
             uint32_t batchIdx = taskIdx / tasksPerBatch;
-            uint32_t inner    = taskIdx - batchIdx * tasksPerBatch;
+            uint32_t inner = taskIdx - batchIdx * tasksPerBatch;
 
             if (inner < tasksPerBatchA) {
-                return QuantTask{ true, batchIdx, inner / kTiles, inner % kTiles };
+                return QuantTask{true, batchIdx, inner / kTiles, inner % kTiles};
             }
             uint32_t bInner = inner - tasksPerBatchA;
-            return QuantTask{ false, batchIdx, bInner / kTiles, bInner % kTiles };
+            return QuantTask{false, batchIdx, bInner / kTiles, bInner % kTiles};
         }
     };
 };
 
-#endif // (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510)
+#endif  // (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510)
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel
 
-#endif // CATLASS_GEMM_KERNEL_DUAL_LEVEL_QUANT_MX_BATCHED_MATMUL_TLA_HPP
+#endif  // CATLASS_GEMM_KERNEL_DUAL_LEVEL_QUANT_MX_BATCHED_MATMUL_TLA_HPP

@@ -32,9 +32,8 @@ struct VisitorImpl : VisitorImplBase<Ops...> {
 
     // 为所有节点提供一个标准的空实现：按需可被覆盖
     template <class ProblemShape, class OpArgs>
-    static Catlass::Status initialize_workspace(
-        ProblemShape const&, OpArgs const&, void*
-    ) {
+    static Catlass::Status initialize_workspace(ProblemShape const &, OpArgs const &, void *)
+    {
         return Catlass::Status::kSuccess;
     }
 
@@ -43,45 +42,35 @@ struct VisitorImpl : VisitorImplBase<Ops...> {
         CallbacksTuple callbacks_tuple;
 
         CATLASS_DEVICE
-        Callbacks(CallbacksTuple&& cbs) : callbacks_tuple(static_cast<CallbacksTuple&&>(cbs)) {}
+        Callbacks(CallbacksTuple &&cbs) : callbacks_tuple(static_cast<CallbacksTuple &&>(cbs)) {}
 
-        CATLASS_DEVICE void begin_epilogue() {
-            tla::for_each(callbacks_tuple, [](auto& cb) { cb.begin_epilogue(); });
+        CATLASS_DEVICE void begin_epilogue()
+        {
+            tla::for_each(callbacks_tuple, [](auto &cb) { cb.begin_epilogue(); });
         }
 
-        CATLASS_DEVICE void end_epilogue() {
-            tla::for_each(callbacks_tuple, [](auto& cb) { cb.end_epilogue(); });
+        CATLASS_DEVICE void end_epilogue()
+        {
+            tla::for_each(callbacks_tuple, [](auto &cb) { cb.end_epilogue(); });
         }
     };
 
     template <class ArchTag, int... Is>
-    CATLASS_DEVICE auto get_callbacks_impl(
-        Arch::Resource<ArchTag>& resource,
-        uint32_t& ub_offset,
-        uint32_t compute_length,
-        tla::seq<Is...>
-    ) {
-        auto tuple_cbs = tla::tuple<
-            decltype(tla::get<Is>(ops).get_callbacks(resource, ub_offset, compute_length))...
-        >(
-            tla::get<Is>(ops).get_callbacks(resource, ub_offset, compute_length)...
-        );
-        return Callbacks<decltype(tuple_cbs)>(static_cast<decltype(tuple_cbs)&&>(tuple_cbs));
+    CATLASS_DEVICE auto get_callbacks_impl(Arch::Resource<ArchTag> &resource, uint32_t &ub_offset,
+                                           uint32_t compute_length, tla::seq<Is...>)
+    {
+        auto tuple_cbs = tla::tuple<decltype(tla::get<Is>(ops).get_callbacks(resource, ub_offset, compute_length))...>(
+            tla::get<Is>(ops).get_callbacks(resource, ub_offset, compute_length)...);
+        return Callbacks<decltype(tuple_cbs)>(static_cast<decltype(tuple_cbs) &&>(tuple_cbs));
     }
 
     template <class ArchTag>
-    CATLASS_DEVICE auto get_callbacks(
-        Arch::Resource<ArchTag>& resource,
-        uint32_t& ub_offset,
-        uint32_t compute_length
-    ) {
-        return get_callbacks_impl(
-            resource, ub_offset, compute_length,
-            tla::make_seq<sizeof...(Ops)>{}
-        );
+    CATLASS_DEVICE auto get_callbacks(Arch::Resource<ArchTag> &resource, uint32_t &ub_offset, uint32_t compute_length)
+    {
+        return get_callbacks_impl(resource, ub_offset, compute_length, tla::make_seq<sizeof...(Ops)>{});
     }
 };
 
-} // namespace Catlass::Epilogue::Fusion
+}  // namespace Catlass::Epilogue::Fusion
 
 #endif

@@ -27,28 +27,10 @@
 namespace Catlass::Gemm::Block {
 ////////////////////////////////////////////////////////////////////
 
-template <
-    class ArchTag_,
-    bool PAGED_CACHE_FLAG_,
-    bool ENABLE_UNIT_FLAG_,
-    class L1TileShape_,
-    class L0TileShape_,
-    class ElementA_,
-    class ElementB_,
-    class ElementC_,
-    class ElementBias_,
-    class TileCopy_,
-    class TileMmad_>
-struct BlockMmadTla<
-    MmadFAITailPV<ArchTag_, PAGED_CACHE_FLAG_, ENABLE_UNIT_FLAG_>,
-    L1TileShape_,
-    L0TileShape_,
-    ElementA_,
-    ElementB_,
-    ElementC_,
-    ElementBias_,
-    TileCopy_,
-    TileMmad_> {
+template <class ArchTag_, bool PAGED_CACHE_FLAG_, bool ENABLE_UNIT_FLAG_, class L1TileShape_, class L0TileShape_,
+          class ElementA_, class ElementB_, class ElementC_, class ElementBias_, class TileCopy_, class TileMmad_>
+struct BlockMmadTla<MmadFAITailPV<ArchTag_, PAGED_CACHE_FLAG_, ENABLE_UNIT_FLAG_>, L1TileShape_, L0TileShape_,
+                    ElementA_, ElementB_, ElementC_, ElementBias_, TileCopy_, TileMmad_> {
 public:
     // Type Aliases
     using DispatchPolicy = MmadFAITailPV<ArchTag_, PAGED_CACHE_FLAG_, ENABLE_UNIT_FLAG_>;
@@ -78,9 +60,9 @@ public:
     using L1BAlignHelper = typename TileCopy_::L1BAlignHelper;
 
     static_assert(tla::is_tuple<L1TileShape>::value && tla::is_static<L1TileShape>::value,
-        "L1TileShape must be tla::tuple and static!");
+                  "L1TileShape must be tla::tuple and static!");
     static_assert(tla::is_tuple<L0TileShape>::value && tla::is_static<L0TileShape>::value,
-        "L0TileShape must be tla::tuple and static!");
+                  "L0TileShape must be tla::tuple and static!");
 
     static constexpr bool ENABLE_UNIT_FLAG = DispatchPolicy::ENABLE_UNIT_FLAG;
     static constexpr uint32_t STAGES = DispatchPolicy::STAGES;
@@ -105,12 +87,12 @@ public:
     // Check LayoutC
     static_assert(tla::detail::isRowMajor<LayoutC>::value ||
                       ((std::is_same_v<ElementC, half> || std::is_same_v<ElementC, bfloat16_t> ||
-                          std::is_same_v<ElementC, float>) && tla::detail::iszN<ElementC, LayoutC>::value),
-        "LayoutC only supports zN in half or bfloat16 or float, RowMajor in all dtype yet!");
-    
+                        std::is_same_v<ElementC, float>) &&
+                       tla::detail::iszN<ElementC, LayoutC>::value),
+                  "LayoutC only supports zN in half or bfloat16 or float, RowMajor in all dtype yet!");
+
     // Check L1TileShape
-    static_assert((L1A_TILE_SIZE + L1B_TILE_SIZE) * STAGES <= ArchTag::L1_SIZE,
-        "L1TileShape exceeding the L1 space!");
+    static_assert((L1A_TILE_SIZE + L1B_TILE_SIZE) * STAGES <= ArchTag::L1_SIZE, "L1TileShape exceeding the L1 space!");
 
     // Check L0TileShape
     static_assert(L0A_TILE_SIZE <= ArchTag::L0A_SIZE, "L0TileShape exceeding the L0A space!");
@@ -132,20 +114,21 @@ public:
         l0ATensor = resource.l0ABuf.template GetBufferByByte<ElementA>(0);
         l0BTensor = resource.l0BBuf.template GetBufferByByte<ElementB>(0);
         for (uint32_t i = 0; i < STAGES; i++) {
-            l1ATensor[i] = resource.l1Buf.template GetBufferByByte<ElementA>(l1BufAddrStart + L1A_TILE_SIZE * LOAB_BLOCK * i);
+            l1ATensor[i] =
+                resource.l1Buf.template GetBufferByByte<ElementA>(l1BufAddrStart + L1A_TILE_SIZE * LOAB_BLOCK * i);
             l0CTensor[i] = resource.l0CBuf.template GetBufferByByte<ElementAccumulator>(L0C_PINGPONG_BUF_SIZE * i);
-            l1BTensor[i] =
-            resource.l1Buf.template GetBufferByByte<ElementB>(l1BufAddrStart + L1A_TILE_SIZE * 2 * 2 + L1B_TILE_SIZE * i);
+            l1BTensor[i] = resource.l1Buf.template GetBufferByByte<ElementB>(l1BufAddrStart + L1A_TILE_SIZE * 2 * 2 +
+                                                                             L1B_TILE_SIZE * i);
         }
     }
 
     /// Destructor
     CATLASS_DEVICE
     ~BlockMmadTla() {}
-    
+
     CATLASS_DEVICE
-    void getBlockShape(GemmCoord &actualShape, uint32_t &nowNIdx, uint32_t &kIdx,
-                       uint32_t &nLoop, uint32_t &kLoop, uint32_t &kvSeqlen, uint32_t &embed, bool firstBlock, uint32_t maskTailS = 0)
+    void getBlockShape(GemmCoord &actualShape, uint32_t &nowNIdx, uint32_t &kIdx, uint32_t &nLoop, uint32_t &kLoop,
+                       uint32_t &kvSeqlen, uint32_t &embed, bool firstBlock, uint32_t maskTailS = 0)
     {
         uint32_t nSplitSize = KV_SPLIT_SIZE * LOAB_BLOCK;
         uint32_t embedSplitSize = EMBED_SPLIT_SIZE;
@@ -178,10 +161,10 @@ public:
     }
 
     template <class TensorA, class TensorB, class TensorC>
-    CATLASS_DEVICE
-    void operator()(TensorA &tensorA, TensorB &tensorB, TensorC &tensorC,
-                    AscendC::GlobalTensor<int32_t> gBlockTable, GemmCoord actualOriShape,
-                    uint32_t &nIdx, uint32_t &nLoop, uint32_t &blockSize, uint32_t kvSeqlen, uint32_t strideKV, Arch::CrossCoreFlag softmaxFlag, uint32_t maskTailS, bool preloadFlag)
+    CATLASS_DEVICE void operator()(TensorA &tensorA, TensorB &tensorB, TensorC &tensorC,
+                                   AscendC::GlobalTensor<int32_t> gBlockTable, GemmCoord actualOriShape, uint32_t &nIdx,
+                                   uint32_t &nLoop, uint32_t &blockSize, uint32_t kvSeqlen, uint32_t strideKV,
+                                   Arch::CrossCoreFlag softmaxFlag, uint32_t maskTailS, bool preloadFlag)
     {
         uint32_t embed = actualOriShape[1];
         uint32_t kLoop = CeilDiv<L1_TILE_K>(embed);
@@ -189,8 +172,8 @@ public:
         uint32_t blockN = tla::get<1>(tensorA.layout().shape());
         GemmCoord actualShape{rowNum, 0, 0};
         GemmCoord actualNextShape{rowNum, 0, 0};
-        uint32_t nkBlockLoop = (nLoop + LOAB_BLOCK - 1) / LOAB_BLOCK * kLoop; // gap
-        uint32_t nkBlockNextIdx = (nIdx + LOAB_BLOCK - 1) / LOAB_BLOCK * kLoop + 1; // gap
+        uint32_t nkBlockLoop = (nLoop + LOAB_BLOCK - 1) / LOAB_BLOCK * kLoop;        // gap
+        uint32_t nkBlockNextIdx = (nIdx + LOAB_BLOCK - 1) / LOAB_BLOCK * kLoop + 1;  // gap
         uint32_t gBOffset = 0;
         uint32_t gBNextOffset = 0;
         uint32_t nowMaskTailS = 0;
@@ -201,21 +184,29 @@ public:
             for (uint32_t blockStackIdx = 0; (blockStackIdx < UNIT_BLOCK_STACK_NUM) && ((nIdx + blockStackIdx) < nLoop);
                  blockStackIdx += LOAB_BLOCK) {
                 uint32_t nowNIdx = nIdx + blockStackIdx;
-                uint32_t kLoopNextIdx = (nkBlockNextIdx % (kLoop * UNIT_BLOCK_STACK_NUM)) / (UNIT_BLOCK_STACK_NUM / LOAB_BLOCK);
-                uint32_t nLoopNextIdx = (nkBlockNextIdx % (kLoop * UNIT_BLOCK_STACK_NUM)) % (UNIT_BLOCK_STACK_NUM / LOAB_BLOCK) + nkBlockNextIdx / (kLoop * UNIT_BLOCK_STACK_NUM) * UNIT_BLOCK_STACK_NUM;
+                uint32_t kLoopNextIdx =
+                    (nkBlockNextIdx % (kLoop * UNIT_BLOCK_STACK_NUM)) / (UNIT_BLOCK_STACK_NUM / LOAB_BLOCK);
+                uint32_t nLoopNextIdx =
+                    (nkBlockNextIdx % (kLoop * UNIT_BLOCK_STACK_NUM)) % (UNIT_BLOCK_STACK_NUM / LOAB_BLOCK) +
+                    nkBlockNextIdx / (kLoop * UNIT_BLOCK_STACK_NUM) * UNIT_BLOCK_STACK_NUM;
                 uint32_t startSeqOffset = nowNIdx == nIdx ? maskTailS : 0;
                 uint32_t startSeqNxtOffset = nLoopNextIdx == nIdx ? maskTailS : 0;
                 getBlockShape(actualShape, nowNIdx, kIdx, nLoop, kLoop, kvSeqlen, embed, nowNIdx == nIdx, nowMaskTailS);
-                getBlockShape(actualNextShape, nLoopNextIdx, kLoopNextIdx, nLoop, kLoop, kvSeqlen, embed, nLoopNextIdx == nIdx, nowMaskTailS);
+                getBlockShape(actualNextShape, nLoopNextIdx, kLoopNextIdx, nLoop, kLoop, kvSeqlen, embed,
+                              nLoopNextIdx == nIdx, nowMaskTailS);
                 getKVOffset(gBlockTable, gBOffset, nowNIdx, kIdx, nLoop, kLoop, strideKV, blockSize, startSeqOffset);
-                getKVOffset(gBlockTable, gBNextOffset, nLoopNextIdx, kLoopNextIdx, nLoop, kLoop, strideKV, blockSize, startSeqNxtOffset);
+                getKVOffset(gBlockTable, gBNextOffset, nLoopNextIdx, kLoopNextIdx, nLoop, kLoop, strideKV, blockSize,
+                            startSeqNxtOffset);
                 bool firstItr = blockStackIdx == 0;
-                bool endItr = (blockStackIdx + LOAB_BLOCK > UNIT_BLOCK_STACK_NUM - 1) || (nowNIdx + LOAB_BLOCK > nLoop - 1);
+                bool endItr =
+                    (blockStackIdx + LOAB_BLOCK > UNIT_BLOCK_STACK_NUM - 1) || (nowNIdx + LOAB_BLOCK > nLoop - 1);
                 bool initMmad = blockStackIdx == 0;
                 bool pvCVItr = firstItr && kIdx == 0;
-                auto tensorAOffset = GetTile(tensorA, tla::MakeCoord(gPOffset / rowNum, gPOffset % rowNum), tensorA.layout().shape());
-                computePV(tensorAOffset, tensorB, tensorC, gBOffset, gBNextOffset, 
-                          actualShape, actualNextShape, nowNIdx, nkBlockNextIdx, nkBlockLoop, strideKV, firstItr, endItr, initMmad, pvCVItr, softmaxFlag, preloadFlag);
+                auto tensorAOffset =
+                    GetTile(tensorA, tla::MakeCoord(gPOffset / rowNum, gPOffset % rowNum), tensorA.layout().shape());
+                computePV(tensorAOffset, tensorB, tensorC, gBOffset, gBNextOffset, actualShape, actualNextShape,
+                          nowNIdx, nkBlockNextIdx, nkBlockLoop, strideKV, firstItr, endItr, initMmad, pvCVItr,
+                          softmaxFlag, preloadFlag);
                 gPOffset += actualShape.k();
                 ++nkBlockNextIdx;
                 nowMaskTailS = 0;
@@ -225,11 +216,11 @@ public:
     }
 
     template <class TensorA, class TensorB, class TensorC>
-    CATLASS_DEVICE
-    void computePV(
-        TensorA &tensorA, TensorB &tensorB, TensorC &tensorC, uint32_t gBOffset, uint32_t gBNextOffset, 
-        GemmCoord actualShape, GemmCoord actualNextShape, uint32_t nowIdx, uint32_t &nkblockIdx,
-        uint32_t &nkblockLoop, uint32_t strideKV, bool firstItr, bool endItr, bool initMmad, bool pvCVItr, Arch::CrossCoreFlag softmaxFlag, bool preloadFlag = false)
+    CATLASS_DEVICE void computePV(TensorA &tensorA, TensorB &tensorB, TensorC &tensorC, uint32_t gBOffset,
+                                  uint32_t gBNextOffset, GemmCoord actualShape, GemmCoord actualNextShape,
+                                  uint32_t nowIdx, uint32_t &nkblockIdx, uint32_t &nkblockLoop, uint32_t strideKV,
+                                  bool firstItr, bool endItr, bool initMmad, bool pvCVItr,
+                                  Arch::CrossCoreFlag softmaxFlag, bool preloadFlag = false)
     {
         using CopyGmToL1A = typename TileCopy_::template CopyGmToL1A<TensorA>;
         using CopyGmToL1B = typename TileCopy_::template CopyGmToL1B<TensorB>;
@@ -253,7 +244,8 @@ public:
         auto tensorTileA = GetTile(tensorA, tla::MakeCoord(0, 0), tla::MakeShape(MActual, kActual));
         auto tensorL1A = tla::MakeTensor(l1ATensor[l1KvPingPongFlag], layoutAInL1, Arch::PositionL1{});
         auto tensorL0A = tla::MakeTensor(l0ATensor, layoutAInL0, Arch::PositionL0A{});
-        auto tensorTileB = GetTile(tensorB, tla::MakeCoord(gBOffset / strideKV, gBOffset % strideKV), tla::MakeShape(kActual, nActual));
+        auto tensorTileB = GetTile(tensorB, tla::MakeCoord(gBOffset / strideKV, gBOffset % strideKV),
+                                   tla::MakeShape(kActual, nActual));
         auto tensorL1B = tla::MakeTensor(l1BTensor[l1KvPingPongFlag], layoutBInL1, Arch::PositionL1{});
         auto tensorL0B = tla::MakeTensor(l0BTensor, layoutBInL0, Arch::PositionL0B{});
         if (nkblockIdx == 1 || preloadFlag) {
@@ -278,7 +270,8 @@ public:
         if (nkblockIdx != nkblockLoop) {
             uint32_t nNextActual = actualNextShape.n();
             uint32_t kNextActual = actualNextShape.k();
-            auto tensorTileBNext = GetTile(tensorB, tla::MakeCoord(gBNextOffset / strideKV, gBNextOffset % strideKV), tla::MakeShape(kNextActual, nNextActual));
+            auto tensorTileBNext = GetTile(tensorB, tla::MakeCoord(gBNextOffset / strideKV, gBNextOffset % strideKV),
+                                           tla::MakeShape(kNextActual, nNextActual));
             auto layoutBNextInL1 = tla::MakeLayout<ElementB, LayoutTagL1B>(kNextActual, nNextActual);
             auto tensorL1BNext = tla::MakeTensor(l1BTensor[1 - l1KvPingPongFlag], layoutBNextInL1, Arch::PositionL1{});
             AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(1 - l1KvPingPongFlag + 2);
@@ -309,9 +302,7 @@ public:
         }
         auto layoutCTileInL0 = tla::MakeLayoutL0C(mRound, nActual);
         auto tensorL0CTile = tla::MakeTensor(l0CTensor[0], layoutCTileInL0, Arch::PositionL0C{});
-        tileMmad(
-            tensorL0CTile, tensorL0A, tensorL0B, 
-            mRound, nActual, kActual, initMmad, unitFlag);
+        tileMmad(tensorL0CTile, tensorL0A, tensorL0B, mRound, nActual, kActual, initMmad, unitFlag);
         AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(0);
         AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(1);
         AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(2);
@@ -330,7 +321,7 @@ public:
             }
         }
     }
- 
+
 protected:
     /// Data members
     AscendC::LocalTensor<ElementA> l1ATensor[STAGES];
@@ -346,6 +337,6 @@ protected:
 
 ////////////////////////////////////////////////////////////////////
 
-} // namespace Catlass::Gemm::Block
+}  // namespace Catlass::Gemm::Block
 
-#endif // CATLASS_GEMM_BLOCK_MMAD_PV_TAIL_TLA_HPP
+#endif  // CATLASS_GEMM_BLOCK_MMAD_PV_TAIL_TLA_HPP

@@ -24,8 +24,7 @@ namespace Catlass::Gemm::Tile {
 /// Partial specialization for CopyL1ToBT, Ascend950, VectorLayout in and VectorLayout out.
 template <class ElementSrc, class ElementDst, class LayoutSrc, class LayoutDst, class CoordSrc, class CoordDst>
 struct TileCopyTla<
-    Arch::Ascend950,
-    tla::Tensor<AscendC::LocalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::A1>,
+    Arch::Ascend950, tla::Tensor<AscendC::LocalTensor<ElementSrc>, LayoutSrc, CoordSrc, AscendC::TPosition::A1>,
     tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, CoordDst, AscendC::TPosition::C2>,
     std::enable_if_t<tla::detail::isVector<LayoutSrc>::value && tla::detail::isVector<LayoutDst>::value>> {
     static constexpr uint32_t ELE_NUM_PER_C0 = BytesToBits(BYTE_PER_C0) / SizeOfBits<ElementSrc>::value;
@@ -38,13 +37,12 @@ struct TileCopyTla<
     template <class TensorDst, class TensorSrc>
     CATLASS_DEVICE void operator()(TensorDst const &dstTensor, TensorSrc const &srcTensor)
     {
-        static_assert(
-            tla::detail::isVector<typename TensorSrc::Layout>::value
-                && tla::detail::isVector<typename TensorDst::Layout>::value
-                && TensorSrc::position == AscendC::TPosition::A1 && TensorDst::position == AscendC::TPosition::C2,
-            "The input parameters do not match. TensorSrc must be L1 and Vector, "
-            "while TensorDst must be BT and Vector"
-        );
+        static_assert(tla::detail::isVector<typename TensorSrc::Layout>::value &&
+                          tla::detail::isVector<typename TensorDst::Layout>::value &&
+                          TensorSrc::position == AscendC::TPosition::A1 &&
+                          TensorDst::position == AscendC::TPosition::C2,
+                      "The input parameters do not match. TensorSrc must be L1 and Vector, "
+                      "while TensorDst must be BT and Vector");
 
         AscendC::DataCopyParams intriParams;
         intriParams.blockCount = 1;
@@ -65,32 +63,27 @@ struct TileCopyTla<
 
 ////////////////////////////////////TileCopy(No-TLA, Ascend950)////////////////////////////////////////////////
 
-template <
-    class ArchTag,
-    class L1Type,
-    class L0Type = void
->
+template <class ArchTag, class L1Type, class L0Type = void>
 struct CopyL1ToBT {
-    static_assert(DEPENDENT_FALSE<ArchTag>, "Unsupported copy l1 to biasTable buffer, can not find the specialization.");
+    static_assert(DEPENDENT_FALSE<ArchTag>,
+                  "Unsupported copy l1 to biasTable buffer, can not find the specialization.");
 };
 
-template<class ElementSrc, class ElementDst>
+template <class ElementSrc, class ElementDst>
 struct CopyL1ToBT<Arch::Ascend950, Catlass::Gemm::GemmType<ElementSrc, layout::VectorLayout, AscendC::TPosition::A1>,
-    Catlass::Gemm::GemmType<ElementDst, layout::VectorLayout, AscendC::TPosition::C2>>{
+                  Catlass::Gemm::GemmType<ElementDst, layout::VectorLayout, AscendC::TPosition::C2>> {
     using LayoutDst = layout::VectorLayout;
     using LayoutSrc = layout::VectorLayout;
 
     static constexpr uint32_t ELE_NUM_PER_C0 = BytesToBits(BYTE_PER_C0) / SizeOfBits<ElementSrc>::value;
 
     CATLASS_DEVICE
-    CopyL1ToBT(){}
+    CopyL1ToBT() {}
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<ElementDst> dstTensor,
-        AscendC::LocalTensor<ElementSrc> srcTensor,
-        LayoutDst layoutDst, LayoutSrc layoutSrc
-    ){
+    void operator()(AscendC::LocalTensor<ElementDst> dstTensor, AscendC::LocalTensor<ElementSrc> srcTensor,
+                    LayoutDst layoutDst, LayoutSrc layoutSrc)
+    {
         AscendC::DataCopyParams intriParams;
         intriParams.blockCount = 1;
         intriParams.blockLen = CeilDiv(layoutDst.shape(0), ELE_NUM_PER_C0);
@@ -104,9 +97,8 @@ struct CopyL1ToBT<Arch::Ascend950, Catlass::Gemm::GemmType<ElementSrc, layout::V
     }
 };
 
-
 /////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-} // namespace Catlass::Gemm::Tile
+}  // namespace Catlass::Gemm::Tile
 
-#endif // CATLASS_GEMM_TILE_ASCEND950_COPY_L1_TO_BT_HPP
+#endif  // CATLASS_GEMM_TILE_ASCEND950_COPY_L1_TO_BT_HPP

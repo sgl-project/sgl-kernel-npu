@@ -21,7 +21,8 @@
 namespace Catlass::Epilogue::Block {
 
 template <class OutputType_, class UpdateType_, class InputType_>
-class BlockEpilogue<EpilogueAtlasA2AMLATP1RescaleO, OutputType_, UpdateType_, InputType_> {
+class BlockEpilogue<EpilogueAtlasA2AMLATP1RescaleO, OutputType_, UpdateType_, InputType_>
+{
 public:
     // Type aliases
     using DispatchPolicy = EpilogueAtlasA2AMLATP1RescaleO;
@@ -109,8 +110,8 @@ public:
                         AscendC::GlobalTensor<ElementOutput> gOutput, AscendC::GlobalTensor<ElementUpdate> gOCoreTmp,
                         AscendC::GlobalTensor<ElementUpdate> gl, const LayoutInput &layoutInput,
                         const LayoutOutput &layoutOutput, const LayoutUpdate &layoutUpdate, uint32_t nIdx,
-                        uint32_t needRowLoop, uint32_t rowLoopIdx, uint32_t rescaleOPingPongFlag,
-                        uint32_t *glFlag, uint32_t taskPingPongFlag)
+                        uint32_t needRowLoop, uint32_t rowLoopIdx, uint32_t rescaleOPingPongFlag, uint32_t *glFlag,
+                        uint32_t taskPingPongFlag)
     {
         uint32_t curRowNum = layoutInput.shape(0);
         uint32_t embed = layoutInput.shape(1);
@@ -124,69 +125,53 @@ public:
         AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(oPingPangFlag + 4);
         // *** gl_block = expand_to_block(gl), 存放于 tv
         AscendC::DataCopy(goUbTensor32[oUbOffset], gInput,
-                            AscendC::DataCopyParams(1, curRowNum * embedRound / FLOAT_BLOCK_SIZE, 0, 0));
+                          AscendC::DataCopyParams(1, curRowNum * embedRound / FLOAT_BLOCK_SIZE, 0, 0));
         AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID0);
         AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID0);
 
-        AscendC::Abs<float,false>(
-            tvUbTensor,
-            goUbTensor32[oUbOffset],
-            (uint64_t)0,
-            curRowNum * embedRound / FLOAT_VECTOR_SIZE,
-            {1, 1, 8, 8}
-        );
+        AscendC::Abs<float, false>(tvUbTensor, goUbTensor32[oUbOffset], (uint64_t)0,
+                                   curRowNum * embedRound / FLOAT_VECTOR_SIZE, {1, 1, 8, 8});
         AscendC::PipeBarrier<PIPE_V>();
         AscendC::LocalTensor<uint8_t> cmpMaskUb = tvUbTensor.template ReinterpretCast<uint8_t>();
-        AscendC::CompareScalar(
-            cmpMaskUb, tvUbTensor, (float)1e10, AscendC::CMPMODE::LE, curRowNum * embedRound
-        );
+        AscendC::CompareScalar(cmpMaskUb, tvUbTensor, (float)1e10, AscendC::CMPMODE::LE, curRowNum * embedRound);
         AscendC::PipeBarrier<PIPE_V>();
-        AscendC::Select(
-            goUbTensor32[oUbOffset], cmpMaskUb, goUbTensor32[oUbOffset], (float)0.0, AscendC::SELMODE::VSEL_TENSOR_SCALAR_MODE, curRowNum * embedRound
-        );
+        AscendC::Select(goUbTensor32[oUbOffset], cmpMaskUb, goUbTensor32[oUbOffset], (float)0.0,
+                        AscendC::SELMODE::VSEL_TENSOR_SCALAR_MODE, curRowNum * embedRound);
         AscendC::PipeBarrier<PIPE_V>();
 
         AscendC::Brcb(tvUbTensor.ReinterpretCast<uint32_t>(),
-                        glUbTensor[taskPingPongFlag].ReinterpretCast<uint32_t>()[rowLoopIdx * ROW_WISE_CYCLE_TILE],
-                        curRowNumRound / FLOAT_BLOCK_SIZE,
-                        AscendC::BrcbRepeatParams(1, 8));
+                      glUbTensor[taskPingPongFlag].ReinterpretCast<uint32_t>()[rowLoopIdx * ROW_WISE_CYCLE_TILE],
+                      curRowNumRound / FLOAT_BLOCK_SIZE, AscendC::BrcbRepeatParams(1, 8));
         AscendC::PipeBarrier<PIPE_V>();
 
         // *** go = go / gl_block
         AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
         for (uint32_t vdiv_idx = 0; vdiv_idx < embed / FLOAT_VECTOR_SIZE; ++vdiv_idx) {
-            AscendC::Div<float, false>(goUbTensor32[oUbOffset + vdiv_idx * FLOAT_VECTOR_SIZE],
-                                        goUbTensor32[oUbOffset + vdiv_idx * FLOAT_VECTOR_SIZE],
-                                        tvUbTensor, (uint64_t)0,
-                                        curRowNum,
-                                        AscendC::BinaryRepeatParams(1, 1, 0, embedRound / FLOAT_BLOCK_SIZE,
-                                                                    embedRound / FLOAT_BLOCK_SIZE, 1));
-
+            AscendC::Div<float, false>(
+                goUbTensor32[oUbOffset + vdiv_idx * FLOAT_VECTOR_SIZE],
+                goUbTensor32[oUbOffset + vdiv_idx * FLOAT_VECTOR_SIZE], tvUbTensor, (uint64_t)0, curRowNum,
+                AscendC::BinaryRepeatParams(1, 1, 0, embedRound / FLOAT_BLOCK_SIZE, embedRound / FLOAT_BLOCK_SIZE, 1));
         }
         if (embed % FLOAT_VECTOR_SIZE > 0) {
             SetMask(embed % FLOAT_VECTOR_SIZE);
-            AscendC::Div<float, false>(goUbTensor32[oUbOffset + embed / FLOAT_VECTOR_SIZE * FLOAT_VECTOR_SIZE],
-                                        goUbTensor32[oUbOffset + embed / FLOAT_VECTOR_SIZE * FLOAT_VECTOR_SIZE],
-                                        tvUbTensor,
-                                        (uint64_t)0, curRowNum,
-                                        AscendC::BinaryRepeatParams(1, 1, 0, embedRound / FLOAT_BLOCK_SIZE,
-                                                                    embedRound / FLOAT_BLOCK_SIZE, 1));
+            AscendC::Div<float, false>(
+                goUbTensor32[oUbOffset + embed / FLOAT_VECTOR_SIZE * FLOAT_VECTOR_SIZE],
+                goUbTensor32[oUbOffset + embed / FLOAT_VECTOR_SIZE * FLOAT_VECTOR_SIZE], tvUbTensor, (uint64_t)0,
+                curRowNum,
+                AscendC::BinaryRepeatParams(1, 1, 0, embedRound / FLOAT_BLOCK_SIZE, embedRound / FLOAT_BLOCK_SIZE, 1));
             AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
-
         }
         AscendC::PipeBarrier<PIPE_V>();
 
         // *** go = castfp32to16(go)
         if (std::is_same<ElementOutput, bfloat16_t>::value) {
             AscendC::Cast<ElementOutput, float, false>(
-                goUbTensor16[oUbOffset * 2], goUbTensor32[oUbOffset],
-                AscendC::RoundMode::CAST_RINT, (uint64_t)0,
+                goUbTensor16[oUbOffset * 2], goUbTensor32[oUbOffset], AscendC::RoundMode::CAST_RINT, (uint64_t)0,
                 (curRowNum * embedRound + FLOAT_VECTOR_SIZE - 1) / FLOAT_VECTOR_SIZE,
                 AscendC::UnaryRepeatParams(1, 1, 4, 8));
         } else {
             AscendC::Cast<ElementOutput, float, false>(
-                goUbTensor16[oUbOffset * 2], goUbTensor32[oUbOffset],
-                AscendC::RoundMode::CAST_NONE, (uint64_t)0,
+                goUbTensor16[oUbOffset * 2], goUbTensor32[oUbOffset], AscendC::RoundMode::CAST_NONE, (uint64_t)0,
                 (curRowNum * embedRound + FLOAT_VECTOR_SIZE - 1) / FLOAT_VECTOR_SIZE,
                 AscendC::UnaryRepeatParams(1, 1, 4, 8));
         }
@@ -196,7 +181,7 @@ public:
 
         // ********************* move O to GM ************************
         AscendC::DataCopyPad(gOutput, goUbTensor16[oUbOffset * 2],
-                                AscendC::DataCopyExtParams(curRowNum, embed * 2, 0, 0, 0));
+                             AscendC::DataCopyExtParams(curRowNum, embed * 2, 0, 0, 0));
         AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(oPingPangFlag + 4);
 
         oPingPangFlag = 1 - oPingPangFlag;
@@ -241,10 +226,9 @@ public:
                 auto layoutOutputCurCycle = layoutOutput.GetTileLayout(MatrixCoord(rowActualCurCycle, columnActual));
 
                 SubCoreCompute(gInputThisCurCycle, gUpdateCurCycle, gOutputCurCycle,
-                               gOCoreTmp[rowOffsetLoop * embed * kvSplitCoreNum],
-                               gl[rowOffsetLoop * kvSplitCoreNum], layoutInputCurCycle,
-                               layoutOutputCurCycle, layoutUpdateCurCycle, nIdx, needRowLoop, rowLoopIdx,
-                               rescaleOPingPongFlag, glFlag, taskPingPongFlag);
+                               gOCoreTmp[rowOffsetLoop * embed * kvSplitCoreNum], gl[rowOffsetLoop * kvSplitCoreNum],
+                               layoutInputCurCycle, layoutOutputCurCycle, layoutUpdateCurCycle, nIdx, needRowLoop,
+                               rowLoopIdx, rescaleOPingPongFlag, glFlag, taskPingPongFlag);
             }
         }
     }
@@ -262,6 +246,6 @@ private:
     AscendC::LocalTensor<float> gmUbTensor[2];
 };
 
-} // namespace Catlass::Epilogue::Block
+}  // namespace Catlass::Epilogue::Block
 
-#endif // CATLASS_EPILOGUE_BLOCK_BLOCK_EPILOGUE_AMLA_TP1_RESCALE_O_HPP
+#endif  // CATLASS_EPILOGUE_BLOCK_BLOCK_EPILOGUE_AMLA_TP1_RESCALE_O_HPP

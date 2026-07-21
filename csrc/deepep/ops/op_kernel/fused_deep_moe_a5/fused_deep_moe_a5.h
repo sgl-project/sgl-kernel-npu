@@ -39,16 +39,17 @@ using ElementC = float;
 using ElementMxScale = fp8_e8m0_t;
 using ElementGroupList = int64_t;
 
-using Gmm1L1TileShape = Shape<Int<GMM1_L1M>,Int<GMM1_L1N>,Int<GMM1_L1K>>;
-using Gmm1L0TileShape = Shape<Int<GMM1_L1M>,Int<GMM1_L1N>,Int<GMM1_L0K>>;
+using Gmm1L1TileShape = Shape<Int<GMM1_L1M>, Int<GMM1_L1N>, Int<GMM1_L1K>>;
+using Gmm1L0TileShape = Shape<Int<GMM1_L1M>, Int<GMM1_L1N>, Int<GMM1_L0K>>;
 using Gmm1EpilogueTileShape = MatrixShape<GMM1_EPIM, GMM1_L1N>;
-using Gmm1BlockScheduler = typename Catlass::Gemm::Block::GemmIdentityBlockSwizzle<GMM1_SWIZZLE_OFFSET, GMM1_SWIZZLE_DIRECTION>;
+using Gmm1BlockScheduler =
+    typename Catlass::Gemm::Block::GemmIdentityBlockSwizzle<GMM1_SWIZZLE_OFFSET, GMM1_SWIZZLE_DIRECTION>;
 
-using Gmm2L1TileShape = Shape<Int<GMM2_L1M>,Int<GMM2_L1N>,Int<GMM2_L1K>>;
-using Gmm2L0TileShape = Shape<Int<GMM2_L1M>,Int<GMM2_L1N>,Int<GMM2_L0K>>;
+using Gmm2L1TileShape = Shape<Int<GMM2_L1M>, Int<GMM2_L1N>, Int<GMM2_L1K>>;
+using Gmm2L0TileShape = Shape<Int<GMM2_L1M>, Int<GMM2_L1N>, Int<GMM2_L0K>>;
 using Gmm2EpilogueTileShape = MatrixShape<GMM2_EPIM, GMM2_L1N>;
-using Gmm2BlockScheduler = typename Catlass::Gemm::Block::GemmIdentityBlockSwizzle<GMM2_SWIZZLE_OFFSET, GMM2_SWIZZLE_DIRECTION>;
-
+using Gmm2BlockScheduler =
+    typename Catlass::Gemm::Block::GemmIdentityBlockSwizzle<GMM2_SWIZZLE_OFFSET, GMM2_SWIZZLE_DIRECTION>;
 
 // AIV Dispatch:    X -> A
 // AIC GMM/MM:      A -> Swap
@@ -56,26 +57,27 @@ using Gmm2BlockScheduler = typename Catlass::Gemm::Block::GemmIdentityBlockSwizz
 // AIV Quantzie:    Swiglu -> D
 // 1. Swap use the same space with Swiglu, when fused memory
 // 2. Epilogue just do silu for the left
-// 3. n of routed and shared experts can be different 
-template<TemplateMC2TypeClass, class ElementA, class ElementB, class L1TileShape, class L0TileShape, class EpilogueTileShape, class BlockScheduler, bool transB = false>
+// 3. n of routed and shared experts can be different
+template <TemplateMC2TypeClass, class ElementA, class ElementB, class L1TileShape, class L0TileShape,
+          class EpilogueTileShape, class BlockScheduler, bool transB = false>
 CATLASS_DEVICE void DispatchMxGmm1SwigluQuantFunc(
     // routed expert, grouped matmul
-    Catlass::GemmCoord routedProblemShape, uint32_t problemCount, GM_ADDR gmGroupList,
-    GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmAScale, GM_ADDR gmBScale, GM_ADDR gmSwapSpace, GM_ADDR gmSwigluOut, GM_ADDR gmD, GM_ADDR gmDScale,
+    Catlass::GemmCoord routedProblemShape, uint32_t problemCount, GM_ADDR gmGroupList, GM_ADDR gmA, GM_ADDR gmB,
+    GM_ADDR gmAScale, GM_ADDR gmBScale, GM_ADDR gmSwapSpace, GM_ADDR gmSwigluOut, GM_ADDR gmD, GM_ADDR gmDScale,
     // shared expert, matmul
-    Catlass::GemmCoord sharedProblemShape,
-    GM_ADDR gmShareA, GM_ADDR gmShareB, GM_ADDR gmShareAScale, GM_ADDR gmShareBScale, GM_ADDR gmShareSwapSpace, GM_ADDR gmShareSwigluOut, GM_ADDR gmShareD, GM_ADDR gmShareDScale,
-    // dispatch and quant, when EXEC_FLAG_DEEP_FUSE. 
-    GM_ADDR gmX, GM_ADDR gmExpertIds, GM_ADDR xActiveMask, GM_ADDR gmMoeSmoothScales, GM_ADDR gmShareSmoothScales, GM_ADDR gmExpandIdx, GM_ADDR gmEpSendCount, GM_ADDR gmExpertTokenNums,
-    const FusedDeepMoeInfo &fusedDeepMoeInfo)
+    Catlass::GemmCoord sharedProblemShape, GM_ADDR gmShareA, GM_ADDR gmShareB, GM_ADDR gmShareAScale,
+    GM_ADDR gmShareBScale, GM_ADDR gmShareSwapSpace, GM_ADDR gmShareSwigluOut, GM_ADDR gmShareD, GM_ADDR gmShareDScale,
+    // dispatch and quant, when EXEC_FLAG_DEEP_FUSE.
+    GM_ADDR gmX, GM_ADDR gmExpertIds, GM_ADDR xActiveMask, GM_ADDR gmMoeSmoothScales, GM_ADDR gmShareSmoothScales,
+    GM_ADDR gmExpandIdx, GM_ADDR gmEpSendCount, GM_ADDR gmExpertTokenNums, const FusedDeepMoeInfo &fusedDeepMoeInfo)
 {
-    static_assert((std::is_same_v<ElementA, float8_e5m2_t> ||
-        std::is_same_v<ElementA, float8_e4m3_t> || std::is_same_v<ElementA, float4_e2m1x2_t> ||
-        std::is_same_v<ElementA, float4_e1m2x2_t>) &&
-        (std::is_same_v<ElementB, float8_e5m2_t> || std::is_same_v<ElementB, float8_e4m3_t> ||
-            std::is_same_v<ElementB, float4_e2m1x2_t> || std::is_same_v<ElementB, float4_e1m2x2_t>) &&
-        std::is_same_v<ElementMxScale, float8_e8m0_t>,
-        "ElementA and ElementB must be float8_e5m2_t, float8_e4m3_t, float4_e2m1x2_t, or float4_e1m2x2_t, ElementMxScale must be float8_e8m0_t");
+    static_assert((std::is_same_v<ElementA, float8_e5m2_t> || std::is_same_v<ElementA, float8_e4m3_t> ||
+                   std::is_same_v<ElementA, float4_e2m1x2_t> || std::is_same_v<ElementA, float4_e1m2x2_t>) &&
+                      (std::is_same_v<ElementB, float8_e5m2_t> || std::is_same_v<ElementB, float8_e4m3_t> ||
+                       std::is_same_v<ElementB, float4_e2m1x2_t> || std::is_same_v<ElementB, float4_e1m2x2_t>) &&
+                      std::is_same_v<ElementMxScale, float8_e8m0_t>,
+                  "ElementA and ElementB must be float8_e5m2_t, float8_e4m3_t, float4_e2m1x2_t, or float4_e1m2x2_t, "
+                  "ElementMxScale must be float8_e8m0_t");
 
     uint32_t m = routedProblemShape.m();
     uint32_t n = routedProblemShape.n();
@@ -85,7 +87,9 @@ CATLASS_DEVICE void DispatchMxGmm1SwigluQuantFunc(
     uint32_t mxScaleK = CeilDiv<Catlass::MX_SCALE_GROUP_NUM>(k);
 
     using LayoutTagA = Catlass::layout::RowMajor;
-    using LayoutTagB = std::conditional_t<transB, Catlass::layout::ColumnMajor, std::conditional_t<WEIGHT_NZ, Catlass::layout::zN, Catlass::layout::RowMajor>>;
+    using LayoutTagB =
+        std::conditional_t<transB, Catlass::layout::ColumnMajor,
+                           std::conditional_t<WEIGHT_NZ, Catlass::layout::zN, Catlass::layout::RowMajor>>;
     using LayoutTagMxScale = Catlass::layout::RowMajor;
     using LayoutTagC = Catlass::layout::RowMajor;
 
@@ -102,26 +106,57 @@ CATLASS_DEVICE void DispatchMxGmm1SwigluQuantFunc(
     auto layoutC = tla::MakeLayout<ElementC, LayoutTagC>(m, n);
     auto layoutShareC = tla::MakeLayout<ElementC, LayoutTagC>(m, shareN);
 
-    using TileCopy = Catlass::Gemm::Tile::PackedMxTileCopyTla<
-        ArchTag, ElementA, LayoutTagA, ElementB, LayoutTagB, ElementMxScale, decltype(layoutMxScaleA), ElementMxScale,
-        decltype(layoutMxScaleB), ElementC, LayoutTagC, void>;
-    using BlockMmad = Catlass::Gemm::Block::BlockMmadTla<
-        DispatchPolicy, L1TileShape, L0TileShape, ElementA, ElementB, ElementC, void, TileCopy>;
+    using TileCopy = Catlass::Gemm::Tile::PackedMxTileCopyTla<ArchTag, ElementA, LayoutTagA, ElementB, LayoutTagB,
+                                                              ElementMxScale, decltype(layoutMxScaleA), ElementMxScale,
+                                                              decltype(layoutMxScaleB), ElementC, LayoutTagC, void>;
+    using BlockMmad = Catlass::Gemm::Block::BlockMmadTla<DispatchPolicy, L1TileShape, L0TileShape, ElementA, ElementB,
+                                                         ElementC, void, TileCopy>;
     using EpilogueDispatchPolicy = Catlass::Epilogue::EpilogueAtlasA5SiluHalf<1>;
     // using EpilogueTileShape = MatrixShape<64, 256>;
-    using BlockEpilogue = Epilogue::Block::BlockEpilogue<EpilogueDispatchPolicy, ElementC, ExpandXType, ElementC, EpilogueTileShape>;
+    using BlockEpilogue =
+        Epilogue::Block::BlockEpilogue<EpilogueDispatchPolicy, ElementC, ExpandXType, ElementC, EpilogueTileShape>;
 
     // using BlockScheduler = typename Catlass::Gemm::Block::GemmIdentityBlockSwizzle<3, 0>;
     // kernel level
-    using MatmulKernel = Catlass::Gemm::Kernel::DispatchMxGmm1Swiglu<TemplateMC2TypeFunc, BlockMmad,
-            BlockEpilogue, BlockScheduler, ElementGroupList>;
-    typename MatmulKernel::Params params{routedProblemShape, groupCount, gmGroupList,
-        gmA, layoutA, gmB, layoutB, gmAScale, layoutMxScaleA, gmBScale, layoutMxScaleB, gmSwapSpace/*ptrC*/, layoutC, gmSwigluOut, gmD, gmDScale,
-        sharedProblemShape,
-        gmShareA, gmShareB, layoutShareB, gmShareAScale, gmShareBScale, layoutShareMxScaleB, gmShareSwapSpace/*ptrShareC*/, layoutShareC, gmShareSwigluOut, gmShareD, gmShareDScale,
-        gmX, gmExpertIds, xActiveMask, gmMoeSmoothScales, gmShareSmoothScales, gmExpandIdx, gmEpSendCount, gmExpertTokenNums,
-        fusedDeepMoeInfo
-    };
+    using MatmulKernel = Catlass::Gemm::Kernel::DispatchMxGmm1Swiglu<TemplateMC2TypeFunc, BlockMmad, BlockEpilogue,
+                                                                     BlockScheduler, ElementGroupList>;
+    typename MatmulKernel::Params params{routedProblemShape,
+                                         groupCount,
+                                         gmGroupList,
+                                         gmA,
+                                         layoutA,
+                                         gmB,
+                                         layoutB,
+                                         gmAScale,
+                                         layoutMxScaleA,
+                                         gmBScale,
+                                         layoutMxScaleB,
+                                         gmSwapSpace /*ptrC*/,
+                                         layoutC,
+                                         gmSwigluOut,
+                                         gmD,
+                                         gmDScale,
+                                         sharedProblemShape,
+                                         gmShareA,
+                                         gmShareB,
+                                         layoutShareB,
+                                         gmShareAScale,
+                                         gmShareBScale,
+                                         layoutShareMxScaleB,
+                                         gmShareSwapSpace /*ptrShareC*/,
+                                         layoutShareC,
+                                         gmShareSwigluOut,
+                                         gmShareD,
+                                         gmShareDScale,
+                                         gmX,
+                                         gmExpertIds,
+                                         xActiveMask,
+                                         gmMoeSmoothScales,
+                                         gmShareSmoothScales,
+                                         gmExpandIdx,
+                                         gmEpSendCount,
+                                         gmExpertTokenNums,
+                                         fusedDeepMoeInfo};
 
     MatmulKernel kernel;
     kernel(params);
@@ -130,23 +165,23 @@ CATLASS_DEVICE void DispatchMxGmm1SwigluQuantFunc(
 // AIC GMM/MM:          A -> Swap
 // AIV Epilogue:        Swap -> D / IPC
 // AIV Combine Recv:    IPC -> output
-template<TemplateMC2TypeClass, class ElementA, class ElementB, class L1TileShape, class L0TileShape, class EpilogueTileShape, class BlockScheduler, bool transB = false>
+template <TemplateMC2TypeClass, class ElementA, class ElementB, class L1TileShape, class L0TileShape,
+          class EpilogueTileShape, class BlockScheduler, bool transB = false>
 CATLASS_DEVICE void MxGmm2CastCombineFunc(
     // routed expert, grouped matmul
-    Catlass::GemmCoord routedProblemShape, uint32_t problemCount, GM_ADDR gmGroupList,
-    GM_ADDR gmA, GM_ADDR gmB, GM_ADDR gmAScale, GM_ADDR gmBScale, GM_ADDR gmSwapSpace, GM_ADDR gmD,
+    Catlass::GemmCoord routedProblemShape, uint32_t problemCount, GM_ADDR gmGroupList, GM_ADDR gmA, GM_ADDR gmB,
+    GM_ADDR gmAScale, GM_ADDR gmBScale, GM_ADDR gmSwapSpace, GM_ADDR gmD,
     // shared expert, matmul
-    Catlass::GemmCoord sharedProblemShape,
-    GM_ADDR gmShareA, GM_ADDR gmShareB, GM_ADDR gmShareAScale, GM_ADDR gmShareBScale, GM_ADDR gmShareSwapSpace, GM_ADDR gmShareD,
-    void *combiner)
+    Catlass::GemmCoord sharedProblemShape, GM_ADDR gmShareA, GM_ADDR gmShareB, GM_ADDR gmShareAScale,
+    GM_ADDR gmShareBScale, GM_ADDR gmShareSwapSpace, GM_ADDR gmShareD, void *combiner)
 {
-    static_assert((std::is_same_v<ElementA, float8_e5m2_t> ||
-        std::is_same_v<ElementA, float8_e4m3_t> || std::is_same_v<ElementA, float4_e2m1x2_t> ||
-        std::is_same_v<ElementA, float4_e1m2x2_t>) &&
-        (std::is_same_v<ElementB, float8_e5m2_t> || std::is_same_v<ElementB, float8_e4m3_t> ||
-            std::is_same_v<ElementB, float4_e2m1x2_t> || std::is_same_v<ElementB, float4_e1m2x2_t>) &&
-        std::is_same_v<ElementMxScale, float8_e8m0_t>,
-        "ElementA and ElementB must be float8_e5m2_t, float8_e4m3_t, float4_e2m1x2_t, or float4_e1m2x2_t, ElementMxScale must be float8_e8m0_t");
+    static_assert((std::is_same_v<ElementA, float8_e5m2_t> || std::is_same_v<ElementA, float8_e4m3_t> ||
+                   std::is_same_v<ElementA, float4_e2m1x2_t> || std::is_same_v<ElementA, float4_e1m2x2_t>) &&
+                      (std::is_same_v<ElementB, float8_e5m2_t> || std::is_same_v<ElementB, float8_e4m3_t> ||
+                       std::is_same_v<ElementB, float4_e2m1x2_t> || std::is_same_v<ElementB, float4_e1m2x2_t>) &&
+                      std::is_same_v<ElementMxScale, float8_e8m0_t>,
+                  "ElementA and ElementB must be float8_e5m2_t, float8_e4m3_t, float4_e2m1x2_t, or float4_e1m2x2_t, "
+                  "ElementMxScale must be float8_e8m0_t");
 
     uint32_t m = routedProblemShape.m();
     uint32_t n = routedProblemShape.n();
@@ -157,7 +192,9 @@ CATLASS_DEVICE void MxGmm2CastCombineFunc(
     uint32_t mxShareScaleK = CeilDiv<Catlass::MX_SCALE_GROUP_NUM>(shareK);
 
     using LayoutTagA = Catlass::layout::RowMajor;
-    using LayoutTagB = std::conditional_t<transB, Catlass::layout::ColumnMajor, std::conditional_t<WEIGHT_NZ, Catlass::layout::zN, Catlass::layout::RowMajor>>;
+    using LayoutTagB =
+        std::conditional_t<transB, Catlass::layout::ColumnMajor,
+                           std::conditional_t<WEIGHT_NZ, Catlass::layout::zN, Catlass::layout::RowMajor>>;
     using LayoutTagMxScale = Catlass::layout::RowMajor;
     using LayoutTagC = Catlass::layout::RowMajor;
 
@@ -175,43 +212,63 @@ CATLASS_DEVICE void MxGmm2CastCombineFunc(
     auto layoutShareMxScaleB = tla::MakeMxScaleLayout<ElementMxScale, LayoutTagMxScale, true>(mxShareScaleK, n);
     auto layoutC = tla::MakeLayout<ElementC, LayoutTagC>(m, n);
 
-    using TileCopy = Catlass::Gemm::Tile::PackedMxTileCopyTla<
-        ArchTag, ElementA, LayoutTagA, ElementB, LayoutTagB, ElementMxScale, decltype(layoutMxScaleA), ElementMxScale,
-        decltype(layoutMxScaleB), ElementC, LayoutTagC, void>;
-    using BlockMmad = Catlass::Gemm::Block::BlockMmadTla<
-        DispatchPolicy, L1TileShape, L0TileShape, ElementA, ElementB, ElementC, void, TileCopy>;
+    using TileCopy = Catlass::Gemm::Tile::PackedMxTileCopyTla<ArchTag, ElementA, LayoutTagA, ElementB, LayoutTagB,
+                                                              ElementMxScale, decltype(layoutMxScaleA), ElementMxScale,
+                                                              decltype(layoutMxScaleB), ElementC, LayoutTagC, void>;
+    using BlockMmad = Catlass::Gemm::Block::BlockMmadTla<DispatchPolicy, L1TileShape, L0TileShape, ElementA, ElementB,
+                                                         ElementC, void, TileCopy>;
     // using BlockEpilogue = void;
     using EpilogueDispatchPolicy = Catlass::Epilogue::EpilogueAtlasA5CastCombine<EXEC_FLAG>;
     // using EpilogueTileShape = MatrixShape<64, 256>;
-    using BlockEpilogue = Epilogue::Block::BlockEpilogue<EpilogueDispatchPolicy, ElementC, ExpandXType, EpilogueTileShape>;
+    using BlockEpilogue =
+        Epilogue::Block::BlockEpilogue<EpilogueDispatchPolicy, ElementC, ExpandXType, EpilogueTileShape>;
 
     // using BlockScheduler = typename Catlass::Gemm::Block::GemmIdentityBlockSwizzle<3, 0>;
     // kernel level
-    using MatmulKernel = Catlass::Gemm::Kernel::MxGmm2CastCombine<TemplateMC2TypeFunc, BlockMmad,
-            BlockEpilogue, BlockScheduler, ElementGroupList>;
-    typename MatmulKernel::Params params{routedProblemShape, groupCount, gmGroupList,
-        gmA, layoutA, gmB, layoutB, gmAScale, layoutMxScaleA, gmBScale, layoutMxScaleB, gmSwapSpace/*ptrC*/, layoutC, gmD,
-        sharedProblemShape,
-        gmShareA, layoutShareA, gmShareB, layoutShareB, gmShareAScale, layoutShareMxScaleA, gmShareBScale, layoutShareMxScaleB, gmShareSwapSpace/*ptrShareC*/, gmShareD,
-        combiner
-    };
+    using MatmulKernel = Catlass::Gemm::Kernel::MxGmm2CastCombine<TemplateMC2TypeFunc, BlockMmad, BlockEpilogue,
+                                                                  BlockScheduler, ElementGroupList>;
+    typename MatmulKernel::Params params{routedProblemShape,
+                                         groupCount,
+                                         gmGroupList,
+                                         gmA,
+                                         layoutA,
+                                         gmB,
+                                         layoutB,
+                                         gmAScale,
+                                         layoutMxScaleA,
+                                         gmBScale,
+                                         layoutMxScaleB,
+                                         gmSwapSpace /*ptrC*/,
+                                         layoutC,
+                                         gmD,
+                                         sharedProblemShape,
+                                         gmShareA,
+                                         layoutShareA,
+                                         gmShareB,
+                                         layoutShareB,
+                                         gmShareAScale,
+                                         layoutShareMxScaleA,
+                                         gmShareBScale,
+                                         layoutShareMxScaleB,
+                                         gmShareSwapSpace /*ptrShareC*/,
+                                         gmShareD,
+                                         combiner};
 
     MatmulKernel kernel;
     kernel(params);
 }
 
-
 template <TemplateMC2TypeClass>
-class FusedDeepMoe {
+class FusedDeepMoe
+{
 public:
     __aicore__ inline FusedDeepMoe(){};
     __aicore__ inline void Init(
         // input
-        GM_ADDR x, GM_ADDR expert_ids, GM_ADDR gmm1_weight, GM_ADDR gmm1_weight_scale,
-        GM_ADDR gmm2_weight, GM_ADDR gmm2_weight_scale, GM_ADDR expert_scales,
-        GM_ADDR share_gmm1_weight, GM_ADDR share_gmm1_weight_scale,
-        GM_ADDR share_gmm2_weight, GM_ADDR share_gmm2_weight_scale,
-        GM_ADDR expert_smooth_scales, GM_ADDR share_smooth_scales, GM_ADDR x_active_mask,
+        GM_ADDR x, GM_ADDR expert_ids, GM_ADDR gmm1_weight, GM_ADDR gmm1_weight_scale, GM_ADDR gmm2_weight,
+        GM_ADDR gmm2_weight_scale, GM_ADDR expert_scales, GM_ADDR share_gmm1_weight, GM_ADDR share_gmm1_weight_scale,
+        GM_ADDR share_gmm2_weight, GM_ADDR share_gmm2_weight_scale, GM_ADDR expert_smooth_scales,
+        GM_ADDR share_smooth_scales, GM_ADDR x_active_mask,
         // output
         GM_ADDR output, GM_ADDR share_output, GM_ADDR expertTokenNums,
         // system
@@ -264,11 +321,10 @@ private:
 template <TemplateMC2TypeClass>
 __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Init(
     // input
-    GM_ADDR x, GM_ADDR expert_ids, GM_ADDR gmm1_weight, GM_ADDR gmm1_weight_scale,
-    GM_ADDR gmm2_weight, GM_ADDR gmm2_weight_scale, GM_ADDR expert_scales,
-    GM_ADDR share_gmm1_weight, GM_ADDR share_gmm1_weight_scale,
-    GM_ADDR share_gmm2_weight, GM_ADDR share_gmm2_weight_scale,
-    GM_ADDR expert_smooth_scales, GM_ADDR share_smooth_scales, GM_ADDR x_active_mask,
+    GM_ADDR x, GM_ADDR expert_ids, GM_ADDR gmm1_weight, GM_ADDR gmm1_weight_scale, GM_ADDR gmm2_weight,
+    GM_ADDR gmm2_weight_scale, GM_ADDR expert_scales, GM_ADDR share_gmm1_weight, GM_ADDR share_gmm1_weight_scale,
+    GM_ADDR share_gmm2_weight, GM_ADDR share_gmm2_weight_scale, GM_ADDR expert_smooth_scales,
+    GM_ADDR share_smooth_scales, GM_ADDR x_active_mask,
     // output
     GM_ADDR output, GM_ADDR share_output, GM_ADDR expertTokenNums,
     // system
@@ -355,7 +411,9 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Process()
         if constexpr (g_coreType == AscendC::AIV) {
             AscendC::TPipe tpipe;
             MoeDistributeDispatchImpl::CamMoeDistributeDispatch<ExpandXType, int8_t, false, true,
-                                static_cast<bool>(EXEC_FLAG & EXEC_FLAG_SMOOTH_QUANT), false, EXEC_FLAG> dispatcher;
+                                                                static_cast<bool>(EXEC_FLAG & EXEC_FLAG_SMOOTH_QUANT),
+                                                                false, EXEC_FLAG>
+                dispatcher;
             dispatcher.Init(gmX_, gmexpertIds_, gmSmoothScales_, gmShareSmoothScales_, xActiveMask_, gmShareX1, gmX1,
                             gmShareX1Scale, gmX1Scale, gmExpandIdx, gmGroupList, gmEpSendCount, gmExpertTokenNums_,
                             nullptr, nullptr, &tpipe, tilingData_);
@@ -373,12 +431,12 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Process()
             Arch::CrossCoreWaitFlag(gmm1AivFinished);
         }
     }
-    DispatchMxGmm1SwigluQuantFunc<TemplateMC2TypeFunc, ElementA, ElementB, Gmm1L1TileShape, Gmm1L0TileShape, Gmm1EpilogueTileShape, Gmm1BlockScheduler>(
-        gmm1ProblemShape, groupCount_, gmGroupList,
-        gmX1, gmWeight1_, gmX1Scale, gmScale1_, gmGmm1SwapSpace, gmSwigluOut, gmX2, gmX2Scale,
-        shareGmm1ProblemShape,
-        gmShareX1, gmShareWeight1_, gmShareX1Scale, gmShareWeight1Scale_, gmShareMm1SwapSpace, gmShareSwigluOut, gmShareX2, gmShareX2Scale,
-        gmX_, gmexpertIds_, xActiveMask_, gmSmoothScales_, gmShareSmoothScales_, gmExpandIdx, gmEpSendCount, gmExpertTokenNums_,
+    DispatchMxGmm1SwigluQuantFunc<TemplateMC2TypeFunc, ElementA, ElementB, Gmm1L1TileShape, Gmm1L0TileShape,
+                                  Gmm1EpilogueTileShape, Gmm1BlockScheduler>(
+        gmm1ProblemShape, groupCount_, gmGroupList, gmX1, gmWeight1_, gmX1Scale, gmScale1_, gmGmm1SwapSpace,
+        gmSwigluOut, gmX2, gmX2Scale, shareGmm1ProblemShape, gmShareX1, gmShareWeight1_, gmShareX1Scale,
+        gmShareWeight1Scale_, gmShareMm1SwapSpace, gmShareSwigluOut, gmShareX2, gmShareX2Scale, gmX_, gmexpertIds_,
+        xActiveMask_, gmSmoothScales_, gmShareSmoothScales_, gmExpandIdx, gmEpSendCount, gmExpertTokenNums_,
         tilingData_->fusedDeepMoeInfo);
     AscendC::PipeBarrier<PIPE_ALL>();
     Arch::CrossCoreFlag gmm1AivFinished{0};
@@ -393,11 +451,10 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Process()
         combiner.Init(gmGmm2DepOut, gmexpertIds_, gmExpandIdx, gmEpSendCount, nullptr, gmexpertScales_, xActiveMask_,
                       gmOutput_, nullptr, nullptr, tilingData_);
     }
-    MxGmm2CastCombineFunc<TemplateMC2TypeFunc, ElementA, ElementB, Gmm2L1TileShape, Gmm2L0TileShape, Gmm2EpilogueTileShape, Gmm2BlockScheduler>(
-        gmm2ProblemShape, groupCount_, gmGroupList,
-        gmX2, gmWeight2_, gmX2Scale, gmScale2_, gmGmm2SwapSpace, gmGmm2DepOut,
-        shareGmm2ProblemShape,
-        gmShareX2, gmShareWeight2_, gmShareX2Scale, gmShareWeight2Scale_, gmShareMm2SwapSpace, gmShareOutput_,
-        &combiner);
+    MxGmm2CastCombineFunc<TemplateMC2TypeFunc, ElementA, ElementB, Gmm2L1TileShape, Gmm2L0TileShape,
+                          Gmm2EpilogueTileShape, Gmm2BlockScheduler>(
+        gmm2ProblemShape, groupCount_, gmGroupList, gmX2, gmWeight2_, gmX2Scale, gmScale2_, gmGmm2SwapSpace,
+        gmGmm2DepOut, shareGmm2ProblemShape, gmShareX2, gmShareWeight2_, gmShareX2Scale, gmShareWeight2Scale_,
+        gmShareMm2SwapSpace, gmShareOutput_, &combiner);
 }
 #endif  // FUSED_DEEP_MOE_H

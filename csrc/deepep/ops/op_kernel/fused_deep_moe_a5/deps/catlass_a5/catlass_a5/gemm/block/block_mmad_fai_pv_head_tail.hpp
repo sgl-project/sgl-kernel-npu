@@ -25,27 +25,10 @@
 namespace Catlass::Gemm::Block {
 ////////////////////////////////////////////////////////////////////
 
-template <
-    bool PAGED_CACHE_FLAG_,
-    bool ENABLE_UNIT_FLAG_,
-    class L1TileShape_,
-    class L0TileShape_,
-    class AType_,
-    class BType_,
-    class CType_,
-    class BiasType_,
-    class TileCopy_,
-    class TileMmad_>
-struct BlockMmad<
-    MmadAtlasA2FAITailPV<PAGED_CACHE_FLAG_, ENABLE_UNIT_FLAG_>,
-    L1TileShape_,
-    L0TileShape_,
-    AType_,
-    BType_,
-    CType_,
-    BiasType_,
-    TileCopy_,
-    TileMmad_> {
+template <bool PAGED_CACHE_FLAG_, bool ENABLE_UNIT_FLAG_, class L1TileShape_, class L0TileShape_, class AType_,
+          class BType_, class CType_, class BiasType_, class TileCopy_, class TileMmad_>
+struct BlockMmad<MmadAtlasA2FAITailPV<PAGED_CACHE_FLAG_, ENABLE_UNIT_FLAG_>, L1TileShape_, L0TileShape_, AType_, BType_,
+                 CType_, BiasType_, TileCopy_, TileMmad_> {
 public:
     // Type Aliases
     using DispatchPolicy = MmadAtlasA2FAITailPV<PAGED_CACHE_FLAG_, ENABLE_UNIT_FLAG_>;
@@ -102,20 +85,21 @@ public:
         l0ATensor = resource.l0ABuf.template GetBufferByByte<ElementA>(0);
         l0BTensor = resource.l0BBuf.template GetBufferByByte<ElementB>(0);
         for (uint32_t i = 0; i < STAGES; i++) {
-            l1ATensor[i] = resource.l1Buf.template GetBufferByByte<ElementA>(l1BufAddrStart + L1A_SIZE * LOAB_BLOCK * i);
+            l1ATensor[i] =
+                resource.l1Buf.template GetBufferByByte<ElementA>(l1BufAddrStart + L1A_SIZE * LOAB_BLOCK * i);
             l0CTensor[i] = resource.l0CBuf.template GetBufferByByte<ElementAccumulator>(L0C_PINGPONG_BUF_SIZE * i);
             l1BTensor[i] =
-            resource.l1Buf.template GetBufferByByte<ElementB>(l1BufAddrStart + L1A_SIZE * 2 * 2 + L1B_SIZE * i);
+                resource.l1Buf.template GetBufferByByte<ElementB>(l1BufAddrStart + L1A_SIZE * 2 * 2 + L1B_SIZE * i);
         }
     }
 
     /// Destructor
     CATLASS_DEVICE
     ~BlockMmad() {}
-    
+
     CATLASS_DEVICE
-    void getBlockShape(GemmCoord &actualShape, uint32_t &nowNIdx, uint32_t &kIdx,
-                       uint32_t &nLoop, uint32_t &kLoop, uint32_t &kvSeqlen, uint32_t &embed, bool firstBlock, uint32_t maskTailS = 0)
+    void getBlockShape(GemmCoord &actualShape, uint32_t &nowNIdx, uint32_t &kIdx, uint32_t &nLoop, uint32_t &kLoop,
+                       uint32_t &kvSeqlen, uint32_t &embed, bool firstBlock, uint32_t maskTailS = 0)
     {
         uint32_t nSplitSize = KV_SPLIT_SIZE * LOAB_BLOCK;
         uint32_t embedSplitSize = EMBED_SPLIT_SIZE;
@@ -148,12 +132,11 @@ public:
     }
 
     CATLASS_DEVICE
-    void operator()(AscendC::GlobalTensor<ElementA> gA,
-                    AscendC::GlobalTensor<ElementB> gB,
-                    AscendC::GlobalTensor<ElementC> gC,
-                    AscendC::GlobalTensor<int32_t> gBlockTable,
-                    LayoutA layoutA, LayoutB layoutB, GemmCoord actualOriShape,
-                    uint32_t &nIdx, uint32_t &nLoop, uint32_t &blockSize, uint32_t kvSeqlen, uint32_t strideKV, Arch::CrossCoreFlag softmaxFlag, uint32_t maskTailS, bool preloadFlag)
+    void operator()(AscendC::GlobalTensor<ElementA> gA, AscendC::GlobalTensor<ElementB> gB,
+                    AscendC::GlobalTensor<ElementC> gC, AscendC::GlobalTensor<int32_t> gBlockTable, LayoutA layoutA,
+                    LayoutB layoutB, GemmCoord actualOriShape, uint32_t &nIdx, uint32_t &nLoop, uint32_t &blockSize,
+                    uint32_t kvSeqlen, uint32_t strideKV, Arch::CrossCoreFlag softmaxFlag, uint32_t maskTailS,
+                    bool preloadFlag)
     {
         uint32_t embed = actualOriShape[1];
         uint32_t kLoop = CeilDiv<L1TileShape::K>(embed);
@@ -161,8 +144,8 @@ public:
         uint32_t blockN = layoutA.shape(1);
         GemmCoord actualShape{rowNum, 0, 0};
         GemmCoord actualNextShape{rowNum, 0, 0};
-        uint32_t nkBlockLoop = (nLoop + LOAB_BLOCK - 1) / LOAB_BLOCK * kLoop; // gap
-        uint32_t nkBlockNextIdx = (nIdx + LOAB_BLOCK - 1) / LOAB_BLOCK * kLoop + 1; // gap
+        uint32_t nkBlockLoop = (nLoop + LOAB_BLOCK - 1) / LOAB_BLOCK * kLoop;        // gap
+        uint32_t nkBlockNextIdx = (nIdx + LOAB_BLOCK - 1) / LOAB_BLOCK * kLoop + 1;  // gap
         uint32_t gBOffset = 0;
         uint32_t gBNextOffset = 0;
         uint32_t nowMaskTailS = 0;
@@ -173,21 +156,28 @@ public:
             for (uint32_t blockStackIdx = 0; (blockStackIdx < UNIT_BLOCK_STACK_NUM) && ((nIdx + blockStackIdx) < nLoop);
                  blockStackIdx += LOAB_BLOCK) {
                 uint32_t nowNIdx = nIdx + blockStackIdx;
-                uint32_t kLoopNextIdx = (nkBlockNextIdx % (kLoop * UNIT_BLOCK_STACK_NUM)) / (UNIT_BLOCK_STACK_NUM / LOAB_BLOCK);
-                uint32_t nLoopNextIdx = (nkBlockNextIdx % (kLoop * UNIT_BLOCK_STACK_NUM)) % (UNIT_BLOCK_STACK_NUM / LOAB_BLOCK) + nkBlockNextIdx / (kLoop * UNIT_BLOCK_STACK_NUM) * UNIT_BLOCK_STACK_NUM;
+                uint32_t kLoopNextIdx =
+                    (nkBlockNextIdx % (kLoop * UNIT_BLOCK_STACK_NUM)) / (UNIT_BLOCK_STACK_NUM / LOAB_BLOCK);
+                uint32_t nLoopNextIdx =
+                    (nkBlockNextIdx % (kLoop * UNIT_BLOCK_STACK_NUM)) % (UNIT_BLOCK_STACK_NUM / LOAB_BLOCK) +
+                    nkBlockNextIdx / (kLoop * UNIT_BLOCK_STACK_NUM) * UNIT_BLOCK_STACK_NUM;
                 uint32_t startSeqOffset = nowNIdx == nIdx ? maskTailS : 0;
                 uint32_t startSeqNxtOffset = nLoopNextIdx == nIdx ? maskTailS : 0;
                 getBlockShape(actualShape, nowNIdx, kIdx, nLoop, kLoop, kvSeqlen, embed, nowNIdx == nIdx, nowMaskTailS);
-                getBlockShape(actualNextShape, nLoopNextIdx, kLoopNextIdx, nLoop, kLoop, kvSeqlen, embed, nLoopNextIdx == nIdx, nowMaskTailS);
+                getBlockShape(actualNextShape, nLoopNextIdx, kLoopNextIdx, nLoop, kLoop, kvSeqlen, embed,
+                              nLoopNextIdx == nIdx, nowMaskTailS);
                 getKVOffset(gBlockTable, gBOffset, nowNIdx, kIdx, nLoop, kLoop, strideKV, blockSize, startSeqOffset);
-                getKVOffset(gBlockTable, gBNextOffset, nLoopNextIdx, kLoopNextIdx, nLoop, kLoop, strideKV, blockSize, startSeqNxtOffset);
+                getKVOffset(gBlockTable, gBNextOffset, nLoopNextIdx, kLoopNextIdx, nLoop, kLoop, strideKV, blockSize,
+                            startSeqNxtOffset);
                 bool firstItr = blockStackIdx == 0;
-                bool endItr = (blockStackIdx + LOAB_BLOCK > UNIT_BLOCK_STACK_NUM - 1) || (nowNIdx + LOAB_BLOCK > nLoop - 1);
+                bool endItr =
+                    (blockStackIdx + LOAB_BLOCK > UNIT_BLOCK_STACK_NUM - 1) || (nowNIdx + LOAB_BLOCK > nLoop - 1);
                 bool initMmad = blockStackIdx == 0;
                 bool pvCVItr = firstItr && kIdx == 0;
                 LayoutC layoutOTmpTemp(rowNum, embed, embed);
                 computePV(gA[gPOffset], gB[gBOffset], gC, gB[gBNextOffset], layoutA, layoutB, layoutOTmpTemp,
-                          actualShape, actualNextShape, nowNIdx, nkBlockNextIdx, nkBlockLoop, firstItr, endItr, initMmad, pvCVItr, softmaxFlag, preloadFlag);
+                          actualShape, actualNextShape, nowNIdx, nkBlockNextIdx, nkBlockLoop, firstItr, endItr,
+                          initMmad, pvCVItr, softmaxFlag, preloadFlag);
                 gPOffset += actualShape.k();
                 ++nkBlockNextIdx;
                 nowMaskTailS = 0;
@@ -197,14 +187,11 @@ public:
     }
 
     CATLASS_DEVICE
-    void computePV(
-        AscendC::GlobalTensor<ElementA> const &gA,
-        AscendC::GlobalTensor<ElementB> const &gB,
-        AscendC::GlobalTensor<ElementC> const &gC,
-        AscendC::GlobalTensor<ElementB> const &gmNextBlockB,
-        LayoutA layoutA, LayoutB layoutB, LayoutC layoutC,
-        GemmCoord actualShape, GemmCoord actualNextShape, uint32_t nowIdx, uint32_t &nkblockIdx,
-        uint32_t &nkblockLoop, bool firstItr, bool endItr, bool initMmad, bool pvCVItr, Arch::CrossCoreFlag softmaxFlag, bool preloadFlag = false)
+    void computePV(AscendC::GlobalTensor<ElementA> const &gA, AscendC::GlobalTensor<ElementB> const &gB,
+                   AscendC::GlobalTensor<ElementC> const &gC, AscendC::GlobalTensor<ElementB> const &gmNextBlockB,
+                   LayoutA layoutA, LayoutB layoutB, LayoutC layoutC, GemmCoord actualShape, GemmCoord actualNextShape,
+                   uint32_t nowIdx, uint32_t &nkblockIdx, uint32_t &nkblockLoop, bool firstItr, bool endItr,
+                   bool initMmad, bool pvCVItr, Arch::CrossCoreFlag softmaxFlag, bool preloadFlag = false)
     {
         uint32_t MActual = actualShape.m();
         uint32_t kActual = actualShape.k();
@@ -270,9 +257,7 @@ public:
                 unitFlag = 0b10;
             }
         }
-        tileMmad(
-            l0CTensor[0], l0ATensor, l0BTensor,
-            mRound, nActual, kActual, initMmad, unitFlag);
+        tileMmad(l0CTensor[0], l0ATensor, l0BTensor, mRound, nActual, kActual, initMmad, unitFlag);
         // AscendC::PipeBarrier<PIPE_M>();
         AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(0);
         AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(1);
@@ -291,7 +276,7 @@ public:
             }
         }
     }
- 
+
 protected:
     /// Data members
     AscendC::LocalTensor<ElementA> l1ATensor[STAGES];
@@ -310,6 +295,6 @@ protected:
 
 ////////////////////////////////////////////////////////////////////
 
-} // namespace Catlass::Gemm::Block
+}  // namespace Catlass::Gemm::Block
 
-#endif // CATLASS_GEMM_BLOCK_MMAD_PV_TAIL_HPP
+#endif  // CATLASS_GEMM_BLOCK_MMAD_PV_TAIL_HPP

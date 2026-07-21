@@ -47,7 +47,7 @@ struct TagToLayout<Element, layout::zN> {
     using type = tla::Layout<
         tla::Shape<tla::Shape<tla::Int<C0_NUM_PER_FRACTAL>, uint32_t>, tla::Shape<tla::Int<ELE_NUM_PER_C0>, uint32_t>>,
         tla::Stride<tla::Stride<tla::Int<ELE_NUM_PER_C0>, tla::Int<ELE_NUM_PER_FRACTAL>>,
-            tla::Stride<tla::Int<1>, int64_t>>>;
+                    tla::Stride<tla::Int<1>, int64_t>>>;
 };
 
 template <class Element>
@@ -57,7 +57,7 @@ struct TagToLayout<Element, layout::zZ> {
     using type = tla::Layout<
         tla::Shape<tla::Shape<tla::Int<C0_NUM_PER_FRACTAL>, uint32_t>, tla::Shape<tla::Int<ELE_NUM_PER_C0>, uint32_t>>,
         tla::Stride<tla::Stride<tla::Int<ELE_NUM_PER_C0>, int64_t>,
-            tla::Stride<tla::Int<1>, tla::Int<ELE_NUM_PER_FRACTAL>>>>;
+                    tla::Stride<tla::Int<1>, tla::Int<ELE_NUM_PER_FRACTAL>>>>;
 };
 
 template <class Element>
@@ -67,25 +67,23 @@ struct TagToLayout<Element, layout::nZ> {
     using type = tla::Layout<
         tla::Shape<tla::Shape<tla::Int<ELE_NUM_PER_C0>, uint32_t>, tla::Shape<tla::Int<C0_NUM_PER_FRACTAL>, uint32_t>>,
         tla::Stride<tla::Stride<tla::Int<1>, int64_t>,
-            tla::Stride<tla::Int<ELE_NUM_PER_C0>, tla::Int<ELE_NUM_PER_FRACTAL>>>>;
+                    tla::Stride<tla::Int<ELE_NUM_PER_C0>, tla::Int<ELE_NUM_PER_FRACTAL>>>>;
 };
 
 template <class Element>
 struct TagToLayout<Element, layout::NC1HWC0> {
     static constexpr uint32_t ELE_NUM_PER_C0 = BYTE_PER_C0 / sizeof(Element);
-    using type = tla::Layout<
-        tla::Shape<uint32_t, uint32_t, uint32_t, uint32_t, tla::Int<ELE_NUM_PER_C0>>, 
-        tla::Stride<int64_t, int64_t, int64_t, tla::Int<ELE_NUM_PER_C0>, tla::Int<1>>,
-        tla::Shape<uint32_t, uint32_t, uint32_t, uint32_t, uint32_t>>;
+    using type = tla::Layout<tla::Shape<uint32_t, uint32_t, uint32_t, uint32_t, tla::Int<ELE_NUM_PER_C0>>,
+                             tla::Stride<int64_t, int64_t, int64_t, tla::Int<ELE_NUM_PER_C0>, tla::Int<1>>,
+                             tla::Shape<uint32_t, uint32_t, uint32_t, uint32_t, uint32_t>>;
 };
 
 template <class Element>
 struct TagToLayout<Element, layout::CI1KHKWCOCI0> {
     static constexpr uint32_t ELE_NUM_PER_C0 = BYTE_PER_C0 / sizeof(Element);
-    using type = tla::Layout<
-        tla::Shape<uint32_t, uint32_t, uint32_t, uint32_t, tla::Int<ELE_NUM_PER_C0>>, 
-        tla::Stride<int64_t, int64_t, int64_t, tla::Int<ELE_NUM_PER_C0>, tla::Int<1>>,
-        tla::Shape<uint32_t, uint32_t, uint32_t, uint32_t, uint32_t>>;
+    using type = tla::Layout<tla::Shape<uint32_t, uint32_t, uint32_t, uint32_t, tla::Int<ELE_NUM_PER_C0>>,
+                             tla::Stride<int64_t, int64_t, int64_t, tla::Int<ELE_NUM_PER_C0>, tla::Int<1>>,
+                             tla::Shape<uint32_t, uint32_t, uint32_t, uint32_t, uint32_t>>;
 };
 
 #if (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510)
@@ -96,7 +94,7 @@ struct TagToLayout<float8_e8m0_t, layout::zZ> {
     using type = tla::Layout<
         tla::Shape<tla::Shape<tla::Int<C0_NUM_PER_FRACTAL>, uint32_t>, tla::Shape<tla::Int<ELE_NUM_PER_C0>, uint32_t>>,
         tla::Stride<tla::Stride<tla::Int<ELE_NUM_PER_C0>, int64_t>,
-            tla::Stride<tla::Int<1>, tla::Int<ELE_NUM_PER_FRACTAL>>>>;
+                    tla::Stride<tla::Int<1>, tla::Int<ELE_NUM_PER_FRACTAL>>>>;
 };
 
 template <>
@@ -106,7 +104,7 @@ struct TagToLayout<float8_e8m0_t, layout::nN> {
     using type = tla::Layout<
         tla::Shape<tla::Shape<tla::Int<ELE_NUM_PER_C0>, uint32_t>, tla::Shape<tla::Int<C0_NUM_PER_FRACTAL>, uint32_t>>,
         tla::Stride<tla::Stride<tla::Int<1>, tla::Int<ELE_NUM_PER_FRACTAL>>,
-            tla::Stride<tla::Int<ELE_NUM_PER_C0>, int64_t>>>;
+                    tla::Stride<tla::Int<ELE_NUM_PER_C0>, int64_t>>>;
 };
 #endif
 
@@ -118,10 +116,10 @@ constexpr uint32_t ELE_NUM_PER_FRACTAL_L0C = 256;
 using LayoutL0C = tla::Layout<
     tla::Shape<tla::Shape<tla::Int<C0_NUM_PER_FRACTAL>, uint32_t>, tla::Shape<tla::Int<C0_NUM_PER_FRACTAL>, uint32_t>>,
     tla::Stride<tla::Stride<tla::Int<C0_NUM_PER_FRACTAL>, tla::Int<ELE_NUM_PER_FRACTAL_L0C>>,
-        tla::Stride<tla::Int<1>, int64_t>>>;
+                tla::Stride<tla::Int<1>, int64_t>>>;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-} // namespace Catlass::detail
+}  // namespace Catlass::detail
 
-#endif // CATLASS_DETAIL_TAG_TO_LAYOUT_HPP
+#endif  // CATLASS_DETAIL_TAG_TO_LAYOUT_HPP

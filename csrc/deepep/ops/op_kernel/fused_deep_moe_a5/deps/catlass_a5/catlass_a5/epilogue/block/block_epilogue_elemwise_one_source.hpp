@@ -20,21 +20,9 @@
 
 namespace Catlass::Epilogue::Block {
 
-template <
-    class CType_,
-    class XType_,
-    class DType_,
-    class TileElemWiseEpilogue_,
-    class TileCopy_
->
-class BlockEpilogue <
-    EpilogueAtlasA2ElemWiseOneSource,
-    CType_,
-    XType_,
-    DType_,
-    TileElemWiseEpilogue_,
-    TileCopy_
-> {
+template <class CType_, class XType_, class DType_, class TileElemWiseEpilogue_, class TileCopy_>
+class BlockEpilogue<EpilogueAtlasA2ElemWiseOneSource, CType_, XType_, DType_, TileElemWiseEpilogue_, TileCopy_>
+{
 public:
     // Type aliases
     using DispatchPolicy = EpilogueAtlasA2ElemWiseOneSource;
@@ -55,12 +43,13 @@ public:
 
     // Check the element type of C, X and D
     static_assert(std::is_same_v<ElementC, ElementD> && std::is_same_v<ElementX, ElementD>,
-        "Element type of C, X and D must be the same");
+                  "Element type of C, X and D must be the same");
     using ElementCompute = ElementD;
 
     // Check the layout type of C, X and D
     static_assert(std::is_same_v<LayoutC, layout::RowMajor> && std::is_same_v<LayoutX, layout::RowMajor> &&
-        std::is_same_v<LayoutD, layout::RowMajor>, "Layout type of C, X and D must be RowMajor");
+                      std::is_same_v<LayoutD, layout::RowMajor>,
+                  "Layout type of C, X and D must be RowMajor");
     using LayoutComputeInUb = layout::RowMajor;
 
     // Check if ArchTag is matched
@@ -80,7 +69,8 @@ public:
 
         CATLASS_HOST_DEVICE
         Params(GM_ADDR ptrX_, LayoutX const &layoutX_, GM_ADDR ptrD_, LayoutD const &layoutD_)
-            : ptrX(ptrX_), layoutX(layoutX_), ptrD(ptrD_), layoutD(layoutD_) {}
+            : ptrX(ptrX_), layoutX(layoutX_), ptrD(ptrD_), layoutD(layoutD_)
+        {}
     };
 
     CATLASS_DEVICE
@@ -88,8 +78,8 @@ public:
     {
         ubC = resource.ubBuf.template GetBufferByByte<ElementC>(0);
         ubX = resource.ubBuf.template GetBufferByByte<ElementX>(COMPUTE_LENGTH * sizeof(ElementC));
-        ubD = resource.ubBuf.template GetBufferByByte<ElementD>(
-            COMPUTE_LENGTH * sizeof(ElementC) + COMPUTE_LENGTH * sizeof(ElementX));
+        ubD = resource.ubBuf.template GetBufferByByte<ElementD>(COMPUTE_LENGTH * sizeof(ElementC) +
+                                                                COMPUTE_LENGTH * sizeof(ElementX));
 
         AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID0);
         AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(EVENT_ID0);
@@ -103,13 +93,9 @@ public:
     }
 
     CATLASS_DEVICE
-    void operator() (
-        GemmCoord const &blockShapeMNK,
-        GemmCoord const &blockCoordMNK,
-        GemmCoord const &actualBlockShapeMNK,
-        AscendC::GlobalTensor<ElementCompute> const &gmBlockC,
-        LayoutX const &layoutBlockC
-    )
+    void operator()(GemmCoord const &blockShapeMNK, GemmCoord const &blockCoordMNK,
+                    GemmCoord const &actualBlockShapeMNK, AscendC::GlobalTensor<ElementCompute> const &gmBlockC,
+                    LayoutX const &layoutBlockC)
     {
         // Calculate the offset of the current block
         MatrixCoord blockShape = blockShapeMNK.GetCoordMN();
@@ -118,13 +104,11 @@ public:
         MatrixCoord blockOffset = blockCoord * blockShape;
 
         // Calculate the offset and the shape of the current subblock
-        MatrixCoord subblockShape{
-            CeilDiv(actualBlockShape.row(), static_cast<uint32_t>(AscendC::GetSubBlockNum())),
-            actualBlockShape.column()
-        };
-        MatrixCoord subblockCoord{ AscendC::GetSubBlockIdx(), 0 };
-        MatrixCoord actualSubblockShape = MatrixCoord::Min(
-            subblockShape, actualBlockShape - subblockCoord * subblockShape);
+        MatrixCoord subblockShape{CeilDiv(actualBlockShape.row(), static_cast<uint32_t>(AscendC::GetSubBlockNum())),
+                                  actualBlockShape.column()};
+        MatrixCoord subblockCoord{AscendC::GetSubBlockIdx(), 0};
+        MatrixCoord actualSubblockShape =
+            MatrixCoord::Min(subblockShape, actualBlockShape - subblockCoord * subblockShape);
         MatrixCoord subblockOffset = subblockCoord * subblockShape;
 
         // Get the data and layout of C

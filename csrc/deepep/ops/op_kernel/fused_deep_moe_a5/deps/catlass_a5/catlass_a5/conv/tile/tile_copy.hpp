@@ -53,15 +53,8 @@ struct TileCopy {
 
 template <
     /// Tag indicating architecture
-    class ArchTag,
-    class ElementFmap_,
-    class LayoutTagFmap_,
-    class ElementFilter_,
-    class LayoutTagFilter_,
-    class ElementOutput_,
-    class LayoutTagOutput_,
-    class ElementBias = void,
-    bool ReluEnable_ = false,
+    class ArchTag, class ElementFmap_, class LayoutTagFmap_, class ElementFilter_, class LayoutTagFilter_,
+    class ElementOutput_, class LayoutTagOutput_, class ElementBias = void, bool ReluEnable_ = false,
     ScaleGranularity DEQUANT_GRANULARITY_ = ScaleGranularity::NO_QUANT>
 struct PackedTileCopyTla {
     using ElementFmap = ElementFmap_;
@@ -70,12 +63,15 @@ struct PackedTileCopyTla {
     using LayoutTagFmap = LayoutTagFmap_;
     using LayoutTagFilter = LayoutTagFilter_;
     using LayoutTagOutput = LayoutTagOutput_;
-    using ElementAccumulator = typename Gemm::helper::ElementAccumulatorSelector<ElementFmap, ElementFilter>::ElementAccumulator;
+    using ElementAccumulator =
+        typename Gemm::helper::ElementAccumulatorSelector<ElementFmap, ElementFilter>::ElementAccumulator;
     static constexpr bool ReluEnable = ReluEnable_;
     static constexpr ScaleGranularity DEQUANT_GRANULARITY = DEQUANT_GRANULARITY_;
 
-    using LayoutTagL1A = typename Gemm::helper::L1ATypeSelector<Gemm::GemmType<ElementFmap, LayoutTagFmap>>::L1AType::Layout;
-    using LayoutTagL1B = typename Gemm::helper::L1BTypeSelector<Gemm::GemmType<ElementFilter, LayoutTagFilter>>::L1BType::Layout;
+    using LayoutTagL1A =
+        typename Gemm::helper::L1ATypeSelector<Gemm::GemmType<ElementFmap, LayoutTagFmap>>::L1AType::Layout;
+    using LayoutTagL1B =
+        typename Gemm::helper::L1BTypeSelector<Gemm::GemmType<ElementFilter, LayoutTagFilter>>::L1BType::Layout;
     using LayoutTagL0A = typename Gemm::helper::L0ALayoutSelector<ArchTag>::Layout;
     using LayoutTagL0B = layout::nZ;
 
@@ -89,8 +85,8 @@ struct PackedTileCopyTla {
     using LayoutL0B = detail::TagToLayout_t<ElementFilter, LayoutTagL0B>;
     using LayoutL0C = typename detail::LayoutL0C;
 
-    using TensorL0C = 
-        tla::Tensor<AscendC::LocalTensor<ElementAccumulator>, LayoutL0C, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::CO1>;
+    using TensorL0C = tla::Tensor<AscendC::LocalTensor<ElementAccumulator>, LayoutL0C, tla::Coord<tla::_0, tla::_0>,
+                                  AscendC::TPosition::CO1>;
 
     using L1AAlignHelper = Gemm::helper::L1AlignHelper<ElementFmap, LayoutTagFmap>;
     using L1BAlignHelper = Gemm::helper::L1AlignHelper<ElementFilter, LayoutTagFilter>;
@@ -110,6 +106,6 @@ struct PackedTileCopyTla {
 #endif
 };
 
-} // namespace Catlass::Conv::Tile
+}  // namespace Catlass::Conv::Tile
 
-#endif // CATLASS_CONV_TILE_TILE_COPY_HPP
+#endif  // CATLASS_CONV_TILE_TILE_COPY_HPP

@@ -21,17 +21,9 @@
 
 namespace Catlass::Epilogue::Block {
 
-template <
-    class OutputType_,
-    class InputType_,
-    class MaskType_
->
-class BlockEpilogue <
-    EpilogueAtlasA2FASoftmax,
-    OutputType_,
-    InputType_,
-    MaskType_
-> {
+template <class OutputType_, class InputType_, class MaskType_>
+class BlockEpilogue<EpilogueAtlasA2FASoftmax, OutputType_, InputType_, MaskType_>
+{
 public:
     // Type aliases
     using DispatchPolicy = EpilogueAtlasA2FASoftmax;
@@ -52,10 +44,10 @@ public:
     static constexpr uint32_t FLOAT_ELENUM_PER_BLK = 8;
     static constexpr uint32_t HALF_ELENUM_PER_VECCALC = 128;
     static constexpr uint32_t FLOAT_ELENUM_PER_VECCALC = 64;
-    static constexpr uint32_t UB_TILE_SIZE = 16384;  // 64 * 128 * 2B
-    static constexpr uint32_t UB_LINE_SIZE = 512;   // 128 * 2 * 2B
-    static constexpr uint32_t HALF_ELENUM_PER_LINE = 256;    // 128 * 2
-    static constexpr uint32_t FLOAT_ELENUM_PER_LINE = 128;   // 128
+    static constexpr uint32_t UB_TILE_SIZE = 16384;         // 64 * 128 * 2B
+    static constexpr uint32_t UB_LINE_SIZE = 512;           // 128 * 2 * 2B
+    static constexpr uint32_t HALF_ELENUM_PER_LINE = 256;   // 128 * 2
+    static constexpr uint32_t FLOAT_ELENUM_PER_LINE = 128;  // 128
     static constexpr uint32_t MULTIPLIER = 2;
 
     CATLASS_DEVICE
@@ -127,14 +119,10 @@ public:
     }
 
     CATLASS_DEVICE
-    void subCoreCompute(
-        AscendC::GlobalTensor<ElementOutput> gOutput,
-        AscendC::GlobalTensor<ElementInput> gInput,
-        AscendC::GlobalTensor<ElementMask> gMask,
-        const LayoutOutput &layoutOutput,
-        const LayoutInput &layoutInput,
-        const LayoutMask &layoutMask,
-        uint32_t nIdx, Arch::CrossCoreFlag qkReady)
+    void subCoreCompute(AscendC::GlobalTensor<ElementOutput> gOutput, AscendC::GlobalTensor<ElementInput> gInput,
+                        AscendC::GlobalTensor<ElementMask> gMask, const LayoutOutput &layoutOutput,
+                        const LayoutInput &layoutInput, const LayoutMask &layoutMask, uint32_t nIdx,
+                        Arch::CrossCoreFlag qkReady)
     {
         uint32_t subM = layoutInput.shape(0);
         uint32_t qkN = layoutInput.shape(1);
@@ -161,131 +149,84 @@ public:
             AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(EVENT_ID0);
 
             // ls = tor * ls
-            AscendC::Muls<half, false>(
-                lsUbTensor[offset],
-                lsUbTensor[offset],
-                tor,
-                (uint64_t)0,
-                (subM * qkNRound + HALF_ELENUM_PER_VECCALC - 1) / HALF_ELENUM_PER_VECCALC,
-                AscendC::UnaryRepeatParams(1, 1, 8, 8));
+            AscendC::Muls<half, false>(lsUbTensor[offset], lsUbTensor[offset], tor, (uint64_t)0,
+                                       (subM * qkNRound + HALF_ELENUM_PER_VECCALC - 1) / HALF_ELENUM_PER_VECCALC,
+                                       AscendC::UnaryRepeatParams(1, 1, 8, 8));
             AscendC::PipeBarrier<PIPE_V>();
             // ls = ls + mask
-            AscendC::Add<half, false>(
-                lsUbTensor[offset],
-                lsUbTensor[offset],
-                maskUbTensor,
-                (uint64_t)0,
-                (subM * qkNRound + HALF_ELENUM_PER_VECCALC - 1) / HALF_ELENUM_PER_VECCALC,
-                AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
+            AscendC::Add<half, false>(lsUbTensor[offset], lsUbTensor[offset], maskUbTensor, (uint64_t)0,
+                                      (subM * qkNRound + HALF_ELENUM_PER_VECCALC - 1) / HALF_ELENUM_PER_VECCALC,
+                                      AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
             AscendC::PipeBarrier<PIPE_V>();
             AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(EVENT_ID0);
             // lm = rowmax(ls)
             if (qkN <= HALF_ELENUM_PER_VECCALC) {
                 SetMask(qkN);
-                AscendC::BlockReduceMax<half, false>(
-                    tvUbTensor.ReinterpretCast<half>(),
-                    lsUbTensor[offset],
-                    subM,
-                    0,
-                    2,
-                    1,
-                    qkNRound / HALF_ELENUM_PER_BLK);
+                AscendC::BlockReduceMax<half, false>(tvUbTensor.ReinterpretCast<half>(), lsUbTensor[offset], subM, 0, 2,
+                                                     1, qkNRound / HALF_ELENUM_PER_BLK);
                 AscendC::PipeBarrier<PIPE_V>();
                 SetVcgMask(qkNRound / HALF_ELENUM_PER_BLK);
                 AscendC::BlockReduceMax<half, false>(
-                    lmUbTensor,
-                    tvUbTensor.ReinterpretCast<half>(),
-                    (subM * HALF_ELENUM_PER_BLK + HALF_ELENUM_PER_VECCALC - 1) / HALF_ELENUM_PER_VECCALC,
-                    0,
-                    1,
-                    1,
-                    8);
+                    lmUbTensor, tvUbTensor.ReinterpretCast<half>(),
+                    (subM * HALF_ELENUM_PER_BLK + HALF_ELENUM_PER_VECCALC - 1) / HALF_ELENUM_PER_VECCALC, 0, 1, 1, 8);
                 AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
             }
             AscendC::PipeBarrier<PIPE_V>();
             if (nIdx == 0) {
                 // hm = lm
-                AscendC::DataCopy(
-                    hmUbTensor, lmUbTensor, AscendC::DataCopyParams(1, subMRound / HALF_ELENUM_PER_BLK, 0, 0));
+                AscendC::DataCopy(hmUbTensor, lmUbTensor,
+                                  AscendC::DataCopyParams(1, subMRound / HALF_ELENUM_PER_BLK, 0, 0));
                 AscendC::PipeBarrier<PIPE_V>();
             } else {
                 // hm = vmax(lm, gm)
-                AscendC::Max<half, false>(
-                    hmUbTensor,
-                    lmUbTensor,
-                    gmUbTensor,
-                    (uint64_t)0,
-                    subMAligned128,
-                    AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
+                AscendC::Max<half, false>(hmUbTensor, lmUbTensor, gmUbTensor, (uint64_t)0, subMAligned128,
+                                          AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
                 AscendC::PipeBarrier<PIPE_V>();
                 // dm = gm - hm
-                AscendC::Sub<half, false>(
-                    dmUbTensor[nIdx % MULTIPLIER * HALF_ELENUM_PER_LINE],
-                    gmUbTensor,
-                    hmUbTensor,
-                    (uint64_t)0,
-                    subMAligned128,
-                    AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
+                AscendC::Sub<half, false>(dmUbTensor[nIdx % MULTIPLIER * HALF_ELENUM_PER_LINE], gmUbTensor, hmUbTensor,
+                                          (uint64_t)0, subMAligned128, AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
                 AscendC::PipeBarrier<PIPE_V>();
             }
             // gm = hm
-            AscendC::DataCopy(
-                gmUbTensor, hmUbTensor, AscendC::DataCopyParams(1, subMRound / HALF_ELENUM_PER_BLK, 0, 0));
+            AscendC::DataCopy(gmUbTensor, hmUbTensor,
+                              AscendC::DataCopyParams(1, subMRound / HALF_ELENUM_PER_BLK, 0, 0));
             AscendC::PipeBarrier<PIPE_V>();
             // hm_block = brcb(hm), 存放于tv
-            AscendC::Brcb(
-                tvUbTensor.ReinterpretCast<uint16_t>(),
-                hmUbTensor.ReinterpretCast<uint16_t>(),
-                subMRound / FLOAT_ELENUM_PER_BLK,
-                AscendC::BrcbRepeatParams(1, 8));
+            AscendC::Brcb(tvUbTensor.ReinterpretCast<uint16_t>(), hmUbTensor.ReinterpretCast<uint16_t>(),
+                          subMRound / FLOAT_ELENUM_PER_BLK, AscendC::BrcbRepeatParams(1, 8));
             AscendC::PipeBarrier<PIPE_V>();
             // ls = ls - hm_block
             for (uint32_t vsubIdx = 0; vsubIdx < qkN / HALF_ELENUM_PER_VECCALC; vsubIdx++) {
-                AscendC::Sub<half, false>(
-                    lsUbTensor[offset + vsubIdx * HALF_ELENUM_PER_VECCALC],
-                    lsUbTensor[offset + vsubIdx * HALF_ELENUM_PER_VECCALC],
-                    tvUbTensor.ReinterpretCast<half>(),
-                    (uint64_t)0,
-                    subM,
-                    AscendC::BinaryRepeatParams(
-                        1, 1, 0, qkNRound / HALF_ELENUM_PER_BLK, qkNRound / HALF_ELENUM_PER_BLK, 1));
+                AscendC::Sub<half, false>(lsUbTensor[offset + vsubIdx * HALF_ELENUM_PER_VECCALC],
+                                          lsUbTensor[offset + vsubIdx * HALF_ELENUM_PER_VECCALC],
+                                          tvUbTensor.ReinterpretCast<half>(), (uint64_t)0, subM,
+                                          AscendC::BinaryRepeatParams(1, 1, 0, qkNRound / HALF_ELENUM_PER_BLK,
+                                                                      qkNRound / HALF_ELENUM_PER_BLK, 1));
             }
             if (qkN % HALF_ELENUM_PER_VECCALC > 0) {
                 SetMask(qkN % HALF_ELENUM_PER_VECCALC);
-                AscendC::Sub<half, false>(
-                    lsUbTensor[offset + qkN / HALF_ELENUM_PER_VECCALC * HALF_ELENUM_PER_VECCALC],
-                    lsUbTensor[offset + qkN / HALF_ELENUM_PER_VECCALC * HALF_ELENUM_PER_VECCALC],
-                    tvUbTensor.ReinterpretCast<half>(),
-                    (uint64_t)0,
-                    subM,
-                    AscendC::BinaryRepeatParams(
-                        1, 1, 0, qkNRound / HALF_ELENUM_PER_BLK, qkNRound / HALF_ELENUM_PER_BLK, 1));
+                AscendC::Sub<half, false>(lsUbTensor[offset + qkN / HALF_ELENUM_PER_VECCALC * HALF_ELENUM_PER_VECCALC],
+                                          lsUbTensor[offset + qkN / HALF_ELENUM_PER_VECCALC * HALF_ELENUM_PER_VECCALC],
+                                          tvUbTensor.ReinterpretCast<half>(), (uint64_t)0, subM,
+                                          AscendC::BinaryRepeatParams(1, 1, 0, qkNRound / HALF_ELENUM_PER_BLK,
+                                                                      qkNRound / HALF_ELENUM_PER_BLK, 1));
                 AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
             }
             AscendC::PipeBarrier<PIPE_V>();
             // ls32 = castfp16to32(ls)
             AscendC::Cast<float, half, false>(
-                ls32UbTensor,
-                lsUbTensor[offset],
-                AscendC::RoundMode::CAST_NONE,
-                (uint64_t)0,
+                ls32UbTensor, lsUbTensor[offset], AscendC::RoundMode::CAST_NONE, (uint64_t)0,
                 (subM * qkNRound + FLOAT_ELENUM_PER_VECCALC - 1) / FLOAT_ELENUM_PER_VECCALC,
                 AscendC::UnaryRepeatParams(1, 1, 8, 4));
             AscendC::PipeBarrier<PIPE_V>();
             // ls32 = exp(ls32)
-            AscendC::Exp<float, false>(
-                ls32UbTensor,
-                ls32UbTensor,
-                (uint64_t)0,
-                (subM * qkNRound + FLOAT_ELENUM_PER_VECCALC - 1) / FLOAT_ELENUM_PER_VECCALC,
-                AscendC::UnaryRepeatParams(1, 1, 8, 8));
+            AscendC::Exp<float, false>(ls32UbTensor, ls32UbTensor, (uint64_t)0,
+                                       (subM * qkNRound + FLOAT_ELENUM_PER_VECCALC - 1) / FLOAT_ELENUM_PER_VECCALC,
+                                       AscendC::UnaryRepeatParams(1, 1, 8, 8));
             AscendC::PipeBarrier<PIPE_V>();
             // lp = castfp32to16(ls)
             AscendC::Cast<half, float, false>(
-                lpUbTensor[offset],
-                ls32UbTensor,
-                AscendC::RoundMode::CAST_NONE,
-                (uint64_t)0,
+                lpUbTensor[offset], ls32UbTensor, AscendC::RoundMode::CAST_NONE, (uint64_t)0,
                 (subM * qkNRound + FLOAT_ELENUM_PER_VECCALC - 1) / FLOAT_ELENUM_PER_VECCALC,
                 AscendC::UnaryRepeatParams(1, 1, 4, 8));
             AscendC::PipeBarrier<PIPE_V>();
@@ -293,46 +234,29 @@ public:
             // ll = rowsum(ls32)
             if (qkN <= FLOAT_ELENUM_PER_VECCALC) {
                 SetMask(qkN);
-                AscendC::RepeatReduceSum<float, false>(
-                    llUbTensor[nIdx % MULTIPLIER * FLOAT_ELENUM_PER_LINE],
-                    ls32UbTensor,
-                    subM, 0, 0, 1, 1, qkNRound / FLOAT_ELENUM_PER_BLK);
+                AscendC::RepeatReduceSum<float, false>(llUbTensor[nIdx % MULTIPLIER * FLOAT_ELENUM_PER_LINE],
+                                                       ls32UbTensor, subM, 0, 0, 1, 1, qkNRound / FLOAT_ELENUM_PER_BLK);
                 AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
             } else {
                 for (uint32_t vaddIdx = 1; vaddIdx < qkN / FLOAT_ELENUM_PER_VECCALC; vaddIdx++) {
                     AscendC::Add<float, false>(
-                        ls32UbTensor,
-                        ls32UbTensor,
-                        ls32UbTensor[vaddIdx * FLOAT_ELENUM_PER_VECCALC],
-                        (uint64_t)0,
-                        subM,
-                        AscendC::BinaryRepeatParams(
-                            1, 1, 1,
-                            qkNRound / FLOAT_ELENUM_PER_BLK,
-                            qkNRound / FLOAT_ELENUM_PER_BLK,
-                            qkNRound / FLOAT_ELENUM_PER_BLK));
+                        ls32UbTensor, ls32UbTensor, ls32UbTensor[vaddIdx * FLOAT_ELENUM_PER_VECCALC], (uint64_t)0, subM,
+                        AscendC::BinaryRepeatParams(1, 1, 1, qkNRound / FLOAT_ELENUM_PER_BLK,
+                                                    qkNRound / FLOAT_ELENUM_PER_BLK, qkNRound / FLOAT_ELENUM_PER_BLK));
                     AscendC::PipeBarrier<PIPE_V>();
                 }
                 if (qkN % FLOAT_ELENUM_PER_VECCALC > 0) {
                     SetMask(qkN % FLOAT_ELENUM_PER_VECCALC);
-                        AscendC::Add<float, false>(
-                            ls32UbTensor,
-                            ls32UbTensor,
-                            ls32UbTensor[qkN / FLOAT_ELENUM_PER_VECCALC * FLOAT_ELENUM_PER_VECCALC],
-                            (uint64_t)0,
-                            subM,
-                            AscendC::BinaryRepeatParams(
-                                1, 1, 1,
-                                qkNRound / FLOAT_ELENUM_PER_BLK,
-                                qkNRound / FLOAT_ELENUM_PER_BLK,
-                                qkNRound / FLOAT_ELENUM_PER_BLK));
+                    AscendC::Add<float, false>(
+                        ls32UbTensor, ls32UbTensor,
+                        ls32UbTensor[qkN / FLOAT_ELENUM_PER_VECCALC * FLOAT_ELENUM_PER_VECCALC], (uint64_t)0, subM,
+                        AscendC::BinaryRepeatParams(1, 1, 1, qkNRound / FLOAT_ELENUM_PER_BLK,
+                                                    qkNRound / FLOAT_ELENUM_PER_BLK, qkNRound / FLOAT_ELENUM_PER_BLK));
                     AscendC::PipeBarrier<PIPE_V>();
                     AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
                 }
-                AscendC::RepeatReduceSum<float, false>(
-                    llUbTensor[nIdx % MULTIPLIER * FLOAT_ELENUM_PER_LINE],
-                    ls32UbTensor,
-                    subM, 0, 0, 1, 1, qkNRound / FLOAT_ELENUM_PER_BLK);
+                AscendC::RepeatReduceSum<float, false>(llUbTensor[nIdx % MULTIPLIER * FLOAT_ELENUM_PER_LINE],
+                                                       ls32UbTensor, subM, 0, 0, 1, 1, qkNRound / FLOAT_ELENUM_PER_BLK);
             }
             AscendC::PipeBarrier<PIPE_V>();
             AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(EVENT_ID0);
@@ -343,15 +267,10 @@ public:
     }
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::GlobalTensor<ElementOutput> gOutput,
-        AscendC::GlobalTensor<ElementInput> gInput,
-        AscendC::GlobalTensor<ElementMask> gMask,
-        const LayoutOutput &layoutOutput,
-        const LayoutInput &layoutInput,
-        const LayoutMask &layoutMask,
-        GemmCoord actualBlockShape,
-        uint32_t nIdx, Arch::CrossCoreFlag qkReady)
+    void operator()(AscendC::GlobalTensor<ElementOutput> gOutput, AscendC::GlobalTensor<ElementInput> gInput,
+                    AscendC::GlobalTensor<ElementMask> gMask, const LayoutOutput &layoutOutput,
+                    const LayoutInput &layoutInput, const LayoutMask &layoutMask, GemmCoord actualBlockShape,
+                    uint32_t nIdx, Arch::CrossCoreFlag qkReady)
     {
         uint32_t mActual = actualBlockShape.m();
         uint32_t nActual = actualBlockShape.n();
@@ -376,9 +295,8 @@ public:
         auto gMaskThisSubBlock = gMask[offsetMask];
         auto layoutMaskThisSubBlock = layoutMask.GetTileLayout(MatrixCoord(mActualThisSubBlock, nActual));
 
-        subCoreCompute(gOutputThisSubBlock, gInputThisSubBlock, gMaskThisSubBlock,
-                       layoutOutputThisSubBlock, layoutInputThisSubBlock, layoutMaskThisSubBlock,
-                       nIdx, qkReady);
+        subCoreCompute(gOutputThisSubBlock, gInputThisSubBlock, gMaskThisSubBlock, layoutOutputThisSubBlock,
+                       layoutInputThisSubBlock, layoutMaskThisSubBlock, nIdx, qkReady);
     }
 
 private:

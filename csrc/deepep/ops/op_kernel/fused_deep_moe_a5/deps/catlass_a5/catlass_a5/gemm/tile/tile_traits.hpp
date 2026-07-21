@@ -23,7 +23,6 @@ struct PrologueTraits : public Prologue {
 
     using TensorSrc = AscendC::GlobalTensor<typename Prologue::ElementSrc>;
     using TensorDst = AscendC::GlobalTensor<typename Prologue::ElementDst>;
-
 };
 
 template <>
@@ -39,10 +38,10 @@ struct PrologueTraits<void> {
     using Params = EmptyType;
 
     template <class... Args>
-    CATLASS_DEVICE
-    PrologueTraits(Args...) {}
+    CATLASS_DEVICE PrologueTraits(Args...)
+    {}
 };
 
-}  //namespace Catlass::Gemm::Tile
+}  // namespace Catlass::Gemm::Tile
 
 #endif

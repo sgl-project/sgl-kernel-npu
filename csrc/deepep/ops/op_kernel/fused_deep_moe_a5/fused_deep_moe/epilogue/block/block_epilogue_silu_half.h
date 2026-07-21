@@ -24,13 +24,8 @@
 namespace Catlass::Epilogue::Block {
 
 template <uint32_t UB_STAGES_, class ElementC_, class ElementI_, class ElementD_, class TileShape_>
-class BlockEpilogue <
-    EpilogueAtlasA5SiluHalf<UB_STAGES_>,
-    ElementC_,
-    ElementI_,
-    ElementD_,
-    TileShape_
-> {
+class BlockEpilogue<EpilogueAtlasA5SiluHalf<UB_STAGES_>, ElementC_, ElementI_, ElementD_, TileShape_>
+{
 public:
     // Type aliases
     using DispatchPolicy = EpilogueAtlasA5SiluHalf<UB_STAGES_>;
@@ -52,9 +47,7 @@ public:
     using EpilogueTileSwizzle = Catlass::Epilogue::Tile::EpilogueHorizontalTileSwizzle;
 
     // Check the element type of C and D
-    static_assert(std::is_same_v<ElementC, float>,
-        "Element type of C must be float");
-
+    static_assert(std::is_same_v<ElementC, float>, "Element type of C must be float");
 
     // Epilogue params definition
     struct Params {
@@ -68,7 +61,8 @@ public:
 
         CATLASS_HOST_DEVICE
         Params(GM_ADDR ptrC_, LayoutC layoutC_, GM_ADDR ptrD_, LayoutD layoutD_)
-            : ptrC(ptrC_), layoutC(layoutC_), ptrD(ptrD_), layoutD(layoutD_) {}
+            : ptrC(ptrC_), layoutC(layoutC_), ptrD(ptrD_), layoutD(layoutD_)
+        {}
     };
 
     CATLASS_DEVICE
@@ -76,7 +70,6 @@ public:
     {
         params = params_;
     }
-
 
     CATLASS_DEVICE
     BlockEpilogue(Arch::Resource<ArchTag> &resource)
@@ -114,13 +107,8 @@ public:
     }
 
     template <class TensorC, class TensorD>
-    CATLASS_DEVICE
-    void operator() (
-        TensorC &tensorBlockC,
-        TensorD &tensorBlockD,
-        GemmCoord const &actualBlockShapeMNK,
-        bool isLeft
-    )
+    CATLASS_DEVICE void operator()(TensorC &tensorBlockC, TensorD &tensorBlockD, GemmCoord const &actualBlockShapeMNK,
+                                   bool isLeft)
     {
         if (actualBlockShapeMNK.k() == 0) {
             return;
@@ -144,15 +132,12 @@ public:
             uint32_t count = actualTileShape[0] * actualTileShape[1];
 
             // build tensor C block in GM
-            auto tensorSubBlockC = GetTile(
-                tensorBlockC, tla::MakeCoord(tileOffsetInBlockRow, tileOffsetInBlockColumn),
-                tla::MakeShape(actualTileShape.row(), actualTileShape.column())
-            );
+            auto tensorSubBlockC = GetTile(tensorBlockC, tla::MakeCoord(tileOffsetInBlockRow, tileOffsetInBlockColumn),
+                                           tla::MakeShape(actualTileShape.row(), actualTileShape.column()));
             // build tensor C block in UB
             auto &ubC = ubCList[ubListId];
-            auto layoutUbC = tla::MakeLayout(
-                tla::MakeShape(actualTileShape.row(), actualTileShape.column()), tla::MakeStride(ubTileStride, tla::Int<1>{})
-            );
+            auto layoutUbC = tla::MakeLayout(tla::MakeShape(actualTileShape.row(), actualTileShape.column()),
+                                             tla::MakeStride(ubTileStride, tla::Int<1>{}));
             auto tensorUbC = tla::MakeTensor(ubC, layoutUbC, Arch::PositionUB{});
             using CopyGmToUbC = typename Catlass::Epilogue::Tile::CopyGm2UbTla<ArchTag, TensorC, decltype(tensorUbC)>;
             CopyGmToUbC copyGmToUbC;
@@ -184,10 +169,8 @@ public:
             AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(eventUbDVMTE3List[ubListId]);
             AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(eventUbCVMTE2List[ubListId]);
             // build tensor D block in GM
-            auto tensorSubBlockD = GetTile(
-                tensorBlockD, tla::MakeCoord(tileOffsetInBlockRow, tileOffsetInBlockColumn),
-                tla::MakeShape(actualTileShape.row(), actualTileShape.column())
-            );
+            auto tensorSubBlockD = GetTile(tensorBlockD, tla::MakeCoord(tileOffsetInBlockRow, tileOffsetInBlockColumn),
+                                           tla::MakeShape(actualTileShape.row(), actualTileShape.column()));
             // build tensor D block in UB
             auto tensorUbD = tla::MakeTensor(ubD, layoutUbC, Arch::PositionUB{});
             using CopyUbToGmD = typename Catlass::Epilogue::Tile::CopyUb2GmTla<ArchTag, decltype(tensorUbD), TensorD>;
@@ -213,7 +196,6 @@ private:
     int32_t eventUbDVMTE3List[UB_STAGES];
 
     uint32_t ubListId{0};
-
 };
 
 }  // namespace Catlass::Epilogue::Block

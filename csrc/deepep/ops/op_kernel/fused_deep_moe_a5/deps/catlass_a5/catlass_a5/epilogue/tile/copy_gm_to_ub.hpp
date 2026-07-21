@@ -19,10 +19,7 @@
 
 namespace Catlass::Epilogue::Tile {
 
-template <
-    class ArchTag,
-    class GmType
->
+template <class ArchTag, class GmType>
 struct CopyGm2Ub {
     static_assert(DEPENDENT_FALSE<ArchTag>, "Unsupported copy gm to ub, can not find the specialization.");
 };
@@ -38,19 +35,12 @@ struct CopyGm2Ub<Arch::AtlasA2, Gemm::GemmType<Element, layout::RowMajor>> {
     CopyGm2Ub() = default;
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        layout::RowMajor const &layoutDst,
-        layout::RowMajor const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    layout::RowMajor const &layoutDst, layout::RowMajor const &layoutSrc)
     {
-        AscendC::DataCopyExtParams dataCopyParams(
-            layoutSrc.shape(0),
-            layoutSrc.shape(1) * sizeof(Element),
-            (layoutSrc.stride(0) - layoutSrc.shape(1)) * sizeof(Element),
-            (layoutDst.stride(0) - layoutDst.shape(1)) / ELE_NUM_PER_BLK,
-            0
-        );
+        AscendC::DataCopyExtParams dataCopyParams(layoutSrc.shape(0), layoutSrc.shape(1) * sizeof(Element),
+                                                  (layoutSrc.stride(0) - layoutSrc.shape(1)) * sizeof(Element),
+                                                  (layoutDst.stride(0) - layoutDst.shape(1)) / ELE_NUM_PER_BLK, 0);
         AscendC::DataCopyPadExtParams<Element> padParams(false, 0, 0, 0);
         AscendC::DataCopyPad(dstTensor, srcTensor, dataCopyParams, padParams);
     };
@@ -67,19 +57,10 @@ struct CopyGm2Ub<Arch::AtlasA2, Gemm::GemmType<Element, layout::VectorLayout>> {
     CopyGm2Ub() = default;
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        layout::VectorLayout const &layoutDst,
-        layout::VectorLayout const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    layout::VectorLayout const &layoutDst, layout::VectorLayout const &layoutSrc)
     {
-        AscendC::DataCopyExtParams dataCopyParams(
-            1,
-            layoutSrc.shape(0) * sizeof(Element),
-            0,
-            0,
-            0
-        );
+        AscendC::DataCopyExtParams dataCopyParams(1, layoutSrc.shape(0) * sizeof(Element), 0, 0, 0);
         AscendC::DataCopyPadExtParams<Element> padParams(false, 0, 0, 0);
         AscendC::DataCopyPad(dstTensor, srcTensor, dataCopyParams, padParams);
     };
@@ -90,13 +71,10 @@ struct CopyGm2Ub<Arch::AtlasA2, Gemm::GemmType<Element, layout::VectorLayout>> {
 /// and pad the first block of each row (i.e. pad to shape (m,8) when element type is float).
 /// @tparam ArchTag: Architecture tag.
 /// @tparam GmType: Type of data on GM.
-template <
-    class ArchTag,
-    class GmType
->
+template <class ArchTag, class GmType>
 struct CopyPerTokenScale2Ub {
     static_assert(std::is_same_v<typename GmType::Layout, layout::ColumnMajor>,
-        "Unsupported layout for CopyPerTokenScale2Ub.");
+                  "Unsupported layout for CopyPerTokenScale2Ub.");
 
     using Element = typename GmType::Element;
     using LayoutSrc = typename GmType::Layout;
@@ -108,11 +86,8 @@ struct CopyPerTokenScale2Ub {
     CopyPerTokenScale2Ub() = default;
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        LayoutDst const &layoutDst,
-        LayoutSrc const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    LayoutDst const &layoutDst, LayoutSrc const &layoutSrc)
     {
         AscendC::DataCopyExtParams dataCopyParams;
         AscendC::DataCopyPadExtParams<Element> padParams;
@@ -130,10 +105,7 @@ struct CopyPerTokenScale2Ub {
     }
 };
 
-template <
-    class ArchTag,
-    class GmType
->
+template <class ArchTag, class GmType>
 struct CopyGm2UbAligned {
     static_assert(DEPENDENT_FALSE<ArchTag>, "Unsupported copy gm to ub aligned, can not find the specialization.");
 };
@@ -152,11 +124,8 @@ struct CopyGm2UbAligned<Arch::AtlasA2, Gemm::GemmType<Element, layout::RowMajor>
     CopyGm2UbAligned() = default;
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        layout::RowMajor const &layoutDst,
-        layout::RowMajor const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    layout::RowMajor const &layoutDst, layout::RowMajor const &layoutSrc)
     {
         uint32_t rows = layoutSrc.shape(0);
         uint32_t cols = layoutSrc.shape(1);
@@ -169,9 +138,7 @@ struct CopyGm2UbAligned<Arch::AtlasA2, Gemm::GemmType<Element, layout::RowMajor>
             uint32_t rLoops = CeilDiv(rows, MAX_REPEAT);
             for (uint32_t i = 0; i < rLoops; ++i) {
                 uint32_t rActual = (i < rLoops - 1) ? MAX_REPEAT : rows - i * MAX_REPEAT;
-                AscendC::DataCopyParams dataCopyParams(
-                    rActual, cols / ELE_NUM_PER_BLK, srcStride, dstStride
-                );
+                AscendC::DataCopyParams dataCopyParams(rActual, cols / ELE_NUM_PER_BLK, srcStride, dstStride);
                 DataCopy(dstTensor[i * MAX_REPEAT * layoutDst.stride(0)],
                          srcTensor[i * MAX_REPEAT * layoutSrc.stride(0)], dataCopyParams);
             }
@@ -182,7 +149,6 @@ struct CopyGm2UbAligned<Arch::AtlasA2, Gemm::GemmType<Element, layout::RowMajor>
         }
     };
 };
-
 
 //////////////////////////// CopyGm2Ub(Ascend950, No TLA) ////////////////////////////
 #if (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510) || (defined(__NPU_ARCH__) && __NPU_ARCH__ == 3510)
@@ -197,19 +163,12 @@ struct CopyGm2Ub<Arch::Ascend950, Gemm::GemmType<Element, layout::RowMajor>> {
     CopyGm2Ub() = default;
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        layout::RowMajor const &layoutDst,
-        layout::RowMajor const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    layout::RowMajor const &layoutDst, layout::RowMajor const &layoutSrc)
     {
-        AscendC::DataCopyExtParams dataCopyParams(
-            layoutSrc.shape(0),
-            layoutSrc.shape(1) * sizeof(Element),
-            (layoutSrc.stride(0) - layoutSrc.shape(1)) * sizeof(Element),
-            (layoutDst.stride(0) - layoutDst.shape(1)) / ELE_NUM_PER_BLK,
-            0
-        );
+        AscendC::DataCopyExtParams dataCopyParams(layoutSrc.shape(0), layoutSrc.shape(1) * sizeof(Element),
+                                                  (layoutSrc.stride(0) - layoutSrc.shape(1)) * sizeof(Element),
+                                                  (layoutDst.stride(0) - layoutDst.shape(1)) / ELE_NUM_PER_BLK, 0);
         AscendC::DataCopyPadExtParams<Element> padParams(false, 0, 0, 0);
         AscendC::DataCopyPad(dstTensor, srcTensor, dataCopyParams, padParams);
     }
@@ -225,32 +184,22 @@ struct CopyGm2Ub<Arch::Ascend950, Gemm::GemmType<Element, layout::VectorLayout>>
     CopyGm2Ub() = default;
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        layout::VectorLayout const &layoutDst,
-        layout::VectorLayout const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    layout::VectorLayout const &layoutDst, layout::VectorLayout const &layoutSrc)
     {
-        AscendC::DataCopyExtParams dataCopyParams(
-            1,
-            layoutSrc.shape(0) * sizeof(Element),
-            0,
-            0,
-            0
-        );
+        AscendC::DataCopyExtParams dataCopyParams(1, layoutSrc.shape(0) * sizeof(Element), 0, 0, 0);
         if constexpr (AscendC::Std::is_one_of_v<Element, float8_e4m3_t, float8_e5m2_t, float4_e2m1x2_t,
-                          float4_e1m2x2_t>) {
+                                                float4_e1m2x2_t>) {
             AscendC::DataCopyPadExtParams<uint8_t> padParams(false, 0, 0, 0);
-            AscendC::DataCopyPad(
-                dstTensor.template ReinterpretCast<uint8_t>(),
-                srcTensor.template ReinterpretCast<uint8_t>(), dataCopyParams, padParams);
+            AscendC::DataCopyPad(dstTensor.template ReinterpretCast<uint8_t>(),
+                                 srcTensor.template ReinterpretCast<uint8_t>(), dataCopyParams, padParams);
         } else {
             AscendC::DataCopyPadExtParams<Element> padParams(false, 0, 0, 0);
             AscendC::DataCopyPad(dstTensor, srcTensor, dataCopyParams, padParams);
         }
     };
 };
-#endif // CATLASS_ARCH == 3510 || __NPU_ARCH__ == 3510
+#endif  // CATLASS_ARCH == 3510 || __NPU_ARCH__ == 3510
 
 template <class Element>
 struct CopyGm2UbAligned<Arch::Ascend950, Gemm::GemmType<Element, layout::RowMajor>> {
@@ -266,11 +215,8 @@ struct CopyGm2UbAligned<Arch::Ascend950, Gemm::GemmType<Element, layout::RowMajo
     CopyGm2UbAligned() = default;
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::LocalTensor<Element> const &dstTensor,
-        AscendC::GlobalTensor<Element> const &srcTensor,
-        layout::RowMajor const &layoutDst,
-        layout::RowMajor const &layoutSrc)
+    void operator()(AscendC::LocalTensor<Element> const &dstTensor, AscendC::GlobalTensor<Element> const &srcTensor,
+                    layout::RowMajor const &layoutDst, layout::RowMajor const &layoutSrc)
     {
         uint32_t rows = layoutSrc.shape(0);
         uint32_t cols = layoutSrc.shape(1);
@@ -285,9 +231,7 @@ struct CopyGm2UbAligned<Arch::Ascend950, Gemm::GemmType<Element, layout::RowMajo
             uint32_t rLoops = CeilDiv(rows, MAX_REPEAT);
             for (uint32_t i = 0; i < rLoops; ++i) {
                 uint32_t rActual = (i < rLoops - 1) ? MAX_REPEAT : rows - i * MAX_REPEAT;
-                AscendC::DataCopyParams dataCopyParams(
-                    rActual, cols / ELE_NUM_PER_BLK, srcStride, dstStride
-                );
+                AscendC::DataCopyParams dataCopyParams(rActual, cols / ELE_NUM_PER_BLK, srcStride, dstStride);
                 DataCopy(dstTensor[i * MAX_REPEAT * layoutDst.stride(0)],
                          srcTensor[i * MAX_REPEAT * layoutSrc.stride(0)], dataCopyParams);
             }
@@ -300,6 +244,6 @@ struct CopyGm2UbAligned<Arch::Ascend950, Gemm::GemmType<Element, layout::RowMajo
     }
 };
 
-}  // Catlass::Epilogue::Tile
+}  // namespace Catlass::Epilogue::Tile
 
 #endif

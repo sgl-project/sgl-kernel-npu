@@ -1,5 +1,5 @@
 CANN Open Software License Agreement Version 2.0
-              
+
 This CANN Open Software License Agreement Version 2.0 (hereinafter referred to as this "Agreement") is a legal agreement between you and Huawei, and it governs your use, modification, or distribution of CANN Open Software (hereinafter referred to as "Software"). Please read this Agreement carefully.
 
 If you are entering into this Agreement on behalf of a company or other legal entity, you represent that you have the legal authority to bind that entity to this Agreement, in which case "you" will mean the entity you represent.
@@ -13,14 +13,14 @@ BY DOWNLOADING, INSTALLING, OR USING THE SOFTWARE, YOU AGREE YOU HAVE FULLY UNDE
 1.2   Huawei AI Processors mean AI chipsets (i) branded with "Ascend", "Kirin"," Yueying" or other brands owned or controlled by Huawei; or (ii) manufactured (including have manufactured), supplied (including have supplied) or designed (including have designed) by Huawei.
 
 2.  Grant of Intellectual Property Rights
-2.1 Subject to the terms and conditions of this Agreement, including your full compliance thereof, Huawei hereby grants you a limited, worldwide, royalty-free, non-transferable, non-sublicensable, and revocable license for you to (i) download, use, modify, integrate, and distribute the Software or its derivative works for the purpose of developing software solely for use in systems with Huawei AI Processors and/or Software, and (ii) distribute any software developed based upon Software and/or its derivative works solely for use in systems with Huawei AI Processors and/or Software. 
+2.1 Subject to the terms and conditions of this Agreement, including your full compliance thereof, Huawei hereby grants you a limited, worldwide, royalty-free, non-transferable, non-sublicensable, and revocable license for you to (i) download, use, modify, integrate, and distribute the Software or its derivative works for the purpose of developing software solely for use in systems with Huawei AI Processors and/or Software, and (ii) distribute any software developed based upon Software and/or its derivative works solely for use in systems with Huawei AI Processors and/or Software.
 
 3.  Restrictions
 3.1 You are not authorized to, and shall not use, modify, or distribute this Software or its derivative works for any other purposes than those expressly permitted by this Agreement. You shall not make any use of the Software or its derivative works to develop or distribute any software for use in systems with processors other than Huawei AI Processors. All rights not expressly granted herein are expressly reserved by Huawei.
 
 3.2 You are not authorized to, and shall not remove, obscure, or alter any copyright or other notices in this Software or any part of it.
 
-3.3 Distribution Restrictions 
+3.3 Distribution Restrictions
 You may distribute the Software or its derivative works in any medium, whether in source or executable forms, for the purpose stipulated in Section 2; provided that you provide recipients with a copy of this Agreement, and retain all notices in the Software.
 
 4. Disclaimer of Warranty and Limitation of Liability

@@ -22,7 +22,7 @@ namespace Catlass::Epilogue::Fusion {
 
 // USE_UB_WORKSPACE = false: 从 Global Memory 加载数据到 UB
 // USE_UB_WORKSPACE = true:  直接使用 UB 中已有的数据
-template<class Element, bool USE_UB_WORKSPACE = false>
+template <class Element, bool USE_UB_WORKSPACE = false>
 struct VisitorAccLoad : VisitorImpl<> {
     using VisitorImpl<>::VisitorImpl;
 
@@ -34,67 +34,62 @@ struct VisitorAccLoad : VisitorImpl<> {
     struct Params {};
 
     template <class ProblemShape>
-    static constexpr Params
-    to_underlying_arguments(ProblemShape const&, Arguments const&, void*) {
+    static constexpr Params to_underlying_arguments(ProblemShape const &, Arguments const &, void *)
+    {
         return Params();
     }
 
     template <class ProblemShape>
-    static size_t
-    get_workspace_size(ProblemShape const&, Arguments const&) {
+    static size_t get_workspace_size(ProblemShape const &, Arguments const &)
+    {
         return 0;
     }
 
     template <class ProblemShape>
-    static bool
-    can_implement(ProblemShape const&, Arguments const&) {
+    static bool can_implement(ProblemShape const &, Arguments const &)
+    {
         return true;
     }
 
-    
     VisitorAccLoad() {}
 
-    
-    VisitorAccLoad(Params const&) {}
+    VisitorAccLoad(Params const &) {}
 
     struct Callbacks : EmptyCallbacks {
         AscendC::LocalTensor<Element> ubAcc;
-        Params const* params_ptr;
+        Params const *params_ptr;
         uint32_t compute_length;
 
         CATLASS_DEVICE
-        Callbacks(AscendC::LocalTensor<Element> ubAcc_,
-                 Params const* params_ptr_,
-                 uint32_t compute_length_)
-            : ubAcc(ubAcc_), params_ptr(params_ptr_), compute_length(compute_length_) {}
+        Callbacks(AscendC::LocalTensor<Element> ubAcc_, Params const *params_ptr_, uint32_t compute_length_)
+            : ubAcc(ubAcc_), params_ptr(params_ptr_), compute_length(compute_length_)
+        {}
 
         // USE_UB_WORKSPACE = true 模式的构造函数
         CATLASS_DEVICE
-        Callbacks(Params const* params_ptr_,
-                 uint32_t compute_length_)
-            : params_ptr(params_ptr_), compute_length(compute_length_) {}
+        Callbacks(Params const *params_ptr_, uint32_t compute_length_)
+            : params_ptr(params_ptr_), compute_length(compute_length_)
+        {}
 
         template <VisitStage Stage, class ArchTag, class TensorC, typename... Args>
-        CATLASS_DEVICE AscendC::LocalTensor<Element> const& visit(
-            TensorC const& tensorTile,
-            MatrixCoord const& alignedTileShape,
-            MatrixCoord const& /*globalOffset*/,
-            Args const&... /*unused*/
-        ) {
+        CATLASS_DEVICE AscendC::LocalTensor<Element> const &visit(TensorC const &tensorTile,
+                                                                  MatrixCoord const &alignedTileShape,
+                                                                  MatrixCoord const & /*globalOffset*/,
+                                                                  Args const &.../*unused*/
+        )
+        {
             if constexpr (!USE_UB_WORKSPACE) {
                 // 从 GM 加载到 UB
                 if constexpr (Stage == VisitStage::LOAD) {
                     // 从tensor获取actualTileShape
                     auto actualRows = tla::get<0>(tensorTile.shape());
                     auto actualCols = tla::get<1>(tensorTile.shape());
-                    
+
                     // 创建UB tensor（使用对齐后的形状）
-                    auto layoutUb = tla::MakeLayout(
-                        tla::MakeShape(actualRows, actualCols),
-                        tla::MakeStride(alignedTileShape.column(), tla::Int<1>{})
-                    );
+                    auto layoutUb = tla::MakeLayout(tla::MakeShape(actualRows, actualCols),
+                                                    tla::MakeStride(alignedTileShape.column(), tla::Int<1>{}));
                     auto tensorUb = tla::MakeTensor(ubAcc, layoutUb, Arch::PositionUB{});
-                    
+
                     using CopyGm2UbTlaT = Epilogue::Tile::CopyGm2UbTla<ArchTag, TensorC, decltype(tensorUb)>;
                     CopyGm2UbTlaT copyGm2UbTla{};
                     copyGm2UbTla(tensorUb, tensorTile);
@@ -111,11 +106,8 @@ struct VisitorAccLoad : VisitorImpl<> {
     };
 
     template <class ArchTag>
-    CATLASS_DEVICE auto get_callbacks(
-        Arch::Resource<ArchTag>& resource,
-        uint32_t& ub_offset,
-        uint32_t compute_length
-    ) {
+    CATLASS_DEVICE auto get_callbacks(Arch::Resource<ArchTag> &resource, uint32_t &ub_offset, uint32_t compute_length)
+    {
         if constexpr (!USE_UB_WORKSPACE) {
             auto ubAcc = resource.ubBuf.template GetBufferByByte<Element>(ub_offset);
             ub_offset += compute_length * sizeof(Element);
@@ -129,6 +121,6 @@ struct VisitorAccLoad : VisitorImpl<> {
     Params params;
 };
 
-} // namespace Catlass::Epilogue::Fusion
+}  // namespace Catlass::Epilogue::Fusion
 
 #endif

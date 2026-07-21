@@ -25,7 +25,7 @@ struct AtlasA2 {
     static constexpr uint32_t L0C_SIZE = 128 * 1024;
 };
 
-//Ascend950
+// Ascend950
 struct Ascend950 {
     static constexpr uint32_t BIAS_SIZE = 4 * 1024;
     static constexpr uint32_t FIXBUF_SIZE = 16 * 1024;
@@ -47,6 +47,6 @@ using PositionL0C = PositionType<AscendC::TPosition::CO1>;
 using PositionBias = PositionType<AscendC::TPosition::C2>;
 using PositionUB = PositionType<AscendC::TPosition::VECCALC>;
 
-} // namespace Catlass::Arch
+}  // namespace Catlass::Arch
 
-#endif // CATLASS_ARCH_ARCH_HPP
+#endif  // CATLASS_ARCH_ARCH_HPP

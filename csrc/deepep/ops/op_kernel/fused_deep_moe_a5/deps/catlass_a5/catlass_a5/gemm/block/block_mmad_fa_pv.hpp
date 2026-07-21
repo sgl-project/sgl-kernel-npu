@@ -26,26 +26,9 @@
 namespace Catlass::Gemm::Block {
 ////////////////////////////////////////////////////////////////////
 
-template <
-    class L1TileShape_,
-    class L0TileShape_,
-    class AType_,
-    class BType_,
-    class CType_,
-    class BiasType_,
-    class TileCopy_,
-    class TileMmad_>
-struct BlockMmad <
-    MmadAtlasA2FAPV,
-    L1TileShape_,
-    L0TileShape_,
-    AType_,
-    BType_,
-    CType_,
-    BiasType_,
-    TileCopy_,
-    TileMmad_>
-{
+template <class L1TileShape_, class L0TileShape_, class AType_, class BType_, class CType_, class BiasType_,
+          class TileCopy_, class TileMmad_>
+struct BlockMmad<MmadAtlasA2FAPV, L1TileShape_, L0TileShape_, AType_, BType_, CType_, BiasType_, TileCopy_, TileMmad_> {
 public:
     // Type Aliases
     using DispatchPolicy = MmadAtlasA2FAPV;
@@ -115,13 +98,9 @@ public:
 
     /// Perform a block-scoped matrix multiply-accumulate
     CATLASS_DEVICE
-    void operator()(
-        AscendC::GlobalTensor<ElementA> gA,
-        AscendC::GlobalTensor<ElementB> gB,
-        AscendC::GlobalTensor<ElementC> gC,
-        LayoutA layoutA, LayoutB layoutB, LayoutC layoutC,
-        GemmCoord actualShape, uint32_t &pingpongFlag,
-        Arch::CrossCoreFlag softmaxReady)
+    void operator()(AscendC::GlobalTensor<ElementA> gA, AscendC::GlobalTensor<ElementB> gB,
+                    AscendC::GlobalTensor<ElementC> gC, LayoutA layoutA, LayoutB layoutB, LayoutC layoutC,
+                    GemmCoord actualShape, uint32_t &pingpongFlag, Arch::CrossCoreFlag softmaxReady)
     {
         LayoutAInL1 layoutAInL1 = LayoutAInL1::template MakeLayout<ElementA>(L1TileShape::M, L1TileShape::K);
         LayoutBInL1 layoutBInL1 = LayoutBInL1::template MakeLayout<ElementB>(L1TileShape::K, L1TileShape::N);
@@ -154,8 +133,8 @@ public:
         AscendC::WaitFlag<AscendC::HardEvent::MTE1_M>(EVENT_ID0);
 
         AscendC::WaitFlag<AscendC::HardEvent::FIX_M>(pingpongFlag);
-        tileMmad(
-            l0CTensor[pingpongFlag], l0ATensor[pingpongFlag], l0BTensor[pingpongFlag], mRound, nRound, actualShape.k());
+        tileMmad(l0CTensor[pingpongFlag], l0ATensor[pingpongFlag], l0BTensor[pingpongFlag], mRound, nRound,
+                 actualShape.k());
         AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(pingpongFlag);
 
         AscendC::SetFlag<AscendC::HardEvent::M_FIX>(EVENT_ID0);

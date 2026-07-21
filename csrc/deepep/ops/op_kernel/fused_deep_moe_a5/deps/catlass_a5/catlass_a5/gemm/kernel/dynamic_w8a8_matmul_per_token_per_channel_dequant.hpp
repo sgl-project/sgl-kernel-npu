@@ -4,8 +4,9 @@
  * This file is a part of the CANN Open Software.
  * Licensed under CANN Open Software License Agreement Version 2.0 (the "License").
  * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED, INCLUDING
+ * BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. See LICENSE in the root of
+ * the software repository for the full text of the License.
  */
 
 #ifndef CATLASS_GEMM_KERNEL_W8A8_MATMUL_PER_CHANNEL_HPP
@@ -24,15 +25,10 @@
 
 namespace Catlass::Gemm::Kernel {
 
-template <
-    class BlockMmad_,
-    class BlockEpilogue_,
-    class BlockScheduler_,
-    uint32_t WORKSPACE_STAGES_,
-    class ElementScale_,
-    class LayoutScale_
->
-class DynamicW8A8MatmulPerTokenPerChannelDequant {
+template <class BlockMmad_, class BlockEpilogue_, class BlockScheduler_, uint32_t WORKSPACE_STAGES_,
+          class ElementScale_, class LayoutScale_>
+class DynamicW8A8MatmulPerTokenPerChannelDequant
+{
 public:
     using BlockMmad = BlockMmad_;
     using ArchTag = typename BlockMmad::ArchTag;
@@ -56,7 +52,7 @@ public:
     using BlockScheduler = BlockScheduler_;
 
     using EpilogueTileShape = typename BlockEpilogue::TileShape;
-    
+
     static constexpr uint32_t WORKSPACE_STAGES = WORKSPACE_STAGES_;
 
     /// Parameters structure
@@ -82,24 +78,24 @@ public:
         Params() {}
 
         CATLASS_HOST_DEVICE
-        Params(
-            GemmCoord problemShape_, GemmCoord l1TileShape_, GemmCoord l0TileShape_,
-            GM_ADDR ptrA_, LayoutA layoutA_,
-            GM_ADDR ptrB_, LayoutB layoutB_,
-            GM_ADDR ptrScale_, LayoutScale layoutScale_,
-            GM_ADDR ptrPerTokenScale_, LayoutPerTokenScale layoutPerTokenScale_,
-            GM_ADDR ptrD_, LayoutD layoutD_,
-            GM_ADDR ptrWorkspace_
-        ) : problemShape(problemShape_), l1TileShape(l1TileShape_), l0TileShape(l0TileShape_),
-            ptrA(reinterpret_cast<__gm__ ElementA *>(ptrA_)), layoutA(layoutA_),
-            ptrB(reinterpret_cast<__gm__ ElementB *>(ptrB_)), layoutB(layoutB_),
-            ptrScale(reinterpret_cast<__gm__ ElementScale *>(ptrScale_)), layoutScale(layoutScale_),
-            ptrPerTokenScale(reinterpret_cast<__gm__ ElementPerTokenScale *>(ptrPerTokenScale_)),
-            layoutPerTokenScale(layoutPerTokenScale_),
-            ptrD(reinterpret_cast<__gm__ ElementD *>(ptrD_)), layoutD(layoutD_),
-            ptrWorkspace(ptrWorkspace_)
-        {
-        }
+        Params(GemmCoord problemShape_, GemmCoord l1TileShape_, GemmCoord l0TileShape_, GM_ADDR ptrA_, LayoutA layoutA_,
+               GM_ADDR ptrB_, LayoutB layoutB_, GM_ADDR ptrScale_, LayoutScale layoutScale_, GM_ADDR ptrPerTokenScale_,
+               LayoutPerTokenScale layoutPerTokenScale_, GM_ADDR ptrD_, LayoutD layoutD_, GM_ADDR ptrWorkspace_)
+            : problemShape(problemShape_),
+              l1TileShape(l1TileShape_),
+              l0TileShape(l0TileShape_),
+              ptrA(reinterpret_cast<__gm__ ElementA *>(ptrA_)),
+              layoutA(layoutA_),
+              ptrB(reinterpret_cast<__gm__ ElementB *>(ptrB_)),
+              layoutB(layoutB_),
+              ptrScale(reinterpret_cast<__gm__ ElementScale *>(ptrScale_)),
+              layoutScale(layoutScale_),
+              ptrPerTokenScale(reinterpret_cast<__gm__ ElementPerTokenScale *>(ptrPerTokenScale_)),
+              layoutPerTokenScale(layoutPerTokenScale_),
+              ptrD(reinterpret_cast<__gm__ ElementD *>(ptrD_)),
+              layoutD(layoutD_),
+              ptrWorkspace(ptrWorkspace_)
+        {}
     };
 
     struct Arguments {
@@ -126,18 +122,16 @@ public:
         if constexpr (std::is_same_v<LayoutB, layout::zN>) {
             isValid = (k % 16 == 0 && n % 64 == 0);
             if (!isValid) {
-                std::cerr << "matmulOp cannot be implemented, " <<
-                    "please mind that n must be divisible by 64 " << 
-                    "while k must be divisible by 16" << std::endl; 
+                std::cerr << "matmulOp cannot be implemented, " << "please mind that n must be divisible by 64 "
+                          << "while k must be divisible by 16" << std::endl;
             }
         }
 
         if constexpr (std::is_same_v<LayoutB, layout::nZ>) {
             isValid = (k % 64 == 0 && n % 16 == 0);
             if (!isValid) {
-                std::cerr << "matmulOp cannot be implemented, " <<
-                    "please mind that k must be divisible by 64 " << 
-                    "while n must be divisible by 16" << std::endl;
+                std::cerr << "matmulOp cannot be implemented, " << "please mind that k must be divisible by 64 "
+                          << "while n must be divisible by 16" << std::endl;
             }
         }
 
@@ -147,11 +141,17 @@ public:
     static Params ToUnderlyingArguments(const Arguments &args, uint8_t *workspace)
     {
         Params params{args.problemShape,
-            args.ptrA, args.layoutA,
-            args.ptrB, args.layoutB,
-            args.ptrScale, args.layoutScale,
-            args.ptrPerTokenScale, args.layoutPerTokenScale,
-            args.ptrD, args.layoutD, workspace};
+                      args.ptrA,
+                      args.layoutA,
+                      args.ptrB,
+                      args.layoutB,
+                      args.ptrScale,
+                      args.layoutScale,
+                      args.ptrPerTokenScale,
+                      args.layoutPerTokenScale,
+                      args.ptrD,
+                      args.layoutD,
+                      workspace};
         return params;
     }
 
@@ -169,12 +169,10 @@ public:
     }
 
     template <int32_t CORE_TYPE = g_coreType>
-    CATLASS_DEVICE
-    void operator()(Params const &params, Catlass::Arch::Resource<ArchTag> &resource);
+    CATLASS_DEVICE void operator()(Params const &params, Catlass::Arch::Resource<ArchTag> &resource);
 
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIC>(Params const &params, Catlass::Arch::Resource<ArchTag> &resource)
+    CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params, Catlass::Arch::Resource<ArchTag> &resource)
     {
         BlockScheduler blockScheduler;
         BlockMmad blockMmad(params.l1TileShape, params.l0TileShape, resource);
@@ -184,7 +182,7 @@ public:
         AscendC::GlobalTensor<ElementB> gmB;
         gmB.SetGlobalBuffer(params.ptrB);
         AscendC::GlobalTensor<ElementC> gmC;
-        
+
         uint32_t coreIdx = AscendC::GetBlockIdx();
         uint32_t coreNum = AscendC::GetBlockNum();
 
@@ -227,24 +225,14 @@ public:
             int64_t gmOffsetA = layoutA.GetOffset(offsetA);
             int64_t gmOffsetB = layoutB.GetOffset(offsetB);
             int64_t gmOffsetC = layoutC.GetOffset(offsetC);
-            
+
             // Compute block-scoped matrix multiply-add
             if constexpr (BlockMmad::DispatchPolicy::ASYNC) {
-                blockMmad(
-                    gmA[gmOffsetA], layoutA,
-                    gmB[gmOffsetB], layoutB,
-                    gmC[gmOffsetC], layoutC,
-                    actualBlockShape,
-                    callbackBeforeFixpipe, callbackAfterFixpipe
-                );
+                blockMmad(gmA[gmOffsetA], layoutA, gmB[gmOffsetB], layoutB, gmC[gmOffsetC], layoutC, actualBlockShape,
+                          callbackBeforeFixpipe, callbackAfterFixpipe);
             } else {
                 callbackBeforeFixpipe();
-                blockMmad(
-                    gmA[gmOffsetA], layoutA,
-                    gmB[gmOffsetB], layoutB,
-                    gmC[gmOffsetC], layoutC,
-                    actualBlockShape
-                );
+                blockMmad(gmA[gmOffsetA], layoutA, gmB[gmOffsetB], layoutB, gmC[gmOffsetC], layoutC, actualBlockShape);
                 callbackAfterFixpipe();
             }
 
@@ -256,8 +244,8 @@ public:
         }
 
         while (stageUsed > 0) {
-            uint32_t aivComputeStageId = (stageId >= stageUsed) ?
-                (stageId - stageUsed) : (stageId + WORKSPACE_STAGES - stageUsed);
+            uint32_t aivComputeStageId =
+                (stageId >= stageUsed) ? (stageId - stageUsed) : (stageId + WORKSPACE_STAGES - stageUsed);
             Arch::CrossCoreWaitFlag(flagAivFinishComputeList[aivComputeStageId]);
             --stageUsed;
         }
@@ -266,8 +254,7 @@ public:
     }
 
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIV>(Params const &params, Catlass::Arch::Resource<ArchTag> &resource)
+    CATLASS_DEVICE void operator()<AscendC::AIV>(Params const &params, Catlass::Arch::Resource<ArchTag> &resource)
     {
         BlockScheduler blockScheduler;
         BlockEpilogue blockEpilogue(resource);
@@ -284,17 +271,13 @@ public:
 
         GemmCoord problemShape{params.problemShape.m(), params.problemShape.n(), params.problemShape.k()};
 
-        LayoutScale layoutScale =
-            params.layoutScale.GetTileLayout(problemShape.template GetCoordByAxis<0>());
+        LayoutScale layoutScale = params.layoutScale.GetTileLayout(problemShape.template GetCoordByAxis<0>());
         LayoutPerTokenScale layoutPerTokenScale =
             params.layoutPerTokenScale.GetTileLayout(problemShape.template GetCoordByAxis<0>());
         LayoutD layoutD = params.layoutD.GetTileLayout(problemShape.GetCoordMN());
 
-        EpilogueParams epilogueParams{
-            params.ptrScale, layoutScale,
-            params.ptrPerTokenScale, layoutPerTokenScale,
-            params.ptrD, layoutD
-        };
+        EpilogueParams epilogueParams{params.ptrScale,     layoutScale, params.ptrPerTokenScale,
+                                      layoutPerTokenScale, params.ptrD, layoutD};
 
         blockScheduler.Update(problemShape, MakeCoord(params.l1TileShape.m(), params.l1TileShape.n()));
         blockEpilogue.UpdateParams(epilogueParams);
@@ -326,7 +309,7 @@ private:
 
     struct AicWaitFunc {
         using MatmulKernel = DynamicW8A8MatmulPerTokenPerChannelDequant<BlockMmad, BlockEpilogue, BlockScheduler,
-            WORKSPACE_STAGES, ElementScale, LayoutScale>;
+                                                                        WORKSPACE_STAGES, ElementScale, LayoutScale>;
 
         CATLASS_DEVICE
         AicWaitFunc() = default;
@@ -343,7 +326,7 @@ private:
 
     struct AicSetFunc {
         using MatmulKernel = DynamicW8A8MatmulPerTokenPerChannelDequant<BlockMmad, BlockEpilogue, BlockScheduler,
-            WORKSPACE_STAGES, ElementScale, LayoutScale>;
+                                                                        WORKSPACE_STAGES, ElementScale, LayoutScale>;
 
         CATLASS_DEVICE
         AicSetFunc() = default;
@@ -365,6 +348,6 @@ private:
     AicSetFunc aicSetFuncList[WORKSPACE_STAGES];
 };
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel
 
-#endif // CATLASS_GEMM_KERNEL_W8A8_MATMUL_PER_CHANNEL_HPP
+#endif  // CATLASS_GEMM_KERNEL_W8A8_MATMUL_PER_CHANNEL_HPP

@@ -25,5 +25,3 @@
 #include "catlass_a5/epilogue/fusion/topological_visitor.hpp"
 
 #endif
-
-

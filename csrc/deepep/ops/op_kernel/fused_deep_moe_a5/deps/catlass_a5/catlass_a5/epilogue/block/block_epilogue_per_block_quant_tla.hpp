@@ -26,19 +26,9 @@
 
 namespace Catlass::Epilogue::Block {
 
-template <
-    class ElementSrc_,
-    class ElementDst_,
-    class ElementScale_,
-    class TilePerBlockQuant_
->
-class BlockEpilogue <
-    EpilogueAscend950PerBlockQuantTla<1>,
-    ElementSrc_,
-    ElementDst_,
-    ElementScale_,
-    TilePerBlockQuant_
-> {
+template <class ElementSrc_, class ElementDst_, class ElementScale_, class TilePerBlockQuant_>
+class BlockEpilogue<EpilogueAscend950PerBlockQuantTla<1>, ElementSrc_, ElementDst_, ElementScale_, TilePerBlockQuant_>
+{
 public:
     using DispatchPolicy = EpilogueAscend950PerBlockQuantTla<1>;
     using ArchTag = typename DispatchPolicy::ArchTag;
@@ -51,15 +41,15 @@ public:
     using ElementScale = ElementScale_;
     using LayoutScale = detail::TagToLayout_t<ElementScale, layout::VectorLayout>;
 
-    static_assert(
-        std::is_same_v<ElementSrc, bfloat16_t> && (std::is_same_v<ElementDst, float8_e4m3_t>) &&
-            std::is_same_v<ElementScale, float>,
-        "The element type template parameters of BlockEpilogue are wrong"
-    );
+    static_assert(std::is_same_v<ElementSrc, bfloat16_t> && (std::is_same_v<ElementDst, float8_e4m3_t>) &&
+                      std::is_same_v<ElementScale, float>,
+                  "The element type template parameters of BlockEpilogue are wrong");
 
     using TilePerBlockQuant = TilePerBlockQuant_;
-    using TensorDst = tla::Tensor<AscendC::GlobalTensor<ElementDst>, LayoutDst, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::GM>;
-    using TensorUbDst = tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::VECCALC>;
+    using TensorDst =
+        tla::Tensor<AscendC::GlobalTensor<ElementDst>, LayoutDst, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::GM>;
+    using TensorUbDst = tla::Tensor<AscendC::LocalTensor<ElementDst>, LayoutDst, tla::Coord<tla::_0, tla::_0>,
+                                    AscendC::TPosition::VECCALC>;
     using CopyUbToGmDst = Epilogue::Tile::CopyUb2GmTla<ArchTag, TensorUbDst, TensorDst>;
 
     static constexpr uint32_t FLOAT_ELE_NUM_PER_BLK = BYTE_PER_BLK / sizeof(float);
@@ -75,12 +65,10 @@ public:
         Params() {}
 
         CATLASS_DEVICE
-        Params(
-            LayoutSrc const &layoutSrc_,
-            LayoutDst const &layoutDst_,
-            LayoutScale const &layoutScale_,
-            uint32_t strideC_
-        ) : layoutSrc(layoutSrc_), layoutDst(layoutDst_), layoutScale(layoutScale_), strideC(strideC_) {}
+        Params(LayoutSrc const &layoutSrc_, LayoutDst const &layoutDst_, LayoutScale const &layoutScale_,
+               uint32_t strideC_)
+            : layoutSrc(layoutSrc_), layoutDst(layoutDst_), layoutScale(layoutScale_), strideC(strideC_)
+        {}
     };
 
     CATLASS_DEVICE
@@ -90,9 +78,7 @@ public:
     }
 
     CATLASS_DEVICE
-    ~BlockEpilogue()
-    {
-    }
+    ~BlockEpilogue() {}
 
     CATLASS_DEVICE
     void UpdateParams(Params const &params_)
@@ -102,12 +88,8 @@ public:
     }
 
     CATLASS_DEVICE
-    void operator() (
-        AscendC::LocalTensor<ElementSrc> ubC,
-        AscendC::LocalTensor<ElementDst> ubDst,
-        AscendC::LocalTensor<ElementScale> ubScale,
-        AscendC::GlobalTensor<ElementDst> gmDst
-    )
+    void operator()(AscendC::LocalTensor<ElementSrc> ubC, AscendC::LocalTensor<ElementDst> ubDst,
+                    AscendC::LocalTensor<ElementScale> ubScale, AscendC::GlobalTensor<ElementDst> gmDst)
     {
         auto tensorUbC = tla::MakeTensor(ubC, params.layoutSrc, Arch::PositionUB{});
         auto tensorUbDst = tla::MakeTensor(ubDst, params.layoutDst, Arch::PositionUB{});

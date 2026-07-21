@@ -16,7 +16,7 @@
 
 namespace Catlass::Arch {
 
-template<class ArchTag>
+template <class ArchTag>
 struct Resource {
 public:
     AscendC::TPipe pipe;
@@ -38,6 +38,6 @@ public:
     }
 };
 
-} // namespace Catlass::Arch
+}  // namespace Catlass::Arch
 
-#endif // CATLASS_ARCH_RESOURCE_HPP
+#endif  // CATLASS_ARCH_RESOURCE_HPP

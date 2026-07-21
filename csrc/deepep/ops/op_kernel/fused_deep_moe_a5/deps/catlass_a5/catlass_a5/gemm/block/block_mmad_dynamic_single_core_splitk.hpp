@@ -22,29 +22,11 @@
 
 namespace Catlass::Gemm::Block {
 
-template <
-    uint32_t L1A_STAGES_,
-    uint32_t L1B_STAGES_,
-    uint32_t L0C_STAGES_,
-    bool ENABLE_UNIT_FLAG_,
-    class L1TileShape_,
-    class L0TileShape_,
-    class AType_,
-    class BType_,
-    class CType_,
-    class BiasType_,
-    class TileCopy_,
-    class TileMmad_>
-struct BlockMmad<
-    MmadAtlasA2DynamicSingleCoreSplitk<L1A_STAGES_, L1B_STAGES_, L0C_STAGES_, ENABLE_UNIT_FLAG_>,
-    L1TileShape_,
-    L0TileShape_,
-    AType_,
-    BType_,
-    CType_,
-    BiasType_,
-    TileCopy_,
-    TileMmad_> {
+template <uint32_t L1A_STAGES_, uint32_t L1B_STAGES_, uint32_t L0C_STAGES_, bool ENABLE_UNIT_FLAG_, class L1TileShape_,
+          class L0TileShape_, class AType_, class BType_, class CType_, class BiasType_, class TileCopy_,
+          class TileMmad_>
+struct BlockMmad<MmadAtlasA2DynamicSingleCoreSplitk<L1A_STAGES_, L1B_STAGES_, L0C_STAGES_, ENABLE_UNIT_FLAG_>,
+                 L1TileShape_, L0TileShape_, AType_, BType_, CType_, BiasType_, TileCopy_, TileMmad_> {
 public:
     // Type Aliases
     using DispatchPolicy = MmadAtlasA2DynamicSingleCoreSplitk<L1A_STAGES_, L1B_STAGES_, L0C_STAGES_, ENABLE_UNIT_FLAG_>;
@@ -61,7 +43,8 @@ public:
     using CopyL1ToL0A = typename TileCopy_::CopyL1ToL0A;
     using CopyL1ToL0B = typename TileCopy_::CopyL1ToL0B;
     using CopyL0CToGm = typename TileCopy_::CopyL0CToGm;
-    using ElementAccumulator = typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
+    using ElementAccumulator =
+        typename Gemm::helper::ElementAccumulatorSelector<ElementA, ElementB>::ElementAccumulator;
     using LayoutAInL1 = typename CopyL1ToL0A::LayoutSrc;
     using LayoutBInL1 = typename CopyL1ToL0B::LayoutSrc;
     using LayoutAInL0 = typename CopyL1ToL0A::LayoutDst;
@@ -86,16 +69,13 @@ public:
 
     /// Construct
     CATLASS_DEVICE
-    BlockMmad(
-        GemmCoord const &l1TileShape_,
-        GemmCoord const &l0TileShape_,
-        Arch::Resource<ArchTag> &resource,
-        uint32_t l1BufAddrStart = 0
-    )
-        : l1TileShape(l1TileShape_)
-        , l0TileShape(l0TileShape_)
+    BlockMmad(GemmCoord const &l1TileShape_, GemmCoord const &l0TileShape_, Arch::Resource<ArchTag> &resource,
+              uint32_t l1BufAddrStart = 0)
+        : l1TileShape(l1TileShape_), l0TileShape(l0TileShape_)
     {
-        if ASCEND_IS_AIV { return; }
+        if ASCEND_IS_AIV {
+            return;
+        }
 
         uint32_t l1ASize = l1TileShape.m() * l1TileShape.k() * sizeof(ElementA);
         uint32_t l1BSize = l1TileShape.k() * l1TileShape.n() * sizeof(ElementB);
@@ -133,7 +113,9 @@ public:
     CATLASS_DEVICE
     ~BlockMmad()
     {
-        if ASCEND_IS_AIV { return; }
+        if ASCEND_IS_AIV {
+            return;
+        }
 
         for (uint32_t i = 0; i < L1A_STAGES; i++) {
             AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(l1AEventList[i]);
@@ -153,21 +135,12 @@ public:
 
     /// Perform a block-scoped matrix multiply-accumulate
     CATLASS_DEVICE
-    void operator()(
-        AscendC::GlobalTensor<ElementA> const &gmBlockA,
-        LayoutA const &layoutA,
-        AscendC::GlobalTensor<ElementB> const &gmBlockB,
-        LayoutB const &layoutB,
-        AscendC::GlobalTensor<ElementC> const &gmBlockC,
-        LayoutC const &layoutC,
-        AscendC::GlobalTensor<ElementA> const &gmNextBlockA,
-        AscendC::GlobalTensor<ElementB> const &gmNextBlockB,
-        GemmCoord const &actualShape,
-        GemmCoord const &actualShapeNext,
-        bool needLoadNextA,
-        bool needLoadNextB,
-        bool atomicAdd
-    )
+    void operator()(AscendC::GlobalTensor<ElementA> const &gmBlockA, LayoutA const &layoutA,
+                    AscendC::GlobalTensor<ElementB> const &gmBlockB, LayoutB const &layoutB,
+                    AscendC::GlobalTensor<ElementC> const &gmBlockC, LayoutC const &layoutC,
+                    AscendC::GlobalTensor<ElementA> const &gmNextBlockA,
+                    AscendC::GlobalTensor<ElementB> const &gmNextBlockB, GemmCoord const &actualShape,
+                    GemmCoord const &actualShapeNext, bool needLoadNextA, bool needLoadNextB, bool atomicAdd)
     {
         auto layoutAInL1 = LayoutAInL1::template MakeLayout<ElementA>(l1TileShape.m(), l1TileShape.k());
         auto layoutBInL1 = LayoutBInL1::template MakeLayout<ElementB>(l1TileShape.k(), l1TileShape.n());
@@ -220,10 +193,10 @@ public:
         for (uint32_t l1mLoopIdx = 0; l1mLoopIdx < l1mLoops; l1mLoopIdx++) {
             for (uint32_t l1nLoopIdx = 0; l1nLoopIdx < l1nLoops; l1nLoopIdx++) {
                 // layoutAInL0
-                uint32_t mActual = (l1mLoopIdx < l1mLoops - 1) ? l0TileShape.m()
-                                                               : (actualShape.m() - l1mLoopIdx * l0TileShape.m());
-                uint32_t nActual = (l1nLoopIdx < l1nLoops - 1) ? l0TileShape.n()
-                                                               : (actualShape.n() - l1nLoopIdx * l0TileShape.n());
+                uint32_t mActual =
+                    (l1mLoopIdx < l1mLoops - 1) ? l0TileShape.m() : (actualShape.m() - l1mLoopIdx * l0TileShape.m());
+                uint32_t nActual =
+                    (l1nLoopIdx < l1nLoops - 1) ? l0TileShape.n() : (actualShape.n() - l1nLoopIdx * l0TileShape.n());
                 uint32_t mRound = RoundUp<L1AAlignHelper::M_ALIGNED>(mActual);
                 uint32_t nRound = RoundUp<L1BAlignHelper::N_ALIGNED>(nActual);
                 auto layoutInL0C = LayoutCInL0::MakeLayoutInL0C(MakeCoord(mRound, nRound));
@@ -246,7 +219,8 @@ public:
                 // Get the loop nums on L0
                 uint32_t l1kLoops = CeilDiv(actualShape.k(), l0TileShape.k());
                 for (uint32_t l1kLoopIdx = 0; l1kLoopIdx < l1kLoops; l1kLoopIdx++) {
-                    uint32_t kActual = (l1kLoopIdx < l1kLoops - 1) ? l0TileShape.k() : (actualShape.k() - l1kLoopIdx * l0TileShape.k());
+                    uint32_t kActual = (l1kLoopIdx < l1kLoops - 1) ? l0TileShape.k()
+                                                                   : (actualShape.k() - l1kLoopIdx * l0TileShape.k());
 
                     // Locate the current tile on L0A
                     auto l0ATile = l0ATensorList[l0ABufId];
@@ -386,6 +360,6 @@ protected:
     CopyL0CToGm copyL0CToGm;
 };
 
-} // namespace Catlass::Gemm::Block
+}  // namespace Catlass::Gemm::Block
 
-#endif // CATLASS_GEMM_BLOCK_MMAD_DYNAMIC_SINGLE_CORE_SPLITK_HPP
+#endif  // CATLASS_GEMM_BLOCK_MMAD_DYNAMIC_SINGLE_CORE_SPLITK_HPP

@@ -20,12 +20,9 @@
 namespace Catlass::Gemm::Kernel {
 
 // Template for Batched Matmul kernel. Compute batched C = A * B
-template <
-    class BlockMmad_,
-    class BlockEpilogue_,
-    class BlockScheduler_
->
-class BatchedMatmul {
+template <class BlockMmad_, class BlockEpilogue_, class BlockScheduler_>
+class BatchedMatmul
+{
 public:
     using BlockMmad = BlockMmad_;
     using ArchTag = typename BlockMmad::ArchTag;
@@ -57,18 +54,23 @@ public:
 
         // Methods
         CATLASS_HOST_DEVICE
-        Params()
-        {}
+        Params() {}
 
         CATLASS_HOST_DEVICE
-        Params(uint32_t batchCount_, GemmCoord const &problemShape_,
-               GM_ADDR ptrA_, LayoutA layoutA_, int64_t strideA_,
-               GM_ADDR ptrB_, LayoutB layoutB_, int64_t strideB_,
-               GM_ADDR ptrC_, LayoutC layoutC_, int64_t strideC_)
-            : batchCount(batchCount_), problemShape(problemShape_),
-              ptrA(ptrA_), layoutA(layoutA_), strideA(strideA_),
-              ptrB(ptrB_), layoutB(layoutB_), strideB(strideB_),
-              ptrC(ptrC_), layoutC(layoutC_), strideC(strideC_) {}
+        Params(uint32_t batchCount_, GemmCoord const &problemShape_, GM_ADDR ptrA_, LayoutA layoutA_, int64_t strideA_,
+               GM_ADDR ptrB_, LayoutB layoutB_, int64_t strideB_, GM_ADDR ptrC_, LayoutC layoutC_, int64_t strideC_)
+            : batchCount(batchCount_),
+              problemShape(problemShape_),
+              ptrA(ptrA_),
+              layoutA(layoutA_),
+              strideA(strideA_),
+              ptrB(ptrB_),
+              layoutB(layoutB_),
+              strideB(strideB_),
+              ptrC(ptrC_),
+              layoutC(layoutC_),
+              strideC(strideC_)
+        {}
     };
 
     struct Arguments {
@@ -101,17 +103,8 @@ public:
         LayoutA layoutA = LayoutA::template MakeLayout<ElementA>(args.problemShape.m(), args.problemShape.k());
         LayoutB layoutB = LayoutB::template MakeLayout<ElementB>(args.problemShape.k(), args.problemShape.n());
         LayoutC layoutC = LayoutC::template MakeLayout<ElementC>(args.problemShape.m(), args.problemShape.n());
-        Params params{args.batchCount,
-            problemShape,
-            args.ptrA,
-            layoutA,
-            strideA,
-            args.ptrB,
-            layoutB,
-            strideB,
-            args.ptrC,
-            layoutC,
-            strideC};
+        Params params{args.batchCount, problemShape, args.ptrA, layoutA, strideA, args.ptrB,
+                      layoutB,         strideB,      args.ptrC, layoutC, strideC};
         return params;
     }
 
@@ -120,13 +113,12 @@ public:
     BatchedMatmul() {}
 
     template <int32_t CORE_TYPE = g_coreType>
-    CATLASS_DEVICE
-    void operator()(Params const &params);
+    CATLASS_DEVICE void operator()(Params const &params);
 
     /// Executes one GEMM
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIC>(Params const &params) {
+    CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params)
+    {
         BlockScheduler matmulBlockScheduler(params.problemShape, MakeCoord(L1TileShape::M, L1TileShape::N));
         uint32_t coreLoops = params.batchCount * matmulBlockScheduler.GetCoreLoops();
 
@@ -161,21 +153,18 @@ public:
             int64_t gmOffsetC = params.layoutC.GetOffset(offsetC);
 
             // Compute block-scoped matrix multiply-add
-            blockMmad(
-                gmA[batchOffsetA + gmOffsetA], params.layoutA,
-                gmB[batchOffsetB + gmOffsetB], params.layoutB,
-                gmC[batchOffsetC + gmOffsetC], params.layoutC,
-                actualBlockShape);
+            blockMmad(gmA[batchOffsetA + gmOffsetA], params.layoutA, gmB[batchOffsetB + gmOffsetB], params.layoutB,
+                      gmC[batchOffsetC + gmOffsetC], params.layoutC, actualBlockShape);
         }
 
         AscendC::PipeBarrier<PIPE_ALL>();
     }
 
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIV>(Params const &params) {}
+    CATLASS_DEVICE void operator()<AscendC::AIV>(Params const &params)
+    {}
 };
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel
 
-#endif // CATLASS_GEMM_KERNEL_BATCHED_MATMUL_HPP
+#endif  // CATLASS_GEMM_KERNEL_BATCHED_MATMUL_HPP

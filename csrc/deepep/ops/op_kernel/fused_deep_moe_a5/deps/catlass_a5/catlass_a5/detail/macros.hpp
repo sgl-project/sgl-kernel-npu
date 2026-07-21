@@ -17,7 +17,7 @@
 
 #define CATLASS_DEVICE __forceinline__ __aicore__
 #ifdef __CCE__
-#define CATLASS_HOST_DEVICE __forceinline__ [host, aicore]
+#define CATLASS_HOST_DEVICE __forceinline__[host, aicore]
 #else
 #define CATLASS_HOST_DEVICE
 #endif

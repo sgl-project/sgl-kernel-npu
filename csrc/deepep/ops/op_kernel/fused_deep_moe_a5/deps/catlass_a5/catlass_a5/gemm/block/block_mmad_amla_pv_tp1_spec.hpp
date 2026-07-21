@@ -24,25 +24,10 @@
 namespace Catlass::Gemm::Block {
 ////////////////////////////////////////////////////////////////////
 
-template <
-    class L1TileShape_,
-    class L0TileShape_,
-    class AType_,
-    class BType_,
-    class CType_,
-    class BiasType_,
-    class TileCopy_,
-    class TileMmad_>
-struct BlockMmad<
-    MmadAtlasA2AMLAPVTp1Spec,
-    L1TileShape_,
-    L0TileShape_,
-    AType_,
-    BType_,
-    CType_,
-    BiasType_,
-    TileCopy_,
-    TileMmad_> {
+template <class L1TileShape_, class L0TileShape_, class AType_, class BType_, class CType_, class BiasType_,
+          class TileCopy_, class TileMmad_>
+struct BlockMmad<MmadAtlasA2AMLAPVTp1Spec, L1TileShape_, L0TileShape_, AType_, BType_, CType_, BiasType_, TileCopy_,
+                 TileMmad_> {
 public:
     // Type Aliases
     using DispatchPolicy = MmadAtlasA2AMLAPVTp1Spec;
@@ -83,7 +68,7 @@ public:
     static constexpr uint32_t EMBED_SPLIT_LOOP = 4;
     static constexpr uint32_t BLOCK_SIZE = 16;
     static constexpr uint32_t EMBED_SPLIT_SIZE = 128;
-    static constexpr uint32_t L1_PV_ADDR_START = 311296; // reserved for Q(no db) and K(db)
+    static constexpr uint32_t L1_PV_ADDR_START = 311296;  // reserved for Q(no db) and K(db)
     static constexpr uint32_t L1A_SIZE = L1TileShape::M * L1TileShape::N * sizeof(ElementA);
     static constexpr uint32_t L1B_SIZE = L1TileShape::N * EMBED_SPLIT_SIZE * sizeof(ElementB);
 
@@ -110,9 +95,9 @@ public:
     CATLASS_DEVICE
     void operator()(AscendC::GlobalTensor<ElementA> gA, AscendC::GlobalTensor<ElementA> gB,
                     AscendC::GlobalTensor<int32_t> gblockTable, AscendC::GlobalTensor<ElementC> gC, LayoutA layoutA,
-                    LayoutB layoutB, LayoutC layoutC, GemmCoord actualShape, uint32_t &nIdx, uint32_t &pingpongFlag, uint32_t &nLoop,
-                    uint32_t &blockSize, uint32_t kvSeqlen, Arch::CrossCoreFlag softmaxReady, uint32_t &pvLoopPingpongIdx,
-                    Arch::CrossCoreFlag softmaxAutoAddReady)
+                    LayoutB layoutB, LayoutC layoutC, GemmCoord actualShape, uint32_t &nIdx, uint32_t &pingpongFlag,
+                    uint32_t &nLoop, uint32_t &blockSize, uint32_t kvSeqlen, Arch::CrossCoreFlag softmaxReady,
+                    uint32_t &pvLoopPingpongIdx, Arch::CrossCoreFlag softmaxAutoAddReady)
     {
         uint32_t rowNum = actualShape.m();
         uint32_t stackSeqTile = actualShape.k();
@@ -226,6 +211,6 @@ protected:
 
 ////////////////////////////////////////////////////////////////////
 
-} // namespace Catlass::Gemm::block
+}  // namespace Catlass::Gemm::Block
 
-#endif // CATLASS_GEMM_BLOCK_BLOCK_MMAD_AMLA_PV_TP1_SPEC_HPP
+#endif  // CATLASS_GEMM_BLOCK_BLOCK_MMAD_AMLA_PV_TP1_SPEC_HPP

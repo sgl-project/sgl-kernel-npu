@@ -24,12 +24,9 @@
 namespace Catlass::Gemm::Kernel {
 
 // Template for Matmul kernel. Compute C = A * B
-template <
-    class BlockMmad_,
-    class BlockEpilogue_,
-    class BlockScheduler_
->
-class MultiCoreSplitkMatmulTla {
+template <class BlockMmad_, class BlockEpilogue_, class BlockScheduler_>
+class MultiCoreSplitkMatmulTla
+{
 public:
     using BlockMmad = BlockMmad_;
     using ArchTag = typename BlockMmad::ArchTag;
@@ -44,7 +41,7 @@ public:
     using ElementBias = typename BlockMmad::ElementBias;
 
     using BlockScheduler = BlockScheduler_;
-    
+
     static_assert(BlockMmad::TileCopy::ReluEnable == false, "Splitk template can not use the Relu with FixPipe !!!");
 
     static constexpr uint32_t computeLength = 192 * 1024 / sizeof(ElementAccumulator);
@@ -73,12 +70,20 @@ public:
         Params() {}
 
         CATLASS_HOST_DEVICE
-        Params(GemmCoord const &problemShape_, GM_ADDR ptrA_, LayoutA layoutA_, GM_ADDR ptrB_,
-               LayoutB layoutB_, GM_ADDR ptrC_, LayoutC layoutC_, GM_ADDR ptrWorkspace_,
-               uint32_t splitkFactor_, GM_ADDR ptrBias_ = nullptr)
-            : problemShape(problemShape_), ptrA(ptrA_), layoutA(layoutA_), ptrB(ptrB_), layoutB(layoutB_),
-              ptrC(ptrC_), layoutC(layoutC_), ptrWorkspace(ptrWorkspace_), splitkFactor(splitkFactor_),
-              ptrBias(ptrBias_) {}
+        Params(GemmCoord const &problemShape_, GM_ADDR ptrA_, LayoutA layoutA_, GM_ADDR ptrB_, LayoutB layoutB_,
+               GM_ADDR ptrC_, LayoutC layoutC_, GM_ADDR ptrWorkspace_, uint32_t splitkFactor_,
+               GM_ADDR ptrBias_ = nullptr)
+            : problemShape(problemShape_),
+              ptrA(ptrA_),
+              layoutA(layoutA_),
+              ptrB(ptrB_),
+              layoutB(layoutB_),
+              ptrC(ptrC_),
+              layoutC(layoutC_),
+              ptrWorkspace(ptrWorkspace_),
+              splitkFactor(splitkFactor_),
+              ptrBias(ptrBias_)
+        {}
     };
 
     struct Arguments {
@@ -103,7 +108,7 @@ public:
             splitkFactor = aicCoreNum / blockNum;
         }
         // splitkFactor = std::min(splitkFactor, kTileNum);
-        splitkFactor = splitkFactor < kTileNum ? splitkFactor:kTileNum;
+        splitkFactor = splitkFactor < kTileNum ? splitkFactor : kTileNum;
         return splitkFactor;
     }
 
@@ -118,27 +123,17 @@ public:
         uint32_t n = args.problemShape.n();
         uint32_t k = args.problemShape.k();
         uint32_t splitkFactor = GetSplitkFactor(m, n, k, args.aicCoreNum);
-        size_t minSpaceSize = 2 * 1024 * 1024; // 2M
+        size_t minSpaceSize = 2 * 1024 * 1024;  // 2M
         size_t workspaceSize = static_cast<size_t>(m) * n * sizeof(ElementAccumulator) * splitkFactor;
         return minSpaceSize > workspaceSize ? minSpaceSize : workspaceSize;
     }
 
     static Params ToUnderlyingArguments(const Arguments &args, uint8_t *workspace)
     {
-        uint32_t splitkFactor = GetSplitkFactor(
-            args.problemShape.m(), args.problemShape.n(), args.problemShape.k(), args.aicCoreNum);
-        Params params{
-            args.problemShape,
-            args.ptrA,
-            args.layoutA,
-            args.ptrB,
-            args.layoutB,
-            args.ptrC,
-            args.layoutC,
-            workspace,
-            splitkFactor,
-            args.ptrBias
-        };
+        uint32_t splitkFactor =
+            GetSplitkFactor(args.problemShape.m(), args.problemShape.n(), args.problemShape.k(), args.aicCoreNum);
+        Params params{args.problemShape, args.ptrA,    args.layoutA, args.ptrB,    args.layoutB,
+                      args.ptrC,         args.layoutC, workspace,    splitkFactor, args.ptrBias};
         return params;
     }
 
@@ -147,17 +142,14 @@ public:
     MultiCoreSplitkMatmulTla() {}
 
     template <int32_t CORE_TYPE = g_coreType>
-    CATLASS_DEVICE
-    void operator()(Params const &params);
+    CATLASS_DEVICE void operator()(Params const &params);
 
     /// Executes one Matmul
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIC>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params)
     {
-        BlockScheduler matmulBlockScheduler(
-            params.problemShape, GemmCoord(L1_TILE_M, L1_TILE_N, L1_TILE_K), params.splitkFactor
-        );
+        BlockScheduler matmulBlockScheduler(params.problemShape, GemmCoord(L1_TILE_M, L1_TILE_N, L1_TILE_K),
+                                            params.splitkFactor);
         uint32_t coreLoops = matmulBlockScheduler.GetCoreLoops();
 
         BlockMmad blockMmad(resource);
@@ -203,31 +195,23 @@ public:
                 matmulBlockScheduler.GetActualBlockShape(blockCoord, matmulBlockScheduler.GetSplitkSliceIdx(loopIdx));
 
             // Make tiled views
-            auto tensorBlockA = GetTile(
-                tensorA, tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.k() * L1_TILE_K),
-                tla::MakeShape(actualBlockShape.m(), actualBlockShape.k())
-            );
-            auto tensorBlockB = GetTile(
-                tensorB, tla::MakeCoord(blockCoord.k() * L1_TILE_K, blockCoord.n() * L1_TILE_N),
-                tla::MakeShape(actualBlockShape.k(), actualBlockShape.n())
-            );
+            auto tensorBlockA = GetTile(tensorA, tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.k() * L1_TILE_K),
+                                        tla::MakeShape(actualBlockShape.m(), actualBlockShape.k()));
+            auto tensorBlockB = GetTile(tensorB, tla::MakeCoord(blockCoord.k() * L1_TILE_K, blockCoord.n() * L1_TILE_N),
+                                        tla::MakeShape(actualBlockShape.k(), actualBlockShape.n()));
 
-            auto tensorC = tla::MakeTensor(
-                gmW[lenC * matmulBlockScheduler.GetSplitkSliceIdx(loopIdx)], layoutC, Arch::PositionGM{}
-            );
-            auto tensorBlockC = GetTile(
-                tensorC, tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N),
-                tla::MakeShape(actualBlockShape.m(), actualBlockShape.n())
-            );
+            auto tensorC = tla::MakeTensor(gmW[lenC * matmulBlockScheduler.GetSplitkSliceIdx(loopIdx)], layoutC,
+                                           Arch::PositionGM{});
+            auto tensorBlockC = GetTile(tensorC, tla::MakeCoord(blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N),
+                                        tla::MakeShape(actualBlockShape.m(), actualBlockShape.n()));
 
             // Compute block-scoped matrix multiply-add
             if constexpr (std::is_void_v<ElementBias>) {
                 blockMmad(tensorBlockA, tensorBlockB, tensorBlockC, actualBlockShape);
             } else {
                 if (blockCoord.k() == 0) {
-                    auto tensorBlockBias = GetTile(
-                        tensorBias, tla::MakeCoord(blockCoord.n() * L1_TILE_N), tla::MakeShape(actualBlockShape.n())
-                    );
+                    auto tensorBlockBias = GetTile(tensorBias, tla::MakeCoord(blockCoord.n() * L1_TILE_N),
+                                                   tla::MakeShape(actualBlockShape.n()));
                     blockMmad(tensorBlockA, tensorBlockB, tensorBlockC, actualBlockShape, tensorBlockBias);
                 } else {
                     blockMmad(tensorBlockA, tensorBlockB, tensorBlockC, actualBlockShape);
@@ -241,8 +225,7 @@ public:
     }
 
     template <>
-    CATLASS_DEVICE
-    void operator()<AscendC::AIV>(Params const &params)
+    CATLASS_DEVICE void operator()<AscendC::AIV>(Params const &params)
     {
         Catlass::Arch::CrossCoreWaitFlag<0x2, PIPE_MTE2>(flagAicFinish);
         Catlass::Arch::CrossCoreBarrier<0x0, PIPE_MTE2>();
@@ -252,11 +235,9 @@ public:
         gmC.SetGlobalBuffer(reinterpret_cast<__gm__ ElementC *>(params.ptrC));
         gmWorkspace.SetGlobalBuffer(reinterpret_cast<__gm__ ElementAccumulator *>(params.ptrWorkspace));
         ReduceAdd reduceAdd(resource);
-        reduceAdd(
-            gmC, gmWorkspace,
-            static_cast<uint64_t>(params.problemShape.m()) * static_cast<uint64_t>(params.problemShape.n()),
-            params.splitkFactor
-        );
+        reduceAdd(gmC, gmWorkspace,
+                  static_cast<uint64_t>(params.problemShape.m()) * static_cast<uint64_t>(params.problemShape.n()),
+                  params.splitkFactor);
 
         AscendC::PipeBarrier<PIPE_ALL>();
     }
@@ -267,6 +248,6 @@ private:
     Arch::Resource<ArchTag> resource;
 };
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel
 
-#endif // CATLASS_GEMM_KERNEL_MULTI_CORE_SPLITK_MATMUL_TLA_HPP
+#endif  // CATLASS_GEMM_KERNEL_MULTI_CORE_SPLITK_MATMUL_TLA_HPP

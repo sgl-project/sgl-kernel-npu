@@ -60,8 +60,8 @@ struct BlockSchedulerAswt {
     static constexpr uint32_t KL0_ = tla::get<2>(L0TileShape_{});
     static constexpr uint32_t WINDOW_LEN = 4UL;
 
-    CATLASS_DEVICE 
-    BlockSchedulerAswt(uint32_t blockIdx, uint32_t blockNum, const GemmCoord& shape = {})
+    CATLASS_DEVICE
+    BlockSchedulerAswt(uint32_t blockIdx, uint32_t blockNum, const GemmCoord &shape = {})
     {
         blockIdx_ = blockIdx;
         blockNum_ = blockNum;
@@ -71,7 +71,7 @@ struct BlockSchedulerAswt {
         }
     }
 
-    CATLASS_DEVICE 
+    CATLASS_DEVICE
     void UpdateGroupParams(GemmCoord shape)
     {
         m_ = shape.m();
@@ -97,8 +97,8 @@ struct BlockSchedulerAswt {
         tailWindow_ = mTileNum_ - mainRow_ * mainWindow_;
 
         startBlockIdx_ = endBlockIdx_ == blockNum_ - 1 ? 0 : (endBlockIdx_ + 1);
-        endBlockIdx_= (tileNum_ + startBlockIdx_ - 1) % blockNum_;
-        
+        endBlockIdx_ = (tileNum_ + startBlockIdx_ - 1) % blockNum_;
+
         if (startBlockIdx_ > endBlockIdx_ && (blockIdx_ > endBlockIdx_ && blockIdx_ < startBlockIdx_)) {
             --round_;
         } else if (startBlockIdx_ <= endBlockIdx_ && (blockIdx_ > endBlockIdx_ || blockIdx_ < startBlockIdx_)) {
@@ -139,7 +139,7 @@ struct BlockSchedulerAswt {
         endBlockIdx_ = newEndBlockIdx;
     }
 
-    CATLASS_DEVICE 
+    CATLASS_DEVICE
     void UpdateMNTileIdx(uint32_t roundIdx, bool isLastGroupRound)
     {
         uint32_t newBlockIdx = isLastGroupRound ? (blockIdx_ / tailSplitCnt_) : blockIdx_;
@@ -169,7 +169,7 @@ struct BlockSchedulerAswt {
         }
     }
 
-    CATLASS_DEVICE 
+    CATLASS_DEVICE
     void UpdateBlockShape(uint32_t roundIdx, bool isLastGroupRound)
     {
         blockM_ = mTileIdx_ != (mTileNum_ - 1) ? ML1_ : tailL1M_;
@@ -201,30 +201,30 @@ struct BlockSchedulerAswt {
         }
     }
 
-    CATLASS_DEVICE 
+    CATLASS_DEVICE
     GemmCoord GetBlockShape() const
     {
         return {blockM_, blockN_, k_};
     }
 
-    CATLASS_DEVICE 
+    CATLASS_DEVICE
     GemmCoord GetBlockCoordByElement() const
     {
         return {mTileIdx_ * ML1_ + mSplitOffset_, nTileIdx_ * NL1_ + nSplitOffset_, 0};
     }
 
-    CATLASS_DEVICE 
+    CATLASS_DEVICE
     uint32_t GetStartBlockIdx() const
     {
         return startBlockIdx_;
     }
 
-    CATLASS_DEVICE 
+    CATLASS_DEVICE
     uint32_t GetEndBlockIdx() const
     {
         return endBlockIdx_;
     }
 };
-} // namespace Catlass::Gemm::Block 
+}  // namespace Catlass::Gemm::Block
 
 #endif

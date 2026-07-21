@@ -19,11 +19,11 @@
 #include "catlass_a5/gemm_coord.hpp"
 #include "catlass_a5/matrix_coord.hpp"
 
-
 namespace Catlass::Gemm::Kernel {
 
 template <class PrologueA_, class PrologueB_, class BlockMmad_, class BlockEpilogue_, class BlockScheduler_>
-class AivMatmul {
+class AivMatmul
+{
 public:
     using BlockMmad = BlockMmad_;
     using ArchTag = typename BlockMmad::ArchTag;
@@ -50,31 +50,20 @@ public:
 
         // Methods
         CATLASS_HOST_DEVICE
-        Params()
-        {
-        }
+        Params() {}
 
         CATLASS_HOST_DEVICE
-        Params(
-            GemmCoord const &problemShape_,
-            MatrixCoord const &taskTileShape_,
-            GM_ADDR ptrA_,
-            LayoutA layoutA_,
-            GM_ADDR ptrB_,
-            LayoutB layoutB_,
-            GM_ADDR ptrC_,
-            LayoutC layoutC_
-        )
-            : problemShape(problemShape_)
-            , taskTileShape(taskTileShape_)
-            , ptrA(ptrA_)
-            , layoutA(layoutA_)
-            , ptrB(ptrB_)
-            , layoutB(layoutB_)
-            , ptrC(ptrC_)
-            , layoutC(layoutC_)
-        {
-        }
+        Params(GemmCoord const &problemShape_, MatrixCoord const &taskTileShape_, GM_ADDR ptrA_, LayoutA layoutA_,
+               GM_ADDR ptrB_, LayoutB layoutB_, GM_ADDR ptrC_, LayoutC layoutC_)
+            : problemShape(problemShape_),
+              taskTileShape(taskTileShape_),
+              ptrA(ptrA_),
+              layoutA(layoutA_),
+              ptrB(ptrB_),
+              layoutB(layoutB_),
+              ptrC(ptrC_),
+              layoutC(layoutC_)
+        {}
     };
 
     struct Arguments {
@@ -107,17 +96,14 @@ public:
 
     // Methods
     CATLASS_DEVICE
-    AivMatmul()
-    {
-    }
+    AivMatmul() {}
 
     template <int32_t CORE_TYPE = g_coreType>
     CATLASS_DEVICE void operator()(Params const &params, Arch::Resource<ArchTag> &resource);
 
     template <>
     CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params, Arch::Resource<ArchTag> &resource)
-    {
-    }
+    {}
 
     template <>
     CATLASS_DEVICE void operator()<AscendC::AIV>(Params const &params, Arch::Resource<ArchTag> &resource)
@@ -142,21 +128,18 @@ public:
             // Compute initial location in logical coordinates
             TensorCoord coordA{blockCoord.m() * params.taskTileShape.row()};
             TensorCoord coordB{blockCoord.n() * params.taskTileShape.column()};
-            MatrixCoord coordC{
-                blockCoord.m() * params.taskTileShape.row(), blockCoord.n() * params.taskTileShape.column()
-            };
+            MatrixCoord coordC{blockCoord.m() * params.taskTileShape.row(),
+                               blockCoord.n() * params.taskTileShape.column()};
             int64_t gmOffsetA = params.layoutA.GetOffset(coordA);
             int64_t gmOffsetB = params.layoutB.GetOffset(coordB);
             int64_t gmOffsetC = params.layoutC.GetOffset(coordC);
             // Compute block-scoped matrix multiply-add
-            blockMmad(
-                gmA[gmOffsetA], params.layoutA, gmB[gmOffsetB], params.layoutB, gmC[gmOffsetC], params.layoutC,
-                actualBlockShape
-            );
+            blockMmad(gmA[gmOffsetA], params.layoutA, gmB[gmOffsetB], params.layoutB, gmC[gmOffsetC], params.layoutC,
+                      actualBlockShape);
         }
     }
 };
 
-} // namespace Catlass::Gemm::Kernel
+}  // namespace Catlass::Gemm::Kernel
 
-#endif // CATLASS_GEMM_KERNEL_MATMUL_AIV_HPP
+#endif  // CATLASS_GEMM_KERNEL_MATMUL_AIV_HPP

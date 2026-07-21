@@ -19,22 +19,16 @@ namespace Catlass::Epilogue::Fusion {
 
 // 辅助函数：使用index_sequence展开tuple来构造OP对象（聚合初始化）
 namespace detail {
-    template <template <class> class Op, class ElementCompute, typename... Scalars, size_t... Is>
-    CATLASS_DEVICE
-    Op<ElementCompute> construct_op_from_tuple(
-        tla::tuple<Scalars...> const& scalars,
-        std::index_sequence<Is...>
-    ) {
-        // 使用花括号聚合初始化，要求操作类型必须是聚合类型（无构造函数）
-        return Op<ElementCompute>{tla::get<Is>(scalars)...};
-    }
+template <template <class> class Op, class ElementCompute, typename... Scalars, size_t... Is>
+CATLASS_DEVICE Op<ElementCompute> construct_op_from_tuple(tla::tuple<Scalars...> const &scalars,
+                                                          std::index_sequence<Is...>)
+{
+    // 使用花括号聚合初始化，要求操作类型必须是聚合类型（无构造函数）
+    return Op<ElementCompute>{tla::get<Is>(scalars)...};
 }
+}  // namespace detail
 
-template<
-  template <class> class ComputeFn,
-  class ElementCompute,
-  typename... Scalars
->
+template <template <class> class ComputeFn, class ElementCompute, typename... Scalars>
 struct VisitorCompute : VisitorImpl<> {
     using VisitorImpl<>::VisitorImpl;
 
@@ -49,37 +43,37 @@ struct VisitorCompute : VisitorImpl<> {
     struct Arguments {
         ScalarsTuple scalars;
     };
-    
+
     struct Params {
         ScalarsTuple scalars;
-        
-            Params() = default;
-        
-            Params(Arguments const& args) : scalars(args.scalars) {}
+
+        Params() = default;
+
+        Params(Arguments const &args) : scalars(args.scalars) {}
     };
 
     template <class ProblemShape>
-    static constexpr Params
-    to_underlying_arguments(ProblemShape const&, Arguments const& args, void*) {
+    static constexpr Params to_underlying_arguments(ProblemShape const &, Arguments const &args, void *)
+    {
         return Params(args);
     }
 
     template <class ProblemShape>
-    static size_t
-    get_workspace_size(ProblemShape const&, Arguments const&) {
+    static size_t get_workspace_size(ProblemShape const &, Arguments const &)
+    {
         return 0;
     }
 
     template <class ProblemShape>
-    static bool
-    can_implement(ProblemShape const&, Arguments const&) {
+    static bool can_implement(ProblemShape const &, Arguments const &)
+    {
         return true;
     }
 
     VisitorCompute() : params() {}
 
-    VisitorCompute(Params const& params_) : params(params_) {}
-    
+    VisitorCompute(Params const &params_) : params(params_) {}
+
     Params params;
 
     struct Callbacks : EmptyCallbacks {
@@ -88,31 +82,26 @@ struct VisitorCompute : VisitorImpl<> {
         ScalarsTuple scalars_tuple;
 
         CATLASS_DEVICE
-        Callbacks(AscendC::LocalTensor<ElementCompute> ubOut_,
-                 uint32_t compute_length_,
-                 Params const& params_)
-            : ubOut(ubOut_), compute_length(compute_length_),
-              scalars_tuple(params_.scalars) {}
+        Callbacks(AscendC::LocalTensor<ElementCompute> ubOut_, uint32_t compute_length_, Params const &params_)
+            : ubOut(ubOut_), compute_length(compute_length_), scalars_tuple(params_.scalars)
+        {}
 
         template <VisitStage Stage, class ArchTag, class TensorC, typename... ElementInputs>
-        CATLASS_DEVICE AscendC::LocalTensor<ElementCompute> const& visit(
-            TensorC const& /*tensorTile*/,
-            MatrixCoord const& /*alignedTileShape*/,
-            MatrixCoord const& /*globalOffset*/,
-            AscendC::LocalTensor<ElementInputs> const&... inputs
-        ) {
+        CATLASS_DEVICE AscendC::LocalTensor<ElementCompute> const &
+        visit(TensorC const & /*tensorTile*/, MatrixCoord const & /*alignedTileShape*/,
+              MatrixCoord const & /*globalOffset*/, AscendC::LocalTensor<ElementInputs> const &...inputs)
+        {
             if constexpr (Stage == VisitStage::COMPUTE) {
                 constexpr bool all_inputs_match = (std::is_same_v<ElementInputs, ElementCompute> && ...);
-                static_assert(all_inputs_match,
-                              "VisitorCompute: input element types must equal ElementCompute. Insert VisitorCast if needed.");
+                static_assert(
+                    all_inputs_match,
+                    "VisitorCompute: input element types must equal ElementCompute. Insert VisitorCast if needed.");
 
                 using Op = ComputeFn<ElementCompute>;
-                
+
                 // 统一处理：使用花括号聚合初始化（Scalars...为空时，展开为空参数，等价于Op{}）
                 Op compute_fn = detail::construct_op_from_tuple<ComputeFn, ElementCompute, Scalars...>(
-                    scalars_tuple,
-                    std::make_index_sequence<sizeof...(Scalars)>{}
-                );
+                    scalars_tuple, std::make_index_sequence<sizeof...(Scalars)>{});
                 compute_fn(ubOut, compute_length, inputs...);
                 AscendC::PipeBarrier<PIPE_V>();
             }
@@ -121,11 +110,8 @@ struct VisitorCompute : VisitorImpl<> {
     };
 
     template <class ArchTag>
-    CATLASS_DEVICE auto get_callbacks(
-        Arch::Resource<ArchTag>& resource,
-        uint32_t& ub_offset,
-        uint32_t compute_length
-    ) {
+    CATLASS_DEVICE auto get_callbacks(Arch::Resource<ArchTag> &resource, uint32_t &ub_offset, uint32_t compute_length)
+    {
         auto ubOut = resource.ubBuf.template GetBufferByByte<ElementCompute>(ub_offset);
         ub_offset += compute_length * sizeof(ElementCompute);
         assert(ub_offset <= ArchTag::UB_SIZE);
@@ -133,6 +119,6 @@ struct VisitorCompute : VisitorImpl<> {
     }
 };
 
-} // namespace Catlass::Epilogue::Fusion
+}  // namespace Catlass::Epilogue::Fusion
 
 #endif

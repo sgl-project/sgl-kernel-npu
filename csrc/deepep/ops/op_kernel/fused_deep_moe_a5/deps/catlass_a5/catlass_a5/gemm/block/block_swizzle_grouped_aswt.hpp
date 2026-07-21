@@ -19,8 +19,8 @@
 namespace Catlass::Gemm::Block {
 template <uint32_t WindowLen = 4, bool TransA = false, bool TransB = true>
 struct GemmGroupedAswtTailSplitSwizzle {
-    static constexpr uint32_t BLOCK_CUBE = 16;                // cube alignment
-    static constexpr uint32_t INNER_AXIS_MIN_SPLIT_VAL = 128; // ND2NZ cache-line size
+    static constexpr uint32_t BLOCK_CUBE = 16;                 // cube alignment
+    static constexpr uint32_t INNER_AXIS_MIN_SPLIT_VAL = 128;  // ND2NZ cache-line size
 
     /// Result of GetBlockShape: tile size (m, n) plus the sub-tile offset inside the base tile.
     /// For non tail-split tiles mOffset == nOffset == 0.
@@ -70,7 +70,8 @@ struct GemmGroupedAswtTailSplitSwizzle {
 
     CATLASS_DEVICE
     GemmGroupedAswtTailSplitSwizzle(uint32_t baseM, uint32_t baseN)
-        : baseM_(baseM), baseN_(baseN),
+        : baseM_(baseM),
+          baseN_(baseN),
           blockNum_(AscendC::GetBlockNum()),
           blockIdx_(AscendC::GetBlockIdx()),
           endBlockIdx_(AscendC::GetBlockNum() - 1)
@@ -221,8 +222,7 @@ struct GemmGroupedAswtTailSplitSwizzle {
         // Apply the startBlockIdx offset.
         if (blockIdx_ < startBlockIdx_) {
             index += bn - sbi;
-        } else if (tailCnt_ > 1 &&
-                   static_cast<int64_t>(endBlockIdx_) + 1 >= tc * static_cast<int64_t>(totalCnt_)) {
+        } else if (tailCnt_ > 1 && static_cast<int64_t>(endBlockIdx_) + 1 >= tc * static_cast<int64_t>(totalCnt_)) {
             index -= (tbb + ((sbi - tbb) / tc) * tc) / tc;
         } else {
             index -= sbi;

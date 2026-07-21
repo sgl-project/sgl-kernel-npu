@@ -15,11 +15,9 @@
 
 namespace Catlass::Epilogue::Block {
 
-template <
-    class DispatchPolicy,
-    class... Args
->
-class BlockEpilogue {
+template <class DispatchPolicy, class... Args>
+class BlockEpilogue
+{
     static_assert(DEPENDENT_FALSE<DispatchPolicy>, "Could not find an epilogue specialization");
 };
 
@@ -44,7 +42,7 @@ class BlockEpilogue {
 #include "catlass_a5/epilogue/block/block_epilogue_rescale_o_no_split_row.hpp"
 #include "catlass_a5/epilogue/block/block_epilogue_w4a4_per_token_per_channel_dequant.hpp"
 
-#if (defined (CATLASS_ARCH) && CATLASS_ARCH == 3510)
+#if (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510)
 #include "catlass_a5/epilogue/block/block_epilogue_fa_softmax_ascend950.hpp"
 #include "catlass_a5/epilogue/block/block_epilogue_fa_rescale_o_ascend950.hpp"
 #include "catlass_a5/epilogue/block/block_epilogue_fixpipe.hpp"

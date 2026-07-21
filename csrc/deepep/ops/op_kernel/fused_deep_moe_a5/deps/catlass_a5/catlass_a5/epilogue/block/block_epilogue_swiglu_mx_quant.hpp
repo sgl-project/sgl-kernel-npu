@@ -21,23 +21,11 @@
 
 namespace Catlass::Epilogue::Block {
 
-template <
-    class L0TileShape_,
-    class DataTypeAct_,
-    class DataTypeGate_,
-    class DataTypeGluRes_,
-    class DataTypeQuantOut_,
-    class DataTypeQuantScale_
->
-class BlockEpilogue<
-    BlockEpilogueSwigluMxQuant,
-    L0TileShape_,
-    DataTypeAct_,
-    DataTypeGate_,
-    DataTypeGluRes_,
-    DataTypeQuantOut_,
-    DataTypeQuantScale_
-> {
+template <class L0TileShape_, class DataTypeAct_, class DataTypeGate_, class DataTypeGluRes_, class DataTypeQuantOut_,
+          class DataTypeQuantScale_>
+class BlockEpilogue<BlockEpilogueSwigluMxQuant, L0TileShape_, DataTypeAct_, DataTypeGate_, DataTypeGluRes_,
+                    DataTypeQuantOut_, DataTypeQuantScale_>
+{
 public:
     using DispatchPolicy = BlockEpilogueSwigluMxQuant;
     using ArchTag = typename DispatchPolicy::ArchTag;
@@ -52,7 +40,8 @@ public:
     constexpr static uint16_t AIV_SYNC_AIC_FLAG = 6;
     constexpr static uint16_t AIC_SYNC_AIV_FLAG = 8;
     constexpr static uint8_t AIC_SYNC_AIV_MODE = 4;
-    constexpr static uint16_t FLAG_ID_MAX = 16;;
+    constexpr static uint16_t FLAG_ID_MAX = 16;
+    ;
     constexpr static uint32_t UB_ALIGN_SIZE = 32;
     constexpr static uint32_t UB_SUB_BANK_NUM = 2;
     constexpr static uint32_t UB_TWO_BANK_ELEMS_B32 = 128;
@@ -62,9 +51,9 @@ public:
 
     static constexpr uint32_t L0_TILE_M = tla::get<0>(L0TileShape_{});
 
-    constexpr static uint16_t EMAX = 
-        std::is_same_v<QuantOutType, float8_e4m3_t> ? 0x0400 :
-        std::is_same_v<QuantOutType, float8_e5m2_t> ? 0x0780 : 0;
+    constexpr static uint16_t EMAX = std::is_same_v<QuantOutType, float8_e4m3_t>   ? 0x0400
+                                     : std::is_same_v<QuantOutType, float8_e5m2_t> ? 0x0780
+                                                                                   : 0;
 
     struct Arguments {
         GM_ADDR quantOutGmAddr{nullptr};
@@ -80,7 +69,7 @@ public:
 
     CATLASS_DEVICE ~BlockEpilogue() {}
 
-    CATLASS_DEVICE void Init(const Params* params)
+    CATLASS_DEVICE void Init(const Params *params)
     {
         if ASCEND_IS_AIC {
             return;
@@ -111,12 +100,11 @@ public:
         halfScaleUb_ = AscendC::LocalTensor<uint16_t>(AscendC::TPosition::VECCALC, offset, scaleElems);
         offset += scaleElems * sizeof(uint16_t);
 
-        quantScaleBlockOutputUb_ =
-            AscendC::LocalTensor<int8_t>(AscendC::TPosition::VECOUT, offset, scaleBlockBufBytes);
+        quantScaleBlockOutputUb_ = AscendC::LocalTensor<int8_t>(AscendC::TPosition::VECOUT, offset, scaleBlockBufBytes);
     }
 
-    CATLASS_DEVICE void UpdateGlobalAddr(AscendC::GlobalTensor<QuantOutType>& gmQ,
-                                          AscendC::GlobalTensor<QuantScaleType>& gmQScale)
+    CATLASS_DEVICE void UpdateGlobalAddr(AscendC::GlobalTensor<QuantOutType> &gmQ,
+                                         AscendC::GlobalTensor<QuantScaleType> &gmQScale)
     {
         if ASCEND_IS_AIV {
             qGlobal_ = gmQ.template ReinterpretCast<int8_t>();
@@ -125,16 +113,10 @@ public:
     }
 
     template <class TensorUbPing, class TensorUbPong>
-    CATLASS_DEVICE void operator()(
-        const GemmCoord& resShape,
-        int64_t totalMOffset,
-        const GemmCoord& blockCoord,
-        const TensorUbPing& mmResPing,
-        const TensorUbPong& mmResPong,
-        uint32_t l1TileM,
-        uint32_t l1TileN)
+    CATLASS_DEVICE void operator()(const GemmCoord &resShape, int64_t totalMOffset, const GemmCoord &blockCoord,
+                                   const TensorUbPing &mmResPing, const TensorUbPong &mmResPong, uint32_t l1TileM,
+                                   uint32_t l1TileN)
     {
-
         uint32_t singleM = resShape.m();
         uint32_t singleN = resShape.n();
 
@@ -145,24 +127,25 @@ public:
         }
         uint32_t mOffset = subBlockIdx_ * halfSingleM;
 
-        __ubuf__ ActType* actData = reinterpret_cast<__ubuf__ ActType*>(mmResPing.GetPhyAddr());
-        __ubuf__ GateType* gateData = reinterpret_cast<__ubuf__ GateType*>(mmResPong.GetPhyAddr());
+        __ubuf__ ActType *actData = reinterpret_cast<__ubuf__ ActType *>(mmResPing.GetPhyAddr());
+        __ubuf__ GateType *gateData = reinterpret_cast<__ubuf__ GateType *>(mmResPong.GetPhyAddr());
 
-        auto gluResAddr = reinterpret_cast<__ubuf__ GluResType*>(gluResUb_.GetPhyAddr());
-        auto maxExpAddr = reinterpret_cast<__ubuf__ uint16_t*>(maxExpUb_.GetPhyAddr());
-        auto halfScaleAddr = reinterpret_cast<__ubuf__ uint16_t*>(halfScaleUb_.GetPhyAddr());
+        auto gluResAddr = reinterpret_cast<__ubuf__ GluResType *>(gluResUb_.GetPhyAddr());
+        auto maxExpAddr = reinterpret_cast<__ubuf__ uint16_t *>(maxExpUb_.GetPhyAddr());
+        auto halfScaleAddr = reinterpret_cast<__ubuf__ uint16_t *>(halfScaleUb_.GetPhyAddr());
         auto quantOutAddr = reinterpret_cast<__ubuf__ int8_t *>(quantOutputUb_.GetPhyAddr());
-        auto quantScaleAddr = reinterpret_cast<__ubuf__ QuantScaleType*>(quantScaleOutputUb_.GetPhyAddr());
+        auto quantScaleAddr = reinterpret_cast<__ubuf__ QuantScaleType *>(quantScaleOutputUb_.GetPhyAddr());
 
-        Tile::TileSwigluAndMxQuant<ArchTag, ActType, GateType, CalcType, GluResType, QuantOutType, QuantScaleType, EMAX> swigluQuantTile;
+        Tile::TileSwigluAndMxQuant<ArchTag, ActType, GateType, CalcType, GluResType, QuantOutType, QuantScaleType, EMAX>
+            swigluQuantTile;
 
-        swigluQuantTile(quantOutAddr, quantScaleAddr, gluResAddr, maxExpAddr, halfScaleAddr,
-                        actData, gateData, static_cast<uint16_t>(singleMInVec), singleN, singleN);
+        swigluQuantTile(quantOutAddr, quantScaleAddr, gluResAddr, maxExpAddr, halfScaleAddr, actData, gateData,
+                        static_cast<uint16_t>(singleMInVec), singleN, singleN);
 
         TransMxScaleLayout(quantScaleOutputUb_, quantScaleBlockOutputUb_, singleMInVec, singleN);
 
-        int64_t yOffset = (totalMOffset + mOffset + blockCoord.m() * l1TileM) * params_->baseN +
-                          blockCoord.n() * l1TileN;
+        int64_t yOffset =
+            (totalMOffset + mOffset + blockCoord.m() * l1TileM) * params_->baseN + blockCoord.n() * l1TileN;
         uint32_t baseNHalf = params_->baseN;
         AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(0);
         AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(0);
@@ -173,14 +156,12 @@ public:
     }
 
 private:
-    CATLASS_DEVICE void TransMxScaleLayout(
-        AscendC::LocalTensor<int8_t>& srcUb,
-        AscendC::LocalTensor<int8_t>& dstUb,
-        uint16_t mSize, uint32_t nSize)
+    CATLASS_DEVICE void TransMxScaleLayout(AscendC::LocalTensor<int8_t> &srcUb, AscendC::LocalTensor<int8_t> &dstUb,
+                                           uint16_t mSize, uint32_t nSize)
     {
         uint32_t blockScaleN = CeilDiv(nSize, MX_BLOCK_SIZE);
-        __ubuf__ int8_t* srcAddr = (__ubuf__ int8_t*)srcUb.GetPhyAddr();
-        __ubuf__ int8_t* dstAddr = (__ubuf__ int8_t*)dstUb.GetPhyAddr();
+        __ubuf__ int8_t *srcAddr = (__ubuf__ int8_t *)srcUb.GetPhyAddr();
+        __ubuf__ int8_t *dstAddr = (__ubuf__ int8_t *)dstUb.GetPhyAddr();
         __VEC_SCOPE__
         {
             AscendC::MicroAPI::MaskReg maskScaleN;
@@ -189,34 +170,28 @@ private:
                 maskScaleN = AscendC::MicroAPI::UpdateMask<int8_t>(elemNum);
                 AscendC::MicroAPI::RegTensor<int8_t> vreg0;
                 AscendC::MicroAPI::UnalignReg u0;
-                __ubuf__ int8_t* rowSrc = srcAddr + mIdx * blockScaleN;
+                __ubuf__ int8_t *rowSrc = srcAddr + mIdx * blockScaleN;
                 AscendC::MicroAPI::DataCopyUnAlignPre(u0, rowSrc);
                 AscendC::MicroAPI::DataCopyUnAlign(vreg0, u0, rowSrc);
-                __ubuf__ int8_t* dstUb = dstAddr + mIdx * UB_ALIGN_SIZE;
-                AscendC::MicroAPI::DataCopy<int8_t, AscendC::MicroAPI::StoreDist::DIST_NORM_B8>(
-                    dstUb, vreg0, maskScaleN);
+                __ubuf__ int8_t *dstUb = dstAddr + mIdx * UB_ALIGN_SIZE;
+                AscendC::MicroAPI::DataCopy<int8_t, AscendC::MicroAPI::StoreDist::DIST_NORM_B8>(dstUb, vreg0,
+                                                                                                maskScaleN);
             }
         }
     }
 
-    CATLASS_DEVICE void CopyQuantOutputFromUb2Gm(
-        uint16_t singleMInVec, int64_t yOffset, uint32_t singleN, uint32_t baseNHalf)
+    CATLASS_DEVICE void CopyQuantOutputFromUb2Gm(uint16_t singleMInVec, int64_t yOffset, uint32_t singleN,
+                                                 uint32_t baseNHalf)
     {
         uint32_t blockLen = singleN * sizeof(int8_t);
         uint32_t dstStride = (baseNHalf - singleN) * sizeof(int8_t);
 
-        AscendC::DataCopyExtParams copyParams{
-            singleMInVec,
-            blockLen,
-            0,
-            dstStride,
-            0
-        };
+        AscendC::DataCopyExtParams copyParams{singleMInVec, blockLen, 0, dstStride, 0};
         AscendC::DataCopyPad(qGlobal_[yOffset], quantOutputUb_, copyParams);
     }
 
-    CATLASS_DEVICE void CopyQuantScaleFromUb2Gm(
-        uint16_t singleMInVec, int64_t yOffset, uint32_t singleN, uint32_t baseNHalf)
+    CATLASS_DEVICE void CopyQuantScaleFromUb2Gm(uint16_t singleMInVec, int64_t yOffset, uint32_t singleN,
+                                                uint32_t baseNHalf)
     {
         uint32_t blockScaleN = CeilDiv(singleN, MX_BLOCK_SIZE);
         uint32_t blockLen = blockScaleN * sizeof(int8_t);
@@ -225,17 +200,11 @@ private:
 
         int64_t yScaleOffset = yOffset / MX_BLOCK_SIZE;
 
-        AscendC::DataCopyExtParams copyParams{
-            singleMInVec,
-            blockLen,
-            0,
-            dstStride,
-            0
-        };
+        AscendC::DataCopyExtParams copyParams{singleMInVec, blockLen, 0, dstStride, 0};
         AscendC::DataCopyPad(qScaleGlobal_[yScaleOffset], quantScaleBlockOutputUb_, copyParams);
     }
 
-    const Params* params_{nullptr};
+    const Params *params_{nullptr};
     uint32_t subBlockIdx_{0};
 
     AscendC::GlobalTensor<int8_t> qGlobal_;

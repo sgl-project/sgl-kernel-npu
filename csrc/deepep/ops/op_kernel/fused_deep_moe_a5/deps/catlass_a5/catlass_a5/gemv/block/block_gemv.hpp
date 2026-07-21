@@ -14,10 +14,7 @@
 #include "catlass_a5/catlass.hpp"
 namespace Catlass::Gemv::Block {
 
-template <
-    class DispatchPolicy,
-    class... Args
->
+template <class DispatchPolicy, class... Args>
 struct BlockGemv {
     static_assert(DEPENDENT_FALSE<DispatchPolicy>, "BlockGemv is not implemented for this DispatchPolicy");
 };

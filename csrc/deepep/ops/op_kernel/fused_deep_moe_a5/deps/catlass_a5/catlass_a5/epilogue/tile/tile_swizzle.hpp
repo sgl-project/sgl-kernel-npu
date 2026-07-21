@@ -26,9 +26,8 @@ struct EpilogueIdentityTileSwizzle {
     EpilogueIdentityTileSwizzle() = default;
 
     CATLASS_DEVICE
-    EpilogueIdentityTileSwizzle(MatrixCoord const &blockShape, MatrixCoord const &tileShape) :
-        blockShape(blockShape),
-        tileShape(tileShape)
+    EpilogueIdentityTileSwizzle(MatrixCoord const &blockShape, MatrixCoord const &tileShape)
+        : blockShape(blockShape), tileShape(tileShape)
     {
         loopsMN = CeilDiv(blockShape, tileShape);
     }
@@ -42,7 +41,7 @@ struct EpilogueIdentityTileSwizzle {
     CATLASS_DEVICE
     MatrixCoord GetTileCoord(uint32_t loopIdx) const
     {
-        return MatrixCoord{ loopIdx / loopsMN.column(), loopIdx % loopsMN.column() };
+        return MatrixCoord{loopIdx / loopsMN.column(), loopIdx % loopsMN.column()};
     }
 
     CATLASS_DEVICE
@@ -61,9 +60,8 @@ struct EpilogueHorizontalTileSwizzle {
     EpilogueHorizontalTileSwizzle() = default;
 
     CATLASS_DEVICE
-    EpilogueHorizontalTileSwizzle(MatrixCoord const &blockShape, MatrixCoord const &tileShape) :
-        blockShape(blockShape),
-        tileShape(tileShape)
+    EpilogueHorizontalTileSwizzle(MatrixCoord const &blockShape, MatrixCoord const &tileShape)
+        : blockShape(blockShape), tileShape(tileShape)
     {
         loopsMN = CeilDiv(blockShape, tileShape);
     }
@@ -77,7 +75,7 @@ struct EpilogueHorizontalTileSwizzle {
     CATLASS_DEVICE
     MatrixCoord GetTileCoord(uint32_t loopIdx) const
     {
-        return MatrixCoord{ loopIdx % loopsMN.row(), loopIdx / loopsMN.row() };
+        return MatrixCoord{loopIdx % loopsMN.row(), loopIdx / loopsMN.row()};
     }
 
     CATLASS_DEVICE
@@ -87,6 +85,6 @@ struct EpilogueHorizontalTileSwizzle {
     }
 };
 
-}
+}  // namespace Catlass::Epilogue::Tile
 
 #endif  // CATLASS_EPILOGUE_TILE_TILE_SWIZZLE_HPP

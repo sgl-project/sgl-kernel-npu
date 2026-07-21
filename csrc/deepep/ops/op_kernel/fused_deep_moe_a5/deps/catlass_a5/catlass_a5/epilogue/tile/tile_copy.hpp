@@ -20,7 +20,7 @@
 #include "catlass_a5/epilogue/tile/copy_ub_to_gm_tla.hpp"
 #include "tla_a5/tensor.hpp"
 
-#if (defined (CATLASS_ARCH) && CATLASS_ARCH == 3510)
+#if (defined(CATLASS_ARCH) && CATLASS_ARCH == 3510)
 #include "catlass_a5/epilogue/tile/copy_ub_to_l1_tla.hpp"
 #endif
 
@@ -28,20 +28,16 @@ namespace Catlass::Epilogue::Tile {
 
 template <
     /// Tag indicating architecture
-    class ArchTag,
-    class... Args
->
+    class ArchTag, class... Args>
 struct TileCopy {
     static_assert(DEPENDENT_FALSE<ArchTag>, "Unsupported tile copy, can not find the specialization.");
 };
 
-template <
-    class ArchTag,
-    /// GemmType for C matrix operand
-    class CType,
-    /// GemmType for D matrix operand
-    class DType
->
+template <class ArchTag,
+          /// GemmType for C matrix operand
+          class CType,
+          /// GemmType for D matrix operand
+          class DType>
 struct TileCopy<ArchTag, CType, DType> {
     using ElementC = typename CType::Element;
     using ElementD = typename DType::Element;
@@ -50,15 +46,13 @@ struct TileCopy<ArchTag, CType, DType> {
     using CopyUbToGmD = CopyUb2Gm<ArchTag, DType>;
 };
 
-template <
-    class ArchTag,
-    /// GemmType for C matrix operand
-    class CType,
-    /// GemmType for X matrix operand
-    class XType,
-    /// GemmType for D matrix operand
-    class DType
->
+template <class ArchTag,
+          /// GemmType for C matrix operand
+          class CType,
+          /// GemmType for X matrix operand
+          class XType,
+          /// GemmType for D matrix operand
+          class DType>
 struct TileCopy<ArchTag, CType, XType, DType> {
     using ElementC = typename CType::Element;
     using ElementX = typename XType::Element;
@@ -69,13 +63,7 @@ struct TileCopy<ArchTag, CType, XType, DType> {
     using CopyUbToGmD = CopyUb2Gm<ArchTag, DType>;
 };
 
-template <
-    class ArchTag,
-    class CType,
-    class XType,
-    class YType,
-    class DType
->
+template <class ArchTag, class CType, class XType, class YType, class DType>
 struct TileCopy<ArchTag, CType, XType, YType, DType> {
     using ElementC = typename CType::Element;
     using ElementX = typename XType::Element;
@@ -88,13 +76,7 @@ struct TileCopy<ArchTag, CType, XType, YType, DType> {
     using CopyUbToGmD = CopyUb2Gm<ArchTag, DType>;
 };
 
-template <
-    class ArchTag,
-    class CType,
-    class XType,
-    class YType,
-    class DType
->
+template <class ArchTag, class CType, class XType, class YType, class DType>
 struct TileCopyBf16 {
     using ElementC = typename CType::Element;
     using ElementX = bfloat16_t;
@@ -107,13 +89,7 @@ struct TileCopyBf16 {
     using CopyUbToGmD = CopyUb2Gm<ArchTag, Gemm::GemmType<bfloat16_t, typename DType::Layout>>;
 };
 
-template <
-    class ArchTag,
-    class CType,
-    class ScaleType,
-    class PerTokenScaleType,
-    class DType
->
+template <class ArchTag, class CType, class ScaleType, class PerTokenScaleType, class DType>
 struct TileCopyPerTokenDequant {
     using ElementC = typename CType::Element;
     using ElementScale = typename ScaleType::Element;
@@ -126,12 +102,7 @@ struct TileCopyPerTokenDequant {
     using CopyUbToGmD = CopyUb2Gm<ArchTag, DType>;
 };
 
-template <
-    class ArchTag,
-    class CType,
-    class PerTokenScaleType,
-    class DType
->
+template <class ArchTag, class CType, class PerTokenScaleType, class DType>
 struct TileCopyW4A4Gemm {
     using ElementC = typename CType::Element;
     using ElementPerTokenScale = typename PerTokenScaleType::Element;
@@ -142,21 +113,15 @@ struct TileCopyW4A4Gemm {
     using CopyUbToGmD = CopyUb2Gm<ArchTag, DType>;
 };
 
-template <
-    class ArchTag,
-    /// GemmType for C matrix operand
-    class ElementC_,
-    class LayoutTagC_,
-    /// GemmType for X matrix operand
-    class ElementX_,
-    class LayoutTagX_,
-    /// GemmType for Y matrix operand
-    class ElementY_,
-    class LayoutTagY_,
-    /// GemmType for D matrix operand
-    class ElementD_,
-    class LayoutTagD_
->
+template <class ArchTag,
+          /// GemmType for C matrix operand
+          class ElementC_, class LayoutTagC_,
+          /// GemmType for X matrix operand
+          class ElementX_, class LayoutTagX_,
+          /// GemmType for Y matrix operand
+          class ElementY_, class LayoutTagY_,
+          /// GemmType for D matrix operand
+          class ElementD_, class LayoutTagD_>
 struct TileCopyDequantTla {
     using ElementC = ElementC_;
     using LayoutTagC = LayoutTagC_;
@@ -195,14 +160,8 @@ struct TileCopyDequantTla {
     using CopyUbToGmD = CopyUb2GmTla<ArchTag, TensorUbD, TensorD>;
 };
 
-template <
-    class ArchTag,
-    class ElementMask_,
-    class ElementP_,
-    class LayoutTagMask_,
-    class LayoutTagP_
-> 
-struct TileCopySoftmax{
+template <class ArchTag, class ElementMask_, class ElementP_, class LayoutTagMask_, class LayoutTagP_>
+struct TileCopySoftmax {
     using ElementMask = ElementMask_;
     using ElementP = ElementP_;
 
@@ -211,31 +170,30 @@ struct TileCopySoftmax{
 
     using LayoutMask = detail::TagToLayout_t<ElementMask, LayoutTagMask>;
     using LayoutP = detail::TagToLayout_t<ElementP, LayoutTagP>;
-    
-    using TensorGmMask = tla::Tensor<AscendC::GlobalTensor<ElementMask>, LayoutMask, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::GM>;
-    using TensorUbMask = tla::Tensor<AscendC::LocalTensor<ElementMask>, LayoutMask, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::VECCALC>;
+
+    using TensorGmMask = tla::Tensor<AscendC::GlobalTensor<ElementMask>, LayoutMask, tla::Coord<tla::_0, tla::_0>,
+                                     AscendC::TPosition::GM>;
+    using TensorUbMask = tla::Tensor<AscendC::LocalTensor<ElementMask>, LayoutMask, tla::Coord<tla::_0, tla::_0>,
+                                     AscendC::TPosition::VECCALC>;
 
     using CopyGmToUbMask = Tile::CopyGm2UbTla<ArchTag, TensorGmMask, TensorUbMask>;
 };
 
-template <
-    class ArchTag,
-    class ElementO_,
-    class LayoutTagO_,
-    class LayoutTagOTmp_
-> 
-struct TileCopyRescaleO{
+template <class ArchTag, class ElementO_, class LayoutTagO_, class LayoutTagOTmp_>
+struct TileCopyRescaleO {
     using ElementO = ElementO_;
     using LayoutTagO = LayoutTagO_;
     using LayoutTagOTmp = LayoutTagOTmp_;
     using LayoutO = detail::TagToLayout_t<ElementO, LayoutTagO>;
-    
-    using TensorUbO = tla::Tensor<AscendC::LocalTensor<ElementO>, LayoutO, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::VECCALC>;
-    using TensorGmO = tla::Tensor<AscendC::GlobalTensor<ElementO>, LayoutO, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::GM>;
+
+    using TensorUbO =
+        tla::Tensor<AscendC::LocalTensor<ElementO>, LayoutO, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::VECCALC>;
+    using TensorGmO =
+        tla::Tensor<AscendC::GlobalTensor<ElementO>, LayoutO, tla::Coord<tla::_0, tla::_0>, AscendC::TPosition::GM>;
 
     using CopyUbToGmO = Tile::CopyUb2GmTla<ArchTag, TensorUbO, TensorGmO>;
 };
 
-} // namespace Catlass::Epilogue::Tile
+}  // namespace Catlass::Epilogue::Tile
 
 #endif  // CATLASS_EPILOGUE_TILE_TILE_COPY_HPP

@@ -21,7 +21,8 @@
 namespace Catlass::Gemm::Kernel {
 
 template <class BlockMmad_, class BlockEpilogue_, class BlockScheduler_>
-class DynamicSmallMatmul {
+class DynamicSmallMatmul
+{
 public:
     using BlockMmad = BlockMmad_;
     using ArchTag = typename BlockMmad::ArchTag;
@@ -49,26 +50,29 @@ public:
 
         // Methods
         CATLASS_HOST_DEVICE
-        Params()
-        {}
+        Params() {}
 
         CATLASS_HOST_DEVICE
         Params(GemmCoord const &problemShape_, GemmCoord const &l1TileShape_, GM_ADDR ptrA_, LayoutA &layoutA_,
-            GM_ADDR ptrB_, LayoutB &layoutB_, GM_ADDR ptrC_, LayoutC &layoutC_)
-            : problemShape(problemShape_), l1TileShape(l1TileShape_), ptrA(ptrA_), layoutA(layoutA_), ptrB(ptrB_),
-              layoutB(layoutB_), ptrC(ptrC_), layoutC(layoutC_)
+               GM_ADDR ptrB_, LayoutB &layoutB_, GM_ADDR ptrC_, LayoutC &layoutC_)
+            : problemShape(problemShape_),
+              l1TileShape(l1TileShape_),
+              ptrA(ptrA_),
+              layoutA(layoutA_),
+              ptrB(ptrB_),
+              layoutB(layoutB_),
+              ptrC(ptrC_),
+              layoutC(layoutC_)
         {}
     };
 
     // Methods
     CATLASS_DEVICE
-    DynamicSmallMatmul()
-    {}
+    DynamicSmallMatmul() {}
 
     /// Executes matmul
     CATLASS_DEVICE void operator()(Params const &params, Catlass::Arch::Resource<ArchTag> &resource)
     {
-
         // Represent the full gm
         AscendC::GlobalTensor<ElementA> gmA;
         gmA.SetGlobalBuffer((__gm__ ElementA *)params.ptrA);
@@ -104,13 +108,8 @@ public:
         int64_t gmOffsetC = params.layoutC.GetOffset(offsetC);
 
         // Compute block-scoped matrix multiply-add
-        blockMmad(gmA[gmOffsetA],
-            params.layoutA,
-            gmB[gmOffsetB],
-            params.layoutB,
-            gmC[gmOffsetC],
-            params.layoutC,
-            actualBlockShape);
+        blockMmad(gmA[gmOffsetA], params.layoutA, gmB[gmOffsetB], params.layoutB, gmC[gmOffsetC], params.layoutC,
+                  actualBlockShape);
 
         AscendC::PipeBarrier<PIPE_ALL>();
     }

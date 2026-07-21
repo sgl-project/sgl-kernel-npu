@@ -17,11 +17,10 @@
 #ifdef DEBUG_SPACE
 ;
 #else
-    #define ENABLE_REUSE_MEMORY
+#define ENABLE_REUSE_MEMORY
 #endif
 namespace Cam {
-struct WorkSpaceOffset
-{
+struct WorkSpaceOffset {
     // MM1/GMM1-Swiglu input
     int64_t shareX1TokenOffset;
     int64_t x1TokenOffset;
@@ -36,15 +35,15 @@ struct WorkSpaceOffset
     int64_t shareX2ScaleOffset;
     int64_t x2ScaleOffset;
 
-    int64_t shareMm1SwapSpaceOffset; // 交换空间，用于C->V数据交换
-    int64_t shareMm2SwapSpaceOffset; // 交换空间，用于C->V数据交换
-    int64_t gmm1SwapSpaceOffset; // 交换空间，用于C->V数据交换
-    int64_t gmm2SwapSpaceOffset; // 交换空间，用于C->V数据交换
-    int64_t y2TokenOffset; // 浅融合使用，已反量化无scale
-    int64_t groupListOffset; // 各专家token数前缀和形式
-    int64_t expandIdxOffset; // dispatch时token在远端索引
-    int64_t epSendCountOffset; // 各专家从各个rank收到的token数
-    int64_t reservedOffset;    // 预留空间
+    int64_t shareMm1SwapSpaceOffset;  // 交换空间，用于C->V数据交换
+    int64_t shareMm2SwapSpaceOffset;  // 交换空间，用于C->V数据交换
+    int64_t gmm1SwapSpaceOffset;      // 交换空间，用于C->V数据交换
+    int64_t gmm2SwapSpaceOffset;      // 交换空间，用于C->V数据交换
+    int64_t y2TokenOffset;            // 浅融合使用，已反量化无scale
+    int64_t groupListOffset;          // 各专家token数前缀和形式
+    int64_t expandIdxOffset;          // dispatch时token在远端索引
+    int64_t epSendCountOffset;        // 各专家从各个rank收到的token数
+    int64_t reservedOffset;           // 预留空间
 };
 
 struct FusedDeepMoeInfo {
@@ -112,5 +111,5 @@ constexpr uint32_t EXEC_FLAG_X_ACTIVE_MASK = (1U << 2);
 constexpr uint32_t EXEC_FLAG_SHARED_EXPERT = (1U << 3);
 constexpr uint32_t EXEC_FLAG_SMOOTH_QUANT = (1U << 4);
 
-} // namespace Cam
+}  // namespace Cam
 #endif  // FUSED_DEEP_MOE_TILING_H

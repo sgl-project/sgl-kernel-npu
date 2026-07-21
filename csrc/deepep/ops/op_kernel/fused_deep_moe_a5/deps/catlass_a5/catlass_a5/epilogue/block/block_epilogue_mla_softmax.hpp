@@ -21,15 +21,8 @@
 
 namespace Catlass::Epilogue::Block {
 
-template <
-    class OutputType_,
-    class InputType_,
-    class MaskType_>
-class BlockEpilogue<
-    EpilogueAtlasA2MLASoftmax,
-    OutputType_,
-    InputType_,
-    MaskType_>
+template <class OutputType_, class InputType_, class MaskType_>
+class BlockEpilogue<EpilogueAtlasA2MLASoftmax, OutputType_, InputType_, MaskType_>
 {
 public:
     // Type aliases
@@ -51,10 +44,10 @@ public:
     static constexpr uint32_t FLOAT_BLOCK_SIZE = 8;
     static constexpr uint32_t HALF_ELENUM_PER_VECCALC = 128;
     static constexpr uint32_t FLOAT_VECTOR_SIZE = 64;
-    static constexpr uint32_t UB_TILE_SIZE = 16384;        // 64 * 128 * 2B
-    static constexpr uint32_t UB_LINE_SIZE = 512;          // 128 * 2 * 2B
-    static constexpr uint32_t HALF_ELENUM_PER_LINE = 256;  // 128 * 2
-    static constexpr uint32_t FLOAT_ELENUM_PER_LINE = 128; // 128
+    static constexpr uint32_t UB_TILE_SIZE = 16384;         // 64 * 128 * 2B
+    static constexpr uint32_t UB_LINE_SIZE = 512;           // 128 * 2 * 2B
+    static constexpr uint32_t HALF_ELENUM_PER_LINE = 256;   // 128 * 2
+    static constexpr uint32_t FLOAT_ELENUM_PER_LINE = 128;  // 128
     static constexpr uint32_t MULTIPLIER = 2;
     static constexpr uint32_t HALF_VECTOR_SIZE = 128;
     static constexpr uint32_t BLOCK_SIZE = 16;
@@ -95,9 +88,7 @@ public:
     }
 
     CATLASS_DEVICE
-    ~BlockEpilogue()
-    {
-    }
+    ~BlockEpilogue() {}
 
     CATLASS_DEVICE
     void SetVecMask(int32_t len)
@@ -150,12 +141,8 @@ public:
     }
 
     CATLASS_DEVICE
-    void ReduceSumRepeatM(
-        const AscendC::LocalTensor<float> &dst,
-        const AscendC::LocalTensor<float> &src,
-        uint32_t curRowNum,
-        uint32_t kSeqTile,
-        uint32_t kSeqTileRound)
+    void ReduceSumRepeatM(const AscendC::LocalTensor<float> &dst, const AscendC::LocalTensor<float> &src,
+                          uint32_t curRowNum, uint32_t kSeqTile, uint32_t kSeqTileRound)
     {
         if (kSeqTile <= FLOAT_VECTOR_SIZE) {
             SetMask(kSeqTile);
@@ -164,27 +151,17 @@ public:
         } else {
             for (uint32_t rowsum_idx = 1; rowsum_idx < kSeqTile / FLOAT_VECTOR_SIZE; ++rowsum_idx) {
                 AscendC::Add<float, false>(
-                    src,
-                    src,
-                    src[rowsum_idx * FLOAT_VECTOR_SIZE],
-                    (uint64_t)0,
-                    curRowNum,
-                    AscendC::BinaryRepeatParams(
-                        1, 1, 1, kSeqTileRound / FLOAT_BLOCK_SIZE,
-                        kSeqTileRound / FLOAT_BLOCK_SIZE, kSeqTileRound / FLOAT_BLOCK_SIZE));
+                    src, src, src[rowsum_idx * FLOAT_VECTOR_SIZE], (uint64_t)0, curRowNum,
+                    AscendC::BinaryRepeatParams(1, 1, 1, kSeqTileRound / FLOAT_BLOCK_SIZE,
+                                                kSeqTileRound / FLOAT_BLOCK_SIZE, kSeqTileRound / FLOAT_BLOCK_SIZE));
                 AscendC::PipeBarrier<PIPE_V>();
             }
             if (kSeqTile % FLOAT_VECTOR_SIZE > 0) {
                 SetMask(kSeqTile % FLOAT_VECTOR_SIZE);
                 AscendC::Add<float, false>(
-                    src,
-                    src,
-                    src[kSeqTile / FLOAT_VECTOR_SIZE * FLOAT_VECTOR_SIZE],
-                    (uint64_t)0,
-                    curRowNum,
-                    AscendC::BinaryRepeatParams(
-                        1, 1, 1, kSeqTileRound / FLOAT_BLOCK_SIZE,
-                        kSeqTileRound / FLOAT_BLOCK_SIZE, kSeqTileRound / FLOAT_BLOCK_SIZE));
+                    src, src, src[kSeqTile / FLOAT_VECTOR_SIZE * FLOAT_VECTOR_SIZE], (uint64_t)0, curRowNum,
+                    AscendC::BinaryRepeatParams(1, 1, 1, kSeqTileRound / FLOAT_BLOCK_SIZE,
+                                                kSeqTileRound / FLOAT_BLOCK_SIZE, kSeqTileRound / FLOAT_BLOCK_SIZE));
                 AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
             }
             AscendC::PipeBarrier<PIPE_V>();
@@ -193,39 +170,27 @@ public:
     }
 
     CATLASS_DEVICE
-    void TensorSubValueRepeatM(
-        const AscendC::LocalTensor<float> &dst,
-        const AscendC::LocalTensor<float> &src,
-        const AscendC::LocalTensor<float> &MaxTensor,
-        const AscendC::LocalTensor<float> &tempMaxTensor,
-        uint32_t curRowNum,
-        uint32_t subMRound,
-        uint32_t kSeqTile,
-        uint32_t kSeqTileRound)
+    void TensorSubValueRepeatM(const AscendC::LocalTensor<float> &dst, const AscendC::LocalTensor<float> &src,
+                               const AscendC::LocalTensor<float> &MaxTensor,
+                               const AscendC::LocalTensor<float> &tempMaxTensor, uint32_t curRowNum, uint32_t subMRound,
+                               uint32_t kSeqTile, uint32_t kSeqTileRound)
     {
         AscendC::Brcb(tempMaxTensor.ReinterpretCast<uint32_t>(), MaxTensor.ReinterpretCast<uint32_t>(),
                       subMRound / FLOAT_BLOCK_SIZE, AscendC::BrcbRepeatParams(1, 8));
         AscendC::PipeBarrier<PIPE_V>();
         for (uint32_t subIdx = 0; subIdx < kSeqTile / FLOAT_VECTOR_SIZE; ++subIdx) {
-            AscendC::Sub<float, false>(
-                dst[subIdx * FLOAT_VECTOR_SIZE],
-                src[subIdx * FLOAT_VECTOR_SIZE],
-                tempMaxTensor,
-                (uint64_t)0,
-                curRowNum,
-                AscendC::BinaryRepeatParams(
-                    1, 1, 0, kSeqTileRound / FLOAT_BLOCK_SIZE, kSeqTileRound / FLOAT_BLOCK_SIZE, 1));
+            AscendC::Sub<float, false>(dst[subIdx * FLOAT_VECTOR_SIZE], src[subIdx * FLOAT_VECTOR_SIZE], tempMaxTensor,
+                                       (uint64_t)0, curRowNum,
+                                       AscendC::BinaryRepeatParams(1, 1, 0, kSeqTileRound / FLOAT_BLOCK_SIZE,
+                                                                   kSeqTileRound / FLOAT_BLOCK_SIZE, 1));
         }
         if (kSeqTile % FLOAT_VECTOR_SIZE > 0) {
             SetMask(kSeqTile % FLOAT_VECTOR_SIZE);
-            AscendC::Sub<float, false>(
-                dst[kSeqTile / FLOAT_VECTOR_SIZE * FLOAT_VECTOR_SIZE],
-                src[kSeqTile / FLOAT_VECTOR_SIZE * FLOAT_VECTOR_SIZE],
-                tempMaxTensor,
-                (uint64_t)0,
-                curRowNum,
-                AscendC::BinaryRepeatParams(
-                    1, 1, 0, kSeqTileRound / FLOAT_BLOCK_SIZE, kSeqTileRound / FLOAT_BLOCK_SIZE, 1));
+            AscendC::Sub<float, false>(dst[kSeqTile / FLOAT_VECTOR_SIZE * FLOAT_VECTOR_SIZE],
+                                       src[kSeqTile / FLOAT_VECTOR_SIZE * FLOAT_VECTOR_SIZE], tempMaxTensor,
+                                       (uint64_t)0, curRowNum,
+                                       AscendC::BinaryRepeatParams(1, 1, 0, kSeqTileRound / FLOAT_BLOCK_SIZE,
+                                                                   kSeqTileRound / FLOAT_BLOCK_SIZE, 1));
             AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
         }
         AscendC::PipeBarrier<PIPE_V>();
@@ -285,69 +250,51 @@ public:
     }
 
     CATLASS_DEVICE
-    void ReduceMaxRepeatM(
-        const AscendC::LocalTensor<float> &dst,
-        const AscendC::LocalTensor<float> &src,
-        const AscendC::LocalTensor<float> &tempTensor,
-        uint32_t curRowNum,
-        uint32_t kSeqTile,
-        uint32_t kSeqTileRound)
+    void ReduceMaxRepeatM(const AscendC::LocalTensor<float> &dst, const AscendC::LocalTensor<float> &src,
+                          const AscendC::LocalTensor<float> &tempTensor, uint32_t curRowNum, uint32_t kSeqTile,
+                          uint32_t kSeqTileRound)
     {
         if (kSeqTile <= FLOAT_VECTOR_SIZE) {
             SetMask(kSeqTile);
-            AscendC::WholeReduceMax<float, false>(
-                dst, src, (int32_t)0, curRowNum, 1, 1,
-                kSeqTileRound / FLOAT_BLOCK_SIZE, AscendC::ReduceOrder::ORDER_ONLY_VALUE);
+            AscendC::WholeReduceMax<float, false>(dst, src, (int32_t)0, curRowNum, 1, 1,
+                                                  kSeqTileRound / FLOAT_BLOCK_SIZE,
+                                                  AscendC::ReduceOrder::ORDER_ONLY_VALUE);
         } else {
-            AscendC::DataCopy(tempTensor, src, AscendC::DataCopyParams(curRowNum, HALF_VECTOR_SIZE / BLOCK_SIZE,
-                (kSeqTileRound - FLOAT_VECTOR_SIZE) / FLOAT_BLOCK_SIZE, 0));
+            AscendC::DataCopy(tempTensor, src,
+                              AscendC::DataCopyParams(curRowNum, HALF_VECTOR_SIZE / BLOCK_SIZE,
+                                                      (kSeqTileRound - FLOAT_VECTOR_SIZE) / FLOAT_BLOCK_SIZE, 0));
             AscendC::PipeBarrier<PIPE_V>();
             for (uint32_t rowmaxIdx = 1; rowmaxIdx < kSeqTile / FLOAT_VECTOR_SIZE; ++rowmaxIdx) {
                 AscendC::Max<float, false>(
-                    tempTensor,
-                    tempTensor,
-                    src[rowmaxIdx * FLOAT_VECTOR_SIZE],
-                    (uint64_t)0,
-                    curRowNum,
-                    AscendC::BinaryRepeatParams(
-                        1, 1, 1, 8, 8, kSeqTileRound / FLOAT_BLOCK_SIZE));
+                    tempTensor, tempTensor, src[rowmaxIdx * FLOAT_VECTOR_SIZE], (uint64_t)0, curRowNum,
+                    AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, kSeqTileRound / FLOAT_BLOCK_SIZE));
                 AscendC::PipeBarrier<PIPE_V>();
             }
             if (kSeqTile % FLOAT_VECTOR_SIZE > 0) {
                 SetMask(kSeqTile % FLOAT_VECTOR_SIZE);
                 AscendC::Max<float, false>(
-                    tempTensor,
-                    tempTensor,
-                    src[kSeqTile / FLOAT_VECTOR_SIZE * FLOAT_VECTOR_SIZE],
-                    (uint64_t)0,
-                    curRowNum,
-                    AscendC::BinaryRepeatParams(
-                        1, 1, 1, 8, 8, kSeqTileRound / FLOAT_BLOCK_SIZE));
+                    tempTensor, tempTensor, src[kSeqTile / FLOAT_VECTOR_SIZE * FLOAT_VECTOR_SIZE], (uint64_t)0,
+                    curRowNum, AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, kSeqTileRound / FLOAT_BLOCK_SIZE));
             }
             AscendC::PipeBarrier<PIPE_V>();
             AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
-            AscendC::WholeReduceMax<float, false>(
-                dst, tempTensor, (int32_t)0, curRowNum, 1, 1, 8, AscendC::ReduceOrder::ORDER_ONLY_VALUE);
+            AscendC::WholeReduceMax<float, false>(dst, tempTensor, (int32_t)0, curRowNum, 1, 1, 8,
+                                                  AscendC::ReduceOrder::ORDER_ONLY_VALUE);
         }
         AscendC::SetVectorMask<int8_t>((uint64_t)-1, (uint64_t)-1);
         AscendC::PipeBarrier<PIPE_V>();
     }
 
     CATLASS_DEVICE
-    void SubCoreCompute(
-        AscendC::GlobalTensor<ElementOutput> gOutput,
-        AscendC::GlobalTensor<ElementInput> gInput,
-        const LayoutOutput &layoutOutput,
-        const LayoutInput &layoutInput,
-        uint32_t nIdx,
-        uint32_t softmaxPingPongFlag,
-        uint32_t *glFlag, uint32_t taskPingPongFlag, uint32_t sUbOffset)
+    void SubCoreCompute(AscendC::GlobalTensor<ElementOutput> gOutput, AscendC::GlobalTensor<ElementInput> gInput,
+                        const LayoutOutput &layoutOutput, const LayoutInput &layoutInput, uint32_t nIdx,
+                        uint32_t softmaxPingPongFlag, uint32_t *glFlag, uint32_t taskPingPongFlag, uint32_t sUbOffset)
     {
         uint32_t curRowNum = layoutInput.shape(0);
         uint32_t kSeqTile = layoutInput.shape(1);
         uint32_t kSeqTileRound = layoutInput.stride(0);
         uint32_t subMRound = (curRowNum + 16 - 1) / 16 * 16;
-        uint32_t sub_m_d64 = (curRowNum + 63) / 64; // up aligned to 128
+        uint32_t sub_m_d64 = (curRowNum + 63) / 64;  // up aligned to 128
         uint64_t dmUbOffsetCurCycle = (uint64_t)(softmaxPingPongFlag * HALF_DM_UB_SIZE);
         uint64_t llUbOffsetCurCycle = (uint64_t)(softmaxPingPongFlag * HALF_LL_UB_SIZE);
         AscendC::WaitFlag<AscendC::HardEvent::MTE3_MTE2>(softmaxPingPongFlag + 6);
@@ -367,30 +314,19 @@ public:
         ReduceMaxRepeatM(lmUbTensor, lsUbTensor[sUbOffset], tvUbTensor, curRowNum, kSeqTile, kSeqTileRound);
 
         if (nIdx != 0) {
-            AscendC::Max<float, false>(
-                hmUbTensor,
-                lmUbTensor,
-                gmUbTensor[taskPingPongFlag],
-                (uint64_t)0,
-                sub_m_d64,
-                AscendC::BinaryRepeatParams(
-                    1, 1, 1, 8, 8, 8));
+            AscendC::Max<float, false>(hmUbTensor, lmUbTensor, gmUbTensor[taskPingPongFlag], (uint64_t)0, sub_m_d64,
+                                       AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
             AscendC::PipeBarrier<PIPE_V>();
-            AscendC::Sub<float, false>(
-                dmUbTensor[dmUbOffsetCurCycle],
-                gmUbTensor[taskPingPongFlag],
-                hmUbTensor,
-                (uint64_t)0,
-                sub_m_d64,
-                AscendC::BinaryRepeatParams(
-                    1, 1, 1, 8, 8, 8));
+            AscendC::Sub<float, false>(dmUbTensor[dmUbOffsetCurCycle], gmUbTensor[taskPingPongFlag], hmUbTensor,
+                                       (uint64_t)0, sub_m_d64, AscendC::BinaryRepeatParams(1, 1, 1, 8, 8, 8));
             AscendC::PipeBarrier<PIPE_V>();
         } else {
             AscendC::DataCopy(hmUbTensor, lmUbTensor, AscendC::DataCopyParams(1, subMRound / FLOAT_BLOCK_SIZE, 0, 0));
             AscendC::PipeBarrier<PIPE_V>();
         }
         // *** gm = hm
-        AscendC::DataCopy(gmUbTensor[taskPingPongFlag], hmUbTensor, AscendC::DataCopyParams(1, subMRound / FLOAT_BLOCK_SIZE, 0, 0));
+        AscendC::DataCopy(gmUbTensor[taskPingPongFlag], hmUbTensor,
+                          AscendC::DataCopyParams(1, subMRound / FLOAT_BLOCK_SIZE, 0, 0));
         AscendC::PipeBarrier<PIPE_V>();
 
         if (kvSplitCoreNum != 1) {
@@ -403,19 +339,16 @@ public:
         }
 
         // *** ls = ls - hm_block
-        TensorSubValueRepeatM(lsUbTensor[sUbOffset], lsUbTensor[sUbOffset],
-                              hmUbTensor, tvUbTensor,
-                              curRowNum, subMRound, kSeqTile, kSeqTileRound);
+        TensorSubValueRepeatM(lsUbTensor[sUbOffset], lsUbTensor[sUbOffset], hmUbTensor, tvUbTensor, curRowNum,
+                              subMRound, kSeqTile, kSeqTileRound);
 
-        AscendC::Exp<float, false>(
-            lsUbTensor[sUbOffset],
-            lsUbTensor[sUbOffset],
-            (uint64_t)0,
-            (curRowNum * kSeqTileRound + FLOAT_VECTOR_SIZE - 1) / FLOAT_VECTOR_SIZE,
-            AscendC::UnaryRepeatParams(1, 1, 8, 8));
+        AscendC::Exp<float, false>(lsUbTensor[sUbOffset], lsUbTensor[sUbOffset], (uint64_t)0,
+                                   (curRowNum * kSeqTileRound + FLOAT_VECTOR_SIZE - 1) / FLOAT_VECTOR_SIZE,
+                                   AscendC::UnaryRepeatParams(1, 1, 8, 8));
 
         AscendC::PipeBarrier<PIPE_V>();
-        RowsumTAILTILE(lsUbTensor[sUbOffset], llUbTensor[llUbOffsetCurCycle], tvUbTensor, curRowNum, kSeqTile, kSeqTileRound);
+        RowsumTAILTILE(lsUbTensor[sUbOffset], llUbTensor[llUbOffsetCurCycle], tvUbTensor, curRowNum, kSeqTile,
+                       kSeqTileRound);
 
         // *** lp = castfp32to16(ls)
         if (std::is_same<ElementOutput, bfloat16_t>::value) {
@@ -439,29 +372,18 @@ public:
         uint16_t srcStride = 0;
         uint16_t dstStride = 0;
 
-        AscendC::DataCopy(gOutput,
-                          tvUbTensor16[sUbOffset * 2],
-                          AscendC::DataCopyParams(
-                              blockCount,
-                              blockLen,
-                              srcStride,
-                              dstStride));
+        AscendC::DataCopy(gOutput, tvUbTensor16[sUbOffset * 2],
+                          AscendC::DataCopyParams(blockCount, blockLen, srcStride, dstStride));
 
         // *** ll = rowsum(ls32)
         AscendC::SetFlag<AscendC::HardEvent::MTE3_MTE2>(softmaxPingPongFlag + 6);
     }
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::GlobalTensor<ElementOutput> gOutput,
-        AscendC::GlobalTensor<ElementInput> gInput,
-        const LayoutOutput &layoutOutput,
-        const LayoutInput &layoutInput,
-        GemmCoord actualBlockShape,
-        uint32_t nIdx,
-        uint32_t curHeadNum,
-        uint32_t softmaxPingPongFlag,
-        uint32_t *glFlag, uint32_t taskPingPongFlag)
+    void operator()(AscendC::GlobalTensor<ElementOutput> gOutput, AscendC::GlobalTensor<ElementInput> gInput,
+                    const LayoutOutput &layoutOutput, const LayoutInput &layoutInput, GemmCoord actualBlockShape,
+                    uint32_t nIdx, uint32_t curHeadNum, uint32_t softmaxPingPongFlag, uint32_t *glFlag,
+                    uint32_t taskPingPongFlag)
     {
         uint32_t rowActual = actualBlockShape.m();
         uint32_t nActual = actualBlockShape.n();
@@ -508,6 +430,6 @@ private:
     CopyUbToGmOutput copyUbToGmOutput;
 };
 
-} // namespace Catlass::Epilogue::Block
+}  // namespace Catlass::Epilogue::Block
 
-#endif // CATLASS_EPILOGUE_BLOCK_BLOCK_EPILOGUE_MLA_SOFTMAX_HPP
+#endif  // CATLASS_EPILOGUE_BLOCK_BLOCK_EPILOGUE_MLA_SOFTMAX_HPP

@@ -20,14 +20,9 @@
 
 namespace Catlass::Gemm::Tile {
 
-template <
-    class ArchTag,
-    class SrcType_,
-    class DstType_,
-    // Length of the compute elements
-    uint32_t COMPUTE_LEN_,
-    uint32_t STAGES = 2
->
+template <class ArchTag, class SrcType_, class DstType_,
+          // Length of the compute elements
+          uint32_t COMPUTE_LEN_, uint32_t STAGES = 2>
 struct TileCastInt4ToInt8 {
     using ElementSrc = typename SrcType_::Element;
     using ElementDst = typename DstType_::Element;
@@ -37,16 +32,10 @@ struct TileCastInt4ToInt8 {
     static constexpr uint32_t ELE_NUM_PER_BLK_INT8 = BYTE_PER_BLK / sizeof(ElementDst);
     static constexpr uint32_t ELE_NUM_PER_BLK_INT4 = BYTE_PER_BLK / sizeof(ElementDst) * 2;
 
-    static_assert(
-        sizeof(ElementSrc) == sizeof(ElementDst),
-        "Error: Src and Dst element sizes are equal (forbidden)"
-    );
+    static_assert(sizeof(ElementSrc) == sizeof(ElementDst), "Error: Src and Dst element sizes are equal (forbidden)");
 
-    static_assert(
-        std::is_same_v<LayoutSrc, layout::RowMajor> ||
-        std::is_same_v<LayoutSrc, layout::ColumnMajor>,
-        "Unsupported layout, only can be RowMajor, ColumnMajor or RowMajorInt4 or ColumnMajorInt4"
-    );
+    static_assert(std::is_same_v<LayoutSrc, layout::RowMajor> || std::is_same_v<LayoutSrc, layout::ColumnMajor>,
+                  "Unsupported layout, only can be RowMajor, ColumnMajor or RowMajorInt4 or ColumnMajorInt4");
 
     static constexpr uint32_t COMPUTE_LEN = COMPUTE_LEN_;
     static_assert(COMPUTE_LEN <= 24 * 1024, "COMPUTE_LEN cannot exceed 24 * 1024");
@@ -55,7 +44,8 @@ struct TileCastInt4ToInt8 {
 
     /// Construct
     CATLASS_DEVICE
-    TileCastInt4ToInt8(Arch::Resource<ArchTag> const &resource, Params const &params) {
+    TileCastInt4ToInt8(Arch::Resource<ArchTag> const &resource, Params const &params)
+    {
         if constexpr (g_coreType == AscendC::AIV) {
             uint32_t ubOffset = 0;
             uint32_t ubInSize = COMPUTE_LEN * sizeof(int8_t) / 2;
@@ -79,7 +69,8 @@ struct TileCastInt4ToInt8 {
 
     /// Destructor
     CATLASS_DEVICE
-    ~TileCastInt4ToInt8() {
+    ~TileCastInt4ToInt8()
+    {
         if constexpr (g_coreType == AscendC::AIV) {
             for (uint32_t i = 0; i < STAGES; i++) {
                 AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(ubEventList[i]);
@@ -89,10 +80,8 @@ struct TileCastInt4ToInt8 {
     }
 
     CATLASS_DEVICE
-    void operator()(
-        AscendC::GlobalTensor<ElementDst> const &gmDst, LayoutDst const &layoutDst,
-        AscendC::GlobalTensor<ElementSrc> const &gmSrc, LayoutSrc const &layoutSrc
-    )
+    void operator()(AscendC::GlobalTensor<ElementDst> const &gmDst, LayoutDst const &layoutDst,
+                    AscendC::GlobalTensor<ElementSrc> const &gmSrc, LayoutSrc const &layoutSrc)
     {
         uint32_t tilesNum = layoutSrc.shape(0);
         uint32_t tileLen = layoutSrc.shape(1);
@@ -127,43 +116,38 @@ struct TileCastInt4ToInt8 {
                 actualTiles = tilesPerAiv - loopIdx * tilesPerLoop;
             }
             uint64_t tileOffsetSrc = loopIdx * tilesPerLoop * tileStrideSrc;
-            AscendC::DataCopyExtParams dataCopyParamsIn(
-                actualTiles, (tileLen + 1) / 2 * sizeof(int8_t),
-                (tileStrideSrc - tileLen) * sizeof(int8_t) / 2,
-                (tileLenRoundInt4 - tileLen) / ELE_NUM_PER_BLK_INT4, 0
-            );
+            AscendC::DataCopyExtParams dataCopyParamsIn(actualTiles, (tileLen + 1) / 2 * sizeof(int8_t),
+                                                        (tileStrideSrc - tileLen) * sizeof(int8_t) / 2,
+                                                        (tileLenRoundInt4 - tileLen) / ELE_NUM_PER_BLK_INT4, 0);
             AscendC::DataCopyPadExtParams<ElementSrc> padParams(false, 0, 0, 0);
 
             AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(ubEventList[pingpong]);
-            AscendC::DataCopyPad(ubInTensorList[pingpong],
-                gmSrc[taskOffsetSrc + tileOffsetSrc], dataCopyParamsIn, padParams);
+            AscendC::DataCopyPad(ubInTensorList[pingpong], gmSrc[taskOffsetSrc + tileOffsetSrc], dataCopyParamsIn,
+                                 padParams);
 
             AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(ubEventList[pingpong]);
             AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(ubEventList[pingpong]);
-            
+
             AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(ubEventList[pingpong]);
 
-            AscendC::Cast(ubWorkspaceList[pingpong], ubInTensorList[pingpong],
-                AscendC::RoundMode::CAST_NONE, actualTiles * tileLenRoundInt4);
+            AscendC::Cast(ubWorkspaceList[pingpong], ubInTensorList[pingpong], AscendC::RoundMode::CAST_NONE,
+                          actualTiles * tileLenRoundInt4);
 
             AscendC::PipeBarrier<PIPE_V>();
 
             AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(ubEventList[pingpong]);
 
-            AscendC::Cast(ubOutTensorList[pingpong], ubWorkspaceList[pingpong],
-                AscendC::RoundMode::CAST_NONE, actualTiles * tileLenRoundInt4);
+            AscendC::Cast(ubOutTensorList[pingpong], ubWorkspaceList[pingpong], AscendC::RoundMode::CAST_NONE,
+                          actualTiles * tileLenRoundInt4);
 
             AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(ubEventList[pingpong]);
             AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(ubEventList[pingpong]);
 
             uint64_t tileOffsetDst = loopIdx * tilesPerLoop * tileStrideDst;
-            AscendC::DataCopyExtParams dataCopyParamsOut(
-                actualTiles, tileLen * sizeof(ElementDst),
-                (tileLenRoundInt4 - tileLen) / ELE_NUM_PER_BLK_INT8,
-                (tileStrideDst - tileLen) * sizeof(ElementDst), 0
-            );
-            AscendC::DataCopyPad(gmDst[taskOffsetDst + tileOffsetDst],
-                ubOutTensorList[pingpong], dataCopyParamsOut);
+            AscendC::DataCopyExtParams dataCopyParamsOut(actualTiles, tileLen * sizeof(ElementDst),
+                                                         (tileLenRoundInt4 - tileLen) / ELE_NUM_PER_BLK_INT8,
+                                                         (tileStrideDst - tileLen) * sizeof(ElementDst), 0);
+            AscendC::DataCopyPad(gmDst[taskOffsetDst + tileOffsetDst], ubOutTensorList[pingpong], dataCopyParamsOut);
             AscendC::SetFlag<AscendC::HardEvent::MTE3_V>(ubEventList[pingpong]);
 
             pingpong = (pingpong + 1) % STAGES;
@@ -179,6 +163,6 @@ protected:
     int32_t ubEventList[STAGES];
 };
 
-} // namespace Catlass::Gemm::Tile
+}  // namespace Catlass::Gemm::Tile
 
-#endif // CATLASS_GEMM_TILE_ATLASA2_CAST_INT4_TO_INT8_HPP
+#endif  // CATLASS_GEMM_TILE_ATLASA2_CAST_INT4_TO_INT8_HPP

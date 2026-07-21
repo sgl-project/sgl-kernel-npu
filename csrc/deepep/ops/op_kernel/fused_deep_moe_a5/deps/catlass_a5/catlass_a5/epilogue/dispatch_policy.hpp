@@ -123,7 +123,7 @@ struct EpilogueAscend950PerTokenDequantTla {
 };
 
 // For Ascend950, perGroup + perBlock dequant
-struct BlockEpiloguePertile{
+struct BlockEpiloguePertile {
     using ArchTag = Arch::Ascend950;
 };
 
@@ -150,7 +150,7 @@ struct EpilogueAscend950Fixpipe {
     static constexpr bool SPLIT_M = SPLIT_M_;
 };
 // For Ascend950, full dequant
-struct BlockEpilogueDequant{
+struct BlockEpilogueDequant {
     using ArchTag = Arch::Ascend950;
 };
 
@@ -162,10 +162,9 @@ struct EpilogueAscend950DualLevelQuantMx {
     static constexpr uint32_t OPERANDS_NUM = 8;
 };
 
-
 // For Ascend950, per block quant tla
 template <uint32_t UB_STAGES_>
-struct EpilogueAscend950PerBlockQuantTla{
+struct EpilogueAscend950PerBlockQuantTla {
     using ArchTag = Arch::Ascend950;
     static constexpr uint32_t UB_STAGES = UB_STAGES_;
 };
@@ -174,7 +173,7 @@ struct EpilogueAscend950PerBlockQuantTla{
 // 模板参数 USE_UB_WORKSPACE_ 控制是否使用 UB 作为 MMAD 的 workspace
 // - false: 使用 GM workspace
 // - true:  使用 UB workspace
-template<bool USE_UB_WORKSPACE_ = false>
+template <bool USE_UB_WORKSPACE_ = false>
 struct EpilogueVisitor {
     static constexpr bool USE_UB_WORKSPACE = USE_UB_WORKSPACE_;
 };
@@ -193,12 +192,12 @@ struct EpilogueAscend950FinalizeRouting {
 };
 
 // For Ascend950, flash_attention_chunk_prefill softmax
-struct EpilogueFAOnlineSoftmax{
+struct EpilogueFAOnlineSoftmax {
     using ArchTag = Arch::Ascend950;
 };
 
 // For Ascend950, flash_attention_chunk_prefill rescaleO
-struct EpilogueFARescaleO{
+struct EpilogueFARescaleO {
     using ArchTag = Arch::Ascend950;
 };
 }  // namespace Catlass::Epilogue
