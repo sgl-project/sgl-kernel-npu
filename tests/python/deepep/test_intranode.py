@@ -472,12 +472,19 @@ def test_main(
     # FP8 dispatch tuning (if quantized)
     if dispatch_quant_mode not in ("bf16", "int8", None):
         num_recv_tokens = dispatch_bf16_recv_bytes // (hidden * 2)
-        fp8_data_bytes = num_recv_tokens * hidden
-        if dispatch_quant_mode == "pertoken_fp8_e4m3":
-            fp8_scale_bytes = num_recv_tokens * 4
+        if dispatch_quant_mode.startswith("pertoken_fp8"):
+            quant_data_bytes = num_recv_tokens * hidden
+            quant_scale_bytes = num_recv_tokens * 4
+        elif dispatch_quant_mode.startswith("mx_fp8"):
+            quant_data_bytes = num_recv_tokens * hidden
+            quant_scale_bytes = num_recv_tokens * hidden // 32
+        elif dispatch_quant_mode.startswith("mx_fp4"):
+            quant_data_bytes = num_recv_tokens * hidden // 2
+            quant_scale_bytes = num_recv_tokens * hidden // 32
         else:
-            fp8_scale_bytes = num_recv_tokens * hidden // 32
-        fp8_recv_bytes = fp8_data_bytes + fp8_scale_bytes
+            quant_data_bytes = num_recv_tokens * hidden
+            quant_scale_bytes = 0
+        fp8_recv_bytes = quant_data_bytes + quant_scale_bytes
         tune_args_fp8 = {
             "x": x,
             "config": config,
@@ -491,7 +498,7 @@ def test_main(
         t = bench(lambda: buffer.dispatch(**tune_args_fp8))[0]
         if local_rank == 0:
             print(
-                f"[tuning] Dispatch (FP8, raw_bytes={fp8_recv_bytes/1e9:.3f}GB) "
+                f"[tuning] Dispatch ({dispatch_quant_mode}, raw_bytes={fp8_recv_bytes/1e9:.3f}GB) "
                 f"{dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
                 flush=True,
             )
