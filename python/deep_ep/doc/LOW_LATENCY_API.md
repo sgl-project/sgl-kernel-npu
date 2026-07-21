@@ -51,7 +51,7 @@ def low_latency_dispatch(
 | **cumulative_local_expert_recv_stats** | `Optional[torch.Tensor]` (`int`) | No | `None` | Shape `[num_local_experts]`, cumulative expert count for online EP load balance monitoring. Not needed on DeepEP-Ascend. |
 | **use_fp8** | `bool` | No | `True` | On NPU, enables per-token dynamic quantization (quant_mode=2). Communication data is INT8 with per-token `float32` scales. |
 | **round_scale** | `bool` | No | `False` | Whether to round scaling factors into powers of 2. Used together with `use_ue8m0`. |
-| **use_ue8m0** | `bool` | No | `False` | On NPU, triggers MXFP8 per-block quantization (quant_mode=3). Data format: `float8_e4m3fn`, scales: `float8_e8m0fnu` (one scale per 32-element block). Requires `use_fp8=True`. Only available on A5/C310. |
+| **use_ue8m0** | `bool` | No | `False` | On NPU, triggers MXFP8 per-block quantization (quant_mode=3). Data format: `float8_e4m3fn`, scales: `float8_e8m0fnu` (one scale per 32-element block). Requires `use_fp8=True`. Only available on A5. |
 | **async_finish** | `bool` | No | `False` | If set, the current stream will not wait for the communication kernel to finish. Not needed on DeepEP-Ascend. |
 | **return_recv_hook** | `bool` | No | `False` | If set, returns a receiving hook. The kernel will only issue RDMA requests without actually receiving data; you must call the hook to ensure data arrival. Not needed on DeepEP-Ascend. |
 | **topk_weights** | `Optional[torch.Tensor]` (`float`) | No | `None` | Top-k weights corresponding to `topk_idx`. |
@@ -169,7 +169,7 @@ def low_latency_dispatch(
 | **cumulative_local_expert_recv_stats** | `Optional[torch.Tensor]` (`int`) | ❌ | `None` | 形状 `[num_local_experts]`，累计 expert 接收统计，用于在线 EP 负载均衡监控。DeepEP-Ascend 不需要。 |
 | **use_fp8** | `bool` | ❌ | `True` | NPU 上启用 per-token 动态量化（quant_mode=2），通信数据为 INT8，缩放因子为 per-token `float32`。 |
 | **round_scale** | `bool` | ❌ | `False` | 是否将缩放因子四舍五入为 2 的次幂。与 `use_ue8m0` 配合使用。 |
-| **use_ue8m0** | `bool` | ❌ | `False` | NPU 上触发 MXFP8 per-block 量化（quant_mode=3），数据格式为 `float8_e4m3fn`，缩放因子为 `float8_e8m0fnu`（每 32 个元素一个 scale）。需 `use_fp8=True`。仅 A5/C310 支持。 |
+| **use_ue8m0** | `bool` | ❌ | `False` | NPU 上触发 MXFP8 per-block 量化（quant_mode=3），数据格式为 `float8_e4m3fn`，缩放因子为 `float8_e8m0fnu`（每 32 个元素一个 scale）。需 `use_fp8=True`。仅 A5 支持。 |
 | **async_finish** | `bool` | ❌ | `False` | 若设置，当前 stream 不会等待通信 kernel 完成。DeepEP-Ascend 不需要。 |
 | **return_recv_hook** | `bool` | ❌ | `False` | 若设置，返回接收钩子；kernel 只发 RDMA 请求不接收数据，必须调用钩子确保数据到达。DeepEP-Ascend 不需要。 |
 | **topk_weights** | `Optional[torch.Tensor]` (`float`) | ❌ | `None` | 对应 `topk_idx` 的 top-k 权重。 |
