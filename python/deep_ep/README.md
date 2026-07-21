@@ -155,13 +155,13 @@ Quantization modes in normal_dispatch:
 
 Optimized for inference with small batch sizes (128 tokens/batch):
 - **A3**: Supports `default`, `ops`, and `alltoall` strategies. `ops` strategy supports `comm_alg` options: `hierarchy`, `fullmesh_v1`, `fullmesh_v2`, `ccu`.
-- **A5**: Supports `default` and `ops` strategies with MXFP8 per-block quantization (`use_ue8m0=True`, quant_mode=3). Data format: `float8_e4m3fn` + `float8_e8m0fnu` scales.
+- **A5**: Supports `default` and `ops` strategies with per-token FP8 dynamic quantization (`use_fp8=True, use_ue8m0=False`, quant_mode=5) and MXFP8 per-block quantization (`use_ue8m0=True`, quant_mode=3).
 - **A2 Intranode**: Supports up to `bs=512` for low_latency dispatch/combine.
 - **A2 Internode**: Hierarchical (HCCS + RDMA) or non-hierarchical (pure RDMA) implementation. Supports up to `bs=512`.
 
 Quantization modes in low_latency_dispatch:
 - **BF16**: `use_fp8=False` — no quantization, bfloat16 communication.
-- **INT8 per-token**: `use_fp8=True, use_ue8m0=False` — per-token INT8 with `float32` scales (quant_mode=2). Available on all strategies (default/ops/alltoall) and platforms (A2/A3/A5).
+- **FP8 per-token dynamic**: `use_fp8=True, use_ue8m0=False` — dynamic quantization with one `float32` scale per token. A5 uses `float8_e4m3fn` payload (quant_mode=5); A2/A3 keep the existing `int8` payload (quant_mode=2). Available on all strategies (default/ops/alltoall) and platforms (A2/A3/A5).
 - **MXFP8 per-block**: `use_fp8=True, use_ue8m0=True` — per-block MXFP8 quantization (quant_mode=3), `float8_e4m3fn` data + `float8_e8m0fnu` scales. **A5 only**; supported on `default` and `ops` strategies, not on `alltoall`.
 - **MXFP4 per-block**: `use_fp8=True, use_mxfp4=True` — per-block MXFP4 quantization (quant_mode=4), `float4_e2m1fn_x2` data + `float8_e8m0fnu` scales. **A5 only**; only supported on `default` strategy (ops/alltoall strategies silently ignore `use_mxfp4`).
 
@@ -401,13 +401,13 @@ normal_dispatch 量化模式：
 
 针对小 batch 推理优化（128 tokens/batch）：
 - **A3**：支持 `default`、`ops`、`alltoall` 策略。`ops` 策略支持 `comm_alg` 选项：`hierarchy`、`fullmesh_v1`、`fullmesh_v2`、`ccu`。
-- **A5**：支持 `default` 和 `ops` 策略，支持 MXFP8 per-block 量化（`use_ue8m0=True`，quant_mode=3）。数据格式：`float8_e4m3fn` + `float8_e8m0fnu` 缩放因子。
+- **A5**：支持 `default` 和 `ops` 策略，支持 per-token FP8 动态量化（`use_fp8=True, use_ue8m0=False`，quant_mode=5）和 MXFP8 per-block 量化（`use_ue8m0=True`，quant_mode=3）。
 - **A2 单机**：low_latency dispatch/combine 最大支持 `bs=512`。
 - **A2 双机**：分层（HCCS + RDMA）或不分层（纯 RDMA）实现。最大支持 `bs=512`。
 
 low_latency_dispatch 量化模式：
 - **BF16**：`use_fp8=False` — 不量化，bfloat16 通信。
-- **INT8 per-token**：`use_fp8=True, use_ue8m0=False` — per-token INT8 + `float32` 缩放因子（quant_mode=2）。全策略（default/ops/alltoall）全平台（A2/A3/A5）支持。
+- **FP8 per-token 动态量化**：`use_fp8=True, use_ue8m0=False` — 动态量化，每 token 一个 `float32` 缩放因子。A5 使用 `float8_e4m3fn` 载荷（quant_mode=5）；A2/A3 保持现有 `int8` 载荷（quant_mode=2）。全策略（default/ops/alltoall）全平台（A2/A3/A5）支持。
 - **MXFP8 per-block**：`use_fp8=True, use_ue8m0=True` — per-block MXFP8 量化（quant_mode=3），`float8_e4m3fn` 数据 + `float8_e8m0fnu` 缩放因子。**仅 A5**；`default` 和 `ops` 策略支持，`alltoall` 策略不支持。
 - **MXFP4 per-block**：`use_fp8=True, use_mxfp4=True` — per-block MXFP4 量化（quant_mode=4），`float4_e2m1fn_x2` 数据 + `float8_e8m0fnu` 缩放因子。**仅 A5**；仅 `default` 策略支持（ops/alltoall 策略会静默忽略 `use_mxfp4`）。
 

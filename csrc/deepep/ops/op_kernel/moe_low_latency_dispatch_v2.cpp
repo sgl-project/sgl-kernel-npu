@@ -144,6 +144,14 @@ extern "C" __global__ __aicore__ void moe_low_latency_dispatch_v2(GM_ADDR x, GM_
 #endif
 #elif (ORIG_DTYPE_EXPAND_X == DT_FLOAT8_E4M3FN || ORIG_DTYPE_EXPAND_X == DT_FLOAT8_E5M2)
 #ifdef __DAV_C310__
+    if (TILING_KEY_IS(50005)) {
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
+        MoeDistributeDispatchV2A5<DTYPE_X, DTYPE_EXPAND_X, DTYPE_DYNAMIC_SCALES, false, true, false, false, false> op;
+        op.Init(x, expertIds, scales, xActiveMask, elasticInfo, expandXOut, dynamicScalesOut, assistInfoOut,
+                expertTokenNumsOut, epSendCountsOut, tpSendCountsOut, workspaceGM, &pipe, &tilingData);
+        op.Process();
+        return;
+    }
     if (TILING_KEY_IS(50003)) {
         GET_TILING_DATA_WITH_STRUCT(MoeDistributeDispatchV2TilingData, tilingData, tilingGM);
         MoeDistributeDispatchV2A5<DTYPE_X, DTYPE_EXPAND_X, DTYPE_DYNAMIC_SCALES, false, true, true, false, false> op;

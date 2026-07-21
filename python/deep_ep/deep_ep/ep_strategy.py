@@ -186,6 +186,7 @@ class LowLatencyEPCommStrategy(EPCommStrategy):
         async_finish: bool,
         return_recv_hook: bool,
         topk_weights: Optional[torch.Tensor],
+        quant_mode: Optional[str],
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         torch.Tensor,
