@@ -30,8 +30,11 @@ on:
         description: path of test case file
 
 concurrency:
-  group: ascend-nightly-multi-node-${{ github.ref }}-${{ inputs.soc_version }}
-  cancel-in-progress: true
+  # Global serial per soc_version: fixed PVC path /root/.cache/tests/sglang is
+  # shared, so concurrent runs (different PRs) would race on cp ("File exists").
+  # do NOT cancel in-progress: multi-node test uses scarce NPU resources.
+  group: ascend-nightly-multi-node-${{ inputs.soc_version }}
+  cancel-in-progress: false
 
 jobs:
   multi-node:
@@ -69,26 +72,11 @@ jobs:
 
       - name: Prepare scripts
         run: |
-          # Isolate per run + CANN version: shared PVC + fixed path caused
-          # "cp: File exists" races between concurrent matrix jobs/PRs.
-          CANN_VERSION=$(echo "${{ inputs.image }}" | sed -n 's/.*cann:\([0-9.]*\)-.*/\1/p')
-          if [ -z "$CANN_VERSION" ]; then CANN_VERSION="default"; fi
-
-          sglang_source_path="/root/.cache/tests/sglang/${GITHUB_RUN_ID}_${CANN_VERSION}"
-          echo "SGLANG_SOURCE_PATH=$sglang_source_path" >> $GITHUB_ENV
-
-          # Unique k8s job name avoids Volcano Job name collisions on delete.
-          KUBE_JOB_NAME="sglang-npu-multi-${CANN_VERSION}"
-          echo "KUBE_JOB_NAME=$KUBE_JOB_NAME" >> $GITHUB_ENV
-
+          sglang_source_path=/root/.cache/tests/sglang
+          # rm -rf the whole dir (clears dotfiles too); safer than rm -rf $path/*
           rm -rf "$sglang_source_path"
           mkdir -p "$sglang_source_path" && chmod -R 777 "$sglang_source_path"
           cp -r $GITHUB_WORKSPACE/* "$sglang_source_path/"
-          # cp .../* skips dotfiles; copy them explicitly.
-          for f in $GITHUB_WORKSPACE/.*; do
-            case $(basename "$f") in .|..) continue;; esac
-            cp -r "$f" "$sglang_source_path/" 2>/dev/null || true
-          done
 
           ls -l $sglang_source_path/tests/python/deepep/
           echo "Code copied to $sglang_source_path, files in deepep: $(ls $sglang_source_path/tests/python/deepep/)"
@@ -142,8 +130,3 @@ jobs:
           kubectl get pods -n $NAMESPACE
           cd $ASCEND_TEST_CASE_PATH
           kubectl delete -f ./k8s_multi.yaml --ignore-not-found=true || true
-          # Reclaim PVC space; path is unique per job, safe to remove.
-          if [ -n "$SGLANG_SOURCE_PATH" ]; then
-            rm -rf "$SGLANG_SOURCE_PATH" || true
-            echo "Cleaned up PVC path: $SGLANG_SOURCE_PATH"
-          fi
