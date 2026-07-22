@@ -153,7 +153,7 @@ High-throughput dispatch and combine for training and prefill phases:
 | BF16 (no quant) | `"bf16"` (default) | `bfloat16` | — | — | All |
 | INT8 dynamic | `"int8"` | `int8` | `float32` | per-token | All |
 | MXFP8 per-block | `"mx_fp8_e4m3"` / `"mx_fp8_e5m2"` | `float8_e4m3fn` / `float8_e5m2` | `float8_e8m0fnu` | per 32 elements | A5 only |
-| Scalar FP8 | `"pertoken_fp8_e4m3"` / `"pertoken_fp8_e5m2"` | `float8_e4m3fn` / `float8_e5m2` | `float32` | per-token | A5 only |
+| Scalar FP8 | `"pertoken_fp8_e4m3"` | `float8_e4m3fn` | `float32` | per-token | A5 only |
 | MXFP4 | `"mx_fp4_e2m1"` | `float4_e2m1fn_x2` | `float8_e8m0fnu` | per 32 elements | A5 only |
 
 Usage:
@@ -184,8 +184,9 @@ Optimized for inference with small batch sizes (128 tokens/batch):
 
 Quantization modes in `low_latency_dispatch` (via `quant_mode` parameter; `use_fp8`/`use_ue8m0`/`use_mxfp4` are deprecated):
 - **BF16**: `quant_mode=None` — no quantization, bfloat16 communication.
-- **INT8 / Scalar FP8**: `quant_mode="int8"` (A2/A3: INT8 payload; A5: `float8_e4m3fn` payload) — per-token dynamic quantization with `float32` scales. Available on all strategies (default/ops/alltoall) and platforms.
-- **MXFP8 per-block**: `quant_mode="mx_fp8_e4m3"` or `"mx_fp8_e5m2"` — per-block quantization, `float8_e4m3fn`/`float8_e5m2` data + `float8_e8m0fnu` scales. **A5 only**; supported on `default` and `ops` strategies, not on `alltoall`.
+- **INT8**: `quant_mode="int8"` — per-token INT8 with `float32` scales. INT8 payload on all platforms (A2/A3/A5). Available on all strategies (default/ops/alltoall) and platforms.
+- **Scalar FP8 per-token**: `quant_mode="pertoken_fp8_e4m3"` (e5m2 variant: `"pertoken_fp8_e5m2"`, low-latency only) — per-token FP8 dynamic quantization with `float32` scales. **A5 only**; `default` strategy only.
+- **MXFP8 per-block**: `quant_mode="mx_fp8_e4m3"` or `"mx_fp8_e5m2"` — per-block quantization, `float8_e4m3fn`/`float8_e5m2` data + `float8_e8m0fnu` scales. **A5 only**; `default` strategy supports both e4m3 and e5m2; `ops` strategy supports e4m3 only (via legacy `use_ue8m0=True`); `alltoall` not supported.
 - **MXFP4 per-block**: `quant_mode="mx_fp4_e2m1"` — per-block quantization, `float4_e2m1fn_x2` data + `float8_e8m0fnu` scales. **A5 only**; only supported on `default` strategy.
 
 ### Fused MoE
@@ -423,7 +424,7 @@ normal_dispatch 量化模式（通过 `quant_mode` 参数指定）：
 | BF16（不量化） | `"bf16"`（默认） | `bfloat16` | — | — | 全平台 |
 | INT8 动态 | `"int8"` | `int8` | `float32` | per-token | 全平台 |
 | MXFP8 per-block | `"mx_fp8_e4m3"` / `"mx_fp8_e5m2"` | `float8_e4m3fn` / `float8_e5m2` | `float8_e8m0fnu` | 每 32 元素 | 仅 A5 |
-| Scalar FP8 | `"pertoken_fp8_e4m3"` / `"pertoken_fp8_e5m2"` | `float8_e4m3fn` / `float8_e5m2` | `float32` | per-token | 仅 A5 |
+| Scalar FP8 | `"pertoken_fp8_e4m3"` | `float8_e4m3fn` | `float32` | per-token | 仅 A5 |
 | MXFP4 | `"mx_fp4_e2m1"` | `float4_e2m1fn_x2` | `float8_e8m0fnu` | 每 32 元素 | 仅 A5 |
 
 #### Low-Latency 模式（Decode）
@@ -436,8 +437,9 @@ normal_dispatch 量化模式（通过 `quant_mode` 参数指定）：
 
 low_latency_dispatch 量化模式（通过 `quant_mode` 参数指定；`use_fp8`/`use_ue8m0`/`use_mxfp4` 已弃用）：
 - **BF16**：`quant_mode=None` — 不量化，bfloat16 通信。
-- **INT8 / Scalar FP8**：`quant_mode="int8"`（A2/A3：INT8 载荷；A5：`float8_e4m3fn` 载荷）— per-token 动态量化 + `float32` 缩放因子。全策略（default/ops/alltoall）全平台支持。
-- **MXFP8 per-block**：`quant_mode="mx_fp8_e4m3"` 或 `"mx_fp8_e5m2"` — per-block 量化，`float8_e4m3fn`/`float8_e5m2` 数据 + `float8_e8m0fnu` 缩放因子。**仅 A5**；`default` 和 `ops` 策略支持，`alltoall` 策略不支持。
+- **INT8**：`quant_mode="int8"` — per-token INT8 + `float32` 缩放因子。全平台（A2/A3/A5）均为 INT8 载荷。全策略（default/ops/alltoall）全平台支持。
+- **Scalar FP8 per-token**：`quant_mode="pertoken_fp8_e4m3"`（e5m2 变体：`"pertoken_fp8_e5m2"`，仅 low-latency 支持）— per-token FP8 动态量化 + `float32` 缩放因子。**仅 A5**；仅 `default` 策略支持。
+- **MXFP8 per-block**：`quant_mode="mx_fp8_e4m3"` 或 `"mx_fp8_e5m2"` — per-block 量化，`float8_e4m3fn`/`float8_e5m2` 数据 + `float8_e8m0fnu` 缩放因子。**仅 A5**；`default` 策略支持 e4m3 和 e5m2；`ops` 策略仅支持 e4m3（通过旧 API `use_ue8m0=True`）；`alltoall` 不支持。
 - **MXFP4 per-block**：`quant_mode="mx_fp4_e2m1"` — per-block 量化，`float4_e2m1fn_x2` 数据 + `float8_e8m0fnu` 缩放因子。**仅 A5**；仅 `default` 策略支持。
 
 ### 融合 MoE
