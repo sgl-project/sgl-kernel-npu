@@ -16,8 +16,11 @@ on:
   workflow_call:
 
 concurrency:
-  group: a2-internode-test-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: true
+  # Global serial: shared PVC path /root/.cache/tests/sglang cannot handle
+  # concurrent writers. Concurrency in the reusable workflow (internode.yml)
+  # does not serialize across different caller runs, so we must serialize here.
+  group: a2-internode-test
+  cancel-in-progress: false
 
 jobs:
   multi-node-internode:

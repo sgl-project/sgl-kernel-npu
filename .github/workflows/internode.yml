@@ -30,11 +30,8 @@ on:
         description: path of test case file
 
 concurrency:
-  # Global serial per soc_version: fixed PVC path /root/.cache/tests/sglang is
-  # shared, so concurrent runs (different PRs) would race on cp ("File exists").
-  # do NOT cancel in-progress: multi-node test uses scarce NPU resources.
-  group: ascend-nightly-multi-node-${{ inputs.soc_version }}
-  cancel-in-progress: false
+  group: ascend-nightly-multi-node-${{ github.ref }}-${{ inputs.soc_version }}
+  cancel-in-progress: true
 
 jobs:
   multi-node:
@@ -72,12 +69,11 @@ jobs:
 
       - name: Prepare scripts
         run: |
+          # prepare for test code
           sglang_source_path=/root/.cache/tests/sglang
-          # rm -rf the whole dir (clears dotfiles too); safer than rm -rf $path/*
-          rm -rf "$sglang_source_path"
-          mkdir -p "$sglang_source_path" && chmod -R 777 "$sglang_source_path"
-          cp -r $GITHUB_WORKSPACE/* "$sglang_source_path/"
-
+          mkdir -p $sglang_source_path && chmod -R 777 $sglang_source_path
+          rm -rf $sglang_source_path/*
+          cp -r $GITHUB_WORKSPACE/* $sglang_source_path/
           ls -l $sglang_source_path/tests/python/deepep/
           echo "Code copied to $sglang_source_path, files in deepep: $(ls $sglang_source_path/tests/python/deepep/)"
 
