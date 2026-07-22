@@ -69,40 +69,24 @@ jobs:
 
       - name: Prepare scripts
         run: |
-          # Extract CANN version from image tag for path and k8s job isolation.
-          # e.g. "swr.../cann:8.5.0-910b-ubuntu22.04-py3.11" -> "8.5.0"
+          # Isolate per run + CANN version: shared PVC + fixed path caused
+          # "cp: File exists" races between concurrent matrix jobs/PRs.
           CANN_VERSION=$(echo "${{ inputs.image }}" | sed -n 's/.*cann:\([0-9.]*\)-.*/\1/p')
           if [ -z "$CANN_VERSION" ]; then CANN_VERSION="default"; fi
 
-          # Unique path per run + CANN version to prevent PVC collisions across
-          # concurrent jobs. Different PRs and different matrix entries (8.5.0
-          # vs 9.0.0) previously shared /root/.cache/tests/sglang and raced on
-          # cp -r ("File exists"). The run_id + cann_version suffix guarantees
-          # each job writes to its own directory on the shared PVC.
           sglang_source_path="/root/.cache/tests/sglang/${GITHUB_RUN_ID}_${CANN_VERSION}"
           echo "SGLANG_SOURCE_PATH=$sglang_source_path" >> $GITHUB_ENV
 
-          # Unique k8s Volcano Job name per CANN version. Previously fixed to
-          # "sglang-npu-multi", so kubectl delete -f in one job could hit
-          # another job's resources when they ran concurrently or overlapped
-          # during pod termination.
+          # Unique k8s job name avoids Volcano Job name collisions on delete.
           KUBE_JOB_NAME="sglang-npu-multi-${CANN_VERSION}"
           echo "KUBE_JOB_NAME=$KUBE_JOB_NAME" >> $GITHUB_ENV
 
-          # Clean and prepare the unique directory. Path isolation guarantees
-          # no cross-job conflict, so rm -rf on the full dir is safe.
           rm -rf "$sglang_source_path"
           mkdir -p "$sglang_source_path" && chmod -R 777 "$sglang_source_path"
-
-          # Copy source code. Directory is already unique and empty, so plain
-          # cp -r is safe (no "File exists" possible).
           cp -r $GITHUB_WORKSPACE/* "$sglang_source_path/"
-          # cp .../* does not match dotfiles; copy hidden entries (.gitmodules,
-          # .github, etc.) so submodules and workflow files are available.
+          # cp .../* skips dotfiles; copy them explicitly.
           for f in $GITHUB_WORKSPACE/.*; do
-            case $(basename "$f") in
-              .|..) continue;;
-            esac
+            case $(basename "$f") in .|..) continue;; esac
             cp -r "$f" "$sglang_source_path/" 2>/dev/null || true
           done
 
@@ -158,9 +142,7 @@ jobs:
           kubectl get pods -n $NAMESPACE
           cd $ASCEND_TEST_CASE_PATH
           kubectl delete -f ./k8s_multi.yaml --ignore-not-found=true || true
-          # Clean up this job's PVC directory to reclaim space. The path is
-          # unique per run + CANN version, so only this job's files are removed
-          # and other concurrent jobs' directories are untouched.
+          # Reclaim PVC space; path is unique per job, safe to remove.
           if [ -n "$SGLANG_SOURCE_PATH" ]; then
             rm -rf "$SGLANG_SOURCE_PATH" || true
             echo "Cleaned up PVC path: $SGLANG_SOURCE_PATH"
