@@ -26,8 +26,6 @@
 using namespace AscendC;
 using namespace ge;
 
-#define HCCL_BUFFSIZE "HCCL_BUFFSIZE"
-
 namespace {
 // 1. Constant definitions
 const char *K_INNER_DEBUG = "DispatchFFNCombine Tiling Debug";
@@ -54,10 +52,10 @@ namespace optiling {
 static uint64_t GetMaxWindowSize()
 {
     uint16_t defaultWindowSize = 200;
-    const char *hccl_buffsize_env = getenv(HCCL_BUFFSIZE);
-    if (hccl_buffsize_env != nullptr) {
+    const char *hcclBuffSize = getenv("DEEPEP_HCCL_BUFFSIZE") == nullptr ? "HCCL_BUFFSIZE" : "DEEPEP_HCCL_BUFFSIZE";
+    if (getenv(hcclBuffSize) != nullptr) {
         try {
-            std::string envStr(hccl_buffsize_env);
+            std::string envStr(getenv(hcclBuffSize));
             unsigned long val = std::stoul(envStr);
             if (val <= std::numeric_limits<uint16_t>::max()) {
                 defaultWindowSize = static_cast<uint16_t>(val);
