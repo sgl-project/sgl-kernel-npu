@@ -283,7 +283,7 @@ class Buffer:
     @log_parameters(["topk_idx"])
     def dispatch(
         self,
-        x: torch.Tensor,
+        x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
         handle: Optional[Tuple] = None,
         num_tokens_per_rank: Optional[torch.Tensor] = None,
         num_tokens_per_rdma_rank: Optional[torch.Tensor] = None,
@@ -382,7 +382,7 @@ class Buffer:
     @log_parameters(["topk_idx"])
     def notify_verify(
         self,
-        x: torch.Tensor,
+        x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
         handle: Optional[Tuple] = None,
         num_tokens_per_rank: Optional[torch.Tensor] = None,
         num_tokens_per_rdma_rank: Optional[torch.Tensor] = None,
@@ -520,7 +520,7 @@ class Buffer:
 
     def internode_dispatch(
         self,
-        x: torch.Tensor,
+        x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
         handle: Optional[Tuple] = None,
         num_tokens_per_rank: Optional[torch.Tensor] = None,
         num_tokens_per_rdma_rank: Optional[torch.Tensor] = None,

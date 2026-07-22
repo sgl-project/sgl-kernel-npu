@@ -71,7 +71,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
 
     def dispatch(
         self,
-        x: torch.Tensor,
+        x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
         handle: Optional[Tuple],
         num_tokens_per_rank: Optional[torch.Tensor],
         num_tokens_per_rdma_rank: Optional[torch.Tensor],
@@ -133,7 +133,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
 
     def _intranode_dispatch(
         self,
-        x: torch.Tensor,
+        x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
         handle: Optional[Tuple],
         num_tokens_per_rank: Optional[torch.Tensor],
         is_token_in_rank: Optional[torch.Tensor],
@@ -244,7 +244,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
 
     def _internode_dispatch(
         self,
-        x: torch.Tensor,
+        x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
         handle: Optional[Tuple],
         num_tokens_per_rank: Optional[torch.Tensor],
         num_tokens_per_rdma_rank: Optional[torch.Tensor],
@@ -544,7 +544,7 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
 
     def dispatch(
         self,
-        x: torch.Tensor,
+        x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
         handle: Optional[Tuple],
         num_tokens_per_rank: Optional[torch.Tensor],
         num_tokens_per_rdma_rank: Optional[torch.Tensor],
