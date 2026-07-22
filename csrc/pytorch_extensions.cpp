@@ -228,9 +228,12 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
                                const at::Tensor &query_start_loc, const at::Tensor &cache_indices,
                                const at::Tensor &has_initial_state, const c10::optional<at::Tensor> &bias,
                                bool activation_mode, int64_t pad_slot_id) {
-        auto bias_or_empty = bias.has_value() ? *bias : at::empty({0}, x.options());
-        return sglang::npu_kernel::causal_conv1d_impl(x, weight, conv_states, query_start_loc, cache_indices,
-                                                      has_initial_state, bias_or_empty, activation_mode, pad_slot_id);
+        // Cast PyTorch-default int64/bool to the kernel's int32/bool and make bias
+        // contiguous (all no-ops when already correct) to satisfy the strict TORCH_CHECKs.
+        auto bias_or_empty = bias.has_value() ? bias->contiguous() : at::empty({0}, x.options());
+        return sglang::npu_kernel::causal_conv1d_impl(x, weight, conv_states, query_start_loc.to(at::kInt),
+                                                      cache_indices.to(at::kInt), has_initial_state.to(at::kBool),
+                                                      bias_or_empty, activation_mode, pad_slot_id);
     });
 }
 }  // namespace

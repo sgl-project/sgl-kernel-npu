@@ -299,7 +299,10 @@ AICORE void runConv(__gm__ IoElemType *x, __gm__ IoElemType *wgt, __gm__ IoElemT
         if (ci == padSlot) continue;
         const bool hasInit = hinit[seq] != 0;
 
-        const uint32_t lc_len = (len + lchunks - 1) / lchunks;
+        // Clamp so no non-first chunk starts inside the causal halo (l0 = lc*lc_len >= K-1,
+        // so its history is in x, not conv_states) -- guards short/varlen sub-halo chunks.
+        uint32_t lc_len = (len + lchunks - 1) / lchunks;
+        if (lc_len < K - 1u) lc_len = K - 1u;
         const int32_t l0 = lc * lc_len;
         if (l0 >= len) continue;
         int32_t l1 = l0 + lc_len;

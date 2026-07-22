@@ -48,10 +48,6 @@ namespace sglang {
 namespace npu_kernel {
 namespace {  // file-local helpers (internal linkage; avoids clashes with other ops)
 
-// Minimum rows per sequence chunk when splitting the L axis to fill cores (smaller
-// chunks expose more parallelism but replay more causal-halo rows per chunk).
-constexpr uint32_t MIN_CHUNK_ROWS = 32;
-
 // Accumulator-ring size = smallest power of two >= width. The kernel templates on the
 // ring size (compile-time) and takes the width at runtime; the host computes the ring
 // size here and launches the matching variant, so any width <= ring size reuses it.
@@ -162,6 +158,9 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
         inputMode = 0;
         dim = static_cast<uint32_t>(x.size(1));
         seqLen = 0;
+        // Guard the size(0)-1 below: an empty/too-short qsl would underflow batch to ~4e9.
+        TORCH_CHECK(query_start_loc.dim() == 1 && query_start_loc.size(0) >= 2,
+                    "query_start_loc must be 1D and have at least 2 elements");
         batch = static_cast<uint32_t>(query_start_loc.size(0) - 1);
     } else {
         inputMode = 1;
@@ -170,6 +169,11 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
         dim = static_cast<uint32_t>(x.size(2));
     }
     TORCH_CHECK(batch > 0 && dim > 0, "bad batch/dim");
+    // cache_indices[seq] and has_initial_state[seq] are read per sequence in both layouts.
+    TORCH_CHECK(cache_indices.dim() == 1 && cache_indices.size(0) >= static_cast<int64_t>(batch),
+                "cache_indices must be 1D and have size >= batch");
+    TORCH_CHECK(has_initial_state.dim() == 1 && has_initial_state.size(0) >= static_cast<int64_t>(batch),
+                "has_initial_state must be 1D and have size >= batch");
     TORCH_CHECK(dim % 16 == 0, "dim must be multiple of 16 for fp16/bf16 alignment, but got ", dim);
     TORCH_CHECK(weight.size(1) == static_cast<int64_t>(dim), "weight.shape[1] must equal dim");
     TORCH_CHECK(conv_states.size(2) == static_cast<int64_t>(dim), "conv_states.shape[2] must equal dim");
