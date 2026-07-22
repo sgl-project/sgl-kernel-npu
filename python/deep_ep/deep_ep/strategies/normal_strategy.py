@@ -86,6 +86,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -127,6 +128,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             async_finish,
             allocate_on_comm_stream,
             dispatch_wait_recv_cost_stats,
+            quant_mode,
         )
 
     def _intranode_dispatch(
@@ -145,6 +147,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         async_finish: bool,
         allocate_on_comm_stream: bool,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor],
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -153,39 +156,26 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         Tuple,
         EventOverlap,
     ]:
-        # Determine quant type
-        if isinstance(x, torch.Tensor):
-            # BF16 no quant
-            data = x
-            x_scales = None
-            quant_type = "bf16"
-            use_quant = False
-        elif isinstance(x, tuple) and len(x) == 2:
-            data, quant_type_tensor = x
-            if quant_type_tensor.dtype == torch.float8_e4m3fn:
-                quant_type = "fp8_e4m3"
-                use_quant = True
-            elif quant_type_tensor.dtype == torch.float8_e5m2:
-                quant_type = "fp8_e5m2"
-                use_quant = True
-            elif quant_type_tensor.dtype == torch.int8:
-                quant_type = "int8"
-                use_quant = True
-            elif quant_type_tensor.dtype == torch.float4_e2m1fn_x2:
-                quant_type = "fp4_e2m1"
-                use_quant = True
-            else:
-                raise TypeError(
-                    f"Unsupported quantized dtype: {quant_type_tensor.dtype}"
-                )
-            x_scales = None
-        else:
-            raise TypeError(f"Unsupported x type: {type(x)}")
-
-        if not use_quant:
-            use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
-            if use_quant:
-                quant_type = "int8"
+        # Determine quant type from quant_mode
+        VALID_QUANT_MODES = {
+            "bf16",
+            "int8",
+            "mx_fp8_e4m3",
+            "mx_fp8_e5m2",
+            "pertoken_fp8_e4m3",
+            "pertoken_fp8_e5m2",
+            "mx_fp4_e2m1",
+        }
+        if quant_mode is None:
+            quant_mode = "bf16"
+        if quant_mode not in VALID_QUANT_MODES:
+            raise ValueError(
+                f"Invalid quant_mode: {quant_mode}. Valid options: {VALID_QUANT_MODES}"
+            )
+        data = x
+        x_scales = None
+        quant_type = quant_mode
+        use_quant = quant_mode != "bf16"
 
         if handle is not None:
             raise NotImplementedError(
@@ -275,8 +265,8 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         Tuple,
         EventOverlap,
     ]:
-        x, x_scales = x if isinstance(x, tuple) else (x, None)
-        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+        x_scales = None
+        use_quant = False
 
         if handle is not None:
             raise NotImplementedError(

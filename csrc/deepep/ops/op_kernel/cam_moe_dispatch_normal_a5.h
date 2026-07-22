@@ -29,8 +29,8 @@ constexpr uint64_t ROUND_STATE_OFFSET = Moe::BASE_ROUND_STATE_OFFSET;
 constexpr uint32_t FLOAT_NUM_PER_ALIGN = 8U;
 
 // related to FP8 and INT8 quantization
-constexpr float FP8_E5M2_MAX_VALUE = 448.0f;
-constexpr float FP8_E4M3_MAX_VALUE = 57344.0f;
+constexpr float FP8_E5M2_MAX_VALUE = 57344.0f;
+constexpr float FP8_E4M3_MAX_VALUE = 448.0f;
 constexpr float HIFP8_MAX_VALUE = 32768.0f;
 constexpr float INT8_MAX_VALUE = 127.0f;
 constexpr uint32_t FP4_ELEMS_PER_BYTE = 2;

@@ -126,6 +126,35 @@ High-throughput dispatch and combine for training and prefill phases:
 - **A3**: Pure HCCS intranode communication, full-mesh HCCS internode communication. No hierarchical implementation needed.
 - **A2 Intranode**: Pure HCCS communication, supports up to `bs=8000` for normal dispatch/combine.
 - **A2 Internode**: Hierarchical (HCCS intranode + RDMA internode) or non-hierarchical (pure RDMA) implementation. Supports up to `bs=4096`.
+- **A5 (C310)**: Supports scalar FP8 per-token quantization and MXFP8 per-block quantization (A5/C310 only).
+
+#### Quantization Modes in Normal Dispatch
+
+| Mode | `quant_mode` | Data Format | Scale Format | Granularity | Platform |
+|------|-------------|-------------|--------------|-------------|----------|
+| BF16 (no quant) | `"bf16"` (default) | `bfloat16` | — | — | All |
+| INT8 dynamic | `"int8"` | `int8` | `float32` | per-token | All |
+| MXFP8 per-block | `"mx_fp8_e4m3"` / `"mx_fp8_e5m2"` | `float8_e4m3fn` / `float8_e5m2` | `float8_e8m0fnu` | per 32 elements | A5/C310 |
+| Scalar FP8 | `"pertoken_fp8_e4m3"` / `"pertoken_fp8_e5m2"` | `float8_e4m3fn` / `float8_e5m2` | `float32` | per-token | A5/C310 |
+| MXFP4 | `"mx_fp4_e2m1"` | `float4_e2m1fn_x2` | `float8_e8m0fnu` | per 32 elements | A5/C310 |
+
+Usage:
+```python
+# BF16 (no quantization)
+buffer.dispatch(x=data, ...)
+
+# INT8 per-token quantization
+buffer.dispatch(x=data, quant_mode="int8", ...)
+
+# Scalar FP8 per-token quantization (A5 only)
+buffer.dispatch(x=data, quant_mode="pertoken_fp8_e4m3", ...)
+
+# MXFP8 per-block quantization (A5 only)
+buffer.dispatch(x=data, quant_mode="mx_fp8_e4m3", ...)
+
+# MXFP4 quantization (A5 only)
+buffer.dispatch(x=data, quant_mode="mx_fp4_e2m1", ...)
+```
 
 ### Low-Latency Mode (Decode)
 
@@ -161,7 +190,7 @@ See [Fused Deep MoE API](doc/FUSED_DEEP_MOE_EN.md) for details.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DEEP_USE_MODE` | `default` | Normal mode strategy and Low-latency mode strategy: `default`, `ops`, or `alltoall`. |
-| `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **Deprecated.** Enable INT8 quantization in normal dispatch. A2 internode does NOT support quantization in normal mode. MXFP8 per-block quantization (A5/C310 only) is triggered by passing a tuple `(float8_e4m3fn_tensor, float8_e8m0fnu_tensor)` as `x`. |
+| `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **Removed.** INT8 quantization is now specified via `quant_mode="int8"` parameter in `dispatch()`. |
 | `SGLANG_DEEPEP_BF16_DISPATCH` | `0` | Disable quantization in low_latency_dispatch (BF16 dispatch). Set to `1` to disable; only effective in decode phase. |
 | `MOE_EXPERT_TOKEN_NUMS_TYPE` | `1` | Dispatch return type for `num_recv_tokens_per_expert_list`: `1` = per-expert token count, `0` = prefix sum. |
 | `MOE_SHARED_EXPERT_RANK_NUM` | `0` | Number of shared expert ranks (used by ops strategy). |
@@ -187,7 +216,7 @@ For detailed A2 usage, see [A2_DEEPEP_CN.md](A2_DEEPEP_CN.md).
 ### A2 Dual Node
 
 - Applicable when P/D node ranks > 8 (cross-node communication).
-- **Normal mode does NOT support quantization** (`DEEP_NORMAL_MODE_USE_INT8_QUANT=0`).
+- **Normal mode does NOT support quantization** (use BF16 `quant_mode` for A2 internode).
 - **Must set** `HCCL_INTRA_PCIE_ENABLE=1` and `HCCL_INTRA_ROCE_ENABLE=0` for hierarchical communication.
 - **Performance limits**: normal up to `bs=4096`, low_latency up to `bs=512`.
 
@@ -200,6 +229,7 @@ For detailed A2 usage, see [A2_DEEPEP_CN.md](A2_DEEPEP_CN.md).
 
 - Only supports CANN 9.0.
 - Build with: `bash build.sh -a deepep Ascend950`.
+- Supports scalar FP8 per-token quantization (`quant_mode="pertoken_fp8_e4m3"`) and MXFP8 per-block quantization in normal dispatch.
 
 
 ## Test

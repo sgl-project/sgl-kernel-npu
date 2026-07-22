@@ -35,15 +35,8 @@ def test_main(
     num_topk, num_experts = args.num_topk, args.num_experts
     enable_diagnose = args.enable_diagnose
     enable_dynamic_tokens = args.enable_dynamic_tokens
-    quant_type = args.quant_type  # no, int8, fp8, fp4
-    if quant_type == "no":
-        quant_type_tensor = None
-    elif quant_type == "int8":
-        quant_type_tensor = torch.tensor([], dtype=torch.int8, device="npu")
-    elif quant_type == "fp8":
-        quant_type_tensor = torch.tensor([], dtype=torch.float8_e4m3fn, device="npu")
-    elif quant_type == "fp4":
-        quant_type_tensor = torch.tensor([], dtype=torch.float4_e2m1fn_x2, device="npu")
+    quant_type = args.quant_type
+    dispatch_quant_mode = quant_type
     num_servers = num_ranks // num_local_ranks
     expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
 
@@ -261,6 +254,10 @@ def test_main(
     # Random data
     x = torch.ones((num_tokens, hidden), dtype=torch.bfloat16, device="npu") * rank
     x_pure_rand = torch.randn((num_tokens, hidden), dtype=torch.bfloat16, device="npu")
+    print(
+        f"[seed check] rank {rank} x_pure_rand hash: {x_pure_rand.view(torch.int8).sum().item()}",
+        flush=True,
+    )
     topk_weights = (
         torch.ones((num_tokens, num_topk), dtype=torch.float32, device="npu") * rank
     )
@@ -288,11 +285,7 @@ def test_main(
     ):
         for current_x in filter(lambda elem: elem is not None, (x_pure_rand,)):
             dispatch_args = {
-                "x": (
-                    current_x
-                    if quant_type_tensor is None
-                    else (current_x, quant_type_tensor)
-                ),
+                "x": current_x,
                 "num_tokens_per_rank": ref_num_tokens_per_rank,
                 "is_token_in_rank": ref_is_token_in_rank,
                 "num_tokens_per_expert": ref_num_tokens_per_expert,
@@ -300,6 +293,7 @@ def test_main(
                 "topk_idx": topk_idx,
                 "topk_weights": topk_weights_pure_rand,
                 "dispatch_wait_recv_cost_stats": dispatch_wait_recv_cost_stats,
+                "quant_mode": dispatch_quant_mode,
             }
             if dispatch_wait_recv_cost_stats is not None:
                 bench(lambda: buffer.dispatch(**dispatch_args), num_warmups=0)
@@ -352,17 +346,17 @@ def test_main(
                 )
 
     for current_x in filter(lambda elem: elem is not None, (x_pure_rand, x)):
+        use_fp8 = (
+            dispatch_quant_mode not in ("bf16", "int8", None)
+            and current_x is x_pure_rand
+        )
         if local_rank == 0:
             print(
-                f'[testing] Running with {"FP8" if isinstance(current_x, tuple) else "BF16"}, with top-k {num_topk} ...',
+                f'[testing] Running with {"FP8" if use_fp8 else "BF16"}, with top-k {num_topk} ...',
                 flush=True,
             )
         dispatch_args = {
-            "x": (
-                current_x
-                if quant_type_tensor is None
-                else (current_x, quant_type_tensor)
-            ),
+            "x": current_x,
             "num_tokens_per_rank": ref_num_tokens_per_rank,
             "is_token_in_rank": ref_is_token_in_rank,
             "num_tokens_per_expert": ref_num_tokens_per_expert,
@@ -371,6 +365,7 @@ def test_main(
             "topk_weights": (
                 topk_weights_pure_rand if current_x is x_pure_rand else topk_weights
             ),
+            "quant_mode": dispatch_quant_mode if current_x is x_pure_rand else "bf16",
         }
 
         (
@@ -436,8 +431,14 @@ def test_main(
         golden_nozero = torch.where(golden == 0, eps, golden)
         max_diff = torch.max(torch.abs(check_x - golden) / golden_nozero).item()
         avg_diff = torch.mean(torch.abs(check_x - golden) / golden_nozero).item()
-        print(f"{rank=}, {avg_diff=:.5f}, {max_diff=:.5f}, cosine_diff={diff:.5f}")
-        assert diff < 5e-5
+        print(f"{rank=}, {avg_diff=:.8f}, {max_diff=:.8f}, cosine_diff={diff:.8f}")
+        if "_fp4_" in quant_type:
+            diff_threshold = 4e-2
+        elif "_fp8_" in quant_type:
+            diff_threshold = 2e-3
+        else:
+            diff_threshold = 5e-5
+        assert diff < diff_threshold
 
         # For later tuning
         dispatch_bf16_recv_bytes = recv_x.numel() * 2
@@ -449,45 +450,68 @@ def test_main(
         print("", flush=True)
 
     # Tune dispatch performance
-    fp8_factor = (1 + 4 / 128) / 2
     config = deep_ep.Config(24, 8, buffer_size)
-    for current_x in filter(lambda elem: elem is not None, (x,)):
-        recv_bytes = (
-            (dispatch_bf16_recv_bytes * fp8_factor)
-            if isinstance(current_x, tuple)
-            else dispatch_bf16_recv_bytes
+
+    # BF16 dispatch tuning
+    tune_args_bf16 = {
+        "x": x,
+        "config": config,
+        "num_tokens_per_rank": ref_num_tokens_per_rank,
+        "is_token_in_rank": ref_is_token_in_rank,
+        "num_tokens_per_expert": ref_num_tokens_per_expert,
+        "topk_idx": topk_idx,
+        "topk_weights": topk_weights,
+    }
+    t = bench(lambda: buffer.dispatch(**tune_args_bf16))[0]
+    if local_rank == 0:
+        print(
+            f"[tuning] Dispatch (BF16) {dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
+            flush=True,
         )
 
-        tune_args = {
-            "x": (
-                current_x
-                if quant_type_tensor is None
-                else (current_x, quant_type_tensor)
-            ),
+    # FP8 dispatch tuning (if quantized)
+    if dispatch_quant_mode not in ("bf16", "int8", None):
+        num_recv_tokens = dispatch_bf16_recv_bytes // (hidden * 2)
+        if dispatch_quant_mode.startswith("pertoken_fp8"):
+            quant_data_bytes = num_recv_tokens * hidden
+            quant_scale_bytes = num_recv_tokens * 4
+        elif dispatch_quant_mode.startswith("mx_fp8"):
+            quant_data_bytes = num_recv_tokens * hidden
+            quant_scale_bytes = num_recv_tokens * hidden // 32
+        elif dispatch_quant_mode.startswith("mx_fp4"):
+            quant_data_bytes = num_recv_tokens * hidden // 2
+            quant_scale_bytes = num_recv_tokens * hidden // 32
+        else:
+            quant_data_bytes = num_recv_tokens * hidden
+            quant_scale_bytes = 0
+        fp8_recv_bytes = quant_data_bytes + quant_scale_bytes
+        tune_args_fp8 = {
+            "x": x,
             "config": config,
             "num_tokens_per_rank": ref_num_tokens_per_rank,
             "is_token_in_rank": ref_is_token_in_rank,
             "num_tokens_per_expert": ref_num_tokens_per_expert,
             "topk_idx": topk_idx,
             "topk_weights": topk_weights,
+            "quant_mode": dispatch_quant_mode,
         }
-
-        t = bench(lambda: buffer.dispatch(**tune_args))[0]
+        t = bench(lambda: buffer.dispatch(**tune_args_fp8))[0]
         if local_rank == 0:
             print(
-                f'[tuning] Dispatch ({"FP8" if isinstance(current_x, tuple) else "BF16"}) {recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us',
+                f"[tuning] Dispatch ({dispatch_quant_mode}, raw_bytes={fp8_recv_bytes/1e9:.3f}GB) "
+                f"{dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
                 flush=True,
             )
-            print("", flush=True)
 
     dispatch_args = {
-        "x": x if quant_type_tensor is None else (x, quant_type_tensor),
+        "x": x,
         "num_tokens_per_rank": ref_num_tokens_per_rank,
         "is_token_in_rank": ref_is_token_in_rank,
         "num_tokens_per_expert": ref_num_tokens_per_expert,
         "config": config,
         "topk_idx": topk_idx,
         "topk_weights": topk_weights,
+        "quant_mode": dispatch_quant_mode,
     }
     recv_x, _, _, _, handle, _ = buffer.dispatch(**dispatch_args)
     recv_x = per_token_cast_back(*recv_x) if isinstance(recv_x, tuple) else recv_x
@@ -530,7 +554,10 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         group, int(2e9), 0, low_latency_mode=False, num_qps_per_rank=1
     )
     print(f"[Rank {rank}] Buffer created OK.", flush=True)
-    torch.manual_seed(rank)
+    seed = int.from_bytes(os.urandom(4), "little")
+    print(f"[seed] rank {rank} seed={seed}", flush=True)
+    torch.manual_seed(seed)
+    torch.npu.manual_seed(seed)
 
     test_main(args, num_local_ranks, local_rank, num_ranks, rank, buffer, group)
     if local_rank == 0:
@@ -595,8 +622,8 @@ if __name__ == "__main__":
         "--quant-type",
         dest="quant_type",
         type=str,
-        default="no",
-        help="quant type: no, int8, fp8, fp4",
+        default="bf16",
+        help="quant type: bf16, int8, mx_fp8_e4m3, mx_fp8_e5m2, pertoken_fp8_e4m3, pertoken_fp8_e5m2, mx_fp4_e2m1",
     )
     args = parser.parse_args()
 

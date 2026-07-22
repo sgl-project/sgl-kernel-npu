@@ -298,6 +298,7 @@ class Buffer:
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -375,6 +376,7 @@ class Buffer:
             async_finish=async_finish,
             allocate_on_comm_stream=allocate_on_comm_stream,
             dispatch_wait_recv_cost_stats=dispatch_wait_recv_cost_stats,
+            quant_mode=quant_mode,
         )
 
     @log_parameters(["topk_idx"])
@@ -409,8 +411,6 @@ class Buffer:
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
         # Launch the kernel with cached or non-cached mode
-        if isinstance(x, tuple):
-            raise NotImplementedError("Not support fp8")
         x_scales = None
         use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
 
@@ -545,8 +545,8 @@ class Buffer:
         Internode dispatch implementation, for more details, please refer to the `dispatch` docs.
         Normally, you should not directly call this function.
         """
-        x, x_scales = x if isinstance(x, tuple) else (x, None)
-        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+        x_scales = None
+        use_quant = False
         if handle is not None:
             raise NotImplementedError(
                 "Optional communication handle is not supported yet."
