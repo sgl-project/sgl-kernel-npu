@@ -11,7 +11,7 @@ export BUILD_OUT_PATH="${ROOT_PATH}/build_out"
 export SCRIPTS_PATH="${ROOT_PATH}"
 export TEST_PATH="${ROOT_PATH}/test"
 
-export BUILD_TYPE="Release"
+export BUILD_TYPE="${BUILD_TYPE:-Release}"
 MODULE_NAME="all"
 MODULE_BUILD_ARG=""
 IS_MODULE_EXIST=0
@@ -24,22 +24,45 @@ module list: [deepep]
 
 opt:
 -d: Enable debug
+-g: Build with symbols using Debug build type
+--relwithdebinfo: Build with symbols using RelWithDebInfo
 "
 }
 
 function ProcessArg() {
-  while getopts "dh" opt; do
-    case $opt in
-    d)
+  local positional_args=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    -d|-g)
       export BUILD_TYPE="Debug"
+      shift
       ;;
-    h)
+    --relwithdebinfo)
+      export BUILD_TYPE="RelWithDebInfo"
+      shift
+      ;;
+    -h|--help)
       PrintHelp
       exit 0
       ;;
+    --)
+      shift
+      while [[ $# -gt 0 ]]; do
+        positional_args+=("$1")
+        shift
+      done
+      ;;
+    -*)
+      echo "unknown flag: $1"
+      exit 1
+      ;;
+    *)
+      positional_args+=("$1")
+      shift
+      ;;
     esac
   done
-  shift $(($OPTIND-1))
+  set -- "${positional_args[@]}"
 }
 
 function IsModuleName() {

@@ -12,75 +12,109 @@ ONLY_BUILD_DEEPEP_KERNELs_MODULE="OFF"
 ONLY_BUILD_MEMORY_SAVER_MODULE="OFF"
 
 DEBUG_MODE="OFF"
+BUILD_TYPE="Release"
 
-while getopts ":a:hd" opt; do
-    case ${opt} in
-        a )
+print_help() {
+    echo "Use './build.sh' build all modules."
+    echo "Use './build.sh -a <target>' to build specific parts of the project."
+    echo "    <target> can be:"
+    echo "    deepep            Only build deep_ep."
+    echo "    kernels           Only build sgl_kernel_npu."
+    echo "    deepep-adapter    Only build deepep adapter layer and use old build of deepep kernels."
+    echo "    deepep-kernels    Only build deepep kernels and use old build of deepep adapter layer."
+    echo "    memory-saver      Only build torch_memory_saver (under contrib)."
+    echo ""
+    echo "Options:"
+    echo "    -d                Enable DEBUG_MODE logging macro only."
+    echo "    -g                Build with CMAKE_BUILD_TYPE=Debug and keep symbols."
+    echo "    --relwithdebinfo  Build with CMAKE_BUILD_TYPE=RelWithDebInfo."
+    echo "    -h                Show this help message."
+}
+
+POSITIONAL_ARGS=()
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -a)
+            if [[ -z "$2" ]]; then
+                echo "Error: -a requires a value" 1>&2
+                echo "Run './build.sh -h' for more information."
+                exit 1
+            fi
             BUILD_DEEPEP_MODULE="OFF"
             BUILD_KERNELS_MODULE="OFF"
             BUILD_MEMORY_SAVER_MODULE="OFF"
-            case "$OPTARG" in
-                deepep )
+            case "$2" in
+                deepep)
                     BUILD_DEEPEP_MODULE="ON"
                     BUILD_DEEPEP_OPS="ON"
                     ;;
-                deepep2 )
+                deepep2)
                     BUILD_DEEPEP_MODULE="ON"
                     BUILD_DEEPEP_OPS="OFF"
                     ;;
-                kernels )
+                kernels)
                     BUILD_KERNELS_MODULE="ON"
                     ;;
-                deepep-adapter )
+                deepep-adapter)
                     BUILD_DEEPEP_MODULE="ON"
                     ONLY_BUILD_DEEPEP_ADAPTER_MODULE="ON"
                     ;;
-                deepep-kernels )
+                deepep-kernels)
                     BUILD_DEEPEP_MODULE="ON"
                     ONLY_BUILD_DEEPEP_KERNELs_MODULE="ON"
                     ;;
-                memory-saver )
+                memory-saver)
                     BUILD_MEMORY_SAVER_MODULE="ON"
                     ONLY_BUILD_MEMORY_SAVER_MODULE="ON"
                     ;;
-                * )
+                *)
                     echo "Error: Invalid Value"
                     echo "Allowed value: deepep|kernels|deepep-adapter|deepep-kernels|memory-saver"
                     exit 1
                     ;;
             esac
+            shift 2
             ;;
-        d )
+        -d)
             DEBUG_MODE="ON"
+            shift
             ;;
-        h )
-            echo "Use './build.sh' build all modules."
-            echo "Use './build.sh -a <target>' to build specific parts of the project."
-            echo "    <target> can be:"
-            echo "    deepep            Only build deep_ep."
-            echo "    kernels           Only build sgl_kernel_npu."
-            echo "    deepep-adapter    Only build deepep adapter layer and use old build of deepep kernels."
-            echo "    deepep-kernels    Only build deepep kernels and use old build of deepep adapter layer."
-            echo "    memory-saver      Only build torch_memory_saver (under contrib)."
-            exit 1
+        -g)
+            BUILD_TYPE="Debug"
+            shift
             ;;
-        \? )
-            echo "Error: unknown flag: -$OPTARG" 1>&2
+        --relwithdebinfo)
+            BUILD_TYPE="RelWithDebInfo"
+            shift
+            ;;
+        -h|--help)
+            print_help
+            exit 0
+            ;;
+        --)
+            shift
+            while [[ $# -gt 0 ]]; do
+                POSITIONAL_ARGS+=("$1")
+                shift
+            done
+            ;;
+        -*)
+            echo "Error: unknown flag: $1" 1>&2
             echo "Run './build.sh -h' for more information."
             exit 1
             ;;
-        : )
-            echo "Error: -$OPTARG requires a value" 1>&2
-            echo "Run './build.sh -h' for more information."
-            exit 1
+        *)
+            POSITIONAL_ARGS+=("$1")
+            shift
             ;;
     esac
 done
 
-shift $((OPTIND -1))
+set -- "${POSITIONAL_ARGS[@]}"
 
 
 export DEBUG_MODE=$DEBUG_MODE
+export BUILD_TYPE=$BUILD_TYPE
 
 # Chip mapping:
 # - deepep  → A3+ (Ascend910_9382)
@@ -93,6 +127,7 @@ else
 fi
 
 echo "Use SOC_VERSION: $SOC_VERSION"
+echo "Use BUILD_TYPE: $BUILD_TYPE"
 
 echo "=== Fixing ASCConfig for CANN 8.3 / A2 ==="
 
@@ -163,6 +198,7 @@ function build_kernels()
     mkdir -p $BUILD_DIR
 
     cmake $COMPILE_OPTIONS \
+    -DCMAKE_BUILD_TYPE="$BUILD_TYPE" \
     -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" \
     -DASCEND_HOME_PATH=$ASCEND_HOME_PATH \
     -DASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR \

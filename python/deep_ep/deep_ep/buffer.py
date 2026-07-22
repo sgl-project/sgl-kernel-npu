@@ -831,8 +831,9 @@ class Buffer:
         """
         topk_ids = topk_idx.int()
         if fuse_mode == FuseMode.FUSED_DEEP_MOE:
-            gmm1_permuted_weight_scale = gmm1_permuted_weight_scale.float()
-            gmm2_weight_scale = gmm2_weight_scale.float()
+            if not self.runtime.is_a5_build():
+                gmm1_permuted_weight_scale = gmm1_permuted_weight_scale.float()
+                gmm2_weight_scale = gmm2_weight_scale.float()
 
             output, ep_recv_count = self.runtime.fused_deep_moe(
                 x,

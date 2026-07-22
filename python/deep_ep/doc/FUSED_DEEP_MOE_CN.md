@@ -43,7 +43,7 @@ def fused_deep_moe(
 | **gmm2_weight_scale** | `torch.Tensor` | 例如 `[G, 7168]`       | 第二阶段权重量化 scale。                                                                                                                                                                                                            |
 | **num_max_dispatch_tokens_per_rank** | `int` | 标量                    | 每个 rank 最多分发的 token 数，用于 buffer/内存分配。                                                                                                                                                                                      |
 | **num_experts** | `int` | 标量                    | 全局专家总数。                                                                                                                                                                                                                    |
-| **quant_mode** | `int` | 标量，默认 `1`             | 表示量化模式：<br>`1`： 表示int8；<br>后续A5支持fp8。                                                                                                                                                                                              |
+| **quant_mode** | `int` | 标量，默认 `1`             | 表示量化模式：<br>`1`： 表示int8；<br> Ascend 950硬件上该参数无效，根据 gmm1_permuted_weight 的 dtype 内部决定量化方式，当前仅支持mxfp8量化。                                                                                                                                                                                              |
 
 
 ### 返回值
