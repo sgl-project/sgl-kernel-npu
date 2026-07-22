@@ -592,15 +592,17 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         if not use_quant:
             use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
         quant_mode = 1 if use_quant else -1
-        (permutated_tokens, reversed_local_mapping, _, dynamic_scale) = torch_npu.npu_moe_init_routing_v2(
-            x,
-            topk_idx_int,
-            quant_mode=quant_mode,
-            expert_num=num_experts,
-            expert_tokens_num_type=1,
-            expert_tokens_num_flag=True,
-            row_idx_type=0,
-            active_expert_range=[0, num_experts],
+        (permutated_tokens, reversed_local_mapping, _, dynamic_scale) = (
+            torch_npu.npu_moe_init_routing_v2(
+                x,
+                topk_idx_int,
+                quant_mode=quant_mode,
+                expert_num=num_experts,
+                expert_tokens_num_type=1,
+                expert_tokens_num_flag=True,
+                row_idx_type=0,
+                active_expert_range=[0, num_experts],
+            )
         )
 
         if use_quant:
@@ -620,11 +622,31 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         permutated_tokens.untyped_storage().resize_(0)
 
         if num_local_experts > 1:
-            global_tokens_indices = global_tokens_indices.view([global_tokens_indices.size(0), 1])
+            global_tokens_indices = global_tokens_indices.view(
+                [global_tokens_indices.size(0), 1]
+            )
             if use_quant:
-                dynamic_scale_after_all2all = dynamic_scale_after_all2all.reshape(dynamic_scale_after_all2all.size(0), 1)
-                (dynamic_scale_after_routing, reversed_global_mapping, _, _) = torch_npu.npu_moe_init_routing_v2(
-                    dynamic_scale_after_all2all,
+                dynamic_scale_after_all2all = dynamic_scale_after_all2all.reshape(
+                    dynamic_scale_after_all2all.size(0), 1
+                )
+                (dynamic_scale_after_routing, reversed_global_mapping, _, _) = (
+                    torch_npu.npu_moe_init_routing_v2(
+                        dynamic_scale_after_all2all,
+                        global_tokens_indices,
+                        quant_mode=-1,
+                        expert_num=num_local_experts,
+                        expert_tokens_num_type=1,
+                        expert_tokens_num_flag=True,
+                        row_idx_type=0,
+                        active_expert_range=[0, num_local_experts],
+                    )
+                )
+                dynamic_scale_after_routing = dynamic_scale_after_routing.reshape(
+                    dynamic_scale_after_routing.size(0)
+                )
+            (dispatch_out, reversed_global_mapping, _, _) = (
+                torch_npu.npu_moe_init_routing_v2(
+                    global_input_tokens,
                     global_tokens_indices,
                     quant_mode=-1,
                     expert_num=num_local_experts,
@@ -633,16 +655,6 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
                     row_idx_type=0,
                     active_expert_range=[0, num_local_experts],
                 )
-                dynamic_scale_after_routing = dynamic_scale_after_routing.reshape(dynamic_scale_after_routing.size(0))
-            (dispatch_out, reversed_global_mapping, _, _) = torch_npu.npu_moe_init_routing_v2(
-                global_input_tokens,
-                global_tokens_indices,
-                quant_mode=-1,
-                expert_num=num_local_experts,
-                expert_tokens_num_type=1,
-                expert_tokens_num_flag=True,
-                row_idx_type=0,
-                active_expert_range=[0, num_local_experts],
             )
         else:
             dispatch_out = global_input_tokens

@@ -118,7 +118,7 @@ def test_main(
             ).abs()
             + 1
         )
-        topk_idx = torch.zeros((num_tokens, num_topk), dtype=torch.int64, device='npu')
+        topk_idx = torch.zeros((num_tokens, num_topk), dtype=torch.int64, device="npu")
         for t in range(num_tokens):
             start = (t * num_topk) % num_experts
             for k in range(num_topk):
@@ -257,9 +257,15 @@ def test_main(
         ref_x = x_pure_rand if current_x is x_pure_rand else x
         diff = calc_diff(
             check_x,
-            ref_x * handle["topk_weights"].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1),
+            ref_x
+            * handle["topk_weights"]
+            .masked_fill(topk_idx == -1, 0)
+            .sum(dim=1)
+            .view(-1, 1),
         )
-        golden = ref_x * handle["topk_weights"].masked_fill(topk_idx == -1, 0).sum(dim=1).view(-1, 1)
+        golden = ref_x * handle["topk_weights"].masked_fill(topk_idx == -1, 0).sum(
+            dim=1
+        ).view(-1, 1)
         # translate all zeros to eps in golden
         eps = 1e-8
         golden_nozero = torch.where(golden == 0, eps, golden)
@@ -267,7 +273,7 @@ def test_main(
 
         avg_diff = torch.mean(torch.abs(check_x - golden) / golden_nozero).item()
         print(f"{rank=}, {avg_diff=:.5f}, {max_diff=:.5f}, cosine_diff={diff:.5f}")
-        assert (diff < 5e-5), f"Assertion diff failed on {rank=}"
+        assert diff < 5e-5, f"Assertion diff failed on {rank=}"
 
         # For later tuning
         dispatch_bf16_recv_bytes = recv_x.numel() * 2
@@ -278,13 +284,12 @@ def test_main(
     if local_rank == 0:
         print("", flush=True)
 
-
     # Tune dispatch performance
     def calculate_recv_bytes(dispatch_bf16_recv_bytes, quant_type):
         hidden_dim = hidden
         bs = dispatch_bf16_recv_bytes / 2 / hidden_dim
         num_values = bs * hidden_dim
-        
+
         if quant_type == "no":
             # No quantization, use original BF16 communication
             recv_bytes = dispatch_bf16_recv_bytes
@@ -298,7 +303,6 @@ def test_main(
         else:
             raise ValueError(f"Unsupported quant_type: {quant_type}")
         return recv_bytes
-
 
     config = deep_ep.Config(24, 8, buffer_size)
     for current_x in filter(lambda elem: elem is not None, (x,)):
@@ -322,7 +326,7 @@ def test_main(
         t = bench(lambda: buffer.dispatch(**tune_args))[0]
         if local_rank == 0:
             print(
-                f'[tuning] Dispatch ({quant_type=}) {recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us',
+                f"[tuning] Dispatch ({quant_type=}) {recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
                 flush=True,
             )
             print("", flush=True)
@@ -361,7 +365,11 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
 
     print(f"[Rank {rank} | Local rank {local_rank}] Initializing buffer...", flush=True)
     buffer = deep_ep.Buffer(
-        group, int(2e9), 0, low_latency_mode=False, num_qps_per_rank=1,
+        group,
+        int(2e9),
+        0,
+        low_latency_mode=False,
+        num_qps_per_rank=1,
         normal_strategy="alltoall",
         low_latency_strategy="alltoall",
     )
