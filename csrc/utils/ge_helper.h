@@ -4,6 +4,10 @@
 #include <vector>
 #include <any>
 #include <map>
+#include "exe_graph/runtime/tiling_context.h"
+#include "exe_graph/runtime/tensor.h"
+#include "exe_graph/runtime/storage_shape.h"
+#include "graph/types.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "torch_helper.h"
 
@@ -469,7 +473,7 @@ public:
         throw std::runtime_error("[GE_Helper] SetAttrAny failed, attrName not exists");
     }
 
-    void SetToContext(std::shared_ptr<TilingContext> &context, at::ScalarType &scalarType)
+    void SetToContext(std::shared_ptr<TilingContext> &context, const at::ScalarType &scalarType)
     {
         auto geType = SCALAR_TYPE_TO_GE_DATATYPE(scalarType);
         TORCH_CHECK(!inputs_.empty(), "[GE_Helper] SetToContext: Check the op definition file");
