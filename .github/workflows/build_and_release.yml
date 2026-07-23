@@ -242,8 +242,10 @@ jobs:
           git clone https://gitcode.com/cann/cann-recipes-infer.git
           cd cann-recipes-infer
           git checkout 35a476c
-          wget https://github.com/randgun/sgl-kernel-npu/releases/download/a2/Adapt-A2.patch
-          git apply Adapt-A2.patch
+          if [ "${matrix.arch}" = "aarch64" ];then
+            wget https://github.com/randgun/sgl-kernel-npu/releases/download/a2/Adapt-A2.patch
+            git apply Adapt-A2.patch
+          fi
           env -i PATH=${PATH} bash --login -c "
             cd ops/ascendc/torch_ops_extension
             pip install ninja
