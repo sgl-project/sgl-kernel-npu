@@ -853,12 +853,14 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         quant_mode = MXFP8_SCALES;
     } else if (quant_mode_name == "mx_fp4_e2m1") {
         quant_mode = MXFP4_SCALES;
-    } else if (quant_mode_name == "pertoken_fp8_e4m3" || quant_mode_name == "pertoken_fp8_e5m2") {
+    } else if (quant_mode_name == "pertoken_fp8_e4m3") {
 #ifdef __DAV_C310__
         quant_mode = PER_TOKEN_FP8_SCALES;
 #else
         EP_HOST_ASSERT(false);
 #endif
+    } else if (quant_mode_name == "pertoken_fp8_e5m2") {
+        EP_HOST_ASSERT_S(false, "pertoken_fp8_e5m2 is not supported yet, please use pertoken_fp8_e4m3 instead.");
     } else {
         EP_HOST_ASSERT(quant_mode_name == "none");
     }
@@ -874,9 +876,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     }
 #ifdef __DAV_C310__
     else if (quant_mode == PER_TOKEN_FP8_SCALES) {  // per-token fp8_e4m3
-        packed_recv_x = quant_mode_name == "pertoken_fp8_e5m2"
-                            ? at::empty({num_max_tokens, hidden}, at::dtype(at::kFloat8_e5m2).device(device))
-                            : at::empty({num_max_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(device));
+        packed_recv_x = at::empty({num_max_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(device));
         packed_recv_x_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
     } else if (quant_mode == 3) {  // MXFP8
         packed_recv_x = quant_mode_name == "mx_fp8_e5m2"

@@ -84,7 +84,6 @@ def test(
     elif quant_type in (
         "int8",
         "pertoken_fp8_e4m3",
-        "pertoken_fp8_e5m2",
         "mx_fp4_e2m1",
     ):
         fp8_configs = [(True, False)]
@@ -119,7 +118,6 @@ def test(
                         "mx_fp8_e4m3": "mx_fp8_e4m3",
                         "mx_fp8_e5m2": "mx_fp8_e5m2",
                         "pertoken_fp8_e4m3": "pertoken_fp8_e4m3",
-                        "pertoken_fp8_e5m2": "pertoken_fp8_e5m2",
                         "mx_fp4_e2m1": "mx_fp4_e2m1",
                     }[quant_type],
                 )
@@ -301,7 +299,6 @@ def test(
                 "mx_fp8_e4m3": "mx_fp8_e4m3",
                 "mx_fp8_e5m2": "mx_fp8_e5m2",
                 "pertoken_fp8_e4m3": "pertoken_fp8_e4m3",
-                "pertoken_fp8_e5m2": "pertoken_fp8_e5m2",
                 "mx_fp4_e2m1": "mx_fp4_e2m1",
             }[quant_type],
         )
@@ -549,7 +546,6 @@ if __name__ == "__main__":
             "mx_fp8_e4m3",
             "mx_fp8_e5m2",
             "pertoken_fp8_e4m3",
-            "pertoken_fp8_e5m2",
             "mx_fp4_e2m1",
         ],
         help="Quantization type for dispatch",
