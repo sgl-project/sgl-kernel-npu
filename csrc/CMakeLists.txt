@@ -41,6 +41,9 @@ endif()
 list(APPEND OP_SRCS
     ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
 )
+list(APPEND OP_SRCS
+    ${PROJECT_OP_SRC_BASE}/mega_moe_w4a4/op_host/mega_moe_w4a4.cpp
+)
 
 # set the so name
 set(OP_PLUGIN_NAME sgl_kernel_npu)
@@ -132,11 +135,32 @@ ascendc_compile_definitions(mega_chunk_gdn_kernel PRIVATE
     -DGDN_C=128
 )
 
+# W4A4 fused MoE "mega" kernel (Qwen3.x-MoE): PTO-ISA vec stages + AscendC
+# MatmulImpl<int4b_t> cube stages in one MIX launch. Built for the production
+# Qwen3.6-35B-A3B per-rank shape (H_DIM=2048, I_DIM_OVERRIDE=128), Hadamard block 64.
+set(MEGA_MOE_W4A4_KERNEL_TARGETS mega_moe_w4a4_kernel)
+ascendc_library(mega_moe_w4a4_kernel STATIC
+    ${PROJECT_OP_SRC_BASE}/mega_moe_w4a4/op_kernel/mega_moe_w4a4_kernel.cpp
+)
+ascendc_include_directories(mega_moe_w4a4_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/mega_moe_w4a4/op_kernel
+    ${PROJECT_SOURCE_DIR}/third_party/pto-isa/include
+    ${ASCEND_INCLUDE_DIR}
+    ${ASCEND_INCLUDE_DIR}/experiment/runtime
+    ${ASCEND_INCLUDE_DIR}/experiment/msprof
+)
+ascendc_compile_definitions(mega_moe_w4a4_kernel PRIVATE
+    -DW4A4_MEGA_KERNEL_NAME=launch_mega_moe_w4a4
+    -DI_DIM_OVERRIDE=128
+    -DMEGA_HADAMARD_N=64
+)
+
 # create shared library libsgl_kernel_npu.so
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${MEGA_CHUNK_GDN_KERNEL_TARGETS}
+        ${MEGA_MOE_W4A4_KERNEL_TARGETS}
         workspace_kernel
         no_workspace_kernel
         torch_npu
