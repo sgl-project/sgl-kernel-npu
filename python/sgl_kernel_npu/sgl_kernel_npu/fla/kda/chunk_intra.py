@@ -524,6 +524,8 @@ def chunk_kda_fwd_intra_npu(
     chunk_indices: torch.LongTensor | None = None,
     safe_gate: bool = False,
     disable_recompute: bool = False,
+    fuse_diagonal: bool = False, # not used, for sglang compatibility
+    fuse_recompute: bool = False, # not used, for sglang compatibility
 ):
     B, T, H, K, HV = *k.shape, gk.shape[2]
     BT = chunk_size
