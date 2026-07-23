@@ -242,7 +242,7 @@ jobs:
           git clone https://gitcode.com/cann/cann-recipes-infer.git
           cd cann-recipes-infer
           git checkout 35a476c
-          if [ "${matrix.arch}" = "aarch64" ];then
+          if [ "${{matrix.arch}}" = "aarch64" ];then
             wget https://github.com/randgun/sgl-kernel-npu/releases/download/a2/Adapt-A2.patch
             git apply Adapt-A2.patch
           fi
