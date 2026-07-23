@@ -2,6 +2,7 @@
 #include "moe_distribute_combine_v2_tiling.h"
 #include "moe_distribute_combine_v2.h"
 #include "moe_distribute_combine_v2_a5.h"
+#include "moe_distribute_combine_v2_layout.h"
 #ifdef __DAV_C310__
 #include "moe_distribute_combine_v2_ccu.h"
 using namespace MoeDistributeCombineA5CCUImpl;
@@ -32,12 +33,14 @@ __aicore__ inline void ExecMoeDistributeCombineV2(GM_ADDR expandX, GM_ADDR exper
 /*
  * A3 tilingkey说明
  * 5位的十进制数
- * 第1位（个位）：无意义占位使用
- * 第2位（十位）：通信量化选项：
- *     0：无量化, 2:int8量化
+ * 第1位（个位）：quantMode:
+ *     0: 不量化, 1: 静态量化, 2: 动态量化
+ * 第2位（十位）：是否有smoothScale:
+ *     0: 无, 1: 有
  * 第3位（百位）：是否做tp域allgather:
  *     0: 不做, 1: 做
- * 第4位（千位）：无实际意义:
+ * 第4位（千位）：
+       0: 不做, 1: 做, 2. 用hierarchy模版
  * 第5位（万位）: A2/A3/A5
  *     20000: A2, 30000: A3, 50000: A5
  */
@@ -76,6 +79,12 @@ extern "C" __global__ __aicore__ void moe_low_latency_combine_v2(
         op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, tpSendCount, scales, xActiveMask, sharedExpertX,
                 elasticInfo, oriX, constExpertAlpha1, constExpertAlpha2, constExpertV, XOut, workspaceGM, &pipe,
                 &tilingData);
+        op.Process();
+    } else if (TILING_KEY_IS(32000)) {
+        GET_TILING_DATA_WITH_STRUCT(MoeDistributeCombineV2TilingData, tilingData, tilingGM);
+        MoeDistributeCombineA2Impl::MoeDistributeCombineV2Layered<DTYPE_EXPAND_X, int32_t, DTYPE_EXPAND_X> op;
+        op.Init(expandX, expertIds, assistInfoForCombine, epSendCount, scales, XOut, workspaceGM, &pipe, tilingGM,
+                tilingData);
         op.Process();
     }
 #ifdef __DAV_C310__
