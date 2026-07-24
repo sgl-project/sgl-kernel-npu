@@ -492,13 +492,10 @@ def test_main(
             desire_x = ref_x * handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(
                 -1, 1
             )
-            assert (
-                calc_diff(
-                    check_x[mask],
-                    desire_x[mask],
-                )
-                < get_diff_threshold("bf16")
-            )
+            assert calc_diff(
+                check_x[mask],
+                desire_x[mask],
+            ) < get_diff_threshold("bf16")
 
             if local_rank == 0:
                 print(" passed", flush=True)
