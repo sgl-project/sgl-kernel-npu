@@ -13,6 +13,7 @@ from utils import (
     bench_kineto,
     calc_diff,
     calculate_avg_stats,
+    get_diff_threshold,
     hash_tensor,
     init_dist,
     per_token_cast_back,
@@ -265,17 +266,8 @@ def test(
                 print(
                     f"rank {rank} PASSED [{quant_label}] avg_diff={avg_diff:.5f}, max_diff={max_diff:.5f}, cosine_diff={diff:.5f}"
                 )
-                if quant_type == "mx_fp4_e2m1":
-                    assert diff < 4e-2, f"Error: {diff=}"
-                elif dispatch_use_ue8m0:
-                    assert diff < 4e-2, f"Error: {diff=}"
-                elif dispatch_use_fp8:
-                    fp8_threshold = (
-                        2e-3 if packed_recv_x[0].dtype != torch.int8 else 1e-4
-                    )
-                    assert diff < fp8_threshold, f"Error: {diff=}, {fp8_threshold=}"
-                else:
-                    assert diff < 1e-5, f"Error: {diff=}"
+                threshold = get_diff_threshold(quant_type)
+                assert diff < threshold, f"Error: {diff=}, {threshold=}"
                 hash_value ^= hash_tensor(combined_x)
                 if local_rank == 0:
                     print(" passed", flush=True)
