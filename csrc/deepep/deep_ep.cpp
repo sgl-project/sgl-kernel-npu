@@ -304,7 +304,10 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int num_recv_tokens = (trt == 0) ? 1 : trt;
     is_mxfp8_quant = use_quant && (quant_type == "mx_fp8_e4m3" || quant_type == "mx_fp8_e5m2");
     bool is_mxfp4_quant = use_quant && (quant_type == "mx_fp4_e2m1");
-    bool is_pertoken_fp8_quant = use_quant && (quant_type == "pertoken_fp8_e4m3" || quant_type == "pertoken_fp8_e5m2");
+    // Reject E5M2 explicitly; simply removing it from the per-token check would misclassify it as INT8 below.
+    EP_HOST_ASSERT_S(!use_quant || quant_type != "pertoken_fp8_e5m2",
+                     "pertoken_fp8_e5m2 is not supported yet, please use pertoken_fp8_e4m3 instead");
+    bool is_pertoken_fp8_quant = use_quant && quant_type == "pertoken_fp8_e4m3";
     int64_t quant_mode =
         use_quant
             ? (is_mxfp8_quant
