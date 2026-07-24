@@ -681,7 +681,9 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             "num_local_experts": num_local_experts,
         }
         recv_x = (
-            (dispatch_out, dynamic_scale_after_routing) if use_quant == 1 else dispatch_out
+            (dispatch_out, dynamic_scale_after_routing)
+            if use_quant == 1
+            else dispatch_out
         )
 
         return (
