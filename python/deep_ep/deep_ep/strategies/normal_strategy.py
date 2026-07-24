@@ -622,8 +622,8 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         permutated_tokens.untyped_storage().resize_(0)
 
         if num_local_experts > 1:
-            global_tokens_indices = global_tokens_indices.view(
-                [global_tokens_indices.size(0), 1]
+            global_tokens_indices = global_tokens_indices.reshape(
+                global_tokens_indices.size(0), 1
             )
             if use_quant:
                 dynamic_scale_after_all2all = dynamic_scale_after_all2all.reshape(
@@ -721,7 +721,7 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
                 skip2=None,
                 bias=None,
                 scales=None,
-                expanded_src_to_dst_row=reversed_global_mapping,
+                expanded_src_to_dst_row=reversed_global_mapping.to(torch.int32),
                 export_for_source_row=None,
                 drop_pad_mode=2,
             )
@@ -741,7 +741,7 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             skip2=None,
             bias=None,
             scales=topk_weights,
-            expanded_src_to_dst_row=reversed_local_mapping,
+            expanded_src_to_dst_row=reversed_local_mapping.to(torch.int32),
             export_for_source_row=None,
             drop_pad_mode=2,
         )

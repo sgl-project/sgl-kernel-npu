@@ -21,7 +21,7 @@ from utils import (
 
 # 设置环境变量
 env = os.environ.copy()
-env["DEEP_USE_MODE"] = "alltoall"
+os.environ["DEEP_USE_MODE"] = "alltoall"
 
 
 # noinspection PyShadowingNames
