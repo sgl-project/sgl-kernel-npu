@@ -593,6 +593,8 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             raise ValueError(
                 f"Invalid quant_mode: {quant_mode}. In alltoall mode, valid options: {VALID_QUANT_MODES}"
             )
+        if isinstance(x, tuple) and len(x) == 2:
+            x, _ = x
         hidden_shape = x.shape
 
         use_quant = 1 if quant_mode == "int8" else -1
