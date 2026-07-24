@@ -194,6 +194,29 @@ def calc_diff(x: torch.Tensor, y: torch.Tensor):
     return (1 - sim).item()
 
 
+DIFF_THRESHOLDS = {
+    "bf16": 1e-5,
+    "int8": 1e-4,
+    "pertoken_fp8": 2e-3,
+    "mx_fp8": 4e-2,
+    "mx_fp4": 4e-2,
+}
+
+
+def get_diff_threshold(quant_type):
+    if quant_type is None or quant_type in ("no", "bf16"):
+        return DIFF_THRESHOLDS["bf16"]
+    if quant_type == "int8":
+        return DIFF_THRESHOLDS["int8"]
+    if "fp4" in quant_type:
+        return DIFF_THRESHOLDS["mx_fp4"]
+    if "mx_fp8" in quant_type:
+        return DIFF_THRESHOLDS["mx_fp8"]
+    if "fp8" in quant_type:
+        return DIFF_THRESHOLDS["pertoken_fp8"]
+    return DIFF_THRESHOLDS["bf16"]
+
+
 class empty_suppress:
     def __enter__(self):
         return self

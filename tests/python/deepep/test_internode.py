@@ -15,6 +15,7 @@ from utils import (
     bench_kineto,
     calc_diff,
     diagnose_matrix,
+    get_diff_threshold,
     init_dist,
     inplace_unique,
     per_token_cast_back,
@@ -496,7 +497,7 @@ def test_main(
                     check_x[mask],
                     desire_x[mask],
                 )
-                < 5e-5
+                < get_diff_threshold("bf16")
             )
 
             if local_rank == 0:
