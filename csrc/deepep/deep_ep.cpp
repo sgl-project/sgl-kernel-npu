@@ -311,6 +311,15 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                    ? MXFP8_SCALES
                    : (is_mxfp4_quant ? MXFP4_SCALES : (is_pertoken_fp8_quant ? PER_TOKEN_FP8_SCALES : DYNAMIC_SCALES)))
             : NO_SCALES;
+#ifndef __DAV_C310__
+    if (is_mxfp8_quant) {
+        EP_HOST_ASSERT_S(false, quant_type, " is not supported on this device (requires A5/C310), please use int8 or bf16 instead.");
+    } else if (is_mxfp4_quant) {
+        EP_HOST_ASSERT_S(false, quant_type, " is not supported on this device (requires A5/C310), please use int8 or bf16 instead.");
+    } else if (is_pertoken_fp8_quant) {
+        EP_HOST_ASSERT_S(false, quant_type, " is not supported on this device (requires A5/C310), please use int8 or bf16 instead.");
+    }
+#endif
     at::Tensor expandx_out;
     at::Tensor dynamic_scales_out;
 #ifdef __DAV_C310__
@@ -850,14 +859,22 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     if (quant_mode_name == "int8") {
         quant_mode = DYNAMIC_SCALES;
     } else if (quant_mode_name == "mx_fp8_e4m3" || quant_mode_name == "mx_fp8_e5m2") {
+#ifdef __DAV_C310__
         quant_mode = MXFP8_SCALES;
+#else
+        EP_HOST_ASSERT_S(false, quant_mode_name, " is not supported on this device (requires A5/C310), please use int8 or bf16 instead.");
+#endif
     } else if (quant_mode_name == "mx_fp4_e2m1") {
+#ifdef __DAV_C310__
         quant_mode = MXFP4_SCALES;
+#else
+        EP_HOST_ASSERT_S(false, quant_mode_name, " is not supported on this device (requires A5/C310), please use int8 or bf16 instead.");
+#endif
     } else if (quant_mode_name == "pertoken_fp8_e4m3") {
 #ifdef __DAV_C310__
         quant_mode = PER_TOKEN_FP8_SCALES;
 #else
-        EP_HOST_ASSERT(false);
+        EP_HOST_ASSERT_S(false, "pertoken_fp8_e4m3 is not supported on this device (requires A5/C310), please use int8 or bf16 instead.");
 #endif
     } else if (quant_mode_name == "pertoken_fp8_e5m2") {
         EP_HOST_ASSERT_S(false, "pertoken_fp8_e5m2 is not supported yet, please use pertoken_fp8_e4m3 instead.");
