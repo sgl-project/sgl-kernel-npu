@@ -10,8 +10,8 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#ifndef BLOCK_SPARSE_ATTENTION_TILING_CONST_H
-#define BLOCK_SPARSE_ATTENTION_TILING_CONST_H
+#ifndef ADA_BLOCK_SPARSE_ATTENTION_TILING_CONST_H
+#define ADA_BLOCK_SPARSE_ATTENTION_TILING_CONST_H
 #include <cstdint>
 
 namespace optiling {

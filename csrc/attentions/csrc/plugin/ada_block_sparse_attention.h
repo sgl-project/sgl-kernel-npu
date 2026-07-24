@@ -17,11 +17,12 @@
 #include <string>
 #include <tuple>
 
-at::Tensor block_sparse_attention(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
-                                  const at::Tensor &sparse_mask, const at::Tensor &sparse_count_table,
-                                  std::string input_layout, int64_t sparse_size, int64_t num_heads,
-                                  int64_t num_key_value_heads, double scale_value, bool causal, int64_t inner_precise,
-                                  int64_t pre_tokens, int64_t next_tokens, c10::OptionalIntArrayRef actual_seq_lengths,
-                                  c10::OptionalIntArrayRef actual_seq_lengths_kv);
+at::Tensor ada_block_sparse_attention(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+                                      const at::Tensor &sparse_mask, const at::Tensor &sparse_count_table,
+                                      std::string input_layout, int64_t sparse_size, int64_t num_heads,
+                                      int64_t num_key_value_heads, double scale_value, bool causal,
+                                      int64_t inner_precise, int64_t pre_tokens, int64_t next_tokens,
+                                      c10::OptionalIntArrayRef actual_seq_lengths,
+                                      c10::OptionalIntArrayRef actual_seq_lengths_kv);
 
 #endif  // SPARSE_BLOCK_ATTENTION_MINDIE_SD_IMPL_H
