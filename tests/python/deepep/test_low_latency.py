@@ -79,18 +79,21 @@ def test(
         (num_local_experts,), dtype=torch.int, device="npu"
     )
 
-    if quant_type == "mxfp8":
+    if quant_type in ("mx_fp8_e4m3", "mx_fp8_e5m2"):
         fp8_configs = [(True, True)]
-    elif quant_type == "fp8":
+    elif quant_type in (
+        "int8",
+        "pertoken_fp8_e4m3",
+        "pertoken_fp8_e5m2",
+        "mx_fp4_e2m1",
+    ):
         fp8_configs = [(True, False)]
     else:
         fp8_configs = [(False, False)]
 
     for dispatch_use_fp8, dispatch_use_ue8m0 in fp8_configs:
         for current_x in filter(lambda elem: elem is not None, (x_pure_rand,)):
-            quant_label = (
-                "mxfp8" if dispatch_use_ue8m0 else "fp8" if dispatch_use_fp8 else "bf16"
-            )
+            quant_label = quant_type if dispatch_use_fp8 else "bf16"
             if local_rank == 0:
                 print(
                     f'[testing] Running with {quant_label}, data={"rand" if current_x is x_pure_rand else "uniform"} ...',
@@ -110,14 +113,32 @@ def test(
                     async_finish=not return_recv_hook,
                     return_recv_hook=return_recv_hook,
                     topk_weights=topk_weights,
+                    quant_mode={
+                        "no": None,
+                        "int8": "int8",
+                        "mx_fp8_e4m3": "mx_fp8_e4m3",
+                        "mx_fp8_e5m2": "mx_fp8_e5m2",
+                        "pertoken_fp8_e4m3": "pertoken_fp8_e4m3",
+                        "pertoken_fp8_e5m2": "pertoken_fp8_e5m2",
+                        "mx_fp4_e2m1": "mx_fp4_e2m1",
+                    }[quant_type],
                 )
             )
+            if quant_type == "int8":
+                assert packed_recv_x[0].dtype == torch.int8, (
+                    "--quant-type=int8 must return an INT8 payload, but got "
+                    f"{packed_recv_x[0].dtype}"
+                )
+            elif quant_type == "fp8":
+                assert packed_recv_x[0].dtype == torch.float8_e4m3fn, (
+                    "--quant-type=fp8 must return an FP8 payload, but got "
+                    f"{packed_recv_x[0].dtype}"
+                )
             simulated_gemm_x = (
                 per_token_cast_back(*packed_recv_x)
                 if dispatch_use_fp8
                 else packed_recv_x
             )
-
             padding_size = aligned_num_tokens - num_tokens
             if padding_size > 0:
                 padding_tensor = torch.full(
@@ -141,17 +162,20 @@ def test(
             expert_id = rank * num_local_experts + i
             temp = aligned_num_tokens / num_local_experts
             recv_count = packed_recv_count[i]
+            token_start = int(i * temp)
+            token_end = int((i + 1) * temp)
+            scales_per_token = hidden // 32 if quant_type.startswith("mx_") else 1
+            scale_start = token_start * scales_per_token
+            scale_end = token_end * scales_per_token
             recv_x = (
                 per_token_cast_back(
-                    packed_recv_x[0][int(i * temp) : int((i + 1) * temp)],
-                    packed_recv_x[1][int(i * temp) : int((i + 1) * temp)],
+                    packed_recv_x[0][token_start:token_end],
+                    packed_recv_x[1][scale_start:scale_end],
                 )
                 if dispatch_use_fp8
-                else packed_recv_x[int(i * temp) : int((i + 1) * temp)]
+                else packed_recv_x[token_start:token_end]
             )
-            quant_label = (
-                "mxfp8" if dispatch_use_ue8m0 else "fp8" if dispatch_use_fp8 else "bf16"
-            )
+            quant_label = quant_type if dispatch_use_fp8 else "bf16"
             if i == 0:
                 recv_layout_range = handle[1][(i + 1) * num_ranks - 1]
             else:
@@ -180,18 +204,17 @@ def test(
                         assert torch.equal(recv_x_amin, recv_x_amax)
                 if dispatch_use_fp8:
                     hash_value ^= hash_tensor(
-                        packed_recv_x[0][
-                            int(i * temp) : int(i * temp + num_valid_tokens)
-                        ]
+                        packed_recv_x[0][token_start : token_start + num_valid_tokens]
                     )
+                    valid_scale_end = (
+                        token_start + num_valid_tokens
+                    ) * scales_per_token
                     hash_value ^= hash_tensor(
-                        packed_recv_x[1][
-                            int(i * temp) : int(i * temp + num_valid_tokens)
-                        ]
+                        packed_recv_x[1][scale_start:valid_scale_end]
                     )
                 else:
                     hash_value ^= hash_tensor(
-                        packed_recv_x[int(i * temp) : int(i * temp + num_valid_tokens)]
+                        packed_recv_x[token_start : token_start + num_valid_tokens]
                     )
 
         # Check combine correctness
@@ -242,10 +265,15 @@ def test(
                 print(
                     f"rank {rank} PASSED [{quant_label}] avg_diff={avg_diff:.5f}, max_diff={max_diff:.5f}, cosine_diff={diff:.5f}"
                 )
-                if dispatch_use_ue8m0:
-                    assert diff < 1e-3, f"Error: {diff=}"
+                if quant_type == "mx_fp4_e2m1":
+                    assert diff < 4e-2, f"Error: {diff=}"
+                elif dispatch_use_ue8m0:
+                    assert diff < 4e-2, f"Error: {diff=}"
                 elif dispatch_use_fp8:
-                    assert diff < 1e-4, f"Error: {diff=}"
+                    fp8_threshold = (
+                        2e-3 if packed_recv_x[0].dtype != torch.int8 else 1e-4
+                    )
+                    assert diff < fp8_threshold, f"Error: {diff=}, {fp8_threshold=}"
                 else:
                     assert diff < 1e-5, f"Error: {diff=}"
                 hash_value ^= hash_tensor(combined_x)
@@ -267,6 +295,15 @@ def test(
             async_finish=False,
             return_recv_hook=return_recv_hook,
             topk_weights=topk_weights,
+            quant_mode={
+                "no": None,
+                "int8": "int8",
+                "mx_fp8_e4m3": "mx_fp8_e4m3",
+                "mx_fp8_e5m2": "mx_fp8_e5m2",
+                "pertoken_fp8_e4m3": "pertoken_fp8_e4m3",
+                "pertoken_fp8_e5m2": "pertoken_fp8_e5m2",
+                "mx_fp4_e2m1": "mx_fp4_e2m1",
+            }[quant_type],
         )
         simulated_gemm_x_local = (
             per_token_cast_back(*recv_x) if dispatch_use_fp8 else recv_x
@@ -506,8 +543,16 @@ if __name__ == "__main__":
         dest="quant_type",
         type=str,
         default="no",
-        choices=["no", "fp8", "mxfp8"],
-        help="Quantization type for dispatch: no (bf16), fp8 (per-token), mxfp8 (per-block with e8m0 scales)",
+        choices=[
+            "no",
+            "int8",
+            "mx_fp8_e4m3",
+            "mx_fp8_e5m2",
+            "pertoken_fp8_e4m3",
+            "pertoken_fp8_e5m2",
+            "mx_fp4_e2m1",
+        ],
+        help="Quantization type for dispatch",
     )
     args = parser.parse_args()
 
