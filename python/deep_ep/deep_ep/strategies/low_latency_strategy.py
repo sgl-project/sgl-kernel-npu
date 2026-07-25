@@ -62,7 +62,6 @@ class DefaultLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             "mx_fp8_e4m3",
             "mx_fp8_e5m2",
             "pertoken_fp8_e4m3",
-            "pertoken_fp8_e5m2",
             "mx_fp4_e2m1",
         }
         if quant_mode not in valid_quant_modes:

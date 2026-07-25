@@ -26,13 +26,6 @@ constexpr uint32_t MAX_ROUNDS = 256;
 constexpr uint32_t MIN_TOKENS_PER_ROUND = 32;
 constexpr uint32_t MAX_TOKENS_PER_ROUND = 8192;
 constexpr uint32_t MAX_TOTAL_TOKENS = 131072;
-#ifdef __DAV_C310__
-constexpr const char *PERTOKEN_FP8_E5M2_UNSUPPORTED_MESSAGE =
-    "pertoken_fp8_e5m2 is not supported yet, please use pertoken_fp8_e4m3 instead.";
-#else
-constexpr const char *PERTOKEN_FP8_E5M2_UNSUPPORTED_MESSAGE =
-    "pertoken_fp8_e5m2 is not supported on this device, please use int8 or bf16 instead.";
-#endif
 
 Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t num_rdma_bytes, bool low_latency_mode,
                std::string moe_all_to_all_group_name)
@@ -311,10 +304,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int num_recv_tokens = (trt == 0) ? 1 : trt;
     is_mxfp8_quant = use_quant && (quant_type == "mx_fp8_e4m3" || quant_type == "mx_fp8_e5m2");
     bool is_mxfp4_quant = use_quant && (quant_type == "mx_fp4_e2m1");
-    // Reject E5M2 explicitly; simply removing it from the per-token check would misclassify it as INT8 below.
-    if (use_quant && quant_type == "pertoken_fp8_e5m2") {
-        EP_HOST_ASSERT_S(false, PERTOKEN_FP8_E5M2_UNSUPPORTED_MESSAGE);
-    }
+
     bool is_pertoken_fp8_quant = use_quant && quant_type == "pertoken_fp8_e4m3";
     int64_t quant_mode =
         use_quant
@@ -341,9 +331,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         dynamic_scales_out =
             torch::empty({num_recv_tokens * hidden / MX_BLOCK_SIZE}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
     } else if (quant_mode == PER_TOKEN_FP8_SCALES) {
-        if (quant_type == "pertoken_fp8_e5m2") {
-            EP_HOST_ASSERT_S(false, PERTOKEN_FP8_E5M2_UNSUPPORTED_MESSAGE);
-        }
         expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
         dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
     } else if (quant_mode == MXFP4_SCALES) {
@@ -869,14 +856,11 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     const bool is_mxfp4_quant = quant_mode_name == "mx_fp4_e2m1";
     const bool is_pertoken_fp8_quant = quant_mode_name == "pertoken_fp8_e4m3";
 
-    if (quant_mode_name == "pertoken_fp8_e5m2") {
-        EP_HOST_ASSERT_S(false, PERTOKEN_FP8_E5M2_UNSUPPORTED_MESSAGE);
-    }
 #ifndef __DAV_C310__
     const bool is_a5_only_quant = is_mxfp8_quant || is_mxfp4_quant || is_pertoken_fp8_quant;
     if (is_a5_only_quant) {
         EP_HOST_ASSERT_S(false, quant_mode_name,
-                         " is not supported on this device (requires A5/C310), please use int8 or bf16 instead.");
+                         " is not supported on this device, please use int8 or bf16 instead.");
     }
 #endif
 
