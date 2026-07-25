@@ -315,8 +315,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
 #ifndef __DAV_C310__
     const bool is_a5_only_quant = is_mxfp8_quant || is_mxfp4_quant || is_pertoken_fp8_quant;
     if (is_a5_only_quant) {
-        EP_HOST_ASSERT_S(false, quant_type,
-                         " is not supported on this device (requires A5/C310), please use int8 or bf16 instead.");
+        EP_HOST_ASSERT_S(false, quant_type, " is not supported on this device, please use int8 or bf16 instead.");
     }
 #endif
     at::Tensor expandx_out;
@@ -859,8 +858,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
 #ifndef __DAV_C310__
     const bool is_a5_only_quant = is_mxfp8_quant || is_mxfp4_quant || is_pertoken_fp8_quant;
     if (is_a5_only_quant) {
-        EP_HOST_ASSERT_S(false, quant_mode_name,
-                         " is not supported on this device, please use int8 or bf16 instead.");
+        EP_HOST_ASSERT_S(false, quant_mode_name, " is not supported on this device, please use int8 or bf16 instead.");
     }
 #endif
 
