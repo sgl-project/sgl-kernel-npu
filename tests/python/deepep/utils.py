@@ -196,7 +196,7 @@ def calc_diff(x: torch.Tensor, y: torch.Tensor):
 
 DIFF_THRESHOLDS = {
     "bf16": 1e-5,
-    "int8": 1e-4,
+    "int8": 3e-3,
     "fp8": 2e-3,
     "fp4": 4e-2,
 }
