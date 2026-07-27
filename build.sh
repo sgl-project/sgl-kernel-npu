@@ -275,7 +275,6 @@ function make_sgl_kernel_npu_package()
 function build_attentions_kernels()
 {
     if [[ "$BUILD_ATTENTIONS_MODULE" != "ON" ]]; then return 0; fi
-
     CUSTOM_OPP_DIR="${CURRENT_DIR}/python/attentions/attentions"
     KERNEL_DIR="csrc/attentions/build"
 
