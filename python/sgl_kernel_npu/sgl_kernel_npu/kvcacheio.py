@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional
+from typing import Optional, Sequence
 
 import torch
 
@@ -11,6 +11,52 @@ class TransferDirection(Enum):
 
 class TransferFlag(Enum):
     FAST2D = 2
+
+
+def transfer_state_dim_exchange(
+    device_states: Sequence[torch.Tensor],
+    host_states: Sequence[torch.Tensor],
+    device_indices: torch.Tensor,
+    host_indices: torch.Tensor,
+    direction: TransferDirection,
+    layer_begin: int,
+    layer_count: int,
+    flags: TransferFlag = TransferFlag.FAST2D,
+) -> None:
+    """Submit indexed state-sidecar copies to the current NPU stream.
+
+    Device components use ``[layers, device_slots, *state_shape]`` and host
+    components use ``[host_slots, layers, 1, *state_shape]``.  A device slot
+    payload may be a dense permutation (for example the NPU NEXTN temporal
+    transpose); the Host payload is an opaque byte-exact backup of that physical
+    layout.  The call only enqueues H2D/D2H work; completion is ordered by the
+    caller's stream/event.
+    """
+    if not device_states:
+        raise ValueError("device_states must not be empty")
+    if len(device_states) != len(host_states):
+        raise ValueError(
+            "device_states and host_states must contain the same number of components"
+        )
+    for component, tensor in enumerate(host_states):
+        if tensor.device.type != "cpu":
+            raise ValueError(
+                f"host state component {component} must be on CPU, got {tensor.device}"
+            )
+        if not tensor.is_pinned():
+            raise ValueError(
+                f"host state component {component} must use pinned memory"
+            )
+    torch.ops.npu.transfer_state_dim_exchange(
+        list(device_states),
+        list(host_states),
+        device_indices,
+        host_indices,
+        direction.value,
+        layer_begin,
+        layer_count,
+        flags.value,
+    )
 
 
 def transfer_kv_dim_exchange(

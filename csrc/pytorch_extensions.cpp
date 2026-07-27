@@ -69,6 +69,11 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor device_indices, Tensor host_indices, int page_size, int direct, int flags) -> ()");
 
     m.def(
+        "transfer_state_dim_exchange(Tensor[] device_states, Tensor[] host_states, "
+        "Tensor device_indices, Tensor host_indices, int direction, "
+        "int layer_begin, int layer_count, int flags) -> ()");
+
+    m.def(
         "bgmv_expand(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y,"
         "            int slice_offset, int slice_size) -> Tensor");
 
@@ -170,6 +175,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("batch_matmul_transpose", TORCH_FN(sglang::npu_kernel::batch_matmul_transpose));
 
     m.impl("transfer_kv_dim_exchange", TORCH_FN(sglang::npu_kernel::transfer_kv_dim_exchange));
+
+    m.impl("transfer_state_dim_exchange", TORCH_FN(sglang::npu_kernel::transfer_state_dim_exchange));
 
     m.impl("bgmv_expand", TORCH_FN(sglang::npu_kernel::bgmv_expand));
 
