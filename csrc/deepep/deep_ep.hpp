@@ -136,9 +136,15 @@ public:
     void end_profile();
 
     std::vector<at::Tensor> dispatch_ffn_combine(const at::Tensor &x, const at::Tensor &expert_ids,
-                                                 const at::Tensor &weight1, const at::Tensor &scale1,
-                                                 const at::Tensor &weight2, const at::Tensor &scale2,
-                                                 const at::Tensor &expert_scales, int64_t max_output_size,
-                                                 int64_t num_experts, int quant_mode) const;
+                                                  const at::Tensor &weight1, const at::Tensor &scale1,
+                                                  const at::Tensor &weight2, const at::Tensor &scale2,
+                                                  const at::Tensor &expert_scales, int64_t max_output_size,
+                                                  int64_t num_experts, int quant_mode) const;
+
+    std::vector<at::Tensor> dispatch_ffn_combine_m3(const at::Tensor &x, const at::Tensor &expert_ids,
+                                                     const at::Tensor &weight1, const at::Tensor &scale1,
+                                                     const at::Tensor &weight2, const at::Tensor &scale2,
+                                                     const at::Tensor &expert_scales, int64_t max_output_size,
+                                                     int64_t num_experts, int quant_mode) const;
 };
 }  // namespace deep_ep

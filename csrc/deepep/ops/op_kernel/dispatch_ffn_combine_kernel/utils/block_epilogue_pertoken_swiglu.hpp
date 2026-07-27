@@ -13,7 +13,7 @@ namespace Catlass::Epilogue::Block {
 
 // float scale, dequant per expert
 template <uint32_t UB_STAGES_, class CType_, class LayoutPerTokenScale_, class DType_, class TileElemWiseMuls_,
-          class TileCopy_>
+           class TileCopy_>
 class BlockEpilogue<EpilogueAtlasA2PerTokenDequantSwigluQuant<UB_STAGES_>, CType_,
                     Gemm::GemmType<float, LayoutPerTokenScale_>, DType_, TileElemWiseMuls_, TileCopy_>
 {
@@ -194,17 +194,42 @@ public:
             AscendC::Muls(ubCFp32, ubCFp32, perTokenScale, blockN);
             AscendC::PipeBarrier<PIPE_V>();
 
-            // Swiglu computation process
-            AscendC::Muls(ubCFp32ChunkN, ubCFp32, -1.0f, ChunkTileLen);
-            AscendC::PipeBarrier<PIPE_V>();
-            AscendC::Exp(ubCFp32ChunkN, ubCFp32ChunkN, ChunkTileLen);
-            AscendC::PipeBarrier<PIPE_V>();
-            AscendC::Adds(ubCFp32ChunkN, ubCFp32ChunkN, 1.0f, ChunkTileLen);
-            AscendC::PipeBarrier<PIPE_V>();
-            // TODO: confirm whether the division impacts subsequent data
-            AscendC::Div(ubCFp32ChunkN, ubCFp32, ubCFp32ChunkN, ChunkTileLen);
-            AscendC::PipeBarrier<PIPE_V>();
-            AscendC::Mul(ubCFp32ChunkN, ubCFp32ChunkN, ubCFp32[ChunkTileLen], ChunkTileLen);
+#ifdef SGLANG_M3_SWIGLU_OAI
+            {
+                // MiniMax-M3: min(gate, 7) * sigmoid(1.702 * gate) * (clamp(up, -7, 7) + 1).
+                constexpr float alpha = 1.702f;
+                constexpr float limit = 7.0f;
+                AscendC::Mins(ubCFp32ChunkN, ubCFp32, limit, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Muls(ubOutputTmp, ubCFp32ChunkN, -alpha, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Exp(ubOutputTmp, ubOutputTmp, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Adds(ubOutputTmp, ubOutputTmp, 1.0f, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Div(ubCFp32ChunkN, ubCFp32ChunkN, ubOutputTmp, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Mins(ubCFp32[ChunkTileLen], ubCFp32[ChunkTileLen], limit, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Maxs(ubCFp32[ChunkTileLen], ubCFp32[ChunkTileLen], -limit, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Adds(ubCFp32[ChunkTileLen], ubCFp32[ChunkTileLen], 1.0f, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Mul(ubCFp32ChunkN, ubCFp32ChunkN, ubCFp32[ChunkTileLen], ChunkTileLen);
+            }
+#else
+            {
+                AscendC::Muls(ubCFp32ChunkN, ubCFp32, -1.0f, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Exp(ubCFp32ChunkN, ubCFp32ChunkN, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Adds(ubCFp32ChunkN, ubCFp32ChunkN, 1.0f, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Div(ubCFp32ChunkN, ubCFp32, ubCFp32ChunkN, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Mul(ubCFp32ChunkN, ubCFp32ChunkN, ubCFp32[ChunkTileLen], ChunkTileLen);
+            }
+#endif
 
             // Quantization process; difference between the two approaches
             AscendC::PipeBarrier<PIPE_V>();

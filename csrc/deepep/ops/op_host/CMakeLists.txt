@@ -49,6 +49,10 @@ file(COPY ${pregen_file} DESTINATION ${ASCEND_AUTOGEN_PATH})
 file(GLOB aclnn_src ${ASCEND_AUTOGEN_PATH}/aclnn*.cpp)
 file(GLOB autogen_aclnn_src ${ASCEND_AUTOGEN_PATH}/aclnnInner_*.cpp)                # 将通过npu_op_code_gen生成的aclnn相关源文件添加至源文件列表中
 
+# DeepEP provides compatibility wrappers with the public low-latency API names
+# under op_api/. Keep those wrappers and link only their generated Inner APIs.
+list(FILTER aclnn_src EXCLUDE REGEX ".*/aclnn_moe_low_latency_(combine|dispatch)_v2\\.cpp$")
+
 set_source_files_properties(${autogen_aclnn_src} PROPERTIES GENERATED TRUE)    # 设置对应的文件属性为编译过程中生成的文件
 npu_op_library(cust_opapi ACLNN                                                # 指定library名称与类型，以及参与编译的源文件
      ${aclnn_src}

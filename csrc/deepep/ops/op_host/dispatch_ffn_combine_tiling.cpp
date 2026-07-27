@@ -292,6 +292,87 @@ static ge::graphStatus DispatchFFNCombineTilingFunc(gert::TilingContext *context
     return DispatchFFNCombineTilingFuncImpl(context);
 }
 
+static ge::graphStatus DispatchFFNCombineM3TilingFuncImpl(gert::TilingContext *context)
+{
+    const char *nodeName = context->GetNodeName();
+    const gert::StorageShape *xShape = context->GetInputShape(X_INDEX);
+    const gert::StorageShape *expertIdsShape = context->GetInputShape(EXPERTID_INDEX);
+    if (xShape == nullptr || expertIdsShape == nullptr || xShape->GetStorageShape().GetDimNum() != 2 ||
+        expertIdsShape->GetStorageShape().GetDimNum() != 2 || xShape->GetStorageShape().GetDim(1) != 6144 ||
+        expertIdsShape->GetStorageShape().GetDim(1) != 4) {
+        OP_LOGE(nodeName, "DispatchFFNCombineM3 requires x=[M, 6144] and expertIdx=[M, 4].");
+        return ge::GRAPH_FAILED;
+    }
+
+    auto attrs = context->GetAttrs();
+    const int *epRankSize = attrs == nullptr ? nullptr : attrs->GetAttrPointer<int>(ATTR_EP_RANK_SIZE_INDEX);
+    if (epRankSize == nullptr || *epRankSize != 16) {
+        OP_LOGE(nodeName, "DispatchFFNCombineM3 requires ep_rank_size=16.");
+        return ge::GRAPH_FAILED;
+    }
+
+    DispatchFFNCombineTilingData *tilingData = context->GetTilingData<DispatchFFNCombineTilingData>();
+    OP_TILING_CHECK(tilingData == nullptr, OP_LOGE(nodeName, "tilingData is nullptr."), return ge::GRAPH_FAILED);
+    DispatchFFNCombineInfo &info = tilingData->dispatchFFNCombineInfo;
+    OP_TILING_CHECK(DispatchFFNCombineCheckAttrAndSetTiling(context, info) != ge::GRAPH_SUCCESS,
+                    OP_LOGE(nodeName, "M3 attribute tiling failed"), return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(DispatchFFNCombineCheckShapeAndSetTiling(context, info) != ge::GRAPH_SUCCESS,
+                    OP_LOGE(nodeName, "M3 shape tiling failed"), return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(info.K != 6144 || info.topK != 4 || info.worldSize != 16 ||
+                        info.expertPerRank * info.worldSize != 128,
+                    OP_LOGE(nodeName, "M3 requires hidden=6144, top-k=4, 128 experts, and EP16."),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(DispatchFFNCombineGetPlatformInfoAndSetTiling(context, info) != ge::GRAPH_SUCCESS,
+                    OP_LOGE(nodeName, "M3 platform tiling failed"), return ge::GRAPH_FAILED);
+
+    SetTilingData(tilingData->cocTiling, info);
+    auto ascendcPlatform = platform_ascendc::PlatformAscendC(context->GetPlatformInfo());
+    context->SetBlockDim(ascendcPlatform.CalcTschBlockDim(
+        ascendcPlatform.GetCoreNumAiv(), ascendcPlatform.GetCoreNumAic(), ascendcPlatform.GetCoreNumAiv()));
+    context->SetTilingKey(INIT_TILINGKEY + (info.isTransposeB ? TILINGKEY_TRANS_B : 0) +
+                          (info.isWeightNz ? TILINGKEY_WEIGHT_NZ : 0));
+
+    optiling::MoeInitRoutingQuantV2TilingBase routingTiling;
+    constexpr int64_t kInputBytes = sizeof(int16_t);
+    constexpr int64_t kUbSize = 196352;
+    routingTiling.DoTiling(info.M, info.K, info.topK, 0, info.expertPerRank * info.worldSize, 0, 0, 2, false,
+                           kInputBytes, 1, 0, 2 * BLOCK_NUM, kUbSize);
+    tilingData->cocTiling.moeInitRoutingQuantV2TilingData = routingTiling.quantTilingData;
+    tilingData->cocTiling.initRoutingQuantTilingKey = routingTiling.tilingKey_;
+
+    const uint64_t requiredHcclBytes =
+        static_cast<uint64_t>(info.M) * info.K * info.topK * sizeof(int8_t) * 3 + 10 * MB_SIZE;
+    OP_TILING_CHECK(requiredHcclBytes > GetMaxWindowSize(),
+                    OP_LOGE(nodeName, "M3 HCCL_BUFFSIZE is too small: M=%u requires %luMB.", info.M,
+                            (requiredHcclBytes + MB_SIZE - 1) / MB_SIZE),
+                    return ge::GRAPH_FAILED);
+
+    size_t *workspaces = context->GetWorkspaceSizes(1);
+    OP_TILING_CHECK(workspaces == nullptr, OP_LOGE(nodeName, "M3 workspaces is nullptr."), return ge::GRAPH_FAILED);
+    const uint64_t maxOutput = info.maxOutputSize;
+    const uint64_t n2 = info.K;
+    const uint64_t k2 = info.N / 2;
+    const uint64_t cocWorkspace =
+        ((info.M + 255) / 256) * 256 * info.topK * sizeof(int32_t) +
+        info.worldSize * info.worldSize * info.expertPerRank * sizeof(int32_t) * 3 +
+        maxOutput * sizeof(float) * 2 + maxOutput * info.N * sizeof(int16_t) +
+        maxOutput * n2 * sizeof(int16_t) + maxOutput * info.K * sizeof(int8_t) +
+        maxOutput * k2 * sizeof(int8_t) + info.worldSize * sizeof(int32_t) * 16 +
+        (info.expertPerRank + info.worldSize) * sizeof(int32_t) * 16;
+    workspaces[0] = SYSTEM_NEED_WORKSPACE + std::max(cocWorkspace, routingTiling.workspaceSize_);
+
+    auto group = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_GROUP_INDEX));
+    AscendC::Mc2CcTilingConfig mc2Config(group, 8U, "AlltoAll=level0:fullmesh;level1:pairwise");
+    mc2Config.GetTiling(tilingData->mc2InitTiling);
+    mc2Config.GetTiling(tilingData->mc2CcTiling);
+    return ge::GRAPH_SUCCESS;
+}
+
+static ge::graphStatus DispatchFFNCombineM3TilingFunc(gert::TilingContext *context)
+{
+    return DispatchFFNCombineM3TilingFuncImpl(context);
+}
+
 struct DispatchFFNCombineCompileInfo {};
 ge::graphStatus TilingParseForDispatchFFNCombine(gert::TilingParseContext *context)
 {
@@ -301,5 +382,9 @@ ge::graphStatus TilingParseForDispatchFFNCombine(gert::TilingParseContext *conte
 
 IMPL_OP_OPTILING(DispatchFFNCombine)
     .Tiling(DispatchFFNCombineTilingFunc)
+    .TilingParse<DispatchFFNCombineCompileInfo>(TilingParseForDispatchFFNCombine);
+
+IMPL_OP_OPTILING(DispatchFFNCombineM3)
+    .Tiling(DispatchFFNCombineM3TilingFunc)
     .TilingParse<DispatchFFNCombineCompileInfo>(TilingParseForDispatchFFNCombine);
 }  // namespace optiling
