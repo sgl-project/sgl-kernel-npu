@@ -684,7 +684,7 @@ class Buffer:
             use_ue8m0: deprecated for the default low-latency strategy and ignored when selecting its quantization mode.
             use_mxfp4: deprecated for the default low-latency strategy and ignored when selecting its quantization mode.
             quant_mode: quantization mode used by the default low-latency strategy. Supported values are `None`,
-                `int8`, `mx_fp8_e4m3`, `mx_fp8_e5m2`, `pertoken_fp8_e4m3`, `pertoken_fp8_e5m2`, and `mx_fp4_e2m1`.
+                `int8`, `mx_fp8_e4m3`, `mx_fp8_e5m2`, `pertoken_fp8_e4m3` and `mx_fp4_e2m1`.
             async_finish: the current stream will not wait for the communication kernels to be finished if set.
             return_recv_hook: return a receiving hook if set. If set, the kernel will just do the RDMA request issues,
                 but **without actually receiving the data**. You must call the received hook to make sure the data's arrival.

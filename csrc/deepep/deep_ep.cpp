@@ -304,13 +304,19 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int num_recv_tokens = (trt == 0) ? 1 : trt;
     is_mxfp8_quant = use_quant && (quant_type == "mx_fp8_e4m3" || quant_type == "mx_fp8_e5m2");
     bool is_mxfp4_quant = use_quant && (quant_type == "mx_fp4_e2m1");
-    bool is_pertoken_fp8_quant = use_quant && (quant_type == "pertoken_fp8_e4m3" || quant_type == "pertoken_fp8_e5m2");
+    bool is_pertoken_fp8_quant = use_quant && quant_type == "pertoken_fp8_e4m3";
     int64_t quant_mode =
         use_quant
             ? (is_mxfp8_quant
                    ? MXFP8_SCALES
                    : (is_mxfp4_quant ? MXFP4_SCALES : (is_pertoken_fp8_quant ? PER_TOKEN_FP8_SCALES : DYNAMIC_SCALES)))
             : NO_SCALES;
+#ifndef __DAV_C310__
+    const bool is_a5_only_quant = is_mxfp8_quant || is_mxfp4_quant || is_pertoken_fp8_quant;
+    if (is_a5_only_quant) {
+        EP_HOST_ASSERT_S(false, quant_type, " is not supported on this device, please use int8 or bf16 instead.");
+    }
+#endif
     at::Tensor expandx_out;
     at::Tensor dynamic_scales_out;
 #ifdef __DAV_C310__
@@ -323,8 +329,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         dynamic_scales_out =
             torch::empty({num_recv_tokens * hidden / MX_BLOCK_SIZE}, at::dtype(at::kFloat8_e8m0fnu).device(x.device()));
     } else if (quant_mode == PER_TOKEN_FP8_SCALES) {
-        EP_HOST_ASSERT_S(quant_type != "pertoken_fp8_e5m2",
-                         "pertoken_fp8_e5m2 is not supported yet, please use pertoken_fp8_e4m3 instead");
         expandx_out = torch::empty({num_recv_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(x.device()));
         dynamic_scales_out = torch::empty({num_recv_tokens}, at::dtype(at::kFloat).device(x.device()));
     } else if (quant_mode == MXFP4_SCALES) {
@@ -845,21 +849,31 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         num_max_tokens = global_bs * std::min(num_topk, num_local_experts);
     }
     auto max_size = std::max(num_tokens * num_topk, num_max_tokens * 128);
+    const bool is_mxfp8_quant = quant_mode_name == "mx_fp8_e4m3" || quant_mode_name == "mx_fp8_e5m2";
+    const bool is_mxfp4_quant = quant_mode_name == "mx_fp4_e2m1";
+    const bool is_pertoken_fp8_quant = quant_mode_name == "pertoken_fp8_e4m3";
+
+#ifndef __DAV_C310__
+    const bool is_a5_only_quant = is_mxfp8_quant || is_mxfp4_quant || is_pertoken_fp8_quant;
+    if (is_a5_only_quant) {
+        EP_HOST_ASSERT_S(false, quant_mode_name, " is not supported on this device, please use int8 or bf16 instead.");
+    }
+#endif
 
     int64_t quant_mode = NO_SCALES;
     if (quant_mode_name == "int8") {
         quant_mode = DYNAMIC_SCALES;
-    } else if (quant_mode_name == "mx_fp8_e4m3" || quant_mode_name == "mx_fp8_e5m2") {
-        quant_mode = MXFP8_SCALES;
-    } else if (quant_mode_name == "mx_fp4_e2m1") {
-        quant_mode = MXFP4_SCALES;
-    } else if (quant_mode_name == "pertoken_fp8_e4m3" || quant_mode_name == "pertoken_fp8_e5m2") {
+    }
 #ifdef __DAV_C310__
+    else if (is_mxfp8_quant) {
+        quant_mode = MXFP8_SCALES;
+    } else if (is_mxfp4_quant) {
+        quant_mode = MXFP4_SCALES;
+    } else if (is_pertoken_fp8_quant) {
         quant_mode = PER_TOKEN_FP8_SCALES;
-#else
-        EP_HOST_ASSERT(false);
+    }
 #endif
-    } else {
+    else {
         EP_HOST_ASSERT(quant_mode_name == "none");
     }
     // Allocate packed tensors
@@ -874,9 +888,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     }
 #ifdef __DAV_C310__
     else if (quant_mode == PER_TOKEN_FP8_SCALES) {  // per-token fp8_e4m3
-        packed_recv_x = quant_mode_name == "pertoken_fp8_e5m2"
-                            ? at::empty({num_max_tokens, hidden}, at::dtype(at::kFloat8_e5m2).device(device))
-                            : at::empty({num_max_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(device));
+        packed_recv_x = at::empty({num_max_tokens, hidden}, at::dtype(at::kFloat8_e4m3fn).device(device));
         packed_recv_x_scales = at::empty({num_max_tokens}, at::dtype(at::kFloat).device(device));
     } else if (quant_mode == 3) {  // MXFP8
         packed_recv_x = quant_mode_name == "mx_fp8_e5m2"
@@ -901,7 +913,6 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     at::Tensor scales;
     at::Tensor active_mask;
     int enable_neg_one = get_value_from_env("MOE_ENABLE_TOPK_NEG_ONE", 0);
-
     int64_t tp_size = 1;
     int64_t tp_rank = 0;
     int64_t expert_shard_type = 0;
