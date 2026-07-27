@@ -6,9 +6,6 @@ BUILD_DEEPEP_MODULE="ON"
 BUILD_DEEPEP_OPS="ON"
 BUILD_KERNELS_MODULE="ON"
 BUILD_MEMORY_SAVER_MODULE="ON"
-
-ONLY_BUILD_DEEPEP_ADAPTER_MODULE="OFF"
-ONLY_BUILD_DEEPEP_KERNELs_MODULE="OFF"
 ONLY_BUILD_MEMORY_SAVER_MODULE="OFF"
 
 DEBUG_MODE="OFF"
@@ -19,27 +16,18 @@ while getopts ":a:hd" opt; do
             BUILD_DEEPEP_MODULE="OFF"
             BUILD_KERNELS_MODULE="OFF"
             BUILD_MEMORY_SAVER_MODULE="OFF"
+            BUILD_ATTENTIONS_MODULE="OFF"
             case "$OPTARG" in
                 deepep )
-                    BUILD_ATTENTIONS_MODULE="OFF"
                     BUILD_DEEPEP_MODULE="ON"
                     BUILD_DEEPEP_OPS="ON"
                     ;;
                 deepep2 )
-                    BUILD_ATTENTIONS_MODULE="OFF"
                     BUILD_DEEPEP_MODULE="ON"
                     BUILD_DEEPEP_OPS="OFF"
                     ;;
                 kernels )
                     BUILD_KERNELS_MODULE="ON"
-                    ;;
-                deepep-adapter )
-                    BUILD_DEEPEP_MODULE="ON"
-                    ONLY_BUILD_DEEPEP_ADAPTER_MODULE="ON"
-                    ;;
-                deepep-kernels )
-                    BUILD_DEEPEP_MODULE="ON"
-                    ONLY_BUILD_DEEPEP_KERNELs_MODULE="ON"
                     ;;
                 memory-saver )
                     BUILD_MEMORY_SAVER_MODULE="ON"
@@ -47,7 +35,7 @@ while getopts ":a:hd" opt; do
                     ;;
                 * )
                     echo "Error: Invalid Value"
-                    echo "Allowed value: deepep|kernels|deepep-adapter|deepep-kernels|memory-saver"
+                    echo "Allowed value: deepep|deepep2|kernels|memory-saver"
                     exit 1
                     ;;
             esac
@@ -60,9 +48,8 @@ while getopts ":a:hd" opt; do
             echo "Use './build.sh -a <target>' to build specific parts of the project."
             echo "    <target> can be:"
             echo "    deepep            Only build deep_ep."
+            echo "    deepep2           Only build deep_ep for A2."
             echo "    kernels           Only build sgl_kernel_npu."
-            echo "    deepep-adapter    Only build deepep adapter layer and use old build of deepep kernels."
-            echo "    deepep-kernels    Only build deepep kernels and use old build of deepep adapter layer."
             echo "    memory-saver      Only build torch_memory_saver (under contrib)."
             exit 1
             ;;
@@ -153,7 +140,6 @@ COMPILE_OPTIONS=""
 
 function build_kernels()
 {
-    if [[ "$ONLY_BUILD_DEEPEP_KERNELs_MODULE" == "ON" ]]; then return 0; fi
     if [[ "$ONLY_BUILD_MEMORY_SAVER_MODULE" == "ON" ]]; then return 0; fi
 
     CMAKE_DIR=""
@@ -183,7 +169,6 @@ function build_kernels()
 
 function build_deepep_kernels()
 {
-    if [[ "$ONLY_BUILD_DEEPEP_ADAPTER_MODULE" == "ON" ]]; then return 0; fi
     if [[ "$BUILD_DEEPEP_MODULE" != "ON" ]]; then return 0; fi
 
     if [[ "$BUILD_DEEPEP_OPS" == "ON" ]]; then
@@ -302,16 +287,15 @@ function main()
     create_deepep_cmake
     build_kernels
     build_deepep_kernels
-    build_attentions_kernels
+    if [[ "$BUILD_ATTENTIONS_MODULE" == "ON" ]]; then
+        build_attentions_kernels
+    fi
     if pip3 show wheel;then
         echo "wheel has been installed"
     else
         pip3 install wheel==0.45.1
     fi
     build_memory_saver
-    if [[ "$BUILD_ATTENTIONS_MODULE" == "ON" ]]; then
-        build_attentions_kernels
-    fi
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
         make_deepep_package
     fi
