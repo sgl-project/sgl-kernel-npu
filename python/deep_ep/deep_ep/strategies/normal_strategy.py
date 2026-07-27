@@ -156,7 +156,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         Tuple,
         EventOverlap,
     ]:
-        # Determine quant type from quant_mode
+        # Determine quant type
         VALID_QUANT_MODES = {
             "bf16",
             "int8",
@@ -166,15 +166,49 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             "mx_fp4_e2m1",
         }
         if quant_mode is None:
-            quant_mode = "bf16"
-        if quant_mode not in VALID_QUANT_MODES:
-            raise ValueError(
-                f"Invalid quant_mode: {quant_mode}. Valid options: {VALID_QUANT_MODES}"
-            )
-        data = x
-        x_scales = None
-        quant_type = quant_mode
-        use_quant = quant_mode != "bf16"
+            # Backward compat: dtype-based detection (pre-#600 calling convention)
+            if isinstance(x, torch.Tensor):
+                # BF16 no quant
+                data = x
+                x_scales = None
+                quant_type = "bf16"
+                use_quant = False
+            elif isinstance(x, tuple) and len(x) == 2:
+                data, quant_type_tensor = x
+                if quant_type_tensor.dtype == torch.float8_e4m3fn:
+                    quant_type = "mx_fp8_e4m3"
+                    use_quant = True
+                elif quant_type_tensor.dtype == torch.float8_e5m2:
+                    quant_type = "mx_fp8_e5m2"
+                    use_quant = True
+                elif quant_type_tensor.dtype == torch.int8:
+                    quant_type = "int8"
+                    use_quant = True
+                elif quant_type_tensor.dtype == torch.float4_e2m1fn_x2:
+                    quant_type = "mx_fp4_e2m1"
+                    use_quant = True
+                else:
+                    raise TypeError(
+                        f"Unsupported quantized dtype: {quant_type_tensor.dtype}"
+                    )
+                x_scales = None
+            else:
+                raise TypeError(f"Unsupported x type: {type(x)}")
+
+            if not use_quant:
+                use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+                if use_quant:
+                    quant_type = "int8"
+        else:
+            # New API: explicit quant_mode
+            if quant_mode not in VALID_QUANT_MODES:
+                raise ValueError(
+                    f"Invalid quant_mode: {quant_mode}. Valid options: {VALID_QUANT_MODES}"
+                )
+            data = x
+            x_scales = None
+            quant_type = quant_mode
+            use_quant = quant_mode != "bf16"
 
         if handle is not None:
             raise NotImplementedError(
@@ -264,8 +298,8 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         Tuple,
         EventOverlap,
     ]:
-        x_scales = None
-        use_quant = False
+        x, x_scales = x if isinstance(x, tuple) else (x, None)
+        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
 
         if handle is not None:
             raise NotImplementedError(
