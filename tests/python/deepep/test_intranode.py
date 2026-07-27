@@ -623,7 +623,7 @@ if __name__ == "__main__":
         dest="quant_type",
         type=str,
         default="bf16",
-        help="quant type: bf16, int8, mx_fp8_e4m3, mx_fp8_e5m2, pertoken_fp8_e4m3, pertoken_fp8_e5m2, mx_fp4_e2m1",
+        help="quant type: bf16, int8, mx_fp8_e4m3, mx_fp8_e5m2, pertoken_fp8_e4m3, mx_fp4_e2m1",
     )
     args = parser.parse_args()
 

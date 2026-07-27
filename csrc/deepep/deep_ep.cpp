@@ -304,7 +304,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int num_recv_tokens = (trt == 0) ? 1 : trt;
     is_mxfp8_quant = use_quant && (quant_type == "mx_fp8_e4m3" || quant_type == "mx_fp8_e5m2");
     bool is_mxfp4_quant = use_quant && (quant_type == "mx_fp4_e2m1");
-
     bool is_pertoken_fp8_quant = use_quant && quant_type == "pertoken_fp8_e4m3";
     int64_t quant_mode =
         use_quant
@@ -850,7 +849,6 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
         num_max_tokens = global_bs * std::min(num_topk, num_local_experts);
     }
     auto max_size = std::max(num_tokens * num_topk, num_max_tokens * 128);
-
     const bool is_mxfp8_quant = quant_mode_name == "mx_fp8_e4m3" || quant_mode_name == "mx_fp8_e5m2";
     const bool is_mxfp4_quant = quant_mode_name == "mx_fp4_e2m1";
     const bool is_pertoken_fp8_quant = quant_mode_name == "pertoken_fp8_e4m3";
@@ -915,7 +913,6 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     at::Tensor scales;
     at::Tensor active_mask;
     int enable_neg_one = get_value_from_env("MOE_ENABLE_TOPK_NEG_ONE", 0);
-
     int64_t tp_size = 1;
     int64_t tp_rank = 0;
     int64_t expert_shard_type = 0;
