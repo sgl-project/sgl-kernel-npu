@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 19,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "default",
+      "displayName": "Ascend 910_93 Release",
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build_out",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ENABLE_SOURCE_PACKAGE": true,
+        "ENABLE_BINARY_PACKAGE": true,
+        "ASCEND_COMPUTE_UNIT": "ascend910_93",
+        "vendor_name": "hwcomputing",
+        "ASCEND_CANN_PACKAGE_PATH": "$penv{ASCEND_HOME_PATH}",
+        "ASCEND_PYTHON_EXECUTABLE": "python3",
+        "CMAKE_INSTALL_PREFIX": "${sourceDir}/build_out",
+        "ASCEND_PACK_SHARED_LIBRARY": false
+      }
+    }
+  ]
+}
