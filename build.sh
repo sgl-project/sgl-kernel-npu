@@ -274,7 +274,6 @@ function make_sgl_kernel_npu_package()
 
 function build_attentions_kernels()
 {
-    if [[ "$BUILD_ATTENTIONS_MODULE" != "ON" ]]; then return 0; fi
     CUSTOM_OPP_DIR="${CURRENT_DIR}/python/attentions/attentions"
     KERNEL_DIR="csrc/attentions/build"
 
@@ -310,6 +309,9 @@ function main()
         pip3 install wheel==0.45.1
     fi
     build_memory_saver
+    if [[ "$BUILD_ATTENTIONS_MODULE" == "ON" ]]; then
+        build_attentions_kernels
+    fi
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
         make_deepep_package
     fi
