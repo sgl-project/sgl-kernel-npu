@@ -855,3 +855,33 @@ class Buffer:
             return output, expert_token_nums
         else:
             raise NotImplementedError(f"Not support fuse_mode:{fuse_mode}")
+
+    @log_parameters(["topk_idx"])
+    def dispatch_ffn_combine_m3(
+        self,
+        x: torch.Tensor,
+        topk_idx: torch.Tensor,
+        topk_weights: torch.Tensor,
+        weight1: torch.Tensor,
+        scale1: torch.Tensor,
+        weight2: torch.Tensor,
+        scale2: torch.Tensor,
+        max_output_size: int,
+        num_experts: int,
+        quant_mode: int = 1,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Run the MiniMax-M3 routed-expert FuseEP prefill operator."""
+        if x.shape[-1] != 6144 or topk_idx.shape[-1] != 4 or num_experts != 128:
+            raise ValueError("DispatchFFNCombineM3 requires hidden=6144, top-k=4, and 128 routed experts")
+        return self.runtime.dispatch_ffn_combine_m3(
+            x,
+            topk_idx.int(),
+            weight1,
+            scale1,
+            weight2,
+            scale2,
+            topk_weights,
+            max_output_size,
+            num_experts,
+            quant_mode,
+        )
