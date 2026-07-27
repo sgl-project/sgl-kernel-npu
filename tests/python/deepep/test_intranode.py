@@ -14,6 +14,7 @@ from utils import (
     bench,
     calc_diff,
     diagnose_matrix,
+    get_diff_threshold,
     init_dist,
     inplace_unique,
     per_token_cast_back,
@@ -432,13 +433,8 @@ def test_main(
         max_diff = torch.max(torch.abs(check_x - golden) / golden_nozero).item()
         avg_diff = torch.mean(torch.abs(check_x - golden) / golden_nozero).item()
         print(f"{rank=}, {avg_diff=:.8f}, {max_diff=:.8f}, cosine_diff={diff:.8f}")
-        if "_fp4_" in quant_type:
-            diff_threshold = 4e-2
-        elif "_fp8_" in quant_type:
-            diff_threshold = 2e-3
-        else:
-            diff_threshold = 5e-5
-        assert diff < diff_threshold
+        diff_threshold = get_diff_threshold(quant_type)
+        assert diff < diff_threshold, f"Error: {diff=}, {diff_threshold=}"
 
         # For later tuning
         dispatch_bf16_recv_bytes = recv_x.numel() * 2

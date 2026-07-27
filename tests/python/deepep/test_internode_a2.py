@@ -16,6 +16,7 @@ from utils import (
     bench_kineto,
     calc_diff,
     diagnose_matrix,
+    get_diff_threshold,
     init_dist,
     inplace_unique,
     per_token_cast_back,
@@ -493,13 +494,10 @@ def test_main(
             desire_x = ref_x * handle[4].masked_fill(topk_idx == -1, 0).sum(dim=1).view(
                 -1, 1
             )
-            assert (
-                calc_diff(
-                    check_x[mask],
-                    desire_x[mask],
-                )
-                < 5e-5
-            )
+            assert calc_diff(
+                check_x[mask],
+                desire_x[mask],
+            ) < get_diff_threshold("bf16")
 
             if local_rank == 0:
                 print(" passed", flush=True)
