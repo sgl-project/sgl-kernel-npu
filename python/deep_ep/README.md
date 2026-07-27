@@ -27,7 +27,7 @@ DeepEP-Ascend uses a **strategy-based architecture** that allows flexible select
 
 ### Software and Hardware
 
-Supported Hardware Models: Atlas A2, A3 (support CANN 8.5 and CANN 9.0), and Atlas A5 (only supports CANN 9.0).
+Supported Hardware Models: Atlas A2, A3 (support CANN 8.5 and CANN 9.0), and Atlas A5 (supports CANN 9.0).
 
 Platform: aarch64/x86
 
@@ -243,7 +243,7 @@ For detailed A2 usage, see [A2_DEEPEP](doc/A2_DEEPEP.md).
 
 #### A5
 
-- Only supports CANN 9.0.
+- Supports CANN 9.0.
 - Build with: `bash build.sh -a deepep Ascend950`.
 - Supports scalar FP8 per-token quantization (`quant_mode="pertoken_fp8_e4m3"`) and MXFP8 per-block quantization in normal dispatch.
 
@@ -298,7 +298,7 @@ DeepEP-Ascend 采用**策略式架构**，通过环境变量灵活选择通信�
 
 ### 软硬件配套说明
 
-硬件型号支持：Atlas A2、A3 系列产品能适配 CANN 8.5 和 CANN 9.0，Atlas A5 只能适配 CANN 9.0。
+硬件型号支持：Atlas A2、A3 系列产品能适配 CANN 8.5 和 CANN 9.0，Atlas A5 适配 CANN 9.0。
 
 平台：aarch64/x86
 
@@ -496,7 +496,7 @@ low_latency_dispatch 量化模式（通过 `quant_mode` 参数指定；`use_fp8`
 
 #### A5
 
-- 仅支持 CANN 9.0。
+- 适配 CANN 9.0。
 - 构建命令：`bash build.sh -a deepep Ascend950`。
 
 ### 测试
