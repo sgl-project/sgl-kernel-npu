@@ -166,7 +166,6 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             "mx_fp4_e2m1",
         }
         if quant_mode is None:
-            # Backward compat: dtype-based detection (pre-#600 calling convention)
             if isinstance(x, torch.Tensor):
                 # BF16 no quant
                 data = x
