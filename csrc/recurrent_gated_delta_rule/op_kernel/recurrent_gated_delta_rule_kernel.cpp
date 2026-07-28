@@ -433,6 +433,14 @@ private:
         uint32_t ktShape[2] = {1, alignK_};
         uint32_t deltaShape[2] = {curSingleV, 1};
 
+        out_empty_Attn.wait();
+        if (seq_i > seq0) {
+            // Decode persists BF16 state between tokens. Match that round-trip
+            // during multi-token verification before advancing the recurrence.
+            Cast(stateInUb, stateOutLocal, AscendC::RoundMode::CAST_NONE, alignK_ * curSingleV);
+            AscendC::PipeBarrier<PIPE_V>();
+        }
+
         {
             uint64_t gbOffset = head_i + (seq_i - seq0) * NV_;
             gama_ = hasGama_ ? gamaLocal.GetValue(gbOffset) : 1;
@@ -489,8 +497,6 @@ private:
                                            curSingleV, {1, 0, 1, 16, 1, 0});
             AscendC::PipeBarrier<PIPE_V>();
         }
-
-        out_empty_Attn.wait();
 
         Cast(stateOutLocal, stateInUb, AscendC::RoundMode::CAST_RINT, alignK_ * curSingleV);
 
