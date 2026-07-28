@@ -4,7 +4,6 @@
 
 [![Mode](https://img.shields.io/badge/Mode-Normal-blue)]()
 [![Platform](https://img.shields.io/badge/Platform-A2%20%7C%20A3%20%7C%20A5-green)]()
-[![Quant](https://img.shields.io/badge/Quantization-INT8%20%7C%20MXFP8%20%7C%20MXFP4-yellow)]()
 
 English | [中文](#中文)
 
@@ -101,7 +100,7 @@ dispatch(
     - num_topk: number of top‑k experts selected.
         - A2 series internode range: [2, 16]; intranode range: (0, 16];
         - A3 series range: (0, 16].
-- HCCL_BUFFSIZE: Check the HCCL_BUFFSIZE environment variable before calling the API. It represents the memory size (MB) occupied by a single communication domain, default 200MB.
+- HCCL_BUFFSIZE: Check the HCCL_BUFFSIZE environment variable before calling the API. It represents the memory size (MB) occupied by a single communication domain, default 200MB. Minimum required size (non-layered): `(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`. For layered (A2 dual-node): `num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`. A5 subtracts 1MB state zone from the configured value.
 - HCCL_INTRA_PCIE_ENABLE and HCCL_INTRA_ROCE_ENABLE:
     - A2 series internode scenario: set `HCCL_INTRA_PCIE_ENABLE=1` and `HCCL_INTRA_ROCE_ENABLE=0`;
 - Quantization: Setting `DEEP_NORMAL_MODE_USE_INT8_QUANT=1` quantizes `x` to INT8 and returns `(tensor, scales)`.
@@ -162,7 +161,7 @@ combine(
 ### Constraints
 
 - `dispatch` and `combine` must be used together.
-- HCCL_BUFFSIZE: Check the HCCL_BUFFSIZE environment variable before calling the API. It represents the memory size (MB) occupied by a single communication domain, default 200MB.
+- HCCL_BUFFSIZE: Check the HCCL_BUFFSIZE environment variable before calling the API. It represents the memory size (MB) occupied by a single communication domain, default 200MB. Minimum required size (non-layered): `(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`. For layered (A2 dual-node): `num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`. A5 subtracts 1MB state zone from the configured value.
 - HCCL_INTRA_PCIE_ENABLE and HCCL_INTRA_ROCE_ENABLE:
     - A2 series internode scenario: set `HCCL_INTRA_PCIE_ENABLE=1` and `HCCL_INTRA_ROCE_ENABLE=0`;
 
@@ -263,7 +262,7 @@ dispatch(
     - num_topk：表示选取topk个专家。
         - A2系列双机取值范围：[2, 16]；单机取值范围：(0, 16]；
         - A3系列取值范围：(0, 16]。
-- HCCL_BUFFSIZE: 调用接口前需检查HCCL_BUFFSIZE环境变量取值是否合理，该环境变量表示单个通信域占用内存大小，单位MB，不配置时默认为200MB。
+- HCCL_BUFFSIZE: 调用接口前需检查HCCL_BUFFSIZE环境变量取值是否合理，该环境变量表示单个通信域占用内存大小，单位MB，不配置时默认为200MB。非分层最小需求：`(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`；分层（A2双机）：`num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`。A5 从配置值中扣除 1MB 状态区。
 - HCCL_INTRA_PCIE_ENABLE和HCCL_INTRA_ROCE_ENABLE：
     - A2系列双机场景需要配置，`HCCL_INTRA_PCIE_ENABLE=1` 和 `HCCL_INTRA_ROCE_ENABLE=0`；
 - 量化：设置环境变量 `DEEP_NORMAL_MODE_USE_INT8_QUANT=1` 时，会把 `x` 量化为 `int8` 并返回 `(tensor, scales)`。
@@ -324,6 +323,6 @@ combine(
 ### 约束说明
 
 - `dispatch`和`combine`必须配套使用。
-- HCCL_BUFFSIZE: 调用接口前需检查HCCL_BUFFSIZE环境变量取值是否合理，该环境变量表示单个通信域占用内存大小，单位MB，不配置时默认为200MB。
+- HCCL_BUFFSIZE: 调用接口前需检查HCCL_BUFFSIZE环境变量取值是否合理，该环境变量表示单个通信域占用内存大小，单位MB，不配置时默认为200MB。非分层最小需求：`(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`；分层（A2双机）：`num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`。A5 从配置值中扣除 1MB 状态区。
 - HCCL_INTRA_PCIE_ENABLE和HCCL_INTRA_ROCE_ENABLE：
     - A2系列双机场景需要配置，`HCCL_INTRA_PCIE_ENABLE=1` 和 `HCCL_INTRA_ROCE_ENABLE=0`；
