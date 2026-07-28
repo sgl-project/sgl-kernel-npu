@@ -1,54 +1,21 @@
 /**
- * @file unidex_copy.cpp
- * @brief 基于稀疏索引的通用行拷贝算子（Ascend AI Core）
+ * @file unidex_copy_kernel.cpp
+ * @brief Indexed row-copy kernel for Ascend AI Cores.
  *
- * 算子语义：
- * -------------------
- * 根据稀疏索引映射关系，从源缓冲区拷贝行数据到目标缓冲区。
- * 对于每个有效的映射条目 i（valid_mask[i] == true）：
+ * For each valid, in-range mapping i:
  *   dst[dst_index[i]] = src[src_index[i]]
  *
- * 典型使用场景：
- * ----------------
- * - 稀疏 KV 缓存检索：src 包含 128k*n 个缓存的 key-value 对
- * - 索引形状：[batch_size, topk]，其中 batch_size ≈8，topk ≈2048
- * - 源索引稀疏/随机（gather 模式）
- * - 目标索引通常连续（scatter 模式）
- * - 命中率由 valid_mask 控制（通常 0.0-1.0）
+ * The source and destination are treated as byte-addressed row buffers. Each
+ * logical row occupies blockBytes bytes. Mapping entries are partitioned into
+ * contiguous ranges across the launched AI Cores.
  *
- * 内存布局：
- * -------------
- * - src 和 dst 均视为行主序字节缓冲
- * - 每个逻辑行占用恰好 blockBytes 字节
- * - srcRows：src 缓冲区总行数
- * - dstRows：dst 缓冲区总行数
- * - 行访问：src[row_idx] = src_base + row_idx * blockBytes
+ * The kernel copies one complete row through UB at a time. A two-entry queue
+ * pipelines GM-to-UB and UB-to-GM transfers. Invalid mask entries, negative
+ * indices, and out-of-range indices are skipped without reporting an error.
  *
- * 性能特征：
- * ---------------------------
- * - 任务分配：maxCopy 个条目在 AI Core 间均分
- * - 每个核心处理 copyRowsPerCore = ceil(maxCopy / 核心数) 个映射
- * - 稀疏 valid_mask 可能导致负载不均（某些核心跳过大量条目）
- * - 行拷贝：单阶段通过 UB 使用双缓冲乒乓完成
- * - DMA 粒度：字节级（uint8_t）以支持最大的数据类型灵活性
- *
- * 约束与限制：
- * -------------------------
- * - blockBytes 必须适配单个 UB 缓冲分配（当前：整行一次传输）
- * - 对于非常大的 blockBytes（如 >32KB），应考虑分块行拷贝
- * - blockBytes 理想情况下应为 32 字节对齐以获得最佳 DMA 性能
- * - 无自动索引压缩：无效条目仍消耗核心迭代周期
- * - 假设 src 和 dst 具有相同的 blockBytes（由 host 包装层强制）
- *
- * 缓冲管理：
- * -----------------
- * - BUFFER_NUM=2：启用 copy-in 和 copy-out 操作间的乒乓
- * - 当一个缓冲拷出到 GM 时，另一个可以从 GM 拷入
- * - 通过重叠 GM<->UB 传输提升吞吐量
- * - 最小队列深度（2）平衡吞吐量与 UB 内存消耗
- *
- * @note 此算子替代 index_copy_dtd.cpp，移除了硬编码的 2 字节元素假设
- * @note 通过字节级拷贝支持所有数据类型（blockBytes 参数决定行大小）
+ * The host wrapper limits blockBytes to 32 KiB and validates that the addressed
+ * source and destination extents fit in the kernel's uint32_t offset range.
+ * Byte-wise copying keeps the kernel independent of the tensor element type.
  */
 
 #include "kernel_operator.h"
@@ -62,21 +29,22 @@ public:
     __aicore__ inline KernelUniDexCopy() {}
 
     /**
-     * @brief 使用缓冲指针和拷贝参数初始化算子
+     * @brief Initialize global buffers, per-core work, and the UB queue.
      *
-     * @param src 源缓冲区基地址（GM） b,s,n,d/ t,n,d   n:head d:dim
-     * @param dst 目标缓冲区基地址（GM） b,s,n,d/ t,n,d   n:head d:dim    addr 指示哪两个维度合并
-     * @param src_index 源行索引数组（GM，int64_t，长度=maxCopy）
-     * @param dst_index 目标行索引数组（GM，int64_t，长度=maxCopy）
-     * @param valid_mask 有效性掩码数组（GM，uint8_t/bool，长度=maxCopy）
-     * @param srcRows 源缓冲区总行数
-     * @param dstRows 目标缓冲区总行数
-     * @param blockBytes 每个逻辑行的字节数（src 和 dst 必须相同）
-     * @param maxCopy 要处理的映射条目总数
-     * @param pipeIn 用于队列管理的 TPipe 指针
+     * @param src Base address of the source byte buffer in GM.
+     * @param dst Base address of the destination byte buffer in GM.
+     * @param src_index Source row indices in GM (int64_t, maxCopy entries).
+     * @param dst_index Destination row indices in GM (int64_t, maxCopy entries).
+     * @param valid_mask Mapping validity flags in GM (bool/uint8_t, maxCopy entries).
+     * @param srcRows Number of logical source rows.
+     * @param dstRows Number of logical destination rows.
+     * @param blockBytes Number of bytes in each source and destination row.
+     * @param maxCopy Number of mapping entries to process.
+     * @param pipeIn Pipeline used to initialize the copy queue.
      *
-     * @note 在 Process() 之前每个 AI Core 块调用一次
-     * @note 任务分配：本核心处理 [blockIdx * copyRowsPerCore, min(maxCopy, (blockIdx+1) * copyRowsPerCore))
+     * Each AI Core handles:
+     * [blockIdx * copyRowsPerCore,
+     *  min(maxCopy, (blockIdx + 1) * copyRowsPerCore)).
      */
     __aicore__ inline void Init(GM_ADDR src, GM_ADDR dst, GM_ADDR src_index, GM_ADDR dst_index, GM_ADDR valid_mask,
                                 uint32_t srcRows, uint32_t dstRows, uint32_t blockBytes, uint32_t maxCopy,
@@ -102,26 +70,15 @@ public:
     }
 
     /**
-     * @brief 本 AI Core 的主处理循环
+     * @brief Process the mapping range assigned to the current AI Core.
      *
-     * 处理策略：
-     * 1. 确定本核心的映射范围：[coreBegin, coreEnd)
-     * 2. 对于范围内的每个映射索引 i：
-     *    a. 检查 valid_mask[i]，若无效则跳过
-     *    b. 验证 src_index[i] 和 dst_index[i] 在边界内
-     *    c. 当缓冲可用时，入队从 src[src_index[i]] 的 copy-in
-     *    d. 当缓冲满时，出队并 copy-out 到 dst[dst_index[i]]
-     * 3. 刷新剩余缓冲的行
+     * Each mapping is checked before its source row is enqueued. When the
+     * two-entry queue is full, the oldest row is dequeued and copied to its
+     * destination before another source row is enqueued. Remaining rows are
+     * flushed after the mapping loop.
      *
-     * 乒乓行为：
-     * - 队列最多在 UB 中容纳 BUFFER_NUM 行
-     * - 队列满时：必须先 copy-out 才能接受新的 copy-in
-     * - 这在迭代间重叠了 GM 读取（copy-in）和 GM 写入（copy-out）
-     *
-     * 负载均衡问题：
-     * - 稀疏 valid_mask 导致每个核心的实际工作不均
-     * - 具有大量无效条目的核心提前完成但仍需迭代
-     * - 替代方案：在 host 端压缩有效索引（权衡：额外的 host 开销）
+     * Work is partitioned by mapping count rather than valid-entry count, so
+     * sparse masks can produce uneven useful work across cores.
      */
     __aicore__ inline void Process()
     {
@@ -168,9 +125,9 @@ public:
 
 private:
     /**
-     * @brief 循环队列索引递增
-     * @param index 当前队列索引
-     * @return 下一个队列索引（在 BUFFER_NUM-1 后回绕到 0）
+     * @brief Advance a circular queue index.
+     * @param index Current queue index.
+     * @return The next index, wrapping to zero after BUFFER_NUM - 1.
      */
     __aicore__ inline uint32_t NextQueueIndex(uint32_t index) const
     {
@@ -178,21 +135,15 @@ private:
     }
 
     /**
-     * @brief 验证并构建映射条目的拷贝任务
+     * @brief Validate one mapping and compute its byte offsets.
      *
-     * @param mapIdx src_index/dst_index/valid_mask 数组中的索引
-     * @param[out] srcOffset src 缓冲区中的字节偏移（row_idx * blockBytes）
-     * @param[out] dstOffset dst 缓冲区中的字节偏移（row_idx * blockBytes）
-     * @return 如果应继续拷贝返回 true，如果无效/越界返回 false
+     * @param mapIdx Index into src_index, dst_index, and valid_mask.
+     * @param[out] srcOffset Source byte offset (src row * blockBytes).
+     * @param[out] dstOffset Destination byte offset (dst row * blockBytes).
+     * @return true for a valid in-range mapping; false otherwise.
      *
-     * 验证规则：
-     * 1. valid_mask[mapIdx] 必须非零
-     * 2. src_index[mapIdx] 必须在 [0, srcRows) 范围内
-     * 3. dst_index[mapIdx] 必须在 [0, dstRows) 范围内
-     * 4. 拒绝负索引（为安全显式检查）
-     *
-     * @note 越界索引被静默跳过（无错误报告）
-     * @note host 包装层应验证索引以提供更好的错误消息
+     * A mapping is accepted only when its validity flag is nonzero and both
+     * row indices are non-negative and within their respective row counts.
      */
     __aicore__ inline bool BuildCopyTask(uint32_t mapIdx, uint32_t &srcOffset, uint32_t &dstOffset)
     {
@@ -215,14 +166,11 @@ private:
     }
 
     /**
-     * @brief 从 GM 拷贝一行到 UB
-     * @param srcOffset 源缓冲区中的字节偏移
+     * @brief Copy one source row from GM to UB and enqueue it.
+     * @param srcOffset Source byte offset in GM.
      *
-     * 从拷贝队列分配缓冲，执行 GM 到 UB 的 DataCopy，
-     * 并将缓冲入队以供后续 copy-out。
-     *
-     * @note 假设分配的 tensor 中有 blockBytes 字节可用
-     * @note DataCopy 执行 DMA 传输（硬件上异步）
+     * Each queue allocation reserves blockBytes rounded up to a multiple of
+     * 32 bytes.
      */
     __aicore__ inline void CopyIn(uint32_t srcOffset)
     {
@@ -234,14 +182,8 @@ private:
     }
 
     /**
-     * @brief 从 UB 拷贝一行到 GM
-     * @param dstOffset 目标缓冲区中的字节偏移
-     *
-     * 从拷贝队列出队缓冲，执行 UB 到 GM 的 DataCopy，
-     * 并将缓冲释放回队列。
-     *
-     * @note 假设缓冲包含 blockBytes 字节的有效数据
-     * @note DataCopy 执行 DMA 传输（硬件上异步）
+     * @brief Dequeue one row, copy it from UB to GM, and free its buffer.
+     * @param dstOffset Destination byte offset in GM.
      */
     __aicore__ inline void CopyOut(uint32_t dstOffset)
     {
@@ -270,23 +212,20 @@ private:
 };
 
 /**
- * @brief host 通过 aclrtLaunch 调用的内核入口点
+ * @brief Kernel entry point launched by the host through aclrtLaunch.
  *
- * @param src 源缓冲区（GM 地址）
- * @param dst 目标缓冲区（GM 地址）
- * @param src_index 源行索引（GM 地址，int64_t 数组）
- * @param dst_index 目标行索引（GM 地址，int64_t 数组）
- * @param valid_mask 有效性掩码（GM 地址，uint8_t/bool 数组）
- * @param srcRows src 中的总行数
- * @param dstRows dst 中的总行数
- * @param blockBytes 每行字节数
- * @param maxCopy 映射条目数量
+ * @param src Source byte buffer in GM.
+ * @param dst Destination byte buffer in GM.
+ * @param src_index Source row indices in GM.
+ * @param dst_index Destination row indices in GM.
+ * @param valid_mask Mapping validity flags in GM.
+ * @param srcRows Number of source rows.
+ * @param dstRows Number of destination rows.
+ * @param blockBytes Number of bytes per row.
+ * @param maxCopy Number of mapping entries.
  *
- * 启动配置：
- * - block_dim：使用的 AI Core 块数（通常 8-48）
- * - stream：用于异步执行的 ACL 运行时流
- *
- * @note 这是 host（Python/C++）和 device（AI Core）之间的 ABI 边界
+ * The launch block dimension determines the value returned by GetBlockNum()
+ * and therefore the mapping range assigned to each AI Core.
  */
 extern "C" __global__ __aicore__ void unidex_copy(GM_ADDR src, GM_ADDR dst, GM_ADDR src_index, GM_ADDR dst_index,
                                                   GM_ADDR valid_mask, uint32_t srcRows, uint32_t dstRows,
