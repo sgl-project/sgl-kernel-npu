@@ -2,15 +2,17 @@
 # Sweep unidex_copy vs torch_index_copy benchmark across hit rates and block dims.
 #
 # Usage:
-#   bash scripts/enumerate_bench_unidex_copy.sh
+#   bash scripts/sparsity_driven_kv_offload/sweep_unidex_copy.sh
 #
 # Override params via environment:
-#   HIT_RATES="0.5 1.0" BLOCK_DIMS="8 24" bash scripts/enumerate_bench_unidex_copy.sh
+#   HIT_RATES="0.5 1.0" BLOCK_DIMS="8 24" \
+#     bash scripts/sparsity_driven_kv_offload/sweep_unidex_copy.sh
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BENCH_SCRIPT="${SCRIPT_DIR}/../benchmark/bench_unidex_copy.py"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+BENCH_SCRIPT="${REPO_ROOT}/benchmark/sparsity_driven_kv_offload/bench_unidex_copy.py"
 
 # ---------- tunable parameter lists ----------
 HIT_RATES="${HIT_RATES:-0.5}"
@@ -32,7 +34,7 @@ PERF_ITERS="${PERF_ITERS:-50}"
 ACC_ITERS="${ACC_ITERS:-1}"
 SEED="${SEED:-20260609}"
 
-cd "${SCRIPT_DIR}/.."
+cd "${REPO_ROOT}"
 
 for topk in ${TOPK_LIST}; do
   for block_dim in ${BLOCK_DIMS}; do

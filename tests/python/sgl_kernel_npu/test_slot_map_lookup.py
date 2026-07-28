@@ -3,7 +3,7 @@ import unittest
 import sgl_kernel_npu  # noqa: F401
 import torch
 import torch_npu  # noqa: F401
-from sgl_kernel_npu.mem_cache import slot_map_lookup
+from sgl_kernel_npu.sparsity_driven_kv_offload import slot_map_lookup
 
 
 def reference_lookup(slot_map, req_indices, topk_indices):

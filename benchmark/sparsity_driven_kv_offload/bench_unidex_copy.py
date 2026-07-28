@@ -6,17 +6,20 @@ address pattern density.
 
 Usage:
     # D2D with default settings
-    python benchmark/bench_unidex_copy.py
+    python benchmark/sparsity_driven_kv_offload/bench_unidex_copy.py
 
     # Sweep hit rates
-    python benchmark/bench_unidex_copy.py --hit-rates 0.0 0.25 0.5 0.75 1.0
+    python benchmark/sparsity_driven_kv_offload/bench_unidex_copy.py \
+        --hit-rates 0.0 0.25 0.5 0.75 1.0
 
     # Realistic MLA workload
-    python benchmark/bench_unidex_copy.py --batch-size 8 --topk 2048 \\
+    python benchmark/sparsity_driven_kv_offload/bench_unidex_copy.py \
+        --batch-size 8 --topk 2048 \
         --token-bytes 1152 --head-num 1 --head-dim 576 --dtype float16
 
     # Registered shared-memory H2D/D2H paths on NPU 1
-    python benchmark/bench_unidex_copy.py --directions h2d d2h --device-id 1
+    python benchmark/sparsity_driven_kv_offload/bench_unidex_copy.py \
+        --directions h2d d2h --device-id 1
 """
 
 import argparse
@@ -28,7 +31,7 @@ from typing import Optional
 import sgl_kernel_npu  # noqa: F401
 import torch
 import torch_npu  # noqa: F401
-from sgl_kernel_npu.mem_cache import create_shm_tensor, free_shm
+from sgl_kernel_npu.sparsity_driven_kv_offload import create_shm_tensor, free_shm
 
 DEVICE = "npu"
 DTYPE_MAP = {

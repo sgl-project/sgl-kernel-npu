@@ -3,7 +3,11 @@ import unittest
 import sgl_kernel_npu  # noqa: F401
 import torch
 import torch_npu  # noqa: F401
-from sgl_kernel_npu.mem_cache import create_shm_tensor, free_shm, unidex_copy_inplace
+from sgl_kernel_npu.sparsity_driven_kv_offload import (
+    create_shm_tensor,
+    free_shm,
+    unidex_copy_inplace,
+)
 
 
 class TestUnidexCopy(unittest.TestCase):

@@ -2,15 +2,17 @@
 # Sweep slot_map_lookup vs any+argmax benchmark across hit ratios and block dims.
 #
 # Usage:
-#   bash scripts/enumerate_bench_slot_map.sh
+#   bash scripts/sparsity_driven_kv_offload/sweep_slot_map_lookup.sh
 #
 # Override params via environment:
-#   HIT_RATIOS="0.5 1.0" BLOCK_DIMS="8 24" bash scripts/enumerate_bench_slot_map.sh
+#   HIT_RATIOS="0.5 1.0" BLOCK_DIMS="8 24" \
+#     bash scripts/sparsity_driven_kv_offload/sweep_slot_map_lookup.sh
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BENCH_SCRIPT="${SCRIPT_DIR}/../benchmark/bench_slot_vs_argmax.py"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
+BENCH_SCRIPT="${REPO_ROOT}/benchmark/sparsity_driven_kv_offload/bench_slot_map_lookup.py"
 
 # ---------- tunable parameter lists ----------
 HIT_RATIOS="${HIT_RATIOS:-0.5}"
@@ -28,7 +30,7 @@ ACC_REPEAT="${ACC_REPEAT:-1}"
 PERF_REPEAT="${PERF_REPEAT:-5}"
 SEED="${SEED:-20260514}"
 
-cd "${SCRIPT_DIR}/.."
+cd "${REPO_ROOT}"
 
 for topk_len in ${TOPK_LENS}; do
   for block_dim in ${BLOCK_DIMS}; do
