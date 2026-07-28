@@ -8,7 +8,16 @@ from sgl_kernel_npu.utils.triton_utils import get_device_properties
 UNIFIED_BUFFER_SIZE = 1572864
 
 
-@triton.jit(do_not_specialize=["seq_len", "NUM_HEADS", "NUM_BATCHES", "beta", "threshold", "ROW_ITER"])
+@triton.jit(
+    do_not_specialize=[
+        "seq_len",
+        "NUM_HEADS",
+        "NUM_BATCHES",
+        "beta",
+        "threshold",
+        "ROW_ITER",
+    ]
+)
 def fused_gdn_gating_kernel(
     g,
     beta_output,
