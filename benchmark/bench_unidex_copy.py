@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Benchmark and validate unidex_copy across D2D/H2D/D2H directions.
 
 Compares unidex_copy against a pure-PyTorch index_select + index_copy
@@ -15,19 +14,21 @@ Usage:
     # Realistic MLA workload
     python benchmark/bench_unidex_copy.py --batch-size 8 --topk 2048 \\
         --token-bytes 1152 --head-num 1 --head-dim 576 --dtype float16
+
+    # Registered shared-memory H2D/D2H paths on NPU 1
+    python benchmark/bench_unidex_copy.py --directions h2d d2h --device-id 1
 """
 
 import argparse
 import itertools
-import statistics
 import time
 from dataclasses import dataclass
 from typing import Optional
 
+import sgl_kernel_npu  # noqa: F401
 import torch
 import torch_npu  # noqa: F401
-
-import sgl_kernel_npu  # noqa: F401
+from sgl_kernel_npu.mem_cache import create_shm_tensor, free_shm
 
 DEVICE = "npu"
 DTYPE_MAP = {
@@ -54,6 +55,9 @@ class BenchmarkCase:
     block_bytes: int
     block_elems: int
     block_dim: int
+    device_id: int
+    src_ptr: Optional[int]
+    dst_ptr: Optional[int]
 
 
 def synchronize():
@@ -62,7 +66,9 @@ def synchronize():
 
 def make_flat_rows(rows, block_elems, dtype, offset):
     row_values = (torch.arange(rows, dtype=torch.int32) % 251).reshape(rows, 1)
-    col_values = (torch.arange(block_elems, dtype=torch.int32) % 251).reshape(1, block_elems)
+    col_values = (torch.arange(block_elems, dtype=torch.int32) % 251).reshape(
+        1, block_elems
+    )
     data = ((row_values + col_values + offset) % 251).contiguous()
     return data.to(dtype=dtype).contiguous()
 
@@ -76,8 +82,12 @@ def make_index(mode, rows, max_copy, generator, unique=False):
                 raise ValueError(
                     f"random dst_index requires dst_rows >= max_copy, got dst_rows={rows}, max_copy={max_copy}"
                 )
-            return torch.randperm(rows, generator=generator, dtype=torch.long)[:max_copy]
-        return torch.randint(0, rows, (max_copy,), generator=generator, dtype=torch.long)
+            return torch.randperm(rows, generator=generator, dtype=torch.long)[
+                :max_copy
+            ]
+        return torch.randint(
+            0, rows, (max_copy,), generator=generator, dtype=torch.long
+        )
     raise ValueError(f"Unsupported index mode: {mode}")
 
 
@@ -92,11 +102,17 @@ def make_valid_mask(max_copy, hit_rate, generator):
     return valid_cpu, hit_count
 
 
-def copy_to_location(flat_cpu, shape, direction, role):
+def copy_to_location(flat_cpu, shape, direction, role, device_id):
     tensor_cpu = flat_cpu.view(shape).contiguous()
-    needs_cpu = (direction == "h2d" and role == "src") or (direction == "d2h" and role == "dst")
+    needs_cpu = (direction == "h2d" and role == "src") or (
+        direction == "d2h" and role == "dst"
+    )
     if needs_cpu:
-        return tensor_cpu, None
+        host_tensor, _, dev_ptr = create_shm_tensor(
+            shape, tensor_cpu.dtype, device_id=device_id
+        )
+        host_tensor.copy_(tensor_cpu)
+        return host_tensor, dev_ptr
     return tensor_cpu.to(DEVICE).contiguous(), None
 
 
@@ -109,7 +125,9 @@ def make_case(args, seed_offset=0, direction=None):
     dtype = DTYPE_MAP[args.dtype]
     elem_size = torch.empty((), dtype=dtype).element_size()
     if args.token_bytes % elem_size != 0:
-        raise ValueError(f"token_bytes ({args.token_bytes}) must be divisible by dtype element size ({elem_size})")
+        raise ValueError(
+            f"token_bytes ({args.token_bytes}) must be divisible by dtype element size ({elem_size})"
+        )
     if args.token_bytes % 32 != 0:
         raise ValueError("token_bytes must be a multiple of 32 for aligned DataCopy")
     if args.token_bytes != args.head_num * args.head_dim * elem_size:
@@ -132,7 +150,9 @@ def make_case(args, seed_offset=0, direction=None):
         raise ValueError(f"dst_rows ({dst_rows}) must be >= max_copy ({max_copy})")
 
     src_index_cpu = make_index(args.src_index_mode, src_rows, max_copy, generator)
-    dst_index_cpu = make_index(args.dst_index_mode, dst_rows, max_copy, generator, unique=True)
+    dst_index_cpu = make_index(
+        args.dst_index_mode, dst_rows, max_copy, generator, unique=True
+    )
     valid_cpu, hit_count = make_valid_mask(max_copy, args.hit_rate, generator)
 
     src_flat_cpu = make_flat_rows(src_rows, block_elems, dtype, offset=0)
@@ -141,8 +161,12 @@ def make_case(args, seed_offset=0, direction=None):
     src_shape = (src_rows, block_elems)
     dst_shape = (dst_rows, block_elems)
 
-    src, _ = copy_to_location(src_flat_cpu, src_shape, direction, "src")
-    dst, _ = copy_to_location(dst_before_flat_cpu, dst_shape, direction, "dst")
+    src, src_ptr = copy_to_location(
+        src_flat_cpu, src_shape, direction, "src", args.device_id
+    )
+    dst, dst_ptr = copy_to_location(
+        dst_before_flat_cpu, dst_shape, direction, "dst", args.device_id
+    )
     dst_before = dst.clone()
 
     return BenchmarkCase(
@@ -161,6 +185,9 @@ def make_case(args, seed_offset=0, direction=None):
         block_bytes=args.token_bytes,
         block_elems=block_elems,
         block_dim=args.block_dim,
+        device_id=args.device_id,
+        src_ptr=src_ptr,
+        dst_ptr=dst_ptr,
     )
 
 
@@ -176,6 +203,8 @@ def unidex_copy_kernel(case):
         case.block_bytes,
         case.src_index.numel(),
         case.block_dim,
+        case.src_ptr,
+        case.dst_ptr,
     )
 
 
@@ -183,8 +212,27 @@ def torch_index_copy(case):
     valid_pos = torch.nonzero(case.valid_mask, as_tuple=False).flatten()
     src_rows = case.src_index.index_select(0, valid_pos)
     dst_rows = case.dst_index.index_select(0, valid_pos)
-    tmp = case.src.index_select(0, src_rows)
-    case.dst.index_copy_(0, dst_rows, tmp)
+    if case.direction == "d2d":
+        tmp = case.src.index_select(0, src_rows)
+        case.dst.index_copy_(0, dst_rows, tmp)
+    elif case.direction == "h2d":
+        tmp = case.src.index_select(0, src_rows.cpu()).to(DEVICE)
+        case.dst.index_copy_(0, dst_rows, tmp)
+    elif case.direction == "d2h":
+        tmp = case.src.index_select(0, src_rows).cpu()
+        case.dst.index_copy_(0, dst_rows.cpu(), tmp)
+    else:
+        raise ValueError(f"unsupported direction: {case.direction}")
+
+
+def release_case(case):
+    if case.src_ptr is None and case.dst_ptr is None:
+        return
+    # Raw registered pointers must remain valid through stream completion.
+    synchronize()
+    free_shm(case.device_id)
+    case.src_ptr = None
+    case.dst_ptr = None
 
 
 def run_copy(args, case, baseline, sync=False):
@@ -236,16 +284,22 @@ def run_benchmark_direction(args, direction, baseline):
     if args.accuracy_iters > 0:
         for i in range(args.accuracy_iters):
             case = make_case(args, seed_offset=i, direction=direction)
-            dst_before = case.dst.clone()
-            run_copy(args, case, baseline, sync=False)
-            check_correctness(case, baseline)
+            try:
+                run_copy(args, case, baseline, sync=False)
+                check_correctness(case, baseline)
+            finally:
+                release_case(case)
 
     case = make_case(args, direction=direction)
-    latency_ms = time_average_ms(
-        lambda: run_copy(args, case, baseline, sync=False),
-        args.warmup,
-        args.perf_iters,
-    )
+    try:
+        latency_ms = time_average_ms(
+            lambda: run_copy(args, case, baseline, sync=False),
+            args.warmup,
+            args.perf_iters,
+        )
+    except Exception:
+        release_case(case)
+        raise
 
     payload_bytes = case.hit_count * case.block_bytes
     memory_bytes = payload_bytes * 2
@@ -258,13 +312,19 @@ def run_benchmark_direction(args, direction, baseline):
 def print_case_result(case, args, baseline, latency_ms, payload_gbs, memory_gbs):
     print()
     print(f"baseline={baseline}, direction={case.direction}")
-    print(f"batch_size={args.batch_size}, topk={args.topk}, max_copy={args.batch_size * args.topk}, "
-          f"src_rows={case.src_rows}, dst_rows={case.dst_rows}, "
-          f"src_index_mode={args.src_index_mode}, dst_index_mode={args.dst_index_mode}, "
-          f"hit_rate={args.hit_rate:.4f}, hit_count={case.hit_count}")
-    print(f"dtype={args.dtype}, head_num={args.head_num}, head_dim={args.head_dim}, "
-          f"token_bytes={case.block_bytes}, block_dim={case.block_dim}")
-    print(f"warmup={args.warmup}, perf_iters={args.perf_iters}, accuracy_iters={args.accuracy_iters}")
+    print(
+        f"batch_size={args.batch_size}, topk={args.topk}, max_copy={args.batch_size * args.topk}, "
+        f"src_rows={case.src_rows}, dst_rows={case.dst_rows}, "
+        f"src_index_mode={args.src_index_mode}, dst_index_mode={args.dst_index_mode}, "
+        f"hit_rate={args.hit_rate:.4f}, hit_count={case.hit_count}"
+    )
+    print(
+        f"dtype={args.dtype}, head_num={args.head_num}, head_dim={args.head_dim}, "
+        f"token_bytes={case.block_bytes}, block_dim={case.block_dim}"
+    )
+    print(
+        f"warmup={args.warmup}, perf_iters={args.perf_iters}, accuracy_iters={args.accuracy_iters}"
+    )
     print(f"latency_ms={latency_ms:.6f}")
     print(f"payload_bandwidth={payload_gbs:.3f} GB/s")
     print(f"read_write_bandwidth={memory_gbs:.3f} GB/s")
@@ -287,11 +347,15 @@ def validate_args(args):
         raise ValueError("dst_rows must be non-negative")
     if args.head_num <= 0:
         raise ValueError("head_num must be positive")
+    if args.device_id < 0:
+        raise ValueError("device_id must be non-negative")
     dtype = DTYPE_MAP[args.dtype]
     elem_size = torch.empty((), dtype=dtype).element_size()
     if args.head_dim == 0:
         if args.token_bytes % (args.head_num * elem_size) != 0:
-            raise ValueError("token_bytes must be divisible by head_num * element_size when head_dim is auto")
+            raise ValueError(
+                "token_bytes must be divisible by head_num * element_size when head_dim is auto"
+            )
         args.head_dim = args.token_bytes // (args.head_num * elem_size)
     elif args.head_dim < 0:
         raise ValueError("head_dim must be non-negative")
@@ -317,36 +381,72 @@ def main():
     parser = argparse.ArgumentParser(
         description="Benchmark and validate unidex_copy across D2D/H2D/D2H directions."
     )
-    parser.add_argument("--directions", nargs="+", choices=("d2d", "h2d", "d2h"), default=["d2d"])
-    parser.add_argument("--baselines", nargs="+", choices=("unidex", "torch_index_copy"), default=["unidex"])
+    parser.add_argument(
+        "--directions", nargs="+", choices=("d2d", "h2d", "d2h"), default=["d2d"]
+    )
+    parser.add_argument(
+        "--baselines",
+        nargs="+",
+        choices=("unidex", "torch_index_copy"),
+        default=["unidex"],
+    )
     parser.add_argument("--batch-size", type=int, default=48)
     parser.add_argument("--topk", type=int, default=2048)
     parser.add_argument("--src-rows", type=int, default=128000)
-    parser.add_argument("--dst-rows", type=int, default=0, help="0 means infer from max_copy")
-    parser.add_argument("--src-index-mode", choices=("random", "arange"), default="random")
-    parser.add_argument("--dst-index-mode", choices=("arange", "random"), default="arange")
+    parser.add_argument(
+        "--dst-rows", type=int, default=0, help="0 means infer from max_copy"
+    )
+    parser.add_argument(
+        "--src-index-mode", choices=("random", "arange"), default="random"
+    )
+    parser.add_argument(
+        "--dst-index-mode", choices=("arange", "random"), default="arange"
+    )
     parser.add_argument("--hit-rate", type=float, default=0.5)
     parser.add_argument("--hit-rates", nargs="+", type=float, default=None)
     parser.add_argument("--dtype", choices=tuple(DTYPE_MAP.keys()), default="float16")
     parser.add_argument("--head-num", type=int, default=1)
-    parser.add_argument("--head-dim", type=int, default=0,
-                        help="0 means infer from token_bytes/dtype/head_num")
+    parser.add_argument(
+        "--head-dim",
+        type=int,
+        default=0,
+        help="0 means infer from token_bytes/dtype/head_num",
+    )
     parser.add_argument("--token-bytes", type=int, default=1152)
     parser.add_argument("--block-dim", type=int, default=48)
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument("--perf-iters", type=int, default=100)
     parser.add_argument("--accuracy-iters", type=int, default=1)
     parser.add_argument("--seed", type=int, default=20260609)
+    parser.add_argument(
+        "--device-id",
+        type=int,
+        default=None,
+        help="NPU device used by this process; defaults to the current device.",
+    )
     args = parser.parse_args()
+    if args.device_id is not None:
+        torch.npu.set_device(args.device_id)
+    else:
+        args.device_id = torch.npu.current_device()
     validate_args(args)
 
     cases = itertools.product(
-        args.directions, args.baselines, args.hit_rates,
+        args.directions,
+        args.baselines,
+        args.hit_rates,
     )
     for idx, (direction, baseline, hit_rate) in enumerate(cases):
         args.hit_rate = hit_rate
-        case, latency_ms, payload_gbs, memory_gbs = run_benchmark_direction(args, direction, baseline)
-        print_case_result(case, args, baseline, latency_ms, payload_gbs, memory_gbs)
+        case = None
+        try:
+            case, latency_ms, payload_gbs, memory_gbs = run_benchmark_direction(
+                args, direction, baseline
+            )
+            print_case_result(case, args, baseline, latency_ms, payload_gbs, memory_gbs)
+        finally:
+            if case is not None:
+                release_case(case)
 
 
 if __name__ == "__main__":

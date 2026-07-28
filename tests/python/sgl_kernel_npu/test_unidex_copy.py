@@ -3,7 +3,7 @@ import unittest
 import sgl_kernel_npu  # noqa: F401
 import torch
 import torch_npu  # noqa: F401
-from sgl_kernel_npu.mem_cache import unidex_copy_inplace
+from sgl_kernel_npu.mem_cache import create_shm_tensor, free_shm, unidex_copy_inplace
 
 
 class TestUnidexCopy(unittest.TestCase):
@@ -54,6 +54,55 @@ class TestUnidexCopy(unittest.TestCase):
 
     def test_raw_source_and_destination_pointers(self):
         self._run_copy(block_elements=32, raw_mode="both")
+
+    def _run_shm_copy(self, direction):
+        device_id = torch.npu.current_device()
+        source_cpu = torch.arange(4 * 32, dtype=torch.float16).reshape(4, 32)
+        expected = torch.full((4, 32), -1, dtype=torch.float16)
+        expected[0] = source_cpu[3]
+        expected[3] = source_cpu[0]
+
+        if direction == "h2d":
+            src, _, src_ptr = create_shm_tensor(
+                source_cpu.shape, source_cpu.dtype, device_id=device_id
+            )
+            src.copy_(source_cpu)
+            dst = torch.full((4, 32), -1, dtype=torch.float16, device="npu")
+            pointer_args = {"src_ptr": src_ptr}
+        else:
+            src = source_cpu.to("npu")
+            dst, _, dst_ptr = create_shm_tensor(
+                expected.shape, expected.dtype, device_id=device_id
+            )
+            dst.fill_(-1)
+            pointer_args = {"dst_ptr": dst_ptr}
+
+        src_index = torch.tensor([3, 1, 0], dtype=torch.int64, device="npu")
+        dst_index = torch.tensor([0, 2, 3], dtype=torch.int64, device="npu")
+        valid_mask = torch.tensor([True, False, True], device="npu")
+
+        try:
+            unidex_copy_inplace(
+                src,
+                dst,
+                src_index,
+                dst_index,
+                valid_mask,
+                src_address_ndims=1,
+                dst_address_ndims=1,
+                **pointer_args,
+            )
+            torch.npu.synchronize()
+            self.assertTrue(torch.equal(dst.cpu(), expected))
+        finally:
+            torch.npu.synchronize()
+            free_shm(device_id)
+
+    def test_registered_shm_h2d(self):
+        self._run_shm_copy("h2d")
+
+    def test_registered_shm_d2h(self):
+        self._run_shm_copy("d2h")
 
     def test_empty_mapping_is_noop(self):
         src = torch.arange(16, dtype=torch.float16, device="npu").reshape(2, 8)
