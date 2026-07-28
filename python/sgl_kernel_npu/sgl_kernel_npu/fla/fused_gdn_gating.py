@@ -8,7 +8,7 @@ from sgl_kernel_npu.utils.triton_utils import get_device_properties
 UNIFIED_BUFFER_SIZE = 1572864
 
 
-@triton.jit
+@triton.jit(do_not_specialize=["seq_len", "NUM_HEADS", "NUM_BATCHES", "beta", "threshold", "ROW_ITER"])
 def fused_gdn_gating_kernel(
     g,
     beta_output,
@@ -17,16 +17,17 @@ def fused_gdn_gating_kernel(
     b,
     dt_bias,
     seq_len,
-    NUM_HEADS: tl.constexpr,
-    NUM_BATCHES: tl.constexpr,
-    beta: tl.constexpr,
-    threshold: tl.constexpr,
+    NUM_HEADS,
+    NUM_BATCHES,
+    beta,
+    threshold,
     BLK_HEADS: tl.constexpr,
-    COL_ITER: tl.constexpr,
     BLK_BATCHES: tl.constexpr,
-    ROW_ITER: tl.constexpr,
+    ROW_ITER,
 ):
     i_b, i_s = tl.program_id(0), tl.program_id(1)
+    COL_ITER = tl.cdiv(NUM_HEADS, BLK_HEADS)
+
     for row_idx in range(0, ROW_ITER):
         batch_off = (
             i_b * ROW_ITER * BLK_BATCHES
@@ -121,7 +122,6 @@ def fused_gdn_gating_npu(
         beta,
         threshold,
         BLK_HEADS=BLK_HEADS,
-        COL_ITER=COL_ITER,
         BLK_BATCHES=BLK_BATCHES,
         ROW_ITER=ROW_ITER,
     )
