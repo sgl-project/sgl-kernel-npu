@@ -9,6 +9,7 @@ readonly DEFAULT_ASCEND_ROOT="/usr/local/Ascend/ascend-toolkit"
 BUILD_TARGET="all"
 REQUESTED_SOC_VERSION=""
 SOC_VERSION=""
+CMAKE_SOC_VERSION="Ascend910_9382"
 DEEPEP_VARIANT="deepep"
 DEEPEP_IS_A5_BUILD="OFF"
 
@@ -130,7 +131,8 @@ function configure_soc_version()
 
     echo "Build target: $BUILD_TARGET"
     echo "DeepEP variant: $DEEPEP_VARIANT"
-    echo "SOC_VERSION: $SOC_VERSION"
+    echo "DeepEP SOC_VERSION: $SOC_VERSION"
+    echo "CMake SOC_VERSION: $CMAKE_SOC_VERSION"
 }
 
 function resolve_ascend_home()
@@ -254,13 +256,17 @@ function prepare_deepep_build()
 # The top-level CMake project builds two independently controlled components:
 # - BUILD_DEEPEP_MODULE=ON: the DeepEP host/pybind adapter (deep_ep_cpp)
 # - BUILD_KERNELS_MODULE=ON: the sgl_kernel_npu host library and AscendC kernels
+#
+# Ascend950 is a DeepEP build alias, but it is not accepted by AscendC's
+# host_config.cmake. Keep the top-level CMake SOC on the supported A3+ value;
+# A5 host differences are enabled separately through DEEPEP_IS_A5_BUILD.
 function build_cmake_modules()
 {
     local cmake_args=(
         "-DCMAKE_INSTALL_PREFIX=$OUTPUT_DIR"
         "-DASCEND_HOME_PATH=$ASCEND_HOME_PATH"
         "-DASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR"
-        "-DSOC_VERSION=$SOC_VERSION"
+        "-DSOC_VERSION=$CMAKE_SOC_VERSION"
         "-DDEEPEP_IS_A5_BUILD=$DEEPEP_IS_A5_BUILD"
         "-DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE"
         "-DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE"
