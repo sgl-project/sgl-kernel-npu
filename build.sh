@@ -6,6 +6,8 @@ readonly OUTPUT_DIR="${PROJECT_ROOT}/output"
 readonly BUILD_DIR="${PROJECT_ROOT}/build"
 readonly DEFAULT_ASCEND_ROOT="/usr/local/Ascend/ascend-toolkit"
 
+export VERSION="${VERSION:-1.0.0}"
+
 BUILD_TARGET="all"
 REQUESTED_SOC_VERSION=""
 SOC_VERSION=""
