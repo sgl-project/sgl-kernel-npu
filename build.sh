@@ -35,21 +35,25 @@ function print_help()
     cat <<'EOF'
 Usage:
     ./build.sh                                  Build all modules for A3+.
-    ./build.sh -a deepep [SOC_VERSION]          Build deep_ep for A3+ or A5.
-    ./build.sh -a deepep2 [SOC_VERSION]         Build deep_ep for A2.
+    ./build.sh -a deepep [SOC_VERSION]          Build deep_ep; auto-detect A2, A3+, or A5.
+    ./build.sh -a deepep2 [SOC_VERSION]         Build deep_ep for A2 (compatible alias).
     ./build.sh -a kernels [SOC_VERSION]         Build sgl_kernel_npu.
     ./build.sh -a memory-saver                  Build torch_memory_saver.
 
 Targets:
-    deepep         Build deep_ep with ops (A3+ by default; use Ascend950 for A5).
-    deepep2        Build deep_ep with ops2 (A2 by default).
+    deepep         Build deep_ep and auto-select ops (A3+/A5) or ops2 (A2).
+    deepep2        Build deep_ep with ops2 for A2 (compatible alias).
     kernels        Build sgl_kernel_npu only.
     memory-saver   Build torch_memory_saver only.
 
 Chip mapping:
-    A2   : ./build.sh -a deepep2              # Ascend910B1
-    A3+  : ./build.sh -a deepep               # Ascend910_9382
-    A5   : ./build.sh -a deepep Ascend950
+    A2   : ./build.sh -a deepep               # Auto-detected as Ascend910B1/ops2
+    A3+  : ./build.sh -a deepep               # Auto-detected as Ascend910_9382
+    A5   : ./build.sh -a deepep               # Auto-detected as Ascend950
+
+Compatible commands:
+    ./build.sh -a deepep2                     # Explicit A2 build
+    ./build.sh -a deepep Ascend950            # Explicit A5 build
 
 Options:
     -d             Enable debug logging.
@@ -120,6 +124,47 @@ function configure_build_target()
     esac
 }
 
+function detect_deepep_soc_version()
+{
+    local board_info=""
+
+    # Build containers may not expose an NPU. Preserve the existing A3+ default
+    # in that case; callers can still provide Ascend950 explicitly.
+    if ! command -v npu-smi >/dev/null 2>&1; then
+        SOC_VERSION="Ascend910_9382"
+        echo "Cannot find npu-smi; defaulting DeepEP SOC_VERSION to $SOC_VERSION"
+        return
+    fi
+
+    # A5 supports the device-level query and reports Chip Name as Ascend950*.
+    board_info="$(npu-smi info -t board -i 0 2>/dev/null || true)"
+    if printf '%s\n' "$board_info" |
+        grep -Eiq '^[[:space:]]*Chip Name[[:space:]]*:[[:space:]]*Ascend950'; then
+        SOC_VERSION="Ascend950"
+        echo "Detected A5: DeepEP SOC_VERSION=$SOC_VERSION"
+        return
+    fi
+
+    # A2 and A3 require a chip ID. Check A2 first because it reports 910B*,
+    # while A3 reports Ascend910.
+    board_info="$(npu-smi info -t board -i 0 -c 0 2>/dev/null || true)"
+    if printf '%s\n' "$board_info" |
+        grep -Eiq '^[[:space:]]*Chip Name[[:space:]]*:[[:space:]]*910B'; then
+        SOC_VERSION="Ascend910B1"
+        echo "Detected A2: DeepEP SOC_VERSION=$SOC_VERSION"
+        return
+    fi
+
+    if printf '%s\n' "$board_info" |
+        grep -Eiq '^[[:space:]]*Chip Name[[:space:]]*:[[:space:]]*Ascend910'; then
+        SOC_VERSION="Ascend910_9382"
+        echo "Detected A3+: DeepEP SOC_VERSION=$SOC_VERSION"
+        return
+    fi
+
+    die "Cannot determine whether the device is A3+ or A5 from npu-smi output."
+}
+
 function configure_soc_version()
 {
     case "$BUILD_TARGET" in
@@ -131,10 +176,23 @@ function configure_soc_version()
             CMAKE_SOC_VERSION="Ascend910_9382"
             ;;
         deepep )
-            SOC_VERSION="${REQUESTED_SOC_VERSION:-Ascend910_9382}"
-            if [[ "$SOC_VERSION" != "Ascend910_9382" && "$SOC_VERSION" != "Ascend950" ]]; then
-                die "Target 'deepep' supports only Ascend910_9382 (A3+) or Ascend950 (A5)."
+            if [[ -n "$REQUESTED_SOC_VERSION" ]]; then
+                SOC_VERSION="$REQUESTED_SOC_VERSION"
+            else
+                detect_deepep_soc_version
             fi
+
+            case "$SOC_VERSION" in
+                Ascend910B1 )
+                    DEEPEP_VARIANT="deepep2"
+                    ;;
+                Ascend910_9382 | Ascend950 )
+                    DEEPEP_VARIANT="deepep"
+                    ;;
+                * )
+                    die "Target 'deepep' supports only Ascend910B1 (A2), Ascend910_9382 (A3+), or Ascend950 (A5)."
+                    ;;
+            esac
             CMAKE_SOC_VERSION="Ascend910_9382"
             ;;
         deepep2 )
