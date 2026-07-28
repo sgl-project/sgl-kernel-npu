@@ -40,6 +40,7 @@ if(BUILD_CATLASS_MODULE)
 endif()
 list(APPEND OP_SRCS
     ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
+    ${PROJECT_OP_SRC_BASE}/kdn_decode/op_host/kdn_decode.cpp
 )
 
 # set the so name
@@ -132,11 +133,34 @@ ascendc_compile_definitions(mega_chunk_gdn_kernel PRIVATE
     -DGDN_C=128
 )
 
+# Vector-only PTO-ISA recurrent decode kernel (KDN_DECODE_PTO_BACKEND=1).
+# KDN_BV=128 tiles the whole [V, K] state in one pass: the reduce scratch only
+# needs [VTile, 64] for fp32, which is what makes 128 fit the 184 KiB UB window.
+set(KDN_DECODE_KERNEL_TARGETS)
+set(KDN_DECODE_KERNEL_TARGETS kdn_decode_kernel)
+ascendc_library(kdn_decode_kernel STATIC
+    ${PROJECT_OP_SRC_BASE}/kdn_decode/op_kernel/kdn_decode.cpp
+)
+ascendc_include_directories(kdn_decode_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/kdn_decode/op_kernel
+    ${PROJECT_SOURCE_DIR}/third_party/pto-isa/include
+    ${ASCEND_INCLUDE_DIR}
+    ${ASCEND_INCLUDE_DIR}/experiment/runtime
+    ${ASCEND_INCLUDE_DIR}/experiment/msprof
+)
+ascendc_compile_definitions(kdn_decode_kernel PRIVATE
+    -DKDN_KERNEL_NAME=launch_kdn_decode
+    -DGDN_D=128
+    -DKDN_V=128
+    -DKDN_BV=128
+)
+
 # create shared library libsgl_kernel_npu.so
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${MEGA_CHUNK_GDN_KERNEL_TARGETS}
+        ${KDN_DECODE_KERNEL_TARGETS}
         workspace_kernel
         no_workspace_kernel
         torch_npu

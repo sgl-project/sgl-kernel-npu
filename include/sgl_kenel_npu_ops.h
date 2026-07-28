@@ -146,6 +146,14 @@ void mega_chunk_gdn(
     int64_t block_dim, int64_t batch_size, int64_t seq_len,
     int64_t total_tokens, int64_t num_matrices);
 
+// Vector-only PTO-ISA recurrent decode; state is fp32 [slots, H, V, K] and is
+// updated in place. Selected by KDN_DECODE_PTO_BACKEND=1.
+void kdn_decode(
+    const at::Tensor &q, const at::Tensor &k, const at::Tensor &v,
+    const at::Tensor &g, const at::Tensor &beta, at::Tensor &state,
+    at::Tensor &out, const at::Tensor &state_indices,
+    const at::Tensor &cu_seqlens, double scale, bool use_qk_l2norm);
+
 at::Tensor lightning_indexer(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
     const c10::optional<at::Tensor> &actual_seq_lengths_query,
