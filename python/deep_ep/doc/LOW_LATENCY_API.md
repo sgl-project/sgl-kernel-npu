@@ -4,7 +4,6 @@
 
 [![Mode](https://img.shields.io/badge/Mode-Low--Latency-orange)]()
 [![Platform](https://img.shields.io/badge/Platform-A2%20%7C%20A3%20%7C%20A5-green)]()
-[![Quant](https://img.shields.io/badge/Quantization-INT8%20%7C%20MXFP8-yellow)]()
 
 English | [中文](#中文)
 
@@ -74,7 +73,7 @@ def low_latency_dispatch(
 - **hidden**: A2 series: `0 < hidden <= 7168` and `hidden % 32 == 0`.
 - **num_topk**: A2 series internode: `[2, 16]`; intranode: `(0, 16]`; A3 series: `(0, 16]`.
 - **num_experts**: `(0, 512]`.
-- **HCCL_BUFFSIZE**: Check before calling. Default 200 MB.
+- **HCCL_BUFFSIZE**: Check before calling. Default 200 MB. Minimum required size (non-layered): `(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`. For layered (A2 dual-node): `num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`. A5 subtracts 1MB state zone from the configured value.
 - **HCCL_INTRA_PCIE_ENABLE / HCCL_INTRA_ROCE_ENABLE**: A2 series internode: set `HCCL_INTRA_PCIE_ENABLE=1` and `HCCL_INTRA_ROCE_ENABLE=0`.
 
 ---
@@ -121,7 +120,7 @@ def low_latency_combine(
 ### Constraints
 
 - `low_latency_dispatch` and `low_latency_combine` must be used together.
-- **HCCL_BUFFSIZE**: Check before calling. Default 200 MB.
+- **HCCL_BUFFSIZE**: Check before calling. Default 200 MB. Minimum required size (non-layered): `(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`. For layered (A2 dual-node): `num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`. A5 subtracts 1MB state zone from the configured value.
 - **HCCL_INTRA_PCIE_ENABLE / HCCL_INTRA_ROCE_ENABLE**: A2 series internode: set `HCCL_INTRA_PCIE_ENABLE=1` and `HCCL_INTRA_ROCE_ENABLE=0`.
 
 ---
@@ -194,7 +193,7 @@ def low_latency_dispatch(
 - **hidden**：A2 算子实现要求 `0 < hidden <= 7168` 且 `hidden % 32 == 0`。
 - **num_topk**：A2 系列双机 `[2, 16]`；单机 `(0, 16]`；A3 系列 `(0, 16]`。
 - **num_experts**：`(0, 512]`。
-- **HCCL_BUFFSIZE**：调用接口前需检查，默认 200 MB。
+- **HCCL_BUFFSIZE**：调用接口前需检查，默认 200 MB。非分层最小需求：`(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`；分层（A2双机）：`num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`。A5 从配置值中扣除 1MB 状态区。
 - **HCCL_INTRA_PCIE_ENABLE / HCCL_INTRA_ROCE_ENABLE**：A2 系列双机场景需配置 `HCCL_INTRA_PCIE_ENABLE=1` 和 `HCCL_INTRA_ROCE_ENABLE=0`。
 
 ---
@@ -241,5 +240,5 @@ def low_latency_combine(
 ### 约束说明
 
 - `low_latency_dispatch` 和 `low_latency_combine` 必须配套使用。
-- **HCCL_BUFFSIZE**：调用接口前需检查，默认 200 MB。
+- **HCCL_BUFFSIZE**：调用接口前需检查，默认 200 MB。非分层最小需求：`(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`；分层（A2双机）：`num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`。A5 从配置值中扣除 1MB 状态区。
 - **HCCL_INTRA_PCIE_ENABLE / HCCL_INTRA_ROCE_ENABLE**：A2 系列双机场景需配置 `HCCL_INTRA_PCIE_ENABLE=1` 和 `HCCL_INTRA_ROCE_ENABLE=0`。

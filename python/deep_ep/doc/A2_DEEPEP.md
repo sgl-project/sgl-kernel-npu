@@ -1,13 +1,13 @@
-# A2 DeepEP Guide
+# A2 DeepEP Configuration Guide
 
 <div align="center">
 
-[![Platform](https://img.shields.io/badge/Platform-A2%20only-red)]()
+[![Platform](https://img.shields.io/badge/Platform-A2%20%7C%20A3%20%7C%20A5-green)]()
 
 </div>
 
-> [!IMPORTANT]
-> **A2 only.** This document applies exclusively to Atlas A2 series.
+> [!NOTE]
+> DeepEP supports A2, A3, and A5 platforms. This document covers **A2-specific** configuration (single/dual node setup, HCCL tuning, environment variables).
 
 English | [中文](#中文)
 
@@ -65,7 +65,32 @@ Framework configuration (SGLang):
 | D node (Decode) | `--deepep-mode` | `low_latency` |
 | Mixed PD node | `--deepep-mode` | `auto` |
 
-**Note**: DeepEP A2 only supports HCCL communication domain. When DeepEP is enabled, `HCCL_BUFFSIZE` **must** be set, otherwise dispatch & combine operators will fail:
+**Note**: DeepEP A2 only supports HCCL communication domain. When DeepEP is enabled, `HCCL_BUFFSIZE` **must** be set, otherwise dispatch & combine operators will fail. The minimum required size depends on the communication mode:
+
+- **Non-layered (single-node)**: `(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`
+- **Layered (dual-node)**: `num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`
+
+Where `bs` = max tokens per rank, `hidden` = hidden size, `topk` = num top-k experts, `num_local_experts` = `num_experts / ep_world_size`. A5 subtracts 1MB state zone from the configured value.
+
+**"Ant moving home" (long sequence) feature**: When the input sequence length exceeds 8192, enable this feature in both dispatch and combine phases:
+
+```bash
+# Enable long sequence dispatch (rounds × tokens_per_round = total sequence length)
+export DEEPEP_NORMAL_LONG_SEQ_ROUND=1          # default 1, range [1, 256]
+export DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS=8192  # default 8192, range [32, 8192]
+export DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ=1  # enable in combine phase
+```
+
+HCCL_BUFFSIZE formula with long sequence enabled:
+```
+HCCL_BUFFSIZE >= 2 × (102MB + 4MB + PER_ROUND_TOKENS × (hidden_size × 3) × topk) + PADDING_BUFFSIZE
+```
+HCCL_BUFFSIZE formula without long sequence:
+```
+HCCL_BUFFSIZE >= 2 × (102MB + 4MB + TOTAL_SEQ_LEN × (hidden_size × 3) × topk) + PADDING_BUFFSIZE
+```
+Where `PADDING_BUFFSIZE` is recommended to be 20 or larger.
+
 ```bash
 # Adjust size based on your model scenario
 export HCCL_BUFFSIZE=1024
@@ -155,7 +180,9 @@ bash run_test_internode.sh
 
 ### 软硬件配套说明
 
-硬件型号支持：Atlas A2 系列产品
+DeepEP 支持 A2、A3、A5 平台。本节为 A2 专属配置说明。
+
+硬件型号：Atlas A2 系列
 平台：aarch64/x86
 配套软件
 - 驾动 Ascend HDK ≥ 25.3.RC1、CANN ≥ 8.5.0
@@ -203,7 +230,32 @@ DeepEp 向上层提供以下核心接口：
 | D 节点（Decode） | `--deepep-mode` | `low_latency` |
 | 混部节点（PD） | `--deepep-mode` | `auto` |
 
-**注意**：当前deepep A2仅支持HCCL通信域通信，开启deepep后，必须设置的`HCCL_BUFFSIZE`大小，否则dispatch&combine算子会报错。
+**注意**：当前deepep A2仅支持HCCL通信域通信，开启deepep后，必须设置的`HCCL_BUFFSIZE`大小，否则dispatch&combine算子会报错。最小需求取决于通信模式：
+
+- **非分层（单机）**：`(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`
+- **分层（双机）**：`num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`
+
+其中 `bs` = 每 rank 最大 token 数，`hidden` = 隐藏层大小，`topk` = top-k 专家数，`num_local_experts` = `num_experts / ep_world_size`。A5 从配置值中扣除 1MB 状态区。
+
+**蚂蚁搬家（长序列）特性**：当输入序列长度超过 8192 时，建议在 dispatch 和 combine 阶段均开启蚂蚁搬家功能：
+
+```bash
+# 启用长序列 dispatch（轮数 × 每轮 token 数 = 总序列长度）
+export DEEPEP_NORMAL_LONG_SEQ_ROUND=1          # 默认 1，范围 [1, 256]
+export DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS=8192  # 默认 8192，范围 [32, 8192]
+export DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ=1  # 在 combine 阶段启用
+```
+
+启用蚂蚁搬家时 HCCL_BUFFSIZE 计算公式：
+```
+HCCL_BUFFSIZE >= 2 × (102MB + 4MB + PER_ROUND_TOKENS × (hidden_size × 3) × topk) + PADDING_BUFFSIZE
+```
+未启用蚂蚁搬家时：
+```
+HCCL_BUFFSIZE >= 2 × (102MB + 4MB + TOTAL_SEQ_LEN × (hidden_size × 3) × topk) + PADDING_BUFFSIZE
+```
+其中 `PADDING_BUFFSIZE` 建议设置为 20 或更大的值。
+
 ```bash
 # 根据实际模型场景灵活调整大小
 export HCCL_BUFFSIZE=1024
