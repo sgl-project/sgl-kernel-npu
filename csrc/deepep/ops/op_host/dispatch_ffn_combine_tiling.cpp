@@ -327,10 +327,9 @@ static ge::graphStatus DispatchFFNCombineM3TilingFuncImpl(gert::TilingContext *c
                     OP_LOGE(nodeName, "M3 attribute tiling failed"), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(DispatchFFNCombineCheckShapeAndSetTiling(context, info) != ge::GRAPH_SUCCESS,
                     OP_LOGE(nodeName, "M3 shape tiling failed"), return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(info.K != 6144 || info.topK != 4 || info.worldSize != 16 ||
-                        info.expertPerRank * info.worldSize != 128,
-                    OP_LOGE(nodeName, "M3 requires hidden=6144, top-k=4, 128 experts, and EP16."),
-                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(
+        info.K != 6144 || info.topK != 4 || info.worldSize != 16 || info.expertPerRank * info.worldSize != 128,
+        OP_LOGE(nodeName, "M3 requires hidden=6144, top-k=4, 128 experts, and EP16."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(DispatchFFNCombineGetPlatformInfoAndSetTiling(context, info) != ge::GRAPH_SUCCESS,
                     OP_LOGE(nodeName, "M3 platform tiling failed"), return ge::GRAPH_FAILED);
 
@@ -361,13 +360,12 @@ static ge::graphStatus DispatchFFNCombineM3TilingFuncImpl(gert::TilingContext *c
     const uint64_t maxOutput = info.maxOutputSize;
     const uint64_t n2 = info.K;
     const uint64_t k2 = info.N / 2;
-    const uint64_t cocWorkspace =
-        ((info.M + 255) / 256) * 256 * info.topK * sizeof(int32_t) +
-        info.worldSize * info.worldSize * info.expertPerRank * sizeof(int32_t) * 3 +
-        maxOutput * sizeof(float) * 2 + maxOutput * info.N * sizeof(int16_t) +
-        maxOutput * n2 * sizeof(int16_t) + maxOutput * info.K * sizeof(int8_t) +
-        maxOutput * k2 * sizeof(int8_t) + info.worldSize * sizeof(int32_t) * 16 +
-        (info.expertPerRank + info.worldSize) * sizeof(int32_t) * 16;
+    const uint64_t cocWorkspace = ((info.M + 255) / 256) * 256 * info.topK * sizeof(int32_t) +
+                                  info.worldSize * info.worldSize * info.expertPerRank * sizeof(int32_t) * 3 +
+                                  maxOutput * sizeof(float) * 2 + maxOutput * info.N * sizeof(int16_t) +
+                                  maxOutput * n2 * sizeof(int16_t) + maxOutput * info.K * sizeof(int8_t) +
+                                  maxOutput * k2 * sizeof(int8_t) + info.worldSize * sizeof(int32_t) * 16 +
+                                  (info.expertPerRank + info.worldSize) * sizeof(int32_t) * 16;
     workspaces[0] = SYSTEM_NEED_WORKSPACE + std::max(cocWorkspace, routingTiling.workspaceSize_);
 
     auto group = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_GROUP_INDEX));

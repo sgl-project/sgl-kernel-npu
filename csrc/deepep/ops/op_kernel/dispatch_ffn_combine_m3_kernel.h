@@ -12,11 +12,12 @@
 namespace DispatchFFNCombineM3Impl {
 
 template <typename WeightType, typename OutputType>
-class DispatchFFNCombineM3 {
+class DispatchFFNCombineM3
+{
 public:
-    __aicore__ inline void Init(GM_ADDR x, GM_ADDR weight1, GM_ADDR weight2, GM_ADDR expertIds,
-                                GM_ADDR scale1, GM_ADDR scale2, GM_ADDR probs, GM_ADDR out,
-                                GM_ADDR expertTokenNums, GM_ADDR workspace, GM_ADDR tiling)
+    __aicore__ inline void Init(GM_ADDR x, GM_ADDR weight1, GM_ADDR weight2, GM_ADDR expertIds, GM_ADDR scale1,
+                                GM_ADDR scale2, GM_ADDR probs, GM_ADDR out, GM_ADDR expertTokenNums, GM_ADDR workspace,
+                                GM_ADDR tiling)
     {
         impl_.Init(x, weight1, weight2, expertIds, scale1, scale2, probs, out, expertTokenNums, workspace, tiling);
     }
