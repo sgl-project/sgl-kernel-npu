@@ -17,8 +17,9 @@ __attribute__((visibility("default"))) aclnnStatus aclnnDispatchFFNCombineM3GetW
     int64_t epRankId, int64_t maxOutputSize, const aclTensor *out, const aclTensor *expertTokenNums,
     uint64_t *workspaceSize, aclOpExecutor **executor);
 
-__attribute__((visibility("default"))) aclnnStatus aclnnDispatchFFNCombineM3(
-    void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream);
+__attribute__((visibility("default"))) aclnnStatus aclnnDispatchFFNCombineM3(void *workspace, uint64_t workspaceSize,
+                                                                             aclOpExecutor *executor,
+                                                                             aclrtStream stream);
 
 #ifdef __cplusplus
 }

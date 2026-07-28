@@ -9,7 +9,6 @@ import argparse
 import torch
 import torch.distributed as dist
 import torch_npu
-
 from deep_ep import Buffer
 from utils import init_dist
 
@@ -21,12 +20,8 @@ def float_to_int64_bits(scale: torch.Tensor) -> torch.Tensor:
 def make_weights(num_local_experts: int):
     # w1 is nonzero so the SwiGLU-OAI epilogue is exercised. A zero w2 gives
     # an exact final-output reference without reproducing distributed routing.
-    w1 = torch.ones(
-        (num_local_experts, 6144, 6144), dtype=torch.int8, device="npu"
-    )
-    w2 = torch.zeros(
-        (num_local_experts, 3072, 6144), dtype=torch.int8, device="npu"
-    )
+    w1 = torch.ones((num_local_experts, 6144, 6144), dtype=torch.int8, device="npu")
+    w2 = torch.zeros((num_local_experts, 3072, 6144), dtype=torch.int8, device="npu")
     torch_npu.npu_format_cast_(w1, 29)
     torch_npu.npu_format_cast_(w2, 29)
     scale1 = float_to_int64_bits(
@@ -48,8 +43,9 @@ def run(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     experts_per_rank = num_experts // world_size
     x = torch.ones((num_tokens, 6144), dtype=torch.bfloat16, device="npu")
     topk_ids = (
-        torch.arange(num_tokens * topk, device="npu", dtype=torch.int32)
-        .reshape(num_tokens, topk)
+        torch.arange(num_tokens * topk, device="npu", dtype=torch.int32).reshape(
+            num_tokens, topk
+        )
         % num_experts
     )
     topk_weights = torch.ones((num_tokens, topk), dtype=torch.float32, device="npu")
@@ -70,7 +66,9 @@ def run(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     )
 
     torch.testing.assert_close(output, torch.zeros_like(output), rtol=0, atol=0)
-    local_counts = torch.bincount(topk_ids.flatten(), minlength=num_experts).to(torch.int32)
+    local_counts = torch.bincount(topk_ids.flatten(), minlength=num_experts).to(
+        torch.int32
+    )
     dist.all_reduce(local_counts, group=group)
     expected_counts = local_counts[
         rank * experts_per_rank : (rank + 1) * experts_per_rank

@@ -1141,10 +1141,10 @@ std::vector<at::Tensor> Buffer::dispatch_ffn_combine(const at::Tensor &x, const 
 }
 
 std::vector<at::Tensor> Buffer::dispatch_ffn_combine_m3(const at::Tensor &x, const at::Tensor &expert_ids,
-                                                         const at::Tensor &weight1, const at::Tensor &scale1,
-                                                         const at::Tensor &weight2, const at::Tensor &scale2,
-                                                         const at::Tensor &expert_scales, int64_t max_output_size,
-                                                         int64_t num_experts, int quant_mode) const
+                                                        const at::Tensor &weight1, const at::Tensor &scale1,
+                                                        const at::Tensor &weight2, const at::Tensor &scale2,
+                                                        const at::Tensor &expert_scales, int64_t max_output_size,
+                                                        int64_t num_experts, int quant_mode) const
 {
     EP_HOST_ASSERT(expert_ids.dim() == 2);
     EP_HOST_ASSERT(expert_scales.dim() == 2);
@@ -1173,7 +1173,7 @@ std::vector<at::Tensor> Buffer::dispatch_ffn_combine_m3(const at::Tensor &x, con
     at::Tensor expert_token_nums = at::empty({num_local_experts}, expert_ids.options());
 
     EXEC_NPU_CMD(aclnnDispatchFFNCombineM3, x, weight1, weight2, expert_ids, scale1, scale2, expert_scales,
-                  hcom_ep_name, num_ranks, rank, max_output_size, output_storage, expert_token_nums);
+                 hcom_ep_name, num_ranks, rank, max_output_size, output_storage, expert_token_nums);
     return {output, expert_token_nums};
 }
 }  // namespace deep_ep
