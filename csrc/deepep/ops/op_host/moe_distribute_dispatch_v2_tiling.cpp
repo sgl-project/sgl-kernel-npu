@@ -342,9 +342,9 @@ static bool CheckTensorDataType(const gert::TilingContext *context, const char *
             return false);
     } else if (quantMode == PER_TOKEN_FP8_SCALES) {
         OP_TILING_CHECK(
-            expandXDtype != ge::DT_FLOAT8_E4M3FN,
+            expandXDtype != ge::DT_FLOAT8_E4M3FN && expandXDtype != ge::DT_FLOAT8_E5M2,
             OP_LOGE(nodeName,
-                    "expandX dataType is invalid for per-token FP8 quant, dataType should be fp8e4m3, "
+                    "expandX dataType is invalid for per-token FP8 quant, dataType should be fp8e4m3 or fp8e5m2, "
                     "but is %s",
                     geDataTypeMap.at(expandXDesc->GetDataType()).c_str()),
             return false);
