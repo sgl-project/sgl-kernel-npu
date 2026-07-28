@@ -32,8 +32,11 @@ function print_help()
 {
     cat <<'EOF'
 Usage:
-    ./build.sh                              Build all modules for A3+.
-    ./build.sh -a <target> [SOC_VERSION]    Build one target.
+    ./build.sh                                  Build all modules for A3+.
+    ./build.sh -a deepep [SOC_VERSION]          Build deep_ep for A3+ or A5.
+    ./build.sh -a deepep2 [SOC_VERSION]         Build deep_ep for A2.
+    ./build.sh -a kernels [SOC_VERSION]         Build sgl_kernel_npu.
+    ./build.sh -a memory-saver                  Build torch_memory_saver.
 
 Targets:
     deepep         Build deep_ep with ops (A3+ by default; use Ascend950 for A5).
@@ -117,22 +120,55 @@ function configure_build_target()
 
 function configure_soc_version()
 {
-    if [[ -n "$REQUESTED_SOC_VERSION" ]]; then
-        SOC_VERSION="$REQUESTED_SOC_VERSION"
-    elif [[ "$DEEPEP_VARIANT" == "deepep2" ]]; then
-        SOC_VERSION="Ascend910B1"
-    else
-        SOC_VERSION="Ascend910_9382"
-    fi
+    case "$BUILD_TARGET" in
+        all )
+            if [[ -n "$REQUESTED_SOC_VERSION" ]]; then
+                die "The default full build does not accept SOC_VERSION; use a specific -a target."
+            fi
+            SOC_VERSION="Ascend910_9382"
+            CMAKE_SOC_VERSION="Ascend910_9382"
+            ;;
+        deepep )
+            SOC_VERSION="${REQUESTED_SOC_VERSION:-Ascend910_9382}"
+            if [[ "$SOC_VERSION" != "Ascend910_9382" && "$SOC_VERSION" != "Ascend950" ]]; then
+                die "Target 'deepep' supports only Ascend910_9382 (A3+) or Ascend950 (A5)."
+            fi
+            CMAKE_SOC_VERSION="Ascend910_9382"
+            ;;
+        deepep2 )
+            SOC_VERSION="${REQUESTED_SOC_VERSION:-Ascend910B1}"
+            if [[ "$SOC_VERSION" != "Ascend910B1" ]]; then
+                die "Target 'deepep2' supports only Ascend910B1 (A2)."
+            fi
+            CMAKE_SOC_VERSION="Ascend910_9382"
+            ;;
+        kernels )
+            SOC_VERSION="${REQUESTED_SOC_VERSION:-Ascend910_9382}"
+            if [[ "$SOC_VERSION" == "Ascend950" ]]; then
+                die "Target 'kernels' requires an AscendC-supported SoC name instead of the DeepEP alias Ascend950."
+            fi
+            CMAKE_SOC_VERSION="$SOC_VERSION"
+            ;;
+        memory-saver )
+            if [[ -n "$REQUESTED_SOC_VERSION" ]]; then
+                die "Target 'memory-saver' does not accept SOC_VERSION."
+            fi
+            SOC_VERSION=""
+            ;;
+    esac
 
     if [[ "$SOC_VERSION" == "Ascend950" ]]; then
         DEEPEP_IS_A5_BUILD="ON"
     fi
 
     echo "Build target: $BUILD_TARGET"
-    echo "DeepEP variant: $DEEPEP_VARIANT"
-    echo "DeepEP SOC_VERSION: $SOC_VERSION"
-    echo "CMake SOC_VERSION: $CMAKE_SOC_VERSION"
+    if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
+        echo "DeepEP variant: $DEEPEP_VARIANT"
+        echo "DeepEP SOC_VERSION: $SOC_VERSION"
+    fi
+    if [[ "$BUILD_DEEPEP_MODULE" == "ON" || "$BUILD_KERNELS_MODULE" == "ON" ]]; then
+        echo "CMake SOC_VERSION: $CMAKE_SOC_VERSION"
+    fi
 }
 
 function resolve_ascend_home()
