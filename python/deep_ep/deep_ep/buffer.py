@@ -886,7 +886,9 @@ class Buffer:
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """Run the MiniMax-M3 routed-expert FuseEP prefill operator."""
         if x.shape[-1] != 6144 or topk_idx.shape[-1] != 4 or num_experts != 128:
-            raise ValueError("DispatchFFNCombineM3 requires hidden=6144, top-k=4, and 128 routed experts")
+            raise ValueError(
+                "DispatchFFNCombineM3 requires hidden=6144, top-k=4, and 128 routed experts"
+            )
         return self.runtime.dispatch_ffn_combine_m3(
             x,
             topk_idx.int(),
