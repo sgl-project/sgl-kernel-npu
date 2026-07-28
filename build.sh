@@ -1,301 +1,410 @@
 #!/bin/bash
 set -e
 
-BUILD_ATTENTIONS_MODULE="ON"
-BUILD_DEEPEP_MODULE="ON"
-BUILD_DEEPEP_OPS="ON"
-BUILD_KERNELS_MODULE="ON"
-BUILD_MEMORY_SAVER_MODULE="ON"
-ONLY_BUILD_MEMORY_SAVER_MODULE="OFF"
+readonly PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+readonly OUTPUT_DIR="${PROJECT_ROOT}/output"
+readonly BUILD_DIR="${PROJECT_ROOT}/build"
+readonly DEFAULT_ASCEND_ROOT="/usr/local/Ascend/ascend-toolkit"
+
+BUILD_TARGET="all"
+REQUESTED_SOC_VERSION=""
+SOC_VERSION=""
+DEEPEP_VARIANT="deepep"
+DEEPEP_IS_A5_BUILD="OFF"
+
+BUILD_ATTENTIONS_MODULE="OFF"
+BUILD_DEEPEP_MODULE="OFF"
+BUILD_KERNELS_MODULE="OFF"
+BUILD_MEMORY_SAVER_MODULE="OFF"
 
 DEBUG_MODE="OFF"
+ASC_CMAKE_DIR=""
+ASCEND_INCLUDE_DIR=""
 
-while getopts ":a:hd" opt; do
-    case ${opt} in
-        a )
-            BUILD_DEEPEP_MODULE="OFF"
-            BUILD_KERNELS_MODULE="OFF"
-            BUILD_MEMORY_SAVER_MODULE="OFF"
-            BUILD_ATTENTIONS_MODULE="OFF"
-            case "$OPTARG" in
-                deepep )
-                    BUILD_DEEPEP_MODULE="ON"
-                    BUILD_DEEPEP_OPS="ON"
-                    ;;
-                deepep2 )
-                    BUILD_DEEPEP_MODULE="ON"
-                    BUILD_DEEPEP_OPS="OFF"
-                    ;;
-                kernels )
-                    BUILD_KERNELS_MODULE="ON"
-                    ;;
-                memory-saver )
-                    BUILD_MEMORY_SAVER_MODULE="ON"
-                    ONLY_BUILD_MEMORY_SAVER_MODULE="ON"
-                    ;;
-                * )
-                    echo "Error: Invalid Value"
-                    echo "Allowed value: deepep|deepep2|kernels|memory-saver"
-                    exit 1
-                    ;;
-            esac
+function die()
+{
+    echo "Error: $*" 1>&2
+    exit 1
+}
+
+function print_help()
+{
+    cat <<'EOF'
+Usage:
+    ./build.sh                              Build all modules for A3+.
+    ./build.sh -a <target> [SOC_VERSION]    Build one target.
+
+Targets:
+    deepep         Build deep_ep with ops (A3+ by default; use Ascend950 for A5).
+    deepep2        Build deep_ep with ops2 (A2 by default).
+    kernels        Build sgl_kernel_npu only.
+    memory-saver   Build torch_memory_saver only.
+
+Chip mapping:
+    A2   : ./build.sh -a deepep2              # Ascend910B1
+    A3+  : ./build.sh -a deepep               # Ascend910_9382
+    A5   : ./build.sh -a deepep Ascend950
+
+Options:
+    -d             Enable debug logging.
+    -h             Show this help.
+EOF
+}
+
+function parse_arguments()
+{
+    local opt
+    OPTIND=1
+
+    while getopts ":a:hd" opt; do
+        case "$opt" in
+            a )
+                BUILD_TARGET="$OPTARG"
+                ;;
+            d )
+                DEBUG_MODE="ON"
+                ;;
+            h )
+                print_help
+                exit 0
+                ;;
+            \? )
+                die "Unknown flag: -$OPTARG. Run './build.sh -h' for more information."
+                ;;
+            : )
+                die "-$OPTARG requires a value. Run './build.sh -h' for more information."
+                ;;
+        esac
+    done
+
+    shift $((OPTIND - 1))
+    if [[ "$#" -gt 1 ]]; then
+        die "Expected at most one SOC_VERSION argument."
+    fi
+    REQUESTED_SOC_VERSION="${1:-}"
+}
+
+function configure_build_target()
+{
+    case "$BUILD_TARGET" in
+        all )
+            BUILD_ATTENTIONS_MODULE="ON"
+            BUILD_DEEPEP_MODULE="ON"
+            BUILD_KERNELS_MODULE="ON"
+            BUILD_MEMORY_SAVER_MODULE="ON"
+            DEEPEP_VARIANT="deepep"
             ;;
-        d )
-            DEBUG_MODE="ON"
+        deepep )
+            BUILD_DEEPEP_MODULE="ON"
+            DEEPEP_VARIANT="deepep"
             ;;
-        h )
-            echo "Use './build.sh' build all modules."
-            echo "Use './build.sh -a <target>' to build specific parts of the project."
-            echo "    <target> can be:"
-            echo "    deepep            Only build deep_ep."
-            echo "    deepep2           Only build deep_ep for A2."
-            echo "    kernels           Only build sgl_kernel_npu."
-            echo "    memory-saver      Only build torch_memory_saver (under contrib)."
-            exit 1
+        deepep2 )
+            BUILD_DEEPEP_MODULE="ON"
+            DEEPEP_VARIANT="deepep2"
             ;;
-        \? )
-            echo "Error: unknown flag: -$OPTARG" 1>&2
-            echo "Run './build.sh -h' for more information."
-            exit 1
+        kernels )
+            BUILD_KERNELS_MODULE="ON"
             ;;
-        : )
-            echo "Error: -$OPTARG requires a value" 1>&2
-            echo "Run './build.sh -h' for more information."
-            exit 1
+        memory-saver )
+            BUILD_MEMORY_SAVER_MODULE="ON"
+            ;;
+        * )
+            die "Invalid target '$BUILD_TARGET'. Allowed values: deepep|deepep2|kernels|memory-saver"
             ;;
     esac
-done
+}
 
-shift $((OPTIND -1))
-
-
-export DEBUG_MODE=$DEBUG_MODE
-
-# Chip mapping:
-# - deepep  → A3+ (Ascend910_9382)
-# - deepep2 → A2  (Ascend910B1)
-
-if [[ "$BUILD_DEEPEP_OPS" == "ON" ]]; then
-    SOC_VERSION="${1:-Ascend910_9382}"
-else
-    SOC_VERSION="${1:-Ascend910B1}"
-fi
-
-echo "Use SOC_VERSION: $SOC_VERSION"
-
-echo "=== Fixing ASCConfig for CANN 8.3 / A2 ==="
-
-# Prioritize using the ASCEND_HOME_PATH environment variable
-# If empty or points to latest, automatically select the actual installation version
-if [ -z "$ASCEND_HOME_PATH" ] || [[ "$ASCEND_HOME_PATH" == *"/latest" ]]; then
-    REAL_ASCEND_PATH=$(ls -d /usr/local/Ascend/ascend-toolkit/* \
-        | grep -v latest \
-        | sort -V \
-        | tail -1)
-
-    if [ -n "$REAL_ASCEND_PATH" ]; then
-        export ASCEND_HOME_PATH="$REAL_ASCEND_PATH"
+function configure_soc_version()
+{
+    if [[ -n "$REQUESTED_SOC_VERSION" ]]; then
+        SOC_VERSION="$REQUESTED_SOC_VERSION"
+    elif [[ "$DEEPEP_VARIANT" == "deepep2" ]]; then
+        SOC_VERSION="Ascend910B1"
     else
-        echo "Error: Cannot find Ascend toolkit installation"
-        exit 1
+        SOC_VERSION="Ascend910_9382"
     fi
-fi
 
-echo "using ASCEND_HOME_PATH: $ASCEND_HOME_PATH"
+    if [[ "$SOC_VERSION" == "Ascend950" ]]; then
+        DEEPEP_IS_A5_BUILD="ON"
+    fi
 
-# 主动查找并设置 ASCConfig.cmake 路径
-ASC_CONFIG_CMAKE=$(find "$ASCEND_HOME_PATH" -name "ASCConfig.cmake" -type f 2>/dev/null | head -n1)
-if [ -n "$ASC_CONFIG_CMAKE" ]; then
-    ASC_CMAKE_DIR=$(dirname "$ASC_CONFIG_CMAKE")
-    echo "Found ASCConfig.cmake at: $ASC_CONFIG_CMAKE"
-    export CMAKE_PREFIX_PATH="$ASC_CMAKE_DIR:$CMAKE_PREFIX_PATH"
-    export ASC_DIR="$ASC_CMAKE_DIR"
-    echo "Set CMAKE_PREFIX_PATH and ASC_DIR successfully"
-else
-    echo "Warning: Cannot find ASCConfig.cmake"
-fi
-
-# Get Current CANN Toolkit Installation Path
-if [ -n "$ASCEND_HOME_PATH" ]; then
-    _CANN_TOOLKIT_INSTALL_PATH="$ASCEND_HOME_PATH"
-else
-    _CANN_TOOLKIT_INSTALL_PATH=$(cat /etc/Ascend/ascend_cann_install.info | grep "Toolkit_InstallPath" | awk -F'=' '{print $2}')
-fi
-source ${_CANN_TOOLKIT_INSTALL_PATH}/set_env.sh
-echo -e "\e[1;32mDetected CANN Toolkit Installation Path: ${_CANN_TOOLKIT_INSTALL_PATH}\e[0m"
-echo -e "\e[1;33mDouble Checking Environment Variables:\e[0m"
-echo -e "\e[1;32mASCEND_HOME_PATH: ${ASCEND_HOME_PATH}\e[0m"
-echo -e "\e[1;32mASCEND_TOOLKIT_HOME: ${ASCEND_TOOLKIT_HOME}\e[0m"
-
-ASCEND_INCLUDE_DIR=${ASCEND_TOOLKIT_HOME}/$(arch)-linux/include
-CURRENT_DIR=$(pwd)
-PROJECT_ROOT=$(dirname "$CURRENT_DIR")
-VERSION="1.0.0"
-OUTPUT_DIR=$CURRENT_DIR/output
-mkdir -p $OUTPUT_DIR
-echo "outpath: ${OUTPUT_DIR}"
-
-COMPILE_OPTIONS=""
-
-
-function build_kernels()
-{
-    if [[ "$ONLY_BUILD_MEMORY_SAVER_MODULE" == "ON" ]]; then return 0; fi
-
-    CMAKE_DIR=""
-    BUILD_DIR="build"
-
-    cd "$CMAKE_DIR" || exit
-
-    rm -rf $BUILD_DIR
-    mkdir -p $BUILD_DIR
-
-    cmake $COMPILE_OPTIONS \
-    -DCMAKE_INSTALL_PREFIX="$OUTPUT_DIR" \
-    -DASCEND_HOME_PATH=$ASCEND_HOME_PATH \
-    -DASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR \
-    -DCMAKE_PREFIX_PATH="$ASC_CMAKE_DIR" \
-    -DASC_DIR="$ASC_CMAKE_DIR" \
-    -DSOC_VERSION=Ascend910_9382 \
-    -DDEEPEP_IS_A5_BUILD=$([[ "$SOC_VERSION" == "Ascend950" ]] && echo "ON" || echo "OFF") \
-    -DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE \
-    -DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE \
-    -B "$BUILD_DIR" \
-    -S .
-
-    cmake --build "$BUILD_DIR" --target install -j 16
-    cd -
+    echo "Build target: $BUILD_TARGET"
+    echo "DeepEP variant: $DEEPEP_VARIANT"
+    echo "SOC_VERSION: $SOC_VERSION"
 }
 
-function build_deepep_kernels()
+function resolve_ascend_home()
 {
-    if [[ "$BUILD_DEEPEP_MODULE" != "ON" ]]; then return 0; fi
+    local configured_path="${ASCEND_HOME_PATH:-}"
+    local candidate=""
+    local path=""
 
-    if [[ "$BUILD_DEEPEP_OPS" == "ON" ]]; then
-        KERNEL_DIR="csrc/deepep/ops"
+    if [[ -f "$configured_path" && "$(basename "$configured_path")" == "set_env.sh" ]]; then
+        configured_path="$(dirname "$configured_path")"
+    fi
+
+    if [[ -n "$configured_path" && "$(basename "$configured_path")" == "latest" ]]; then
+        candidate="$(readlink -f "$configured_path" 2>/dev/null || true)"
+        if [[ -n "$candidate" ]]; then
+            configured_path="$candidate"
+        fi
+    fi
+
+    if [[ -n "$configured_path" && -d "$configured_path" && -f "$configured_path/set_env.sh" ]]; then
+        candidate="$configured_path"
     else
-        KERNEL_DIR="csrc/deepep/ops2"
+        if [[ -n "$configured_path" ]]; then
+            echo "Warning: Ignoring invalid ASCEND_HOME_PATH: $configured_path"
+        fi
+
+        candidate=""
+        while IFS= read -r path; do
+            if [[ -f "$path/set_env.sh" ]]; then
+                candidate="$path"
+            fi
+        done < <(find "$DEFAULT_ASCEND_ROOT" \
+            -mindepth 1 \
+            -maxdepth 1 \
+            -type d \
+            ! -name latest \
+            -print 2>/dev/null | sort -V)
+
+        if [[ -z "$candidate" && -d "$DEFAULT_ASCEND_ROOT/latest" ]]; then
+            path="$(readlink -f "$DEFAULT_ASCEND_ROOT/latest" 2>/dev/null || true)"
+            if [[ -n "$path" && -f "$path/set_env.sh" ]]; then
+                candidate="$path"
+            fi
+        fi
+
+        if [[ -z "$candidate" && -f "$DEFAULT_ASCEND_ROOT/set_env.sh" ]]; then
+            candidate="$DEFAULT_ASCEND_ROOT"
+        fi
     fi
-    CUSTOM_OPP_DIR="${CURRENT_DIR}/python/deep_ep/deep_ep"
 
-    cd "$KERNEL_DIR" || exit
+    if [[ -z "$candidate" ]]; then
+        die "Cannot find an Ascend toolkit directory containing set_env.sh"
+    fi
 
-    chmod +x build.sh
-    ./build.sh
+    export ASCEND_HOME_PATH="$candidate"
+}
 
-    custom_opp_file=$(find ./build_out -maxdepth 1 -type f -name "custom_opp*.run")
-    if [ -z "$custom_opp_file" ]; then
-        echo "can not find run package"
-        exit 1
+function setup_ascend_environment()
+{
+    local resolved_ascend_home=""
+    local asc_config_cmake=""
+
+    resolve_ascend_home
+    resolved_ascend_home="$ASCEND_HOME_PATH"
+
+    # CANN's environment script may rewrite ASCEND_HOME_PATH to "latest".
+    # Keep the resolved installation directory as the source of truth.
+    source "$resolved_ascend_home/set_env.sh"
+    export ASCEND_HOME_PATH="$resolved_ascend_home"
+    export ASCEND_TOOLKIT_HOME="${ASCEND_TOOLKIT_HOME:-$resolved_ascend_home}"
+
+    asc_config_cmake="$(find "$ASCEND_HOME_PATH" \
+        -name "ASCConfig.cmake" \
+        -type f \
+        -print \
+        -quit 2>/dev/null)"
+    if [[ -n "$asc_config_cmake" ]]; then
+        ASC_CMAKE_DIR="$(dirname "$asc_config_cmake")"
+        export CMAKE_PREFIX_PATH="$ASC_CMAKE_DIR${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"
+        export ASC_DIR="$ASC_CMAKE_DIR"
+        echo "Found ASCConfig.cmake at: $asc_config_cmake"
     else
-        echo "find run package: $custom_opp_file"
-        chmod +x "$custom_opp_file"
+        echo "Warning: Cannot find ASCConfig.cmake under $ASCEND_HOME_PATH"
     fi
-    rm -rf "$CUSTOM_OPP_DIR"/vendors
-    ./build_out/custom_opp_*.run --install-path=$CUSTOM_OPP_DIR
-    cd -
+
+    ASCEND_INCLUDE_DIR="${ASCEND_TOOLKIT_HOME}/$(arch)-linux/include"
+
+    echo "ASCEND_HOME_PATH: $ASCEND_HOME_PATH"
+    echo "ASCEND_TOOLKIT_HOME: $ASCEND_TOOLKIT_HOME"
+    echo "ASCEND_INCLUDE_DIR: $ASCEND_INCLUDE_DIR"
 }
 
-function build_memory_saver()
+function ensure_wheel_package()
 {
-    if [[ "$BUILD_MEMORY_SAVER_MODULE" != "ON" ]]; then return 0; fi
-    echo "[memory_saver] Building torch_memory_saver via setup.py"
-    cd contrib/torch_memory_saver/python || exit
-    rm -rf "$CURRENT_DIR"/contrib/torch_memory_saver/python/build
-    rm -rf "$CURRENT_DIR"/contrib/torch_memory_saver/python/dist
-    python3 setup.py clean --all
-    python3 setup.py bdist_wheel
-    mv -v "$CURRENT_DIR"/contrib/torch_memory_saver/python/dist/torch_memory_saver*.whl "${OUTPUT_DIR}/"
-    rm -rf "$CURRENT_DIR"/contrib/torch_memory_saver/python/dist
-    cd -
-}
-
-function create_deepep_cmake()
-{
-    if [[ "$BUILD_DEEPEP_MODULE" != "ON" ]]; then return 0; fi
-
-    cd csrc || exit
-    chmod +x deepep_cmake_build.sh
-    chmod +x deepep/build.sh
-    chmod +x deepep/compile_ascend_proj.sh
-    echo "${FUNCNAME[0]}:./deepep_cmake_build.sh all $SOC_VERSION"
-    ./deepep_cmake_build.sh all $SOC_VERSION
-
-    if [[ "$BUILD_DEEPEP_OPS" == "ON" ]]; then
-        echo "./deepep/compile_ascend_proj.sh ./deepep $SOC_VERSION deepep"
-        bash ./deepep/compile_ascend_proj.sh ./deepep $SOC_VERSION deepep
-    else
-        echo "./deepep/compile_ascend_proj.sh ./deepep $SOC_VERSION deepep2"
-        bash ./deepep/compile_ascend_proj.sh ./deepep $SOC_VERSION deepep2
-    fi
-    cd -
-}
-
-function make_deepep_package()
-{
-    cd python/deep_ep || exit
-
-    cp -v ${OUTPUT_DIR}/lib/* "$CURRENT_DIR"/python/deep_ep/deep_ep/
-    rm -rf "$CURRENT_DIR"/python/deep_ep/build
-    python3 setup.py clean --all
-    python3 setup.py bdist_wheel
-    mv -v "$CURRENT_DIR"/python/deep_ep/dist/deep_ep*.whl ${OUTPUT_DIR}/
-    rm -rf "$CURRENT_DIR"/python/deep_ep/dist
-    cd -
-}
-
-function make_sgl_kernel_npu_package()
-{
-    cd python/sgl_kernel_npu || exit
-
-    rm -rf "$CURRENT_DIR"/python/sgl_kernel_npu/dist
-    cp -v "${CURRENT_DIR}/config.ini" "${CURRENT_DIR}/python/sgl_kernel_npu/sgl_kernel_npu/"
-    python3 setup.py clean --all
-    python3 setup.py bdist_wheel
-    mv -v "$CURRENT_DIR"/python/sgl_kernel_npu/dist/sgl_kernel_npu*.whl ${OUTPUT_DIR}/
-    rm -rf "$CURRENT_DIR"/python/sgl_kernel_npu/dist
-    cd -
-}
-
-function build_attentions_kernels()
-{
-    CUSTOM_OPP_DIR="${CURRENT_DIR}/python/attentions/attentions"
-    KERNEL_DIR="csrc/attentions/build"
-
-    cd "$KERNEL_DIR" || exit
-
-    echo "run build attentions library"
-
-    chmod +x build.sh
-    ./build.sh
-    cd -
-}
-
-function make_attentions_package() {
-    cd python/attentions || exit
-
-    rm -rf "$CURRENT_DIR"/python/attentions/dist
-    python3 setup.py clean --all
-    python3 setup.py bdist_wheel
-    mv -v "$CURRENT_DIR"/python/attentions/dist/attentions*.whl ${OUTPUT_DIR}/
-    rm -rf "$CURRENT_DIR"/python/attentions/dist
-    cd -
-}
-
-function main()
-{
-    create_deepep_cmake
-    build_kernels
-    build_deepep_kernels
-    if [[ "$BUILD_ATTENTIONS_MODULE" == "ON" ]]; then
-        build_attentions_kernels
-    fi
-    if pip3 show wheel;then
+    if pip3 show wheel >/dev/null 2>&1; then
         echo "wheel has been installed"
     else
         pip3 install wheel==0.45.1
     fi
-    build_memory_saver
+}
+
+function prepare_deepep_build()
+{
+    (
+        cd "$PROJECT_ROOT/csrc"
+        chmod +x deepep_cmake_build.sh
+        chmod +x deepep/build.sh
+        chmod +x deepep/compile_ascend_proj.sh
+
+        echo "./deepep_cmake_build.sh all $SOC_VERSION"
+        ./deepep_cmake_build.sh all "$SOC_VERSION"
+
+        echo "./deepep/compile_ascend_proj.sh ./deepep $SOC_VERSION $DEEPEP_VARIANT"
+        bash ./deepep/compile_ascend_proj.sh \
+            ./deepep \
+            "$SOC_VERSION" \
+            "$DEEPEP_VARIANT"
+    )
+}
+
+# The top-level CMake project builds two independently controlled components:
+# - BUILD_DEEPEP_MODULE=ON: the DeepEP host/pybind adapter (deep_ep_cpp)
+# - BUILD_KERNELS_MODULE=ON: the sgl_kernel_npu host library and AscendC kernels
+function build_cmake_modules()
+{
+    local cmake_args=(
+        "-DCMAKE_INSTALL_PREFIX=$OUTPUT_DIR"
+        "-DASCEND_HOME_PATH=$ASCEND_HOME_PATH"
+        "-DASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR"
+        "-DSOC_VERSION=$SOC_VERSION"
+        "-DDEEPEP_IS_A5_BUILD=$DEEPEP_IS_A5_BUILD"
+        "-DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE"
+        "-DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE"
+    )
+
+    if [[ -n "$ASC_CMAKE_DIR" ]]; then
+        cmake_args+=(
+            "-DCMAKE_PREFIX_PATH=$ASC_CMAKE_DIR"
+            "-DASC_DIR=$ASC_CMAKE_DIR"
+        )
+    fi
+
+    rm -rf "$BUILD_DIR"
+    mkdir -p "$BUILD_DIR"
+
+    cmake "${cmake_args[@]}" \
+        -B "$BUILD_DIR" \
+        -S "$PROJECT_ROOT"
+    cmake --build "$BUILD_DIR" --target install -j 16
+}
+
+function build_deepep_kernels()
+{
+    local kernel_dir=""
+    local custom_opp_dir="${PROJECT_ROOT}/python/deep_ep/deep_ep"
+    local custom_opp_file=""
+
+    if [[ "$DEEPEP_VARIANT" == "deepep2" ]]; then
+        kernel_dir="${PROJECT_ROOT}/csrc/deepep/ops2"
+    else
+        kernel_dir="${PROJECT_ROOT}/csrc/deepep/ops"
+    fi
+
+    (
+        cd "$kernel_dir"
+        chmod +x build.sh
+        ./build.sh
+
+        custom_opp_file="$(find ./build_out \
+            -maxdepth 1 \
+            -type f \
+            -name "custom_opp*.run" \
+            -print \
+            -quit)"
+        if [[ -z "$custom_opp_file" ]]; then
+            die "Cannot find custom_opp*.run under $kernel_dir/build_out"
+        fi
+
+        echo "Found run package: $custom_opp_file"
+        chmod +x "$custom_opp_file"
+        rm -rf "$custom_opp_dir/vendors"
+        "$custom_opp_file" --install-path="$custom_opp_dir"
+    )
+}
+
+function build_attentions_kernels()
+{
+    (
+        cd "$PROJECT_ROOT/csrc/attentions/build"
+        echo "Building attentions kernels"
+        chmod +x build.sh
+        ./build.sh
+    )
+}
+
+function make_deepep_package()
+{
+    (
+        cd "$PROJECT_ROOT/python/deep_ep"
+        cp -v "$OUTPUT_DIR"/lib/* "$PROJECT_ROOT/python/deep_ep/deep_ep/"
+        rm -rf build dist
+        python3 setup.py clean --all
+        python3 setup.py bdist_wheel
+        mv -v dist/deep_ep*.whl "$OUTPUT_DIR/"
+        rm -rf dist
+    )
+}
+
+function make_sgl_kernel_npu_package()
+{
+    (
+        cd "$PROJECT_ROOT/python/sgl_kernel_npu"
+        rm -rf dist
+        cp -v "$PROJECT_ROOT/config.ini" sgl_kernel_npu/
+        python3 setup.py clean --all
+        python3 setup.py bdist_wheel
+        mv -v dist/sgl_kernel_npu*.whl "$OUTPUT_DIR/"
+        rm -rf dist
+    )
+}
+
+function make_attentions_package()
+{
+    (
+        cd "$PROJECT_ROOT/python/attentions"
+        rm -rf dist
+        python3 setup.py clean --all
+        python3 setup.py bdist_wheel
+        mv -v dist/attentions*.whl "$OUTPUT_DIR/"
+        rm -rf dist
+    )
+}
+
+function build_memory_saver_package()
+{
+    (
+        cd "$PROJECT_ROOT/contrib/torch_memory_saver/python"
+        echo "Building torch_memory_saver"
+        rm -rf build dist
+        python3 setup.py clean --all
+        python3 setup.py bdist_wheel
+        mv -v dist/torch_memory_saver*.whl "$OUTPUT_DIR/"
+        rm -rf dist
+    )
+}
+
+function main()
+{
+    parse_arguments "$@"
+    configure_build_target
+    configure_soc_version
+    export DEBUG_MODE
+
+    setup_ascend_environment
+    mkdir -p "$OUTPUT_DIR"
+    echo "Output directory: $OUTPUT_DIR"
+
+    # Build native components first. All module selection is controlled here.
+    if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
+        prepare_deepep_build
+    fi
+    if [[ "$BUILD_DEEPEP_MODULE" == "ON" || "$BUILD_KERNELS_MODULE" == "ON" ]]; then
+        build_cmake_modules
+    fi
+    if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
+        build_deepep_kernels
+    fi
+    if [[ "$BUILD_ATTENTIONS_MODULE" == "ON" ]]; then
+        build_attentions_kernels
+    fi
+
+    ensure_wheel_package
+
+    # Package only the modules selected above.
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
         make_deepep_package
     fi
@@ -305,8 +414,11 @@ function main()
     if [[ "$BUILD_ATTENTIONS_MODULE" == "ON" ]]; then
         make_attentions_package
     fi
-
-
+    if [[ "$BUILD_MEMORY_SAVER_MODULE" == "ON" ]]; then
+        build_memory_saver_package
+    fi
 }
 
-main
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+fi
