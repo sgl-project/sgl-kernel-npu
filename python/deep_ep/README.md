@@ -210,7 +210,7 @@ See [Fused Deep MoE API](doc/FUSED_DEEP_MOE.md) for details.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DEEP_USE_MODE` | `default` | Normal mode strategy and Low-latency mode strategy: `default`, `ops`, or `alltoall`. |
-| `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **Deprecated but still works as a fallback.** Set to `1` to enable INT8 quantization when `quant_mode` is **not** passed to `dispatch()` (i.e., `quant_mode=None`). When `quant_mode` is explicitly set, it takes precedence and this env var is ignored. See [Normal Mode API — Quantization Selection Priority](doc/NORMAL_API.md#quantization-selection-priority). |
+| `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **Removed.** INT8 quantization is now specified via `quant_mode="int8"` parameter in `dispatch()`. MXFP8/MXFP4 per-block quantization (A5 only, intranode only) is triggered by passing a tuple `(data_tensor, scale_tensor)` as `x`; see [Normal Mode quantization](#normal-mode-prefill--training) for supported dtypes. |
 | `SGLANG_DEEPEP_BF16_DISPATCH` | `0` | Disable quantization in low_latency_dispatch (BF16 dispatch). Set to `1` to disable; only effective in decode phase. |
 | `MOE_EXPERT_TOKEN_NUMS_TYPE` | `1` | Dispatch return type for `num_recv_tokens_per_expert_list`: `1` = per-expert token count, `0` = prefix sum. |
 | `MOE_SHARED_EXPERT_RANK_NUM` | `0` | Number of shared expert ranks (used by ops strategy). |
@@ -465,7 +465,7 @@ low_latency_dispatch 量化模式（通过 `quant_mode` 参数指定；`use_fp8`
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `DEEP_USE_MODE` | `default` | Normal 模式策略 and Low-latency 模式策略：`default`、`ops` 或 `alltoall`。 |
-| `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **已弃用但仍作回退生效。** 设为 `1` 可在 `dispatch()` **未传** `quant_mode`（即 `quant_mode=None`）时开启 INT8 量化。显式传入 `quant_mode` 时以其为准，本环境变量被忽略。详见 [Normal 模式 API — 量化模式选择优先级](doc/NORMAL_API.md#量化模式选择优先级)。 |
+| `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **已移除。** INT8 量化现通过 `dispatch()` 的 `quant_mode="int8"` 参数指定。MXFP8/MXFP4 per-block 量化（仅 A5，仅 intranode）通过 `quant_mode` 参数指定，支持的 dtype 见 [Normal 模式量化](#normal-模式prefill--训练)。 |
 | `SGLANG_DEEPEP_BF16_DISPATCH` | `0` | 在 low_latency_dispatch 中关闭量化（BF16 dispatch）。设为 `1` 关闭量化；仅在 Decode 阶段生效。 |
 | `MOE_EXPERT_TOKEN_NUMS_TYPE` | `1` | dispatch 返回的 `num_recv_tokens_per_expert_list` 类型：`1` = 各专家 token 数，`0` = 前缀和。 |
 | `MOE_SHARED_EXPERT_RANK_NUM` | `0` | 共享专家 rank 数（ops 策略使用）。 |
