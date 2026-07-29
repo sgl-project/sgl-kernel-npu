@@ -50,8 +50,7 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 
 2. Build DeepEP only
 
-The `deepep` target builds only DeepEP, skips unrelated modules such as the attention kernels, and automatically detects
-whether the current platform is A2, A3, or A5:
+The `deepep` target builds only DeepEP, skips unrelated modules such as the attention kernels, and automatically detects whether the current platform is A2, A3, or A5:
 
 ```bash
 bash build.sh -a deepep
@@ -60,12 +59,10 @@ bash build.sh -a deepep
 The following explicit commands remain available when automatic detection is not desired:
 
 - **A5**: `bash build.sh -a deepep Ascend950`
-- **A3**: `bash build.sh -a deepep Ascend910_9382`
-- **A2**: `bash build.sh -a deepep Ascend910B1`
-- **A2 compatibility alias**: `bash build.sh -a deepep2`
+- **A3**: `bash build.sh -a deepep`
+- **A2**: `bash build.sh -a deepep2`
 
-> **Note**: Running `bash build.sh` without `-a` performs a full A3+ build, including DeepEP, attention kernels,
-> SGLang kernels, and torch-memory-saver.
+> **Note**: Running `bash build.sh` without `-a` performs a full A3+ build, including DeepEP, attention kernels, SGLang kernels, and torch-memory-saver.
 >
 > **Tip**: Add the `-d` flag to enable debug logging (e.g., `bash build.sh -a deepep -d`).
 
