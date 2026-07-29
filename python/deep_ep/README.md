@@ -62,7 +62,7 @@ The following explicit commands remain available when automatic detection is not
 - **A3**: `bash build.sh -a deepep`
 - **A2**: `bash build.sh -a deepep2`
 
-> **Note**: Running `bash build.sh` without `-a` performs a full A3+ build, including DeepEP, attention kernels, SGLang kernels, and torch-memory-saver.
+> **Note**: Running `bash build.sh` without `-a` performs a full A3 build, including DeepEP, attention kernels, SGLang kernels, and torch-memory-saver.
 >
 > **Tip**: Add the `-d` flag to enable debug logging (e.g., `bash build.sh -a deepep -d`).
 
@@ -337,7 +337,7 @@ bash build.sh -a deepep
 - **A2**：`bash build.sh -a deepep Ascend910B1`
 - **A2 兼容命令**：`bash build.sh -a deepep2`
 
-> **说明**：不带 `-a` 运行 `bash build.sh` 时，将执行面向 A3+ 的全量构建，包括 DeepEP、attention kernels、
+> **说明**：不带 `-a` 运行 `bash build.sh` 时，将执行面向 A3 的全量构建，包括 DeepEP、attention kernels、
 > SGLang kernels 和 torch-memory-saver。
 >
 > **提示**：可加 `-d` 参数启用 DEBUG 日志（如 `bash build.sh -a deepep -d`）。
