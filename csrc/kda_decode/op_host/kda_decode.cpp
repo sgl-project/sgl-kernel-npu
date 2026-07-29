@@ -1,8 +1,9 @@
 // Copyright (c) 2026 Huawei Technologies Co., Ltd
 // All rights reserved.
 //
-// Host wrapper for the vector-only PTO-ISA KDA/KDN recurrent decode kernel.
-// Reached from python only when KDN_DECODE_PTO_BACKEND=1; the default path stays
+// Host wrapper for the vector-only PTO-ISA KDA (Kimi Delta Attention) recurrent
+// decode kernel.
+// Reached from python only when KDA_DECODE_PTO_BACKEND=1; the default path stays
 // on the triton kernel in fla/fused_sigmoid_gating_recurrent.py.
 
 #include <cstdint>
@@ -10,7 +11,7 @@
 
 #include "tiling/platform/platform_ascendc.h"
 
-#include "aclrtlaunch_launch_kdn_decode.h"
+#include "aclrtlaunch_launch_kda_decode.h"
 #include "defines.h"
 #include "torch_helper.h"
 
@@ -24,7 +25,7 @@ void check_shape(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, 
                  const at::Tensor &beta, const at::Tensor &state, const at::Tensor &out,
                  const at::Tensor &state_indices, const at::Tensor &cu_seqlens)
 {
-    const char *err = "Unset KDN_DECODE_PTO_BACKEND to fall back to the triton decode kernel.";
+    const char *err = "Unset KDA_DECODE_PTO_BACKEND to fall back to the triton decode kernel.";
     auto check = [&err](bool condition, const char *message) { TORCH_CHECK(condition, message, " ", err); };
 
     check(q.dim() == 4, "q must have shape [B, T, H, K]");
@@ -33,7 +34,7 @@ void check_shape(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, 
     check(v.dim() == 4, "v must have shape [B, T, H, V]");
     check(v.size(0) == q.size(0) && v.size(1) == q.size(1) && v.size(2) == q.size(2),
           "v must share q's B/T/H -- this kernel does not implement GQA grouping (HV must equal H)");
-    check(q.size(3) == kHeadDim && v.size(3) == kHeadDim, "kdn_decode supports head dimension 128");
+    check(q.size(3) == kHeadDim && v.size(3) == kHeadDim, "kda_decode supports head dimension 128");
     check(beta.dim() == 3 && beta.size(0) == q.size(0) && beta.size(1) == q.size(1) && beta.size(2) == q.size(2),
           "beta must have shape [B, T, H]");
     check(out.sizes() == v.sizes(), "out must have v's shape");
@@ -70,10 +71,9 @@ void check_shape(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, 
 }
 }  // namespace
 
-HOST_API void kdn_decode(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, const at::Tensor &g,
-                         const at::Tensor &beta, at::Tensor &state, at::Tensor &out,
-                         const at::Tensor &state_indices, const at::Tensor &cu_seqlens, double scale,
-                         bool use_qk_l2norm)
+HOST_API void kda_decode(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, const at::Tensor &g,
+                         const at::Tensor &beta, at::Tensor &state, at::Tensor &out, const at::Tensor &state_indices,
+                         const at::Tensor &cu_seqlens, double scale, bool use_qk_l2norm)
 {
     check_shape(q, k, v, g, beta, state, out, state_indices, cu_seqlens);
 
@@ -98,7 +98,7 @@ HOST_API void kdn_decode(const at::Tensor &q, const at::Tensor &k, const at::Ten
     float scale_f = static_cast<float>(scale);
     int32_t l2norm = use_qk_l2norm ? 1 : 0;
 
-    EXEC_KERNEL_CMD(launch_kdn_decode, block_dim_u32, q, k, v, g, beta, state, out, state_indices, cu_seqlens,
+    EXEC_KERNEL_CMD(launch_kda_decode, block_dim_u32, q, k, v, g, beta, state, out, state_indices, cu_seqlens,
                     num_sequences, seq_len, num_heads, num_state_slots, scale_f, l2norm);
 }
 

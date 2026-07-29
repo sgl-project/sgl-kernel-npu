@@ -1,7 +1,7 @@
-"""PTO-ISA backend for the KDA recurrent decode step (KDN_DECODE_PTO_BACKEND=1).
+"""PTO-ISA backend for the KDA recurrent decode step (KDA_DECODE_PTO_BACKEND=1).
 
 Drop-in replacement for the triton ``fused_sigmoid_gating_delta_rule_update_npu``
-decode path, backed by ``torch.ops.npu.kdn_decode``.
+decode path, backed by ``torch.ops.npu.kda_decode``.
 
 Two differences from the triton kernel are worth knowing:
 
@@ -24,14 +24,14 @@ import torch
 import torch.nn.functional as F
 
 HEAD_DIM = 128
-_PTO_ENV = "KDN_DECODE_PTO_BACKEND"
+_PTO_ENV = "KDA_DECODE_PTO_BACKEND"
 
 
 def pto_backend_enabled() -> bool:
     return os.environ.get(_PTO_ENV, "0") not in ("", "0", "false", "False")
 
 
-def kdn_decode_pto(
+def kda_decode_pto(
     A_log: torch.Tensor,
     a: torch.Tensor,
     dt_bias: torch.Tensor,
@@ -64,7 +64,9 @@ def kdn_decode_pto(
             f"the PTO decode backend does not implement GQA grouping (H={H}, HV={HV})"
         )
     if K != HEAD_DIM or V != HEAD_DIM:
-        raise NotImplementedError(f"the PTO decode backend supports K=V=128, got K={K}, V={V}")
+        raise NotImplementedError(
+            f"the PTO decode backend supports K=V=128, got K={K}, V={V}"
+        )
 
     if scale is None:
         scale = K**-0.5
@@ -75,7 +77,9 @@ def kdn_decode_pto(
     dt_bias_f32 = dt_bias.reshape(HV, K).float()
     # F.softplus(x, beta, threshold) is exactly the triton branch:
     #   beta*x <= threshold ? log1p(exp(beta*x))/beta : x
-    softplus_x = F.softplus(a_f32 + dt_bias_f32, beta=softplus_beta, threshold=softplus_threshold)
+    softplus_x = F.softplus(
+        a_f32 + dt_bias_f32, beta=softplus_beta, threshold=softplus_threshold
+    )
     g = (-A_log.reshape(1, 1, HV, 1).float().exp() * softplus_x).to(torch.float16)
     beta = torch.sigmoid(b.reshape(B, T, HV).float()).to(torch.float16)
 
@@ -92,7 +96,7 @@ def kdn_decode_pto(
 
     # block_dim is chosen host-side from GetCoreNumAiv(); the kernel is
     # vector-only, so one AIV block is one worker.
-    torch.ops.npu.kdn_decode(
+    torch.ops.npu.kda_decode(
         q16,
         k16,
         v16,

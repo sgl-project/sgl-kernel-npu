@@ -5,26 +5,8 @@ import torch
 import torch.nn.functional as F
 import triton
 import triton.language as tl
-from sgl_kernel_npu.fla.kdn_decode_pto import (
-    HEAD_DIM as _PTO_HEAD_DIM,
-    kdn_decode_pto,
-    pto_backend_enabled,
-)
+from sgl_kernel_npu.fla.kda_decode_pto import kda_decode_pto, pto_backend_enabled
 from sgl_kernel_npu.fla.utils import input_guard
-
-
-def _pto_decode_supported(q, k, v, cu_seqlens, is_kda) -> bool:
-    """Whether the PTO kernel covers this call, so the flag can stay on safely."""
-    return (
-        is_kda
-        and cu_seqlens is not None
-        and k.dim() == 4
-        and v.dim() == 4
-        and q.shape[0] == 1  # packed B=1 token axis
-        and v.shape[2] == k.shape[2]  # no GQA grouping
-        and k.shape[-1] == _PTO_HEAD_DIM
-        and v.shape[-1] == _PTO_HEAD_DIM
-    )
 
 
 @triton.heuristics(
@@ -208,19 +190,10 @@ def fused_sigmoid_gating_delta_rule_update_npu(
     This function uses a single fused kernel that combines both sigmoid gating computation
     and the recurrent delta rule update for better performance.
 
-    With ``KDN_DECODE_PTO_BACKEND=1`` the vector-only PTO-ISA kernel
-    (``torch.ops.npu.kdn_decode``) is used instead, when the call shape supports
-    it. Anything it does not implement falls through to the triton kernel below
-    rather than raising, so the flag is safe to leave on.
+    When ``KDA_DECODE_PTO_BACKEND=1`` the PTO-ISA kernel is used.
     """
-    # Dispatched after @input_guard, which has already made the arguments
-    # contiguous -- including initial_state_source, whose identity must survive
-    # for the in-place state update to land in the pool (it does when the pool is
-    # already contiguous, which is the case for sglang's temporal_state).
-    if pto_backend_enabled() and _pto_decode_supported(
-        q=q, k=k, v=v, cu_seqlens=cu_seqlens, is_kda=is_kda
-    ):
-        return kdn_decode_pto(
+    if pto_backend_enabled():
+        return kda_decode_pto(
             A_log=A_log,
             a=a,
             dt_bias=dt_bias,

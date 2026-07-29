@@ -1,4 +1,4 @@
-"""Correctness tests for the PTO-ISA KDA decode backend (KDN_DECODE_PTO_BACKEND=1).
+"""Correctness tests for the PTO-ISA KDA decode backend (KDA_DECODE_PTO_BACKEND=1).
 
 Shape under test is the production decode step: packed ``B=1``, ``T=N`` with one
 token per sequence, slots gathered through ``state_indices`` with one padded
@@ -14,8 +14,7 @@ kernel's ``o_v[None, :] * K + o_k[:, None]`` indexing.
 import pytest
 import torch
 import torch.nn.functional as F
-
-from sgl_kernel_npu.fla.kdn_decode_pto import kdn_decode_pto
+from sgl_kernel_npu.fla.kda_decode_pto import kda_decode_pto
 
 DEVICE = "npu:0"
 HV, K, V = 8, 128, 128
@@ -75,12 +74,22 @@ def _run(n_seq, slots, indices, seed=7, state_scale=0.1):
     idx = torch.tensor(indices, dtype=torch.int32, device=DEVICE)
     scale = K**-0.5
     ref_out, ref_state = _reference(q, k, v, A_log, a, dt_bias, b, state, idx, scale)
-    act_out = kdn_decode_pto(
-        A_log=A_log, a=a, dt_bias=dt_bias,
-        softplus_beta=SOFTPLUS_BETA, softplus_threshold=SOFTPLUS_THRESHOLD,
-        q=q, k=k, v=v, b=b,
-        initial_state_source=state, initial_state_indices=idx,
-        scale=scale, use_qk_l2norm_in_kernel=True, cu_seqlens=cu, is_kda=True,
+    act_out = kda_decode_pto(
+        A_log=A_log,
+        a=a,
+        dt_bias=dt_bias,
+        softplus_beta=SOFTPLUS_BETA,
+        softplus_threshold=SOFTPLUS_THRESHOLD,
+        q=q,
+        k=k,
+        v=v,
+        b=b,
+        initial_state_source=state,
+        initial_state_indices=idx,
+        scale=scale,
+        use_qk_l2norm_in_kernel=True,
+        cu_seqlens=cu,
+        is_kda=True,
     )
     torch.npu.synchronize()
     return act_out.float(), state.float(), ref_out, ref_state, idx
@@ -89,9 +98,9 @@ def _run(n_seq, slots, indices, seed=7, state_scale=0.1):
 @pytest.mark.parametrize(
     "n_seq, slots, indices",
     [
-        (6, 16, [5, 2, -1, 11, 0, 8]),   # shuffled slots, one padded lane
-        (1, 4, [3]),                     # single sequence
-        (48, 64, list(range(48))),        # one work item per vector core
+        (6, 16, [5, 2, -1, 11, 0, 8]),  # shuffled slots, one padded lane
+        (1, 4, [3]),  # single sequence
+        (48, 64, list(range(48))),  # one work item per vector core
     ],
 )
 def test_matches_reference(n_seq, slots, indices):
@@ -126,12 +135,22 @@ def test_padded_lane_is_inert():
     q, k, v, A_log, a, dt_bias, b, state, cu = _inputs(n_seq, slots, 7, 0.1)
     before = state.clone()
     idx = torch.tensor(indices, dtype=torch.int32, device=DEVICE)
-    out = kdn_decode_pto(
-        A_log=A_log, a=a, dt_bias=dt_bias,
-        softplus_beta=SOFTPLUS_BETA, softplus_threshold=SOFTPLUS_THRESHOLD,
-        q=q, k=k, v=v, b=b,
-        initial_state_source=state, initial_state_indices=idx,
-        scale=K**-0.5, use_qk_l2norm_in_kernel=True, cu_seqlens=cu, is_kda=True,
+    out = kda_decode_pto(
+        A_log=A_log,
+        a=a,
+        dt_bias=dt_bias,
+        softplus_beta=SOFTPLUS_BETA,
+        softplus_threshold=SOFTPLUS_THRESHOLD,
+        q=q,
+        k=k,
+        v=v,
+        b=b,
+        initial_state_source=state,
+        initial_state_indices=idx,
+        scale=K**-0.5,
+        use_qk_l2norm_in_kernel=True,
+        cu_seqlens=cu,
+        is_kda=True,
     )
     torch.npu.synchronize()
     assert out[0, 2].abs().max().item() == 0.0
@@ -144,12 +163,22 @@ def test_state_is_updated_in_place():
     q, k, v, A_log, a, dt_bias, b, state, cu = _inputs(4, 8, 11, 0.1)
     idx = torch.tensor([1, 3, 0, 5], dtype=torch.int32, device=DEVICE)
     ptr, before = state.data_ptr(), state.clone()
-    kdn_decode_pto(
-        A_log=A_log, a=a, dt_bias=dt_bias,
-        softplus_beta=SOFTPLUS_BETA, softplus_threshold=SOFTPLUS_THRESHOLD,
-        q=q, k=k, v=v, b=b,
-        initial_state_source=state, initial_state_indices=idx,
-        scale=K**-0.5, use_qk_l2norm_in_kernel=True, cu_seqlens=cu, is_kda=True,
+    kda_decode_pto(
+        A_log=A_log,
+        a=a,
+        dt_bias=dt_bias,
+        softplus_beta=SOFTPLUS_BETA,
+        softplus_threshold=SOFTPLUS_THRESHOLD,
+        q=q,
+        k=k,
+        v=v,
+        b=b,
+        initial_state_source=state,
+        initial_state_indices=idx,
+        scale=K**-0.5,
+        use_qk_l2norm_in_kernel=True,
+        cu_seqlens=cu,
+        is_kda=True,
     )
     torch.npu.synchronize()
     assert state.data_ptr() == ptr
