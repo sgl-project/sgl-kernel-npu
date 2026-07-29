@@ -140,6 +140,7 @@ class NormalEPCommStrategy(EPCommStrategy):
         async_finish: bool,
         allocate_on_comm_stream: bool,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor],
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],

@@ -558,6 +558,7 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -577,6 +578,32 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         ]
         global_tokens_indices = layout["global_tokens_indices"]
 
+        VALID_QUANT_MODES = {
+            "bf16",
+            "int8",
+            "mx_fp8_e4m3",
+            "mx_fp8_e5m2",
+            "pertoken_fp8_e4m3",
+            "mx_fp4_e2m1",
+        }
+        if quant_mode is None:
+            quant_mode = (
+                "int8"
+                if os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+                else "bf16"
+            )
+        if quant_mode not in VALID_QUANT_MODES:
+            raise ValueError(
+                f"Invalid quant_mode: {quant_mode}. Valid options: {VALID_QUANT_MODES}"
+            )
+        if quant_mode not in ("bf16", "int8"):
+            raise NotImplementedError(
+                f"quant_mode '{quant_mode}' is not supported by the alltoall strategy. "
+                f"Only 'bf16' and 'int8' are supported; use the default strategy for "
+                f"FP8/FP4 modes."
+            )
+        input_quant = quant_mode == "int8"
+
         hidden_shape = x.shape
         x = x.view(-1, hidden_shape[-1])
 
@@ -586,7 +613,6 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             num_out_tokens=topk_idx.numel(),
         )
 
-        input_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
         if input_quant:
             permutated_tokens, dynamic_scale = torch_npu.npu_dynamic_quant(
                 permutated_tokens
