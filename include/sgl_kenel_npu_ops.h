@@ -147,9 +147,12 @@ void mega_chunk_gdn(
     int64_t total_tokens, int64_t num_matrices);
 
 void kda_decode(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v,
-                const at::Tensor &g, const at::Tensor &beta, at::Tensor &state,
-                at::Tensor &out, const at::Tensor &state_indices,
-                const at::Tensor &cu_seqlens, double scale, bool use_qk_l2norm);
+                const at::Tensor &A_log, const at::Tensor &a,
+                const at::Tensor &dt_bias, const at::Tensor &b,
+                at::Tensor &state, at::Tensor &out,
+                const at::Tensor &state_indices, const at::Tensor &cu_seqlens,
+                double scale, bool use_qk_l2norm, double softplus_beta,
+                double softplus_threshold);
 
 at::Tensor lightning_indexer(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,

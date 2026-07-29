@@ -121,9 +121,10 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int seq_len, int total_tokens, int num_matrices) -> ()");
 
     m.def(
-        "kda_decode(Tensor q, Tensor k, Tensor v, Tensor g, Tensor beta, "
-        "Tensor(a!) state, Tensor(b!) out, Tensor state_indices, Tensor cu_seqlens, "
-        "float scale, bool use_qk_l2norm) -> ()");
+        "kda_decode(Tensor q, Tensor k, Tensor v, Tensor A_log, Tensor a, "
+        "Tensor dt_bias, Tensor b, Tensor(a!) state, Tensor(b!) out, "
+        "Tensor state_indices, Tensor cu_seqlens, float scale, bool use_qk_l2norm, "
+        "float softplus_beta, float softplus_threshold) -> ()");
 
 #ifdef BUILD_CATLASS_MODULE
     m.def("catlass_matmul_basic(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, str? format_mode=None) -> ()");

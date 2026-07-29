@@ -3,14 +3,12 @@
 Drop-in replacement for the triton ``fused_sigmoid_gating_delta_rule_update_npu``
 decode path, backed by ``torch.ops.npu.kda_decode``.
 
-Two differences from the triton kernel are worth knowing:
-
-* **The gating is not fused yet.** The triton kernel computes
-  ``g = -exp(A_log) * softplus(a + dt_bias)`` and ``beta = sigmoid(b)`` inside
-  the kernel; here they are torch ops in front of the launch. That costs a
-  handful of extra elementwise kernels per step, and it rounds ``g`` to the
-  kernel's fp16 wire format, where the triton path keeps it fp32. Folding the
-  gating into the kernel is the planned follow-up.
+* **The gating is fused into the kernel.** ``g = -exp(A_log) * softplus(a +
+  dt_bias)`` and ``beta = sigmoid(b)`` are computed on the vector core in fp32,
+  so ``g`` never round-trips through a narrow wire format the way it did when
+  torch precomputed it.
+* **q/k/v/out stay bfloat16**, the model's own dtype -- the kernel converts on
+  the way in and out, so there is no ``.to(float16)`` pass either.
 * **The state layout is taken as V-major** ``[slots, H, V, K]``, matching
   sglang's ``temporal_state`` pool (``mem_cache/memory_pool.py``), the prefill
   ``chunk_delta_h`` block pointer ``(V, K)/(K, 1)``, and the CUDA reference
@@ -21,7 +19,6 @@ import os
 from typing import Optional
 
 import torch
-import torch.nn.functional as F
 
 HEAD_DIM = 128
 _PTO_ENV = "KDA_DECODE_PTO_BACKEND"
@@ -71,25 +68,21 @@ def kda_decode_pto(
     if scale is None:
         scale = K**-0.5
 
-    # ---- gating, still in torch (see module docstring) ----------------------
-    # g = -exp(A_log) * softplus(a + dt_bias), per (token, head, k) for KDA.
-    a_f32 = a.reshape(B, T, HV, K).float()
-    dt_bias_f32 = dt_bias.reshape(HV, K).float()
-    # F.softplus(x, beta, threshold) is exactly the triton branch:
-    #   beta*x <= threshold ? log1p(exp(beta*x))/beta : x
-    softplus_x = F.softplus(
-        a_f32 + dt_bias_f32, beta=softplus_beta, threshold=softplus_threshold
-    )
-    g = (-A_log.reshape(1, 1, HV, 1).float().exp() * softplus_x).to(torch.float16)
-    beta = torch.sigmoid(b.reshape(B, T, HV).float()).to(torch.float16)
+    for name, tensor in (("q", q), ("k", k), ("v", v)):
+        if tensor.dtype != torch.bfloat16:
+            raise NotImplementedError(
+                f"{name} must be bfloat16 for the PTO decode backend, got {tensor.dtype}"
+            )
+    for name, tensor in (("A_log", A_log), ("a", a), ("dt_bias", dt_bias), ("b", b)):
+        if tensor.dtype != torch.float32:
+            raise NotImplementedError(
+                f"{name} must be float32 for the fused gating, got {tensor.dtype}"
+            )
 
-    # ---- wire format: fp16, contiguous -------------------------------------
-    q16 = q.reshape(B, T, H, K).to(torch.float16).contiguous()
-    k16 = k.reshape(B, T, H, K).to(torch.float16).contiguous()
-    v16 = v.reshape(B, T, HV, V).to(torch.float16).contiguous()
-    g = g.contiguous()
-    beta = beta.contiguous()
-    out = torch.zeros_like(v16)
+    q_in = q.reshape(B, T, H, K).contiguous()
+    k_in = k.reshape(B, T, H, K).contiguous()
+    v_in = v.reshape(B, T, HV, V).contiguous()
+    out = torch.empty_like(v_in)
 
     cu32 = cu_seqlens.to(torch.int32).contiguous()
     idx32 = initial_state_indices.to(torch.int32).contiguous()
@@ -97,16 +90,20 @@ def kda_decode_pto(
     # block_dim is chosen host-side from GetCoreNumAiv(); the kernel is
     # vector-only, so one AIV block is one worker.
     torch.ops.npu.kda_decode(
-        q16,
-        k16,
-        v16,
-        g,
-        beta,
+        q_in,
+        k_in,
+        v_in,
+        A_log.reshape(-1).contiguous(),
+        a.reshape(-1).contiguous(),
+        dt_bias.reshape(-1).contiguous(),
+        b.reshape(-1).contiguous(),
         initial_state_source,
         out,
         idx32,
         cu32,
         float(scale),
         bool(use_qk_l2norm_in_kernel),
+        float(softplus_beta),
+        float(softplus_threshold),
     )
-    return out.to(v.dtype).reshape(v.shape)
+    return out.reshape(v.shape)

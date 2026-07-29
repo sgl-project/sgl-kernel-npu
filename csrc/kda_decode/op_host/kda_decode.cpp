@@ -21,31 +21,37 @@ namespace npu_kernel {
 namespace {
 constexpr int64_t kHeadDim = 128;
 
-void check_shape(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, const at::Tensor &g,
-                 const at::Tensor &beta, const at::Tensor &state, const at::Tensor &out,
-                 const at::Tensor &state_indices, const at::Tensor &cu_seqlens)
+void check_shape(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, const at::Tensor &A_log,
+                 const at::Tensor &a, const at::Tensor &dt_bias, const at::Tensor &b, const at::Tensor &state,
+                 const at::Tensor &out, const at::Tensor &state_indices, const at::Tensor &cu_seqlens)
 {
     const char *err = "Unset KDA_DECODE_PTO_BACKEND to fall back to the triton decode kernel.";
     auto check = [&err](bool condition, const char *message) { TORCH_CHECK(condition, message, " ", err); };
 
     check(q.dim() == 4, "q must have shape [B, T, H, K]");
     check(k.sizes() == q.sizes(), "k must have q's shape");
-    check(g.sizes() == q.sizes(), "g must have q's shape [B, T, H, K] (per-channel KDA gate)");
     check(v.dim() == 4, "v must have shape [B, T, H, V]");
     check(v.size(0) == q.size(0) && v.size(1) == q.size(1) && v.size(2) == q.size(2),
           "v must share q's B/T/H -- this kernel does not implement GQA grouping (HV must equal H)");
     check(q.size(3) == kHeadDim && v.size(3) == kHeadDim, "kda_decode supports head dimension 128");
-    check(beta.dim() == 3 && beta.size(0) == q.size(0) && beta.size(1) == q.size(1) && beta.size(2) == q.size(2),
-          "beta must have shape [B, T, H]");
     check(out.sizes() == v.sizes(), "out must have v's shape");
 
-    // fp16 is the C220 vector TCVT wire format; the launcher converts model bf16 once.
-    check(q.scalar_type() == at::kHalf, "q must be float16");
-    check(k.scalar_type() == at::kHalf, "k must be float16");
-    check(v.scalar_type() == at::kHalf, "v must be float16");
-    check(g.scalar_type() == at::kHalf, "g must be float16 (log-space gate)");
-    check(beta.scalar_type() == at::kHalf, "beta must be float16");
-    check(out.scalar_type() == at::kHalf, "out must be float16");
+    // The gating is fused, so the kernel takes the raw parameters rather than a
+    // precomputed g/beta.  a is indexed exactly like q -- [tokens, H * K] flat.
+    const int64_t tokens = q.size(1), heads = q.size(2);
+    check(A_log.numel() == heads, "A_log must hold one value per head");
+    check(a.numel() == tokens * heads * kHeadDim, "a must hold [tokens, H * K] values");
+    check(dt_bias.numel() == heads * kHeadDim, "dt_bias must hold [H * K] values");
+    check(b.numel() == tokens * heads, "b must hold [tokens, H] values");
+
+    check(q.scalar_type() == at::kBFloat16, "q must be bfloat16");
+    check(k.scalar_type() == at::kBFloat16, "k must be bfloat16");
+    check(v.scalar_type() == at::kBFloat16, "v must be bfloat16");
+    check(out.scalar_type() == at::kBFloat16, "out must be bfloat16");
+    check(A_log.scalar_type() == at::kFloat, "A_log must be float32");
+    check(a.scalar_type() == at::kFloat, "a must be float32");
+    check(dt_bias.scalar_type() == at::kFloat, "dt_bias must be float32");
+    check(b.scalar_type() == at::kFloat, "b must be float32");
 
     // V-major [slots, H, V, K], matching sglang's temporal_state pool.
     check(state.dim() == 4, "state must have shape [slots, H, V, K]");
@@ -61,9 +67,10 @@ void check_shape(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, 
           "cu_seqlens must describe exactly state_indices.numel() sequences");
     check(q.size(0) == 1, "cu_seqlens addressing requires the packed B=1 layout");
 
-    check(q.is_contiguous() && k.is_contiguous() && v.is_contiguous() && g.is_contiguous(),
-          "q, k, v, and g must be contiguous");
-    check(beta.is_contiguous() && out.is_contiguous(), "beta and out must be contiguous");
+    check(q.is_contiguous() && k.is_contiguous() && v.is_contiguous(), "q, k, and v must be contiguous");
+    check(out.is_contiguous(), "out must be contiguous");
+    check(A_log.is_contiguous() && a.is_contiguous() && dt_bias.is_contiguous() && b.is_contiguous(),
+          "A_log, a, dt_bias, and b must be contiguous");
     // A non-contiguous pool would make the in-place state update land in a copy.
     check(state.is_contiguous(), "state must be contiguous so the in-place update reaches the pool");
     check(state_indices.is_contiguous() && cu_seqlens.is_contiguous(),
@@ -71,11 +78,14 @@ void check_shape(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, 
 }
 }  // namespace
 
-HOST_API void kda_decode(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, const at::Tensor &g,
-                         const at::Tensor &beta, at::Tensor &state, at::Tensor &out, const at::Tensor &state_indices,
-                         const at::Tensor &cu_seqlens, double scale, bool use_qk_l2norm)
+HOST_API void kda_decode(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, const at::Tensor &A_log,
+                         const at::Tensor &a, const at::Tensor &dt_bias, const at::Tensor &b, at::Tensor &state,
+                         at::Tensor &out, const at::Tensor &state_indices, const at::Tensor &cu_seqlens, double scale,
+                         bool use_qk_l2norm, double softplus_beta, double softplus_threshold)
 {
-    check_shape(q, k, v, g, beta, state, out, state_indices, cu_seqlens);
+    check_shape(q, k, v, A_log, a, dt_bias, b, state, out, state_indices, cu_seqlens);
+    (void)softplus_threshold;
+    TORCH_CHECK(softplus_beta > 0, "softplus_beta must be positive");
 
     // One work item per (sequence, head): v_tile == 128 covers the whole [V, K]
     // state in one pass, so there is no v-tile axis to split.  The kernel is
@@ -97,9 +107,10 @@ HOST_API void kda_decode(const at::Tensor &q, const at::Tensor &k, const at::Ten
     int32_t num_state_slots = static_cast<int32_t>(state.size(0));
     float scale_f = static_cast<float>(scale);
     int32_t l2norm = use_qk_l2norm ? 1 : 0;
+    float softplus_beta_f = static_cast<float>(softplus_beta);
 
-    EXEC_KERNEL_CMD(launch_kda_decode, block_dim_u32, q, k, v, g, beta, state, out, state_indices, cu_seqlens,
-                    num_sequences, seq_len, num_heads, num_state_slots, scale_f, l2norm);
+    EXEC_KERNEL_CMD(launch_kda_decode, block_dim_u32, q, k, v, A_log, a, dt_bias, b, state, out, state_indices,
+                    cu_seqlens, num_sequences, seq_len, num_heads, num_state_slots, scale_f, l2norm, softplus_beta_f);
 }
 
 }  // namespace npu_kernel

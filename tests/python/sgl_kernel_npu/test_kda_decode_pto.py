@@ -8,14 +8,15 @@ from sgl_kernel_npu.fla.kda_decode_pto import kda_decode_pto
 DEVICE = "npu:0"
 HV, K, V = 8, 128, 128
 SOFTPLUS_BETA, SOFTPLUS_THRESHOLD = 1.0, 20.0
-# Both sit just above a dtype floor, so neither has much room left.
-# out   atol 2e-4, rtol 5e-3 -- floor is the bf16 re-cast on return
-#       (kda_decode_pto.py:112).  Measured: max |diff| 9.3e-5, rel 2.6e-3.
-# state atol 2e-3, rtol 2e-3 -- fp32 throughout, so the floor is instead the
-#       fp16 `g` of the un-fused gating (kda_decode_pto.py:83), which the kernel
-#       feeds to exp().  Measured: max |diff| 1.9e-4, rel 2.8e-4.
-OUT_ATOL, OUT_RTOL = 2e-4, 5e-3
-STATE_ATOL, STATE_RTOL = 2e-3, 2e-3
+# out   atol 3e-4, rtol 5e-3 -- floor is the kernel's fp32 -> bf16 store, worth
+#       2**-9 relative.  Measured: max |diff| 1.2e-4, rel 2.9e-3.
+# state atol 1e-6, rtol 1e-6 -- fp32 the whole way now that the gating is fused,
+#       so the floor is plain fp32 rounding: 1.2e-7 on the plain cases (exactly
+#       2**-23) and 3.6e-7 worst, at softplus_beta=0.5.  Before the fusion this
+#       was 1.9e-4, set by `g` being rounded to fp16 by torch and then fed to
+#       exp(); tightened ~2000x.
+OUT_ATOL, OUT_RTOL = 3e-4, 5e-3
+STATE_ATOL, STATE_RTOL = 1e-6, 1e-6
 
 
 def _diff(name, actual, expected, atol, rtol):
@@ -31,8 +32,14 @@ def _diff(name, actual, expected, atol, rtol):
     return max_abs
 
 
-def _inputs(cu, slots, seed, state_scale):
-    """`cu` is the cu_seqlens list; sequence n owns tokens [cu[n], cu[n + 1])."""
+def _inputs(cu, slots, seed, state_scale, gate_scale=1.0):
+    """`cu` is the cu_seqlens list; sequence n owns tokens [cu[n], cu[n + 1]).
+
+    `gate_scale` widens `a` and `dt_bias`, which is how the softplus branch gets
+    exercised: the kernel evaluates it as relu(x) + log1p(exp(-|x|)) rather than
+    torch's `beta*x > threshold ? x : ...`, so the two must agree out where a
+    naive log1p(exp(x)) would have overflowed.
+    """
     torch.manual_seed(seed)
     dev = DEVICE
     tokens = cu[-1]
@@ -40,15 +47,17 @@ def _inputs(cu, slots, seed, state_scale):
     k = torch.randn_like(q)
     v = torch.randn(1, tokens, HV, V, dtype=torch.bfloat16, device=dev)
     A_log = torch.randn(1, 1, HV, 1, device=dev)
-    a = torch.randn(tokens, HV * K, device=dev)  # 2-D, as the decode path passes it
-    dt_bias = torch.randn(HV * K, device=dev)
+    a = gate_scale * torch.randn(tokens, HV * K, device=dev)  # 2-D, as decode passes it
+    dt_bias = gate_scale * torch.randn(HV * K, device=dev)
     b = torch.randn(1, tokens, HV, device=dev)  # raw logits, kernel applies sigmoid
     state = (state_scale * torch.randn(slots, HV, V, K)).to(dev)
     cu_seqlens = torch.tensor(cu, dtype=torch.int32, device=dev)
     return q, k, v, A_log, a, dt_bias, b, state, cu_seqlens
 
 
-def _reference(q, k, v, A_log, a, dt_bias, b, state, indices, scale, cu):
+def _reference(
+    q, k, v, A_log, a, dt_bias, b, state, indices, scale, cu, sp_beta=SOFTPLUS_BETA
+):
     """Torch fp32 reference; returns (out, final_state).
 
     Sequence n owns tokens [cu[n], cu[n + 1]) and recurs over them in order,
@@ -58,7 +67,7 @@ def _reference(q, k, v, A_log, a, dt_bias, b, state, indices, scale, cu):
     tokens = q.shape[1]
     g = -A_log.reshape(1, 1, HV, 1).float().exp() * F.softplus(
         a.reshape(1, tokens, HV, K).float() + dt_bias.reshape(HV, K).float(),
-        beta=SOFTPLUS_BETA,
+        beta=sp_beta,
         threshold=SOFTPLUS_THRESHOLD,
     )
     beta = torch.sigmoid(b.reshape(1, tokens, HV).float())
@@ -83,23 +92,28 @@ def _reference(q, k, v, A_log, a, dt_bias, b, state, indices, scale, cu):
     return out, final
 
 
-def _run(cu, slots, indices, seed=7, state_scale=0.1):
+def _run(
+    cu, slots, indices, seed=7, state_scale=0.1, gate_scale=1.0, sp_beta=SOFTPLUS_BETA
+):
     lens = [cu[n + 1] - cu[n] for n in range(len(cu) - 1)]
     print(
         f"\ncu={cu} ({cu[-1]} tokens, seq lens {lens})"
         f" slots={slots} indices={list(indices)}"
+        f" gate_scale={gate_scale} softplus_beta={sp_beta}"
     )
-    q, k, v, A_log, a, dt_bias, b, state, cu_t = _inputs(cu, slots, seed, state_scale)
+    q, k, v, A_log, a, dt_bias, b, state, cu_t = _inputs(
+        cu, slots, seed, state_scale, gate_scale
+    )
     idx = torch.tensor(indices, dtype=torch.int32, device=DEVICE)
     scale = K**-0.5
     ref_out, ref_state = _reference(
-        q, k, v, A_log, a, dt_bias, b, state, idx, scale, cu
+        q, k, v, A_log, a, dt_bias, b, state, idx, scale, cu, sp_beta
     )
     act_out = kda_decode_pto(
         A_log=A_log,
         a=a,
         dt_bias=dt_bias,
-        softplus_beta=SOFTPLUS_BETA,
+        softplus_beta=sp_beta,
         softplus_threshold=SOFTPLUS_THRESHOLD,
         q=q,
         k=k,
@@ -137,6 +151,83 @@ def test_matches_reference(cu, slots, indices):
     _diff("state", state, ref_state, STATE_ATOL, STATE_RTOL)
     torch.testing.assert_close(out, ref_out, atol=OUT_ATOL, rtol=OUT_RTOL)
     torch.testing.assert_close(state, ref_state, atol=STATE_ATOL, rtol=STATE_RTOL)
+
+
+@pytest.mark.parametrize("gate_scale", [1.0, 40.0, 200.0])
+def test_fused_gating_matches_torch(gate_scale):
+    """The in-kernel g = -exp(A_log) * softplus(a + dt_bias) against torch's.
+
+    `gate_scale=200` drives `a + dt_bias` past +-500, where the textbook
+    log1p(exp(x)) overflows fp32 (exp(89) is already inf).  The kernel's
+    relu(x) + log1p(exp(-|x|)) form never exponentiates a positive number, so it
+    has to stay finite and keep matching F.softplus's linear branch.
+    """
+    out, state, ref_out, ref_state, _ = _run(
+        [0, 3, 3, 4, 9], 16, [2, 7, 0, 5], gate_scale=gate_scale
+    )
+    assert torch.isfinite(out).all(), "kernel produced inf/nan in out"
+    assert torch.isfinite(state).all(), "kernel produced inf/nan in state"
+    _diff("out", out, ref_out, OUT_ATOL, OUT_RTOL)
+    _diff("state", state, ref_state, STATE_ATOL, STATE_RTOL)
+    torch.testing.assert_close(out, ref_out, atol=OUT_ATOL, rtol=OUT_RTOL)
+    torch.testing.assert_close(state, ref_state, atol=STATE_ATOL, rtol=STATE_RTOL)
+
+
+@pytest.mark.parametrize("sp_beta", [0.5, 1.0, 2.5])
+def test_fused_gating_softplus_beta(sp_beta):
+    """softplus_beta reaches the kernel and is applied on both sides of the log."""
+    out, state, ref_out, ref_state, _ = _run(
+        [0, 2, 5, 6], 8, [1, -1, 4], gate_scale=5.0, sp_beta=sp_beta
+    )
+    _diff("out", out, ref_out, OUT_ATOL, OUT_RTOL)
+    _diff("state", state, ref_state, STATE_ATOL, STATE_RTOL)
+    torch.testing.assert_close(out, ref_out, atol=OUT_ATOL, rtol=OUT_RTOL)
+    torch.testing.assert_close(state, ref_state, atol=STATE_ATOL, rtol=STATE_RTOL)
+
+
+def test_launcher_runs_no_torch_math():
+    """The whole point of fusing: nothing elementwise runs before the launch.
+
+    Every tensor the kernel receives must alias the caller's buffer -- a dtype
+    cast or a gating op would have produced a fresh allocation with a different
+    data_ptr.  `out` is the one legitimate allocation.
+    """
+    q, k, v, A_log, a, dt_bias, b, state, cu = _inputs(list(range(7)), 16, 7, 0.1)
+    idx = torch.tensor([5, 2, -1, 11, 0, 8], dtype=torch.int32, device=DEVICE)
+    seen = {}
+
+    orig = torch.ops.npu.kda_decode
+    try:
+        torch.ops.npu.kda_decode = lambda *args: seen.update(args=args)
+        kda_decode_pto(
+            A_log=A_log,
+            a=a,
+            dt_bias=dt_bias,
+            softplus_beta=SOFTPLUS_BETA,
+            softplus_threshold=SOFTPLUS_THRESHOLD,
+            q=q,
+            k=k,
+            v=v,
+            b=b,
+            initial_state_source=state,
+            initial_state_indices=idx,
+            scale=K**-0.5,
+            use_qk_l2norm_in_kernel=True,
+            cu_seqlens=cu,
+            is_kda=True,
+        )
+    finally:
+        torch.ops.npu.kda_decode = orig
+
+    names = ["q", "k", "v", "A_log", "a", "dt_bias", "b", "state"]
+    callers = [q, k, v, A_log, a, dt_bias, b, state]
+    print("\nlauncher marshalling (all must be views, not copies):")
+    for name, passed, caller in zip(names, seen["args"], callers):
+        aliased = passed.data_ptr() == caller.data_ptr()
+        print(f"  {name:8s} dtype={str(passed.dtype):16s} aliases caller: {aliased}")
+        assert (
+            aliased
+        ), f"{name} was copied before the launch (dtype cast or gating op?)"
 
 
 def test_every_head_is_processed():
@@ -245,6 +336,11 @@ if __name__ == "__main__":
         ([0, 2, 5, 6], 8, [1, -1, 4]),
     ]:
         test_matches_reference(*case)
+    for gs in (1.0, 40.0, 200.0):
+        test_fused_gating_matches_torch(gs)
+    for spb in (0.5, 1.0, 2.5):
+        test_fused_gating_softplus_beta(spb)
+    test_launcher_runs_no_torch_math()
     test_every_head_is_processed()
     test_padded_lane_is_inert()
     test_state_is_updated_in_place()
