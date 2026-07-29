@@ -48,21 +48,26 @@ DeepEP-Ascend supports A2, A3 and A5 and needs to generate packages separately o
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 ```
 
-2. Build the project
-- **A5**
-    ```bash
-    bash build.sh -a deepep Ascend950
-    ```
-- **A3**
-    ```bash
-    bash build.sh -a deepep
-    ```
-- **A2**
-    ```bash
-    bash build.sh -a deepep2
-    ```
+2. Build DeepEP only
 
-> **Tip**: Add `-d` flag to enable debug logging (e.g., `bash build.sh -a deepep -d`).
+The `deepep` target builds only DeepEP, skips unrelated modules such as the attention kernels, and automatically detects
+whether the current platform is A2, A3, or A5:
+
+```bash
+bash build.sh -a deepep
+```
+
+The following explicit commands remain available when automatic detection is not desired:
+
+- **A5**: `bash build.sh -a deepep Ascend950`
+- **A3**: `bash build.sh -a deepep Ascend910_9382`
+- **A2**: `bash build.sh -a deepep Ascend910B1`
+- **A2 compatibility alias**: `bash build.sh -a deepep2`
+
+> **Note**: Running `bash build.sh` without `-a` performs a full A3+ build, including DeepEP, attention kernels,
+> SGLang kernels, and torch-memory-saver.
+>
+> **Tip**: Add the `-d` flag to enable debug logging (e.g., `bash build.sh -a deepep -d`).
 
 #### Installation
 
@@ -320,20 +325,24 @@ DeepEP-Ascend 支持 A2、A3 和 A5，需要在各平台上分别生成包。
 source /usr/local/Ascend/ascend-toolkit/set_env.sh
 ```
 
-2、构建项目
-- **A5**
-    ```bash
-    bash build.sh -a deepep Ascend950
-    ```
-- **A3**
-    ```bash
-    bash build.sh -a deepep
-    ```
-- **A2**
-    ```bash
-    bash build.sh -a deepep2
-    ```
+2、仅构建 DeepEP
 
+`deepep` target 仅构建 DeepEP，跳过 attentions 等无关模块，并自动识别当前平台是 A2、A3 还是 A5：
+
+```bash
+bash build.sh -a deepep
+```
+
+不使用自动识别时，仍可使用以下显式命令：
+
+- **A5**：`bash build.sh -a deepep Ascend950`
+- **A3**：`bash build.sh -a deepep Ascend910_9382`
+- **A2**：`bash build.sh -a deepep Ascend910B1`
+- **A2 兼容命令**：`bash build.sh -a deepep2`
+
+> **说明**：不带 `-a` 运行 `bash build.sh` 时，将执行面向 A3+ 的全量构建，包括 DeepEP、attention kernels、
+> SGLang kernels 和 torch-memory-saver。
+>
 > **提示**：可加 `-d` 参数启用 DEBUG 日志（如 `bash build.sh -a deepep -d`）。
 
 #### 安装

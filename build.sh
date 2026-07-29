@@ -162,7 +162,7 @@ function detect_deepep_soc_version()
         return
     fi
 
-    die "Cannot determine whether the device is A3+ or A5 from npu-smi output."
+    die "Cannot determine the device type (A2/A3/A5) from npu-smi output."
 }
 
 function configure_soc_version()
