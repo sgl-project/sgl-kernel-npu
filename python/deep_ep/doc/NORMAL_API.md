@@ -109,6 +109,23 @@ dispatch(
     - MXFP8 per-block: `data_tensor` dtype `float8_e4m3fn` or `float8_e5m2`, `scale_tensor` dtype `float8_e8m0fnu`, shape `[num_tokens, hidden / 32]`.
     - MXFP4 per-block: `data_tensor` dtype `float4_e2m1fn_x2`, shape `[num_tokens, hidden / 2]`; `scale_tensor` dtype `float8_e8m0fnu`, shape `[num_tokens, hidden / 32]`.
 
+<a id="quantization-selection-priority"></a>
+
+### Quantization Selection Priority
+
+The quantization mode for `dispatch` is determined with the following priority (intranode path):
+
+1. **`quant_mode` parameter** (explicit) — highest priority. When passed (not `None`), it is the single source of truth; the env var below is **not** consulted.
+2. **`DEEP_NORMAL_MODE_USE_INT8_QUANT=1`** environment variable — consulted **only** when `quant_mode=None` (omitted). Enables INT8 as a backward-compatible fallback.
+3. **BF16** (default) — when neither is set.
+
+> **Per-path differences:**
+> - **intranode**: `quant_mode` > env var > BF16 (the priority order above).
+> - **internode**: `quant_mode` is currently **not forwarded** to the underlying dispatch (a known gap from the strategy refactor). The env var and tuple-`x` dtype detection are always used. Setting `quant_mode` on the internode path has no effect.
+> - **alltoall** (`DEEP_USE_MODE=alltoall`): `dispatch()` does **not** accept `quant_mode` at all; INT8 is controlled solely by the env var.
+>
+> **Platform support:** INT8 (`DYNAMIC_SCALES`) is supported on **all** platforms (A2/A3/A5). FP8/FP4 modes (`mx_fp8_*`, `pertoken_fp8_e4m3`, `mx_fp4_e2m1`) are **A5-only**.
+
 ---
 
 ## `combine`
@@ -270,6 +287,23 @@ dispatch(
 - MXFP8 / MXFP4 量化（仅 A5，**仅 intranode**）：在 intranode dispatch 路径上传入 `x` 为 tuple `(data_tensor, scale_tensor)` 时触发。internode 路径**不支持** tuple 输入 / MXFP8 / MXFP4。
     - MXFP8 per-block：`data_tensor` dtype 为 `float8_e4m3fn` 或 `float8_e5m2`，`scale_tensor` dtype 为 `float8_e8m0fnu`，shape 为 `[num_tokens, hidden / 32]`。
     - MXFP4 per-block：`data_tensor` dtype 为 `float4_e2m1fn_x2`，shape 为 `[num_tokens, hidden / 2]`；`scale_tensor` dtype 为 `float8_e8m0fnu`，shape 为 `[num_tokens, hidden / 32]`。
+
+<a id="量化模式选择优先级"></a>
+
+### 量化模式选择优先级
+
+`dispatch` 的量化模式按以下优先级确定（intranode 路径）：
+
+1. **`quant_mode` 参数**（显式传入）—— 最高优先级。传入非 `None` 值时为唯一来源，下方环境变量**不读取**。
+2. **`DEEP_NORMAL_MODE_USE_INT8_QUANT=1`** 环境变量 —— 仅当 `quant_mode=None`（未传）时生效，作向后兼容回退开启 INT8。
+3. **BF16**（默认）—— 两者均未设时。
+
+> **各路径差异：**
+> - **intranode**：`quant_mode` > 环境变量 > BF16（即上述优先级顺序）。
+> - **internode**：当前**不会透传** `quant_mode` 到底层 dispatch（策略重构遗留的已知缺口），始终读取环境变量与 tuple-`x` dtype 检测；在 internode 路径上设置 `quant_mode` 无效。
+> - **alltoall**（`DEEP_USE_MODE=alltoall`）：`dispatch()` **不接收** `quant_mode`，INT8 仅由环境变量控制。
+>
+> **平台支持：** INT8（`DYNAMIC_SCALES`）**全平台**（A2/A3/A5）支持。FP8/FP4 模式（`mx_fp8_*`、`pertoken_fp8_e4m3`、`mx_fp4_e2m1`）**仅 A5**。
 
 ---
 
