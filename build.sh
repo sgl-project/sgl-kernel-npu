@@ -34,21 +34,21 @@ function print_help()
 {
     cat <<'EOF'
 Usage:
-    ./build.sh                                  Build all modules for A3+.
-    ./build.sh -a deepep [SOC_VERSION]          Build deep_ep; auto-detect A2, A3+, or A5.
+    ./build.sh                                  Build all modules for A3.
+    ./build.sh -a deepep [SOC_VERSION]          Build deep_ep; auto-detect A2, A3, or A5.
     ./build.sh -a deepep2 [SOC_VERSION]         Build deep_ep for A2 (compatible alias).
     ./build.sh -a kernels [SOC_VERSION]         Build sgl_kernel_npu.
     ./build.sh -a memory-saver                  Build torch_memory_saver.
 
 Targets:
-    deepep         Build deep_ep and auto-select ops (A3+/A5) or ops2 (A2).
+    deepep         Build deep_ep and auto-select ops (A3/A5) or ops2 (A2).
     deepep2        Build deep_ep with ops2 for A2 (compatible alias).
     kernels        Build sgl_kernel_npu only.
     memory-saver   Build torch_memory_saver only.
 
 Chip mapping:
     A2   : ./build.sh -a deepep               # Auto-detected as Ascend910B1/ops2
-    A3+  : ./build.sh -a deepep               # Auto-detected as Ascend910_9382
+    A3  : ./build.sh -a deepep               # Auto-detected as Ascend910_9382
     A5   : ./build.sh -a deepep               # Auto-detected as Ascend950
 
 Compatible commands:
@@ -128,7 +128,7 @@ function detect_deepep_soc_version()
 {
     local board_info=""
 
-    # Build containers may not expose an NPU. Preserve the existing A3+ default
+    # Build containers may not expose an NPU. Preserve the existing A3 default
     # in that case; callers can still provide Ascend950 explicitly.
     if ! command -v npu-smi >/dev/null 2>&1; then
         SOC_VERSION="Ascend910_9382"
@@ -158,7 +158,7 @@ function detect_deepep_soc_version()
     if printf '%s\n' "$board_info" |
         grep -Eiq '^[[:space:]]*Chip Name[[:space:]]*:[[:space:]]*Ascend910'; then
         SOC_VERSION="Ascend910_9382"
-        echo "Detected A3+: DeepEP SOC_VERSION=$SOC_VERSION"
+        echo "Detected A3: DeepEP SOC_VERSION=$SOC_VERSION"
         return
     fi
 
@@ -190,7 +190,7 @@ function configure_soc_version()
                     DEEPEP_VARIANT="deepep"
                     ;;
                 * )
-                    die "Target 'deepep' supports only Ascend910B1 (A2), Ascend910_9382 (A3+), or Ascend950 (A5)."
+                    die "Target 'deepep' supports only Ascend910B1 (A2), Ascend910_9382 (A3), or Ascend950 (A5)."
                     ;;
             esac
             CMAKE_SOC_VERSION="Ascend910_9382"
@@ -354,7 +354,7 @@ function prepare_deepep_build()
 # - BUILD_KERNELS_MODULE=ON: the sgl_kernel_npu host library and AscendC kernels
 #
 # Ascend950 is a DeepEP build alias, but it is not accepted by AscendC's
-# host_config.cmake. Keep the top-level CMake SOC on the supported A3+ value;
+# host_config.cmake. Keep the top-level CMake SOC on the supported A3 value;
 # A5 host differences are enabled separately through DEEPEP_IS_A5_BUILD.
 function build_cmake_modules()
 {
@@ -489,6 +489,7 @@ function main()
     setup_ascend_environment
     mkdir -p "$OUTPUT_DIR"
     echo "Output directory: $OUTPUT_DIR"
+    echo "CANN path: $ASCEND_HOME_PATH"
 
     # Build native components first. All module selection is controlled here.
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
