@@ -6,7 +6,7 @@ SGLang Kernels NPU
 SGLang Kernels for Ascend NPU
 
 ## Software and hardware
-Supported Hardware Models: Atlas A3 Series Products
+Supported Hardware Models: Atlas A2/A3 Series Products and Ascend A5 for Gemma RMSNorm
 Platform: aarch64/x86
 Supporting Software
 - Driver Ascend HDK 25.0.RC1.1, CANN 8.3.RC1 or later versions (refer to the "[CANN Software Installation Guide](https://www.hiascend.com/document/detail/zh/canncommercial/83RC1/softwareinst/instg/instg_quick.html?Mode=PmIns&InstallType=local&OS=openEuler&Software=cannToolKit)" to install the CANN development kit package, as well as the supporting firmware and drivers)
