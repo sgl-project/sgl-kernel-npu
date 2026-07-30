@@ -162,3 +162,32 @@ def test_move_intermediate_cache(
     )
 
     assert_close("move_cache", dst_cache, dst_cache_clone, 1e-3)
+
+
+@torch.no_grad
+def test_move_intermediate_cache_a2_real_shape():
+    """Compile and validate the Qwen3.6 state tile without overflowing A2 UB."""
+    torch.manual_seed(42)
+    # UB usage depends on H/V/K; keep the outer dimensions small for this regression.
+    L, S, D, H, V, K = 1, 4, 4, 8, 128, 128
+    dst_cache = torch.randn(L, S, H, V, K, device=device, dtype=torch.bfloat16)
+    expected = dst_cache.clone()
+    src_cache = torch.randn(
+        L, S, D, H, V, K, device=device, dtype=torch.bfloat16
+    )
+    dst_indices = torch.tensor([0, 3], device=device, dtype=torch.int32)
+    src_indices = torch.tensor([0, 1], device=device, dtype=torch.int32)
+    last_steps = torch.tensor([0, 3], device=device, dtype=torch.int32)
+    expected[:, dst_indices.to(torch.int64)] = src_cache[
+        :, src_indices.to(torch.int64), last_steps.to(torch.int64)
+    ]
+
+    move_intermediate_cache(
+        dst_cache,
+        src_cache,
+        dst_indices,
+        src_indices,
+        last_steps,
+    )
+
+    assert_close("move_cache_a2_real_shape", expected, dst_cache, 1e-3)

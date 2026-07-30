@@ -89,7 +89,7 @@ def move_intermediate_cache(
     dst_indices_tensor,
     src_indices_tensor,
     last_steps_tensor,
-    h_block_size=2,
+    h_block_size=1,
 ):
     """
     Move intermediate cache to SSM states using Triton kernel.
@@ -138,7 +138,8 @@ def move_intermediate_cache(
         dim_v=V,
         dim_k=K,
         num_layers=L,
-        H_BLOCK_SIZE=h_block_size,  # Process 2 h elements per block
+        # Keep the 128x128 state tile within the A2 192 KiB UB.
+        H_BLOCK_SIZE=h_block_size,
         BLOCK_V=triton.next_power_of_2(V),  # Block size for dim_v
         BLOCK_K=triton.next_power_of_2(K),  # Block size for dim_k
     )
