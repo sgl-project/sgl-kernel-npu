@@ -1,12 +1,13 @@
 ﻿# Fused Deep MoE API
 
-<div align="center">
+`Buffer.fused_deep_moe(...)` is the unified fused MoE entrypoint in DeepEP-Ascend.
+It now supports two execution backends:
 
-[![Mode](https://img.shields.io/badge/Mode-Fused-purple)]()
-[![Platform](https://img.shields.io/badge/Platform-A3%20%7C%20A5-blue)]()
-[![Quant](https://img.shields.io/badge/Quantization-INT8%20%7C%20FP8%20%7C%20FP4-yellow)]()
 
-English | [中文](#中文)
+- `deep_ep`: legacy fused kernels exposed by `deep_ep_cpp`
+- `mega_moe`: `cann_ops_transformer.ops.mega_moe`
+
+`backend="auto"` keeps the existing A5 behavior and routes non-A5 or mega_moe-only features to `mega_moe`.
 
 </div>
 
@@ -52,10 +53,10 @@ def fused_deep_moe(
     x: torch.Tensor,
     topk_idx: torch.Tensor,
     topk_weights: torch.Tensor,
-    gmm1_permuted_weight: torch.Tensor,
-    gmm1_permuted_weight_scale: torch.Tensor,
-    gmm2_weight: torch.Tensor,
-    gmm2_weight_scale: torch.Tensor,
+    gmm1_permuted_weight: Union[torch.Tensor, List[torch.Tensor]],
+    gmm1_permuted_weight_scale: Optional[Union[torch.Tensor, List[torch.Tensor]]],
+    gmm2_weight: Union[torch.Tensor, List[torch.Tensor]],
+    gmm2_weight_scale: Optional[Union[torch.Tensor, List[torch.Tensor]]],
     num_max_dispatch_tokens_per_rank: int,
     num_experts: int,
     quant_mode: int = 1,
@@ -64,10 +65,14 @@ def fused_deep_moe(
     beta: Optional[float] = 4.0,
     linear_beta: Optional[float] = 25.0,
     profile_enable: bool = False,
+    *,
+    backend: str = "auto",
+    l1_bias: Optional[Union[torch.Tensor, List[torch.Tensor]]] = None,
+    l2_bias: Optional[Union[torch.Tensor, List[torch.Tensor]]] = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
-### Parameter Description
+## Backend Rules
 
 | Parameter | Type | Shape | Description |
 |-----------|------|-------|-------------|
@@ -124,7 +129,10 @@ output, expert_token_nums = buffer.fused_deep_moe(
 )
 ```
 
-### Constraints
+- A5 + legacy-compatible arguments: use `deep_ep`
+- `activation="situ"`: use `mega_moe`
+- `l1_bias` or `l2_bias` provided: use `mega_moe`
+- non-A5 build: use `mega_moe`
 
 #### For `fuse_mode=FUSED_DEEP_MOE` (mode=1)
 
@@ -147,185 +155,99 @@ output, expert_token_nums = buffer.fused_deep_moe(
 - Shared expert is not supported.
 - Only SwiGLU is supported. Selecting `activation="situ"` raises `NotImplementedError`.
 
-### Return Values
+- Supports `FuseMode.FUSED_DEEP_MOE`
+- Supports `FuseMode.DISPATCH_FFN_COMBINE`
+- Supports only `activation="swiglu"`
+- Uses legacy `quant_mode`
+- Requires tensor-form legacy fused weights/scales
+- Does not support `l1_bias` or `l2_bias`
 
-#### For `fuse_mode=FUSED_DEEP_MOE` (default)
+### `backend="mega_moe"`
 
-| Platform | Parameter | Type | Shape | Description |
-|----------|-----------|------|-------|-------------|
-| A3 | **output** | `torch.Tensor` | `[bs, hidden]` | Fused expert outputs. |
-| A3 | **ep_recv_count** | `torch.Tensor` | `[num_local_experts × num_ranks]` | Number of tokens received by each expert across all ranks in the EP communication domain. |
-| A5 | **output** | `torch.Tensor` | `[bs, hidden]` | Fused expert outputs. When capacity padding is used internally, the returned tensor is narrowed back to the original local `bs`. |
-| A5 | **expert_token_nums** | `torch.Tensor` | `[num_local_experts]` | Number of tokens received by each local expert on this rank. |
+- Supports only `FuseMode.FUSED_DEEP_MOE`
+- Requires `cann_ops_transformer`
+- Supports `activation="swiglu"`, `activation="swiglu_gpt_oss"`, and `activation="situ"`
+- Interprets legacy parameter names as mega_moe inputs:
+  - `gmm1_permuted_weight -> l1_weights`
+  - `gmm1_permuted_weight_scale -> l1_weights_sf`
+  - `gmm2_weight -> l2_weights`
+  - `gmm2_weight_scale -> l2_weights_sf`
+- Accepts either:
+  - a tensor whose leading dimension is the local expert count
+  - or `list[Tensor]` with one tensor per local expert
 
-#### For `fuse_mode=DISPATCH_FFN_COMBINE`
+## Parameter Notes
 
-| Parameter | Type | Shape | Description |
-|-----------|------|-------|-------------|
-| **output** | `torch.Tensor` | `[bs, hidden]` | Fused expert outputs. |
-| **expert_token_nums** | `torch.Tensor` | `[num_local_experts]` | Number of tokens received by each local expert on this rank. |
+| Parameter | Notes |
+|---|---|
+| `x` | `[bs, hidden]` token tensor. |
+| `topk_idx` | `[bs, num_topk]` routing indices. `-1` is allowed. |
+| `topk_weights` | `[bs, num_topk]` combine weights. |
+| `gmm1_permuted_weight` | Legacy name kept for compatibility. On `mega_moe`, it must contain first linear weights in layout `[hidden, 2 * intermediate_hidden]` per expert. |
+| `gmm1_permuted_weight_scale` | Optional on `mega_moe` A16W16. Required on `mega_moe` A8W8-INT/A8W4-INT. |
+| `gmm2_weight` | Legacy name kept for compatibility. On `mega_moe`, it must contain second linear weights in layout `[intermediate_hidden, hidden]` per expert. |
+| `gmm2_weight_scale` | Optional on `mega_moe` A16W16. Required on `mega_moe` A8W8-INT/A8W4-INT. |
+| `num_max_dispatch_tokens_per_rank` | EP dispatch capacity hint shared across ranks. |
+| `num_experts` | Global expert count. On `mega_moe`, it must be divisible by the process-group size. |
+| `quant_mode` | Public quantization selector. MegaMoe maps it to its internal dispatch quantization mode. |
+| `fuse_mode` | `mega_moe` supports only `FuseMode.FUSED_DEEP_MOE`. |
+| `backend` | `"auto"`, `"deep_ep"`, or `"mega_moe"`. |
+| `activation` | `mega_moe` supports `"swiglu"`, `"swiglu_gpt_oss"`, `"situ"`. `deep_ep` supports only `"swiglu"`. |
+| `linear_beta` | SiTU up-branch soft-saturation bound. It is passed through MegaMoe activation parameters. |
+| `l1_bias`, `l2_bias` | Optional A8W4-INT compensation biases for `mega_moe` only. |
 
----
+## Mega MoE Quantized Scenes
 
-<a id="中文"></a>
+### A16W16
 
-## 中文
+- `quant_mode=0`
+- `gmm1_permuted_weight_scale=None`
+- `gmm2_weight_scale=None`
+- `l1_bias=None`
+- `l2_bias=None`
 
-### 介绍
+### A8W8-INT
 
-在 MoE（Mixture of Experts，混合专家模型）中，`fused_deep_moe` 算子实现了 Dispatch + Experts FFN（2×GMM）+ Combine 的融合功能。
-该算子在一次调用中完成 token 分发、专家计算（矩阵乘、激活、量化/反量化）以及结果聚合，相比传统多算子实现可以显著减少通信开销和端到端时延。
+- `quant_mode=1` (internally mapped to INT8 dispatch)
+- `gmm1_permuted_weight_scale` required
+- `gmm2_weight_scale` required
+- `l1_bias=None`
+- `l2_bias=None`
 
-通过 `FuseMode` 枚举提供两种融合模式：
+### A8W4-INT
 
-| FuseMode | 值 | CANN 算子 | 说明 |
-|----------|----|-----------|------|
-| `FuseMode.FUSED_DEEP_MOE` | `1` | `aclnnFusedDeepMoe` | Dispatch + GMM1 + 激活/量化 + GMM2 + 反量化 + Unpermute/Combine 的完整融合路径；A5 路径支持 SwiGLU 和 SiTU。 |
-| `FuseMode.DISPATCH_FFN_COMBINE` | `2` | `aclnnDispatchFFNCombine` | 另一条 dispatch + FFN + combine 融合路径。 |
+- `quant_mode=1` (internally mapped to INT8 dispatch)
+- `gmm1_permuted_weight_scale` required
+- `gmm2_weight_scale` required
+- `l1_bias` required
+- `l2_bias` required
 
-> [!NOTE]
-> `FuseMode` **没有**从包顶层 `__init__.py` 导出，需要显式导入：
-> ```python
-> from deep_ep.buffer import FuseMode
-> ```
-> 或者直接使用整数：`fuse_mode=1`（FUSED_DEEP_MOE）或 `fuse_mode=2`（DISPATCH_FFN_COMBINE）。
+## `situ` Activation
 
-#### 两种融合模式的关键差异
+`situ` is not implemented in `buffer.py` itself. It is forwarded to `mega_moe`.
 
-| 维度 | `FUSED_DEEP_MOE`（mode=1） | `DISPATCH_FFN_COMBINE`（mode=2） |
-|------|---------------------------|---------------------------------|
-| **Weight scale dtype** | A3 路径在 runtime 调用前会转成 `float32`；A5 路径遵循当前 A5 fused host-op 契约 | 走独立的 dispatch+FFN+combine 契约 |
-| **GMM1 权重布局** | A3 保持现有 fused 权重契约；A5 当前 fused host op 额外支持 `ND` / `FRACTAL_NZ` | 遵循 `aclnnDispatchFFNCombine` 自身契约 |
-| **Shared expert** | A3 路径支持 shared-expert 属性；A5 公共 fused Python 路径当前未真正透传 shared-expert tensor | 不支持 |
-| **第二返回值** | A3：`ep_recv_count`，shape `[num_local_experts × num_ranks]`；A5：`expert_token_nums`，shape `[num_local_experts]` | `expert_token_nums`，shape `[num_local_experts]` |
+- Public API name: `linear_beta`
+- MegaMoe activation parameter name: `linear_beta`
+- `linear_beta=None` or `0`: no extra linear beta term
+- `linear_beta>0`: forwarded as the `situ` linear beta control value
 
-### Python API
+## Return Value
 
-```python
-def fused_deep_moe(
-    x: torch.Tensor,
-    topk_idx: torch.Tensor,
-    topk_weights: torch.Tensor,
-    gmm1_permuted_weight: torch.Tensor,
-    gmm1_permuted_weight_scale: torch.Tensor,
-    gmm2_weight: torch.Tensor,
-    gmm2_weight_scale: torch.Tensor,
-    num_max_dispatch_tokens_per_rank: int,
-    num_experts: int,
-    quant_mode: int = 1,
-    fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
-    activation: str = "swiglu",
-    beta: Optional[float] = 4.0,
-    linear_beta: Optional[float] = 25.0,
-    profile_enable: bool = False,
-) -> Tuple[torch.Tensor, torch.Tensor]
-```
+`fused_deep_moe(...)` returns `(output, aux)`:
 
-### 参数说明
+- `output`: fused MoE output with shape `[bs, hidden]`
+- `aux`:
+  - `deep_ep + FuseMode.FUSED_DEEP_MOE`: `ep_recv_count`
+  - `deep_ep + FuseMode.DISPATCH_FFN_COMBINE`: `expert_token_nums`
+  - `mega_moe`: `expert_token_nums`
 
-| 参数 | 类型 | 形状 | 说明 |
-|------|------|------|------|
-| **x** | `torch.Tensor` | `[bs, hidden]` | 输入 token 表示。A3 上通常使用 `bfloat16`；A5 fused host op 支持 `bfloat16` 和 `float16`。**bs** 范围 **[1, 256]**，**hidden** 范围 **[512, 7168]**。 |
-| **topk_idx** | `torch.Tensor` | `[bs, num_topk]` | 每个 token 的 expert 索引。Python 层会在下发前转成 `int32`。`-1` 表示该 token 不分发。 |
-| **topk_weights** | `torch.Tensor` | `[bs, num_topk]` | expert 输出聚合权重（`float32`）。 |
-| **gmm1_permuted_weight** | `torch.Tensor` | 例如 `[G, 7168, 4096]` | 第一层（up-projection）expert 权重。A3 保持原有 fused 权重契约；A5 当前 fused host op 额外支持量化权重的 `ND` / `FRACTAL_NZ` 格式。 |
-| **gmm1_permuted_weight_scale** | `torch.Tensor` | 例如 `[G, 4096]` | 第一层权重 scale。A3 runtime 会先转成 `float32`；A5 fused 路径遵循当前 A5 quantized-weight host-op 契约。 |
-| **gmm2_weight** | `torch.Tensor` | 例如 `[G, 7168, 2048]` | 第二层（down-projection）expert 权重。A3/A5 差异同 `gmm1_permuted_weight`。 |
-| **gmm2_weight_scale** | `torch.Tensor` | 例如 `[G, 7168]` | 第二层权重 scale。A3/A5 差异同 `gmm1_permuted_weight_scale`。 |
-| **num_max_dispatch_tokens_per_rank** | `int` | 标量 | A3 中沿用现有 fused buffer 逻辑；A5 中这个值还直接作为每个 rank 的 **capacity**，必须满足 **大于等于本地 bs**。 |
-| **num_experts** | `int` | 标量，范围 **(0, 512]** | 全局 expert 总数。A5 fused 当前 tiling 要求 `num_experts` 能被 EP rank size 整除。 |
-| **quant_mode** | `int` | 标量，默认 `1` | 下发给 fused 算子的量化模式属性。A3 保持 legacy fused 语义；A5 公共 fused 路径上该参数当前实际上不生效，激活量化方式会跟随权重量化方式，因此当前实际只支持 `w8a8` 和 `w4a4`。`w4a8` 暂不支持，非量化模型权重在当前 A5 fused 路径上也不支持。 |
-| **fuse_mode** | `FuseMode` | 标量，默认 `FuseMode.FUSED_DEEP_MOE` | 融合模式选择。 |
-| **activation** | `str` | 标量，默认 `"swiglu"` | GMM1 后使用的激活。支持 `"swiglu"` 和 `"situ"` 两个值。SiTU 当前只支持 A5 的 `FUSED_DEEP_MOE` 路径。 |
-| **beta** | `Optional[float]` | 标量，默认 `4.0` | SiTU gate 分支的软饱和边界。`None` 使用内部默认值 `4.0`。选择 SiTU 时该值必须大于零。 |
-| **linear_beta** | `Optional[float]` | 标量，默认 `25.0` | SiTU up 分支可选的软饱和边界。正数表示启用该变换；`None` 表示 up 分支保持不变。 |
-| **profile_enable** | `bool` | 标量，默认值为 `False` | 是否为当前运行启用kernel性能分析。仅在预先启动了性能分析时（begin_profile）才生效。 |
+## Dependency Note
 
-### 激活选择
-
-GMM1 输出会被平均拆分成 `gate` 和 `up` 两个分支。默认的 SwiGLU 公式如下：
-
-```text
-silu(x) = x * sigmoid(x)
-swiglu(gate, up) = silu(gate) * up
-```
-
-SiTU 对 gate 分支进行软限幅，并可选地对 up 分支进行软限幅：
-
-```text
-activated_gate = beta * tanh(gate / beta) * sigmoid(gate)
-activated_up = linear_beta * tanh(up / linear_beta)  # 提供 linear_beta
-activated_up = up                                    # linear_beta 为 None
-situ(gate, up) = activated_gate * activated_up
-```
-
-调用示例：
+The `mega_moe` backend depends on:
 
 ```python
-output, expert_token_nums = buffer.fused_deep_moe(
-    x,
-    topk_idx,
-    topk_weights,
-    gmm1_permuted_weight,
-    gmm1_permuted_weight_scale,
-    gmm2_weight,
-    gmm2_weight_scale,
-    num_max_dispatch_tokens_per_rank,
-    num_experts,
-    activation="situ",
-    beta=4.0,
-    linear_beta=25.0,
-)
+from cann_ops_transformer.ops import get_symm_buffer_for_mega_moe, mega_moe
 ```
 
-### A5 变化点说明
-
-- 当前 A5 fused 路径走 `__DAV_C310__` runtime 分支。
-- A5 中 `global_bs = num_max_dispatch_tokens_per_rank * num_ranks`。
-- 当 `num_max_dispatch_tokens_per_rank > bs` 时，A5 会对 `x`、`expert_ids` 和 expert scale 做 padding，并走内部 active-mask 路径。
-- A5 公共 fused 路径当前返回的是本地 `expert_token_nums`，而不是 A3 的 `ep_recv_count`。
-- A5 fused host op 当前支持量化 GMM 权重：
-  - weight dtype：FP8 E4M3 / FP8 E5M2 / FP4 E2M1 / FP4 E1M2
-  - weight format：`ND` / `FRACTAL_NZ`
-- 虽然 A5 host op 定义了 shared-expert 可选输入，但当前公共 fused Python 入口并没有把 shared-expert tensor 真正传进这条路径。
-
-### 约束说明
-
-#### 对于 `fuse_mode=FUSED_DEEP_MOE`（mode=1）
-
-- **bs**（batch size）：范围 **[1, 256]**。
-- **hidden**：范围 **[512, 7168]**。
-- **gmm1_hidden**：范围 **[1024, 6144]**。
-- 在 **A5 fused** 路径上，**gmm1_hidden** 必须能被 **1024** 整除。
-- **num_topk**（topk）：范围 **(0, 12]**。
-- **num_experts**：范围 **(0, 512]**。
-- 在 **A5** 上，`num_experts` 必须能被 EP rank size 整除。
-- 在 **A5** 上，`num_max_dispatch_tokens_per_rank >= bs`。
-- 在 **A5 MXFP4** 路径上，`hidden` 和 `gmm1_hidden` 还必须为偶数。
-- 在 **A5 MXFP4** 路径上，量化权重当前暂不支持 `FRACTAL_NZ` 格式。
-- SiTU 只支持 **A5**。在 A3 路径选择 `activation="situ"` 会被拒绝。
-- 使用 SiTU 时，`beta` 必须大于零；提供 `linear_beta` 时，该值也必须大于零。
-
-#### 对于 `fuse_mode=DISPATCH_FFN_COMBINE`（mode=2）
-
-- 约束遵循 `aclnnDispatchFFNCombine` 路径，与 `FUSED_DEEP_MOE` 不同。
-- 不支持 shared expert。
-- 只支持 SwiGLU；选择 `activation="situ"` 会抛出 `NotImplementedError`。
-
-### 返回值
-
-#### 对于 `fuse_mode=FUSED_DEEP_MOE`（默认）
-
-| 平台 | 参数 | 类型 | 形状 | 说明 |
-|------|------|------|------|------|
-| A3 | **output** | `torch.Tensor` | `[bs, hidden]` | 融合后的 expert 输出。 |
-| A3 | **ep_recv_count** | `torch.Tensor` | `[num_local_experts × num_ranks]` | EP 通信域内按 rank 展开的 expert 接收 token 计数。 |
-| A5 | **output** | `torch.Tensor` | `[bs, hidden]` | 融合后的 expert 输出。若内部使用了 capacity padding，返回前会裁回原始本地 `bs`。 |
-| A5 | **expert_token_nums** | `torch.Tensor` | `[num_local_experts]` | 当前 rank 上每个本地 expert 接收到的 token 数。 |
-
-#### 对于 `fuse_mode=DISPATCH_FFN_COMBINE`
-
-| 参数 | 类型 | 形状 | 说明 |
-|------|------|------|------|
-| **output** | `torch.Tensor` | `[bs, hidden]` | 融合后的 expert 输出。 |
-| **expert_token_nums** | `torch.Tensor` | `[num_local_experts]` | 当前 rank 上每个本地 expert 接收到的 token 数。 |
+If that package is not available, `deep_ep` backend behavior is unchanged, but calls that
+actually route to `mega_moe` will raise an import error with an explicit message.

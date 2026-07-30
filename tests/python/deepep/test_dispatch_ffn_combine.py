@@ -4,6 +4,7 @@ import random
 import sys
 import time
 from functools import partial
+from typing import Optional
 
 import torch
 import torch.distributed as dist
@@ -214,7 +215,7 @@ def test(
     num_ranks: int,
     group: dist.ProcessGroup,
     buffer: Buffer,
-    buffer2: Buffer,
+    buffer2: Optional[Buffer],
     args: argparse.Namespace,
     aligned_num_tokens: int,
     seed: int = 0,
@@ -290,12 +291,13 @@ def test(
         moe_intermediate_size=moe_intermediate_size,
     )
     # for gmm1、swiglu、gmm2
-    w13, w13_scale, w2, w2_scale = init_baseline_weights(
-        w13_weight.clone().detach(),
-        w13_weight_scale.clone().detach(),
-        w2_weight.clone().detach(),
-        w2_weight_scale.clone().detach(),
-    )
+    if not args.performance_only:
+        w13, w13_scale, w2, w2_scale = init_baseline_weights(
+            w13_weight.clone().detach(),
+            w13_weight_scale.clone().detach(),
+            w2_weight.clone().detach(),
+            w2_weight_scale.clone().detach(),
+        )
     # for dispatch_ffn_combine
     w13_f2, w13s_f2, w2_f2, w2s_f2 = init_fused2_weights_int8(
         w13_weight.clone().detach(),
@@ -303,17 +305,23 @@ def test(
         w2_weight.clone().detach(),
         w2_weight_scale.clone().detach(),
     )
+    del w13_weight, w13_weight_scale, w2_weight, w2_weight_scale
 
     if args.debug and rank == 0:
-        print("=== Check base weights ===")
-        print(
-            "w13:", w13.shape, w13.dtype, w13.device, torch_npu.get_npu_format(w13)
-        )  # FRACTAL_NZ
-        print("w13_scale:", w13_scale.shape, w13_scale.dtype, w13_scale.device)
-        print(
-            "w2:", w2.shape, w2.dtype, w2.device, torch_npu.get_npu_format(w2)
-        )  # FRACTAL_NZ
-        print("w2_scale:", w2_scale.shape, w2_scale.dtype, w2_scale.device)
+        if not args.performance_only:
+            print("=== Check base weights ===")
+            print(
+                "w13:",
+                w13.shape,
+                w13.dtype,
+                w13.device,
+                torch_npu.get_npu_format(w13),
+            )  # FRACTAL_NZ
+            print("w13_scale:", w13_scale.shape, w13_scale.dtype, w13_scale.device)
+            print(
+                "w2:", w2.shape, w2.dtype, w2.device, torch_npu.get_npu_format(w2)
+            )  # FRACTAL_NZ
+            print("w2_scale:", w2_scale.shape, w2_scale.dtype, w2_scale.device)
         print("=== Check fused2 weights ===")
         print(
             "w13_f2:",
@@ -357,35 +365,43 @@ def test(
     topk_idx_dropped = topk_idx
     topk_weights_dropped = topk_weights
 
-    # Expert meta
-    num_tokens_per_expert = torch.zeros((num_experts,), dtype=torch.int, device="npu")
-    for i in range(num_experts):
-        num_tokens_per_expert[i] = (topk_idx_dropped == i).sum()
-    gbl_num_tokens_per_expert = num_tokens_per_expert.clone()
-    dist.all_reduce(gbl_num_tokens_per_expert, group=group)
+    if not args.performance_only:
+        # Expert meta
+        num_tokens_per_expert = torch.zeros(
+            (num_experts,), dtype=torch.int, device="npu"
+        )
+        for i in range(num_experts):
+            num_tokens_per_expert[i] = (topk_idx_dropped == i).sum()
+        gbl_num_tokens_per_expert = num_tokens_per_expert.clone()
+        dist.all_reduce(gbl_num_tokens_per_expert, group=group)
 
-    if args.debug:
-        print(f"[Rank {rank}] num_tokens_per_expert: {num_tokens_per_expert.tolist()}")
-        if rank == 0:
+        if args.debug:
             print(
-                f"[Rank {rank}] gbl_num_tokens_per_expert: {gbl_num_tokens_per_expert.tolist()}"
+                f"[Rank {rank}] num_tokens_per_expert: {num_tokens_per_expert.tolist()}"
             )
+            if rank == 0:
+                print(
+                    f"[Rank {rank}] gbl_num_tokens_per_expert: {gbl_num_tokens_per_expert.tolist()}"
+                )
 
-    # ----- Baseline -----
-    baseline_output, base_ep_recv_count = baseline_test(
-        buffer2,
-        x,
-        topk_idx,
-        aligned_num_tokens,  # num_max_dispatch_tokens_per_rank
-        num_experts,
-        cumulative_local_expert_recv_stats,
-        return_recv_hook,
-        w13,
-        w13_scale,
-        w2,
-        w2_scale,
-        topk_weights_dropped,
-    )
+        if buffer2 is None:
+            raise RuntimeError("buffer2 is required unless --performance-only is set")
+
+        # ----- Baseline -----
+        baseline_output, base_ep_recv_count = baseline_test(
+            buffer2,
+            x,
+            topk_idx,
+            aligned_num_tokens,  # num_max_dispatch_tokens_per_rank
+            num_experts,
+            cumulative_local_expert_recv_stats,
+            return_recv_hook,
+            w13,
+            w13_scale,
+            w2,
+            w2_scale,
+            topk_weights_dropped,
+        )
 
     # ----- Fused2: dispatch_ffn_combine -----
     fused2_output, fused2_ep_recv_count = buffer.fused_deep_moe(
@@ -404,57 +420,43 @@ def test(
         2,  # fuse_mode: DISPATCH_FFN_COMBINE
     )
 
-    # ----- Compare Outputs -----
-    baseline_output_avg = torch.mean(torch.abs(baseline_output)).item()
-    max_diff2 = torch.max(torch.abs(fused2_output - baseline_output)).item()
-    avg_diff2 = torch.mean(torch.abs(fused2_output - baseline_output)).item()
-    fused_output_avg2 = torch.mean(torch.abs(fused2_output)).item()
-    diff2 = calc_diff(fused2_output, baseline_output)
-    print(
-        f"[Precision Compare] {rank=}, baseline_avg={baseline_output_avg:.6e}, diff2={diff2:.6e} "
-        f"fused2_avg={fused_output_avg2:.6e}, max_diff2={max_diff2:.6e}, avg_diff2={avg_diff2:.6e}",
-        flush=True,
-    )
-    # The difference between the results is closely related to the input x value range.
-    assert avg_diff2 < 1e-2, f"[fused2] {rank=} Mismatch detected! diff={avg_diff2}"
+    if not args.performance_only:
+        # ----- Compare Outputs -----
+        baseline_output_avg = torch.mean(torch.abs(baseline_output)).item()
+        max_diff2 = torch.max(torch.abs(fused2_output - baseline_output)).item()
+        avg_diff2 = torch.mean(torch.abs(fused2_output - baseline_output)).item()
+        fused_output_avg2 = torch.mean(torch.abs(fused2_output)).item()
+        diff2 = calc_diff(fused2_output, baseline_output)
+        print(
+            f"[Precision Compare] {rank=}, baseline_avg={baseline_output_avg:.6e}, diff2={diff2:.6e} "
+            f"fused2_avg={fused_output_avg2:.6e}, max_diff2={max_diff2:.6e}, avg_diff2={avg_diff2:.6e}",
+            flush=True,
+        )
+        # The difference between the results is closely related to the input x value range.
+        assert avg_diff2 < 1e-2, f"[fused2] {rank=} Mismatch detected! diff={avg_diff2}"
 
-    # ----- Compare Recv Count -----
-    experts_per_rank = num_experts // dist.get_world_size()
-    start_expert = rank * experts_per_rank
-    end_expert = start_expert + experts_per_rank
+        # ----- Compare Recv Count -----
+        experts_per_rank = num_experts // dist.get_world_size()
+        start_expert = rank * experts_per_rank
+        end_expert = start_expert + experts_per_rank
 
-    expected_recv = gbl_num_tokens_per_expert[start_expert:end_expert]
-    base_recv = base_ep_recv_count.to(torch.int32)
-    fuse2_recv = fused2_ep_recv_count.to(torch.int32)
-    if args.debug:
-        print(f"[Rank {rank}] expected_recv: {expected_recv}")
-        print(f"[Rank {rank}] base_recv: {base_recv}")
-        print(f"[Rank {rank}] fuse2_recv: {fuse2_recv}")
+        expected_recv = gbl_num_tokens_per_expert[start_expert:end_expert]
+        base_recv = base_ep_recv_count.to(torch.int32)
+        fuse2_recv = fused2_ep_recv_count.to(torch.int32)
+        if args.debug:
+            print(f"[Rank {rank}] expected_recv: {expected_recv}")
+            print(f"[Rank {rank}] base_recv: {base_recv}")
+            print(f"[Rank {rank}] fuse2_recv: {fuse2_recv}")
 
-    assert torch.allclose(
-        expected_recv, base_recv
-    ), f"Assertion base recv_count failed on rank {rank}: Expected {expected_recv}, Actual {base_recv}"
-    assert torch.allclose(
-        expected_recv, fuse2_recv
-    ), f"Assertion fuse2 recv_count failed on rank {rank}: Expected {expected_recv}, Actual {fuse2_recv}"
+        assert torch.allclose(
+            expected_recv, base_recv
+        ), f"Assertion base recv_count failed on rank {rank}: Expected {expected_recv}, Actual {base_recv}"
+        assert torch.allclose(
+            expected_recv, fuse2_recv
+        ), f"Assertion fuse2 recv_count failed on rank {rank}: Expected {expected_recv}, Actual {fuse2_recv}"
 
     # ----- performance test -----
     dist.barrier()
-    baseline_args = {
-        "buffer": buffer2,
-        "x": x,
-        "topk_idx": topk_idx,
-        "num_max_dispatch_tokens_per_rank": aligned_num_tokens,
-        "num_experts": num_experts,
-        "cumulative_local_expert_recv_stats": cumulative_local_expert_recv_stats,
-        "return_recv_hook": return_recv_hook,
-        "w13": w13,
-        "w13_scale": w13_scale,
-        "w2": w2,
-        "w2_scale": w2_scale,
-        "topk_weights": topk_weights_dropped,
-    }
-
     fused2_moe_args = {
         "x": x,
         "topk_idx": topk_idx_dropped,
@@ -467,22 +469,37 @@ def test(
             aligned_num_tokens * topk_idx_dropped.size(1) * num_ranks
         ),
         "num_experts": num_experts,
-        "quant_mode": 0,
+        "quant_mode": 1,
         "fuse_mode": 2,
     }
 
-    baseline_time = bench_kineto(
-        lambda: baseline_test(**baseline_args),
-        (
-            "aclnnInplaceOne_OnesLikeAiCore_OnesLike",
-            "MoeLowLatencyDispatchV2",
-            "aclnnGroupedMatmulWeightNz_GroupedMatmul_GroupedMatmul",
-            "DequantSwigluQuant",
-            "MoeLowLatencyCombineV2",
-        ),
-        barrier_comm_profiling=True,
-    )
-    dist.barrier()
+    if not args.performance_only:
+        baseline_args = {
+            "buffer": buffer2,
+            "x": x,
+            "topk_idx": topk_idx,
+            "num_max_dispatch_tokens_per_rank": aligned_num_tokens,
+            "num_experts": num_experts,
+            "cumulative_local_expert_recv_stats": cumulative_local_expert_recv_stats,
+            "return_recv_hook": return_recv_hook,
+            "w13": w13,
+            "w13_scale": w13_scale,
+            "w2": w2,
+            "w2_scale": w2_scale,
+            "topk_weights": topk_weights_dropped,
+        }
+        baseline_time = bench_kineto(
+            lambda: baseline_test(**baseline_args),
+            (
+                "aclnnInplaceOne_OnesLikeAiCore_OnesLike",
+                "MoeLowLatencyDispatchV2",
+                "aclnnGroupedMatmulWeightNz_GroupedMatmul_GroupedMatmul",
+                "DequantSwigluQuant",
+                "MoeLowLatencyCombineV2",
+            ),
+            barrier_comm_profiling=True,
+        )
+        dist.barrier()
 
     fused2_moe_time = bench_kineto(
         lambda: buffer.fused_deep_moe(**fused2_moe_args),
@@ -490,18 +507,27 @@ def test(
         barrier_comm_profiling=True,
     )
 
-    # aclnnGroupedMatmulWeightNz_GroupedMatmul_GroupedMatmul was calculated twice
-    baseline_time_ = sum(baseline_time) + baseline_time[2]
-    print(
-        f"[Rank {rank}] baseline_time= {baseline_time_ * 1e6:.2f} us, fused2_moe_time= {fused2_moe_time * 1e6:.2f} us",
-        flush=True,
-    )
+    if args.performance_only:
+        print(
+            f"[Rank {rank}] fused2_moe_time(DFC)= {fused2_moe_time * 1e6:.2f} us",
+            flush=True,
+        )
+    else:
+        # aclnnGroupedMatmulWeightNz_GroupedMatmul_GroupedMatmul was calculated twice
+        baseline_time_ = sum(baseline_time) + baseline_time[2]
+        print(
+            f"[Rank {rank}] baseline_time= {baseline_time_ * 1e6:.2f} us, "
+            f"fused2_moe_time(DFC)= {fused2_moe_time * 1e6:.2f} us",
+            flush=True,
+        )
 
 
 # ======================== Distributed Entry ========================
 def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
     rank, num_ranks, group = init_dist(local_rank, num_local_ranks)
-    group2 = dist.new_group(list(range(num_ranks)))
+    group2 = None
+    if not args.performance_only:
+        group2 = dist.new_group(list(range(num_ranks)))
 
     shared_expert_rank_num = 0
     num_tokens, hidden, moe_intermediate_size = (
@@ -521,12 +547,14 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         low_latency_mode=True,
         num_qps_per_rank=use_experts // use_ranks if use_ranks > 0 else 1,
     )
-    buffer2 = Buffer(
-        group2,
-        num_rdma_bytes=num_rdma_bytes,
-        low_latency_mode=True,
-        num_qps_per_rank=use_experts // use_ranks if use_ranks > 0 else 1,
-    )
+    buffer2 = None
+    if group2 is not None:
+        buffer2 = Buffer(
+            group2,
+            num_rdma_bytes=num_rdma_bytes,
+            low_latency_mode=True,
+            num_qps_per_rank=use_experts // use_ranks if use_ranks > 0 else 1,
+        )
 
     local_tokens_tensor = torch.tensor([num_tokens], dtype=torch.int32, device="npu")
     dist.all_reduce(local_tokens_tensor, op=dist.ReduceOp.MAX)
@@ -592,6 +620,14 @@ if __name__ == "__main__":
         action="store_true",
         default=False,
         help="Enable debug logging.",
+    )
+    parser.add_argument(
+        "--performance-only",
+        action="store_true",
+        help=(
+            "Benchmark DispatchFFNCombine without running the low-latency baseline "
+            "or precision checks."
+        ),
     )
 
     args = parser.parse_args()
