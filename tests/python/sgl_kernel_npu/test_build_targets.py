@@ -19,8 +19,11 @@ SPEC.loader.exec_module(build_targets)
     ("module", "target", "enabled"),
     [
         ("sgl_kernel_npu.norm.gemma_rmsnorm", "Ascend910B1", False),
+        ("sgl_kernel_npu.norm.gemma_rmsnorm", "910B", False),
         ("sgl_kernel_npu.norm.gemma_rmsnorm", "Ascend910_9382", False),
+        ("sgl_kernel_npu.norm.gemma_rmsnorm", "910C", False),
         ("sgl_kernel_npu.norm.gemma_rmsnorm", "Ascend950", True),
+        ("sgl_kernel_npu.norm.gemma_rmsnorm", "950", True),
         ("sgl_kernel_npu.norm.gemma_rmsnorm", "FutureAscend", False),
         ("sgl_kernel_npu.norm._gemma_rmsnorm_triton", "Ascend910B1", False),
         ("sgl_kernel_npu.norm._gemma_rmsnorm_triton", "Ascend950", True),
@@ -38,9 +41,9 @@ def test_unrestricted_modules_are_packaged_for_every_target():
 
 def test_build_target_uses_environment(monkeypatch):
     monkeypatch.delenv(build_targets.BUILD_TARGET_ENV, raising=False)
-    assert build_targets.get_build_target() == build_targets.DEFAULT_BUILD_TARGET
+    assert build_targets.get_build_target() == "Ascend910_9382"
 
-    monkeypatch.setenv(build_targets.BUILD_TARGET_ENV, "Ascend950")
+    monkeypatch.setenv(build_targets.BUILD_TARGET_ENV, "950")
     assert build_targets.get_build_target() == "Ascend950"
 
 
