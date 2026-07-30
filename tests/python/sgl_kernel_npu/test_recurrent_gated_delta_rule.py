@@ -4,6 +4,7 @@ import shutil
 import time
 
 import numpy as np
+import pytest
 import sgl_kernel_npu
 import torch
 import torch_npu
@@ -406,8 +407,9 @@ class TestCase:
             return False
 
 
-def test_mtp_matches_sequential_decode():
-    """MTP must preserve the per-token BF16 state round-trip of decode."""
+@pytest.mark.parametrize("state_dtype", [torch.bfloat16, torch.float32])
+def test_mtp_matches_sequential_decode(state_dtype):
+    """MTP must preserve the configured per-token state dtype of decode."""
     torch.npu.set_device("npu:0")
     torch.manual_seed(42)
     batch_size, steps, nk, nv, dk, dv = 1, 4, 4, 8, 128, 128
@@ -427,12 +429,12 @@ def test_mtp_matches_sequential_decode():
     )
     g = -torch.rand(batch_size, steps, nv, dtype=torch.float32, device="npu")
     initial_state = torch.rand(
-        batch_size, nv, dv, dk, dtype=torch.bfloat16, device="npu"
+        batch_size, nv, dv, dk, dtype=state_dtype, device="npu"
     )
     scale = dk**-0.5
 
     intermediate = torch.empty(
-        batch_size, steps, nv, dv, dk, dtype=torch.bfloat16, device="npu"
+        batch_size, steps, nv, dv, dk, dtype=state_dtype, device="npu"
     )
     mtp_output = torch.ops.npu.recurrent_gated_delta_rule(
         mix_qkv,

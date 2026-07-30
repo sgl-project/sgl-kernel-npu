@@ -73,6 +73,8 @@ def move_cache_dynamic_last_kernel_h_block(
 
             mask = h_mask[:, None, None] & v_mask[None, :, None] & k_mask[None, None, :]
 
+            # The NPU recurrent kernel consumes the transposed persistent view
+            # through its physical [V, K] layout, so preserve the raw state order.
             linear_offset = (
                 h_real[:, None, None] * dim_v * dim_k
                 + v_offsets[None, :, None] * dim_k
