@@ -49,7 +49,7 @@ SGLang-Kernel-NPU provides a comprehensive set of optimized inference kernels:
 
 **Normalization:**
 - RMSNorm
-- Gemma RMSNorm with native A2/A3 and Triton Ascend 950 series providers
+- Gemma RMSNorm with native Ascend 910B/910C and Triton Ascend 950 series providers
 - Fused Add + RMSNorm + Bias
 - Split QKV + RMSNorm + RoPE fusion
 
