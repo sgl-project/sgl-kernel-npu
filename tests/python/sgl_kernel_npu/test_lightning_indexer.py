@@ -14,6 +14,9 @@ import torch
 import torch.nn as nn
 import torch_npu
 import torchair
+from utils import require_npu_op
+
+pytestmark = require_npu_op("lightning_indexer")
 
 DEVICE_ID = 0
 torch_npu.npu.set_device(int(DEVICE_ID))
