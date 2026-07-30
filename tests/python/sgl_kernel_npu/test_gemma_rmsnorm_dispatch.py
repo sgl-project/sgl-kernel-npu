@@ -20,8 +20,8 @@ from sgl_kernel_npu.utils.npu_device import (
 @pytest.mark.parametrize(
     ("soc_version", "expected"),
     [
-        (200, NpuDeviceFamily.ASCEND_310P),
-        (205, NpuDeviceFamily.ASCEND_310P),
+        (200, NpuDeviceFamily.UNKNOWN),
+        (205, NpuDeviceFamily.UNKNOWN),
         (220, NpuDeviceFamily.A2),
         (225, NpuDeviceFamily.A2),
         (250, NpuDeviceFamily.A3),
@@ -72,7 +72,6 @@ def test_invalid_soc_version_is_unknown(monkeypatch):
 @pytest.mark.parametrize(
     ("family", "provider"),
     [
-        (NpuDeviceFamily.ASCEND_310P, gemma_rmsnorm._fallback_gemma_rms_norm),
         (NpuDeviceFamily.A2, gemma_rmsnorm._native_gemma_rms_norm),
         (NpuDeviceFamily.A3, gemma_rmsnorm._native_gemma_rms_norm),
         (NpuDeviceFamily.ASCEND_950, gemma_rmsnorm._triton_gemma_rms_norm),
@@ -86,13 +85,12 @@ def test_gemma_provider_table(family, provider):
 @pytest.mark.parametrize(
     ("family", "provider"),
     [
-        (
-            NpuDeviceFamily.ASCEND_310P,
-            gemma_rmsnorm._fallback_add_gemma_rms_norm,
-        ),
         (NpuDeviceFamily.A2, gemma_rmsnorm._native_add_gemma_rms_norm),
         (NpuDeviceFamily.A3, gemma_rmsnorm._native_add_gemma_rms_norm),
-        (NpuDeviceFamily.ASCEND_950, gemma_rmsnorm._triton_add_gemma_rms_norm),
+        (
+            NpuDeviceFamily.ASCEND_950,
+            gemma_rmsnorm._triton_add_gemma_rms_norm,
+        ),
         (NpuDeviceFamily.UNKNOWN, gemma_rmsnorm._fallback_add_gemma_rms_norm),
     ],
 )
@@ -157,7 +155,9 @@ def test_selected_provider_errors_are_not_swallowed(monkeypatch):
     weight = torch.ones(4, dtype=torch.float16)
     monkeypatch.setattr(gemma_rmsnorm, "_validate_inputs", Mock())
     monkeypatch.setattr(
-        gemma_rmsnorm, "get_npu_device_family", Mock(return_value=NpuDeviceFamily.ASCEND_950)
+        gemma_rmsnorm,
+        "get_npu_device_family",
+        Mock(return_value=NpuDeviceFamily.ASCEND_950),
     )
     monkeypatch.setitem(
         gemma_rmsnorm._GEMMA_RMS_NORM_PROVIDERS,

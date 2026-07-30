@@ -193,7 +193,6 @@ _AddGemmaRMSNormProvider = Callable[
 ]
 
 _GEMMA_RMS_NORM_PROVIDERS: Dict[NpuDeviceFamily, _GemmaRMSNormProvider] = {
-    NpuDeviceFamily.ASCEND_310P: _fallback_gemma_rms_norm,
     NpuDeviceFamily.A2: _native_gemma_rms_norm,
     NpuDeviceFamily.A3: _native_gemma_rms_norm,
     NpuDeviceFamily.ASCEND_950: _triton_gemma_rms_norm,
@@ -201,7 +200,6 @@ _GEMMA_RMS_NORM_PROVIDERS: Dict[NpuDeviceFamily, _GemmaRMSNormProvider] = {
 }
 
 _ADD_GEMMA_RMS_NORM_PROVIDERS: Dict[NpuDeviceFamily, _AddGemmaRMSNormProvider] = {
-    NpuDeviceFamily.ASCEND_310P: _fallback_add_gemma_rms_norm,
     NpuDeviceFamily.A2: _native_add_gemma_rms_norm,
     NpuDeviceFamily.A3: _native_add_gemma_rms_norm,
     NpuDeviceFamily.ASCEND_950: _triton_add_gemma_rms_norm,

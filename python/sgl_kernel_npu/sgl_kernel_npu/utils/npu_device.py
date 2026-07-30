@@ -10,16 +10,13 @@ logger = logging.getLogger(__name__)
 class NpuDeviceFamily(Enum):
     """Ascend device families relevant to kernel implementation selection."""
 
-    ASCEND_310P = "310p"
     A2 = "a2"
     A3 = "a3"
-    ASCEND_950 = "950"
+    ASCEND_950 = "ascend_950"
     UNKNOWN = "unknown"
 
 
 def _family_from_soc_version(soc_version: int) -> NpuDeviceFamily:
-    if 200 <= soc_version <= 205:
-        return NpuDeviceFamily.ASCEND_310P
     if 220 <= soc_version <= 225:
         return NpuDeviceFamily.A2
     if 250 <= soc_version <= 255:
