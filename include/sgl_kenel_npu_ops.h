@@ -46,30 +46,6 @@ void build_tree_efficient(
     const at::Tensor &retrive_next_sibling, int64_t topk, int64_t depth,
     int64_t draft_token_num, int64_t tree_mask_mode);
 
-std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>
-mla_preprocess(const at::Tensor &hiddenState, const at::Tensor &gamma0,
-               const at::Tensor &beta0, const at::Tensor &wdqkv,
-               const at::Tensor &descale0, const at::Tensor &gamma1,
-               const at::Tensor &beta1, const at::Tensor &wuq,
-               const at::Tensor &descale1, const at::Tensor &gamma2,
-               const at::Tensor &cos, const at::Tensor &sin,
-               const at::Tensor &wuk, const at::Tensor &kv_cache,
-               const at::Tensor &kv_cache_rope, const at::Tensor &slotmapping,
-               const at::Tensor &quant_scale0, const at::Tensor &quant_offset0,
-               const at::Tensor &bias0, const at::Tensor &quant_scale1,
-               const at::Tensor &quant_offset1, const at::Tensor &bias1,
-               const c10::optional<at::Tensor> &ctkv_scale,
-               const c10::optional<at::Tensor> &q_nope_scale,
-               c10::optional<c10::string_view> cache_mode,
-               c10::optional<c10::string_view> quant_mode, at::Tensor &q_out0,
-               at::Tensor &kv_cache_out0, at::Tensor &q_out1,
-               at::Tensor &kv_cache_out1);
-
-void batch_matmul_transpose(const at::Tensor &tensor_a,
-                            const at::Tensor &tensor_b, at::Tensor &tensor_c,
-                            c10::optional<c10::string_view> format_mode,
-                            c10::optional<c10::string_view> quant_mode);
-
 void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
                               at::Tensor &device_v, at::Tensor &host_v,
                               const at::Tensor &device_indices,
@@ -98,14 +74,6 @@ void sgemmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
                    at::Tensor &seq_len, at::Tensor &lora_ranks,
                    at::Tensor &lora_scales, at::Tensor &y);
 
-at::Tensor recurrent_gated_delta_rule(
-    at::Tensor &mix_qkv, at::Tensor &recurrent_state, at::Tensor &beta,
-    double scale, at::Tensor &actual_seq_lengths, at::Tensor &ssm_state_indices,
-    int64_t nk, int64_t nv, c10::optional<at::Tensor> intermediate_state_opt,
-    c10::optional<at::Tensor> cache_indices_opt,
-    c10::optional<at::Tensor> num_accepted_tokens_opt,
-    c10::optional<at::Tensor> g_opt, c10::optional<at::Tensor> gk_opt);
-
 at::Tensor sgemmc_expand(at::Tensor &x, at::Tensor &weight,
                          at::Tensor &lora_indices, at::Tensor &seq_len,
                          at::Tensor &lora_ranks, at::Tensor &slice_offsets,
@@ -115,21 +83,41 @@ void sgemmc_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
                    at::Tensor &seq_len, at::Tensor &lora_ranks,
                    at::Tensor &lora_scales, at::Tensor &y, int64_t slice_count);
 
-#ifdef BUILD_CATLASS_MODULE
-void catlass_matmul_basic(const at::Tensor &tensor_a,
-                          const at::Tensor &tensor_b, at::Tensor &tensor_c,
-                          c10::optional<c10::string_view> format_mode);
+at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask,
+                               c10::optional<at::Tensor> indices);
 
-at::Tensor softfp8_w8a16_grouped_matmul(const at::Tensor &mat1,
-                                        const at::Tensor &mat2,
-                                        const at::Tensor &scale,
-                                        const at::Tensor &groupList,
-                                        const std::string &outDType);
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>
+mla_preprocess(const at::Tensor &hiddenState, const at::Tensor &gamma0,
+               const at::Tensor &beta0, const at::Tensor &wdqkv,
+               const at::Tensor &descale0, const at::Tensor &gamma1,
+               const at::Tensor &beta1, const at::Tensor &wuq,
+               const at::Tensor &descale1, const at::Tensor &gamma2,
+               const at::Tensor &cos, const at::Tensor &sin,
+               const at::Tensor &wuk, const at::Tensor &kv_cache,
+               const at::Tensor &kv_cache_rope, const at::Tensor &slotmapping,
+               const at::Tensor &quant_scale0, const at::Tensor &quant_offset0,
+               const at::Tensor &bias0, const at::Tensor &quant_scale1,
+               const at::Tensor &quant_offset1, const at::Tensor &bias1,
+               const c10::optional<at::Tensor> &ctkv_scale,
+               const c10::optional<at::Tensor> &q_nope_scale,
+               c10::optional<c10::string_view> cache_mode,
+               c10::optional<c10::string_view> quant_mode, at::Tensor &q_out0,
+               at::Tensor &kv_cache_out0, at::Tensor &q_out1,
+               at::Tensor &kv_cache_out1);
 
-at::Tensor softfp8_w8a16_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
-                                const at::Tensor &scale,
-                                const std::string &outDType);
-#endif
+void batch_matmul_transpose(const at::Tensor &tensor_a,
+                            const at::Tensor &tensor_b, at::Tensor &tensor_c,
+                            c10::optional<c10::string_view> format_mode,
+                            c10::optional<c10::string_view> quant_mode);
+
+at::Tensor recurrent_gated_delta_rule(
+    at::Tensor &mix_qkv, at::Tensor &recurrent_state, at::Tensor &beta,
+    double scale, at::Tensor &actual_seq_lengths, at::Tensor &ssm_state_indices,
+    int64_t nk, int64_t nv, c10::optional<at::Tensor> intermediate_state_opt,
+    c10::optional<at::Tensor> cache_indices_opt,
+    c10::optional<at::Tensor> num_accepted_tokens_opt,
+    c10::optional<at::Tensor> g_opt, c10::optional<at::Tensor> gk_opt);
 
 void mega_chunk_gdn(
     const at::Tensor &q, const at::Tensor &k, const at::Tensor &v,
@@ -165,8 +153,25 @@ at::Tensor lightning_indexer(
  * is inversed.
  */
 at::Tensor tri_inv_col_sweep(const at::Tensor &tensor_in);
-at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask,
-                               c10::optional<at::Tensor> indices);
+#endif
+
+#ifdef BUILD_CATLASS_MODULE
+void catlass_matmul_basic(const at::Tensor &tensor_a,
+                          const at::Tensor &tensor_b, at::Tensor &tensor_c,
+                          c10::optional<c10::string_view> format_mode);
+
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+at::Tensor softfp8_w8a16_grouped_matmul(const at::Tensor &mat1,
+                                        const at::Tensor &mat2,
+                                        const at::Tensor &scale,
+                                        const at::Tensor &groupList,
+                                        const std::string &outDType);
+
+at::Tensor softfp8_w8a16_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
+                                const at::Tensor &scale,
+                                const std::string &outDType);
+#endif
+#endif
 
 at::Tensor sparse_attention_score(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
