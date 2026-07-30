@@ -42,6 +42,12 @@ struct StateComponentLayout {
     size_t host_layer_pitch;
 };
 
+struct ValidatedStateComponents {
+    std::vector<StateComponentLayout> layouts;
+    int64_t device_slot_limit;
+    int64_t host_slot_limit;
+};
+
 int64_t validate_dense_slot_payload(const at::Tensor &device, int64_t component)
 {
     // NPU NEXTN stores the temporal state as a transpose of the two innermost
@@ -54,7 +60,6 @@ int64_t validate_dense_slot_payload(const at::Tensor &device, int64_t component)
     for (int64_t dim = 2; dim < device.dim(); ++dim) {
         const int64_t size = device.size(dim);
         const int64_t stride = device.stride(dim);
-        TORCH_CHECK(size >= 0, "device state component ", component, " has a negative size at dimension ", dim);
         TORCH_CHECK(stride >= 0, "device state component ", component,
                     " has a negative stride at dimension ", dim);
         slot_elements *= size;
@@ -71,8 +76,6 @@ int64_t validate_dense_slot_payload(const at::Tensor &device, int64_t component)
                     " while expecting ", expected_stride);
         expected_stride *= size;
     }
-    TORCH_CHECK(expected_stride == slot_elements, "device state component ", component,
-                " slot payload span does not match its element count");
     return slot_elements;
 }
 
@@ -91,6 +94,7 @@ StateComponentLayout validate_component(const at::Tensor &device, const at::Tens
     TORCH_CHECK(device.device().type() == c10::DeviceType::PrivateUse1, "device state component ", component,
                 " must be on NPU, got ", device.device());
     TORCH_CHECK(host.device().is_cpu(), "host state component ", component, " must be on CPU, got ", host.device());
+    TORCH_CHECK(host.is_pinned(), "host state component ", component, " must use pinned memory");
     TORCH_CHECK(device.scalar_type() == host.scalar_type(), "state component ", component,
                 " has different device/host dtypes: ", device.scalar_type(), " vs ", host.scalar_type());
     TORCH_CHECK(device.dim() >= 3, "device state component ", component,
@@ -105,8 +109,6 @@ StateComponentLayout validate_component(const at::Tensor &device, const at::Tens
         TORCH_CHECK(device.size(dim) == host.size(dim + 1), "state component ", component,
                     " trailing shape mismatch at device dimension ", dim);
     }
-    TORCH_CHECK(layer_begin >= 0, "layer_begin must be non-negative");
-    TORCH_CHECK(layer_count > 0, "layer_count must be positive");
     TORCH_CHECK(layer_begin + layer_count <= device.size(0), "requested layer range [", layer_begin, ", ",
                 layer_begin + layer_count, ") exceeds state component ", component, " layer count ", device.size(0));
 
@@ -140,10 +142,43 @@ StateComponentLayout validate_component(const at::Tensor &device, const at::Tens
     };
 }
 
+ValidatedStateComponents validate_components(at::TensorList device_states, at::TensorList host_states,
+                                             int64_t layer_begin, int64_t layer_count)
+{
+    std::vector<StateComponentLayout> layouts;
+    layouts.reserve(device_states.size());
+    for (const auto component : c10::irange(device_states.size())) {
+        layouts.emplace_back(validate_component(device_states[component], host_states[component], component,
+                                                layer_begin, layer_count));
+    }
+
+    int64_t device_slot_limit = layouts.front().device_slot_num;
+    int64_t host_slot_limit = layouts.front().host_slot_num;
+    for (const auto &layout : layouts) {
+        device_slot_limit = std::min(device_slot_limit, layout.device_slot_num);
+        host_slot_limit = std::min(host_slot_limit, layout.host_slot_num);
+    }
+    return {std::move(layouts), device_slot_limit, host_slot_limit};
+}
+
+void validate_indices(const int64_t *device_indices, const int64_t *host_indices, int64_t count,
+                      int64_t device_slot_limit, int64_t host_slot_limit)
+{
+    for (const auto i : c10::irange(count)) {
+        TORCH_CHECK(device_indices[i] >= 0, "device index ", device_indices[i], " must be non-negative");
+        TORCH_CHECK(host_indices[i] >= 0, "host index ", host_indices[i], " must be non-negative");
+        TORCH_CHECK(device_indices[i] < device_slot_limit, "device index ", device_indices[i],
+                    " exceeds component slot count ", device_slot_limit);
+        TORCH_CHECK(host_indices[i] < host_slot_limit, "host index ", host_indices[i],
+                    " exceeds component slot count ", host_slot_limit);
+    }
+}
+
 std::vector<std::pair<int64_t, int64_t>> build_contiguous_runs(const int64_t *device_indices,
                                                                 const int64_t *host_indices, int64_t count)
 {
     std::vector<std::pair<int64_t, int64_t>> runs;
+    runs.reserve(count);
     int64_t begin = 0;
     while (begin < count) {
         int64_t end = begin + 1;
@@ -155,6 +190,53 @@ std::vector<std::pair<int64_t, int64_t>> build_contiguous_runs(const int64_t *de
         begin = end;
     }
     return runs;
+}
+
+void submit_h2d(const std::vector<StateComponentLayout> &components, const int64_t *device_indices,
+                const int64_t *host_indices, int64_t index_count, int64_t layer_begin, int64_t layer_count,
+                aclrtStream stream)
+{
+    const auto runs = build_contiguous_runs(device_indices, host_indices, index_count);
+    for (const auto &component : components) {
+        auto *device_base = static_cast<char *>(component.device.data_ptr());
+        auto *host_base = static_cast<char *>(component.host.data_ptr());
+        for (const auto layer : c10::irange(layer_begin, layer_begin + layer_count)) {
+            for (const auto &[run_begin, run_length] : runs) {
+                const auto device_slot = device_indices[run_begin];
+                const auto host_slot = host_indices[run_begin];
+                void *destination =
+                    device_base + layer * component.device_layer_pitch + device_slot * component.device_slot_pitch;
+                const void *source =
+                    host_base + host_slot * component.host_slot_pitch + layer * component.host_layer_pitch;
+                const auto result = aclrtMemcpy2dAsync(
+                    destination, component.device_slot_pitch, source, component.host_slot_pitch, component.slot_bytes,
+                    static_cast<size_t>(run_length), ACL_MEMCPY_HOST_TO_DEVICE, stream);
+                check_acl_copy(result, "H2D", component.slot_bytes, static_cast<size_t>(run_length));
+            }
+        }
+    }
+}
+
+void submit_d2h(const std::vector<StateComponentLayout> &components, const int64_t *device_indices,
+                const int64_t *host_indices, int64_t index_count, int64_t layer_begin, int64_t layer_count,
+                aclrtStream stream)
+{
+    for (const auto &component : components) {
+        auto *device_base = static_cast<char *>(component.device.data_ptr());
+        auto *host_base = static_cast<char *>(component.host.data_ptr());
+        for (const auto i : c10::irange(index_count)) {
+            const auto device_slot = device_indices[i];
+            const auto host_slot = host_indices[i];
+            const void *source = device_base + layer_begin * component.device_layer_pitch +
+                                 device_slot * component.device_slot_pitch;
+            void *destination =
+                host_base + host_slot * component.host_slot_pitch + layer_begin * component.host_layer_pitch;
+            const auto result = aclrtMemcpy2dAsync(
+                destination, component.host_layer_pitch, source, component.device_layer_pitch, component.slot_bytes,
+                static_cast<size_t>(layer_count), ACL_MEMCPY_DEVICE_TO_HOST, stream);
+            check_acl_copy(result, "D2H", component.slot_bytes, static_cast<size_t>(layer_count));
+        }
+    }
 }
 
 }  // namespace
@@ -184,65 +266,22 @@ HOST_API void transfer_state_dim_exchange(at::TensorList device_states, at::Tens
     if (index_count == 0) {
         return;
     }
+    TORCH_CHECK(layer_begin >= 0, "layer_begin must be non-negative");
+    TORCH_CHECK(layer_count > 0, "layer_count must be positive");
     const auto *device_index_data = device_indices_cpu.data_ptr<int64_t>();
     const auto *host_index_data = host_indices_cpu.data_ptr<int64_t>();
 
-    std::vector<StateComponentLayout> components;
-    components.reserve(device_states.size());
-    for (const auto component : c10::irange(device_states.size())) {
-        components.emplace_back(validate_component(device_states[component], host_states[component], component,
-                                                   layer_begin, layer_count));
-    }
-
-    for (const auto i : c10::irange(index_count)) {
-        TORCH_CHECK(device_index_data[i] >= 0, "device index ", device_index_data[i], " must be non-negative");
-        TORCH_CHECK(host_index_data[i] >= 0, "host index ", host_index_data[i], " must be non-negative");
-        for (const auto &component : components) {
-            TORCH_CHECK(device_index_data[i] < component.device_slot_num, "device index ", device_index_data[i],
-                        " exceeds component slot count ", component.device_slot_num);
-            TORCH_CHECK(host_index_data[i] < component.host_slot_num, "host index ", host_index_data[i],
-                        " exceeds component slot count ", component.host_slot_num);
-        }
-    }
+    auto components = validate_components(device_states, host_states, layer_begin, layer_count);
+    validate_indices(device_index_data, host_index_data, index_count, components.device_slot_limit,
+                     components.host_slot_limit);
 
     const auto acl_stream = c10_npu::getCurrentNPUStream().stream();
     if (direction == static_cast<int64_t>(StateTransferDirection::H2D)) {
-        const auto runs = build_contiguous_runs(device_index_data, host_index_data, index_count);
-        for (const auto &component : components) {
-            auto *device_base = static_cast<char *>(component.device.data_ptr());
-            auto *host_base = static_cast<char *>(component.host.data_ptr());
-            for (const auto layer : c10::irange(layer_begin, layer_begin + layer_count)) {
-                for (const auto &[run_begin, run_length] : runs) {
-                    const auto device_slot = device_index_data[run_begin];
-                    const auto host_slot = host_index_data[run_begin];
-                    void *destination =
-                        device_base + layer * component.device_layer_pitch + device_slot * component.device_slot_pitch;
-                    const void *source =
-                        host_base + host_slot * component.host_slot_pitch + layer * component.host_layer_pitch;
-                    const auto result = aclrtMemcpy2dAsync(
-                        destination, component.device_slot_pitch, source, component.host_slot_pitch,
-                        component.slot_bytes, static_cast<size_t>(run_length), ACL_MEMCPY_HOST_TO_DEVICE, acl_stream);
-                    check_acl_copy(result, "H2D", component.slot_bytes, static_cast<size_t>(run_length));
-                }
-            }
-        }
+        submit_h2d(components.layouts, device_index_data, host_index_data, index_count, layer_begin, layer_count,
+                   acl_stream);
     } else {
-        for (const auto &component : components) {
-            auto *device_base = static_cast<char *>(component.device.data_ptr());
-            auto *host_base = static_cast<char *>(component.host.data_ptr());
-            for (const auto i : c10::irange(index_count)) {
-                const auto device_slot = device_index_data[i];
-                const auto host_slot = host_index_data[i];
-                const void *source = device_base + layer_begin * component.device_layer_pitch +
-                                     device_slot * component.device_slot_pitch;
-                void *destination =
-                    host_base + host_slot * component.host_slot_pitch + layer_begin * component.host_layer_pitch;
-                const auto result = aclrtMemcpy2dAsync(
-                    destination, component.host_layer_pitch, source, component.device_layer_pitch,
-                    component.slot_bytes, static_cast<size_t>(layer_count), ACL_MEMCPY_DEVICE_TO_HOST, acl_stream);
-                check_acl_copy(result, "D2H", component.slot_bytes, static_cast<size_t>(layer_count));
-            }
-        }
+        submit_d2h(components.layouts, device_index_data, host_index_data, index_count, layer_begin, layer_count,
+                   acl_stream);
     }
 }
 

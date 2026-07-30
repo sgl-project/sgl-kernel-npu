@@ -31,22 +31,11 @@ def transfer_state_dim_exchange(
     transpose); the Host payload is an opaque byte-exact backup of that physical
     layout.  The call only enqueues H2D/D2H work; completion is ordered by the
     caller's stream/event.
+
+    Argument validation lives in the registered C++ operator so direct
+    ``torch.ops`` callers and this convenience wrapper share one safety
+    boundary.
     """
-    if not device_states:
-        raise ValueError("device_states must not be empty")
-    if len(device_states) != len(host_states):
-        raise ValueError(
-            "device_states and host_states must contain the same number of components"
-        )
-    for component, tensor in enumerate(host_states):
-        if tensor.device.type != "cpu":
-            raise ValueError(
-                f"host state component {component} must be on CPU, got {tensor.device}"
-            )
-        if not tensor.is_pinned():
-            raise ValueError(
-                f"host state component {component} must use pinned memory"
-            )
     torch.ops.npu.transfer_state_dim_exchange(
         list(device_states),
         list(host_states),

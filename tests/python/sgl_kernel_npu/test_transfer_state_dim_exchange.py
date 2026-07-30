@@ -179,7 +179,7 @@ class TestTransferStateDimExchange(unittest.TestCase):
             )
 
     def test_reject_pageable_host_memory(self):
-        with self.assertRaisesRegex(ValueError, "pinned memory"):
+        with self.assertRaisesRegex(RuntimeError, "pinned memory"):
             transfer_state_dim_exchange(
                 device_states=self.device_states,
                 host_states=[
