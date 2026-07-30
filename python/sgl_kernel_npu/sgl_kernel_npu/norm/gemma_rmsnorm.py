@@ -9,7 +9,7 @@ from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
 @triton.jit
-def _a5_gemma_rms_norm_kernel(
+def _ascend950_gemma_rms_norm_kernel(
     hidden_state_ptr,
     hidden_state_stride_bs,
     weight_ptr,
@@ -86,7 +86,7 @@ def _validate_inputs(
             raise TypeError("residual must have the same dtype as input")
 
 
-def _launch_a5_triton(
+def _launch_ascend950_triton(
     input: torch.Tensor,
     weight: torch.Tensor,
     residual: Optional[torch.Tensor],
@@ -118,7 +118,7 @@ def _launch_a5_triton(
     _, num_vectorcore = get_device_properties()
     grid = (min(num_vectorcore, batch),)
 
-    _a5_gemma_rms_norm_kernel[grid](
+    _ascend950_gemma_rms_norm_kernel[grid](
         input_2d,
         input_2d.stride(0),
         weight,
@@ -156,7 +156,7 @@ def _native_add_gemma_rms_norm(
 def _triton_gemma_rms_norm(
     input: torch.Tensor, weight: torch.Tensor, eps: float
 ) -> torch.Tensor:
-    norm_output, _ = _launch_a5_triton(input, weight, None, eps)
+    norm_output, _ = _launch_ascend950_triton(input, weight, None, eps)
     return norm_output
 
 
@@ -166,7 +166,7 @@ def _triton_add_gemma_rms_norm(
     residual: torch.Tensor,
     eps: float,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    return _launch_a5_triton(input, weight, residual, eps)
+    return _launch_ascend950_triton(input, weight, residual, eps)
 
 
 def _fallback_gemma_rms_norm(
@@ -193,18 +193,16 @@ _AddGemmaRMSNormProvider = Callable[
 ]
 
 _GEMMA_RMS_NORM_PROVIDERS: Dict[NpuDeviceFamily, _GemmaRMSNormProvider] = {
-    NpuDeviceFamily.ASCEND_310P: _fallback_gemma_rms_norm,
     NpuDeviceFamily.A2: _native_gemma_rms_norm,
     NpuDeviceFamily.A3: _native_gemma_rms_norm,
-    NpuDeviceFamily.A5: _triton_gemma_rms_norm,
+    NpuDeviceFamily.ASCEND_950: _triton_gemma_rms_norm,
     NpuDeviceFamily.UNKNOWN: _fallback_gemma_rms_norm,
 }
 
 _ADD_GEMMA_RMS_NORM_PROVIDERS: Dict[NpuDeviceFamily, _AddGemmaRMSNormProvider] = {
-    NpuDeviceFamily.ASCEND_310P: _fallback_add_gemma_rms_norm,
     NpuDeviceFamily.A2: _native_add_gemma_rms_norm,
     NpuDeviceFamily.A3: _native_add_gemma_rms_norm,
-    NpuDeviceFamily.A5: _triton_add_gemma_rms_norm,
+    NpuDeviceFamily.ASCEND_950: _triton_add_gemma_rms_norm,
     NpuDeviceFamily.UNKNOWN: _fallback_add_gemma_rms_norm,
 }
 
