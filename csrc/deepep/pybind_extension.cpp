@@ -44,6 +44,5 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
         .def("low_latency_dispatch", &deep_ep::Buffer::low_latency_dispatch)
         .def("low_latency_combine", &deep_ep::Buffer::low_latency_combine)
         .def("fused_deep_moe", &deep_ep::Buffer::fused_deep_moe)
-        .def("dispatch_ffn_combine", &deep_ep::Buffer::dispatch_ffn_combine)
-        .def("dispatch_ffn_combine_m3", &deep_ep::Buffer::dispatch_ffn_combine_m3);
+        .def("dispatch_ffn_combine", &deep_ep::Buffer::dispatch_ffn_combine);
 }

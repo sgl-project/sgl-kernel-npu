@@ -12,7 +12,7 @@
 
 namespace Act::Epilogue {
 
-template <uint32_t UB_STAGES_, uint32_t EXEC_FLAG_>
+template <uint32_t UB_STAGES_, uint32_t EXEC_FLAG_ = 0>
 struct EpilogueAtlasA2PerTokenDequantSwiglu {
     using ArchTag = Arch::AtlasA2;
     static constexpr uint32_t UB_STAGES = UB_STAGES_;

@@ -6,6 +6,7 @@
 #include "exception.hpp"
 #include "deep_ep.hpp"
 #include "pytorch_npu_helper.hpp"
+#include "ops/op_host/op_api/aclnn_dispatch_ffn_combine_swiglu_oai.h"
 
 namespace deep_ep {
 constexpr int PADDING_SIZE = 1;
@@ -1065,10 +1066,11 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
 std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Tensor &expert_ids,
                                                const at::Tensor &gmm1_permuted_weight,
                                                const at::Tensor &gmm1_permuted_weight_scale,
-                                               const at::Tensor &gmm2_weight, const at::Tensor &gmm2_weight_scale,
-                                               const at::Tensor &expert_scales_optional,
-                                               int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
-                                               int quant_mode)
+                                                const at::Tensor &gmm2_weight, const at::Tensor &gmm2_weight_scale,
+                                                const at::Tensor &expert_scales_optional,
+                                                int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
+                                                int quant_mode, int activation_type, float activation_alpha,
+                                                float gate_clamp_max, float up_clamp_min, float up_clamp_max, float up_add)
 {
     EP_HOST_ASSERT(expert_ids.dim() == 2);
     EP_HOST_ASSERT(expert_scales_optional.dim() == 2);
@@ -1095,10 +1097,10 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
     EXEC_NPU_CMD(aclnnFusedDeepMoe,
                  // input
                  x, expert_ids, gmm1_permuted_weight, gmm1_permuted_weight_scale, gmm2_weight, gmm2_weight_scale,
-                 static_cast<const std::nullptr_t &>(nullptr), expert_scales_optional,
-                 // attr
-                 hcom_ep_name, num_ranks, rank, num_experts, shared_expert_num, shared_expert_rank_num, quant_mode,
-                 global_bs,
+                  static_cast<const std::nullptr_t &>(nullptr), expert_scales_optional,
+                  // attr
+                  hcom_ep_name, num_ranks, rank, num_experts, shared_expert_num, shared_expert_rank_num, quant_mode,
+                  global_bs, activation_type, activation_alpha, gate_clamp_max, up_clamp_min, up_clamp_max, up_add,
                  // output
                  output, ep_recv_count);
 
@@ -1107,9 +1109,11 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
 
 std::vector<at::Tensor> Buffer::dispatch_ffn_combine(const at::Tensor &x, const at::Tensor &expert_ids,
                                                      const at::Tensor &weight1, const at::Tensor &scale1,
-                                                     const at::Tensor &weight2, const at::Tensor &scale2,
-                                                     const at::Tensor &expert_scales, int64_t max_output_size,
-                                                     int64_t num_experts, int quant_mode) const
+                                                      const at::Tensor &weight2, const at::Tensor &scale2,
+                                                      const at::Tensor &expert_scales, int64_t max_output_size,
+                                                      int64_t num_experts, int quant_mode, int activation_type,
+                                                      float activation_alpha, float gate_clamp_max, float up_clamp_min,
+                                                      float up_clamp_max, float up_add) const
 {
     EP_HOST_ASSERT(expert_ids.dim() == 2);
     EP_HOST_ASSERT(expert_scales.dim() == 2);
@@ -1124,15 +1128,24 @@ std::vector<at::Tensor> Buffer::dispatch_ffn_combine(const at::Tensor &x, const 
 
     int h = x.size(1);
     int bs = expert_ids.size(0);
-    at::Tensor output = at::empty({bs, h}, x.options());
+    at::Tensor output_storage = at::empty({std::max<int64_t>(bs, max_output_size), h}, x.options());
+    at::Tensor output = output_storage.narrow(0, 0, bs);
 
     int64_t num_local_experts = num_experts / num_ranks;
     at::Tensor expert_token_nums = at::empty({num_local_experts}, expert_ids.options());
 
     bool is_int8 = weight1.scalar_type() == at::ScalarType::Char;
     if (is_int8) {
-        EXEC_NPU_CMD(aclnnDispatchFFNCombine, x, weight1, weight2, expert_ids, scale1, scale2, expert_scales,
-                     hcom_ep_name, num_ranks, rank, max_output_size, output, expert_token_nums);
+        if (activation_type == 1) {
+            EXEC_NPU_CMD(aclnnDispatchFFNCombineSwiGluOAI, x, weight1, weight2, expert_ids, scale1, scale2,
+                         expert_scales, hcom_ep_name, num_ranks, rank, max_output_size, activation_type,
+                         activation_alpha, gate_clamp_max, up_clamp_min, up_clamp_max, up_add, output_storage,
+                         expert_token_nums);
+        } else {
+            EXEC_NPU_CMD(aclnnDispatchFFNCombine, x, weight1, weight2, expert_ids, scale1, scale2, expert_scales,
+                         hcom_ep_name, num_ranks, rank, max_output_size, activation_type, activation_alpha,
+                         gate_clamp_max, up_clamp_min, up_clamp_max, up_add, output_storage, expert_token_nums);
+        }
     } else {
         // TODO: Implement aclnnDispatchFFNCombineBF16 when available
         EP_HOST_ASSERT_S(false, "BF16 mode not yet supported for dispatch_ffn_combine");
@@ -1140,40 +1153,4 @@ std::vector<at::Tensor> Buffer::dispatch_ffn_combine(const at::Tensor &x, const 
     return {output, expert_token_nums};
 }
 
-std::vector<at::Tensor> Buffer::dispatch_ffn_combine_m3(const at::Tensor &x, const at::Tensor &expert_ids,
-                                                        const at::Tensor &weight1, const at::Tensor &scale1,
-                                                        const at::Tensor &weight2, const at::Tensor &scale2,
-                                                        const at::Tensor &expert_scales, int64_t max_output_size,
-                                                        int64_t num_experts, int quant_mode) const
-{
-    EP_HOST_ASSERT(expert_ids.dim() == 2);
-    EP_HOST_ASSERT(expert_scales.dim() == 2);
-    EP_HOST_ASSERT(max_output_size > 0);
-    EP_HOST_ASSERT(x.size(1) == 6144);
-    EP_HOST_ASSERT(expert_ids.size(1) == 4);
-    EP_HOST_ASSERT(num_experts == 128);
-    EP_HOST_ASSERT(num_ranks == 16);
-    EP_HOST_ASSERT(weight1.scalar_type() == at::ScalarType::Char);
-
-    char hcom_ep_name[128];
-    if (!moe_all_to_all_group_name.empty()) {
-        std::memcpy(hcom_ep_name, moe_all_to_all_group_name.data(), moe_all_to_all_group_name.size() + 1);
-    } else {
-        HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
-    }
-
-    int h = x.size(1);
-    int bs = expert_ids.size(0);
-    int64_t num_local_experts = num_experts / num_ranks;
-    // DispatchFFNCombineM3 reuses `out` as a routed-token scratch buffer up to
-    // max_output_size. Keep the model-visible result at [bs, h], but back it
-    // with sufficient storage so the custom kernel cannot write past the tensor.
-    at::Tensor output_storage = at::empty({std::max<int64_t>(bs, max_output_size), h}, x.options());
-    at::Tensor output = output_storage.narrow(0, 0, bs);
-    at::Tensor expert_token_nums = at::empty({num_local_experts}, expert_ids.options());
-
-    EXEC_NPU_CMD(aclnnDispatchFFNCombineM3, x, weight1, weight2, expert_ids, scale1, scale2, expert_scales,
-                 hcom_ep_name, num_ranks, rank, max_output_size, output_storage, expert_token_nums);
-    return {output, expert_token_nums};
-}
 }  // namespace deep_ep
