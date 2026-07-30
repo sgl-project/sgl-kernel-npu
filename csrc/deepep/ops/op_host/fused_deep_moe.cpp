@@ -64,6 +64,12 @@ public:
         this->Attr("share_expert_rank_num").Int();
         this->Attr("quant_mode").Int();
         this->Attr("global_bs").Int();
+        this->Attr("activation_type").AttrType(OPTIONAL).Int(0);
+        this->Attr("activation_alpha").AttrType(OPTIONAL).Float(0.0);
+        this->Attr("gate_clamp_max").AttrType(OPTIONAL).Float(0.0);
+        this->Attr("up_clamp_min").AttrType(OPTIONAL).Float(0.0);
+        this->Attr("up_clamp_max").AttrType(OPTIONAL).Float(0.0);
+        this->Attr("up_add").AttrType(OPTIONAL).Float(0.0);
 
         this->MC2().HcclGroup({"group_ep"});
         this->AICore().AddConfig("ascend910_93");

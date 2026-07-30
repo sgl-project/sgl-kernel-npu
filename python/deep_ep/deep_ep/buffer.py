@@ -1,3 +1,4 @@
+import math
 import os
 from enum import IntEnum
 from typing import Callable, List, Optional, Tuple, Union
@@ -767,6 +768,12 @@ class Buffer:
         quant_mode: int = 1,
         fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
         profile_enable: bool = False,
+        activation_type: int = 0,
+        activation_alpha: float = 0.0,
+        gate_clamp_max: float = 0.0,
+        up_clamp_min: float = 0.0,
+        up_clamp_max: float = 0.0,
+        up_add: float = 0.0,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         A fused low-latency implementation for MoE expert forward and combination.
@@ -835,6 +842,21 @@ class Buffer:
                     shape `[num_local_experts]`, indicating the number of tokens received
                     by each local expert on this rank only.
         """
+        if activation_type not in (0, 1):
+            raise ValueError(f"Unsupported FuseEP activation type: {activation_type}")
+        activation_values = (
+            activation_alpha,
+            gate_clamp_max,
+            up_clamp_min,
+            up_clamp_max,
+            up_add,
+        )
+        if activation_type == 1 and (
+            not all(math.isfinite(value) for value in activation_values)
+            or up_clamp_min > up_clamp_max
+        ):
+            raise ValueError("Invalid SwiGLU-OAI activation parameters")
+
         topk_ids = topk_idx.int()
         if fuse_mode == FuseMode.FUSED_DEEP_MOE:
             output, ep_recv_count = self.runtime.fused_deep_moe(
@@ -849,6 +871,12 @@ class Buffer:
                 num_experts,
                 quant_mode,
                 profile_enable,
+                activation_type,
+                activation_alpha,
+                gate_clamp_max,
+                up_clamp_min,
+                up_clamp_max,
+                up_add,
             )
             return output, ep_recv_count
         elif fuse_mode == FuseMode.DISPATCH_FFN_COMBINE:
@@ -865,39 +893,13 @@ class Buffer:
                 max_output_size,
                 num_experts,
                 quant_mode,
+                activation_type,
+                activation_alpha,
+                gate_clamp_max,
+                up_clamp_min,
+                up_clamp_max,
+                up_add,
             )
             return output, expert_token_nums
         else:
             raise NotImplementedError(f"Not support fuse_mode:{fuse_mode}")
-
-    @log_parameters(["topk_idx"])
-    def dispatch_ffn_combine_m3(
-        self,
-        x: torch.Tensor,
-        topk_idx: torch.Tensor,
-        topk_weights: torch.Tensor,
-        weight1: torch.Tensor,
-        scale1: torch.Tensor,
-        weight2: torch.Tensor,
-        scale2: torch.Tensor,
-        max_output_size: int,
-        num_experts: int,
-        quant_mode: int = 1,
-    ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """Run the MiniMax-M3 routed-expert FuseEP prefill operator."""
-        if x.shape[-1] != 6144 or topk_idx.shape[-1] != 4 or num_experts != 128:
-            raise ValueError(
-                "DispatchFFNCombineM3 requires hidden=6144, top-k=4, and 128 routed experts"
-            )
-        return self.runtime.dispatch_ffn_combine_m3(
-            x,
-            topk_idx.int(),
-            weight1,
-            scale1,
-            weight2,
-            scale2,
-            topk_weights,
-            max_output_size,
-            num_experts,
-            quant_mode,
-        )

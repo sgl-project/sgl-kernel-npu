@@ -129,7 +129,8 @@ public:
                                            const at::Tensor &gmm1PermutedWeightScale, const at::Tensor &gmm2Weight,
                                            const at::Tensor &gmm2WeightScale, const at::Tensor &expertScalesOptional,
                                            int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
-                                           int quant_mode, bool profile_enable = false);
+                                           int quant_mode, bool profile_enable = false, int activation_type, float activation_alpha,
+                                            float gate_clamp_max, float up_clamp_min, float up_clamp_max, float up_add);
 
     void begin_profile(int64_t num_profile_skip_launches, int64_t num_profile_active_launches,
                        const std::string &profile_trace_dir = "");
@@ -137,14 +138,10 @@ public:
 
     std::vector<at::Tensor> dispatch_ffn_combine(const at::Tensor &x, const at::Tensor &expert_ids,
                                                  const at::Tensor &weight1, const at::Tensor &scale1,
-                                                 const at::Tensor &weight2, const at::Tensor &scale2,
-                                                 const at::Tensor &expert_scales, int64_t max_output_size,
-                                                 int64_t num_experts, int quant_mode) const;
-
-    std::vector<at::Tensor> dispatch_ffn_combine_m3(const at::Tensor &x, const at::Tensor &expert_ids,
-                                                    const at::Tensor &weight1, const at::Tensor &scale1,
-                                                    const at::Tensor &weight2, const at::Tensor &scale2,
-                                                    const at::Tensor &expert_scales, int64_t max_output_size,
-                                                    int64_t num_experts, int quant_mode) const;
+                                                  const at::Tensor &weight2, const at::Tensor &scale2,
+                                                  const at::Tensor &expert_scales, int64_t max_output_size,
+                                                  int64_t num_experts, int quant_mode, int activation_type,
+                                                  float activation_alpha, float gate_clamp_max, float up_clamp_min,
+                                                  float up_clamp_max, float up_add) const;
 };
 }  // namespace deep_ep

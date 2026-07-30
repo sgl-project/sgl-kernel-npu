@@ -64,6 +64,12 @@ public:
         this->Attr("M").AttrType(OPTIONAL).Int();  // global_bs
         this->Attr("transB").AttrType(OPTIONAL).Bool(false);
         this->Attr("weightNz").AttrType(OPTIONAL).Bool(false);
+        this->Attr("activation_type").AttrType(OPTIONAL).Int(0);
+        this->Attr("activation_alpha").AttrType(OPTIONAL).Float(0.0);
+        this->Attr("gate_clamp_max").AttrType(OPTIONAL).Float(0.0);
+        this->Attr("up_clamp_min").AttrType(OPTIONAL).Float(0.0);
+        this->Attr("up_clamp_max").AttrType(OPTIONAL).Float(0.0);
+        this->Attr("up_add").AttrType(OPTIONAL).Float(0.0);
 
         OpAICoreConfig aicore_config;
         aicore_config.DynamicCompileStaticFlag(true)

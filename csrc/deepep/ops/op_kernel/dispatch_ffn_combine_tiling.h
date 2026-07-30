@@ -21,6 +21,12 @@ struct DispatchFFNCombineInfo {
     uint32_t topK;
     uint32_t worldSize;
     uint32_t listLen;
+    uint32_t activationType;
+    float activationAlpha;
+    float gateClampMax;
+    float upClampMin;
+    float upClampMax;
+    float upAdd;
 };
 
 struct CoCTiling {

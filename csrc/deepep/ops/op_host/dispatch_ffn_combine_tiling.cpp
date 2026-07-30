@@ -12,6 +12,7 @@
 #include <vector>
 #include <map>
 #include <algorithm>
+#include <cmath>
 #include "../op_kernel/dispatch_ffn_combine_kernel/moe_init_routing_quant_v2/moe_init_routing_quant_v2_tiling.h"
 
 using namespace AscendC;
@@ -26,9 +27,16 @@ constexpr uint32_t ATTR_EP_RANK_ID_INDEX = 2;
 constexpr uint32_t ATTR_MAX_OUTPUT_SIZE_INDEX = 3;
 constexpr uint32_t ATTR_IS_TRANS_B = 4;
 constexpr uint32_t ATTR_WEIGHT_NZ = 5;
+constexpr uint32_t ATTR_ACTIVATION_TYPE = 6;
+constexpr uint32_t ATTR_ACTIVATION_ALPHA = 7;
+constexpr uint32_t ATTR_GATE_CLAMP_MAX = 8;
+constexpr uint32_t ATTR_UP_CLAMP_MIN = 9;
+constexpr uint32_t ATTR_UP_CLAMP_MAX = 10;
+constexpr uint32_t ATTR_UP_ADD = 11;
 constexpr uint64_t INIT_TILINGKEY = 1000000;
 constexpr uint64_t TILINGKEY_TRANS_B = 1U;
 constexpr uint64_t TILINGKEY_WEIGHT_NZ = 10;
+constexpr uint64_t TILINGKEY_SWIGLU_OAI = 100;
 constexpr uint32_t X_INDEX = 0;
 constexpr uint32_t WEIGHT_INDEX = 1;
 constexpr uint32_t WEIGHT2_INDEX = 2;
@@ -78,6 +86,12 @@ static ge::graphStatus DispatchFFNCombineCheckAttrAndSetTiling(gert::TilingConte
     auto maxOutputSizePtr = attrs->GetAttrPointer<int>(ATTR_MAX_OUTPUT_SIZE_INDEX);
     auto is_trans_b = attrs->GetAttrPointer<bool>(ATTR_IS_TRANS_B);
     auto weight_nz = attrs->GetAttrPointer<bool>(ATTR_WEIGHT_NZ);
+    auto activation_type = attrs->GetAttrPointer<int>(ATTR_ACTIVATION_TYPE);
+    auto activation_alpha = attrs->GetAttrPointer<float>(ATTR_ACTIVATION_ALPHA);
+    auto gate_clamp_max = attrs->GetAttrPointer<float>(ATTR_GATE_CLAMP_MAX);
+    auto up_clamp_min = attrs->GetAttrPointer<float>(ATTR_UP_CLAMP_MIN);
+    auto up_clamp_max = attrs->GetAttrPointer<float>(ATTR_UP_CLAMP_MAX);
+    auto up_add = attrs->GetAttrPointer<float>(ATTR_UP_ADD);
     OP_TILING_CHECK(groupPtr == nullptr || strlen(groupPtr) == 0, OP_LOGE(K_INNER_DEBUG, "group is invalid."),
                     return GRAPH_FAILED);
     OP_TILING_CHECK(epRankSizePtr == nullptr, OP_LOGE(K_INNER_DEBUG, "epRankSizePtr is invalid."), return GRAPH_FAILED);
@@ -85,10 +99,26 @@ static ge::graphStatus DispatchFFNCombineCheckAttrAndSetTiling(gert::TilingConte
 
     OP_TILING_CHECK(is_trans_b == nullptr, OP_LOGE(K_INNER_DEBUG, "is_trans_b is invalid."), return GRAPH_FAILED);
     OP_TILING_CHECK(weight_nz == nullptr, OP_LOGE(K_INNER_DEBUG, "weight_nz is invalid."), return GRAPH_FAILED);
+    OP_TILING_CHECK(activation_type == nullptr || activation_alpha == nullptr || gate_clamp_max == nullptr ||
+                        up_clamp_min == nullptr || up_clamp_max == nullptr || up_add == nullptr,
+                    OP_LOGE(K_INNER_DEBUG, "activation attributes are invalid."), return GRAPH_FAILED);
+    OP_TILING_CHECK(*activation_type != 0 && *activation_type != 1,
+                    OP_LOGE(K_INNER_DEBUG, "unsupported activation type."), return GRAPH_FAILED);
+    OP_TILING_CHECK(*activation_type == 1 &&
+                        (!std::isfinite(*activation_alpha) || !std::isfinite(*gate_clamp_max) ||
+                         !std::isfinite(*up_clamp_min) || !std::isfinite(*up_clamp_max) || !std::isfinite(*up_add) ||
+                         *up_clamp_min > *up_clamp_max),
+                    OP_LOGE(K_INNER_DEBUG, "invalid SwiGLU-OAI activation parameters."), return GRAPH_FAILED);
 
     info.maxOutputSize = *maxOutputSizePtr;
     info.isTransposeB = *is_trans_b;
     info.isWeightNz = *weight_nz;
+    info.activationType = *activation_type;
+    info.activationAlpha = *activation_alpha;
+    info.gateClampMax = *gate_clamp_max;
+    info.upClampMin = *up_clamp_min;
+    info.upClampMax = *up_clamp_max;
+    info.upAdd = *up_add;
 
     uint32_t epRankSize = static_cast<uint32_t>(*epRankSizePtr);
     OP_TILING_CHECK(*epRankIdPtr < 0, OP_LOGE(K_INNER_DEBUG, "epRankId must >= 0."), return ge::GRAPH_FAILED);
@@ -211,6 +241,8 @@ static ge::graphStatus DispatchFFNCombineTilingFuncImpl(gert::TilingContext *con
     uint64_t tilingKey = INIT_TILINGKEY;
     tilingKey += info.isTransposeB ? TILINGKEY_TRANS_B : 0;
     tilingKey += info.isWeightNz ? TILINGKEY_WEIGHT_NZ : 0;
+    // OAI changes only epilogue arithmetic. Reuse the standard task key: the
+    // separately compiled OAI key produces an all-zero output on Ascend.
     context->SetTilingKey(tilingKey);
 
     OP_LOGD(K_INNER_DEBUG, "tilingKey=%d", tilingKey);
@@ -292,85 +324,6 @@ static ge::graphStatus DispatchFFNCombineTilingFunc(gert::TilingContext *context
     return DispatchFFNCombineTilingFuncImpl(context);
 }
 
-static ge::graphStatus DispatchFFNCombineM3TilingFuncImpl(gert::TilingContext *context)
-{
-    const char *nodeName = context->GetNodeName();
-    const gert::StorageShape *xShape = context->GetInputShape(X_INDEX);
-    const gert::StorageShape *expertIdsShape = context->GetInputShape(EXPERTID_INDEX);
-    if (xShape == nullptr || expertIdsShape == nullptr || xShape->GetStorageShape().GetDimNum() != 2 ||
-        expertIdsShape->GetStorageShape().GetDimNum() != 2 || xShape->GetStorageShape().GetDim(1) != 6144 ||
-        expertIdsShape->GetStorageShape().GetDim(1) != 4) {
-        OP_LOGE(nodeName, "DispatchFFNCombineM3 requires x=[M, 6144] and expertIdx=[M, 4].");
-        return ge::GRAPH_FAILED;
-    }
-
-    auto attrs = context->GetAttrs();
-    const int *epRankSize = attrs == nullptr ? nullptr : attrs->GetAttrPointer<int>(ATTR_EP_RANK_SIZE_INDEX);
-    if (epRankSize == nullptr || *epRankSize != 16) {
-        OP_LOGE(nodeName, "DispatchFFNCombineM3 requires ep_rank_size=16.");
-        return ge::GRAPH_FAILED;
-    }
-
-    DispatchFFNCombineTilingData *tilingData = context->GetTilingData<DispatchFFNCombineTilingData>();
-    OP_TILING_CHECK(tilingData == nullptr, OP_LOGE(nodeName, "tilingData is nullptr."), return ge::GRAPH_FAILED);
-    DispatchFFNCombineInfo &info = tilingData->dispatchFFNCombineInfo;
-    OP_TILING_CHECK(DispatchFFNCombineCheckAttrAndSetTiling(context, info) != ge::GRAPH_SUCCESS,
-                    OP_LOGE(nodeName, "M3 attribute tiling failed"), return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(DispatchFFNCombineCheckShapeAndSetTiling(context, info) != ge::GRAPH_SUCCESS,
-                    OP_LOGE(nodeName, "M3 shape tiling failed"), return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(
-        info.K != 6144 || info.topK != 4 || info.worldSize != 16 || info.expertPerRank * info.worldSize != 128,
-        OP_LOGE(nodeName, "M3 requires hidden=6144, top-k=4, 128 experts, and EP16."), return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(DispatchFFNCombineGetPlatformInfoAndSetTiling(context, info) != ge::GRAPH_SUCCESS,
-                    OP_LOGE(nodeName, "M3 platform tiling failed"), return ge::GRAPH_FAILED);
-
-    SetTilingData(tilingData->cocTiling, info);
-    auto ascendcPlatform = platform_ascendc::PlatformAscendC(context->GetPlatformInfo());
-    context->SetBlockDim(ascendcPlatform.CalcTschBlockDim(
-        ascendcPlatform.GetCoreNumAiv(), ascendcPlatform.GetCoreNumAic(), ascendcPlatform.GetCoreNumAiv()));
-    context->SetTilingKey(INIT_TILINGKEY + (info.isTransposeB ? TILINGKEY_TRANS_B : 0) +
-                          (info.isWeightNz ? TILINGKEY_WEIGHT_NZ : 0));
-
-    optiling::MoeInitRoutingQuantV2TilingBase routingTiling;
-    constexpr int64_t kInputBytes = sizeof(int16_t);
-    constexpr int64_t kUbSize = 196352;
-    routingTiling.DoTiling(info.M, info.K, info.topK, 0, info.expertPerRank * info.worldSize, 0, 0, 2, false,
-                           kInputBytes, 1, 0, 2 * BLOCK_NUM, kUbSize);
-    tilingData->cocTiling.moeInitRoutingQuantV2TilingData = routingTiling.quantTilingData;
-    tilingData->cocTiling.initRoutingQuantTilingKey = routingTiling.tilingKey_;
-
-    const uint64_t requiredHcclBytes =
-        static_cast<uint64_t>(info.M) * info.K * info.topK * sizeof(int8_t) * 3 + 10 * MB_SIZE;
-    OP_TILING_CHECK(requiredHcclBytes > GetMaxWindowSize(),
-                    OP_LOGE(nodeName, "M3 HCCL_BUFFSIZE is too small: M=%u requires %luMB.", info.M,
-                            (requiredHcclBytes + MB_SIZE - 1) / MB_SIZE),
-                    return ge::GRAPH_FAILED);
-
-    size_t *workspaces = context->GetWorkspaceSizes(1);
-    OP_TILING_CHECK(workspaces == nullptr, OP_LOGE(nodeName, "M3 workspaces is nullptr."), return ge::GRAPH_FAILED);
-    const uint64_t maxOutput = info.maxOutputSize;
-    const uint64_t n2 = info.K;
-    const uint64_t k2 = info.N / 2;
-    const uint64_t cocWorkspace = ((info.M + 255) / 256) * 256 * info.topK * sizeof(int32_t) +
-                                  info.worldSize * info.worldSize * info.expertPerRank * sizeof(int32_t) * 3 +
-                                  maxOutput * sizeof(float) * 2 + maxOutput * info.N * sizeof(int16_t) +
-                                  maxOutput * n2 * sizeof(int16_t) + maxOutput * info.K * sizeof(int8_t) +
-                                  maxOutput * k2 * sizeof(int8_t) + info.worldSize * sizeof(int32_t) * 16 +
-                                  (info.expertPerRank + info.worldSize) * sizeof(int32_t) * 16;
-    workspaces[0] = SYSTEM_NEED_WORKSPACE + std::max(cocWorkspace, routingTiling.workspaceSize_);
-
-    auto group = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_GROUP_INDEX));
-    AscendC::Mc2CcTilingConfig mc2Config(group, 8U, "AlltoAll=level0:fullmesh;level1:pairwise");
-    mc2Config.GetTiling(tilingData->mc2InitTiling);
-    mc2Config.GetTiling(tilingData->mc2CcTiling);
-    return ge::GRAPH_SUCCESS;
-}
-
-static ge::graphStatus DispatchFFNCombineM3TilingFunc(gert::TilingContext *context)
-{
-    return DispatchFFNCombineM3TilingFuncImpl(context);
-}
-
 struct DispatchFFNCombineCompileInfo {};
 ge::graphStatus TilingParseForDispatchFFNCombine(gert::TilingParseContext *context)
 {
@@ -382,7 +335,8 @@ IMPL_OP_OPTILING(DispatchFFNCombine)
     .Tiling(DispatchFFNCombineTilingFunc)
     .TilingParse<DispatchFFNCombineCompileInfo>(TilingParseForDispatchFFNCombine);
 
-IMPL_OP_OPTILING(DispatchFFNCombineM3)
-    .Tiling(DispatchFFNCombineM3TilingFunc)
+IMPL_OP_OPTILING(DispatchFFNCombineSwiGluOAI)
+    .Tiling(DispatchFFNCombineTilingFunc)
     .TilingParse<DispatchFFNCombineCompileInfo>(TilingParseForDispatchFFNCombine);
+
 }  // namespace optiling
