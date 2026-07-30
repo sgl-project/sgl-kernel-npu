@@ -20,6 +20,8 @@ EXPERT_TOKEN_NUMS_TYPE_CUMSUM = 0
 EXPERT_TOKEN_NUMS_TYPE_COUNT = 1
 COMM_QUANT_MODE_INT8 = 2
 
+# export ASCEND_CUSTOM_OPP_PATH=${ASCEND_HOME_PATH}/opp/vendors/custom_transformer
+
 
 def info_rank0(rank: int, message: str):
     if rank == 0:
@@ -651,6 +653,7 @@ def run_baseline_reference(
     x: torch.Tensor,
     topk_idx: torch.Tensor,
     topk_weights: torch.Tensor,
+    max_num_tokens: int,
     num_experts: int,
     weights: dict,
     activation: str,
@@ -664,7 +667,6 @@ def run_baseline_reference(
     enable_dispatch_v2: bool,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     local_num_tokens = x.size(0)
-    max_num_tokens = 32
     global_bs = max_num_tokens * ep_world_size
 
     x_active_mask = torch.zeros(
@@ -785,6 +787,7 @@ def run_fused_reference(
     topk_idx: torch.Tensor,
     topk_weights: torch.Tensor,
     num_tokens: int,
+    num_max_dispatch_tokens_per_rank: int,
     num_experts: int,
     weights: dict,
     activation: str,
@@ -801,7 +804,7 @@ def run_fused_reference(
         gmm1_permuted_weight_scale=weights["fused_l1_scales"],
         gmm2_weight=weights["fused_l2_weights"],
         gmm2_weight_scale=weights["fused_l2_scales"],
-        num_max_dispatch_tokens_per_rank=32,
+        num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
         num_experts=num_experts,
         backend="mega_moe",
         fuse_mode=FuseMode.FUSED_DEEP_MOE,
@@ -876,10 +879,14 @@ def launch_case(
     topk_idx, topk_weights = make_topk_inputs(
         args.num_tokens, args.num_experts, args.num_topk, device
     )
+    max_num_tokens = torch.tensor(x.size(0), device=device, dtype=torch.int32)
+    dist.all_reduce(max_num_tokens, op=dist.ReduceOp.MAX)
+    max_num_tokens = int(max_num_tokens.item())
     baseline_out, baseline_counts = run_baseline_reference(
         x,
         topk_idx,
         topk_weights,
+        max_num_tokens,
         args.num_experts,
         weights,
         case["activation"],
@@ -898,6 +905,7 @@ def launch_case(
         topk_idx,
         topk_weights,
         args.num_tokens,
+        max_num_tokens,
         args.num_experts,
         weights,
         case["activation"],
@@ -1107,9 +1115,15 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="A3 W4A8 fused_deep_moe vs MC2 small-op accuracy test."
+        description="A3 W4A8 fused_deep_moe vs MC2 small-op accuracy test.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("--num-processes", type=int, default=16)
+    parser.add_argument(
+        "--num-processes",
+        type=int,
+        default=16,
+        help="Number of local worker processes to spawn.",
+    )
     parser.add_argument(
         "--num-ranks-per-server",
         type=int,
@@ -1119,8 +1133,18 @@ if __name__ == "__main__":
             "--num-processes and must match it for this launcher."
         ),
     )
-    parser.add_argument("--num-servers", type=int, default=1)
-    parser.add_argument("--server-index", type=int, default=0)
+    parser.add_argument(
+        "--num-servers",
+        type=int,
+        default=1,
+        help="Total number of servers participating in distributed execution.",
+    )
+    parser.add_argument(
+        "--server-index",
+        type=int,
+        default=0,
+        help="Zero-based index of the current server.",
+    )
     parser.add_argument(
         "--master-addr",
         type=str,
@@ -1137,20 +1161,79 @@ if __name__ == "__main__":
         "--hccl-buffsize",
         type=int,
         default=None,
-        help="Set HCCL_BUFFSIZE before spawning.",
+        help="HCCL buffer size in bytes; set HCCL_BUFFSIZE before spawning.",
     )
-    parser.add_argument("--num-tokens", type=int, default=64)
-    parser.add_argument("--hidden", type=int, default=7168)
-    parser.add_argument("--moe-intermediate-size", type=int, default=3072)
-    parser.add_argument("--num-topk", type=int, default=6)
-    parser.add_argument("--num-experts", type=int, default=16)
-    parser.add_argument("--activation", type=str, default="swiglu,situ")
-    parser.add_argument("--beta", type=str, default="4.0")
-    parser.add_argument("--linear-beta", type=str, default="25.0")
-    parser.add_argument("--activation-clamp", type=str, default="0")
-    parser.add_argument("--seed", type=int, default=2026)
-    parser.add_argument("--enable-performance", action="store_true")
-    parser.add_argument("--performance-iters", type=int, default=30)
+    parser.add_argument(
+        "--num-tokens",
+        type=int,
+        default=64,
+        help="Number of input tokens generated on each rank.",
+    )
+    parser.add_argument(
+        "--hidden",
+        type=int,
+        default=7168,
+        help="Hidden size of input and output token.",
+    )
+    parser.add_argument(
+        "--moe-intermediate-size",
+        type=int,
+        default=3072,
+        help="Intermediate hidden size of each MoE expert.",
+    )
+    parser.add_argument(
+        "--num-topk",
+        type=int,
+        default=8,
+        help="Number of experts selected for each token.",
+    )
+    parser.add_argument(
+        "--num-experts",
+        type=int,
+        default=64,
+        help="Global number of MoE experts.",
+    )
+    parser.add_argument(
+        "--activation",
+        type=str,
+        default="situ",
+        help="Comma-separated activation cases, such as situ or swiglu.",
+    )
+    parser.add_argument(
+        "--beta",
+        type=str,
+        default="4.0",
+        help="beta values used by the situ activation.",
+    )
+    parser.add_argument(
+        "--linear-beta",
+        type=str,
+        default="25.0",
+        help="linear beta values used by the situ activation.",
+    )
+    parser.add_argument(
+        "--activation-clamp",
+        type=str,
+        default="0",
+        help="Comma-separated activation clamp values; 0 disables clamping.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=2026,
+        help="Random seed used to generate inputs and weights.",
+    )
+    parser.add_argument(
+        "--enable-performance",
+        action="store_true",
+        help="Run performance measurement after the accuracy checks.",
+    )
+    parser.add_argument(
+        "--performance-iters",
+        type=int,
+        default=30,
+        help="Number of performance iterations.",
+    )
     args = parser.parse_args()
     if args.num_ranks_per_server is None:
         args.num_ranks_per_server = args.num_processes

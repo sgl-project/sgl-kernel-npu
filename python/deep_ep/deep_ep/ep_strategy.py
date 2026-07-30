@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Callable, Dict, List, Optional, Tuple, Type, Union
+from typing import Any, Callable, Dict, List, Optional, Tuple, Type, Union
 
 import torch
 import torch.distributed as dist
@@ -26,6 +26,15 @@ class LowLatencyStrategy:
     @classmethod
     def get_all_strategies(cls) -> list:
         return [cls.DEFAULT, cls.OPS, cls.ALLTOALL]
+
+
+class FusedStrategy:
+    DEEP_EP = "deep_ep"
+    MEGA_MOE = "mega_moe"
+
+    @classmethod
+    def get_all_strategies(cls) -> list:
+        return [cls.DEEP_EP, cls.MEGA_MOE]
 
 
 # Normal mode strategy and Low latency mode strategy
@@ -213,6 +222,48 @@ class LowLatencyEPCommStrategy(EPCommStrategy):
         pass
 
 
+class FusedEPStrategy(ABC):
+    """Fused MoE execution strategies base class."""
+
+    def destroy(self) -> None:
+        """Release strategy-owned resources."""
+        return None
+
+    @abstractmethod
+    def get_name(self) -> str:
+        """Get the name of the strategy."""
+        pass
+
+    @abstractmethod
+    def run(
+        self,
+        *,
+        buffer: Any,
+        x: torch.Tensor,
+        topk_idx: torch.Tensor,
+        topk_weights: torch.Tensor,
+        gmm1_permuted_weight,
+        gmm1_permuted_weight_scale,
+        gmm2_weight,
+        gmm2_weight_scale,
+        num_max_dispatch_tokens_per_rank: int,
+        num_experts: int,
+        quant_mode: int,
+        fuse_mode,
+        activation: str,
+        activation_clamp: Optional[float],
+        beta: float,
+        linear_beta: Optional[float],
+        l1_bias,
+        l2_bias,
+        dispatch_quant_mode: Optional[int],
+        dispatch_quant_out_dtype: Optional[torch.dtype],
+        max_recv_token_num: int,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """Execute fused MoE with the bound backend strategy."""
+        pass
+
+
 # ==================== Strategy Registry ====================
 
 # Normal mode strategy registry
@@ -220,6 +271,9 @@ _NORMAL_STRATEGY_REGISTRY: Dict[str, Type[NormalEPCommStrategy]] = {}
 
 # Low latency mode strategy registry
 _LOW_LATENCY_STRATEGY_REGISTRY: Dict[str, Type[LowLatencyEPCommStrategy]] = {}
+
+# Fused mode strategy registry
+_FUSED_STRATEGY_REGISTRY: Dict[str, Type[FusedEPStrategy]] = {}
 
 
 def register_normal_strategy(name: str):
@@ -258,3 +312,22 @@ def get_low_latency_strategy(name: str) -> Type[LowLatencyEPCommStrategy]:
             f"Unknown low latency strategy: {name}. Available: {list(_LOW_LATENCY_STRATEGY_REGISTRY.keys())}"
         )
     return _LOW_LATENCY_STRATEGY_REGISTRY[name]
+
+
+def register_fused_strategy(name: str):
+    """Decorator to register a fused mode strategy."""
+
+    def decorator(cls: Type[FusedEPStrategy]):
+        _FUSED_STRATEGY_REGISTRY[name] = cls
+        return cls
+
+    return decorator
+
+
+def get_fused_strategy(name: str) -> Type[FusedEPStrategy]:
+    """Get a fused mode strategy class by name."""
+    if name not in _FUSED_STRATEGY_REGISTRY:
+        raise ValueError(
+            f"Unknown fused strategy: {name}. Available: {list(_FUSED_STRATEGY_REGISTRY.keys())}"
+        )
+    return _FUSED_STRATEGY_REGISTRY[name]

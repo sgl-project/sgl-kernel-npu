@@ -1,0 +1,33 @@
+Traceback (most recent call last):
+  File "/home/z30071866/sgl-kernel-npu/tests/python/deepep/test_fused_deep_moe_a3_w4a8_acc.py", line 1164, in <module>
+    torch.multiprocessing.spawn(
+  File "/usr/local/python3.11.15/lib/python3.11/site-packages/torch/multiprocessing/spawn.py", line 340, in spawn
+    return start_processes(fn, args, nprocs, join, daemon, start_method="spawn")
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/python3.11.15/lib/python3.11/site-packages/torch/multiprocessing/spawn.py", line 296, in start_processes
+    while not context.join():
+              ^^^^^^^^^^^^^^
+  File "/usr/local/python3.11.15/lib/python3.11/site-packages/torch/multiprocessing/spawn.py", line 211, in join
+    raise ProcessRaisedException(msg, error_index, failed_process.pid)
+torch.multiprocessing.spawn.ProcessRaisedException:
+
+-- Process 8 terminated with the following error:
+Traceback (most recent call last):
+  File "/usr/local/python3.11.15/lib/python3.11/site-packages/torch/multiprocessing/spawn.py", line 87, in _wrap
+    fn(i, *args)
+  File "/home/z30071866/sgl-kernel-npu/tests/python/deepep/test_fused_deep_moe_a3_w4a8_acc.py", line 1093, in test_loop
+    test_main(
+  File "/home/z30071866/sgl-kernel-npu/tests/python/deepep/test_fused_deep_moe_a3_w4a8_acc.py", line 1051, in test_main
+    launch_case(
+  File "/home/z30071866/sgl-kernel-npu/tests/python/deepep/test_fused_deep_moe_a3_w4a8_acc.py", line 895, in launch_case
+    fused_out, fused_counts = run_fused_reference(
+                              ^^^^^^^^^^^^^^^^^^^^
+  File "/home/z30071866/sgl-kernel-npu/tests/python/deepep/test_fused_deep_moe_a3_w4a8_acc.py", line 796, in run_fused_reference
+    out = buffer.fused_deep_moe(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/python3.11.15/lib/python3.11/site-packages/deep_ep/buffer.py", line 966, in fused_deep_moe
+    output, expert_token_num = strategy.run(
+                               ^^^^^^^^^^^^^
+TypeError: MegaMoeFusedStrategy.run() missing 1 required keyword-only argument: 'quant_mode'
+
+[ERROR] 2026-07-30-09:08:01 (PID:126280, Device:-1, RankID:-1) ERR99999 UNKNOWN applicaiton exception
