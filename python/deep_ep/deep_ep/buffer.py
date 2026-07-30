@@ -1,6 +1,6 @@
 import os
 from enum import IntEnum
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import deep_ep_cpp
 import torch
@@ -17,10 +17,25 @@ from .ep_strategy import (
 )
 from .utils import EventOverlap, log_parameters
 
+try:
+    from cann_ops_transformer.ops import (
+        get_symm_buffer_for_mega_moe as _get_symm_buffer_for_mega_moe,
+    )
+    from cann_ops_transformer.ops import mega_moe as _mega_moe
+
+    _MEGA_MOE_IMPORT_ERROR = None
+except ImportError as exc:
+    _get_symm_buffer_for_mega_moe = None
+    _mega_moe = None
+    _MEGA_MOE_IMPORT_ERROR = exc
+
 
 class FuseMode(IntEnum):
     FUSED_DEEP_MOE = 1
     DISPATCH_FFN_COMBINE = 2
+
+
+TensorOrTensors = Union[torch.Tensor, List[torch.Tensor]]
 
 
 class Buffer:
@@ -92,6 +107,7 @@ class Buffer:
 
         # Initialize low latency mode strategy
         self._init_low_latency_strategy(low_latency_strategy)
+        self._mega_moe_symm_buffer_cache: Dict[tuple, object] = {}
 
     def _init_normal_strategy(self, strategy: Union[str, NormalStrategy]):
         """Initialize normal mode communication strategy"""
@@ -121,6 +137,20 @@ class Buffer:
             init_kwargs["comm_alg"] = comm_alg
 
         self.low_latency_strategy = strategy_cls(**init_kwargs)
+
+    def _destroy_mega_moe_symm_buffers(self) -> None:
+        for sym_buffer in self._mega_moe_symm_buffer_cache.values():
+            try:
+                sym_buffer.destroy()
+            except Exception:
+                pass
+        self._mega_moe_symm_buffer_cache.clear()
+
+    def __del__(self):
+        try:
+            self._destroy_mega_moe_symm_buffers()
+        except Exception:
+            pass
 
     @staticmethod
     def get_dispatch_config(num_ranks: int) -> Config:
@@ -779,92 +809,298 @@ class Buffer:
             out=out,
         )
 
-    def fused_deep_moe(
+    def _require_mega_moe_ops(self) -> Tuple[Callable, Callable]:
+        if _get_symm_buffer_for_mega_moe is None or _mega_moe is None:
+            raise ImportError(
+                "The mega_moe backend requires the optional dependency "
+                "`cann_ops_transformer`. Install or expose `cann_ops_transformer.ops` "
+                'before calling `Buffer.fused_deep_moe(..., backend="mega_moe")`.'
+            ) from _MEGA_MOE_IMPORT_ERROR
+        return _get_symm_buffer_for_mega_moe, _mega_moe
+
+    @staticmethod
+    def _normalize_expert_param(
+        param: Optional[TensorOrTensors],
+        name: str,
+        expected_num_local_experts: int,
+    ) -> Optional[List[torch.Tensor]]:
+        if param is None:
+            return None
+        if isinstance(param, list):
+            if len(param) != expected_num_local_experts:
+                raise ValueError(
+                    f"`{name}` must contain exactly {expected_num_local_experts} "
+                    f"local expert tensors, but got {len(param)}."
+                )
+            return param
+        if not isinstance(param, torch.Tensor):
+            raise TypeError(
+                f"`{name}` must be a Tensor, a list[Tensor], or None, "
+                f"but got {type(param)}."
+            )
+        if param.dim() == 0:
+            raise ValueError(f"`{name}` must not be a scalar tensor.")
+        if param.size(0) != expected_num_local_experts:
+            raise ValueError(
+                f"`{name}` must have leading dimension {expected_num_local_experts} "
+                f"for local experts, but got shape {tuple(param.shape)}."
+            )
+        return [param[i] for i in range(expected_num_local_experts)]
+
+    @staticmethod
+    def _is_zero_like_linear_beta(linear_beta: Optional[float]) -> bool:
+        return linear_beta is None or linear_beta == 0
+
+    @staticmethod
+    def _is_default_beta(beta: float) -> bool:
+        return beta == 1.0
+
+    @staticmethod
+    def _validate_activation_clamp(
+        activation_clamp: Optional[float],
+    ) -> Optional[float]:
+        if activation_clamp is None or activation_clamp == 0:
+            return None
+        if activation_clamp < 0:
+            raise ValueError("`activation_clamp` must be None or >= 0.")
+        return activation_clamp
+
+    @staticmethod
+    def _infer_mega_moe_quant_config(
+        l1_weights_sf: Optional[List[torch.Tensor]],
+        l2_weights_sf: Optional[List[torch.Tensor]],
+        l1_bias: Optional[List[torch.Tensor]],
+        l2_bias: Optional[List[torch.Tensor]],
+        dispatch_quant_mode: Optional[int],
+        dispatch_quant_out_dtype: Optional[torch.dtype],
+    ) -> Tuple[int, Optional[torch.dtype]]:
+        has_scales = l1_weights_sf is not None or l2_weights_sf is not None
+        has_bias = l1_bias is not None or l2_bias is not None
+        if has_scales and (l1_weights_sf is None or l2_weights_sf is None):
+            raise ValueError(
+                "`gmm1_permuted_weight_scale` and `gmm2_weight_scale` must both be "
+                "provided for mega_moe quantized execution."
+            )
+        if has_bias and (l1_bias is None or l2_bias is None):
+            raise ValueError(
+                "`l1_bias` and `l2_bias` must both be provided for A8W4-INT "
+                "mega_moe execution."
+            )
+
+        resolved_quant_mode = (
+            2
+            if has_scales or has_bias
+            else 0 if dispatch_quant_mode is None else dispatch_quant_mode
+        )
+        if resolved_quant_mode not in (0, 2):
+            raise ValueError(
+                "`dispatch_quant_mode` only supports 0 (A16W16) or 2 "
+                "(A8W8-INT/A8W4-INT) in fused_deep_moe mega_moe backend."
+            )
+        if resolved_quant_mode == 0:
+            if has_scales or has_bias:
+                raise ValueError(
+                    "Scale and bias tensors are only valid when "
+                    "`dispatch_quant_mode=2`."
+                )
+            if dispatch_quant_out_dtype is not None:
+                raise ValueError(
+                    "`dispatch_quant_out_dtype` must be None when "
+                    "`dispatch_quant_mode=0`."
+                )
+            return 0, None
+
+        resolved_quant_out_dtype = (
+            torch.int8 if dispatch_quant_out_dtype is None else dispatch_quant_out_dtype
+        )
+        if resolved_quant_out_dtype != torch.int8:
+            raise ValueError(
+                "`dispatch_quant_out_dtype` must be torch.int8 for "
+                "A8W8-INT/A8W4-INT mega_moe execution."
+            )
+        return resolved_quant_mode, resolved_quant_out_dtype
+
+    def _get_or_create_mega_moe_symm_buffer(
+        self,
+        *,
+        num_experts: int,
+        num_max_dispatch_tokens_per_rank: int,
+        num_topk: int,
+        hidden: int,
+        intermediate_hidden: int,
+        max_recv_token_num: int,
+        dispatch_quant_mode: int,
+        dispatch_quant_out_dtype: Optional[torch.dtype],
+        activation: str,
+    ):
+        get_symm_buffer_for_mega_moe, _ = self._require_mega_moe_ops()
+        cache_key = (
+            num_experts,
+            num_max_dispatch_tokens_per_rank,
+            num_topk,
+            hidden,
+            intermediate_hidden,
+            max_recv_token_num,
+            dispatch_quant_mode,
+            dispatch_quant_out_dtype,
+            activation,
+        )
+        sym_buffer = self._mega_moe_symm_buffer_cache.get(cache_key)
+        if sym_buffer is None:
+            sym_buffer = get_symm_buffer_for_mega_moe(
+                self.group,
+                num_experts=num_experts,
+                num_max_tokens_per_rank=num_max_dispatch_tokens_per_rank,
+                num_topk=num_topk,
+                hidden=hidden,
+                intermediate_hidden=intermediate_hidden,
+                max_recv_token_num=max_recv_token_num,
+                dispatch_quant_mode=dispatch_quant_mode,
+                dispatch_quant_out_dtype=dispatch_quant_out_dtype,
+            )
+            self._mega_moe_symm_buffer_cache[cache_key] = sym_buffer
+        return sym_buffer
+
+    def _pad_mega_moe_inputs(
         self,
         x: torch.Tensor,
         topk_idx: torch.Tensor,
         topk_weights: torch.Tensor,
-        gmm1_permuted_weight: torch.Tensor,
-        gmm1_permuted_weight_scale: torch.Tensor,
-        gmm2_weight: torch.Tensor,
-        gmm2_weight_scale: torch.Tensor,
+        num_max_dispatch_tokens_per_rank: int,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, int]:
+        original_num_tokens = x.size(0)
+        if original_num_tokens > num_max_dispatch_tokens_per_rank:
+            raise ValueError(
+                "The number of input tokens exceeds "
+                "`num_max_dispatch_tokens_per_rank`: "
+                f"{original_num_tokens} > {num_max_dispatch_tokens_per_rank}."
+            )
+
+        x_active_mask = torch.zeros(
+            num_max_dispatch_tokens_per_rank,
+            dtype=torch.int8,
+            device=x.device,
+        )
+        x_active_mask[:original_num_tokens] = 1
+
+        if original_num_tokens == num_max_dispatch_tokens_per_rank:
+            return x, topk_idx, topk_weights, x_active_mask, original_num_tokens
+
+        padding_size = num_max_dispatch_tokens_per_rank - original_num_tokens
+        x_padded = torch.cat(
+            (x, x.new_zeros((padding_size, x.size(1)))),
+            dim=0,
+        )
+        topk_idx_padded = torch.cat(
+            (
+                topk_idx,
+                topk_idx.new_zeros((padding_size, topk_idx.size(1))),
+            ),
+            dim=0,
+        )
+        topk_weights_padded = torch.cat(
+            (
+                topk_weights,
+                topk_weights.new_zeros((padding_size, topk_weights.size(1))),
+            ),
+            dim=0,
+        )
+        return (
+            x_padded,
+            topk_idx_padded,
+            topk_weights_padded,
+            x_active_mask,
+            original_num_tokens,
+        )
+
+    def _resolve_fused_backend(
+        self,
+        *,
+        backend: str,
+        activation: str,
+        l1_bias: Optional[TensorOrTensors],
+        l2_bias: Optional[TensorOrTensors],
+        dispatch_quant_mode: Optional[int],
+    ) -> str:
+        if backend not in ("auto", "deep_ep", "mega_moe"):
+            raise ValueError(
+                f"Unsupported backend {backend!r}. Expected one of "
+                "`auto`, `deep_ep`, or `mega_moe`."
+            )
+        if backend == "auto":
+            if activation == "situ":
+                return "mega_moe"
+            return "deep_ep"
+        return backend
+
+    def _fused_deep_moe_with_deep_ep(
+        self,
+        x: torch.Tensor,
+        topk_idx: torch.Tensor,
+        topk_weights: torch.Tensor,
+        gmm1_permuted_weight: TensorOrTensors,
+        gmm1_permuted_weight_scale: Optional[TensorOrTensors],
+        gmm2_weight: TensorOrTensors,
+        gmm2_weight_scale: Optional[TensorOrTensors],
         num_max_dispatch_tokens_per_rank: int,
         num_experts: int,
-        quant_mode: int = 1,
-        fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
+        quant_mode: int,
+        fuse_mode: FuseMode,
+        activation: str,
+        activation_clamp: Optional[float],
+        beta: float,
+        linear_beta: Optional[float],
+        l1_bias: Optional[TensorOrTensors],
+        l2_bias: Optional[TensorOrTensors],
+        dispatch_quant_mode: Optional[int],
+        dispatch_quant_out_dtype: Optional[torch.dtype],
+        max_recv_token_num: int,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        A fused low-latency implementation for MoE expert forward and combination.
+        activation_clamp = self._validate_activation_clamp(activation_clamp)
+        if not self._is_default_beta(beta):
+            raise ValueError("`beta` is only supported by the mega_moe backend.")
+        if activation != "situ" and not self._is_zero_like_linear_beta(linear_beta):
+            raise ValueError('`linear_beta` is only valid when `activation="situ"`.')
+        if activation != "swiglu":
+            raise ValueError(
+                "The deep_ep fused backend only supports activation='swiglu'. "
+                "Use backend='mega_moe' for other activation types."
+            )
+        if activation_clamp is not None:
+            raise ValueError(
+                "`activation_clamp` is only supported by the mega_moe backend."
+            )
+        if not self._is_zero_like_linear_beta(linear_beta):
+            raise ValueError("`linear_beta` is only supported by the mega_moe backend.")
+        if l1_bias is not None or l2_bias is not None:
+            raise ValueError(
+                "`l1_bias` and `l2_bias` are only supported by the mega_moe backend."
+            )
+        if dispatch_quant_mode is not None or dispatch_quant_out_dtype is not None:
+            raise ValueError(
+                "`dispatch_quant_mode` and `dispatch_quant_out_dtype` are only "
+                "supported by the mega_moe backend."
+            )
+        if isinstance(gmm1_permuted_weight, list) or isinstance(gmm2_weight, list):
+            raise TypeError(
+                "The deep_ep fused backend expects Tensor inputs for "
+                "`gmm1_permuted_weight` and `gmm2_weight`."
+            )
+        if isinstance(gmm1_permuted_weight_scale, list) or isinstance(
+            gmm2_weight_scale, list
+        ):
+            raise TypeError(
+                "The deep_ep fused backend expects Tensor inputs for weight scales."
+            )
+        if gmm1_permuted_weight_scale is None or gmm2_weight_scale is None:
+            raise ValueError(
+                "The deep_ep fused backend requires both weight scale tensors."
+            )
 
-        Two fuse modes are available via the FuseMode enum:
-        - FuseMode.FUSED_DEEP_MOE (1): Full fusion via aclnnFusedDeepMoe.
-          InitRouting + AllToAll + GMM1 + DequantSwigluQuant + GMM2 + Dequant
-          + Unpermute/Combine in a single AscendC kernel.
-        - FuseMode.DISPATCH_FFN_COMBINE (2): Separate dispatch handling via aclnnDispatchFFNCombine.
-          InitRouting + AllToAll dispatch + GMM1 + DequantSwigluQuant + GMM2 + Dequant
-          + Combine in a single AscendC kernel, using a different internal fusion strategy.
-
-        Arguments:
-            x: `[bs, hidden]` with `torch.bfloat16` (or supported precision),
-                the token representations to be processed by selected experts.
-            topk_idx: `[bs, num_topk]` with `torch.int64`, the selected expert indices
-                for each token. `-1` indices are supported (meaning no expert selected).
-            topk_weights: `[bs, num_topk]` with `torch.float32`, the expert weights selected
-                by the dispatched tokens. The received tokens will be reduced with the
-                weights in this tensor.
-            gmm1_permuted_weight: weight tensor for the first stage (up-projection).
-                For FUSED_DEEP_MOE mode, requires tile-N permuted layout to fit
-                Grouped MatMul (see `reshape_fusion_gmm_weight` in test code for
-                reference implementation). For DISPATCH_FFN_COMBINE mode, standard
-                NZ format without permutation.
-            gmm1_permuted_weight_scale: quantization scale tensor for the first stage.
-                For FUSED_DEEP_MOE mode, `torch.float32` dtype (auto-converted to
-                float internally). For DISPATCH_FFN_COMBINE mode, `torch.int64` dtype
-                (float32 scale values reinterpreted as int64 bit patterns; NOT
-                auto-converted by this method — the caller must perform the conversion).
-            gmm2_weight: weight tensor for the second stage (down-projection).
-            gmm2_weight_scale: quantization scale tensor for the second stage.
-                Same dtype rules as gmm1_permuted_weight_scale.
-            num_max_dispatch_tokens_per_rank: for FUSED_DEEP_MOE mode, the maximum
-                number of tokens to dispatch per rank, used for buffer/memory allocation.
-                For DISPATCH_FFN_COMBINE mode, the maximum number of tokens received in
-                dispatch (typically max_bs * num_ranks * topk). All ranks must hold the
-                same value.
-            num_experts: the total number of global experts.
-            quant_mode: quantization mode. Supported values: 0 = no quantization (BF16),
-                1 = INT8 (default). FP8 will be supported in A5 release.
-            fuse_mode: FuseMode enum (default: FuseMode.FUSED_DEEP_MOE).
-                FuseMode is not exported from the package's top-level __init__.py;
-                import via `from deep_ep.buffer import FuseMode` or use integer
-                values 1 or 2 directly.
-
-        Notes:
-            - DISPATCH_FFN_COMBINE mode does NOT support shared experts (unlike
-              FUSED_DEEP_MOE mode which does).
-            - DISPATCH_FFN_COMBINE mode does NOT support BF16 weights (only INT8).
-            - The first dimension of `topk_idx` defines the batch size `bs`.
-            - The second dimension of `x` defines the hidden dimension `hidden`.
-            - Exact shapes of weight/scale tensors depend on GMM permutation and sharding.
-            - If optional scale tensors are empty, the kernel skips those transforms.
-
-        Returns:
-            For fuse_mode=FUSED_DEEP_MOE:
-                output: `torch.Tensor`, shape `[bs, hidden]`, the fused expert output.
-                ep_recv_count: `torch.Tensor`, a 1D tensor of type `torch.int32`,
-                    shape `[num_local_experts * num_ranks]`, indicating the number of
-                    tokens received by each expert across all ranks.
-
-            For fuse_mode=DISPATCH_FFN_COMBINE:
-                output: `torch.Tensor`, shape `[bs, hidden]`, the fused expert output.
-                expert_token_nums: `torch.Tensor`, a 1D tensor of type `torch.int32`,
-                    shape `[num_local_experts]`, indicating the number of tokens received
-                    by each local expert on this rank only.
-        """
         topk_ids = topk_idx.int()
         if fuse_mode == FuseMode.FUSED_DEEP_MOE:
             gmm1_permuted_weight_scale = gmm1_permuted_weight_scale.float()
             gmm2_weight_scale = gmm2_weight_scale.float()
-
             output, ep_recv_count = self.runtime.fused_deep_moe(
                 x,
                 topk_ids,
@@ -878,8 +1114,7 @@ class Buffer:
                 quant_mode,
             )
             return output, ep_recv_count
-        elif fuse_mode == FuseMode.DISPATCH_FFN_COMBINE:
-            # The maximum number of tokens that rank can obtain during dispatch. (max_bs * ranks * topk)
+        if fuse_mode == FuseMode.DISPATCH_FFN_COMBINE:
             max_output_size = num_max_dispatch_tokens_per_rank
             output, expert_token_nums = self.runtime.dispatch_ffn_combine(
                 x,
@@ -894,5 +1129,361 @@ class Buffer:
                 quant_mode,
             )
             return output, expert_token_nums
-        else:
-            raise NotImplementedError(f"Not support fuse_mode:{fuse_mode}")
+        raise NotImplementedError(f"Not support fuse_mode:{fuse_mode}")
+
+    def _fused_deep_moe_with_mega_moe(
+        self,
+        x: torch.Tensor,
+        topk_idx: torch.Tensor,
+        topk_weights: torch.Tensor,
+        gmm1_permuted_weight: TensorOrTensors,
+        gmm1_permuted_weight_scale: Optional[TensorOrTensors],
+        gmm2_weight: TensorOrTensors,
+        gmm2_weight_scale: Optional[TensorOrTensors],
+        num_max_dispatch_tokens_per_rank: int,
+        num_experts: int,
+        fuse_mode: FuseMode,
+        activation: str,
+        activation_clamp: Optional[float],
+        beta: float,
+        linear_beta: Optional[float],
+        l1_bias: Optional[TensorOrTensors],
+        l2_bias: Optional[TensorOrTensors],
+        dispatch_quant_mode: Optional[int],
+        dispatch_quant_out_dtype: Optional[torch.dtype],
+        max_recv_token_num: int,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        _, mega_moe = self._require_mega_moe_ops()
+        activation_clamp = self._validate_activation_clamp(activation_clamp)
+        if activation not in ("swiglu", "swiglu_gpt_oss", "situ"):
+            raise ValueError(
+                f"Unsupported mega_moe activation {activation!r}. Expected one of "
+                "`swiglu`, `swiglu_gpt_oss`, or `situ`."
+            )
+        if activation != "situ" and not self._is_default_beta(beta):
+            raise ValueError('`beta` is only valid when `activation="situ"`.')
+        if activation != "situ" and not self._is_zero_like_linear_beta(linear_beta):
+            raise ValueError('`linear_beta` is only valid when `activation="situ"`.')
+        if fuse_mode != FuseMode.FUSED_DEEP_MOE:
+            raise NotImplementedError(
+                "The mega_moe backend only supports " "FuseMode.FUSED_DEEP_MOE."
+            )
+        expected_num_local_experts = num_experts // self.group_size
+        if expected_num_local_experts * self.group_size != num_experts:
+            raise ValueError(
+                "`num_experts` must be divisible by the process-group size when "
+                "using the mega_moe backend."
+            )
+
+        l1_weights = self._normalize_expert_param(
+            gmm1_permuted_weight,
+            "gmm1_permuted_weight",
+            expected_num_local_experts,
+        )
+        l2_weights = self._normalize_expert_param(
+            gmm2_weight,
+            "gmm2_weight",
+            expected_num_local_experts,
+        )
+        l1_weights_sf = self._normalize_expert_param(
+            gmm1_permuted_weight_scale,
+            "gmm1_permuted_weight_scale",
+            expected_num_local_experts,
+        )
+        l2_weights_sf = self._normalize_expert_param(
+            gmm2_weight_scale,
+            "gmm2_weight_scale",
+            expected_num_local_experts,
+        )
+        l1_bias_list = self._normalize_expert_param(
+            l1_bias,
+            "l1_bias",
+            expected_num_local_experts,
+        )
+        l2_bias_list = self._normalize_expert_param(
+            l2_bias,
+            "l2_bias",
+            expected_num_local_experts,
+        )
+
+        resolved_dispatch_quant_mode, resolved_dispatch_quant_out_dtype = (
+            self._infer_mega_moe_quant_config(
+                l1_weights_sf,
+                l2_weights_sf,
+                l1_bias_list,
+                l2_bias_list,
+                dispatch_quant_mode,
+                dispatch_quant_out_dtype,
+            )
+        )
+        is_a8w4_int = l1_bias_list is not None and l2_bias_list is not None
+
+        hidden = x.size(1)
+        if not l2_weights or l2_weights[0].dim() < 2:
+            raise ValueError(
+                "`gmm2_weight` must contain per-expert 2D tensors in mega_moe layout "
+                "[intermediate_hidden, hidden]."
+            )
+        intermediate_hidden = l2_weights[0].shape[-2]
+        expected_l2_last_dim = hidden // 8 if is_a8w4_int else hidden
+        expected_l1_last_dim = (
+            (intermediate_hidden * 2) // 8 if is_a8w4_int else intermediate_hidden * 2
+        )
+        inferred_scene = (
+            "A8W4-INT"
+            if is_a8w4_int
+            else "A8W8-INT" if resolved_dispatch_quant_mode == 2 else "A16W16"
+        )
+        if l2_weights[0].shape[-1] != expected_l2_last_dim:
+            raise ValueError(
+                "`gmm2_weight` has an invalid mega_moe layout for "
+                f"{inferred_scene}. Expected first local expert shape "
+                f"({intermediate_hidden}, {expected_l2_last_dim}) "
+                f"({'packed INT4 via .view(torch.int32)' if is_a8w4_int else 'unpacked'}) "
+                f"but got {tuple(l2_weights[0].shape)} with hidden={hidden}."
+            )
+        if l1_weights[0].dim() < 2:
+            raise ValueError(
+                "`gmm1_permuted_weight` must contain per-expert 2D tensors in mega_moe "
+                "layout [hidden, 2 * intermediate_hidden]."
+            )
+        if l1_weights[0].shape[-2] != hidden:
+            raise ValueError(
+                "`gmm1_permuted_weight` must use mega_moe layout "
+                "[hidden, 2 * intermediate_hidden] for the mega_moe backend, "
+                f"but got first local expert shape {tuple(l1_weights[0].shape)} "
+                f"with hidden={hidden}."
+            )
+        if l1_weights[0].shape[-1] != expected_l1_last_dim:
+            raise ValueError(
+                "`gmm1_permuted_weight` has an invalid mega_moe layout for "
+                f"{inferred_scene}. Expected first local expert shape "
+                f"({hidden}, {expected_l1_last_dim}) "
+                f"({'packed INT4 via .view(torch.int32)' if is_a8w4_int else 'unpacked'}) "
+                f"but got {tuple(l1_weights[0].shape)}."
+            )
+
+        sym_buffer = self._get_or_create_mega_moe_symm_buffer(
+            num_experts=num_experts,
+            num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
+            num_topk=topk_idx.size(1),
+            hidden=hidden,
+            intermediate_hidden=intermediate_hidden,
+            max_recv_token_num=max_recv_token_num,
+            dispatch_quant_mode=resolved_dispatch_quant_mode,
+            dispatch_quant_out_dtype=resolved_dispatch_quant_out_dtype,
+            activation=activation,
+        )
+
+        (
+            x_padded,
+            topk_idx_padded,
+            topk_weights_padded,
+            x_active_mask,
+            original_num_tokens,
+        ) = self._pad_mega_moe_inputs(
+            x,
+            topk_idx,
+            topk_weights,
+            num_max_dispatch_tokens_per_rank,
+        )
+
+        output, expert_token_num = mega_moe(
+            x=x_padded,
+            topk_ids=topk_idx_padded,
+            topk_weights=topk_weights_padded,
+            l1_weights=l1_weights,
+            l2_weights=l2_weights,
+            sym_buffer=sym_buffer,
+            l1_weights_sf=l1_weights_sf,
+            l2_weights_sf=l2_weights_sf,
+            l1_bias=l1_bias_list,
+            l2_bias=l2_bias_list,
+            x_active_mask=x_active_mask,
+            activation=activation,
+            activation_clamp=activation_clamp,
+            beta=beta,
+            linear_beta=linear_beta,
+        )
+        return output[:original_num_tokens], expert_token_num
+
+    def fused_deep_moe(
+        self,
+        x: torch.Tensor,
+        topk_idx: torch.Tensor,
+        topk_weights: torch.Tensor,
+        gmm1_permuted_weight: TensorOrTensors,
+        gmm1_permuted_weight_scale: Optional[TensorOrTensors],
+        gmm2_weight: TensorOrTensors,
+        gmm2_weight_scale: Optional[TensorOrTensors],
+        num_max_dispatch_tokens_per_rank: int,
+        num_experts: int,
+        quant_mode: int = 1,
+        fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
+        backend: str = "auto",
+        activation: str = "swiglu",
+        activation_clamp: Optional[float] = None,
+        beta: float = 1.0,
+        linear_beta: Optional[float] = None,
+        l1_bias: Optional[TensorOrTensors] = None,
+        l2_bias: Optional[TensorOrTensors] = None,
+        dispatch_quant_mode: Optional[int] = None,
+        dispatch_quant_out_dtype: Optional[torch.dtype] = None,
+        max_recv_token_num: int = 0,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Fused MoE forward entrypoint with backend routing between `deep_ep` and
+        `cann_ops_transformer.ops.mega_moe`.
+
+        Arguments:
+            x: `[bs, hidden]` token tensor. The hidden dimension defines the
+                mega_moe `hidden` parameter.
+            topk_idx: `[bs, num_topk]` token-to-expert routing indices. `-1` means
+                the token does not select that top-k slot.
+            topk_weights: `[bs, num_topk]` routing weights used during combine.
+            gmm1_permuted_weight: First-stage expert weights. For `backend="deep_ep"`,
+                this preserves the legacy fused kernel layout requirements. For
+                `backend="mega_moe"`, this argument is interpreted as mega_moe
+                `l1_weights` and must be either a Tensor whose leading dimension is
+                the local expert count or a `list[Tensor]` of per-expert weights in
+                mega_moe layout `[hidden, 2 * intermediate_hidden]` for
+                A16W16/A8W8-INT, or packed INT4 layout exposed as `torch.int32`
+                with shape `[hidden, (2 * intermediate_hidden) // 8]` for A8W4-INT.
+            gmm1_permuted_weight_scale: First-stage weight scales. Required by the
+                deep_ep backend. Optional for mega_moe A16W16, required for mega_moe
+                A8W8-INT/A8W4-INT. For mega_moe, accepts either a Tensor with leading
+                local-expert dimension or a `list[Tensor]`.
+            gmm2_weight: Second-stage expert weights. For `backend="mega_moe"`, this
+                is interpreted as mega_moe `l2_weights` and must use layout
+                `[intermediate_hidden, hidden]` per local expert for
+                A16W16/A8W8-INT, or packed INT4 layout exposed as `torch.int32`
+                with shape `[intermediate_hidden, hidden // 8]` for A8W4-INT.
+            gmm2_weight_scale: Second-stage weight scales. Same backend and quantized
+                scene rules as `gmm1_permuted_weight_scale`.
+            num_max_dispatch_tokens_per_rank: Maximum token count participating in EP
+                dispatch for each rank. This value is forwarded to either backend and
+                is also part of the mega_moe SymmBuffer cache key.
+            num_experts: Global expert count. For mega_moe, it must be divisible by
+                the process-group size so that local expert counts are well-defined.
+            quant_mode: Legacy deep_ep quantization mode. Supported by `backend="deep_ep"`
+                only. The mega_moe backend infers its scene from scales/biases and
+                `dispatch_quant_mode`.
+            fuse_mode: Fused execution mode. The deep_ep backend supports both
+                `FuseMode.FUSED_DEEP_MOE` and `FuseMode.DISPATCH_FFN_COMBINE`.
+                The mega_moe backend supports only `FuseMode.FUSED_DEEP_MOE`.
+            backend: Backend selector. `"auto"` keeps the existing A5 deep_ep fused
+                path and routes non-A5 or mega_moe-only features to mega_moe.
+            activation: Activation name. Supported values are `"swiglu"`,
+                `"swiglu_gpt_oss"`, and `"situ"` on the mega_moe backend. The
+                deep_ep backend supports only `"swiglu"`.
+            activation_clamp: Optional symmetric clamp value applied by the
+                mega_moe backend activation implementation. This is independent
+                from `linear_beta`, must be `None` or `>= 0`, and is unsupported
+                by the legacy deep_ep backend.
+            beta: Optional beta parameter for the `"situ"` activation. Defaults
+                to `1.0`. Non-default values are unsupported outside
+                `activation="situ"`.
+            linear_beta: Optional linear beta for the `"situ"` activation linear
+                branch. This is distinct from `activation_clamp` and is
+                forwarded to mega_moe as `linear_beta=...`.
+            l1_bias: Optional per-expert first-stage bias tensors used for mega_moe
+                A8W4-INT compensation. Unsupported on the deep_ep backend.
+            l2_bias: Optional per-expert second-stage bias tensors used for mega_moe
+                A8W4-INT compensation. Unsupported on the deep_ep backend.
+            dispatch_quant_mode: Optional mega_moe dispatch quantization selector.
+                Supported values in this wrapper are `0` (A16W16) and `2`
+                (A8W8-INT/A8W4-INT). Unsupported on the deep_ep backend.
+            dispatch_quant_out_dtype: Optional mega_moe dispatch output dtype.
+                This wrapper currently supports only `torch.int8` when
+                `dispatch_quant_mode=2`.
+            max_recv_token_num: Optional mega_moe max receive token hint. Forwarded to
+                mega_moe only.
+
+        Returns:
+            A tuple `(output, aux)` where `output` is the fused expert output tensor.
+            The `aux` tensor is backend-dependent:
+            - deep_ep + `FuseMode.FUSED_DEEP_MOE`: `ep_recv_count`,
+              shape `[num_local_experts * num_ranks]`
+            - deep_ep + `FuseMode.DISPATCH_FFN_COMBINE`: `expert_token_nums`,
+              shape `[num_local_experts]`
+            - mega_moe: `expert_token_nums`, shape `[num_local_experts]`
+        """
+        resolved_backend = self._resolve_fused_backend(
+            backend=backend,
+            activation=activation,
+            l1_bias=l1_bias,
+            l2_bias=l2_bias,
+            dispatch_quant_mode=dispatch_quant_mode,
+        )
+        if resolved_backend == "deep_ep":
+            return self._fused_deep_moe_with_deep_ep(
+                x=x,
+                topk_idx=topk_idx,
+                topk_weights=topk_weights,
+                gmm1_permuted_weight=gmm1_permuted_weight,
+                gmm1_permuted_weight_scale=gmm1_permuted_weight_scale,
+                gmm2_weight=gmm2_weight,
+                gmm2_weight_scale=gmm2_weight_scale,
+                num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
+                num_experts=num_experts,
+                quant_mode=quant_mode,
+                fuse_mode=fuse_mode,
+                activation=activation,
+                activation_clamp=activation_clamp,
+                beta=beta,
+                linear_beta=linear_beta,
+                l1_bias=l1_bias,
+                l2_bias=l2_bias,
+                dispatch_quant_mode=dispatch_quant_mode,
+                dispatch_quant_out_dtype=dispatch_quant_out_dtype,
+                max_recv_token_num=max_recv_token_num,
+            )
+        if x.size(0) == 0:
+            x = torch.zeros(
+                (1, x.size(1)),
+                dtype=x.dtype,
+                device=x.device,
+            )
+
+            topk_idx = torch.arange(
+                topk_idx.size(1),
+                dtype=topk_idx.dtype,
+                device=topk_idx.device,
+            ).unsqueeze(0)
+
+            topk_weights = torch.zeros(
+                (1, topk_weights.size(1)),
+                dtype=topk_weights.dtype,
+                device=topk_weights.device,
+            )
+        output, expert_token_num = self._fused_deep_moe_with_mega_moe(
+            x=x,
+            topk_idx=topk_idx,
+            topk_weights=topk_weights,
+            gmm1_permuted_weight=gmm1_permuted_weight,
+            gmm1_permuted_weight_scale=gmm1_permuted_weight_scale,
+            gmm2_weight=gmm2_weight,
+            gmm2_weight_scale=gmm2_weight_scale,
+            num_max_dispatch_tokens_per_rank=num_max_dispatch_tokens_per_rank,
+            num_experts=num_experts,
+            fuse_mode=fuse_mode,
+            activation=activation,
+            activation_clamp=activation_clamp,
+            beta=beta,
+            linear_beta=linear_beta,
+            l1_bias=l1_bias,
+            l2_bias=l2_bias,
+            dispatch_quant_mode=2 if quant_mode == 1 else dispatch_quant_mode,
+            dispatch_quant_out_dtype=(
+                torch.int8 if quant_mode == 1 else dispatch_quant_out_dtype
+            ),
+            max_recv_token_num=max_recv_token_num,
+        )
+        if x.size(0) == 0:
+            output = torch.empty(
+                (0, x.size(1)),
+                dtype=x.dtype,
+                device=x.device,
+            )
+
+        return output, expert_token_num
