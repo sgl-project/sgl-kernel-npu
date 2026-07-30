@@ -25,12 +25,12 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 Executing the engineering build script build.sh
 ```bash
 # Build a target-specific kernel package.
-bash build.sh -a kernels Ascend910B1     # Ascend 910B
-bash build.sh -a kernels Ascend910_9382  # Ascend 910C
-bash build.sh -a kernels Ascend950       # Ascend 950
+bash build.sh -a kernels 910B
+bash build.sh -a kernels 910C
+bash build.sh -a kernels 950
 ```
 
-The Ascend 950-targeted package includes the Triton implementation exposed as
+The `950`-targeted package includes the Triton implementation exposed as
 `sgl_kernel_npu.norm.gemma_rmsnorm`. Ascend 910B and Ascend 910C use the
 framework's native Gemma RMSNorm operator, so that module is not included in
 their target-specific packages.
