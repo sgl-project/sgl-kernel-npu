@@ -5,27 +5,19 @@ from setuptools.command.build_py import build_py
 BUILD_TARGET_ENV = "SGL_KERNEL_NPU_BUILD_TARGET"
 DEFAULT_BUILD_TARGET = "910C"
 
-_BUILD_TARGET_ALIASES = {
-    "910B": "Ascend910B1",
-    "910C": "Ascend910_9382",
-    "950": "Ascend950",
-}
-
 _TARGET_SPECIFIC_MODULES = {
-    "sgl_kernel_npu.norm.gemma_rmsnorm": frozenset({"Ascend950"}),
-    "sgl_kernel_npu.norm._gemma_rmsnorm_triton": frozenset({"Ascend950"}),
+    "sgl_kernel_npu.norm.gemma_rmsnorm": frozenset({"950"}),
+    "sgl_kernel_npu.norm._gemma_rmsnorm_triton": frozenset({"950"}),
 }
 
 
 def get_build_target() -> str:
-    """Return the Ascend compilation target selected for this wheel build."""
-    target = os.environ.get(BUILD_TARGET_ENV, DEFAULT_BUILD_TARGET)
-    return _BUILD_TARGET_ALIASES.get(target, target)
+    """Return the Ascend product selected for this wheel build."""
+    return os.environ.get(BUILD_TARGET_ENV, DEFAULT_BUILD_TARGET)
 
 
 def module_is_enabled(module: str, build_target: str) -> bool:
     """Whether a Python kernel module belongs in the target-specific wheel."""
-    build_target = _BUILD_TARGET_ALIASES.get(build_target, build_target)
     supported_targets = _TARGET_SPECIFIC_MODULES.get(module)
     return supported_targets is None or build_target in supported_targets
 
