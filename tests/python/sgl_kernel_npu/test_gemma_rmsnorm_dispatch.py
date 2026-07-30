@@ -22,10 +22,10 @@ from sgl_kernel_npu.utils.npu_device import (
     [
         (200, NpuDeviceFamily.UNKNOWN),
         (205, NpuDeviceFamily.UNKNOWN),
-        (220, NpuDeviceFamily.A2),
-        (225, NpuDeviceFamily.A2),
-        (250, NpuDeviceFamily.A3),
-        (255, NpuDeviceFamily.A3),
+        (220, NpuDeviceFamily.ASCEND_910B),
+        (225, NpuDeviceFamily.ASCEND_910B),
+        (250, NpuDeviceFamily.ASCEND_910C),
+        (255, NpuDeviceFamily.ASCEND_910C),
         (260, NpuDeviceFamily.ASCEND_950),
         (0, NpuDeviceFamily.UNKNOWN),
         (999, NpuDeviceFamily.UNKNOWN),
@@ -72,8 +72,8 @@ def test_invalid_soc_version_is_unknown(monkeypatch):
 @pytest.mark.parametrize(
     ("family", "provider"),
     [
-        (NpuDeviceFamily.A2, gemma_rmsnorm._native_gemma_rms_norm),
-        (NpuDeviceFamily.A3, gemma_rmsnorm._native_gemma_rms_norm),
+        (NpuDeviceFamily.ASCEND_910B, gemma_rmsnorm._native_gemma_rms_norm),
+        (NpuDeviceFamily.ASCEND_910C, gemma_rmsnorm._native_gemma_rms_norm),
         (NpuDeviceFamily.ASCEND_950, gemma_rmsnorm._triton_gemma_rms_norm),
         (NpuDeviceFamily.UNKNOWN, gemma_rmsnorm._fallback_gemma_rms_norm),
     ],
@@ -85,8 +85,8 @@ def test_gemma_provider_table(family, provider):
 @pytest.mark.parametrize(
     ("family", "provider"),
     [
-        (NpuDeviceFamily.A2, gemma_rmsnorm._native_add_gemma_rms_norm),
-        (NpuDeviceFamily.A3, gemma_rmsnorm._native_add_gemma_rms_norm),
+        (NpuDeviceFamily.ASCEND_910B, gemma_rmsnorm._native_add_gemma_rms_norm),
+        (NpuDeviceFamily.ASCEND_910C, gemma_rmsnorm._native_add_gemma_rms_norm),
         (
             NpuDeviceFamily.ASCEND_950,
             gemma_rmsnorm._triton_add_gemma_rms_norm,
