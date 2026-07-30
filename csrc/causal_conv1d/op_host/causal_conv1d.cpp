@@ -63,13 +63,23 @@ constexpr uint32_t roundUpToPow2(uint32_t width)
 }
 
 // Per-ring channel-tile width -- MUST match the (ringSize, maxTileWidth) the kernel is
-// compiled with (both derive from FOR_EACH_RING_SIZE). A larger ring needs a smaller
-// tile to fit the 192 KiB UB.
+// compiled with. A5 (dav-c310) has 256 KiB UB (vs A2/A3's 192 KiB) so it uses wider
+// tiles; the A5 row MUST match the PTO_NPU_ARCH_A5 branch of FOR_EACH_RING_SIZE in
+// op_kernel/causal_conv1d.cpp. The host can't see the device arch at compile time, so
+// the caller selects the table from the running SoC (see maxTileWidthForRing use).
+#define FOR_EACH_RING_SIZE_A5(DO) DO(2, 5120) DO(4, 4096) DO(8, 2048) DO(16, 1152) DO(32, 512) DO(64, 128)
 #define MAX_WIDTH_CASE(ringSize, maxTileWidth) \
     case ringSize:                             \
         return maxTileWidth##u;
-constexpr uint32_t maxTileWidthForRing(uint32_t ringSize)
+uint32_t maxTileWidthForRing(uint32_t ringSize, bool wideUb)
 {
+    if (wideUb) {
+        switch (ringSize) {
+            FOR_EACH_RING_SIZE_A5(MAX_WIDTH_CASE)
+            default:
+                return 0u;
+        }
+    }
     switch (ringSize) {
         FOR_EACH_RING_SIZE(MAX_WIDTH_CASE)
         default:
@@ -77,6 +87,7 @@ constexpr uint32_t maxTileWidthForRing(uint32_t ringSize)
     }
 }
 #undef MAX_WIDTH_CASE
+#undef FOR_EACH_RING_SIZE_A5
 
 // Supported filter widths: any width in [2, 64], routed to the roundUpToPow2(width)
 // ring variant. width > 64 would need ring 128, which does not fit UB.
@@ -195,8 +206,20 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
     // the cores we split the channel axis into tiles and the L axis into chunks. ----
     const uint32_t avgSeqLen =
         (inputMode == 1) ? seqLen : std::max<uint32_t>(1u, static_cast<uint32_t>(x.size(0)) / batch);
-    const uint32_t ringSize = roundUpToPow2(width);                     // compile-time ring variant to launch
-    const uint32_t maxChannelsPerTile = maxTileWidthForRing(ringSize);  // UB-bound tile width for this ring
+    const uint32_t ringSize = roundUpToPow2(width);  // compile-time ring variant to launch
+    // The tile-width table encodes one physical quantity: how much fits in a core's UB.
+    // Select it by querying that quantity, not by SoC family. platform_ascendc::SocVersion
+    // has a single ASCEND950 enum shared by ~35 parts (950PR_9589, 950PR_9599, 950DT_*,
+    // ...), so keying a UB-derived table on the family assumes every one of them has the
+    // same UB. Querying GetCoreMemSize also means a part with a smaller UB degrades to the
+    // narrow table instead of silently over-tiling.
+    //   Ascend950PR_9589 (dav-c310): 253952 B = 248 KiB   -> wide table
+    //   A2 / A3                    : 196608 B = 192 KiB   -> narrow table
+    uint64_t ubBytes = 0;
+    plat->GetCoreMemSize(platform_ascendc::CoreMemType::UB, ubBytes);
+    constexpr uint64_t WIDE_UB_MIN_BYTES = 248u * 1024u;  // UB the wide table is sized for
+    const bool wideUb = (ubBytes >= WIDE_UB_MIN_BYTES);
+    const uint32_t maxChannelsPerTile = maxTileWidthForRing(ringSize, wideUb);  // UB-bound tile width
 
     const auto [channelsPerTile, seqChunks] =
         tiling_causal_conv1d(core_num, batch, dim, avgSeqLen, width, maxChannelsPerTile);

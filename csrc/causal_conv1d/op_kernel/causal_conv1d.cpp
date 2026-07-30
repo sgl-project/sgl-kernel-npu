@@ -20,6 +20,21 @@
 // mega_kernel's cu_seqlens). NOTE codegen needs "type* name", not "type *name".
 
 #include <pto/pto-inst.hpp>
+#if defined(__NPU_ARCH__)  // device compile pass only; PTO arch-aware buffer sizes
+#include <pto/common/buffer_limits.hpp>
+#include "kernel_operator.h"  // AscendC::PipeBarrier -- arch-portable vector barrier
+#endif
+
+// In-core vector barrier. A5 (dav-c310) has no PIPE_V barrier in the VF/RegBase model,
+// so the legacy pipe_barrier(PIPE_V) intrinsic cannot be used unconditionally.
+//
+// Use AscendC's templated barrier rather than an #if on the arch (this is what upstream
+// does -- see sgl-project/sgl-kernel-npu PR #632, which converts the lora kernels the same
+// way). AscendC::PipeBarrier<PIPE_V>() already resolves to the correct instruction, or to
+// nothing, per architecture. Keying it on `__CCE_AICORE__ == 220` instead would hardcode
+// "only dav-c220 needs this barrier", so any future arch that DOES need it would silently
+// get a no-op.
+#define PIPE_BARRIER_VEC() AscendC::PipeBarrier<PIPE_V>()
 
 // clang-format off
 // The AscendC launch codegen parses the expanded __global__ signature and needs
@@ -37,20 +52,24 @@ namespace cc1d {
 // RS (compile-time, power of two) sizes the accumulator ring and the entire UB
 // layout; K (runtime, <= RS) only drives loop bounds, so one RS variant serves
 // every width with roundUpToPow2(width) == RS. MAX_W is the compile-time per-RS
-// channel-tile capacity. Ascend 910B2 AIV UB = 192 KiB; the static_assert in
-// convChunk checks the chosen (RS, MAX_W) layout fits.
-constexpr uint32_t UB_BYTES_PER_CORE = 192u * 1024u;
+// channel-tile capacity. UB is arch-sized by PTO (A2/A3 = 192 KiB, A5/dav-c310
+// = 256 KiB); the static_assert in convChunk checks the chosen (RS, MAX_W) fits.
+#if defined(PTO_UBUF_SIZE_BYTES)
+constexpr uint32_t UB_BYTES_PER_CORE = PTO_UBUF_SIZE_BYTES;
+#else
+constexpr uint32_t UB_BYTES_PER_CORE = 192u * 1024u;  // host-only launch-harness pass (UB unused there)
+#endif
 
 template <typename TileT>
 AICORE inline void applySiluToTile(TileT &dst, TileT &src, TileT &tmp)
 {
     using T = typename TileT::DType;
     TMULS(tmp, src, (T)-1);
-    pipe_barrier(PIPE_V);
+    PIPE_BARRIER_VEC();
     TEXP(tmp, tmp);
-    pipe_barrier(PIPE_V);
+    PIPE_BARRIER_VEC();
     TADDS(tmp, tmp, (T)1);
-    pipe_barrier(PIPE_V);
+    PIPE_BARRIER_VEC();
     TDIV(dst, src, tmp);
 }
 
@@ -198,7 +217,7 @@ AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ 
             set_flag(PIPE_MTE2, PIPE_V, IEV[p1]);
         }
 
-        pipe_barrier(PIPE_V);
+        PIPE_BARRIER_VEC();
 
         const bool startAll = zeroPad && (j == 0);
         for (uint32_t k = 0; k < K; ++k) {
@@ -216,7 +235,7 @@ AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ 
                 TMUL(t, xin_f, wT);
             }
         }
-        pipe_barrier(PIPE_V);
+        PIPE_BARRIER_VEC();
         if (!startAll) {
             for (uint32_t k = 1; k < K; ++k) {
                 const int32_t out = j + halo - (int32_t)k;
@@ -228,7 +247,7 @@ AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ 
                 TADD(acc, acc, t);
             }
         }
-        pipe_barrier(PIPE_V);
+        PIPE_BARRIER_VEC();
 
         if (j < l0) continue;  // halo row
 
@@ -246,11 +265,11 @@ AICORE inline void convChunk(__gm__ IoElemType *x, __gm__ IoElemType *y, __gm__ 
             AccumTile bT(lanes);
             TASSIGN(bT, ubBiasOffset);
             TADD(acc, acc, bT);
-            pipe_barrier(PIPE_V);
+            PIPE_BARRIER_VEC();
         }
         if (activation) {
             applySiluToTile(acc, acc, tmp);
-            pipe_barrier(PIPE_V);
+            PIPE_BARRIER_VEC();
         }
         wait_flag(PIPE_MTE3, PIPE_V, oev);
         TCVT(outT, acc, pto::RoundMode::CAST_NONE);
@@ -398,13 +417,13 @@ AICORE void runWriteback(__gm__ IoElemType *x, __gm__ IoElemType *convStates, __
                 TASSIGN(row, i * ioTileBytes);
                 TASSIGN(f32, SCRATCH_F32);
                 TCVT(f32, row, pto::RoundMode::CAST_NONE);
-                pipe_barrier(PIPE_V);
+                PIPE_BARRIER_VEC();
                 TMULS(f32, f32, 0.0f);
-                pipe_barrier(PIPE_V);
+                PIPE_BARRIER_VEC();
                 TCVT(row, f32, pto::RoundMode::CAST_NONE);
             }
         }
-        pipe_barrier(PIPE_V);
+        PIPE_BARRIER_VEC();
         set_flag(PIPE_V, PIPE_MTE3, EVENT_ID1);
         wait_flag(PIPE_V, PIPE_MTE3, EVENT_ID1);
         // Phase C (MTE3): store to convStates[ci, 0:K-1, c0:].
@@ -467,8 +486,14 @@ AICORE void runWriteback(__gm__ IoElemType *x, __gm__ IoElemType *convStates, __
 
 // Ring sizes the kernel is compiled for -- must match FOR_EACH_RING_SIZE in
 // op_host/causal_conv1d.cpp. Each row is (ringSize, maxTileWidth); a larger ring uses
-// a smaller tile to fit the 192 KiB UB.
+// a smaller tile. A5 (dav-c310) has 256 KiB UB vs A2/A3's 192 KiB, so its tiles are
+// ~4/3 wider -> fewer channel-tiles for large dim (e.g. dim=4096,K=4: 1 tile not 2).
+// Both variants are checked against PTO_UBUF_SIZE_BYTES by the convChunk static_assert.
+#if defined(PTO_NPU_ARCH_A5)
+#define FOR_EACH_RING_SIZE(DO) DO(2, 5120) DO(4, 4096) DO(8, 2048) DO(16, 1152) DO(32, 512) DO(64, 128)
+#else
 #define FOR_EACH_RING_SIZE(DO) DO(2, 4096) DO(4, 3072) DO(8, 1536) DO(16, 896) DO(32, 384) DO(64, 128)
+#endif
 #define DEFINE_ENTRIES(ringSize, maxTileWidth)                        \
     DEF_CONV(rs##ringSize##_half, half, ringSize, maxTileWidth)       \
     DEF_CONV(rs##ringSize##_bf16, bfloat16_t, ringSize, maxTileWidth) \
