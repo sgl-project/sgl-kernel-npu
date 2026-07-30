@@ -6,7 +6,7 @@ SGLang Kernels NPU
 SGLang Kernels for Ascend NPU
 
 ## Software and hardware
-Supported Hardware Models: Ascend 910B/910C series products and Ascend 950 series for Gemma RMSNorm
+Supported Hardware Models: Ascend 910B, Ascend 910C, and Ascend 950 series products
 Platform: aarch64/x86
 Supporting Software
 - Driver Ascend HDK 25.0.RC1.1, CANN 8.3.RC1 or later versions (refer to the "[CANN Software Installation Guide](https://www.hiascend.com/document/detail/zh/canncommercial/83RC1/softwareinst/instg/instg_quick.html?Mode=PmIns&InstallType=local&OS=openEuler&Software=cannToolKit)" to install the CANN development kit package, as well as the supporting firmware and drivers)
@@ -24,9 +24,16 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 2. Build the project
 Executing the engineering build script build.sh
 ```bash
-# Building Project
-bash build.sh
+# Build a target-specific kernel package.
+bash build.sh -a kernels Ascend910B1     # Ascend 910B
+bash build.sh -a kernels Ascend910_9382  # Ascend 910C
+bash build.sh -a kernels Ascend950       # Ascend 950
 ```
+
+The Ascend 950-targeted package includes the Triton implementation exposed as
+`sgl_kernel_npu.norm.gemma_rmsnorm`. Ascend 910B and Ascend 910C use the
+framework's native Gemma RMSNorm operator, so that module is not included in
+their target-specific packages.
 
 ### Installation
 1. Pip install the `.whl` file into your Python environment

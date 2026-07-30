@@ -2,10 +2,6 @@ import torch
 import triton
 import triton.language as tl
 import triton.language.extra.cann.extension as al
-from sgl_kernel_npu.norm.gemma_rmsnorm import (
-    add_gemma_rms_norm,
-    gemma_rms_norm,
-)
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
@@ -149,3 +145,17 @@ def add_rmsnorm_bias(
         batch_size,
     )
     return output, output2
+
+
+def gemma_rms_norm(input, weight, eps=1e-6):
+    """Compatibility wrapper for the legacy Gemma RMSNorm import path."""
+    from sgl_kernel_npu.norm.gemma_rmsnorm import gemma_rms_norm as implementation
+
+    return implementation(input, weight, eps)
+
+
+def add_gemma_rms_norm(input, weight, residual, eps=1e-6):
+    """Compatibility wrapper for the legacy fused Gemma RMSNorm import path."""
+    from sgl_kernel_npu.norm.gemma_rmsnorm import add_gemma_rms_norm as implementation
+
+    return implementation(input, weight, residual, eps)

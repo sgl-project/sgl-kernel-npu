@@ -8,6 +8,7 @@ from configparser import ConfigParser
 from pathlib import Path
 
 import setuptools
+from build_targets import TargetBuildPy
 from setuptools import find_namespace_packages
 from setuptools.command.build_ext import build_ext
 from setuptools.dist import Distribution
@@ -42,6 +43,7 @@ setuptools.setup(
     description="python api for sgl_kernel_npu",
     packages=find_namespace_packages(exclude=("tests*",)),
     ext_modules=[NpuExtension("sgl_kernel_npu._C", sources=[])],
+    cmdclass={"build_py": TargetBuildPy},
     url="https://github.com/sgl-project/sgl-kernel-npu/",
     license="BSD 3 License",
     python_requires=">=3.7",
