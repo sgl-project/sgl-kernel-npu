@@ -149,7 +149,7 @@ public:
                LayoutScale layoutScale2_, GM_ADDR ptrOutput_, LayoutD2 layoutD1_, LayoutD2 layoutD2_,
                GM_ADDR expertIdx_, GM_ADDR moeInitRoutingQuantV2Scale_, GM_ADDR moeInitRoutingQuantV2Offset_,
                GM_ADDR expertTokensBeforeCapacity_, GM_ADDR probs_, GM_ADDR ptrWorkspace_, GM_ADDR gmExpertTokenNums_,
-               int32_t ubMoveNum_, optiling::MoeInitRoutingQuantV2TilingData moeInitRoutingQuantV2TilingData_)
+                int32_t ubMoveNum_, optiling::MoeInitRoutingQuantV2TilingData moeInitRoutingQuantV2TilingData_)
             : problemShape(problemShape_),
               EP(EP_),
               listLen(listLen_),
@@ -181,9 +181,9 @@ public:
               expertTokensBeforeCapacity(expertTokensBeforeCapacity_),
               probs(probs_),
               ptrWorkspace(ptrWorkspace_),
-              ptrExpertTokenNums(gmExpertTokenNums_),
-              ubMoveNum(ubMoveNum_),
-              moeInitRoutingQuantV2TilingData(moeInitRoutingQuantV2TilingData_)
+               ptrExpertTokenNums(gmExpertTokenNums_),
+               ubMoveNum(ubMoveNum_),
+               moeInitRoutingQuantV2TilingData(moeInitRoutingQuantV2TilingData_)
         {}
     };
 

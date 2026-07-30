@@ -23,7 +23,7 @@ namespace Catlass::Epilogue::Block {
 
 // float scale, dequant per expert
 template <uint32_t UB_STAGES_, class CType_, class LayoutPerTokenScale_, class DType_, class TileElemWiseMuls_,
-          class TileCopy_>
+           class TileCopy_>
 class BlockEpilogue<EpilogueAtlasA2PerTokenDequantSwigluQuant<UB_STAGES_>, CType_,
                     Gemm::GemmType<float, LayoutPerTokenScale_>, DType_, TileElemWiseMuls_, TileCopy_>
 {
@@ -69,8 +69,8 @@ public:
                __gm__ ElementD *ptrD_, LayoutD const &layoutD_)
             : ptrPerTokenScale(ptrPerTokenScale_),
               layoutPerTokenScale(layoutPerTokenScale_),
-              ptrD(ptrD_),
-              layoutD(layoutD_)
+               ptrD(ptrD_),
+               layoutD(layoutD_)
         {}
     };
 
@@ -113,6 +113,7 @@ public:
 
         ubPerTokenScaleOutput = resource.ubBuf.template GetBufferByByte<float>(ubOffset);
     }
+
     CATLASS_DEVICE
     void Finalize()
     {
@@ -204,9 +205,10 @@ public:
             AscendC::Muls(ubCFp32, ubCFp32, perTokenScale, blockN);
             AscendC::PipeBarrier<PIPE_V>();
 
-#ifdef SGLANG_M3_SWIGLU_OAI
+#if defined(SGLANG_SWIGLU_OAI)
             {
-                // MiniMax-M3: min(gate, 7) * sigmoid(1.702 * gate) * (clamp(up, -7, 7) + 1).
+                // Match the validated M3 kernel exactly. Ascend's runtime scalar
+                // path is numerically invalid for the non-degenerate OAI values.
                 constexpr float alpha = 1.702f;
                 constexpr float limit = 7.0f;
                 AscendC::Mins(ubCFp32ChunkN, ubCFp32, limit, ChunkTileLen);
