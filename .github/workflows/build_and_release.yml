@@ -51,20 +51,11 @@ jobs:
         run: |
           bash scripts/npu_ci_install_dependency.sh --torch-version ${{ matrix.torch_version }}
 
-      - name: Build SGL-Kernel-NPU for 910B
-        if: matrix.npu_hardware == '910b'
+      - name: Build SGL-Kernel-NPU
         run: |
           env -i PATH=${PATH} bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
-            ./build.sh -a kernels Ascend910B1
-          "
-
-      - name: Build SGL-Kernel-NPU for 910C
-        if: matrix.npu_hardware == 'a3'
-        run: |
-          env -i PATH=${PATH} bash --login -c "
-            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
-            ./build.sh -a kernels Ascend910_9382
+            ./build.sh -a kernels
           "
 
       - name: Build Torch-Memory-Saver
