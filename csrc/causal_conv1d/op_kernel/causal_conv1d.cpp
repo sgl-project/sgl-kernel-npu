@@ -25,15 +25,10 @@
 #include "kernel_operator.h"  // AscendC::PipeBarrier -- arch-portable vector barrier
 #endif
 
-// In-core vector barrier. A5 (dav-c310) has no PIPE_V barrier in the VF/RegBase model,
-// so the legacy pipe_barrier(PIPE_V) intrinsic cannot be used unconditionally.
-//
-// Use AscendC's templated barrier rather than an #if on the arch (this is what upstream
-// does -- see sgl-project/sgl-kernel-npu PR #632, which converts the lora kernels the same
-// way). AscendC::PipeBarrier<PIPE_V>() already resolves to the correct instruction, or to
-// nothing, per architecture. Keying it on `__CCE_AICORE__ == 220` instead would hardcode
-// "only dav-c220 needs this barrier", so any future arch that DOES need it would silently
-// get a no-op.
+// In-core vector barrier. A5 (dav-c310) has no PIPE_V barrier in the VF/RegBase model, so
+// the legacy pipe_barrier(PIPE_V) intrinsic cannot be used unconditionally. AscendC's
+// templated barrier resolves per architecture, which avoids hardcoding an arch check that
+// would silently become a no-op on a future arch that does need it.
 #define PIPE_BARRIER_VEC() AscendC::PipeBarrier<PIPE_V>()
 
 // clang-format off
@@ -52,12 +47,12 @@ namespace cc1d {
 // RS (compile-time, power of two) sizes the accumulator ring and the entire UB
 // layout; K (runtime, <= RS) only drives loop bounds, so one RS variant serves
 // every width with roundUpToPow2(width) == RS. MAX_W is the compile-time per-RS
-// channel-tile capacity. UB is arch-sized by PTO (A2/A3 = 192 KiB, A5/dav-c310
-// = 256 KiB); the static_assert in convChunk checks the chosen (RS, MAX_W) fits.
-#if defined(PTO_UBUF_SIZE_BYTES)
-constexpr uint32_t UB_BYTES_PER_CORE = PTO_UBUF_SIZE_BYTES;
+// channel-tile capacity. A5 (dav-c310) has a larger UB than A2/A3; the static_assert
+// in convChunk checks the chosen (RS, MAX_W) fits.
+#ifdef __DAV_C310__
+constexpr uint32_t UB_BYTES_PER_CORE = 248u * 1024u;
 #else
-constexpr uint32_t UB_BYTES_PER_CORE = 192u * 1024u;  // host-only launch-harness pass (UB unused there)
+constexpr uint32_t UB_BYTES_PER_CORE = 192u * 1024u;
 #endif
 
 template <typename TileT>
@@ -488,8 +483,8 @@ AICORE void runWriteback(__gm__ IoElemType *x, __gm__ IoElemType *convStates, __
 // op_host/causal_conv1d.cpp. Each row is (ringSize, maxTileWidth); a larger ring uses
 // a smaller tile. A5 (dav-c310) has 256 KiB UB vs A2/A3's 192 KiB, so its tiles are
 // ~4/3 wider -> fewer channel-tiles for large dim (e.g. dim=4096,K=4: 1 tile not 2).
-// Both variants are checked against PTO_UBUF_SIZE_BYTES by the convChunk static_assert.
-#if defined(PTO_NPU_ARCH_A5)
+// Both variants are checked against UB_BYTES_PER_CORE by the convChunk static_assert.
+#ifdef __DAV_C310__
 #define FOR_EACH_RING_SIZE(DO) DO(2, 5120) DO(4, 4096) DO(8, 2048) DO(16, 1152) DO(32, 512) DO(64, 128)
 #else
 #define FOR_EACH_RING_SIZE(DO) DO(2, 4096) DO(4, 3072) DO(8, 1536) DO(16, 896) DO(32, 384) DO(64, 128)
