@@ -33,16 +33,3 @@ else:
     raise RuntimeError(
         f"Unsupported Gemma RMSNorm provider: {GEMMA_RMS_NORM_PROVIDER!r}"
     )
-
-
-def add_gemma_rms_norm(
-    input: torch.Tensor,
-    weight: torch.Tensor,
-    residual: torch.Tensor,
-    eps: float = 1e-6,
-) -> tuple[torch.Tensor, torch.Tensor]:
-    """Add a residual and apply RMSNorm with Gemma weight semantics."""
-    norm_output, _, residual_sum = torch_npu.npu_add_rms_norm(
-        residual, input, 1.0 + weight, eps
-    )
-    return norm_output, residual_sum
