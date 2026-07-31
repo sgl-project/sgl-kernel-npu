@@ -23,6 +23,7 @@ SPEC.loader.exec_module(build_targets)
         ("Ascend910_9382", "Ascend910_9382"),
         ("950", "Ascend950"),
         ("Ascend950", "Ascend950"),
+        ("ascend950", "Ascend950"),
         ("ascend950pr_9599", "ascend950pr_9599"),
         ("Ascend950DT_95A2", "ascend950dt_95a2"),
     ],
@@ -95,7 +96,8 @@ def test_build_script_uses_one_normalized_soc_version():
 
     assert "PRODUCT_TARGET" not in source
     assert "CANN_SOC_VERSION" not in source
-    assert 'ASCENDC_KERNEL_SOC_VERSION="Ascend910_9382"' in source
-    assert '-DSOC_VERSION="$ASCENDC_KERNEL_SOC_VERSION"' in source
-    assert "ascend950pr_* | ascend950dt_*" in source
-    assert "main kernel compatibility target" in source
+    assert 'export SGL_KERNEL_NPU_BUILD_TARGET="$SOC_VERSION"' in source
+    assert 'CMAKE_SOC_VERSION="Ascend910_9382"' in source
+    assert '"-DSOC_VERSION=$CMAKE_SOC_VERSION"' in source
+    assert "Ascend950PR_* | Ascend950DT_*" in source
+    assert "known-working 910C compatibility target" in source

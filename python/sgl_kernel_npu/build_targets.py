@@ -13,6 +13,7 @@ _SOC_VERSION_ALIASES = {
     "Ascend910_9382": "Ascend910_9382",
     "950": "Ascend950",
     "Ascend950": "Ascend950",
+    "ascend950": "Ascend950",
 }
 
 
@@ -54,7 +55,7 @@ def write_build_target_config(build_lib: Path, target: str) -> None:
 
 
 def get_build_target() -> str:
-    """Return the Ascend product selected for this wheel build."""
+    """Return the normalized Ascend SoC selected for this wheel build."""
     return normalize_soc_version(os.environ.get(BUILD_TARGET_ENV, DEFAULT_BUILD_TARGET))
 
 
