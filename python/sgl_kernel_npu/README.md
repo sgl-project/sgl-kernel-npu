@@ -37,15 +37,8 @@ An exact `ascend950pr_*` or `ascend950dt_*` build selector is also accepted.
 
 Every target exposes `sgl_kernel_npu.norm.gemma_rmsnorm`. The wheel build binds
 that stable API to native `torch_npu` Gemma RMSNorm on Ascend 910B/910C and to
-the fused Triton implementation on Ascend 950. SGLang does not perform runtime
-SoC detection for this operator.
-
-Before selecting the Ascend 950 provider for a release, compare it with the
-`npu_rms_norm(..., 1 + weight)` baseline:
-
-```bash
-python benchmark/bench_gemma_rmsnorm.py --enforce-gate
-```
+standard ACLNN RMSNorm with `1 + weight` on Ascend 950. SGLang does not perform
+runtime SoC detection for this operator.
 
 ### Installation
 1. Pip install the `.whl` file into your Python environment
