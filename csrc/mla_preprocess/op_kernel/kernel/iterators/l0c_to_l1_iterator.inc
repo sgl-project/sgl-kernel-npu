@@ -27,6 +27,16 @@ struct l0c_to_l1<ArchTag, DataFormat::ZN, half, int32_t> {
                          uint32_t mTileCeil,
                          uint32_t nActual)
     {
+#if defined(__NPU_ARCH__) && (__NPU_ARCH__ == 3101 || __NPU_ARCH__ == 3510)
+        auto intriParams = AscendC::FixpipeParamsV220(
+            nTileActual,
+            mTileActual,
+            0,
+            mTileCeil - mTileActual,
+            false);
+        intriParams.quantPre = QuantMode_t::VDEQF16;
+        AscendC::Fixpipe<half, int32_t, AscendC::CFG_NZ>(l1Tensor, l0cTensor, deqTensor, intriParams);
+#else
         constexpr uint32_t BLOCK_NUM = 16;
         constexpr uint32_t BLOCK_SIZE = 32;
         AscendC::FixpipeParams<ElementIn> intriParams(
@@ -38,5 +48,6 @@ struct l0c_to_l1<ArchTag, DataFormat::ZN, half, int32_t> {
         intriParams.nz2ndParams = {false, 1, 0, 0, static_cast<uint16_t>(nTileActual)};
         intriParams.quantParams = {QuantMode_t::VDEQF16};
         AscendC::Fixpipe(l1Tensor, l0cTensor, deqTensor, intriParams);
+#endif
     };
 };

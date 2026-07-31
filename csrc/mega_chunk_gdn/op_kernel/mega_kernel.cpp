@@ -110,9 +110,9 @@ AICORE inline void mega_transpose_TH_to_HT(__gm__ T *src, __gm__ T *dst, int64_t
 
     using Gm2D = Shape<1, 1, 1, DYNAMIC, DYNAMIC>;
     using Gm1D = Shape<1, 1, 1, 1, DYNAMIC>;
-    using GmSrcS = Stride<1, 1, 1, H, 1>;
-    using GmHeadS = Stride<1, 1, 1, 1, H>;
-    using GmS1 = Stride<1, 1, 1, 1, 1>;
+    using GmSrcS = pto::Stride<1, 1, 1, H, 1>;
+    using GmHeadS = pto::Stride<1, 1, 1, 1, H>;
+    using GmS1 = pto::Stride<1, 1, 1, 1, 1>;
 
     if constexpr (H < MinTransposeCols) {
         int64_t num_tok_blocks = (T_len + BLOCK - 1) / BLOCK;
@@ -209,7 +209,7 @@ AICORE inline void mega_cast_fp32_to_fp16_bsnd(__gm__ float *src, __gm__ half *d
     using DstUB = Tile<TileType::Vec, half, 1, C, BLayout::RowMajor, 1, C, SLayout::NoneBox, 512>;
     using DynDstUB = Tile<TileType::Vec, half, 1, C, BLayout::RowMajor, DYNAMIC, DYNAMIC, SLayout::NoneBox, 512>;
     using Gm1D = Shape<1, 1, 1, 1, DYNAMIC>;
-    using GmS1 = Stride<1, 1, 1, 1, 1>;
+    using GmS1 = pto::Stride<1, 1, 1, 1, 1>;
 
     SrcUB src_ub;
     TASSIGN(src_ub, F32_UB);
