@@ -41,9 +41,9 @@ def test_unknown_soc_version_is_rejected():
     [
         ("Ascend910B1", "native"),
         ("Ascend910_9382", "native"),
-        ("Ascend950", "triton"),
-        ("ascend950pr_9599", "triton"),
-        ("ascend950dt_95a2", "triton"),
+        ("Ascend950", "aclnn"),
+        ("ascend950pr_9599", "aclnn"),
+        ("ascend950dt_95a2", "aclnn"),
     ],
 )
 def test_gemma_provider_is_selected_from_build_target(target, expected):
@@ -55,9 +55,9 @@ def test_gemma_provider_is_selected_from_build_target(target, expected):
     [
         ("910B", "Ascend910B1", "native"),
         ("910C", "Ascend910_9382", "native"),
-        ("950", "Ascend950", "triton"),
-        ("ascend950pr_9599", "ascend950pr_9599", "triton"),
-        ("ascend950dt_95a2", "ascend950dt_95a2", "triton"),
+        ("950", "Ascend950", "aclnn"),
+        ("ascend950pr_9599", "ascend950pr_9599", "aclnn"),
+        ("ascend950dt_95a2", "ascend950dt_95a2", "aclnn"),
     ],
 )
 def test_build_writes_target_specific_package_config(
