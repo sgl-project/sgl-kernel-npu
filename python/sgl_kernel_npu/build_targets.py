@@ -4,13 +4,15 @@ from pathlib import Path
 from setuptools.command.build_py import build_py
 
 BUILD_TARGET_ENV = "SGL_KERNEL_NPU_BUILD_TARGET"
-DEFAULT_BUILD_TARGET = "Ascend910_9382"
+DEFAULT_BUILD_TARGET = "Ascend910"
 
 _SOC_VERSION_ALIASES = {
-    "910B": "Ascend910B1",
-    "Ascend910B1": "Ascend910B1",
-    "910C": "Ascend910_9382",
-    "Ascend910_9382": "Ascend910_9382",
+    "910": "Ascend910",
+    "Ascend910": "Ascend910",
+    "910B": "Ascend910",
+    "Ascend910B1": "Ascend910",
+    "910C": "Ascend910",
+    "Ascend910_9382": "Ascend910",
     "950": "Ascend950",
     "Ascend950": "Ascend950",
     "ascend950": "Ascend950",
@@ -23,7 +25,7 @@ def normalize_soc_version(target: str) -> str:
 
     normalized = target.lower()
     if normalized.startswith(("ascend950pr_", "ascend950dt_")):
-        return normalized
+        return "Ascend950"
 
     supported = ", ".join(_SOC_VERSION_ALIASES)
     raise ValueError(
@@ -34,12 +36,7 @@ def normalize_soc_version(target: str) -> str:
 
 def get_gemma_provider(target: str) -> str:
     soc_version = normalize_soc_version(target)
-    return (
-        "aclnn"
-        if soc_version == "Ascend950"
-        or soc_version.startswith(("ascend950pr_", "ascend950dt_"))
-        else "native"
-    )
+    return "aclnn" if soc_version == "Ascend950" else "native"
 
 
 def write_build_target_config(build_lib: Path, target: str) -> None:
