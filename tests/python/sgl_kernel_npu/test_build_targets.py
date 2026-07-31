@@ -2,7 +2,6 @@ import importlib.util
 from pathlib import Path
 
 import pytest
-from setuptools.command.build_py import build_py
 
 MODULE_PATH = (
     Path(__file__).resolve().parents[3]
@@ -16,51 +15,64 @@ SPEC.loader.exec_module(build_targets)
 
 
 @pytest.mark.parametrize(
-    ("module", "target", "enabled"),
+    ("target", "expected"),
     [
-        ("sgl_kernel_npu.norm.gemma_rmsnorm", "910B", False),
-        ("sgl_kernel_npu.norm.gemma_rmsnorm", "910C", False),
-        ("sgl_kernel_npu.norm.gemma_rmsnorm", "950", True),
-        ("sgl_kernel_npu.norm.gemma_rmsnorm", "FutureAscend", False),
-        ("sgl_kernel_npu.norm._gemma_rmsnorm_triton", "910B", False),
-        ("sgl_kernel_npu.norm._gemma_rmsnorm_triton", "950", True),
+        ("910B", "Ascend910B1"),
+        ("Ascend910B1", "Ascend910B1"),
+        ("910C", "Ascend910_9382"),
+        ("Ascend910_9382", "Ascend910_9382"),
+        ("950", "Ascend950"),
+        ("Ascend950", "Ascend950"),
     ],
 )
-def test_gemma_rmsnorm_is_only_packaged_for_ascend950(module, target, enabled):
-    assert build_targets.module_is_enabled(module, target) is enabled
+def test_soc_version_aliases_are_normalized(target, expected):
+    assert build_targets.normalize_soc_version(target) == expected
 
 
-def test_unrestricted_modules_are_packaged_for_every_target():
-    assert build_targets.module_is_enabled(
-        "sgl_kernel_npu.norm.add_rmsnorm_bias", "FutureAscend"
-    )
+def test_unknown_soc_version_is_rejected():
+    with pytest.raises(ValueError, match="Unsupported SOC_VERSION"):
+        build_targets.normalize_soc_version("FutureAscend")
+
+
+@pytest.mark.parametrize(
+    ("target", "expected"),
+    [
+        ("Ascend910B1", "native"),
+        ("Ascend910_9382", "native"),
+        ("Ascend950", "triton"),
+    ],
+)
+def test_gemma_provider_is_selected_from_build_target(target, expected):
+    assert build_targets.get_gemma_provider(target) == expected
+
+
+@pytest.mark.parametrize(
+    ("target", "soc_version", "provider"),
+    [
+        ("910B", "Ascend910B1", "native"),
+        ("910C", "Ascend910_9382", "native"),
+        ("950", "Ascend950", "triton"),
+    ],
+)
+def test_build_writes_target_specific_package_config(
+    tmp_path, target, soc_version, provider
+):
+    build_targets.write_build_target_config(tmp_path, target)
+
+    config_path = tmp_path / "sgl_kernel_npu" / "_build_target.py"
+    namespace = {}
+    exec(config_path.read_text(encoding="utf-8"), namespace)
+
+    assert namespace["SOC_VERSION"] == soc_version
+    assert namespace["GEMMA_RMS_NORM_PROVIDER"] == provider
 
 
 def test_build_target_uses_environment(monkeypatch):
     monkeypatch.delenv(build_targets.BUILD_TARGET_ENV, raising=False)
-    assert build_targets.get_build_target() == "910C"
+    assert build_targets.get_build_target() == "Ascend910_9382"
 
     monkeypatch.setenv(build_targets.BUILD_TARGET_ENV, "950")
-    assert build_targets.get_build_target() == "950"
-
-
-def test_build_py_filters_target_specific_modules(monkeypatch):
-    modules = [
-        ("sgl_kernel_npu.norm", "gemma_rmsnorm", "gemma_rmsnorm.py"),
-        (
-            "sgl_kernel_npu.norm",
-            "_gemma_rmsnorm_triton",
-            "_gemma_rmsnorm_triton.py",
-        ),
-        ("sgl_kernel_npu.norm", "add_rmsnorm_bias", "add_rmsnorm_bias.py"),
-    ]
-    monkeypatch.setattr(build_py, "find_package_modules", lambda *_: modules)
-    monkeypatch.setenv(build_targets.BUILD_TARGET_ENV, "910C")
-
-    command = object.__new__(build_targets.TargetBuildPy)
-    selected = command.find_package_modules("sgl_kernel_npu.norm", "unused")
-
-    assert selected == [modules[2]]
+    assert build_targets.get_build_target() == "Ascend950"
 
 
 def test_gemma_public_module_has_no_runtime_soc_dispatch():
@@ -68,13 +80,13 @@ def test_gemma_public_module_has_no_runtime_soc_dispatch():
         MODULE_PATH.parent / "sgl_kernel_npu" / "norm" / "gemma_rmsnorm.py"
     ).read_text(encoding="utf-8")
 
-    assert "torch_npu" not in source
     assert "get_soc_version" not in source
-    assert "PROVIDERS" not in source
+    assert "NpuDeviceFamily" not in source
 
 
-def test_build_target_manifest_uses_product_names():
-    source = MODULE_PATH.read_text(encoding="utf-8")
+def test_build_script_uses_one_normalized_soc_version():
+    source = (MODULE_PATH.parents[2] / "build.sh").read_text(encoding="utf-8")
 
-    assert "Ascend910" not in source
-    assert "Ascend950" not in source
+    assert "PRODUCT_TARGET" not in source
+    assert "CANN_SOC_VERSION" not in source
+    assert '-DSOC_VERSION="$SOC_VERSION"' in source
