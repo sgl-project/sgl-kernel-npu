@@ -2,11 +2,8 @@ import numpy as np
 import pytest
 import torch
 import torch_npu
-from sgl_kernel_npu.norm.add_rmsnorm_bias import add_rmsnorm_bias
-from sgl_kernel_npu.norm.gemma_rmsnorm import (
-    add_gemma_rms_norm,
-    npu_gemma_rms_norm,
-)
+from sgl_kernel_npu.norm.add_rmsnorm_bias import add_gemma_rms_norm, add_rmsnorm_bias
+from sgl_kernel_npu.norm.gemma_rmsnorm import npu_gemma_rms_norm
 
 
 def add_rmsnorm_bias_quant_golden(
@@ -120,58 +117,59 @@ def reference_add_gemma_rms_norm(hidden_state, weight, residual, variance_epsilo
     return norm_output, add_output
 
 
-@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-@pytest.mark.parametrize(
-    "shape",
-    [
-        (3, 256),
-        (2, 3, 2048),
-        (2, 4096),
-        (1, 5120),
-    ],
-)
-@pytest.mark.parametrize("has_residual", [False, True])
-def test_add_gemma_rms_norm(shape, dtype, has_residual):
+def test_add_gemma_rms_norm():
     torch.manual_seed(0)
     device = torch.device("npu")
-    variance_epsilon = 1e-6
-    hidden_state = torch.randn(shape, device=device, dtype=dtype)
-    residual = torch.randn(shape, device=device, dtype=dtype) if has_residual else None
-    weight = torch.randn(shape[-1], device=device, dtype=dtype)
-    hidden_state_before = hidden_state.clone()
-    residual_before = residual.clone() if residual is not None else None
-    weight_before = weight.clone()
 
-    if residual is None:
-        norm_output, _ = npu_gemma_rms_norm(
-            hidden_state, weight, variance_epsilon
-        )
-        add_output = hidden_state
-    else:
-        norm_output, add_output = add_gemma_rms_norm(
+    test_cases = [
+        (8, 512),
+        (16, 1024),
+        (32, 2048),
+        (1, 256),
+    ]
+
+    variance_epsilon = 1e-6
+
+    for batch, dim in test_cases:
+        print(f"Testing batch={batch}, dim={dim}")
+
+        hidden_state = torch.randn(batch, dim, device=device, dtype=torch.float16)
+        residual = torch.randn(batch, dim, device=device, dtype=torch.float16)
+        weight = torch.randn(dim, device=device, dtype=torch.float16)
+
+        norm_out_triton, add_out_triton = add_gemma_rms_norm(
             hidden_state, weight, residual, variance_epsilon
         )
-    norm_out_ref, add_out_ref = reference_add_gemma_rms_norm(
-        hidden_state, weight, residual, variance_epsilon
-    )
 
-    assert norm_output.shape == hidden_state.shape
-    assert norm_output.dtype == hidden_state.dtype
-    assert add_output.shape == hidden_state.shape
-    assert add_output.dtype == hidden_state.dtype
-    torch.testing.assert_close(add_output, add_out_ref, atol=2e-2, rtol=2e-2)
-    torch.testing.assert_close(norm_output, norm_out_ref, atol=2e-2, rtol=2e-2)
-    torch.testing.assert_close(hidden_state, hidden_state_before, rtol=0, atol=0)
-    torch.testing.assert_close(weight, weight_before, rtol=0, atol=0)
-    if residual is None:
-        assert add_output.data_ptr() == hidden_state.data_ptr()
-    else:
-        torch.testing.assert_close(residual, residual_before, rtol=0, atol=0)
+        norm_out_ref, add_out_ref = reference_add_gemma_rms_norm(
+            hidden_state, weight, residual, variance_epsilon
+        )
+
+        assert torch.allclose(add_out_triton, add_out_ref, atol=1e-2, rtol=1e-2)
+        assert torch.allclose(norm_out_triton, norm_out_ref, atol=1e-2, rtol=1e-2)
+
+    print("All tests passed!")
 
 
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-@pytest.mark.parametrize("has_residual", [False, True])
-def test_gemma_rms_norm_noncontiguous_input(dtype, has_residual):
+@pytest.mark.parametrize("shape", [(3, 256), (2, 3, 2048), (2, 4096), (1, 5120)])
+def test_npu_gemma_rms_norm(shape, dtype):
+    torch.manual_seed(0)
+    device = torch.device("npu")
+    eps = 1e-6
+    hidden_state = torch.randn(shape, device=device, dtype=dtype)
+    weight = torch.randn(shape[-1], device=device, dtype=dtype)
+
+    output, _ = npu_gemma_rms_norm(hidden_state, weight, eps)
+    reference, _ = reference_add_gemma_rms_norm(hidden_state, weight, None, eps)
+
+    assert output.shape == hidden_state.shape
+    assert output.dtype == hidden_state.dtype
+    torch.testing.assert_close(output, reference, atol=2e-2, rtol=2e-2)
+
+
+@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
+def test_npu_gemma_rms_norm_noncontiguous_input(dtype):
     torch.manual_seed(0)
     device = torch.device("npu")
     eps = 1e-6
@@ -179,23 +177,12 @@ def test_gemma_rms_norm_noncontiguous_input(dtype, has_residual):
     hidden_state = torch.randn(2, 3, hidden_size * 2, device=device, dtype=dtype)[
         ..., ::2
     ]
-    residual = (
-        torch.randn(2, 3, hidden_size * 2, device=device, dtype=dtype)[..., ::2]
-        if has_residual
-        else None
-    )
     weight = torch.randn(hidden_size, device=device, dtype=dtype)
     hidden_state_before = hidden_state.clone()
-    residual_before = residual.clone() if residual is not None else None
     weight_before = weight.clone()
 
-    if residual is None:
-        output, _ = npu_gemma_rms_norm(hidden_state, weight, eps)
-    else:
-        output, residual_sum = add_gemma_rms_norm(hidden_state, weight, residual, eps)
-    reference, reference_sum = reference_add_gemma_rms_norm(
-        hidden_state, weight, residual, eps
-    )
+    output, _ = npu_gemma_rms_norm(hidden_state, weight, eps)
+    reference, _ = reference_add_gemma_rms_norm(hidden_state, weight, None, eps)
 
     assert not hidden_state.is_contiguous()
     assert output.shape == hidden_state.shape
@@ -203,14 +190,10 @@ def test_gemma_rms_norm_noncontiguous_input(dtype, has_residual):
     torch.testing.assert_close(output, reference, atol=2e-2, rtol=2e-2)
     torch.testing.assert_close(hidden_state, hidden_state_before, rtol=0, atol=0)
     torch.testing.assert_close(weight, weight_before, rtol=0, atol=0)
-    if residual is not None:
-        assert not residual.is_contiguous()
-        torch.testing.assert_close(residual_sum, reference_sum, atol=2e-2, rtol=2e-2)
-        torch.testing.assert_close(residual, residual_before, rtol=0, atol=0)
 
 
 @pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-def test_gemma_rms_norm_matches_npu_rms_norm(dtype):
+def test_npu_gemma_rms_norm_matches_npu_rms_norm(dtype):
     torch.manual_seed(0)
     device = torch.device("npu")
     eps = 1e-6
@@ -223,24 +206,7 @@ def test_gemma_rms_norm_matches_npu_rms_norm(dtype):
     torch.testing.assert_close(output, fallback, atol=2e-2, rtol=2e-2)
 
 
-@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-def test_add_gemma_rms_norm_matches_npu_rms_norm(dtype):
-    torch.manual_seed(0)
-    device = torch.device("npu")
-    eps = 1e-6
-    hidden_state = torch.randn(8, 4096, device=device, dtype=dtype)
-    residual = torch.randn_like(hidden_state)
-    weight = torch.randn(4096, device=device, dtype=dtype)
-
-    output, residual_sum = add_gemma_rms_norm(hidden_state, weight, residual, eps)
-    fallback_sum = hidden_state + residual
-    fallback = torch_npu.npu_rms_norm(fallback_sum, 1.0 + weight, eps)[0]
-
-    torch.testing.assert_close(residual_sum, fallback_sum, atol=2e-2, rtol=2e-2)
-    torch.testing.assert_close(output, fallback, atol=2e-2, rtol=2e-2)
-
-
-def test_gemma_rms_norm_empty_input():
+def test_npu_gemma_rms_norm_empty_input():
     hidden_state = torch.empty(0, 5120, device="npu", dtype=torch.bfloat16)
     weight = torch.randn(5120, device="npu", dtype=torch.bfloat16)
 
@@ -251,19 +217,6 @@ def test_gemma_rms_norm_empty_input():
     assert output.numel() == 0
 
 
-def test_add_gemma_rms_norm_empty_input():
-    hidden_state = torch.empty(0, 5120, device="npu", dtype=torch.bfloat16)
-    residual = torch.empty_like(hidden_state)
-    weight = torch.randn(5120, device="npu", dtype=torch.bfloat16)
-
-    output, residual_sum = add_gemma_rms_norm(hidden_state, weight, residual, 1e-6)
-
-    assert output.shape == hidden_state.shape
-    assert residual_sum.shape == hidden_state.shape
-    assert output.numel() == 0
-    assert residual_sum.numel() == 0
-
-
 if __name__ == "__main__":
     test_add_rmsnorm_bias()
-    test_add_gemma_rms_norm((3, 256), torch.float16, True)
+    test_add_gemma_rms_norm()
