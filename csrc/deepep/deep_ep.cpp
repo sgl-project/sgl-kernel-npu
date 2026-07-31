@@ -1,5 +1,6 @@
 #include <memory>
 #include <cmath>
+#include <cstdlib>
 #include <pybind11/functional.h>
 
 #include "hccl/hccl.h"
@@ -53,7 +54,14 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
     this->shared_expert_rank_num = get_value_from_env("MOE_SHARED_EXPERT_RANK_NUM", 0);
     const char *roundEnv = std::getenv("DEEPEP_NORMAL_LONG_SEQ_ROUND");
     const char *tokensEnv = std::getenv("DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS");
-    this->combine_enable_long_seq = get_value_from_env("DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ", 0);
+    const char *combineLongSeqEnv = std::getenv("DEEPEP_NORMAL_COMBINE_ENABLE_LONG_SEQ");
+    this->combine_enable_long_seq = false;
+    if (combineLongSeqEnv != nullptr) {
+        bool isDisabled = combineLongSeqEnv[0] == '0' && combineLongSeqEnv[1] == '\0';
+        bool isEnabled = combineLongSeqEnv[0] == '1' && combineLongSeqEnv[1] == '\0';
+        EP_HOST_ASSERT(isDisabled || isEnabled);
+        this->combine_enable_long_seq = isEnabled;
+    }
     bool roundSet = (roundEnv != nullptr);
     bool tokensSet = (tokensEnv != nullptr);
 
@@ -72,7 +80,7 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
         long t = std::strtol(tokensEnv, &end, 10);
         EP_HOST_ASSERT(*end == '\0' && t >= MIN_TOKENS_PER_ROUND && t <= MAX_TOKENS_PER_ROUND);
         // 验证乘积限制
-        EP_HOST_ASSERT(r * t <= 131072);
+        EP_HOST_ASSERT(r * t <= MAX_TOTAL_TOKENS);
         round = static_cast<int>(r);
         per_round_tokens = static_cast<int>(t);
     }
@@ -212,6 +220,7 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     EP_HOST_ASSERT(num_tokens_per_rank->size(0) == num_ranks);
 
     auto num_tokens = static_cast<int>(new_x.size(0)), hidden = static_cast<int>(new_x.size(1));
+    EP_HOST_ASSERT(num_tokens <= round * per_round_tokens);
     auto num_experts = static_cast<int64_t>(num_tokens_per_expert->size(0) / round);
     auto num_local_experts = static_cast<int>(num_experts / num_ranks);
 
@@ -433,6 +442,7 @@ Buffer::notify_verify(const at::Tensor &x, const std::optional<at::Tensor> &x_sc
     EP_HOST_ASSERT(num_tokens_per_rank->size(0) == num_ranks);
 
     auto num_tokens = static_cast<int>(new_x.size(0)), hidden = static_cast<int>(new_x.size(1));
+    EP_HOST_ASSERT(num_tokens <= round * per_round_tokens);
     auto num_experts = static_cast<int64_t>(num_tokens_per_expert->size(0) / round);
     auto num_local_experts = static_cast<int>(num_experts / num_ranks);
 
@@ -539,6 +549,7 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
 
     const int num_tokens = topk_idx.size(0);
     const int num_topk = topk_idx.size(1);
+    EP_HOST_ASSERT(!combine_enable_long_seq || num_tokens <= round * per_round_tokens);
     at::Tensor expert_scales;
     // for padding
     if (topk_weights.has_value()) {

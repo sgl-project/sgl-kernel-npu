@@ -75,7 +75,8 @@ constexpr uint8_t COMM_ALG_DOUBLE_RING = 2;
 constexpr uint8_t COMM_ALG_SWITCH_WING = 3;
 constexpr uint8_t COMM_VERSION3 = 3;
 constexpr double COMM_GROW_RATIO = 1.15;
-constexpr uint64_t MTE_STATE_ZONE_SIZE = 1024UL * 1024UL;
+// Keep this value in sync with A5_MTE_STATE_WIN_SIZE in op_kernel/moe_distribute_base.h.
+constexpr uint64_t MTE_STATE_ZONE_SIZE = 4UL * 1024UL * 1024UL;
 
 constexpr uint64_t LARGE_K = 8192;
 constexpr uint64_t LARGE_N = 5120;
@@ -125,15 +126,15 @@ inline ge::graphStatus GetEpWinSize(const gert::TilingContext *context, const ch
                                     uint64_t &hcclBufferSizeEp, uint64_t &maxWindowSizeEp, uint32_t attrGroupEpIndex)
 {
     auto attrs = context->GetAttrs();
-    if (mc2tiling::GetSocVersion(context) == "Ascend910_95") {
+    if (mc2tiling::GetSocVersion(context) == "Ascend950") {
         // A5 暂不支持 Hccl CommGetBufSizeCfg 接口，此处暂作规避
         hcclBufferSizeEp = Mc2TilingUtils::GetMaxWindowSize();
-        // A5 上前 1MB 作为状态区，剩余空间用作数据区
+        // A5 上前 4MB 作为状态区，剩余空间用作数据区
         maxWindowSizeEp = hcclBufferSizeEp - MTE_STATE_ZONE_SIZE;
     } else {
         hcclBufferSizeEp = 0;
         maxWindowSizeEp = 0;
-        OP_LOGE(nodeName, "GetEpWinSize not in Ascend910_95!");
+        OP_LOGE(nodeName, "GetEpWinSize only supports Ascend950!");
         return ge::GRAPH_FAILED;
     }
     return ge::GRAPH_SUCCESS;

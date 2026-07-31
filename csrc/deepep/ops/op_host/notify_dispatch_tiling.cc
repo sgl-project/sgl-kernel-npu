@@ -50,6 +50,16 @@ constexpr uint32_t ATTR_PER_ROUND_TOKENS_INDEX = 8;
 
 const size_t MAX_GROUP_NAME_LENGTH = 128UL;
 const int64_t MAX_COMM_WORLD_SIZE = 384;
+const int64_t MAX_MOE_EXPERTS_NUM = 1024;
+const int32_t MIN_ROUND = 1;
+const int32_t MAX_ROUND = 256;
+const int32_t MIN_PER_ROUND_TOKENS = 32;
+const int32_t MAX_PER_ROUND_TOKENS = 8192;
+const int64_t MAX_TOTAL_TOKENS = 131072;
+const int32_t SEND_PER_GROUP = 3;
+const int32_t EXPERT_NORMAL_NUM = 512;
+const int32_t BATCH_ROUND = 16;
+const int32_t UB_ALIGN_SIZE_BYTES = 32;
 
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
 constexpr uint32_t KERNEL_USE_WORKSPACE = 1 * 1024 * 1024;
@@ -127,6 +137,42 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     OP_TILING_CHECK(
         (*numTokenPtr < 0),
         OP_LOGE(nodeName, "numTokenPtr is invalid, only support >= 0, but got numTokenPtr=%d.", *numTokenPtr),
+        return ge::GRAPH_FAILED);
+    OP_TILING_CHECK((*localRankSizePtr <= 0) || (*localRankSizePtr > *rankSizePtr),
+                    OP_LOGE(nodeName, "localRankSize is invalid, only support (0, %d], but got localRankSize=%d.",
+                            *rankSizePtr, *localRankSizePtr),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK((*localRankIdPtr < 0) || (*localRankIdPtr >= *localRankSizePtr),
+                    OP_LOGE(nodeName, "localRankId is invalid, only support [0, %d), but got localRankId=%d.",
+                            *localRankSizePtr, *localRankIdPtr),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK((*roundPtr < MIN_ROUND) || (*roundPtr > MAX_ROUND),
+                    OP_LOGE(nodeName, "round is invalid, only support [%d, %d], but got round=%d.", MIN_ROUND,
+                            MAX_ROUND, *roundPtr),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK((*perRoundTokensPtr < MIN_PER_ROUND_TOKENS) || (*perRoundTokensPtr > MAX_PER_ROUND_TOKENS),
+                    OP_LOGE(nodeName, "perRoundTokens is invalid, only support [%d, %d], but got perRoundTokens=%d.",
+                            MIN_PER_ROUND_TOKENS, MAX_PER_ROUND_TOKENS, *perRoundTokensPtr),
+                    return ge::GRAPH_FAILED);
+    const int64_t totalTokenCapacity = static_cast<int64_t>(*roundPtr) * *perRoundTokensPtr;
+    OP_TILING_CHECK(totalTokenCapacity > MAX_TOTAL_TOKENS,
+                    OP_LOGE(nodeName, "round * perRoundTokens should not exceed %ld, but got %d * %d=%ld.",
+                            MAX_TOTAL_TOKENS, *roundPtr, *perRoundTokensPtr, totalTokenCapacity),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(*numTokenPtr > totalTokenCapacity,
+                    OP_LOGE(nodeName, "numTokens should not exceed round * perRoundTokens, but got %d > %ld.",
+                            *numTokenPtr, totalTokenCapacity),
+                    return ge::GRAPH_FAILED);
+    const int64_t expertDataStride = static_cast<int64_t>(*roundPtr) * SEND_PER_GROUP;
+    OP_TILING_CHECK((*sendCountPtr % expertDataStride) != 0,
+                    OP_LOGE(nodeName, "sendCount=%d is not divisible by round * sendPerGroup=%ld.", *sendCountPtr,
+                            expertDataStride),
+                    return ge::GRAPH_FAILED);
+    const int64_t numExperts = *sendCountPtr / expertDataStride;
+    OP_TILING_CHECK(
+        (numExperts <= 0) || (numExperts > MAX_MOE_EXPERTS_NUM) || ((numExperts % *rankSizePtr) != 0),
+        OP_LOGE(nodeName, "numExperts=%ld derived from sendCount must be in (0, %ld] and divisible by rankSize=%d.",
+                numExperts, MAX_MOE_EXPERTS_NUM, *rankSizePtr),
         return ge::GRAPH_FAILED);
 
     commGroup = std::string(commGroupPtr);
@@ -273,9 +319,16 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     // Verify the size of the win area
     NotifyDispatchTilingData *tilingData = context->GetTilingData<NotifyDispatchTilingData>();
     uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize();
+    const bool isA5 = (mc2tiling::GetSocVersion(context) == "Ascend950");
+    OP_TILING_CHECK(isA5 && maxWindowSize <= mc2tiling::MTE_STATE_ZONE_SIZE,
+                    OP_LOGE(nodeName, "HCCL_BUFFSIZE=%lu must be larger than the %lu-byte A5 MTE state zone.",
+                            maxWindowSize, mc2tiling::MTE_STATE_ZONE_SIZE),
+                    return false);
+    const uint64_t usableWindowSize = isA5 ? maxWindowSize - mc2tiling::MTE_STATE_ZONE_SIZE : maxWindowSize;
     uint64_t actualSize = dataSize * tilingData->notifyDispatchInfo.sendCount + 2 * 1024 * 1024;  // 2MB flag位
-    if (actualSize > maxWindowSize) {
-        OP_LOGE(nodeName, "HCCL_BUFFSIZE is too SMALL, should larger than %luMB.", actualSize / MB_SIZE);
+    if (actualSize > usableWindowSize / 2UL) {
+        OP_LOGE(nodeName, "HCCL_BUFFSIZE is too SMALL for ping-pong NotifyDispatch, should larger than %luMB.",
+                actualSize * 2UL / MB_SIZE);
         return false;
     }
     tilingData->notifyDispatchInfo.totalWinSize = maxWindowSize;
@@ -329,6 +382,34 @@ static ge::graphStatus NotifyDispatchTilingFuncImpl(gert::TilingContext *context
     uint32_t aivNum = ascendcPlatform.GetCoreNumAiv();
     uint64_t ubSize = 0UL;
     ascendcPlatform.GetCoreMemSize(platform_ascendc::CoreMemType::UB, ubSize);
+    if (socVersion == "Ascend950") {
+        const uint32_t round = tilingData->notifyDispatchInfo.round;
+        const uint32_t numExperts = tilingData->notifyDispatchInfo.sendCount / round / SEND_PER_GROUP;
+        const uint32_t numLocalExperts = numExperts / tilingData->notifyDispatchInfo.rankSize;
+        uint32_t batchRounds = 1;
+        if (round > 1 && numExperts > EXPERT_NORMAL_NUM) {
+            batchRounds = BATCH_ROUND / 2;
+        } else if (round > 1 && numExperts <= EXPERT_NORMAL_NUM / 2) {
+            batchRounds = BATCH_ROUND * 2;
+        } else if (round > 1) {
+            batchRounds = BATCH_ROUND;
+        }
+        const uint64_t tokenPerExpertSize =
+            Mc2TilingUtils::CeilAlign(batchRounds * numExperts * sizeof(int32_t), UB_ALIGN_SIZE_BYTES);
+        const uint64_t sendDataSize =
+            Mc2TilingUtils::CeilAlign(batchRounds * numExperts * SEND_PER_GROUP * sizeof(int32_t), UB_ALIGN_SIZE_BYTES);
+        const uint64_t sendDataOffsetSize =
+            Mc2TilingUtils::CeilAlign(batchRounds * numExperts * sizeof(int32_t), UB_ALIGN_SIZE_BYTES);
+        const uint64_t reorderedSendDataSize = Mc2TilingUtils::CeilAlign(
+            batchRounds * numLocalExperts * SEND_PER_GROUP * sizeof(int32_t), UB_ALIGN_SIZE_BYTES);
+        const uint64_t requiredUbSize = tokenPerExpertSize + sendDataSize + sendDataOffsetSize + reorderedSendDataSize;
+        OP_TILING_CHECK(requiredUbSize > ubSize,
+                        OP_LOGE(nodeName,
+                                "A5 NotifyDispatch UB is too small: required=%lu, available=%lu, numExperts=%u, "
+                                "numLocalExperts=%u, batchRounds=%u.",
+                                requiredUbSize, ubSize, numExperts, numLocalExperts, batchRounds),
+                        return ge::GRAPH_FAILED);
+    }
 
     blockDim = aivNum;
     context->SetBlockDim(blockDim);

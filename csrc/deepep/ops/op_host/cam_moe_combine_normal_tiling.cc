@@ -60,6 +60,10 @@ constexpr int64_t MAX_EP_WORLD_SIZE = 384;
 constexpr int64_t MIN_EP_WORLD_SIZE = 2;
 constexpr int64_t MAX_TP_WORLD_SIZE = 2;
 constexpr int64_t BS_UPPER_BOUND = 131072;
+constexpr int64_t MIN_ROUND = 1;
+constexpr int64_t MAX_ROUND = 256;
+constexpr int64_t MIN_PER_ROUND_TOKENS = 32;
+constexpr int64_t MAX_PER_ROUND_TOKENS = 8192;
 
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
 constexpr int32_t HCCL_BUFFER_SIZE_DEFAULT = 200 * 1024 * 1024;  // Bytes
@@ -470,6 +474,23 @@ static bool CheckAttrs(gert::TilingContext *context, CamMoeCombineNormalTilingDa
     OP_TILING_CHECK(maxRoundPtr == nullptr, OP_LOGE(nodeName, "maxRound is null."), return false);
     auto perRoundTokensPtr = attrs->GetAttrPointer<int64_t>(ATTR_PER_ROUND_TOKENS_INDEX);
     OP_TILING_CHECK(perRoundTokensPtr == nullptr, OP_LOGE(nodeName, "perRoundTokens is null."), return false);
+    OP_TILING_CHECK(
+        (*maxRoundPtr < MIN_ROUND) || (*maxRoundPtr > MAX_ROUND),
+        OP_LOGE(nodeName, "maxRound should be in [%ld, %ld], but got %ld.", MIN_ROUND, MAX_ROUND, *maxRoundPtr),
+        return false);
+    OP_TILING_CHECK((*perRoundTokensPtr < MIN_PER_ROUND_TOKENS) || (*perRoundTokensPtr > MAX_PER_ROUND_TOKENS),
+                    OP_LOGE(nodeName, "perRoundTokens should be in [%ld, %ld], but got %ld.", MIN_PER_ROUND_TOKENS,
+                            MAX_PER_ROUND_TOKENS, *perRoundTokensPtr),
+                    return false);
+    OP_TILING_CHECK((*maxRoundPtr * *perRoundTokensPtr > BS_UPPER_BOUND),
+                    OP_LOGE(nodeName, "maxRound * perRoundTokens should not exceed %ld, but got %ld * %ld.",
+                            BS_UPPER_BOUND, *maxRoundPtr, *perRoundTokensPtr),
+                    return false);
+    OP_TILING_CHECK(
+        (tilingData.camMoeCombineNormalInfo.realMaxBs > static_cast<uint64_t>(*maxRoundPtr * *perRoundTokensPtr)),
+        OP_LOGE(nodeName, "realMaxBs should not exceed maxRound * perRoundTokens, but got %u > %ld * %ld.",
+                tilingData.camMoeCombineNormalInfo.realMaxBs, *maxRoundPtr, *perRoundTokensPtr),
+        return false);
     tilingData.camMoeCombineNormalInfo.maxRound = static_cast<uint32_t>(*maxRoundPtr);
     tilingData.camMoeCombineNormalInfo.perRoundTokens = static_cast<uint32_t>(*perRoundTokensPtr);
     return true;
@@ -555,6 +576,13 @@ static ge::graphStatus CamMoeCombineNormalA3TilingFuncImpl(gert::TilingContext *
 
     // 校验win区大小
     uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize();
+    const std::string socVersion = mc2tiling::GetSocVersion(context);
+    const bool isA5 = (socVersion == "Ascend950");
+    OP_TILING_CHECK(isA5 && maxWindowSize <= mc2tiling::MTE_STATE_ZONE_SIZE,
+                    OP_LOGE(nodeName, "HCCL_BUFFSIZE=%lu must be larger than the %lu-byte A5 MTE state zone.",
+                            maxWindowSize, mc2tiling::MTE_STATE_ZONE_SIZE),
+                    return ge::GRAPH_FAILED);
+    const uint64_t usableWindowSize = isA5 ? maxWindowSize - mc2tiling::MTE_STATE_ZONE_SIZE : maxWindowSize;
     uint64_t h = static_cast<uint64_t>(tilingData->camMoeCombineNormalInfo.h);
     uint64_t epWorldSize = static_cast<uint64_t>(tilingData->camMoeCombineNormalInfo.epWorldSize);
     uint64_t k = static_cast<uint64_t>(tilingData->camMoeCombineNormalInfo.k);
@@ -562,20 +590,26 @@ static ge::graphStatus CamMoeCombineNormalA3TilingFuncImpl(gert::TilingContext *
     uint64_t realMaxBs = tilingData->camMoeCombineNormalInfo.realMaxBs;
     uint64_t realBs = std::min(perRoundTokens, realMaxBs);
     uint32_t maxRound = tilingData->camMoeCombineNormalInfo.maxRound;
+    const uint64_t combineStateWinOffset =
+        (isA5 && maxRound > 1) ? A5_MULTI_ROUND_COMBINE_STATE_WIN_OFFSET : COMBINE_STATE_WIN_OFFSET;
+    // The A5 multi-round kernel places its second data buffer at an offset
+    // derived from perRoundTokens, even when the current realMaxBs is smaller.
+    const uint64_t windowTokens = (isA5 && maxRound > 1) ? perRoundTokens : realBs;
     // combine数据区 token首地址对齐512
     uint64_t tokenNeedSizeCombine = ((h * MAX_OUT_DTYPE_SIZE + WIN_ADDR_ALIGN - 1UL) / WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
     tokenNeedSizeCombine = maxRound > 1 ? tokenNeedSizeCombine * 2 : tokenNeedSizeCombine;
-    uint64_t actualSize = (realBs * k * tokenNeedSizeCombine + COMBINE_STATE_WIN_OFFSET + NOTIFY_DISPATCH_WIN_OFFSET) *
-                          DOUBLE_DATA_BUFFER;
+    uint64_t actualSize =
+        (windowTokens * k * tokenNeedSizeCombine + combineStateWinOffset + NOTIFY_DISPATCH_WIN_OFFSET) *
+        DOUBLE_DATA_BUFFER;
     OP_TILING_CHECK(
-        (actualSize > maxWindowSize),
+        (actualSize > usableWindowSize),
         OP_LOGE(nodeName,
-                "HCCL_BUFFSIZE is too SMALL, realBs = %lu, h = %lu, epWorldSize = %lu, localMoeExpertNum = %u,"
-                " tokenNeedSizeCombine = %lu, k = %lu, NEEDED_HCCL_BUFFSIZE("
-                "((realBs * k * tokenNeedSizeCombine * 2)) + 4MB + 204MB) * 2) = %luMB, "
+                "HCCL_BUFFSIZE is too SMALL, windowTokens = %lu, h = %lu, epWorldSize = %lu, localMoeExpertNum = %u,"
+                " tokenNeedSizeCombine = %lu, k = %lu, combineStateWinOffset = %luMB,"
+                " NEEDED_HCCL_BUFFSIZE=%luMB, "
                 "HCCL_BUFFSIZE=%luMB.",
-                realBs, h, epWorldSize, localMoeExpertNum, tokenNeedSizeCombine, k, actualSize / MB_SIZE + 1UL,
-                maxWindowSize / MB_SIZE),
+                windowTokens, h, epWorldSize, localMoeExpertNum, tokenNeedSizeCombine, k,
+                combineStateWinOffset / MB_SIZE, actualSize / MB_SIZE + 1UL, usableWindowSize / MB_SIZE),
         return ge::GRAPH_FAILED);
     tilingData->camMoeCombineNormalInfo.totalWinSize = maxWindowSize;
 
@@ -605,12 +639,7 @@ static ge::graphStatus CamMoeCombineNormalA3TilingFuncImpl(gert::TilingContext *
         tilingKey += 1;
     }
 
-    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
-    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
-    std::string socVersion;
-    (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
-
-    if (socVersion == "Ascend950") {
+    if (isA5) {
         tilingKey = tilingKey + TILING_KEY_A5_TYPE;
     } else {
         tilingKey = tilingKey + TILING_KEY_A3_TYPE;

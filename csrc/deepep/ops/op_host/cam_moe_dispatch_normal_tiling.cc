@@ -76,6 +76,10 @@ constexpr int64_t MAX_EP_WORLD_SIZE = 384;
 constexpr int64_t MIN_EP_WORLD_SIZE = 2;
 constexpr int64_t MAX_TP_WORLD_SIZE = 2;
 constexpr int64_t BS_UPPER_BOUND = 131072;  // 最大bs
+constexpr int64_t MIN_ROUND = 1;
+constexpr int64_t MAX_ROUND = 256;
+constexpr int64_t MIN_PER_ROUND_TOKENS = 32;
+constexpr int64_t MAX_PER_ROUND_TOKENS = 8192;
 
 constexpr uint32_t TILINGKEY_TP_WORLD_SIZE = 100;
 constexpr uint32_t TP_WORLD_SIZE_TWO = 2;
@@ -467,6 +471,27 @@ static ge::graphStatus CheckAttrs(gert::TilingContext *context, const char *node
     auto roundPtr = attrs->GetAttrPointer<int64_t>(ATTR_ROUND_INDEX);
     auto perRoundTokensPtr = attrs->GetAttrPointer<int64_t>(ATTR_PER_ROUND_TOKENS_INDEX);
     auto realMaxBsPtr = attrs->GetAttrPointer<int64_t>(ATTR_REAL_MAX_BS_INDEX);
+    OP_TILING_CHECK(roundPtr == nullptr, OP_LOGE(nodeName, "round is nullptr."), return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(perRoundTokensPtr == nullptr, OP_LOGE(nodeName, "perRoundTokens is nullptr."),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(realMaxBsPtr == nullptr, OP_LOGE(nodeName, "realMaxBs is nullptr."), return ge::GRAPH_FAILED);
+    OP_TILING_CHECK((*roundPtr < MIN_ROUND) || (*roundPtr > MAX_ROUND),
+                    OP_LOGE(nodeName, "round should be in [%ld, %ld], but got %ld.", MIN_ROUND, MAX_ROUND, *roundPtr),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK((*perRoundTokensPtr < MIN_PER_ROUND_TOKENS) || (*perRoundTokensPtr > MAX_PER_ROUND_TOKENS),
+                    OP_LOGE(nodeName, "perRoundTokens should be in [%ld, %ld], but got %ld.", MIN_PER_ROUND_TOKENS,
+                            MAX_PER_ROUND_TOKENS, *perRoundTokensPtr),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK((*roundPtr * *perRoundTokensPtr > BS_UPPER_BOUND),
+                    OP_LOGE(nodeName, "round * perRoundTokens should not exceed %ld, but got %ld * %ld.",
+                            BS_UPPER_BOUND, *roundPtr, *perRoundTokensPtr),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK((*realMaxBsPtr < xDim0) || (*realMaxBsPtr > *roundPtr * *perRoundTokensPtr),
+                    OP_LOGE(nodeName,
+                            "realMaxBs should be in [local bs, round * perRoundTokens], but got realMaxBs=%ld, bs=%ld, "
+                            "round=%ld, perRoundTokens=%ld.",
+                            *realMaxBsPtr, xDim0, *roundPtr, *perRoundTokensPtr),
+                    return ge::GRAPH_FAILED);
     tilingData.camMoeDispatchNormalInfo.round = static_cast<uint32_t>(*roundPtr);
     tilingData.camMoeDispatchNormalInfo.perRoundTokens = static_cast<uint32_t>(*perRoundTokensPtr);
     tilingData.camMoeDispatchNormalInfo.realMaxBs = static_cast<uint32_t>(*realMaxBsPtr);
@@ -630,6 +655,13 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
 
     // 校验win区大小
     uint64_t maxWindowSize = Mc2TilingUtils::GetMaxWindowSize();
+    const std::string socVersion = mc2tiling::GetSocVersion(context);
+    const bool isA5 = (socVersion == "Ascend950");
+    OP_TILING_CHECK(isA5 && maxWindowSize <= mc2tiling::MTE_STATE_ZONE_SIZE,
+                    OP_LOGE(nodeName, "HCCL_BUFFSIZE=%lu must be larger than the %lu-byte A5 MTE state zone.",
+                            maxWindowSize, mc2tiling::MTE_STATE_ZONE_SIZE),
+                    return ge::GRAPH_FAILED);
+    const uint64_t usableWindowSize = isA5 ? maxWindowSize - mc2tiling::MTE_STATE_ZONE_SIZE : maxWindowSize;
     uint64_t h = static_cast<uint64_t>(tilingData->camMoeDispatchNormalInfo.h);
     uint64_t k = static_cast<uint64_t>(tilingData->camMoeDispatchNormalInfo.k);
     uint64_t epWorldSize = static_cast<uint64_t>(tilingData->camMoeDispatchNormalInfo.epWorldSize);
@@ -646,14 +678,14 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
     uint64_t actualSize = (maxBs * k * (tokenNeedSizeCombine + tokenNeedSizeDispatch) + COMBINE_STATE_WIN_OFFSET +
                            NOTIFY_DISPATCH_WIN_OFFSET) *
                           DOUBLE_DATA_BUFFER;
-    OP_TILING_CHECK((actualSize > maxWindowSize),
+    OP_TILING_CHECK((actualSize > usableWindowSize),
                     OP_LOGE(nodeName,
                             "HCCL_BUFFSIZE is too SMALL, maxBs = %lu, h = %lu, epWorldSize = %lu,"
                             " localMoeExpertNum = %u, tokenNeedSizeDispatch = %lu, tokenNeedSizeCombine = %lu,"
                             " k = %lu, NEEDED_HCCL_BUFFSIZE((maxBs * k * (tokenNeedSizeDispatch"
                             " + tokenNeedSizeCombine) + 4MB + 204MB) * 2) = %luMB, HCCL_BUFFSIZE=%luMB.",
                             maxBs, h, epWorldSize, localMoeExpertNum, tokenNeedSizeDispatch, tokenNeedSizeCombine, k,
-                            actualSize / MB_SIZE + 1UL, maxWindowSize / MB_SIZE),
+                            actualSize / MB_SIZE + 1UL, usableWindowSize / MB_SIZE),
                     return ge::GRAPH_FAILED);
     tilingData->camMoeDispatchNormalInfo.totalWinSize = maxWindowSize;
     OP_LOGD(nodeName, "windowSize = %lu", maxWindowSize);
@@ -665,12 +697,7 @@ static ge::graphStatus CamMoeDispatchNormalA3TilingFuncImpl(gert::TilingContext 
     uint64_t tilingKey = INIT_TILINGKEY;
     CalTilingKey(tilingKey, quantMode, tpWorldSize);
 
-    fe::PlatFormInfos *platformInfoPtr = context->GetPlatformInfo();
-    fe::PlatFormInfos &platformInfo = *platformInfoPtr;
-    std::string socVersion;
-    (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
-
-    if (socVersion == "Ascend950") {
+    if (isA5) {
         tilingKey = tilingKey + TILING_KEY_A5_TYPE;
     } else {
         tilingKey = tilingKey + TILING_KEY_A3_TYPE;

@@ -253,6 +253,7 @@ For detailed A2 usage, see [A2_DEEPEP](doc/A2_DEEPEP.md).
 #### A5
 
 - Supports CANN 9.0.
+- Normal mode supports multi-round long sequences ("ant migration") in both dispatch and combine. See [A5 Ant Migration](doc/A5_ANT_MIGRATION.md).
 - Build with: `bash build.sh -a deepep Ascend950`.
 - Supports scalar FP8 per-token quantization (`quant_mode="pertoken_fp8_e4m3"`), MXFP8 per-block quantization, and MXFP4 per-block quantization in normal dispatch.
 

@@ -39,6 +39,10 @@ constexpr uint32_t ATTR_RANK_ID_INDEX = 6;
 const int64_t MAX_COMM_WORLD_SIZE = 384;
 const int64_t MAX_MOE_EXPERTS_NUM = 1024;
 const int64_t MAX_LOCAL_RANKSIZE = 8;
+const int64_t MAX_ROUND = 256;
+const int64_t MIN_PER_ROUND_TOKENS = 32;
+const int64_t MAX_PER_ROUND_TOKENS = 8192;
+const int64_t MAX_TOTAL_TOKENS = 131072;
 
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
 constexpr uint32_t KERNEL_USE_WORKSPACE = 1 * 1024 * 1024;
@@ -105,6 +109,10 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
                     OP_LOGE(nodeName, "rankSize is invalid, only support (0, %ld], but got rankSize=%ld.",
                             MAX_COMM_WORLD_SIZE, *numRanksPtr),
                     return ge::GRAPH_FAILED);
+    OP_TILING_CHECK((*numTokensPtr < 0) || (*numTokensPtr > MAX_TOTAL_TOKENS),
+                    OP_LOGE(nodeName, "numTokens is invalid, only support [0, %ld], but got numTokens=%ld.",
+                            MAX_TOTAL_TOKENS, *numTokensPtr),
+                    return ge::GRAPH_FAILED);
     OP_TILING_CHECK((*numExpertsPtr <= 0) || (*numExpertsPtr > MAX_MOE_EXPERTS_NUM),
                     OP_LOGE(nodeName, "numExperts is invalid, only support (0, %ld], but got numExperts=%ld.",
                             MAX_MOE_EXPERTS_NUM, *numExpertsPtr),
@@ -116,6 +124,23 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     OP_TILING_CHECK(
         (*numTopkPtr <= 0) || (*numTopkPtr > K_MAX),
         OP_LOGE(nodeName, "numTopkPtr is invalid, only support (0, %u], but got numTopk=%ld.", K_MAX, *numTopkPtr),
+        return ge::GRAPH_FAILED);
+    OP_TILING_CHECK((*perRoundTokensPtr < MIN_PER_ROUND_TOKENS) || (*perRoundTokensPtr > MAX_PER_ROUND_TOKENS),
+                    OP_LOGE(nodeName, "perRoundTokens is invalid, only support [%ld, %ld], but got perRoundTokens=%ld.",
+                            MIN_PER_ROUND_TOKENS, MAX_PER_ROUND_TOKENS, *perRoundTokensPtr),
+                    return ge::GRAPH_FAILED);
+    const int64_t actualRound = (*numTokensPtr + *perRoundTokensPtr - 1) / *perRoundTokensPtr;
+    OP_TILING_CHECK(actualRound > MAX_ROUND,
+                    OP_LOGE(nodeName, "The derived round should not exceed %ld, but got ceil(%ld / %ld)=%ld.",
+                            MAX_ROUND, *numTokensPtr, *perRoundTokensPtr, actualRound),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(
+        (*rankIdPtr < 0) || (*rankIdPtr >= *numRanksPtr),
+        OP_LOGE(nodeName, "rankId is invalid, only support [0, %ld), but got rankId=%ld.", *numRanksPtr, *rankIdPtr),
+        return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(
+        *localRankSizePtr <= 0,
+        OP_LOGE(nodeName, "localRankSize is invalid, only support > 0, but got localRankSize=%ld.", *localRankSizePtr),
         return ge::GRAPH_FAILED);
 
     if (CheckIfA2Machine(context)) {

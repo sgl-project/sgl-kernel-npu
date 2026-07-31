@@ -2,9 +2,11 @@
 #include "lib/matmul_intf.h"
 #include "cam_moe_combine_normal.h"
 #include "cam_moe_combine_normal_a5.h"
+#include "cam_moe_combine_normal_a5_multi_round.h"
 #include "cam_moe_combine_normal_multi_round.h"
 #include "cam_moe_combine_normal_tiling.h"
 using namespace AscendC;
+using namespace CamMoeCombineNormalA5MultiRoundImpl;
 using namespace CamMoeCombineNormalMultiRoundImpl;
 using namespace CamMoeCombineNormalImpl;
 using namespace CamMoeCombineNormalA5Impl;
@@ -31,6 +33,11 @@ extern "C" __global__ __aicore__ void cam_moe_combine_normal(GM_ADDR recvX, GM_A
     GET_TILING_DATA_WITH_STRUCT(CamMoeCombineNormalTilingData, tilingData, tilingGM);
     if (TILING_KEY_IS(TILINGKEY_A3_MULTI_ROUND)) {
         CamMoeCombineNormalMultiRound<DTYPE_RECV_X, DTYPE_X, int32_t> op;
+        op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tpRecvCount, XOut, sendCostStatsOut,
+                workspaceGM, &pipe, &tilingData);
+        op.Process();
+    } else if (TILING_KEY_IS(TILINGKEY_A5_MULTI_ROUND)) {
+        CamMoeCombineNormalA5MultiRound<DTYPE_RECV_X, DTYPE_X, int32_t> op;
         op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tpRecvCount, XOut, sendCostStatsOut,
                 workspaceGM, &pipe, &tilingData);
         op.Process();
