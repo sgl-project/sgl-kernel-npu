@@ -62,7 +62,10 @@ def test_native_provider_uses_torch_npu_gemma_operators(monkeypatch):
     )
     weight = OffsetWeight()
 
-    assert module.gemma_rms_norm("input", weight, 1e-5) == "plain-output"
+    assert module.npu_gemma_rms_norm("input", weight, 1e-5) == (
+        "plain-output",
+        "rstd",
+    )
     assert module.add_gemma_rms_norm("input", weight, "residual", 1e-5) == (
         "residual-output",
         "residual-sum",
@@ -94,7 +97,10 @@ def test_aclnn_provider_uses_standard_rms_norm_operators(monkeypatch):
     )
     weight = OffsetWeight()
 
-    assert module.gemma_rms_norm("input", weight, 1e-5) == "plain-output"
+    assert module.npu_gemma_rms_norm("input", weight, 1e-5) == (
+        "plain-output",
+        "rstd",
+    )
     assert module.add_gemma_rms_norm("input", weight, "residual", 1e-5) == (
         "residual-output",
         "residual-sum",

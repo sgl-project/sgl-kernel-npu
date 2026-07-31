@@ -5,7 +5,7 @@ import torch_npu
 from sgl_kernel_npu.norm.add_rmsnorm_bias import add_rmsnorm_bias
 from sgl_kernel_npu.norm.gemma_rmsnorm import (
     add_gemma_rms_norm,
-    gemma_rms_norm,
+    npu_gemma_rms_norm,
 )
 
 
@@ -143,7 +143,9 @@ def test_add_gemma_rms_norm(shape, dtype, has_residual):
     weight_before = weight.clone()
 
     if residual is None:
-        norm_output = gemma_rms_norm(hidden_state, weight, variance_epsilon)
+        norm_output, _ = npu_gemma_rms_norm(
+            hidden_state, weight, variance_epsilon
+        )
         add_output = hidden_state
     else:
         norm_output, add_output = add_gemma_rms_norm(
@@ -188,7 +190,7 @@ def test_gemma_rms_norm_noncontiguous_input(dtype, has_residual):
     weight_before = weight.clone()
 
     if residual is None:
-        output = gemma_rms_norm(hidden_state, weight, eps)
+        output, _ = npu_gemma_rms_norm(hidden_state, weight, eps)
     else:
         output, residual_sum = add_gemma_rms_norm(hidden_state, weight, residual, eps)
     reference, reference_sum = reference_add_gemma_rms_norm(
@@ -215,7 +217,7 @@ def test_gemma_rms_norm_matches_npu_rms_norm(dtype):
     hidden_state = torch.randn(8, 4096, device=device, dtype=dtype)
     weight = torch.randn(4096, device=device, dtype=dtype)
 
-    output = gemma_rms_norm(hidden_state, weight, eps)
+    output, _ = npu_gemma_rms_norm(hidden_state, weight, eps)
     fallback = torch_npu.npu_rms_norm(hidden_state, 1.0 + weight, eps)[0]
 
     torch.testing.assert_close(output, fallback, atol=2e-2, rtol=2e-2)
@@ -242,7 +244,7 @@ def test_gemma_rms_norm_empty_input():
     hidden_state = torch.empty(0, 5120, device="npu", dtype=torch.bfloat16)
     weight = torch.randn(5120, device="npu", dtype=torch.bfloat16)
 
-    output = gemma_rms_norm(hidden_state, weight, 1e-6)
+    output, _ = npu_gemma_rms_norm(hidden_state, weight, 1e-6)
 
     assert output.shape == hidden_state.shape
     assert output.dtype == hidden_state.dtype
