@@ -28,6 +28,18 @@ class LowLatencyStrategy:
         return [cls.DEFAULT, cls.OPS, cls.ALLTOALL]
 
 
+VALID_QUANT_MODES = frozenset(
+    {
+        "bf16",
+        "int8",
+        "mx_fp8_e4m3",
+        "mx_fp8_e5m2",
+        "pertoken_fp8_e4m3",
+        "mx_fp4_e2m1",
+    }
+)
+
+
 # Normal mode strategy and Low latency mode strategy
 class StrategyMap:
     strategy_map = {

@@ -11,7 +11,7 @@ import torch.distributed as dist
 import torch_npu
 from deep_ep_cpp import EventHandle
 
-from ..ep_strategy import NormalEPCommStrategy, register_normal_strategy
+from ..ep_strategy import VALID_QUANT_MODES, NormalEPCommStrategy, register_normal_strategy
 from ..utils import EventOverlap
 
 # Global variable for communication stream
@@ -157,14 +157,6 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         EventOverlap,
     ]:
         # Determine quant type from quant_mode
-        VALID_QUANT_MODES = {
-            "bf16",
-            "int8",
-            "mx_fp8_e4m3",
-            "mx_fp8_e5m2",
-            "pertoken_fp8_e4m3",
-            "mx_fp4_e2m1",
-        }
         if quant_mode is None:
             quant_mode = "bf16"
         if quant_mode not in VALID_QUANT_MODES:
@@ -578,14 +570,6 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         ]
         global_tokens_indices = layout["global_tokens_indices"]
 
-        VALID_QUANT_MODES = {
-            "bf16",
-            "int8",
-            "mx_fp8_e4m3",
-            "mx_fp8_e5m2",
-            "pertoken_fp8_e4m3",
-            "mx_fp4_e2m1",
-        }
         if quant_mode is None:
             quant_mode = (
                 "int8"
