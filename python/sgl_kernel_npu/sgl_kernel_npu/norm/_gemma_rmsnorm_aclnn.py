@@ -9,5 +9,5 @@ def npu_gemma_rms_norm(
     weight: torch.Tensor,
     eps: float = 1e-6,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Apply native Gemma RMSNorm on Ascend 910."""
-    return torch_npu.npu_gemma_rms_norm(input, weight, eps)
+    """Apply standard RMSNorm with Gemma weight semantics on Ascend 950."""
+    return torch_npu.npu_rms_norm(input, 1.0 + weight, eps)

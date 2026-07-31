@@ -23,13 +23,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
 {
     m.def("sgl_kernel_npu_print_version() -> ()", []() { printf("%s\n", LIB_VERSION_FULL); });
     m.def("sgl_kernel_npu_version() -> str", []() { return std::string("") + LIB_VERSION; });
-    m.def("sgl_kernel_npu_use_native_gemma_rms_norm() -> bool", []() {
-#ifdef SGL_KERNEL_NPU_USE_NATIVE_GEMMA_RMS_NORM
-        return true;
-#else
-        return false;
-#endif
-    });
 
     m.def("helloworld(Tensor x, Tensor y) -> Tensor");
 

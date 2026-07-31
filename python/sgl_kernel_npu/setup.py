@@ -10,8 +10,27 @@ from pathlib import Path
 import setuptools
 from setuptools import find_namespace_packages
 from setuptools.command.build_ext import build_ext
+from setuptools.command.build_py import build_py
 from setuptools.dist import Distribution
 from torch_npu.utils.cpp_extension import NpuExtension
+
+BUILD_TARGET_ENV = "SGL_KERNEL_NPU_BUILD_TARGET"
+
+
+class TargetBuildPy(build_py):
+    """Keep only the target-specific Gemma RMSNorm implementation."""
+
+    def run(self):
+        super().run()
+        target = os.environ.get(BUILD_TARGET_ENV, "Ascend910")
+        norm_dir = Path(self.build_lib) / "sgl_kernel_npu" / "norm"
+        aclnn_source = norm_dir / "_gemma_rmsnorm_aclnn.py"
+        if target == "Ascend950":
+            aclnn_source.replace(norm_dir / "gemma_rmsnorm.py")
+        elif target == "Ascend910":
+            aclnn_source.unlink()
+        else:
+            raise ValueError(f"Unsupported wheel target: {target!r}")
 
 
 class BinaryDistribution(Distribution):
@@ -42,6 +61,7 @@ setuptools.setup(
     description="python api for sgl_kernel_npu",
     packages=find_namespace_packages(exclude=("tests*",)),
     ext_modules=[NpuExtension("sgl_kernel_npu._C", sources=[])],
+    cmdclass={"build_py": TargetBuildPy},
     url="https://github.com/sgl-project/sgl-kernel-npu/",
     license="BSD 3 License",
     python_requires=">=3.7",

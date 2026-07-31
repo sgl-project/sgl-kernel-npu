@@ -134,11 +134,6 @@ ascendc_compile_definitions(mega_chunk_gdn_kernel PRIVATE
 
 # create shared library libsgl_kernel_npu.so
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
-if(SGL_KERNEL_NPU_USE_NATIVE_GEMMA_RMS_NORM)
-    target_compile_definitions(
-        ${OP_PLUGIN_NAME} PRIVATE SGL_KERNEL_NPU_USE_NATIVE_GEMMA_RMS_NORM
-    )
-endif()
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${MEGA_CHUNK_GDN_KERNEL_TARGETS}
