@@ -29,6 +29,16 @@ bash build.sh -a kernels 910
 bash build.sh -a kernels 950
 ```
 
+Released packages are built for the `910` target only, so Ascend 950 (A5) users
+must build the `950` wheel from source — there is no prebuilt A5 artifact.
+
+The `910` and `950` wheels differ only in which Gemma RMSNorm implementation is
+staged, but the target is recorded neither in the wheel filename nor in its
+version, so the two cannot be told apart once built. A `910` wheel on Ascend 950
+raises an error the first time Gemma RMSNorm runs, and a `950` wheel on Ascend
+910 silently takes the slower ACLNN path. Build for the hardware you will run
+on rather than copying wheels between hosts.
+
 The current main C++ kernel bundle uses its 910C compatibility target for an
 Ascend 950 package because several modules, including LoRA, have not yet been
 ported to the A5 pipeline model. The wheel build still stages only the ACLNN
