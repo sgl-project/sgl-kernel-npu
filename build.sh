@@ -35,6 +35,7 @@ function print_help()
     cat <<'EOF'
 Usage:
     ./build.sh                                  Build all modules for A3.
+    ./build.sh [SOC_VERSION]                    Build all modules for a target SoC.
     ./build.sh -a deepep [SOC_VERSION]          Build deep_ep; auto-detect A2, A3, or A5.
     ./build.sh -a deepep2 [SOC_VERSION]         Build deep_ep for A2 (compatible alias).
     ./build.sh -a kernels [SOC_VERSION]         Build sgl_kernel_npu.
@@ -54,6 +55,11 @@ Chip mapping:
 Compatible commands:
     ./build.sh -a deepep2                     # Explicit A2 build
     ./build.sh -a deepep Ascend950            # Explicit A5 build
+
+SOC_VERSION:
+    910B | Ascend910B1
+    910C | Ascend910_9382
+    950  | Ascend950 | concrete Ascend950PR_*/Ascend950DT_* value
 
 Options:
     -d             Enable debug logging.
@@ -165,15 +171,41 @@ function detect_deepep_soc_version()
     die "Cannot determine the device type (A2/A3/A5) from npu-smi output."
 }
 
+function normalize_soc_version()
+{
+    case "$SOC_VERSION" in
+        910B | Ascend910B1 )
+            SOC_VERSION="Ascend910B1"
+            ;;
+        910C | Ascend910_9382 )
+            SOC_VERSION="Ascend910_9382"
+            ;;
+        950 | Ascend950 | ascend950 )
+            SOC_VERSION="Ascend950"
+            ;;
+        Ascend950PR_* | Ascend950DT_* )
+            SOC_VERSION="${SOC_VERSION,,}"
+            ;;
+        ascend950pr_* | ascend950dt_* )
+            ;;
+        * )
+            die "Unsupported SOC_VERSION '$SOC_VERSION'. Expected 910B, 910C, 950, or a supported Ascend product name."
+            ;;
+    esac
+}
+
+function is_a5_soc_version()
+{
+    [[ "$SOC_VERSION" == "Ascend950" ||
+        "$SOC_VERSION" == ascend950pr_* ||
+        "$SOC_VERSION" == ascend950dt_* ]]
+}
+
 function configure_soc_version()
 {
     case "$BUILD_TARGET" in
         all )
-            if [[ -n "$REQUESTED_SOC_VERSION" ]]; then
-                die "The default full build does not accept SOC_VERSION; use a specific -a target."
-            fi
-            SOC_VERSION="Ascend910_9382"
-            CMAKE_SOC_VERSION="Ascend910_9382"
+            SOC_VERSION="${REQUESTED_SOC_VERSION:-Ascend910_9382}"
             ;;
         deepep )
             if [[ -n "$REQUESTED_SOC_VERSION" ]]; then
@@ -182,32 +214,12 @@ function configure_soc_version()
                 detect_deepep_soc_version
             fi
 
-            case "$SOC_VERSION" in
-                Ascend910B1 )
-                    DEEPEP_VARIANT="deepep2"
-                    ;;
-                Ascend910_9382 | Ascend950 )
-                    DEEPEP_VARIANT="deepep"
-                    ;;
-                * )
-                    die "Target 'deepep' supports only Ascend910B1 (A2), Ascend910_9382 (A3), or Ascend950 (A5)."
-                    ;;
-            esac
-            CMAKE_SOC_VERSION="Ascend910_9382"
             ;;
         deepep2 )
             SOC_VERSION="${REQUESTED_SOC_VERSION:-Ascend910B1}"
-            if [[ "$SOC_VERSION" != "Ascend910B1" ]]; then
-                die "Target 'deepep2' supports only Ascend910B1 (A2)."
-            fi
-            CMAKE_SOC_VERSION="Ascend910_9382"
             ;;
         kernels )
             SOC_VERSION="${REQUESTED_SOC_VERSION:-Ascend910_9382}"
-            if [[ "$SOC_VERSION" == "Ascend950" ]]; then
-                die "Target 'kernels' requires an AscendC-supported SoC name instead of the DeepEP alias Ascend950."
-            fi
-            CMAKE_SOC_VERSION="$SOC_VERSION"
             ;;
         memory-saver )
             if [[ -n "$REQUESTED_SOC_VERSION" ]]; then
@@ -217,8 +229,45 @@ function configure_soc_version()
             ;;
     esac
 
-    if [[ "$SOC_VERSION" == "Ascend950" ]]; then
+    if [[ -n "$SOC_VERSION" ]]; then
+        normalize_soc_version
+    fi
+
+    case "$BUILD_TARGET" in
+        all | deepep )
+            if [[ "$SOC_VERSION" == "Ascend910B1" ]]; then
+                DEEPEP_VARIANT="deepep2"
+            else
+                DEEPEP_VARIANT="deepep"
+            fi
+            ;;
+        deepep2 )
+            if [[ "$SOC_VERSION" != "Ascend910B1" ]]; then
+                die "Target 'deepep2' supports only Ascend910B1 (A2)."
+            fi
+            ;;
+    esac
+
+    case "$BUILD_TARGET" in
+        deepep | deepep2 )
+            CMAKE_SOC_VERSION="Ascend910_9382"
+            ;;
+        all | kernels )
+            CMAKE_SOC_VERSION="$SOC_VERSION"
+            if is_a5_soc_version; then
+                # The existing main C++ bundle, especially LoRA, still uses
+                # the known-working 910C compatibility target on A5.
+                CMAKE_SOC_VERSION="Ascend910_9382"
+            fi
+            ;;
+    esac
+
+    if is_a5_soc_version; then
         DEEPEP_IS_A5_BUILD="ON"
+    fi
+
+    if [[ -n "$SOC_VERSION" ]]; then
+        export SGL_KERNEL_NPU_BUILD_TARGET="$SOC_VERSION"
     fi
 
     echo "Build target: $BUILD_TARGET"
@@ -227,6 +276,7 @@ function configure_soc_version()
         echo "DeepEP SOC_VERSION: $SOC_VERSION"
     fi
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" || "$BUILD_KERNELS_MODULE" == "ON" ]]; then
+        echo "Wheel SOC_VERSION: $SOC_VERSION"
         echo "CMake SOC_VERSION: $CMAKE_SOC_VERSION"
     fi
 }
