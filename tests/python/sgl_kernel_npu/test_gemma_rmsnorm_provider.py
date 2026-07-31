@@ -18,11 +18,12 @@ class OffsetWeight:
         return (value, self)
 
 
-def load_gemma_module(monkeypatch, provider, torch_npu):
-    build_target = ModuleType("sgl_kernel_npu._build_target")
-    build_target.GEMMA_RMS_NORM_PROVIDER = provider
+def load_gemma_module(monkeypatch, use_native, torch_npu):
     torch = ModuleType("torch")
     torch.Tensor = object
+    torch.ops = SimpleNamespace(
+        npu=SimpleNamespace(sgl_kernel_npu_use_native_gemma_rms_norm=lambda: use_native)
+    )
 
     monkeypatch.setitem(sys.modules, "torch", torch)
     monkeypatch.setitem(sys.modules, "torch_npu", torch_npu)
@@ -30,8 +31,6 @@ def load_gemma_module(monkeypatch, provider, torch_npu):
     monkeypatch.setitem(
         sys.modules, "sgl_kernel_npu.norm", ModuleType("sgl_kernel_npu.norm")
     )
-    monkeypatch.setitem(sys.modules, build_target.__name__, build_target)
-
     module_name = "sgl_kernel_npu.norm.gemma_rmsnorm"
     spec = importlib.util.spec_from_file_location(module_name, MODULE_PATH)
     module = importlib.util.module_from_spec(spec)
@@ -52,7 +51,7 @@ def test_native_provider_uses_torch_npu_gemma_operators(monkeypatch):
     )
     module = load_gemma_module(
         monkeypatch,
-        provider="native",
+        use_native=True,
         torch_npu=torch_npu,
     )
     weight = OffsetWeight()
@@ -73,7 +72,7 @@ def test_aclnn_provider_uses_standard_rms_norm_operators(monkeypatch):
 
     module = load_gemma_module(
         monkeypatch,
-        provider="aclnn",
+        use_native=False,
         torch_npu=SimpleNamespace(
             npu_rms_norm=npu_rms_norm,
         ),
