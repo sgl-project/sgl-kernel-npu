@@ -56,10 +56,12 @@ Compatible commands:
     ./build.sh -a deepep2                     # Explicit A2 build
     ./build.sh -a deepep Ascend950            # Explicit A5 build
 
-SOC_VERSION:
-    910B | Ascend910B1
-    910C | Ascend910_9382
-    950  | Ascend950 | concrete Ascend950PR_*/Ascend950DT_* value
+Kernel wheel targets:
+    910  | Ascend910                       A2/A3 native provider
+    950  | Ascend950                       A5 ACLNN provider
+
+Legacy concrete compiler targets such as Ascend910B1, Ascend910_9382,
+Ascend950PR_*, and Ascend950DT_* remain accepted at the tooling boundary.
 
 Options:
     -d             Enable debug logging.
@@ -174,6 +176,9 @@ function detect_deepep_soc_version()
 function normalize_soc_version()
 {
     case "$SOC_VERSION" in
+        910 | Ascend910 )
+            SOC_VERSION="Ascend910_9382"
+            ;;
         910B | Ascend910B1 )
             SOC_VERSION="Ascend910B1"
             ;;
@@ -189,7 +194,7 @@ function normalize_soc_version()
         ascend950pr_* | ascend950dt_* )
             ;;
         * )
-            die "Unsupported SOC_VERSION '$SOC_VERSION'. Expected 910B, 910C, 950, or a supported Ascend product name."
+            die "Unsupported SOC_VERSION '$SOC_VERSION'. Expected 910, 950, or a supported Ascend compiler target."
             ;;
     esac
 }
@@ -267,7 +272,11 @@ function configure_soc_version()
     fi
 
     if [[ -n "$SOC_VERSION" ]]; then
-        export SGL_KERNEL_NPU_BUILD_TARGET="$SOC_VERSION"
+        if is_a5_soc_version; then
+            export SGL_KERNEL_NPU_BUILD_TARGET="Ascend950"
+        else
+            export SGL_KERNEL_NPU_BUILD_TARGET="Ascend910"
+        fi
     fi
 
     echo "Build target: $BUILD_TARGET"
@@ -276,7 +285,7 @@ function configure_soc_version()
         echo "DeepEP SOC_VERSION: $SOC_VERSION"
     fi
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" || "$BUILD_KERNELS_MODULE" == "ON" ]]; then
-        echo "Wheel SOC_VERSION: $SOC_VERSION"
+        echo "Wheel SOC_VERSION: $SGL_KERNEL_NPU_BUILD_TARGET"
         echo "CMake SOC_VERSION: $CMAKE_SOC_VERSION"
     fi
 }

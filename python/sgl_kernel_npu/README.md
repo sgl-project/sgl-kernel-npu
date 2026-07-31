@@ -25,8 +25,7 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 Executing the engineering build script build.sh
 ```bash
 # Build a target-specific kernel package.
-bash build.sh -a kernels 910B
-bash build.sh -a kernels 910C
+bash build.sh -a kernels 910
 bash build.sh -a kernels 950
 ```
 
@@ -36,7 +35,7 @@ ported to the A5 pipeline model. The wheel target and Gemma provider remain A5.
 An exact `ascend950pr_*` or `ascend950dt_*` build selector is also accepted.
 
 Every target exposes `sgl_kernel_npu.norm.gemma_rmsnorm`. The wheel build binds
-that stable API to native `torch_npu` Gemma RMSNorm on Ascend 910B/910C and to
+that stable API to native `torch_npu` Gemma RMSNorm on Ascend 910 and to
 standard ACLNN RMSNorm with `1 + weight` on Ascend 950. SGLang does not perform
 runtime SoC detection for this operator.
 

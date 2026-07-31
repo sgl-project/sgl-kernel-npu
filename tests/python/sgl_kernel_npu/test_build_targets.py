@@ -17,15 +17,17 @@ SPEC.loader.exec_module(build_targets)
 @pytest.mark.parametrize(
     ("target", "expected"),
     [
-        ("910B", "Ascend910B1"),
-        ("Ascend910B1", "Ascend910B1"),
-        ("910C", "Ascend910_9382"),
-        ("Ascend910_9382", "Ascend910_9382"),
+        ("910", "Ascend910"),
+        ("Ascend910", "Ascend910"),
+        ("910B", "Ascend910"),
+        ("Ascend910B1", "Ascend910"),
+        ("910C", "Ascend910"),
+        ("Ascend910_9382", "Ascend910"),
         ("950", "Ascend950"),
         ("Ascend950", "Ascend950"),
         ("ascend950", "Ascend950"),
-        ("ascend950pr_9599", "ascend950pr_9599"),
-        ("Ascend950DT_95A2", "ascend950dt_95a2"),
+        ("ascend950pr_9599", "Ascend950"),
+        ("Ascend950DT_95A2", "Ascend950"),
     ],
 )
 def test_soc_version_aliases_are_normalized(target, expected):
@@ -40,8 +42,7 @@ def test_unknown_soc_version_is_rejected():
 @pytest.mark.parametrize(
     ("target", "expected"),
     [
-        ("Ascend910B1", "native"),
-        ("Ascend910_9382", "native"),
+        ("Ascend910", "native"),
         ("Ascend950", "aclnn"),
         ("ascend950pr_9599", "aclnn"),
         ("ascend950dt_95a2", "aclnn"),
@@ -54,11 +55,12 @@ def test_gemma_provider_is_selected_from_build_target(target, expected):
 @pytest.mark.parametrize(
     ("target", "soc_version", "provider"),
     [
-        ("910B", "Ascend910B1", "native"),
-        ("910C", "Ascend910_9382", "native"),
+        ("910", "Ascend910", "native"),
+        ("910B", "Ascend910", "native"),
+        ("910C", "Ascend910", "native"),
         ("950", "Ascend950", "aclnn"),
-        ("ascend950pr_9599", "ascend950pr_9599", "aclnn"),
-        ("ascend950dt_95a2", "ascend950dt_95a2", "aclnn"),
+        ("ascend950pr_9599", "Ascend950", "aclnn"),
+        ("ascend950dt_95a2", "Ascend950", "aclnn"),
     ],
 )
 def test_build_writes_target_specific_package_config(
@@ -76,7 +78,7 @@ def test_build_writes_target_specific_package_config(
 
 def test_build_target_uses_environment(monkeypatch):
     monkeypatch.delenv(build_targets.BUILD_TARGET_ENV, raising=False)
-    assert build_targets.get_build_target() == "Ascend910_9382"
+    assert build_targets.get_build_target() == "Ascend910"
 
     monkeypatch.setenv(build_targets.BUILD_TARGET_ENV, "950")
     assert build_targets.get_build_target() == "Ascend950"
@@ -96,7 +98,8 @@ def test_build_script_uses_one_normalized_soc_version():
 
     assert "PRODUCT_TARGET" not in source
     assert "CANN_SOC_VERSION" not in source
-    assert 'export SGL_KERNEL_NPU_BUILD_TARGET="$SOC_VERSION"' in source
+    assert 'SGL_KERNEL_NPU_BUILD_TARGET="Ascend910"' in source
+    assert 'SGL_KERNEL_NPU_BUILD_TARGET="Ascend950"' in source
     assert 'CMAKE_SOC_VERSION="Ascend910_9382"' in source
     assert '"-DSOC_VERSION=$CMAKE_SOC_VERSION"' in source
     assert "Ascend950PR_* | Ascend950DT_*" in source
