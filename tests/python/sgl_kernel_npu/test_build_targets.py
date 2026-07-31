@@ -21,8 +21,8 @@ SPEC.loader.exec_module(build_targets)
         ("Ascend910B1", "Ascend910B1"),
         ("910C", "Ascend910_9382"),
         ("Ascend910_9382", "Ascend910_9382"),
-        ("950", "Ascend950"),
-        ("Ascend950", "Ascend950"),
+        ("ascend950pr_9599", "ascend950pr_9599"),
+        ("Ascend950DT_95A2", "ascend950dt_95a2"),
     ],
 )
 def test_soc_version_aliases_are_normalized(target, expected):
@@ -34,12 +34,19 @@ def test_unknown_soc_version_is_rejected():
         build_targets.normalize_soc_version("FutureAscend")
 
 
+@pytest.mark.parametrize("target", ["950", "Ascend950"])
+def test_generic_a5_target_requests_concrete_cann_soc_version(target):
+    with pytest.raises(ValueError, match="concrete Ascend 950 CANN SoC"):
+        build_targets.normalize_soc_version(target)
+
+
 @pytest.mark.parametrize(
     ("target", "expected"),
     [
         ("Ascend910B1", "native"),
         ("Ascend910_9382", "native"),
-        ("Ascend950", "triton"),
+        ("ascend950pr_9599", "triton"),
+        ("ascend950dt_95a2", "triton"),
     ],
 )
 def test_gemma_provider_is_selected_from_build_target(target, expected):
@@ -51,7 +58,8 @@ def test_gemma_provider_is_selected_from_build_target(target, expected):
     [
         ("910B", "Ascend910B1", "native"),
         ("910C", "Ascend910_9382", "native"),
-        ("950", "Ascend950", "triton"),
+        ("ascend950pr_9599", "ascend950pr_9599", "triton"),
+        ("ascend950dt_95a2", "ascend950dt_95a2", "triton"),
     ],
 )
 def test_build_writes_target_specific_package_config(
@@ -71,8 +79,8 @@ def test_build_target_uses_environment(monkeypatch):
     monkeypatch.delenv(build_targets.BUILD_TARGET_ENV, raising=False)
     assert build_targets.get_build_target() == "Ascend910_9382"
 
-    monkeypatch.setenv(build_targets.BUILD_TARGET_ENV, "950")
-    assert build_targets.get_build_target() == "Ascend950"
+    monkeypatch.setenv(build_targets.BUILD_TARGET_ENV, "ascend950pr_9599")
+    assert build_targets.get_build_target() == "ascend950pr_9599"
 
 
 def test_gemma_public_module_has_no_runtime_soc_dispatch():
@@ -90,3 +98,5 @@ def test_build_script_uses_one_normalized_soc_version():
     assert "PRODUCT_TARGET" not in source
     assert "CANN_SOC_VERSION" not in source
     assert '-DSOC_VERSION="$SOC_VERSION"' in source
+    assert "ascend950pr_* | ascend950dt_*" in source
+    assert "requires a concrete CANN SoC version" in source

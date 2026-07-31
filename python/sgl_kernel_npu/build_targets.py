@@ -11,23 +11,37 @@ _SOC_VERSION_ALIASES = {
     "Ascend910B1": "Ascend910B1",
     "910C": "Ascend910_9382",
     "Ascend910_9382": "Ascend910_9382",
-    "950": "Ascend950",
-    "Ascend950": "Ascend950",
 }
 
 
 def normalize_soc_version(target: str) -> str:
-    try:
+    if target in _SOC_VERSION_ALIASES:
         return _SOC_VERSION_ALIASES[target]
-    except KeyError as error:
-        supported = ", ".join(_SOC_VERSION_ALIASES)
+
+    normalized = target.lower()
+    if normalized in {"950", "ascend950"}:
         raise ValueError(
-            f"Unsupported SOC_VERSION {target!r}; expected one of: {supported}"
-        ) from error
+            "Ascend 950 requires a concrete Ascend 950 CANN SoC version, "
+            "for example ascend950pr_9599; query it with "
+            "`npu-smi info -t board -i 0`"
+        )
+    if normalized.startswith(("ascend950pr_", "ascend950dt_")):
+        return normalized
+
+    supported = ", ".join(_SOC_VERSION_ALIASES)
+    raise ValueError(
+        f"Unsupported SOC_VERSION {target!r}; expected one of: {supported}, "
+        "or a concrete ascend950pr_*/ascend950dt_* value"
+    )
 
 
 def get_gemma_provider(target: str) -> str:
-    return "triton" if normalize_soc_version(target) == "Ascend950" else "native"
+    soc_version = normalize_soc_version(target)
+    return (
+        "triton"
+        if soc_version.startswith(("ascend950pr_", "ascend950dt_"))
+        else "native"
+    )
 
 
 def write_build_target_config(build_lib: Path, target: str) -> None:
