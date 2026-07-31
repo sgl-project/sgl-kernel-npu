@@ -268,6 +268,7 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
 
     TORCH_CHECK(x.dim() == 2 || x.dim() == 3, "x must be 2D or 3D tensor");
     TORCH_CHECK(weight.dim() == 2, "weight must be 2D tensor");
+    TORCH_CHECK(conv_states.dim() == 3, "conv_states must be 3D tensor");
 
     const at::ScalarType dtype = x.scalar_type();
     TORCH_CHECK(dtype == at::kBFloat16 || dtype == at::kHalf, "Only BF16 and FP16 are supported");
@@ -281,6 +282,9 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
     int64_t dim = (x.dim() == 2) ? x.size(1) : x.size(2);
     int64_t width = weight.size(0);
     TORCH_CHECK(width >= MIN_WIDTH && width <= MAX_WIDTH, "Only support width in [2,4]");
+    TORCH_CHECK(weight.size(1) == dim, "weight last dimension must match x dimension");
+    TORCH_CHECK(conv_states.size(2) == dim, "conv_states last dimension must match x dimension");
+    TORCH_CHECK(conv_states.size(1) >= width - 1, "conv_states state length must be at least width - 1");
 
     int64_t inputMode = (x.dim() == 2) ? 0 : 1;
     int64_t seqLen = (inputMode == 1) ? x.size(1) : 0;
@@ -303,6 +307,10 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
     bool hasInitialState = has_initial_state.defined() && has_initial_state.numel() > 0;
     bool hasNumAccept = num_accepted_tokens.defined() && num_accepted_tokens.numel() > 0;
     bool isBf16 = (dtype == at::kBFloat16);
+
+    if (hasBias) {
+        TORCH_CHECK(bias.dim() == 1 && bias.size(0) == dim, "bias must be 1D with length equal to x dimension");
+    }
 
     at::Tensor y = at::empty_like(x);
 

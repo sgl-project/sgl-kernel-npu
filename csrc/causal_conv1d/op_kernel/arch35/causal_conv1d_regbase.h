@@ -16,6 +16,8 @@
 #ifndef CUSTOM_CAUSAL_CONV1D_REGBASE_H
 #define CUSTOM_CAUSAL_CONV1D_REGBASE_H
 
+#include "kernel_operator.h"
+
 namespace NsCausalConv1d {
 using namespace AscendC;
 using namespace AscendC::MicroAPI;

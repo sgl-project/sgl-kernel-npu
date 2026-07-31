@@ -67,7 +67,7 @@ extern "C" __global__ __aicore__ void causal_conv1d(GM_ADDR x, GM_ADDR weight, G
                                                     GM_ADDR workspace, GM_ADDR tiling)
 {
     REGISTER_TILING_DEFAULT(CausalConv1dTilingData);
-    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIV_1_0);
+    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     GM_ADDR userWorkspace = workspace;
     if (workspace != nullptr) {
         userWorkspace = AscendC::GetUserWorkspace(workspace);
