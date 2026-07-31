@@ -143,26 +143,26 @@ def test_add_gemma_rms_norm(shape, dtype, has_residual):
     weight_before = weight.clone()
 
     if residual is None:
-        norm_out_triton = gemma_rms_norm(hidden_state, weight, variance_epsilon)
-        add_out_triton = hidden_state
+        norm_output = gemma_rms_norm(hidden_state, weight, variance_epsilon)
+        add_output = hidden_state
     else:
-        norm_out_triton, add_out_triton = add_gemma_rms_norm(
+        norm_output, add_output = add_gemma_rms_norm(
             hidden_state, weight, residual, variance_epsilon
         )
     norm_out_ref, add_out_ref = reference_add_gemma_rms_norm(
         hidden_state, weight, residual, variance_epsilon
     )
 
-    assert norm_out_triton.shape == hidden_state.shape
-    assert norm_out_triton.dtype == hidden_state.dtype
-    assert add_out_triton.shape == hidden_state.shape
-    assert add_out_triton.dtype == hidden_state.dtype
-    torch.testing.assert_close(add_out_triton, add_out_ref, atol=2e-2, rtol=2e-2)
-    torch.testing.assert_close(norm_out_triton, norm_out_ref, atol=2e-2, rtol=2e-2)
+    assert norm_output.shape == hidden_state.shape
+    assert norm_output.dtype == hidden_state.dtype
+    assert add_output.shape == hidden_state.shape
+    assert add_output.dtype == hidden_state.dtype
+    torch.testing.assert_close(add_output, add_out_ref, atol=2e-2, rtol=2e-2)
+    torch.testing.assert_close(norm_output, norm_out_ref, atol=2e-2, rtol=2e-2)
     torch.testing.assert_close(hidden_state, hidden_state_before, rtol=0, atol=0)
     torch.testing.assert_close(weight, weight_before, rtol=0, atol=0)
     if residual is None:
-        assert add_out_triton.data_ptr() == hidden_state.data_ptr()
+        assert add_output.data_ptr() == hidden_state.data_ptr()
     else:
         torch.testing.assert_close(residual, residual_before, rtol=0, atol=0)
 
@@ -260,23 +260,6 @@ def test_add_gemma_rms_norm_empty_input():
     assert residual_sum.shape == hidden_state.shape
     assert output.numel() == 0
     assert residual_sum.numel() == 0
-
-
-def test_gemma_rms_norm_validates_contract():
-    hidden_state = torch.randn(2, 256, device="npu", dtype=torch.bfloat16)
-    residual = torch.randn_like(hidden_state)
-    weight = torch.randn(256, device="npu", dtype=torch.bfloat16)
-
-    with pytest.raises(ValueError, match="match input.shape"):
-        gemma_rms_norm(hidden_state, weight[:-1])
-    with pytest.raises(ValueError, match="same shape"):
-        add_gemma_rms_norm(hidden_state, weight, residual[:, :-1])
-    with pytest.raises(TypeError, match="torch.float16 or torch.bfloat16"):
-        gemma_rms_norm(hidden_state.float(), weight.float())
-    with pytest.raises(TypeError, match="same dtype"):
-        add_gemma_rms_norm(hidden_state, weight, residual.half())
-    with pytest.raises(ValueError, match="same device"):
-        gemma_rms_norm(hidden_state, weight.cpu())
 
 
 if __name__ == "__main__":

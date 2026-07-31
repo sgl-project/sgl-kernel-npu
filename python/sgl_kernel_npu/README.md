@@ -30,10 +30,17 @@ bash build.sh -a kernels 910C
 bash build.sh -a kernels 950
 ```
 
-The `950`-targeted package includes the Triton implementation exposed as
-`sgl_kernel_npu.norm.gemma_rmsnorm`. Ascend 910B and Ascend 910C use the
-framework's native Gemma RMSNorm operator, so that module is not included in
-their target-specific packages.
+Every target exposes `sgl_kernel_npu.norm.gemma_rmsnorm`. The wheel build binds
+that stable API to native `torch_npu` Gemma RMSNorm on Ascend 910B/910C and to
+the fused Triton implementation on Ascend 950. SGLang does not perform runtime
+SoC detection for this operator.
+
+Before selecting the Ascend 950 provider for a release, compare it with the
+`npu_rms_norm(..., 1 + weight)` baseline:
+
+```bash
+python benchmark/bench_gemma_rmsnorm.py --enforce-gate
+```
 
 ### Installation
 1. Pip install the `.whl` file into your Python environment
