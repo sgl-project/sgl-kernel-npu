@@ -27,12 +27,13 @@ Executing the engineering build script build.sh
 # Build a target-specific kernel package.
 bash build.sh -a kernels 910B
 bash build.sh -a kernels 910C
-bash build.sh -a kernels ascend950pr_9599  # example; use the exact local A5 SoC
+bash build.sh -a kernels 950
 ```
 
-CANN 9.1 requires a concrete Ascend 950 SoC rather than the family name
-`Ascend950`. Query `Chip Name` and `NPU Name` with
-`npu-smi info -t board -i 0`, then pass their combined SoC value.
+The current main C++ kernel bundle uses its 910C compatibility target for an
+Ascend 950 package because several modules, including LoRA, have not yet been
+ported to the A5 pipeline model. The wheel target and Gemma provider remain A5.
+An exact `ascend950pr_*` or `ascend950dt_*` build selector is also accepted.
 
 Every target exposes `sgl_kernel_npu.norm.gemma_rmsnorm`. The wheel build binds
 that stable API to native `torch_npu` Gemma RMSNorm on Ascend 910B/910C and to
