@@ -1,72 +1,50 @@
 import importlib.util
+import sys
+from configparser import ConfigParser
 from pathlib import Path
+from types import ModuleType
 
 import pytest
+import setuptools
+from setuptools.command.build_py import build_py
+from setuptools.dist import Distribution
 
-MODULE_PATH = (
-    Path(__file__).resolve().parents[3]
-    / "python"
-    / "sgl_kernel_npu"
-    / "build_targets.py"
-)
-SPEC = importlib.util.spec_from_file_location("build_targets", MODULE_PATH)
-build_targets = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(build_targets)
+PACKAGE_ROOT = Path(__file__).resolve().parents[3] / "python" / "sgl_kernel_npu"
+SETUP_PATH = PACKAGE_ROOT / "setup.py"
 
 
-@pytest.mark.parametrize(
-    ("target", "expected"),
-    [
-        ("910", "Ascend910"),
-        ("Ascend910", "Ascend910"),
-        ("910B", "Ascend910"),
-        ("Ascend910B1", "Ascend910"),
-        ("910C", "Ascend910"),
-        ("Ascend910_9382", "Ascend910"),
-        ("950", "Ascend950"),
-        ("Ascend950", "Ascend950"),
-        ("ascend950", "Ascend950"),
-        ("ascend950pr_9599", "Ascend950"),
-        ("Ascend950DT_95A2", "Ascend950"),
-    ],
-)
-def test_soc_version_aliases_are_normalized(target, expected):
-    assert build_targets.normalize_soc_version(target) == expected
+@pytest.fixture
+def wheel_setup(monkeypatch):
+    cpp_extension = ModuleType("torch_npu.utils.cpp_extension")
+    cpp_extension.NpuExtension = lambda *args, **kwargs: object()
+    torch_npu_utils = ModuleType("torch_npu.utils")
+    torch_npu_utils.cpp_extension = cpp_extension
+    torch_npu = ModuleType("torch_npu")
+    torch_npu.utils = torch_npu_utils
 
+    monkeypatch.setitem(sys.modules, "torch_npu", torch_npu)
+    monkeypatch.setitem(sys.modules, "torch_npu.utils", torch_npu_utils)
+    monkeypatch.setitem(sys.modules, "torch_npu.utils.cpp_extension", cpp_extension)
+    monkeypatch.setattr(setuptools, "setup", lambda **kwargs: None)
+    monkeypatch.setattr(ConfigParser, "get", lambda *args, **kwargs: "0.0.0")
 
-def test_unknown_soc_version_is_rejected():
-    with pytest.raises(ValueError, match="Unsupported SOC_VERSION"):
-        build_targets.normalize_soc_version("FutureAscend")
-
-
-@pytest.mark.parametrize(
-    ("target", "expected"),
-    [
-        ("Ascend910", "native"),
-        ("Ascend950", "aclnn"),
-        ("ascend950pr_9599", "aclnn"),
-        ("ascend950dt_95a2", "aclnn"),
-    ],
-)
-def test_gemma_provider_is_selected_from_build_target(target, expected):
-    assert build_targets.get_gemma_provider(target) == expected
+    spec = importlib.util.spec_from_file_location("sgl_kernel_npu_setup", SETUP_PATH)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 @pytest.mark.parametrize(
     ("target", "soc_version", "provider"),
     [
-        ("910", "Ascend910", "native"),
-        ("910B", "Ascend910", "native"),
-        ("910C", "Ascend910", "native"),
-        ("950", "Ascend950", "aclnn"),
-        ("ascend950pr_9599", "Ascend950", "aclnn"),
-        ("ascend950dt_95a2", "Ascend950", "aclnn"),
+        ("Ascend910", "Ascend910", "native"),
+        ("Ascend950", "Ascend950", "aclnn"),
     ],
 )
 def test_build_writes_target_specific_package_config(
-    tmp_path, target, soc_version, provider
+    wheel_setup, tmp_path, target, soc_version, provider
 ):
-    build_targets.write_build_target_config(tmp_path, target)
+    wheel_setup.write_build_target_config(tmp_path, target)
 
     config_path = tmp_path / "sgl_kernel_npu" / "_build_target.py"
     namespace = {}
@@ -76,25 +54,58 @@ def test_build_writes_target_specific_package_config(
     assert namespace["GEMMA_RMS_NORM_PROVIDER"] == provider
 
 
-def test_build_target_uses_environment(monkeypatch):
-    monkeypatch.delenv(build_targets.BUILD_TARGET_ENV, raising=False)
-    assert build_targets.get_build_target() == "Ascend910"
+def test_unknown_wheel_target_is_rejected(wheel_setup, tmp_path):
+    with pytest.raises(ValueError, match="Unsupported wheel target"):
+        wheel_setup.write_build_target_config(tmp_path, "FutureAscend")
 
-    monkeypatch.setenv(build_targets.BUILD_TARGET_ENV, "950")
-    assert build_targets.get_build_target() == "Ascend950"
+
+@pytest.mark.parametrize(
+    ("target", "provider"),
+    [("Ascend910", "native"), ("Ascend950", "aclnn")],
+)
+def test_build_py_reads_canonical_target_from_environment(
+    wheel_setup, monkeypatch, tmp_path, target, provider
+):
+    monkeypatch.setattr(build_py, "run", lambda self: None)
+    monkeypatch.setenv(wheel_setup.BUILD_TARGET_ENV, target)
+    command = wheel_setup.TargetBuildPy(Distribution())
+    command.build_lib = str(tmp_path)
+
+    command.run()
+
+    namespace = {}
+    config_path = tmp_path / "sgl_kernel_npu" / "_build_target.py"
+    exec(config_path.read_text(encoding="utf-8"), namespace)
+    assert namespace["SOC_VERSION"] == target
+    assert namespace["GEMMA_RMS_NORM_PROVIDER"] == provider
+
+
+def test_build_py_defaults_to_ascend910(wheel_setup, monkeypatch, tmp_path):
+    monkeypatch.setattr(build_py, "run", lambda self: None)
+    monkeypatch.delenv(wheel_setup.BUILD_TARGET_ENV, raising=False)
+    command = wheel_setup.TargetBuildPy(Distribution())
+    command.build_lib = str(tmp_path)
+
+    command.run()
+
+    namespace = {}
+    config_path = tmp_path / "sgl_kernel_npu" / "_build_target.py"
+    exec(config_path.read_text(encoding="utf-8"), namespace)
+    assert namespace["SOC_VERSION"] == "Ascend910"
+    assert namespace["GEMMA_RMS_NORM_PROVIDER"] == "native"
 
 
 def test_gemma_public_module_has_no_runtime_soc_dispatch():
-    source = (
-        MODULE_PATH.parent / "sgl_kernel_npu" / "norm" / "gemma_rmsnorm.py"
-    ).read_text(encoding="utf-8")
+    source = (PACKAGE_ROOT / "sgl_kernel_npu" / "norm" / "gemma_rmsnorm.py").read_text(
+        encoding="utf-8"
+    )
 
     assert "get_soc_version" not in source
     assert "NpuDeviceFamily" not in source
 
 
 def test_build_script_uses_one_normalized_soc_version():
-    source = (MODULE_PATH.parents[2] / "build.sh").read_text(encoding="utf-8")
+    source = (PACKAGE_ROOT.parents[1] / "build.sh").read_text(encoding="utf-8")
 
     assert "PRODUCT_TARGET" not in source
     assert "CANN_SOC_VERSION" not in source
