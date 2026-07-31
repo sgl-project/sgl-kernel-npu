@@ -16,6 +16,7 @@
 #include "rainfusionattention.h"
 #include "block_sparse_attention.h"
 #include "sparse_block_estimate.h"
+#include "sparse_attention_score.h"
 #include "layernorm.h"
 
 TORCH_LIBRARY(attentions, m)
@@ -51,6 +52,14 @@ TORCH_LIBRARY(attentions, m)
     m.def(
         "layernorm(Tensor input, int[] normalized_shape, Tensor? weight=None, Tensor? bias=None, float eps=1e-05, \
         int impl_mode=0) -> (Tensor, Tensor, Tensor)");
+    m.def(
+        "npu_sparse_attention_score(Tensor query, Tensor key, Tensor value, \
+        Tensor select_idx, Tensor block_table, Tensor? select_num_idx=None, \
+        Tensor? q_dequant_scale=None, Tensor? k_dequant_scale=None, Tensor? v_dequant_scale=None, \
+        Tensor? actual_seq_lengths=None, Tensor? actual_seq_lengths_kv=None, \
+        str q_input_layout='TND', str kv_input_layout='TND', \
+        int num_key_value_heads=1, float scale_value=1.0, int block_size=128, \
+        int top_k=16, int inner_precise=0) -> Tensor");
 }
 
 TORCH_LIBRARY_IMPL(attentions, PrivateUse1, m)
@@ -60,4 +69,5 @@ TORCH_LIBRARY_IMPL(attentions, PrivateUse1, m)
     m.impl("block_sparse_attention", &block_sparse_attention);
     m.impl("sparse_block_estimate", &sparse_block_estimate);
     m.impl("layernorm", &layernorm_npu);
+    m.impl("npu_sparse_attention_score", &npu_sparse_attention_score);
 }
