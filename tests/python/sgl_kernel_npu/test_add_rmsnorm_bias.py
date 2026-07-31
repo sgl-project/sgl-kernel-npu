@@ -137,7 +137,7 @@ def test_add_gemma_rms_norm():
         residual = torch.randn(batch, dim, device=device, dtype=torch.float16)
         weight = torch.randn(dim, device=device, dtype=torch.float16)
 
-        norm_out_triton, add_out_triton = add_gemma_rms_norm(
+        norm_out, add_out = add_gemma_rms_norm(
             hidden_state, weight, residual, variance_epsilon
         )
 
@@ -145,8 +145,8 @@ def test_add_gemma_rms_norm():
             hidden_state, weight, residual, variance_epsilon
         )
 
-        assert torch.allclose(add_out_triton, add_out_ref, atol=1e-2, rtol=1e-2)
-        assert torch.allclose(norm_out_triton, norm_out_ref, atol=1e-2, rtol=1e-2)
+        assert torch.allclose(add_out, add_out_ref, atol=1e-2, rtol=1e-2)
+        assert torch.allclose(norm_out, norm_out_ref, atol=1e-2, rtol=1e-2)
 
     print("All tests passed!")
 
