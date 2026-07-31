@@ -12,6 +12,7 @@ BUILD_TARGET="all"
 REQUESTED_SOC_VERSION=""
 SOC_VERSION=""
 CMAKE_SOC_VERSION="Ascend910_9382"
+SGL_KERNEL_NPU_USE_NATIVE_GEMMA_RMS_NORM="ON"
 DEEPEP_VARIANT="deepep"
 DEEPEP_IS_A5_BUILD="OFF"
 
@@ -271,12 +272,10 @@ function configure_soc_version()
         DEEPEP_IS_A5_BUILD="ON"
     fi
 
-    if [[ -n "$SOC_VERSION" ]]; then
-        if is_a5_soc_version; then
-            export SGL_KERNEL_NPU_BUILD_TARGET="Ascend950"
-        else
-            export SGL_KERNEL_NPU_BUILD_TARGET="Ascend910"
-        fi
+    if is_a5_soc_version; then
+        SGL_KERNEL_NPU_USE_NATIVE_GEMMA_RMS_NORM="OFF"
+    else
+        SGL_KERNEL_NPU_USE_NATIVE_GEMMA_RMS_NORM="ON"
     fi
 
     echo "Build target: $BUILD_TARGET"
@@ -285,8 +284,8 @@ function configure_soc_version()
         echo "DeepEP SOC_VERSION: $SOC_VERSION"
     fi
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" || "$BUILD_KERNELS_MODULE" == "ON" ]]; then
-        echo "Wheel SOC_VERSION: $SGL_KERNEL_NPU_BUILD_TARGET"
         echo "CMake SOC_VERSION: $CMAKE_SOC_VERSION"
+        echo "Native Gemma RMSNorm: $SGL_KERNEL_NPU_USE_NATIVE_GEMMA_RMS_NORM"
     fi
 }
 
@@ -422,6 +421,7 @@ function build_cmake_modules()
         "-DASCEND_HOME_PATH=$ASCEND_HOME_PATH"
         "-DASCEND_INCLUDE_DIR=$ASCEND_INCLUDE_DIR"
         "-DSOC_VERSION=$CMAKE_SOC_VERSION"
+        "-DSGL_KERNEL_NPU_USE_NATIVE_GEMMA_RMS_NORM=$SGL_KERNEL_NPU_USE_NATIVE_GEMMA_RMS_NORM"
         "-DDEEPEP_IS_A5_BUILD=$DEEPEP_IS_A5_BUILD"
         "-DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE"
         "-DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE"

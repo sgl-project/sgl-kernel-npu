@@ -31,7 +31,8 @@ bash build.sh -a kernels 950
 
 The current main C++ kernel bundle uses its 910C compatibility target for an
 Ascend 950 package because several modules, including LoRA, have not yet been
-ported to the A5 pipeline model. The wheel target and Gemma provider remain A5.
+ported to the A5 pipeline model. A separate capability compiled into the host
+library still selects the ACLNN Gemma provider for that package.
 An exact `ascend950pr_*` or `ascend950dt_*` build selector is also accepted.
 
 Every target exposes `sgl_kernel_npu.norm.gemma_rmsnorm`. The wheel build binds
