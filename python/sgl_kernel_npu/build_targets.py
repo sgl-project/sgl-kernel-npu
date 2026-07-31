@@ -34,7 +34,7 @@ def normalize_soc_version(target: str) -> str:
 def get_gemma_provider(target: str) -> str:
     soc_version = normalize_soc_version(target)
     return (
-        "triton"
+        "aclnn"
         if soc_version == "Ascend950"
         or soc_version.startswith(("ascend950pr_", "ascend950dt_"))
         else "native"
