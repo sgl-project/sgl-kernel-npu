@@ -116,9 +116,16 @@ jobs:
         # Pre-step: clear stale wheels from output/ to prevent pip install matching
         # multiple wheel versions (can happen on shared self-hosted runners across jobs).
         # Only delete wheel files; keep .so / CMake cache to avoid rebuilding.
+        
         run: |
-          rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
-          bash scripts/prepare_deepep_in_container.sh
+          if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
+            pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
+            cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
+            ln -s deep_ep/deep_ep_cpp*.so || true
+          else
+            rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+            bash scripts/prepare_deepep_in_container.sh
+          fi
       - name: Set CANN 9.0.0 env
         if: matrix.cann_version == '9.0.0'
         run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
@@ -345,8 +352,14 @@ jobs:
         # multiple wheel versions (can happen on shared self-hosted runners across jobs).
         # Only delete wheel files; keep .so / CMake cache to avoid rebuilding.
         run: |
-          rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
-          bash scripts/prepare_deepep_in_container.sh
+          if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
+            pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
+            cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
+            ln -s deep_ep/deep_ep_cpp*.so || true
+          else
+            rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+            bash scripts/prepare_deepep_in_container.sh
+          fi
       - name: Set CANN 9.0.0 env
         if: matrix.cann_version == '9.0.0'
         run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
@@ -528,8 +541,14 @@ jobs:
         # multiple wheel versions (can happen on shared self-hosted runners across jobs).
         # Only delete wheel files; keep .so / CMake cache to avoid rebuilding.
         run: |
-          rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
-          bash scripts/prepare_deepep_in_container.sh -a deepep
+          if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
+            pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
+            cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
+            ln -s deep_ep/deep_ep_cpp*.so || true
+          else
+            rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+            bash scripts/prepare_deepep_in_container.sh
+          fi
       - name: Set CANN 9.0.0 env
         if: matrix.cann_version == '9.0.0'
         run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
@@ -759,8 +778,14 @@ jobs:
         # multiple wheel versions (can happen on shared self-hosted runners across jobs).
         # Only delete wheel files; keep .so / CMake cache to avoid rebuilding.
         run: |
-          rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
-          bash scripts/prepare_deepep_in_container.sh -a deepep
+          if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
+            pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
+            cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
+            ln -s deep_ep/deep_ep_cpp*.so || true
+          else
+            rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+            bash scripts/prepare_deepep_in_container.sh
+          fi
       - name: Set CANN 9.0.0 env
         if: matrix.cann_version == '9.0.0'
         run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
@@ -949,8 +974,14 @@ jobs:
         # multiple wheel versions (can happen on shared self-hosted runners across jobs).
         # Only delete wheel files; keep .so / CMake cache to avoid rebuilding.
         run: |
-          rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
-          bash scripts/prepare_deepep_in_container.sh -a deepep2
+          if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
+            pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
+            cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
+            ln -s deep_ep/deep_ep_cpp*.so || true
+          else
+            rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+            bash scripts/prepare_deepep_in_container.sh
+          fi
       - name: Set CANN 9.0.0 env
         if: matrix.cann_version == '9.0.0'
         run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
