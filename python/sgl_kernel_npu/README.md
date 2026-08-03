@@ -26,10 +26,18 @@ source /usr/local/Ascend/ascend-toolkit/set_env.sh
 2. Build the project
 Executing the engineering build script build.sh
 ```bash
-# Build a target-specific kernel package.
+# Detect the local NPU and build for it.
+bash build.sh -a kernels
+
+# Or name the SoC explicitly.
 bash build.sh -a kernels 910
 bash build.sh -a kernels 950
 ```
+
+Omitting the SoC queries the local device with `npu-smi`. Hosts without an NPU —
+build containers, for instance — fall back to `Ascend910_9382`, which is what
+every target used to default to unconditionally, so container builds are
+unaffected. Detection only picks a default: an explicit argument always wins.
 
 `910B` (A2), `910`/`910C` (A3) and `950` (A5) select the SoC family. Concrete A5
 compiler targets — `Ascend950PR_*`, `Ascend950DT_*` — are accepted as aliases of

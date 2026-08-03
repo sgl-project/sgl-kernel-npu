@@ -35,12 +35,15 @@ function print_help()
 {
     cat <<'EOF'
 Usage:
-    ./build.sh                                  Build all modules for A3.
-    ./build.sh [SOC_VERSION]                    Build all modules for a target SoC.
-    ./build.sh -a deepep [SOC_VERSION]          Build deep_ep; auto-detect A2, A3, or A5.
+    ./build.sh [SOC_VERSION]                    Build all modules; auto-detect the SoC.
+    ./build.sh -a deepep [SOC_VERSION]          Build deep_ep; auto-detect the SoC.
     ./build.sh -a deepep2 [SOC_VERSION]         Build deep_ep for A2 (compatible alias).
-    ./build.sh -a kernels [SOC_VERSION]         Build sgl_kernel_npu.
+    ./build.sh -a kernels [SOC_VERSION]         Build sgl_kernel_npu; auto-detect the SoC.
     ./build.sh -a memory-saver                  Build torch_memory_saver.
+
+Omitting SOC_VERSION queries the local NPU with npu-smi. Hosts without a device
+-- build containers, for instance -- fall back to the A3 target Ascend910_9382,
+which is what every target used to default to unconditionally.
 
 Targets:
     deepep         Build deep_ep and auto-select ops (A3/A5) or ops2 (A2).
@@ -48,10 +51,11 @@ Targets:
     kernels        Build sgl_kernel_npu only.
     memory-saver   Build torch_memory_saver only.
 
-Chip mapping:
-    A2   : ./build.sh -a deepep               # Auto-detected as Ascend910B1/ops2
-    A3  : ./build.sh -a deepep               # Auto-detected as Ascend910_9382
-    A5   : ./build.sh -a deepep               # Auto-detected as Ascend950
+Chip mapping (what npu-smi detection resolves to):
+    A2      : Ascend910B1     deepep2 ops, native Gemma provider
+    A3      : Ascend910_9382  deepep ops,  native Gemma provider
+    A5      : Ascend950       deepep ops,  ACLNN Gemma provider
+    no NPU  : Ascend910_9382  (fallback)
 
 Compatible commands:
     ./build.sh -a deepep2                     # Explicit A2 build
@@ -140,15 +144,20 @@ function configure_build_target()
     esac
 }
 
-function detect_deepep_soc_version()
+# $1: pass "strict" to abort when npu-smi reports a chip this script does not
+# recognize. deepep picks its ops variant from the SoC, so guessing wrong there
+# is worse than stopping; every other target falls back to the A3 target that
+# used to be their unconditional default.
+function detect_soc_version()
 {
+    local strict="${1:-}"
     local board_info=""
 
     # Build containers may not expose an NPU. Preserve the existing A3 default
     # in that case; callers can still provide Ascend950 explicitly.
     if ! command -v npu-smi >/dev/null 2>&1; then
         SOC_VERSION="Ascend910_9382"
-        echo "Cannot find npu-smi; defaulting DeepEP SOC_VERSION to $SOC_VERSION"
+        echo "Cannot find npu-smi; defaulting SOC_VERSION to $SOC_VERSION"
         return
     fi
 
@@ -157,7 +166,7 @@ function detect_deepep_soc_version()
     if printf '%s\n' "$board_info" |
         grep -Eiq '^[[:space:]]*Chip Name[[:space:]]*:[[:space:]]*Ascend950'; then
         SOC_VERSION="Ascend950"
-        echo "Detected A5: DeepEP SOC_VERSION=$SOC_VERSION"
+        echo "Detected A5: SOC_VERSION=$SOC_VERSION"
         return
     fi
 
@@ -167,18 +176,23 @@ function detect_deepep_soc_version()
     if printf '%s\n' "$board_info" |
         grep -Eiq '^[[:space:]]*Chip Name[[:space:]]*:[[:space:]]*910B'; then
         SOC_VERSION="Ascend910B1"
-        echo "Detected A2: DeepEP SOC_VERSION=$SOC_VERSION"
+        echo "Detected A2: SOC_VERSION=$SOC_VERSION"
         return
     fi
 
     if printf '%s\n' "$board_info" |
         grep -Eiq '^[[:space:]]*Chip Name[[:space:]]*:[[:space:]]*Ascend910'; then
         SOC_VERSION="Ascend910_9382"
-        echo "Detected A3: DeepEP SOC_VERSION=$SOC_VERSION"
+        echo "Detected A3: SOC_VERSION=$SOC_VERSION"
         return
     fi
 
-    die "Cannot determine the device type (A2/A3/A5) from npu-smi output."
+    if [[ "$strict" == "strict" ]]; then
+        die "Cannot determine the device type (A2/A3/A5) from npu-smi output."
+    fi
+
+    SOC_VERSION="Ascend910_9382"
+    echo "Cannot recognize the NPU from npu-smi output; falling back to SOC_VERSION=$SOC_VERSION"
 }
 
 # Fold every accepted spelling onto one canonical name per SoC family. A5 has
@@ -210,22 +224,21 @@ function normalize_soc_version()
 function configure_soc_version()
 {
     case "$BUILD_TARGET" in
-        all )
-            SOC_VERSION="${REQUESTED_SOC_VERSION:-Ascend910_9382}"
-            ;;
-        deepep )
+        all | deepep | kernels )
+            # No SOC_VERSION given: ask the local NPU. detect_soc_version falls
+            # back to the A3 target when npu-smi is absent, so build containers
+            # without a device keep producing the same artifacts as before.
             if [[ -n "$REQUESTED_SOC_VERSION" ]]; then
                 SOC_VERSION="$REQUESTED_SOC_VERSION"
+            elif [[ "$BUILD_TARGET" == "deepep" ]]; then
+                detect_soc_version strict
             else
-                detect_deepep_soc_version
+                detect_soc_version
             fi
-
             ;;
         deepep2 )
+            # A2-only by definition, so there is nothing to detect.
             SOC_VERSION="${REQUESTED_SOC_VERSION:-Ascend910B1}"
-            ;;
-        kernels )
-            SOC_VERSION="${REQUESTED_SOC_VERSION:-Ascend910_9382}"
             ;;
         memory-saver )
             if [[ -n "$REQUESTED_SOC_VERSION" ]]; then
