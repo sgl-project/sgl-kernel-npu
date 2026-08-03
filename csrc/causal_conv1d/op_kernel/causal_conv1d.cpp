@@ -68,6 +68,12 @@ extern "C" __global__ __aicore__ void causal_conv1d(GM_ADDR x, GM_ADDR weight, G
 {
     REGISTER_TILING_DEFAULT(CausalConv1dTilingData);
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
+<<<<<<< HEAD
+=======
+#else
+    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIV_1_0); // _MIX_AIV_1_0 required on A3 to fix prefill timeout
+#endif
+>>>>>>> e6e6151 (add comments for kernel type)
     GM_ADDR userWorkspace = workspace;
     if (workspace != nullptr) {
         userWorkspace = AscendC::GetUserWorkspace(workspace);
