@@ -46,10 +46,14 @@ def _inputs(cu, slots, seed, state_scale, gate_scale=1.0):
     q = torch.randn(1, tokens, HV, K, dtype=torch.bfloat16, device=dev)
     k = torch.randn_like(q)
     v = torch.randn(1, tokens, HV, V, dtype=torch.bfloat16, device=dev)
+    # Dtypes as sglang hands them over: per-token activations (q, k, v, a, b) in
+    # the model's bf16, per-head parameters (A_log, dt_bias) fp32.
     A_log = torch.randn(1, 1, HV, 1, device=dev)
-    a = gate_scale * torch.randn(tokens, HV * K, device=dev)  # 2-D, as decode passes it
+    a = (gate_scale * torch.randn(tokens, HV * K, device=dev)).to(torch.bfloat16)
     dt_bias = gate_scale * torch.randn(HV * K, device=dev)
-    b = torch.randn(1, tokens, HV, device=dev)  # raw logits, kernel applies sigmoid
+    b = torch.randn(
+        1, tokens, HV, dtype=torch.bfloat16, device=dev
+    )  # kernel applies sigmoid
     state = (state_scale * torch.randn(slots, HV, V, K)).to(dev)
     cu_seqlens = torch.tensor(cu, dtype=torch.int32, device=dev)
     return q, k, v, A_log, a, dt_bias, b, state, cu_seqlens

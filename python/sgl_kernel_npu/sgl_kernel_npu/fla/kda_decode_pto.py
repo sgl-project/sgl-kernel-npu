@@ -7,8 +7,10 @@ decode path, backed by ``torch.ops.npu.kda_decode``.
   dt_bias)`` and ``beta = sigmoid(b)`` are computed on the vector core in fp32,
   so ``g`` never round-trips through a narrow wire format the way it did when
   torch precomputed it.
-* **q/k/v/out stay bfloat16**, the model's own dtype -- the kernel converts on
-  the way in and out, so there is no ``.to(float16)`` pass either.
+* **Dtypes are taken as sglang holds them**, so nothing is converted in front of
+  the launch: per-token activations (``q``, ``k``, ``v``, ``a``, ``b``, ``out``)
+  stay in the model's bfloat16, per-head parameters (``A_log``, ``dt_bias``) stay
+  fp32. The kernel widens both to fp32 on arrival.
 * **The state layout is taken as V-major** ``[slots, H, V, K]``, matching
   sglang's ``temporal_state`` pool (``mem_cache/memory_pool.py``), the prefill
   ``chunk_delta_h`` block pointer ``(V, K)/(K, 1)``, and the CUDA reference
@@ -68,12 +70,14 @@ def kda_decode_pto(
     if scale is None:
         scale = K**-0.5
 
-    for name, tensor in (("q", q), ("k", k), ("v", v)):
+    # The split mirrors what sglang already holds: per-token activations carry the
+    # model's bf16, per-head parameters are fp32 nn.Parameters.
+    for name, tensor in (("q", q), ("k", k), ("v", v), ("a", a), ("b", b)):
         if tensor.dtype != torch.bfloat16:
             raise NotImplementedError(
                 f"{name} must be bfloat16 for the PTO decode backend, got {tensor.dtype}"
             )
-    for name, tensor in (("A_log", A_log), ("a", a), ("dt_bias", dt_bias), ("b", b)):
+    for name, tensor in (("A_log", A_log), ("dt_bias", dt_bias)):
         if tensor.dtype != torch.float32:
             raise NotImplementedError(
                 f"{name} must be float32 for the fused gating, got {tensor.dtype}"

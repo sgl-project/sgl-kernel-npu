@@ -44,14 +44,17 @@ void check_shape(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, 
     check(dt_bias.numel() == heads * kHeadDim, "dt_bias must hold [H * K] values");
     check(b.numel() == tokens * heads, "b must hold [tokens, H] values");
 
+    // Per-token activations are the model's bf16; per-head parameters are fp32
+    // (they are fp32 nn.Parameters upstream).  The kernel widens both to fp32 on
+    // arrival, so nothing needs converting in front of the launch.
     check(q.scalar_type() == at::kBFloat16, "q must be bfloat16");
     check(k.scalar_type() == at::kBFloat16, "k must be bfloat16");
     check(v.scalar_type() == at::kBFloat16, "v must be bfloat16");
+    check(a.scalar_type() == at::kBFloat16, "a must be bfloat16 (per-token activation)");
+    check(b.scalar_type() == at::kBFloat16, "b must be bfloat16 (per-token activation)");
     check(out.scalar_type() == at::kBFloat16, "out must be bfloat16");
-    check(A_log.scalar_type() == at::kFloat, "A_log must be float32");
-    check(a.scalar_type() == at::kFloat, "a must be float32");
-    check(dt_bias.scalar_type() == at::kFloat, "dt_bias must be float32");
-    check(b.scalar_type() == at::kFloat, "b must be float32");
+    check(A_log.scalar_type() == at::kFloat, "A_log must be float32 (per-head parameter)");
+    check(dt_bias.scalar_type() == at::kFloat, "dt_bias must be float32 (per-head parameter)");
 
     // V-major [slots, H, V, K], matching sglang's temporal_state pool.
     check(state.dim() == 4, "state must have shape [slots, H, V, K]");

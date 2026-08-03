@@ -23,9 +23,11 @@
 //
 // The gating is fused: the kernel takes the raw `A_log`, `a`, `dt_bias` and `b`
 // and computes g = -exp(A_log) * softplus(a + dt_bias) / softplus_beta and
-// beta = sigmoid(b) itself, in fp32.  q/k/v/out are bf16 -- the model's own
-// dtype -- so the launcher is pure marshalling with no elementwise torch work
-// in front of the launch, and `g` no longer round-trips through fp16.
+// beta = sigmoid(b) itself, widening to fp32 on arrival.  Dtypes follow what
+// sglang already holds, so nothing is converted before the launch: per-token
+// activations (q, k, v, a, b, out) are the model's bf16, per-head parameters
+// (A_log, dt_bias) are fp32.  The launcher is pure marshalling, and `g` no
+// longer round-trips through a narrow wire format.
 
 #include <pto/pto-inst.hpp>
 
@@ -62,8 +64,8 @@ using UbDN = pto::Tile<pto::TileType::Vec, T, R, C, pto::BLayout::ColMajor, RV, 
 
 template <int KDim, int VDim, int VTile>
 AICORE void kda_decode_kernel(__gm__ bfloat16_t *q_ptr, __gm__ bfloat16_t *k_ptr, __gm__ bfloat16_t *v_ptr,
-                              __gm__ float *A_log_ptr, __gm__ float *a_ptr, __gm__ float *dt_bias_ptr,
-                              __gm__ float *b_ptr, __gm__ float *state_ptr, __gm__ bfloat16_t *out_ptr,
+                              __gm__ float *A_log_ptr, __gm__ bfloat16_t *a_ptr, __gm__ float *dt_bias_ptr,
+                              __gm__ bfloat16_t *b_ptr, __gm__ float *state_ptr, __gm__ bfloat16_t *out_ptr,
                               __gm__ int32_t *state_indices, __gm__ int32_t *cu_seqlens, int64_t batch_size,
                               int64_t seq_len, int32_t num_heads, int32_t num_state_slots, float scale, int32_t l2norm,
                               float softplus_beta)
@@ -133,7 +135,8 @@ AICORE void kda_decode_kernel(__gm__ bfloat16_t *q_ptr, __gm__ bfloat16_t *k_ptr
     constexpr int GateTAddr = GateRAddr + KDim * 4;
     constexpr int CoefAddr = GateTAddr + KDim * 4;
     constexpr int SigAddr = CoefAddr + KDim * 4;
-    constexpr int ZeroBfAddr = SigAddr + VTile * 4;
+    constexpr int ABfAddr = SigAddr + VTile * 4;
+    constexpr int ZeroBfAddr = ABfAddr + KDim * 2;
     static_assert(KAddr == QAddr + KDim * 4, "q/k must be adjacent for the [2, KDim] l2norm view");
     static_assert(ZeroBfAddr + VTile * 2 <= 184 * 1024, "UB overflow (TMP_UB_OFFSET at 184 KiB)");
 
@@ -239,17 +242,18 @@ AICORE void kda_decode_kernel(__gm__ bfloat16_t *q_ptr, __gm__ bfloat16_t *k_ptr
             const int64_t token_head = (bos + t) * num_heads + head;
             const int64_t k_off = token_head * KDim;
             const int64_t v_off = token_head * VDim + v0;
-            BfK q_gm(q_ptr + k_off, ks), k_gm(k_ptr + k_off, ks);
-            UbND<bfloat16_t, 1, KDim> q_bf, k_bf;
-            UbND<float, 1, KDim> gate_a;
+            // `a` is a per-token activation, so it arrives in the model's bf16 and
+            // shares q/k's [token, head, KDim] addressing exactly -- same global
+            // tensor type, same staging-then-widen path.  Only the per-head
+            // parameters (A_log, dt_bias) are fp32.
+            BfK q_gm(q_ptr + k_off, ks), k_gm(k_ptr + k_off, ks), a_gm(a_ptr + k_off, ks);
+            UbND<bfloat16_t, 1, KDim> q_bf, k_bf, a_bf;
             TASSIGN(q_bf, QBfAddr);
             TASSIGN(k_bf, KBfAddr);
-            TASSIGN(gate_a, ARowAddr);
+            TASSIGN(a_bf, ABfAddr);
             TLOAD(q_bf, q_gm);
             TLOAD(k_bf, k_gm);
-            // `a` shares q/k's [token, head, KDim] addressing, just in fp32.
-            F32Row a_gm(a_ptr + k_off, ks);
-            TLOAD(gate_a, a_gm);
+            TLOAD(a_bf, a_gm);
             BfV v_gm(v_ptr + v_off, vs);
             UbND<bfloat16_t, 1, VTile, DYNAMIC, DYNAMIC> v_bf(1, rows);
             TASSIGN(v_bf, VBfAddr);
@@ -259,10 +263,11 @@ AICORE void kda_decode_kernel(__gm__ bfloat16_t *q_ptr, __gm__ bfloat16_t *k_ptr
 
             // v's cast is independent of q/k, so it rides along under the same
             // barrier instead of paying its own.
-            UbND<float, 1, KDim> q, k, decay, gate_r, gate_t;
+            UbND<float, 1, KDim> q, k, decay, gate_a, gate_r, gate_t;
             TASSIGN(q, QAddr);
             TASSIGN(k, KAddr);
             TASSIGN(decay, GAddr);
+            TASSIGN(gate_a, ARowAddr);
             TASSIGN(gate_r, GateRAddr);
             TASSIGN(gate_t, GateTAddr);
             UbND<float, 1, VTile, DYNAMIC, DYNAMIC> v_row(1, rows);
@@ -270,6 +275,7 @@ AICORE void kda_decode_kernel(__gm__ bfloat16_t *q_ptr, __gm__ bfloat16_t *k_ptr
             TCVT(q, q_bf, pto::RoundMode::CAST_NONE);
             TCVT(k, k_bf, pto::RoundMode::CAST_NONE);
             TCVT(v_row, v_bf, pto::RoundMode::CAST_NONE);
+            TCVT(gate_a, a_bf, pto::RoundMode::CAST_NONE);
             pipe_barrier(PIPE_V);
             if (use_l2norm) {
                 UbND<float, 2, KDim> qk, sq, nrm_tmp;
@@ -329,7 +335,20 @@ AICORE void kda_decode_kernel(__gm__ bfloat16_t *q_ptr, __gm__ bfloat16_t *k_ptr
             // critical path; `b` itself is a scalar GM read, like the old beta was.
             UbND<float, 1, VTile, DYNAMIC, DYNAMIC> sig(1, rows);
             TASSIGN(sig, SigAddr);
-            TEXPANDS(sig, -static_cast<float>(b_ptr[token_head]));
+            // `b` is one scalar per (token, head), so it comes off the scalar unit
+            // -- which has no bf16 converter (bisheng: "not support bf16 type
+            // cast"; the vector TCVT used for `a`'s tile is a different
+            // instruction).  bf16 is fp32 with the low 16 mantissa bits dropped,
+            // so widening it is a 16-bit shift: exact, and no converter needed.
+            // Written inline rather than as a helper: a file-scope AICORE function
+            // would also be emitted into the cube pass, which this whole body is
+            // #if'd out of, and that binary is rejected at registration.
+            union {
+                uint32_t bits;
+                float value;
+            } beta_raw;
+            beta_raw.bits = static_cast<uint32_t>(reinterpret_cast<__gm__ uint16_t *>(b_ptr)[token_head]) << 16;
+            TEXPANDS(sig, -beta_raw.value);
             pipe_barrier(PIPE_V);
             TEXP(sig, sig);
             pipe_barrier(PIPE_V);
@@ -432,8 +451,8 @@ extern "C" __global__ AICORE void KDA_KERNEL_NAME(GM_ADDR q_ptr, GM_ADDR k_ptr, 
     kda_decode_kernel<GDN_D, KDA_V, KDA_BV>(
         reinterpret_cast<__gm__ bfloat16_t *>(q_ptr), reinterpret_cast<__gm__ bfloat16_t *>(k_ptr),
         reinterpret_cast<__gm__ bfloat16_t *>(v_ptr), reinterpret_cast<__gm__ float *>(A_log_ptr),
-        reinterpret_cast<__gm__ float *>(a_ptr), reinterpret_cast<__gm__ float *>(dt_bias_ptr),
-        reinterpret_cast<__gm__ float *>(b_ptr), reinterpret_cast<__gm__ float *>(state_ptr),
+        reinterpret_cast<__gm__ bfloat16_t *>(a_ptr), reinterpret_cast<__gm__ float *>(dt_bias_ptr),
+        reinterpret_cast<__gm__ bfloat16_t *>(b_ptr), reinterpret_cast<__gm__ float *>(state_ptr),
         reinterpret_cast<__gm__ bfloat16_t *>(out_ptr), reinterpret_cast<__gm__ int32_t *>(state_indices_ptr),
         reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), num_sequences, seq_len, num_heads, num_state_slots, scale,
         l2norm, softplus_beta);
