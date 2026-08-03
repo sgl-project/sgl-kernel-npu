@@ -30,8 +30,8 @@ on:
         description: path of test case file
 
 concurrency:
-  group: ascend-multi-node-global
-  cancel-in-progress: false
+  group: ascend-nightly-multi-node-${{ github.ref }}-${{ inputs.soc_version }}
+  cancel-in-progress: true
 
 jobs:
   multi-node:
