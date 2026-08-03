@@ -1,7 +1,6 @@
 import numpy as np
 import pytest
 import torch
-import torch_npu
 from sgl_kernel_npu.norm.add_rmsnorm_bias import add_gemma_rms_norm, add_rmsnorm_bias
 from sgl_kernel_npu.norm.gemma_rmsnorm import npu_gemma_rms_norm
 
@@ -102,7 +101,7 @@ def test_add_rmsnorm_bias():
     )
 
 
-def reference_add_gemma_rms_norm(hidden_state, weight, residual, variance_epsilon):
+def reference_gemma_rms_norm(hidden_state, weight, residual, variance_epsilon):
     # Step 1: Add
     add_output = hidden_state if residual is None else hidden_state + residual
 
@@ -141,7 +140,7 @@ def test_add_gemma_rms_norm():
             hidden_state, weight, residual, variance_epsilon
         )
 
-        norm_out_ref, add_out_ref = reference_add_gemma_rms_norm(
+        norm_out_ref, add_out_ref = reference_gemma_rms_norm(
             hidden_state, weight, residual, variance_epsilon
         )
 
@@ -161,7 +160,7 @@ def test_npu_gemma_rms_norm(shape, dtype):
     weight = torch.randn(shape[-1], device=device, dtype=dtype)
 
     output, _ = npu_gemma_rms_norm(hidden_state, weight, eps)
-    reference, _ = reference_add_gemma_rms_norm(hidden_state, weight, None, eps)
+    reference, _ = reference_gemma_rms_norm(hidden_state, weight, None, eps)
 
     assert output.shape == hidden_state.shape
     assert output.dtype == hidden_state.dtype
@@ -182,7 +181,7 @@ def test_npu_gemma_rms_norm_noncontiguous_input(dtype):
     weight_before = weight.clone()
 
     output, _ = npu_gemma_rms_norm(hidden_state, weight, eps)
-    reference, _ = reference_add_gemma_rms_norm(hidden_state, weight, None, eps)
+    reference, _ = reference_gemma_rms_norm(hidden_state, weight, None, eps)
 
     assert not hidden_state.is_contiguous()
     assert output.shape == hidden_state.shape
@@ -190,20 +189,6 @@ def test_npu_gemma_rms_norm_noncontiguous_input(dtype):
     torch.testing.assert_close(output, reference, atol=2e-2, rtol=2e-2)
     torch.testing.assert_close(hidden_state, hidden_state_before, rtol=0, atol=0)
     torch.testing.assert_close(weight, weight_before, rtol=0, atol=0)
-
-
-@pytest.mark.parametrize("dtype", [torch.float16, torch.bfloat16])
-def test_npu_gemma_rms_norm_matches_npu_rms_norm(dtype):
-    torch.manual_seed(0)
-    device = torch.device("npu")
-    eps = 1e-6
-    hidden_state = torch.randn(8, 4096, device=device, dtype=dtype)
-    weight = torch.randn(4096, device=device, dtype=dtype)
-
-    output, _ = npu_gemma_rms_norm(hidden_state, weight, eps)
-    fallback = torch_npu.npu_rms_norm(hidden_state, 1.0 + weight, eps)[0]
-
-    torch.testing.assert_close(output, fallback, atol=2e-2, rtol=2e-2)
 
 
 def test_npu_gemma_rms_norm_empty_input():

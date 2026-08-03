@@ -7,6 +7,8 @@ SGLang Kernels for Ascend NPU
 
 ## Software and hardware
 Supported Hardware Models: Ascend 910B, Ascend 910C, and Ascend 950 series products
+(on Ascend 950 the C++ kernel bundle is still compiled against its 910C
+compatibility target, and only a `910` package is published — see below)
 Platform: aarch64/x86
 Supporting Software
 - Driver Ascend HDK 25.0.RC1.1, CANN 8.3.RC1 or later versions (refer to the "[CANN Software Installation Guide](https://www.hiascend.com/document/detail/zh/canncommercial/83RC1/softwareinst/instg/instg_quick.html?Mode=PmIns&InstallType=local&OS=openEuler&Software=cannToolKit)" to install the CANN development kit package, as well as the supporting firmware and drivers)
@@ -29,26 +31,22 @@ bash build.sh -a kernels 910
 bash build.sh -a kernels 950
 ```
 
-Released packages are built for the `910` target only, so Ascend 950 (A5) users
-must build the `950` wheel from source — there is no prebuilt A5 artifact.
-
-The `910` and `950` wheels differ only in which Gemma RMSNorm implementation is
-staged, but the target is recorded neither in the wheel filename nor in its
-version, so the two cannot be told apart once built. A `910` wheel on Ascend 950
-raises an error the first time Gemma RMSNorm runs, and a `950` wheel on Ascend
-910 silently takes the slower ACLNN path. Build for the hardware you will run
-on rather than copying wheels between hosts.
-
-The current main C++ kernel bundle uses its 910C compatibility target for an
-Ascend 950 package because several modules, including LoRA, have not yet been
-ported to the A5 pipeline model. The wheel build still stages only the ACLNN
-Gemma implementation for that package.
-An exact `ascend950pr_*` or `ascend950dt_*` build selector is also accepted.
+`910B` (A2), `910`/`910C` (A3) and `950` (A5) select the SoC family. Concrete A5
+compiler targets — `Ascend950PR_*`, `Ascend950DT_*` — are accepted as aliases of
+`950`, but nothing distinguishes them afterwards: the C++ kernel bundle is
+compiled against the 910C compatibility target for every Ascend 950 package,
+because several modules, including LoRA, have not yet been ported to the A5
+pipeline model.
 
 Every target exposes `sgl_kernel_npu.norm.gemma_rmsnorm`. The wheel build binds
 that stable API to native `torch_npu` Gemma RMSNorm on Ascend 910 and to
 standard ACLNN RMSNorm with `1 + weight` on Ascend 950. SGLang does not perform
 runtime SoC detection for this operator.
+
+Because the provider is chosen at build time, the source tree ships no
+`norm/gemma_rmsnorm.py` — it only exists inside a built wheel. Running from a
+source checkout (or `pip install -e .`) therefore raises `ImportError` for that
+module rather than silently defaulting to the 910 operator.
 
 ### Installation
 1. Pip install the `.whl` file into your Python environment

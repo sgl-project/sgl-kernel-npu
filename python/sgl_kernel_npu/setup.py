@@ -4,6 +4,7 @@
 """python api for sgl_kernel_npu."""
 
 import os
+import shutil
 from configparser import ConfigParser
 from pathlib import Path
 
@@ -15,22 +16,31 @@ from setuptools.dist import Distribution
 from torch_npu.utils.cpp_extension import NpuExtension
 
 BUILD_TARGET_ENV = "SGL_KERNEL_NPU_BUILD_TARGET"
+GEMMA_PROVIDERS = {
+    "Ascend910": "_gemma_rmsnorm_native.py",
+    "Ascend950": "_gemma_rmsnorm_aclnn.py",
+}
 
 
 class TargetBuildPy(build_py):
-    """Keep only the target-specific Gemma RMSNorm implementation."""
+    """Stage exactly one Gemma RMSNorm provider as ``norm/gemma_rmsnorm.py``.
+
+    The source tree deliberately ships no ``gemma_rmsnorm.py``: picking the
+    provider is a build-time decision, so a source-tree or editable install must
+    fail loudly rather than silently default to the 910 operator on A5.
+    """
 
     def run(self):
         super().run()
         target = os.environ.get(BUILD_TARGET_ENV, "Ascend910")
-        norm_dir = Path(self.build_lib) / "sgl_kernel_npu" / "norm"
-        aclnn_source = norm_dir / "_gemma_rmsnorm_aclnn.py"
-        if target == "Ascend950":
-            aclnn_source.replace(norm_dir / "gemma_rmsnorm.py")
-        elif target == "Ascend910":
-            aclnn_source.unlink()
-        else:
+        if target not in GEMMA_PROVIDERS:
             raise ValueError(f"Unsupported wheel target: {target!r}")
+        norm_dir = Path(self.build_lib) / "sgl_kernel_npu" / "norm"
+        shutil.copyfile(
+            norm_dir / GEMMA_PROVIDERS[target], norm_dir / "gemma_rmsnorm.py"
+        )
+        for provider in GEMMA_PROVIDERS.values():
+            (norm_dir / provider).unlink()
 
 
 class BinaryDistribution(Distribution):

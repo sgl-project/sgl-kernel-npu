@@ -57,12 +57,15 @@ Compatible commands:
     ./build.sh -a deepep2                     # Explicit A2 build
     ./build.sh -a deepep Ascend950            # Explicit A5 build
 
-Kernel wheel targets:
-    910  | Ascend910                       A2/A3 native provider
-    950  | Ascend950                       A5 ACLNN provider
+SOC_VERSION aliases (all fold onto one canonical name per SoC family):
+    910B | Ascend910B1                            A2, native Gemma provider
+    910  | 910C | Ascend910 | Ascend910_9382      A3, native Gemma provider
+    950  | Ascend950 | Ascend950PR_* | Ascend950DT_*
+                                                  A5, ACLNN Gemma provider
 
-Legacy concrete compiler targets such as Ascend910B1, Ascend910_9382,
-Ascend950PR_*, and Ascend950DT_* remain accepted at the tooling boundary.
+Every A5 selector resolves to Ascend950: the C++ kernel bundle compiles against
+the 910C compatibility target on A5, so a concrete PR/DT target is not carried
+any further than this alias table.
 
 Options:
     -d             Enable debug logging.
@@ -174,37 +177,27 @@ function detect_deepep_soc_version()
     die "Cannot determine the device type (A2/A3/A5) from npu-smi output."
 }
 
+# Fold every accepted spelling onto one canonical name per SoC family. A5 has
+# several concrete compiler targets (Ascend950PR_*, Ascend950DT_*), but nothing
+# downstream tells them apart -- the kernel bundle compiles against the 910C
+# compatibility target either way, see configure_soc_version -- so they are
+# aliases of Ascend950 rather than values worth carrying around.
 function normalize_soc_version()
 {
     case "$SOC_VERSION" in
-        910 | Ascend910 )
+        910 | Ascend910 | 910C | Ascend910_9382 )
             SOC_VERSION="Ascend910_9382"
             ;;
         910B | Ascend910B1 )
             SOC_VERSION="Ascend910B1"
             ;;
-        910C | Ascend910_9382 )
-            SOC_VERSION="Ascend910_9382"
-            ;;
-        950 | Ascend950 | ascend950 )
+        950 | [Aa]scend950 | [Aa]scend950[PpDd][RrTt]_* )
             SOC_VERSION="Ascend950"
             ;;
-        Ascend950PR_* | Ascend950DT_* )
-            SOC_VERSION="${SOC_VERSION,,}"
-            ;;
-        ascend950pr_* | ascend950dt_* )
-            ;;
         * )
-            die "Unsupported SOC_VERSION '$SOC_VERSION'. Expected 910, 950, or a supported Ascend compiler target."
+            die "Unsupported SOC_VERSION '$SOC_VERSION'. Expected 910, 910B, 910C, 950, or an Ascend950PR_*/Ascend950DT_* compiler target."
             ;;
     esac
-}
-
-function is_a5_soc_version()
-{
-    [[ "$SOC_VERSION" == "Ascend950" ||
-        "$SOC_VERSION" == ascend950pr_* ||
-        "$SOC_VERSION" == ascend950dt_* ]]
 }
 
 function configure_soc_version()
@@ -260,19 +253,18 @@ function configure_soc_version()
             ;;
         all | kernels )
             CMAKE_SOC_VERSION="$SOC_VERSION"
-            if is_a5_soc_version; then
-                # The existing main C++ bundle, especially LoRA, still uses
-                # the known-working 910C compatibility target on A5.
+            if [[ "$SOC_VERSION" == "Ascend950" ]]; then
+                # The existing main C++ bundle, especially LoRA, still uses the
+                # known-working 910C compatibility target on A5. A concrete
+                # Ascend950PR_*/Ascend950DT_* selector is therefore folded into
+                # this compatibility build rather than handed to the compiler.
                 CMAKE_SOC_VERSION="Ascend910_9382"
             fi
             ;;
     esac
 
-    if is_a5_soc_version; then
+    if [[ "$SOC_VERSION" == "Ascend950" ]]; then
         DEEPEP_IS_A5_BUILD="ON"
-    fi
-
-    if is_a5_soc_version; then
         SGL_KERNEL_NPU_BUILD_TARGET="Ascend950"
     else
         SGL_KERNEL_NPU_BUILD_TARGET="Ascend910"

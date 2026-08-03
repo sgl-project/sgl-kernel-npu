@@ -40,7 +40,7 @@ def wheel_setup(monkeypatch):
 def stage_norm_sources(build_lib: Path) -> Path:
     norm_dir = build_lib / "sgl_kernel_npu" / "norm"
     norm_dir.mkdir(parents=True)
-    for filename in ("gemma_rmsnorm.py", "_gemma_rmsnorm_aclnn.py"):
+    for filename in ("_gemma_rmsnorm_native.py", "_gemma_rmsnorm_aclnn.py"):
         shutil.copyfile(NORM_ROOT / filename, norm_dir / filename)
     return norm_dir
 
@@ -66,6 +66,7 @@ def test_wheel_contains_only_target_gemma_implementation(
     source = (norm_dir / "gemma_rmsnorm.py").read_text(encoding="utf-8")
     assert required_call in source
     assert excluded_call not in source
+    assert not (norm_dir / "_gemma_rmsnorm_native.py").exists()
     assert not (norm_dir / "_gemma_rmsnorm_aclnn.py").exists()
 
 
@@ -86,17 +87,15 @@ def test_build_script_exports_canonical_wheel_target():
     assert 'SGL_KERNEL_NPU_BUILD_TARGET="Ascend910"' in source
     assert 'SGL_KERNEL_NPU_BUILD_TARGET="Ascend950"' in source
     assert "export SGL_KERNEL_NPU_BUILD_TARGET" in source
-    assert "SGL_KERNEL_NPU_USE_NATIVE_GEMMA_RMS_NORM" not in source
 
 
-def test_no_runtime_build_target_or_compiled_capability_remains():
-    setup_source = SETUP_PATH.read_text(encoding="utf-8")
-    gemma_source = (NORM_ROOT / "gemma_rmsnorm.py").read_text(encoding="utf-8")
-    extension_source = (PROJECT_ROOT / "csrc" / "pytorch_extensions.cpp").read_text(
-        encoding="utf-8"
-    )
+def test_source_tree_ships_no_staged_gemma_provider():
+    """The staged name must not exist in the source tree.
 
-    assert "_build_target" not in setup_source
-    assert not (PACKAGE_ROOT / "sgl_kernel_npu" / "_build_target.py").exists()
-    assert "sgl_kernel_npu_use_native_gemma_rms_norm" not in gemma_source
-    assert "sgl_kernel_npu_use_native_gemma_rms_norm" not in extension_source
+    Re-adding ``norm/gemma_rmsnorm.py`` would make ``TargetBuildPy`` a no-op for
+    whichever target it happens to match, so an A5 wheel would silently carry
+    the 910 operator instead of failing the build.
+    """
+    assert not (NORM_ROOT / "gemma_rmsnorm.py").exists()
+    assert (NORM_ROOT / "_gemma_rmsnorm_native.py").exists()
+    assert (NORM_ROOT / "_gemma_rmsnorm_aclnn.py").exists()

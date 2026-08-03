@@ -154,6 +154,14 @@ def add_gemma_rms_norm(
     residual,
     variance_epsilon,
 ):
+    """Fused residual-add + Gemma RMSNorm. ``residual`` is required.
+
+    ``1.0 + weight`` is evaluated in the weight's own dtype, not fp32, because
+    ``npu_add_rms_norm`` requires gamma to match the input dtype. For bf16 that
+    rounds the effective scale to ~2**-8 near 1.0. It matches vllm-ascend
+    (``ops/layernorm.py``) and SGLang's CUDA ``gemma_weight`` buffer -- an
+    accepted trade-off, not an oversight.
+    """
     norm_output, _, add_output = torch_npu.npu_add_rms_norm(
         hidden_state,
         residual,
