@@ -30,8 +30,8 @@ on:
         description: path of test case file
 
 concurrency:
-  group: ascend-nightly-multi-node-${{ github.ref }}-${{ inputs.soc_version }}
-  cancel-in-progress: true
+  group: ascend-multi-node-global
+  cancel-in-progress: false
 
 jobs:
   multi-node:
@@ -45,8 +45,8 @@ jobs:
         NAMESPACE: sgl-kernel-npu
         ASCEND_TEST_CASE_PATH: tests/python/deepep
         KUBE_JOB_TYPE: multi
-        KUBE_JOB_NAME: sglang-npu-multi
-        KUBE_CONFIG_MAP: sglang-info
+        KUBE_JOB_NAME: sglang-npu-multi-${{ github.run_id }}
+        KUBE_CONFIG_MAP: sglang-info-${{ github.run_id }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -69,8 +69,8 @@ jobs:
 
       - name: Prepare scripts
         run: |
-          # prepare for test code
-          sglang_source_path=/root/.cache/tests/sglang
+          # prepare for test code (isolate cache path per run to avoid concurrent races)
+          sglang_source_path=/root/.cache/tests/sglang-${{ github.run_id }}
           mkdir -p $sglang_source_path && chmod -R 777 $sglang_source_path
           rm -rf $sglang_source_path/*
           cp -r $GITHUB_WORKSPACE/* $sglang_source_path/
@@ -99,16 +99,22 @@ jobs:
 
           pod_name_prefix="${KUBE_JOB_NAME}-sglang"
           echo "kube name space: $NAMESPACE, pod name prefix: ${pod_name_prefix}"
-          while true; do
+          max_retries=20
+          retry=0
+          while [ $retry -lt $max_retries ]; do
             if kubectl get po -A -n $NAMESPACE | grep -q "${pod_name_prefix}"; then
-              echo "Found exist sglang job, sleeping for 30 seconds..."
+              echo "Found exist sglang job (retry $retry/$max_retries), sleeping 30s..."
               sleep 30
-              kubectl get pods | grep "${pod_name_prefix}" | awk '{print $1}' | xargs kubectl delete pod -n $NAMESPACE || true
+              kubectl get pods -n $NAMESPACE | grep "${pod_name_prefix}" | awk '{print $1}' | xargs kubectl delete pod -n $NAMESPACE --force --grace-period=0 || true
+              retry=$((retry + 1))
             else
               echo "No sglang job exist, start test case..."
               break
             fi
           done
+          if [ $retry -ge $max_retries ]; then
+            echo "WARNING: Timeout waiting for pod cleanup after $max_retries retries, proceeding anyway..."
+          fi
 
       - name: Run test
         timeout-minutes: 300
@@ -126,3 +132,5 @@ jobs:
           kubectl get pods -n $NAMESPACE
           cd $ASCEND_TEST_CASE_PATH
           kubectl delete -f ./k8s_multi.yaml --ignore-not-found=true || true
+          # Clean up per-run cache directory to avoid PVC accumulation
+          rm -rf /root/.cache/tests/sglang-${{ github.run_id }}

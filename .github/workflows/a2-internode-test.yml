@@ -16,8 +16,8 @@ on:
   workflow_call:
 
 concurrency:
-  group: a2-internode-test-${{ github.ref }}-${{ github.event_name }}
-  cancel-in-progress: true
+  group: ascend-multi-node-global
+  cancel-in-progress: false
 
 jobs:
   multi-node-internode:
