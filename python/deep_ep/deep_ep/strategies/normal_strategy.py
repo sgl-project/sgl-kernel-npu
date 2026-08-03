@@ -11,7 +11,11 @@ import torch.distributed as dist
 import torch_npu
 from deep_ep_cpp import EventHandle
 
-from ..ep_strategy import VALID_QUANT_MODES, NormalEPCommStrategy, register_normal_strategy
+from ..ep_strategy import (
+    VALID_QUANT_MODES,
+    NormalEPCommStrategy,
+    register_normal_strategy,
+)
 from ..utils import EventOverlap
 
 # Global variable for communication stream
