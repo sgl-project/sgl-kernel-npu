@@ -1,3 +1,9 @@
+"""Native Gemma RMSNorm provider, staged as ``norm/gemma_rmsnorm.py`` on 910.
+
+Exactly one provider module is staged into the wheel (see ``setup.py``), so this
+file is never importable under its own name from an installed package.
+"""
+
 from __future__ import annotations
 
 import torch

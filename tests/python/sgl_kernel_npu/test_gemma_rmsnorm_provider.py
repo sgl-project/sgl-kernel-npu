@@ -3,15 +3,15 @@ import sys
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
-MODULE_PATH = (
+NATIVE_MODULE_PATH = (
     Path(__file__).resolve().parents[3]
     / "python"
     / "sgl_kernel_npu"
     / "sgl_kernel_npu"
     / "norm"
-    / "gemma_rmsnorm.py"
+    / "_gemma_rmsnorm_native.py"
 )
-ACLNN_MODULE_PATH = MODULE_PATH.with_name("_gemma_rmsnorm_aclnn.py")
+ACLNN_MODULE_PATH = NATIVE_MODULE_PATH.with_name("_gemma_rmsnorm_aclnn.py")
 
 
 class OffsetWeight:
@@ -45,7 +45,7 @@ def test_native_provider_uses_torch_npu_gemma_operators(monkeypatch):
         return "plain-output", "rstd"
 
     torch_npu = SimpleNamespace(npu_gemma_rms_norm=npu_gemma_rms_norm)
-    module = load_gemma_module(monkeypatch, MODULE_PATH, torch_npu)
+    module = load_gemma_module(monkeypatch, NATIVE_MODULE_PATH, torch_npu)
     weight = OffsetWeight()
 
     assert module.npu_gemma_rms_norm("input", weight, 1e-5) == (
