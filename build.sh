@@ -35,15 +35,14 @@ function print_help()
 {
     cat <<'EOF'
 Usage:
-    ./build.sh [SOC_VERSION]                    Build all modules; auto-detect the SoC.
-    ./build.sh -a deepep [SOC_VERSION]          Build deep_ep; auto-detect the SoC.
+    ./build.sh [SOC_VERSION]                    Build all modules; auto-detect A2, A3, or A5.
+    ./build.sh -a deepep [SOC_VERSION]          Build deep_ep; auto-detect A2, A3, or A5.
     ./build.sh -a deepep2 [SOC_VERSION]         Build deep_ep for A2 (compatible alias).
-    ./build.sh -a kernels [SOC_VERSION]         Build sgl_kernel_npu; auto-detect the SoC.
+    ./build.sh -a kernels [SOC_VERSION]         Build sgl_kernel_npu; auto-detect A2, A3, or A5.
     ./build.sh -a memory-saver                  Build torch_memory_saver.
 
-Omitting SOC_VERSION queries the local NPU with npu-smi. Hosts without a device
--- build containers, for instance -- fall back to the A3 target Ascend910_9382,
-which is what every target used to default to unconditionally.
+Omitting SOC_VERSION auto-detects it with npu-smi; hosts without a device fall
+back to Ascend910_9382, the value every target used to default to.
 
 Targets:
     deepep         Build deep_ep and auto-select ops (A3/A5) or ops2 (A2).
@@ -51,29 +50,23 @@ Targets:
     kernels        Build sgl_kernel_npu only.
     memory-saver   Build torch_memory_saver only.
 
-Chip mapping (what npu-smi detection resolves to):
-    A2      : Ascend910B1     deepep2 ops, native Gemma provider
-    A3      : Ascend910_9382  deepep ops,  native Gemma provider
-    A5      : Ascend950       deepep ops,  ACLNN Gemma provider
-    no NPU  : Ascend910_9382  (fallback)
+Chip mapping:
+    A2   : ./build.sh -a deepep               # Auto-detected as Ascend910B1/ops2
+    A3  : ./build.sh -a deepep               # Auto-detected as Ascend910_9382
+    A5   : ./build.sh -a deepep               # Auto-detected as Ascend950
 
 Compatible commands:
     ./build.sh -a deepep2                     # Explicit A2 build
     ./build.sh -a deepep Ascend950            # Explicit A5 build
 
-SOC_VERSION aliases (shorthands that fold onto one name per SoC family):
-    910B | Ascend910B1                            A2, native Gemma provider
-    910  | 910C | Ascend910 | Ascend910_9382      A3, native Gemma provider
-    950  | Ascend950 | Ascend950PR_* | Ascend950DT_*
-                                                  A5, ACLNN Gemma provider
+SOC_VERSION aliases:
+    910B | Ascend910B1                       A2, native Gemma provider
+    910  | 910C | Ascend910_9382             A3, native Gemma provider
+    950  | Ascend950 | Ascend950{PR,DT}_*    A5, ACLNN Gemma provider
 
-'kernels' additionally accepts any concrete AscendC target (Ascend910B2,
-Ascend910_9391, ...) and forwards it to the compiler unchanged. 'all' and
-'deepep' build deep_ep and so accept only the three SoCs above.
-
-Every A5 selector resolves to Ascend950: the C++ kernel bundle compiles against
-the 910C compatibility target on A5, so a concrete PR/DT target is not carried
-any further than this alias table.
+Every A5 spelling resolves to Ascend950, which compiles against the 910C
+compatibility target. 'kernels' also takes any other concrete AscendC target and
+forwards it unchanged; 'all' and 'deepep' accept only the three families above.
 
 Options:
     -d             Enable debug logging.
