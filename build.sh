@@ -57,11 +57,15 @@ Compatible commands:
     ./build.sh -a deepep2                     # Explicit A2 build
     ./build.sh -a deepep Ascend950            # Explicit A5 build
 
-SOC_VERSION aliases (all fold onto one canonical name per SoC family):
+SOC_VERSION aliases (shorthands that fold onto one name per SoC family):
     910B | Ascend910B1                            A2, native Gemma provider
     910  | 910C | Ascend910 | Ascend910_9382      A3, native Gemma provider
     950  | Ascend950 | Ascend950PR_* | Ascend950DT_*
                                                   A5, ACLNN Gemma provider
+
+'kernels' additionally accepts any concrete AscendC target (Ascend910B2,
+Ascend910_9391, ...) and forwards it to the compiler unchanged. 'all' and
+'deepep' build deep_ep and so accept only the three SoCs above.
 
 Every A5 selector resolves to Ascend950: the C++ kernel bundle compiles against
 the 910C compatibility target on A5, so a concrete PR/DT target is not carried
@@ -185,17 +189,20 @@ function detect_deepep_soc_version()
 function normalize_soc_version()
 {
     case "$SOC_VERSION" in
-        910 | Ascend910 | 910C | Ascend910_9382 )
+        910 | Ascend910 | 910C )
             SOC_VERSION="Ascend910_9382"
             ;;
-        910B | Ascend910B1 )
+        910B )
             SOC_VERSION="Ascend910B1"
             ;;
         950 | [Aa]scend950 | [Aa]scend950[PpDd][RrTt]_* )
             SOC_VERSION="Ascend950"
             ;;
         * )
-            die "Unsupported SOC_VERSION '$SOC_VERSION'. Expected 910, 910B, 910C, 950, or an Ascend950PR_*/Ascend950DT_* compiler target."
+            # Anything else is a concrete AscendC compiler target (Ascend910B2,
+            # Ascend910_9391, ...). Pass it through to CMake untouched, as the
+            # 'kernels' target always has; per-target validation below decides
+            # whether it is actually usable.
             ;;
     esac
 }
@@ -232,13 +239,22 @@ function configure_soc_version()
         normalize_soc_version
     fi
 
+    # 'all' and 'deepep' both build deep_ep, which supports only these three
+    # SoCs. 'kernels' deliberately has no allow-list: it forwards whatever the
+    # caller passed to the AscendC compiler, as it always has.
     case "$BUILD_TARGET" in
         all | deepep )
-            if [[ "$SOC_VERSION" == "Ascend910B1" ]]; then
-                DEEPEP_VARIANT="deepep2"
-            else
-                DEEPEP_VARIANT="deepep"
-            fi
+            case "$SOC_VERSION" in
+                Ascend910B1 )
+                    DEEPEP_VARIANT="deepep2"
+                    ;;
+                Ascend910_9382 | Ascend950 )
+                    DEEPEP_VARIANT="deepep"
+                    ;;
+                * )
+                    die "Target '$BUILD_TARGET' supports only Ascend910B1 (A2), Ascend910_9382 (A3), or Ascend950 (A5)."
+                    ;;
+            esac
             ;;
         deepep2 )
             if [[ "$SOC_VERSION" != "Ascend910B1" ]]; then
