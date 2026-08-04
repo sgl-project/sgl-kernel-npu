@@ -27,8 +27,8 @@ Two fuse modes are available via the `FuseMode` enum:
 
 | FuseMode | Value | CANN Operator | Description |
 |----------|-------|---------------|-------------|
-| `FuseMode.FUSED_DEEP_MOE` | `1` | `aclnnFusedDeepMoe` | Full fusion: InitRouting + AllToAll + GMM1 + DequantSwigluQuant + GMM2 + Dequant + Unpermute/Combine in a single AscendC kernel. |
-| `FuseMode.DISPATCH_FFN_COMBINE` | `2` | `aclnnDispatchFFNCombine` | Separate dispatch handling: InitRouting + AllToAll dispatch + GMM1 + DequantSwigluQuant + GMM2 + Dequant + Combine in a single AscendC kernel, using a different internal fusion strategy. |
+| `FuseMode.FUSED_DEEP_MOE` | `1` | `aclnnFusedDeepMoe` | Full fusion: InitRouting + AllToAll + GMM1 + DequantSwigluQuant + GMM2 + Dequant + Unpermute/Combine in a single AscendC kernel. Communication stages (dispatch/combine) use CamMoe with cross-core barriers between GMM stages. |
+| `FuseMode.DISPATCH_FFN_COMBINE` | `2` | `aclnnDispatchFFNCombine` | Integrated routing (`MoeInitRoutingQuantV2`) + AllToAll + GMM1 + DequantSwigluQuant + GMM2 + Dequant + Combine in a single AscendC kernel. HCCL communication is embedded into the GMM kernel via shared memory, without cross-core barriers between stages. |
 
 > [!NOTE]
 > `FuseMode` is **not** exported from the package's top-level `__init__.py`. Import it explicitly:
@@ -39,14 +39,13 @@ Two fuse modes are available via the `FuseMode` enum:
 
 #### Key Differences Between Fuse Modes
 
-| Aspect | `FUSED_DEEP_MOE` | `DISPATCH_FFN_COMBINE` |
-|--------|-------------------|------------------------|
-| **Weight scale dtype** | `float32` (auto-converted to `float` internally) | `int64` (float32 values reinterpreted as int64 bit patterns; **not auto-converted** — caller must perform the conversion manually) |
-| **Weight layout (GMM1)** | Permuted via tile-N permutation (`reshape_fusion_gmm_weight` in test code) | Standard NZ format, no additional permutation needed |
-| **`num_max_dispatch_tokens_per_rank`** semantics | Max tokens to dispatch per rank | Max tokens received in dispatch (i.e., `max_bs × num_ranks × topk`) |
-| **Second return value** | `ep_recv_count`, shape `[num_local_experts × num_ranks]` | `expert_token_nums`, shape `[num_local_experts]` (per-rank only) |
-| **Shared expert support** | Supported | **Not supported** |
-| **BF16 weight support** | Available | **Not available** — only INT8 weights are supported currently |
+| Aspect | `FUSED_DEEP_MOE` (mode=1) | `DISPATCH_FFN_COMBINE` (mode=2) |
+|--------|---------------------------|---------------------------------|
+| **Weight scale dtype** | `float32` (`DT_FLOAT`, auto-converted internally) | `int64` (`DT_INT64`, float32 values reinterpreted as int64 bit patterns — **not auto-converted**, caller must perform conversion manually) |
+| **Weight layout (GMM1)** | Tile-N permuted (`reshape_fusion_gmm_weight` in test code) | Standard NZ format, no additional permutation needed |
+| **Shared expert** | Full support (`shared_expert_num`, `shared_expert_rank_num` attrs + host logic + kernel branch) | **Not supported** (no shared expert attrs or logic) |
+| **Second return value** | `ep_recv_count`, shape `[num_local_experts × num_ranks]` (per-rank breakdown) | `expert_token_nums`, shape `[num_local_experts]` (local rank only) |
+| **EP world size** | `num_experts` must be divisible by `(num_ranks - shared_expert_rank_num)`; `moeExpertNumPerRank ≤ aivNum/2` | No explicit EP world size constraint; `num_local_experts = num_experts / num_ranks` (simple division) |
 
 ### Python API
 
@@ -84,10 +83,21 @@ def fused_deep_moe(
 
 ### Constraints
 
-- **bs** (batch size): range **[0, 256]**.
+#### For `fuse_mode=FUSED_DEEP_MOE` (mode=1)
+
+- **bs** (batch size): range **[1, 256]**.
 - **hidden**: range **[512, 7168]**, must be divisible by **32**.
+- **gmm1_hidden**: range **[1024, 6144]**.
 - **num_topk** (topk): range **(0, 12]** — the kernel tiling enforces `topk ≤ 12`.
 - **num_experts**: range **(0, 512]** — the kernel tiling enforces `moeExpertNum ≤ 512`. `num_experts` must be divisible by `(num_ranks - shared_expert_rank_num)`.
+- **global_bs**: must be divisible by `ep_rank_size` (auto-derived from `bs × ep_rank_size` if set to 0).
+
+#### For `fuse_mode=DISPATCH_FFN_COMBINE` (mode=2)
+
+- No explicit range checks for `bs`, `hidden`, `topk`, or `num_experts` in the current tiling implementation. Only basic attribute validation (rank ID, group name) and HCCL buffer size check are performed.
+- **HCCL_BUFFSIZE**: minimum required size = `M × topK × K × sizeof(int8_t) × 3 + 10MB`, where `M` = bs, `K` = hidden, `topK` = num_topk.
+- **BF16 weight**: not supported — only INT8 quantized weights are available.
+- **Shared expert**: not supported.
 
 ### Return Values
 
@@ -123,8 +133,8 @@ def fused_deep_moe(
 
 | FuseMode | 值 | CANN 算子 | 说明 |
 |----------|---|-----------|------|
-| `FuseMode.FUSED_DEEP_MOE` | `1` | `aclnnFusedDeepMoe` | 完整融合：InitRouting + AllToAll + GMM1 + DequantSwigluQuant + GMM2 + Dequant + Unpermute/Combine 在单个 AscendC kernel 中完成。 |
-| `FuseMode.DISPATCH_FFN_COMBINE` | `2` | `aclnnDispatchFFNCombine` | 分离 dispatch 处理：InitRouting + AllToAll 分发 + GMM1 + DequantSwigluQuant + GMM2 + Dequant + Combine 在单个 AscendC kernel 中完成，采用不同的内部融合策略。 |
+| `FuseMode.FUSED_DEEP_MOE` | `1` | `aclnnFusedDeepMoe` | 完整融合：InitRouting + AllToAll + GMM1 + DequantSwigluQuant + GMM2 + Dequant + Unpermute/Combine 在单个 AscendC kernel 中完成。通信阶段（dispatch/combine）使用 CamMoe，与 GMM 阶段间通过跨核 barrier 串联。 |
+| `FuseMode.DISPATCH_FFN_COMBINE` | `2` | `aclnnDispatchFFNCombine` | 集成路由（`MoeInitRoutingQuantV2`）+ AllToAll + GMM1 + DequantSwigluQuant + GMM2 + Dequant + Combine 在单个 AscendC kernel 中完成。HCCL 通信内嵌于 GMM kernel（共享内存），无跨核 barrier。 |
 
 > [!NOTE]
 > `FuseMode` **未**从包顶层 `__init__.py` 导出，需显式导入：
@@ -135,13 +145,13 @@ def fused_deep_moe(
 
 #### 两种融合模式的关键差异
 
-| 方面 | `FUSED_DEEP_MOE` | `DISPATCH_FFN_COMBINE` |
-|------|-------------------|------------------------|
-| **权重 scale 数据类型** | `float32`（内部自动转换为 `float`） | `int64`（float32 scale 值重新解释为 int64 位模式；**不会自动转换** — 调用者需手动执行转换） |
-| **GMM1 权重布局** | 经 tile-N 重排（参考实现 `reshape_fusion_gmm_weight` 在测试代码中） | 标准 NZ 格式，无需额外重排 |
-| **`num_max_dispatch_tokens_per_rank`** 语义 | 每个 rank 最多分发的 token 数 | dispatch 中最多接收的 token 数（即 `max_bs × num_ranks × topk`） |
-| **第二返回值** | `ep_recv_count`，形状 `[num_local_experts × num_ranks]` | `expert_token_nums`，形状 `[num_local_experts]`（仅本 rank） |
-| **共享专家支持** | 支持 | **不支持** |
+| 方面 | `FUSED_DEEP_MOE`（mode=1） | `DISPATCH_FFN_COMBINE`（mode=2） |
+|------|---------------------------|---------------------------------|
+| **权重 scale 数据类型** | `float32`（`DT_FLOAT`，内部自动转换） | `int64`（`DT_INT64`，float32 值重新解释为 int64 位模式 — **不自动转换**，调用者需手动转换） |
+| **GMM1 权重布局** | 经 tile-N 重排（参考 `reshape_fusion_gmm_weight`） | 标准 NZ 格式，无需额外重排 |
+| **共享专家** | 完整支持（`shared_expert_num`/`shared_expert_rank_num` attr + host 逻辑 + kernel 分支） | **不支持**（无共享专家 attr 或逻辑） |
+| **第二返回值** | `ep_recv_count`，形状 `[num_local_experts × num_ranks]`（按 rank 分解） | `expert_token_nums`，形状 `[num_local_experts]`（仅本 rank） |
+| **EP world size** | `num_experts` 必须能被 `(num_ranks - shared_expert_rank_num)` 整除；`moeExpertNumPerRank ≤ aivNum/2` | 无显式 EP world size 约束；`num_local_experts = num_experts / num_ranks`（简单整除） |
 
 ### Python API
 
@@ -179,10 +189,21 @@ def fused_deep_moe(
 
 ### 约束说明
 
+#### `fuse_mode=FUSED_DEEP_MOE`（mode=1）
+
 - **bs**（batch size）：取值范围 **[1, 256]**。
 - **hidden**：取值范围 **[512, 7168]**，且必须能被 **32** 整除。
+- **gmm1_hidden**：取值范围 **[1024, 6144]**。
 - **num_topk**（topk）：取值范围 **(0, 12]** — kernel tiling 强制 `topk ≤ 12`。
 - **num_experts**：取值范围 **(0, 512]** — kernel tiling 强制 `moeExpertNum ≤ 512`。`num_experts` 必须能被 `(num_ranks - shared_expert_rank_num)` 整除。
+- **global_bs**：必须能被 `ep_rank_size` 整除（设为 0 时自动取 `bs × ep_rank_size`）。
+
+#### `fuse_mode=DISPATCH_FFN_COMBINE`（mode=2）
+
+- 当前 tiling 实现中**无** `bs`、`hidden`、`topk`、`num_experts` 的显式范围校验，仅有基本属性校验（rank ID、group 名）和 HCCL 缓冲区大小校验。
+- **HCCL_BUFFSIZE**：最小需求 = `M × topK × K × sizeof(int8_t) × 3 + 10MB`，其中 `M` = bs，`K` = hidden，`topK` = num_topk。
+- **BF16 权重**：不支持 — 仅支持 INT8 量化权重。
+- **共享专家**：不支持。
 
 ### 返回值
 
