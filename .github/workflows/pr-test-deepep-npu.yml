@@ -882,6 +882,16 @@ jobs:
         env:
           HCCL_BUFFSIZE: 2048
         run: python3 $GITHUB_WORKSPACE/tests/python/deepep/test_dispatch_ffn_combine.py
+      - name: Run test alltoall mode for both normal and low_latency
+        if: matrix.cann_version == '9.0.0'
+        timeout-minutes: 10
+        env:
+          DEEP_MOE_MODE: alltoall
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_alltoall.py --quant-type int8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py --quant-type int8
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_alltoall.py --quant-type bf16
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py --quant-type bf16
 
   test-build-deepep-a2:
     needs: get-changed-files

@@ -302,7 +302,7 @@ def bench_kineto(
     # Return average kernel durations
     kernel_durations = []
     for kernel_name in kernel_names:
-        events = [event for event in profile_data if kernel_name == event["name"]]
+        events = [event for event in profile_data if kernel_name in event["name"]]
         assert len(events) > 0, f"Kernel '{kernel_name}' not found in trace"
         events = sorted(events, key=lambda event: event["ts"])
         durations = [event["dur"] / 1e6 for event in events]
@@ -407,37 +407,55 @@ def calculate_avg_stats(
     num_ranks,
     root_rank: 0,
 ):
-    # dispatch_t / combine_t: the unit is second
+    # 1. 创建本地统计张量
+    # 注意：确保 dtype 和 device 在所有进程中一致
     local_stats = torch.tensor(
         [
-            dispatch_t * 1e6,
-            num_dispatch_comm_bytes,
-            combine_t * 1e6,
-            num_combine_comm_bytes,
+            dispatch_t * 1e6,  # us
+            num_dispatch_comm_bytes,  # bytes
+            combine_t * 1e6,  # us
+            num_combine_comm_bytes,  # bytes
         ],
         dtype=torch.float64,
         device="npu",
     )
-    gather_stats = (
-        [torch.zeros_like(local_stats) for _ in range(num_ranks)]
-        if rank == root_rank
-        else None
-    )
-    dist.gather(local_stats, gather_list=gather_stats, dst=0)
+
+    # 2. 【修改点】为所有进程准备接收列表
+    # all_gather 要求所有进程都参与，且缓冲区形状必须一致
+    # 每个进程都创建一个大小为 num_ranks 的列表，每个元素形状与 local_stats 一致
+    gather_list = [torch.zeros_like(local_stats) for _ in range(num_ranks)]
+
+    # 3. 【修改点】使用 all_gather 替代 gather
+    # 此时，每个进程的 gather_list 都将包含所有 rank 的 local_stats
+    dist.all_gather(gather_list, local_stats)
+
+    # 4. 仅在 root_rank (通常是 0) 上进行统计和打印
+    # 其他进程虽然也执行了 all_gather，但不需要处理结果，节省计算资源
     if rank == root_rank:
-        stats_tensor = torch.stack(gather_stats)  # Shape [num_ranks, 4]
+        # 将列表堆叠成 [num_ranks, 4] 的张量
+        stats_tensor = (
+            torch.stack(gather_stats) if (gather_stats := gather_list) else None
+        )
+        # 注意：上面这行写法可能较新，为了兼容性，我们可以直接写：
+        stats_tensor = torch.stack(gather_list)  # Shape [num_ranks, 4]
+
         dispatch_latency = stats_tensor[:, 0]  # us
         dispatch_bytes = stats_tensor[:, 1]  # bytes
         combine_latency = stats_tensor[:, 2]  # us
         combine_bytes = stats_tensor[:, 3]  # bytes
 
+        # 计算平均值
         avg_dispatch_lat = torch.mean(dispatch_latency)
         avg_dispatch_bytes = torch.mean(dispatch_bytes)
         avg_combine_lat = torch.mean(combine_latency)
         avg_combine_bytes = torch.mean(combine_bytes)
 
+        # 计算带宽 (GB/s)
+        # 注意：如果 latency 为 0 会导致除以零错误，建议加一个极小值保护或断言
+        # 这里假设 latency > 0
         avg_dispatch_bw = avg_dispatch_bytes / avg_dispatch_lat * 1e-3  # GB/s
         avg_combine_bw = avg_combine_bytes / avg_combine_lat * 1e-3  # GB/s
+
         print(
             f"\n\nAverage Dispatch bandwidth: {avg_dispatch_bw:.2f} GB/s, avg_t={avg_dispatch_lat:.2f} us \n"
             f"Average Combine bandwidth: {avg_combine_bw:.2f} GB/s, avg_t={avg_combine_lat:.2f} us\n\n",
