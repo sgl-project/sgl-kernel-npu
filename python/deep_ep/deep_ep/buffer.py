@@ -548,65 +548,21 @@ class Buffer:
         Internode dispatch implementation, for more details, please refer to the `dispatch` docs.
         Normally, you should not directly call this function.
         """
-        x_scales = None
-        use_quant = False
-        if handle is not None:
-            raise NotImplementedError(
-                "Optional communication handle is not supported yet."
-            )
-        else:
-            assert (
-                num_tokens_per_rank is not None
-                and is_token_in_rank is not None
-                and num_tokens_per_expert is not None
-            )
-            (
-                recv_x,
-                recv_x_scales,
-                recv_topk_idx,
-                recv_topk_weights,
-                num_recv_tokens_per_expert_list,
-                recv_src_idx,
-                send_head,
-                offset_inner,
-                offset_outer,
-                count_outer,
-                expand_scales,
-                event,
-            ) = self.runtime.internode_dispatch(
-                x,
-                x_scales,
-                topk_idx,
-                topk_weights,
-                num_tokens_per_rank,
-                num_tokens_per_rdma_rank,
-                is_token_in_rank,
-                num_tokens_per_expert,
-                config,
-                getattr(previous_event, "event", None),
-                async_finish,
-                allocate_on_comm_stream,
-                use_quant,
-            )
-            handle = (
-                recv_src_idx,
-                is_token_in_rank,
-                send_head,  # ep_rank_token_cnt
-                topk_idx,
-                topk_weights,
-                offset_inner,
-                offset_outer,  # token_server_idx
-                count_outer,
-                expand_scales,
-            )
-            return (
-                (recv_x, recv_x_scales) if use_quant else recv_x,
-                recv_topk_idx,
-                recv_topk_weights,
-                num_recv_tokens_per_expert_list,
-                handle,
-                EventOverlap(event),
-            )
+        return self.normal_strategy._internode_dispatch(
+            x=x,
+            handle=handle,
+            num_tokens_per_rank=num_tokens_per_rank,
+            num_tokens_per_rdma_rank=num_tokens_per_rdma_rank,
+            is_token_in_rank=is_token_in_rank,
+            num_tokens_per_expert=num_tokens_per_expert,
+            topk_idx=topk_idx,
+            topk_weights=topk_weights,
+            expert_alignment=expert_alignment,
+            config=config,
+            previous_event=previous_event,
+            async_finish=async_finish,
+            allocate_on_comm_stream=allocate_on_comm_stream,
+        )
 
     def internode_combine(
         self,
