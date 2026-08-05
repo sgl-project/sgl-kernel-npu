@@ -109,11 +109,6 @@ jobs:
           pip config set global.trusted-host ${CACHING_URL}
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
-      - name: Compile A5 DeepEP independent kernels
-        if: matrix.cann_version == '9.0.0'
-        timeout-minutes: 30
-        run: |
-          bash build.sh -a deepep Ascend950
       - name: Prepare Deepep
         # Always run prepare_deepep_in_container.sh:
         # - cache miss: build + install new wheel
