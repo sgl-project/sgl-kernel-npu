@@ -194,10 +194,6 @@ function configure_soc_version()
                 Ascend910_9382 | Ascend950 )
                     DEEPEP_VARIANT="deepep"
                     ;;
-                attentions )
-                    BUILD_ATTENTIONS_MODULE="ON"
-                    ONLY_BUILD_ATTENTIONS_MODULE="ON"
-                    ;;
                 * )
                     die "Target 'deepep' supports only Ascend910B1 (A2), Ascend910_9382 (A3), or Ascend950 (A5)."
                     ;;
@@ -305,7 +301,7 @@ function setup_ascend_environment()
 
     # CANN's environment script may rewrite ASCEND_HOME_PATH to "latest".
     # Keep the resolved installation directory as the source of truth.
-    #source "$resolved_ascend_home/set_env.sh"
+    source "$resolved_ascend_home/set_env.sh"
     export ASCEND_HOME_PATH="$resolved_ascend_home"
     export ASCEND_TOOLKIT_HOME="${ASCEND_TOOLKIT_HOME:-$resolved_ascend_home}"
 
@@ -494,7 +490,7 @@ function main()
     configure_build_target
     configure_soc_version
     export DEBUG_MODE
-    echo "here"
+
     setup_ascend_environment
     mkdir -p "$OUTPUT_DIR"
     echo "Output directory: $OUTPUT_DIR"
