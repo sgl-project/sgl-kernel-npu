@@ -48,6 +48,8 @@ public:
     }
 };
 constexpr uint32_t OP_TYPE_ALL_TO_ALL = 8;
+constexpr int64_t FUSED_DEEP_MOE_NO_QUANT = 0;
+constexpr int64_t FUSED_DEEP_MOE_INT8_QUANT = 1;
 constexpr uint32_t SYSTEM_NEED_WORKSPACE = 16 * 1024 * 1024;
 constexpr uint32_t TOKEN_DTYPE_BYTE_SIZE = 2;
 constexpr uint32_t L1_TILE_BYTE_SIZE = 32 * 1024;
@@ -214,6 +216,9 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
                return ge::GRAPH_FAILED);
     OPS_ERR_IF(quantModePtr == nullptr, OPS_LOG_E(nodeName, "quantModePtr is nullptr."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(globalBsPtr == nullptr, OPS_LOG_E(nodeName, "globalBsPtr is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(*quantModePtr != FUSED_DEEP_MOE_NO_QUANT && *quantModePtr != FUSED_DEEP_MOE_INT8_QUANT,
+               OPS_LOG_E(nodeName, "quantMode must be 0 (BF16) or 1 (INT8), but got %ld.", *quantModePtr),
+               return ge::GRAPH_FAILED);
 
     uint32_t epRankSize = static_cast<uint32_t>(*epRankSizePtr);
     uint32_t epRankId = static_cast<uint32_t>(*epRankIdPtr);

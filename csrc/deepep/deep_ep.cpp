@@ -20,6 +20,8 @@ constexpr int64_t DYNAMIC_SCALES = 2;
 constexpr int64_t MXFP8_SCALES = 3;
 constexpr int64_t MXFP4_SCALES = 4;
 constexpr int64_t PER_TOKEN_FP8_SCALES = 5;
+constexpr int FUSED_DEEP_MOE_NO_QUANT = 0;
+constexpr int FUSED_DEEP_MOE_INT8_QUANT = 1;
 constexpr uint32_t MX_BLOCK_SIZE = 32;
 constexpr uint32_t MXFP4_HALF = 2;
 constexpr int LOCAL_RANK_SIZE = 8;
@@ -1080,6 +1082,8 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
     EP_HOST_ASSERT(expert_scales_optional.dim() == 2);
     EP_HOST_ASSERT(x.size(0) == expert_ids.size(0));
     EP_HOST_ASSERT(expert_ids.sizes() == expert_scales_optional.sizes());
+    EP_HOST_ASSERT_S(quant_mode == FUSED_DEEP_MOE_NO_QUANT || quant_mode == FUSED_DEEP_MOE_INT8_QUANT,
+                     "fused_deep_moe only supports quant_mode 0 (BF16) or 1 (INT8), got ", quant_mode);
 
     char hcom_ep_name[128];
     if (!moe_all_to_all_group_name.empty()) {
