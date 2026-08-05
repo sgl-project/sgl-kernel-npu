@@ -211,14 +211,18 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     OPS_ERR_IF(attrs == nullptr, OPS_LOG_E(nodeName, "attrs is nullptr."), return ge::GRAPH_FAILED);
 
     auto groupEpPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_GROUP_EP_INDEX));
-    auto epRankSizePtr = attrs->GetAttrPointer<int64_t>(ATTR_EP_RANK_SIZE_INDEX);
-    auto epRankIdPtr = attrs->GetAttrPointer<int64_t>(ATTR_EP_RANK_ID_INDEX);
-    auto moeExpertNumPtr = attrs->GetAttrPointer<int64_t>(ATTR_MOE_EXPERT_NUM_INDEX);
-    auto sharedExpertNumPtr = attrs->GetAttrPointer<int64_t>(ATTR_SHARE_EXPERT_NUM_INDEX);
-    auto sharedExpertRankNumPtr = attrs->GetAttrPointer<int64_t>(ATTR_SHARE_EXPERT_RANK_NUM_INDEX);
-    auto quantModePtr = attrs->GetAttrPointer<int64_t>(ATTR_QUANT_MODE_INDEX);
-    auto globalBsPtr = attrs->GetAttrPointer<int64_t>(ATTR_GLOBAL_BS_INDEX);
-    auto activationTypePtr = attrs->GetAttrPointer<int64_t>(ATTR_ACTIVATION_TYPE_INDEX);
+    // NOTE: GE stores int attrs at 4-byte granularity; reading them as int64
+    // would pair the low 4 bytes with the next slot's garbage (0xFFFF fill),
+    // corrupting values (e.g. activation_type) and failing validation. Read
+    // int attrs as int32 and widen.
+    auto epRankSizePtr = attrs->GetAttrPointer<int32_t>(ATTR_EP_RANK_SIZE_INDEX);
+    auto epRankIdPtr = attrs->GetAttrPointer<int32_t>(ATTR_EP_RANK_ID_INDEX);
+    auto moeExpertNumPtr = attrs->GetAttrPointer<int32_t>(ATTR_MOE_EXPERT_NUM_INDEX);
+    auto sharedExpertNumPtr = attrs->GetAttrPointer<int32_t>(ATTR_SHARE_EXPERT_NUM_INDEX);
+    auto sharedExpertRankNumPtr = attrs->GetAttrPointer<int32_t>(ATTR_SHARE_EXPERT_RANK_NUM_INDEX);
+    auto quantModePtr = attrs->GetAttrPointer<int32_t>(ATTR_QUANT_MODE_INDEX);
+    auto globalBsPtr = attrs->GetAttrPointer<int32_t>(ATTR_GLOBAL_BS_INDEX);
+    auto activationTypePtr = attrs->GetAttrPointer<int32_t>(ATTR_ACTIVATION_TYPE_INDEX);
     auto activationAlphaPtr = attrs->GetAttrPointer<float>(ATTR_ACTIVATION_ALPHA_INDEX);
     auto gateClampMaxPtr = attrs->GetAttrPointer<float>(ATTR_GATE_CLAMP_MAX_INDEX);
     auto upClampMinPtr = attrs->GetAttrPointer<float>(ATTR_UP_CLAMP_MIN_INDEX);

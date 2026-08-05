@@ -15,6 +15,30 @@
   - 当前ATB已提供大计算算子GmmDepSwigluQuantGmmDep，可一次性完成上述所有计算动作。
 - 将处理后的结果收回并累加到一起的操作/算子，被称为combine（合并）。当前CANN中已有对应的alcnn算子。
 
+### 融合模式
+通过 `FuseMode` 枚举选择融合策略：
+
+| 枚举值 | 说明 |
+|--------|------|
+| `FuseMode.FUSED_DEEP_MOE`（默认） | dispatch + FFN + combine 完整融合为单次算子调用，通信开销最低。 |
+| `FuseMode.DISPATCH_FFN_COMBINE` | dispatch 与 FFN + combine 分离处理，dispatch 阶段独立接收 token，适用于需要灵活控制 dispatch 行为的场景。 |
+
+### 激活函数
+通过 `activation_type` 参数选择 FFN 中间层的激活函数：
+
+| 值 | 激活函数 | 说明 |
+|----|----------|------|
+| `0`（默认） | SiLU / SwiGLU（标准） | 标准的 SiLU 激活（`x * sigmoid(x)`），适用于大多数 MoE 模型。 |
+| `1` | SwiGLU-OAI | OAI 风格的 SwiGLU 激活，支持 clamp 和 additive bias。需配合 `activation_alpha`、`gate_clamp_max`、`up_clamp_min/max`、`up_add` 参数使用。 |
+
+当 `activation_type=1` 时，SwiGLU-OAI 的计算流程为：
+```
+gate_clamped = clamp(gate_proj(x), max=gate_clamp_max)
+up_clamped = clamp(up_proj(x), min=up_clamp_min, max=up_clamp_max) + up_add
+activated = gate_clamped * silu(gate_clamped * activation_alpha)
+output = down_proj(activated * up_clamped)
+```
+
 ### Python-API
 ```python
 def fused_deep_moe(
@@ -28,6 +52,13 @@ def fused_deep_moe(
     num_max_dispatch_tokens_per_rank: int,
     num_experts: int,
     quant_mode: int = 1,
+    fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
+    activation_type: int = 0,
+    activation_alpha: float = 0.0,
+    gate_clamp_max: float = 0.0,
+    up_clamp_min: float = 0.0,
+    up_clamp_max: float = 0.0,
+    up_add: float = 0.0,
 ) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
@@ -41,9 +72,16 @@ def fused_deep_moe(
 | **gmm1_permuted_weight_scale** | `torch.Tensor` | 例如 `[G, 4096]`       | 第一阶段权重量化 scale，量化模式下必需（`float32`）。                                                                                                                                                                                         |
 | **gmm2_weight** | `torch.Tensor` | 例如 `[G, 7168, 2048]` | 第二阶段（下投）专家权重。                                                                                                                                                                                                              |
 | **gmm2_weight_scale** | `torch.Tensor` | 例如 `[G, 7168]`       | 第二阶段权重量化 scale。                                                                                                                                                                                                            |
-| **num_max_dispatch_tokens_per_rank** | `int` | 标量                    | 每个 rank 最多分发的 token 数，用于 buffer/内存分配。                                                                                                                                                                                      |
+| **num_max_dispatch_tokens_per_rank** | `int` | 标量                    | 每个 rank 最多分发的 token 数，用于 buffer/内存分配。`DISPATCH_FFN_COMBINE` 模式下表示 dispatch 阶段接收的最大 token 数。                                                                                                                                              |
 | **num_experts** | `int` | 标量                    | 全局专家总数。                                                                                                                                                                                                                    |
 | **quant_mode** | `int` | 标量，默认 `1`             | 表示量化模式：<br>`1`： 表示int8；<br>后续A5支持fp8。                                                                                                                                                                                              |
+| **fuse_mode** | `FuseMode` | 枚举，默认 `FUSED_DEEP_MOE` | 融合模式。详见[融合模式](#融合模式)章节。                                                                                                                                                                                                      |
+| **activation_type** | `int` | 标量，默认 `0`            | 激活函数类型：`0` = SiLU/SwiGLU 标准；`1` = SwiGLU-OAI（支持 clamp + additive bias）。详见[激活函数](#激活函数)章节。                                                                                                                                       |
+| **activation_alpha** | `float` | 标量，默认 `0.0`          | SwiGLU-OAI 模式下的 alpha 缩放因子（仅 `activation_type=1` 时生效）。                                                                                                                                                                                |
+| **gate_clamp_max** | `float` | 标量，默认 `0.0`          | SwiGLU-OAI 模式下 gate 投影的 clamp 上限（仅 `activation_type=1` 时生效）。                                                                                                                                                                         |
+| **up_clamp_min** | `float` | 标量，默认 `0.0`          | SwiGLU-OAI 模式下 up 投影的 clamp 下限（仅 `activation_type=1` 时生效）。                                                                                                                                                                           |
+| **up_clamp_max** | `float` | 标量，默认 `0.0`          | SwiGLU-OAI 模式下 up 投影的 clamp 上限（仅 `activation_type=1` 时生效）。要求 `up_clamp_min <= up_clamp_max`。                                                                                                                                              |
+| **up_add** | `float` | 标量，默认 `0.0`          | SwiGLU-OAI 模式下 up 投影的加性偏置（仅 `activation_type=1` 时生效）。                                                                                                                                                                            |
 
 
 ### 返回值

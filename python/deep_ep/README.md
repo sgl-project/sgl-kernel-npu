@@ -176,7 +176,11 @@ The `fused_deep_moe` API fuses dispatch + expert FFN computation + combine into 
 
 Two fuse modes are available via the `FuseMode` enum:
 - `FuseMode.FUSED_DEEP_MOE` (default): Full fusion of dispatch + FFN + combine.
-- `FuseMode.DISPATCH_FFN_COMBINE`: Dispatch + FFN + combine with separate dispatch handling.
+- `FuseMode.DISPATCH_FFN_COMBINE`: Dispatch handled separately from FFN + combine; dispatch phase independently receives tokens.
+
+Activation functions (`activation_type`):
+- `0` (default): Standard SiLU/SwiGLU activation.
+- `1`: SwiGLU-OAI activation with clamp and additive bias support (`activation_alpha`, `gate_clamp_max`, `up_clamp_min/max`, `up_add`).
 
 Quantization modes (`quant_mode`):
 - `1`: INT8 quantization (default)

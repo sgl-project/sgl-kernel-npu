@@ -177,7 +177,11 @@ low_latency_dispatch 量化模式：
 
 通过 `FuseMode` 枚举提供两种融合模式：
 - `FuseMode.FUSED_DEEP_MOE`（默认）：dispatch + FFN + combine 完整融合。
-- `FuseMode.DISPATCH_FFN_COMBINE`：dispatch + FFN + combine，dispatch 分离处理。
+- `FuseMode.DISPATCH_FFN_COMBINE`：dispatch 与 FFN + combine 分离处理，dispatch 阶段独立接收 token。
+
+激活函数（`activation_type`）：
+- `0`（默认）：标准 SiLU/SwiGLU 激活。
+- `1`：SwiGLU-OAI 激活，支持 clamp 和加性偏置（`activation_alpha`、`gate_clamp_max`、`up_clamp_min/max`、`up_add`）。
 
 量化模式（`quant_mode`）：
 - `1`：INT8 量化（默认）

@@ -15,6 +15,30 @@ The communication latency (Batch size = 32 / 155μs, Dispatch = 80μs, Combine =
   * ATB currently provides a large computation operator GmmDepSwigluQuantGmmDep that can complete all the above computational steps in one go.
 * The operation/operator for collecting and accumulating processed results is called combine. The corresponding alcnn operator is already available in CANN.
 
+### Fuse Modes
+The `FuseMode` enum selects the fusion strategy:
+
+| Enum Value | Description |
+|------------|-------------|
+| `FuseMode.FUSED_DEEP_MOE` (default) | Full fusion of dispatch + FFN + combine into a single operator call with minimal communication overhead. |
+| `FuseMode.DISPATCH_FFN_COMBINE` | Dispatch handled separately from FFN + combine; dispatch phase independently receives tokens. Suitable for scenarios requiring flexible dispatch control. |
+
+### Activation Functions
+The `activation_type` parameter selects the FFN intermediate activation:
+
+| Value | Activation | Description |
+|-------|------------|-------------|
+| `0` (default) | SiLU / SwiGLU (standard) | Standard SiLU activation (`x * sigmoid(x)`), suitable for most MoE models. |
+| `1` | SwiGLU-OAI | OAI-style SwiGLU activation with clamp and additive bias support. Requires `activation_alpha`, `gate_clamp_max`, `up_clamp_min/max`, `up_add` parameters. |
+
+When `activation_type=1`, the SwiGLU-OAI computation flow is:
+```
+gate_clamped = clamp(gate_proj(x), max=gate_clamp_max)
+up_clamped = clamp(up_proj(x), min=up_clamp_min, max=up_clamp_max) + up_add
+activated = gate_clamped * silu(gate_clamped * activation_alpha)
+output = down_proj(activated * up_clamped)
+```
+
 ### Python-API
 ```python
 def fused_deep_moe(
@@ -28,6 +52,13 @@ def fused_deep_moe(
     num_max_dispatch_tokens_per_rank: int,
     num_experts: int,
     quant_mode: int = 1,
+    fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
+    activation_type: int = 0,
+    activation_alpha: float = 0.0,
+    gate_clamp_max: float = 0.0,
+    up_clamp_min: float = 0.0,
+    up_clamp_max: float = 0.0,
+    up_add: float = 0.0,
 ) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
@@ -41,9 +72,16 @@ def fused_deep_moe(
 | **gmm1_permuted_weight_scale** | `torch.Tensor` | e.g., `[G, 4096]` | Quantization scale for first-stage weights, required in quantization mode (`float32`).                                                                                                                                                                                                                                                                                                                                                     |
 | **gmm2_weight** | `torch.Tensor` | e.g., `[G, 7168, 2048]` | Second-stage (down-projection) expert weights.                                                                                                                                                                                                                                                                                                                                                                                             |
 | **gmm2_weight_scale** | `torch.Tensor` | e.g., `[G, 7168]` | Quantization scale for second-stage weights.                                                                                                                                                                                                                                                                                                                                                                                               |
-| **num_max_dispatch_tokens_per_rank** | `int` | Scalar | Maximum number of tokens to dispatch per rank, used for buffer/memory allocation.                                                                                                                                                                                                                                                                                                                                                          |
+| **num_max_dispatch_tokens_per_rank** | `int` | Scalar | Maximum number of tokens to dispatch per rank, used for buffer/memory allocation. In `DISPATCH_FFN_COMBINE` mode, indicates the max tokens received during dispatch.                                                                                                                                                                                                                                                                      |
 | **num_experts** | `int` | Scalar | Total number of global experts.                                                                                                                                                                                                                                                                                                                                                                                                            |
 | **quant_mode** | `int` | Scalar, default `1` | Indicates quantization mode:<br>`1`: int8;<br>fp8 will be supported in A5 release.                                                                                                                                                                                                                                                                                                                                                         |
+| **fuse_mode** | `FuseMode` | Enum, default `FUSED_DEEP_MOE` | Fusion mode. See [Fuse Modes](#fuse-modes) section.                                                                                                                                                                                                                                                                                                                                                                                       |
+| **activation_type** | `int` | Scalar, default `0` | Activation function type: `0` = SiLU/SwiGLU standard; `1` = SwiGLU-OAI (with clamp + additive bias). See [Activation Functions](#activation-functions) section.                                                                                                                                                                                                                                                                         |
+| **activation_alpha** | `float` | Scalar, default `0.0` | Alpha scaling factor for SwiGLU-OAI mode (only effective when `activation_type=1`).                                                                                                                                                                                                                                                                                                                                                        |
+| **gate_clamp_max** | `float` | Scalar, default `0.0` | Clamp upper bound for gate projection in SwiGLU-OAI mode (only effective when `activation_type=1`).                                                                                                                                                                                                                                                                                                                                      |
+| **up_clamp_min** | `float` | Scalar, default `0.0` | Clamp lower bound for up projection in SwiGLU-OAI mode (only effective when `activation_type=1`).                                                                                                                                                                                                                                                                                                                                        |
+| **up_clamp_max** | `float` | Scalar, default `0.0` | Clamp upper bound for up projection in SwiGLU-OAI mode (only effective when `activation_type=1`). Requires `up_clamp_min <= up_clamp_max`.                                                                                                                                                                                                                                                                                                |
+| **up_add** | `float` | Scalar, default `0.0` | Additive bias for up projection in SwiGLU-OAI mode (only effective when `activation_type=1`).                                                                                                                                                                                                                                                                                                                                            |
 
 ### Return Values
 | Parameter                     | 	Type             | 	Shape                         | Description                                                                     |
