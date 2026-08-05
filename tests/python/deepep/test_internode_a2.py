@@ -417,12 +417,8 @@ def test_main(
         ):
             if stats is None:
                 continue
-            gather_list = (
-                [torch.zeros_like(stats) for _ in range(group.size())]
-                if rank == 0
-                else None
-            )
-            dist.gather(stats, gather_list=gather_list, group=group, dst=0)
+            gather_list = [torch.zeros_like(stats) for _ in range(group.size())]
+            dist.all_gather(gather_list, stats, group=group)
             if rank == 0:
                 stats_mat = torch.stack(gather_list, dim=0)
                 print(f"{title} stats:")
