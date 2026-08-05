@@ -1368,13 +1368,18 @@ def causal_conv1d_update_npu(
 
     if cache_seqlens is None and num_accepted_tokens is None:
         conv_state_update = conv_state[conv_state_indices]
-        out, conv_state[conv_state_indices] = torch_causal_conv1d_update_npu(
+        out, new_conv_state = torch_causal_conv1d_update_npu(
             x,
             conv_state_update,
             weight,
             bias=bias,
             activation=activation,
         )
+        # The update is computed in `weight.dtype` (float32 for the KDA conv
+        # weights), but the conv cache is stored in its own dtype (bf16 by
+        # default). NPU `aclnnIndexPut` requires the assigned value to match the
+        # destination dtype, so cast the write-back to the cache dtype.
+        conv_state[conv_state_indices] = new_conv_state.to(conv_state.dtype)
     else:
         _causal_conv1d_update_kernel[grid](
             # Pointers to matrices
