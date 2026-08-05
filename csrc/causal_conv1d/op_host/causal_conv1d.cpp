@@ -70,6 +70,7 @@ struct CausalConv1dTilingKey {
     int64_t hasCacheIndices;
     int64_t hasInitialState;
     int64_t hasNumAccept;
+    int64_t dtypeKey;
 };
 
 struct CausalConv1dTilingKeyHash {
@@ -97,6 +98,7 @@ struct CausalConv1dTilingKeyHash {
         h = HashCombine(h, static_cast<std::size_t>(k.hasCacheIndices));
         h = HashCombine(h, static_cast<std::size_t>(k.hasInitialState));
         h = HashCombine(h, static_cast<std::size_t>(k.hasNumAccept));
+        h = HashCombine(h, static_cast<std::size_t>(k.dtypeKey));
         return h;
     }
 };
@@ -370,7 +372,8 @@ HOST_API at::Tensor causal_conv1d_impl(const at::Tensor &x, const at::Tensor &we
                               hasBias ? 1 : 0,
                               hasCacheIndices ? 1 : 0,
                               hasInitialState ? 1 : 0,
-                              hasNumAccept ? 1 : 0};
+                              hasNumAccept ? 1 : 0,
+                              isBf16 ? 0 : 1};
     uint64_t hashValue = CausalConv1dTilingKeyHash{}(key);
 
     static auto globalTilingBuffer = at::empty({tilingSize * static_cast<int64_t>(MAX_CAPTURE_NUM)},
