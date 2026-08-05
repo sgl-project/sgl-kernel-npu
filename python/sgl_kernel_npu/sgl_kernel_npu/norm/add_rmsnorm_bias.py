@@ -159,6 +159,7 @@ def add_gemma_rms_norm_kernel(
     batch,
     dim: tl.constexpr,
     BLOCK_M: tl.constexpr,
+    HAS_RESIDUAL: tl.constexpr,
 ):
     core_id = tl.program_id(0)
     core_num = tl.num_programs(0)
@@ -174,9 +175,12 @@ def add_gemma_rms_norm_kernel(
         mask_bs = mask_hidden[:, None]
 
         x = tl.load(hidden_state_ptr + offset_hidden, mask=mask_bs)
-        residual = tl.load(residual_ptr + offset_hidden, mask=mask_bs)
-        add_val = x + residual
-        tl.store(add_output_ptr + offset_hidden, add_val, mask=mask_bs)
+        if HAS_RESIDUAL:
+            residual = tl.load(residual_ptr + offset_hidden, mask=mask_bs)
+            add_val = x + residual
+            tl.store(add_output_ptr + offset_hidden, add_val, mask=mask_bs)
+        else:
+            add_val = x
 
         x_fp32 = add_val.to(tl.float32)
         w = tl.load(weight_ptr + offset_d).to(tl.float32)
@@ -199,6 +203,14 @@ def add_gemma_rms_norm(
     ROW_BLOCK_SIZE = 2  # A safe default balancing parallelism and register pressure.
     BLOCK_M = min(ROW_BLOCK_SIZE, batch)
 
+    if residual is None:
+        HAS_RESIDUAL = False
+        residual = hidden_state
+        add_output = hidden_state
+    else:
+        HAS_RESIDUAL = True
+        add_output = torch.empty_like(hidden_state)
+
     _, num_vectorcore = get_device_properties()
     grid = (num_vectorcore,)
     add_output = torch.empty_like(hidden_state)
@@ -215,5 +227,6 @@ def add_gemma_rms_norm(
         batch,
         dim,
         BLOCK_M,
+        HAS_RESIDUAL=HAS_RESIDUAL,
     )
     return norm_output, add_output

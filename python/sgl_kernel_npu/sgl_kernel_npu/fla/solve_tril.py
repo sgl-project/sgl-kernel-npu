@@ -83,9 +83,7 @@ def solve_tril_16x16_kernel_paral(
     o_i = tl.arange(0, 16)
     for i in range(1, 16):
 
-        nblks_vec16 = -al.extract_slice(
-            local_ori_A, (i, 0), (1, 16 * N_BLOCKS), (16 * N_BLOCKS, 1)
-        )
+        nblks_vec16 = -al.extract_slice(local_ori_A, (i, 0), (1, 16 * N_BLOCKS), (1, 1))
         b_a = tl.reshape(nblks_vec16, (N_BLOCKS, 16))
 
         dot_tmp = tl.trans(b_a[:, :, None] * b_A, (1, 0, 2))
@@ -191,7 +189,7 @@ def solve_tril_16x16_kernel_paral_v3(
         for i in range(1, 16):
 
             nblks_vec16 = -al.extract_slice(
-                local_ori_A, (i, 0), (1, 16 * N_BLOCKS), (16 * N_BLOCKS, 1)
+                local_ori_A, (i, 0), (1, 16 * N_BLOCKS), (1, 1)
             )
             b_a = tl.reshape(nblks_vec16, (N_BLOCKS, 16))
 

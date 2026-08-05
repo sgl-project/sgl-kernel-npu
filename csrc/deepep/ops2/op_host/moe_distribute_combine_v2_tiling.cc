@@ -631,6 +631,8 @@ static bool CheckAttrs(const gert::TilingContext *context, MoeDistributeCombineV
 
     // 校验输入expertIds的维度0并设bs
     const gert::StorageShape *expertIdsStorageShape = context->GetInputShape(EXPERT_IDS_INDEX);
+    OP_TILING_CHECK(expertIdsStorageShape == nullptr, OP_LOGE(nodeName, "expertIdsStorageShape is null."),
+                    return false);
     int64_t expertIdsDim0 = expertIdsStorageShape->GetStorageShape().GetDim(0);
     OP_TILING_CHECK((expertIdsDim0 < 0) || (expertIdsDim0 > BS_UPPER_BOUND),
                     OP_LOGE(nodeName, "Invalid expertIds dims0(BS) %ld. Should be between [0, %ld].", expertIdsDim0,
@@ -680,7 +682,7 @@ static bool CheckTensorShape(const gert::TilingContext *context, MoeDistributeCo
                     return false);
     tilingData.moeDistributeCombineV2Info.k = static_cast<uint32_t>(expertIdsDim1);
 
-    uint32_t A = 0U;
+    uint64_t A = 0U;
     uint32_t globalBs = tilingData.moeDistributeCombineV2Info.globalBs;
     uint32_t sharedExpertNum = tilingData.moeDistributeCombineV2Info.sharedExpertNum;
     uint32_t sharedExpertRankNum = tilingData.moeDistributeCombineV2Info.sharedExpertRankNum;
@@ -689,7 +691,7 @@ static bool CheckTensorShape(const gert::TilingContext *context, MoeDistributeCo
         uint32_t epWorldSizeU32 = tilingData.moeDistributeCombineV2Info.epWorldSize;
         uint32_t maxBs = globalBs / epWorldSizeU32;
         uint32_t maxSharedGroupNum = (epWorldSizeU32 + rankNumPerSharedExpert - 1U) / rankNumPerSharedExpert;
-        A = maxBs * maxSharedGroupNum;
+        A = static_cast<uint64_t>(maxBs) * maxSharedGroupNum;
     } else {  // 本卡为moe专家
         A = globalBs * std::min(static_cast<int64_t>(localExpertNum), expertIdsDim1);
     }
@@ -1127,10 +1129,19 @@ static ge::graphStatus MoeDistributeCombineA2CheckShapeAndSetTiling(gert::Tiling
     uint32_t k = expertIdStorageShape->GetStorageShape().GetDim(1);
     OP_TILING_CHECK(k <= 0 || k > MAX_K_VALUE_A2, OP_LOGE(K_INNER_DEBUG, "k is invalid."), return GRAPH_FAILED);
     auto attrs = context->GetAttrs();
+    OP_TILING_CHECK(attrs == nullptr, OP_LOGE(K_INNER_DEBUG, "attrs is null."), return GRAPH_FAILED);
     auto moeExpertNumPtr = attrs->GetAttrPointer<int>(ATTR_MOE_EXPERT_NUM_INDEX);
     auto zeroExpertNumPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_ZERO_EXPERT_NUM_INDEX));
     auto copyExpertNumPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_COPY_EXPERT_NUM_INDEX));
     auto constExpertNumPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTR_CONST_EXPERT_NUM_INDEX));
+    OP_TILING_CHECK(moeExpertNumPtr == nullptr, OP_LOGE(K_INNER_DEBUG, "moeExpertNumPtr is null."),
+                    return GRAPH_FAILED);
+    OP_TILING_CHECK(zeroExpertNumPtr == nullptr, OP_LOGE(K_INNER_DEBUG, "zeroExpertNumPtr is null."),
+                    return GRAPH_FAILED);
+    OP_TILING_CHECK(copyExpertNumPtr == nullptr, OP_LOGE(K_INNER_DEBUG, "copyExpertNumPtr is null."),
+                    return GRAPH_FAILED);
+    OP_TILING_CHECK(constExpertNumPtr == nullptr, OP_LOGE(K_INNER_DEBUG, "constExpertNumPtr is null."),
+                    return GRAPH_FAILED);
     // 判断是否满足uint32_t及其他限制
     int32_t moeExpertNum = *moeExpertNumPtr;
     int32_t zeroExpertNum = static_cast<int32_t>(*zeroExpertNumPtr);
@@ -1394,7 +1405,11 @@ static ge::graphStatus MoeDistributeCombineA2TilingFuncImpl(gert::TilingContext 
 
     // 3. communication
     auto attrs = context->GetAttrs();
+    OP_TILING_CHECK(attrs == nullptr, VECTOR_INNER_ERR_REPORT_TILIING(nodeName, "attrs is nullptr."),
+                    return ge::GRAPH_FAILED);
     auto group = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_GROUP_EP_INDEX));
+    OP_TILING_CHECK(group == nullptr, VECTOR_INNER_ERR_REPORT_TILIING(nodeName, "group is nullptr."),
+                    return ge::GRAPH_FAILED);
     std::string algConfig = isLayered ? "BatchWrite=level1:hierarchy" : "BatchWrite=level1:fullmesh";
     uint32_t opType = 18;  // DispatchCombine
 
@@ -1423,7 +1438,7 @@ static ge::graphStatus MoeDistributeCombineV2TilingFunc(gert::TilingContext *con
 
     std::string socVersion;
     (void)platformInfo.GetPlatformResWithLock("version", "Short_SoC_version", socVersion);
-    ge::graphStatus ret;
+    ge::graphStatus ret = ge::GRAPH_FAILED;
     if (socVersion == "Ascend910B") {
         ret = MoeDistributeCombineA2TilingFuncImpl(context);
     } else {
@@ -1440,7 +1455,7 @@ ge::graphStatus TilingParseForMoeDistributeCombineV2(gert::TilingParseContext *c
     return ge::GRAPH_SUCCESS;
 }
 
-IMPL_OP_OPTILING(MoeDistributeCombineV2)
+IMPL_OP_OPTILING(MoeLowLatencyCombineV2)
     .Tiling(MoeDistributeCombineV2TilingFunc)
     .TilingParse<MoeDistributeCombineCompileInfo>(TilingParseForMoeDistributeCombineV2);
 }  // namespace optiling

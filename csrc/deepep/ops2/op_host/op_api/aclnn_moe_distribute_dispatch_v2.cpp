@@ -17,7 +17,7 @@
 #include <cstdio>
 
 #include "aclnn_moe_distribute_dispatch_v2.h"
-#include "aclnnInner_moe_distribute_dispatch_v2.h"
+#include "aclnnInner_moe_low_latency_dispatch_v2.h"
 #include "aclnn/opdev/platform.h"
 
 #ifdef __cplusplus
@@ -33,7 +33,7 @@ enum NnopbaseHcclServerType {
 
 extern "C" void __attribute__((weak)) NnopbaseSetHcclServerType(void *executor, NnopbaseHcclServerType sType);
 
-aclnnStatus aclnnMoeDistributeDispatchV2GetWorkspaceSize(
+aclnnStatus aclnnMoeLowLatencyDispatchV2GetWorkspaceSize(
     const aclTensor *x, const aclTensor *expertIds, const aclTensor *scalesOptional,
     const aclTensor *xActiveMaskOptional, char *groupEp, int64_t epWorldSize, int64_t epRankId, int64_t moeExpertNum,
     char *groupTp, int64_t tpWorldSize, int64_t tpRankId, int64_t expertShardType, int64_t sharedExpertNum,
@@ -42,14 +42,14 @@ aclnnStatus aclnnMoeDistributeDispatchV2GetWorkspaceSize(
     aclTensor *expertTokenNumsOut, aclTensor *epRecvCountsOut, aclTensor *tpRecvCountsOut, uint64_t *workspaceSize,
     aclOpExecutor **executor)
 {
-    return aclnnInnerMoeDistributeDispatchV2GetWorkspaceSize(
+    return aclnnInnerMoeLowLatencyDispatchV2GetWorkspaceSize(
         x, expertIds, scalesOptional, xActiveMaskOptional, nullptr, groupEp, epWorldSize, epRankId, moeExpertNum, "",
         tpWorldSize, tpRankId, expertShardType, sharedExpertNum, sharedExpertRankNum, quantMode, globalBs,
         expertTokenNumsType, commAlg, 0, 0, 0, expandXOut, dynamicScalesOut, assistInfoForCombineOut,
         expertTokenNumsOut, epRecvCountsOut, tpRecvCountsOut, workspaceSize, executor);
 }
 
-aclnnStatus aclnnMoeDistributeDispatchV2(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
+aclnnStatus aclnnMoeLowLatencyDispatchV2(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,
                                          aclrtStream stream)
 {
     if (NnopbaseSetHcclServerType) {
@@ -60,7 +60,7 @@ aclnnStatus aclnnMoeDistributeDispatchV2(void *workspace, uint64_t workspaceSize
         }
     }
 
-    return aclnnInnerMoeDistributeDispatchV2(workspace, workspaceSize, executor, stream);
+    return aclnnInnerMoeLowLatencyDispatchV2(workspace, workspaceSize, executor, stream);
 }
 #ifdef __cplusplus
 }

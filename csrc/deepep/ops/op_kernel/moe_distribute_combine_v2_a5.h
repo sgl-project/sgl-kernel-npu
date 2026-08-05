@@ -39,8 +39,8 @@ constexpr size_t MASK_CALC_NEED_WORKSPACE = 10UL * 1024UL;
 constexpr uint32_t BLOCK_NUM = ALIGNED_LEN / UB_ALIGN;  // blockReduceMax中，最多支持连续256字节数据参与计算
 
 // related to FP8 and INT8 quantization
-constexpr float FP8_E5M2_MAX_VALUE = 448.0f;
-constexpr float FP8_E4M3_MAX_VALUE = 57344.0f;
+constexpr float FP8_E5M2_MAX_VALUE = 57344.0f;
+constexpr float FP8_E4M3_MAX_VALUE = 448.0f;
 constexpr float HIFP8_MAX_VALUE = 32768.0f;
 constexpr float INT8_MAX_VALUE = 127.0f;
 
