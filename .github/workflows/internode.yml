@@ -113,7 +113,8 @@ jobs:
             fi
           done
           if [ $retry -ge $max_retries ]; then
-            echo "WARNING: Timeout waiting for pod cleanup after $max_retries retries, proceeding anyway..."
+            echo "ERROR: Timeout waiting for pod cleanup after $max_retries retries ($(( max_retries * 30 ))s). Stale pods may still exist, aborting to avoid resource conflict."
+            exit 1
           fi
 
       - name: Run test
