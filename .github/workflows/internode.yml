@@ -30,8 +30,8 @@ on:
         description: path of test case file
 
 concurrency:
-  group: ascend-nightly-multi-node-${{ github.ref }}-${{ inputs.soc_version }}
-  cancel-in-progress: true
+  group: ascend-multi-node-global
+  cancel-in-progress: false
 
 jobs:
   multi-node:
@@ -88,7 +88,8 @@ jobs:
                   \"kube_config_map\": \"$KUBE_CONFIG_MAP\",                \
                   \"node_size\": $node_size,                                \
                   \"sglang_source_path\": \"$sglang_source_path\",          \
-                  \"test_case\": \"$test_case\" }"                         |\
+                  \"test_case\": \"$test_case\",                            \
+                  \"run_id\": \"${{ github.run_id }}\" }"                  |\
               jinja2 ${ASCEND_TEST_CASE_PATH}/k8s_multi.yaml.jinja2 -o ${ASCEND_TEST_CASE_PATH}/k8s_multi.yaml
           echo "Kubectl config file is generated: ${ASCEND_TEST_CASE_PATH}/k8s_multi.yaml"
 
