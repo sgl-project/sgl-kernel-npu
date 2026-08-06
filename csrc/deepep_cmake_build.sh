@@ -25,7 +25,6 @@ module list: [deepep]
 opt:
 -d: Enable debug
 -g: Build with symbols using Debug build type
---relwithdebinfo: Build with symbols using RelWithDebInfo
 "
 }
 
@@ -35,10 +34,6 @@ function ProcessArg() {
     case "$1" in
     -d|-g)
       export BUILD_TYPE="Debug"
-      shift
-      ;;
-    --relwithdebinfo)
-      export BUILD_TYPE="RelWithDebInfo"
       shift
       ;;
     -h|--help)
