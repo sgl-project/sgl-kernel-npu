@@ -49,7 +49,6 @@ def move_cache_dynamic_last_kernel_h_block(
     if last_step_val < 0:
         return
     h_offsets = tl.arange(0, H_BLOCK_SIZE)
-    v_offsets = tl.arange(0, BLOCK_V)
     k_offsets = tl.arange(0, BLOCK_K)
 
     # Process each layer
@@ -71,24 +70,32 @@ def move_cache_dynamic_last_kernel_h_block(
             h_real = h_start + h_offsets
             h_mask = h_real < h_dim
 
-            v_mask = v_offsets < dim_v
-            k_mask = k_offsets < dim_k
+            # Kimi-K3 has V=128 while BLOCK_V=64. Cover every V tile instead
+            # of silently leaving V[64:] in the destination at its old value.
+            for v_start in range(0, dim_v, BLOCK_V):
+                v_real = v_start + tl.arange(0, BLOCK_V)
+                v_mask = v_real < dim_v
+                k_mask = k_offsets < dim_k
 
-            mask = h_mask[:, None, None] & v_mask[None, :, None] & k_mask[None, None, :]
+                mask = (
+                    h_mask[:, None, None]
+                    & v_mask[None, :, None]
+                    & k_mask[None, None, :]
+                )
 
-            src_offset = (
-                h_real[:, None, None] * dim_v * dim_k
-                + v_offsets[None, :, None] * dim_k
-                + k_offsets[None, None, :]
-            )
-            dst_offset = (
-                h_real[:, None, None] * dst_h_stride
-                + v_offsets[None, :, None] * dst_v_stride
-                + k_offsets[None, None, :] * dst_k_stride
-            )
+                src_offset = (
+                    h_real[:, None, None] * dim_v * dim_k
+                    + v_real[None, :, None] * dim_k
+                    + k_offsets[None, None, :]
+                )
+                dst_offset = (
+                    h_real[:, None, None] * dst_h_stride
+                    + v_real[None, :, None] * dst_v_stride
+                    + k_offsets[None, None, :] * dst_k_stride
+                )
 
-            src_block = tl.load(src_addr + src_offset, mask=mask, other=0)
-            tl.store(dst_base_addr + dst_offset, src_block, mask=mask)
+                src_block = tl.load(src_addr + src_offset, mask=mask, other=0)
+                tl.store(dst_base_addr + dst_offset, src_block, mask=mask)
 
 
 def move_intermediate_cache(
@@ -127,6 +134,9 @@ def move_intermediate_cache(
     assert len(src_indices_tensor) == len(
         last_steps_tensor
     ), "Source indices lengths must match"
+
+    if len(dst_indices_tensor) == 0:
+        return ssm_states
 
     # Grid: one thread per valid index
     grid = (len(dst_indices_tensor),)
