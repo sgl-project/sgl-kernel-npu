@@ -1,11 +1,3 @@
-/**
- * SPDX-License-Identifier: MIT
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
- * Description: FusedDeepMoe operator definition file
- * Create: 2025-07-19
- * Note:
- * History: 2025-07-19 create FusedDeepMoe operator definition file
- */
 #if defined(__DAV_C310__)
 #include "register/op_def_registry.h"
 

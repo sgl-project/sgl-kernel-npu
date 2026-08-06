@@ -1,5 +1,4 @@
 /*
- * SPDX-License-Identifier: MIT
  * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
  * Description: CamMoeDistributeDispatch operator kernel function header file, for a3
  * Create: 2025-05-29

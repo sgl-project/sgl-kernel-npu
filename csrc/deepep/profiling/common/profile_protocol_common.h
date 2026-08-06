@@ -1,7 +1,3 @@
-/*
- * SPDX-License-Identifier: MIT
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
- */
 #ifndef DEEPEP_PROFILING_COMMON_PROFILE_PROTOCOL_COMMON_H
 #define DEEPEP_PROFILING_COMMON_PROFILE_PROTOCOL_COMMON_H
 

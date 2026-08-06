@@ -1,5 +1,4 @@
 /*
- * SPDX-License-Identifier: MIT
  * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
  * Description: FusedDeepMoe operator kernel utils function header file, for a3
  * Create: 2026-05-12

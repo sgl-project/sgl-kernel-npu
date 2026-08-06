@@ -1,7 +1,3 @@
-/*
- * SPDX-License-Identifier: MIT
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
- */
 #include "fused_deep_moe_a5.h"
 #include <kernel_operator.h>
 #include "lib/matmul_intf.h"

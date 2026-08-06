@@ -1,7 +1,3 @@
-/*
- * SPDX-License-Identifier: MIT
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
- */
 #ifndef FUSED_DEEP_MOE_A5_PROFILE_H
 #define FUSED_DEEP_MOE_A5_PROFILE_H
 

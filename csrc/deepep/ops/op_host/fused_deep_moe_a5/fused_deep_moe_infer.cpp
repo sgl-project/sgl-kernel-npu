@@ -1,12 +1,3 @@
-/*
- * SPDX-License-Identifier: MIT
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
- * Description: FusedDeepMoe tiling function implementation file
- * Create: 2025-07-22
- * Note:
- * History: 2025-07-13 create FusedDeepMoe infer function file
- */
-
 #if defined(__DAV_C310__)
 #include <cstdint>
 #include "../ops_log.h"

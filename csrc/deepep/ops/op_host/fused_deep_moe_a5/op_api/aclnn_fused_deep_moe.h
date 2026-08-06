@@ -1,12 +1,3 @@
-/*
- * SPDX-License-Identifier: MIT
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
- * Description: add fused deep moe interface header file.
- * Create: 2025-07-21
- * Note:
- * History: 2025-07-21 add fused deep moe interface header file.
- */
-
 #ifndef FUSED_DEEP_MOE
 #define FUSED_DEEP_MOE
 

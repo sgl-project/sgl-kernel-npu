@@ -1,7 +1,3 @@
-/*
- * SPDX-License-Identifier: MIT
- * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
- */
 #ifndef OPS_OP_KERNEL_CATLASS_DTYPE_MACRO_GUARD_BEGIN_H
 #define OPS_OP_KERNEL_CATLASS_DTYPE_MACRO_GUARD_BEGIN_H
 

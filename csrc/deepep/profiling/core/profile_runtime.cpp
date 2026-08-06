@@ -1,7 +1,3 @@
-/*
- * SPDX-License-Identifier: MIT
- */
-
 #include "profiling/core/profile_runtime.hpp"
 
 #include <chrono>
