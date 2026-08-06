@@ -9,7 +9,7 @@ from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
 @triton.jit
-def _situ_deepep_kernel(
+def _situ_kernel(
     x_ptr,
     group_list_ptr,
     out_ptr,
@@ -77,7 +77,7 @@ def _situ_deepep_kernel(
             )
 
 
-def situ_deepep(
+def situ(
     hidden_states: torch.Tensor,
     group_list: torch.Tensor,
     group_list_type: int,
@@ -86,11 +86,11 @@ def situ_deepep(
     beta: float = 4.0,
     linear_beta: Optional[float] = 25.0,
 ) -> tuple[torch.Tensor, Optional[torch.Tensor]]:
-    """Apply Kimi-K3 SiTU to DeepEP-packed rows on Ascend."""
+    """Apply grouped Kimi-K3 SiTU with optional INT8 requantization."""
     if group_list_type not in (0, 1):
         raise ValueError(f"group_list_type must be 0 or 1, got {group_list_type}")
     if hidden_states.ndim != 2 or hidden_states.shape[1] % 2:
-        raise ValueError("DeepEP SiTU input must have shape [tokens, 2 * intermediate]")
+        raise ValueError("SiTU input must have shape [tokens, 2 * intermediate]")
     if group_list.dtype == torch.int64:
         num_experts_aligned = (group_list.numel() + 7) // 8 * 8
     elif group_list.dtype == torch.int32:
@@ -108,7 +108,7 @@ def situ_deepep(
     scale = torch.empty(rows, dtype=torch.float32, device=hidden_states.device)
     _, num_vector_cores = get_device_properties()
     linear_beta_value = linear_beta if linear_beta is not None else 1.0
-    _situ_deepep_kernel[(num_vector_cores,)](
+    _situ_kernel[(num_vector_cores,)](
         hidden_states,
         group_list,
         out,
