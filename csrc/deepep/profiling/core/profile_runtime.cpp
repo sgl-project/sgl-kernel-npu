@@ -5,6 +5,7 @@
 #include "profiling/core/profile_runtime.hpp"
 
 #include <chrono>
+#include <mutex>
 
 #include <acl/acl_rt.h>
 #include <torch_npu/csrc/core/npu/NPUStream.h>
@@ -13,6 +14,25 @@
 
 namespace deep_ep::profiling::runtime {
 namespace {
+
+void WarnProfilingUnsupportedOnce()
+{
+    static std::once_flag once;
+    std::call_once(once, []() {
+        TORCH_WARN(
+            "DeepEP profiling is disabled because aclrtEventGetTimestamp is not available in the current build "
+            "environment.");
+    });
+}
+
+bool IsProfilingSupported()
+{
+#if defined(DEEPEP_HAS_ACLRT_EVENT_GET_TIMESTAMP) && DEEPEP_HAS_ACLRT_EVENT_GET_TIMESTAMP
+    return true;
+#else
+    return false;
+#endif
+}
 
 struct ProfileTimeAnchor {
     uint64_t deviceSyscnt{0};
@@ -33,6 +53,9 @@ double CaptureHostMonotonicUs()
 ProfileTimeAnchor CaptureCurrentStreamAnchor()
 {
     ProfileTimeAnchor anchor{};
+#if !(defined(DEEPEP_HAS_ACLRT_EVENT_GET_TIMESTAMP) && DEEPEP_HAS_ACLRT_EVENT_GET_TIMESTAMP)
+    return anchor;
+#else
     aclrtEvent event = nullptr;
     const auto createStatus = aclrtCreateEventWithFlag(&event, ACL_EVENT_TIME_LINE);
     if (createStatus != ACL_SUCCESS || event == nullptr) {
@@ -77,6 +100,7 @@ ProfileTimeAnchor CaptureCurrentStreamAnchor()
     anchor.hostUs = (hostBeforeUs + hostAfterUs) * 0.5;
     anchor.valid = true;
     return anchor;
+#endif
 }
 
 }  // namespace
@@ -109,6 +133,10 @@ int64_t GetExpectedLaunches()
 void BeginSession(int64_t numProfileSkipLaunches, int64_t numProfileActiveLaunches, const std::string &profileTraceDir,
                   int64_t numRanks)
 {
+    if (!IsProfilingSupported()) {
+        WarnProfilingUnsupportedOnce();
+        return;
+    }
     session::Begin(numProfileSkipLaunches, numProfileActiveLaunches, profileTraceDir, numRanks);
 }
 

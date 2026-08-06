@@ -3,12 +3,6 @@
 #include <cstring>
 #include <cstdlib>
 #include <algorithm>
-#include <filesystem>
-#include <fstream>
-#include <iomanip>
-#include <cstdio>
-#include <sstream>
-#include <set>
 #include <vector>
 #include <pybind11/functional.h>
 
@@ -19,7 +13,6 @@
 #include "pytorch_npu_helper.hpp"
 
 namespace deep_ep {
-
 constexpr int PADDING_SIZE = 1;
 constexpr size_t HCOMM_NAME_LEN = 128;
 constexpr int64_t NO_SCALES = 0;
@@ -1157,8 +1150,8 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
 #else
     int64_t global_bs = std::max(expert_ids.size(0), num_max_dispatch_tokens_per_rank) * num_ranks;
     at::Tensor output = at::empty({bs, h}, x.options());
-    auto gmm1_permuted_weight_scale_f32 = gmm1_permuted_weight_scale.float();
-    auto gmm2_weight_scale_f32 = gmm2_weight_scale.float();
+    auto gmm1_permuted_weight_scale_f32 = gmm1_permuted_weight_scale.to(at::kFloat);
+    auto gmm2_weight_scale_f32 = gmm2_weight_scale.to(at::kFloat);
 
     bool is_shared_expert = (rank < shared_expert_rank_num);
     int64_t num_local_experts = is_shared_expert ? 1 : num_experts / (num_ranks - shared_expert_rank_num);
