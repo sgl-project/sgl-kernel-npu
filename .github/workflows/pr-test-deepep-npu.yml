@@ -87,7 +87,7 @@ jobs:
       - name: Get build hash
         id: get_build_hash
         run: |
-          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
+          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt ./scripts/prepare_deepep_in_container.sh ./scripts/npu_ci_install_dependency.sh \
             -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
           echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
           CANN_RAW=$(cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg 2>/dev/null || echo "unknown")
@@ -110,16 +110,12 @@ jobs:
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
       - name: Prepare Deepep
-        # - cache hit: install cached wheel only (skip build.sh)
+        # - cache hit: install cached wheel only (skip build via -s flag)
         # - cache miss: clear stale wheels + build + install
-        # Pre-step (cache miss only): clear stale wheels from output/ to prevent
-        # pip install matching multiple wheel versions on shared self-hosted runners.
         run: |
           if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
             echo "Cache hit, installing cached wheel only"
-            pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
-            cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
-            ln -s deep_ep/deep_ep_cpp*.so || true
+            bash scripts/prepare_deepep_in_container.sh -s
           else
             echo "Cache miss, building and installing"
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
@@ -321,7 +317,7 @@ jobs:
       - name: Get build hash
         id: get_build_hash
         run: |
-          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
+          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt ./scripts/prepare_deepep_in_container.sh ./scripts/npu_ci_install_dependency.sh \
             -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
           echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
           CANN_RAW=$(cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg 2>/dev/null || echo "unknown")
@@ -344,14 +340,12 @@ jobs:
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
       - name: Prepare Deepep
-        # - cache hit: install cached wheel only (skip build.sh)
+        # - cache hit: install cached wheel only (skip build via -s flag)
         # - cache miss: clear stale wheels + build + install
         run: |
           if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
             echo "Cache hit, installing cached wheel only"
-            pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
-            cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
-            ln -s deep_ep/deep_ep_cpp*.so || true
+            bash scripts/prepare_deepep_in_container.sh -s
           else
             echo "Cache miss, building and installing"
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
@@ -508,7 +502,7 @@ jobs:
       - name: Get build hash
         id: get_build_hash
         run: |
-          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
+          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt ./scripts/prepare_deepep_in_container.sh ./scripts/npu_ci_install_dependency.sh \
             -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
           echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
           CANN_RAW=$(cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg 2>/dev/null || echo "unknown")
@@ -531,14 +525,12 @@ jobs:
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
       - name: Prepare Deepep
-        # - cache hit: install cached wheel only (skip build.sh)
+        # - cache hit: install cached wheel only (skip build via -s flag)
         # - cache miss: clear stale wheels + build (-a deepep) + install
         run: |
           if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
             echo "Cache hit, installing cached wheel only"
-            pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
-            cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
-            ln -s deep_ep/deep_ep_cpp*.so || true
+            bash scripts/prepare_deepep_in_container.sh -s
           else
             echo "Cache miss, building and installing"
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
@@ -743,7 +735,7 @@ jobs:
       - name: Get build hash
         id: get_build_hash
         run: |
-          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
+          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt ./scripts/prepare_deepep_in_container.sh ./scripts/npu_ci_install_dependency.sh \
             -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
           echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
           CANN_RAW=$(cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg 2>/dev/null || echo "unknown")
@@ -766,14 +758,12 @@ jobs:
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
       - name: Prepare Deepep
-        # - cache hit: install cached wheel only (skip build.sh)
+        # - cache hit: install cached wheel only (skip build via -s flag)
         # - cache miss: clear stale wheels + build (-a deepep) + install
         run: |
           if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
             echo "Cache hit, installing cached wheel only"
-            pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
-            cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
-            ln -s deep_ep/deep_ep_cpp*.so || true
+            bash scripts/prepare_deepep_in_container.sh -s
           else
             echo "Cache miss, building and installing"
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
@@ -947,7 +937,7 @@ jobs:
       - name: Get build hash
         id: get_build_hash
         run: |
-          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
+          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt ./scripts/prepare_deepep_in_container.sh ./scripts/npu_ci_install_dependency.sh \
             -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
           echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
           CANN_RAW=$(cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg 2>/dev/null || echo "unknown")
@@ -970,14 +960,12 @@ jobs:
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
       - name: Prepare Deepep
-        # - cache hit: install cached wheel only (skip build.sh)
+        # - cache hit: install cached wheel only (skip build via -s flag)
         # - cache miss: clear stale wheels + build (-a deepep2) + install
         run: |
           if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
             echo "Cache hit, installing cached wheel only"
-            pip install ${GITHUB_WORKSPACE}/output/deep_ep*.whl --no-cache-dir
-            cd "$(pip show deep-ep | awk '/^Location:/ {print $2}')"
-            ln -s deep_ep/deep_ep_cpp*.so || true
+            bash scripts/prepare_deepep_in_container.sh -s
           else
             echo "Cache miss, building and installing"
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
