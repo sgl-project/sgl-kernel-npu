@@ -80,6 +80,8 @@ void transfer_mamba_state(at::Tensor &device_buf, at::Tensor &host_buf,
                           const at::Tensor &device_indices,
                           const at::Tensor &host_indices, int64_t direction);
 
+void transfer_weight(at::Tensor &dst, at::Tensor &src, int64_t direction);
+
 at::Tensor bgmv_expand(at::Tensor &x, at::Tensor &weight, at::Tensor &indices,
                        at::Tensor &y, int64_t slice_offset, int64_t slice_size);
 

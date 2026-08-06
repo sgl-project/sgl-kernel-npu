@@ -97,3 +97,33 @@ def transfer_mamba_state(
         host_indices,
         direction.value,
     )
+
+
+def transfer_weight(
+    dst: torch.Tensor,
+    src: torch.Tensor,
+    direction: TransferDirection = TransferDirection.H2D,
+):
+    """
+    Copy raw bytes between host and device using aclrtMemcpyAsync.
+
+    This is a flat 1D byte copy — it does NOT interpret tensor layout
+    (ND vs NZ). The caller must ensure src and dst have the same byte
+    size and compatible data layout.
+
+    Key use case: MoE weight DRAM offload.
+      - D2H: Copy NZ-format weight bytes from HBM to Host DRAM.
+      - H2D: Copy NZ-format weight bytes from Host DRAM to pre-allocated
+             NZ-format HBM buffer.
+      Because the copy is layout-agnostic, NZ bytes are preserved as-is,
+      eliminating the need for npu_format_cast at forward time.
+
+    Supports NPU graph capture: aclrtMemcpyAsync is async and can be
+    recorded/replayed in a graph.
+
+    Args:
+        dst: destination tensor (device tensor for H2D, host tensor for D2H)
+        src: source tensor (host tensor for H2D, device tensor for D2H)
+        direction: H2D (host→device) or D2H (device→host)
+    """
+    torch.ops.npu.transfer_weight(dst, src, direction.value)

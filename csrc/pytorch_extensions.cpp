@@ -73,6 +73,9 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor device_indices, Tensor host_indices, int direction) -> ()");
 
     m.def(
+        "transfer_weight(Tensor dst, Tensor src, int direction) -> ()");
+
+    m.def(
         "bgmv_expand(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y,"
         "            int slice_offset, int slice_size) -> Tensor");
 
@@ -176,6 +179,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("transfer_kv_dim_exchange", TORCH_FN(sglang::npu_kernel::transfer_kv_dim_exchange));
 
     m.impl("transfer_mamba_state", TORCH_FN(sglang::npu_kernel::transfer_mamba_state));
+
+    m.impl("transfer_weight", TORCH_FN(sglang::npu_kernel::transfer_weight));
 
     m.impl("bgmv_expand", TORCH_FN(sglang::npu_kernel::bgmv_expand));
 
