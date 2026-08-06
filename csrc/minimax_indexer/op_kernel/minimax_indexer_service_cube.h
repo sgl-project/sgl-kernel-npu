@@ -35,8 +35,9 @@ public:
     __aicore__ inline void InitBuffers(TPipe *pipe);
     __aicore__ inline void InitMm1GlobalTensor(const GlobalTensor<int32_t> &blkTableGm,
                                                const GlobalTensor<int32_t> &reqToTokenGm,
-                                               const GlobalTensor<int32_t> &reqPoolIdxGm, const GlobalTensor<K_T> &keyGm,
-                                               const GlobalTensor<Q_T> &queryGm, const GlobalTensor<float> &mm1ResGm);
+                                               const GlobalTensor<int32_t> &reqPoolIdxGm,
+                                               const GlobalTensor<K_T> &keyGm, const GlobalTensor<Q_T> &queryGm,
+                                               const GlobalTensor<float> &mm1ResGm);
     __aicore__ inline void InitParams(const ConstInfo &constInfo);
     __aicore__ inline void AllocEventID();
     __aicore__ inline void FreeEventID();
@@ -115,8 +116,6 @@ private:
     static constexpr bool PAGE_ATTENTION = MIT::pageAttention;
 };
 
-
-
 template <typename MIT>
 __aicore__ inline void MIMatmul<MIT>::InitParams(const ConstInfo &constInfo)
 {
@@ -141,12 +140,10 @@ __aicore__ inline void MIMatmul<MIT>::InitBuffers(TPipe *pipe)
 }
 
 template <typename MIT>
-__aicore__ inline void MIMatmul<MIT>::InitMm1GlobalTensor(const GlobalTensor<int32_t> &blkTableGm,
-                                                          const GlobalTensor<int32_t> &reqToTokenGm,
-                                                          const GlobalTensor<int32_t> &reqPoolIdxGm,
-                                                          const GlobalTensor<K_T> &keyGm,
-                                                          const GlobalTensor<Q_T> &queryGm,
-                                                          const GlobalTensor<float> &mm1ResGm)
+__aicore__ inline void
+MIMatmul<MIT>::InitMm1GlobalTensor(const GlobalTensor<int32_t> &blkTableGm, const GlobalTensor<int32_t> &reqToTokenGm,
+                                   const GlobalTensor<int32_t> &reqPoolIdxGm, const GlobalTensor<K_T> &keyGm,
+                                   const GlobalTensor<Q_T> &queryGm, const GlobalTensor<float> &mm1ResGm)
 {
     blkTableGm_ = blkTableGm;
     reqToTokenGm_ = reqToTokenGm;
@@ -238,11 +235,12 @@ __aicore__ inline void MIMatmul<MIT>::KeyNd2Nz(uint64_t s2L1RealSize, uint64_t s
         nd2nzPara.nValue = s2Mte2Size;  // row count
         nd2nzPara.dValue = constInfo_.headDim;
         nd2nzPara.srcDValue = constInfo_.headDim;
-        nd2nzPara.dstNzC0Stride = s2L1Offset >= S2_BASIC_BLOCK_L0
-                                      ? CeilAlign(s2L1RealSize - S2_BASIC_BLOCK_L0, (uint64_t)BLOCK_CUBE)
-                                      : (s2L1RealSize > S2_BASIC_BLOCK_L0
-                                             ? S2_BASIC_BLOCK_L0
-                                             : CeilAlign(s2L1RealSize, (uint64_t)BLOCK_CUBE));  // aligned to 16-element blocks
+        nd2nzPara.dstNzC0Stride =
+            s2L1Offset >= S2_BASIC_BLOCK_L0
+                ? CeilAlign(s2L1RealSize - S2_BASIC_BLOCK_L0, (uint64_t)BLOCK_CUBE)
+                : (s2L1RealSize > S2_BASIC_BLOCK_L0
+                       ? S2_BASIC_BLOCK_L0
+                       : CeilAlign(s2L1RealSize, (uint64_t)BLOCK_CUBE));  // aligned to 16-element blocks
         nd2nzPara.dstNzNStride = 1;
         nd2nzPara.srcNdMatrixStride = 0;
         nd2nzPara.dstNzMatrixStride = 0;
@@ -290,11 +288,11 @@ __aicore__ inline void MIMatmul<MIT>::KeyNd2NzForPA(uint64_t s2L1RealSize, uint6
         nd2nzPara.nValue = s2Mte2Size;
         nd2nzPara.dValue = constInfo_.headDim;
         nd2nzPara.srcDValue = constInfo_.headDim;
-        nd2nzPara.dstNzC0Stride = s2L1Offset >= S2_BASIC_BLOCK_L0
-                                      ? CeilAlign(s2L1RealSize - S2_BASIC_BLOCK_L0, (uint64_t)BLOCK_CUBE)
-                                      : (s2L1RealSize > S2_BASIC_BLOCK_L0
-                                             ? S2_BASIC_BLOCK_L0
-                                             : CeilAlign(s2L1RealSize, (uint64_t)BLOCK_CUBE));
+        nd2nzPara.dstNzC0Stride =
+            s2L1Offset >= S2_BASIC_BLOCK_L0
+                ? CeilAlign(s2L1RealSize - S2_BASIC_BLOCK_L0, (uint64_t)BLOCK_CUBE)
+                : (s2L1RealSize > S2_BASIC_BLOCK_L0 ? S2_BASIC_BLOCK_L0
+                                                    : CeilAlign(s2L1RealSize, (uint64_t)BLOCK_CUBE));
         nd2nzPara.dstNzNStride = 1;
         nd2nzPara.srcNdMatrixStride = 0;
         nd2nzPara.dstNzMatrixStride = 0;
@@ -410,7 +408,7 @@ __aicore__ inline void MIMatmul<MIT>::Fixp(uint64_t s1gGmOffset, uint64_t s2GmOf
     intriParams.quantPre = QuantMode_t::NoQuant;
     intriParams.nz2ndEn = true;
     intriParams.unitFlag = 0b11;  // 3 unitflag
-    intriParams.reluPre = 0;  // MiniMax indexer: no ReLU, raw q·k score for max-reduce
+    intriParams.reluPre = 0;      // MiniMax indexer: no ReLU, raw q·k score for max-reduce
     AscendC::SetFixpipeNz2ndFlag(1, 1, 1);
     AscendC::DataCopy(mm1ResGm_[(runInfo.loop % 2) * constInfo_.mBaseSize * constInfo_.s2BaseSize +
                                 s1gGmOffset * intriParams.dstStride + s2GmOffset],

@@ -8,7 +8,6 @@ from typing import Optional
 import torch
 import triton
 import triton.language as tl
-
 from sgl_kernel_npu.indexer.flash_block_score_decode import (
     _floor_power_of_2,
     _get_vectorcore_num_safe,
@@ -32,6 +31,7 @@ def _get_native_sparse_op():
     """
     try:
         import sgl_kernel_npu  # noqa: F401  (registers torch.ops.npu.*)
+
         return getattr(torch.ops.npu, "npu_sparse_attention_score", None)
     except (ImportError, RuntimeError, AttributeError):
         return None
@@ -50,9 +50,19 @@ def _warn_native_unavailable() -> None:
 
 
 def _native_decode_main(
-    q, k, v, topk_idx, seq_lens, block_size, sm_scale,
-    block_table, req_to_token, req_pool_indices, max_num_blocks,
-    num_kv_heads, head_dim,
+    q,
+    k,
+    v,
+    topk_idx,
+    seq_lens,
+    block_size,
+    sm_scale,
+    block_table,
+    req_to_token,
+    req_pool_indices,
+    max_num_blocks,
+    num_kv_heads,
+    head_dim,
 ):
     """Run decode attention via the native aclnn sparse attention op (cuda-graph safe)."""
     op = _get_native_sparse_op()
@@ -81,25 +91,40 @@ def _native_decode_main(
         (num_kv_heads, batch_size), dtype=torch.int32, device=q.device
     )
     _native_sanitize_topk_kernel[(num_kv_heads, batch_size)](
-        sel, select_num_idx, seq_lens.to(torch.int32),
-        sel.stride(0), sel.stride(1), sel.stride(2),
-        select_num_idx.stride(0), select_num_idx.stride(1),
-        block_size=block_size, SLOTS=sel.shape[-1], num_warps=1, num_stages=1,
+        sel,
+        select_num_idx,
+        seq_lens.to(torch.int32),
+        sel.stride(0),
+        sel.stride(1),
+        sel.stride(2),
+        select_num_idx.stride(0),
+        select_num_idx.stride(1),
+        block_size=block_size,
+        SLOTS=sel.shape[-1],
+        num_warps=1,
+        num_stages=1,
     )
     # bt is valid for attended slots (sanitize ensures sel < per-query nblocks); no clamp needed.
     # actual_seq_lengths_kv: cuda-graph safe (sglang's static int32 seq_lens refreshed out-of-graph
     # each forward). Do NOT MAX-pad -- causes OOB on replay. EXEC_NPU_CMD caching allocator.
     actual_kv = seq_lens.to(torch.int32)
     out = op(
-        q, k, v, sel, bt,
+        q,
+        k,
+        v,
+        sel,
+        bt,
         select_num_idx=select_num_idx,
         actual_seq_lengths=torch.ones(batch_size, dtype=torch.int32, device=device),
         actual_seq_lengths_kv=actual_kv,
         num_key_value_heads=num_kv_heads,
-        scale_value=sm_scale if sm_scale is not None else head_dim ** -0.5,
-        block_size=block_size, top_k=topk_idx.shape[-1], inner_precise=0,
+        scale_value=sm_scale if sm_scale is not None else head_dim**-0.5,
+        block_size=block_size,
+        top_k=topk_idx.shape[-1],
+        inner_precise=0,
     )
     return out
+
 
 # Tunable launch configs for the served decode kernels.
 # NOT triton.autotune -- each shape bucket compiles to a single deterministic
@@ -663,9 +688,19 @@ def flash_decode_bnsd_with_gqa_share_sparse(
             block_table is not None or req_to_token is not None
         ):
             out = _native_decode_main(
-                q, k_cache_bnsd, v_cache_bnsd, topk_idx, seq_lens, block_size, sm_scale,
-                block_table, req_to_token, req_pool_indices, max_num_blocks,
-                _nkvh, q.shape[2],
+                q,
+                k_cache_bnsd,
+                v_cache_bnsd,
+                topk_idx,
+                seq_lens,
+                block_size,
+                sm_scale,
+                block_table,
+                req_to_token,
+                req_pool_indices,
+                max_num_blocks,
+                _nkvh,
+                q.shape[2],
             )
             if out is not None:
                 return out

@@ -58,7 +58,8 @@ struct SAInfo {
     ge::DataType dataType = ge::DT_FLOAT16;
 };
 
-class SATiling {
+class SATiling
+{
 public:
     // Compute tiling data + workspace size + block dim from SAInfo.
     // Mirrors SASATiling::GetTiling (CalculateTaskSplit/CalculateWorkSpace/

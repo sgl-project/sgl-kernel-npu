@@ -19,9 +19,9 @@
 #include "register/tilingdata_base.h"
 #include "register/op_def_registry.h"
 #include "tiling/tiling_api.h"
-#include "torch_helper.h"       // EXEC_KERNEL_CMD
-#include "ge_helper.h"          // SCALAR_TYPE_TO_GE_DATATYPE
-#include "common.h"             // host_utils::TupleHasher
+#include "torch_helper.h"  // EXEC_KERNEL_CMD
+#include "ge_helper.h"     // SCALAR_TYPE_TO_GE_DATATYPE
+#include "common.h"        // host_utils::TupleHasher
 #include "sparse_attention_score_tiling.h"
 #include "aclrtlaunch_sparse_attention_score.h"  // build-generated: ACLRT_LAUNCH_KERNEL + aclrtlaunch_*
 
@@ -38,45 +38,39 @@ static uint32_t actualCaptureNum = 0;
 static std::unordered_map<uint64_t, uint32_t> captureMap;
 
 HOST_API at::Tensor sparse_attention_score(
-    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
-    const at::Tensor &select_idx, const at::Tensor &block_table,
-    const c10::optional<at::Tensor> &select_num_idx,
-    const c10::optional<at::Tensor> &q_dequant_scale,
-    const c10::optional<at::Tensor> &k_dequant_scale,
-    const c10::optional<at::Tensor> &v_dequant_scale,
-    const c10::optional<at::Tensor> &actual_seq_lengths,
-    const c10::optional<at::Tensor> &actual_seq_lengths_kv,
-    int64_t num_key_value_heads, double scale_value, int64_t block_size,
-    int64_t top_k, int64_t inner_precise)
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value, const at::Tensor &select_idx,
+    const at::Tensor &block_table, const c10::optional<at::Tensor> &select_num_idx,
+    const c10::optional<at::Tensor> &q_dequant_scale, const c10::optional<at::Tensor> &k_dequant_scale,
+    const c10::optional<at::Tensor> &v_dequant_scale, const c10::optional<at::Tensor> &actual_seq_lengths,
+    const c10::optional<at::Tensor> &actual_seq_lengths_kv, int64_t num_key_value_heads, double scale_value,
+    int64_t block_size, int64_t top_k, int64_t inner_precise)
 {
     // ---- outputs ----
     // attentionOut = query shape; fp8 input -> fp16 output, else same dtype as query.
-    at::ScalarType outDtype = (query.scalar_type() == at::kFloat8_e4m3fn)
-                                  ? at::kHalf
-                                  : query.scalar_type();
+    at::ScalarType outDtype = (query.scalar_type() == at::kFloat8_e4m3fn) ? at::kHalf : query.scalar_type();
     at::Tensor attentionOut = at::empty(query.sizes(), query.options().dtype(outDtype));
     // softmaxLse [T,N,1] fp32: the kernel writes it (L0 AllocTensor did this in PTA);
     // not returned -- sglang consumes only attentionOut.
     int64_t totalQ = query.size(0);
     int64_t numHeads = query.size(1);
-    at::Tensor softmaxLse = at::empty({totalQ, numHeads, 1},
-                                      at::TensorOptions().dtype(at::kFloat).device(query.options().device()));
+    at::Tensor softmaxLse =
+        at::empty({totalQ, numHeads, 1}, at::TensorOptions().dtype(at::kFloat).device(query.options().device()));
 
     // ---- optional inputs: default-empty (caller sanitizes OOB select_idx slots, so
     // unused optionals are never dereferenced by the kernel) ----
     auto devOpts = at::TensorOptions().device(query.options().device());
-    at::Tensor selectNumIdx = select_num_idx.has_value() ? select_num_idx.value()
-        : at::empty({1}, devOpts.dtype(at::kInt));
-    at::Tensor actualSeqLengths = actual_seq_lengths.has_value() ? actual_seq_lengths.value()
-        : at::empty({1}, devOpts.dtype(at::kInt));
-    at::Tensor actualSeqLengthsKv = actual_seq_lengths_kv.has_value() ? actual_seq_lengths_kv.value()
-        : at::empty({1}, devOpts.dtype(at::kInt));
-    at::Tensor qDequantScale = q_dequant_scale.has_value() ? q_dequant_scale.value()
-        : at::empty({1}, devOpts.dtype(at::kFloat));
-    at::Tensor kDequantScale = k_dequant_scale.has_value() ? k_dequant_scale.value()
-        : at::empty({1}, devOpts.dtype(at::kFloat));
-    at::Tensor vDequantScale = v_dequant_scale.has_value() ? v_dequant_scale.value()
-        : at::empty({1}, devOpts.dtype(at::kFloat));
+    at::Tensor selectNumIdx =
+        select_num_idx.has_value() ? select_num_idx.value() : at::empty({1}, devOpts.dtype(at::kInt));
+    at::Tensor actualSeqLengths =
+        actual_seq_lengths.has_value() ? actual_seq_lengths.value() : at::empty({1}, devOpts.dtype(at::kInt));
+    at::Tensor actualSeqLengthsKv =
+        actual_seq_lengths_kv.has_value() ? actual_seq_lengths_kv.value() : at::empty({1}, devOpts.dtype(at::kInt));
+    at::Tensor qDequantScale =
+        q_dequant_scale.has_value() ? q_dequant_scale.value() : at::empty({1}, devOpts.dtype(at::kFloat));
+    at::Tensor kDequantScale =
+        k_dequant_scale.has_value() ? k_dequant_scale.value() : at::empty({1}, devOpts.dtype(at::kFloat));
+    at::Tensor vDequantScale =
+        v_dequant_scale.has_value() ? v_dequant_scale.value() : at::empty({1}, devOpts.dtype(at::kFloat));
 
     // ---- fill SAInfo from shapes + attrs + platform (no gert::TilingContext) ----
     SAInfo info;
@@ -119,50 +113,45 @@ HOST_API at::Tensor sparse_attention_score(
     tiling.DoTiling(info, tilingData, workspaceSize, blockDim);
 
     // ---- captureMap: cache tiling blob by hash of all tiling-relevant dims ----
-    auto tup = std::make_tuple(
-        tilingData.batch, tilingData.numHeads, tilingData.kvHeads, tilingData.embeddingSize,
-        tilingData.blockSize, tilingData.topK, tilingData.maxBlocksPerBatch,
-        tilingData.totalQTokens, tilingData.maxQSeqlen, tilingData.tilingKey,
-        tilingData.scaleValue, tilingData.innerPrecise);
+    auto tup =
+        std::make_tuple(tilingData.batch, tilingData.numHeads, tilingData.kvHeads, tilingData.embeddingSize,
+                        tilingData.blockSize, tilingData.topK, tilingData.maxBlocksPerBatch, tilingData.totalQTokens,
+                        tilingData.maxQSeqlen, tilingData.tilingKey, tilingData.scaleValue, tilingData.innerPrecise);
     auto hashValue = host_utils::TupleHasher::Hash(tup);
 
     uint32_t tilingSize = sizeof(SATilingData);
     at::Tensor tilingTensor;
     static auto globalTilingBuffer = at::empty({tilingSize * MAX_CAPTURE_NUM},
-        at::TensorOptions().dtype(at::kByte).device(query.options().device()));
+                                               at::TensorOptions().dtype(at::kByte).device(query.options().device()));
 
     if (captureMap.find(hashValue) != captureMap.end()) {
         // replay: cached tiling blob
-        tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>()
-                                         + (tilingSize * captureMap[hashValue]),
+        tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
                                      tilingSize, at::kByte);
     } else if (actualCaptureNum >= MAX_CAPTURE_NUM) {
         // overflow: per-call H2D copy
-        static auto tilingBuffer = at::empty({tilingSize},
-            at::TensorOptions().dtype(at::kByte).device(query.options().device()));
-        aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize,
-                    ACL_MEMCPY_HOST_TO_DEVICE);
+        static auto tilingBuffer =
+            at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(query.options().device()));
+        aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
         tilingTensor = at::from_blob(tilingBuffer.data_ptr<uint8_t>(), tilingSize, at::kByte);
     } else {
         // first sight: cache + H2D copy
         captureMap[hashValue] = actualCaptureNum;
-        aclrtMemcpy(globalTilingBuffer.data_ptr<uint8_t>() + actualCaptureNum * tilingSize,
-                    tilingSize, &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
+        aclrtMemcpy(globalTilingBuffer.data_ptr<uint8_t>() + actualCaptureNum * tilingSize, tilingSize, &tilingData,
+                    tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
         actualCaptureNum++;
-        tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>()
-                                         + (tilingSize * captureMap[hashValue]),
+        tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
                                      tilingSize, at::kByte);
     }
 
     // ---- launch ----
-    auto workspace = at::empty({workspaceSize},
-        at::TensorOptions().dtype(at::kByte).device(query.options().device()));
+    auto workspace = at::empty({workspaceSize}, at::TensorOptions().dtype(at::kByte).device(query.options().device()));
     // 15 GM args: query,key,value,select_idx,block_table,selectNumIdx,actualSeqLengths,
     // actualSeqLengthsKv,qDequantScale,kDequantScale,vDequantScale,attentionOut,softmaxLse,
     // workspace,tiling -- matches the kernel entry signature order.
-    EXEC_KERNEL_CMD(sparse_attention_score, blockDim, query, key, value, select_idx, block_table,
-                    selectNumIdx, actualSeqLengths, actualSeqLengthsKv, qDequantScale, kDequantScale,
-                    vDequantScale, attentionOut, softmaxLse, workspace, tilingTensor);
+    EXEC_KERNEL_CMD(sparse_attention_score, blockDim, query, key, value, select_idx, block_table, selectNumIdx,
+                    actualSeqLengths, actualSeqLengthsKv, qDequantScale, kDequantScale, vDequantScale, attentionOut,
+                    softmaxLse, workspace, tilingTensor);
     return attentionOut;
 }
 

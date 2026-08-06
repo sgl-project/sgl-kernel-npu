@@ -337,7 +337,8 @@ __aicore__ void inline MIPreload<MIT>::SplitCore(uint32_t curCoreIdx, uint32_t &
                         if (s2Idx == 0 && info.s2End + 1 < s2BaseNum) {
                             info.isLD = true;
                         }
-                        // last core not handling last batch -> trailing batches are empty (S2=0), adjust end coords for cleanup
+                        // last core not handling last batch -> trailing batches are empty (S2=0), adjust end coords for
+                        // cleanup
                         if (coreIdx == coreNum - 1 && info.bN2End != constInfo.batchSize - 1) {
                             info.bN2End = constInfo.batchSize - 1;
                             info.gS1End = 0;
@@ -663,9 +664,8 @@ __aicore__ inline void MIPreload<MIT>::ProcessDecode()
 }  // namespace sglang::npu_kernel::MIKernel
 
 __global__ __aicore__ void minimax_indexer(GM_ADDR query, GM_ADDR key, GM_ADDR weights, GM_ADDR actualSeqLengthsQ,
-                                             GM_ADDR actualSeqLengths, GM_ADDR blocktable, GM_ADDR reqToToken,
-                                             GM_ADDR reqPoolIdx, GM_ADDR sparseIndices, GM_ADDR workspace,
-                                             GM_ADDR tiling)
+                                           GM_ADDR actualSeqLengths, GM_ADDR blocktable, GM_ADDR reqToToken,
+                                           GM_ADDR reqPoolIdx, GM_ADDR sparseIndices, GM_ADDR workspace, GM_ADDR tiling)
 {
     AscendC::TPipe tPipe;
     using namespace sglang::npu_kernel::MICommon;
@@ -685,13 +685,13 @@ __global__ __aicore__ void minimax_indexer(GM_ADDR query, GM_ADDR key, GM_ADDR w
     auto tilingKey = tilingData->tilingKey;
     switch (tilingKey) {
         case 0x01013112:
-            half_pa_tnd_pabsnd_op.Init(query, key, weights, actualSeqLengthsQ, actualSeqLengths, blocktable,
-                                       reqToToken, reqPoolIdx, sparseIndices, userWorkspace, tilingData, &tPipe);
+            half_pa_tnd_pabsnd_op.Init(query, key, weights, actualSeqLengthsQ, actualSeqLengths, blocktable, reqToToken,
+                                       reqPoolIdx, sparseIndices, userWorkspace, tilingData, &tPipe);
             half_pa_tnd_pabsnd_op.Process();
             break;
         case 0x0c0c3112:
-            bf16_pa_tnd_pabsnd_op.Init(query, key, weights, actualSeqLengthsQ, actualSeqLengths, blocktable,
-                                       reqToToken, reqPoolIdx, sparseIndices, userWorkspace, tilingData, &tPipe);
+            bf16_pa_tnd_pabsnd_op.Init(query, key, weights, actualSeqLengthsQ, actualSeqLengths, blocktable, reqToToken,
+                                       reqPoolIdx, sparseIndices, userWorkspace, tilingData, &tPipe);
             bf16_pa_tnd_pabsnd_op.Process();
             break;
         case 0x01013102:

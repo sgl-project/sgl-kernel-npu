@@ -1,3 +1,11 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+ * Description: FusedDeepMoe operator aclnn api implementation file
+ * Author: Wang Qiankun
+ * Create: 2025-07-19
+ * Note:
+ * History: 2025-07-19 create FusedDeepMoe operator aclnn api implementation file
+ */
 #include "aclnn_fused_deep_moe.h"
 #include <cstring>
 #include "graph/types.h"
@@ -20,13 +28,15 @@ aclnnStatus aclnnFusedDeepMoeGetWorkspaceSize(
     const aclTensor *gmm1PermutedWeightScale, const aclTensor *gmm2Weight, const aclTensor *gmm2WeightScale,
     const aclTensor *expertSmoothScalesOptional, const aclTensor *expertScalesOptional, char *groupEp,
     int64_t epRankSize, int64_t epRankId, int64_t moeExpertNum, int64_t shareExpertNum, int64_t shareExpertRankNum,
-    int64_t quantMode, int64_t globalBs, const aclTensor *output, const aclTensor *outputRecvCount,
+    int64_t quantMode, int64_t globalBs, int64_t activationType, float activationAlpha, float gateClampMax,
+    float upClampMin, float upClampMax, float upAdd, const aclTensor *output, const aclTensor *outputRecvCount,
     uint64_t *workspaceSize, aclOpExecutor **executor)
 {
     return aclnnInnerFusedDeepMoeGetWorkspaceSize(
         x, expertIds, gmm1PermutedWeight, gmm1PermutedWeightScale, gmm2Weight, gmm2WeightScale,
         expertSmoothScalesOptional, expertScalesOptional, groupEp, epRankSize, epRankId, moeExpertNum, shareExpertNum,
-        shareExpertRankNum, quantMode, globalBs, output, outputRecvCount, workspaceSize, executor);
+        shareExpertRankNum, quantMode, globalBs, activationType, activationAlpha, gateClampMax, upClampMin, upClampMax,
+        upAdd, output, outputRecvCount, workspaceSize, executor);
 }
 
 aclnnStatus aclnnFusedDeepMoe(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream)

@@ -95,8 +95,8 @@ struct ConstInfo {
     LI_LAYOUT outputLayout;            // output format
     bool attenMaskFlag = false;
     // MiniMax indexer extras
-    uint32_t initBlocks = 0;   // sink/init sentinel block count
-    uint32_t localBlocks = 0;  // local (recent) sentinel block count
+    uint32_t initBlocks = 0;    // sink/init sentinel block count
+    uint32_t localBlocks = 0;   // local (recent) sentinel block count
     float smScaleLog2e = 0.0f;  // sm_scale * log2(e), applied after max-reduce
     // Fused-interface extras (host-injected, see minimax_indexer.cpp):
     // 1 = gather the logical->physical block table from req_to_token inside the

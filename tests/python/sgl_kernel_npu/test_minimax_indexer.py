@@ -29,8 +29,17 @@ def _gather_k(key_cache, block_table, b, num_blocks, block_size):
     return k.reshape(num_blocks * block_size, -1)  # [num_blocks*block_size, D]
 
 
-def _minimax_indexer_ref(q, key_cache, block_table, seq_lens, block_size, topk,
-                          init_blocks, local_blocks, sm_scale):
+def _minimax_indexer_ref(
+    q,
+    key_cache,
+    block_table,
+    seq_lens,
+    block_size,
+    topk,
+    init_blocks,
+    local_blocks,
+    sm_scale,
+):
     """CPU/NumPy reference. Returns candidate_indices [B, QH, topk] int32 (-1 padded)."""
     B, S1, QH, D = q.shape
     assert S1 == 1
@@ -42,7 +51,9 @@ def _minimax_indexer_ref(q, key_cache, block_table, seq_lens, block_size, topk,
         num_blocks = (seq_len + block_size - 1) // block_size
         if num_blocks == 0:
             continue
-        k_all = _gather_k(key_cache, block_table, b, num_blocks, block_size).astype(np.float32)
+        k_all = _gather_k(key_cache, block_table, b, num_blocks, block_size).astype(
+            np.float32
+        )
         # validity mask over tokens
         pos = np.arange(num_blocks * block_size)
         valid_tok = pos < seq_len  # [num_blocks*block_size]
@@ -101,8 +112,17 @@ class TestMinimaxIndexer(unittest.TestCase):
         # at the rank-16/17 boundary, which are semantically either-or.
         q_rounded = torch.from_numpy(q).to(dtype).float().numpy()
         k_rounded = torch.from_numpy(key).to(dtype).float().numpy()
-        ref = _minimax_indexer_ref(q_rounded, k_rounded, block_table, seq_lens, block_size, topk,
-                                   init_blocks, local_blocks, sm_scale)
+        ref = _minimax_indexer_ref(
+            q_rounded,
+            k_rounded,
+            block_table,
+            seq_lens,
+            block_size,
+            topk,
+            init_blocks,
+            local_blocks,
+            sm_scale,
+        )
 
         q_t = torch.from_numpy(q).to(dtype).npu()
         k_t = torch.from_numpy(key).to(dtype).npu()
@@ -112,7 +132,9 @@ class TestMinimaxIndexer(unittest.TestCase):
         seq_t = seq_lens_t.npu()
 
         npu_out = torch.ops.npu.minimax_indexer(
-            q_t, k_t, w_t,
+            q_t,
+            k_t,
+            w_t,
             actual_seq_lengths_query=act_q_t,
             actual_seq_lengths_key=seq_t,
             block_table=bt_t,
@@ -140,39 +162,78 @@ class TestMinimaxIndexer(unittest.TestCase):
                     if mismatches <= 3:
                         print(f"  MISMATCH b={b} h={h}: npu={a[:20]} ref={r[:20]}")
         total = B * QH
-        print(f"  [{dtype}] block_size={block_size} topk={topk} init={init_blocks} "
-              f"local={local_blocks} seqs={seq_lens}: {total - mismatches}/{total} (b,h) match "
-              f"(set-of-indices)")
-        self.assertEqual(mismatches, 0, f"{mismatches}/{total} (batch,head) pairs mismatch")
+        print(
+            f"  [{dtype}] block_size={block_size} topk={topk} init={init_blocks} "
+            f"local={local_blocks} seqs={seq_lens}: {total - mismatches}/{total} (b,h) match "
+            f"(set-of-indices)"
+        )
+        self.assertEqual(
+            mismatches, 0, f"{mismatches}/{total} (batch,head) pairs mismatch"
+        )
 
     def test_general_blocks_gt_topk(self):
         # num_blocks (64,32) > topk=16 -> real streaming topk path.
         for dtype in [torch.bfloat16, torch.float16]:
-            self._run(B=2, seq_lens=[8192, 4096], block_size=128, topk=16,
-                      init_blocks=1, local_blocks=2, dtype=dtype)
+            self._run(
+                B=2,
+                seq_lens=[8192, 4096],
+                block_size=128,
+                topk=16,
+                init_blocks=1,
+                local_blocks=2,
+                dtype=dtype,
+            )
 
     def test_trivial_blocks_le_topk(self):
         # num_blocks (8) <= topk=16 -> trivial [0..num_blocks)+(-1) path.
         for dtype in [torch.bfloat16, torch.float16]:
-            self._run(B=1, seq_lens=[1024], block_size=128, topk=16,
-                      init_blocks=0, local_blocks=0, dtype=dtype)
+            self._run(
+                B=1,
+                seq_lens=[1024],
+                block_size=128,
+                topk=16,
+                init_blocks=0,
+                local_blocks=0,
+                dtype=dtype,
+            )
 
     def test_partial_last_block(self):
         # seq_len not a multiple of block_size -> partial tail block.
         for dtype in [torch.bfloat16]:
-            self._run(B=1, seq_lens=[8400], block_size=128, topk=16,
-                      init_blocks=1, local_blocks=1, dtype=dtype)
+            self._run(
+                B=1,
+                seq_lens=[8400],
+                block_size=128,
+                topk=16,
+                init_blocks=1,
+                local_blocks=1,
+                dtype=dtype,
+            )
 
     def test_no_sentinel(self):
         # init=0, local=0 -> pure score topk, no sentinel override.
         for dtype in [torch.bfloat16]:
-            self._run(B=2, seq_lens=[6144, 3072], block_size=128, topk=16,
-                      init_blocks=0, local_blocks=0, dtype=dtype)
+            self._run(
+                B=2,
+                seq_lens=[6144, 3072],
+                block_size=128,
+                topk=16,
+                init_blocks=0,
+                local_blocks=0,
+                dtype=dtype,
+            )
 
     def test_block_size_64(self):
         for dtype in [torch.bfloat16]:
-            self._run(B=1, seq_lens=[8192], block_size=64, topk=16,
-                      init_blocks=1, local_blocks=1, dtype=dtype)
+            self._run(
+                B=1,
+                seq_lens=[8192],
+                block_size=64,
+                topk=16,
+                init_blocks=1,
+                local_blocks=1,
+                dtype=dtype,
+            )
 
     def test_large_seq_real_topk(self):
         # blocks/core > topk=16 -> exercises the streaming replace-min path.
@@ -180,11 +241,25 @@ class TestMinimaxIndexer(unittest.TestCase):
         # until the WholeReduceMin ORDER_VALUE_INDEX offset fix; the small-seq
         # cases above never reach it (blocks/core <= topk -> append-only).
         for dtype in [torch.bfloat16, torch.float16]:
-            self._run(B=1, seq_lens=[65536], block_size=128, topk=16,
-                      init_blocks=1, local_blocks=2, dtype=dtype)
+            self._run(
+                B=1,
+                seq_lens=[65536],
+                block_size=128,
+                topk=16,
+                init_blocks=1,
+                local_blocks=2,
+                dtype=dtype,
+            )
         # 131072 (1024 blocks, ~43/core) is heavy on the CPU ref; bf16 only.
-        self._run(B=1, seq_lens=[131072], block_size=128, topk=16,
-                  init_blocks=1, local_blocks=2, dtype=torch.bfloat16)
+        self._run(
+            B=1,
+            seq_lens=[131072],
+            block_size=128,
+            topk=16,
+            init_blocks=1,
+            local_blocks=2,
+            dtype=torch.bfloat16,
+        )
 
 
 if __name__ == "__main__":

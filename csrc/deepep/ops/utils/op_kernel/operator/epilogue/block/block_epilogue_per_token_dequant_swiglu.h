@@ -1,3 +1,12 @@
+/*
+ * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
+ * This file is a part of the CANN Open Software.
+ * Licensed under CANN Open Software License Agreement Version 1.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
+ */
 #pragma once
 #include "../../catlass/act/act.hpp"
 #include "../../catlass/act/arch/resource.hpp"
@@ -89,6 +98,11 @@ public:
         LayoutPerTokenScale layoutPerTokenScale{};
         __gm__ ElementD *ptrD{nullptr};
         LayoutD layoutD{};
+        float activationAlpha{0.0f};
+        float gateClampMax{0.0f};
+        float upClampMin{0.0f};
+        float upClampMax{0.0f};
+        float upAdd{0.0f};
 
         ACT_DEVICE
         Params() {};
@@ -96,13 +110,19 @@ public:
         ACT_DEVICE
         Params(__gm__ ElementScale *ptrScale_, LayoutScale const &layoutScale_,
                __gm__ ElementPerTokenScale *ptrPerTokenScale_, LayoutPerTokenScale const &layoutPerTokenScale_,
-               __gm__ ElementD *ptrD_, LayoutD const &layoutD_)
+               __gm__ ElementD *ptrD_, LayoutD const &layoutD_, float activationAlpha_, float gateClampMax_,
+               float upClampMin_, float upClampMax_, float upAdd_)
             : ptrScale(ptrScale_),
               layoutScale(layoutScale_),
               ptrPerTokenScale(ptrPerTokenScale_),
               layoutPerTokenScale(layoutPerTokenScale_),
               ptrD(ptrD_),
-              layoutD(layoutD_)
+              layoutD(layoutD_),
+              activationAlpha(activationAlpha_),
+              gateClampMax(gateClampMax_),
+              upClampMin(upClampMin_),
+              upClampMax(upClampMax_),
+              upAdd(upAdd_)
         {}
     };
 
@@ -250,21 +270,41 @@ public:
 
             AscendC::PipeBarrier<PIPE_V>();
             tileOneBlkColumnBroadcastMul(ubTmpMxN, ubTmpMxN, ubTmpMx32B);
-            AscendC::PipeBarrier<PIPE_V>();
-            tileStrideMuls(ubTmpMxChunkN, ubTmpMxN, -1.0f);
-            AscendC::PipeBarrier<PIPE_V>();
-            AscendC::Exp(ubTmpMxChunkN, ubTmpMxChunkN, ChunkTileShape::COUNT);
-            AscendC::PipeBarrier<PIPE_V>();
-            AscendC::Adds(ubTmpMxChunkN, ubTmpMxChunkN, 1.0f, ChunkTileShape::COUNT);
-            AscendC::PipeBarrier<PIPE_V>();
-            tileStrideDiv(ubTmpMxChunkN, ubTmpMxN, ubTmpMxChunkN);
-            AscendC::PipeBarrier<PIPE_V>();
             auto &ubD = ubDList[ubListId];
             LayoutD layoutUbD{actualChunkTileShape, ubChunkTileStride};
-
             auto ubTmpMxNR = ubTmpMxN[ChunkTileShape::COLUMN];
-            AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(eventUbDMTE3VList[ubListId]);
-            tileStrideMul(ubD, ubTmpMxNR, ubTmpMxChunkN);
+            if constexpr (DispatchPolicy::EXEC_FLAG & EXEC_FLAG_USE_SWIGLU_OAI) {
+                AscendC::Mins(ubTmpMxChunkN, ubTmpMxN, params.gateClampMax, ChunkTileShape::COUNT);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Mins(ubTmpMxNR, ubTmpMxNR, params.upClampMax, ChunkTileShape::COUNT);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Maxs(ubTmpMxNR, ubTmpMxNR, params.upClampMin, ChunkTileShape::COUNT);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Adds(ubTmpMxNR, ubTmpMxNR, params.upAdd, ChunkTileShape::COUNT);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(eventUbDMTE3VList[ubListId]);
+                AscendC::Muls(ubD, ubTmpMxChunkN, -params.activationAlpha, ChunkTileShape::COUNT);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Exp(ubD, ubD, ChunkTileShape::COUNT);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Adds(ubD, ubD, 1.0f, ChunkTileShape::COUNT);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Div(ubTmpMxChunkN, ubTmpMxChunkN, ubD, ChunkTileShape::COUNT);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Mul(ubD, ubTmpMxChunkN, ubTmpMxNR, ChunkTileShape::COUNT);
+            } else {
+                AscendC::PipeBarrier<PIPE_V>();
+                tileStrideMuls(ubTmpMxChunkN, ubTmpMxN, -1.0f);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Exp(ubTmpMxChunkN, ubTmpMxChunkN, ChunkTileShape::COUNT);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Adds(ubTmpMxChunkN, ubTmpMxChunkN, 1.0f, ChunkTileShape::COUNT);
+                AscendC::PipeBarrier<PIPE_V>();
+                tileStrideDiv(ubTmpMxChunkN, ubTmpMxN, ubTmpMxChunkN);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::WaitFlag<AscendC::HardEvent::MTE3_V>(eventUbDMTE3VList[ubListId]);
+                tileStrideMul(ubD, ubTmpMxNR, ubTmpMxChunkN);
+            }
             AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(eventUbDVMTE3List[ubListId]);
 
             auto gmTileD = gmD[params.layoutD.GetOffset(chunkTileOffset)];

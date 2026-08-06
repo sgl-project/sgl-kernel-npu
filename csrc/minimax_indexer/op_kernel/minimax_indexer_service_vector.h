@@ -117,14 +117,13 @@ private:
 
     __aicore__ inline uint64_t PartOff(uint32_t core, uint32_t b, uint32_t g) const
     {
-        return ((static_cast<uint64_t>(b) * gSize_ + g) * aicNum_) * topk_ +
-               static_cast<uint64_t>(core) * topk_;
+        return ((static_cast<uint64_t>(b) * gSize_ + g) * aicNum_) * topk_ + static_cast<uint64_t>(core) * topk_;
     }
 };
 
 template <typename MIT>
 __aicore__ inline void MIVector<MIT>::InitParams(const struct MICommon::ConstInfo &constInfo,
-                                                  const __gm__ MIHost::MITilingData *tilingData)
+                                                 const __gm__ MIHost::MITilingData *tilingData)
 {
     this->constInfo_ = constInfo;
     aiCoreIdx_ = static_cast<uint32_t>(GetBlockIdx()) / 2;
@@ -168,12 +167,9 @@ __aicore__ inline void MIVector<MIT>::InitBuffers(TPipe *pipe)
 }
 
 template <typename MIT>
-__aicore__ inline void MIVector<MIT>::InitVec1GlobalTensor(GlobalTensor<MM1_OUT_T> mm1ResGm,
-                                                            GlobalTensor<float> vec1ResGm,
-                                                            GlobalTensor<int32_t> vec1ParamGm,
-                                                            GlobalTensor<K_T> /*weightsGm*/,
-                                                            GlobalTensor<int32_t> indiceOutGm,
-                                                            GlobalTensor<uint32_t> seqLensGm)
+__aicore__ inline void MIVector<MIT>::InitVec1GlobalTensor(
+    GlobalTensor<MM1_OUT_T> mm1ResGm, GlobalTensor<float> vec1ResGm, GlobalTensor<int32_t> vec1ParamGm,
+    GlobalTensor<K_T> /*weightsGm*/, GlobalTensor<int32_t> indiceOutGm, GlobalTensor<uint32_t> seqLensGm)
 {
     this->mm1ResGm_ = mm1ResGm;
     this->vec1ResGm_ = vec1ResGm;
@@ -229,12 +225,10 @@ __aicore__ inline void MIVector<MIT>::ProcessVec(const MICommon::RunInfo &info)
     const uint32_t blockSize = blockSize_;
     const uint32_t stride = info.actualSingleProcessSInnerSizeAlign;
     const uint32_t valid = info.actualSingleProcessSInnerSize;
-    const uint64_t mmBase =
-        (static_cast<uint64_t>(info.loop) % 2) * constInfo_.mBaseSize * constInfo_.s2BaseSize;
+    const uint64_t mmBase = (static_cast<uint64_t>(info.loop) % 2) * constInfo_.mBaseSize * constInfo_.s2BaseSize;
     const float scale = constInfo_.smScaleLog2e;
     const uint32_t numBlocks = MICommon::CeilDiv(info.actS2Size, blockSize);
-    const uint32_t localStart =
-        (numBlocks > constInfo_.localBlocks) ? (numBlocks - constInfo_.localBlocks) : 0;
+    const uint32_t localStart = (numBlocks > constInfo_.localBlocks) ? (numBlocks - constInfo_.localBlocks) : 0;
     const uint32_t gNum8 = MICommon::Align(gNum, 8U);
 
     LocalTensor<float> topV = topVBuf_.Get<float>();
@@ -267,26 +261,23 @@ __aicore__ inline void MIVector<MIT>::ProcessVec(const MICommon::RunInfo &info)
 
     for (uint32_t blockB = 0; blockB < 2; blockB++) {
         const uint32_t validB =
-            (blockB == 0) ? MICommon::Min(valid, blockSize)
-                          : (valid > blockSize ? valid - blockSize : 0);
+            (blockB == 0) ? MICommon::Min(valid, blockSize) : (valid > blockSize ? valid - blockSize : 0);
         if (validB == 0) {
             continue;
         }
         const uint32_t tokenOff = blockB * blockSize;
         const uint32_t blocksPerTile = constInfo_.s2BaseSize / blockSize;
         const uint32_t logicalBlock = info.s2Idx * blocksPerTile + blockB;
-        const bool isInit = (constInfo_.initBlocks > 0) && (logicalBlock < constInfo_.initBlocks) &&
-                            (logicalBlock < numBlocks);
-        const bool isLocal = (constInfo_.localBlocks > 0) && (logicalBlock >= localStart) &&
-                             (logicalBlock < numBlocks);
+        const bool isInit =
+            (constInfo_.initBlocks > 0) && (logicalBlock < constInfo_.initBlocks) && (logicalBlock < numBlocks);
+        const bool isLocal = (constInfo_.localBlocks > 0) && (logicalBlock >= localStart) && (logicalBlock < numBlocks);
 
         const uint32_t nChunks = MICommon::CeilDiv(validB, 64U);
         const uint32_t mbOff = blockB * 2;
         for (uint32_t c = 0; c < nChunks; c++) {
             uint32_t chunkMask = (validB - c * 64 < 64) ? (validB - c * 64) : 64;
-            WholeReduceMax(maxUb[(mbOff + c) * gNum8],
-                           scoreUb[gStart * stride + tokenOff + c * 64], chunkMask, gNum, 1, 1,
-                           stride / 8, ReduceOrder::ORDER_ONLY_VALUE);
+            WholeReduceMax(maxUb[(mbOff + c) * gNum8], scoreUb[gStart * stride + tokenOff + c * 64], chunkMask, gNum, 1,
+                           1, stride / 8, ReduceOrder::ORDER_ONLY_VALUE);
         }
         LocalTensor<float> mxUb = maxUb[mbOff * gNum8];
         for (uint32_t c = 1; c < nChunks; c++) {
@@ -306,8 +297,7 @@ __aicore__ inline void MIVector<MIT>::ProcessVec(const MICommon::RunInfo &info)
             SetFlag<HardEvent::S_V>(eSV);
             WaitFlag<HardEvent::S_V>(eSV);
             LocalTensor<float> minUb = minBuf_.Get<float>();
-            WholeReduceMin(minUb, topV[gStart * topk], topk, gNum, 1, 1, topk / 8,
-                           ReduceOrder::ORDER_VALUE_INDEX);
+            WholeReduceMin(minUb, topV[gStart * topk], topk, gNum, 1, 1, topk / 8, ReduceOrder::ORDER_VALUE_INDEX);
             event_t eVS2 = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_S));
             SetFlag<HardEvent::V_S>(eVS2);
             WaitFlag<HardEvent::V_S>(eVS2);
@@ -413,8 +403,7 @@ __aicore__ inline void MIVector<MIT>::ProcessLD()
                 const uint64_t outOff = (static_cast<uint64_t>(g) * bSize_ + b) * outW;
                 LocalTensor<int32_t> outIdx = outIdxBuf_.Get<int32_t>();
                 for (uint32_t slot = 0; slot < topk; slot++) {
-                    outIdx.SetValue(slot,
-                                    (slot < numBlocks) ? static_cast<int32_t>(slot) : constInfo_.INVALID_IDX);
+                    outIdx.SetValue(slot, (slot < numBlocks) ? static_cast<int32_t>(slot) : constInfo_.INVALID_IDX);
                 }
                 if (appendLocal_) {
                     bool present = false;
@@ -461,8 +450,7 @@ __aicore__ inline void MIVector<MIT>::ProcessLD()
             const uint32_t tmpBytes = topkTmpSize_;
             // dstValue sits after mergeVals[0..paddedLen) + tmp in scoreBuf_,
             // float-aligned, and must not overlap src (isReuseSrc=false).
-            const uint32_t dstValOff =
-                (paddedLen * sizeof(float) + tmpBytes + sizeof(float) - 1U) / sizeof(float);
+            const uint32_t dstValOff = (paddedLen * sizeof(float) + tmpBytes + sizeof(float) - 1U) / sizeof(float);
             LocalTensor<uint8_t> tmpLocal = mergeVals.ReinterpretCast<uint8_t>()[paddedLen * sizeof(float)];
             LocalTensor<float> dstValueLocal = mergeVals[dstValOff];
             LocalTensor<int32_t> dstIndexLocal = mergeIdx[paddedLen];
@@ -475,8 +463,8 @@ __aicore__ inline void MIVector<MIT>::ProcessLD()
             topKInfo.inner = static_cast<int32_t>(paddedLen);
             topKInfo.n = static_cast<int32_t>(paddedLen);
             TopK<float, /*isInitIndex=*/true, /*isHasfinish=*/false, /*isReuseSrc=*/false, TopKMode::TOPK_NORMAL>(
-                dstValueLocal, dstIndexLocal, mergeVals, mergeIdx, finishLocal, tmpLocal,
-                static_cast<int32_t>(topk), topkTiling_, topKInfo, /*isLargest=*/true);
+                dstValueLocal, dstIndexLocal, mergeVals, mergeIdx, finishLocal, tmpLocal, static_cast<int32_t>(topk),
+                topkTiling_, topKInfo, /*isLargest=*/true);
             // V -> S sync before the scalar reads of dstIndexLocal below.
             event_t eVS = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_S));
             SetFlag<HardEvent::V_S>(eVS);
@@ -496,14 +484,14 @@ __aicore__ inline void MIVector<MIT>::ProcessLD()
                 }
                 outIdx.SetValue(topk, present ? constInfo_.INVALID_IDX : localBlk);
             }
-                // single MTE3 batch write of the whole row (scalar SetValue GM races)
-                SetWaitFlag<HardEvent::S_MTE3>(HardEvent::S_MTE3);
-                AscendC::DataCopyParams dp;
-                dp.blockCount = 1;
-                dp.blockLen = outW * sizeof(int32_t);
-                dp.srcStride = 0;
-                dp.dstStride = 0;
-                DataCopyPad(indiceOutGm_[outOff], outIdx, dp);
+            // single MTE3 batch write of the whole row (scalar SetValue GM races)
+            SetWaitFlag<HardEvent::S_MTE3>(HardEvent::S_MTE3);
+            AscendC::DataCopyParams dp;
+            dp.blockCount = 1;
+            dp.blockLen = outW * sizeof(int32_t);
+            dp.srcStride = 0;
+            dp.dstStride = 0;
+            DataCopyPad(indiceOutGm_[outOff], outIdx, dp);
         }
     }
 }
