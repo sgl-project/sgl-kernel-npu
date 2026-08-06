@@ -12,6 +12,7 @@
  * \file dispatch_ffn_combine.cpp
  * \brief
  */
+#if !defined(DEEPEP_SKIP_DISPATCH_FFN_COMBINE)
 #include "kernel_operator.h"
 #include "lib/matmul_intf.h"
 #include "dispatch_ffn_combine_tiling.h"
@@ -33,3 +34,4 @@ extern "C" __global__ __aicore__ void dispatch_ffn_combine(GM_ADDR x, GM_ADDR w1
         op.Process();
     }
 }
+#endif

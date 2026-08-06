@@ -31,6 +31,7 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
     pybind11::class_<deep_ep::Buffer>(m, "Buffer")
         .def(pybind11::init<int, int, int64_t, int64_t, bool, std::string>())
         .def("is_available", &deep_ep::Buffer::is_available)
+        .def("is_a5_build", &deep_ep::Buffer::is_a5_build)
         .def("get_num_rdma_ranks", &deep_ep::Buffer::get_num_rdma_ranks)
         .def("get_rdma_rank", &deep_ep::Buffer::get_rdma_rank)
         .def("get_dispatch_layout", &deep_ep::Buffer::get_dispatch_layout)
@@ -43,6 +44,13 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
         .def("internode_combine", &deep_ep::Buffer::internode_combine)
         .def("low_latency_dispatch", &deep_ep::Buffer::low_latency_dispatch)
         .def("low_latency_combine", &deep_ep::Buffer::low_latency_combine)
-        .def("fused_deep_moe", &deep_ep::Buffer::fused_deep_moe)
+        .def("fused_deep_moe", &deep_ep::Buffer::fused_deep_moe, py::arg("x"), py::arg("expert_ids"),
+             py::arg("gmm1_permuted_weight"), py::arg("gmm1_permuted_weight_scale"), py::arg("gmm2_weight"),
+             py::arg("gmm2_weight_scale"), py::arg("expert_scales_optional"),
+             py::arg("num_max_dispatch_tokens_per_rank"), py::arg("num_experts"), py::arg("quant_mode"),
+             py::arg("profile_enable") = false)
+        .def("begin_profile", &deep_ep::Buffer::begin_profile, py::arg("num_profile_skip_launches"),
+             py::arg("num_profile_active_launches"), py::arg("profile_trace_dir") = "")
+        .def("end_profile", &deep_ep::Buffer::end_profile)
         .def("dispatch_ffn_combine", &deep_ep::Buffer::dispatch_ffn_combine);
 }

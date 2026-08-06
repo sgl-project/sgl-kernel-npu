@@ -22,6 +22,13 @@ find_package(pybind11 REQUIRED)
 message(STATUS "CMAKE_PREFIX_PATH = ${CMAKE_PREFIX_PATH}")
 
 file(GLOB SOURCES_DEEPEP *.cpp)
+list(APPEND SOURCES_DEEPEP
+    profiling/core/profile_exporter.cpp
+    profiling/core/profile_runtime.cpp
+    profiling/core/profile_session.cpp
+    profiling/adapters/fused_deep_moe_a5/fused_deep_moe_a5_profile_traits.cpp
+    profiling/adapters/fused_deep_moe_a5/fused_deep_moe_a5_profile_adapter.cpp
+)
 
 pybind11_add_module(deep_ep_cpp pybind_extension.cpp ${SOURCES_DEEPEP})
 set_target_properties(deep_ep_cpp PROPERTIES CXX_STANDARD 17)
@@ -33,8 +40,7 @@ if("${DEEPEP_IS_A5_BUILD}" STREQUAL "ON")
     target_compile_definitions(deep_ep_cpp PRIVATE __DAV_C310__)
 endif()
 target_include_directories( deep_ep_cpp PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/csrc
-    ${CMAKE_CURRENT_SOURCE_DIR}/csrc/deepep
+    ${CMAKE_CURRENT_SOURCE_DIR}
 
     ${TORCH_DIR}/include
     ${TORCH_DIR}/include/torch/csrc/api/include
