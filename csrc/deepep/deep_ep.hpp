@@ -125,18 +125,18 @@ public:
 
     std::vector<at::Tensor> fused_deep_moe(const at::Tensor &x, const at::Tensor &expertIds,
                                            const at::Tensor &gmm1PermutedWeight,
-                                            const at::Tensor &gmm1PermutedWeightScale, const at::Tensor &gmm2Weight,
-                                            const at::Tensor &gmm2WeightScale, const at::Tensor &expertScalesOptional,
-                                            int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
-                                            int quant_mode, int activation_type, float activation_alpha,
-                                            float gate_clamp_max, float up_clamp_min, float up_clamp_max, float up_add);
+                                           const at::Tensor &gmm1PermutedWeightScale, const at::Tensor &gmm2Weight,
+                                           const at::Tensor &gmm2WeightScale, const at::Tensor &expertScalesOptional,
+                                           int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
+                                           int quant_mode, int activation_type, float activation_alpha,
+                                           float gate_clamp_max, float up_clamp_min, float up_clamp_max, float up_add);
 
     std::vector<at::Tensor> dispatch_ffn_combine(const at::Tensor &x, const at::Tensor &expert_ids,
                                                  const at::Tensor &weight1, const at::Tensor &scale1,
-                                                  const at::Tensor &weight2, const at::Tensor &scale2,
-                                                  const at::Tensor &expert_scales, int64_t max_output_size,
-                                                  int64_t num_experts, int quant_mode, int activation_type,
-                                                  float activation_alpha, float gate_clamp_max, float up_clamp_min,
-                                                  float up_clamp_max, float up_add) const;
+                                                 const at::Tensor &weight2, const at::Tensor &scale2,
+                                                 const at::Tensor &expert_scales, int64_t max_output_size,
+                                                 int64_t num_experts, int quant_mode, int activation_type,
+                                                 float activation_alpha, float gate_clamp_max, float up_clamp_min,
+                                                 float up_clamp_max, float up_add) const;
 };
 }  // namespace deep_ep

@@ -14,8 +14,7 @@
 #include "../../attn_infra/base_defs.hpp"
 #include "../../attn_infra/coord.hpp"
 
-namespace NpuArch::layout
-{
+namespace NpuArch::layout {
 
 struct VectorLayout {
 public:
@@ -47,8 +46,7 @@ public:
     VectorLayout(Shape shape, Stride stride) : shape_(shape), stride_(stride) {}
 
     template <class Element>
-    HOST_DEVICE
-    static VectorLayout MakeLayoutInUb(TensorCoord const &tileShape)
+    HOST_DEVICE static VectorLayout MakeLayoutInUb(TensorCoord const &tileShape)
     {
         return VectorLayout{RoundUp<BYTE_PER_BLK / sizeof(Element)>(tileShape[0])};
     }
@@ -128,6 +126,6 @@ private:
     Stride stride_;
 };
 
-} // namespace NpuArch::layout
+}  // namespace NpuArch::layout
 
 #endif  // LAYOUT_VECTOR_HPP

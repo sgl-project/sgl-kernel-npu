@@ -13,16 +13,14 @@
 
 #include "../../attn_infra/base_defs.hpp"
 
-namespace NpuArch::Gemm
-{
+namespace NpuArch::Gemm {
 template <class Element_, class Layout_, AscendC::TPosition POSITION_ = AscendC::TPosition::GM>
-struct GemmType
-{
+struct GemmType {
     using Element = Element_;
     using Layout = Layout_;
     static constexpr AscendC::TPosition POSITION = POSITION_;
 };
 
-} // namespace NpuArch::Gemm
+}  // namespace NpuArch::Gemm
 
-#endif // GEMM_GEMM_TYPE_HPP
+#endif  // GEMM_GEMM_TYPE_HPP

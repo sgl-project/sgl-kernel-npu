@@ -13,8 +13,7 @@
 
 #include "../../attn_infra/base_defs.hpp"
 
-namespace NpuArch::Arch
-{
+namespace NpuArch::Arch {
 
 struct AtlasA2 {
     static constexpr uint32_t BIAS_SIZE = 1024;
@@ -46,6 +45,6 @@ using PositionL0B = PositionType<AscendC::TPosition::B2>;
 using PositionL0C = PositionType<AscendC::TPosition::CO1>;
 using PositionUB = PositionType<AscendC::TPosition::VECCALC>;
 
-} // namespace NpuArch::Arch
+}  // namespace NpuArch::Arch
 
-#endif // ARCH_ARCH_HPP
+#endif  // ARCH_ARCH_HPP

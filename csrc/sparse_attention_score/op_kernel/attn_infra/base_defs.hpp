@@ -44,8 +44,9 @@ constexpr uint32_t MX_SCALE_COPY_GROUP_NUM = 2;
 constexpr uint32_t MX_SCALE_GROUP_NUM = 32;
 constexpr uint32_t MX_BASEK_FACTOR = 64;
 
-class EmptyClass {};
+class EmptyClass
+{};
 
-} // namespace NpuArch
+}  // namespace NpuArch
 
-#endif // HPP_HPP
+#endif  // HPP_HPP

@@ -14,14 +14,12 @@
 #include "../../attn_infra/base_defs.hpp"
 #include "../../attn_infra/arch/local_tensor_buffer.hpp"
 
-namespace NpuArch::Arch
-{
+namespace NpuArch::Arch {
 
-template<class ArchTag>
-struct Resource
-{};
+template <class ArchTag>
+struct Resource {};
 
-template<>
+template <>
 struct Resource<Arch::AtlasA5> {
 public:
     LocalTensorBuffer<Arch::AtlasA5, AscendC::TPosition::A1> l1Buf;
@@ -32,20 +30,18 @@ public:
     LocalTensorBuffer<Arch::AtlasA5, AscendC::TPosition::VECCALC> ubBuf;
     LocalTensorBuffer<Arch::AtlasA5, AscendC::TPosition::C2PIPE2GM> fpBuf;
 
-    __aicore__ inline
-    Resource()
+    __aicore__ inline Resource()
     {
         AscendC::InitSocState();
     }
 
-    __aicore__ inline
-    ~Resource()
+    __aicore__ inline ~Resource()
     {
         AscendC::InitSocState();
     }
 };
 
-template<>
+template <>
 struct Resource<Arch::AtlasA2> {
 public:
     AscendC::TPipe pipe;
@@ -57,13 +53,12 @@ public:
     LocalTensorBuffer<Arch::AtlasA2, AscendC::TPosition::CO1> l0CBuf;
     LocalTensorBuffer<Arch::AtlasA2, AscendC::TPosition::VECCALC> ubBuf;
 
-    __aicore__ inline
-    Resource()
+    __aicore__ inline Resource()
     {
         pipe.Destroy();
     }
 };
 
-} // namespace NpuArch::Arch
+}  // namespace NpuArch::Arch
 
-#endif // INCLUDE_ARCH_RESOURCE_HPP
+#endif  // INCLUDE_ARCH_RESOURCE_HPP

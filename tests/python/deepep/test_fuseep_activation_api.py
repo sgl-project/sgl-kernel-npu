@@ -2,7 +2,6 @@ import ast
 import unittest
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -43,13 +42,11 @@ class TestFuseEPActivationAPI(unittest.TestCase):
             REPO_ROOT / "csrc/deepep/ops/op_kernel/fused_deep_moe.h"
         ).read_text()
         grouped_matmul = (
-            REPO_ROOT
-            / "csrc/deepep/ops/utils/op_kernel/operator/gemm/kernel/"
+            REPO_ROOT / "csrc/deepep/ops/utils/op_kernel/operator/gemm/kernel/"
             "grouped_matmul_slice_m_per_token_dequant_swiglu_quant_multistage_workspace.h"
         ).read_text()
         epilogue = (
-            REPO_ROOT
-            / "csrc/deepep/ops/utils/op_kernel/operator/epilogue/block/"
+            REPO_ROOT / "csrc/deepep/ops/utils/op_kernel/operator/epilogue/block/"
             "block_epilogue_per_token_dequant_swiglu.h"
         ).read_text()
 
@@ -66,7 +63,10 @@ class TestFuseEPActivationAPI(unittest.TestCase):
             self.assertIn(scalar, grouped_matmul)
             self.assertIn(scalar, epilogue)
 
-        self.assertIn("if constexpr (DispatchPolicy::EXEC_FLAG & EXEC_FLAG_USE_SWIGLU_OAI)", epilogue)
+        self.assertIn(
+            "if constexpr (DispatchPolicy::EXEC_FLAG & EXEC_FLAG_USE_SWIGLU_OAI)",
+            epilogue,
+        )
         self.assertEqual(grouped_matmul.count("params.activationAlpha"), 2)
 
 

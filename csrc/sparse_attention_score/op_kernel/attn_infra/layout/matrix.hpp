@@ -16,8 +16,7 @@
 #include "../../attn_infra/detail/alignment.hpp"
 #include "../../attn_infra/matrix_coord.hpp"
 
-namespace NpuArch::layout
-{
+namespace NpuArch::layout {
 
 /// Mapping function for row-major matrices
 struct RowMajor {
@@ -41,27 +40,27 @@ public:
     /// Constructor
     HOST_DEVICE
     RowMajor(Index rows = 0, Index cols = 0)
-        : shape_(MakeCoord(rows, cols)), stride_(MakeCoord(LongIndex(cols), LongIndex(1))) {}
+        : shape_(MakeCoord(rows, cols)), stride_(MakeCoord(LongIndex(cols), LongIndex(1)))
+    {}
 
     /// Constructor
     HOST_DEVICE
     RowMajor(Index rows, Index cols, LongIndex ldm)
-        : shape_(MakeCoord(rows, cols)), stride_(MakeCoord(ldm, LongIndex(1))) {}
+        : shape_(MakeCoord(rows, cols)), stride_(MakeCoord(ldm, LongIndex(1)))
+    {}
 
     /// Ctor
     HOST_DEVICE
     RowMajor(Shape shape, Stride stride) : shape_(shape), stride_(stride) {}
 
     template <class Element>
-    HOST_DEVICE
-    static RowMajor MakeLayout(Index rows, Index cols)
+    HOST_DEVICE static RowMajor MakeLayout(Index rows, Index cols)
     {
         return RowMajor(rows, cols);
     }
 
     template <class Element>
-    HOST_DEVICE
-    static RowMajor MakeLayoutInUb(MatrixCoord const &shape)
+    HOST_DEVICE static RowMajor MakeLayoutInUb(MatrixCoord const &shape)
     {
         return RowMajor(shape.row(), shape.column(), RoundUp<BYTE_PER_C0 / sizeof(Element)>(shape.column()));
     }
@@ -180,20 +179,21 @@ public:
     /// Constructor
     HOST_DEVICE
     ColumnMajor(Index rows = 0, Index cols = 0)
-        : shape_(MakeCoord(rows, cols)), stride_(MakeCoord(LongIndex(1), LongIndex(rows))) {}
+        : shape_(MakeCoord(rows, cols)), stride_(MakeCoord(LongIndex(1), LongIndex(rows)))
+    {}
 
     /// Constructor
     HOST_DEVICE
     ColumnMajor(Index rows, Index cols, LongIndex ldm)
-        : shape_(MakeCoord(rows, cols)), stride_(MakeCoord(LongIndex(1), ldm)) {}
+        : shape_(MakeCoord(rows, cols)), stride_(MakeCoord(LongIndex(1), ldm))
+    {}
 
     /// Ctor
     HOST_DEVICE
     ColumnMajor(Shape shape, Stride stride) : shape_(shape), stride_(stride) {}
 
     template <class Element>
-    HOST_DEVICE
-    static ColumnMajor MakeLayout(Index rows, Index cols)
+    HOST_DEVICE static ColumnMajor MakeLayout(Index rows, Index cols)
     {
         return ColumnMajor(rows, cols);
     }
@@ -316,44 +316,37 @@ public:
     // Methods
 
     /// Constructor
-    HOST_DEVICE constexpr
-    nZ(Index orgRows = 0,                 /// Number of rows of origin matrices
-       Index orgCols = 0,                 /// Number of cols of origin matrices
-       Index rowsInFractal = 0,           /// Number of rows inside the fractal
-       Index rowsByFractal = 0,           /// number of rows by the fractal
-       Index colsInFractal = 0,           /// number of cols inside the fractal
-       Index colsByFractal = 0,           /// number of cols by the fractal
-       LongIndex strideRowsInFractal = 0, /// number of elements between adjacent rows inside the fractal
-       LongIndex strideRowsByFractal = 0, /// number of elements between adjacent fractal rows
-       LongIndex strideColsInFractal = 0, /// number of elements between adjacent cols inside the fractal
-       LongIndex strideColsByFractal = 0) /// number of elements between adjacent fractal cols
+    HOST_DEVICE constexpr nZ(
+        Index orgRows = 0,                  /// Number of rows of origin matrices
+        Index orgCols = 0,                  /// Number of cols of origin matrices
+        Index rowsInFractal = 0,            /// Number of rows inside the fractal
+        Index rowsByFractal = 0,            /// number of rows by the fractal
+        Index colsInFractal = 0,            /// number of cols inside the fractal
+        Index colsByFractal = 0,            /// number of cols by the fractal
+        LongIndex strideRowsInFractal = 0,  /// number of elements between adjacent rows inside the fractal
+        LongIndex strideRowsByFractal = 0,  /// number of elements between adjacent fractal rows
+        LongIndex strideColsInFractal = 0,  /// number of elements between adjacent cols inside the fractal
+        LongIndex strideColsByFractal = 0)  /// number of elements between adjacent fractal cols
         : orgShape_(MakeCoord(orgRows, orgCols)),
           shape_(MakeCoord(rowsInFractal, rowsByFractal, colsInFractal, colsByFractal)),
-          stride_(MakeCoord(strideRowsInFractal, strideRowsByFractal, strideColsInFractal, strideColsByFractal)) {}
+          stride_(MakeCoord(strideRowsInFractal, strideRowsByFractal, strideColsInFractal, strideColsByFractal))
+    {}
 
     /// Ctor
-    HOST_DEVICE constexpr
-    nZ(OrgShape orgShape, Shape shape, Stride stride) : orgShape_(orgShape), shape_(shape), stride_(stride) {}
+    HOST_DEVICE constexpr nZ(OrgShape orgShape, Shape shape, Stride stride)
+        : orgShape_(orgShape), shape_(shape), stride_(stride)
+    {}
 
     /// Make the layout of a coordinate (row, column)
     template <class Element>
-    HOST_DEVICE constexpr
-    static nZ MakeLayout(Index orgRows, Index orgCols)
+    HOST_DEVICE constexpr static nZ MakeLayout(Index orgRows, Index orgCols)
     {
         constexpr uint32_t ELE_NUM_PER_C0 = static_cast<uint32_t>(BYTE_PER_C0) / static_cast<uint32_t>(sizeof(Element));
         constexpr uint32_t ELE_NUM_PER_FRACTAL = BYTE_PER_FRACTAL / sizeof(Element);
         Index rowsRound = RoundUp<ELE_NUM_PER_C0>(orgRows);
         Index colsRound = RoundUp<C0_NUM_PER_FRACTAL>(orgCols);
-        return nZ(orgRows,
-                  orgCols,
-                  ELE_NUM_PER_C0,
-                  rowsRound / ELE_NUM_PER_C0,
-                  C0_NUM_PER_FRACTAL,
-                  colsRound / C0_NUM_PER_FRACTAL,
-                  1,
-                  colsRound * ELE_NUM_PER_C0,
-                  ELE_NUM_PER_C0,
-                  ELE_NUM_PER_FRACTAL);
+        return nZ(orgRows, orgCols, ELE_NUM_PER_C0, rowsRound / ELE_NUM_PER_C0, C0_NUM_PER_FRACTAL,
+                  colsRound / C0_NUM_PER_FRACTAL, 1, colsRound * ELE_NUM_PER_C0, ELE_NUM_PER_C0, ELE_NUM_PER_FRACTAL);
     }
 
     /// Returns the offset of a coordinate in linear memory.
@@ -362,17 +355,15 @@ public:
     LongIndex GetOffset(MatrixCoord const &coord) const
     {
         return LongIndex(coord.row()) / shape_[0] * stride_[1] + LongIndex(coord.column()) / shape_[2] * stride_[3] +
-            (LongIndex(coord.row()) % shape_[0]) * stride_[0] + (LongIndex(coord.column()) % shape_[2]) * stride_[2];
+               (LongIndex(coord.row()) % shape_[0]) * stride_[0] + (LongIndex(coord.column()) % shape_[2]) * stride_[2];
     }
 
     /// Returns the layout of a tile_common.
     HOST_DEVICE
     nZ GetTileLayout(MatrixCoord const &tileOriShape) const
     {
-        auto tileShape = MakeCoord(
-            shape(0), CeilDiv(tileOriShape.row(), shape(0)),
-            shape(2), CeilDiv(tileOriShape.column(), shape(2))
-        );
+        auto tileShape = MakeCoord(shape(0), CeilDiv(tileOriShape.row(), shape(0)), shape(2),
+                                   CeilDiv(tileOriShape.column(), shape(2)));
         return nZ(tileOriShape, tileShape, stride());
     }
 
@@ -492,58 +483,45 @@ public:
     // Methods
 
     /// Constructor
-    HOST_DEVICE constexpr
-    zN(Index orgRows = 0,                 /// Number of rows of origin matrices
-       Index orgCols = 0,                 /// Number of cols of origin matrices
-       Index rowsInFractal = 0,           /// Number of rows inside the fractal
-       Index rowsByFractal = 0,           /// number of rows by the fractal
-       Index colsInFractal = 0,           /// number of cols inside the fractal
-       Index colsByFractal = 0,           /// number of cols by the fractal
-       LongIndex strideRowsInFractal = 0, /// number of elements between adjacent rows inside the fractal
-       LongIndex strideRowsByFractal = 0, /// number of elements between adjacent fractal rows
-       LongIndex strideColsInFractal = 0, /// number of elements between adjacent cols inside the fractal
-       LongIndex strideColsByFractal = 0) /// number of elements between adjacent fractal cols
+    HOST_DEVICE constexpr zN(
+        Index orgRows = 0,                  /// Number of rows of origin matrices
+        Index orgCols = 0,                  /// Number of cols of origin matrices
+        Index rowsInFractal = 0,            /// Number of rows inside the fractal
+        Index rowsByFractal = 0,            /// number of rows by the fractal
+        Index colsInFractal = 0,            /// number of cols inside the fractal
+        Index colsByFractal = 0,            /// number of cols by the fractal
+        LongIndex strideRowsInFractal = 0,  /// number of elements between adjacent rows inside the fractal
+        LongIndex strideRowsByFractal = 0,  /// number of elements between adjacent fractal rows
+        LongIndex strideColsInFractal = 0,  /// number of elements between adjacent cols inside the fractal
+        LongIndex strideColsByFractal = 0)  /// number of elements between adjacent fractal cols
         : orgShape_(MakeCoord(orgRows, orgCols)),
           shape_(MakeCoord(rowsInFractal, rowsByFractal, colsInFractal, colsByFractal)),
-          stride_(MakeCoord(strideRowsInFractal, strideRowsByFractal, strideColsInFractal, strideColsByFractal)) {}
+          stride_(MakeCoord(strideRowsInFractal, strideRowsByFractal, strideColsInFractal, strideColsByFractal))
+    {}
 
     /// Ctor
-    HOST_DEVICE constexpr
-    zN(OrgShape orgShape, Shape shape, Stride stride) : orgShape_(orgShape), shape_(shape), stride_(stride) {}
+    HOST_DEVICE constexpr zN(OrgShape orgShape, Shape shape, Stride stride)
+        : orgShape_(orgShape), shape_(shape), stride_(stride)
+    {}
 
     /// Make the layout of a coordinate (row, column)
     template <class Element>
-    HOST_DEVICE constexpr
-    static zN MakeLayout(Index orgRows, Index orgCols)
+    HOST_DEVICE constexpr static zN MakeLayout(Index orgRows, Index orgCols)
     {
         constexpr uint32_t ELE_NUM_PER_C0 = static_cast<uint32_t>(BYTE_PER_C0) / static_cast<uint32_t>(sizeof(Element));
         constexpr uint32_t ELE_NUM_PER_FRACTAL = BYTE_PER_FRACTAL / sizeof(Element);
         Index rowsRound = RoundUp<C0_NUM_PER_FRACTAL>(orgRows);
         Index colsRound = RoundUp<ELE_NUM_PER_C0>(orgCols);
-        return zN(orgRows,
-                  orgCols,
-                  C0_NUM_PER_FRACTAL,
-                  rowsRound / C0_NUM_PER_FRACTAL,
-                  ELE_NUM_PER_C0,
-                  colsRound / ELE_NUM_PER_C0,
-                  ELE_NUM_PER_C0,
-                  ELE_NUM_PER_FRACTAL,
-                  1,
-                  rowsRound * ELE_NUM_PER_C0);
+        return zN(orgRows, orgCols, C0_NUM_PER_FRACTAL, rowsRound / C0_NUM_PER_FRACTAL, ELE_NUM_PER_C0,
+                  colsRound / ELE_NUM_PER_C0, ELE_NUM_PER_C0, ELE_NUM_PER_FRACTAL, 1, rowsRound * ELE_NUM_PER_C0);
     }
 
     HOST_DEVICE
     static zN MakeLayoutInL0C(MatrixCoord const &shape)
     {
-        return zN(shape.row(),
-                  shape.column(),
-                  C0_NUM_PER_FRACTAL,
-                  CeilDiv<C0_NUM_PER_FRACTAL>(shape.row()),
-                  C0_NUM_PER_FRACTAL,
-                  CeilDiv<C0_NUM_PER_FRACTAL>(shape.column()),
-                  C0_NUM_PER_FRACTAL,
-                  C0_NUM_PER_FRACTAL * C0_NUM_PER_FRACTAL,
-                  1,
+        return zN(shape.row(), shape.column(), C0_NUM_PER_FRACTAL, CeilDiv<C0_NUM_PER_FRACTAL>(shape.row()),
+                  C0_NUM_PER_FRACTAL, CeilDiv<C0_NUM_PER_FRACTAL>(shape.column()), C0_NUM_PER_FRACTAL,
+                  C0_NUM_PER_FRACTAL * C0_NUM_PER_FRACTAL, 1,
                   RoundUp<C0_NUM_PER_FRACTAL>(shape.row()) * C0_NUM_PER_FRACTAL);
     }
 
@@ -553,17 +531,15 @@ public:
     LongIndex GetOffset(MatrixCoord const &coord) const
     {
         return LongIndex(coord.row()) / shape_[0] * stride_[1] + LongIndex(coord.column()) / shape_[2] * stride_[3] +
-            (LongIndex(coord.row()) % shape_[0]) * stride_[0] + (LongIndex(coord.column()) % shape_[2]) * stride_[2];
+               (LongIndex(coord.row()) % shape_[0]) * stride_[0] + (LongIndex(coord.column()) % shape_[2]) * stride_[2];
     }
 
     /// Returns the layout of a tile_common.
     HOST_DEVICE
     zN GetTileLayout(MatrixCoord const &tileOriShape) const
     {
-        auto tileShape = MakeCoord(
-            shape(0), CeilDiv(tileOriShape.row(), shape(0)),
-            shape(2), CeilDiv(tileOriShape.column(), shape(2))
-        );
+        auto tileShape = MakeCoord(shape(0), CeilDiv(tileOriShape.row(), shape(0)), shape(2),
+                                   CeilDiv(tileOriShape.column(), shape(2)));
         return zN(tileOriShape, tileShape, stride());
     }
 
@@ -683,44 +659,37 @@ public:
     // Methods
 
     /// Constructor
-    HOST_DEVICE constexpr
-    zZ(Index orgRows = 0,                 /// Number of rows of origin matrices
-       Index orgCols = 0,                 /// Number of cols of origin matrices
-       Index rowsInFractal = 0,           /// Number of rows inside the fractal
-       Index rowsByFractal = 0,           /// number of rows by the fractal
-       Index colsInFractal = 0,           /// number of cols inside the fractal
-       Index colsByFractal = 0,           /// number of cols by the fractal
-       LongIndex strideRowsInFractal = 0, /// number of elements between adjacent rows inside the fractal
-       LongIndex strideRowsByFractal = 0, /// number of elements between adjacent fractal rows
-       LongIndex strideColsInFractal = 0, /// number of elements between adjacent cols inside the fractal
-       LongIndex strideColsByFractal = 0) /// number of elements between adjacent fractal cols
+    HOST_DEVICE constexpr zZ(
+        Index orgRows = 0,                  /// Number of rows of origin matrices
+        Index orgCols = 0,                  /// Number of cols of origin matrices
+        Index rowsInFractal = 0,            /// Number of rows inside the fractal
+        Index rowsByFractal = 0,            /// number of rows by the fractal
+        Index colsInFractal = 0,            /// number of cols inside the fractal
+        Index colsByFractal = 0,            /// number of cols by the fractal
+        LongIndex strideRowsInFractal = 0,  /// number of elements between adjacent rows inside the fractal
+        LongIndex strideRowsByFractal = 0,  /// number of elements between adjacent fractal rows
+        LongIndex strideColsInFractal = 0,  /// number of elements between adjacent cols inside the fractal
+        LongIndex strideColsByFractal = 0)  /// number of elements between adjacent fractal cols
         : orgShape_(MakeCoord(orgRows, orgCols)),
           shape_(MakeCoord(rowsInFractal, rowsByFractal, colsInFractal, colsByFractal)),
-          stride_(MakeCoord(strideRowsInFractal, strideRowsByFractal, strideColsInFractal, strideColsByFractal)) {}
+          stride_(MakeCoord(strideRowsInFractal, strideRowsByFractal, strideColsInFractal, strideColsByFractal))
+    {}
 
     /// Ctor
-    HOST_DEVICE constexpr
-    zZ(OrgShape orgShape, Shape shape, Stride stride) : orgShape_(orgShape), shape_(shape), stride_(stride) {}
+    HOST_DEVICE constexpr zZ(OrgShape orgShape, Shape shape, Stride stride)
+        : orgShape_(orgShape), shape_(shape), stride_(stride)
+    {}
 
     /// Make the layout of a coordinate (row, column)
     template <class Element>
-    HOST_DEVICE constexpr
-    static zZ MakeLayout(Index orgRows, Index orgCols)
+    HOST_DEVICE constexpr static zZ MakeLayout(Index orgRows, Index orgCols)
     {
         constexpr uint32_t ELE_NUM_PER_C0 = static_cast<uint32_t>(BYTE_PER_C0) / static_cast<uint32_t>(sizeof(Element));
         constexpr uint32_t ELE_NUM_PER_FRACTAL = BYTE_PER_FRACTAL / sizeof(Element);
         Index rowsRound = RoundUp<C0_NUM_PER_FRACTAL>(orgRows);
         Index colsRound = RoundUp<ELE_NUM_PER_C0>(orgCols);
-        return zZ(orgRows,
-                  orgCols,
-                  C0_NUM_PER_FRACTAL,
-                  rowsRound / C0_NUM_PER_FRACTAL,
-                  ELE_NUM_PER_C0,
-                  colsRound / ELE_NUM_PER_C0,
-                  ELE_NUM_PER_C0,
-                  colsRound * C0_NUM_PER_FRACTAL,
-                  1,
-                  ELE_NUM_PER_FRACTAL);
+        return zZ(orgRows, orgCols, C0_NUM_PER_FRACTAL, rowsRound / C0_NUM_PER_FRACTAL, ELE_NUM_PER_C0,
+                  colsRound / ELE_NUM_PER_C0, ELE_NUM_PER_C0, colsRound * C0_NUM_PER_FRACTAL, 1, ELE_NUM_PER_FRACTAL);
     }
 
     /// Returns the offset of a coordinate in linear memory.
@@ -841,11 +810,12 @@ public:
 public:
     /// Constructor
     HOST_DEVICE
-    PaddingRowMajor(Index orgRows = 0, Index orgCols = 0, Index blockRows = 0, Index blockCols = 0) :
-        orgShape_(MakeCoord(orgRows, orgCols)),
-        shape_(MakeCoord(blockRows, CeilDiv(orgRows, blockRows), blockCols, CeilDiv(orgCols, blockCols))),
-        stride_(MakeCoord((LongIndex)blockCols, (LongIndex)blockRows * (LongIndex)RoundUp(orgCols, blockCols),
-        (LongIndex)1, (LongIndex)blockRows * (LongIndex)blockCols)) {}
+    PaddingRowMajor(Index orgRows = 0, Index orgCols = 0, Index blockRows = 0, Index blockCols = 0)
+        : orgShape_(MakeCoord(orgRows, orgCols)),
+          shape_(MakeCoord(blockRows, CeilDiv(orgRows, blockRows), blockCols, CeilDiv(orgCols, blockCols))),
+          stride_(MakeCoord((LongIndex)blockCols, (LongIndex)blockRows * (LongIndex)RoundUp(orgCols, blockCols),
+                            (LongIndex)1, (LongIndex)blockRows * (LongIndex)blockCols))
+    {}
 
     /// Returns the offset of a coordinate in linear memory.
     /// Assumes coordinate has convention (row, column)
@@ -854,10 +824,8 @@ public:
     {
         LongIndex blockRows = (LongIndex)shape_[0];
         LongIndex blockCols = (LongIndex)shape_[2];
-        return (LongIndex)coord.row() / blockRows * stride_[1]
-            + (LongIndex)coord.column() / blockCols * stride_[3]
-            + (LongIndex)coord.row() % blockRows * stride_[0]
-            + (LongIndex)coord.column() % blockCols;
+        return (LongIndex)coord.row() / blockRows * stride_[1] + (LongIndex)coord.column() / blockCols * stride_[3] +
+               (LongIndex)coord.row() % blockRows * stride_[0] + (LongIndex)coord.column() % blockCols;
     }
 
     HOST_DEVICE
@@ -980,11 +948,12 @@ public:
 public:
     /// Constructor
     HOST_DEVICE
-    PaddingColumnMajor(Index orgRows = 0, Index orgCols = 0, Index blockRows = 0, Index blockCols = 0) :
-        orgShape_(MakeCoord(orgRows, orgCols)),
-        shape_(MakeCoord(blockRows, CeilDiv(orgRows, blockRows), blockCols, CeilDiv(orgCols, blockCols))),
-        stride_(MakeCoord((LongIndex)1, (LongIndex)blockRows * (LongIndex)blockCols, (LongIndex)blockRows,
-        (LongIndex)RoundUp(orgRows, blockRows) * (LongIndex)blockCols)) {}
+    PaddingColumnMajor(Index orgRows = 0, Index orgCols = 0, Index blockRows = 0, Index blockCols = 0)
+        : orgShape_(MakeCoord(orgRows, orgCols)),
+          shape_(MakeCoord(blockRows, CeilDiv(orgRows, blockRows), blockCols, CeilDiv(orgCols, blockCols))),
+          stride_(MakeCoord((LongIndex)1, (LongIndex)blockRows * (LongIndex)blockCols, (LongIndex)blockRows,
+                            (LongIndex)RoundUp(orgRows, blockRows) * (LongIndex)blockCols))
+    {}
 
     /// Returns the offset of a coordinate in linear memory.
     /// Assumes coordinate has convention (row, column)
@@ -993,10 +962,8 @@ public:
     {
         LongIndex blockRows = (LongIndex)shape_[0];
         LongIndex blockCols = (LongIndex)shape_[2];
-        return (LongIndex)coord.row() / blockRows * stride_[1]
-            + (LongIndex)coord.column() / blockCols * stride_[3]
-            + (LongIndex)coord.row() % blockRows
-            + (LongIndex)coord.column() % blockCols * stride_[2];
+        return (LongIndex)coord.row() / blockRows * stride_[1] + (LongIndex)coord.column() / blockCols * stride_[3] +
+               (LongIndex)coord.row() % blockRows + (LongIndex)coord.column() % blockCols * stride_[2];
     }
 
     HOST_DEVICE
@@ -1075,7 +1042,6 @@ public:
         return stride_[idx];
     }
 
-
 private:
     //
     // Data members
@@ -1123,112 +1089,116 @@ public:
     /// Constructor
     HOST_DEVICE
     nN(Index orgRows = 0,  /// Number of rows of origin matrices
-    Index orgCols = 0,  /// Number of cols of origin matrices
+       Index orgCols = 0,  /// Number of cols of origin matrices
 
-    Index rowsInFractal = 0,  /// Number of rows inside the fractal
-    Index rowsByFractal = 0,  /// number of rows by the fractal
-    Index colsInFractal = 0,  /// number of cols inside the fractal
-    Index colsByFractal = 0,  /// number of cols by the fractal
+       Index rowsInFractal = 0,  /// Number of rows inside the fractal
+       Index rowsByFractal = 0,  /// number of rows by the fractal
+       Index colsInFractal = 0,  /// number of cols inside the fractal
+       Index colsByFractal = 0,  /// number of cols by the fractal
 
-    LongIndex strideRowsInFractal = 0,  /// number of elements between adjacent rows inside the fractal
-    LongIndex strideRowsByFractal = 0,  /// number of elements between adjacent fractal rows
-    LongIndex strideColsInFractal = 0,  /// number of elements between adjacent cols inside the fractal
-    LongIndex strideColsByFractal = 0)  /// number of elements between adjacent fractal cols
+       LongIndex strideRowsInFractal = 0,  /// number of elements between adjacent rows inside the fractal
+       LongIndex strideRowsByFractal = 0,  /// number of elements between adjacent fractal rows
+       LongIndex strideColsInFractal = 0,  /// number of elements between adjacent cols inside the fractal
+       LongIndex strideColsByFractal = 0)  /// number of elements between adjacent fractal cols
         : orgShape_(MakeCoord(orgRows, orgCols)),
-        shape_(MakeCoord(rowsInFractal, rowsByFractal, colsInFractal, colsByFractal)),
-        stride_(MakeCoord(strideRowsInFractal, strideRowsByFractal, strideColsInFractal, strideColsByFractal)) {
-    }
+          shape_(MakeCoord(rowsInFractal, rowsByFractal, colsInFractal, colsByFractal)),
+          stride_(MakeCoord(strideRowsInFractal, strideRowsByFractal, strideColsInFractal, strideColsByFractal))
+    {}
 
     /// Ctor
     HOST_DEVICE
-    nN(OrgShape orgShape, Shape shape, Stride stride)
-        : orgShape_(orgShape), shape_(shape), stride_(stride) {}
+    nN(OrgShape orgShape, Shape shape, Stride stride) : orgShape_(orgShape), shape_(shape), stride_(stride) {}
 
     /// Make the layout of a coordinate (row, column)
     template <class Element>
-    HOST_DEVICE static nN MakeLayout(Index orgRows, Index orgCols) {
+    HOST_DEVICE static nN MakeLayout(Index orgRows, Index orgCols)
+    {
         static constexpr uint32_t ELE_NUM_PER_C0 = BYTE_PER_C0 / sizeof(Element);
         static constexpr uint32_t ELE_NUM_PER_FRACTAL = BYTE_PER_FRACTAL / sizeof(Element);
         Index rowsRound = RoundUp<ELE_NUM_PER_C0>(orgRows);
         Index colsRound = RoundUp<C0_NUM_PER_FRACTAL>(orgCols);
-        return nN(orgRows,
-                orgCols,
+        return nN(orgRows, orgCols,
 
-                ELE_NUM_PER_C0,
-                rowsRound / ELE_NUM_PER_C0,
-                C0_NUM_PER_FRACTAL,
-                colsRound / C0_NUM_PER_FRACTAL,
+                  ELE_NUM_PER_C0, rowsRound / ELE_NUM_PER_C0, C0_NUM_PER_FRACTAL, colsRound / C0_NUM_PER_FRACTAL,
 
-                1,
-                ELE_NUM_PER_FRACTAL,
-                ELE_NUM_PER_C0,
-                rowsRound * C0_NUM_PER_FRACTAL);
+                  1, ELE_NUM_PER_FRACTAL, ELE_NUM_PER_C0, rowsRound * C0_NUM_PER_FRACTAL);
     }
 
     /// Returns the offset of a coordinate in linear memory.
     /// Assumes coordinate has convention (row, column)
     HOST_DEVICE
-    LongIndex GetOffset(MatrixCoord const& coord) const {
+    LongIndex GetOffset(MatrixCoord const &coord) const
+    {
         return LongIndex(coord.row()) / shape_[0] * stride_[1] + LongIndex(coord.column()) / shape_[2] * stride_[3];
     }
 
     /// Returns the origin shape of the layout
     HOST_DEVICE
-    typename OrgShape::Index orgShape(int idx) const {
+    typename OrgShape::Index orgShape(int idx) const
+    {
         return orgShape_[idx];
     }
 
     /// Returns the origin shape of the layout
     HOST_DEVICE
-    typename OrgShape::Index& orgShape(int idx) {
+    typename OrgShape::Index &orgShape(int idx)
+    {
         return orgShape_[idx];
     }
 
     /// Returns the shape of the layout
     HOST_DEVICE
-    Shape shape() const {
+    Shape shape() const
+    {
         return shape_;
     }
 
     /// Returns the shape of the layout
     HOST_DEVICE
-    Shape& shape() {
+    Shape &shape()
+    {
         return shape_;
     }
 
     /// Returns the shape of the layout
     HOST_DEVICE
-    typename Shape::Index shape(int idx) const {
+    typename Shape::Index shape(int idx) const
+    {
         return shape_[idx];
     }
 
     /// Returns the shape of the layout
     HOST_DEVICE
-    typename Shape::Index& shape(int idx) {
+    typename Shape::Index &shape(int idx)
+    {
         return shape_[idx];
     }
 
     /// Returns the stride of the layout
     HOST_DEVICE
-    Stride stride() const {
+    Stride stride() const
+    {
         return stride_;
     }
 
     /// Returns the stride of the layout
     HOST_DEVICE
-    Stride& stride() {
+    Stride &stride()
+    {
         return stride_;
     }
 
     /// Returns the stride of the layout
     HOST_DEVICE
-    typename Stride::Index stride(int idx) const {
+    typename Stride::Index stride(int idx) const
+    {
         return stride_[idx];
     }
 
     /// Returns the stride of the layout
     HOST_DEVICE
-    typename Stride::Index& stride(int idx) {
+    typename Stride::Index &stride(int idx)
+    {
         return stride_[idx];
     }
 

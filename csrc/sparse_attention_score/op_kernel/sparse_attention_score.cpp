@@ -14,29 +14,19 @@
 #include "sparse_attention_score_kernel_interface.cpp"
 #include "kernel_common.hpp"  // SparseAttn::SparseAttentionScoreTilingData (host/kernel tiling blob contract)
 
-extern "C" __global__ __aicore__ void sparse_attention_score(
-    __gm__ uint8_t* query,
-    __gm__ uint8_t* key,
-    __gm__ uint8_t* value,
-    __gm__ uint8_t* selectIdx,
-    __gm__ uint8_t* blockTable,
-    __gm__ uint8_t* selectNumIdx,
-    __gm__ uint8_t* actualSeqLengths,
-    __gm__ uint8_t* actualSeqLengthsKv,
-    __gm__ uint8_t* qDequantScale,
-    __gm__ uint8_t* kDequantScale,
-    __gm__ uint8_t* vDequantScale,
-    __gm__ uint8_t* attentionOut,
-    __gm__ uint8_t* softmaxLse,
-    __gm__ uint8_t* workspace,
-    __gm__ uint8_t* tiling)
+extern "C" __global__ __aicore__ void
+sparse_attention_score(__gm__ uint8_t *query, __gm__ uint8_t *key, __gm__ uint8_t *value, __gm__ uint8_t *selectIdx,
+                       __gm__ uint8_t *blockTable, __gm__ uint8_t *selectNumIdx, __gm__ uint8_t *actualSeqLengths,
+                       __gm__ uint8_t *actualSeqLengthsKv, __gm__ uint8_t *qDequantScale, __gm__ uint8_t *kDequantScale,
+                       __gm__ uint8_t *vDequantScale, __gm__ uint8_t *attentionOut, __gm__ uint8_t *softmaxLse,
+                       __gm__ uint8_t *workspace, __gm__ uint8_t *tiling)
 {
     // Native sgl-kernel-npu dispatch has no GE SetTilingKey, so TILING_KEY_VAR
     // (a CANN aclnn-L0 compile-time injection) is unavailable. Read tilingKey
     // from the tiling blob instead -- mirrors minimax_indexer_kernel. The arch
     // kernel bodies (SasaInferIntfRegularArch22 / SasaInferIntfRegular /
     // SasaInferInterfaceFullQuant) are unchanged.
-    auto tilingData = reinterpret_cast<__gm__ SparseAttn::SparseAttentionScoreTilingData*>(tiling);
+    auto tilingData = reinterpret_cast<__gm__ SparseAttn::SparseAttentionScoreTilingData *>(tiling);
     auto tilingKey = tilingData->tilingKey;
     if (tilingKey >= SASA_BASE_TILING) {
         __gm__ uint8_t *user = AscendC::GetUserWorkspace(workspace);
@@ -45,32 +35,26 @@ extern "C" __global__ __aicore__ void sparse_attention_score(
 #if (__CCE_AICORE__ == 310)
         if (tilingKey == SASA_FP8_D128_TILING) {
             SasaInferInterfaceFullQuant<fp8_e4m3fn_t, half, float, SasaKernelArch35::Format::TND>(
-                query, key, value, selectIdx, blockTable, selectNumIdx,
-                actualSeqLengths, actualSeqLengthsKv,
-                qDequantScale, kDequantScale, vDequantScale,
-                attentionOut, softmaxLse, user, tiling);
+                query, key, value, selectIdx, blockTable, selectNumIdx, actualSeqLengths, actualSeqLengthsKv,
+                qDequantScale, kDequantScale, vDequantScale, attentionOut, softmaxLse, user, tiling);
         } else if (tilingKey == SASA_FP16_D128_TILING) {
             SasaInferIntfRegular<half, half, float, SasaKernelArch35::Format::TND>(
-                query, key, value, selectIdx, blockTable, selectNumIdx,
-                actualSeqLengths, actualSeqLengthsKv,
+                query, key, value, selectIdx, blockTable, selectNumIdx, actualSeqLengths, actualSeqLengthsKv,
                 attentionOut, softmaxLse, user, tiling);
         } else if (tilingKey == SASA_BF16_D128_TILING) {
             SasaInferIntfRegular<bfloat16_t, bfloat16_t, float, SasaKernelArch35::Format::TND>(
-                query, key, value, selectIdx, blockTable, selectNumIdx,
-                actualSeqLengths, actualSeqLengthsKv,
+                query, key, value, selectIdx, blockTable, selectNumIdx, actualSeqLengths, actualSeqLengthsKv,
                 attentionOut, softmaxLse, user, tiling);
         }
 #elif (__CCE_AICORE__ == 220)
         if (tilingKey == SASA_FP16_D128_ARCH22_TILING) {
-            SasaInferIntfRegularArch22<half, float>(
-                query, key, value, selectIdx, blockTable, selectNumIdx,
-                actualSeqLengths, actualSeqLengthsKv,
-                attentionOut, softmaxLse, user, tiling);
+            SasaInferIntfRegularArch22<half, float>(query, key, value, selectIdx, blockTable, selectNumIdx,
+                                                    actualSeqLengths, actualSeqLengthsKv, attentionOut, softmaxLse,
+                                                    user, tiling);
         } else if (tilingKey == SASA_BF16_D128_ARCH22_TILING) {
-            SasaInferIntfRegularArch22<bfloat16_t, float>(
-                query, key, value, selectIdx, blockTable, selectNumIdx,
-                actualSeqLengths, actualSeqLengthsKv,
-                attentionOut, softmaxLse, user, tiling);
+            SasaInferIntfRegularArch22<bfloat16_t, float>(query, key, value, selectIdx, blockTable, selectNumIdx,
+                                                          actualSeqLengths, actualSeqLengthsKv, attentionOut,
+                                                          softmaxLse, user, tiling);
         }
 #endif
     }

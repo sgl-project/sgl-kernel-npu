@@ -14,15 +14,10 @@
 #include "../../../attn_infra/base_defs.hpp"
 
 namespace NpuArch::Gemm::Tile {
-template <
-    class ArchTag,
-    class TensorSrc,
-    class TensorDst,
-    class Enable = void
->
+template <class ArchTag, class TensorSrc, class TensorDst, class Enable = void>
 struct TileCopyTla {
     static_assert(DEPENDENT_FALSE<ArchTag>, "Unsupported TileCopyTla, can not find the specialization.");
 };
-} // namespace NpuArch::Gemm::Tile
+}  // namespace NpuArch::Gemm::Tile
 
-#endif // GEMM_TILE_TILE_COPY_TLA_HPP
+#endif  // GEMM_TILE_TILE_COPY_TLA_HPP

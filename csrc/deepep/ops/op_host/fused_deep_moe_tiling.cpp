@@ -242,12 +242,11 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     OPS_ERR_IF(activationTypePtr == nullptr || activationAlphaPtr == nullptr || gateClampMaxPtr == nullptr ||
                    upClampMinPtr == nullptr || upClampMaxPtr == nullptr || upAddPtr == nullptr,
                OPS_LOG_E(nodeName, "activation attributes are nullptr."), return ge::GRAPH_FAILED);
-    OPS_ERR_IF(*activationTypePtr != 0 && *activationTypePtr != 1,
-               OPS_LOG_E(nodeName, "unsupported activation type."), return ge::GRAPH_FAILED);
-    OPS_ERR_IF(*activationTypePtr == 1 &&
-                   (!std::isfinite(*activationAlphaPtr) || !std::isfinite(*gateClampMaxPtr) ||
-                    !std::isfinite(*upClampMinPtr) || !std::isfinite(*upClampMaxPtr) || !std::isfinite(*upAddPtr) ||
-                    *upClampMinPtr > *upClampMaxPtr),
+    OPS_ERR_IF(*activationTypePtr != 0 && *activationTypePtr != 1, OPS_LOG_E(nodeName, "unsupported activation type."),
+               return ge::GRAPH_FAILED);
+    OPS_ERR_IF(*activationTypePtr == 1 && (!std::isfinite(*activationAlphaPtr) || !std::isfinite(*gateClampMaxPtr) ||
+                                           !std::isfinite(*upClampMinPtr) || !std::isfinite(*upClampMaxPtr) ||
+                                           !std::isfinite(*upAddPtr) || *upClampMinPtr > *upClampMaxPtr),
                OPS_LOG_E(nodeName, "invalid SwiGLU-OAI activation parameters."), return ge::GRAPH_FAILED);
 
     uint32_t epRankSize = static_cast<uint32_t>(*epRankSizePtr);
@@ -406,12 +405,10 @@ static ge::graphStatus FusedDeepMoeTilingFuncImpl(gert::TilingContext *context)
     OPS_ERR_IF(SetWorkSpace(context, nodeName, *tilingData) != ge::GRAPH_SUCCESS,
                OPS_LOG_E(nodeName, "Tiling set workspace failed."), return ge::GRAPH_FAILED);
     SetHcommCfg(context, tilingData, groupEp);
-    const uint64_t baseKey = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.moeExpertNumPerRank == 1
-                                 ? 0
-                                 : EXEC_FLAG_DEEP_FUSE;
-    context->SetTilingKey(baseKey + (tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.activationType == 1
-                                         ? EXEC_FLAG_USE_SWIGLU_OAI
-                                         : 0));
+    const uint64_t baseKey =
+        tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.moeExpertNumPerRank == 1 ? 0 : EXEC_FLAG_DEEP_FUSE;
+    context->SetTilingKey(
+        baseKey + (tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.activationType == 1 ? EXEC_FLAG_USE_SWIGLU_OAI : 0));
     context->SetBlockDim(aicNum);
     return ge::GRAPH_SUCCESS;
 }

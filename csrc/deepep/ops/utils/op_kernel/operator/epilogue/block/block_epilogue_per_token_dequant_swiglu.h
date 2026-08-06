@@ -22,8 +22,8 @@
 namespace Act::Epilogue::Block {
 
 template <uint32_t UB_STAGES_, uint32_t EXEC_FLAG_, class CType_, class LayoutScale_, class LayoutPerTokenScale_,
-           class DType_, class TileRowBroadcastMul_, class TileBroadcastOneBlk_, class TileOneBlkColumnBroadcastMul_,
-           class TileCopy_, class EpilogueTileSwizzle_>
+          class DType_, class TileRowBroadcastMul_, class TileBroadcastOneBlk_, class TileOneBlkColumnBroadcastMul_,
+          class TileCopy_, class EpilogueTileSwizzle_>
 class BlockEpilogue<EpilogueAtlasA2PerTokenDequantSwiglu<UB_STAGES_, EXEC_FLAG_>, CType_,
                     Gemm::GemmType<float, LayoutScale_>, Gemm::GemmType<float, LayoutPerTokenScale_>, DType_,
                     TileRowBroadcastMul_, TileBroadcastOneBlk_, TileOneBlkColumnBroadcastMul_, TileCopy_,
@@ -115,14 +115,14 @@ public:
             : ptrScale(ptrScale_),
               layoutScale(layoutScale_),
               ptrPerTokenScale(ptrPerTokenScale_),
-               layoutPerTokenScale(layoutPerTokenScale_),
-               ptrD(ptrD_),
-               layoutD(layoutD_),
-               activationAlpha(activationAlpha_),
-               gateClampMax(gateClampMax_),
-               upClampMin(upClampMin_),
-               upClampMax(upClampMax_),
-               upAdd(upAdd_)
+              layoutPerTokenScale(layoutPerTokenScale_),
+              ptrD(ptrD_),
+              layoutD(layoutD_),
+              activationAlpha(activationAlpha_),
+              gateClampMax(gateClampMax_),
+              upClampMin(upClampMin_),
+              upClampMax(upClampMax_),
+              upAdd(upAdd_)
         {}
     };
 

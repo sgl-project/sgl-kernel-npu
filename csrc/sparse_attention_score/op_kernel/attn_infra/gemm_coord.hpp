@@ -27,8 +27,7 @@ template <
     /// Columns of matrix product
     uint32_t N_ = 1,
     /// Inner dimension of matrix product
-    uint32_t K_ = 1
->
+    uint32_t K_ = 1>
 struct GemmShape {
     static constexpr uint32_t M = M_;
     static constexpr uint32_t N = N_;
@@ -158,6 +157,6 @@ struct GemmCoord : public Coord<3, uint32_t> {
     }
 };
 
-} // namespace NpuArch
+}  // namespace NpuArch
 
 #endif  // GEMM_COORD_HPP

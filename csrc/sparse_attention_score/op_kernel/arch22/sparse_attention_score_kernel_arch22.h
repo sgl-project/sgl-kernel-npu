@@ -18,12 +18,9 @@ using namespace NpuArch;
 
 namespace SasaKernelArch22 {
 
-template <
-    class BlockMmadQK,
-    class EpilogueOnlineSoftmax,
-    class BlockMmadPV,
-    class EpilogueRescaleO>
-class SasaRegularKernelArch22 {
+template <class BlockMmadQK, class EpilogueOnlineSoftmax, class BlockMmadPV, class EpilogueRescaleO>
+class SasaRegularKernelArch22
+{
 public:
     using ArchTag = typename BlockMmadPV::ArchTag;
 
@@ -52,11 +49,9 @@ public:
     static constexpr uint32_t SOFTMAX_READY_ID = 2;
     static constexpr uint32_t PV_READY_ID = 3;
 
-    __aicore__ inline
-    SasaRegularKernelArch22() {}
+    __aicore__ inline SasaRegularKernelArch22() {}
 
-    __aicore__ inline
-    void operator()(SasaKernelParamsArch22 const &params)
+    __aicore__ inline void operator()(SasaKernelParamsArch22 const &params)
     {
         __gm__ SparseAttn::SparseAttentionScoreTilingData *tilingData =
             reinterpret_cast<__gm__ SparseAttn::SparseAttentionScoreTilingData *>(params.tiling);
@@ -94,10 +89,11 @@ public:
         AscendC::GlobalTensor<ElementP> gP;
         gP.SetGlobalBuffer((__gm__ ElementP *)(params.workSpace + identityIdxSize + mm1OutSize_));
         AscendC::GlobalTensor<ElementOTmp> gOTmp;
-        gOTmp.SetGlobalBuffer((__gm__ ElementOTmp *)(params.workSpace + identityIdxSize + mm1OutSize_ + smOnlineOutSize_));
+        gOTmp.SetGlobalBuffer(
+            (__gm__ ElementOTmp *)(params.workSpace + identityIdxSize + mm1OutSize_ + smOnlineOutSize_));
         AscendC::GlobalTensor<ElementOTmp> gOUpdate;
-        gOUpdate.SetGlobalBuffer((__gm__ ElementOTmp *)(params.workSpace + identityIdxSize + mm1OutSize_ +
-            smOnlineOutSize_ + mm2OutSize_));
+        gOUpdate.SetGlobalBuffer(
+            (__gm__ ElementOTmp *)(params.workSpace + identityIdxSize + mm1OutSize_ + smOnlineOutSize_ + mm2OutSize_));
 
         uint32_t coreIdx = AscendC::GetBlockIdx();
         uint32_t coreNum = AscendC::GetBlockNum();
@@ -187,12 +183,11 @@ public:
                 }
             }
 
-            int64_t gmOffsetQ = static_cast<int64_t>(qToken) * strideQO +
-                                static_cast<int64_t>(qHeadStart) * embed_;
+            int64_t gmOffsetQ = static_cast<int64_t>(qToken) * strideQO + static_cast<int64_t>(qHeadStart) * embed_;
             int64_t gmOffsetO = gmOffsetQ;
 
-            int64_t selectIdxBase = static_cast<int64_t>(kvHeadIdx) * maxQSeqlen_ * topK_ +
-                                    static_cast<int64_t>(qToken) * topK_;
+            int64_t selectIdxBase =
+                static_cast<int64_t>(kvHeadIdx) * maxQSeqlen_ * topK_ + static_cast<int64_t>(qToken) * topK_;
             uint32_t validTopK = topK_;
             if (params.selectNumIdx != nullptr) {
                 int64_t selectNumOffset = static_cast<int64_t>(kvHeadIdx) * maxQSeqlen_ + qToken;
@@ -216,8 +211,8 @@ public:
                 int64_t btOffset = static_cast<int64_t>(batchIdx) * maxBlocksPerBatch_ + logicalId;
                 int32_t physicalId = gBlockTable.GetValue(btOffset);
                 validPhysicalIds[actualLoopNum] = physicalId;
-                validTileSize[actualLoopNum] = (static_cast<uint32_t>(logicalId) == lastLogicalBlockId) ?
-                    lastBlockTileSize : blockSize_;
+                validTileSize[actualLoopNum] =
+                    (static_cast<uint32_t>(logicalId) == lastLogicalBlockId) ? lastBlockTileSize : blockSize_;
                 actualLoopNum++;
             }
             kvSLoopNum = actualLoopNum;
@@ -247,7 +242,8 @@ public:
                                         static_cast<int64_t>(kvHeadIdx) * embed_;
 
                     uint32_t stageId = kvBlockIdx % MAX_CROSS_CORE_BUF_STAGES;
-                    uint64_t gmOffsetS = static_cast<uint64_t>(coreIdx) * WORKSPACE_BLOCK_SIZE_DB * MAX_CROSS_CORE_BUF_STAGES +
+                    uint64_t gmOffsetS =
+                        static_cast<uint64_t>(coreIdx) * WORKSPACE_BLOCK_SIZE_DB * MAX_CROSS_CORE_BUF_STAGES +
                         static_cast<uint64_t>(stageId) * WORKSPACE_BLOCK_SIZE_DB;
 
 #ifdef __DAV_C220_CUBE__
@@ -256,12 +252,9 @@ public:
                     LayoutS ubSLayout(rowNumRound, RoundUp(kvSTileSizeAct, 16));
                     GemmCoord actualBlockShapeQK{rowNum, kvSTileSizeAct, embed_};
 
-                    blockMmadQK(gQ[gmOffsetQ], gK[gmOffsetK], gS[gmOffsetS],
-                        gBlockTable[blockTOffset], gIdentityIdx,
-                        gmQLayout, gmKLayout, ubSLayout,
-                        actualBlockShapeQK,
-                        0, 0, blockSize_, strideKVRow,
-                        blockSize_, 1, 1, kvSTileSizeAct);
+                    blockMmadQK(gQ[gmOffsetQ], gK[gmOffsetK], gS[gmOffsetS], gBlockTable[blockTOffset], gIdentityIdx,
+                                gmQLayout, gmKLayout, ubSLayout, actualBlockShapeQK, 0, 0, blockSize_, strideKVRow,
+                                blockSize_, 1, 1, kvSTileSizeAct);
 
                     NpuArch::Arch::CrossCoreSetFlag<0x2, PIPE_FIX>(qkReady_);
 #endif
@@ -275,11 +268,8 @@ public:
 
                     NpuArch::Arch::CrossCoreWaitFlag(qkReady_);
 
-                    epilogueOnlineSoftmax(gP[gmOffsetP], gS[gmOffsetS],
-                        ubPLayout, ubSLayout,
-                        actualBlockShapeQK,
-                        (kvBlockIdx == 0), 0, 1, groupSize,
-                        stageId, softmaxReady_);
+                    epilogueOnlineSoftmax(gP[gmOffsetP], gS[gmOffsetS], ubPLayout, ubSLayout, actualBlockShapeQK,
+                                          (kvBlockIdx == 0), 0, 1, groupSize, stageId, softmaxReady_);
 #endif
                 }
 
@@ -292,9 +282,11 @@ public:
                                         static_cast<int64_t>(kvHeadIdx) * embed_;
 
                     uint32_t stageId = kvBlockIdxDe % MAX_CROSS_CORE_BUF_STAGES;
-                    uint64_t gmOffsetP = static_cast<uint64_t>(coreIdx) * WORKSPACE_BLOCK_SIZE_DB * MAX_CROSS_CORE_BUF_STAGES +
+                    uint64_t gmOffsetP =
+                        static_cast<uint64_t>(coreIdx) * WORKSPACE_BLOCK_SIZE_DB * MAX_CROSS_CORE_BUF_STAGES +
                         static_cast<uint64_t>(stageId) * WORKSPACE_BLOCK_SIZE_DB;
-                    uint64_t gmOffsetOTmp = static_cast<uint64_t>(coreIdx) * WORKSPACE_BLOCK_SIZE_DB * MAX_CROSS_CORE_BUF_STAGES +
+                    uint64_t gmOffsetOTmp =
+                        static_cast<uint64_t>(coreIdx) * WORKSPACE_BLOCK_SIZE_DB * MAX_CROSS_CORE_BUF_STAGES +
                         static_cast<uint64_t>(stageId) * WORKSPACE_BLOCK_SIZE_DB;
 
 #ifdef __DAV_C220_CUBE__
@@ -304,13 +296,9 @@ public:
                     LayoutOTmp ubOTmpLayout(rowNumRound, embedRound);
                     GemmCoord actualBlockShapePV{rowNum, embed_, kvSTileSizeAct};
 
-                    blockMmadPV(gP[gmOffsetP], gV[gmOffsetV], gOTmp[gmOffsetOTmp],
-                        gBlockTable[blockTOffset], gIdentityIdx,
-                        ubPLayout, gmVLayout, ubOTmpLayout,
-                        actualBlockShapePV,
-                        0, 0, blockSize_,
-                        kvSTileSizeAct, strideKVRow, 1,
-                        softmaxReady_, blockSize_, 1, 1);
+                    blockMmadPV(gP[gmOffsetP], gV[gmOffsetV], gOTmp[gmOffsetOTmp], gBlockTable[blockTOffset],
+                                gIdentityIdx, ubPLayout, gmVLayout, ubOTmpLayout, actualBlockShapePV, 0, 0, blockSize_,
+                                kvSTileSizeAct, strideKVRow, 1, softmaxReady_, blockSize_, 1, 1);
                     NpuArch::Arch::CrossCoreSetFlag<0x2, PIPE_FIX>(pvReady_);
 #endif
 
@@ -324,12 +312,9 @@ public:
                     NpuArch::Arch::CrossCoreWaitFlag(pvReady_);
 
                     epilogueRescaleO(gO[gmOffsetO], gOTmp[gmOffsetOTmp], gOUpdate[gmOffsetUpdate],
-                        gLse[static_cast<int64_t>(qToken) * qHeads_ + qHeadStart],
-                        gmOLayout, ubOTmpLayout, ubUpdateLayout, gmLseLayout,
-                        actualBlockShapePV,
-                        1, groupSize,
-                        (kvBlockIdxDe == 0), (kvBlockIdxDe == kvSLoopNum - 1),
-                        stageId);
+                                     gLse[static_cast<int64_t>(qToken) * qHeads_ + qHeadStart], gmOLayout, ubOTmpLayout,
+                                     ubUpdateLayout, gmLseLayout, actualBlockShapePV, 1, groupSize, (kvBlockIdxDe == 0),
+                                     (kvBlockIdxDe == kvSLoopNum - 1), stageId);
 #endif
                 }
             }
@@ -378,8 +363,7 @@ public:
     }
 
 private:
-    __aicore__ inline
-    void FetchTilingData(__gm__ SparseAttn::SparseAttentionScoreTilingData *tilingData)
+    __aicore__ inline void FetchTilingData(__gm__ SparseAttn::SparseAttentionScoreTilingData *tilingData)
     {
         batch_ = tilingData->batch;
         qHeads_ = tilingData->numHeads;
@@ -402,8 +386,7 @@ private:
         actSeqAval_ = true;
     }
 
-    __aicore__ inline
-    void InitSyncFlags()
+    __aicore__ inline void InitSyncFlags()
     {
         AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(0);
         AscendC::SetFlag<AscendC::HardEvent::V_MTE2>(1);
@@ -415,8 +398,7 @@ private:
         AscendC::SetFlag<AscendC::HardEvent::MTE3_S>(1);
     }
 
-    __aicore__ inline
-    void ReleaseSyncFlags()
+    __aicore__ inline void ReleaseSyncFlags()
     {
         AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(0);
         AscendC::WaitFlag<AscendC::HardEvent::V_MTE2>(1);

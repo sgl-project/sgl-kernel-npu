@@ -10,7 +10,6 @@ from typing import Optional
 import torch
 import triton
 import triton.language as tl
-
 from sgl_kernel_npu.indexer.flash_block_score_decode import (
     _choose_num_score_chunks,
     _next_power_of_2,
@@ -21,7 +20,6 @@ _SCORE_NW = 4
 _SCORE_NS = 2
 _SCORE_ATTN_NW = 8
 _SCORE_ATTN_NS = 2
-
 
 
 @triton.jit
@@ -167,6 +165,8 @@ def _prefill_bnsd_score_kernel(
             score.to(score_ptr.dtype.element_ty),
             mask=row_valid,
         )
+
+
 @triton.jit
 def _prefill_bnsd_score_attn_kernel(
     q_ptr,  # [total_q, num_idx_heads, head_dim]  (index Q)
@@ -295,7 +295,9 @@ def _prefill_bnsd_score_attn_kernel(
             score = sub_max + tl.log2(tl.sum(tl.exp2(qk - sub_max[:, None]), axis=1))
             score = tl.where(score != score, float("-inf"), score)
         s_offsets = (
-            head_flat * stride_s_h + q_token_raw * stride_s_q + logical_block * stride_s_n
+            head_flat * stride_s_h
+            + q_token_raw * stride_s_q
+            + logical_block * stride_s_n
         )
         tl.store(
             score_ptr + s_offsets, score.to(score_ptr.dtype.element_ty), mask=row_valid
@@ -380,7 +382,9 @@ def _build_qblock_mappings(
     # Advanced-index directly to [all_seqblock_q, max_blocks].
     # DO NOT write `req_to_token[qb_to_req][:, blk_cols]` -- that materializes a
     # large intermediate and OOMs. Broadcast row/column index arrays instead.
-    token_slots = req_to_token[qb_to_req[:, None], blk_cols]  # [all_seqblock_q, max_blocks]
+    token_slots = req_to_token[
+        qb_to_req[:, None], blk_cols
+    ]  # [all_seqblock_q, max_blocks]
     block_table = (token_slots // page_size).to(torch.int32)
 
     return (
@@ -557,8 +561,14 @@ def flash_prefill_bnsd_score_attn(
             block_table,
             all_seqblock_q,
         ) = _build_qblock_mappings(
-            cu_seqlens, seq_lens, req_to_token, req_pool_indices,
-            block_size_q, page_size, max_blocks, device,
+            cu_seqlens,
+            seq_lens,
+            req_to_token,
+            req_pool_indices,
+            block_size_q,
+            page_size,
+            max_blocks,
+            device,
         )
     else:
         (
@@ -572,23 +582,53 @@ def flash_prefill_bnsd_score_attn(
 
     BLOCK_SIZE_Q = _next_power_of_2(block_size_q)
     score = torch.full(
-        (num_idx_heads, total_q, max_seqblock_k), float("-inf"),
-        device=device, dtype=torch.float32,
+        (num_idx_heads, total_q, max_seqblock_k),
+        float("-inf"),
+        device=device,
+        dtype=torch.float32,
     )
-    idx_o = torch.zeros((total_q, num_idx_heads, head_dim), device=device, dtype=q.dtype)
+    idx_o = torch.zeros(
+        (total_q, num_idx_heads, head_dim), device=device, dtype=q.dtype
+    )
 
     if all_seqblock_q > 0:
         grid = (all_seqblock_q, num_kv_heads)
         _prefill_bnsd_score_attn_kernel[grid](
-            q, k_cache_bnsd, v_cache_bnsd, block_table,
-            qb_to_qstart, qb_to_qblock, qb_seq_lens, qb_qend, score, idx_o,
-            total_q, num_kv_heads, gqa_group_size, head_dim, all_seqblock_q, sm_scale,
-            q.stride(0), q.stride(1), q.stride(2),
-            k_cache_bnsd.stride(0), k_cache_bnsd.stride(1), k_cache_bnsd.stride(2), k_cache_bnsd.stride(3),
-            v_cache_bnsd.stride(0), v_cache_bnsd.stride(1), v_cache_bnsd.stride(2), v_cache_bnsd.stride(3),
-            block_table.stride(0), block_table.stride(1),
-            score.stride(0), score.stride(1), score.stride(2),
-            idx_o.stride(0), idx_o.stride(1), idx_o.stride(2),
+            q,
+            k_cache_bnsd,
+            v_cache_bnsd,
+            block_table,
+            qb_to_qstart,
+            qb_to_qblock,
+            qb_seq_lens,
+            qb_qend,
+            score,
+            idx_o,
+            total_q,
+            num_kv_heads,
+            gqa_group_size,
+            head_dim,
+            all_seqblock_q,
+            sm_scale,
+            q.stride(0),
+            q.stride(1),
+            q.stride(2),
+            k_cache_bnsd.stride(0),
+            k_cache_bnsd.stride(1),
+            k_cache_bnsd.stride(2),
+            k_cache_bnsd.stride(3),
+            v_cache_bnsd.stride(0),
+            v_cache_bnsd.stride(1),
+            v_cache_bnsd.stride(2),
+            v_cache_bnsd.stride(3),
+            block_table.stride(0),
+            block_table.stride(1),
+            score.stride(0),
+            score.stride(1),
+            score.stride(2),
+            idx_o.stride(0),
+            idx_o.stride(1),
+            idx_o.stride(2),
             block_size_k,
             BLOCK_SIZE_Q,
             triton.next_power_of_2(gqa_group_size),
@@ -648,9 +688,7 @@ def _prefill_topk_from_score_kernel(
     # wrote -inf for key_pos >= seq_len or q_token < key_pos; unwritten blocks
     # past the request stay -inf from the score tensor's -inf init).
     s_offsets = (
-        pid_h * stride_s_h
-        + q_tok[:, None] * stride_s_q
-        + off_k[None, :] * stride_s_k
+        pid_h * stride_s_h + q_tok[:, None] * stride_s_q + off_k[None, :] * stride_s_k
     )
     scores = tl.load(
         score_ptr + s_offsets,
@@ -677,10 +715,7 @@ def _prefill_topk_from_score_kernel(
         )
         out_blk = tl.where(valid_blk, pos, -1)
         tl.store(
-            out_ptr
-            + pid_h * stride_o_h
-            + q_tok * stride_o_q
-            + rank * stride_o_t,
+            out_ptr + pid_h * stride_o_h + q_tok * stride_o_q + rank * stride_o_t,
             tl.where(q_valid, out_blk, -1),
             mask=q_valid,
         )
@@ -698,16 +733,15 @@ def _prefill_topk_from_score_kernel(
         + q_tok[:, None] * stride_o_q
         + rank_off[None, :] * stride_o_t
     )
-    selected = tl.load(out_ptr + sel_offsets, mask=q_valid[:, None], other=-1)  # [BSQ, TOPK]
+    selected = tl.load(
+        out_ptr + sel_offsets, mask=q_valid[:, None], other=-1
+    )  # [BSQ, TOPK]
     local_present = (
         tl.sum((selected == local_blk[:, None]).to(tl.int32), axis=1) > 0
     )  # [BSQ]
     out_local = tl.where(local_present, -1, local_blk)
     tl.store(
-        out_ptr
-        + pid_h * stride_o_h
-        + q_tok * stride_o_q
-        + TOPK * stride_o_t,
+        out_ptr + pid_h * stride_o_h + q_tok * stride_o_q + TOPK * stride_o_t,
         tl.where(q_valid, out_local, -1),
         mask=q_valid,
     )
@@ -794,14 +828,20 @@ def flash_prefill_bnsd_indexer(
     path, TopK + local-append run fused (returns ``[..., topk+1]``); else topk+pad.
     """
     score, idx_o = flash_prefill_bnsd_score_attn(
-        q, k_cache_bnsd, v_cache_bnsd, cu_seqlens, seq_lens,
-        req_to_token, req_pool_indices, block_size_q, block_size_k,
-        sm_scale, score_type, qblock_mappings,
+        q,
+        k_cache_bnsd,
+        v_cache_bnsd,
+        cu_seqlens,
+        seq_lens,
+        req_to_token,
+        req_pool_indices,
+        block_size_q,
+        block_size_k,
+        sm_scale,
+        score_type,
+        qblock_mappings,
     )
-    if (
-        per_query_seq_lens is not None
-        and q.shape[1] == k_cache_bnsd.shape[2]
-    ):
+    if per_query_seq_lens is not None and q.shape[1] == k_cache_bnsd.shape[2]:
         # Fused TopK + local-block append -> [num_kv_heads, total_q, topk + 1].
         return idx_o, flash_prefill_bnsd_topk_from_score(
             score, per_query_seq_lens, topk, block_size_k
@@ -813,7 +853,9 @@ def flash_prefill_bnsd_indexer(
     if actual_topk < topk:
         pad = torch.full(
             (idx.shape[0], idx.shape[1], topk - actual_topk),
-            -1, device=idx.device, dtype=idx.dtype,
+            -1,
+            device=idx.device,
+            dtype=idx.dtype,
         )
         idx = torch.cat([idx, pad], dim=-1)
     return idx_o, idx.contiguous()
@@ -845,14 +887,19 @@ def flash_prefill_bnsd_with_topk_idx(
     else:
         max_seqblock_k = (int(seq_lens.max().item()) + block_size_k - 1) // block_size_k
     score = flash_prefill_bnsd_score(
-        q, k_cache_bnsd, cu_seqlens, seq_lens,
-        req_to_token, req_pool_indices, block_size_q, block_size_k,
-        sm_scale, score_type, qblock_mappings=qblock_mappings,
+        q,
+        k_cache_bnsd,
+        cu_seqlens,
+        seq_lens,
+        req_to_token,
+        req_pool_indices,
+        block_size_q,
+        block_size_k,
+        sm_scale,
+        score_type,
+        qblock_mappings=qblock_mappings,
     )
-    if (
-        per_query_seq_lens is not None
-        and q.shape[1] == k_cache_bnsd.shape[2]
-    ):
+    if per_query_seq_lens is not None and q.shape[1] == k_cache_bnsd.shape[2]:
         return flash_prefill_bnsd_topk_from_score(
             score, per_query_seq_lens, topk, block_size_k
         )
@@ -861,7 +908,9 @@ def flash_prefill_bnsd_with_topk_idx(
     if actual_topk < topk:
         pad = torch.full(
             (idx.shape[0], idx.shape[1], topk - actual_topk),
-            -1, device=idx.device, dtype=idx.dtype,
+            -1,
+            device=idx.device,
+            dtype=idx.dtype,
         )
         idx = torch.cat([idx, pad], dim=-1)
     return idx.contiguous()

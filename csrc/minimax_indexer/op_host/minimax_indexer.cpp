@@ -41,9 +41,9 @@ static std::unordered_map<uint64_t, uint32_t> captureMap;
 // at::Tensor workspace;
 
 inline at::Tensor ConstructMinimaxIndexerOutputTensor(const at::Tensor &query, const at::Tensor &key,
-                                                        const c10::optional<at::Tensor> &actual_seq_lengths_query,
-                                                        int64_t sparse_count, int64_t append_local,
-                                                        std::string query_layout_str, std::string key_layout_str)
+                                                      const c10::optional<at::Tensor> &actual_seq_lengths_query,
+                                                      int64_t sparse_count, int64_t append_local,
+                                                      std::string query_layout_str, std::string key_layout_str)
 {
     at::SmallVector<int64_t, SIZE> outputSize;
     for (size_t i = 0; i < query.sizes().size(); i++) {
@@ -74,17 +74,14 @@ inline at::Tensor ConstructMinimaxIndexerOutputTensor(const at::Tensor &query, c
 
 namespace sglang {
 namespace npu_kernel {
-HOST_API at::Tensor minimax_indexer(const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
-                                      const c10::optional<at::Tensor> &actual_seq_lengths_query,
-                                      const c10::optional<at::Tensor> &actual_seq_lengths_key,
-                                      const c10::optional<at::Tensor> &block_table,
-                                      c10::optional<c10::string_view> layout_query,
-                                      c10::optional<c10::string_view> layout_key, c10::optional<int64_t> sparse_count,
-                                      c10::optional<int64_t> sparse_mode, c10::optional<int64_t> init_blocks,
-                                      c10::optional<int64_t> local_blocks, c10::optional<double> sm_scale,
-                                      const c10::optional<at::Tensor> &req_to_token,
-                                      const c10::optional<at::Tensor> &req_pool_indices,
-                                      c10::optional<int64_t> append_local)
+HOST_API at::Tensor minimax_indexer(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
+    const c10::optional<at::Tensor> &actual_seq_lengths_query, const c10::optional<at::Tensor> &actual_seq_lengths_key,
+    const c10::optional<at::Tensor> &block_table, c10::optional<c10::string_view> layout_query,
+    c10::optional<c10::string_view> layout_key, c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode,
+    c10::optional<int64_t> init_blocks, c10::optional<int64_t> local_blocks, c10::optional<double> sm_scale,
+    const c10::optional<at::Tensor> &req_to_token, const c10::optional<at::Tensor> &req_pool_indices,
+    c10::optional<int64_t> append_local)
 {
     using namespace MIHost;
     MinimaxIndexer indexer("minimax_indexer");
@@ -118,7 +115,7 @@ HOST_API at::Tensor minimax_indexer(const at::Tensor &query, const at::Tensor &k
                 "req_to_token and req_pool_indices must be provided together for direct mode");
 
     at::Tensor sparse_indices = ConstructMinimaxIndexerOutputTensor(query, key, actual_seq_lengths_query, sparseCount,
-                                                                      appendLocal, layoutQuery, layoutKey);
+                                                                    appendLocal, layoutQuery, layoutKey);
 
     auto qScalarType = query.scalar_type();
 
@@ -145,14 +142,12 @@ HOST_API at::Tensor minimax_indexer(const at::Tensor &query, const at::Tensor &k
     } else {
         blockTable = at::empty({1}, at::TensorOptions().dtype(qScalarType).device(query.options().device()));
     }
-    at::Tensor reqToToken =
-        req_to_token.has_value()
-            ? req_to_token.value()
-            : at::empty({1}, at::TensorOptions().dtype(at::kInt).device(query.options().device()));
-    at::Tensor reqPoolIdx =
-        req_pool_indices.has_value()
-            ? req_pool_indices.value()
-            : at::empty({1}, at::TensorOptions().dtype(at::kInt).device(query.options().device()));
+    at::Tensor reqToToken = req_to_token.has_value()
+                                ? req_to_token.value()
+                                : at::empty({1}, at::TensorOptions().dtype(at::kInt).device(query.options().device()));
+    at::Tensor reqPoolIdx = req_pool_indices.has_value()
+                                ? req_pool_indices.value()
+                                : at::empty({1}, at::TensorOptions().dtype(at::kInt).device(query.options().device()));
 
     indexer.SetToContext(context, qScalarType);
     context->RegisterTensor(query, true);

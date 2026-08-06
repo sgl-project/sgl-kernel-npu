@@ -30,12 +30,10 @@ using namespace NpuArch;
 using namespace SasaKernelArch22;
 
 template <class InDtype, class SMDtype>
-__aicore__ inline void SasaInferIntfRegularArch22(
-    GM_ADDR q, GM_ADDR k, GM_ADDR v,
-    GM_ADDR selectIdx, GM_ADDR blockTable, GM_ADDR selectNumIdx,
-    GM_ADDR actualQseqlen, GM_ADDR actualKvseqlen,
-    GM_ADDR o, GM_ADDR softmaxLse,
-    GM_ADDR workspace, GM_ADDR tiling)
+__aicore__ inline void SasaInferIntfRegularArch22(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR selectIdx,
+                                                  GM_ADDR blockTable, GM_ADDR selectNumIdx, GM_ADDR actualQseqlen,
+                                                  GM_ADDR actualKvseqlen, GM_ADDR o, GM_ADDR softmaxLse,
+                                                  GM_ADDR workspace, GM_ADDR tiling)
 {
     using ArchTag = Arch::AtlasA2;
     using ElementQ = InDtype;
@@ -61,16 +59,13 @@ __aicore__ inline void SasaInferIntfRegularArch22(
     using QType = Gemm::GemmType<ElementQ, LayoutQ>;
     using KType = Gemm::GemmType<ElementK, LayoutK>;
     using SType = Gemm::GemmType<ElementS, LayoutS>;
-    using BlockMmadQK = Gemm::Block::BlockMmad<
-        DispatchPolicyQK, L1TileShapeQK, L0TileShapeQK,
-        QType, KType, SType>;
+    using BlockMmadQK = Gemm::Block::BlockMmad<DispatchPolicyQK, L1TileShapeQK, L0TileShapeQK, QType, KType, SType>;
 
     // Online softmax
     using PType = Gemm::GemmType<ElementP, LayoutP>;
     using DispatchPolicyOnlineSoftmax = Epilogue::EpilogueAtlasA2OnlineSoftmax<Epilogue::LseMode::NONE, SMDtype>;
     using MaskType = Gemm::GemmType<int8_t, layout::RowMajor>;
-    using EpilogueOnlineSoftmax = Epilogue::Block::BlockEpilogue<
-        DispatchPolicyOnlineSoftmax, PType, SType, MaskType>;
+    using EpilogueOnlineSoftmax = Epilogue::Block::BlockEpilogue<DispatchPolicyOnlineSoftmax, PType, SType, MaskType>;
 
     // PV matmul
     using L1TileShapePV = GemmShape<128, 128, 256>;
@@ -78,23 +73,20 @@ __aicore__ inline void SasaInferIntfRegularArch22(
     using DispatchPolicyPV = Gemm::MmadAtlasA2SFAIPV<false, false>;
     using VType = Gemm::GemmType<ElementV, LayoutV>;
     using OTmpType = Gemm::GemmType<ElementOTmp, LayoutOTmp>;
-    using BlockMmadPV = Gemm::Block::BlockMmad<
-        DispatchPolicyPV, L1TileShapePV, L0TileShapePV,
-        PType, VType, OTmpType>;
+    using BlockMmadPV = Gemm::Block::BlockMmad<DispatchPolicyPV, L1TileShapePV, L0TileShapePV, PType, VType, OTmpType>;
 
     // Rescale O
     using DispatchPolicyRescaleO = Epilogue::EpilogueAtlasA2RescaleO<Epilogue::LseMode::NONE, SMDtype>;
     using OType = Gemm::GemmType<ElementO, LayoutO>;
     using OTmpUpdateType = Gemm::GemmType<ElementOTmp, LayoutOTmp>;
     using LseType = Gemm::GemmType<float, layout::RowMajor>;
-    using EpilogueRescaleO = Epilogue::Block::BlockEpilogue<
-        DispatchPolicyRescaleO, OType, OTmpType, OTmpUpdateType, LseType>;
+    using EpilogueRescaleO =
+        Epilogue::Block::BlockEpilogue<DispatchPolicyRescaleO, OType, OTmpType, OTmpUpdateType, LseType>;
 
-    using SasaKernel = SasaRegularKernelArch22<
-        BlockMmadQK, EpilogueOnlineSoftmax, BlockMmadPV, EpilogueRescaleO>;
+    using SasaKernel = SasaRegularKernelArch22<BlockMmadQK, EpilogueOnlineSoftmax, BlockMmadPV, EpilogueRescaleO>;
 
-    SasaKernelParamsArch22 params{q, k, v, selectIdx, blockTable, selectNumIdx,
-        actualQseqlen, actualKvseqlen, o, softmaxLse, workspace, tiling};
+    SasaKernelParamsArch22 params{
+        q, k, v, selectIdx, blockTable, selectNumIdx, actualQseqlen, actualKvseqlen, o, softmaxLse, workspace, tiling};
     SasaKernel sasaKernel;
     sasaKernel(params);
 }
@@ -105,12 +97,9 @@ __aicore__ inline void SasaInferIntfRegularArch22(
 using namespace SasaKernelArch35;
 
 template <class InDtype, class SMDtype, class REDtype, Format qFormat>
-__aicore__ inline void SasaInferIntfRegular(
-    GM_ADDR q, GM_ADDR k, GM_ADDR v,
-    GM_ADDR selectIdx, GM_ADDR blockTable, GM_ADDR selectNumIdx,
-    GM_ADDR actualQseqlen, GM_ADDR actualKvseqlen,
-    GM_ADDR o, GM_ADDR softmaxLse,
-    GM_ADDR workspace, GM_ADDR tiling)
+__aicore__ inline void SasaInferIntfRegular(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR selectIdx, GM_ADDR blockTable,
+                                            GM_ADDR selectNumIdx, GM_ADDR actualQseqlen, GM_ADDR actualKvseqlen,
+                                            GM_ADDR o, GM_ADDR softmaxLse, GM_ADDR workspace, GM_ADDR tiling)
 {
     using ArchTag = Arch::AtlasA5;
     using ElementQ = InDtype;
@@ -133,55 +122,48 @@ __aicore__ inline void SasaInferIntfRegular(
     using L1TileShapeQK = Shape<Int<128>, Int<128>, Int<128>>;
     using L0TileShapeQK = Shape<Int<128>, Int<128>, Int<128>>;
     using DispatchPolicyQK = Gemm::MmadAtlasA5BsaQK;
-    using TileCopyQK = Gemm::Tile::PackedTileCopyTlaToUB<
-        ArchTag, ElementQ, LayoutQ, ElementK, LayoutK, ElementS, LayoutS,
-        void, Gemm::Tile::CopyL0CToUBMode::NO_SPLIT>;
-    using BlockMmadQK = Gemm::Block::BlockMmadTla<
-        DispatchPolicyQK, L1TileShapeQK, L0TileShapeQK,
-        ElementQ, ElementK, ElementS, void, TileCopyQK>;
+    using TileCopyQK = Gemm::Tile::PackedTileCopyTlaToUB<ArchTag, ElementQ, LayoutQ, ElementK, LayoutK, ElementS,
+                                                         LayoutS, void, Gemm::Tile::CopyL0CToUBMode::NO_SPLIT>;
+    using BlockMmadQK = Gemm::Block::BlockMmadTla<DispatchPolicyQK, L1TileShapeQK, L0TileShapeQK, ElementQ, ElementK,
+                                                  ElementS, void, TileCopyQK>;
 
     // Online softmax
     using PType = Gemm::GemmType<ElementP, LayoutPDummy>;
     using SType = Gemm::GemmType<ElementS, LayoutS>;
     using DispatchPolicyOnlineSoftmax = Epilogue::EpilogueOnlineSoftmaxBsa;
-    using EpilogueOnlineSoftmax = Epilogue::Block::BlockEpilogue<
-        DispatchPolicyOnlineSoftmax, PType, SType>;
+    using EpilogueOnlineSoftmax = Epilogue::Block::BlockEpilogue<DispatchPolicyOnlineSoftmax, PType, SType>;
 
     // PV matmul
     using L1TileShapePV = Shape<Int<128>, Int<128>, Int<128>>;
     using L0TileShapePV = Shape<Int<128>, Int<128>, Int<128>>;
     using DispatchPolicyPV = Gemm::MmadAtlasA5BsaPV;
-    using TileCopyPV = Gemm::Tile::PackedTileCopyTlaToUB<
-        ArchTag, ElementP, LayoutPDummy, ElementV, LayoutV, ElementOTmp, LayoutOTmp,
-        void, Gemm::Tile::CopyL0CToUBMode::SPLIT_M>;
-    using BlockMmadPV = Gemm::Block::BlockMmadTla<
-        DispatchPolicyPV, L1TileShapePV, L0TileShapePV,
-        ElementP, ElementV, ElementOTmp, void, TileCopyPV>;
+    using TileCopyPV =
+        Gemm::Tile::PackedTileCopyTlaToUB<ArchTag, ElementP, LayoutPDummy, ElementV, LayoutV, ElementOTmp, LayoutOTmp,
+                                          void, Gemm::Tile::CopyL0CToUBMode::SPLIT_M>;
+    using BlockMmadPV = Gemm::Block::BlockMmadTla<DispatchPolicyPV, L1TileShapePV, L0TileShapePV, ElementP, ElementV,
+                                                  ElementOTmp, void, TileCopyPV>;
 
     // Rescale O
     using DispatchPolicyRescaleO = Epilogue::EpilogueAtlasA5BsaRescaleO;
-    using TileCopyRescaleO = Epilogue::Tile::TileCopyRescaleO<
-        ArchTag, ElementO, LayoutO, LayoutOTmp>;
-    using EpilogueRescaleO = Epilogue::Block::BlockEpilogue<
-        DispatchPolicyRescaleO, ElementO, ElementOTmp, ElementS, TileCopyRescaleO, Arch::PositionL0C>;
+    using TileCopyRescaleO = Epilogue::Tile::TileCopyRescaleO<ArchTag, ElementO, LayoutO, LayoutOTmp>;
+    using EpilogueRescaleO = Epilogue::Block::BlockEpilogue<DispatchPolicyRescaleO, ElementO, ElementOTmp, ElementS,
+                                                            TileCopyRescaleO, Arch::PositionL0C>;
 
-    using SasaKernel = SasaRegularKernelArch35<
-        BlockMmadQK, EpilogueOnlineSoftmax, BlockMmadPV, EpilogueRescaleO, qFormat, qFormat>;
+    using SasaKernel =
+        SasaRegularKernelArch35<BlockMmadQK, EpilogueOnlineSoftmax, BlockMmadPV, EpilogueRescaleO, qFormat, qFormat>;
 
-    SasaKernelParamsArch35 params{q, k, v, selectIdx, blockTable, selectNumIdx,
-        actualQseqlen, actualKvseqlen, o, softmaxLse, workspace, tiling};
+    SasaKernelParamsArch35 params{
+        q, k, v, selectIdx, blockTable, selectNumIdx, actualQseqlen, actualKvseqlen, o, softmaxLse, workspace, tiling};
     SasaKernel sasaKernel;
     sasaKernel(params);
 }
 
 template <class InDtype, class SMDtype, class REDtype, Format qFormat>
-__aicore__ inline void SasaInferInterfaceFullQuant(
-    GM_ADDR q, GM_ADDR k, GM_ADDR v,
-    GM_ADDR selectIdx, GM_ADDR blockTable, GM_ADDR selectNumIdx,
-    GM_ADDR actualQseqlen, GM_ADDR actualKvseqlen,
-    GM_ADDR qDequantScale, GM_ADDR kDequantScale, GM_ADDR vDequantScale,
-    GM_ADDR o, GM_ADDR softmaxLse,
-    GM_ADDR workspace, GM_ADDR tiling)
+__aicore__ inline void SasaInferInterfaceFullQuant(GM_ADDR q, GM_ADDR k, GM_ADDR v, GM_ADDR selectIdx,
+                                                   GM_ADDR blockTable, GM_ADDR selectNumIdx, GM_ADDR actualQseqlen,
+                                                   GM_ADDR actualKvseqlen, GM_ADDR qDequantScale, GM_ADDR kDequantScale,
+                                                   GM_ADDR vDequantScale, GM_ADDR o, GM_ADDR softmaxLse,
+                                                   GM_ADDR workspace, GM_ADDR tiling)
 {
     using ArchTag = Arch::AtlasA5;
     using ElementQ = InDtype;
@@ -203,45 +185,50 @@ __aicore__ inline void SasaInferInterfaceFullQuant(
     using L1TileShapeQK = Shape<Int<128>, Int<128>, Int<128>>;
     using L0TileShapeQK = Shape<Int<128>, Int<128>, Int<128>>;
     using DispatchPolicyQK = Gemm::MmadAtlasA5BsaQK;
-    using TileCopyQK = Gemm::Tile::PackedTileCopyTlaToUB<
-        ArchTag, ElementQ, LayoutQ, ElementK, LayoutK, ElementS, LayoutS,
-        void, Gemm::Tile::CopyL0CToUBMode::NO_SPLIT, false,
-        Gemm::Tile::ScaleGranularity::PER_TENSOR>;
-    using BlockMmadQK = Gemm::Block::BlockMmadTla<
-        DispatchPolicyQK, L1TileShapeQK, L0TileShapeQK,
-        ElementQ, ElementK, ElementS, void, TileCopyQK>;
+    using TileCopyQK = Gemm::Tile::PackedTileCopyTlaToUB<ArchTag, ElementQ, LayoutQ, ElementK, LayoutK, ElementS,
+                                                         LayoutS, void, Gemm::Tile::CopyL0CToUBMode::NO_SPLIT, false,
+                                                         Gemm::Tile::ScaleGranularity::PER_TENSOR>;
+    using BlockMmadQK = Gemm::Block::BlockMmadTla<DispatchPolicyQK, L1TileShapeQK, L0TileShapeQK, ElementQ, ElementK,
+                                                  ElementS, void, TileCopyQK>;
 
     using DispatchPolicyOnlineSoftmax = Epilogue::EpilogueOnlineSoftmaxBsa;
     using PType = Gemm::GemmType<ElementP, LayoutPDummy>;
     using SType = Gemm::GemmType<ElementS, LayoutS>;
-    using EpilogueOnlineSoftmax = Epilogue::Block::BlockEpilogue<
-        DispatchPolicyOnlineSoftmax, PType, SType>;
+    using EpilogueOnlineSoftmax = Epilogue::Block::BlockEpilogue<DispatchPolicyOnlineSoftmax, PType, SType>;
 
     using L1TileShapePV = Shape<Int<128>, Int<128>, Int<128>>;
     using L0TileShapePV = Shape<Int<128>, Int<128>, Int<128>>;
     using DispatchPolicyPV = Gemm::MmadAtlasA5BsaPV;
-    using TileCopyPV = Gemm::Tile::PackedTileCopyTlaToUB<
-        ArchTag, ElementP, LayoutPDummy, ElementV, LayoutV, ElementOTmp, LayoutOTmp,
-        void, Gemm::Tile::CopyL0CToUBMode::NO_SPLIT, false,
-        Gemm::Tile::ScaleGranularity::PER_TENSOR>;
-    using BlockMmadPV = Gemm::Block::BlockMmadTla<
-        DispatchPolicyPV, L1TileShapePV, L0TileShapePV,
-        ElementP, ElementV, ElementOTmp, void, TileCopyPV>;
+    using TileCopyPV =
+        Gemm::Tile::PackedTileCopyTlaToUB<ArchTag, ElementP, LayoutPDummy, ElementV, LayoutV, ElementOTmp, LayoutOTmp,
+                                          void, Gemm::Tile::CopyL0CToUBMode::NO_SPLIT, false,
+                                          Gemm::Tile::ScaleGranularity::PER_TENSOR>;
+    using BlockMmadPV = Gemm::Block::BlockMmadTla<DispatchPolicyPV, L1TileShapePV, L0TileShapePV, ElementP, ElementV,
+                                                  ElementOTmp, void, TileCopyPV>;
 
     using DispatchPolicyRescaleO = Epilogue::EpilogueAtlasA5BsaRescaleO;
-    using TileCopyRescaleO = Epilogue::Tile::TileCopyRescaleO<
-        ArchTag, ElementO, LayoutO, LayoutOTmp>;
-    using EpilogueRescaleO = Epilogue::Block::BlockEpilogue<
-        DispatchPolicyRescaleO, ElementO, ElementOTmp, ElementS, TileCopyRescaleO, Arch::PositionL0C>;
+    using TileCopyRescaleO = Epilogue::Tile::TileCopyRescaleO<ArchTag, ElementO, LayoutO, LayoutOTmp>;
+    using EpilogueRescaleO = Epilogue::Block::BlockEpilogue<DispatchPolicyRescaleO, ElementO, ElementOTmp, ElementS,
+                                                            TileCopyRescaleO, Arch::PositionL0C>;
 
-    using SasaKernel = SasaFullQuantKernelArch35<
-        BlockMmadQK, EpilogueOnlineSoftmax, BlockMmadPV, EpilogueRescaleO, qFormat, qFormat>;
+    using SasaKernel =
+        SasaFullQuantKernelArch35<BlockMmadQK, EpilogueOnlineSoftmax, BlockMmadPV, EpilogueRescaleO, qFormat, qFormat>;
 
-    SasaFullQuantKernelParamsArch35 params{
-        q, k, v, selectIdx, blockTable, selectNumIdx,
-        actualQseqlen, actualKvseqlen,
-        qDequantScale, kDequantScale, vDequantScale,
-        o, softmaxLse, workspace, tiling};
+    SasaFullQuantKernelParamsArch35 params{q,
+                                           k,
+                                           v,
+                                           selectIdx,
+                                           blockTable,
+                                           selectNumIdx,
+                                           actualQseqlen,
+                                           actualKvseqlen,
+                                           qDequantScale,
+                                           kDequantScale,
+                                           vDequantScale,
+                                           o,
+                                           softmaxLse,
+                                           workspace,
+                                           tiling};
     SasaKernel sasaKernel;
     sasaKernel(params);
 }

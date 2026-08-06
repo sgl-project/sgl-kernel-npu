@@ -41,17 +41,24 @@ struct SasaKernelParamsArch22 {
     GM_ADDR workSpace;
     GM_ADDR tiling;
 
-    __aicore__ inline
-    SasaKernelParamsArch22() {}
-    __aicore__ inline
-    SasaKernelParamsArch22(GM_ADDR q_, GM_ADDR k_, GM_ADDR v_,
-        GM_ADDR selectIdx_, GM_ADDR blockTable_, GM_ADDR selectNumIdx_,
-        GM_ADDR actualQseqlen_, GM_ADDR actualKvseqlen_,
-        GM_ADDR o_, GM_ADDR softmaxLse_, GM_ADDR workSpace_, GM_ADDR tiling_)
-        : q(q_), k(k_), v(v_), selectIdx(selectIdx_), blockTable(blockTable_),
-        selectNumIdx(selectNumIdx_), actualQseqlen(actualQseqlen_),
-        actualKvseqlen(actualKvseqlen_), o(o_), softmaxLse(softmaxLse_),
-        workSpace(workSpace_), tiling(tiling_) {}
+    __aicore__ inline SasaKernelParamsArch22() {}
+    __aicore__ inline SasaKernelParamsArch22(GM_ADDR q_, GM_ADDR k_, GM_ADDR v_, GM_ADDR selectIdx_,
+                                             GM_ADDR blockTable_, GM_ADDR selectNumIdx_, GM_ADDR actualQseqlen_,
+                                             GM_ADDR actualKvseqlen_, GM_ADDR o_, GM_ADDR softmaxLse_,
+                                             GM_ADDR workSpace_, GM_ADDR tiling_)
+        : q(q_),
+          k(k_),
+          v(v_),
+          selectIdx(selectIdx_),
+          blockTable(blockTable_),
+          selectNumIdx(selectNumIdx_),
+          actualQseqlen(actualQseqlen_),
+          actualKvseqlen(actualKvseqlen_),
+          o(o_),
+          softmaxLse(softmaxLse_),
+          workSpace(workSpace_),
+          tiling(tiling_)
+    {}
 };
 
 }  // namespace SasaKernelArch22

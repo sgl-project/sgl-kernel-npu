@@ -14,8 +14,7 @@
 #include "../../attn_infra/base_defs.hpp"
 #include "../../attn_infra/arch/arch.hpp"
 
-namespace NpuArch::Gemm
-{
+namespace NpuArch::Gemm {
 
 // Block Mmad Policies
 

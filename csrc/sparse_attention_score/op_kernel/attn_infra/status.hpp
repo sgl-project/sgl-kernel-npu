@@ -11,10 +11,10 @@
 #ifndef STATUS_HPP
 #define STATUS_HPP
 
-namespace NpuArch{
+namespace NpuArch {
 
-enum class Status{ kSuccess, kInvalid };
+enum class Status { kSuccess, kInvalid };
 
-} // namespace NpuArch
+}  // namespace NpuArch
 
 #endif

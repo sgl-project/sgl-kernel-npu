@@ -33,10 +33,10 @@ aclnnStatus aclnnFusedDeepMoeGetWorkspaceSize(
     uint64_t *workspaceSize, aclOpExecutor **executor)
 {
     return aclnnInnerFusedDeepMoeGetWorkspaceSize(
-         x, expertIds, gmm1PermutedWeight, gmm1PermutedWeightScale, gmm2Weight, gmm2WeightScale,
-         expertSmoothScalesOptional, expertScalesOptional, groupEp, epRankSize, epRankId, moeExpertNum, shareExpertNum,
-         shareExpertRankNum, quantMode, globalBs, activationType, activationAlpha, gateClampMax, upClampMin,
-         upClampMax, upAdd, output, outputRecvCount, workspaceSize, executor);
+        x, expertIds, gmm1PermutedWeight, gmm1PermutedWeightScale, gmm2Weight, gmm2WeightScale,
+        expertSmoothScalesOptional, expertScalesOptional, groupEp, epRankSize, epRankId, moeExpertNum, shareExpertNum,
+        shareExpertRankNum, quantMode, globalBs, activationType, activationAlpha, gateClampMax, upClampMin, upClampMax,
+        upAdd, output, outputRecvCount, workspaceSize, executor);
 }
 
 aclnnStatus aclnnFusedDeepMoe(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream)

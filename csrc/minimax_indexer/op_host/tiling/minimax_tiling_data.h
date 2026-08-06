@@ -25,26 +25,26 @@ namespace MIHost {
 // Verified at kernel build by static_assert(sizeof == sizeof(kernel TopkTiling)).
 #pragma pack(push, 1)
 struct MITopkTilingRaw {
-    int32_t  tmpLocalSize = 0;
-    int32_t  allDataSize = 0;
-    int32_t  innerDataSize = 0;
+    int32_t tmpLocalSize = 0;
+    int32_t allDataSize = 0;
+    int32_t innerDataSize = 0;
     uint32_t sortRepeat = 0;
-    int32_t  mrgSortRepeat = 0;
-    int32_t  kAlignFourBytes = 0;
-    int32_t  kAlignTwoBytes = 0;
-    int32_t  maskOffset = 0;
-    int32_t  maskVreducev2FourBytes = 0;
-    int32_t  maskVreducev2TwoBytes = 0;
-    int32_t  mrgSortSrc1offset = 0;
-    int32_t  mrgSortSrc2offset = 0;
-    int32_t  mrgSortSrc3offset = 0;
-    int32_t  mrgSortTwoQueueSrc1Offset = 0;
-    int32_t  mrgFourQueueTailPara1 = 0;
-    int32_t  mrgFourQueueTailPara2 = 0;
-    int32_t  srcIndexOffset = 0;
+    int32_t mrgSortRepeat = 0;
+    int32_t kAlignFourBytes = 0;
+    int32_t kAlignTwoBytes = 0;
+    int32_t maskOffset = 0;
+    int32_t maskVreducev2FourBytes = 0;
+    int32_t maskVreducev2TwoBytes = 0;
+    int32_t mrgSortSrc1offset = 0;
+    int32_t mrgSortSrc2offset = 0;
+    int32_t mrgSortSrc3offset = 0;
+    int32_t mrgSortTwoQueueSrc1Offset = 0;
+    int32_t mrgFourQueueTailPara1 = 0;
+    int32_t mrgFourQueueTailPara2 = 0;
+    int32_t srcIndexOffset = 0;
     uint32_t copyUbToUbBlockCount = 0;
-    int32_t  topkMrgSrc1MaskSizeOffset = 0;
-    int32_t  topkNSmallSrcIndexOffset = 0;
+    int32_t topkMrgSrc1MaskSizeOffset = 0;
+    int32_t topkNSmallSrcIndexOffset = 0;
     uint32_t vreduceValMask0 = 0;
     uint32_t vreduceValMask1 = 0;
     uint32_t vreduceIdxMask0 = 0;
@@ -77,9 +77,9 @@ struct MITilingData {
     uint32_t localBlocks = 0U;  // local (recent) sentinel block count
     float smScaleLog2e = 0.0f;  // sm_scale * log2(e), applied to max-reduced block score
     // Fused-interface extras (injected by HOST_API):
-    uint32_t directMode = 0U;    // 1: gather block table from req_to_token in-kernel
-    uint32_t maxTokenSlots = 0U; // req_to_token.shape[1] (direct gather token-slot width)
-    uint32_t appendLocal = 0U;   // 1: output topk+1 with causal local block at slot topk
+    uint32_t directMode = 0U;     // 1: gather block table from req_to_token in-kernel
+    uint32_t maxTokenSlots = 0U;  // req_to_token.shape[1] (direct gather token-slot width)
+    uint32_t appendLocal = 0U;    // 1: output topk+1 with causal local block at slot topk
     // TopK-API LD-merge optimization (populated by host; consumed by ProcessLD when
     // numBlocks > topk). partPerHead = usedCoreNum * sparseCount matches the kernel's
     // aicNum_*topk. topkTiling carries the host-computed TopkTiling (flat mirror);

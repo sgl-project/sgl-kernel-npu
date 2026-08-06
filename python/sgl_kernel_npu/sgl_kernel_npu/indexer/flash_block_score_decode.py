@@ -7,6 +7,7 @@ import torch
 import triton
 import triton.language as tl
 
+
 def _next_power_of_2(x: int) -> int:
     return 1 << (int(x) - 1).bit_length()
 
@@ -100,7 +101,6 @@ def _choose_num_score_chunks(
         ),
     }
 )
-
 @triton.jit
 def _merge_bnsd_score_topk_candidates_kernel(
     candidate_scores_ptr,  # [C, QH, B, topk]
@@ -465,9 +465,9 @@ def _merge_topk_append_local_impl(
     each index validated (causal) at slot ``rank``, local block at slot ``topk``
     (-1 when already selected -- dedup).
     """
-    seq_len = tl.load(
-        seq_lens_ptr + pid_b * stride_sl_b + pid_h * stride_sl_h
-    ).to(tl.int32)
+    seq_len = tl.load(seq_lens_ptr + pid_b * stride_sl_b + pid_h * stride_sl_h).to(
+        tl.int32
+    )
     query_pos = tl.maximum(seq_len - 1, 0)
     local_blk = tl.minimum(query_pos // block_size, num_blocks - 1)
 
@@ -747,8 +747,6 @@ def _merge_topk_append_local_adaptive(
         "BLOCK_SIZE_D": lambda args: triton.next_power_of_2(args["head_dim"]),
     }
 )
-
-
 @triton.heuristics(
     {
         "BLOCK_SIZE_H": lambda args: max(
@@ -1438,11 +1436,14 @@ def _normalize_topk_idx_for_gqa(
 
 @triton.jit
 def _native_sanitize_topk_kernel(
-    sel_ptr,            # [num_kv_heads, batch, SLOTS] int32 (in-place OUT)
+    sel_ptr,  # [num_kv_heads, batch, SLOTS] int32 (in-place OUT)
     select_num_idx_ptr,  # [num_kv_heads, batch] int32 (OUT)
-    seq_lens_ptr,        # [batch] int32
-    stride_sel_h, stride_sel_b, stride_sel_s,
-    stride_sn_h, stride_sn_b,
+    seq_lens_ptr,  # [batch] int32
+    stride_sel_h,
+    stride_sel_b,
+    stride_sel_s,
+    stride_sn_h,
+    stride_sn_b,
     block_size: tl.constexpr,
     SLOTS: tl.constexpr,
 ):
@@ -1457,9 +1458,9 @@ def _native_sanitize_topk_kernel(
     nblocks = tl.cdiv(seq_len, block_size)
     off = tl.arange(0, SLOTS)
     base = pid_h * stride_sel_h + pid_b * stride_sel_b
-    sel = tl.load(sel_ptr + base + off * stride_sel_s)            # [SLOTS]
-    sel = tl.where(sel >= nblocks, -1, sel)                       # sanitize OOB
-    count = tl.sum((sel >= 0).to(tl.int32), axis=0)               # scalar
+    sel = tl.load(sel_ptr + base + off * stride_sel_s)  # [SLOTS]
+    sel = tl.where(sel >= nblocks, -1, sel)  # sanitize OOB
+    count = tl.sum((sel >= 0).to(tl.int32), axis=0)  # scalar
     tl.store(sel_ptr + base + off * stride_sel_s, sel)
     tl.store(select_num_idx_ptr + pid_h * stride_sn_h + pid_b * stride_sn_b, count)
 
@@ -1515,7 +1516,9 @@ def _append_local_block_to_topk_idx_kernel(
         mask=q_valid[:, None] & (off_t[None, :] < topk),
         other=-1,
     ).to(tl.int32)
-    valid = (cand >= 0) & (cand < num_blocks) & (cand * block_size <= query_pos[:, None])
+    valid = (
+        (cand >= 0) & (cand < num_blocks) & (cand * block_size <= query_pos[:, None])
+    )
     cand_out = tl.where(valid, cand, -1)
 
     # Store validated candidates [BSQ, topk].
@@ -1524,7 +1527,9 @@ def _append_local_block_to_topk_idx_kernel(
         + q_tok[:, None] * stride_out_b
         + off_t[None, :] * stride_out_t
     )
-    tl.store(out_ptr + out_off, cand_out, mask=q_valid[:, None] & (off_t[None, :] < topk))
+    tl.store(
+        out_ptr + out_off, cand_out, mask=q_valid[:, None] & (off_t[None, :] < topk)
+    )
 
     # Append local block at slot topk: -1 if already present (dedup).
     local_present = tl.sum((cand_out == local_blk[:, None]).to(tl.int32), axis=1) > 0
@@ -1718,7 +1723,8 @@ def flash_decode_bnsd_with_topk_idx(
         and _native_minimax_indexer is not None
         and num_q_heads % 2 == 0  # head-split requires even gSize
         and head_dim == 128
-        and seq_lens.shape[0] in (batch_size, batch_size * (num_q_heads // num_kv_heads))
+        and seq_lens.shape[0]
+        in (batch_size, batch_size * (num_q_heads // num_kv_heads))
     ):
         gqa = num_q_heads // num_kv_heads
         # Fused interface: direct mode passes req_to_token + req_pool_indices and the
@@ -1729,11 +1735,17 @@ def flash_decode_bnsd_with_topk_idx(
             req_rt = req_to_token
             req_pi = req_pool_indices
         else:
-            bt_in = block_table if block_table.dtype == torch.int32 else block_table.to(torch.int32)
+            bt_in = (
+                block_table
+                if block_table.dtype == torch.int32
+                else block_table.to(torch.int32)
+            )
             req_rt = None
             req_pi = None
         q_in = q.reshape(batch_size, 1, num_q_heads, head_dim)
-        w_dummy = torch.empty((batch_size, 1, num_q_heads), dtype=q.dtype, device=q.device)
+        w_dummy = torch.empty(
+            (batch_size, 1, num_q_heads), dtype=q.dtype, device=q.device
+        )
         aq_dummy = torch.ones(batch_size, dtype=torch.int32, device=q.device)
         # Handle packed seq_lens [B*gqa] -> take first per batch [B]
         if seq_lens.shape[0] == batch_size:
@@ -1745,9 +1757,23 @@ def flash_decode_bnsd_with_topk_idx(
         # kernel writes the [QH, B, ..] layout directly, no permute/contiguous copy.
         append_local = 1 if fused_append_local else 0
         out = _native_minimax_indexer(
-            q_in, k_cache_bnsd, w_dummy, aq_dummy, sl_in, bt_in,
-            "BSND", "PA_BSND", topk, 0, init_blocks, local_blocks, float(sm_scale),
-            req_rt, req_pi, append_local)
+            q_in,
+            k_cache_bnsd,
+            w_dummy,
+            aq_dummy,
+            sl_in,
+            bt_in,
+            "BSND",
+            "PA_BSND",
+            topk,
+            0,
+            init_blocks,
+            local_blocks,
+            float(sm_scale),
+            req_rt,
+            req_pi,
+            append_local,
+        )
         topk_idx = out.view(num_q_heads, batch_size, topk + append_local)
         return None, topk_idx
 

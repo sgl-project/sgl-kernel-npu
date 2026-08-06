@@ -458,9 +458,9 @@ public:
                GM_ADDR gmX_, GM_ADDR debugGm_, GM_ADDR gmexpertIds_, GM_ADDR gmExpandIdx_, GM_ADDR gmEpSendCount_,
                GM_ADDR gmResvered_, GM_ADDR gmOutputRecvCount_, uint32_t epRankSize_, uint32_t epRankId_,
                uint32_t moeExpertNum_, uint32_t moeExpertNumPerRank_, uint32_t sharedExpertNum_,
-                uint32_t sharedExpertRankNum_, uint32_t quantMode_, uint32_t globalBs_, uint32_t bs_, uint32_t topK_,
-                uint32_t h, float activationAlpha_, float gateClampMax_, float upClampMin_, float upClampMax_,
-                float upAdd_)
+               uint32_t sharedExpertRankNum_, uint32_t quantMode_, uint32_t globalBs_, uint32_t bs_, uint32_t topK_,
+               uint32_t h, float activationAlpha_, float gateClampMax_, float upClampMin_, float upClampMax_,
+               float upAdd_)
             : problemShape(problemShape_),
               problemCount(problemCount_),
               ptrGroupList(reinterpret_cast<__gm__ ElementGroupList *>(ptrGroupList_)),
@@ -491,15 +491,15 @@ public:
               sharedExpertNum(sharedExpertNum_),
               sharedExpertRankNum(sharedExpertRankNum_),
               quantMode(quantMode_),
-               globalBs(globalBs_),
-               bs(bs_),
-               topK(topK_),
-               tokenLen(h),
-               activationAlpha(activationAlpha_),
-               gateClampMax(gateClampMax_),
-               upClampMin(upClampMin_),
-               upClampMax(upClampMax_),
-               upAdd(upAdd_)
+              globalBs(globalBs_),
+              bs(bs_),
+              topK(topK_),
+              tokenLen(h),
+              activationAlpha(activationAlpha_),
+              gateClampMax(gateClampMax_),
+              upClampMin(upClampMin_),
+              upClampMax(upClampMax_),
+              upAdd(upAdd_)
         {}
     };
 
@@ -1330,15 +1330,15 @@ void CompCoreFunc(GM_ADDR gmCVSwapBuff, __gm__ ElementScale *gmScale, __gm__ Ele
             LayoutD layoutD = layoutOutput.GetTileLayout(MakeCoord(currentM, nOut));
             EpilogueParams epilogueParams{gmScale + gmGroupOffsetScale,
                                           layoutScale,
-                                           gmTokenScale + gmGroupOffsetPerTokenScale,
-                                           layoutPerTokenScale,
-                                           gmSwigluOutput + gmGroupOffsetD,
-                                           layoutD,
-                                           activationAlpha,
-                                           gateClampMax,
-                                           upClampMin,
-                                           upClampMax,
-                                           upAdd};
+                                          gmTokenScale + gmGroupOffsetPerTokenScale,
+                                          layoutPerTokenScale,
+                                          gmSwigluOutput + gmGroupOffsetD,
+                                          layoutD,
+                                          activationAlpha,
+                                          gateClampMax,
+                                          upClampMin,
+                                          upClampMax,
+                                          upAdd};
             blockScheduler.Update(inGroupProblemShape, L1TileShape::ToCoordMN());
             blockEpilogue.UpdateParams(epilogueParams);
             uint32_t coreLoops = blockScheduler.GetCoreLoops();
@@ -1788,14 +1788,14 @@ public:
               layoutPerTokenScale(layoutPerTokenScale_),
               ptrOutput(reinterpret_cast<__gm__ ElementOutput *>(ptrOutput_)),
               layoutOutput(layoutOutput_),
-               ptrDequantScale(reinterpret_cast<__gm__ ElementDequantScale *>(ptrDequantScale_)),
-               layoutDequantScale(layoutDequantScale_),
-               ptrWorkspace(ptrWorkspace_),
-               activationAlpha(activationAlpha_),
-               gateClampMax(gateClampMax_),
-               upClampMin(upClampMin_),
-               upClampMax(upClampMax_),
-               upAdd(upAdd_)
+              ptrDequantScale(reinterpret_cast<__gm__ ElementDequantScale *>(ptrDequantScale_)),
+              layoutDequantScale(layoutDequantScale_),
+              ptrWorkspace(ptrWorkspace_),
+              activationAlpha(activationAlpha_),
+              gateClampMax(gateClampMax_),
+              upClampMin(upClampMin_),
+              upClampMax(upClampMax_),
+              upAdd(upAdd_)
         {}
     };
 

@@ -47,7 +47,9 @@ def _make_inputs(B, seq, block_size=128, topk=16):
     max_slots = nb * block_size
     req_to_token = np.full((B, max_slots), -1, dtype=np.int32)
     for b in range(B):
-        req_to_token[b, : seq] = np.arange(b * nb * block_size, b * nb * block_size + seq)
+        req_to_token[b, :seq] = np.arange(
+            b * nb * block_size, b * nb * block_size + seq
+        )
     req_pool_indices = np.arange(B, dtype=np.int32)
     return q, key, block_table, seq_lens, req_to_token, req_pool_indices
 
@@ -57,8 +59,23 @@ class TestIndexerFusedInterface(unittest.TestCase):
         w_t = torch.zeros((q_t.shape[0], 1, QH), dtype=torch.bfloat16).npu()
         aq_t = torch.ones(q_t.shape[0], dtype=torch.int32).npu()
         return torch.ops.npu.minimax_indexer(
-            q_t, k_t, w_t, aq_t, sl_t, bt_t, "BSND", "PA_BSND", 16, 0, 0, 0,
-            1.0 / np.sqrt(D), rtt_t, rpi_t, append_local)
+            q_t,
+            k_t,
+            w_t,
+            aq_t,
+            sl_t,
+            bt_t,
+            "BSND",
+            "PA_BSND",
+            16,
+            0,
+            0,
+            0,
+            1.0 / np.sqrt(D),
+            rtt_t,
+            rpi_t,
+            append_local,
+        )
 
     def test_direct_equals_blocktable(self):
         for seq in (8192, 32768, 131072):
@@ -70,14 +87,26 @@ class TestIndexerFusedInterface(unittest.TestCase):
             bt_t = torch.from_numpy(bt).npu()
             rtt_t = torch.from_numpy(rtt).npu()
             rpi_t = torch.from_numpy(rpi).npu()
-            out_bt = self._call(q_t, k_t, sl_t, bt_t, None, None, 0).view(QH, B, 16).cpu().numpy()
-            out_direct = self._call(q_t, k_t, sl_t, None, rtt_t, rpi_t, 0).view(QH, B, 16).cpu().numpy()
+            out_bt = (
+                self._call(q_t, k_t, sl_t, bt_t, None, None, 0)
+                .view(QH, B, 16)
+                .cpu()
+                .numpy()
+            )
+            out_direct = (
+                self._call(q_t, k_t, sl_t, None, rtt_t, rpi_t, 0)
+                .view(QH, B, 16)
+                .cpu()
+                .numpy()
+            )
             self.assertTrue(
                 np.array_equal(out_bt, out_direct),
                 f"direct vs block_table mismatch at seq={seq}: "
                 f"{(out_bt != out_direct).sum()} elems differ",
             )
-            print(f"  [direct==block_table] seq={seq}: bit-exact {np.array_equal(out_bt, out_direct)}")
+            print(
+                f"  [direct==block_table] seq={seq}: bit-exact {np.array_equal(out_bt, out_direct)}"
+            )
 
     def test_append_fused_equals_emulated(self):
         for seq in (8192, 32768, 131072):
@@ -88,17 +117,29 @@ class TestIndexerFusedInterface(unittest.TestCase):
             sl_t = torch.from_numpy(sl).npu()
             bt_t = torch.from_numpy(bt).npu()
             # non-fused topk [QH, B, 16] -> emulate append on CPU
-            out_topk = self._call(q_t, k_t, sl_t, bt_t, None, None, 0).view(QH, B, 16).cpu().numpy()
+            out_topk = (
+                self._call(q_t, k_t, sl_t, bt_t, None, None, 0)
+                .view(QH, B, 16)
+                .cpu()
+                .numpy()
+            )
             num_blocks = (seq + 127) // 128
             ref = _emulate_append(out_topk, sl, 128, num_blocks)
             # fused append [QH, B, 17]
-            out_fused = self._call(q_t, k_t, sl_t, bt_t, None, None, 1).view(QH, B, 17).cpu().numpy()
+            out_fused = (
+                self._call(q_t, k_t, sl_t, bt_t, None, None, 1)
+                .view(QH, B, 17)
+                .cpu()
+                .numpy()
+            )
             self.assertTrue(
                 np.array_equal(out_fused, ref),
                 f"fused append vs emulated mismatch at seq={seq}: "
                 f"{(out_fused != ref).sum()} elems differ",
             )
-            print(f"  [append fused==emulated] seq={seq}: bit-exact {np.array_equal(out_fused, ref)}")
+            print(
+                f"  [append fused==emulated] seq={seq}: bit-exact {np.array_equal(out_fused, ref)}"
+            )
 
     def test_append_fused_direct(self):
         # direct + append combined
@@ -111,9 +152,21 @@ class TestIndexerFusedInterface(unittest.TestCase):
         bt_t = torch.from_numpy(bt).npu()
         rtt_t = torch.from_numpy(rtt).npu()
         rpi_t = torch.from_numpy(rpi).npu()
-        out_bt = self._call(q_t, k_t, sl_t, bt_t, None, None, 1).view(QH, B, 17).cpu().numpy()
-        out_direct = self._call(q_t, k_t, sl_t, None, rtt_t, rpi_t, 1).view(QH, B, 17).cpu().numpy()
-        self.assertTrue(np.array_equal(out_bt, out_direct), "direct+append vs bt+append mismatch")
+        out_bt = (
+            self._call(q_t, k_t, sl_t, bt_t, None, None, 1)
+            .view(QH, B, 17)
+            .cpu()
+            .numpy()
+        )
+        out_direct = (
+            self._call(q_t, k_t, sl_t, None, rtt_t, rpi_t, 1)
+            .view(QH, B, 17)
+            .cpu()
+            .numpy()
+        )
+        self.assertTrue(
+            np.array_equal(out_bt, out_direct), "direct+append vs bt+append mismatch"
+        )
         print(f"  [direct+append == bt+append] seq={seq} B={B}: bit-exact")
 
 

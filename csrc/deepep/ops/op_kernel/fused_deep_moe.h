@@ -57,17 +57,15 @@ using Gmm2DispatchPolicy =
 
 template <uint32_t EXEC_FLAG, typename XType_, class L1TileShape_, class L0TileShape_, class EpilogueTileShape_,
           class BlockScheduler_, class DispatchPolicy_ = MmadAtlasA2Custom>
-ACT_DEVICE void GmmDeqSwigluQuant(GemmCoord problemShape, uint32_t groupCount, GM_ADDR gmGroupList, GM_ADDR gmA,
-                                  layout::RowMajor layoutA, GM_ADDR gmB, layout::zN layoutB, GM_ADDR gmScale,
-                                  layout::VectorLayout layoutScale, GM_ADDR gmPerTokenScale,
-                                  layout::VectorLayout layoutPerTokenScale, GM_ADDR gmD, layout::RowMajor layoutD,
-                                  GM_ADDR gmDequantScale, layout::VectorLayout layoutDequantScale, GM_ADDR gmWorkspace,
-                                  GM_ADDR gmX, GM_ADDR debugGm, GM_ADDR gmexpertIds, GM_ADDR gmExpandIdx,
-                                  GM_ADDR gmEpSendCount, GM_ADDR gmResvered, GM_ADDR gmOutputRecvCount,
-                                  uint32_t epRankSize, uint32_t epRankId, uint32_t moeExpertNum,
-                                  uint32_t moeExpertNumPerRank, uint32_t sharedExpertNum, uint32_t sharedExpertRankNum,
-                                   uint32_t quantMode, uint32_t globalBs, uint32_t bs, uint32_t topK, uint32_t tokenLen,
-                                   float activationAlpha, float gateClampMax, float upClampMin, float upClampMax, float upAdd)
+ACT_DEVICE void GmmDeqSwigluQuant(
+    GemmCoord problemShape, uint32_t groupCount, GM_ADDR gmGroupList, GM_ADDR gmA, layout::RowMajor layoutA,
+    GM_ADDR gmB, layout::zN layoutB, GM_ADDR gmScale, layout::VectorLayout layoutScale, GM_ADDR gmPerTokenScale,
+    layout::VectorLayout layoutPerTokenScale, GM_ADDR gmD, layout::RowMajor layoutD, GM_ADDR gmDequantScale,
+    layout::VectorLayout layoutDequantScale, GM_ADDR gmWorkspace, GM_ADDR gmX, GM_ADDR debugGm, GM_ADDR gmexpertIds,
+    GM_ADDR gmExpandIdx, GM_ADDR gmEpSendCount, GM_ADDR gmResvered, GM_ADDR gmOutputRecvCount, uint32_t epRankSize,
+    uint32_t epRankId, uint32_t moeExpertNum, uint32_t moeExpertNumPerRank, uint32_t sharedExpertNum,
+    uint32_t sharedExpertRankNum, uint32_t quantMode, uint32_t globalBs, uint32_t bs, uint32_t topK, uint32_t tokenLen,
+    float activationAlpha, float gateClampMax, float upClampMin, float upClampMax, float upAdd)
 {
     using ArchTag = Arch::AtlasA2;
     using DispatchPolicy = DispatchPolicy_;
@@ -149,13 +147,13 @@ ACT_DEVICE void GmmDeqSwigluQuant(GemmCoord problemShape, uint32_t groupCount, G
                                            quantMode,
                                            globalBs,
                                            bs,
-                                            topK,
-                                            tokenLen,
-                                            activationAlpha,
-                                            gateClampMax,
-                                            upClampMin,
-                                            upClampMax,
-                                            upAdd};
+                                           topK,
+                                           tokenLen,
+                                           activationAlpha,
+                                           gateClampMax,
+                                           upClampMin,
+                                           upClampMax,
+                                           upAdd};
         // call a kernel
         GemmKernel gemm;
         gemm(params);
@@ -174,13 +172,13 @@ ACT_DEVICE void GmmDeqSwigluQuant(GemmCoord problemShape, uint32_t groupCount, G
                                            gmD,
                                            layoutD,
                                            gmDequantScale,
-                                            layoutDequantScale,
-                                            gmWorkspace,
-                                            activationAlpha,
-                                            gateClampMax,
-                                            upClampMin,
-                                            upClampMax,
-                                            upAdd};
+                                           layoutDequantScale,
+                                           gmWorkspace,
+                                           activationAlpha,
+                                           gateClampMax,
+                                           upClampMin,
+                                           upClampMax,
+                                           upAdd};
         // call a kernel
         GemmKernel gemm;
         gemm(params);
@@ -427,13 +425,13 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Process()
         }
     }
     GmmDeqSwigluQuant<EXEC_FLAG, ExpandXType, Gmm1L1TileShape, Gmm1L0TileShape, Gmm1EpilogueTileShape,
-                       Gmm1BlockScheduler>(
+                      Gmm1BlockScheduler>(
         gmm1ProblemShape, groupCount_, gmGroupList, gmX1Token, layoutX1, gmPermuteWeight1_, layoutWeight1,
         gmPermuteScale1_, layoutScale1, gmX1Scale, layoutPerTokenScale1, gmX2, layoutX2, gmPerTokenScale2,
         layoutPerTokenScale2, gmWorkspace, gmX_, gmSmoothScales_, gmexpertIds_, gmExpandIdx, gmEpSendCount, gmResvered,
         gmOutputRecvCount_, epRankSize_, epRankId_, moeExpertNum_, moeExpertNumPerRank_, sharedExpertNum_,
-         sharedExpertRankNum_, quantMode_, globalBs_, bs_, topK_, k_, activationAlpha_, gateClampMax_, upClampMin_,
-         upClampMax_, upAdd_);
+        sharedExpertRankNum_, quantMode_, globalBs_, bs_, topK_, k_, activationAlpha_, gateClampMax_, upClampMin_,
+        upClampMax_, upAdd_);
 #ifdef ENABLE_GMM2_COMBINE
     AscendC::PipeBarrier<PIPE_ALL>();
     Arch::CrossCoreFlag gmm1AivFinished{0};

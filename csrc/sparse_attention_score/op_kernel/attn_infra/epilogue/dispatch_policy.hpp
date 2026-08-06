@@ -14,10 +14,9 @@
 #include "../../attn_infra/base_defs.hpp"
 #include "../../attn_infra/arch/arch.hpp"
 
-namespace NpuArch::Epilogue
-{
+namespace NpuArch::Epilogue {
 
-enum class LseMode {NONE = 0, OUT_ONLY = 1};
+enum class LseMode { NONE = 0, OUT_ONLY = 1 };
 // For AtlasA2, FA Infer online Softmax
 template <LseMode LSE_MODE_, typename SM_DTYPE_>
 struct EpilogueAtlasA2OnlineSoftmax {

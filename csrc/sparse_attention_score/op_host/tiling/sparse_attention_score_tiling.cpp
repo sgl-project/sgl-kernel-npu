@@ -17,8 +17,7 @@
 namespace sglang {
 namespace SAHost {
 
-void SATiling::DoTiling(const SAInfo &info, SATilingData &tilingData, size_t &workspaceSize,
-                        uint32_t &blockDim)
+void SATiling::DoTiling(const SAInfo &info, SATilingData &tilingData, size_t &workspaceSize, uint32_t &blockDim)
 {
     // ---- CalculateTaskSplit ----
     // totalTaskNum = totalQTokens * kvHeads; one (Q token, KV head) pair per task.
@@ -49,7 +48,8 @@ void SATiling::DoTiling(const SAInfo &info, SATilingData &tilingData, size_t &wo
         workSpaceSize = info.libapiSize + identityIdxSize + mm1OutSize + smOnlineOutSize + mm2OutSize + updateSize;
     } else {
         uint32_t dtypeSize = (info.dataType == ge::DT_FLOAT8_E4M3FN) ? 1 : 2;
-        uint64_t perTaskWorkspace = static_cast<uint64_t>(info.topK) * info.blockSize * info.embeddingSize * dtypeSize * 2;
+        uint64_t perTaskWorkspace =
+            static_cast<uint64_t>(info.topK) * info.blockSize * info.embeddingSize * dtypeSize * 2;
         uint64_t identityIdxSize = static_cast<uint64_t>(info.topK) * sizeof(int32_t);
         workSpaceSize = info.libapiSize + identityIdxSize + static_cast<uint64_t>(blockDim) * perTaskWorkspace;
     }

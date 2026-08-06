@@ -26,27 +26,10 @@
 namespace NpuArch::Gemm::Block {
 ////////////////////////////////////////////////////////////////////
 
-template <
-    bool PAGED_CACHE_FLAG_,
-    bool ENABLE_UNIT_FLAG_,
-    class L1TileShape_,
-    class L0TileShape_,
-    class AType_,
-    class BType_,
-    class CType_,
-    class BiasType_,
-    class TileCopy_,
-    class TileMmad_>
-struct BlockMmad<
-    MmadAtlasA2SFAIPV<PAGED_CACHE_FLAG_, ENABLE_UNIT_FLAG_>,
-    L1TileShape_,
-    L0TileShape_,
-    AType_,
-    BType_,
-    CType_,
-    BiasType_,
-    TileCopy_,
-    TileMmad_> {
+template <bool PAGED_CACHE_FLAG_, bool ENABLE_UNIT_FLAG_, class L1TileShape_, class L0TileShape_, class AType_,
+          class BType_, class CType_, class BiasType_, class TileCopy_, class TileMmad_>
+struct BlockMmad<MmadAtlasA2SFAIPV<PAGED_CACHE_FLAG_, ENABLE_UNIT_FLAG_>, L1TileShape_, L0TileShape_, AType_, BType_,
+                 CType_, BiasType_, TileCopy_, TileMmad_> {
 public:
     // Type Aliases
     using DispatchPolicy = MmadAtlasA2SFAIPV<PAGED_CACHE_FLAG_, ENABLE_UNIT_FLAG_>;
@@ -90,8 +73,7 @@ public:
     static_assert(std::is_same_v<LayoutC, layout::RowMajor>, "LayoutC only support RowMajor yet!");
 
     /// Construct
-    __aicore__ inline
-    BlockMmad(Arch::Resource<ArchTag> &resource, uint32_t l1BufAddrStart = 0)
+    __aicore__ inline BlockMmad(Arch::Resource<ArchTag> &resource, uint32_t l1BufAddrStart = 0)
     {
         // Allocate L1 memory space
         l1BTensor = resource.l1Buf.template GetBufferByByte<ElementB>(l1BufAddrStart + L1A_SIZE * 2);
@@ -104,12 +86,10 @@ public:
     }
 
     /// Destructor
-    __aicore__ inline
-    ~BlockMmad() {}
+    __aicore__ inline ~BlockMmad() {}
 
-    __aicore__ inline
-    void getBlockShape(
-        GemmCoord &actualShape, uint32_t &nowNIdx, uint32_t &nLoop, uint32_t &stackSeqTile, uint32_t &blockSize)
+    __aicore__ inline void getBlockShape(GemmCoord &actualShape, uint32_t &nowNIdx, uint32_t &nLoop,
+                                         uint32_t &stackSeqTile, uint32_t &blockSize)
     {
         uint32_t nSplitSize = blockSize;
         if (nowNIdx == nLoop - 1) {
@@ -118,16 +98,13 @@ public:
         actualShape[2] = nSplitSize;
     }
 
-    __aicore__ inline
-    void operator()(AscendC::GlobalTensor<ElementA> gA,
-                    AscendC::GlobalTensor<ElementB> gB,
-                    AscendC::GlobalTensor<ElementC> gC,
-                    AscendC::GlobalTensor<int32_t> gBlockTable,
-                    AscendC::GlobalTensor<int32_t> gSelectIdx,
-                    LayoutA layoutA, LayoutB layoutB, LayoutC layoutC,GemmCoord actualOriShape,
-                    uint32_t nIdx, uint32_t nLoop, uint32_t &blockSize, uint32_t kvSeqlen, uint32_t strideKV,
-                    uint32_t blockStackNum, Arch::CrossCoreFlag softmaxFlag,
-                    uint32_t &y, uint32_t selectNum, uint32_t kvYBlockNum)
+    __aicore__ inline void operator()(AscendC::GlobalTensor<ElementA> gA, AscendC::GlobalTensor<ElementB> gB,
+                                      AscendC::GlobalTensor<ElementC> gC, AscendC::GlobalTensor<int32_t> gBlockTable,
+                                      AscendC::GlobalTensor<int32_t> gSelectIdx, LayoutA layoutA, LayoutB layoutB,
+                                      LayoutC layoutC, GemmCoord actualOriShape, uint32_t nIdx, uint32_t nLoop,
+                                      uint32_t &blockSize, uint32_t kvSeqlen, uint32_t strideKV, uint32_t blockStackNum,
+                                      Arch::CrossCoreFlag softmaxFlag, uint32_t &y, uint32_t selectNum,
+                                      uint32_t kvYBlockNum)
     {
         uint32_t rowNum = actualOriShape[0];
         uint32_t embed = actualOriShape[1];
@@ -152,9 +129,12 @@ public:
             uint32_t currentYIdx = gSelectIdx.GetValue(currentSelectYIdx);
             uint32_t offsetInKV = currentYIdx * y + currentYoffset;
 
-            while (processSize < kActual && currentSelectYIdx < selectNum && currentYIdx < kvYBlockNum && offsetInKV < kvSeqlen) {
-                uint32_t yAcutal = (currentSelectYIdx == selectNum - 1 && currentYIdx == kvYBlockNum - 1 && kvSeqlen % y != 0) ?
-                                    (kvSeqlen - y * currentYIdx) : y;
+            while (processSize < kActual && currentSelectYIdx < selectNum && currentYIdx < kvYBlockNum &&
+                   offsetInKV < kvSeqlen) {
+                uint32_t yAcutal =
+                    (currentSelectYIdx == selectNum - 1 && currentYIdx == kvYBlockNum - 1 && kvSeqlen % y != 0)
+                        ? (kvSeqlen - y * currentYIdx)
+                        : y;
                 uint32_t remainingInYBlock = yAcutal - currentYoffset;
                 uint32_t remainingInNBlock = kActual - processSize;
 
@@ -236,13 +216,8 @@ public:
                     AscendC::SetFlag<AscendC::HardEvent::MTE1_M>(EVENT_ID0);
                     AscendC::WaitFlag<AscendC::HardEvent::MTE1_M>(EVENT_ID0);
                     bool initMmad = kL1Idx == 0 && kL0Idx == 0;
-                    tileMmad(l0CTensor[l0CPingPongFlag],
-                        l0ATensor[l0ABPingPongFlag],
-                        l0BTensor[l0ABPingPongFlag],
-                        mRound,
-                        embed,
-                        kL0Actual,
-                        initMmad);
+                    tileMmad(l0CTensor[l0CPingPongFlag], l0ATensor[l0ABPingPongFlag], l0BTensor[l0ABPingPongFlag],
+                             mRound, embed, kL0Actual, initMmad);
                     AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(l0ABPingPongFlag);
                     AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(l0ABPingPongFlag + 2);
                     l0ABPingPongFlag = 1 - l0ABPingPongFlag;
@@ -286,4 +261,3 @@ protected:
 }  // namespace NpuArch::Gemm::Block
 
 #endif  // GEMM_BLOCK_MMAD_SFAI_PV_HPP
-

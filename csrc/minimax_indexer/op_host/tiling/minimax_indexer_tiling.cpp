@@ -192,8 +192,8 @@ ge::graphStatus MIInfoParser::GetAndCheckOptionalInput()
 {
     if (kLayout_ == DataLayout::BnBsND) {
         // Fused direct mode: req_to_token + req_pool_indices substitute block_table.
-        bool directMode = (opParamInfo_.reqToToken.tensor != nullptr) ||
-                          (opParamInfo_.reqPoolIndices.tensor != nullptr);
+        bool directMode =
+            (opParamInfo_.reqToToken.tensor != nullptr) || (opParamInfo_.reqPoolIndices.tensor != nullptr);
         if (directMode) {
             TORCH_CHECK(opParamInfo_.reqToToken.tensor != nullptr && opParamInfo_.reqPoolIndices.tensor != nullptr,
                         OPS_LOG_E(opName_,
@@ -205,9 +205,9 @@ ge::graphStatus MIInfoParser::GetAndCheckOptionalInput()
         TORCH_CHECK(
             opParamInfo_.actualSeqLengths.tensor != nullptr,
             OPS_LOG_E(opName_, "key layout only supported PA_BSND, input actual_seq_lengths_key must not be null"));
-        TORCH_CHECK(opParamInfo_.blockTable.tensor == nullptr ||
-                        opParamInfo_.blockTable.desc->GetDataType() == ge::DT_INT32,
-                    OPS_LOG_E(opName_, "input block_table data type only support int32"));
+        TORCH_CHECK(
+            opParamInfo_.blockTable.tensor == nullptr || opParamInfo_.blockTable.desc->GetDataType() == ge::DT_INT32,
+            OPS_LOG_E(opName_, "input block_table data type only support int32"));
     } else if (kLayout_ == DataLayout::TND) {
         TORCH_CHECK(opParamInfo_.actualSeqLengths.tensor != nullptr,
                     OPS_LOG_E(opName_, "when layout_key is TND, input actual_seq_lengths_key must not be null"));
@@ -303,8 +303,8 @@ ge::graphStatus MIInfoParser::GetGSize()
     TORCH_CHECK(n1Size_ % n2Size_ == 0, opName_, ": input query's head_num ", n1Size_,
                 " can not be a multiple of key's head_num ", n2Size_);
     gSize_ = n1Size_ / n2Size_;
-    TORCH_CHECK(gSize_ >= 2 && gSize_ % 2 == 0, opName_, ": N1/N2 (gSize) must be even and >= 2 for head-split, got ", gSize_,
-                " (N1=", n1Size_, ", N2=", n2Size_, ").");
+    TORCH_CHECK(gSize_ >= 2 && gSize_ % 2 == 0, opName_, ": N1/N2 (gSize) must be even and >= 2 for head-split, got ",
+                gSize_, " (N1=", n1Size_, ", N2=", n2Size_, ").");
 
     return ge::GRAPH_SUCCESS;
 }
@@ -493,8 +493,9 @@ ge::graphStatus MIInfoParser::ValidateInputShapesMatch()
     // Fused causal-local append emits topk+1 rows (local block at slot topk).
     int64_t outLastDim = opParamInfo_.attenOut.shape->GetStorageShape().GetDim(outN2Dim + 1);
     TORCH_CHECK(outLastDim == *opParamInfo_.sparseCount || outLastDim == *opParamInfo_.sparseCount + 1,
-                OPS_LOG_E(opName_, "output sparse_indices shape last dim must be same as attr sparse_count "
-                                   "(or sparse_count+1 with append_local)."));
+                OPS_LOG_E(opName_,
+                          "output sparse_indices shape last dim must be same as attr sparse_count "
+                          "(or sparse_count+1 with append_local)."));
 
     return ge::GRAPH_SUCCESS;
 }
@@ -581,9 +582,9 @@ ge::graphStatus MinimaxIndexerTiling::DoTiling(MITilingInfo *tilingInfo)
     // -------------set workspacesize-----------------
     // MiniMax multi-core WS: mm1Res(double-buffered scores) + per-head topk16 partials
     // (values + indices) for the LD merge. s2BaseSize == blockSize (one Cube tile/block).
-    constexpr uint32_t MM1_RES_ELEM_SIZE = 4;   // 4: fp32
-    constexpr uint32_t DOUBLE_BUFFER = 2;       // double-buffered
-    constexpr uint32_t M_BASE_SIZE = 512;       // M-axis base-block size (s1*g, S1=1 -> 64 active)
+    constexpr uint32_t MM1_RES_ELEM_SIZE = 4;  // 4: fp32
+    constexpr uint32_t DOUBLE_BUFFER = 2;      // double-buffered
+    constexpr uint32_t M_BASE_SIZE = 512;      // M-axis base-block size (s1*g, S1=1 -> 64 active)
     const uint32_t blockSize = static_cast<uint32_t>(tilingInfo->blockSize);
     uint32_t workspaceSize = ascendcPlatform.GetLibApiWorkSpaceSize();
     // mm1Res: [aic, 2, M_BASE, blockSize*2] float (s2BaseSize = 2*blockSize, 2 blocks/tile)

@@ -25,27 +25,10 @@
 namespace NpuArch::Gemm::Block {
 ////////////////////////////////////////////////////////////////////
 
-template <
-    bool PAGED_CACHE_FLAG_,
-    bool ENABLE_UNIT_FLAG_,
-    class L1TileShape_,
-    class L0TileShape_,
-    class AType_,
-    class BType_,
-    class CType_,
-    class BiasType_,
-    class TileCopy_,
-    class TileMmad_>
-struct BlockMmad<
-    MmadAtlasA2SFAIQK<PAGED_CACHE_FLAG_, ENABLE_UNIT_FLAG_>,
-    L1TileShape_,
-    L0TileShape_,
-    AType_,
-    BType_,
-    CType_,
-    BiasType_,
-    TileCopy_,
-    TileMmad_> {
+template <bool PAGED_CACHE_FLAG_, bool ENABLE_UNIT_FLAG_, class L1TileShape_, class L0TileShape_, class AType_,
+          class BType_, class CType_, class BiasType_, class TileCopy_, class TileMmad_>
+struct BlockMmad<MmadAtlasA2SFAIQK<PAGED_CACHE_FLAG_, ENABLE_UNIT_FLAG_>, L1TileShape_, L0TileShape_, AType_, BType_,
+                 CType_, BiasType_, TileCopy_, TileMmad_> {
 public:
     using DispatchPolicy = MmadAtlasA2SFAIQK<PAGED_CACHE_FLAG_, ENABLE_UNIT_FLAG_>;
     using ArchTag = typename DispatchPolicy::ArchTag;
@@ -96,8 +79,7 @@ public:
 
     static_assert(std::is_same_v<LayoutC, layout::RowMajor>, "LayoutC only support RowMajor yet!");
 
-    __aicore__ inline
-    BlockMmad(Arch::Resource<ArchTag> &resource, uint32_t l1BufAddrStart = 0)
+    __aicore__ inline BlockMmad(Arch::Resource<ArchTag> &resource, uint32_t l1BufAddrStart = 0)
     {
         l1ATensor = resource.l1Buf.template GetBufferByByte<ElementA>(l1BufAddrStart);
 
@@ -110,12 +92,10 @@ public:
         }
     }
 
-    __aicore__ inline
-    ~BlockMmad() {}
+    __aicore__ inline ~BlockMmad() {}
 
-    __aicore__ inline
-    void loadQGM(AscendC::GlobalTensor<ElementA> gA, LayoutA layoutA, uint32_t rowNum, uint32_t &singleGroupHeads,
-        uint64_t qStride)
+    __aicore__ inline void loadQGM(AscendC::GlobalTensor<ElementA> gA, LayoutA layoutA, uint32_t rowNum,
+                                   uint32_t &singleGroupHeads, uint64_t qStride)
     {
         uint32_t embed = layoutA.shape(1);
         uint32_t rowNumRound = RoundUp<L1AAlignHelper::M_ALIGNED>(rowNum);
@@ -125,22 +105,15 @@ public:
 
         LayoutAInL1 layoutAInL1 = LayoutAInL1::template MakeLayout<ElementA>(rowNum, embed);
 
-        copyGmToL1A(l1ATensor,
-            gA,
-            layoutAInL1,
-            layoutSingleANd,
-            tokenNumPerGroup,
-            qStride,
-            tokenNumPerGroup,
-            BLOCK_SIZE,
-            rowNumRound);
+        copyGmToL1A(l1ATensor, gA, layoutAInL1, layoutSingleANd, tokenNumPerGroup, qStride, tokenNumPerGroup,
+                    BLOCK_SIZE, rowNumRound);
 
         AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE1>(EVENT_ID3);
         AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE1>(EVENT_ID3);
     }
 
-    __aicore__ inline
-    void getBlockShape(GemmCoord &actualShape, uint32_t nL1Idx, uint32_t nL1Loop, uint32_t stackSeqTile)
+    __aicore__ inline void getBlockShape(GemmCoord &actualShape, uint32_t nL1Idx, uint32_t nL1Loop,
+                                         uint32_t stackSeqTile)
     {
         uint32_t nSplitSize = L1TileShape::N;
         if (nL1Idx == nL1Loop - 1) {
@@ -149,15 +122,12 @@ public:
         actualShape[1] = nSplitSize;
     }
 
-    __aicore__ inline
-    void operator()(AscendC::GlobalTensor<ElementA> gA,
-                    AscendC::GlobalTensor<ElementB> gB,
-                    AscendC::GlobalTensor<ElementC> gC,
-                    AscendC::GlobalTensor<int32_t> gBlockTable,
-                    AscendC::GlobalTensor<int32_t> gSelectIdx,
-                    LayoutA layoutA, LayoutB layoutB, LayoutC layoutC, GemmCoord actualOriShape,
-                    uint32_t nIdx, uint32_t nLoop, uint32_t &blockSize, uint32_t strideKV,
-                    uint32_t &y, uint32_t selectNum, uint32_t kvYBlockNum, uint32_t &kvSeqlen)
+    __aicore__ inline void operator()(AscendC::GlobalTensor<ElementA> gA, AscendC::GlobalTensor<ElementB> gB,
+                                      AscendC::GlobalTensor<ElementC> gC, AscendC::GlobalTensor<int32_t> gBlockTable,
+                                      AscendC::GlobalTensor<int32_t> gSelectIdx, LayoutA layoutA, LayoutB layoutB,
+                                      LayoutC layoutC, GemmCoord actualOriShape, uint32_t nIdx, uint32_t nLoop,
+                                      uint32_t &blockSize, uint32_t strideKV, uint32_t &y, uint32_t selectNum,
+                                      uint32_t kvYBlockNum, uint32_t &kvSeqlen)
     {
         uint32_t rowNum = actualOriShape[0];
         uint32_t stackSeqTile = actualOriShape[1];
@@ -196,9 +166,12 @@ public:
 
             AscendC::WaitFlag<AscendC::HardEvent::MTE1_MTE2>(l1KvPingPongFlag);
 
-            while (processSize < nActual && currentSelectYIdx < selectNum && currentYIdx < kvYBlockNum && offsetInKV < kvSeqlen) {
-                uint32_t yAcutal = (currentSelectYIdx == selectNum - 1 && currentYIdx == kvYBlockNum - 1 && kvSeqlen % y != 0) ?
-                                    (kvSeqlen - y * currentYIdx) : y;
+            while (processSize < nActual && currentSelectYIdx < selectNum && currentYIdx < kvYBlockNum &&
+                   offsetInKV < kvSeqlen) {
+                uint32_t yAcutal =
+                    (currentSelectYIdx == selectNum - 1 && currentYIdx == kvYBlockNum - 1 && kvSeqlen % y != 0)
+                        ? (kvSeqlen - y * currentYIdx)
+                        : y;
                 uint32_t remainingInYBlock = yAcutal - currentYoffset;
                 uint32_t remainingInNBlock = nActual - processSize;
 
@@ -209,7 +182,8 @@ public:
 
                 auto layoutBTile = layoutB.GetTileLayout(MakeCoord(kActual, actualYSize));
 
-                copyGmToL1B(l1BTensor[l1KvPingPongFlag][processSize], gB[offsetInKV * strideKV], layoutBInL1, layoutBTile);
+                copyGmToL1B(l1BTensor[l1KvPingPongFlag][processSize], gB[offsetInKV * strideKV], layoutBInL1,
+                            layoutBTile);
 
                 processSize += actualYSize;
                 currentYoffset += actualYSize;
@@ -264,13 +238,8 @@ public:
                     AscendC::WaitFlag<AscendC::HardEvent::MTE1_M>(EVENT_ID0);
 
                     bool initMmad = kL0Idx == 0;
-                    tileMmad(l0CTensor[l0CPingPongFlag],
-                        l0ATensor[l0ABPingPongFlag],
-                        l0BTensor[l0ABPingPongFlag],
-                        mRound,
-                        nActual,
-                        kL0Actual,
-                        initMmad);
+                    tileMmad(l0CTensor[l0CPingPongFlag], l0ATensor[l0ABPingPongFlag], l0BTensor[l0ABPingPongFlag],
+                             mRound, nActual, kL0Actual, initMmad);
 
                     AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(l0ABPingPongFlag);
                     AscendC::SetFlag<AscendC::HardEvent::M_MTE1>(l0ABPingPongFlag + 2);
@@ -318,6 +287,4 @@ protected:
 
 }  // namespace NpuArch::Gemm::Block
 
-
 #endif  // GEMM_BLOCK_MMAD_SFAI_QK_HPP
-
