@@ -14,12 +14,17 @@
 #include "sparse_attention_score_kernel_interface.cpp"
 #include "kernel_common.hpp"  // SparseAttn::SparseAttentionScoreTilingData (host/kernel tiling blob contract)
 
+// NOTE: workspace_kernel auto-gen (CANN extract_host_stub.py) mis-parses
+// `__gm__ uint8_t *` params after preprocessing (name becomes `*query`, star
+// glued to the identifier), generating a broken indirect wrapper that
+// dereferences every argument. `GM_ADDR` (= `__gm__ uint8_t *`) parses to the
+// direct wrapper, same as minimax_indexer. Host launcher passes raw GM
+// addresses, so keep GM_ADDR here.
 extern "C" __global__ __aicore__ void
-sparse_attention_score(__gm__ uint8_t *query, __gm__ uint8_t *key, __gm__ uint8_t *value, __gm__ uint8_t *selectIdx,
-                       __gm__ uint8_t *blockTable, __gm__ uint8_t *selectNumIdx, __gm__ uint8_t *actualSeqLengths,
-                       __gm__ uint8_t *actualSeqLengthsKv, __gm__ uint8_t *qDequantScale, __gm__ uint8_t *kDequantScale,
-                       __gm__ uint8_t *vDequantScale, __gm__ uint8_t *attentionOut, __gm__ uint8_t *softmaxLse,
-                       __gm__ uint8_t *workspace, __gm__ uint8_t *tiling)
+sparse_attention_score(GM_ADDR query, GM_ADDR key, GM_ADDR value, GM_ADDR selectIdx, GM_ADDR blockTable,
+                       GM_ADDR selectNumIdx, GM_ADDR actualSeqLengths, GM_ADDR actualSeqLengthsKv,
+                       GM_ADDR qDequantScale, GM_ADDR kDequantScale, GM_ADDR vDequantScale, GM_ADDR attentionOut,
+                       GM_ADDR softmaxLse, GM_ADDR workspace, GM_ADDR tiling)
 {
     // Native sgl-kernel-npu dispatch has no GE SetTilingKey, so TILING_KEY_VAR
     // (a CANN aclnn-L0 compile-time injection) is unavailable. Read tilingKey
