@@ -36,5 +36,4 @@ static ge::graphStatus InferDataTypeDispatchFFNCombine(gert::InferDataTypeContex
 IMPL_OP_INFERSHAPE(DispatchFFNCombine)
     .InferShape(InferShapeDispatchFFNCombine)
     .InferDataType(InferDataTypeDispatchFFNCombine);
-
 }  // namespace ops

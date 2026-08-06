@@ -64,12 +64,10 @@ static ge::graphStatus InferShape(gert::InferShapeContext *context)
     auto attrs = context->GetAttrs();
     OPS_ERR_IF(attrs == nullptr, OPS_LOG_E(nodeName, "attrs is nullptr."), return ge::GRAPH_FAILED);
 
-    // GE stores int attrs at 4-byte granularity; read as int32 (int64 reads
-    // pair the low 4 bytes with the next slot's garbage -- see tiling note).
-    auto epRankSizePtr = attrs->GetAttrPointer<int32_t>(ATTR_EP_RANK_SIZE_INDEX);
-    auto epRankIdPtr = attrs->GetAttrPointer<int32_t>(ATTR_EP_RANK_ID_INDEX);
-    auto moeExpertNumPtr = attrs->GetAttrPointer<int32_t>(ATTR_MOE_EXPERT_NUM_INDEX);
-    auto sharedExpertRankNumPtr = attrs->GetAttrPointer<int32_t>(ATTR_SHARE_EXPERT_RANK_NUM_INDEX);
+    auto epRankSizePtr = attrs->GetAttrPointer<int64_t>(ATTR_EP_RANK_SIZE_INDEX);
+    auto epRankIdPtr = attrs->GetAttrPointer<int64_t>(ATTR_EP_RANK_ID_INDEX);
+    auto moeExpertNumPtr = attrs->GetAttrPointer<int64_t>(ATTR_MOE_EXPERT_NUM_INDEX);
+    auto sharedExpertRankNumPtr = attrs->GetAttrPointer<int64_t>(ATTR_SHARE_EXPERT_RANK_NUM_INDEX);
 
     OPS_ERR_IF(epRankIdPtr == nullptr, OPS_LOG_E(nodeName, "epRankIdPtr is nullptr."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(moeExpertNumPtr == nullptr, OPS_LOG_E(nodeName, "moeExpertNumPtr is nullptr."), return ge::GRAPH_FAILED);
