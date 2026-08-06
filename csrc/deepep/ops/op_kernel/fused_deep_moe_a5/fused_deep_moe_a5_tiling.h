@@ -12,7 +12,6 @@
 #include <cstdint>
 #include "kernel_tiling/kernel_tiling.h"
 
-// #define DEBUG_SPACE
 #ifdef DEBUG_SPACE
 ;
 #else
@@ -75,15 +74,6 @@ struct FusedDeepMoeTilingData {
     WorkSpaceOffset workSpaceOffset;
 };
 
-// constexpr uint32_t GM_ALIGN_BYTE = 512;
-// constexpr uint32_t CUSTOM_PRELOAD_STAGES = 1;
-// constexpr uint32_t CUSTOM_L1_STAGES = 2;
-// constexpr uint32_t CUSTOM_L0A_STAGES = 2;
-// constexpr uint32_t CUSTOM_L0B_STAGES = 2;
-// constexpr uint32_t CUSTOM_L0C_STAGES = 1;
-// constexpr bool CUSTOM_ENABLE_UNIT_FLAG = true;
-// constexpr bool CUSTOM_ENABLE_SHUFFLE_K = true;
-
 constexpr uint32_t GMM1_L1M = 256;
 constexpr uint32_t GMM1_L1N = 256;
 constexpr uint32_t GMM1_L1K = 256;
@@ -92,10 +82,6 @@ constexpr uint32_t GMM1_EPIM = 64;
 constexpr uint32_t GMM1_SWIZZLE_OFFSET = 3;
 constexpr uint32_t GMM1_SWIZZLE_DIRECTION = 0;
 
-// constexpr uint32_t GMM2_L1A_STAGES = 4;
-// constexpr uint32_t GMM2_L1B_STAGES = 2;
-// constexpr uint32_t GMM2_L0A_STAGES = 4;
-// constexpr uint32_t GMM2_L0B_STAGES = 2;
 constexpr uint32_t GMM2_L1M = 256;
 constexpr uint32_t GMM2_L1N = 256;
 constexpr uint32_t GMM2_L1K = 256;
@@ -104,7 +90,6 @@ constexpr uint32_t GMM2_EPIM = 64;
 constexpr uint32_t GMM2_SWIZZLE_OFFSET = 3;
 constexpr uint32_t GMM2_SWIZZLE_DIRECTION = 0;
 
-// constexpr uint32_t WORKSPACE_STAGES = 4;
 constexpr uint32_t MX_FP4_QUANT_MODE = 4U;
 
 constexpr uint32_t EXEC_FLAG_DEEP_FUSE = (1U << 0);

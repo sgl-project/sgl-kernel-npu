@@ -70,9 +70,6 @@ public:
     static constexpr uint32_t L1_TILE_N = tla::get<1>(L1TileShape{});
     static constexpr uint32_t L1_TILE_K = tla::get<2>(L1TileShape{});
 
-    // Check given epilogue should be void
-    // static_assert(std::is_void_v<BlockEpilogue_>, "Current kernel: MxGmm2CastCombine does not support epilogue.");
-
     /// Parameters structure
     struct Params {
         // Data members

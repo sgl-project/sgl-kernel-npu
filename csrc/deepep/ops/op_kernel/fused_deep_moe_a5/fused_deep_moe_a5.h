@@ -115,11 +115,9 @@ CATLASS_DEVICE void DispatchMxGmm1SwigluQuantFunc(
     using BlockMmad = Catlass::Gemm::Block::BlockMmadTla<DispatchPolicy, L1TileShape, L0TileShape, ElementA, ElementB,
                                                          ElementC, void, TileCopy>;
     using EpilogueDispatchPolicy = Catlass::Epilogue::EpilogueAtlasA5SiluHalf<1>;
-    // using EpilogueTileShape = MatrixShape<64, 256>;
     using BlockEpilogue =
         Epilogue::Block::BlockEpilogue<EpilogueDispatchPolicy, ElementC, ExpandXType, ElementC, EpilogueTileShape>;
 
-    // using BlockScheduler = typename Catlass::Gemm::Block::GemmIdentityBlockSwizzle<3, 0>;
     // kernel level
     using MatmulKernel = Catlass::Gemm::Kernel::DispatchMxGmm1Swiglu<TemplateMC2TypeFunc, BlockMmad, BlockEpilogue,
                                                                      BlockScheduler, ElementGroupList>;
@@ -222,13 +220,10 @@ CATLASS_DEVICE void MxGmm2CastCombineFunc(
                                                               decltype(layoutMxScaleB), ElementC, LayoutTagC, void>;
     using BlockMmad = Catlass::Gemm::Block::BlockMmadTla<DispatchPolicy, L1TileShape, L0TileShape, ElementA, ElementB,
                                                          ElementC, void, TileCopy>;
-    // using BlockEpilogue = void;
     using EpilogueDispatchPolicy = Catlass::Epilogue::EpilogueAtlasA5CastCombine<EXEC_FLAG>;
-    // using EpilogueTileShape = MatrixShape<64, 256>;
     using BlockEpilogue =
         Epilogue::Block::BlockEpilogue<EpilogueDispatchPolicy, ElementC, ExpandXType, EpilogueTileShape>;
 
-    // using BlockScheduler = typename Catlass::Gemm::Block::GemmIdentityBlockSwizzle<3, 0>;
     // kernel level
     using MatmulKernel = Catlass::Gemm::Kernel::MxGmm2CastCombine<TemplateMC2TypeFunc, BlockMmad, BlockEpilogue,
                                                                   BlockScheduler, ElementGroupList>;

@@ -313,7 +313,6 @@ public:
     CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params)
     {
         AscendC::ICachePreLoad(1);
-        // uint32_t actualRecvCoreNumPerGroup = recvCoreNum < params.epRankSize ? recvCoreNum : params.epRankSize;
         uint32_t actualRecvCoreNumPerGroup = recvCoreNum;
 
         BlockScheduler blockScheduler;
@@ -528,7 +527,6 @@ public:
         AscendC::SyncAll<false>();
     }
 
-    // template <>
     CATLASS_DEVICE
     void QuantDynamicMx(AscendC::LocalTensor<ElementA> &outLocal, AscendC::LocalTensor<XType> &inLocal,
                         AscendC::LocalTensor<float> &tokenF32LT, uint32_t quantLength, uint32_t mxScaleNumPerToken)
