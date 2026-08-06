@@ -30,7 +30,7 @@ on:
         description: path of test case file
 
 concurrency:
-  group: ascend-multi-node-global
+  group: ascend-multi-node-global-${{ inputs.soc_version }}
   cancel-in-progress: false
 
 jobs:
