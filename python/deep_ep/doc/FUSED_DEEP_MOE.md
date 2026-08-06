@@ -62,6 +62,12 @@ def fused_deep_moe(
     num_experts: int,
     quant_mode: int = 1,
     fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
+    activation_type: int = 0,
+    activation_alpha: float = 0.0,
+    gate_clamp_max: float = 0.0,
+    up_clamp_min: float = 0.0,
+    up_clamp_max: float = 0.0,
+    up_add: float = 0.0,
 ) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
@@ -70,7 +76,7 @@ def fused_deep_moe(
 | Parameter | Type | Shape | Description                                                                                                                                                                                                                                                                                                      |
 |-----------|------|-------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **x** | `torch.Tensor` | `[bs, hidden]` | Input token representations, where each row is the hidden vector of a token (commonly `bfloat16`). **bs** range **[1, 256]**. **hidden** range **[512, 7168]**, must be divisible by **32**.                                                                                                                     |
-| **topk_idx** | `torch.Tensor` | `[bs, num_topk]` | Expert indices for each token, `int32` type. A value of `-1` indicates the token is not dispatched.                                                                                                                                                                                                              |
+| **topk_idx** | `torch.Tensor` | `[bs, num_topk]` | Expert indices for each token, `int64` type (internally cast to `int32`). A value of `-1` indicates the token is not dispatched.                                                                                                                                                                                                              |
 | **topk_weights** | `torch.Tensor` | `[bs, num_topk]` | Weighting coefficients for aggregating expert outputs (`float32`).                                                                                                                                                                                                                                               |
 | **gmm1_permuted_weight** | `torch.Tensor` | e.g., `[G, 7168, 4096]` | First-stage (up-projection) expert weights. For `FUSED_DEEP_MOE`, tile-N permuted layout to fit Grouped MatMul (reference implementation `reshape_fusion_gmm_weight` in test code); for `DISPATCH_FFN_COMBINE`, standard NZ format without permutation.                                                          |
 | **gmm1_permuted_weight_scale** | `torch.Tensor` | e.g., `[G, 4096]` | Quantization scale for first-stage weights. For `FUSED_DEEP_MOE`, `float32` dtype (auto-converted internally); for `DISPATCH_FFN_COMBINE`, **`int64` dtype** (float32 scale values reinterpreted as int64 bit patterns — **not auto-converted** by the Python API, caller must perform the conversion manually). |
@@ -79,7 +85,13 @@ def fused_deep_moe(
 | **num_max_dispatch_tokens_per_rank** | `int` | Scalar | For `FUSED_DEEP_MOE`: maximum number of tokens to dispatch per rank, used for buffer/memory allocation. For `DISPATCH_FFN_COMBINE`: maximum number of tokens received in dispatch (typically `max_bs × num_ranks × topk`). All ranks must hold the same value.                                                   |
 | **num_experts** | `int` | Scalar, range **(0, 512]** | Total number of global experts. Must be divisible by `(num_ranks - shared_expert_rank_num)`; otherwise the tiling check will reject it.                                                                                                                                                                          |
 | **quant_mode** | `int` | Scalar, default `1` | Quantization mode: `0` = no quantization (BF16 weights), `1` = INT8 (default). FP8 will be supported in A5 release.                                                                                                                                                                                              |
-| **fuse_mode** | `FuseMode` | Scalar, default `FuseMode.FUSED_DEEP_MOE` | Fuse mode selection. `FUSED_DEEP_MOE` (1): full fusion via `aclnnFusedDeepMoe`. `DISPATCH_FFN_COMBINE` (2): separate dispatch handling via `aclnnDispatchFFNCombine`.                                                                                                                                            |
+| **fuse_mode** | `FuseMode` | Scalar, default `FuseMode.FUSED_DEEP_MOE` | Fuse mode selection. `FUSED_DEEP_MOE` (1): full fusion via `aclnnFusedDeepMoe`. `DISPATCH_FFN_COMBINE` (2): separate dispatch handling via `aclnnDispatchFFNCombine`.                                                                                                                                                                                                            |
+| **activation_type** | `int` | Scalar, default `0` | Activation type: `0` = none (default, original SwiGLU), `1` = SwiGLU-OAI (OpenAI-compatible with clamping).                                                                                                                                                                                                                                                                   |
+| **activation_alpha** | `float` | Scalar, default `0.0` | SwiGLU-OAI alpha multiplier (only used when `activation_type=1`).                                                                                                                                                                                                                                                                                                              |
+| **gate_clamp_max** | `float` | Scalar, default `0.0` | SwiGLU-OAI gate output clamp upper bound (only used when `activation_type=1`).                                                                                                                                                                                                                                                                                                 |
+| **up_clamp_min** | `float` | Scalar, default `0.0` | SwiGLU-OAI up-projection clamp lower bound (only used when `activation_type=1`; must be ≤ `up_clamp_max`).                                                                                                                                                                                                                                                                      |
+| **up_clamp_max** | `float` | Scalar, default `0.0` | SwiGLU-OAI up-projection clamp upper bound (only used when `activation_type=1`).                                                                                                                                                                                                                                                                                               |
+| **up_add** | `float` | Scalar, default `0.0` | SwiGLU-OAI up-projection additive bias (only used when `activation_type=1`).                                                                                                                                            |
 
 ### Constraints
 
@@ -98,6 +110,12 @@ def fused_deep_moe(
 - **HCCL_BUFFSIZE**: minimum required size = `M × topK × K × sizeof(int8_t) × 3 + 10MB`, where `M` = bs, `K` = hidden, `topK` = num_topk.
 - **BF16 weight**: not supported — only INT8 quantized weights are available.
 - **Shared expert**: not supported.
+
+#### Activation (`activation_type`)
+
+- `activation_type=0` (default): original SwiGLU (no clamping). The `activation_alpha`/`gate_clamp_max`/`up_clamp_*`/`up_add` params are ignored.
+- `activation_type=1`: SwiGLU-OAI (OpenAI-compatible). Requires all activation params (`activation_alpha`, `gate_clamp_max`, `up_clamp_min`, `up_clamp_max`, `up_add`) to be finite, and `up_clamp_min ≤ up_clamp_max`; otherwise a `ValueError` is raised.
+- Applied to both fuse modes (passed through to the CANN kernel).
 
 ### Return Values
 
@@ -168,6 +186,12 @@ def fused_deep_moe(
     num_experts: int,
     quant_mode: int = 1,
     fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
+    activation_type: int = 0,
+    activation_alpha: float = 0.0,
+    gate_clamp_max: float = 0.0,
+    up_clamp_min: float = 0.0,
+    up_clamp_max: float = 0.0,
+    up_add: float = 0.0,
 ) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
@@ -176,7 +200,7 @@ def fused_deep_moe(
 | 参数 | 类型 | 形状 | 说明                                                                                                                                                                  |
 |------|------|------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **x** | `torch.Tensor` | `[bs, hidden]` | 输入 token 表示，每行一个 token 的隐藏向量（常用 `bfloat16`）。**bs** 取值范围 **[1, 256]**。**hidden** 取值范围 **[512, 7168]**，且必须能被 **32** 整除。                                               |
-| **topk_idx** | `torch.Tensor` | `[bs, num_topk]` | 每个 token 的专家索引，`int32` 类型。若值为 `-1` 表示该 token 不分发。                                                                                                                   |
+| **topk_idx** | `torch.Tensor` | `[bs, num_topk]` | 每个 token 的专家索引，`int64` 类型（内部转为 `int32`）。若值为 `-1` 表示该 token 不分发。                                                                                                                   |
 | **topk_weights** | `torch.Tensor` | `[bs, num_topk]` | 合并专家输出的加权系数（`float32`）。                                                                                                                                             |
 | **gmm1_permuted_weight** | `torch.Tensor` | 例如 `[G, 7168, 4096]` | 第一阶段（上投）专家权重。`FUSED_DEEP_MOE` 模式下需做 tile-N permute 重排（参考实现 `reshape_fusion_gmm_weight` 在测试代码中）；`DISPATCH_FFN_COMBINE` 模式下使用标准 NZ 格式，无需额外重排。                         |
 | **gmm1_permuted_weight_scale** | `torch.Tensor` | 例如 `[G, 4096]` | 第一阶段权重量化 scale。`FUSED_DEEP_MOE` 模式下为 `float32` dtype（内部自动转换）；`DISPATCH_FFN_COMBINE` 模式下为 **`int64` dtype**（float32 scale 值重新解释为 int64 位模式 — **不会自动转换**，调用者需手动执行转换）。 |
@@ -186,6 +210,12 @@ def fused_deep_moe(
 | **num_experts** | `int` | 标量，范围 **(0, 512]** | 全局专家总数。必须能被 `(num_ranks - shared_expert_rank_num)` 整除，否则 tiling 校验会拒绝。                                                                                              |
 | **quant_mode** | `int` | 标量，默认 `1` | 量化模式：`0` = 无量化（BF16 权重），`1` = INT8（默认）；后续 A5 支持 FP8。                                                                                                                |
 | **fuse_mode** | `FuseMode` | 标量，默认 `FuseMode.FUSED_DEEP_MOE` | 融合模式选择。`FUSED_DEEP_MOE`（1）：通过 `aclnnFusedDeepMoe` 完整融合。`DISPATCH_FFN_COMBINE`（2）：通过 `aclnnDispatchFFNCombine` 分离 dispatch 处理。                                       |
+| **activation_type** | `int` | 标量，默认 `0` | 激活类型：`0` = 无（默认，原始 SwiGLU），`1` = SwiGLU-OAI（OpenAI 兼容，带 clamp）。                                                                                              |
+| **activation_alpha** | `float` | 标量，默认 `0.0` | SwiGLU-OAI alpha 乘子（仅 `activation_type=1` 时使用）。                                                                                                                    |
+| **gate_clamp_max** | `float` | 标量，默认 `0.0` | SwiGLU-OAI gate 输出 clamp 上界（仅 `activation_type=1` 时使用）。                                                                                                            |
+| **up_clamp_min** | `float` | 标量，默认 `0.0` | SwiGLU-OAI up-projection clamp 下界（仅 `activation_type=1` 时使用；必须 ≤ `up_clamp_max`）。                                                                                |
+| **up_clamp_max** | `float` | 标量，默认 `0.0` | SwiGLU-OAI up-projection clamp 上界（仅 `activation_type=1` 时使用）。                                                                                                        |
+| **up_add** | `float` | 标量，默认 `0.0` | SwiGLU-OAI up-projection 加性偏置（仅 `activation_type=1` 时使用）。
 
 ### 约束说明
 
@@ -204,6 +234,12 @@ def fused_deep_moe(
 - **HCCL_BUFFSIZE**：最小需求 = `M × topK × K × sizeof(int8_t) × 3 + 10MB`，其中 `M` = bs，`K` = hidden，`topK` = num_topk。
 - **BF16 权重**：不支持 — 仅支持 INT8 量化权重。
 - **共享专家**：不支持。
+
+#### 激活（`activation_type`）
+
+- `activation_type=0`（默认）：原始 SwiGLU（无 clamp）。`activation_alpha`/`gate_clamp_max`/`up_clamp_*`/`up_add` 参数被忽略。
+- `activation_type=1`：SwiGLU-OAI（OpenAI 兼容）。要求所有激活参数（`activation_alpha`、`gate_clamp_max`、`up_clamp_min`、`up_clamp_max`、`up_add`）为有限值，且 `up_clamp_min ≤ up_clamp_max`；否则抛出 `ValueError`。
+- 适用于两种融合模式（透传给 CANN 算子）。
 
 ### 返回值
 
