@@ -90,12 +90,12 @@ private:
     {
         uint32_t curRankId = ctxIdx == COMM_EP_IDX ? epRankId : tpRankId;
         if (curRankId == rankId) {
-            return (GM_ADDR)(winContext_[ctxIdx]->localWindowsExp) + dataState * Moe::ROUND_STATE_MAX_SIZE +
+            return (GM_ADDR)(winContext_[ctxIdx]->localWindowsExp) + roundMagic * Moe::ROUND_STATE_MAX_SIZE +
                    ROUND_STATE_OFFSET;
         }
         return (GM_ADDR)(((HcclRankRelationResV2 *)(winContext_[ctxIdx]->remoteRes[rankId].nextDevicePtr))
                              ->windowsExp) +
-               dataState * Moe::ROUND_STATE_MAX_SIZE + ROUND_STATE_OFFSET;
+               roundMagic * Moe::ROUND_STATE_MAX_SIZE + ROUND_STATE_OFFSET;
     }
 
     TPipe *tpipe_{nullptr};
@@ -176,6 +176,7 @@ private:
     uint32_t expertIdsCnt{0};
     uint32_t stateOffset{0};
     uint32_t dataState{0};
+    uint32_t roundMagic{0};
     uint32_t winDataSizeOffset{0};
     uint32_t waitRecvCostStatsBufSize{0};
     uint32_t srcRankOffset{0};
@@ -511,6 +512,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::SetRoundStatus()
     tpipe_->InitBuffer(roundStatusBuf, epRankSize * UB_ALIGN);
     LocalTensor<float> roundStatusTensor = roundStatusBuf.AllocTensor<float>();
     Duplicate<float>(roundStatusTensor, 1.0, FLOAT_NUM_PER_ALIGN);
+    SyncFunc<AscendC::HardEvent::V_MTE3>();
     for (uint32_t i = 0; i < epRankSize; ++i) {
         uint32_t targetRankId = i;
         uint32_t offset = stateOffset * epRankId;
@@ -650,7 +652,6 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::WaitRoundStatus()
     LocalTensor<float> stateTensorLocal = roundStatusBuf.Get<float>();
     LocalTensor<float> tempRoundStateTensorLocal = tempRoundStatusBuf.Get<float>();
 
-    int64_t systemCycleBefore = AscendC::GetSystemCycle();
     while (current != target) {
         SyncFunc<AscendC::HardEvent::S_MTE2>();
         DataCopy<float>(stateTensorLocal, roundStatusGMTensor, count);
@@ -658,9 +659,6 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::WaitRoundStatus()
         Sum(tempRoundStateTensorLocal, stateTensorLocal, sumPerRankParams);
         SyncFunc<AscendC::HardEvent::V_S>();
         current = tempRoundStateTensorLocal.GetValue(0);
-        if (isEnableDiagnose) {
-            int64_t systemCycleAfter = AscendC::GetSystemCycle();
-        }
     }
 
     SyncFunc<AscendC::HardEvent::S_V>();
@@ -776,6 +774,7 @@ __aicore__ inline void CamMoeDispatchNormal<CamTypeFunc>::Process()
                 SyncAll<true>();
                 SetRoundStatus();
                 WaitRoundStatus();
+                roundMagic = roundMagic == 0 ? 1 : 0;
                 SyncAll<true>();
             }
             roundIndex += 1;
