@@ -108,15 +108,6 @@ bool Buffer::is_available() const
     return available;
 }
 
-bool Buffer::is_a5_build() const
-{
-#if defined(__DAV_C310__)
-    return true;
-#else
-    return false;
-#endif
-}
-
 std::tuple<torch::Tensor, std::optional<torch::Tensor>, torch::Tensor, torch::Tensor, std::optional<EventHandle>>
 Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std::optional<EventHandle> &previous_event,
                             bool async, bool allocate_on_comm_stream)
@@ -1166,6 +1157,8 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
 #else
     int64_t global_bs = std::max(expert_ids.size(0), num_max_dispatch_tokens_per_rank) * num_ranks;
     at::Tensor output = at::empty({bs, h}, x.options());
+    auto gmm1_permuted_weight_scale_f32 = gmm1_permuted_weight_scale.float();
+    auto gmm2_weight_scale_f32 = gmm2_weight_scale.float();
 
     bool is_shared_expert = (rank < shared_expert_rank_num);
     int64_t num_local_experts = is_shared_expert ? 1 : num_experts / (num_ranks - shared_expert_rank_num);
@@ -1173,8 +1166,8 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
 
     EXEC_NPU_CMD(aclnnFusedDeepMoe,
                  // input
-                 x, expert_ids, gmm1_permuted_weight, gmm1_permuted_weight_scale, gmm2_weight, gmm2_weight_scale,
-                 static_cast<const std::nullptr_t &>(nullptr), expert_scales_optional,
+                 x, expert_ids, gmm1_permuted_weight, gmm1_permuted_weight_scale_f32, gmm2_weight,
+                 gmm2_weight_scale_f32, static_cast<const std::nullptr_t &>(nullptr), expert_scales_optional,
                  // attr
                  hcom_ep_name, num_ranks, rank, num_experts, shared_expert_num, shared_expert_rank_num, quant_mode,
                  global_bs,

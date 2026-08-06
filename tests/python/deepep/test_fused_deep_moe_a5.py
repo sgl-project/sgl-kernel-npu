@@ -683,9 +683,6 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
         group_fused = dist.new_group(ranks)
         group_small = dist.new_group(ranks)
         buffer = deep_ep.Buffer(group_fused, low_latency_mode=True)
-        assert (
-            buffer.runtime.is_a5_build()
-        ), "The installed DeepEP wheel is not an A5 build"
 
         if args.single_active_rank is not None:
             token_delta = 0
