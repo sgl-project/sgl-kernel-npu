@@ -25,6 +25,13 @@
 #include <exe_graph/runtime/infer_shape_context.h>
 #include <exe_graph/runtime/infer_datatype_context.h>
 
+#ifndef OPS_UTILS_LOG_SUB_MOD_NAME
+#define OPS_UTILS_LOG_SUB_MOD_NAME "OP_TILING"
+#endif
+#ifndef OPS_UTILS_LOG_PACKAGE_TYPE
+#define OPS_UTILS_LOG_PACKAGE_TYPE "[Custom]"
+#endif
+
 #ifdef ALOG_NOT_FOUND
 //  找不到alog
 #define AlogCheckDebugLevel(moduleid, level) (1)
@@ -32,8 +39,8 @@
 #define REPORT_INNER_ERR_MSG(...) (1)
 #define MSG_LENGTH 1024
 #else
-#include <alog_pub.h>
-#include <err_msg.h>
+#include <base/alog_pub.h>
+#include <base/err_msg.h>
 #endif
 
 namespace ops {

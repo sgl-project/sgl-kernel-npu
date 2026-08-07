@@ -28,6 +28,9 @@ def _load_sgl_kernel_npu():
     npu_path = pathlib.Path(__file__).resolve().parent
     so_path = os.path.join(npu_path, "lib", "libsgl_kernel_npu.so")
     torch.ops.load_library(so_path)
+    mhc_path = os.path.join(npu_path, "lib", "libsgl_mhc_npu.so")
+    if os.path.exists(mhc_path):
+        torch.ops.load_library(mhc_path)
 
 
 _setup_bundled_custom_ops()

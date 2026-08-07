@@ -4,9 +4,6 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/python/sgl_kernel_npu/s
 # host side files
 FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/pytorch_extensions.cpp
-    ${PROJECT_OP_SRC_BASE}/mhc/bindings/ops_common.cpp
-    ${PROJECT_OP_SRC_BASE}/mhc/bindings/npu_hc_pre.cpp
-    ${PROJECT_OP_SRC_BASE}/mhc/bindings/npu_hc_post.cpp
     ${PROJECT_OP_SRC_BASE}/helloworld/op_host/helloworld.cpp
     ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_host/cache_loc_assign.cpp
     ${PROJECT_OP_SRC_BASE}/alloc_extend/op_host/alloc_extend_tiling.cpp
@@ -138,6 +135,29 @@ ascendc_compile_definitions(mega_chunk_gdn_kernel PRIVATE
 # create shared library libsgl_kernel_npu.so
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
+# MHC is an external custom OPP. Keep its PyTorch registration separate from
+# the core kernel library so adding MHC does not change existing operators.
+add_library(sgl_mhc_npu SHARED
+    ${PROJECT_OP_SRC_BASE}/mhc/bindings/ops_common.cpp
+    ${PROJECT_OP_SRC_BASE}/mhc/bindings/npu_hc_pre.cpp
+    ${PROJECT_OP_SRC_BASE}/mhc/bindings/npu_hc_post.cpp
+)
+
+target_link_libraries(sgl_mhc_npu PRIVATE torch_npu ascendcl dl)
+target_link_directories(sgl_mhc_npu PRIVATE
+    ${TORCH_DIR}/lib
+    ${TORCH_NPU_DIR}/lib
+    ${ASCEND_HOME_PATH}/lib64
+)
+target_include_directories(sgl_mhc_npu PRIVATE
+    ${PROJECT_OP_SRC_BASE}/mhc/bindings
+    ${TORCH_DIR}/include
+    ${TORCH_DIR}/include/torch/csrc/api/include
+    ${TORCH_NPU_DIR}/include
+    ${ASCEND_INCLUDE_DIR}
+    ${ASCEND_INCLUDE_DIR}/external
+)
+
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${MEGA_CHUNK_GDN_KERNEL_TARGETS}
         workspace_kernel
@@ -158,7 +178,6 @@ target_link_directories(${OP_PLUGIN_NAME} PRIVATE
 
 target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/utils
-        ${PROJECT_OP_SRC_BASE}/mhc/bindings
         ${PROJECT_SOURCE_DIR}/include
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/tiling
