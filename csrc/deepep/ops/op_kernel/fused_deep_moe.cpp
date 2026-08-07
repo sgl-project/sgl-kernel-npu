@@ -1,11 +1,3 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
- * Description: FusedDeepMoe operator kernel function implementation file
- * Author: WANG Qiankun
- * Create: 2025-07-19
- * Note:
- * History: 2025-07-19 create FusedDeepMoe operator kernel function implementation file
- */
 #if defined(__DAV_C310__)
 // The CANN kernel generator resolves FusedDeepMoe to this canonical filename.
 // Keep the A5 implementation in its private module while preserving that mapping.
