@@ -2,7 +2,7 @@
 
 Adapted from: sgl_kernel_npu package (swiglu_quant.py)
 
-Implements swiglu_oai (MiniMax-M3 variant) fused with optional per-row int8 quant:
+Implements swiglu_oai fused with optional per-row int8 quant:
 
     gate = x1.clamp(-inf, limit)
     up   = x2.clamp(-limit, limit)

@@ -141,7 +141,8 @@ HOST_API at::Tensor sparse_attention_score(
         overflowStore = tilingData;
         static auto tilingBuffer =
             at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(query.options().device()));
-        aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), tilingSize, &overflowStore, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
+        aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), tilingSize, &overflowStore, tilingSize,
+                    ACL_MEMCPY_HOST_TO_DEVICE);
         tilingTensor = at::from_blob(tilingBuffer.data_ptr<uint8_t>(), tilingSize, at::kByte);
     } else {
         // first sight: persist tiling in a stable per-index slot, then H2D copy.

@@ -20,11 +20,10 @@
 // dereferences every argument. `GM_ADDR` (= `__gm__ uint8_t *`) parses to the
 // direct wrapper, same as minimax_indexer. Host launcher passes raw GM
 // addresses, so keep GM_ADDR here.
-extern "C" __global__ __aicore__ void
-sparse_attention_score(GM_ADDR query, GM_ADDR key, GM_ADDR value, GM_ADDR selectIdx, GM_ADDR blockTable,
-                       GM_ADDR selectNumIdx, GM_ADDR actualSeqLengths, GM_ADDR actualSeqLengthsKv,
-                       GM_ADDR qDequantScale, GM_ADDR kDequantScale, GM_ADDR vDequantScale, GM_ADDR attentionOut,
-                       GM_ADDR softmaxLse, GM_ADDR workspace, GM_ADDR tiling)
+extern "C" __global__ __aicore__ void sparse_attention_score(
+    GM_ADDR query, GM_ADDR key, GM_ADDR value, GM_ADDR selectIdx, GM_ADDR blockTable, GM_ADDR selectNumIdx,
+    GM_ADDR actualSeqLengths, GM_ADDR actualSeqLengthsKv, GM_ADDR qDequantScale, GM_ADDR kDequantScale,
+    GM_ADDR vDequantScale, GM_ADDR attentionOut, GM_ADDR softmaxLse, GM_ADDR workspace, GM_ADDR tiling)
 {
     // Native sgl-kernel-npu dispatch has no GE SetTilingKey, so TILING_KEY_VAR
     // (a CANN aclnn-L0 compile-time injection) is unavailable. Read tilingKey
