@@ -26,6 +26,7 @@ const int DIM_4 = 4;
 const int SIZE = 8;
 
 const int HC_LIMIT = 4;
+const int D_LIMIT_3584 = 3584;
 const int D_LIMIT_4096 = 4096;
 const int D_LIMIT_7168 = 7168;
 
@@ -48,8 +49,9 @@ void check_hc_post_shape_2d(
 {
     auto batch_sequence = x.sym_size(DIM_0);
     auto d = x.sym_size(DIM_1);
-    TORCH_CHECK(d == D_LIMIT_4096 || d == D_LIMIT_7168,
-                "The d of x only support ", D_LIMIT_4096, " or ", D_LIMIT_7168, ", actual ", d, ".");
+    TORCH_CHECK(d == D_LIMIT_3584 || d == D_LIMIT_4096 || d == D_LIMIT_7168,
+                "The d of x only support ", D_LIMIT_3584, ", ", D_LIMIT_4096, " or ", D_LIMIT_7168,
+                ", actual ", d, ".");
     // check residual: [bs, hc, d]
     TORCH_CHECK(residual.dim() == DIM_3,
                 "Input tensor residual's dim num should be 3, actual ", residual.dim(), ".");
@@ -89,8 +91,9 @@ void check_hc_post_shape_3d(
     auto batch = x.sym_size(DIM_0);
     auto sequence = x.sym_size(DIM_1);
     auto d = x.sym_size(DIM_2);
-    TORCH_CHECK(d == D_LIMIT_4096 || d == D_LIMIT_7168,
-                "The d of x only support ", D_LIMIT_4096, " or ", D_LIMIT_7168, ", actual ", d, ".");
+    TORCH_CHECK(d == D_LIMIT_3584 || d == D_LIMIT_4096 || d == D_LIMIT_7168,
+                "The d of x only support ", D_LIMIT_3584, ", ", D_LIMIT_4096, " or ", D_LIMIT_7168,
+                ", actual ", d, ".");
     // check residual: [b, s, hc, d]
     TORCH_CHECK(residual.dim() == DIM_4,
                 "Input tensor residual's dim num should be 4, actual ", residual.dim(), ".");

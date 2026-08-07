@@ -20,6 +20,7 @@ constexpr std::string_view HC_PRE_SINKHORN_NAME = "aclnnHcPreSinkhorn";
 // npu tensor max size
 const int SIZE = 8;
 const int HC_LIMIT = 4;
+const int D_LIMIT_TELECHAT4 = 3584;
 const int D_LIMIT = 4096;
 const int D_LIMIT_EXTEND = 7168;
 const int MIX_HC_LIMIT = 24;
@@ -113,8 +114,8 @@ void check_hc_pre_shape_and_dtype(
     }
     TORCH_CHECK(hc == HC_LIMIT, "The hc of x only support ", HC_LIMIT, ", actual ", hc, ".");
     TORCH_CHECK(
-        d == D_LIMIT || d == D_LIMIT_EXTEND,
-        "The d of x only support ", D_LIMIT, " or ", D_LIMIT_EXTEND, ", actual ", d, ".");
+        d == D_LIMIT_TELECHAT4 || d == D_LIMIT || d == D_LIMIT_EXTEND,
+        "The d of x only support ", D_LIMIT_TELECHAT4, ", ", D_LIMIT, " or ", D_LIMIT_EXTEND, ", actual ", d, ".");
     // check hc_fn: [mix_hc, hc * d]
     TORCH_CHECK(hc_fn.dim() == DIM_2, "Input tensor hc_fn's dim num should be 2, actual ", hc_fn.dim(), ".");
     auto mix_hc = hc_fn.sym_size(DIM_0);
