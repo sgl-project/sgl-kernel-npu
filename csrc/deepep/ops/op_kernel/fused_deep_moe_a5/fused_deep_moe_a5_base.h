@@ -8,7 +8,13 @@
 #ifndef FUSED_DEEP_MOE_BASE_H
 #define FUSED_DEEP_MOE_BASE_H
 
+#if defined(DEEPEP_A5_SYSTEM_MOE_BASE_USE_OP_KERNEL)
 #include "op_kernel/moe_distribute_base.h"
+#elif defined(DEEPEP_A5_SYSTEM_MOE_BASE_USE_INC_KERNEL)
+#include "inc/kernel/moe_distribute_base.h"
+#else
+#error "A5 fused requires a system moe_distribute_base.h include mode"
+#endif
 
 #define TemplateMC2TypeClass                                                                                     \
     typename ExpandXType, typename WeightType, bool WEIGHT_NZ, typename ExpandIdxType, bool IsNeedReduceScatter, \

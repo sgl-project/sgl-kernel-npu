@@ -145,12 +145,6 @@ function detect_deepep_soc_version()
         return
     fi
 
-    if [[ "$SOC_VERSION" == "Ascend950" ]]; then
-        export ASCEND_COMPUTE_UNIT="ascend950"
-    else
-        unset ASCEND_COMPUTE_UNIT
-    fi
-
     # A2 and A3 require a chip ID. Check A2 first because it reports 910B*,
     # while A3 reports Ascend910.
     board_info="$(npu-smi info -t board -i 0 -c 0 2>/dev/null || true)"
@@ -225,12 +219,16 @@ function configure_soc_version()
 
     if [[ "$SOC_VERSION" == "Ascend950" ]]; then
         DEEPEP_IS_A5_BUILD="ON"
+        export ASCEND_COMPUTE_UNIT="ascend950"
+    else
+        unset ASCEND_COMPUTE_UNIT
     fi
 
     echo "Build target: $BUILD_TARGET"
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
         echo "DeepEP variant: $DEEPEP_VARIANT"
         echo "DeepEP SOC_VERSION: $SOC_VERSION"
+        echo "DeepEP ASCEND_COMPUTE_UNIT: ${ASCEND_COMPUTE_UNIT:-<unset>}"
     fi
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" || "$BUILD_KERNELS_MODULE" == "ON" ]]; then
         echo "CMake SOC_VERSION: $CMAKE_SOC_VERSION"
@@ -405,6 +403,7 @@ function build_deepep_kernels()
     (
         cd "$kernel_dir"
         chmod +x build.sh
+        echo "Invoking DeepEP kernel build with SOC_VERSION=$SOC_VERSION, DEEPEP_VARIANT=$DEEPEP_VARIANT, ASCEND_COMPUTE_UNIT=${ASCEND_COMPUTE_UNIT:-<unset>}"
         ./build.sh
 
         custom_opp_file="$(find ./build_out \
