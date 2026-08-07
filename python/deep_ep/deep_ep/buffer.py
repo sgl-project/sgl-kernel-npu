@@ -857,12 +857,6 @@ class Buffer:
                 num_max_dispatch_tokens_per_rank,
                 num_experts,
                 quant_mode,
-                activation_type,
-                activation_alpha,
-                gate_clamp_max,
-                up_clamp_min,
-                up_clamp_max,
-                up_add,
             )
             return output, ep_recv_count
         elif fuse_mode == FuseMode.DISPATCH_FFN_COMBINE:

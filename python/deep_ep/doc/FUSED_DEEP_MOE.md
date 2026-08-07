@@ -115,7 +115,7 @@ def fused_deep_moe(
 
 - `activation_type=0` (default): original SwiGLU (no clamping). The `activation_alpha`/`gate_clamp_max`/`up_clamp_*`/`up_add` params are ignored.
 - `activation_type=1`: SwiGLU-OAI (OpenAI-compatible). Requires all activation params (`activation_alpha`, `gate_clamp_max`, `up_clamp_min`, `up_clamp_max`, `up_add`) to be finite, and `up_clamp_min ≤ up_clamp_max`; otherwise a `ValueError` is raised.
-- Applied to both fuse modes (passed through to the CANN kernel).
+- Only applied to `fuse_mode=DISPATCH_FFN_COMBINE` (passed through to the CANN kernel); ignored for `fuse_mode=FUSED_DEEP_MOE`.
 
 ### Return Values
 
@@ -239,7 +239,7 @@ def fused_deep_moe(
 
 - `activation_type=0`（默认）：原始 SwiGLU（无 clamp）。`activation_alpha`/`gate_clamp_max`/`up_clamp_*`/`up_add` 参数被忽略。
 - `activation_type=1`：SwiGLU-OAI（OpenAI 兼容）。要求所有激活参数（`activation_alpha`、`gate_clamp_max`、`up_clamp_min`、`up_clamp_max`、`up_add`）为有限值，且 `up_clamp_min ≤ up_clamp_max`；否则抛出 `ValueError`。
-- 适用于两种融合模式（透传给 CANN 算子）。
+- 仅适用于 `fuse_mode=DISPATCH_FFN_COMBINE`（透传给 CANN 算子）；`fuse_mode=FUSED_DEEP_MOE` 下被忽略。
 
 ### 返回值
 

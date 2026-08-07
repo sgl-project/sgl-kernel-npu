@@ -8,7 +8,6 @@
  */
 #include <cstdio>
 #include <cstdint>
-#include <cmath>
 #include <string>
 
 #include "ops_log.h"
@@ -82,12 +81,6 @@ constexpr uint32_t ATTR_SHARE_EXPERT_NUM_INDEX = 4;
 constexpr uint32_t ATTR_SHARE_EXPERT_RANK_NUM_INDEX = 5;
 constexpr uint32_t ATTR_QUANT_MODE_INDEX = 6;
 constexpr uint32_t ATTR_GLOBAL_BS_INDEX = 7;
-constexpr uint32_t ATTR_ACTIVATION_TYPE_INDEX = 8;
-constexpr uint32_t ATTR_ACTIVATION_ALPHA_INDEX = 9;
-constexpr uint32_t ATTR_GATE_CLAMP_MAX_INDEX = 10;
-constexpr uint32_t ATTR_UP_CLAMP_MIN_INDEX = 11;
-constexpr uint32_t ATTR_UP_CLAMP_MAX_INDEX = 12;
-constexpr uint32_t ATTR_UP_ADD_INDEX = 13;
 
 constexpr uint32_t MIN_BATCH_SIZE = 1;
 constexpr uint32_t MAX_BATCH_SIZE = 256;
@@ -218,12 +211,6 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     auto sharedExpertRankNumPtr = attrs->GetAttrPointer<int64_t>(ATTR_SHARE_EXPERT_RANK_NUM_INDEX);
     auto quantModePtr = attrs->GetAttrPointer<int64_t>(ATTR_QUANT_MODE_INDEX);
     auto globalBsPtr = attrs->GetAttrPointer<int64_t>(ATTR_GLOBAL_BS_INDEX);
-    auto activationTypePtr = attrs->GetAttrPointer<int64_t>(ATTR_ACTIVATION_TYPE_INDEX);
-    auto activationAlphaPtr = attrs->GetAttrPointer<float>(ATTR_ACTIVATION_ALPHA_INDEX);
-    auto gateClampMaxPtr = attrs->GetAttrPointer<float>(ATTR_GATE_CLAMP_MAX_INDEX);
-    auto upClampMinPtr = attrs->GetAttrPointer<float>(ATTR_UP_CLAMP_MIN_INDEX);
-    auto upClampMaxPtr = attrs->GetAttrPointer<float>(ATTR_UP_CLAMP_MAX_INDEX);
-    auto upAddPtr = attrs->GetAttrPointer<float>(ATTR_UP_ADD_INDEX);
 
     OPS_ERR_IF(groupEpPtr == nullptr, OPS_LOG_E(nodeName, "groupEpPtr is nullptr."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(epRankSizePtr == nullptr, OPS_LOG_E(nodeName, "epRankSizePtr is nullptr."), return ge::GRAPH_FAILED);
@@ -235,16 +222,6 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
                return ge::GRAPH_FAILED);
     OPS_ERR_IF(quantModePtr == nullptr, OPS_LOG_E(nodeName, "quantModePtr is nullptr."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(globalBsPtr == nullptr, OPS_LOG_E(nodeName, "globalBsPtr is nullptr."), return ge::GRAPH_FAILED);
-    OPS_ERR_IF(activationTypePtr == nullptr || activationAlphaPtr == nullptr || gateClampMaxPtr == nullptr ||
-                   upClampMinPtr == nullptr || upClampMaxPtr == nullptr || upAddPtr == nullptr,
-               OPS_LOG_E(nodeName, "activation attributes are nullptr."), return ge::GRAPH_FAILED);
-    OPS_ERR_IF(*activationTypePtr != 0 && *activationTypePtr != 1,
-               OPS_LOG_E(nodeName, "unsupported activation type."), return ge::GRAPH_FAILED);
-    OPS_ERR_IF(*activationTypePtr == 1 &&
-                   (!std::isfinite(*activationAlphaPtr) || !std::isfinite(*gateClampMaxPtr) ||
-                    !std::isfinite(*upClampMinPtr) || !std::isfinite(*upClampMaxPtr) || !std::isfinite(*upAddPtr) ||
-                    *upClampMinPtr > *upClampMaxPtr),
-               OPS_LOG_E(nodeName, "invalid SwiGLU-OAI activation parameters."), return ge::GRAPH_FAILED);
 
     uint32_t epRankSize = static_cast<uint32_t>(*epRankSizePtr);
     uint32_t epRankId = static_cast<uint32_t>(*epRankIdPtr);
@@ -274,12 +251,6 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.quantMode = static_cast<uint32_t>(*quantModePtr);
     tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.globalBs = static_cast<uint32_t>(*globalBsPtr);
     tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.moeExpertNumPerRank = moeExpertNumPerRank;
-    tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.activationType = *activationTypePtr;
-    tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.activationAlpha = *activationAlphaPtr;
-    tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.gateClampMax = *gateClampMaxPtr;
-    tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.upClampMin = *upClampMinPtr;
-    tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.upClampMax = *upClampMaxPtr;
-    tilingData.disGmmDeqSwigluQuantGmmDeqComInfo.upAdd = *upAddPtr;
     return ge::GRAPH_SUCCESS;
 }
 
@@ -402,12 +373,11 @@ static ge::graphStatus FusedDeepMoeTilingFuncImpl(gert::TilingContext *context)
     OPS_ERR_IF(SetWorkSpace(context, nodeName, *tilingData) != ge::GRAPH_SUCCESS,
                OPS_LOG_E(nodeName, "Tiling set workspace failed."), return ge::GRAPH_FAILED);
     SetHcommCfg(context, tilingData, groupEp);
-    const uint64_t baseKey = tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.moeExpertNumPerRank == 1
-                                 ? 0
-                                 : EXEC_FLAG_DEEP_FUSE;
-    context->SetTilingKey(baseKey + (tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.activationType == 1
-                                         ? EXEC_FLAG_USE_SWIGLU_OAI
-                                         : 0));
+    if (tilingData->disGmmDeqSwigluQuantGmmDeqComInfo.moeExpertNumPerRank == 1) {
+        context->SetTilingKey(0);
+    } else {
+        context->SetTilingKey(EXEC_FLAG_DEEP_FUSE);
+    }
     context->SetBlockDim(aicNum);
     return ge::GRAPH_SUCCESS;
 }

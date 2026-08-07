@@ -29,12 +29,6 @@ struct FusedDeepMoeInfo {
     uint64_t totalUbSize;
     uint64_t totalWinSize;
     uint64_t gmm1HLen;
-    uint32_t activationType;
-    float activationAlpha;
-    float gateClampMax;
-    float upClampMin;
-    float upClampMax;
-    float upAdd;
 };
 
 struct FusedDeepMoeTilingData {
@@ -75,6 +69,5 @@ constexpr uint32_t GMM2_SWIZZLE_DIRECTION = 0;
 constexpr uint32_t WORKSPACE_STAGES = 4;
 
 constexpr uint32_t EXEC_FLAG_DEEP_FUSE = (1U << 0);
-constexpr uint32_t EXEC_FLAG_USE_SWIGLU_OAI = (1U << 1);
 
 #endif  // FUSED_DEEP_MOE_TILING_H
