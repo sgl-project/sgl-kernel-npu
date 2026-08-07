@@ -201,6 +201,8 @@ Two fuse modes are available via the `FuseMode` enum:
 - `FuseMode.FUSED_DEEP_MOE` (default): Full fusion of dispatch + FFN + combine via staged CamMoe communication with cross-core barriers.
 - `FuseMode.DISPATCH_FFN_COMBINE`: Integrated routing + FFN + combine with embedded HCCL communication, no cross-core barriers.
 
+SwiGLU-OAI activation is supported via `FuseMode.DISPATCH_FFN_COMBINE` only (see `activation_type` in the [Fused Deep MoE API](doc/FUSED_DEEP_MOE.md)).
+
 Quantization modes (`quant_mode`):
 - `0`: No quantization (BF16 weights)
 - `1`: INT8 quantization (default)
@@ -467,6 +469,8 @@ low_latency_dispatch 量化模式。`quant_mode` 字符串参数仅对 `default`
 通过 `FuseMode` 枚举提供两种融合模式：
 - `FuseMode.FUSED_DEEP_MOE`（默认）：dispatch + FFN + combine 完整融合，通信阶段（dispatch/combine）使用 CamMoe，与 GMM 阶段间通过跨核 barrier 串联。
 - `FuseMode.DISPATCH_FFN_COMBINE`：集成路由 + FFN + combine，HCCL 通信内嵌于 GMM kernel 中，无跨核 barrier。
+
+SwiGLU-OAI 激活仅通过 `FuseMode.DISPATCH_FFN_COMBINE` 支持（详见 [融合 Deep MoE API](doc/FUSED_DEEP_MOE.md) 中的 `activation_type`）。
 
 量化模式（`quant_mode`）：
 - `0`：无量化（BF16 权重）
