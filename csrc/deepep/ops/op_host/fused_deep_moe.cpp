@@ -1,11 +1,3 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
- * Description: FusedDeepMoe operator definition file
- * Author: WANG Qiankun
- * Create: 2025-07-19
- * Note:
- * History: 2025-07-19 create FusedDeepMoe operator definition file
- */
 #include "register/op_def_registry.h"
 
 namespace ops {
