@@ -55,6 +55,7 @@ SPECULATIVE_TESTS=(
     test_build_tree.py
     test_verify_tree.py
     test_apply_token_bitmask.py
+    test_argmax_softmax_prob.py
 )
 
 MAMBA_TESTS=(
