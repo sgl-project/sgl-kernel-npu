@@ -403,7 +403,6 @@ function build_deepep_kernels()
     (
         cd "$kernel_dir"
         chmod +x build.sh
-        echo "Invoking DeepEP kernel build with SOC_VERSION=$SOC_VERSION, DEEPEP_VARIANT=$DEEPEP_VARIANT, ASCEND_COMPUTE_UNIT=${ASCEND_COMPUTE_UNIT:-<unset>}"
         ./build.sh
 
         custom_opp_file="$(find ./build_out \
