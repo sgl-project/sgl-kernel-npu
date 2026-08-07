@@ -1075,11 +1075,13 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     return {combined_x, event, std::function<void()>([] {})};
 }
 
-std::vector<at::Tensor> Buffer::fused_deep_moe(
-    const at::Tensor &x, const at::Tensor &expert_ids, const at::Tensor &gmm1_permuted_weight,
-    const at::Tensor &gmm1_permuted_weight_scale, const at::Tensor &gmm2_weight, const at::Tensor &gmm2_weight_scale,
-    const at::Tensor &expert_scales_optional, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
-    int quant_mode)
+std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Tensor &expert_ids,
+                                               const at::Tensor &gmm1_permuted_weight,
+                                               const at::Tensor &gmm1_permuted_weight_scale,
+                                               const at::Tensor &gmm2_weight, const at::Tensor &gmm2_weight_scale,
+                                               const at::Tensor &expert_scales_optional,
+                                               int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
+                                               int quant_mode)
 {
     EP_HOST_ASSERT(x.dim() == 2);
     EP_HOST_ASSERT(expert_ids.dim() == 2);
@@ -1235,11 +1237,11 @@ void Buffer::end_profile()
 
 std::vector<at::Tensor> Buffer::dispatch_ffn_combine(const at::Tensor &x, const at::Tensor &expert_ids,
                                                      const at::Tensor &weight1, const at::Tensor &scale1,
-                                                      const at::Tensor &weight2, const at::Tensor &scale2,
-                                                      const at::Tensor &expert_scales, int64_t max_output_size,
-                                                      int64_t num_experts, int quant_mode, int activation_type,
-                                                      float activation_alpha, float gate_clamp_max, float up_clamp_min,
-                                                      float up_clamp_max, float up_add) const
+                                                     const at::Tensor &weight2, const at::Tensor &scale2,
+                                                     const at::Tensor &expert_scales, int64_t max_output_size,
+                                                     int64_t num_experts, int quant_mode, int activation_type,
+                                                     float activation_alpha, float gate_clamp_max, float up_clamp_min,
+                                                     float up_clamp_max, float up_add) const
 {
     EP_HOST_ASSERT(expert_ids.dim() == 2);
     EP_HOST_ASSERT(expert_scales.dim() == 2);

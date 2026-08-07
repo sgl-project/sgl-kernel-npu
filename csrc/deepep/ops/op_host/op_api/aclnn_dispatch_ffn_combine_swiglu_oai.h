@@ -14,8 +14,10 @@ __attribute__((visibility("default"))) aclnnStatus aclnnDispatchFFNCombineSwiGlu
     float upClampMin, float upClampMax, float upAdd, const aclTensor *out, const aclTensor *expertTokenNums,
     uint64_t *workspaceSize, aclOpExecutor **executor);
 
-__attribute__((visibility("default"))) aclnnStatus aclnnDispatchFFNCombineSwiGluOAI(
-    void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream);
+__attribute__((visibility("default"))) aclnnStatus aclnnDispatchFFNCombineSwiGluOAI(void *workspace,
+                                                                                    uint64_t workspaceSize,
+                                                                                    aclOpExecutor *executor,
+                                                                                    aclrtStream stream);
 
 #ifdef __cplusplus
 }

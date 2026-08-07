@@ -104,10 +104,9 @@ static ge::graphStatus DispatchFFNCombineCheckAttrAndSetTiling(gert::TilingConte
                     OP_LOGE(K_INNER_DEBUG, "activation attributes are invalid."), return GRAPH_FAILED);
     OP_TILING_CHECK(*activation_type != 0 && *activation_type != 1,
                     OP_LOGE(K_INNER_DEBUG, "unsupported activation type."), return GRAPH_FAILED);
-    OP_TILING_CHECK(*activation_type == 1 &&
-                        (!std::isfinite(*activation_alpha) || !std::isfinite(*gate_clamp_max) ||
-                         !std::isfinite(*up_clamp_min) || !std::isfinite(*up_clamp_max) || !std::isfinite(*up_add) ||
-                         *up_clamp_min > *up_clamp_max),
+    OP_TILING_CHECK(*activation_type == 1 && (!std::isfinite(*activation_alpha) || !std::isfinite(*gate_clamp_max) ||
+                                              !std::isfinite(*up_clamp_min) || !std::isfinite(*up_clamp_max) ||
+                                              !std::isfinite(*up_add) || *up_clamp_min > *up_clamp_max),
                     OP_LOGE(K_INNER_DEBUG, "invalid SwiGLU-OAI activation parameters."), return GRAPH_FAILED);
 
     info.maxOutputSize = *maxOutputSizePtr;

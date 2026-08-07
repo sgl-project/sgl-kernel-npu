@@ -13,7 +13,7 @@ namespace Catlass::Epilogue::Block {
 
 // float scale, dequant per expert
 template <uint32_t UB_STAGES_, class CType_, class LayoutPerTokenScale_, class DType_, class TileElemWiseMuls_,
-           class TileCopy_>
+          class TileCopy_>
 class BlockEpilogue<EpilogueAtlasA2PerTokenDequantSwigluQuant<UB_STAGES_>, CType_,
                     Gemm::GemmType<float, LayoutPerTokenScale_>, DType_, TileElemWiseMuls_, TileCopy_>
 {
@@ -59,8 +59,8 @@ public:
                __gm__ ElementD *ptrD_, LayoutD const &layoutD_)
             : ptrPerTokenScale(ptrPerTokenScale_),
               layoutPerTokenScale(layoutPerTokenScale_),
-               ptrD(ptrD_),
-               layoutD(layoutD_)
+              ptrD(ptrD_),
+              layoutD(layoutD_)
         {}
     };
 
