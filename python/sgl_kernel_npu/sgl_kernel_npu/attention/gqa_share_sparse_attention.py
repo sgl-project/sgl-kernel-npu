@@ -24,21 +24,7 @@ _native_warned = False
 
 @functools.lru_cache(maxsize=1)
 def _get_native_sparse_op():
-    """Resolve the torch op handle for npu_sparse_attention_score, or None.
-
-    Returns None on failure (callers fall back to Triton split-K). Cached; prime
-    at backend init (pre cuda-graph capture). SGLANG_MINIMAX_NPU_NATIVE_SPARSE=1
-    enables the native op. Default OFF: the native op gives bimodal accept under
-    cuda-graph (stable ~2.7 with Triton, 1.05-2.82 bimodal with native). Use
-    Triton until the native op's high-bs cuda-graph instability is fixed.
-    """
-    if os.environ.get("SGLANG_MINIMAX_NPU_NATIVE_SPARSE", "0").lower() not in (
-        "1",
-        "true",
-        "on",
-        "yes",
-    ):
-        return None
+    # Resolve the torch op handle for npu_sparse_attention_score, or None.
     try:
         import sgl_kernel_npu  # noqa: F401  (registers torch.ops.npu.*)
 

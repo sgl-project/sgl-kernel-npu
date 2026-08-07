@@ -40,23 +40,7 @@ def _get_vectorcore_num_safe() -> int:
 
 @lru_cache(maxsize=1)
 def _get_native_minimax_indexer():
-    """torch.ops.npu.minimax_indexer when available, else None (fall back to triton).
-
-    SGLANG_MINIMAX_NPU_NATIVE_INDEXER=1 enables the native op. Default OFF
-    because the native op selects wrong blocks in the served EAGLE3 verify path
-    (packed_seq_lens packs ndt draft queries as GQA heads but the op takes one
-    seq_len per batch row -> draft tokens j>0 scored with the first token's
-    seq_len). The decode path also diverges from triton in service for a not-yet
-    isolated reason. Use triton (correct, accept~2.82) until fixed.
-    """
-    import os
-    if os.environ.get("SGLANG_MINIMAX_NPU_NATIVE_INDEXER", "0").lower() not in (
-        "1",
-        "true",
-        "on",
-        "yes",
-    ):
-        return None
+    # torch.ops.npu.minimax_indexer when available, else None (fall back to triton).
     try:
         import sgl_kernel_npu  # noqa: F401  (registers torch.ops.npu.minimax_indexer)
 
