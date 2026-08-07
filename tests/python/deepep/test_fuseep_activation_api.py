@@ -2,7 +2,6 @@ import ast
 import unittest
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
@@ -46,7 +45,8 @@ class TestFuseEPActivationAPI(unittest.TestCase):
             REPO_ROOT / "csrc/deepep/ops/op_host/dispatch_ffn_combine_tiling.cpp"
         ).read_text()
         op_def = (
-            REPO_ROOT / "csrc/deepep/ops/op_host/dispatch_ffn_combine_swiglu_oai_def.cpp"
+            REPO_ROOT
+            / "csrc/deepep/ops/op_host/dispatch_ffn_combine_swiglu_oai_def.cpp"
         ).read_text()
         epilogue = (
             REPO_ROOT / "csrc/deepep/ops/op_kernel/dispatch_ffn_combine_kernel/utils/"
@@ -65,7 +65,13 @@ class TestFuseEPActivationAPI(unittest.TestCase):
         ):
             self.assertIn(scalar, tiling)
             self.assertIn(scalar, tiling_impl)
-        for attr in ("activation_alpha", "gate_clamp_max", "up_clamp_min", "up_clamp_max", "up_add"):
+        for attr in (
+            "activation_alpha",
+            "gate_clamp_max",
+            "up_clamp_min",
+            "up_clamp_max",
+            "up_add",
+        ):
             self.assertIn(attr, op_def)
 
 
