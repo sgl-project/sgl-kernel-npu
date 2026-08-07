@@ -176,6 +176,8 @@ buffer.dispatch(x=data, quant_mode="mx_fp8_e4m3", ...)
 buffer.dispatch(x=data, quant_mode="mx_fp4_e2m1", ...)
 ```
 
+> **Quantization selection priority:** `quant_mode` (explicit) > `DEEP_NORMAL_MODE_USE_INT8_QUANT` env var > BF16. See [Normal Mode API — Quantization Selection Priority](doc/NORMAL_API.md#quantization-selection-priority) for details and per-path differences.
+
 #### Low-Latency Mode (Decode)
 
 Low-latency MoE dispatch and combine kernels for inference decode:
@@ -440,6 +442,8 @@ normal_dispatch 量化模式（通过 `quant_mode` 参数指定）：
 | MXFP8 per-block | `"mx_fp8_e4m3"` / `"mx_fp8_e5m2"` | `float8_e4m3fn` / `float8_e5m2` | `float8_e8m0fnu` | 每 32 元素 | 仅 A5 |
 | Scalar FP8 | `"pertoken_fp8_e4m3"` | `float8_e4m3fn` | `float32` | per-token | 仅 A5 |
 | MXFP4 | `"mx_fp4_e2m1"` | `float4_e2m1fn_x2` | `float8_e8m0fnu` | 每 32 元素 | 仅 A5 |
+
+> **量化选择优先级：** `quant_mode`（显式）> `DEEP_NORMAL_MODE_USE_INT8_QUANT` 环境变量 > BF16。详见 [Normal 模式 API — 量化模式选择优先级](doc/NORMAL_API.md#量化模式选择优先级)（含各路径差异）。
 
 #### Low-Latency 模式（Decode）
 
