@@ -4,6 +4,9 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/python/sgl_kernel_npu/s
 # host side files
 FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/pytorch_extensions.cpp
+    ${PROJECT_OP_SRC_BASE}/mhc/bindings/ops_common.cpp
+    ${PROJECT_OP_SRC_BASE}/mhc/bindings/npu_hc_pre.cpp
+    ${PROJECT_OP_SRC_BASE}/mhc/bindings/npu_hc_post.cpp
     ${PROJECT_OP_SRC_BASE}/helloworld/op_host/helloworld.cpp
     ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_host/cache_loc_assign.cpp
     ${PROJECT_OP_SRC_BASE}/alloc_extend/op_host/alloc_extend_tiling.cpp
@@ -155,6 +158,7 @@ target_link_directories(${OP_PLUGIN_NAME} PRIVATE
 
 target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/utils
+        ${PROJECT_OP_SRC_BASE}/mhc/bindings
         ${PROJECT_SOURCE_DIR}/include
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/tiling

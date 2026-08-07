@@ -16,6 +16,7 @@ DEEPEP_VARIANT="deepep"
 DEEPEP_IS_A5_BUILD="OFF"
 
 BUILD_ATTENTIONS_MODULE="OFF"
+MHC_COMPUTE_UNIT="${MHC_COMPUTE_UNIT:-ascend910b}"
 BUILD_DEEPEP_MODULE="OFF"
 BUILD_KERNELS_MODULE="OFF"
 BUILD_MEMORY_SAVER_MODULE="OFF"
@@ -428,6 +429,36 @@ function build_attentions_kernels()
     )
 }
 
+function bundle_mhc_custom_ops()
+{
+    local package_dir="$PROJECT_ROOT/python/sgl_kernel_npu/sgl_kernel_npu"
+    local run_package=""
+
+    echo "Building mHC custom operators for $MHC_COMPUTE_UNIT"
+    "$PROJECT_ROOT/scripts/build_mhc_custom_ops.sh" "$MHC_COMPUTE_UNIT"
+
+    run_package="$OUTPUT_DIR/sgl_kernel_npu_mhc_ops-${MHC_COMPUTE_UNIT}-linux.$(uname -m).run"
+    if [[ ! -f "$run_package" ]]; then
+        die "Cannot find the generated mHC custom-op package: $run_package"
+    fi
+
+    # Bundle the vendor OPP into the Python package so installing the wheel is
+    # sufficient; no system-wide custom-op installation is required.
+    rm -rf "$package_dir/vendors"
+    chmod +x "$run_package"
+    "$run_package" --quiet --install-path="$package_dir"
+
+    if [[ ! -f "$package_dir/vendors/customize/op_api/lib/libcust_opapi.so" ]]; then
+        die "The bundled mHC op-api library was not installed into $package_dir/vendors/customize"
+    fi
+    if [[ ! -d "$package_dir/vendors/customize/op_impl" ]]; then
+        die "The bundled mHC kernels were not installed into $package_dir/vendors/customize"
+    fi
+
+    rm -f "$package_dir/config.ini"
+    echo "Bundled mHC custom operators into $package_dir/vendors/customize"
+}
+
 function make_deepep_package()
 {
     (
@@ -449,6 +480,7 @@ function make_sgl_kernel_npu_package()
         cp -v "$PROJECT_ROOT/config.ini" sgl_kernel_npu/
         python3 setup.py clean --all
         python3 setup.py bdist_wheel
+        rm -f sgl_kernel_npu/config.ini
         mv -v dist/sgl_kernel_npu*.whl "$OUTPUT_DIR/"
         rm -rf dist
     )
@@ -506,6 +538,9 @@ function main()
     fi
 
     ensure_wheel_package
+    if [[ "$BUILD_KERNELS_MODULE" == "ON" ]]; then
+        bundle_mhc_custom_ops
+    fi
 
     # Package only the modules selected above.
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
