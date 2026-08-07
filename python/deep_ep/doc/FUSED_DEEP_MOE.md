@@ -243,6 +243,12 @@ def fused_deep_moe(
 - 约束遵循 `aclnnDispatchFFNCombine` 路径，与 `FUSED_DEEP_MOE` 不同。
 - 不支持 shared expert。
 
+#### 激活（`activation_type`）
+
+- `activation_type=0`（默认）：原始 SwiGLU（无 clamp）。`activation_alpha`/`gate_clamp_max`/`up_clamp_*`/`up_add` 参数被忽略。
+- `activation_type=1`：SwiGLU-OAI（OpenAI 兼容）。要求所有激活参数（`activation_alpha`、`gate_clamp_max`、`up_clamp_min`、`up_clamp_max`、`up_add`）为有限值，且 `up_clamp_min ≤ up_clamp_max`；否则抛出 `ValueError`。
+- 适用于两种融合模式（透传给 CANN 算子）。
+
 ### 返回值
 
 #### 对于 `fuse_mode=FUSED_DEEP_MOE`（默认）

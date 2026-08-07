@@ -129,8 +129,7 @@ public:
                                            const at::Tensor &gmm1PermutedWeightScale, const at::Tensor &gmm2Weight,
                                            const at::Tensor &gmm2WeightScale, const at::Tensor &expertScalesOptional,
                                            int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
-                                           int quant_mode, bool profile_enable = false, int activation_type, float activation_alpha,
-                                            float gate_clamp_max, float up_clamp_min, float up_clamp_max, float up_add);
+                                           int quant_mode);
 
     void begin_profile(int64_t num_profile_skip_launches, int64_t num_profile_active_launches,
                        const std::string &profile_trace_dir = "");

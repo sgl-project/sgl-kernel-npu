@@ -21,7 +21,7 @@ extern "C" __global__ __aicore__ void fused_deep_moe(
     REGISTER_TILING_DEFAULT(FusedDeepMoeTilingData);
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);  // 1C2V
     GET_TILING_DATA(tiling_data, tiling);
-    if constexpr (TILING_KEY_IS(0) || TILING_KEY_IS(1) || TILING_KEY_IS(2) || TILING_KEY_IS(3)) {
+    if constexpr (TILING_KEY_IS(0) || TILING_KEY_IS(1)) {
         FusedDeepMoe<DTYPE_X, int32_t, false, TILING_KEY_VAR> op;
         op.Init(x, expert_ids, gmm1_permuted_weight, gmm1_permuted_weight_scale, gmm2_weight, gmm2_weight_scale,
                 expert_smooth_scales, expert_scales, output, outputRecvCount, workspace, nullptr, &tiling_data);
