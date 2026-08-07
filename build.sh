@@ -432,7 +432,17 @@ function build_attentions_kernels()
 function build_mhc_custom_ops()
 {
     echo "Building mHC custom operators for $MHC_COMPUTE_UNIT"
-    "$PROJECT_ROOT/scripts/build_mhc_ops.sh" "$MHC_COMPUTE_UNIT"
+    local attentions_build_dir="$PROJECT_ROOT/csrc/attentions/build"
+    local package_dir="$PROJECT_ROOT/python/sgl_kernel_npu/sgl_kernel_npu"
+
+    rm -rf "$attentions_build_dir/output" "$attentions_build_dir/vendors"
+    "$attentions_build_dir/build_ascendc_ops.sh" \
+        -n "hc_pre;hc_post" \
+        -c "$MHC_COMPUTE_UNIT"
+
+    rm -rf "$package_dir/vendors"
+    mkdir -p "$package_dir/vendors"
+    cp -a "$attentions_build_dir/vendors/." "$package_dir/vendors/"
 }
 
 function make_deepep_package()
