@@ -2,6 +2,8 @@ import torch
 import triton
 import triton.language as tl
 
+from sgl_kernel_npu.utils.triton_utils import get_device_properties
+
 
 @triton.jit
 def _tree_target_only_accept_kernel(
@@ -113,31 +115,39 @@ def _tree_target_only_block_sum_kernel(
     rejected_probs,
     metadata,
     block_sums,
+    batch_size: tl.constexpr,
     num_draft_tokens: tl.constexpr,
     vocab_size: tl.constexpr,
     vocab_block_size: tl.constexpr,
     num_vocab_blocks: tl.constexpr,
 ):
-    req_idx = tl.program_id(0)
-    block_idx = tl.program_id(1)
-    vocab_offsets = block_idx * vocab_block_size + tl.arange(0, vocab_block_size)
-    vocab_mask = vocab_offsets < vocab_size
+    program_idx = tl.program_id(0)
+    num_programs = tl.num_programs(0)
+    total_blocks = batch_size * num_vocab_blocks
 
-    target_row = tl.load(metadata + req_idx * 2).to(tl.int64)
-    probs_offset = (req_idx * num_draft_tokens + target_row) * vocab_size
-    target = tl.load(
-        target_probs + probs_offset + vocab_offsets,
-        mask=vocab_mask,
-        other=0.0,
-    ).to(tl.float32)
-    rejected = tl.load(
-        rejected_probs + probs_offset + vocab_offsets,
-        mask=vocab_mask,
-        other=0.0,
-    ).to(tl.float32)
-    residual = tl.maximum(target - rejected, 0.0)
-    block_sum = tl.sum(residual, axis=0)
-    tl.store(block_sums + req_idx * num_vocab_blocks + block_idx, block_sum)
+    for flat_block_idx in tl.range(program_idx, total_blocks, num_programs):
+        req_idx = flat_block_idx // num_vocab_blocks
+        block_idx = flat_block_idx % num_vocab_blocks
+        vocab_offsets = block_idx * vocab_block_size + tl.arange(
+            0, vocab_block_size
+        )
+        vocab_mask = vocab_offsets < vocab_size
+
+        target_row = tl.load(metadata + req_idx * 2).to(tl.int64)
+        probs_offset = (req_idx * num_draft_tokens + target_row) * vocab_size
+        target = tl.load(
+            target_probs + probs_offset + vocab_offsets,
+            mask=vocab_mask,
+            other=0.0,
+        ).to(tl.float32)
+        rejected = tl.load(
+            rejected_probs + probs_offset + vocab_offsets,
+            mask=vocab_mask,
+            other=0.0,
+        ).to(tl.float32)
+        residual = tl.maximum(target - rejected, 0.0)
+        block_sum = tl.sum(residual, axis=0)
+        tl.store(block_sums + req_idx * num_vocab_blocks + block_idx, block_sum)
 
 
 @triton.jit
@@ -327,6 +337,11 @@ def tree_speculative_sampling_target_only(
     vocab_block_size = 2048
     num_vocab_blocks = triton.cdiv(vocab_size, vocab_block_size)
     pad_num_vocab_blocks = triton.next_power_of_2(num_vocab_blocks)
+    _, num_vector_cores = get_device_properties()
+    # Cap the launch to physical vector cores; each program strides over blocks.
+    num_block_sum_programs = min(
+        batch_size * num_vocab_blocks, num_vector_cores
+    )
 
     # The CUDA call site passes zeros_like(target_probs). Clearing in the NPU
     # wrapper makes the scratch contract explicit and permits empty_like callers.
@@ -358,11 +373,12 @@ def tree_speculative_sampling_target_only(
         num_speculative_tokens=num_speculative_tokens,
         vocab_size=vocab_size,
     )
-    _tree_target_only_block_sum_kernel[(batch_size, num_vocab_blocks)](
+    _tree_target_only_block_sum_kernel[(num_block_sum_programs,)](
         target_probs,
         draft_probs,
         metadata,
         block_sums,
+        batch_size=batch_size,
         num_draft_tokens=num_draft_tokens,
         vocab_size=vocab_size,
         vocab_block_size=vocab_block_size,

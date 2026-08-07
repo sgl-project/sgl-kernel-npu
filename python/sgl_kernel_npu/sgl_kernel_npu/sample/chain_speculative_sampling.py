@@ -2,6 +2,8 @@ import torch
 import triton
 import triton.language as tl
 
+from sgl_kernel_npu.utils.triton_utils import get_device_properties
+
 
 @triton.jit
 def _chain_rejection_accept_kernel(
@@ -81,44 +83,52 @@ def _chain_rejection_block_sum_kernel(
     draft_probs,
     metadata,
     block_sums,
+    batch_size: tl.constexpr,
     num_draft_tokens: tl.constexpr,
     num_draft_prob_rows: tl.constexpr,
     vocab_size: tl.constexpr,
     vocab_block_size: tl.constexpr,
     num_vocab_blocks: tl.constexpr,
 ):
-    req_idx = tl.program_id(0)
-    block_idx = tl.program_id(1)
-    vocab_offsets = block_idx * vocab_block_size + tl.arange(0, vocab_block_size)
-    vocab_mask = vocab_offsets < vocab_size
+    program_idx = tl.program_id(0)
+    num_programs = tl.num_programs(0)
+    total_blocks = batch_size * num_vocab_blocks
 
-    metadata_offset = req_idx * 3
-    target_row = tl.load(metadata + metadata_offset).to(tl.int64)
-    all_accepted = tl.load(metadata + metadata_offset + 2).to(tl.int32)
-    target_offset = (req_idx * num_draft_tokens + target_row) * vocab_size
-    target = tl.load(
-        target_probs + target_offset + vocab_offsets,
-        mask=vocab_mask,
-        other=0.0,
-    ).to(tl.float32)
+    for flat_block_idx in tl.range(program_idx, total_blocks, num_programs):
+        req_idx = flat_block_idx // num_vocab_blocks
+        block_idx = flat_block_idx % num_vocab_blocks
+        vocab_offsets = block_idx * vocab_block_size + tl.arange(
+            0, vocab_block_size
+        )
+        vocab_mask = vocab_offsets < vocab_size
 
-    if all_accepted == 1:
-        residual = target
-    else:
-        draft_offset = (
-            req_idx * num_draft_prob_rows + target_row
-        ) * vocab_size
-        draft = tl.load(
-            draft_probs + draft_offset + vocab_offsets,
+        metadata_offset = req_idx * 3
+        target_row = tl.load(metadata + metadata_offset).to(tl.int64)
+        all_accepted = tl.load(metadata + metadata_offset + 2).to(tl.int32)
+        target_offset = (req_idx * num_draft_tokens + target_row) * vocab_size
+        target = tl.load(
+            target_probs + target_offset + vocab_offsets,
             mask=vocab_mask,
             other=0.0,
         ).to(tl.float32)
-        residual = tl.maximum(target - draft, 0.0)
 
-    tl.store(
-        block_sums + req_idx * num_vocab_blocks + block_idx,
-        tl.sum(residual, axis=0),
-    )
+        if all_accepted == 1:
+            residual = target
+        else:
+            draft_offset = (
+                req_idx * num_draft_prob_rows + target_row
+            ) * vocab_size
+            draft = tl.load(
+                draft_probs + draft_offset + vocab_offsets,
+                mask=vocab_mask,
+                other=0.0,
+            ).to(tl.float32)
+            residual = tl.maximum(target - draft, 0.0)
+
+        tl.store(
+            block_sums + req_idx * num_vocab_blocks + block_idx,
+            tl.sum(residual, axis=0),
+        )
 
 
 @triton.jit
@@ -209,7 +219,7 @@ def _chain_rejection_sample_kernel(
     tl.store(predicts + output_idx, tl.minimum(sampled_token, vocab_size - 1))
 
 
-def chain_speculative_sampling_rejection(
+def chain_speculative_sampling_triton(
     predicts: torch.Tensor,
     accept_index: torch.Tensor,
     accept_token_num: torch.Tensor,
@@ -302,6 +312,11 @@ def chain_speculative_sampling_rejection(
     vocab_block_size = 2048
     num_vocab_blocks = triton.cdiv(vocab_size, vocab_block_size)
     pad_num_vocab_blocks = triton.next_power_of_2(num_vocab_blocks)
+    _, num_vector_cores = get_device_properties()
+    # Cap the launch to physical vector cores; each program strides over blocks.
+    num_block_sum_programs = min(
+        batch_size * num_vocab_blocks, num_vector_cores
+    )
 
     metadata = torch.empty(
         (batch_size, 3), dtype=torch.int64, device=target_probs.device
@@ -327,11 +342,12 @@ def chain_speculative_sampling_rejection(
         num_draft_prob_rows=num_draft_prob_rows,
         vocab_size=vocab_size,
     )
-    _chain_rejection_block_sum_kernel[(batch_size, num_vocab_blocks)](
+    _chain_rejection_block_sum_kernel[(num_block_sum_programs,)](
         target_probs,
         draft_probs,
         metadata,
         block_sums,
+        batch_size=batch_size,
         num_draft_tokens=num_draft_tokens,
         num_draft_prob_rows=num_draft_prob_rows,
         vocab_size=vocab_size,

@@ -1,7 +1,7 @@
 import torch
 import torch_npu  # noqa: F401
 
-from sgl_kernel_npu.sample import chain_speculative_sampling_rejection
+from sgl_kernel_npu.sample import chain_speculative_sampling_triton
 
 
 def chain_rejection_reference(
@@ -119,7 +119,7 @@ def test_chain_rejection_matches_gpu_algorithm():
     accept_num = torch.zeros_like(expected_accept_num, device="npu")
     next_token = torch.full_like(candidates, -1, device="npu")
     next_sibling = torch.full_like(candidates, -1, device="npu")
-    chain_speculative_sampling_rejection(
+    chain_speculative_sampling_triton(
         predicts,
         accept_index,
         accept_num,
@@ -127,6 +127,75 @@ def test_chain_rejection_matches_gpu_algorithm():
         retrive_index.npu(),
         next_token,
         next_sibling,
+        uniforms.npu(),
+        final_uniforms.npu(),
+        target_probs.npu(),
+        draft_probs.npu(),
+    )
+
+    torch.testing.assert_close(predicts.cpu(), expected_predicts)
+    torch.testing.assert_close(accept_index.cpu(), expected_accept_index)
+    torch.testing.assert_close(accept_num.cpu(), expected_accept_num)
+
+
+def test_chain_rejection_large_vocab_block_loop():
+    batch_size, num_draft_tokens, vocab_size = 2, 4, 151552
+    candidates = torch.tensor([[0, 11, 22, 33], [0, 44, 55, 66]])
+    retrive_index = torch.arange(batch_size * num_draft_tokens).view(
+        batch_size, num_draft_tokens
+    )
+    target_probs = torch.zeros(batch_size, num_draft_tokens, vocab_size)
+    draft_probs = torch.zeros(batch_size, num_draft_tokens - 1, vocab_size)
+
+    for row, token in enumerate(candidates[0, 1:]):
+        target_probs[0, row, token] = 0.8
+        target_probs[0, row, 0] = 0.2
+        draft_probs[0, row, token] = 0.5
+        draft_probs[0, row, 0] = 0.5
+    target_probs[0, -1, 0] = 0.25
+    target_probs[0, -1, -1] = 0.75
+
+    target_probs[1, 0, candidates[1, 1]] = 0.1
+    target_probs[1, 0, -1] = 0.9
+    draft_probs[1, 0, candidates[1, 1]] = 0.9
+    draft_probs[1, 0, -1] = 0.1
+    for row, token in enumerate(candidates[1, 2:], start=1):
+        target_probs[1, row, token] = 1.0
+        draft_probs[1, row, token] = 1.0
+    target_probs[1, -1, -1] = 1.0
+
+    uniforms = torch.tensor([[0.1, 0.1, 0.1, 0.0], [0.9, 0.0, 0.0, 0.0]])
+    final_uniforms = torch.tensor([0.5, 0.5])
+    expected_predicts = torch.full(
+        (batch_size * num_draft_tokens,), -1, dtype=torch.int32
+    )
+    expected_accept_index = torch.full(
+        (batch_size, num_draft_tokens), -1, dtype=torch.int32
+    )
+    expected_accept_num = torch.zeros(batch_size, dtype=torch.int32)
+    chain_rejection_reference(
+        expected_predicts,
+        expected_accept_index,
+        expected_accept_num,
+        candidates,
+        retrive_index,
+        uniforms,
+        final_uniforms,
+        target_probs,
+        draft_probs,
+    )
+
+    predicts = torch.full_like(expected_predicts, -1, device="npu")
+    accept_index = torch.full_like(expected_accept_index, -1, device="npu")
+    accept_num = torch.zeros_like(expected_accept_num, device="npu")
+    chain_speculative_sampling_triton(
+        predicts,
+        accept_index,
+        accept_num,
+        candidates.npu(),
+        retrive_index.npu(),
+        torch.full_like(candidates, -1, device="npu"),
+        torch.full_like(candidates, -1, device="npu"),
         uniforms.npu(),
         final_uniforms.npu(),
         target_probs.npu(),
