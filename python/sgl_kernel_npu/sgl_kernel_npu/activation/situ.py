@@ -38,7 +38,9 @@ def _situ_and_mul_quant_kernel(
         else:  # count
             gl_offsets = tl.arange(0, NUM_EXPERTS_ALGIN)
             gl_mask = gl_offsets < NUM_EXPERTS
-            group_list = tl.load(group_list_ptr + gl_offsets, gl_mask, other=0).to(tl.int32)
+            group_list = tl.load(group_list_ptr + gl_offsets, gl_mask, other=0).to(
+                tl.int32
+            )
             total_rows = tl.sum(group_list)
     else:
         total_rows = N_ROWS
@@ -63,24 +65,36 @@ def _situ_and_mul_quant_kernel(
 
         if SCALE:
             scale = tl.maximum(tl.max(tl.abs(out)) / DTYPE_MAX, 1e-30)
-            tl.store(scale_ptr + row_idx.to(tl.int64), scale.to(scale_ptr.dtype.element_ty))
+            tl.store(
+                scale_ptr + row_idx.to(tl.int64), scale.to(scale_ptr.dtype.element_ty)
+            )
             # quantize in COL_BLOCK_SIZE slices (a full-row rint overflows UB, cf. swiglu_quant).
             for cb in range(0, HALF_COLS, COL_BLOCK_SIZE):
-                tmp = al.extract_slice(out, offsets=(cb,), sizes=(COL_BLOCK_SIZE,), strides=(1,))
+                tmp = al.extract_slice(
+                    out, offsets=(cb,), sizes=(COL_BLOCK_SIZE,), strides=(1,)
+                )
                 tmp = tmp.to(tl.float32) / scale
                 tmp = tl.floor(tmp + 0.5)
                 tmp = tl.clamp(tmp, -128, 127).to(tl.int8)
                 c_idx = cb + tl.arange(0, COL_BLOCK_SIZE)
                 mask = c_idx < HALF_COLS
-                tl.store(out_ptr + row_idx.to(tl.int64) * HALF_COLS + c_idx,
-                         tmp.to(out_ptr.dtype.element_ty), mask=mask)
+                tl.store(
+                    out_ptr + row_idx.to(tl.int64) * HALF_COLS + c_idx,
+                    tmp.to(out_ptr.dtype.element_ty),
+                    mask=mask,
+                )
         else:
-            tl.store(out_ptr + row_idx.to(tl.int64) * HALF_COLS + cols,
-                     out.to(out_ptr.dtype.element_ty))
+            tl.store(
+                out_ptr + row_idx.to(tl.int64) * HALF_COLS + cols,
+                out.to(out_ptr.dtype.element_ty),
+            )
 
 
 @triton.autotune(
-    configs=[triton.Config({"BLOCK_H": b, "multibuffer": True}) for b in (1024, 2048, 4096, 8192)],
+    configs=[
+        triton.Config({"BLOCK_H": b, "multibuffer": True})
+        for b in (1024, 2048, 4096, 8192)
+    ],
     key=["HALF_COLS", "HAS_GROUP_LIST"],
 )
 @triton.jit
@@ -110,7 +124,9 @@ def _situ_and_mul_kernel(
         else:  # count
             gl_offsets = tl.arange(0, NUM_EXPERTS_ALGIN)
             gl_mask = gl_offsets < NUM_EXPERTS
-            group_list = tl.load(group_list_ptr + gl_offsets, gl_mask, other=0).to(tl.int32)
+            group_list = tl.load(group_list_ptr + gl_offsets, gl_mask, other=0).to(
+                tl.int32
+            )
             total_rows = tl.sum(group_list)
     else:
         total_rows = N_ROWS
@@ -173,7 +189,9 @@ def situ_and_mul_quant(
         uninitialised -- quant only supports d in {3072, 6144}.
     """
     if quant_type not in (0, 1):
-        raise ValueError(f"quant_type must be 0 (int8) or 1 (fp8), but got {quant_type}")
+        raise ValueError(
+            f"quant_type must be 0 (int8) or 1 (fp8), but got {quant_type}"
+        )
     if need_quant and quant_type == 1:
         raise NotImplementedError(
             "fp8 (quant_type=1) is deferred: A5-only, uses npu_dynamic_mx_quant (not fusible "
@@ -221,14 +239,27 @@ def situ_and_mul_quant(
     _, num_vectorcore = get_device_properties()
     if do_quant:
         _situ_and_mul_quant_kernel[(num_vectorcore,)](
-            x_2d, group_list_arg, out, scale,
-            TOTAL_COLS=h, HALF_COLS=half_cols, COL_BLOCK_SIZE=half_cols,
-            NUM_EXPERTS=num_experts_arg, NUM_EXPERTS_ALGIN=num_experts_algin_arg,
-            GROUP_LIST_TYPE=gl_type_arg, N_ROWS=s, NUM_CORES=num_vectorcore,
-            HAS_GROUP_LIST=has_group_list, BETA=beta, INV_BETA=1.0 / beta,
-            DO_LINEAR_BETA=do_linear_beta, LINEAR_BETA=linear_beta_v,
+            x_2d,
+            group_list_arg,
+            out,
+            scale,
+            TOTAL_COLS=h,
+            HALF_COLS=half_cols,
+            COL_BLOCK_SIZE=half_cols,
+            NUM_EXPERTS=num_experts_arg,
+            NUM_EXPERTS_ALGIN=num_experts_algin_arg,
+            GROUP_LIST_TYPE=gl_type_arg,
+            N_ROWS=s,
+            NUM_CORES=num_vectorcore,
+            HAS_GROUP_LIST=has_group_list,
+            BETA=beta,
+            INV_BETA=1.0 / beta,
+            DO_LINEAR_BETA=do_linear_beta,
+            LINEAR_BETA=linear_beta_v,
             INV_LINEAR_BETA=(1.0 / linear_beta_v) if do_linear_beta else 1.0,
-            SCALE=need_quant, DTYPE_MAX=127, multibuffer=True,
+            SCALE=need_quant,
+            DTYPE_MAX=127,
+            multibuffer=True,
         )
     else:
         raise NotImplementedError(
@@ -324,7 +355,6 @@ def situ_and_mul(
         INV_LINEAR_BETA=(1.0 / linear_beta_v) if do_linear_beta else 1.0,
     )
     return out.reshape(*x.shape[:-1], h // 2)
-
 
 
 @triton.jit

@@ -209,9 +209,7 @@ def test_move_intermediate_cache_copies_every_v_tile(V: int):
 def test_move_intermediate_cache_mask_and_destination_strides():
     """Masked rows stay unchanged and destination H/V/K strides are honored."""
     L, S, D, H, V, K = 2, 4, 3, 2, 128, 16
-    src_cache = torch.randn(
-        L, S, D, H, V, K, device=device, dtype=torch.bfloat16
-    )
+    src_cache = torch.randn(L, S, D, H, V, K, device=device, dtype=torch.bfloat16)
 
     # The kernel supports a strided destination through dst_h/v/k_stride.
     dst_storage = torch.full(

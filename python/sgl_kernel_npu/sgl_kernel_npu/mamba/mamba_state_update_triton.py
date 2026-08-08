@@ -227,12 +227,8 @@ def move_cache_dynamic_last_kernel_h_block_kda(
                     + k_offsets[None, None, :] * dst_k_stride
                 )
 
-                src_block = tl.load(
-                    src_addr + src_linear_offset, mask=mask, other=0
-                )
-                tl.store(
-                    dst_base_addr + dst_linear_offset, src_block, mask=mask
-                )
+                src_block = tl.load(src_addr + src_linear_offset, mask=mask, other=0)
+                tl.store(dst_base_addr + dst_linear_offset, src_block, mask=mask)
 
 
 def move_intermediate_cache_kda(
