@@ -65,3 +65,65 @@ def transfer_kv_dim_exchange(
             direction.value,
             flags.value,
         )
+
+
+def transfer_mamba_state(
+    device_buf: torch.Tensor,
+    host_buf: torch.Tensor,
+    device_indices: torch.Tensor,
+    host_indices: torch.Tensor,
+    direction: TransferDirection = TransferDirection.H2D,
+):
+    """
+    Transfer Mamba/SSM state between device (layer-first) and host (page-first).
+
+    Device buffer layout: [num_layers, device_size, *state_shape]  (layer-first)
+    Host buffer layout:   [host_size, num_layers, 1, *state_shape] (page-first)
+
+    Uses aclrtMemcpy2dAsync for efficient 2D strided copy, transferring all
+    layers for each slot index in a single 2D copy call.
+
+    Args:
+        device_buf: device Mamba state buffer [num_layers, size, *shape]
+        host_buf: host Mamba state buffer [size, num_layers, 1, *shape]
+        device_indices: slot indices in device buffer
+        host_indices: slot indices in host buffer
+        direction: H2D (host→device) or D2H (device→host)
+    """
+    torch.ops.npu.transfer_mamba_state(
+        device_buf,
+        host_buf,
+        device_indices,
+        host_indices,
+        direction.value,
+    )
+
+
+def transfer_weight(
+    dst: torch.Tensor,
+    src: torch.Tensor,
+    direction: TransferDirection = TransferDirection.H2D,
+):
+    """
+    Copy raw bytes between host and device using aclrtMemcpyAsync.
+
+    This is a flat 1D byte copy — it does NOT interpret tensor layout
+    (ND vs NZ). The caller must ensure src and dst have the same byte
+    size and compatible data layout.
+
+    Key use case: MoE weight DRAM offload.
+      - D2H: Copy NZ-format weight bytes from HBM to Host DRAM.
+      - H2D: Copy NZ-format weight bytes from Host DRAM to pre-allocated
+             NZ-format HBM buffer.
+      Because the copy is layout-agnostic, NZ bytes are preserved as-is,
+      eliminating the need for npu_format_cast at forward time.
+
+    Supports NPU graph capture: aclrtMemcpyAsync is async and can be
+    recorded/replayed in a graph.
+
+    Args:
+        dst: destination tensor (device tensor for H2D, host tensor for D2H)
+        src: source tensor (host tensor for H2D, device tensor for D2H)
+        direction: H2D (host→device) or D2H (device→host)
+    """
+    torch.ops.npu.transfer_weight(dst, src, direction.value)
