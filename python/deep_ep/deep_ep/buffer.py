@@ -856,6 +856,11 @@ class Buffer:
             or up_clamp_min > up_clamp_max
         ):
             raise ValueError("Invalid SwiGLU-OAI activation parameters")
+        if activation_type == 1 and fuse_mode == FuseMode.FUSED_DEEP_MOE:
+            raise ValueError(
+                "SwiGLU-OAI activation (activation_type=1) is not supported by "
+                "FuseMode.FUSED_DEEP_MOE; please use FuseMode.DISPATCH_FFN_COMBINE"
+            )
 
         topk_ids = topk_idx.int()
         if fuse_mode == FuseMode.FUSED_DEEP_MOE:
