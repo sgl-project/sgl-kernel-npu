@@ -16,7 +16,6 @@ DEEPEP_VARIANT="deepep"
 DEEPEP_IS_A5_BUILD="OFF"
 
 BUILD_ATTENTIONS_MODULE="OFF"
-MHC_COMPUTE_UNIT="${MHC_COMPUTE_UNIT:-ascend910b}"
 BUILD_DEEPEP_MODULE="OFF"
 BUILD_KERNELS_MODULE="OFF"
 BUILD_MEMORY_SAVER_MODULE="OFF"
@@ -434,10 +433,10 @@ function bundle_mhc_custom_ops()
     local package_dir="$PROJECT_ROOT/python/sgl_kernel_npu/sgl_kernel_npu"
     local run_package=""
 
-    echo "Building mHC custom operators for $MHC_COMPUTE_UNIT"
-    "$PROJECT_ROOT/scripts/build_mhc_custom_ops.sh" "$MHC_COMPUTE_UNIT"
+    echo "Building mHC custom operators for $CMAKE_SOC_VERSION"
+    "$PROJECT_ROOT/scripts/build_mhc_custom_ops.sh" "$CMAKE_SOC_VERSION"
 
-    run_package="$OUTPUT_DIR/sgl_kernel_npu_mhc_ops-${MHC_COMPUTE_UNIT}-linux.$(uname -m).run"
+    run_package="$OUTPUT_DIR/sgl_kernel_npu_mhc_ops-${CMAKE_SOC_VERSION}-linux.$(uname -m).run"
     if [[ ! -f "$run_package" ]]; then
         die "Cannot find the generated mHC custom-op package: $run_package"
     fi
@@ -480,7 +479,6 @@ function make_sgl_kernel_npu_package()
         cp -v "$PROJECT_ROOT/config.ini" sgl_kernel_npu/
         python3 setup.py clean --all
         python3 setup.py bdist_wheel
-        rm -f sgl_kernel_npu/config.ini
         mv -v dist/sgl_kernel_npu*.whl "$OUTPUT_DIR/"
         rm -rf dist
     )
