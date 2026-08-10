@@ -1,11 +1,6 @@
-"""NPU Ascend PREFILL sparse-attention: native FA (FIA) path with a per-query
-custom block_table.
-
-Feeds the dense paged FA op a custom block_table listing each query's selected
-top-k blocks. ``sparse_mode=0`` attends each block fully; the own (causal) block
-is reordered LAST and length-limited via ``actual_kvlen``. Per-query prep (reorder
-+ page gather + actual_kvlen) is fused into one triton kernel ``_fia_prep_kernel``.
-"""
+"""NPU PREFILL sparse-attention: native FA (FIA) with a per-query custom block_table.
+Per-query prep (own-block reorder + page gather + actual_kvlen) is fused into
+one triton kernel ``_fia_prep_kernel``."""
 
 from __future__ import annotations
 
@@ -76,9 +71,8 @@ def _fia_prep_kernel(
     ).to(tl.int32)
     own_phys = own_slot // BLOCK_SIZE
 
-    # zero-fill all slots (pads), then scatter non-own real -> [rank], own -> [count_real].
-    # The own store is unconditional: an empty query (seq_len==0) gets own_phys at
-    # block_table[0] (FIA NaNs on page 0; actual_kvlen==0 => unattended). Defensive.
+    # zero-fill pads, then scatter non-own real -> [rank], own -> [count_real].
+    # Own store is unconditional (empty query: own_phys at [0], kvlen==0 -> unattended).
     bt_base = block_table_ptr + pid * stride_bt_t
     tl.store(bt_base + off * stride_bt_k, tl.zeros((TOPK1,), tl.int32))
     tl.store(bt_base + rank * stride_bt_k, phys, mask=real_nonown)
@@ -129,8 +123,7 @@ def flash_prefill_bnsd_blockq_sparse_fia(
     max_req_to_token_cols = req_to_token.shape[1]
 
     # FUSED prep: one triton kernel (reorder + page gather + actual_kvlen).
-    # Reuse caller-provided workspace buffers to skip per-call torch.empty
-    # (hoisted to per-forward _build_prefill_meta, shared across sparse layers).
+    # Reuse caller-provided buffers (hoisted to _build_prefill_meta).
     block_table = (
         block_table_out
         if block_table_out is not None
@@ -169,9 +162,8 @@ def flash_prefill_bnsd_blockq_sparse_fia(
     k_paged = k_cache_bnsd.view(num_pages, block_size, num_kv_heads * head_dim)
     v_paged = v_cache_bnsd.view(num_pages, block_size, num_kv_heads * head_dim)
 
-    # FIA v1: sparse_mode=0 (full). The own block is length-limited via actual_kvlen
-    # (causal); past score blocks are fully past, so no causal mask is needed.
-    # actual_seq_lengths is a plain host list (no D2H sync per layer).
+    # FIA sparse_mode=0: own block length-limited via actual_kvlen (causal);
+    # past score blocks are fully past, so no causal mask is needed.
     out, _ = torch.ops.npu.npu_fused_infer_attention_score(
         q,
         k_paged,

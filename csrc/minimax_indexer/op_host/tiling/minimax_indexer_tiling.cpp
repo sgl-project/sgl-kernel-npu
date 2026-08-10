@@ -681,7 +681,7 @@ ge::graphStatus MinimaxIndexerTiling::DoTiling(MITilingInfo *tilingInfo)
         // kernel's Align(aicNum_*topk, 64) (aicNum_ == GetBlockNum() == targetCores).
         const int32_t topkInner = static_cast<int32_t>(((partPerHead + 63U) / 64U) * 64U);
         optiling::TopkTiling topkHost;
-        TopKTilingFunc(ascendcPlatform, topkInner, /*outter=*/1, static_cast<int32_t>(tilingInfo->sparseCount),
+        TopKTilingFunc(ascendcPlatform, topkInner, /*outer=*/1, static_cast<int32_t>(tilingInfo->sparseCount),
                        /*dataTypeSize=*/4U, /*isInitIndex=*/true, TopKMode::TOPK_NORMAL, /*isLargest=*/true, topkHost);
         topkHost.SaveToBuffer(&tilingData.topkTiling, sizeof(MITopkTilingRaw));
         uint32_t topkTmpMax = 0U;

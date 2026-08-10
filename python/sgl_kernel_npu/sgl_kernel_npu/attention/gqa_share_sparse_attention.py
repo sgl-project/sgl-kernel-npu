@@ -16,8 +16,7 @@ from sgl_kernel_npu.indexer.flash_block_score_decode import (
 )
 
 # --- Native Ascend block-sparse attention (npu_sparse_attention_score) ---
-# Routes decode/verify main attention through the native aclnn cube kernel when
-# available; otherwise falls back to the Triton split-K kernel.
+# Routes decode/verify main attention through the native op; falls back to Triton split-K.
 logger = logging.getLogger(__name__)
 _native_warned = False
 
@@ -100,9 +99,10 @@ def _native_decode_main(
         num_warps=1,
         num_stages=1,
     )
-    # bt is valid for attended slots (sanitize ensures sel < per-query nblocks); no clamp needed.
-    # actual_seq_lengths_kv: cuda-graph safe (sglang's static int32 seq_lens refreshed out-of-graph
-    # each forward). Do NOT MAX-pad -- causes OOB on replay. EXEC_NPU_CMD caching allocator.
+    # -1 sentinels must not reach the C++ op (block_table[-1] OOB -> NaN); clamp to 0.
+    sel = torch.where(sel < 0, torch.zeros_like(sel), sel)
+    # bt valid for attended slots (sanitize ensures sel < nblocks). Do NOT MAX-pad
+    # actual_seq_lengths_kv -- causes OOB on replay.
     actual_kv = seq_lens.to(torch.int32)
     out = op(
         q,
@@ -122,9 +122,8 @@ def _native_decode_main(
     return out
 
 
-# Tunable launch configs for the served decode kernels.
-# NOT triton.autotune -- each shape bucket compiles to a single deterministic
-# artifact (cuda-graph capture safe).
+# Tunable launch configs (not triton.autotune -- each shape bucket compiles to
+# a single deterministic artifact, cuda-graph capture safe).
 _SPARSE_DECODE_NW = 4
 _SPARSE_DECODE_NS = 2
 _MERGE_NW = 4
@@ -162,9 +161,7 @@ def _choose_num_topk_chunks(
     return _floor_power_of_2(target)
 
 
-# =============================================================================
-# Sparse BNSD Decode Kernel
-# =============================================================================
+# ============================ Sparse BNSD Decode Kernel ============================
 
 
 @triton.heuristics(
@@ -236,8 +233,7 @@ def _gqa_share_sparse_decode_bnsd_kernel(
     NUM_TOPK_CHUNKS: tl.constexpr,
     CHUNK_SIZE_T: tl.constexpr,
     # Selected (topk) blocks gathered into one K/V tile + one dot per loop step.
-    # 1 == per-block path (bit-identical). Same block set -> same math, only the
-    # online-softmax grouping changes.
+    # 1 == per-block path (bit-identical); only the online-softmax grouping changes.
     BLOCKS_PER_STEP: tl.constexpr,
     # Hoist the chunk's topk-idx load + page-id gather into a vectorized prologue,
     # breaking the per-step idx->page->K load dependency chain.
@@ -259,8 +255,7 @@ def _gqa_share_sparse_decode_bnsd_kernel(
     seq_len = tl.minimum(tl.load(seq_lens + pid_b).to(tl.int32), max_kv_len)
 
     # TopK list base for this KV head and request.
-    # Do NOT compute real_topk with tl.sum(topk_vals >= 0) -- buggy on Ascend.
-    # Iterate the fixed per-chunk topk range and mask out -1 entries instead.
+    # Iterate the fixed topk range and mask out -1 entries (tl.sum >= 0 is buggy on Ascend).
     idx_base = idx_ptr + pid_kh * stride_ti_h + pid_b * stride_ti_b
 
     chunk_start_topk = pid_c * CHUNK_SIZE_T
@@ -423,9 +418,8 @@ def _gqa_share_sparse_decode_bnsd_kernel(
             qk = tl.where(pos_mask[None, :], qk, float("-inf"))
 
             m_ij = tl.maximum(m_i, tl.max(qk, axis=1))
-            # Direct path (no valid_block guard): m_ij is finite (finite-floor
-            # init or qsink), so a sentinel slot's qk=-inf -> exp(-inf - m_ij)
-            # = 0 (p=0) and exp(m_i - m_ij)=1 (acc_o no-op) naturally.
+            # Direct path: m_ij is finite (finite-floor init or qsink), so sentinel
+            # slots yield p=0 and acc_o no-op naturally.
             p = tl.exp(qk - m_ij[:, None])
             l_ij = tl.sum(p, axis=1)
             acc_o = acc_o * tl.exp(m_i - m_ij)[:, None] + tl.dot(p.to(v.dtype), v)
@@ -501,9 +495,8 @@ def _gqa_share_sparse_decode_bnsd_kernel(
             p = tl.exp(qk - m_ij[:, None])
             l_ij = tl.sum(p, axis=1)
 
-            # V load is sequenced AFTER the qk/p phase so its UB live range
-            # starts as K's ends (K and V tiles together overflow the 192KB UB
-            # at BLOCK_SIZE_N >= 256 otherwise).
+            # V load sequenced after qk/p so its UB live range starts as K's ends
+            # (K+V tiles overflow the 192KB UB at BLOCK_SIZE_N >= 256 otherwise).
             v_offsets = (
                 physical_block_col[:, None] * stride_v_block
                 + inn[:, None] * stride_v_offset
@@ -550,9 +543,7 @@ def _gqa_share_sparse_decode_bnsd_kernel(
     )
 
 
-# =============================================================================
-# Merge split-topk sparse attention output
-# =============================================================================
+# ====================== Merge split-topk sparse attention output ======================
 
 
 @triton.heuristics(
@@ -634,9 +625,7 @@ def _merge_topk_attn_out_bnsd_kernel(
     )
 
 
-# =============================================================================
-# Python Wrapper
-# =============================================================================
+# ================================= Python Wrapper =================================
 
 
 @torch.no_grad()
@@ -670,17 +659,13 @@ def flash_decode_bnsd_with_gqa_share_sparse(
     use_native: bool = True,
 ) -> torch.Tensor:
     """Sparse decode attention using BNSD KV cache and precomputed topk blocks.
-
-    Ascend counterpart of SGLang's flash_decode_with_gqa_share_sparse.
-    Returns [batch_size, num_q_heads, head_dim].
-    """
+    Returns [batch_size, num_q_heads, head_dim]."""
     assert q.dtype in (torch.float16, torch.bfloat16)
     assert k_cache_bnsd.dtype == q.dtype
     assert v_cache_bnsd.dtype == q.dtype
     assert k_cache_bnsd.shape == v_cache_bnsd.shape
-    # Native Ascend block-sparse decode main, placed before direct-page-lookup
-    # asserts so hoisted block_table does not trip them. cuda-graph safe; falls
-    # back to Triton split-K if the native op is unavailable or use_native=False.
+    # Native block-sparse decode main, before direct-page-lookup asserts (hoisted
+    # block_table). Falls back to Triton split-K if unavailable or use_native=False.
     if use_native and _get_native_sparse_op() is not None:
         _nkvh = k_cache_bnsd.shape[2]
         if topk_idx.shape[0] == _nkvh and (
@@ -770,9 +755,8 @@ def flash_decode_bnsd_with_gqa_share_sparse(
     assert num_topk_chunks <= max(1, max_topk)
 
     chunk_size_topk = (max_topk + num_topk_chunks - 1) // num_topk_chunks
-    # Min static topk loop width of 2 to avoid a backend corner case at
-    # CHUNK_SIZE_T=1. Extra iterations are masked by topk_pos < max_topk and
-    # logical_block >= 0.
+    # Min static topk loop width of 2 (backend corner case at CHUNK_SIZE_T=1);
+    # extra iterations masked by topk_pos < max_topk and logical_block >= 0.
     chunk_size_topk = max(2, chunk_size_topk)
 
     blocks_per_step = max(1, int(topk_blocks_per_step))
@@ -801,9 +785,8 @@ def flash_decode_bnsd_with_gqa_share_sparse(
         device=q.device,
     )
 
-    # Triton still type-checks pointer arguments in constexpr-dead branches on
-    # some Ascend builds. Do not pass Python None as sink_ptr. Instead pass any
-    # typed tensor pointer and control the real behavior with HAS_SINK.
+    # Triton type-checks pointer args in constexpr-dead branches on Ascend:
+    # pass a typed tensor pointer, control the real behavior with HAS_SINK.
     sink_arg = sink if sink is not None else q
 
     grid = (batch_size * num_topk_chunks, num_kv_heads)

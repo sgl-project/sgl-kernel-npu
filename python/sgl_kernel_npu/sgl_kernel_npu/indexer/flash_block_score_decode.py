@@ -18,9 +18,7 @@ def _floor_power_of_2(x: int) -> int:
     return 1 << (int(x).bit_length() - 1)
 
 
-# ---------------------------------------------------------------------------
-# Tunable launch configs for the served decode kernels.
-# ---------------------------------------------------------------------------
+# ------------------------- Tunable launch configs -------------------------
 _SCORE_CHUNK_NW = 4
 _SCORE_CHUNK_NS = 2
 
@@ -54,10 +52,7 @@ def _choose_num_kv_chunks(
     num_kv_heads: int,
     max_num_kv_chunks: int = 8,
 ) -> int:
-    """Choose NUM_KV_CHUNKS (power-of-two) from a vector-core target-grid rule.
-
-    Conservative default cap (8) keeps the BNSD chunk/merge path validated.
-    """
+    """Choose NUM_KV_CHUNKS (power-of-two) from a vector-core target-grid rule."""
     max_num_kv_chunks = max(1, int(max_num_kv_chunks))
     # Make the cap a power of two, because kernels/merge paths specialize on
     # NUM_KV_CHUNKS and power-of-two values are easier to reason about.
@@ -81,10 +76,7 @@ def _choose_num_score_chunks(
     program_cap: int = 32768,
 ) -> int:
     """Pick power-of-two block-tile count for the chunked score-only kernel.
-
-    Grid = all_seqblock_q * num_score_chunks * num_kv_heads is capped by
-    ``program_cap`` (Ascend launch limit); excess is scanned serially per program.
-    """
+    Grid is capped by ``program_cap`` (Ascend launch limit)."""
     if max_seqblock <= 0:
         return 1
     balance = (max_seqblock + max(1, blocks_per_chunk) - 1) // max(1, blocks_per_chunk)
@@ -460,11 +452,8 @@ def _merge_topk_append_local_impl(
     BLOCK_SIZE_CANDIDATES: tl.constexpr,
 ):
     """Global-TopK merge + causal-local-block append in one program (bit-exact).
-
-    Per-rank argmax over [C*topk] candidates (tie-break: lowest position);
-    each index validated (causal) at slot ``rank``, local block at slot ``topk``
-    (-1 when already selected -- dedup).
-    """
+    Per-rank argmax over [C*topk] candidates; local block at slot ``topk``
+    (-1 when already selected -- dedup)."""
     seq_len = tl.load(seq_lens_ptr + pid_b * stride_sl_b + pid_h * stride_sl_h).to(
         tl.int32
     )
@@ -827,8 +816,7 @@ def _decode_bnsd_score_topk_chunk_kernel(
 
     off_h = tl.arange(0, BLOCK_SIZE_H)
     # Per-row seq_lens: stride_sl_h==0 broadcasts one shared length, ==1 packs
-    # one causal length per gqa row (packed rows differ by <=1 block). Loop
-    # bounds use the row MAX; per-row masks/stores keep results row-exact.
+    # one causal length per gqa row; loop bounds use the row max.
     seq_len_rows = tl.load(
         seq_lens + pid_b * stride_sl_b + off_h * stride_sl_h,
         mask=off_h < gqa_group_size,
@@ -971,9 +959,8 @@ def _decode_bnsd_score_topk_chunk_kernel(
             score = tl.where(is_local, 1e29, score)
 
         if FILL_ONLY:
-            # Store this block's score/index directly to candidate output at slot=step,
-            # bypassing the loop-carried register top_scores. Unused slots (partial last
-            # chunk) keep the wrapper's -inf/-1 pre-init; packed rows stay row-exact.
+            # Store score/index directly to candidate output at slot=step (bypasses
+            # loop-carried registers); unused slots keep -inf/-1 pre-init.
             head_mask = off_h < gqa_group_size
             cs_off = (
                 pid_c * stride_cs_c
@@ -991,9 +978,8 @@ def _decode_bnsd_score_topk_chunk_kernel(
             tl.store(candidate_indices_ptr + ci_off, logical_block, mask=head_mask)
         else:
             if RUNTIME_FILL_ONLY and chunk_size_blocks <= topk:
-                # Graph capture uses max_context_len but replay can be shorter;
-                # when chunk_size_blocks <= topk every score is already a valid
-                # chunk-local candidate, so bypass the min/replacement reductions.
+                # Graph capture uses max_context_len but replay can be shorter:
+                # when chunk_size_blocks <= topk, bypass min/replacement reductions.
                 head_mask = off_h < gqa_group_size
                 cs_off = (
                     pid_c * stride_cs_c
@@ -1120,10 +1106,7 @@ def _decode_bnsd_score_attn_chunk_kernel(
     BLOCK_SIZE_T: tl.constexpr,
 ):
     """Fused full-decode: block scores + attention output in one KV pass.
-
-    Ascend-friendly: no make_block_ptr, no qk 3D reshape, per-chunk register
-    TopK, direct BNSD + block_table addressing.
-    """
+    Ascend-friendly: no make_block_ptr, per-chunk register TopK."""
     tl.static_assert(SCORE_TYPE == "max" or SCORE_TYPE == "lse")
     tl.static_assert(BLOCK_SIZE_N >= block_size)
 
@@ -1413,10 +1396,7 @@ def _normalize_topk_idx_for_gqa(
     gqa_group_size: int,
 ) -> torch.Tensor:
     """Ensure topk_idx has shape [num_kv_heads, batch_size, topk].
-
-    If given per-query-head [num_q_heads, B, topk], take the first q-head of each
-    GQA group (one topk list per KV head, shared by its query heads).
-    """
+    Per-query-head input takes the first q-head of each GQA group."""
     if topk_idx.shape[0] == num_kv_heads:
         return topk_idx.contiguous()
 
@@ -1448,10 +1428,7 @@ def _native_sanitize_topk_kernel(
     SLOTS: tl.constexpr,
 ):
     """Sanitize the native op's select_idx/select_num_idx in one launch.
-
-    sel >= cdiv(seq_len, block_size) -> -1 (sanitize OOB); select_num_idx = count
-    of valid (sel >= 0). No fold/cap needed.
-    """
+    sel >= cdiv(seq_len, block_size) -> -1; select_num_idx = count of valid."""
     pid_h = tl.program_id(0)
     pid_b = tl.program_id(1)
     seq_len = tl.load(seq_lens_ptr + pid_b)
@@ -1489,10 +1466,7 @@ def _append_local_block_to_topk_idx_kernel(
     BLOCK_SIZE_T: tl.constexpr,
 ):
     """Append the causal local block (query-block-tiled, BSQ queries/program).
-
-    Each program validates BSQ queries' topk candidates and appends the causal
-    local block (deduped to -1 when already present).
-    """
+    Validates candidates and appends the local block (deduped to -1)."""
     pid_qb = tl.program_id(0)
     pid_h = tl.program_id(1)
     off_q = tl.arange(0, BLOCK_SIZE_Q)  # [BSQ]
@@ -1549,10 +1523,7 @@ def append_local_block_to_topk_idx(
     num_blocks: int,
 ) -> torch.Tensor:
     """Fuse MiniMax's ``init=0, local=1`` decode top-k postprocess (in-place).
-
-    Consumes/produces the GQA kernel layout directly; preserves candidate order
-    and only drops a local block when that exact candidate already exists.
-    """
+    Preserves candidate order; drops a local block only when already a candidate."""
     assert topk_idx.ndim == 3
     assert topk_idx.dtype == torch.int32
     assert topk_idx.is_contiguous()
@@ -1636,30 +1607,23 @@ def flash_decode_bnsd_with_topk_idx(
     num_pages: Optional[int] = None,
     sanitize_page_ids: bool = False,
     # Pack the gqa row dim with PER-ROW seq_lens (draft-token verify): one K pass
-    # scores all packed rows. Requires each row to be a valid causal prefix of
-    # the row-max length (rows differ by <=1 block); score-only path only.
+    # scores all packed rows (row-max length; rows differ by <=1 block).
     packed_seq_lens: bool = False,
-    # Decode graphs are compiled against max_context_len but replay often uses
-    # shorter live sequences: let the score kernel pick the direct-fill candidate
-    # path from the runtime chunk length, keeping TopK maintenance for chunks > topk.
+    # Decode graphs compile against max_context_len but replay is often shorter:
+    # pick the direct-fill candidate path from the runtime chunk length.
     runtime_fill_only: bool = False,
-    # Keep a long-context graph's static score grid while activating fewer, wider
-    # chunks for short runtime sequences; inactive programs leave preinitialized
-    # candidates invalid. Both values must be specified together.
+    # Keep a long-context graph's static grid while activating fewer, wider
+    # chunks for short sequences; both values must be specified together.
     runtime_score_short_max_blocks: int = 0,
     runtime_score_short_chunks: int = 0,
     # Fuse candidate-merge + causal-local-block append into the merge launch
-    # (bit-exact). Output has topk+1 slots (validated candidates + local block);
-    # requires max_num_blocks as the candidate-validation bound.
+    # (bit-exact): [topk+1] = validated candidates + local block.
     fused_append_local: bool = False,
     # Native AscendC indexer gate (framework-controlled; op repo is unaware).
     use_native: bool = True,
 ) -> tuple[Optional[torch.Tensor], torch.Tensor]:
     """Decode attention with BNSD KV cache and block-level topk indices.
-
-    Returns ``o`` ([B, QH, D] or None when disable_index_value=True) and
-    ``topk_idx`` ([QH, B, topk], int32).
-    """
+    Returns ``o`` and ``topk_idx`` ([QH, B, topk], int32)."""
     assert score_type in ("max", "lse")
     assert q.dtype in (torch.float16, torch.bfloat16)
     assert k_cache_bnsd.dtype == q.dtype
@@ -1730,9 +1694,8 @@ def flash_decode_bnsd_with_topk_idx(
         in (batch_size, batch_size * (num_q_heads // num_kv_heads))
     ):
         gqa = num_q_heads // num_kv_heads
-        # Fused interface: direct mode passes req_to_token + req_pool_indices and the
-        # kernel gathers the logical->physical block ids in-kernel (no host-side
-        # arange+gather+div block_table construction). block_table mode unchanged.
+        # Direct mode passes req_to_token + req_pool_indices; the kernel gathers
+        # logical->physical block ids in-kernel. block_table mode unchanged.
         if use_direct_page_lookup:
             bt_in = None
             req_rt = req_to_token
@@ -1750,18 +1713,16 @@ def flash_decode_bnsd_with_topk_idx(
             (batch_size, 1, num_q_heads), dtype=q.dtype, device=q.device
         )
         aq_dummy = torch.ones(batch_size, dtype=torch.int32, device=q.device)
-        # Handle seq_lens: normalized decode carries [B] per-request lengths;
-        # packed verify carries the full [B*gqa] per-row causal lengths, which the
-        # kernel consumes directly when packed_mode=1 (kept verbatim, no slicing).
+        # Normalized decode carries [B] lengths; packed verify carries the full
+        # [B*gqa] per-row lengths (packed_mode=1, no slicing).
         if seq_lens.shape[0] == batch_size:
             sl_in = seq_lens.to(torch.int32)
             packed_mode = 0
         else:
             sl_in = seq_lens.to(torch.int32)
             packed_mode = 1
-        # Fused causal-local append: append_local=1 emits [QH, B, topk+1] with the
-        # local block at slot topk (deduped to -1 when already a candidate). The
-        # kernel writes the [QH, B, ..] layout directly, no permute/contiguous copy.
+        # Fused causal-local append: emits [QH, B, topk+1] with the local block at
+        # slot topk (deduped to -1); no permute/contiguous copy.
         append_local = 1 if fused_append_local else 0
         out = _native_minimax_indexer(
             q_in,

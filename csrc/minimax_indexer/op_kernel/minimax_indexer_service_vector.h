@@ -87,7 +87,7 @@ private:
     TBuf<TPosition::VECCALC> initBuf_;
     TBuf<TPosition::VECCALC> fillCntBuf_;
     TBuf<TPosition::VECCALC> outIdxBuf_;
-    // TopK-API LD-merge scratch: finishBuf_ is the (outter,1) finish tensor the
+    // TopK-API LD-merge scratch: finishBuf_ is the (outer,1) finish tensor the
     // TopK API requires even with isHasfinish=false (never read functionally).
     TBuf<TPosition::VECCALC> finishBuf_;
     // TopK tiling (host-computed, byte-copied from the GM tiling mirror at init)
