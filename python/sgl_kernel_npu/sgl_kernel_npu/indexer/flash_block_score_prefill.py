@@ -1,7 +1,5 @@
-"""NPU varlen multi-token sparse-attention PREFILL indexer kernels.
-Batches block-scoring across query blocks instead of per-token decode rows."""
+"""NPU varlen multi-token sparse-attention PREFILL indexer kernels."""
 
-import os
 from typing import Optional
 
 import torch
@@ -12,7 +10,8 @@ from sgl_kernel_npu.indexer.flash_block_score_decode import (
     _next_power_of_2,
 )
 
-# Tunable launch configs for the score kernels.
+# Triton topk loses to torch.topk beyond ~32K context (block_size=128).
+# Tunable launch configs for the score kernels (deterministic, cuda-graph safe).
 _SCORE_NW = 4
 _SCORE_NS = 2
 _SCORE_ATTN_NW = 8
@@ -57,10 +56,10 @@ def _prefill_bnsd_score_kernel(
     BLOCK_SIZE_D: tl.constexpr,
     BLOCK_SIZE_N: tl.constexpr,
     SCORE_TYPE: tl.constexpr,
+    # Consecutive KV blocks fused into one tl.dot per step (power of two).
+    BLOCKS_PER_STEP: tl.constexpr,
 ):
-    """Score one query-block x one kv_head tile.
-    Grid: ``(all_seqblock_q * num_score_chunks, num_kv_heads)``; chunk axis tiles
-    consecutive KV blocks so program count is independent of context length."""
+    """Score one query-block x one kv_head tile."""
     tl.static_assert(SCORE_TYPE == "max" or SCORE_TYPE == "lse")
     tl.static_assert(BLOCK_SIZE_N >= block_size)
 
@@ -84,20 +83,18 @@ def _prefill_bnsd_score_kernel(
 
     off_d = tl.arange(0, BLOCK_SIZE_D)  # [D]
     off_n = tl.arange(0, BLOCK_SIZE_N)  # [N]
-    # Flattened (query-row, head-within-group) -> [BSQ * H], kept 1D: a [BSQ, H]
-    # int32 2D tensor with small H fails the Ascend TBE stride-alignment check.
+    # Flatten (query-row, head-within-group) to 1D: small-H 2D fails Ascend stride alignment.
     off_qh = tl.arange(0, BLOCK_SIZE_Q * BLOCK_SIZE_H)  # [BSQ*H]
     qi = off_qh // BLOCK_SIZE_H  # query row within the block
     hh = off_qh % BLOCK_SIZE_H  # head index within the GQA group
     pid_h_base = pid_kh * gqa_group_size
     q_token_raw = q_start + q_block_local * BLOCK_SIZE_Q + qi  # [BSQ*H]
     head_flat = pid_h_base + hh  # actual idx-head index per row
-    # q_end (= cu_seqlens[r+1]) bounds reads to THIS request's real tokens;
-    # phantom rows of a partial-tail q-block are clamped to [q_start, q_end-1].
+    # Clamp q_token to [q_start, q_end-1] so phantom tail rows stay in-request.
     row_valid = (q_token_raw < q_end) & (hh < gqa_group_size)
     q_token_flat = tl.maximum(q_start, tl.minimum(q_token_raw, q_end - 1))
 
-    # Q load: [BSQ*H, D]  (clamped q_token keeps reads in-request)
+    # Q load: [BSQ*H, D]
     q_offsets = (
         q_token_flat[:, None] * stride_q_n
         + head_flat[:, None] * stride_q_h
@@ -111,53 +108,115 @@ def _prefill_bnsd_score_kernel(
 
     sm_scale_log2e = sm_scale * 1.4426950409
 
-    # One KV block (block_size tokens) per dot.
-    num_steps = chunk_end_block - chunk_start_block
-    for step in tl.range(num_steps):
-        logical_block = chunk_start_block + step
-        physical_block = tl.load(
-            block_table_ptr + pid_qb * stride_bt_q + logical_block * stride_bt_n
-        ).to(tl.int64)
+    if BLOCKS_PER_STEP == 1:
+        # Single-block path: one KV block (block_size tokens) per dot.
+        num_steps = chunk_end_block - chunk_start_block
+        for step in tl.range(num_steps):
+            logical_block = chunk_start_block + step
+            physical_block = tl.load(
+                block_table_ptr + pid_qb * stride_bt_q + logical_block * stride_bt_n
+            ).to(tl.int64)
 
-        key_pos = logical_block * block_size + off_n  # [N]
-        pos_mask = key_pos < seq_len
+            key_pos = logical_block * block_size + off_n  # [N]
+            pos_mask = key_pos < seq_len
 
-        k_offsets = (
-            physical_block * stride_k_block
-            + off_n[None, :] * stride_k_offset
-            + pid_kh * stride_k_h
-            + off_d[:, None] * stride_k_d
-        )
-        k = tl.load(
-            k_cache_ptr + k_offsets,
-            mask=(off_d[:, None] < head_dim) & pos_mask[None, :],
-            other=0.0,
-        )
+            k_offsets = (
+                physical_block * stride_k_block
+                + off_n[None, :] * stride_k_offset
+                + pid_kh * stride_k_h
+                + off_d[:, None] * stride_k_d
+            )
+            k = tl.load(
+                k_cache_ptr + k_offsets,
+                mask=(off_d[:, None] < head_dim) & pos_mask[None, :],
+                other=0.0,
+            )
 
-        qk = tl.dot(q, k) * sm_scale_log2e  # [BSQ*H, N], 2D dot -- no 3D reshape
+            qk = tl.dot(q, k) * sm_scale_log2e  # [BSQ*H, N], 2D dot
 
-        # Causal: query token >= key position (use q_token_raw for correct per-
-        # token position; phantom rows are masked by row_valid downstream).
-        causal = q_token_raw[:, None] >= key_pos[None, :]
-        qk = tl.where(causal & pos_mask[None, :], qk, float("-inf"))
+            # Causal: query token >= key position.
+            causal = q_token_raw[:, None] >= key_pos[None, :]
+            qk = tl.where(causal & pos_mask[None, :], qk, float("-inf"))
 
-        sub_max = tl.max(qk, axis=1)  # [BSQ*H]
-        if SCORE_TYPE == "max":
-            score = sub_max
-        else:
-            score = sub_max + tl.log2(tl.sum(tl.exp2(qk - sub_max[:, None]), axis=1))
-            score = tl.where(score != score, float("-inf"), score)
+            sub_max = tl.max(qk, axis=1)  # [BSQ*H]
+            if SCORE_TYPE == "max":
+                score = sub_max
+            else:
+                score = sub_max + tl.log2(
+                    tl.sum(tl.exp2(qk - sub_max[:, None]), axis=1)
+                )
+                score = tl.where(score != score, float("-inf"), score)
 
-        s_offsets = (
-            head_flat * stride_s_h
-            + q_token_raw * stride_s_q
-            + logical_block * stride_s_n
-        )
-        tl.store(
-            score_ptr + s_offsets,
-            score.to(score_ptr.dtype.element_ty),
-            mask=row_valid,
-        )
+            s_offsets = (
+                head_flat * stride_s_h
+                + q_token_raw * stride_s_q
+                + logical_block * stride_s_n
+            )
+            tl.store(
+                score_ptr + s_offsets,
+                score.to(score_ptr.dtype.element_ty),
+                mask=row_valid,
+            )
+    else:
+        # Multi-block path: BLOCKS_PER_STEP consecutive KV blocks per tl.dot.
+        sub_id = off_n // block_size  # [BLOCK_SIZE_N] which sub-block in [0, BPS)
+        inn = off_n % block_size  # [BLOCK_SIZE_N] offset within the block
+        num_steps = tl.cdiv(chunk_end_block - chunk_start_block, BLOCKS_PER_STEP)
+        for step in tl.range(num_steps):
+            logical_base = chunk_start_block + step * BLOCKS_PER_STEP
+            logical_block_n = logical_base + sub_id  # [BLOCK_SIZE_N]
+            # Clamp the block-table index to a valid block (out-of-range masked below).
+            logical_block_load = tl.minimum(logical_block_n, chunk_end_block - 1)
+            physical_block_n = tl.load(
+                block_table_ptr
+                + pid_qb * stride_bt_q
+                + logical_block_load * stride_bt_n
+            ).to(tl.int64)
+
+            key_pos = logical_base * block_size + off_n  # [BLOCK_SIZE_N]
+            pos_mask = key_pos < seq_len
+
+            k_offsets = (
+                physical_block_n[None, :] * stride_k_block
+                + inn[None, :] * stride_k_offset
+                + pid_kh * stride_k_h
+                + off_d[:, None] * stride_k_d
+            )
+            k = tl.load(
+                k_cache_ptr + k_offsets,
+                mask=(off_d[:, None] < head_dim) & pos_mask[None, :],
+                other=0.0,
+            )
+
+            qk = tl.dot(q, k) * sm_scale_log2e  # [BSQ*H, BLOCKS_PER_STEP*block_size]
+
+            causal = q_token_raw[:, None] >= key_pos[None, :]
+            qk = tl.where(causal & pos_mask[None, :], qk, float("-inf"))
+
+            # Reduce + store one score per logical block.
+            for j in tl.static_range(BLOCKS_PER_STEP):
+                logical_block_j = logical_base + j
+                col_lo = j * block_size
+                col_sel = (off_n >= col_lo) & (off_n < col_lo + block_size)
+                qk_j = tl.where(col_sel[None, :], qk, float("-inf"))
+                sub_max_j = tl.max(qk_j, axis=1)  # [BSQ*H]
+                if SCORE_TYPE == "max":
+                    score_j = sub_max_j
+                else:
+                    score_j = sub_max_j + tl.log2(
+                        tl.sum(tl.exp2(qk_j - sub_max_j[:, None]), axis=1)
+                    )
+                    score_j = tl.where(score_j != score_j, float("-inf"), score_j)
+                s_offsets_j = (
+                    head_flat * stride_s_h
+                    + q_token_raw * stride_s_q
+                    + logical_block_j * stride_s_n
+                )
+                tl.store(
+                    score_ptr + s_offsets_j,
+                    score_j.to(score_ptr.dtype.element_ty),
+                    mask=row_valid & (logical_block_j < chunk_end_block),
+                )
 
 
 @triton.jit
@@ -207,9 +266,7 @@ def _prefill_bnsd_score_attn_kernel(
     BLOCK_SIZE_N: tl.constexpr,
     SCORE_TYPE: tl.constexpr,
 ):
-    """Fused block-score + index-head dense attention (query-block tiled).
-    Loops over all of the request's KV blocks once, running an online softmax
-    that produces ``idx_o`` alongside the per-block scores."""
+    """Fused block-score + index-head dense attention (query-block tiled)."""
     tl.static_assert(SCORE_TYPE == "max" or SCORE_TYPE == "lse")
     tl.static_assert(BLOCK_SIZE_N >= block_size)
 
@@ -229,8 +286,7 @@ def _prefill_bnsd_score_attn_kernel(
     qi = off_qh // BLOCK_SIZE_H
     hh = off_qh % BLOCK_SIZE_H
     pid_h_base = pid_kh * gqa_group_size
-    # q_end (= cu_seqlens[r+1]) bounds reads to THIS request's real tokens;
-    # phantom rows of a partial-tail q-block are clamped to [q_start, q_end-1].
+    # Clamp q_token to [q_start, q_end-1] so phantom tail rows stay in-request.
     q_token_raw = q_start + q_block_local * BLOCK_SIZE_Q + qi
     row_valid = (q_token_raw < q_end) & (hh < gqa_group_size)
     q_token_flat = tl.maximum(q_start, tl.minimum(q_token_raw, q_end - 1))
@@ -248,8 +304,7 @@ def _prefill_bnsd_score_attn_kernel(
     )
 
     sm_scale_log2e = sm_scale * 1.4426950409
-    # Finite floor (not -inf): an all-masked block has sub_max=-inf -> m_new=m_i,
-    # p=0 and acc_o/l_i no-op, so no per-iter contributes guard is needed.
+    # Finite floor (not -inf): all-masked blocks are a no-op, no NaN/guard needed.
     m_i = tl.full((BLOCK_SIZE_Q * BLOCK_SIZE_H,), -1.0e30, dtype=tl.float32)
     l_i = tl.zeros((BLOCK_SIZE_Q * BLOCK_SIZE_H,), dtype=tl.float32)
     acc_o = tl.zeros((BLOCK_SIZE_Q * BLOCK_SIZE_H, BLOCK_SIZE_D), dtype=tl.float32)
@@ -276,7 +331,7 @@ def _prefill_bnsd_score_attn_kernel(
         causal = q_token_raw[:, None] >= key_pos[None, :]
         qk = tl.where(causal & pos_mask[None, :], qk, float("-inf"))
 
-        # per-block score (same as the score-only kernel)
+        # per-block score
         sub_max = tl.max(qk, axis=1)
         if SCORE_TYPE == "max":
             score = sub_max
@@ -294,8 +349,6 @@ def _prefill_bnsd_score_attn_kernel(
 
         # online softmax -> idx_o accumulation
         m_new = tl.maximum(m_i, sub_max)
-        # Finite-floor m_i: p=exp2(qk-m_new) is 0 on masked cols (-inf) and on
-        # all-masked blocks (m_new=m_i -> no-op), so no contributes guard needed.
         p = tl.exp2(qk - m_new[:, None])
         l_new = tl.sum(p, axis=1)
         acc_o = acc_o * tl.exp2(m_i - m_new)[:, None]
@@ -337,9 +390,7 @@ def _build_qblock_mappings(
     max_blocks: int,
     device,
 ):
-    """Precompute per-query-block varlen mappings (cheap PyTorch).
-    Returns qb_to_qstart/qb_to_qblock/qb_seq_lens ([all_seqblock_q] int32),
-    block_table [all_seqblock_q, max_blocks] int32, and all_seqblock_q."""
+    """Precompute per-query-block varlen mappings (cheap PyTorch)."""
     seq_lens_l = seq_lens.to(device=device, dtype=torch.long)
     cu_q = cu_seqlens.to(device=device, dtype=torch.long)
     reqs = req_pool_indices.to(device=device, dtype=torch.long)
@@ -351,8 +402,7 @@ def _build_qblock_mappings(
     # Owning request + q-start (token) per query-block.
     qb_to_req = reqs.repeat_interleave(qb_per_req)  # [all_seqblock_q]
     qb_to_qstart = cu_q[:-1].repeat_interleave(qb_per_req)
-    # Per-q-block exclusive upper bound on q_token_flat (= cu_seqlens[r+1]).
-    # Masks the partial tail of a request's last q-block (phantom-row safety).
+    # Per-q-block exclusive upper bound (cu_seqlens[r+1]); masks partial tail rows.
     qb_qend = cu_q[1:].repeat_interleave(qb_per_req)
     qb_seq_lens = seq_lens_l.repeat_interleave(qb_per_req)
     # Local q-block index within its request.
@@ -365,8 +415,7 @@ def _build_qblock_mappings(
     blk_cols = torch.arange(max_blocks, device=device, dtype=torch.long) * page_size
     max_cols = req_to_token.shape[1]
     blk_cols = blk_cols.clamp(max=max_cols - 1)
-    # Advanced-index directly to [all_seqblock_q, max_blocks]. Do NOT write
-    # `req_to_token[qb_to_req][:, blk_cols]` -- materializes a huge intermediate.
+    # Broadcast row/column indices to avoid materializing the full [Q, ctx] slab.
     token_slots = req_to_token[
         qb_to_req[:, None], blk_cols
     ]  # [all_seqblock_q, max_blocks]
@@ -396,19 +445,13 @@ def flash_prefill_bnsd_score(
     num_score_chunks: Optional[int] = None,
     qblock_mappings: Optional[tuple] = None,
 ) -> torch.Tensor:
-    """Block-sparse PREFILL indexer scoring -> score [num_idx_heads, total_q, max_seqblock_k].
-    Per-query-token causal masking; ``qblock_mappings`` skips the per-layer rebuild."""
+    """Block-sparse PREFILL indexer scoring -> score [num_idx_heads, total_q, max_seqblock_k]."""
     total_q, num_idx_heads, head_dim = q.shape
     num_kv_heads = k_cache_bnsd.shape[2]
     assert num_idx_heads % num_kv_heads == 0
     gqa_group_size = num_idx_heads // num_kv_heads
     page_size = block_size_k
-    # max_seqblock_k from the cached mappings' block-table width -- no per-layer
-    # device->host sync. Only the first (uncached) build falls back to .item().
-    if qblock_mappings is not None:
-        max_seqblock_k = qblock_mappings[4].shape[1]
-    else:
-        max_seqblock_k = (int(seq_lens.max().item()) + page_size - 1) // page_size
+    max_seqblock_k = (int(seq_lens.max().item()) + page_size - 1) // page_size
     max_blocks = max_seqblock_k
     device = q.device
 
@@ -455,6 +498,16 @@ def flash_prefill_bnsd_score(
 
     BLOCK_SIZE_Q = _next_power_of_2(block_size_q)
 
+    # P3 multi-block score tiling (env MINIMAX_NPU_PREFILL_SCORE_BLOCKS_PER_STEP).
+    import os as _os
+
+    _bps_raw = _os.environ.get("MINIMAX_NPU_PREFILL_SCORE_BLOCKS_PER_STEP")
+    blocks_per_step = int(_bps_raw) if _bps_raw else 1
+    assert blocks_per_step in (1, 2, 4), (
+        "MINIMAX_NPU_PREFILL_SCORE_BLOCKS_PER_STEP must be one of 1/2/4, "
+        f"got {blocks_per_step!r}"
+    )
+
     score = torch.full(
         (num_idx_heads, total_q, max_seqblock_k),
         float("-inf"),
@@ -495,8 +548,9 @@ def flash_prefill_bnsd_score(
         BLOCK_SIZE_Q,
         triton.next_power_of_2(gqa_group_size),
         triton.next_power_of_2(head_dim),
-        triton.next_power_of_2(page_size),
+        triton.next_power_of_2(page_size * blocks_per_step),
         score_type,
+        blocks_per_step,
         num_warps=_SCORE_NW,
         num_stages=_SCORE_NS,
     )
@@ -517,18 +571,13 @@ def flash_prefill_bnsd_score_attn(
     score_type: str = "max",
     qblock_mappings: Optional[tuple] = None,
 ):
-    """Fused block-score + index-head dense attention (query-block tiled).
-    Returns (score, idx_o) in one KV pass via online softmax; ``qblock_mappings``
-    skips rebuild."""
+    """Fused block-score + index-head dense attention (query-block tiled)."""
     total_q, num_idx_heads, head_dim = q.shape
     num_kv_heads = k_cache_bnsd.shape[2]
     assert num_idx_heads % num_kv_heads == 0
     gqa_group_size = num_idx_heads // num_kv_heads
     page_size = block_size_k
-    if qblock_mappings is not None:
-        max_seqblock_k = qblock_mappings[4].shape[1]
-    else:
-        max_seqblock_k = (int(seq_lens.max().item()) + page_size - 1) // page_size
+    max_seqblock_k = (int(seq_lens.max().item()) + page_size - 1) // page_size
     max_blocks = max_seqblock_k
     device = q.device
 
@@ -640,8 +689,7 @@ def _prefill_topk_from_score_kernel(
     BLOCK_SIZE_K: tl.constexpr,
     TOPK: tl.constexpr,
 ):
-    """Fused block-TopK + causal-local-block append from the score tensor.
-    TopK selects valid blocks; local block appended at slot ``topk`` (-1 if dup)."""
+    """Fused block-TopK + causal-local-block append from the score tensor."""
     pid_qb = tl.program_id(0)
     pid_h = tl.program_id(1)
 
@@ -649,19 +697,15 @@ def _prefill_topk_from_score_kernel(
     q_tok = pid_qb * BLOCK_SIZE_Q + off_q  # [BSQ]
     q_valid = q_tok < total_q
 
-    # Per-query causal KV length -> query position + local block. Clamp the load
-    # for phantom rows (q_tok >= total_q); output is masked by q_valid.
+    # Per-query causal KV length -> query position + local block.
     seq_len_q = tl.load(seq_lens_ptr + q_tok, mask=q_valid, other=1).to(tl.int32)
     query_pos = tl.maximum(seq_len_q - 1, 0)  # [BSQ]
-    # local block = block containing the query's last KV position. block_size is a
-    # power of two so // is a shift (nearly free on Ascend).
     local_blk = tl.minimum(query_pos // block_size, max_seqblock_k - 1)  # [BSQ]
 
     off_k = tl.arange(0, BLOCK_SIZE_K)  # [K]
     k_valid = off_k < max_seqblock_k  # [K]
 
-    # Score slab [BSQ, K]; out-of-range / future blocks are -inf (score kernel
-    # wrote -inf for key_pos >= seq_len or q_token < key_pos).
+    # Score slab [BSQ, K]; out-of-range/future blocks are -inf.
     s_offsets = (
         pid_h * stride_s_h + q_tok[:, None] * stride_s_q + off_k[None, :] * stride_s_k
     )
@@ -671,16 +715,14 @@ def _prefill_topk_from_score_kernel(
         other=float("-inf"),
     )  # [BSQ, K] fp32
 
-    # TopK selection: TOPK iterations of max + argmax (lowest-index tie-break);
-    # each selected block validated + removed before the next.
+    # TopK via repeated max+argmax (lowest-index tie-break); selected block removed each iter.
     for rank in tl.range(0, TOPK):
         best = tl.max(scores, axis=1)  # [BSQ]
-        is_best = scores == best[:, None]  # [BSQ, K] (== -inf ties handled below)
+        is_best = scores == best[:, None]  # [BSQ, K]
         pos = tl.min(
             tl.where(is_best, off_k[None, :], BLOCK_SIZE_K), axis=1
         )  # [BSQ] argmax (min index on ties)
-        # Store the selected block only if finite-scored (best > -inf) and
-        # causally valid (pos * block_size <= query_pos), else it would re-pick.
+        # Store selected block only if finite + causally valid; else -1.
         valid_blk = (
             (best > float("-inf"))
             & (pos < max_seqblock_k)
@@ -692,12 +734,10 @@ def _prefill_topk_from_score_kernel(
             tl.where(q_valid, out_blk, -1),
             mask=q_valid,
         )
-        # Remove the selected position so the next iteration picks the next best.
-        # Blank to -inf (no-op for -inf tie groups; the guard above emits -1).
+        # Blank the selected position so the next iter picks the next best.
         scores = tl.where(off_k[None, :] == pos[:, None], float("-inf"), scores)
 
-    # Append the causal local block at slot TOPK: -1 if already among the selected
-    # TOPK (dedup, avoids double-counting in the online softmax).
+    # Append the causal local block at slot TOPK (-1 if already selected: dedup).
     rank_off = tl.arange(0, TOPK)  # [TOPK]
     sel_offsets = (
         pid_h * stride_o_h
@@ -724,8 +764,7 @@ def flash_prefill_bnsd_topk_from_score(
     topk: int,
     block_size_k: int,
 ) -> torch.Tensor:
-    """Fused TopK + causal-local-block append -> topk_idx [num_kv_heads, total_q, topk+1].
-    Only valid on the index-gqa=1 fast path (TP=16)."""
+    """Fused TopK + causal-local-block append -> topk_idx [num_kv_heads, total_q, topk+1]."""
     num_kv_heads, total_q, max_seqblock_k = score.shape
     assert score.dtype == torch.float32, "score must be fp32"
     assert per_query_seq_lens.dtype == torch.int32
@@ -742,8 +781,7 @@ def flash_prefill_bnsd_topk_from_score(
     )
 
     BLOCK_SIZE_K = triton.next_power_of_2(max_seqblock_k)
-    # BSQ capped at 16: kernel is scalar-bound on the vector core, so smaller
-    # tiles cut per-program scalar work and raise parallelism.
+    # BSQ capped at 16 (UB-safe guard: bsq*2*K*4 <= 32KB).
     bsq = 1
     while bsq < 16 and bsq * 2 * BLOCK_SIZE_K * 4 <= 32768:
         bsq *= 2
@@ -789,8 +827,7 @@ def flash_prefill_bnsd_indexer(
     qblock_mappings: Optional[tuple] = None,
     per_query_seq_lens: Optional[torch.Tensor] = None,
 ):
-    """Prefill indexer (fused): returns (idx_o, topk_idx [num_idx_heads, total_q, topk]).
-    topk_idx UN-reduced (caller does GQA reduction); TopK+append fused on gqa=1."""
+    """Prefill indexer (fused): returns (idx_o, topk_idx [num_idx_heads, total_q, topk])."""
     score, idx_o = flash_prefill_bnsd_score_attn(
         q,
         k_cache_bnsd,
@@ -840,13 +877,8 @@ def flash_prefill_bnsd_with_topk_idx(
     qblock_mappings: Optional[tuple] = None,
     per_query_seq_lens: Optional[torch.Tensor] = None,
 ) -> torch.Tensor:
-    """Prefill indexer: score (varlen, batched over query-blocks) + topk.
-    Returns topk_idx UN-reduced (caller does GQA reduction)."""
-
-    if qblock_mappings is not None:
-        max_seqblock_k = qblock_mappings[4].shape[1]
-    else:
-        max_seqblock_k = (int(seq_lens.max().item()) + block_size_k - 1) // block_size_k
+    """Prefill indexer: score (varlen, batched over query-blocks) + topk."""
+    max_seqblock_k = (int(seq_lens.max().item()) + block_size_k - 1) // block_size_k
     score = flash_prefill_bnsd_score(
         q,
         k_cache_bnsd,
