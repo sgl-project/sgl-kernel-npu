@@ -32,7 +32,7 @@ case "${TORCH_VERSION}" in
         ;;
     *)
         echo "Unsupported torch version: ${TORCH_VERSION}"
-        echo "Supported versions: 2.8.0, 2.10.0"
+        echo "Supported versions: 2.10.0"
         exit 1
         ;;
 esac
