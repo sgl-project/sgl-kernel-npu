@@ -24,7 +24,7 @@ while [[ $# -gt 0 ]]; do
             ;;
     esac
 done
-https://gitcode.com/Ascend/pytorch/releases/download/v26.0.1-pytorch2.8.0/torch_npu-2.8.0.post5-cp312-cp312-manylinux_2_28_aarch64.whl
+
 case "${TORCH_VERSION}" in
     "2.10.0")
         TORCHVISION_VERSION="0.25.0"
