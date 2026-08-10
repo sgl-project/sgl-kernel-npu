@@ -24,11 +24,6 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_host/tiling/sgemmc_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/lightning_indexer.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/tiling/lightning_indexer_tiling.cpp
-    ${PROJECT_OP_SRC_BASE}/minimax_indexer/op_host/minimax_indexer.cpp
-    ${PROJECT_OP_SRC_BASE}/minimax_indexer/op_host/tiling/minimax_indexer_tiling.cpp
-    ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/sparse_attention_score.cpp
-    ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling/sparse_attention_score_tiling.cpp
-    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
     ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/causal_conv1d_update.cpp
     ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_host/recurrent_gated_delta_rule.cpp
@@ -89,8 +84,6 @@ set(WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/alloc_extend/op_kernel/alloc_extend_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/build_tree/op_kernel/build_tree_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_kernel/lightning_indexer_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/minimax_indexer/op_kernel/minimax_indexer_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_kernel/sparse_attention_score.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel/causal_conv1d_update.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel/causal_conv1d.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmc_expand_kernel.cpp
@@ -105,7 +98,6 @@ ascendc_library(workspace_kernel STATIC ${WORKSPACE_KERNEL_SRCS})
 ascendc_include_directories(workspace_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel
     ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel
-    ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_kernel
 )
 if(BUILD_CATLASS_MODULE)
     ascendc_include_directories(workspace_kernel PRIVATE
@@ -135,9 +127,9 @@ ascendc_include_directories(mega_chunk_gdn_kernel PRIVATE
     ${ASCEND_INCLUDE_DIR}/experiment/msprof
 )
 ascendc_compile_definitions(mega_chunk_gdn_kernel PRIVATE
-       -DGDN_KERNEL_NAME=launch_mega_kernel
-       -DGDN_D=128
-       -DGDN_C=128
+    -DGDN_KERNEL_NAME=launch_mega_kernel
+    -DGDN_D=128
+    -DGDN_C=128
 )
 
 # create shared library libsgl_kernel_npu.so
@@ -164,8 +156,6 @@ target_link_directories(${OP_PLUGIN_NAME} PRIVATE
 target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/utils
         ${PROJECT_SOURCE_DIR}/include
-        ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host
-        ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/tiling
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host

@@ -134,23 +134,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "str? layout_query=None, str? layout_key=None, "
         "int? sparse_count=None, int? sparse_mode=None) -> Tensor");
 
-    m.def(
-        "minimax_indexer(Tensor query, Tensor key, Tensor weights, Tensor? actual_seq_lengths_query=None, "
-        "Tensor? actual_seq_lengths_key=None, Tensor? block_table=None, "
-        "str? layout_query=None, str? layout_key=None, "
-        "int? sparse_count=None, int? sparse_mode=None, "
-        "int? init_blocks=None, int? local_blocks=None, float? sm_scale=None, "
-        "Tensor? req_to_token=None, Tensor? req_pool_indices=None, int? append_local=0, "
-        "int? packed_mode=0) -> Tensor");
-
-    m.def(
-        "npu_sparse_attention_score(Tensor query, Tensor key, Tensor value, Tensor select_idx, "
-        "Tensor block_table, Tensor? select_num_idx=None, Tensor? q_dequant_scale=None, "
-        "Tensor? k_dequant_scale=None, Tensor? v_dequant_scale=None, "
-        "Tensor? actual_seq_lengths=None, Tensor? actual_seq_lengths_kv=None, "
-        "int num_key_value_heads=1, float scale_value=1.0, int block_size=128, "
-        "int top_k=16, int inner_precise=0) -> Tensor");
-
     m.def("apply_token_bitmask(Tensor logits, Tensor bitmask, Tensor? indices=None) -> Tensor");
     m.def("triangular_inverse(Tensor x) -> Tensor");
 
@@ -217,8 +200,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 #endif
 
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
-    m.impl("minimax_indexer", TORCH_FN(sglang::npu_kernel::minimax_indexer));
-    m.impl("npu_sparse_attention_score", TORCH_FN(sglang::npu_kernel::sparse_attention_score));
 
     m.impl("triangular_inverse", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
 
