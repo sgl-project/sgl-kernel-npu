@@ -12,14 +12,28 @@ pip install ${GITHUB_WORKSPACE}/output/sgl_kernel_npu*.whl --no-cache-dir
 
 export UV_SYSTEM_PYTHON=true
 
-# Install Triton-Ascend (provides triton.language.extra.cann).
-# Per developer guidance, use 3.2.1 for ALL CANN versions (including 8.5.0)
-# because 3.2.0 lacks the cann extra module, causing ImportError in many tests.
+# Install Triton-Ascend (CANN-customized triton with triton.language.extra.cann)
+# Official version mapping (strict 1:1):
+#   CANN 8.5.0 -> triton-ascend 3.2.0
+#   CANN 9.0.0 -> triton-ascend 3.2.1
 if [ -n "${TRITON_ASCEND_WHL:-}" ]; then
     pip install ${TRITON_ASCEND_WHL}
 else
-    echo "Installing triton-ascend==3.2.1 for CANN ${CANN_VERSION:-unknown}"
-    pip install triton-ascend==3.2.1 --extra-index-url=https://triton-ascend.osinfra.cn/pypi/simple
+    CANN_VER="${CANN_VERSION:-8.5.0}"
+    case "$CANN_VER" in
+        8.5.*)
+            TRITON_ASCEND_VER="3.2.0"
+            ;;
+        9.0.*)
+            TRITON_ASCEND_VER="3.2.1"
+            ;;
+        *)
+            echo "WARNING: Unknown CANN version $CANN_VER, defaulting to triton-ascend 3.2.0"
+            TRITON_ASCEND_VER="3.2.0"
+            ;;
+    esac
+    echo "Installing triton-ascend==${TRITON_ASCEND_VER} for CANN ${CANN_VER}"
+    pip install triton-ascend==${TRITON_ASCEND_VER} --extra-index-url=https://triton-ascend.osinfra.cn/pypi/simple
 fi
 
 # Install other test dependencies
@@ -28,18 +42,18 @@ uv pip install expecttest einops pytest packaging
 # --- CI workarounds for test-side issues ---
 
 # 1. sglang: test_split_qkv_rmsnorm_rope_pos_cache_half_npu.py imports
-#    'from sglang.srt.utils import is_npu'. Full sglang pulls torch-memory-saver
-#    (needs CUDA, unavailable in NPU containers) and its __init__.py imports
-#    orjson etc. that are also missing with --no-deps. Create a clean minimal
-#    stub that ONLY provides is_npu, removing any partial sglang install first.
-pip uninstall sglang -y 2>/dev/null || true
-PYTHON_SITE=$(python3 -c "import site; print(site.getsitepackages()[0])")
-rm -rf "$PYTHON_SITE/sglang" 2>/dev/null || true
-mkdir -p "$PYTHON_SITE/sglang/srt"
-touch "$PYTHON_SITE/sglang/__init__.py" "$PYTHON_SITE/sglang/srt/__init__.py"
-printf 'def is_npu():\n    try:\n        import torch_npu\n        return True\n    except ImportError:\n        return False\n' \
-    > "$PYTHON_SITE/sglang/srt/utils.py"
-echo "Created clean sglang stub for is_npu"
+#    'from sglang.srt.utils import is_npu'. Full sglang install pulls
+#    torch-memory-saver which needs CUDA (unavailable in NPU containers).
+#    Try --no-deps first; fall back to a minimal stub providing is_npu.
+pip install sglang --no-deps 2>/dev/null || true
+if ! python3 -c "from sglang.srt.utils import is_npu" 2>/dev/null; then
+    PYTHON_SITE=$(python3 -c "import site; print(site.getsitepackages()[0])")
+    mkdir -p "$PYTHON_SITE/sglang/srt"
+    touch "$PYTHON_SITE/sglang/__init__.py" "$PYTHON_SITE/sglang/srt/__init__.py"
+    printf 'def is_npu():\n    try:\n        import torch_npu\n        return True\n    except ImportError:\n        return False\n' \
+        > "$PYTHON_SITE/sglang/srt/utils.py"
+    echo "Created sglang stub for is_npu (full sglang needs CUDA)"
+fi
 
 # 2. F (torch.nn.functional): test_swiglu_quant.py uses F.silu() without
 #    'import torch.nn.functional as F'. Inject F as a builtin via
