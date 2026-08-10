@@ -295,6 +295,9 @@ def kda_target_verify_npu(
         raise ValueError("key dimensions greater than 256 are unsupported")
     bv = min(64, triton.next_power_of_2(value_dim))
     grid = (batch, h_v, triton.cdiv(value_dim, bv))
+
+    # The shapes of q: [1, tokens, H_q, K], k: [1, tokens, H_k, K], v: [1, tokens, H_v, V],
+    # the shapes of a: [tokens, H_k, K], b: [tokens, H_v]
     _kda_target_verify_kernel[grid](
         A_log,
         dt_bias,
