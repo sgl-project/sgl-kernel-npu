@@ -20,7 +20,20 @@ def _kda_target_verify_kernel(
     snapshot_indices_ptr,
     out_ptr,
     scale,
-    lower_bound,
+    stride_q_token: tl.constexpr,
+    stride_q_head: tl.constexpr,
+    stride_q_dim: tl.constexpr,
+    stride_k_token: tl.constexpr,
+    stride_k_head: tl.constexpr,
+    stride_k_dim: tl.constexpr,
+    stride_v_token: tl.constexpr,
+    stride_v_head: tl.constexpr,
+    stride_v_dim: tl.constexpr,
+    stride_a_token: tl.constexpr,
+    stride_a_head: tl.constexpr,
+    stride_a_dim: tl.constexpr,
+    stride_b_token: tl.constexpr,
+    stride_b_head: tl.constexpr,
     initial_stride_0,
     initial_stride_1,
     initial_stride_2,
@@ -39,7 +52,6 @@ def _kda_target_verify_kernel(
     BK: tl.constexpr,
     BV: tl.constexpr,
     GATES_ARE_PREACTIVATED: tl.constexpr,
-    USE_LOWER_BOUND: tl.constexpr,
 ):
     pid_batch = tl.program_id(0)
     pid_hv = tl.program_id(1)
@@ -83,26 +95,40 @@ def _kda_target_verify_kernel(
     for step in tl.static_range(0, STEPS):
         token = pid_batch * STEPS + step
         q = tl.load(
-            q_ptr + (token * H_Q + q_head) * K + offset_k,
+            q_ptr
+            + token * stride_q_token
+            + q_head * stride_q_head
+            + offset_k * stride_q_dim,
             mask=mask_k,
             other=0.0,
         ).to(tl.float32)
         k = tl.load(
-            k_ptr + (token * H_K + k_head) * K + offset_k,
+            k_ptr
+            + token * stride_k_token
+            + k_head * stride_k_head
+            + offset_k * stride_k_dim,
             mask=mask_k,
             other=0.0,
         ).to(tl.float32)
         value = tl.load(
-            v_ptr + (token * H_V + pid_hv) * V + offset_v,
+            v_ptr
+            + token * stride_v_token
+            + pid_hv * stride_v_head
+            + offset_v * stride_v_dim,
             mask=mask_v,
             other=0.0,
         ).to(tl.float32)
         a = tl.load(
-            a_ptr + (token * H_K + k_head) * K + offset_k,
+            a_ptr
+            + token * stride_a_token
+            + k_head * stride_a_head
+            + offset_k * stride_a_dim,
             mask=mask_k,
             other=0.0,
         ).to(tl.float32)
-        beta_input = tl.load(b_ptr + token * H_V + pid_hv).to(tl.float32)
+        beta_input = tl.load(
+            b_ptr + token * stride_b_token + pid_hv * stride_b_head
+        ).to(tl.float32)
 
         q = q / (tl.sqrt(tl.sum(q * q, axis=0)) + 1e-6)
         k = k / (tl.sqrt(tl.sum(k * k, axis=0)) + 1e-6)
@@ -113,16 +139,12 @@ def _kda_target_verify_kernel(
             beta = beta_input
         else:
             gate_input = a + dt_bias
-            if USE_LOWER_BOUND:
-                log_gate = lower_bound * tl.sigmoid(tl.exp(A_log) * gate_input)
-            else:
-                softplus = tl.where(
-                    gate_input <= 20.0,
-                    tl.log(1.0 + tl.exp(gate_input)),
-                    gate_input,
-                )
-                log_gate = -tl.exp(A_log) * softplus
-            gate = tl.exp(log_gate)
+            softplus = tl.where(
+                gate_input <= 20.0,
+                tl.log(1.0 + tl.exp(gate_input)),
+                gate_input,
+            )
+            gate = tl.exp(-tl.exp(A_log) * softplus)
             beta = 1.0 / (1.0 + tl.exp(-beta_input))
 
         state *= gate[None, :]
@@ -166,7 +188,6 @@ def kda_target_verify_npu(
     cache_steps: int,
     scale: Optional[float] = None,
     gates_are_preactivated: Optional[bool] = None,
-    lower_bound: Optional[float] = None,
 ) -> torch.Tensor:
     """KDA fixed-width target verification with per-step state snapshots.
 
@@ -213,10 +234,8 @@ def kda_target_verify_npu(
         raise ValueError("a must have shape [tokens, H_k, K]")
     if tuple(b.shape) != (q.shape[1], h_v):
         raise ValueError("b must have shape [tokens, H_v]")
-    # K3 stores A_log as [1, 1, H_k, 1] and dt_bias as [H_k * K].
-    # The kernel reads both as flat buffers, so validate element counts.
     if not gates_are_preactivated and (
-        A_log.numel() != h_k or dt_bias.numel() != h_k * key_dim
+        A_log.numel() != h_k or tuple(dt_bias.shape) != (h_k, key_dim)
     ):
         raise ValueError("A_log and dt_bias shapes do not match KDA heads")
     if initial_state_source.ndim != 4 or tuple(initial_state_source.shape[1:]) != (
@@ -237,8 +256,8 @@ def kda_target_verify_npu(
     ):
         raise ValueError("intermediate_state_indices must contain at least B entries")
 
-    # SGLang produces q/k/v as views of a packed QKV tensor. Normalize the
-    # read-only inputs here because this kernel uses a dense linear layout.
+    # SGLang produces q/k/v as views of a packed QKV tensor. The kernel consumes
+    # explicit strides so serving can avoid five per-layer materializations.
     tensors = [
         A_log,
         dt_bias,
@@ -256,11 +275,6 @@ def kda_target_verify_npu(
         raise ValueError("all tensors must be on the same device")
     A_log = A_log.contiguous()
     dt_bias = dt_bias.contiguous()
-    q = q.contiguous()
-    k = k.contiguous()
-    v = v.contiguous()
-    a = a.contiguous()
-    b = b.contiguous()
     initial_state_indices = initial_state_indices.contiguous()
     intermediate_state_indices = intermediate_state_indices.contiguous()
     if initial_state_source.dtype != intermediate_states_buffer.dtype:
@@ -274,10 +288,8 @@ def kda_target_verify_npu(
         scale = key_dim**-0.5
     if scale <= 0:
         raise ValueError("scale must be positive")
-    if gates_are_preactivated and lower_bound is not None:
-        raise ValueError("lower_bound must already be reflected in preactivated gates")
 
-    out = torch.empty_like(v)
+    out = torch.empty((1, q.shape[1], h_v, value_dim), dtype=v.dtype, device=v.device)
     bk = triton.next_power_of_2(key_dim)
     if bk > 256:
         raise ValueError("key dimensions greater than 256 are unsupported")
@@ -297,7 +309,20 @@ def kda_target_verify_npu(
         intermediate_state_indices,
         out,
         scale,
-        lower_bound if lower_bound is not None else 0.0,
+        q.stride(1),
+        q.stride(2),
+        q.stride(3),
+        k.stride(1),
+        k.stride(2),
+        k.stride(3),
+        v.stride(1),
+        v.stride(2),
+        v.stride(3),
+        a.stride(0),
+        a.stride(1),
+        a.stride(2),
+        b.stride(0),
+        b.stride(1),
         initial_state_source.stride(0),
         initial_state_source.stride(1),
         initial_state_source.stride(2),
@@ -316,7 +341,6 @@ def kda_target_verify_npu(
         BK=bk,
         BV=bv,
         GATES_ARE_PREACTIVATED=gates_are_preactivated,
-        USE_LOWER_BOUND=lower_bound is not None,
         num_warps=1,
         num_stages=3,
         multibuffer=False,
