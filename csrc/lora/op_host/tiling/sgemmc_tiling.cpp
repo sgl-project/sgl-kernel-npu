@@ -69,9 +69,14 @@ at::Tensor GenerateTiling(uint32_t &block_dim, uint32_t &workspace_size, uint32_
     tiling_data->tilingKey = (type == host_utils::DataType::DT_BFLOAT16);
 
     block_dim = batch_size * slice_count;
+    // Layout: [lib-api (system) region][user region]. The kernels take their
+    // per-block scratch from GetUserWorkspace(workspace), i.e. right after the
+    // system region. Each block's async GetTensorC staging is padded to the
+    // base granularity (baseM rows even for org M=1), so reserve
+    // baseM * N floats for every one of the block_dim blocks.
     workspace_size = ascendc_platform.GetLibApiWorkSpaceSize() +
-                     static_cast<uint32_t>(batch_size * tiling_data->cubeTiling.baseM * tiling_data->cubeTiling.baseN *
-                                           sizeof(float));
+                     static_cast<uint32_t>(block_dim) * tiling_data->cubeTiling.baseM * tiling_data->cubeTiling.N *
+                         static_cast<uint32_t>(sizeof(float));
 
     return TorchNpuHelper::CopyTensorHostToDevice(tilingBuffer);
 }

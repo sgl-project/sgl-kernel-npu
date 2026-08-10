@@ -26,7 +26,10 @@ template <typename scalar_t>
 class SGMVExpand
 {
 public:
-    using X_T = float;
+    // x (the shrink output) shares the model dtype (fp16/bf16), per the
+    // unified LoRA op protocol; CopyInX casts it to fp32 internally. Enforced
+    // by a host-side TORCH_CHECK.
+    using X_T = scalar_t;
     using W_T = scalar_t;
     using Y_T = scalar_t;
 
@@ -76,8 +79,9 @@ public:
         wGm_.SetGlobalBuffer((__gm__ W_T *)weight);
         yInGm_.SetGlobalBuffer((__gm__ Y_T *)yIn);
         yOutGm_.SetGlobalBuffer((__gm__ Y_T *)yOut);
-        loraIndicesGm_.SetGlobalBuffer((__gm__ int64_t *)loraIndices, loraIndicesSize);
-        seqLenGm_.SetGlobalBuffer((__gm__ int64_t *)seqLen, seqLenSize);
+        // The backend (prepare_lora_batch) provides int32 indices/seg_lens.
+        loraIndicesGm_.SetGlobalBuffer((__gm__ int32_t *)loraIndices, loraIndicesSize);
+        seqLenGm_.SetGlobalBuffer((__gm__ int32_t *)seqLen, seqLenSize);
 
         pipe_->InitBuffer(inQueueX_, 1, NUM_ELEMENTS_PER_REPEAT * sizeof(X_T));
         pipe_->InitBuffer(inQueueW_, BUFFER_NUM, W_IN_TILE_NUM_ELEMENTS * sizeof(W_T));
@@ -303,8 +307,8 @@ private:
     AscendC::GlobalTensor<W_T> wGm_;
     AscendC::GlobalTensor<Y_T> yInGm_;
     AscendC::GlobalTensor<Y_T> yOutGm_;
-    AscendC::GlobalTensor<int64_t> loraIndicesGm_;
-    AscendC::GlobalTensor<int64_t> seqLenGm_;
+    AscendC::GlobalTensor<int32_t> loraIndicesGm_;
+    AscendC::GlobalTensor<int32_t> seqLenGm_;
     uint32_t batchSize_;
     uint32_t numTokensPerCore_;
     uint32_t maxLoRARank_;

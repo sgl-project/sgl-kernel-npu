@@ -56,7 +56,10 @@ HOST_API at::Tensor sgmv_expand(at::Tensor &x, at::Tensor &weight, at::Tensor &l
     TORCH_CHECK(x.size(1) <= slice_size, "hidden in should be smaller than hidden out");
     TORCH_CHECK(slice_offset >= 0, "slice offset should be no smaller than 0");
     TORCH_CHECK((slice_size + slice_offset) <= y.size(1),
-                "slice_size + slice_offset should be smaller than the second dimension of y")
+                "slice_size + slice_offset should be smaller than the second dimension of y");
+    TORCH_CHECK(x.scalar_type() == scalar_type, "x must have the same dtype as y");
+    TORCH_CHECK(lora_indices.scalar_type() == at::kInt, "lora_indices must be int32");
+    TORCH_CHECK(seq_len.scalar_type() == at::kInt, "seq_len must be int32");
 
     at::Tensor y_out = y;
     void *x_ptr = x.data_ptr();

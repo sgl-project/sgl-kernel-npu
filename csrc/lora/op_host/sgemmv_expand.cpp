@@ -55,6 +55,11 @@ HOST_API at::Tensor sgemmv_expand(at::Tensor &x, at::Tensor &weight, at::Tensor 
     TORCH_CHECK(weight.dim() == 3 || weight.dim() == 4,
                 "weight should be [num_loras, hidden_out, hidden_in] or [num_loras, 1, hidden_out, hidden_in]");
     TORCH_CHECK(y.dim() == 2, "y should be [batch_size, hidden_out]");
+    TORCH_CHECK(x.scalar_type() == scalar_type, "x must have the same dtype as y");
+    TORCH_CHECK(lora_indices.scalar_type() == at::kInt, "lora_indices must be int32");
+    TORCH_CHECK(seq_len.scalar_type() == at::kInt, "seq_len must be int32");
+    TORCH_CHECK(lora_ranks.scalar_type() == at::kInt, "lora_ranks must be int32");
+    TORCH_CHECK(slice_offsets.scalar_type() == at::kInt, "slice_offsets must be int32");
 
     at::Tensor y_out = y;
     void *x_ptr = x.data_ptr();
