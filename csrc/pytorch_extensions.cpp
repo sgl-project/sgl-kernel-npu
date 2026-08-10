@@ -120,6 +120,12 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor(s!) o_workspace_gated, int block_dim, int batch_size, "
         "int seq_len, int total_tokens, int num_matrices) -> ()");
 
+    m.def(
+        "kda_decode(Tensor q, Tensor k, Tensor v, Tensor A_log, Tensor a, "
+        "Tensor dt_bias, Tensor b, Tensor(a!) state, Tensor(b!) out, "
+        "Tensor state_indices, Tensor cu_seqlens, float scale, bool use_qk_l2norm, "
+        "float softplus_beta, float softplus_threshold) -> ()");
+
 #ifdef BUILD_CATLASS_MODULE
     m.def("catlass_matmul_basic(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, str? format_mode=None) -> ()");
 
@@ -190,6 +196,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("sgemmc_shrink", TORCH_FN(sglang::npu_kernel::sgemmc_shrink));
 
     m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
+
+    m.impl("kda_decode", TORCH_FN(sglang::npu_kernel::kda_decode));
 
 #ifdef BUILD_CATLASS_MODULE
     m.impl("catlass_matmul_basic", TORCH_FN(sglang::npu_kernel::catlass_matmul_basic));

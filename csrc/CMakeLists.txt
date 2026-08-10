@@ -40,6 +40,7 @@ if(BUILD_CATLASS_MODULE)
 endif()
 list(APPEND OP_SRCS
     ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
+    ${PROJECT_OP_SRC_BASE}/kda_decode/op_host/kda_decode.cpp
 )
 
 # set the so name
@@ -132,11 +133,31 @@ ascendc_compile_definitions(mega_chunk_gdn_kernel PRIVATE
     -DGDN_C=128
 )
 
+set(KDA_DECODE_KERNEL_TARGETS)
+set(KDA_DECODE_KERNEL_TARGETS kda_decode_kernel)
+ascendc_library(kda_decode_kernel STATIC
+    ${PROJECT_OP_SRC_BASE}/kda_decode/op_kernel/kda_decode.cpp
+)
+ascendc_include_directories(kda_decode_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/kda_decode/op_kernel
+    ${PROJECT_SOURCE_DIR}/third_party/pto-isa/include
+    ${ASCEND_INCLUDE_DIR}
+    ${ASCEND_INCLUDE_DIR}/experiment/runtime
+    ${ASCEND_INCLUDE_DIR}/experiment/msprof
+)
+ascendc_compile_definitions(kda_decode_kernel PRIVATE
+    -DKDA_KERNEL_NAME=launch_kda_decode
+    -DGDN_D=128
+    -DKDA_V=128
+    -DKDA_BV=128
+)
+
 # create shared library libsgl_kernel_npu.so
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${MEGA_CHUNK_GDN_KERNEL_TARGETS}
+        ${KDA_DECODE_KERNEL_TARGETS}
         workspace_kernel
         no_workspace_kernel
         torch_npu

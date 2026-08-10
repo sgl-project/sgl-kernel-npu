@@ -5,6 +5,7 @@ import torch
 import torch.nn.functional as F
 import triton
 import triton.language as tl
+from sgl_kernel_npu.fla.kda_decode_pto import kda_decode_pto, pto_backend_enabled
 from sgl_kernel_npu.fla.utils import input_guard
 
 
@@ -188,7 +189,28 @@ def fused_sigmoid_gating_delta_rule_update_npu(
     Fused triton implementation of sigmoid gating delta rule update.
     This function uses a single fused kernel that combines both sigmoid gating computation
     and the recurrent delta rule update for better performance.
+
+    When ``KDA_DECODE_PTO_BACKEND=1`` the PTO-ISA kernel is used.
     """
+    if pto_backend_enabled():
+        return kda_decode_pto(
+            A_log=A_log,
+            a=a,
+            dt_bias=dt_bias,
+            softplus_beta=softplus_beta,
+            softplus_threshold=softplus_threshold,
+            q=q,
+            k=k,
+            v=v,
+            b=b,
+            initial_state_source=initial_state_source,
+            initial_state_indices=initial_state_indices,
+            scale=scale,
+            use_qk_l2norm_in_kernel=use_qk_l2norm_in_kernel,
+            cu_seqlens=cu_seqlens,
+            is_kda=is_kda,
+        )
+
     B, T, H, K, V = *k.shape, v.shape[-1]
     HV = v.shape[2]
     N = B if cu_seqlens is None else len(cu_seqlens) - 1
