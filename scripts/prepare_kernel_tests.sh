@@ -38,3 +38,37 @@ fi
 
 # Install other test dependencies
 uv pip install expecttest einops pytest packaging
+
+# --- CI workarounds for test-side issues ---
+
+# 1. sglang: test_split_qkv_rmsnorm_rope_pos_cache_half_npu.py imports
+#    'from sglang.srt.utils import is_npu'. Full sglang install pulls
+#    torch-memory-saver which needs CUDA (unavailable in NPU containers).
+#    Try --no-deps first; fall back to a minimal stub providing is_npu.
+pip install sglang --no-deps 2>/dev/null || true
+if ! python3 -c "from sglang.srt.utils import is_npu" 2>/dev/null; then
+    PYTHON_SITE=$(python3 -c "import site; print(site.getsitepackages()[0])")
+    mkdir -p "$PYTHON_SITE/sglang/srt"
+    touch "$PYTHON_SITE/sglang/__init__.py" "$PYTHON_SITE/sglang/srt/__init__.py"
+    printf 'def is_npu():\n    try:\n        import torch_npu\n        return True\n    except ImportError:\n        return False\n' \
+        > "$PYTHON_SITE/sglang/srt/utils.py"
+    echo "Created sglang stub for is_npu (full sglang needs CUDA)"
+fi
+
+# 2. F (torch.nn.functional): test_swiglu_quant.py uses F.silu() without
+#    'import torch.nn.functional as F'. Inject F as a builtin via
+#    sitecustomize.py so direct 'python3 test_file.py' invocations work.
+PYTHON_SITE=$(python3 -c "import site; print(site.getsitepackages()[0])")
+SITECUSTOMIZE="$PYTHON_SITE/sitecustomize.py"
+if ! grep -q "builtins.F" "$SITECUSTOMIZE" 2>/dev/null; then
+    cat >> "$SITECUSTOMIZE" << 'PYEOF'
+# CI workaround: inject torch.nn.functional as F builtin
+try:
+    import builtins
+    import torch.nn.functional as F
+    builtins.F = F
+except Exception:
+    pass
+PYEOF
+    echo "Added F injection to sitecustomize.py"
+fi
