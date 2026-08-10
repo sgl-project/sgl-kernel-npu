@@ -203,7 +203,7 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     auto moeExpertNumPtr = attrs->GetAttrPointer<int64_t>(ATTR_MOE_EXPERT_NUM_INDEX);
     auto sharedExpertNumPtr = attrs->GetAttrPointer<int64_t>(ATTR_SHARE_EXPERT_NUM_INDEX);
     auto sharedExpertRankNumPtr = attrs->GetAttrPointer<int64_t>(ATTR_SHARE_EXPERT_RANK_NUM_INDEX);
-    auto quantModePtr = attrs->GetAttrPointer<int>(ATTR_QUANT_MODE_INDEX);
+    auto quantModePtr = attrs->GetAttrPointer<int64_t>(ATTR_QUANT_MODE_INDEX);
     auto globalBsPtr = attrs->GetAttrPointer<int64_t>(ATTR_GLOBAL_BS_INDEX);
 
     OPS_ERR_IF(groupEpPtr == nullptr, OPS_LOG_E(nodeName, "groupEpPtr is nullptr."), return ge::GRAPH_FAILED);
@@ -217,7 +217,7 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     OPS_ERR_IF(quantModePtr == nullptr, OPS_LOG_E(nodeName, "quantModePtr is nullptr."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(globalBsPtr == nullptr, OPS_LOG_E(nodeName, "globalBsPtr is nullptr."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(*quantModePtr != FUSED_DEEP_MOE_NO_QUANT && *quantModePtr != FUSED_DEEP_MOE_INT8_QUANT,
-               OPS_LOG_E(nodeName, "quantMode must be 0 (BF16) or 1 (INT8), but got %d.", *quantModePtr),
+               OPS_LOG_E(nodeName, "quantMode must be 0 (BF16) or 1 (INT8), but got %ld.", *quantModePtr),
                return ge::GRAPH_FAILED);
 
     uint32_t epRankSize = static_cast<uint32_t>(*epRankSizePtr);
