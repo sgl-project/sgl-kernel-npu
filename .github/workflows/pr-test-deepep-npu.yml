@@ -470,6 +470,11 @@ jobs:
           HCCL_BUFFSIZE: 3769
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_and_low_latency.py --test-loop=100 --enable-dynamic-tokens
+      - name: Run test fused deep moe for fuse_mode.DISPATCH_FFN_COMBINE
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 2048
+        run: python3 $GITHUB_WORKSPACE/tests/python/deepep/test_dispatch_ffn_combine.py
       - name: Run test alltoall mode for both normal and low_latency
         if: matrix.cann_version == '9.0.0'
         timeout-minutes: 10
