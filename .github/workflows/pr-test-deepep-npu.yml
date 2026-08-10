@@ -87,7 +87,7 @@ jobs:
       - name: Get build hash
         id: get_build_hash
         run: |
-          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
+          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt ./scripts/prepare_deepep_in_container.sh ./scripts/npu_ci_install_dependency.sh \
             -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
           echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
           CANN_RAW=$(cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg 2>/dev/null || echo "unknown")
@@ -99,7 +99,7 @@ jobs:
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v2-${{ runner.os }}-a3-cann${{ steps.get_build_hash.outputs.CANN_VERSION }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+          key: sgl-kernel-npu-build-v3-${{ runner.os }}-a3-cann${{ steps.get_build_hash.outputs.CANN_VERSION }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
       - name: Install dependencies
         run: |
           # speed up by using infra cache services
@@ -110,15 +110,17 @@ jobs:
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
       - name: Prepare Deepep
-        # Always run prepare_deepep_in_container.sh:
-        # - cache miss: build + install new wheel
-        # - cache hit: install cached wheel only
-        # Pre-step: clear stale wheels from output/ to prevent pip install matching
-        # multiple wheel versions (can happen on shared self-hosted runners across jobs).
-        # Only delete wheel files; keep .so / CMake cache to avoid rebuilding.
+        # - cache hit: install cached wheel only (skip build via -s flag)
+        # - cache miss: clear stale wheels + build + install
         run: |
-          rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
-          bash scripts/prepare_deepep_in_container.sh
+          if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
+            echo "Cache hit, installing cached wheel only"
+            bash scripts/prepare_deepep_in_container.sh -s
+          else
+            echo "Cache miss, building and installing"
+            rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+            bash scripts/prepare_deepep_in_container.sh
+          fi
       - name: Set CANN 9.0.0 env
         if: matrix.cann_version == '9.0.0'
         run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
@@ -318,7 +320,7 @@ jobs:
       - name: Get build hash
         id: get_build_hash
         run: |
-          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
+          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt ./scripts/prepare_deepep_in_container.sh ./scripts/npu_ci_install_dependency.sh \
             -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
           echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
           CANN_RAW=$(cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg 2>/dev/null || echo "unknown")
@@ -330,7 +332,7 @@ jobs:
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v2-${{ runner.os }}-a3-cann${{ steps.get_build_hash.outputs.CANN_VERSION }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+          key: sgl-kernel-npu-build-v3-${{ runner.os }}-a3-cann${{ steps.get_build_hash.outputs.CANN_VERSION }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
       - name: Install dependencies
         run: |
           # speed up by using infra cache services
@@ -341,15 +343,17 @@ jobs:
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
       - name: Prepare Deepep
-        # Always run prepare_deepep_in_container.sh:
-        # - cache miss: build + install new wheel
-        # - cache hit: install cached wheel only
-        # Pre-step: clear stale wheels from output/ to prevent pip install matching
-        # multiple wheel versions (can happen on shared self-hosted runners across jobs).
-        # Only delete wheel files; keep .so / CMake cache to avoid rebuilding.
+        # - cache hit: install cached wheel only (skip build via -s flag)
+        # - cache miss: clear stale wheels + build + install
         run: |
-          rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
-          bash scripts/prepare_deepep_in_container.sh
+          if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
+            echo "Cache hit, installing cached wheel only"
+            bash scripts/prepare_deepep_in_container.sh -s
+          else
+            echo "Cache miss, building and installing"
+            rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+            bash scripts/prepare_deepep_in_container.sh
+          fi
       - name: Set CANN 9.0.0 env
         if: matrix.cann_version == '9.0.0'
         run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
@@ -501,7 +505,7 @@ jobs:
       - name: Get build hash
         id: get_build_hash
         run: |
-          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
+          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt ./scripts/prepare_deepep_in_container.sh ./scripts/npu_ci_install_dependency.sh \
             -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
           echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
           CANN_RAW=$(cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg 2>/dev/null || echo "unknown")
@@ -513,7 +517,7 @@ jobs:
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v2-${{ runner.os }}-a3-cann${{ steps.get_build_hash.outputs.CANN_VERSION }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+          key: sgl-kernel-npu-build-v3-${{ runner.os }}-a3-cann${{ steps.get_build_hash.outputs.CANN_VERSION }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
       - name: Install dependencies
         run: |
           # speed up by using infra cache services
@@ -524,15 +528,17 @@ jobs:
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
       - name: Prepare Deepep
-        # Always run prepare_deepep_in_container.sh (-a deepep for a3 ops):
-        # - cache miss: build + install new wheel
-        # - cache hit: install cached wheel only
-        # Pre-step: clear stale wheels from output/ to prevent pip install matching
-        # multiple wheel versions (can happen on shared self-hosted runners across jobs).
-        # Only delete wheel files; keep .so / CMake cache to avoid rebuilding.
+        # - cache hit: install cached wheel only (skip build via -s flag)
+        # - cache miss: clear stale wheels + build (-a deepep) + install
         run: |
-          rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
-          bash scripts/prepare_deepep_in_container.sh -a deepep
+          if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
+            echo "Cache hit, installing cached wheel only"
+            bash scripts/prepare_deepep_in_container.sh -s
+          else
+            echo "Cache miss, building and installing"
+            rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+            bash scripts/prepare_deepep_in_container.sh -a deepep
+          fi
       - name: Set CANN 9.0.0 env
         if: matrix.cann_version == '9.0.0'
         run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
@@ -701,7 +707,7 @@ jobs:
       - name: Get build hash
         id: get_build_hash
         run: |
-          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt \
+          BUILD_HASH=$(find ./csrc ./cmake ./python ./build.sh ./CMakeLists.txt ./scripts/prepare_deepep_in_container.sh ./scripts/npu_ci_install_dependency.sh \
             -type f -not -path '*/.*' 2>/dev/null | sort | xargs sha256sum | sha256sum | awk '{print $1}')
           echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_OUTPUT
           CANN_RAW=$(cat /usr/local/Ascend/ascend-toolkit/latest/version.cfg 2>/dev/null || echo "unknown")
@@ -713,7 +719,7 @@ jobs:
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v2-${{ runner.os }}-a2-cann${{ steps.get_build_hash.outputs.CANN_VERSION }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+          key: sgl-kernel-npu-build-v3-${{ runner.os }}-a2-cann${{ steps.get_build_hash.outputs.CANN_VERSION }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
       - name: Install dependencies
         run: |
           # speed up by using infra cache services
@@ -724,15 +730,17 @@ jobs:
           pip install uv
           bash scripts/npu_ci_install_dependency.sh
       - name: Prepare Deepep
-        # Always run prepare_deepep_in_container.sh (-a deepep2 for a2 ops):
-        # - cache miss: build + install new wheel
-        # - cache hit: install cached wheel only
-        # Pre-step: clear stale wheels from output/ to prevent pip install matching
-        # multiple wheel versions (can happen on shared self-hosted runners across jobs).
-        # Only delete wheel files; keep .so / CMake cache to avoid rebuilding.
+        # - cache hit: install cached wheel only (skip build via -s flag)
+        # - cache miss: clear stale wheels + build (-a deepep2) + install
         run: |
-          rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
-          bash scripts/prepare_deepep_in_container.sh -a deepep2
+          if [ "${{ steps.cache-build.outputs.cache-hit }}" = "true" ]; then
+            echo "Cache hit, installing cached wheel only"
+            bash scripts/prepare_deepep_in_container.sh -s
+          else
+            echo "Cache miss, building and installing"
+            rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
+            bash scripts/prepare_deepep_in_container.sh -a deepep2
+          fi
       - name: Set CANN 9.0.0 env
         if: matrix.cann_version == '9.0.0'
         run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
@@ -939,7 +947,6 @@ jobs:
     needs:
       - test-all-build-core
       - test-all-build-moe
-      - test-build-deepep-a3-core
       - test-build-deepep-a3-moe
       - test-build-deepep-a2
     runs-on: ubuntu-latest
