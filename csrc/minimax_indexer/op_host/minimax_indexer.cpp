@@ -66,7 +66,7 @@ inline at::Tensor ConstructMinimaxIndexerOutputTensor(const at::Tensor &query, c
         n_dim_index = (key_layout_str == "TND") ? DIM_1 : DIM_2;
         outputSize = {query.size(DIM_0), key.size(n_dim_index), sparse_count + append_local};
     }
-    at::Tensor output = at::empty(outputSize, query.options().dtype(at::kInt));
+    at::Tensor output = at::zeros(outputSize, query.options().dtype(at::kInt));
 
     return output;
 }
@@ -81,7 +81,7 @@ HOST_API at::Tensor minimax_indexer(
     c10::optional<c10::string_view> layout_key, c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode,
     c10::optional<int64_t> init_blocks, c10::optional<int64_t> local_blocks, c10::optional<double> sm_scale,
     const c10::optional<at::Tensor> &req_to_token, const c10::optional<at::Tensor> &req_pool_indices,
-    c10::optional<int64_t> append_local)
+    c10::optional<int64_t> append_local, c10::optional<int64_t> packed_mode)
 {
     using namespace MIHost;
     MinimaxIndexer indexer("minimax_indexer");
@@ -110,6 +110,8 @@ HOST_API at::Tensor minimax_indexer(
 
     int64_t appendLocal = append_local.value_or(0);
     TORCH_CHECK(appendLocal >= 0 && appendLocal <= 1, "append_local must be 0 or 1, got ", appendLocal);
+    int64_t packedMode = packed_mode.value_or(0);
+    TORCH_CHECK(packedMode >= 0 && packedMode <= 1, "packed_mode must be 0 or 1, got ", packedMode);
     bool directMode = req_to_token.has_value() || req_pool_indices.has_value();
     TORCH_CHECK(!directMode || (req_to_token.has_value() && req_pool_indices.has_value()),
                 "req_to_token and req_pool_indices must be provided together for direct mode");
@@ -180,10 +182,25 @@ HOST_API at::Tensor minimax_indexer(
     tilingData.directMode = directMode ? 1U : 0U;
     tilingData.maxTokenSlots = directMode ? static_cast<uint32_t>(req_to_token.value().size(1)) : 0U;
     tilingData.appendLocal = static_cast<uint32_t>(appendLocal);
+    // packed_mode: actual_seq_lengths_key carries the full [B*gqa] per-row causal
+    // lengths (EAGLE3 verify packed draft queries).
+    tilingData.packedMode = static_cast<uint32_t>(packedMode);
 
     uint32_t tilingSize = sizeof(MITilingData);
     auto blockDim = tilingData.usedCoreNum;
     auto bs = tilingData.bSize;
+    if (std::getenv("SGLANG_MINIMAX_NPU_IDX_TILING_DUMP")) {
+        // DIAG: dump the tiling actually built for THIS call so we can cross-check
+        // against the installed .so / isolate the all-zero service bug.
+        std::fprintf(stderr,
+                     "[IDXTILE] bs=%u g=%u s1=%u s2=%u sC=%u core=%u blkBlk=%u maxBnb=%u spMode=%u "
+                     "tkey=%08x init=%u loc=%u smScaleLog2e=%f direct=%u mts=%u ap=%u pack=%u\n",
+                     tilingData.bSize, tilingData.gSize, tilingData.s1Size, tilingData.s2Size, tilingData.sparseCount,
+                     tilingData.usedCoreNum, tilingData.blockSize, tilingData.maxBlockNumPerBatch,
+                     tilingData.sparseMode, tilingData.tilingKey, tilingData.initBlocks, tilingData.localBlocks,
+                     tilingData.smScaleLog2e, tilingData.directMode, tilingData.maxTokenSlots, tilingData.appendLocal,
+                     tilingData.packedMode);
+    }
     at::Tensor tilingTensor;
 
     auto tup =
@@ -217,9 +234,36 @@ HOST_API at::Tensor minimax_indexer(
     }
 
     size_t workspaceSize = context->GetWorkspaceSize();
-    auto workspace = at::empty({workspaceSize}, at::TensorOptions().dtype(at::kByte).device(query.options().device()));
+    // WORKSPACE MUST BE ZEROED EVERY CALL: the kernel's LD merge reads EVERY core's
+    // per-head topk16 partial region (including rows a given core never computes) and
+    // Zero-init: deterministic clean backstop.
+    // GM (a next launch's AIV can read the previous launch's stale WS rows). at::empty
+    // hands back uninitialized caching-allocator bytes; at::zeros gives every row a
+    // deterministic clean init (-1 blocks) so an (over-)early LD merge reads a benign
+    // "all -1" instead of garbage ~1e9 block ids (was observed as sporadic empty rows
+    // Zero-init: deterministic clean backstop.
+    auto workspace = at::zeros({workspaceSize}, at::TensorOptions().dtype(at::kByte).device(query.options().device()));
     EXEC_KERNEL_CMD(minimax_indexer, blockDim, query, key, weights, actualSeqLengthsQuery, actualSeqLengthsKey,
                     blockTable, reqToToken, reqPoolIdx, sparse_indices, workspace, tilingTensor);
+    if (std::getenv("SGLANG_MINIMAX_NPU_WS_DUMP2")) {
+        // DIAG: sync + inspect native indexer output/WS right after launch to see if
+        // the kernel actually wrote output (all-zero output => AIV never ran).
+        aclrtSynchronizeStream(c10_npu::getCurrentNPUStream().stream(false));
+        auto out_cpu = sparse_indices.cpu().contiguous();
+        const int32_t *op = out_cpu.data_ptr<int32_t>();
+        int64_t n = out_cpu.numel(), nz = 0;
+        for (int64_t i = 0; i < n; i++)
+            nz += (op[i] != 0) ? 1 : 0;
+        auto ws_cpu = workspace.cpu().contiguous();
+        const uint8_t *wp = ws_cpu.data_ptr<uint8_t>();
+        const int32_t *wpi = reinterpret_cast<const int32_t *>(wp);
+        int64_t wn = ws_cpu.numel() / 4, wnz = 0;
+        for (int64_t i = 0; i < wn; i++)
+            wnz += (wpi[i] != 0) ? 1 : 0;
+        std::fprintf(stderr, "[WSDUMP2] bs=%u core=%u(outSize=%lld) output_nz=%lld/%lld WS_nz=%lld/%lld first_out=%d\n",
+                     tilingData.bSize, tilingData.usedCoreNum, (long long)out_cpu.numel(), (long long)nz, (long long)n,
+                     (long long)wnz, (long long)wn, op[0]);
+    }
     return sparse_indices;
 }
 }  // namespace npu_kernel

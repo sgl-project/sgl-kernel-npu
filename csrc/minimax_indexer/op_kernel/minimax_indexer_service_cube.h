@@ -156,6 +156,8 @@ MIMatmul<MIT>::InitMm1GlobalTensor(const GlobalTensor<int32_t> &blkTableGm, cons
 template <typename MIT>
 __aicore__ inline void MIMatmul<MIT>::ComputeMm1(const MICommon::RunInfo &runInfo)
 {
+    // Wait for AIV buffer-free signal.
+    AscendC::CrossCoreWaitFlag<0, PIPE_S>(constInfo_.syncV1C1);
     uint64_t s2GmBaseOffset = runInfo.s2Idx * constInfo_.s2BaseSize;
     uint64_t s1gProcessSize = runInfo.actMBaseSize;
     uint64_t s2ProcessSize = runInfo.actualSingleProcessSInnerSize;
@@ -215,6 +217,7 @@ __aicore__ inline void MIMatmul<MIT>::ComputeMm1(const MICommon::RunInfo &runInf
         SetFlag<HardEvent::MTE1_MTE2>(KEY_MTE1_MTE2_EVENT + keyL1BufIdx_ % KEY_BUF_NUM);
         keyL1BufIdx_++;
     }
+    AscendC::CrossCoreSetFlag<MICommon::ConstInfo::FIA_SYNC_MODE2, PIPE_FIX>(constInfo_.syncC1V1);
 }
 
 template <typename MIT>

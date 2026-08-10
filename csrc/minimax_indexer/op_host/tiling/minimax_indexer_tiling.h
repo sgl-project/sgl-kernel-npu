@@ -114,6 +114,7 @@ public:
     int32_t sparseMode = 0;
     // Others Flag
     uint32_t sparseCount = 0;
+    uint32_t packedSeqLen = 0;
     // DType
     ge::DataType inputQType = ge::DT_FLOAT16;
     ge::DataType inputKType = ge::DT_FLOAT16;
@@ -189,6 +190,7 @@ public:
     ge::DataType blockTableType_ = ge::DT_FLOAT16;
     ge::DataType inputKRopeType_ = ge::DT_FLOAT16;
     ge::DataType outputType_ = ge::DT_FLOAT16;
+    uint64_t packedSeqLen_ = 0;
 };
 
 // --------------- Tiling Class ---------------

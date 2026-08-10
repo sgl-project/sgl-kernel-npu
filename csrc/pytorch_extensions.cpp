@@ -140,7 +140,8 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "str? layout_query=None, str? layout_key=None, "
         "int? sparse_count=None, int? sparse_mode=None, "
         "int? init_blocks=None, int? local_blocks=None, float? sm_scale=None, "
-        "Tensor? req_to_token=None, Tensor? req_pool_indices=None, int? append_local=0) -> Tensor");
+        "Tensor? req_to_token=None, Tensor? req_pool_indices=None, int? append_local=0, "
+        "int? packed_mode=0) -> Tensor");
 
     m.def(
         "npu_sparse_attention_score(Tensor query, Tensor key, Tensor value, Tensor select_idx, "

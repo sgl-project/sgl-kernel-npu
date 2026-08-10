@@ -80,10 +80,7 @@ struct MITilingData {
     uint32_t directMode = 0U;     // 1: gather block table from req_to_token in-kernel
     uint32_t maxTokenSlots = 0U;  // req_to_token.shape[1] (direct gather token-slot width)
     uint32_t appendLocal = 0U;    // 1: output topk+1 with causal local block at slot topk
-    // TopK-API LD-merge optimization (populated by host; consumed by ProcessLD when
-    // numBlocks > topk). partPerHead = usedCoreNum * sparseCount matches the kernel's
-    // aicNum_*topk. topkTiling carries the host-computed TopkTiling (flat mirror);
-    // topkTmpSize is the explicit-tmp UB scratch size in bytes (GetTopKMaxMinTmpSize max).
+    uint32_t packedMode = 0U;     // 1: actual_seq_lengths_key is [B*gqa] per-row causal
     MITopkTilingRaw topkTiling{};
     uint32_t topkTmpSize = 0U;
 };

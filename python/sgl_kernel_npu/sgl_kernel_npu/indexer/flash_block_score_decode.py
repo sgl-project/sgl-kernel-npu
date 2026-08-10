@@ -1652,6 +1652,8 @@ def flash_decode_bnsd_with_topk_idx(
     # (bit-exact). Output has topk+1 slots (validated candidates + local block);
     # requires max_num_blocks as the candidate-validation bound.
     fused_append_local: bool = False,
+    # Native AscendC indexer gate (framework-controlled; op repo is unaware).
+    use_native: bool = True,
 ) -> tuple[Optional[torch.Tensor], torch.Tensor]:
     """Decode attention with BNSD KV cache and block-level topk indices.
 
@@ -1716,18 +1718,13 @@ def flash_decode_bnsd_with_topk_idx(
 
     # AscendC minimax_indexer fast path (Cube Q@K + multi-core + per-head LD merge),
     # replacing the triton score+topk for the score-only (disable_index_value) path.
-    # NOTE: the native op takes ONE seq_len per batch row (shared across its GQA
-    # heads). packed_seq_lens packs ndt draft-token queries as GQA heads, each with
-    # a DIFFERENT causal seq_len (prefix+j+1) -- the native op cannot express that
-    # (it would score all draft tokens with the first token's seq_len, selecting
-    # wrong blocks). So skip the native path for packed_seq_lens (EAGLE3 verify).
     _native_minimax_indexer = _get_native_minimax_indexer()
     if (
         disable_index_value
         and topk > 0
         and _native_minimax_indexer is not None
-        and not packed_seq_lens
-        and num_q_heads % 2 == 0  # head-split requires even gSize
+        and use_native
+        and num_q_heads % 2 == 0
         and head_dim == 128
         and seq_lens.shape[0]
         in (batch_size, batch_size * (num_q_heads // num_kv_heads))
@@ -1753,11 +1750,15 @@ def flash_decode_bnsd_with_topk_idx(
             (batch_size, 1, num_q_heads), dtype=q.dtype, device=q.device
         )
         aq_dummy = torch.ones(batch_size, dtype=torch.int32, device=q.device)
-        # Handle packed seq_lens [B*gqa] -> take first per batch [B]
+        # Handle seq_lens: normalized decode carries [B] per-request lengths;
+        # packed verify carries the full [B*gqa] per-row causal lengths, which the
+        # kernel consumes directly when packed_mode=1 (kept verbatim, no slicing).
         if seq_lens.shape[0] == batch_size:
             sl_in = seq_lens.to(torch.int32)
+            packed_mode = 0
         else:
-            sl_in = seq_lens[::gqa].to(torch.int32)
+            sl_in = seq_lens.to(torch.int32)
+            packed_mode = 1
         # Fused causal-local append: append_local=1 emits [QH, B, topk+1] with the
         # local block at slot topk (deduped to -1 when already a candidate). The
         # kernel writes the [QH, B, ..] layout directly, no permute/contiguous copy.
@@ -1779,6 +1780,7 @@ def flash_decode_bnsd_with_topk_idx(
             req_rt,
             req_pi,
             append_local,
+            packed_mode,
         )
         topk_idx = out.view(num_q_heads, batch_size, topk + append_local)
         return None, topk_idx

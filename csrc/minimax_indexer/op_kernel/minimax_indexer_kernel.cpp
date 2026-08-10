@@ -156,6 +156,9 @@ template <typename MIT>
 __aicore__ inline void MIPreload<MIT>::InitTilingData(const __gm__ MIHost::MITilingData *tilingData)
 {
     usedCoreNum = tilingData->usedCoreNum;
+    // Dedicated cross-engine flag IDs (disjoint from sparse_attention_score's 1/2/3).
+    constInfo.syncC1V1 = SYNC_C1_V1_FLAG;
+    constInfo.syncV1C1 = SYNC_V1_C1_FLAG;
     constInfo.batchSize = tilingData->bSize;
     constInfo.qHeadNum = constInfo.gSize = tilingData->gSize;
     constInfo.kSeqSize = tilingData->s2Size;
@@ -163,16 +166,14 @@ __aicore__ inline void MIPreload<MIT>::InitTilingData(const __gm__ MIHost::MITil
     constInfo.attenMaskFlag = (tilingData->sparseMode == 3);
     constInfo.kCacheBlockSize = tilingData->blockSize;
     constInfo.maxBlockNumPerBatch = tilingData->maxBlockNumPerBatch;
-    constInfo.sparseCount = tilingData->sparseCount;  // MiniMax: topk
-    // MiniMax: one Cube base block == exactly one KV block, so the S2 tile equals
-    // (lightning used 512-token S2 tiles; MiniMax uses block_size-aligned tiles). Each s2Idx step then
-    // walks one logical block and the Vector max-reduces over its block_size tokens.
+    constInfo.sparseCount = tilingData->sparseCount;
     constInfo.initBlocks = tilingData->initBlocks;
     constInfo.localBlocks = tilingData->localBlocks;
     constInfo.smScaleLog2e = tilingData->smScaleLog2e;
     constInfo.directMode = tilingData->directMode;
     constInfo.maxTokenSlots = tilingData->maxTokenSlots;
     constInfo.appendLocal = tilingData->appendLocal;
+    constInfo.packedMode = tilingData->packedMode;
     constInfo.outputLayout = LAYOUT_T;  // output layout matches input
     if (LAYOUT_T == LI_LAYOUT::TND) {
         constInfo.isAccumSeqS1 = true;
@@ -185,10 +186,7 @@ __aicore__ inline void MIPreload<MIT>::InitTilingData(const __gm__ MIHost::MITil
     constInfo.headDim = HEAD_DIM;
 
     constInfo.mBaseSize = M_BASE_SIZE;
-    // s2BaseSize = S2_TILE_BLOCKS * block_size. Each Cube<->Vector tile covers
-    // S2_TILE_BLOCKS logical KV blocks, amortizing the per-tile Cube overhead
-    // (aic_scalar + fixpipe) over more useful Mmad work. 2-block = s2BaseSize 256
-    // fits both the host workspace (allocated blockSize*2) and S2_BASIC_BLOCK=256.
+    // 2-block tile amortizes per-tile Cube overhead.
     constInfo.s2BaseSize = S2_TILE_BLOCKS * constInfo.kCacheBlockSize;
     constInfo.s1BaseSize = (constInfo.mBaseSize + constInfo.gSize - 1) / constInfo.gSize;
 }
@@ -216,7 +214,10 @@ __aicore__ inline void MIPreload<MIT>::InitActualSeqLen(__gm__ uint8_t *actualSe
     if (actualSeqLengths == nullptr) {
         constInfo.actualLenDims = 0;
     } else {
-        constInfo.actualLenDims = constInfo.batchSize;
+        // packed mode carries [B*gqa] per-row lengths; reserve the full span so the
+        // per-(b, g) scalar reads never step past the buffer.
+        // packed mode: per-row [B*gqa] causal lengths.
+        constInfo.actualLenDims = constInfo.packedMode ? constInfo.batchSize * constInfo.gSize : constInfo.batchSize;
         actualSeqLengthsGm.SetGlobalBuffer((__gm__ uint32_t *)actualSeqLengths, constInfo.actualLenDims);
     }
 }
@@ -240,8 +241,18 @@ __aicore__ inline void MIPreload<MIT>::GetS1S2ActualSeqLen(uint32_t bIdx, uint32
 {
     actS1Size = GetActualSeqLen(bIdx, constInfo.actualLenQDims, constInfo.isAccumSeqS1, actualSeqLengthsGmQ,
                                 constInfo.qSeqSize);
-    actS2Size =
-        GetActualSeqLen(bIdx, constInfo.actualLenDims, constInfo.isAccumSeqS2, actualSeqLengthsGm, constInfo.kSeqSize);
+    if (constInfo.packedMode) {
+        // Packed verify: use per-batch row-max as shared block space.
+        uint32_t maxLen = 0;
+        for (uint32_t g = 0; g < constInfo.gSize; g++) {
+            uint32_t l = actualSeqLengthsGm.GetValue(bIdx * constInfo.gSize + g);
+            maxLen = (l > maxLen) ? l : maxLen;
+        }
+        actS2Size = maxLen;
+    } else {
+        actS2Size = GetActualSeqLen(bIdx, constInfo.actualLenDims, constInfo.isAccumSeqS2, actualSeqLengthsGm,
+                                    constInfo.kSeqSize);
+    }
 }
 
 template <typename MIT>
@@ -278,86 +289,22 @@ __aicore__ inline uint32_t MIPreload<MIT>::GetTotalBaseBlockNum()
     return totalBlockNum;
 }
 
-// multi-core version, double-closed interval
+// Per-batch partition: each core owns whole batches, no cross-core WS merge.
 template <typename MIT>
 __aicore__ void inline MIPreload<MIT>::SplitCore(uint32_t curCoreIdx, uint32_t &coreNum, MICommon::SplitCoreInfo &info)
 {
-    // min blocks per core; remainder distributed to earlier cores
-    uint32_t totalBlockNum = GetTotalBaseBlockNum();
-    uint32_t minBlockPerCore = totalBlockNum / coreNum;
-    uint32_t deal1MoreBlockCoreNum = totalBlockNum % coreNum;
-    uint32_t coreIdx = 0;
-    uint32_t lastGS1RemainBlockCnt = 0;
-    uint32_t coreDealBlockCnt = coreIdx < deal1MoreBlockCoreNum ? minBlockPerCore + 1 : minBlockPerCore;
-    coreNum = minBlockPerCore == 0 ? deal1MoreBlockCoreNum : coreNum;
-
-    bool findLastCoreEnd = true;
-    uint32_t actS1Size, actS2Size;
-    uint32_t s1GBaseNum, s2BaseNum;
-    for (uint32_t bN2Idx = 0; bN2Idx < constInfo.batchSize * constInfo.kHeadNum; bN2Idx++) {
-        uint32_t bIdx = bN2Idx / constInfo.kHeadNum;
-        if (bN2Idx % constInfo.kHeadNum == 0) {
-            GetS1S2ActualSeqLen(bIdx, actS1Size, actS2Size);
-            s1GBaseNum = CeilDiv(actS1Size, constInfo.s1BaseSize);
-            s2BaseNum = CeilDiv(actS2Size, constInfo.s2BaseSize);
-        }
-        if constexpr (LAYOUT_T == LI_LAYOUT::BSND) {
-            if (findLastCoreEnd && (s1GBaseNum == 0U || s2BaseNum == 0U)) {
-                info.bN2Start = bN2Idx;
-                info.gS1Start = 0;
-                info.s2Start = 0;
-                findLastCoreEnd = false;
-            }
-        }
-        for (uint32_t gS1Idx = 0; gS1Idx < s1GBaseNum; gS1Idx++) {
-            if (constInfo.attenMaskFlag) {
-                s2BaseNum = GetS2BaseBlockNumOnMask(gS1Idx, actS1Size, actS2Size);
-            }
-            if (findLastCoreEnd && s2BaseNum == 0U) {
-                info.bN2Start = bN2Idx;
-                info.gS1Start = gS1Idx;
-                info.s2Start = 0;
-                findLastCoreEnd = false;
-            }
-            for (uint32_t s2Idx = 0; s2Idx < s2BaseNum;) {
-                if (findLastCoreEnd) {
-                    info.bN2Start = bN2Idx;
-                    info.gS1Start = gS1Idx;
-                    info.s2Start = s2Idx;
-                    findLastCoreEnd = false;
-                }
-                uint32_t s2RemainBaseNum = s2BaseNum - s2Idx;
-                if (lastGS1RemainBlockCnt + s2RemainBaseNum >= coreDealBlockCnt) {
-                    info.bN2End = bN2Idx;
-                    info.gS1End = gS1Idx;
-                    info.s2End = s2Idx + coreDealBlockCnt - lastGS1RemainBlockCnt - 1;
-
-                    if (coreIdx == curCoreIdx) {
-                        // if S2 is split across cores, only the first core handles LD
-                        if (s2Idx == 0 && info.s2End + 1 < s2BaseNum) {
-                            info.isLD = true;
-                        }
-                        // last core not handling last batch -> trailing batches are empty (S2=0), adjust end coords for
-                        // cleanup
-                        if (coreIdx == coreNum - 1 && info.bN2End != constInfo.batchSize - 1) {
-                            info.bN2End = constInfo.batchSize - 1;
-                            info.gS1End = 0;
-                            info.s2End = 0;
-                        }
-                        return;
-                    }
-                    coreIdx++;
-                    findLastCoreEnd = true;
-                    s2Idx = info.s2End + 1;
-                    lastGS1RemainBlockCnt = 0;
-                    coreDealBlockCnt = coreIdx < deal1MoreBlockCoreNum ? minBlockPerCore + 1 : minBlockPerCore;
-                } else {
-                    lastGS1RemainBlockCnt += s2RemainBaseNum;
-                    break;
-                }
-            }
-        }
-    }
+    const uint32_t n = constInfo.batchSize * constInfo.kHeadNum;
+    uint32_t base = (coreNum == 0) ? 0 : n / coreNum;
+    uint32_t rem = (coreNum == 0) ? 0 : n % coreNum;
+    uint32_t start = curCoreIdx * base + (curCoreIdx < rem ? curCoreIdx : rem);
+    uint32_t cnt = base + (curCoreIdx < rem ? 1 : 0);
+    info.bN2Start = start;
+    info.bN2End = (cnt == 0) ? (start - 1) : (start + cnt - 1);
+    info.gS1Start = 0;
+    info.gS1End = 0;
+    info.s2Start = 0;
+    info.s2End = 0;
+    info.isLD = true;
 }
 
 template <typename MIT>
@@ -409,23 +356,17 @@ __aicore__ inline void MIPreload<MIT>::Init(__gm__ uint8_t *query, __gm__ uint8_
     SplitCore(aiCoreIdx, usedCoreNum, splitCoreInfo);
 
     pipe = tPipe;
-    // workspace layout (MiniMax multi-core: per-head topk16 partials + LD merge)
-    // |mm1ResGm [aic,2,mBase,s2Base]| vec1ResGm [aic,B,G,topk](values)
-    //                               | vec1ParamGm [aic,B,G,topk](indices, int32)
+    // WS layout: mm1Res[aic,2,mBase,s2Base] | vec1ResGm[aic,B,G,topk] | vec1ParamGm[aic,B,G,topk]
     uint64_t offset = 0;
-
-    // mm1 double-buffered
+    // usedCoreNum (not GetBlockNum) sizes per-core WS (AIV returns 2x).
     uint64_t singleCoreMm1ResSize = WS_DOBULE * constInfo.mBaseSize * constInfo.s2BaseSize * sizeof(MM1_OUT_T);
     mm1ResGm.SetGlobalBuffer((__gm__ MM1_OUT_T *)(workspace + offset + aiCoreIdx * singleCoreMm1ResSize));
-    offset += GetBlockNum() * singleCoreMm1ResSize;
+    offset += usedCoreNum * singleCoreMm1ResSize;
 
-    // vec1ResGm: per-head topk16 values, [aic][B][G*topk] float
     vec1ResGm.SetGlobalBuffer((__gm__ float *)(workspace + offset));
-    offset += GetBlockNum() * constInfo.batchSize * constInfo.gSize * constInfo.sparseCount * sizeof(float);
-
-    // vec1ParamGm: per-head topk16 indices, [aic][B][G*topk] int32 (repurposed from int64)
+    offset += usedCoreNum * constInfo.batchSize * constInfo.gSize * constInfo.sparseCount * sizeof(float);
     vec1ParamGm.SetGlobalBuffer((__gm__ int32_t *)(workspace + offset));
-    offset += GetBlockNum() * constInfo.batchSize * constInfo.gSize * constInfo.sparseCount * sizeof(int32_t);
+    offset += usedCoreNum * constInfo.batchSize * constInfo.gSize * constInfo.sparseCount * sizeof(int32_t);
 
     if ASCEND_IS_AIV {
         vectorService.InitParams(constInfo, tiling);
@@ -465,14 +406,15 @@ __aicore__ inline void MIPreload<MIT>::CalcS2LoopParams(uint32_t bN2LoopIdx, uin
         tempLoopInfo.actMBaseSize = tempLoopInfo.mBasicSizeTail;
     }
 
-    bool isEnd = (bN2LoopIdx == splitCoreInfo.bN2End) && (gS1LoopIdx == splitCoreInfo.gS1End);
+    (void)((bN2LoopIdx == splitCoreInfo.bN2End) && (gS1LoopIdx == splitCoreInfo.gS1End));
     uint32_t s2BlockNum;
     if (constInfo.attenMaskFlag) {
         s2BlockNum = GetS2BaseBlockNumOnMask(gS1LoopIdx, tempLoopInfo.actS1Size, tempLoopInfo.actS2Size);
     } else {
         s2BlockNum = (tempLoopInfo.actS2Size + constInfo.s2BaseSize - 1) / constInfo.s2BaseSize;
     }
-    tempLoopInfo.s2LoopEnd = isEnd ? splitCoreInfo.s2End : s2BlockNum - 1;
+    // Per-batch: each core processes ALL blocks of its batches.
+    tempLoopInfo.s2LoopEnd = s2BlockNum - 1;
 }
 
 template <typename MIT>
@@ -596,11 +538,16 @@ __aicore__ inline void MIPreload<MIT>::ProcessMain()
 
     if ASCEND_IS_AIV {
         vectorService.AllocEventID();
-        vectorService.InitPartials();  // init this core's per-head topk16 partial slice to (-inf,-1)
-        CrossCoreSetFlag<MICommon::ConstInfo::FIA_SYNC_MODE2, PIPE_MTE2>(constInfo.syncV1C1);
-        CrossCoreSetFlag<MICommon::ConstInfo::FIA_SYNC_MODE2, PIPE_MTE2>(constInfo.syncV1C1);
     } else {
         matmulService.AllocEventID();
+    }
+
+    // SyncAll<false>: sync BOTH AIC+AIV (default only syncs AIV).
+    AscendC::SyncAll<false>();
+    // Seed after SyncAll: setting it before SyncAll caused intermittent failures.
+    if ASCEND_IS_AIV {
+        CrossCoreSetFlag<MICommon::ConstInfo::FIA_SYNC_MODE2, PIPE_MTE2>(constInfo.syncV1C1);
+        CrossCoreSetFlag<MICommon::ConstInfo::FIA_SYNC_MODE2, PIPE_MTE2>(constInfo.syncV1C1);
     }
 
     MICommon::RunInfo runInfo;
@@ -629,36 +576,29 @@ __aicore__ inline void MIPreload<MIT>::ProcessMain()
         vectorService.FreeEventID();
     } else {
         matmulService.FreeEventID();
-        CrossCoreWaitFlag(constInfo.syncV1C1);
-        CrossCoreWaitFlag(constInfo.syncV1C1);
+        // Drain 2 seed credits.
+        AscendC::CrossCoreWaitFlag<0, PIPE_S>(constInfo.syncV1C1);
+        AscendC::CrossCoreWaitFlag<0, PIPE_S>(constInfo.syncV1C1);
     }
 }
-
 template <typename MIT>
 __aicore__ inline void MIPreload<MIT>::ProcessBaseBlock(uint32_t loop, uint64_t s2LoopIdx, MICommon::RunInfo &runInfo)
 {
     CalcRunInfo(loop, s2LoopIdx, runInfo);
     if ASCEND_IS_AIC {
-        CrossCoreWaitFlag(constInfo.syncV1C1);
         matmulService.ComputeMm1(runInfo);
-        CrossCoreSetFlag<MICommon::ConstInfo::FIA_SYNC_MODE2, PIPE_FIX>(constInfo.syncC1V1);
     } else {
-        CrossCoreWaitFlag(constInfo.syncC1V1);
         vectorService.ProcessVec(runInfo);
-        CrossCoreSetFlag<MICommon::ConstInfo::FIA_SYNC_MODE2, PIPE_MTE2>(constInfo.syncV1C1);
     }
 }
 
 template <typename MIT>
 __aicore__ inline void MIPreload<MIT>::ProcessDecode()
 {
-    // Multi-core LD merge: after SyncAll (all cores wrote their per-head topk16
-    // partials to WS), AIV0 of core 0 gathers + scalar-merges every (batch, head)
-    // into the final indiceOutGm. Other cores idle here.
-    SyncAll();
+    AscendC::SyncAll<false>();
     if ASCEND_IS_AIV {
         vectorService.InitLDBuffers(pipe);
-        vectorService.ProcessLD();
+        vectorService.ProcessLD(splitCoreInfo.bN2Start, splitCoreInfo.bN2End);
     }
 }
 }  // namespace sglang::npu_kernel::MIKernel

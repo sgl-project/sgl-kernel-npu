@@ -167,7 +167,7 @@ at::Tensor minimax_indexer(
     c10::optional<double> sm_scale,
     const c10::optional<at::Tensor> &req_to_token,
     const c10::optional<at::Tensor> &req_pool_indices,
-    c10::optional<int64_t> append_local);
+    c10::optional<int64_t> append_local, c10::optional<int64_t> packed_mode);
 
 at::Tensor sparse_attention_score(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,

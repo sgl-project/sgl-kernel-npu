@@ -448,11 +448,16 @@ ge::graphStatus MIInfoParser::ValidateInputShapesMatch()
     } else {
         // -----------------------check BatchSize-------------------
         // bSize_ from query
+        // packed EAGLE3 verify (packedSeqLen_ != 0): actual_seq_lengths_key carries
+        // the full [B*gqa] per-row causal lengths -- accept that width here instead
+        // of requiring == bSize_.
         TORCH_CHECK((opParamInfo_.weights.shape->GetStorageShape().GetDim(0) == bSize_) &&
                         ((opParamInfo_.blockTable.tensor == nullptr) ||
                          (opParamInfo_.blockTable.tensor->GetStorageShape().GetDim(0) == bSize_)) &&
                         ((opParamInfo_.actualSeqLengths.tensor == nullptr) ||
-                         (opParamInfo_.actualSeqLengths.tensor->GetShapeSize() == bSize_)) &&
+                         (packedSeqLen_ != 0 && opParamInfo_.actualSeqLengths.tensor->GetShapeSize() ==
+                                                    static_cast<int64_t>(packedSeqLen_)) ||
+                         opParamInfo_.actualSeqLengths.tensor->GetShapeSize() == bSize_) &&
                         (opParamInfo_.attenOut.shape->GetStorageShape().GetDim(0) == bSize_),
                     OPS_LOG_E(opName_,
                               "BSND case input query, weight, actual_seq_lengths_key, block_table, sparse_indices dim "
@@ -506,6 +511,7 @@ void MIInfoParser::GenerateInfo(MITilingInfo &miInfo)
     miInfo.opParamInfo = opParamInfo_;
     miInfo.socVersion = socVersion_;
 
+    miInfo.packedSeqLen = static_cast<uint32_t>(packedSeqLen_);
     miInfo.bSize = bSize_;
     miInfo.n1Size = n1Size_;
     miInfo.n2Size = n2Size_;
@@ -543,9 +549,32 @@ ge::graphStatus MIInfoParser::ParseAndCheck(MITilingInfo &miInfo)
         ge::GRAPH_SUCCESS != GetAndCheckN2Size() || ge::GRAPH_SUCCESS != GetGSize()) {
         return ge::GRAPH_FAILED;
     }
+    // Record packed-EAGLE3-verify width (full [B*gqa] per-row lengths) after the
+    // bSize_ is known; consumed by the ValidateInputShapesMatch check below.
+    if (packedSeqLen_ == 0 && n2Size_ > 0 && bSize_ > 0) {
+        int64_t gqaBase = (n1Size_ + n2Size_ - 1) / n2Size_;
+        if (opParamInfo_.actualSeqLengths.tensor != nullptr) {
+            int64_t asl = static_cast<int64_t>(opParamInfo_.actualSeqLengths.tensor->GetShapeSize());
+            if (asl > static_cast<int64_t>(bSize_) && asl % gqaBase == 0) {
+                packedSeqLen_ = static_cast<uint64_t>(asl);
+            }
+        }
+    }
     if (ge::GRAPH_SUCCESS != GetBatchSize() || ge::GRAPH_SUCCESS != GetS1Size() || ge::GRAPH_SUCCESS != GetHeadDim() ||
         ge::GRAPH_SUCCESS != GetS2Size()) {
         return ge::GRAPH_FAILED;
+    }
+    // GetBatchSize runs just above; bSize_ (query dim0) is now known. Re-evaluate
+    // packed-EAGLE3-verify width now that bSize_ is valid (the earlier pass ran
+    // before GetBatchSize and would have seen bSize_==0).
+    if (packedSeqLen_ == 0 && n2Size_ > 0 && bSize_ > 0) {
+        int64_t gqaBase = (n1Size_ + n2Size_ - 1) / n2Size_;
+        if (opParamInfo_.actualSeqLengths.tensor != nullptr) {
+            int64_t asl = static_cast<int64_t>(opParamInfo_.actualSeqLengths.tensor->GetShapeSize());
+            if (asl > static_cast<int64_t>(bSize_) && asl % gqaBase == 0) {
+                packedSeqLen_ = static_cast<uint64_t>(asl);
+            }
+        }
     }
     if (ge::GRAPH_SUCCESS != ValidateInputShapesMatch()) {
         return ge::GRAPH_FAILED;
@@ -578,6 +607,15 @@ ge::graphStatus MinimaxIndexerTiling::DoTiling(MITilingInfo *tilingInfo)
     uint32_t targetCores = (estTotalBlocks + 15) / 16;  // ceil(estTotalBlocks/16)
     if (targetCores < 1) targetCores = 1;
     if (targetCores > blockDim) targetCores = blockDim;
+    // per-(b,g)-complete: each core owns WHOLE batches, so we never need (nor want)
+    // more cores than batches -- extra cores would be idle but still participate in
+    // the SyncAll<false> barrier, and the idle-core AIC/AIV sync is the source of
+    // the intermittent (bs-dependent: small-bs worse) all-zero-output race. Cap at
+    // bSize so bs=1 launches 1 core (no idle), bs=16 launches 16.
+    if (targetCores > static_cast<uint32_t>(tilingInfo->bSize)) {
+        targetCores = static_cast<uint32_t>(tilingInfo->bSize);
+    }
+    if (targetCores < 1) targetCores = 1;
 
     // -------------set workspacesize-----------------
     // MiniMax multi-core WS: mm1Res(double-buffered scores) + per-head topk16 partials
@@ -624,6 +662,7 @@ ge::graphStatus MinimaxIndexerTiling::DoTiling(MITilingInfo *tilingInfo)
     tilingData.initBlocks = 0U;
     tilingData.localBlocks = 0U;
     tilingData.smScaleLog2e = 0.0f;
+    tilingData.packedMode = static_cast<uint32_t>(tilingInfo->packedSeqLen != 0);
 
     // TopK-API tiling for the LD merge path (ProcessLD replaces its scalar
     // running-min topk-16 with the vectorized TopK API). The merge runs when

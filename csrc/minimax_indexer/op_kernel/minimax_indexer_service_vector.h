@@ -70,8 +70,7 @@ public:
     __aicore__ inline void AllocEventID() {}
     __aicore__ inline void FreeEventID() {}
     __aicore__ inline void InitLDBuffers(TPipe * /*pipe*/) {}
-    __aicore__ inline void InitPartials();
-    __aicore__ inline void ProcessLD();
+    __aicore__ inline void ProcessLD(uint32_t bStart, uint32_t bEnd);
 
 private:
     GlobalTensor<MM1_OUT_T> mm1ResGm_;
@@ -110,6 +109,7 @@ private:
     // slot topk (deduped to -1 when already present), in the [QH, B, topk+1]
     // memory layout the GQA sparse-attention kernels consume directly.
     uint32_t appendLocal_ = 0;
+    uint32_t packedMode_ = 0;
     // Streaming-append count. Uniform across heads (every head sees the same
     // blocks), so a single scalar counter replaces the per-head fillCntBuf_ lookups
     // inside the hot append loop. Reset to 0 at the first tile of each batch range.
@@ -127,7 +127,12 @@ __aicore__ inline void MIVector<MIT>::InitParams(const struct MICommon::ConstInf
 {
     this->constInfo_ = constInfo;
     aiCoreIdx_ = static_cast<uint32_t>(GetBlockIdx()) / 2;
-    aicNum_ = static_cast<uint32_t>(GetBlockNum());
+    // MIX_AIC_1_2 launch: GetBlockNum() on an AIV returns the AIV count (2x the
+    // AIC/core count the host tiled for). The workspace partial layout and the
+    // LD merge's partPerHead = aicNum_*topk must match the HOST's usedCoreNum --
+    // using 40 here makes bs=16 merges read past the [aic=20, B, G, topk]
+    // workspace (garbage block ids / 23-55 bistable at bs=16).
+    aicNum_ = tilingData->usedCoreNum;
     bSize_ = constInfo.batchSize;
     gSize_ = constInfo.gSize;
     topk_ = constInfo.sparseCount;
@@ -136,6 +141,7 @@ __aicore__ inline void MIVector<MIT>::InitParams(const struct MICommon::ConstInf
     gNum_ = gSize_ / 2;
     gStart_ = aivId_ * gNum_;
     appendLocal_ = constInfo.appendLocal;
+    packedMode_ = constInfo.packedMode;
     // Layout-identical 112-byte copy: MITopkTilingRaw (GM tiling mirror) -> kernel
     // TopkTiling (validated by the static_assert above). Done once at init; the
     // GM->UR byte sequence is a handful of scalar loads, never on the hot path.
@@ -187,35 +193,6 @@ __aicore__ inline void MIVector<MIT>::CleanInvalidOutput(int64_t invalidOffset)
 }
 
 template <typename MIT>
-__aicore__ inline void MIVector<MIT>::InitPartials()
-{
-    LocalTensor<float> initV = initBuf_.Get<float>();
-    AscendC::DataCopyParams dp;
-    dp.blockCount = 1;
-    dp.blockLen = topk_ * sizeof(float);
-    dp.srcStride = 0;
-    dp.dstStride = 0;
-    Duplicate(initV, kNegInf, topk_);
-    PipeBarrier<PIPE_V>();
-    LocalTensor<int32_t> initI = initBuf_.Get<int32_t>();
-    Duplicate(initI, static_cast<int32_t>(constInfo_.INVALID_IDX), topk_);
-    PipeBarrier<PIPE_V>();
-    for (uint32_t b = 0; b < bSize_; b++) {
-        for (uint32_t g = gStart_; g < gStart_ + gNum_; g++) {
-            const uint64_t off = PartOff(aiCoreIdx_, b, g);
-            event_t eVM = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_MTE3));
-            SetFlag<HardEvent::V_MTE3>(eVM);
-            WaitFlag<HardEvent::V_MTE3>(eVM);
-            DataCopyPad(vec1ResGm_[off], initV, dp);
-            event_t eVM2 = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_MTE3));
-            SetFlag<HardEvent::V_MTE3>(eVM2);
-            WaitFlag<HardEvent::V_MTE3>(eVM2);
-            DataCopyPad(vec1ParamGm_[off], initI, dp);
-        }
-    }
-}
-
-template <typename MIT>
 __aicore__ inline void MIVector<MIT>::ProcessVec(const MICommon::RunInfo &info)
 {
     const uint32_t gSize = gSize_;
@@ -228,6 +205,8 @@ __aicore__ inline void MIVector<MIT>::ProcessVec(const MICommon::RunInfo &info)
     const uint64_t mmBase = (static_cast<uint64_t>(info.loop) % 2) * constInfo_.mBaseSize * constInfo_.s2BaseSize;
     const float scale = constInfo_.smScaleLog2e;
     const uint32_t numBlocks = MICommon::CeilDiv(info.actS2Size, blockSize);
+    const bool packed = packedMode_ != 0;
+    const uint32_t gqaBase = packed ? (info.bIdx * gSize_) : 0;
     const uint32_t localStart = (numBlocks > constInfo_.localBlocks) ? (numBlocks - constInfo_.localBlocks) : 0;
     const uint32_t gNum8 = MICommon::Align(gNum, 8U);
 
@@ -252,10 +231,14 @@ __aicore__ inline void MIVector<MIT>::ProcessVec(const MICommon::RunInfo &info)
     copyParams.dstStride = 0;
     copyParams.rsv = 0;
     AscendC::DataCopyPadExtParams<float> padParams{false, 0, 0, 0};
+
+    AscendC::CrossCoreWaitFlag<0, PIPE_S>(constInfo_.syncC1V1);
     DataCopyPad(scoreUb[gStart * stride], mm1ResGm_[mmBase + gStart * stride], copyParams, padParams);
     event_t eMte2V = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::MTE2_V));
     SetFlag<HardEvent::MTE2_V>(eMte2V);
     WaitFlag<HardEvent::MTE2_V>(eMte2V);
+    // Signal AIC: buffer read, free for reuse.
+    AscendC::CrossCoreSetFlag<MICommon::ConstInfo::FIA_SYNC_MODE2, PIPE_MTE2>(constInfo_.syncV1C1);
 
     LocalTensor<float> maxUb = maxBuf_.Get<float>();
 
@@ -274,8 +257,27 @@ __aicore__ inline void MIVector<MIT>::ProcessVec(const MICommon::RunInfo &info)
 
         const uint32_t nChunks = MICommon::CeilDiv(validB, 64U);
         const uint32_t mbOff = blockB * 2;
+        const bool packedBoundary = (packed && (logicalBlock == numBlocks - 1));
+        uint32_t reduceB = validB;
+        if (packedBoundary) {
+            uint32_t lo = logicalBlock * blockSize;
+            // Common reducing length: min over reaching rows of (seq_end - lo), so a
+            // vectorized max over [0, reduceB) sees only tokens every reaching row
+            // legitimately attends. Rows fully covering the block (seq_end > lo+validB)
+            // get the same shared reduce; partial rows are corrected per-head below.
+            uint32_t vmin = validB;
+            for (uint32_t g = gStart; g < gStart + gNum; g++) {
+                uint32_t seqEnd = seqLensGm_.GetValue(gqaBase + g);
+                if (seqEnd > lo) {
+                    uint32_t vg = seqEnd - lo;
+                    if (vg > validB) vg = validB;
+                    if (vg < vmin) vmin = vg;
+                }
+            }
+            reduceB = vmin;
+        }
         for (uint32_t c = 0; c < nChunks; c++) {
-            uint32_t chunkMask = (validB - c * 64 < 64) ? (validB - c * 64) : 64;
+            uint32_t chunkMask = (reduceB - c * 64 < 64) ? (reduceB - c * 64) : 64;
             WholeReduceMax(maxUb[(mbOff + c) * gNum8], scoreUb[gStart * stride + tokenOff + c * 64], chunkMask, gNum, 1,
                            1, stride / 8, ReduceOrder::ORDER_ONLY_VALUE);
         }
@@ -285,10 +287,36 @@ __aicore__ inline void MIVector<MIT>::ProcessVec(const MICommon::RunInfo &info)
         }
         if (isInit) {
             Duplicate(mxUb, 1e30f, gNum);
-        } else if (isLocal) {
-            Duplicate(mxUb, 1e29f, gNum);
         } else {
             Muls(mxUb, mxUb, scale, gNum);
+        }
+
+        if (packedBoundary) {
+            // Per-head fixup on the boundary block:
+            //  - rows that don't reach this block (seq_end <= lo) don't attend it:
+            //    block score -> -inf (never selected for that row).
+            //  - rows partially overlapping it (lo < seq_end < lo+validB) use the
+            //    shared reduce over [0, reduceB) (matches triton for every valid row).
+            event_t eVSfixup = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_S));
+            SetFlag<HardEvent::V_S>(eVSfixup);
+            WaitFlag<HardEvent::V_S>(eVSfixup);
+            const uint32_t lo = logicalBlock * blockSize;
+            for (uint32_t g = gStart; g < gStart + gNum; g++) {
+                uint32_t seqEnd = seqLensGm_.GetValue(gqaBase + g);
+                const uint32_t gi = g - gStart;
+                if (seqEnd <= lo) {
+                    // Non-reaching row: must not attend this boundary block at all.
+                    // Overriding with kNegInf PREVENTs a spurious top-16 hit from its
+                    // shared-reduce value. This is select-correct but NOT fold-exact:
+                    // a reaching row whose exclusive tail carries its maximum is
+                    // under-scored by the shared reduce (its 0 prefix over-scored it,
+                    // see the reduceB comment) -- OOO: 09-08. FOLD_DISABLED. The
+                    // canonical fix needs the real per-row max over [0, vg), which
+                    // the current scoreUb copy cannot give exactly on a tail tile.
+                    mxUb.SetValue(gi, kNegInf);
+                    continue;
+                }
+            }
         }
 
         const bool replacePhase = (fillCnt_ >= topk);
@@ -348,150 +376,73 @@ __aicore__ inline void MIVector<MIT>::ProcessVec(const MICommon::RunInfo &info)
             DataCopyPad(vec1ResGm_[off], topV[g * topk], dp);
             DataCopyPad(vec1ParamGm_[off], topI[g * topk], dp);
         }
+        event_t eM3Done = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::MTE3_V));
+        SetFlag<HardEvent::MTE3_V>(eM3Done);
+        WaitFlag<HardEvent::MTE3_V>(eM3Done);
     }
 }
 
 template <typename MIT>
-__aicore__ inline void MIVector<MIT>::ProcessLD()
+__aicore__ inline void MIVector<MIT>::ProcessLD(uint32_t bStart, uint32_t bEnd)
 {
     const uint32_t gSize = gSize_;
     const uint32_t gStart = gStart_;
     const uint32_t gNum = gNum_;
     const uint32_t topk = topk_;
     const uint32_t blockSize = blockSize_;
-    using MIServiceVec::SetWaitFlag;  // lightning-derived template combos
-    const uint32_t partPerHead = aicNum_ * topk;
-    // TopK on 910B tiles the inner axis in 64-element groups; a non-÷64 tail is
-    // mishandled. Pad partPerHead up to a multiple of 64 with -inf/-1 candidates
-    // (host computes the TopkTiling for this same paddedLen). The padding region
-    // [partPerHead..paddedLen) is never touched by the per-(b,g) DataCopyPad
-    // (which writes exactly partPerHead elements), so a one-time fill here
-    // persists across all merge iterations; -inf sorts to the bottom and is never
-    // selected (k=16 << paddedLen).
-    const uint32_t paddedLen = MICommon::Align(partPerHead, 64U);
-    LocalTensor<float> mergeVals = scoreBuf_.Get<float>();
-    LocalTensor<int32_t> mergeIdx = initBuf_.Get<int32_t>();
-    if (paddedLen > partPerHead) {
-        Duplicate(mergeVals[partPerHead], kNegInf, paddedLen - partPerHead);
-        Duplicate(mergeIdx[partPerHead], static_cast<int32_t>(constInfo_.INVALID_IDX), paddedLen - partPerHead);
-        PipeBarrier<PIPE_V>();
-    }
+    using MIServiceVec::SetWaitFlag;            // lightning-derived template combos
+    const uint32_t outW = topk + appendLocal_;  // fused append: output row width topk+1
+    const bool packed = packedMode_ != 0;
+    // per-(b,g)-complete: read ONLY this core's OWN WS index slice (it wrote it in
+    // ProcessVec on this SAME core -> same-core MTE3->MTE2, visible with no DCCI),
+    // validate causal, append the local block, write the output row. No cross-core
+    // gather, no merge TopK, no DCCI -> capture/crash-safe.
+    LocalTensor<int32_t> mergeIdx = initBuf_.Get<int32_t>();  // topk indices scratch
     AscendC::DataCopyExtParams extParams;
     extParams.blockCount = 1;
-    extParams.blockLen = partPerHead * sizeof(float);
+    extParams.blockLen = topk * sizeof(int32_t);
     extParams.srcStride = 0;
     extParams.dstStride = 0;
     extParams.rsv = 0;
-    AscendC::DataCopyPadExtParams<float> padF{false, 0, 0, 0};
     AscendC::DataCopyPadExtParams<int32_t> padI{false, 0, 0, 0};
-    const uint32_t outW = topk + appendLocal_;  // fused append: output row width topk+1
-    for (uint32_t b = 0; b < bSize_; b++) {
-        uint32_t seqLen = seqLensGm_.GetValue(b);
-        uint32_t numBlocks = MICommon::CeilDiv(seqLen, blockSize);
-        // Causal local block to append at slot topk (triton append_local semantics):
-        // the last block the query position touches, deduped to -1 when it is
-        // already among the candidates. numBlocks==0 batches append -1.
-        const uint32_t queryPos = (seqLen > 0) ? (seqLen - 1) : 0;
-        const int32_t localBlk =
-            (numBlocks > 0) ? static_cast<int32_t>(MICommon::Min(queryPos / blockSize, numBlocks - 1)) : -1;
-        if (numBlocks <= topk) {
-            for (uint32_t g = gStart; g < gStart + gNum; g++) {
-                if ((b * gSize + g) % aicNum_ != aiCoreIdx_) {
-                    continue;
-                }
-                // Fused output layout [QH, B, outW]: row (g, b) at (g*bSize + b)*outW.
-                const uint64_t outOff = (static_cast<uint64_t>(g) * bSize_ + b) * outW;
-                LocalTensor<int32_t> outIdx = outIdxBuf_.Get<int32_t>();
-                for (uint32_t slot = 0; slot < topk; slot++) {
-                    outIdx.SetValue(slot, (slot < numBlocks) ? static_cast<int32_t>(slot) : constInfo_.INVALID_IDX);
-                }
-                if (appendLocal_) {
-                    bool present = false;
-                    for (uint32_t s = 0; s < topk; s++) {
-                        if (s < numBlocks && static_cast<int32_t>(s) == localBlk) {
-                            present = true;
-                            break;
-                        }
-                    }
-                    outIdx.SetValue(topk, present ? constInfo_.INVALID_IDX : localBlk);
-                }
-                // single MTE3 batch write of the whole row (scalar SetValue GM races)
-                SetWaitFlag<HardEvent::S_MTE3>(HardEvent::S_MTE3);
-                AscendC::DataCopyParams dp;
-                dp.blockCount = 1;
-                dp.blockLen = outW * sizeof(int32_t);
-                dp.srcStride = 0;
-                dp.dstStride = 0;
-                DataCopyPad(indiceOutGm_[outOff], outIdx, dp);
-            }
-            continue;
-        }
+    AscendC::DataCopyParams dpw;
+    dpw.blockCount = 1;
+    dpw.blockLen = outW * sizeof(int32_t);
+    dpw.srcStride = 0;
+    dpw.dstStride = 0;
+    for (uint32_t b = bStart; b <= bEnd; b++) {  // only this core's owned batches
+        const uint32_t gqaBase = packed ? (b * gSize) : 0;
         for (uint32_t g = gStart; g < gStart + gNum; g++) {
-            if ((b * gSize + g) % aicNum_ != aiCoreIdx_) {
-                continue;
-            }
-            // Fused output layout [QH, B, outW]: row (g, b) at (g*bSize + b)*outW.
-            const uint64_t outOff = (static_cast<uint64_t>(g) * bSize_ + b) * outW;
-            const uint64_t poff = PartOff(0, b, g);
-            DataCopyPad(mergeVals, vec1ResGm_[poff], extParams, padF);
+            const uint32_t r = packed ? (gqaBase + g) : b;
+            uint32_t seqLen = packed ? seqLensGm_.GetValue(r) : seqLensGm_.GetValue(b);
+            uint32_t numBlocks = MICommon::CeilDiv(seqLen, blockSize);
+            const uint32_t queryPos = (seqLen > 0) ? (seqLen - 1) : 0;
+            const int32_t localBlk =
+                (numBlocks > 0) ? static_cast<int32_t>(MICommon::Min(queryPos / blockSize, numBlocks - 1)) : -1;
+            // read this core's own topk-index slice (same-core -> visible)
+            const uint64_t poff = PartOff(aiCoreIdx_, b, g);
             DataCopyPad(mergeIdx, vec1ParamGm_[poff], extParams, padI);
-            // TopK (vectorized) replaces the scalar running-min topk-16 over the
-            // partPerHead = aicNum_*topk per-head partials gathered from WS. UB is
-            // carved from scoreBuf_/initBuf_ (both free in the LD phase: ProcessVec
-            // already ran): mergeVals/tmp/dstValue share scoreBuf_; mergeIdx/dstIndex
-            // share initBuf_. isInitIndex=true carries mergeIdx (block indices) into
-            // dstIndex; isLargest=true keeps the 16 largest scores. DataCopyPad writes
-            // exactly partPerHead candidates; the [partPerHead..paddedLen) tail is the
-            // -inf padding filled once above. TopK runs over paddedLen (÷64).
             event_t eMte2V = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::MTE2_V));
             SetFlag<HardEvent::MTE2_V>(eMte2V);
             WaitFlag<HardEvent::MTE2_V>(eMte2V);
-
-            const uint32_t tmpBytes = topkTmpSize_;
-            // dstValue sits after mergeVals[0..paddedLen) + tmp in scoreBuf_,
-            // float-aligned, and must not overlap src (isReuseSrc=false).
-            const uint32_t dstValOff = (paddedLen * sizeof(float) + tmpBytes + sizeof(float) - 1U) / sizeof(float);
-            LocalTensor<uint8_t> tmpLocal = mergeVals.ReinterpretCast<uint8_t>()[paddedLen * sizeof(float)];
-            LocalTensor<float> dstValueLocal = mergeVals[dstValOff];
-            LocalTensor<int32_t> dstIndexLocal = mergeIdx[paddedLen];
-            LocalTensor<bool> finishLocal = finishBuf_.Get<bool>();
-            // TopK runs over the ÷64-padded inner (host tiled TopkTiling for the
-            // same paddedLen). n==inner==paddedLen: the [partPerHead..paddedLen)
-            // tail is the -inf padding filled once above, never selected.
-            TopKInfo topKInfo;
-            topKInfo.outter = 1;
-            topKInfo.inner = static_cast<int32_t>(paddedLen);
-            topKInfo.n = static_cast<int32_t>(paddedLen);
-            TopK<float, /*isInitIndex=*/true, /*isHasfinish=*/false, /*isReuseSrc=*/false, TopKMode::TOPK_NORMAL>(
-                dstValueLocal, dstIndexLocal, mergeVals, mergeIdx, finishLocal, tmpLocal, static_cast<int32_t>(topk),
-                topkTiling_, topKInfo, /*isLargest=*/true);
-            // V -> S sync before the scalar reads of dstIndexLocal below.
-            event_t eVS = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::V_S));
-            SetFlag<HardEvent::V_S>(eVS);
-            WaitFlag<HardEvent::V_S>(eVS);
-
+            // assemble [QH, B, outW] row: validate causal + append local
             LocalTensor<int32_t> outIdx = outIdxBuf_.Get<int32_t>();
+            bool localPresent = false;
             for (uint32_t s = 0; s < topk; s++) {
-                outIdx.SetValue(s, dstIndexLocal.GetValue(s));
+                int32_t idx = mergeIdx.GetValue(s);
+                bool valid = (idx >= 0) && (static_cast<uint32_t>(idx) < numBlocks) &&
+                             (static_cast<uint32_t>(idx) * blockSize <= queryPos);
+                int32_t outv = valid ? idx : static_cast<int32_t>(constInfo_.INVALID_IDX);
+                outIdx.SetValue(s, outv);
+                if (outv == localBlk) localPresent = true;
             }
             if (appendLocal_) {
-                bool present = false;
-                for (uint32_t s = 0; s < topk; s++) {
-                    if (dstIndexLocal.GetValue(s) == localBlk) {
-                        present = true;
-                        break;
-                    }
-                }
-                outIdx.SetValue(topk, present ? constInfo_.INVALID_IDX : localBlk);
+                outIdx.SetValue(topk, localPresent ? static_cast<int32_t>(constInfo_.INVALID_IDX) : localBlk);
             }
             // single MTE3 batch write of the whole row (scalar SetValue GM races)
             SetWaitFlag<HardEvent::S_MTE3>(HardEvent::S_MTE3);
-            AscendC::DataCopyParams dp;
-            dp.blockCount = 1;
-            dp.blockLen = outW * sizeof(int32_t);
-            dp.srcStride = 0;
-            dp.dstStride = 0;
-            DataCopyPad(indiceOutGm_[outOff], outIdx, dp);
+            const uint64_t outOff = (static_cast<uint64_t>(g) * bSize_ + b) * outW;
+            DataCopyPad(indiceOutGm_[outOff], outIdx, dpw);
         }
     }
 }

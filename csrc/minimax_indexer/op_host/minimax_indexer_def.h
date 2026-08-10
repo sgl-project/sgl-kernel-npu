@@ -75,6 +75,10 @@ public:
         this->Attr("layout_key").AttrType(OPTIONAL).String("PA_BSND");
         this->Attr("sparse_count").AttrType(OPTIONAL).Int(2048);  // default: select top 2048
         this->Attr("sparse_mode").AttrType(OPTIONAL).Int(3);      // default: lower-triangular only
+        // 1: actual_seq_lengths_key carries the full [B*gqa] per-row causal lengths
+        // (EAGLE3 verify packed draft queries). Kernel scores the shared block space
+        // bounded by the per-batch row max, masking the boundary block per row.
+        this->Attr("packed_mode").AttrType(OPTIONAL).Int(0);
     }
 };
 }  // namespace MIHost

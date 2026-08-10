@@ -107,6 +107,10 @@ struct ConstInfo {
     // (output width topk+1, GQA-kernel layout) and emit the final indices in the
     // [QH, B, topk(+1)] memory layout the sparse-attention kernels consume directly.
     uint32_t appendLocal = 0;
+    // 1 = packed EAGLE3 verify: actual_seq_lengths_key carries the full [B*gqa]
+    // per-row causal lengths. The kernel scores the shared block space (bounded by
+    // the per-batch row max) and masks the boundary block per row.
+    uint32_t packedMode = 0;
 
     uint32_t actualLenQDims = 0U;  // actualSeqLength query dimensions
     uint32_t actualLenDims = 0U;   // KV actualSeqLength dimensions
