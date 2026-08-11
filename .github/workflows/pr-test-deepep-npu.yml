@@ -493,7 +493,7 @@ jobs:
       github.event_name == 'workflow_call' || (
         (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
         github.event.pull_request.draft == false &&
-        (needs.get-changed-files.outputs.ops2_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+        needs.get-changed-files.outputs.ops2_changed == 'true'
       )
     runs-on: linux-aarch64-a2-8
     container:
