@@ -70,7 +70,7 @@ jobs:
       UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     strategy:
       matrix:
-        cann_version: [8.5.0, 9.0.0]
+        cann_version: [9.0.0, 9.1.0]
     steps:
       - name: Clean git config
         run: |
@@ -108,7 +108,7 @@ jobs:
           pip config set global.index-url http://${CACHING_URL}/pypi/simple
           pip config set global.trusted-host ${CACHING_URL}
           pip install uv
-          bash scripts/npu_ci_install_dependency.sh
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
       - name: Prepare Deepep
         # - cache hit: install cached wheel only (skip build via -s flag)
         # - cache miss: clear stale wheels + build + install
@@ -341,7 +341,7 @@ jobs:
           pip config set global.index-url http://${CACHING_URL}/pypi/simple
           pip config set global.trusted-host ${CACHING_URL}
           pip install uv
-          bash scripts/npu_ci_install_dependency.sh
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
       - name: Prepare Deepep
         # - cache hit: install cached wheel only (skip build via -s flag)
         # - cache miss: clear stale wheels + build + install
@@ -543,7 +543,7 @@ jobs:
           pip config set global.index-url http://${CACHING_URL}/pypi/simple
           pip config set global.trusted-host ${CACHING_URL}
           pip install uv
-          bash scripts/npu_ci_install_dependency.sh
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
       - name: Prepare Deepep
         # - cache hit: install cached wheel only (skip build via -s flag)
         # - cache miss: clear stale wheels + build (-a deepep2) + install
