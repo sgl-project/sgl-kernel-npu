@@ -120,6 +120,14 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor(s!) o_workspace_gated, int block_dim, int batch_size, "
         "int seq_len, int total_tokens, int num_matrices) -> ()");
 
+    m.def(
+        "mega_moe_w4a4(Tensor x, Tensor w13, Tensor w13_scale, Tensor w2, Tensor w2_scale, "
+        "Tensor group_list, Tensor sort_idx, Tensor topk_w, "
+        "Tensor(a!) xq_ws, Tensor(b!) xs_ws, Tensor(c!) gu_ws, Tensor(d!) iq_ws, "
+        "Tensor(e!) is_ws, Tensor(f!) d_ws, Tensor(g!) y, Tensor tiling_gu, Tensor tiling_dn, "
+        "Tensor b1, Tensor(h!) xrot_ws, int M_total, int E, int top_k, int T_orig, "
+        "int block_dim) -> ()");
+
 #ifdef BUILD_CATLASS_MODULE
     m.def("catlass_matmul_basic(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, str? format_mode=None) -> ()");
 
@@ -190,6 +198,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("sgemmc_shrink", TORCH_FN(sglang::npu_kernel::sgemmc_shrink));
 
     m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
+
+    m.impl("mega_moe_w4a4", TORCH_FN(sglang::npu_kernel::mega_moe_w4a4));
 
 #ifdef BUILD_CATLASS_MODULE
     m.impl("catlass_matmul_basic", TORCH_FN(sglang::npu_kernel::catlass_matmul_basic));
