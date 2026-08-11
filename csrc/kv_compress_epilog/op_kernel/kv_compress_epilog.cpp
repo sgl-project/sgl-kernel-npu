@@ -19,6 +19,13 @@
  * runtime dispatch on tilingData->tilingKey / tilingData->dtype.
  */
 
+#include "kernel_operator.h"
+
+// ascendc_library compiles kernel sources once more for host-bisheng, where
+// CANN 9.1 does not define __NPU_ARCH__. The generated host stub is compiled
+// separately; this MicroAPI-based implementation is device-only.
+#if defined(__NPU_ARCH__)
+
 #include "kv_compress_epilog.h"
 
 using namespace AscendC;
@@ -101,3 +108,5 @@ extern "C" __global__ __aicore__ void kv_compress_epilog(GM_ADDR kv_compress_cac
     // Restore overflow mode
     AscendC::SetCtrlSpr<FLOAT_OVERFLOW_MODE_CTRL, FLOAT_OVERFLOW_MODE_CTRL>(oriOverflowMode);
 }
+
+#endif
