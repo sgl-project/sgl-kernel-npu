@@ -5,6 +5,8 @@ on:
     branches: [ main ]
     paths:
       - "csrc/deepep/ops2/**"
+      - ".github/workflows/a2-internode-test.yml"
+      - ".github/workflows/internode.yml"
   workflow_dispatch:
   workflow_call:
 
