@@ -38,11 +38,37 @@ extern "C" __global__ __aicore__ void kv_compress_epilog(GM_ADDR kv_compress_cac
 
     TPipe pipe;
 
-    // Local copy of the tiling data, exactly as vllm-ascend does. The CANN
-    // GET_TILING_DATA_WITH_STRUCT macro memcpy's GM -> local: a plain struct-by-value copy
-    // from a __gm__ pointer is rejected on A5 ("argument is in address space gm, but
-    // parameter must be in Local Memory").
-    GET_TILING_DATA_WITH_STRUCT(sglang::KvCompressEpilogTilingData, tilingDataIn, tiling);
+    // Local copy of the tiling data. A struct-by-value copy from a __gm__ pointer is rejected
+    // on A5 ("argument is in address space gm, but parameter must be in Local Memory") and the
+    // GET_TILING_DATA_WITH_STRUCT macro cannot take a namespaced type name, so copy field by
+    // field through a __gm__ pointer (scalar GM reads, as causal_conv1d does on A5). The
+    // packed struct layout leaves every scalar naturally aligned, so no unaligned loads.
+    const __gm__ sglang::KvCompressEpilogTilingData *__restrict__ tilingGm =
+        reinterpret_cast<const __gm__ sglang::KvCompressEpilogTilingData *>(tiling);
+    sglang::KvCompressEpilogTilingData tilingDataIn;
+    tilingDataIn.bs = tilingGm->bs;
+    tilingDataIn.d = tilingGm->d;
+    tilingDataIn.kvCacheCol = tilingGm->kvCacheCol;
+    tilingDataIn.scaleCol = tilingGm->scaleCol;
+    tilingDataIn.concatCol = tilingGm->concatCol;
+    tilingDataIn.padCol = tilingGm->padCol;
+    tilingDataIn.quantMode = tilingGm->quantMode;
+    tilingDataIn.roundScale = tilingGm->roundScale;
+    tilingDataIn.perGroupSize = tilingGm->perGroupSize;
+    tilingDataIn.rowOfFormerBlock = tilingGm->rowOfFormerBlock;
+    tilingDataIn.rowOfTailBlock = tilingGm->rowOfTailBlock;
+    tilingDataIn.rowLoopOfFormerBlock = tilingGm->rowLoopOfFormerBlock;
+    tilingDataIn.rowLoopOfTailBlock = tilingGm->rowLoopOfTailBlock;
+    tilingDataIn.rowFactor = tilingGm->rowFactor;
+    tilingDataIn.tailRowFactorOfFormerBlock = tilingGm->tailRowFactorOfFormerBlock;
+    tilingDataIn.tailRowFactorOfTailBlock = tilingGm->tailRowFactorOfTailBlock;
+    tilingDataIn.layout = tilingGm->layout;
+    tilingDataIn.blockSize = tilingGm->blockSize;
+    tilingDataIn.valuePerToken = tilingGm->valuePerToken;
+    tilingDataIn.scalePerToken = tilingGm->scalePerToken;
+    tilingDataIn.blockStride = tilingGm->blockStride;
+    tilingDataIn.dtype = tilingGm->dtype;
+    tilingDataIn.tilingKey = tilingGm->tilingKey;
     const sglang::KvCompressEpilogTilingData *__restrict__ tilingData = &tilingDataIn;
 
     // Save and set overflow mode to saturation (0) for FP8 quantization
