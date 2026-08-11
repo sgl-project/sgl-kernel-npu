@@ -29,6 +29,10 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_host/recurrent_gated_delta_rule.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/causal_conv1d.cpp
     ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_host/apply_token_bitmask.cpp
+    ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_host/unidex_copy.cpp
+    ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/slot_map_lookup/op_host/slot_map_lookup.cpp
+    ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator.cpp
+    ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator_op.cpp
     )
 if(BUILD_CATLASS_MODULE)
     list(APPEND OP_SRCS
@@ -45,6 +49,10 @@ list(APPEND OP_SRCS
 # set the so name
 set(OP_PLUGIN_NAME sgl_kernel_npu)
 
+if(NOT DEFINED ASCEND_DRIVER_PATH)
+    set(ASCEND_DRIVER_PATH "/usr/local/Ascend/driver")
+endif()
+
 # kernel side files without workspace
 set(NO_WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/helloworld/op_kernel/kernel_helloworld.cpp
@@ -60,6 +68,8 @@ set(NO_WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/tri_inv/op_kernel/tri_inv_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_kernel/recurrent_gated_delta_rule_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_kernel/apply_token_bitmask.cpp
+    ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_kernel/unidex_copy_kernel.cpp
+    ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/slot_map_lookup/op_kernel/slot_map_lookup_kernel.cpp
 )
 
 if(BUILD_CATLASS_MODULE)
@@ -161,6 +171,7 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/stub
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host
+        ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator
         ${TORCH_DIR}/include
         ${TORCH_DIR}/include/torch/csrc/api/include
         ${TORCH_NPU_DIR}/include
@@ -168,4 +179,6 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${ASCEND_INCLUDE_DIR}/external
         ${ASCEND_INCLUDE_DIR}/experiment/platform
         ${ASCEND_INCLUDE_DIR}/experiment/runtime
+        ${ASCEND_DRIVER_PATH}/include
+        ${ASCEND_DRIVER_PATH}/kernel/inc
 )
