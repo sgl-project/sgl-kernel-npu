@@ -47,7 +47,7 @@ SOC_VERSION:
     Ascend910B1         A2 chip. Valid for deepep/deepep2/kernels.
     Ascend910_9382      A3 chip. Valid for all/deepep/kernels.
     Ascend950           A5 chip. Valid for deepep only.
-    ascend950pr_9599    A5 chip. Valid for kernels.
+    Ascend950PR_9599    A5 chip. Valid for kernels.
     (omitted)           all: defaults to Ascend910_9382.
                         deepep: auto-detect via npu-smi, fallback to Ascend910_9382.
                         deepep2: defaults to Ascend910B1.
@@ -64,7 +64,7 @@ Examples:
     ./build.sh -a deepep Ascend950              # explicit A5 DeepEP
     ./build.sh -a deepep2                       # A2 DeepEP
     ./build.sh -a kernels                       # sgl_kernel_npu, A3
-    ./build.sh -a kernels ascend950pr_9599      # sgl_kernel_npu, A5
+    ./build.sh -a kernels Ascend950PR_9599      # sgl_kernel_npu, A5
     ./build.sh -a memory-saver                  # torch_memory_saver
 EOF
 }
@@ -214,7 +214,7 @@ function configure_soc_version()
             SOC_VERSION="${REQUESTED_SOC_VERSION:-Ascend910_9382}"
             if [[ "$SOC_VERSION" == "Ascend950" ]]; then
                 die "Target 'kernels' requires an AscendC-supported SoC name instead of the DeepEP alias Ascend950." \
-                    "Verified: ascend950pr_9599"
+                    "Verified: Ascend950PR_9599"
             fi
             CMAKE_SOC_VERSION="$SOC_VERSION"
             ;;
