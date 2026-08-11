@@ -181,6 +181,7 @@ def _check_fp8_layout1(
 
     xf = x.float()
     valid = slot_mapping != -1
+    written_slots = slot_mapping[valid].long()
     byte = _as_uint8(cache)
     cache_f32 = cache.cpu().float()
 
@@ -191,7 +192,7 @@ def _check_fp8_layout1(
     )
     ref_scales = _ref_fp8_scales(xf, d, fp8_max)
     torch.testing.assert_close(
-        scales_cached[valid], ref_scales[valid], rtol=1e-5, atol=1e-7
+        scales_cached[written_slots], ref_scales[valid], rtol=1e-5, atol=1e-7
     )
 
     # 2. Dequantized quant region must recover x (FP8 has a ~6% relative step).
@@ -201,12 +202,14 @@ def _check_fp8_layout1(
         .reshape(num_slots, -1)[:, :quant_col]
     )
     deq = cache_f32[:, :quant_col] * scales_exp
-    torch.testing.assert_close(deq[valid], xf[valid, :quant_col], rtol=0.15, atol=0.02)
+    torch.testing.assert_close(
+        deq[written_slots], xf[valid, :quant_col], rtol=0.15, atol=0.02
+    )
 
     # 3. The trailing 64 BF16 rope columns are copied byte-exactly.
     rope_bytes = byte[:, quant_col : quant_col + 2 * SLICE_SIZE]
     rope_ref = x[:, -SLICE_SIZE:].contiguous().view(torch.uint8)
-    _assert_equal(rope_bytes[valid], rope_ref[valid])
+    _assert_equal(rope_bytes[written_slots], rope_ref[valid])
 
     # 4. Row padding is zero-filled.
     _assert_equal(byte[:, concat_col:], torch.zeros_like(byte[:, concat_col:]))
