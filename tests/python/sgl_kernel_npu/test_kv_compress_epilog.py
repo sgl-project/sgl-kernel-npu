@@ -36,9 +36,8 @@ INV_FP8_E5M2_BITS = 0x37924925
 INV_FP8_E4M3_BITS = 0x3B124925
 QUANT_MODE_FP8 = 1
 QUANT_MODE_MXFP8 = 2
-# The FP8 (block-quant) kernel only handles head dims where the quant region is an exact
-# multiple of 128 (its tail loop re-quantizes the rope and is overwritten by the rope copy).
-FP8_VALID_DIMS = (192, 320)
+# Representative head dims cover both exact 128-wide groups and a partial final group.
+FP8_VALID_DIMS = (192, 320, 512)
 
 
 def _bits_to_float(bits):
@@ -113,11 +112,24 @@ def _as_uint8(t):
 
 
 def _make_inputs(
-    num_tokens, num_slots, d, slot_dtype=torch.int32, seed=0, drop_slot=False
+    num_tokens,
+    num_slots,
+    d,
+    slot_dtype=torch.int32,
+    seed=0,
+    drop_slot=False,
+    slot_mapping_values=None,
+    fill_value=None,
 ):
     torch.manual_seed(seed)
-    x = torch.randn(num_tokens, d, dtype=torch.bfloat16)
-    slot_mapping = torch.arange(num_tokens) % num_slots
+    if fill_value is None:
+        x = torch.randn(num_tokens, d, dtype=torch.bfloat16)
+    else:
+        x = torch.full((num_tokens, d), fill_value, dtype=torch.bfloat16)
+    if slot_mapping_values is None:
+        slot_mapping = torch.arange(num_tokens) % num_slots
+    else:
+        slot_mapping = torch.as_tensor(slot_mapping_values)
     if drop_slot:
         slot_mapping[0] = -1
     return x, slot_mapping.to(slot_dtype)
@@ -131,9 +143,26 @@ def _check_untouched_slots(byte, slot_mapping, valid):
             _assert_equal(byte[s], torch.zeros_like(byte[s]))
 
 
-def _check_fp8_layout1(num_tokens, num_slots, d, fp8_max, slot_dtype, drop_slot, seed):
+def _check_fp8_layout1(
+    num_tokens,
+    num_slots,
+    d,
+    fp8_max,
+    slot_dtype,
+    drop_slot,
+    seed,
+    slot_mapping_values=None,
+    fill_value=None,
+):
     x, slot_mapping = _make_inputs(
-        num_tokens, num_slots, d, slot_dtype, seed, drop_slot
+        num_tokens,
+        num_slots,
+        d,
+        slot_dtype,
+        seed,
+        drop_slot,
+        slot_mapping_values,
+        fill_value,
     )
     quant_col, scale_col, concat_col, kv_cache_col = _layout1_dims(d, QUANT_MODE_FP8, 0)
     fp8_dtype = torch.float8_e4m3fn if fp8_max == FP8_E4M3FN_MAX else torch.float8_e5m2
@@ -180,12 +209,9 @@ def _check_fp8_layout1(num_tokens, num_slots, d, fp8_max, slot_dtype, drop_slot,
     _assert_equal(rope_bytes[valid], rope_ref[valid])
 
     # 4. Row padding is zero-filled.
-    _assert_equal(
-        byte[:, concat_col:], torch.zeros_like(byte[:, concat_col:])
-    )
+    _assert_equal(byte[:, concat_col:], torch.zeros_like(byte[:, concat_col:]))
 
-    if drop_slot:
-        _check_untouched_slots(byte, slot_mapping, valid)
+    _check_untouched_slots(byte, slot_mapping, valid)
 
 
 def _check_mxfp8_layout1(
@@ -240,9 +266,7 @@ def _check_mxfp8_layout1(
     _assert_equal(byte[:, : 2 * SLICE_SIZE][valid], rope_ref[valid])
 
     # 4. Row padding is zero-filled.
-    _assert_equal(
-        byte[:, concat_col:], torch.zeros_like(byte[:, concat_col:])
-    )
+    _assert_equal(byte[:, concat_col:], torch.zeros_like(byte[:, concat_col:]))
     _check_untouched_slots(byte, slot_mapping, valid)
 
 
@@ -284,12 +308,30 @@ def _check_mxfp8_layout2(num_tokens, d, per_group_size, block_size, fp8_max, see
             b, si * value_per_token : si * value_per_token + value_per_token
         ]
         # value region = [fp8 quant][BF16 rope bytes]
-        deq = val[:quant_col].float() * (2.0 ** (float(ref_scales[i, 0]) - 127.0))
+        scales = torch.pow(2.0, ref_scales[i].to(torch.float32) - 127.0)
+        scales_exp = scales[:, None].expand(-1, per_group_size).reshape(-1)[:quant_col]
+        deq = val[:quant_col].float() * scales_exp
         torch.testing.assert_close(deq, xf[i, :quant_col], rtol=0.25, atol=0.02)
         _assert_equal(_as_uint8(val[quant_col:]), rope_ref[i])
-        # scale byte at the start of this slot's scale region
+        # All scale bytes for this slot (not just the first group).
         scale_off = block_size * value_per_token + si * scale_per_token
-        _assert_equal(byte_flat[b, scale_off], ref_scales[i, 0])
+        _assert_equal(byte_flat[b, scale_off : scale_off + scale_col], ref_scales[i])
+
+    written_slots = set(slot_mapping[slot_mapping != -1].tolist())
+    for s in range(num_blocks * block_size):
+        if s in written_slots:
+            continue
+        b, si = divmod(s, block_size)
+        value_off = si * value_per_token
+        scale_off = block_size * value_per_token + si * scale_per_token
+        _assert_equal(
+            byte_flat[b, value_off : value_off + value_per_token],
+            torch.zeros(value_per_token, dtype=torch.uint8),
+        )
+        _assert_equal(
+            byte_flat[b, scale_off : scale_off + scale_per_token],
+            torch.zeros(scale_per_token, dtype=torch.uint8),
+        )
 
 
 class TestKvCompressEpilog(unittest.TestCase):
@@ -318,6 +360,36 @@ class TestKvCompressEpilog(unittest.TestCase):
             4096, 4096, 320, FP8_E4M3FN_MAX, torch.int32, drop_slot=False, seed=3
         )
 
+    def test_fp8_e5m2_layout1_d512_sparse_shuffled_slots(self):
+        # Covers the upstream production shape, a partial final 128-wide group,
+        # and non-contiguous scatter destinations in one focused case.
+        slot_mapping = (
+            torch.randperm(64, generator=torch.Generator().manual_seed(4)) * 2
+        )
+        _check_fp8_layout1(
+            64,
+            128,
+            512,
+            FP8_E5M2_MAX,
+            torch.int32,
+            drop_slot=False,
+            seed=4,
+            slot_mapping_values=slot_mapping,
+        )
+
+    def test_fp8_e4m3fn_layout1_zero_input(self):
+        # Exercises the zero block-max path without accepting NaN quant results.
+        _check_fp8_layout1(
+            16,
+            16,
+            192,
+            FP8_E4M3FN_MAX,
+            torch.int32,
+            drop_slot=False,
+            seed=5,
+            fill_value=0.0,
+        )
+
     def test_mxfp8_e4m3fn_layout1_group64_round_scale(self):
         _check_mxfp8_layout1(16, 16, 192, 64, FP8_E4M3FN_MAX, round_scale=True, seed=4)
 
@@ -330,9 +402,19 @@ class TestKvCompressEpilog(unittest.TestCase):
     def test_mxfp8_e5m2_layout1_group64_round_scale(self):
         _check_mxfp8_layout1(16, 16, 192, 64, FP8_E5M2_MAX, round_scale=True, seed=6)
 
+    def test_mxfp8_e4m3fn_layout1_group64_multi_row(self):
+        # Exercises rowFactor > 1 for the MXFP8 path at the upstream D=512 shape.
+        _check_mxfp8_layout1(
+            4096, 4096, 512, 64, FP8_E4M3FN_MAX, round_scale=True, seed=7
+        )
+
     def test_mxfp8_e4m3fn_layout2(self):
         # Block-major layout: [num_blocks, block_size, value_per_token + scale_per_token].
         _check_mxfp8_layout2(16, 192, 128, 8, FP8_E4M3FN_MAX, seed=7)
+
+    def test_mxfp8_e4m3fn_layout2_multi_scale_partial_block(self):
+        # Four scales per token plus a partially occupied final cache block.
+        _check_mxfp8_layout2(17, 320, 64, 8, FP8_E4M3FN_MAX, seed=9)
 
 
 if __name__ == "__main__":
