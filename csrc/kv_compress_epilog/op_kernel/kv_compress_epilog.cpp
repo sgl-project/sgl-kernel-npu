@@ -38,11 +38,11 @@ extern "C" __global__ __aicore__ void kv_compress_epilog(GM_ADDR kv_compress_cac
 
     TPipe pipe;
 
-    // Local copy of the tiling data (no GET_TILING_DATA_WITH_STRUCT macro in the
-    // direct-compile model). The __gm__ qualifier is required on the cast target:
-    // CANN rejects reinterpreting a GM pointer to a non-GM pointer type.
-    const sglang::KvCompressEpilogTilingData tilingDataIn =
-        *reinterpret_cast<const __gm__ sglang::KvCompressEpilogTilingData *>(tiling);
+    // Local copy of the tiling data, exactly as vllm-ascend does. The CANN
+    // GET_TILING_DATA_WITH_STRUCT macro memcpy's GM -> local: a plain struct-by-value copy
+    // from a __gm__ pointer is rejected on A5 ("argument is in address space gm, but
+    // parameter must be in Local Memory").
+    GET_TILING_DATA_WITH_STRUCT(sglang::KvCompressEpilogTilingData, tilingDataIn, tiling);
     const sglang::KvCompressEpilogTilingData *__restrict__ tilingData = &tilingDataIn;
 
     // Save and set overflow mode to saturation (0) for FP8 quantization
