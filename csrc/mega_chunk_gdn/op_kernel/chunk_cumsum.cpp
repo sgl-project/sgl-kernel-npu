@@ -48,51 +48,122 @@
 //
 // ============================================================================
 
-#include <pto/pto-inst.hpp>
-#include "acl/acl.h"
-using namespace pto;
+#include <runtime/rt_ffts.h>
 
-// NumHeads and ChunkSize are template parameters so the compiler can optimize
-// tile sizes, unroll loops, and compute UB addresses at compile time.
+#include <pto/pto-inst.hpp>
+
+#include "acl/acl.h"
+#include "mega_kernel_utils.h"
+
+using namespace pto;
+using namespace mega_kernel_utils;
+
+// GDN_C: Compile-time chunk size injected by the build system.
+// Using compile-time constants allows the compiler to optimize tile sizes,
+// unroll loops, and compute UB addresses at compile time.
 #ifndef GDN_C
 #define GDN_C 128
 #endif
+
+// GDN_MAX_HEADS: compile-time ceiling on the value-head count. NumHeads is now
+// a RUNTIME argument (one .so serves every head count), but the UB tiles must
+// still be sized at compile time, so they are sized for the worst case
+// HTC=align(MAX,8). Any NumHeads <= GDN_MAX_HEADS works; the unused columns are
+// zero-padded and ride along the SIMD lanes harmlessly. Must match the
+// host-side _MAX_HEADS guard.
+#ifndef GDN_MAX_HEADS
+#define GDN_MAX_HEADS 64
+#endif
+
+// ── Recurrent prefix-sum chain synchronization ──────────────────────────────
+// The recurrent chain alternates TADD(acc,acc,g_i) (Vec) and TMOV(s_i,acc)
+// (Vec) with TASSIGN address/descriptor setup on each row. TADD/TMOV lower to
+// PIPE_V, but TASSIGN is a SCALAR op (PIPE_S, see opPipeList in
+// pto/common/event.hpp), and on this core the scalar unit ISSUES the vec
+// instructions. So the ordering edge that actually matters is Vec→Scalar:
+// without it, the scalar issuer launches the next TADD/TMOV before the previous
+// vec write to acc_ub has committed → a RAW race on acc_ub.
+//
+// pipe_barrier(PIPE_V) only fences Vec-vs-Vec and never enforces this V↔S edge,
+// so it is insufficient under the fused kernel — the recurrence races and
+// corrupts the last rows of each chunk non-deterministically (surfaced at H=64,
+// whose wider tile lengthens the race window). It happens to be harmless
+// standalone because the scheduler there doesn't reorder across the boundary
+// the same way.
+//
+// The fix is an explicit Vec→Scalar sync: set_flag(PIPE_V, PIPE_S) + wait_flag,
+// here via PtoSetWaitFlag<PIPE_V, PIPE_S>(). This stalls the scalar issuer
+// until the vec pipe drains, serializing the recurrence correctly. EVENT_ID2 is
+// used to avoid colliding with the EVENT_ID0 V↔MTE3 flags already live in this
+// stage.
+//
+// MINIMAL placement (per-site bisection, H=64, 50-run determinism + e2e +
+// partial chunks): the V↔S sync is needed at EXACTLY ONE site — immediately
+// after the per-row TADD(acc,acc,g_i) write inside the main loop (in both the
+// fixed-length and varlen paths). That single sync serializes the whole
+// recurrence; every other site (the row-0 prologue, the per-row TMOV(s_i,acc)
+// read, and the partial-chunk tail zero-fill) is fine as a plain
+// pipe_barrier(PIPE_V). Verified: bit2-only is correct AND deterministic for
+// full and partial chunks; all-PIPE_V or prologue-only-V↔S races. (The
+// post-read TMOV site is an equally-valid single choice; we sync after the
+// write because it orders acc before every consumer.)
+//
+// Two things that do NOT work, for the record:
+//   • pipe_barrier(PIPE_ALL) also fixes it, but only incidentally — it is a
+//   superset
+//     fence that happens to include the V↔S edge. It is heavier and obscures
+//     the real cause, so we use the targeted V↔S sync instead.
+//   • set_flag(PIPE_V, PIPE_MTE3) does NOT help: it targets the wrong pipe pair
+//     (store-DMA, not the scalar issuer), leaving the real edge unenforced and
+//     producing deterministic-but-WRONG output (~20% frob error) that the
+//     run-to-run determinism test cannot detect — always run the cumsum
+//     *correctness* test.
 
 // ── PTO type aliases (device-only, guarded by __CCE_AICORE__) ───────────────
 // UB tile in row-major (ND) layout, used by Vec engine.
 // T=dtype, R×C=static shape, RV×CV=valid region, P=pad value for TLOAD.
 //
-// Think of UbND as: torch.empty((R, C), dtype=T) allocated in on-chip SRAM (UB).
-//   - TileType::Vec  = this tile lives in UB, operated on by the Vec (SIMD) engine
+// Think of UbND as: torch.empty((R, C), dtype=T) allocated in on-chip SRAM
+// (UB).
+//   - TileType::Vec  = this tile lives in UB, operated on by the Vec (SIMD)
+//   engine
 //   - BLayout::RowMajor = row-major storage, like C arrays or numpy default
-//   - RV, CV = "valid" region within the R×C buffer (for handling partial/tail chunks)
-//   - PadValue = what to fill outside the valid region during TLOAD (Zero or Null)
+//   - RV, CV = "valid" region within the R×C buffer (for handling partial/tail
+//   chunks)
+//   - PadValue = what to fill outside the valid region during TLOAD (Zero or
+//   Null)
 //   - 512 = alignment in bytes (hardware requirement for efficient DMA)
 #ifdef __CCE_AICORE__
 template <typename T, int R, int C, int RV = R, int CV = C, pto::PadValue P = pto::PadValue::Null>
 using UbND = pto::Tile<pto::TileType::Vec, T, R, C, pto::BLayout::RowMajor, RV, CV, pto::SLayout::NoneBox, 512, P>;
 #endif
 
-template <int32_t NumHeads, int32_t ChunkSize>
+template <int32_t ChunkSize>
 AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ int32_t *cu_seqlens, int64_t batch_size,
-                          int64_t seq_len)
+                          int64_t seq_len, int32_t NumHeads, uint64_t ffts_addr)
 {
     // get_block_idx(): Returns this AI core's index (0..block_num-1).
     //   Like blockIdx.x in CUDA — identifies which core this code runs on.
-    // get_block_num(): Total number of AI cores launched (like gridDim.x in CUDA).
-    // get_subblockid(): Returns 0 or 1 — selects which Vec sub-block within the core.
+    // get_block_num(): Total number of AI cores launched (like gridDim.x in
+    // CUDA). get_subblockid(): Returns 0 or 1 — selects which Vec sub-block
+    // within the core.
     //   Each AI core has 2 Vec sub-blocks that can run in parallel.
     auto cid = get_block_idx();
     auto block_num = get_block_num();
     auto vid = get_subblockid();
+    // set_ffts_base_addr(ffts_addr): Configure the base address for FFTS
+    // (Fast Fine-grained Task Synchronization) — the cross-core signaling
+    // mechanism. Required before any cross-core sync (ffts_cross_core_sync /
+    // wait_flag_dev).
+    set_ffts_base_addr(ffts_addr);
 
-// #if defined(__DAV_C220_VEC__): This block only compiles for the Vec core pass.
+// #if defined(__DAV_VEC__): This block only compiles for the Vec core pass.
 // The bisheng compiler makes 3 passes over the same source file:
-//   Pass 1: __DAV_C220_VEC__  defined → compiles Vec (SIMD) code
-//   Pass 2: __DAV_C220_CUBE__ defined → compiles Cube (matrix) code
+//   Pass 1: __DAV_VEC__  defined → compiles Vec (SIMD) code
+//   Pass 2: __DAV_CUBE__ defined → compiles Cube (matrix) code
 //   Pass 3: neither defined → compiles host (CPU) launcher code
 // Using these guards lets us put Vec, Cube, and host code in one file.
-#if defined(__DAV_C220_VEC__)
+#if defined(__DAV_VEC__)
     if (vid != 0) return;
 
     // set_mask_norm(): Reset Vec mask to normal mode (all lanes active).
@@ -102,14 +173,14 @@ AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ i
     set_mask_norm();
     set_vector_mask(-1, -1);
 
-    // HeadTileCols: NumHeads rounded up to 8-element alignment (32B for float)
-    // HTC = NumHeads rounded up to nearest multiple of 8.
-    // Why? The Vec engine processes data in 32-byte granularity.
-    // For float (4 bytes), that's 8 elements per SIMD "word".
-    // Rounding up ensures every row is a whole number of SIMD words,
-    // avoiding partial-lane issues. The extra columns are zero-padded.
-    // Example: NumHeads=16 → HTC=16 (already aligned), NumHeads=13 → HTC=16.
-    constexpr int32_t HTC = ((NumHeads + 7) / 8) * 8;
+    // HeadTileCols: worst-case head count rounded up to 8-element alignment (32B
+    // for float). NumHeads is a runtime value, so the UB tiles are sized for the
+    // compile-time ceiling GDN_MAX_HEADS; the actual NumHeads columns are used
+    // and the padding columns (NumHeads..HTC) are zero-filled, so the prefix sum
+    // over them stays zero and only rides the SIMD lanes at no correctness cost.
+    // Why 8-alignment? The Vec engine processes data in 32-byte granularity;
+    // for float (4 bytes) that's 8 elements per SIMD "word".
+    constexpr int32_t HTC = ((GDN_MAX_HEADS + 7) / 8) * 8;
     constexpr int32_t BlockBytes = ChunkSize * HTC * static_cast<int32_t>(sizeof(float));
     constexpr int32_t RowBytes = HTC * static_cast<int32_t>(sizeof(float));
 
@@ -128,20 +199,25 @@ AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ i
     //   GlobalTensor<dtype, Shape, Stride>(base_ptr, shape)
     // Shape<1,1,1,DYNAMIC,DYNAMIC> = 5D shape where first 3 dims are 1 (unused),
     //   last 2 dims are set at runtime (valid rows × NumHeads).
-    // Stride<1,1,1,NumHeads,1> = stride between elements. The 4th stride = NumHeads
+    // Stride<1,1,1,NumHeads,1> = stride between elements. The 4th stride =
+    // NumHeads
     //   means consecutive rows in GM are NumHeads elements apart (BSND layout:
     //   token[t] at offset t*NumHeads, head[h] at offset h within that token).
     // This is equivalent to:
-    //   g_gm = torch.as_strided(g_ptr, size=[valid, NumHeads], stride=[NumHeads, 1])
+    //   g_gm = torch.as_strided(g_ptr, size=[valid, NumHeads], stride=[NumHeads,
+    //   1])
     using GmShape = Shape<1, 1, 1, DYNAMIC, DYNAMIC>;
-    using GmStride = Stride<1, 1, 1, NumHeads, 1>;
+    using GmStride = pto::Stride<1, 1, 1, DYNAMIC, 1>;
     using GmFloat = GlobalTensor<float, GmShape, GmStride>;
+    // Runtime row pitch = NumHeads elements (BSND: token t at offset t*NumHeads).
+    GmStride g_stride(NumHeads);
 
     // Pre-assign row accumulator at fixed UB address
-    // TASSIGN(tile, address): Binds a tile descriptor to a fixed byte address in UB.
-    // Think of it as: tile = ub_memory[address:address+sizeof(tile)]
-    // This does NOT allocate or move data — it just tells the hardware where the tile lives.
-    // We manually manage UB memory layout (like a memory pool) via compile-time addresses.
+    // TASSIGN(tile, address): Binds a tile descriptor to a fixed byte address in
+    // UB. Think of it as: tile = ub_memory[address:address+sizeof(tile)] This
+    // does NOT allocate or move data — it just tells the hardware where the tile
+    // lives. We manually manage UB memory layout (like a memory pool) via
+    // compile-time addresses.
     UbND<float, 1, HTC> acc_ub;
     TASSIGN(acc_ub, AccUbAddr);
 
@@ -152,9 +228,9 @@ AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ i
         int64_t chunks_per_seq = (seq_len + ChunkSize - 1) / ChunkSize;
         int64_t total_chunks = num_seqs * chunks_per_seq;
 
-        // Work distribution: Each AI core processes chunks in a round-robin pattern.
-        // Core `cid` handles chunks cid, cid+block_num, cid+2*block_num, ...
-        // This is the NPU equivalent of CUDA's grid-stride loop:
+        // Work distribution: Each AI core processes chunks in a round-robin
+        // pattern. Core `cid` handles chunks cid, cid+block_num, cid+2*block_num,
+        // ... This is the NPU equivalent of CUDA's grid-stride loop:
         //   for (int i = blockIdx.x; i < total; i += gridDim.x)
         for (int64_t gi = static_cast<int64_t>(cid); gi < total_chunks; gi += static_cast<int64_t>(block_num)) {
             int64_t seq_idx = gi / chunks_per_seq;
@@ -172,24 +248,25 @@ AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ i
                 GmShape gs;
                 gs.shape[3] = valid;
                 gs.shape[4] = NumHeads;
-                GmFloat g_gm(g_ptr + chunk_start * NumHeads, gs);
+                GmFloat g_gm(g_ptr + chunk_start * NumHeads, gs, g_stride);
                 UbND<float, ChunkSize, HTC, DYNAMIC, DYNAMIC, PadValue::Zero> g_load(valid, NumHeads);
                 TASSIGN(g_load, GUbAddr);
                 // TLOAD(ub_tile, gm_tensor): DMA transfer from GM → UB.
-                // Equivalent to: ub_tile[:valid, :NumHeads] = gm_tensor[:valid, :NumHeads]
-                // This is an ASYNC operation on the MTE2 pipe — the CPU/Vec engine can do
-                // other work while DMA is in progress. You must call set_flag/wait_flag
-                // before reading the loaded data.
+                // Equivalent to: ub_tile[:valid, :NumHeads] = gm_tensor[:valid,
+                // :NumHeads] This is an ASYNC operation on the MTE2 pipe — the CPU/Vec
+                // engine can do other work while DMA is in progress. You must call
+                // set_flag/wait_flag before reading the loaded data.
                 TLOAD(g_load, g_gm);
                 if (valid != ChunkSize || NumHeads != HTC) {
                     UbND<float, ChunkSize, HTC, ChunkSize, HTC, PadValue::Zero> g_pad;
                     TASSIGN(g_pad, GUbAddr);
-                    // TFILLPAD_INPLACE(full_tile, partial_tile): Zero-fills the region outside
-                    // the valid area of partial_tile.
-                    // Equivalent to:
+                    // TFILLPAD_INPLACE(full_tile, partial_tile): Zero-fills the region
+                    // outside the valid area of partial_tile. Equivalent to:
                     //   full_tile[valid:ChunkSize, :] = 0  # zero rows beyond valid
-                    //   full_tile[:, NumHeads:HTC] = 0     # zero cols beyond NumHeads (alignment padding)
-                    // This ensures downstream Vec operations see clean zeros in padded regions.
+                    //   full_tile[:, NumHeads:HTC] = 0     # zero cols beyond NumHeads
+                    //   (alignment padding)
+                    // This ensures downstream Vec operations see clean zeros in padded
+                    // regions.
                     TFILLPAD_INPLACE(g_pad, g_load);
                 }
             }
@@ -210,17 +287,12 @@ AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ i
             TASSIGN(g_row_0, GUbAddr);
             // TMOV(dst, src): Element-wise copy, like dst = src.clone() in UB.
             TMOV(acc_ub, g_row_0);
-            // pipe_barrier(PIPE_V): Ensures all pending Vec (SIMD) operations complete
-            // before the next Vec instruction begins. Needed because Vec ops are pipelined
-            // and may not finish in order. Think of it as a local __syncthreads() for the
-            // Vec engine only. Much lighter than set_flag/wait_flag (which sync across
-            // different hardware units).
-            pipe_barrier(PIPE_V);
+            PipeBarrierVec();
 
             UbND<float, 1, HTC> s_row_0;
             TASSIGN(s_row_0, SUbAddr);
             TMOV(s_row_0, acc_ub);
-            pipe_barrier(PIPE_V);
+            PipeBarrierVec();
 
             // Rows 1..valid-1:  acc[h] += g[i,h];  g_sum[i,h] = acc[h]
             for (int32_t i = 1; i < valid; ++i) {
@@ -228,32 +300,36 @@ AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ i
                 TASSIGN(g_row_i, GUbAddr + i * RowBytes);
                 // TADD(dst, a, b): Element-wise add, like dst = a + b. All in UB.
                 // Operates on all HTC elements in parallel (SIMD).
+                // *** The one load-bearing sync (see chain-sync note above): Vec→Scalar
+                // after this per-row write to acc_ub, ordering it before the scalar
+                // issuer launches the next row. Every other barrier in this chain is
+                // plain PIPE_V.
                 TADD(acc_ub, acc_ub, g_row_i);
-                pipe_barrier(PIPE_V);
+                PtoSetWaitFlag<PIPE_V, PIPE_S>(EVENT_ID2, EVENT_ID2);
 
                 UbND<float, 1, HTC> s_row_i;
                 TASSIGN(s_row_i, SUbAddr + i * RowBytes);
                 TMOV(s_row_i, acc_ub);
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
             }
 
             // Zero-fill rows beyond valid (tail padding for downstream kernels)
             // TEXPANDS(tile, scalar): Fill entire tile with a scalar value.
             // Equivalent to: tile[:] = scalar  (like torch.full_like(tile, scalar))
             TEXPANDS(acc_ub, 0.0f);
-            pipe_barrier(PIPE_V);
+            PipeBarrierVec();
             for (int32_t i = valid; i < ChunkSize; ++i) {
                 UbND<float, 1, HTC> s_row_i;
                 TASSIGN(s_row_i, SUbAddr + i * RowBytes);
                 TMOV(s_row_i, acc_ub);
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
             }
 
             // ── DMA: store g_sum from UB → GM (MTE3 pipe) ────────────────────
             // ── Synchronization: Vec → MTE3 ───────────────────────────────────
-            // Vec signals MTE3 that computation is done and UB data is ready to store.
-            // MTE3 (DMA store engine) waits for this before reading UB for TSTORE.
-            // Without this sync, MTE3 might read stale/partial data from UB.
+            // Vec signals MTE3 that computation is done and UB data is ready to
+            // store. MTE3 (DMA store engine) waits for this before reading UB for
+            // TSTORE. Without this sync, MTE3 might read stale/partial data from UB.
             // Vec → MTE3 sync: ensure Vec writes to UB are visible before DMA
             set_flag(PIPE_V, PIPE_MTE3, EVENT_ID0);
             wait_flag(PIPE_V, PIPE_MTE3, EVENT_ID0);
@@ -262,20 +338,20 @@ AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ i
                 GmShape ss;
                 ss.shape[3] = valid;
                 ss.shape[4] = NumHeads;
-                GmFloat gs_gm(g_sum_ptr + chunk_start * NumHeads, ss);
+                GmFloat gs_gm(g_sum_ptr + chunk_start * NumHeads, ss, g_stride);
                 UbND<float, ChunkSize, HTC, DYNAMIC, DYNAMIC> s_store(valid, NumHeads);
                 TASSIGN(s_store, SUbAddr);
                 // TSTORE(gm_tensor, ub_tile): DMA transfer from UB → GM.
-                // Equivalent to: gm_tensor[:valid, :NumHeads] = ub_tile[:valid, :NumHeads]
-                // Async on MTE3 pipe. Must sync (Vec→MTE3) before calling, and sync
-                // (MTE3→Vec) after if reusing the same UB region.
+                // Equivalent to: gm_tensor[:valid, :NumHeads] = ub_tile[:valid,
+                // :NumHeads] Async on MTE3 pipe. Must sync (Vec→MTE3) before calling,
+                // and sync (MTE3→Vec) after if reusing the same UB region.
                 TSTORE(gs_gm, s_store);
             }
             // ── Synchronization: MTE3 → Vec ───────────────────────────────────
             // MTE3 signals Vec that the DMA store is complete and UB can be reused.
-            // Vec waits before starting the next iteration's TLOAD into the same UB region.
-            // Without this, the next TLOAD could overwrite data still being stored.
-            // MTE3 → Vec sync: wait for DMA store before reusing UB next iter
+            // Vec waits before starting the next iteration's TLOAD into the same UB
+            // region. Without this, the next TLOAD could overwrite data still being
+            // stored. MTE3 → Vec sync: wait for DMA store before reusing UB next iter
             set_flag(PIPE_MTE3, PIPE_V, EVENT_ID0);
             wait_flag(PIPE_MTE3, PIPE_V, EVENT_ID0);
         }
@@ -300,7 +376,7 @@ AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ i
                         GmShape gs;
                         gs.shape[3] = valid;
                         gs.shape[4] = NumHeads;
-                        GmFloat g_gm(g_ptr + chunk_start * NumHeads, gs);
+                        GmFloat g_gm(g_ptr + chunk_start * NumHeads, gs, g_stride);
                         UbND<float, ChunkSize, HTC, DYNAMIC, DYNAMIC, PadValue::Zero> g_load(valid, NumHeads);
                         TASSIGN(g_load, GUbAddr);
                         TLOAD(g_load, g_gm);
@@ -317,34 +393,37 @@ AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ i
                     UbND<float, 1, HTC> g_row_0;
                     TASSIGN(g_row_0, GUbAddr);
                     TMOV(acc_ub, g_row_0);
-                    pipe_barrier(PIPE_V);
+                    PipeBarrierVec();
 
                     UbND<float, 1, HTC> s_row_0;
                     TASSIGN(s_row_0, SUbAddr);
                     TMOV(s_row_0, acc_ub);
-                    pipe_barrier(PIPE_V);
+                    PipeBarrierVec();
 
                     // acc += g[i]; g_sum[i] = acc
                     for (int32_t i = 1; i < valid; ++i) {
                         UbND<float, 1, HTC> g_row_i;
                         TASSIGN(g_row_i, GUbAddr + i * RowBytes);
+                        // The one load-bearing sync (see chain-sync note above): Vec→Scalar
+                        // after this per-row write to acc_ub. All other barriers here are
+                        // PIPE_V.
                         TADD(acc_ub, acc_ub, g_row_i);
-                        pipe_barrier(PIPE_V);
+                        PtoSetWaitFlag<PIPE_V, PIPE_S>(EVENT_ID2, EVENT_ID2);
 
                         UbND<float, 1, HTC> s_row_i;
                         TASSIGN(s_row_i, SUbAddr + i * RowBytes);
                         TMOV(s_row_i, acc_ub);
-                        pipe_barrier(PIPE_V);
+                        PipeBarrierVec();
                     }
 
                     // Zero-fill padding rows
                     TEXPANDS(acc_ub, 0.0f);
-                    pipe_barrier(PIPE_V);
+                    PipeBarrierVec();
                     for (int32_t i = valid; i < ChunkSize; ++i) {
                         UbND<float, 1, HTC> s_row_i;
                         TASSIGN(s_row_i, SUbAddr + i * RowBytes);
                         TMOV(s_row_i, acc_ub);
-                        pipe_barrier(PIPE_V);
+                        PipeBarrierVec();
                     }
 
                     // Store g_sum to GM
@@ -355,7 +434,7 @@ AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ i
                         GmShape ss;
                         ss.shape[3] = valid;
                         ss.shape[4] = NumHeads;
-                        GmFloat gs_gm(g_sum_ptr + chunk_start * NumHeads, ss);
+                        GmFloat gs_gm(g_sum_ptr + chunk_start * NumHeads, ss, g_stride);
                         UbND<float, ChunkSize, HTC, DYNAMIC, DYNAMIC> s_store(valid, NumHeads);
                         TASSIGN(s_store, SUbAddr);
                         TSTORE(gs_gm, s_store);

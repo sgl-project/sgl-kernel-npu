@@ -51,9 +51,10 @@
 // numpy pseudocode for the entire chunk computation:
 //   QK = Q @ K.T                                          # GEMM 1
 //   QS = Q @ S                                            # GEMM 2
-//   coeff = exp(min(g_row - g_col, 0)) * mask             # gating (dynamic PTO)
-//   (``static_baseline/run_chunk_o_static.py`` uses exp(g_row-g_col) without min.)
-//   QK_gated = QK * coeff                                 # apply gating
+//   coeff = exp(min(g_row - g_col, 0)) * mask             # gating (dynamic
+//   PTO)
+//   (``static_baseline/run_chunk_o_static.py`` uses exp(g_row-g_col) without
+//   min.) QK_gated = QK * coeff                                 # apply gating
 //   QKV = QK_gated @ V                                    # GEMM 3
 //   O = QKV + QS * np.exp(g_row).reshape(-1, 1)           # final output
 //
@@ -78,10 +79,17 @@
 //   wait_flag_dev(flag)     — wait for cross-core signal
 // ============================================================================
 
-#include <pto/pto-inst.hpp>
-#include "acl/acl.h"
-using namespace pto;
+#include <runtime/rt_ffts.h>
 
+#include <pto/pto-inst.hpp>
+
+#include "acl/acl.h"
+#include "mega_kernel_utils.h"
+using namespace pto;
+using namespace mega_kernel_utils;
+
+// ── Compile-time configuration (overridable at build time via -D flags) ──
+// D/C stay compile-time because tile shapes depend on them. H/Hg are runtime.
 #ifndef GDN_D
 #define GDN_D 128
 #endif
@@ -118,7 +126,8 @@ using L1Mat = pto::Tile<pto::TileType::Mat, T, R, C, pto::BLayout::ColMajor, RV,
                         pto::PadValue::Zero>;
 
 // L1MatZN = ZN fractal format — used for transposed GEMM operands.
-//   TRESHAPE(l1_zn, l1_nz) converts NZ→ZN = logical matrix transpose (free, no data movement).
+//   TRESHAPE(l1_zn, l1_nz) converts NZ→ZN = logical matrix transpose (free, no
+//   data movement).
 template <typename T, int R, int C, int RV = R, int CV = C>
 using L1MatZN = pto::Tile<pto::TileType::Mat, T, R, C, pto::BLayout::RowMajor, RV, CV, pto::SLayout::ColMajor, 512,
                           pto::PadValue::Zero>;
@@ -131,26 +140,30 @@ using GmTensor2D = pto::GlobalTensor<T, GmShape2D, GmStride2D>;
 
 #endif  // __CCE_AICORE__
 
-template <int32_t NumHeads, int32_t HiddenSize, int32_t ChunkSize>
-static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_handle, __gm__ half *V_handle,
-                                         __gm__ half *S_handle, __gm__ float *G_handle, __gm__ float *Msk_handle,
-                                         __gm__ half *workspace_qk_handle, __gm__ half *workspace_qs_qkv_handle,
-                                         __gm__ half *workspace_qk_gated_handle, __gm__ half *O_handle,
-                                         __gm__ int32_t *cu_seqlens, int64_t batch_size, int64_t seq_len,
-                                         int64_t total_tokens, uint32_t num_key_heads)
+template <int32_t HiddenSize, int32_t ChunkSize>
+AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_handle, __gm__ half *V_handle, __gm__ half *S_handle,
+                           __gm__ float *G_handle, __gm__ float *Msk_handle, __gm__ half *workspace_qk_handle,
+                           __gm__ half *workspace_qs_qkv_handle, __gm__ half *workspace_qk_gated_handle,
+                           __gm__ half *O_handle, __gm__ int32_t *cu_seqlens, int64_t batch_size, int64_t seq_len,
+                           int64_t total_tokens, uint32_t num_heads, uint32_t num_key_heads, uint64_t ffts_addr)
 {
+    // To avoid ambiguity with bisheng intrinsic header's global `enum class
+    // Stride`
+    using pto::Stride;
+
     // Half the chunk — each Vec sub-block handles C/2 rows independently.
     constexpr int32_t HalfChunk = ChunkSize / 2;
     // KTail / CTail: the number of valid elements in the last 128-element tile
-    // when D or C isn't a multiple of 128. Used internally by PTO for partial tiles.
+    // when D or C isn't a multiple of 128. Used internally by PTO for partial
+    // tiles.
     constexpr uint32_t KTail = (HiddenSize % 128 == 0) ? 128 : (HiddenSize % 128);
     constexpr uint32_t CTail = (ChunkSize % 128 == 0) ? 128 : (ChunkSize % 128);
 
-    constexpr int32_t H = NumHeads;
+    const int32_t H = static_cast<int32_t>(num_heads);
     const int32_t Hg = static_cast<int32_t>(num_key_heads);
-    if (Hg <= 0 || (H % Hg) != 0) return;
+    if (H <= 0 || Hg <= 0 || (H % Hg) != 0) return;
     const int32_t GROUP = H / Hg;
-    constexpr int32_t BSND_V_STRIDE = H * HiddenSize;
+    const int32_t BSND_V_STRIDE = H * HiddenSize;
     const int32_t BSND_QK_STRIDE = Hg * HiddenSize;
 
     // Workspace sizes (in elements) shared between Cube and Vec via GM
@@ -170,6 +183,8 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
     constexpr int32_t OHalfUbAddr = 164608;
     constexpr int32_t OUbAddr = QKUbAddr;
 
+    // Initialize the cross-core FFTS signaling base address for this AI core.
+    set_ffts_base_addr(ffts_addr);
     // cid = which AI core am I? (0..block_num-1). Used to partition work items.
     auto cid = get_block_idx();
     // block_num = total number of AI cores running this kernel in parallel.
@@ -187,10 +202,10 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
     // ── L1 tile layout for Cube GEMMs ────────────────────────────────────
     // L1 cache (~1MB) is manually partitioned for the 3 GEMMs:
     //   q_l1   at 0:      Q [C×D]       — shared by GEMM 1 and GEMM 2
-    //   k_l1   at 32768:  K [C×D]       — used in GEMM 1 (transposed via TRESHAPE)
-    //   s_l1   at 65536:  S [D×D]       — accumulated state, used in GEMM 2
-    //   qk_gated at 98304: QK_gated [C×C] — from Vec, used in GEMM 3
-    //   v_l1   at 131072: V [C×D]       — values, used in GEMM 3
+    //   k_l1   at 32768:  K [C×D]       — used in GEMM 1 (transposed via
+    //   TRESHAPE) s_l1   at 65536:  S [D×D]       — accumulated state, used in
+    //   GEMM 2 qk_gated at 98304: QK_gated [C×C] — from Vec, used in GEMM 3 v_l1
+    //   at 131072: V [C×D]       — values, used in GEMM 3
     L1Mat<half, ChunkSize, HiddenSize> q_l1;
     TASSIGN(q_l1, 0);
     L1Mat<half, ChunkSize, HiddenSize> k_l1;
@@ -217,15 +232,16 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
     // matrices. The UB layout (byte addresses) is designed so all needed tiles
     // fit simultaneously in the ~256KB UB without overlapping:
     //   g_ub:       gate values [1, C] float            @ 0
-    //   msk_ub:     causal mask [C/2, C] float          @ 512     (loaded once, reused)
-    //   qk_ub:      QK scores in float [C/2, C]         @ 33280   (after cast from half)
-    //   g_v_ub:     this sub-block's gate slice [1, C/2] @ 66048
+    //   msk_ub:     causal mask [C/2, C] float          @ 512     (loaded once,
+    //   reused) qk_ub:      QK scores in float [C/2, C]         @ 33280   (after
+    //   cast from half) g_v_ub:     this sub-block's gate slice [1, C/2] @ 66048
     //   coeff_ub:   gating coefficients [C/2, C] float  @ 66304
     //   qk_ub_half: QK in half [C/2, C]                @ 99072
     //   qs_ub_half: QS in half [C/2, D]                @ 115456
     //   qs_ub:      QS in float [C/2, D]               @ 131840
     //   o_ub_half:  output O in half [C/2, D]           @ 164608
-    //   o_ub:       output O in float [C/2, D]          @ QKUbAddr (reuses qk_ub space)
+    //   o_ub:       output O in float [C/2, D]          @ QKUbAddr (reuses qk_ub
+    //   space)
     UbND<float, 1, ChunkSize> g_ub;
     TASSIGN(g_ub, GUbAddr);
     UbND<float, HalfChunk, ChunkSize> msk_ub;
@@ -252,7 +268,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
     int64_t total_work = 0;
     if (cu_seqlens == nullptr) {
         int64_t chunks_per_seq = (seq_len + ChunkSize - 1) / ChunkSize;
-        total_work = num_seqs * chunks_per_seq * NumHeads;
+        total_work = num_seqs * chunks_per_seq * H;
     }
 
 // =====================================================================
@@ -261,7 +277,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
 // performs the heavy matmuls, then writes results to GM workspace for
 // the Vec engine to apply gating and produce the final output.
 // =====================================================================
-#if defined(__DAV_C220_CUBE__)
+#if defined(__DAV_CUBE__)
     if (cu_seqlens == nullptr) {
         // ── Fixed-length sequence path ──────────────────────────────────────
         int64_t chunks_per_seq = (seq_len + ChunkSize - 1) / ChunkSize;
@@ -270,14 +286,24 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
 
         for (int64_t work_idx = static_cast<int64_t>(cid); work_idx < total_work;
              work_idx += static_cast<int64_t>(block_num)) {
-            // Wait for Vec to finish with previous chunk's workspace (flag 3)
-            if (!first_cube_iter) wait_flag_dev(3);
+            // Wait for Vec to finish with previous chunk's workspace (flag 3).
+            // A2: Cube and Vec are separate cores → FFTS cross-core flag.
+            // A5: Cube and both Vec sub-blocks share ONE core → intra-block flags,
+            //     with each Vec sub-block signalling its own flag (base, base+16).
+            if (!first_cube_iter) {
+#if __CCE_AICORE__ == 220
+                wait_flag_dev(3);
+#else
+                WaitBothVecOnA5<PIPE_MTE2>(3);
+                pipe_barrier(PIPE_ALL);
+#endif
+            }
             set_flag(PIPE_FIX, PIPE_M, EVENT_ID0);
             wait_flag(PIPE_FIX, PIPE_M, EVENT_ID0);
 
-            int32_t head_idx = static_cast<int32_t>(work_idx % NumHeads);
+            int32_t head_idx = static_cast<int32_t>(work_idx % H);
             int32_t head_g = head_idx / GROUP;
-            int64_t chunk_head_idx = work_idx / NumHeads;
+            int64_t chunk_head_idx = work_idx / H;
             int64_t seq_idx = chunk_head_idx / chunks_per_seq;
             int64_t ci = chunk_head_idx % chunks_per_seq;
 
@@ -298,8 +324,8 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                             static_cast<int64_t>(HiddenSize);
 
             int64_t chunk_global_idx = seq_idx * chunks_per_seq + ci;
-            int64_t s_offset = (chunk_global_idx * NumHeads + head_idx) * static_cast<int64_t>(HiddenSize) *
-                               static_cast<int64_t>(HiddenSize);
+            int64_t s_offset =
+                (chunk_global_idx * H + head_idx) * static_cast<int64_t>(HiddenSize) * static_cast<int64_t>(HiddenSize);
 
             // ── Load Q [valid_rows × D] from GM → L1 ────────────────────────
             // GlobalTensor describes the GM layout with BSND strides.
@@ -331,9 +357,9 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
             //
             // How transpose works on NPU:
             //   K is loaded into L1 in NZ (col-major fractal) format.
-            //   TRESHAPE(l1_zn, k_l1) reinterprets it as ZN (row-major fractal) = K^T.
-            //   This is a ZERO-COST operation — no data movement, just metadata change.
-            //   TEXTRACT then loads the transposed view into L0B.
+            //   TRESHAPE(l1_zn, k_l1) reinterprets it as ZN (row-major fractal) =
+            //   K^T. This is a ZERO-COST operation — no data movement, just metadata
+            //   change. TEXTRACT then loads the transposed view into L0B.
             //
             // Cube GEMM pipeline:
             //   TEXTRACT(l0a, q_l1, 0, 0)  — Q → L0A (left operand)
@@ -426,8 +452,8 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
             // Signal Vec: QK and QS are ready (flag 0, Cube→Vec)
             // ── Cross-core sync protocol ──────────────────────────────────────
             // Cube and Vec are SEPARATE physical cores. They exchange data through GM
-            // and coordinate via FFTS flags. Think of it as two processes communicating
-            // through shared memory with semaphores.
+            // and coordinate via FFTS flags. Think of it as two processes
+            // communicating through shared memory with semaphores.
             //
             // ffts_cross_core_sync(PIPE_FIX, config):
             //   config = 1 | (mode << 4) | (flag_id << 8)
@@ -439,10 +465,21 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
             //   flag 1: Vec→Cube "QK_gated is ready for GEMM 3"
             //   flag 2: Cube→Vec "QKV (GEMM 3 result) is ready"
             //   flag 3: Vec→Cube "I'm done with this chunk, you can reuse workspace"
-            ffts_cross_core_sync(PIPE_FIX, 1 | (2 << 4) | (0 << 8));
+            // ffts_cross_core_sync(PIPE_FIX, 1 | (2 << 4) | (0 << 8));
+#if __CCE_AICORE__ == 220
+            SetCrossFlag<PIPE_FIX>(0);
+#else
+            pipe_barrier(PIPE_ALL);
+            SignalBothVecOnA5<PIPE_FIX>(0);
+#endif
 
             // Wait for Vec to write QK_gated back (flag 1, Vec→Cube)
+#if __CCE_AICORE__ == 220
             wait_flag_dev(1);
+#else
+            WaitBothVecOnA5<PIPE_MTE2>(1);
+            pipe_barrier(PIPE_ALL);
+#endif
 
             set_flag(PIPE_FIX, PIPE_M, EVENT_ID0);
             wait_flag(PIPE_FIX, PIPE_M, EVENT_ID0);
@@ -465,7 +502,8 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                 _gs.shape[3] = valid_rows;
                 _gs.shape[4] = HiddenSize;
-                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, BSND_V_STRIDE, 1>> _gm(V_handle + v_off, _gs);
+                GmStride2D _stride(BSND_V_STRIDE);
+                GmTensor2D<half> _gm(V_handle + v_off, _gs, _stride);
                 TLOAD(_l1, _gm);
                 if (valid_rows != ChunkSize) TFILLPAD(_l1, _l1);
             }
@@ -513,7 +551,13 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
             }
 
             // Signal Vec: QKV is ready (flag 2, Cube→Vec)
-            ffts_cross_core_sync(PIPE_FIX, 1 | (2 << 4) | (2 << 8));
+            // ffts_cross_core_sync(PIPE_FIX, 1 | (2 << 4) | (2 << 8));
+#if __CCE_AICORE__ == 220
+            SetCrossFlag<PIPE_FIX>(2);
+#else
+            pipe_barrier(PIPE_ALL);
+            SignalBothVecOnA5<PIPE_FIX>(2);
+#endif
             first_cube_iter = false;
         }
     } else {
@@ -528,9 +572,17 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
             int64_t nc = (slen + ChunkSize - 1) / ChunkSize;
 
             for (int64_t ci = 0; ci < nc; ++ci) {
-                for (int32_t h = 0; h < NumHeads; ++h) {
+                for (int32_t h = 0; h < H; ++h) {
                     if (gi % static_cast<int64_t>(block_num) == static_cast<int64_t>(cid)) {
-                        if (!first_cube_iter_v) wait_flag_dev(3);
+                        // Wait Vec: workspace free (flag 3)
+                        if (!first_cube_iter_v) {
+#if __CCE_AICORE__ == 220
+                            wait_flag_dev(3);
+#else
+                            WaitBothVecOnA5<PIPE_MTE2>(3);
+                            pipe_barrier(PIPE_ALL);
+#endif
+                        }
                         set_flag(PIPE_FIX, PIPE_M, EVENT_ID0);
                         wait_flag(PIPE_FIX, PIPE_M, EVENT_ID0);
 
@@ -545,7 +597,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                                          static_cast<int64_t>(HiddenSize);
                         int64_t v_off = (chunk_token_start * static_cast<int64_t>(H) + static_cast<int64_t>(head_idx)) *
                                         static_cast<int64_t>(HiddenSize);
-                        int64_t s_offset = (chunk_global_idx * NumHeads + head_idx) * static_cast<int64_t>(HiddenSize) *
+                        int64_t s_offset = (chunk_global_idx * H + head_idx) * static_cast<int64_t>(HiddenSize) *
                                            static_cast<int64_t>(HiddenSize);
 
                         // Load Q
@@ -652,10 +704,21 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                         }
 
                         // Cube→Vec: QK & QS ready (flag 0)
-                        ffts_cross_core_sync(PIPE_FIX, 1 | (2 << 4) | (0 << 8));
+                        // ffts_cross_core_sync(PIPE_FIX, 1 | (2 << 4) | (0 << 8));
+#if __CCE_AICORE__ == 220
+                        SetCrossFlag<PIPE_FIX>(0);
+#else
+                        pipe_barrier(PIPE_ALL);
+                        SignalBothVecOnA5<PIPE_FIX>(0);
+#endif
 
                         // Wait Vec→Cube: QK_gated ready (flag 1)
+#if __CCE_AICORE__ == 220
                         wait_flag_dev(1);
+#else
+                        WaitBothVecOnA5<PIPE_MTE2>(1);
+                        pipe_barrier(PIPE_ALL);
+#endif
 
                         set_flag(PIPE_FIX, PIPE_M, EVENT_ID0);
                         wait_flag(PIPE_FIX, PIPE_M, EVENT_ID0);
@@ -678,8 +741,8 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                             Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                             _gs.shape[3] = valid_rows;
                             _gs.shape[4] = HiddenSize;
-                            GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, BSND_V_STRIDE, 1>> _gm(V_handle + v_off,
-                                                                                                     _gs);
+                            GmStride2D _stride(BSND_V_STRIDE);
+                            GmTensor2D<half> _gm(V_handle + v_off, _gs, _stride);
                             TLOAD(_l1, _gm);
                             if (valid_rows != ChunkSize) TFILLPAD(_l1, _l1);
                         }
@@ -717,7 +780,14 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                             TSTORE(_gm, _l0);
                         }
 
-                        ffts_cross_core_sync(PIPE_FIX, 1 | (2 << 4) | (2 << 8));
+                        // Signal Vec: QKV is ready (flag 2, Cube→Vec)
+                        // ffts_cross_core_sync(PIPE_FIX, 1 | (2 << 4) | (2 << 8));
+#if __CCE_AICORE__ == 220
+                        SetCrossFlag<PIPE_FIX>(2);
+#else
+                        pipe_barrier(PIPE_ALL);
+                        SignalBothVecOnA5<PIPE_FIX>(2);
+#endif
                         first_cube_iter_v = false;
                     }
                     gi++;
@@ -737,7 +807,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
 //   3. Scales the Cube's QS result by exp(g)
 //   4. Combines QKV + scaled QS → final output O
 // =====================================================================
-#if defined(__DAV_C220_VEC__)
+#if defined(__DAV_VEC__)
     // Vec engine initialization: set_mask_norm selects "normal" masking mode,
     // and set_vector_mask(-1, -1) enables ALL SIMD lanes (no masking).
     set_mask_norm();
@@ -770,8 +840,8 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
 
         for (int64_t work_idx = static_cast<int64_t>(cid); work_idx < total_work;
              work_idx += static_cast<int64_t>(block_num)) {
-            int32_t head_idx = static_cast<int32_t>(work_idx % NumHeads);
-            int64_t chunk_head_idx = work_idx / NumHeads;
+            int32_t head_idx = static_cast<int32_t>(work_idx % H);
+            int64_t chunk_head_idx = work_idx / H;
             int64_t seq_idx = chunk_head_idx / chunks_per_seq;
             int64_t ci = chunk_head_idx % chunks_per_seq;
 
@@ -809,7 +879,8 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
 
                 // ── Compute gating coefficients ──────────────────────────────────
                 // ── Gating coefficient computation (numpy pseudocode) ─────────────
-                // For this sub-block's rows (vid=0: rows 0..C/2-1, vid=1: rows C/2..C-1):
+                // For this sub-block's rows (vid=0: rows 0..C/2-1, vid=1: rows
+                // C/2..C-1):
                 //
                 //   g_row = g[my_start:my_start+C/2]    # my gates (shape [C/2])
                 //   g_col = g[0:C]                       # full chunk gates (shape [C])
@@ -834,22 +905,38 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                 TROWEXPAND(g_r_2d, g_v_col);       // g_r_2d[i,j] = g_row[i]
                 TCOLEXPAND(coeff_ub, g_ub);        // coeff[i,j] = g_col[j]
                 TSUB(coeff_ub, g_r_2d, coeff_ub);  // d = g_row - g_col
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
                 TMINS(coeff_ub, coeff_ub, 0.0f);
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
                 TEXP(coeff_ub, coeff_ub);
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
                 TMUL(coeff_ub, coeff_ub, msk_ub);
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
                 TEXP(g_v_ub, g_v_ub);  // exp(g_row) for QS scaling
             }
 
             // ── Wait for Cube→Vec flag 0: QK & QS ready ─────────────────────
+#if __CCE_AICORE__ == 220
             wait_flag_dev(0);
+#else
+            wait_intra_block(PIPE_MTE3, 0);
+            pipe_barrier(PIPE_ALL);
+#endif
             if (local_rows == 0) {
-                ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (1 << 8));
+                // Nothing to do for this chunk — still run the full flag handshake so
+                // Cube's wait counts stay balanced.
+                // ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (1 << 8));
+                // ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (3 << 8));
+#if __CCE_AICORE__ == 220
+                SetCrossFlag<PIPE_MTE3>(1);
                 wait_flag_dev(2);
-                ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (3 << 8));
+                SetCrossFlag<PIPE_MTE3>(3);
+#else
+                pipe_barrier(PIPE_ALL);
+                set_intra_block(PIPE_MTE3, 1);
+                wait_intra_block(PIPE_MTE3, 2);
+                set_intra_block(PIPE_MTE3, 3);
+#endif
                 continue;
             }
 
@@ -914,14 +1001,20 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                 TSTORE(_gm, _st);
             }
             // Vec→Cube: QK_gated ready (flag 1)
-            ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (1 << 8));
+            // ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (1 << 8));
+#if __CCE_AICORE__ == 220
+            SetCrossFlag<PIPE_MTE3>(1);
+#else
+            pipe_barrier(PIPE_ALL);
+            set_intra_block(PIPE_MTE3, 1);
+#endif
 
             // ── Scale QS by exp(g): QS_gated = QS * exp(g_row) ──────────────
             // ── Scale QS by exp(g): inter-chunk state contribution ────────────
-            // numpy: QS_scaled = QS * np.exp(g_row)[:, None]   (broadcast across D columns)
-            // TROWEXPAND broadcasts the scalar exp(g[i]) for each row i across all D columns,
-            // then TMUL applies it element-wise. This gates how much the accumulated state
-            // contributes to each token's output.
+            // numpy: QS_scaled = QS * np.exp(g_row)[:, None]   (broadcast across D
+            // columns) TROWEXPAND broadcasts the scalar exp(g[i]) for each row i
+            // across all D columns, then TMUL applies it element-wise. This gates how
+            // much the accumulated state contributes to each token's output.
             set_flag(PIPE_MTE2, PIPE_V, EVENT_ID0);
             wait_flag(PIPE_MTE2, PIPE_V, EVENT_ID0);
             TCVT(qs_ub, qs_ub_half, pto::RoundMode::CAST_NONE);
@@ -930,11 +1023,16 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
             UbDN<float, HalfChunk, 1> g_v_col2;
             TASSIGN(g_v_col2, GvUbAddr);
             TROWEXPAND(g_exp_2d, g_v_col2);  // broadcast exp(g_row) across columns
-            pipe_barrier(PIPE_V);
+            PipeBarrierVec();
             TMUL(qs_ub, qs_ub, g_exp_2d);  // QS_gated = QS * exp(g_row)
 
             // ── Wait for Cube→Vec flag 2: QKV ready ─────────────────────────
+#if __CCE_AICORE__ == 220
             wait_flag_dev(2);
+#else
+            wait_intra_block(PIPE_MTE3, 2);
+            pipe_barrier(PIPE_ALL);
+#endif
 
             // ── Load QKV [C/2 × D] from workspace → UB ──────────────────────
             {
@@ -977,14 +1075,21 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                 _gs.shape[3] = local_rows;
                 _gs.shape[4] = HiddenSize;
-                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, BSND_V_STRIDE, 1>> _gm(O_handle + o_offset, _gs);
+                GmStride2D _stride(BSND_V_STRIDE);
+                GmTensor2D<half> _gm(O_handle + o_offset, _gs, _stride);
                 UbND<half, HalfChunk, HiddenSize, DYNAMIC, DYNAMIC> _st(local_rows, HiddenSize);
                 TASSIGN(_st, OHalfUbAddr);
                 TSTORE(_gm, _st);
             }
 
             // Vec→Cube: done with this chunk (flag 3)
-            ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (3 << 8));
+            // ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (3 << 8));
+#if __CCE_AICORE__ == 220
+            SetCrossFlag<PIPE_MTE3>(3);
+#else
+            pipe_barrier(PIPE_ALL);
+            set_intra_block(PIPE_MTE3, 3);
+#endif
         }
     } else {
         // ── Variable-length sequence path (cu_seqlens != nullptr) ──────────
@@ -996,7 +1101,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
             int64_t nc = (slen + ChunkSize - 1) / ChunkSize;
 
             for (int64_t ci = 0; ci < nc; ++ci) {
-                for (int32_t h = 0; h < NumHeads; ++h) {
+                for (int32_t h = 0; h < H; ++h) {
                     if (gi % static_cast<int64_t>(block_num) == static_cast<int64_t>(cid)) {
                         int64_t chunk_start = ci * ChunkSize;
                         int64_t remaining = slen - chunk_start;
@@ -1028,8 +1133,8 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                             set_flag(PIPE_MTE2, PIPE_V, EVENT_ID0);
                             wait_flag(PIPE_MTE2, PIPE_V, EVENT_ID0);
 
-                            // Compute gating coefficients (same math as fixed-length path — see detailed pseudocode
-                            // above)
+                            // Compute gating coefficients (same math as fixed-length path —
+                            // see detailed pseudocode above)
                             UbND<float, 1, HalfChunk> g_ub_temp_v;
                             TASSIGN(g_ub_temp_v, GUbAddr + static_cast<int32_t>(vid) * HalfChunk *
                                                                static_cast<int32_t>(sizeof(float)));
@@ -1042,21 +1147,37 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                             TROWEXPAND(g_r_2d_v, g_v_col_v);
                             TCOLEXPAND(coeff_ub, g_ub);
                             TSUB(coeff_ub, g_r_2d_v, coeff_ub);  // d = g_row - g_col
-                            pipe_barrier(PIPE_V);
+                            PipeBarrierVec();
                             TMINS(coeff_ub, coeff_ub, 0.0f);
-                            pipe_barrier(PIPE_V);
+                            PipeBarrierVec();
                             TEXP(coeff_ub, coeff_ub);
-                            pipe_barrier(PIPE_V);
+                            PipeBarrierVec();
                             TMUL(coeff_ub, coeff_ub, msk_ub);
-                            pipe_barrier(PIPE_V);
+                            PipeBarrierVec();
                             TEXP(g_v_ub, g_v_ub);
                         }
 
+                        // ── Wait for Cube→Vec flag 0: QK & QS ready ─────────────────
+#if __CCE_AICORE__ == 220
                         wait_flag_dev(0);
+#else
+                        wait_intra_block(PIPE_MTE3, 0);
+                        pipe_barrier(PIPE_ALL);
+#endif
                         if (local_rows == 0) {
-                            ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (1 << 8));
+                            // Nothing to do — still run the handshake so Cube stays balanced.
+                            // ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (1 << 8));
+                            // ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (3 << 8));
+#if __CCE_AICORE__ == 220
+                            SetCrossFlag<PIPE_MTE3>(1);
                             wait_flag_dev(2);
-                            ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (3 << 8));
+                            SetCrossFlag<PIPE_MTE3>(3);
+#else
+                            pipe_barrier(PIPE_ALL);
+                            set_intra_block(PIPE_MTE3, 1);
+                            wait_intra_block(PIPE_MTE3, 2);
+                            set_intra_block(PIPE_MTE3, 3);
+#endif
                         } else {
                             // Load QK from workspace
                             {
@@ -1102,7 +1223,8 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                             }
 
                             TMUL(qk_ub, qk_ub, coeff_ub);
-                            TCVT(qk_ub_half, qk_ub, pto::RoundMode::CAST_NONE);  // float→half for GM store
+                            TCVT(qk_ub_half, qk_ub,
+                                 pto::RoundMode::CAST_NONE);  // float→half for GM store
 
                             // Store QK_gated → workspace
                             set_flag(PIPE_V, PIPE_MTE3, EVENT_ID0);
@@ -1120,23 +1242,36 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                                 TSTORE(_gm, _st);
                             }
                             // Vec→Cube: QK_gated ready (flag 1)
-                            ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (1 << 8));
+                            // ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (1 << 8));
+#if __CCE_AICORE__ == 220
+                            SetCrossFlag<PIPE_MTE3>(1);
+#else
+                            pipe_barrier(PIPE_ALL);
+                            set_intra_block(PIPE_MTE3, 1);
+#endif
 
                             // Scale QS by exp(g): QS_scaled = QS * exp(g_row)[:, None]
                             // (same inter-chunk state scaling as fixed-length path)
                             set_flag(PIPE_MTE2, PIPE_V, EVENT_ID0);
                             wait_flag(PIPE_MTE2, PIPE_V, EVENT_ID0);
-                            TCVT(qs_ub, qs_ub_half, pto::RoundMode::CAST_NONE);  // half→float for Vec math
+                            TCVT(qs_ub, qs_ub_half,
+                                 pto::RoundMode::CAST_NONE);  // half→float for Vec math
 
                             UbND<float, HalfChunk, HiddenSize> g_exp_2d_v;
                             TASSIGN(g_exp_2d_v, CoeffUbAddr);
                             UbDN<float, HalfChunk, 1> g_v_col2_v;
                             TASSIGN(g_v_col2_v, GvUbAddr);
                             TROWEXPAND(g_exp_2d_v, g_v_col2_v);
-                            pipe_barrier(PIPE_V);
+                            PipeBarrierVec();
                             TMUL(qs_ub, qs_ub, g_exp_2d_v);
 
+                            // Wait for Cube→Vec flag 2: QKV ready
+#if __CCE_AICORE__ == 220
                             wait_flag_dev(2);
+#else
+                            wait_intra_block(PIPE_MTE3, 2);
+                            pipe_barrier(PIPE_ALL);
+#endif
 
                             // Load QKV from workspace
                             {
@@ -1159,10 +1294,12 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                             set_flag(PIPE_MTE2, PIPE_V, EVENT_ID0);
                             wait_flag(PIPE_MTE2, PIPE_V, EVENT_ID0);
 
-                            // O = QS_gated + QKV  (final output: intra-chunk attention + inter-chunk state)
+                            // O = QS_gated + QKV  (final output: intra-chunk attention +
+                            // inter-chunk state)
                             TCVT(o_ub, o_ub_half, pto::RoundMode::CAST_NONE);  // half→float
                             TADD(o_ub, qs_ub, o_ub);                           // O = QS_scaled + QKV
-                            TCVT(o_ub_half, o_ub, pto::RoundMode::CAST_NONE);  // float→half for GM store
+                            TCVT(o_ub_half, o_ub,
+                                 pto::RoundMode::CAST_NONE);  // float→half for GM store
 
                             // Store O → GM
                             set_flag(PIPE_V, PIPE_MTE3, EVENT_ID0);
@@ -1177,15 +1314,21 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                                 _gs.shape[3] = local_rows;
                                 _gs.shape[4] = HiddenSize;
-                                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, BSND_V_STRIDE, 1>> _gm(
-                                    O_handle + o_offset, _gs);
+                                GmStride2D _stride(BSND_V_STRIDE);
+                                GmTensor2D<half> _gm(O_handle + o_offset, _gs, _stride);
                                 UbND<half, HalfChunk, HiddenSize, DYNAMIC, DYNAMIC> _st(local_rows, HiddenSize);
                                 TASSIGN(_st, OHalfUbAddr);
                                 TSTORE(_gm, _st);
                             }
 
                             // Vec→Cube: done with this chunk (flag 3)
-                            ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (3 << 8));
+                            // ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (3 << 8));
+#if __CCE_AICORE__ == 220
+                            SetCrossFlag<PIPE_MTE3>(3);
+#else
+                            pipe_barrier(PIPE_ALL);
+                            set_intra_block(PIPE_MTE3, 3);
+#endif
                         }
                     }
                     gi++;

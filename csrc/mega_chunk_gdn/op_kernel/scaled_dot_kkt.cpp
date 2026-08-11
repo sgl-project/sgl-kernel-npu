@@ -7,10 +7,11 @@
 //   A[i,j] = KK^T[i,j] · coeff[i,j] · causal_mask[i,j]
 //
 // Inputs:
-//   K       [total_tokens, Hg, D] half  — key vectors (BSND along seq; stride Hg * D)
-//   Beta    [H, total_tokens]     half  — gate bias per **value** head (pre-transposed)
-//   G       [H, total_tokens]     float — cumulative gate sum per **value** head
-//   Msk     [C, C]                float — lower-triangular causal mask
+//   K       [total_tokens, Hg, D] half  — key vectors (BSND along seq; stride
+//   Hg * D) Beta    [H, total_tokens]     half  — gate bias per **value** head
+//   (pre-transposed) G       [H, total_tokens]     float — cumulative gate sum
+//   per **value** head Msk     [C, C]                float — lower-triangular
+//   causal mask
 //
 // Output:
 //   A       [total_tokens, H, C]  half  — gated attention matrix in BSND
@@ -33,47 +34,55 @@
 // ── PTO / NPU Primer for This Kernel ──────────────────────────────────
 // NPU Architecture (simplified):
 //   Each "AI Core" (like a GPU SM) has:
-//     - Cube engine: matrix multiply unit (like GPU Tensor Cores), works on L0A/L0B/L0C
-//     - Vec engine: SIMD vector unit (like GPU CUDA cores), works on UB (Unified Buffer)
+//     - Cube engine: matrix multiply unit (like GPU Tensor Cores), works on
+//     L0A/L0B/L0C
+//     - Vec engine: SIMD vector unit (like GPU CUDA cores), works on UB
+//     (Unified Buffer)
 //     - MTE2: DMA engine for loading data: GM → L1 or GM → UB
 //     - MTE3: DMA engine for storing data: UB → GM or L0C → GM
 //     - MTE1: DMA engine for L1 → L0A/L0B transfers (internal to Cube pipeline)
-//   Memory hierarchy (fast→slow): L0 registers > L1 cache > UB (SRAM) > GM (HBM)
-//   Cube and Vec run on SEPARATE cores — they communicate via GM + cross-core flags.
+//   Memory hierarchy (fast→slow): L0 registers > L1 cache > UB (SRAM) > GM
+//   (HBM) Cube and Vec run on SEPARATE cores — they communicate via GM +
+//   cross-core flags.
 //
 // Key PTO APIs used in this kernel (with numpy/torch equivalents):
-//   TASSIGN(tile, addr)     — Bind tile to UB/L1/L0 address (tile = memory[addr])
-//   TLOAD(dst, gm_tensor)   — DMA load: dst = gm_tensor (async, MTE2 pipe)
-//   TSTORE(gm, src)         — DMA store: gm = src (async, MTE3 pipe)
+//   TASSIGN(tile, addr)     — Bind tile to UB/L1/L0 address (tile =
+//   memory[addr]) TLOAD(dst, gm_tensor)   — DMA load: dst = gm_tensor (async,
+//   MTE2 pipe) TSTORE(gm, src)         — DMA store: gm = src (async, MTE3 pipe)
 //   TFILLPAD(dst, src)      — Zero-fill padding: dst[outside valid] = 0
 //   TFILLPAD_INPLACE(d, s)  — Same but in-place for UB tiles
 //   TEXTRACT(l0, l1, r, c)  — Copy L1 sub-block → L0A or L0B (MTE1 pipe)
 //   TRESHAPE(dst, src)      — Reinterpret L1 tile layout (NZ↔ZN for transpose)
 //   TMATMUL(C, A, B)        — Matrix multiply: C = A @ B in Cube engine
-//   TCVT(dst, src, mode)    — Type conversion: like dst = src.float() or src.half()
-//   TMOV(dst, src)          — Copy: dst = src.clone()
-//   TADD(d, a, b)           — Element-wise add: d = a + b
-//   TSUB(d, a, b)           — Element-wise subtract: d = a - b
-//   TMUL(d, a, b)           — Element-wise multiply: d = a * b
-//   TMINS(d, s, val)        — Clamp max: d = torch.clamp(s, max=val)
+//   TCVT(dst, src, mode)    — Type conversion: like dst = src.float() or
+//   src.half() TMOV(dst, src)          — Copy: dst = src.clone() TADD(d, a, b)
+//   — Element-wise add: d = a + b TSUB(d, a, b)           — Element-wise
+//   subtract: d = a - b TMUL(d, a, b)           — Element-wise multiply: d = a
+//   * b TMINS(d, s, val)        — Clamp max: d = torch.clamp(s, max=val)
 //   TEXP(d, s)              — Element-wise exp: d = torch.exp(s)
 //   TLOG(d, s)              — Element-wise log: d = torch.log(s)
 //   TROWEXPAND(2d, col)     — Broadcast column → rows: 2d[i,j] = col[i]
 //   TCOLEXPAND(2d, row)     — Broadcast row → cols: 2d[i,j] = row[j]
-//   set_flag(P1, P2, EVT)   — Signal from pipe P1 to pipe P2 (like a semaphore post)
-//   wait_flag(P1, P2, EVT)  — Wait for signal from P1 (like a semaphore wait)
-//   pipe_barrier(PIPE_V)    — Local Vec barrier (ensure all Vec ops complete)
-//   pipe_barrier(PIPE_ALL)  — Barrier for all local pipes
-//   ffts_cross_core_sync()  — Cross-core signal (Cube↔Vec, different physical cores)
-//   wait_flag_dev(flag)     — Wait for cross-core signal
+//   set_flag(P1, P2, EVT)   — Signal from pipe P1 to pipe P2 (like a semaphore
+//   post) wait_flag(P1, P2, EVT)  — Wait for signal from P1 (like a semaphore
+//   wait) pipe_barrier(PIPE_V)    — Local Vec barrier (ensure all Vec ops
+//   complete) pipe_barrier(PIPE_ALL)  — Barrier for all local pipes
+//   ffts_cross_core_sync()  — Cross-core signal (Cube↔Vec, different physical
+//   cores) wait_flag_dev(flag)     — Wait for cross-core signal
 // ============================================================================
 
-#include <pto/pto-inst.hpp>  // PTO (Performance Tile Operator): NPU kernel API
-#include "acl/acl.h"         // ACL (Ascend Computing Language): runtime API
-using namespace pto;
+#include <runtime/rt_ffts.h>  // FFTS: cross-core synchronization primitives
 
-// NumHeads, HiddenSize, and ChunkSize are template parameters. The mega kernel
-// dispatches NumHeads from a runtime value to a finite set of specializations.
+#include <pto/pto-inst.hpp>  // PTO (Performance Tile Operator): NPU kernel API
+
+#include "acl/acl.h"  // ACL (Ascend Computing Language): runtime API
+#include "mega_kernel_utils.h"
+
+using namespace pto;
+using namespace mega_kernel_utils;
+
+// ── Compile-time constants (set by the JIT compiler from Python) ──────
+// D/C stay compile-time because tile shapes depend on them. H/Hg are runtime.
 #ifndef GDN_D
 #define GDN_D 128  // D = hidden dimension per head
 #endif
@@ -83,13 +92,15 @@ using namespace pto;
 #endif
 
 // ── PTO type aliases (device-only, guarded by __CCE_AICORE__) ───────────────
-// These are only compiled for the NPU device compiler (__CCE_AICORE__ is defined
-// when compiling for AI Core hardware, similar to __CUDA_ARCH__ in CUDA).
+// These are only compiled for the NPU device compiler (__CCE_AICORE__ is
+// defined when compiling for AI Core hardware, similar to __CUDA_ARCH__ in
+// CUDA).
 #ifdef __CCE_AICORE__
 // UbND = UB tile in row-major (ND) layout for Vec engine.
 //   Think of it as: torch.empty((R, C), dtype=T) in on-chip SRAM.
-//   RV, CV = valid region (for dynamic shapes, like a[:valid_rows, :valid_cols])
-//   The Vec engine (SIMD unit) reads/writes these tiles for element-wise ops.
+//   RV, CV = valid region (for dynamic shapes, like a[:valid_rows,
+//   :valid_cols]) The Vec engine (SIMD unit) reads/writes these tiles for
+//   element-wise ops.
 template <typename T, int R, int C, int RV = R, int CV = C, pto::PadValue P = pto::PadValue::Null>
 using UbND = pto::Tile<pto::TileType::Vec, T, R, C, pto::BLayout::RowMajor, RV, CV, pto::SLayout::NoneBox, 512, P>;
 
@@ -99,10 +110,12 @@ using UbND = pto::Tile<pto::TileType::Vec, T, R, C, pto::BLayout::RowMajor, RV, 
 template <typename T, int R, int C, int RV = R, int CV = C>
 using UbDN = pto::Tile<pto::TileType::Vec, T, R, C, pto::BLayout::ColMajor, RV, CV, pto::SLayout::NoneBox, 512>;
 
-// L1Mat = L1 cache tile in NZ fractal format (col-major blocks, row-major within).
+// L1Mat = L1 cache tile in NZ fractal format (col-major blocks, row-major
+// within).
 //   This is the standard input format for the Cube matrix engine.
 //   Think of it as a matrix in L1 cache ready for GEMM.
-//   NZ = "Normal-Z": the default fractal layout that Cube expects for left/right operands.
+//   NZ = "Normal-Z": the default fractal layout that Cube expects for
+//   left/right operands.
 template <typename T, int R, int C, int RV = R, int CV = C>
 using L1Mat = pto::Tile<pto::TileType::Mat, T, R, C, pto::BLayout::ColMajor, RV, CV, pto::SLayout::RowMajor, 512,
                         pto::PadValue::Zero>;
@@ -110,7 +123,8 @@ using L1Mat = pto::Tile<pto::TileType::Mat, T, R, C, pto::BLayout::ColMajor, RV,
 // L1MatZN = L1 tile in ZN fractal format (row-major blocks, col-major within).
 //   Used when you need to transpose a matrix before GEMM:
 //   TRESHAPE(l1_zn, l1_nz) reinterprets NZ→ZN layout = logical transpose.
-//   This is FREE (no data movement) — it just changes how the Cube reads the bits.
+//   This is FREE (no data movement) — it just changes how the Cube reads the
+//   bits.
 template <typename T, int R, int C, int RV = R, int CV = C>
 using L1MatZN = pto::Tile<pto::TileType::Mat, T, R, C, pto::BLayout::RowMajor, RV, CV, pto::SLayout::ColMajor, 512,
                           pto::PadValue::Zero>;
@@ -123,22 +137,26 @@ using GmTensor2D = pto::GlobalTensor<T, GmShape2D, GmStride2D>;
 #endif
 
 // ── Main kernel function (runs on each AI core) ──────────────────────
-// Template parameters: NumHeads (H value), HiddenSize, ChunkSize.
+// Template parameters: HiddenSize, ChunkSize.
 // GROUP = H/Hg; Cube loads K at head_g = head_idx / GROUP.
 //
 // __gm__: Marks pointers as Global Memory (HBM) — the NPU equivalent of
 // CUDA's device memory. All input/output tensors live in GM.
-template <int32_t NumHeads, int32_t HiddenSize, int32_t ChunkSize>
-AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ float *G_handle,
-                       __gm__ float *Msk_handle, __gm__ half *workspace_handle, __gm__ half *A_handle,
-                       __gm__ int32_t *cu_seqlens, int64_t batch_size, int64_t seq_len, int64_t total_tokens,
-                       uint32_t num_key_heads)
+template <int32_t HiddenSize, int32_t ChunkSize>
+AICORE inline void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ float *G_handle,
+                              __gm__ float *Msk_handle, __gm__ half *workspace_handle, __gm__ half *A_handle,
+                              __gm__ int32_t *cu_seqlens, int64_t batch_size, int64_t seq_len, int64_t total_tokens,
+                              uint32_t num_heads, uint32_t num_key_heads, uint64_t ffts_addr)
 {
+    // To avoid ambiguity with bisheng intrinsic header's global `enum class
+    // Stride`
+    using pto::Stride;
     constexpr int32_t HalfChunk = ChunkSize / 2;
     constexpr int32_t ChunkSquare = ChunkSize * ChunkSize;
+    const int32_t H = static_cast<int32_t>(num_heads);
     const int32_t key_heads = static_cast<int32_t>(num_key_heads);
-    if (key_heads <= 0 || (NumHeads % key_heads) != 0) return;
-    const int32_t group = NumHeads / key_heads;
+    if (H <= 0 || key_heads <= 0 || (H % key_heads) != 0) return;
+    const int32_t group = H / key_heads;
     const int32_t bsnd_qk_stride = key_heads * HiddenSize;
     // KTail: number of valid columns in the last 128-wide fractal block of K.
     // If HiddenSize is a multiple of 128, the last block is fully used (128).
@@ -162,6 +180,10 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
     // a_ub_half overlaps g_r_2d — safe because they're never live simultaneously
     constexpr int32_t AUbHalfAddr = GR2dUbAddr;
 
+    // set_ffts_base_addr: Tell the hardware where the cross-core flag table
+    // lives. This is a one-time setup so ffts_cross_core_sync / wait_flag_dev
+    // know which memory region to read/write for inter-core signaling.
+    set_ffts_base_addr(ffts_addr);
     auto cid = get_block_idx();        // Which AI core am I? (like CUDA blockIdx.x)
     auto block_num = get_block_num();  // Total AI cores launched (like CUDA gridDim.x)
     // ── Vec sub-block parallelism ─────────────────────────────────────────
@@ -174,7 +196,7 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
     // Work distribution: each (sequence, head) pair is one "work item".
     // AI cores split work round-robin, just like CUDA blocks split a grid.
     int64_t num_seqs = batch_size;
-    int64_t total_work = num_seqs * NumHeads;
+    int64_t total_work = num_seqs * H;
 
     // ── Cube-side tile declarations ─────────────────────────────────────
     // Cube-side tiles: K in L1 (NZ format), accumulator in L0C
@@ -182,15 +204,16 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
     TASSIGN(k_l1, 0);
     // TileAcc<float, C, C>: L0C accumulator tile for GEMM results.
     // The Cube engine always accumulates in float32 for precision, even when
-    // inputs are fp16. Think of it as: result = torch.matmul(a.half(), b.half()).float()
-    // When stored to GM via TSTORE with a half GlobalTensor, automatic fp32→fp16 cast occurs.
+    // inputs are fp16. Think of it as: result = torch.matmul(a.half(),
+    // b.half()).float() When stored to GM via TSTORE with a half GlobalTensor,
+    // automatic fp32→fp16 cast occurs.
     TileAcc<float, ChunkSize, ChunkSize, ChunkSize, ChunkSize> a_l0;
     TASSIGN(a_l0, 0);
 
     // ── Vec-side UB tile declarations ────────────────────────────────────
     // These tiles live in UB (Unified Buffer, the Vec engine's SRAM scratchpad).
-    // Each TASSIGN binds a tile handle to a fixed UB byte offset (our manual alloc).
-    // Vec-side UB tiles for gating computation
+    // Each TASSIGN binds a tile handle to a fixed UB byte offset (our manual
+    // alloc). Vec-side UB tiles for gating computation
     UbND<float, 1, ChunkSize, 1, ChunkSize> g_ub;
     TASSIGN(g_ub, GUbAddr);
     UbND<half, 1, HalfChunk, 1, HalfChunk> beta_ub_half;
@@ -229,29 +252,36 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
     // For K @ K^T:  (numpy: KK_T = K @ K.T)
     //   Left operand: K [C×D] loaded into L1 in NZ format
     //   Right operand: K^T — same data, but we TRESHAPE to ZN format
-    //     (TRESHAPE is FREE — it just reinterprets the fractal layout as transposed)
-    //   Result: KK^T [C×C] in L0C (float32 accumulator, even though inputs are fp16)
+    //     (TRESHAPE is FREE — it just reinterprets the fractal layout as
+    //     transposed)
+    //   Result: KK^T [C×C] in L0C (float32 accumulator, even though inputs are
+    //   fp16)
     // ========================================================================
-    // __DAV_C220_CUBE__: This code only compiles for the Cube core.
-    // On NPU, Cube and Vec are separate compilation targets (like two different GPUs).
-#if defined(__DAV_C220_CUBE__)
-    // Outer loop: iterate over all (sequence, head) work items assigned to this core
+    // __DAV_CUBE__: This code only compiles for the Cube core.
+    // On NPU, Cube and Vec are separate compilation targets (like two different
+    // GPUs).
+#if defined(__DAV_CUBE__)
+    // Outer loop: iterate over all (sequence, head) work items assigned to this
+    // core
     for (int64_t work_idx = 0; work_idx < (total_work + block_num - 1) / block_num; ++work_idx) {
         int64_t pid = work_idx * static_cast<int64_t>(block_num) + static_cast<int64_t>(cid);
         if (pid >= total_work) continue;
 
         // Map linear work index → (sequence, head) pair
-        int32_t head_idx = static_cast<int32_t>(pid % NumHeads);
-        int64_t seq_idx = pid / NumHeads;
+        int32_t head_idx = static_cast<int32_t>(pid % H);
+        int64_t seq_idx = pid / H;
 
-        // Resolve sequence boundaries: cu_seqlens for variable-length, else fixed stride
+        // Resolve sequence boundaries: cu_seqlens for variable-length, else fixed
+        // stride
         int64_t bos, slen;
         if (cu_seqlens != nullptr) {
-            // Variable-length sequences (packed tensor): cu_seqlens = [0, len0, len0+len1, ...]
+            // Variable-length sequences (packed tensor): cu_seqlens = [0, len0,
+            // len0+len1, ...]
             bos = static_cast<int64_t>(cu_seqlens[seq_idx]);
             slen = static_cast<int64_t>(cu_seqlens[seq_idx + 1]) - bos;
         } else {
-            // Fixed-length sequences: each is seq_len tokens starting at seq_idx*seq_len
+            // Fixed-length sequences: each is seq_len tokens starting at
+            // seq_idx*seq_len
             bos = seq_idx * seq_len;
             slen = seq_len;
         }
@@ -265,8 +295,15 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
         // This overlaps Cube computation with Vec computation for pipelining.
         for (int64_t ci = 0; ci < num_chunks; ++ci) {
             int32_t slot = static_cast<int32_t>(ci & 1);
-            // Wait for Vec to finish reading the previous KK^T from this slot
+            // Wait for Vec to finish reading the previous KK^T from this slot.
+            // A2: Cube and Vec are separate cores → FFTS cross-core flag.
+            // A5: Cube and both Vec sub-blocks live in ONE core → intra-block flags,
+            //     and each Vec sub-block signals its own flag (base and base+16).
+#if __CCE_AICORE__ == 220
             wait_flag_dev(2 + slot);
+#else
+            WaitBothVecOnA5<PIPE_MTE2>(2 + slot);
+#endif
             pipe_barrier(PIPE_ALL);
 
             int64_t chunk_start = ci * ChunkSize;
@@ -274,7 +311,8 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
             int32_t valid_rows = static_cast<int32_t>(remaining < ChunkSize ? remaining : ChunkSize);
 
             // BSND key layout [Seq, Hg, D]: token stride Hg * D (see BSND_QK_STRIDE).
-            // Value head head_idx maps to head_g = head_idx / GROUP for shared K rows.
+            // Value head head_idx maps to head_g = head_idx / GROUP for shared K
+            // rows.
             int32_t head_g = head_idx / group;
             int64_t k_offset = ((bos + chunk_start) * static_cast<int64_t>(key_heads) + static_cast<int64_t>(head_g)) *
                                static_cast<int64_t>(HiddenSize);
@@ -282,8 +320,8 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
             // ── Load K chunk from GM → L1 (MTE2 pipe) ──────────────────────
             // DYNAMIC shape: valid_rows may be < ChunkSize for the last chunk.
             // GlobalTensor describes the GM layout with strides (BSND interleaved).
-            // TLOAD triggers the MTE2 DMA engine to copy from GM (HBM) → L1 (on-chip cache).
-            // If the chunk is partial, TFILLPAD zero-fills the padding region
+            // TLOAD triggers the MTE2 DMA engine to copy from GM (HBM) → L1 (on-chip
+            // cache). If the chunk is partial, TFILLPAD zero-fills the padding region
             // so the GEMM doesn't produce garbage from uninitialized memory.
             {
                 L1Mat<half, ChunkSize, HiddenSize, DYNAMIC, DYNAMIC> _l1(valid_rows, HiddenSize);
@@ -301,7 +339,8 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
             // ── WAR (Write-After-Read) synchronization ────────────────────────
             // Before TEXTRACT (MTE1) writes new data to L0A/L0B, we must ensure:
             //   1. MTE2 has finished loading L1 (MTE2→MTE1 sync)
-            //   2. Cube M pipe has finished reading previous L0A/L0B data (M→MTE1 sync)
+            //   2. Cube M pipe has finished reading previous L0A/L0B data (M→MTE1
+            //   sync)
             // After TEXTRACT, before TMATMUL:
             //   3. MTE1→M sync ensures L0A/L0B data is ready for the matrix engine
             // After TMATMUL completes:
@@ -347,21 +386,29 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
 
             // ── Cross-core synchronization (Cube → Vec) ──────────────────────
             // ffts_cross_core_sync(pipe, config): Signal across physical cores.
-            // Unlike set_flag/wait_flag (which sync pipes within ONE core), this syncs
-            // between the Cube core and Vec core (they are separate hardware units).
+            // Unlike set_flag/wait_flag (which sync pipes within ONE core), this
+            // syncs between the Cube core and Vec core (they are separate hardware
+            // units).
             //
             // Config encoding: 1 | (mode << 4) | (flag_id << 8)
             //   mode=2: broadcast to all cores on same block
             //   flag_id: which flag to set (0,1,2,3...)
             //
-            // The receiving side calls wait_flag_dev(flag_id) to wait for this signal.
+            // The receiving side calls wait_flag_dev(flag_id) to wait for this
+            // signal.
             //
             // In this kernel:
             //   Cube sets flag 0/1 → Vec waits on wait_flag_dev(0/1) (KK^T ready)
             //   Vec sets flag 2/3 → Cube waits on wait_flag_dev(2/3) (workspace free)
             //
             // Signal Vec that this slot's KK^T is ready
-            ffts_cross_core_sync(PIPE_FIX, 1 | (2 << 4) | (slot << 8));
+            // ffts_cross_core_sync(PIPE_FIX, 1 | (2 << 4) | (slot << 8));
+#if __CCE_AICORE__ == 220
+            SetCrossFlag<PIPE_FIX>(slot);
+#else
+            pipe_barrier(PIPE_ALL);
+            SignalBothVecOnA5<PIPE_FIX>(slot);
+#endif
         }
     }
 #endif
@@ -388,8 +435,8 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
     // # Final: A = KK_T * coeff * causal_mask
     // A = KK_T[my_rows] * coeff * mask[my_rows]           # TMUL × 2
     // ========================================================================
-    // __DAV_C220_VEC__: This code only compiles for the Vec core.
-#if defined(__DAV_C220_VEC__)
+    // __DAV_VEC__: This code only compiles for the Vec core.
+#if defined(__DAV_VEC__)
     // set_mask_norm / set_vector_mask: configure the SIMD mask for Vec ops.
     // (-1, -1) means "all lanes active" — process every element.
     // (Like CUDA's __activemask() returning all 1s for a full warp.)
@@ -416,15 +463,22 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
     // Initial cross-core sync: release both workspace slots so Cube can start.
     // Vec tells Cube "slots 0 and 1 are free" by setting flags 2 and 3.
     // Without this, Cube would hang on wait_flag_dev(2/3) at the first iteration.
-    ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (2 << 8));
-    ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (3 << 8));
+    // ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (2 << 8));
+    // ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (3 << 8));
+#if __CCE_AICORE__ == 220
+    SetCrossFlag<PIPE_MTE3>(2);
+    SetCrossFlag<PIPE_MTE3>(3);
+#else
+    set_intra_block(PIPE_MTE3, 2);
+    set_intra_block(PIPE_MTE3, 3);
+#endif
 
     for (int64_t work_idx = 0; work_idx < (total_work + block_num - 1) / block_num; ++work_idx) {
         int64_t pid = work_idx * static_cast<int64_t>(block_num) + static_cast<int64_t>(cid);
         if (pid >= total_work) continue;
 
-        int32_t head_idx = static_cast<int32_t>(pid % NumHeads);
-        int64_t seq_idx = pid / NumHeads;
+        int32_t head_idx = static_cast<int32_t>(pid % H);
+        int64_t seq_idx = pid / H;
 
         int64_t bos, slen;
         if (cu_seqlens != nullptr) {
@@ -490,7 +544,11 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
             }
 
             // Wait for Cube to finish writing KK^T for this slot
+#if __CCE_AICORE__ == 220
             wait_flag_dev(slot);
+#else
+            wait_intra_block(PIPE_MTE3, slot);
+#endif
             pipe_barrier(PIPE_ALL);
 
             if (local_valid > 0) {
@@ -498,23 +556,25 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
                 // Step 1: Convert beta from fp16→fp32 for precision
                 // Step 2: g_v[i] = g[row_offset+i] + log(β[i])  — combined row gate
                 // Step 3: Broadcast g_v (rows) and g (cols) to 2D matrices
-                // Step 4: coeff = exp(min(g_v_2d - g_2d, 0)) — clamped exponential gating
-                // g_v[i] = g[row_offset+i] + log(β[i])  — combined row gate
+                // Step 4: coeff = exp(min(g_v_2d - g_2d, 0)) — clamped exponential
+                // gating g_v[i] = g[row_offset+i] + log(β[i])  — combined row gate
                 TCVT(beta_ub, beta_ub_half, pto::RoundMode::CAST_NONE);
-                // g_ub_temp points to the sub-block's portion of g within the full g_ub.
-                // row_offset * sizeof(float) is the byte offset into the g_ub tile.
+                // g_ub_temp points to the sub-block's portion of g within the full
+                // g_ub. row_offset * sizeof(float) is the byte offset into the g_ub
+                // tile.
                 UbND<float, 1, HalfChunk, 1, HalfChunk> g_ub_temp;
                 TASSIGN(g_ub_temp, GUbAddr + row_offset * static_cast<int32_t>(sizeof(float)));
                 TMOV(g_v_ub, g_ub_temp);  // g_v = g[row_offset:row_offset+C/2]
-                pipe_barrier(PIPE_V);     // Wait for TMOV to complete
+                PipeBarrierVec();         // Wait for TMOV to complete
 
                 TLOG(beta_ub, beta_ub);  // beta_ub = log(beta) in-place
-                pipe_barrier(PIPE_V);
-                TADD(g_v_ub, g_v_ub, beta_ub);  // g_v = g_sub + log(beta) — the combined gate
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
+                TADD(g_v_ub, g_v_ub,
+                     beta_ub);  // g_v = g_sub + log(beta) — the combined gate
+                PipeBarrierVec();
                 TMOV(g_r_ub, g_v_ub);  // Copy to g_r for row-broadcast
                 TMOV(g_c_ub, g_ub);    // Copy full g to g_c for col-broadcast
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
 
                 // Broadcast g_v to rows, g to columns → 2D gating matrix
                 // coeff[i,j] = exp(min(g_v[i] - g[j], 0))
@@ -525,16 +585,18 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
                 TASSIGN(g_r_ub_temp, GRUbAddr);
                 TROWEXPAND(g_r_2d_ub, g_r_ub_temp);  // g_r_2d[i,j] = g_v[i] for all j
                 TCOLEXPAND(g_c_2d_ub, g_c_ub);       // g_c_2d[i,j] = g[j] for all i
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
                 TSUB(coeff_ub, g_r_2d_ub, g_c_2d_ub);  // coeff[i,j] = g_v[i] - g[j]
-                pipe_barrier(PIPE_V);
-                TMINS(coeff_ub, coeff_ub, 0.0f);  // clamp to ≤ 0 (coeff will be ≤ 1 after exp)
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
+                TMINS(coeff_ub, coeff_ub,
+                      0.0f);  // clamp to ≤ 0 (coeff will be ≤ 1 after exp)
+                PipeBarrierVec();
                 TEXP(coeff_ub, coeff_ub);  // coeff = exp(clamped_diff) ∈ (0, 1]
 
                 // V→MTE2 sync: ensure gating computation is done before we start
-                // loading KK^T from workspace (we need coeff ready for the multiply later,
-                // and we want to overlap the DMA load with the preceding Vec work).
+                // loading KK^T from workspace (we need coeff ready for the multiply
+                // later, and we want to overlap the DMA load with the preceding Vec
+                // work).
                 set_flag(PIPE_V, PIPE_MTE2, EVENT_ID0);
                 wait_flag(PIPE_V, PIPE_MTE2, EVENT_ID0);
 
@@ -559,11 +621,13 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
                 wait_flag(PIPE_MTE2, PIPE_V, EVENT_ID0);
 
                 // ── Apply gating and mask: A = KK^T · coeff · mask ───────────
-                // 1. Convert KK^T from fp16 → fp32 (Cube stored it as fp16 to save GM bandwidth)
+                // 1. Convert KK^T from fp16 → fp32 (Cube stored it as fp16 to save GM
+                // bandwidth)
                 TCVT(a_ub, a_ub_half, pto::RoundMode::CAST_NONE);
                 // 2. Element-wise multiply by gating coefficient
                 TMUL(a_ub, a_ub, coeff_ub);
-                // 3. Element-wise multiply by causal mask (lower triangular, zeros above diagonal)
+                // 3. Element-wise multiply by causal mask (lower triangular, zeros
+                // above diagonal)
                 TMUL(a_ub, a_ub, msk_ub);
                 // 4. Convert result back to fp16 for output
                 TCVT(a_ub_half, a_ub, pto::RoundMode::CAST_NONE);
@@ -573,18 +637,17 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
                 wait_flag(PIPE_V, PIPE_MTE3, EVENT_ID0);
 
                 // ── Store A sub-block to output GM ────────────────────────────
-                // Output A is in BSND layout: [total_tokens, NumHeads, ChunkSize]
-                // Each row of A corresponds to one token's attention weights for this head.
-                // Stride between consecutive tokens = NumHeads * ChunkSize (BSND interleaved).
+                // Output A is in BSND layout: [total_tokens, H, ChunkSize]
+                // Each row of A corresponds to one token's attention weights for this
+                // head. Stride between consecutive tokens = H * ChunkSize (BSND
+                // interleaved).
                 int64_t a_gm_offset =
-                    ((bos + chunk_start + row_offset) * NumHeads + head_idx) * static_cast<int64_t>(ChunkSize);
+                    ((bos + chunk_start + row_offset) * H + head_idx) * static_cast<int64_t>(ChunkSize);
 
                 {
-                    Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
-                    _gs.shape[3] = local_valid;
-                    _gs.shape[4] = ChunkSize;
-                    GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, NumHeads * ChunkSize, 1>> _gm(
-                        A_handle + a_gm_offset, _gs);
+                    GmShape2D _gs(local_valid, ChunkSize);
+                    GmStride2D _stride(H * ChunkSize);
+                    GmTensor2D<half> _gm(A_handle + a_gm_offset, _gs, _stride);
                     UbND<half, HalfChunk, ChunkSize, DYNAMIC, DYNAMIC> _st(local_valid, ChunkSize);
                     TASSIGN(_st, AUbHalfAddr);
                     TSTORE(_gm, _st);
@@ -595,7 +658,12 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
             // Signal Cube that this workspace slot is free for reuse.
             // Flag (2+slot): slot 0 → flag 2, slot 1 → flag 3.
             // Cube is waiting on wait_flag_dev(2+slot) before writing the next chunk.
-            ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | ((2 + slot) << 8));
+            // ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | ((2 + slot) << 8));
+#if __CCE_AICORE__ == 220
+            SetCrossFlag<PIPE_MTE3>(2 + slot);
+#else
+            set_intra_block(PIPE_MTE3, 2 + slot);
+#endif
         }
     }
 #endif

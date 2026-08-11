@@ -52,25 +52,22 @@
 // Key PTO APIs (numpy/torch equivalents):
 //   TLOAD(dst, gm)          — dst = gm_data        (DMA: GM→L1 or GM→UB)
 //   TSTORE(gm, src)         — gm_data = src        (DMA: UB/L0C→GM)
-//   TASSIGN(tile, addr)     — tile = memory[addr]   (bind tile to buffer address)
-//   TCVT(dst, src, mode)    — dst = src.float()/.half()
-//   TMOV(dst, src)          — dst = src.clone()
-//   TADD(d, a, b)           — d = a + b
-//   TSUB(d, a, b)           — d = a - b
-//   TMUL(d, a, b)           — d = a * b
-//   TMULS(d, s, scalar)     — d = s * scalar       (scalar multiply)
-//   TADDS(d, s, scalar)     — d = s + scalar       (scalar add)
-//   TEXP(d, s)              — d = torch.exp(s)
-//   TEXPANDS(tile, scalar)  — tile[:] = scalar     (fill with constant)
-//   TROWEXPAND(2d, col)     — 2d[i,j] = col[i]    (broadcast col across row dim)
-//   TFILLPAD(dst, src)      — zero-fill L1 tile padding (for tail chunks)
-//   TEXTRACT(l0, l1, r, c)  — L1 sub-tile → L0A/L0B
-//   TRESHAPE(zn, nz)        — reinterpret layout NZ↔ZN (logical transpose, free)
-//   TMATMUL(C, A, B)        — C = A @ B (Cube GEMM, fp16 inputs → fp32 accum)
-//   set_flag/wait_flag      — pipe sync within same core
-//   ffts_cross_core_sync    — cross-core signal Cube↔Vec
+//   TASSIGN(tile, addr)     — tile = memory[addr]   (bind tile to buffer
+//   address) TCVT(dst, src, mode)    — dst = src.float()/.half() TMOV(dst, src)
+//   — dst = src.clone() TADD(d, a, b)           — d = a + b TSUB(d, a, b) — d =
+//   a - b TMUL(d, a, b)           — d = a * b TMULS(d, s, scalar)     — d = s *
+//   scalar       (scalar multiply) TADDS(d, s, scalar)     — d = s + scalar
+//   (scalar add) TEXP(d, s)              — d = torch.exp(s) TEXPANDS(tile,
+//   scalar)  — tile[:] = scalar     (fill with constant) TROWEXPAND(2d, col) —
+//   2d[i,j] = col[i]    (broadcast col across row dim) TFILLPAD(dst, src) —
+//   zero-fill L1 tile padding (for tail chunks) TEXTRACT(l0, l1, r, c)  — L1
+//   sub-tile → L0A/L0B TRESHAPE(zn, nz)        — reinterpret layout NZ↔ZN
+//   (logical transpose, free) TMATMUL(C, A, B)        — C = A @ B (Cube GEMM,
+//   fp16 inputs → fp32 accum) set_flag/wait_flag      — pipe sync within same
+//   core ffts_cross_core_sync    — cross-core signal Cube↔Vec
 //   wait_flag_dev(flag)     — wait for cross-core signal
-//   GetValue(idx)           — read a single scalar from a UB tile (slow, use sparingly)
+//   GetValue(idx)           — read a single scalar from a UB tile (slow, use
+//   sparingly)
 //
 // ── Workspace memory layout (shared between Cube and Vec via GM) ──────
 // Each AI core has its own workspace region to avoid contention:
@@ -81,17 +78,31 @@
 //
 // Data flow per chunk (think of it as a ping-pong between Cube and Vec):
 //   Vec: write S₀ to WS_S → signal Cube (flag 3)
-//   Cube: read S from WS_S, load W → compute WS = W@S → write WS_WS → signal Vec (flag 0)
-//   Vec: read WS, compute V_new = U - WS, compute K_scaled → write WS_K → signal Cube (flag 1)
-//   Cube: read K from WS_K, load V → compute KV = K^T@V → write WS_KV → signal Vec (flag 2)
-//   Vec: read KV, update S = exp(g_last)*S + KV → write S to WS_S → signal Cube (flag 3)
+//   Cube: read S from WS_S, load W → compute WS = W@S → write WS_WS → signal
+//   Vec (flag 0) Vec: read WS, compute V_new = U - WS, compute K_scaled → write
+//   WS_K → signal Cube (flag 1) Cube: read K from WS_K, load V → compute KV =
+//   K^T@V → write WS_KV → signal Vec (flag 2) Vec: read KV, update S =
+//   exp(g_last)*S + KV → write S to WS_S → signal Cube (flag 3)
 //   ... repeat for next chunk ...
 // ============================================================================
 
+#include <runtime/rt_ffts.h>
+
 #include <pto/pto-inst.hpp>
 #include <type_traits>
+
 #include "acl/acl.h"
+#include "mega_kernel_utils.h"
 using namespace pto;
+using namespace mega_kernel_utils;
+
+#ifndef GDN_D
+#define GDN_D 128
+#endif
+
+#ifndef GDN_C
+#define GDN_C 128
+#endif
 
 #ifdef __CCE_AICORE__
 
@@ -123,11 +134,11 @@ using TileMatL1ZN = pto::Tile<pto::TileType::Mat, T, Rows, Cols, pto::BLayout::R
                               pto::SLayout::ColMajor, 512, pto::PadValue::Zero>;
 
 template <typename T, int32_t Rows, int32_t Cols, int32_t RowValid = Rows, int32_t ColValid = Cols>
-using TileMatL0A = pto::Tile<pto::TileType::Left, T, Rows, Cols, pto::BLayout::RowMajor, RowValid, ColValid,
+using TileMatL0A = pto::Tile<pto::TileType::Left, T, Rows, Cols, GetOuterLayout(/*is_left=*/true), RowValid, ColValid,
                              pto::SLayout::RowMajor, 512, pto::PadValue::Zero>;
 
 template <typename T, int32_t Rows, int32_t Cols, int32_t RowValid = Rows, int32_t ColValid = Cols>
-using TileMatL0B = pto::Tile<pto::TileType::Right, T, Rows, Cols, pto::BLayout::RowMajor, RowValid, ColValid,
+using TileMatL0B = pto::Tile<pto::TileType::Right, T, Rows, Cols, GetOuterLayout(/*is_left=*/false), RowValid, ColValid,
                              pto::SLayout::ColMajor, 512, pto::PadValue::Zero>;
 
 template <typename T, int32_t Rows, int32_t Cols, int32_t RowValid = Rows, int32_t ColValid = Cols,
@@ -262,11 +273,12 @@ gemm_v0(std::conditional_t<transpose_A, TileMatL1<T1, K, M, validK, validM>, Til
 
 #endif
 
-template <int32_t NumHeads, int32_t HiddenSize, int32_t ChunkSize>
+template <int32_t HiddenSize, int32_t ChunkSize>
 AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ half *U_handle, __gm__ float *G_handle,
                            __gm__ half *S_handle, __gm__ half *V_handle, __gm__ half *FS_handle, __gm__ half *H0_handle,
-                           int64_t has_initial_state, __gm__ half *workspace_handle, __gm__ int32_t *cu_seqlens,
-                           int64_t batch_size, int64_t seq_len, int64_t total_tokens, uint32_t num_key_heads)
+                           int64_t has_initial_state, int64_t output_final_state, __gm__ half *workspace_handle,
+                           __gm__ int32_t *cu_seqlens, int64_t batch_size, int64_t seq_len, int64_t total_tokens,
+                           uint32_t num_heads, uint32_t num_key_heads, uint64_t ffts_addr)
 {
     // chunk_h advances the recurrent hidden state chunk by chunk:
     //   ws_i      = W_i @ S_i
@@ -291,15 +303,16 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
     //   Vec does the elementwise gating/decay and carries the running state.
     auto cid = get_block_idx();
     auto block_num = get_block_num();
+    set_ffts_base_addr(ffts_addr);
 
     constexpr int32_t D = HiddenSize;
     constexpr int32_t C = ChunkSize;
-    constexpr int32_t H = NumHeads;
+    const int32_t H = static_cast<int32_t>(num_heads);
     const int32_t Hg = static_cast<int32_t>(num_key_heads);
-    if (Hg <= 0 || (H % Hg) != 0) return;
+    if (H <= 0 || Hg <= 0 || (H % Hg) != 0) return;
     const int32_t GROUP = H / Hg;
     constexpr int32_t HalfC = C / 2;
-    constexpr int32_t BSND_QKV_STRIDE = H * D;
+    const int32_t BSND_QKV_STRIDE = H * D;
     const int32_t BSND_K_STRIDE = Hg * D;
     constexpr int32_t DD = D * D;
 
@@ -323,8 +336,9 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
     TASSIGN(kv_l0, C * D * sizeof(float));
 
     constexpr int32_t G_BLOCK_UB = 0;
-    // Leading UB scratch: legacy kernels used ``C * NumHeads * sizeof(float)``, which overflows UB when
-    // ``NumHeads`` is 32/48/64. Keep the same slack as the historical ``GDN_H=16`` build (8192 bytes).
+    // Leading UB scratch: legacy kernels used ``C * H * sizeof(float)``, which
+    // overflows UB when Keep the same slack as the historical H=16 build (8192
+    // bytes).
     constexpr int32_t ZERO_UB = ChunkSize * 16 * static_cast<int32_t>(sizeof(float));
     constexpr int32_t S_UB = ZERO_UB + 64 * sizeof(float);
     constexpr int32_t K_UB_HALF = S_UB + HalfC * D * sizeof(float);
@@ -368,7 +382,7 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
     int64_t num_seqs = batch_size;
     int64_t total_work = num_seqs * H;
 
-#if defined(__DAV_C220_CUBE__)
+#if defined(__DAV_CUBE__)
     for (int64_t wi = 0; wi < (total_work + block_num - 1) / block_num; ++wi) {
         int64_t pid = wi * block_num + cid;
         if (pid >= total_work) break;
@@ -401,7 +415,16 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
         //   WS_KV : k_tilde^T @ v_i_new
 
         for (int32_t ci = 0; ci < num_chunks; ++ci) {
+            // Wait Vec: S workspace ready (flag 3).
+            // A2: Cube and Vec are separate cores → FFTS cross-core flag.
+            // A5: Cube and both Vec sub-blocks share ONE core → intra-block flags,
+            //     with each Vec sub-block signalling its own flag (base, base+16).
+#if __CCE_AICORE__ == 220
             wait_flag_dev(3);
+#else
+            WaitBothVecOnA5<PIPE_MTE2>(3);
+            pipe_barrier(PIPE_ALL);
+#endif
 
             int64_t chunk_start = bos + static_cast<int64_t>(ci) * C;
             int64_t valid = slen - static_cast<int64_t>(ci) * C;
@@ -444,9 +467,22 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
                 // Save ws_i so the Vec phase can do `v_new = U_i - ws_i`.
                 TSTORE(ws_global, ws_store);
             }
-            ffts_cross_core_sync(PIPE_FIX, 1 | (2 << 4) | (0 << 8));
+            // Signal Vec: WS workspace ready (flag 0)
+            // ffts_cross_core_sync(PIPE_FIX, 1 | (2 << 4) | (0 << 8));
+#if __CCE_AICORE__ == 220
+            SetCrossFlag<PIPE_FIX>(0);
+#else
+            pipe_barrier(PIPE_ALL);
+            SignalBothVecOnA5<PIPE_FIX>(0);
+#endif
 
+            // Wait Vec: k_tilde workspace ready (flag 1)
+#if __CCE_AICORE__ == 220
             wait_flag_dev(1);
+#else
+            WaitBothVecOnA5<PIPE_MTE2>(1);
+            pipe_barrier(PIPE_ALL);
+#endif
 
             {
                 GmShape2D k_shape(D, C);
@@ -472,7 +508,8 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
 
             set_flag(PIPE_FIX, PIPE_M, EVENT_ID0);
             wait_flag(PIPE_FIX, PIPE_M, EVENT_ID0);
-            // This chunk contributes the additive update K_i^T V_i to the state recurrence.
+            // This chunk contributes the additive update K_i^T V_i to the state
+            // recurrence.
             gemm_v0<half, float, D, D, C, D, D, C, C, true, false>(k_l1, v_l1, kv_l0, (bool)1);
 
             {
@@ -484,11 +521,18 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
                 // Save kv = k_tilde^T @ v_i_new so Vec can finish the state update.
                 TSTORE(kv_global, kv_store);
             }
-            ffts_cross_core_sync(PIPE_FIX, 1 | (2 << 4) | (2 << 8));
+            // Signal Vec: KV workspace ready (flag 2)
+            // ffts_cross_core_sync(PIPE_FIX, 1 | (2 << 4) | (2 << 8));
+#if __CCE_AICORE__ == 220
+            SetCrossFlag<PIPE_FIX>(2);
+#else
+            pipe_barrier(PIPE_ALL);
+            SignalBothVecOnA5<PIPE_FIX>(2);
+#endif
         }
     }
 #endif
-#if defined(__DAV_C220_VEC__)
+#if defined(__DAV_VEC__)
     set_mask_norm();
     set_vector_mask(-1, -1);
 
@@ -544,7 +588,8 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
         set_flag(PIPE_V, PIPE_MTE3, EVENT_ID0);
         wait_flag(PIPE_V, PIPE_MTE3, EVENT_ID0);
         {
-            // `workspace_handle` is a `half*`, so all offsets here are in half elements.
+            // `workspace_handle` is a `half*`, so all offsets here are in half
+            // elements.
             GmShape2D s_shape(HalfC, D);
             GmStride2D s_stride(D);
             GmTensor2D<half> s_global(workspace_handle + ws_base + WS_S + vid * HalfC * D, s_shape, s_stride);
@@ -561,7 +606,14 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
             TASSIGN(s_out_store, S_UB_HALF);
             TSTORE(s_out_global, s_out_store);
         }
-        ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (3 << 8));
+        // Signal Cube: S workspace ready (flag 3)
+        // ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (3 << 8));
+#if __CCE_AICORE__ == 220
+        SetCrossFlag<PIPE_MTE3>(3);
+#else
+        pipe_barrier(PIPE_ALL);
+        set_intra_block(PIPE_MTE3, 3);
+#endif
 
         int64_t chunk_start_0 = bos;
         int64_t valid0 = slen;
@@ -647,13 +699,13 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
             set_flag(PIPE_V, PIPE_S, EVENT_ID0);
             wait_flag(PIPE_V, PIPE_S, EVENT_ID0);
             float g_last = g_ub.GetValue(static_cast<int32_t>(valid) - 1);
-            // Rebase the chunk gate around g_last so the intra-chunk decay stays numerically local.
-            // Torch-like:
+            // Rebase the chunk gate around g_last so the intra-chunk decay stays
+            // numerically local. Torch-like:
             //   coeff = exp(g_last - g_rows_owned_by_this_subblock)
             TADDS(coeff_ub, g_v_ub, -g_last);
-            pipe_barrier(PIPE_V);
+            PipeBarrierVec();
             TSUB(coeff_ub, zero_ub, coeff_ub);
-            pipe_barrier(PIPE_V);
+            PipeBarrierVec();
             TEXP(coeff_ub, coeff_ub);
 
             TEXP(g_ub, g_ub);
@@ -669,12 +721,18 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
             // Broadcast one decay scalar per token row across the D feature columns:
             //   coeff_2d[row, :] = coeff[row]
             TROWEXPAND(coeff_2d_ub, coeff_col_ub);
-            pipe_barrier(PIPE_V);
+            PipeBarrierVec();
             // `k_ub` now holds k_tilde = exp(g_last - g_i) * K_i.
             TMUL(k_ub, k_ub, coeff_2d_ub);
-            pipe_barrier(PIPE_V);
+            PipeBarrierVec();
 
+            // Wait Cube: WS workspace ready (flag 0)
+#if __CCE_AICORE__ == 220
             wait_flag_dev(0);
+#else
+            wait_intra_block(PIPE_MTE3, 0);
+            pipe_barrier(PIPE_ALL);
+#endif
             {
                 GmShape2D ws_shape(HalfC, D);
                 GmStride2D ws_stride(D);
@@ -718,12 +776,20 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
                 TSTORE(k_global, k_store);
             }
 
-            ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (1 << 8));
+            // Signal Cube: k_tilde workspace ready (flag 1)
+            // ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (1 << 8));
+#if __CCE_AICORE__ == 220
+            SetCrossFlag<PIPE_MTE3>(1);
+#else
+            pipe_barrier(PIPE_ALL);
+            set_intra_block(PIPE_MTE3, 1);
+#endif
 
             set_flag(PIPE_MTE3, PIPE_S, EVENT_ID0);
             wait_flag(PIPE_MTE3, PIPE_S, EVENT_ID0);
             float exp_g_last = g_ub.GetValue(static_cast<int32_t>(valid) - 1);
-            // Carry the recurrence across chunks: S_{i+1} = exp(g_last) * S_i + K_i^T V_i.
+            // Carry the recurrence across chunks: S_{i+1} = exp(g_last) * S_i + K_i^T
+            // V_i.
             TMULS(s_ub, s_ub, exp_g_last);
 
             set_flag(PIPE_V, PIPE_MTE2, EVENT_ID0);
@@ -768,7 +834,13 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
                 }
             }
 
+            // Wait Cube: KV workspace ready (flag 2)
+#if __CCE_AICORE__ == 220
             wait_flag_dev(2);
+#else
+            wait_intra_block(PIPE_MTE3, 2);
+            pipe_barrier(PIPE_ALL);
+#endif
             {
                 GmShape2D kv_shape(HalfC, D);
                 GmStride2D kv_stride(D);
@@ -800,8 +872,8 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
                     TSTORE(s_global, s_store);
                 }
 
-                // Expose the post-chunk state so the next chunk (and debug/verification
-                // outputs) can see S_{i+1}. Conceptually:
+                // Expose the post-chunk state so the next chunk and output snapshot
+                // can see S_{i+1}. Conceptually:
                 //   S_handle[chunk_idx + 1, head] = S_{i+1}
                 int64_t s_out_offset = ((chunk_offset + ci + 1) * H + head) * DD;
                 {
@@ -812,7 +884,14 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
                     TASSIGN(s_out_store, S_UB_HALF);
                     TSTORE(s_out_global, s_out_store);
                 }
-                ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (3 << 8));
+                // Signal Cube: S workspace ready (flag 3)
+                // ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (3 << 8));
+#if __CCE_AICORE__ == 220
+                SetCrossFlag<PIPE_MTE3>(3);
+#else
+                pipe_barrier(PIPE_ALL);
+                set_intra_block(PIPE_MTE3, 3);
+#endif
             }
 
             if (ci + 1 < static_cast<int32_t>(num_chunks)) {
@@ -821,19 +900,21 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
             }
         }
 
-        set_flag(PIPE_V, PIPE_MTE3, EVENT_ID0);
-        wait_flag(PIPE_V, PIPE_MTE3, EVENT_ID0);
-        int64_t fs_offset = (seq_idx * H + head) * DD;
-        {
-            GmShape2D fs_shape(HalfC, D);
-            GmStride2D fs_stride(D);
-            GmTensor2D<half> fs_global(FS_handle + fs_offset + vid * HalfC * D, fs_shape, fs_stride);
-            DynVecTile<half, HalfC, D> fs_store(HalfC, D);
-            TASSIGN(fs_store, S_UB_HALF);
-            TSTORE(fs_global, fs_store);
+        if (output_final_state != 0) {
+            set_flag(PIPE_V, PIPE_MTE3, EVENT_ID0);
+            wait_flag(PIPE_V, PIPE_MTE3, EVENT_ID0);
+            int64_t fs_offset = (seq_idx * H + head) * DD;
+            {
+                GmShape2D fs_shape(HalfC, D);
+                GmStride2D fs_stride(D);
+                GmTensor2D<half> fs_global(FS_handle + fs_offset + vid * HalfC * D, fs_shape, fs_stride);
+                DynVecTile<half, HalfC, D> fs_store(HalfC, D);
+                TASSIGN(fs_store, S_UB_HALF);
+                TSTORE(fs_global, fs_store);
+            }
+            set_flag(PIPE_MTE3, PIPE_S, EVENT_ID0);
+            wait_flag(PIPE_MTE3, PIPE_S, EVENT_ID0);
         }
-        set_flag(PIPE_MTE3, PIPE_S, EVENT_ID0);
-        wait_flag(PIPE_MTE3, PIPE_S, EVENT_ID0);
     }
 #endif
 }
