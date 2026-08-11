@@ -18,15 +18,33 @@ import triton.language as tl
 import triton.language.extra.cann.extension as al
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
+# ── Tuning / alignment constants ─────────────────────────────────────────
+# Per-row output scaled so |out| <= INT8_MAX before the saturating int8 cast.
+_INT8_MAX = 127
+
+# Columns per UB tile in the quantization epilogue; tuned for Ascend vector core.
+_COL_BLOCK_SIZE = 1536
+
+# NPU requires 64-byte aligned group_list loads; element count depends on dtype.
+_UB_ALIGN_BYTES = 64
+_INT64_ALIGN_ELEMS = _UB_ALIGN_BYTES // 8  # 8 int64 elems = 64 B
+_INT32_ALIGN_ELEMS = _UB_ALIGN_BYTES // 4  # 16 int32 elems = 64 B
+
+
+def _align_up(value: int, alignment: int) -> int:
+    """Round ``value`` up to the next multiple of ``alignment``."""
+    return (value + alignment - 1) // alignment * alignment
+
 
 @triton.jit
-def _swiglu_oai_quant_kernel_moe(
+def _swiglu_oai_quant_kernel(
     x_ptr,
     group_list_ptr,
     out_ptr,
     scale_ptr,
     alpha,
     limit,
+    total_rows,
     TOTAL_COLS: tl.constexpr,
     HALF_COLS: tl.constexpr,
     COL_BLOCK_SIZE: tl.constexpr,
@@ -36,17 +54,21 @@ def _swiglu_oai_quant_kernel_moe(
     NUM_CORES: tl.constexpr,
     DTYPE_MAX: tl.constexpr,
     SCALE: tl.constexpr,
+    HAS_GROUP_LIST: tl.constexpr,
 ):
-    # calc real total_rows
-    if (
-        GROUP_LIST_TYPE == 0
-    ):  # cusum (group_list length = NUM_EXPERTS, last element = total)
-        total_rows = tl.load(group_list_ptr + NUM_EXPERTS - 1).to(tl.int32)
-    else:
-        gl_offsets = tl.arange(0, NUM_EXPERTS_ALGIN)
-        gl_mask = gl_offsets < NUM_EXPERTS
-        group_list = tl.load(group_list_ptr + gl_offsets, gl_mask, other=0).to(tl.int32)
-        total_rows = tl.sum(group_list)
+    # MoE: derive total_rows from group_list; dense: use the passed-in total_rows.
+    if HAS_GROUP_LIST:
+        if (
+            GROUP_LIST_TYPE == 0
+        ):  # cusum (group_list length = NUM_EXPERTS, last element = total)
+            total_rows = tl.load(group_list_ptr + NUM_EXPERTS - 1).to(tl.int32)
+        else:
+            gl_offsets = tl.arange(0, NUM_EXPERTS_ALGIN)
+            gl_mask = gl_offsets < NUM_EXPERTS
+            group_list = tl.load(group_list_ptr + gl_offsets, gl_mask, other=0).to(
+                tl.int32
+            )
+            total_rows = tl.sum(group_list)
 
     block_size = (total_rows - 1) // NUM_CORES + 1
     pid = tl.program_id(0)
@@ -92,64 +114,6 @@ def _swiglu_oai_quant_kernel_moe(
             tl.store(out_ptr + o_offsets, out.to(out_ptr.dtype.element_ty))
 
 
-@triton.jit
-def _swiglu_oai_quant_kernel_dense(
-    x_ptr,
-    out_ptr,
-    scale_ptr,
-    alpha,
-    limit,
-    total_rows,
-    TOTAL_COLS: tl.constexpr,
-    HALF_COLS: tl.constexpr,
-    COL_BLOCK_SIZE: tl.constexpr,
-    NUM_CORES: tl.constexpr,
-    DTYPE_MAX: tl.constexpr,
-    SCALE: tl.constexpr,
-):
-    """Simplified kernel for dense MLP: total_rows is passed directly, no group_list."""
-    block_size = (total_rows - 1) // NUM_CORES + 1
-    pid = tl.program_id(0)
-    row_begin = pid * block_size
-    if row_begin >= total_rows:
-        return
-    row_end = tl.minimum((pid + 1) * block_size, total_rows)
-
-    for row_idx in range(row_begin, row_end):
-        # swiglu_oai: gate * sigmoid(gate * alpha) * (up + 1)  with clamping
-        x_offsets = row_idx * TOTAL_COLS + tl.arange(0, TOTAL_COLS)
-        cur_x = tl.load(x_ptr + x_offsets)
-        gate = al.extract_slice(cur_x, offsets=(0,), sizes=(HALF_COLS,), strides=(1,))
-        up = al.extract_slice(
-            cur_x, offsets=(HALF_COLS,), sizes=(HALF_COLS,), strides=(1,)
-        )
-        gate = tl.minimum(gate, limit)  # clamp(-inf, limit]
-        up = tl.minimum(tl.maximum(up, -limit), limit)  # clamp[-limit, limit]
-        out = gate * tl.sigmoid(gate * alpha) * (up + 1.0)
-
-        # quant
-        if SCALE:
-            scale = tl.max(tl.abs(out)).to(tl.float32) / DTYPE_MAX
-            tl.store(scale_ptr + row_idx, scale.to(scale_ptr.dtype.element_ty))
-            for col_blk_idx in range(0, HALF_COLS, COL_BLOCK_SIZE):
-                tmp_out = al.extract_slice(
-                    out, offsets=(col_blk_idx,), sizes=(COL_BLOCK_SIZE,), strides=(1,)
-                )
-                tmp_out = (tmp_out.to(tl.float32) / scale).to(x_ptr.dtype.element_ty)
-                tmp_out = tmp_out.cast(tl.int8, overflow_mode="saturate")
-
-                o_offsets = (
-                    row_idx * HALF_COLS + col_blk_idx + tl.arange(0, COL_BLOCK_SIZE)
-                )
-                mask = (col_blk_idx + tl.arange(0, COL_BLOCK_SIZE)) < HALF_COLS
-                tl.store(
-                    out_ptr + o_offsets, tmp_out.to(out_ptr.dtype.element_ty), mask=mask
-                )
-        else:
-            o_offsets = row_idx * HALF_COLS + tl.arange(0, HALF_COLS)
-            tl.store(out_ptr + o_offsets, out.to(out_ptr.dtype.element_ty))
-
-
 def swiglu_oai_quant(
     x, alpha, limit, need_quant=True, group_list=None, group_list_type=None
 ):
@@ -178,8 +142,10 @@ def swiglu_oai_quant(
     orig_shape = x.shape
     x = x.reshape(-1, x.shape[-1])
     s, h = x.shape
+    # x is [gate | up] concatenated on the last dim; each half is one projection.
+    half_cols = h // 2
     out_dtype = torch.int8 if need_quant else x.dtype
-    out = torch.empty((s, h // 2), dtype=out_dtype, device=x.device)
+    out = torch.empty((s, half_cols), dtype=out_dtype, device=x.device)
     scale = torch.empty((s,), dtype=torch.float32, device=x.device)
     _, num_vectorcore = get_device_properties()
 
@@ -188,50 +154,57 @@ def swiglu_oai_quant(
         if group_list_type not in (0, 1):
             raise ValueError(f"group_list_type must be 0 or 1, got {group_list_type}")
         num_experts = group_list.shape[0]
-        # ub must be 32-byte aligned on npu
+        # group_list loads must be 64-byte aligned on NPU; pad by index dtype.
         if group_list.dtype == torch.int64:
-            num_experts_algin = (num_experts + 7) // 8 * 8
+            num_experts_algin = _align_up(num_experts, _INT64_ALIGN_ELEMS)
         elif group_list.dtype == torch.int32:
-            num_experts_algin = (num_experts + 15) // 16 * 16
+            num_experts_algin = _align_up(num_experts, _INT32_ALIGN_ELEMS)
         else:
             raise ValueError(
                 f"group_list dtype must be torch.int32 or torch.int64, "
                 f"got {group_list.dtype}"
             )
 
-        _swiglu_oai_quant_kernel_moe[(num_vectorcore,)](
+        _swiglu_oai_quant_kernel[(num_vectorcore,)](
             x,
             group_list,
             out,
             scale,
             alpha,
             limit,
+            0,  # total_rows: derived from group_list inside the kernel
             TOTAL_COLS=h,
-            HALF_COLS=h // 2,
-            COL_BLOCK_SIZE=1536,
+            HALF_COLS=half_cols,
+            COL_BLOCK_SIZE=_COL_BLOCK_SIZE,
             NUM_EXPERTS=num_experts,
             NUM_EXPERTS_ALGIN=num_experts_algin,
             GROUP_LIST_TYPE=group_list_type,
             NUM_CORES=num_vectorcore,
-            DTYPE_MAX=127,
+            DTYPE_MAX=_INT8_MAX,
             SCALE=need_quant,
+            HAS_GROUP_LIST=True,
             multibuffer=True,
         )
     else:
         # ── Dense MLP path ────────────────────────────────────────────
-        _swiglu_oai_quant_kernel_dense[(num_vectorcore,)](
+        _swiglu_oai_quant_kernel[(num_vectorcore,)](
             x,
+            None,  # group_list_ptr: unused in dense mode (HAS_GROUP_LIST=False)
             out,
             scale,
             alpha,
             limit,
-            s,
+            s,  # total_rows
             TOTAL_COLS=h,
-            HALF_COLS=h // 2,
-            COL_BLOCK_SIZE=1536,
+            HALF_COLS=half_cols,
+            COL_BLOCK_SIZE=_COL_BLOCK_SIZE,
+            NUM_EXPERTS=1,
+            NUM_EXPERTS_ALGIN=1,
+            GROUP_LIST_TYPE=0,
             NUM_CORES=num_vectorcore,
-            DTYPE_MAX=127,
+            DTYPE_MAX=_INT8_MAX,
             SCALE=need_quant,
+            HAS_GROUP_LIST=False,
             multibuffer=True,
         )
 
