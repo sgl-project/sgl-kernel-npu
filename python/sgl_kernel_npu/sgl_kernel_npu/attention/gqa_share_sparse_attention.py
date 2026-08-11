@@ -23,7 +23,10 @@ _native_warned = False
 
 @functools.lru_cache(maxsize=1)
 def _get_native_sparse_op():
-    # Resolve the torch op handle for npu_sparse_attention_score, or None.
+    # native block-sparse attention: the direct-launch op compiled into
+    # sgl_kernel_npu (csrc/sparse_attention_score). Self-contained -- no external
+    # vendor package / ASCEND_CUSTOM_OPP_PATH needed. Returns None -> Triton
+    # split-K fallback.
     try:
         import sgl_kernel_npu  # noqa: F401  (registers torch.ops.npu.*)
 
@@ -117,7 +120,7 @@ def _native_decode_main(
         scale_value=sm_scale if sm_scale is not None else head_dim**-0.5,
         block_size=block_size,
         top_k=topk_idx.shape[-1],
-        inner_precise=0,
+        inner_precise=4,
     )
     return out
 
