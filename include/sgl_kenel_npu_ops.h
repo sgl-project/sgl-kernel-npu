@@ -119,21 +119,6 @@ at::Tensor recurrent_gated_delta_rule(
     c10::optional<at::Tensor> num_accepted_tokens_opt,
     c10::optional<at::Tensor> g_opt, c10::optional<at::Tensor> gk_opt);
 
-void mega_chunk_gdn(
-    const at::Tensor &q, const at::Tensor &k, const at::Tensor &v,
-    const at::Tensor &g, const at::Tensor &beta, const at::Tensor &mask_lower,
-    const at::Tensor &mask_full, const at::Tensor &minus_identity,
-    const at::Tensor &cu_seqlens, at::Tensor &out, at::Tensor &g_sum,
-    at::Tensor &g_t, at::Tensor &beta_t, at::Tensor &a, at::Tensor &a_inv_f32,
-    at::Tensor &a_inv, at::Tensor &w, at::Tensor &u, at::Tensor &s,
-    at::Tensor &v_new, at::Tensor &final_state, const at::Tensor &initial_state,
-    bool has_initial_state, at::Tensor &kkt_workspace,
-    at::Tensor &wy_workspace_a1, at::Tensor &wy_workspace_a2,
-    at::Tensor &h_workspace, at::Tensor &o_workspace_qk,
-    at::Tensor &o_workspace_qs, at::Tensor &o_workspace_gated,
-    int64_t block_dim, int64_t batch_size, int64_t seq_len,
-    int64_t total_tokens, int64_t num_matrices);
-
 at::Tensor lightning_indexer(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
     const c10::optional<at::Tensor> &actual_seq_lengths_query,
@@ -160,6 +145,26 @@ void kv_compress_epilog(at::Tensor &kv_compress_cache, const at::Tensor &x,
                         const at::Tensor &slot_mapping,
                         int64_t quant_group_size, int64_t quant_mode,
                         bool round_scale_flag, int64_t layout);
+#endif
+
+// mega_chunk_gdn is A3-only; it is declared everywhere except A5 (ascend950).
+// Gated on the A5 flag (not A3-only) so the skip holds even without PR #632's
+// A3 gating in the base.
+#ifndef SGL_KERNEL_ENABLE_A5_ONLY_OPS
+void mega_chunk_gdn(
+    const at::Tensor &q, const at::Tensor &k, const at::Tensor &v,
+    const at::Tensor &g, const at::Tensor &beta, const at::Tensor &mask_lower,
+    const at::Tensor &mask_full, const at::Tensor &minus_identity,
+    const at::Tensor &cu_seqlens, at::Tensor &out, at::Tensor &g_sum,
+    at::Tensor &g_t, at::Tensor &beta_t, at::Tensor &a, at::Tensor &a_inv_f32,
+    at::Tensor &a_inv, at::Tensor &w, at::Tensor &u, at::Tensor &s,
+    at::Tensor &v_new, at::Tensor &final_state, const at::Tensor &initial_state,
+    bool has_initial_state, at::Tensor &kkt_workspace,
+    at::Tensor &wy_workspace_a1, at::Tensor &wy_workspace_a2,
+    at::Tensor &h_workspace, at::Tensor &o_workspace_qk,
+    at::Tensor &o_workspace_qs, at::Tensor &o_workspace_gated,
+    int64_t block_dim, int64_t batch_size, int64_t seq_len,
+    int64_t total_tokens, int64_t num_matrices);
 #endif
 
 #ifdef BUILD_CATLASS_MODULE

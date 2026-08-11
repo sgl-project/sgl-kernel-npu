@@ -118,19 +118,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor? num_accepted_tokens=None, Tensor? g=None, Tensor? gk=None) -> Tensor");
 
     m.def(
-        "mega_chunk_gdn(Tensor q, Tensor k, Tensor v, Tensor g, Tensor beta, "
-        "Tensor mask_lower, Tensor mask_full, Tensor minus_identity, Tensor cu_seqlens, "
-        "Tensor(a!) out, Tensor(b!) g_sum, Tensor(c!) g_t, Tensor(d!) beta_t, "
-        "Tensor(e!) A, Tensor(f!) A_inv_f32, Tensor(g!) A_inv, Tensor(h!) w, "
-        "Tensor(i!) u, Tensor(j!) s, Tensor(k!) v_new, Tensor(l!) final_state, "
-        "Tensor initial_state, bool has_initial_state, "
-        "Tensor(m!) kkt_workspace, Tensor(n!) wy_workspace_a1, "
-        "Tensor(o!) wy_workspace_a2, Tensor(p!) h_workspace, "
-        "Tensor(q!) o_workspace_qk, Tensor(r!) o_workspace_qs, "
-        "Tensor(s!) o_workspace_gated, int block_dim, int batch_size, "
-        "int seq_len, int total_tokens, int num_matrices) -> ()");
-
-    m.def(
         "lightning_indexer(Tensor query, Tensor key, Tensor weights, Tensor? actual_seq_lengths_query=None, "
         "Tensor? actual_seq_lengths_key=None, Tensor? block_table=None, "
         "str? layout_query=None, str? layout_key=None, "
@@ -157,6 +144,23 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
     m.def(
         "kv_compress_epilog(Tensor(a!) kv_compress_cache, Tensor x, Tensor slot_mapping, "
         "int quant_group_size, int quant_mode, bool round_scale_flag, int layout) -> ()");
+#endif
+
+// mega_chunk_gdn is A3-only; it is registered everywhere except A5 (ascend950). Gated on the
+// A5 flag (not A3-only) so the skip holds even without PR #632's A3 gating in the base.
+#ifndef SGL_KERNEL_ENABLE_A5_ONLY_OPS
+    m.def(
+        "mega_chunk_gdn(Tensor q, Tensor k, Tensor v, Tensor g, Tensor beta, "
+        "Tensor mask_lower, Tensor mask_full, Tensor minus_identity, Tensor cu_seqlens, "
+        "Tensor(a!) out, Tensor(b!) g_sum, Tensor(c!) g_t, Tensor(d!) beta_t, "
+        "Tensor(e!) A, Tensor(f!) A_inv_f32, Tensor(g!) A_inv, Tensor(h!) w, "
+        "Tensor(i!) u, Tensor(j!) s, Tensor(k!) v_new, Tensor(l!) final_state, "
+        "Tensor initial_state, bool has_initial_state, "
+        "Tensor(m!) kkt_workspace, Tensor(n!) wy_workspace_a1, "
+        "Tensor(o!) wy_workspace_a2, Tensor(p!) h_workspace, "
+        "Tensor(q!) o_workspace_qk, Tensor(r!) o_workspace_qs, "
+        "Tensor(s!) o_workspace_gated, int block_dim, int batch_size, "
+        "int seq_len, int total_tokens, int num_matrices) -> ()");
 #endif
 
 #ifdef BUILD_CATLASS_MODULE
@@ -233,8 +237,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
     m.impl("recurrent_gated_delta_rule", TORCH_FN(sglang::npu_kernel::recurrent_gated_delta_rule));
 
-    m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
-
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
 
     m.impl("triangular_inverse", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
@@ -266,6 +268,10 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
 #ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
     m.impl("kv_compress_epilog", TORCH_FN(sglang::npu_kernel::kv_compress_epilog));
+#endif
+
+#ifndef SGL_KERNEL_ENABLE_A5_ONLY_OPS
+    m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
 #endif
 
 #ifdef BUILD_CATLASS_MODULE

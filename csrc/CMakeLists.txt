@@ -19,7 +19,11 @@ endif()
 message(STATUS "SGL_KERNEL_ENABLE_A3_ONLY_OPS=${SGL_KERNEL_ENABLE_A3_ONLY_OPS} (SOC=${SOC_VERSION})")
 
 # A5-only ops: compile only on Ascend950-series SoCs (the mirror of the A3 gating).
+# _sgl_soc_lower is normally computed by the A3 gating above (PR #632). Recompute it here so
+# this block is self-contained and still works when that gating is absent (e.g. a PR rebased
+# onto upstream main, which has neither the A3 flag nor the lowercase SOC variable).
 if(NOT DEFINED SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    string(TOLOWER "${SOC_VERSION}" _sgl_soc_lower)
     if(_sgl_soc_lower MATCHES "^ascend950")
         set(SGL_KERNEL_ENABLE_A5_ONLY_OPS ON)
     else()
@@ -65,6 +69,13 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
         ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_host/recurrent_gated_delta_rule.cpp
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/causal_conv1d.cpp
+    )
+endif()
+# mega_chunk_gdn host source: A3-only, skipped on A5 (ascend950) where the PTO kernels do not
+# build. Gated on the A5 flag (rather than the A3 flag) so the skip also holds on a rebase
+# onto upstream main, which has no A3 gating and would otherwise compile mega unconditionally.
+if(NOT SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    list(APPEND OP_SRCS
         ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
     )
 endif()
@@ -174,9 +185,10 @@ ascendc_compile_definitions(workspace_kernel PRIVATE
     -DHAVE_TILING
 )
 
-# mega_chunk_gdn kernel target: A3-only
+# mega_chunk_gdn kernel target: A3-only, skipped on A5 (ascend950). Gated on the A5 flag
+# (rather than the A3 flag) so the skip holds even without PR #632's A3 gating in the base.
 set(MEGA_CHUNK_GDN_KERNEL_TARGETS)
-if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
+if(NOT SGL_KERNEL_ENABLE_A5_ONLY_OPS)
     set(MEGA_CHUNK_GDN_KERNEL_TARGETS mega_chunk_gdn_kernel)
     ascendc_library(mega_chunk_gdn_kernel STATIC
         ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel/mega_kernel.cpp
