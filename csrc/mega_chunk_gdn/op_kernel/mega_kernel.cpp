@@ -20,6 +20,16 @@
 #ifndef GDN_C
 #define GDN_C 128
 #endif
+// TODO(anastasios): this should be fixed for A5.
+#ifndef MEMORY_BASE
+#define MEMORY_BASE
+#endif
+// Note the codegen parser does not support arguments of form "type *name", only "type* name"
+// clang-format off
+#ifndef GM_ADDR
+#define GM_ADDR __gm__ uint8_t*
+#endif
+// clang-format off
 // GDN_MAX_HEADS: compile-time ceiling on the value-head count. num_heads is a
 // RUNTIME argument (one .so serves every head count), so the transpose/cumsum
 // UB tiles are sized for this worst case; any num_heads <= GDN_MAX_HEADS works
@@ -267,9 +277,8 @@ AICORE inline void mega_kernel_impl(
     __gm__ uint8_t *fs_ptr, __gm__ uint8_t *h0_ptr, int64_t has_initial_state, __gm__ uint8_t *kkt_ws_ptr,
     __gm__ uint8_t *wy_ws_a1_ptr, __gm__ uint8_t *wy_ws_a2_ptr, __gm__ uint8_t *h_ws_ptr, __gm__ uint8_t *o_ws_qk_ptr,
     __gm__ uint8_t *o_ws_qs_ptr, __gm__ uint8_t *o_ws_gated_ptr, int32_t H, uint32_t num_key_heads, int64_t batch_size,
-    int64_t seq_len, int64_t total_tokens, uint32_t num_matrices, uint64_t ffts_addr)
+    int64_t seq_len, int64_t total_tokens, uint32_t num_matrices)
 {
-    set_ffts_base_addr(ffts_addr);
 
     constexpr int32_t D = GDN_D;
     constexpr int32_t C = GDN_C;
@@ -279,7 +288,7 @@ AICORE inline void mega_kernel_impl(
     }
 
     mk_cumsum::cumsum_kernel<C>(reinterpret_cast<__gm__ float *>(g_in_ptr), reinterpret_cast<__gm__ float *>(g_sum_ptr),
-                                reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len, H, ffts_addr);
+                                reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len, H);
 
 #ifdef MEGA_STOP_AFTER_CUMSUM
     pipe_barrier(PIPE_ALL);
@@ -308,7 +317,7 @@ AICORE inline void mega_kernel_impl(
                              reinterpret_cast<__gm__ float *>(g_t_ptr), reinterpret_cast<__gm__ float *>(msk_lower_ptr),
                              reinterpret_cast<__gm__ half *>(kkt_ws_ptr), reinterpret_cast<__gm__ half *>(A_ptr),
                              reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len, total_tokens,
-                             static_cast<uint32_t>(H), num_key_heads, ffts_addr);
+                             static_cast<uint32_t>(H), num_key_heads);
 
 // Drain the kkt handshake: Vec released both workspace slots (flags 2/3) one
 // last time after Cube's final iteration, so consume them before the next
@@ -362,7 +371,7 @@ AICORE inline void mega_kernel_impl(
         reinterpret_cast<__gm__ half *>(A_inv_ptr), reinterpret_cast<__gm__ half *>(wy_ws_a1_ptr),
         reinterpret_cast<__gm__ half *>(wy_ws_a2_ptr), reinterpret_cast<__gm__ half *>(w_ptr),
         reinterpret_cast<__gm__ half *>(u_ptr), reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len,
-        total_tokens, static_cast<uint32_t>(H), num_key_heads, ffts_addr);
+        total_tokens, static_cast<uint32_t>(H), num_key_heads);
 
 // Drain the wy_fast handshake: Cube freed the A2/A1 slots (flags 3/4) one last
 // time after Vec's final iteration.
@@ -395,7 +404,7 @@ AICORE inline void mega_kernel_impl(
                                reinterpret_cast<__gm__ half *>(fs_ptr), reinterpret_cast<__gm__ half *>(h0_ptr),
                                has_initial_state, 1, reinterpret_cast<__gm__ half *>(h_ws_ptr),
                                reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len, total_tokens,
-                               static_cast<uint32_t>(H), num_key_heads, ffts_addr);
+                               static_cast<uint32_t>(H), num_key_heads);
 
 #ifdef MEGA_STOP_AFTER_H
     pipe_barrier(PIPE_ALL);
@@ -411,7 +420,7 @@ AICORE inline void mega_kernel_impl(
         reinterpret_cast<__gm__ half *>(o_ws_qk_ptr), reinterpret_cast<__gm__ half *>(o_ws_qs_ptr),
         reinterpret_cast<__gm__ half *>(o_ws_gated_ptr), reinterpret_cast<__gm__ half *>(o_ptr),
         reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len, total_tokens, static_cast<uint32_t>(H),
-        num_key_heads, ffts_addr);
+        num_key_heads);
 
 // Drain the chunk_o handshake: Vec's final "workspace free" (flag 3) is never
 // consumed by Cube's loop, so consume it here.
@@ -427,3 +436,21 @@ AICORE inline void mega_kernel_impl(
     }
 #endif
 }
+
+// Note the codegen parser does not support arguments of form "type *name", only "type* name"
+extern "C" __global__ AICORE void launch_mega_kernel(
+    GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr, GM_ADDR g_in_ptr, GM_ADDR beta_ptr, GM_ADDR msk_lower_ptr,
+    GM_ADDR msk_full_ptr, GM_ADDR minus_id_ptr, GM_ADDR cu_seqlens_ptr, GM_ADDR o_ptr, GM_ADDR g_sum_ptr,
+    GM_ADDR g_t_ptr, GM_ADDR beta_t_ptr, GM_ADDR A_ptr, GM_ADDR A_inv_f32_ptr, GM_ADDR A_inv_ptr, GM_ADDR w_ptr,
+    GM_ADDR u_ptr, GM_ADDR s_ptr, GM_ADDR v_new_ptr, GM_ADDR fs_ptr, GM_ADDR h0_ptr, int64_t has_initial_state,
+    GM_ADDR kkt_ws_ptr, GM_ADDR wy_ws_a1_ptr, GM_ADDR wy_ws_a2_ptr, GM_ADDR h_ws_ptr, GM_ADDR o_ws_qk_ptr,
+    GM_ADDR o_ws_qs_ptr, GM_ADDR o_ws_gated_ptr, uint32_t num_heads, uint32_t num_key_heads, int64_t batch_size,
+    int64_t seq_len, int64_t total_tokens, uint32_t num_matrices)
+{
+
+        mega_kernel_impl(q_ptr, k_ptr, v_ptr, g_in_ptr, beta_ptr, msk_lower_ptr, msk_full_ptr, minus_id_ptr,
+                            cu_seqlens_ptr, o_ptr, g_sum_ptr, g_t_ptr, beta_t_ptr, A_ptr, A_inv_f32_ptr, A_inv_ptr,
+                            w_ptr, u_ptr, s_ptr, v_new_ptr, fs_ptr, h0_ptr, has_initial_state, kkt_ws_ptr,
+                            wy_ws_a1_ptr, wy_ws_a2_ptr, h_ws_ptr, o_ws_qk_ptr, o_ws_qs_ptr, o_ws_gated_ptr,
+                            num_heads, num_key_heads, batch_size, seq_len, total_tokens, num_matrices);
+    }
