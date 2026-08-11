@@ -27,10 +27,15 @@ jobs:
             runner: ubuntu-24.04
           - arch: aarch64
             runner: ubuntu-24.04-arm
+          # CANN 8.5.0 images ship Python 3.11, CANN 9.1.0 images ship Python 3.12
+          - cann_version: 8.5.0
+            python_version: py3.11
+          - cann_version: 9.1.0
+            python_version: py3.12
 
     runs-on: ${{ matrix.runner }}
     container:
-      image: quay.io/ascend/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-py3.11
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-${{ matrix.python_version }}
 
     steps:
       - name: Checkout repository
@@ -97,7 +102,7 @@ jobs:
       - name: Archive wheel
         uses: actions/upload-artifact@v4
         with:
-          name: deep-ep-910b-${{ matrix.arch }}-cann${{ matrix.cann_version }}-py3.11-wheel
+          name: deep-ep-910b-${{ matrix.arch }}-cann${{ matrix.cann_version }}-${{ matrix.python_version }}-wheel
           path: output/
 
 
@@ -112,10 +117,15 @@ jobs:
             runner: ubuntu-24.04
           - arch: aarch64
             runner: ubuntu-24.04-arm
+          # CANN 8.5.0 images ship Python 3.11, CANN 9.1.0 images ship Python 3.12
+          - cann_version: 8.5.0
+            python_version: py3.11
+          - cann_version: 9.1.0
+            python_version: py3.12
 
     runs-on: ${{ matrix.runner }}
     container:
-      image: quay.io/ascend/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py3.11
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-${{ matrix.python_version }}
 
     steps:
       - name: Checkout repository
@@ -182,7 +192,7 @@ jobs:
       - name: Archive wheel
         uses: actions/upload-artifact@v4
         with:
-          name: deep-ep-a3-${{ matrix.arch }}-cann${{ matrix.cann_version }}-py3.11-wheel
+          name: deep-ep-a3-${{ matrix.arch }}-cann${{ matrix.cann_version }}-${{ matrix.python_version }}-wheel
           path: output/
 
 

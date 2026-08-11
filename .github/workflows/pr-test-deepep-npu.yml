@@ -62,7 +62,7 @@ jobs:
       )
     runs-on: linux-aarch64-a3-16
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-${{ matrix.python_version }}
     env:
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
       PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
@@ -71,6 +71,12 @@ jobs:
     strategy:
       matrix:
         cann_version: [8.5.0, 9.1.0]
+        # CANN 8.5.0 images ship Python 3.11, CANN 9.1.0 images ship Python 3.12
+        include:
+          - cann_version: 8.5.0
+            python_version: py3.11
+          - cann_version: 9.1.0
+            python_version: py3.12
     steps:
       - name: Clean git config
         run: |
@@ -295,7 +301,7 @@ jobs:
       )
     runs-on: ["linux-aarch64-a3-16", "a3-752t"]
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-${{ matrix.python_version }}
     env:
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
       PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
@@ -304,6 +310,12 @@ jobs:
     strategy:
       matrix:
         cann_version: [8.5.0, 9.1.0]
+        # CANN 8.5.0 images ship Python 3.11, CANN 9.1.0 images ship Python 3.12
+        include:
+          - cann_version: 8.5.0
+            python_version: py3.11
+          - cann_version: 9.1.0
+            python_version: py3.12
     steps:
       - name: Clean git config
         run: |
@@ -497,7 +509,7 @@ jobs:
       )
     runs-on: linux-aarch64-a2-8
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-${{ matrix.python_version }}
     env:
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
       PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
@@ -506,6 +518,12 @@ jobs:
     strategy:
       matrix:
         cann_version: [8.5.0, 9.1.0]
+        # CANN 8.5.0 images ship Python 3.11, CANN 9.1.0 images ship Python 3.12
+        include:
+          - cann_version: 8.5.0
+            python_version: py3.11
+          - cann_version: 9.1.0
+            python_version: py3.12
     steps:
       - name: Clean git config
         run: |

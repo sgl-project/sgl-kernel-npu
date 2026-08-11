@@ -26,11 +26,17 @@ jobs:
           - name: test_internode_a2
             node_size: 2
             test_case: tests/python/deepep/test_internode_a2.py
+        # CANN 8.5.0 images ship Python 3.11, CANN 9.1.0 images ship Python 3.12
+        include:
+          - cann_version: 8.5.0
+            python_version: py3.11
+          - cann_version: 9.1.0
+            python_version: py3.12
     uses: ./.github/workflows/internode.yml
     with:
       soc_version: a2
       runner: linux-aarch64-a2-0
-      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-py3.11'
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-${{ matrix.python_version }}'
       test_config_name: ${{ matrix.test_config.name }}
       node_size: ${{ matrix.test_config.node_size }}
       test_case: ${{ matrix.test_config.test_case }}
