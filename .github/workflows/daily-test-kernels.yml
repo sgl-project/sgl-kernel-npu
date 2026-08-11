@@ -58,7 +58,7 @@ jobs:
           pip config set global.trusted-host ${CACHING_URL}
           pip install uv
 
-          bash scripts/npu_ci_install_dependency.sh
+          bash scripts/npu_ci_install_dependency.sh --torch-version 2.10.0
 
       - name: Build and install kernel module
         run: bash scripts/prepare_kernel_tests.sh
