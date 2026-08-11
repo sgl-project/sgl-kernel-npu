@@ -70,7 +70,7 @@ jobs:
       UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     strategy:
       matrix:
-        cann_version: [8.5.0, 9.0.0]
+        cann_version: [8.5.0, 9.1.0]
     steps:
       - name: Clean git config
         run: |
@@ -121,8 +121,8 @@ jobs:
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
             bash scripts/prepare_deepep_in_container.sh
           fi
-      - name: Set CANN 9.0.0 env
-        if: matrix.cann_version == '9.0.0'
+      - name: Set CANN 9.1.0 env
+        if: matrix.cann_version == '9.1.0'
         run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
       - name: Run test intranode
         timeout-minutes: 10
@@ -303,7 +303,7 @@ jobs:
       UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     strategy:
       matrix:
-        cann_version: [8.5.0, 9.0.0]
+        cann_version: [8.5.0, 9.1.0]
     steps:
       - name: Clean git config
         run: |
@@ -354,8 +354,8 @@ jobs:
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
             bash scripts/prepare_deepep_in_container.sh
           fi
-      - name: Set CANN 9.0.0 env
-        if: matrix.cann_version == '9.0.0'
+      - name: Set CANN 9.1.0 env
+        if: matrix.cann_version == '9.1.0'
         run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
       - name: Run test base fused deep moe
         timeout-minutes: 10
@@ -476,7 +476,7 @@ jobs:
           HCCL_BUFFSIZE: 2048
         run: python3 $GITHUB_WORKSPACE/tests/python/deepep/test_dispatch_ffn_combine.py
       - name: Run test alltoall mode for both normal and low_latency
-        if: matrix.cann_version == '9.0.0'
+        if: matrix.cann_version == '9.1.0'
         timeout-minutes: 10
         env:
           DEEP_MOE_MODE: alltoall
@@ -505,7 +505,7 @@ jobs:
       UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     strategy:
       matrix:
-        cann_version: [8.5.0, 9.0.0]
+        cann_version: [8.5.0, 9.1.0]
     steps:
       - name: Clean git config
         run: |
@@ -556,8 +556,8 @@ jobs:
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
             bash scripts/prepare_deepep_in_container.sh -a deepep2
           fi
-      - name: Set CANN 9.0.0 env
-        if: matrix.cann_version == '9.0.0'
+      - name: Set CANN 9.1.0 env
+        if: matrix.cann_version == '9.1.0'
         run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
       - name: Run test intranode
         timeout-minutes: 10

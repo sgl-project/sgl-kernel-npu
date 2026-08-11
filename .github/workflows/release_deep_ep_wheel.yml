@@ -21,7 +21,7 @@ jobs:
     strategy:
       matrix:
         arch: [x86_64, aarch64]
-        cann_version: [8.5.0]
+        cann_version: [8.5.0, 9.1.0]
         include:
           - arch: x86_64
             runner: ubuntu-24.04
@@ -106,7 +106,7 @@ jobs:
     strategy:
       matrix:
         arch: [x86_64, aarch64]
-        cann_version: [8.5.0]
+        cann_version: [8.5.0, 9.1.0]
         include:
           - arch: x86_64
             runner: ubuntu-24.04

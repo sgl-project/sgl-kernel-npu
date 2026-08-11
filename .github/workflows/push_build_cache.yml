@@ -22,7 +22,7 @@ jobs:
     name: Build Cache - ${{ matrix.arch }} - CANN ${{ matrix.cann_version }}
     runs-on: ${{ matrix.runner }}
 
-    # 定义矩阵策略：覆盖 A3/A2 硬件 和 8.5.0/9.0.0 CANN 版本
+    # 定义矩阵策略：覆盖 A3/A2 硬件 和 8.5.0/9.1.0 CANN 版本
     strategy:
       matrix:
         include:
@@ -33,8 +33,8 @@ jobs:
             image_tag: "8.5.0-a3-ubuntu22.04-py3.11"
           - arch: a3
             runner: linux-aarch64-a3-16
-            cann_version: "9.0.0"
-            image_tag: "9.0.0-a3-ubuntu22.04-py3.11"
+            cann_version: "9.1.0"
+            image_tag: "9.1.0-a3-ubuntu22.04-py3.12"
 
           # --- A2 环境 (910B) ---
           - arch: a2
@@ -43,8 +43,8 @@ jobs:
             image_tag: "8.5.0-910b-ubuntu22.04-py3.11"
           - arch: a2
             runner: linux-aarch64-a2-8
-            cann_version: "9.0.0"
-            image_tag: "9.0.0-910b-ubuntu22.04-py3.11"
+            cann_version: "9.1.0"
+            image_tag: "9.1.0-910b-ubuntu22.04-py3.12"
 
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.image_tag }}

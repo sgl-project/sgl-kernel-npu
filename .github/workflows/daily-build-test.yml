@@ -29,7 +29,7 @@ jobs:
     strategy:
       matrix:
         test_type: [intranode, low_latency]
-        cann_version: [9.0.0, 8.5.0]
+        cann_version: [9.1.0, 8.5.0]
         hardware: [a3, a2]
     steps:
       - name: Clean git config
@@ -64,7 +64,7 @@ jobs:
           HCCL_BUFFSIZE: 4096
           TEST_ENV: daily-build
         run: |
-          if [ "${{ matrix.cann_version }}" = "9.0.0" ]; then
+          if [ "${{ matrix.cann_version }}" = "9.1.0" ]; then
             export MOE_ENABLE_CCU=0
           fi
           SCRIPT_NAME="enumerate_test_${{ matrix.test_type }}${{ matrix.test_type == 'low_latency' && (matrix.hardware == 'a2' && '_a2' || '') || '' }}.sh"
@@ -98,7 +98,7 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        cann_version: [8.5.0, 9.0.0]
+        cann_version: [8.5.0, 9.1.0]
         test_config:
           - name: test_internode_a2
             node_size: 2

@@ -21,7 +21,7 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        cann_version: [8.5.0, 9.0.0]
+        cann_version: [8.5.0, 9.1.0]
         test_config:
           - name: test_internode_a2
             node_size: 2
