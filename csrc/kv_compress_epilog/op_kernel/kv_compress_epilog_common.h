@@ -144,12 +144,12 @@ __aicore__ inline void VFProcessDynamicBlockQuant(const LocalTensor<T1> &yLocal,
 
     uint32_t quantColNum = curColNum - 64;
     uint16_t scaleColNum = CeilDiv(quantColNum, 128);
-    uint16_t loopCount = CeilDiv(curColNum, VL_FP32);
+    uint16_t loopCount = CeilDiv(quantColNum, VL_FP32);
     uint32_t curColNumAlign = RoundUp<T0>(curColNum);
     uint32_t dstCurColNumAlign = RoundUp<T1>(concatColNum + padColNum);
     uint16_t loopCountFoldTwo = loopCount / 2;
     uint16_t loopCountReminder = loopCount % 2;
-    uint32_t tailReminder = curColNum - (loopCount - 1) * VL_FP32;
+    uint32_t tailReminder = quantColNum - (loopCount - 1) * VL_FP32;
     uint32_t scaleColNumAlign = RoundUp<T0>(scaleColNum);
     uint32_t sregNum = loopCountReminder == 0 ? quantColNum - loopCountFoldTwo * VL_FP32 : loopCountFoldTwo * VL_FP32;
     __VEC_SCOPE__
