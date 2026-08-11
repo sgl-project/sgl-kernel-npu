@@ -25,8 +25,8 @@ jobs:
       matrix:
         arch: [x86_64, aarch64]
         npu_hardware: [910b, a3]
-        cann_version: [8.5.0, 9.0.0]
-        torch_version: [2.8.0, 2.10.0]
+        cann_version: [9.0.0, 9.1.0]
+        torch_version: [2.10.0]
         # Ref: https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
         include:
           - arch: x86_64
@@ -35,7 +35,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     container:
-      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.11
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.12
 
     steps:
       - name: Checkout repository
@@ -49,7 +49,7 @@ jobs:
 
       - name: Install dependency
         run: |
-          bash scripts/npu_ci_install_dependency.sh --torch-version ${{ matrix.torch_version }}
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
 
       - name: Build SGL-Kernel-NPU
         run: |
@@ -109,7 +109,7 @@ jobs:
       matrix:
         arch: [ x86_64, aarch64 ]
         npu_hardware: [ 910b, a3 ]
-        cann_version: [ 9.0.0 ]
+        cann_version: [ 9.0.0, 9.1.0 ]
         torch_version: [ 2.10.0 ]
         # Ref: https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
         include:
@@ -119,7 +119,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     container:
-      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.11
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.12
 
     steps:
       - name: Checkout repository
@@ -131,7 +131,7 @@ jobs:
 
       - name: Install dependency
         run: |
-          bash scripts/npu_ci_install_dependency.sh --torch-version ${{ matrix.torch_version }}
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
 
       - name: Debug tag info
         if: github.event_name == 'release'
@@ -198,7 +198,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     container:
-      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.11
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.12
 
     steps:
       - name: Checkout repository
@@ -210,7 +210,7 @@ jobs:
 
       - name: Install dependency
         run: |
-          bash scripts/npu_ci_install_dependency.sh --torch-version ${{ matrix.torch_version }}
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
 
       - name: Debug tag info
         if: github.event_name == 'release'
