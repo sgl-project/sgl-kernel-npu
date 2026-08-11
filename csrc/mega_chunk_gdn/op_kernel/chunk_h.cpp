@@ -278,7 +278,7 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
                            __gm__ half *S_handle, __gm__ half *V_handle, __gm__ half *FS_handle, __gm__ half *H0_handle,
                            int64_t has_initial_state, int64_t output_final_state, __gm__ half *workspace_handle,
                            __gm__ int32_t *cu_seqlens, int64_t batch_size, int64_t seq_len, int64_t total_tokens,
-                           uint32_t num_heads, uint32_t num_key_heads, uint64_t ffts_addr)
+                           uint32_t num_heads, uint32_t num_key_heads)
 {
     // chunk_h advances the recurrent hidden state chunk by chunk:
     //   ws_i      = W_i @ S_i
@@ -303,7 +303,6 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
     //   Vec does the elementwise gating/decay and carries the running state.
     auto cid = get_block_idx();
     auto block_num = get_block_num();
-    set_ffts_base_addr(ffts_addr);
 
     constexpr int32_t D = HiddenSize;
     constexpr int32_t C = ChunkSize;

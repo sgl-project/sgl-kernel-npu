@@ -146,7 +146,7 @@ template <int32_t HiddenSize, int32_t ChunkSize>
 AICORE inline void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ float *G_handle,
                               __gm__ float *Msk_handle, __gm__ half *workspace_handle, __gm__ half *A_handle,
                               __gm__ int32_t *cu_seqlens, int64_t batch_size, int64_t seq_len, int64_t total_tokens,
-                              uint32_t num_heads, uint32_t num_key_heads, uint64_t ffts_addr)
+                              uint32_t num_heads, uint32_t num_key_heads)
 {
     // To avoid ambiguity with bisheng intrinsic header's global `enum class
     // Stride`
@@ -183,7 +183,6 @@ AICORE inline void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, _
     // set_ffts_base_addr: Tell the hardware where the cross-core flag table
     // lives. This is a one-time setup so ffts_cross_core_sync / wait_flag_dev
     // know which memory region to read/write for inter-core signaling.
-    set_ffts_base_addr(ffts_addr);
     auto cid = get_block_idx();        // Which AI core am I? (like CUDA blockIdx.x)
     auto block_num = get_block_num();  // Total AI cores launched (like CUDA gridDim.x)
     // ── Vec sub-block parallelism ─────────────────────────────────────────

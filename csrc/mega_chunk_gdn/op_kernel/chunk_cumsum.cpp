@@ -140,7 +140,7 @@ using UbND = pto::Tile<pto::TileType::Vec, T, R, C, pto::BLayout::RowMajor, RV, 
 
 template <int32_t ChunkSize>
 AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ int32_t *cu_seqlens, int64_t batch_size,
-                          int64_t seq_len, int32_t NumHeads, uint64_t ffts_addr)
+                          int64_t seq_len, int32_t NumHeads)
 {
     // get_block_idx(): Returns this AI core's index (0..block_num-1).
     //   Like blockIdx.x in CUDA — identifies which core this code runs on.
@@ -151,11 +151,6 @@ AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ i
     auto cid = get_block_idx();
     auto block_num = get_block_num();
     auto vid = get_subblockid();
-    // set_ffts_base_addr(ffts_addr): Configure the base address for FFTS
-    // (Fast Fine-grained Task Synchronization) — the cross-core signaling
-    // mechanism. Required before any cross-core sync (ffts_cross_core_sync /
-    // wait_flag_dev).
-    set_ffts_base_addr(ffts_addr);
 
 // #if defined(__DAV_VEC__): This block only compiles for the Vec core pass.
 // The bisheng compiler makes 3 passes over the same source file:
