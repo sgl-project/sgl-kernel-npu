@@ -20,7 +20,7 @@ jobs:
     name: Kernel Tests (CANN ${{ matrix.cann_version }}, ${{ matrix.hardware }})
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-16' || 'linux-aarch64-a2-8' }}
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}-ubuntu22.04-py3.11
+      image: quay.io/ascend/sglang:v0.5.13.post1-cann${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
