@@ -49,7 +49,7 @@ jobs:
 
       - name: Install dependency
         run: |
-          bash scripts/npu_ci_install_dependency.sh --torch-version ${{ matrix.torch_version }}
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
 
       - name: Build SGL-Kernel-NPU
         run: |
@@ -131,7 +131,7 @@ jobs:
 
       - name: Install dependency
         run: |
-          bash scripts/npu_ci_install_dependency.sh --torch-version ${{ matrix.torch_version }}
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
 
       - name: Debug tag info
         if: github.event_name == 'release'
@@ -210,7 +210,7 @@ jobs:
 
       - name: Install dependency
         run: |
-          bash scripts/npu_ci_install_dependency.sh --torch-version ${{ matrix.torch_version }}
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
 
       - name: Debug tag info
         if: github.event_name == 'release'
