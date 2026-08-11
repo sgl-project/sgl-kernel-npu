@@ -8,8 +8,8 @@
 
 # kv_compress_epilog (A5-only): fuses per-128-block FP8 / per-group MXFP8 quantization of
 # the first (d - 64) columns of x with an inline copy of the trailing 64 BF16 rope columns,
-# writing the packed [quant | rope | scale | pad] row into the in-place kv_compress_cache at
-# slot offsets (layout=1) or into a block-major [values | scales] region (layout=2).
+# writing the packed row into the in-place kv_compress_cache. FP8 layout1 and MXFP8
+# layout2 store [quant | rope], while MXFP8 layout1 stores [rope | quant].
 #
 # The reference models are computed in plain PyTorch on CPU; the kernel is exercised with
 # the same inputs on the NPU and its output bytes are checked against the reference.
@@ -43,6 +43,10 @@ FP8_VALID_DIMS = (192, 320)
 
 def _bits_to_float(bits):
     return struct.unpack("<f", struct.pack("<I", bits))[0]
+
+
+def _assert_equal(actual, expected):
+    torch.testing.assert_close(actual, expected, rtol=0, atol=0)
 
 
 def _layout1_dims(d, quant_mode, per_group_size):
@@ -124,7 +128,7 @@ def _check_untouched_slots(byte, slot_mapping, valid):
     written = set(slot_mapping[valid].tolist())
     for s in range(byte.shape[0]):
         if s not in written:
-            torch.testing.assert_equal(byte[s], torch.zeros_like(byte[s]))
+            _assert_equal(byte[s], torch.zeros_like(byte[s]))
 
 
 def _check_fp8_layout1(num_tokens, num_slots, d, fp8_max, slot_dtype, drop_slot, seed):
@@ -172,11 +176,11 @@ def _check_fp8_layout1(num_tokens, num_slots, d, fp8_max, slot_dtype, drop_slot,
 
     # 3. The trailing 64 BF16 rope columns are copied byte-exactly.
     rope_bytes = byte[:, quant_col : quant_col + 2 * SLICE_SIZE]
-    rope_ref = x.contiguous().view(torch.uint8)[:, d - SLICE_SIZE :]
-    torch.testing.assert_equal(rope_bytes[valid], rope_ref[valid])
+    rope_ref = x[:, -SLICE_SIZE:].contiguous().view(torch.uint8)
+    _assert_equal(rope_bytes[valid], rope_ref[valid])
 
     # 4. Row padding is zero-filled.
-    torch.testing.assert_equal(
+    _assert_equal(
         byte[:, concat_col:], torch.zeros_like(byte[:, concat_col:])
     )
 
@@ -214,7 +218,7 @@ def _check_mxfp8_layout1(
     scale_off = quant_col + 2 * SLICE_SIZE
     scale_cached = byte[:, scale_off : scale_off + scale_col]
     ref_scales = _ref_mxfp8_scales(xf, d, per_group_size, fp8_max, round_scale)
-    torch.testing.assert_equal(scale_cached[valid], ref_scales[valid])
+    _assert_equal(scale_cached[valid], ref_scales[valid])
 
     if round_scale:
         # 2. Dequant: value * 2^(scale - 127). The kernel divides by 2^(s-127) when rounding.
@@ -224,19 +228,19 @@ def _check_mxfp8_layout1(
             .expand(-1, -1, per_group_size)
             .reshape(num_slots, -1)[:, :quant_col]
         )
-        deq = cache_f32[:, :quant_col] * divisor_exp
+        # MXFP8 layout1 stores the 128-byte BF16 rope prefix before FP8 values.
+        value_off = 2 * SLICE_SIZE
+        deq = cache_f32[:, value_off : value_off + quant_col] * divisor_exp
         torch.testing.assert_close(
             deq[valid], xf[valid, :quant_col], rtol=0.25, atol=0.02
         )
 
     # 3. Rope columns copied byte-exactly.
-    rope_ref = x.contiguous().view(torch.uint8)[:, d - SLICE_SIZE :]
-    torch.testing.assert_equal(
-        byte[:, quant_col : quant_col + 2 * SLICE_SIZE][valid], rope_ref[valid]
-    )
+    rope_ref = x[:, -SLICE_SIZE:].contiguous().view(torch.uint8)
+    _assert_equal(byte[:, : 2 * SLICE_SIZE][valid], rope_ref[valid])
 
     # 4. Row padding is zero-filled.
-    torch.testing.assert_equal(
+    _assert_equal(
         byte[:, concat_col:], torch.zeros_like(byte[:, concat_col:])
     )
     _check_untouched_slots(byte, slot_mapping, valid)
@@ -269,7 +273,7 @@ def _check_mxfp8_layout2(num_tokens, d, per_group_size, block_size, fp8_max, see
     cache_flat = cache.cpu().reshape(num_blocks, block_stride)  # fp8
     byte_flat = _as_uint8(cache).reshape(num_blocks, block_stride)
     ref_scales = _ref_mxfp8_scales(xf, d, per_group_size, fp8_max, True)
-    rope_ref = x.contiguous().view(torch.uint8)[:, d - SLICE_SIZE :]
+    rope_ref = x[:, -SLICE_SIZE:].contiguous().view(torch.uint8)
 
     for i in range(num_tokens):
         s = int(slot_mapping[i].item())
@@ -282,10 +286,10 @@ def _check_mxfp8_layout2(num_tokens, d, per_group_size, block_size, fp8_max, see
         # value region = [fp8 quant][BF16 rope bytes]
         deq = val[:quant_col].float() * (2.0 ** (float(ref_scales[i, 0]) - 127.0))
         torch.testing.assert_close(deq, xf[i, :quant_col], rtol=0.25, atol=0.02)
-        torch.testing.assert_equal(_as_uint8(val[quant_col:]), rope_ref[i])
+        _assert_equal(_as_uint8(val[quant_col:]), rope_ref[i])
         # scale byte at the start of this slot's scale region
         scale_off = block_size * value_per_token + si * scale_per_token
-        torch.testing.assert_equal(byte_flat[b, scale_off], ref_scales[i, 0])
+        _assert_equal(byte_flat[b, scale_off], ref_scales[i, 0])
 
 
 class TestKvCompressEpilog(unittest.TestCase):
