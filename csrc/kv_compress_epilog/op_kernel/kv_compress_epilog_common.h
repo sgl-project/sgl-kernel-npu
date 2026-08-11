@@ -186,7 +186,7 @@ __aicore__ inline void VFProcessDynamicBlockQuant(const LocalTensor<T1> &yLocal,
         MaskReg compareScalar;
         for (uint16_t i = 0; i < curRowNum; i++) {
             // cat scale
-            scaleLocalAddr = scaleLocalAddr + quantColNum + 128;  // quantColNum个B8 + 64个B16元素
+            scaleLocalAddr = yLocalAddr + i * dstCurColNumAlign + quantColNum + 128;
             uint32_t sreg = sregNum;
             for (uint16_t j = 0; j < loopCountFoldTwo; j++) {
                 pregLoop = UpdateMask<float>(sreg);
@@ -260,7 +260,6 @@ __aicore__ inline void VFProcessDynamicBlockQuant(const LocalTensor<T1> &yLocal,
             StoreUnAlignPost(padLocalAddr, ureg1, 0);
 
             ropeYLocalAddr = ropeYLocalAddr + scaleColNum * 2 + padColNum / 2;
-            scaleLocalAddr = scaleLocalAddr + padColNum;
         }
     }
 }
