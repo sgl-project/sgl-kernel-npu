@@ -10,6 +10,9 @@ export UV_PIP_INSTALL="uv pip install"
 ### Dependency Versions
 # PyTorch: Default to torch 2.8.0, can be overridden by --torch-version
 TORCH_VERSION="2.8.0"
+# CPython ABI tag of the interpreter in use: CANN 8.5.0 images ship Python 3.11 (cp311),
+# CANN 9.1.0 images ship Python 3.12 (cp312).
+PY_ABI_TAG="cp$(python3 -c 'import sys; print(f"{sys.version_info.major}{sys.version_info.minor}")')"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -28,11 +31,11 @@ done
 case "${TORCH_VERSION}" in
     "2.8.0")
         TORCHVISION_VERSION="0.23.0"
-        TORCH_NPU_URL="https://gitcode.com/Ascend/pytorch/releases/download/v26.0.0-pytorch2.8.0/torch_npu-2.8.0.post4-cp311-cp311-manylinux_2_28_${ARCHITECT}.whl"
+        TORCH_NPU_URL="https://gitcode.com/Ascend/pytorch/releases/download/v26.0.0-pytorch2.8.0/torch_npu-2.8.0.post4-${PY_ABI_TAG}-${PY_ABI_TAG}-manylinux_2_28_${ARCHITECT}.whl"
         ;;
     "2.10.0")
         TORCHVISION_VERSION="0.25.0"
-        TORCH_NPU_URL="https://gitcode.com/Ascend/pytorch/releases/download/v26.0.0-pytorch2.10.0/torch_npu-2.10.0-cp311-cp311-manylinux_2_28_${ARCHITECT}.whl"
+        TORCH_NPU_URL="https://gitcode.com/Ascend/pytorch/releases/download/v26.0.0-pytorch2.10.0/torch_npu-2.10.0-${PY_ABI_TAG}-${PY_ABI_TAG}-manylinux_2_28_${ARCHITECT}.whl"
         ;;
     *)
         echo "Unsupported torch version: ${TORCH_VERSION}"
