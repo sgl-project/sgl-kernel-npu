@@ -153,6 +153,12 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int num_key_value_heads=1, float scale_value=1.0, int block_size=128, "
         "int top_k=16, int inner_precise=0) -> Tensor");
 
+#ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
+    m.def(
+        "kv_compress_epilog(Tensor(a!) kv_compress_cache, Tensor x, Tensor slot_mapping, "
+        "int quant_group_size, int quant_mode, bool round_scale_flag, int layout) -> ()");
+#endif
+
 #ifdef BUILD_CATLASS_MODULE
     m.def("catlass_matmul_basic(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, str? format_mode=None) -> ()");
 
@@ -257,6 +263,10 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 #endif
 
     m.impl("npu_sparse_attention_score", TORCH_FN(sglang::npu_kernel::sparse_attention_score));
+
+#ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
+    m.impl("kv_compress_epilog", TORCH_FN(sglang::npu_kernel::kv_compress_epilog));
+#endif
 
 #ifdef BUILD_CATLASS_MODULE
     m.impl("catlass_matmul_basic", TORCH_FN(sglang::npu_kernel::catlass_matmul_basic));

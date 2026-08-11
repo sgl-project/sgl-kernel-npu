@@ -18,6 +18,19 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
 endif()
 message(STATUS "SGL_KERNEL_ENABLE_A3_ONLY_OPS=${SGL_KERNEL_ENABLE_A3_ONLY_OPS} (SOC=${SOC_VERSION})")
 
+# A5-only ops: compile only on Ascend950-series SoCs (the mirror of the A3 gating).
+if(NOT DEFINED SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    if(_sgl_soc_lower MATCHES "^ascend950")
+        set(SGL_KERNEL_ENABLE_A5_ONLY_OPS ON)
+    else()
+        set(SGL_KERNEL_ENABLE_A5_ONLY_OPS OFF)
+    endif()
+endif()
+if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    add_compile_definitions(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+endif()
+message(STATUS "SGL_KERNEL_ENABLE_A5_ONLY_OPS=${SGL_KERNEL_ENABLE_A5_ONLY_OPS} (SOC=${SOC_VERSION})")
+
 # host side files
 set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/pytorch_extensions.cpp
@@ -53,6 +66,12 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_host/recurrent_gated_delta_rule.cpp
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/causal_conv1d.cpp
         ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
+    )
+endif()
+# A5-only host sources (Ascend950 A5 operators from vllm-ascend PR #9271)
+if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    list(APPEND OP_SRCS
+        ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_host/kv_compress_epilog.cpp
     )
 endif()
 if(BUILD_CATLASS_MODULE)
@@ -124,6 +143,12 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_kernel/lightning_indexer_kernel.cpp
     )
 endif()
+# A5-only workspace kernels (Ascend950 A5 operators from vllm-ascend PR #9271)
+if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
+    list(APPEND WORKSPACE_KERNEL_SRCS
+        ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_kernel/kv_compress_epilog.cpp
+    )
+endif()
 if(BUILD_CATLASS_MODULE)
     list(APPEND WORKSPACE_KERNEL_SRCS
         ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_matmul_basic_kernel.cpp
@@ -135,6 +160,7 @@ ascendc_include_directories(workspace_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel
     ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_kernel
+    ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_kernel
     ${PROJECT_OP_SRC_BASE}/utils/kernel
 )
 if(BUILD_CATLASS_MODULE)

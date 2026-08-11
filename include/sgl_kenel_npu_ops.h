@@ -155,6 +155,13 @@ at::Tensor lightning_indexer(
 at::Tensor tri_inv_col_sweep(const at::Tensor &tensor_in);
 #endif
 
+#ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
+void kv_compress_epilog(at::Tensor &kv_compress_cache, const at::Tensor &x,
+                        const at::Tensor &slot_mapping,
+                        int64_t quant_group_size, int64_t quant_mode,
+                        bool round_scale_flag, int64_t layout);
+#endif
+
 #ifdef BUILD_CATLASS_MODULE
 void catlass_matmul_basic(const at::Tensor &tensor_a,
                           const at::Tensor &tensor_b, at::Tensor &tensor_c,
