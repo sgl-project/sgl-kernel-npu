@@ -4,12 +4,7 @@ on:
   pull_request:
     branches: [ main ]
     paths:
-      - "build.sh"
-      - "cmake/**"
-      - "python/deep_ep**"
-      - "csrc/deepep**"
-      - "tests/python/deepep**"
-      - "scripts/**"
+      - "csrc/deepep/ops2/**"
       - ".github/workflows/a2-internode-test.yml"
       - ".github/workflows/internode.yml"
   workflow_dispatch:
