@@ -77,11 +77,11 @@ def _mxfp8_coeff(fp8_max):
 
 def _ref_fp8_scales(xf, d, fp8_max):
     """Reference float32 scales for the FP8 path (one per 128-wide block)."""
-    _, scale_col, _, _ = _layout1_dims(d, QUANT_MODE_FP8, 0)
+    quant_col, scale_col, _, _ = _layout1_dims(d, QUANT_MODE_FP8, 0)
     coeff = _fp8_coeff(fp8_max)
     scales = torch.zeros((xf.shape[0], scale_col), dtype=torch.float32)
     for j in range(scale_col):
-        blk = xf[:, j * 128 : (j + 1) * 128]
+        blk = xf[:, j * 128 : min((j + 1) * 128, quant_col)]
         m = blk.abs().max(dim=1).values
         scales[:, j] = m * coeff
     return scales
