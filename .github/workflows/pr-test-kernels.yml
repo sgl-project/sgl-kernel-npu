@@ -141,7 +141,7 @@ jobs:
       )
     runs-on: linux-aarch64-a3-16
     container:
-      image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/quay.io/ascend/sglang:v0.5.13.post1-cann9.0.0-a3
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:main-cann9.0.0-a3
     env:
       CANN_VERSION: "9.0.0"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -190,7 +190,7 @@ jobs:
       )
     runs-on: linux-aarch64-a3-16
     container:
-      image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/quay.io/ascend/sglang:v0.5.13.post1-cann9.0.0-a3
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:main-cann9.0.0-a3
     env:
       CANN_VERSION: "9.0.0"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -239,7 +239,7 @@ jobs:
       )
     runs-on: linux-aarch64-a3-16
     container:
-      image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/quay.io/ascend/sglang:v0.5.13.post1-cann9.0.0-a3
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:main-cann9.0.0-a3
     env:
       CANN_VERSION: "9.0.0"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -288,7 +288,7 @@ jobs:
       )
     runs-on: linux-aarch64-a3-16
     container:
-      image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/quay.io/ascend/sglang:v0.5.13.post1-cann9.0.0-a3
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:main-cann9.0.0-a3
     env:
       CANN_VERSION: "9.0.0"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -337,7 +337,7 @@ jobs:
       )
     runs-on: linux-aarch64-a3-16
     container:
-      image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/quay.io/ascend/sglang:v0.5.13.post1-cann9.0.0-a3
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:main-cann9.0.0-a3
     env:
       CANN_VERSION: "9.0.0"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -386,7 +386,7 @@ jobs:
       )
     runs-on: linux-aarch64-a3-16
     container:
-      image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/quay.io/ascend/sglang:v0.5.13.post1-cann9.0.0-a3
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:main-cann9.0.0-a3
     env:
       CANN_VERSION: "9.0.0"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -435,7 +435,7 @@ jobs:
       )
     runs-on: linux-aarch64-a3-16
     container:
-      image: swr.cn-north-4.myhuaweicloud.com/ddn-k8s/quay.io/ascend/sglang:v0.5.13.post1-cann9.0.0-a3
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:main-cann9.0.0-a3
     env:
       CANN_VERSION: "9.0.0"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
