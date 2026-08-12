@@ -1,7 +1,6 @@
 import torch
 import triton
 import triton.language as tl
-
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
@@ -36,29 +35,20 @@ def _chain_rejection_accept_kernel(
     for step in range(1, num_draft_tokens):
         if active == 1:
             draft_token = tl.load(candidates + row_offset + step).to(tl.int64)
-            target_offset = (
-                (row_offset + cur_prob_row) * vocab_size + draft_token
-            )
+            target_offset = (row_offset + cur_prob_row) * vocab_size + draft_token
             draft_offset = (
-                (req_idx * num_draft_prob_rows + cur_prob_row) * vocab_size
-                + draft_token
-            )
+                req_idx * num_draft_prob_rows + cur_prob_row
+            ) * vocab_size + draft_token
             target_prob = tl.load(target_probs + target_offset).to(tl.float32)
             draft_prob = tl.load(draft_probs + draft_offset).to(tl.float32)
-            coin = tl.load(uniform_samples + row_offset + step - 1).to(
-                tl.float32
-            )
+            coin = tl.load(uniform_samples + row_offset + step - 1).to(tl.float32)
 
             if coin * draft_prob < target_prob:
                 tl.store(predicts + last_accepted_idx, draft_token)
                 num_accepted += 1
-                draft_idx = tl.load(retrive_index + row_offset + step).to(
-                    tl.int64
-                )
+                draft_idx = tl.load(retrive_index + row_offset + step).to(tl.int64)
                 tl.store(
-                    accept_index
-                    + req_idx * num_speculative_tokens
-                    + num_accepted,
+                    accept_index + req_idx * num_speculative_tokens + num_accepted,
                     draft_idx,
                 )
                 last_accepted_idx = draft_idx
@@ -97,9 +87,7 @@ def _chain_rejection_block_sum_kernel(
     for flat_block_idx in tl.range(program_idx, total_blocks, num_programs):
         req_idx = flat_block_idx // num_vocab_blocks
         block_idx = flat_block_idx % num_vocab_blocks
-        vocab_offsets = block_idx * vocab_block_size + tl.arange(
-            0, vocab_block_size
-        )
+        vocab_offsets = block_idx * vocab_block_size + tl.arange(0, vocab_block_size)
         vocab_mask = vocab_offsets < vocab_size
 
         metadata_offset = req_idx * 3
@@ -115,9 +103,7 @@ def _chain_rejection_block_sum_kernel(
         if all_accepted == 1:
             residual = target
         else:
-            draft_offset = (
-                req_idx * num_draft_prob_rows + target_row
-            ) * vocab_size
+            draft_offset = (req_idx * num_draft_prob_rows + target_row) * vocab_size
             draft = tl.load(
                 draft_probs + draft_offset + vocab_offsets,
                 mask=vocab_mask,
@@ -168,9 +154,7 @@ def _chain_rejection_sample_kernel(
         ((block_cdf <= target_value) & block_mask).to(tl.int32), axis=0
     )
     selected_block = tl.minimum(selected_block, num_vocab_blocks - 1)
-    prefix_sum = tl.sum(
-        tl.where(block_offsets < selected_block, sums, 0.0), axis=0
-    )
+    prefix_sum = tl.sum(tl.where(block_offsets < selected_block, sums, 0.0), axis=0)
     local_target = tl.maximum(target_value - prefix_sum, 0.0)
 
     local_offsets = tl.arange(0, vocab_block_size)
@@ -185,9 +169,7 @@ def _chain_rejection_sample_kernel(
     if all_accepted == 1:
         residual = target
     else:
-        draft_offset = (
-            req_idx * num_draft_prob_rows + target_row
-        ) * vocab_size
+        draft_offset = (req_idx * num_draft_prob_rows + target_row) * vocab_size
         draft = tl.load(
             draft_probs + draft_offset + vocab_offsets,
             mask=vocab_mask,
@@ -253,9 +235,7 @@ def chain_speculative_sampling_triton(
     if retrive_index.shape != candidates.shape:
         raise ValueError("retrive_index shape must match candidates")
     if accept_index.shape != candidates.shape:
-        raise ValueError(
-            "classic rejection sampling requires a topk=1 linear chain"
-        )
+        raise ValueError("classic rejection sampling requires a topk=1 linear chain")
     if accept_token_num.shape != (batch_size,):
         raise ValueError("accept_token_num must have shape [batch]")
     if predicts.ndim != 1:
@@ -263,9 +243,7 @@ def chain_speculative_sampling_triton(
     if uniform_samples.shape != candidates.shape:
         raise ValueError("uniform_samples shape must match candidates")
     if uniform_samples_for_final_sampling.shape != (batch_size,):
-        raise ValueError(
-            "uniform_samples_for_final_sampling must have shape [batch]"
-        )
+        raise ValueError("uniform_samples_for_final_sampling must have shape [batch]")
     if draft_probs is None or draft_probs.ndim != 3:
         raise ValueError("draft_probs must be a 3-D tensor")
     if draft_probs.shape[0] != batch_size:
@@ -314,9 +292,7 @@ def chain_speculative_sampling_triton(
     pad_num_vocab_blocks = triton.next_power_of_2(num_vocab_blocks)
     _, num_vector_cores = get_device_properties()
     # Cap the launch to physical vector cores; each program strides over blocks.
-    num_block_sum_programs = min(
-        batch_size * num_vocab_blocks, num_vector_cores
-    )
+    num_block_sum_programs = min(batch_size * num_vocab_blocks, num_vector_cores)
 
     metadata = torch.empty(
         (batch_size, 3), dtype=torch.int64, device=target_probs.device

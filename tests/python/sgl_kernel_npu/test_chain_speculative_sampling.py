@@ -1,6 +1,5 @@
 import torch
 import torch_npu  # noqa: F401
-
 from sgl_kernel_npu.sample import chain_speculative_sampling_triton
 
 

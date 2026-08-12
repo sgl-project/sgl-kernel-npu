@@ -1,7 +1,6 @@
 import torch
 import triton
 import triton.language as tl
-
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
@@ -43,32 +42,18 @@ def _tree_target_only_accept_kernel(
         prob_acc = tl.full((), 0.0, tl.float32)
 
         if path_active == 1:
-            cur_node = tl.load(
-                retrive_next_token + row_offset + cur_node
-            ).to(tl.int64)
+            cur_node = tl.load(retrive_next_token + row_offset + cur_node).to(tl.int64)
             if cur_node == -1:
                 path_active = 0
 
         # The loop is bounded by the number of tree nodes. It terminates
         # logically when a child is accepted or the sibling list reaches -1.
         for _sibling in range(0, num_draft_tokens):
-            if (
-                (path_active == 1)
-                & (accepted_at_depth == 0)
-                & (cur_node != -1)
-            ):
-                draft_token = tl.load(
-                    candidates + row_offset + cur_node
-                ).to(tl.int64)
-                draft_idx = tl.load(
-                    retrive_index + row_offset + cur_node
-                ).to(tl.int64)
-                prob_offset = (
-                    (row_offset + cur_prob_row) * vocab_size + draft_token
-                )
-                target_prob_single = tl.load(
-                    target_probs + prob_offset
-                ).to(tl.float32)
+            if (path_active == 1) & (accepted_at_depth == 0) & (cur_node != -1):
+                draft_token = tl.load(candidates + row_offset + cur_node).to(tl.int64)
+                draft_idx = tl.load(retrive_index + row_offset + cur_node).to(tl.int64)
+                prob_offset = (row_offset + cur_prob_row) * vocab_size + draft_token
+                target_prob_single = tl.load(target_probs + prob_offset).to(tl.float32)
                 prob_acc += target_prob_single
 
                 accepted = (coin <= prob_acc / threshold_acc) | (
@@ -78,25 +63,23 @@ def _tree_target_only_accept_kernel(
                     tl.store(predicts + last_accepted_idx, draft_token)
                     num_accepted += 1
                     tl.store(
-                        accept_index
-                        + req_idx * num_speculative_tokens
-                        + num_accepted,
+                        accept_index + req_idx * num_speculative_tokens + num_accepted,
                         draft_idx,
                     )
                     last_accepted_idx = draft_idx
                     cur_prob_row = cur_node
-                    coin = tl.load(
-                        uniform_samples + row_offset + cur_node
-                    ).to(tl.float32)
+                    coin = tl.load(uniform_samples + row_offset + cur_node).to(
+                        tl.float32
+                    )
                     accepted_at_depth = 1
                 else:
                     # The CUDA target-only kernel stores the rejected sibling's
                     # target probability in draft_probs and later samples from
                     # relu(target_probs - draft_probs).
                     tl.store(rejected_probs + prob_offset, target_prob_single)
-                    cur_node = tl.load(
-                        retrive_next_sibling + row_offset + cur_node
-                    ).to(tl.int64)
+                    cur_node = tl.load(retrive_next_sibling + row_offset + cur_node).to(
+                        tl.int64
+                    )
 
         if accepted_at_depth == 0:
             path_active = 0
@@ -128,9 +111,7 @@ def _tree_target_only_block_sum_kernel(
     for flat_block_idx in tl.range(program_idx, total_blocks, num_programs):
         req_idx = flat_block_idx // num_vocab_blocks
         block_idx = flat_block_idx % num_vocab_blocks
-        vocab_offsets = block_idx * vocab_block_size + tl.arange(
-            0, vocab_block_size
-        )
+        vocab_offsets = block_idx * vocab_block_size + tl.arange(0, vocab_block_size)
         vocab_mask = vocab_offsets < vocab_size
 
         target_row = tl.load(metadata + req_idx * 2).to(tl.int64)
@@ -181,13 +162,9 @@ def _tree_target_only_sample_kernel(
     coin = tl.load(uniform_samples_for_final_sampling + req_idx).to(tl.float32)
     target = coin * total
 
-    selected_block = tl.sum(
-        ((block_cdf <= target) & block_mask).to(tl.int32), axis=0
-    )
+    selected_block = tl.sum(((block_cdf <= target) & block_mask).to(tl.int32), axis=0)
     selected_block = tl.minimum(selected_block, num_vocab_blocks - 1)
-    prefix_sum = tl.sum(
-        tl.where(block_offsets < selected_block, sums, 0.0), axis=0
-    )
+    prefix_sum = tl.sum(tl.where(block_offsets < selected_block, sums, 0.0), axis=0)
     local_target = tl.maximum(target - prefix_sum, 0.0)
 
     local_offsets = tl.arange(0, vocab_block_size)
@@ -285,9 +262,7 @@ def tree_speculative_sampling_target_only(
     if predicts.ndim != 1:
         raise ValueError("predicts must be 1-D")
     if uniform_samples_for_final_sampling.shape != (batch_size,):
-        raise ValueError(
-            "uniform_samples_for_final_sampling must have shape [batch]"
-        )
+        raise ValueError("uniform_samples_for_final_sampling must have shape [batch]")
     if draft_probs.shape != target_probs.shape:
         raise ValueError("draft_probs scratch must match target_probs")
     if draft_probs.data_ptr() == target_probs.data_ptr():
@@ -339,9 +314,7 @@ def tree_speculative_sampling_target_only(
     pad_num_vocab_blocks = triton.next_power_of_2(num_vocab_blocks)
     _, num_vector_cores = get_device_properties()
     # Cap the launch to physical vector cores; each program strides over blocks.
-    num_block_sum_programs = min(
-        batch_size * num_vocab_blocks, num_vector_cores
-    )
+    num_block_sum_programs = min(batch_size * num_vocab_blocks, num_vector_cores)
 
     # The CUDA call site passes zeros_like(target_probs). Clearing in the NPU
     # wrapper makes the scratch contract explicit and permits empty_like callers.

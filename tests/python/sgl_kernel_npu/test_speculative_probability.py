@@ -1,5 +1,4 @@
 import torch
-
 from sgl_kernel_npu.sample.probability import top_k_renorm_prob, top_p_renorm_prob
 
 
@@ -15,16 +14,12 @@ def test_top_k_top_p_renorm_matches_sequential_reference():
     positions = torch.arange(probs.shape[-1]).view(1, -1)
     sorted_probs[positions >= top_ks.view(-1, 1)] = 0.0
     sorted_probs /= sorted_probs.sum(dim=-1, keepdim=True)
-    top_k_probs = torch.zeros_like(probs).scatter(
-        -1, sorted_indices, sorted_probs
-    )
+    top_k_probs = torch.zeros_like(probs).scatter(-1, sorted_indices, sorted_probs)
     sorted_probs, sorted_indices = top_k_probs.sort(dim=-1, descending=True)
     cumulative = sorted_probs.cumsum(dim=-1)
     sorted_probs[cumulative - sorted_probs > top_ps.view(-1, 1)] = 0.0
     sorted_probs /= sorted_probs.sum(dim=-1, keepdim=True)
-    expected = torch.zeros_like(probs).scatter(
-        -1, sorted_indices, sorted_probs
-    )
+    expected = torch.zeros_like(probs).scatter(-1, sorted_indices, sorted_probs)
 
     torch.testing.assert_close(actual, expected, rtol=1e-6, atol=1e-7)
 

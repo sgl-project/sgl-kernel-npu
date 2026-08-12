@@ -4,7 +4,6 @@ import time
 import pytest
 import torch
 import torch_npu  # noqa: F401
-
 from sgl_kernel_npu.sample import tree_speculative_sampling_target_only
 
 
@@ -43,14 +42,9 @@ def target_only_tree_reference(
             while cur_node != -1:
                 draft_idx = int(retrive_index[req_idx, cur_node])
                 draft_token = int(candidates[req_idx, cur_node])
-                target_prob = float(
-                    target_probs[req_idx, cur_prob_row, draft_token]
-                )
+                target_prob = float(target_probs[req_idx, cur_prob_row, draft_token])
                 prob_acc += target_prob
-                if (
-                    coin <= prob_acc / threshold_acc
-                    or target_prob >= threshold_single
-                ):
+                if coin <= prob_acc / threshold_acc or target_prob >= threshold_single:
                     predicts[last_accepted_idx] = draft_token
                     num_accepted += 1
                     accept_index[req_idx, num_accepted] = draft_idx
@@ -67,8 +61,7 @@ def target_only_tree_reference(
 
         accept_token_num[req_idx] = num_accepted
         residual = (
-            target_probs[req_idx, cur_prob_row]
-            - rejected_probs[req_idx, cur_prob_row]
+            target_probs[req_idx, cur_prob_row] - rejected_probs[req_idx, cur_prob_row]
         ).clamp_min(0.0)
         target = float(uniform_samples_for_final_sampling[req_idx]) * float(
             residual.sum()
@@ -109,10 +102,7 @@ def target_only_chain_reference(
             draft_token = int(candidates[req_idx, step])
             target_prob = float(target_probs[req_idx, step - 1, draft_token])
             coin = float(uniform_samples[req_idx, step - 1])
-            if (
-                coin <= target_prob / threshold_acc
-                or target_prob >= threshold_single
-            ):
+            if coin <= target_prob / threshold_acc or target_prob >= threshold_single:
                 predicts[last_accepted_idx] = draft_token
                 num_accepted += 1
                 last_accepted_idx = int(retrive_index[req_idx, step])
@@ -139,9 +129,7 @@ def target_only_chain_reference(
 @pytest.mark.parametrize(
     "threshold_single,threshold_acc", [(1.0, 1.0), (0.0, 0.0), (0.5, 0.8)]
 )
-def test_general_tree_matches_gpu_algorithm_reference(
-    threshold_single, threshold_acc
-):
+def test_general_tree_matches_gpu_algorithm_reference(threshold_single, threshold_acc):
     candidates = torch.tensor(
         [[0, 1, 2, 3, 4, 5], [7, 8, 9, 10, 11, 12]], dtype=torch.int64
     )
@@ -217,9 +205,7 @@ def test_general_tree_matches_gpu_algorithm_reference(
     )
 
     torch.testing.assert_close(npu_predicts.cpu(), ref_predicts, rtol=0, atol=0)
-    torch.testing.assert_close(
-        npu_accept_index.cpu(), ref_accept_index, rtol=0, atol=0
-    )
+    torch.testing.assert_close(npu_accept_index.cpu(), ref_accept_index, rtol=0, atol=0)
     torch.testing.assert_close(npu_accept_num.cpu(), ref_accept_num, rtol=0, atol=0)
     torch.testing.assert_close(npu_rejected.cpu(), ref_rejected, rtol=0, atol=0)
 
@@ -334,9 +320,7 @@ def make_stable_chain_final_uniforms(
 @pytest.mark.parametrize("batch_size", [1, 4, 17])
 @pytest.mark.parametrize("num_draft_tokens", [2, 5])
 @pytest.mark.parametrize("vocab_size", [20, 32000, 151552])
-def test_target_only_chain_matches_reference(
-    batch_size, num_draft_tokens, vocab_size
-):
+def test_target_only_chain_matches_reference(batch_size, num_draft_tokens, vocab_size):
     torch.manual_seed(20260717 + batch_size + num_draft_tokens + vocab_size)
     candidates = torch.randint(
         0, vocab_size, (batch_size, num_draft_tokens), dtype=torch.int64
@@ -350,9 +334,7 @@ def test_target_only_chain_matches_reference(
             token = int(candidates[req_idx, step])
             target_probs[req_idx, step - 1] *= 0.35
             target_probs[req_idx, step - 1, token] += 0.65
-            target_probs[req_idx, step - 1] /= target_probs[
-                req_idx, step - 1
-            ].sum()
+            target_probs[req_idx, step - 1] /= target_probs[req_idx, step - 1].sum()
 
     uniform_samples = torch.rand(batch_size, num_draft_tokens)
     # A random coin can land within FP32 reduction error of a CDF boundary for
@@ -367,12 +349,8 @@ def test_target_only_chain_matches_reference(
         batch_size, num_draft_tokens, "cpu"
     )
 
-    ref_predicts = torch.full(
-        (batch_size * num_draft_tokens,), -1, dtype=torch.int32
-    )
-    ref_accept_index = torch.full(
-        (batch_size, num_draft_tokens), -1, dtype=torch.int32
-    )
+    ref_predicts = torch.full((batch_size * num_draft_tokens,), -1, dtype=torch.int32)
+    ref_accept_index = torch.full((batch_size, num_draft_tokens), -1, dtype=torch.int32)
     ref_accept_num = torch.zeros(batch_size, dtype=torch.int32)
     target_only_chain_reference(
         ref_predicts,
@@ -414,9 +392,7 @@ def test_target_only_chain_matches_reference(
     )
 
     torch.testing.assert_close(npu_predicts.cpu(), ref_predicts, rtol=0, atol=0)
-    torch.testing.assert_close(
-        npu_accept_index.cpu(), ref_accept_index, rtol=0, atol=0
-    )
+    torch.testing.assert_close(npu_accept_index.cpu(), ref_accept_index, rtol=0, atol=0)
     torch.testing.assert_close(npu_accept_num.cpu(), ref_accept_num, rtol=0, atol=0)
 
 
@@ -435,9 +411,7 @@ def test_target_only_thresholds(threshold_single, threshold_acc):
             token = int(candidates[req_idx, step])
             target_probs[req_idx, step - 1] *= 0.2
             target_probs[req_idx, step - 1, token] += 0.8
-            target_probs[req_idx, step - 1] /= target_probs[
-                req_idx, step - 1
-            ].sum()
+            target_probs[req_idx, step - 1] /= target_probs[req_idx, step - 1].sum()
 
     uniforms = torch.tensor([[0.1, 0.9, 0.2, 0.0], [0.7, 0.2, 0.95, 0.0]])
     final_uniforms = torch.tensor([0.25, 0.75])
@@ -446,9 +420,7 @@ def test_target_only_thresholds(threshold_single, threshold_acc):
     )
 
     ref_predicts = torch.full((batch_size * num_draft_tokens,), -1, dtype=torch.int32)
-    ref_accept_index = torch.full(
-        (batch_size, num_draft_tokens), -1, dtype=torch.int32
-    )
+    ref_accept_index = torch.full((batch_size, num_draft_tokens), -1, dtype=torch.int32)
     ref_accept_num = torch.zeros(batch_size, dtype=torch.int32)
     target_only_chain_reference(
         ref_predicts,
@@ -485,9 +457,7 @@ def test_target_only_thresholds(threshold_single, threshold_acc):
     )
 
     torch.testing.assert_close(npu_predicts.cpu(), ref_predicts, rtol=0, atol=0)
-    torch.testing.assert_close(
-        npu_accept_index.cpu(), ref_accept_index, rtol=0, atol=0
-    )
+    torch.testing.assert_close(npu_accept_index.cpu(), ref_accept_index, rtol=0, atol=0)
     torch.testing.assert_close(npu_accept_num.cpu(), ref_accept_num, rtol=0, atol=0)
 
 
