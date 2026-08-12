@@ -194,6 +194,24 @@ public:
         return *this;
     }
 
+    AttrDef &Float(float value)
+    {
+        TORCH_CHECK(valueInitialized_ == false,
+                    "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
+        anyValue_ = value;
+        valueInitialized_ = true;
+        return *this;
+    }
+
+    AttrDef &Bool(bool value)
+    {
+        TORCH_CHECK(valueInitialized_ == false,
+                    "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
+        anyValue_ = value;
+        valueInitialized_ = true;
+        return *this;
+    }
+
     const std::any GetValue() const
     {
         return anyValue_;
@@ -300,7 +318,8 @@ public:
         // Safety check to avoid underflow
         TORCH_CHECK(!descPtr->empty(), "[GE_Helper] No tensor description available.");
 
-        auto index = descPtr->size() - 1;
+        auto index = tensorPtr->size();
+        TORCH_CHECK(index < descPtr->size(), "[GE_Helper] Tensor registration index out of range.");
         // storageFormat == originFormat
         auto geOriginFormat = (*descPtr)[index]->GetOriginFormat();
         auto storageFormat = gert::StorageFormat(geOriginFormat, geOriginFormat, gert::ExpandDimsType());

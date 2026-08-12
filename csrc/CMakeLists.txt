@@ -24,6 +24,8 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_host/tiling/sgemmc_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/lightning_indexer.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/tiling/lightning_indexer_tiling.cpp
+    ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host/sparse_attn_sharedkv.cpp
+    ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host/sparse_attn_sharedkv_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/causal_conv1d_update.cpp
     ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_host/recurrent_gated_delta_rule.cpp
@@ -132,11 +134,33 @@ ascendc_compile_definitions(mega_chunk_gdn_kernel PRIVATE
     -DGDN_C=128
 )
 
+ascendc_library(sparse_attn_sharedkv_kernel STATIC
+    ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_kernel/sparse_attn_sharedkv.cpp
+)
+ascendc_include_directories(sparse_attn_sharedkv_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_kernel
+    ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host
+    ${PROJECT_OP_SRC_BASE}/utils/kernel
+)
+ascendc_compile_definitions(sparse_attn_sharedkv_kernel PRIVATE
+    -DHAVE_WORKSPACE
+    -DHAVE_TILING
+)
+ascendc_compile_options(sparse_attn_sharedkv_kernel PRIVATE
+    --cce-auto-sync=off
+    -Wno-deprecated-declarations
+    -mllvm
+    -cce-vf-remove-membar=false
+    -mllvm
+    -cce-aicore-hoist-movemask=false
+)
+
 # create shared library libsgl_kernel_npu.so
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${MEGA_CHUNK_GDN_KERNEL_TARGETS}
+        sparse_attn_sharedkv_kernel
         workspace_kernel
         no_workspace_kernel
         torch_npu
@@ -161,6 +185,7 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/stub
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host
         ${TORCH_DIR}/include
         ${TORCH_DIR}/include/torch/csrc/api/include
         ${TORCH_NPU_DIR}/include
