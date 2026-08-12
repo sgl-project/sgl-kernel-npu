@@ -10,7 +10,6 @@
  * See the Mulan PSL v2 for more details.
  */
 
-
 /*!
  * \file soft_max.h
  * \brief
@@ -49,6 +48,6 @@ __aicore__ inline void ColumnSoftMax(const LocalTensor<float> &dstLocal, const L
     MatDivVec(dstLocal, dstLocal, shareTmpUb, {row, col, dtypeMask, dLoop, dRemain, repeatStride});
 }
 
-} // namespace Compressor
+}  // namespace Compressor
 
 #endif

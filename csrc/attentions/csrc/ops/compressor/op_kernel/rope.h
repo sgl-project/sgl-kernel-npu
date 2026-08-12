@@ -34,7 +34,7 @@ __aicore__ inline void SetGatherSrcOffset(const LocalTensor<int32_t> &gatherOffs
     for (uint32_t i = 0; i < 8; i++) {
         gatherOffsetLocal.SetValue(i, i ^ 1);
     }
-    
+
     event_t eventId_S_V = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::S_V));
     SetFlag<HardEvent::S_V>(eventId_S_V);
     WaitFlag<HardEvent::S_V>(eventId_S_V);
@@ -54,7 +54,6 @@ __aicore__ inline void SetGatherSrcOffset(const LocalTensor<int32_t> &gatherOffs
     PipeBarrier<PIPE_V>();
     Muls(gatherOffsetLocal, gatherOffsetLocal, static_cast<int32_t>(sizeof(T)), count);
 }
-
 
 /**
  * @brief RotaryPosEmb 同时做row行的RotaryPosEmb，每一行的元素为col
@@ -99,22 +98,22 @@ __aicore__ inline void RotaryPosEmb(const LocalTensor<float> &dstLocal, const Lo
         }
         PipeBarrier<PIPE_V>();
         uint32_t repeatTimes = cnt / FP32_REPEAT_ELEMENT_NUM;
-        uint32_t remainer = cnt % FP32_REPEAT_ELEMENT_NUM;
+        uint32_t remainder = cnt % FP32_REPEAT_ELEMENT_NUM;
         uint64_t fullMask = 0x5555555555555555;
         uint64_t partialMask = 0x55;
         SetVectorMask<float, MaskMode::NORMAL>(0, fullMask);
         Muls<float, false>(reArrLocal, reArrLocal, float(-1), MASK_PLACEHOLDER, repeatTimes,
                            {1, 1, FP32_BLOCK_ELEMENT_NUM, FP32_BLOCK_ELEMENT_NUM});
 
-        if (unlikely(remainer > 0)) {
+        if (unlikely(remainder > 0)) {
             SetVectorMask<float, MaskMode::NORMAL>(0, partialMask);
             Muls<float, false>(reArrLocal[repeatTimes * FP32_REPEAT_ELEMENT_NUM],
                                reArrLocal[repeatTimes * FP32_REPEAT_ELEMENT_NUM], float(-1), MASK_PLACEHOLDER,
-                               remainer / FP32_BLOCK_ELEMENT_NUM, {1, 1, 1, 1});
+                               remainder / FP32_BLOCK_ELEMENT_NUM, {1, 1, 1, 1});
         }
         ResetMask();
     }
-   
+
     PipeBarrier<PIPE_V>();
     BinaryRepeatParams computeParams{1,
                                      1,
@@ -127,6 +126,6 @@ __aicore__ inline void RotaryPosEmb(const LocalTensor<float> &dstLocal, const Lo
     PipeBarrier<PIPE_V>();
     Add(dstLocal[baseAddr], dstLocal[baseAddr], reArrLocal, col, row, computeParams);
 }
-}
+}  // namespace Compressor
 
 #endif

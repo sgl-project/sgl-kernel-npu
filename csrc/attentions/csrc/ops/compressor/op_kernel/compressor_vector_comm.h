@@ -21,7 +21,6 @@
 #include "compressor_comm.h"
 namespace Compressor {
 
-
 struct MatRpeatParam {
     uint32_t row;
     uint32_t col;
@@ -47,7 +46,7 @@ struct RmsNormParam {
  * @param col 列数
  */
 __aicore__ inline void ColumnSum(const LocalTensor<float> &dstLocal, const LocalTensor<float> &srcLocal,
-                                     const LocalTensor<float> &shareTmpUb, uint32_t row, uint32_t col)
+                                 const LocalTensor<float> &shareTmpUb, uint32_t row, uint32_t col)
 {
     // 行数为1时，直接将srcLocal复制到dstLocal
     if (unlikely(row == 1)) {
@@ -58,12 +57,12 @@ __aicore__ inline void ColumnSum(const LocalTensor<float> &dstLocal, const Local
     for (uint32_t mask = MAX_R << 1; mask > 1; mask >>= 1) {
         if (row & mask) {
             // 将输入对半求和后放进临时空间
-            Add(shareTmpUb, srcLocal, srcLocal[mask * col / 2], mask * col / 2); // 2:对矩阵按列做计算
+            Add(shareTmpUb, srcLocal, srcLocal[mask * col / 2], mask * col / 2);  // 2:对矩阵按列做计算
             PipeBarrier<PIPE_V>();
             // 将余量加到前一半上
             if (unlikely(row > mask)) {
                 if ((row - mask) > (mask >> 1)) {
-                    Add(shareTmpUb, shareTmpUb, srcLocal[mask * col], mask * col / 2); // 2:对矩阵按列做计算
+                    Add(shareTmpUb, shareTmpUb, srcLocal[mask * col], mask * col / 2);  // 2:对矩阵按列做计算
                     PipeBarrier<PIPE_V>();
                     Add(shareTmpUb, shareTmpUb, srcLocal[(mask + (mask >> 1)) * col], (row - mask - (mask >> 1)) * col);
                     PipeBarrier<PIPE_V>();
@@ -77,7 +76,7 @@ __aicore__ inline void ColumnSum(const LocalTensor<float> &dstLocal, const Local
                 Add(shareTmpUb, shareTmpUb, shareTmpUb[i * col], i * col);
                 PipeBarrier<PIPE_V>();
             }
-            if (mask == 2) { // 2:最后一次矩阵运算处理
+            if (mask == 2) {  // 2:最后一次矩阵运算处理
                 DataCopy(dstLocal, shareTmpUb, col);
             } else {
                 Add(dstLocal, shareTmpUb, shareTmpUb[col], col);
@@ -97,7 +96,7 @@ __aicore__ inline void ColumnSum(const LocalTensor<float> &dstLocal, const Local
  * @param col 列数
  */
 __aicore__ inline void ColumnMax(const LocalTensor<float> &dstLocal, const LocalTensor<float> &srcLocal,
-                                     const LocalTensor<float> &shareTmpUb, uint32_t row, uint32_t col)
+                                 const LocalTensor<float> &shareTmpUb, uint32_t row, uint32_t col)
 {
     // 行数为1时，直接将srcLocal复制到dstLocal
     if (unlikely(row == 1)) {
@@ -108,12 +107,12 @@ __aicore__ inline void ColumnMax(const LocalTensor<float> &dstLocal, const Local
     for (uint32_t mask = MAX_R << 1; mask > 1; mask >>= 1) {
         if (row & mask) {
             // 将输入对半求最大值后放进临时空间
-            Max(shareTmpUb, srcLocal, srcLocal[mask * col / 2], mask * col / 2); // 2:对矩阵按列做计算
+            Max(shareTmpUb, srcLocal, srcLocal[mask * col / 2], mask * col / 2);  // 2:对矩阵按列做计算
             PipeBarrier<PIPE_V>();
             // 将余量和前一半求最大值后加到前一半上
             if (unlikely(row > mask)) {
                 if ((row - mask) > (mask >> 1)) {
-                    Max(shareTmpUb, shareTmpUb, srcLocal[mask * col], mask * col / 2); // 2:对矩阵按列做计算
+                    Max(shareTmpUb, shareTmpUb, srcLocal[mask * col], mask * col / 2);  // 2:对矩阵按列做计算
                     PipeBarrier<PIPE_V>();
                     Max(shareTmpUb, shareTmpUb, srcLocal[(mask + (mask >> 1)) * col], (row - mask - (mask >> 1)) * col);
                     PipeBarrier<PIPE_V>();
@@ -127,7 +126,7 @@ __aicore__ inline void ColumnMax(const LocalTensor<float> &dstLocal, const Local
                 Max(shareTmpUb, shareTmpUb, shareTmpUb[i * col], i * col);
                 PipeBarrier<PIPE_V>();
             }
-            if (mask == 2) { // 2:最后一次矩阵运算处理
+            if (mask == 2) {  // 2:最后一次矩阵运算处理
                 DataCopy(dstLocal, shareTmpUb, col);
             } else {
                 Max(dstLocal, shareTmpUb, shareTmpUb[col], col);
@@ -137,7 +136,6 @@ __aicore__ inline void ColumnMax(const LocalTensor<float> &dstLocal, const Local
         }
     }
 }
-
 
 /**
  * @brief MatSubVec 矩阵逐行减向量
@@ -256,8 +254,7 @@ __aicore__ inline void RowSum(const LocalTensor<float> &dstLocal, const LocalTen
 {
     uint32_t blockCount = repeatParam.loopTimes;
     if (blockCount > 0 && repeatParam.colRemain > 0) {
-        Add(shareTmpUb, srcLocal, srcLocal[blockCount * repeatParam.dtypeMask], repeatParam.colRemain,
-            repeatParam.row,
+        Add(shareTmpUb, srcLocal, srcLocal[blockCount * repeatParam.dtypeMask], repeatParam.colRemain, repeatParam.row,
             {1, 1, 1, repeatParam.repeatStride, repeatParam.repeatStride, repeatParam.repeatStride});
         AscendC::PipeBarrier<PIPE_V>();
     }
@@ -273,9 +270,8 @@ __aicore__ inline void RowSum(const LocalTensor<float> &dstLocal, const LocalTen
     }
 
     WholeReduceSum(dstLocal, shareTmpUb,
-                   (repeatParam.col < repeatParam.dtypeMask) ? repeatParam.col :
-                                                                             repeatParam.dtypeMask,
-                   repeatParam.row, 1, 1, repeatParam.repeatStride);
+                   (repeatParam.col < repeatParam.dtypeMask) ? repeatParam.col : repeatParam.dtypeMask, repeatParam.row,
+                   1, 1, repeatParam.repeatStride);
 }
 
 /**
@@ -311,7 +307,6 @@ __aicore__ inline void RowDivs(const LocalTensor<float> &dstLocal, const LocalTe
     }
 }
 
-
 /**
  * @brief RowMuls 矩阵每行乘以相同元素
  * @param dstLocal 输出tensor [row, col]
@@ -345,5 +340,5 @@ __aicore__ inline void RowMuls(const LocalTensor<float> &dstLocal, const LocalTe
     }
 }
 
-} // namespace Compressor
-#endif // COMPRESSOR_VECTOR_COMM_H
+}  // namespace Compressor
+#endif  // COMPRESSOR_VECTOR_COMM_H

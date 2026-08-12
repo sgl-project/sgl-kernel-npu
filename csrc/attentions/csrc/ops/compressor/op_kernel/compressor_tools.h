@@ -30,11 +30,10 @@ struct ToolsParams {
 };
 
 template <typename COMP>
-class CompressorTools {
+class CompressorTools
+{
 public:
-    __aicore__ inline CompressorTools()
-    {
-    }
+    __aicore__ inline CompressorTools() {}
 
     __aicore__ inline void Init(__gm__ uint8_t *cuSeqlens, __gm__ uint8_t *seqUsed, __gm__ uint8_t *startPos);
 
@@ -137,11 +136,10 @@ struct SliceInfo {
 };
 
 template <typename COMP>
-class CompressorSliceIterator {
+class CompressorSliceIterator
+{
 public:
-    __aicore__ inline CompressorSliceIterator(CompressorTools<COMP> &tools) : tools_(tools)
-    {
-    }
+    __aicore__ inline CompressorSliceIterator(CompressorTools<COMP> &tools) : tools_(tools) {}
 
     __aicore__ inline void Reset(uint32_t bIdx, uint32_t sIdx);
     __aicore__ inline void SetMaxBatchSize(uint32_t batch_size);
@@ -262,7 +260,7 @@ __aicore__ inline SliceInfo &CompressorSliceIterator<COMP>::GetSliceByCmp()
     // 因为是一个batch的数据, 只有最后一个压缩块才可能不需要压缩, 此时sliceInfo_.tailHolderSeqCnt > 0
     sliceInfo_.compressTcSize = sliceInfo_.dealTcSize;
     if (sliceInfo_.tailHolderSeqCnt > 0) {
-        sliceInfo_.compressTcSize = sliceInfo_.dealTcSize - 1; // 最后一个压缩块不满时，其不需要压缩
+        sliceInfo_.compressTcSize = sliceInfo_.dealTcSize - 1;  // 最后一个压缩块不满时，其不需要压缩
     }
 
     return sliceInfo_;
@@ -296,7 +294,7 @@ __aicore__ inline SliceInfo &CompressorSliceIterator<COMP>::GetSlice()
     // 因为是一个batch的数据, 只有最后一个压缩块才可能不需要压缩, 此时sliceInfo_.tailHolderSeqCnt > 0
     sliceInfo_.compressTcSize = sliceInfo_.dealTcSize;
     if (sliceInfo_.tailHolderSeqCnt > 0) {
-        sliceInfo_.compressTcSize = sliceInfo_.dealTcSize - 1; // 最后一个压缩块不满时，其不需要压缩
+        sliceInfo_.compressTcSize = sliceInfo_.dealTcSize - 1;  // 最后一个压缩块不满时，其不需要压缩
     }
 
     return sliceInfo_;
@@ -306,15 +304,14 @@ struct SplitCoreSliceInfo : public SliceInfo {
     __aicore__ inline SplitCoreSliceInfo(){};
     __aicore__ inline SplitCoreSliceInfo(uint32_t bIdx, uint32_t sIdx) : SliceInfo(bIdx, sIdx){};
 
-    uint32_t preFirstSeqCnt = 0U; // 左边每次迭代基本块的第一个seqCnt大小
+    uint32_t preFirstSeqCnt = 0U;  // 左边每次迭代基本块的第一个seqCnt大小
 };
 
 template <typename COMP>
-class CompressorSplitCoreSliceIterator {
+class CompressorSplitCoreSliceIterator
+{
 public:
-    __aicore__ inline CompressorSplitCoreSliceIterator(CompressorTools<COMP> &tools) : tools_(tools)
-    {
-    }
+    __aicore__ inline CompressorSplitCoreSliceIterator(CompressorTools<COMP> &tools) : tools_(tools) {}
 
     __aicore__ inline void Reset(uint32_t bIdx, uint32_t sIdx);
     __aicore__ inline void SetMaxBatchSize(uint32_t batch_size);
@@ -426,9 +423,9 @@ __aicore__ inline SplitCoreSliceInfo &CompressorSplitCoreSliceIterator<COMP>::Ge
         sliceInfo_.bSeqUsed = tools_.GetSeqUsed(batch_size_ - 1);
         sliceInfo_.bStartPos = tools_.GetStartPos(batch_size_ - 1);
         // 处理最后一块是中间整块或者尾块的情况
-        uint32_t lastSeqCnt = (sliceInfo_.bStartPos + sliceInfo_.bSeqUsed) % cmpRatio == 0 ?
-                                  cmpRatio :
-                                  (sliceInfo_.bStartPos + sliceInfo_.bSeqUsed) % cmpRatio;
+        uint32_t lastSeqCnt = (sliceInfo_.bStartPos + sliceInfo_.bSeqUsed) % cmpRatio == 0
+                                  ? cmpRatio
+                                  : (sliceInfo_.bStartPos + sliceInfo_.bSeqUsed) % cmpRatio;
         // 处理最后一块是头块的情况
         if (sliceInfo_.bSeqUsed < cmpRatio) {
             lastSeqCnt = sliceInfo_.bSeqUsed;
@@ -468,7 +465,7 @@ __aicore__ inline SplitCoreSliceInfo &CompressorSplitCoreSliceIterator<COMP>::Ge
     // 因为是一个batch的数据, 只有最后一个压缩块才可能不需要压缩, 此时sliceInfo_.tailHolderSeqCnt > 0
     sliceInfo_.compressTcSize = sliceInfo_.dealTcSize;
     if (sliceInfo_.tailHolderSeqCnt > 0) {
-        sliceInfo_.compressTcSize = sliceInfo_.dealTcSize - 1; // 最后一个压缩块不满时，其不需要压缩
+        sliceInfo_.compressTcSize = sliceInfo_.dealTcSize - 1;  // 最后一个压缩块不满时，其不需要压缩
     }
 
     // 记录左边第一个块
@@ -518,7 +515,7 @@ __aicore__ inline SplitCoreSliceInfo &CompressorSplitCoreSliceIterator<COMP>::Ge
     // 因为是一个batch的数据, 只有最后一个压缩块才可能不需要压缩, 此时sliceInfo_.tailHolderSeqCnt > 0
     sliceInfo_.compressTcSize = sliceInfo_.dealTcSize;
     if (sliceInfo_.tailHolderSeqCnt > 0) {
-        sliceInfo_.compressTcSize = sliceInfo_.dealTcSize - 1; // 最后一个压缩块不满时，其不需要压缩
+        sliceInfo_.compressTcSize = sliceInfo_.dealTcSize - 1;  // 最后一个压缩块不满时，其不需要压缩
     }
 
     return sliceInfo_;
@@ -550,11 +547,10 @@ struct StatisticInfo {
 };
 
 template <typename COMP>
-class CompressorVec1SliceIterator {
+class CompressorVec1SliceIterator
+{
 public:
-    __aicore__ inline CompressorVec1SliceIterator(CompressorTools<COMP> &tools) : tools_(tools)
-    {
-    }
+    __aicore__ inline CompressorVec1SliceIterator(CompressorTools<COMP> &tools) : tools_(tools) {}
 
     __aicore__ inline void Reset(uint32_t bIdx, uint32_t sIdx);
     __aicore__ inline void Reset(uint32_t bIdx, uint32_t sIdx, uint32_t dealedSeqCnt, uint32_t compressoredScCnt);
@@ -679,8 +675,8 @@ __aicore__ inline void CompressorVec1SliceIterator<COMP>::IteratorSlice()
                     nextAlignSIdx = min(nextAlignSIdx, seqLength);
                 }
                 sliceInfo_.dealedSeqCnt += nextAlignSIdx - sliceInfo_.sIdx;
-                uint32_t tcGap = CeilDivT(static_cast<int32_t>(seqLength - nextAlignSIdx),
-                                    static_cast<int32_t>(cmpRatio));
+                uint32_t tcGap =
+                    CeilDivT(static_cast<int32_t>(seqLength - nextAlignSIdx), static_cast<int32_t>(cmpRatio));
                 if (!isLeadingEmptyBatch && sliceInfo_.bSeqUsed == 0 && nextAlignSIdx > seqLength) {
                     // 此时bseqused所在压缩块未被纳入计算
                     tcGap++;
@@ -716,7 +712,6 @@ __aicore__ inline uint32_t CompressorVec1SliceIterator<COMP>::GetNeedDealTcSize(
 {
     return needDealTcSize_;
 }
-
 
 template <typename COMP>
 __aicore__ inline bool CompressorVec1SliceIterator<COMP>::IsEnd()
@@ -783,6 +778,6 @@ __aicore__ inline StatisticInfo &CompressorVec1SliceIterator<COMP>::FullIterator
     }
     return statisticInfo_;
 }
-} // namespace Compressor
+}  // namespace Compressor
 
 #endif

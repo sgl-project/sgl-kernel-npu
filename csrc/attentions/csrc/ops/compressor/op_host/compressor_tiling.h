@@ -110,36 +110,34 @@ static const std::string CMP_KV_NAME = "cmp_kv";
 static std::string DataTypeToSerialString(ge::DataType type);
 
 const std::map<std::string, std::vector<ge::DataType>> DTYPE_SUPPORT_MAP = {
-    {X_NAME,                  {ge::DT_BF16, ge::DT_FLOAT16}},
-    {WKV_NAME,                {ge::DT_BF16, ge::DT_FLOAT16}},
-    {WGATE_NAME,              {ge::DT_BF16, ge::DT_FLOAT16}},
-    {STATE_CACHE_NAME,        {ge::DT_FLOAT}},
-    {APE_NAME,                {ge::DT_FLOAT}},
-    {NORM_WEIGHT_NAME,        {ge::DT_FLOAT}},
-    {ROPE_SIN_NAME,           {ge::DT_FLOAT}},
-    {ROPE_COS_NAME,           {ge::DT_FLOAT}},
-    {STATE_BLOCK_TABLE_NAME,  {ge::DT_INT32}},
-    {CU_SEQLENS_NAME,         {ge::DT_INT32}},
-    {SEQUSED_NAME,            {ge::DT_INT32}},
-    {START_POS_NAME,          {ge::DT_INT32}},
-    {CMP_KV_NAME,             {ge::DT_BF16, ge::DT_FLOAT16}}
-};
+    {X_NAME, {ge::DT_BF16, ge::DT_FLOAT16}},
+    {WKV_NAME, {ge::DT_BF16, ge::DT_FLOAT16}},
+    {WGATE_NAME, {ge::DT_BF16, ge::DT_FLOAT16}},
+    {STATE_CACHE_NAME, {ge::DT_FLOAT}},
+    {APE_NAME, {ge::DT_FLOAT}},
+    {NORM_WEIGHT_NAME, {ge::DT_FLOAT}},
+    {ROPE_SIN_NAME, {ge::DT_FLOAT}},
+    {ROPE_COS_NAME, {ge::DT_FLOAT}},
+    {STATE_BLOCK_TABLE_NAME, {ge::DT_INT32}},
+    {CU_SEQLENS_NAME, {ge::DT_INT32}},
+    {SEQUSED_NAME, {ge::DT_INT32}},
+    {START_POS_NAME, {ge::DT_INT32}},
+    {CMP_KV_NAME, {ge::DT_BF16, ge::DT_FLOAT16}}};
 
 const std::map<std::string, std::vector<uint32_t>> DIM_NUM_MAP = {
-    {X_NAME,                  {COMPRESSOR_DIM_NUM_2, COMPRESSOR_DIM_NUM_3}},
-    {WKV_NAME,                {COMPRESSOR_DIM_NUM_2}},
-    {WGATE_NAME,              {COMPRESSOR_DIM_NUM_2}},
-    {STATE_CACHE_NAME,        {COMPRESSOR_DIM_NUM_3}},
-    {APE_NAME,                {COMPRESSOR_DIM_NUM_2}},
-    {NORM_WEIGHT_NAME,        {COMPRESSOR_DIM_NUM_1}},
-    {ROPE_SIN_NAME,           {COMPRESSOR_DIM_NUM_2, COMPRESSOR_DIM_NUM_3}},
-    {ROPE_COS_NAME,           {COMPRESSOR_DIM_NUM_2, COMPRESSOR_DIM_NUM_3}},
-    {STATE_BLOCK_TABLE_NAME,  {COMPRESSOR_DIM_NUM_2, COMPRESSOR_DIM_NUM_1}},
-    {CU_SEQLENS_NAME,         {COMPRESSOR_DIM_NUM_1}},
-    {SEQUSED_NAME,            {COMPRESSOR_DIM_NUM_1}},
-    {START_POS_NAME,          {COMPRESSOR_DIM_NUM_1}},
-    {CMP_KV_NAME,             {COMPRESSOR_DIM_NUM_2, COMPRESSOR_DIM_NUM_3}}
-};
+    {X_NAME, {COMPRESSOR_DIM_NUM_2, COMPRESSOR_DIM_NUM_3}},
+    {WKV_NAME, {COMPRESSOR_DIM_NUM_2}},
+    {WGATE_NAME, {COMPRESSOR_DIM_NUM_2}},
+    {STATE_CACHE_NAME, {COMPRESSOR_DIM_NUM_3}},
+    {APE_NAME, {COMPRESSOR_DIM_NUM_2}},
+    {NORM_WEIGHT_NAME, {COMPRESSOR_DIM_NUM_1}},
+    {ROPE_SIN_NAME, {COMPRESSOR_DIM_NUM_2, COMPRESSOR_DIM_NUM_3}},
+    {ROPE_COS_NAME, {COMPRESSOR_DIM_NUM_2, COMPRESSOR_DIM_NUM_3}},
+    {STATE_BLOCK_TABLE_NAME, {COMPRESSOR_DIM_NUM_2, COMPRESSOR_DIM_NUM_1}},
+    {CU_SEQLENS_NAME, {COMPRESSOR_DIM_NUM_1}},
+    {SEQUSED_NAME, {COMPRESSOR_DIM_NUM_1}},
+    {START_POS_NAME, {COMPRESSOR_DIM_NUM_1}},
+    {CMP_KV_NAME, {COMPRESSOR_DIM_NUM_2, COMPRESSOR_DIM_NUM_3}}};
 
 static const std::map<std::string, uint32_t> LAYOUT_DIM_MAP = {
     {"BSH", COMPRESSOR_DIM_NUM_3},
@@ -147,39 +145,39 @@ static const std::map<std::string, uint32_t> LAYOUT_DIM_MAP = {
 };
 
 const std::map<ge::DataType, std::string> DATATYPE_TO_STRING_MAP = {
-    {ge::DT_UNDEFINED, "DT_UNDEFINED"},           // Used to indicate a DataType field has not been set.
-    {ge::DT_FLOAT, "DT_FLOAT"},                   // float type
-    {ge::DT_FLOAT16, "DT_FLOAT16"},               // fp16 type
-    {ge::DT_INT8, "DT_INT8"},                     // int8 type
-    {ge::DT_INT16, "DT_INT16"},                   // int16 type
-    {ge::DT_UINT16, "DT_UINT16"},                 // uint16 type
-    {ge::DT_UINT8, "DT_UINT8"},                   // uint8 type
-    {ge::DT_INT32, "DT_INT32"},                   // uint32 type
-    {ge::DT_INT64, "DT_INT64"},                   // int64 type
-    {ge::DT_UINT32, "DT_UINT32"},                 // unsigned int32
-    {ge::DT_UINT64, "DT_UINT64"},                 // unsigned int64
-    {ge::DT_BOOL, "DT_BOOL"},                     // bool type
-    {ge::DT_DOUBLE, "DT_DOUBLE"},                 // double type
-    {ge::DT_DUAL, "DT_DUAL"},                     // dual output type
-    {ge::DT_DUAL_SUB_INT8, "DT_DUAL_SUB_INT8"},   // dual output int8 type
-    {ge::DT_DUAL_SUB_UINT8, "DT_DUAL_SUB_UINT8"}, // dual output uint8 type
-    {ge::DT_COMPLEX32, "DT_COMPLEX32"},           // complex32 type
-    {ge::DT_COMPLEX64, "DT_COMPLEX64"},           // complex64 type
-    {ge::DT_COMPLEX128, "DT_COMPLEX128"},         // complex128 type
-    {ge::DT_QINT8, "DT_QINT8"},                   // qint8 type
-    {ge::DT_QINT16, "DT_QINT16"},                 // qint16 type
-    {ge::DT_QINT32, "DT_QINT32"},                 // qint32 type
-    {ge::DT_QUINT8, "DT_QUINT8"},                 // quint8 type
-    {ge::DT_QUINT16, "DT_QUINT16"},               // quint16 type
-    {ge::DT_RESOURCE, "DT_RESOURCE"},             // resource type
-    {ge::DT_STRING_REF, "DT_STRING_REF"},         // string ref type
-    {ge::DT_STRING, "DT_STRING"},                 // string type
-    {ge::DT_VARIANT, "DT_VARIANT"},               // dt_variant type
-    {ge::DT_BF16, "DT_BFLOAT16"},                 // dt_bfloat16 type
-    {ge::DT_INT4, "DT_INT4"},                     // dt_variant type
-    {ge::DT_UINT1, "DT_UINT1"},                   // dt_variant type
-    {ge::DT_INT2, "DT_INT2"},                     // dt_variant type
-    {ge::DT_UINT2, "DT_UINT2"}                    // dt_variant type
+    {ge::DT_UNDEFINED, "DT_UNDEFINED"},            // Used to indicate a DataType field has not been set.
+    {ge::DT_FLOAT, "DT_FLOAT"},                    // float type
+    {ge::DT_FLOAT16, "DT_FLOAT16"},                // fp16 type
+    {ge::DT_INT8, "DT_INT8"},                      // int8 type
+    {ge::DT_INT16, "DT_INT16"},                    // int16 type
+    {ge::DT_UINT16, "DT_UINT16"},                  // uint16 type
+    {ge::DT_UINT8, "DT_UINT8"},                    // uint8 type
+    {ge::DT_INT32, "DT_INT32"},                    // uint32 type
+    {ge::DT_INT64, "DT_INT64"},                    // int64 type
+    {ge::DT_UINT32, "DT_UINT32"},                  // unsigned int32
+    {ge::DT_UINT64, "DT_UINT64"},                  // unsigned int64
+    {ge::DT_BOOL, "DT_BOOL"},                      // bool type
+    {ge::DT_DOUBLE, "DT_DOUBLE"},                  // double type
+    {ge::DT_DUAL, "DT_DUAL"},                      // dual output type
+    {ge::DT_DUAL_SUB_INT8, "DT_DUAL_SUB_INT8"},    // dual output int8 type
+    {ge::DT_DUAL_SUB_UINT8, "DT_DUAL_SUB_UINT8"},  // dual output uint8 type
+    {ge::DT_COMPLEX32, "DT_COMPLEX32"},            // complex32 type
+    {ge::DT_COMPLEX64, "DT_COMPLEX64"},            // complex64 type
+    {ge::DT_COMPLEX128, "DT_COMPLEX128"},          // complex128 type
+    {ge::DT_QINT8, "DT_QINT8"},                    // qint8 type
+    {ge::DT_QINT16, "DT_QINT16"},                  // qint16 type
+    {ge::DT_QINT32, "DT_QINT32"},                  // qint32 type
+    {ge::DT_QUINT8, "DT_QUINT8"},                  // quint8 type
+    {ge::DT_QUINT16, "DT_QUINT16"},                // quint16 type
+    {ge::DT_RESOURCE, "DT_RESOURCE"},              // resource type
+    {ge::DT_STRING_REF, "DT_STRING_REF"},          // string ref type
+    {ge::DT_STRING, "DT_STRING"},                  // string type
+    {ge::DT_VARIANT, "DT_VARIANT"},                // dt_variant type
+    {ge::DT_BF16, "DT_BFLOAT16"},                  // dt_bfloat16 type
+    {ge::DT_INT4, "DT_INT4"},                      // dt_variant type
+    {ge::DT_UINT1, "DT_UINT1"},                    // dt_variant type
+    {ge::DT_INT2, "DT_INT2"},                      // dt_variant type
+    {ge::DT_UINT2, "DT_UINT2"}                     // dt_variant type
 };
 
 struct CompressorCompileInfo {
@@ -197,59 +195,46 @@ struct OptionalParaInfo {
     const gert::Tensor *tensor;
 };
 
-enum class LayoutType {
-    LAYOUT_BSH,
-    LAYOUT_TH
-};
+enum class LayoutType { LAYOUT_BSH, LAYOUT_TH };
 
-enum class TemplateId:uint8_t {
-    NORMAL = 0,
-    EMPTY_X = 1,
-    PERF = 2
-};
+enum class TemplateId : uint8_t { NORMAL = 0, EMPTY_X = 1, PERF = 2 };
 
 CMP_EXTERN_C ge::graphStatus TilingCompressor(gert::TilingContext *context);
 struct CompressorBaseShapeInfo {
-    uint32_t bSize = 0; // B
-    uint32_t sSize = 0; // S
-    uint32_t hSize = 0; // Hidden size
-    uint32_t tSize = 0; // T
-    uint32_t nSize = 0; // N
-    uint32_t dSize = 0; // D
-    uint32_t coffSize = 0; // Coff: 1 or 2
-    uint32_t csSize = 0; // Compress sequence len
-    uint32_t rSize = 0; // Compress ratio
-    uint32_t cgSize = 0; // Compress group size
-    uint32_t drSize = 0; // Dr
+    uint32_t bSize = 0;     // B
+    uint32_t sSize = 0;     // S
+    uint32_t hSize = 0;     // Hidden size
+    uint32_t tSize = 0;     // T
+    uint32_t nSize = 0;     // N
+    uint32_t dSize = 0;     // D
+    uint32_t coffSize = 0;  // Coff: 1 or 2
+    uint32_t csSize = 0;    // Compress sequence len
+    uint32_t rSize = 0;     // Compress ratio
+    uint32_t cgSize = 0;    // Compress group size
+    uint32_t drSize = 0;    // Dr
 };
 
-const std::vector<int> ROPE_HEAD_DIM {64};
-const std::vector<int> COFF {1, 2};
+const std::vector<int> ROPE_HEAD_DIM{64};
+const std::vector<int> COFF{1, 2};
 #ifdef DAY0_SCOPE
-const std::vector<int> CMP_RATIO {4, 128};
-const std::vector<int> ROTARY_MODE {2};
+const std::vector<int> CMP_RATIO{4, 128};
+const std::vector<int> ROTARY_MODE{2};
 #else
-const std::vector<int> CMP_RATIO {2, 4, 8, 16, 32, 64, 128};
-const std::vector<int> ROTARY_MODE {1, 2};
+const std::vector<int> CMP_RATIO{2, 4, 8, 16, 32, 64, 128};
+const std::vector<int> ROTARY_MODE{1, 2};
 #endif
-const std::vector<uint32_t> HEAD_DIM {128, 512};
-const std::vector<int> CACHE_MODE {1, 2};
+const std::vector<uint32_t> HEAD_DIM{128, 512};
+const std::vector<int> CACHE_MODE{1, 2};
 
-enum class ROTARY_MODE:uint8_t {
-    HALF = 1,
-    INTERLEAVE = 2
-};
+enum class ROTARY_MODE : uint8_t { HALF = 1, INTERLEAVE = 2 };
 
-enum class CACHE_MODE:uint8_t {
-    CONTINUOUS = 1,
-    EXPLICIT = 2
-};
+enum class CACHE_MODE : uint8_t { CONTINUOUS = 1, EXPLICIT = 2 };
 
 struct CompressorContext {
     const char *opName;
     const char *opType;
     fe::PlatFormInfos *platformInfo;
-    
+
     RequiredParaInfo x;
     RequiredParaInfo wkv;
     RequiredParaInfo wgate;
@@ -273,21 +258,22 @@ struct CompressorContext {
     const int *stateCacheStrideDim0;
     TemplateId templateId;
 
-    ge::DataType dtype = ge::DT_BF16; 
-    LayoutType layout = LayoutType::LAYOUT_BSH; 
+    ge::DataType dtype = ge::DT_BF16;
+    LayoutType layout = LayoutType::LAYOUT_BSH;
 
     size_t *workSpaces;
     uint64_t tilingKey;
     uint32_t blockDim;
 };
 
-class CompressorTiling {
+class CompressorTiling
+{
 public:
     explicit CompressorTiling(CompressorContext *context) : context_(context) {}
     ~CompressorTiling() = default;
 
     static ge::graphStatus ConvertContext(gert::TilingContext &context, CompressorContext &compressorContext);
-    ge::graphStatus RunBigKernelTiling(CompressorTilingData* tilingData);
+    ge::graphStatus RunBigKernelTiling(CompressorTilingData *tilingData);
 
 private:
     static void ConvertRequiredParams(gert::TilingContext &context, CompressorContext &compressorContext);
@@ -377,6 +363,6 @@ private:
     CompressorWorkspaceParams *workspaceParams_ = nullptr;
 };
 
-} // optiling
+}  // namespace optiling
 
 #endif
