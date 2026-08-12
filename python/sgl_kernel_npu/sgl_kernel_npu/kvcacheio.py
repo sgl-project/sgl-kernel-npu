@@ -49,24 +49,25 @@ def transfer_state_dim_exchange(
 
 
 def transfer_state_per_layer_direct_pf_lf(
-    device_states: Sequence[torch.Tensor],
-    host_states: Sequence[torch.Tensor],
-    device_indices: torch.Tensor,
-    host_indices: torch.Tensor,
+    src: torch.Tensor,
+    dst: torch.Tensor,
+    src_indices: torch.Tensor,
+    dst_indices: torch.Tensor,
     layer_id: int,
     flags: TransferFlag = TransferFlag.FAST2D,
 ) -> None:
     """Load one layer of page-first Host state into layer-first Device state.
 
-    This is the Ascend counterpart of the GPU per-layer direct PF->LF entry.
-    Callers normally pass one Mamba component (temporal or one conv state); the
-    operation is enqueued on the caller's current NPU stream.
+    ``src`` is the complete page-first Host component and ``dst`` is the
+    current layer view of the layer-first Device component. This matches the
+    GPU per-layer direct PF->LF entry and is enqueued on the caller's current
+    NPU stream.
     """
     torch.ops.npu.transfer_state_per_layer_direct_pf_lf(
-        list(device_states),
-        list(host_states),
-        device_indices,
-        host_indices,
+        src,
+        dst,
+        src_indices,
+        dst_indices,
         layer_id,
         flags.value,
     )

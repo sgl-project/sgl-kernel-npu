@@ -74,8 +74,8 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int layer_begin, int layer_count, int flags) -> ()");
 
     m.def(
-        "transfer_state_per_layer_direct_pf_lf(Tensor[] device_states, Tensor[] host_states, "
-        "Tensor device_indices, Tensor host_indices, int layer_id, int flags) -> ()");
+        "transfer_state_per_layer_direct_pf_lf(Tensor src, Tensor dst, "
+        "Tensor src_indices, Tensor dst_indices, int layer_id, int flags) -> ()");
 
     m.def(
         "transfer_state_all_layer_direct_lf_pf(Tensor[] device_states, Tensor[] host_states, "

@@ -84,8 +84,8 @@ void transfer_state_dim_exchange(at::TensorList device_states,
                                  int64_t layer_count, int64_t flags);
 
 void transfer_state_per_layer_direct_pf_lf(
-    at::TensorList device_states, at::TensorList host_states,
-    const at::Tensor &device_indices, const at::Tensor &host_indices,
+    const at::Tensor &src, const at::Tensor &dst,
+    const at::Tensor &src_indices, const at::Tensor &dst_indices,
     int64_t layer_id, int64_t flags);
 
 void transfer_state_all_layer_direct_lf_pf(

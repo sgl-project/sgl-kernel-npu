@@ -79,6 +79,30 @@ int64_t validate_dense_slot_payload(const at::Tensor &device, int64_t component)
     return slot_elements;
 }
 
+int64_t validate_dense_layer_payload(const at::Tensor &device_layer)
+{
+    std::vector<std::pair<int64_t, int64_t>> payload_dims;
+    int64_t slot_elements = 1;
+    for (int64_t dim = 1; dim < device_layer.dim(); ++dim) {
+        const int64_t size = device_layer.size(dim);
+        const int64_t stride = device_layer.stride(dim);
+        TORCH_CHECK(stride >= 0, "device layer state has a negative stride at dimension ", dim);
+        slot_elements *= size;
+        if (size > 1) {
+            payload_dims.emplace_back(stride, size);
+        }
+    }
+
+    std::sort(payload_dims.begin(), payload_dims.end());
+    int64_t expected_stride = 1;
+    for (const auto &[stride, size] : payload_dims) {
+        TORCH_CHECK(stride == expected_stride, "device layer state slot payload must be physically dense; got ",
+                    "payload stride ", stride, " while expecting ", expected_stride);
+        expected_stride *= size;
+    }
+    return slot_elements;
+}
+
 void check_acl_copy(aclError result, const char *direction, size_t width, size_t height)
 {
     TORCH_CHECK(result == ACL_SUCCESS, "aclrtMemcpy2dAsync failed for state ", direction, " transfer: error=",
@@ -277,6 +301,74 @@ void submit_state_dim_exchange(at::TensorList device_states, at::TensorList host
     }
 }
 
+void submit_state_per_layer_h2d(const at::Tensor &src, const at::Tensor &dst, const at::Tensor &src_indices,
+                                const at::Tensor &dst_indices, int64_t layer_id, int64_t flags)
+{
+    TORCH_CHECK(src_indices.numel() == dst_indices.numel(),
+                "source and destination indices must contain the same number of slots");
+    TORCH_CHECK((flags & STATE_TRANS_FLAG_2D) == STATE_TRANS_FLAG_2D,
+                "state direct transfer currently requires FAST2D (flags=2)");
+
+    const auto host_indices_cpu = src_indices.cpu().to(at::kLong).contiguous().reshape({-1});
+    const auto device_indices_cpu = dst_indices.cpu().to(at::kLong).contiguous().reshape({-1});
+    const int64_t index_count = host_indices_cpu.numel();
+    if (index_count == 0) {
+        return;
+    }
+
+    TORCH_CHECK(src.defined() && dst.defined(), "source and destination state tensors must be defined");
+    TORCH_CHECK(src.numel() != 0, "host state source must not be empty");
+    TORCH_CHECK(dst.numel() != 0, "device layer state destination must not be empty");
+    TORCH_CHECK(src.device().is_cpu(), "state source must be on CPU, got ", src.device());
+    TORCH_CHECK(src.is_pinned(), "state source must use pinned memory");
+    TORCH_CHECK(dst.device().type() == c10::DeviceType::PrivateUse1,
+                "state destination must be on NPU, got ", dst.device());
+    TORCH_CHECK(src.scalar_type() == dst.scalar_type(), "state source/destination dtypes differ: ",
+                src.scalar_type(), " vs ", dst.scalar_type());
+    TORCH_CHECK(dst.dim() >= 2, "device layer state must have layout [device_slots, ...]");
+    TORCH_CHECK(src.dim() == dst.dim() + 2,
+                "host state must have layout [host_slots, layers, 1, ...] for a Device layer view");
+    TORCH_CHECK(src.is_contiguous(), "host state source must be contiguous");
+    TORCH_CHECK(layer_id >= 0 && layer_id < src.size(1), "layer_id ", layer_id,
+                " is outside Host state layer count ", src.size(1));
+    TORCH_CHECK(src.size(2) == 1, "host state page dimension must be 1");
+    for (int64_t dim = 1; dim < dst.dim(); ++dim) {
+        TORCH_CHECK(dst.size(dim) == src.size(dim + 2),
+                    "state trailing shape mismatch at Device layer dimension ", dim);
+    }
+
+    const int64_t slot_elements = validate_dense_layer_payload(dst);
+    TORCH_CHECK(dst.stride(0) == slot_elements, "device layer state slot payload must be contiguous");
+    TORCH_CHECK(src.stride(1) == slot_elements, "host state layer payload must be contiguous");
+
+    const auto *host_index_data = host_indices_cpu.data_ptr<int64_t>();
+    const auto *device_index_data = device_indices_cpu.data_ptr<int64_t>();
+    validate_indices(device_index_data, host_index_data, index_count, dst.size(0), src.size(0));
+
+    const size_t slot_bytes = static_cast<size_t>(slot_elements) * dst.element_size();
+    const size_t device_slot_pitch = static_cast<size_t>(dst.stride(0)) * dst.element_size();
+    const size_t host_slot_pitch = static_cast<size_t>(src.stride(0)) * src.element_size();
+    const size_t host_layer_pitch = static_cast<size_t>(src.stride(1)) * src.element_size();
+    TORCH_CHECK(slot_bytes <= device_slot_pitch && slot_bytes <= host_slot_pitch && slot_bytes <= host_layer_pitch,
+                "invalid state pitch for per-layer H2D transfer");
+
+    auto *device_base = static_cast<char *>(dst.data_ptr());
+    auto *host_base = static_cast<char *>(src.data_ptr());
+    const auto runs = build_contiguous_runs(device_index_data, host_index_data, index_count);
+    const auto acl_stream = c10_npu::getCurrentNPUStream().stream();
+    for (const auto &[run_begin, run_length] : runs) {
+        const auto device_slot = device_index_data[run_begin];
+        const auto host_slot = host_index_data[run_begin];
+        void *destination = device_base + device_slot * device_slot_pitch;
+        const void *source =
+            host_base + host_slot * host_slot_pitch + static_cast<size_t>(layer_id) * host_layer_pitch;
+        const auto result = aclrtMemcpy2dAsync(
+            destination, device_slot_pitch, source, host_slot_pitch, slot_bytes, static_cast<size_t>(run_length),
+            ACL_MEMCPY_HOST_TO_DEVICE, acl_stream);
+        check_acl_copy(result, "H2D", slot_bytes, static_cast<size_t>(run_length));
+    }
+}
+
 }  // namespace
 
 // Submit state-sidecar copies to the caller's current NPU stream.
@@ -297,11 +389,10 @@ HOST_API void transfer_state_dim_exchange(at::TensorList device_states, at::Tens
 // GPU-direct equivalent: load one layer from page-first Host state into the
 // layer-first Device state. The copy is enqueued on the caller's current stream.
 HOST_API void transfer_state_per_layer_direct_pf_lf(
-    at::TensorList device_states, at::TensorList host_states, const at::Tensor &device_indices,
-    const at::Tensor &host_indices, int64_t layer_id, int64_t flags)
+    const at::Tensor &src, const at::Tensor &dst, const at::Tensor &src_indices,
+    const at::Tensor &dst_indices, int64_t layer_id, int64_t flags)
 {
-    submit_state_dim_exchange(device_states, host_states, device_indices, host_indices,
-                              StateTransferDirection::H2D, layer_id, 1, flags);
+    submit_state_per_layer_h2d(src, dst, src_indices, dst_indices, layer_id, flags);
 }
 
 // GPU-direct equivalent: back up all layers from layer-first Device state into

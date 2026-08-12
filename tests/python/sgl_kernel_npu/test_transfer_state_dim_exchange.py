@@ -204,10 +204,10 @@ class TestTransferStateDimExchange(unittest.TestCase):
         with torch.npu.stream(stream):
             for layer_id in range(NUM_LAYERS):
                 transfer_state_per_layer_direct_pf_lf(
-                    device_states=[device],
-                    host_states=[host],
-                    device_indices=device_indices,
-                    host_indices=host_indices,
+                    src=host,
+                    dst=device[layer_id],
+                    src_indices=host_indices,
+                    dst_indices=device_indices,
                     layer_id=layer_id,
                 )
             event.record(stream)
@@ -250,29 +250,25 @@ class TestTransferStateDimExchange(unittest.TestCase):
         stream = torch.npu.Stream()
         event = torch.npu.Event()
         with torch.npu.stream(stream):
-            transfer_state_dim_exchange(
+            transfer_state_all_layer_direct_lf_pf(
                 device_states=[temporal],
                 host_states=[host],
                 device_indices=device_indices,
                 host_indices=host_indices,
-                direction=TransferDirection.D2H,
-                layer_begin=0,
-                layer_count=NUM_LAYERS,
             )
             event.record(stream)
         event.synchronize()
 
         temporal[:, device_indices] = 0
         with torch.npu.stream(stream):
-            transfer_state_dim_exchange(
-                device_states=[temporal],
-                host_states=[host],
-                device_indices=device_indices,
-                host_indices=host_indices,
-                direction=TransferDirection.H2D,
-                layer_begin=0,
-                layer_count=NUM_LAYERS,
-            )
+            for layer_id in range(NUM_LAYERS):
+                transfer_state_per_layer_direct_pf_lf(
+                    src=host,
+                    dst=temporal[layer_id],
+                    src_indices=host_indices,
+                    dst_indices=device_indices,
+                    layer_id=layer_id,
+                )
             event.record(stream)
         event.synchronize()
 
