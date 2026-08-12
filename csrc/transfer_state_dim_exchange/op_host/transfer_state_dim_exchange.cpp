@@ -239,26 +239,18 @@ void submit_d2h(const std::vector<StateComponentLayout> &components, const int64
     }
 }
 
-}  // namespace
-
-// Submit state-sidecar copies to the caller's current NPU stream.
-//
-// Device component layout: [layers, device_slots, *state_shape]
-// Host component layout:   [host_slots, layers, 1, *state_shape]
-HOST_API void transfer_state_dim_exchange(at::TensorList device_states, at::TensorList host_states,
-                                          const at::Tensor &device_indices, const at::Tensor &host_indices,
-                                          int64_t direction, int64_t layer_begin, int64_t layer_count, int64_t flags)
+void submit_state_dim_exchange(at::TensorList device_states, at::TensorList host_states,
+                               const at::Tensor &device_indices, const at::Tensor &host_indices,
+                               StateTransferDirection direction, int64_t layer_begin, int64_t layer_count,
+                               int64_t flags)
 {
     TORCH_CHECK(device_states.size() != 0, "device_states must not be empty");
     TORCH_CHECK(device_states.size() == host_states.size(),
                 "device_states and host_states must contain the same number of components");
     TORCH_CHECK(device_indices.numel() == host_indices.numel(),
                 "device and host indices must contain the same number of slots");
-    TORCH_CHECK(direction == static_cast<int64_t>(StateTransferDirection::H2D) ||
-                    direction == static_cast<int64_t>(StateTransferDirection::D2H),
-                "direction must be 1 (H2D) or 2 (D2H)");
     TORCH_CHECK((flags & STATE_TRANS_FLAG_2D) == STATE_TRANS_FLAG_2D,
-                "transfer_state_dim_exchange currently requires FAST2D (flags=2)");
+                "state direct transfer currently requires FAST2D (flags=2)");
 
     const auto device_indices_cpu = device_indices.cpu().to(at::kLong).contiguous().reshape({-1});
     const auto host_indices_cpu = host_indices.cpu().to(at::kLong).contiguous().reshape({-1});
@@ -276,13 +268,51 @@ HOST_API void transfer_state_dim_exchange(at::TensorList device_states, at::Tens
                      components.host_slot_limit);
 
     const auto acl_stream = c10_npu::getCurrentNPUStream().stream();
-    if (direction == static_cast<int64_t>(StateTransferDirection::H2D)) {
+    if (direction == StateTransferDirection::H2D) {
         submit_h2d(components.layouts, device_index_data, host_index_data, index_count, layer_begin, layer_count,
                    acl_stream);
     } else {
         submit_d2h(components.layouts, device_index_data, host_index_data, index_count, layer_begin, layer_count,
                    acl_stream);
     }
+}
+
+}  // namespace
+
+// Submit state-sidecar copies to the caller's current NPU stream.
+//
+// Device component layout: [layers, device_slots, *state_shape]
+// Host component layout:   [host_slots, layers, 1, *state_shape]
+HOST_API void transfer_state_dim_exchange(at::TensorList device_states, at::TensorList host_states,
+                                          const at::Tensor &device_indices, const at::Tensor &host_indices,
+                                          int64_t direction, int64_t layer_begin, int64_t layer_count, int64_t flags)
+{
+    TORCH_CHECK(direction == static_cast<int64_t>(StateTransferDirection::H2D) ||
+                    direction == static_cast<int64_t>(StateTransferDirection::D2H),
+                "direction must be 1 (H2D) or 2 (D2H)");
+    submit_state_dim_exchange(device_states, host_states, device_indices, host_indices,
+                              static_cast<StateTransferDirection>(direction), layer_begin, layer_count, flags);
+}
+
+// GPU-direct equivalent: load one layer from page-first Host state into the
+// layer-first Device state. The copy is enqueued on the caller's current stream.
+HOST_API void transfer_state_per_layer_direct_pf_lf(
+    at::TensorList device_states, at::TensorList host_states, const at::Tensor &device_indices,
+    const at::Tensor &host_indices, int64_t layer_id, int64_t flags)
+{
+    submit_state_dim_exchange(device_states, host_states, device_indices, host_indices,
+                              StateTransferDirection::H2D, layer_id, 1, flags);
+}
+
+// GPU-direct equivalent: back up all layers from layer-first Device state into
+// page-first Host state. The copy is enqueued on the caller's current stream.
+HOST_API void transfer_state_all_layer_direct_lf_pf(
+    at::TensorList device_states, at::TensorList host_states, const at::Tensor &device_indices,
+    const at::Tensor &host_indices, int64_t flags)
+{
+    TORCH_CHECK(device_states.size() != 0, "device_states must not be empty");
+    submit_state_dim_exchange(device_states, host_states, device_indices, host_indices,
+                              StateTransferDirection::D2H, 0, device_states[0].size(0), flags);
 }
 
 }  // namespace npu_kernel

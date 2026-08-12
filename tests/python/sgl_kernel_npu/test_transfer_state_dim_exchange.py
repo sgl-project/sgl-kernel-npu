@@ -3,7 +3,9 @@ import unittest
 import torch
 from sgl_kernel_npu.kvcacheio import (
     TransferDirection,
+    transfer_state_all_layer_direct_lf_pf,
     transfer_state_dim_exchange,
+    transfer_state_per_layer_direct_pf_lf,
 )
 
 
@@ -177,6 +179,41 @@ class TestTransferStateDimExchange(unittest.TestCase):
                 device[:, device_indices],
                 expected[component][:, device_indices],
             )
+
+    def test_round_trip_single_component_with_per_layer_h2d(self):
+        """Match MambaPoolHost's component-wise D2H/H2D call pattern."""
+        device = self.device_states[0]
+        host = self.host_states[0]
+        device_indices = torch.tensor([1, 4, 6], dtype=torch.int64)
+        host_indices = torch.tensor([2, 5, 7], dtype=torch.int64)
+        expected = device[:, device_indices].clone()
+        stream = torch.npu.Stream()
+        event = torch.npu.Event()
+
+        with torch.npu.stream(stream):
+            transfer_state_all_layer_direct_lf_pf(
+                device_states=[device],
+                host_states=[host],
+                device_indices=device_indices,
+                host_indices=host_indices,
+            )
+            event.record(stream)
+        event.synchronize()
+
+        device[:, device_indices] = 0
+        with torch.npu.stream(stream):
+            for layer_id in range(NUM_LAYERS):
+                transfer_state_per_layer_direct_pf_lf(
+                    device_states=[device],
+                    host_states=[host],
+                    device_indices=device_indices,
+                    host_indices=host_indices,
+                    layer_id=layer_id,
+                )
+            event.record(stream)
+        event.synchronize()
+
+        torch.testing.assert_close(device[:, device_indices], expected)
 
     def test_reject_pageable_host_memory(self):
         with self.assertRaisesRegex(RuntimeError, "pinned memory"):
