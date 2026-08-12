@@ -535,7 +535,7 @@ jobs:
         with:
           path: output
           key: sgl-kernel-npu-build-v4-${{ runner.os }}-a3-cann${{ matrix.cann_version }}-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
-          
+
       - name: Install dependencies
         run: |
           # speed up by using infra cache services
