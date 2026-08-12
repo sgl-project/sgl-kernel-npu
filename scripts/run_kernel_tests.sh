@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# High precision mode for CANN operators (may help with quantization precision)
+export ACL_OP_SELECT_IMPL_MODE=high_precision
+
 TEST_DIR="${GITHUB_WORKSPACE}/tests/python/sgl_kernel_npu"
 cd "$TEST_DIR" || { echo "Directory not found: $TEST_DIR"; exit 1; }
 
