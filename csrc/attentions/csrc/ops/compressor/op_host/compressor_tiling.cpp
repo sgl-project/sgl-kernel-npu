@@ -23,7 +23,6 @@
 #include "register/op_def_registry.h"
 #include "compressor_tiling.h"
 
-// CANN 9.0.0 compatibility macros for originally CANN 8.x macros
 #define OP_LOGI(...)
 #define OP_LOGE(...)
 #define OPS_REPORT_VECTOR_INNER_ERR(op, msg)
