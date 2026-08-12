@@ -73,7 +73,7 @@ jobs:
         run: |
           env -i PATH=${PATH} bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
-            ./build.sh -a deepep2
+            ./build.sh -a deepep
           "
 
       - name: Build DeepEP for a3
@@ -84,13 +84,14 @@ jobs:
             ./build.sh -a deepep
           "
 
-          name: Build DeepEP for 950
+      - name: Build DeepEP for 950
         if: matrix.npu_hardware == '950'
         run: |
           env -i PATH=${PATH} bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
             ./build.sh -a deepep
           "
+    
       - name: Pack up packages
         run: |
           export TORCH_DEVICE_BACKEND_AUTOLOAD=0
