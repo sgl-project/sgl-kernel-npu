@@ -73,10 +73,10 @@ unset(CMAKE_REQUIRED_INCLUDES)
 
 if(DEEPEP_HAS_ACLRT_EVENT_GET_TIMESTAMP)
     target_compile_definitions(deep_ep_cpp PRIVATE DEEPEP_HAS_ACLRT_EVENT_GET_TIMESTAMP=1)
-    message(STATUS "deep_ep profiling timestamp support: enabled")
+    message(STATUS "deep_ep profiling timestamp alignment: enabled")
 else()
     target_compile_definitions(deep_ep_cpp PRIVATE DEEPEP_HAS_ACLRT_EVENT_GET_TIMESTAMP=0)
-    message(STATUS "deep_ep profiling timestamp support: disabled (aclrtEventGetTimestamp not found)")
+    message(STATUS "deep_ep profiling timestamp alignment: disabled (profiling collection still enabled)")
 endif()
 target_link_directories(deep_ep_cpp PRIVATE
         ${TORCH_DIR}/lib

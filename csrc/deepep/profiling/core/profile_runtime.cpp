@@ -16,8 +16,9 @@ void WarnProfilingUnsupportedOnce()
     static std::once_flag once;
     std::call_once(once, []() {
         TORCH_WARN(
-            "DeepEP profiling is disabled because aclrtEventGetTimestamp is not available in the current build "
-            "environment.");
+            "DeepEP profiling timestamp alignment is disabled because aclrtEventGetTimestamp is not available in the "
+            "current build environment. Profiling collection remains enabled, but device-host and cross-rank time "
+            "alignment will fall back to launch-relative export.");
     });
 }
 
@@ -131,7 +132,6 @@ void BeginSession(int64_t numProfileSkipLaunches, int64_t numProfileActiveLaunch
 {
     if (!IsProfilingSupported()) {
         WarnProfilingUnsupportedOnce();
-        return;
     }
     session::Begin(numProfileSkipLaunches, numProfileActiveLaunches, profileTraceDir, numRanks);
 }

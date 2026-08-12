@@ -16,6 +16,7 @@ enum class ProfileTimeAlignmentMode {
     None = 0,
     OffsetOnly = 1,
     Linear = 2,
+    LaunchRelativeOnly = 3,
 };
 
 struct ProfileTimeCalibration {

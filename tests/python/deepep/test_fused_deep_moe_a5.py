@@ -77,10 +77,45 @@ def get_mx_quant_config(args: argparse.Namespace) -> Dict[str, object]:
     return MX_QUANT_CONFIGS[args.quant]
 
 
+def maybe_cast_weight_to_nz(
+    args: argparse.Namespace, weight: torch.Tensor
+) -> torch.Tensor:
+    """Convert supported quantized weights to A5 FRACTAL_NZ storage."""
+    if args.weight_format != "NZ":
+        return weight
+    if args.quant == "fp4_e2m1":
+        raise ValueError("FP4 + NZ is not supported yet")
+
+    # Prefer the public enum when available; keep numeric 29 as a compatibility
+    # fallback for torch_npu versions that do not expose Format.FRACTAL_NZ.
+    npu_format = getattr(torch_npu, "Format", None)
+    fractal_nz = getattr(npu_format, "FRACTAL_NZ", 29)
+    return torch_npu.npu_format_cast(weight, fractal_nz)
+
+
 def log_quant_tensor(rank: int, enabled: bool, name: str, tensor: torch.Tensor):
     if enabled and rank == 0:
         print(
             f"[quant-dtype] {name}: dtype={tensor.dtype}, shape={tuple(tensor.shape)}",
+            flush=True,
+        )
+
+
+def get_npu_format_desc(tensor: torch.Tensor) -> str:
+    format_code = torch_npu.get_npu_format(tensor)
+    format_name_map = {
+        2: "ND",
+        29: "FRACTAL_NZ",
+    }
+    format_name = format_name_map.get(format_code, f"UNKNOWN_{format_code}")
+    return f"{format_name}({format_code})"
+
+
+def log_tensor_meta(rank: int, enabled: bool, name: str, tensor: torch.Tensor):
+    if enabled and rank == 0:
+        print(
+            f"[tensor-meta] {name}: dtype={tensor.dtype}, shape={tuple(tensor.shape)}, "
+            f"format={get_npu_format_desc(tensor)}",
             flush=True,
         )
 
@@ -129,6 +164,7 @@ def make_umdk_static_inputs(
         gmm1_fp, dst_type=quant_cfg["quant_dst_type"], axis=1
     )
     gmm1_weight = gmm1_weight.view(quant_cfg["origin_dtype"])
+    gmm1_weight = maybe_cast_weight_to_nz(args, gmm1_weight)
     gmm1_scale = gmm1_scale_raw.view(torch.float8_e8m0fnu)
 
     gmm2_fp = (
@@ -142,6 +178,7 @@ def make_umdk_static_inputs(
         gmm2_fp, dst_type=quant_cfg["quant_dst_type"], axis=1
     )
     gmm2_weight = gmm2_weight.view(quant_cfg["origin_dtype"])
+    gmm2_weight = maybe_cast_weight_to_nz(args, gmm2_weight)
     gmm2_scale = gmm2_scale_raw.view(torch.float8_e8m0fnu)
 
     return {
@@ -258,6 +295,7 @@ def run_small_op_baseline(
         log_quant_tensor(rank, True, "dispatch.dynamic_scales_raw", dynamic_scales)
         log_quant_tensor(rank, True, "gmm1_weight_q", inputs["gmm1_weight_q"])
         log_quant_tensor(rank, True, "gmm1_weight_scale", inputs["gmm1_weight_scale"])
+        log_tensor_meta(rank, True, "small_op.gmm1_weight_q", inputs["gmm1_weight_q"])
 
     if gmm_burn_in_repeats > 1 and warmup_burn_in_buffers is not None:
         # This burn-in only runs on the first profiler warmup iteration.
@@ -297,6 +335,11 @@ def run_small_op_baseline(
     x2_scale = x2_scale.view(torch.float8_e8m0fnu)
     log_quant_tensor(rank, args.log_quant_dtypes, "requant.x2", x2)
     log_quant_tensor(rank, args.log_quant_dtypes, "requant.x2_scale", x2_scale)
+    if args.log_quant_dtypes and not getattr(
+        args, "_small_gmm2_weight_meta_logged", False
+    ):
+        log_tensor_meta(rank, True, "small_op.gmm2_weight_q", inputs["gmm2_weight_q"])
+        args._small_gmm2_weight_meta_logged = True
     y2_fp = torch_npu.npu_grouped_matmul(
         x=[x2],
         weight=[inputs["gmm2_weight_q"]],
@@ -342,6 +385,14 @@ def run_buffer_fused(
     args: argparse.Namespace,
     kernel_trace_dir: str = None,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
+    rank = dist.get_rank() if dist.is_available() and dist.is_initialized() else 0
+    log_tensor_meta(
+        rank, args.log_quant_dtypes, "gmm1_weight_q", inputs["gmm1_weight_q"]
+    )
+    log_tensor_meta(
+        rank, args.log_quant_dtypes, "gmm2_weight_q", inputs["gmm2_weight_q"]
+    )
+
     output, ep_recv_count = buffer.fused_deep_moe(
         inputs["x"],
         inputs["expert_ids"],
@@ -1248,6 +1299,12 @@ def main():
         help="Unified MX quant dtype for the small-op chain and fused GMM weights.",
     )
     parser.add_argument(
+        "--weight-format",
+        choices=("ND", "NZ"),
+        default="ND",
+        help="Storage format for quantized GMM weights; NZ is supported for FP8 only.",
+    )
+    parser.add_argument(
         "--trace-dir",
         help="Optional directory to export profiler chrome traces.",
     )
@@ -1301,6 +1358,10 @@ def main():
         parser.error("--num-warmups must be non-negative")
     if args.num_tests <= 0:
         parser.error("--num-tests must be positive")
+    if args.quant == "fp4_e2m1" and args.weight_format == "NZ":
+        parser.error(
+            "--weight-format NZ is currently supported for FP8 quantization only"
+        )
     if args.quant == "fp4_e2m1" and args.hidden % 2 != 0:
         parser.error("--hidden must be even when --quant is fp4_e2m1")
 

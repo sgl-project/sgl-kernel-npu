@@ -131,6 +131,11 @@ static std::string DefaultLaunchEventName(const ProfileSchema &schema)
     return std::string(schema.opName ? schema.opName : "profile") + "_launch";
 }
 
+static double GetRawLaunchTsUs(const LaunchTraceBundle &launch)
+{
+    return static_cast<double>(launch.minStartCycle) / static_cast<double>(launch.cycleToUs);
+}
+
 static bool CollectLaunches(const at::Tensor &profileBuffer, int64_t numProfileSkipLaunches,
                             int64_t launchCountCaptured, const ProfileSchema &schema, const char *launchEventName,
                             std::vector<LaunchTraceBundle> &launches)
@@ -297,6 +302,39 @@ static const LaunchTraceBundle *SelectLaunchRebaseAnchor(const std::vector<Launc
         }
     }
     return &launches.front();
+}
+
+static void ApplyLaunchRelativeCalibration(std::vector<LaunchTraceBundle> &launches,
+                                           session::ProfileTimeCalibration &effectiveCalibration)
+{
+    if (launches.empty()) {
+        return;
+    }
+    const auto *anchorLaunch = SelectLaunchRebaseAnchor(launches);
+    if (anchorLaunch == nullptr) {
+        return;
+    }
+    const double firstRawLaunchTsUs = GetRawLaunchTsUs(*anchorLaunch);
+    effectiveCalibration.valid = true;
+    effectiveCalibration.mode = session::ProfileTimeAlignmentMode::LaunchRelativeOnly;
+    effectiveCalibration.firstLaunchAlignedTsUs = firstRawLaunchTsUs;
+    effectiveCalibration.sharedLaunchReferenceUs = 0.0;
+    effectiveCalibration.launchRebaseUs = -firstRawLaunchTsUs;
+}
+
+static std::string TimeAlignmentModeName(session::ProfileTimeAlignmentMode mode)
+{
+    switch (mode) {
+        case session::ProfileTimeAlignmentMode::OffsetOnly:
+            return "offset_only";
+        case session::ProfileTimeAlignmentMode::LaunchRelativeOnly:
+            return "launch_relative_only";
+        case session::ProfileTimeAlignmentMode::Linear:
+            return "linear";
+        case session::ProfileTimeAlignmentMode::None:
+        default:
+            return "none";
+    }
 }
 
 static std::filesystem::path ResolveLaunchAnchorPath(const std::string &profileTraceDir, int64_t rank)
@@ -489,9 +527,7 @@ static bool WriteTraceFile(const std::vector<LaunchTraceBundle> &launches, int64
     ofs << "\n  ]";
     if (calibration != nullptr && calibration->valid) {
         ofs << ",\n  \"deepep_time_alignment\": {";
-        ofs << "\"mode\":"
-            << JsonEscape(calibration->mode == session::ProfileTimeAlignmentMode::OffsetOnly ? "offset_only" : "none")
-            << ",";
+        ofs << "\"mode\":" << JsonEscape(TimeAlignmentModeName(calibration->mode)) << ",";
         ofs << "\"rank\":" << rank << ",";
         ofs << "\"begin_device_us\":" << std::fixed << std::setprecision(3) << calibration->beginDeviceUs << ",";
         ofs << "\"begin_host_us\":" << std::fixed << std::setprecision(3) << calibration->beginHostUs << ",";
@@ -503,7 +539,9 @@ static bool WriteTraceFile(const std::vector<LaunchTraceBundle> &launches, int64
             << calibration->firstLaunchAlignedTsUs << ",";
         ofs << "\"shared_launch_reference_us\":" << std::fixed << std::setprecision(3)
             << calibration->sharedLaunchReferenceUs << ",";
-        ofs << "\"launch_rebase_us\":" << std::fixed << std::setprecision(3) << calibration->launchRebaseUs;
+        ofs << "\"launch_rebase_us\":" << std::fixed << std::setprecision(3) << calibration->launchRebaseUs << ",";
+        ofs << "\"cross_rank_alignment\":"
+            << ((calibration->mode == session::ProfileTimeAlignmentMode::OffsetOnly) ? "true" : "false");
         ofs << "}";
     }
     ofs << "\n}\n";
@@ -523,22 +561,26 @@ void ExportBufferToTrace(const at::Tensor &profileBuffer, int64_t rank, const st
 
     session::ProfileTimeCalibration effectiveCalibration =
         (calibration != nullptr) ? *calibration : session::ProfileTimeCalibration{};
-    if (!launches.empty() && effectiveCalibration.valid && numRanks > 1) {
-        const auto *anchorLaunch = SelectLaunchRebaseAnchor(launches);
-        const double firstRawLaunchTsUs =
-            static_cast<double>(anchorLaunch->minStartCycle) / static_cast<double>(anchorLaunch->cycleToUs);
-        effectiveCalibration.firstLaunchAlignedTsUs = GetAlignedTsUs(firstRawLaunchTsUs, &effectiveCalibration);
-        effectiveCalibration.sharedLaunchReferenceUs = ResolveSharedLaunchReferenceUs(
-            profileTraceDir, numRanks, effectiveCalibration.firstLaunchAlignedTsUs, rank);
-        effectiveCalibration.launchRebaseUs =
-            effectiveCalibration.sharedLaunchReferenceUs - effectiveCalibration.firstLaunchAlignedTsUs;
+    if (!launches.empty()) {
+        if (effectiveCalibration.valid && effectiveCalibration.mode == session::ProfileTimeAlignmentMode::OffsetOnly &&
+            numRanks > 1) {
+            const auto *anchorLaunch = SelectLaunchRebaseAnchor(launches);
+            const double firstRawLaunchTsUs = GetRawLaunchTsUs(*anchorLaunch);
+            effectiveCalibration.firstLaunchAlignedTsUs = GetAlignedTsUs(firstRawLaunchTsUs, &effectiveCalibration);
+            effectiveCalibration.sharedLaunchReferenceUs = ResolveSharedLaunchReferenceUs(
+                profileTraceDir, numRanks, effectiveCalibration.firstLaunchAlignedTsUs, rank);
+            effectiveCalibration.launchRebaseUs =
+                effectiveCalibration.sharedLaunchReferenceUs - effectiveCalibration.firstLaunchAlignedTsUs;
+        } else if (!effectiveCalibration.valid) {
+            ApplyLaunchRelativeCalibration(launches, effectiveCalibration);
+        }
     }
 
     std::filesystem::path tracePath = ResolveTracePath(profileTraceDir, rank, "trace_view.json");
     if (tracePath.empty()) {
         return;
     }
-    WriteTraceFile(launches, rank, tracePath.string(), calibration != nullptr ? &effectiveCalibration : nullptr);
+    WriteTraceFile(launches, rank, tracePath.string(), &effectiveCalibration);
 }
 
 void ExportAggregatedTrace(const std::vector<ProfileTraceSource> &sources, int64_t rank,
@@ -573,17 +615,21 @@ void ExportAggregatedTrace(const std::vector<ProfileTraceSource> &sources, int64
     }
     session::ProfileTimeCalibration effectiveCalibration =
         (calibration != nullptr) ? *calibration : session::ProfileTimeCalibration{};
-    if (!launches.empty() && effectiveCalibration.valid && numRanks > 1) {
-        const auto *anchorLaunch = SelectLaunchRebaseAnchor(launches);
-        const double firstRawLaunchTsUs =
-            static_cast<double>(anchorLaunch->minStartCycle) / static_cast<double>(anchorLaunch->cycleToUs);
-        effectiveCalibration.firstLaunchAlignedTsUs = GetAlignedTsUs(firstRawLaunchTsUs, &effectiveCalibration);
-        effectiveCalibration.sharedLaunchReferenceUs = ResolveSharedLaunchReferenceUs(
-            profileTraceDir, numRanks, effectiveCalibration.firstLaunchAlignedTsUs, rank);
-        effectiveCalibration.launchRebaseUs =
-            effectiveCalibration.sharedLaunchReferenceUs - effectiveCalibration.firstLaunchAlignedTsUs;
+    if (!launches.empty()) {
+        if (effectiveCalibration.valid && effectiveCalibration.mode == session::ProfileTimeAlignmentMode::OffsetOnly &&
+            numRanks > 1) {
+            const auto *anchorLaunch = SelectLaunchRebaseAnchor(launches);
+            const double firstRawLaunchTsUs = GetRawLaunchTsUs(*anchorLaunch);
+            effectiveCalibration.firstLaunchAlignedTsUs = GetAlignedTsUs(firstRawLaunchTsUs, &effectiveCalibration);
+            effectiveCalibration.sharedLaunchReferenceUs = ResolveSharedLaunchReferenceUs(
+                profileTraceDir, numRanks, effectiveCalibration.firstLaunchAlignedTsUs, rank);
+            effectiveCalibration.launchRebaseUs =
+                effectiveCalibration.sharedLaunchReferenceUs - effectiveCalibration.firstLaunchAlignedTsUs;
+        } else if (!effectiveCalibration.valid) {
+            ApplyLaunchRelativeCalibration(launches, effectiveCalibration);
+        }
     }
-    WriteTraceFile(launches, rank, tracePath.string(), calibration != nullptr ? &effectiveCalibration : nullptr);
+    WriteTraceFile(launches, rank, tracePath.string(), &effectiveCalibration);
 }
 
 }  // namespace deep_ep::profiling::exporter
