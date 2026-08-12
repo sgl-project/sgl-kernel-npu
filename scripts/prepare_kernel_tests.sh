@@ -8,7 +8,7 @@ fi
 cd "${GITHUB_WORKSPACE}"
 export BUILD_CATLASS_MODULE=ON
 bash build.sh -a kernels
-pip install ${GITHUB_WORKSPACE}/output/sgl_kernel_npu*.whl --no-cache-dir
+pip install ${GITHUB_WORKSPACE}/output/sgl_kernel_npu*.whl --no-cache-dir --force-reinstall --no-deps
 
 export UV_SYSTEM_PYTHON=true
 
