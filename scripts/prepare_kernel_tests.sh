@@ -6,11 +6,9 @@ if [[ -n "${GITHUB_WORKSPACE:-}" ]]; then
 fi
 
 cd "${GITHUB_WORKSPACE}"
-export BUILD_CATLASS_MODULE=ON
-bash build.sh -a kernels
-pip install ${GITHUB_WORKSPACE}/output/sgl_kernel_npu*.whl --no-cache-dir --force-reinstall --no-deps
-
 export UV_SYSTEM_PYTHON=true
+
+# --- Step 1: Install all dependencies BEFORE build (per developer recommendation) ---
 
 # Install Triton-Ascend (CANN-customized triton with triton.language.extra.cann)
 # Official version mapping (strict 1:1):
@@ -39,7 +37,13 @@ fi
 # Install other test dependencies
 uv pip install expecttest einops pytest packaging
 
-# --- CI workarounds for test-side issues ---
+# --- Step 2: Build and install kernel module ---
+
+export BUILD_CATLASS_MODULE=ON
+bash build.sh -a kernels
+pip install ${GITHUB_WORKSPACE}/output/sgl_kernel_npu*.whl --no-cache-dir --force-reinstall --no-deps
+
+# --- Step 3: CI workarounds for test-side issues ---
 
 # 1. sglang: test_split_qkv_rmsnorm_rope_pos_cache_half_npu.py imports
 #    'from sglang.srt.utils import is_npu'. The sglang docker image has sglang
