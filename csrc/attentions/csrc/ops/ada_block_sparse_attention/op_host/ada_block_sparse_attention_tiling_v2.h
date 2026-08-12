@@ -25,7 +25,7 @@
 #include "ops_error.h"
 
 #include "register/op_def_registry.h"
-#include "block_sparse_attention_tiling.h"
+#include "ada_block_sparse_attention_tiling.h"
 
 namespace optiling {
 
@@ -39,22 +39,23 @@ struct BSAShapeInfo {
 };
 
 std::string GetPfaDataTypeStr(ge::DataType type);
-class BlockSparseAttentionTilingV2
+class AdaBlockSparseAttentionTilingV2
 {
 public:
     platform_ascendc::PlatformAscendC ascendcPlatform;
-    explicit BlockSparseAttentionTilingV2(fe::PlatFormInfos *platFormInfo) : ascendcPlatform(platFormInfo) {}
+    explicit AdaBlockSparseAttentionTilingV2(fe::PlatFormInfos *platFormInfo) : ascendcPlatform(platFormInfo) {}
     ge::graphStatus RunBigKernelTilingWithParams(ContextParamsForBSATiling &contextKeyParams, uint64_t &tilingKey,
-                                                 uint32_t &blockDimToBeSet, BlockSparseAttentionTilingData &tilingData);
-    ge::graphStatus BlockSparseAttentionSetTilingData(gert::TilingContext *context,
-                                                      BlockSparseAttentionTilingData &tilingData);
+                                                 uint32_t &blockDimToBeSet,
+                                                 AdaBlockSparseAttentionTilingData &tilingData);
+    ge::graphStatus AdaBlockSparseAttentionSetTilingData(gert::TilingContext *context,
+                                                         AdaBlockSparseAttentionTilingData &tilingData);
     bool CheckNonEmptyShapeExceptions(const ContextParamsForBSATiling &contextKeyParams,
                                       const gert::StorageShape *shape, const std::string &sName) const;
 #ifndef ASCEND_OPTILING_UT
 protected:
-    void BlockSparseAttentionInitOutputSplit(int64_t totalSize, BlockSparseAttentionTilingData &tilingData);
+    void AdaBlockSparseAttentionInitOutputSplit(int64_t totalSize, AdaBlockSparseAttentionTilingData &tilingData);
     void SetEmptyTensor(ContextParamsForBSATiling &contextKeyParams, uint64_t &tilingKey, uint32_t &blockDimToBeSet,
-                        BlockSparseAttentionTilingData &tilingData);
+                        AdaBlockSparseAttentionTilingData &tilingData);
     bool CheckIODataType(ContextParamsForBSATiling &contextKeyParams);
     bool SetInputLayout(const char *layout);
     bool GetAndCheckShape(ContextParamsForBSATiling &contextKeyParams, BSAShapeInfo &shapeInfo,
@@ -72,17 +73,17 @@ protected:
                                         BSAShapeInfo &valueShapeInfo, const gert::StorageShape *keyShape,
                                         const gert::StorageShape *valueShape);
     bool SetAndCheckHeadNumRatio(ContextParamsForBSATiling &contextKeyParams,
-                                 BlockSparseAttentionTilingData &tilingData);
+                                 AdaBlockSparseAttentionTilingData &tilingData);
     bool CheckInputDimAndHeadNum(ContextParamsForBSATiling &contextKeyParams, const uint32_t nQ, const uint32_t nKV);
     bool CheckPostQuantShape(const ContextParamsForBSATiling &contextKeyParams, uint32_t quantD,
                              const gert::StorageShape *quantOffset2Shape, const ge::DataType quantScale2Type,
                              int64_t quantScale2ShapeSize, uint32_t h) const;
     bool CheckPostQuantParams(const ContextParamsForBSATiling &contextKeyParams, uint32_t h, uint32_t n) const;
     bool CheckAntiquantParamsShape(ContextParamsForBSATiling &contextKeyParams, const uint32_t n, const uint32_t d,
-                                   const uint32_t h, BlockSparseAttentionTilingData &tilingData);
+                                   const uint32_t h, AdaBlockSparseAttentionTilingData &tilingData);
     bool GetAndCheckPrefixShape(ContextParamsForBSATiling &contextKeyParams, BSAShapeInfo &queryShapeInfo,
                                 BSAShapeInfo &prefixShapeInfo, const gert::StorageShape *queryShape,
-                                BlockSparseAttentionTilingData &tilingData) const;
+                                AdaBlockSparseAttentionTilingData &tilingData) const;
     bool CheckKeyValuePrefixConsistency(ContextParamsForBSATiling &contextKeyParams,
                                         const gert::StorageShape *keyShape);
     bool CheckActSharedPrefix(ContextParamsForBSATiling &contextKeyParams, const uint32_t sPrefix, const uint32_t sKV);
@@ -95,12 +96,12 @@ protected:
                            int32_t headNumRatio, const std::string &sName);
     bool CheckBlockTableShape(ContextParamsForBSATiling &contextKeyParams, BSAShapeInfo &queryShapeInfo,
                               BSAShapeInfo &queryRopeShapeInfo, const int32_t *blockSize,
-                              const gert::StorageShape *blockTableShape, BlockSparseAttentionTilingData &tilingData);
+                              const gert::StorageShape *blockTableShape, AdaBlockSparseAttentionTilingData &tilingData);
     bool CheckMaskShape(ContextParamsForBSATiling &contextKeyParams, const int32_t *sparseMode, int64_t &attenMaskBatch,
                         int64_t &attenMaskS1, int64_t &attenMaskS2, bool &checkMask, const uint32_t sQ,
                         const uint32_t sK, const uint32_t batchSize, std::string &strMaskShape);
     void SetSparseModeData(ContextParamsForBSATiling &contextKeyParams, const gert::StorageShape *attenMaskShape,
-                           BlockSparseAttentionTilingData &tilingData, const int32_t *sparseMode,
+                           AdaBlockSparseAttentionTilingData &tilingData, const int32_t *sparseMode,
                            const int64_t *preTokens, const int64_t *nextTokens);
     bool CheckMaskShapeCrossSparse(ContextParamsForBSATiling &contextKeyParams, const int32_t *sparseMode,
                                    const uint32_t sQ, const uint32_t sK, const uint32_t batchSize);
@@ -108,44 +109,45 @@ protected:
                  BSAShapeInfo &valueShapeInfo);
     bool CheckKV(ContextParamsForBSATiling &contextKeyParams, BSAShapeInfo &keyShapeInfo, BSAShapeInfo &valueShapeInfo);
     bool CheckQueryAndKey(ContextParamsForBSATiling &contextKeyParams, BSAShapeInfo &queryShapeInfo,
-                          BSAShapeInfo &keyShapeInfo, BlockSparseAttentionTilingData &tilingData);
+                          BSAShapeInfo &keyShapeInfo, AdaBlockSparseAttentionTilingData &tilingData);
     bool CheckRope(ContextParamsForBSATiling &contextKeyParams, BSAShapeInfo &queryShapeInfo,
                    BSAShapeInfo &keyShapeInfo, BSAShapeInfo &queryRopeShapeInfo);
     bool CheckQuant(ContextParamsForBSATiling &contextKeyParams, BSAShapeInfo &queryShapeInfo,
-                    BSAShapeInfo &keyShapeInfo, BlockSparseAttentionTilingData &tilingData);
+                    BSAShapeInfo &keyShapeInfo, AdaBlockSparseAttentionTilingData &tilingData);
     bool CheckPrefix(ContextParamsForBSATiling &contextKeyParams, BSAShapeInfo &queryShapeInfo,
                      BSAShapeInfo &keyShapeInfo, BSAShapeInfo &valueShapeInfo,
-                     BlockSparseAttentionTilingData &tilingData);
+                     AdaBlockSparseAttentionTilingData &tilingData);
     bool CheckActSeq(const ContextParamsForBSATiling &contextKeyParams, const BSAShapeInfo &queryShapeInfo) const;
     bool CheckActSeqLen(ContextParamsForBSATiling &contextKeyParams, BSAShapeInfo &queryShapeInfo,
-                        BSAShapeInfo &keyShapeInfo, BlockSparseAttentionTilingData &tilingData);
+                        BSAShapeInfo &keyShapeInfo, AdaBlockSparseAttentionTilingData &tilingData);
     bool CheckPATypeAndShape(ContextParamsForBSATiling &contextKeyParams, BSAShapeInfo &queryShapeInfo,
-                             BSAShapeInfo &queryRopeShapeInfo, BlockSparseAttentionTilingData &tilingData);
+                             BSAShapeInfo &queryRopeShapeInfo, AdaBlockSparseAttentionTilingData &tilingData);
     bool CheckPseShiftTypeAndShape(ContextParamsForBSATiling &contextKeyParams, uint32_t b, uint32_t n, uint32_t s1,
                                    uint32_t s2);
-    bool CheckInnerPrecise(ContextParamsForBSATiling &contextKeyParams, BlockSparseAttentionTilingData &tilingData);
-    bool CheckMaskTypeAndShape(ContextParamsForBSATiling &contextKeyParams, BlockSparseAttentionTilingData &tilingData);
+    bool CheckInnerPrecise(ContextParamsForBSATiling &contextKeyParams, AdaBlockSparseAttentionTilingData &tilingData);
+    bool CheckMaskTypeAndShape(ContextParamsForBSATiling &contextKeyParams,
+                               AdaBlockSparseAttentionTilingData &tilingData);
     void SetSparseType(uint32_t qS);
     bool CheckSparseMode(ContextParamsForBSATiling &contextKeyParams, uint32_t qS,
-                         BlockSparseAttentionTilingData &tilingData);
+                         AdaBlockSparseAttentionTilingData &tilingData);
     bool CheckPACrossover(ContextParamsForBSATiling &contextKeyParams, BSAShapeInfo &queryShapeInfo,
-                          BSAShapeInfo &keyShapeInfo, BlockSparseAttentionTilingData &tilingData);
+                          BSAShapeInfo &keyShapeInfo, AdaBlockSparseAttentionTilingData &tilingData);
     bool CheckMaskCrossover(ContextParamsForBSATiling &contextKeyParams, BSAShapeInfo &queryShapeInfo,
-                            BlockSparseAttentionTilingData &tilingData);
+                            AdaBlockSparseAttentionTilingData &tilingData);
     bool CheckTNDLayoutCrossover(ContextParamsForBSATiling &contextKeyParams);
     bool ParseActualSeqLengths(ContextParamsForBSATiling &contextKeyParams, BSAShapeInfo &queryShapeInfo,
                                std::vector<int64_t> &actualSeqLengths, std::vector<int64_t> &actualSeqLengthsKV);
     bool CheckMultiFeatureCrossover(ContextParamsForBSATiling &contextKeyParams, BSAShapeInfo &queryShapeInfo,
                                     std::vector<int64_t> &actualSeqLengths, std::vector<int64_t> &actualSeqLengthsKV,
-                                    BlockSparseAttentionTilingData &tilingData);
+                                    AdaBlockSparseAttentionTilingData &tilingData);
     void SetTilingDataAttribute(ContextParamsForBSATiling &contextKeyParams,
-                                BlockSparseAttentionTilingData &tilingData);
-    void GetEnableDN(ContextParamsForBSATiling &contextKeyParams, BlockSparseAttentionTilingData &tilingData,
+                                AdaBlockSparseAttentionTilingData &tilingData);
+    void GetEnableDN(ContextParamsForBSATiling &contextKeyParams, AdaBlockSparseAttentionTilingData &tilingData,
                      BSAShapeInfo &queryShapeInfo, BSAShapeInfo &valueShapeInfo, std::vector<int64_t> &actualSeqLengths,
                      std::vector<int64_t> &actualSeqLengthsKV);
     void SetTilingData(ContextParamsForBSATiling &contextKeyParams, BSAShapeInfo &queryShapeInfo,
                        BSAShapeInfo &queryRopeShapeInfo, BSAShapeInfo &valueShapeInfo,
-                       BlockSparseAttentionTilingData &tilingData);
+                       AdaBlockSparseAttentionTilingData &tilingData);
     void InferTilingMod(const ContextParamsForBSATiling &contextKeyParams, std::vector<int64_t> &actualSeqLengths,
                         std::vector<int64_t> &actualSeqLengthsKV, uint32_t actualSeqArrayLen, uint32_t d,
                         uint32_t seqInnerSize, int32_t sparseModeVal);
@@ -157,66 +159,68 @@ protected:
     int64_t GetCalcBlockNumsOneHead(int64_t actualSeqLength, int64_t actualSeqLengthKV, uint32_t sOuterSize,
                                     uint32_t sInnerSize, int64_t preTokensLeftUp, int64_t nextTokensLeftUp,
                                     bool isAttenMaskUsed);
-    void ComputeSplitNBSeq(BlockSparseAttentionTilingData &tilingData, uint32_t batchSize,
+    void ComputeSplitNBSeq(AdaBlockSparseAttentionTilingData &tilingData, uint32_t batchSize,
                            const size_t tilingElementArrayLen, std::vector<int64_t> &actualSeqLengths,
                            std::vector<int64_t> &actualSeqLengthsKV, uint32_t sOuterSize, uint32_t sInnerSize,
                            double coreWightTarget, uint32_t &curCore);
-    void BlockSparseAttentionSplitNBSeq(BlockSparseAttentionTilingData &tilingData,
-                                        std::vector<int64_t> &actualSeqLengths,
-                                        std::vector<int64_t> &actualSeqLengthsKV, bool isAttenMaskUsed);
+    void AdaBlockSparseAttentionSplitNBSeq(AdaBlockSparseAttentionTilingData &tilingData,
+                                           std::vector<int64_t> &actualSeqLengths,
+                                           std::vector<int64_t> &actualSeqLengthsKV, bool isAttenMaskUsed);
     void InferSplitCoreMode();
     void InferConstantization();
     bool AdjustCVTilingCVDiff(const ContextParamsForBSATiling &contextKeyParams, uint32_t &sOuterFactor,
                               uint32_t &sInnerFactor, uint32_t &softmaxSOuterFactor,
-                              BlockSparseAttentionTilingData &tilingData, const BSAShapeInfo &queryShapeInfo,
+                              AdaBlockSparseAttentionTilingData &tilingData, const BSAShapeInfo &queryShapeInfo,
                               const BSAShapeInfo &valueShapeInfo);
     void GetMatMulType(matmul_tiling::DataType &mmInputType, matmul_tiling::DataType &mmOutputType);
-    bool EnableMTE2BmmPipe(BlockSparseAttentionTilingData &tilingData, matmul_tiling::MatmulApiTiling &bmm,
+    bool EnableMTE2BmmPipe(AdaBlockSparseAttentionTilingData &tilingData, matmul_tiling::MatmulApiTiling &bmm,
                            TCubeTiling &bmmTilingData, uint32_t sOuterFactor, uint32_t sInnerFactor);
     void EnableBmmDoubleBuffer(TCubeTiling &bmmTilingData);
-    bool BlockSparseAttentionCheckBmm1(BlockSparseAttentionTilingData &tilingData, TCubeTiling &bmm1TilingData,
-                                       int64_t l1SizeRemain, int64_t l0CSize, uint32_t sOuterFactor,
-                                       uint32_t sInnerFactor, bool allGM = false, bool autoBaseMNK = false);
-    bool BlockSparseAttentionCheckBmm2(BlockSparseAttentionTilingData &tilingData, TCubeTiling &bmm2TilingData,
-                                       int64_t l1SizeRemain, int64_t l0CSize, uint32_t sOuterFactor,
-                                       uint32_t sInnerFactor, uint32_t dSplitFactor, bool allGM = false,
-                                       bool autoBaseMNK = false);
-    bool BlockSparseAttentionComputeCVDiffParams(BlockSparseAttentionTilingData &tilingData, int64_t l1Size,
-                                                 int64_t l0CSize, uint32_t &sOuterFactor, uint32_t &sInnerFactor);
-    void GetPreNextTokensLeftUp(BlockSparseAttentionTilingData &tilingData, int64_t actualSeqLength,
+    bool AdaBlockSparseAttentionCheckBmm1(AdaBlockSparseAttentionTilingData &tilingData, TCubeTiling &bmm1TilingData,
+                                          int64_t l1SizeRemain, int64_t l0CSize, uint32_t sOuterFactor,
+                                          uint32_t sInnerFactor, bool allGM = false, bool autoBaseMNK = false);
+    bool AdaBlockSparseAttentionCheckBmm2(AdaBlockSparseAttentionTilingData &tilingData, TCubeTiling &bmm2TilingData,
+                                          int64_t l1SizeRemain, int64_t l0CSize, uint32_t sOuterFactor,
+                                          uint32_t sInnerFactor, uint32_t dSplitFactor, bool allGM = false,
+                                          bool autoBaseMNK = false);
+    bool AdaBlockSparseAttentionComputeCVDiffParams(AdaBlockSparseAttentionTilingData &tilingData, int64_t l1Size,
+                                                    int64_t l0CSize, uint32_t &sOuterFactor, uint32_t &sInnerFactor);
+    void GetPreNextTokensLeftUp(AdaBlockSparseAttentionTilingData &tilingData, int64_t actualSeqLength,
                                 int64_t actualSeqLengthKV, int64_t &preTokensLeftUp, int64_t &nextTokensLeftUp);
     void UpdateTilingKeyMatmulCfg(uint64_t &tilingKey);
-    void UpdateTilingKeyMaskCfg(BlockSparseAttentionTilingData &tilingData, uint64_t &tilingKey);
-    void UpdateTilingKeyPseCfg(BlockSparseAttentionTilingData &tilingData, uint64_t &tilingKey);
-    void UpdateTilingKeyDSizeConst(BlockSparseAttentionTilingData &tilingData, uint64_t &tilingKey);
-    void UpdateTilingKeyValueDSizeConst(BlockSparseAttentionTilingData &tilingData, uint64_t &tilingKey) const;
-    void UpdateTilingKeySInnerConst(BlockSparseAttentionTilingData &tilingData, uint64_t &tilingKey);
-    void UpdateTilingKeySOuterConst(BlockSparseAttentionTilingData &tilingData, uint64_t &tilingKey);
-    void BlockSparseAttentionInitSoftmaxLseOutputSplit(int64_t totalSize, BlockSparseAttentionTilingData &tilingData);
+    void UpdateTilingKeyMaskCfg(AdaBlockSparseAttentionTilingData &tilingData, uint64_t &tilingKey);
+    void UpdateTilingKeyPseCfg(AdaBlockSparseAttentionTilingData &tilingData, uint64_t &tilingKey);
+    void UpdateTilingKeyDSizeConst(AdaBlockSparseAttentionTilingData &tilingData, uint64_t &tilingKey);
+    void UpdateTilingKeyValueDSizeConst(AdaBlockSparseAttentionTilingData &tilingData, uint64_t &tilingKey) const;
+    void UpdateTilingKeySInnerConst(AdaBlockSparseAttentionTilingData &tilingData, uint64_t &tilingKey);
+    void UpdateTilingKeySOuterConst(AdaBlockSparseAttentionTilingData &tilingData, uint64_t &tilingKey);
+    void AdaBlockSparseAttentionInitSoftmaxLseOutputSplit(int64_t totalSize,
+                                                          AdaBlockSparseAttentionTilingData &tilingData);
     void UpdateTilingKeyFlag(ContextParamsForBSATiling &contextKeyParams, uint64_t &tilingKey);
     bool TilingGetTilingKeyAttentionAscendC(uint64_t &tilingKey, ContextParamsForBSATiling &contextKeyParams,
-                                            BlockSparseAttentionTilingData &tilingData);
-    size_t GetBSAWorkSpaceSize(BlockSparseAttentionTilingData &tilingData);
+                                            AdaBlockSparseAttentionTilingData &tilingData);
+    size_t GetBSAWorkSpaceSize(AdaBlockSparseAttentionTilingData &tilingData);
     ge::graphStatus SetPlatMemoryInfo(ContextParamsForBSATiling &contextKeyParams);
     ge::graphStatus SetAttributeInfo(ContextParamsForBSATiling &contextKeyParams);
     ge::graphStatus CheckTensorInvalid(const ContextParamsForBSATiling &contextKeyParams) const;
     ge::graphStatus CheckSingleAttribute(ContextParamsForBSATiling &contextKeyParams, BSAShapeInfo &queryShapeInfo,
                                          BSAShapeInfo &keyShapeInfo, BSAShapeInfo &valueShapeInfo,
-                                         BSAShapeInfo &queryRopeShapeInfo, BlockSparseAttentionTilingData &tilingData);
+                                         BSAShapeInfo &queryRopeShapeInfo,
+                                         AdaBlockSparseAttentionTilingData &tilingData);
     ge::graphStatus CheckCrossoverAttribute(ContextParamsForBSATiling &contextKeyParams, BSAShapeInfo &queryShapeInfo,
                                             BSAShapeInfo &keyShapeInfo, std::vector<int64_t> &actualSeqLengths,
                                             std::vector<int64_t> &actualSeqLengthsKV,
-                                            BlockSparseAttentionTilingData &tilingData);
+                                            AdaBlockSparseAttentionTilingData &tilingData);
     ge::graphStatus AdjustTilingData(ContextParamsForBSATiling &contextKeyParams,
-                                     BlockSparseAttentionTilingData &tilingData, const BSAShapeInfo &queryShapeInfo,
+                                     AdaBlockSparseAttentionTilingData &tilingData, const BSAShapeInfo &queryShapeInfo,
                                      const BSAShapeInfo &valueShapeInfo);
     ge::graphStatus ComputeTilingData(ContextParamsForBSATiling &contextKeyParams,
                                       std::vector<int64_t> &actualSeqLengths, std::vector<int64_t> &actualSeqLengthsKV,
-                                      BlockSparseAttentionTilingData &tilingData);
+                                      AdaBlockSparseAttentionTilingData &tilingData);
     ge::graphStatus ComputeTilingKey(uint64_t &tilingKey, ContextParamsForBSATiling &contextKeyParams,
-                                     uint32_t &blockDimToBeSet, BlockSparseAttentionTilingData &tilingData);
+                                     uint32_t &blockDimToBeSet, AdaBlockSparseAttentionTilingData &tilingData);
     void SetAttenMaskCompressMode();
-    void BSATilingDataconvert(BlockSparseAttentionTilingData &tilingData);
+    void BSATilingDataconvert(AdaBlockSparseAttentionTilingData &tilingData);
     void SetMultiCoreParamsRegbase(int64_t totalSize, int64_t coreNum);
 
 protected:

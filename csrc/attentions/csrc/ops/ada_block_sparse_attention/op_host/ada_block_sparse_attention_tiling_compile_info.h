@@ -10,8 +10,8 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#ifndef BLOCK_SPARSE_ATTENTION_TILING_STRUCT_COMPILE_INFO_H
-#define BLOCK_SPARSE_ATTENTION_TILING_STRUCT_COMPILE_INFO_H
+#ifndef ADA_BLOCK_SPARSE_ATTENTION_TILING_STRUCT_COMPILE_INFO_H
+#define ADA_BLOCK_SPARSE_ATTENTION_TILING_STRUCT_COMPILE_INFO_H
 #include <cstdint>
 #include <vector>
 #include <queue>
@@ -26,7 +26,7 @@
 
 namespace optiling {
 
-struct BlockSparseAttentionCompileInfo {
+struct AdaBlockSparseAttentionCompileInfo {
     uint32_t aivNum;
     uint32_t aicNum;
     uint64_t ubSize;

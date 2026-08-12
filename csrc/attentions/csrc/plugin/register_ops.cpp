@@ -14,7 +14,7 @@
 
 #include "la.h"
 #include "rainfusionattention.h"
-#include "block_sparse_attention.h"
+#include "ada_block_sparse_attention.h"
 #include "sparse_block_estimate.h"
 #include "layernorm.h"
 
@@ -33,7 +33,7 @@ TORCH_LIBRARY(attentions, m)
         int head_num=1, int mask_type=0, float scale=1.0, \
         int inner_precise=1, int block_size=0) -> (Tensor, Tensor)");
     m.def(
-        "block_sparse_attention(Tensor query, Tensor key,  \
+        "ada_block_sparse_attention(Tensor query, Tensor key,  \
         Tensor value, Tensor sparse_mask, Tensor sparse_count_table,  \
         str input_layout='BNSD', int sparse_size=128, int num_heads=1, \
         int num_key_value_heads=1, float scale_value=1,  \
@@ -57,7 +57,7 @@ TORCH_LIBRARY_IMPL(attentions, PrivateUse1, m)
 {
     m.impl("la", &la);
     m.impl("rainfusionattention", &rainfusionattention);
-    m.impl("block_sparse_attention", &block_sparse_attention);
+    m.impl("ada_block_sparse_attention", &ada_block_sparse_attention);
     m.impl("sparse_block_estimate", &sparse_block_estimate);
     m.impl("layernorm", &layernorm_npu);
 }

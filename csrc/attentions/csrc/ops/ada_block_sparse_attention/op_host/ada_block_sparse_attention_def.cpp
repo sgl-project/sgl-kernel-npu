@@ -13,10 +13,10 @@
 #include "register/op_def_registry.h"
 
 namespace ops {
-class BlockSparseAttention : public OpDef
+class AdaBlockSparseAttention : public OpDef
 {
 public:
-    explicit BlockSparseAttention(const char *name) : OpDef(name)
+    explicit AdaBlockSparseAttention(const char *name) : OpDef(name)
     {
         this->Input("query")
             .ParamType(REQUIRED)
@@ -145,5 +145,5 @@ public:
     }
 };
 
-OP_ADD(BlockSparseAttention);
+OP_ADD(AdaBlockSparseAttention);
 }  // namespace ops

@@ -10,10 +10,10 @@
  * See the Mulan PSL v2 for more details.
  */
 
-#ifndef BLOCK_SPARSE_ATTENTION_S1S2_BNS1_X910_BASE_H
-#define BLOCK_SPARSE_ATTENTION_S1S2_BNS1_X910_BASE_H
+#ifndef ADA_BLOCK_SPARSE_ATTENTION_S1S2_BNS1_X910_BASE_H
+#define ADA_BLOCK_SPARSE_ATTENTION_S1S2_BNS1_X910_BASE_H
 #include <type_traits>
-#include "block_sparse_attention_base.h"
+#include "ada_block_sparse_attention_base.h"
 #include "kernel_tiling/kernel_tiling.h"
 #include "kernel_operator.h"
 #include "kernel_operator_list_tensor_intf.h"
@@ -167,10 +167,10 @@ struct BSAComputeParam {
 };
 
 template <typename BSAT>
-class BlockSparseAttentionS1s2Bns1X910Base
+class AdaBlockSparseAttentionS1s2Bns1X910Base
 {
 public:
-    __aicore__ inline BlockSparseAttentionS1s2Bns1X910Base(){};
+    __aicore__ inline AdaBlockSparseAttentionS1s2Bns1X910Base(){};
     __aicore__ inline void Init(__gm__ uint8_t *query, __gm__ uint8_t *key, __gm__ uint8_t *value,
                                 __gm__ uint8_t *sparseMask, __gm__ uint8_t *sparseCount, __gm__ uint8_t *pseShift,
                                 __gm__ uint8_t *attenMask, __gm__ uint8_t *actualSeqLengths,
@@ -179,7 +179,7 @@ public:
                                 __gm__ uint8_t *keySharedPrefix, __gm__ uint8_t *valueSharedPrefix,
                                 __gm__ uint8_t *actualSharedPrefixLen, __gm__ uint8_t *attentionOut,
                                 __gm__ uint8_t *softmaxLse, __gm__ uint8_t *workspace,
-                                const BlockSparseAttentionTilingData *__restrict tiling, __gm__ uint8_t *gmTiling,
+                                const AdaBlockSparseAttentionTilingData *__restrict tiling, __gm__ uint8_t *gmTiling,
                                 TPipe *tPipe);
     __aicore__ inline void Process();
 
@@ -188,11 +188,11 @@ public:
     using KV_T = typename BSAT::kvInputType;
     using U = typename BSAT::maskType;
     using O = typename BSAT::outputType;
-    using mmBiasType = typename BlockSparseAttentionTypeTraits<T, BSAT::calcMode>::mmBiasType;
-    using mmOutputTypeTmp = typename BlockSparseAttentionTypeTraits<T, BSAT::calcMode>::mmOutputType;
-    using computeType = typename BlockSparseAttentionTypeTraits<T, BSAT::calcMode>::softmaxType;
-    using pseShiftType = typename BlockSparseAttentionTypeTraits<T, BSAT::calcMode>::pseShiftType;
-    using pseShiftCastType = typename BlockSparseAttentionTypeTraits<T, BSAT::calcMode>::pseShiftCastType;
+    using mmBiasType = typename AdaBlockSparseAttentionTypeTraits<T, BSAT::calcMode>::mmBiasType;
+    using mmOutputTypeTmp = typename AdaBlockSparseAttentionTypeTraits<T, BSAT::calcMode>::mmOutputType;
+    using computeType = typename AdaBlockSparseAttentionTypeTraits<T, BSAT::calcMode>::softmaxType;
+    using pseShiftType = typename AdaBlockSparseAttentionTypeTraits<T, BSAT::calcMode>::pseShiftType;
+    using pseShiftCastType = typename AdaBlockSparseAttentionTypeTraits<T, BSAT::calcMode>::pseShiftCastType;
 
     using mmOutputType =
         typename AscendC::Conditional<BSAT::msdMode == MsdMode::MSD_ON, int32_t, mmOutputTypeTmp>::type;
@@ -355,7 +355,7 @@ public:
     PACBmm2 bmm2;
 
 protected:
-    const BlockSparseAttentionTilingData *__restrict tilingData;
+    const AdaBlockSparseAttentionTilingData *__restrict tilingData;
     TPipe *pipe;
 
     TQue<QuePosition::VECOUT, 1> Bmm1Queue;
@@ -680,13 +680,13 @@ protected:
 };
 
 template <typename BSAT>
-__aicore__ inline void BlockSparseAttentionS1s2Bns1X910Base<BSAT>::Init(
+__aicore__ inline void AdaBlockSparseAttentionS1s2Bns1X910Base<BSAT>::Init(
     __gm__ uint8_t *query, __gm__ uint8_t *key, __gm__ uint8_t *value, __gm__ uint8_t *sparseMask,
     __gm__ uint8_t *sparseCount, __gm__ uint8_t *pseShift, __gm__ uint8_t *attenMask, __gm__ uint8_t *actualSeqLengths,
     __gm__ uint8_t *actualSeqLengthsKV, __gm__ uint8_t *blocktable, __gm__ uint8_t *queryPaddingSize,
     __gm__ uint8_t *kvPaddingSize, __gm__ uint8_t *keySharedPrefix, __gm__ uint8_t *valueSharedPrefix,
     __gm__ uint8_t *actualSharedPrefixLen, __gm__ uint8_t *attentionOut, __gm__ uint8_t *softmaxLse,
-    __gm__ uint8_t *workspace, const BlockSparseAttentionTilingData *__restrict tiling, __gm__ uint8_t *gmTiling,
+    __gm__ uint8_t *workspace, const AdaBlockSparseAttentionTilingData *__restrict tiling, __gm__ uint8_t *gmTiling,
     TPipe *tPipe)
 {
     tmp_block_idx = GetBlockIdx();
@@ -755,7 +755,7 @@ __aicore__ inline void BlockSparseAttentionS1s2Bns1X910Base<BSAT>::Init(
 }
 
 template <typename BSAT>
-__aicore__ inline void BlockSparseAttentionS1s2Bns1X910Base<BSAT>::InitTensorSize()
+__aicore__ inline void AdaBlockSparseAttentionS1s2Bns1X910Base<BSAT>::InitTensorSize()
 {
     const PromptAttentionSingleCoreTensorSize *tensorSizeTiling = &tilingData->promptAttentionTensorSizeRect;
     this->softmaxFlashTilingData = tilingData->softmaxFlashTilingDataRect;
@@ -780,7 +780,7 @@ __aicore__ inline void BlockSparseAttentionS1s2Bns1X910Base<BSAT>::InitTensorSiz
 }
 
 template <typename BSAT>
-__aicore__ inline void BlockSparseAttentionS1s2Bns1X910Base<BSAT>::Bmm2UpdateDivNoTail(
+__aicore__ inline void AdaBlockSparseAttentionS1s2Bns1X910Base<BSAT>::Bmm2UpdateDivNoTail(
     LocalTensor<computeType> &bmm2ResPreUb, LocalTensor<float> &softmaxSumUb)
 {
     BSAComputeParam *params = this->preHeadParams;
@@ -818,7 +818,7 @@ __aicore__ inline void BlockSparseAttentionS1s2Bns1X910Base<BSAT>::Bmm2UpdateDiv
 }
 
 template <typename BSAT>
-__aicore__ inline void BlockSparseAttentionS1s2Bns1X910Base<BSAT>::UpdateVmul(LocalTensor<computeType> &softmaxExpUb)
+__aicore__ inline void AdaBlockSparseAttentionS1s2Bns1X910Base<BSAT>::UpdateVmul(LocalTensor<computeType> &softmaxExpUb)
 {
     LocalTensor<computeType> bmm2ResPreUb = preBmm2Buf.Get<computeType>(bmm2ResUbSize);
 
@@ -844,7 +844,7 @@ __aicore__ inline void BlockSparseAttentionS1s2Bns1X910Base<BSAT>::UpdateVmul(Lo
 }
 
 template <typename BSAT>
-__aicore__ inline void BlockSparseAttentionS1s2Bns1X910Base<BSAT>::GetSingleCoreParam(int sIdx)
+__aicore__ inline void AdaBlockSparseAttentionS1s2Bns1X910Base<BSAT>::GetSingleCoreParam(int sIdx)
 {
     int64_t actualSeqLengthPerBatch = 0;
     int64_t actualSeqLengthKVPerBatch = 0;
