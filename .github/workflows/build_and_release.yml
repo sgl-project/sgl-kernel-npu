@@ -25,6 +25,7 @@ jobs:
       matrix:
         arch: [x86_64, aarch64]
         npu_hardware: [910b, a3, 950]
+
         exclude:
            - npu_hardware: 950
              cann_version: 9.0.0
@@ -215,7 +216,9 @@ jobs:
       matrix:
         arch: [ x86_64, aarch64 ]
         npu_hardware: [ 910b, a3, 950 ]
-        cann_version: [ 9.0.0 ]
+        exclude:
+          - npu_hardware: 950
+            cann_version: [ 9.0.0 ]
         torch_version: [ 2.10.0 ]
         # Ref: https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
         include:
