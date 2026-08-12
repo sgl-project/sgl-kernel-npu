@@ -15,14 +15,9 @@
  * \brief
  */
 
-#if (__CCE_AICORE__ == 220)
-#include "arch22/compressor_kernel.h"
-#include "arch22/compressor_kernel_perf.h"
-#else
-#include "arch35/compressor_kernel.h"
-#include "arch35/compressor_kernel_full_load.h"
-#endif
- 
+#include "compressor_kernel.h"
+#include "compressor_kernel_perf.h"
+
 using namespace Compressor;
 
 #define INVOKE_COMPRESSOR_GENERAL_OP_IMPL(templateClass, ...)                                                          \
@@ -64,17 +59,9 @@ __global__ __aicore__ void compressor(
     constexpr auto coff = static_cast<COFF>(Coff);
     constexpr auto rotaryMode = static_cast<ROTARY_MODE>(RotaryMode);
     constexpr auto cacheMode = static_cast<CACHE_MODE>(CacheMode);
-    #if (__CCE_AICORE__ == 220)
-        if constexpr (static_cast<TEMPLATE_ID>(TemplateId) == TEMPLATE_ID::PERF) {
-            INVOKE_COMPRESSOR_GENERAL_OP_IMPL(CompressorKernelPerf, xLayout, xDtype, coff, rotaryMode, cacheMode);
-        } else {
-            INVOKE_COMPRESSOR_GENERAL_OP_IMPL(CompressorKernel, xLayout, xDtype, coff, rotaryMode, cacheMode);
-        }
-    #else
-        if constexpr (static_cast<TEMPLATE_ID>(TemplateId) == TEMPLATE_ID::FULL_LOAD) {
-            INVOKE_COMPRESSOR_GENERAL_OP_IMPL(CompressorKernelFullLoad, xLayout, xDtype, coff, rotaryMode, cacheMode);
-        } else {
-            INVOKE_COMPRESSOR_GENERAL_OP_IMPL(CompressorKernel, xLayout, xDtype, coff, rotaryMode, cacheMode);
-        }
-    #endif
+    if constexpr (static_cast<TEMPLATE_ID>(TemplateId) == TEMPLATE_ID::PERF) {
+        INVOKE_COMPRESSOR_GENERAL_OP_IMPL(CompressorKernelPerf, xLayout, xDtype, coff, rotaryMode, cacheMode);
+    } else {
+        INVOKE_COMPRESSOR_GENERAL_OP_IMPL(CompressorKernel, xLayout, xDtype, coff, rotaryMode, cacheMode);
+    }
 }

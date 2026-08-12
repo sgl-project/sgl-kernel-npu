@@ -12,7 +12,6 @@
 
 /*!
 * \file compressor_tiling.cpp
-* \file compressor_tiling.cpp
 * \brief
 */
 
@@ -21,9 +20,14 @@
 #include <algorithm>
 #include <unordered_map>
 #include <graph/utils/type_utils.h>
-#include "err/ops_err.h"
 #include "register/op_def_registry.h"
 #include "compressor_tiling.h"
+
+// CANN 9.0.0 compatibility macros for originally CANN 8.x macros
+#define OP_LOGI(...)
+#define OP_LOGE(...)
+#define OPS_REPORT_VECTOR_INNER_ERR(op, msg)
+#define OP_CHECK_IF(cond, ...) if (cond) { return ge::GRAPH_FAILED; }
 
 using namespace ge;
 using namespace AscendC;
@@ -422,7 +426,7 @@ ge::graphStatus CompressorTiling::CheckAttrValueSupport(const T *attrValue,
 
 template <typename T>
 std::string to_string(const T &value) {
-    if (std::is_same_v<T, bool>) {
+    if (std::is_same<T, bool>::value) {
         return value ? "true" : "false";
     } else {
         return std::to_string(value);
