@@ -505,7 +505,7 @@ jobs:
       UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     strategy:
       matrix:
-        cann_version: [9.0.0, 9.0.1]
+        cann_version: [9.0.0, 9.1.0]
     steps:
       - name: Clean git config
         run: |
