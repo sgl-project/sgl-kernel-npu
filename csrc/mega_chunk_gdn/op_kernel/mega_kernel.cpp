@@ -146,7 +146,7 @@ AICORE void mega_transpose_TH_to_HT(__gm__ T *src, __gm__ T *dst, int64_t T_len,
 }
 
 template <int32_t H, int32_t C>
-AICORE void mega_cast_fp32_to_fp16_bsnd(__gm__ float *src, __gm__ half *dst, uint32_t num_matrices,
+AICORE inline void mega_cast_fp32_to_fp16_bsnd(__gm__ float *src, __gm__ half *dst, uint32_t num_matrices,
                                         int64_t total_tokens)
 {
     // See mega_transpose_TH_to_HT above — hides the global `enum class Stride`.
@@ -269,14 +269,12 @@ AICORE inline void mega_solve_tril(__gm__ half *out, __gm__ half *in, __gm__ hal
 }
 
 AICORE inline void mega_kernel_impl(
-    __gm__ uint8_t *q_ptr, __gm__ uint8_t *k_ptr, __gm__ uint8_t *v_ptr, __gm__ uint8_t *g_in_ptr,
-    __gm__ uint8_t *beta_ptr, __gm__ uint8_t *msk_lower_ptr, __gm__ uint8_t *msk_full_ptr, __gm__ uint8_t *minus_id_ptr,
-    __gm__ uint8_t *cu_seqlens_ptr, __gm__ uint8_t *o_ptr, __gm__ uint8_t *g_sum_ptr, __gm__ uint8_t *g_t_ptr,
-    __gm__ uint8_t *beta_t_ptr, __gm__ uint8_t *A_ptr, __gm__ uint8_t *A_inv_f32_ptr, __gm__ uint8_t *A_inv_ptr,
-    __gm__ uint8_t *w_ptr, __gm__ uint8_t *u_ptr, __gm__ uint8_t *s_ptr, __gm__ uint8_t *v_new_ptr,
-    __gm__ uint8_t *fs_ptr, __gm__ uint8_t *h0_ptr, int64_t has_initial_state, __gm__ uint8_t *kkt_ws_ptr,
-    __gm__ uint8_t *wy_ws_a1_ptr, __gm__ uint8_t *wy_ws_a2_ptr, __gm__ uint8_t *h_ws_ptr, __gm__ uint8_t *o_ws_qk_ptr,
-    __gm__ uint8_t *o_ws_qs_ptr, __gm__ uint8_t *o_ws_gated_ptr, int32_t H, uint32_t num_key_heads, int64_t batch_size,
+    GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr, GM_ADDR g_in_ptr, GM_ADDR beta_ptr, GM_ADDR msk_lower_ptr,
+    GM_ADDR msk_full_ptr, GM_ADDR minus_id_ptr, GM_ADDR cu_seqlens_ptr, GM_ADDR o_ptr, GM_ADDR g_sum_ptr,
+    GM_ADDR g_t_ptr, GM_ADDR beta_t_ptr, GM_ADDR A_ptr, GM_ADDR A_inv_f32_ptr, GM_ADDR A_inv_ptr, GM_ADDR w_ptr,
+    GM_ADDR u_ptr, GM_ADDR s_ptr, GM_ADDR v_new_ptr, GM_ADDR fs_ptr, GM_ADDR h0_ptr, int64_t has_initial_state,
+    GM_ADDR kkt_ws_ptr, GM_ADDR wy_ws_a1_ptr, GM_ADDR wy_ws_a2_ptr, GM_ADDR h_ws_ptr, GM_ADDR o_ws_qk_ptr,
+    GM_ADDR o_ws_qs_ptr, GM_ADDR o_ws_gated_ptr, int32_t H, uint32_t num_key_heads, int64_t batch_size,
     int64_t seq_len, int64_t total_tokens, uint32_t num_matrices)
 {
 
