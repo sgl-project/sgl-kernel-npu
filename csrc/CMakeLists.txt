@@ -92,22 +92,12 @@ set(WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmc_shrink_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_kernel/sparse_attention_score.cpp
 )
-if(BUILD_CATLASS_MODULE)
-    list(APPEND WORKSPACE_KERNEL_SRCS
-        ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_matmul_basic_kernel.cpp
-    )
-endif()
 ascendc_library(workspace_kernel STATIC ${WORKSPACE_KERNEL_SRCS})
 ascendc_include_directories(workspace_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel
     ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_kernel
 )
-if(BUILD_CATLASS_MODULE)
-    ascendc_include_directories(workspace_kernel PRIVATE
-        ${CATLASS_DIR}/include
-    )
-endif()
 
 ascendc_include_directories(workspace_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/utils/kernel
@@ -117,6 +107,27 @@ ascendc_compile_definitions(workspace_kernel PRIVATE
        -DHAVE_WORKSPACE
        -DHAVE_TILING
 )
+
+# catlass 内核单独编译，避免其 include 路径中混入 csrc/sparse_attention_score/op_kernel。
+# 否则 catlass 头文件里的 #include "tla/layout.hpp" 会解析到 sparse_attention_score 的副本，
+# 与 catlass 自身的 catlass/detail/alignment.hpp 在全局命名空间重复定义
+# (RoundDown/CeilDiv/Max/Min/DEPENDENT_BOOL_VALUE 等)，导致编译失败。
+set(CATLASS_WORKSPACE_KERNEL_TARGETS)
+if(BUILD_CATLASS_MODULE)
+    set(CATLASS_WORKSPACE_KERNEL_SRCS
+        ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_matmul_basic_kernel.cpp
+    )
+    ascendc_library(catlass_workspace_kernel STATIC ${CATLASS_WORKSPACE_KERNEL_SRCS})
+    ascendc_include_directories(catlass_workspace_kernel PRIVATE
+        ${CATLASS_DIR}/include
+        ${PROJECT_OP_SRC_BASE}/utils/kernel
+    )
+    ascendc_compile_definitions(catlass_workspace_kernel PRIVATE
+        -DHAVE_WORKSPACE
+        -DHAVE_TILING
+    )
+    set(CATLASS_WORKSPACE_KERNEL_TARGETS catlass_workspace_kernel)
+endif()
 
 set(MEGA_CHUNK_GDN_KERNEL_TARGETS)
 set(MEGA_CHUNK_GDN_KERNEL_TARGETS mega_chunk_gdn_kernel)
@@ -143,6 +154,7 @@ target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${MEGA_CHUNK_GDN_KERNEL_TARGETS}
         workspace_kernel
         no_workspace_kernel
+        ${CATLASS_WORKSPACE_KERNEL_TARGETS}
         torch_npu
         ascendcl
         tiling_api
