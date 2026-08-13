@@ -285,29 +285,19 @@ AICORE inline void mega_kernel_impl(
         return;
     }
 
+    SyncAllMegaKernel<false>();
+
     mk_cumsum::cumsum_kernel<C>(reinterpret_cast<__gm__ float *>(g_in_ptr), reinterpret_cast<__gm__ float *>(g_sum_ptr),
                                 reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len, H);
 
-#ifdef MEGA_STOP_AFTER_CUMSUM
-    pipe_barrier(PIPE_ALL);
-    return;
-#endif
 
     SyncAllMegaKernel<false>();
-
-#ifdef MEGA_STOP_AFTER_SYNC1
-    return;
-#endif
 
     mega_transpose_TH_to_HT<float>(reinterpret_cast<__gm__ float *>(g_sum_ptr),
                                    reinterpret_cast<__gm__ float *>(g_t_ptr), total_tokens, H);
     mega_transpose_TH_to_HT<half>(reinterpret_cast<__gm__ half *>(beta_ptr),
                                   reinterpret_cast<__gm__ half *>(beta_t_ptr), total_tokens, H);
 
-#ifdef MEGA_STOP_AFTER_TRANSPOSE
-    pipe_barrier(PIPE_ALL);
-    return;
-#endif
 
     SyncAllMegaKernel<false>();
 
@@ -334,10 +324,6 @@ AICORE inline void mega_kernel_impl(
 #endif
 #endif
 
-#ifdef MEGA_STOP_AFTER_KKT
-    pipe_barrier(PIPE_ALL);
-    return;
-#endif
 
     SyncAllMegaKernel<false>();
 
@@ -345,23 +331,8 @@ AICORE inline void mega_kernel_impl(
                     reinterpret_cast<__gm__ half *>(minus_id_ptr), C, num_matrices, H,
                     reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), 1);
 
-#ifdef MEGA_STOP_AFTER_SOLVE
-    pipe_barrier(PIPE_ALL);
-    return;
-#endif
 
     SyncAllMegaKernel<false>();
-
-#ifdef MEGA_STOP_AFTER_CAST
-    pipe_barrier(PIPE_ALL);
-    return;
-#endif
-
-    SyncAllMegaKernel<false>();
-
-#ifdef MEGA_STOP_AFTER_SYNC_BEFORE_WY
-    return;
-#endif
 
     mk_wy::wy_fast_kernel<D, C>(
         reinterpret_cast<__gm__ half *>(k_ptr), reinterpret_cast<__gm__ half *>(v_ptr),
@@ -389,10 +360,6 @@ AICORE inline void mega_kernel_impl(
     }
 #endif
 
-#ifdef MEGA_STOP_AFTER_WY
-    pipe_barrier(PIPE_ALL);
-    return;
-#endif
 
     SyncAllMegaKernel<false>();
 
@@ -403,11 +370,6 @@ AICORE inline void mega_kernel_impl(
                                has_initial_state, 1, reinterpret_cast<__gm__ half *>(h_ws_ptr),
                                reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len, total_tokens,
                                static_cast<uint32_t>(H), num_key_heads);
-
-#ifdef MEGA_STOP_AFTER_H
-    pipe_barrier(PIPE_ALL);
-    return;
-#endif
 
     SyncAllMegaKernel<false>();
 
