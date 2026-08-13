@@ -2,9 +2,7 @@ import unittest
 
 import torch
 from sgl_kernel_npu.kvcacheio import (
-    TransferDirection,
     transfer_state_all_layer_direct_lf_pf,
-    transfer_state_dim_exchange,
     transfer_state_per_layer_direct_pf_lf,
 )
 
@@ -14,7 +12,7 @@ DEVICE_SLOTS = 8
 HOST_SLOTS = 10
 
 
-class TestTransferStateDimExchange(unittest.TestCase):
+class TestTransferStateDirect(unittest.TestCase):
     def setUp(self):
         torch.npu.set_device(0)
         temporal = torch.arange(
@@ -44,15 +42,32 @@ class TestTransferStateDimExchange(unittest.TestCase):
             ),
         ]
 
-    def _submit(self, **kwargs):
+    def _submit_d2h(self, device_indices, host_indices):
         stream = torch.npu.Stream()
         event = torch.npu.Event()
         with torch.npu.stream(stream):
-            transfer_state_dim_exchange(
+            transfer_state_all_layer_direct_lf_pf(
                 device_states=self.device_states,
                 host_states=self.host_states,
-                **kwargs,
+                device_indices=device_indices,
+                host_indices=host_indices,
             )
+            event.record(stream)
+        event.synchronize()
+
+    def _submit_h2d(self, device_indices, host_indices, layers):
+        stream = torch.npu.Stream()
+        event = torch.npu.Event()
+        with torch.npu.stream(stream):
+            for layer_id in layers:
+                for device, host in zip(self.device_states, self.host_states):
+                    transfer_state_per_layer_direct_pf_lf(
+                        src=host,
+                        dst=device[layer_id],
+                        src_indices=host_indices,
+                        dst_indices=device_indices,
+                        layer_id=layer_id,
+                    )
             event.record(stream)
         event.synchronize()
 
@@ -64,13 +79,7 @@ class TestTransferStateDimExchange(unittest.TestCase):
             for state in self.device_states
         ]
 
-        self._submit(
-            device_indices=device_indices,
-            host_indices=host_indices,
-            direction=TransferDirection.D2H,
-            layer_begin=0,
-            layer_count=NUM_LAYERS,
-        )
+        self._submit_d2h(device_indices, host_indices)
 
         for component, host in enumerate(self.host_states):
             torch.testing.assert_close(
@@ -92,13 +101,7 @@ class TestTransferStateDimExchange(unittest.TestCase):
         for device in self.device_states:
             device.zero_()
 
-        self._submit(
-            device_indices=device_indices,
-            host_indices=host_indices,
-            direction=TransferDirection.H2D,
-            layer_begin=layer,
-            layer_count=1,
-        )
+        self._submit_h2d(device_indices, host_indices, [layer])
 
         for component, device in enumerate(self.device_states):
             torch.testing.assert_close(
@@ -124,13 +127,7 @@ class TestTransferStateDimExchange(unittest.TestCase):
         for device in self.device_states:
             device.zero_()
 
-        self._submit(
-            device_indices=device_indices,
-            host_indices=host_indices,
-            direction=TransferDirection.H2D,
-            layer_begin=layer,
-            layer_count=1,
-        )
+        self._submit_h2d(device_indices, host_indices, [layer])
 
         for component, device in enumerate(self.device_states):
             for offset, device_index in enumerate(device_indices.tolist()):
@@ -144,12 +141,10 @@ class TestTransferStateDimExchange(unittest.TestCase):
 
     def test_empty_indices_are_a_noop(self):
         expected = [state.clone() for state in self.device_states]
-        self._submit(
-            device_indices=torch.empty(0, dtype=torch.int64),
-            host_indices=torch.empty(0, dtype=torch.int64),
-            direction=TransferDirection.H2D,
-            layer_begin=0,
-            layer_count=1,
+        self._submit_h2d(
+            torch.empty(0, dtype=torch.int64),
+            torch.empty(0, dtype=torch.int64),
+            [0],
         )
         for component, device in enumerate(self.device_states):
             torch.testing.assert_close(device, expected[component])
@@ -158,22 +153,10 @@ class TestTransferStateDimExchange(unittest.TestCase):
         device_indices = torch.tensor([2, 3, 4], dtype=torch.int64)
         host_indices = torch.tensor([6, 7, 8], dtype=torch.int64)
         expected = [state.clone() for state in self.device_states]
-        self._submit(
-            device_indices=device_indices,
-            host_indices=host_indices,
-            direction=TransferDirection.D2H,
-            layer_begin=0,
-            layer_count=NUM_LAYERS,
-        )
+        self._submit_d2h(device_indices, host_indices)
         for device in self.device_states:
             device[:, device_indices] = 0
-        self._submit(
-            device_indices=device_indices,
-            host_indices=host_indices,
-            direction=TransferDirection.H2D,
-            layer_begin=0,
-            layer_count=NUM_LAYERS,
-        )
+        self._submit_h2d(device_indices, host_indices, range(NUM_LAYERS))
         for component, device in enumerate(self.device_states):
             torch.testing.assert_close(
                 device[:, device_indices],
@@ -181,7 +164,6 @@ class TestTransferStateDimExchange(unittest.TestCase):
             )
 
     def test_round_trip_single_component_with_per_layer_h2d(self):
-        """Match MambaPoolHost's component-wise D2H/H2D call pattern."""
         device = self.device_states[0]
         host = self.host_states[0]
         device_indices = torch.tensor([1, 4, 6], dtype=torch.int64)
@@ -217,17 +199,12 @@ class TestTransferStateDimExchange(unittest.TestCase):
 
     def test_reject_pageable_host_memory(self):
         with self.assertRaisesRegex(RuntimeError, "pinned memory"):
-            transfer_state_dim_exchange(
-                device_states=self.device_states,
-                host_states=[
-                    torch.empty_like(tensor, pin_memory=False)
-                    for tensor in self.host_states
-                ],
-                device_indices=torch.tensor([0]),
-                host_indices=torch.tensor([0]),
-                direction=TransferDirection.H2D,
-                layer_begin=0,
-                layer_count=1,
+            transfer_state_per_layer_direct_pf_lf(
+                src=torch.empty_like(self.host_states[0], pin_memory=False),
+                dst=self.device_states[0][0],
+                src_indices=torch.tensor([0]),
+                dst_indices=torch.tensor([0]),
+                layer_id=0,
             )
 
     def test_round_trip_dense_permuted_payload(self):
@@ -282,29 +259,22 @@ class TestTransferStateDimExchange(unittest.TestCase):
             pin_memory=True,
         )
         with self.assertRaisesRegex(RuntimeError, "physically dense"):
-            transfer_state_dim_exchange(
-                device_states=[
-                    non_dense,
-                    self.device_states[1],
-                ],
-                host_states=[host, self.host_states[1]],
-                device_indices=torch.tensor([0]),
-                host_indices=torch.tensor([0]),
-                direction=TransferDirection.H2D,
-                layer_begin=0,
-                layer_count=1,
+            transfer_state_per_layer_direct_pf_lf(
+                src=host,
+                dst=non_dense[0],
+                src_indices=torch.tensor([0]),
+                dst_indices=torch.tensor([0]),
+                layer_id=0,
             )
 
     def test_reject_out_of_range_index(self):
         with self.assertRaisesRegex(RuntimeError, "exceeds component slot count"):
-            transfer_state_dim_exchange(
-                device_states=self.device_states,
-                host_states=self.host_states,
-                device_indices=torch.tensor([DEVICE_SLOTS]),
-                host_indices=torch.tensor([0]),
-                direction=TransferDirection.H2D,
-                layer_begin=0,
-                layer_count=1,
+            transfer_state_per_layer_direct_pf_lf(
+                src=self.host_states[0],
+                dst=self.device_states[0][0],
+                src_indices=torch.tensor([0]),
+                dst_indices=torch.tensor([DEVICE_SLOTS]),
+                layer_id=0,
             )
 
 

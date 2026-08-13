@@ -23,11 +23,6 @@ namespace npu_kernel {
 
 constexpr int64_t STATE_TRANS_FLAG_2D = 1 << 1;
 
-enum class StateTransferDirection : int64_t {
-    H2D = 1,
-    D2H = 2,
-};
-
 namespace {
 
 struct StateComponentLayout {
@@ -50,11 +45,6 @@ struct ValidatedStateComponents {
 
 int64_t validate_dense_slot_payload(const at::Tensor &device, int64_t component)
 {
-    // NPU NEXTN stores the temporal state as a transpose of the two innermost
-    // dimensions.  The resulting Tensor is not logically contiguous, but every
-    // [layer, slot] payload is still one dense physical byte range.  HiCache
-    // treats the Host copy as opaque state bytes, so that layout is safe for a
-    // byte-exact D2H/H2D round trip.
     std::vector<std::pair<int64_t, int64_t>> payload_dims;
     int64_t slot_elements = 1;
     for (int64_t dim = 2; dim < device.dim(); ++dim) {
@@ -216,57 +206,8 @@ std::vector<std::pair<int64_t, int64_t>> build_contiguous_runs(const int64_t *de
     return runs;
 }
 
-void submit_h2d(const std::vector<StateComponentLayout> &components, const int64_t *device_indices,
-                const int64_t *host_indices, int64_t index_count, int64_t layer_begin, int64_t layer_count,
-                aclrtStream stream)
-{
-    const auto runs = build_contiguous_runs(device_indices, host_indices, index_count);
-    for (const auto &component : components) {
-        auto *device_base = static_cast<char *>(component.device.data_ptr());
-        auto *host_base = static_cast<char *>(component.host.data_ptr());
-        for (const auto layer : c10::irange(layer_begin, layer_begin + layer_count)) {
-            for (const auto &[run_begin, run_length] : runs) {
-                const auto device_slot = device_indices[run_begin];
-                const auto host_slot = host_indices[run_begin];
-                void *destination =
-                    device_base + layer * component.device_layer_pitch + device_slot * component.device_slot_pitch;
-                const void *source =
-                    host_base + host_slot * component.host_slot_pitch + layer * component.host_layer_pitch;
-                const auto result = aclrtMemcpy2dAsync(
-                    destination, component.device_slot_pitch, source, component.host_slot_pitch, component.slot_bytes,
-                    static_cast<size_t>(run_length), ACL_MEMCPY_HOST_TO_DEVICE, stream);
-                check_acl_copy(result, "H2D", component.slot_bytes, static_cast<size_t>(run_length));
-            }
-        }
-    }
-}
-
-void submit_d2h(const std::vector<StateComponentLayout> &components, const int64_t *device_indices,
-                const int64_t *host_indices, int64_t index_count, int64_t layer_begin, int64_t layer_count,
-                aclrtStream stream)
-{
-    for (const auto &component : components) {
-        auto *device_base = static_cast<char *>(component.device.data_ptr());
-        auto *host_base = static_cast<char *>(component.host.data_ptr());
-        for (const auto i : c10::irange(index_count)) {
-            const auto device_slot = device_indices[i];
-            const auto host_slot = host_indices[i];
-            const void *source = device_base + layer_begin * component.device_layer_pitch +
-                                 device_slot * component.device_slot_pitch;
-            void *destination =
-                host_base + host_slot * component.host_slot_pitch + layer_begin * component.host_layer_pitch;
-            const auto result = aclrtMemcpy2dAsync(
-                destination, component.host_layer_pitch, source, component.device_layer_pitch, component.slot_bytes,
-                static_cast<size_t>(layer_count), ACL_MEMCPY_DEVICE_TO_HOST, stream);
-            check_acl_copy(result, "D2H", component.slot_bytes, static_cast<size_t>(layer_count));
-        }
-    }
-}
-
-void submit_state_dim_exchange(at::TensorList device_states, at::TensorList host_states,
-                               const at::Tensor &device_indices, const at::Tensor &host_indices,
-                               StateTransferDirection direction, int64_t layer_begin, int64_t layer_count,
-                               int64_t flags)
+void submit_state_all_layer_d2h(at::TensorList device_states, at::TensorList host_states,
+                                const at::Tensor &device_indices, const at::Tensor &host_indices, int64_t flags)
 {
     TORCH_CHECK(device_states.size() != 0, "device_states must not be empty");
     TORCH_CHECK(device_states.size() == host_states.size(),
@@ -282,8 +223,11 @@ void submit_state_dim_exchange(at::TensorList device_states, at::TensorList host
     if (index_count == 0) {
         return;
     }
-    TORCH_CHECK(layer_begin >= 0, "layer_begin must be non-negative");
-    TORCH_CHECK(layer_count > 0, "layer_count must be positive");
+    TORCH_CHECK(device_states[0].dim() >= 2,
+                "device state must have layout [layers, device_slots, ...]");
+    const int64_t layer_begin = 0;
+    const int64_t layer_count = device_states[0].size(0);
+    TORCH_CHECK(layer_count > 0, "device state layer count must be positive");
     const auto *device_index_data = device_indices_cpu.data_ptr<int64_t>();
     const auto *host_index_data = host_indices_cpu.data_ptr<int64_t>();
 
@@ -291,13 +235,20 @@ void submit_state_dim_exchange(at::TensorList device_states, at::TensorList host
     validate_indices(device_index_data, host_index_data, index_count, components.device_slot_limit,
                      components.host_slot_limit);
 
-    const auto acl_stream = c10_npu::getCurrentNPUStream().stream();
-    if (direction == StateTransferDirection::H2D) {
-        submit_h2d(components.layouts, device_index_data, host_index_data, index_count, layer_begin, layer_count,
-                   acl_stream);
-    } else {
-        submit_d2h(components.layouts, device_index_data, host_index_data, index_count, layer_begin, layer_count,
-                   acl_stream);
+    const auto stream = c10_npu::getCurrentNPUStream().stream();
+    for (const auto &component : components.layouts) {
+        auto *device_base = static_cast<char *>(component.device.data_ptr());
+        auto *host_base = static_cast<char *>(component.host.data_ptr());
+        for (const auto i : c10::irange(index_count)) {
+            const auto device_slot = device_index_data[i];
+            const auto host_slot = host_index_data[i];
+            const void *source = device_base + device_slot * component.device_slot_pitch;
+            void *destination = host_base + host_slot * component.host_slot_pitch;
+            const auto result = aclrtMemcpy2dAsync(
+                destination, component.host_layer_pitch, source, component.device_layer_pitch, component.slot_bytes,
+                static_cast<size_t>(layer_count), ACL_MEMCPY_DEVICE_TO_HOST, stream);
+            check_acl_copy(result, "D2H", component.slot_bytes, static_cast<size_t>(layer_count));
+        }
     }
 }
 
@@ -369,25 +320,8 @@ void submit_state_per_layer_h2d(const at::Tensor &src, const at::Tensor &dst, co
     }
 }
 
-}  // namespace
-
-// Submit state-sidecar copies to the caller's current NPU stream.
-//
-// Device component layout: [layers, device_slots, *state_shape]
-// Host component layout:   [host_slots, layers, 1, *state_shape]
-HOST_API void transfer_state_dim_exchange(at::TensorList device_states, at::TensorList host_states,
-                                          const at::Tensor &device_indices, const at::Tensor &host_indices,
-                                          int64_t direction, int64_t layer_begin, int64_t layer_count, int64_t flags)
-{
-    TORCH_CHECK(direction == static_cast<int64_t>(StateTransferDirection::H2D) ||
-                    direction == static_cast<int64_t>(StateTransferDirection::D2H),
-                "direction must be 1 (H2D) or 2 (D2H)");
-    submit_state_dim_exchange(device_states, host_states, device_indices, host_indices,
-                              static_cast<StateTransferDirection>(direction), layer_begin, layer_count, flags);
 }
 
-// GPU-direct equivalent: load one layer from page-first Host state into the
-// layer-first Device state. The copy is enqueued on the caller's current stream.
 HOST_API void transfer_state_per_layer_direct_pf_lf(
     const at::Tensor &src, const at::Tensor &dst, const at::Tensor &src_indices,
     const at::Tensor &dst_indices, int64_t layer_id, int64_t flags)
@@ -395,16 +329,12 @@ HOST_API void transfer_state_per_layer_direct_pf_lf(
     submit_state_per_layer_h2d(src, dst, src_indices, dst_indices, layer_id, flags);
 }
 
-// GPU-direct equivalent: back up all layers from layer-first Device state into
-// page-first Host state. The copy is enqueued on the caller's current stream.
 HOST_API void transfer_state_all_layer_direct_lf_pf(
     at::TensorList device_states, at::TensorList host_states, const at::Tensor &device_indices,
     const at::Tensor &host_indices, int64_t flags)
 {
-    TORCH_CHECK(device_states.size() != 0, "device_states must not be empty");
-    submit_state_dim_exchange(device_states, host_states, device_indices, host_indices,
-                              StateTransferDirection::D2H, 0, device_states[0].size(0), flags);
+    submit_state_all_layer_d2h(device_states, host_states, device_indices, host_indices, flags);
 }
 
-}  // namespace npu_kernel
-}  // namespace sglang
+}
+}

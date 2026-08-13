@@ -13,41 +13,6 @@ class TransferFlag(Enum):
     FAST2D = 2
 
 
-def transfer_state_dim_exchange(
-    device_states: Sequence[torch.Tensor],
-    host_states: Sequence[torch.Tensor],
-    device_indices: torch.Tensor,
-    host_indices: torch.Tensor,
-    direction: TransferDirection,
-    layer_begin: int,
-    layer_count: int,
-    flags: TransferFlag = TransferFlag.FAST2D,
-) -> None:
-    """Submit indexed state-sidecar copies to the current NPU stream.
-
-    Device components use ``[layers, device_slots, *state_shape]`` and host
-    components use ``[host_slots, layers, 1, *state_shape]``.  A device slot
-    payload may be a dense permutation (for example the NPU NEXTN temporal
-    transpose); the Host payload is an opaque byte-exact backup of that physical
-    layout.  The call only enqueues H2D/D2H work; completion is ordered by the
-    caller's stream/event.
-
-    Argument validation lives in the registered C++ operator so direct
-    ``torch.ops`` callers and this convenience wrapper share one safety
-    boundary.
-    """
-    torch.ops.npu.transfer_state_dim_exchange(
-        list(device_states),
-        list(host_states),
-        device_indices,
-        host_indices,
-        direction.value,
-        layer_begin,
-        layer_count,
-        flags.value,
-    )
-
-
 def transfer_state_per_layer_direct_pf_lf(
     src: torch.Tensor,
     dst: torch.Tensor,
@@ -56,13 +21,6 @@ def transfer_state_per_layer_direct_pf_lf(
     layer_id: int,
     flags: TransferFlag = TransferFlag.FAST2D,
 ) -> None:
-    """Load one layer of page-first Host state into layer-first Device state.
-
-    ``src`` is the complete page-first Host component and ``dst`` is the
-    current layer view of the layer-first Device component. This matches the
-    GPU per-layer direct PF->LF entry and is enqueued on the caller's current
-    NPU stream.
-    """
     torch.ops.npu.transfer_state_per_layer_direct_pf_lf(
         src,
         dst,
@@ -80,11 +38,6 @@ def transfer_state_all_layer_direct_lf_pf(
     host_indices: torch.Tensor,
     flags: TransferFlag = TransferFlag.FAST2D,
 ) -> None:
-    """Back up every layer of one LF Device component into PF Host state.
-
-    This is the Ascend counterpart of the GPU all-layer direct LF->PF entry.
-    The operation is enqueued on the caller's current NPU stream.
-    """
     torch.ops.npu.transfer_state_all_layer_direct_lf_pf(
         list(device_states),
         list(host_states),
