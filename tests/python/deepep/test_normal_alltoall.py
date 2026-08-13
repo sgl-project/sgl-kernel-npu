@@ -14,10 +14,10 @@ from utils import (
     bench,
     calc_diff,
     diagnose_matrix,
+    get_diff_threshold,
     init_dist,
     inplace_unique,
     per_token_cast_back,
-    get_diff_threshold,
 )
 
 # 设置环境变量
@@ -307,7 +307,6 @@ def test_main(
         else:
             raise ValueError(f"Unsupported quant_type: {quant_type}")
         recv_bytes = data_bytes + scale_bytes
-        #fp8_recv_bytes = quant_data_bytes + quant_scale_bytes
         return recv_bytes
 
     config = deep_ep.Config(24, 8, buffer_size)
