@@ -56,7 +56,7 @@ using namespace mega_kernel_utils;
 #ifdef __CCE_AICORE__
 
 template <typename T>
-AICORE void mega_transpose_TH_to_HT(__gm__ T *src, __gm__ T *dst, int64_t T_len, int32_t H)
+AICORE inline void mega_transpose_TH_to_HT(__gm__ T *src, __gm__ T *dst, int64_t T_len, int32_t H)
 {
     // To avoid ambiguity with bisheng intrinsic header's global `enum class
     // Stride`
@@ -141,6 +141,12 @@ AICORE void mega_transpose_TH_to_HT(__gm__ T *src, __gm__ T *dst, int64_t T_len,
         }
         set_flag(PIPE_MTE3, PIPE_V, EVENT_ID0);
         wait_flag(PIPE_MTE3, PIPE_V, EVENT_ID0);
+        // WAR on ub_src: the flag above only protects DST_UB (store → next
+        // TTRANS). Nothing orders MTE2 against V, so hold the next TLOAD until
+        // TTRANS has finished reading SRC_UB — both this loop's next iteration
+        // and the beta_t call that reuses these same UB offsets.
+        set_flag(PIPE_V, PIPE_MTE2, EVENT_ID0);
+        wait_flag(PIPE_V, PIPE_MTE2, EVENT_ID0);
     }
 #endif
 }
