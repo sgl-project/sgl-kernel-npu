@@ -27,6 +27,7 @@
 
 namespace SASKernel {
 using namespace AscendC;
+using optiling::SparseAttnSharedkvTilingData;
 // 将isCheckTiling设置为false, 输入输出的max&sum&exp的shape为(m, 1)
 constexpr SoftmaxConfig SAS_SOFTMAX_FLASHV2_CFG_WITHOUT_BRC = {false, 0, 0, SoftmaxMode::SOFTMAX_OUTPUT_WITHOUT_BRC};
 

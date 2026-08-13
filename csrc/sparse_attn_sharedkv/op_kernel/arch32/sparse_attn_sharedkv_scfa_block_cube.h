@@ -75,15 +75,15 @@ private:
     // L1 3buf, 使用3个eventId
     static constexpr uint32_t L1_EVENT0 = EVENT_ID2;
     static constexpr uint32_t L1_EVENT1 = EVENT_ID3;
-    static constexpr uint32_t L1_EVENT2 = EVENT_ID4;
-    static constexpr uint32_t L1_EVENT3 = EVENT_ID5;
-    static constexpr uint32_t L1_EVENT4 = EVENT_ID6;
-    static constexpr uint32_t L1_EVENT5 = EVENT_ID7;
+    static constexpr uint32_t L1_EVENT2 = 4U;
+    static constexpr uint32_t L1_EVENT3 = 5U;
+    static constexpr uint32_t L1_EVENT4 = 6U;
+    static constexpr uint32_t L1_EVENT5 = 7U;
     static constexpr uint32_t L1_EVENT6 = EVENT_ID1;
 
     // m <> mte1 EventID
     static constexpr uint32_t L0AB_EVENT0 = EVENT_ID3;
-    static constexpr uint32_t L0AB_EVENT1 = EVENT_ID4;
+    static constexpr uint32_t L0AB_EVENT1 = 4U;
 
     static constexpr IsResetLoad3dConfig LOAD3DV2_CONFIG = {true, true};                    // isSetFMatrix isSetPadding
     static constexpr uint32_t mte21QPIds[4] = {L1_EVENT0, L1_EVENT1, L1_EVENT2, L1_EVENT3}; // mte12复用

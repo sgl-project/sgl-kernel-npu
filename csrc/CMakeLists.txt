@@ -151,8 +151,6 @@ ascendc_compile_options(sparse_attn_sharedkv_kernel PRIVATE
     -Wno-deprecated-declarations
     -mllvm
     -cce-vf-remove-membar=false
-    -mllvm
-    -cce-aicore-hoist-movemask=false
 )
 
 # create shared library libsgl_kernel_npu.so

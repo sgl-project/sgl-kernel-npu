@@ -30,6 +30,7 @@
 #include "sparse_attn_sharedkv_tiling_data.h"
 
 namespace optiling {
+namespace ge_helper = sglang::ge_helper;
 // ------------------公共定义--------------------------
 struct SASTilingRequiredParaInfo {
     const gert::CompileTimeTensorDesc *desc;

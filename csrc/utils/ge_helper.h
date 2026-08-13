@@ -4,6 +4,7 @@
 #include <vector>
 #include <any>
 #include <map>
+#include "exe_graph/runtime/tiling_context.h"
 #include "tiling/platform/platform_ascendc.h"
 #include "torch_helper.h"
 

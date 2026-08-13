@@ -53,10 +53,9 @@ class TestSparseAttnSharedkv(unittest.TestCase):
             raise unittest.SkipTest("an Ascend NPU is required")
         torch_npu.npu.set_device(0)
 
-    def test_swa_bsnd_pa_nd(self):
+    def _make_swa_bsnd_pa_nd_inputs(self, dtype):
         torch.manual_seed(20260812)
         device = torch.device("npu:0")
-        dtype = torch.float16
         batch, q_len, q_heads, head_dim = 1, 1, 64, 512
         kv_len, block_size = 640, 128
         physical_blocks = 6
@@ -80,23 +79,82 @@ class TestSparseAttnSharedkv(unittest.TestCase):
         sinks = torch.full((q_heads,), -1.0e4, dtype=torch.float32, device=device)
         metadata = _single_core_metadata(device)
 
-        actual, softmax_lse = torch.ops.npu.sparse_attn_sharedkv(
-            q,
-            ori_kv=ori_kv,
-            ori_block_table=ori_block_table,
-            seqused_kv=seqused_kv,
-            sinks=sinks,
-            metadata=metadata,
-            softmax_scale=scale,
-            ori_win_left=kv_len - 1,
-            ori_win_right=0,
-            layout_q="BSND",
-            layout_kv="PA_ND",
-        )
+        return {
+            "q": q,
+            "ori_kv": ori_kv,
+            "ori_block_table": ori_block_table,
+            "seqused_kv": seqused_kv,
+            "sinks": sinks,
+            "metadata": metadata,
+            "softmax_scale": scale,
+            "ori_kv_stride": block_size * head_dim,
+            "ori_win_left": kv_len - 1,
+            "ori_win_right": 0,
+            "layout_q": "BSND",
+            "layout_kv": "PA_ND",
+        }, kv_len
+
+    @staticmethod
+    def _run_operator(inputs):
+        return torch.ops.npu.sparse_attn_sharedkv(**inputs)
+
+    def _run_swa_bsnd_pa_nd(self, dtype):
+        inputs, kv_len = self._make_swa_bsnd_pa_nd_inputs(dtype)
+
+        actual, softmax_lse = self._run_operator(inputs)
         torch_npu.npu.synchronize()
 
-        expected = _reference_swa(q, ori_kv, ori_block_table, kv_len, scale)
+        expected = _reference_swa(
+            inputs["q"],
+            inputs["ori_kv"],
+            inputs["ori_block_table"],
+            kv_len,
+            inputs["softmax_scale"],
+        )
         torch.testing.assert_close(actual.cpu().float(), expected, rtol=2e-2, atol=2e-2)
+        self.assertEqual(softmax_lse.dtype, torch.float32)
+        self.assertEqual(softmax_lse.numel(), 0)
+
+    def test_swa_bsnd_pa_nd_fp16(self):
+        self._run_swa_bsnd_pa_nd(torch.float16)
+
+    def test_swa_bsnd_pa_nd_bf16(self):
+        self._run_swa_bsnd_pa_nd(torch.bfloat16)
+
+    def test_swa_bsnd_pa_nd_npu_graph(self):
+        inputs, kv_len = self._make_swa_bsnd_pa_nd_inputs(torch.float16)
+
+        # Warm up lazy initialization and populate the device-resident tiling cache.
+        self._run_operator(inputs)
+        torch_npu.npu.synchronize()
+
+        graph = torch_npu.npu.NPUGraph()
+        capture_stream = torch_npu.npu.Stream()
+        with torch_npu.npu.graph(
+            graph, stream=capture_stream, auto_dispatch_capture=True
+        ):
+            graph_out, softmax_lse = self._run_operator(inputs)
+        torch_npu.npu.synchronize()
+
+        # Replays must read the current contents of the stable graph inputs.
+        for seed, offset in ((20260813, -0.03), (20260814, 0.08)):
+            torch.manual_seed(seed)
+            inputs["q"].copy_(
+                torch.randn_like(inputs["q"]) * 0.1 + offset
+            )
+            graph.replay()
+            torch_npu.npu.synchronize()
+            expected = _reference_swa(
+                inputs["q"],
+                inputs["ori_kv"],
+                inputs["ori_block_table"],
+                kv_len,
+                inputs["softmax_scale"],
+            )
+            torch.testing.assert_close(
+                graph_out.cpu().float(), expected, rtol=2e-2, atol=2e-2
+            )
+
         self.assertEqual(softmax_lse.dtype, torch.float32)
         self.assertEqual(softmax_lse.numel(), 0)
 
