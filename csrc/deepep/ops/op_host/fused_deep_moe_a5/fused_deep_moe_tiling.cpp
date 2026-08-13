@@ -508,9 +508,9 @@ static ge::graphStatus GetAttrAndSetTilingData(const gert::TilingContext &contex
     uint32_t epRankSize = static_cast<uint32_t>(*epRankSizePtr);
     uint32_t epRankId = static_cast<uint32_t>(*epRankIdPtr);
     uint32_t moeExpertNum = static_cast<uint32_t>(*moeExpertNumPtr);
-    uint32_t moeExpertNumPerRank = moeExpertNum / epRankSize;
 
     OPS_ERR_IF(epRankSize <= 0, OPS_LOG_E(nodeName, "epRankSize must > 0."), return ge::GRAPH_FAILED);
+    uint32_t moeExpertNumPerRank = moeExpertNum / epRankSize;
     OPS_ERR_IF(epRankId < 0, OPS_LOG_E(nodeName, "epRankId must >= 0."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(epRankId >= epRankSize, OPS_LOG_E(nodeName, "epRankId must < epRankSize."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(moeExpertNum > MAX_MOE_EXERT_NUM, OPS_LOG_E(nodeName, "moeExpertNum must <= %u.", MAX_MOE_EXERT_NUM),
@@ -604,14 +604,12 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext &context, const char *no
     uint64_t shareX1MxScaleNum = x1MxScaleNum;
     uint64_t x2MxScaleNum = CeilUp(Ceil(gmm2HLen, 32), 2);
     uint64_t shareX2MxScaleNum = CeilUp(Ceil(shareGmm2HLen, 32), 2);
-    ;
     maxTokenNum = globalBs * std::min(topK, moeExpertNumPerRank);
     bool isMxFp4 = tilingData.fusedDeepMoeInfo.mxActStorageFp4 == MX_FP4_QUANT_MODE;
 
     size_t x1TokenSize = MxActStorageBytes(shareExpertTokenNum * h + maxTokenNum * h, isMxFp4);
     size_t x2TokenSize = MxActStorageBytes(shareExpertTokenNum * shareGmm2HLen + maxTokenNum * gmm2HLen, isMxFp4);
     size_t maxTokenSize = CeilUp(x1TokenSize < x2TokenSize ? x2TokenSize : x1TokenSize, GM_ALIGN_SIZE);
-    // size_t tokenScaleSize = CeilUp((shareExpertTokenNum + maxTokenNum) * sizeof(float), GM_ALIGN_SIZE);
     size_t x1MxScaleSize = (shareExpertTokenNum * shareX1MxScaleNum + maxTokenNum * x1MxScaleNum) * sizeof(fp8_e8m0_t);
     size_t x2MxScaleSize = (shareExpertTokenNum * shareX2MxScaleNum + maxTokenNum * x2MxScaleNum) * sizeof(fp8_e8m0_t);
     size_t maxMxScaleSize = CeilUp(x1MxScaleSize < x2MxScaleSize ? x2MxScaleSize : x1MxScaleSize, GM_ALIGN_SIZE);

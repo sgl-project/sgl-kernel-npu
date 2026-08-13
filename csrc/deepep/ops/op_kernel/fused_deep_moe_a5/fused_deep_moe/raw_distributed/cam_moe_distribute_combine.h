@@ -181,12 +181,10 @@ private:
     uint32_t startRankId_{0};
     uint32_t endRankId_{0};
     uint32_t sendRankNum_{0};
-    uint32_t ubSize_{0};
     uint32_t dataState_{0};
     uint32_t stateOffset_{0};
     uint64_t winDataSizeOffset_{0};
     uint64_t expertPerSizeOnWin_{0};
-    uint64_t totalWinSize_{0};
     TQueBind<QuePosition::VECIN, QuePosition::VECOUT, 1> moeQueue_;
     TQue<QuePosition::VECIN, 1> moeSumQueue_;
     TQueBind<QuePosition::VECIN, QuePosition::VECOUT, 1> gmTpSendCountQueue_;
@@ -248,7 +246,6 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::Init(
     } else {
         aivNum_ = tilingData->fusedDeepMoeInfo.aivNum;
     }
-    ubSize_ = tilingData->fusedDeepMoeInfo.totalUbSize;
     moeExpertNum_ = tilingData->fusedDeepMoeInfo.moeExpertNum;
     moeExpertPerRankNum_ = tilingData->fusedDeepMoeInfo.moeExpertNumPerRank;
     epWorldSize_ = tilingData->fusedDeepMoeInfo.epRankSize;
@@ -256,7 +253,6 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::Init(
     moeSendNum_ = epWorldSize_ * moeExpertPerRankNum_;
     tpWorldSize_ = 1;
     tpRankId_ = 0;
-    totalWinSize_ = tilingData->fusedDeepMoeInfo.totalWinSize;
     stateOffset_ = (moeSendNum_ > 512) ? (STATE_OFFSET / 2) : STATE_OFFSET;
     expertPerSizeOnWin_ =
         static_cast<uint64_t>(axisMaxBs_) * static_cast<uint64_t>(axisH_) * static_cast<uint64_t>(sizeof(ExpandXType));

@@ -659,7 +659,7 @@ public:
     }
 
     CATLASS_DEVICE
-    uint32_t SendToMoeExprt(GM_ADDR gmX, GM_ADDR gmExpandIdx, GM_ADDR gmMoeSmoothScales)
+    uint32_t SendToMoeExpert(GM_ADDR gmX, GM_ADDR gmExpandIdx, GM_ADDR gmMoeSmoothScales)
     {
         uint32_t sendTokenNum = expertIdsCnt / sendToMoeAivNum;
         uint32_t remainderTokenNum = expertIdsCnt % sendToMoeAivNum;
@@ -816,7 +816,7 @@ public:
         CalAndSendTokenCount();
         AscendC::PipeBarrier<PIPE_ALL>();
         sendToMoeAivNum = sendCoreNum;
-        uint32_t sendValidTokenCount = SendToMoeExprt(gmX, gmExpandIdx, gmMoeSmoothScales);
+        uint32_t sendValidTokenCount = SendToMoeExpert(gmX, gmExpandIdx, gmMoeSmoothScales);
         AscendC::PipeBarrier<PIPE_ALL>();
         if (profile != nullptr) {
             auto dispatchSendPayload = Cam::ToProfilePrivatePayloadRaw(Cam::MakeDispatchSendPrivatePayloadV1(

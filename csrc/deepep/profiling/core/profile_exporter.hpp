@@ -19,9 +19,6 @@ struct ProfileTraceSource {
     int64_t launchCountCaptured{0};
 };
 
-void ExportBufferToTrace(const at::Tensor &profileBuffer, int64_t rank, const std::string &profileTraceDir,
-                         int64_t numProfileSkipLaunches, int64_t launchCountCaptured, const ProfileSchema &schema,
-                         const session::ProfileTimeCalibration *calibration = nullptr, int64_t numRanks = 1);
 void ExportAggregatedTrace(const std::vector<ProfileTraceSource> &sources, int64_t rank,
                            const std::string &profileTraceDir,
                            const session::ProfileTimeCalibration *calibration = nullptr, int64_t numRanks = 1);

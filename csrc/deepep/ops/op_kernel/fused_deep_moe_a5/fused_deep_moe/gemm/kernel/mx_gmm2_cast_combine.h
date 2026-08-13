@@ -354,7 +354,7 @@ public:
 
         uint64_t profWeightSumStart = 0;
 
-        do {
+        {
             if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
                 if (AscendC::GetSubBlockIdx() == 0) {
                     AscendC::CrossCoreSetFlag<0x0, PIPE_MTE3>(MoeDistributeCombineImpl::RECV_SYNC_EVENT_ID);
@@ -463,7 +463,7 @@ public:
                     AscendC::CrossCoreWaitFlag(MoeDistributeCombineImpl::RECV_SYNC_EVENT_ID);
                 }
             }
-        } while (false);
+        }
 
         if (params.profile != nullptr) {
             profWeightSumStart = params.profile->Now();

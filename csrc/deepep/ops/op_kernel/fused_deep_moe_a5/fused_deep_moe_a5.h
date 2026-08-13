@@ -406,30 +406,6 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Process()
                        static_cast<uint32_t>(tilingData_->fusedDeepMoeInfo.profileLaunchId),
                        static_cast<uint32_t>(g_coreType), tilingData_->fusedDeepMoeInfo.profileBufferBytes);
 
-    if constexpr ((EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) == 0) {
-        if constexpr (g_coreType == AscendC::AIV) {
-            AscendC::TPipe tpipe;
-            MoeDistributeDispatchImpl::CamMoeDistributeDispatch<ExpandXType, int8_t, false, true,
-                                                                static_cast<bool>(EXEC_FLAG & EXEC_FLAG_SMOOTH_QUANT),
-                                                                false, EXEC_FLAG>
-                dispatcher;
-            dispatcher.Init(gmX_, gmexpertIds_, gmSmoothScales_, gmShareSmoothScales_, xActiveMask_, gmShareX1, gmX1,
-                            gmShareX1Scale, gmX1Scale, gmExpandIdx, gmGroupList, gmEpSendCount, gmExpertTokenNums_,
-                            nullptr, nullptr, &tpipe, tilingData_);
-            dispatcher.Process();
-            tpipe.Destroy();
-            icache_preload(8);
-        }
-
-        AscendC::PipeBarrier<PIPE_ALL>();
-        Arch::CrossCoreFlag gmm1AivFinished{0};
-        if constexpr (g_coreType == AscendC::AIV) {
-            Arch::CrossCoreBarrier<0x0, PIPE_MTE3>();
-            Arch::CrossCoreSetFlag<0x2, PIPE_MTE3>(gmm1AivFinished);
-        } else {
-            Arch::CrossCoreWaitFlag(gmm1AivFinished);
-        }
-    }
     DispatchMxGmm1SwigluQuantFunc<TemplateMC2TypeFunc, ElementA, ElementB, Gmm1L1TileShape, Gmm1L0TileShape,
                                   Gmm1EpilogueTileShape, Gmm1BlockScheduler>(
         gmm1ProblemShape, groupCount_, gmGroupList, gmX1, gmWeight1_, gmX1Scale, gmScale1_, gmGmm1SwapSpace,

@@ -190,7 +190,6 @@ private:
     uint64_t windyquantOffset_;
     bool isQuant_ = false;
     float sumTarget_;
-    uint64_t totalWinSize_{0};
     uint32_t gatherCount_{0};
     uint32_t expertTokenNumsType_{1};
     uint32_t preCnt_{0};
@@ -232,7 +231,6 @@ __aicore__ inline void CamMoeDistributeDispatch<TemplateDispatchTypeFunc>::Init(
     axisMaxBS_ = tilingData->fusedDeepMoeInfo.globalBs / epWorldSize_;
     moeExpertNum_ = tilingData->fusedDeepMoeInfo.moeExpertNum;
     expertTokenNumsType_ = 0;
-    totalWinSize_ = tilingData->fusedDeepMoeInfo.totalWinSize;
     moeExpertRankNum_ = epWorldSize_;
     moeExpertNumPerRank_ = moeExpertNum_ / moeExpertRankNum_;
     expertPerSizeOnWin_ = axisMaxBS_ * axisH_ * sizeof(XType);

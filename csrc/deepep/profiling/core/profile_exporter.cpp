@@ -550,39 +550,6 @@ static bool WriteTraceFile(const std::vector<LaunchTraceBundle> &launches, int64
 
 }  // namespace
 
-void ExportBufferToTrace(const at::Tensor &profileBuffer, int64_t rank, const std::string &profileTraceDir,
-                         int64_t numProfileSkipLaunches, int64_t launchCountCaptured, const ProfileSchema &schema,
-                         const session::ProfileTimeCalibration *calibration, int64_t numRanks)
-{
-    std::vector<LaunchTraceBundle> launches;
-    if (!CollectLaunches(profileBuffer, numProfileSkipLaunches, launchCountCaptured, schema, nullptr, launches)) {
-        return;
-    }
-
-    session::ProfileTimeCalibration effectiveCalibration =
-        (calibration != nullptr) ? *calibration : session::ProfileTimeCalibration{};
-    if (!launches.empty()) {
-        if (effectiveCalibration.valid && effectiveCalibration.mode == session::ProfileTimeAlignmentMode::OffsetOnly &&
-            numRanks > 1) {
-            const auto *anchorLaunch = SelectLaunchRebaseAnchor(launches);
-            const double firstRawLaunchTsUs = GetRawLaunchTsUs(*anchorLaunch);
-            effectiveCalibration.firstLaunchAlignedTsUs = GetAlignedTsUs(firstRawLaunchTsUs, &effectiveCalibration);
-            effectiveCalibration.sharedLaunchReferenceUs = ResolveSharedLaunchReferenceUs(
-                profileTraceDir, numRanks, effectiveCalibration.firstLaunchAlignedTsUs, rank);
-            effectiveCalibration.launchRebaseUs =
-                effectiveCalibration.sharedLaunchReferenceUs - effectiveCalibration.firstLaunchAlignedTsUs;
-        } else if (!effectiveCalibration.valid) {
-            ApplyLaunchRelativeCalibration(launches, effectiveCalibration);
-        }
-    }
-
-    std::filesystem::path tracePath = ResolveTracePath(profileTraceDir, rank, "trace_view.json");
-    if (tracePath.empty()) {
-        return;
-    }
-    WriteTraceFile(launches, rank, tracePath.string(), &effectiveCalibration);
-}
-
 void ExportAggregatedTrace(const std::vector<ProfileTraceSource> &sources, int64_t rank,
                            const std::string &profileTraceDir, const session::ProfileTimeCalibration *calibration,
                            int64_t numRanks)
