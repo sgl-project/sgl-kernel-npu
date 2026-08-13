@@ -34,7 +34,12 @@ function print_help()
 {
     cat <<'EOF'
 Usage:
-    ./build.sh [-a TARGET] [-d] [-h] [SOC_VERSION]
+    ./build.sh                                  Build all modules for A3.
+    ./build.sh -a deepep [SOC_VERSION]          Build deep_ep; auto-detect A2, A3, or A5.
+    ./build.sh -a deepep2 [SOC_VERSION]         Build deep_ep for A2 (compatible alias).
+    ./build.sh -a kernels [SOC_VERSION]         Build sgl_kernel_npu.
+    ./build.sh -a memory-saver                  Build torch_memory_saver.
+    ./build.sh -a attentions                    Build attentions.
 
 TARGET:
     all            (default) Build all modules.
@@ -42,6 +47,7 @@ TARGET:
     deepep2        Build deep_ep with ops2 for A2 (compatible alias).
     kernels        Build sgl_kernel_npu only.
     memory-saver   Build torch_memory_saver only.
+    attentions     Build attentions only.
 
 SOC_VERSION:
     Ascend910B1         A2 chip. Valid for deepep/deepep2/kernels.
@@ -125,6 +131,9 @@ function configure_build_target()
             ;;
         memory-saver )
             BUILD_MEMORY_SAVER_MODULE="ON"
+            ;;
+        attentions )
+            BUILD_ATTENTIONS_MODULE="ON"
             ;;
         * )
             die "Invalid target '$BUILD_TARGET'. Allowed values: deepep|deepep2|kernels|memory-saver"

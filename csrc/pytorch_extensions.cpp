@@ -131,6 +131,13 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int seq_len, int total_tokens, int num_matrices) -> ()");
 
     m.def(
+        "npu_sparse_attention_score(Tensor query, Tensor key, Tensor value, Tensor select_idx, "
+        "Tensor block_table, Tensor? select_num_idx=None, Tensor? q_dequant_scale=None, "
+        "Tensor? k_dequant_scale=None, Tensor? v_dequant_scale=None, "
+        "Tensor? actual_seq_lengths=None, Tensor? actual_seq_lengths_kv=None, "
+        "int num_key_value_heads=1, float scale_value=1.0, int block_size=128, "
+        "int top_k=16, int inner_precise=0) -> Tensor");
+    m.def(
         "lightning_indexer(Tensor query, Tensor key, Tensor weights, Tensor? actual_seq_lengths_query=None, "
         "Tensor? actual_seq_lengths_key=None, Tensor? block_table=None, "
         "str? layout_query=None, str? layout_key=None, "
@@ -189,7 +196,6 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("sgemmc_expand", TORCH_FN(sglang::npu_kernel::sgemmc_expand));
 
     m.impl("sgemmc_shrink", TORCH_FN(sglang::npu_kernel::sgemmc_shrink));
-
     m.impl("apply_token_bitmask", [](at::Tensor logits, at::Tensor bitmask, const c10::optional<at::Tensor> &indices) {
         auto indices_or_empty = indices.has_value() ? *indices : at::empty({0}, logits.options().dtype(at::kInt));
         return sglang::npu_kernel::apply_token_bitmask(logits, bitmask, indices_or_empty);
@@ -222,6 +228,7 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
 
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
+    m.impl("npu_sparse_attention_score", TORCH_FN(sglang::npu_kernel::sparse_attention_score));
 
     m.impl("triangular_inverse", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
 

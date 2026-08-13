@@ -173,6 +173,18 @@ at::Tensor softfp8_w8a16_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
 #endif
 #endif
 
+at::Tensor sparse_attention_score(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+    const at::Tensor &select_idx, const at::Tensor &block_table,
+    const c10::optional<at::Tensor> &select_num_idx,
+    const c10::optional<at::Tensor> &q_dequant_scale,
+    const c10::optional<at::Tensor> &k_dequant_scale,
+    const c10::optional<at::Tensor> &v_dequant_scale,
+    const c10::optional<at::Tensor> &actual_seq_lengths,
+    const c10::optional<at::Tensor> &actual_seq_lengths_kv,
+    int64_t num_key_value_heads, double scale_value, int64_t block_size,
+    int64_t top_k, int64_t inner_precise);
+
 } // namespace npu_kernel
 
 } // namespace sglang
