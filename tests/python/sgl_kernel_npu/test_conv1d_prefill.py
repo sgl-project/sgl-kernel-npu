@@ -365,18 +365,65 @@ def run_negative_cases(device: torch.device, dtype: torch.dtype, pad_slot_id: in
         ("dtype must match",),
     )
 
+    # [7] wrapper casts int64/bool -> int32/bool, so PyTorch-default dtypes are accepted
+    # (int64 query_start_loc used to be rejected).
+    y_default_dtypes = torch.ops.npu.causal_conv1d(
+        x,
+        weight,
+        conv_states,
+        make_device_long_tensor([0, 4, 8], device),  # int64 query_start_loc
+        make_device_long_tensor([0, 3], device),  # int64 cache_indices
+        make_device_long_tensor([1, 0], device),  # int64 "has_initial_state" -> bool
+        bias=bias,
+    )
+    torch.npu.synchronize()
+    assert (
+        y_default_dtypes.shape == x.shape
+    ), "int64/bool inputs should be accepted (wrapper casts)"
+    print("[PASS] accepts_default_int64_bool_inputs (wrapper casts to int32/bool)")
+
+    # [5] varlen: an empty/too-short query_start_loc would underflow batch -> must reject.
+    x2d = torch.randn((4, dim), device=device, dtype=dtype)
     expect_failure(
-        "dtype_mismatch_query_start_loc",
+        "empty_query_start_loc_varlen",
         lambda: torch.ops.npu.causal_conv1d(
-            x,
+            x2d,
             weight,
             conv_states,
-            make_device_long_tensor([0, 4, 8], device),
+            make_device_int_tensor([0], device),  # size 1 (< 2)
             cache_indices,
             has_initial_state,
             bias=bias,
         ),
-        ("query_start_loc dtype must be int32",),
+        ("query_start_loc", "at least 2 elements"),
+    )
+
+    # [6] cache_indices / has_initial_state are indexed per sequence -> size must be >= batch (=2).
+    expect_failure(
+        "cache_indices_too_small",
+        lambda: torch.ops.npu.causal_conv1d(
+            x,
+            weight,
+            conv_states,
+            query_start_loc,
+            make_device_int_tensor([0], device),  # size 1 (< batch 2)
+            has_initial_state,
+            bias=bias,
+        ),
+        ("cache_indices", "size >= batch"),
+    )
+    expect_failure(
+        "has_initial_state_too_small",
+        lambda: torch.ops.npu.causal_conv1d(
+            x,
+            weight,
+            conv_states,
+            query_start_loc,
+            cache_indices,
+            make_device_bool_tensor([True], device),  # size 1 (< batch 2)
+            bias=bias,
+        ),
+        ("has_initial_state", "size >= batch"),
     )
 
 
