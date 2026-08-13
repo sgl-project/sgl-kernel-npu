@@ -615,8 +615,8 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         if quant_mode not in VALID_QUANT_MODES:
             raise NotImplementedError(
                 f"quant_mode '{quant_mode}' is not supported by the alltoall strategy. "
-                f"Only 'bf16' and 'int8' are supported; use the default strategy for "
-                f"FP8/FP4 modes."
+                f"Only 'bf16','int8','mx_fp8_e4m3','mx_fp8_e5m2','mx_fp4_e2m1' are supported; "
+                f"use the default strategy for FP8/FP4 modes."
             )
         hidden_shape = x.shape
 
@@ -625,7 +625,6 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             "int8": 1,
             "mx_fp8_e4m3": 3,
             "mx_fp8_e5m2": 2,
-            "pertoken_fp8_e4m3": 8,
             "mx_fp4_e2m1": 9,
         }[quant_mode]
 
@@ -634,7 +633,6 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             "int8": torch.int8,
             "mx_fp8_e4m3": torch.float8_e4m3fn,
             "mx_fp8_e5m2": torch.float8_e5m2,
-            "pertoken_fp8_e4m3": torch.float8_e4m3fn,
             "mx_fp4_e2m1": torch.float4_e2m1fn_x2,
         }[quant_mode]
 
