@@ -14,6 +14,9 @@ namespace npu_kernel {
 
 namespace {
 constexpr int64_t kHeadDim = 128;
+// Must match GDN_MAX_HEADS in mega_kernel.cpp / chunk_cumsum.cpp. NumValueHeads is a runtime kernel argument, and the
+// transpose/cumsum UB tiles are sized for this ceiling, so a larger head count would overrun them on device.
+constexpr int64_t kMaxValueHeads = 64;
 
 bool is_supported_head_pair(int64_t value_heads, int64_t key_heads)
 {
@@ -38,6 +41,7 @@ void check_shape(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, 
     check(q.size(0) == 1, "mega_chunk_gdn currently supports packed B=1 input");
     check(q.sizes() == k.sizes(), "q and k must have the same shape");
     check(q.size(1) == v.size(1), "q/k and v sequence lengths must match");
+    check(v.size(2) <= kMaxValueHeads, "mega_chunk_gdn supports at most 64 NumValueHeads");
     check(is_supported_head_pair(v.size(2), q.size(2)), "unsupported mega_chunk_gdn (NumValueHeads, NumKeyHeads) pair");
     check(q.size(3) == kHeadDim && v.size(3) == kHeadDim, "mega_chunk_gdn supports head dimension 128");
 
