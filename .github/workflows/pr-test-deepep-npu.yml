@@ -490,11 +490,9 @@ jobs:
     needs: get-changed-files
     if: |
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'workflow_call' || (
-        (github.repository == 'sgl-project/sgl-kernel-npu' || github.event_name == 'pull_request') &&
-        github.event.pull_request.draft == false &&
-        (needs.get-changed-files.outputs.ops2_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
-      )
+      github.event_name == 'workflow_call' ||
+      github.event.name == 'pull_request'
+        
     runs-on: linux-aarch64-a2-8
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
