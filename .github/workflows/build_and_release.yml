@@ -58,6 +58,13 @@ jobs:
             ./build.sh -a kernels
           "
 
+      - name: Build Attentions
+        run: |
+          env -i PATH=${PATH} bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+            ./build.sh -a attentions
+          "
+
       - name: Build Torch-Memory-Saver
         run: |
           env -i PATH=${PATH} bash --login -c "
