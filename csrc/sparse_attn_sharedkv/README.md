@@ -20,7 +20,9 @@ The initial supported contract is:
 The PyTorch entry point is `torch.ops.npu.sparse_attn_sharedkv`. Its argument
 order and defaults follow the upstream main operator. `metadata` remains a
 required external `int32[1024]` input; this port does not register or build a
-metadata-producing operator.
+metadata-producing operator. As in the upstream PyTorch binding, the PA page
+strides are derived internally from `ori_kv.stride(0)` and
+`cmp_kv.stride(0)`; callers must not pass stride attributes explicitly.
 
 Build and test on an Ascend development machine:
 

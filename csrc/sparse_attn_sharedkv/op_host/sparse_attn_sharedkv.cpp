@@ -157,8 +157,8 @@ std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv(
     const c10::optional<at::Tensor> &cu_seqlens_cmp_kv, const c10::optional<at::Tensor> &seqused_q,
     const c10::optional<at::Tensor> &seqused_kv, const c10::optional<at::Tensor> &sinks,
     const c10::optional<at::Tensor> &metadata, double softmax_scale, int64_t cmp_ratio, int64_t ori_mask_mode,
-    int64_t cmp_mask_mode, int64_t ori_kv_stride, int64_t cmp_kv_stride, int64_t ori_win_left, int64_t ori_win_right,
-    c10::string_view layout_q, c10::string_view layout_kv, bool return_softmax_lse)
+    int64_t cmp_mask_mode, int64_t ori_win_left, int64_t ori_win_right, c10::string_view layout_q,
+    c10::string_view layout_kv, bool return_softmax_lse)
 {
     TORCH_CHECK(q.scalar_type() == at::kHalf || q.scalar_type() == at::kBFloat16,
                 "sparse_attn_sharedkv: q must be float16 or bfloat16");
@@ -190,6 +190,10 @@ std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv(
     TORCH_CHECK(sinks->scalar_type() == at::kFloat, "sparse_attn_sharedkv: sinks must be float32");
     TORCH_CHECK(metadata->scalar_type() == at::kInt && metadata->numel() == 1024,
                 "sparse_attn_sharedkv: metadata must be int32 with 1024 elements");
+    // Match vllm-ascend's public binding: page strides are implementation
+    // details derived from the KV tensors, not arguments exposed to Python.
+    const int64_t oriKvStride = ori_kv->stride(0);
+    const int64_t cmpKvStride = cmp_kv.has_value() ? cmp_kv->stride(0) : 0;
     int64_t qHeads = layout_q == "BSND" ? q.size(2) : q.size(1);
     TORCH_CHECK(qHeads == 64, "sparse_attn_sharedkv: the initial port supports exactly 64 query heads");
     auto checkInt32 = [](const c10::optional<at::Tensor> &tensor, const char *name) {
@@ -206,9 +210,9 @@ std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv(
     checkInt32(seqused_kv, "seqused_kv");
     TORCH_CHECK(cmp_ratio >= 0 && cmp_ratio <= std::numeric_limits<uint32_t>::max() && ori_mask_mode >= 0 &&
                     ori_mask_mode <= std::numeric_limits<uint32_t>::max() && cmp_mask_mode >= 0 &&
-                    cmp_mask_mode <= std::numeric_limits<uint32_t>::max() && ori_kv_stride >= 0 &&
-                    ori_kv_stride <= std::numeric_limits<uint32_t>::max() && cmp_kv_stride >= 0 &&
-                    cmp_kv_stride <= std::numeric_limits<uint32_t>::max() &&
+                    cmp_mask_mode <= std::numeric_limits<uint32_t>::max() && oriKvStride >= 0 &&
+                    oriKvStride <= std::numeric_limits<uint32_t>::max() && cmpKvStride >= 0 &&
+                    cmpKvStride <= std::numeric_limits<uint32_t>::max() &&
                     ori_win_left <= std::numeric_limits<uint32_t>::max() &&
                     ori_win_right <= std::numeric_limits<uint32_t>::max(),
                 "sparse_attn_sharedkv: integer attributes exceed the supported uint32 range");
@@ -235,8 +239,8 @@ std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv(
     op.SetAttrAny("cmp_ratio", static_cast<uint32_t>(cmp_ratio));
     op.SetAttrAny("ori_mask_mode", static_cast<uint32_t>(ori_mask_mode));
     op.SetAttrAny("cmp_mask_mode", static_cast<uint32_t>(cmp_mask_mode));
-    op.SetAttrAny("ori_kv_stride", static_cast<uint32_t>(ori_kv_stride));
-    op.SetAttrAny("cmp_kv_stride", static_cast<uint32_t>(cmp_kv_stride));
+    op.SetAttrAny("ori_kv_stride", static_cast<uint32_t>(oriKvStride));
+    op.SetAttrAny("cmp_kv_stride", static_cast<uint32_t>(cmpKvStride));
     op.SetAttrAny("ori_win_left", static_cast<uint32_t>(ori_win_left));
     op.SetAttrAny("ori_win_right", static_cast<uint32_t>(ori_win_right));
     op.SetAttrStr("layout_q", std::string(layout_q));

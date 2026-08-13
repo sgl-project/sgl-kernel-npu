@@ -170,8 +170,7 @@ std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv(
     const c10::optional<at::Tensor> &sinks,
     const c10::optional<at::Tensor> &metadata, double softmax_scale,
     int64_t cmp_ratio, int64_t ori_mask_mode, int64_t cmp_mask_mode,
-    int64_t ori_kv_stride, int64_t cmp_kv_stride, int64_t ori_win_left,
-    int64_t ori_win_right, c10::string_view layout_q,
+    int64_t ori_win_left, int64_t ori_win_right, c10::string_view layout_q,
     c10::string_view layout_kv, bool return_softmax_lse);
 
 /**

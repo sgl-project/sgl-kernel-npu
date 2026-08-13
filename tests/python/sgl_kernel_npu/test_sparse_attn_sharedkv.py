@@ -87,7 +87,7 @@ class TestSparseAttnSharedkv(unittest.TestCase):
             "sinks": sinks,
             "metadata": metadata,
             "softmax_scale": scale,
-            "ori_kv_stride": block_size * head_dim,
+            "cmp_ratio": 1,
             "ori_win_left": kv_len - 1,
             "ori_win_right": 0,
             "layout_q": "BSND",
@@ -97,6 +97,15 @@ class TestSparseAttnSharedkv(unittest.TestCase):
     @staticmethod
     def _run_operator(inputs):
         return torch.ops.npu.sparse_attn_sharedkv(**inputs)
+
+    def test_public_schema_matches_upstream_binding(self):
+        schema = str(torch.ops.npu.sparse_attn_sharedkv.default._schema)
+        self.assertNotIn("ori_kv_stride", schema)
+        self.assertNotIn("cmp_kv_stride", schema)
+        self.assertIn("*", schema)
+        self.assertIn("float softmax_scale=0.", schema)
+        self.assertIn("int cmp_ratio=0", schema)
+        self.assertIn("int ori_win_left=128", schema)
 
     def _run_swa_bsnd_pa_nd(self, dtype):
         inputs, kv_len = self._make_swa_bsnd_pa_nd_inputs(dtype)

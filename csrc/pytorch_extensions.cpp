@@ -135,14 +135,14 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int? sparse_count=None, int? sparse_mode=None) -> Tensor");
 
     m.def(
-        "sparse_attn_sharedkv(Tensor q, Tensor? ori_kv=None, Tensor? cmp_kv=None, "
+        "sparse_attn_sharedkv(Tensor q, *, Tensor? ori_kv=None, Tensor? cmp_kv=None, "
         "Tensor? ori_sparse_indices=None, Tensor? cmp_sparse_indices=None, "
         "Tensor? ori_block_table=None, Tensor? cmp_block_table=None, "
         "Tensor? cu_seqlens_q=None, Tensor? cu_seqlens_ori_kv=None, "
         "Tensor? cu_seqlens_cmp_kv=None, Tensor? seqused_q=None, Tensor? seqused_kv=None, "
-        "Tensor? sinks=None, Tensor? metadata=None, float softmax_scale=1.0, int cmp_ratio=1, "
-        "int ori_mask_mode=4, int cmp_mask_mode=3, int ori_kv_stride=0, int cmp_kv_stride=0, "
-        "int ori_win_left=127, int ori_win_right=0, str layout_q='BSND', str layout_kv='PA_ND', "
+        "Tensor? sinks=None, Tensor? metadata=None, float softmax_scale=0, int cmp_ratio=0, "
+        "int ori_mask_mode=4, int cmp_mask_mode=3, int ori_win_left=128, int ori_win_right=0, "
+        "str layout_q='BSND', str layout_kv='PA_ND', "
         "bool return_softmax_lse=False) -> (Tensor, Tensor)");
 
     m.def("apply_token_bitmask(Tensor logits, Tensor bitmask, Tensor? indices=None) -> Tensor");
