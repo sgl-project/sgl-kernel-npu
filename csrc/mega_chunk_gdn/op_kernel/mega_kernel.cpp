@@ -107,11 +107,15 @@ AICORE inline void mega_transpose_TH_to_HT(__gm__ T *src, __gm__ T *dst, int64_t
     UBTmp ub_tmp;
     TASSIGN(ub_tmp, TMP_UB);
 
-    int64_t num_tok_blocks = (T_len + BLOCK - 1) / BLOCK;
+    const int64_t num_tok_blocks = (T_len + BLOCK - 1) / BLOCK;
 
     for (int64_t bi = static_cast<int64_t>(cid); bi < num_tok_blocks; bi += static_cast<int64_t>(block_num)) {
-        int64_t t0 = bi * BLOCK;
+        const int64_t t0 = bi * BLOCK;
         int32_t valid = (t0 + BLOCK <= T_len) ? BLOCK : static_cast<int32_t>(T_len - t0);
+
+        if (valid <= 0){
+            break;
+        }
 
         {
             Gm2D gs;
