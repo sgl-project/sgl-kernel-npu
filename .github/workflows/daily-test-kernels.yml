@@ -25,7 +25,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        cann_version: [8.5.0, 9.0.0]
+        # NOTE: A2(910b) runner/image options below are preserved but not enabled.
+        # To re-enable, add '8.5.0' to cann_version and/or 'a2' to hardware.
+        cann_version: [9.0.0]
         hardware: [a3]
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
