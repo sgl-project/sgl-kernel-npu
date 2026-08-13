@@ -9,9 +9,7 @@ from sgl_kernel_npu.fla.solve_tril import solve_tril_npu as solve_tril
 from utils import require_npu_op
 
 pytestmark = [
-    pytest.mark.skip(
-        reason="solve_tril API is not consistent with upstream fla."
-    ),
+    pytest.mark.skip(reason="solve_tril API is not consistent with upstream fla."),
     require_npu_op("triangular_inverse"),
 ]
 
