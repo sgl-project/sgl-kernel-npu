@@ -1,4 +1,4 @@
-# Fused Deep MoE API
+﻿# Fused Deep MoE API
 
 <div align="center">
 
@@ -60,6 +60,7 @@ def fused_deep_moe(
     num_experts: int,
     quant_mode: int = 1,
     fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
+    profile_enable: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
@@ -78,6 +79,7 @@ def fused_deep_moe(
 | **num_experts** | `int` | Scalar, range **(0, 512]** | Total number of global experts. On A5 fused path, current tiling requires `num_experts` to be divisible by EP rank size. |
 | **quant_mode** | `int` | Scalar, default `1` | Quantization mode attribute passed to the fused operator. A3 follows the legacy fused-path semantics. On A5, this parameter is currently not effective in the public fused path: activation quantization follows the weight quantization type, so the practical supported combinations are `w8a8` and `w4a4`. `w4a8` is not supported, and non-quantized model weights are not supported in the current A5 fused path. |
 | **fuse_mode** | `FuseMode` | Scalar, default `FuseMode.FUSED_DEEP_MOE` | Fuse mode selection. |
+| **profile_enable** | `bool` | Scalar, default `False` | Whether to enable fused-kernel profiling for the current launch. It only takes effect when profiling has been started in advance (begin_profile). |
 
 ### Constraints
 
@@ -166,6 +168,7 @@ def fused_deep_moe(
     num_experts: int,
     quant_mode: int = 1,
     fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
+    profile_enable: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
@@ -184,6 +187,7 @@ def fused_deep_moe(
 | **num_experts** | `int` | 标量，范围 **(0, 512]** | 全局 expert 总数。A5 fused 当前 tiling 要求 `num_experts` 能被 EP rank size 整除。 |
 | **quant_mode** | `int` | 标量，默认 `1` | 下发给 fused 算子的量化模式属性。A3 保持 legacy fused 语义；A5 公共 fused 路径上该参数当前实际上不生效，激活量化方式会跟随权重量化方式，因此当前实际只支持 `w8a8` 和 `w4a4`。`w4a8` 暂不支持，非量化模型权重在当前 A5 fused 路径上也不支持。 |
 | **fuse_mode** | `FuseMode` | 标量，默认 `FuseMode.FUSED_DEEP_MOE` | 融合模式选择。 |
+| **profile_enable** | `bool` | 标量，默认值为 `False` | 是否为当前运行启用kernel性能分析。仅在预先启动了性能分析时（begin_profile）才生效。 |
 
 ### A5 变化点说明
 
