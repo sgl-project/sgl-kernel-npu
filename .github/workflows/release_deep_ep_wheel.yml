@@ -7,7 +7,7 @@ on:
     branches:
       - 'main'
     paths:
-      - '.github/workflows/release_deep_ep_wheel.yml'
+#      - '.github/workflows/release_deep_ep_wheel.yml'
 #      - 'build.sh'
 
 jobs:
