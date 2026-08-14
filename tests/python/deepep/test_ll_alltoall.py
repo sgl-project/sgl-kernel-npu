@@ -17,6 +17,7 @@ from utils import (
     hash_tensor,
     init_dist,
     per_token_cast_back,
+    get_diff_threshold,
 )
 
 
@@ -68,11 +69,10 @@ def test(
     cumulative_local_expert_recv_stats = torch.zeros(
         (num_local_experts,), dtype=torch.int, device="npu"
     )
-
-    if quant_type == "int8":
-        quant_configs = [(True, False, False)]
-    else:  # no quant
-        quant_configs = [(False, False, False)]
+    quant_mode = None
+    if quant_type != "no":
+        quant_mode = quant_type
+    quant_configs = [(False, False, False)]
 
     for dispatch_use_fp8, dispatch_use_ue8m0, dispatch_use_mxfp4 in quant_configs:
         for current_x in filter(lambda elem: elem is not None, (x_pure_rand,)):
@@ -96,12 +96,13 @@ def test(
                     async_finish=not return_recv_hook,
                     return_recv_hook=return_recv_hook,
                     topk_weights=topk_weights,
-                    quant_mode="int8" if quant_type == "int8" else None,
+                    quant_mode=quant_mode,
                 )
             )
+            print(f"{quant_mode=} {dispatch_use_fp8=}")
             simulated_gemm_x = (
                 per_token_cast_back(*packed_recv_x)
-                if dispatch_use_fp8
+                if not quant_mode in {None, "bf16", "no"} or dispatch_use_fp8
                 else packed_recv_x
             )
 
@@ -164,8 +165,11 @@ def test(
             print(
                 f"rank {rank} PASSED [{quant_type=}] avg_diff={avg_diff:.5f}, max_diff={max_diff:.5f}, cosine_diff={diff:.5f}"
             )
+            if quant_type == "no" and dispatch_use_fp8:
+                quant_type = "int8"
             diff_threshold = get_diff_threshold(quant_type)
-            assert diff < diff_threshold, f"Error: {diff=}, {diff_threshold=}"
+            
+            assert diff < diff_threshold, f"Error: {diff=}"
             hash_value ^= hash_tensor(combined_x)
             if local_rank == 0:
                 print(" passed", flush=True)
@@ -186,10 +190,10 @@ def test(
             async_finish=False,
             return_recv_hook=return_recv_hook,
             topk_weights=topk_weights,
-            quant_mode="int8" if quant_type == "int8" else None,
+            quant_mode=quant_mode,
         )
         simulated_gemm_x_local = (
-            per_token_cast_back(*recv_x) if dispatch_use_fp8 else recv_x
+            per_token_cast_back(*recv_x) if not quant_mode in {None, "bf16", "no"} or dispatch_use_fp8 else recv_x
         )
         combined_x, event, hook = buffer.low_latency_combine(
             simulated_gemm_x_local,
@@ -389,8 +393,8 @@ if __name__ == "__main__":
         dest="quant_type",
         type=str,
         default="bf16",
-        choices=["bf16", "int8"],
-        help="Quantization type for dispatch: bf16, int8 (per-token)",
+        choices=["bf16", "int8", "mx_fp4_e2m1", "mx_fp8_e4m3", "mx_fp8_e5m2"],
+        help="Quantization type for dispatch: bf16, int8 (per-token), mx_fp4_e2m1, mx_fp8_e4m3, mx_fp8_e5m2",
     )
     args = parser.parse_args()
 
