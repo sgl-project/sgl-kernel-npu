@@ -108,10 +108,9 @@ ascendc_compile_definitions(workspace_kernel PRIVATE
        -DHAVE_TILING
 )
 
-# catlass 内核单独编译，避免其 include 路径中混入 csrc/sparse_attention_score/op_kernel。
-# 否则 catlass 头文件里的 #include "tla/layout.hpp" 会解析到 sparse_attention_score 的副本，
-# 与 catlass 自身的 catlass/detail/alignment.hpp 在全局命名空间重复定义
-# (RoundDown/CeilDiv/Max/Min/DEPENDENT_BOOL_VALUE 等)，导致编译失败。
+# Build catlass kernel in its own target (no sparse_attention_score include dir),
+# so catlass's #include "tla/layout.hpp" resolves to its own copy and avoids
+# symbol redefinition (RoundDown/CeilDiv/Max/Min/...) with sparse_attention_score.
 set(CATLASS_WORKSPACE_KERNEL_TARGETS)
 if(BUILD_CATLASS_MODULE)
     set(CATLASS_WORKSPACE_KERNEL_SRCS
