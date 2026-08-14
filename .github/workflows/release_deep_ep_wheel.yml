@@ -12,7 +12,7 @@ on:
       - 'main'
     paths:
       - '.github/workflows/release_deep_ep_wheel.yml'
-      - 'build.sh'
+#      - 'build.sh'
 
 jobs:
 
