@@ -33,41 +33,46 @@
 
 #include <pto/pto-inst.hpp>
 #include "acl/acl.h"
+#include "mega_chunk_utils.h"
 #include <type_traits>
 using namespace pto;
+using mega_chunk::PipeBarrierVec;
 
 // ===================================================================
 // Device-only helpers (shared with standard mega-kernel)
 // ===================================================================
 #ifdef __CCE_AICORE__
 
-constexpr uint16_t SYNC_AIV_FLAG = 12;
-constexpr uint16_t SYNC_AIC_FLAG = 11;
-constexpr uint16_t SYNC_AIC_AIV_FLAG = 13;
-constexpr uint16_t SYNC_AIV_ONLY_ALL = 14;
-constexpr uint16_t SYNC_MODE_SHIFT_VALUE = 4;
-constexpr uint16_t SYNC_FLAG_SHIFT_VALUE = 8;
 
 AICORE inline uint16_t GetffstMsg(uint16_t mode, uint16_t flagId)
 {
+    constexpr uint16_t SYNC_MODE_SHIFT_VALUE = 4;
+constexpr uint16_t SYNC_FLAG_SHIFT_VALUE = 8;
+
     return (0x1 + ((mode & 0x3) << SYNC_MODE_SHIFT_VALUE) + ((flagId & 0xf) << SYNC_FLAG_SHIFT_VALUE));
 }
 
 template <bool isAIVOnly = true>
 AICORE inline void SyncAllImpl()
 {
+    constexpr uint16_t SYNC_AIV_FLAG = 12;
+constexpr uint16_t SYNC_AIC_FLAG = 11;
+constexpr uint16_t SYNC_AIC_AIV_FLAG = 13;
+
+    constexpr uint16_t SYNC_AIV_ONLY_ALL = 14;
+
     pipe_barrier(PIPE_ALL);
     if constexpr (isAIVOnly) {
         ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x0, SYNC_AIV_ONLY_ALL));
         wait_flag_dev(SYNC_AIV_ONLY_ALL);
         return;
     }
-#if defined(__DAV_C220_CUBE__)
+#if defined(__DAV_CUBE__)
     wait_flag_dev(SYNC_AIV_FLAG);
     ffts_cross_core_sync(PIPE_FIX, GetffstMsg(0x0, SYNC_AIC_FLAG));
     wait_flag_dev(SYNC_AIC_FLAG);
     ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x02, SYNC_AIC_AIV_FLAG));
-#elif defined(__DAV_C220_VEC__)
+#elif defined(__DAV_VEC__)
     ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x02, SYNC_AIV_FLAG));
     wait_flag_dev(SYNC_AIC_AIV_FLAG);
 #endif
@@ -76,7 +81,7 @@ AICORE inline void SyncAllImpl()
 template <typename T, int32_t H_val>
 AICORE inline void mega_transpose_TH_to_HT(__gm__ T *src, __gm__ T *dst, int64_t T_len)
 {
-#if defined(__DAV_C220_VEC__)
+#if defined(__DAV_VEC__)
     if (get_subblockid() != 0) return;
     set_mask_norm();
     set_vector_mask(-1, -1);
@@ -192,7 +197,7 @@ template <int32_t H, int32_t C>
 AICORE inline void mega_cast_fp32_to_fp16_bsnd(__gm__ float *src, __gm__ half *dst, uint32_t num_matrices,
                                                int64_t total_tokens)
 {
-#if defined(__DAV_C220_VEC__)
+#if defined(__DAV_VEC__)
     if (get_subblockid() != 0) return;
     set_mask_norm();
     set_vector_mask(-1, -1);
@@ -350,7 +355,7 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
         reinterpret_cast<__gm__ half *>(kkt_ws_ptr), reinterpret_cast<__gm__ half *>(A_ptr),
         reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len, total_tokens, num_key_heads);
 
-#if defined(__DAV_C220_CUBE__)
+#if defined(__DAV_CUBE__)
     pipe_barrier(PIPE_ALL);
     wait_flag_dev(2);
     wait_flag_dev(3);
@@ -393,7 +398,7 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
         reinterpret_cast<__gm__ half *>(u_ptr), reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len,
         total_tokens, num_key_heads);
 
-#if defined(__DAV_C220_VEC__)
+#if defined(__DAV_VEC__)
     if (get_block_idx() < num_matrices) {
         pipe_barrier(PIPE_ALL);
         wait_flag_dev(3);
@@ -431,7 +436,7 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
         reinterpret_cast<__gm__ half *>(o_ws_gated_ptr), reinterpret_cast<__gm__ half *>(o_ptr),
         reinterpret_cast<__gm__ int32_t *>(cu_seqlens_ptr), batch_size, seq_len, total_tokens, num_key_heads);
 
-#if defined(__DAV_C220_CUBE__)
+#if defined(__DAV_CUBE__)
     if (get_block_idx() < num_matrices) {
         pipe_barrier(PIPE_ALL);
         wait_flag_dev(3);

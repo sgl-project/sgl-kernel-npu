@@ -50,7 +50,9 @@
 
 #include <pto/pto-inst.hpp>
 #include "acl/acl.h"
+#include "mega_chunk_utils.h"
 using namespace pto;
+using mega_chunk::PipeBarrierVec;
 
 // NumHeads and ChunkSize are template parameters so the compiler can optimize
 // tile sizes, unroll loops, and compute UB addresses at compile time.
@@ -86,13 +88,13 @@ AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ i
     auto block_num = get_block_num();
     auto vid = get_subblockid();
 
-// #if defined(__DAV_C220_VEC__): This block only compiles for the Vec core pass.
+// #if defined(__DAV_VEC__): This block only compiles for the Vec core pass.
 // The bisheng compiler makes 3 passes over the same source file:
-//   Pass 1: __DAV_C220_VEC__  defined → compiles Vec (SIMD) code
-//   Pass 2: __DAV_C220_CUBE__ defined → compiles Cube (matrix) code
+//   Pass 1: __DAV_VEC__  defined → compiles Vec (SIMD) code
+//   Pass 2: __DAV_CUBE__ defined → compiles Cube (matrix) code
 //   Pass 3: neither defined → compiles host (CPU) launcher code
 // Using these guards lets us put Vec, Cube, and host code in one file.
-#if defined(__DAV_C220_VEC__)
+#if defined(__DAV_VEC__)
     if (vid != 0) return;
 
     // set_mask_norm(): Reset Vec mask to normal mode (all lanes active).
@@ -210,17 +212,17 @@ AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ i
             TASSIGN(g_row_0, GUbAddr);
             // TMOV(dst, src): Element-wise copy, like dst = src.clone() in UB.
             TMOV(acc_ub, g_row_0);
-            // pipe_barrier(PIPE_V): Ensures all pending Vec (SIMD) operations complete
+            // PipeBarrierVec(): Ensures all pending Vec (SIMD) operations complete
             // before the next Vec instruction begins. Needed because Vec ops are pipelined
             // and may not finish in order. Think of it as a local __syncthreads() for the
             // Vec engine only. Much lighter than set_flag/wait_flag (which sync across
             // different hardware units).
-            pipe_barrier(PIPE_V);
+            PipeBarrierVec();
 
             UbND<float, 1, HTC> s_row_0;
             TASSIGN(s_row_0, SUbAddr);
             TMOV(s_row_0, acc_ub);
-            pipe_barrier(PIPE_V);
+            PipeBarrierVec();
 
             // Rows 1..valid-1:  acc[h] += g[i,h];  g_sum[i,h] = acc[h]
             for (int32_t i = 1; i < valid; ++i) {
@@ -229,24 +231,24 @@ AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ i
                 // TADD(dst, a, b): Element-wise add, like dst = a + b. All in UB.
                 // Operates on all HTC elements in parallel (SIMD).
                 TADD(acc_ub, acc_ub, g_row_i);
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
 
                 UbND<float, 1, HTC> s_row_i;
                 TASSIGN(s_row_i, SUbAddr + i * RowBytes);
                 TMOV(s_row_i, acc_ub);
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
             }
 
             // Zero-fill rows beyond valid (tail padding for downstream kernels)
             // TEXPANDS(tile, scalar): Fill entire tile with a scalar value.
             // Equivalent to: tile[:] = scalar  (like torch.full_like(tile, scalar))
             TEXPANDS(acc_ub, 0.0f);
-            pipe_barrier(PIPE_V);
+            PipeBarrierVec();
             for (int32_t i = valid; i < ChunkSize; ++i) {
                 UbND<float, 1, HTC> s_row_i;
                 TASSIGN(s_row_i, SUbAddr + i * RowBytes);
                 TMOV(s_row_i, acc_ub);
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
             }
 
             // ── DMA: store g_sum from UB → GM (MTE3 pipe) ────────────────────
@@ -317,34 +319,34 @@ AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ i
                     UbND<float, 1, HTC> g_row_0;
                     TASSIGN(g_row_0, GUbAddr);
                     TMOV(acc_ub, g_row_0);
-                    pipe_barrier(PIPE_V);
+                    PipeBarrierVec();
 
                     UbND<float, 1, HTC> s_row_0;
                     TASSIGN(s_row_0, SUbAddr);
                     TMOV(s_row_0, acc_ub);
-                    pipe_barrier(PIPE_V);
+                    PipeBarrierVec();
 
                     // acc += g[i]; g_sum[i] = acc
                     for (int32_t i = 1; i < valid; ++i) {
                         UbND<float, 1, HTC> g_row_i;
                         TASSIGN(g_row_i, GUbAddr + i * RowBytes);
                         TADD(acc_ub, acc_ub, g_row_i);
-                        pipe_barrier(PIPE_V);
+                        PipeBarrierVec();
 
                         UbND<float, 1, HTC> s_row_i;
                         TASSIGN(s_row_i, SUbAddr + i * RowBytes);
                         TMOV(s_row_i, acc_ub);
-                        pipe_barrier(PIPE_V);
+                        PipeBarrierVec();
                     }
 
                     // Zero-fill padding rows
                     TEXPANDS(acc_ub, 0.0f);
-                    pipe_barrier(PIPE_V);
+                    PipeBarrierVec();
                     for (int32_t i = valid; i < ChunkSize; ++i) {
                         UbND<float, 1, HTC> s_row_i;
                         TASSIGN(s_row_i, SUbAddr + i * RowBytes);
                         TMOV(s_row_i, acc_ub);
-                        pipe_barrier(PIPE_V);
+                        PipeBarrierVec();
                     }
 
                     // Store g_sum to GM

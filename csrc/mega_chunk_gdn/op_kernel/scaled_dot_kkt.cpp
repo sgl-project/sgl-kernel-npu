@@ -62,7 +62,7 @@
 //   TCOLEXPAND(2d, row)     — Broadcast row → cols: 2d[i,j] = row[j]
 //   set_flag(P1, P2, EVT)   — Signal from pipe P1 to pipe P2 (like a semaphore post)
 //   wait_flag(P1, P2, EVT)  — Wait for signal from P1 (like a semaphore wait)
-//   pipe_barrier(PIPE_V)    — Local Vec barrier (ensure all Vec ops complete)
+//   PipeBarrierVec()        — Local Vec barrier (ensure all Vec ops complete)
 //   pipe_barrier(PIPE_ALL)  — Barrier for all local pipes
 //   ffts_cross_core_sync()  — Cross-core signal (Cube↔Vec, different physical cores)
 //   wait_flag_dev(flag)     — Wait for cross-core signal
@@ -70,7 +70,9 @@
 
 #include <pto/pto-inst.hpp>  // PTO (Performance Tile Operator): NPU kernel API
 #include "acl/acl.h"         // ACL (Ascend Computing Language): runtime API
+#include "mega_chunk_utils.h"
 using namespace pto;
+using mega_chunk::PipeBarrierVec;
 
 // NumHeads, HiddenSize, and ChunkSize are template parameters. The mega kernel
 // dispatches NumHeads from a runtime value to a finite set of specializations.
@@ -232,9 +234,9 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
     //     (TRESHAPE is FREE — it just reinterprets the fractal layout as transposed)
     //   Result: KK^T [C×C] in L0C (float32 accumulator, even though inputs are fp16)
     // ========================================================================
-    // __DAV_C220_CUBE__: This code only compiles for the Cube core.
+    // __DAV_CUBE__: This code only compiles for the Cube core.
     // On NPU, Cube and Vec are separate compilation targets (like two different GPUs).
-#if defined(__DAV_C220_CUBE__)
+#if defined(__DAV_CUBE__)
     // Outer loop: iterate over all (sequence, head) work items assigned to this core
     for (int64_t work_idx = 0; work_idx < (total_work + block_num - 1) / block_num; ++work_idx) {
         int64_t pid = work_idx * static_cast<int64_t>(block_num) + static_cast<int64_t>(cid);
@@ -388,8 +390,8 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
     // # Final: A = KK_T * coeff * causal_mask
     // A = KK_T[my_rows] * coeff * mask[my_rows]           # TMUL × 2
     // ========================================================================
-    // __DAV_C220_VEC__: This code only compiles for the Vec core.
-#if defined(__DAV_C220_VEC__)
+    // __DAV_VEC__: This code only compiles for the Vec core.
+#if defined(__DAV_VEC__)
     // set_mask_norm / set_vector_mask: configure the SIMD mask for Vec ops.
     // (-1, -1) means "all lanes active" — process every element.
     // (Like CUDA's __activemask() returning all 1s for a full warp.)
@@ -506,15 +508,15 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
                 UbND<float, 1, HalfChunk, 1, HalfChunk> g_ub_temp;
                 TASSIGN(g_ub_temp, GUbAddr + row_offset * static_cast<int32_t>(sizeof(float)));
                 TMOV(g_v_ub, g_ub_temp);  // g_v = g[row_offset:row_offset+C/2]
-                pipe_barrier(PIPE_V);     // Wait for TMOV to complete
+                PipeBarrierVec();     // Wait for TMOV to complete
 
                 TLOG(beta_ub, beta_ub);  // beta_ub = log(beta) in-place
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
                 TADD(g_v_ub, g_v_ub, beta_ub);  // g_v = g_sub + log(beta) — the combined gate
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
                 TMOV(g_r_ub, g_v_ub);  // Copy to g_r for row-broadcast
                 TMOV(g_c_ub, g_ub);    // Copy full g to g_c for col-broadcast
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
 
                 // Broadcast g_v to rows, g to columns → 2D gating matrix
                 // coeff[i,j] = exp(min(g_v[i] - g[j], 0))
@@ -525,11 +527,11 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
                 TASSIGN(g_r_ub_temp, GRUbAddr);
                 TROWEXPAND(g_r_2d_ub, g_r_ub_temp);  // g_r_2d[i,j] = g_v[i] for all j
                 TCOLEXPAND(g_c_2d_ub, g_c_ub);       // g_c_2d[i,j] = g[j] for all i
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
                 TSUB(coeff_ub, g_r_2d_ub, g_c_2d_ub);  // coeff[i,j] = g_v[i] - g[j]
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
                 TMINS(coeff_ub, coeff_ub, 0.0f);  // clamp to ≤ 0 (coeff will be ≤ 1 after exp)
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
                 TEXP(coeff_ub, coeff_ub);  // coeff = exp(clamped_diff) ∈ (0, 1]
 
                 // V→MTE2 sync: ensure gating computation is done before we start

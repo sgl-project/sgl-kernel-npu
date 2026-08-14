@@ -80,7 +80,9 @@
 
 #include <pto/pto-inst.hpp>
 #include "acl/acl.h"
+#include "mega_chunk_utils.h"
 using namespace pto;
+using mega_chunk::PipeBarrierVec;
 
 #ifndef GDN_D
 #define GDN_D 128
@@ -261,7 +263,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
 // performs the heavy matmuls, then writes results to GM workspace for
 // the Vec engine to apply gating and produce the final output.
 // =====================================================================
-#if defined(__DAV_C220_CUBE__)
+#if defined(__DAV_CUBE__)
     if (cu_seqlens == nullptr) {
         // ── Fixed-length sequence path ──────────────────────────────────────
         int64_t chunks_per_seq = (seq_len + ChunkSize - 1) / ChunkSize;
@@ -737,7 +739,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
 //   3. Scales the Cube's QS result by exp(g)
 //   4. Combines QKV + scaled QS → final output O
 // =====================================================================
-#if defined(__DAV_C220_VEC__)
+#if defined(__DAV_VEC__)
     // Vec engine initialization: set_mask_norm selects "normal" masking mode,
     // and set_vector_mask(-1, -1) enables ALL SIMD lanes (no masking).
     set_mask_norm();
@@ -834,13 +836,13 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                 TROWEXPAND(g_r_2d, g_v_col);       // g_r_2d[i,j] = g_row[i]
                 TCOLEXPAND(coeff_ub, g_ub);        // coeff[i,j] = g_col[j]
                 TSUB(coeff_ub, g_r_2d, coeff_ub);  // d = g_row - g_col
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
                 TMINS(coeff_ub, coeff_ub, 0.0f);
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
                 TEXP(coeff_ub, coeff_ub);
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
                 TMUL(coeff_ub, coeff_ub, msk_ub);
-                pipe_barrier(PIPE_V);
+                PipeBarrierVec();
                 TEXP(g_v_ub, g_v_ub);  // exp(g_row) for QS scaling
             }
 
@@ -930,7 +932,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
             UbDN<float, HalfChunk, 1> g_v_col2;
             TASSIGN(g_v_col2, GvUbAddr);
             TROWEXPAND(g_exp_2d, g_v_col2);  // broadcast exp(g_row) across columns
-            pipe_barrier(PIPE_V);
+            PipeBarrierVec();
             TMUL(qs_ub, qs_ub, g_exp_2d);  // QS_gated = QS * exp(g_row)
 
             // ── Wait for Cube→Vec flag 2: QKV ready ─────────────────────────
@@ -1042,13 +1044,13 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                             TROWEXPAND(g_r_2d_v, g_v_col_v);
                             TCOLEXPAND(coeff_ub, g_ub);
                             TSUB(coeff_ub, g_r_2d_v, coeff_ub);  // d = g_row - g_col
-                            pipe_barrier(PIPE_V);
+                            PipeBarrierVec();
                             TMINS(coeff_ub, coeff_ub, 0.0f);
-                            pipe_barrier(PIPE_V);
+                            PipeBarrierVec();
                             TEXP(coeff_ub, coeff_ub);
-                            pipe_barrier(PIPE_V);
+                            PipeBarrierVec();
                             TMUL(coeff_ub, coeff_ub, msk_ub);
-                            pipe_barrier(PIPE_V);
+                            PipeBarrierVec();
                             TEXP(g_v_ub, g_v_ub);
                         }
 
@@ -1133,7 +1135,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                             UbDN<float, HalfChunk, 1> g_v_col2_v;
                             TASSIGN(g_v_col2_v, GvUbAddr);
                             TROWEXPAND(g_exp_2d_v, g_v_col2_v);
-                            pipe_barrier(PIPE_V);
+                            PipeBarrierVec();
                             TMUL(qs_ub, qs_ub, g_exp_2d_v);
 
                             wait_flag_dev(2);

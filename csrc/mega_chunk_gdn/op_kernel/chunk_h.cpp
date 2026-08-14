@@ -91,7 +91,9 @@
 #include <pto/pto-inst.hpp>
 #include <type_traits>
 #include "acl/acl.h"
+#include "mega_chunk_utils.h"
 using namespace pto;
+using mega_chunk::PipeBarrierVec;
 
 #ifdef __CCE_AICORE__
 
@@ -368,7 +370,7 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
     int64_t num_seqs = batch_size;
     int64_t total_work = num_seqs * H;
 
-#if defined(__DAV_C220_CUBE__)
+#if defined(__DAV_CUBE__)
     for (int64_t wi = 0; wi < (total_work + block_num - 1) / block_num; ++wi) {
         int64_t pid = wi * block_num + cid;
         if (pid >= total_work) break;
@@ -488,7 +490,7 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
         }
     }
 #endif
-#if defined(__DAV_C220_VEC__)
+#if defined(__DAV_VEC__)
     set_mask_norm();
     set_vector_mask(-1, -1);
 
@@ -651,9 +653,9 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
             // Torch-like:
             //   coeff = exp(g_last - g_rows_owned_by_this_subblock)
             TADDS(coeff_ub, g_v_ub, -g_last);
-            pipe_barrier(PIPE_V);
+            PipeBarrierVec();
             TSUB(coeff_ub, zero_ub, coeff_ub);
-            pipe_barrier(PIPE_V);
+            PipeBarrierVec();
             TEXP(coeff_ub, coeff_ub);
 
             TEXP(g_ub, g_ub);
@@ -669,10 +671,10 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
             // Broadcast one decay scalar per token row across the D feature columns:
             //   coeff_2d[row, :] = coeff[row]
             TROWEXPAND(coeff_2d_ub, coeff_col_ub);
-            pipe_barrier(PIPE_V);
+            PipeBarrierVec();
             // `k_ub` now holds k_tilde = exp(g_last - g_i) * K_i.
             TMUL(k_ub, k_ub, coeff_2d_ub);
-            pipe_barrier(PIPE_V);
+            PipeBarrierVec();
 
             wait_flag_dev(0);
             {
