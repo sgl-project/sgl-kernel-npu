@@ -8,7 +8,9 @@ from sgl_kernel_npu.norm.split_qkv_rmsnorm_rope import (
 )
 
 
-def custom_rope(q, k, sin, cos, half_rope_dim):
+def custom_rope(q, k, sin, cos, half_rope_dim=None):
+    if half_rope_dim is None:
+        half_rope_dim = q.shape[-1] // 2
     sin = sin.to(torch.float32).cpu().numpy()
     cos = cos.to(torch.float32).cpu().numpy()
     x1 = q[..., :half_rope_dim]
@@ -174,7 +176,7 @@ def test_split_qkv_rope():
     # rope
     _q = _q.reshape(bsz, 1, -1, head_dim).to(torch.float32).cpu().numpy()
     _k = _k.reshape(bsz, 1, -1, head_dim).to(torch.float32).cpu().numpy()
-    cus_q, cus_k = custom_rope(_q, _k, sin, cos, half_rope_dim=head_dim // 2)
+    cus_q, cus_k = custom_rope(_q, _k, sin, cos)
     cus_q = cus_q.reshape(bsz, -1)
     cus_k = cus_k.reshape(bsz, -1)
 
