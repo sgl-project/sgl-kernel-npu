@@ -1,21 +1,26 @@
 import numpy as np
 import torch
+import torch.nn.functional as F
 import torch_npu
 from sgl_kernel_npu.activation.swiglu_quant import swiglu_quant
 
 
 def swiglu_silu_clamp_mul_native(x: torch.Tensor, limit: float = 7.0) -> torch.Tensor:
-    """Out-variant of swiglustep activation.
-
-    Writes into `out`:
-      silu(x[:d]).clamp(max=limit) * x[d:].clamp(-limit, limit)
-    """
-    gate, up = x.chunk(2, dim=-1)
+    """Fp32 clamped SwiGLU reference, matching the fused kernel's do_limit path."""
+    gate, up = x.to(torch.float32).chunk(2, dim=-1)
     gate = F.silu(gate)
     gate = gate.clamp(max=limit)
     up = up.clamp(min=-limit, max=limit)
     out = gate * up
     return out
+
+
+def quantize_symmetric(x: torch.Tensor, max_val: int = 127):
+    """Symmetric int8 quantization matching the fused kernel (scale = max / 127)."""
+    scale = torch.amax(torch.abs(x), dim=-1) / max_val
+    out = torch.floor(x / scale.unsqueeze(-1) + 0.5)
+    out = torch.clamp(out, -max_val, max_val).to(torch.int8)
+    return out, scale
 
 
 def test_swiglu_quant():
@@ -33,9 +38,7 @@ def test_swiglu_quant():
     # torch native: match the fused kernel's fp32 SwiGLU and quantization path
     gate, up = x.to(torch.float32).chunk(2, dim=-1)
     swglu_out = gate * torch.sigmoid(gate) * up
-    ans2 = torch.amax(torch.abs(swglu_out), dim=-1) / 127
-    ans1 = torch.floor(swglu_out / ans2.unsqueeze(-1) + 0.5)
-    ans1 = torch.clamp(ans1, -128, 127).to(torch.int8)
+    ans1, ans2 = quantize_symmetric(swglu_out)
     # fused_triton_kernel
     res1, res2 = swiglu_quant(x, group_list, group_list_type=1)
 
@@ -72,9 +75,7 @@ def test_swiglu_quant_with_limit():
     )
     # torch native: match the fused kernel's fp32 clamped SwiGLU + symmetric quant
     swglu_out = swiglu_silu_clamp_mul_native(x)
-    ans2 = torch.amax(torch.abs(swglu_out), dim=-1) / 127
-    ans1 = torch.floor(swglu_out / ans2.unsqueeze(-1) + 0.5)
-    ans1 = torch.clamp(ans1, -128, 127).to(torch.int8)
+    ans1, _ = quantize_symmetric(swglu_out)
     # fused_triton_kernel
     res1, res2 = swiglu_quant(x, group_list, group_list_type=1, do_limit=True)
 
