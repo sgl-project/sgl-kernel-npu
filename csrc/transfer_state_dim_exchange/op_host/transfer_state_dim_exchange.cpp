@@ -50,8 +50,7 @@ int64_t validate_dense_slot_payload(const at::Tensor &device, int64_t component)
     for (int64_t dim = 2; dim < device.dim(); ++dim) {
         const int64_t size = device.size(dim);
         const int64_t stride = device.stride(dim);
-        TORCH_CHECK(stride >= 0, "device state component ", component,
-                    " has a negative stride at dimension ", dim);
+        TORCH_CHECK(stride >= 0, "device state component ", component, " has a negative stride at dimension ", dim);
         slot_elements *= size;
         if (size > 1) {
             payload_dims.emplace_back(stride, size);
@@ -62,8 +61,8 @@ int64_t validate_dense_slot_payload(const at::Tensor &device, int64_t component)
     int64_t expected_stride = 1;
     for (const auto &[stride, size] : payload_dims) {
         TORCH_CHECK(stride == expected_stride, "device state component ", component,
-                    " slot payload must be physically dense; got payload stride ", stride,
-                    " while expecting ", expected_stride);
+                    " slot payload must be physically dense; got payload stride ", stride, " while expecting ",
+                    expected_stride);
         expected_stride *= size;
     }
     return slot_elements;
@@ -95,8 +94,8 @@ int64_t validate_dense_layer_payload(const at::Tensor &device_layer)
 
 void check_acl_copy(aclError result, const char *direction, size_t width, size_t height)
 {
-    TORCH_CHECK(result == ACL_SUCCESS, "aclrtMemcpy2dAsync failed for state ", direction, " transfer: error=",
-                static_cast<int64_t>(result), ", width=", width, ", height=", height);
+    TORCH_CHECK(result == ACL_SUCCESS, "aclrtMemcpy2dAsync failed for state ", direction,
+                " transfer: error=", static_cast<int64_t>(result), ", width=", width, ", height=", height);
 }
 
 StateComponentLayout validate_component(const at::Tensor &device, const at::Tensor &host, int64_t component,
@@ -139,8 +138,8 @@ StateComponentLayout validate_component(const at::Tensor &device, const at::Tens
     const size_t device_slot_pitch = static_cast<size_t>(device.stride(1)) * device.element_size();
     const size_t host_slot_pitch = static_cast<size_t>(host.stride(0)) * host.element_size();
     const size_t host_layer_pitch = static_cast<size_t>(host.stride(1)) * host.element_size();
-    TORCH_CHECK(slot_bytes <= device_layer_pitch && slot_bytes <= device_slot_pitch &&
-                    slot_bytes <= host_slot_pitch && slot_bytes <= host_layer_pitch,
+    TORCH_CHECK(slot_bytes <= device_layer_pitch && slot_bytes <= device_slot_pitch && slot_bytes <= host_slot_pitch &&
+                    slot_bytes <= host_layer_pitch,
                 "invalid state component ", component, " pitch for aclrtMemcpy2dAsync");
 
     return {
@@ -162,8 +161,8 @@ ValidatedStateComponents validate_components(at::TensorList device_states, at::T
     std::vector<StateComponentLayout> layouts;
     layouts.reserve(device_states.size());
     for (const auto component : c10::irange(device_states.size())) {
-        layouts.emplace_back(validate_component(device_states[component], host_states[component], component,
-                                                layer_begin, layer_count));
+        layouts.emplace_back(
+            validate_component(device_states[component], host_states[component], component, layer_begin, layer_count));
     }
 
     int64_t device_slot_limit = layouts.front().device_slot_num;
@@ -183,13 +182,13 @@ void validate_indices(const int64_t *device_indices, const int64_t *host_indices
         TORCH_CHECK(host_indices[i] >= 0, "host index ", host_indices[i], " must be non-negative");
         TORCH_CHECK(device_indices[i] < device_slot_limit, "device index ", device_indices[i],
                     " exceeds component slot count ", device_slot_limit);
-        TORCH_CHECK(host_indices[i] < host_slot_limit, "host index ", host_indices[i],
-                    " exceeds component slot count ", host_slot_limit);
+        TORCH_CHECK(host_indices[i] < host_slot_limit, "host index ", host_indices[i], " exceeds component slot count ",
+                    host_slot_limit);
     }
 }
 
 std::vector<std::pair<int64_t, int64_t>> build_contiguous_runs(const int64_t *device_indices,
-                                                                const int64_t *host_indices, int64_t count)
+                                                               const int64_t *host_indices, int64_t count)
 {
     std::vector<std::pair<int64_t, int64_t>> runs;
     runs.reserve(count);
@@ -223,8 +222,7 @@ void submit_state_all_layer_d2h(at::TensorList device_states, at::TensorList hos
     if (index_count == 0) {
         return;
     }
-    TORCH_CHECK(device_states[0].dim() >= 2,
-                "device state must have layout [layers, device_slots, ...]");
+    TORCH_CHECK(device_states[0].dim() >= 2, "device state must have layout [layers, device_slots, ...]");
     const int64_t layer_begin = 0;
     const int64_t layer_count = device_states[0].size(0);
     TORCH_CHECK(layer_count > 0, "device state layer count must be positive");
@@ -244,9 +242,9 @@ void submit_state_all_layer_d2h(at::TensorList device_states, at::TensorList hos
             const auto host_slot = host_index_data[i];
             const void *source = device_base + device_slot * component.device_slot_pitch;
             void *destination = host_base + host_slot * component.host_slot_pitch;
-            const auto result = aclrtMemcpy2dAsync(
-                destination, component.host_layer_pitch, source, component.device_layer_pitch, component.slot_bytes,
-                static_cast<size_t>(layer_count), ACL_MEMCPY_DEVICE_TO_HOST, stream);
+            const auto result = aclrtMemcpy2dAsync(destination, component.host_layer_pitch, source,
+                                                   component.device_layer_pitch, component.slot_bytes,
+                                                   static_cast<size_t>(layer_count), ACL_MEMCPY_DEVICE_TO_HOST, stream);
             check_acl_copy(result, "D2H", component.slot_bytes, static_cast<size_t>(layer_count));
         }
     }
@@ -272,20 +270,20 @@ void submit_state_per_layer_h2d(const at::Tensor &src, const at::Tensor &dst, co
     TORCH_CHECK(dst.numel() != 0, "device layer state destination must not be empty");
     TORCH_CHECK(src.device().is_cpu(), "state source must be on CPU, got ", src.device());
     TORCH_CHECK(src.is_pinned(), "state source must use pinned memory");
-    TORCH_CHECK(dst.device().type() == c10::DeviceType::PrivateUse1,
-                "state destination must be on NPU, got ", dst.device());
-    TORCH_CHECK(src.scalar_type() == dst.scalar_type(), "state source/destination dtypes differ: ",
-                src.scalar_type(), " vs ", dst.scalar_type());
+    TORCH_CHECK(dst.device().type() == c10::DeviceType::PrivateUse1, "state destination must be on NPU, got ",
+                dst.device());
+    TORCH_CHECK(src.scalar_type() == dst.scalar_type(), "state source/destination dtypes differ: ", src.scalar_type(),
+                " vs ", dst.scalar_type());
     TORCH_CHECK(dst.dim() >= 2, "device layer state must have layout [device_slots, ...]");
     TORCH_CHECK(src.dim() == dst.dim() + 2,
                 "host state must have layout [host_slots, layers, 1, ...] for a Device layer view");
     TORCH_CHECK(src.is_contiguous(), "host state source must be contiguous");
-    TORCH_CHECK(layer_id >= 0 && layer_id < src.size(1), "layer_id ", layer_id,
-                " is outside Host state layer count ", src.size(1));
+    TORCH_CHECK(layer_id >= 0 && layer_id < src.size(1), "layer_id ", layer_id, " is outside Host state layer count ",
+                src.size(1));
     TORCH_CHECK(src.size(2) == 1, "host state page dimension must be 1");
     for (int64_t dim = 1; dim < dst.dim(); ++dim) {
-        TORCH_CHECK(dst.size(dim) == src.size(dim + 2),
-                    "state trailing shape mismatch at Device layer dimension ", dim);
+        TORCH_CHECK(dst.size(dim) == src.size(dim + 2), "state trailing shape mismatch at Device layer dimension ",
+                    dim);
     }
 
     const int64_t slot_elements = validate_dense_layer_payload(dst);
@@ -311,30 +309,28 @@ void submit_state_per_layer_h2d(const at::Tensor &src, const at::Tensor &dst, co
         const auto device_slot = device_index_data[run_begin];
         const auto host_slot = host_index_data[run_begin];
         void *destination = device_base + device_slot * device_slot_pitch;
-        const void *source =
-            host_base + host_slot * host_slot_pitch + static_cast<size_t>(layer_id) * host_layer_pitch;
-        const auto result = aclrtMemcpy2dAsync(
-            destination, device_slot_pitch, source, host_slot_pitch, slot_bytes, static_cast<size_t>(run_length),
-            ACL_MEMCPY_HOST_TO_DEVICE, acl_stream);
+        const void *source = host_base + host_slot * host_slot_pitch + static_cast<size_t>(layer_id) * host_layer_pitch;
+        const auto result = aclrtMemcpy2dAsync(destination, device_slot_pitch, source, host_slot_pitch, slot_bytes,
+                                               static_cast<size_t>(run_length), ACL_MEMCPY_HOST_TO_DEVICE, acl_stream);
         check_acl_copy(result, "H2D", slot_bytes, static_cast<size_t>(run_length));
     }
 }
 
-}
+}  // namespace
 
-HOST_API void transfer_state_per_layer_direct_pf_lf(
-    const at::Tensor &src, const at::Tensor &dst, const at::Tensor &src_indices,
-    const at::Tensor &dst_indices, int64_t layer_id, int64_t flags)
+HOST_API void transfer_state_per_layer_direct_pf_lf(const at::Tensor &src, const at::Tensor &dst,
+                                                    const at::Tensor &src_indices, const at::Tensor &dst_indices,
+                                                    int64_t layer_id, int64_t flags)
 {
     submit_state_per_layer_h2d(src, dst, src_indices, dst_indices, layer_id, flags);
 }
 
-HOST_API void transfer_state_all_layer_direct_lf_pf(
-    at::TensorList device_states, at::TensorList host_states, const at::Tensor &device_indices,
-    const at::Tensor &host_indices, int64_t flags)
+HOST_API void transfer_state_all_layer_direct_lf_pf(at::TensorList device_states, at::TensorList host_states,
+                                                    const at::Tensor &device_indices, const at::Tensor &host_indices,
+                                                    int64_t flags)
 {
     submit_state_all_layer_d2h(device_states, host_states, device_indices, host_indices, flags);
 }
 
-}
-}
+}  // namespace npu_kernel
+}  // namespace sglang

@@ -6,7 +6,6 @@ from sgl_kernel_npu.kvcacheio import (
     transfer_state_per_layer_direct_pf_lf,
 )
 
-
 NUM_LAYERS = 3
 DEVICE_SLOTS = 8
 HOST_SLOTS = 10
