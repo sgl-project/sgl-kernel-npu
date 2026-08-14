@@ -18,6 +18,8 @@ TORCH_NPU_URL=""
 
 USE_CANN_VERSION=false
 USE_TORCH_VERSION=false
+TORCH_VERSION="2.10.0"
+TORCHVISION_VERSION="0.25.0"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -36,6 +38,7 @@ while [[ $# -gt 0 ]]; do
             echo "Usage:"
             echo "  $0 --cann-version <9.0.0|9.1.0>"
             echo "  $0 --torch-version <2.8.0|2.10.0>"
+            echo "Usage: $0 [--cann-version <9.0.0|9.1.0>]"
             exit 1
             ;;
     esac
@@ -104,7 +107,19 @@ else
     esac
 
 fi
-
+case "${CANN_VERSION}" in
+    "9.0.0")
+        TORCH_NPU_URL="https://gitcode.com/Ascend/pytorch/releases/download/v26.0.0-pytorch2.10.0/torch_npu-2.10.0-cp311-cp311-manylinux_2_28_${ARCHITECT}.whl"
+        ;;
+    "9.1.0")
+        TORCH_NPU_URL="https://gitcode.com/Ascend/pytorch/releases/download/v26.1.0-pytorch2.10.0/torch_npu-2.10.0.post4-cp312-cp312-manylinux_2_28_${ARCHITECT}.whl"
+        ;;
+    *)
+        echo "Unsupported CANN version: ${CANN_VERSION}"
+        echo "Supported versions: 9.0.0, 9.1.0"
+        exit 1
+        ;;
+esac
 
 ### Install required dependencies
 ## APT packages

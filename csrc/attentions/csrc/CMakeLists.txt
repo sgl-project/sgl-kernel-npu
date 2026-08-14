@@ -47,7 +47,7 @@ add_library(PTAExtensionOPS SHARED
     ./plugin/la.cpp
     ./plugin/find_op_path.cpp
     ./plugin/rainfusionattention.cpp
-    ./plugin/block_sparse_attention.cpp
+    ./plugin/ada_block_sparse_attention.cpp
     ./plugin/sparse_block_estimate.cpp
     ./plugin/layernorm.cpp)
 
