@@ -271,8 +271,7 @@ def test_main(
 
         avg_diff = torch.mean(torch.abs(check_x - golden) / golden_nozero).item()
         print(f"{rank=}, {avg_diff=:.5f}, {max_diff=:.5f}, cosine_diff={diff:.5f}")
-        diff_threshold = get_diff_threshold(iter_quant)
-        assert diff < diff_threshold, f"Error: {diff=}, {diff_threshold=}"
+        assert diff < 5e-5, f"Assertion diff failed on {rank=}, Error: {diff=}, {diff_threshold=}"
 
         # For later tuning
         dispatch_bf16_recv_bytes = recv_x.numel() * 2
@@ -284,6 +283,29 @@ def test_main(
         print("", flush=True)
 
     # Tune dispatch performance
+    def calculate_recv_bytes(dispatch_bf16_recv_bytes, quant_type):
+        hidden_dim = hidden
+        bs = dispatch_bf16_recv_bytes / 2 / hidden_dim
+        num_values = bs * hidden_dim
+        num_recv_tokens = dispatch_bf16_recv_bytes // (hidden * 2)
+        scale_bytes = 0
+        if quant_type == "bf16":
+            # No quantization, use original BF16 communication
+            data_bytes = dispatch_bf16_recv_bytes
+        elif quant_type == "int8":
+            # INT8 per-token quantization:
+            # - Data: num_values * 1 byte (INT8)
+            # - Scale: x tokens * 2 bytes each (BF16)
+            data_bytes = num_values * 1
+            scale_bytes = bs * 2
+        elif quant_type.startswith("mx_fp4"):
+            data_bytes = num_values // 2
+            scale_bytes = num_recv_tokens * hidden // 32
+        else:
+            raise ValueError(f"Unsupported quant_type: {quant_type}")
+        recv_bytes = data_bytes + scale_bytes
+        return recv_bytes
+
     config = deep_ep.Config(24, 8, buffer_size)
 
     # BF16 dispatch tuning
@@ -425,7 +447,7 @@ if __name__ == "__main__":
         dest="quant_type",
         type=str,
         default="bf16",
-        help="quant type: bf16, int8",
+        help="quant type: bf16, int8, mx_fp4_e2m1",
     )
     args = parser.parse_args()
 
