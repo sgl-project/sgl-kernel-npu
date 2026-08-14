@@ -364,6 +364,7 @@ def test_split_qkvgate_gemma_rmsnorm_rope():
 
 
 if __name__ == "__main__":
-    test_split_qkv_rmsnorm_rope()
+    test_split_qkv_rmsnorm_rope(128)
+    test_split_qkv_rmsnorm_rope(64)
     test_split_qkv_rope()
     test_split_qkvgate_gemma_rmsnorm_rope()

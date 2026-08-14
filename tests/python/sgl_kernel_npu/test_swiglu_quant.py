@@ -70,8 +70,11 @@ def test_swiglu_quant_with_limit():
         .npu()
         .to(torch.int64)
     )
-    # torch native
-    ans1 = swiglu_silu_clamp_mul_native(x)
+    # torch native: match the fused kernel's fp32 clamped SwiGLU + symmetric quant
+    swglu_out = swiglu_silu_clamp_mul_native(x)
+    ans2 = torch.amax(torch.abs(swglu_out), dim=-1) / 127
+    ans1 = torch.floor(swglu_out / ans2.unsqueeze(-1) + 0.5)
+    ans1 = torch.clamp(ans1, -128, 127).to(torch.int8)
     # fused_triton_kernel
     res1, res2 = swiglu_quant(x, group_list, group_list_type=1, do_limit=True)
 
