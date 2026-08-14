@@ -87,6 +87,7 @@ public:
     __aicore__ inline void FreeEventID();
     // =================================执行计算=================================
     __aicore__ inline void ComputeVec1(const Vec1RunInfo &info);
+    __aicore__ inline void CommitC128State(const Vec1RunInfo &info);
     __aicore__ inline uint32_t GetBasicNum();
     __aicore__ inline uint32_t GetScSize();
     __aicore__ inline void GetScIdxInfo(uint32_t bStart, uint32_t scStart, uint32_t dealScSize, uint32_t v2TcStart,
@@ -119,6 +120,9 @@ private:
     __aicore__ inline void DealVec1BaseBlock(const Vec1RunInfo &info, CompressorVec1SliceIterator<COMP> &sliceIterator,
                                              const LoopInfo &loopInfo, uint32_t dStartIdx, uint32_t dDealSize,
                                              uint32_t dBaseSize);
+    __aicore__ inline void CommitC128StateBaseBlock(
+        const Vec1RunInfo &info, CompressorVec1SliceIterator<COMP> &sliceIterator,
+        uint32_t dStartIdx, uint32_t dDealSize);
     __aicore__ inline void CopyInApe(const LocalTensor<T> &apeUb, uint32_t dStartIdx, uint32_t dDealSize);
     __aicore__ inline void AddApeToScore(const LocalTensor<T> &scoreLocal, const LocalTensor<T> &apeUb,
                                          const Vec1SliceInfo &sliceInfo, uint32_t dDealSize);
@@ -678,10 +682,16 @@ __aicore__ inline void CompressorBlockVectorPerf<COMP>::OverLap(
         PipeBarrier<PIPE_V>();
     }
 
-    if constexpr (COMP::cacheMode == CACHE_MODE::EXPLICIT && COMP::coff == COFF::OVERLAP) {
-        if (!sliceInfo.isWrapped) {
-            SaveState(srcLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize,
-                      static_cast<uint32_t>(IS_SCORE));
+    if constexpr (COMP::cacheMode == CACHE_MODE::EXPLICIT) {
+        if constexpr (COMP::coff == COFF::OVERLAP) {
+            if (!sliceInfo.isWrapped) {
+                SaveState(srcLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize,
+                          static_cast<uint32_t>(IS_SCORE));
+            }
+        } else {
+            // C128 explicit locations may map the history head and the new tail
+            // to the same physical ring rows. Defer the tail commit until the
+            // kernel-level SyncAll, so every ReadState observes the old history.
         }
     } else {
         SaveState(srcLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize, static_cast<uint32_t>(IS_SCORE));
@@ -1138,6 +1148,58 @@ __aicore__ inline void CompressorBlockVectorPerf<COMP>::DealVec1BaseBlock(
 }
 
 template <typename COMP>
+__aicore__ inline void CompressorBlockVectorPerf<COMP>::CommitC128StateBaseBlock(
+    const Vec1RunInfo &info, CompressorVec1SliceIterator<COMP> &sliceIterator,
+    uint32_t dStartIdx, uint32_t dDealSize)
+{
+    Vec1SliceInfo originSliceInfo = sliceIterator.GetSlice();
+    uint32_t needDealTcSize = sliceIterator.GetNeedDealTcSize();
+    StatisticInfo &statisticInfo = sliceIterator.template FullIteratorSlice<true>();
+    if (statisticInfo.actualTcCnt == 0) {
+        return;
+    }
+
+    CompressorVec1SliceIterator commitSliceIterator(tools_);
+    commitSliceIterator.SetMaxBatchSize(constInfo_.batchSize);
+    commitSliceIterator.SetRunStartBatch(info.bStart);
+    Vec1SliceInfo &commitSliceInfo = commitSliceIterator.GetSlice();
+
+    GlobalTensor<T> scoreDBMm1ResGm = scoreMm1ResGm_[info.c1v1DbIdx * constInfo_.dbSize];
+    LocalTensor<T> scoreUb = inputQue1.AllocTensor<T>();
+    FromWokrSpaceToUb(scoreUb, scoreDBMm1ResGm, originSliceInfo, statisticInfo, dStartIdx, dDealSize);
+    inputQue1.EnQue(scoreUb);
+    inputQue1.DeQue<T>();
+    commitSliceIterator.Reset(originSliceInfo.bIdx, originSliceInfo.sIdx, 0U, 0U);
+    commitSliceIterator.SetWrapped(originSliceInfo.isWrapped);
+    commitSliceIterator.SetNeedDealTcSize(needDealTcSize);
+    while (!commitSliceIterator.IsEnd()) {
+        commitSliceIterator.GetSlice();
+        AddApeToScore(scoreUb, apeUb, commitSliceInfo, dDealSize);
+        PipeBarrier<PIPE_V>();
+        SaveState(scoreUb, stateCacheGm_, stateBlockTableGm_, commitSliceInfo,
+                  dStartIdx, dDealSize, 1U);
+        commitSliceIterator.IteratorSlice();
+    }
+    inputQue1.FreeTensor(scoreUb);
+
+    GlobalTensor<T> kvDBMm1ResGm = kvMm1ResGm_[info.c1v1DbIdx * constInfo_.dbSize];
+    LocalTensor<T> kvUb = inputQue1.AllocTensor<T>();
+    FromWokrSpaceToUb(kvUb, kvDBMm1ResGm, originSliceInfo, statisticInfo, dStartIdx, dDealSize);
+    inputQue1.EnQue(kvUb);
+    inputQue1.DeQue<T>();
+    commitSliceIterator.Reset(originSliceInfo.bIdx, originSliceInfo.sIdx, 0U, 0U);
+    commitSliceIterator.SetWrapped(originSliceInfo.isWrapped);
+    commitSliceIterator.SetNeedDealTcSize(needDealTcSize);
+    while (!commitSliceIterator.IsEnd()) {
+        commitSliceIterator.GetSlice();
+        SaveState(kvUb, stateCacheGm_, stateBlockTableGm_, commitSliceInfo,
+                  dStartIdx, dDealSize, 0U);
+        commitSliceIterator.IteratorSlice();
+    }
+    inputQue1.FreeTensor(kvUb);
+}
+
+template <typename COMP>
 __aicore__ inline void CompressorBlockVectorPerf<COMP>::CalcGroupInfo(const Vec1RunInfo &info, Vec1SplitInfo &splitInfo)
 {
     uint32_t aiCoreNum = constInfo_.usedCoreNum * 2;
@@ -1293,6 +1355,40 @@ __aicore__ inline void CompressorBlockVectorPerf<COMP>::ComputeVec1(const Vec1Ru
         }
     }
     compressedCnt_ = preCompressedCnt + info.dealScSize;
+}
+
+template <typename COMP>
+__aicore__ inline void CompressorBlockVectorPerf<COMP>::CommitC128State(const Vec1RunInfo &info)
+{
+    if constexpr (COMP::cacheMode != CACHE_MODE::EXPLICIT || COMP::coff != COFF::DISABLE) {
+        return;
+    }
+    if (info.dealTcNum == 0) {
+        return;
+    }
+
+    Vec1SplitInfo splitInfo = SplitCoreV1(info);
+    if (splitInfo.dealTcSize == 0) {
+        return;
+    }
+
+    CompressorVec1SliceIterator sliceIterator(tools_);
+    sliceIterator.SetMaxBatchSize(constInfo_.batchSize);
+    sliceIterator.SetRunStartBatch(info.bStart);
+    uint64_t baseOffset = (GetBlockIdx() % splitInfo.vec1GroupSize) * splitInfo.dBaseSize;
+    for (uint32_t dLoopIdx = 0; dLoopIdx < splitInfo.dLoopCount; dLoopIdx++) {
+        uint64_t dBaseOffset = baseOffset + dLoopIdx * splitInfo.dSplitSize;
+        CopyInApe(apeUb, dBaseOffset, splitInfo.dSplitSize);
+
+        sliceIterator.Reset(splitInfo.curBStart, splitInfo.curSStart, splitInfo.dealSeqStartIdx, 0U);
+        sliceIterator.SetWrapped(splitInfo.isWrapped);
+        for (uint32_t tcIdx = 0; tcIdx < splitInfo.dealTcSize; tcIdx += splitInfo.tcSplitSize) {
+            uint32_t actDealTcSize = min(splitInfo.tcSplitSize, splitInfo.dealTcSize - tcIdx);
+            sliceIterator.SetNeedDealTcSize(actDealTcSize);
+            sliceIterator.SetDealedTcCnt(0U);
+            CommitC128StateBaseBlock(info, sliceIterator, dBaseOffset, splitInfo.dSplitSize);
+        }
+    }
 }
 
 template <typename COMP>
