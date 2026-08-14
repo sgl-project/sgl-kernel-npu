@@ -674,16 +674,19 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
                 global_tokens_indices.size(0), 1
             )
             if use_quant != -1:
-                (dispatch_out, reversed_global_mapping, _, dynamic_scale_after_routing) = (
-                    torch_npu.npu_moe_init_routing_v2(
-                        global_input_tokens,
-                        global_tokens_indices,
-                        scale=dynamic_scale_after_all2all,
-                        expert_num=num_local_experts,
-                        expert_tokens_num_flag=True,
-                        active_expert_range=[0, num_local_experts],
-                        x_dtype=quant_mode_type,
-                    )
+                (
+                    dispatch_out,
+                    reversed_global_mapping,
+                    _,
+                    dynamic_scale_after_routing,
+                ) = torch_npu.npu_moe_init_routing_v2(
+                    global_input_tokens,
+                    global_tokens_indices,
+                    scale=dynamic_scale_after_all2all,
+                    expert_num=num_local_experts,
+                    expert_tokens_num_flag=True,
+                    active_expert_range=[0, num_local_experts],
+                    x_dtype=quant_mode_type,
                 )
             else:
                 (dispatch_out, reversed_global_mapping, _, _) = (
