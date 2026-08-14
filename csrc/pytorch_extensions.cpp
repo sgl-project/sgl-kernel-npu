@@ -18,7 +18,7 @@
 #include "causal_conv1d_update/op_host/causal_conv1d_update.h"
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
 #include "causal_conv1d/op_host/causal_conv1d.h"
-#endif
+#include "sparse_attn_sharedkv_metadata/op_host/sparse_attn_sharedkv_metadata.h"
 
 namespace {
 TORCH_LIBRARY_FRAGMENT(npu, m)
@@ -150,6 +150,17 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor? query_start_loc=None, Tensor? cache_indices=None, Tensor? has_initial_state=None, "
         "Tensor? num_accepted_tokens=None, int activation_mode=0, int pad_slot_id=-1, "
         "int run_mode=0) -> Tensor");
+
+    m.def(
+        "sparse_attn_sharedkv_metadata_host("
+        "int num_heads_q, int num_heads_kv, int head_dim, "
+        "int aic_core_num, int aiv_core_num, "
+        "str soc_version, str layout_q, str layout_kv, "
+        "Tensor? cu_seqlens_q=None, Tensor? seqused_kv=None, "
+        "int batch_size=0, int cmp_topk=0, int cmp_ratio=-1, "
+        "int ori_mask_mode=4, int cmp_mask_mode=3, "
+        "int ori_win_left=127, int ori_win_right=0, "
+        "bool has_ori_kv=True, bool has_cmp_kv=True) -> Tensor");
 #endif
 
 #ifdef BUILD_CATLASS_MODULE
@@ -264,5 +275,13 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("softfp8_w8a16_grouped_matmul", TORCH_FN(sglang::npu_kernel::softfp8_w8a16_grouped_matmul));
 #endif
 #endif
+}
+}  // namespace
+
+namespace {
+// CPU dispatch key: this op takes CPU input tensors and returns a device tensor.
+TORCH_LIBRARY_IMPL(npu, CPU, m)
+{
+    m.impl("sparse_attn_sharedkv_metadata_host", TORCH_FN(sgl_kernel_npu::sparse_attn_sharedkv_metadata_host));
 }
 }  // namespace
