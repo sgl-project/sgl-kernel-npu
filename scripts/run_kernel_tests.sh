@@ -39,7 +39,7 @@ NORM_TESTS=(
 ATTENTION_TESTS=(
     # test_decode_attention.py  # FAILING: tl.parallel removed in triton 3.5.0
     test_mla_preprocess.py
-    # test_split_qkv_rmsnorm_rope.py  # FAILING: custom_rope() missing arg 'half_rope_dim'
+    test_split_qkv_rmsnorm_rope.py  # fixed by PR#701 (partial rope dim)
     test_split_qkv_rmsnorm_rope_pos_cache_half_npu.py
     test_split_qkv_tp_rmsnorm_rope.py
     test_fused_rope_qk_mqa.py
@@ -79,7 +79,7 @@ FLA_TESTS=(
 )
 
 FUSED_TESTS=(
-    # test_swiglu_quant.py  # FAILING: quantization precision (max_diff > 1)
+    test_swiglu_quant.py  # fixed by PR#701 (fp32 ref aligned)
     test_batch_matmul_transpose.py
     # test_catlass_matmul_basic.py  # FAILING: flaky float16 precision (0.0078 > 0.0005)
     test_qkvzba_split_reshape_cat.py
