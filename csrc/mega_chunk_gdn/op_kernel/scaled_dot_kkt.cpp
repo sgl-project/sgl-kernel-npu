@@ -508,7 +508,7 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
                 UbND<float, 1, HalfChunk, 1, HalfChunk> g_ub_temp;
                 TASSIGN(g_ub_temp, GUbAddr + row_offset * static_cast<int32_t>(sizeof(float)));
                 TMOV(g_v_ub, g_ub_temp);  // g_v = g[row_offset:row_offset+C/2]
-                PipeBarrierVec();     // Wait for TMOV to complete
+                PipeBarrierVec();         // Wait for TMOV to complete
 
                 TLOG(beta_ub, beta_ub);  // beta_ub = log(beta) in-place
                 PipeBarrierVec();
