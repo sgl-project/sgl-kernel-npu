@@ -402,6 +402,12 @@ def test(
         num_experts,
         1,  # quant_mode: 1
         2,  # fuse_mode: DISPATCH_FFN_COMBINE
+        activation_type=args.activation_type,
+        activation_alpha=args.activation_alpha,
+        gate_clamp_max=args.gate_clamp_max,
+        up_clamp_min=args.up_clamp_min,
+        up_clamp_max=args.up_clamp_max,
+        up_add=args.up_add,
     )
 
     # ----- Compare Outputs -----
@@ -593,6 +599,12 @@ if __name__ == "__main__":
         default=False,
         help="Enable debug logging.",
     )
+    parser.add_argument("--activation-type", type=int, default=0)
+    parser.add_argument("--activation-alpha", type=float, default=0.0)
+    parser.add_argument("--gate-clamp-max", type=float, default=0.0)
+    parser.add_argument("--up-clamp-min", type=float, default=0.0)
+    parser.add_argument("--up-clamp-max", type=float, default=0.0)
+    parser.add_argument("--up-add", type=float, default=0.0)
 
     args = parser.parse_args()
     num_processes = args.num_processes

@@ -1,14 +1,14 @@
-/*!
- * \file dispatch_ffn_combine_def.cpp
- * \brief
+/**
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * Licensed under the CANN Open Software License Agreement Version 1.0.
  */
 #include "register/op_def_registry.h"
 
 namespace ops {
-class DispatchFFNCombine : public OpDef
+class DispatchFFNCombineSwiGluOAI : public OpDef
 {
 public:
-    explicit DispatchFFNCombine(const char *name) : OpDef(name)
+    explicit DispatchFFNCombineSwiGluOAI(const char *name) : OpDef(name)
     {
         this->Input("a")
             .ParamType(REQUIRED)
@@ -45,8 +45,6 @@ public:
             .DataType({ge::DT_FLOAT, ge::DT_FLOAT, ge::DT_FLOAT})
             .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
             .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
-
-        // Output
         this->Output("out")
             .ParamType(REQUIRED)
             .DataType({ge::DT_FLOAT16, ge::DT_BF16, ge::DT_BF16})
@@ -57,22 +55,20 @@ public:
             .DataType({ge::DT_INT32, ge::DT_INT32, ge::DT_INT32})
             .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
             .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND});
-
         this->Attr("group").AttrType(REQUIRED).String();
         this->Attr("ep_rank_size").Int();
         this->Attr("ep_rank_id").Int();
-        this->Attr("M").AttrType(OPTIONAL).Int();  // global_bs
+        this->Attr("M").AttrType(OPTIONAL).Int();
         this->Attr("transB").AttrType(OPTIONAL).Bool(false);
         this->Attr("weightNz").AttrType(OPTIONAL).Bool(false);
-        this->Attr("activation_type").AttrType(OPTIONAL).Int(0);
+        this->Attr("activation_type").AttrType(OPTIONAL).Int(1);
         this->Attr("activation_alpha").AttrType(OPTIONAL).Float(0.0);
         this->Attr("gate_clamp_max").AttrType(OPTIONAL).Float(0.0);
         this->Attr("up_clamp_min").AttrType(OPTIONAL).Float(0.0);
         this->Attr("up_clamp_max").AttrType(OPTIONAL).Float(0.0);
         this->Attr("up_add").AttrType(OPTIONAL).Float(0.0);
-
-        OpAICoreConfig aicore_config;
-        aicore_config.DynamicCompileStaticFlag(true)
+        OpAICoreConfig config;
+        config.DynamicCompileStaticFlag(true)
             .DynamicFormatFlag(true)
             .DynamicRankSupportFlag(true)
             .DynamicShapeSupportFlag(true)
@@ -81,10 +77,10 @@ public:
             .ExtendCfgInfo("aclnnSupport.value", "support_aclnn")
             .ExtendCfgInfo("jitCompile.flag", "static_false")
             .ExtendCfgInfo("multiKernelSupportDynamicGraph.value", "multi_kernel");
-        this->AICore().AddConfig("ascend910_93", aicore_config);
+        this->AICore().AddConfig("ascend910_93", config);
         this->MC2().HcclGroup("group");
     }
 };
 
-OP_ADD(DispatchFFNCombine);
+OP_ADD(DispatchFFNCombineSwiGluOAI);
 }  // namespace ops
