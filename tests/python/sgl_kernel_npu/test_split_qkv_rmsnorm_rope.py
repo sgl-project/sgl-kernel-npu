@@ -43,9 +43,7 @@ def rms_norm(
     return out
 
 
-@pytest.mark.parametrize(
-    "rope_dim", [128, 64], ids=["full_rope_dim", "half_rope_dim"]
-)
+@pytest.mark.parametrize("rope_dim", [128, 64], ids=["full_rope_dim", "half_rope_dim"])
 def test_split_qkv_rmsnorm_rope(rope_dim):
     q_hidden_size = 6144
     kv_hidden_size = 1024
