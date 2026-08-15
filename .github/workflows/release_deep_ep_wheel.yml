@@ -21,7 +21,7 @@ jobs:
     strategy:
       matrix:
         arch: [x86_64, aarch64]
-        cann_version: [8.5.0]
+        cann_version: [9.0.0]
         include:
           - arch: x86_64
             runner: ubuntu-24.04
@@ -42,7 +42,7 @@ jobs:
 
       - name: Install dependency
         run: |
-          bash scripts/npu_ci_install_dependency.sh --torch-version 2.10.0
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
 
       - name: Build DeepEP (910b)
         run: |
@@ -106,7 +106,7 @@ jobs:
     strategy:
       matrix:
         arch: [x86_64, aarch64]
-        cann_version: [8.5.0]
+        cann_version: [9.0.0]
         include:
           - arch: x86_64
             runner: ubuntu-24.04
@@ -127,7 +127,7 @@ jobs:
 
       - name: Install dependency
         run: |
-          bash scripts/npu_ci_install_dependency.sh --torch-version 2.10.0
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
 
       - name: Build DeepEP (a3)
         run: |
