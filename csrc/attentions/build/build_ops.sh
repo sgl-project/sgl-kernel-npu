@@ -42,10 +42,14 @@ function build_ops(){
     cd ${current_script_dir}
     rm -rf vendors
 <<<<<<< HEAD
+<<<<<<< HEAD
     source ${current_script_dir}/build_ascendc_ops.sh -n 'laser_attention;ada_block_sparse_attention;sparse_block_estimate' -c 'ascend910;ascend910b;ascend910_93'
 =======
     source ${current_script_dir}/build_ascendc_ops.sh -n 'laser_attention;block_sparse_attention;sparse_block_estimate;compressor' -c 'ascend910;ascend910b;ascend910_93'
 >>>>>>> 42c2f56 ([migrate] copy Compressor operator source from cann-ops-transformer (Mulan headers, unadapted code))
+=======
+    source ${current_script_dir}/build_ascendc_ops.sh -n 'laser_attention;block_sparse_attention;sparse_block_estimate' -c 'ascend910;ascend910b;ascend910_93'
+>>>>>>> d223e10 (refactor(compressor): de-nest operator to top-level csrc/compressor)
     rm -rf ${current_script_dir}/vendors/aie_ascendc/bin
     rm -rf ${current_script_dir}/vendors/customize/bin
     cd ${current_script_dir}
