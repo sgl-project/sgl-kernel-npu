@@ -68,19 +68,26 @@ def move_cache_dynamic_last_kernel_h_block(
             h_real = h_start + h_offsets
             h_mask = h_real < h_dim
 
-            v_mask = v_offsets < dim_v
-            k_mask = k_offsets < dim_k
+            # Process v dimension in blocks to fit UB
+            for v_start in range(0, dim_v, BLOCK_V):
+                v_real = v_start + v_offsets
+                v_mask = v_real < dim_v
 
-            mask = h_mask[:, None, None] & v_mask[None, :, None] & k_mask[None, None, :]
+                # Process k dimension in blocks to fit UB
+                for k_start in range(0, dim_k, BLOCK_K):
+                    k_real = k_start + k_offsets
+                    k_mask = k_real < dim_k
 
-            linear_offset = (
-                h_real[:, None, None] * dim_v * dim_k
-                + v_offsets[None, :, None] * dim_k
-                + k_offsets[None, None, :]
-            )
+                    mask = h_mask[:, None, None] & v_mask[None, :, None] & k_mask[None, None, :]
 
-            src_block = tl.load(src_addr + linear_offset, mask=mask, other=0)
-            tl.store(dst_base_addr + linear_offset, src_block, mask=mask)
+                    linear_offset = (
+                        h_real[:, None, None] * dim_v * dim_k
+                        + v_real[None, :, None] * dim_k
+                        + k_real[None, None, :]
+                    )
+
+                    src_block = tl.load(src_addr + linear_offset, mask=mask, other=0)
+                    tl.store(dst_base_addr + linear_offset, src_block, mask=mask)
 
 
 def move_intermediate_cache(
@@ -89,7 +96,7 @@ def move_intermediate_cache(
     dst_indices_tensor,
     src_indices_tensor,
     last_steps_tensor,
-    h_block_size=2,
+    h_block_size=1,
 ):
     """
     Move intermediate cache to SSM states using Triton kernel.
@@ -138,9 +145,9 @@ def move_intermediate_cache(
         dim_v=V,
         dim_k=K,
         num_layers=L,
-        H_BLOCK_SIZE=h_block_size,  # Process 2 h elements per block
-        BLOCK_V=triton.next_power_of_2(V),  # Block size for dim_v
-        BLOCK_K=triton.next_power_of_2(K),  # Block size for dim_k
+        H_BLOCK_SIZE=h_block_size,  # Block size for h dimension
+        BLOCK_V=min(triton.next_power_of_2(V), 64),  # Block size for dim_v (capped to avoid UB overflow)
+        BLOCK_K=min(triton.next_power_of_2(K), 64),  # Block size for dim_k (capped to avoid UB overflow)
     )
 
     return ssm_states
