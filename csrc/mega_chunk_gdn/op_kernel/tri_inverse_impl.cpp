@@ -11,8 +11,10 @@ for the full License text.
 #define MEMORY_BASE
 #endif
 #include <pto/pto-inst.hpp>
+#include "mega_chunk_utils.h"
 
 using namespace pto;
+using mega_chunk::GetOuterLayout;
 
 AICORE inline uint32_t CeilDiv(uint32_t value, uint32_t divisor)
 {

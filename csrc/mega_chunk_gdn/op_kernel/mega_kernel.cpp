@@ -41,46 +41,13 @@
 using namespace pto;
 using mega_chunk::PipeBarrierVec;
 using mega_chunk::WaitBothVecOnA5;
+using mega_chunk::SyncAllMegaKernel;
 
 // ===================================================================
 // Device-only helpers (shared with standard mega-kernel)
 // ===================================================================
 #ifdef __CCE_AICORE__
 
-
-AICORE inline uint16_t GetffstMsg(uint16_t mode, uint16_t flagId)
-{
-    constexpr uint16_t SYNC_MODE_SHIFT_VALUE = 4;
-constexpr uint16_t SYNC_FLAG_SHIFT_VALUE = 8;
-
-    return (0x1 + ((mode & 0x3) << SYNC_MODE_SHIFT_VALUE) + ((flagId & 0xf) << SYNC_FLAG_SHIFT_VALUE));
-}
-
-template <bool isAIVOnly = true>
-AICORE inline void SyncAllImpl()
-{
-    constexpr uint16_t SYNC_AIV_FLAG = 12;
-constexpr uint16_t SYNC_AIC_FLAG = 11;
-constexpr uint16_t SYNC_AIC_AIV_FLAG = 13;
-
-    constexpr uint16_t SYNC_AIV_ONLY_ALL = 14;
-
-    pipe_barrier(PIPE_ALL);
-    if constexpr (isAIVOnly) {
-        ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x0, SYNC_AIV_ONLY_ALL));
-        wait_flag_dev(SYNC_AIV_ONLY_ALL);
-        return;
-    }
-#if defined(__DAV_CUBE__)
-    wait_flag_dev(SYNC_AIV_FLAG);
-    ffts_cross_core_sync(PIPE_FIX, GetffstMsg(0x0, SYNC_AIC_FLAG));
-    wait_flag_dev(SYNC_AIC_FLAG);
-    ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x02, SYNC_AIC_AIV_FLAG));
-#elif defined(__DAV_VEC__)
-    ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x02, SYNC_AIV_FLAG));
-    wait_flag_dev(SYNC_AIC_AIV_FLAG);
-#endif
-}
 
 template <typename T, int32_t H_val>
 AICORE inline void mega_transpose_TH_to_HT(__gm__ T *src, __gm__ T *dst, int64_t T_len)
@@ -335,7 +302,7 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
     return;
 #endif
 
-    SyncAllImpl<false>();
+    SyncAllMegaKernel<false>();
 
 #ifdef MEGA_STOP_AFTER_SYNC1
     return;
@@ -351,7 +318,7 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
     return;
 #endif
 
-    SyncAllImpl<false>();
+    SyncAllMegaKernel<false>();
 
     mk_kkt::kkt_kernel<H, D, C>(
         reinterpret_cast<__gm__ half *>(k_ptr), reinterpret_cast<__gm__ half *>(beta_t_ptr),
@@ -380,7 +347,7 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
     return;
 #endif
 
-    SyncAllImpl<false>();
+    SyncAllMegaKernel<false>();
 
     mega_solve_tril(reinterpret_cast<__gm__ half *>(A_inv_ptr), reinterpret_cast<__gm__ half *>(A_ptr),
                     reinterpret_cast<__gm__ half *>(minus_id_ptr), C, num_matrices, H,
@@ -391,14 +358,14 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
     return;
 #endif
 
-    SyncAllImpl<false>();
+    SyncAllMegaKernel<false>();
 
 #ifdef MEGA_STOP_AFTER_CAST
     pipe_barrier(PIPE_ALL);
     return;
 #endif
 
-    SyncAllImpl<false>();
+    SyncAllMegaKernel<false>();
 
 #ifdef MEGA_STOP_AFTER_SYNC_BEFORE_WY
     return;
@@ -434,7 +401,7 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
     return;
 #endif
 
-    SyncAllImpl<false>();
+    SyncAllMegaKernel<false>();
 
     mk_h::chunk_h_kernel<H, D, C>(
         reinterpret_cast<__gm__ half *>(k_ptr), reinterpret_cast<__gm__ half *>(w_ptr),
@@ -449,7 +416,7 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
     return;
 #endif
 
-    SyncAllImpl<false>();
+    SyncAllMegaKernel<false>();
 
     mk_o::chunk_o_kernel<H, D, C>(
         reinterpret_cast<__gm__ half *>(q_ptr), reinterpret_cast<__gm__ half *>(k_ptr),
