@@ -14,7 +14,9 @@
  * \brief host wrapper (ge_helper + direct kernel launch) for the Compressor op.
  */
 #include <cstdio>
+#include <mutex>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include "acl/acl.h"
 #include "kernel_tiling/kernel_tiling.h"
@@ -37,9 +39,52 @@ namespace {
 
 struct TilingCache {
     at::Tensor buffer;
-    std::unordered_map<uint64_t, uint32_t> slots;
+    std::unordered_map<std::string, uint32_t> slots;
     uint32_t nextSlot = 0;
 };
+
+template <typename T>
+void AppendTilingKey(std::string &key, const T &value)
+{
+    static_assert(std::is_trivially_copyable_v<T>);
+    key.append(reinterpret_cast<const char *>(&value), sizeof(T));
+}
+
+std::string MakeTilingCacheKey(const optiling::CompressorTilingData &data)
+{
+    std::string key;
+    key.reserve(sizeof(optiling::CompressorTilingData));
+    const auto &base = data.baseParams;
+    AppendTilingKey(key, base.batchSize);
+    AppendTilingKey(key, base.seqSize);
+    AppendTilingKey(key, base.hiddenSize);
+    AppendTilingKey(key, base.headDim);
+    AppendTilingKey(key, base.cmpRatio);
+    AppendTilingKey(key, base.tokenSize);
+    AppendTilingKey(key, base.csSize);
+    AppendTilingKey(key, base.cgSize);
+    AppendTilingKey(key, base.nSize);
+    AppendTilingKey(key, base.usedCoreNum);
+    AppendTilingKey(key, base.ropeHeadDim);
+    AppendTilingKey(key, base.normEps);
+    AppendTilingKey(key, base.reciprocalD);
+    AppendTilingKey(key, base.stateCacheStrideDim0);
+    const auto &page = data.pageAttentionParams;
+    AppendTilingKey(key, page.blockNum);
+    AppendTilingKey(key, page.blockSize);
+    AppendTilingKey(key, page.maxBlockNumPerBatch);
+    const auto &split = data.innerSplitParams;
+    AppendTilingKey(key, split.mBaseSize);
+    AppendTilingKey(key, split.dBaseSize);
+    const auto &ws = data.workspaceParams;
+    AppendTilingKey(key, ws.mm1KvResSize);
+    AppendTilingKey(key, ws.mm1ScoreResSize);
+    AppendTilingKey(key, ws.vec1ResSize);
+    AppendTilingKey(key, ws.vec1TailCacheSize);
+    AppendTilingKey(key, ws.dbWorkspaceRatio);
+    AppendTilingKey(key, data.tilingKey);
+    return key;
+}
 
 bool IsNpuGraphCapturing()
 {
@@ -55,6 +100,12 @@ std::unordered_map<int64_t, TilingCache> &GetTilingCaches()
 {
     static std::unordered_map<int64_t, TilingCache> deviceCaches;
     return deviceCaches;
+}
+
+std::mutex &GetTilingCacheMutex()
+{
+    static std::mutex cacheMutex;
+    return cacheMutex;
 }
 
 }  // namespace
@@ -114,6 +165,7 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
                                int64_t state_cache_stride_dim0)
 {
     using namespace optiling;
+    TORCH_CHECK(x.device().type() == DEVICE_TYPE, "compressor: x must be an NPU tensor");
     Compressor compressorOp("compressor");
     auto context = std::make_shared<ge_helper::TilingContext>("compressor");
     TORCH_CHECK(context != nullptr, "TilingContext is null");
@@ -181,22 +233,16 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
 
     // ---- 5) copy tiling data to device with graph-capture cache ----
     uint32_t tilingSize = sizeof(CompressorTilingData);
-    auto tup = std::make_tuple(tilingData.baseParams.batchSize, tilingData.baseParams.seqSize,
-                               tilingData.baseParams.hiddenSize, tilingData.baseParams.headDim,
-                               tilingData.baseParams.cmpRatio, tilingData.baseParams.tokenSize,
-                               tilingData.baseParams.cgSize, tilingData.baseParams.nSize,
-                               tilingData.baseParams.usedCoreNum, tilingData.baseParams.ropeHeadDim,
-                               tilingData.baseParams.normEps, tilingData.baseParams.reciprocalD,
-                               tilingData.baseParams.stateCacheStrideDim0,
-                               tilingData.pageAttentionParams.blockNum,
-                               tilingData.pageAttentionParams.blockSize,
-                               tilingData.pageAttentionParams.maxBlockNumPerBatch,
-                               tilingData.innerSplitParams.mBaseSize, tilingData.innerSplitParams.dBaseSize,
-                               tilingData.workspaceParams.mm1KvResSize, tilingData.workspaceParams.mm1ScoreResSize,
-                               tilingData.workspaceParams.vec1ResSize, tilingData.workspaceParams.vec1TailCacheSize,
-                               tilingData.workspaceParams.dbWorkspaceRatio, tilingData.tilingKey);
-    auto hashValue = host_utils::TupleHasher::Hash(tup);
 
+    // EMPTY_X: nothing to compute, return empty cmp_kv without touching the tiling cache
+    uint8_t templateId = static_cast<uint8_t>((tilingKey >> 11) & 0x3);
+    if (templateId == 1) {
+        return cmp_kv;
+    }
+
+    auto key = MakeTilingCacheKey(tilingData);
+
+    std::lock_guard<std::mutex> lock(GetTilingCacheMutex());
     auto &cache = GetTilingCaches()[x.device().index()];
     if (!cache.buffer.defined()) {
         TORCH_CHECK(!IsNpuGraphCapturing(),
@@ -205,7 +251,7 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
                                  at::TensorOptions().dtype(at::kByte).device(x.options().device()));
     }
     at::Tensor tilingTensor;
-    auto iter = cache.slots.find(hashValue);
+    auto iter = cache.slots.find(key);
     if (iter != cache.slots.end()) {
         // decode replay / graph capture: reuse cached tiling from the device-resident buffer
         tilingTensor = cache.buffer.narrow(0, iter->second * tilingSize, tilingSize);
@@ -220,7 +266,7 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
         auto status = aclrtMemcpy(tilingTensor.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize,
                                   ACL_MEMCPY_HOST_TO_DEVICE);
         TORCH_CHECK(status == ACL_ERROR_NONE, "compressor: failed to cache tiling data, acl error ", status);
-        cache.slots.emplace(hashValue, slot);
+        cache.slots.emplace(std::move(key), slot);
         cache.nextSlot++;
     }
 
@@ -241,12 +287,6 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
     at::Tensor startPosT = start_pos.has_value()
                                ? start_pos.value()
                                : at::empty({0}, at::TensorOptions().dtype(at::kInt).device(x.options().device()));
-
-    uint8_t templateId = static_cast<uint8_t>((tilingKey >> 11) & 0x3);
-    if (templateId == 1) {
-        // EMPTY_X: nothing to compute, return empty cmp_kv
-        return cmp_kv;
-    }
 
     EXEC_KERNEL_CMD(compressor, blockDim, x, wkv, wgate, state_cache, ape, norm_weight, rope_sin, rope_cos,
                     stateBlockTable, cuSeqlensT, seqUsedT, startPosT, cmp_kv, state_cache, workspace, tilingTensor);

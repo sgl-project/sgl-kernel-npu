@@ -454,18 +454,20 @@ class TestCompressor(unittest.TestCase):
         self._assert_ok(_run_case(p, 1, 128, 512, 2, torch.bfloat16))
 
     def test_npu_graph_capture(self):
-        # Graph-capture support: warmup (fills tiling cache), capture, replay.
+        # Graph-capture support: warmup (fills the device-resident tiling cache),
+        # capture, then replay multiple times against mutated inputs to verify the
+        # graph reads the *current* contents of the captured tensors.
         p = _make_inputs([200], 129, 1, 128, 512, 1024, 2, "TH", torch.bfloat16, 1, 16)
 
-        x_n = p["x"].npu()
-        wkv_n = p["wkv"].npu()
-        wgate_n = p["wgate"].npu()
-        ape_n = p["ape"].npu()
-        norm_n = p["norm_weight"].npu()
-        sine_n = p["rope_sin"].npu()
-        cose_n = p["rope_cos"].npu()
-        tbl_n = p["block_table"].npu()
-        cu_n = p["cu_seqlens"].npu()
+        x_n = p["x"].clone().npu()
+        wkv_n = p["wkv"].clone().npu()
+        wgate_n = p["wgate"].clone().npu()
+        ape_n = p["ape"].clone().npu()
+        norm_n = p["norm_weight"].clone().npu()
+        sine_n = p["rope_sin"].clone().npu()
+        cose_n = p["rope_cos"].clone().npu()
+        tbl_n = p["block_table"].clone().npu()
+        cu_n = p["cu_seqlens"].clone().npu()
         used_n = torch.tensor(p["seqused"], dtype=torch.int32).npu()
         start_n = torch.tensor(p["start_pos"], dtype=torch.int32).npu()
         kw = dict(rope_head_dim=64, cmp_ratio=128, coff=1, norm_eps=1e-6, rotary_mode=2,
@@ -490,22 +492,22 @@ class TestCompressor(unittest.TestCase):
         if not mask_t.any():
             return
 
+        # eager reference
         state2 = p["state_cache"].clone().npu()
-
-        # eager reference on the same state tensor
         out_eager = _call(state2)
         torch_npu.npu.synchronize()
 
-        # warmup: fill tiling cache before capture (no host memcpy inside capture)
+        # warmup: fill the tiling cache before capture (no host memcpy inside capture)
         _call(p["state_cache"].clone().npu())
         torch_npu.npu.synchronize()
 
-        # reset state to the original values so eager and graph see identical input
+        # reset state so eager and graph see identical input
         state2.copy_(p["state_cache"])
         torch_npu.npu.synchronize()
 
         g = torch.npu.NPUGraph()
-        with torch.npu.graph(g):
+        capture_stream = torch_npu.npu.Stream()
+        with torch_npu.npu.graph(g, stream=capture_stream, auto_dispatch_capture=True):
             out_graph = _call(state2)
         torch_npu.npu.synchronize()
         g.replay()
@@ -513,6 +515,28 @@ class TestCompressor(unittest.TestCase):
 
         d = ((out_graph.cpu().float() - out_eager.cpu().float()).abs() * mask_t).max().item()
         self._assert_ok(d)
+
+        # replay against mutated input: the graph must read the current x contents
+        for seed, offset in ((20260813, -0.03), (20260814, 0.08)):
+            gen = torch.Generator().manual_seed(seed)
+            x_n.copy_((torch.randn(p["x"].shape, generator=gen) * 0.02 + offset).to(p["x"].dtype))
+            state2.copy_(p["state_cache"])  # reset the in/out state so graph and ref see identical input
+            torch_npu.npu.synchronize()
+            g.replay()
+            torch_npu.npu.synchronize()
+            ref, mask2 = _reference_compressor(
+                x_n.cpu(), p["wkv"], p["wgate"], p["kv_state"].clone(), p["score_state"].clone(),
+                torch.zeros_like(p["kv_state"], dtype=torch.bool),
+                torch.zeros_like(p["score_state"], dtype=torch.bool),
+                p["ape"], p["norm_weight"], p["rope_sin"], p["rope_cos"],
+                block_table=p["block_table"], cu_seqlens=p["cu_seqlens"].tolist(),
+                seqused=p["seqused"], start_pos=p["start_pos"], rope_head_dim=64, cmp_ratio=128,
+                coff=1, norm_eps=1e-6, rotary_mode=2, cache_mode=2,
+            )
+            mask2_t = torch.from_numpy(np.asarray(mask2)).bool()
+            if mask2_t.any():
+                d2 = ((out_graph.cpu().float() - torch.as_tensor(ref).float()).abs() * mask2_t).max().item()
+                self._assert_ok(d2)
 
 
 if __name__ == "__main__":
