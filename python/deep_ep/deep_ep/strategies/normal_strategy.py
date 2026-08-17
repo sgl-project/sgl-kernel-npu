@@ -610,31 +610,41 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         num_experts = layout["num_experts"]
         topk_idx_int = topk_idx.to(torch.int32)
 
-        # Determine quant type from quant_mode
-        VALID_QUANT_MODES = {
-            "bf16",
-            "int8",
-        }
         if quant_mode is None:
             quant_mode = "bf16"
         if quant_mode not in VALID_QUANT_MODES:
             raise NotImplementedError(
                 f"quant_mode '{quant_mode}' is not supported by the alltoall strategy. "
-                f"Only 'bf16' and 'int8' are supported; use the default strategy for "
-                f"FP8/FP4 modes."
+                f"Only 'bf16','int8','mx_fp8_e4m3','mx_fp8_e5m2','mx_fp4_e2m1' are supported; "
+                f"use the default strategy for FP8/FP4 modes."
             )
         hidden_shape = x.shape
 
-        use_quant = 1 if quant_mode == "int8" else -1
+        use_quant = {
+            "bf16": -1,
+            "int8": 1,
+            "mx_fp8_e4m3": 3,
+            "mx_fp8_e5m2": 2,
+            "mx_fp4_e2m1": 9,
+        }[quant_mode]
+
+        use_quant_type = {
+            "bf16": torch.bfloat16,
+            "int8": torch.int8,
+            "mx_fp8_e4m3": torch.float8_e4m3fn,
+            "mx_fp8_e5m2": torch.float8_e5m2,
+            "mx_fp4_e2m1": torch.float4_e2m1fn_x2,
+        }[quant_mode]
+
         is_quant_env = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT")
         if is_quant_env is not None and quant_mode is None:
             use_quant = 1 if is_quant_env == "1" else -1
 
-        (permutated_tokens, reversed_local_mapping, _, dynamic_scale) = (
+        (permutated_tokens, reversed_local_mapping, _, _) = (
             torch_npu.npu_moe_init_routing_v2(
                 x,
                 topk_idx_int,
-                quant_mode=use_quant,
+                quant_mode=-1,
                 expert_num=num_experts,
                 expert_tokens_num_type=1,
                 expert_tokens_num_flag=True,
@@ -643,13 +653,6 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             )
         )
 
-        if use_quant == 1:
-            _, dynamic_scale_after_all2all, scale_handle = self._async_all_to_all(
-                dynamic_scale, output_splits, input_splits, self.group
-            )
-            scale_handle.wait()
-            dynamic_scale.untyped_storage().resize_(0)
-
         _, global_input_tokens, handle_a2a = self._async_all_to_all(
             permutated_tokens,
             output_splits,
@@ -657,36 +660,16 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             self.group,
         )
         handle_a2a.wait()
-        permutated_tokens.untyped_storage().resize_(0)
 
         if num_local_experts > 1:
             global_tokens_indices = global_tokens_indices.reshape(
                 global_tokens_indices.size(0), 1
             )
-            if use_quant == 1:
-                dynamic_scale_after_all2all = dynamic_scale_after_all2all.reshape(
-                    dynamic_scale_after_all2all.size(0), 1
-                )
-                (dynamic_scale_after_routing, reversed_global_mapping, _, _) = (
-                    torch_npu.npu_moe_init_routing_v2(
-                        dynamic_scale_after_all2all,
-                        global_tokens_indices,
-                        quant_mode=-1,
-                        expert_num=num_local_experts,
-                        expert_tokens_num_type=1,
-                        expert_tokens_num_flag=True,
-                        row_idx_type=0,
-                        active_expert_range=[0, num_local_experts],
-                    )
-                )
-                dynamic_scale_after_routing = dynamic_scale_after_routing.reshape(
-                    dynamic_scale_after_routing.size(0)
-                )
-            (dispatch_out, reversed_global_mapping, _, _) = (
+            (dispatch_out, reversed_global_mapping, _, dynamic_scale_after_routing) = (
                 torch_npu.npu_moe_init_routing_v2(
                     global_input_tokens,
                     global_tokens_indices,
-                    quant_mode=-1,
+                    quant_mode=use_quant,
                     expert_num=num_local_experts,
                     expert_tokens_num_type=1,
                     expert_tokens_num_flag=True,
@@ -713,8 +696,8 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             "num_local_experts": num_local_experts,
         }
         recv_x = (
-            (dispatch_out, dynamic_scale_after_routing)
-            if use_quant == 1
+            (dispatch_out.view(use_quant_type), dynamic_scale_after_routing)
+            if use_quant != -1
             else dispatch_out
         )
 

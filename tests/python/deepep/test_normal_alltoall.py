@@ -14,6 +14,7 @@ from utils import (
     bench,
     calc_diff,
     diagnose_matrix,
+    get_diff_threshold,
     init_dist,
     inplace_unique,
     per_token_cast_back,
@@ -266,7 +267,8 @@ def test_main(
 
         avg_diff = torch.mean(torch.abs(check_x - golden) / golden_nozero).item()
         print(f"{rank=}, {avg_diff=:.5f}, {max_diff=:.5f}, cosine_diff={diff:.5f}")
-        assert diff < 5e-5, f"Assertion diff failed on {rank=}"
+        diff_threshold = get_diff_threshold(quant_type)
+        assert diff < diff_threshold, f"Assertion diff failed on {rank=}"
 
         # For later tuning
         dispatch_bf16_recv_bytes = recv_x.numel() * 2
@@ -282,19 +284,29 @@ def test_main(
         hidden_dim = hidden
         bs = dispatch_bf16_recv_bytes / 2 / hidden_dim
         num_values = bs * hidden_dim
-
+        num_recv_tokens = dispatch_bf16_recv_bytes // (hidden * 2)
+        scale_bytes = 0
         if quant_type == "bf16":
             # No quantization, use original BF16 communication
-            recv_bytes = dispatch_bf16_recv_bytes
+            data_bytes = dispatch_bf16_recv_bytes
         elif quant_type == "int8":
             # INT8 per-token quantization:
             # - Data: num_values * 1 byte (INT8)
             # - Scale: x tokens * 2 bytes each (BF16)
             data_bytes = num_values * 1
             scale_bytes = bs * 2
-            recv_bytes = data_bytes + scale_bytes
+        elif quant_type.startswith("pertoken_fp8"):
+            data_bytes = num_values * 1
+            scale_bytes = num_recv_tokens * 4
+        elif quant_type.startswith("mx_fp8"):
+            data_bytes = num_values * 1
+            scale_bytes = num_recv_tokens * hidden // 32
+        elif quant_type.startswith("mx_fp4"):
+            data_bytes = num_values // 2
+            scale_bytes = num_recv_tokens * hidden // 32
         else:
             raise ValueError(f"Unsupported quant_type: {quant_type}")
+        recv_bytes = data_bytes + scale_bytes
         return recv_bytes
 
     config = deep_ep.Config(24, 8, buffer_size)
@@ -412,7 +424,7 @@ if __name__ == "__main__":
         dest="quant_type",
         type=str,
         default="bf16",
-        help="quant type: bf16, int8",
+        help="quant type: bf16, int8, mx_fp8_e4m3, mx_fp8_e5m2, mx_fp4_e2m1",
     )
     args = parser.parse_args()
 
