@@ -23,13 +23,14 @@
 #include <unordered_map>
 #include <set>
 #include <sstream>
-#include "register/tilingdata_base.h"
+#include "kernel_tiling/kernel_tiling.h"
 #include "tiling/tiling_api.h"
-#include "exe_graph/runtime/tiling_context.h"
+#include "tiling/platform/platform_ascendc.h"
 #include "register/op_def_registry.h"
+#include "register/tilingdata_base.h"
+#include "ge_helper.h"
 #include "../op_kernel/compressor_template_tiling_key.h"
 #include "../op_kernel/compressor_tiling_data.h"
-#include "platform/platform_info.h"
 
 #ifdef ASCENDC_OP_TEST
 #define CMP_EXTERN_C extern "C"
@@ -197,7 +198,6 @@ enum class LayoutType { LAYOUT_BSH, LAYOUT_TH };
 
 enum class TemplateId : uint8_t { NORMAL = 0, EMPTY_X = 1, PERF = 2 };
 
-CMP_EXTERN_C ge::graphStatus TilingCompressor(gert::TilingContext *context);
 struct CompressorBaseShapeInfo {
     uint32_t bSize = 0;     // B
     uint32_t sSize = 0;     // S
@@ -231,7 +231,6 @@ enum class CACHE_MODE : uint8_t { CONTINUOUS = 1, EXPLICIT = 2 };
 struct CompressorContext {
     const char *opName;
     const char *opType;
-    fe::PlatFormInfos *platformInfo;
 
     RequiredParaInfo x;
     RequiredParaInfo wkv;
@@ -270,13 +269,13 @@ public:
     explicit CompressorTiling(CompressorContext *context) : context_(context) {}
     ~CompressorTiling() = default;
 
-    static ge::graphStatus ConvertContext(gert::TilingContext &context, CompressorContext &compressorContext);
+    static ge::graphStatus ConvertContext(sglang::ge_helper::TilingContext &context, CompressorContext &compressorContext);
     ge::graphStatus RunBigKernelTiling(CompressorTilingData *tilingData);
 
 private:
-    static void ConvertRequiredParams(gert::TilingContext &context, CompressorContext &compressorContext);
+    static void ConvertRequiredParams(sglang::ge_helper::TilingContext &context, CompressorContext &compressorContext);
 
-    static void ConvertOptionalParams(gert::TilingContext &context, CompressorContext &compressorContext);
+    static void ConvertOptionalParams(sglang::ge_helper::TilingContext &context, CompressorContext &compressorContext);
     ge::graphStatus GetNpuInfo();
     ge::graphStatus SetBaseInfo();
     ge::graphStatus SetPageAttentionInfo();

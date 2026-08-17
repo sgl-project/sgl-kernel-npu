@@ -69,7 +69,7 @@ template <typename COMP>
 class CompressorKernelPerf
 {
 public:
-    __aicore__ inline CompressorKernelPerf(TPipe *pipe, const optiling::CompressorTilingData *__restrict tilingData)
+    __aicore__ inline CompressorKernelPerf(TPipe *pipe, const __gm__ optiling::CompressorTilingData *__restrict tilingData)
         : pipe_(pipe), tilingData_(tilingData)
     {}
 
@@ -123,7 +123,7 @@ private:
 
     // ==============================TilingData&TPipe==============================
     TPipe *pipe_;
-    const optiling::CompressorTilingData *__restrict tilingData_;
+    const __gm__ optiling::CompressorTilingData *__restrict tilingData_;
     // ===========================Workspace Global Tensor===========================
     GlobalTensor<MM1_OUT_T> mm1KvResGm;
     GlobalTensor<MM1_OUT_T> mm1ScoreResGm;

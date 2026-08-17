@@ -143,6 +143,15 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "str? layout_query=None, str? layout_key=None, "
         "int? sparse_count=None, int? sparse_mode=None) -> Tensor");
 
+    m.def(
+        "compressor(Tensor x, Tensor wkv, Tensor wgate, Tensor! state_cache, "
+        "Tensor ape, Tensor norm_weight, Tensor rope_sin, Tensor rope_cos, "
+        "Tensor? state_block_table=None, Tensor? cu_seqlens=None, Tensor? seqused=None, "
+        "Tensor? start_pos=None, int rope_head_dim=64, int cmp_ratio=4, int coff=1, "
+        "float norm_eps=1e-6, int rotary_mode=1, int cache_mode=1, "
+        "int state_cache_stride_dim0=0) -> Tensor");
+
+    m.def("apply_token_bitmask(Tensor logits, Tensor bitmask, Tensor? indices=None) -> Tensor");
     m.def("triangular_inverse(Tensor x) -> Tensor");
 
     m.def(
@@ -196,6 +205,23 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("sgemmc_expand", TORCH_FN(sglang::npu_kernel::sgemmc_expand));
 
     m.impl("sgemmc_shrink", TORCH_FN(sglang::npu_kernel::sgemmc_shrink));
+
+    m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
+
+#ifdef BUILD_CATLASS_MODULE
+    m.impl("catlass_matmul_basic", TORCH_FN(sglang::npu_kernel::catlass_matmul_basic));
+
+    m.impl("softfp8_w8a16_matmul", TORCH_FN(sglang::npu_kernel::softfp8_w8a16_matmul));
+
+    m.impl("softfp8_w8a16_grouped_matmul", TORCH_FN(sglang::npu_kernel::softfp8_w8a16_grouped_matmul));
+#endif
+
+    m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
+
+    m.impl("compressor", TORCH_FN(sglang::npu_kernel::compressor));
+
+    m.impl("triangular_inverse", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
+
     m.impl("apply_token_bitmask", [](at::Tensor logits, at::Tensor bitmask, const c10::optional<at::Tensor> &indices) {
         auto indices_or_empty = indices.has_value() ? *indices : at::empty({0}, logits.options().dtype(at::kInt));
         return sglang::npu_kernel::apply_token_bitmask(logits, bitmask, indices_or_empty);

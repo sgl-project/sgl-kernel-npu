@@ -9,43 +9,25 @@
  */
 
 /*!
- * \file COMPRESSOR_template_tiling_key.h
- * \brief
+ * \file compressor_template_tiling_key.h
+ * \brief manual tiling-key encoding for the Compressor op (ge_helper / direct-launch).
  */
 
 #ifndef COMPRESSOR_TEMPLATE_TILING_KEY_H
 #define COMPRESSOR_TEMPLATE_TILING_KEY_H
 
-#include "ascendc/host_api/tiling/template_argument.h"
+#include <cstdint>
 
-#define ASCENDC_TPL_1_BW 1  // 每个参数占用1个bit位
-#define ASCENDC_TPL_2_BW 2  // 每个参数占用2个bit位
-#define ASCENDC_TPL_4_BW 4  // 每个参数占用4个bit位
-
-// 可表示的tilingkey范围为64bit，注意不可超过限制
-ASCENDC_TPL_ARGS_DECL(compressor,  // 算子唯一标识，与opType保持一致
-                                   // 可能需要切分之后的headdim
-                                   // bit:0 LAYOUT 0:BSH 1:TH
-                      ASCENDC_TPL_UINT_DECL(X_LAYOUT, ASCENDC_TPL_1_BW, ASCENDC_TPL_UI_LIST, 0, 1),
-                      // bit:1-4 x的dtype  0:BF16 1:FP16
-                      ASCENDC_TPL_UINT_DECL(X_DTYPE, ASCENDC_TPL_4_BW, ASCENDC_TPL_UI_LIST, 0, 1),
-                      // bit:5-6  coff 1:无需overlap 2:需要overlap
-                      ASCENDC_TPL_UINT_DECL(COFF, ASCENDC_TPL_2_BW, ASCENDC_TPL_UI_LIST, 1, 2),
-                      // bit:7-8  rotary_mode 1:half 2:interleave
-                      ASCENDC_TPL_UINT_DECL(ROTARY_MODE, ASCENDC_TPL_2_BW, ASCENDC_TPL_UI_LIST, 1, 2),
-                      // bit:9-10  cache_mode 1:CONTINUOUS 2:cycle
-                      ASCENDC_TPL_UINT_DECL(CACHE_MODE, ASCENDC_TPL_2_BW, ASCENDC_TPL_UI_LIST, 1, 2),
-                      // bit:11-12  template_id 0:empty_tensor 1:normal 2:full load
-                      ASCENDC_TPL_UINT_DECL(TEMPLATE_ID, ASCENDC_TPL_2_BW, ASCENDC_TPL_UI_LIST, 0, 1, 2), );
-
-ASCENDC_TPL_SEL(
-
-    ASCENDC_TPL_ARGS_SEL(ASCENDC_TPL_UINT_SEL(X_LAYOUT, ASCENDC_TPL_UI_LIST, 0, 1),
-                         ASCENDC_TPL_UINT_SEL(X_DTYPE, ASCENDC_TPL_UI_LIST, 0, 1),
-                         ASCENDC_TPL_UINT_SEL(COFF, ASCENDC_TPL_UI_LIST, 1, 2),
-                         ASCENDC_TPL_UINT_SEL(ROTARY_MODE, ASCENDC_TPL_UI_LIST, 1, 2),
-                         ASCENDC_TPL_UINT_SEL(CACHE_MODE, ASCENDC_TPL_UI_LIST, 1, 2),
-                         ASCENDC_TPL_UINT_SEL(TEMPLATE_ID, ASCENDC_TPL_UI_LIST, 0, 1, 2),
-                         ASCENDC_TPL_TILING_STRUCT_SEL(optiling::CompressorTilingData)), );
+// tilingKey bit layout (kept identical to the original ASCENDC_TPL_ARGS_DECL):
+//   bit0      : X_LAYOUT    (0=BSH, 1=TH)
+//   bit1-4    : X_DTYPE     (0=BF16, 1=FP16)
+//   bit5-6    : COFF        (1, 2)
+//   bit7-8    : ROTARY_MODE (1, 2)
+//   bit9-10   : CACHE_MODE  (1, 2)
+//   bit11-12  : TEMPLATE_ID (0=NORMAL, 1=EMPTY_X, 2=PERF)
+#define GET_TPL_TILING_KEY(layout, dtype, coff, rotaryMode, cacheMode, templateId)                                \
+    (static_cast<uint64_t>(layout) | (static_cast<uint64_t>(dtype) << 1) | (static_cast<uint64_t>(coff) << 5) |    \
+     (static_cast<uint64_t>(rotaryMode) << 7) | (static_cast<uint64_t>(cacheMode) << 9) |                          \
+     (static_cast<uint64_t>(templateId) << 11))
 
 #endif  // COMPRESSOR_TEMPLATE_TILING_KEY_H

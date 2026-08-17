@@ -33,24 +33,24 @@ using namespace ge;
 using namespace AscendC;
 namespace optiling {
 
-void CompressorTiling::ConvertRequiredParams(gert::TilingContext &context, CompressorContext &compressorContext)
+void CompressorTiling::ConvertRequiredParams(sglang::ge_helper::TilingContext &context, CompressorContext &compressorContext)
 {
-    compressorContext.x.desc = context.GetRequiredInputDesc(TOKEN_X_INPUT_INDEX);
-    compressorContext.x.shape = context.GetRequiredInputShape(TOKEN_X_INPUT_INDEX);
-    compressorContext.wkv.desc = context.GetRequiredInputDesc(WEIGHT_KV_INPUT_INDEX);
-    compressorContext.wkv.shape = context.GetRequiredInputShape(WEIGHT_KV_INPUT_INDEX);
-    compressorContext.wgate.desc = context.GetRequiredInputDesc(WEIGHT_WGATE_INPUT_INDEX);
-    compressorContext.wgate.shape = context.GetRequiredInputShape(WEIGHT_WGATE_INPUT_INDEX);
-    compressorContext.stateCache.desc = context.GetRequiredInputDesc(STATE_CACHE_INPUT_INDEX);
-    compressorContext.stateCache.shape = context.GetRequiredInputShape(STATE_CACHE_INPUT_INDEX);
-    compressorContext.ape.desc = context.GetRequiredInputDesc(APE_INPUT_INDEX);
-    compressorContext.ape.shape = context.GetRequiredInputShape(APE_INPUT_INDEX);
-    compressorContext.normWeight.desc = context.GetRequiredInputDesc(NORM_WEIGHT_INPUT_INDEX);
-    compressorContext.normWeight.shape = context.GetRequiredInputShape(NORM_WEIGHT_INPUT_INDEX);
-    compressorContext.ropeSin.desc = context.GetRequiredInputDesc(ROPE_SIN_INPUT_INDEX);
-    compressorContext.ropeSin.shape = context.GetRequiredInputShape(ROPE_SIN_INPUT_INDEX);
-    compressorContext.ropeCos.desc = context.GetRequiredInputDesc(ROPE_COS_INPUT_INDEX);
-    compressorContext.ropeCos.shape = context.GetRequiredInputShape(ROPE_COS_INPUT_INDEX);
+    compressorContext.x.desc = context.GetInputDesc(TOKEN_X_INPUT_INDEX);
+    compressorContext.x.shape = context.GetInputShape(TOKEN_X_INPUT_INDEX);
+    compressorContext.wkv.desc = context.GetInputDesc(WEIGHT_KV_INPUT_INDEX);
+    compressorContext.wkv.shape = context.GetInputShape(WEIGHT_KV_INPUT_INDEX);
+    compressorContext.wgate.desc = context.GetInputDesc(WEIGHT_WGATE_INPUT_INDEX);
+    compressorContext.wgate.shape = context.GetInputShape(WEIGHT_WGATE_INPUT_INDEX);
+    compressorContext.stateCache.desc = context.GetInputDesc(STATE_CACHE_INPUT_INDEX);
+    compressorContext.stateCache.shape = context.GetInputShape(STATE_CACHE_INPUT_INDEX);
+    compressorContext.ape.desc = context.GetInputDesc(APE_INPUT_INDEX);
+    compressorContext.ape.shape = context.GetInputShape(APE_INPUT_INDEX);
+    compressorContext.normWeight.desc = context.GetInputDesc(NORM_WEIGHT_INPUT_INDEX);
+    compressorContext.normWeight.shape = context.GetInputShape(NORM_WEIGHT_INPUT_INDEX);
+    compressorContext.ropeSin.desc = context.GetInputDesc(ROPE_SIN_INPUT_INDEX);
+    compressorContext.ropeSin.shape = context.GetInputShape(ROPE_SIN_INPUT_INDEX);
+    compressorContext.ropeCos.desc = context.GetInputDesc(ROPE_COS_INPUT_INDEX);
+    compressorContext.ropeCos.shape = context.GetInputShape(ROPE_COS_INPUT_INDEX);
 
     compressorContext.cmpKv.desc = context.GetOutputDesc(CMP_KV_OUTPUT_INDEX);
     compressorContext.cmpKv.shape = context.GetOutputShape(CMP_KV_OUTPUT_INDEX);
@@ -64,7 +64,7 @@ void CompressorTiling::ConvertRequiredParams(gert::TilingContext &context, Compr
     }
 }
 
-void CompressorTiling::ConvertOptionalParams(gert::TilingContext &context, CompressorContext &compressorContext)
+void CompressorTiling::ConvertOptionalParams(sglang::ge_helper::TilingContext &context, CompressorContext &compressorContext)
 {
     compressorContext.stateBlockTable.desc = context.GetOptionalInputDesc(STATE_BLOCK_TABLE_INPUT_INDEX);
     compressorContext.stateBlockTable.shape = context.GetOptionalInputShape(STATE_BLOCK_TABLE_INPUT_INDEX);
@@ -76,7 +76,7 @@ void CompressorTiling::ConvertOptionalParams(gert::TilingContext &context, Compr
     compressorContext.startPos.shape = context.GetOptionalInputShape(START_POS_INPUT_INDEX);
 }
 
-ge::graphStatus CompressorTiling::ConvertContext(gert::TilingContext &context, CompressorContext &compressorContext)
+ge::graphStatus CompressorTiling::ConvertContext(sglang::ge_helper::TilingContext &context, CompressorContext &compressorContext)
 {
     if (context.GetNodeName() == nullptr) {
         OP_LOGE("Compressor", "opName got from TilingContext is nullptr");
@@ -86,9 +86,8 @@ ge::graphStatus CompressorTiling::ConvertContext(gert::TilingContext &context, C
     OP_LOGI("Getting Context");
 
     compressorContext.opName = context.GetNodeName();
-    compressorContext.opType = context.GetNodeType();
-    compressorContext.platformInfo = context.GetPlatformInfo();
-    ConvertRequiredParams(context, compressorContext);
+    compressorContext.opType = context.GetNodeName();
+        ConvertRequiredParams(context, compressorContext);
     ConvertOptionalParams(context, compressorContext);
 
     auto attrs = context.GetAttrs();
@@ -111,10 +110,7 @@ ge::graphStatus CompressorTiling::ConvertContext(gert::TilingContext &context, C
 
 ge::graphStatus CompressorTiling::GetNpuInfo()
 {
-    OP_CHECK_IF(context_->platformInfo == nullptr,
-                OPS_REPORT_VECTOR_INNER_ERR(context_->opName, "GetPlatformInfo is nullptr."), return ge::GRAPH_FAILED);
-
-    auto ascendcPlatform = platform_ascendc::PlatformAscendC(context_->platformInfo);
+    auto ascendcPlatform = *platform_ascendc::PlatformAscendCManager::GetInstance();
     socVersion_ = ascendcPlatform.GetSocVersion();
 
     libapiSize_ = ascendcPlatform.GetLibApiWorkSpaceSize();
@@ -994,39 +990,4 @@ ge::graphStatus CompressorTiling::CheckMultiParaConsistency() const
 #endif
     return ge::GRAPH_SUCCESS;
 }
-
-CMP_EXTERN_C ge::graphStatus TilingCompressor(gert::TilingContext *context)
-{
-    OP_CHECK_IF(context == nullptr, OPS_REPORT_VECTOR_INNER_ERR("Compressor", "Context is nullptr."),
-                return ge::GRAPH_FAILED);
-
-    OP_LOGI("Getting Tiling");
-
-    CompressorContext compressorContext{};
-    if (CompressorTiling::ConvertContext(*context, compressorContext) != ge::GRAPH_SUCCESS) {
-        OP_LOGE(context->GetNodeName(), "Error occurred while converting tilingContext to Compressor context");
-        return ge::GRAPH_FAILED;
-    }
-    CompressorTiling compressorTiling(&compressorContext);
-    CompressorTilingData *tilingData = context->GetTilingData<CompressorTilingData>();
-    OP_CHECK_IF(tilingData == nullptr, OPS_REPORT_VECTOR_INNER_ERR(compressorContext.opName, "TilingData is nullptr."),
-                return ge::GRAPH_FAILED);
-    // 使用SyncAll，需要设置为batchmode模式，所有核同时启动，否则多流方式下执行可能会卡死
-    context->SetScheduleMode(BATCH_MODE_SCHEDULE);
-    if (compressorTiling.RunBigKernelTiling(tilingData) != ge::GRAPH_SUCCESS) {
-        return ge::GRAPH_FAILED;
-    }
-    context->SetTilingKey(compressorContext.tilingKey);
-    context->SetBlockDim(compressorContext.blockDim);
-    OP_LOGI(compressorContext.opName, "block dim: %u.", compressorContext.blockDim);
-    return ge::GRAPH_SUCCESS;
-}
-
-ge::graphStatus TilingPrepareForCompressor(gert::TilingParseContext *context)
-{
-    (void)context;
-    return ge::GRAPH_SUCCESS;
-}
-
-IMPL_OP_OPTILING(Compressor).Tiling(TilingCompressor).TilingParse<CompressorCompileInfo>(TilingPrepareForCompressor);
 }  // namespace optiling

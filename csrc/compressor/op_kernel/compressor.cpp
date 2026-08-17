@@ -10,11 +10,39 @@
 
 /*!
  * \file compressor.cpp
- * \brief
+ * \brief single named kernel entry for the Compressor op (ge_helper / direct-launch).
  */
+
+// EVENT_ID constants used by the cube kernel. In the top-level ge_helper build
+// these are not provided by the msopgen toolchain, so define them here.
+#ifndef EVENT_ID0
+#define EVENT_ID0 0
+#endif
+#ifndef EVENT_ID1
+#define EVENT_ID1 1
+#endif
+#ifndef EVENT_ID2
+#define EVENT_ID2 2
+#endif
+#ifndef EVENT_ID3
+#define EVENT_ID3 3
+#endif
+#ifndef EVENT_ID4
+#define EVENT_ID4 4
+#endif
+#ifndef EVENT_ID5
+#define EVENT_ID5 5
+#endif
+#ifndef EVENT_ID6
+#define EVENT_ID6 6
+#endif
+#ifndef EVENT_ID7
+#define EVENT_ID7 7
+#endif
 
 #include "compressor_kernel.h"
 #include "compressor_kernel_perf.h"
+#include "compressor_template_tiling_key.h"
 
 using namespace Compressor;
 
@@ -26,30 +54,50 @@ using namespace Compressor;
         op.Process();                                                                                              \
     } while (0)
 
-template <uint8_t XLayout, uint8_t XDType, uint8_t Coff, uint8_t RotaryMode, uint8_t CacheMode, uint8_t TemplateId>
-__global__ __aicore__ void compressor(__gm__ uint8_t *x, __gm__ uint8_t *wKv, __gm__ uint8_t *wGate,
-                                      __gm__ uint8_t *stateCache, __gm__ uint8_t *ape, __gm__ uint8_t *normWeight,
-                                      __gm__ uint8_t *ropeSin, __gm__ uint8_t *ropeCos, __gm__ uint8_t *stateBlockTable,
-                                      __gm__ uint8_t *cuSeqlens, __gm__ uint8_t *seqUsed, __gm__ uint8_t *startPos,
-                                      __gm__ uint8_t *cmpKvOut, __gm__ uint8_t *stateCacheOut,
-                                      __gm__ uint8_t *workspace, __gm__ uint8_t *tiling)
+#define LAUNCH_COMPRESSOR_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL)                                \
+    case GET_TPL_TILING_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL, 2):                               \
+        INVOKE_COMPRESSOR_GENERAL_OP_IMPL(CompressorKernelPerf, static_cast<X_LAYOUT>(LAYOUT_BIT),                  \
+                                          static_cast<X_DTYPE>(DTYPE_BIT), static_cast<COFF>(COFF_VAL),             \
+                                          static_cast<ROTARY_MODE>(ROT_VAL), static_cast<CACHE_MODE>(CACHE_VAL));   \
+        break;
+
+extern "C" __global__ __aicore__ void compressor(GM_ADDR x, GM_ADDR wKv, GM_ADDR wGate, GM_ADDR stateCache,
+                                                 GM_ADDR ape, GM_ADDR normWeight, GM_ADDR ropeSin, GM_ADDR ropeCos,
+                                                 GM_ADDR stateBlockTable, GM_ADDR cuSeqlens, GM_ADDR seqUsed,
+                                                 GM_ADDR startPos, GM_ADDR cmpKvOut, GM_ADDR stateCacheOut,
+                                                 GM_ADDR workspace, GM_ADDR tiling)
 {
-    REGISTER_TILING_DEFAULT(optiling::CompressorTilingData);
+    AscendC::TPipe pipe;
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
-    GET_TILING_DATA_WITH_STRUCT(optiling::CompressorTilingData, tilingDataIn, tiling);
-    if constexpr (static_cast<TEMPLATE_ID>(TemplateId) == TEMPLATE_ID::EMPTY_X) {
+    auto tilingData = reinterpret_cast<__gm__ optiling::CompressorTilingData *>(tiling);
+    uint64_t key = tilingData->tilingKey;
+    // TEMPLATE_ID bits 11-12: 1 = EMPTY_X (nothing to do)
+    if (((key >> 11) & 0x3) == 1) {
         return;
     }
-    const optiling::CompressorTilingData *__restrict tilingData = &tilingDataIn;
-    TPipe pipe;
-    constexpr auto xLayout = static_cast<X_LAYOUT>(XLayout);
-    constexpr auto xDtype = static_cast<X_DTYPE>(XDType);
-    constexpr auto coff = static_cast<COFF>(Coff);
-    constexpr auto rotaryMode = static_cast<ROTARY_MODE>(RotaryMode);
-    constexpr auto cacheMode = static_cast<CACHE_MODE>(CacheMode);
-    if constexpr (static_cast<TEMPLATE_ID>(TemplateId) == TEMPLATE_ID::PERF) {
-        INVOKE_COMPRESSOR_GENERAL_OP_IMPL(CompressorKernelPerf, xLayout, xDtype, coff, rotaryMode, cacheMode);
-    } else {
-        INVOKE_COMPRESSOR_GENERAL_OP_IMPL(CompressorKernel, xLayout, xDtype, coff, rotaryMode, cacheMode);
+    switch (key) {
+        // TH layout (layout bit = 1)
+        LAUNCH_COMPRESSOR_KEY(1, 0, 1, 2, 2)  // TH bf16 coff1 rot2 cache2
+        LAUNCH_COMPRESSOR_KEY(1, 0, 2, 2, 2)  // TH bf16 coff2 rot2 cache2
+        LAUNCH_COMPRESSOR_KEY(1, 0, 1, 2, 1)  // TH bf16 coff1 rot2 cache1
+        LAUNCH_COMPRESSOR_KEY(1, 0, 2, 2, 1)  // TH bf16 coff2 rot2 cache1
+        LAUNCH_COMPRESSOR_KEY(1, 1, 1, 2, 1)  // TH fp16 coff1 rot2 cache1
+        LAUNCH_COMPRESSOR_KEY(1, 1, 2, 2, 1)  // TH fp16 coff2 rot2 cache1
+        LAUNCH_COMPRESSOR_KEY(1, 1, 1, 2, 2)  // TH fp16 coff1 rot2 cache2
+        LAUNCH_COMPRESSOR_KEY(1, 1, 2, 2, 2)  // TH fp16 coff2 rot2 cache2
+        // BSH layout (layout bit = 0)
+        LAUNCH_COMPRESSOR_KEY(0, 0, 1, 2, 1)  // BSH bf16 coff1 rot2 cache1
+        LAUNCH_COMPRESSOR_KEY(0, 0, 2, 2, 1)  // BSH bf16 coff2 rot2 cache1
+        LAUNCH_COMPRESSOR_KEY(0, 0, 1, 2, 2)  // BSH bf16 coff1 rot2 cache2
+        LAUNCH_COMPRESSOR_KEY(0, 0, 2, 2, 2)  // BSH bf16 coff2 rot2 cache2
+        LAUNCH_COMPRESSOR_KEY(0, 1, 1, 2, 1)  // BSH fp16 coff1 rot2 cache1
+        LAUNCH_COMPRESSOR_KEY(0, 1, 2, 2, 1)  // BSH fp16 coff2 rot2 cache1
+        LAUNCH_COMPRESSOR_KEY(0, 1, 1, 2, 2)  // BSH fp16 coff1 rot2 cache2
+        LAUNCH_COMPRESSOR_KEY(0, 1, 2, 2, 2)  // BSH fp16 coff2 rot2 cache2
+        default:
+            break;
     }
 }
+
+#undef LAUNCH_COMPRESSOR_KEY
+#undef INVOKE_COMPRESSOR_GENERAL_OP_IMPL

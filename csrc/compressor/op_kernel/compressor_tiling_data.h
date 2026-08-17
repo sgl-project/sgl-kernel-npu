@@ -63,6 +63,7 @@ struct CompressorTilingData {
     CompressorPageAttentionParams pageAttentionParams;
     CompressorInnerSplitParams innerSplitParams;
     CompressorWorkspaceParams workspaceParams;
+    uint64_t tilingKey = 0;
 };
 }  // namespace optiling
 
