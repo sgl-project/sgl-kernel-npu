@@ -1084,6 +1084,7 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
     EP_HOST_ASSERT(expert_ids.sizes() == expert_scales_optional.sizes());
     EP_HOST_ASSERT_S(quant_mode == FUSED_DEEP_MOE_NO_QUANT || quant_mode == FUSED_DEEP_MOE_INT8_QUANT,
                      "fused_deep_moe only supports quant_mode 0 (BF16) or 1 (INT8), got ", quant_mode);
+    const int64_t quant_mode_i64 = static_cast<int64_t>(quant_mode);
 
     char hcom_ep_name[128];
     if (!moe_all_to_all_group_name.empty()) {
@@ -1149,7 +1150,7 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
                          static_cast<const std::nullptr_t &>(nullptr), static_cast<const std::nullptr_t &>(nullptr),
                          static_cast<const std::nullptr_t &>(nullptr), static_cast<const std::nullptr_t &>(nullptr),
                          static_cast<const std::nullptr_t &>(nullptr), static_cast<const std::nullptr_t &>(nullptr),
-                         x_active_mask, *profile_buffer_ptr, hcom_ep_name, num_ranks, rank, num_experts, quant_mode,
+                         x_active_mask, *profile_buffer_ptr, hcom_ep_name, num_ranks, rank, num_experts, quant_mode_i64,
                          global_bs, profile_enable_i64, profile_buffer_bytes_i64, profile_launch_id_i64, output,
                          share_output, expert_token_nums);
         } else {
@@ -1159,7 +1160,7 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
                          static_cast<const std::nullptr_t &>(nullptr), static_cast<const std::nullptr_t &>(nullptr),
                          static_cast<const std::nullptr_t &>(nullptr), static_cast<const std::nullptr_t &>(nullptr),
                          static_cast<const std::nullptr_t &>(nullptr), *profile_buffer_ptr, hcom_ep_name, num_ranks,
-                         rank, num_experts, quant_mode, global_bs, profile_enable_i64, profile_buffer_bytes_i64,
+                         rank, num_experts, quant_mode_i64, global_bs, profile_enable_i64, profile_buffer_bytes_i64,
                          profile_launch_id_i64, output, share_output, expert_token_nums);
         }
         profiling::fused_deep_moe_a5::CompleteLaunch(profile_ctx, rank);
@@ -1171,7 +1172,7 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
                          static_cast<const std::nullptr_t &>(nullptr), static_cast<const std::nullptr_t &>(nullptr),
                          static_cast<const std::nullptr_t &>(nullptr), static_cast<const std::nullptr_t &>(nullptr),
                          x_active_mask, static_cast<const std::nullptr_t &>(nullptr), hcom_ep_name, num_ranks, rank,
-                         num_experts, quant_mode, global_bs, profile_enable_i64, profile_buffer_bytes_i64,
+                         num_experts, quant_mode_i64, global_bs, profile_enable_i64, profile_buffer_bytes_i64,
                          profile_launch_id_i64, output, share_output, expert_token_nums);
         } else {
             EXEC_NPU_CMD(aclnnFusedDeepMoe, x_padded, expert_ids_padded, gmm1_weight_list, gmm1_scale_list,
@@ -1180,7 +1181,7 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
                          static_cast<const std::nullptr_t &>(nullptr), static_cast<const std::nullptr_t &>(nullptr),
                          static_cast<const std::nullptr_t &>(nullptr), static_cast<const std::nullptr_t &>(nullptr),
                          static_cast<const std::nullptr_t &>(nullptr), static_cast<const std::nullptr_t &>(nullptr),
-                         hcom_ep_name, num_ranks, rank, num_experts, quant_mode, global_bs, profile_enable_i64,
+                         hcom_ep_name, num_ranks, rank, num_experts, quant_mode_i64, global_bs, profile_enable_i64,
                          profile_buffer_bytes_i64, profile_launch_id_i64, output, share_output, expert_token_nums);
         }
     }
@@ -1205,7 +1206,7 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
                  x, expert_ids, gmm1_permuted_weight, gmm1_permuted_weight_scale_f32, gmm2_weight,
                  gmm2_weight_scale_f32, static_cast<const std::nullptr_t &>(nullptr), expert_scales_optional,
                  // attr
-                 hcom_ep_name, num_ranks, rank, num_experts, shared_expert_num, shared_expert_rank_num, quant_mode,
+                 hcom_ep_name, num_ranks, rank, num_experts, shared_expert_num, shared_expert_rank_num, quant_mode_i64,
                  global_bs,
                  // output
                  output, ep_recv_count);
