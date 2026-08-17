@@ -121,9 +121,6 @@ jobs:
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
             bash scripts/prepare_deepep_in_container.sh
           fi
-      - name: Set CANN 9.0.0 env
-        if: matrix.cann_version == '9.0.0'
-        run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
       - name: Run test intranode
         timeout-minutes: 10
         env:
@@ -354,9 +351,6 @@ jobs:
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
             bash scripts/prepare_deepep_in_container.sh
           fi
-      - name: Set CANN 9.0.0 env
-        if: matrix.cann_version == '9.0.0'
-        run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
       - name: Run test base fused deep moe
         timeout-minutes: 10
         env:
@@ -557,9 +551,6 @@ jobs:
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
             bash scripts/prepare_deepep_in_container.sh -a deepep2
           fi
-      - name: Set CANN 9.0.0 env
-        if: matrix.cann_version == '9.0.0'
-        run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
       - name: Run test intranode
         timeout-minutes: 10
         env:
