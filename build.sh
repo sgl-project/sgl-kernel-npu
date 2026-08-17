@@ -33,7 +33,7 @@ function die()
 function print_help()
 {
     cat <<'EOF'
-Usage:
+Usage: 
     ./build.sh                                  Build all modules for A3.
     ./build.sh -a deepep [SOC_VERSION]          Build deep_ep; auto-detect A2, A3, or A5.
     ./build.sh -a deepep2 [SOC_VERSION]         Build deep_ep for A2 (compatible alias).
