@@ -5,6 +5,8 @@ from functools import lru_cache, wraps
 import torch
 import torch_npu
 
+from . import attentions as attentions
+
 
 def _load_sgl_kernel_npu():
     npu_path = pathlib.Path(__file__).parents[0]

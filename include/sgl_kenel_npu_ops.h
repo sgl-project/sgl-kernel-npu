@@ -155,6 +155,13 @@ at::Tensor lightning_indexer(
     c10::optional<c10::string_view> layout_key,
     c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode);
 
+std::tuple<at::Tensor, at::Tensor> laser_attn(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+    const c10::optional<at::Tensor> &atten_mask, const c10::optional<at::Tensor> &alibi_mask,
+    const c10::optional<at::Tensor> &drop_mask, double scale_value, int64_t head_num,
+    const std::string &input_layout, double keep_prob, int64_t pre_tokens, int64_t next_tokens,
+    bool is_highPrecision);
+
 /**
  * @brief Triangular inverse of input tensor where last two dimensions represent
  * a matrix.

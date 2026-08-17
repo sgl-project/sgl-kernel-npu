@@ -12,7 +12,6 @@
 
 #include <torch/library.h>
 
-#include "la.h"
 #include "rainfusionattention.h"
 #include "ada_block_sparse_attention.h"
 #include "sparse_block_estimate.h"
@@ -20,12 +19,6 @@
 
 TORCH_LIBRARY(attentions, m)
 {
-    m.def(
-        "la(Tensor query, Tensor key, Tensor value, \
-        Tensor? atten_mask=None, Tensor? alibi_mask=None, Tensor? \
-        drop_mask=None, float scale_value=1.0, int head_num=2, str input_layout='BNSD', \
-        float keep_prob=1.0, int pre_tokens=2147483647, int next_tokens=1, \
-        bool is_highPrecision=True)  -> (Tensor, Tensor)");
     m.def(
         "rainfusionattention(Tensor query, Tensor key, Tensor value, Tensor select_idx, \
         Tensor select_num_idx, int[] blockshape, Tensor? attn_mask=None, int[]? actual_seq_qlen=None, \
@@ -55,7 +48,6 @@ TORCH_LIBRARY(attentions, m)
 
 TORCH_LIBRARY_IMPL(attentions, PrivateUse1, m)
 {
-    m.impl("la", &la);
     m.impl("rainfusionattention", &rainfusionattention);
     m.impl("ada_block_sparse_attention", &ada_block_sparse_attention);
     m.impl("sparse_block_estimate", &sparse_block_estimate);

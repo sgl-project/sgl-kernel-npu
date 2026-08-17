@@ -44,7 +44,6 @@ include_directories(
 
 add_library(PTAExtensionOPS SHARED
     ./plugin/register_ops.cpp
-    ./plugin/la.cpp
     ./plugin/find_op_path.cpp
     ./plugin/rainfusionattention.cpp
     ./plugin/ada_block_sparse_attention.cpp

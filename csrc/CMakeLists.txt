@@ -24,6 +24,7 @@ FILE(GLOB OP_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_host/tiling/sgemmc_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/lightning_indexer.cpp
     ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/tiling/lightning_indexer_tiling.cpp
+    ${PROJECT_OP_SRC_BASE}/laser_attention/op_host/laser_attention.cpp
     ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/causal_conv1d_update.cpp
     ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_host/recurrent_gated_delta_rule.cpp
@@ -114,6 +115,24 @@ ascendc_compile_definitions(workspace_kernel PRIVATE
        -DHAVE_TILING
 )
 
+ascendc_library(laser_attention_kernel STATIC
+    ${PROJECT_OP_SRC_BASE}/laser_attention/op_kernel/laser_attention.cpp
+)
+ascendc_include_directories(laser_attention_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/laser_attention/op_kernel
+    ${PROJECT_OP_SRC_BASE}/laser_attention/op_host/tiling
+)
+ascendc_compile_definitions(laser_attention_kernel PRIVATE
+    -DHAVE_WORKSPACE
+    -DHAVE_TILING
+)
+ascendc_compile_options(laser_attention_kernel PRIVATE
+    --cce-auto-sync=off
+    -Wno-deprecated-declarations
+    -Werror
+    -fpermissive
+)
+
 set(MEGA_CHUNK_GDN_KERNEL_TARGETS)
 set(MEGA_CHUNK_GDN_KERNEL_TARGETS mega_chunk_gdn_kernel)
 ascendc_library(mega_chunk_gdn_kernel STATIC
@@ -137,6 +156,7 @@ add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${MEGA_CHUNK_GDN_KERNEL_TARGETS}
+        laser_attention_kernel
         workspace_kernel
         no_workspace_kernel
         torch_npu
@@ -161,6 +181,7 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/stub
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host
+        ${PROJECT_OP_SRC_BASE}/laser_attention/op_host/tiling
         ${TORCH_DIR}/include
         ${TORCH_DIR}/include/torch/csrc/api/include
         ${TORCH_NPU_DIR}/include

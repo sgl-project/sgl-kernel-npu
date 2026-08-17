@@ -134,6 +134,13 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "str? layout_query=None, str? layout_key=None, "
         "int? sparse_count=None, int? sparse_mode=None) -> Tensor");
 
+    m.def(
+        "laser_attn(Tensor query, Tensor key, Tensor value, "
+        "Tensor? atten_mask=None, Tensor? alibi_mask=None, Tensor? drop_mask=None, "
+        "float scale_value=1.0, int head_num=2, str input_layout='BNSD', "
+        "float keep_prob=1.0, int pre_tokens=2147483647, int next_tokens=1, "
+        "bool is_highPrecision=True) -> (Tensor, Tensor)");
+
     m.def("apply_token_bitmask(Tensor logits, Tensor bitmask, Tensor? indices=None) -> Tensor");
     m.def("triangular_inverse(Tensor x) -> Tensor");
 
@@ -200,6 +207,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 #endif
 
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
+
+    m.impl("laser_attn", TORCH_FN(sglang::npu_kernel::laser_attn));
 
     m.impl("triangular_inverse", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
 

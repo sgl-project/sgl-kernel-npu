@@ -13,19 +13,16 @@
 #include "lib/matmul_intf.h"
 #include "CubeForward.h"
 #include "VectorForward.h"
+#include "laser_attention_tiling.h"
 
 using namespace AscendC;
 
-extern "C" __global__ __aicore__ void
-laser_attention(__gm__ uint8_t *__restrict__ q_gm, __gm__ uint8_t *__restrict__ k_gm, __gm__ uint8_t *__restrict__ v_gm,
-                __gm__ uint8_t *__restrict__ atten_mask_gm,
-                __gm__ uint8_t *__restrict__ alibi_mask_gm,  // ???
-                __gm__ uint8_t *__restrict__ drop_mask_gm,   // ？？？
-                __gm__ uint8_t *__restrict__ softmax_log_max_sum_gm, __gm__ uint8_t *__restrict__ attention_out_gm,
-                __gm__ uint8_t *__restrict__ workspace, __gm__ uint8_t *__restrict__ tiling_para_gm)
+extern "C" __global__ __aicore__ void laser_attention(
+    GM_ADDR q_gm, GM_ADDR k_gm, GM_ADDR v_gm, GM_ADDR atten_mask_gm, GM_ADDR alibi_mask_gm, GM_ADDR drop_mask_gm,
+    GM_ADDR softmax_log_max_sum_gm, GM_ADDR attention_out_gm, GM_ADDR workspace, GM_ADDR tiling_para_gm)
 {
-    GET_TILING_DATA(tiling_data_in, tiling_para_gm);
-    const LaserAttentionTilingData *__restrict tiling_data = &tiling_data_in;
+    KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
+    const auto tiling_data = reinterpret_cast<__gm__ sglang::npu_kernel::LaserAttentionTilingData *>(tiling_para_gm);
     SetSysWorkspace(workspace);
     __gm__ uint8_t *user = GetUserWorkspace(workspace);
 
@@ -40,7 +37,6 @@ laser_attention(__gm__ uint8_t *__restrict__ q_gm, __gm__ uint8_t *__restrict__ 
     int32_t qkTriangle = tiling_data->isTriangle;  // 需要换成bool值
     int32_t sparseMode = tiling_data->sparseMode;  // sparseMode: 0:dense, 1:sparse
     int32_t windowLen = tiling_data->windowLen;    // sparse场景下，滑动窗口的长度
-    bool isHighPrecision = true;
     int32_t maskSeqLength = tiling_data->maskSeqLength;  // attention mask 的 length
     float scale = tiling_data->scale;
     auto aicNum = y * f;

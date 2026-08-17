@@ -73,7 +73,7 @@ if __name__ == "__main__":
         name="attentions",
         version=0.2,
         author="???",
-        description="build wheel for laser attention",
+        description="build wheel for sparse attention kernels",
         setup_requires=[],
         install_requires=requirements,
         zip_safe=False,
