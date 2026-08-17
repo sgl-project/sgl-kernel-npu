@@ -289,12 +289,16 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     } else {
         HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
     }
-    at::Tensor total_recv_token = torch::empty({1}, at::dtype(at::kInt).device(x.device()));
+    // 将 max_bs / total_recv_token / recv_tokens_per_expert 合并进同一块连续 buffer，
+    // 布局 [max_bs, total_recv_token, recv_tokens_per_expert(round*num_local_experts)]，
+    // 以便 notify_dispatch 之后仅需一次 D2H 即可读回全部值，消除多次 host 同步停顿。
+    const int64_t nel = static_cast<int64_t>(num_local_experts);
+    at::Tensor recv_header = torch::empty({2 + static_cast<int64_t>(round) * nel}, at::dtype(at::kInt).device(x.device()));
+    at::Tensor max_bs = recv_header.narrow(0, 0, 1);
+    at::Tensor total_recv_token = recv_header.narrow(0, 1, 1);
+    at::Tensor recv_tokens_per_expert = recv_header.narrow(0, 2, static_cast<int64_t>(round) * nel);
     at::Tensor recv_offset = at::empty({round, num_experts}, at::dtype(at::kInt).device(x.device()));
     at::Tensor recv_count = at::empty({round, num_experts}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor max_bs = torch::empty({1}, at::dtype(at::kInt).device(x.device()));
-    at::Tensor recv_tokens_per_expert =
-        torch::empty({round * num_local_experts}, at::dtype(at::kInt).device(x.device()));
     at::Tensor expert_global_offset = at::empty({num_local_experts}, at::dtype(at::kInt).device(x.device()));
     at::Tensor srcrank_in_expert_offset =
         at::empty({num_local_experts * num_ranks}, at::dtype(at::kInt).device(x.device()));
@@ -319,12 +323,16 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, total_recv_token,
                  max_bs, recv_tokens_per_expert);
     auto send_token_idx_small = this->send_token_idx_small;
-    real_max_bs = static_cast<int64_t>(std::max(max_bs.item<int>(), static_cast<int>(num_worst_tokens)));
+    // 仅一次 D2H 读回整个 recv_header，max_bs / total_recv_token / recv_tokens_per_expert 均从 host 缓存取值，
+    // 避免 dispatch 前后多次独立读取造成的 host 同步停顿。
+    auto recv_header_cpu = recv_header.to(at::kCPU);
+    const int32_t *header_ptr = recv_header_cpu.data_ptr<int32_t>();
+    real_max_bs = static_cast<int64_t>(std::max(static_cast<int>(header_ptr[0]), static_cast<int>(num_worst_tokens)));
 
     // dispatch算子内部按照 min(per_round_tokens, real_max_bs)来预留显存
     int64_t global_bs = static_cast<int64_t>(std::min(static_cast<int64_t>(per_round_tokens), real_max_bs) * num_ranks);
 
-    int64_t trt = total_recv_token.item<int>();
+    int64_t trt = static_cast<int64_t>(header_ptr[1]);
     int num_recv_tokens = (trt == 0) ? 1 : trt;
     is_mxfp8_quant = use_quant && (quant_type == "mx_fp8_e4m3" || quant_type == "mx_fp8_e5m2");
     bool is_mxfp4_quant = use_quant && (quant_type == "mx_fp4_e2m1");
@@ -378,8 +386,9 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  rank,       // rankId
                  hcom_ep_name, tp_size, tp_rank, num_experts, quant_mode, real_max_bs, global_bs, round,
                  per_round_tokens, expandx_out, dynamic_scales_out, expand_idx_out, dispatch_wait_recv_cost_stats_out);
-    auto recv_token_per_exp_cpu = recv_tokens_per_expert.to(at::kCPU);
-    auto recv_token_per_exp_ptr = recv_token_per_exp_cpu.data_ptr<int32_t>();
+    // recv_tokens_per_expert 已随 recv_header 在 dispatch 前一次性读回 host（header_ptr + 2），
+    // 此处直接复用缓存，不再发起第二次 D2H 读取。
+    const int32_t *recv_token_per_exp_ptr = header_ptr + 2;
 
     int token_cnt = 0;
     // 多轮处理为一维
