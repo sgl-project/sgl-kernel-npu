@@ -809,7 +809,10 @@ bool SparseAttnSharedkvMetadataHost::GenMetaData(SplitResult &splitRes)
     return true;
 }
 
-// ---- at::Tensor entry point ------------------------------------------------
+}  // namespace sgl_kernel_npu
+
+namespace sglang {
+namespace npu_kernel {
 namespace {
 struct HostTopology {
     uint32_t aicCoreNum;
@@ -870,7 +873,7 @@ at::Tensor sparse_attn_sharedkv_metadata_host(int64_t num_heads_q, int64_t num_h
     }
 
     const HostTopology &topo = ResolveHostTopology();
-    SparseAttnSharedkvMetadataHost scheduler;
+    sgl_kernel_npu::SparseAttnSharedkvMetadataHost scheduler;
     bool ok =
         scheduler.Run(cuQPtr, seqKvPtr, static_cast<int32_t>(batch_size), static_cast<int32_t>(num_heads_q),
                       static_cast<int32_t>(num_heads_kv), static_cast<int32_t>(head_dim), topo.aicCoreNum,
@@ -882,4 +885,5 @@ at::Tensor sparse_attn_sharedkv_metadata_host(int64_t num_heads_q, int64_t num_h
     return metaDataHost.to(at::Device("npu"));
 }
 
-}  // namespace sgl_kernel_npu
+}  // namespace npu_kernel
+}  // namespace sglang

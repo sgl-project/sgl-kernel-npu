@@ -18,7 +18,7 @@
 #include "causal_conv1d_update/op_host/causal_conv1d_update.h"
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
 #include "causal_conv1d/op_host/causal_conv1d.h"
-#include "sparse_attn_sharedkv_metadata/op_host/sparse_attn_sharedkv_metadata.h"
+#endif
 
 namespace {
 TORCH_LIBRARY_FRAGMENT(npu, m)
@@ -281,6 +281,6 @@ namespace {
 // CPU dispatch key: this op takes CPU input tensors and returns a device tensor.
 TORCH_LIBRARY_IMPL(npu, CPU, m)
 {
-    m.impl("sparse_attn_sharedkv_metadata_host", TORCH_FN(sgl_kernel_npu::sparse_attn_sharedkv_metadata_host));
+    m.impl("sparse_attn_sharedkv_metadata_host", TORCH_FN(sglang::npu_kernel::sparse_attn_sharedkv_metadata_host));
 }
 }  // namespace
