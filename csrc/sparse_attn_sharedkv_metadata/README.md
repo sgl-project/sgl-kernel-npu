@@ -27,9 +27,6 @@ torch.ops.npu.sparse_attn_sharedkv_metadata_host(
     num_heads_q: int,          # required, e.g. 64
     num_heads_kv: int,         # required, must be 1 (MQA)
     head_dim: int,             # required, e.g. 512
-    aic_core_num: int,         # required, cube-core count (from torch.npu.get_device_properties)
-    aiv_core_num: int,         # required, vector-core count (from torch.npu.get_device_properties)
-    soc_version: str,          # required, e.g. "Ascend910_9362" (only Ascend950 is special-cased)
     layout_q: str,             # required, "TND"
     layout_kv: str,            # required, "PA_ND"
     cu_seqlens_q: Tensor|None, # optional, CPU int32 [B+1]; required for layout_q TND
@@ -49,7 +46,9 @@ torch.ops.npu.sparse_attn_sharedkv_metadata_host(
 Inputs are **CPU `int32` tensors**; the result is a **device (NPU) `int32[1024]`** tensor.
 The op performs the 4 KB H2D internally, so it is functionally equivalent to the AICPU op
 (which writes device memory directly) and needs no `.npu()` at the call site. No input D2H
-is needed — sglang already keeps the seq-lens on the host.
+is needed — sglang already keeps the seq-lens on the host. The device topology (cube/vector
+core counts + SoC name) is queried inside the op via ACL and cached after the first call,
+so callers never pass or know about it.
 
 ### Usage
 
@@ -57,14 +56,9 @@ is needed — sglang already keeps the seq-lens on the host.
 import torch
 import sgl_kernel_npu
 
-# Query the target chip's topology once at init (cube/vector core counts + SoC name).
-props = torch.npu.get_device_properties(0)
-aic, aiv, soc = int(props.cube_core_num), int(props.vector_core_num), str(props.name)
-
 # cu_seqlens_q / seqused_kv built from sglang's CPU seq-lens (int32, on CPU)
 metadata = torch.ops.npu.sparse_attn_sharedkv_metadata_host(
     num_heads_q=64, num_heads_kv=1, head_dim=512,
-    aic_core_num=aic, aiv_core_num=aiv, soc_version=soc,
     layout_q="TND", layout_kv="PA_ND",
     cu_seqlens_q=cu_seqlens_q_cpu, seqused_kv=seqused_kv_cpu,
     batch_size=B, cmp_topk=cmp_topk, cmp_ratio=cmp_ratio,

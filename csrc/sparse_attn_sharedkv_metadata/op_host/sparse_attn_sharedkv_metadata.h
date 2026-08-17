@@ -1,9 +1,4 @@
-// Host-side reimplementation of the AICPU load-balancer
-// `SparseAttnSharedkvMetadata[Dspark]` (a.k.a. npu_sparse_attn_sharedkv_metadata).
-//
-// The scheduler is pure integer logic (tiling -> cost model -> greedy core assignment),
-// so it is rehosted on the server CPU to drop the CANN AICPU/dspark build dependency.
-// Output is byte-identical to the AICPU op. See README.md for usage and performance.
+// Host-side (CPU) implementation of the npu_sparse_attn_sharedkv_metadata scheduler.
 
 #ifndef SPARSE_ATTN_SHAREDKV_METADATA_HOST_H
 #define SPARSE_ATTN_SHAREDKV_METADATA_HOST_H
@@ -274,8 +269,7 @@ private:
     // (thread-safe: reads only members, writes only `out`/`typeCost`).
     void ComputeS1GCache(uint32_t s1GIdx, const SplitContext &splitContext, const BatchCache &batchCache,
                          BlockCost<int64_t> &typeCost, S1GCache &out);
-    // Build rowCache_ for every (batch, s1GIdx) plus one boundary phantom per batch
-    // (matches the original on-demand compute for s1GIdx == s1GBaseNum). Parallelized.
+    // Build rowCache_ for every (batch, s1GIdx) plus one boundary phantom per batch.
     void BuildRowCache(const SplitContext &splitContext);
     // O(1) cache lookup returning a stable const ref (clamps s1GIdx to [0, s1GBaseNum]).
     const S1GCache &GetS1GCache(uint32_t s1GIdx, const BatchCache &batchCache);
@@ -331,7 +325,7 @@ private:
     bool isS1G_{true};
     bool isCFA_{false};
     bool isSCFA_{false};
-    bool supportFd_{false};  // inert (upstream AICPU build never enables it)
+    bool supportFd_{false};  // inert (never enabled)
     uint32_t attentionMode_{1};
 
     // Per-row cache: filled once in BuildRowCache (parallel), then read by const-ref by
@@ -342,25 +336,15 @@ private:
     bool cacheReady_{false};
 };
 
-/**
- * @brief Compute the sparse-attention shared-KV core-distribution metadata on the host CPU.
- *
- * A drop-in host replacement for `npu_sparse_attn_sharedkv_metadata` (AICPU): turns the
- * seq-lens and attention config into a fixed int32[1024] schedule consumed by the
- * `npu_sparse_attn_sharedkv` AICore kernel. Inputs are CPU int32 tensors; the result is a
- * device (NPU) int32[1024] tensor — the op performs the 4 KB H2D internally, so it is
- * functionally equivalent to the AICPU op (which writes device memory directly). No input
- * D2H is needed: sglang already keeps the seq-lens on the host.
- *
- * @param aic_core_num/aiv_core_num/soc_version target topology (e.g. from
- *        `torch.npu.get_device_properties(0)`); only the Ascend950 vs other branch matters.
- */
-at::Tensor sparse_attn_sharedkv_metadata_host(
-    int64_t num_heads_q, int64_t num_heads_kv, int64_t head_dim, int64_t aic_core_num, int64_t aiv_core_num,
-    const std::string &soc_version, const std::string &layout_q, const std::string &layout_kv,
-    const c10::optional<at::Tensor> &cu_seqlens_q, const c10::optional<at::Tensor> &seqused_kv, int64_t batch_size,
-    int64_t cmp_topk, int64_t cmp_ratio, int64_t ori_mask_mode, int64_t cmp_mask_mode, int64_t ori_win_left,
-    int64_t ori_win_right, bool has_ori_kv, bool has_cmp_kv);
+// Build the sparse-attention core-distribution table on the host CPU; the result is
+// returned as a device int32[1024] tensor.
+at::Tensor sparse_attn_sharedkv_metadata_host(int64_t num_heads_q, int64_t num_heads_kv, int64_t head_dim,
+                                              const std::string &layout_q, const std::string &layout_kv,
+                                              const c10::optional<at::Tensor> &cu_seqlens_q,
+                                              const c10::optional<at::Tensor> &seqused_kv, int64_t batch_size,
+                                              int64_t cmp_topk, int64_t cmp_ratio, int64_t ori_mask_mode,
+                                              int64_t cmp_mask_mode, int64_t ori_win_left, int64_t ori_win_right,
+                                              bool has_ori_kv, bool has_cmp_kv);
 
 }  // namespace sgl_kernel_npu
 

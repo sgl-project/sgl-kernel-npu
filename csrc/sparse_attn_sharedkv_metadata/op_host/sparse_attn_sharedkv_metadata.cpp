@@ -1,13 +1,12 @@
-// Pure-host scheduler implementation (optimized: per-row cache + parallel build).
-// See the header for provenance. The algorithm is byte-identical to the AICPU kernel;
-// only the data-access plumbing changed: every row's S1GCache is computed once in a
-// parallel build pass, then the cost-model and assignment passes read it by const-ref
-// (no recompute, no copy). The per-row typeCost scratch is passed in (thread-local).
-
 #include "sparse_attn_sharedkv_metadata.h"
 
 #include <algorithm>
+#include <cctype>
 #include <climits>
+#include <string>
+#include <vector>
+
+#include "acl/acl.h"
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -15,10 +14,7 @@
 
 namespace sgl_kernel_npu {
 
-// Threshold below which OpenMP fork/join overhead isn't worth it (decode-sized batches).
 constexpr int64_t ROW_PARALLEL_THRESHOLD = 4096;
-// Cap the OpenMP team: this op's per-row work is tiny, so a small bounded team beats the
-// default (nproc, e.g. 320) — spawning hundreds of threads costs more than the work itself.
 constexpr int ROW_PARALLEL_MAX_THREADS = 16;
 
 bool SparseAttnSharedkvMetadataHost::Run(const int32_t *cuSeqLenQ, const int32_t *seqUsedKv, int32_t batchSize,
@@ -53,8 +49,7 @@ bool SparseAttnSharedkvMetadataHost::Run(const int32_t *cuSeqLenQ, const int32_t
     if (aicCoreNum_ == 0U || aivCoreNum_ == 0U || metaData_ == nullptr) {
         return false;
     }
-    // Match the AICPU op's input contract (CheckSingleParam / CheckFeature): silent
-    // rejection of unsupported configs would otherwise produce wrong schedules.
+    // Match the AICPU op's input contract (CheckSingleParam / CheckFeature).
     if (kvHeadNum != 1) {
         return false;
     }
@@ -75,8 +70,13 @@ bool SparseAttnSharedkvMetadataHost::Run(const int32_t *cuSeqLenQ, const int32_t
 
 ValidSocVersion SparseAttnSharedkvMetadataHost::ProcessSocVersion()
 {
-    const std::string ascend950 = "Ascend950";
-    if (socVersion_.find(ascend950) != std::string::npos) {
+    // Case-insensitive: aclrtGetSocName() casing is not guaranteed stable across SoCs.
+    std::string lower;
+    lower.reserve(socVersion_.size());
+    for (char c : socVersion_) {
+        lower.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    }
+    if (lower.find("ascend950") != std::string::npos) {
         return ValidSocVersion::ASCEND950;
     }
     return ValidSocVersion::ASCEND910;
@@ -360,7 +360,7 @@ void SparseAttnSharedkvMetadataHost::GatherWinAndCmpCache(S1GCache &s1GCache)
     s1GCache.s1GCost = s1GCache.winS1GCost + s1GCache.cmpS1GCost;
 }
 
-// Exact body of the original CalcS1GCache, using a caller-provided typeCost scratch.
+// Compute one row's cost state with a caller-provided typeCost scratch.
 void SparseAttnSharedkvMetadataHost::ComputeS1GCache(uint32_t s1GIdx, const SplitContext &splitContext,
                                                      const BatchCache &batchCache, BlockCost<int64_t> &typeCost,
                                                      S1GCache &out)
@@ -403,7 +403,7 @@ void SparseAttnSharedkvMetadataHost::BuildRowCache(const SplitContext &splitCont
     for (int b = 0; b < batchSize_; b++) {
         CalcBatchCache(static_cast<uint32_t>(b), splitContext, batchCacheArr_[b]);
     }
-    // slot -> batch lookup (sequential, O(total); cheap vs the per-row compute)
+    // slot -> batch lookup
     std::vector<uint32_t> slotB(total);
     for (int b = 0; b < batchSize_; b++) {
         for (uint32_t g = rowOffset_[b]; g < rowOffset_[b + 1]; g++)
@@ -417,7 +417,7 @@ void SparseAttnSharedkvMetadataHost::BuildRowCache(const SplitContext &splitCont
         ComputeS1GCache(j, splitContext, batchCacheArr_[b], tc, rowCache_[g]);
     };
     if (total >= ROW_PARALLEL_THRESHOLD) {
-        int nt = static_cast<int>(total) / 512;  // >=512 rows/thread to amortize fork/join
+        int nt = static_cast<int>(total) / 512;
         if (nt < 1) {
             nt = 1;
         }
@@ -762,7 +762,7 @@ bool SparseAttnSharedkvMetadataHost::BalanceSchedule(SplitResult &splitRes)
         splitRes.s2End[0] = 0U;
         return true;
     }
-    BuildRowCache(splitContext);  // compute every row once (parallel), then read by-ref
+    BuildRowCache(splitContext);
     CalcCostInfo(splitContext);
     splitRes.maxCost = INT64_MAX;
     splitRes.usedCoreNum = 1U;
@@ -809,13 +809,47 @@ bool SparseAttnSharedkvMetadataHost::GenMetaData(SplitResult &splitRes)
     return true;
 }
 
-// ---- at::Tensor entry point -------------------------------------------------
-at::Tensor sparse_attn_sharedkv_metadata_host(
-    int64_t num_heads_q, int64_t num_heads_kv, int64_t head_dim, int64_t aic_core_num, int64_t aiv_core_num,
-    const std::string &soc_version, const std::string &layout_q, const std::string &layout_kv,
-    const c10::optional<at::Tensor> &cu_seqlens_q, const c10::optional<at::Tensor> &seqused_kv, int64_t batch_size,
-    int64_t cmp_topk, int64_t cmp_ratio, int64_t ori_mask_mode, int64_t cmp_mask_mode, int64_t ori_win_left,
-    int64_t ori_win_right, bool has_ori_kv, bool has_cmp_kv)
+// ---- at::Tensor entry point ------------------------------------------------
+namespace {
+struct HostTopology {
+    uint32_t aicCoreNum;
+    uint32_t aivCoreNum;
+    std::string socVersion;
+};
+
+// Query core counts and the SoC name from the current device via ACL.
+const HostTopology &ResolveHostTopology()
+{
+    static const HostTopology cached = [] {
+        int32_t device = 0;
+        if (aclrtGetDevice(&device) != ACL_SUCCESS) {
+            device = 0;  // fall back to device 0
+        }
+        int64_t aic = 0;
+        int64_t aiv = 0;
+        TORCH_CHECK(aclGetDeviceCapability(device, ACL_DEVICE_INFO_AI_CORE_NUM, &aic) == ACL_SUCCESS,
+                    "sparse_attn_sharedkv_metadata_host: aclGetDeviceCapability(AI_CORE_NUM) failed");
+        TORCH_CHECK(aclGetDeviceCapability(device, ACL_DEVICE_INFO_VECTOR_CORE_NUM, &aiv) == ACL_SUCCESS,
+                    "sparse_attn_sharedkv_metadata_host: aclGetDeviceCapability(VECTOR_CORE_NUM) failed");
+        TORCH_CHECK(aic > 0 && aiv > 0,
+                    "sparse_attn_sharedkv_metadata_host: invalid device core counts "
+                    "(aic=",
+                    aic, ", aiv=", aiv, ")");
+        const char *soc = aclrtGetSocName();
+        return HostTopology{static_cast<uint32_t>(aic), static_cast<uint32_t>(aiv),
+                            (soc != nullptr) ? std::string(soc) : std::string()};
+    }();
+    return cached;
+}
+}  // namespace
+
+at::Tensor sparse_attn_sharedkv_metadata_host(int64_t num_heads_q, int64_t num_heads_kv, int64_t head_dim,
+                                              const std::string &layout_q, const std::string &layout_kv,
+                                              const c10::optional<at::Tensor> &cu_seqlens_q,
+                                              const c10::optional<at::Tensor> &seqused_kv, int64_t batch_size,
+                                              int64_t cmp_topk, int64_t cmp_ratio, int64_t ori_mask_mode,
+                                              int64_t cmp_mask_mode, int64_t ori_win_left, int64_t ori_win_right,
+                                              bool has_ori_kv, bool has_cmp_kv)
 {
     auto opts = at::TensorOptions().dtype(at::kInt).device(at::kCPU);
     at::Tensor metaDataHost = at::zeros({static_cast<int64_t>(optiling::SAS_META_SIZE)}, opts);
@@ -835,17 +869,16 @@ at::Tensor sparse_attn_sharedkv_metadata_host(
         seqKvPtr = static_cast<const int32_t *>(t.const_data_ptr());
     }
 
+    const HostTopology &topo = ResolveHostTopology();
     SparseAttnSharedkvMetadataHost scheduler;
-    bool ok = scheduler.Run(
-        cuQPtr, seqKvPtr, static_cast<int32_t>(batch_size), static_cast<int32_t>(num_heads_q),
-        static_cast<int32_t>(num_heads_kv), static_cast<int32_t>(head_dim), static_cast<uint32_t>(aic_core_num),
-        static_cast<uint32_t>(aiv_core_num), soc_version, static_cast<int32_t>(cmp_topk),
-        static_cast<int32_t>(cmp_ratio), static_cast<int32_t>(ori_mask_mode), static_cast<int32_t>(cmp_mask_mode),
-        ori_win_left, ori_win_right, layout_q, layout_kv, has_ori_kv, has_cmp_kv, metaDataHost.data_ptr<int32_t>());
+    bool ok =
+        scheduler.Run(cuQPtr, seqKvPtr, static_cast<int32_t>(batch_size), static_cast<int32_t>(num_heads_q),
+                      static_cast<int32_t>(num_heads_kv), static_cast<int32_t>(head_dim), topo.aicCoreNum,
+                      topo.aivCoreNum, topo.socVersion, static_cast<int32_t>(cmp_topk), static_cast<int32_t>(cmp_ratio),
+                      static_cast<int32_t>(ori_mask_mode), static_cast<int32_t>(cmp_mask_mode), ori_win_left,
+                      ori_win_right, layout_q, layout_kv, has_ori_kv, has_cmp_kv, metaDataHost.data_ptr<int32_t>());
     TORCH_CHECK(ok, "sparse_attn_sharedkv_metadata_host: scheduling failed (invalid params)");
-    // H2D the result so the op is functionally equivalent to the AICPU version, which
-    // writes device memory directly. Inputs stay on the host (no D2H: sglang already has
-    // the seq-lens on CPU). The 4 KB H2D is the only device traffic on this path.
+    // Return the table on device, matching the AICPU op's output placement.
     return metaDataHost.to(at::Device("npu"));
 }
 

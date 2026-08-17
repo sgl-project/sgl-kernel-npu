@@ -154,8 +154,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
     m.def(
         "sparse_attn_sharedkv_metadata_host("
         "int num_heads_q, int num_heads_kv, int head_dim, "
-        "int aic_core_num, int aiv_core_num, "
-        "str soc_version, str layout_q, str layout_kv, "
+        "str layout_q, str layout_kv, "
         "Tensor? cu_seqlens_q=None, Tensor? seqused_kv=None, "
         "int batch_size=0, int cmp_topk=0, int cmp_ratio=-1, "
         "int ori_mask_mode=4, int cmp_mask_mode=3, "

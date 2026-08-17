@@ -23,7 +23,6 @@ HOST = torch.ops.npu.sparse_attn_sharedkv_metadata_host
 _PROPS = torch.npu.get_device_properties(0)
 AIC = int(_PROPS.cube_core_num)
 AIV = int(_PROPS.vector_core_num)
-SOC = str(_PROPS.name)
 
 # Buffer capacity (consumer strides). Runtime aic/aiv only bound enabled-entry counts.
 FA_SLOTS = 36  # AIC_CORE_NUM
@@ -40,17 +39,15 @@ except Exception:  # pragma: no cover - env dependent
 
 
 def _topology():
-    return AIC, AIV, SOC
+    return AIC, AIV  # device-side expectations for assertions only
 
 
 def host_call(cu, skv, cmp_ratio, has_cmp, cmp_topk=0):
+    # aic/aiv/soc are queried inside the op (auto-detected from the device).
     return HOST(
         64,
         1,
         512,
-        AIC,
-        AIV,
-        SOC,
         "TND",
         "PA_ND",
         cu,
