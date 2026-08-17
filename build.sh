@@ -224,12 +224,16 @@ function configure_soc_version()
 
     if [[ "$SOC_VERSION" == "Ascend950" ]]; then
         DEEPEP_IS_A5_BUILD="ON"
+        export ASCEND_COMPUTE_UNIT="ascend950"
+    else
+        unset ASCEND_COMPUTE_UNIT
     fi
 
     echo "Build target: $BUILD_TARGET"
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
         echo "DeepEP variant: $DEEPEP_VARIANT"
         echo "DeepEP SOC_VERSION: $SOC_VERSION"
+        echo "DeepEP ASCEND_COMPUTE_UNIT: ${ASCEND_COMPUTE_UNIT:-<unset>}"
     fi
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" || "$BUILD_KERNELS_MODULE" == "ON" ]]; then
         echo "CMake SOC_VERSION: $CMAKE_SOC_VERSION"
