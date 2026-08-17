@@ -77,7 +77,9 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
         long t = std::strtol(tokensEnv, &end, 10);
         EP_HOST_ASSERT(*end == '\0' && t >= MIN_TOKENS_PER_ROUND && t <= MAX_TOKENS_PER_ROUND);
         // 验证乘积限制
-        EP_HOST_ASSERT(r * t <= MAX_TOTAL_TOKENS);
+        EP_HOST_ASSERT_S(r * t <= MAX_TOTAL_TOKENS, "DEEPEP_NORMAL_LONG_SEQ_ROUND (", r,
+                         ") * DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS (", t,
+                         ") must not exceed MAX_TOTAL_TOKENS (", MAX_TOTAL_TOKENS, ").");
         round = static_cast<int>(r);
         per_round_tokens = static_cast<int>(t);
     }
@@ -114,12 +116,16 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     const int num_tokens = topk_idx.size(0);
     const int num_topk = topk_idx.size(1);
     // 长序列参数边界校验（与 A3 一致，集中在 Host 侧完成）
-    EP_HOST_ASSERT(num_tokens > 0 && num_tokens <= static_cast<int>(MAX_TOTAL_TOKENS));
-    EP_HOST_ASSERT(per_round_tokens >= static_cast<int>(MIN_TOKENS_PER_ROUND) &&
-                   per_round_tokens <= static_cast<int>(MAX_TOKENS_PER_ROUND));
-    EP_HOST_ASSERT(rank >= 0 && rank < num_ranks);
+    EP_HOST_ASSERT_S(num_tokens > 0 && num_tokens <= static_cast<int>(MAX_TOTAL_TOKENS), "num_tokens (", num_tokens,
+                     ") must be in the range (0, ", MAX_TOTAL_TOKENS, "].");
+    EP_HOST_ASSERT_S(per_round_tokens >= static_cast<int>(MIN_TOKENS_PER_ROUND) &&
+                         per_round_tokens <= static_cast<int>(MAX_TOKENS_PER_ROUND),
+                     "per_round_tokens (", per_round_tokens, ") must be in the range [", MIN_TOKENS_PER_ROUND, ", ",
+                     MAX_TOKENS_PER_ROUND, "].");
+    EP_HOST_ASSERT_S(rank >= 0 && rank < num_ranks, "rank (", rank, ") must be in the range [0, ", num_ranks, ").");
     const int64_t actual_rounds = (static_cast<int64_t>(num_tokens) + per_round_tokens - 1) / per_round_tokens;
-    EP_HOST_ASSERT(actual_rounds <= static_cast<int>(MAX_ROUNDS));
+    EP_HOST_ASSERT_S(actual_rounds <= static_cast<int>(MAX_ROUNDS), "actual_rounds (", actual_rounds,
+                     ") must not exceed MAX_ROUNDS (", MAX_ROUNDS, ").");
     const int local_ranksize = LOCAL_RANK_SIZE;
     auto server_num = num_ranks / local_ranksize;
     auto device = topk_idx.device();
