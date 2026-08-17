@@ -808,7 +808,17 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
     recvCountLocalSync.SetFlag(0);
     recvCountLocalSync.WaitFlag(0);
 
-    for (uint32_t i = startStatusId; i < endStatusId; ++i) {
+    for (uint32_t index = startStatusId; index < endStatusId; ++index) {
+        uint64_t expertStart = 0;
+        if (profileEnable_) {
+            expertStart = profileWriter.Now();
+        }
+        // 专家全局索引逻辑：
+        // 1. index % moeExpertNumPerRank：计算当前索引在本rank内的专家偏移量，范围[0, moeExpertNumPerRank-1]
+        // 2. epRankSize * (...)：将专家偏移量转换为跨rank的专家组起始索引（每个rank包含moeExpertNumPerRank个专家）
+        // 3. index / moeExpertNumPerRank：计算当前索引所在的rank偏移量，范围[0, epRankSize-1]
+        // 4. 最终i为专家全局索引，公式等价于：i = 专家组编号 * 总rank数 + 组内rank偏移量
+        uint32_t i = epRankSize * (index % moeExpertNumPerRank) + index / moeExpertNumPerRank;
         preCount = 0;
         if (likely(i != 0)) {
             preCount = recvCountTensor(i - 1);
