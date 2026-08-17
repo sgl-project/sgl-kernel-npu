@@ -70,9 +70,6 @@ jobs:
         env:
           HCCL_BUFFSIZE: 4096
         run: |
-          if [ "${{ matrix.cann_version }}" = "9.0.0" ]; then
-            export MOE_ENABLE_CCU=0
-          fi
           bash scripts/run_kernel_tests.sh all
 
   finish:
