@@ -346,7 +346,7 @@ public:
 
     const gert::CompileTimeTensorDesc *GetOptionalInputDesc(uint32_t index) const
     {
-        return inputDesc_[index].get();
+        return inputTensor_[index] == nullptr ? nullptr : inputDesc_[index].get();
     }
 
     const gert::StorageShape *GetOptionalInputShape(uint32_t index) const
