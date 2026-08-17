@@ -11,8 +11,10 @@ for the full License text.
 #define MEMORY_BASE
 #endif
 #include <pto/pto-inst.hpp>
+#include "mega_chunk_utils.h"
 
 using namespace pto;
+using mega_chunk::GetOuterLayout;
 
 AICORE inline uint32_t CeilDiv(uint32_t value, uint32_t divisor)
 {
@@ -88,8 +90,9 @@ AICORE inline void CopyDiagonalFractalsL1ToL0(SrcL1TileT src, DstL0TileT dst)
     constexpr bool is_left = std::is_same_v<DstL0TileT, TileLeft<InputT, MatrixSize, MatrixSize>>;
     constexpr TileType LeftOrRight = is_left ? TileType::Left : TileType::Right;
     constexpr SLayout InnerLayout = is_left ? SLayout::RowMajor : SLayout::ColMajor;
+    constexpr BLayout OuterLayout = mega_chunk::GetOuterLayout(is_left);
 
-    Tile<LeftOrRight, InputT, FractalSize, FractalSize, BLayout::RowMajor, FractalSize, FractalSize, InnerLayout,
+    Tile<LeftOrRight, InputT, FractalSize, FractalSize, OuterLayout, FractalSize, FractalSize, InnerLayout,
          TileConfig::fractalABSize>
         fractals[NumFractals];
     const std::uintptr_t starting_address = reinterpret_cast<std::uintptr_t>(dst.data());
@@ -126,6 +129,17 @@ AICORE inline void CopyOddOrEvenBlocksL1ToL0(SrcL1TileT src, DstL0TileT dst, uin
     constexpr bool is_left = std::is_same_v<DstL0TileT, TileLeft<InputT, MatrixSize, MatrixSize>>;
     constexpr TileType LeftOrRight = is_left ? TileType::Left : TileType::Right;
     constexpr SLayout InnerLayout = is_left ? SLayout::RowMajor : SLayout::ColMajor;
+    constexpr BLayout OuterLayout = mega_chunk::GetOuterLayout(is_left);
+
+    // On DAV C310 the L0A fractals are laid out NZ (column-major outer), so the
+    // row/column fractal strides swap relative to the ZZ layout of older cores.
+#ifdef __DAV_C310__
+    constexpr uint32_t RowStride = is_left ? FractalSize : MatrixSize;
+    constexpr uint32_t ColStride = is_left ? MatrixSize : FractalSize;
+#else
+    constexpr uint32_t RowStride = MatrixSize;
+    constexpr uint32_t ColStride = FractalSize;
+#endif
 
     // Default: left→even(0), right→odd(1). swap_parity flips this.
     const uint32_t starting_block_index = (is_left ? 0u : 1u) ^ (swap_parity ? 1u : 0u);
@@ -134,7 +148,7 @@ AICORE inline void CopyOddOrEvenBlocksL1ToL0(SrcL1TileT src, DstL0TileT dst, uin
     const uint32_t num_fractals_per_block = block_size / FractalSize;
 
     // might need fewer fractals if block_size < FractalSize
-    Tile<LeftOrRight, InputT, FractalSize, FractalSize, BLayout::RowMajor, FractalSize, FractalSize, InnerLayout,
+    Tile<LeftOrRight, InputT, FractalSize, FractalSize, OuterLayout, FractalSize, FractalSize, InnerLayout,
          TileConfig::fractalABSize>
         fractals[MatrixSize / FractalSize];
 
@@ -143,8 +157,8 @@ AICORE inline void CopyOddOrEvenBlocksL1ToL0(SrcL1TileT src, DstL0TileT dst, uin
         for (uint32_t j = 0; j < num_fractals_per_block; ++j) {
             for (uint32_t b = starting_block_index; b < num_blocks; b += 2) {
                 const uint32_t offset = b * (MatrixSize + FractalSize) * block_size /* block_offset */ +
-                                        i * MatrixSize * FractalSize /* col_fractal_offset */ +
-                                        j * FractalSize * FractalSize /* row_fractal_offset */;
+                                        j * ColStride * FractalSize /* col_fractal_offset */ +
+                                        i * RowStride * FractalSize /* row_fractal_offset */;
                 TASSIGN(fractals[b], starting_address + offset * sizeof(InputT));
                 TEXTRACT(fractals[b], src, b * block_size + i * FractalSize, b * block_size + j * FractalSize);
             }
@@ -486,10 +500,10 @@ AICORE inline void TriInvRecUnrollKernel(__gm__ StoreT *M_inv, __gm__ InputT *M,
     using GlobalTileShapeIn = TileShape2D<InputT, MatrixSize, MatrixSize, Layout::ND>;
     using GlobalTileStridesIn =
         typename std::conditional<!IsBSND, BaseShape2D<InputT, MatrixSize, MatrixSize, Layout::ND>,
-                                  Stride<1, 1, 1, -1, 1>>::type;
+                                  pto::Stride<1, 1, 1, -1, 1>>::type;
     using GlobalTileIn = GlobalTensor<InputT, GlobalTileShapeIn, GlobalTileStridesIn, Layout::ND>;
     using GlobalTileDynamicShape = Shape<1, 1, 1, DYNAMIC, DYNAMIC>;
-    using GlobalTileDynamicStride = Stride<1, 1, 1, DYNAMIC, 1>;
+    using GlobalTileDynamicStride = pto::Stride<1, 1, 1, DYNAMIC, 1>;
     using GlobalTileDynamicIn = GlobalTensor<InputT, GlobalTileDynamicShape, GlobalTileDynamicStride, Layout::ND>;
     using GlobalTileStridesINeg = BaseShape2D<InputT, MatrixSize, MatrixSize, Layout::ND>;
     using GlobalTileINeg = GlobalTensor<InputT, GlobalTileShapeIn, GlobalTileStridesINeg, Layout::ND>;
@@ -497,7 +511,7 @@ AICORE inline void TriInvRecUnrollKernel(__gm__ StoreT *M_inv, __gm__ InputT *M,
     using GlobalTileShapeOut = TileShape2D<StoreT, MatrixSize, MatrixSize, Layout::ND>;
     using GlobalTileStridesOut =
         typename std::conditional<!IsBSND, BaseShape2D<StoreT, MatrixSize, MatrixSize, Layout::ND>,
-                                  Stride<1, 1, 1, -1, 1>>::type;
+                                  pto::Stride<1, 1, 1, -1, 1>>::type;
     using GlobalTileOut = GlobalTensor<StoreT, GlobalTileShapeOut, GlobalTileStridesOut, Layout::ND>;
     using GlobalTileDynamicOut = GlobalTensor<StoreT, GlobalTileDynamicShape, GlobalTileDynamicStride, Layout::ND>;
     using TileL1AB = Tile<TileType::Mat, InputT, MatrixSize, MatrixSize, BLayout::ColMajor, MatrixSize, MatrixSize,

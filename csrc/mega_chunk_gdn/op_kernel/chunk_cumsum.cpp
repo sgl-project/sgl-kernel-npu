@@ -136,7 +136,7 @@ AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ i
     // This is equivalent to:
     //   g_gm = torch.as_strided(g_ptr, size=[valid, NumHeads], stride=[NumHeads, 1])
     using GmShape = Shape<1, 1, 1, DYNAMIC, DYNAMIC>;
-    using GmStride = Stride<1, 1, 1, NumHeads, 1>;
+    using GmStride = pto::Stride<1, 1, 1, NumHeads, 1>;
     using GmFloat = GlobalTensor<float, GmShape, GmStride>;
 
     // Pre-assign row accumulator at fixed UB address

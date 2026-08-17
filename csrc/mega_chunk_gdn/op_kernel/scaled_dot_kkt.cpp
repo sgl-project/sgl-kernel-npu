@@ -73,6 +73,9 @@
 #include "mega_chunk_utils.h"
 using namespace pto;
 using mega_chunk::PipeBarrierVec;
+using mega_chunk::SetCrossFlag;
+using mega_chunk::SignalBothVecOnA5;
+using mega_chunk::WaitBothVecOnA5;
 
 // NumHeads, HiddenSize, and ChunkSize are template parameters. The mega kernel
 // dispatches NumHeads from a runtime value to a finite set of specializations.
@@ -268,7 +271,14 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
         for (int64_t ci = 0; ci < num_chunks; ++ci) {
             int32_t slot = static_cast<int32_t>(ci & 1);
             // Wait for Vec to finish reading the previous KK^T from this slot
+            // A2: Cube and Vec are separate cores → FFTS cross-core flag.
+            // A5: Cube and both Vec sub-blocks share ONE core → intra-block flags,
+            //     with each Vec sub-block signalling its own flag (base, base+16).
+#if __CCE_AICORE__ == 220
             wait_flag_dev(2 + slot);
+#else
+            WaitBothVecOnA5<PIPE_MTE2>(2 + slot);
+#endif
             pipe_barrier(PIPE_ALL);
 
             int64_t chunk_start = ci * ChunkSize;
@@ -342,7 +352,7 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                 _gs.shape[3] = ChunkSize;
                 _gs.shape[4] = ChunkSize;
-                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, ChunkSize, 1>> _gm(
+                GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, ChunkSize, 1>> _gm(
                     workspace_handle + (static_cast<int64_t>(cid) * 2 + slot) * ChunkSquare, _gs);
                 TSTORE(_gm, _l0);
             }
@@ -363,7 +373,12 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
             //   Vec sets flag 2/3 → Cube waits on wait_flag_dev(2/3) (workspace free)
             //
             // Signal Vec that this slot's KK^T is ready
-            ffts_cross_core_sync(PIPE_FIX, 1 | (2 << 4) | (slot << 8));
+#if __CCE_AICORE__ == 220
+            SetCrossFlag<PIPE_FIX>(slot);
+#else
+            pipe_barrier(PIPE_ALL);
+            SignalBothVecOnA5<PIPE_FIX>(slot);
+#endif
         }
     }
 #endif
@@ -405,7 +420,7 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
         Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
         _gs.shape[3] = HalfChunk;
         _gs.shape[4] = ChunkSize;
-        GlobalTensor<float, decltype(_gs), Stride<1, 1, 1, ChunkSize, 1>> _gm(
+        GlobalTensor<float, decltype(_gs), pto::Stride<1, 1, 1, ChunkSize, 1>> _gm(
             Msk_handle + static_cast<int64_t>(vid) * HalfChunk * ChunkSize, _gs);
         UbND<float, HalfChunk, ChunkSize, DYNAMIC, DYNAMIC, PadValue::Zero> _ld(HalfChunk, ChunkSize);
         TASSIGN(_ld, MskUbAddr);
@@ -418,8 +433,13 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
     // Initial cross-core sync: release both workspace slots so Cube can start.
     // Vec tells Cube "slots 0 and 1 are free" by setting flags 2 and 3.
     // Without this, Cube would hang on wait_flag_dev(2/3) at the first iteration.
-    ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (2 << 8));
-    ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (3 << 8));
+#if __CCE_AICORE__ == 220
+    SetCrossFlag<PIPE_MTE3>(2);
+    SetCrossFlag<PIPE_MTE3>(3);
+#else
+    set_intra_block(PIPE_MTE3, 2);
+    set_intra_block(PIPE_MTE3, 3);
+#endif
 
     for (int64_t work_idx = 0; work_idx < (total_work + block_num - 1) / block_num; ++work_idx) {
         int64_t pid = work_idx * static_cast<int64_t>(block_num) + static_cast<int64_t>(cid);
@@ -460,7 +480,7 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
                     Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                     _gs.shape[3] = 1;
                     _gs.shape[4] = valid_rows;
-                    GlobalTensor<float, decltype(_gs), Stride<1, 1, 1, 1, 1>> _gm(
+                    GlobalTensor<float, decltype(_gs), pto::Stride<1, 1, 1, 1, 1>> _gm(
                         G_handle + static_cast<int64_t>(head_idx) * total_tokens + (bos + chunk_start), _gs);
                     UbND<float, 1, ChunkSize, DYNAMIC, DYNAMIC, PadValue::Zero> _ld(1, valid_rows);
                     TASSIGN(_ld, GUbAddr);
@@ -477,7 +497,7 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
                     Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                     _gs.shape[3] = 1;
                     _gs.shape[4] = local_valid;
-                    GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, 1, 1>> _gm(
+                    GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, 1, 1>> _gm(
                         Beta_handle + static_cast<int64_t>(head_idx) * total_tokens + (bos + chunk_start + row_offset),
                         _gs);
                     UbND<half, 1, HalfChunk, DYNAMIC, DYNAMIC, PadValue::Zero> _ld(1, local_valid);
@@ -492,7 +512,11 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
             }
 
             // Wait for Cube to finish writing KK^T for this slot
+#if __CCE_AICORE__ == 220
             wait_flag_dev(slot);
+#else
+            wait_intra_block(PIPE_MTE3, slot);
+#endif
             pipe_barrier(PIPE_ALL);
 
             if (local_valid > 0) {
@@ -547,7 +571,7 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
                     Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                     _gs.shape[3] = HalfChunk;
                     _gs.shape[4] = ChunkSize;
-                    GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, ChunkSize, 1>> _gm(
+                    GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, ChunkSize, 1>> _gm(
                         workspace_handle + (static_cast<int64_t>(cid) * 2 + slot) * ChunkSquare +
                             static_cast<int64_t>(vid) * HalfChunk * ChunkSize,
                         _gs);
@@ -585,7 +609,7 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
                     Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                     _gs.shape[3] = local_valid;
                     _gs.shape[4] = ChunkSize;
-                    GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, NumHeads * ChunkSize, 1>> _gm(
+                    GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, NumHeads * ChunkSize, 1>> _gm(
                         A_handle + a_gm_offset, _gs);
                     UbND<half, HalfChunk, ChunkSize, DYNAMIC, DYNAMIC> _st(local_valid, ChunkSize);
                     TASSIGN(_st, AUbHalfAddr);
@@ -597,7 +621,11 @@ AICORE void kkt_kernel(__gm__ half *K_handle, __gm__ half *Beta_handle, __gm__ f
             // Signal Cube that this workspace slot is free for reuse.
             // Flag (2+slot): slot 0 → flag 2, slot 1 → flag 3.
             // Cube is waiting on wait_flag_dev(2+slot) before writing the next chunk.
-            ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | ((2 + slot) << 8));
+#if __CCE_AICORE__ == 220
+            SetCrossFlag<PIPE_MTE3>(2 + slot);
+#else
+            set_intra_block(PIPE_MTE3, 2 + slot);
+#endif
         }
     }
 #endif

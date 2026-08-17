@@ -94,6 +94,9 @@
 #include "mega_chunk_utils.h"
 using namespace pto;
 using mega_chunk::PipeBarrierVec;
+using mega_chunk::SetCrossFlag;
+using mega_chunk::SignalBothVecOnA5;
+using mega_chunk::WaitBothVecOnA5;
 
 #ifdef __CCE_AICORE__
 
@@ -125,12 +128,12 @@ using TileMatL1ZN = pto::Tile<pto::TileType::Mat, T, Rows, Cols, pto::BLayout::R
                               pto::SLayout::ColMajor, 512, pto::PadValue::Zero>;
 
 template <typename T, int32_t Rows, int32_t Cols, int32_t RowValid = Rows, int32_t ColValid = Cols>
-using TileMatL0A = pto::Tile<pto::TileType::Left, T, Rows, Cols, pto::BLayout::RowMajor, RowValid, ColValid,
-                             pto::SLayout::RowMajor, 512, pto::PadValue::Zero>;
+using TileMatL0A = pto::Tile<pto::TileType::Left, T, Rows, Cols, mega_chunk::GetOuterLayout(/*is_left=*/true), RowValid,
+                             ColValid, pto::SLayout::RowMajor, 512, pto::PadValue::Zero>;
 
 template <typename T, int32_t Rows, int32_t Cols, int32_t RowValid = Rows, int32_t ColValid = Cols>
-using TileMatL0B = pto::Tile<pto::TileType::Right, T, Rows, Cols, pto::BLayout::RowMajor, RowValid, ColValid,
-                             pto::SLayout::ColMajor, 512, pto::PadValue::Zero>;
+using TileMatL0B = pto::Tile<pto::TileType::Right, T, Rows, Cols, mega_chunk::GetOuterLayout(/*is_left=*/false),
+                             RowValid, ColValid, pto::SLayout::ColMajor, 512, pto::PadValue::Zero>;
 
 template <typename T, int32_t Rows, int32_t Cols, int32_t RowValid = Rows, int32_t ColValid = Cols,
           pto::PadValue PadVal = pto::PadValue::Null>
@@ -403,7 +406,16 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
         //   WS_KV : k_tilde^T @ v_i_new
 
         for (int32_t ci = 0; ci < num_chunks; ++ci) {
+            // Wait Vec: S workspace ready (flag 3).
+            // A2: Cube and Vec are separate cores → FFTS cross-core flag.
+            // A5: Cube and both Vec sub-blocks share ONE core → intra-block flags,
+            //     with each Vec sub-block signalling its own flag (base, base+16).
+#if __CCE_AICORE__ == 220
             wait_flag_dev(3);
+#else
+            WaitBothVecOnA5<PIPE_MTE2>(3);
+            pipe_barrier(PIPE_ALL);
+#endif
 
             int64_t chunk_start = bos + static_cast<int64_t>(ci) * C;
             int64_t valid = slen - static_cast<int64_t>(ci) * C;
@@ -446,9 +458,21 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
                 // Save ws_i so the Vec phase can do `v_new = U_i - ws_i`.
                 TSTORE(ws_global, ws_store);
             }
-            ffts_cross_core_sync(PIPE_FIX, 1 | (2 << 4) | (0 << 8));
+            // Signal Vec: WS workspace ready (flag 0)
+#if __CCE_AICORE__ == 220
+            SetCrossFlag<PIPE_FIX>(0);
+#else
+            pipe_barrier(PIPE_ALL);
+            SignalBothVecOnA5<PIPE_FIX>(0);
+#endif
 
+            // Wait Vec: k_tilde workspace ready (flag 1)
+#if __CCE_AICORE__ == 220
             wait_flag_dev(1);
+#else
+            WaitBothVecOnA5<PIPE_MTE2>(1);
+            pipe_barrier(PIPE_ALL);
+#endif
 
             {
                 GmShape2D k_shape(D, C);
@@ -486,7 +510,13 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
                 // Save kv = k_tilde^T @ v_i_new so Vec can finish the state update.
                 TSTORE(kv_global, kv_store);
             }
-            ffts_cross_core_sync(PIPE_FIX, 1 | (2 << 4) | (2 << 8));
+            // Signal Vec: KV workspace ready (flag 2)
+#if __CCE_AICORE__ == 220
+            SetCrossFlag<PIPE_FIX>(2);
+#else
+            pipe_barrier(PIPE_ALL);
+            SignalBothVecOnA5<PIPE_FIX>(2);
+#endif
         }
     }
 #endif
@@ -563,7 +593,13 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
             TASSIGN(s_out_store, S_UB_HALF);
             TSTORE(s_out_global, s_out_store);
         }
-        ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (3 << 8));
+        // Signal Cube: S workspace ready (flag 3)
+#if __CCE_AICORE__ == 220
+        SetCrossFlag<PIPE_MTE3>(3);
+#else
+        pipe_barrier(PIPE_ALL);
+        set_intra_block(PIPE_MTE3, 3);
+#endif
 
         int64_t chunk_start_0 = bos;
         int64_t valid0 = slen;
@@ -676,7 +712,13 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
             TMUL(k_ub, k_ub, coeff_2d_ub);
             PipeBarrierVec();
 
+            // Wait Cube: WS workspace ready (flag 0)
+#if __CCE_AICORE__ == 220
             wait_flag_dev(0);
+#else
+            wait_intra_block(PIPE_MTE3, 0);
+            pipe_barrier(PIPE_ALL);
+#endif
             {
                 GmShape2D ws_shape(HalfC, D);
                 GmStride2D ws_stride(D);
@@ -720,7 +762,13 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
                 TSTORE(k_global, k_store);
             }
 
-            ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (1 << 8));
+            // Signal Cube: k_tilde workspace ready (flag 1)
+#if __CCE_AICORE__ == 220
+            SetCrossFlag<PIPE_MTE3>(1);
+#else
+            pipe_barrier(PIPE_ALL);
+            set_intra_block(PIPE_MTE3, 1);
+#endif
 
             set_flag(PIPE_MTE3, PIPE_S, EVENT_ID0);
             wait_flag(PIPE_MTE3, PIPE_S, EVENT_ID0);
@@ -770,7 +818,13 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
                 }
             }
 
+            // Wait Cube: KV workspace ready (flag 2)
+#if __CCE_AICORE__ == 220
             wait_flag_dev(2);
+#else
+            wait_intra_block(PIPE_MTE3, 2);
+            pipe_barrier(PIPE_ALL);
+#endif
             {
                 GmShape2D kv_shape(HalfC, D);
                 GmStride2D kv_stride(D);
@@ -814,7 +868,13 @@ AICORE void chunk_h_kernel(__gm__ half *K_handle, __gm__ half *W_handle, __gm__ 
                     TASSIGN(s_out_store, S_UB_HALF);
                     TSTORE(s_out_global, s_out_store);
                 }
-                ffts_cross_core_sync(PIPE_MTE3, 1 | (2 << 4) | (3 << 8));
+                // Signal Cube: S workspace ready (flag 3)
+#if __CCE_AICORE__ == 220
+                SetCrossFlag<PIPE_MTE3>(3);
+#else
+                pipe_barrier(PIPE_ALL);
+                set_intra_block(PIPE_MTE3, 3);
+#endif
             }
 
             if (ci + 1 < static_cast<int32_t>(num_chunks)) {
