@@ -28,7 +28,10 @@ class SGMVShrink
 public:
     using X_T = scalar_t;
     using W_T = scalar_t;
-    using Y_T = float;
+    // y shares the model dtype (fp16/bf16), per the unified LoRA op protocol
+    // (the dtypes LoRABatchInfo/AscendLoRABackend use); accumulation stays in
+    // fp32 and is cast on the way out. Enforced by a host-side TORCH_CHECK.
+    using Y_T = scalar_t;
 
     static constexpr uint64_t BUFFER_NUM = 1;
     static constexpr uint64_t TILE_LENGTH = 11776;  // optimal performance tile length
@@ -50,8 +53,9 @@ public:
         xGm_.SetGlobalBuffer((__gm__ X_T *)x);
         yOutGm_.SetGlobalBuffer((__gm__ Y_T *)y);
         wGm_.SetGlobalBuffer((__gm__ W_T *)weight);
-        loraIndicesGm_.SetGlobalBuffer((__gm__ int64_t *)loraIndices, loraIndicesSize);
-        seqLenGm_.SetGlobalBuffer((__gm__ int64_t *)seqLen, seqLenSize);
+        // The backend (prepare_lora_batch) provides int32 indices/seg_lens.
+        loraIndicesGm_.SetGlobalBuffer((__gm__ int32_t *)loraIndices, loraIndicesSize);
+        seqLenGm_.SetGlobalBuffer((__gm__ int32_t *)seqLen, seqLenSize);
 
         pipe_->InitBuffer(inQueueX_, BUFFER_NUM, TILE_LENGTH * sizeof(X_T));
         pipe_->InitBuffer(inQueueW_, BUFFER_NUM, TILE_LENGTH * sizeof(W_T));
@@ -188,7 +192,9 @@ private:
         AscendC::LocalTensor<float> yLocal = outBufferY_.Get<float>();
         AscendC::LocalTensor<Y_T> yOutLocal = outQueueY_.AllocTensor<Y_T>();
 
-        Muls(yOutLocal, yLocal, scale_, maxLoRARank_);
+        Muls(yLocal, yLocal, scale_, maxLoRARank_);
+        pipe_barrier(PIPE_V);
+        Cast(yOutLocal, yLocal, AscendC::RoundMode::CAST_RINT, maxLoRARank_);
         pipe_barrier(PIPE_V);
 
         outQueueY_.EnQue<Y_T>(yOutLocal);
@@ -208,8 +214,8 @@ private:
     AscendC::TBuf<AscendC::QuePosition::VECCALC> tmpBufferX_, tmpBufferW_, outBufferY_;
     AscendC::GlobalTensor<X_T> xGm_;
     AscendC::GlobalTensor<W_T> wGm_;
-    AscendC::GlobalTensor<int64_t> loraIndicesGm_;
-    AscendC::GlobalTensor<int64_t> seqLenGm_;
+    AscendC::GlobalTensor<int32_t> loraIndicesGm_;
+    AscendC::GlobalTensor<int32_t> seqLenGm_;
     AscendC::GlobalTensor<Y_T> yOutGm_;
     uint32_t batchSize_;
     uint32_t numTokensPerCore_;

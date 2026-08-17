@@ -67,7 +67,10 @@ public:
         loraRanksGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(loraRanks), loraRanksSize);
         sliceOffsetsGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(sliceOffsets), sliceOffsetsSize);
 
-        workspaceGlobal.SetGlobalBuffer(reinterpret_cast<__gm__ INNER_T *>(workspace));
+        // The workspace buffer starts with the lib-api (system) region used via
+        // GetSysWorkSpacePtr(); user scratch must begin after it, otherwise
+        // per-block matmul staging corrupts the matmul library's own state.
+        workspaceGlobal.SetGlobalBuffer(reinterpret_cast<__gm__ INNER_T *>(AscendC::GetUserWorkspace(workspace)));
     }
 
     __aicore__ inline void Process()
@@ -106,39 +109,69 @@ public:
         int32_t beginSlice = sliceOffsetsGm_.GetValue(sliceIdx);
         int32_t endSlice = sliceOffsetsGm_.GetValue(sliceIdx + 1);
         int32_t slice = endSlice - beginSlice;
-        uint32_t baseM = min(tiling.baseM, tiling.singleCoreM);
-        uint32_t baseN = min(tiling.baseN, min(tiling.singleCoreN, slice));
-        uint32_t elements = baseM * baseN;
-        uint32_t maxElements = tiling.baseM * tiling.baseN;
-
-        workspaceGlobal = workspaceGlobal[blockIdx * maxElements];
+        // Async GetTensorC stages C tiles in the workspace padded to the
+        // *base* granularity: even with org M=1 (singleCoreM=1) the staged
+        // region is baseM rows tall. Confirmed empirically: tiling prints
+        // singleCoreM=1 / baseM=16, and striding by singleCoreM*N left every
+        // block's staging 16x too small, so neighbouring blocks overwrote
+        // each other's [256-col] C tiles nondeterministically. Stride by
+        // baseM * tiling.N (full staged width) instead. Must match the
+        // host-side allocation in sgemmc_tiling.cpp.
+        workspaceGlobal = workspaceGlobal[blockIdx * tiling.baseM * tiling.N];
 
         REGIST_MATMUL_OBJ(pipe_, GetSysWorkSpacePtr(), matmulObj, &tiling);
 
         matmulObj.DisableBias();
         matmulObj.SetWorkspace(workspaceGlobal);
         matmulObj.SetOrgShape(tiling.M, tiling.N, tiling.Ka, tiling.Kb);
+        // Org M is 1 by host contract, so singleCoreM == 1: each block
+        // computes a single [1, slice] row of C. (The async C staging in the
+        // workspace is still padded to baseM rows; see the stride above.)
         matmulObj.SetSingleShape(tiling.singleCoreM, slice, reqLoRARank_);
-        matmulObj.SetTensorA(xInGm_[tokenIdx * sliceCount_ * maxLoRARank_ + sliceIdx * reqLoRARank_], false);
+        // A is [tokens, slices*max_rank]; each slice block is max_rank wide,
+        // so the slice offset must use maxLoRARank_ (not reqLoRARank_, which
+        // undercounts when rank < max_rank with slices > 1).
+        matmulObj.SetTensorA(xInGm_[tokenIdx * sliceCount_ * maxLoRARank_ + sliceIdx * maxLoRARank_], false);
         matmulObj.SetTensorB(wInGm_[reqLoRAWeightOffset_ + maxLoRARank_ * beginSlice], true);
         matmulObj.template Iterate<false>();
+
+        uint32_t baseM = min(tiling.baseM, tiling.singleCoreM);
+        uint32_t maxElements = tiling.baseM * tiling.baseN;
 
         pipe_->InitBuffer(calcBuf, maxElements * sizeof(INNER_T));
         pipe_->InitBuffer(matmulQueue, 1, maxElements * sizeof(INNER_T));
         pipe_->InitBuffer(vectorYInQueue, 1, maxElements * sizeof(Y_T));
         pipe_->InitBuffer(vectorOutQueue, 1, maxElements * sizeof(Y_T));
 
-        AscendC::DataCopyParams copyParams = {(uint16_t)baseM,
-                                              (uint16_t)(baseN * sizeof(Y_T) / AscendC::DEFAULT_C0_SIZE), (uint16_t)0,
-                                              (uint16_t)((tiling.N - baseN) * sizeof(Y_T) / AscendC::DEFAULT_C0_SIZE)};
-        uint32_t iterateTimes = AscendC::Ceil(tiling.singleCoreM, baseM) * AscendC::Ceil(slice, baseN);
-        uint32_t outputOffset = tokenIdx * tiling.N + beginSlice;
+        // Walk the staged [singleCoreM, slice] C result in baseM*baseN tiles,
+        // emitted M-then-N. baseM is clamped to singleCoreM (== 1), so every
+        // tile is a single valid row; tail tiles (slice % baseN != 0) hold
+        // slice - n0 valid columns. tileM != 0 is defensive (only reachable
+        // if the tiling ever pads singleCoreM past org M): drain those tiles
+        // without emitting.
+        uint32_t nTilesPerRow = AscendC::Ceil(slice, tiling.baseN);
+        uint32_t iterateTimes = AscendC::Ceil(tiling.singleCoreM, baseM) * nTilesPerRow;
+        uint32_t outputRowOffset = tokenIdx * tiling.N + beginSlice;
         for (uint32_t i = 0; i < iterateTimes; ++i) {
-            uint32_t offset = outputOffset + i * baseN;
+            uint32_t tileM = i / nTilesPerRow;
+            uint32_t tileN = i % nTilesPerRow;
+            uint32_t n0 = tileN * tiling.baseN;
+            uint32_t curN = min(static_cast<uint32_t>(tiling.baseN), static_cast<uint32_t>(slice) - n0);
+            uint32_t elements = curN;  // only the first (valid) row
+            uint32_t offset = outputRowOffset + n0;
+            AscendC::DataCopyParams copyParams = {
+                (uint16_t)1, (uint16_t)(curN * sizeof(Y_T) / AscendC::DEFAULT_C0_SIZE), (uint16_t)0, (uint16_t)0};
             auto cInLocal = matmulQueue.AllocTensor<INNER_T>();
             matmulObj.template GetTensorC<false>(cInLocal);
             matmulObj.WaitGetTensorC();
             matmulQueue.EnQue(cInLocal);
+            if (tileM != 0) {
+                // Padding row of the padded singleCoreM: drain the tile (the
+                // fetch must stay balanced with Iterate) but emit nothing.
+                AscendC::LocalTensor<INNER_T> padTile = matmulQueue.DeQue<INNER_T>();
+                matmulQueue.FreeTensor(padTile);
+                continue;
+            }
 
             AscendC::LocalTensor<Y_T> yInLocalCube = vectorYInQueue.AllocTensor<Y_T>();
             DataCopy(yInLocalCube, yInGm_[offset], elements);

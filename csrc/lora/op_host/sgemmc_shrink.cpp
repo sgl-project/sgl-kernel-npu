@@ -34,6 +34,11 @@ HOST_API void sgemmc_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_
                 "weight should be [num_loras, hidden_out, hidden_in] or [num_loras, 1, hidden_out, hidden_in]");
     TORCH_CHECK(y.dim() == 2, "y should be [batch_size, hidden_out]");
     TORCH_CHECK(x.size(1) > y.size(1), "hidden in should be greater than hidden out");
+    TORCH_CHECK(y.scalar_type() == scalar_type, "y must have the same dtype as x");
+    TORCH_CHECK(lora_indices.scalar_type() == at::kInt, "lora_indices must be int32");
+    TORCH_CHECK(seq_len.scalar_type() == at::kInt, "seq_len must be int32");
+    TORCH_CHECK(lora_ranks.scalar_type() == at::kInt, "lora_ranks must be int32");
+    TORCH_CHECK(lora_scales.scalar_type() == at::kFloat, "lora_scales must be fp32");
 
     void *x_ptr = x.data_ptr();
     void *weight_ptr = weight.data_ptr();

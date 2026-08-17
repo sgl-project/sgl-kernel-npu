@@ -28,7 +28,7 @@ class SGEMMVShrink
 public:
     using X_T = scalar_t;
     using W_T = scalar_t;
-    using Y_T = float;
+    using Y_T = scalar_t;
 
     static constexpr uint64_t BUFFER_NUM = 1;
     static constexpr uint64_t TILE_LENGTH = 11776;  // optimal performance tile length
@@ -53,7 +53,8 @@ public:
         loraIndicesGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(loraIndices), loraIndicesSize);
         seqLenGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(seqLen), seqLenSize);
         loraRanksGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(loraRanks), loraRanksSize);
-        loraScalesGm_.SetGlobalBuffer(reinterpret_cast<__gm__ half *>(loraScales), loraScalesSize);
+        // Scales follow the sglang LoRABatchInfo convention: fp32.
+        loraScalesGm_.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(loraScales), loraScalesSize);
 
         pipe_->InitBuffer(inQueueX_, BUFFER_NUM, TILE_LENGTH * sizeof(X_T));
         pipe_->InitBuffer(inQueueW_, BUFFER_NUM, TILE_LENGTH * sizeof(W_T));
@@ -197,7 +198,9 @@ private:
         AscendC::LocalTensor<float> yLocal = outBufferY_.Get<float>();
         AscendC::LocalTensor<Y_T> yOutLocal = outQueueY_.AllocTensor<Y_T>();
 
-        Muls(yOutLocal, yLocal, reqLoRAScale_, reqLoRARank_);
+        Muls(yLocal, yLocal, reqLoRAScale_, reqLoRARank_);
+        pipe_barrier(PIPE_V);
+        Cast(yOutLocal, yLocal, AscendC::RoundMode::CAST_RINT, reqLoRARank_);
         pipe_barrier(PIPE_V);
 
         outQueueY_.EnQue<Y_T>(yOutLocal);
@@ -220,7 +223,7 @@ private:
     AscendC::GlobalTensor<int32_t> loraIndicesGm_;
     AscendC::GlobalTensor<int32_t> seqLenGm_;
     AscendC::GlobalTensor<int32_t> loraRanksGm_;
-    AscendC::GlobalTensor<half> loraScalesGm_;
+    AscendC::GlobalTensor<float> loraScalesGm_;
     AscendC::GlobalTensor<Y_T> yOutGm_;
     uint32_t batchSize_;
     uint32_t numTokensPerCore_;

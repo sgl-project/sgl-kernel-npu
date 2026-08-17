@@ -26,7 +26,10 @@ template <typename scalar_t>
 class SGEMMVExpand
 {
 public:
-    using X_T = float;
+    // x (the shrink output) shares the model dtype (fp16/bf16), per the
+    // unified LoRA op protocol; CopyInX casts it to fp32 internally. Enforced
+    // by a host-side TORCH_CHECK.
+    using X_T = scalar_t;
     using W_T = scalar_t;
     using Y_T = scalar_t;
 

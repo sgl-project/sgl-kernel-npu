@@ -66,9 +66,13 @@ public:
         loraIndicesGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(loraIndices), loraIndicesSize);
         seqLenGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(seqLen), seqLenSize);
         loraRanksGm_.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(loraRanks), loraRanksSize);
-        loraScalesGm_.SetGlobalBuffer(reinterpret_cast<__gm__ half *>(loraScales), loraScalesSize);
+        // Scales follow the sglang LoRABatchInfo convention: fp32.
+        loraScalesGm_.SetGlobalBuffer(reinterpret_cast<__gm__ float *>(loraScales), loraScalesSize);
 
-        workspaceGlobal.SetGlobalBuffer(reinterpret_cast<__gm__ INNER_T *>(workspace));
+        // The workspace buffer starts with the lib-api (system) region used via
+        // GetSysWorkSpacePtr(); user scratch must begin after it, otherwise
+        // per-block matmul staging corrupts the matmul library's own state.
+        workspaceGlobal.SetGlobalBuffer(reinterpret_cast<__gm__ INNER_T *>(AscendC::GetUserWorkspace(workspace)));
     }
 
     __aicore__ inline void Process()
@@ -109,37 +113,72 @@ public:
             return;
         }
 
-        uint32_t baseM = min(tiling.baseM, tiling.singleCoreM);
-        uint32_t baseN = min(tiling.baseN, min(tiling.singleCoreN, reqLoRARank_));
-        uint32_t elements = baseM * baseN;
-        uint32_t maxElements = tiling.baseM * tiling.baseN;
-
-        workspaceGlobal = workspaceGlobal[blockIdx * maxElements];
+        // Async GetTensorC stages C tiles in the workspace padded to the
+        // *base* granularity: even with org M=1 (singleCoreM=1) the staged
+        // region is baseM rows tall. Confirmed empirically: tiling prints
+        // singleCoreM=1 / baseM=16, and striding by singleCoreM*N left every
+        // block's staging 16x too small, so neighbouring blocks overwrote
+        // each other's C tiles nondeterministically. Stride by
+        // baseM * tiling.N (full staged width) instead. Must match the
+        // host-side allocation in sgemmc_tiling.cpp.
+        workspaceGlobal = workspaceGlobal[blockIdx * tiling.baseM * tiling.N];
 
         REGIST_MATMUL_OBJ(pipe_, GetSysWorkSpacePtr(), matmulObj, &tiling);
 
         matmulObj.DisableBias();
         matmulObj.SetWorkspace(workspaceGlobal);
         matmulObj.SetOrgShape(tiling.M, tiling.N, tiling.Ka, tiling.Kb);
+        // Org M is 1 by host contract, so singleCoreM == 1: each block
+        // computes a single [1, reqLoRARank_] row of C. (The async C staging
+        // in the workspace is still padded to baseM rows; see the stride
+        // above.)
         matmulObj.SetSingleShape(tiling.singleCoreM, reqLoRARank_, tiling.singleCoreK);
         matmulObj.SetTensorA(xInGm_[tokenIdx * inputHiddenDim_], false);
-        matmulObj.SetTensorB(wInGm_[reqLoRAWeightOffset_ + sliceIdx * inputHiddenDim_ * reqLoRARank_], true);
+        // Shrink weights are laid out as [num_loras, 1, slices*max_rank, hidden]:
+        // each slice owns a fixed max_rank-wide block, so offset by maxLoRARank_
+        // (not reqLoRARank_, which reads into the previous slice when rank <
+        // max_rank with slices > 1).
+        matmulObj.SetTensorB(wInGm_[reqLoRAWeightOffset_ + sliceIdx * inputHiddenDim_ * maxLoRARank_], true);
         matmulObj.template Iterate<false>();
+
+        uint32_t baseM = min(tiling.baseM, tiling.singleCoreM);
+        uint32_t maxElements = tiling.baseM * tiling.baseN;
 
         pipe_->InitBuffer(calcBuf, maxElements * sizeof(INNER_T));
         pipe_->InitBuffer(matmulQueue, 1, maxElements * sizeof(INNER_T));
         pipe_->InitBuffer(outQueue, 1, maxElements * sizeof(Y_T));
 
-        AscendC::DataCopyParams copyParams = {
-            (uint16_t)baseM, (uint16_t)(baseN * sizeof(Y_T) / AscendC::DEFAULT_C0_SIZE), (uint16_t)0,
-            (uint16_t)((slices_ * tiling.N - baseN) * sizeof(Y_T) / AscendC::DEFAULT_C0_SIZE)};
-        uint32_t iteratations = AscendC::Ceil(tiling.singleCoreM, baseM) * AscendC::Ceil(reqLoRARank_, baseN);
-        uint32_t outputOffset = tokenIdx * slices_ * maxLoRARank_ + sliceIdx * reqLoRARank_;
+        // Walk the staged [singleCoreM, reqLoRARank_] C result in baseM*baseN
+        // tiles, emitted M-then-N. baseM is clamped to singleCoreM (== 1), so
+        // every tile is a single valid row; tail tiles hold rank % baseN valid
+        // columns. tileM != 0 is defensive; drain those tiles without
+        // emitting.
+        uint32_t nTilesPerRow = AscendC::Ceil(reqLoRARank_, tiling.baseN);
+        uint32_t iteratations = AscendC::Ceil(tiling.singleCoreM, baseM) * nTilesPerRow;
+        // y rows are [token, slices_*maxLoRARank_]: every slice owns a fixed
+        // maxLoRARank_-wide block (sliceIdx*rank would shift the writes into
+        // the previous slice whenever rank < maxLoRARank_).
+        uint32_t outputOffset = tokenIdx * slices_ * maxLoRARank_ + sliceIdx * maxLoRARank_;
         for (uint32_t i = 0; i < iteratations; ++i) {
+            uint32_t tileM = i / nTilesPerRow;
+            uint32_t tileN = i % nTilesPerRow;
+            uint32_t n0 = tileN * tiling.baseN;
+            uint32_t curN = min(static_cast<uint32_t>(tiling.baseN), static_cast<uint32_t>(reqLoRARank_) - n0);
+            uint32_t elements = curN;  // only the first (valid) row
+            AscendC::DataCopyParams copyParams = {
+                (uint16_t)1, (uint16_t)(curN * sizeof(Y_T) / AscendC::DEFAULT_C0_SIZE), (uint16_t)0, (uint16_t)0};
+
             AscendC::LocalTensor<INNER_T> cInLocal = matmulQueue.AllocTensor<INNER_T>();
             matmulObj.template GetTensorC<false>(cInLocal);
             matmulObj.WaitGetTensorC();
             matmulQueue.EnQue(cInLocal);
+            if (tileM != 0) {
+                // Padding row of the padded singleCoreM: drain the tile (the
+                // fetch must stay balanced with Iterate) but emit nothing.
+                AscendC::LocalTensor<INNER_T> padTile = matmulQueue.DeQue<INNER_T>();
+                matmulQueue.FreeTensor(padTile);
+                continue;
+            }
 
             AscendC::LocalTensor<INNER_T> tmpTensor = calcBuf.Get<INNER_T>();
             AscendC::LocalTensor<INNER_T> mmResTensor = matmulQueue.DeQue<INNER_T>();
@@ -155,7 +194,7 @@ public:
             calcBuf.FreeTensor(tmpTensor);
 
             AscendC::LocalTensor<Y_T> outputCopy = outQueue.DeQue<Y_T>();
-            DataCopy(yOutGm_[outputOffset + i * baseN], outputCopy, copyParams);
+            DataCopy(yOutGm_[outputOffset + n0], outputCopy, copyParams);
             outQueue.FreeTensor(outputCopy);
         }
         matmulObj.End();
@@ -173,7 +212,7 @@ private:
     AscendC::GlobalTensor<int32_t> loraIndicesGm_;
     AscendC::GlobalTensor<int32_t> seqLenGm_;
     AscendC::GlobalTensor<int32_t> loraRanksGm_;
-    AscendC::GlobalTensor<half> loraScalesGm_;
+    AscendC::GlobalTensor<float> loraScalesGm_;
 
     AscendC::GlobalTensor<INNER_T> workspaceGlobal;
 
