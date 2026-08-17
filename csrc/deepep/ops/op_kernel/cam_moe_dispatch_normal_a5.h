@@ -810,9 +810,6 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
 
     for (uint32_t index = startStatusId; index < endStatusId; ++index) {
         uint64_t expertStart = 0;
-        if (profileEnable_) {
-            expertStart = profileWriter.Now();
-        }
         // 专家全局索引逻辑：
         // 1. index % moeExpertNumPerRank：计算当前索引在本rank内的专家偏移量，范围[0, moeExpertNumPerRank-1]
         // 2. epRankSize * (...)：将专家偏移量转换为跨rank的专家组起始索引（每个rank包含moeExpertNumPerRank个专家）
