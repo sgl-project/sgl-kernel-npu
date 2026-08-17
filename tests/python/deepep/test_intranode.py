@@ -469,14 +469,15 @@ def test_main(
     t = bench(lambda: buffer.dispatch(**tune_args_bf16))[0]
     if local_rank == 0:
         print(
-            f"[tuning] Dispatch (BF16) {dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
+            f"[tuning] Dispatch (BF16, raw_bytes={dispatch_bf16_recv_bytes/1e9:.3f}GB) "
+            f"raw_bw={dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s, equiv_bw={dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
             flush=True,
         )
 
-    # FP8 dispatch tuning (if quantized)
-    if dispatch_quant_mode not in ("bf16", "int8", None):
+    # Quantized dispatch tuning (int8/fp8/fp4)
+    if dispatch_quant_mode not in ("bf16", None):
         num_recv_tokens = dispatch_bf16_recv_bytes // (hidden * 2)
-        if dispatch_quant_mode.startswith("pertoken_fp8"):
+        if dispatch_quant_mode == "int8" or dispatch_quant_mode.startswith("pertoken_fp8"):
             quant_data_bytes = num_recv_tokens * hidden
             quant_scale_bytes = num_recv_tokens * 4
         elif dispatch_quant_mode.startswith("mx_fp8"):
@@ -488,8 +489,8 @@ def test_main(
         else:
             quant_data_bytes = num_recv_tokens * hidden
             quant_scale_bytes = 0
-        fp8_recv_bytes = quant_data_bytes + quant_scale_bytes
-        tune_args_fp8 = {
+        quant_recv_bytes = quant_data_bytes + quant_scale_bytes
+        tune_args_quant = {
             "x": x,
             "config": config,
             "num_tokens_per_rank": ref_num_tokens_per_rank,
@@ -499,11 +500,11 @@ def test_main(
             "topk_weights": topk_weights,
             "quant_mode": dispatch_quant_mode,
         }
-        t = bench(lambda: buffer.dispatch(**tune_args_fp8))[0]
+        t = bench(lambda: buffer.dispatch(**tune_args_quant))[0]
         if local_rank == 0:
             print(
-                f"[tuning] Dispatch ({dispatch_quant_mode}, raw_bytes={fp8_recv_bytes/1e9:.3f}GB) "
-                f"{dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
+                f"[tuning] Dispatch ({dispatch_quant_mode}, raw_bytes={quant_recv_bytes/1e9:.3f}GB) "
+                f"raw_bw={quant_recv_bytes / 1e9 / t:.2f} GB/s, equiv_bw={dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
                 flush=True,
             )
 

@@ -209,7 +209,7 @@ def test(
         num_values = num_tokens * hidden
         if quant_type == "int8":
             data_bytes = num_values * 1
-            scale_bytes = num_tokens * 2
+            scale_bytes = num_tokens * 4
             return data_bytes + scale_bytes
         else:
             return num_values * 2
@@ -276,8 +276,10 @@ def test(
     combine_t = sum(combine_alltoall_t)
 
     print(
-        f"[rank {rank}] Dispatch bandwidth: {num_dispatch_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, avg_t={dispatch_t * 1e6:.2f} us | "
-        f"Combine bandwidth: {num_combine_comm_bytes / 1e9 / combine_t:.2f} GB/s, avg_t={combine_t * 1e6:.2f} us",
+        f"[rank {rank}] Dispatch raw_bw={num_dispatch_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, "
+        f"equiv_bw={num_combine_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, avg_t={dispatch_t * 1e6:.2f} us | "
+        f"Combine raw_bw={num_combine_comm_bytes / 1e9 / combine_t:.2f} GB/s, "
+        f"equiv_bw={num_combine_comm_bytes / 1e9 / combine_t:.2f} GB/s, avg_t={combine_t * 1e6:.2f} us",
         flush=True,
     )
     calculate_avg_stats(
