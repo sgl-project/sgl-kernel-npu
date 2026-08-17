@@ -453,6 +453,67 @@ class TestCompressor(unittest.TestCase):
         p = _make_inputs([200, 328], 129, 1, 128, 512, 1024, 2, "TH", torch.bfloat16, 2, 16)
         self._assert_ok(_run_case(p, 1, 128, 512, 2, torch.bfloat16))
 
+    def test_npu_graph_capture(self):
+        # Graph-capture support: warmup (fills tiling cache), capture, replay.
+        p = _make_inputs([200], 129, 1, 128, 512, 1024, 2, "TH", torch.bfloat16, 1, 16)
+
+        x_n = p["x"].npu()
+        wkv_n = p["wkv"].npu()
+        wgate_n = p["wgate"].npu()
+        ape_n = p["ape"].npu()
+        norm_n = p["norm_weight"].npu()
+        sine_n = p["rope_sin"].npu()
+        cose_n = p["rope_cos"].npu()
+        tbl_n = p["block_table"].npu()
+        cu_n = p["cu_seqlens"].npu()
+        used_n = torch.tensor(p["seqused"], dtype=torch.int32).npu()
+        start_n = torch.tensor(p["start_pos"], dtype=torch.int32).npu()
+        kw = dict(rope_head_dim=64, cmp_ratio=128, coff=1, norm_eps=1e-6, rotary_mode=2,
+                  cache_mode=2, state_cache_stride_dim0=0)
+
+        def _call(state_n):
+            return torch.ops.npu.compressor(
+                x_n, wkv_n, wgate_n, state_n, ape_n, norm_n, sine_n, cose_n,
+                state_block_table=tbl_n, cu_seqlens=cu_n, seqused=used_n, start_pos=start_n, **kw
+            )
+
+        # valid mask (matches eager CPU reference in _run_case)
+        _, mask = _reference_compressor(
+            p["x"], p["wkv"], p["wgate"], p["kv_state"].clone(), p["score_state"].clone(),
+            torch.zeros_like(p["kv_state"], dtype=torch.bool), torch.zeros_like(p["score_state"], dtype=torch.bool),
+            p["ape"], p["norm_weight"], p["rope_sin"], p["rope_cos"],
+            block_table=p["block_table"], cu_seqlens=p["cu_seqlens"].tolist(),
+            seqused=p["seqused"], start_pos=p["start_pos"], rope_head_dim=64, cmp_ratio=128,
+            coff=1, norm_eps=1e-6, rotary_mode=2, cache_mode=2,
+        )
+        mask_t = torch.from_numpy(np.asarray(mask)).bool()
+        if not mask_t.any():
+            return
+
+        state2 = p["state_cache"].clone().npu()
+
+        # eager reference on the same state tensor
+        out_eager = _call(state2)
+        torch_npu.npu.synchronize()
+
+        # warmup: fill tiling cache before capture (no host memcpy inside capture)
+        _call(p["state_cache"].clone().npu())
+        torch_npu.npu.synchronize()
+
+        # reset state to the original values so eager and graph see identical input
+        state2.copy_(p["state_cache"])
+        torch_npu.npu.synchronize()
+
+        g = torch.npu.NPUGraph()
+        with torch.npu.graph(g):
+            out_graph = _call(state2)
+        torch_npu.npu.synchronize()
+        g.replay()
+        torch_npu.npu.synchronize()
+
+        d = ((out_graph.cpu().float() - out_eager.cpu().float()).abs() * mask_t).max().item()
+        self._assert_ok(d)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

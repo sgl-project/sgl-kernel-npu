@@ -31,6 +31,10 @@
 namespace sglang {
 namespace npu_kernel {
 
+constexpr uint32_t MAX_CAPTURE_NUM = 1024;
+static uint32_t actualCaptureNum = 0;
+static std::unordered_map<uint64_t, uint32_t> captureMap;
+
 namespace {
 
 using namespace CompressorHost;
@@ -151,11 +155,37 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
         workspaceSize = sizeof(CompressorTilingData);
     }
 
-    // ---- 5) copy tiling data to device ----
+    // ---- 5) copy tiling data to device with graph-capture cache ----
     uint32_t tilingSize = sizeof(CompressorTilingData);
-    at::Tensor tilingTensor =
-        at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
-    aclrtMemcpy(tilingTensor.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
+    auto tup = std::make_tuple(tilingData.baseParams.batchSize, tilingData.baseParams.seqSize,
+                               tilingData.baseParams.hiddenSize, tilingData.baseParams.headDim,
+                               tilingData.baseParams.cmpRatio, tilingData.baseParams.tokenSize,
+                               tilingData.baseParams.cgSize, tilingData.pageAttentionParams.blockSize,
+                               tilingData.pageAttentionParams.maxBlockNumPerBatch, tilingData.tilingKey);
+    auto hashValue = host_utils::TupleHasher::Hash(tup);
+
+    static auto globalTilingBuffer = at::empty({tilingSize * MAX_CAPTURE_NUM},
+                                               at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+    at::Tensor tilingTensor;
+    if (captureMap.find(hashValue) != captureMap.end()) {
+        // decode replay / graph capture: reuse cached tiling from globalTilingBuffer
+        tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
+                                     tilingSize, at::kByte);
+    } else if (actualCaptureNum >= MAX_CAPTURE_NUM) {
+        // exceeds cache: reload tiling data to device
+        static auto tilingBuffer =
+            at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+        aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
+        tilingTensor = at::from_blob(tilingBuffer.data_ptr<uint8_t>(), tilingSize, at::kByte);
+    } else {
+        // first capture: copy tiling into the global buffer and remember the slot
+        captureMap[hashValue] = actualCaptureNum;
+        aclrtMemcpy(globalTilingBuffer.data_ptr<uint8_t>() + actualCaptureNum * tilingSize, tilingSize, &tilingData,
+                    tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
+        actualCaptureNum++;
+        tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
+                                     tilingSize, at::kByte);
+    }
 
     // ---- 6) workspace ----
     at::Tensor workspace =
