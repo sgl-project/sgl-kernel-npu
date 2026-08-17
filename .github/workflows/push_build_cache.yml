@@ -22,7 +22,8 @@ jobs:
     name: Build Cache - ${{ matrix.arch }} - CANN ${{ matrix.cann_version }}
     runs-on: ${{ matrix.runner }}
 
-    # 定义矩阵策略：覆盖 A3/A2 硬件；A3 用 9.0.0/9.1.0，A2(910B) 仅 9.0.0（9.1.0 不支持 A2）
+    # 定义矩阵策略：覆盖 A3/A2 硬件；A3 与 A2(910B) 均支持 9.0.0/9.1.0
+    # （与 pr-test-deepep-npu.yml 的 A2 矩阵一致）
     strategy:
       matrix:
         include:
@@ -41,6 +42,10 @@ jobs:
             runner: linux-aarch64-a2-8
             cann_version: "9.0.0"
             image_tag: "9.0.0-910b-ubuntu22.04-py3.11"
+          - arch: a2
+            runner: linux-aarch64-a2-8
+            cann_version: "9.1.0"
+            image_tag: "9.1.0-910b-ubuntu22.04-py3.12"
 
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.image_tag }}

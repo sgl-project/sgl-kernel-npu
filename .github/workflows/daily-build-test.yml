@@ -31,10 +31,6 @@ jobs:
         test_type: [intranode, low_latency]
         cann_version: [9.0.0, 9.1.0]
         hardware: [a3, a2]
-        exclude:
-          # CANN 9.1.0 不支持 A2（910B），无对应镜像
-          - cann_version: 9.1.0
-            hardware: a2
     steps:
       - name: Clean git config
         run: |
@@ -102,8 +98,8 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        # A2 多机仅支持 9.0.0（9.1.0 不支持 A2）
-        cann_version: [9.0.0]
+        # A2 多机支持 9.0.0 / 9.1.0（与 pr-test-deepep-npu.yml 的 A2 矩阵一致）
+        cann_version: [9.0.0, 9.1.0]
         test_config:
           - name: test_internode_a2
             node_size: 2
@@ -112,7 +108,7 @@ jobs:
     with:
       soc_version: a2
       runner: linux-aarch64-a2-0
-      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-py3.11'
+      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}'
       test_config_name: ${{ matrix.test_config.name }}
       node_size: ${{ matrix.test_config.node_size }}
       test_case: ${{ matrix.test_config.test_case }}

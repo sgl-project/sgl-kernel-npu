@@ -60,7 +60,13 @@ if [ -z "$CANN_VERSION" ]; then
     exit 1
 fi
 echo "Detected CANN version: ${CANN_VERSION}"
-bash scripts/npu_ci_install_dependency.sh --cann-version "${CANN_VERSION}"
+# Guard: this script has no `set -e`, so a failed dependency install would
+# otherwise let the build continue and die later with a delayed
+# "No module named 'torch'" error. Fail fast instead.
+bash scripts/npu_ci_install_dependency.sh --cann-version "${CANN_VERSION}" || {
+    echo "ERROR: failed to install dependencies for CANN ${CANN_VERSION}"
+    exit 1
+}
 echo "============================================= Finished building dependency ============================================="
 
 
