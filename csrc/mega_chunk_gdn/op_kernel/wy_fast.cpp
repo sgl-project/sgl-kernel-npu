@@ -82,12 +82,12 @@ using TileMatL1ZN = pto::Tile<pto::TileType::Mat, T, Rows, Cols, pto::BLayout::R
                               pto::SLayout::ColMajor, 512, pto::PadValue::Zero>;
 
 template <typename T, int Rows, int Cols, int RowValid = Rows, int ColValid = Cols>
-using TileMatL0A = pto::Tile<pto::TileType::Left, T, Rows, Cols, pto::BLayout::RowMajor, RowValid, ColValid,
-                             pto::SLayout::RowMajor, 512, pto::PadValue::Zero>;
+using TileMatL0A = pto::Tile<pto::TileType::Left, T, Rows, Cols, mega_chunk::GetOuterLayout(/*is_left=*/true), RowValid,
+                             ColValid, pto::SLayout::RowMajor, 512, pto::PadValue::Zero>;
 
 template <typename T, int Rows, int Cols, int RowValid = Rows, int ColValid = Cols>
-using TileMatL0B = pto::Tile<pto::TileType::Right, T, Rows, Cols, pto::BLayout::RowMajor, RowValid, ColValid,
-                             pto::SLayout::ColMajor, 512, pto::PadValue::Zero>;
+using TileMatL0B = pto::Tile<pto::TileType::Right, T, Rows, Cols, mega_chunk::GetOuterLayout(/*is_left=*/false),
+                             RowValid, ColValid, pto::SLayout::ColMajor, 512, pto::PadValue::Zero>;
 
 template <typename T, int Rows, int Cols, int RowValid = Rows, int ColValid = Cols,
           pto::PadValue PadVal = pto::PadValue::Null>

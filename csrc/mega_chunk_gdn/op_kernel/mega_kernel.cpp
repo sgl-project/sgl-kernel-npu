@@ -33,6 +33,9 @@
 
 #include <pto/pto-inst.hpp>
 #include "acl/acl.h"
+// Must be included at global scope: the sub-kernels below are #include'd into
+// separate namespaces, and #pragma once would otherwise trap mega_chunk_utils
+// inside whichever namespace pulled it in first.
 #include "mega_chunk_utils.h"
 #include <type_traits>
 using namespace pto;
