@@ -62,27 +62,10 @@ else
     echo "sglang import failed, created stub for is_npu"
 fi
 
-# 2. F (torch.nn.functional): test_swiglu_quant.py uses F.silu() without
-#    'import torch.nn.functional as F'. Inject F as a builtin via
-#    sitecustomize.py so direct 'python3 test_file.py' invocations work.
-PYTHON_SITE=$(python3 -c "import site; print(site.getsitepackages()[0])")
-SITECUSTOMIZE="$PYTHON_SITE/sitecustomize.py"
-if ! grep -q "builtins.F" "$SITECUSTOMIZE" 2>/dev/null; then
-    cat >> "$SITECUSTOMIZE" << 'PYEOF'
-# CI workaround: inject torch.nn.functional as F builtin
-try:
-    import builtins
-    import torch.nn.functional as F
-    builtins.F = F
-except Exception:
-    pass
-PYEOF
-    echo "Added F injection to sitecustomize.py"
-fi
-
-# 3. triton.language.parallel compatibility: decode_attention.py uses
+# 2. triton.language.parallel compatibility: decode_attention.py uses
 #    tl.parallel(0, 2, bind_sub_block=True) which was removed in triton 3.5.0.
 #    Patch triton/language/__init__.py to add a shim aliasing to range.
+PYTHON_SITE=$(python3 -c "import site; print(site.getsitepackages()[0])")
 TRITON_LANG_INIT="$PYTHON_SITE/triton/language/__init__.py"
 if [ -f "$TRITON_LANG_INIT" ] && ! grep -q "def parallel" "$TRITON_LANG_INIT" 2>/dev/null; then
     cat >> "$TRITON_LANG_INIT" << 'PYEOF'
@@ -95,6 +78,3 @@ def parallel(*args, **kwargs):
 PYEOF
     echo "Added tl.parallel compatibility shim to triton/language/__init__.py"
 fi
-
-# 4. High precision mode for CANN operators (may help with quantization precision)
-export ACL_OP_SELECT_IMPL_MODE=high_precision

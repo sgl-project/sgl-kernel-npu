@@ -125,6 +125,8 @@ jobs:
               - build.sh
               - cmake/**
               - CMakeLists.txt
+              - csrc/CMakeLists.txt
+              - csrc/**/CMakeLists.txt
               - scripts/prepare_kernel_tests.sh
               - scripts/run_kernel_tests.sh
               - .github/workflows/pr-test-kernels.yml
@@ -539,10 +541,18 @@ jobs:
       - name: Check all dependent job statuses
         run: |
           results=(${{ join(needs.*.result, ' ') }})
+          any_run=false
           for result in "${results[@]}"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ]; then
               echo "Job failed with result: $result"
               exit 1
             fi
+            if [ "$result" = "success" ]; then
+              any_run=true
+            fi
           done
+          if [ "$any_run" = "false" ]; then
+            echo "All operator test jobs were skipped: no test-group/common paths changed."
+            exit 1
+          fi
           echo "All kernel operator tests passed"

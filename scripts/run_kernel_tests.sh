@@ -11,10 +11,22 @@ FAILED=()
 
 run_test() {
     local test_file="$1"
+    local exit_code=0
     echo "=========================================="
     echo "Running: $test_file"
     echo "=========================================="
-    if python3 "$test_file"; then
+    if grep -q '__main__' "$test_file"; then
+        # Script-style test with a __main__ entry: run it directly
+        python3 "$test_file" || exit_code=$?
+    elif grep -q 'def test_' "$test_file"; then
+        # Pytest-style test without __main__: collect and run it with pytest.
+        # Direct 'python3 file.py' would only import and falsely pass.
+        python3 -m pytest "$test_file" -q -x || exit_code=$?
+    else
+        # Plain script (e.g. test_hello_world.py): run it directly
+        python3 "$test_file" || exit_code=$?
+    fi
+    if [ "$exit_code" -eq 0 ]; then
         PASSED+=("$test_file")
         echo "PASSED: $test_file"
     else
