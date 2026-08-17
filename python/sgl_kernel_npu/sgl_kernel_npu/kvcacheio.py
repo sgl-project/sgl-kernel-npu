@@ -65,3 +65,35 @@ def transfer_kv_dim_exchange(
             direction.value,
             flags.value,
         )
+
+
+def transfer_mamba_state(
+    device_buf: torch.Tensor,
+    host_buf: torch.Tensor,
+    device_indices: torch.Tensor,
+    host_indices: torch.Tensor,
+    direction: TransferDirection = TransferDirection.H2D,
+):
+    """
+    Transfer Mamba/SSM state between device (layer-first) and host (page-first).
+
+    Device buffer layout: [num_layers, device_size, *state_shape]  (layer-first)
+    Host buffer layout:   [host_size, num_layers, 1, *state_shape] (page-first)
+
+    Uses aclrtMemcpy2dAsync for efficient 2D strided copy, transferring all
+    layers for each slot index in a single 2D copy call.
+
+    Args:
+        device_buf: device Mamba state buffer [num_layers, size, *shape]
+        host_buf: host Mamba state buffer [size, num_layers, 1, *shape]
+        device_indices: slot indices in device buffer
+        host_indices: slot indices in host buffer
+        direction: H2D (host→device) or D2H (device→host)
+    """
+    torch.ops.npu.transfer_mamba_state(
+        device_buf,
+        host_buf,
+        device_indices,
+        host_indices,
+        direction.value,
+    )
