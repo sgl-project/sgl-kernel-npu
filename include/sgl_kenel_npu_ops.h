@@ -155,6 +155,32 @@ at::Tensor lightning_indexer(
     c10::optional<c10::string_view> layout_key,
     c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode);
 
+at::Tensor compute_n_gram_ids(
+    const at::Tensor &oe_weights, const at::Tensor &oe_mods,
+    const at::Tensor &exclusive_oe_embeder_size_sums,
+    const at::Tensor &tokens, const at::Tensor &exclusive_req_len_sums,
+    const at::Tensor &oe_token_table, const at::Tensor &row_indices,
+    const at::Tensor &column_starts, int64_t batch_size, int64_t oe_n,
+    int64_t oe_k, int64_t max_context_len);
+
+at::Tensor update_oe_token_table(
+    const at::Tensor &tokens, const at::Tensor &req_lens,
+    const at::Tensor &row_indices, const at::Tensor &column_starts,
+    const at::Tensor &ignore_tokens, int64_t batch_size,
+    int64_t max_context_len, const at::Tensor &oe_token_table);
+
+std::tuple<at::Tensor, at::Tensor> mlp_lightning_indexer(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
+    const c10::optional<at::Tensor> &cur_seq_lengths_query,
+    const c10::optional<at::Tensor> &cur_seq_lengths_key,
+    const c10::optional<at::Tensor> &block_table,
+    const c10::optional<at::Tensor> &init_tensor,
+    const c10::optional<at::Tensor> &local_tensor,
+    c10::string_view layout_query, c10::string_view layout_key,
+    int64_t sparse_count, int64_t kv_block_len, int64_t q_block_len,
+    int64_t init_num, int64_t local_num, int64_t sparse_mode,
+    int64_t pre_tokens, int64_t next_tokens, bool return_value);
+
 /**
  * @brief Triangular inverse of input tensor where last two dimensions represent
  * a matrix.
