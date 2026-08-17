@@ -1,4 +1,4 @@
-﻿#ifndef SGLANG_KERNEL_GE_HELPER_H
+#ifndef SGLANG_KERNEL_GE_HELPER_H
 #define SGLANG_KERNEL_GE_HELPER_H
 #include <cstdint>
 #include <vector>
