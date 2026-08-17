@@ -78,8 +78,8 @@ Buffer::Buffer(int64_t rank, int64_t num_ranks, int64_t num_nvl_bytes, int64_t n
         EP_HOST_ASSERT(*end == '\0' && t >= MIN_TOKENS_PER_ROUND && t <= MAX_TOKENS_PER_ROUND);
         // 验证乘积限制
         EP_HOST_ASSERT_S(r * t <= MAX_TOTAL_TOKENS, "DEEPEP_NORMAL_LONG_SEQ_ROUND (", r,
-                         ") * DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS (", t,
-                         ") must not exceed MAX_TOTAL_TOKENS (", MAX_TOTAL_TOKENS, ").");
+                         ") * DEEPEP_NORMAL_LONG_SEQ_PER_ROUND_TOKENS (", t, ") must not exceed MAX_TOTAL_TOKENS (",
+                         MAX_TOTAL_TOKENS, ").");
         round = static_cast<int>(r);
         per_round_tokens = static_cast<int>(t);
     }
