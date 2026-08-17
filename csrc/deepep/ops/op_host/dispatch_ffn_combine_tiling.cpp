@@ -12,6 +12,7 @@
 #include <vector>
 #include <map>
 #include <algorithm>
+#include <cmath>
 #include "../op_kernel/dispatch_ffn_combine_kernel/moe_init_routing_quant_v2/moe_init_routing_quant_v2_tiling.h"
 
 using namespace AscendC;
@@ -26,9 +27,16 @@ constexpr uint32_t ATTR_EP_RANK_ID_INDEX = 2;
 constexpr uint32_t ATTR_MAX_OUTPUT_SIZE_INDEX = 3;
 constexpr uint32_t ATTR_IS_TRANS_B = 4;
 constexpr uint32_t ATTR_WEIGHT_NZ = 5;
+constexpr uint32_t ATTR_ACTIVATION_TYPE = 6;
+constexpr uint32_t ATTR_ACTIVATION_ALPHA = 7;
+constexpr uint32_t ATTR_GATE_CLAMP_MAX = 8;
+constexpr uint32_t ATTR_UP_CLAMP_MIN = 9;
+constexpr uint32_t ATTR_UP_CLAMP_MAX = 10;
+constexpr uint32_t ATTR_UP_ADD = 11;
 constexpr uint64_t INIT_TILINGKEY = 1000000;
 constexpr uint64_t TILINGKEY_TRANS_B = 1U;
 constexpr uint64_t TILINGKEY_WEIGHT_NZ = 10;
+constexpr uint64_t TILINGKEY_SWIGLU_OAI = 100;
 constexpr uint32_t X_INDEX = 0;
 constexpr uint32_t WEIGHT_INDEX = 1;
 constexpr uint32_t WEIGHT2_INDEX = 2;
@@ -78,6 +86,12 @@ static ge::graphStatus DispatchFFNCombineCheckAttrAndSetTiling(gert::TilingConte
     auto maxOutputSizePtr = attrs->GetAttrPointer<int>(ATTR_MAX_OUTPUT_SIZE_INDEX);
     auto is_trans_b = attrs->GetAttrPointer<bool>(ATTR_IS_TRANS_B);
     auto weight_nz = attrs->GetAttrPointer<bool>(ATTR_WEIGHT_NZ);
+    auto activation_type = attrs->GetAttrPointer<int>(ATTR_ACTIVATION_TYPE);
+    auto activation_alpha = attrs->GetAttrPointer<float>(ATTR_ACTIVATION_ALPHA);
+    auto gate_clamp_max = attrs->GetAttrPointer<float>(ATTR_GATE_CLAMP_MAX);
+    auto up_clamp_min = attrs->GetAttrPointer<float>(ATTR_UP_CLAMP_MIN);
+    auto up_clamp_max = attrs->GetAttrPointer<float>(ATTR_UP_CLAMP_MAX);
+    auto up_add = attrs->GetAttrPointer<float>(ATTR_UP_ADD);
     OP_TILING_CHECK(groupPtr == nullptr || strlen(groupPtr) == 0, OP_LOGE(K_INNER_DEBUG, "group is invalid."),
                     return GRAPH_FAILED);
     OP_TILING_CHECK(epRankSizePtr == nullptr, OP_LOGE(K_INNER_DEBUG, "epRankSizePtr is invalid."), return GRAPH_FAILED);
@@ -85,10 +99,25 @@ static ge::graphStatus DispatchFFNCombineCheckAttrAndSetTiling(gert::TilingConte
 
     OP_TILING_CHECK(is_trans_b == nullptr, OP_LOGE(K_INNER_DEBUG, "is_trans_b is invalid."), return GRAPH_FAILED);
     OP_TILING_CHECK(weight_nz == nullptr, OP_LOGE(K_INNER_DEBUG, "weight_nz is invalid."), return GRAPH_FAILED);
+    OP_TILING_CHECK(activation_type == nullptr || activation_alpha == nullptr || gate_clamp_max == nullptr ||
+                        up_clamp_min == nullptr || up_clamp_max == nullptr || up_add == nullptr,
+                    OP_LOGE(K_INNER_DEBUG, "activation attributes are invalid."), return GRAPH_FAILED);
+    OP_TILING_CHECK(*activation_type != 0 && *activation_type != 1,
+                    OP_LOGE(K_INNER_DEBUG, "unsupported activation type."), return GRAPH_FAILED);
+    OP_TILING_CHECK(*activation_type == 1 && (!std::isfinite(*activation_alpha) || !std::isfinite(*gate_clamp_max) ||
+                                              !std::isfinite(*up_clamp_min) || !std::isfinite(*up_clamp_max) ||
+                                              !std::isfinite(*up_add) || *up_clamp_min > *up_clamp_max),
+                    OP_LOGE(K_INNER_DEBUG, "invalid SwiGLU-OAI activation parameters."), return GRAPH_FAILED);
 
     info.maxOutputSize = *maxOutputSizePtr;
     info.isTransposeB = *is_trans_b;
     info.isWeightNz = *weight_nz;
+    info.activationType = *activation_type;
+    info.activationAlpha = *activation_alpha;
+    info.gateClampMax = *gate_clamp_max;
+    info.upClampMin = *up_clamp_min;
+    info.upClampMax = *up_clamp_max;
+    info.upAdd = *up_add;
 
     uint32_t epRankSize = static_cast<uint32_t>(*epRankSizePtr);
     OP_TILING_CHECK(*epRankIdPtr < 0, OP_LOGE(K_INNER_DEBUG, "epRankId must >= 0."), return ge::GRAPH_FAILED);
@@ -211,6 +240,8 @@ static ge::graphStatus DispatchFFNCombineTilingFuncImpl(gert::TilingContext *con
     uint64_t tilingKey = INIT_TILINGKEY;
     tilingKey += info.isTransposeB ? TILINGKEY_TRANS_B : 0;
     tilingKey += info.isWeightNz ? TILINGKEY_WEIGHT_NZ : 0;
+    // OAI changes only epilogue arithmetic. Reuse the standard task key: the
+    // separately compiled OAI key produces an all-zero output on Ascend.
     context->SetTilingKey(tilingKey);
 
     OP_LOGD(K_INNER_DEBUG, "tilingKey=%d", tilingKey);
@@ -302,4 +333,9 @@ ge::graphStatus TilingParseForDispatchFFNCombine(gert::TilingParseContext *conte
 IMPL_OP_OPTILING(DispatchFFNCombine)
     .Tiling(DispatchFFNCombineTilingFunc)
     .TilingParse<DispatchFFNCombineCompileInfo>(TilingParseForDispatchFFNCombine);
+
+IMPL_OP_OPTILING(DispatchFFNCombineSwiGluOAI)
+    .Tiling(DispatchFFNCombineTilingFunc)
+    .TilingParse<DispatchFFNCombineCompileInfo>(TilingParseForDispatchFFNCombine);
+
 }  // namespace optiling
