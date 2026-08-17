@@ -28,6 +28,9 @@ aclnnStatus aclnnFusedDeepMoeGetWorkspaceSize(
     const aclTensor *output, const aclTensor *shareOutput, const aclTensor *expertTokenNums, uint64_t *workspaceSize,
     aclOpExecutor **executor)
 {
+    if (quantMode != 0 && quantMode != 1) {
+        return ACL_ERROR_INVALID_PARAM;
+    }
     return aclnnInnerFusedDeepMoeGetWorkspaceSize(
         x, expertIds, gmm1Weight, gmm1WeightScale, gmm2Weight, gmm2WeightScale, expertScales, shareGmm1WeightOptional,
         shareGmm1WeightScaleOptional, shareGmm2WeightOptional, shareGmm2WeightScaleOptional, expertSmoothScalesOptional,
