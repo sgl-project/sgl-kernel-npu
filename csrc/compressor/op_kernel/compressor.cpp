@@ -55,14 +55,14 @@ using namespace Compressor;
     } while (0)
 
 #define LAUNCH_COMPRESSOR_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL)                                \
-    case GET_TPL_TILING_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL, 2):                               \
-        INVOKE_COMPRESSOR_GENERAL_OP_IMPL(CompressorKernelPerf, static_cast<X_LAYOUT>(LAYOUT_BIT),                  \
-                                          static_cast<X_DTYPE>(DTYPE_BIT), static_cast<COFF>(COFF_VAL),             \
-                                          static_cast<ROTARY_MODE>(ROT_VAL), static_cast<CACHE_MODE>(CACHE_VAL));   \
+    case GET_TPL_TILING_KEY(LAYOUT_BIT, DTYPE_BIT, COFF_VAL, ROT_VAL, CACHE_VAL, 2):                              \
+        INVOKE_COMPRESSOR_GENERAL_OP_IMPL(CompressorKernelPerf, static_cast<X_LAYOUT>(LAYOUT_BIT),                \
+                                          static_cast<X_DTYPE>(DTYPE_BIT), static_cast<COFF>(COFF_VAL),           \
+                                          static_cast<ROTARY_MODE>(ROT_VAL), static_cast<CACHE_MODE>(CACHE_VAL)); \
         break;
 
-extern "C" __global__ __aicore__ void compressor(GM_ADDR x, GM_ADDR wKv, GM_ADDR wGate, GM_ADDR stateCache,
-                                                 GM_ADDR ape, GM_ADDR normWeight, GM_ADDR ropeSin, GM_ADDR ropeCos,
+extern "C" __global__ __aicore__ void compressor(GM_ADDR x, GM_ADDR wKv, GM_ADDR wGate, GM_ADDR stateCache, GM_ADDR ape,
+                                                 GM_ADDR normWeight, GM_ADDR ropeSin, GM_ADDR ropeCos,
                                                  GM_ADDR stateBlockTable, GM_ADDR cuSeqlens, GM_ADDR seqUsed,
                                                  GM_ADDR startPos, GM_ADDR cmpKvOut, GM_ADDR stateCacheOut,
                                                  GM_ADDR workspace, GM_ADDR tiling)

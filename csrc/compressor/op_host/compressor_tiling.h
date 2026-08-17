@@ -269,7 +269,8 @@ public:
     explicit CompressorTiling(CompressorContext *context) : context_(context) {}
     ~CompressorTiling() = default;
 
-    static ge::graphStatus ConvertContext(sglang::ge_helper::TilingContext &context, CompressorContext &compressorContext);
+    static ge::graphStatus ConvertContext(sglang::ge_helper::TilingContext &context,
+                                          CompressorContext &compressorContext);
     ge::graphStatus RunBigKernelTiling(CompressorTilingData *tilingData);
 
 private:

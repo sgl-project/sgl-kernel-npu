@@ -43,7 +43,9 @@ def _rotary_emb(x, rope_sin, rope_cos, rotary_mode):
                 a = x[s][i]
                 b = x[s][i + group]
                 y[s][i] = a * rope_cos[s][i] - b * rope_sin[s][i]
-                y[s][i + group] = a * rope_sin[s][i + group] + b * rope_cos[s][i + group]
+                y[s][i + group] = (
+                    a * rope_sin[s][i + group] + b * rope_cos[s][i + group]
+                )
             if rotary_mode == 2:
                 idx = 2 * i
                 a = x[s][idx]
@@ -53,7 +55,9 @@ def _rotary_emb(x, rope_sin, rope_cos, rotary_mode):
     return y
 
 
-def _build_explicit_state_loc_table(start_pos, capacities, block_size, coff, cmp_ratio, banks_per_batch=2):
+def _build_explicit_state_loc_table(
+    start_pos, capacities, block_size, coff, cmp_ratio, banks_per_batch=2
+):
     history_size = coff * cmp_ratio
     max_capacity = max(max(capacities, default=0), 1)
     bank_ids = torch.arange(len(start_pos) * banks_per_batch, dtype=torch.int32).view(
@@ -79,15 +83,33 @@ def _explicit_state_loc(block_table, b_idx, seq_idx, batch_start_pos, history_si
     return int(block_table[b_idx, table_column])
 
 
-def _read_state_page_cache(state, b_idx, start_seq_idx, end_seq_idx, block_table, d_start, d_end,
-                           cache_mode=1, batch_start_pos=0, history_size=0):
-    result = np.zeros(shape=(end_seq_idx - start_seq_idx, d_end - d_start), dtype=np.float32)
+def _read_state_page_cache(
+    state,
+    b_idx,
+    start_seq_idx,
+    end_seq_idx,
+    block_table,
+    d_start,
+    d_end,
+    cache_mode=1,
+    batch_start_pos=0,
+    history_size=0,
+):
+    result = np.zeros(
+        shape=(end_seq_idx - start_seq_idx, d_end - d_start), dtype=np.float32
+    )
     block_size = state.shape[1]
     seq_cnt = end_seq_idx - start_seq_idx
     if cache_mode == 2:
         state_flat = state.reshape(-1, state.shape[-1])
         for offset in range(seq_cnt):
-            state_loc = _explicit_state_loc(block_table, b_idx, start_seq_idx + offset, batch_start_pos, history_size)
+            state_loc = _explicit_state_loc(
+                block_table,
+                b_idx,
+                start_seq_idx + offset,
+                batch_start_pos,
+                history_size,
+            )
             result[offset] = state_flat[state_loc, d_start:d_end]
         return result
     finish_cnt = 0
@@ -107,15 +129,31 @@ def _read_state_page_cache(state, b_idx, start_seq_idx, end_seq_idx, block_table
     return result
 
 
-def _write_state_page_cache(state, update_position, sc_new_state, b_idx, start_seq_idx, end_seq_idx,
-                            block_table, cache_mode=1, batch_start_pos=0, history_size=0):
+def _write_state_page_cache(
+    state,
+    update_position,
+    sc_new_state,
+    b_idx,
+    start_seq_idx,
+    end_seq_idx,
+    block_table,
+    cache_mode=1,
+    batch_start_pos=0,
+    history_size=0,
+):
     block_size = state.shape[1]
     seq_cnt = end_seq_idx - start_seq_idx
     if cache_mode == 2:
         state_flat = state.reshape(-1, state.shape[-1])
         update_flat = update_position.reshape(-1, update_position.shape[-1])
         for offset in range(seq_cnt):
-            state_loc = _explicit_state_loc(block_table, b_idx, start_seq_idx + offset, batch_start_pos, history_size)
+            state_loc = _explicit_state_loc(
+                block_table,
+                b_idx,
+                start_seq_idx + offset,
+                batch_start_pos,
+                history_size,
+            )
             state_flat[state_loc] = sc_new_state[offset]
             update_flat[state_loc] = True
         return
@@ -141,9 +179,29 @@ def _write_state_page_cache(state, update_position, sc_new_state, b_idx, start_s
         finish_cnt = finish_cnt + can_write_seq_cnt
 
 
-def _reference_compressor(x, wkv, wgate, kv_state, score_state, update_kv, update_score, ape, norm_weight,
-                          rope_sin, rope_cos, block_table, cu_seqlens, seqused, start_pos, rope_head_dim,
-                          cmp_ratio, coff, norm_eps, rotary_mode, cache_mode):
+def _reference_compressor(
+    x,
+    wkv,
+    wgate,
+    kv_state,
+    score_state,
+    update_kv,
+    update_score,
+    ape,
+    norm_weight,
+    rope_sin,
+    rope_cos,
+    block_table,
+    cu_seqlens,
+    seqused,
+    start_pos,
+    rope_head_dim,
+    cmp_ratio,
+    coff,
+    norm_eps,
+    rotary_mode,
+    cache_mode,
+):
     x_dtype = x.dtype
     x = x.to(torch.float32).numpy()
     wkv = wkv.to(torch.float32).numpy()
@@ -167,9 +225,14 @@ def _reference_compressor(x, wkv, wgate, kv_state, score_state, update_kv, updat
         S = x.shape[1]
         new_kv_state = new_kv_state.reshape(B * S, new_kv_state.shape[-1])
         new_score_state = new_score_state.reshape(B * S, new_score_state.shape[-1])
-        cmp_kv = np.zeros(shape=(B, (S + cmp_ratio - 1) // cmp_ratio, head_dim), dtype=matmul_dtype)
+        cmp_kv = np.zeros(
+            shape=(B, (S + cmp_ratio - 1) // cmp_ratio, head_dim), dtype=matmul_dtype
+        )
     else:
-        cmp_kv = np.zeros(shape=(min(x.shape[0], x.shape[0] // cmp_ratio + B), head_dim), dtype=matmul_dtype)
+        cmp_kv = np.zeros(
+            shape=(min(x.shape[0], x.shape[0] // cmp_ratio + B), head_dim),
+            dtype=matmul_dtype,
+        )
 
     cmp_kv_mask = np.zeros_like(cmp_kv, dtype=bool)
 
@@ -180,7 +243,11 @@ def _reference_compressor(x, wkv, wgate, kv_state, score_state, update_kv, updat
         if seqused is not None:
             batch_seq_used = seqused[b_idx]
         else:
-            batch_seq_used = cu_seqlens[b_idx + 1] - cu_seqlens[b_idx] if bs_combine_flag else x.shape[1]
+            batch_seq_used = (
+                cu_seqlens[b_idx + 1] - cu_seqlens[b_idx]
+                if bs_combine_flag
+                else x.shape[1]
+            )
         compress_seq_id = (batch_start_pos + batch_seq_used) // cmp_ratio * cmp_ratio
 
         batch_seq_idx = 0
@@ -200,23 +267,50 @@ def _reference_compressor(x, wkv, wgate, kv_state, score_state, update_kv, updat
                 new_score_state[start_offset:end_offset, :],
                 ape[start_seq_id_in_sc:end_seq_idx_in_sc, :],
             )
-            save_flag = True if cache_mode == 1 else (start_seq_idx >= (compress_seq_id - (coff - 1) * cmp_ratio))
+            save_flag = (
+                True
+                if cache_mode == 1
+                else (start_seq_idx >= (compress_seq_id - (coff - 1) * cmp_ratio))
+            )
             compress_flag = start_seq_idx < compress_seq_id
 
             if save_flag:
                 tmp_kv = new_kv_state[start_offset:end_offset, :]
                 tmp_sc = new_score_state[start_offset:end_offset, :]
-                _write_state_page_cache(kv_state, update_kv, tmp_kv, b_idx, start_seq_idx, end_seq_idx,
-                                        block_table, cache_mode=cache_mode, batch_start_pos=batch_start_pos,
-                                        history_size=coff * cmp_ratio)
-                _write_state_page_cache(score_state, update_score, tmp_sc, b_idx, start_seq_idx, end_seq_idx,
-                                        block_table, cache_mode=cache_mode, batch_start_pos=batch_start_pos,
-                                        history_size=coff * cmp_ratio)
+                _write_state_page_cache(
+                    kv_state,
+                    update_kv,
+                    tmp_kv,
+                    b_idx,
+                    start_seq_idx,
+                    end_seq_idx,
+                    block_table,
+                    cache_mode=cache_mode,
+                    batch_start_pos=batch_start_pos,
+                    history_size=coff * cmp_ratio,
+                )
+                _write_state_page_cache(
+                    score_state,
+                    update_score,
+                    tmp_sc,
+                    b_idx,
+                    start_seq_idx,
+                    end_seq_idx,
+                    block_table,
+                    cache_mode=cache_mode,
+                    batch_start_pos=batch_start_pos,
+                    history_size=coff * cmp_ratio,
+                )
 
             if compress_flag:
-                sc_kv_state = np.zeros(shape=(coff, cmp_ratio, head_dim), dtype=matmul_dtype)
-                sc_score_state = np.full(shape=(coff, cmp_ratio, head_dim), fill_value=-float("inf"),
-                                         dtype=matmul_dtype)
+                sc_kv_state = np.zeros(
+                    shape=(coff, cmp_ratio, head_dim), dtype=matmul_dtype
+                )
+                sc_score_state = np.full(
+                    shape=(coff, cmp_ratio, head_dim),
+                    fill_value=-float("inf"),
+                    dtype=matmul_dtype,
+                )
                 coff_id = coff - 1
                 d_start = coff_id * head_dim
                 d_end = (coff_id + 1) * head_dim
@@ -226,13 +320,37 @@ def _reference_compressor(x, wkv, wgate, kv_state, score_state, update_kv, updat
                     if cnt_from_state > 0:
                         copy_start = batch_start_pos - cnt_from_state
                         copy_end = batch_start_pos
-                        sc_kv_state[coff_id, 0:cnt_from_state, :] = _read_state_page_cache(
-                            kv_state, b_idx, copy_start, copy_end, block_table, d_start, d_end,
-                            cache_mode=cache_mode, batch_start_pos=batch_start_pos, history_size=coff * cmp_ratio)
-                        sc_score_state[coff_id, 0:cnt_from_state, :] = _read_state_page_cache(
-                            score_state, b_idx, copy_start, copy_end, block_table, d_start, d_end,
-                            cache_mode=cache_mode, batch_start_pos=batch_start_pos, history_size=coff * cmp_ratio)
-                sc_kv_state[coff_id, cnt_from_state:cmp_ratio, :] = new_kv_state[start_offset:end_offset, d_start:d_end]
+                        sc_kv_state[coff_id, 0:cnt_from_state, :] = (
+                            _read_state_page_cache(
+                                kv_state,
+                                b_idx,
+                                copy_start,
+                                copy_end,
+                                block_table,
+                                d_start,
+                                d_end,
+                                cache_mode=cache_mode,
+                                batch_start_pos=batch_start_pos,
+                                history_size=coff * cmp_ratio,
+                            )
+                        )
+                        sc_score_state[coff_id, 0:cnt_from_state, :] = (
+                            _read_state_page_cache(
+                                score_state,
+                                b_idx,
+                                copy_start,
+                                copy_end,
+                                block_table,
+                                d_start,
+                                d_end,
+                                cache_mode=cache_mode,
+                                batch_start_pos=batch_start_pos,
+                                history_size=coff * cmp_ratio,
+                            )
+                        )
+                sc_kv_state[coff_id, cnt_from_state:cmp_ratio, :] = new_kv_state[
+                    start_offset:end_offset, d_start:d_end
+                ]
                 sc_score_state[coff_id, cnt_from_state:cmp_ratio, :] = new_score_state[
                     start_offset:end_offset, d_start:d_end
                 ]
@@ -245,38 +363,82 @@ def _reference_compressor(x, wkv, wgate, kv_state, score_state, update_kv, updat
                     if batch_start_pos == start_seq_idx:
                         cnt_from_state = cmp_ratio
                         if batch_start_pos >= cmp_ratio:
-                            copy_start = batch_start_pos - batch_start_pos % cmp_ratio - cmp_ratio
+                            copy_start = (
+                                batch_start_pos
+                                - batch_start_pos % cmp_ratio
+                                - cmp_ratio
+                            )
                             copy_end = copy_start + cnt_from_state
-                            sc_kv_state[coff_id, 0:cnt_from_state, :] = _read_state_page_cache(
-                                kv_state, b_idx, copy_start, copy_end, block_table, d_start, d_end,
-                                cache_mode=cache_mode, batch_start_pos=batch_start_pos,
-                                history_size=coff * cmp_ratio)
-                            sc_score_state[coff_id, 0:cnt_from_state, :] = _read_state_page_cache(
-                                score_state, b_idx, copy_start, copy_end, block_table, d_start, d_end,
-                                cache_mode=cache_mode, batch_start_pos=batch_start_pos,
-                                history_size=coff * cmp_ratio)
+                            sc_kv_state[coff_id, 0:cnt_from_state, :] = (
+                                _read_state_page_cache(
+                                    kv_state,
+                                    b_idx,
+                                    copy_start,
+                                    copy_end,
+                                    block_table,
+                                    d_start,
+                                    d_end,
+                                    cache_mode=cache_mode,
+                                    batch_start_pos=batch_start_pos,
+                                    history_size=coff * cmp_ratio,
+                                )
+                            )
+                            sc_score_state[coff_id, 0:cnt_from_state, :] = (
+                                _read_state_page_cache(
+                                    score_state,
+                                    b_idx,
+                                    copy_start,
+                                    copy_end,
+                                    block_table,
+                                    d_start,
+                                    d_end,
+                                    cache_mode=cache_mode,
+                                    batch_start_pos=batch_start_pos,
+                                    history_size=coff * cmp_ratio,
+                                )
+                            )
                     elif start_seq_idx - cmp_ratio < batch_start_pos:
                         cnt_from_state = batch_start_pos % cmp_ratio
                         if cnt_from_state > 0:
                             copy_start = batch_start_pos - batch_start_pos % cmp_ratio
                             copy_end = batch_start_pos
-                            sc_kv_state[coff_id, 0:cnt_from_state, :] = _read_state_page_cache(
-                                kv_state, b_idx, copy_start, copy_end, block_table, d_start, d_end,
-                                cache_mode=cache_mode, batch_start_pos=batch_start_pos,
-                                history_size=coff * cmp_ratio)
-                            sc_score_state[coff_id, 0:cnt_from_state, :] = _read_state_page_cache(
-                                score_state, b_idx, copy_start, copy_end, block_table, d_start, d_end,
-                                cache_mode=cache_mode, batch_start_pos=batch_start_pos,
-                                history_size=coff * cmp_ratio)
+                            sc_kv_state[coff_id, 0:cnt_from_state, :] = (
+                                _read_state_page_cache(
+                                    kv_state,
+                                    b_idx,
+                                    copy_start,
+                                    copy_end,
+                                    block_table,
+                                    d_start,
+                                    d_end,
+                                    cache_mode=cache_mode,
+                                    batch_start_pos=batch_start_pos,
+                                    history_size=coff * cmp_ratio,
+                                )
+                            )
+                            sc_score_state[coff_id, 0:cnt_from_state, :] = (
+                                _read_state_page_cache(
+                                    score_state,
+                                    b_idx,
+                                    copy_start,
+                                    copy_end,
+                                    block_table,
+                                    d_start,
+                                    d_end,
+                                    cache_mode=cache_mode,
+                                    batch_start_pos=batch_start_pos,
+                                    history_size=coff * cmp_ratio,
+                                )
+                            )
                     if cnt_from_state < cmp_ratio:
                         pre_start = start_offset - (cmp_ratio - cnt_from_state)
                         pre_end = start_offset
-                        sc_kv_state[coff_id, cnt_from_state:cmp_ratio, :] = new_kv_state[
-                            pre_start:pre_end, d_start:d_end
-                        ]
-                        sc_score_state[coff_id, cnt_from_state:cmp_ratio, :] = new_score_state[
-                            pre_start:pre_end, d_start:d_end
-                        ]
+                        sc_kv_state[coff_id, cnt_from_state:cmp_ratio, :] = (
+                            new_kv_state[pre_start:pre_end, d_start:d_end]
+                        )
+                        sc_score_state[coff_id, cnt_from_state:cmp_ratio, :] = (
+                            new_score_state[pre_start:pre_end, d_start:d_end]
+                        )
 
                 sc_kv_state = sc_kv_state.reshape(coff * cmp_ratio, head_dim)
                 sc_score_state = sc_score_state.reshape(coff * cmp_ratio, head_dim)
@@ -285,7 +447,9 @@ def _reference_compressor(x, wkv, wgate, kv_state, score_state, update_kv, updat
                 sc_cmp_kv = np.sum(sc_data, axis=0, keepdims=True)
                 sc_cmp_kv = _rms_norm(sc_cmp_kv, norm_weight, norm_eps)
                 sc_cmp_kv[:, -rope_head_dim:] = _rotary_emb(
-                    sc_cmp_kv[:, -rope_head_dim:], rope_sin[out_sum_sc_cnt, :], rope_cos[out_sum_sc_cnt, :],
+                    sc_cmp_kv[:, -rope_head_dim:],
+                    rope_sin[out_sum_sc_cnt, :],
+                    rope_cos[out_sum_sc_cnt, :],
                     rotary_mode,
                 )
                 if bs_combine_flag:
@@ -302,8 +466,20 @@ def _reference_compressor(x, wkv, wgate, kv_state, score_state, update_kv, updat
     return torch.tensor(cmp_kv).to(x_dtype), cmp_kv_mask
 
 
-def _make_inputs(start_pos, seq_len, coff, cmp_ratio, head_dim, hidden, cache_mode, layout="TH",
-                 dtype=torch.bfloat16, batch=1, block_size=16, seed=20260813):
+def _make_inputs(
+    start_pos,
+    seq_len,
+    coff,
+    cmp_ratio,
+    head_dim,
+    hidden,
+    cache_mode,
+    layout="TH",
+    dtype=torch.bfloat16,
+    batch=1,
+    block_size=16,
+    seed=20260813,
+):
     gen = torch.Generator().manual_seed(seed)
     ww = coff * head_dim
     if layout == "TH":
@@ -319,7 +495,10 @@ def _make_inputs(start_pos, seq_len, coff, cmp_ratio, head_dim, hidden, cache_mo
     total_tokens = batch * seq_len
     rope_rows = min(total_tokens, total_tokens // cmp_ratio + batch)
     rope_sin = torch.randn(rope_rows, 64, generator=gen).float() * 0.01
-    rope_cos = torch.ones(rope_rows, 64) + torch.randn(rope_rows, 64, generator=gen).float() * 0.01
+    rope_cos = (
+        torch.ones(rope_rows, 64)
+        + torch.randn(rope_rows, 64, generator=gen).float() * 0.01
+    )
 
     if cache_mode == 2:
         capacities = [seq_len] * batch
@@ -336,15 +515,32 @@ def _make_inputs(start_pos, seq_len, coff, cmp_ratio, head_dim, hidden, cache_mo
         block_num = batch * max_block
         state_block_size = block_size
 
-    kv_state = torch.randn(block_num, state_block_size, ww, generator=gen).float() * 0.01
-    score_state = torch.randn(block_num, state_block_size, ww, generator=gen).float() * 0.01
+    kv_state = (
+        torch.randn(block_num, state_block_size, ww, generator=gen).float() * 0.01
+    )
+    score_state = (
+        torch.randn(block_num, state_block_size, ww, generator=gen).float() * 0.01
+    )
     state_cache = torch.zeros(block_num, state_block_size, 2 * ww)
     state_cache[..., :ww] = kv_state
     state_cache[..., ww:] = score_state
     seqused = [seq_len] * batch
-    return dict(x=x, wkv=wkv, wgate=wgate, state_cache=state_cache, ape=ape, norm_weight=norm_weight,
-                rope_sin=rope_sin, rope_cos=rope_cos, block_table=block_table, cu_seqlens=cu_seqlens,
-                seqused=seqused, start_pos=start_pos, kv_state=kv_state, score_state=score_state)
+    return dict(
+        x=x,
+        wkv=wkv,
+        wgate=wgate,
+        state_cache=state_cache,
+        ape=ape,
+        norm_weight=norm_weight,
+        rope_sin=rope_sin,
+        rope_cos=rope_cos,
+        block_table=block_table,
+        cu_seqlens=cu_seqlens,
+        seqused=seqused,
+        start_pos=start_pos,
+        kv_state=kv_state,
+        score_state=score_state,
+    )
 
 
 def _run_case(p, coff, cmp_ratio, head_dim, cache_mode, dtype, rotary_mode=2):
@@ -356,11 +552,27 @@ def _run_case(p, coff, cmp_ratio, head_dim, cache_mode, dtype, rotary_mode=2):
 
     # CPU reference
     ref, ref_mask = _reference_compressor(
-        p["x"], p["wkv"], p["wgate"], kv_state, score_state, update_kv, update_score,
-        p["ape"], p["norm_weight"], p["rope_sin"], p["rope_cos"],
-        block_table=p["block_table"], cu_seqlens=p["cu_seqlens"].tolist() if p["cu_seqlens"] is not None else None,
-        seqused=p["seqused"], start_pos=p["start_pos"], rope_head_dim=64, cmp_ratio=cmp_ratio,
-        coff=coff, norm_eps=1e-6, rotary_mode=rotary_mode, cache_mode=cache_mode,
+        p["x"],
+        p["wkv"],
+        p["wgate"],
+        kv_state,
+        score_state,
+        update_kv,
+        update_score,
+        p["ape"],
+        p["norm_weight"],
+        p["rope_sin"],
+        p["rope_cos"],
+        block_table=p["block_table"],
+        cu_seqlens=p["cu_seqlens"].tolist() if p["cu_seqlens"] is not None else None,
+        seqused=p["seqused"],
+        start_pos=p["start_pos"],
+        rope_head_dim=64,
+        cmp_ratio=cmp_ratio,
+        coff=coff,
+        norm_eps=1e-6,
+        rotary_mode=rotary_mode,
+        cache_mode=cache_mode,
     )
     mask_t = torch.from_numpy(np.asarray(ref_mask))
 
@@ -368,13 +580,25 @@ def _run_case(p, coff, cmp_ratio, head_dim, cache_mode, dtype, rotary_mode=2):
     state_npu = p["state_cache"].clone().npu()
     cu_t = p["cu_seqlens"].npu() if p["cu_seqlens"] is not None else None
     npu_out = torch.ops.npu.compressor(
-        p["x"].npu(), p["wkv"].npu(), p["wgate"].npu(), state_npu, p["ape"].npu(), p["norm_weight"].npu(),
-        p["rope_sin"].npu(), p["rope_cos"].npu(),
-        state_block_table=p["block_table"].npu(), cu_seqlens=cu_t,
+        p["x"].npu(),
+        p["wkv"].npu(),
+        p["wgate"].npu(),
+        state_npu,
+        p["ape"].npu(),
+        p["norm_weight"].npu(),
+        p["rope_sin"].npu(),
+        p["rope_cos"].npu(),
+        state_block_table=p["block_table"].npu(),
+        cu_seqlens=cu_t,
         seqused=torch.tensor(p["seqused"], dtype=torch.int32).npu(),
         start_pos=torch.tensor(p["start_pos"], dtype=torch.int32).npu(),
-        rope_head_dim=64, cmp_ratio=cmp_ratio, coff=coff, norm_eps=1e-6, rotary_mode=rotary_mode,
-        cache_mode=cache_mode, state_cache_stride_dim0=0,
+        rope_head_dim=64,
+        cmp_ratio=cmp_ratio,
+        coff=coff,
+        norm_eps=1e-6,
+        rotary_mode=rotary_mode,
+        cache_mode=cache_mode,
+        state_cache_stride_dim0=0,
     )
     torch_npu.npu.synchronize()
 
@@ -450,7 +674,9 @@ class TestCompressor(unittest.TestCase):
         self._assert_ok(_run_case(p, 2, 4, 512, 1, torch.bfloat16))
 
     def test_multi_batch_ring(self):
-        p = _make_inputs([200, 328], 129, 1, 128, 512, 1024, 2, "TH", torch.bfloat16, 2, 16)
+        p = _make_inputs(
+            [200, 328], 129, 1, 128, 512, 1024, 2, "TH", torch.bfloat16, 2, 16
+        )
         self._assert_ok(_run_case(p, 1, 128, 512, 2, torch.bfloat16))
 
     def test_npu_graph_capture(self):
@@ -470,23 +696,56 @@ class TestCompressor(unittest.TestCase):
         cu_n = p["cu_seqlens"].clone().npu()
         used_n = torch.tensor(p["seqused"], dtype=torch.int32).npu()
         start_n = torch.tensor(p["start_pos"], dtype=torch.int32).npu()
-        kw = dict(rope_head_dim=64, cmp_ratio=128, coff=1, norm_eps=1e-6, rotary_mode=2,
-                  cache_mode=2, state_cache_stride_dim0=0)
+        kw = dict(
+            rope_head_dim=64,
+            cmp_ratio=128,
+            coff=1,
+            norm_eps=1e-6,
+            rotary_mode=2,
+            cache_mode=2,
+            state_cache_stride_dim0=0,
+        )
 
         def _call(state_n):
             return torch.ops.npu.compressor(
-                x_n, wkv_n, wgate_n, state_n, ape_n, norm_n, sine_n, cose_n,
-                state_block_table=tbl_n, cu_seqlens=cu_n, seqused=used_n, start_pos=start_n, **kw
+                x_n,
+                wkv_n,
+                wgate_n,
+                state_n,
+                ape_n,
+                norm_n,
+                sine_n,
+                cose_n,
+                state_block_table=tbl_n,
+                cu_seqlens=cu_n,
+                seqused=used_n,
+                start_pos=start_n,
+                **kw
             )
 
         # valid mask (matches eager CPU reference in _run_case)
         _, mask = _reference_compressor(
-            p["x"], p["wkv"], p["wgate"], p["kv_state"].clone(), p["score_state"].clone(),
-            torch.zeros_like(p["kv_state"], dtype=torch.bool), torch.zeros_like(p["score_state"], dtype=torch.bool),
-            p["ape"], p["norm_weight"], p["rope_sin"], p["rope_cos"],
-            block_table=p["block_table"], cu_seqlens=p["cu_seqlens"].tolist(),
-            seqused=p["seqused"], start_pos=p["start_pos"], rope_head_dim=64, cmp_ratio=128,
-            coff=1, norm_eps=1e-6, rotary_mode=2, cache_mode=2,
+            p["x"],
+            p["wkv"],
+            p["wgate"],
+            p["kv_state"].clone(),
+            p["score_state"].clone(),
+            torch.zeros_like(p["kv_state"], dtype=torch.bool),
+            torch.zeros_like(p["score_state"], dtype=torch.bool),
+            p["ape"],
+            p["norm_weight"],
+            p["rope_sin"],
+            p["rope_cos"],
+            block_table=p["block_table"],
+            cu_seqlens=p["cu_seqlens"].tolist(),
+            seqused=p["seqused"],
+            start_pos=p["start_pos"],
+            rope_head_dim=64,
+            cmp_ratio=128,
+            coff=1,
+            norm_eps=1e-6,
+            rotary_mode=2,
+            cache_mode=2,
         )
         mask_t = torch.from_numpy(np.asarray(mask)).bool()
         if not mask_t.any():
@@ -513,29 +772,60 @@ class TestCompressor(unittest.TestCase):
         g.replay()
         torch_npu.npu.synchronize()
 
-        d = ((out_graph.cpu().float() - out_eager.cpu().float()).abs() * mask_t).max().item()
+        d = (
+            ((out_graph.cpu().float() - out_eager.cpu().float()).abs() * mask_t)
+            .max()
+            .item()
+        )
         self._assert_ok(d)
 
         # replay against mutated input: the graph must read the current x contents
         for seed, offset in ((20260813, -0.03), (20260814, 0.08)):
             gen = torch.Generator().manual_seed(seed)
-            x_n.copy_((torch.randn(p["x"].shape, generator=gen) * 0.02 + offset).to(p["x"].dtype))
-            state2.copy_(p["state_cache"])  # reset the in/out state so graph and ref see identical input
+            x_n.copy_(
+                (torch.randn(p["x"].shape, generator=gen) * 0.02 + offset).to(
+                    p["x"].dtype
+                )
+            )
+            state2.copy_(
+                p["state_cache"]
+            )  # reset the in/out state so graph and ref see identical input
             torch_npu.npu.synchronize()
             g.replay()
             torch_npu.npu.synchronize()
             ref, mask2 = _reference_compressor(
-                x_n.cpu(), p["wkv"], p["wgate"], p["kv_state"].clone(), p["score_state"].clone(),
+                x_n.cpu(),
+                p["wkv"],
+                p["wgate"],
+                p["kv_state"].clone(),
+                p["score_state"].clone(),
                 torch.zeros_like(p["kv_state"], dtype=torch.bool),
                 torch.zeros_like(p["score_state"], dtype=torch.bool),
-                p["ape"], p["norm_weight"], p["rope_sin"], p["rope_cos"],
-                block_table=p["block_table"], cu_seqlens=p["cu_seqlens"].tolist(),
-                seqused=p["seqused"], start_pos=p["start_pos"], rope_head_dim=64, cmp_ratio=128,
-                coff=1, norm_eps=1e-6, rotary_mode=2, cache_mode=2,
+                p["ape"],
+                p["norm_weight"],
+                p["rope_sin"],
+                p["rope_cos"],
+                block_table=p["block_table"],
+                cu_seqlens=p["cu_seqlens"].tolist(),
+                seqused=p["seqused"],
+                start_pos=p["start_pos"],
+                rope_head_dim=64,
+                cmp_ratio=128,
+                coff=1,
+                norm_eps=1e-6,
+                rotary_mode=2,
+                cache_mode=2,
             )
             mask2_t = torch.from_numpy(np.asarray(mask2)).bool()
             if mask2_t.any():
-                d2 = ((out_graph.cpu().float() - torch.as_tensor(ref).float()).abs() * mask2_t).max().item()
+                d2 = (
+                    (
+                        (out_graph.cpu().float() - torch.as_tensor(ref).float()).abs()
+                        * mask2_t
+                    )
+                    .max()
+                    .item()
+                )
                 self._assert_ok(d2)
 
 

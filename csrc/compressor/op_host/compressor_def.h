@@ -29,46 +29,64 @@ public:
     {
         // ---- 12 个输入（前 8 必选，后 4 可选）----
         this->Input("x")
-            .ParamType(REQUIRED).DataType({ge::DT_BF16, ge::DT_FLOAT16})
-            .FormatList({ge::FORMAT_ND}).AutoContiguous();
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_BF16, ge::DT_FLOAT16})
+            .FormatList({ge::FORMAT_ND})
+            .AutoContiguous();
         this->Input("wkv")
-            .ParamType(REQUIRED).DataType({ge::DT_BF16, ge::DT_FLOAT16})
-            .FormatList({ge::FORMAT_ND}).AutoContiguous();
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_BF16, ge::DT_FLOAT16})
+            .FormatList({ge::FORMAT_ND})
+            .AutoContiguous();
         this->Input("wgate")
-            .ParamType(REQUIRED).DataType({ge::DT_BF16, ge::DT_FLOAT16})
-            .FormatList({ge::FORMAT_ND}).AutoContiguous();
-        this->Input("state_cache")
-            .ParamType(REQUIRED).DataTypeList({ge::DT_FLOAT})
-            .FormatList({ge::FORMAT_ND});
+            .ParamType(REQUIRED)
+            .DataType({ge::DT_BF16, ge::DT_FLOAT16})
+            .FormatList({ge::FORMAT_ND})
+            .AutoContiguous();
+        this->Input("state_cache").ParamType(REQUIRED).DataTypeList({ge::DT_FLOAT}).FormatList({ge::FORMAT_ND});
         this->Input("ape")
-            .ParamType(REQUIRED).DataTypeList({ge::DT_FLOAT})
-            .FormatList({ge::FORMAT_ND}).AutoContiguous();
+            .ParamType(REQUIRED)
+            .DataTypeList({ge::DT_FLOAT})
+            .FormatList({ge::FORMAT_ND})
+            .AutoContiguous();
         this->Input("norm_weight")
-            .ParamType(REQUIRED).DataTypeList({ge::DT_FLOAT})
-            .FormatList({ge::FORMAT_ND}).AutoContiguous();
+            .ParamType(REQUIRED)
+            .DataTypeList({ge::DT_FLOAT})
+            .FormatList({ge::FORMAT_ND})
+            .AutoContiguous();
         this->Input("rope_sin")
-            .ParamType(REQUIRED).DataTypeList({ge::DT_FLOAT})
-            .FormatList({ge::FORMAT_ND}).AutoContiguous();
+            .ParamType(REQUIRED)
+            .DataTypeList({ge::DT_FLOAT})
+            .FormatList({ge::FORMAT_ND})
+            .AutoContiguous();
         this->Input("rope_cos")
-            .ParamType(REQUIRED).DataTypeList({ge::DT_FLOAT})
-            .FormatList({ge::FORMAT_ND}).AutoContiguous();
+            .ParamType(REQUIRED)
+            .DataTypeList({ge::DT_FLOAT})
+            .FormatList({ge::FORMAT_ND})
+            .AutoContiguous();
         this->Input("state_block_table")
-            .ParamType(OPTIONAL).DataTypeList({ge::DT_INT32})
-            .FormatList({ge::FORMAT_ND}).AutoContiguous();
+            .ParamType(OPTIONAL)
+            .DataTypeList({ge::DT_INT32})
+            .FormatList({ge::FORMAT_ND})
+            .AutoContiguous();
         this->Input("cu_seqlens")
-            .ParamType(OPTIONAL).DataTypeList({ge::DT_INT32})
-            .FormatList({ge::FORMAT_ND}).AutoContiguous();
+            .ParamType(OPTIONAL)
+            .DataTypeList({ge::DT_INT32})
+            .FormatList({ge::FORMAT_ND})
+            .AutoContiguous();
         this->Input("seqused")
-            .ParamType(OPTIONAL).DataTypeList({ge::DT_INT32})
-            .FormatList({ge::FORMAT_ND}).AutoContiguous();
+            .ParamType(OPTIONAL)
+            .DataTypeList({ge::DT_INT32})
+            .FormatList({ge::FORMAT_ND})
+            .AutoContiguous();
         this->Input("start_pos")
-            .ParamType(OPTIONAL).DataTypeList({ge::DT_INT32})
-            .FormatList({ge::FORMAT_ND}).AutoContiguous();
+            .ParamType(OPTIONAL)
+            .DataTypeList({ge::DT_INT32})
+            .FormatList({ge::FORMAT_ND})
+            .AutoContiguous();
 
         // ---- 输出：cmp_kv 为新输出；state_cache 为 in-place 原地写回（host 里单独处理）----
-        this->Output("cmp_kv")
-            .ParamType(REQUIRED).DataType({ge::DT_BF16, ge::DT_FLOAT16})
-            .FormatList({ge::FORMAT_ND});
+        this->Output("cmp_kv").ParamType(REQUIRED).DataType({ge::DT_BF16, ge::DT_FLOAT16}).FormatList({ge::FORMAT_ND});
 
         // ---- 7 个 attr ----
         this->Attr("rope_head_dim").AttrType(REQUIRED).Int(64);

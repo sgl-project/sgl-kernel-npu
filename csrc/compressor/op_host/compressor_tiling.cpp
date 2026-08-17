@@ -33,7 +33,8 @@ using namespace ge;
 using namespace AscendC;
 namespace optiling {
 
-void CompressorTiling::ConvertRequiredParams(sglang::ge_helper::TilingContext &context, CompressorContext &compressorContext)
+void CompressorTiling::ConvertRequiredParams(sglang::ge_helper::TilingContext &context,
+                                             CompressorContext &compressorContext)
 {
     compressorContext.x.desc = context.GetInputDesc(TOKEN_X_INPUT_INDEX);
     compressorContext.x.shape = context.GetInputShape(TOKEN_X_INPUT_INDEX);
@@ -64,7 +65,8 @@ void CompressorTiling::ConvertRequiredParams(sglang::ge_helper::TilingContext &c
     }
 }
 
-void CompressorTiling::ConvertOptionalParams(sglang::ge_helper::TilingContext &context, CompressorContext &compressorContext)
+void CompressorTiling::ConvertOptionalParams(sglang::ge_helper::TilingContext &context,
+                                             CompressorContext &compressorContext)
 {
     compressorContext.stateBlockTable.desc = context.GetOptionalInputDesc(STATE_BLOCK_TABLE_INPUT_INDEX);
     compressorContext.stateBlockTable.shape = context.GetOptionalInputShape(STATE_BLOCK_TABLE_INPUT_INDEX);
@@ -76,7 +78,8 @@ void CompressorTiling::ConvertOptionalParams(sglang::ge_helper::TilingContext &c
     compressorContext.startPos.shape = context.GetOptionalInputShape(START_POS_INPUT_INDEX);
 }
 
-ge::graphStatus CompressorTiling::ConvertContext(sglang::ge_helper::TilingContext &context, CompressorContext &compressorContext)
+ge::graphStatus CompressorTiling::ConvertContext(sglang::ge_helper::TilingContext &context,
+                                                 CompressorContext &compressorContext)
 {
     if (context.GetNodeName() == nullptr) {
         OP_LOGE("Compressor", "opName got from TilingContext is nullptr");
@@ -87,7 +90,7 @@ ge::graphStatus CompressorTiling::ConvertContext(sglang::ge_helper::TilingContex
 
     compressorContext.opName = context.GetNodeName();
     compressorContext.opType = context.GetNodeName();
-        ConvertRequiredParams(context, compressorContext);
+    ConvertRequiredParams(context, compressorContext);
     ConvertOptionalParams(context, compressorContext);
 
     auto attrs = context.GetAttrs();

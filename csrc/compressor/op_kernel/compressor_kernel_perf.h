@@ -69,7 +69,8 @@ template <typename COMP>
 class CompressorKernelPerf
 {
 public:
-    __aicore__ inline CompressorKernelPerf(TPipe *pipe, const __gm__ optiling::CompressorTilingData *__restrict tilingData)
+    __aicore__ inline CompressorKernelPerf(TPipe *pipe,
+                                           const __gm__ optiling::CompressorTilingData *__restrict tilingData)
         : pipe_(pipe), tilingData_(tilingData)
     {}
 

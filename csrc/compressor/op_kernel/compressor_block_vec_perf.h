@@ -118,9 +118,9 @@ private:
     __aicore__ inline void DealVec1BaseBlock(const Vec1RunInfo &info, CompressorVec1SliceIterator<COMP> &sliceIterator,
                                              const LoopInfo &loopInfo, uint32_t dStartIdx, uint32_t dDealSize,
                                              uint32_t dBaseSize);
-    __aicore__ inline void CommitC128StateBaseBlock(
-        const Vec1RunInfo &info, CompressorVec1SliceIterator<COMP> &sliceIterator,
-        uint32_t dStartIdx, uint32_t dDealSize);
+    __aicore__ inline void CommitC128StateBaseBlock(const Vec1RunInfo &info,
+                                                    CompressorVec1SliceIterator<COMP> &sliceIterator,
+                                                    uint32_t dStartIdx, uint32_t dDealSize);
     __aicore__ inline void CopyInApe(const LocalTensor<T> &apeUb, uint32_t dStartIdx, uint32_t dDealSize);
     __aicore__ inline void AddApeToScore(const LocalTensor<T> &scoreLocal, const LocalTensor<T> &apeUb,
                                          const Vec1SliceInfo &sliceInfo, uint32_t dDealSize);
@@ -1147,8 +1147,7 @@ __aicore__ inline void CompressorBlockVectorPerf<COMP>::DealVec1BaseBlock(
 
 template <typename COMP>
 __aicore__ inline void CompressorBlockVectorPerf<COMP>::CommitC128StateBaseBlock(
-    const Vec1RunInfo &info, CompressorVec1SliceIterator<COMP> &sliceIterator,
-    uint32_t dStartIdx, uint32_t dDealSize)
+    const Vec1RunInfo &info, CompressorVec1SliceIterator<COMP> &sliceIterator, uint32_t dStartIdx, uint32_t dDealSize)
 {
     Vec1SliceInfo originSliceInfo = sliceIterator.GetSlice();
     uint32_t needDealTcSize = sliceIterator.GetNeedDealTcSize();
@@ -1174,8 +1173,7 @@ __aicore__ inline void CompressorBlockVectorPerf<COMP>::CommitC128StateBaseBlock
         commitSliceIterator.GetSlice();
         AddApeToScore(scoreUb, apeUb, commitSliceInfo, dDealSize);
         PipeBarrier<PIPE_V>();
-        SaveState(scoreUb, stateCacheGm_, stateBlockTableGm_, commitSliceInfo,
-                  dStartIdx, dDealSize, 1U);
+        SaveState(scoreUb, stateCacheGm_, stateBlockTableGm_, commitSliceInfo, dStartIdx, dDealSize, 1U);
         commitSliceIterator.IteratorSlice();
     }
     inputQue1.FreeTensor(scoreUb);
@@ -1190,8 +1188,7 @@ __aicore__ inline void CompressorBlockVectorPerf<COMP>::CommitC128StateBaseBlock
     commitSliceIterator.SetNeedDealTcSize(needDealTcSize);
     while (!commitSliceIterator.IsEnd()) {
         commitSliceIterator.GetSlice();
-        SaveState(kvUb, stateCacheGm_, stateBlockTableGm_, commitSliceInfo,
-                  dStartIdx, dDealSize, 0U);
+        SaveState(kvUb, stateCacheGm_, stateBlockTableGm_, commitSliceInfo, dStartIdx, dDealSize, 0U);
         commitSliceIterator.IteratorSlice();
     }
     inputQue1.FreeTensor(kvUb);
