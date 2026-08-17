@@ -62,7 +62,7 @@ jobs:
       )
     runs-on: linux-aarch64-a3-16
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
     env:
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
       PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
@@ -70,7 +70,7 @@ jobs:
       UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     strategy:
       matrix:
-        cann_version: [8.5.0, 9.0.0]
+        cann_version: [9.0.0, 9.1.0]
     steps:
       - name: Clean git config
         run: |
@@ -99,7 +99,7 @@ jobs:
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v3-${{ runner.os }}-a3-cann${{ steps.get_build_hash.outputs.CANN_VERSION }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+          key: sgl-kernel-npu-build-v4-${{ runner.os }}-a3-cann${{ matrix.cann_version }}-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
       - name: Install dependencies
         run: |
           # speed up by using infra cache services
@@ -108,7 +108,7 @@ jobs:
           pip config set global.index-url http://${CACHING_URL}/pypi/simple
           pip config set global.trusted-host ${CACHING_URL}
           pip install uv
-          bash scripts/npu_ci_install_dependency.sh
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
       - name: Prepare Deepep
         # - cache hit: install cached wheel only (skip build via -s flag)
         # - cache miss: clear stale wheels + build + install
@@ -121,9 +121,6 @@ jobs:
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
             bash scripts/prepare_deepep_in_container.sh
           fi
-      - name: Set CANN 9.0.0 env
-        if: matrix.cann_version == '9.0.0'
-        run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
       - name: Run test intranode
         timeout-minutes: 10
         env:
@@ -295,7 +292,7 @@ jobs:
       )
     runs-on: ["linux-aarch64-a3-16", "a3-752t"]
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-a3-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
     env:
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
       PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
@@ -303,7 +300,7 @@ jobs:
       UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     strategy:
       matrix:
-        cann_version: [8.5.0, 9.0.0]
+        cann_version: [9.0.0, 9.1.0]
     steps:
       - name: Clean git config
         run: |
@@ -332,7 +329,7 @@ jobs:
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v3-${{ runner.os }}-a3-cann${{ steps.get_build_hash.outputs.CANN_VERSION }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+          key: sgl-kernel-npu-build-v4-${{ runner.os }}-a3-cann${{ matrix.cann_version }}-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
       - name: Install dependencies
         run: |
           # speed up by using infra cache services
@@ -341,7 +338,7 @@ jobs:
           pip config set global.index-url http://${CACHING_URL}/pypi/simple
           pip config set global.trusted-host ${CACHING_URL}
           pip install uv
-          bash scripts/npu_ci_install_dependency.sh
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
       - name: Prepare Deepep
         # - cache hit: install cached wheel only (skip build via -s flag)
         # - cache miss: clear stale wheels + build + install
@@ -354,9 +351,6 @@ jobs:
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
             bash scripts/prepare_deepep_in_container.sh
           fi
-      - name: Set CANN 9.0.0 env
-        if: matrix.cann_version == '9.0.0'
-        run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
       - name: Run test base fused deep moe
         timeout-minutes: 10
         env:
@@ -497,7 +491,7 @@ jobs:
       )
     runs-on: linux-aarch64-a2-8
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
     env:
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
       PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
@@ -505,7 +499,7 @@ jobs:
       UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     strategy:
       matrix:
-        cann_version: [8.5.0, 9.0.0]
+        cann_version: [9.0.0, 9.1.0]
     steps:
       - name: Clean git config
         run: |
@@ -534,7 +528,8 @@ jobs:
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v3-${{ runner.os }}-a2-cann${{ steps.get_build_hash.outputs.CANN_VERSION }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+          key: sgl-kernel-npu-build-v4-${{ runner.os }}-a2-cann${{ matrix.cann_version }}-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+
       - name: Install dependencies
         run: |
           # speed up by using infra cache services
@@ -543,7 +538,7 @@ jobs:
           pip config set global.index-url http://${CACHING_URL}/pypi/simple
           pip config set global.trusted-host ${CACHING_URL}
           pip install uv
-          bash scripts/npu_ci_install_dependency.sh
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
       - name: Prepare Deepep
         # - cache hit: install cached wheel only (skip build via -s flag)
         # - cache miss: clear stale wheels + build (-a deepep2) + install
@@ -556,9 +551,6 @@ jobs:
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
             bash scripts/prepare_deepep_in_container.sh -a deepep2
           fi
-      - name: Set CANN 9.0.0 env
-        if: matrix.cann_version == '9.0.0'
-        run: echo "MOE_ENABLE_CCU=0" >> $GITHUB_ENV
       - name: Run test intranode
         timeout-minutes: 10
         env:
