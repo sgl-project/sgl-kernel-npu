@@ -614,27 +614,27 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         VALID_QUANT_MODES = {
             "bf16",
             "int8",
-            "float4_e2m1fn_x2",
+            "mx_fp4_e2m1",
         }
         if quant_mode is None:
             quant_mode = "bf16"
         if quant_mode not in VALID_QUANT_MODES:
             raise NotImplementedError(
                 f"quant_mode '{quant_mode}' is not supported by the alltoall strategy. "
-                f"Only 'bf16', 'int8', 'float4_e2m1fn_x2' are supported; use the default strategy for "
-                f"FP8/FP4 modes."
+                f"Only 'bf16', 'int8', 'mx_fp4_e2m1' are supported; use the default strategy for "
+                f"FP8 modes."
             )
         hidden_shape = x.shape
 
         use_quant = {
             "bf16": -1,
             "int8": 1,
-            "float4_e2m1fn_x2": 9,
+            "mx_fp4_e2m1": 9,
         }[quant_mode]
         quant_mode_type = {
             "bf16": torch.bfloat16,
             "int8": torch.int8,
-            "float4_e2m1fn_x2": torch.float4_e2m1fn_x2,
+            "mx_fp4_e2m1": torch.float4_e2m1fn_x2,
         }[quant_mode]
 
         is_quant_env = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT")
@@ -703,6 +703,7 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
                 )
         else:
             dispatch_out = global_input_tokens
+            dynamic_scale_after_routing = dynamic_scale_after_all2all if use_quant != -1 else None
             reversed_global_mapping = None
 
         num_recv_tokens_per_expert_list = (
