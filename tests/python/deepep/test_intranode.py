@@ -477,7 +477,9 @@ def test_main(
     # Quantized dispatch tuning (int8/fp8/fp4)
     if dispatch_quant_mode not in ("bf16", None):
         num_recv_tokens = dispatch_bf16_recv_bytes // (hidden * 2)
-        if dispatch_quant_mode == "int8" or dispatch_quant_mode.startswith("pertoken_fp8"):
+        if dispatch_quant_mode == "int8" or dispatch_quant_mode.startswith(
+            "pertoken_fp8"
+        ):
             quant_data_bytes = num_recv_tokens * hidden
             quant_scale_bytes = num_recv_tokens * 4
         elif dispatch_quant_mode.startswith("mx_fp8"):

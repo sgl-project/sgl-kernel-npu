@@ -192,7 +192,7 @@ def test_main(
             iter_quant = "bf16"
         if local_rank == 0:
             print(
-                f'[testing] Running with {iter_quant.upper()}, with top-k {num_topk} ...',
+                f"[testing] Running with {iter_quant.upper()}, with top-k {num_topk} ...",
                 flush=True,
             )
         dispatch_args = {
