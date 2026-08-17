@@ -32,8 +32,32 @@ namespace sglang {
 namespace npu_kernel {
 
 constexpr uint32_t MAX_CAPTURE_NUM = 1024;
-static uint32_t actualCaptureNum = 0;
-static std::unordered_map<uint64_t, uint32_t> captureMap;
+
+namespace {
+
+struct TilingCache {
+    at::Tensor buffer;
+    std::unordered_map<uint64_t, uint32_t> slots;
+    uint32_t nextSlot = 0;
+};
+
+bool IsNpuGraphCapturing()
+{
+    aclmdlRICaptureStatus captureStatus = ACL_MODEL_RI_CAPTURE_STATUS_NONE;
+    aclmdlRI model = nullptr;
+    auto stream = c10_npu::getCurrentNPUStream().stream(false);
+    auto status = aclmdlRICaptureGetInfo(stream, &captureStatus, &model);
+    TORCH_CHECK(status == ACL_ERROR_NONE, "compressor: failed to query NPU graph capture status, acl error ", status);
+    return captureStatus == ACL_MODEL_RI_CAPTURE_STATUS_ACTIVE;
+}
+
+std::unordered_map<int64_t, TilingCache> &GetTilingCaches()
+{
+    static std::unordered_map<int64_t, TilingCache> deviceCaches;
+    return deviceCaches;
+}
+
+}  // namespace
 
 namespace {
 
@@ -160,31 +184,41 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
     auto tup = std::make_tuple(tilingData.baseParams.batchSize, tilingData.baseParams.seqSize,
                                tilingData.baseParams.hiddenSize, tilingData.baseParams.headDim,
                                tilingData.baseParams.cmpRatio, tilingData.baseParams.tokenSize,
-                               tilingData.baseParams.cgSize, tilingData.pageAttentionParams.blockSize,
-                               tilingData.pageAttentionParams.maxBlockNumPerBatch, tilingData.tilingKey);
+                               tilingData.baseParams.cgSize, tilingData.baseParams.nSize,
+                               tilingData.baseParams.usedCoreNum, tilingData.pageAttentionParams.blockNum,
+                               tilingData.pageAttentionParams.blockSize,
+                               tilingData.pageAttentionParams.maxBlockNumPerBatch,
+                               tilingData.innerSplitParams.mBaseSize, tilingData.innerSplitParams.dBaseSize,
+                               tilingData.workspaceParams.mm1KvResSize, tilingData.workspaceParams.mm1ScoreResSize,
+                               tilingData.workspaceParams.vec1ResSize, tilingData.workspaceParams.vec1TailCacheSize,
+                               tilingData.workspaceParams.dbWorkspaceRatio, tilingData.tilingKey);
     auto hashValue = host_utils::TupleHasher::Hash(tup);
 
-    static auto globalTilingBuffer = at::empty({tilingSize * MAX_CAPTURE_NUM},
-                                               at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+    auto &cache = GetTilingCaches()[x.device().index()];
+    if (!cache.buffer.defined()) {
+        TORCH_CHECK(!IsNpuGraphCapturing(),
+                    "compressor: run one eager warmup before NPU graph capture to initialize the tiling cache");
+        cache.buffer = at::empty({tilingSize * MAX_CAPTURE_NUM},
+                                 at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+    }
     at::Tensor tilingTensor;
-    if (captureMap.find(hashValue) != captureMap.end()) {
-        // decode replay / graph capture: reuse cached tiling from globalTilingBuffer
-        tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
-                                     tilingSize, at::kByte);
-    } else if (actualCaptureNum >= MAX_CAPTURE_NUM) {
-        // exceeds cache: reload tiling data to device
-        static auto tilingBuffer =
-            at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
-        aclrtMemcpy(tilingBuffer.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
-        tilingTensor = at::from_blob(tilingBuffer.data_ptr<uint8_t>(), tilingSize, at::kByte);
+    auto iter = cache.slots.find(hashValue);
+    if (iter != cache.slots.end()) {
+        // decode replay / graph capture: reuse cached tiling from the device-resident buffer
+        tilingTensor = cache.buffer.narrow(0, iter->second * tilingSize, tilingSize);
     } else {
-        // first capture: copy tiling into the global buffer and remember the slot
-        captureMap[hashValue] = actualCaptureNum;
-        aclrtMemcpy(globalTilingBuffer.data_ptr<uint8_t>() + actualCaptureNum * tilingSize, tilingSize, &tilingData,
-                    tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
-        actualCaptureNum++;
-        tilingTensor = at::from_blob(globalTilingBuffer.data_ptr<uint8_t>() + (tilingSize * captureMap[hashValue]),
-                                     tilingSize, at::kByte);
+        TORCH_CHECK(cache.nextSlot < MAX_CAPTURE_NUM, "compressor: tiling cache exhausted after ", MAX_CAPTURE_NUM,
+                    " unique configurations");
+        TORCH_CHECK(!IsNpuGraphCapturing(),
+                    "compressor: the current tiling configuration is not cached; run one eager warmup with the same "
+                    "tensor shapes, dtypes, optional inputs, and attributes before NPU graph capture");
+        const uint32_t slot = cache.nextSlot;
+        tilingTensor = cache.buffer.narrow(0, slot * tilingSize, tilingSize);
+        auto status = aclrtMemcpy(tilingTensor.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize,
+                                  ACL_MEMCPY_HOST_TO_DEVICE);
+        TORCH_CHECK(status == ACL_ERROR_NONE, "compressor: failed to cache tiling data, acl error ", status);
+        cache.slots.emplace(hashValue, slot);
+        cache.nextSlot++;
     }
 
     // ---- 6) workspace ----
