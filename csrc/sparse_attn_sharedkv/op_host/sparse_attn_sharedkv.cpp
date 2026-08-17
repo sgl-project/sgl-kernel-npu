@@ -122,12 +122,6 @@ at::Tensor GetCachedTilingTensor(const SparseAttnSharedkvTilingData &tilingData,
     auto key = MakeTilingCacheKey(tilingData);
     std::lock_guard<std::mutex> lock(cacheMutex);
     auto &cache = deviceCaches[static_cast<int64_t>(q.device().index())];
-    if (!cache.buffer.defined()) {
-        TORCH_CHECK(
-            !IsNpuGraphCapturing(),
-            "sparse_attn_sharedkv: run one eager warmup before NPU graph capture to initialize the tiling cache");
-        cache.buffer = at::empty({tilingSize * MAX_TILING_CACHE_ENTRIES}, q.options().dtype(at::kByte));
-    }
     auto iter = cache.slots.find(key);
     if (iter != cache.slots.end()) {
         return cache.buffer.narrow(0, iter->second * tilingSize, tilingSize);
@@ -135,9 +129,17 @@ at::Tensor GetCachedTilingTensor(const SparseAttnSharedkvTilingData &tilingData,
 
     TORCH_CHECK(cache.nextSlot < MAX_TILING_CACHE_ENTRIES, "sparse_attn_sharedkv: tiling cache exhausted after ",
                 MAX_TILING_CACHE_ENTRIES, " unique configurations");
-    TORCH_CHECK(!IsNpuGraphCapturing(),
-                "sparse_attn_sharedkv: the current tiling configuration is not cached; run one eager warmup with the "
-                "same tensor shapes, dtypes, optional inputs, and attributes before NPU graph capture");
+    const bool isCapturing = IsNpuGraphCapturing();
+    if (!cache.buffer.defined()) {
+        TORCH_CHECK(
+            !isCapturing,
+            "sparse_attn_sharedkv: run one eager warmup before NPU graph capture to initialize the tiling cache");
+        cache.buffer = at::empty({tilingSize * MAX_TILING_CACHE_ENTRIES}, q.options().dtype(at::kByte));
+    } else {
+        TORCH_CHECK(!isCapturing,
+                    "sparse_attn_sharedkv: the current tiling configuration is not cached; run one eager warmup with "
+                    "the same tensor shapes, dtypes, optional inputs, and attributes before NPU graph capture");
+    }
     const int64_t slot = cache.nextSlot;
     auto cachedTiling = cache.buffer.narrow(0, slot * tilingSize, tilingSize);
     auto status = aclrtMemcpy(cachedTiling.data_ptr(), tilingSize, &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);

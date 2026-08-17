@@ -40,7 +40,6 @@ struct SASTilingRequiredParaInfo {
 struct SASTilingOptionalParaInfo {
     const gert::CompileTimeTensorDesc *desc;
     const gert::Tensor *tensor;
-    const gert::StorageShape *shape;
 };
 
 enum class SASLayout : uint32_t {
@@ -135,19 +134,19 @@ constexpr uint32_t BLOCK_SIZE_LIMIT = 1024;
 
 struct SASParaInfo {
     SASTilingRequiredParaInfo q = {nullptr, nullptr};
-    SASTilingOptionalParaInfo oriKv = {nullptr, nullptr, nullptr};
-    SASTilingOptionalParaInfo cmpKv = {nullptr, nullptr, nullptr};
-    SASTilingOptionalParaInfo oriSparseIndices = {nullptr, nullptr, nullptr};
-    SASTilingOptionalParaInfo cmpSparseIndices = {nullptr, nullptr, nullptr};
-    SASTilingOptionalParaInfo oriBlockTable = {nullptr, nullptr, nullptr};
-    SASTilingOptionalParaInfo cmpBlockTable = {nullptr, nullptr, nullptr};
-    SASTilingOptionalParaInfo cuSeqLensQ = {nullptr, nullptr, nullptr};
-    SASTilingOptionalParaInfo seqUsedQ = {nullptr, nullptr, nullptr};
-    SASTilingOptionalParaInfo cuSeqLensKv = {nullptr, nullptr, nullptr};
-	SASTilingOptionalParaInfo cuSeqLensCmpKv = {nullptr, nullptr, nullptr};
-    SASTilingOptionalParaInfo sequsedKv = {nullptr, nullptr, nullptr};
-    SASTilingOptionalParaInfo sinks = {nullptr, nullptr, nullptr};
-    SASTilingOptionalParaInfo metadata = {nullptr, nullptr, nullptr};
+    SASTilingOptionalParaInfo oriKv = {nullptr, nullptr};
+    SASTilingOptionalParaInfo cmpKv = {nullptr, nullptr};
+    SASTilingOptionalParaInfo oriSparseIndices = {nullptr, nullptr};
+    SASTilingOptionalParaInfo cmpSparseIndices = {nullptr, nullptr};
+    SASTilingOptionalParaInfo oriBlockTable = {nullptr, nullptr};
+    SASTilingOptionalParaInfo cmpBlockTable = {nullptr, nullptr};
+    SASTilingOptionalParaInfo cuSeqLensQ = {nullptr, nullptr};
+    SASTilingOptionalParaInfo seqUsedQ = {nullptr, nullptr};
+    SASTilingOptionalParaInfo cuSeqLensKv = {nullptr, nullptr};
+	SASTilingOptionalParaInfo cuSeqLensCmpKv = {nullptr, nullptr};
+    SASTilingOptionalParaInfo sequsedKv = {nullptr, nullptr};
+    SASTilingOptionalParaInfo sinks = {nullptr, nullptr};
+    SASTilingOptionalParaInfo metadata = {nullptr, nullptr};
     SASTilingRequiredParaInfo attnOut = {nullptr, nullptr};
 
     const float *softmaxScale = nullptr;
@@ -500,7 +499,6 @@ public:
     ge::graphStatus DoOpTiling(SASTilingInfo *tilingInfo);
     const SparseAttnSharedkvTilingData &GetTilingData() const { return tilingData_; }
     uint32_t GetBlockDim() const { return blockDim_; }
-    uint64_t GetWorkspaceSize() const { return workspaceSize_; }
 
 private:
     void SplitBalanced(SASTilingInfo *tilingInfo);

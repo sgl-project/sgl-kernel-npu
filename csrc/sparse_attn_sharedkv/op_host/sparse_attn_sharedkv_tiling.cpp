@@ -215,43 +215,30 @@ void SASInfoParser::GetOptionalInputParaInfo()
 {
     opParamInfo_.oriKv.tensor = context_->GetOptionalInputTensor(ORI_KV_INDEX);
     opParamInfo_.oriKv.desc = context_->GetOptionalInputDesc(ORI_KV_INDEX);
-    opParamInfo_.oriKv.shape = context_->GetOptionalInputShape(ORI_KV_INDEX);
     opParamInfo_.cmpKv.tensor = context_->GetOptionalInputTensor(CMP_KV_INDEX);
     opParamInfo_.cmpKv.desc = context_->GetOptionalInputDesc(CMP_KV_INDEX);
-    opParamInfo_.cmpKv.shape = context_->GetOptionalInputShape(CMP_KV_INDEX);
     opParamInfo_.oriSparseIndices.tensor = context_->GetOptionalInputTensor(ORI_SPARSE_INDICES_INDEX);
     opParamInfo_.oriSparseIndices.desc = context_->GetOptionalInputDesc(ORI_SPARSE_INDICES_INDEX);
-    opParamInfo_.oriSparseIndices.shape = context_->GetOptionalInputShape(ORI_SPARSE_INDICES_INDEX);
     opParamInfo_.cmpSparseIndices.tensor = context_->GetOptionalInputTensor(CMP_SPARSE_INDICES_INDEX);
     opParamInfo_.cmpSparseIndices.desc = context_->GetOptionalInputDesc(CMP_SPARSE_INDICES_INDEX);
-    opParamInfo_.cmpSparseIndices.shape = context_->GetOptionalInputShape(CMP_SPARSE_INDICES_INDEX);
     opParamInfo_.oriBlockTable.tensor = context_->GetOptionalInputTensor(ORI_BLOCK_TABLE_INDEX);
     opParamInfo_.oriBlockTable.desc = context_->GetOptionalInputDesc(ORI_BLOCK_TABLE_INDEX);
-    opParamInfo_.oriBlockTable.shape = context_->GetOptionalInputShape(ORI_BLOCK_TABLE_INDEX);
     opParamInfo_.cmpBlockTable.tensor = context_->GetOptionalInputTensor(CMP_BLOCK_TABLE_INDEX);
     opParamInfo_.cmpBlockTable.desc = context_->GetOptionalInputDesc(CMP_BLOCK_TABLE_INDEX);
-    opParamInfo_.cmpBlockTable.shape = context_->GetOptionalInputShape(CMP_BLOCK_TABLE_INDEX);
     opParamInfo_.sinks.tensor = context_->GetOptionalInputTensor(SINKS_INDEX);
     opParamInfo_.sinks.desc = context_->GetOptionalInputDesc(SINKS_INDEX);
-    opParamInfo_.sinks.shape = context_->GetOptionalInputShape(SINKS_INDEX);
     opParamInfo_.cuSeqLensQ.tensor = context_->GetOptionalInputTensor(CU_SEQLENS_Q_INDEX);
     opParamInfo_.cuSeqLensQ.desc = context_->GetOptionalInputDesc(CU_SEQLENS_Q_INDEX);
-    opParamInfo_.cuSeqLensQ.shape = context_->GetOptionalInputShape(CU_SEQLENS_Q_INDEX);
     opParamInfo_.seqUsedQ.tensor = context_->GetOptionalInputTensor(SEQUSED_Q_INDEX);
     opParamInfo_.seqUsedQ.desc = context_->GetOptionalInputDesc(SEQUSED_Q_INDEX);
-    opParamInfo_.seqUsedQ.shape = context_->GetOptionalInputShape(SEQUSED_Q_INDEX);
     opParamInfo_.cuSeqLensKv.tensor = context_->GetOptionalInputTensor(CU_SEQLENS_KV_INDEX);
     opParamInfo_.cuSeqLensKv.desc = context_->GetOptionalInputDesc(CU_SEQLENS_KV_INDEX);
-    opParamInfo_.cuSeqLensKv.shape = context_->GetOptionalInputShape(CU_SEQLENS_KV_INDEX);
     opParamInfo_.cuSeqLensCmpKv.tensor = context_->GetOptionalInputTensor(CU_SEQLENS_CMP_KV_INDEX);
     opParamInfo_.cuSeqLensCmpKv.desc = context_->GetOptionalInputDesc(CU_SEQLENS_CMP_KV_INDEX);
-    opParamInfo_.cuSeqLensCmpKv.shape = context_->GetOptionalInputShape(CU_SEQLENS_CMP_KV_INDEX);
     opParamInfo_.sequsedKv.tensor = context_->GetOptionalInputTensor(SEQUSED_KV_INDEX);
     opParamInfo_.sequsedKv.desc = context_->GetOptionalInputDesc(SEQUSED_KV_INDEX);
-    opParamInfo_.sequsedKv.shape = context_->GetOptionalInputShape(SEQUSED_KV_INDEX);
     opParamInfo_.metadata.desc = context_->GetOptionalInputDesc(METADATA_INDEX);
     opParamInfo_.metadata.tensor = context_->GetOptionalInputTensor(METADATA_INDEX);
-    opParamInfo_.metadata.shape = context_->GetOptionalInputShape(METADATA_INDEX);
 }
 
 void SASInfoParser::GetInputParaInfo()
@@ -303,13 +290,13 @@ ge::graphStatus SASInfoParser::GetInOutDataType()
 {
     qType_ = opParamInfo_.q.desc->GetDataType();
     outputType_ = opParamInfo_.attnOut.desc->GetDataType();
-    if (opParamInfo_.oriKv.tensor != nullptr) {
+    if (opParamInfo_.oriKv.desc != nullptr) {
         oriKvType_ = opParamInfo_.oriKv.desc->GetDataType();
     }
-    if (opParamInfo_.cmpKv.tensor != nullptr) {
+    if (opParamInfo_.cmpKv.desc != nullptr) {
         cmpKvType_ = opParamInfo_.cmpKv.desc->GetDataType();
     }
-    if (opParamInfo_.oriSparseIndices.tensor != nullptr) {
+    if (opParamInfo_.oriSparseIndices.desc != nullptr) {
         oriSparseIndicesType_ = opParamInfo_.oriSparseIndices.desc->GetDataType();
     }
     return ge::GRAPH_SUCCESS;
@@ -317,12 +304,12 @@ ge::graphStatus SASInfoParser::GetInOutDataType()
 
 ge::graphStatus SASInfoParser::GetSASTemplateMode(SASTilingInfo &sasInfo)
 {
-    if (opParamInfo_.oriKv.tensor != nullptr) {
-        if (opParamInfo_.cmpKv.tensor != nullptr && opParamInfo_.cmpSparseIndices.tensor != nullptr) {
+    if (opParamInfo_.oriKv.desc != nullptr) {
+        if (opParamInfo_.cmpKv.desc != nullptr && opParamInfo_.cmpSparseIndices.tensor != nullptr) {
             perfMode_ = SASTemplateMode::SCFA_TEMPLATE_MODE;
-        } else if (opParamInfo_.cmpKv.tensor != nullptr && opParamInfo_.cmpSparseIndices.tensor == nullptr) {
+        } else if (opParamInfo_.cmpKv.desc != nullptr && opParamInfo_.cmpSparseIndices.tensor == nullptr) {
             perfMode_ = SASTemplateMode::CFA_TEMPLATE_MODE;
-        } else if (opParamInfo_.cmpKv.tensor == nullptr && opParamInfo_.cmpSparseIndices.tensor == nullptr) {
+        } else if (opParamInfo_.cmpKv.desc == nullptr && opParamInfo_.cmpSparseIndices.tensor == nullptr) {
             perfMode_ = SASTemplateMode::SWA_TEMPLATE_MODE;
         } else {
             OP_LOGE(opName_, "When cmp_sparse_indices is not nullptr, cmp_kv cannot be nullptr.");
@@ -439,23 +426,22 @@ void SASInfoParser::SetSASShape()
 {
     qShape_ = opParamInfo_.q.shape->GetStorageShape();
     if (opParamInfo_.oriKv.tensor != nullptr) {
-        oriKvShape_ = opParamInfo_.oriKv.shape->GetStorageShape();
+        oriKvShape_ = opParamInfo_.oriKv.tensor->GetStorageShape();
     } else {
         OP_LOGE(opName_, "q tensor is nullptr, please check input parameters.");
     }
     if (opParamInfo_.cmpKv.tensor != nullptr) {
-        cmpKvShape_ = opParamInfo_.cmpKv.shape->GetStorageShape();
+        cmpKvShape_ = opParamInfo_.cmpKv.tensor->GetStorageShape();
     }
     if (opParamInfo_.oriSparseIndices.tensor != nullptr) {
-        oriSparseIndicesShape_ = opParamInfo_.oriSparseIndices.shape->GetStorageShape();
+        oriSparseIndicesShape_ = opParamInfo_.oriSparseIndices.tensor->GetStorageShape();
         hasOriSparseIndices_ = true;
         oriSparseIndexWidth_ = GetSparseIndexWidth(oriSparseIndicesShape_, oriSparseIndicesLayout_);
     }
     if (perfMode_ == SASTemplateMode::SCFA_TEMPLATE_MODE)
     {
         if (opParamInfo_.cmpSparseIndices.tensor != nullptr) {
-            cmpSparseIndicesShape_ = opParamInfo_.cmpSparseIndices.shape->GetStorageShape();
-            (void)GetAxisNum(cmpSparseIndicesShape_, SASAxis::T, cmpSparseIndicesLayout_);
+            cmpSparseIndicesShape_ = opParamInfo_.cmpSparseIndices.tensor->GetStorageShape();
         } else {
             OP_LOGE(opName_, "cmp_sparse_indices tensor is nullptr, please check input parameters.");
         }
@@ -1721,21 +1707,4 @@ ge::graphStatus SparseAttnSharedkvTiling::DoOpTiling(SASTilingInfo *tilingInfo)
     return ge::GRAPH_SUCCESS;
 }
 
-// --------------------------Tiling函数定义---------------------------
-ge::graphStatus TilingSparseAttnSharedkv(ge_helper::TilingContext *context)
-{
-    OP_CHECK_IF(context == nullptr, OPS_REPORT_VECTOR_INNER_ERR("SparseAttnSharedkv", "Tiling context is null."),
-                return ge::GRAPH_FAILED);
-    SASTilingInfo sasInfo;
-    SASInfoParser sasInfoParser(context);
-    if (sasInfoParser.Parse(sasInfo) != ge::GRAPH_SUCCESS) {
-        return ge::GRAPH_FAILED;
-    }
-    SASTilingCheck sasTilingChecker(sasInfo);
-    if (sasTilingChecker.Process() != ge::GRAPH_SUCCESS) {
-        return ge::GRAPH_FAILED;
-    }
-    SparseAttnSharedkvTiling tiling(context);
-    return tiling.DoOpTiling(&sasInfo);
-}
 } // namespace optiling
