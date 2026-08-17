@@ -37,6 +37,7 @@
 #include <type_traits>
 using namespace pto;
 using mega_chunk::PipeBarrierVec;
+using mega_chunk::WaitBothVecOnA5;
 
 // ===================================================================
 // Device-only helpers (shared with standard mega-kernel)
@@ -357,8 +358,18 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
 
 #if defined(__DAV_CUBE__)
     pipe_barrier(PIPE_ALL);
+    // Drain the KKT slot-free flags Vec left set (flags 2/3).
+    // A2: Cube and Vec are separate cores → FFTS cross-core flag.
+    // A5: Cube and both Vec sub-blocks share ONE core → intra-block flags,
+    //     with each Vec sub-block signalling its own flag (base, base+16).
+#if __CCE_AICORE__ == 220
     wait_flag_dev(2);
     wait_flag_dev(3);
+#else
+    WaitBothVecOnA5<PIPE_MTE2>(2);
+    WaitBothVecOnA5<PIPE_MTE2>(3);
+    pipe_barrier(PIPE_ALL);
+#endif
 #endif
 
 #ifdef MEGA_STOP_AFTER_KKT
@@ -401,8 +412,17 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
 #if defined(__DAV_VEC__)
     if (get_block_idx() < num_matrices) {
         pipe_barrier(PIPE_ALL);
+        // Drain the WY slot-free flags Cube left set (flags 3/4).
+        // A2: Cube is a separate core → FFTS cross-core flag.
+        // A5: Cube shares the core → intra-block flag.
+#if __CCE_AICORE__ == 220
         wait_flag_dev(3);
         wait_flag_dev(4);
+#else
+        wait_intra_block(PIPE_MTE3, 3);
+        wait_intra_block(PIPE_MTE3, 4);
+        pipe_barrier(PIPE_ALL);
+#endif
     }
 #endif
 
@@ -439,7 +459,13 @@ AICORE inline void mega_kernel_impl(GM_ADDR q_ptr, GM_ADDR k_ptr, GM_ADDR v_ptr,
 #if defined(__DAV_CUBE__)
     if (get_block_idx() < num_matrices) {
         pipe_barrier(PIPE_ALL);
+        // Drain the chunk_o workspace-free flag Vec left set (flag 3).
+#if __CCE_AICORE__ == 220
         wait_flag_dev(3);
+#else
+        WaitBothVecOnA5<PIPE_MTE2>(3);
+        pipe_barrier(PIPE_ALL);
+#endif
     }
 #endif
 }
