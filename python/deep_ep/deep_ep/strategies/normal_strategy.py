@@ -703,7 +703,9 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
                 )
         else:
             dispatch_out = global_input_tokens
-            dynamic_scale_after_routing = dynamic_scale_after_all2all if use_quant != -1 else None
+            dynamic_scale_after_routing = (
+                dynamic_scale_after_all2all if use_quant != -1 else None
+            )
             reversed_global_mapping = None
 
         num_recv_tokens_per_expert_list = (
