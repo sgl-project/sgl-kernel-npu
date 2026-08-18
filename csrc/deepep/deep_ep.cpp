@@ -293,7 +293,8 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     // 布局 [max_bs, total_recv_token, recv_tokens_per_expert(round*num_local_experts)]，
     // 以便 notify_dispatch 之后仅需一次 D2H 即可读回全部值，消除多次 host 同步停顿。
     const int64_t nel = static_cast<int64_t>(num_local_experts);
-    at::Tensor recv_header = torch::empty({2 + static_cast<int64_t>(round) * nel}, at::dtype(at::kInt).device(x.device()));
+    at::Tensor recv_header =
+        torch::empty({2 + static_cast<int64_t>(round) * nel}, at::dtype(at::kInt).device(x.device()));
     at::Tensor max_bs = recv_header.narrow(0, 0, 1);
     at::Tensor total_recv_token = recv_header.narrow(0, 1, 1);
     at::Tensor recv_tokens_per_expert = recv_header.narrow(0, 2, static_cast<int64_t>(round) * nel);

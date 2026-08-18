@@ -21,7 +21,7 @@ constexpr uint64_t WIN_512_ALIGN = 512UL;
 constexpr uint32_t FLOAT_NUM_PER_ALIGN = 8U;
 constexpr uint8_t DOUBLE_BUFFER = 2;
 constexpr uint32_t BATCH_SRC_INFO_CNT = 128U;  // srcInfo 批处理
-constexpr int64_t CYCLE_TO_TIME = 1000;  // cycle num is converted into a fixed base unit of time, set at 1000
+constexpr int64_t CYCLE_TO_TIME = 1000;        // cycle num is converted into a fixed base unit of time, set at 1000
 constexpr int64_t WAIT_TIMEOUT_US = 10 * 1000 * 1000;
 
 template <AscendC::HardEvent event>
@@ -363,8 +363,8 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::ProcessSendRange(uint32_t lo, uint32_t cnt,
-                                                                                     LocalTensor<int32_t> sendCostStatsTensor)
+__aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::ProcessSendRange(
+    uint32_t lo, uint32_t cnt, LocalTensor<int32_t> sendCostStatsTensor)
 {
     LocalTensor<SrcInfoType> srcInfoLocal = srcInfoBuf_.Get<SrcInfoType>();
     const DataCopyPadExtParams<SrcInfoType> padParams{false, 0U, 0U, 0U};
