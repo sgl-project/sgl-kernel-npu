@@ -21,12 +21,20 @@
 #include "register/op_def_registry.h"
 #include "compressor_tiling.h"
 
-#define OP_LOGI(...)
-#define OP_LOGE(...)
-#define OPS_REPORT_VECTOR_INNER_ERR(op, msg)
-#define OP_CHECK_IF(cond, ...)   \
-    if (cond) {                  \
-        return ge::GRAPH_FAILED; \
+#include <cstdio>
+#define OP_LOGI(...)                                  // 保持空，避免刷屏
+#define OP_LOGE(opName, ...)                                              \
+    do {                                                                   \
+        fprintf(stderr, "[compressor][%s] ", (opName));                   \
+        fprintf(stderr, __VA_ARGS__);                                      \
+        fprintf(stderr, "\n");                                             \
+    } while (0)
+#define OPS_REPORT_VECTOR_INNER_ERR(op, msg) \
+    do { fprintf(stderr, "[compressor][%s] %s\n", (op), (msg)); } while (0)
+#define OP_CHECK_IF(cond, logExpr, returnExpr) \
+    if (cond) {                                \
+        logExpr;                               \
+        returnExpr;                            \
     }
 
 using namespace ge;

@@ -240,33 +240,45 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
     }
 
     auto key = MakeTilingCacheKey(tilingData);
-
-    std::lock_guard<std::mutex> lock(GetTilingCacheMutex());
-    auto &cache = GetTilingCaches()[x.device().index()];
-    if (!cache.buffer.defined()) {
-        TORCH_CHECK(!IsNpuGraphCapturing(),
-                    "compressor: run one eager warmup before NPU graph capture to initialize the tiling cache");
-        cache.buffer = at::empty({tilingSize * MAX_CAPTURE_NUM},
-                                 at::TensorOptions().dtype(at::kByte).device(x.options().device()));
-    }
     at::Tensor tilingTensor;
-    auto iter = cache.slots.find(key);
-    if (iter != cache.slots.end()) {
-        // decode replay / graph capture: reuse cached tiling from the device-resident buffer
+    if (IsNpuGraphCapturing()) {
+        // ── 入图路径：查缓存，必须命中 ──
+        std::lock_guard<std::mutex> lock(GetTilingCacheMutex());
+        auto &cache = GetTilingCaches()[x.device().index()];
+        TORCH_CHECK(cache.buffer.defined(),
+                    "compressor: run one eager warmup before NPU graph capture to initialize the tiling cache");
+        auto iter = cache.slots.find(key);
+        TORCH_CHECK(iter != cache.slots.end(),
+                    "compressor: the current tiling configuration is not cached; run one eager warmup ...");
         tilingTensor = cache.buffer.narrow(0, iter->second * tilingSize, tilingSize);
     } else {
-        TORCH_CHECK(cache.nextSlot < MAX_CAPTURE_NUM, "compressor: tiling cache exhausted after ", MAX_CAPTURE_NUM,
-                    " unique configurations");
-        TORCH_CHECK(!IsNpuGraphCapturing(),
-                    "compressor: the current tiling configuration is not cached; run one eager warmup with the same "
-                    "tensor shapes, dtypes, optional inputs, and attributes before NPU graph capture");
-        const uint32_t slot = cache.nextSlot;
-        tilingTensor = cache.buffer.narrow(0, slot * tilingSize, tilingSize);
-        auto status = aclrtMemcpy(tilingTensor.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize,
-                                  ACL_MEMCPY_HOST_TO_DEVICE);
-        TORCH_CHECK(status == ACL_ERROR_NONE, "compressor: failed to cache tiling data, acl error ", status);
-        cache.slots.emplace(std::move(key), slot);
-        cache.nextSlot++;
+        // ── 不入图路径：查缓存 → 填缓存 → 满则退回 memcpy（lightning_indexer 风格）──
+        std::lock_guard<std::mutex> lock(GetTilingCacheMutex());
+        auto &cache = GetTilingCaches()[x.device().index()];
+        if (!cache.buffer.defined()) {
+            cache.buffer = at::empty({tilingSize * MAX_CAPTURE_NUM},
+                                    at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+        }
+        auto iter = cache.slots.find(key);
+        if (iter != cache.slots.end()) {
+            tilingTensor = cache.buffer.narrow(0, iter->second * tilingSize, tilingSize);   // 命中复用
+        } else if (cache.nextSlot >= MAX_CAPTURE_NUM) {
+            // 缓存满：退回一次性 memcpy（局部 tensor，避免 static 跨线程/跨设备覆盖）
+            at::Tensor t = at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+            auto status = aclrtMemcpy(t.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize,
+                                    ACL_MEMCPY_HOST_TO_DEVICE);
+            TORCH_CHECK(status == ACL_ERROR_NONE, "compressor: failed to copy tiling data, acl error ", status);
+            tilingTensor = t;
+        } else {
+            // 正常 MISS：填缓存
+            const uint32_t slot = cache.nextSlot;
+            tilingTensor = cache.buffer.narrow(0, slot * tilingSize, tilingSize);
+            auto status = aclrtMemcpy(tilingTensor.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize,
+                                    ACL_MEMCPY_HOST_TO_DEVICE);
+            TORCH_CHECK(status == ACL_ERROR_NONE, "compressor: failed to cache tiling data, acl error ", status);
+            cache.slots.emplace(std::move(key), slot);
+            cache.nextSlot++;
+        }
     }
 
     // ---- 6) workspace ----
