@@ -489,8 +489,9 @@ def test_main(
             quant_data_bytes = num_recv_tokens * hidden // 2
             quant_scale_bytes = num_recv_tokens * hidden // 32
         else:
-            quant_data_bytes = num_recv_tokens * hidden
-            quant_scale_bytes = 0
+            raise ValueError(
+                f"Unsupported quant_mode for bandwidth calculation: {dispatch_quant_mode}"
+            )
         quant_recv_bytes = quant_data_bytes + quant_scale_bytes
         tune_args_quant = {
             "x": x,
