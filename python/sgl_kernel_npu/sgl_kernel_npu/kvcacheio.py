@@ -22,6 +22,8 @@ def transfer_kv_dim_exchange(
     host_v: torch.Tensor,
     device_index_k: Optional[torch.Tensor] = None,
     host_index_k: Optional[torch.Tensor] = None,
+    device_index_k_scale: Optional[torch.Tensor] = None,
+    host_index_k_scale: Optional[torch.Tensor] = None,
     page_size: int = 128,
     direction: TransferDirection = TransferDirection.H2D,
     flags: TransferFlag = TransferFlag.FAST2D,
@@ -38,6 +40,8 @@ def transfer_kv_dim_exchange(
         host_v: v_buffer in host
         device_index_k: index_k_buffer in device
         host_index_k: index_k_buffer in host
+        device_index_k_scale: per-token FP32 scale of the quantized Indexer in device
+        host_index_k_scale: per-token FP32 scale of the quantized Indexer in host
         page_size: page size
         direction: only support H2D and D2H.
         flags: only FAST2D is supported, which indicates 2D data transfer via calling aclrtMemcpy2dAsync.
@@ -57,6 +61,18 @@ def transfer_kv_dim_exchange(
         torch.ops.npu.transfer_kv_dim_exchange(
             device_index_k,
             host_index_k,
+            torch.empty(0),
+            torch.empty(0),
+            device_indices,
+            host_indices,
+            page_size,
+            direction.value,
+            flags.value,
+        )
+    if device_index_k_scale is not None and host_index_k_scale is not None:
+        torch.ops.npu.transfer_kv_dim_exchange(
+            device_index_k_scale,
+            host_index_k_scale,
             torch.empty(0),
             torch.empty(0),
             device_indices,
@@ -97,3 +113,4 @@ def transfer_mamba_state(
         host_indices,
         direction.value,
     )
+    

@@ -223,6 +223,82 @@ class TestTransferKV(unittest.TestCase):
             msg="device v sum() * 2 should be equal to host value after transfer k h2d",
         )
 
+    def _scale_transfer(self, direct: TransferDirection):
+        """Transfer only the quantized-Indexer FP32 scale cache (k-only + scale).
+
+        Device layout is (layers, pages, page_size, 1) FP32 (4-D, the wrapper
+        appends the trailing singleton dim); host layout is page-first
+        (pages, layers, page_size, 1, 1) FP32.
+        """
+        torch.npu.set_device(0)
+
+        device_scale = torch.ones(
+            (NUM_LAYERS, NUM_PAGES, PAGE_SIZE, 1),
+            dtype=torch.float32,
+            device="npu",
+        )
+        host_scale = torch.zeros(
+            (NUM_PAGES, NUM_LAYERS, PAGE_SIZE, 1, 1),
+            dtype=torch.float32,
+            device="cpu",
+            pin_memory=True,
+        )
+
+        device_indices = torch.arange(NUM_PAGES * PAGE_SIZE, dtype=torch.int64)
+        host_indices = torch.arange(NUM_PAGES * PAGE_SIZE, dtype=torch.int64)
+
+        stream = torch.npu.Stream()
+        with torch.npu.stream(stream):
+            transfer_kv_dim_exchange(
+                device_indices=device_indices,
+                host_indices=host_indices,
+                # The main k operand must be 5-D; reuse the scale data as k so
+                # both the main call and the scale call write the same slabs
+                # (idempotent) and the sum assertions below stay valid.
+                device_k=device_scale.unsqueeze(-1),
+                host_k=host_scale,
+                device_v=torch.empty(0),
+                host_v=torch.empty(0),
+                device_index_k_scale=device_scale,
+                host_index_k_scale=host_scale,
+                page_size=PAGE_SIZE,
+                direction=direct,
+            )
+        torch.npu.synchronize()
+        return device_scale, host_scale
+
+    def test_scale_copy_d2h(self):
+        device_scale, host_scale = self._scale_transfer(TransferDirection.D2H)
+
+        self.assertAlmostEqual(
+            host_scale.sum().item(),
+            device_scale.sum().cpu().item(),
+            delta=1e-3,
+            msg="host scale sum() should be equal to device scale after d2h",
+        )
+        self.assertAlmostEqual(
+            host_scale.sum().item(),
+            float(host_scale.numel()),
+            delta=1e-3,
+            msg="host scale sum() should be equal to numel() after d2h",
+        )
+
+    def test_scale_copy_h2d(self):
+        device_scale, host_scale = self._scale_transfer(TransferDirection.H2D)
+
+        self.assertAlmostEqual(
+            device_scale.sum().cpu().item(),
+            host_scale.sum().item(),
+            delta=1e-3,
+            msg="device scale sum() should be equal to host scale after h2d",
+        )
+        self.assertAlmostEqual(
+            device_scale.sum().cpu().item(),
+            0.0,
+            delta=1e-3,
+            msg="device scale sum() should be equal to 0 after h2d",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
