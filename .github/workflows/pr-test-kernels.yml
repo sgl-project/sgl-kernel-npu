@@ -552,7 +552,7 @@ jobs:
             fi
           done
           if [ "$any_run" = "false" ]; then
-            echo "All operator test jobs were skipped: no test-group/common paths changed."
-            exit 1
+            echo "All operator test jobs were skipped: no test-group/common paths changed. Nothing to gate, treat as pass."
+            exit 0
           fi
           echo "All kernel operator tests passed"
