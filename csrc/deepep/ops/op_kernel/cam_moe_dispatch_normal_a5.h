@@ -311,7 +311,7 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
 
     uint64_t hSizeAlignCombine = Ceil(h * sizeof(XType), WIN_ADDR_ALIGN) * WIN_ADDR_ALIGN;
     hSizeAlignCombine = round > 1 ? hSizeAlignCombine * 2 : hSizeAlignCombine;
-    winDataSizeOffset = dataState * static_cast<uint64_t>(baseWindSize / 2) +
+    winDataSizeOffset = dataState * (baseWindSize / 2) +
                         min(realMaxBatchSize, perRoundTokens) * topK * hSizeAlignCombine;  // *2 是因为double buffer
     shareGM = GetWindAddrByRankId(COMM_EP_IDX, epRankId);
 
