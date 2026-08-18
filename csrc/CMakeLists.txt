@@ -21,6 +21,9 @@ message(STATUS "SGL_KERNEL_ENABLE_A3_ONLY_OPS=${SGL_KERNEL_ENABLE_A3_ONLY_OPS} (
 # host side files
 set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/pytorch_extensions.cpp
+    ${PROJECT_OP_SRC_BASE}/mhc/npu_hc_pre.cpp
+    ${PROJECT_OP_SRC_BASE}/mhc/npu_hc_post.cpp
+    ${PROJECT_OP_SRC_BASE}/attentions/csrc/plugin/find_op_path.cpp
     ${PROJECT_OP_SRC_BASE}/helloworld/op_host/helloworld.cpp
     ${PROJECT_OP_SRC_BASE}/cache_location_assign/op_host/cache_loc_assign.cpp
     ${PROJECT_OP_SRC_BASE}/alloc_extend/op_host/alloc_extend_tiling.cpp
@@ -189,6 +192,7 @@ target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${CATLASS_WORKSPACE_KERNEL_TARGETS}
         torch_npu
         ascendcl
+        nnopbase
         tiling_api
         register
         platform
@@ -203,6 +207,7 @@ target_link_directories(${OP_PLUGIN_NAME} PRIVATE
 
 target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/utils
+        ${PROJECT_OP_SRC_BASE}/attentions/csrc/plugin
         ${PROJECT_SOURCE_DIR}/include
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/tiling
@@ -214,6 +219,7 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${TORCH_DIR}/include
         ${TORCH_DIR}/include/torch/csrc/api/include
         ${TORCH_NPU_DIR}/include
+        ${TORCH_NPU_DIR}/include/third_party/acl/inc
         ${ASCEND_INCLUDE_DIR}
         ${ASCEND_INCLUDE_DIR}/external
         ${ASCEND_INCLUDE_DIR}/experiment/platform
