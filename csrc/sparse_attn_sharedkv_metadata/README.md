@@ -1,5 +1,12 @@
 # torch.ops.npu.sparse_attn_sharedkv_metadata_host
 
+## Attribution
+
+Reimplemented on the host CPU with reference to the vllm-ascend AICPU op
+`SparseAttnSharedkvMetadata` (`vllm-ascend/csrc/attention/sparse_attn_sharedkv_metadata`,
+Copyright (c) Huawei Technologies Co., Ltd., CANN Open Software License Version 2.0).
+The scheduling algorithm is ported unchanged; the output is byte-identical.
+
 ## Function Description
 
 Host-side (CPU) reimplementation of the `npu_sparse_attn_sharedkv_metadata` load-balancer.
