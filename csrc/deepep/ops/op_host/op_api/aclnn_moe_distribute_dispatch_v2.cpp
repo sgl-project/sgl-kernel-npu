@@ -4,6 +4,10 @@
 #include "graph/types.h"
 #include <cstring>
 
+#ifndef ACLNN_ERR_INNER_NULLPTR
+#define ACLNN_ERR_INNER_NULLPTR (-1)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -43,6 +47,9 @@ aclnnStatus aclnnMoeLowLatencyDispatchV2GetWorkspaceSize(
         groupTp, tpWorldSize, tpRankId, expertShardType, sharedExpertNum, sharedExpertRankNum, quantMode, globalBs,
         expertTokenNumsType, commAlg, 0, 0, 0, expandXOut, dynamicScalesOut, assistInfoForCombineOut,
         expertTokenNumsOut, epRecvCountsOut, tpRecvCountsOut, workspaceSize, executor);
+    if (commAlg == nullptr) {
+        return ACLNN_ERR_INNER_NULLPTR;
+    }
     if (NnopbaseSetHcclServerType) {
         if (std::strcmp(commAlg, "ccu") == 0) {
             NnopbaseSetHcclServerType(*executor, NNOPBASE_HCCL_SERVER_TYPE_CCU);

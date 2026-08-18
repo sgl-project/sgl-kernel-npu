@@ -242,7 +242,7 @@ static ge::graphStatus GetAttrAndSetTilingData(const gert::TilingContext *contex
                     OP_LOGE(nodeName, "CheckEpAndTpWorldSize failed."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK(CheckEpRankId(context) != ge::GRAPH_SUCCESS, OP_LOGE(nodeName, "CheckEpRankId failed."),
                     return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(CheckTpRankId(context) != ge::GRAPH_SUCCESS, OP_LOGE(nodeName, "CheckEpRankId failed."),
+    OP_TILING_CHECK(CheckTpRankId(context) != ge::GRAPH_SUCCESS, OP_LOGE(nodeName, "CheckTpRankId failed."),
                     return ge::GRAPH_FAILED);
     OP_TILING_CHECK(*expertShardTypePtr != 0,
                     OP_LOGE(nodeName, "The expected value of expertShardType is 0, but the actual value is %ld.",

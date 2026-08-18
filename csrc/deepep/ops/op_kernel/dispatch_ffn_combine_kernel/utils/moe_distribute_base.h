@@ -377,7 +377,7 @@ __aicore__ inline void cacheWriteThrough(__gm__ uint8_t *sourceAddr, uint64_t le
         (__gm__ uint8_t *)(((uint64_t)sourceAddr + length) / AscendC::CACHE_LINE_SIZE * AscendC::CACHE_LINE_SIZE);
     AscendC::GlobalTensor<uint8_t> global;
     global.SetGlobalBuffer(start);
-    for (uint32_t i = 0; i <= end - start; i += AscendC::CACHE_LINE_SIZE) {
+    for (uint32_t i = 0; i < end - start; i += AscendC::CACHE_LINE_SIZE) {
         AscendC::DataCacheCleanAndInvalid<uint8_t, AscendC::CacheLine::SINGLE_CACHE_LINE,
                                           AscendC::DcciDst::CACHELINE_OUT>(global[i]);
     }

@@ -129,6 +129,9 @@ static ge::graphStatus DispatchFFNCombineCheckShapeAndSetTiling(gert::TilingCont
     info.expertPerRank = expertPerRank;
     info.topK = topK;
     info.listLen = listLen;
+    OP_TILING_CHECK(info.M == 0, OP_LOGE(nodeName, "M must not be 0."), return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(info.K == 0, OP_LOGE(nodeName, "K must not be 0."), return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(info.topK == 0, OP_LOGE(nodeName, "topK must not be 0."), return ge::GRAPH_FAILED);
     OP_LOGD(K_INNER_DEBUG, "M=%d ", info.M);
     OP_LOGD(K_INNER_DEBUG, "K=%d ", info.K);
     OP_LOGD(K_INNER_DEBUG, "N=%d ", info.N);

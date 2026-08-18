@@ -87,12 +87,14 @@ private:
     __aicore__ GM_ADDR GetWinAddrByRankId(const int32_t rankId, const uint8_t domain, const uint8_t expertLocalId = 0U)
     {
         if (domain == EP_DOMAIN) {
+            assert(epWinContext_ != nullptr);
             return (GM_ADDR)((epRankId_ == rankId)
                                  ? epWinContext_->localWindowsIn
                                  : ((HcclRankRelationResV2 *)(epWinContext_->remoteRes[rankId].nextDevicePtr))
                                        ->windowsIn) +
                    winDataSizeOffset_ + expertLocalId * expertPerSizeOnWin_ + rankId * OPT_RANK_OFFSET;
         } else {
+            assert(tpWinContext_ != nullptr);
             return (GM_ADDR)((tpRankId_ == rankId)
                                  ? tpWinContext_->localWindowsIn
                                  : ((HcclRankRelationResV2 *)(tpWinContext_->remoteRes[rankId].nextDevicePtr))
@@ -107,6 +109,7 @@ private:
             assert(tpWinContext_ != nullptr);
         }
         if (domain == EP_DOMAIN) {
+            assert(epWinContext_ != nullptr);
             return (GM_ADDR)((epRankId_ == rankId)
                                  ? epWinContext_->localWindowsExp
                                  : ((HcclRankRelationResV2 *)(epWinContext_->remoteRes[rankId].nextDevicePtr))

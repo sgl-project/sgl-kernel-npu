@@ -1186,7 +1186,7 @@ static void SetHcommCfg(const gert::TilingContext *context, MoeDistributeDispatc
     auto groupEpPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_GROUP_EP_INDEX));
     auto groupTpPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_GROUP_TP_INDEX));
     std::string groupTp = (groupTpPtr != nullptr) ? std::string(groupTpPtr) : std::string();
-    std::string groupEp = std::string(groupEpPtr);
+    std::string groupEp = (groupEpPtr != nullptr) ? std::string(groupEpPtr) : std::string();
     const char *nodeName = context->GetNodeName();
     OP_LOGD(nodeName, "MoeDistributeDispatchV2 groupEp = %s, groupTp = %s", groupEp.c_str(), groupTp.c_str());
     uint32_t opType1 = OP_TYPE_ALL_TO_ALL;

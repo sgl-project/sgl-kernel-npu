@@ -153,7 +153,7 @@ __aicore__ inline void MoeV2GatherQuant<T>::CopyOut(int64_t progress)
                 int32_t outIndex = indicesLocal.GetValue(curLoopRow);
                 curLoopRow++;
                 initialRow++;
-                if (outIndex == -1 || (this->dropPadMode == DROPLESS_MODE && outIndex >= this->activateRows)) {
+                if (outIndex < 0 || (this->dropPadMode == DROPLESS_MODE && outIndex >= this->activateRows)) {
                     continue;
                 }
                 outOffset = outIndex * cols + colsLoop * this->perLoopCols;

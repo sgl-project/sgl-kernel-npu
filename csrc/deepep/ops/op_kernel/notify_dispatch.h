@@ -689,7 +689,7 @@ private:
 
         pipe.InitBuffer(tmpBuf_, Ceil(numRanks * numLocalExperts * sizeof(int32_t), UB_ALIGN_SIZE) * UB_ALIGN_SIZE);
         LocalTensor<int32_t> expSrcTotalTensor = tmpBuf_.Get<int32_t>();
-        Duplicate<int32_t>(expSrcTotalTensor, 0, numExperts);
+        Duplicate<int32_t>(expSrcTotalTensor, 0, numRanks * numLocalExperts);
         SyncFunc<AscendC::HardEvent::V_S>();
 
         for (uint32_t rStart = 0; rStart < round; rStart += batchRounds) {
