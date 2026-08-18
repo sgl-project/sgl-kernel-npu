@@ -35,15 +35,30 @@ def _page_attention_cache(cache, block_table, sequence_length):
     return torch.cat(pages, dim=0)[:sequence_length]
 
 
-def _reference_swa(q, ori_kv, ori_block_table, sequence_length, scale):
+def _reference_swa(
+    q,
+    ori_kv,
+    ori_block_table,
+    sequence_length,
+    scale,
+    ori_win_left,
+    ori_win_right,
+):
     # The operator uses the same shared tensor as K and V. Shape after cache
-    # reconstruction is [S2, D], while q is [B=1, S1=1, N1, D].
+    # reconstruction is [S2, D], while q is [B=1, S1, N1, D].
     kv = _page_attention_cache(
         ori_kv.cpu().float(), ori_block_table.cpu()[0], sequence_length
     )
-    query = q.cpu().float()[0, 0]
-    scores = torch.matmul(query, kv.transpose(0, 1)) * scale
-    return torch.matmul(torch.softmax(scores, dim=-1), kv).reshape_as(q.cpu().float())
+    query = q.cpu().float()[0]
+    outputs = []
+    for q_idx in range(query.shape[0]):
+        aligned_kv_idx = sequence_length - query.shape[0] + q_idx
+        left = max(aligned_kv_idx - ori_win_left, 0)
+        right = min(aligned_kv_idx + ori_win_right, sequence_length - 1)
+        visible_kv = kv[left : right + 1]
+        scores = torch.matmul(query[q_idx], visible_kv.transpose(0, 1)) * scale
+        outputs.append(torch.matmul(torch.softmax(scores, dim=-1), visible_kv))
+    return torch.stack(outputs, dim=0).unsqueeze(0)
 
 
 class TestSparseAttnSharedkv(unittest.TestCase):
@@ -53,10 +68,10 @@ class TestSparseAttnSharedkv(unittest.TestCase):
             raise unittest.SkipTest("an Ascend NPU is required")
         torch_npu.npu.set_device(0)
 
-    def _make_swa_bsnd_pa_nd_inputs(self, dtype):
+    def _make_swa_bsnd_pa_nd_inputs(self, dtype, q_len=1):
         torch.manual_seed(20260812)
         device = torch.device("npu:0")
-        batch, q_len, q_heads, head_dim = 1, 1, 64, 512
+        batch, q_heads, head_dim = 1, 64, 512
         kv_len, block_size = 640, 128
         physical_blocks = 6
         scale = 1.0 / math.sqrt(head_dim)
@@ -119,6 +134,8 @@ class TestSparseAttnSharedkv(unittest.TestCase):
             inputs["ori_block_table"],
             kv_len,
             inputs["softmax_scale"],
+            inputs["ori_win_left"],
+            inputs["ori_win_right"],
         )
         torch.testing.assert_close(actual.cpu().float(), expected, rtol=2e-2, atol=2e-2)
         self.assertEqual(softmax_lse.dtype, torch.float32)
@@ -130,10 +147,26 @@ class TestSparseAttnSharedkv(unittest.TestCase):
     def test_swa_bsnd_pa_nd_bf16(self):
         self._run_swa_bsnd_pa_nd(torch.bfloat16)
 
+    def test_swa_bsnd_pa_nd_eager_prefill(self):
+        inputs, kv_len = self._make_swa_bsnd_pa_nd_inputs(torch.float16, q_len=2)
+        actual, _ = self._run_operator(inputs)
+        torch_npu.npu.synchronize()
+        expected = _reference_swa(
+            inputs["q"],
+            inputs["ori_kv"],
+            inputs["ori_block_table"],
+            kv_len,
+            inputs["softmax_scale"],
+            inputs["ori_win_left"],
+            inputs["ori_win_right"],
+        )
+        torch.testing.assert_close(actual.cpu().float(), expected, rtol=2e-2, atol=2e-2)
+
     def test_swa_bsnd_pa_nd_npu_graph(self):
         inputs, kv_len = self._make_swa_bsnd_pa_nd_inputs(torch.float16)
 
-        # Warm up lazy initialization and populate the device-resident tiling cache.
+        # The ordinary operator call acts as the dummy warmup: outside capture,
+        # a cache miss allocates and fills a stable tiling slot.
         self._run_operator(inputs)
         torch_npu.npu.synchronize()
 
@@ -159,6 +192,8 @@ class TestSparseAttnSharedkv(unittest.TestCase):
                 inputs["ori_block_table"],
                 kv_len,
                 inputs["softmax_scale"],
+                inputs["ori_win_left"],
+                inputs["ori_win_right"],
             )
             torch.testing.assert_close(
                 graph_out.cpu().float(), expected, rtol=2e-2, atol=2e-2

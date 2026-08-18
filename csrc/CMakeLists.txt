@@ -150,10 +150,10 @@ ascendc_compile_definitions(workspace_kernel PRIVATE
     -DHAVE_TILING
 )
 
-# mega_chunk_gdn kernel target: A3-only
-set(MEGA_CHUNK_GDN_KERNEL_TARGETS)
+# Dedicated A3-only kernel targets. Keep these separate from workspace_kernel:
+# their compiler definitions/options apply to the whole AscendC target.
+set(A3_ONLY_KERNEL_TARGETS)
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
-    set(MEGA_CHUNK_GDN_KERNEL_TARGETS mega_chunk_gdn_kernel)
     ascendc_library(mega_chunk_gdn_kernel STATIC
         ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel/mega_kernel.cpp
     )
@@ -169,12 +169,8 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         -DGDN_D=128
         -DGDN_C=128
     )
-endif()
+    list(APPEND A3_ONLY_KERNEL_TARGETS mega_chunk_gdn_kernel)
 
-# sparse_attn_sharedkv kernel target: A3-only
-set(SPARSE_ATTN_SHAREDKV_KERNEL_TARGETS)
-if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
-    set(SPARSE_ATTN_SHAREDKV_KERNEL_TARGETS sparse_attn_sharedkv_kernel)
     ascendc_library(sparse_attn_sharedkv_kernel STATIC
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_kernel/sparse_attn_sharedkv.cpp
     )
@@ -193,14 +189,14 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         -mllvm
         -cce-vf-remove-membar=false
     )
+    list(APPEND A3_ONLY_KERNEL_TARGETS sparse_attn_sharedkv_kernel)
 endif()
 
 # create shared library
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
-        ${MEGA_CHUNK_GDN_KERNEL_TARGETS}
-        ${SPARSE_ATTN_SHAREDKV_KERNEL_TARGETS}
+        ${A3_ONLY_KERNEL_TARGETS}
         workspace_kernel
         no_workspace_kernel
         torch_npu
