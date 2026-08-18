@@ -182,6 +182,29 @@ endif()
 # create shared library
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
+# MHC is an external custom OPP. Keep its PyTorch registration separate from
+# the core kernel library so adding MHC does not change existing operators.
+add_library(sgl_mhc_npu SHARED
+    ${PROJECT_OP_SRC_BASE}/mhc/bindings/ops_common.cpp
+    ${PROJECT_OP_SRC_BASE}/mhc/bindings/npu_hc_pre.cpp
+    ${PROJECT_OP_SRC_BASE}/mhc/bindings/npu_hc_post.cpp
+)
+
+target_link_libraries(sgl_mhc_npu PRIVATE torch_npu ascendcl dl)
+target_link_directories(sgl_mhc_npu PRIVATE
+    ${TORCH_DIR}/lib
+    ${TORCH_NPU_DIR}/lib
+    ${ASCEND_HOME_PATH}/lib64
+)
+target_include_directories(sgl_mhc_npu PRIVATE
+    ${PROJECT_OP_SRC_BASE}/mhc/bindings
+    ${TORCH_DIR}/include
+    ${TORCH_DIR}/include/torch/csrc/api/include
+    ${TORCH_NPU_DIR}/include
+    ${ASCEND_INCLUDE_DIR}
+    ${ASCEND_INCLUDE_DIR}/external
+)
+
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${MEGA_CHUNK_GDN_KERNEL_TARGETS}
         workspace_kernel
