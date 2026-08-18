@@ -64,6 +64,10 @@ def _situ_and_mul_quant_kernel(
         out = situ_a * up
 
         if SCALE:
+            # Preserve the unfused value pipeline: SituAndMul first
+            # materializes BF16, then npu_dynamic_quant computes its row scale.
+            # Avoid quantizing the higher-precision activation temporary.
+            out = out.to(x_ptr.dtype.element_ty).to(tl.float32)
             scale = tl.maximum(tl.max(tl.abs(out)) / DTYPE_MAX, 1e-30)
             tl.store(
                 scale_ptr + row_idx.to(tl.int64), scale.to(scale_ptr.dtype.element_ty)
@@ -74,7 +78,7 @@ def _situ_and_mul_quant_kernel(
                     out, offsets=(cb,), sizes=(COL_BLOCK_SIZE,), strides=(1,)
                 )
                 tmp = tmp.to(tl.float32) / scale
-                tmp = tl.floor(tmp + 0.5)
+                tmp = libdevice.rint(tmp)
                 tmp = tl.clamp(tmp, -128, 127).to(tl.int8)
                 c_idx = cb + tl.arange(0, COL_BLOCK_SIZE)
                 mask = c_idx < HALF_COLS
@@ -245,7 +249,7 @@ def situ_and_mul_quant(
             scale,
             TOTAL_COLS=h,
             HALF_COLS=half_cols,
-            COL_BLOCK_SIZE=half_cols,
+            COL_BLOCK_SIZE=min(half_cols, 1536),
             NUM_EXPERTS=num_experts_arg,
             NUM_EXPERTS_ALGIN=num_experts_algin_arg,
             GROUP_LIST_TYPE=gl_type_arg,
