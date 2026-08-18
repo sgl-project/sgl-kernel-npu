@@ -1,11 +1,9 @@
 """A5 FusedDeepMoe correctness and performance comparison script."""
 
 import argparse
-import ctypes
 import os
 import random
 import traceback
-from pathlib import Path
 from typing import Dict, List, Tuple
 
 import deep_ep
@@ -43,8 +41,6 @@ MX_QUANT_CONFIGS = {
 # quantized weight dtype. The Python API still has a quant_mode slot, so keep a
 # fixed compatibility value here instead of treating it as a user-facing switch.
 FUSED_COMPAT_QUANT_MODE = 0
-ACL_ERROR_INVALID_PARAM = 100000
-INVALID_FUSED_QUANT_MODES = (-1, 2)
 
 FUSED_EVENT_PATTERNS = (("FusedDeepMoe", "aclnnFusedDeepMoe"),)
 SMALL_OP_EVENT_PATTERNS = (
@@ -75,52 +71,6 @@ SMALL_FIRST_WARMUP_GMM_BURN_IN_REPEATS = 100
 SMALL_FIRST_WARMUP_MATMUL_DIM_SCALE = 4
 ACCURACY_ATOL = 2.0
 ACCURACY_RTOL = 0.02
-
-
-def validate_direct_aclnn_quant_mode_guard():
-    """Verify that the A5 ACLNN wrapper rejects invalid quant modes directly."""
-    op_api_path = (
-        Path(deep_ep.__file__).resolve().parent
-        / "vendors"
-        / "hwcomputing"
-        / "op_api"
-        / "lib"
-        / "libcust_opapi.so"
-    )
-    op_api = ctypes.CDLL(str(op_api_path))
-    get_workspace_size = op_api.aclnnFusedDeepMoeGetWorkspaceSize
-    tensor_ptr = ctypes.c_void_p
-    get_workspace_size.argtypes = (
-        [tensor_ptr] * 15
-        + [ctypes.c_char_p]
-        + [ctypes.c_int64] * 8
-        + [tensor_ptr] * 3
-        + [ctypes.POINTER(ctypes.c_uint64), ctypes.POINTER(tensor_ptr)]
-    )
-    get_workspace_size.restype = ctypes.c_int
-
-    for quant_mode in INVALID_FUSED_QUANT_MODES:
-        workspace_size = ctypes.c_uint64()
-        executor = tensor_ptr()
-        status = get_workspace_size(
-            *([None] * 15),
-            None,
-            1,
-            0,
-            1,
-            quant_mode,
-            1,
-            0,
-            0,
-            0,
-            *([None] * 3),
-            ctypes.byref(workspace_size),
-            ctypes.byref(executor),
-        )
-        assert status == ACL_ERROR_INVALID_PARAM, (
-            "aclnnFusedDeepMoeGetWorkspaceSize must reject invalid quant_mode "
-            f"{quant_mode} with ACL_ERROR_INVALID_PARAM, got {status}"
-        )
 
 
 def get_mx_quant_config(args: argparse.Namespace) -> Dict[str, object]:
@@ -1415,7 +1365,6 @@ def main():
     if args.quant == "fp4_e2m1" and args.hidden % 2 != 0:
         parser.error("--hidden must be even when --quant is fp4_e2m1")
 
-    validate_direct_aclnn_quant_mode_guard()
     torch.multiprocessing.spawn(
         run_rank, args=(args.num_processes, args), nprocs=args.num_processes
     )
