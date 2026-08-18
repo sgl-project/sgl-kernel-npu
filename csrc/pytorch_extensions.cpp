@@ -152,6 +152,12 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int run_mode=0) -> Tensor");
 #endif
 
+#ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
+    m.def(
+        "kv_compress_epilog(Tensor(a!) kv_compress_cache, Tensor x, Tensor slot_mapping, "
+        "int quant_group_size, int quant_mode, bool round_scale_flag, int layout) -> ()");
+#endif
+
 #ifdef BUILD_CATLASS_MODULE
     m.def("catlass_matmul_basic(Tensor tensor_a, Tensor tensor_b, Tensor(a!) tensor_c, str? format_mode=None) -> ()");
 
@@ -253,6 +259,10 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
             x, weight, bias_or_empty, conv_states, query_start_loc_or_empty, cache_indices_or_empty,
             has_initial_state_or_empty, num_accepted_tokens_or_empty, activation_mode, pad_slot_id, run_mode);
     });
+#endif
+
+#ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
+    m.impl("kv_compress_epilog", TORCH_FN(sglang::npu_kernel::kv_compress_epilog));
 #endif
 
 #ifdef BUILD_CATLASS_MODULE
