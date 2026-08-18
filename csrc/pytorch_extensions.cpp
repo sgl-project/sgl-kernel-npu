@@ -292,3 +292,26 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 #endif
 }
 }  // namespace
+
+namespace {
+// Register compressor under the "custom" namespace too, matching what the
+// SGLang NPU DSV4 backend (ascend_dsv4_backend.py) expects:
+//   torch.ops.custom.compressor(...)
+TORCH_LIBRARY_FRAGMENT(custom, m)
+{
+    m.def(
+        "compressor(Tensor x, Tensor wkv, Tensor wgate, Tensor! state_cache, "
+        "Tensor ape, Tensor norm_weight, Tensor rope_sin, Tensor rope_cos, "
+        "Tensor? state_block_table=None, Tensor? cu_seqlens=None, Tensor? seqused=None, "
+        "Tensor? start_pos=None, int rope_head_dim=64, int cmp_ratio=4, int coff=1, "
+        "float norm_eps=1e-6, int rotary_mode=1, int cache_mode=1, "
+        "int state_cache_stride_dim0=0) -> Tensor");
+}
+}  // namespace
+
+namespace {
+TORCH_LIBRARY_IMPL(custom, PrivateUse1, m)
+{
+    m.impl("compressor", TORCH_FN(sglang::npu_kernel::compressor));
+}
+}  // namespace
