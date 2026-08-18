@@ -111,11 +111,8 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     EP_HOST_ASSERT(topk_idx.dim() == 2);
     EP_HOST_ASSERT(topk_idx.is_contiguous());
     EP_HOST_ASSERT(num_experts > 0);
-    EP_HOST_ASSERT(topk_idx.size(0) <= round * per_round_tokens);
-
     const int num_tokens = topk_idx.size(0);
     const int num_topk = topk_idx.size(1);
-    // 长序列参数边界校验（与 A3 一致，集中在 Host 侧完成）
     EP_HOST_ASSERT_S(num_tokens > 0 && num_tokens <= static_cast<int>(MAX_TOTAL_TOKENS), "num_tokens (", num_tokens,
                      ") must be in the range (0, ", MAX_TOTAL_TOKENS, "].");
     EP_HOST_ASSERT_S(per_round_tokens >= static_cast<int>(MIN_TOKENS_PER_ROUND) &&
@@ -123,6 +120,11 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
                      "per_round_tokens (", per_round_tokens, ") must be in the range [", MIN_TOKENS_PER_ROUND, ", ",
                      MAX_TOKENS_PER_ROUND, "].");
     EP_HOST_ASSERT_S(rank >= 0 && rank < num_ranks, "rank (", rank, ") must be in the range [0, ", num_ranks, ").");
+    const int configured_capacity = round * per_round_tokens;
+    EP_HOST_ASSERT_S(num_tokens <= configured_capacity, "num_tokens (", num_tokens,
+                     ") must not exceed the configured capacity (", configured_capacity, "), calculated as round (",
+                     round, ") * per_round_tokens (", per_round_tokens, ").");
+
     const int64_t actual_rounds = (static_cast<int64_t>(num_tokens) + per_round_tokens - 1) / per_round_tokens;
     EP_HOST_ASSERT_S(actual_rounds <= static_cast<int>(MAX_ROUNDS), "actual_rounds (", actual_rounds,
                      ") must not exceed MAX_ROUNDS (", MAX_ROUNDS, ").");
