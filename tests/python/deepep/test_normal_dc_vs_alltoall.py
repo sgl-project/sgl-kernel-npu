@@ -97,9 +97,7 @@ def generate_round_inputs(args, rank, round_idx):
         + 1
     )
     topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
-    topk_weights = torch.ones(
-        (num_tokens, num_topk), dtype=torch.float32, device="npu"
-    )
+    topk_weights = torch.ones((num_tokens, num_topk), dtype=torch.float32, device="npu")
     return x, topk_idx, topk_weights, num_tokens
 
 
@@ -130,9 +128,9 @@ def test_compare(local_rank: int, num_local_ranks: int, args: argparse.Namespace
     num_topk = args.num_topk
     num_experts = args.num_experts
 
-    assert num_experts % num_ranks == 0, (
-        f"num_experts ({num_experts}) must be divisible by num_ranks ({num_ranks})"
-    )
+    assert (
+        num_experts % num_ranks == 0
+    ), f"num_experts ({num_experts}) must be divisible by num_ranks ({num_ranks})"
 
     # The AlltoAll normal strategy reads this env var to enable INT8 quantization.
     if args.quant_type == "int8":
@@ -160,9 +158,7 @@ def test_compare(local_rank: int, num_local_ranks: int, args: argparse.Namespace
         inputs.append((x, topk_idx, topk_weights, num_tokens))
     dist.barrier()
     if local_rank == 0:
-        token_summary = ", ".join(
-            f"r{i + 1}={inp[3]}" for i, inp in enumerate(inputs)
-        )
+        token_summary = ", ".join(f"r{i + 1}={inp[3]}" for i, inp in enumerate(inputs))
         print(f"  num_tokens per round: {token_summary}", flush=True)
 
     # ==========================================
@@ -184,7 +180,14 @@ def test_compare(local_rank: int, num_local_ranks: int, args: argparse.Namespace
     if local_rank == 0:
         print("\n>>> Phase 2: Running Default strategy for all rounds...", flush=True)
     results_d = run_strategy_all_rounds(
-        buffer, default_strategy, inputs, num_experts, config, "Default", rank, args.quant_type
+        buffer,
+        default_strategy,
+        inputs,
+        num_experts,
+        config,
+        "Default",
+        rank,
+        args.quant_type,
     )
 
     # ==========================================
@@ -193,7 +196,14 @@ def test_compare(local_rank: int, num_local_ranks: int, args: argparse.Namespace
     if local_rank == 0:
         print("\n>>> Phase 3: Running AlltoAll strategy for all rounds...", flush=True)
     results_a = run_strategy_all_rounds(
-        buffer, alltoall_strategy, inputs, num_experts, config, "AlltoAll", rank, args.quant_type
+        buffer,
+        alltoall_strategy,
+        inputs,
+        num_experts,
+        config,
+        "AlltoAll",
+        rank,
+        args.quant_type,
     )
 
     # ==========================================
@@ -221,9 +231,7 @@ def test_compare(local_rank: int, num_local_ranks: int, args: argparse.Namespace
         if dispatch_pass:
             recv_x_d_f = recv_x_d.float()
             recv_x_a_f = recv_x_a.float()
-            dispatch_max_diff = torch.max(
-                torch.abs(recv_x_d_f - recv_x_a_f)
-            ).item()
+            dispatch_max_diff = torch.max(torch.abs(recv_x_d_f - recv_x_a_f)).item()
             if args.quant_type == "bf16":
                 dispatch_pass = dispatch_max_diff == 0.0
             else:
@@ -232,9 +240,7 @@ def test_compare(local_rank: int, num_local_ranks: int, args: argparse.Namespace
         # Combine comparison
         combined_x_d_f = combined_x_d.float()
         combined_x_a_f = combined_x_a.float()
-        combine_max_diff = torch.max(
-            torch.abs(combined_x_d_f - combined_x_a_f)
-        ).item()
+        combine_max_diff = torch.max(torch.abs(combined_x_d_f - combined_x_a_f)).item()
         if args.quant_type == "bf16":
             combine_pass = combine_max_diff == 0.0
         else:

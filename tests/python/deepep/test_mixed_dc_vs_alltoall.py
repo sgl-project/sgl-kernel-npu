@@ -95,16 +95,16 @@ def generate_normal_inputs(args, rank, round_idx):
         + 1
     )
     topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
-    topk_weights = torch.ones(
-        (num_tokens, num_topk), dtype=torch.float32, device="npu"
-    )
+    topk_weights = torch.ones((num_tokens, num_topk), dtype=torch.float32, device="npu")
     return x, topk_idx, topk_weights, num_tokens
 
 
 # ==========================================
 # Low-latency mode helpers
 # ==========================================
-def run_ll(buffer, x, topk_idx, topk_weights, aligned_num_tokens, num_experts, quant_type):
+def run_ll(
+    buffer, x, topk_idx, topk_weights, aligned_num_tokens, num_experts, quant_type
+):
     """Run low_latency dispatch + combine. Returns (recv_x, recv_count, combined_x)."""
     cumulative_local_expert_recv_stats = torch.zeros(
         num_experts // buffer.group_size, dtype=torch.int, device="npu"
@@ -268,7 +268,13 @@ def run_strategy_pipeline(
     )
 
     ll_recv_x, ll_recv_count, ll_combined_x = run_ll(
-        buffer, x_l, topk_idx_l, topk_weights_l, aligned_num_tokens, num_experts, quant_type
+        buffer,
+        x_l,
+        topk_idx_l,
+        topk_weights_l,
+        aligned_num_tokens,
+        num_experts,
+        quant_type,
     )
 
     return {
@@ -308,22 +314,24 @@ def compare_round(
         if args.quant_type == "bf16":
             n_dispatch_pass = n_dispatch_max_diff == 0.0
         else:
-            n_dispatch_pass = calc_diff(
-                results_d["n_recv_x"].float(), results_a["n_recv_x"].float()
-            ) < quant_threshold
+            n_dispatch_pass = (
+                calc_diff(results_d["n_recv_x"].float(), results_a["n_recv_x"].float())
+                < quant_threshold
+            )
 
     # --- Normal combine comparison (bitwise) ---
     n_combine_max_diff = torch.max(
-        torch.abs(
-            results_d["n_combined_x"].float() - results_a["n_combined_x"].float()
-        )
+        torch.abs(results_d["n_combined_x"].float() - results_a["n_combined_x"].float())
     ).item()
     if args.quant_type == "bf16":
         n_combine_pass = n_combine_max_diff == 0.0
     else:
-        n_combine_pass = calc_diff(
-            results_d["n_combined_x"].float(), results_a["n_combined_x"].float()
-        ) < quant_threshold
+        n_combine_pass = (
+            calc_diff(
+                results_d["n_combined_x"].float(), results_a["n_combined_x"].float()
+            )
+            < quant_threshold
+        )
 
     # --- LL dispatch comparison (per-expert) ---
     aligned_num_tokens = results_d["ll_aligned_num_tokens"]
@@ -361,9 +369,7 @@ def compare_round(
                 )
             continue
         if count_d > 0:
-            expert_max_diff = torch.max(
-                torch.abs(td.float() - ta.float())
-            ).item()
+            expert_max_diff = torch.max(torch.abs(td.float() - ta.float())).item()
             if args.quant_type == "bf16":
                 expert_ok = expert_max_diff == 0
             else:
@@ -375,9 +381,7 @@ def compare_round(
                 if args.debug:
                     sorted_d, _ = td.float().sort(dim=0)
                     sorted_a, _ = ta.float().sort(dim=0)
-                    sorted_max_diff = torch.max(
-                        torch.abs(sorted_d - sorted_a)
-                    ).item()
+                    sorted_max_diff = torch.max(torch.abs(sorted_d - sorted_a)).item()
                     order_note = (
                         " (order differs, set matches)"
                         if sorted_max_diff == 0
@@ -398,9 +402,12 @@ def compare_round(
     if args.quant_type == "bf16":
         ll_combine_pass = ll_combine_max_diff == 0.0
     else:
-        ll_combine_pass = calc_diff(
-            results_d["ll_combined_x"].float(), results_a["ll_combined_x"].float()
-        ) < quant_threshold
+        ll_combine_pass = (
+            calc_diff(
+                results_d["ll_combined_x"].float(), results_a["ll_combined_x"].float()
+            )
+            < quant_threshold
+        )
 
     round_pass = (
         n_dispatch_pass and n_combine_pass and ll_dispatch_pass and ll_combine_pass
@@ -431,9 +438,9 @@ def test_compare(local_rank: int, num_local_ranks: int, args: argparse.Namespace
     num_topk = args.num_topk
     num_experts = args.num_experts
 
-    assert num_experts % num_ranks == 0, (
-        f"num_experts ({num_experts}) must be divisible by num_ranks ({num_ranks})"
-    )
+    assert (
+        num_experts % num_ranks == 0
+    ), f"num_experts ({num_experts}) must be divisible by num_ranks ({num_ranks})"
     num_local_experts = num_experts // num_ranks
     ll_buffer_capacity = args.ll_num_tokens
 
@@ -472,9 +479,7 @@ def test_compare(local_rank: int, num_local_ranks: int, args: argparse.Namespace
         n_summary = ", ".join(
             f"r{i + 1}={inp[3]}" for i, inp in enumerate(normal_inputs)
         )
-        ll_summary = ", ".join(
-            f"r{i + 1}={inp[5]}" for i, inp in enumerate(ll_inputs)
-        )
+        ll_summary = ", ".join(f"r{i + 1}={inp[5]}" for i, inp in enumerate(ll_inputs))
         print(f"  normal num_tokens per round: {n_summary}", flush=True)
         print(f"  ll aligned_num_tokens per round: {ll_summary}", flush=True)
 
@@ -512,7 +517,10 @@ def test_compare(local_rank: int, num_local_ranks: int, args: argparse.Namespace
     # Phase 2: Run Default strategy over all rounds
     # ==========================================
     if local_rank == 0:
-        print("\n>>> Phase 2: Running Default strategy (all 4 stages) for all rounds...", flush=True)
+        print(
+            "\n>>> Phase 2: Running Default strategy (all 4 stages) for all rounds...",
+            flush=True,
+        )
     results_d = []
     for round_idx in range(args.num_rounds):
         if rank == 0:
@@ -535,11 +543,16 @@ def test_compare(local_rank: int, num_local_ranks: int, args: argparse.Namespace
     # Phase 3: Run AlltoAll strategy over all rounds
     # ==========================================
     if local_rank == 0:
-        print("\n>>> Phase 3: Running AlltoAll strategy (all 4 stages) for all rounds...", flush=True)
+        print(
+            "\n>>> Phase 3: Running AlltoAll strategy (all 4 stages) for all rounds...",
+            flush=True,
+        )
     results_a = []
     for round_idx in range(args.num_rounds):
         if rank == 0:
-            print(f"  [AlltoAll] round {round_idx + 1}/{args.num_rounds}...", flush=True)
+            print(
+                f"  [AlltoAll] round {round_idx + 1}/{args.num_rounds}...", flush=True
+            )
         res = run_strategy_pipeline(
             buffer,
             normal_alltoall,

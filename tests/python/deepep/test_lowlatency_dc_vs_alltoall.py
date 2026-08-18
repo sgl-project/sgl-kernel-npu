@@ -199,7 +199,14 @@ def run_strategy_all_rounds(
             quant_type,
         )
         results.append(
-            (recv_x, recv_count, combined_x, all_topk_idx, num_tokens, aligned_num_tokens)
+            (
+                recv_x,
+                recv_count,
+                combined_x,
+                all_topk_idx,
+                num_tokens,
+                aligned_num_tokens,
+            )
         )
     return results
 
@@ -211,9 +218,14 @@ def compare_round(
 
     Returns a dict of per-round stats for the summary table.
     """
-    recv_x_d, recv_count_d, combined_x_d, all_topk_idx, num_tokens, aligned_num_tokens = (
-        results_d
-    )
+    (
+        recv_x_d,
+        recv_count_d,
+        combined_x_d,
+        all_topk_idx,
+        num_tokens,
+        aligned_num_tokens,
+    ) = results_d
     recv_x_a, recv_count_a, combined_x_a, _, _, _ = results_a
 
     # --- Dispatch comparison ---
@@ -301,9 +313,9 @@ def test_compare(local_rank: int, num_local_ranks: int, args: argparse.Namespace
     num_topk = args.num_topk
     num_experts = args.num_experts
 
-    assert num_experts % num_ranks == 0, (
-        f"num_experts ({num_experts}) must be divisible by num_ranks ({num_ranks})"
-    )
+    assert (
+        num_experts % num_ranks == 0
+    ), f"num_experts ({num_experts}) must be divisible by num_ranks ({num_ranks})"
     num_local_experts = num_experts // num_ranks
 
     buffer_capacity = args.num_tokens
@@ -331,9 +343,7 @@ def test_compare(local_rank: int, num_local_ranks: int, args: argparse.Namespace
         inputs.append(inp)
     dist.barrier()
     if local_rank == 0:
-        token_summary = ", ".join(
-            f"r{i + 1}={inp[4]}" for i, inp in enumerate(inputs)
-        )
+        token_summary = ", ".join(f"r{i + 1}={inp[4]}" for i, inp in enumerate(inputs))
         print(f"  num_tokens per round: {token_summary}", flush=True)
 
     # ==========================================
@@ -372,7 +382,13 @@ def test_compare(local_rank: int, num_local_ranks: int, args: argparse.Namespace
     if local_rank == 0:
         print("\n>>> Phase 3: Running AlltoAll strategy for all rounds...", flush=True)
     results_a = run_strategy_all_rounds(
-        buffer, alltoall_strategy, inputs, num_experts, "AlltoAll", rank, args.quant_type
+        buffer,
+        alltoall_strategy,
+        inputs,
+        num_experts,
+        "AlltoAll",
+        rank,
+        args.quant_type,
     )
 
     # ==========================================
