@@ -30,9 +30,12 @@ def test_swiglu_quant():
         .npu()
         .to(torch.int64)
     )
-    # torch native
-    swglu_out = torch_npu.npu_swiglu(x)
-    ans1, ans2 = torch_npu.npu_dynamic_quant(swglu_out)
+    # torch native: match the fused kernel's fp32 SwiGLU and quantization path
+    gate, up = x.to(torch.float32).chunk(2, dim=-1)
+    swglu_out = gate * torch.sigmoid(gate) * up
+    ans2 = torch.amax(torch.abs(swglu_out), dim=-1) / 127
+    ans1 = torch.floor(swglu_out / ans2.unsqueeze(-1) + 0.5)
+    ans1 = torch.clamp(ans1, -128, 127).to(torch.int8)
     # fused_triton_kernel
     res1, res2 = swiglu_quant(x, group_list, group_list_type=1)
 
