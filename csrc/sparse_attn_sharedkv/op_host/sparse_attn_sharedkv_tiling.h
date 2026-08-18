@@ -505,7 +505,7 @@ private:
     void CalcUbBmm(SASTilingInfo *tilingInfo);
     ge_helper::TilingContext *context_ = nullptr;
     SASTemplateMode perfMode_ = SASTemplateMode::SWA_TEMPLATE_MODE;
-    SparseAttnSharedkvTilingData tilingData_;
+    SparseAttnSharedkvTilingData tilingData_{};
     uint32_t blockDim_{0};
     uint64_t workspaceSize_{0};
     uint64_t tilingKey_{0};

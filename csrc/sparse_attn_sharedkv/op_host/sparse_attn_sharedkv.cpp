@@ -5,10 +5,7 @@
 
 #include <limits>
 #include <memory>
-#include <mutex>
 #include <string>
-#include <type_traits>
-#include <unordered_map>
 #include <utility>
 
 #include "acl/acl.h"
@@ -28,25 +25,6 @@ using optiling::SASTilingInfo;
 using optiling::SparseAttnSharedkvTiling;
 using optiling::SparseAttnSharedkvTilingData;
 
-constexpr int64_t MAX_TILING_CACHE_ENTRIES = 1024;
-
-struct TilingCache {
-    at::Tensor buffer;
-    std::unordered_map<std::string, int64_t> slots;
-    int64_t nextSlot = 0;
-};
-
-bool IsNpuGraphCapturing()
-{
-    aclmdlRICaptureStatus captureStatus = ACL_MODEL_RI_CAPTURE_STATUS_NONE;
-    aclmdlRI model = nullptr;
-    auto stream = c10_npu::getCurrentNPUStream().stream(false);
-    auto status = aclmdlRICaptureGetInfo(stream, &captureStatus, &model);
-    TORCH_CHECK(status == ACL_ERROR_NONE, "sparse_attn_sharedkv: failed to query NPU graph capture status, acl error ",
-                status);
-    return captureStatus == ACL_MODEL_RI_CAPTURE_STATUS_ACTIVE;
-}
-
 void CheckTensor(const at::Tensor &tensor, const at::Tensor &q, const char *name)
 {
     TORCH_CHECK(tensor.device().type() == q.device().type() && tensor.device().index() == q.device().index(), name,
@@ -64,103 +42,6 @@ void CheckOptionalTensor(const c10::optional<at::Tensor> &tensor, const at::Tens
 at::Tensor Placeholder(const at::Tensor &q, at::ScalarType dtype)
 {
     return at::empty({1}, q.options().dtype(dtype));
-}
-
-template <typename T>
-void AppendTilingKey(std::string &key, const T &value)
-{
-    static_assert(std::is_trivially_copyable_v<T>);
-    key.append(reinterpret_cast<const char *>(&value), sizeof(T));
-}
-
-std::string MakeTilingCacheKey(const SparseAttnSharedkvTilingData &data)
-{
-    std::string key;
-    key.reserve(sizeof(SparseAttnSharedkvTilingData));
-    const auto &base = data.baseParams;
-    AppendTilingKey(key, base.batchSize);
-    AppendTilingKey(key, base.qSeqSize);
-    AppendTilingKey(key, base.kvSeqSize);
-    AppendTilingKey(key, base.paBlockSize);
-    AppendTilingKey(key, base.oriBlockSize);
-    AppendTilingKey(key, base.cmpBlockSize);
-    AppendTilingKey(key, base.oriMaxBlockNumPerBatch);
-    AppendTilingKey(key, base.nNumOfQInOneGroup);
-    AppendTilingKey(key, base.actualLenDimsQ);
-    AppendTilingKey(key, base.actualLenDimsKV);
-    AppendTilingKey(key, base.softmaxScale);
-    AppendTilingKey(key, base.outputLayout);
-    AppendTilingKey(key, base.oriMaskMode);
-    AppendTilingKey(key, base.oriKvStride);
-    AppendTilingKey(key, base.oriWinLeft);
-    AppendTilingKey(key, base.oriWinRight);
-    AppendTilingKey(key, base.sparseBlockSize);
-    AppendTilingKey(key, base.hasOriSparseIndices);
-    AppendTilingKey(key, base.oriSparseIndexWidth);
-    AppendTilingKey(key, base.usedCoreNum);
-    AppendTilingKey(key, base.mmResUbSize);
-    AppendTilingKey(key, base.bmm2ResUbSize);
-    AppendTilingKey(key, base.mBaseSize);
-    AppendTilingKey(key, base.s2BaseSize);
-    AppendTilingKey(key, base.returnSoftmaxLse);
-    const auto &cmp = data.cmpParams;
-    AppendTilingKey(key, cmp.cmpMaxBlockNumPerBatch);
-    AppendTilingKey(key, cmp.sparseBlockCount);
-    AppendTilingKey(key, cmp.cmpRatio);
-    AppendTilingKey(key, cmp.cmpMaskMode);
-    AppendTilingKey(key, cmp.cmpKvStride);
-    AppendTilingKey(key, data.dispatchKey);
-    return key;
-}
-
-at::Tensor CopyTilingToDevice(const SparseAttnSharedkvTilingData &tilingData, const at::Tensor &q)
-{
-    const auto tilingSize = static_cast<int64_t>(sizeof(SparseAttnSharedkvTilingData));
-    auto tilingTensor = at::empty({tilingSize}, q.options().dtype(at::kByte));
-    auto status = aclrtMemcpy(tilingTensor.data_ptr(), tilingSize, &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    TORCH_CHECK(status == ACL_ERROR_NONE, "sparse_attn_sharedkv: failed to copy tiling data, acl error ", status);
-    return tilingTensor;
-}
-
-at::Tensor GetCachedTilingTensor(const SparseAttnSharedkvTilingData &tilingData, const at::Tensor &q)
-{
-    static std::mutex cacheMutex;
-    static std::unordered_map<int64_t, TilingCache> deviceCaches;
-
-    const auto tilingSize = static_cast<int64_t>(sizeof(SparseAttnSharedkvTilingData));
-    auto key = MakeTilingCacheKey(tilingData);
-    std::lock_guard<std::mutex> lock(cacheMutex);
-    auto &cache = deviceCaches[static_cast<int64_t>(q.device().index())];
-    auto iter = cache.slots.find(key);
-    if (iter != cache.slots.end()) {
-        return cache.buffer.narrow(0, iter->second * tilingSize, tilingSize);
-    }
-
-    const bool isCapturing = IsNpuGraphCapturing();
-    if (cache.nextSlot >= MAX_TILING_CACHE_ENTRIES) {
-        TORCH_CHECK(!isCapturing,
-                    "sparse_attn_sharedkv: the current tiling configuration is not cached and the cache is full; "
-                    "NPU graph capture cannot use a one-shot tiling address");
-        return CopyTilingToDevice(tilingData, q);
-    }
-    if (!cache.buffer.defined()) {
-        TORCH_CHECK(
-            !isCapturing,
-            "sparse_attn_sharedkv: run one eager warmup with the same configuration before NPU graph capture to "
-            "initialize the tiling cache");
-        cache.buffer = at::empty({tilingSize * MAX_TILING_CACHE_ENTRIES}, q.options().dtype(at::kByte));
-    } else {
-        TORCH_CHECK(!isCapturing,
-                    "sparse_attn_sharedkv: the current tiling configuration is not cached; run one eager warmup with "
-                    "the same tensor shapes, dtypes, optional inputs, and attributes before NPU graph capture");
-    }
-    const int64_t slot = cache.nextSlot;
-    auto cachedTiling = cache.buffer.narrow(0, slot * tilingSize, tilingSize);
-    auto status = aclrtMemcpy(cachedTiling.data_ptr(), tilingSize, &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
-    TORCH_CHECK(status == ACL_ERROR_NONE, "sparse_attn_sharedkv: failed to cache tiling data, acl error ", status);
-    cache.slots.emplace(std::move(key), slot);
-    cache.nextSlot++;
-    return cachedTiling;
 }
 
 }  // namespace
@@ -291,9 +172,7 @@ std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv(
     SparseAttnSharedkvTiling tiling(context.get());
     TORCH_CHECK(tiling.DoOpTiling(&info) == ge::GRAPH_SUCCESS, "sparse_attn_sharedkv: tiling failed");
 
-    // Eager execution populates a stable tiling slot on cache miss. During
-    // NPUGraph capture, GetCachedTilingTensor only permits cache hits.
-    auto tilingTensor = GetCachedTilingTensor(tiling.GetTilingData(), q);
+    auto tilingTensor = context->GetTilingTensor(tiling.GetTilingData(), q);
     auto workspace = at::empty({static_cast<int64_t>(context->GetWorkspaceSize())}, q.options().dtype(at::kByte));
 
     auto qPlaceholder = Placeholder(q, q.scalar_type());
