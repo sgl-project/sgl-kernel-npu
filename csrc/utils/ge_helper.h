@@ -125,11 +125,12 @@ class TilingTensorCache
     };
 
 public:
-    static at::Tensor Get(const T &tilingData, const at::Tensor &referenceTensor, const std::string &opName)
+    static at::Tensor Get(const T &tilingData, const std::string &opName)
     {
         static std::mutex cacheMutex;
         static std::unordered_map<int64_t, DeviceCache> deviceCaches;
 
+        const auto device = c10_npu::getCurrentNPUStream().device();
         const auto tilingSize = static_cast<int64_t>(sizeof(T));
         // TilingData must be deterministically initialized because its complete
         // serialized representation, including padding, is used as the cache key.
@@ -137,7 +138,7 @@ public:
         std::memcpy(key.data(), &tilingData, sizeof(T));
 
         std::lock_guard<std::mutex> lock(cacheMutex);
-        auto &cache = deviceCaches[static_cast<int64_t>(referenceTensor.device().index())];
+        auto &cache = deviceCaches[static_cast<int64_t>(device.index())];
         auto iter = cache.slots.find(key);
         if (iter != cache.slots.end()) {
             return cache.buffer.narrow(0, iter->second * tilingSize, tilingSize);
@@ -148,7 +149,7 @@ public:
             TORCH_CHECK(!isCapturing, opName,
                         ": the current tiling configuration is not cached and the 512-entry cache is full; "
                         "NPU graph capture cannot use a one-shot tiling address");
-            return CopyToDevice(tilingData, referenceTensor, opName);
+            return CopyToDevice(tilingData, device, opName);
         }
 
         if (!cache.buffer.defined()) {
@@ -156,7 +157,7 @@ public:
                         ": run one eager warmup with the same configuration before NPU graph capture to initialize "
                         "the tiling cache");
             cache.buffer =
-                at::empty({tilingSize * MAX_TILING_CACHE_ENTRIES}, referenceTensor.options().dtype(at::kByte));
+                at::empty({tilingSize * MAX_TILING_CACHE_ENTRIES}, at::TensorOptions().device(device).dtype(at::kByte));
         } else {
             TORCH_CHECK(!isCapturing, opName,
                         ": the current tiling configuration is not cached; run one eager warmup with the same tensor "
@@ -178,9 +179,10 @@ private:
         TORCH_CHECK(status == ACL_ERROR_NONE, opName, ": failed to copy tiling data, acl error ", status);
     }
 
-    static at::Tensor CopyToDevice(const T &tilingData, const at::Tensor &referenceTensor, const std::string &opName)
+    static at::Tensor CopyToDevice(const T &tilingData, const c10::Device &device, const std::string &opName)
     {
-        auto tilingTensor = at::empty({static_cast<int64_t>(sizeof(T))}, referenceTensor.options().dtype(at::kByte));
+        auto tilingTensor =
+            at::empty({static_cast<int64_t>(sizeof(T))}, at::TensorOptions().device(device).dtype(at::kByte));
         CopyTo(tilingTensor, tilingData, opName);
         return tilingTensor;
     }
@@ -509,9 +511,9 @@ public:
     }
 
     template <typename T>
-    at::Tensor GetTilingTensor(const T &tilingData, const at::Tensor &referenceTensor) const
+    at::Tensor GetTilingTensor(const T &tilingData) const
     {
-        return TilingTensorCache<T>::Get(tilingData, referenceTensor, nodeName_);
+        return TilingTensorCache<T>::Get(tilingData, nodeName_);
     }
 
     // Deleted, do not need to use these functions

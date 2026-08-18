@@ -172,7 +172,7 @@ std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv(
     SparseAttnSharedkvTiling tiling(context.get());
     TORCH_CHECK(tiling.DoOpTiling(&info) == ge::GRAPH_SUCCESS, "sparse_attn_sharedkv: tiling failed");
 
-    auto tilingTensor = context->GetTilingTensor(tiling.GetTilingData(), q);
+    auto tilingTensor = context->GetTilingTensor(tiling.GetTilingData());
     auto workspace = at::empty({static_cast<int64_t>(context->GetWorkspaceSize())}, q.options().dtype(at::kByte));
 
     auto qPlaceholder = Placeholder(q, q.scalar_type());

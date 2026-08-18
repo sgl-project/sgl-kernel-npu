@@ -57,7 +57,7 @@ Directly launched kernels do not have an `aclOpExecutor` to own the device-side 
 SparseAttnSharedkvTiling tiling(context.get());
 TORCH_CHECK(tiling.DoOpTiling(&info) == ge::GRAPH_SUCCESS, "tiling failed");
 
-auto tilingTensor = context->GetTilingTensor(tiling.GetTilingData(), input);
+auto tilingTensor = context->GetTilingTensor(tiling.GetTilingData());
 ```
 
 The cache has the following behavior:
