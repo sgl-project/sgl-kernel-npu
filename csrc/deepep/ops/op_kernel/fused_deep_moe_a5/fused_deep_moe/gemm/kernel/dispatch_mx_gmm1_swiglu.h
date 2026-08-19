@@ -36,6 +36,9 @@ constexpr int32_t SUB_AIV_NUM = 2;
 constexpr int32_t ODD_EVEN_BASE = 2;
 constexpr int32_t BUFFER_NUM = 2;
 constexpr int32_t GATHER_SECOND_NUM = 2;
+constexpr uint32_t TOKEN_READY_FLAG_INDEX = 0;
+constexpr uint32_t TOKEN_RESERVED_FLAG_INDEX = 1;
+static_assert(TOKEN_RESERVED_FLAG_INDEX == TOKEN_READY_FLAG_INDEX + 1);
 constexpr uint8_t DISPATCH_SEND_PRIVATE_FORMAT_V1 = 1;
 constexpr uint8_t DISPATCH_RECV_PRIVATE_FORMAT_V1 = 1;
 #define OPT_RANK_OFFSET 512
@@ -1019,8 +1022,7 @@ public:
                 AscendC::DataCopy(tmpLocalTensor, tokGlobalInt32, INT32_COUNT_PER_BLOCK);
                 AscendC::SetFlag<AscendC::HardEvent::MTE2_S>(0);
                 AscendC::WaitFlag<AscendC::HardEvent::MTE2_S>(0);
-                if (tmpLocalTensor.GetValue(0) == tokenFlag) {
-                    SetValueAndFlush<int32_t>(tokGlobalInt32, 1, 0);
+                if (tmpLocalTensor.GetValue(TOKEN_READY_FLAG_INDEX) == tokenFlag) {
                     break;
                 }
                 SPIN_WAIT_CYCLES();
@@ -1029,6 +1031,7 @@ public:
             AscendC::DataCopy(xTmpTensor_, tokGlobal, MxByte2Count<ElementA>(hCommuSize));
             AscendC::SetFlag<AscendC::HardEvent::MTE2_MTE3>(0);
             AscendC::WaitFlag<AscendC::HardEvent::MTE2_MTE3>(0);
+            SetValueAndFlush<int32_t>(tokGlobalInt32, TOKEN_READY_FLAG_INDEX, 0);
             AscendC::DataCopyPad(dynamicScalesOutGMTensor_[currentTokenIdx * x1MxScaleNum], xOutFp32Tensor_,
                                  dataCopyParamsFloat);
             AscendC::DataCopy(expandXOutGlobal, xTmpTensor_, tokenLength);
