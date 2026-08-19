@@ -149,7 +149,9 @@ public:
             TORCH_CHECK(!isCapturing, opName,
                         ": the current tiling configuration is not cached and the 512-entry cache is full; "
                         "NPU graph capture cannot use a one-shot tiling address");
-            return CopyToDevice(tilingData, device, opName);
+            auto tilingTensor = at::empty({tilingSize}, at::TensorOptions().device(device).dtype(at::kByte));
+            CopyTo(tilingTensor, tilingData, opName);
+            return tilingTensor;
         }
 
         if (!cache.buffer.defined()) {
@@ -177,14 +179,6 @@ private:
     {
         auto status = aclrtMemcpy(destination.data_ptr(), sizeof(T), &tilingData, sizeof(T), ACL_MEMCPY_HOST_TO_DEVICE);
         TORCH_CHECK(status == ACL_ERROR_NONE, opName, ": failed to copy tiling data, acl error ", status);
-    }
-
-    static at::Tensor CopyToDevice(const T &tilingData, const c10::Device &device, const std::string &opName)
-    {
-        auto tilingTensor =
-            at::empty({static_cast<int64_t>(sizeof(T))}, at::TensorOptions().device(device).dtype(at::kByte));
-        CopyTo(tilingTensor, tilingData, opName);
-        return tilingTensor;
     }
 };
 
