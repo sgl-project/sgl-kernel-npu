@@ -99,7 +99,7 @@ jobs:
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v4-${{ runner.os }}-a3-cann${{ matrix.cann_version }}-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+          key: sgl-kernel-npu-build-v4-${{ runner.os }}-a5-cann${{ matrix.cann_version }}-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
       - name: Install dependencies
         run: |
           # speed up by using infra cache services
@@ -119,7 +119,7 @@ jobs:
           else
             echo "Cache miss, building and installing"
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
-            bash scripts/prepare_deepep_in_container.sh
+            bash scripts/prepare_deepep_in_container.sh -a deepep Ascend950
           fi
       - name: Run test normal mode MXFP8
         timeout-minutes: 10
