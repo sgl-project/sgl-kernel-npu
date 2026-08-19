@@ -221,7 +221,6 @@ __aicore__ inline void VFProcessDynamicBlockQuant(const LocalTensor<T1> &yLocal,
                 StoreOutputData<T1>(yLocalAddr, xLeft, pregMain, 2 * j * VL_FP32 + i * dstCurColNumAlign);
                 StoreOutputData<T1>(yLocalAddr, xRight, pregLoop, (2 * j + 1) * VL_FP32 + i * dstCurColNumAlign);
             }
-            // 处理尾块, 这里只有一个for循环
             uint32_t sregTail = tailReminder;
             pregLoop = UpdateMask<float>(sregTail);
             for (uint16_t j = 0; j < loopCountReminder; j++) {
@@ -370,6 +369,13 @@ __aicore__ inline void VFProcessDynamicMxFP8Quant(const LocalTensor<T1> &yLocal,
                         Add(vreg1, vreg1, vreg4, pregMerge);
                         Adds(vreg5, (RegTensor<int32_t> &)vreg1, static_cast<int32_t>(127), pregMerge);
                         ShiftLefts((RegTensor<int32_t> &)max2, vreg5, static_cast<int16_t>(23), pregMerge);
+                    } else {
+                        ShiftRights(vreg0, (RegTensor<uint32_t> &)max2, static_cast<int16_t>(FAST_LOG_SHIFT_BITS),
+                                    pregMerge);
+                        And(vreg1, vreg0, tmp0, pregMerge);
+                        Sub(vreg1, vreg1, tmp3, pregMerge);
+                        Adds(vreg5, (RegTensor<int32_t> &)vreg1, static_cast<int32_t>(127), pregMerge);
+                        ShiftLefts((RegTensor<int32_t> &)max2, vreg5, static_cast<int16_t>(23), pregMerge);
                     }
 
                     // Quantize left half
@@ -414,6 +420,13 @@ __aicore__ inline void VFProcessDynamicMxFP8Quant(const LocalTensor<T1> &yLocal,
                         Select(vreg4, one, zero, cmpMask);
                         Sub(vreg1, vreg1, tmp3, pregMerge);
                         Add(vreg1, vreg1, vreg4, pregMerge);
+                        Adds(vreg5, (RegTensor<int32_t> &)vreg1, static_cast<int32_t>(127), pregMerge);
+                        ShiftLefts((RegTensor<int32_t> &)max2, vreg5, static_cast<int16_t>(23), pregMerge);
+                    } else {
+                        ShiftRights(vreg0, (RegTensor<uint32_t> &)max2, static_cast<int16_t>(FAST_LOG_SHIFT_BITS),
+                                    pregMerge);
+                        And(vreg1, vreg0, tmp0, pregMerge);
+                        Sub(vreg1, vreg1, tmp3, pregMerge);
                         Adds(vreg5, (RegTensor<int32_t> &)vreg1, static_cast<int32_t>(127), pregMerge);
                         ShiftLefts((RegTensor<int32_t> &)max2, vreg5, static_cast<int16_t>(23), pregMerge);
                     }
@@ -465,6 +478,13 @@ __aicore__ inline void VFProcessDynamicMxFP8Quant(const LocalTensor<T1> &yLocal,
                         Select(vreg4, one, zero, cmpMask);
                         Sub(vreg1, vreg1, tmp3, pregMerge);
                         Add(vreg1, vreg1, vreg4, pregMerge);
+                        Adds(vreg5, (RegTensor<int32_t> &)vreg1, static_cast<int32_t>(127), pregMerge);
+                        ShiftLefts((RegTensor<int32_t> &)max2, vreg5, static_cast<int16_t>(23), pregMerge);
+                    } else {
+                        ShiftRights(vreg0, (RegTensor<uint32_t> &)max2, static_cast<int16_t>(FAST_LOG_SHIFT_BITS),
+                                    pregMerge);
+                        And(vreg1, vreg0, tmp0, pregMerge);
+                        Sub(vreg1, vreg1, tmp3, pregMerge);
                         Adds(vreg5, (RegTensor<int32_t> &)vreg1, static_cast<int32_t>(127), pregMerge);
                         ShiftLefts((RegTensor<int32_t> &)max2, vreg5, static_cast<int16_t>(23), pregMerge);
                     }
@@ -599,6 +619,13 @@ __aicore__ inline void VFProcessDynamicMxFP8QuantLayout2(const LocalTensor<T1> &
                         Add(vreg1, vreg1, vreg4, pregMerge);
                         Adds(vreg5, (RegTensor<int32_t> &)vreg1, static_cast<int32_t>(127), pregMerge);
                         ShiftLefts((RegTensor<int32_t> &)max2, vreg5, static_cast<int16_t>(23), pregMerge);
+                    } else {
+                        ShiftRights(vreg0, (RegTensor<uint32_t> &)max2, static_cast<int16_t>(FAST_LOG_SHIFT_BITS),
+                                    pregMerge);
+                        And(vreg1, vreg0, tmp0, pregMerge);
+                        Sub(vreg1, vreg1, tmp3, pregMerge);
+                        Adds(vreg5, (RegTensor<int32_t> &)vreg1, static_cast<int32_t>(127), pregMerge);
+                        ShiftLefts((RegTensor<int32_t> &)max2, vreg5, static_cast<int16_t>(23), pregMerge);
                     }
 
                     Duplicate(dupScale, max2, pregMain);
@@ -639,6 +666,13 @@ __aicore__ inline void VFProcessDynamicMxFP8QuantLayout2(const LocalTensor<T1> &
                         Select(vreg4, one, zero, cmpMask);
                         Sub(vreg1, vreg1, tmp3, pregMerge);
                         Add(vreg1, vreg1, vreg4, pregMerge);
+                        Adds(vreg5, (RegTensor<int32_t> &)vreg1, static_cast<int32_t>(127), pregMerge);
+                        ShiftLefts((RegTensor<int32_t> &)max2, vreg5, static_cast<int16_t>(23), pregMerge);
+                    } else {
+                        ShiftRights(vreg0, (RegTensor<uint32_t> &)max2, static_cast<int16_t>(FAST_LOG_SHIFT_BITS),
+                                    pregMerge);
+                        And(vreg1, vreg0, tmp0, pregMerge);
+                        Sub(vreg1, vreg1, tmp3, pregMerge);
                         Adds(vreg5, (RegTensor<int32_t> &)vreg1, static_cast<int32_t>(127), pregMerge);
                         ShiftLefts((RegTensor<int32_t> &)max2, vreg5, static_cast<int16_t>(23), pregMerge);
                     }
@@ -685,6 +719,13 @@ __aicore__ inline void VFProcessDynamicMxFP8QuantLayout2(const LocalTensor<T1> &
                         Select(vreg4, one, zero, cmpMask);
                         Sub(vreg1, vreg1, tmp3, pregMerge);
                         Add(vreg1, vreg1, vreg4, pregMerge);
+                        Adds(vreg5, (RegTensor<int32_t> &)vreg1, static_cast<int32_t>(127), pregMerge);
+                        ShiftLefts((RegTensor<int32_t> &)max2, vreg5, static_cast<int16_t>(23), pregMerge);
+                    } else {
+                        ShiftRights(vreg0, (RegTensor<uint32_t> &)max2, static_cast<int16_t>(FAST_LOG_SHIFT_BITS),
+                                    pregMerge);
+                        And(vreg1, vreg0, tmp0, pregMerge);
+                        Sub(vreg1, vreg1, tmp3, pregMerge);
                         Adds(vreg5, (RegTensor<int32_t> &)vreg1, static_cast<int32_t>(127), pregMerge);
                         ShiftLefts((RegTensor<int32_t> &)max2, vreg5, static_cast<int16_t>(23), pregMerge);
                     }

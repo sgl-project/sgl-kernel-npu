@@ -11,12 +11,6 @@
 /*!
  * \file kv_compress_epilog.cpp
  * \brief KV compress epilog kernel entry (A5-only).
- *
- * Ported from the vllm-ascend A5 custom op. The CANN framework macros
- * (GetUserWorkspace / GET_TILING_DATA_WITH_STRUCT / TILING_KEY_IS) and the
- * build-time DTYPE_* macros are replaced by the equivalent direct-compile
- * constructs: a raw workspace pointer, a local copy of the tiling struct, and
- * runtime dispatch on tilingData->tilingKey / tilingData->dtype.
  */
 
 #include "kernel_operator.h"

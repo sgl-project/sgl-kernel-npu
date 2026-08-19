@@ -249,20 +249,23 @@ def _check_mxfp8_layout1(
     ref_scales = _ref_mxfp8_scales(xf, d, per_group_size, fp8_max, round_scale)
     _assert_equal(scale_cached[valid], ref_scales[valid])
 
-    if round_scale:
-        # 2. Dequant: value * 2^(scale - 127). The kernel divides by 2^(s-127) when rounding.
-        divisor = torch.pow(2.0, scale_cached.to(torch.float32) - 127.0)
-        divisor_exp = (
-            divisor[:, :, None]
-            .expand(-1, -1, per_group_size)
-            .reshape(num_slots, -1)[:, :quant_col]
-        )
-        # MXFP8 layout1 stores the 128-byte BF16 rope prefix before FP8 values.
-        value_off = 2 * SLICE_SIZE
-        deq = cache_f32[:, value_off : value_off + quant_col] * divisor_exp
-        torch.testing.assert_close(
-            deq[valid], xf[valid, :quant_col], rtol=0.25, atol=0.02
-        )
+    # 2. Quantization must use the power-of-two scale represented by the stored
+    # E8M0 exponent. Values that exceed the FP8 range under that scale saturate.
+    divisor = torch.pow(2.0, scale_cached.to(torch.float32) - 127.0)
+    divisor_exp = (
+        divisor[:, :, None]
+        .expand(-1, -1, per_group_size)
+        .reshape(num_slots, -1)[:, :quant_col]
+    )
+    value_off = 2 * SLICE_SIZE
+    deq = cache_f32[:, value_off : value_off + quant_col] * divisor_exp
+    expected = xf[valid, :quant_col]
+    unsaturated = (expected.abs() / divisor_exp[valid]) <= fp8_max
+    if not unsaturated.any():
+        raise AssertionError("test input must contain unsaturated MXFP8 values")
+    torch.testing.assert_close(
+        deq[valid][unsaturated], expected[unsaturated], rtol=0.25, atol=0.02
+    )
 
     # 3. Rope columns copied byte-exactly.
     rope_ref = x[:, -SLICE_SIZE:].contiguous().view(torch.uint8)
@@ -393,11 +396,30 @@ class TestKvCompressEpilog(unittest.TestCase):
             fill_value=0.0,
         )
 
+    def test_fp8_layout2_rejected(self):
+        d = 192
+        block_size = 8
+        x = torch.randn(1, d, dtype=torch.bfloat16).npu()
+        slot_mapping = torch.zeros(1, dtype=torch.int32).npu()
+        cache = torch.zeros(
+            (1, block_size, d + SLICE_SIZE), dtype=torch.float8_e4m3fn
+        ).npu()
+
+        with self.assertRaisesRegex(RuntimeError, "layout=2 only supports MXFP8"):
+            torch.ops.npu.kv_compress_epilog(
+                cache,
+                x,
+                slot_mapping,
+                quant_group_size=0,
+                quant_mode=QUANT_MODE_FP8,
+                round_scale_flag=False,
+                layout=2,
+            )
+
     def test_mxfp8_e4m3fn_layout1_group64_round_scale(self):
         _check_mxfp8_layout1(16, 16, 192, 64, FP8_E4M3FN_MAX, round_scale=True, seed=4)
 
     def test_mxfp8_e4m3fn_layout1_group128_no_round_scale(self):
-        # round_scale=False: scale bytes are the raw biased exponents (no dequant check).
         _check_mxfp8_layout1(
             16, 16, 192, 128, FP8_E4M3FN_MAX, round_scale=False, seed=5
         )

@@ -11,12 +11,6 @@
 /*!
  * \file kv_compress_epilog_tiling_data.h
  * \brief Plain tiling-data struct for kv_compress_epilog (A5-only).
- *
- * Ported from the vllm-ascend A5 custom op (aclnnKvCompressEpilog). The CANN
- * framework macros (BEGIN_TILING_DATA_DEF / TILING_DATA_FIELD_DEF) are replaced
- * by a plain packed struct; the tilingKey and dtype fields carry the framework
- * tiling-key and runtime dtype dispatch that the direct-compile model needs
- * (GET_TILING_DATA_WITH_STRUCT / TILING_KEY_IS / DTYPE_* are not available here).
  */
 
 #ifndef KV_COMPRESS_EPILOG_TILING_DATA_H

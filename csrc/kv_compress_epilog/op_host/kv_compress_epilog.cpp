@@ -11,12 +11,6 @@
 /*!
  * \file kv_compress_epilog.cpp
  * \brief Host-side tiling + launch for kv_compress_epilog (A5-only).
- *
- * Ported from the vllm-ascend A5 custom op (aclnnKvCompressEpilog). The tiling
- * math is replicated from kv_compress_epilog_tiling_arch35.cpp and the kernel is
- * launched with EXEC_KERNEL_CMD instead of the aclnn API. The op is in-place:
- * kv_compress_cache is written at slot offsets, so the same tensor is passed for
- * the (unused) kernel output slot.
  */
 
 #include <cstdio>
@@ -41,7 +35,7 @@ namespace npu_kernel {
 namespace {
 
 constexpr uint32_t PADDING_BYTE = 32U;
-constexpr uint32_t MAX_CAPTURE_NUM = 1024;  // 对齐 lightning_indexer
+constexpr uint32_t MAX_CAPTURE_NUM = 1024;
 constexpr int64_t WORKSPACE_SIZE = 32;
 
 constexpr int64_t QUANT_MODE_GROUP_FP8 = 1;
@@ -72,7 +66,6 @@ static std::unordered_map<uint64_t, uint32_t> captureMap;
 HOST_API void kv_compress_epilog(at::Tensor &kv_compress_cache, const at::Tensor &x, const at::Tensor &slot_mapping,
                                  int64_t quant_group_size, int64_t quant_mode, bool round_scale_flag, int64_t layout)
 {
-    // ---- Input validation (mirrors vllm-ascend validate_kv_compress_epilog_inputs) ----
     TORCH_CHECK(x.dim() == 2, "x must be 2D tensor, but got dimensions: ", x.dim());
     TORCH_CHECK(x.size(0) > 0 && x.size(1) > 0, "x dimensions must be positive, but got: [", x.size(0), ", ", x.size(1),
                 "]");
@@ -98,7 +91,6 @@ HOST_API void kv_compress_epilog(at::Tensor &kv_compress_cache, const at::Tensor
     const int64_t d = x.size(1);
     int64_t round_scale = round_scale_flag ? 1 : 0;
 
-    // ---- Tiling (replicated from vllm-ascend kv_compress_epilog_tiling_arch35.cpp) ----
     auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
     int64_t coreNum = static_cast<int64_t>(ascendcPlatform->GetCoreNumAiv());
     if (coreNum <= 0) {
@@ -134,6 +126,8 @@ HOST_API void kv_compress_epilog(at::Tensor &kv_compress_cache, const at::Tensor
     int64_t blockSize = 0;
     int64_t blockStride = 0;
     if (layout == 2) {
+        TORCH_CHECK(quant_mode == QUANT_MODE_GROUP_MXFP8,
+                    "layout=2 only supports MXFP8 (quant_mode=2), but got quant_mode=", quant_mode);
         TORCH_CHECK(cache.dim() >= 2, "layout=2 requires kv_compress_cache to be at least 2D, got dim ", cache.dim());
         blockSize = cache.size(1);
         TORCH_CHECK(blockSize > 0, "blockSize must be positive, got ", blockSize);
@@ -178,7 +172,6 @@ HOST_API void kv_compress_epilog(at::Tensor &kv_compress_cache, const at::Tensor
     int64_t minRowPerCore = 1;
     int64_t rowOnceLoop = std::min(rowOfFormerBlock, minRowPerCore);
     int64_t rowFactor = rowOnceLoop;
-    // d全载,尝试搬入更多的bs
     while (rowFactor <= rowOfFormerBlock) {
         int64_t xSize = rowFactor * xSizePerRow;
         int64_t ySize = rowFactor * ySizePerRow;
