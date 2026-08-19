@@ -132,7 +132,6 @@ def test_compare(local_rank: int, num_local_ranks: int, args: argparse.Namespace
         num_experts % num_ranks == 0
     ), f"num_experts ({num_experts}) must be divisible by num_ranks ({num_ranks})"
 
-    # The AlltoAll normal strategy reads this env var to enable INT8 quantization.
     if args.quant_type == "int8":
         os.environ["DEEP_NORMAL_MODE_USE_INT8_QUANT"] = "1"
 
