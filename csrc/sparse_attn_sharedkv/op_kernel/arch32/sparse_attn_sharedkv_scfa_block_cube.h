@@ -26,7 +26,7 @@ namespace SASKernel {
 template <typename SAST>
 class SASCubeBlock {
 public:
-    // 中间计算数据类型为float, 高精度模式
+    // Use float as the intermediate type for high-precision computation.
     using T = float;
     using Q_T = typename SAST::queryType;
     using KV_T = typename SAST::kvType;
@@ -56,12 +56,12 @@ private:
     static constexpr SAS_LAYOUT LAYOUT_T = SAST::layout;
     static constexpr SAS_LAYOUT KV_LAYOUT_T = SAST::kvLayout;
 
-    static constexpr uint32_t M_SPLIT_SIZE = 128;     // m方向切分
-    static constexpr uint32_t N_SPLIT_SIZE = 128;     // n方向切分
-    static constexpr uint32_t K_L0_SPLIT_SIZE = 128;  // k方向L0切分
-    static constexpr uint32_t K_L1_SPLIT_SIZE = 256;  // k方向L1切分
-    static constexpr uint32_t N_WORKSPACE_SIZE = 512; // n方向切分
-    static constexpr uint32_t D_SPLIT_SIZE = 256; // d轴切分
+    static constexpr uint32_t M_SPLIT_SIZE = 128;     // M-axis tile size.
+    static constexpr uint32_t N_SPLIT_SIZE = 128;     // N-axis tile size.
+    static constexpr uint32_t K_L0_SPLIT_SIZE = 128;  // K-axis L0 tile size.
+    static constexpr uint32_t K_L1_SPLIT_SIZE = 256;  // K-axis L1 tile size.
+    static constexpr uint32_t N_WORKSPACE_SIZE = 512; // N-axis tile size.
+    static constexpr uint32_t D_SPLIT_SIZE = 256; // D-axis tile size.
 
 
     static constexpr uint32_t L1_BLOCK_SIZE = (64 * 512 * sizeof(Q_T));
@@ -72,7 +72,7 @@ private:
     static constexpr uint32_t L0C_PP_SIZE = (64 * 1024);
 
     // mte2 <> mte1 EventID
-    // L1 3buf, 使用3个eventId
+    // Use three L1 buffers and three event IDs.
     static constexpr uint32_t L1_EVENT0 = EVENT_ID2;
     static constexpr uint32_t L1_EVENT1 = EVENT_ID3;
     static constexpr uint32_t L1_EVENT2 = 4U;
@@ -86,12 +86,12 @@ private:
     static constexpr uint32_t L0AB_EVENT1 = 4U;
 
     static constexpr IsResetLoad3dConfig LOAD3DV2_CONFIG = {true, true};                    // isSetFMatrix isSetPadding
-    static constexpr uint32_t mte21QPIds[4] = {L1_EVENT0, L1_EVENT1, L1_EVENT2, L1_EVENT3}; // mte12复用
+    static constexpr uint32_t mte21QPIds[4] = {L1_EVENT0, L1_EVENT1, L1_EVENT2, L1_EVENT3}; // Reused for MTE1-MTE2 synchronization.
     static constexpr uint32_t mte21KVIds[3] = {L1_EVENT4, L1_EVENT5, L1_EVENT6};
 
     ConstInfo constInfo{};
 
-    // L1分成3块buf, 用于记录
+    // Split L1 into three buffers for tracking.
     uint32_t qpL1BufIter = 0;
     uint32_t kvL1BufIter = -1;
     uint32_t abL0BufIter = 0;
@@ -135,7 +135,7 @@ private:
 
     __aicore__ inline uint32_t GetQPL1RealIdx(uint32_t mIdx, uint32_t k1Idx)
     {
-        uint32_t idxMap[] = {0, 2}; // 确保0块和1块连在一起, 2和3块连在一起, 来保证同一m块的地址相连
+        uint32_t idxMap[] = {0, 2}; // Keep blocks 0 and 1 contiguous and blocks 2 and 3 contiguous so addresses for the same M block remain contiguous.
         return idxMap[mIdx % 2] + k1Idx;
     }
 
@@ -245,10 +245,10 @@ __aicore__ inline void SASCubeBlock<SAST>::CopyGmToL1(LocalTensor<KV_T> &l1Tenso
 {
     Nd2NzParams nd2nzPara;
     nd2nzPara.ndNum = 1;
-    nd2nzPara.nValue = srcN; // 行数
+    nd2nzPara.nValue = srcN; // Number of rows.
     nd2nzPara.dValue = srcD;
     nd2nzPara.srcDValue = srcDstride;
-    nd2nzPara.dstNzC0Stride = (srcN + 15) / 16 * 16; // 对齐到16 单位block
+    nd2nzPara.dstNzC0Stride = (srcN + 15) / 16 * 16; // Align to 16 blocks.
     nd2nzPara.dstNzNStride = 1;
     nd2nzPara.srcNdMatrixStride = 0;
     nd2nzPara.dstNzMatrixStride = 0;
@@ -277,7 +277,7 @@ __aicore__ inline void SASCubeBlock<SAST>::LoadDataMm1A(LocalTensor<KV_T> &aL0Te
     loadData3DParams.padList[0] = 0;
     loadData3DParams.padList[1] = 0;
     loadData3DParams.padList[2] = 0;
-    loadData3DParams.padList[3] = 255; // 尾部数据不影响滑窗的结果
+    loadData3DParams.padList[3] = 255; // Tail data does not affect the sliding-window result.
 
     // SetLoadToA0Params
     loadData3DParams.mExtension = mSize; // M
@@ -303,7 +303,7 @@ __aicore__ inline void SASCubeBlock<SAST>::LoadDataMm1B(LocalTensor<KV_T> &l0Ten
                                                         uint32_t idx, uint32_t kSplitSize, uint32_t kSize,
                                                         uint32_t nSize)
 {
-    // N 方向全载
+    // Load the full N dimension.
     LocalTensor<KV_T> srcTensor = l1Tensor[nSize * kSplitSize * idx];
 
     LoadData2DParams loadData2DParams;
@@ -347,10 +347,10 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm1(const RunInfo &info, const
     LocalTensor<KV_T> bL1Tensor;
     uint32_t ka = 0, kb = 0;
 
-    // L1 切n切k
+    // Tile N and K in L1.
     for (uint32_t nL1 = 0; nL1 < nL1Loops; nL1++) {
         if (nL1 == (nL1Loops - 1)) {
-            // 尾块重新计算size
+            // Recompute the size for the tail block.
             nL1Size = nSize - (nL1Loops - 1) * N_SPLIT_SIZE;
             nL1SizeAlign = SASAlign(nL1Size, 16);
         }
@@ -359,7 +359,7 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm1(const RunInfo &info, const
             kvL1BufIter++;
             uint32_t kb = kvL1BufIter % 3;
             WaitFlag<HardEvent::MTE1_MTE2>(mte21KVIds[kb]);
-            // 从k当中取当前的块
+            // Select the current block from K.
             bL1Tensor = l1KVTensor[kb * L1_BLOCK_OFFSET];
             uint32_t curSeqIdx = info.s2BatchOffset + nL1 * N_SPLIT_SIZE;
             if (info.isOri) {
@@ -370,7 +370,7 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm1(const RunInfo &info, const
                     uint32_t copyRowCnt = 0;
 
                     while (copyFinishRowCnt < nL1Size) {
-                        // 由于ori_left的存在， 即使第一块搬运也可能并非是pa_block的零点位
+                        // Because ori_left is nonzero, even the first copy may not start at offset zero of the PA block.
                         copyRowCnt = constInfo.paOriBlockSize - curS2Offset % constInfo.paOriBlockSize;
                         if (copyFinishRowCnt + copyRowCnt > nL1Size) {
                             copyRowCnt = nL1Size - copyFinishRowCnt;
@@ -390,17 +390,17 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm1(const RunInfo &info, const
                         startPos.bIdx = info.bIdx;
                         startPos.n2Idx = info.n2Idx;
                         startPos.s2Idx = curS2Offset;
-                        startPos.dIdx = kL1 * D_SPLIT_SIZE;  // mm1 右矩阵 bn2s2d, d为k轴不切; mm2 右矩阵, s2为k轴, d轴切分
+                        startPos.dIdx = kL1 * D_SPLIT_SIZE;  // For the MM1 right matrix bn2s2d, D is the untiled K axis; for the MM2 right matrix, S2 is the K axis and D is tiled.
                         DataCopyPA<KV_T>(kTensor, oriKvGm, oriBlockTableGm, shape, startPos);
 
-                        // 更新循环变量
+                        // Update loop variables.
                         copyFinishRowCnt += copyRowCnt;
                         curS2Offset += copyRowCnt;
                     }
                 } else if constexpr (KV_LAYOUT_T == SAS_LAYOUT::BSND) {
                     Nd2NzParams nd2nzPara;
                     nd2nzPara.ndNum = 1;
-                    nd2nzPara.nValue = nL1Size;      // 行数
+                    nd2nzPara.nValue = nL1Size;      // Number of rows.
                     nd2nzPara.dValue = D_SPLIT_SIZE; // 256
                     nd2nzPara.srcDValue = constInfo.headDim;
                     nd2nzPara.dstNzC0Stride = nL1SizeAlign;
@@ -481,7 +481,7 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm1(const RunInfo &info, const
             mL1Size = M_SPLIT_SIZE;
             mL1SizeAlign = SASAlign(M_SPLIT_SIZE, 16U);
             for (uint32_t mL1 = 0; mL1 < mL1Loops; mL1++) {
-                uint32_t aL1PaddingSize = 0; // 用于使左矩阵对齐到尾部, 以保证两块32K内存连续
+                uint32_t aL1PaddingSize = 0; // Pad the left matrix at the tail so the two 32-KB memory regions are contiguous.
                 if (mL1 == (mL1Loops - 1)) {
                     mL1Size = mSize - (mL1Loops - 1) * M_SPLIT_SIZE;
                     mL1SizeAlign = SASAlign(mL1Size, 16U);
@@ -503,10 +503,10 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm1(const RunInfo &info, const
                     SetFlag<HardEvent::MTE2_MTE1>(mte21QPIds[ka]);
                     WaitFlag<HardEvent::MTE2_MTE1>(mte21QPIds[ka]);
                 }
-                // 使用unitflag同步
+                // Synchronize with unitflag.
                 LocalTensor cL0Tensor =
                     cL0TensorPingPong[(cL0BufIter % 2) *
-                                      (L0C_PP_SIZE / sizeof(MM_OUT_T))]; // 需要保证cL0BufIter和m步调一致
+                                      (L0C_PP_SIZE / sizeof(MM_OUT_T))]; // Keep cL0BufIter synchronized with M.
                 for (uint32_t kL0 = 0; kL0 < kL0Loops; kL0++) {
                     WaitFlag<HardEvent::M_MTE1>(Mte1MmABEventId(abL0BufIter % 2));
                     LocalTensor<KV_T> aL0Tensor = aL0TensorPingPong[(abL0BufIter % 2) * (L0A_PP_SIZE / sizeof(KV_T))];
@@ -523,7 +523,7 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm1(const RunInfo &info, const
                     mmadParams.cmatrixInitVal = (kL1 == 0 && kL0 == 0);
                     mmadParams.cmatrixSource = false;
                     mmadParams.unitFlag =
-                        (kL1 == 1 && kL0 == (kL0Loops - 1)) ? 0b11 : 0b10; // 累加最后一次翻转flag, 表示可以搬出
+                        (kL1 == 1 && kL0 == (kL0Loops - 1)) ? 0b11 : 0b10; // Flip the flag on the final accumulation to indicate that data can be copied out.
                     Mmad(cL0Tensor, aL0Tensor, bL0Tensor, mmadParams);
                     if ((mmadParams.m / 16) * (mmadParams.n / 16) < 10) {
                         PipeBarrier<PIPE_M>();
@@ -533,18 +533,18 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm1(const RunInfo &info, const
                 }
 
                 if (nL1 == (nL1Loops - 1)) {
-                    SetFlag<HardEvent::MTE1_MTE2>(mte21QPIds[ka]); // 反向同步, 表示L1中的A已经被mte1消费完
+                    SetFlag<HardEvent::MTE1_MTE2>(mte21QPIds[ka]); // Reverse synchronization indicating that MTE1 has consumed A in L1.
                 }
 
-                if (kL1 == 1) { // 最后一轮kL1循环
+                if (kL1 == 1) { // Final kL1 iteration.
                     FixpipeParamsV220 fixParams;
                     fixParams.nSize = nL1SizeAlign;
                     fixParams.mSize = mL1SizeAlign;
                     fixParams.srcStride = mL1SizeAlign;
-                    // 改成nSizeAlign
-                    fixParams.dstStride = info.actualSingleProcessSInnerSizeAlign; // mm1ResGm两行之间的间隔
+                    // Use nSizeAlign.
+                    fixParams.dstStride = info.actualSingleProcessSInnerSizeAlign; // Stride between two rows of mm1ResGm.
                     fixParams.unitFlag = 0b11;
-                    fixParams.ndNum = 1; // 输出ND
+                    fixParams.ndNum = 1; // Output in ND format.
 
                     Fixpipe(mm1ResGm[(info.loop % (constInfo.preLoadNum)) * constInfo.mmResUbSize + nL1 * N_SPLIT_SIZE +
                                      (mSplitInfo.nBufferStartM + mL1 * M_SPLIT_SIZE) *
@@ -556,7 +556,7 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm1(const RunInfo &info, const
                 }
             }
 
-            SetFlag<HardEvent::MTE1_MTE2>(mte21KVIds[kb]); // 反向同步, 表示L1已经被mte1消费完
+            SetFlag<HardEvent::MTE1_MTE2>(mte21KVIds[kb]); // Reverse synchronization indicating that MTE1 has consumed L1.
         }
         if (mL1Loops == 1) {
             cL0BufIter++;
@@ -572,13 +572,13 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm2(const RunInfo &info, const
     uint32_t mSize = mSplitInfo.nBufferDealM;
     uint32_t mSizeAlign = (mSize + 16 - 1) / 16;
     uint32_t mL1Loops = (mSize + M_SPLIT_SIZE - 1) / M_SPLIT_SIZE;
-    uint32_t mL1SizeAlign = M_SPLIT_SIZE; // 16对齐
-    uint32_t mL1Size = M_SPLIT_SIZE;      // m的实际大小
+    uint32_t mL1SizeAlign = M_SPLIT_SIZE; // 16-element alignment.
+    uint32_t mL1Size = M_SPLIT_SIZE;      // Actual M size.
 
     uint32_t nSize = BlockAlign<KV_T>(constInfo.headDim);
     uint32_t nL1Loops = (nSize + N_SPLIT_SIZE - 1) / N_SPLIT_SIZE;
-    uint32_t nL1SizeAlign = N_SPLIT_SIZE; // 16对齐
-    uint32_t nL1Size = N_SPLIT_SIZE;      // n的实际大小
+    uint32_t nL1SizeAlign = N_SPLIT_SIZE; // 16-element alignment.
+    uint32_t nL1Size = N_SPLIT_SIZE;      // Actual N size.
 
     uint32_t kSize = info.actualSingleProcessSInnerSize;
     uint32_t kL1Size = 256;
@@ -590,23 +590,23 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm2(const RunInfo &info, const
     LocalTensor<KV_T> bL1Tensor;
     LocalTensor<KV_T> subvTensor;
 
-    // ka表示左矩阵4buf选择哪一块buf, kb表示右矩阵3buf选择哪一块buf
+    // ka selects one of four buffers for the left matrix; kb selects one of three buffers for the right matrix.
     uint32_t ka = 0, kb = 0;
     uint32_t mBaseIdx = qpL1BufIter;
-    for (uint32_t nL1 = 0; nL1 < nL1Loops; nL1++) { // n切L1 -> D
+    for (uint32_t nL1 = 0; nL1 < nL1Loops; nL1++) { // Tile N in L1, corresponding to D.
         if (nL1 == (nL1Loops - 1)) {
-            // 尾块
+            // Tail block.
             nL1Size = nSize - (nL1Loops - 1) * N_SPLIT_SIZE;
             nL1SizeAlign = SASAlign(nL1Size, 16U);
         }
-        // k l1写成一个循环, 和mm1保持一致
+        // Express K L1 processing as one loop to match MM1.
         kL1Size = 256;
         kL1SizeAlign = SASAlign(kL1Size, 16U);
         uint32_t copyRowCnt = 0;
 
-        for (uint32_t k1 = 0; k1 < kL1Loops; k1++) { // k切L1, 这里套了一层l0来操作 -> S2，每次256
+        for (uint32_t k1 = 0; k1 < kL1Loops; k1++) { // Tile K in L1 with an inner L0 loop for S2, processing 256 each time.
             if (k1 == (kL1Loops - 1)) {
-                // 尾块
+                // Tail block.
                 kL1Size = kSize - (kL1Loops - 1) * 256;
                 kL1SizeAlign = SASAlign(kL1Size, 16U);
             }
@@ -616,12 +616,12 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm2(const RunInfo &info, const
             bL1Tensor = l1KVTensor[kb * L1_BLOCK_OFFSET];
             uint32_t kOffset = k1 * kL0Loops;
             kL0Size = 128;
-            // 此处必须先初始化kL0Size, 再求kL0Loops, 否则由于循环会改变kL0Size大小, 导致kL0Loops错误
+            // Initialize kL0Size before computing kL0Loops; otherwise the loop modifies kL0Size and produces an incorrect kL0Loops.
             kL0Loops = (kL1Size + kL0Size - 1) / kL0Size;
             kL0SizeAlign = kL0Size;
-            for (uint32_t kL1 = kOffset; kL1 < kL0Loops + kOffset; kL1++) { // 128 循环搬pa，每次128
+            for (uint32_t kL1 = kOffset; kL1 < kL0Loops + kOffset; kL1++) { // Loop over PA in chunks of 128.
                 if (kL1 == kOffset + kL0Loops - 1) {
-                    // 尾块
+                    // Tail block.
                     kL0Size = kL1Size - (kL0Loops - 1) * kL0Size;
                     kL0SizeAlign = SASAlign(kL0Size, 16U);
                 }
@@ -640,7 +640,7 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm2(const RunInfo &info, const
                             startPos.bIdx = info.bIdx;
                             startPos.n2Idx = info.n2Idx;
                             startPos.s2Idx = curS2Offset;
-                            startPos.dIdx = nL1 * N_SPLIT_SIZE;  // mm1 右矩阵 bn2s2d, d为k轴不切; mm2 右矩阵, s2为k轴, d轴切分
+                            startPos.dIdx = nL1 * N_SPLIT_SIZE;  // For the MM1 right matrix bn2s2d, D is the untiled K axis; for the MM2 right matrix, S2 is the K axis and D is tiled.
                             PAShape shape;
                             shape.blockSize = constInfo.paOriBlockSize;
                             shape.headNum = constInfo.kvHeadNum;
@@ -654,14 +654,14 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm2(const RunInfo &info, const
 
                             DataCopyPA<KV_T>(subvTensor, oriKvGm, oriBlockTableGm, shape, startPos);
 
-                            // 更新循环变量
+                            // Update loop variables.
                             copyFinishRowCnt += copyRowCnt;
                             curS2Offset += copyRowCnt;
                         }
                     } else if constexpr (KV_LAYOUT_T == SAS_LAYOUT::BSND) {
                         Nd2NzParams nd2nzPara;
                         nd2nzPara.ndNum = 1;
-                        nd2nzPara.nValue = kL0Size;      // 行数
+                        nd2nzPara.nValue = kL0Size;      // Number of rows.
                         nd2nzPara.dValue = N_SPLIT_SIZE; // constInfo.headDim;
                         nd2nzPara.srcDValue = constInfo.headDim;
                         nd2nzPara.dstNzC0Stride = kL0SizeAlign;
@@ -681,7 +681,7 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm2(const RunInfo &info, const
                         uint32_t curS2Offset = info.s2Idx * constInfo.s2BaseSize + info.s2StartPoint;
                         Nd2NzParams nd2nzPara;
                         nd2nzPara.ndNum = 1;
-                        nd2nzPara.nValue = kL0Size;      // 行数
+                        nd2nzPara.nValue = kL0Size;      // Number of rows.
                         nd2nzPara.dValue = N_SPLIT_SIZE; // constInfo.headDim;
                         nd2nzPara.srcDValue = constInfo.headDim;
                         nd2nzPara.dstNzC0Stride = kL0SizeAlign;
@@ -695,7 +695,7 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm2(const RunInfo &info, const
                 } else {
                     Nd2NzParams nd2nzPara;
                     nd2nzPara.ndNum = 1;
-                    nd2nzPara.nValue = kL0Size;      // 行数
+                    nd2nzPara.nValue = kL0Size;      // Number of rows.
                     nd2nzPara.dValue = N_SPLIT_SIZE; // constInfo.headDim;
                     nd2nzPara.srcDValue = constInfo.headDim;
                     nd2nzPara.dstNzC0Stride = kL0SizeAlign;
@@ -711,10 +711,10 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm2(const RunInfo &info, const
             SetFlag<HardEvent::MTE2_MTE1>(mte21KVIds[kb]);
             WaitFlag<HardEvent::MTE2_MTE1>(mte21KVIds[kb]);
             mL1SizeAlign = M_SPLIT_SIZE;
-            mL1Size = M_SPLIT_SIZE; // m的实际大小
+            mL1Size = M_SPLIT_SIZE; // Actual M size.
             for (uint32_t mL1 = 0; mL1 < mL1Loops; mL1++) {
                 if (mL1 == (mL1Loops - 1)) {
-                    // 尾块
+                    // Tail block.
                     mL1Size = mSize - (mL1Loops - 1) * M_SPLIT_SIZE;
                     mL1SizeAlign = SASAlign(mL1Size, 16U);
                 }
@@ -732,7 +732,7 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm2(const RunInfo &info, const
 
                 LocalTensor cL0Tensor =
                     cL0TensorPingPong[(cL0BufIter % 2) *
-                                      (L0C_PP_SIZE / sizeof(MM_OUT_T))]; // 需要保证cL0BufIter和m步调一致
+                                      (L0C_PP_SIZE / sizeof(MM_OUT_T))]; // Keep cL0BufIter synchronized with M.
                 uint32_t baseK = 128;
                 uint32_t baseN = 128;
                 kL0Size = 128;
@@ -745,57 +745,57 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm2(const RunInfo &info, const
                     WaitFlag<HardEvent::M_MTE1>(Mte1MmABEventId(abL0BufIter % 2));
                     LocalTensor<KV_T> bL0Tensor = bL0TensorPingPong[(abL0BufIter % 2) * (L0B_PP_SIZE / sizeof(KV_T))];
                     LoadData3DParamsV2<KV_T> loadData3DParamsForB;
-                    loadData3DParamsForB.l1H = kL0SizeAlign / 16; // 源操作数height
-                    loadData3DParamsForB.l1W = 16;                // 源操作数weight=16，目的height=l1H*L1W
+                    loadData3DParamsForB.l1H = kL0SizeAlign / 16; // Source operand height.
+                    loadData3DParamsForB.l1W = 16;                // Source operand width = 16; destination height = l1H * l1W.
                     loadData3DParamsForB.padList[0] = 0;
                     loadData3DParamsForB.padList[1] = 0;
                     loadData3DParamsForB.padList[2] = 0;
-                    loadData3DParamsForB.padList[3] = 255; // 尾部数据不影响滑窗的结果
+                    loadData3DParamsForB.padList[3] = 255; // Tail data does not affect the sliding-window result.
 
-                    loadData3DParamsForB.mExtension = kL0SizeAlign; // 在目的操作数height维度的传输长度
-                    loadData3DParamsForB.kExtension = nL1SizeAlign; // 在目的操作数width维度的传输长度
-                    loadData3DParamsForB.mStartPt = 0;              // 卷积核在目的操作数width维度的起点
-                    loadData3DParamsForB.kStartPt = 0;              // 卷积核在目的操作数height维度的起点
+                    loadData3DParamsForB.mExtension = kL0SizeAlign; // Transfer length along the destination operand height dimension.
+                    loadData3DParamsForB.kExtension = nL1SizeAlign; // Transfer length along the destination operand width dimension.
+                    loadData3DParamsForB.mStartPt = 0;              // Kernel start point along the destination operand width dimension.
+                    loadData3DParamsForB.kStartPt = 0;              // Kernel start point along the destination operand height dimension.
                     loadData3DParamsForB.strideW = 1;
                     loadData3DParamsForB.strideH = 1;
                     loadData3DParamsForB.filterW = 1;
-                    loadData3DParamsForB.filterSizeW = false; // 是否在filterW的基础上将卷积核width增加256个元素
+                    loadData3DParamsForB.filterSizeW = false; // Whether to increase the kernel width by 256 elements relative to filterW.
                     loadData3DParamsForB.filterH = 1;
-                    loadData3DParamsForB.filterSizeH = false; // 是否在filterH的基础上将卷积核height增加256个元素
-                    loadData3DParamsForB.dilationFilterW = 1; // 卷积核width膨胀系数
-                    loadData3DParamsForB.dilationFilterH = 1; // 卷积核height膨胀系数
-                    loadData3DParamsForB.enTranspose = 1;     // 是否启用转置功能
+                    loadData3DParamsForB.filterSizeH = false; // Whether to increase the kernel height by 256 elements relative to filterH.
+                    loadData3DParamsForB.dilationFilterW = 1; // Kernel width dilation factor.
+                    loadData3DParamsForB.dilationFilterH = 1; // Kernel height dilation factor.
+                    loadData3DParamsForB.enTranspose = 1;     // Whether to enable transposition.
                     loadData3DParamsForB.fMatrixCtrl =
-                        0; // 使用FMATRIX_LEFT还是使用FMATRIX_RIGHT，=0使用FMATRIX_LEFT，=1使用FMATRIX_RIGHT 1
+                        0; // Select FMATRIX_LEFT or FMATRIX_RIGHT: 0 uses FMATRIX_LEFT and 1 uses FMATRIX_RIGHT.
                     loadData3DParamsForB.channelSize =
-                        nL1SizeAlign; // 源操作数的通道数。膨胀系数为1时，目的weight为filterW*filterH*channelSize
+                        nL1SizeAlign; // Source operand channel count. When dilation is 1, destination width is filterW * filterH * channelSize.
                     LoadData<KV_T, LOAD3DV2_CONFIG>(bL0Tensor, bL1Tensor[kL0 * baseK * baseN], loadData3DParamsForB);
 
                     LocalTensor<KV_T> aL0Tensor = aL0TensorPingPong[(abL0BufIter % 2) * (L0A_PP_SIZE / sizeof(KV_T))];
                     LoadData3DParamsV2<KV_T> loadData3DParamsForA;
-                    loadData3DParamsForA.l1H = mL1SizeAlign / 16; // 源操作数height
-                    loadData3DParamsForA.l1W = 16;                // 源操作数weight
+                    loadData3DParamsForA.l1H = mL1SizeAlign / 16; // Source operand height.
+                    loadData3DParamsForA.l1W = 16;                // Source operand width.
                     loadData3DParamsForA.padList[0] = 0;
                     loadData3DParamsForA.padList[1] = 0;
                     loadData3DParamsForA.padList[2] = 0;
-                    loadData3DParamsForA.padList[3] = 255; // 尾部数据不影响滑窗的结果
+                    loadData3DParamsForA.padList[3] = 255; // Tail data does not affect the sliding-window result.
 
-                    loadData3DParamsForA.mExtension = mL1SizeAlign; // 在目的操作数height维度的传输长度
-                    loadData3DParamsForA.kExtension = kL0SizeAlign; // 在目的操作数width维度的传输长度
-                    loadData3DParamsForA.mStartPt = 0;              // 卷积核在目的操作数width维度的起点
-                    loadData3DParamsForA.kStartPt = 0;              // 卷积核在目的操作数height维度的起点
-                    loadData3DParamsForA.strideW = 1;         // 卷积核在源操作数width维度滑动的步长
-                    loadData3DParamsForA.strideH = 1;         // 卷积核在源操作数height维度滑动的步长
-                    loadData3DParamsForA.filterW = 1;         // 卷积核width
-                    loadData3DParamsForA.filterSizeW = false; // 是否在filterW的基础上将卷积核width增加256个元素
-                    loadData3DParamsForA.filterH = 1;         // 卷积核height
-                    loadData3DParamsForA.filterSizeH = false; // 是否在filterH的基础上将卷积核height增加256个元素
-                    loadData3DParamsForA.dilationFilterW = 1; // 卷积核width膨胀系数
-                    loadData3DParamsForA.dilationFilterH = 1; // 卷积核height膨胀系数
-                    loadData3DParamsForA.enTranspose = 0; // 是否启用转置功能，对整个目标矩阵进行转置
+                    loadData3DParamsForA.mExtension = mL1SizeAlign; // Transfer length along the destination operand height dimension.
+                    loadData3DParamsForA.kExtension = kL0SizeAlign; // Transfer length along the destination operand width dimension.
+                    loadData3DParamsForA.mStartPt = 0;              // Kernel start point along the destination operand width dimension.
+                    loadData3DParamsForA.kStartPt = 0;              // Kernel start point along the destination operand height dimension.
+                    loadData3DParamsForA.strideW = 1;         // Kernel stride along the source operand width dimension.
+                    loadData3DParamsForA.strideH = 1;         // Kernel stride along the source operand height dimension.
+                    loadData3DParamsForA.filterW = 1;         // Kernel width.
+                    loadData3DParamsForA.filterSizeW = false; // Whether to increase the kernel width by 256 elements relative to filterW.
+                    loadData3DParamsForA.filterH = 1;         // Kernel height.
+                    loadData3DParamsForA.filterSizeH = false; // Whether to increase the kernel height by 256 elements relative to filterH.
+                    loadData3DParamsForA.dilationFilterW = 1; // Kernel width dilation factor.
+                    loadData3DParamsForA.dilationFilterH = 1; // Kernel height dilation factor.
+                    loadData3DParamsForA.enTranspose = 0; // Whether to transpose the entire destination matrix.
                     loadData3DParamsForA.fMatrixCtrl = 0;
                     loadData3DParamsForA.channelSize =
-                        kL0SizeAlign; // 源操作数的通道数。膨胀系数为1时，目的weight为filterW*filterH*channelSize
+                        kL0SizeAlign; // Source operand channel count. When dilation is 1, destination width is filterW * filterH * channelSize.
                     LoadData<KV_T, LOAD3DV2_CONFIG>(aL0Tensor, aL1Tensor[kL0 * baseK * mL1SizeAlign],
                                                     loadData3DParamsForA);
                     SetFlag<HardEvent::MTE1_M>(Mte1MmABEventId(abL0BufIter % 2));
@@ -817,8 +817,8 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm2(const RunInfo &info, const
                     abL0BufIter++;
                 }
 
-                if (nL1 == (nL1Loops - 1)) { // nL1最后一轮, 需要将B驻留在L1中, 用于下一轮的计算？
-                    SetFlag<HardEvent::MTE1_MTE2>(mte21QPIds[ka]); // 反向同步, 表示L1中的A已经被mte1消费完
+                if (nL1 == (nL1Loops - 1)) { // On the final nL1 iteration, keep B resident in L1 for the next computation.
+                    SetFlag<HardEvent::MTE1_MTE2>(mte21QPIds[ka]); // Reverse synchronization indicating that MTE1 has consumed A in L1.
                 }
 
                 if (k1 == (kL1Loops - 1)) {
@@ -827,8 +827,8 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm2(const RunInfo &info, const
                     fixParams.nSize = nL1SizeAlign;
                     fixParams.mSize = mL1SizeAlign;
                     fixParams.srcStride = mL1SizeAlign;
-                    fixParams.dstStride = nSize; // mm2ResGm两行之间的间隔
-                    fixParams.ndNum = 1;         // 输出ND
+                    fixParams.dstStride = nSize; // Stride between two rows of mm2ResGm.
+                    fixParams.ndNum = 1;         // Output in ND format.
                     fixParams.unitFlag = 0b11;
 
                     uint64_t mm2Offset = (mSplitInfo.nBufferStartM + mL1 * M_SPLIT_SIZE) * nSize + nL1 * N_SPLIT_SIZE;
@@ -840,9 +840,9 @@ __aicore__ inline void SASCubeBlock<SAST>::ComputeMm2(const RunInfo &info, const
                     cL0BufIter++;
                 }
             }
-            SetFlag<HardEvent::MTE1_MTE2>(mte21KVIds[kb]); // 反向同步, 表示L1已经被mte1消费完
+            SetFlag<HardEvent::MTE1_MTE2>(mte21KVIds[kb]); // Reverse synchronization indicating that MTE1 has consumed L1.
         }
-        // cL0BufIter已经不在使用
+        // cL0BufIter is no longer used.
         if (mL1Loops == 1) {
             cL0BufIter++;
         }

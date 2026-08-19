@@ -87,8 +87,7 @@ std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv(
     TORCH_CHECK(sinks->scalar_type() == at::kFloat, "sparse_attn_sharedkv: sinks must be float32");
     TORCH_CHECK(metadata->scalar_type() == at::kInt && metadata->numel() == 1024,
                 "sparse_attn_sharedkv: metadata must be int32 with 1024 elements");
-    // Match vllm-ascend's public binding: page strides are implementation
-    // details derived from the KV tensors, not arguments exposed to Python.
+
     const int64_t oriKvStride = ori_kv->stride(0);
     const int64_t cmpKvStride = cmp_kv.has_value() ? cmp_kv->stride(0) : 0;
     int64_t qHeads = layout_q == "BSND" ? q.size(2) : q.size(1);

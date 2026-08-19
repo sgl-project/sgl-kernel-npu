@@ -31,7 +31,7 @@
 
 namespace optiling {
 namespace ge_helper = sglang::ge_helper;
-// ------------------公共定义--------------------------
+// ------------------Common definitions--------------------------
 struct SASTilingRequiredParaInfo {
     const gert::CompileTimeTensorDesc *desc;
     const gert::StorageShape *shape;
@@ -53,7 +53,7 @@ enum class SASAxis : uint32_t {
     S = 1,
     N = 2,
     D = 3,
-    K = 3,  // sparse_indices的K和key的D枚举值相同，表达相同位置, 最后一维
+    K = 3,  // sparse_indices K and key D use the same enum value for the same final-dimension position.
     T = 5,
     Bn = 6, // block number
     Bs = 7 // block size
@@ -71,7 +71,7 @@ enum class KvStorageMode : uint32_t {
     PAGE_ATTENTION = 2
 };
 
-// ------------------算子原型索引常量定义----------------
+// ------------------Operator prototype index constants----------------
 // Inputs Index
 constexpr uint32_t Q_INDEX = 0;
 constexpr uint32_t ORI_KV_INDEX = 1;
@@ -115,7 +115,7 @@ constexpr uint32_t DIM_NUM_TWO = 2;
 constexpr uint32_t DIM_NUM_THREE = 3;
 constexpr uint32_t DIM_NUM_FOUR = 4;
 
-// 常量
+// Constants.
 constexpr uint32_t MAX_BLOCK_SIZE = 1024;
 constexpr uint32_t COPYND2NZ_SRC_STRIDE_LIMITATION = 65535;
 constexpr uint32_t NUM_BYTES_FLOAT = 4;
@@ -123,7 +123,7 @@ constexpr uint32_t NUM_BYTES_FLOAT16 = 2;
 constexpr uint32_t NUM_BYTES_BF16 = 2;
 constexpr uint32_t BYTE_BLOCK = 32;
 
-// 入参限制常量
+// Input constraint constants.
 constexpr uint32_t HEAD_DIM_LIMIT = 128;
 constexpr uint32_t SPARSE_LIMIT = 2048;
 constexpr uint32_t SPARSE_MODE_LOWER = 3;
@@ -165,7 +165,7 @@ struct SASParaInfo {
 static std::string SASDataTypeToSerialString(ge::DataType type);
 std::string SASLayoutToSerialString(SASLayout layout);
 
-// -----------算子Tiling入参信息类---------------
+// -----------Operator tiling input information class---------------
 class SASTilingInfo {
 public:
     const char *opName = nullptr;
@@ -182,7 +182,7 @@ public:
     uint32_t qHeadDim = 0;
     uint32_t oriKvHeadDim = 0;
     uint32_t cmpKvHeadDim = 0;
-    uint32_t qTSize = 0; // 仅TND时生效
+    uint32_t qTSize = 0; // Effective only for TND.
 
     uint32_t actualLenDimsQ = 0;
     uint32_t maxActualseq = 0;
@@ -236,7 +236,7 @@ public:
     SASTemplateMode perfMode = SASTemplateMode::SWA_TEMPLATE_MODE;
 };
 
-// -----------算子Tiling入参信息解析及Check类---------------
+// -----------Operator tiling input parser and checker class---------------
 class SASTilingCheck {
 public:
     explicit SASTilingCheck(const SASTilingInfo &sasInfo) : sasInfo_(sasInfo) {};
@@ -329,8 +329,8 @@ private:
     uint32_t oriKvHeadDim_ = 0;
     uint32_t cmpKvHeadDim_ = 0;
 
-    uint32_t qTSize_ = 0; // 仅TND时生效
-    uint32_t kvTSize_ = 0; // 仅TND时生效
+    uint32_t qTSize_ = 0; // Effective only for TND.
+    uint32_t kvTSize_ = 0; // Effective only for TND.
     int64_t cmpRatio_ = 1;
     KvStorageMode kvStorageMode_ = KvStorageMode::BATCH_CONTINUOUS;
     uint32_t sparseBlockCount_ = 0;
@@ -492,7 +492,7 @@ public:
     gert::Shape cmpSparseIndicesShape_{};
 };
 
-// ---------------算子Tiling类---------------
+// ---------------Operator tiling class---------------
 class SparseAttnSharedkvTiling {
 public:
     explicit SparseAttnSharedkvTiling(ge_helper::TilingContext *context) : context_(context){};
@@ -515,7 +515,7 @@ private:
     size_t mmResUbSize_ = 0;
     size_t bmm2ResUbSize_ = 0;
     uint32_t sInnerLoopTimes_ = 0;
-    uint32_t sInnerSize_ = 512; // s2固定切分512
+    uint32_t sInnerSize_ = 512; // Fixed S2 tile size of 512.
     uint32_t sInnerSizeAlign_ = 0;
     uint32_t usedCoreNum_ = 0;
 

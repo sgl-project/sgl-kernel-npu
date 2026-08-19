@@ -17,8 +17,7 @@
 
 #include <stdexcept>
 
-constexpr ge::DataType SCALAR_TYPE_TO_GE_DATATYPE(at::ScalarType scalarType)
-{
+constexpr ge::DataType SCALAR_TYPE_TO_GE_DATATYPE(at::ScalarType scalarType) {
     switch (scalarType) {
         case at::ScalarType::Float:
             return ge::DT_FLOAT;
@@ -51,8 +50,7 @@ constexpr ge::DataType SCALAR_TYPE_TO_GE_DATATYPE(at::ScalarType scalarType)
     }
 }
 
-constexpr uint32_t GE_DATATYPE_TO_KEY(ge::DataType geDatatype)
-{
+constexpr uint32_t GE_DATATYPE_TO_KEY(ge::DataType geDatatype) {
     switch (geDatatype) {
         case ge::DT_FLOAT:
             return 0;
@@ -103,8 +101,7 @@ constexpr size_t DIM3 = 3;
 constexpr size_t DIM4 = 4;
 constexpr int64_t MAX_TILING_CACHE_ENTRIES = 512;
 
-inline bool IsNpuGraphCapturing()
-{
+inline bool IsNpuGraphCapturing() {
     aclmdlRICaptureStatus captureStatus = ACL_MODEL_RI_CAPTURE_STATUS_NONE;
     aclmdlRI model = nullptr;
     auto stream = c10_npu::getCurrentNPUStream().stream(false);
@@ -114,19 +111,11 @@ inline bool IsNpuGraphCapturing()
 }
 
 template <typename T>
-class TilingTensorCache
-{
+class TilingTensorCache {
     static_assert(std::is_trivially_copyable_v<T>, "TilingData must be trivially copyable");
 
-    struct DeviceCache {
-        at::Tensor buffer;
-        std::unordered_map<std::string, int64_t> slots;
-        int64_t nextSlot = 0;
-    };
-
 public:
-    static at::Tensor Get(const T &tilingData, const std::string &opName)
-    {
+    static at::Tensor Get(const T &tilingData, const std::string &opName) {
         static std::mutex cacheMutex;
         static std::unordered_map<int64_t, DeviceCache> deviceCaches;
 
@@ -150,7 +139,7 @@ public:
                         ": the current tiling configuration is not cached and the 512-entry cache is full; "
                         "NPU graph capture cannot use a one-shot tiling address");
             auto tilingTensor = at::empty({tilingSize}, at::TensorOptions().device(device).dtype(at::kByte));
-            CopyTo(tilingTensor, tilingData, opName);
+            CopyTo_(tilingTensor, tilingData, opName);
             return tilingTensor;
         }
 
@@ -158,8 +147,7 @@ public:
             TORCH_CHECK(!isCapturing, opName,
                         ": run one eager warmup with the same configuration before NPU graph capture to initialize "
                         "the tiling cache");
-            cache.buffer =
-                at::empty({tilingSize * MAX_TILING_CACHE_ENTRIES}, at::TensorOptions().device(device).dtype(at::kByte));
+            cache.buffer = at::empty({tilingSize * MAX_TILING_CACHE_ENTRIES}, at::TensorOptions().device(device).dtype(at::kByte));
         } else {
             TORCH_CHECK(!isCapturing, opName,
                         ": the current tiling configuration is not cached; run one eager warmup with the same tensor "
@@ -168,62 +156,58 @@ public:
 
         const int64_t slot = cache.nextSlot;
         auto cachedTiling = cache.buffer.narrow(0, slot * tilingSize, tilingSize);
-        CopyTo(cachedTiling, tilingData, opName);
+        CopyTo_(cachedTiling, tilingData, opName);
         cache.slots.emplace(std::move(key), slot);
         cache.nextSlot++;
         return cachedTiling;
     }
 
 private:
-    static void CopyTo(const at::Tensor &destination, const T &tilingData, const std::string &opName)
-    {
+    static void CopyTo_(const at::Tensor &destination, const T &tilingData, const std::string &opName) {
         auto status = aclrtMemcpy(destination.data_ptr(), sizeof(T), &tilingData, sizeof(T), ACL_MEMCPY_HOST_TO_DEVICE);
         TORCH_CHECK(status == ACL_ERROR_NONE, opName, ": failed to copy tiling data, acl error ", status);
     }
+    struct DeviceCache {
+        at::Tensor buffer;
+        std::unordered_map<std::string, int64_t> slots;
+        int64_t nextSlot = 0;
+    };
 };
 
-class InputDef
-{
+class InputDef {
 public:
-    InputDef &ParamType(ParamTypeCls type)
-    {
+    InputDef &ParamType(ParamTypeCls type) {
         paramType_ = type;
         return *this;
     }
 
-    InputDef &DataType(const std::vector<ge::DataType> &types)
-    {
+    InputDef &DataType(const std::vector<ge::DataType> &types) {
         dataTypes_ = types;
         return *this;
     }
 
-    InputDef &DataTypeList(const std::vector<ge::DataType> &types)
-    {
+    InputDef &DataTypeList(const std::vector<ge::DataType> &types) {
         useDataTypeList_ = true;
         dataTypes_ = types;
         return *this;
     }
 
-    InputDef &Format(const std::vector<ge::Format> &formats)
-    {
+    InputDef &Format(const std::vector<ge::Format> &formats) {
         formats_ = formats;
         return *this;
     }
-    InputDef &FormatList(const std::vector<ge::Format> &formats)
-    {
+    InputDef &FormatList(const std::vector<ge::Format> &formats) {
         useFormatList_ = true;
         formats_ = formats;
         return *this;
     }
 
-    InputDef &AutoContiguous()
-    {
+    InputDef &AutoContiguous() {
         autoContiguous_ = true;
         return *this;
     }
 
-    const ge::DataType GetDataType(uint32_t index) const
-    {
+    const ge::DataType GetDataType(uint32_t index) const {
         if (useDataTypeList_) {
             return dataTypes_[0];
         }
@@ -231,13 +215,11 @@ public:
         return dataTypes_[index];
     }
 
-    const std::vector<ge::DataType> &GetDataTypes() const
-    {
+    const std::vector<ge::DataType> &GetDataTypes() const {
         return dataTypes_;
     }
 
-    const ge::Format GetFormat(uint32_t index) const
-    {
+    const ge::Format GetFormat(uint32_t index) const {
         if (useFormatList_) {
             return formats_[0];
         }
@@ -254,74 +236,59 @@ private:
     bool useDataTypeList_ = false;
 };
 
-class AttrDef
-{
+class AttrDef {
 public:
-    AttrDef &AttrType(AttrTypeCls type)
-    {
+    AttrDef &AttrType(AttrTypeCls type) {
         attrType_ = type;
         return *this;
     }
 
-    AttrDef &String(const std::string &value)
-    {
-        TORCH_CHECK(valueInitialized_ == false,
-                    "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
+    AttrDef &String(const std::string &value) {
+        TORCH_CHECK(valueInitialized_ == false, "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
         anyValue_ = value;
         valueInitialized_ = true;
         isString_ = true;
         return *this;
     }
 
-    AttrDef &Int(int value)
-    {
-        TORCH_CHECK(valueInitialized_ == false,
-                    "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
+    AttrDef &Int(int value) {
+        TORCH_CHECK(valueInitialized_ == false, "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
         anyValue_ = value;
         valueInitialized_ = true;
         return *this;
     }
 
-    AttrDef &Float(float value)
-    {
-        TORCH_CHECK(valueInitialized_ == false,
-                    "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
+    AttrDef &Float(float value) {
+        TORCH_CHECK(valueInitialized_ == false, "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
         anyValue_ = value;
         valueInitialized_ = true;
         return *this;
     }
 
-    AttrDef &Bool(bool value)
-    {
-        TORCH_CHECK(valueInitialized_ == false,
-                    "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
+    AttrDef &Bool(bool value) {
+        TORCH_CHECK(valueInitialized_ == false, "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
         anyValue_ = value;
         valueInitialized_ = true;
         return *this;
     }
 
-    const std::any GetValue() const
-    {
+    const std::any GetValue() const {
         return anyValue_;
     }
 
-    const std::string GetString() const
-    {
+    const std::string GetString() const {
         return strValue_;
     }
 
-    bool IsString()
-    {
+    bool IsString() {
         return isString_;
     }
 
-    void SetAny(std::any value)
-    {
+    void SetAny(std::any value) {
         anyValue_ = value;
     }
 
-    void SetStr(std::string str)
-    {
+    void SetStr(std::string str) {
         strValue_ = str;
     }
 
@@ -333,29 +300,24 @@ private:
     bool valueInitialized_ = false;
 };
 
-class RuntimeAttrs
-{
+class RuntimeAttrs {
 public:
     RuntimeAttrs() = default;
 
-    void AddStr(const std::string &value)
-    {
+    void AddStr(const std::string &value) {
         strValues_.push_back(value);
     }
 
-    void AddAny(const std::any &value)
-    {
+    void AddAny(const std::any &value) {
         anyValues_.push_back(value);
     }
 
-    const char *GetStr(const size_t index) const
-    {
+    const char *GetStr(const size_t index) const {
         return strValues_[index].c_str();
     }
 
     template <typename T>
-    const T *GetAttrPointer(size_t index)
-    {
+    const T *GetAttrPointer(size_t index) {
         std::any &anyValue = anyValues_[index];
         TORCH_CHECK(anyValue.type() == typeid(T), "[GE_Helper] Invalid attribute type.");
         return &std::any_cast<const T &>(anyValue);
@@ -366,13 +328,11 @@ private:
     std::vector<std::any> anyValues_;
 };
 
-class TilingContext
-{
+class TilingContext {
 public:
     TilingContext(const std::string &nodeName) : nodeName_(nodeName) {}
 
-    void RegisterTensor(const c10::optional<at::Tensor> &tensor, bool isInput)
-    {
+    void RegisterTensor(const c10::optional<at::Tensor> &tensor, bool isInput) {
         // convert to gert::Tensor and add to inputTensor_
         // get shape and convert to gert::StorageShape, then add to inputShape_
         std::vector<gert::StorageShape> *shapePtr;
@@ -416,97 +376,79 @@ public:
         tensorPtr->push_back(geTensor);
     }
 
-    const gert::CompileTimeTensorDesc *GetInputDesc(uint32_t index) const
-    {
+    const gert::CompileTimeTensorDesc *GetInputDesc(uint32_t index) const {
         return inputDesc_[index].get();
     }
 
-    const gert::StorageShape *GetInputShape(uint32_t index) const
-    {
+    const gert::StorageShape *GetInputShape(uint32_t index) const {
         return &inputShape_[index];
     }
 
-    const gert::Tensor *GetInputTensor(uint32_t index) const
-    {
+    const gert::Tensor *GetInputTensor(uint32_t index) const {
         return inputTensor_[index].get();
     }
 
-    const gert::CompileTimeTensorDesc *GetOptionalInputDesc(uint32_t index) const
-    {
+    const gert::CompileTimeTensorDesc *GetOptionalInputDesc(uint32_t index) const {
         return inputTensor_[index] == nullptr ? nullptr : inputDesc_[index].get();
     }
 
-    const gert::StorageShape *GetOptionalInputShape(uint32_t index) const
-    {
+    const gert::StorageShape *GetOptionalInputShape(uint32_t index) const {
         return &inputShape_[index];
     }
 
-    const gert::Tensor *GetOptionalInputTensor(uint32_t index) const
-    {
+    const gert::Tensor *GetOptionalInputTensor(uint32_t index) const {
         return inputTensor_[index].get();
     }
 
-    const gert::CompileTimeTensorDesc *GetOutputDesc(uint32_t index) const
-    {
+    const gert::CompileTimeTensorDesc *GetOutputDesc(uint32_t index) const {
         return outputDesc_[index].get();
     }
 
-    const gert::StorageShape *GetOutputShape(uint32_t index) const
-    {
+    const gert::StorageShape *GetOutputShape(uint32_t index) const {
         return &outputShape_[index];
     }
 
-    const gert::Tensor *GetOutputTensor(uint32_t index) const
-    {
+    const gert::Tensor *GetOutputTensor(uint32_t index) const {
         return outputTensor_[index].get();
     }
 
-    const char *GetNodeName() const
-    {
+    const char *GetNodeName() const {
         return nodeName_.c_str();
     }
 
-    const std::shared_ptr<RuntimeAttrs> &GetAttrs() const
-    {
+    const std::shared_ptr<RuntimeAttrs> &GetAttrs() const {
         return runtimeAttrs_;
     }
 
-    void AddInputDesc(std::shared_ptr<gert::CompileTimeTensorDesc> desc)
-    {
+    void AddInputDesc(std::shared_ptr<gert::CompileTimeTensorDesc> desc) {
         inputDesc_.push_back(desc);
     }
 
-    void AddOutputDesc(std::shared_ptr<gert::CompileTimeTensorDesc> desc)
-    {
+    void AddOutputDesc(std::shared_ptr<gert::CompileTimeTensorDesc> desc) {
         outputDesc_.push_back(desc);
     }
 
-    void SetAttrs(std::shared_ptr<RuntimeAttrs> runtimeAttrs)
-    {
+    void SetAttrs(std::shared_ptr<RuntimeAttrs> runtimeAttrs) {
         runtimeAttrs_ = runtimeAttrs;
     }
 
-    void SetWorkspaceSizes(size_t userSize)
-    {
+    void SetWorkspaceSizes(size_t userSize) {
         auto platformAscendC = platform_ascendc::PlatformAscendCManager::GetInstance();
         systemWorkSpaceSize_ = static_cast<size_t>(platformAscendC->GetLibApiWorkSpaceSize());
         userWorkSpaceSize_ = userSize;
     }
 
-    size_t *GetWorkspaceSizes(uint32_t index)
-    {
+    size_t *GetWorkspaceSizes(uint32_t index) {
         return workSpaceSize_[index];
     }
 
     // Must be called after SetWorkspaceSizes()
-    size_t GetWorkspaceSize()
-    {
+    size_t GetWorkspaceSize() {
         return systemWorkSpaceSize_ + userWorkSpaceSize_;
     }
 
     template <typename T>
-    at::Tensor GetTilingTensor(const T &tilingData) const
-    {
+    at::Tensor GetTilingTensor(const T &tilingData) const {
         return TilingTensorCache<T>::Get(tilingData, nodeName_);
     }
 
@@ -536,32 +478,27 @@ private:
 };
 
 // TODO: Do automatic registry template class at compile time
-class OpDef
-{
+class OpDef {
 public:
     using OutputDef = InputDef;
     explicit OpDef(const std::string &name) : opName_(name) {}
 
-    InputDef &Input(const std::string &name)
-    {
+    InputDef &Input(const std::string &name) {
         inputs_.emplace_back(name, InputDef());
         return inputs_.back().second;
     }
 
-    AttrDef &Attr(const std::string &name)
-    {
+    AttrDef &Attr(const std::string &name) {
         attrs_.emplace_back(name, AttrDef());
         return attrs_.back().second;
     }
 
-    InputDef &Output(const std::string &name)
-    {
+    InputDef &Output(const std::string &name) {
         outputs_.emplace_back(name, OutputDef());
         return outputs_.back().second;
     }
 
-    void SetAttrStr(const std::string attrName, std::string strVal)
-    {
+    void SetAttrStr(const std::string attrName, std::string strVal) {
         for (auto &pair : attrs_) {
             if (pair.first == attrName) {
                 pair.second.SetStr(strVal);
@@ -571,8 +508,7 @@ public:
         throw std::runtime_error("[GE_Helper] SetAttrStr failed, attrName not exists");
     }
 
-    void SetAttrAny(const std::string attrName, std::any anyVal)
-    {
+    void SetAttrAny(const std::string attrName, std::any anyVal) {
         for (auto &pair : attrs_) {
             if (pair.first == attrName) {
                 pair.second.SetAny(anyVal);
@@ -582,15 +518,13 @@ public:
         throw std::runtime_error("[GE_Helper] SetAttrAny failed, attrName not exists");
     }
 
-    void SetToContext(std::shared_ptr<TilingContext> &context, at::ScalarType &scalarType)
-    {
+    void SetToContext(std::shared_ptr<TilingContext> &context, at::ScalarType &scalarType) {
         auto geType = SCALAR_TYPE_TO_GE_DATATYPE(scalarType);
         TORCH_CHECK(!inputs_.empty(), "[GE_Helper] SetToContext: Check the op definition file");
 
         const auto &firstParamTypes = inputs_[0].second.GetDataTypes();
         auto it = std::find(firstParamTypes.begin(), firstParamTypes.end(), geType);
-        TORCH_CHECK(it != firstParamTypes.end(),
-                    "[GE_Helper] SetToContext: Invalid input type, please check the op definition file");
+        TORCH_CHECK(it != firstParamTypes.end(), "[GE_Helper] SetToContext: Invalid input type, please check the op definition file");
         uint32_t index = std::distance(firstParamTypes.begin(), it);
 
         for (auto &input : inputs_) {
@@ -620,8 +554,7 @@ public:
         context->SetAttrs(runtimeAttrs);
     }
 
-    const AttrDef GetAttr(uint32_t index) const
-    {
+    const AttrDef GetAttr(uint32_t index) const {
         return attrs_[index].second;
     }
 
@@ -632,10 +565,8 @@ private:
     std::vector<std::pair<std::string, AttrDef>> attrs_;
 };
 
-inline gert::StorageShape CreateStorageShape(const std::vector<int64_t> origin, const std::vector<int64_t> storage)
-{
-    TORCH_CHECK(origin.size() <= 4 && origin.size() == storage.size(),
-                "[GE_Helper] CreateStorageShape: Unsupported vector size");
+inline gert::StorageShape CreateStorageShape(const std::vector<int64_t> origin, const std::vector<int64_t> storage) {
+    TORCH_CHECK(origin.size() <= 4 && origin.size() == storage.size(), "[GE_Helper] CreateStorageShape: Unsupported vector size");
     switch (origin.size()) {
         case DIM0:
             return gert::StorageShape({}, {});
@@ -646,8 +577,7 @@ inline gert::StorageShape CreateStorageShape(const std::vector<int64_t> origin, 
         case DIM3:
             return gert::StorageShape({origin[0], origin[1], origin[2]}, {storage[0], storage[1], storage[2]});
         case DIM4:
-            return gert::StorageShape({origin[0], origin[1], origin[2], origin[3]},
-                                      {storage[0], storage[1], storage[2], storage[3]});
+            return gert::StorageShape({origin[0], origin[1], origin[2], origin[3]}, {storage[0], storage[1], storage[2], storage[3]});
     }
     return gert::StorageShape({}, {});
 }

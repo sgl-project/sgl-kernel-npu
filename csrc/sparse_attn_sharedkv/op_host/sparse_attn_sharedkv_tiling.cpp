@@ -138,7 +138,7 @@ static std::string SASDataTypeToSerialString(ge::DataType type)
     }
 }
 
-// --------------------------SASInfoParser类成员函数定义-------------------------------------
+// --------------------------SASInfoParser member function definitions-------------------------------------
 ge::graphStatus SASInfoParser::CheckRequiredInOutExistence() const
 {
     OP_CHECK_IF(opParamInfo_.q.shape == nullptr, OP_LOGE(opName_, "Shape of tensor q is nullptr"),
@@ -331,7 +331,7 @@ ge::graphStatus SASInfoParser::GetSASTemplateMode(SASTilingInfo &sasInfo)
 
 ge::graphStatus SASInfoParser::GetQueryAndOutLayout()
 {
-    // 获取q和attnOut的Layout基准值
+    // Get the base layout values of q and attnOut.
     // layoutQuery: {qLayout, outLayout}
     const map<string, pair<SASLayout, SASLayout>> layoutMap = {
         {"BSND",        {SASLayout::BSND, SASLayout::BSND}},
@@ -508,9 +508,9 @@ ge::graphStatus SASInfoParser::GetActualSeqLenQSize(uint32_t &size)
 
 ge::graphStatus SASInfoParser::GetBatchSize()
 {
-    // 获取B基准值
-    // 1、非TND时, 以query的batch_size维度为基准;
-    // 2、TND时, actual_seq_lens_q必须传入, 以actual_seq_lens_q数组的长度为B轴大小
+    // Get the base B value.
+    // 1. For non-TND layouts, use the query batch_size dimension.
+    // 2. For TND, actual_seq_lens_q is required; its array length determines the B-axis size.
     if (qLayout_ == SASLayout::TND) {
         return GetActualSeqLenQSize(bSize_);
     } else { // BSND
@@ -521,29 +521,30 @@ ge::graphStatus SASInfoParser::GetBatchSize()
 
 ge::graphStatus SASInfoParser::GetQTSize()
 {
-    // 获取query的T基准值
-    // 1、非TND时, 以query的batch_size维度为基准;
-    // 2、TND时, actual_seq_lens_q必须传入, 以actual_seq_lens_q数组的长度为B轴大小
+    // Get the base query T value.
+    // 1. For non-TND layouts, use the query batch_size dimension.
+    // 2. For TND, actual_seq_lens_q is required; its array length determines the B-axis size.
     qTSize_ = (qLayout_ == SASLayout::TND) ? GetAxisNum(qShape_, SASAxis::T, qLayout_) : 0;
     return ge::GRAPH_SUCCESS;
 }
 
 ge::graphStatus SASInfoParser::GetKVTSize()
 {
-    // 获取KV的T基准值
-    // 1、非TND时, 以KV的batch_size维度为基准;
-    // 2、TND时, actual_seq_lens_ori_kv和actual_seq_lens_cmp_kv必须传入, 以actual_seq_lens_ori_kv数组的长度为B轴大小(当前接口只传入oriseq，先以oriseq算出cmpseq)
+    // Get the base KV T value.
+    // 1. For non-TND layouts, use the KV batch_size dimension.
+    // 2. For TND, actual_seq_lens_ori_kv and actual_seq_lens_cmp_kv are required. The length of
+    // actual_seq_lens_ori_kv determines the B-axis size. The current API provides only oriSeq, so derive cmpSeq from it.
     orikvTSize_ = (kvLayout_ == SASLayout::TND) ? GetAxisNum(oriKvShape_, SASAxis::T, kvLayout_) : 0;
-    // 入参接口信息可以从GetOptionalInputParaInfo()函数中获取
+    // Input interface information is available from GetOptionalInputParaInfo().
     // cmpkvTSize_ = (kvLayout_ == SASLayout::TND) ? GetAxisNum(cmpKvShape_, SASAxis::T, kvLayout_) : 0;
     return ge::GRAPH_SUCCESS;
 }
 
 ge::graphStatus SASInfoParser::GetS1Size()
 {
-    // 获取S1基准值
-    // 1、非TND时, 以query的S维度为基准;
-    // 2、TND时, actual_seq_lens_q必须传入, 以actual_seq_lens_q数组中的最大值为基准
+    // Get the base S1 value.
+    // 1. For non-TND layouts, use the query S dimension.
+    // 2. For TND, actual_seq_lens_q is required; use the maximum value in the array.
     if (qLayout_ == SASLayout::TND) {
         s1Size_ = GetAxisNum(qShape_, SASAxis::T, qLayout_);
     } else { // BSND
@@ -653,16 +654,16 @@ ge::graphStatus SASInfoParser::GetS2SizeForTND()
     //     OP_LOGE(opName_, "the layout_kv is %s, sequsedKv must be provided.", SASLayoutToSerialString(kvLayout_).c_str());
     //     return ge::GRAPH_FAILED;
     // }
-    // 这里返回累加和的最大值
+    // Return the maximum cumulative length.
     s2Size_ = GetAxisNum(oriKvShape_, SASAxis::T, qLayout_);
     return ge::GRAPH_SUCCESS;
 }
 
 ge::graphStatus SASInfoParser::GetS2Size()
 {
-    // 获取S2基准值:PAGE_ATTENTION时, S2 = block_table.dim1 * block_size
-    // 1、PAGE_ATTENTION时, S2 = block_table.dim1 * block_size
-    // 2、BSND时, S2直接获取
+    // Get the base S2 value: for PAGE_ATTENTION, S2 = block_table.dim1 * block_size.
+    // 1. For PAGE_ATTENTION, S2 = block_table.dim1 * block_size.
+    // 2. For BSND, obtain S2 directly.
     if (kvLayout_ == SASLayout::BSND) {
         if (opParamInfo_.oriKv.tensor != nullptr) {
             s2Size_ = GetAxisNum(oriKvShape_, SASAxis::S, kvLayout_);
@@ -1182,7 +1183,7 @@ ge::graphStatus SASTilingCheck::CheckSingleParaCmpSparseIndices() const
 ge::graphStatus SASTilingCheck::CheckSingleParaOriBlockTable() const
 {
     if (kvLayout_ == SASLayout::BSND) {
-        return ge::GRAPH_SUCCESS; // BSND 场景不需要使用oriBlockTable
+        return ge::GRAPH_SUCCESS; // oriBlockTable is not needed for BSND.
     }
     if(kvLayout_ == SASLayout::TND) {
         return ge::GRAPH_SUCCESS;
@@ -1207,7 +1208,7 @@ ge::graphStatus SASTilingCheck::CheckSingleParaOriBlockTable() const
 ge::graphStatus SASTilingCheck::CheckSingleParaCmpBlockTable() const
 {
     if (kvLayout_ == SASLayout::BSND) {
-        return ge::GRAPH_SUCCESS; // BSND 场景不需要使用oriBlockTable
+        return ge::GRAPH_SUCCESS; // oriBlockTable is not needed for BSND.
     }
     if (kvLayout_ == SASLayout::TND) {
         return ge::GRAPH_SUCCESS;
@@ -1614,13 +1615,13 @@ void SparseAttnSharedkvTiling::CalcUbBmm(SASTilingInfo *tilingInfo)
     if (cubeMSize > maxMSize) {
         cubeMSize = maxMSize;
     }
-    mmResUbSize_ = sInnerSizeAlign_ * Align(cubeMSize, 16U);// kernel按照16对齐写出，tiling按照这个原则分配内存
-    bmm2ResUbSize_ = headDimAlign_ * Align(cubeMSize, 16U);// kernel按照16对齐写出，tiling按照这个原则分配内存
+    mmResUbSize_ = sInnerSizeAlign_ * Align(cubeMSize, 16U);// The kernel writes with 16-element alignment; tiling allocates memory accordingly.
+    bmm2ResUbSize_ = headDimAlign_ * Align(cubeMSize, 16U);// The kernel writes with 16-element alignment; tiling allocates memory accordingly.
 }
 
 void SparseAttnSharedkvTiling::SplitBalanced(SASTilingInfo *tilingInfo)
 {
-    sInnerSizeAlign_ = Align(sInnerSize_, BYTE_BLOCK); // 元素个数按照基本块大小对齐
+    sInnerSizeAlign_ = Align(sInnerSize_, BYTE_BLOCK); // Align the element count to the basic block size.
     mBaseSize_ = tilingInfo->gSize;
     headDimAlign_ = Align(tilingInfo->qHeadDim, BYTE_BLOCK);
     CalcUbBmm(tilingInfo);
@@ -1631,7 +1632,7 @@ void SparseAttnSharedkvTiling::SplitBalanced(SASTilingInfo *tilingInfo)
     tilingData_.baseParams.bmm2ResUbSize = bmm2ResUbSize_;
 }
 
-// --------------------------SparseAttnSharedkvTiling类成员函数定义-----------------------
+// --------------------------SparseAttnSharedkvTiling member function definitions-----------------------
 ge::graphStatus SparseAttnSharedkvTiling::DoOpTiling(SASTilingInfo *tilingInfo)
 {
     // -------------set blockdim-----------------
@@ -1648,17 +1649,17 @@ ge::graphStatus SparseAttnSharedkvTiling::DoOpTiling(SASTilingInfo *tilingInfo)
     constexpr uint32_t VEC1_RES_ELEM_SIZE = 2;        // 2: fp16/bf16
     constexpr uint32_t MM2_RES_ELEM_SIZE = 4;         // 4: fp32
     constexpr uint32_t VEC2_RES_ELEM_SIZE = 4;        // 4: fp32
-    constexpr uint32_t PRELOAD_NUM = 2;               // preload数量
+    constexpr uint32_t PRELOAD_NUM = 2;               // Number of preload stages.
 
     uint64_t workspaceSize = 0;
-    // 主流程需Workspace大小
+    // Workspace size required by the main pipeline.
     workspaceSize += PRELOAD_NUM * mmResUbSize_ * MM1_RES_ELEM_SIZE * aicNum;
     workspaceSize += PRELOAD_NUM * mmResUbSize_ * VEC1_RES_ELEM_SIZE * aicNum;
     workspaceSize += PRELOAD_NUM * bmm2ResUbSize_ * MM2_RES_ELEM_SIZE * aicNum;
     workspaceSize += PRELOAD_NUM * bmm2ResUbSize_ * VEC2_RES_ELEM_SIZE * aicNum;
     if (tilingInfo->perfMode == SASTemplateMode::SCFA_TEMPLATE_MODE) {
         workspaceSize += 4 * 512 * 512 * 2 * aicNum; // 4:bufNum 512:s2Size  512:D 2:sizeof(half)
-        workspaceSize += 4 * 128 * 4 * (2 * aicNum); // 4:缓存有效mte2 size长度 128:份数 4:512B对齐长度 2:aiv数量
+        workspaceSize += 4 * 128 * 4 * (2 * aicNum); // 4: cached valid MTE2-size length; 128: partitions; 4: 512-B alignment units; 2: AIV count.
     }
     workspaceSize_ = workspaceSize;
     context_->SetWorkspaceSizes(static_cast<size_t>(workspaceSize_));

@@ -29,7 +29,7 @@ using AscendC::CrossCoreWaitFlag;
 template <typename SAST>
 class SWAVectorBlock {
 public:
-    // 中间计算数据类型为float，高精度模式
+    // Use float as the intermediate type for high-precision computation.
     using T = float;
     using KV_T = typename SAST::kvType;
     using OUT_T = typename SAST::outputType;
@@ -88,13 +88,13 @@ public:
                                              uint32_t dealRowCount, uint32_t columnCount, uint32_t actualColumnCount);
     __aicore__ inline uint64_t CalcAccumOffset(uint32_t bN2Idx, uint32_t gS1Idx);
 
-    // BLOCK和REPEAT的字节数
+    // BLOCK and REPEAT sizes in bytes.
     static constexpr uint64_t BYTE_BLOCK = 32UL;
     static constexpr uint32_t REPEAT_BLOCK_BYTE = 256U;
-    // BLOCK和REPEAT的FP32元素数
+    // Number of FP32 elements in a BLOCK and REPEAT.
     static constexpr uint32_t FP32_BLOCK_ELEMENT_NUM = BYTE_BLOCK / sizeof(float);
     static constexpr uint32_t FP32_REPEAT_ELEMENT_NUM = REPEAT_BLOCK_BYTE / sizeof(float);
-    // repeat stride不能超过256
+    // The repeat stride cannot exceed 256.
     static constexpr uint32_t REPEATE_STRIDE_UP_BOUND = 256;
 
 private:
@@ -144,7 +144,7 @@ private:
     GlobalTensor<int32_t> cmpBlockTableGm_;
     GlobalTensor<T> softmaxLseGm;
 
-    // ================================Local Buffer区====================================
+    // ================================Local Buffer area====================================
     TBuf<> inputBuff1;  // 32K
     TBuf<> inputBuff2;  // 16K
     TBuf<> outputBuff1; // 32K
@@ -193,7 +193,7 @@ __aicore__ inline void SWAVectorBlock<SAST>::InitBuffers(TPipe *pipe)
     pipe->InitBuffer(softmaxSumDefaultBuff, ConstInfo::BUFFER_SIZE_BYTE_1K);
 
     pipe->InitBuffer(sinksBuff, MAX_N1_SIZE * sizeof(SINKS_T));
-    // 分配256+N1大小内存，其中256是m轴VEC最大切块
+    // Allocate 256 + N1 elements; 256 is the maximum VEC tile on the M axis.
     pipe->InitBuffer(sinksBrcbBuff, MAX_N1_SIZE * sizeof(SINKS_T) * BLOCK_ELEMENT_NUM * 3U);
 
     softmaxMaxUb = softmaxMaxBuff.Get<T>();
@@ -276,12 +276,12 @@ __aicore__ inline void SWAVectorBlock<SAST>::CopySinksIn()
     DataCopyPad(sinksUb, sinksGm, dataCopyParams, padParams);
     SetFlag<AscendC::HardEvent::MTE2_V>(SYNC_SINKS_BUF_FLAG);
     WaitFlag<AscendC::HardEvent::MTE2_V>(SYNC_SINKS_BUF_FLAG);
-    uint32_t repeatTimes = (constInfo.qHeadNum + BLOCK_ELEMENT_NUM - 1U) / BLOCK_ELEMENT_NUM; // 每次处理 8 datablocks
+    uint32_t repeatTimes = (constInfo.qHeadNum + BLOCK_ELEMENT_NUM - 1U) / BLOCK_ELEMENT_NUM; // Process 8 data blocks per iteration.
     Brcb(sinksBrcbUb, sinksUb, repeatTimes, {1, BLOCK_ELEMENT_NUM});
     PipeBarrier<PIPE_V>();
 
     DataCopyParams repeatParams;
-    repeatParams.blockCount = 1; // 搬到有一个块超过单个vec核减分核M轴大小即可，核间切分每个vec256
+    repeatParams.blockCount = 1; // Copy until one block exceeds the per-VEC-core M-axis partition size; each inter-core VEC partition is 256.
     repeatParams.blockLen = constInfo.qHeadNum;
     repeatParams.srcStride = 0U;
     repeatParams.dstStride = 0U;
@@ -294,7 +294,7 @@ __aicore__ inline void SWAVectorBlock<SAST>::CopySinksIn()
 template <typename SAST>
 __aicore__ inline void SWAVectorBlock<SAST>::SliceAndContactSinksValue(uint32_t nIdx, uint32_t dealRowCount)
 {
-    // 由于WholeReduceMax接口中repeatTimes支持范围（0,255），因此需要分多次调用WholeReduceMax，这里就使用每次repeatTime=128
+    // WholeReduceMax supports repeatTimes in (0, 255), so invoke it multiple times with repeatTime = 128.
     uint32_t repeatTimesOnce = 128;
     uint32_t loopTimes = (dealRowCount + repeatTimesOnce - 1) / repeatTimesOnce;
     uint32_t repeatTimes = repeatTimesOnce;
@@ -369,12 +369,12 @@ __aicore__ inline void SWAVectorBlock<SAST>::ProcessLse(const RunInfo &info, con
     uint64_t lseOffset;
     if (constInfo.outputLayout == SAS_LAYOUT::TND) {
         uint32_t tBase = actualSeqLengthsQGm.GetValue(info.bIdx);
-        lseOffset = (tBase + info.s1Idx) * constInfo.gSize  + // T轴、s1轴偏移
-                                    info.n2IdxReal * constInfo.qSeqSize * constInfo.gSize; // N2轴偏移
+        lseOffset = (tBase + info.s1Idx) * constInfo.gSize  + // T-axis and S1-axis offset.
+                                    info.n2IdxReal * constInfo.qSeqSize * constInfo.gSize; // N2-axis offset.
     } else if (constInfo.outputLayout == SAS_LAYOUT::BSND) {
-        lseOffset = info.bIdx * constInfo.qSeqSize * constInfo.kvHeadNum * constInfo.gSize  + // B轴偏移
-                    info.n2IdxReal  * constInfo.qSeqSize * constInfo.gSize + // N2轴偏移
-                    info.s1Idx * constInfo.gSize; // S1轴偏移
+        lseOffset = info.bIdx * constInfo.qSeqSize * constInfo.kvHeadNum * constInfo.gSize  + // B-axis offset.
+                    info.n2IdxReal  * constInfo.qSeqSize * constInfo.gSize + // N2-axis offset.
+                    info.s1Idx * constInfo.gSize; // S1-axis offset.
     }
     lseOffset = lseOffset + mSplitInfo.nBufferStartM + mSplitInfo.vecStartM;
     uint32_t baseOffset = mSplitInfo.nBufferStartM / 2;
@@ -448,8 +448,8 @@ __aicore__ inline void SWAVectorBlock<SAST>::ProcessVec1SingleBuf(const RunInfo 
     uint32_t mSplitSize = info.actualSingleProcessSInnerSize == 0 ?
                               16 :
                               BASE_BLOCK_MAX_ELEMENT_NUM / info.actualSingleProcessSInnerSizeAlign;
-    // 1. 向下8对齐是因为UB操作至少32B
-    // 2. info.actualSingleProcessSInnerSizeAlign最大512, mSplitSize可以确保最小为16
+    // 1. Align down to 8 because UB operations require at least 32 bytes.
+    // 2. info.actualSingleProcessSInnerSizeAlign is at most 512, and mSplitSize guarantees a minimum of 16.
     mSplitSize = mSplitSize / 8 * 8;
 
     if (mSplitSize > mSplitInfo.vecDealM) {
@@ -466,7 +466,7 @@ __aicore__ inline void SWAVectorBlock<SAST>::ProcessVec1SingleBuf(const RunInfo 
             dealSize = tailSplitSize;
         }
         DealBmm1ResBaseBlock(info, mSplitInfo, i * mSplitSize, dealSize, info.actualSingleProcessSInnerSizeAlign, i);
-        pingpongFlag ^= 1; // pingpong 0 1切换
+        pingpongFlag ^= 1; // Toggle ping-pong buffers 0 and 1.
     }
 }
 
@@ -561,7 +561,7 @@ __aicore__ inline void SWAVectorBlock<SAST>::ProcessVec2Inner(const RunInfo &inf
         }
         DealBmm2ResBaseBlock(info, mSplitInfo, i * mSplitSize + mStartRow, dealSize, constInfo.headDim,
                              constInfo.headDim);
-        pingpongFlag ^= 1; // pingpong 0 1切换
+        pingpongFlag ^= 1; // Toggle ping-pong buffers 0 and 1.
     }
 }
 
@@ -578,8 +578,8 @@ __aicore__ inline void SWAVectorBlock<SAST>::Bmm2FDDataCopyOut(const RunInfo &in
     uint64_t accumTmpOutNum = CalcAccumOffset(info.bIdx, info.gS1Idx);
     uint64_t offset =
         accumTmpOutNum * constInfo.kvHeadNum * constInfo.mBaseSize * constInfo.headDim +              // taskoffset
-        info.tndCoreStartKVSplitPos * constInfo.kvHeadNum * constInfo.mBaseSize * constInfo.headDim + // 份数offset
-        wsMStart * actualColumnCount;                                                                 // m轴offset
+        info.tndCoreStartKVSplitPos * constInfo.kvHeadNum * constInfo.mBaseSize * constInfo.headDim + // Partition offset.
+        wsMStart * actualColumnCount;                                                                 // M-axis offset.
     GlobalTensor<T> dst = accumOutGm[offset];
     if (info.actualSingleProcessSInnerSize == 0) {
         DataCopyExtParams dataCopyParams;
@@ -615,7 +615,7 @@ __aicore__ inline void SWAVectorBlock<SAST>::Bmm2CastAndCopyOut(const RunInfo &i
 {
     LocalTensor<OUT_T> tmpBmm2ResCastTensor = outputBuff1.Get<OUT_T>();
     WaitFlag<AscendC::HardEvent::MTE3_V>(SYNC_OUTPUT_BUF1_FLAG);
-    if constexpr (IsSameType<OUT_T, bfloat16_t>::value) { // bf16 采取四舍六入五成双模式
+    if constexpr (IsSameType<OUT_T, bfloat16_t>::value) { // Use round-to-nearest-even for BF16.
         Cast(tmpBmm2ResCastTensor, bmm2ResUb, AscendC::RoundMode::CAST_RINT, dealRowCount * columnCount);
     } else {
         Cast(tmpBmm2ResCastTensor, bmm2ResUb, AscendC::RoundMode::CAST_ROUND, dealRowCount * columnCount);
@@ -667,7 +667,7 @@ __aicore__ inline void SWAVectorBlock<SAST>::DealBmm2ResBaseBlock(const RunInfo 
     uint32_t inOutBaseOffset = mStart * columnCount;
     uint32_t baseOffset = mSplitInfo.nBufferStartM / 2 + startRow;
 
-    // 除第一个循环外，均需要更新中间计算结果
+    // Update intermediate results in every loop except the first.
     if (!info.isFirstSInnerLoop) {
         event_t eventIdMte2WaitMte3 = static_cast<event_t>(GetTPipePtr()->FetchEventID(HardEvent::MTE3_MTE2));
         SetFlag<HardEvent::MTE3_MTE2>(eventIdMte2WaitMte3);
@@ -683,7 +683,7 @@ __aicore__ inline void SWAVectorBlock<SAST>::DealBmm2ResBaseBlock(const RunInfo 
         WaitFlag<AscendC::HardEvent::MTE2_V>(SYNC_INPUT_BUF2_FLAG);
 
         uint32_t idx = info.loop % (constInfo.preLoadNum);
-        LocalTensor<T> expUb = v0ValidSizeBuff.Get<T>()[384]; // sumUb用临时内存 16 * 32B  = 512B
+        LocalTensor<T> expUb = v0ValidSizeBuff.Get<T>()[384]; // sumUb uses 16 * 32 B = 512 B of temporary memory.
         Brcb(expUb, softmaxExpUb[idx * SOFTMAX_TMP_BUFFER_OFFSET / sizeof(T) + baseOffset], (dealRowCount + 7) / 8,
              {1, 8});
         PipeBarrier<PIPE_V>();
@@ -696,10 +696,10 @@ __aicore__ inline void SWAVectorBlock<SAST>::DealBmm2ResBaseBlock(const RunInfo 
         SetFlag<AscendC::HardEvent::V_MTE2>(SYNC_INPUT_BUF2_FLAG);
     }
 
-    // 最后一次输出计算结果，否则将中间结果暂存至workspace
+    // Write the result on the final iteration; otherwise store the intermediate result in workspace.
     if (info.isLastS2Loop) {
         uint32_t idx = info.loop % (constInfo.preLoadNum);
-        LocalTensor<T> tmpSumUb = v0ValidSizeBuff.Get<T>()[384]; // sumUb用临时内存 16 * 32B  = 512B
+        LocalTensor<T> tmpSumUb = v0ValidSizeBuff.Get<T>()[384]; // sumUb uses 16 * 32 B = 512 B of temporary memory.
         Brcb(tmpSumUb, softmaxSumUb[idx * SOFTMAX_TMP_BUFFER_OFFSET / sizeof(T) + baseOffset], (dealRowCount + 7) / 8,
              {1, 8});
         PipeBarrier<PIPE_V>();
@@ -723,7 +723,7 @@ __aicore__ inline void SWAVectorBlock<SAST>::RowDivs(LocalTensor<float> dstUb, L
                                                      LocalTensor<float> src1Ub, uint32_t dealRowCount,
                                                      uint32_t columnCount, uint32_t actualColumnCount)
 {
-    // divs by row, 每行的元素除以相同的元素
+    // divs by row, Divide every element in a row by the same value.
     // dstUb[i, (j * 8) : (j * 8 + 7)] = src0Ub[i, (j * 8) : (j * 8 + 7)] / src1Ub[i, 0 : 7]
     // src0Ub:[dealRowCount, columnCount], src1Ub:[dealRowCount, FP32_BLOCK_ELEMENT_NUM] dstUb:[dealRowCount,
     // columnCount]
@@ -750,9 +750,9 @@ __aicore__ inline void SWAVectorBlock<SAST>::RowDivs(LocalTensor<float> dstUb, L
         columnRepeatParams.src0BlkStride = 1;
         columnRepeatParams.src1BlkStride = 0;
         columnRepeatParams.dstBlkStride = 1;
-        columnRepeatParams.src0RepStride = 8; // 列方向上两次repeat起始地址间隔dtypeMask=64个元素，即8个block
+        columnRepeatParams.src0RepStride = 8; // The start-address interval between repeats along columns is dtypeMask = 64 elements, or 8 blocks.
         columnRepeatParams.src1RepStride = 0;
-        columnRepeatParams.dstRepStride = 8; // 列方向上两次repeat起始地址间隔dtypeMask=64个元素，即8个block
+        columnRepeatParams.dstRepStride = 8; // The start-address interval between repeats along columns is dtypeMask = 64 elements, or 8 blocks.
         uint32_t offset = 0;
         for (uint32_t i = 0; i < dealRowCount; i++) {
             Div(dstUb[offset], src0Ub[offset], src1Ub[i * FP32_BLOCK_ELEMENT_NUM], dtypeMask, columnRepeatCount,
@@ -770,7 +770,7 @@ __aicore__ inline void SWAVectorBlock<SAST>::RowMuls(LocalTensor<T> dstUb, Local
                                                      uint32_t dealRowCount, uint32_t columnCount,
                                                      uint32_t actualColumnCount)
 {
-    // muls by row, 每行的元素乘以相同的元素
+    // muls by row, Multiply every element in a row by the same value.
     // dstUb[i, (j * 8) : (j * 8 + 7)] = src0Ub[i, (j * 8) : (j * 8 + 7)] * src1Ub[i, 0 : 7]
     // src0Ub:[dealRowCount, columnCount] src1Ub:[dealRowCount, FP32_BLOCK_ELEMENT_NUM] dstUb:[dealRowCount,
     // columnCount]
@@ -779,16 +779,16 @@ __aicore__ inline void SWAVectorBlock<SAST>::RowMuls(LocalTensor<T> dstUb, Local
     uint32_t blockElementNum = FP32_BLOCK_ELEMENT_NUM;
 
     if constexpr (std::is_same<T, half>::value) {
-        // 此限制由于每个repeat至多连续读取256B数据
+        // This limit exists because each repeat can read at most 256 contiguous bytes.
         repeatElementNum = FP32_REPEAT_ELEMENT_NUM * 2; // 256/4 * 2=128
         blockElementNum = FP32_BLOCK_ELEMENT_NUM * 2;   // 32/4 * 2 = 16
     }
 
-    // 每次只能连续读取256B的数据进行计算，故每次只能处理256B/sizeof(dType)=
-    // 列方向分dLoop次，每次处理8列数据
+    // Each iteration can read only 256 contiguous bytes, so it processes 256 B / sizeof(dType) =
+    // Split the column direction into dLoop iterations and process 8 columns each time.
     uint32_t dLoop = actualColumnCount / repeatElementNum;
     uint32_t dRemain = actualColumnCount % repeatElementNum;
-    // REPEATE_STRIDE_UP_BOUND=256， 此限制由于src0RepStride数据类型为uint8之多256个datablock间距
+    // REPEATE_STRIDE_UP_BOUND = 256 because uint8 src0RepStride can represent at most a 256-data-block interval.
     if (columnCount < REPEATE_STRIDE_UP_BOUND * blockElementNum) {
         BinaryRepeatParams repeatParams;
         repeatParams.src0BlkStride = 1;
@@ -798,7 +798,7 @@ __aicore__ inline void SWAVectorBlock<SAST>::RowMuls(LocalTensor<T> dstUb, Local
         repeatParams.src1RepStride = 1;
         repeatParams.dstRepStride = columnCount / blockElementNum;
 
-        // 如果以列为repeat所处理的次数小于行处理次数，则以列方式处理。反之则以行进行repeat处理
+        // Use column-wise repeats when their count is smaller than the row-wise count; otherwise use row-wise repeats.
         if (dLoop <= dealRowCount) {
             uint32_t offset = 0;
             for (uint32_t i = 0; i < dLoop; i++) {
@@ -810,34 +810,34 @@ __aicore__ inline void SWAVectorBlock<SAST>::RowMuls(LocalTensor<T> dstUb, Local
             columnRepeatParams.src0BlkStride = 1;
             columnRepeatParams.src1BlkStride = 0;
             columnRepeatParams.dstBlkStride = 1;
-            columnRepeatParams.src0RepStride = 8; // 列方向上两次repeat起始地址间隔dtypeMask=64个元素，即8个block
+            columnRepeatParams.src0RepStride = 8; // The start-address interval between repeats along columns is dtypeMask = 64 elements, or 8 blocks.
             columnRepeatParams.src1RepStride = 0;
-            columnRepeatParams.dstRepStride = 8; // 列方向上两次repeat起始地址间隔dtypeMask=64个元素，即8个block
+            columnRepeatParams.dstRepStride = 8; // The start-address interval between repeats along columns is dtypeMask = 64 elements, or 8 blocks.
             for (uint32_t i = 0; i < dealRowCount; i++) {
                 Mul(dstUb[i * columnCount], src0Ub[i * columnCount], src1Ub[i * blockElementNum], repeatElementNum,
                     dLoop, columnRepeatParams);
             }
         }
 
-        // 最后一次完成[dealRowCount, dRemain] * [dealRowCount, blockElementNum] 只计算有效部分
+        // On the final iteration, compute only the valid part of [dealRowCount, dRemain] * [dealRowCount, blockElementNum].
         if (dRemain > 0) {
             Mul(dstUb[dLoop * repeatElementNum], src0Ub[dLoop * repeatElementNum], src1Ub, dRemain, dealRowCount,
                 repeatParams);
         }
     } else {
         BinaryRepeatParams repeatParams;
-        repeatParams.src0RepStride = 8; // 每个repeat为256B数据，正好8个datablock
+        repeatParams.src0RepStride = 8; // Each repeat processes 256 B, exactly 8 data blocks.
         repeatParams.src0BlkStride = 1;
         repeatParams.src1RepStride = 0;
         repeatParams.src1BlkStride = 0;
         repeatParams.dstRepStride = 8;
         repeatParams.dstBlkStride = 1;
-        // 每次计算一行，共计算dealRowCount行
+        // Compute one row per iteration for a total of dealRowCount rows.
         for (uint32_t i = 0; i < dealRowCount; i++) {
-            // 计算一行中的dLoop个repeat, 每个repeat计算256/block_size 个data_block
+            // Compute dLoop repeats per row; each repeat handles 256 / block_size data blocks.
             Mul(dstUb[i * columnCount], src0Ub[i * columnCount], src1Ub[i * blockElementNum], repeatElementNum, dLoop,
                 repeatParams);
-            //  计算一行中的尾块
+            //  Compute the tail block of a row.
             if (dRemain > 0) {
                 Mul(dstUb[i * columnCount + dLoop * repeatElementNum],
                     src0Ub[i * columnCount + dLoop * repeatElementNum], src1Ub[i * blockElementNum], dRemain, 1,

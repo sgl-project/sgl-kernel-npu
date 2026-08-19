@@ -28,7 +28,7 @@
 namespace SASKernel {
 using namespace AscendC;
 using optiling::SparseAttnSharedkvTilingData;
-// 将isCheckTiling设置为false, 输入输出的max&sum&exp的shape为(m, 1)
+// Set isCheckTiling to false; the input/output max, sum, and exp shapes are (m, 1).
 constexpr SoftmaxConfig SAS_SOFTMAX_FLASHV2_CFG_WITHOUT_BRC = {false, 0, 0, SoftmaxMode::SOFTMAX_OUTPUT_WITHOUT_BRC};
 
 enum class SAS_RUN_MODE {
@@ -94,12 +94,12 @@ __aicore__ inline size_t BlockAlign(size_t s)
 
 struct PAShape {
     uint32_t blockSize;
-    uint32_t headNum;             // 一般为kv的head num，对应n2
-    uint32_t headDim;             // 512 对应d
+    uint32_t headNum;             // Usually the KV head count, corresponding to N2.
+    uint32_t headDim;             // 512 corresponds to D.
     uint32_t kvStride;
-    uint32_t maxblockNumPerBatch; // block table 每一行的最大个数
-    uint32_t actHeadDim;          // 实际拷贝col大小,考虑到N切块   s*d, 对应d
-    uint32_t copyRowNum;          // 总共要拷贝的行数
+    uint32_t maxblockNumPerBatch; // Maximum number of entries in each block-table row.
+    uint32_t actHeadDim;          // Actual copied column size accounting for N tiling; s*d, corresponding to D.
+    uint32_t copyRowNum;          // Total number of rows to copy.
     uint32_t copyRowNumAlign;
 };
 
@@ -111,10 +111,10 @@ struct Position {
     uint32_t s1Idx;
 };
 
-// 场景：query、key、value GM to L1
-// GM按ND格式存储
-// L1按NZ格式存储
-// GM的行、列、列的stride
+// Scenario: copy query, key, and value from GM to L1.
+// GM is stored in ND format.
+// L1 is stored in NZ format.
+// GM row count, column count, and column stride.
 template <typename T>
 __aicore__ inline void DataCopyGmNDToL1(LocalTensor<T> &l1Tensor, GlobalTensor<T> &gmTensor, uint32_t rowAct,
                                         uint32_t rowAlign,
@@ -123,10 +123,10 @@ __aicore__ inline void DataCopyGmNDToL1(LocalTensor<T> &l1Tensor, GlobalTensor<T
 {
     Nd2NzParams nd2nzPara;
     nd2nzPara.ndNum = 1;
-    nd2nzPara.nValue = rowAct; // nd矩阵的行数
-    // T为int4场景下，dValue = col / 2，srcDValue = colStride / 2
-    nd2nzPara.dValue = col;          // nd矩阵的列数
-    nd2nzPara.srcDValue = colStride; // 同一nd矩阵相邻行起始地址间的偏移
+    nd2nzPara.nValue = rowAct; // Number of rows in the ND matrix.
+    // For int4 T, dValue = col / 2 and srcDValue = colStride / 2.
+    nd2nzPara.dValue = col;          // Number of columns in the ND matrix.
+    nd2nzPara.srcDValue = colStride; // Offset between the start addresses of adjacent rows in the same ND matrix.
     nd2nzPara.dstNzC0Stride = rowAlign;
     nd2nzPara.dstNzNStride = 1;
     nd2nzPara.srcNdMatrixStride = 0;
@@ -135,10 +135,11 @@ __aicore__ inline void DataCopyGmNDToL1(LocalTensor<T> &l1Tensor, GlobalTensor<T
 }
 
 /*
-    适用PA数据从GM拷贝到L1，支持ND、NZ数据；
-    PA的layout分 BNBD（blockNum,N,blockSize,D） BBH（blockNum,blockSize,N*D
-    BSH\BSND\TND 为BBH
-    shape.copyRowNumAlign 需要16字节对齐，如拷贝k矩阵，一次拷贝128*512，遇到尾块 10*512 需对齐到16*512
+    Copies PA data from GM to L1 and supports ND and NZ data.
+    PA layouts include BNBD (blockNum, N, blockSize, D) and BBH (blockNum, blockSize, N*D).
+    BSH, BSND, and TND use BBH.
+    shape.copyRowNumAlign must be 16-byte aligned. For example, when copying a 128*512 K matrix,
+    a 10*512 tail block must be aligned to 16*512.
 */
 template <typename T>
 __aicore__ inline void DataCopyPA(LocalTensor<T> &dstTensor,  //l1
@@ -152,16 +153,16 @@ __aicore__ inline void DataCopyPA(LocalTensor<T> &dstTensor,  //l1
     uint32_t curS2Idx = startPos.s2Idx;
     uint32_t blockElementCnt = 32 / sizeof(T);
     while (copyFinishRowCnt < shape.copyRowNum) {
-        uint64_t blockIdOffset = curS2Idx / shape.blockSize; // 获取block table上的索引
-        uint64_t reaminRowCnt = curS2Idx % shape.blockSize;  // 获取在单个块上超出的行数
+        uint64_t blockIdOffset = curS2Idx / shape.blockSize; // Get the index in the block table.
+        uint64_t reaminRowCnt = curS2Idx % shape.blockSize;  // Get the row offset within a block.
         uint64_t idInBlockTable =
-            blockTableGm.GetValue(blockTableBaseOffset + blockIdOffset); // 从block table上的获取编号
-        uint32_t copyRowCnt = shape.blockSize - reaminRowCnt;            // 一次只能处理一个Block
+            blockTableGm.GetValue(blockTableBaseOffset + blockIdOffset); // Get the block ID from the block table.
+        uint32_t copyRowCnt = shape.blockSize - reaminRowCnt;            // Process only one block at a time.
         if (copyFinishRowCnt + copyRowCnt > shape.copyRowNum) {
-            copyRowCnt = shape.copyRowNum - copyFinishRowCnt; // 一个block未拷满
+            copyRowCnt = shape.copyRowNum - copyFinishRowCnt; // The current block is only partially copied.
         }
-        // uint64_t offset = idInBlockTable * shape.blockSize * shape.headNum * shape.headDim; // PA的偏移
-        uint64_t offset = idInBlockTable * shape.kvStride; // PA的偏移
+        // uint64_t offset = idInBlockTable * shape.blockSize * shape.headNum * shape.headDim; // PA offset.
+        uint64_t offset = idInBlockTable * shape.kvStride; // PA offset.
         uint64_t dStride = shape.headDim;
         offset += (uint64_t)(startPos.n2Idx * shape.headDim * shape.blockSize) +
                     reaminRowCnt * shape.headDim + startPos.dIdx;
@@ -206,7 +207,7 @@ __aicore__ inline void DataCopyPABySlots(LocalTensor<T> &dstTensor,  // l1
 
 struct RunInfo {
     uint32_t loop = 0;
-    uint32_t cmpLoop = 0; // 用于判断取 用于merge的4块GM 中的哪一块
+    uint32_t cmpLoop = 0; // Select one of the four GM blocks used for merging.
     uint32_t bIdx = 0;
     uint32_t gIdx = 0;
     uint32_t s1Idx = 0;
@@ -251,7 +252,7 @@ struct RunInfo {
     int64_t threshold = 0;
     uint32_t curTopKIdx = 0;
     uint64_t curOffsetInSparseBlock = 0;
-    bool isOri = true; // 判断当前块是在Ori部分还是Cmp部分
+    bool isOri = true; // Whether the current block belongs to the Ori or Cmp part.
     uint64_t s2StartPoint = 0;
     int64_t cmpS2IdLimit = 0;
     int32_t v0S2DealSize = 0;
@@ -259,9 +260,9 @@ struct RunInfo {
 };
 
 struct ConstInfo {
-    // CUBE与VEC核间同步的模式
+    // Synchronization mode between CUBE and VEC cores.
     static constexpr uint32_t SAS_SYNC_MODE2 = 2;
-    // BUFFER的字节数
+    // BUFFER size in bytes.
     static constexpr uint32_t BUFFER_SIZE_BYTE_32B = 32;
     static constexpr uint32_t BUFFER_SIZE_BYTE_64B = 64;
     static constexpr uint32_t BUFFER_SIZE_BYTE_256B = 256;
@@ -272,39 +273,39 @@ struct ConstInfo {
     static constexpr uint32_t BUFFER_SIZE_BYTE_8K = 8192;
     static constexpr uint32_t BUFFER_SIZE_BYTE_16K = 16384;
     static constexpr uint32_t BUFFER_SIZE_BYTE_32K = 32768;
-    // FP32的0值和极大值
+    // FP32 zero and maximum values.
     static constexpr float FLOAT_ZERO = 0;
     static constexpr float FLOAT_MAX = 3.402823466e+38F;
 
-    // preLoad的总次数
+    // Total number of preload operations.
     uint32_t preLoadNum = 0U;
     uint32_t nBufferMBaseSize = 0U;
-    // CUBE和VEC的核间同步EventID
+    // Event IDs for synchronization between CUBE and VEC cores.
     uint32_t syncV0C1 = 0U;
     uint32_t syncC1V1 = 0U;
     uint32_t syncV1C2 = 0U;
     uint32_t syncC2V2 = 0U;
 
-    uint32_t mmResUbSize = 0U;   // Matmul1输出结果GM上的大小
-    uint32_t vec1ResUbSize = 0U; // Vector1输出结果GM上的大小
-    uint32_t bmm2ResUbSize = 0U; // Matmul2输出结果GM上的大小
+    uint32_t mmResUbSize = 0U;   // Matmul1 output size in GM.
+    uint32_t vec1ResUbSize = 0U; // Vector1 output size in GM.
+    uint32_t bmm2ResUbSize = 0U; // Matmul2 output size in GM.
     uint32_t usedCoreNum = 0U;
     uint64_t batchSize = 0ULL;
     uint64_t gSize = 0ULL;
     uint64_t qHeadNum = 0ULL;
     uint64_t kvHeadNum = 0;
     uint64_t headDim = 0;
-    uint64_t kvSeqSize = 0ULL;    // kv最大S长度
-    uint64_t qSeqSize = 1ULL;     // q最大S长度
-    int64_t kvCacheBlockSize = 0; // PA场景的block size
+    uint64_t kvSeqSize = 0ULL;    // Maximum KV sequence length.
+    uint64_t qSeqSize = 1ULL;     // Maximum Q sequence length.
+    int64_t kvCacheBlockSize = 0; // Block size for PA.
     uint64_t paCmpBlockSize = 0;
     uint64_t paOriBlockSize = 0;
     int64_t orikvCacheBlockSize = 0;
     int64_t cmpkvCacheBlockSize = 0;
-    uint32_t oriMaxBlockNumPerBatch = 0; // PA场景的最大单batch block number
+    uint32_t oriMaxBlockNumPerBatch = 0; // Maximum number of blocks per batch for PA.
     uint32_t cmpMaxBlockNumPerBatch = 0;
-    uint32_t splitKVNum = 0U; // S2核间切分的切分份数
-    SAS_LAYOUT outputLayout;  // 输出的Transpose格式
+    uint32_t splitKVNum = 0U; // Number of S2 partitions across cores.
+    SAS_LAYOUT outputLayout;  // Transpose format of the output.
     uint32_t oriMaskMode = 0;
     uint32_t cmpMaskMode = 0;
     uint32_t oriKvStride = 0;
@@ -313,24 +314,24 @@ struct ConstInfo {
     uint32_t templateMode = 0;
 
     // FlashDecoding
-    uint32_t actualCombineLoopSize = 0U; // FlashDecoding场景, S2在核间切分的最大份数
+    uint32_t actualCombineLoopSize = 0U; // Maximum number of inter-core S2 partitions for FlashDecoding.
     uint64_t combineLseOffset = 0ULL;
     uint64_t combineAccumOutOffset = 0ULL;
 
-    uint32_t actualLenDimsQ = 0U;  // query的actualSeqLength 的维度
-    uint32_t actualLenDimsKV = 0U; // KV 的actualSeqLength 的维度
+    uint32_t actualLenDimsQ = 0U;  // Dimension of query actualSeqLength.
+    uint32_t actualLenDimsKV = 0U; // Dimension of KV actualSeqLength.
 
     // TND
-    uint32_t s2Start = 0U; // TND场景下，S2的起始位置
-    uint32_t s2End = 0U;   // 单核TND场景下S2循环index上限
+    uint32_t s2Start = 0U; // S2 start position for TND.
+    uint32_t s2End = 0U;   // Upper S2 loop-index bound for a single core in TND.
 
     uint32_t bN2Start = 0U;
     uint32_t bN2End = 0U;
     uint32_t gS1Start = 0U;
     uint32_t gS1End = 0U;
 
-    uint32_t tndFDCoreArrLen = 0U;     // TNDFlashDecoding相关分核信息array的长度
-    uint32_t coreStartKVSplitPos = 0U; // TNDFlashDecoding kv起始位置
+    uint32_t tndFDCoreArrLen = 0U;     // Length of the TND FlashDecoding core-partition information array.
+    uint32_t coreStartKVSplitPos = 0U; // KV start position for TND FlashDecoding.
 
     uint32_t mBaseSize = 1ULL;
     uint32_t s2BaseSize = 1ULL;
@@ -348,7 +349,7 @@ struct ConstInfo {
     int32_t oriWinRight = 0;
     int32_t oriWinLeft = 128;
 
-    // 是否返回SoftmaxLse
+    // Whether to return SoftmaxLse.
     bool returnSoftmaxLse = false;
 };
 

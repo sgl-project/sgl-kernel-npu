@@ -49,11 +49,11 @@ constexpr uint32_t FD_M_START_INDEX = 5;
 constexpr uint32_t FD_M_NUM_INDEX = 6;
 
 /**
- * @brief 获取属性的绝对索引
- * @param coreIdx 核索引
- * @param metaIdx 元数据索引
- * @param isAIV 是否为AIV数据，默认为false
- * @return 返回属性的绝对索引
+ * @brief Get the absolute attribute index.
+ * @param coreIdx Core index.
+ * @param metaIdx Metadata index.
+ * @param isAIV Whether this is AIV data; false by default.
+ * @return The absolute attribute index.
  */
 #ifdef __CCE_AICORE__
 __aicore__ inline uint32_t GetAttrAbsIndex(uint32_t coreIdx, uint32_t metaIdx, bool isAIV = false)
