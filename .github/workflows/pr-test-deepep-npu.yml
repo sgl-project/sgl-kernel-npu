@@ -123,14 +123,10 @@ jobs:
           fi
       - name: Run test normal mode MXFP8
         timeout-minutes: 10
-#        env:
-#          HCCL_BUFFSIZE: 2300
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=8 --num-tokens=256 --num-experts=32 --quant-type=mx_fp8_e4m3
       - name: Run normal mode MXFP4
         timeout-minutes: 10
-#        env:
-#          HCCL_BUFFSIZE: 3900
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=8 --num-tokens=256 --num-experts=32 --quant-type=mx_fp4_e2m1
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=4 --num-tokens=256 --num-experts=32 --quant-type=mx_fp4_e2m1
