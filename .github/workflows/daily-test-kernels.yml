@@ -18,16 +18,20 @@ concurrency:
 jobs:
   run-daily-kernel-tests:
     name: Kernel Tests (CANN ${{ matrix.cann_version }}, ${{ matrix.hardware }})
-    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-16' || 'linux-aarch64-a2-8' }}
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-1' || 'linux-aarch64-a2-8' }}
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:main-cann${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}
-    timeout-minutes: 120
+      # Kernel operator tests only need a single NPU, so a3 uses the single-card
+      # runner. CANN 9.1.0 has no daily-built image yet; pin the dated tag below
+      # and bump it manually when a newer cann9.1.0-a3 image is published.
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
-        # NOTE: A2(910b) runner/image options below are preserved but not enabled.
-        # To re-enable, add '8.5.0' to cann_version and/or 'a2' to hardware.
-        cann_version: [9.0.0]
+        # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
+        # The a2 branch below is kept only as an extension point: add 'a2' to the
+        # hardware list to enable it, then map its runner/image accordingly.
+        cann_version: [9.0.0, 9.1.0]
         hardware: [a3]
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
@@ -66,7 +70,7 @@ jobs:
         run: bash scripts/prepare_kernel_tests.sh
 
       - name: Run all kernel operator tests
-        timeout-minutes: 60
+        timeout-minutes: 120
         env:
           HCCL_BUFFSIZE: 4096
         run: |
