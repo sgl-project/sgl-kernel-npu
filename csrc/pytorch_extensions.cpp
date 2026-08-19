@@ -294,24 +294,43 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 }  // namespace
 
 namespace {
-// Register compressor under the "custom" namespace too, matching what the
-// SGLang NPU DSV4 backend (ascend_dsv4_backend.py) expects:
-//   torch.ops.custom.compressor(...)
-TORCH_LIBRARY_FRAGMENT(custom, m)
+// Compressor under the "custom" namespace is `def`-ed and implemented by the
+// CANN custom_ops library (cann-recipes-infer), which sglang's NPU backend
+// loads first (srt/hardware_backend/npu/utils.py: init_npu_backend imports
+// custom_ops before sgl_kernel_npu). We must NOT re-`def` it here (torch
+// forbids duplicate schema registration). To make `torch.ops.custom.compressor`
+// dispatch to OUR kernel, we re-`impl` the same PrivateUse1 dispatch key with
+// a kernel whose C++ signature matches the one already registered by
+// cann-recipes-infer (which returns `std::tuple<at::Tensor>`); torch allows
+// same-key re-registration when the C++ signatures match, and the later
+// registration wins.
+// cann-recipes-infer kernel signature (npu_compressor.cpp):
+//   std::tuple<at::Tensor>(const at::Tensor&, const at::Tensor&,
+//     const at::Tensor&, at::Tensor&, const at::Tensor&, const at::Tensor&,
+//     const at::Tensor&, const at::Tensor&, long, long,
+//     const std::optional<at::Tensor>&, const std::optional<at::Tensor>&,
+//     const std::optional<at::Tensor>&, const std::optional<at::Tensor>&,
+//     long, double, long, long)
+std::tuple<at::Tensor> compressor_custom_adapter(
+    const at::Tensor &x, const at::Tensor &wkv, const at::Tensor &wgate,
+    at::Tensor &state_cache, const at::Tensor &ape, const at::Tensor &norm_weight,
+    const at::Tensor &rope_sin, const at::Tensor &rope_cos, int64_t rope_head_dim,
+    int64_t cmp_ratio, const c10::optional<at::Tensor> &state_block_table,
+    const c10::optional<at::Tensor> &cu_seqlens, const c10::optional<at::Tensor> &seqused,
+    const c10::optional<at::Tensor> &start_pos, int64_t coff, double norm_eps,
+    int64_t rotary_mode, int64_t cache_mode)
 {
-    m.def(
-        "compressor(Tensor x, Tensor wkv, Tensor wgate, Tensor! state_cache, "
-        "Tensor ape, Tensor norm_weight, Tensor rope_sin, Tensor rope_cos, "
-        "Tensor? state_block_table=None, Tensor? cu_seqlens=None, Tensor? seqused=None, "
-        "Tensor? start_pos=None, int rope_head_dim=64, int cmp_ratio=4, int coff=1, "
-        "float norm_eps=1e-6, int rotary_mode=1, int cache_mode=1, "
-        "int state_cache_stride_dim0=0) -> Tensor");
+    at::Tensor cmp_kv = sglang::npu_kernel::compressor(
+        x, wkv, wgate, state_cache, ape, norm_weight, rope_sin, rope_cos, state_block_table,
+        cu_seqlens, seqused, start_pos, rope_head_dim, cmp_ratio, coff, norm_eps, rotary_mode,
+        cache_mode, 0);
+    return std::make_tuple(std::move(cmp_kv));
 }
 }  // namespace
 
 namespace {
 TORCH_LIBRARY_IMPL(custom, PrivateUse1, m)
 {
-    m.impl("compressor", TORCH_FN(sglang::npu_kernel::compressor));
+    m.impl("compressor", TORCH_FN(compressor_custom_adapter));
 }
 }  // namespace
