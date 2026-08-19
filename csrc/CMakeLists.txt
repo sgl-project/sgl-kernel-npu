@@ -126,11 +126,6 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_kernel/lightning_indexer_kernel.cpp
     )
 endif()
-if(BUILD_CATLASS_MODULE)
-    list(APPEND WORKSPACE_KERNEL_SRCS
-        ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_matmul_basic_kernel.cpp
-    )
-endif()
 
 ascendc_library(workspace_kernel STATIC ${WORKSPACE_KERNEL_SRCS})
 ascendc_include_directories(workspace_kernel PRIVATE
@@ -139,16 +134,31 @@ ascendc_include_directories(workspace_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/utils/kernel
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_kernel
 )
-if(BUILD_CATLASS_MODULE)
-    ascendc_include_directories(workspace_kernel PRIVATE
-        ${CATLASS_DIR}/include
-    )
-endif()
 
 ascendc_compile_definitions(workspace_kernel PRIVATE
     -DHAVE_WORKSPACE
     -DHAVE_TILING
 )
+
+# Build catlass kernel in its own target (no sparse_attention_score include dir),
+# so catlass's #include "tla/layout.hpp" resolves to its own copy and avoids
+# symbol redefinition (RoundDown/CeilDiv/Max/Min/...) with sparse_attention_score.
+set(CATLASS_WORKSPACE_KERNEL_TARGETS)
+if(BUILD_CATLASS_MODULE)
+    set(CATLASS_WORKSPACE_KERNEL_SRCS
+        ${PROJECT_OP_SRC_BASE}/catlass/op_kernel/catlass_matmul_basic_kernel.cpp
+    )
+    ascendc_library(catlass_workspace_kernel STATIC ${CATLASS_WORKSPACE_KERNEL_SRCS})
+    ascendc_include_directories(catlass_workspace_kernel PRIVATE
+        ${CATLASS_DIR}/include
+        ${PROJECT_OP_SRC_BASE}/utils/kernel
+    )
+    ascendc_compile_definitions(catlass_workspace_kernel PRIVATE
+        -DHAVE_WORKSPACE
+        -DHAVE_TILING
+    )
+    set(CATLASS_WORKSPACE_KERNEL_TARGETS catlass_workspace_kernel)
+endif()
 
 # Dedicated A3-only kernel targets. Keep these separate from workspace_kernel:
 # their compiler definitions/options apply to the whole AscendC target.
@@ -199,6 +209,7 @@ target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${A3_ONLY_KERNEL_TARGETS}
         workspace_kernel
         no_workspace_kernel
+        ${CATLASS_WORKSPACE_KERNEL_TARGETS}
         torch_npu
         ascendcl
         tiling_api
