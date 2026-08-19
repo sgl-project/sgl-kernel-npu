@@ -128,7 +128,6 @@ jobs:
       - name: Run normal mode MXFP4
         timeout-minutes: 10
         run: |
-#          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=8 --num-tokens=256 --num-experts=32 --quant-type=mx_fp4_e2m1
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=4 --num-tokens=256 --num-experts=32 --quant-type=mx_fp4_e2m1
 
 #  test-all-build-moe:
