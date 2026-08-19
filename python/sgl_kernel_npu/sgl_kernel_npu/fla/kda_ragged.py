@@ -96,6 +96,60 @@ def _gather_kda_verify_output_kernel(
     )
 
 
+@triton.jit
+def _gather_kda_verify_output_norm_kernel(
+    dense_ptr,
+    dense_indices_ptr,
+    gate_ptr,
+    weight_ptr,
+    packed_ptr,
+    packed_tokens,
+    dense_tokens,
+    eps,
+    HEADS: tl.constexpr,
+    HEAD_DIM: tl.constexpr,
+    BLOCK_T: tl.constexpr,
+    BLOCK_D: tl.constexpr,
+):
+    rows = tl.program_id(0) * BLOCK_T + tl.arange(0, BLOCK_T)
+    packed_row = rows // HEADS
+    head = rows - packed_row * HEADS
+    offsets = tl.arange(0, BLOCK_D)
+    row_mask = rows < packed_tokens * HEADS
+    dense_row = tl.load(
+        dense_indices_ptr + packed_row, mask=row_mask, other=dense_tokens
+    ).to(tl.int64)
+    valid_row = row_mask & (dense_row < dense_tokens)
+    dim_mask = offsets < HEAD_DIM
+    mask = valid_row[:, None] & dim_mask[None, :]
+
+    dense_offsets = (
+        (dense_row[:, None] * HEADS + head[:, None]) * HEAD_DIM
+        + offsets[None, :]
+    )
+    value = tl.load(
+        dense_ptr + dense_offsets,
+        mask=mask,
+        other=0.0,
+    ).to(tl.float32)
+    gate = tl.load(
+        gate_ptr + rows[:, None] * HEAD_DIM + offsets[None, :],
+        mask=row_mask[:, None] & dim_mask[None, :],
+        other=0.0,
+    ).to(tl.float32)
+    weight = tl.load(weight_ptr + offsets, mask=dim_mask, other=0.0).to(
+        tl.float32
+    )
+    value = tl.where(mask, value, 0.0)
+    rstd = tl.rsqrt(tl.sum(value * value, axis=1) / HEAD_DIM + eps)
+    output = value * rstd[:, None] * weight[None, :] * tl.sigmoid(gate)
+    tl.store(
+        packed_ptr + rows[:, None] * HEAD_DIM + offsets[None, :],
+        output,
+        mask=row_mask[:, None] & dim_mask[None, :],
+    )
+
+
 def scatter_kda_verify_inputs_npu(
     mixed_qkv: torch.Tensor,
     a: torch.Tensor,
@@ -185,3 +239,58 @@ def gather_kda_verify_output_npu(
         BLOCK=block,
     )
     return packed_2d.view(1, packed_tokens, *dense_output.shape[2:])
+
+
+def gather_kda_verify_output_norm_npu(
+    dense_output: torch.Tensor,
+    dense_token_indices: torch.Tensor,
+    gate: torch.Tensor,
+    weight: torch.Tensor,
+    *,
+    eps: float,
+) -> torch.Tensor:
+    """Gather ragged KDA output and apply sigmoid-gated RMSNorm in one kernel."""
+    if dense_output.ndim != 4 or dense_output.shape[0] != 1:
+        raise ValueError("dense_output must have shape [1, dense_tokens, H, D]")
+    dense_tokens, heads, head_dim = dense_output.shape[1:]
+    if dense_output.stride(-1) != 1:
+        raise ValueError("dense_output must be contiguous in the head dimension")
+    packed_tokens = dense_token_indices.numel()
+    if (
+        gate.numel() != packed_tokens * heads * head_dim
+        or gate.stride(-1) != 1
+    ):
+        raise ValueError(
+            "gate must be a row-contiguous packed [tokens, H * D] tensor"
+        )
+    if weight.numel() != head_dim or not weight.is_contiguous():
+        raise ValueError(
+            "weight must be contiguous with one value per head dimension"
+        )
+    if eps <= 0:
+        raise ValueError("eps must be positive")
+
+    packed = torch.empty(
+        (1, packed_tokens, heads, head_dim),
+        dtype=dense_output.dtype,
+        device=dense_output.device,
+    )
+    block_t = 32
+    _gather_kda_verify_output_norm_kernel[
+        (triton.cdiv(packed_tokens * heads, block_t),)
+    ](
+        dense_output,
+        dense_token_indices,
+        gate,
+        weight,
+        packed,
+        packed_tokens,
+        dense_tokens,
+        eps,
+        HEADS=heads,
+        HEAD_DIM=head_dim,
+        BLOCK_T=block_t,
+        BLOCK_D=triton.next_power_of_2(head_dim),
+        num_warps=4,
+    )
+    return packed

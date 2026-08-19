@@ -1,6 +1,7 @@
 import torch
 
 from sgl_kernel_npu.fla.kda_ragged import (
+    gather_kda_verify_output_norm_npu,
     gather_kda_verify_output_npu,
     scatter_kda_verify_inputs_npu,
 )
@@ -75,4 +76,47 @@ def test_kda_ragged_io_matches_eager_under_graph_replay():
     torch.npu.synchronize()
     torch.testing.assert_close(
         graph_packed, dense_output[:, [0, 1, 2, 4]], rtol=0, atol=0
+    )
+
+
+def test_kda_ragged_gather_norm_matches_eager_under_graph_replay():
+    device = torch.device("npu")
+    dense_output = torch.randn(1, 8, 2, 5, dtype=torch.bfloat16, device=device)
+    indices = torch.tensor([0, 4, 8], dtype=torch.int64, device=device)
+    gate = torch.randn(3, 10, dtype=torch.bfloat16, device=device)
+    weight = torch.randn(5, dtype=torch.bfloat16, device=device)
+    eps = 1e-5
+
+    def eager_reference():
+        covered = indices < dense_output.shape[1]
+        safe_indices = indices.clamp(max=dense_output.shape[1] - 1)
+        gathered = dense_output[:, safe_indices].float()
+        gathered = torch.where(covered.view(1, -1, 1, 1), gathered, 0.0)
+        rstd = torch.rsqrt(gathered.square().mean(dim=-1, keepdim=True) + eps)
+        return (
+            gathered
+            * rstd
+            * weight.float()
+            * gate.view(1, 3, 2, 5).float().sigmoid()
+        ).to(torch.bfloat16)
+
+    actual = gather_kda_verify_output_norm_npu(
+        dense_output, indices, gate, weight, eps=eps
+    )
+    torch.testing.assert_close(
+        actual.float(), eager_reference().float(), atol=2e-2, rtol=2e-2
+    )
+
+    graph = torch.npu.NPUGraph()
+    with torch.npu.graph(graph):
+        graph_output = gather_kda_verify_output_norm_npu(
+            dense_output, indices, gate, weight, eps=eps
+        )
+    dense_output.copy_(torch.randn_like(dense_output))
+    gate.copy_(torch.randn_like(gate))
+    indices.copy_(torch.tensor([2, 6, 8], dtype=torch.int64, device=device))
+    graph.replay()
+    torch.npu.synchronize()
+    torch.testing.assert_close(
+        graph_output.float(), eager_reference().float(), atol=2e-2, rtol=2e-2
     )
