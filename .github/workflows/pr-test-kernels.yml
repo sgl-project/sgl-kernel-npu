@@ -134,38 +134,27 @@ jobs:
               - third_party/catlass/**
               - .gitmodules
 
-  # One job per (task_group x cann_version x hardware) combination via matrix.
-  # Path filtering (get-changed-files) decides which task_group variants actually run.
-  test-kernels:
-    name: ${{ matrix.task_group }} (CANN ${{ matrix.cann_version }})
+  # 7 test-group jobs, one per domain, run in parallel (same structure as PR #518).
+  # Adding 9.1.0 to each job's matrix doubles the parallelism to 14 combos.
+  test-norm-ops:
     needs: get-changed-files
     if: |
       github.event_name == 'workflow_dispatch' || (
-        github.event.pull_request.draft == false && (
-          (matrix.task_group == 'norm' && needs.get-changed-files.outputs.norm_changed == 'true') ||
-          (matrix.task_group == 'attention' && needs.get-changed-files.outputs.attention_changed == 'true') ||
-          (matrix.task_group == 'cache' && needs.get-changed-files.outputs.cache_changed == 'true') ||
-          (matrix.task_group == 'speculative' && needs.get-changed-files.outputs.speculative_changed == 'true') ||
-          (matrix.task_group == 'mamba' && needs.get-changed-files.outputs.mamba_changed == 'true') ||
-          (matrix.task_group == 'fla' && needs.get-changed-files.outputs.fla_changed == 'true') ||
-          (matrix.task_group == 'fused' && needs.get-changed-files.outputs.fused_changed == 'true') ||
-          needs.get-changed-files.outputs.common_changed == 'true'
-        )
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.norm_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
       )
     strategy:
       fail-fast: false
       matrix:
         # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
-        # The a2 branch below is kept only as an extension point: add 'a2' to the
-        # hardware list to enable it, then map its runner/image accordingly.
-        task_group: [norm, attention, cache, speculative, mamba, fla, fused]
+        # The a2 branch below is kept only as an extension point.
+        # CANN 9.1.0 has no daily-built image yet, so the image below pins the
+        # dated tag cann9.1.0-a3-20260818 (bump manually when a newer one comes).
         cann_version: [9.0.0, 9.1.0]
         hardware: [a3]
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-1' || 'linux-aarch64-a2-8' }}
     container:
-      # Kernel operator tests only need a single NPU, so a3 uses the single-card
-      # runner. CANN 9.1.0 has no daily-built image yet; pin the dated tag below
-      # and bump it manually when a newer cann9.1.0-a3 image is published.
+      # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
@@ -202,13 +191,362 @@ jobs:
       - name: Build and install kernel module
         run: bash scripts/prepare_kernel_tests.sh
 
-      - name: Run ${{ matrix.task_group }} operator tests
-        timeout-minutes: 30
-        run: bash scripts/run_kernel_tests.sh ${{ matrix.task_group }}
+      - name: Run norm operator tests
+        timeout-minutes: 15
+        run: bash scripts/run_kernel_tests.sh norm
+
+  test-attention-ops:
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.attention_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    strategy:
+      fail-fast: false
+      matrix:
+        # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
+        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20260818 (bump manually).
+        cann_version: [9.0.0, 9.1.0]
+        hardware: [a3]
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-1' || 'linux-aarch64-a2-8' }}
+    container:
+      # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
+    env:
+      CANN_VERSION: "${{ matrix.cann_version }}"
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
+
+      - name: Build and install kernel module
+        run: bash scripts/prepare_kernel_tests.sh
+
+      - name: Run attention operator tests
+        timeout-minutes: 20
+        run: bash scripts/run_kernel_tests.sh attention
+
+  test-cache-ops:
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.cache_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    strategy:
+      fail-fast: false
+      matrix:
+        # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
+        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20260818 (bump manually).
+        cann_version: [9.0.0, 9.1.0]
+        hardware: [a3]
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-1' || 'linux-aarch64-a2-8' }}
+    container:
+      # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
+    env:
+      CANN_VERSION: "${{ matrix.cann_version }}"
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
+
+      - name: Build and install kernel module
+        run: bash scripts/prepare_kernel_tests.sh
+
+      - name: Run cache operator tests
+        timeout-minutes: 15
+        run: bash scripts/run_kernel_tests.sh cache
+
+  test-speculative-ops:
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.speculative_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    strategy:
+      fail-fast: false
+      matrix:
+        # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
+        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20260818 (bump manually).
+        cann_version: [9.0.0, 9.1.0]
+        hardware: [a3]
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-1' || 'linux-aarch64-a2-8' }}
+    container:
+      # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
+    env:
+      CANN_VERSION: "${{ matrix.cann_version }}"
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
+
+      - name: Build and install kernel module
+        run: bash scripts/prepare_kernel_tests.sh
+
+      - name: Run speculative decoding operator tests
+        timeout-minutes: 15
+        run: bash scripts/run_kernel_tests.sh speculative
+
+  test-mamba-ops:
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.mamba_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    strategy:
+      fail-fast: false
+      matrix:
+        # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
+        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20260818 (bump manually).
+        cann_version: [9.0.0, 9.1.0]
+        hardware: [a3]
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-1' || 'linux-aarch64-a2-8' }}
+    container:
+      # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
+    env:
+      CANN_VERSION: "${{ matrix.cann_version }}"
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
+
+      - name: Build and install kernel module
+        run: bash scripts/prepare_kernel_tests.sh
+
+      - name: Run mamba operator tests
+        timeout-minutes: 15
+        run: bash scripts/run_kernel_tests.sh mamba
+
+  test-fla-ops:
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.fla_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    strategy:
+      fail-fast: false
+      matrix:
+        # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
+        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20260818 (bump manually).
+        cann_version: [9.0.0, 9.1.0]
+        hardware: [a3]
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-1' || 'linux-aarch64-a2-8' }}
+    container:
+      # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
+    env:
+      CANN_VERSION: "${{ matrix.cann_version }}"
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
+
+      - name: Build and install kernel module
+        run: bash scripts/prepare_kernel_tests.sh
+
+      - name: Run FLA/GDN operator tests
+        timeout-minutes: 20
+        run: bash scripts/run_kernel_tests.sh fla
+
+  test-fused-ops:
+    needs: get-changed-files
+    if: |
+      github.event_name == 'workflow_dispatch' || (
+        github.event.pull_request.draft == false &&
+        (needs.get-changed-files.outputs.fused_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
+      )
+    strategy:
+      fail-fast: false
+      matrix:
+        # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
+        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20260818 (bump manually).
+        cann_version: [9.0.0, 9.1.0]
+        hardware: [a3]
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-1' || 'linux-aarch64-a2-8' }}
+    container:
+      # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
+    env:
+      CANN_VERSION: "${{ matrix.cann_version }}"
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
+
+      - name: Build and install kernel module
+        run: bash scripts/prepare_kernel_tests.sh
+
+      - name: Run fused operator tests
+        timeout-minutes: 20
+        run: bash scripts/run_kernel_tests.sh fused
 
   finish:
     if: always()
-    needs: [test-kernels]
+    needs:
+      - test-norm-ops
+      - test-attention-ops
+      - test-cache-ops
+      - test-speculative-ops
+      - test-mamba-ops
+      - test-fla-ops
+      - test-fused-ops
     runs-on: ubuntu-latest
     steps:
       - name: Check all dependent job statuses
