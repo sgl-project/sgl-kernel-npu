@@ -545,6 +545,7 @@ private:
             maxBsNum = maxBsNum >= tempBs ? maxBsNum : tempBs;
         }
         maxBsLt(0) = maxBsNum;
+        SyncFunc<AscendC::HardEvent::S_MTE3>();
 
         GlobalTensor<int32_t> maxBsGt;
         maxBsGt.SetGlobalBuffer((__gm__ int32_t *)maxBs_);
