@@ -245,7 +245,7 @@ def kda_target_verify_npu(
     if tuple(b.shape) != (q.shape[1], h_v):
         raise ValueError("b must have shape [tokens, H_v]")
     if not gates_are_preactivated and (
-        A_log.numel() != h_k or tuple(dt_bias.shape) != (h_k, key_dim)
+        A_log.numel() != h_k or dt_bias.numel() != h_k * key_dim
     ):
         raise ValueError("A_log and dt_bias shapes do not match KDA heads")
     if initial_state_source.ndim != 4 or tuple(initial_state_source.shape[1:]) != (
