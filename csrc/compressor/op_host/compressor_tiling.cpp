@@ -22,7 +22,7 @@
 #include "compressor_tiling.h"
 
 #include <cstdio>
-#define OP_LOGI(...)                                  // 保持空，避免刷屏
+#define OP_LOGI(...)  // 保持空，避免刷屏
 
 // plog 写入（weak symbol，运行时由 libascendalog/libunified_dlog 解析）
 extern "C" {
@@ -31,22 +31,22 @@ void DlogFlush(void);
 }
 
 #define OP_LOGE(opName, ...)                                              \
-    do {                                                                   \
+    do {                                                                  \
         fprintf(stderr, "[compressor][%s] ", (opName));                   \
-        fprintf(stderr, __VA_ARGS__);                                      \
-        fprintf(stderr, "\n");                                             \
-        if (DlogRecord) {                                                  \
-            DlogRecord(63, 3, "[compressor][%s] " __VA_ARGS__, (opName));  \
-            DlogFlush();                                                   \
-        }                                                                  \
+        fprintf(stderr, __VA_ARGS__);                                     \
+        fprintf(stderr, "\n");                                            \
+        if (DlogRecord) {                                                 \
+            DlogRecord(63, 3, "[compressor][%s] " __VA_ARGS__, (opName)); \
+            DlogFlush();                                                  \
+        }                                                                 \
     } while (0)
-#define OPS_REPORT_VECTOR_INNER_ERR(op, msg)                        \
-    do {                                                            \
-        fprintf(stderr, "[compressor][%s] %s\n", (op), (msg));      \
-        if (DlogRecord) {                                           \
-            DlogRecord(63, 3, "[compressor][%s] %s", (op), (msg));  \
-            DlogFlush();                                            \
-        }                                                           \
+#define OPS_REPORT_VECTOR_INNER_ERR(op, msg)                       \
+    do {                                                           \
+        fprintf(stderr, "[compressor][%s] %s\n", (op), (msg));     \
+        if (DlogRecord) {                                          \
+            DlogRecord(63, 3, "[compressor][%s] %s", (op), (msg)); \
+            DlogFlush();                                           \
+        }                                                          \
     } while (0)
 #define OP_CHECK_IF(cond, logExpr, returnExpr) \
     if (cond) {                                \

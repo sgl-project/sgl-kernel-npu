@@ -257,16 +257,16 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
         auto &cache = GetTilingCaches()[x.device().index()];
         if (!cache.buffer.defined()) {
             cache.buffer = at::empty({tilingSize * MAX_CAPTURE_NUM},
-                                    at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+                                     at::TensorOptions().dtype(at::kByte).device(x.options().device()));
         }
         auto iter = cache.slots.find(key);
         if (iter != cache.slots.end()) {
-            tilingTensor = cache.buffer.narrow(0, iter->second * tilingSize, tilingSize);   // 命中复用
+            tilingTensor = cache.buffer.narrow(0, iter->second * tilingSize, tilingSize);  // 命中复用
         } else if (cache.nextSlot >= MAX_CAPTURE_NUM) {
             // 缓存满：退回一次性 memcpy（局部 tensor，避免 static 跨线程/跨设备覆盖）
             at::Tensor t = at::empty({tilingSize}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
-            auto status = aclrtMemcpy(t.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize,
-                                    ACL_MEMCPY_HOST_TO_DEVICE);
+            auto status =
+                aclrtMemcpy(t.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize, ACL_MEMCPY_HOST_TO_DEVICE);
             TORCH_CHECK(status == ACL_ERROR_NONE, "compressor: failed to copy tiling data, acl error ", status);
             tilingTensor = t;
         } else {
@@ -274,7 +274,7 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
             const uint32_t slot = cache.nextSlot;
             tilingTensor = cache.buffer.narrow(0, slot * tilingSize, tilingSize);
             auto status = aclrtMemcpy(tilingTensor.data_ptr<uint8_t>(), tilingSize, &tilingData, tilingSize,
-                                    ACL_MEMCPY_HOST_TO_DEVICE);
+                                      ACL_MEMCPY_HOST_TO_DEVICE);
             TORCH_CHECK(status == ACL_ERROR_NONE, "compressor: failed to cache tiling data, acl error ", status);
             cache.slots.emplace(std::move(key), slot);
             cache.nextSlot++;
