@@ -277,7 +277,8 @@ private:
         pipe_barrier(PIPE_V);
     }
 
-    __aicore__ inline void Compute(int32_t progress, int32_t blockReduceRepeatCount = BLOCK_REDUCE_NUM_REPEATS, int32_t /*pairReduceRepeat16*/ = 0, int32_t /*pairReduceRepeat32*/ = 0)
+    __aicore__ inline void Compute(int32_t progress, int32_t blockReduceRepeatCount = BLOCK_REDUCE_NUM_REPEATS,
+                                   int32_t /*pairReduceRepeat16*/ = 0, int32_t /*pairReduceRepeat32*/ = 0)
     {
         if (blockReduceRepeatCount <= 0) {
             return;
@@ -287,13 +288,14 @@ private:
         AscendC::LocalTensor<float> xDup = dupBufferX_.Get<float>();
         AscendC::LocalTensor<W_T> wLocal = inQueueW_.DeQue<W_T>();
         AscendC::LocalTensor<float> wTmp = tmpBufferW_.Get<float>();
-        
+
         const int32_t rank = reqLoRARank_;
         const int32_t rows = (blockReduceRepeatCount * NUM_ELEMENTS_PER_REPEAT) / rank;
         const int32_t logicalElements = rows * rank;
 
         const uint32_t paddedRowBytes =
-            ((static_cast<uint32_t>(rank) * sizeof(W_T) + DATA_VECTOR_BLOCK - 1) / DATA_VECTOR_BLOCK) * DATA_VECTOR_BLOCK;
+            ((static_cast<uint32_t>(rank) * sizeof(W_T) + DATA_VECTOR_BLOCK - 1) / DATA_VECTOR_BLOCK) *
+            DATA_VECTOR_BLOCK;
         const int32_t paddedRowElements = static_cast<int32_t>(paddedRowBytes / sizeof(W_T));
 
         for (int32_t row = 0; row < rows; ++row) {
