@@ -220,6 +220,8 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     uint32_t moeExpertNum = static_cast<uint32_t>(*moeExpertNumPtr);
     uint32_t sharedExpertNum = static_cast<uint32_t>(*sharedExpertNumPtr);
     uint32_t sharedExpertRankNum = static_cast<uint32_t>(*sharedExpertRankNumPtr);
+    OPS_ERR_IF(sharedExpertRankNum == 0 || sharedExpertRankNum >= epRankSize,
+               OPS_LOG_E(nodeName, "sharedExpertRankNum must in [1, epRankSize)."), return ge::GRAPH_FAILED);
     uint32_t moeExpertNumPerRank = moeExpertNum / (epRankSize - sharedExpertRankNum);
 
 #ifdef ENABLE_TILING_CHECK
