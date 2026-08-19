@@ -42,14 +42,14 @@ aclnnStatus aclnnMoeLowLatencyDispatchV2GetWorkspaceSize(
     const aclTensor *expertTokenNumsOut, const aclTensor *epRecvCountsOut, const aclTensor *tpRecvCountsOut,
     uint64_t *workspaceSize, aclOpExecutor **executor)
 {
+    if (commAlg == nullptr) {
+        return ACLNN_ERR_INNER_NULLPTR;
+    }
     aclnnStatus getWorkspaceSizesRes = aclnnInnerMoeLowLatencyDispatchV2GetWorkspaceSize(
         x, expertIds, scalesOptional, xActiveMaskOptional, nullptr, groupEp, epWorldSize, epRankId, moeExpertNum,
         groupTp, tpWorldSize, tpRankId, expertShardType, sharedExpertNum, sharedExpertRankNum, quantMode, globalBs,
         expertTokenNumsType, commAlg, 0, 0, 0, expandXOut, dynamicScalesOut, assistInfoForCombineOut,
         expertTokenNumsOut, epRecvCountsOut, tpRecvCountsOut, workspaceSize, executor);
-    if (commAlg == nullptr) {
-        return ACLNN_ERR_INNER_NULLPTR;
-    }
     if (NnopbaseSetHcclServerType) {
         if (std::strcmp(commAlg, "ccu") == 0) {
             NnopbaseSetHcclServerType(*executor, NNOPBASE_HCCL_SERVER_TYPE_CCU);
