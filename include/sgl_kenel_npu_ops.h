@@ -190,7 +190,8 @@ std::tuple<at::Tensor, at::Tensor> chunk_gated_delta_rule(
     const c10::optional<at::Tensor> &beta,
     const c10::optional<at::Tensor> &initial_state,
     const c10::optional<at::Tensor> &actual_seq_lengths,
-    const c10::optional<double> &scale, const c10::optional<at::Tensor> &g);
+    const c10::optional<double> &scale, const c10::optional<at::Tensor> &g,
+    const c10::optional<at::Tensor> &chunk_state);
 
 } // namespace npu_kernel
 

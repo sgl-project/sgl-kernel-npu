@@ -51,7 +51,7 @@ constexpr uint32_t MATMUL_BASE_K = 128;
 constexpr uint32_t MATMUL_BASE_N = 128;
 
 void ComputeTilingData(int64_t aiCoreNum, int64_t t, int64_t nk, int64_t dk, int64_t nv, int64_t dv, int64_t b,
-                       int64_t hasGamma, float scale, bool stateIsFp32, bool isAscend950,
+                       int64_t hasGamma, float scale, bool stateIsFp32, bool isAscend950, bool outputChunkState,
                        ChunkGatedDeltaRule::ChunkGatedDeltaRuleTilingData &td)
 {
     std::memset(&td, 0, sizeof(td));
@@ -70,7 +70,7 @@ void ComputeTilingData(int64_t aiCoreNum, int64_t t, int64_t nk, int64_t dk, int
     td.maxGroupLength = p * td.aiCoreNum * c;
     td.stageOneParaNum = STAGE_ONE_PARA_NUM;
     td.scale = scale;
-    td.outputChunkState = 0;
+    td.outputChunkState = outputChunkState ? 1 : 0;
     td.stateIsFp32 = stateIsFp32 ? 1 : 0;
 
     int64_t sizeHigh = 4;
@@ -173,7 +173,7 @@ HOST_API std::tuple<at::Tensor, at::Tensor> chunk_gated_delta_rule(
     const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
     const c10::optional<at::Tensor> &beta, const c10::optional<at::Tensor> &initial_state,
     const c10::optional<at::Tensor> &actual_seq_lengths, const c10::optional<double> &scale,
-    const c10::optional<at::Tensor> &g)
+    const c10::optional<at::Tensor> &g, const c10::optional<at::Tensor> &chunk_state)
 {
     TORCH_CHECK(query.defined() && key.defined() && value.defined(), "query/key/value must be defined");
     TORCH_CHECK(beta.has_value() && beta->defined(), "beta must be provided");
@@ -244,6 +244,18 @@ HOST_API std::tuple<at::Tensor, at::Tensor> chunk_gated_delta_rule(
     bool hasGamma = g.has_value() && g->defined();
     float scaleValue = scale.has_value() ? static_cast<float>(*scale) : 1.0f;
 
+    bool outputChunkState = chunk_state.has_value() && chunk_state->defined();
+    int64_t totalChunks = (t + CHUNK_SIZE - 1) / CHUNK_SIZE + b;
+    if (outputChunkState) {
+        TORCH_CHECK(chunk_state->dim() == 4, "chunk_state must be 4D (totalChunks, Nv, Dv, Dk)");
+        TORCH_CHECK(chunk_state->size(0) >= totalChunks, "chunk_state dim 0 must be >= ", totalChunks);
+        TORCH_CHECK(chunk_state->size(1) == nv && chunk_state->size(2) == dv && chunk_state->size(3) == dk,
+                    "chunk_state shape must match (totalChunks, Nv, Dv, Dk)");
+        TORCH_CHECK(chunk_state->scalar_type() == initial_state->scalar_type(),
+                    "chunk_state dtype must match initial_state");
+        TORCH_CHECK(chunk_state->device() == query.device(), "chunk_state must be on the same device as query");
+    }
+
     at::Tensor query_contig = query.contiguous();
     at::Tensor key_contig = key.contiguous();
     at::Tensor value_contig = value.contiguous();
@@ -258,7 +270,12 @@ HOST_API std::tuple<at::Tensor, at::Tensor> chunk_gated_delta_rule(
         gPtr = gTensor.data_ptr();
     }
 
+    at::Tensor chunkStateContig;
     void *chunkStatePtr = nullptr;
+    if (outputChunkState) {
+        chunkStateContig = chunk_state->contiguous();
+        chunkStatePtr = chunkStateContig.data_ptr();
+    }
 
     at::Tensor out = at::empty({t, nv, dv}, query.options());
     at::Tensor finalState = at::empty({b, nv, dv, dk}, initial_state->options());
@@ -267,7 +284,7 @@ HOST_API std::tuple<at::Tensor, at::Tensor> chunk_gated_delta_rule(
 
     ChunkGatedDeltaRule::ChunkGatedDeltaRuleTilingData tilingData;
     ComputeTilingData(aiCoreNum, t, nk, dk, nv, dv, b, hasGamma ? 1 : 0, scaleValue, stateIsFp32, isAscend950,
-                      tilingData);
+                      outputChunkState, tilingData);
     ComputeMatmulTiling(ascendcPlatform, stateIsFp32, tilingData);
 
     int64_t totalWorkspace = SYS_WORKSPACE_SIZE + tilingData.interWorkspaceSz + tilingData.stageWorkspaceSz;
