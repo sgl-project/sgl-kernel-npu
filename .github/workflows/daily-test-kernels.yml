@@ -18,7 +18,7 @@ concurrency:
 jobs:
   run-daily-kernel-tests:
     name: Kernel Tests (CANN ${{ matrix.cann_version }}, ${{ matrix.hardware }})
-    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-1' || 'linux-aarch64-a2-8' }}
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-2' || 'linux-aarch64-a2-8' }}
     container:
       # Kernel operator tests only need a single NPU, so a3 uses the single-card
       # runner. CANN 9.1.0 has no daily-built image yet; pin the dated tag below
