@@ -20,6 +20,7 @@ def _kda_target_verify_kernel(
     snapshot_indices_ptr,
     out_ptr,
     scale,
+    lower_bound: tl.constexpr,
     stride_q_token: tl.constexpr,
     stride_q_head: tl.constexpr,
     stride_q_dim: tl.constexpr,
@@ -52,6 +53,7 @@ def _kda_target_verify_kernel(
     BK: tl.constexpr,
     BV: tl.constexpr,
     GATES_ARE_PREACTIVATED: tl.constexpr,
+    USE_LOWER_BOUND: tl.constexpr,
 ):
     pid_batch = tl.program_id(0)
     pid_hv = tl.program_id(1)
@@ -139,12 +141,17 @@ def _kda_target_verify_kernel(
             beta = beta_input
         else:
             gate_input = a + dt_bias
-            softplus = tl.where(
-                gate_input <= 20.0,
-                tl.log(1.0 + tl.exp(gate_input)),
-                gate_input,
-            )
-            gate = tl.exp(-tl.exp(A_log) * softplus)
+            exp_A = tl.exp(A_log)
+            if USE_LOWER_BOUND:
+                log_gate = lower_bound * tl.sigmoid(exp_A * gate_input)
+            else:
+                softplus = tl.where(
+                    gate_input <= 20.0,
+                    tl.log(1.0 + tl.exp(gate_input)),
+                    gate_input,
+                )
+                log_gate = -exp_A * softplus
+            gate = tl.exp(log_gate)
             beta = 1.0 / (1.0 + tl.exp(-beta_input))
 
         state *= gate[None, :]
@@ -188,6 +195,7 @@ def kda_target_verify_npu(
     cache_steps: int,
     scale: Optional[float] = None,
     gates_are_preactivated: Optional[bool] = None,
+    lower_bound: Optional[float] = None,
 ) -> torch.Tensor:
     """KDA fixed-width target verification with per-step state snapshots.
 
@@ -197,7 +205,9 @@ def kda_target_verify_npu(
     When ``gates_are_preactivated`` is true, ``a`` is the log-decay
     ``-exp(A_log) * softplus(raw_a + dt_bias)`` and ``b`` is already sigmoid
     activated. Both gate tensors may include the SGLang leading singleton.
-    When the flag is omitted, a paired leading singleton selects this mode.
+    When the flag is false, both activations are performed inside the recurrent
+    kernel. ``lower_bound`` selects the K3 safe-gate formula in that mode. When
+    the flag is omitted, a paired leading singleton selects preactivated mode.
     """
     if q.ndim != 4 or k.ndim != 4 or v.ndim != 4:
         raise ValueError("q, k, and v must have shape [1, tokens, heads, dim]")
@@ -310,6 +320,7 @@ def kda_target_verify_npu(
         intermediate_state_indices,
         out,
         scale,
+        lower_bound,
         q.stride(1),
         q.stride(2),
         q.stride(3),
@@ -342,6 +353,7 @@ def kda_target_verify_npu(
         BK=bk,
         BV=bv,
         GATES_ARE_PREACTIVATED=gates_are_preactivated,
+        USE_LOWER_BOUND=lower_bound is not None,
         num_warps=1,
         num_stages=3,
         multibuffer=False,
