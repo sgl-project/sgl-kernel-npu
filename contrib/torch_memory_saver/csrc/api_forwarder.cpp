@@ -41,7 +41,6 @@ aclError call_real_aclrt_malloc_align32(void **ptr, size_t size,
 }
 
 aclError call_real_aclrt_free(void *ptr) {
-
   static std::once_flag free_flag;
   std::call_once(free_flag, []() {
     real_aclrt_free_ =
