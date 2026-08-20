@@ -135,9 +135,42 @@ def _situ_and_mul_kernel(
     else:
         total_rows = N_ROWS
 
-    # rows distributed across vector cores (manual split + early return for over-provision).
-    block_size = (total_rows - 1) // NUM_CORES + 1
     pid = tl.program_id(0)
+    h_offs = tl.arange(0, BLOCK_H)
+
+    if not HAS_GROUP_LIST:
+        # Dense/shared SiTU has no cross-column dependency. Schedule whole
+        # hidden tiles across AIVs, but derive row/tile once per program tile.
+        # A flattened element schedule makes every lane pay div/mod and was
+        # slower than the row-persistent kernel at K3 verify shapes.
+        tiles_per_row: tl.constexpr = tl.cdiv(HALF_COLS, BLOCK_H)
+        total_tiles = N_ROWS * tiles_per_row
+        for tile_idx in range(pid, total_tiles, NUM_CORES):
+            row_idx = tile_idx // tiles_per_row
+            h_start = (tile_idx - row_idx * tiles_per_row) * BLOCK_H
+            h_idx = h_start + h_offs
+            mask = h_idx < HALF_COLS
+            row_off = row_idx.to(tl.int64) * TOTAL_COLS
+            gate = tl.load(x_ptr + row_off + h_idx, mask=mask, other=0.0).to(
+                tl.float32
+            )
+            up = tl.load(
+                x_ptr + row_off + HALF_COLS + h_idx, mask=mask, other=0.0
+            ).to(tl.float32)
+            situ_a = BETA * libdevice.tanh(gate * INV_BETA) * tl.sigmoid(gate)
+            if DO_LINEAR_BETA:
+                up = LINEAR_BETA * libdevice.tanh(up * INV_LINEAR_BETA)
+            out = situ_a * up
+            tl.store(
+                out_ptr + row_idx.to(tl.int64) * HALF_COLS + h_idx,
+                out.to(out_ptr.dtype.element_ty),
+                mask=mask,
+            )
+        return
+
+    # Grouped rows keep the row-persistent schedule because total_rows is
+    # device-resident in group_list and cannot size the launch grid on host.
+    block_size = (total_rows - 1) // NUM_CORES + 1
     row_begin = pid * block_size
     if row_begin >= total_rows:
         return
@@ -146,7 +179,6 @@ def _situ_and_mul_kernel(
     # H-tile over the OUTPUT dim (HALF_COLS): out[i] only needs gate[i]=x[i] and
     # up[i]=x[d+i], so every [h:h+BLOCK_H] tile is self-contained -- no full-row resident,
     # which is what keeps large d (e.g. 33792) within UB. gate = first half, up = second half.
-    h_offs = tl.arange(0, BLOCK_H)
     for row_idx in range(row_begin, row_end):
         # int64 row offset: row_idx * stride stays int32 by default on triton-ascend
         # (no auto-promote), which overflows when N*d is large (e.g. N=32768, d=33792).
