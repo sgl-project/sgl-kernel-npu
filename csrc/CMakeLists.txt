@@ -36,11 +36,8 @@ set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmc_expand.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmc_shrink.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/tiling/sgemmc_tiling.cpp
-    ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/lightning_indexer.cpp
-    ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/tiling/lightning_indexer_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/compressor/op_host/compressor.cpp
     ${PROJECT_OP_SRC_BASE}/compressor/op_host/compressor_tiling.cpp
-    ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/causal_conv1d_update.cpp
     ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_host/apply_token_bitmask.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/sparse_attention_score.cpp
@@ -116,7 +113,6 @@ endif()
 set(WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/alloc_extend/op_kernel/alloc_extend_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/build_tree/op_kernel/build_tree_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_kernel/lightning_indexer_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/compressor/op_kernel/compressor.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel/causal_conv1d_update.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel/causal_conv1d.cpp
