@@ -134,14 +134,6 @@ ascendc_include_directories(workspace_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel
     ${PROJECT_OP_SRC_BASE}/compressor/op_kernel
     ${PROJECT_OP_SRC_BASE}/compressor/op_host
-)
-if(BUILD_CATLASS_MODULE)
-    ascendc_include_directories(workspace_kernel PRIVATE
-        ${CATLASS_DIR}/include
-    )
-endif()
-
-ascendc_include_directories(workspace_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/utils/kernel
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_kernel
 )
