@@ -150,7 +150,6 @@ __aicore__ inline void MoeV2SrcToDstWithCapacity<T, TilingData>::CopyOut(int64_t
         if (this->tokenCount < this->expertCapacity) {
             int32_t outOffset = inLocal.GetValue(idx);
             if (!(0 <= outOffset && outOffset < this->totalLength)) {
-                this->tokenCount++;
                 continue;
             }
             index = expertIdx * this->expertCapacity + this->tokenCount;
