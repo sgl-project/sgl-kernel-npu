@@ -156,6 +156,9 @@ __aicore__ inline void MoeV2GatherQuant<T>::CopyOut(int64_t progress)
                 if (outIndex < 0 || (this->dropPadMode == DROPLESS_MODE && outIndex >= this->activateRows)) {
                     continue;
                 }
+                if (!(0 <= outIndex && outIndex < this->activateRows)) {
+                    continue;
+                }
                 outOffset = outIndex * cols + colsLoop * this->perLoopCols;
                 DataCopyPad(expandedXGm[outOffset], outLocal, intriParams);
             }

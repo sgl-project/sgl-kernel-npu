@@ -2,6 +2,7 @@
 
 #include <cstring>
 #include <filesystem>
+#include <mutex>
 
 #include "exception.hpp"
 #include "profiling/core/profile_exporter.hpp"
@@ -11,6 +12,12 @@ namespace deep_ep::profiling::session {
 namespace {
 
 constexpr uint64_t kMaxBytesPerRank = 128ULL * 1024ULL * 1024ULL;
+
+std::mutex &SessionMutex()
+{
+    static std::mutex mutex;
+    return mutex;
+}
 
 ManagerSessionState &GetManagerSession()
 {
@@ -76,6 +83,8 @@ OpProfileSession &GetExistingOpSession(const char *opKey)
 
 }  // namespace
 
+#define DEEPEP_SESSION_LOCK() const std::lock_guard<std::mutex> sessionLock(SessionMutex())
+
 void ProfileTimeCalibration::Reset()
 {
     valid = false;
@@ -117,31 +126,37 @@ void ManagerSessionState::Reset()
 
 bool IsActive()
 {
+    const std::lock_guard<std::mutex> lock(SessionMutex());
     return GetManagerSession().active;
 }
 
 int64_t GetExpectedLaunches()
 {
+    const std::lock_guard<std::mutex> lock(SessionMutex());
     return GetManagerSession().expectedLaunches;
 }
 
 std::string GetProfileTraceDir()
 {
+    const std::lock_guard<std::mutex> lock(SessionMutex());
     return GetManagerSession().profileTraceDir;
 }
 
 int64_t GetNumProfileSkipLaunches()
 {
+    const std::lock_guard<std::mutex> lock(SessionMutex());
     return GetManagerSession().numProfileSkipLaunches;
 }
 
 int64_t GetNumProfileActiveLaunches()
 {
+    const std::lock_guard<std::mutex> lock(SessionMutex());
     return GetManagerSession().numProfileActiveLaunches;
 }
 
 const ProfileTimeCalibration *GetTimeCalibration(int64_t rank)
 {
+    const std::lock_guard<std::mutex> lock(SessionMutex());
     auto &manager = GetManagerSession();
     auto it = manager.rankCalibrations.find(rank);
     if (it == manager.rankCalibrations.end()) {
@@ -183,11 +198,12 @@ void Begin(int64_t numProfileSkipLaunches, int64_t numProfileActiveLaunches, con
     TORCH_CHECK(numProfileSkipLaunches >= 0, "num_profile_skip_launches must be non-negative");
     TORCH_CHECK(numProfileActiveLaunches >= 0, "num_profile_active_launches must be non-negative");
     TORCH_CHECK(numRanks > 0, "num_ranks must be positive for profile session.");
-    TORCH_CHECK(!GetManagerSession().active, "profile session is already active.");
     int64_t expectedLaunches = numProfileSkipLaunches + numProfileActiveLaunches;
     TORCH_CHECK(expectedLaunches > 0, "profile session needs at least one launch.");
     TORCH_CHECK(static_cast<uint64_t>(expectedLaunches) <= UINT32_MAX,
                 "profile session launch count exceeds uint32 capacity.");
+    const std::lock_guard<std::mutex> lock(SessionMutex());
+    TORCH_CHECK(!GetManagerSession().active, "profile session is already active.");
     auto &manager = GetManagerSession();
     manager.Reset();
     manager.active = true;
@@ -212,6 +228,7 @@ OpProfileSession &EnsureOpSession(const ProfileOpRegistration &registration, con
     TORCH_CHECK(registration.opKey != nullptr && registration.opKey[0] != '\0',
                 "profile registration opKey must be non-empty.");
     TORCH_CHECK(registration.schemaProvider != nullptr, "profile registration schemaProvider is required.");
+    const std::lock_guard<std::mutex> lock(SessionMutex());
     auto &manager = GetManagerSession();
     TORCH_CHECK(manager.active, "profile session is not active.");
     TORCH_CHECK(manager.expectedLaunches > 0, "profile session launch capacity is not set.");
@@ -253,41 +270,49 @@ OpProfileSession &EnsureOpSession(const ProfileOpRegistration &registration, con
 
 void IncrementCapturedLaunches(const char *opKey)
 {
+    DEEPEP_SESSION_LOCK();
     ++GetExistingOpSession(opKey).capturedLaunches;
 }
 
 void IncrementDroppedLaunches(const char *opKey)
 {
+    DEEPEP_SESSION_LOCK();
     ++GetExistingOpSession(opKey).droppedLaunches;
 }
 
 int64_t GetCapturedLaunches(const char *opKey)
 {
+    DEEPEP_SESSION_LOCK();
     return GetExistingOpSession(opKey).capturedLaunches;
 }
 
 int64_t GetDroppedLaunches(const char *opKey)
 {
+    DEEPEP_SESSION_LOCK();
     return GetExistingOpSession(opKey).droppedLaunches;
 }
 
 uint32_t GetLaunchCountCapacity(const char *opKey)
 {
+    DEEPEP_SESSION_LOCK();
     return GetExistingOpSession(opKey).launchCountCapacity;
 }
 
 uint64_t GetProfileBufferBytes(const char *opKey)
 {
+    DEEPEP_SESSION_LOCK();
     return GetExistingOpSession(opKey).profileBufferBytes;
 }
 
 const at::Tensor &GetProfileBuffer(const char *opKey)
 {
+    DEEPEP_SESSION_LOCK();
     return GetExistingOpSession(opKey).profileBuffer;
 }
 
 void UpdateBeginCalibration(int64_t rank, double deviceUs, double hostUs)
 {
+    DEEPEP_SESSION_LOCK();
     auto &calibration = GetManagerSession().rankCalibrations[rank];
     calibration.beginDeviceUs = deviceUs;
     calibration.beginHostUs = hostUs;
@@ -299,6 +324,7 @@ void UpdateBeginCalibration(int64_t rank, double deviceUs, double hostUs)
 
 void UpdateEndCalibration(int64_t rank, double deviceUs, double hostUs)
 {
+    DEEPEP_SESSION_LOCK();
     auto &calibration = GetManagerSession().rankCalibrations[rank];
     calibration.endDeviceUs = deviceUs;
     calibration.endHostUs = hostUs;
@@ -309,6 +335,7 @@ void UpdateEndCalibration(int64_t rank, double deviceUs, double hostUs)
 
 void ExportAndReset(int64_t rank)
 {
+    DEEPEP_SESSION_LOCK();
     auto &manager = GetManagerSession();
     if (!manager.active) {
         return;
@@ -338,7 +365,12 @@ void ExportAndReset(int64_t rank)
         manager.Reset();
         return;
     }
-    const auto *calibration = GetTimeCalibration(rank);
+    // Inline calibration lookup to avoid recursive lock (GetTimeCalibration also locks).
+    const ProfileTimeCalibration *calibration = nullptr;
+    auto calIt = manager.rankCalibrations.find(rank);
+    if (calIt != manager.rankCalibrations.end()) {
+        calibration = &calIt->second;
+    }
     exporter::ExportAggregatedTrace(sources, rank, manager.profileTraceDir, calibration, manager.numRanks);
     manager.Reset();
 }

@@ -8,6 +8,10 @@
 #define ACLNN_ERR_INNER_NULLPTR (-1)
 #endif
 
+#ifndef ACLNN_SUCCESS
+#define ACLNN_SUCCESS 0
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -50,6 +54,9 @@ aclnnStatus aclnnMoeLowLatencyDispatchV2GetWorkspaceSize(
         groupTp, tpWorldSize, tpRankId, expertShardType, sharedExpertNum, sharedExpertRankNum, quantMode, globalBs,
         expertTokenNumsType, commAlg, 0, 0, 0, expandXOut, dynamicScalesOut, assistInfoForCombineOut,
         expertTokenNumsOut, epRecvCountsOut, tpRecvCountsOut, workspaceSize, executor);
+    if (getWorkspaceSizesRes != ACLNN_SUCCESS || executor == nullptr || *executor == nullptr) {
+        return getWorkspaceSizesRes;
+    }
     if (NnopbaseSetHcclServerType) {
         if (std::strcmp(commAlg, "ccu") == 0) {
             NnopbaseSetHcclServerType(*executor, NNOPBASE_HCCL_SERVER_TYPE_CCU);

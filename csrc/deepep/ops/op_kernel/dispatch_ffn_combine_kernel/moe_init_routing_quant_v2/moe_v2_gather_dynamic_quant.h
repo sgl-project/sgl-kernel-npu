@@ -201,6 +201,9 @@ __aicore__ inline void MoeV2GatherDynamicQuant<T>::CopyOutXQuant1H(int64_t progr
         inputXOutQueue.FreeTensor(outLocal);
     }
     expandRowIdxInQueue.FreeTensor(indicesLocal);
+    if (smoothType == 1) {
+        smoothInQueue.FreeTensor(smoothLocal);
+    }
 }
 
 template <typename T>

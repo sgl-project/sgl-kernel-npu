@@ -219,6 +219,9 @@ __aicore__ inline void MoeV2SrcToDstAndGather<T, TilingData>::CopyOut(int64_t pr
     }
     for (int64_t idx = 0; idx < currentLoopRows; idx++) {
         int32_t expertIdx = inLocal[length].GetValue(idx);
+        if (!(0 <= expertIdx && expertIdx < this->expertNum)) {
+            continue;
+        }
         SetWaitFlag<HardEvent::S_MTE3>(HardEvent::S_MTE3);
         int32_t index = 0;
         while (this->lastExpertId < expertIdx) {
@@ -234,6 +237,10 @@ __aicore__ inline void MoeV2SrcToDstAndGather<T, TilingData>::CopyOut(int64_t pr
 
         if (this->tokenCount < this->expertCapacity) {
             int32_t outOffset = inLocal.GetValue(idx);
+            if (!(0 <= outOffset && outOffset < this->totalLength)) {
+                this->tokenCount++;
+                continue;
+            }
             index = expertIdx * this->expertCapacity + this->tokenCount;
             outLocal.SetValue(0, index);
             SetWaitFlag<HardEvent::S_MTE3>(HardEvent::S_MTE3);
@@ -382,6 +389,9 @@ __aicore__ inline void MoeV2SrcToDstAndGather<T, TilingData>::CopyOutLoops(int64
     }
     for (int64_t idx = 0; idx < currentLoopRows; idx++) {
         int32_t expertIdx = inLocal[length].GetValue(idx);
+        if (!(0 <= expertIdx && expertIdx < this->expertNum)) {
+            continue;
+        }
         SetWaitFlag<HardEvent::S_MTE3>(HardEvent::S_MTE3);
         int32_t index = 0;
         while (this->lastExpertId < expertIdx) {
@@ -407,6 +417,10 @@ __aicore__ inline void MoeV2SrcToDstAndGather<T, TilingData>::CopyOutLoops(int64
 
         if (this->tokenCount < this->expertCapacity) {
             int32_t outOffset = inLocal.GetValue(idx);
+            if (!(0 <= outOffset && outOffset < this->totalLength)) {
+                this->tokenCount++;
+                continue;
+            }
             index = expertIdx * this->expertCapacity + this->tokenCount;
             outLocal.SetValue(0, index);
             SetWaitFlag<HardEvent::S_MTE3>(HardEvent::S_MTE3);

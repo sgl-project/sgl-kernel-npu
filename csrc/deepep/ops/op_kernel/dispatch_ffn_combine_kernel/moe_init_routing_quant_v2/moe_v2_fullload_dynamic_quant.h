@@ -303,6 +303,9 @@ __aicore__ inline void MoeV2FullLoadDynamicQuant<T>::CopyOutXQuant1H()
             if (outIndex == -1 || (this->dropPadMode == DROPLESS_MODE && outIndex >= this->activateRows_)) {
                 continue;
             }
+            if (!(0 <= outIndex && outIndex < this->activateRows_)) {
+                continue;
+            }
             DataCopyPad(expandedXGm_[outIndex * this->cols_scale_], outLocal, intriParams);
         }
 

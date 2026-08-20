@@ -376,7 +376,9 @@ __aicore__ inline void MoeDistributeDispatchV2Single<TemplateMC2TypeA2SingleFunc
     }
     totalExpertNum_ = sharedExpertRankNum_ + moeExpertNum_;
     uint32_t statusBufCntAlign = Ceil(Ceil(totalExpertNum_, aivNum_), 8) * 8;  // 8 = UB_ALIGN / sizeof(int32_t)
-    tpipe_->InitBuffer(statusBuf_, statusBufCntAlign * UB_ALIGN);
+    uint32_t statusBufCnt =
+        (recvWinBlockNum_ > statusBufCntAlign) ? recvWinBlockNum_ : statusBufCntAlign;  // guard Duplicate overflow
+    tpipe_->InitBuffer(statusBuf_, statusBufCnt * UB_ALIGN);
     statusTensor_ = statusBuf_.Get<int32_t>();  // 保存发送数据量及flag，同时用于计算windows中的偏移
     Duplicate<int32_t>(statusTensor_, 0, recvWinBlockNum_ * 8);  // 8 = UB_ALIGN / sizeof(int32_t)
 
