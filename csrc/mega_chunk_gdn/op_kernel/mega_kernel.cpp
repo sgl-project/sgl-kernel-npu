@@ -41,10 +41,6 @@ using namespace pto;
 // ===================================================================
 #ifdef __CCE_AICORE__
 
-constexpr uint16_t SYNC_AIV_FLAG = 12;
-constexpr uint16_t SYNC_AIC_FLAG = 11;
-constexpr uint16_t SYNC_AIC_AIV_FLAG = 13;
-constexpr uint16_t SYNC_AIV_ONLY_ALL = 14;
 constexpr uint16_t SYNC_MODE_SHIFT_VALUE = 4;
 constexpr uint16_t SYNC_FLAG_SHIFT_VALUE = 8;
 
@@ -58,18 +54,18 @@ AICORE inline void SyncAllImpl()
 {
     pipe_barrier(PIPE_ALL);
     if constexpr (isAIVOnly) {
-        ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x0, SYNC_AIV_ONLY_ALL));
-        wait_flag_dev(SYNC_AIV_ONLY_ALL);
+        ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x0, pto::SYNC_AIV_ONLY_ALL));
+        wait_flag_dev(pto::SYNC_AIV_ONLY_ALL);
         return;
     }
 #if defined(__DAV_C220_CUBE__)
-    wait_flag_dev(SYNC_AIV_FLAG);
-    ffts_cross_core_sync(PIPE_FIX, GetffstMsg(0x0, SYNC_AIC_FLAG));
-    wait_flag_dev(SYNC_AIC_FLAG);
-    ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x02, SYNC_AIC_AIV_FLAG));
+    wait_flag_dev(pto::SYNC_AIV_FLAG);
+    ffts_cross_core_sync(PIPE_FIX, GetffstMsg(0x0, pto::SYNC_AIC_FLAG));
+    wait_flag_dev(pto::SYNC_AIC_FLAG);
+    ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x02, pto::SYNC_AIC_AIV_FLAG));
 #elif defined(__DAV_C220_VEC__)
-    ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x02, SYNC_AIV_FLAG));
-    wait_flag_dev(SYNC_AIC_AIV_FLAG);
+    ffts_cross_core_sync(PIPE_MTE3, GetffstMsg(0x02, pto::SYNC_AIV_FLAG));
+    wait_flag_dev(pto::SYNC_AIC_AIV_FLAG);
 #endif
 }
 
@@ -110,9 +106,9 @@ AICORE inline void mega_transpose_TH_to_HT(__gm__ T *src, __gm__ T *dst, int64_t
 
     using Gm2D = Shape<1, 1, 1, DYNAMIC, DYNAMIC>;
     using Gm1D = Shape<1, 1, 1, 1, DYNAMIC>;
-    using GmSrcS = Stride<1, 1, 1, H, 1>;
-    using GmHeadS = Stride<1, 1, 1, 1, H>;
-    using GmS1 = Stride<1, 1, 1, 1, 1>;
+    using GmSrcS = pto::Stride<1, 1, 1, H, 1>;
+    using GmHeadS = pto::Stride<1, 1, 1, 1, H>;
+    using GmS1 = pto::Stride<1, 1, 1, 1, 1>;
 
     if constexpr (H < MinTransposeCols) {
         int64_t num_tok_blocks = (T_len + BLOCK - 1) / BLOCK;
@@ -209,7 +205,7 @@ AICORE inline void mega_cast_fp32_to_fp16_bsnd(__gm__ float *src, __gm__ half *d
     using DstUB = Tile<TileType::Vec, half, 1, C, BLayout::RowMajor, 1, C, SLayout::NoneBox, 512>;
     using DynDstUB = Tile<TileType::Vec, half, 1, C, BLayout::RowMajor, DYNAMIC, DYNAMIC, SLayout::NoneBox, 512>;
     using Gm1D = Shape<1, 1, 1, 1, DYNAMIC>;
-    using GmS1 = Stride<1, 1, 1, 1, 1>;
+    using GmS1 = pto::Stride<1, 1, 1, 1, 1>;
 
     SrcUB src_ub;
     TASSIGN(src_ub, F32_UB);

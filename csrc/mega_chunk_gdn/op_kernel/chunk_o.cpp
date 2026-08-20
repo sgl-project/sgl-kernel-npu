@@ -372,7 +372,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                 _gs.shape[3] = HiddenSize;
                 _gs.shape[4] = HiddenSize;
-                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, HiddenSize, 1>> _gm(S_handle + s_offset, _gs);
+                GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, HiddenSize, 1>> _gm(S_handle + s_offset, _gs);
                 TLOAD(_l1, _gm);
             }
 
@@ -406,7 +406,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                 _gs.shape[3] = ChunkSize;
                 _gs.shape[4] = ChunkSize;
-                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, ChunkSize, 1>> _gm(
+                GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, ChunkSize, 1>> _gm(
                     workspace_qk_handle + static_cast<int64_t>(cid) * WsQKSize, _gs);
                 TSTORE(_gm, _l0);
             }
@@ -418,7 +418,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                 _gs.shape[3] = ChunkSize;
                 _gs.shape[4] = HiddenSize;
-                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, HiddenSize, 1>> _gm(
+                GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, HiddenSize, 1>> _gm(
                     workspace_qs_qkv_handle + static_cast<int64_t>(cid) * WsQSSize, _gs);
                 TSTORE(_gm, _l0);
             }
@@ -454,7 +454,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                 _gs.shape[3] = ChunkSize;
                 _gs.shape[4] = ChunkSize;
-                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, ChunkSize, 1>> _gm(
+                GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, ChunkSize, 1>> _gm(
                     workspace_qk_gated_handle + static_cast<int64_t>(cid) * WsGatedSize, _gs);
                 TLOAD(_l1, _gm);
             }
@@ -465,7 +465,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                 _gs.shape[3] = valid_rows;
                 _gs.shape[4] = HiddenSize;
-                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, BSND_V_STRIDE, 1>> _gm(V_handle + v_off, _gs);
+                GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, BSND_V_STRIDE, 1>> _gm(V_handle + v_off, _gs);
                 TLOAD(_l1, _gm);
                 if (valid_rows != ChunkSize) TFILLPAD(_l1, _l1);
             }
@@ -507,7 +507,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                 _gs.shape[3] = ChunkSize;
                 _gs.shape[4] = HiddenSize;
-                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, HiddenSize, 1>> _gm(
+                GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, HiddenSize, 1>> _gm(
                     workspace_qs_qkv_handle + static_cast<int64_t>(cid) * WsQSSize, _gs);
                 TSTORE(_gm, _l0);
             }
@@ -600,7 +600,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                             Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                             _gs.shape[3] = HiddenSize;
                             _gs.shape[4] = HiddenSize;
-                            GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, HiddenSize, 1>> _gm(S_handle + s_offset,
+                            GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, HiddenSize, 1>> _gm(S_handle + s_offset,
                                                                                                   _gs);
                             TLOAD(_l1, _gm);
                         }
@@ -634,7 +634,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                             Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                             _gs.shape[3] = ChunkSize;
                             _gs.shape[4] = ChunkSize;
-                            GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, ChunkSize, 1>> _gm(
+                            GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, ChunkSize, 1>> _gm(
                                 workspace_qk_handle + static_cast<int64_t>(cid) * WsQKSize, _gs);
                             TSTORE(_gm, _l0);
                         }
@@ -646,7 +646,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                             Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                             _gs.shape[3] = ChunkSize;
                             _gs.shape[4] = HiddenSize;
-                            GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, HiddenSize, 1>> _gm(
+                            GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, HiddenSize, 1>> _gm(
                                 workspace_qs_qkv_handle + static_cast<int64_t>(cid) * WsQSSize, _gs);
                             TSTORE(_gm, _l0);
                         }
@@ -667,7 +667,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                             Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                             _gs.shape[3] = ChunkSize;
                             _gs.shape[4] = ChunkSize;
-                            GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, ChunkSize, 1>> _gm(
+                            GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, ChunkSize, 1>> _gm(
                                 workspace_qk_gated_handle + static_cast<int64_t>(cid) * WsGatedSize, _gs);
                             TLOAD(_l1, _gm);
                         }
@@ -678,7 +678,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                             Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                             _gs.shape[3] = valid_rows;
                             _gs.shape[4] = HiddenSize;
-                            GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, BSND_V_STRIDE, 1>> _gm(V_handle + v_off,
+                            GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, BSND_V_STRIDE, 1>> _gm(V_handle + v_off,
                                                                                                      _gs);
                             TLOAD(_l1, _gm);
                             if (valid_rows != ChunkSize) TFILLPAD(_l1, _l1);
@@ -712,7 +712,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                             Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                             _gs.shape[3] = ChunkSize;
                             _gs.shape[4] = HiddenSize;
-                            GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, HiddenSize, 1>> _gm(
+                            GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, HiddenSize, 1>> _gm(
                                 workspace_qs_qkv_handle + static_cast<int64_t>(cid) * WsQSSize, _gs);
                             TSTORE(_gm, _l0);
                         }
@@ -755,7 +755,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
         Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
         _gs.shape[3] = HalfChunk;
         _gs.shape[4] = ChunkSize;
-        GlobalTensor<float, decltype(_gs), Stride<1, 1, 1, ChunkSize, 1>> _gm(
+        GlobalTensor<float, decltype(_gs), pto::Stride<1, 1, 1, ChunkSize, 1>> _gm(
             Msk_handle + static_cast<int64_t>(vid) * HalfChunk * ChunkSize, _gs);
         UbND<float, HalfChunk, ChunkSize, DYNAMIC, DYNAMIC, PadValue::Zero> _ld(HalfChunk, ChunkSize);
         TASSIGN(_ld, MskUbAddr);
@@ -793,7 +793,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                     Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                     _gs.shape[3] = 1;
                     _gs.shape[4] = valid_rows;
-                    GlobalTensor<float, decltype(_gs), Stride<1, 1, 1, 1, 1>> _gm(
+                    GlobalTensor<float, decltype(_gs), pto::Stride<1, 1, 1, 1, 1>> _gm(
                         G_handle + static_cast<int64_t>(head_idx) * total_tokens + chunk_token_start, _gs);
                     UbND<float, 1, ChunkSize, DYNAMIC, DYNAMIC, PadValue::Zero> _ld(1, valid_rows);
                     TASSIGN(_ld, GUbAddr);
@@ -858,7 +858,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                 _gs.shape[3] = local_rows;
                 _gs.shape[4] = ChunkSize;
-                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, ChunkSize, 1>> _gm(
+                GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, ChunkSize, 1>> _gm(
                     workspace_qk_handle + static_cast<int64_t>(cid) * WsQKSize +
                         static_cast<int64_t>(vid) * HalfChunk * ChunkSize,
                     _gs);
@@ -882,7 +882,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                 _gs.shape[3] = local_rows;
                 _gs.shape[4] = HiddenSize;
-                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, HiddenSize, 1>> _gm(
+                GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, HiddenSize, 1>> _gm(
                     workspace_qs_qkv_handle + static_cast<int64_t>(cid) * WsQSSize +
                         static_cast<int64_t>(vid) * HalfChunk * HiddenSize,
                     _gs);
@@ -905,7 +905,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                 _gs.shape[3] = local_rows;
                 _gs.shape[4] = ChunkSize;
-                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, ChunkSize, 1>> _gm(
+                GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, ChunkSize, 1>> _gm(
                     workspace_qk_gated_handle + static_cast<int64_t>(cid) * WsGatedSize +
                         static_cast<int64_t>(vid) * HalfChunk * ChunkSize,
                     _gs);
@@ -941,7 +941,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                 _gs.shape[3] = local_rows;
                 _gs.shape[4] = HiddenSize;
-                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, HiddenSize, 1>> _gm(
+                GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, HiddenSize, 1>> _gm(
                     workspace_qs_qkv_handle + static_cast<int64_t>(cid) * WsQSSize +
                         static_cast<int64_t>(vid) * HalfChunk * HiddenSize,
                     _gs);
@@ -977,7 +977,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                 _gs.shape[3] = local_rows;
                 _gs.shape[4] = HiddenSize;
-                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, BSND_V_STRIDE, 1>> _gm(O_handle + o_offset, _gs);
+                GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, BSND_V_STRIDE, 1>> _gm(O_handle + o_offset, _gs);
                 UbND<half, HalfChunk, HiddenSize, DYNAMIC, DYNAMIC> _st(local_rows, HiddenSize);
                 TASSIGN(_st, OHalfUbAddr);
                 TSTORE(_gm, _st);
@@ -1014,7 +1014,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                                 _gs.shape[3] = 1;
                                 _gs.shape[4] = valid_rows;
-                                GlobalTensor<float, decltype(_gs), Stride<1, 1, 1, 1, 1>> _gm(
+                                GlobalTensor<float, decltype(_gs), pto::Stride<1, 1, 1, 1, 1>> _gm(
                                     G_handle + static_cast<int64_t>(head_idx) * total_tokens + chunk_token_start, _gs);
                                 UbND<float, 1, ChunkSize, DYNAMIC, DYNAMIC, PadValue::Zero> _ld(1, valid_rows);
                                 TASSIGN(_ld, GUbAddr);
@@ -1063,7 +1063,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                                 _gs.shape[3] = local_rows;
                                 _gs.shape[4] = ChunkSize;
-                                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, ChunkSize, 1>> _gm(
+                                GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, ChunkSize, 1>> _gm(
                                     workspace_qk_handle + static_cast<int64_t>(cid) * WsQKSize +
                                         static_cast<int64_t>(vid) * HalfChunk * ChunkSize,
                                     _gs);
@@ -1088,7 +1088,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                                 _gs.shape[3] = local_rows;
                                 _gs.shape[4] = HiddenSize;
-                                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, HiddenSize, 1>> _gm(
+                                GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, HiddenSize, 1>> _gm(
                                     workspace_qs_qkv_handle + static_cast<int64_t>(cid) * WsQSSize +
                                         static_cast<int64_t>(vid) * HalfChunk * HiddenSize,
                                     _gs);
@@ -1111,7 +1111,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                                 _gs.shape[3] = local_rows;
                                 _gs.shape[4] = ChunkSize;
-                                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, ChunkSize, 1>> _gm(
+                                GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, ChunkSize, 1>> _gm(
                                     workspace_qk_gated_handle + static_cast<int64_t>(cid) * WsGatedSize +
                                         static_cast<int64_t>(vid) * HalfChunk * ChunkSize,
                                     _gs);
@@ -1143,7 +1143,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                                 _gs.shape[3] = local_rows;
                                 _gs.shape[4] = HiddenSize;
-                                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, HiddenSize, 1>> _gm(
+                                GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, HiddenSize, 1>> _gm(
                                     workspace_qs_qkv_handle + static_cast<int64_t>(cid) * WsQSSize +
                                         static_cast<int64_t>(vid) * HalfChunk * HiddenSize,
                                     _gs);
@@ -1177,7 +1177,7 @@ static inline AICORE void chunk_o_kernel(__gm__ half *Q_handle, __gm__ half *K_h
                                 Shape<1, 1, 1, DYNAMIC, DYNAMIC> _gs;
                                 _gs.shape[3] = local_rows;
                                 _gs.shape[4] = HiddenSize;
-                                GlobalTensor<half, decltype(_gs), Stride<1, 1, 1, BSND_V_STRIDE, 1>> _gm(
+                                GlobalTensor<half, decltype(_gs), pto::Stride<1, 1, 1, BSND_V_STRIDE, 1>> _gm(
                                     O_handle + o_offset, _gs);
                                 UbND<half, HalfChunk, HiddenSize, DYNAMIC, DYNAMIC> _st(local_rows, HiddenSize);
                                 TASSIGN(_st, OHalfUbAddr);
