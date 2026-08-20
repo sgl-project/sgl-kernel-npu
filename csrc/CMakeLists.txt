@@ -148,8 +148,7 @@ if(SGL_KERNEL_ENABLE_A5_COMPRESSOR)
     ascendc_compile_options(compressor_kernel PRIVATE
         --cce-auto-sync=off
         -Wno-deprecated-declarations
-        -mllvm -cce-aicore-hoist-movemask=false
-        --op_relocatable_kernel_binary=true)
+        -mllvm -cce-aicore-hoist-movemask=false)
     set(COMPRESSOR_KERNEL_TARGETS compressor_kernel)
 else()
     list(APPEND WORKSPACE_KERNEL_SRCS
