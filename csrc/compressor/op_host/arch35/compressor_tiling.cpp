@@ -30,23 +30,24 @@ void DlogRecord(int32_t moduleId, int32_t level, const char *fmt, ...) __attribu
 void DlogFlush(void);
 }
 
-#define OP_LOGE(opName, ...)                                              \
+#define OP_LOGE(opName, format, ...)                                      \
     do {                                                                  \
         fprintf(stderr, "[compressor][%s] ", (opName));                   \
-        fprintf(stderr, __VA_ARGS__);                                     \
-        fprintf(stderr, "\\n");                                            \
-        if (DlogRecord) {                                                 \
-            DlogRecord(63, 3, "[compressor][%s] " __VA_ARGS__, (opName)); \
-            DlogFlush();                                                  \
-        }                                                                 \
+        fprintf(stderr, format, ##__VA_ARGS__);                            \
+        fprintf(stderr, "\n");                                             \
+        if (DlogRecord) {                                                  \
+            DlogRecord(63, 3, "[compressor][%s] " format, (opName),       \
+                       ##__VA_ARGS__);                                    \
+            DlogFlush();                                                   \
+        }                                                                  \
     } while (0)
-#define OPS_REPORT_VECTOR_INNER_ERR(op, msg)                       \
-    do {                                                           \
-        fprintf(stderr, "[compressor][%s] %s\\n", (op), (msg));     \
-        if (DlogRecord) {                                          \
-            DlogRecord(63, 3, "[compressor][%s] %s", (op), (msg)); \
-            DlogFlush();                                           \
-        }                                                          \
+#define OPS_REPORT_VECTOR_INNER_ERR(op, msg)                        \
+    do {                                                            \
+        fprintf(stderr, "[compressor][%s] %s\n", (op), (msg));      \
+        if (DlogRecord) {                                           \
+            DlogRecord(63, 3, "[compressor][%s] %s\n", (op), (msg)); \
+            DlogFlush();                                            \
+        }                                                           \
     } while (0)
 #define OP_CHECK_IF(cond, logExpr, returnExpr) \
     if (cond) {                                \
