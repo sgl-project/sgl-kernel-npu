@@ -6,6 +6,13 @@ set(OP_PLUGIN_NAME sgl_kernel_npu)
 
 # --- SOC_VERSION ARCH mapping ------
 string(TOLOWER "${SOC_VERSION}" _sgl_soc_lower)
+if(_sgl_soc_lower MATCHES "^ascend950")
+    set(SGL_KERNEL_ENABLE_A5_COMPRESSOR ON)
+    add_compile_definitions(SGL_KERNEL_ENABLE_A5_COMPRESSOR)
+else()
+    set(SGL_KERNEL_ENABLE_A5_COMPRESSOR OFF)
+endif()
+message(STATUS "SGL_KERNEL_ENABLE_A5_COMPRESSOR=${SGL_KERNEL_ENABLE_A5_COMPRESSOR} (SOC=${SOC_VERSION})")
 if(NOT DEFINED SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     if(_sgl_soc_lower MATCHES "^ascend950")
         set(SGL_KERNEL_ENABLE_A3_ONLY_OPS OFF)
@@ -37,13 +44,19 @@ set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmc_shrink.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/tiling/sgemmc_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/compressor/op_host/compressor.cpp
-    ${PROJECT_OP_SRC_BASE}/compressor/op_host/compressor_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/causal_conv1d_update.cpp
     ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_host/apply_token_bitmask.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv_metadata/op_host/sparse_attn_sharedkv_metadata.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/sparse_attention_score.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling/sparse_attention_score_tiling.cpp
     )
+if(SGL_KERNEL_ENABLE_A5_COMPRESSOR)
+    list(APPEND OP_SRCS
+        ${PROJECT_OP_SRC_BASE}/compressor/op_host/arch35/compressor_tiling.cpp)
+else()
+    list(APPEND OP_SRCS
+        ${PROJECT_OP_SRC_BASE}/compressor/op_host/compressor_tiling.cpp)
+endif()
 # A3-only host sources
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     list(APPEND OP_SRCS
@@ -116,13 +129,32 @@ endif()
 set(WORKSPACE_KERNEL_SRCS
     ${PROJECT_OP_SRC_BASE}/alloc_extend/op_kernel/alloc_extend_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/build_tree/op_kernel/build_tree_kernel.cpp
-    ${PROJECT_OP_SRC_BASE}/compressor/op_kernel/compressor.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel/causal_conv1d_update.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel/causal_conv1d.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmc_expand_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_kernel/sgemmc_shrink_kernel.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_kernel/sparse_attention_score.cpp
 )
+set(COMPRESSOR_KERNEL_TARGETS)
+if(SGL_KERNEL_ENABLE_A5_COMPRESSOR)
+    ascendc_library(compressor_kernel STATIC
+        ${PROJECT_OP_SRC_BASE}/compressor/op_kernel/compressor_a5.cpp)
+    ascendc_include_directories(compressor_kernel PRIVATE
+        ${PROJECT_OP_SRC_BASE}/compressor/op_kernel
+        ${PROJECT_OP_SRC_BASE}/compressor/op_kernel/arch35)
+    ascendc_compile_definitions(compressor_kernel PRIVATE
+        -DHAVE_WORKSPACE
+        -DHAVE_TILING)
+    ascendc_compile_options(compressor_kernel PRIVATE
+        --cce-auto-sync=off
+        -Wno-deprecated-declarations
+        -mllvm -cce-aicore-hoist-movemask=false
+        --op_relocatable_kernel_binary=true)
+    set(COMPRESSOR_KERNEL_TARGETS compressor_kernel)
+else()
+    list(APPEND WORKSPACE_KERNEL_SRCS
+        ${PROJECT_OP_SRC_BASE}/compressor/op_kernel/compressor.cpp)
+endif()
 # A3-only workspace kernels (causal_conv1d kernel is intentionally always-built)
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     list(APPEND WORKSPACE_KERNEL_SRCS
@@ -213,6 +245,7 @@ add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${A3_ONLY_KERNEL_TARGETS}
         workspace_kernel
+        ${COMPRESSOR_KERNEL_TARGETS}
         no_workspace_kernel
         ${CATLASS_WORKSPACE_KERNEL_TARGETS}
         torch_npu
