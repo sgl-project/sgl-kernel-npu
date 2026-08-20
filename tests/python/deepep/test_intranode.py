@@ -351,9 +351,16 @@ def test_main(
             dispatch_quant_mode not in ("bf16", "int8", None)
             and current_x is x_pure_rand
         )
+        iter_quant = dispatch_quant_mode if current_x is x_pure_rand else "bf16"
+        if iter_quant is None:
+            iter_quant = (
+                "int8"
+                if os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+                else "bf16"
+            )
         if local_rank == 0:
             print(
-                f'[testing] Running with {"FP8" if use_fp8 else "BF16"}, with top-k {num_topk} ...',
+                f'[testing] Running with {"FP8" if use_fp8 else iter_quant.upper()}, with top-k {num_topk} ...',
                 flush=True,
             )
         dispatch_args = {
@@ -433,7 +440,7 @@ def test_main(
         max_diff = torch.max(torch.abs(check_x - golden) / golden_nozero).item()
         avg_diff = torch.mean(torch.abs(check_x - golden) / golden_nozero).item()
         print(f"{rank=}, {avg_diff=:.8f}, {max_diff=:.8f}, cosine_diff={diff:.8f}")
-        diff_threshold = get_diff_threshold(quant_type)
+        diff_threshold = get_diff_threshold(iter_quant)
         assert diff < diff_threshold, f"Error: {diff=}, {diff_threshold=}"
 
         # For later tuning
@@ -457,6 +464,7 @@ def test_main(
         "num_tokens_per_expert": ref_num_tokens_per_expert,
         "topk_idx": topk_idx,
         "topk_weights": topk_weights,
+        "quant_mode": "bf16",
     }
     t = bench(lambda: buffer.dispatch(**tune_args_bf16))[0]
     if local_rank == 0:
@@ -618,8 +626,9 @@ if __name__ == "__main__":
         "--quant-type",
         dest="quant_type",
         type=str,
-        default="bf16",
-        help="quant type: bf16, int8, mx_fp8_e4m3, mx_fp8_e5m2, pertoken_fp8_e4m3, mx_fp4_e2m1",
+        default=None,
+        help="quant type: None (use DEEP_NORMAL_MODE_USE_INT8_QUANT env var), bf16, int8, "
+        "mx_fp8_e4m3, mx_fp8_e5m2, pertoken_fp8_e4m3, mx_fp4_e2m1",
     )
     args = parser.parse_args()
 

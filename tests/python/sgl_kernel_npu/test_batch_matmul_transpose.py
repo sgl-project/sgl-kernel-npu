@@ -6,6 +6,9 @@ import numpy as np
 import sgl_kernel_npu
 import torch
 import torch_npu
+from utils import require_npu_op
+
+pytestmark = require_npu_op("batch_matmul_transpose")
 
 torch.set_printoptions(threshold=float("inf"))
 

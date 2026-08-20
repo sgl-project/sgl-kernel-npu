@@ -2,8 +2,13 @@ import argparse
 from dataclasses import dataclass
 from typing import Iterable, Optional
 
+import sgl_kernel_npu  # noqa: F401  registers npu ops before pytestmark
 import torch
 import torch.nn.functional as F
+import torch_npu  # noqa: F401  makes torch.ops.npu namespace available
+from utils import require_npu_op
+
+pytestmark = require_npu_op("causal_conv1d")
 
 PAD_SLOT_ID = -1
 
@@ -387,12 +392,6 @@ def main():
     parser.add_argument("--seed", type=int, default=20260326)
     parser.add_argument("--pad-slot-id", type=int, default=PAD_SLOT_ID)
     args = parser.parse_args()
-
-    try:
-        import sgl_kernel_npu  # noqa: F401
-        import torch_npu  # noqa: F401
-    except ImportError as exc:  # noqa: BLE001
-        raise SystemExit(f"Import failed: {exc}") from exc
 
     if not hasattr(torch.ops.npu, "causal_conv1d"):
         raise SystemExit("torch.ops.npu.causal_conv1d is not registered")

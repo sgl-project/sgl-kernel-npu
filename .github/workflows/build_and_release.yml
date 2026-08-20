@@ -24,9 +24,13 @@ jobs:
     strategy:
       matrix:
         arch: [x86_64, aarch64]
-        npu_hardware: [910b, a3]
-        cann_version: [8.5.0, 9.0.0]
-        torch_version: [2.8.0, 2.10.0]
+        npu_hardware: [910b, a3, 950]
+
+        exclude:
+           - npu_hardware: 950
+             cann_version: 9.0.0
+        cann_version: [9.0.0, 9.1.0]
+        torch_version: [2.10.0]
         # Ref: https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
         include:
           - arch: x86_64
@@ -35,7 +39,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     container:
-      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.11
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
 
     steps:
       - name: Checkout repository
@@ -49,13 +53,20 @@ jobs:
 
       - name: Install dependency
         run: |
-          bash scripts/npu_ci_install_dependency.sh --torch-version ${{ matrix.torch_version }}
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
 
       - name: Build SGL-Kernel-NPU
         run: |
           env -i PATH=${PATH} bash --login -c "
             export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
             ./build.sh -a kernels
+          "
+
+      - name: Build Attentions
+        run: |
+          env -i PATH=${PATH} bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+            ./build.sh -a attentions
           "
 
       - name: Build Torch-Memory-Saver
@@ -81,6 +92,13 @@ jobs:
             ./build.sh -a deepep
           "
 
+      - name: Build DeepEP for 950
+        if: matrix.npu_hardware == '950'
+        run: |
+          env -i PATH=${PATH} bash --login -c "
+            export LD_LIBRARY_PATH=${ASCEND_HOME_PATH}/runtime/lib64/stub:${LD_LIBRARY_PATH} && \
+            ./build.sh -a deepep Ascend950
+          "
       - name: Pack up packages
         run: |
           export TORCH_DEVICE_BACKEND_AUTOLOAD=0
@@ -108,8 +126,12 @@ jobs:
     strategy:
       matrix:
         arch: [ x86_64, aarch64 ]
-        npu_hardware: [ 910b, a3 ]
-        cann_version: [ 9.0.0 ]
+        npu_hardware: [ 910b, a3, 950 ]
+        exclude:
+          - npu_hardware: 950
+            cann_version: 9.0.0
+
+        cann_version: [ 9.0.0, 9.1.0 ]
         torch_version: [ 2.10.0 ]
         # Ref: https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
         include:
@@ -119,7 +141,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     container:
-      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.11
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
 
     steps:
       - name: Checkout repository
@@ -131,7 +153,7 @@ jobs:
 
       - name: Install dependency
         run: |
-          bash scripts/npu_ci_install_dependency.sh --torch-version ${{ matrix.torch_version }}
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
 
       - name: Debug tag info
         if: github.event_name == 'release'
@@ -163,6 +185,18 @@ jobs:
             bash build.sh --pkg --experimental --soc=ascend910b --ops=\"sparse_attn_sharedkv,sparse_attn_sharedkv_metadata,quant_lightning_indexer,quant_lightning_indexer_metadata,compressor\"
           "
 
+      - name: Build ops-transformer for 950
+        if: matrix.npu_hardware == '950'
+        run: |
+          cd ../
+          git clone https://gitcode.com/cann/ops-transformer.git
+          cd ops-transformer
+          git checkout bcc6304
+          env -i PATH=${PATH} bash --login -c "
+            pip install packaging
+            bash build.sh --pkg --experimental --soc=ascend950 --ops=\"quant_lightning_indexer,quant_lightning_indexer_metadata,compressor,kv_quant_sparse_attn_sharedkv,kv_quant_sparse_attn_sharedkv_metadata,kv-compressor_epilog,hc_post,inplace_partial_rotary_mul,indexer_compress_epilog,moe_gating_top_k\"
+          "
+
       - name: Pack up packages
         run: |
           PACKAGE_NAME="ops-transformer-${{ github.event.release.tag_name }}-torch${{ matrix.torch_version }}-cann${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-${{ matrix.arch }}.zip"
@@ -187,8 +221,11 @@ jobs:
     strategy:
       matrix:
         arch: [ x86_64, aarch64 ]
-        npu_hardware: [ 910b, a3 ]
-        cann_version: [ 9.0.0 ]
+        npu_hardware: [ 910b, a3, 950 ]
+        exclude:
+          - npu_hardware: 950
+            cann_version: 9.0.0
+        cann_version: [ 9.0.0, 9.1.0 ]
         torch_version: [ 2.10.0 ]
         # Ref: https://docs.github.com/en/actions/reference/runners/github-hosted-runners#standard-github-hosted-runners-for-public-repositories
         include:
@@ -198,7 +235,7 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     container:
-      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py3.11
+      image: quay.io/ascend/cann:${{ matrix.cann_version }}-${{ matrix.npu_hardware }}-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
 
     steps:
       - name: Checkout repository
@@ -210,7 +247,7 @@ jobs:
 
       - name: Install dependency
         run: |
-          bash scripts/npu_ci_install_dependency.sh --torch-version ${{ matrix.torch_version }}
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
 
       - name: Debug tag info
         if: github.event_name == 'release'
@@ -253,6 +290,23 @@ jobs:
           env -i PATH=${PATH} bash --login -c "
             cd ops/ascendc
             bash build.sh -c \"ascend910b\"
+          "
+
+      - name: Build cann-custom for 950
+        if: matrix.npu_hardware == '950'
+        run: |
+          cd ../
+          git clone https://gitcode.com/cann/cann-recipes-infer.git
+          cd cann-recipes-infer
+          git checkout 35a476c
+          env -i PATH=${PATH} bash --login -c "
+            cd ops/ascendc/torch_ops_extension
+            pip install ninja
+            bash build_and_install.sh
+          "
+          env -i PATH=${PATH} bash --login -c "
+            cd ops/ascendc
+            bash build.sh -c \"ascend950\"
           "
 
       - name: Pack up packages

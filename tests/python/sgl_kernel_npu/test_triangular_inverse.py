@@ -6,6 +6,9 @@ import pytest
 import sgl_kernel_npu
 import torch
 import torch_npu
+from utils import require_npu_op
+
+pytestmark = require_npu_op("triangular_inverse")
 
 random.seed(42)
 np.random.seed(42)

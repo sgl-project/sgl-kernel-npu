@@ -189,24 +189,35 @@ static bool CheckTensorDataType(gert::TilingContext *context, const char *nodeNa
     return true;
 }
 
-static bool CheckTensorShape(gert::TilingContext *context, const char *nodeName)
+static bool CheckTensorShape(gert::TilingContext *context, const char *nodeName,
+                             const DispatchLayoutTilingData &tilingData)
 {
     const gert::StorageShape *topkIdxStorageShape = context->GetInputShape(INPUT_TOPK_IDX_INDEX);
+    OP_TILING_CHECK(topkIdxStorageShape == nullptr, OP_LOGE(nodeName, "topkIdxStorageShape is null."), return false);
 
-    OP_TILING_CHECK((topkIdxStorageShape->GetStorageShape().GetDimNum() != TWO_DIMS),
-                    OP_LOGE(nodeName, "topkIdx must be 2-dimension, but get %lu dim.",
-                            topkIdxStorageShape->GetStorageShape().GetDimNum()),
+    const auto &topkIdxShape = topkIdxStorageShape->GetStorageShape();
+    OP_TILING_CHECK((topkIdxShape.GetDimNum() != TWO_DIMS),
+                    OP_LOGE(nodeName, "topkIdx must be 2-dimension, but get %lu dim.", topkIdxShape.GetDimNum()),
+                    return false);
+    OP_TILING_CHECK((topkIdxShape.GetDim(0) != tilingData.dispatchLayoutInfo.numTokens),
+                    OP_LOGE(nodeName, "topkIdx dim0 must equal numTokens, but got dim0=%ld, numTokens=%u.",
+                            topkIdxShape.GetDim(0), tilingData.dispatchLayoutInfo.numTokens),
+                    return false);
+    OP_TILING_CHECK((topkIdxShape.GetDim(1) != tilingData.dispatchLayoutInfo.numTopk),
+                    OP_LOGE(nodeName, "topkIdx dim1 must equal numTopk, but got dim1=%ld, numTopk=%u.",
+                            topkIdxShape.GetDim(1), tilingData.dispatchLayoutInfo.numTopk),
                     return false);
 
     return true;
 }
 
-static ge::graphStatus TilingCheckTensor(gert::TilingContext *context, const char *nodeName)
+static ge::graphStatus TilingCheckTensor(gert::TilingContext *context, const char *nodeName,
+                                         const DispatchLayoutTilingData &tilingData)
 {
     OP_TILING_CHECK(!CheckTensorDataType(context, nodeName), OP_LOGE(nodeName, "params dataType is invalid."),
                     return ge::GRAPH_FAILED);
 
-    OP_TILING_CHECK(!CheckTensorShape(context, nodeName), OP_LOGE(nodeName, "params dataType is invalid."),
+    OP_TILING_CHECK(!CheckTensorShape(context, nodeName, tilingData), OP_LOGE(nodeName, "params shape is invalid."),
                     return ge::GRAPH_FAILED);
 
     return ge::GRAPH_SUCCESS;
@@ -222,12 +233,14 @@ static ge::graphStatus DispatchLayoutTilingFuncImpl(gert::TilingContext *context
     OP_TILING_CHECK(GetAttrAndSetTilingData(context, nodeName, *tilingData) != ge::GRAPH_SUCCESS,
                     OP_LOGE(nodeName, "Get attr and set tiling data failed."), return ge::GRAPH_FAILED);
 
-    OP_TILING_CHECK(TilingCheckTensor(context, nodeName) != ge::GRAPH_SUCCESS,
+    OP_TILING_CHECK(TilingCheckTensor(context, nodeName, *tilingData) != ge::GRAPH_SUCCESS,
                     OP_LOGE(nodeName, "Tiling check param failed."), return ge::GRAPH_FAILED);
 
     OP_TILING_CHECK(SetWorkSpace(context, nodeName) != ge::GRAPH_SUCCESS,
                     OP_LOGE(nodeName, "Tiling set workspace failed."), return ge::GRAPH_FAILED);
 
+    // A3 and A5 share the generic multi-round DispatchLayout kernel.
+    // A2 uses its dedicated DispatchLayoutA2 kernel.
     int tilingKey = TILING_KEY_INT;
     if (CheckIfA2Machine(context)) {
         tilingKey = tilingKey + TILING_KEY_A2_TYPE;

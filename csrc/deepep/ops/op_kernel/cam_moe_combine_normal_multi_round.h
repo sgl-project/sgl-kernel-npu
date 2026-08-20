@@ -13,7 +13,11 @@ constexpr uint32_t TOKEN_IDX_OFFSET_IN_SRC_INFO = 1U;
 constexpr uint32_t TOPK_IDX_OFFSET_IN_SRC_INFO = 2U;
 constexpr uint64_t STATE_WIN_SIZE = 4UL * 1024UL * 1024UL;
 constexpr uint64_t STATE_WIN_SIZE_HALF = STATE_WIN_SIZE / 2;
+#ifdef __DAV_C310__
+constexpr uint64_t MAGIC_WIN_OFFSET = 1100UL * 1024UL;
+#else
 constexpr uint64_t MAGIC_WIN_OFFSET = 975UL * 1024UL;
+#endif
 constexpr uint64_t ROUND_STATE_OFFSET = Moe::BASE_ROUND_STATE_OFFSET + Moe::ROUND_STATE_MAX_SIZE * 2UL;  // 458*1024
 constexpr uint32_t TOKEN_SRC_INFO_LEN = 3U;
 constexpr uint32_t UB_32_ALIGN = 32U;
@@ -63,19 +67,15 @@ private:
     __aicore__ inline void SetStatusBySrcInfo(uint32_t srcRankId, uint32_t srcTokenId, uint32_t srcTopkId);
     __aicore__ inline void ReadBufferAndWeightedSum(uint32_t recvXTokenIdx, uint32_t topkWeightTokenIdx);
     __aicore__ inline void InitRoundSendData();
+    __aicore__ inline void InitTokenBalancedRoundSendDataA5();
     __aicore__ inline void SetRoundStatus();
     __aicore__ inline void WaitRoundStatus();
     __aicore__ inline void InitRoundRecvData();
 
     __aicore__ GM_ADDR GetStateAddrByRankId(const int32_t rankId)
     {
-        GM_ADDR bufferAddr;
-        if (epRankId_ == rankId) {
-            bufferAddr = (GM_ADDR)epWinContext_->localWindowsIn;
-        } else {
-            bufferAddr = (GM_ADDR)((HcclRankRelationResV2 *)epWinContext_->remoteRes[rankId].nextDevicePtr)->windowsIn;
-        }
-        return (GM_ADDR)(bufferAddr + winDataSizeOffset_ + Moe::NOTIFY_DISPATCH_BUFF_OFFSET);
+        return GetBaseWindAddrByRankId(epWinContext_, rankId, epRankId_) + winDataSizeOffset_ +
+               Moe::NOTIFY_DISPATCH_BUFF_OFFSET;
     }
 
     __aicore__ GM_ADDR GetBufferAddrByRankId(const int32_t rankId)
@@ -85,11 +85,7 @@ private:
 
     __aicore__ inline GM_ADDR GetRoundStateAddrByRankId(const int32_t rankId)
     {
-        if (epRankId_ == rankId) {
-            return (GM_ADDR)(epWinContext_->localWindowsExp) + roundMagic_ * Moe::ROUND_STATE_MAX_SIZE +
-                   ROUND_STATE_OFFSET;
-        }
-        return (GM_ADDR)(((HcclRankRelationResV2 *)(epWinContext_->remoteRes[rankId].nextDevicePtr))->windowsExp) +
+        return GetBaseWindStateAddrByRankId(epWinContext_, rankId, epRankId_) +
                roundMagic_ * Moe::ROUND_STATE_MAX_SIZE + ROUND_STATE_OFFSET;
     }
 
@@ -108,8 +104,8 @@ private:
         endIdx = startIdx + perCoreNum;
     }
 
-    __gm__ HcclOpResParam *epWinContext_{nullptr};
-    __gm__ HcclOpResParam *tpWinContext_{nullptr};
+    __gm__ HcclOpParam *epWinContext_{nullptr};
+    __gm__ HcclOpParam *tpWinContext_{nullptr};
     uint32_t axisBS_{0};
     uint32_t axisH_{0};
     uint32_t axisK_{0};
@@ -122,6 +118,7 @@ private:
     uint32_t magic_{0};
     uint32_t roundMagic_{0};
     uint64_t winDataSizeOffset_{0};
+    uint64_t baseWinSize_{0};
     uint32_t hRecvXTypeLen_{0};
     uint32_t h32AlignFloatLen_{0};
     uint32_t h256AlignFloatLen_{0};
@@ -196,11 +193,11 @@ template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitMagic()
 {
     auto contextGM0 = AscendC::GetHcclContext<HCCL_GROUP_ID_0>();
-    epWinContext_ = (__gm__ HcclOpResParam *)contextGM0;
+    epWinContext_ = (__gm__ HcclOpParam *)contextGM0;
 
     GlobalTensor<int32_t> selfMagicTensor;
     selfMagicTensor.SetGlobalBuffer(
-        (__gm__ int32_t *)((GM_ADDR)epWinContext_->localWindowsExp + MAGIC_WIN_OFFSET + coreIdx_ * WIN_512_ALIGN));
+        (__gm__ int32_t *)(GetStatusDataSpaceGm(epWinContext_) + MAGIC_WIN_OFFSET + coreIdx_ * WIN_512_ALIGN));
     DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(selfMagicTensor);
     magic_ = selfMagicTensor(0);
     selfMagicTensor(0) = ((magic_ == 0) ? 1 : 0);
@@ -239,6 +236,11 @@ CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitTilingData(const CamMoeC
     realMaxBs_ = tilingData->camMoeCombineNormalInfo.realMaxBs;
     maxRound_ = tilingData->camMoeCombineNormalInfo.maxRound;
     perRoundTokens_ = tilingData->camMoeCombineNormalInfo.perRoundTokens;
+#ifdef __DAV_C310__
+    baseWinSize_ = tilingData->camMoeCombineNormalInfo.totalWinSize - A5_MTE_STATE_WIN_SIZE;
+#else
+    baseWinSize_ = tilingData->camMoeCombineNormalInfo.totalWinSize;
+#endif
 }
 
 template <TemplateMC2TypeClass>
@@ -256,8 +258,77 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitB
 }
 
 template <TemplateMC2TypeClass>
+__aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitTokenBalancedRoundSendDataA5()
+{
+    uint32_t expertCountLen = moeExpertNum_ * sizeof(int32_t);
+    uint32_t expertCountAlignLen = Ceil(expertCountLen, UB_32_ALIGN) * UB_32_ALIGN;
+    tpipe_->Reset();
+    tpipe_->InitBuffer(tempRecvCountBuf_, expertCountAlignLen);
+    LocalTensor<int32_t> expertEndOffsetLT = tempRecvCountBuf_.Get<int32_t>();
+    const DataCopyExtParams expertCountCopyParams{1U, expertCountLen, 0U, 0U, 0U};
+    const DataCopyPadExtParams<int32_t> expertCountPadParams{false, 0U, 0U, 0U};
+    DataCopyPad(expertEndOffsetLT, epRecvCountGM_, expertCountCopyParams, expertCountPadParams);
+    SyncFunc<HardEvent::MTE2_S>();
+
+    uint32_t selfSendCnt = static_cast<uint32_t>(expertEndOffsetLT(moeExpertNum_ - 1));
+    uint32_t flatStart = 0;
+    uint32_t flatEnd = 0;
+    uint32_t perCoreSendCnt = 0;
+    SplitCoreCal(selfSendCnt, perCoreSendCnt, flatStart, flatEnd);
+    if (perCoreSendCnt == 0) {
+        return;
+    }
+
+    preRecvCount_ = flatStart;
+    needSendTokenCnt_ = perCoreSendCnt;
+    perCoreBlockNum_ = 0;
+    for (uint32_t expertId = 0; expertId < moeExpertNum_; ++expertId) {
+        uint32_t expertStart = expertId == 0 ? 0 : static_cast<uint32_t>(expertEndOffsetLT(expertId - 1));
+        uint32_t expertEnd = static_cast<uint32_t>(expertEndOffsetLT(expertId));
+        uint32_t segmentStart = max(flatStart, expertStart);
+        uint32_t segmentEnd = min(flatEnd, expertEnd);
+        if (segmentStart < segmentEnd) {
+            ++perCoreBlockNum_;
+        }
+    }
+
+    uint32_t sendBlockAlignLen = Ceil(perCoreBlockNum_ * sizeof(int32_t), UB_32_ALIGN) * UB_32_ALIGN;
+    tpipe_->InitBuffer(roundNeedSendCntBuf_, sendBlockAlignLen);
+    tpipe_->InitBuffer(roundSendOffsetBuf_, sendBlockAlignLen);
+    roundNeedSendCntLT_ = roundNeedSendCntBuf_.Get<uint32_t>();
+    roundSendOffsetLT_ = roundSendOffsetBuf_.Get<uint32_t>();
+
+    uint32_t segmentIndex = 0;
+    for (uint32_t expertId = 0; expertId < moeExpertNum_; ++expertId) {
+        uint32_t expertStart = expertId == 0 ? 0 : static_cast<uint32_t>(expertEndOffsetLT(expertId - 1));
+        uint32_t expertEnd = static_cast<uint32_t>(expertEndOffsetLT(expertId));
+        uint32_t segmentStart = max(flatStart, expertStart);
+        uint32_t segmentEnd = min(flatEnd, expertEnd);
+        if (segmentStart < segmentEnd) {
+            roundSendOffsetLT_(segmentIndex) = segmentStart;
+            roundNeedSendCntLT_(segmentIndex) = segmentEnd - segmentStart;
+            ++segmentIndex;
+        }
+    }
+
+    uint32_t srcInfoLen = static_cast<uint32_t>(BATCH_SRC_INFO_CNT * TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType));
+    uint32_t srcInfoAlignLen = Ceil(srcInfoLen, UB_32_ALIGN) * UB_32_ALIGN;
+    tpipe_->InitBuffer(srcInfoBuf_, srcInfoAlignLen);
+    srcInfoLT_ = srcInfoBuf_.Get<SrcInfoType>();
+
+    tpipe_->InitBuffer(setStateBuf_, UB_32_ALIGN);
+    setStateLT_ = setStateBuf_.Get<uint32_t>();
+    Duplicate<uint32_t>(setStateLT_, 0x3F800000, FLOAT_NUM_PER_ALIGN);
+    tpipe_->InitBuffer(localCopyQueue_, DOUBLE_BUFFER, h32AlignRecvXLen_);
+}
+
+template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitRoundSendData()
 {
+#ifdef __DAV_C310__
+    InitTokenBalancedRoundSendDataA5();
+    return;
+#endif
     SplitCoreCal(moeExpertNum_, perCoreBlockNum_, startBlockId_,
                  endBlockId_);  // 按专家分核，每个核负责向perBlockRankNum个rank发送数据
     if (perCoreBlockNum_ == 0) {
@@ -348,7 +419,7 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::Init(
     InitBuffLen();
     combineDataBuffSize_ = perRoundTokens_ * axisK_ * h512AlignRecvXLen_;
     PipeBarrier<PIPE_ALL>();
-    winDataSizeOffset_ = static_cast<uint64_t>(magic_) * (tilingData->camMoeCombineNormalInfo.totalWinSize / 2UL);
+    winDataSizeOffset_ = static_cast<uint64_t>(magic_) * (baseWinSize_ / 2UL);
     DataCacheCleanAndInvalid<SrcInfoType, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
         epRecvCountGM_[moeExpertNum_ - 1]);
 

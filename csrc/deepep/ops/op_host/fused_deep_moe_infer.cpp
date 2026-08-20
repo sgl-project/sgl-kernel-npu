@@ -1,12 +1,3 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
- * Description: FusedDeepMoe tiling function implementation file
- * Author: Guo Ren
- * Create: 2025-07-22
- * Note:
- * History: 2025-07-13 create FusedDeepMoe infer function file
- */
-
 #include <cstdint>
 #include "ops_log.h"
 #include "ops_error.h"

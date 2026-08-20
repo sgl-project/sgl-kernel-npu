@@ -103,7 +103,7 @@ def vllm_causal_conv1d_update_v3(
     conv_state = conv_state.transpose(1, 2)
     out = out.transpose(1, 2)
 
-    return out
+    return out, conv_state
 
 
 # ==========================================
@@ -127,7 +127,11 @@ def test_correctness_fixed():
 
     hidden_state = torch.randn(BSZ, SEQ_LEN, HIDDEN_SIZE, device=DEVICE, dtype=DTYPE)
     conv_state_init = torch.randn(
-        CACHE_LEN, KERNEL_SIZE - 1, HIDDEN_SIZE, device=DEVICE, dtype=DTYPE
+        CACHE_LEN,
+        KERNEL_SIZE - 1 + SEQ_LEN - 1,
+        HIDDEN_SIZE,
+        device=DEVICE,
+        dtype=DTYPE,
     )
 
     conv_state_indices = torch.arange(BSZ, device=hidden_state.device)
@@ -140,7 +144,9 @@ def test_correctness_fixed():
 
     out_sg, final_buffer_sg = sglang_model.torch_causal_conv1d_update_npu(
         hidden_state=hidden_state.transpose(1, 2),
-        conv_state=conv_state_init.transpose(1, 2)[conv_state_indices],
+        conv_state=conv_state_init.transpose(1, 2)[conv_state_indices][
+            :, :, -(KERNEL_SIZE - 1) :
+        ],
         weight=weight.transpose(0, 1),
         conv_state_update=sglang_cache_buffer,
         bias=bias,

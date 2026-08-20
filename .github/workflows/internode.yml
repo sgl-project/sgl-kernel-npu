@@ -45,8 +45,8 @@ jobs:
         NAMESPACE: sgl-kernel-npu
         ASCEND_TEST_CASE_PATH: tests/python/deepep
         KUBE_JOB_TYPE: multi
-        KUBE_JOB_NAME: sglang-npu-multi
-        KUBE_CONFIG_MAP: sglang-info
+        KUBE_JOB_NAME: sglang-npu-multi-${{ github.run_id }}
+        KUBE_CONFIG_MAP: sglang-info-${{ github.run_id }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -69,8 +69,8 @@ jobs:
 
       - name: Prepare scripts
         run: |
-          # prepare for test code
-          sglang_source_path=/root/.cache/tests/sglang
+          # prepare for test code (isolate cache path per run to avoid concurrent races)
+          sglang_source_path=/root/.cache/tests/sglang-${{ github.run_id }}
           mkdir -p $sglang_source_path && chmod -R 777 $sglang_source_path
           rm -rf $sglang_source_path/*
           cp -r $GITHUB_WORKSPACE/* $sglang_source_path/
@@ -88,27 +88,46 @@ jobs:
                   \"kube_config_map\": \"$KUBE_CONFIG_MAP\",                \
                   \"node_size\": $node_size,                                \
                   \"sglang_source_path\": \"$sglang_source_path\",          \
-                  \"test_case\": \"$test_case\" }"                         |\
+                  \"test_case\": \"$test_case\",                            \
+                  \"run_id\": \"${{ github.run_id }}\" }"                  |\
               jinja2 ${ASCEND_TEST_CASE_PATH}/k8s_multi.yaml.jinja2 -o ${ASCEND_TEST_CASE_PATH}/k8s_multi.yaml
           echo "Kubectl config file is generated: ${ASCEND_TEST_CASE_PATH}/k8s_multi.yaml"
 
       - name: Clear resources
         run: |
           cd $ASCEND_TEST_CASE_PATH
+          # Delete resources from previous attempt (same run_id, handles re-run case)
           kubectl delete -f ./k8s_multi.yaml --ignore-not-found=true || true
 
+          # Check for stale pods with current run_id prefix (re-run scenario)
           pod_name_prefix="${KUBE_JOB_NAME}-sglang"
           echo "kube name space: $NAMESPACE, pod name prefix: ${pod_name_prefix}"
-          while true; do
-            if kubectl get po -A -n $NAMESPACE | grep -q "${pod_name_prefix}"; then
-              echo "Found exist sglang job, sleeping for 30 seconds..."
+          max_retries=20
+          retry=0
+          while [ $retry -lt $max_retries ]; do
+            if kubectl get pods -n $NAMESPACE | grep -q "${pod_name_prefix}"; then
+              echo "Found stale pods from previous attempt (retry $retry/$max_retries):"
+              kubectl get pods -n $NAMESPACE | grep "${pod_name_prefix}"
+              kubectl get pods -n $NAMESPACE | grep "${pod_name_prefix}" | awk '{print $1}' | while read pod; do
+                echo "  Force deleting: $pod"
+                if kubectl delete pod "$pod" -n $NAMESPACE --force --grace-period=0; then
+                  echo "    SUCCESS: $pod deleted"
+                else
+                  echo "    WARNING: Failed to delete $pod"
+                fi
+              done
               sleep 30
-              kubectl get pods | grep "${pod_name_prefix}" | awk '{print $1}' | xargs kubectl delete pod -n $NAMESPACE || true
+              retry=$((retry + 1))
             else
-              echo "No sglang job exist, start test case..."
+              echo "No stale pods found. Ready to start test case..."
               break
             fi
           done
+          if [ $retry -ge $max_retries ]; then
+            echo "ERROR: Timeout waiting for stale pod cleanup after $max_retries retries ($(( max_retries * 30 ))s)."
+            kubectl get pods -n $NAMESPACE | grep "${pod_name_prefix}" || true
+            exit 1
+          fi
 
       - name: Run test
         timeout-minutes: 300
@@ -123,6 +142,42 @@ jobs:
       - name: Post process
         if: always()
         run: |
-          kubectl get pods -n $NAMESPACE
           cd $ASCEND_TEST_CASE_PATH
+          echo "=== Post-test cleanup ==="
+
+          # 1. Delete current run's K8s resources via YAML
           kubectl delete -f ./k8s_multi.yaml --ignore-not-found=true || true
+
+          # 2. Loop to ensure pods are actually deleted (kubectl delete -f may
+          #    fail if Volcano Job has finalizers or pods are stuck)
+          pod_name_prefix="${KUBE_JOB_NAME}-sglang"
+          max_retries=20
+          retry=0
+          while [ $retry -lt $max_retries ]; do
+            if kubectl get pods -n $NAMESPACE | grep -q "${pod_name_prefix}"; then
+              echo "Pods still exist (retry $retry/$max_retries):"
+              kubectl get pods -n $NAMESPACE | grep "${pod_name_prefix}"
+              kubectl get pods -n $NAMESPACE | grep "${pod_name_prefix}" | awk '{print $1}' | while read pod; do
+                echo "  Force deleting: $pod"
+                if kubectl delete pod "$pod" -n $NAMESPACE --force --grace-period=0; then
+                  echo "    SUCCESS: $pod deleted"
+                else
+                  echo "    WARNING: Failed to delete $pod"
+                fi
+              done
+              sleep 30
+              retry=$((retry + 1))
+            else
+              echo "All pods cleaned up."
+              break
+            fi
+          done
+
+          if [ $retry -ge $max_retries ]; then
+            echo "WARNING: Some pods could not be cleaned up after $max_retries retries:"
+            kubectl get pods -n $NAMESPACE | grep "${pod_name_prefix}" || true
+          fi
+
+          # 3. Clean up per-run cache directory
+          rm -rf /root/.cache/tests/sglang-${{ github.run_id }}
+          echo "Post-test cleanup complete."

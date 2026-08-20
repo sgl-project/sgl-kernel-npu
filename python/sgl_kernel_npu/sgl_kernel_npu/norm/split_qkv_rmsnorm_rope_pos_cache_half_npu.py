@@ -224,6 +224,11 @@ def split_qkv_rmsnorm_rope_half_pos_cache_kernel(
         tl.store(v_ptr + outv_off + col, v.to(v_ty), mask=mask)
 
 
+# Largest q_hidden_size whose single-row tile still fits the Unified Buffer on the wide
+# grid (measured on 910B3: 8192 compiles, 12288 raises MLIRCompilationError).
+_WIDE_GRID_MAX_Q_HIDDEN = 8192
+
+
 def split_qkv_rmsnorm_rope_pos_cache_half_npu(
     input_tensor: torch.Tensor,  # [B, q_hidden + 2*kv_hidden]
     positions: torch.Tensor,  # [B]
@@ -238,6 +243,7 @@ def split_qkv_rmsnorm_rope_pos_cache_half_npu(
     k_bias: torch.Tensor = None,
     rope_dim: int = None,
     cast_norm_to_bf16: bool = True,  # cast norm result to bf16 before RoPE
+    wide_grid_min_tokens: int = 1024,  # batch at/above which the wide grid is used
 ):
     """Split QKV from concatenated input, optional RMSNorm on Q/K, RoPE via position-indexed cache, copy V.
 
@@ -265,6 +271,9 @@ def split_qkv_rmsnorm_rope_pos_cache_half_npu(
         k_bias: Optional K RMSNorm bias (length >= head_dim when provided).
         rope_dim: RoPE dimension (default head_dim). Must be even and <= head_dim.
         cast_norm_to_bf16: If True, cast norm output to bf16 with RNE before RoPE; else keep in fp32 then cast.
+        wide_grid_min_tokens: Batch size at/above which the single-column ("wide") launch grid is used
+            instead of the per-head grid. Below it the per-head grid is used with unchanged launch
+            parameters. See the grid selection comment below for the measured crossover.
 
     Returns:
         Tuple of (q_out, k_out, v_out), shapes [B, q_hidden_size], [B, kv_hidden_size], [B, kv_hidden_size].
@@ -294,13 +303,39 @@ def split_qkv_rmsnorm_rope_pos_cache_half_npu(
     # are clamped inside the Triton kernel (see max_seq).
     stride0 = cache.stride(0)
 
-    kv_block_size = triton.next_power_of_2(head_dim)
-    assert kv_block_size == head_dim, "this kernel assumes head_dim is power-of-2"
+    assert (
+        triton.next_power_of_2(head_dim) == head_dim
+    ), "this kernel assumes head_dim is power-of-2"
     assert q_hidden_size % kv_hidden_size == 0
-    q_block_size = (q_hidden_size // kv_hidden_size) * head_dim
+
+    # Launch grid. Each program walks its rows serially (batch // n_rows iterations), so the
+    # per-row scalar/address overhead is paid once per column program. Collapsing to a single
+    # column program (full Q/KV width per row, n_rows = num_vectorcore) cuts that serial
+    # iteration count by n_cols and is up to 2.7x faster at large batch. Device-time measured
+    # on 910B3 (40 vector cores, q_hidden=2048/kv_hidden=512/head_dim=128, bf16): the wide grid
+    # stays near a ~106 us fixed-cost floor while the per-head grid starts climbing above it at
+    # ~1150 tokens (1.13x), reaching 1.9x at 2048 and 2.7x at 4096. Under ~1024 tokens both sit
+    # on that floor, so the default errs low: being early costs nothing measurable, being late
+    # forfeits up to 1.9x.
+    #
+    # The wide grid materializes a q_hidden_size-wide tile per row instead of a
+    # (q_hidden_size // kv_hidden_size) * head_dim one, so it is only taken while that tile
+    # still fits the Unified Buffer. Measured on 910B3: q_hidden_size up to 8192 compiles,
+    # 12288 fails with MLIRCompilationError. Wider models keep the per-head grid, which is
+    # what they use today, rather than failing to compile once the batch grows.
+    if B >= wide_grid_min_tokens and q_hidden_size <= _WIDE_GRID_MAX_Q_HIDDEN:
+        q_block_size = q_hidden_size
+        kv_block_size = kv_hidden_size
+        n_cols = 1
+        n_rows = num_vectorcore
+    else:
+        kv_block_size = head_dim
+        q_block_size = (q_hidden_size // kv_hidden_size) * head_dim
+        n_cols = kv_hidden_size // kv_block_size
+        n_rows = (num_vectorcore + n_cols - 1) // n_cols
 
     q_block_n = q_block_size // head_dim
-    k_block_n = kv_block_size // head_dim  # usually 1
+    k_block_n = kv_block_size // head_dim  # 1 on the per-head grid
 
     q_out = torch.empty(
         (B, q_hidden_size), device=input_tensor.device, dtype=input_tensor.dtype
@@ -311,9 +346,6 @@ def split_qkv_rmsnorm_rope_pos_cache_half_npu(
     v_out = torch.empty(
         (B, kv_hidden_size), device=input_tensor.device, dtype=input_tensor.dtype
     )
-
-    n_cols = kv_hidden_size // kv_block_size
-    n_rows = (num_vectorcore + n_cols - 1) // n_cols
 
     bias = q_bias is not None
     norms = eps is not None

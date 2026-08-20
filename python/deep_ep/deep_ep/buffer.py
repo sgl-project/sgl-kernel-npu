@@ -83,9 +83,12 @@ class Buffer:
         )
 
         # set strategy by env
-        deep_mode = os.getenv("DEEP_USE_MODE", "default").lower()
+        deep_mode = os.getenv("DEEP_USE_MODE")
 
-        normal_strategy, low_latency_strategy = StrategyMap.get_strategy(deep_mode)
+        if deep_mode is not None:
+            normal_strategy, low_latency_strategy = StrategyMap.get_strategy(
+                deep_mode.lower()
+            )
 
         # Initialize normal mode strategy
         self._init_normal_strategy(normal_strategy)
@@ -545,65 +548,21 @@ class Buffer:
         Internode dispatch implementation, for more details, please refer to the `dispatch` docs.
         Normally, you should not directly call this function.
         """
-        x_scales = None
-        use_quant = False
-        if handle is not None:
-            raise NotImplementedError(
-                "Optional communication handle is not supported yet."
-            )
-        else:
-            assert (
-                num_tokens_per_rank is not None
-                and is_token_in_rank is not None
-                and num_tokens_per_expert is not None
-            )
-            (
-                recv_x,
-                recv_x_scales,
-                recv_topk_idx,
-                recv_topk_weights,
-                num_recv_tokens_per_expert_list,
-                recv_src_idx,
-                send_head,
-                offset_inner,
-                offset_outer,
-                count_outer,
-                expand_scales,
-                event,
-            ) = self.runtime.internode_dispatch(
-                x,
-                x_scales,
-                topk_idx,
-                topk_weights,
-                num_tokens_per_rank,
-                num_tokens_per_rdma_rank,
-                is_token_in_rank,
-                num_tokens_per_expert,
-                config,
-                getattr(previous_event, "event", None),
-                async_finish,
-                allocate_on_comm_stream,
-                use_quant,
-            )
-            handle = (
-                recv_src_idx,
-                is_token_in_rank,
-                send_head,  # ep_rank_token_cnt
-                topk_idx,
-                topk_weights,
-                offset_inner,
-                offset_outer,  # token_server_idx
-                count_outer,
-                expand_scales,
-            )
-            return (
-                (recv_x, recv_x_scales) if use_quant else recv_x,
-                recv_topk_idx,
-                recv_topk_weights,
-                num_recv_tokens_per_expert_list,
-                handle,
-                EventOverlap(event),
-            )
+        return self.normal_strategy._internode_dispatch(
+            x=x,
+            handle=handle,
+            num_tokens_per_rank=num_tokens_per_rank,
+            num_tokens_per_rdma_rank=num_tokens_per_rdma_rank,
+            is_token_in_rank=is_token_in_rank,
+            num_tokens_per_expert=num_tokens_per_expert,
+            topk_idx=topk_idx,
+            topk_weights=topk_weights,
+            expert_alignment=expert_alignment,
+            config=config,
+            previous_event=previous_event,
+            async_finish=async_finish,
+            allocate_on_comm_stream=allocate_on_comm_stream,
+        )
 
     def internode_combine(
         self,
@@ -779,6 +738,21 @@ class Buffer:
             out=out,
         )
 
+    def begin_profile(
+        self,
+        num_profile_skip_launches: int,
+        num_profile_active_launches: int,
+        profile_trace_dir: Optional[str] = "",
+    ) -> None:
+        self.runtime.begin_profile(
+            num_profile_skip_launches,
+            num_profile_active_launches,
+            profile_trace_dir or "",
+        )
+
+    def end_profile(self) -> None:
+        self.runtime.end_profile()
+
     def fused_deep_moe(
         self,
         x: torch.Tensor,
@@ -792,6 +766,7 @@ class Buffer:
         num_experts: int,
         quant_mode: int = 1,
         fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
+        profile_enable: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         A fused low-latency implementation for MoE expert forward and combination.
@@ -862,9 +837,6 @@ class Buffer:
         """
         topk_ids = topk_idx.int()
         if fuse_mode == FuseMode.FUSED_DEEP_MOE:
-            gmm1_permuted_weight_scale = gmm1_permuted_weight_scale.float()
-            gmm2_weight_scale = gmm2_weight_scale.float()
-
             output, ep_recv_count = self.runtime.fused_deep_moe(
                 x,
                 topk_ids,
@@ -876,6 +848,7 @@ class Buffer:
                 num_max_dispatch_tokens_per_rank,
                 num_experts,
                 quant_mode,
+                profile_enable,
             )
             return output, ep_recv_count
         elif fuse_mode == FuseMode.DISPATCH_FFN_COMBINE:

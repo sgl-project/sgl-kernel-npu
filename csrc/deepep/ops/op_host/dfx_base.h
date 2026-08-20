@@ -1,12 +1,3 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2026-2026. All rights reserved.
- * Description: FusedDeepMoe tiling function implementation file
- * Author: Wang Yibo
- * Create: 2026-01-15
- * Note:
- * History: 2026-01-15 create dfx_base file
- */
-
 #pragma once
 
 #include <string>

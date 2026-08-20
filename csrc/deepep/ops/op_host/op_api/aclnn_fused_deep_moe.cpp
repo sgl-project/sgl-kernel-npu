@@ -1,11 +1,3 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
- * Description: FusedDeepMoe operator aclnn api implementation file
- * Author: Wang Qiankun
- * Create: 2025-07-19
- * Note:
- * History: 2025-07-19 create FusedDeepMoe operator aclnn api implementation file
- */
 #include "aclnn_fused_deep_moe.h"
 #include <cstring>
 #include "graph/types.h"
@@ -31,6 +23,9 @@ aclnnStatus aclnnFusedDeepMoeGetWorkspaceSize(
     int64_t quantMode, int64_t globalBs, const aclTensor *output, const aclTensor *outputRecvCount,
     uint64_t *workspaceSize, aclOpExecutor **executor)
 {
+    if (quantMode != 0 && quantMode != 1) {
+        return ACL_ERROR_INVALID_PARAM;
+    }
     return aclnnInnerFusedDeepMoeGetWorkspaceSize(
         x, expertIds, gmm1PermutedWeight, gmm1PermutedWeightScale, gmm2Weight, gmm2WeightScale,
         expertSmoothScalesOptional, expertScalesOptional, groupEp, epRankSize, epRankId, moeExpertNum, shareExpertNum,

@@ -19,7 +19,7 @@ jobs:
     name: ${{ matrix.test_type == 'intranode' && 'Intranode' || 'Low Latency' }} (CANN ${{ matrix.cann_version }}, ${{ matrix.hardware }})
     runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-16' || 'linux-aarch64-a2-8' }}
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}-ubuntu22.04-py3.11
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
     timeout-minutes: ${{ matrix.test_type == 'intranode' && 350 || 330 }}
     env:
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -29,7 +29,7 @@ jobs:
     strategy:
       matrix:
         test_type: [intranode, low_latency]
-        cann_version: [9.0.0, 8.5.0]
+        cann_version: [9.0.0, 9.1.0]
         hardware: [a3, a2]
     steps:
       - name: Clean git config
@@ -53,7 +53,7 @@ jobs:
           pip config set global.index-url http://${CACHING_URL}/pypi/simple
           pip config set global.trusted-host ${CACHING_URL}
           pip install uv
-          bash scripts/npu_ci_install_dependency.sh
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
 
       - name: Prepare Deepep
         run: bash scripts/prepare_deepep_in_container.sh -a ${{ matrix.hardware == 'a3' && 'deepep' || 'deepep2' }}
@@ -98,7 +98,8 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        cann_version: [8.5.0, 9.0.0]
+        # A2 多机支持 9.0.0 / 9.1.0（与 pr-test-deepep-npu.yml 的 A2 矩阵一致）
+        cann_version: [9.0.0, 9.1.0]
         test_config:
           - name: test_internode_a2
             node_size: 2
@@ -107,7 +108,7 @@ jobs:
     with:
       soc_version: a2
       runner: linux-aarch64-a2-0
-      image: 'swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-py3.11'
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-910b-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
       test_config_name: ${{ matrix.test_config.name }}
       node_size: ${{ matrix.test_config.node_size }}
       test_case: ${{ matrix.test_config.test_case }}
