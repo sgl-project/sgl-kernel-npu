@@ -91,7 +91,10 @@ def mix_fused(
 
     output = torch.empty_like(prefix_sum)
     _, num_vector_cores = get_device_properties()
-    _mix_fused_kernel[(num_vector_cores,)](
+    # The persistent kernel assigns whole tokens to vector cores. Avoid
+    # launching idle cores for decode/verify shapes smaller than the AIV count.
+    active_cores = min(num_tokens, num_vector_cores)
+    _mix_fused_kernel[(active_cores,)](
         prefix_sum,
         bank,
         combined_weight,
@@ -104,7 +107,7 @@ def mix_fused(
         output.stride(0),
         H=hidden_size,
         EPS=variance_epsilon,
-        NUM_CORES=num_vector_cores,
+        NUM_CORES=active_cores,
         NB=triton.next_power_of_2(num_valid_blocks + 1),
         multibuffer=True,
     )
