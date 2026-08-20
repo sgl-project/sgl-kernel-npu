@@ -14,6 +14,7 @@
  * \brief host wrapper (ge_helper + direct kernel launch) for the Compressor op.
  */
 #include <cstdio>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <type_traits>
@@ -23,7 +24,11 @@
 #include "tiling/platform/platform_ascendc.h"
 #include "defines.h"
 #include "torch_helper.h"
+#ifdef SGL_KERNEL_ENABLE_A5_COMPRESSOR
+#include "arch35/compressor_tiling.h"
+#else
 #include "compressor_tiling.h"
+#endif
 #include "ge_helper.h"
 #include "common_tiling.h"
 #include "common.h"
@@ -69,6 +74,22 @@ std::string MakeTilingCacheKey(const optiling::CompressorTilingData &data)
     AppendTilingKey(key, base.normEps);
     AppendTilingKey(key, base.reciprocalD);
     AppendTilingKey(key, base.stateCacheStrideDim0);
+#ifdef SGL_KERNEL_ENABLE_A5_COMPRESSOR
+    AppendTilingKey(key, base.kBaseNum);
+    AppendTilingKey(key, base.kBaseSize);
+    AppendTilingKey(key, base.coreGroupNum);
+    AppendTilingKey(key, base.mLoopNum);
+    TORCH_CHECK(base.usedCoreNum <= CMP_MAX_AIC_CORE_NUM, "compressor A5: usedCoreNum exceeds CMP_MAX_AIC_CORE_NUM");
+    for (uint32_t i = 0; i < base.usedCoreNum; ++i) {
+        const auto &core = base.splitCoreParam[i];
+        AppendTilingKey(key, core.mStart);
+        AppendTilingKey(key, core.mEnd);
+        AppendTilingKey(key, core.nStart);
+        AppendTilingKey(key, core.nEnd);
+        AppendTilingKey(key, core.kStart);
+        AppendTilingKey(key, core.kEnd);
+    }
+#endif
     const auto &page = data.pageAttentionParams;
     AppendTilingKey(key, page.blockNum);
     AppendTilingKey(key, page.blockSize);
@@ -165,6 +186,15 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
 {
     using namespace optiling;
     TORCH_CHECK(x.device().type() == DEVICE_TYPE, "compressor: x must be an NPU tensor");
+#ifdef SGL_KERNEL_ENABLE_A5_COMPRESSOR
+    TORCH_CHECK(rotary_mode == 2, "compressor A5: only rotary_mode=2 is supported");
+    const int64_t headDim = norm_weight.size(0);
+    const bool supportedScenario = (cmp_ratio == 4 && coff == 2 && (headDim == 128 || headDim == 512)) ||
+                                   (cmp_ratio == 128 && coff == 1 && headDim == 512);
+    TORCH_CHECK(supportedScenario,
+                "compressor A5: supported (cmp_ratio, coff, head_dim) are "
+                "(4,2,512), (4,2,128), and (128,1,512)");
+#endif
     Compressor compressorOp("compressor");
     auto context = std::make_shared<ge_helper::TilingContext>("compressor");
     TORCH_CHECK(context != nullptr, "TilingContext is null");
@@ -185,11 +215,20 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
     compressorOp.SetAttrAny("norm_eps", static_cast<float>(norm_eps));
     compressorOp.SetAttrAny("rotary_mode", static_cast<int32_t>(rotary_mode));
     compressorOp.SetAttrAny("cache_mode", static_cast<int32_t>(cache_mode));
-    // state_cache stride dim0 = dim1*dim2 when not explicitly provided (0)
     int64_t strideDim0 = state_cache_stride_dim0;
+#ifdef SGL_KERNEL_ENABLE_A5_COMPRESSOR
+    const int64_t actualStrideDim0 = state_cache.stride(0);
+    TORCH_CHECK(actualStrideDim0 >= 0 && actualStrideDim0 <= std::numeric_limits<int32_t>::max(),
+                "compressor A5: state_cache.stride(0) is out of int32 range");
+    TORCH_CHECK(strideDim0 == 0 || strideDim0 == actualStrideDim0,
+                "compressor A5: state_cache_stride_dim0 must be 0 or equal state_cache.stride(0)");
+    strideDim0 = actualStrideDim0;
+#else
+    // state_cache stride dim0 = dim1*dim2 when not explicitly provided (0)
     if (strideDim0 == 0 && state_cache.dim() >= 3) {
         strideDim0 = state_cache.size(1) * state_cache.size(2);
     }
+#endif
     compressorOp.SetAttrAny("state_cache_stride_dim0", static_cast<int32_t>(strideDim0));
 
     auto xScalarType = x.scalar_type();
@@ -220,10 +259,23 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
     if (compressorTiling.RunBigKernelTiling(&tilingData) != ge::GRAPH_SUCCESS) {
         TORCH_CHECK(false, "[compressor] RunBigKernelTiling failed");
     }
-    tilingData.tilingKey = compressorContext.tilingKey;
+    uint64_t tilingKey = compressorContext.tilingKey;
+#ifdef SGL_KERNEL_ENABLE_A5_COMPRESSOR
+    const uint64_t keyLayout = tilingKey & 0x1;
+    const uint64_t keyDtype = (tilingKey >> 1) & 0xF;
+    const uint64_t keyCoff = (tilingKey >> 5) & 0x3;
+    const uint64_t keyRotary = (tilingKey >> 7) & 0x3;
+    const uint64_t keyCache = (tilingKey >> 9) & 0x3;
+    const uint64_t keyTemplate = (tilingKey >> 11) & 0x3;
+    const bool validKey = keyLayout <= 1 && keyDtype <= 1 && (keyCoff == 1 || keyCoff == 2) && keyRotary == 2 &&
+                          (keyCache == 1 || keyCache == 2) &&
+                          (keyTemplate == 0 || keyTemplate == 1 || (keyTemplate == 2 && keyLayout == 0)) &&
+                          (tilingKey >> 13) == 0;
+    TORCH_CHECK(validKey, "compressor A5: unsupported tiling key ", tilingKey);
+#endif
+    tilingData.tilingKey = tilingKey;
 
     uint32_t blockDim = compressorContext.blockDim;
-    uint64_t tilingKey = compressorContext.tilingKey;
     size_t workspaceSize = context->GetWorkspaceSize();
     // Make sure CalcWorkSpace wrote a value (fall back to context user size)
     if (workspaceSize == 0) {
