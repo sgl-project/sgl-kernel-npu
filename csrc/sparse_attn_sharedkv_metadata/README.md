@@ -57,6 +57,27 @@ is needed — sglang already keeps the seq-lens on the host. The device topology
 core counts + SoC name) is queried inside the op via ACL and cached after the first call,
 so callers never pass or know about it.
 
+### Async H2D (stream-ordered result, zero host sync)
+
+The internal 4 KB H2D is a **pinned + `non_blocking` copy enqueued on the caller's current
+stream**. The host returns as soon as the copy is enqueued (~µs) and is never blocked by
+in-flight stream work — the same async-enqueue contract as the AICPU op. Consequences for
+callers:
+
+- **Same-stream consumers need nothing**: any kernel enqueued after the op on the same
+  stream (attention forward, `.copy_()` into graph-capture buffers) reads the completed
+  table by stream order.
+- **Cross-stream readers need an explicit event** (record on the producing stream, wait on
+  the consuming stream) — exactly as they would for the AICPU op's output.
+- The staging buffer is allocated with `pinned_memory(true)` through the caching host
+  allocator, whose event tracking guarantees the block is not reused until the async copy
+  has completed (validated by a 2,000-iteration allocate/copy/destroy stress loop with
+  interleaved device load: zero corruption). A pageable staging buffer must not be
+  substituted: with pageable memory torch_npu silently falls back to a host-synchronous
+  copy that additionally drains all prior work on the current stream (measured: pinned
+  ~0.4 ms vs pageable ~249 ms with ~250 ms of kernels in flight), which would serialize
+  overlapped host-side metadata preparation with the running forward.
+
 ### Usage
 
 ```python
@@ -72,7 +93,7 @@ metadata = torch.ops.npu.sparse_attn_sharedkv_metadata_host(
     ori_mask_mode=4, cmp_mask_mode=3,
     ori_win_left=127, ori_win_right=0,
     has_ori_kv=True, has_cmp_kv=has_cmp_kv,
-)                                             # already a device tensor; the 4 KB H2D ran inside
+)                                             # device tensor; 4 KB H2D enqueued async on the current stream
 ```
 
 ## Output Layout
@@ -100,6 +121,13 @@ fork/join overhead dominate and must not be used.
 Output is verified byte-identical to the AICPU op both against the original algorithm source
 (compiled unchanged against a framework shim) and against the live AICPU op, across c1a / c4a /
 c128a paths, batch sizes 1–32, and context lengths up to 100k.
+
+Async behavior is validated on top: same-stream consumers read the completed table after the
+non-blocking copy; a 2,000-iteration allocate→async-copy→destroy stress loop (pinned staging
+dropped immediately, heavy device load interleaved) shows zero corruption, confirming the
+caching-host-allocator event protection; and host wall-time of the op stays ~µs while ~250 ms
+of kernels are in flight on the current stream (pageable staging, by contrast, blocks the host
+for the full drain).
 
 ### Performance (time-to-device-ready, vs the live AICPU op)
 

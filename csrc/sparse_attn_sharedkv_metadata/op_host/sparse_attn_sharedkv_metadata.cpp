@@ -876,7 +876,8 @@ at::Tensor sparse_attn_sharedkv_metadata_host(int64_t num_heads_q, int64_t num_h
                                               int64_t cmp_mask_mode, int64_t ori_win_left, int64_t ori_win_right,
                                               bool has_ori_kv, bool has_cmp_kv)
 {
-    auto opts = at::TensorOptions().dtype(at::kInt).device(at::kCPU);
+    // Pinned staging so the final H2D can be enqueued asynchronously (see below).
+    auto opts = at::TensorOptions().dtype(at::kInt).device(at::kCPU).pinned_memory(true);
     at::Tensor metaDataHost = at::zeros({static_cast<int64_t>(optiling::SAS_META_SIZE)}, opts);
 
     const int32_t *cuQPtr = nullptr;
@@ -904,7 +905,7 @@ at::Tensor sparse_attn_sharedkv_metadata_host(int64_t num_heads_q, int64_t num_h
                       ori_win_right, layout_q, layout_kv, has_ori_kv, has_cmp_kv, metaDataHost.data_ptr<int32_t>());
     TORCH_CHECK(ok, "sparse_attn_sharedkv_metadata_host: scheduling failed (invalid params)");
     // Return the table on device, matching the AICPU op's output placement.
-    return metaDataHost.to(at::Device("npu"));
+    return metaDataHost.to(at::Device("npu"), /*non_blocking=*/true);
 }
 
 }  // namespace npu_kernel
