@@ -26,7 +26,8 @@ def chunk_gated_delta_rule_npu(
         scale: scalar, defaults to 1/sqrt(Dk).
         g: (T, Nv) float32, cumulative log decay gate. None means no gating.
         chunk_state: optional pre-allocated output tensor of shape
-            (totalChunks, Nv, Dv, Dk) where totalChunks = ceil(T/64) + B.
+            (totalChunks, Nv, Dv, Dk) where
+            totalChunks = sum_b ceil(actual_seq_lengths[b] / 64).
             When provided, the kernel writes each chunk's entering (pre-decay)
             state in-place. dtype must match initial_state. Default None (disabled).
 

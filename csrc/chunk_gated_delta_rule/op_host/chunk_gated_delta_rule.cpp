@@ -221,11 +221,13 @@ HOST_API std::tuple<at::Tensor, at::Tensor> chunk_gated_delta_rule(
     }
 
     int64_t seqSum = 0;
+    int64_t totalChunks = 0;
     at::Tensor seqLensCpu = actual_seq_lengths->cpu();
     const int32_t *seqData = reinterpret_cast<const int32_t *>(seqLensCpu.data_ptr());
     for (int64_t i = 0; i < b; ++i) {
         TORCH_CHECK(seqData[i] > 0, "actual_seq_lengths entries must be positive");
         seqSum += seqData[i];
+        totalChunks += (static_cast<int64_t>(seqData[i]) + CHUNK_SIZE - 1) / CHUNK_SIZE;
     }
     TORCH_CHECK(seqSum == t, "sum(actual_seq_lengths) must equal query dim 0");
 
@@ -245,7 +247,6 @@ HOST_API std::tuple<at::Tensor, at::Tensor> chunk_gated_delta_rule(
     float scaleValue = scale.has_value() ? static_cast<float>(*scale) : 1.0f;
 
     bool outputChunkState = chunk_state.has_value() && chunk_state->defined();
-    int64_t totalChunks = (t + CHUNK_SIZE - 1) / CHUNK_SIZE + b;
     if (outputChunkState) {
         TORCH_CHECK(chunk_state->dim() == 4, "chunk_state must be 4D (totalChunks, Nv, Dv, Dk)");
         TORCH_CHECK(chunk_state->size(0) >= totalChunks, "chunk_state dim 0 must be >= ", totalChunks);
