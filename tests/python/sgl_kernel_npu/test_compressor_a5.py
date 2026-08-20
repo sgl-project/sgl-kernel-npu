@@ -418,6 +418,56 @@ def _call_native_compressor(inputs, state_cache):
     )
 
 
+def _make_a5_device_inputs(inputs):
+    """Move fixed compressor inputs and scalar metadata to NPU once."""
+    device_inputs = dict(inputs)
+    for name in (
+        "x",
+        "wkv",
+        "wgate",
+        "ape",
+        "norm_weight",
+        "rope_sin",
+        "rope_cos",
+        "state_block_table",
+    ):
+        device_inputs[name] = inputs[name].npu()
+    device_inputs["cu_seqlens"] = (
+        inputs["cu_seqlens"].npu() if inputs["cu_seqlens"] is not None else None
+    )
+    device_inputs["seqused"] = torch.tensor(
+        inputs["seqused"], dtype=torch.int32, device="npu"
+    )
+    device_inputs["start_pos"] = torch.tensor(
+        inputs["start_pos"], dtype=torch.int32, device="npu"
+    )
+    return device_inputs
+
+
+def _call_a5_device_compressor(operator, inputs, state_cache):
+    return operator(
+        inputs["x"],
+        inputs["wkv"],
+        inputs["wgate"],
+        state_cache,
+        inputs["ape"],
+        inputs["norm_weight"],
+        inputs["rope_sin"],
+        inputs["rope_cos"],
+        state_block_table=inputs["state_block_table"],
+        cu_seqlens=inputs["cu_seqlens"],
+        seqused=inputs["seqused"],
+        start_pos=inputs["start_pos"],
+        rope_head_dim=inputs["rope_head_dim"],
+        cmp_ratio=inputs["cmp_ratio"],
+        coff=inputs["coff"],
+        norm_eps=inputs["norm_eps"],
+        rotary_mode=inputs["rotary_mode"],
+        cache_mode=inputs["cache_mode"],
+        state_cache_stride_dim0=0,
+    )
+
+
 def _small_cycle_case(**overrides):
     params = dict(
         start_pos=[13],
@@ -674,6 +724,56 @@ class TestCompressorA5(unittest.TestCase):
                 noncontiguous_dim0=True,
             )
         )
+
+    def test_cycle_graph_replay_matches_eager_without_allocations(self):
+        """A missing capture-safe tiling path changes output/state or allocates on replay."""
+        inputs = self._matrix_inputs(
+            SCENARIOS["c4a"],
+            torch.bfloat16,
+            "TH",
+            2,
+            batch=1,
+            start_pos=[13],
+        )
+        device_inputs = _make_a5_device_inputs(inputs)
+        initial_state = self._new_npu_state(inputs)
+        warmup_state = initial_state.clone()
+
+        # Warm the exact shape before capture so host tiling is not captured.
+        _call_a5_device_compressor(
+            torch.ops.npu.compressor, device_inputs, warmup_state
+        )
+        torch.npu.synchronize()
+
+        eager_state = initial_state.clone()
+        eager_results = []
+        for _ in range(3):
+            eager_output = _call_a5_device_compressor(
+                torch.ops.npu.compressor, device_inputs, eager_state
+            )
+            torch.npu.synchronize()
+            eager_results.append((eager_output.cpu(), eager_state.cpu()))
+
+        captured_state = initial_state.clone()
+        graph = torch.npu.NPUGraph()
+        capture_stream = torch.npu.Stream()
+        with torch.npu.graph(graph, stream=capture_stream, auto_dispatch_capture=True):
+            captured_output = _call_a5_device_compressor(
+                torch.ops.npu.compressor, device_inputs, captured_state
+            )
+        torch.npu.synchronize()
+
+        # The capture launch mutates state; reset before the eager-matched replay sequence.
+        captured_state.copy_(initial_state)
+        torch.npu.synchronize()
+        allocated_before = torch.npu.memory_allocated()
+        for expected_output, expected_state in eager_results:
+            graph.replay()
+            torch.npu.synchronize()
+            self.assertTrue(torch.equal(captured_output.cpu(), expected_output))
+            self.assertTrue(torch.equal(captured_state.cpu(), expected_state))
+        allocated_after = torch.npu.memory_allocated()
+        self.assertEqual(allocated_before, allocated_after)
 
     def test_explicit_stride_mismatch_rejected(self):
         inputs = _small_cycle_case()
