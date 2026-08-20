@@ -12,6 +12,16 @@ import sgl_kernel_npu
 import torch
 import torch_npu
 
+SCENARIOS = {
+    "c4a": dict(cmp_ratio=4, coff=2, head_dim=512),
+    "c4li": dict(cmp_ratio=4, coff=2, head_dim=128),
+    "c128a": dict(cmp_ratio=128, coff=1, head_dim=512),
+}
+DTYPES = (torch.bfloat16, torch.float16)
+LAYOUTS = ("TH", "BSH")
+CACHE_MODES = (1, 2)
+STATE_SENTINEL = 17.0
+
 
 def _is_ascend950():
     try:
@@ -59,23 +69,27 @@ def _rotary_emb(x, rope_sin, rope_cos, rotary_mode):
     return y
 
 
-def _cycle_slot(bank_id, absolute_pos, block_size):
+def _state_slot(inputs, batch_index, absolute_pos):
+    block_size = inputs["state_cache"].shape[1]
+    if inputs["cache_mode"] == 1:
+        bank_id = inputs["state_block_table"][batch_index, absolute_pos // block_size]
+    else:
+        bank_id = inputs["state_block_table"][batch_index]
     return int(bank_id), int(absolute_pos) % int(block_size)
 
 
-def _read_cycle_state(state, bank_id, absolute_start, absolute_end):
-    block_size = state.shape[1]
+def _read_state(state, inputs, batch_index, absolute_start, absolute_end):
     return torch.stack(
         [
-            state[_cycle_slot(bank_id, pos, block_size)]
+            state[_state_slot(inputs, batch_index, pos)]
             for pos in range(absolute_start, absolute_end)
         ],
         dim=0,
     )
 
 
-def _write_cycle_state(state, bank_id, absolute_pos, value):
-    state[_cycle_slot(bank_id, absolute_pos, state.shape[1])] = value
+def _write_state(state, inputs, batch_index, absolute_pos, value):
+    state[_state_slot(inputs, batch_index, absolute_pos)] = value
 
 
 def _make_a5_inputs(
@@ -93,7 +107,6 @@ def _make_a5_inputs(
     noncontiguous_dim0,
     seed,
 ):
-    assert cache_mode == 2
     gen = torch.Generator().manual_seed(seed)
     width = coff * head_dim
     if layout == "TH":
@@ -107,24 +120,34 @@ def _make_a5_inputs(
     ape = torch.randn(cmp_ratio, width, generator=gen).float() * 0.01
     norm_weight = torch.randn(head_dim, generator=gen).float() * 0.02 + 1.0
     rope_rows = min(batch * seq_len, batch * seq_len // cmp_ratio + batch)
-    rope_sin = torch.randn(rope_rows, 64, generator=gen).float() * 0.01
-    rope_cos = (
-        torch.ones(rope_rows, 64)
-        + torch.randn(rope_rows, 64, generator=gen).float() * 0.01
+    rope_shape = (
+        (rope_rows, 64)
+        if layout == "TH"
+        else (batch, (seq_len + cmp_ratio - 1) // cmp_ratio, 64)
     )
-    bank_ids = torch.arange(batch, dtype=torch.int32)
-    block_num = batch + 1
+    rope_sin = torch.randn(rope_shape, generator=gen).float() * 0.01
+    rope_cos = (
+        torch.ones(rope_shape) + torch.randn(rope_shape, generator=gen).float() * 0.01
+    )
+    if cache_mode == 1:
+        table_width = (max(start_pos) + seq_len + block_size - 1) // block_size
+        state_block_table = torch.empty((batch, table_width), dtype=torch.int32)
+        for batch_index in range(batch):
+            state_block_table[batch_index].fill_(batch_index + 1)
+    else:
+        state_block_table = torch.arange(1, batch + 1, dtype=torch.int32)
+    block_num = batch + 2
     if noncontiguous_dim0:
         backing = torch.empty(
             (block_num * 2, block_size, 2 * width), dtype=torch.float32
         )
         state_cache = backing[::2]
-        state_cache.fill_(17.0)
+        state_cache.fill_(STATE_SENTINEL)
         assert state_cache.stride(1) == 2 * width
         assert state_cache.stride(0) > block_size * 2 * width
     else:
         state_cache = torch.full(
-            (block_num, block_size, 2 * width), 17.0, dtype=torch.float32
+            (block_num, block_size, 2 * width), STATE_SENTINEL, dtype=torch.float32
         )
     return dict(
         x=x,
@@ -135,7 +158,7 @@ def _make_a5_inputs(
         norm_weight=norm_weight,
         rope_sin=rope_sin,
         rope_cos=rope_cos,
-        state_block_table=bank_ids,
+        state_block_table=state_block_table,
         cu_seqlens=cu_seqlens,
         seqused=[seq_len] * batch,
         start_pos=start_pos,
@@ -147,6 +170,7 @@ def _make_a5_inputs(
         cache_mode=cache_mode,
         layout=layout,
         dtype=dtype,
+        noncontiguous_dim0=noncontiguous_dim0,
     )
 
 
@@ -159,8 +183,8 @@ def _reference_compressor_a5(inputs):
     written = torch.zeros_like(state, dtype=torch.bool)
     ape = inputs["ape"].numpy()
     norm_weight = inputs["norm_weight"].float().numpy()
-    rope_sin = inputs["rope_sin"].float().numpy()
-    rope_cos = inputs["rope_cos"].float().numpy()
+    rope_sin = inputs["rope_sin"].float().numpy().reshape(-1, inputs["rope_head_dim"])
+    rope_cos = inputs["rope_cos"].float().numpy().reshape(-1, inputs["rope_head_dim"])
     start_pos, seqused = inputs["start_pos"], inputs["seqused"]
     coff, cmp_ratio, rope_head_dim = (
         inputs["coff"],
@@ -179,18 +203,19 @@ def _reference_compressor_a5(inputs):
             (min(x.shape[0], x.shape[0] // cmp_ratio + len(start_pos)), head_dim),
             dtype=np.float32,
         )
+        output_written = torch.zeros(output.shape, dtype=torch.bool)
     else:
         output = np.zeros(
             (len(start_pos), (x.shape[1] + cmp_ratio - 1) // cmp_ratio, head_dim),
             dtype=np.float32,
         )
+        output_written = torch.zeros(output.shape, dtype=torch.bool)
     out_index = 0
     for batch_index, batch_start in enumerate(start_pos):
         batch_out = 0
         batch_used = seqused[batch_index]
         compress_until = (batch_start + batch_used) // cmp_ratio * cmp_ratio
         seq_index = 0
-        bank_id = inputs["state_block_table"][batch_index].item()
         while seq_index < batch_used:
             absolute_start = batch_start + seq_index
             absolute_end = min(
@@ -222,10 +247,11 @@ def _reference_compressor_a5(inputs):
                             )
                         )
                     ).float()
-                    _write_cycle_state(state, bank_id, absolute_pos, value)
-                    _write_cycle_state(
+                    _write_state(state, inputs, batch_index, absolute_pos, value)
+                    _write_state(
                         written,
-                        bank_id,
+                        inputs,
+                        batch_index,
                         absolute_pos,
                         torch.ones_like(value, dtype=torch.bool),
                     )
@@ -240,8 +266,12 @@ def _reference_compressor_a5(inputs):
                 if batch_start == absolute_start:
                     cnt_from_state = batch_start % cmp_ratio
                     if cnt_from_state > 0:
-                        history = _read_cycle_state(
-                            state, bank_id, batch_start - cnt_from_state, batch_start
+                        history = _read_state(
+                            state,
+                            inputs,
+                            batch_index,
+                            batch_start - cnt_from_state,
+                            batch_start,
                         )
                         kv_groups[coff_id, :cnt_from_state] = history[
                             :, d_start:d_end
@@ -265,8 +295,12 @@ def _reference_compressor_a5(inputs):
                             copy_start = (
                                 batch_start - batch_start % cmp_ratio - cmp_ratio
                             )
-                            history = _read_cycle_state(
-                                state, bank_id, copy_start, copy_start + cnt_from_state
+                            history = _read_state(
+                                state,
+                                inputs,
+                                batch_index,
+                                copy_start,
+                                copy_start + cnt_from_state,
                             )
                             kv_groups[coff_id, :cnt_from_state] = history[
                                 :, d_start:d_end
@@ -278,8 +312,8 @@ def _reference_compressor_a5(inputs):
                         cnt_from_state = batch_start % cmp_ratio
                         if cnt_from_state > 0:
                             copy_start = batch_start - batch_start % cmp_ratio
-                            history = _read_cycle_state(
-                                state, bank_id, copy_start, batch_start
+                            history = _read_state(
+                                state, inputs, batch_index, copy_start, batch_start
                             )
                             kv_groups[coff_id, :cnt_from_state] = history[
                                 :, d_start:d_end
@@ -315,12 +349,14 @@ def _reference_compressor_a5(inputs):
                 )
                 if combine:
                     output[out_index] = compressed
+                    output_written[out_index] = True
                 else:
                     output[batch_index, batch_out] = compressed
+                    output_written[batch_index, batch_out] = True
                 batch_out += 1
                 out_index += 1
             seq_index = absolute_end - batch_start
-    return torch.tensor(output).to(x_dtype), state, written
+    return torch.tensor(output).to(x_dtype), output_written, state, written
 
 
 def _call_npu_compressor(inputs, state_cache, rotary_mode=2, state_cache_stride_dim0=0):
@@ -405,57 +441,203 @@ class TestCompressorA5(unittest.TestCase):
         passed = torch.isclose(actual, expected, rtol=rtol, atol=atol, equal_nan=False)
         self.assertGreaterEqual(passed.float().mean().item(), 0.995)
 
-    def test_cycle_table_is_one_dimensional(self):
-        inputs = _small_cycle_case()
-        self.assertEqual(inputs["state_block_table"].dim(), 1)
-        state = inputs["state_cache"].clone().npu()
-        out = _call_npu_compressor(inputs, state)
-        torch.npu.synchronize()
-        self.assertEqual(out.dim(), 2)
-
-    def test_cycle_wrap_updates_expected_slot(self):
-        inputs = _small_cycle_case(start_pos=[16])
-        expected_out, expected_state, written = _reference_compressor_a5(inputs)
-        state = inputs["state_cache"].clone().npu()
-        actual_out = _call_npu_compressor(inputs, state)
-        torch.npu.synchronize()
-        self._assert_precision(actual_out, expected_out, inputs["dtype"])
-        self._assert_precision(
-            state.cpu()[written], expected_state[written], inputs["dtype"]
+    def _new_npu_state(self, inputs):
+        if not inputs["noncontiguous_dim0"]:
+            return inputs["state_cache"].clone().npu()
+        shape = inputs["state_cache"].shape
+        backing = torch.full(
+            (shape[0] * 2, shape[1], shape[2]),
+            STATE_SENTINEL,
+            dtype=torch.float32,
+            device="npu",
         )
-        self.assertTrue(torch.equal(state.cpu()[~written], expected_state[~written]))
+        state = backing[::2]
+        state.copy_(inputs["state_cache"].npu())
+        self.assertGreater(state.stride(0), shape[1] * shape[2])
+        return state
 
-    def test_native_ab_c4a_bf16_th_cycle(self):
-        inputs = _small_cycle_case()
+    def _assert_untouched_state(self, actual_state, original_state, written):
+        actual_state = actual_state.cpu()
+        self.assertTrue(torch.equal(actual_state[~written], original_state[~written]))
+        self.assertTrue(torch.equal(actual_state[-1], original_state[-1]))
+        self.assertTrue(torch.all(original_state == STATE_SENTINEL).item())
+
+    def _assert_golden_case(self, inputs):
+        expected_out, output_written, expected_state, state_written = (
+            _reference_compressor_a5(inputs)
+        )
+        original_state = inputs["state_cache"].clone()
+        actual_state = self._new_npu_state(inputs)
+        actual_out = _call_npu_compressor(inputs, actual_state)
+        torch.npu.synchronize()
+        self._assert_precision(
+            actual_out[output_written], expected_out[output_written], inputs["dtype"]
+        )
+        self._assert_precision(
+            actual_state.cpu()[state_written],
+            expected_state[state_written],
+            inputs["dtype"],
+        )
+        self._assert_untouched_state(actual_state, original_state, state_written)
+
+    def _assert_native_ab_case(self, inputs):
         if not hasattr(torch.ops.custom, "compressor"):
             self.skipTest("torch.ops.custom.compressor is required for native A/B")
-        native_state, migrated_state = (
-            inputs["state_cache"].clone().npu(),
-            inputs["state_cache"].clone().npu(),
+        _, _, _, state_written = _reference_compressor_a5(inputs)
+        original_state = inputs["state_cache"].clone()
+        native_state, migrated_state = self._new_npu_state(inputs), self._new_npu_state(
+            inputs
         )
         native_out = _call_native_compressor(inputs, native_state)
         migrated_out = _call_npu_compressor(inputs, migrated_state)
         torch.npu.synchronize()
         self.assertTrue(torch.equal(native_out, migrated_out))
         self.assertTrue(torch.equal(native_state, migrated_state))
+        self._assert_untouched_state(native_state, original_state, state_written)
+        self._assert_untouched_state(migrated_state, original_state, state_written)
 
-    def test_noncontiguous_dim0_stride(self):
-        inputs = _small_cycle_case(noncontiguous_dim0=True)
-        expected_out, expected_state, written = _reference_compressor_a5(inputs)
-        shape = inputs["state_cache"].shape
-        backing = torch.empty(
-            (shape[0] * 2, shape[1], shape[2]), dtype=torch.float32, device="npu"
+    def _matrix_inputs(
+        self, scenario, dtype, layout, cache_mode, hidden=1024, **overrides
+    ):
+        params = dict(
+            start_pos=[scenario["cmp_ratio"] - 1, 2 * scenario["cmp_ratio"] - 1],
+            seq_len=scenario["cmp_ratio"] + 1,
+            hidden=hidden,
+            cache_mode=cache_mode,
+            layout=layout,
+            dtype=dtype,
+            batch=2,
+            block_size=16,
+            noncontiguous_dim0=False,
+            seed=20260820,
         )
-        state = backing[::2]
-        state.copy_(inputs["state_cache"].contiguous().npu())
-        self.assertGreater(state.stride(0), shape[1] * shape[2])
-        actual_out = _call_npu_compressor(inputs, state)
-        torch.npu.synchronize()
-        self._assert_precision(actual_out, expected_out, inputs["dtype"])
-        self._assert_precision(
-            state.cpu()[written], expected_state[written], inputs["dtype"]
+        params.update(scenario)
+        params.update(overrides)
+        return _make_a5_inputs(**params)
+
+    def test_full_correctness_matrix(self):
+        for scenario_name, scenario in SCENARIOS.items():
+            for dtype in DTYPES:
+                for layout in LAYOUTS:
+                    for cache_mode in CACHE_MODES:
+                        with self.subTest(
+                            scenario=scenario_name,
+                            dtype=dtype,
+                            layout=layout,
+                            cache_mode=cache_mode,
+                        ):
+                            self._assert_golden_case(
+                                self._matrix_inputs(scenario, dtype, layout, cache_mode)
+                            )
+
+    def test_native_ab_full_matrix(self):
+        if not hasattr(torch.ops.custom, "compressor"):
+            self.skipTest("torch.ops.custom.compressor is required for native A/B")
+        for scenario_name, scenario in SCENARIOS.items():
+            for dtype in DTYPES:
+                for layout in LAYOUTS:
+                    for cache_mode in CACHE_MODES:
+                        with self.subTest(
+                            scenario=scenario_name,
+                            dtype=dtype,
+                            layout=layout,
+                            cache_mode=cache_mode,
+                        ):
+                            self._assert_native_ab_case(
+                                self._matrix_inputs(scenario, dtype, layout, cache_mode)
+                            )
+
+    def test_hidden_7168_golden_cases(self):
+        for scenario_name, scenario in SCENARIOS.items():
+            with self.subTest(scenario=scenario_name):
+                self._assert_golden_case(
+                    self._matrix_inputs(scenario, torch.bfloat16, "TH", 1, hidden=7168)
+                )
+
+    def test_cycle_position_boundaries_and_bank_isolation(self):
+        block_size = 16
+        for scenario_name, scenario in SCENARIOS.items():
+            positions = (
+                0,
+                scenario["cmp_ratio"] - 1,
+                scenario["cmp_ratio"],
+                8192,
+                block_size - 1,
+                block_size,
+                block_size + 1,
+            )
+            for position in positions:
+                with self.subTest(scenario=scenario_name, position=position):
+                    inputs = self._matrix_inputs(
+                        scenario,
+                        torch.bfloat16,
+                        "TH",
+                        2,
+                        start_pos=[position, position + scenario["cmp_ratio"]],
+                    )
+                    self.assertEqual(inputs["state_block_table"].dim(), 1)
+                    self.assertNotEqual(
+                        inputs["state_block_table"][0].item(),
+                        inputs["state_block_table"][1].item(),
+                    )
+                    self._assert_golden_case(inputs)
+
+    def test_multi_bank_isolation(self):
+        for scenario_name, scenario in SCENARIOS.items():
+            with self.subTest(scenario=scenario_name):
+                inputs = self._matrix_inputs(
+                    scenario,
+                    torch.bfloat16,
+                    "TH",
+                    2,
+                    start_pos=[0, 0],
+                )
+                perturbed_inputs = dict(inputs)
+                perturbed_inputs["x"] = inputs["x"].clone()
+                perturbed_inputs["x"][: inputs["seqused"][0]].add_(0.1)
+                baseline_state = self._new_npu_state(inputs)
+                perturbed_state = self._new_npu_state(inputs)
+                _call_npu_compressor(inputs, baseline_state)
+                _call_npu_compressor(perturbed_inputs, perturbed_state)
+                torch.npu.synchronize()
+                changed_bank = inputs["state_block_table"][0].item()
+                other_bank = inputs["state_block_table"][1].item()
+                self.assertFalse(
+                    torch.equal(
+                        baseline_state[changed_bank].cpu(),
+                        perturbed_state[changed_bank].cpu(),
+                    )
+                )
+                self.assertTrue(
+                    torch.equal(
+                        baseline_state[other_bank].cpu(),
+                        perturbed_state[other_bank].cpu(),
+                    )
+                )
+
+    def test_noncontiguous_dim0_golden_cases(self):
+        for scenario_name, scenario in SCENARIOS.items():
+            with self.subTest(scenario=scenario_name):
+                self._assert_golden_case(
+                    self._matrix_inputs(
+                        scenario,
+                        torch.float16,
+                        "BSH",
+                        2,
+                        noncontiguous_dim0=True,
+                    )
+                )
+
+    def test_native_ab_noncontiguous_dim0(self):
+        self._assert_native_ab_case(
+            self._matrix_inputs(
+                SCENARIOS["c4a"],
+                torch.bfloat16,
+                "TH",
+                2,
+                noncontiguous_dim0=True,
+            )
         )
-        self.assertTrue(torch.equal(state.cpu()[~written], expected_state[~written]))
 
     def test_explicit_stride_mismatch_rejected(self):
         inputs = _small_cycle_case()
