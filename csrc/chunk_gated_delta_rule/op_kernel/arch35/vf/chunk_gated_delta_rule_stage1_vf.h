@@ -11,6 +11,8 @@
 #ifndef CHUNK_GATED_DELTA_RULE_STAGE1_VF_H
 #define CHUNK_GATED_DELTA_RULE_STAGE1_VF_H
 
+#if !defined(__ASC_NPU_HOST__)
+
 #include "kernel_tensor.h"
 
 namespace ChunkGatedDeltaRule {
@@ -78,4 +80,6 @@ __aicore__ inline void InverseAIVVF(const LocalTensor<float> &attnUb, const Loca
     InverseAIVVFImpl<N>(attn, inv, ei, offset, chunkSize);
 }
 } // namespace ChunkGatedDeltaRule
+#endif // !__ASC_NPU_HOST__
+
 #endif // CHUNK_GATED_DELTA_RULE_STAGE1_VF_H
