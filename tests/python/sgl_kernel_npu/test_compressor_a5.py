@@ -423,6 +423,7 @@ class TestCompressorA5(unittest.TestCase):
         self._assert_precision(
             state.cpu()[written], expected_state[written], inputs["dtype"]
         )
+        self.assertTrue(torch.equal(state.cpu()[~written], expected_state[~written]))
 
     def test_native_ab_c4a_bf16_th_cycle(self):
         inputs = _small_cycle_case()
@@ -454,6 +455,7 @@ class TestCompressorA5(unittest.TestCase):
         self._assert_precision(
             state.cpu()[written], expected_state[written], inputs["dtype"]
         )
+        self.assertTrue(torch.equal(state.cpu()[~written], expected_state[~written]))
 
     def test_explicit_stride_mismatch_rejected(self):
         inputs = _small_cycle_case()
