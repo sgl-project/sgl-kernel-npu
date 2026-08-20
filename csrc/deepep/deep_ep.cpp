@@ -628,8 +628,9 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
     } else {
         EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, topk_idx_int32,
                      tp_send_counts, static_cast<const std::nullptr_t &>(nullptr), hcom_ep_name, num_ranks, rank,
-                     hcom_ep_name, tp_world_size, tp_rankId, moe_expert_number, real_max_bs, round, per_round_tokens, 0,
-                     0, 0, combined_x, combine_send_cost_stats_out);
+                     hcom_ep_name, tp_world_size, tp_rankId, moe_expert_number, real_max_bs, round, per_round_tokens,
+                     profile_enable_i64, profile_buffer_bytes_i64, profile_launch_id_i64, combined_x,
+                     combine_send_cost_stats_out);
     }
 
     return {combined_x, recv_topk_weights, event};

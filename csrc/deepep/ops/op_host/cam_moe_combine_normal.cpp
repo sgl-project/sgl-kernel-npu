@@ -44,9 +44,8 @@ public:
             .AutoContiguous();
         this->Input("profile_buffer")
             .ParamType(OPTIONAL)
-            .DataType({ge::DT_UINT8})
-            .Format({ge::FORMAT_ND})
-            .UnknownShapeFormat({ge::FORMAT_ND})
+            .DataType({ge::DT_UINT8, ge::DT_UINT8, ge::DT_UINT8, ge::DT_UINT8})
+            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
             .AutoContiguous();
 
         this->Output("x")

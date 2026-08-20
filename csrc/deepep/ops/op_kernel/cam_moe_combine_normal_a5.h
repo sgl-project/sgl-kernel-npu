@@ -59,7 +59,8 @@ private:
     __aicore__ inline void CopyBufferToShareAndSetStatus();
     __aicore__ inline void CopyBufferToShare(uint32_t srcRankId, uint32_t srcTokenId, uint32_t srcTopkId,
                                              uint32_t tkIndex);
-    __aicore__ inline void ProcessSendRange(uint32_t lo, uint32_t cnt, LocalTensor<int32_t> sendCostStatsTensor);
+    __aicore__ inline void ProcessSendRange(uint32_t lo, uint32_t cnt, uint64_t &copyAcc, uint64_t &statusAcc,
+                                            LocalTensor<int32_t> sendCostStatsTensor);
     __aicore__ inline void ReadBufferFromRemote();
     __aicore__ inline void WaitBuffCopy(uint32_t tokenIndex, uint32_t startTokenIndex);
     __aicore__ inline void SetStatusBySrcInfo(uint32_t srcRankId, uint32_t srcTokenId, uint32_t srcTopkId);
