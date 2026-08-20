@@ -143,6 +143,18 @@ at::Tensor lightning_indexer(
     c10::optional<c10::string_view> layout_key,
     c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode);
 
+at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv,
+                      const at::Tensor &wgate, at::Tensor &state_cache,
+                      const at::Tensor &ape, const at::Tensor &norm_weight,
+                      const at::Tensor &rope_sin, const at::Tensor &rope_cos,
+                      const c10::optional<at::Tensor> &state_block_table,
+                      const c10::optional<at::Tensor> &cu_seqlens,
+                      const c10::optional<at::Tensor> &seqused,
+                      const c10::optional<at::Tensor> &start_pos,
+                      int64_t rope_head_dim, int64_t cmp_ratio, int64_t coff,
+                      double norm_eps, int64_t rotary_mode, int64_t cache_mode,
+                      int64_t state_cache_stride_dim0);
+
 /**
  * @brief Triangular inverse of input tensor where last two dimensions represent
  * a matrix.
