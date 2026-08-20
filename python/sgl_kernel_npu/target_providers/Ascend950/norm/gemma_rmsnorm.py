@@ -1,9 +1,12 @@
-"""ACLNN Gemma RMSNorm provider, staged as ``norm/gemma_rmsnorm.py`` on 950.
+"""Ascend 950 Gemma RMSNorm provider.
 
-Ascend 950 does not register ``npu_gemma_rms_norm``, so the Gemma weight offset
-is applied explicitly and the result handed to plain RMSNorm. Exactly one
-provider module is staged into the wheel (see ``setup.py``), so this file is
-never importable under its own name from an installed package.
+Staged into the wheel as ``norm/gemma_rmsnorm.py`` when building for
+``Ascend950`` (see ``build_tools/target_provider.py``). The provider tree is
+build input, never a runtime package: the module only exists under its stable
+path inside a built wheel.
+
+Ascend 950 does not register ``npu_gemma_rms_norm``, so the Gemma weight
+offset is applied explicitly and the result handed to plain RMSNorm.
 """
 
 from __future__ import annotations
