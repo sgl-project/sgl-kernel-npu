@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 import torch
 import torch_npu
 from sgl_kernel_npu.norm.split_qkv_rmsnorm_rope import (
@@ -7,7 +8,9 @@ from sgl_kernel_npu.norm.split_qkv_rmsnorm_rope import (
 )
 
 
-def custom_rope(q, k, sin, cos, half_rope_dim):
+def custom_rope(q, k, sin, cos, half_rope_dim=None):
+    if half_rope_dim is None:
+        half_rope_dim = q.shape[-1] // 2
     sin = sin.to(torch.float32).cpu().numpy()
     cos = cos.to(torch.float32).cpu().numpy()
     x1 = q[..., :half_rope_dim]
@@ -40,7 +43,8 @@ def rms_norm(
     return out
 
 
-def test_split_qkv_rmsnorm_rope():
+@pytest.mark.parametrize("rope_dim", [128, 64], ids=["full_rope_dim", "half_rope_dim"])
+def test_split_qkv_rmsnorm_rope(rope_dim):
     q_hidden_size = 6144
     kv_hidden_size = 1024
     head_dim = 128
@@ -75,8 +79,8 @@ def test_split_qkv_rmsnorm_rope():
         .to(torch.bfloat16)
         .npu()
     )
-    sin = np.random.uniform(0, 1, [bsz, 1, 1, head_dim])
-    cos = np.random.uniform(0, 1, [bsz, 1, 1, head_dim])
+    sin = np.random.uniform(0, 1, [bsz, 1, 1, rope_dim])
+    cos = np.random.uniform(0, 1, [bsz, 1, 1, rope_dim])
     sin = torch.from_numpy(sin).to(torch.bfloat16).npu()
     cos = torch.from_numpy(cos).to(torch.bfloat16).npu()
     # fused kernel
@@ -103,7 +107,15 @@ def test_split_qkv_rmsnorm_rope():
     _k = _k.reshape(bsz, 1, -1, head_dim)
 
     # rope
-    cus_q, cus_k = custom_rope(_q, _k, sin, cos, half_rope_dim=64)
+    rot_q, rot_k = custom_rope(
+        _q[..., :rope_dim],
+        _k[..., :rope_dim],
+        sin,
+        cos,
+        half_rope_dim=rope_dim // 2,
+    )
+    cus_q = np.concatenate((rot_q, _q[..., rope_dim:]), axis=-1)
+    cus_k = np.concatenate((rot_k, _k[..., rope_dim:]), axis=-1)
     cus_q = cus_q.reshape(bsz, -1)
     cus_k = cus_k.reshape(bsz, -1)
 
@@ -350,6 +362,7 @@ def test_split_qkvgate_gemma_rmsnorm_rope():
 
 
 if __name__ == "__main__":
-    test_split_qkv_rmsnorm_rope()
+    test_split_qkv_rmsnorm_rope(128)
+    test_split_qkv_rmsnorm_rope(64)
     test_split_qkv_rope()
     test_split_qkvgate_gemma_rmsnorm_rope()
