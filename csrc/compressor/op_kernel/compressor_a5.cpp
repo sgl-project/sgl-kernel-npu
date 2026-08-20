@@ -41,6 +41,7 @@
 #include "arch35/compressor_kernel.h"
 #include "arch35/compressor_kernel_full_load.h"
 #include "arch35/compressor_template_tiling_key.h"
+#include "common_tiling_kernel.h"
 
 using namespace Compressor;
 
@@ -66,8 +67,8 @@ extern "C" __global__ __aicore__ void compressor(GM_ADDR x, GM_ADDR wKv, GM_ADDR
 {
     AscendC::TPipe pipe;
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
-    REGISTER_TILING_DEFAULT(optiling::CompressorTilingData);
-    GET_TILING_DATA(tilingDataIn, tiling);
+    optiling::CompressorTilingData tilingDataIn;
+    kernel_utils::CopyTiling(&tilingDataIn, tiling);
     const optiling::CompressorTilingData *__restrict tilingData = &tilingDataIn;
     uint64_t key = tilingData->tilingKey;
     uint64_t templateId = (key >> 11) & 0x3;

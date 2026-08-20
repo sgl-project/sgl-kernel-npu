@@ -141,7 +141,8 @@ if(SGL_KERNEL_ENABLE_A5_COMPRESSOR)
         ${PROJECT_OP_SRC_BASE}/compressor/op_kernel/compressor_a5.cpp)
     ascendc_include_directories(compressor_kernel PRIVATE
         ${PROJECT_OP_SRC_BASE}/compressor/op_kernel
-        ${PROJECT_OP_SRC_BASE}/compressor/op_kernel/arch35)
+        ${PROJECT_OP_SRC_BASE}/compressor/op_kernel/arch35
+        ${PROJECT_OP_SRC_BASE}/utils/kernel)
     ascendc_compile_definitions(compressor_kernel PRIVATE
         -DHAVE_WORKSPACE
         -DHAVE_TILING)
