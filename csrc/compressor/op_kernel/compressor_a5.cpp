@@ -66,7 +66,9 @@ extern "C" __global__ __aicore__ void compressor(GM_ADDR x, GM_ADDR wKv, GM_ADDR
 {
     AscendC::TPipe pipe;
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
-    auto tilingData = reinterpret_cast<__gm__ optiling::CompressorTilingData *>(tiling);
+    REGISTER_TILING_DEFAULT(optiling::CompressorTilingData);
+    GET_TILING_DATA_WITH_STRUCT(optiling::CompressorTilingData, tilingDataIn, tiling);
+    const optiling::CompressorTilingData *__restrict tilingData = &tilingDataIn;
     uint64_t key = tilingData->tilingKey;
     uint64_t templateId = (key >> 11) & 0x3;
     if (templateId == static_cast<uint64_t>(TEMPLATE_ID::EMPTY_X)) {
