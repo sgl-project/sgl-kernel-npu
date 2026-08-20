@@ -155,6 +155,24 @@ at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv,
                       double norm_eps, int64_t rotary_mode, int64_t cache_mode,
                       int64_t state_cache_stride_dim0);
 
+std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv(
+    const at::Tensor &q, const c10::optional<at::Tensor> &ori_kv,
+    const c10::optional<at::Tensor> &cmp_kv,
+    const c10::optional<at::Tensor> &ori_sparse_indices,
+    const c10::optional<at::Tensor> &cmp_sparse_indices,
+    const c10::optional<at::Tensor> &ori_block_table,
+    const c10::optional<at::Tensor> &cmp_block_table,
+    const c10::optional<at::Tensor> &cu_seqlens_q,
+    const c10::optional<at::Tensor> &cu_seqlens_ori_kv,
+    const c10::optional<at::Tensor> &cu_seqlens_cmp_kv,
+    const c10::optional<at::Tensor> &seqused_q,
+    const c10::optional<at::Tensor> &seqused_kv,
+    const c10::optional<at::Tensor> &sinks,
+    const c10::optional<at::Tensor> &metadata, double softmax_scale,
+    int64_t cmp_ratio, int64_t ori_mask_mode, int64_t cmp_mask_mode,
+    int64_t ori_win_left, int64_t ori_win_right, c10::string_view layout_q,
+    c10::string_view layout_kv, bool return_softmax_lse);
+
 /**
  * @brief Triangular inverse of input tensor where last two dimensions represent
  * a matrix.
