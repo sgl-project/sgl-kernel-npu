@@ -71,9 +71,9 @@ struct SasMetaData {
     uint32_t faMetadata[AIC_CORE_NUM][FA_METADATA_SIZE];
     uint32_t fdMetadata[AIV_CORE_NUM][FD_METADATA_SIZE];
 };
-} // namespace detail
+}  // namespace detail
 
 static_assert(SAS_META_SIZE * sizeof(SAS_METADATA_T) >= sizeof(detail::SasMetaData));
-} // namespace optiling
+}  // namespace optiling
 
 #endif

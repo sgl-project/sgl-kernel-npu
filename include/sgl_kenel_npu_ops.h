@@ -15,151 +15,87 @@ namespace sglang {
 namespace npu_kernel {
 at::Tensor helloworld(const at::Tensor &x, const at::Tensor &y);
 
-at::Tensor cache_loc_assign(const at::Tensor &req_indices,
-                            const at::Tensor &token_pool,
-                            const at::Tensor &start_offset,
-                            const at::Tensor &end_offset,
+at::Tensor cache_loc_assign(const at::Tensor &req_indices, const at::Tensor &token_pool, const at::Tensor &start_offset, const at::Tensor &end_offset,
                             const at::Tensor &out_cache_loc);
 
-at::Tensor cache_loc_update(const at::Tensor &req_indices,
-                            const at::Tensor &token_pool,
-                            const at::Tensor &start_offset,
-                            const at::Tensor &end_offset,
+at::Tensor cache_loc_update(const at::Tensor &req_indices, const at::Tensor &token_pool, const at::Tensor &start_offset, const at::Tensor &end_offset,
                             const at::Tensor &out_cache_loc);
 
-bool assign_cache_op(at::Tensor &dst_tensor, const at::Tensor &src_tensor,
-                     const at::Tensor &dst_start_idx,
-                     const at::Tensor &dst_end_idx,
-                     const at::Tensor &src_start_idx,
-                     const at::Tensor &src_end_idx);
+bool assign_cache_op(at::Tensor &dst_tensor, const at::Tensor &src_tensor, const at::Tensor &dst_start_idx, const at::Tensor &dst_end_idx,
+                     const at::Tensor &src_start_idx, const at::Tensor &src_end_idx);
 
-void alloc_extend(const at::Tensor &pre_lens, const at::Tensor &seq_lens,
-                  const at::Tensor &last_loc, const at::Tensor &free_pages,
-                  int64_t pages_size, at::Tensor &out_indices,
-                  at::Tensor &values);
+void alloc_extend(const at::Tensor &pre_lens, const at::Tensor &seq_lens, const at::Tensor &last_loc, const at::Tensor &free_pages, int64_t pages_size,
+                  at::Tensor &out_indices, at::Tensor &values);
 
-void build_tree_efficient(
-    const at::Tensor &parent_list, const at::Tensor &selected_index,
-    const at::Tensor &verified_seq_len, const at::Tensor &tree_mask,
-    const at::Tensor &positions, const at::Tensor &retrive_index,
-    const at::Tensor &retrive_next_token,
-    const at::Tensor &retrive_next_sibling, int64_t topk, int64_t depth,
-    int64_t draft_token_num, int64_t tree_mask_mode);
+void build_tree_efficient(const at::Tensor &parent_list, const at::Tensor &selected_index, const at::Tensor &verified_seq_len, const at::Tensor &tree_mask,
+                          const at::Tensor &positions, const at::Tensor &retrive_index, const at::Tensor &retrive_next_token,
+                          const at::Tensor &retrive_next_sibling, int64_t topk, int64_t depth, int64_t draft_token_num, int64_t tree_mask_mode);
 
-void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
-                              at::Tensor &device_v, at::Tensor &host_v,
-                              const at::Tensor &device_indices,
-                              const at::Tensor &host_indices, int64_t page_size,
-                              int64_t direction, int64_t flags);
+void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k, at::Tensor &device_v, at::Tensor &host_v, const at::Tensor &device_indices,
+                              const at::Tensor &host_indices, int64_t page_size, int64_t direction, int64_t flags);
 
-at::Tensor bgmv_expand(at::Tensor &x, at::Tensor &weight, at::Tensor &indices,
-                       at::Tensor &y, int64_t slice_offset, int64_t slice_size);
+at::Tensor bgmv_expand(at::Tensor &x, at::Tensor &weight, at::Tensor &indices, at::Tensor &y, int64_t slice_offset, int64_t slice_size);
 
-void bgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &indices,
-                 at::Tensor &y, double scale);
+void bgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &indices, at::Tensor &y, double scale);
 
-at::Tensor sgmv_expand(at::Tensor &x, at::Tensor &weight,
-                       at::Tensor &lora_indices, at::Tensor &seq_len,
-                       at::Tensor &y, int64_t slice_offset, int64_t slice_size);
+at::Tensor sgmv_expand(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices, at::Tensor &seq_len, at::Tensor &y, int64_t slice_offset,
+                       int64_t slice_size);
 
-void sgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
-                 at::Tensor &seq_len, at::Tensor &y, double scale);
+void sgmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices, at::Tensor &seq_len, at::Tensor &y, double scale);
 
-at::Tensor sgemmv_expand(at::Tensor &x, at::Tensor &weight,
-                         at::Tensor &lora_indices, at::Tensor &seq_len,
-                         at::Tensor &lora_ranks, at::Tensor &slice_offsets,
+at::Tensor sgemmv_expand(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices, at::Tensor &seq_len, at::Tensor &lora_ranks, at::Tensor &slice_offsets,
                          at::Tensor &y);
 
-void sgemmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
-                   at::Tensor &seq_len, at::Tensor &lora_ranks,
-                   at::Tensor &lora_scales, at::Tensor &y);
+void sgemmv_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices, at::Tensor &seq_len, at::Tensor &lora_ranks, at::Tensor &lora_scales,
+                   at::Tensor &y);
 
-at::Tensor sgemmc_expand(at::Tensor &x, at::Tensor &weight,
-                         at::Tensor &lora_indices, at::Tensor &seq_len,
-                         at::Tensor &lora_ranks, at::Tensor &slice_offsets,
+at::Tensor sgemmc_expand(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices, at::Tensor &seq_len, at::Tensor &lora_ranks, at::Tensor &slice_offsets,
                          at::Tensor &y);
 
-void sgemmc_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
-                   at::Tensor &seq_len, at::Tensor &lora_ranks,
-                   at::Tensor &lora_scales, at::Tensor &y, int64_t slice_count);
+void sgemmc_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices, at::Tensor &seq_len, at::Tensor &lora_ranks, at::Tensor &lora_scales,
+                   at::Tensor &y, int64_t slice_count);
 
-at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask,
-                               c10::optional<at::Tensor> indices);
+at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask, c10::optional<at::Tensor> indices);
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
-std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>
-mla_preprocess(const at::Tensor &hiddenState, const at::Tensor &gamma0,
-               const at::Tensor &beta0, const at::Tensor &wdqkv,
-               const at::Tensor &descale0, const at::Tensor &gamma1,
-               const at::Tensor &beta1, const at::Tensor &wuq,
-               const at::Tensor &descale1, const at::Tensor &gamma2,
-               const at::Tensor &cos, const at::Tensor &sin,
-               const at::Tensor &wuk, const at::Tensor &kv_cache,
-               const at::Tensor &kv_cache_rope, const at::Tensor &slotmapping,
-               const at::Tensor &quant_scale0, const at::Tensor &quant_offset0,
-               const at::Tensor &bias0, const at::Tensor &quant_scale1,
-               const at::Tensor &quant_offset1, const at::Tensor &bias1,
-               const c10::optional<at::Tensor> &ctkv_scale,
-               const c10::optional<at::Tensor> &q_nope_scale,
-               c10::optional<c10::string_view> cache_mode,
-               c10::optional<c10::string_view> quant_mode, at::Tensor &q_out0,
-               at::Tensor &kv_cache_out0, at::Tensor &q_out1,
-               at::Tensor &kv_cache_out1);
+std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &> mla_preprocess(
+    const at::Tensor &hiddenState, const at::Tensor &gamma0, const at::Tensor &beta0, const at::Tensor &wdqkv, const at::Tensor &descale0,
+    const at::Tensor &gamma1, const at::Tensor &beta1, const at::Tensor &wuq, const at::Tensor &descale1, const at::Tensor &gamma2, const at::Tensor &cos,
+    const at::Tensor &sin, const at::Tensor &wuk, const at::Tensor &kv_cache, const at::Tensor &kv_cache_rope, const at::Tensor &slotmapping,
+    const at::Tensor &quant_scale0, const at::Tensor &quant_offset0, const at::Tensor &bias0, const at::Tensor &quant_scale1, const at::Tensor &quant_offset1,
+    const at::Tensor &bias1, const c10::optional<at::Tensor> &ctkv_scale, const c10::optional<at::Tensor> &q_nope_scale,
+    c10::optional<c10::string_view> cache_mode, c10::optional<c10::string_view> quant_mode, at::Tensor &q_out0, at::Tensor &kv_cache_out0, at::Tensor &q_out1,
+    at::Tensor &kv_cache_out1);
 
-void batch_matmul_transpose(const at::Tensor &tensor_a,
-                            const at::Tensor &tensor_b, at::Tensor &tensor_c,
-                            c10::optional<c10::string_view> format_mode,
+void batch_matmul_transpose(const at::Tensor &tensor_a, const at::Tensor &tensor_b, at::Tensor &tensor_c, c10::optional<c10::string_view> format_mode,
                             c10::optional<c10::string_view> quant_mode);
 
-at::Tensor recurrent_gated_delta_rule(
-    at::Tensor &mix_qkv, at::Tensor &recurrent_state, at::Tensor &beta,
-    double scale, at::Tensor &actual_seq_lengths, at::Tensor &ssm_state_indices,
-    int64_t nk, int64_t nv, c10::optional<at::Tensor> intermediate_state_opt,
-    c10::optional<at::Tensor> cache_indices_opt,
-    c10::optional<at::Tensor> num_accepted_tokens_opt,
-    c10::optional<at::Tensor> g_opt, c10::optional<at::Tensor> gk_opt);
+at::Tensor recurrent_gated_delta_rule(at::Tensor &mix_qkv, at::Tensor &recurrent_state, at::Tensor &beta, double scale, at::Tensor &actual_seq_lengths,
+                                      at::Tensor &ssm_state_indices, int64_t nk, int64_t nv, c10::optional<at::Tensor> intermediate_state_opt,
+                                      c10::optional<at::Tensor> cache_indices_opt, c10::optional<at::Tensor> num_accepted_tokens_opt,
+                                      c10::optional<at::Tensor> g_opt, c10::optional<at::Tensor> gk_opt);
 
-void mega_chunk_gdn(
-    const at::Tensor &q, const at::Tensor &k, const at::Tensor &v,
-    const at::Tensor &g, const at::Tensor &beta, const at::Tensor &mask_lower,
-    const at::Tensor &mask_full, const at::Tensor &minus_identity,
-    const at::Tensor &cu_seqlens, at::Tensor &out, at::Tensor &g_sum,
-    at::Tensor &g_t, at::Tensor &beta_t, at::Tensor &a, at::Tensor &a_inv_f32,
-    at::Tensor &a_inv, at::Tensor &w, at::Tensor &u, at::Tensor &s,
-    at::Tensor &v_new, at::Tensor &final_state, const at::Tensor &initial_state,
-    bool has_initial_state, at::Tensor &kkt_workspace,
-    at::Tensor &wy_workspace_a1, at::Tensor &wy_workspace_a2,
-    at::Tensor &h_workspace, at::Tensor &o_workspace_qk,
-    at::Tensor &o_workspace_qs, at::Tensor &o_workspace_gated,
-    int64_t block_dim, int64_t batch_size, int64_t seq_len,
-    int64_t total_tokens, int64_t num_matrices);
+void mega_chunk_gdn(const at::Tensor &q, const at::Tensor &k, const at::Tensor &v, const at::Tensor &g, const at::Tensor &beta, const at::Tensor &mask_lower,
+                    const at::Tensor &mask_full, const at::Tensor &minus_identity, const at::Tensor &cu_seqlens, at::Tensor &out, at::Tensor &g_sum,
+                    at::Tensor &g_t, at::Tensor &beta_t, at::Tensor &a, at::Tensor &a_inv_f32, at::Tensor &a_inv, at::Tensor &w, at::Tensor &u, at::Tensor &s,
+                    at::Tensor &v_new, at::Tensor &final_state, const at::Tensor &initial_state, bool has_initial_state, at::Tensor &kkt_workspace,
+                    at::Tensor &wy_workspace_a1, at::Tensor &wy_workspace_a2, at::Tensor &h_workspace, at::Tensor &o_workspace_qk, at::Tensor &o_workspace_qs,
+                    at::Tensor &o_workspace_gated, int64_t block_dim, int64_t batch_size, int64_t seq_len, int64_t total_tokens, int64_t num_matrices);
 
-at::Tensor lightning_indexer(
-    const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
-    const c10::optional<at::Tensor> &actual_seq_lengths_query,
-    const c10::optional<at::Tensor> &actual_seq_lengths_key,
-    const c10::optional<at::Tensor> &block_table,
-    c10::optional<c10::string_view> layout_query,
-    c10::optional<c10::string_view> layout_key,
-    c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode);
+at::Tensor lightning_indexer(const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
+                             const c10::optional<at::Tensor> &actual_seq_lengths_query, const c10::optional<at::Tensor> &actual_seq_lengths_key,
+                             const c10::optional<at::Tensor> &block_table, c10::optional<c10::string_view> layout_query,
+                             c10::optional<c10::string_view> layout_key, c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode);
 
-std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv(
-    const at::Tensor &q, const c10::optional<at::Tensor> &ori_kv,
-    const c10::optional<at::Tensor> &cmp_kv,
-    const c10::optional<at::Tensor> &ori_sparse_indices,
-    const c10::optional<at::Tensor> &cmp_sparse_indices,
-    const c10::optional<at::Tensor> &ori_block_table,
-    const c10::optional<at::Tensor> &cmp_block_table,
-    const c10::optional<at::Tensor> &cu_seqlens_q,
-    const c10::optional<at::Tensor> &cu_seqlens_ori_kv,
-    const c10::optional<at::Tensor> &cu_seqlens_cmp_kv,
-    const c10::optional<at::Tensor> &seqused_q,
-    const c10::optional<at::Tensor> &seqused_kv,
-    const c10::optional<at::Tensor> &sinks,
-    const c10::optional<at::Tensor> &metadata, double softmax_scale,
-    int64_t cmp_ratio, int64_t ori_mask_mode, int64_t cmp_mask_mode,
-    int64_t ori_win_left, int64_t ori_win_right, c10::string_view layout_q,
-    c10::string_view layout_kv, bool return_softmax_lse);
+std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv(const at::Tensor &q, const c10::optional<at::Tensor> &ori_kv, const c10::optional<at::Tensor> &cmp_kv,
+                                                        const c10::optional<at::Tensor> &ori_sparse_indices,
+                                                        const c10::optional<at::Tensor> &cmp_sparse_indices, const c10::optional<at::Tensor> &ori_block_table,
+                                                        const c10::optional<at::Tensor> &cmp_block_table, const c10::optional<at::Tensor> &cu_seqlens_q,
+                                                        const c10::optional<at::Tensor> &cu_seqlens_ori_kv, const c10::optional<at::Tensor> &cu_seqlens_cmp_kv,
+                                                        const c10::optional<at::Tensor> &seqused_q, const c10::optional<at::Tensor> &seqused_kv,
+                                                        const c10::optional<at::Tensor> &sinks, const c10::optional<at::Tensor> &metadata, double softmax_scale,
+                                                        int64_t cmp_ratio, int64_t ori_mask_mode, int64_t cmp_mask_mode, int64_t ori_win_left,
+                                                        int64_t ori_win_right, c10::string_view layout_q, c10::string_view layout_kv, bool return_softmax_lse);
 
 /**
  * @brief Triangular inverse of input tensor where last two dimensions represent
@@ -174,34 +110,22 @@ at::Tensor tri_inv_col_sweep(const at::Tensor &tensor_in);
 #endif
 
 #ifdef BUILD_CATLASS_MODULE
-void catlass_matmul_basic(const at::Tensor &tensor_a,
-                          const at::Tensor &tensor_b, at::Tensor &tensor_c,
-                          c10::optional<c10::string_view> format_mode);
+void catlass_matmul_basic(const at::Tensor &tensor_a, const at::Tensor &tensor_b, at::Tensor &tensor_c, c10::optional<c10::string_view> format_mode);
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
-at::Tensor softfp8_w8a16_grouped_matmul(const at::Tensor &mat1,
-                                        const at::Tensor &mat2,
-                                        const at::Tensor &scale,
-                                        const at::Tensor &groupList,
+at::Tensor softfp8_w8a16_grouped_matmul(const at::Tensor &mat1, const at::Tensor &mat2, const at::Tensor &scale, const at::Tensor &groupList,
                                         const std::string &outDType);
 
-at::Tensor softfp8_w8a16_matmul(const at::Tensor &mat1, const at::Tensor &mat2,
-                                const at::Tensor &scale,
-                                const std::string &outDType);
+at::Tensor softfp8_w8a16_matmul(const at::Tensor &mat1, const at::Tensor &mat2, const at::Tensor &scale, const std::string &outDType);
 #endif
 #endif
 
-at::Tensor sparse_attention_score(
-    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
-    const at::Tensor &select_idx, const at::Tensor &block_table,
-    const c10::optional<at::Tensor> &select_num_idx,
-    const c10::optional<at::Tensor> &q_dequant_scale,
-    const c10::optional<at::Tensor> &k_dequant_scale,
-    const c10::optional<at::Tensor> &v_dequant_scale,
-    const c10::optional<at::Tensor> &actual_seq_lengths,
-    const c10::optional<at::Tensor> &actual_seq_lengths_kv,
-    int64_t num_key_value_heads, double scale_value, int64_t block_size,
-    int64_t top_k, int64_t inner_precise);
+at::Tensor sparse_attention_score(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value, const at::Tensor &select_idx,
+                                  const at::Tensor &block_table, const c10::optional<at::Tensor> &select_num_idx,
+                                  const c10::optional<at::Tensor> &q_dequant_scale, const c10::optional<at::Tensor> &k_dequant_scale,
+                                  const c10::optional<at::Tensor> &v_dequant_scale, const c10::optional<at::Tensor> &actual_seq_lengths,
+                                  const c10::optional<at::Tensor> &actual_seq_lengths_kv, int64_t num_key_value_heads, double scale_value, int64_t block_size,
+                                  int64_t top_k, int64_t inner_precise);
 
 } // namespace npu_kernel
 

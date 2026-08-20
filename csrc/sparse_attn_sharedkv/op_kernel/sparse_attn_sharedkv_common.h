@@ -37,11 +37,7 @@ enum class SAS_RUN_MODE {
     CFA_MODE = 2,
 };
 
-enum class SAS_LAYOUT {
-    BSND = 0,
-    TND = 1,
-    PA_ND = 2
-};
+enum class SAS_LAYOUT { BSND = 0, TND = 1, PA_ND = 2 };
 
 template <typename Q_T, typename KV_T, typename OUT_T, const bool FLASH_DECODE = false,
           SAS_LAYOUT LAYOUT_T = SAS_LAYOUT::BSND, SAS_LAYOUT KV_LAYOUT_T = SAS_LAYOUT::PA_ND, int TEMPLATE_MODE = 0,
@@ -94,12 +90,12 @@ __aicore__ inline size_t BlockAlign(size_t s)
 
 struct PAShape {
     uint32_t blockSize;
-    uint32_t headNum;             // Usually the KV head count, corresponding to N2.
-    uint32_t headDim;             // 512 corresponds to D.
+    uint32_t headNum;  // Usually the KV head count, corresponding to N2.
+    uint32_t headDim;  // 512 corresponds to D.
     uint32_t kvStride;
-    uint32_t maxblockNumPerBatch; // Maximum number of entries in each block-table row.
-    uint32_t actHeadDim;          // Actual copied column size accounting for N tiling; s*d, corresponding to D.
-    uint32_t copyRowNum;          // Total number of rows to copy.
+    uint32_t maxblockNumPerBatch;  // Maximum number of entries in each block-table row.
+    uint32_t actHeadDim;           // Actual copied column size accounting for N tiling; s*d, corresponding to D.
+    uint32_t copyRowNum;           // Total number of rows to copy.
     uint32_t copyRowNumAlign;
 };
 
@@ -118,15 +114,15 @@ struct Position {
 template <typename T>
 __aicore__ inline void DataCopyGmNDToL1(LocalTensor<T> &l1Tensor, GlobalTensor<T> &gmTensor, uint32_t rowAct,
                                         uint32_t rowAlign,
-                                        uint32_t col,       // D
-                                        uint32_t colStride) // D or N*D
+                                        uint32_t col,        // D
+                                        uint32_t colStride)  // D or N*D
 {
     Nd2NzParams nd2nzPara;
     nd2nzPara.ndNum = 1;
-    nd2nzPara.nValue = rowAct; // Number of rows in the ND matrix.
+    nd2nzPara.nValue = rowAct;  // Number of rows in the ND matrix.
     // For int4 T, dValue = col / 2 and srcDValue = colStride / 2.
-    nd2nzPara.dValue = col;          // Number of columns in the ND matrix.
-    nd2nzPara.srcDValue = colStride; // Offset between the start addresses of adjacent rows in the same ND matrix.
+    nd2nzPara.dValue = col;           // Number of columns in the ND matrix.
+    nd2nzPara.srcDValue = colStride;  // Offset between the start addresses of adjacent rows in the same ND matrix.
     nd2nzPara.dstNzC0Stride = rowAlign;
     nd2nzPara.dstNzNStride = 1;
     nd2nzPara.srcNdMatrixStride = 0;
@@ -142,30 +138,30 @@ __aicore__ inline void DataCopyGmNDToL1(LocalTensor<T> &l1Tensor, GlobalTensor<T
     a 10*512 tail block must be aligned to 16*512.
 */
 template <typename T>
-__aicore__ inline void DataCopyPA(LocalTensor<T> &dstTensor,  //l1
-                                  GlobalTensor<T> &srcTensor, //gm
+__aicore__ inline void DataCopyPA(LocalTensor<T> &dstTensor,   // l1
+                                  GlobalTensor<T> &srcTensor,  // gm
                                   GlobalTensor<int32_t> &blockTableGm,
-                                  const PAShape &shape,     // blockSize, headNum, headDim
-                                  const Position &startPos) // bacthIdx nIdx curSeqIdx
+                                  const PAShape &shape,      // blockSize, headNum, headDim
+                                  const Position &startPos)  // bacthIdx nIdx curSeqIdx
 {
     uint32_t copyFinishRowCnt = 0;
     uint64_t blockTableBaseOffset = startPos.bIdx * shape.maxblockNumPerBatch;
     uint32_t curS2Idx = startPos.s2Idx;
     uint32_t blockElementCnt = 32 / sizeof(T);
     while (copyFinishRowCnt < shape.copyRowNum) {
-        uint64_t blockIdOffset = curS2Idx / shape.blockSize; // Get the index in the block table.
-        uint64_t reaminRowCnt = curS2Idx % shape.blockSize;  // Get the row offset within a block.
+        uint64_t blockIdOffset = curS2Idx / shape.blockSize;  // Get the index in the block table.
+        uint64_t reaminRowCnt = curS2Idx % shape.blockSize;   // Get the row offset within a block.
         uint64_t idInBlockTable =
-            blockTableGm.GetValue(blockTableBaseOffset + blockIdOffset); // Get the block ID from the block table.
-        uint32_t copyRowCnt = shape.blockSize - reaminRowCnt;            // Process only one block at a time.
+            blockTableGm.GetValue(blockTableBaseOffset + blockIdOffset);  // Get the block ID from the block table.
+        uint32_t copyRowCnt = shape.blockSize - reaminRowCnt;             // Process only one block at a time.
         if (copyFinishRowCnt + copyRowCnt > shape.copyRowNum) {
-            copyRowCnt = shape.copyRowNum - copyFinishRowCnt; // The current block is only partially copied.
+            copyRowCnt = shape.copyRowNum - copyFinishRowCnt;  // The current block is only partially copied.
         }
         // uint64_t offset = idInBlockTable * shape.blockSize * shape.headNum * shape.headDim; // PA offset.
-        uint64_t offset = idInBlockTable * shape.kvStride; // PA offset.
+        uint64_t offset = idInBlockTable * shape.kvStride;  // PA offset.
         uint64_t dStride = shape.headDim;
-        offset += (uint64_t)(startPos.n2Idx * shape.headDim * shape.blockSize) +
-                    reaminRowCnt * shape.headDim + startPos.dIdx;
+        offset +=
+            (uint64_t)(startPos.n2Idx * shape.headDim * shape.blockSize) + reaminRowCnt * shape.headDim + startPos.dIdx;
 
         uint32_t dValue = shape.actHeadDim;
         uint32_t srcDValue = dStride;
@@ -178,12 +174,10 @@ __aicore__ inline void DataCopyPA(LocalTensor<T> &dstTensor,  //l1
 }
 
 template <typename T>
-__aicore__ inline void DataCopyPABySlots(LocalTensor<T> &dstTensor,  // l1
-                                         GlobalTensor<T> &srcTensor, // gm
-                                         GlobalTensor<int32_t> &sparseIndicesGm,
-                                         const PAShape &shape,
-                                         const Position &startPos,
-                                         uint64_t sparseIndexBaseOffset,
+__aicore__ inline void DataCopyPABySlots(LocalTensor<T> &dstTensor,   // l1
+                                         GlobalTensor<T> &srcTensor,  // gm
+                                         GlobalTensor<int32_t> &sparseIndicesGm, const PAShape &shape,
+                                         const Position &startPos, uint64_t sparseIndexBaseOffset,
                                          uint32_t sparseIndexStart)
 {
     uint32_t blockElementCnt = 32 / sizeof(T);
@@ -200,14 +194,13 @@ __aicore__ inline void DataCopyPABySlots(LocalTensor<T> &dstTensor,  // l1
 
         LocalTensor<T> tmpDstTensor = dstTensor[row * blockElementCnt];
         GlobalTensor<T> tmpSrcTensor = srcTensor[offset];
-        DataCopyGmNDToL1<T>(tmpDstTensor, tmpSrcTensor, 1, shape.copyRowNumAlign,
-                            shape.actHeadDim, shape.headDim);
+        DataCopyGmNDToL1<T>(tmpDstTensor, tmpSrcTensor, 1, shape.copyRowNumAlign, shape.actHeadDim, shape.headDim);
     }
 }
 
 struct RunInfo {
     uint32_t loop = 0;
-    uint32_t cmpLoop = 0; // Select one of the four GM blocks used for merging.
+    uint32_t cmpLoop = 0;  // Select one of the four GM blocks used for merging.
     uint32_t bIdx = 0;
     uint32_t gIdx = 0;
     uint32_t s1Idx = 0;
@@ -252,7 +245,7 @@ struct RunInfo {
     int64_t threshold = 0;
     uint32_t curTopKIdx = 0;
     uint64_t curOffsetInSparseBlock = 0;
-    bool isOri = true; // Whether the current block belongs to the Ori or Cmp part.
+    bool isOri = true;  // Whether the current block belongs to the Ori or Cmp part.
     uint64_t s2StartPoint = 0;
     int64_t cmpS2IdLimit = 0;
     int32_t v0S2DealSize = 0;
@@ -286,26 +279,26 @@ struct ConstInfo {
     uint32_t syncV1C2 = 0U;
     uint32_t syncC2V2 = 0U;
 
-    uint32_t mmResUbSize = 0U;   // Matmul1 output size in GM.
-    uint32_t vec1ResUbSize = 0U; // Vector1 output size in GM.
-    uint32_t bmm2ResUbSize = 0U; // Matmul2 output size in GM.
+    uint32_t mmResUbSize = 0U;    // Matmul1 output size in GM.
+    uint32_t vec1ResUbSize = 0U;  // Vector1 output size in GM.
+    uint32_t bmm2ResUbSize = 0U;  // Matmul2 output size in GM.
     uint32_t usedCoreNum = 0U;
     uint64_t batchSize = 0ULL;
     uint64_t gSize = 0ULL;
     uint64_t qHeadNum = 0ULL;
     uint64_t kvHeadNum = 0;
     uint64_t headDim = 0;
-    uint64_t kvSeqSize = 0ULL;    // Maximum KV sequence length.
-    uint64_t qSeqSize = 1ULL;     // Maximum Q sequence length.
-    int64_t kvCacheBlockSize = 0; // Block size for PA.
+    uint64_t kvSeqSize = 0ULL;     // Maximum KV sequence length.
+    uint64_t qSeqSize = 1ULL;      // Maximum Q sequence length.
+    int64_t kvCacheBlockSize = 0;  // Block size for PA.
     uint64_t paCmpBlockSize = 0;
     uint64_t paOriBlockSize = 0;
     int64_t orikvCacheBlockSize = 0;
     int64_t cmpkvCacheBlockSize = 0;
-    uint32_t oriMaxBlockNumPerBatch = 0; // Maximum number of blocks per batch for PA.
+    uint32_t oriMaxBlockNumPerBatch = 0;  // Maximum number of blocks per batch for PA.
     uint32_t cmpMaxBlockNumPerBatch = 0;
-    uint32_t splitKVNum = 0U; // Number of S2 partitions across cores.
-    SAS_LAYOUT outputLayout;  // Transpose format of the output.
+    uint32_t splitKVNum = 0U;  // Number of S2 partitions across cores.
+    SAS_LAYOUT outputLayout;   // Transpose format of the output.
     uint32_t oriMaskMode = 0;
     uint32_t cmpMaskMode = 0;
     uint32_t oriKvStride = 0;
@@ -314,24 +307,24 @@ struct ConstInfo {
     uint32_t templateMode = 0;
 
     // FlashDecoding
-    uint32_t actualCombineLoopSize = 0U; // Maximum number of inter-core S2 partitions for FlashDecoding.
+    uint32_t actualCombineLoopSize = 0U;  // Maximum number of inter-core S2 partitions for FlashDecoding.
     uint64_t combineLseOffset = 0ULL;
     uint64_t combineAccumOutOffset = 0ULL;
 
-    uint32_t actualLenDimsQ = 0U;  // Dimension of query actualSeqLength.
-    uint32_t actualLenDimsKV = 0U; // Dimension of KV actualSeqLength.
+    uint32_t actualLenDimsQ = 0U;   // Dimension of query actualSeqLength.
+    uint32_t actualLenDimsKV = 0U;  // Dimension of KV actualSeqLength.
 
     // TND
-    uint32_t s2Start = 0U; // S2 start position for TND.
-    uint32_t s2End = 0U;   // Upper S2 loop-index bound for a single core in TND.
+    uint32_t s2Start = 0U;  // S2 start position for TND.
+    uint32_t s2End = 0U;    // Upper S2 loop-index bound for a single core in TND.
 
     uint32_t bN2Start = 0U;
     uint32_t bN2End = 0U;
     uint32_t gS1Start = 0U;
     uint32_t gS1End = 0U;
 
-    uint32_t tndFDCoreArrLen = 0U;     // Length of the TND FlashDecoding core-partition information array.
-    uint32_t coreStartKVSplitPos = 0U; // KV start position for TND FlashDecoding.
+    uint32_t tndFDCoreArrLen = 0U;      // Length of the TND FlashDecoding core-partition information array.
+    uint32_t coreStartKVSplitPos = 0U;  // KV start position for TND FlashDecoding.
 
     uint32_t mBaseSize = 1ULL;
     uint32_t s2BaseSize = 1ULL;
@@ -360,5 +353,5 @@ struct MSplitInfo {
     uint32_t vecStartM = 0U;
     uint32_t vecDealM = 0U;
 };
-} // namespace SASKernel
-#endif // SPARSE_ATTN_SHAREDKV_COMMON_H
+}  // namespace SASKernel
+#endif  // SPARSE_ATTN_SHAREDKV_COMMON_H

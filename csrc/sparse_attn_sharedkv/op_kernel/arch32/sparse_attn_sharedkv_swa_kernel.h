@@ -32,15 +32,17 @@ using namespace optiling;
 using AscendC::CrossCoreSetFlag;
 using AscendC::CrossCoreWaitFlag;
 
-// RunInfo is not initialized before the S2 loop, so Bngs1Param temporarily stores B-, N-, and S1-axis information and avoids redundant computation.
+// RunInfo is not initialized before the S2 loop, so Bngs1Param temporarily stores B-, N-, and S1-axis information and
+// avoids redundant computation.
 struct SwaTempLoopInfo {
     uint32_t bn2IdxInCurCore = 0;
     uint32_t bIdx = 0U;
     uint32_t n2Idx = 0U;
-    uint64_t s2BasicSizeTail = 0U; // Basic tail-block size of the S2 loop.
-    uint32_t s2LoopTimes = 0U; // Total S2 loop count; for both TND and BXXD, this is the actual count without subtracting one.
+    uint64_t s2BasicSizeTail = 0U;  // Basic tail-block size of the S2 loop.
+    uint32_t s2LoopTimes =
+        0U;  // Total S2 loop count; for both TND and BXXD, this is the actual count without subtracting one.
 
-    int32_t actS1Size = 0; // S1-axis size processed by the current batch loop for TND.
+    int32_t actS1Size = 0;  // S1-axis size processed by the current batch loop for TND.
     int32_t actOriS2Size = 0;
     int32_t actCmpS2Size = 0;
 
@@ -52,7 +54,7 @@ struct SwaTempLoopInfo {
     uint32_t gS1Idx = 0U;
     uint32_t s1StartIdx = 0;
     uint32_t s1EndIdx = 0;
-    uint64_t mBasicSizeTail = 0U; // Basic tail-block size of the gS1 loop.
+    uint64_t mBasicSizeTail = 0U;  // Basic tail-block size of the gS1 loop.
     uint32_t cmpLoopTimes = 0;
     uint32_t oriLoopTimes = 0;
 
@@ -66,7 +68,8 @@ struct SwaTempLoopInfo {
 };
 
 template <typename SAST>
-class SparseAttnSharedkvSwa {
+class SparseAttnSharedkvSwa
+{
 public:
     // Use float as the intermediate type for high-precision computation.
     using T = float;
@@ -81,12 +84,12 @@ public:
     __aicore__ inline SparseAttnSharedkvSwa(){};
     __aicore__ inline void Init(__gm__ uint8_t *query, __gm__ uint8_t *oriKV, __gm__ uint8_t *cmpKV,
                                 __gm__ uint8_t *oriSparseIndices, __gm__ uint8_t *cmpSparseIndices,
-                                __gm__ uint8_t *oriBlockTable, __gm__ uint8_t *cmpBlockTable, __gm__ uint8_t *cuSeqlensQ,
-                                __gm__ uint8_t* cuSeqlensKV, __gm__ uint8_t *cuSeqlensCmpKV, __gm__ uint8_t *seqUsedQ,
-                                __gm__ uint8_t *seqUsedKV, __gm__ uint8_t *sinks, __gm__ uint8_t *metadata,
-                                __gm__ uint8_t *attentionOut, __gm__ uint8_t *softmaxLse, __gm__ uint8_t *workspace,
-                                const __gm__ SparseAttnSharedkvTilingData *__restrict tiling, __gm__ uint8_t *gmTiling,
-                                TPipe *tPipe);
+                                __gm__ uint8_t *oriBlockTable, __gm__ uint8_t *cmpBlockTable,
+                                __gm__ uint8_t *cuSeqlensQ, __gm__ uint8_t *cuSeqlensKV, __gm__ uint8_t *cuSeqlensCmpKV,
+                                __gm__ uint8_t *seqUsedQ, __gm__ uint8_t *seqUsedKV, __gm__ uint8_t *sinks,
+                                __gm__ uint8_t *metadata, __gm__ uint8_t *attentionOut, __gm__ uint8_t *softmaxLse,
+                                __gm__ uint8_t *workspace, const __gm__ SparseAttnSharedkvTilingData *__restrict tiling,
+                                __gm__ uint8_t *gmTiling, TPipe *tPipe);
 
     __aicore__ inline void Process();
 
@@ -224,7 +227,8 @@ __aicore__ inline void SparseAttnSharedkvSwa<SAST>::InitTilingData()
     constInfo.actualLenDimsKV = tilingData->baseParams.actualLenDimsKV;
 
     // innerSplitParams
-    constInfo.mBaseSize = constInfo.gSize;;
+    constInfo.mBaseSize = constInfo.gSize;
+    ;
     constInfo.s2BaseSize = tilingData->baseParams.s2BaseSize;
     // tilingData->baseParams.s2BaseSize
 
@@ -268,9 +272,9 @@ __aicore__ inline void SparseAttnSharedkvSwa<SAST>::InitActualSeqLen(__gm__ uint
 }
 
 template <typename SAST>
-__aicore__ inline void
-SparseAttnSharedkvSwa<SAST>::InitActualSeqLen(__gm__ uint8_t *actualSeqLengthsQ, __gm__ uint8_t *actualSeqLengthsKV,
-                                               __gm__ uint8_t *actualSeqLengthsCmpKV)
+__aicore__ inline void SparseAttnSharedkvSwa<SAST>::InitActualSeqLen(__gm__ uint8_t *actualSeqLengthsQ,
+                                                                     __gm__ uint8_t *actualSeqLengthsKV,
+                                                                     __gm__ uint8_t *actualSeqLengthsCmpKV)
 {
     if (constInfo.actualLenDimsKV != 0) {
         actualSeqLengthsKVGm.SetGlobalBuffer((__gm__ int32_t *)actualSeqLengthsKV, constInfo.actualLenDimsKV);
@@ -291,21 +295,22 @@ __aicore__ inline void SparseAttnSharedkvSwa<SAST>::InitAllZeroOutput(uint32_t b
             return;
         }
         uint32_t tBase = actualSeqLengthsQGm.GetValue(bIdx);
-        uint64_t attenOutOffset = (tBase + s1Idx) * kvHeadNum * constInfo.gSize * headDim + // T-axis and S1-axis offset.
-                                  n2Idx * constInfo.gSize * headDim;                        // N2-axis offset.
-        uint64_t lseOffset = (tBase + s1Idx) * constInfo.gSize  + // T-axis and S1-axis offset.
-                                n2Idx * constInfo.qSeqSize * constInfo.gSize; // N2-axis offset.
+        uint64_t attenOutOffset =
+            (tBase + s1Idx) * kvHeadNum * constInfo.gSize * headDim +       // T-axis and S1-axis offset.
+            n2Idx * constInfo.gSize * headDim;                              // N2-axis offset.
+        uint64_t lseOffset = (tBase + s1Idx) * constInfo.gSize +            // T-axis and S1-axis offset.
+                             n2Idx * constInfo.qSeqSize * constInfo.gSize;  // N2-axis offset.
         matmul::InitOutput<OUT_T>(attentionOutGm[attenOutOffset], constInfo.gSize * headDim, 0);
         if (constInfo.returnSoftmaxLse) {
             matmul::InitOutput<T>(softmaxLseGm[lseOffset], constInfo.gSize, 0);
         }
     } else if (constInfo.outputLayout == SAS_LAYOUT::BSND) {
         uint64_t attenOutOffset = bIdx * constInfo.qSeqSize * kvHeadNum * constInfo.gSize * headDim +
-                                  s1Idx * kvHeadNum * constInfo.gSize * headDim + // B-axis and S1-axis offset.
-                                  n2Idx * constInfo.gSize * headDim;              // N2-axis offset.
-        uint64_t lseOffset = bIdx * constInfo.qSeqSize * constInfo.kvHeadNum * constInfo.gSize  + // B-axis offset.
-                    n2Idx  * constInfo.qSeqSize * constInfo.gSize + // N2-axis offset.
-                    s1Idx * constInfo.gSize; // S1-axis offset.
+                                  s1Idx * kvHeadNum * constInfo.gSize * headDim +  // B-axis and S1-axis offset.
+                                  n2Idx * constInfo.gSize * headDim;               // N2-axis offset.
+        uint64_t lseOffset = bIdx * constInfo.qSeqSize * constInfo.kvHeadNum * constInfo.gSize +  // B-axis offset.
+                             n2Idx * constInfo.qSeqSize * constInfo.gSize +                       // N2-axis offset.
+                             s1Idx * constInfo.gSize;                                             // S1-axis offset.
         matmul::InitOutput<OUT_T>(attentionOutGm[attenOutOffset], constInfo.gSize * headDim, 0);
         if (constInfo.returnSoftmaxLse) {
             matmul::InitOutput<T>(softmaxLseGm[lseOffset], constInfo.gSize, 0);
@@ -319,7 +324,7 @@ __aicore__ inline void SparseAttnSharedkvSwa<SAST>::InitOutputSingleCore()
     uint32_t coreNum = GetBlockNum();
     if (coreNum != 0) {
         uint64_t totalOutputSize = constInfo.batchSize * constInfo.qHeadNum * constInfo.qSeqSize * constInfo.headDim;
-        uint64_t singleCoreSize = (totalOutputSize + (2 * coreNum) - 1) / (2 * coreNum); // 2 means c:v = 1:2
+        uint64_t singleCoreSize = (totalOutputSize + (2 * coreNum) - 1) / (2 * coreNum);  // 2 means c:v = 1:2
         uint64_t tailSize = totalOutputSize - tmpBlockIdx * singleCoreSize;
         uint64_t singleInitOutputSize = tailSize < singleCoreSize ? tailSize : singleCoreSize;
         if (singleInitOutputSize > 0) {
@@ -356,9 +361,9 @@ __aicore__ inline int32_t SparseAttnSharedkvSwa<SAST>::GetActualSeqLenKV(uint32_
             return static_cast<int32_t>(constInfo.kvSeqSize);
         }
         return actualSeqLengthsKVGm.GetValue(bIdx);
-    } else if constexpr(KV_LAYOUT_T == SAS_LAYOUT::BSND) {
+    } else if constexpr (KV_LAYOUT_T == SAS_LAYOUT::BSND) {
         return static_cast<int32_t>(constInfo.kvSeqSize);
-    } else if constexpr(KV_LAYOUT_T == SAS_LAYOUT::TND) {
+    } else if constexpr (KV_LAYOUT_T == SAS_LAYOUT::TND) {
         int32_t actualSeqKVPrefixSum = actualSeqLengthsKVGm.GetValue(bIdx);
         int32_t actualSeqKVNextSum = actualSeqLengthsKVGm.GetValue(bIdx + 1);
         if (constInfo.templateMode == CFA_TEMPLATE) {
@@ -372,15 +377,14 @@ __aicore__ inline int32_t SparseAttnSharedkvSwa<SAST>::GetActualSeqLenKV(uint32_
 template <typename SAST>
 __aicore__ inline uint32_t SparseAttnSharedkvSwa<SAST>::GetOriSparseActualSeqLen()
 {
-    if (!constInfo.hasOriSparseIndices || constInfo.oriSparseIndexWidth == 0 ||
-        tempLoopInfo.actOriS2Size <= 0) {
+    if (!constInfo.hasOriSparseIndices || constInfo.oriSparseIndexWidth == 0 || tempLoopInfo.actOriS2Size <= 0) {
         return 0;
     }
     uint64_t qTokenOffset = tempLoopInfo.actualSeqQPrefixSum + tempLoopInfo.s1StartIdx;
     uint64_t sparseIndexBaseOffset =
         (qTokenOffset * constInfo.kvHeadNum + tempLoopInfo.n2Idx) * constInfo.oriSparseIndexWidth;
-    uint32_t maxSparseLen = Min(static_cast<uint64_t>(constInfo.oriSparseIndexWidth),
-                                static_cast<uint64_t>(tempLoopInfo.actOriS2Size));
+    uint32_t maxSparseLen =
+        Min(static_cast<uint64_t>(constInfo.oriSparseIndexWidth), static_cast<uint64_t>(tempLoopInfo.actOriS2Size));
     uint32_t sparseLen = 0;
     for (; sparseLen < maxSparseLen; ++sparseLen) {
         if (oriSparseIndicesGm.GetValue(sparseIndexBaseOffset + sparseLen) < 0) {
@@ -424,17 +428,17 @@ __aicore__ inline void SparseAttnSharedkvSwa<SAST>::UpdateInnerLoopCond()
 template <typename SAST>
 __aicore__ inline void SparseAttnSharedkvSwa<SAST>::Init(
     __gm__ uint8_t *query, __gm__ uint8_t *oriKV, __gm__ uint8_t *cmpKV, __gm__ uint8_t *oriSparseIndices,
-    __gm__ uint8_t *cmpSparseIndices, __gm__ uint8_t *oriBlockTable, __gm__ uint8_t *cmpBlockTable, __gm__ uint8_t *cuSeqlensQ,
-    __gm__ uint8_t *cuSeqlensKV, __gm__ uint8_t *cuSeqlensCmpKV, __gm__ uint8_t *seqUsedQ,
-    __gm__ uint8_t *seqUsedKV, __gm__ uint8_t *sinks, __gm__ uint8_t *metadata, __gm__ uint8_t *attentionOut, __gm__ uint8_t *softmaxLse,
-    __gm__ uint8_t *workspace, const __gm__ SparseAttnSharedkvTilingData *__restrict tiling, __gm__ uint8_t *gmTiling,
-    TPipe *tPipe)
+    __gm__ uint8_t *cmpSparseIndices, __gm__ uint8_t *oriBlockTable, __gm__ uint8_t *cmpBlockTable,
+    __gm__ uint8_t *cuSeqlensQ, __gm__ uint8_t *cuSeqlensKV, __gm__ uint8_t *cuSeqlensCmpKV, __gm__ uint8_t *seqUsedQ,
+    __gm__ uint8_t *seqUsedKV, __gm__ uint8_t *sinks, __gm__ uint8_t *metadata, __gm__ uint8_t *attentionOut,
+    __gm__ uint8_t *softmaxLse, __gm__ uint8_t *workspace, const __gm__ SparseAttnSharedkvTilingData *__restrict tiling,
+    __gm__ uint8_t *gmTiling, TPipe *tPipe)
 {
     if ASCEND_IS_AIV {
-        tmpBlockIdx = GetBlockIdx(); // vec:0-47
+        tmpBlockIdx = GetBlockIdx();  // vec:0-47
         aiCoreIdx = tmpBlockIdx / 2;
     } else {
-        tmpBlockIdx = GetBlockIdx(); // cube:0-23
+        tmpBlockIdx = GetBlockIdx();  // cube:0-23
         aiCoreIdx = tmpBlockIdx;
     }
 
@@ -511,7 +515,8 @@ __aicore__ inline void SparseAttnSharedkvSwa<SAST>::Init(
 
     if ASCEND_IS_AIV {
         vectorBlock.InitParams(constInfo, tilingData);
-        vectorBlock.InitVec1GlobalTensor(mm1ResGm, vec1ResGm, actualSeqLengthsQGm, actualSeqLengthsKVGm, sinksGm, softmaxLseGm);
+        vectorBlock.InitVec1GlobalTensor(mm1ResGm, vec1ResGm, actualSeqLengthsQGm, actualSeqLengthsKVGm, sinksGm,
+                                         softmaxLseGm);
         vectorBlock.InitVec2GlobalTensor(accumOutGm, vec2ResGm, mm2ResGm, attentionOutGm);
     }
 
@@ -704,7 +709,7 @@ __aicore__ inline void SparseAttnSharedkvSwa<SAST>::ProcessBalance()
     }
     for (uint32_t bN2LoopIdx = constInfo.bN2Start; bN2LoopIdx < constInfo.bN2End; bN2LoopIdx++) {
         GetBN2Idx(bN2LoopIdx, tempLoopInfo.bIdx, tempLoopInfo.n2Idx);
-        tempLoopInfo.actS1Size = GetActualSeqLenQ(tempLoopInfo.bIdx); // Get actualSeqLength.
+        tempLoopInfo.actS1Size = GetActualSeqLenQ(tempLoopInfo.bIdx);  // Get actualSeqLength.
         bool isS1ZeroAndLastBatch = (tempLoopInfo.actS1Size == 0) && ((constInfo.outputLayout == SAS_LAYOUT::BSND) ||
                                                                       (bN2LoopIdx + 1 == constInfo.bN2End));
         uint32_t gS1SplitNum = CeilDiv(tempLoopInfo.actS1Size * constInfo.gSize, constInfo.mBaseSize);
@@ -749,8 +754,10 @@ __aicore__ inline void SparseAttnSharedkvSwa<SAST>::ProcessBalance()
                     continue;
                 }
             } else {
-                uint32_t oriS2Size = (tempLoopInfo.oriMaskRight >= tempLoopInfo.oriMaskLeft) ?
-                    static_cast<uint32_t>(tempLoopInfo.oriMaskRight - tempLoopInfo.oriMaskLeft + 1) : 0U;
+                uint32_t oriS2Size =
+                    (tempLoopInfo.oriMaskRight >= tempLoopInfo.oriMaskLeft)
+                        ? static_cast<uint32_t>(tempLoopInfo.oriMaskRight - tempLoopInfo.oriMaskLeft + 1)
+                        : 0U;
                 oriSplitNum = CeilDiv(oriS2Size, constInfo.s2BaseSize);
                 s2SplitNum = oriSplitNum;
                 if (constInfo.templateMode == CFA_TEMPLATE) {
@@ -787,9 +794,9 @@ __aicore__ inline void SparseAttnSharedkvSwa<SAST>::PreloadPipeline(uint32_t loo
                                                                     uint64_t s2LoopIdx,
                                                                     RunInfo extraInfo[SAS_PRELOAD_TASK_CACHE_SIZE])
 {
-    RunInfo &extraInfo0 = extraInfo[loop % SAS_PRELOAD_TASK_CACHE_SIZE];       // Current task.
-    RunInfo &extraInfo2 = extraInfo[(loop + 2) % SAS_PRELOAD_TASK_CACHE_SIZE]; // Previous task.
-    RunInfo &extraInfo1 = extraInfo[(loop + 1) % SAS_PRELOAD_TASK_CACHE_SIZE]; // Task from two iterations earlier.
+    RunInfo &extraInfo0 = extraInfo[loop % SAS_PRELOAD_TASK_CACHE_SIZE];        // Current task.
+    RunInfo &extraInfo2 = extraInfo[(loop + 2) % SAS_PRELOAD_TASK_CACHE_SIZE];  // Previous task.
+    RunInfo &extraInfo1 = extraInfo[(loop + 1) % SAS_PRELOAD_TASK_CACHE_SIZE];  // Task from two iterations earlier.
 
     CalcParams(loop, cmpLoop, s2Start, s2LoopIdx, extraInfo0);
     if (extraInfo0.isValid) {
@@ -812,5 +819,5 @@ __aicore__ inline void SparseAttnSharedkvSwa<SAST>::PreloadPipeline(uint32_t loo
         extraInfo1.isValid = false;
     }
 }
-} // namespace SASKernel
-#endif // SPARSE_ATTN_SHAREDKV_SWA_KERNEL_H
+}  // namespace SASKernel
+#endif  // SPARSE_ATTN_SHAREDKV_SWA_KERNEL_H

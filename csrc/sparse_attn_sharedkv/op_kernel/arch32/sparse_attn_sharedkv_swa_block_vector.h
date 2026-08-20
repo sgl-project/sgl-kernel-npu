@@ -27,7 +27,8 @@ using AscendC::CrossCoreSetFlag;
 using AscendC::CrossCoreWaitFlag;
 
 template <typename SAST>
-class SWAVectorBlock {
+class SWAVectorBlock
+{
 public:
     // Use float as the intermediate type for high-precision computation.
     using T = float;
@@ -46,7 +47,8 @@ public:
                                       const __gm__ SparseAttnSharedkvTilingData *__restrict tilingData);
     __aicore__ inline void InitVec1GlobalTensor(GlobalTensor<MM1_OUT_T> mm1ResGm, GlobalTensor<KV_T> vec1ResGm,
                                                 GlobalTensor<int32_t> actualSeqLengthsQGm,
-                                                GlobalTensor<int32_t> actualSeqLengthsKVGm, GlobalTensor<T> sinksGm, GlobalTensor<T> softmaxLseGm);
+                                                GlobalTensor<int32_t> actualSeqLengthsKVGm, GlobalTensor<T> sinksGm,
+                                                GlobalTensor<T> softmaxLseGm);
     __aicore__ inline void InitVec2GlobalTensor(GlobalTensor<T> accumOutGm, GlobalTensor<UPDATE_T> vec2ResGm,
                                                 GlobalTensor<MM2_OUT_T> mm2ResGm, GlobalTensor<OUT_T> attentionOutGm);
     __aicore__ inline void AllocEventID();
@@ -112,8 +114,8 @@ private:
     static constexpr uint64_t SYNC_SINKS_BUF_FLAG = 6;
     static constexpr uint32_t INPUT1_BUFFER_OFFSET = ConstInfo::BUFFER_SIZE_BYTE_32K;
     static constexpr uint32_t SOFTMAX_TMP_BUFFER_OFFSET = ConstInfo::BUFFER_SIZE_BYTE_1K;
-    static constexpr uint32_t BASE_BLOCK_MAX_ELEMENT_NUM = ConstInfo::BUFFER_SIZE_BYTE_32K / sizeof(T); // 32768/4=8096
-    static constexpr uint32_t BLOCK_ELEMENT_NUM = BYTE_BLOCK / sizeof(T);                               // 32/4=8
+    static constexpr uint32_t BASE_BLOCK_MAX_ELEMENT_NUM = ConstInfo::BUFFER_SIZE_BYTE_32K / sizeof(T);  // 32768/4=8096
+    static constexpr uint32_t BLOCK_ELEMENT_NUM = BYTE_BLOCK / sizeof(T);                                // 32/4=8
     static constexpr uint32_t MAX_N1_SIZE = 128U;
     static constexpr T SOFTMAX_MIN_NUM = -2e38;
     static constexpr SINKS_T R0 = 1.0f;
@@ -145,22 +147,22 @@ private:
     GlobalTensor<T> softmaxLseGm;
 
     // ================================Local Buffer area====================================
-    TBuf<> inputBuff1;  // 32K
-    TBuf<> inputBuff2;  // 16K
-    TBuf<> outputBuff1; // 32K
-    TBuf<> outputBuff2; // 4K
+    TBuf<> inputBuff1;   // 32K
+    TBuf<> inputBuff2;   // 16K
+    TBuf<> outputBuff1;  // 32K
+    TBuf<> outputBuff2;  // 4K
 
-    TBuf<> tmpBuff1;        // 32K
-    TBuf<> v0ValidSizeBuff; // 8K
+    TBuf<> tmpBuff1;         // 32K
+    TBuf<> v0ValidSizeBuff;  // 8K
 
-    TBuf<> sinksBuff;     // 1K
-    TBuf<> sinksBrcbBuff; // 12K
+    TBuf<> sinksBuff;      // 1K
+    TBuf<> sinksBrcbBuff;  // 12K
 
-    TBuf<> softmaxMaxBuff;        // PRE_LOAD_NUM * 2K
-    TBuf<> softmaxExpBuff;        // PRE_LOAD_NUM * 2K
-    TBuf<> softmaxSumBuff;        // PRE_LOAD_NUM * 2K
-    TBuf<> softmaxMaxDefaultBuff; // 2K
-    TBuf<> softmaxSumDefaultBuff; // 2K
+    TBuf<> softmaxMaxBuff;         // PRE_LOAD_NUM * 2K
+    TBuf<> softmaxExpBuff;         // PRE_LOAD_NUM * 2K
+    TBuf<> softmaxSumBuff;         // PRE_LOAD_NUM * 2K
+    TBuf<> softmaxMaxDefaultBuff;  // 2K
+    TBuf<> softmaxSumDefaultBuff;  // 2K
 
     LocalTensor<T> softmaxMaxDefaultUb;
     LocalTensor<T> softmaxSumDefaultUb;
@@ -176,8 +178,8 @@ private:
 template <typename SAST>
 __aicore__ inline void SWAVectorBlock<SAST>::InitBuffers(TPipe *pipe)
 {
-    pipe->InitBuffer(inputBuff1, ConstInfo::BUFFER_SIZE_BYTE_32K * 2); // 2:pingpong
-    pipe->InitBuffer(inputBuff2, ConstInfo::BUFFER_SIZE_BYTE_8K * 2);  // 2:pingpong
+    pipe->InitBuffer(inputBuff1, ConstInfo::BUFFER_SIZE_BYTE_32K * 2);  // 2:pingpong
+    pipe->InitBuffer(inputBuff2, ConstInfo::BUFFER_SIZE_BYTE_8K * 2);   // 2:pingpong
     pipe->InitBuffer(outputBuff1, ConstInfo::BUFFER_SIZE_BYTE_32K);
     pipe->InitBuffer(outputBuff2, ConstInfo::BUFFER_SIZE_BYTE_4K);
 
@@ -207,21 +209,18 @@ __aicore__ inline void SWAVectorBlock<SAST>::InitBuffers(TPipe *pipe)
     sinksBrcbUb = sinksBrcbBuff.Get<SINKS_T>();
 }
 
-
 template <typename SAST>
-__aicore__ inline void SWAVectorBlock<SAST>::InitParams(const struct ConstInfo &constInfo,
-                                                        const __gm__ SparseAttnSharedkvTilingData *__restrict tilingData)
+__aicore__ inline void SWAVectorBlock<SAST>::InitParams(
+    const struct ConstInfo &constInfo, const __gm__ SparseAttnSharedkvTilingData *__restrict tilingData)
 {
     this->constInfo = constInfo;
     this->tilingData = tilingData;
 }
 
 template <typename SAST>
-__aicore__ inline void
-SWAVectorBlock<SAST>::InitVec1GlobalTensor(GlobalTensor<MM1_OUT_T> mm1ResGm, GlobalTensor<KV_T> vec1ResGm,
-                                           GlobalTensor<int32_t> actualSeqLengthsQGm,
-                                           GlobalTensor<int32_t> actualSeqLengthsKVGm,
-                                           GlobalTensor<SINKS_T> sinksGm, GlobalTensor<T> softmaxLseGm)
+__aicore__ inline void SWAVectorBlock<SAST>::InitVec1GlobalTensor(
+    GlobalTensor<MM1_OUT_T> mm1ResGm, GlobalTensor<KV_T> vec1ResGm, GlobalTensor<int32_t> actualSeqLengthsQGm,
+    GlobalTensor<int32_t> actualSeqLengthsKVGm, GlobalTensor<SINKS_T> sinksGm, GlobalTensor<T> softmaxLseGm)
 {
     this->mm1ResGm = mm1ResGm;
     this->vec1ResGm = vec1ResGm;
@@ -232,9 +231,10 @@ SWAVectorBlock<SAST>::InitVec1GlobalTensor(GlobalTensor<MM1_OUT_T> mm1ResGm, Glo
 }
 
 template <typename SAST>
-__aicore__ inline void
-SWAVectorBlock<SAST>::InitVec2GlobalTensor(GlobalTensor<T> accumOutGm, GlobalTensor<UPDATE_T> vec2ResGm,
-                                           GlobalTensor<MM2_OUT_T> mm2ResGm, GlobalTensor<OUT_T> attentionOutGm)
+__aicore__ inline void SWAVectorBlock<SAST>::InitVec2GlobalTensor(GlobalTensor<T> accumOutGm,
+                                                                  GlobalTensor<UPDATE_T> vec2ResGm,
+                                                                  GlobalTensor<MM2_OUT_T> mm2ResGm,
+                                                                  GlobalTensor<OUT_T> attentionOutGm)
 {
     this->accumOutGm = accumOutGm;
     this->vec2ResGm = vec2ResGm;
@@ -276,12 +276,14 @@ __aicore__ inline void SWAVectorBlock<SAST>::CopySinksIn()
     DataCopyPad(sinksUb, sinksGm, dataCopyParams, padParams);
     SetFlag<AscendC::HardEvent::MTE2_V>(SYNC_SINKS_BUF_FLAG);
     WaitFlag<AscendC::HardEvent::MTE2_V>(SYNC_SINKS_BUF_FLAG);
-    uint32_t repeatTimes = (constInfo.qHeadNum + BLOCK_ELEMENT_NUM - 1U) / BLOCK_ELEMENT_NUM; // Process 8 data blocks per iteration.
+    uint32_t repeatTimes =
+        (constInfo.qHeadNum + BLOCK_ELEMENT_NUM - 1U) / BLOCK_ELEMENT_NUM;  // Process 8 data blocks per iteration.
     Brcb(sinksBrcbUb, sinksUb, repeatTimes, {1, BLOCK_ELEMENT_NUM});
     PipeBarrier<PIPE_V>();
 
     DataCopyParams repeatParams;
-    repeatParams.blockCount = 1; // Copy until one block exceeds the per-VEC-core M-axis partition size; each inter-core VEC partition is 256.
+    repeatParams.blockCount = 1;  // Copy until one block exceeds the per-VEC-core M-axis partition size; each
+                                  // inter-core VEC partition is 256.
     repeatParams.blockLen = constInfo.qHeadNum;
     repeatParams.srcStride = 0U;
     repeatParams.dstStride = 0U;
@@ -325,12 +327,12 @@ __aicore__ inline void SWAVectorBlock<SAST>::ElewiseCompute(const RunInfo &info,
     Muls(mmResUb, mmResUb, static_cast<T>(tilingData->baseParams.softmaxScale), dealRowCount * columnCount);
 }
 
-
 template <typename SAST>
-__aicore__ inline void
-SWAVectorBlock<SAST>::SoftmaxFlashV2Compute(const RunInfo &info, const MSplitInfo &mSplitInfo, LocalTensor<T> &mmResUb,
-                                            LocalTensor<uint8_t> &softmaxTmpUb, uint32_t startRow,
-                                            uint32_t dealRowCount, uint32_t columnCount, uint32_t actualColumnCount)
+__aicore__ inline void SWAVectorBlock<SAST>::SoftmaxFlashV2Compute(const RunInfo &info, const MSplitInfo &mSplitInfo,
+                                                                   LocalTensor<T> &mmResUb,
+                                                                   LocalTensor<uint8_t> &softmaxTmpUb,
+                                                                   uint32_t startRow, uint32_t dealRowCount,
+                                                                   uint32_t columnCount, uint32_t actualColumnCount)
 {
     LocalTensor<T> inSumTensor;
     LocalTensor<T> inMaxTensor;
@@ -369,12 +371,12 @@ __aicore__ inline void SWAVectorBlock<SAST>::ProcessLse(const RunInfo &info, con
     uint64_t lseOffset;
     if (constInfo.outputLayout == SAS_LAYOUT::TND) {
         uint32_t tBase = actualSeqLengthsQGm.GetValue(info.bIdx);
-        lseOffset = (tBase + info.s1Idx) * constInfo.gSize  + // T-axis and S1-axis offset.
-                                    info.n2IdxReal * constInfo.qSeqSize * constInfo.gSize; // N2-axis offset.
+        lseOffset = (tBase + info.s1Idx) * constInfo.gSize +                // T-axis and S1-axis offset.
+                    info.n2IdxReal * constInfo.qSeqSize * constInfo.gSize;  // N2-axis offset.
     } else if (constInfo.outputLayout == SAS_LAYOUT::BSND) {
-        lseOffset = info.bIdx * constInfo.qSeqSize * constInfo.kvHeadNum * constInfo.gSize  + // B-axis offset.
-                    info.n2IdxReal  * constInfo.qSeqSize * constInfo.gSize + // N2-axis offset.
-                    info.s1Idx * constInfo.gSize; // S1-axis offset.
+        lseOffset = info.bIdx * constInfo.qSeqSize * constInfo.kvHeadNum * constInfo.gSize +  // B-axis offset.
+                    info.n2IdxReal * constInfo.qSeqSize * constInfo.gSize +                   // N2-axis offset.
+                    info.s1Idx * constInfo.gSize;                                             // S1-axis offset.
     }
     lseOffset = lseOffset + mSplitInfo.nBufferStartM + mSplitInfo.vecStartM;
     uint32_t baseOffset = mSplitInfo.nBufferStartM / 2;
@@ -400,7 +402,6 @@ __aicore__ inline void SWAVectorBlock<SAST>::ProcessLse(const RunInfo &info, con
     DataCopyPad(softmaxLseGm[lseOffset], outLSETensor, dataCopyParams);
     SetFlag<AscendC::HardEvent::MTE3_V>(SYNC_OUTPUT_BUF2_FLAG);
 }
-
 
 template <typename SAST>
 __aicore__ inline void SWAVectorBlock<SAST>::DealBmm1ResBaseBlock(const RunInfo &info, const MSplitInfo &mSplitInfo,
@@ -445,9 +446,9 @@ __aicore__ inline void SWAVectorBlock<SAST>::ProcessVec1SingleBuf(const RunInfo 
     if (mSplitInfo.vecDealM == 0) {
         return;
     }
-    uint32_t mSplitSize = info.actualSingleProcessSInnerSize == 0 ?
-                              16 :
-                              BASE_BLOCK_MAX_ELEMENT_NUM / info.actualSingleProcessSInnerSizeAlign;
+    uint32_t mSplitSize = info.actualSingleProcessSInnerSize == 0
+                              ? 16
+                              : BASE_BLOCK_MAX_ELEMENT_NUM / info.actualSingleProcessSInnerSizeAlign;
     // 1. Align down to 8 because UB operations require at least 32 bytes.
     // 2. info.actualSingleProcessSInnerSizeAlign is at most 512, and mSplitSize guarantees a minimum of 16.
     mSplitSize = mSplitSize / 8 * 8;
@@ -466,7 +467,7 @@ __aicore__ inline void SWAVectorBlock<SAST>::ProcessVec1SingleBuf(const RunInfo 
             dealSize = tailSplitSize;
         }
         DealBmm1ResBaseBlock(info, mSplitInfo, i * mSplitSize, dealSize, info.actualSingleProcessSInnerSizeAlign, i);
-        pingpongFlag ^= 1; // Toggle ping-pong buffers 0 and 1.
+        pingpongFlag ^= 1;  // Toggle ping-pong buffers 0 and 1.
     }
 }
 
@@ -483,8 +484,8 @@ __aicore__ inline void SWAVectorBlock<SAST>::ProcessVec1L(const RunInfo &info)
         mSplitInfo.nBufferStartM = i * constInfo.nBufferMBaseSize;
         mSplitInfo.nBufferDealM = (i + 1 != nBufferLoopTimes) ? constInfo.nBufferMBaseSize : nBufferTail;
 
-        mSplitInfo.vecDealM = (mSplitInfo.nBufferDealM <= 16) ? mSplitInfo.nBufferDealM :
-                                                                (((mSplitInfo.nBufferDealM + 15) / 16 + 1) / 2 * 16);
+        mSplitInfo.vecDealM = (mSplitInfo.nBufferDealM <= 16) ? mSplitInfo.nBufferDealM
+                                                              : (((mSplitInfo.nBufferDealM + 15) / 16 + 1) / 2 * 16);
         mSplitInfo.vecStartM = 0;
         if (GetBlockIdx() % 2 == 1) {
             mSplitInfo.vecStartM = mSplitInfo.vecDealM;
@@ -532,8 +533,8 @@ __aicore__ inline void SWAVectorBlock<SAST>::ProcessVec2L(const RunInfo &info)
         mSplitInfo.nBufferStartM = i * constInfo.nBufferMBaseSize;
         mSplitInfo.nBufferDealM = (i + 1 != nBufferLoopTimes) ? constInfo.nBufferMBaseSize : nBufferTail;
 
-        mSplitInfo.vecDealM = (mSplitInfo.nBufferDealM <= 16) ? mSplitInfo.nBufferDealM :
-                                                                (((mSplitInfo.nBufferDealM + 15) / 16 + 1) / 2 * 16);
+        mSplitInfo.vecDealM = (mSplitInfo.nBufferDealM <= 16) ? mSplitInfo.nBufferDealM
+                                                              : (((mSplitInfo.nBufferDealM + 15) / 16 + 1) / 2 * 16);
         mSplitInfo.vecStartM = 0;
         if (GetBlockIdx() % 2 == 1) {
             mSplitInfo.vecStartM = mSplitInfo.vecDealM;
@@ -561,7 +562,7 @@ __aicore__ inline void SWAVectorBlock<SAST>::ProcessVec2Inner(const RunInfo &inf
         }
         DealBmm2ResBaseBlock(info, mSplitInfo, i * mSplitSize + mStartRow, dealSize, constInfo.headDim,
                              constInfo.headDim);
-        pingpongFlag ^= 1; // Toggle ping-pong buffers 0 and 1.
+        pingpongFlag ^= 1;  // Toggle ping-pong buffers 0 and 1.
     }
 }
 
@@ -576,10 +577,10 @@ __aicore__ inline void SWAVectorBlock<SAST>::Bmm2FDDataCopyOut(const RunInfo &in
     SetFlag<AscendC::HardEvent::V_MTE3>(SYNC_OUTPUT_BUF1_FLAG);
     WaitFlag<AscendC::HardEvent::V_MTE3>(SYNC_OUTPUT_BUF1_FLAG);
     uint64_t accumTmpOutNum = CalcAccumOffset(info.bIdx, info.gS1Idx);
-    uint64_t offset =
-        accumTmpOutNum * constInfo.kvHeadNum * constInfo.mBaseSize * constInfo.headDim +              // taskoffset
-        info.tndCoreStartKVSplitPos * constInfo.kvHeadNum * constInfo.mBaseSize * constInfo.headDim + // Partition offset.
-        wsMStart * actualColumnCount;                                                                 // M-axis offset.
+    uint64_t offset = accumTmpOutNum * constInfo.kvHeadNum * constInfo.mBaseSize * constInfo.headDim +  // taskoffset
+                      info.tndCoreStartKVSplitPos * constInfo.kvHeadNum * constInfo.mBaseSize *
+                          constInfo.headDim +        // Partition offset.
+                      wsMStart * actualColumnCount;  // M-axis offset.
     GlobalTensor<T> dst = accumOutGm[offset];
     if (info.actualSingleProcessSInnerSize == 0) {
         DataCopyExtParams dataCopyParams;
@@ -615,7 +616,7 @@ __aicore__ inline void SWAVectorBlock<SAST>::Bmm2CastAndCopyOut(const RunInfo &i
 {
     LocalTensor<OUT_T> tmpBmm2ResCastTensor = outputBuff1.Get<OUT_T>();
     WaitFlag<AscendC::HardEvent::MTE3_V>(SYNC_OUTPUT_BUF1_FLAG);
-    if constexpr (IsSameType<OUT_T, bfloat16_t>::value) { // Use round-to-nearest-even for BF16.
+    if constexpr (IsSameType<OUT_T, bfloat16_t>::value) {  // Use round-to-nearest-even for BF16.
         Cast(tmpBmm2ResCastTensor, bmm2ResUb, AscendC::RoundMode::CAST_RINT, dealRowCount * columnCount);
     } else {
         Cast(tmpBmm2ResCastTensor, bmm2ResUb, AscendC::RoundMode::CAST_ROUND, dealRowCount * columnCount);
@@ -683,7 +684,7 @@ __aicore__ inline void SWAVectorBlock<SAST>::DealBmm2ResBaseBlock(const RunInfo 
         WaitFlag<AscendC::HardEvent::MTE2_V>(SYNC_INPUT_BUF2_FLAG);
 
         uint32_t idx = info.loop % (constInfo.preLoadNum);
-        LocalTensor<T> expUb = v0ValidSizeBuff.Get<T>()[384]; // sumUb uses 16 * 32 B = 512 B of temporary memory.
+        LocalTensor<T> expUb = v0ValidSizeBuff.Get<T>()[384];  // sumUb uses 16 * 32 B = 512 B of temporary memory.
         Brcb(expUb, softmaxExpUb[idx * SOFTMAX_TMP_BUFFER_OFFSET / sizeof(T) + baseOffset], (dealRowCount + 7) / 8,
              {1, 8});
         PipeBarrier<PIPE_V>();
@@ -699,7 +700,7 @@ __aicore__ inline void SWAVectorBlock<SAST>::DealBmm2ResBaseBlock(const RunInfo 
     // Write the result on the final iteration; otherwise store the intermediate result in workspace.
     if (info.isLastS2Loop) {
         uint32_t idx = info.loop % (constInfo.preLoadNum);
-        LocalTensor<T> tmpSumUb = v0ValidSizeBuff.Get<T>()[384]; // sumUb uses 16 * 32 B = 512 B of temporary memory.
+        LocalTensor<T> tmpSumUb = v0ValidSizeBuff.Get<T>()[384];  // sumUb uses 16 * 32 B = 512 B of temporary memory.
         Brcb(tmpSumUb, softmaxSumUb[idx * SOFTMAX_TMP_BUFFER_OFFSET / sizeof(T) + baseOffset], (dealRowCount + 7) / 8,
              {1, 8});
         PipeBarrier<PIPE_V>();
@@ -750,9 +751,11 @@ __aicore__ inline void SWAVectorBlock<SAST>::RowDivs(LocalTensor<float> dstUb, L
         columnRepeatParams.src0BlkStride = 1;
         columnRepeatParams.src1BlkStride = 0;
         columnRepeatParams.dstBlkStride = 1;
-        columnRepeatParams.src0RepStride = 8; // The start-address interval between repeats along columns is dtypeMask = 64 elements, or 8 blocks.
+        columnRepeatParams.src0RepStride =
+            8;  // The start-address interval between repeats along columns is dtypeMask = 64 elements, or 8 blocks.
         columnRepeatParams.src1RepStride = 0;
-        columnRepeatParams.dstRepStride = 8; // The start-address interval between repeats along columns is dtypeMask = 64 elements, or 8 blocks.
+        columnRepeatParams.dstRepStride =
+            8;  // The start-address interval between repeats along columns is dtypeMask = 64 elements, or 8 blocks.
         uint32_t offset = 0;
         for (uint32_t i = 0; i < dealRowCount; i++) {
             Div(dstUb[offset], src0Ub[offset], src1Ub[i * FP32_BLOCK_ELEMENT_NUM], dtypeMask, columnRepeatCount,
@@ -780,8 +783,8 @@ __aicore__ inline void SWAVectorBlock<SAST>::RowMuls(LocalTensor<T> dstUb, Local
 
     if constexpr (std::is_same<T, half>::value) {
         // This limit exists because each repeat can read at most 256 contiguous bytes.
-        repeatElementNum = FP32_REPEAT_ELEMENT_NUM * 2; // 256/4 * 2=128
-        blockElementNum = FP32_BLOCK_ELEMENT_NUM * 2;   // 32/4 * 2 = 16
+        repeatElementNum = FP32_REPEAT_ELEMENT_NUM * 2;  // 256/4 * 2=128
+        blockElementNum = FP32_BLOCK_ELEMENT_NUM * 2;    // 32/4 * 2 = 16
     }
 
     // Each iteration can read only 256 contiguous bytes, so it processes 256 B / sizeof(dType) =
@@ -810,23 +813,26 @@ __aicore__ inline void SWAVectorBlock<SAST>::RowMuls(LocalTensor<T> dstUb, Local
             columnRepeatParams.src0BlkStride = 1;
             columnRepeatParams.src1BlkStride = 0;
             columnRepeatParams.dstBlkStride = 1;
-            columnRepeatParams.src0RepStride = 8; // The start-address interval between repeats along columns is dtypeMask = 64 elements, or 8 blocks.
+            columnRepeatParams.src0RepStride =
+                8;  // The start-address interval between repeats along columns is dtypeMask = 64 elements, or 8 blocks.
             columnRepeatParams.src1RepStride = 0;
-            columnRepeatParams.dstRepStride = 8; // The start-address interval between repeats along columns is dtypeMask = 64 elements, or 8 blocks.
+            columnRepeatParams.dstRepStride =
+                8;  // The start-address interval between repeats along columns is dtypeMask = 64 elements, or 8 blocks.
             for (uint32_t i = 0; i < dealRowCount; i++) {
                 Mul(dstUb[i * columnCount], src0Ub[i * columnCount], src1Ub[i * blockElementNum], repeatElementNum,
                     dLoop, columnRepeatParams);
             }
         }
 
-        // On the final iteration, compute only the valid part of [dealRowCount, dRemain] * [dealRowCount, blockElementNum].
+        // On the final iteration, compute only the valid part of [dealRowCount, dRemain] * [dealRowCount,
+        // blockElementNum].
         if (dRemain > 0) {
             Mul(dstUb[dLoop * repeatElementNum], src0Ub[dLoop * repeatElementNum], src1Ub, dRemain, dealRowCount,
                 repeatParams);
         }
     } else {
         BinaryRepeatParams repeatParams;
-        repeatParams.src0RepStride = 8; // Each repeat processes 256 B, exactly 8 data blocks.
+        repeatParams.src0RepStride = 8;  // Each repeat processes 256 B, exactly 8 data blocks.
         repeatParams.src0BlkStride = 1;
         repeatParams.src1RepStride = 0;
         repeatParams.src1BlkStride = 0;
@@ -846,5 +852,5 @@ __aicore__ inline void SWAVectorBlock<SAST>::RowMuls(LocalTensor<T> dstUb, Local
         }
     }
 }
-} // namespace SASKernel
+}  // namespace SASKernel
 #endif

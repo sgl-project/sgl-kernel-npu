@@ -181,9 +181,7 @@ class TestSparseAttnSharedkv(unittest.TestCase):
         # Replays must read the current contents of the stable graph inputs.
         for seed, offset in ((20260813, -0.03), (20260814, 0.08)):
             torch.manual_seed(seed)
-            inputs["q"].copy_(
-                torch.randn_like(inputs["q"]) * 0.1 + offset
-            )
+            inputs["q"].copy_(torch.randn_like(inputs["q"]) * 0.1 + offset)
             graph.replay()
             torch_npu.npu.synchronize()
             expected = _reference_swa(
