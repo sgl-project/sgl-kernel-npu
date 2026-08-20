@@ -29,8 +29,18 @@ try:
 except ModuleNotFoundError:
     torch_npu = None
 
-from test_compressor_a5 import _call_a5_device_compressor, _make_a5_device_inputs
-from test_compressor_a5 import _make_a5_inputs
+if __package__:
+    from .test_compressor_a5 import (
+        _call_a5_device_compressor,
+        _make_a5_device_inputs,
+        _make_a5_inputs,
+    )
+else:
+    from test_compressor_a5 import (
+        _call_a5_device_compressor,
+        _make_a5_device_inputs,
+        _make_a5_inputs,
+    )
 
 DECODE = tuple((batch, 1) for batch in (1, 8, 32, 64, 128))
 SHORT_PREFILL = tuple(
@@ -116,7 +126,7 @@ BASIC_CASES = (
         2,
         512,
         1,
-        16,
+        4,
         0,
         1024,
         "bfloat16",
@@ -319,10 +329,8 @@ def _benchmark_case(case: BenchmarkCase, profile_dir: Path | None) -> dict:
         _profile_replay(runners["native"][0], profile_dir, "decode_c4a_native")
         _profile_replay(runners["migrated"][0], profile_dir, "decode_c4a_migrated")
     if profile_dir is not None and case.workload == "basic_bsh":
-        _profile_replay(runners["native"][0], profile_dir, "short_bsh_full_load_native")
-        _profile_replay(
-            runners["migrated"][0], profile_dir, "short_bsh_full_load_migrated"
-        )
+        _profile_replay(runners["native"][0], profile_dir, "full_load_bsh_native")
+        _profile_replay(runners["migrated"][0], profile_dir, "full_load_bsh_migrated")
 
     samples = {"native": [], "migrated": []}
     for sample_index in range(SAMPLE_COUNT):
