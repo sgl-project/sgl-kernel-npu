@@ -1,6 +1,5 @@
 import importlib.util
 import shlex
-import shutil
 import subprocess
 import sys
 from configparser import ConfigParser
@@ -89,16 +88,9 @@ def wheel_setup(monkeypatch):
 
     spec = importlib.util.spec_from_file_location("sgl_kernel_npu_setup", SETUP_PATH)
     module = importlib.util.module_from_spec(spec)
+    monkeypatch.syspath_prepend(str(PACKAGE_ROOT))
     spec.loader.exec_module(module)
     return module
-
-
-def stage_norm_sources(build_lib: Path) -> Path:
-    norm_dir = build_lib / "sgl_kernel_npu" / "norm"
-    norm_dir.mkdir(parents=True)
-    for filename in ("_gemma_rmsnorm_native.py", "_gemma_rmsnorm_aclnn.py"):
-        shutil.copyfile(NORM_ROOT / filename, norm_dir / filename)
-    return norm_dir
 
 
 @pytest.mark.parametrize(
@@ -108,10 +100,9 @@ def stage_norm_sources(build_lib: Path) -> Path:
         ("Ascend950", "torch_npu.npu_rms_norm", "torch_npu.npu_gemma_rms_norm"),
     ],
 )
-def test_wheel_contains_only_target_gemma_implementation(
+def test_wheel_stages_only_target_provider(
     wheel_setup, monkeypatch, tmp_path, target, required_call, excluded_call
 ):
-    norm_dir = stage_norm_sources(tmp_path)
     monkeypatch.setattr(build_py, "run", lambda self: None)
     monkeypatch.setenv(wheel_setup.BUILD_TARGET_ENV, target)
     command = wheel_setup.TargetBuildPy(Distribution())
@@ -119,21 +110,36 @@ def test_wheel_contains_only_target_gemma_implementation(
 
     command.run()
 
-    source = (norm_dir / "gemma_rmsnorm.py").read_text(encoding="utf-8")
+    staged = tmp_path / "sgl_kernel_npu" / "norm" / "gemma_rmsnorm.py"
+    assert staged.exists()
+    source = staged.read_text(encoding="utf-8")
     assert required_call in source
     assert excluded_call not in source
-    assert not (norm_dir / "_gemma_rmsnorm_native.py").exists()
-    assert not (norm_dir / "_gemma_rmsnorm_aclnn.py").exists()
+    assert not (tmp_path / "target_providers").exists()
 
 
 def test_unknown_wheel_target_is_rejected(wheel_setup, monkeypatch, tmp_path):
-    stage_norm_sources(tmp_path)
     monkeypatch.setattr(build_py, "run", lambda self: None)
     monkeypatch.setenv(wheel_setup.BUILD_TARGET_ENV, "FutureAscend")
     command = wheel_setup.TargetBuildPy(Distribution())
     command.build_lib = str(tmp_path)
 
-    with pytest.raises(ValueError, match="Unsupported wheel target"):
+    with pytest.raises(ValueError, match="Unsupported provider target"):
+        command.run()
+
+
+def test_missing_build_target_env_is_rejected(wheel_setup, monkeypatch, tmp_path):
+    """A source/editable build must fail loudly.
+
+    Without the env var there is no provider to stage, and quietly
+    defaulting to the 910 one would let it run on an A5 host.
+    """
+    monkeypatch.setattr(build_py, "run", lambda self: None)
+    monkeypatch.delenv(wheel_setup.BUILD_TARGET_ENV, raising=False)
+    command = wheel_setup.TargetBuildPy(Distribution())
+    command.build_lib = str(tmp_path)
+
+    with pytest.raises(RuntimeError, match="must be set when building the wheel"):
         command.run()
 
 
@@ -194,13 +200,27 @@ def test_deepep_still_refuses_an_unrecognized_chip():
     assert "Cannot determine the device type" in done.stdout + done.stderr
 
 
-def test_source_tree_ships_no_staged_gemma_provider():
-    """The staged name must not exist in the source tree.
+def test_source_tree_keeps_providers_out_of_the_package():
+    """The source tree ships no final public ``norm/gemma_rmsnorm.py``.
 
-    Re-adding ``norm/gemma_rmsnorm.py`` would make ``TargetBuildPy`` a no-op for
-    whichever target it happens to match, so an A5 wheel would silently carry
-    the 910 operator instead of failing the build.
+    The wheel build stages that module from ``target_providers/<target>/``;
+    putting a copy back into ``norm/`` would trip the staging conflict check
+    instead of being silently overwritten.
     """
     assert not (NORM_ROOT / "gemma_rmsnorm.py").exists()
-    assert (NORM_ROOT / "_gemma_rmsnorm_native.py").exists()
-    assert (NORM_ROOT / "_gemma_rmsnorm_aclnn.py").exists()
+    assert not (NORM_ROOT / "_gemma_rmsnorm_native.py").exists()
+    assert not (NORM_ROOT / "_gemma_rmsnorm_aclnn.py").exists()
+    providers = PACKAGE_ROOT / "target_providers"
+    assert (providers / "Ascend910" / "norm" / "gemma_rmsnorm.py").exists()
+    assert (providers / "Ascend950" / "norm" / "gemma_rmsnorm.py").exists()
+
+
+def test_setup_excludes_provider_tree_from_packages():
+    """``target_providers/`` sits next to setup.py and holds .py files.
+
+    Without the exclusion, find_namespace_packages would pick it up as a
+    namespace package and ship the whole provider tree into the wheel.
+    """
+    setup_source = SETUP_PATH.read_text(encoding="utf-8")
+    expected_exclude = 'exclude=("tests*", "target_providers", "target_providers.*")'
+    assert expected_exclude in setup_source

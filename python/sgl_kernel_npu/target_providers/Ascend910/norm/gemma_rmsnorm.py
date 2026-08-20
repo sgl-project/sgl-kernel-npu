@@ -1,7 +1,9 @@
-"""Native Gemma RMSNorm provider, staged as ``norm/gemma_rmsnorm.py`` on 910.
+"""Ascend 910 Gemma RMSNorm provider.
 
-Exactly one provider module is staged into the wheel (see ``setup.py``), so this
-file is never importable under its own name from an installed package.
+Staged into the wheel as ``norm/gemma_rmsnorm.py`` when building for
+``Ascend910`` (see ``build_tools/target_provider.py``). The provider tree is
+build input, never a runtime package: the module only exists under its stable
+path inside a built wheel.
 """
 
 from __future__ import annotations

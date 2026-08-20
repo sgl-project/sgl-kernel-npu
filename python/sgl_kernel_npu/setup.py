@@ -4,11 +4,11 @@
 """python api for sgl_kernel_npu."""
 
 import os
-import shutil
 from configparser import ConfigParser
 from pathlib import Path
 
 import setuptools
+from build_tools.target_provider import stage_target_providers
 from setuptools import find_namespace_packages
 from setuptools.command.build_ext import build_ext
 from setuptools.command.build_py import build_py
@@ -16,31 +16,33 @@ from setuptools.dist import Distribution
 from torch_npu.utils.cpp_extension import NpuExtension
 
 BUILD_TARGET_ENV = "SGL_KERNEL_NPU_BUILD_TARGET"
-GEMMA_PROVIDERS = {
-    "Ascend910": "_gemma_rmsnorm_native.py",
-    "Ascend950": "_gemma_rmsnorm_aclnn.py",
-}
 
 
 class TargetBuildPy(build_py):
-    """Stage exactly one Gemma RMSNorm provider as ``norm/gemma_rmsnorm.py``.
+    """Stage one target-specific operator provider tree into the wheel.
 
-    The source tree deliberately ships no ``gemma_rmsnorm.py``: picking the
-    provider is a build-time decision, so a source-tree or editable install must
-    fail loudly rather than silently default to the 910 operator on A5.
+    Provider selection is a build-time decision driven by
+    ``SGL_KERNEL_NPU_BUILD_TARGET``: the relative module path under
+    ``target_providers/<target>/`` is the registration key, so the build
+    system knows targets but not operators. The source tree deliberately
+    ships no provider module -- a source-tree or editable install must fail
+    loudly rather than silently default to one target's operator.
     """
 
     def run(self):
         super().run()
-        target = os.environ.get(BUILD_TARGET_ENV, "Ascend910")
-        if target not in GEMMA_PROVIDERS:
-            raise ValueError(f"Unsupported wheel target: {target!r}")
-        norm_dir = Path(self.build_lib) / "sgl_kernel_npu" / "norm"
-        shutil.copyfile(
-            norm_dir / GEMMA_PROVIDERS[target], norm_dir / "gemma_rmsnorm.py"
+
+        target = os.environ.get(BUILD_TARGET_ENV)
+        if not target:
+            raise RuntimeError(
+                f"{BUILD_TARGET_ENV} must be set when building the wheel"
+            )
+
+        stage_target_providers(
+            source_root=WORKING_DIR,
+            build_lib=Path(self.build_lib),
+            target=target,
         )
-        for provider in GEMMA_PROVIDERS.values():
-            (norm_dir / provider).unlink()
 
 
 class BinaryDistribution(Distribution):
@@ -69,7 +71,9 @@ setuptools.setup(
     name="sgl_kernel_npu",
     version=_version,
     description="python api for sgl_kernel_npu",
-    packages=find_namespace_packages(exclude=("tests*",)),
+    packages=find_namespace_packages(
+        exclude=("tests*", "target_providers", "target_providers.*")
+    ),
     ext_modules=[NpuExtension("sgl_kernel_npu._C", sources=[])],
     cmdclass={"build_py": TargetBuildPy},
     url="https://github.com/sgl-project/sgl-kernel-npu/",

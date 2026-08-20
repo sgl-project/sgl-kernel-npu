@@ -7,11 +7,20 @@ NATIVE_MODULE_PATH = (
     Path(__file__).resolve().parents[3]
     / "python"
     / "sgl_kernel_npu"
-    / "sgl_kernel_npu"
+    / "target_providers"
+    / "Ascend910"
     / "norm"
-    / "_gemma_rmsnorm_native.py"
+    / "gemma_rmsnorm.py"
 )
-ACLNN_MODULE_PATH = NATIVE_MODULE_PATH.with_name("_gemma_rmsnorm_aclnn.py")
+ACLNN_MODULE_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "python"
+    / "sgl_kernel_npu"
+    / "target_providers"
+    / "Ascend950"
+    / "norm"
+    / "gemma_rmsnorm.py"
+)
 
 
 class OffsetWeight:
