@@ -303,7 +303,11 @@ def kda_target_verify_npu(
     bk = triton.next_power_of_2(key_dim)
     if bk > 256:
         raise ValueError("key dimensions greater than 256 are unsupported")
-    bv = min(64, triton.next_power_of_2(value_dim))
+    # K3's V=128 recurrent state is faster as four BV=32 programs than two
+    # BV=64 programs on Ascend. The smaller state tile lowers register pressure
+    # enough to outweigh the extra program, while two warps keep the V>=64
+    # case saturated. Preserve the lighter single-warp launch for small V.
+    bv = min(32, triton.next_power_of_2(value_dim))
     grid = (batch, h_v, triton.cdiv(value_dim, bv))
     _kda_target_verify_kernel[grid](
         A_log,
@@ -353,7 +357,7 @@ def kda_target_verify_npu(
         BV=bv,
         GATES_ARE_PREACTIVATED=gates_are_preactivated,
         USE_LOWER_BOUND=lower_bound is not None,
-        num_warps=1,
+        num_warps=2 if value_dim >= 64 else 1,
         num_stages=3,
         multibuffer=False,
     )
