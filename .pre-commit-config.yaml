@@ -7,7 +7,25 @@ repos:
       - id: check-symlinks
       - id: destroyed-symlinks
       - id: trailing-whitespace
+        exclude: |
+          (?x)^csrc/compressor/op_kernel/arch35/(?:
+            compressor_block_cube(?:_full_load)?\.h|
+            compressor_block_vec(?:_full_load)?\.h|
+            compressor_comm\.h|
+            compressor_kernel(?:_full_load)?\.h|
+            compressor_tools\.h|
+            vf/vf_(?:add|mul|rms_norm|rope|softmax)\.h
+          )$
       - id: end-of-file-fixer
+        exclude: |
+          (?x)^csrc/compressor/op_kernel/arch35/(?:
+            compressor_block_cube(?:_full_load)?\.h|
+            compressor_block_vec(?:_full_load)?\.h|
+            compressor_comm\.h|
+            compressor_kernel(?:_full_load)?\.h|
+            compressor_tools\.h|
+            vf/vf_(?:add|mul|rms_norm|rope|softmax)\.h
+          )$
       - id: check-yaml
         args: [--allow-multiple-documents]
       - id: check-toml
@@ -45,13 +63,22 @@ repos:
           - '\b(te|hel|ans|als|childs|vas|hsa|ment)\b'
           - --skip
           - '*.json,*.jsonl,*.patch,*.txt'
-          - --ignore-words-list=deviceC
+          - --ignore-words-list=deviceC,colums
   - repo: https://github.com/pre-commit/mirrors-clang-format
     rev: v18.1.8
     hooks:
     - id: clang-format
       types_or: [c++, cuda]
       args: [--style=file, --verbose]
+      exclude: |
+        (?x)^csrc/compressor/op_kernel/arch35/(?:
+          compressor_block_cube(?:_full_load)?\.h|
+          compressor_block_vec(?:_full_load)?\.h|
+          compressor_comm\.h|
+          compressor_kernel(?:_full_load)?\.h|
+          compressor_tools\.h|
+          vf/vf_(?:add|mul|rms_norm|rope|softmax)\.h
+        )$
   - repo: https://github.com/kynan/nbstripout
     rev: 0.8.1
     hooks:

@@ -529,7 +529,7 @@ class TestCompressorA5(unittest.TestCase):
 
     def _new_npu_state(self, inputs):
         if not inputs["noncontiguous_dim0"]:
-            return inputs["state_cache"].clone().npu()
+            return inputs["state_cache"].clone().npu(), None, None
         shape = inputs["state_cache"].shape
         backing = torch.full(
             (shape[0] * 2, shape[1], shape[2]),
@@ -540,7 +540,14 @@ class TestCompressorA5(unittest.TestCase):
         state = backing[::2]
         state.copy_(inputs["state_cache"].npu())
         self.assertGreater(state.stride(0), shape[1] * shape[2])
-        return state
+        original_padding = backing[1::2].cpu()
+        return state, backing, original_padding
+
+    def _assert_padding_unchanged(self, backing, original_padding):
+        if backing is None:
+            return
+        self.assertTrue(torch.all(original_padding == STATE_SENTINEL).item())
+        self.assertTrue(torch.equal(backing[1::2].cpu(), original_padding))
 
     def _assert_untouched_state(self, actual_state, original_state, written):
         actual_state = actual_state.cpu()
@@ -553,7 +560,7 @@ class TestCompressorA5(unittest.TestCase):
             _reference_compressor_a5(inputs)
         )
         original_state = inputs["state_cache"].clone()
-        actual_state = self._new_npu_state(inputs)
+        actual_state, actual_backing, original_padding = self._new_npu_state(inputs)
         actual_out = _call_npu_compressor(inputs, actual_state)
         torch.npu.synchronize()
         self._assert_precision(
@@ -565,15 +572,15 @@ class TestCompressorA5(unittest.TestCase):
             inputs["dtype"],
         )
         self._assert_untouched_state(actual_state, original_state, state_written)
+        self._assert_padding_unchanged(actual_backing, original_padding)
 
     def _assert_native_ab_case(self, inputs):
         if not hasattr(torch.ops.custom, "compressor"):
             self.skipTest("torch.ops.custom.compressor is required for native A/B")
         _, _, _, state_written = _reference_compressor_a5(inputs)
         original_state = inputs["state_cache"].clone()
-        native_state, migrated_state = self._new_npu_state(inputs), self._new_npu_state(
-            inputs
-        )
+        native_state, native_backing, native_padding = self._new_npu_state(inputs)
+        migrated_state, migrated_backing, migrated_padding = self._new_npu_state(inputs)
         native_out = _call_native_compressor(inputs, native_state)
         migrated_out = _call_npu_compressor(inputs, migrated_state)
         torch.npu.synchronize()
@@ -581,6 +588,8 @@ class TestCompressorA5(unittest.TestCase):
         self.assertTrue(torch.equal(native_state, migrated_state))
         self._assert_untouched_state(native_state, original_state, state_written)
         self._assert_untouched_state(migrated_state, original_state, state_written)
+        self._assert_padding_unchanged(native_backing, native_padding)
+        self._assert_padding_unchanged(migrated_backing, migrated_padding)
 
     def _matrix_inputs(
         self, scenario, dtype, layout, cache_mode, hidden=1024, **overrides
@@ -681,8 +690,8 @@ class TestCompressorA5(unittest.TestCase):
                 perturbed_inputs = dict(inputs)
                 perturbed_inputs["x"] = inputs["x"].clone()
                 perturbed_inputs["x"][: inputs["seqused"][0]].add_(0.1)
-                baseline_state = self._new_npu_state(inputs)
-                perturbed_state = self._new_npu_state(inputs)
+                baseline_state, _, _ = self._new_npu_state(inputs)
+                perturbed_state, _, _ = self._new_npu_state(inputs)
                 _call_npu_compressor(inputs, baseline_state)
                 _call_npu_compressor(perturbed_inputs, perturbed_state)
                 torch.npu.synchronize()
@@ -736,7 +745,7 @@ class TestCompressorA5(unittest.TestCase):
             start_pos=[13],
         )
         device_inputs = _make_a5_device_inputs(inputs)
-        initial_state = self._new_npu_state(inputs)
+        initial_state, _, _ = self._new_npu_state(inputs)
         warmup_state = initial_state.clone()
 
         # Warm the exact shape before capture so host tiling is not captured.
@@ -788,6 +797,14 @@ class TestCompressorA5(unittest.TestCase):
         state = inputs["state_cache"].clone().npu()
         with self.assertRaisesRegex(RuntimeError, "rotary_mode=2"):
             _call_npu_compressor(inputs, state, rotary_mode=1)
+
+    def test_unsupported_scenario_rejected(self):
+        inputs = _small_cycle_case(coff=1)
+        state = inputs["state_cache"].clone().npu()
+        with self.assertRaisesRegex(
+            RuntimeError, r"supported \(cmp_ratio, coff, head_dim\)"
+        ):
+            _call_npu_compressor(inputs, state)
 
 
 if __name__ == "__main__":
