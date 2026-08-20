@@ -24,6 +24,9 @@ struct CamMoeCombineNormalInfo {
     float armAvgFactor;
     float epsilon;
     bool isEnableDiagnose;
+    uint32_t profileEnable;
+    uint32_t profileLaunchId;
+    uint64_t profileBufferBytes;
 };
 struct CamMoeCombineNormalTilingData {
     Mc2InitTiling mc2InitTiling;

@@ -20,7 +20,7 @@ using namespace CamMoeCombineNormalA5Impl;
 
 extern "C" __global__ __aicore__ void cam_moe_combine_normal(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount,
                                                              GM_ADDR topkWeights, GM_ADDR tokenIdx, GM_ADDR tpRecvCount,
-                                                             GM_ADDR XOut, GM_ADDR sendCostStatsOut,
+                                                             GM_ADDR profileBufferGM, GM_ADDR XOut, GM_ADDR sendCostStatsOut,
                                                              GM_ADDR workspaceGM, GM_ADDR tilingGM)
 
 {
@@ -31,23 +31,23 @@ extern "C" __global__ __aicore__ void cam_moe_combine_normal(GM_ADDR recvX, GM_A
     GET_TILING_DATA_WITH_STRUCT(CamMoeCombineNormalTilingData, tilingData, tilingGM);
     if (TILING_KEY_IS(TILINGKEY_A3_MULTI_ROUND)) {
         CamMoeCombineNormalMultiRound<DTYPE_RECV_X, DTYPE_X, int32_t> op;
-        op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tpRecvCount, XOut, sendCostStatsOut,
-                workspaceGM, &pipe, &tilingData);
+        op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tpRecvCount, profileBufferGM, XOut,
+                sendCostStatsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
     } else if (TILING_KEY_IS(TILINGKEY_A5_MULTI_ROUND)) {
         CamMoeCombineNormalMultiRound<DTYPE_RECV_X, DTYPE_X, int32_t> op;
-        op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tpRecvCount, XOut, sendCostStatsOut,
-                workspaceGM, &pipe, &tilingData);
+        op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tpRecvCount, profileBufferGM, XOut,
+                sendCostStatsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
     } else if (TILING_KEY_IS(TILINGKEY_A3_SINGLE_ROUND)) {
         CamMoeCombineNormal<DTYPE_RECV_X, DTYPE_X, int32_t> op;
-        op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tpRecvCount, XOut, sendCostStatsOut,
-                workspaceGM, &pipe, &tilingData);
+        op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tpRecvCount, profileBufferGM, XOut,
+                sendCostStatsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
     } else if (TILING_KEY_IS(TILINGKEY_A5_SINGLE_ROUND)) {
         CamMoeCombineNormalA5<DTYPE_RECV_X, DTYPE_X, int32_t> op;
-        op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tpRecvCount, XOut, sendCostStatsOut,
-                workspaceGM, &pipe, &tilingData);
+        op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tpRecvCount, profileBufferGM, XOut,
+                sendCostStatsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
     }
 #endif

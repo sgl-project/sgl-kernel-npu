@@ -39,8 +39,8 @@ class CamMoeCombineNormal
 public:
     __aicore__ inline CamMoeCombineNormal(){};
     __aicore__ inline void Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights,
-                                GM_ADDR tokenIdx, GM_ADDR tpRecvCount, GM_ADDR XOut, GM_ADDR sendCostStatsOut,
-                                GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tiling);
+                                GM_ADDR tokenIdx, GM_ADDR tpRecvCount, GM_ADDR profileBufferGM, GM_ADDR XOut,
+                                GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tiling);
     __aicore__ inline void Process();
 
 private:
@@ -181,8 +181,9 @@ template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo,
                                                                       GM_ADDR epRecvCount, GM_ADDR topkWeights,
                                                                       GM_ADDR tokenIdx, GM_ADDR tpRecvCount,
-                                                                      GM_ADDR XOut, GM_ADDR sendCostStatsOut,
-                                                                      GM_ADDR workspaceGM, TPipe *pipe, GM_ADDR tiling)
+                                                                      GM_ADDR profileBufferGM, GM_ADDR XOut,
+                                                                      GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM,
+                                                                      TPipe *pipe, GM_ADDR tiling)
 {
     workspaceGM_ = workspaceGM;
     tpipe_ = pipe;

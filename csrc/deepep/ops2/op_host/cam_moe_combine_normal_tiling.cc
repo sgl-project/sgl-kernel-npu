@@ -46,6 +46,9 @@ constexpr uint32_t ATTR_MOE_EXPERT_NUM_INDEX = 6;
 constexpr uint32_t ATTR_REAL_MAX_BS_INDEX = 7;
 constexpr uint32_t ATTR_MAX_ROUND_INDEX = 8;
 constexpr uint32_t ATTR_PER_ROUND_TOKENS_INDEX = 9;
+constexpr uint32_t ATTR_PROFILE_ENABLE_INDEX = 10;
+constexpr uint32_t ATTR_PROFILE_BUFFER_BYTES_INDEX = 11;
+constexpr uint32_t ATTR_PROFILE_LAUNCH_ID_INDEX = 12;
 
 constexpr uint32_t TWO_DIMS = 2U;
 constexpr uint32_t ONE_DIM = 1U;
@@ -468,6 +471,21 @@ static bool CheckAttrs(gert::TilingContext *context, CamMoeCombineNormalTilingDa
     OP_TILING_CHECK(perRoundTokensPtr == nullptr, OP_LOGE(nodeName, "perRoundTokens is null."), return false);
     tilingData.camMoeCombineNormalInfo.maxRound = static_cast<uint32_t>(*maxRoundPtr);
     tilingData.camMoeCombineNormalInfo.perRoundTokens = static_cast<uint32_t>(*perRoundTokensPtr);
+
+    // 打点开关由 profiling session 侧保证（enable 时 buffer_bytes / launch_id 同步下发），
+    // 三者均为可选默认 0，tiling 侧仅在非空时回填，缺省即不打点。
+    auto profileEnablePtr = attrs->GetAttrPointer<int64_t>(ATTR_PROFILE_ENABLE_INDEX);
+    auto profileBufferBytesPtr = attrs->GetAttrPointer<int64_t>(ATTR_PROFILE_BUFFER_BYTES_INDEX);
+    auto profileLaunchIdPtr = attrs->GetAttrPointer<int64_t>(ATTR_PROFILE_LAUNCH_ID_INDEX);
+    if (profileEnablePtr != nullptr) {
+        tilingData.camMoeCombineNormalInfo.profileEnable = static_cast<uint32_t>(*profileEnablePtr);
+    }
+    if (profileBufferBytesPtr != nullptr) {
+        tilingData.camMoeCombineNormalInfo.profileBufferBytes = static_cast<uint64_t>(*profileBufferBytesPtr);
+    }
+    if (profileLaunchIdPtr != nullptr) {
+        tilingData.camMoeCombineNormalInfo.profileLaunchId = static_cast<uint32_t>(*profileLaunchIdPtr);
+    }
     return true;
 }
 

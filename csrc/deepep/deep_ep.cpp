@@ -10,6 +10,7 @@
 #include "exception.hpp"
 #include "deep_ep.hpp"
 #include "profiling/adapters/fused_deep_moe_a5/fused_deep_moe_a5_profile_adapter.hpp"
+#include "profiling/adapters/cam_moe_combine_normal/cam_moe_combine_normal_profile_adapter.hpp"
 #include "pytorch_npu_helper.hpp"
 
 namespace deep_ep {
@@ -560,7 +561,8 @@ void Buffer::clean_low_latency_buffer(int num_max_dispatch_tokens_per_rank, int 
 std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandle>>
 Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
                           const std::optional<torch::Tensor> &topk_weights, const torch::Tensor &src_idx,
-                          const torch::Tensor &send_head, const std::optional<at::Tensor> &combine_send_cost_stats)
+                          const torch::Tensor &send_head, const std::optional<at::Tensor> &combine_send_cost_stats,
+                          bool profile_enable)
 {
     EP_HOST_ASSERT(x.dim() == 2 and x.is_contiguous());
     at::Tensor recv_x = x;
@@ -608,9 +610,27 @@ Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
 
     int32_t round = this->combine_enable_long_seq ? this->round : 1;
     int32_t per_round_tokens = this->combine_enable_long_seq ? this->per_round_tokens : MAX_TOKENS_PER_ROUND;
-    EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, topk_idx_int32,
-                 tp_send_counts, hcom_ep_name, num_ranks, rank, hcom_ep_name, tp_world_size, tp_rankId,
-                 moe_expert_number, real_max_bs, round, per_round_tokens, combined_x, combine_send_cost_stats_out);
+
+    auto profile_ctx = profiling::cam_moe_combine_normal::PrepareLaunch(profile_enable);
+    bool use_profile = profile_ctx.enabled;
+    int64_t profile_enable_i64 = static_cast<int64_t>(use_profile);
+    const at::Tensor *profile_buffer_ptr = profile_ctx.profileBuffer;
+    int64_t profile_buffer_bytes_i64 = profile_ctx.profileBufferBytes;
+    int64_t profile_launch_id_i64 = profile_ctx.launchId;
+
+    if (use_profile) {
+        TORCH_CHECK(profile_buffer_ptr != nullptr, "CamMoeCombineNormal profiling requires a valid profile buffer.");
+        EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, topk_idx_int32,
+                     tp_send_counts, *profile_buffer_ptr, hcom_ep_name, num_ranks, rank, hcom_ep_name, tp_world_size,
+                     tp_rankId, moe_expert_number, real_max_bs, round, per_round_tokens, profile_enable_i64,
+                     profile_buffer_bytes_i64, profile_launch_id_i64, combined_x, combine_send_cost_stats_out);
+        profiling::cam_moe_combine_normal::CompleteLaunch(profile_ctx, rank);
+    } else {
+        EXEC_NPU_CMD(aclnnCamMoeCombineNormal, recv_x, token_src_info, ep_send_counts, expert_scales, topk_idx_int32,
+                     tp_send_counts, static_cast<const std::nullptr_t &>(nullptr), hcom_ep_name, num_ranks, rank,
+                     hcom_ep_name, tp_world_size, tp_rankId, moe_expert_number, real_max_bs, round, per_round_tokens, 0,
+                     0, 0, combined_x, combine_send_cost_stats_out);
+    }
 
     return {combined_x, recv_topk_weights, event};
 }

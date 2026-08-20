@@ -42,6 +42,12 @@ public:
             .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
             .UnknownShapeFormat({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
             .AutoContiguous();
+        this->Input("profile_buffer")
+            .ParamType(OPTIONAL)
+            .DataType({ge::DT_UINT8})
+            .Format({ge::FORMAT_ND})
+            .UnknownShapeFormat({ge::FORMAT_ND})
+            .AutoContiguous();
 
         this->Output("x")
             .ParamType(REQUIRED)
@@ -65,6 +71,9 @@ public:
         this->Attr("real_max_bs").AttrType(OPTIONAL).Int(0);
         this->Attr("round").AttrType(OPTIONAL).Int(4);
         this->Attr("per_round_tokens").AttrType(OPTIONAL).Int(1024);
+        this->Attr("profile_enable").AttrType(OPTIONAL).Int(0);
+        this->Attr("profile_buffer_bytes").AttrType(OPTIONAL).Int(0);
+        this->Attr("profile_launch_id").AttrType(OPTIONAL).Int(0);
 
         OpAICoreConfig aicore_config;
         aicore_config.DynamicCompileStaticFlag(true)

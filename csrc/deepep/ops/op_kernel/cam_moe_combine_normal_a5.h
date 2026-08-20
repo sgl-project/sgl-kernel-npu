@@ -5,6 +5,7 @@
 #include "kernel_tiling/kernel_tiling.h"
 #include "moe_distribute_base.h"
 #include "cam_moe_combine_normal_tiling.h"
+#include "profiling/adapters/cam_moe_combine_normal/cam_moe_combine_normal_profile.h"
 #include "comm_args.h"
 #include "moe_distribute_v2_base.h"
 
@@ -43,8 +44,9 @@ class CamMoeCombineNormalA5
 public:
     __aicore__ inline CamMoeCombineNormalA5(){};
     __aicore__ inline void Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights,
-                                GM_ADDR tokenIdx, GM_ADDR tpRecvCount, GM_ADDR XOut, GM_ADDR sendCostStatsOut,
-                                GM_ADDR workspaceGM, TPipe *pipe, const CamMoeCombineNormalTilingData *tilingData);
+                                GM_ADDR tokenIdx, GM_ADDR tpRecvCount, GM_ADDR profileBufferGM, GM_ADDR XOut,
+                                GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe,
+                                const CamMoeCombineNormalTilingData *tilingData);
     __aicore__ inline void Process();
 
 private:
@@ -113,6 +115,12 @@ private:
     uint32_t sendCostStatsBufSize_{0};
 
     bool isEnableDiagnose_{false};
+
+    GM_ADDR profileBufferGM_{nullptr};
+    Cam::CamMoeCombineNormalProfileWriter profileWriter_;
+    bool profileEnable_{false};  // 打点开关（由 tiling profileEnable 下发）
+    uint32_t profileLaunchId_{0};
+    uint64_t profileBufferBytes_{0};
 
     TPipe *tpipe_{nullptr};
     TQue<QuePosition::VECIN, 1> weightedSumQueue_;
@@ -209,8 +217,9 @@ template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo,
                                                                         GM_ADDR epRecvCount, GM_ADDR topkWeights,
                                                                         GM_ADDR tokenIdx, GM_ADDR tpRecvCount,
-                                                                        GM_ADDR XOut, GM_ADDR sendCostStatsOut,
-                                                                        GM_ADDR workspaceGM, TPipe *pipe,
+                                                                        GM_ADDR profileBufferGM, GM_ADDR XOut,
+                                                                        GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM,
+                                                                        TPipe *pipe,
                                                                         const CamMoeCombineNormalTilingData *tilingData)
 {
     workspaceGM_ = workspaceGM;
@@ -221,6 +230,13 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::Init(GM_ADDR 
     InitTilingData(tilingData);
     InitGlobalBuffer(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, XOut, sendCostStatsOut);
     InitBuffLen();
+
+    profileBufferGM_ = profileBufferGM;
+    profileEnable_ = tilingData->camMoeCombineNormalInfo.profileEnable != 0;
+    profileLaunchId_ = tilingData->camMoeCombineNormalInfo.profileLaunchId;
+    profileBufferBytes_ = tilingData->camMoeCombineNormalInfo.profileBufferBytes;
+    profileWriter_.Init(profileBufferGM_, profileEnable_, profileLaunchId_, static_cast<uint32_t>(g_coreType),
+                        profileBufferBytes_);
 
     PipeBarrier<PIPE_ALL>();
     winDataSizeOffset_ = static_cast<uint64_t>(magic_) * (baseWindSize_ / 2UL);
@@ -233,6 +249,10 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::Init(GM_ADDR 
 template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToShareAndSetStatus()
 {
+    uint64_t sendPhaseStart = 0, copyAcc = 0, statusAcc = 0;
+    if (profileEnable_) {
+        sendPhaseStart = profileWriter_.Now();
+    }
     PipeBarrier<PIPE_ALL>();
     // Core split: rank-major two-level partition (level 1 by rank, level 2 balances token count within group)
     uint32_t subRangeNum = 0U;    // number of sub-ranges handled by this core
@@ -278,6 +298,12 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
         uint32_t perBlockSendNum = 0U, startTokenId = 0U, endTokenId = 0U;
         SplitCoreCal(selfSendCnt_, perBlockSendNum, startTokenId, endTokenId);
         if (perBlockSendNum == 0U) {
+            if (profileEnable_) {
+                auto tokenPayload = Cam::ToProfilePrivatePayloadRaw(Cam::MakeCombineTokenCountPrivatePayloadV1(
+                    Cam::PROFILE_PRIVATE_DATA_VALID, Cam::COMBINE_TOKEN_COUNT_PRIVATE_FORMAT_V1, 0U));
+                profileWriter_.Record(Cam::CamMoeCombineNormalProfileStage::SendCopyToShare, 0, sendPhaseStart,
+                                      profileWriter_.Now(), tokenPayload);
+            }
             return;
         }
         sendRangeOffsetLT(0U) = startTokenId;
@@ -317,6 +343,12 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
         uint32_t tStart = perCoreToken * k + (k < remToken ? k : remToken);
         uint32_t tEnd = tStart + perCoreToken + (k < remToken ? 1U : 0U);
         if (tStart == tEnd) {
+            if (profileEnable_) {
+                auto tokenPayload = Cam::ToProfilePrivatePayloadRaw(Cam::MakeCombineTokenCountPrivatePayloadV1(
+                    Cam::PROFILE_PRIVATE_DATA_VALID, Cam::COMBINE_TOKEN_COUNT_PRIVATE_FORMAT_V1, 0U, myRank));
+                profileWriter_.Record(Cam::CamMoeCombineNormalProfileStage::SendCopyToShare, 0, sendPhaseStart,
+                                      profileWriter_.Now(), tokenPayload);
+            }
             return;
         }
 
@@ -349,7 +381,7 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
     // Send: iterate over this core's sub-ranges, keeping the original per-token interleaved structure (copy +
     // PipeBarrier + status)
     for (uint32_t si = 0U; si < subRangeNum; ++si) {
-        ProcessSendRange(sendRangeOffsetLT(si), sendRangeCntLT(si), sendCostStatsTensor);
+        ProcessSendRange(sendRangeOffsetLT(si), sendRangeCntLT(si), copyAcc, statusAcc, sendCostStatsTensor);
     }
 
     if (isEnableDiagnose_) {
@@ -362,11 +394,21 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
     }
 
     SyncFunc<AscendC::HardEvent::MTE3_S>();
+
+    if (profileEnable_) {
+        auto tokenPayload = Cam::ToProfilePrivatePayloadRaw(Cam::MakeCombineTokenCountPrivatePayloadV1(
+            Cam::PROFILE_PRIVATE_DATA_VALID, Cam::COMBINE_TOKEN_COUNT_PRIVATE_FORMAT_V1, totalTokenCnt, myRank));
+        profileWriter_.Record(Cam::CamMoeCombineNormalProfileStage::SendCopyToShare, 0, sendPhaseStart,
+                              sendPhaseStart + copyAcc, tokenPayload);
+        profileWriter_.Record(Cam::CamMoeCombineNormalProfileStage::SendSetStatus, 0, sendPhaseStart + copyAcc,
+                              sendPhaseStart + copyAcc + statusAcc, tokenPayload);
+    }
 }
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::ProcessSendRange(
-    uint32_t lo, uint32_t cnt, LocalTensor<int32_t> sendCostStatsTensor)
+    uint32_t lo, uint32_t cnt, uint64_t &copyAcc, uint64_t &statusAcc,
+    LocalTensor<int32_t> sendCostStatsTensor)
 {
     LocalTensor<SrcInfoType> srcInfoLocal = srcInfoBuf_.Get<SrcInfoType>();
     const DataCopyPadExtParams<SrcInfoType> padParams{false, 0U, 0U, 0U};
@@ -385,9 +427,20 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::ProcessSendRa
             uint32_t tkIndex = lo + batchStart + j;
             int64_t sendStartCycle = GetSystemCycle();
 
+            uint64_t copyStart = 0, statusStart = 0;
+            if (profileEnable_) {
+                copyStart = profileWriter_.Now();
+            }
             CopyBufferToShare(srcRankId, srcTokenId, srcTopkId, tkIndex);
             PipeBarrier<PIPE_ALL>();
+            if (profileEnable_) {
+                statusStart = profileWriter_.Now();
+            }
             SetStatusBySrcInfo(srcRankId, srcTokenId, srcTopkId);
+            if (profileEnable_) {
+                copyAcc += (statusStart - copyStart);
+                statusAcc += (profileWriter_.Now() - statusStart);
+            }
 
             if (isEnableDiagnose_) {
                 SyncFunc<AscendC::HardEvent::MTE3_S>();
@@ -517,13 +570,29 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::ReadBufferAnd
 template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::ReadBufferFromRemote()
 {
+    uint64_t recvPhaseStart = 0, waitAcc = 0, sumAcc = 0;
+    if (profileEnable_) {
+        recvPhaseStart = profileWriter_.Now();
+    }
     if (axisBS_ == 0U) {
+        if (profileEnable_) {
+            auto recvTokenPayload = Cam::ToProfilePrivatePayloadRaw(Cam::MakeCombineTokenCountPrivatePayloadV1(
+                Cam::PROFILE_PRIVATE_DATA_VALID, Cam::COMBINE_TOKEN_COUNT_PRIVATE_FORMAT_V1, 0U));
+            profileWriter_.Record(Cam::CamMoeCombineNormalProfileStage::RecvWaitStatus, 0, recvPhaseStart,
+                                  profileWriter_.Now(), recvTokenPayload);
+        }
         return;
     }
     uint32_t tokenPerBlock = 0U, startTokenIndex = 0U, endTokenIndex = 0U;
     SplitCoreCal(axisBS_, tokenPerBlock, startTokenIndex, endTokenIndex);
 
     if (tokenPerBlock == 0U) {
+        if (profileEnable_) {
+            auto recvTokenPayload = Cam::ToProfilePrivatePayloadRaw(Cam::MakeCombineTokenCountPrivatePayloadV1(
+                Cam::PROFILE_PRIVATE_DATA_VALID, Cam::COMBINE_TOKEN_COUNT_PRIVATE_FORMAT_V1, 0U));
+            profileWriter_.Record(Cam::CamMoeCombineNormalProfileStage::RecvWaitStatus, 0, recvPhaseStart,
+                                  profileWriter_.Now(), recvTokenPayload);
+        }
         return;
     }
 
@@ -551,9 +620,29 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::ReadBufferFro
     SyncFunc<AscendC::HardEvent::MTE2_S>();
 
     for (uint32_t tokenIndex = startTokenIndex; tokenIndex < endTokenIndex; tokenIndex++) {
+        uint64_t waitStart = 0;
+        if (profileEnable_) {
+            waitStart = profileWriter_.Now();
+        }
         WaitBuffCopy(tokenIndex, startTokenIndex);
+        uint64_t sumStart = 0;
+        if (profileEnable_) {
+            sumStart = profileWriter_.Now();
+        }
         SyncFunc<AscendC::HardEvent::MTE3_V>();  // 与结果搬出datacopy同tensor
         ReadBufferAndWeightedSum(tokenIndex, startTokenIndex);
+        if (profileEnable_) {
+            waitAcc += (sumStart - waitStart);
+            sumAcc += (profileWriter_.Now() - sumStart);
+        }
+    }
+    if (profileEnable_) {
+        auto recvTokenPayload = Cam::ToProfilePrivatePayloadRaw(Cam::MakeCombineTokenCountPrivatePayloadV1(
+            Cam::PROFILE_PRIVATE_DATA_VALID, Cam::COMBINE_TOKEN_COUNT_PRIVATE_FORMAT_V1, tokenPerBlock));
+        profileWriter_.Record(Cam::CamMoeCombineNormalProfileStage::RecvWaitStatus, 0, recvPhaseStart,
+                              recvPhaseStart + waitAcc, recvTokenPayload);
+        profileWriter_.Record(Cam::CamMoeCombineNormalProfileStage::RecvReadAndSum, 0, recvPhaseStart + waitAcc,
+                              recvPhaseStart + waitAcc + sumAcc, recvTokenPayload);
     }
 }
 

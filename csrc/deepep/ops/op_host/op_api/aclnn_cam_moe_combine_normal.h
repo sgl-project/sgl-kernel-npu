@@ -15,6 +15,7 @@ extern "C" {
  * tokenIdx : required
  * tokenIdxMap : required
  * tpRecvCountsOptional : required
+ * profileBufferOptional : optional
  * epGroupName : optional
  * epWorldSize : required
  * epRankId : required
@@ -23,6 +24,9 @@ extern "C" {
  * tpRankId : optional
  * moeExpertNum : optional
  * globalBs : optional
+ * profileEnable : optional
+ * profileBufferBytes : optional
+ * profileLaunchId : optional
  * out : required
  * workspaceSize : size of workspace(output).
  * executor : executor context(output).
@@ -30,9 +34,11 @@ extern "C" {
 __attribute__((visibility("default"))) aclnnStatus aclnnCamMoeCombineNormalGetWorkspaceSize(
     const aclTensor *recvX, const aclTensor *tokenSrcInfo, const aclTensor *epRecvCounts,
     const aclTensor *recvTopkWeights, const aclTensor *tokenIdx, const aclTensor *tpRecvCountsOptional,
-    char *epGroupName, int64_t epWorldSize, int64_t epRankId, char *tpGroupNameOptional, int64_t tpWorldSize,
-    int64_t tpRankId, int64_t moeExpertNum, int64_t realMaxBs, int32_t round, int32_t per_round_tokens,
-    const aclTensor *out, const aclTensor *sendCostStats, uint64_t *workspaceSize, aclOpExecutor **executor);
+    const aclTensor *profileBufferOptional, char *epGroupName, int64_t epWorldSize, int64_t epRankId,
+    char *tpGroupNameOptional, int64_t tpWorldSize, int64_t tpRankId, int64_t moeExpertNum, int64_t realMaxBs,
+    int32_t round, int32_t per_round_tokens, int64_t profileEnable, int64_t profileBufferBytes,
+    int64_t profileLaunchId, const aclTensor *out, const aclTensor *sendCostStats, uint64_t *workspaceSize,
+    aclOpExecutor **executor);
 
 /* function: aclnnMoeCombine
  * workspace : workspace memory addr(input).
