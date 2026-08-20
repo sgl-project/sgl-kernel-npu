@@ -8,9 +8,13 @@
 import unittest
 
 import numpy as np
-import sgl_kernel_npu
 import torch
-import torch_npu
+
+try:
+    import sgl_kernel_npu
+    import torch_npu
+except ModuleNotFoundError:
+    pass
 
 SCENARIOS = {
     "c4a": dict(cmp_ratio=4, coff=2, head_dim=512),
@@ -235,7 +239,10 @@ def _reference_compressor_a5(inputs):
             new_score[start_offset:end_offset] += ape[
                 within : within + end_offset - start_offset
             ]
-            if absolute_start >= compress_until - (coff - 1) * cmp_ratio:
+            if (
+                inputs["cache_mode"] == 1
+                or absolute_start >= compress_until - (coff - 1) * cmp_ratio
+            ):
                 for offset, absolute_pos in enumerate(
                     range(absolute_start, absolute_end)
                 ):
@@ -429,6 +436,35 @@ def _small_cycle_case(**overrides):
     )
     params.update(overrides)
     return _make_a5_inputs(**params)
+
+
+class TestCompressorA5Reference(unittest.TestCase):
+    def test_continuous_c4a_writes_every_valid_token(self):
+        inputs = _make_a5_inputs(
+            start_pos=[3],
+            seq_len=5,
+            coff=2,
+            cmp_ratio=4,
+            head_dim=512,
+            hidden=1024,
+            cache_mode=1,
+            layout="TH",
+            dtype=torch.bfloat16,
+            batch=1,
+            block_size=16,
+            noncontiguous_dim0=False,
+            seed=20260820,
+        )
+        original_state = inputs["state_cache"].clone()
+        _, _, state, written = _reference_compressor_a5(inputs)
+
+        for absolute_pos in range(3, 8):
+            bank_id, slot = _state_slot(inputs, 0, absolute_pos)
+            self.assertTrue(written[bank_id, slot].all().item())
+            self.assertFalse(
+                torch.equal(state[bank_id, slot], original_state[bank_id, slot])
+            )
+        self.assertTrue(torch.equal(state[~written], original_state[~written]))
 
 
 @unittest.skipUnless(_is_ascend950(), "A5 Compressor tests require Ascend950")
