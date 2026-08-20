@@ -88,7 +88,8 @@ def bench(fn, num_warmups: int = 50, num_tests: int = 50, post_fn=None):
         elapsed_time = start.elapsed_time(end) / 1e3  # ms -> s
         times.append(elapsed_time)
 
-    times = np.array(times[1:])  # Remove the first timing
+    samples = times[1:] if len(times) >= 2 else times
+    times = np.array(samples)
     return np.average(times), np.min(times), np.max(times)
 
 
@@ -302,7 +303,7 @@ def bench_kineto(
     # Return average kernel durations
     kernel_durations = []
     for kernel_name in kernel_names:
-        events = [event for event in profile_data if kernel_name == event["name"]]
+        events = [event for event in profile_data if kernel_name in event["name"]]
         assert len(events) > 0, f"Kernel '{kernel_name}' not found in trace"
         events = sorted(events, key=lambda event: event["ts"])
         durations = [event["dur"] / 1e6 for event in events]
@@ -327,6 +328,149 @@ def bench_kineto(
 
     # Return execution durations
     return kernel_durations if is_tuple else kernel_durations[0]
+
+
+def _load_chrome_trace_events(trace_path: Union[str, Path]):
+    profile_data = json.loads(Path(trace_path).read_text())
+    if isinstance(profile_data, dict):
+        profile_data = profile_data.get("traceEvents", [])
+    return [
+        event
+        for event in profile_data
+        if isinstance(event, dict)
+        and "name" in event
+        and "dur" in event
+        and "ts" in event
+        and isinstance(event["name"], str)
+    ]
+
+
+def _normalize_event_patterns(
+    ordered_event_patterns: Union[str, tuple, list],
+):
+    if isinstance(ordered_event_patterns, str):
+        ordered_event_patterns = [ordered_event_patterns]
+    normalized = []
+    for pattern in ordered_event_patterns:
+        if isinstance(pattern, str):
+            normalized.append((pattern,))
+        else:
+            normalized.append(tuple(pattern))
+    return tuple(normalized)
+
+
+def profile_npu_event_sequences(
+    fn,
+    ordered_event_patterns: Union[str, tuple, list],
+    num_warmups: int = 0,
+    num_tests: int = 30,
+    suppress_kineto_output: bool = False,
+    trace_path: Optional[str] = None,
+    allow_no_match: bool = False,
+):
+    if num_warmups < 0:
+        raise ValueError("num_warmups must be non-negative")
+    if num_tests <= 0:
+        raise ValueError("num_tests must be positive")
+
+    total_iters = num_warmups + num_tests
+    suppress = suppress_stdout_stderr if suppress_kineto_output else empty_suppress
+    with suppress():
+        schedule = torch_npu.profiler.schedule(
+            wait=0, warmup=0, active=total_iters, repeat=1
+        )
+        with torch_npu.profiler.profile(
+            activities=[torch_npu.profiler.ProfilerActivity.NPU], schedule=schedule
+        ) as prof:
+            for _ in range(total_iters):
+                fn()
+                prof.step()
+            torch.npu.synchronize()
+
+    temp_path = Path(tempfile.gettempdir()) / f"trace_{uuid.uuid4().hex}.json"
+    prof.export_chrome_trace(temp_path)
+    events = _load_chrome_trace_events(temp_path)
+
+    if trace_path is not None:
+        trace_path = Path(trace_path)
+        if trace_path.exists():
+            trace_path.unlink()
+        prof.export_chrome_trace(trace_path)
+
+    ordered_event_patterns = _normalize_event_patterns(ordered_event_patterns)
+    discovered_names = sorted({event["name"] for event in events})
+    events = sorted(events, key=lambda event: event["ts"])
+
+    iteration_durations = []
+    iteration_event_names = []
+    iteration_step_durations = []
+    current_duration = 0.0
+    current_event_names = []
+    current_step_durations = []
+    current_pattern_idx = 0
+    expected_patterns = len(ordered_event_patterns)
+
+    for event in events:
+        name = event["name"]
+        if current_pattern_idx >= expected_patterns:
+            current_pattern_idx = 0
+            current_duration = 0.0
+            current_event_names = []
+            current_step_durations = []
+
+        candidates = ordered_event_patterns[current_pattern_idx]
+        if any(candidate in name for candidate in candidates):
+            event_duration = event["dur"] / 1e6
+            current_duration += event_duration
+            current_event_names.append(name)
+            current_step_durations.append(event_duration)
+            current_pattern_idx += 1
+            if current_pattern_idx == expected_patterns:
+                iteration_durations.append(current_duration)
+                iteration_event_names.append(tuple(current_event_names))
+                iteration_step_durations.append(tuple(current_step_durations))
+                current_duration = 0.0
+                current_event_names = []
+                current_step_durations = []
+                current_pattern_idx = 0
+
+    os.unlink(temp_path)
+
+    if len(iteration_durations) == 0 and not allow_no_match:
+        raise AssertionError(
+            "No matched NPU event sequence found. "
+            f"Patterns={ordered_event_patterns}. "
+            f"Discovered events={discovered_names}"
+        )
+
+    if len(iteration_durations) < total_iters and not allow_no_match:
+        raise AssertionError(
+            "Matched NPU event iterations are fewer than expected. "
+            f"Expected at least {total_iters}, got {len(iteration_durations)}. "
+            f"Patterns={ordered_event_patterns}. "
+            f"Discovered events={discovered_names}"
+        )
+
+    dropped_warmups = min(num_warmups, len(iteration_durations))
+    if dropped_warmups:
+        iteration_durations = iteration_durations[dropped_warmups:]
+        iteration_event_names = iteration_event_names[dropped_warmups:]
+        iteration_step_durations = iteration_step_durations[dropped_warmups:]
+
+    durations = np.array(iteration_durations, dtype=np.float64)
+    step_durations = np.array(iteration_step_durations, dtype=np.float64)
+    debug_info = {
+        "matched_total_iterations": len(iteration_durations) + dropped_warmups,
+        "dropped_warmup_iterations": dropped_warmups,
+        "counted_iterations": len(iteration_durations),
+    }
+    return (
+        durations,
+        discovered_names,
+        iteration_event_names,
+        step_durations,
+        debug_info,
+    )
 
 
 def hash_tensor(t: torch.Tensor):
@@ -407,37 +551,55 @@ def calculate_avg_stats(
     num_ranks,
     root_rank: 0,
 ):
-    # dispatch_t / combine_t: the unit is second
+    # 1. 创建本地统计张量
+    # 注意：确保 dtype 和 device 在所有进程中一致
     local_stats = torch.tensor(
         [
-            dispatch_t * 1e6,
-            num_dispatch_comm_bytes,
-            combine_t * 1e6,
-            num_combine_comm_bytes,
+            dispatch_t * 1e6,  # us
+            num_dispatch_comm_bytes,  # bytes
+            combine_t * 1e6,  # us
+            num_combine_comm_bytes,  # bytes
         ],
         dtype=torch.float64,
         device="npu",
     )
-    gather_stats = (
-        [torch.zeros_like(local_stats) for _ in range(num_ranks)]
-        if rank == root_rank
-        else None
-    )
-    dist.gather(local_stats, gather_list=gather_stats, dst=0)
+
+    # 2. 【修改点】为所有进程准备接收列表
+    # all_gather 要求所有进程都参与，且缓冲区形状必须一致
+    # 每个进程都创建一个大小为 num_ranks 的列表，每个元素形状与 local_stats 一致
+    gather_list = [torch.zeros_like(local_stats) for _ in range(num_ranks)]
+
+    # 3. 【修改点】使用 all_gather 替代 gather
+    # 此时，每个进程的 gather_list 都将包含所有 rank 的 local_stats
+    dist.all_gather(gather_list, local_stats)
+
+    # 4. 仅在 root_rank (通常是 0) 上进行统计和打印
+    # 其他进程虽然也执行了 all_gather，但不需要处理结果，节省计算资源
     if rank == root_rank:
-        stats_tensor = torch.stack(gather_stats)  # Shape [num_ranks, 4]
+        # 将列表堆叠成 [num_ranks, 4] 的张量
+        stats_tensor = (
+            torch.stack(gather_stats) if (gather_stats := gather_list) else None
+        )
+        # 注意：上面这行写法可能较新，为了兼容性，我们可以直接写：
+        stats_tensor = torch.stack(gather_list)  # Shape [num_ranks, 4]
+
         dispatch_latency = stats_tensor[:, 0]  # us
         dispatch_bytes = stats_tensor[:, 1]  # bytes
         combine_latency = stats_tensor[:, 2]  # us
         combine_bytes = stats_tensor[:, 3]  # bytes
 
+        # 计算平均值
         avg_dispatch_lat = torch.mean(dispatch_latency)
         avg_dispatch_bytes = torch.mean(dispatch_bytes)
         avg_combine_lat = torch.mean(combine_latency)
         avg_combine_bytes = torch.mean(combine_bytes)
 
+        # 计算带宽 (GB/s)
+        # 注意：如果 latency 为 0 会导致除以零错误，建议加一个极小值保护或断言
+        # 这里假设 latency > 0
         avg_dispatch_bw = avg_dispatch_bytes / avg_dispatch_lat * 1e-3  # GB/s
         avg_combine_bw = avg_combine_bytes / avg_combine_lat * 1e-3  # GB/s
+
         print(
             f"\n\nAverage Dispatch bandwidth: {avg_dispatch_bw:.2f} GB/s, avg_t={avg_dispatch_lat:.2f} us \n"
             f"Average Combine bandwidth: {avg_combine_bw:.2f} GB/s, avg_t={avg_combine_lat:.2f} us\n\n",

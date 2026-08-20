@@ -13,6 +13,34 @@ else()
 endif()
 message(WARNING "_DISPATCH_FFN_INC_OPTS: ${_DISPATCH_FFN_INC_OPTS}")
 
+# FusedDeepMoe A5 on Ascend 950 reuses the same Catlass dependency fetched by
+# deepep/ops/build.sh for A3 kernels. These options must be appended to the
+# final global option set because OPC's per-op compiler inherits that set.
+set(_A5_FUSED_DEEP_MOE_INC_OPTS)
+if ("${ASCEND_COMPUTE_UNIT}" MATCHES "^ascend950")
+    set(_A5_SYSTEM_MOE_BASE_COMMON_DIR "${ASCEND_CANN_PACKAGE_PATH}/opp/built-in/op_impl/ai_core/tbe/impl/ops_transformer/ascendc/common")
+    set(_A5_SYSTEM_MOE_BASE_OP_KERNEL "${_A5_SYSTEM_MOE_BASE_COMMON_DIR}/op_kernel/moe_distribute_base.h")
+    set(_A5_SYSTEM_MOE_BASE_INC_KERNEL "${_A5_SYSTEM_MOE_BASE_COMMON_DIR}/inc/kernel/moe_distribute_base.h")
+
+    if (EXISTS "${_A5_SYSTEM_MOE_BASE_OP_KERNEL}")
+        list(APPEND _A5_FUSED_DEEP_MOE_INC_OPTS
+            -DDEEPEP_A5_SYSTEM_MOE_BASE_USE_OP_KERNEL=1)
+    elseif(EXISTS "${_A5_SYSTEM_MOE_BASE_INC_KERNEL}")
+        list(APPEND _A5_FUSED_DEEP_MOE_INC_OPTS
+            -DDEEPEP_A5_SYSTEM_MOE_BASE_USE_INC_KERNEL=1)
+    else()
+        message(FATAL_ERROR
+            "Cannot find system moe_distribute_base.h for A5 fused. "
+            "Checked: ${_A5_SYSTEM_MOE_BASE_OP_KERNEL} and ${_A5_SYSTEM_MOE_BASE_INC_KERNEL}")
+    endif()
+
+    list(APPEND _A5_FUSED_DEEP_MOE_INC_OPTS
+        -I$ENV{ASCEND_TOOLKIT_HOME}/opp/built-in/op_impl/ai_core/tbe/impl/ops_transformer/ascendc/common/
+        -DCATLASS_ARCH=3510
+        -DDEEPEP_CATLASS_A5_COMPAT=1
+        -DDEEPEP_SKIP_DISPATCH_FFN_COMBINE=1)
+endif()
+
 npu_op_kernel_sources(ascendc_kernels
     KERNEL_DIR ./
 )
@@ -26,4 +54,8 @@ npu_op_package_add(${package_name}
     LIBRARY ascendc_kernels
 )
 
-npu_op_kernel_options("" ALL OPTIONS -DASCENDC_DUMP=0 --cce-auto-sync=off ${_DISPATCH_FFN_INC_OPTS})
+npu_op_kernel_options("" ALL OPTIONS
+    -DASCENDC_DUMP=0
+    --cce-auto-sync=off
+    ${_DISPATCH_FFN_INC_OPTS}
+    ${_A5_FUSED_DEEP_MOE_INC_OPTS})

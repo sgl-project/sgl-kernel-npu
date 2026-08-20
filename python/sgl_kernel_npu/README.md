@@ -7,8 +7,8 @@ SGLang Kernels for Ascend NPU
 
 ## Software and hardware
 Supported Hardware Models: Ascend 910B, Ascend 910C, and Ascend 950 series products
-(on Ascend 950 the C++ kernel bundle is still compiled against its 910C
-compatibility target, and only a `910` package is published — see below)
+(generic Ascend 950 builds use the 910C compatibility target; an explicit A5
+compiler target enables the native Ascend 950 kernel build — see below)
 Platform: aarch64/x86
 Supporting Software
 - Driver Ascend HDK 25.0.RC1.1, CANN 8.3.RC1 or later versions (refer to the "[CANN Software Installation Guide](https://www.hiascend.com/document/detail/zh/canncommercial/83RC1/softwareinst/instg/instg_quick.html?Mode=PmIns&InstallType=local&OS=openEuler&Software=cannToolKit)" to install the CANN development kit package, as well as the supporting firmware and drivers)
@@ -32,6 +32,7 @@ bash build.sh -a kernels
 # Or name the SoC explicitly.
 bash build.sh -a kernels 910
 bash build.sh -a kernels 950
+bash build.sh -a kernels Ascend950PR_9599
 ```
 
 Omitting the SoC queries the local device with `npu-smi`. Hosts without an NPU —
@@ -39,12 +40,11 @@ build containers, for instance — fall back to `Ascend910_9382`, which is what
 every target used to default to unconditionally, so container builds are
 unaffected. Detection only picks a default: an explicit argument always wins.
 
-`910B` (A2), `910`/`910C` (A3) and `950` (A5) select the SoC family. Concrete A5
-compiler targets — `Ascend950PR_*`, `Ascend950DT_*` — are accepted as aliases of
-`950`, but nothing distinguishes them afterwards: the C++ kernel bundle is
-compiled against the 910C compatibility target for every Ascend 950 package,
-because several modules, including LoRA, have not yet been ported to the A5
-pipeline model.
+`910B` (A2), `910`/`910C` (A3) and `950` (A5) select the SoC family. A generic or
+auto-detected A5 target keeps the 910C compatibility compile path. Kernel-only
+builds preserve explicit compiler targets such as `Ascend950PR_9599` and pass
+them to AscendC. Both forms select the same Ascend 950 Gemma provider for the
+wheel.
 
 Every target exposes `sgl_kernel_npu.norm.gemma_rmsnorm`. The wheel build binds
 that stable API to native `torch_npu` Gemma RMSNorm on Ascend 910 and to

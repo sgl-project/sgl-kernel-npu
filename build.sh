@@ -20,6 +20,7 @@ BUILD_ATTENTIONS_MODULE="OFF"
 BUILD_DEEPEP_MODULE="OFF"
 BUILD_KERNELS_MODULE="OFF"
 BUILD_MEMORY_SAVER_MODULE="OFF"
+BUILD_CATLASS_MODULE="${BUILD_CATLASS_MODULE:-OFF}"
 
 DEBUG_MODE="OFF"
 ASC_CMAKE_DIR=""
@@ -40,37 +41,49 @@ Usage:
     ./build.sh -a deepep2 [SOC_VERSION]         Build deep_ep for A2 (compatible alias).
     ./build.sh -a kernels [SOC_VERSION]         Build sgl_kernel_npu; auto-detect A2, A3, or A5.
     ./build.sh -a memory-saver                  Build torch_memory_saver.
+    ./build.sh -a attentions                    Build attentions.
 
 Omitting SOC_VERSION auto-detects it with npu-smi; hosts without a device fall
 back to Ascend910_9382, the value every target used to default to.
 
-Targets:
+TARGET:
+    all            (default) Build all modules.
     deepep         Build deep_ep and auto-select ops (A3/A5) or ops2 (A2).
     deepep2        Build deep_ep with ops2 for A2 (compatible alias).
     kernels        Build sgl_kernel_npu only.
     memory-saver   Build torch_memory_saver only.
+    attentions     Build attentions only.
 
-Chip mapping:
-    A2   : ./build.sh -a deepep               # Auto-detected as Ascend910B1/ops2
-    A3  : ./build.sh -a deepep               # Auto-detected as Ascend910_9382
-    A5   : ./build.sh -a deepep               # Auto-detected as Ascend950
-
-Compatible commands:
-    ./build.sh -a deepep2                     # Explicit A2 build
-    ./build.sh -a deepep Ascend950            # Explicit A5 build
+SOC_VERSION:
+    Ascend910B1         A2 chip. Valid for deepep/deepep2/kernels.
+    Ascend910_9382      A3 chip. Valid for all/deepep/kernels.
+    Ascend950           A5 family alias. Valid for all/deepep/kernels.
+    Ascend950PR_9599    Concrete A5 compiler target. Valid for kernels.
+    (omitted)           all/deepep/kernels: auto-detect via npu-smi,
+                        fallback to Ascend910_9382.
+                        deepep2: defaults to Ascend910B1.
 
 SOC_VERSION aliases:
     910B | Ascend910B1                       A2, native Gemma provider
     910  | 910C | Ascend910_9382             A3, native Gemma provider
     950  | Ascend950 | Ascend950{PR,DT}_*    A5, ACLNN Gemma provider
 
-Every A5 spelling resolves to Ascend950, which compiles against the 910C
-compatibility target. 'kernels' also takes any other concrete AscendC target and
-forwards it unchanged; 'all' and 'deepep' accept only the three families above.
+Generic A5 names use the 910C compatibility target. For kernel-only builds,
+concrete Ascend950PR_*/Ascend950DT_* targets are preserved and passed to
+AscendC. Both forms select the Ascend950 wheel provider.
 
 Options:
     -d             Enable debug logging.
     -h             Show this help.
+
+Examples:
+    ./build.sh                                  # all modules, A3
+    ./build.sh -a deepep                        # auto-detect chip
+    ./build.sh -a deepep Ascend950              # explicit A5 DeepEP
+    ./build.sh -a deepep2                       # A2 DeepEP
+    ./build.sh -a kernels                       # sgl_kernel_npu, A3
+    ./build.sh -a kernels Ascend950PR_9599      # sgl_kernel_npu, A5
+    ./build.sh -a memory-saver                  # torch_memory_saver
 EOF
 }
 
@@ -131,8 +144,11 @@ function configure_build_target()
         memory-saver )
             BUILD_MEMORY_SAVER_MODULE="ON"
             ;;
+        attentions )
+            BUILD_ATTENTIONS_MODULE="ON"
+            ;;
         * )
-            die "Invalid target '$BUILD_TARGET'. Allowed values: deepep|deepep2|kernels|memory-saver"
+            die "Invalid target '$BUILD_TARGET'. Allowed values: all|deepep|deepep2|kernels|memory-saver|attentions"
             ;;
     esac
 }
@@ -188,11 +204,9 @@ function detect_soc_version()
     echo "Cannot recognize the NPU from npu-smi output; falling back to SOC_VERSION=$SOC_VERSION"
 }
 
-# Fold every accepted spelling onto one canonical name per SoC family. A5 has
-# several concrete compiler targets (Ascend950PR_*, Ascend950DT_*), but nothing
-# downstream tells them apart -- the kernel bundle compiles against the 910C
-# compatibility target either way, see configure_soc_version -- so they are
-# aliases of Ascend950 rather than values worth carrying around.
+# Fold friendly product names onto canonical SoC names. Kernel-only builds keep
+# concrete A5 compiler targets so upstream's native Ascend950 build path remains
+# available; all/deepep still consume the generic Ascend950 family name.
 function normalize_soc_version()
 {
     case "$SOC_VERSION" in
@@ -202,8 +216,22 @@ function normalize_soc_version()
         910B )
             SOC_VERSION="Ascend910B1"
             ;;
-        950 | [Aa]scend950 | [Aa]scend950[PpDd][RrTt]_* )
+        950 | [Aa]scend950 )
             SOC_VERSION="Ascend950"
+            ;;
+        [Aa]scend950[Pp][Rr]_* )
+            if [[ "$BUILD_TARGET" == "kernels" ]]; then
+                SOC_VERSION="Ascend950PR_${SOC_VERSION#*_}"
+            else
+                SOC_VERSION="Ascend950"
+            fi
+            ;;
+        [Aa]scend950[Dd][Tt]_* )
+            if [[ "$BUILD_TARGET" == "kernels" ]]; then
+                SOC_VERSION="Ascend950DT_${SOC_VERSION#*_}"
+            else
+                SOC_VERSION="Ascend950"
+            fi
             ;;
         * )
             # Anything else is a concrete AscendC compiler target (Ascend910B2,
@@ -273,30 +301,47 @@ function configure_soc_version()
         deepep | deepep2 )
             CMAKE_SOC_VERSION="Ascend910_9382"
             ;;
-        all | kernels )
+        all )
             CMAKE_SOC_VERSION="$SOC_VERSION"
             if [[ "$SOC_VERSION" == "Ascend950" ]]; then
-                # The existing main C++ bundle, especially LoRA, still uses the
-                # known-working 910C compatibility target on A5. A concrete
-                # Ascend950PR_*/Ascend950DT_* selector is therefore folded into
-                # this compatibility build rather than handed to the compiler.
+                # A full A5 build has no concrete compiler selector, so retain
+                # the feature branch's known-compatible 910C target.
+                CMAKE_SOC_VERSION="Ascend910_9382"
+            fi
+            ;;
+        kernels )
+            CMAKE_SOC_VERSION="$SOC_VERSION"
+            if [[ "$SOC_VERSION" == "Ascend950" ]]; then
+                # Friendly/detected A5 names do not identify a concrete
+                # compiler target. Preserve the existing compatibility path;
+                # explicit Ascend950PR_*/Ascend950DT_* values pass through.
                 CMAKE_SOC_VERSION="Ascend910_9382"
             fi
             ;;
     esac
 
-    if [[ "$SOC_VERSION" == "Ascend950" ]]; then
-        DEEPEP_IS_A5_BUILD="ON"
-        SGL_KERNEL_NPU_BUILD_TARGET="Ascend950"
-    else
-        SGL_KERNEL_NPU_BUILD_TARGET="Ascend910"
-    fi
+    case "$SOC_VERSION" in
+        Ascend950 | Ascend950PR_* | Ascend950DT_* )
+            SGL_KERNEL_NPU_BUILD_TARGET="Ascend950"
+            ;;
+        * )
+            SGL_KERNEL_NPU_BUILD_TARGET="Ascend910"
+            ;;
+    esac
     export SGL_KERNEL_NPU_BUILD_TARGET
+
+    if [[ "$BUILD_DEEPEP_MODULE" == "ON" && "$SOC_VERSION" == "Ascend950" ]]; then
+        DEEPEP_IS_A5_BUILD="ON"
+        export ASCEND_COMPUTE_UNIT="ascend950"
+    else
+        unset ASCEND_COMPUTE_UNIT
+    fi
 
     echo "Build target: $BUILD_TARGET"
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
         echo "DeepEP variant: $DEEPEP_VARIANT"
         echo "DeepEP SOC_VERSION: $SOC_VERSION"
+        echo "DeepEP ASCEND_COMPUTE_UNIT: ${ASCEND_COMPUTE_UNIT:-<unset>}"
     fi
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" || "$BUILD_KERNELS_MODULE" == "ON" ]]; then
         echo "CMake SOC_VERSION: $CMAKE_SOC_VERSION"
@@ -439,6 +484,7 @@ function build_cmake_modules()
         "-DDEEPEP_IS_A5_BUILD=$DEEPEP_IS_A5_BUILD"
         "-DBUILD_DEEPEP_MODULE=$BUILD_DEEPEP_MODULE"
         "-DBUILD_KERNELS_MODULE=$BUILD_KERNELS_MODULE"
+        "-DBUILD_CATLASS_MODULE=${BUILD_CATLASS_MODULE:-OFF}"
     )
 
     if [[ -n "$ASC_CMAKE_DIR" ]]; then

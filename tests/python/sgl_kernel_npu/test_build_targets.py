@@ -167,14 +167,22 @@ def test_kernels_build_detects_the_local_soc(chip, wheel_target, cmake_soc):
     assert f"CMake SOC_VERSION: {cmake_soc}" in done.stdout
 
 
+@pytest.mark.parametrize(
+    ("requested_soc", "wheel_target", "cmake_soc"),
+    [
+        ("910B", "Ascend910", "Ascend910B1"),
+        ("950", "Ascend950", "Ascend910_9382"),
+        ("Ascend950PR_9599", "Ascend950", "Ascend950PR_9599"),
+    ],
+)
 @needs_posix_shell
-def test_explicit_soc_version_skips_detection():
+def test_explicit_soc_version_skips_detection(requested_soc, wheel_target, cmake_soc):
     """An explicit argument must win over whatever the local NPU reports."""
-    done = resolve_soc("kernels", chip="a5", requested_soc="910B")
+    done = resolve_soc("kernels", chip="a5", requested_soc=requested_soc)
 
     assert done.returncode == 0, done.stderr
-    assert "Wheel SOC_VERSION: Ascend910" in done.stdout
-    assert "CMake SOC_VERSION: Ascend910B1" in done.stdout
+    assert f"Wheel SOC_VERSION: {wheel_target}" in done.stdout
+    assert f"CMake SOC_VERSION: {cmake_soc}" in done.stdout
 
 
 @needs_posix_shell
