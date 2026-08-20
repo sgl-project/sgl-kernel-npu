@@ -30,24 +30,23 @@ void DlogRecord(int32_t moduleId, int32_t level, const char *fmt, ...) __attribu
 void DlogFlush(void);
 }
 
-#define OP_LOGE(opName, format, ...)                                      \
-    do {                                                                  \
-        fprintf(stderr, "[compressor][%s] ", (opName));                   \
-        fprintf(stderr, format, ##__VA_ARGS__);                            \
-        fprintf(stderr, "\n");                                             \
-        if (DlogRecord) {                                                  \
-            DlogRecord(63, 3, "[compressor][%s] " format, (opName),       \
-                       ##__VA_ARGS__);                                    \
-            DlogFlush();                                                   \
-        }                                                                  \
+#define OP_LOGE(opName, format, ...)                                                \
+    do {                                                                            \
+        fprintf(stderr, "[compressor][%s] ", (opName));                             \
+        fprintf(stderr, format, ##__VA_ARGS__);                                     \
+        fprintf(stderr, "\n");                                                      \
+        if (DlogRecord) {                                                           \
+            DlogRecord(63, 3, "[compressor][%s] " format, (opName), ##__VA_ARGS__); \
+            DlogFlush();                                                            \
+        }                                                                           \
     } while (0)
-#define OPS_REPORT_VECTOR_INNER_ERR(op, msg)                        \
-    do {                                                            \
-        fprintf(stderr, "[compressor][%s] %s\n", (op), (msg));      \
-        if (DlogRecord) {                                           \
+#define OPS_REPORT_VECTOR_INNER_ERR(op, msg)                         \
+    do {                                                             \
+        fprintf(stderr, "[compressor][%s] %s\n", (op), (msg));       \
+        if (DlogRecord) {                                            \
             DlogRecord(63, 3, "[compressor][%s] %s\n", (op), (msg)); \
-            DlogFlush();                                            \
-        }                                                           \
+            DlogFlush();                                             \
+        }                                                            \
     } while (0)
 #define OP_CHECK_IF(cond, logExpr, returnExpr) \
     if (cond) {                                \
@@ -58,7 +57,6 @@ void DlogFlush(void);
 using namespace ge;
 using namespace AscendC;
 namespace optiling {
-
 
 void CompressorTiling::ConvertRequiredParams(sglang::ge_helper::TilingContext &context,
                                              CompressorContext &compressorContext)
@@ -180,10 +178,10 @@ ge::graphStatus CompressorTiling::SetBaseInfo()
     baseParams_->normEps = static_cast<float>(*context_->normEps);
     baseParams_->reciprocalD = 1.0 / baseParams_->headDim;
     baseParams_->cgSize =
-        (baseParams_->seqSize + baseParams_->cmpRatio - 1) / baseParams_->cmpRatio; // number of token after compress
+        (baseParams_->seqSize + baseParams_->cmpRatio - 1) / baseParams_->cmpRatio;  // number of token after compress
     coff = static_cast<uint8_t>(*context_->coff);
     baseParams_->stateCacheStrideDim0 = static_cast<uint64_t>(*context_->stateCacheStrideDim0);
-    baseParams_->nSize = 2; // 2:每个核处理两个基本块后做全核同步
+    baseParams_->nSize = 2;  // 2:每个核处理两个基本块后做全核同步
     baseParams_->usedCoreNum = aicNum_;
     OP_LOGI(context_->opName, "[TILING] bSize:%u  tSize:%u cmpRatio:%u coff:%u, stateCacheStrideDim0:%u",
             baseParams_->batchSize, baseParams_->tokenSize, baseParams_->cmpRatio, coff,
@@ -240,8 +238,8 @@ ge::graphStatus CompressorTiling::SetTemplateId()
 ge::graphStatus CompressorTiling::SetInnerSplitInfo()
 {
     if (context_->templateId == TemplateId::FULL_LOAD) {
-        innerSplitParams_->mBaseSize = 256;              // 256:核间切分，M轴基本块大小
-        innerSplitParams_->dBaseSize = 256 / (coff * 2); // nBase = dBase * coff * 2
+        innerSplitParams_->mBaseSize = 256;               // 256:核间切分，M轴基本块大小
+        innerSplitParams_->dBaseSize = 256 / (coff * 2);  // nBase = dBase * coff * 2
         uint32_t dBaseNum = baseParams_->headDim / innerSplitParams_->dBaseSize;
         uint32_t mBaseNum = (baseParams_->tokenSize + innerSplitParams_->mBaseSize - 1) / innerSplitParams_->mBaseSize;
         baseParams_->coreGroupNum = baseParams_->usedCoreNum / dBaseNum;
@@ -250,7 +248,7 @@ ge::graphStatus CompressorTiling::SetInnerSplitInfo()
         if ((dBaseNum * mBaseNum) < baseParams_->usedCoreNum) {
             baseParams_->kBaseNum = baseParams_->usedCoreNum / dBaseNum;
             uint32_t kAlignSize = (baseParams_->hiddenSize + baseParams_->kBaseNum - 1) / baseParams_->kBaseNum;
-            baseParams_->kBaseSize = kAlignSize / 16 * 16; // 切k的size需要16对齐
+            baseParams_->kBaseSize = kAlignSize / 16 * 16;  // 切k的size需要16对齐
         }
         for (uint32_t i = 0; i < baseParams_->usedCoreNum; i++) {
             baseParams_->splitCoreParam[i].nStart = (i % dBaseNum) * innerSplitParams_->dBaseSize;
@@ -262,8 +260,9 @@ ge::graphStatus CompressorTiling::SetInnerSplitInfo()
                     baseParams_->splitCoreParam[i].kStart = kStartIdx * baseParams_->kBaseSize;
                     baseParams_->splitCoreParam[i].kEnd = baseParams_->splitCoreParam[i].kStart + dealKSize;
                 } else {
-                    uint32_t dealKSize = kStartIdx < baseParams_->coreGroupNum ?
-                                        baseParams_->hiddenSize - kStartIdx * baseParams_->kBaseSize : 0;
+                    uint32_t dealKSize = kStartIdx < baseParams_->coreGroupNum
+                                             ? baseParams_->hiddenSize - kStartIdx * baseParams_->kBaseSize
+                                             : 0;
                     baseParams_->splitCoreParam[i].kStart = kStartIdx * baseParams_->kBaseSize;
                     baseParams_->splitCoreParam[i].kEnd = baseParams_->splitCoreParam[i].kStart + dealKSize;
                 }
@@ -280,24 +279,24 @@ ge::graphStatus CompressorTiling::SetInnerSplitInfo()
             }
         }
     } else {
-        innerSplitParams_->mBaseSize = 256;        // 256:核间切分，M轴基本块大小
-        innerSplitParams_->dBaseSize = 128 / coff; // 128：核间切分，D轴基本块大小
+        innerSplitParams_->mBaseSize = 256;         // 256:核间切分，M轴基本块大小
+        innerSplitParams_->dBaseSize = 128 / coff;  // 128：核间切分，D轴基本块大小
     }
     return ge::GRAPH_SUCCESS;
 }
 
 ge::graphStatus CompressorTiling::CalcWorkSpace()
 {
-    constexpr uint32_t MM1_RES_ELEM_SIZE = 4; // 4: fp32
-    constexpr uint32_t V1_RES_ELEM_SIZE = 4;  // 4: fp32
+    constexpr uint32_t MM1_RES_ELEM_SIZE = 4;  // 4: fp32
+    constexpr uint32_t V1_RES_ELEM_SIZE = 4;   // 4: fp32
     uint32_t maxGroupNum = aicNum_ / (baseParams_->headDim / innerSplitParams_->dBaseSize);
     workspaceSize_ = libapiSize_;
     workspaceSize_ +=
         workspaceParams_->mm1KvResSize * maxGroupNum * MM1_RES_ELEM_SIZE * workspaceParams_->dbWorkspaceRatio;
     workspaceSize_ +=
         workspaceParams_->mm1ScoreResSize * maxGroupNum * MM1_RES_ELEM_SIZE * workspaceParams_->dbWorkspaceRatio;
-    workspaceSize_ +=
-        workspaceParams_->vec1TailCacheSize * MM1_RES_ELEM_SIZE * workspaceParams_->dbWorkspaceRatio * 2; // 2 kv和score
+    workspaceSize_ += workspaceParams_->vec1TailCacheSize * MM1_RES_ELEM_SIZE * workspaceParams_->dbWorkspaceRatio *
+                      2;  // 2 kv和score
     workspaceSize_ +=
         workspaceParams_->vec1ResSize * maxGroupNum * V1_RES_ELEM_SIZE * workspaceParams_->dbWorkspaceRatio;
 
@@ -343,22 +342,20 @@ ge::graphStatus CompressorTiling::RunBigKernelTiling(CompressorTilingData *tilin
     this->innerSplitParams_ = &tilingData->innerSplitParams;
     this->workspaceParams_ = &tilingData->workspaceParams;
     using StatusFunction = std::function<ge::graphStatus()>;
-    std::vector<StatusFunction> requiredTilingFuncs {
-        std::bind(&CompressorTiling::GetNpuInfo, this),
-        std::bind(&CompressorTiling::CheckRequiredParaExistence, this),
-        std::bind(&CompressorTiling::CheckEmptyTensor, this),
-        std::bind(&CompressorTiling::CheckSinglePara, this),
-        std::bind(&CompressorTiling::SetBaseInfo, this),
-        std::bind(&CompressorTiling::SetPageAttentionInfo, this),
-        std::bind(&CompressorTiling::CheckFeature, this),
-        std::bind(&CompressorTiling::CheckMultiParaConsistency, this),
-        std::bind(&CompressorTiling::CheckBlockDimConstrain, this),
-        std::bind(&CompressorTiling::SetTemplateId, this),
-        std::bind(&CompressorTiling::SetInnerSplitInfo, this),
-        std::bind(&CompressorTiling::SetWorkSpaceInfo, this),
-        std::bind(&CompressorTiling::SetScenarioInfo, this)
-    };
-    for (const auto &func: requiredTilingFuncs) {
+    std::vector<StatusFunction> requiredTilingFuncs{std::bind(&CompressorTiling::GetNpuInfo, this),
+                                                    std::bind(&CompressorTiling::CheckRequiredParaExistence, this),
+                                                    std::bind(&CompressorTiling::CheckEmptyTensor, this),
+                                                    std::bind(&CompressorTiling::CheckSinglePara, this),
+                                                    std::bind(&CompressorTiling::SetBaseInfo, this),
+                                                    std::bind(&CompressorTiling::SetPageAttentionInfo, this),
+                                                    std::bind(&CompressorTiling::CheckFeature, this),
+                                                    std::bind(&CompressorTiling::CheckMultiParaConsistency, this),
+                                                    std::bind(&CompressorTiling::CheckBlockDimConstrain, this),
+                                                    std::bind(&CompressorTiling::SetTemplateId, this),
+                                                    std::bind(&CompressorTiling::SetInnerSplitInfo, this),
+                                                    std::bind(&CompressorTiling::SetWorkSpaceInfo, this),
+                                                    std::bind(&CompressorTiling::SetScenarioInfo, this)};
+    for (const auto &func : requiredTilingFuncs) {
         if (func() != ge::GRAPH_SUCCESS) {
             return ge::GRAPH_FAILED;
         }
@@ -373,10 +370,8 @@ ge::graphStatus CompressorTiling::RunBigKernelTiling(CompressorTilingData *tilin
         context_->blockDim = 1U;
         return ge::GRAPH_SUCCESS;
     }
-    std::vector<StatusFunction> optionalTilingFuncs {
-        std::bind(&CompressorTiling::CalcWorkSpace, this),
-        std::bind(&CompressorTiling::GenTilingKey, this)
-    };
+    std::vector<StatusFunction> optionalTilingFuncs{std::bind(&CompressorTiling::CalcWorkSpace, this),
+                                                    std::bind(&CompressorTiling::GenTilingKey, this)};
     for (const auto &func : optionalTilingFuncs) {
         if (func() != ge::GRAPH_SUCCESS) {
             return ge::GRAPH_FAILED;
@@ -413,14 +408,7 @@ ge::graphStatus CompressorTiling::GenTilingKey() const
         layout = 1;
     }
 
-    context_->tilingKey = GET_TPL_TILING_KEY(
-        layout,
-        dtype,
-        coff,
-        rotaryMode,
-        cacheMode,
-        templateId
-    );
+    context_->tilingKey = GET_TPL_TILING_KEY(layout, dtype, coff, rotaryMode, cacheMode, templateId);
     OP_LOGI(context_->opName,
             "Compressor dtype:%hhu layout:%hhu  coff:%hhu rotary_mode:%hhu, cacheMode: %u, template_id:%hhu", dtype,
             layout, coff, rotaryMode, cacheMode, templateId);
@@ -431,24 +419,15 @@ ge::graphStatus CompressorTiling::GenTilingKey() const
 
 ge::graphStatus CompressorTiling::CheckSinglePara() const
 {
-    if (ge::GRAPH_SUCCESS != CheckSingleParaX() ||
-        ge::GRAPH_SUCCESS != CheckSingleParaWkv() ||
-        ge::GRAPH_SUCCESS != CheckSingleParaWgate() ||
-        ge::GRAPH_SUCCESS != CheckSingleParaStateCache() ||
-        ge::GRAPH_SUCCESS != CheckSingleParaApe() ||
-        ge::GRAPH_SUCCESS != CheckSingleParaNormWeight() ||
-        ge::GRAPH_SUCCESS != CheckSingleParaRopeSin() ||
-        ge::GRAPH_SUCCESS != CheckSingleParaRopeCos() ||
-        ge::GRAPH_SUCCESS != CheckSingleParaStateBlockTable() ||
-        ge::GRAPH_SUCCESS != CheckSingleParaCuSeqlens() ||
-        ge::GRAPH_SUCCESS != CheckSingleParaSeqused() ||
-        ge::GRAPH_SUCCESS != CheckSingleParaStartPos() ||
-        ge::GRAPH_SUCCESS != CheckSingleParaCmpKv() ||
-        ge::GRAPH_SUCCESS != CheckSingleParaRopeHeadDim() ||
-        ge::GRAPH_SUCCESS != CheckSingleParaCmpRatio() ||
-        ge::GRAPH_SUCCESS != CheckSingleParaCoff() ||
-        ge::GRAPH_SUCCESS != CheckSingleParaNormEps() ||
-        ge::GRAPH_SUCCESS != CheckSingleParaRotaryMode() ||
+    if (ge::GRAPH_SUCCESS != CheckSingleParaX() || ge::GRAPH_SUCCESS != CheckSingleParaWkv() ||
+        ge::GRAPH_SUCCESS != CheckSingleParaWgate() || ge::GRAPH_SUCCESS != CheckSingleParaStateCache() ||
+        ge::GRAPH_SUCCESS != CheckSingleParaApe() || ge::GRAPH_SUCCESS != CheckSingleParaNormWeight() ||
+        ge::GRAPH_SUCCESS != CheckSingleParaRopeSin() || ge::GRAPH_SUCCESS != CheckSingleParaRopeCos() ||
+        ge::GRAPH_SUCCESS != CheckSingleParaStateBlockTable() || ge::GRAPH_SUCCESS != CheckSingleParaCuSeqlens() ||
+        ge::GRAPH_SUCCESS != CheckSingleParaSeqused() || ge::GRAPH_SUCCESS != CheckSingleParaStartPos() ||
+        ge::GRAPH_SUCCESS != CheckSingleParaCmpKv() || ge::GRAPH_SUCCESS != CheckSingleParaRopeHeadDim() ||
+        ge::GRAPH_SUCCESS != CheckSingleParaCmpRatio() || ge::GRAPH_SUCCESS != CheckSingleParaCoff() ||
+        ge::GRAPH_SUCCESS != CheckSingleParaNormEps() || ge::GRAPH_SUCCESS != CheckSingleParaRotaryMode() ||
         ge::GRAPH_SUCCESS != CheckSingleParaCacheMode()) {
         return ge::GRAPH_FAILED;
     }
@@ -543,9 +522,9 @@ ge::graphStatus CompressorTiling::CheckDtypeSupport(const gert::CompileTimeTenso
             OP_LOGE(context_->opName, "%s datatype support list should be specify in DTYPE_SUPPORT_MAP", name.c_str()),
             return ge::GRAPH_FAILED);
         auto &expectDtypeList = it->second;
-        OP_CHECK_IF(std::find(expectDtypeList.begin(), expectDtypeList.end(), desc->GetDataType()) ==
-                        expectDtypeList.end(),
-                    LogErrorDtypeSupport(expectDtypeList, desc->GetDataType(), name), return ge::GRAPH_FAILED);
+        OP_CHECK_IF(
+            std::find(expectDtypeList.begin(), expectDtypeList.end(), desc->GetDataType()) == expectDtypeList.end(),
+            LogErrorDtypeSupport(expectDtypeList, desc->GetDataType(), name), return ge::GRAPH_FAILED);
     }
     return ge::GRAPH_SUCCESS;
 }
@@ -867,21 +846,25 @@ ge::graphStatus CompressorTiling::CheckFeature() const
         OP_LOGE(context_->opName, "blockSize should not be less than 1, but got %u", pageAttentionParams_->blockSize),
         return ge::GRAPH_FAILED);
     if (static_cast<uint8_t>(*context_->cacheMode) == static_cast<uint8_t>(CACHE_MODE::CYCLE)) {
-        OP_CHECK_IF(pageAttentionParams_->blockNum < baseParams_->batchSize,
-                    OP_LOGE(context_->opName,
-                            "when cacheMode is %u, blockNum should not be less than batchSize(%u), but got %u",
-                            static_cast<uint8_t>(CACHE_MODE::CYCLE), baseParams_->batchSize,
-                            pageAttentionParams_->blockNum),
-                    return ge::GRAPH_FAILED);
-        OP_CHECK_IF(context_->stateBlockTable.shape->GetStorageShape().GetDimNum() != COMPRESSOR_DIM_NUM_1,
+        OP_CHECK_IF(
+            pageAttentionParams_->blockNum < baseParams_->batchSize,
+            OP_LOGE(context_->opName,
+                    "when cacheMode is %u, blockNum should not be less than batchSize(%u), but got %u",
+                    static_cast<uint8_t>(CACHE_MODE::CYCLE), baseParams_->batchSize, pageAttentionParams_->blockNum),
+            return ge::GRAPH_FAILED);
+        OP_CHECK_IF(
+            context_->stateBlockTable.shape->GetStorageShape().GetDimNum() != COMPRESSOR_DIM_NUM_1,
             OP_LOGE(context_->opName, "when cacheMode is %u, stateBlockTable dim num should be equal to %u, but got %u",
-            static_cast<uint8_t>(CACHE_MODE::CYCLE), COMPRESSOR_DIM_NUM_1,
-            context_->stateBlockTable.shape->GetStorageShape().GetDimNum()), return ge::GRAPH_FAILED);
+                    static_cast<uint8_t>(CACHE_MODE::CYCLE), COMPRESSOR_DIM_NUM_1,
+                    context_->stateBlockTable.shape->GetStorageShape().GetDimNum()),
+            return ge::GRAPH_FAILED);
     } else {
-        OP_CHECK_IF(context_->stateBlockTable.shape->GetStorageShape().GetDimNum() != COMPRESSOR_DIM_NUM_2,
+        OP_CHECK_IF(
+            context_->stateBlockTable.shape->GetStorageShape().GetDimNum() != COMPRESSOR_DIM_NUM_2,
             OP_LOGE(context_->opName, "when cacheMode is %u, stateBlockTable dim num should be equal to %u, but got %u",
-            static_cast<uint8_t>(CACHE_MODE::CONTINUOUS), COMPRESSOR_DIM_NUM_2,
-            context_->stateBlockTable.shape->GetStorageShape().GetDimNum()), return ge::GRAPH_FAILED);
+                    static_cast<uint8_t>(CACHE_MODE::CONTINUOUS), COMPRESSOR_DIM_NUM_2,
+                    context_->stateBlockTable.shape->GetStorageShape().GetDimNum()),
+            return ge::GRAPH_FAILED);
     }
     return ge::GRAPH_SUCCESS;
 }
@@ -1030,14 +1013,15 @@ ge::graphStatus CompressorTiling::CheckScenarioConsistency() const
     OP_CHECK_IF(std::find(allowdScenarios.begin(), allowdScenarios.end(), curScenario) == allowdScenarios.end(),
                 OP_LOGE(context_->opName,
                         "Cmpratio Coff Headdim should be equal to {4, 2, 512}, {4, 2, 128}, {128, 1, 512}, \
-                        but now cmpratio=%u, coff=%u, headdim=%u", curCmpratio, curCoff, curHeaddim),
+                        but now cmpratio=%u, coff=%u, headdim=%u",
+                        curCmpratio, curCoff, curHeaddim),
                 return ge::GRAPH_FAILED);
     return ge::GRAPH_SUCCESS;
 }
 
 ge::graphStatus CompressorTiling::CheckBlockDimConstrain() const
 {
-    uint32_t minBlockNum = baseParams_->headDim / 64; // 64 is the largest dBaseSize
+    uint32_t minBlockNum = baseParams_->headDim / 64;  // 64 is the largest dBaseSize
     OP_CHECK_IF(aicNum_ < minBlockNum,
                 OP_LOGE(context_->opName, "aicNum is %d, which should not be less than %d", aicNum_, minBlockNum),
                 return ge::GRAPH_FAILED);
@@ -1058,4 +1042,4 @@ ge::graphStatus CompressorTiling::CheckMultiParaConsistency() const
     return ge::GRAPH_SUCCESS;
 }
 
-} // namespace optiling
+}  // namespace optiling
