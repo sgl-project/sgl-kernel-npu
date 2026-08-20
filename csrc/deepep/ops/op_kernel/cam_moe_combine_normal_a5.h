@@ -20,7 +20,7 @@ constexpr uint32_t MUL_256_ALIGN = 256U;
 constexpr uint64_t WIN_512_ALIGN = 512UL;
 constexpr uint32_t FLOAT_NUM_PER_ALIGN = 8U;
 constexpr uint8_t DOUBLE_BUFFER = 2;
-constexpr int64_t CYCLE_TO_TIME = 50;  // cycle num is converted into a fixed base unit of time, set at 50
+constexpr int64_t CYCLE_TO_TIME = 1000;  // cycle num is converted into a fixed base unit of time, set at 1000
 
 template <AscendC::HardEvent event>
 __aicore__ inline void SyncFunc()
@@ -100,7 +100,7 @@ private:
     uint32_t moeExpertPerRankNum_{0};
     uint32_t magic_{0};
     uint64_t winDataSizeOffset_{0};
-    uint32_t baseWindSize_{0};
+    uint64_t baseWindSize_{0};
     uint32_t selfSendCnt_{0};
     uint32_t hRecvXTypeLen_{0};
     uint32_t tokenIdx32AlignLen_{0};

@@ -183,10 +183,10 @@ private:
     uint32_t expertIdsCnt{0};
     uint32_t stateOffset{0};
     uint32_t dataState{0};
-    uint32_t winDataSizeOffset{0};
     uint32_t waitRecvCostStatsBufSize{0};
     uint32_t srcRankOffset{0};
-    uint32_t baseWindSize{0};
+    uint64_t winDataSizeOffset{0};
+    uint64_t baseWindSize{0};
 
     uint32_t startStatusId;
     uint32_t endStatusId;

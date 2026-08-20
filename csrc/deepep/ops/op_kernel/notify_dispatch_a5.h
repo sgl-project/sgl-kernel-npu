@@ -796,7 +796,7 @@ private:
     int32_t blockIdx;  // Index of the current aicore
     int32_t blockNum;  // Total number of aicores for the current rank
     uint32_t maxBsNum{0};
-    uint32_t baseWindSize{0};
+    uint64_t baseWindSize{0};
     int batchRounds{32};
     GM_ADDR scale;
     GM_ADDR shareAddrs[CAM_MAX_RANK_SIZE];  // List of shared memory addresses
