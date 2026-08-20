@@ -41,7 +41,7 @@ SMOKE_TESTS=(
 )
 
 NORM_TESTS=(
-    test_add_rmsnorm_bias.py  # TEMP-ENABLED (CANN9.1.0 experiment) -- orig: FAILING add_rmsnorm_bias() multiple values for 'norm_bias'
+    # test_add_rmsnorm_bias.py  # FAILING: add_rmsnorm_bias() got multiple values for 'norm_bias'
     test_rmsnorm_split.py
     test_rmsnorm_without_weight.py
     test_l1_norm.py
@@ -49,7 +49,7 @@ NORM_TESTS=(
 )
 
 ATTENTION_TESTS=(
-    test_decode_attention.py  # TEMP-ENABLED (CANN9.1.0 experiment) -- orig: FAILING tl.parallel removed in triton 3.5.0
+    # test_decode_attention.py  # FAILING: tl.parallel removed in triton 3.5.0
     test_mla_preprocess.py
     test_split_qkv_rmsnorm_rope.py  # fixed by PR#701 (partial rope dim)
     test_split_qkv_rmsnorm_rope_pos_cache_half_npu.py
@@ -74,10 +74,10 @@ SPECULATIVE_TESTS=(
 )
 
 MAMBA_TESTS=(
-    test_conv1d_prefill.py  # TEMP-ENABLED (CANN9.1.0 experiment) -- orig: FAILING PyTorch 2.10.0 strict schema check
+    # test_conv1d_prefill.py  # FAILING: PyTorch 2.10.0 strict schema check
     test_conv1d_update.py
-    test_mamba_conv.py  # TEMP-ENABLED (CANN9.1.0 experiment) -- orig: FAILING varlen conv fp16 swish+bias output mismatch (ratio ~1.0)
-    test_mamba_state_update.py  # TEMP-ENABLED (CANN9.1.0 experiment) -- orig: FAILING move_intermediate_cache strided-dst exact mismatch
+    # test_mamba_conv.py  # FAILING: varlen conv fp16 swish+bias output mismatch (ratio ~1.0)
+    # test_mamba_state_update.py  # FAILING: move_intermediate_cache strided-dst exact mismatch
 )
 
 FLA_TESTS=(
@@ -93,7 +93,7 @@ FLA_TESTS=(
 FUSED_TESTS=(
     test_swiglu_quant.py  # fixed by PR#701 (fp32 ref aligned)
     test_batch_matmul_transpose.py
-    test_catlass_matmul_basic.py  # TEMP-ENABLED (CANN9.1.0 experiment) -- orig: FAILING flaky float16 precision (0.0078 > 0.0005)
+    # test_catlass_matmul_basic.py  # FAILING: flaky float16 precision (0.0078 > 0.0005)
     test_qkvzba_split_reshape_cat.py
     test_lora_kernels.py
     test_gmm_wfp8a16.py
@@ -161,6 +161,32 @@ case "$TEST_GROUP" in
         exit 1
         ;;
 esac
+
+# CANN 9.1.0: skip flaky/broken fla tests that only fail on this image.
+# - test_triangular_inverse.py: torch_npu builtin op output mismatch (DTS 20260819-#2)
+# - test_chunk_gdn_triton.py:    intermittent aicore timeout, error 507014 (DTS 20260819-#3)
+# Both still run on CANN 9.0.0 where they pass.
+if [[ "${CANN_VERSION:-}" == 9.1* ]]; then
+    SKIP_ON_910=(
+        test_triangular_inverse.py
+        test_chunk_gdn_triton.py
+    )
+    FILTERED_TESTS=()
+    for t in "${TESTS[@]}"; do
+        local_skip=0
+        for s in "${SKIP_ON_910[@]}"; do
+            if [[ "$t" == "$s" ]]; then
+                local_skip=1
+                break
+            fi
+        done
+        if [ "$local_skip" -eq 0 ]; then
+            FILTERED_TESTS+=("$t")
+        fi
+    done
+    echo "[CANN_VERSION=$CANN_VERSION] skipping on 9.1.0: ${SKIP_ON_910[*]}"
+    TESTS=("${FILTERED_TESTS[@]}")
+fi
 
 echo "Running test group: $TEST_GROUP (${#TESTS[@]} tests)"
 echo ""
