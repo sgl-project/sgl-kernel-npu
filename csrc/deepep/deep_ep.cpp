@@ -27,6 +27,7 @@ constexpr int FUSED_DEEP_MOE_INT8_QUANT = 1;
 constexpr uint32_t MX_BLOCK_SIZE = 32;
 constexpr uint32_t MXFP4_HALF = 2;
 constexpr int LOCAL_RANK_SIZE = 8;
+constexpr int A3_LAYOUT_LOCAL_RANK_SIZE = 16;
 constexpr int MAX_BATCH_SIZE = 4096;
 constexpr int EXPERT_DATA_SIZE = 1 + MAX_BATCH_SIZE;  // 4097
 constexpr int A3_MAX_HCCS_PEERS = 384;
@@ -865,6 +866,7 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     auto num_scales = hidden / 128, num_topk = static_cast<int>(topk_idx.size(1));
     int32_t num_local_experts = num_experts / (num_ranks - shared_expert_rank_num);
     int64_t global_bs = num_max_dispatch_tokens_per_rank * num_ranks;
+
     auto num_max_tokens = 0;
     if (rank < shared_expert_rank_num) {
         num_max_tokens = global_bs / shared_expert_rank_num;
@@ -942,6 +944,8 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
     int64_t expert_shard_type = 0;
     int outType = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
     int isCcu = get_value_from_env("MOE_ENABLE_CCU", 0);
+    const char *hccl_logic_superpod_id = getenv("HCCL_LOGIC_SUPERPOD_ID");
+    bool isA3Layout = hccl_logic_superpod_id != nullptr;
     char *comm_alg;
     int64_t expert_token_nums_type = outType;
 
@@ -966,12 +970,18 @@ Buffer::low_latency_dispatch(const at::Tensor &x, const at::Tensor &topk_idx,
             int64_t recv_count_tensor_size = num_experts + 2 * global_bs * num_topk * server_num;
             ep_recv_count = at::empty({recv_count_tensor_size}, at::dtype(at::kInt).device(device));
         }
+    } else if (isA3Layout) {
+        server_num = num_ranks / A3_LAYOUT_LOCAL_RANK_SIZE;
+        int64_t recv_count_tensor_size = num_experts + 2 * global_bs * num_topk * server_num;
+        ep_recv_count = at::empty({recv_count_tensor_size}, at::dtype(at::kInt).device(device));
     }
 
     if (soc_version == op::SocVersion::ASCEND910B) {
         comm_alg = "fullmesh";
     } else if (isCcu == 1) {
         comm_alg = "ccu";
+    } else if (isA3Layout) {
+        comm_alg = "hierarchy";
     } else {
         comm_alg = "fullmesh_v1";
     }
@@ -1040,6 +1050,8 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     at::Tensor x_active_mask, activation_scale, weight_scale, group_list, expand_scales;
     int enable_neg_one = get_value_from_env("MOE_ENABLE_TOPK_NEG_ONE", 0);
     int isCcu = get_value_from_env("MOE_ENABLE_CCU", 0);
+    const char *hccl_logic_superpod_id = getenv("HCCL_LOGIC_SUPERPOD_ID");
+    bool isA3Layout = hccl_logic_superpod_id != nullptr;
     int64_t tp_world_size = 1;
     int64_t tp_rankId = 0;
     int64_t expert_shared_type = 0;
@@ -1069,6 +1081,8 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
         comm_alg = "fullmesh";
     } else if (isCcu == 1) {
         comm_alg = "ccu";
+    } else if (isA3Layout) {
+        comm_alg = "hierarchy";
     } else {
         comm_alg = "fullmesh_v1";
     }
