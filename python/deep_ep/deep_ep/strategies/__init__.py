@@ -20,7 +20,11 @@ from .low_latency_strategy import (
     DefaultLowLatencyCommStrategy,
     OpsLowLatencyCommStrategy,
 )
-from .normal_strategy import AlltoAllNormalCommStrategy, DefaultNormalCommStrategy
+from .normal_strategy import (
+    AllGatherNormalCommStrategy,
+    AlltoAllNormalCommStrategy,
+    DefaultNormalCommStrategy,
+)
 
 __all__ = [
     # Base classes
@@ -35,6 +39,7 @@ __all__ = [
     # Normal strategies
     "DefaultNormalCommStrategy",
     "AlltoAllNormalCommStrategy",
+    "AllGatherNormalCommStrategy",
     # Low latency strategies
     "DefaultLowLatencyCommStrategy",
     "OpsLowLatencyCommStrategy",
