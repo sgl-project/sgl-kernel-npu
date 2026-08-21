@@ -56,6 +56,8 @@ def transfer_kv_dim_exchange(
     host_v: torch.Tensor,
     device_index_k: Optional[torch.Tensor] = None,
     host_index_k: Optional[torch.Tensor] = None,
+    device_index_k_scale: Optional[torch.Tensor] = None,
+    host_index_k_scale: Optional[torch.Tensor] = None,
     page_size: int = 128,
     direction: TransferDirection = TransferDirection.H2D,
     flags: TransferFlag = TransferFlag.FAST2D,
@@ -72,6 +74,8 @@ def transfer_kv_dim_exchange(
         host_v: v_buffer in host
         device_index_k: index_k_buffer in device
         host_index_k: index_k_buffer in host
+        device_index_k_scale: per-token FP32 scale of the quantized Indexer in device
+        host_index_k_scale: per-token FP32 scale of the quantized Indexer in host
         page_size: page size
         direction: only support H2D and D2H.
         flags: only FAST2D is supported, which indicates 2D data transfer via calling aclrtMemcpy2dAsync.
@@ -99,3 +103,47 @@ def transfer_kv_dim_exchange(
             direction.value,
             flags.value,
         )
+    if device_index_k_scale is not None and host_index_k_scale is not None:
+        torch.ops.npu.transfer_kv_dim_exchange(
+            device_index_k_scale,
+            host_index_k_scale,
+            torch.empty(0),
+            torch.empty(0),
+            device_indices,
+            host_indices,
+            page_size,
+            direction.value,
+            flags.value,
+        )
+
+
+def transfer_mamba_state(
+    device_buf: torch.Tensor,
+    host_buf: torch.Tensor,
+    device_indices: torch.Tensor,
+    host_indices: torch.Tensor,
+    direction: TransferDirection = TransferDirection.H2D,
+):
+    """
+    Transfer Mamba/SSM state between device (layer-first) and host (page-first).
+
+    Device buffer layout: [num_layers, device_size, *state_shape]  (layer-first)
+    Host buffer layout:   [host_size, num_layers, 1, *state_shape] (page-first)
+
+    Uses aclrtMemcpy2dAsync for efficient 2D strided copy, transferring all
+    layers for each slot index in a single 2D copy call.
+
+    Args:
+        device_buf: device Mamba state buffer [num_layers, size, *shape]
+        host_buf: host Mamba state buffer [size, num_layers, 1, *shape]
+        device_indices: slot indices in device buffer
+        host_indices: slot indices in host buffer
+        direction: H2D (host→device) or D2H (device→host)
+    """
+    torch.ops.npu.transfer_mamba_state(
+        device_buf,
+        host_buf,
+        device_indices,
+        host_indices,
+        direction.value,
+    )
