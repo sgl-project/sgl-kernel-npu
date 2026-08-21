@@ -102,6 +102,9 @@ __aicore__ inline void MoeV2GatherOut<T>::CopyOut(int64_t progress)
                 if (outIndex == -1 || (this->dropPadMode == DROPLESS_MODE && outIndex >= this->activateRows)) {
                     continue;
                 }
+                if (!(0 <= outIndex && outIndex < this->activateRows)) {
+                    continue;
+                }
                 outOffset = outIndex * cols + colsLoop * this->perLoopCols;
 #ifdef __CCE_KT_TEST__
                 // CPU twin debugging cannot use multi-core sync, so index may contain uninitialized dirty data; handle

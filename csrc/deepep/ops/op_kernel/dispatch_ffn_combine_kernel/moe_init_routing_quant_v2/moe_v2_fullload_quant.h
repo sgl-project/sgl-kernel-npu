@@ -107,9 +107,10 @@ __aicore__ inline void MoeV2FullLoadQuant<T>::CopyOutX()
     for (int64_t i = startXRow; i <= endXRow; i++) {
         for (; k < this->perCoreRows && curRowsStart / this->k == i; curRowsStart++, k++) {
             int32_t outIndex = expandedRowIdx.GetValue(curRowsStart);
-            if (outIndex < this->activateRows) {
-                DataCopyPad(expandedXGm[outIndex * this->cols], outLocal[(i - startXRow) * inFactor], intriParams);
+            if (!(0 <= outIndex && outIndex < this->activateRows)) {
+                continue;
             }
+            DataCopyPad(expandedXGm[outIndex * this->cols], outLocal[(i - startXRow) * inFactor], intriParams);
         }
     }
     expandedRowIdxCopyOutQueue.FreeTensor(expandedRowIdx);

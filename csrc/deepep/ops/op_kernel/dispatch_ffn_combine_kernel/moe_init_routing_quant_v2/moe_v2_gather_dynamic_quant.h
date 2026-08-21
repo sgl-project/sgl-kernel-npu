@@ -201,6 +201,9 @@ __aicore__ inline void MoeV2GatherDynamicQuant<T>::CopyOutXQuant1H(int64_t progr
         inputXOutQueue.FreeTensor(outLocal);
     }
     expandRowIdxInQueue.FreeTensor(indicesLocal);
+    if (smoothType == 1) {
+        smoothInQueue.FreeTensor(smoothLocal);
+    }
 }
 
 template <typename T>
@@ -352,6 +355,9 @@ __aicore__ inline void MoeV2GatherDynamicQuant<T>::CopyOutPartialXQuantEH(int64_
         }
         int32_t srcIdx = indicesLocal.GetValue(i);
         int32_t expertIdx = indicesLocal.GetValue(currentLoopRowsAlign + i);
+        if (srcIdx < 0 || srcIdx >= this->totalLength) {
+            continue;
+        }
 
         LocalTensor<float> inLocal = inputXInQueue.AllocTensor<float>();
         LocalTensor<float> tempLocal = calcQueue.AllocTensor<float>();

@@ -173,18 +173,24 @@ __aicore__ inline void MoeV2FullLoad<T>::ComputeExpertTokenCountOrCumsum()
         int32_t curExpertId = expandedExpertIdx.GetValue(i);
         tokenCount++;
         while (lastExpertId < curExpertId) {
-            expertTokensCount.SetValue(lastExpertId, tokenCount - 1);
+            if (lastExpertId >= 0 && lastExpertId < this->expertNum) {
+                expertTokensCount.SetValue(lastExpertId, tokenCount - 1);
+            }
             if (this->expertTokensCountOrCumsumFlag == EXERPT_TOKENS_COUNT) {
                 tokenCount = 1;
             }
             lastExpertId++;
         }
     }
-    expertTokensCount.SetValue(lastExpertId, tokenCount);
+    if (lastExpertId >= 0 && lastExpertId < this->expertNum) {
+        expertTokensCount.SetValue(lastExpertId, tokenCount);
+    }
     if (this->expertTokensCountOrCumsumFlag == EXERPT_TOKENS_CUMSUM) {
         lastExpertId++;
         while (lastExpertId < this->expertNum) {
-            expertTokensCount.SetValue(lastExpertId, tokenCount);
+            if (lastExpertId >= 0) {
+                expertTokensCount.SetValue(lastExpertId, tokenCount);
+            }
             lastExpertId++;
         }
     }
@@ -220,7 +226,7 @@ __aicore__ inline void MoeV2FullLoad<T>::CopyOutX()
     for (int64_t i = startXRow; i <= endXRow; i++) {
         for (; k < this->perCoreRows_ && curRowsStart / this->k_ == i; curRowsStart++, k++) {
             int32_t outIndex = expandedRowIdx.GetValue(curRowsStart);
-            if (outIndex < this->activateRows_) {
+            if (0 <= outIndex && outIndex < this->activateRows_) {
                 DataCopyPad(expandedXGm_[outIndex * this->cols_], xLocal[(i - startXRow) * inFactor], intriParams);
             }
         }

@@ -16,6 +16,9 @@ int get_value_from_env(const std::string &name, int defaultValue)
         if (errno == ERANGE || *end != '\0' || !std::isdigit(*rank_str)) {
             return retValue;
         }
+        if (val < std::numeric_limits<int>::min() || val > std::numeric_limits<int>::max()) {
+            return retValue;
+        }
         retValue = static_cast<int>(val);
         return retValue;
     } else {

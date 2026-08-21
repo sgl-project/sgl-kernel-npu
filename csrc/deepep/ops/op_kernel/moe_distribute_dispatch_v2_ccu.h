@@ -117,7 +117,7 @@ private:
     uint32_t perTokenOutSize_;
     uint32_t perTokenMergeSize_;
     uint32_t perTokenCommSize_;
-    uint32_t perRankDataSize_;
+    uint64_t perRankDataSize_;
     uint32_t expertTokenNumsType_;
     uint32_t scaleOutBytes_;
     uint32_t shareRankRcvTokenCnt_;
@@ -254,7 +254,9 @@ __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5Ty
     pipe_->InitBuffer(workspaceBuf, histoSize);
     expertCumSumLT_ = workspaceBuf.Get<uint16_t>();
 
-    pipe_->InitBuffer(workspaceBuf, sortNum_ * sizeof(int32_t));
+    uint32_t rankPerAivNum = Ceil<uint32_t, uint32_t>(epWorldSize_, aivNum_);
+    uint32_t indexLtElem = (sortNum_ > rankPerAivNum) ? sortNum_ : rankPerAivNum;
+    pipe_->InitBuffer(workspaceBuf, indexLtElem * sizeof(int32_t));
     indexLT_ = workspaceBuf.Get<int32_t>();
 
     pipe_->InitBuffer(tempBuf_, sortNum_ * sizeof(int32_t) * DUAL_DATA);
@@ -317,7 +319,7 @@ __aicore__ inline void MoeDistributeDispatchA5<TemplateMoeDistributeDispatchA5Ty
     }
 
     perTokenCommSize_ = Align512<uint32_t>(perTokenMergeSize_);
-    perRankDataSize_ = COUNT_OFFSET + perTokenCommSize_ * axisMaxBs_ * localExpertNum_;
+    perRankDataSize_ = COUNT_OFFSET + static_cast<uint64_t>(perTokenCommSize_) * axisMaxBs_ * localExpertNum_;
 
     if constexpr (QuantMode > UNQUANT) {
         pipe_->InitBuffer(tokenInQue_, BUFFER_NUM, perTokenInSize_);

@@ -182,7 +182,9 @@ __aicore__ inline void MoeV2FullLoadDynamicQuant<T>::ComputeExpertTokenCountOrCu
         int32_t curExpertId = expandedExpertIdxLocal.GetValue(i);
         tokenCount++;
         while (lastExpertId < curExpertId) {
-            expertTokensCount.SetValue(lastExpertId, tokenCount - 1);
+            if (lastExpertId >= 0 && lastExpertId < this->expertNum) {
+                expertTokensCount.SetValue(lastExpertId, tokenCount - 1);
+            }
             if (this->expertTokensCountOrCumsumFlag == EXERPT_TOKENS_COUNT) {
                 tokenCount = 1;
             }
@@ -190,11 +192,15 @@ __aicore__ inline void MoeV2FullLoadDynamicQuant<T>::ComputeExpertTokenCountOrCu
         }
     }
 #ifndef __CCE_KT_TEST__
-    expertTokensCount.SetValue(lastExpertId, tokenCount);
+    if (lastExpertId >= 0 && lastExpertId < this->expertNum) {
+        expertTokensCount.SetValue(lastExpertId, tokenCount);
+    }
     if (this->expertTokensCountOrCumsumFlag == EXERPT_TOKENS_CUMSUM) {
         lastExpertId++;
         while (lastExpertId < this->expertNum) {
-            expertTokensCount.SetValue(lastExpertId, tokenCount);
+            if (lastExpertId >= 0) {
+                expertTokensCount.SetValue(lastExpertId, tokenCount);
+            }
             lastExpertId++;
         }
     }
@@ -297,6 +303,9 @@ __aicore__ inline void MoeV2FullLoadDynamicQuant<T>::CopyOutXQuant1H()
             if (outIndex == -1 || (this->dropPadMode == DROPLESS_MODE && outIndex >= this->activateRows_)) {
                 continue;
             }
+            if (!(0 <= outIndex && outIndex < this->activateRows_)) {
+                continue;
+            }
             DataCopyPad(expandedXGm_[outIndex * this->cols_scale_], outLocal, intriParams);
         }
 
@@ -304,6 +313,9 @@ __aicore__ inline void MoeV2FullLoadDynamicQuant<T>::CopyOutXQuant1H()
         inputXOutQueue.FreeTensor(outLocal);
     }
     expandedRowIdxCopyOutQueue_.FreeTensor(expandedRowIdx);
+    if (smoothType == 1) {
+        smoothInQueue.FreeTensor(smoothLocal);
+    }
 }
 
 template <typename T>
