@@ -153,7 +153,13 @@ def test_oversized_power_of_two_block_v_is_capped_by_the_dtype_budget(dtype):
     over = {torch.float32: 16384, torch.bfloat16: 32768}[dtype]
     logits = torch.randn(4, 32000, dtype=dtype, device="npu")
     ref_argmax, ref_prob = argmax_softmax_prob_golden(logits)
-    argmax, prob = argmax_softmax_prob_fused(logits, block_v=over)
+    with _record_block_v() as seen:
+        argmax, prob = argmax_softmax_prob_fused(logits, block_v=over)
+    # Assert the clamped width, not only the result. Dropping the budget term
+    # sends the override to the kernel, where today it fails to compile -- so the
+    # result assertions would catch it, but only for as long as that width stays
+    # a compile error. The width is what this test is about.
+    assert seen == [mod._TILE_BYTES // logits.element_size()], seen
     assert torch.equal(argmax, ref_argmax)
     torch.testing.assert_close(prob, ref_prob, rtol=1e-5, atol=1e-6)
 
