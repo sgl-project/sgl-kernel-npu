@@ -20,7 +20,8 @@ constexpr uint32_t MUL_256_ALIGN = 256U;
 constexpr uint64_t WIN_512_ALIGN = 512UL;
 constexpr uint32_t FLOAT_NUM_PER_ALIGN = 8U;
 constexpr uint8_t DOUBLE_BUFFER = 2;
-constexpr int64_t CYCLE_TO_TIME = 1000;  // cycle num is converted into a fixed base unit of time, set at 1000
+constexpr uint32_t BATCH_SRC_INFO_CNT = 128U;  // srcInfo 批处理
+constexpr int64_t CYCLE_TO_TIME = 1000;        // cycle num is converted into a fixed base unit of time, set at 1000
 
 template <AscendC::HardEvent event>
 __aicore__ inline void SyncFunc()
@@ -56,6 +57,7 @@ private:
     __aicore__ inline void CopyBufferToShareAndSetStatus();
     __aicore__ inline void CopyBufferToShare(uint32_t srcRankId, uint32_t srcTokenId, uint32_t srcTopkId,
                                              uint32_t tkIndex);
+    __aicore__ inline void ProcessSendRange(uint32_t lo, uint32_t cnt, LocalTensor<int32_t> sendCostStatsTensor);
     __aicore__ inline void ReadBufferFromRemote();
     __aicore__ inline void WaitBuffCopy(uint32_t tokenIndex, uint32_t startTokenIndex);
     __aicore__ inline void SetStatusBySrcInfo(uint32_t srcRankId, uint32_t srcTokenId, uint32_t srcTopkId);
@@ -125,6 +127,9 @@ private:
     TBuf<> srcInfoBuf_;
     TBuf<> xOutBuf_;
     TBuf<> tempStateBuf_;
+    TBuf<> recvCountBuf_;        // epRecvCount（E*W 前缀和）拷贝到 UB
+    TBuf<> sendRangeOffsetBuf_;  // 本核子区间列表：起始 token 偏移
+    TBuf<> sendRangeCntBuf_;     // 本核子区间列表：token 数
 
     GlobalTensor<RecvXType> recvXGM_;
     GlobalTensor<SrcInfoType> tokenSrcInfoGM_;
@@ -229,25 +234,28 @@ template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToShareAndSetStatus()
 {
     PipeBarrier<PIPE_ALL>();
-    uint32_t perBlockSendNum = 0, startTokenId = 0, endTokenId = 0;
-    SplitCoreCal(selfSendCnt_, perBlockSendNum, startTokenId, endTokenId);
-    if (perBlockSendNum == 0U) {
-        return;
-    }
+    // ---------- 分核：rank-major 两级切分（第一级按 rank，第二级组内按 token 数均衡）----------
+    uint32_t subRangeNum = 0U;    // 本核负责的子区间个数
+    uint32_t totalTokenCnt = 0U;  // 本核负责的 token 总数（打点用）
+    uint32_t myRank = 0U;  // 本核写入的目标 rank（rank-major 分支有效；A<W 降级路径打点用哨兵）
 
-    uint32_t blockLen = static_cast<uint32_t>(perBlockSendNum * TOKEN_SRC_INFO_LEN * sizeof(uint32_t));
     tpipe_->Reset();
+    uint32_t recvCountAlignLen = Ceil(moeExpertNum_ * sizeof(int32_t), UB_32_ALIGN) * UB_32_ALIGN;
+    uint32_t rangeCntAlignLen = Ceil(moeExpertPerRankNum_ * sizeof(int32_t), UB_32_ALIGN) * UB_32_ALIGN;
+    uint32_t srcInfoAlignLen =
+        Ceil(BATCH_SRC_INFO_CNT * TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType), UB_32_ALIGN) * UB_32_ALIGN;
+    tpipe_->InitBuffer(recvCountBuf_, recvCountAlignLen);
+    tpipe_->InitBuffer(sendRangeOffsetBuf_, rangeCntAlignLen);
+    tpipe_->InitBuffer(sendRangeCntBuf_, rangeCntAlignLen);
     tpipe_->InitBuffer(stateBuf_, UB_32_ALIGN);
     tpipe_->InitBuffer(localCopyQueue_, DOUBLE_BUFFER, h32AlignRecvXLen_);
-    tpipe_->InitBuffer(srcInfoBuf_, blockLen);
+    tpipe_->InitBuffer(srcInfoBuf_, srcInfoAlignLen);
+
+    LocalTensor<SrcInfoType> recvCountLocal = recvCountBuf_.Get<SrcInfoType>();
+    LocalTensor<uint32_t> sendRangeOffsetLT = sendRangeOffsetBuf_.Get<uint32_t>();
+    LocalTensor<uint32_t> sendRangeCntLT = sendRangeCntBuf_.Get<uint32_t>();
     LocalTensor<uint32_t> statusTensor = stateBuf_.Get<uint32_t>();
     Duplicate<uint32_t>(statusTensor, 0x3F800000, FLOAT_NUM_PER_ALIGN);
-
-    LocalTensor<SrcInfoType> srcInfoLocal = srcInfoBuf_.Get<SrcInfoType>();
-    const DataCopyExtParams dataCopyParams{1U, blockLen, 0U, 0U, 0U};
-    const DataCopyPadExtParams<SrcInfoType> padParams{false, 0U, 0U, 0U};
-    DataCopyPad(srcInfoLocal, tokenSrcInfoGM_[startTokenId * TOKEN_SRC_INFO_LEN], dataCopyParams, padParams);
-    SyncFunc<AscendC::HardEvent::MTE2_S>();
 
     LocalTensor<int32_t> sendCostStatsTensor;
     if (isEnableDiagnose_) {
@@ -256,23 +264,89 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
         Duplicate<int32_t>(sendCostStatsTensor, 0, sendCostStatsBufSize_ / sizeof(int32_t));
     }
 
-    for (uint32_t tokenIndex = startTokenId; tokenIndex < endTokenId; tokenIndex++) {
-        uint32_t index = (tokenIndex - startTokenId) * TOKEN_SRC_INFO_LEN;
-        uint32_t srcRankId = static_cast<uint32_t>(srcInfoLocal(index + RANK_ID_OFFSET_IN_SRC_INFO));
-        uint32_t srcTokenId = static_cast<uint32_t>(srcInfoLocal(index + TOKEN_IDX_OFFSET_IN_SRC_INFO));
-        uint32_t srcTopkId = static_cast<uint32_t>(srcInfoLocal(index + TOPK_IDX_OFFSET_IN_SRC_INFO));
-        int64_t sendStartCycle = GetSystemCycle();
+    // 读 epRecvCount（E*W 个 int32，expert-major / rank-minor 全前缀和）到 UB
+    const DataCopyExtParams countDp{1U, static_cast<uint32_t>(moeExpertNum_ * sizeof(int32_t)), 0U, 0U, 0U};
+    const DataCopyPadExtParams<SrcInfoType> countPad{false, 0U, 0U, 0U};
+    DataCopyPad(recvCountLocal, epRecvCountGM_[0], countDp, countPad);
+    SyncFunc<AscendC::HardEvent::MTE2_S>();
 
-        CopyBufferToShare(srcRankId, srcTokenId, srcTopkId, tokenIndex);
-        PipeBarrier<PIPE_ALL>();
-        SetStatusBySrcInfo(srcRankId, srcTokenId, srcTopkId);
-
-        if (isEnableDiagnose_) {
-            SyncFunc<AscendC::HardEvent::MTE3_S>();
-            int32_t durationTime = static_cast<int32_t>((GetSystemCycle() - sendStartCycle) / CYCLE_TO_TIME);  // us
-            int32_t preTime = sendCostStatsTensor.GetValue(srcRankId);
-            sendCostStatsTensor.SetValue(srcRankId, preTime + durationTime);
+    uint32_t perRankCore = aivNum_ / epWorldSize_;
+    if (perRankCore == 0U) {
+        // A < W（核数少于 rank 数）：降级为按总 token 数切连续段（与现状一致）
+        uint32_t perBlockSendNum = 0U, startTokenId = 0U, endTokenId = 0U;
+        SplitCoreCal(selfSendCnt_, perBlockSendNum, startTokenId, endTokenId);
+        if (perBlockSendNum == 0U) {
+            return;
         }
+        sendRangeOffsetLT(0U) = startTokenId;
+        sendRangeCntLT(0U) = perBlockSendNum;
+        subRangeNum = 1U;
+        totalTokenCnt = perBlockSendNum;
+    } else {
+        // 第一级：按 rank 分核。rank r 的核组 = [r*perRankCore+min(r,remRankCore),
+        //                                     +perRankCore+(r<remRankCore?1:0))
+        uint32_t remRankCore = aivNum_ % epWorldSize_;
+        uint32_t groupStart = 0U, groupSize = 0U;
+        for (uint32_t r = 0U; r < epWorldSize_; ++r) {
+            uint32_t gStart = r * perRankCore + (r < remRankCore ? r : remRankCore);
+            uint32_t gEnd = gStart + perRankCore + (r < remRankCore ? 1U : 0U);
+            if (coreIdx_ >= gStart && coreIdx_ < gEnd) {
+                myRank = r;
+                groupStart = gStart;
+                groupSize = gEnd - gStart;
+                break;
+            }
+        }
+        uint32_t k = coreIdx_ - groupStart;
+
+        // rank myRank 的 token 总数 T_r = Σ blockCount(e,myRank)
+        // （与下方子区间映射用同一套块计数，保证 [tStart,tEnd) 落在 [0,T_r) 内）
+        uint32_t rankTotal = 0U;
+        for (uint32_t e = 0U; e < moeExpertPerRankNum_; ++e) {
+            uint32_t blockIdx = e * epWorldSize_ + myRank;
+            uint32_t hi = static_cast<uint32_t>(recvCountLocal(blockIdx));
+            uint32_t lo = (blockIdx == 0U) ? 0U : static_cast<uint32_t>(recvCountLocal(blockIdx - 1));
+            rankTotal += hi - lo;
+        }
+
+        // 第二级：组内按 token 数均分，得到本核 token 区间 [tStart, tEnd)
+        uint32_t perCoreToken = rankTotal / groupSize;
+        uint32_t remToken = rankTotal % groupSize;
+        uint32_t tStart = perCoreToken * k + (k < remToken ? k : remToken);
+        uint32_t tEnd = tStart + perCoreToken + (k < remToken ? 1U : 0U);
+        if (tStart == tEnd) {
+            return;
+        }
+
+        // 把 [tStart, tEnd) 映射回各专家块的子区间（按 e 递增累计 blockCount(e,myRank)）
+        uint32_t consumed = 0U;
+        for (uint32_t e = 0U; e < moeExpertPerRankNum_; ++e) {
+            if (consumed >= tEnd) {
+                break;
+            }
+            uint32_t blockIdx = e * epWorldSize_ + myRank;
+            uint32_t hi = static_cast<uint32_t>(recvCountLocal(blockIdx));
+            uint32_t lo = (blockIdx == 0U) ? 0U : static_cast<uint32_t>(recvCountLocal(blockIdx - 1));
+            uint32_t cnt = hi - lo;
+            if (consumed + cnt <= tStart) {
+                consumed += cnt;
+                continue;
+            }
+            uint32_t subLo = lo + ((consumed < tStart) ? (tStart - consumed) : 0U);
+            uint32_t subHi = lo + ((consumed + cnt > tEnd) ? (tEnd - consumed) : cnt);
+            if (subHi > subLo) {
+                sendRangeOffsetLT(subRangeNum) = subLo;
+                sendRangeCntLT(subRangeNum) = subHi - subLo;
+                ++subRangeNum;
+            }
+            consumed += cnt;
+        }
+        totalTokenCnt = tEnd - tStart;
+    }
+
+    // ---------- 发送：遍历本核子区间，保持原有每 token 交错结构（copy + PipeBarrier + status）----------
+    for (uint32_t si = 0U; si < subRangeNum; ++si) {
+        ProcessSendRange(sendRangeOffsetLT(si), sendRangeCntLT(si), sendCostStatsTensor);
     }
 
     if (isEnableDiagnose_) {
@@ -285,6 +359,41 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
     }
 
     SyncFunc<AscendC::HardEvent::MTE3_S>();
+}
+
+template <TemplateMC2TypeClass>
+__aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::ProcessSendRange(
+    uint32_t lo, uint32_t cnt, LocalTensor<int32_t> sendCostStatsTensor)
+{
+    LocalTensor<SrcInfoType> srcInfoLocal = srcInfoBuf_.Get<SrcInfoType>();
+    const DataCopyPadExtParams<SrcInfoType> padParams{false, 0U, 0U, 0U};
+    for (uint32_t batchStart = 0U; batchStart < cnt; batchStart += BATCH_SRC_INFO_CNT) {
+        uint32_t batchCnt = (cnt - batchStart) < BATCH_SRC_INFO_CNT ? (cnt - batchStart) : BATCH_SRC_INFO_CNT;
+        uint32_t batchBytes = batchCnt * TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType);
+        const DataCopyExtParams dataCopyParams{1U, batchBytes, 0U, 0U, 0U};
+        DataCopyPad(srcInfoLocal, tokenSrcInfoGM_[(lo + batchStart) * TOKEN_SRC_INFO_LEN], dataCopyParams, padParams);
+        SyncFunc<AscendC::HardEvent::MTE2_S>();
+
+        for (uint32_t j = 0U; j < batchCnt; ++j) {
+            uint32_t index = j * TOKEN_SRC_INFO_LEN;
+            uint32_t srcRankId = static_cast<uint32_t>(srcInfoLocal(index + RANK_ID_OFFSET_IN_SRC_INFO));
+            uint32_t srcTokenId = static_cast<uint32_t>(srcInfoLocal(index + TOKEN_IDX_OFFSET_IN_SRC_INFO));
+            uint32_t srcTopkId = static_cast<uint32_t>(srcInfoLocal(index + TOPK_IDX_OFFSET_IN_SRC_INFO));
+            uint32_t tkIndex = lo + batchStart + j;
+            int64_t sendStartCycle = GetSystemCycle();
+
+            CopyBufferToShare(srcRankId, srcTokenId, srcTopkId, tkIndex);
+            PipeBarrier<PIPE_ALL>();
+            SetStatusBySrcInfo(srcRankId, srcTokenId, srcTopkId);
+
+            if (isEnableDiagnose_) {
+                SyncFunc<AscendC::HardEvent::MTE3_S>();
+                int32_t durationTime = static_cast<int32_t>((GetSystemCycle() - sendStartCycle) / CYCLE_TO_TIME);  // us
+                int32_t preTime = sendCostStatsTensor.GetValue(srcRankId);
+                sendCostStatsTensor.SetValue(srcRankId, preTime + durationTime);
+            }
+        }
+    }
 }
 
 template <TemplateMC2TypeClass>
