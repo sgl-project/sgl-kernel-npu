@@ -27,6 +27,7 @@ set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_host/assign_cache.cpp
     ${PROJECT_OP_SRC_BASE}/build_tree/op_host/build_tree.cpp
     ${PROJECT_OP_SRC_BASE}/transfer_kv_dim_exchange/op_host/transfer_kv_dim_exchange.cpp
+    ${PROJECT_OP_SRC_BASE}/transfer_state_dim_exchange/op_host/transfer_state_dim_exchange.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/bgmv_expand.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/bgmv_shrink.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgmv_expand.cpp

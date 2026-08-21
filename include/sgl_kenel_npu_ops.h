@@ -52,6 +52,18 @@ void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
                               const at::Tensor &host_indices, int64_t page_size,
                               int64_t direction, int64_t flags);
 
+void transfer_state_per_layer_direct_pf_lf(const at::Tensor &src,
+                                           const at::Tensor &dst,
+                                           const at::Tensor &src_indices,
+                                           const at::Tensor &dst_indices,
+                                           int64_t layer_id, int64_t flags);
+
+void transfer_state_all_layer_direct_lf_pf(at::TensorList device_states,
+                                           at::TensorList host_states,
+                                           const at::Tensor &device_indices,
+                                           const at::Tensor &host_indices,
+                                           int64_t flags);
+
 at::Tensor bgmv_expand(at::Tensor &x, at::Tensor &weight, at::Tensor &indices,
                        at::Tensor &y, int64_t slice_offset, int64_t slice_size);
 
