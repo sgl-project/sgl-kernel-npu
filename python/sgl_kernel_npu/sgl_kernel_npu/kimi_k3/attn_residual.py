@@ -9,6 +9,7 @@ def _mix_fused_kernel(
     prefix_ptr,
     bank_ptr,
     cw_ptr,
+    out_norm_weight_ptr,
     out_ptr,
     N,
     B,
@@ -18,6 +19,8 @@ def _mix_fused_kernel(
     stride_om,
     H: tl.constexpr,
     EPS: tl.constexpr,
+    OUT_EPS: tl.constexpr,
+    FUSE_OUT_NORM: tl.constexpr,
     NUM_CORES: tl.constexpr,
     NB: tl.constexpr,
 ):
@@ -64,6 +67,16 @@ def _mix_fused_kernel(
             probability = tl.sum(tl.where(row_offsets == row, probabilities, 0.0))
             output += probability * value
 
+        if FUSE_OUT_NORM:
+            # Preserve the unfused pipeline: mix_fused materializes BF16 and
+            # the following RMSNorm consumes that rounded tensor.
+            output = output.to(out_ptr.dtype.element_ty).to(tl.float32)
+            inverse_rms = tl.rsqrt(tl.sum(output * output) / H + OUT_EPS)
+            out_norm_weight = tl.load(out_norm_weight_ptr + hidden_offsets).to(
+                tl.float32
+            )
+            output *= inverse_rms * out_norm_weight
+
         tl.store(
             out_ptr + token * stride_om + hidden_offsets,
             output.to(out_ptr.dtype.element_ty),
@@ -76,6 +89,8 @@ def mix_fused(
     num_valid_blocks: int,
     combined_weight: torch.Tensor,
     variance_epsilon: float,
+    out_norm_weight: torch.Tensor | None = None,
+    out_norm_epsilon: float = 0.0,
 ) -> torch.Tensor:
     """Ascend Kimi-K3 attention-residual score and combine pipeline.
 
@@ -88,6 +103,11 @@ def mix_fused(
         return prefix_sum
     if not 0 <= num_valid_blocks <= bank.shape[1]:
         raise ValueError("num_valid_blocks must fit within the residual bank")
+    if out_norm_weight is not None and (
+        out_norm_weight.numel() != hidden_size
+        or out_norm_weight.device != prefix_sum.device
+    ):
+        raise ValueError("out_norm_weight must match the hidden size and device")
 
     output = torch.empty_like(prefix_sum)
     _, num_vector_cores = get_device_properties()
@@ -98,6 +118,7 @@ def mix_fused(
         prefix_sum,
         bank,
         combined_weight,
+        out_norm_weight if out_norm_weight is not None else combined_weight,
         output,
         num_tokens,
         num_valid_blocks,
@@ -107,6 +128,8 @@ def mix_fused(
         output.stride(0),
         H=hidden_size,
         EPS=variance_epsilon,
+        OUT_EPS=out_norm_epsilon,
+        FUSE_OUT_NORM=out_norm_weight is not None,
         NUM_CORES=active_cores,
         NB=triton.next_power_of_2(num_valid_blocks + 1),
         multibuffer=True,
