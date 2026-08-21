@@ -83,19 +83,27 @@ def argmax_softmax_prob_fused(
     ``(argmax_ids [B] int64, prob [B] float32)``. Accumulates in fp32; never
     materializes a ``[B, V]`` temporary.
 
-    ``block_v`` overrides the vocab tile width; the default derives it from the
-    logits dtype so the tile stays within the unified buffer.
+    ``block_v`` overrides the vocab tile width. It must be a positive power of
+    two, and is capped by the vocab and by the unified buffer; the default
+    derives it from the logits dtype.
     """
     assert logits.dim() == 2 and logits.stride(1) == 1
     B, V = logits.shape
     argmax = torch.empty(B, dtype=torch.int64, device=logits.device)
     prob = torch.empty(B, dtype=torch.float32, device=logits.device)
     grid = (min(_num_cores(), B),)
+    budget = _TILE_BYTES // logits.element_size()
     if block_v is None:
-        block_v = _TILE_BYTES // logits.element_size()
-    # A tile wider than the vocab only wastes unified buffer (and overflows it
-    # once the single-iteration loop is unrolled).
-    block_v = min(block_v, triton.next_power_of_2(V))
+        block_v = budget
+    elif block_v <= 0 or block_v & (block_v - 1):
+        # tl.arange needs a positive power of two under SIMT; without this the
+        # failure is an opaque Triton compilation error.
+        raise ValueError(f"block_v must be a positive power of two, got {block_v}")
+    # Bound by the unified buffer before the vocab: a width that is legal on its
+    # own can still be several tiles wide in the input dtype (fp32
+    # block_v=16384 is 64 KiB), which fails to compile rather than running
+    # slowly. All three terms are powers of two, so the tile stays one.
+    block_v = min(block_v, budget, triton.next_power_of_2(V))
     _argmax_prob_kernel[grid](
         logits, argmax, prob, B, V, logits.stride(0), BLOCK_V=block_v
     )
