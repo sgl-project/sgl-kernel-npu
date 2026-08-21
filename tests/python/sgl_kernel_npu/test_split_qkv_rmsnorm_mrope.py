@@ -1,10 +1,7 @@
 import pytest
 import torch
 import torch_npu  # noqa: F401
-
-from sgl_kernel_npu.norm.split_qkv_rmsnorm_mrope import (
-    triton_split_qkv_rmsnorm_mrope,
-)
+from sgl_kernel_npu.norm.split_qkv_rmsnorm_mrope import triton_split_qkv_rmsnorm_mrope
 
 
 def _select_mrope_cos_sin(
@@ -98,9 +95,7 @@ def _golden(
 
     if has_gate:
         q_gate, k, v = qkv.split((q_size * 2, kv_size, kv_size), dim=-1)
-        q, gate = q_gate.view(num_tokens, num_q_heads, head_size * 2).chunk(
-            2, dim=-1
-        )
+        q, gate = q_gate.view(num_tokens, num_q_heads, head_size * 2).chunk(2, dim=-1)
         gate = gate.reshape(num_tokens, q_size)
     else:
         q, k, v = qkv.split((q_size, kv_size, kv_size), dim=-1)
@@ -119,8 +114,12 @@ def _golden(
 @pytest.mark.parametrize(
     "num_tokens,rope_dim,mrope_section,is_interleaved,has_gate,has_bias",
     [
-        pytest.param(7, 256, [32, 48, 48], True, True, False, id="full_interleaved_gate"),
-        pytest.param(65, 128, [48, 40, 40], False, False, True, id="partial_contiguous_bias"),
+        pytest.param(
+            7, 256, [32, 48, 48], True, True, False, id="full_interleaved_gate"
+        ),
+        pytest.param(
+            65, 128, [48, 40, 40], False, False, True, id="partial_contiguous_bias"
+        ),
     ],
 )
 def test_split_qkv_rmsnorm_mrope(

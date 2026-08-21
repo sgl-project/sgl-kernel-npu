@@ -47,7 +47,12 @@ def get_vectorcore_num():
 
 
 @triton.jit(
-    do_not_specialize=["num_tokens", "front_core_num", "num_tokens_each_front_core", "num_tokens_each_tail_core"]
+    do_not_specialize=[
+        "num_tokens",
+        "front_core_num",
+        "num_tokens_each_front_core",
+        "num_tokens_each_tail_core",
+    ]
 )
 def split_qkv_rmsnorm_mrope_kernel(
     in_qkv_ptr: torch.Tensor,
@@ -89,7 +94,8 @@ def split_qkv_rmsnorm_mrope_kernel(
     block_offset = num_tokens_each_front_core * block_idx
     if block_idx >= front_core_num:
         block_offset = (
-            num_tokens_each_front_core * front_core_num + (block_idx - front_core_num) * num_tokens_each_tail_core
+            num_tokens_each_front_core * front_core_num
+            + (block_idx - front_core_num) * num_tokens_each_tail_core
         )
 
     q_rmsnorm_weight = tl.load(q_weight_ptr + tl.arange(0, head_size))
@@ -102,7 +108,9 @@ def split_qkv_rmsnorm_mrope_kernel(
     for index in range(loop_num):
         ## load ##
         # q
-        in_q_offset = in_qkv_ptr + (block_offset + index) * (q_size + gate_size + 2 * kv_size)
+        in_q_offset = in_qkv_ptr + (block_offset + index) * (
+            q_size + gate_size + 2 * kv_size
+        )
         if gate_size > 0:
             in_q_gate_tensor = (
                 tl.load(in_q_offset + tl.arange(0, q_size + gate_size))
@@ -122,11 +130,19 @@ def split_qkv_rmsnorm_mrope_kernel(
                 strides=(1, 1),
             ).reshape(q_size)
         else:
-            in_q_tensor = tl.load(in_q_offset + tl.arange(0, q_size)).to(tl.float32).reshape(num_q_heads, head_size)
+            in_q_tensor = (
+                tl.load(in_q_offset + tl.arange(0, q_size))
+                .to(tl.float32)
+                .reshape(num_q_heads, head_size)
+            )
 
         # k
         in_k_offset = in_q_offset + q_size + gate_size
-        in_k_tensor = tl.load(in_k_offset + tl.arange(0, kv_size)).to(tl.float32).reshape(num_kv_heads, head_size)
+        in_k_tensor = (
+            tl.load(in_k_offset + tl.arange(0, kv_size))
+            .to(tl.float32)
+            .reshape(num_kv_heads, head_size)
+        )
         # v
         in_v_offset = in_k_offset + kv_size
         in_v_tensor = tl.load(in_v_offset + tl.arange(0, kv_size))
@@ -139,7 +155,9 @@ def split_qkv_rmsnorm_mrope_kernel(
             t_mask = ~(h_mask | w_mask)
         else:
             t_mask = cos_offsets < mrope_section_t
-            h_mask = (mrope_section_t - 1 < cos_offsets) & (cos_offsets < mrope_section_t + mrope_section_h)
+            h_mask = (mrope_section_t - 1 < cos_offsets) & (
+                cos_offsets < mrope_section_t + mrope_section_h
+            )
             w_mask = (mrope_section_t + mrope_section_h - 1 < cos_offsets) & (
                 cos_offsets < mrope_section_t + mrope_section_h + mrope_section_w
             )
@@ -159,11 +177,23 @@ def split_qkv_rmsnorm_mrope_kernel(
         h_sin_tensor = tl.load(h_sin_offset + cos_offsets, mask=h_mask, other=0)
         w_sin_tensor = tl.load(w_sin_offset + cos_offsets, mask=w_mask, other=0)
 
-        cos_tensor = (t_cos_tensor + h_cos_tensor + w_cos_tensor).to(tl.float32).reshape(1, half_rope_dim)
-        cos_tensor = tl.broadcast_to(cos_tensor, (2, half_rope_dim)).reshape(1, rope_dim)
+        cos_tensor = (
+            (t_cos_tensor + h_cos_tensor + w_cos_tensor)
+            .to(tl.float32)
+            .reshape(1, half_rope_dim)
+        )
+        cos_tensor = tl.broadcast_to(cos_tensor, (2, half_rope_dim)).reshape(
+            1, rope_dim
+        )
 
-        sin_tensor = (t_sin_tensor + h_sin_tensor + w_sin_tensor).to(tl.float32).reshape(1, half_rope_dim)
-        sin_tensor = tl.broadcast_to(sin_tensor, (2, half_rope_dim)).reshape(1, rope_dim)
+        sin_tensor = (
+            (t_sin_tensor + h_sin_tensor + w_sin_tensor)
+            .to(tl.float32)
+            .reshape(1, half_rope_dim)
+        )
+        sin_tensor = tl.broadcast_to(sin_tensor, (2, half_rope_dim)).reshape(
+            1, rope_dim
+        )
 
         ## compute ##
         # q-rmsnorm
