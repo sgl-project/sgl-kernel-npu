@@ -5,6 +5,8 @@ import sgl_kernel_npu.sample.argmax_softmax_prob as mod
 import torch
 from sgl_kernel_npu.sample.argmax_softmax_prob import argmax_softmax_prob_fused
 
+_npo2 = mod.triton.next_power_of_2
+
 
 def argmax_softmax_prob_golden(logits: torch.Tensor):
     """Reference: argmax id and the softmax probability of that id, in fp32."""
@@ -62,6 +64,15 @@ def test_rejects_a_block_v_that_is_not_a_positive_power_of_two(bad):
         argmax_softmax_prob_fused(logits, block_v=bad)
 
 
+@pytest.mark.parametrize("bad", [1024.0, "1024", True])
+def test_rejects_a_non_int_block_v(bad):
+    """A float, a string or a bool used to reach the kernel and fail there;
+    bool is an int subclass, so it needs its own rejection."""
+    logits = torch.randn(4, 4096, dtype=torch.bfloat16, device="npu")
+    with pytest.raises(ValueError, match="must be an int"):
+        argmax_softmax_prob_fused(logits, block_v=bad)
+
+
 @contextlib.contextmanager
 def _record_block_v():
     """Capture the BLOCK_V actually handed to the kernel."""
@@ -107,6 +118,19 @@ def test_the_tile_reaching_the_kernel_is_a_power_of_two(block_v, V, dtype):
     assert used > 0 and used & (used - 1) == 0, f"tile is not a power of two: {used}"
 
 
+@pytest.mark.parametrize("npo2_at_zero", [0, 1])
+def test_empty_vocab_is_rejected(monkeypatch, npo2_at_zero):
+    """V=0 must be rejected on its own, not as a side effect of the tile clamp:
+    sglang replaces triton.next_power_of_2 with a variant returning 1 at 0, and
+    importing it anywhere in the process changes what the clamp yields here."""
+    monkeypatch.setattr(
+        mod.triton, "next_power_of_2", lambda n: npo2_at_zero if n == 0 else _npo2(n)
+    )
+    logits = torch.randn(4, 0, dtype=torch.bfloat16, device="npu")
+    with pytest.raises(ValueError, match="non-empty vocab"):
+        argmax_softmax_prob_fused(logits)
+
+
 @pytest.mark.parametrize("good", [64, 1024, 8192])
 def test_accepts_a_power_of_two_block_v(good):
     """A valid override must still produce the reference result, including when
@@ -132,6 +156,13 @@ def test_oversized_power_of_two_block_v_is_capped_by_the_dtype_budget(dtype):
     argmax, prob = argmax_softmax_prob_fused(logits, block_v=over)
     assert torch.equal(argmax, ref_argmax)
     torch.testing.assert_close(prob, ref_prob, rtol=1e-5, atol=1e-6)
+
+
+def test_rejects_an_unsupported_dtype():
+    """fp64 has no kernel path; it reached Triton and failed to compile."""
+    logits = torch.randn(4, 4096, dtype=torch.float64, device="npu")
+    with pytest.raises(ValueError, match="dtype must be"):
+        argmax_softmax_prob_fused(logits)
 
 
 def test_ties_keep_the_lower_index():
