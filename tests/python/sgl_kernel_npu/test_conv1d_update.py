@@ -10,6 +10,67 @@ logger = logging.getLogger("TestScript")
 torch.manual_seed(42)
 
 
+def test_speculative_bf16_matches_sequential_decode():
+    from sgl_kernel_npu.mamba.causal_conv1d import (
+        causal_conv1d_update_npu,
+        causal_conv1d_update_v2,
+    )
+
+    torch.npu.set_device("npu:0")
+    torch.manual_seed(42)
+    batch_size, steps, dim, width = 1, 4, 1024, 4
+    x = torch.randn(batch_size, steps, dim, device="npu", dtype=torch.bfloat16)
+    weight = torch.randn(dim, width, device="npu", dtype=torch.bfloat16)
+    bias = torch.randn(dim, device="npu", dtype=torch.bfloat16)
+    history = torch.randn(
+        batch_size, width - 1, dim, device="npu", dtype=torch.bfloat16
+    )
+    cache_indices = torch.tensor([0], device="npu", dtype=torch.int32)
+
+    speculative_state = torch.zeros(
+        batch_size,
+        width - 1 + steps - 1,
+        dim,
+        device="npu",
+        dtype=torch.bfloat16,
+    )
+    speculative_state[:, -(width - 1) :] = history
+    speculative_output = causal_conv1d_update_v2(
+        x.clone(),
+        speculative_state,
+        weight.T.contiguous(),
+        bias=bias,
+        activation="silu",
+        conv_state_indices=cache_indices,
+        num_accepted_tokens=torch.tensor([steps], device="npu", dtype=torch.int32),
+        pad_slot_id=-1,
+    )
+
+    sequential_state = history.transpose(1, 2).clone()
+    sequential_output = torch.stack(
+        [
+            causal_conv1d_update_npu(
+                x[:, step].clone(),
+                sequential_state,
+                weight,
+                bias=bias,
+                activation="silu",
+                conv_state_indices=cache_indices,
+            )
+            for step in range(steps)
+        ],
+        dim=1,
+    )
+
+    torch.testing.assert_close(speculative_output, sequential_output, rtol=0, atol=0)
+    torch.testing.assert_close(
+        speculative_state[:, -(width - 1) :],
+        sequential_state.transpose(1, 2),
+        rtol=0,
+        atol=0,
+    )
+
+
 # ==========================================
 # 1. Original SGLang implementation
 # ==========================================
