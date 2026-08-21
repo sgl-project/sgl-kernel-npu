@@ -29,11 +29,14 @@ def move_cache_dynamic_last_kernel_h_block(
     draft_stride,
     dst_layer_stride,
     dst_size_stride,
+    dst_h_stride,
+    dst_v_stride,
+    dst_k_stride,
     h_dim,
     dim_v,
     dim_k,
     num_layers,
-    H_BLOCK_SIZE: tl.constexpr,
+    draft_num,
     BLOCK_V: tl.constexpr,  # Block size for dim_v
     BLOCK_K: tl.constexpr,  # Block size for dim_k
 ):
@@ -43,13 +46,28 @@ def move_cache_dynamic_last_kernel_h_block(
     dst_idx_val = tl.load(dst_indices_ptr + valid_id)
     src_idx_val = tl.load(src_indices_ptr + valid_id)
     last_step_val = tl.load(last_steps_ptr + valid_id)
-    if last_step_val < 0:
+    # Mirror the GPU scatter kernel's mask: a step at or past the draft window
+    # (every draft accepted) has no stored intermediate state and must NOT
+    # commit; reading it would pull a stale/adjacent-batch slot.
+    if last_step_val < 0 or last_step_val >= draft_num:
         return
-    h_offsets = tl.arange(0, H_BLOCK_SIZE)
     v_offsets = tl.arange(0, BLOCK_V)
     k_offsets = tl.arange(0, BLOCK_K)
+    k_mask = k_offsets < dim_k
 
-    # Process each layer
+    # The NPU verify op emits each per-step intermediate state in V-major order
+    # [.., V, K] (flat h*V*K + v*K + k), while the destination SSM pool is
+    # K-major [.., K, V] (flat h*V*K + k*V + v) for the triton decode kernel and
+    # is exposed to callers as a V-major view. So the commit must transpose:
+    #   dst[h, v, k] <- src[h, v, k] with dst indexed by its real strides.
+    # We transpose on the LOAD side (gather src at v*K + k) and write the
+    # destination through its per-element strides, which keeps the kernel
+    # correct both for a contiguous dst (strides V*K, K, 1) and for a strided
+    # transposed view (strides V*K, 1, V).
+    # A transposed store forces Bisheng to materialize a full second tile in UB
+    # ("ub overflow" for [2,128,128]); a transposed load costs ~4 tile buffers,
+    # so h is looped scalar and BLOCK_V is chosen small enough that
+    # 4 * BLOCK_V * BLOCK_K * itemsize fits the Ascend UB.
     for l in range(num_layers):
         src_base_addr = (
             src_cache_ptr
@@ -63,24 +81,23 @@ def move_cache_dynamic_last_kernel_h_block(
         )
         src_addr = src_base_addr + tl.cast(last_step_val, tl.int64) * draft_stride
 
-        # Process h dimension in blocks
-        for h_start in range(0, h_dim, H_BLOCK_SIZE):
-            h_real = h_start + h_offsets
-            h_mask = h_real < h_dim
-
-            v_mask = v_offsets < dim_v
-            k_mask = k_offsets < dim_k
-
-            mask = h_mask[:, None, None] & v_mask[None, :, None] & k_mask[None, None, :]
-
-            linear_offset = (
-                h_real[:, None, None] * dim_v * dim_k
-                + v_offsets[None, :, None] * dim_k
-                + k_offsets[None, None, :]
-            )
-
-            src_block = tl.load(src_addr + linear_offset, mask=mask, other=0)
-            tl.store(dst_base_addr + linear_offset, src_block, mask=mask)
+        # Process h dimension scalar: one (V, K) plane at a time
+        for h in range(h_dim):
+            src_plane = h * dim_v * dim_k
+            dst_plane = h * dst_h_stride
+            # Tile v in blocks (BLOCK_V may be < dim_v to fit UB for fp32).
+            for v0 in range(0, dim_v, BLOCK_V):
+                v_offs = v0 + v_offsets
+                v_mask = v_offs < dim_v
+                mask = k_mask[:, None] & v_mask[None, :]  # [BLOCK_K, BLOCK_V]
+                load_offset = src_plane + v_offs[None, :] * dim_k + k_offsets[:, None]
+                src_block = tl.load(src_addr + load_offset, mask=mask, other=0)
+                store_offset = (
+                    dst_plane
+                    + v_offs[None, :] * dst_v_stride
+                    + k_offsets[:, None] * dst_k_stride
+                )
+                tl.store(dst_base_addr + store_offset, src_block, mask=mask)
 
 
 def move_intermediate_cache(
@@ -94,15 +111,24 @@ def move_intermediate_cache(
     """
     Move intermediate cache to SSM states using Triton kernel.
 
+    The source is the NPU verify op's per-step intermediate state cache, which
+    the op writes in V-major order [.., V, K] (flat h*V*K + v*K + k), while the
+    destination SSM pool is K-major [.., K, V] for the triton decode kernel.
+    The kernel transposes on the load and writes the destination through its
+    real per-element strides, so contiguous and strided/transposed views are
+    both committed correctly.
+
     Args:
         ssm_states: Destination SSM states tensor
         intermediate_state_cache: Source intermediate state cache
         dst_indices_tensor: Valid destination indices tensor
         src_indices_tensor: Valid source indices tensor
         last_steps_tensor: Last steps tensor
-        h_block_size: Block size for h dimension processing
+        h_block_size: Kept for backward compatibility; block sizes are now
+            derived from the Ascend unified-buffer budget.
     """
     L, S, D, H, V, K = intermediate_state_cache.shape
+    draft_num = D
 
     strides = intermediate_state_cache.stride()
     layer_stride, size_stride, draft_stride = (
@@ -110,8 +136,12 @@ def move_intermediate_cache(
         int(strides[1]),
         int(strides[2]),
     )
-    dst_layer_stride, dst_size_stride = int(ssm_states.stride()[0]), int(
-        ssm_states.stride()[1]
+    dst_strides = ssm_states.stride()
+    dst_layer_stride, dst_size_stride = int(dst_strides[0]), int(dst_strides[1])
+    dst_h_stride, dst_v_stride, dst_k_stride = (
+        int(dst_strides[2]),
+        int(dst_strides[3]),
+        int(dst_strides[4]),
     )
     assert len(dst_indices_tensor) == len(
         last_steps_tensor
@@ -122,6 +152,18 @@ def move_intermediate_cache(
 
     # Grid: one thread per valid index
     grid = (len(dst_indices_tensor),)
+
+    # The transposed-load kernel keeps ~4 (BLOCK_V x BLOCK_K) tile buffers live
+    # in the Ascend UB, so pick blocks that fit the 192KB budget (smallest
+    # supported SoC). For the fp32 ssm dtype this halves BLOCK_V to 64.
+    itemsize = intermediate_state_cache.element_size()
+    blk_k = triton.next_power_of_2(K)
+    blk_v = triton.next_power_of_2(V)
+    max_tile_elems = (192 * 1024 // 4) // itemsize
+    while blk_v * blk_k > max_tile_elems and blk_v > 1:
+        blk_v //= 2
+    while blk_v * blk_k > max_tile_elems and blk_k > 1:
+        blk_k //= 2
 
     move_cache_dynamic_last_kernel_h_block[grid](
         dst_cache_ptr=ssm_states,
@@ -134,13 +176,16 @@ def move_intermediate_cache(
         draft_stride=draft_stride,
         dst_layer_stride=dst_layer_stride,
         dst_size_stride=dst_size_stride,
+        dst_h_stride=dst_h_stride,
+        dst_v_stride=dst_v_stride,
+        dst_k_stride=dst_k_stride,
         h_dim=H,
         dim_v=V,
         dim_k=K,
         num_layers=L,
-        H_BLOCK_SIZE=h_block_size,  # Process 2 h elements per block
-        BLOCK_V=triton.next_power_of_2(V),  # Block size for dim_v
-        BLOCK_K=triton.next_power_of_2(K),  # Block size for dim_k
+        draft_num=draft_num,
+        BLOCK_V=blk_v,  # Block size for dim_v
+        BLOCK_K=blk_k,  # Block size for dim_k
     )
 
     return ssm_states

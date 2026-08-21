@@ -239,3 +239,41 @@ def test_move_intermediate_cache_mask_and_destination_strides():
 
     assert torch.equal(dst_cache, expected)
     assert torch.all(dst_cache[:, dst_indices[1].long()] == -7)
+
+
+@torch.no_grad
+def test_move_intermediate_cache_transposes_vmajor_src_to_kmajor_dst():
+    """NEXTN verify commit lands the V-major src transposed in the K-major pool.
+
+    The verify op writes intermediate states in V-major flat order [.., V, K]
+    (offset v*K + k), while the SSM pool is physically K-major [.., K, V]
+    (offset k*V + v) and exposed to the caller as a transposed view. The kernel
+    must therefore transpose: dst_storage[h, k, v] <- src[h, v, k].
+    """
+    L, S, D, H, V, K = 2, 3, 4, 2, 8, 4
+    src_cache = torch.arange(
+        L * S * D * H * V * K, device=device, dtype=torch.bfloat16
+    ).reshape(L, S, D, H, V, K)
+    dst_storage = torch.full(
+        (L, S, H, K, V), -1, device=device, dtype=torch.bfloat16
+    )
+    dst_view = dst_storage.transpose(-1, -2)  # pool exposed as a V-major view
+
+    dst_indices = torch.tensor([0, 2], device=device, dtype=torch.int32)
+    src_indices = torch.tensor([0, 1], device=device, dtype=torch.int32)
+    last_steps = torch.tensor([1, 3], device=device, dtype=torch.int32)
+
+    expected_view = dst_view.clone()
+    expected_view[:, dst_indices.long()] = src_cache[
+        :, src_indices.long(), last_steps.long()
+    ]
+
+    move_intermediate_cache(
+        dst_view,
+        src_cache,
+        dst_indices,
+        src_indices,
+        last_steps,
+    )
+
+    assert torch.equal(dst_view, expected_view)
