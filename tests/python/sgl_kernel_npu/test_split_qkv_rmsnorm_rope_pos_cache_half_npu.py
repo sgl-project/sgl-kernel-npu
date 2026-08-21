@@ -203,70 +203,59 @@ def test_within_bf16_ulps_helper_controls():
         raise AssertionError(why)
 
 
-def _assert_no_worse_than(
-    wide: torch.Tensor, per_head: torch.Tensor, golden: torch.Tensor
-):
-    """The wide grid must not be further from the fp32 reference than the
-    per-head grid is.
+def _assert_within_row_bf16_ulps(a: torch.Tensor, b: torch.Tensor, ulps: int = 2):
+    """Bound the elementwise difference by ``ulps`` bf16 steps of the row's
+    largest element.
 
-    For K a ULP bound between the arms is unbounded, because RoPE cancels: one
-    ULP of the operands survives the subtraction whole and reads as many ULP on
-    the small result. At q_hidden 8192 the worst element sums -0.2749 and
-    +0.2906 to 0.0158, where the arms differ by 0.0017 -- 16 ULP. An elementwise
-    1 ULP bound holds on 15 of 20 seeds there; this predicate holds on all 20,
-    at both q_hidden. Q has no such element and keeps the ULP bound.
+    The reference magnitude is the row, not the element. RoPE cancels:
+    ``b*cos + a*sin`` sums two terms of the row's magnitude into a result that
+    can be far smaller, so one step of the operands survives the subtraction
+    whole and is many steps of the result. At q_hidden 8192 the worst element
+    sums -0.2749 and +0.2906 to 0.0158, where the arms differ by 0.0017 -- 16
+    steps of the element, well inside one step of its row.
+
+    Measured over 20 seeds at q_hidden 2048 and 8192, the difference peaks at
+    1.008 steps of the row, so this holds with margin while an elementwise
+    bound holds on 15 of those 40 runs.
     """
-    assert wide.shape == per_head.shape == golden.shape, (
-        f"shape mismatch: {tuple(wide.shape)} {tuple(per_head.shape)} "
-        f"{tuple(golden.shape)}"
-    )
-    # Non-finite first: two infinite arms compare equal and pass, and an
-    # infinite per_head passes anything, since the predicate only asks whether
-    # wide is the worse of the two.
-    for name, t in (("wide", wide), ("per_head", per_head), ("golden", golden)):
+    assert a.shape == b.shape, f"shape mismatch: {tuple(a.shape)} {tuple(b.shape)}"
+    for name, t in (("a", a), ("b", b)):
         assert torch.isfinite(t).all(), f"{name} has non-finite values"
-    g = golden.to(torch.float32).cpu()
-    dw = (wide.to(torch.float32).cpu() - g).abs().max()
-    dn = (per_head.to(torch.float32).cpu() - g).abs().max()
-    # One bf16 step of slack: the arms round the same value in opposite
-    # directions often enough that requiring dw <= dn exactly is itself
-    # seed-dependent.
-    slack = dn.abs() * (2**-7) + torch.finfo(torch.bfloat16).tiny
-    assert dw <= dn + slack, (
-        f"wide grid is the worse approximation: max|wide-golden|={dw:.6g} "
-        f"vs max|per_head-golden|={dn:.6g}"
+    af = a.to(torch.float32).cpu()
+    bf = b.to(torch.float32).cpu()
+    diff = (af - bf).abs().amax(dim=-1)
+    bound = af.abs().amax(dim=-1) * (2**-8) * ulps
+    worst = int((diff - bound).argmax())
+    assert (diff <= bound).all(), (
+        f"row {worst}: |a-b|={float(diff[worst]):.6g} exceeds {ulps} bf16 steps "
+        f"of the row magnitude ({float(bound[worst]):.6g})"
     )
 
 
-def test_no_worse_than_helper_controls():
-    """Controls for _assert_no_worse_than: a shape mismatch (which a bare tensor
-    comparison would broadcast away), a genuinely worse first argument, and
-    non-finite values in any position.
-
-    Two of the non-finite cases pass on the arithmetic alone -- two infinite
-    arms are equally far from the reference, and an infinite per_head is further
-    than anything -- so they need the explicit check, not a tolerance.
+def test_within_row_bf16_ulps_helper_controls():
+    """Controls for _assert_within_row_bf16_ulps: a difference beyond the row
+    bound, a shape mismatch, and non-finite values in either position.
     """
-    g = torch.tensor([1.0, 2.0, 4.0])
-    good = torch.tensor([1.0, 2.0, 4.0])
-    worse = torch.tensor([1.0, 2.0, 4.5])
-    nan = torch.tensor([1.0, 2.0, float("nan")])
-    inf = torch.tensor([1.0, 2.0, float("inf")])
+    row = torch.tensor([[8.0, 0.5, 0.25]])
+    # 8.0 * 2**-8 * 2 = 0.0625, so 0.03 passes on the row bound while being
+    # many steps of the 0.25 element it sits on.
+    near = torch.tensor([[8.0, 0.5, 0.28]])
+    far = torch.tensor([[8.0, 0.5, 0.5]])
+    nan = torch.tensor([[8.0, 0.5, float("nan")]])
+    inf = torch.tensor([[8.0, 0.5, float("inf")]])
 
-    _assert_no_worse_than(good, worse, g)  # wide is the better arm: fine
+    _assert_within_row_bf16_ulps(row, near)
 
-    for a, b, c, why in (
-        (worse, good, g, "worse arm accepted"),
-        (torch.tensor([1.0]), good, g, "shape mismatch accepted"),
-        (nan, good, g, "NaN in wide accepted"),
-        (good, nan, g, "NaN in per_head accepted"),
-        (good, good, nan, "NaN in golden accepted"),
-        (inf, good, g, "inf in wide accepted"),
-        (good, inf, g, "inf in per_head accepted"),
-        (inf, inf, g, "two infinite arms accepted"),
+    for a, b, why in (
+        (row, far, "difference beyond the row bound accepted"),
+        (row, torch.tensor([[8.0]]), "shape mismatch accepted"),
+        (nan, row, "NaN in a accepted"),
+        (row, nan, "NaN in b accepted"),
+        (inf, row, "inf in a accepted"),
+        (row, inf, "inf in b accepted"),
     ):
         try:
-            _assert_no_worse_than(a, b, c)
+            _assert_within_row_bf16_ulps(a, b)
         except AssertionError:
             continue
         raise AssertionError(why)
@@ -425,9 +414,9 @@ class TestSplitQkvRmsnormRopePosCacheHalfNpu(unittest.TestCase):
         """The wide grid (B >= wide_grid_min_tokens) must agree with the per-head grid.
 
         Both arms run the same kernel; only the launch grid differs. V is a plain copy so it
-        is bit-identical, and Q is too. K differs on a small fraction of elements by an
-        amount bounded in absolute terms but not in relative ones, so the arms are compared
-        through the fp32 reference rather than to each other -- see _assert_no_worse_than.
+        is bit-identical, and Q is too. K differs on a handful of elements, by an amount
+        bounded against the row magnitude rather than the element -- see
+        _assert_within_row_bf16_ulps.
 
         More than one seed, because the predicate this replaced passed on seed 0 and failed
         on 6 of 20 others: a single seed cannot tell a property of the kernel from a property
@@ -494,25 +483,10 @@ class TestSplitQkvRmsnormRopePosCacheHalfNpu(unittest.TestCase):
 
                 torch.testing.assert_close(wv.cpu(), nv.cpu(), atol=0, rtol=0)
 
-                gq, gk, _ = golden_split_qkv_rmsnorm_rope_pos_cache_half(
-                    qkv,
-                    positions,
-                    cos_sin_cache,
-                    q_hidden_size,
-                    kv_hidden_size,
-                    head_dim,
-                    rope_dim,
-                    eps,
-                    q_weight,
-                    k_weight,
-                    None,
-                    None,
-                    use_qk_norm=True,
-                )
-                # Q holds a real ULP bound; K does not, because RoPE cancels
-                # there -- see _assert_no_worse_than.
+                # Q holds an elementwise bound; K only holds one against the row
+                # magnitude -- see _assert_within_row_bf16_ulps.
                 _assert_within_bf16_ulps(wq, nq)
-                _assert_no_worse_than(wk, nk, gk)
+                _assert_within_row_bf16_ulps(wk, nk)
 
     def test_grid_arms_agree_above_threshold(self):
         """Batch above the default threshold: wide grid vs per-head grid."""
