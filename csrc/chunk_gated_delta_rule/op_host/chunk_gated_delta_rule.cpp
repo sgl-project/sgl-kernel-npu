@@ -220,17 +220,6 @@ HOST_API std::tuple<at::Tensor, at::Tensor> chunk_gated_delta_rule(
         TORCH_CHECK(g->size(0) == t && g->size(1) == nv, "g shape must be (T, Nv)");
     }
 
-    int64_t seqSum = 0;
-    int64_t totalChunks = 0;
-    at::Tensor seqLensCpu = actual_seq_lengths->cpu();
-    const int32_t *seqData = reinterpret_cast<const int32_t *>(seqLensCpu.data_ptr());
-    for (int64_t i = 0; i < b; ++i) {
-        TORCH_CHECK(seqData[i] > 0, "actual_seq_lengths entries must be positive");
-        seqSum += seqData[i];
-        totalChunks += (static_cast<int64_t>(seqData[i]) + CHUNK_SIZE - 1) / CHUNK_SIZE;
-    }
-    TORCH_CHECK(seqSum == t, "sum(actual_seq_lengths) must equal query dim 0");
-
     auto ascendcPlatform = platform_ascendc::PlatformAscendCManager::GetInstance();
     int64_t aiCoreNum = static_cast<int64_t>(ascendcPlatform->GetCoreNumAic());
     if (aiCoreNum <= 0) {
@@ -249,7 +238,6 @@ HOST_API std::tuple<at::Tensor, at::Tensor> chunk_gated_delta_rule(
     bool outputChunkState = chunk_state.has_value() && chunk_state->defined();
     if (outputChunkState) {
         TORCH_CHECK(chunk_state->dim() == 4, "chunk_state must be 4D (totalChunks, Nv, Dv, Dk)");
-        TORCH_CHECK(chunk_state->size(0) >= totalChunks, "chunk_state dim 0 must be >= ", totalChunks);
         TORCH_CHECK(chunk_state->size(1) == nv && chunk_state->size(2) == dv && chunk_state->size(3) == dk,
                     "chunk_state shape must match (totalChunks, Nv, Dv, Dk)");
         TORCH_CHECK(chunk_state->scalar_type() == initial_state->scalar_type(),
