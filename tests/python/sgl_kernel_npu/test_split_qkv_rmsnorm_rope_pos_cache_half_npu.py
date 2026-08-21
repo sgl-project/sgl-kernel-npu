@@ -1,3 +1,4 @@
+import contextlib
 import unittest
 
 import torch
@@ -128,6 +129,78 @@ def golden_split_qkv_rmsnorm_rope_pos_cache_half(
     k = torch.cat((k_rot, k_pass), dim=-1).reshape(k_shape)
 
     return q, k, v
+
+
+@contextlib.contextmanager
+def _record_launch_grids():
+    """Capture the launch grid of each kernel call.
+
+    The two arms differ in the grid, not just in the result: the wide grid is
+    one column, the per-head grid is kv_hidden_size // head_dim of them.
+    """
+    import sgl_kernel_npu.norm.split_qkv_rmsnorm_rope_pos_cache_half_npu as mod
+
+    grids = []
+    real = mod.split_qkv_rmsnorm_rope_half_pos_cache_kernel
+
+    class _Recorder:
+        def __getitem__(self, grid):
+            grids.append(tuple(grid))
+            return real[grid]
+
+    mod.split_qkv_rmsnorm_rope_half_pos_cache_kernel = _Recorder()
+    try:
+        yield grids
+    finally:
+        mod.split_qkv_rmsnorm_rope_half_pos_cache_kernel = real
+
+
+def _assert_within_bf16_ulps(a: torch.Tensor, b: torch.Tensor, ulps: int = 1):
+    """Bound the elementwise distance in bf16 representable steps.
+
+    ``assert_close``'s atol + rtol*|b| is not a ULP bound: a fixed atol is far
+    wider than one ULP near zero and far narrower than one near the top of the
+    exponent range.
+
+    Non-finite values are rejected rather than counted: two equal NaNs are zero
+    steps apart, and the largest finite value is one step from infinity, so both
+    pass a tight bound while meaning nothing.
+    """
+    assert a.shape == b.shape, f"shape mismatch: {tuple(a.shape)} {tuple(b.shape)}"
+    for name, t in (("a", a), ("b", b)):
+        assert torch.isfinite(t).all(), f"{name} has non-finite values"
+    ai = a.to(torch.bfloat16).cpu().view(torch.int16).to(torch.int32)
+    bi = b.to(torch.bfloat16).cpu().view(torch.int16).to(torch.int32)
+    # Map sign-magnitude to a monotone ordering so the step count is meaningful
+    # across zero.
+    ai = torch.where(ai < 0, torch.tensor(-(2**15), dtype=torch.int32) - ai, ai)
+    bi = torch.where(bi < 0, torch.tensor(-(2**15), dtype=torch.int32) - bi, bi)
+    worst = int((ai - bi).abs().max())
+    assert worst <= ulps, f"worst elementwise distance {worst} bf16 ULP > {ulps}"
+
+
+def test_within_bf16_ulps_helper_controls():
+    """Controls for _assert_within_bf16_ulps: the two non-finite cases that pass
+    a tight bound on the bit patterns alone, plus a real overshoot.
+    """
+    bf = lambda *v: torch.tensor(v, dtype=torch.bfloat16)
+    top = torch.finfo(torch.bfloat16).max
+    nan, inf = float("nan"), float("inf")
+
+    _assert_within_bf16_ulps(bf(1.0, 2.0), bf(1.0, 2.0), ulps=0)
+
+    for a, b, why in (
+        (bf(nan, 1.0), bf(nan, 1.0), "equal NaNs accepted"),
+        (bf(top, 1.0), bf(inf, 1.0), "max finite one step from inf accepted"),
+        (bf(inf, 1.0), bf(inf, 1.0), "equal infinities accepted"),
+        (bf(2.0), bf(4.0), "128 ULP accepted"),
+        (bf(1.0), bf(1.0, 2.0), "shape mismatch accepted"),
+    ):
+        try:
+            _assert_within_bf16_ulps(a, b)
+        except AssertionError:
+            continue
+        raise AssertionError(why)
 
 
 def _assert_close_fp32(
@@ -282,13 +355,13 @@ class TestSplitQkvRmsnormRopePosCacheHalfNpu(unittest.TestCase):
         """The wide grid (B >= wide_grid_min_tokens) must agree with the per-head grid.
 
         Both arms run the same kernel; only the launch grid differs. V is a plain copy so it
-        is bit-identical; Q/K RMSNorm reduces over head_dim either way, so any difference is a
-        reassociation worth at most one bf16 ULP (relative 2**-7). Measured: Q and V are
-        bit-identical, K differs on < 0.001% of elements by exactly 1 ULP.
+        is bit-identical; Q and K are bounded in bf16 ULP.
+
         """
         eps = 1e-6
         max_pos = 2048
         rope_theta = 10000.0
+
         torch.manual_seed(0)
 
         qkv = torch.randn(
@@ -321,13 +394,27 @@ class TestSplitQkvRmsnormRopePosCacheHalfNpu(unittest.TestCase):
                 wide_grid_min_tokens=wide_grid_min_tokens,
             )
 
-        nq, nk, nv = run(bsz + 1)  # per-head grid
-        wq, wk, wv = run(0)  # wide grid
+        with _record_launch_grids() as grids:
+            nq, nk, nv = run(bsz + 1)  # per-head grid
+            wq, wk, wv = run(0)  # wide grid
+
+        # Agreement alone is not enough: if the width check rejects this
+        # q_hidden_size, both calls fall back and trivially match. Compare the
+        # launches instead of hard-coding n_cols > 1 for the per-head arm --
+        # with a single KV head (kv_hidden_size == head_dim) that arm is also
+        # one column, and the two calls would be the same launch.
+        assert kv_hidden_size > head_dim, (
+            "the arms are indistinguishable at one KV head; pick a case with "
+            "kv_hidden_size > head_dim"
+        )
+        assert len(grids) == 2, f"expected two launches, saw {grids}"
+        assert grids[0] != grids[1], f"both calls took the same grid: {grids[0]}"
+        assert grids[1][1] == 1, f"second call should be the wide grid: {grids[1]}"
 
         torch.testing.assert_close(wv.cpu(), nv.cpu(), atol=0, rtol=0)
-        one_bf16_ulp = 2**-7
-        _assert_close_fp32(wq, nq, atol=1e-6, rtol=one_bf16_ulp)
-        _assert_close_fp32(wk, nk, atol=1e-6, rtol=one_bf16_ulp)
+
+        _assert_within_bf16_ulps(wq, nq)
+        _assert_within_bf16_ulps(wk, nk)
 
     def test_grid_arms_agree_above_threshold(self):
         """Batch above the default threshold: wide grid vs per-head grid."""
@@ -337,6 +424,33 @@ class TestSplitQkvRmsnormRopePosCacheHalfNpu(unittest.TestCase):
             kv_hidden_size=512,
             head_dim=128,
             rope_dim=64,
+        )
+
+    def test_dispatch_boundary_q_hidden_8192(self):
+        """q_hidden_size == _WIDE_GRID_MAX_Q_HIDDEN: the last width that takes
+        the wide grid. This guards the comparison, not the constant -- turning
+        `<=` into `<` silently sends both arms down the per-head path, where
+        they agree for the wrong reason. Widening the constant is caught by the
+        12288 case below instead."""
+        self._run_case_grid_arms(
+            bsz=1024,
+            q_hidden_size=8192,
+            kv_hidden_size=1024,
+            head_dim=128,
+            rope_dim=64,
+        )
+
+    def test_dispatch_boundary_q_hidden_12288_falls_back(self):
+        """One step past the boundary: the per-head grid has to carry it. 12288
+        raises MLIRCompilationError on the wide grid, so a regression that drops
+        the width check fails here rather than in a deployment."""
+        self._run_case_graph(
+            bsz=1024,
+            q_hidden_size=12288,
+            kv_hidden_size=1024,
+            head_dim=128,
+            rope_dim=64,
+            use_qk_norm=True,
         )
 
     def test_wide_grid_vs_golden(self):
