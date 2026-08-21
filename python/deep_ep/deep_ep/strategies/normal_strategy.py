@@ -847,3 +847,264 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             output, input_.contiguous(), group=group
         )
         return output
+
+
+@register_normal_strategy("allgather")
+class AllGatherNormalCommStrategy(NormalEPCommStrategy):
+    """
+    Normal mode strategy using AllGather implementation.
+    All ranks gather all tokens, each rank processes only its local experts,
+    then all-reduce combines partial results.
+    """
+
+    def __init__(self, runtime, group: dist.ProcessGroup):
+        super().__init__(group)
+        self.runtime = runtime
+        self._allgather_layout = None
+        self.use_mx_fp8_quant = int(os.environ.get('USE_MX_FP8_QUANT', '0'))
+
+    def get_name(self) -> str:
+        return "allgather"
+
+    def get_supported_modes(self) -> List[str]:
+        return ["normal"]
+
+    def get_dispatch_layout(
+        self,
+        topk_idx: torch.Tensor,
+        num_experts: int,
+        previous_event: Optional[EventOverlap] = None,
+        async_finish: bool = False,
+        allocate_on_comm_stream: bool = False,
+    ) -> Tuple[
+        torch.Tensor, Optional[torch.Tensor], torch.Tensor, torch.Tensor, EventOverlap
+    ]:
+        """Get dispatch layout for AllGather mode."""
+        group = self.group
+        group_size = self.group_size
+        num_local_experts = num_experts // group_size
+        ep_rank = self.rank
+        device = topk_idx.device
+
+        self._allgather_layout = {
+            "num_experts": num_experts,
+            "num_local_experts": num_local_experts,
+            "first_expert_idx": ep_rank * num_local_experts,
+            "last_expert_idx": ep_rank * num_local_experts + num_local_experts,
+        }
+
+        num_tokens_per_rank = torch.empty(
+            group_size, dtype=torch.int32, device=device
+        )
+        is_token_in_rank = torch.ones(
+            (topk_idx.size(0), group_size), dtype=torch.bool, device=device
+        )
+        num_tokens_per_expert = torch.empty(
+            num_local_experts, dtype=torch.int64, device=device
+        )
+
+        return (
+            num_tokens_per_rank,
+            None,
+            num_tokens_per_expert,
+            is_token_in_rank,
+            EventOverlap(),
+        )
+
+    def dispatch(
+        self,
+        x: Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]],
+        handle: Optional[Tuple],
+        num_tokens_per_rank: Optional[torch.Tensor],
+        num_tokens_per_rdma_rank: Optional[torch.Tensor],
+        is_token_in_rank: Optional[torch.Tensor],
+        num_tokens_per_expert: Optional[torch.Tensor],
+        topk_idx: Optional[torch.Tensor],
+        topk_weights: Optional[torch.Tensor],
+        expert_alignment: int = 1,
+        num_worst_tokens: int = 0,
+        config=None,
+        previous_event: Optional[EventOverlap] = None,
+        async_finish: bool = False,
+        allocate_on_comm_stream: bool = False,
+        dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
+        quant_mode: Optional[str] = None,
+    ) -> Tuple[
+        Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
+        Optional[torch.Tensor],
+        Optional[torch.Tensor],
+        List[int],
+        Tuple,
+        EventOverlap,
+    ]:
+        """Dispatch using AllGather: all ranks get all tokens, process local experts only."""
+        layout = self._allgather_layout
+        num_experts = layout["num_experts"]
+        num_local_experts = layout["num_local_experts"]
+        first_expert_idx = layout["first_expert_idx"]
+        last_expert_idx = layout["last_expert_idx"]
+        group_size = self.group_size
+        ep_rank = self.rank
+
+        if isinstance(x, tuple):
+            hidden_states = x[0]
+        else:
+            hidden_states = x
+
+        local_num_tokens = hidden_states.shape[0]
+        hidden_shape = hidden_states.shape
+
+        # Step 0: Quantize hidden_states BEFORE AllGather to halve communication volume.
+        # per-token quant is safe to do locally — each rank quantizes its own tokens,
+        # AllGather concatenates, numerical result is identical to quantizing after AG.
+        if self.use_mx_fp8_quant:
+            hidden_states, pertoken_scale = torch_npu.npu_dynamic_mx_quant(
+                hidden_states, dst_type=torch.float8_e4m3fn
+            )
+        else:
+            pertoken_scale = None
+
+        # Step 1: All-gather hidden_states (FP8 if quantized), topk_idx, topk_weights, scale
+        if group_size > 1:
+            global_hidden_states = self._all_gather(hidden_states, self.group)
+            global_topk_idx = self._all_gather(topk_idx, self.group)
+            global_topk_weights = self._all_gather(topk_weights, self.group)
+            if pertoken_scale is not None:
+                global_pertoken_scale = self._all_gather(pertoken_scale, self.group)
+            else:
+                global_pertoken_scale = None
+        else:
+            global_hidden_states = hidden_states
+            global_topk_idx = topk_idx
+            global_topk_weights = topk_weights
+            global_pertoken_scale = pertoken_scale
+
+        restore_shape = global_hidden_states.shape
+
+        # Step 2: Mask out non-local expert weights so that after unpermute,
+        # only local expert contributions remain on each rank.
+        if group_size > 1:
+            expert_map = torch.full(
+                (num_experts,), -1, dtype=torch.int32, device=topk_idx.device
+            )
+            expert_map[first_expert_idx:last_expert_idx] = torch.arange(
+                num_local_experts, dtype=torch.int32, device=topk_idx.device
+            )
+            mask = expert_map[global_topk_idx] != -1
+            masked_topk_weights = global_topk_weights * mask.to(
+                global_topk_weights.dtype
+            )
+        else:
+            masked_topk_weights = global_topk_weights
+
+        # Step 3: Local routing — sort tokens by expert, keep only local expert tokens.
+        # Pass scale= so init_routing reorders both tokens and scale together.
+        topk_idx_int = global_topk_idx.to(torch.int32)
+        init_routing_kwargs = dict(
+            quant_mode=-1,
+            expert_num=num_experts,
+            expert_tokens_num_type=1,
+            expert_tokens_num_flag=True,
+            row_idx_type=0,
+            active_expert_range=[first_expert_idx, last_expert_idx],
+        )
+        if global_pertoken_scale is not None:
+            init_routing_kwargs["scale"] = global_pertoken_scale
+            init_routing_kwargs["x_dtype"] = torch.float8_e4m3fn
+
+        (
+            sorted_hidden_states,
+            expanded_row_idx,
+            expert_tokens,
+            routed_scale,
+        ) = torch_npu.npu_moe_init_routing_v2(
+            global_hidden_states,
+            topk_idx_int,
+            **init_routing_kwargs,
+        )
+
+        num_recv_tokens_per_expert_list = (
+            expert_tokens.to(torch.int64)
+        )
+
+        combine_handle = {
+            "expanded_row_idx": expanded_row_idx,
+            "topk_weights": masked_topk_weights,
+            "restore_shape": restore_shape,
+            "hidden_shape": hidden_shape,
+            "local_num_tokens": local_num_tokens,
+            "ep_rank": ep_rank,
+            "group_size": group_size,
+        }
+
+        # Return (hidden_states, scale) tuple when quantized — MLP path consumes both.
+        recv_x = (sorted_hidden_states, routed_scale) if self.use_mx_fp8_quant else sorted_hidden_states
+        return (
+            recv_x,
+            None,
+            None,
+            num_recv_tokens_per_expert_list,
+            combine_handle,
+            EventOverlap(),
+        )
+
+    def combine(
+        self,
+        x: torch.Tensor,
+        handle: Tuple,
+        topk_weights: Optional[torch.Tensor] = None,
+        bias=None,
+        config=None,
+        previous_event: Optional[EventOverlap] = None,
+        async_finish: bool = False,
+        allocate_on_comm_stream: bool = False,
+        combine_send_cost_stats: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, Optional[torch.Tensor], EventOverlap]:
+        """Combine using AllGather: unpermute, then reduce-scatter partial results."""
+        expanded_row_idx = handle["expanded_row_idx"]
+        probs = handle["topk_weights"]
+        restore_shape = handle["restore_shape"]
+        hidden_shape = handle["hidden_shape"]
+        local_num_tokens = handle["local_num_tokens"]
+        ep_rank = handle["ep_rank"]
+        group_size = handle["group_size"]
+
+        # Step 1: Unpermute — restore global token order and apply routing weights
+        output = torch_npu.npu_moe_token_unpermute(
+            permuted_tokens=x,
+            sorted_indices=expanded_row_idx,
+            probs=probs,
+        )
+
+        # Step 2: Reduce-scatter to sum partial results from all ranks and split to local portion.
+        # Replaces all_reduce + slice: reduce_scatter does both sum and scatter in one op,
+        # and each rank only receives its own chunk (group_size× less data than all_reduce).
+        if group_size > 1:
+            scattered_output = torch.empty(
+                (local_num_tokens, *output.shape[1:]),
+                dtype=output.dtype,
+                device=output.device,
+            )
+            dist.reduce_scatter_tensor(scattered_output, output, group=self.group)
+            output = scattered_output
+
+        # Step 3: Restore original hidden shape
+        output = output.view(hidden_shape)
+
+        return output, None, EventOverlap()
+
+    def _all_gather(self, input_: torch.Tensor, group: dist.ProcessGroup) -> torch.Tensor:
+        """All-gather tensor along first dimension."""
+        world_size = torch.distributed.get_world_size(group)
+        if world_size == 1:
+            return input_
+
+        dim_size = list(input_.size())
+        dim_size[0] = dim_size[0] * world_size
+        output = torch.empty(
+            dim_size, dtype=input_.dtype, device=torch.npu.current_device()
+        )
+        torch.distributed.all_gather_into_tensor(
+            output, input_.contiguous(), group=group
+        )
+        return output
