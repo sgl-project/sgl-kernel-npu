@@ -183,5 +183,42 @@ def test_ties_keep_the_lower_index():
     assert torch.equal(argmax, torch.full((4,), 100, dtype=torch.int64, device="npu"))
 
 
+def test_row_offset_does_not_overflow_int32():
+    """The row offset is ``row * stride_b``, and Triton binds a stride that fits
+    in int32 as int32, so the product wraps once the tensor passes 2**31
+    elements -- 13662 rows at vocab 157184.
+
+    The wrapped offset is not a wrong answer: it addresses outside the tensor
+    and takes the device down with a vector core exception, which fails the rest
+    of the session with it. Hence last in the file.
+
+    What trips it is the element count, so the smallest case that reaches the
+    boundary is ~4 GiB of logits; skipped where that does not fit. The argmax is
+    planted rather than taken from ``torch.argmax``: at this width bf16 ties at
+    the maximum are common, and the reference would have to agree on breaking
+    them.
+    """
+    V = 157184
+    rows_at_overflow = (2**31) // V
+    B = rows_at_overflow + 256
+    needed = B * V * 2  # bf16
+    free, _ = torch.npu.mem_get_info()
+    if free < needed + (1 << 30):
+        pytest.skip(
+            f"needs ~{needed / 2**30:.1f} GiB free HBM, have {free / 2**30:.1f} GiB"
+        )
+
+    torch.manual_seed(0)
+    logits = torch.randn(B, V, dtype=torch.bfloat16, device="npu")
+    planted = torch.randint(0, V, (B,), device="npu")
+    # Above the max of 2**31 bf16 normals, so it is the argmax of its row alone.
+    logits[torch.arange(B, device="npu"), planted] = 8.0
+
+    argmax, prob = argmax_softmax_prob_fused(logits)
+
+    assert torch.equal(argmax, planted.to(torch.int64))
+    assert torch.isfinite(prob).all()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-q"])

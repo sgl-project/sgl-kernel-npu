@@ -41,7 +41,11 @@ def _argmax_prob_kernel(
     row_pid = tl.program_id(0)
     n_prog = tl.num_programs(0)
     for row in tl.range(row_pid, B, n_prog):
-        base = row * stride_b
+        # int64 before the multiply: Triton binds a stride that fits in int32 as
+        # int32, so row * stride_b wraps once the tensor passes 2**31 elements
+        # (13662 rows at vocab 157184) and addresses outside it. Once per row,
+        # not in the tile loop below.
+        base = row.to(tl.int64) * stride_b
         m = tl.full((), float("-inf"), tl.float32)
         arg = tl.zeros((), tl.int64)
         s = tl.zeros((), tl.float32)
