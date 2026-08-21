@@ -203,6 +203,75 @@ def test_within_bf16_ulps_helper_controls():
         raise AssertionError(why)
 
 
+def _assert_no_worse_than(
+    wide: torch.Tensor, per_head: torch.Tensor, golden: torch.Tensor
+):
+    """The wide grid must not be further from the fp32 reference than the
+    per-head grid is.
+
+    For K a ULP bound between the arms is unbounded, because RoPE cancels: one
+    ULP of the operands survives the subtraction whole and reads as many ULP on
+    the small result. At q_hidden 8192 the worst element sums -0.2749 and
+    +0.2906 to 0.0158, where the arms differ by 0.0017 -- 16 ULP. An elementwise
+    1 ULP bound holds on 15 of 20 seeds there; this predicate holds on all 20,
+    at both q_hidden. Q has no such element and keeps the ULP bound.
+    """
+    assert wide.shape == per_head.shape == golden.shape, (
+        f"shape mismatch: {tuple(wide.shape)} {tuple(per_head.shape)} "
+        f"{tuple(golden.shape)}"
+    )
+    # Non-finite first: two infinite arms compare equal and pass, and an
+    # infinite per_head passes anything, since the predicate only asks whether
+    # wide is the worse of the two.
+    for name, t in (("wide", wide), ("per_head", per_head), ("golden", golden)):
+        assert torch.isfinite(t).all(), f"{name} has non-finite values"
+    g = golden.to(torch.float32).cpu()
+    dw = (wide.to(torch.float32).cpu() - g).abs().max()
+    dn = (per_head.to(torch.float32).cpu() - g).abs().max()
+    # One bf16 step of slack: the arms round the same value in opposite
+    # directions often enough that requiring dw <= dn exactly is itself
+    # seed-dependent.
+    slack = dn.abs() * (2**-7) + torch.finfo(torch.bfloat16).tiny
+    assert dw <= dn + slack, (
+        f"wide grid is the worse approximation: max|wide-golden|={dw:.6g} "
+        f"vs max|per_head-golden|={dn:.6g}"
+    )
+
+
+def test_no_worse_than_helper_controls():
+    """Controls for _assert_no_worse_than: a shape mismatch (which a bare tensor
+    comparison would broadcast away), a genuinely worse first argument, and
+    non-finite values in any position.
+
+    Two of the non-finite cases pass on the arithmetic alone -- two infinite
+    arms are equally far from the reference, and an infinite per_head is further
+    than anything -- so they need the explicit check, not a tolerance.
+    """
+    g = torch.tensor([1.0, 2.0, 4.0])
+    good = torch.tensor([1.0, 2.0, 4.0])
+    worse = torch.tensor([1.0, 2.0, 4.5])
+    nan = torch.tensor([1.0, 2.0, float("nan")])
+    inf = torch.tensor([1.0, 2.0, float("inf")])
+
+    _assert_no_worse_than(good, worse, g)  # wide is the better arm: fine
+
+    for a, b, c, why in (
+        (worse, good, g, "worse arm accepted"),
+        (torch.tensor([1.0]), good, g, "shape mismatch accepted"),
+        (nan, good, g, "NaN in wide accepted"),
+        (good, nan, g, "NaN in per_head accepted"),
+        (good, good, nan, "NaN in golden accepted"),
+        (inf, good, g, "inf in wide accepted"),
+        (good, inf, g, "inf in per_head accepted"),
+        (inf, inf, g, "two infinite arms accepted"),
+    ):
+        try:
+            _assert_no_worse_than(a, b, c)
+        except AssertionError:
+            continue
+        raise AssertionError(why)
+
+
 def _assert_close_fp32(
     a: torch.Tensor, b: torch.Tensor, atol: float, rtol: float = 5e-3
 ):
@@ -351,70 +420,99 @@ class TestSplitQkvRmsnormRopePosCacheHalfNpu(unittest.TestCase):
         kv_hidden_size: int,
         head_dim: int,
         rope_dim: int,
+        seeds=(0, 3, 7, 14),
     ):
         """The wide grid (B >= wide_grid_min_tokens) must agree with the per-head grid.
 
         Both arms run the same kernel; only the launch grid differs. V is a plain copy so it
-        is bit-identical; Q and K are bounded in bf16 ULP.
+        is bit-identical, and Q is too. K differs on a small fraction of elements by an
+        amount bounded in absolute terms but not in relative ones, so the arms are compared
+        through the fp32 reference rather than to each other -- see _assert_no_worse_than.
 
+        More than one seed, because the predicate this replaced passed on seed 0 and failed
+        on 6 of 20 others: a single seed cannot tell a property of the kernel from a property
+        of the sample. Each seed here is one the old predicate failed on, except 0.
         """
         eps = 1e-6
         max_pos = 2048
         rope_theta = 10000.0
 
-        torch.manual_seed(0)
+        for seed in seeds:
+            with self.subTest(seed=seed):
+                torch.manual_seed(seed)
 
-        qkv = torch.randn(
-            bsz,
-            q_hidden_size + kv_hidden_size * 2,
-            dtype=self.dtype,
-            device=self.device,
-        )
-        positions = torch.randint(
-            0, max_pos, (bsz,), dtype=torch.int64, device=self.device
-        )
-        cos_sin_cache = _make_cos_sin_cache(
-            max_pos, rope_dim, rope_theta, torch.float32, self.device
-        )
-        q_weight = torch.randn(head_dim, dtype=self.dtype, device=self.device)
-        k_weight = torch.randn(head_dim, dtype=self.dtype, device=self.device)
+                qkv = torch.randn(
+                    bsz,
+                    q_hidden_size + kv_hidden_size * 2,
+                    dtype=self.dtype,
+                    device=self.device,
+                )
+                positions = torch.randint(
+                    0, max_pos, (bsz,), dtype=torch.int64, device=self.device
+                )
+                cos_sin_cache = _make_cos_sin_cache(
+                    max_pos, rope_dim, rope_theta, torch.float32, self.device
+                )
+                q_weight = torch.randn(head_dim, dtype=self.dtype, device=self.device)
+                k_weight = torch.randn(head_dim, dtype=self.dtype, device=self.device)
 
-        def run(wide_grid_min_tokens: int):
-            return split_qkv_rmsnorm_rope_pos_cache_half_npu(
-                qkv,
-                positions,
-                cos_sin_cache,
-                q_hidden_size,
-                kv_hidden_size,
-                head_dim,
-                eps=eps,
-                q_weight=q_weight,
-                k_weight=k_weight,
-                rope_dim=rope_dim,
-                wide_grid_min_tokens=wide_grid_min_tokens,
-            )
+                def run(wide_grid_min_tokens: int):
+                    return split_qkv_rmsnorm_rope_pos_cache_half_npu(
+                        qkv,
+                        positions,
+                        cos_sin_cache,
+                        q_hidden_size,
+                        kv_hidden_size,
+                        head_dim,
+                        eps=eps,
+                        q_weight=q_weight,
+                        k_weight=k_weight,
+                        rope_dim=rope_dim,
+                        wide_grid_min_tokens=wide_grid_min_tokens,
+                    )
 
-        with _record_launch_grids() as grids:
-            nq, nk, nv = run(bsz + 1)  # per-head grid
-            wq, wk, wv = run(0)  # wide grid
+                with _record_launch_grids() as grids:
+                    nq, nk, nv = run(bsz + 1)  # per-head grid
+                    wq, wk, wv = run(0)  # wide grid
 
-        # Agreement alone is not enough: if the width check rejects this
-        # q_hidden_size, both calls fall back and trivially match. Compare the
-        # launches instead of hard-coding n_cols > 1 for the per-head arm --
-        # with a single KV head (kv_hidden_size == head_dim) that arm is also
-        # one column, and the two calls would be the same launch.
-        assert kv_hidden_size > head_dim, (
-            "the arms are indistinguishable at one KV head; pick a case with "
-            "kv_hidden_size > head_dim"
-        )
-        assert len(grids) == 2, f"expected two launches, saw {grids}"
-        assert grids[0] != grids[1], f"both calls took the same grid: {grids[0]}"
-        assert grids[1][1] == 1, f"second call should be the wide grid: {grids[1]}"
+                # Agreement alone is not enough: if the width check rejects this
+                # q_hidden_size, both calls fall back and trivially match. Compare the
+                # launches instead of hard-coding n_cols > 1 for the per-head arm --
+                # with a single KV head (kv_hidden_size == head_dim) that arm is also
+                # one column, and the two calls would be the same launch.
+                assert kv_hidden_size > head_dim, (
+                    "the arms are indistinguishable at one KV head; pick a case with "
+                    "kv_hidden_size > head_dim"
+                )
+                assert len(grids) == 2, f"expected two launches, saw {grids}"
+                assert (
+                    grids[0] != grids[1]
+                ), f"both calls took the same grid: {grids[0]}"
+                assert (
+                    grids[1][1] == 1
+                ), f"second call should be the wide grid: {grids[1]}"
 
-        torch.testing.assert_close(wv.cpu(), nv.cpu(), atol=0, rtol=0)
+                torch.testing.assert_close(wv.cpu(), nv.cpu(), atol=0, rtol=0)
 
-        _assert_within_bf16_ulps(wq, nq)
-        _assert_within_bf16_ulps(wk, nk)
+                gq, gk, _ = golden_split_qkv_rmsnorm_rope_pos_cache_half(
+                    qkv,
+                    positions,
+                    cos_sin_cache,
+                    q_hidden_size,
+                    kv_hidden_size,
+                    head_dim,
+                    rope_dim,
+                    eps,
+                    q_weight,
+                    k_weight,
+                    None,
+                    None,
+                    use_qk_norm=True,
+                )
+                # Q holds a real ULP bound; K does not, because RoPE cancels
+                # there -- see _assert_no_worse_than.
+                _assert_within_bf16_ulps(wq, nq)
+                _assert_no_worse_than(wk, nk, gk)
 
     def test_grid_arms_agree_above_threshold(self):
         """Batch above the default threshold: wide grid vs per-head grid."""
