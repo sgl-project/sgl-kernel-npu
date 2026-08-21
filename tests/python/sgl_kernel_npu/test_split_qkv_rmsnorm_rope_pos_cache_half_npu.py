@@ -516,14 +516,26 @@ class TestSplitQkvRmsnormRopePosCacheHalfNpu(unittest.TestCase):
         """One step past the boundary: the per-head grid has to carry it. 12288
         raises MLIRCompilationError on the wide grid, so a regression that drops
         the width check fails here rather than in a deployment."""
-        self._run_case_graph(
-            bsz=1024,
-            q_hidden_size=12288,
-            kv_hidden_size=1024,
-            head_dim=128,
-            rope_dim=64,
-            use_qk_norm=True,
-        )
+        kv_hidden_size, head_dim = 1024, 128
+        with _record_launch_grids() as grids:
+            self._run_case_graph(
+                bsz=1024,
+                q_hidden_size=12288,
+                kv_hidden_size=kv_hidden_size,
+                head_dim=head_dim,
+                rope_dim=64,
+                use_qk_norm=True,
+            )
+        # Assert the branch, not the absence of a crash. Today a wide-grid launch
+        # at this width raises MLIRCompilationError, so the fallback is load
+        # bearing; the moment it compiles -- a wider constant, a newer toolchain
+        # -- "falls back" becomes a claim nothing here checks. Same reason the
+        # 8192 case records grids.
+        expected_n_cols = kv_hidden_size // head_dim
+        assert grids, "no launch recorded"
+        assert all(
+            grid[1] == expected_n_cols for grid in grids
+        ), f"expected the per-head grid ({expected_n_cols} columns), saw {grids}"
 
     def test_wide_grid_vs_golden(self):
         """Batch above the default threshold takes the wide grid; still matches golden."""
