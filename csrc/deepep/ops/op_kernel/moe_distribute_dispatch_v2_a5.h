@@ -292,7 +292,7 @@ private:
     uint32_t sendToSharedExpTokenCnt_{0};
     uint32_t maxSize_{0};
     uint32_t bufferNum_{0};
-    uint32_t baseWindSize_{0};
+    uint64_t baseWindSize_{0};
     uint32_t copyInAxisH_{0};
     uint32_t copyOutAxisH_{0};
     __gm__ HcclOpParam *winContext_[COMM_NUM]{nullptr, nullptr};
