@@ -107,9 +107,9 @@ def fused_sigmoid_gating_delta_rule_update_npu_kernel(
                         h0_source
                         + idx * HV * K * V
                         + i_hv * K * V
-                        + o_k[:, None] * V
-                        + o_v[None, :]
-                    )  # 128 * 64 * int32
+                        + o_v[None, :] * K
+                        + o_k[:, None]
+                    )
                     b_h = tl.load(p_h0, mask=mask_h).to(tl.float32)
 
             # Compute g = -exp(A_log) * softplus(a + dt_bias)
@@ -158,9 +158,9 @@ def fused_sigmoid_gating_delta_rule_update_npu_kernel(
                         h0_source
                         + idx * HV * K * V
                         + i_hv * K * V
-                        + o_k[:, None] * V
-                        + o_v[None, :]
-                    )  # 128 * 64 * int32
+                        + o_v[None, :] * K
+                        + o_k[:, None]
+                    )
                     tl.store(p_h0, b_h.to(p_h0.dtype.element_ty), mask=mask_h)
 
             tl.store(p_o + i * HV * V, b_o.to(p_o.dtype.element_ty), mask=mask_v)
