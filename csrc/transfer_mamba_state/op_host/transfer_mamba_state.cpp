@@ -31,8 +31,7 @@ enum TransferDirection : int64_t {
 //   width  = slot_bytes (product of state_shape dims * element_size)
 //
 // @direction: 1=H2D (host→device), 2=D2H (device→host)
-HOST_API void transfer_mamba_state(at::Tensor &device_buf, at::Tensor &host_buf,
-                                   const at::Tensor &device_indices,
+HOST_API void transfer_mamba_state(at::Tensor &device_buf, at::Tensor &host_buf, const at::Tensor &device_indices,
                                    const at::Tensor &host_indices, int64_t direction)
 {
     TORCH_CHECK(device_buf.numel() != 0, "device_buf must not be empty");
@@ -40,13 +39,12 @@ HOST_API void transfer_mamba_state(at::Tensor &device_buf, at::Tensor &host_buf,
     TORCH_CHECK(device_buf.dim() >= 2, "device_buf must have at least 2 dims, got %d", device_buf.dim());
     TORCH_CHECK(host_buf.dim() >= 2, "host_buf must have at least 2 dims, got %d", host_buf.dim());
     TORCH_CHECK(device_buf.sizes()[0] == host_buf.sizes()[1],
-                "layer count mismatch: device has %lld layers, host has %lld layers",
-                device_buf.sizes()[0], host_buf.sizes()[1]);
+                "layer count mismatch: device has %lld layers, host has %lld layers", device_buf.sizes()[0],
+                host_buf.sizes()[1]);
     TORCH_CHECK(device_buf.dtype() == host_buf.dtype(),
-                "device_buf and host_buf must have the same dtype, got %s vs %s",
-                device_buf.dtype().name().data(), host_buf.dtype().name().data());
-    TORCH_CHECK(device_indices.numel() == host_indices.numel(),
-                "device and host indices must have the same length");
+                "device_buf and host_buf must have the same dtype, got %s vs %s", device_buf.dtype().name().data(),
+                host_buf.dtype().name().data());
+    TORCH_CHECK(device_indices.numel() == host_indices.numel(), "device and host indices must have the same length");
     TORCH_CHECK(direction == static_cast<int64_t>(TransferDirection::H2D) ||
                     direction == static_cast<int64_t>(TransferDirection::D2H),
                 "direction must be 1(H2D) or 2(D2H)");
@@ -66,8 +64,7 @@ HOST_API void transfer_mamba_state(at::Tensor &device_buf, at::Tensor &host_buf,
     for (int64_t i = 2; i < host_buf.dim(); i++) {
         host_slot_bytes *= host_buf.sizes()[i];
     }
-    TORCH_CHECK(host_slot_bytes == slot_bytes,
-                "state shape mismatch: device slot_bytes=%lld, host slot_bytes=%lld",
+    TORCH_CHECK(host_slot_bytes == slot_bytes, "state shape mismatch: device slot_bytes=%lld, host slot_bytes=%lld",
                 slot_bytes, host_slot_bytes);
 
     // Device stride between layers (layer-first: [layer, slot, ...])
@@ -98,10 +95,10 @@ HOST_API void transfer_mamba_state(at::Tensor &device_buf, at::Tensor &host_buf,
         auto device_slot = device_indices_cpu[i].item<int64_t>();
         auto host_slot = host_indices_cpu[i].item<int64_t>();
 
-        TORCH_CHECK(device_slot >= 0 && device_slot < device_size,
-                    "device slot index out of range: %lld (size=%lld)", device_slot, device_size);
-        TORCH_CHECK(host_slot >= 0 && host_slot < host_buf.sizes()[0],
-                    "host slot index out of range: %lld (size=%lld)", host_slot, host_buf.sizes()[0]);
+        TORCH_CHECK(device_slot >= 0 && device_slot < device_size, "device slot index out of range: %lld (size=%lld)",
+                    device_slot, device_size);
+        TORCH_CHECK(host_slot >= 0 && host_slot < host_buf.sizes()[0], "host slot index out of range: %lld (size=%lld)",
+                    host_slot, host_buf.sizes()[0]);
 
         // Device: layer 0, slot device_slot
         char *device_ptr = device_base + device_slot * slot_bytes;
@@ -109,15 +106,9 @@ HOST_API void transfer_mamba_state(at::Tensor &device_buf, at::Tensor &host_buf,
         char *host_ptr = host_base + host_slot * num_layers * slot_bytes;
 
         if (direction == static_cast<int64_t>(TransferDirection::D2H)) {
-            aclrtMemcpy2dAsync(host_ptr, host_pitch,
-                               device_ptr, device_pitch,
-                               width, height,
-                               kind, acl_stream);
+            aclrtMemcpy2dAsync(host_ptr, host_pitch, device_ptr, device_pitch, width, height, kind, acl_stream);
         } else {
-            aclrtMemcpy2dAsync(device_ptr, device_pitch,
-                               host_ptr, host_pitch,
-                               width, height,
-                               kind, acl_stream);
+            aclrtMemcpy2dAsync(device_ptr, device_pitch, host_ptr, host_pitch, width, height, kind, acl_stream);
         }
     }
 }

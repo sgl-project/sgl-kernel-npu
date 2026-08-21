@@ -1,10 +1,7 @@
 import unittest
 
 import torch
-from sgl_kernel_npu.kvcacheio import (
-    TransferDirection,
-    transfer_mamba_state,
-)
+from sgl_kernel_npu.kvcacheio import TransferDirection, transfer_mamba_state
 
 # Typical Mamba state shapes (e.g. GLM-5.2-like config)
 # conv_state: [num_layers, pool_size, conv_window, dim]
@@ -36,9 +33,11 @@ def _make_host_buf(host_size, num_layers, state_shape, dtype, fill="zeros"):
     elif fill == "zeros":
         buf = torch.zeros(shape, dtype=dtype, device="cpu", pin_memory=True)
     elif fill == "arange":
-        buf = torch.arange(
-            torch.prod(torch.tensor(shape)).item(), dtype=dtype
-        ).reshape(shape).pin_memory()
+        buf = (
+            torch.arange(torch.prod(torch.tensor(shape)).item(), dtype=dtype)
+            .reshape(shape)
+            .pin_memory()
+        )
     elif fill == "randn":
         buf = torch.randn(shape, dtype=dtype, device="cpu").pin_memory()
     else:
@@ -52,7 +51,9 @@ class TestTransferMambaState(unittest.TestCase):
     def setUp(self):
         torch.npu.set_device(0)
 
-    def _run_transfer(self, device_buf, host_buf, device_indices, host_indices, direction):
+    def _run_transfer(
+        self, device_buf, host_buf, device_indices, host_indices, direction
+    ):
         stream = torch.npu.Stream()
         with torch.npu.stream(stream):
             transfer_mamba_state(
@@ -173,9 +174,7 @@ class TestTransferMambaState(unittest.TestCase):
         device_buf = _make_device_buf(
             num_layers, device_size, (dim,), dtype, fill="zeros"
         )
-        host_buf = _make_host_buf(
-            host_size, num_layers, (dim,), dtype, fill="arange"
-        )
+        host_buf = _make_host_buf(host_size, num_layers, (dim,), dtype, fill="arange")
 
         device_indices = torch.arange(device_size, dtype=torch.int64)
         host_indices = torch.arange(host_size, dtype=torch.int64)
@@ -230,9 +229,7 @@ class TestTransferMambaState(unittest.TestCase):
         device_buf = _make_device_buf(
             num_layers, device_size, (dim,), dtype, fill="zeros"
         )
-        host_buf = _make_host_buf(
-            host_size, num_layers, (dim,), dtype, fill="arange"
-        )
+        host_buf = _make_host_buf(host_size, num_layers, (dim,), dtype, fill="arange")
 
         # Transfer host slots 0, 4, 8 to device slots 3, 7, 1
         device_indices = torch.tensor([3, 7, 1], dtype=torch.int64)
@@ -272,9 +269,7 @@ class TestTransferMambaState(unittest.TestCase):
             num_layers, device_size, (dim,), dtype, fill="randn"
         )
         original = device_buf.clone()
-        host_buf = _make_host_buf(
-            device_size, num_layers, (dim,), dtype, fill="zeros"
-        )
+        host_buf = _make_host_buf(device_size, num_layers, (dim,), dtype, fill="zeros")
 
         indices = torch.arange(device_size, dtype=torch.int64)
 

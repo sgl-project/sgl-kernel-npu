@@ -147,4 +147,3 @@ def transfer_mamba_state(
         host_indices,
         direction.value,
     )
-    

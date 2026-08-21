@@ -57,7 +57,7 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
     m.def(
         "transfer_mamba_state(Tensor device_buf, Tensor host_buf, "
         "Tensor device_indices, Tensor host_indices, int direction) -> ()");
-    
+
     m.def(
         "transfer_state_per_layer_direct_pf_lf(Tensor src, Tensor dst, "
         "Tensor src_indices, Tensor dst_indices, int layer_id, int flags) -> ()");
