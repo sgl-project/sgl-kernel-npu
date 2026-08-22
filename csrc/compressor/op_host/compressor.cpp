@@ -14,6 +14,7 @@
  * \brief host wrapper (ge_helper + direct kernel launch) for the Compressor op.
  */
 #include <cstdio>
+#include <cstdlib>
 #include <limits>
 #include <mutex>
 #include <string>
@@ -39,6 +40,12 @@ namespace sglang {
 namespace npu_kernel {
 
 constexpr uint32_t MAX_CAPTURE_NUM = 1024;
+
+bool IsCompressorDebugEnabled()
+{
+    const char *value = std::getenv("SGL_COMPRESSOR_DEBUG");
+    return value != nullptr && value[0] == '1';
+}
 
 namespace {
 
@@ -274,12 +281,34 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
     TORCH_CHECK(validKey, "compressor A5: unsupported tiling key ", tilingKey);
 #endif
     tilingData.tilingKey = tilingKey;
+    const uint64_t debugKeyLayout = tilingKey & 0x1;
+    const uint64_t debugKeyTemplate = (tilingKey >> 11) & 0x3;
 
     uint32_t blockDim = compressorContext.blockDim;
     size_t workspaceSize = context->GetWorkspaceSize();
     // Make sure CalcWorkSpace wrote a value (fall back to context user size)
     if (workspaceSize == 0) {
         workspaceSize = sizeof(CompressorTilingData);
+    }
+
+    if (IsCompressorDebugEnabled()) {
+        const auto &base = tilingData.baseParams;
+        const auto &page = tilingData.pageAttentionParams;
+        const auto &split = tilingData.innerSplitParams;
+        std::fprintf(stderr,
+                     "[compressor][debug] x_dim=%lld x_numel=%lld dtype=%d "
+                     "layout=%llu key=%llu blockDim=%u workspace=%zu "
+                     "template=%llu base{B=%u S=%u T=%u H=%u head=%u ratio=%u "
+                     "usedCore=%u nSize=%u stateStride=%llu} page{blockNum=%u blockSize=%u "
+                     "maxPerBatch=%u} split{m=%u d=%u} optional{table=%d cu=%d used=%d start=%d}\n",
+                     static_cast<long long>(x.dim()), static_cast<long long>(x.numel()),
+                     static_cast<int>(x.scalar_type()), static_cast<unsigned long long>(debugKeyLayout),
+                     static_cast<unsigned long long>(tilingKey), blockDim, workspaceSize,
+                     static_cast<unsigned long long>(debugKeyTemplate), base.batchSize, base.seqSize, base.tokenSize,
+                     base.hiddenSize, base.headDim, base.cmpRatio, base.usedCoreNum, base.nSize,
+                     static_cast<unsigned long long>(base.stateCacheStrideDim0), page.blockNum, page.blockSize,
+                     page.maxBlockNumPerBatch, split.mBaseSize, split.dBaseSize, state_block_table.has_value(),
+                     cu_seqlens.has_value(), seqused.has_value(), start_pos.has_value());
     }
 
     // ---- 5) copy tiling data to device with graph-capture cache ----

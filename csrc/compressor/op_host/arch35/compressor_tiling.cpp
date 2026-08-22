@@ -506,7 +506,7 @@ ge::graphStatus CompressorTiling::CheckDimNumInLayoutSupport(const std::string &
 {
     const auto &dimIt = LAYOUT_DIM_MAP.find(layout);
     OP_CHECK_IF(shape->GetStorageShape().GetDimNum() != dimIt->second,
-                OP_LOGE(context_->opName, "When layout is %s, %s dimension should be %zu, but it's %zu", layout.c_str(),
+                OP_LOGE(context_->opName, "When layout is %s, %s dimension should be %u, but it's %zu", layout.c_str(),
                         name.c_str(), dimIt->second, shape->GetStorageShape().GetDimNum()),
                 return ge::GRAPH_FAILED);
     return ge::GRAPH_SUCCESS;
@@ -851,14 +851,14 @@ ge::graphStatus CompressorTiling::CheckFeature() const
             return ge::GRAPH_FAILED);
         OP_CHECK_IF(
             context_->stateBlockTable.shape->GetStorageShape().GetDimNum() != COMPRESSOR_DIM_NUM_1,
-            OP_LOGE(context_->opName, "when cacheMode is %u, stateBlockTable dim num should be equal to %u, but got %u",
+            OP_LOGE(context_->opName, "when cacheMode is %u, stateBlockTable dim num should be equal to %u, but got %zu",
                     static_cast<uint8_t>(CACHE_MODE::CYCLE), COMPRESSOR_DIM_NUM_1,
                     context_->stateBlockTable.shape->GetStorageShape().GetDimNum()),
             return ge::GRAPH_FAILED);
     } else {
         OP_CHECK_IF(
             context_->stateBlockTable.shape->GetStorageShape().GetDimNum() != COMPRESSOR_DIM_NUM_2,
-            OP_LOGE(context_->opName, "when cacheMode is %u, stateBlockTable dim num should be equal to %u, but got %u",
+            OP_LOGE(context_->opName, "when cacheMode is %u, stateBlockTable dim num should be equal to %u, but got %zu",
                     static_cast<uint8_t>(CACHE_MODE::CONTINUOUS), COMPRESSOR_DIM_NUM_2,
                     context_->stateBlockTable.shape->GetStorageShape().GetDimNum()),
             return ge::GRAPH_FAILED);
@@ -989,15 +989,15 @@ ge::graphStatus CompressorTiling::CheckDimNumConsistency() const
 {
     auto xDimNum = context_->x.shape->GetStorageShape().GetDimNum();
     OP_CHECK_IF(xDimNum != context_->ropeSin.shape->GetStorageShape().GetDimNum(),
-                OP_LOGE(context_->opName, "ropeSin dim num should be equal to x: %u, but got %u", xDimNum,
+                OP_LOGE(context_->opName, "ropeSin dim num should be equal to x: %zu, but got %zu", xDimNum,
                         context_->ropeSin.shape->GetStorageShape().GetDimNum()),
                 return ge::GRAPH_FAILED);
     OP_CHECK_IF(xDimNum != context_->ropeCos.shape->GetStorageShape().GetDimNum(),
-                OP_LOGE(context_->opName, "ropeCos dim num should be equal to x: %u, but got %u", xDimNum,
+                OP_LOGE(context_->opName, "ropeCos dim num should be equal to x: %zu, but got %zu", xDimNum,
                         context_->ropeCos.shape->GetStorageShape().GetDimNum()),
                 return ge::GRAPH_FAILED);
     OP_CHECK_IF(xDimNum != context_->cmpKv.shape->GetStorageShape().GetDimNum(),
-                OP_LOGE(context_->opName, "cmpKv dim num should be equal to x: %u, but got %u", xDimNum,
+                OP_LOGE(context_->opName, "cmpKv dim num should be equal to x: %zu, but got %zu", xDimNum,
                         context_->cmpKv.shape->GetStorageShape().GetDimNum()),
                 return ge::GRAPH_FAILED);
     return ge::GRAPH_SUCCESS;
