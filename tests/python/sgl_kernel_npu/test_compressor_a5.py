@@ -418,7 +418,6 @@ def _call_native_compressor(inputs, state_cache):
         norm_eps=inputs["norm_eps"],
         rotary_mode=2,
         cache_mode=inputs["cache_mode"],
-        state_cache_stride_dim0=0,
     )
 
 
@@ -468,7 +467,6 @@ def _call_a5_device_compressor(operator, inputs, state_cache):
         norm_eps=inputs["norm_eps"],
         rotary_mode=inputs["rotary_mode"],
         cache_mode=inputs["cache_mode"],
-        state_cache_stride_dim0=0,
     )
 
 
@@ -493,6 +491,37 @@ def _small_cycle_case(**overrides):
 
 
 class TestCompressorA5Reference(unittest.TestCase):
+    def test_device_call_uses_native_compressor_argument_contract(self):
+        inputs = _small_cycle_case()
+        call = {}
+
+        def native_compressor_schema(*args, **kwargs):
+            call.update(args=args, kwargs=kwargs)
+            return args[0]
+
+        self.assertIs(
+            _call_a5_device_compressor(
+                native_compressor_schema, inputs, inputs["state_cache"]
+            ),
+            inputs["x"],
+        )
+        self.assertEqual(len(call["args"]), 8)
+        self.assertEqual(
+            set(call["kwargs"]),
+            {
+                "state_block_table",
+                "cu_seqlens",
+                "seqused",
+                "start_pos",
+                "rope_head_dim",
+                "cmp_ratio",
+                "coff",
+                "norm_eps",
+                "rotary_mode",
+                "cache_mode",
+            },
+        )
+
     def test_continuous_state_uses_distinct_physical_blocks(self):
         inputs = _make_a5_inputs(
             start_pos=[127, 255],
