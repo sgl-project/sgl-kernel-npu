@@ -38,6 +38,7 @@
 #define EVENT_ID7 7
 #endif
 
+#include "common_tiling_kernel.h"
 #include "kernel_operator.h"
 
 #if defined(__NPU_ARCH__)
@@ -67,11 +68,15 @@ __global__ __aicore__ void compressor(
 {
     AscendC::TPipe pipe;
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
-    auto tilingData = reinterpret_cast<__gm__ optiling::CompressorTilingData *>(tiling);
+    auto tilingDataGm = reinterpret_cast<__gm__ optiling::CompressorTilingData *>(tiling);
+    optiling::CompressorTilingData tilingDataIn;
+    kernel_utils::CopyTiling(&tilingDataIn, tiling);
+    const optiling::CompressorTilingData *__restrict tilingData = &tilingDataIn;
     uint64_t key = tilingData->tilingKey;
 #if defined(COMPRESSOR_A5_DEBUG)
     if (AscendC::GetBlockIdx() == 0) {
-        AscendC::printf("[compressor][device-debug] key=%llu block=%u template=%llu\n",
+        AscendC::printf("[compressor][device-debug] gm_key=%llu local_key=%llu block=%u template=%llu\n",
+                        static_cast<unsigned long long>(tilingDataGm->tilingKey),
                         static_cast<unsigned long long>(key), AscendC::GetBlockIdx(),
                         static_cast<unsigned long long>((key >> 11) & 0x3));
     }
