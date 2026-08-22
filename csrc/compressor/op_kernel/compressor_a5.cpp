@@ -61,11 +61,13 @@ using namespace Compressor;
         INVOKE_A5_COMPRESSOR(templateClass, static_cast<X_LAYOUT>(layout), static_cast<X_DTYPE>(dtype),             \
                              static_cast<COFF>(coff), static_cast<ROTARY_MODE>(2), static_cast<CACHE_MODE>(cache)); \
         break;
-extern "C" __global__ __aicore__ void compressor(GM_ADDR x, GM_ADDR wKv, GM_ADDR wGate, GM_ADDR stateCache, GM_ADDR ape,
-                                                 GM_ADDR normWeight, GM_ADDR ropeSin, GM_ADDR ropeCos,
-                                                 GM_ADDR stateBlockTable, GM_ADDR cuSeqlens, GM_ADDR seqUsed,
-                                                 GM_ADDR startPos, GM_ADDR cmpKvOut, GM_ADDR stateCacheOut,
-                                                 GM_ADDR workspace, GM_ADDR tiling)
+// The kernel contains SyncAll() barriers.  Keep the same batch scheduling
+// contract as the original CANN OPP kernel so all participating cores start
+// together when launched through the PyTorch direct-launch path.
+__schedmode__(1) extern "C" __global__ __aicore__ void compressor(
+    GM_ADDR x, GM_ADDR wKv, GM_ADDR wGate, GM_ADDR stateCache, GM_ADDR ape, GM_ADDR normWeight, GM_ADDR ropeSin,
+    GM_ADDR ropeCos, GM_ADDR stateBlockTable, GM_ADDR cuSeqlens, GM_ADDR seqUsed, GM_ADDR startPos, GM_ADDR cmpKvOut,
+    GM_ADDR stateCacheOut, GM_ADDR workspace, GM_ADDR tiling)
 {
     AscendC::TPipe pipe;
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
