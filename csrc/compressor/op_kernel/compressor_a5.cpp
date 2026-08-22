@@ -67,51 +67,11 @@ __global__ __aicore__ void compressor(
 {
     AscendC::TPipe pipe;
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
-    auto tilingDataGm = reinterpret_cast<__gm__ optiling::CompressorTilingData *>(tiling);
-    optiling::CompressorTilingData tilingDataIn;
-    tilingDataIn.baseParams.batchSize = tilingDataGm->baseParams.batchSize;
-    tilingDataIn.baseParams.seqSize = tilingDataGm->baseParams.seqSize;
-    tilingDataIn.baseParams.hiddenSize = tilingDataGm->baseParams.hiddenSize;
-    tilingDataIn.baseParams.tokenSize = tilingDataGm->baseParams.tokenSize;
-    tilingDataIn.baseParams.headDim = tilingDataGm->baseParams.headDim;
-    tilingDataIn.baseParams.ropeHeadDim = tilingDataGm->baseParams.ropeHeadDim;
-    tilingDataIn.baseParams.csSize = tilingDataGm->baseParams.csSize;
-    tilingDataIn.baseParams.cmpRatio = tilingDataGm->baseParams.cmpRatio;
-    tilingDataIn.baseParams.cgSize = tilingDataGm->baseParams.cgSize;
-    tilingDataIn.baseParams.normEps = tilingDataGm->baseParams.normEps;
-    tilingDataIn.baseParams.reciprocalD = tilingDataGm->baseParams.reciprocalD;
-    tilingDataIn.baseParams.usedCoreNum = tilingDataGm->baseParams.usedCoreNum;
-    tilingDataIn.baseParams.nSize = tilingDataGm->baseParams.nSize;
-    tilingDataIn.baseParams.stateCacheStrideDim0 = tilingDataGm->baseParams.stateCacheStrideDim0;
-    tilingDataIn.baseParams.kBaseNum = tilingDataGm->baseParams.kBaseNum;
-    tilingDataIn.baseParams.kBaseSize = tilingDataGm->baseParams.kBaseSize;
-    tilingDataIn.baseParams.coreGroupNum = tilingDataGm->baseParams.coreGroupNum;
-    tilingDataIn.baseParams.mLoopNum = tilingDataGm->baseParams.mLoopNum;
-    for (uint32_t i = 0; i < CMP_MAX_AIC_CORE_NUM; ++i) {
-        tilingDataIn.baseParams.splitCoreParam[i].mStart = tilingDataGm->baseParams.splitCoreParam[i].mStart;
-        tilingDataIn.baseParams.splitCoreParam[i].mEnd = tilingDataGm->baseParams.splitCoreParam[i].mEnd;
-        tilingDataIn.baseParams.splitCoreParam[i].nStart = tilingDataGm->baseParams.splitCoreParam[i].nStart;
-        tilingDataIn.baseParams.splitCoreParam[i].nEnd = tilingDataGm->baseParams.splitCoreParam[i].nEnd;
-        tilingDataIn.baseParams.splitCoreParam[i].kStart = tilingDataGm->baseParams.splitCoreParam[i].kStart;
-        tilingDataIn.baseParams.splitCoreParam[i].kEnd = tilingDataGm->baseParams.splitCoreParam[i].kEnd;
-    }
-    tilingDataIn.pageAttentionParams.blockNum = tilingDataGm->pageAttentionParams.blockNum;
-    tilingDataIn.pageAttentionParams.blockSize = tilingDataGm->pageAttentionParams.blockSize;
-    tilingDataIn.pageAttentionParams.maxBlockNumPerBatch = tilingDataGm->pageAttentionParams.maxBlockNumPerBatch;
-    tilingDataIn.innerSplitParams.mBaseSize = tilingDataGm->innerSplitParams.mBaseSize;
-    tilingDataIn.innerSplitParams.dBaseSize = tilingDataGm->innerSplitParams.dBaseSize;
-    tilingDataIn.workspaceParams.mm1KvResSize = tilingDataGm->workspaceParams.mm1KvResSize;
-    tilingDataIn.workspaceParams.mm1ScoreResSize = tilingDataGm->workspaceParams.mm1ScoreResSize;
-    tilingDataIn.workspaceParams.vec1ResSize = tilingDataGm->workspaceParams.vec1ResSize;
-    tilingDataIn.workspaceParams.vec1TailCacheSize = tilingDataGm->workspaceParams.vec1TailCacheSize;
-    tilingDataIn.workspaceParams.dbWorkspaceRatio = tilingDataGm->workspaceParams.dbWorkspaceRatio;
-    tilingDataIn.tilingKey = tilingDataGm->tilingKey;
-    const optiling::CompressorTilingData *__restrict tilingData = &tilingDataIn;
+    auto tilingData = reinterpret_cast<__gm__ optiling::CompressorTilingData *>(tiling);
     uint64_t key = tilingData->tilingKey;
 #if defined(COMPRESSOR_A5_DEBUG)
     if (AscendC::GetBlockIdx() == 0) {
-        AscendC::printf("[compressor][device-debug] gm_key=%llu local_key=%llu block=%u template=%llu\n",
-                        static_cast<unsigned long long>(tilingDataGm->tilingKey),
+        AscendC::printf("[compressor][device-debug] key=%llu block=%u template=%llu\n",
                         static_cast<unsigned long long>(key), AscendC::GetBlockIdx(),
                         static_cast<unsigned long long>((key >> 11) & 0x3));
     }
