@@ -145,8 +145,7 @@ if(SGL_KERNEL_ENABLE_A5_COMPRESSOR)
         ${PROJECT_OP_SRC_BASE}/utils/kernel)
     ascendc_compile_definitions(compressor_kernel PRIVATE
         -DHAVE_WORKSPACE
-        -DHAVE_TILING
-        -DCOMPRESSOR_A5_DEBUG)
+        -DHAVE_TILING)
     ascendc_compile_options(compressor_kernel PRIVATE
         --cce-auto-sync=off
         -Wno-deprecated-declarations

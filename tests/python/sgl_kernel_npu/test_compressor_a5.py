@@ -522,10 +522,22 @@ class TestCompressorA5(unittest.TestCase):
     def _assert_precision(self, actual, expected, dtype):
         rtol, atol = (0.0078125, 1e-4) if dtype == torch.bfloat16 else (0.005, 2.5e-5)
         actual, expected = actual.float().cpu(), expected.float().cpu()
+        self.assertEqual(actual.numel(), expected.numel())
+        if actual.numel() == 0:
+            return
         self.assertTrue(torch.isfinite(expected).all().item())
         self.assertTrue(torch.isfinite(actual).all().item())
         passed = torch.isclose(actual, expected, rtol=rtol, atol=atol, equal_nan=False)
-        self.assertGreaterEqual(passed.float().mean().item(), 0.995)
+        pass_rate = passed.float().mean().item()
+        max_abs_error = (actual - expected).abs().max().item()
+        self.assertGreaterEqual(
+            pass_rate,
+            0.995,
+            msg=(
+                f"pass_rate={pass_rate}, max_abs_error={max_abs_error}, "
+                f"numel={actual.numel()}, dtype={dtype}"
+            ),
+        )
 
     def _new_npu_state(self, inputs):
         if not inputs["noncontiguous_dim0"]:

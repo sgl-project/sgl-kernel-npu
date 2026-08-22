@@ -69,13 +69,6 @@ __global__ __aicore__ void compressor(
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_MIX_AIC_1_2);
     auto tilingData = reinterpret_cast<__gm__ optiling::CompressorTilingData *>(tiling);
     uint64_t key = tilingData->tilingKey;
-#if defined(COMPRESSOR_A5_DEBUG)
-    if (AscendC::GetBlockIdx() == 0) {
-        AscendC::printf("[compressor][device-debug] key=%llu block=%u template=%llu\n",
-                        static_cast<unsigned long long>(key), AscendC::GetBlockIdx(),
-                        static_cast<unsigned long long>((key >> 11) & 0x3));
-    }
-#endif
     uint64_t templateId = (key >> 11) & 0x3;
     if (templateId == static_cast<uint64_t>(TEMPLATE_ID::EMPTY_X)) {
         return;
