@@ -27,6 +27,7 @@ set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/assign_cache_op/op_host/assign_cache.cpp
     ${PROJECT_OP_SRC_BASE}/build_tree/op_host/build_tree.cpp
     ${PROJECT_OP_SRC_BASE}/transfer_kv_dim_exchange/op_host/transfer_kv_dim_exchange.cpp
+    ${PROJECT_OP_SRC_BASE}/transfer_state_dim_exchange/op_host/transfer_state_dim_exchange.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/bgmv_expand.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/bgmv_shrink.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgmv_expand.cpp
@@ -52,6 +53,8 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/tiling/tiling_data.cpp
         ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/lightning_indexer.cpp
         ${PROJECT_OP_SRC_BASE}/lightning_indexer/op_host/tiling/lightning_indexer_tiling.cpp
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host/sparse_attn_sharedkv.cpp
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host/sparse_attn_sharedkv_tiling.cpp
         ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
         ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_host/recurrent_gated_delta_rule.cpp
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/causal_conv1d.cpp
@@ -163,10 +166,10 @@ if(BUILD_CATLASS_MODULE)
     set(CATLASS_WORKSPACE_KERNEL_TARGETS catlass_workspace_kernel)
 endif()
 
-# mega_chunk_gdn kernel target: A3-only
-set(MEGA_CHUNK_GDN_KERNEL_TARGETS)
+# Dedicated A3-only kernel targets. Keep these separate from workspace_kernel:
+# their compiler definitions/options apply to the whole AscendC target.
+set(A3_ONLY_KERNEL_TARGETS)
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
-    set(MEGA_CHUNK_GDN_KERNEL_TARGETS mega_chunk_gdn_kernel)
     ascendc_library(mega_chunk_gdn_kernel STATIC
         ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel/mega_kernel.cpp
     )
@@ -182,13 +185,34 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         -DGDN_D=128
         -DGDN_C=128
     )
+    list(APPEND A3_ONLY_KERNEL_TARGETS mega_chunk_gdn_kernel)
+
+    ascendc_library(sparse_attn_sharedkv_kernel STATIC
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_kernel/sparse_attn_sharedkv.cpp
+    )
+    ascendc_include_directories(sparse_attn_sharedkv_kernel PRIVATE
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_kernel
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host
+        ${PROJECT_OP_SRC_BASE}/utils/kernel
+    )
+    ascendc_compile_definitions(sparse_attn_sharedkv_kernel PRIVATE
+        -DHAVE_WORKSPACE
+        -DHAVE_TILING
+    )
+    ascendc_compile_options(sparse_attn_sharedkv_kernel PRIVATE
+        --cce-auto-sync=off
+        -Wno-deprecated-declarations
+        -mllvm
+        -cce-vf-remove-membar=false
+    )
+    list(APPEND A3_ONLY_KERNEL_TARGETS sparse_attn_sharedkv_kernel)
 endif()
 
 # create shared library
 add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
-        ${MEGA_CHUNK_GDN_KERNEL_TARGETS}
+        ${A3_ONLY_KERNEL_TARGETS}
         workspace_kernel
         no_workspace_kernel
         ${CATLASS_WORKSPACE_KERNEL_TARGETS}
@@ -218,6 +242,7 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/stub
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host
+        ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling
         ${TORCH_DIR}/include

@@ -55,6 +55,14 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor device_indices, Tensor host_indices, int page_size, int direct, int flags) -> ()");
 
     m.def(
+        "transfer_state_per_layer_direct_pf_lf(Tensor src, Tensor dst, "
+        "Tensor src_indices, Tensor dst_indices, int layer_id, int flags) -> ()");
+
+    m.def(
+        "transfer_state_all_layer_direct_lf_pf(Tensor[] device_states, Tensor[] host_states, "
+        "Tensor device_indices, Tensor host_indices, int flags) -> ()");
+
+    m.def(
         "bgmv_expand(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y,"
         "            int slice_offset, int slice_size) -> Tensor");
 
@@ -144,6 +152,17 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int? sparse_count=None, int? sparse_mode=None) -> Tensor");
 
     m.def(
+        "sparse_attn_sharedkv(Tensor q, *, Tensor? ori_kv=None, Tensor? cmp_kv=None, "
+        "Tensor? ori_sparse_indices=None, Tensor? cmp_sparse_indices=None, "
+        "Tensor? ori_block_table=None, Tensor? cmp_block_table=None, "
+        "Tensor? cu_seqlens_q=None, Tensor? cu_seqlens_ori_kv=None, "
+        "Tensor? cu_seqlens_cmp_kv=None, Tensor? seqused_q=None, Tensor? seqused_kv=None, "
+        "Tensor? sinks=None, Tensor? metadata=None, float softmax_scale=0, int cmp_ratio=0, "
+        "int ori_mask_mode=4, int cmp_mask_mode=3, int ori_win_left=128, int ori_win_right=0, "
+        "str layout_q='BSND', str layout_kv='PA_ND', "
+        "bool return_softmax_lse=False) -> (Tensor, Tensor)");
+
+    m.def(
         "compressor(Tensor x, Tensor wkv, Tensor wgate, Tensor! state_cache, "
         "Tensor ape, Tensor norm_weight, Tensor rope_sin, Tensor rope_cos, "
         "Tensor? state_block_table=None, Tensor? cu_seqlens=None, Tensor? seqused=None, "
@@ -199,6 +218,12 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
     m.impl("transfer_kv_dim_exchange", TORCH_FN(sglang::npu_kernel::transfer_kv_dim_exchange));
 
+    m.impl("transfer_state_per_layer_direct_pf_lf",
+           TORCH_FN(sglang::npu_kernel::transfer_state_per_layer_direct_pf_lf));
+
+    m.impl("transfer_state_all_layer_direct_lf_pf",
+           TORCH_FN(sglang::npu_kernel::transfer_state_all_layer_direct_lf_pf));
+
     m.impl("bgmv_expand", TORCH_FN(sglang::npu_kernel::bgmv_expand));
 
     m.impl("bgmv_shrink", TORCH_FN(sglang::npu_kernel::bgmv_shrink));
@@ -249,6 +274,9 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
 
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
+
+    m.impl("sparse_attn_sharedkv", TORCH_FN(sglang::npu_kernel::sparse_attn_sharedkv));
+
     m.impl("npu_sparse_attention_score", TORCH_FN(sglang::npu_kernel::sparse_attention_score));
 
     m.impl("triangular_inverse", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
