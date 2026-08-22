@@ -814,9 +814,6 @@ ge::graphStatus CompressorTiling::CheckRequiredInOutExistence() const
         OP_CHECK_IF(context_->cuSeqlens.desc != nullptr,
                     OP_LOGE(context_->opName, "In BSH layout, tensor cuSeqlens must be nullptr"),
                     return ge::GRAPH_FAILED);
-        OP_CHECK_IF(context_->cuSeqlens.shape != nullptr,
-                    OP_LOGE(context_->opName, "In TH layout, tensor cuSeqlens must be nullptr"),
-                    return ge::GRAPH_FAILED);
     }
     return ge::GRAPH_SUCCESS;
 }
@@ -895,8 +892,6 @@ ge::graphStatus CompressorTiling::CheckShapeConsistency() const
     uint32_t stateNum = 2;
     if (ge::GRAPH_SUCCESS != LogErrorShapeConsistency("stateBlockTable", context_->stateBlockTable.shape,
                                                       COMPRESSOR_DIM_INDEX_0, "batchSize", baseParams_->batchSize) ||
-        ge::GRAPH_SUCCESS != LogErrorShapeConsistency("cuSeqlens", context_->cuSeqlens.shape, COMPRESSOR_DIM_INDEX_0,
-                                                      "batchSize+1", baseParams_->batchSize + 1) ||
         ge::GRAPH_SUCCESS != LogErrorShapeConsistency("seqUsed", context_->seqUsed.shape, COMPRESSOR_DIM_INDEX_0,
                                                       "batchSize", baseParams_->batchSize) ||
         ge::GRAPH_SUCCESS != LogErrorShapeConsistency("startPos", context_->startPos.shape, COMPRESSOR_DIM_INDEX_0,
@@ -915,6 +910,12 @@ ge::graphStatus CompressorTiling::CheckShapeConsistency() const
                                                       "coff*headDim", static_cast<uint32_t>(coffD)) ||
         ge::GRAPH_SUCCESS != LogErrorShapeConsistency("ape", context_->ape.shape, COMPRESSOR_DIM_INDEX_0, "cmpRatio",
                                                       baseParams_->cmpRatio)) {
+        return ge::GRAPH_FAILED;
+    }
+    if (context_->layout == LayoutType::LAYOUT_TH &&
+        ge::GRAPH_SUCCESS != LogErrorShapeConsistency("cuSeqlens", context_->cuSeqlens.shape,
+                                                       COMPRESSOR_DIM_INDEX_0, "batchSize+1",
+                                                       baseParams_->batchSize + 1)) {
         return ge::GRAPH_FAILED;
     }
     if (static_cast<uint8_t>(*context_->cacheMode) == static_cast<uint8_t>(CACHE_MODE::CONTINUOUS) &&
