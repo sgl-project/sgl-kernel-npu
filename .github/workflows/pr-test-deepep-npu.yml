@@ -133,6 +133,12 @@ jobs:
           HCCL_BUFFSIZE: 4065
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-tokens=4
+      - name: Run zero-token layout regression
+        timeout-minutes: 10
+        env:
+          HCCL_BUFFSIZE: 4065
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_zero_token_layout.py
       - name: Run test intranode for big bs
         timeout-minutes: 10
         env:
