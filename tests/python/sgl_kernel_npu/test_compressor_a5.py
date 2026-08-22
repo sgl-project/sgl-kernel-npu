@@ -140,6 +140,9 @@ def _make_a5_inputs(
             state_block_table[batch_index].fill_(batch_index + 1)
     else:
         state_block_table = torch.arange(1, batch + 1, dtype=torch.int32)
+        block_size = (
+            2 * cmp_ratio + seq_len - 1 if coff == 2 else cmp_ratio + seq_len - 1
+        )
     block_num = batch + 2
     if noncontiguous_dim0:
         backing = torch.empty(
@@ -489,6 +492,25 @@ def _small_cycle_case(**overrides):
 
 
 class TestCompressorA5Reference(unittest.TestCase):
+    def test_cycle_state_uses_required_history_capacity(self):
+        inputs = _make_a5_inputs(
+            start_pos=[15],
+            seq_len=129,
+            coff=1,
+            cmp_ratio=128,
+            head_dim=512,
+            hidden=1024,
+            cache_mode=2,
+            layout="TH",
+            dtype=torch.bfloat16,
+            batch=1,
+            block_size=16,
+            noncontiguous_dim0=False,
+            seed=20260820,
+        )
+
+        self.assertEqual(inputs["state_cache"].shape[1], 256)
+
     def test_continuous_c4a_writes_every_valid_token(self):
         inputs = _make_a5_inputs(
             start_pos=[3],
@@ -530,12 +552,18 @@ class TestCompressorA5(unittest.TestCase):
         passed = torch.isclose(actual, expected, rtol=rtol, atol=atol, equal_nan=False)
         pass_rate = passed.float().mean().item()
         max_abs_error = (actual - expected).abs().max().item()
+        bad_indices = (~passed).flatten().nonzero().flatten()
+        sample_indices = bad_indices[:8]
+        sample_actual = actual.flatten()[sample_indices].tolist()
+        sample_expected = expected.flatten()[sample_indices].tolist()
         self.assertGreaterEqual(
             pass_rate,
             0.995,
             msg=(
                 f"pass_rate={pass_rate}, max_abs_error={max_abs_error}, "
-                f"numel={actual.numel()}, dtype={dtype}"
+                f"numel={actual.numel()}, dtype={dtype}, "
+                f"bad_indices={sample_indices.tolist()}, "
+                f"actual={sample_actual}, expected={sample_expected}"
             ),
         )
 
@@ -662,16 +690,21 @@ class TestCompressorA5(unittest.TestCase):
                 )
 
     def test_cycle_position_boundaries_and_bank_isolation(self):
-        block_size = 16
         for scenario_name, scenario in SCENARIOS.items():
+            seq_len = scenario["cmp_ratio"] + 1
+            cycle_size = (
+                2 * scenario["cmp_ratio"] + seq_len - 1
+                if scenario["coff"] == 2
+                else scenario["cmp_ratio"] + seq_len - 1
+            )
             positions = (
                 0,
                 scenario["cmp_ratio"] - 1,
                 scenario["cmp_ratio"],
                 8192,
-                block_size - 1,
-                block_size,
-                block_size + 1,
+                cycle_size - 1,
+                cycle_size,
+                cycle_size + 1,
             )
             for position in positions:
                 with self.subTest(scenario=scenario_name, position=position):
