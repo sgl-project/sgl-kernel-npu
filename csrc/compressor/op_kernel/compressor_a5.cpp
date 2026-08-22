@@ -61,15 +61,7 @@ using namespace Compressor;
         INVOKE_A5_COMPRESSOR(templateClass, static_cast<X_LAYOUT>(layout), static_cast<X_DTYPE>(dtype),             \
                              static_cast<COFF>(coff), static_cast<ROTARY_MODE>(2), static_cast<CACHE_MODE>(cache)); \
         break;
-// The kernel contains SyncAll() barriers.  Keep the same batch scheduling
-// contract as the original CANN OPP kernel so all participating cores start
-// together when launched through the PyTorch direct-launch path.
-#if defined(__CCE_AICORE__)
-#define COMPRESSOR_SCHEDMODE __schedmode__(1)
-#else
-#define COMPRESSOR_SCHEDMODE
-#endif
-__global__ __aicore__ COMPRESSOR_SCHEDMODE void compressor(
+__global__ __aicore__ void compressor(
     GM_ADDR x, GM_ADDR wKv, GM_ADDR wGate, GM_ADDR stateCache, GM_ADDR ape, GM_ADDR normWeight, GM_ADDR ropeSin,
     GM_ADDR ropeCos, GM_ADDR stateBlockTable, GM_ADDR cuSeqlens, GM_ADDR seqUsed, GM_ADDR startPos, GM_ADDR cmpKvOut,
     GM_ADDR stateCacheOut, GM_ADDR workspace, GM_ADDR tiling)
@@ -118,7 +110,6 @@ __global__ __aicore__ COMPRESSOR_SCHEDMODE void compressor(
     }
 }
 
-#undef COMPRESSOR_SCHEDMODE
 #undef A5_COMPRESSOR_CASE
 #undef INVOKE_A5_COMPRESSOR
 #endif
