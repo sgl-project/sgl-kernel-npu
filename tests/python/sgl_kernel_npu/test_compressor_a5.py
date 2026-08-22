@@ -135,15 +135,16 @@ def _make_a5_inputs(
     )
     if cache_mode == 1:
         table_width = (max(start_pos) + seq_len + block_size - 1) // block_size
-        state_block_table = torch.empty((batch, table_width), dtype=torch.int32)
-        for batch_index in range(batch):
-            state_block_table[batch_index].fill_(batch_index + 1)
+        state_block_table = torch.arange(
+            1, batch * table_width + 1, dtype=torch.int32
+        ).reshape(batch, table_width)
+        block_num = batch * table_width + 2
     else:
         state_block_table = torch.arange(1, batch + 1, dtype=torch.int32)
         block_size = (
             2 * cmp_ratio + seq_len - 1 if coff == 2 else cmp_ratio + seq_len - 1
         )
-    block_num = batch + 2
+        block_num = batch + 2
     if noncontiguous_dim0:
         backing = torch.empty(
             (block_num * 2, block_size, 2 * width), dtype=torch.float32
@@ -492,6 +493,27 @@ def _small_cycle_case(**overrides):
 
 
 class TestCompressorA5Reference(unittest.TestCase):
+    def test_continuous_state_uses_distinct_physical_blocks(self):
+        inputs = _make_a5_inputs(
+            start_pos=[127, 255],
+            seq_len=129,
+            coff=1,
+            cmp_ratio=128,
+            head_dim=512,
+            hidden=1024,
+            cache_mode=1,
+            layout="TH",
+            dtype=torch.float16,
+            batch=2,
+            block_size=16,
+            noncontiguous_dim0=False,
+            seed=20260820,
+        )
+        block_table = inputs["state_block_table"]
+
+        self.assertEqual(block_table.unique().numel(), block_table.numel())
+        self.assertGreater(inputs["state_cache"].shape[0], block_table.max().item())
+
     def test_cycle_state_uses_required_history_capacity(self):
         inputs = _make_a5_inputs(
             start_pos=[15],
