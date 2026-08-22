@@ -61,7 +61,16 @@ using namespace Compressor;
         INVOKE_A5_COMPRESSOR(templateClass, static_cast<X_LAYOUT>(layout), static_cast<X_DTYPE>(dtype),             \
                              static_cast<COFF>(coff), static_cast<ROTARY_MODE>(2), static_cast<CACHE_MODE>(cache)); \
         break;
-__global__ __aicore__ void compressor(
+#if defined(__CCE_AICORE__)
+// CANN's original OPP kernel uses batch scheduling because Process() contains
+// SyncAll().  Spell the attribute through token pasting so the CANN 9.1
+// host-stub extractor does not treat it as a host-side function attribute.
+#define COMPRESSOR_SCHEDMODE_NAME(mode) __sched##mode##__
+#define COMPRESSOR_SCHEDMODE(mode) COMPRESSOR_SCHEDMODE_NAME(mode)(1)
+#else
+#define COMPRESSOR_SCHEDMODE(mode)
+#endif
+__global__ __aicore__ COMPRESSOR_SCHEDMODE(mode) void compressor(
     GM_ADDR x, GM_ADDR wKv, GM_ADDR wGate, GM_ADDR stateCache, GM_ADDR ape, GM_ADDR normWeight, GM_ADDR ropeSin,
     GM_ADDR ropeCos, GM_ADDR stateBlockTable, GM_ADDR cuSeqlens, GM_ADDR seqUsed, GM_ADDR startPos, GM_ADDR cmpKvOut,
     GM_ADDR stateCacheOut, GM_ADDR workspace, GM_ADDR tiling)
@@ -110,6 +119,8 @@ __global__ __aicore__ void compressor(
     }
 }
 
+#undef COMPRESSOR_SCHEDMODE
+#undef COMPRESSOR_SCHEDMODE_NAME
 #undef A5_COMPRESSOR_CASE
 #undef INVOKE_A5_COMPRESSOR
 #endif
