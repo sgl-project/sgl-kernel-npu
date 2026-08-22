@@ -1,29 +1,10 @@
-"""NPU-native fused sigmoid-gate-multiply kernels.
-
-Two variants:
-- ``fused_sigmoid_mul``: element-wise ``x * sigmoid(gate)`` when ``x`` and
-  ``gate`` have identical shapes.
-- ``fused_sigmoid_mul_broadcast``: broadcast ``x * sigmoid(gate)`` when ``gate``
-  is ``(N,)`` or ``(N, 1)`` and ``x`` is ``(N, D)``.
-
-Optimized for Ascend NPU: tile size and grid are chosen based on the runtime
-AIV (vector core) count from
-:func:`sgl_kernel_npu.utils.triton_utils.get_device_properties`. Kernels are
-kept pure-vector (AIV only) and avoid AIC (matrix cores).
-"""
-
 from __future__ import annotations
 
 import torch
 import triton
 import triton.language as tl
-
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
-
-# Tile size chosen by micro-benchmark on Ascend910 9362 for batch 16/32 and
-# hidden dims 3584/4096/5120.  A 2048-element tile amortizes dispatch overhead
-# while still generating one block per vector core.
 _ELEM_BLOCK_SIZE = 2048
 
 
@@ -74,9 +55,6 @@ def fused_sigmoid_mul(x: torch.Tensor, gate: torch.Tensor) -> torch.Tensor:
     num_blocks = min(triton.cdiv(n, _ELEM_BLOCK_SIZE), num_vectorcore)
     num_blocks = max(num_blocks, 1)
 
-    # Pass the contiguous tensors directly; Triton pointer offsets are flat, so
-    # the original rank does not matter.  Avoiding view(-1) shaves Python wrapper
-    # overhead observed on Ascend NPU.
     _fused_sigmoid_mul_kernel[(num_blocks,)](
         x,
         gate,
@@ -115,14 +93,14 @@ def _fused_sigmoid_mul_broadcast_kernel(
 
 
 def fused_sigmoid_mul_broadcast(x: torch.Tensor, gate: torch.Tensor) -> torch.Tensor:
-    """Compute ``x * sigmoid(gate)`` where ``gate`` broadcasts over the last dim.
+    """Compute x * sigmoid(gate) where gate broadcasts over the last dim.
 
     Args:
-        x: 2-D tensor of shape ``(N, D)``.
-        gate: tensor of shape ``(N,)`` or ``(N, 1)``.
+        x: 2-D tensor of shape (N, D).
+        gate: tensor of shape (N,) or (N, 1).
 
     Returns:
-        A tensor with the same shape as ``x``.
+        A tensor with the same shape as x.
     """
     if x.ndim != 2:
         raise ValueError(f"x must be 2-D, got ndim={x.ndim}, shape={x.shape}")

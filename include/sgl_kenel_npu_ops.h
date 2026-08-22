@@ -52,6 +52,18 @@ void transfer_kv_dim_exchange(at::Tensor &device_k, at::Tensor &host_k,
                               const at::Tensor &host_indices, int64_t page_size,
                               int64_t direction, int64_t flags);
 
+void transfer_state_per_layer_direct_pf_lf(const at::Tensor &src,
+                                           const at::Tensor &dst,
+                                           const at::Tensor &src_indices,
+                                           const at::Tensor &dst_indices,
+                                           int64_t layer_id, int64_t flags);
+
+void transfer_state_all_layer_direct_lf_pf(at::TensorList device_states,
+                                           at::TensorList host_states,
+                                           const at::Tensor &device_indices,
+                                           const at::Tensor &host_indices,
+                                           int64_t flags);
+
 at::Tensor bgmv_expand(at::Tensor &x, at::Tensor &weight, at::Tensor &indices,
                        at::Tensor &y, int64_t slice_offset, int64_t slice_size);
 
@@ -154,6 +166,24 @@ at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv,
                       int64_t rope_head_dim, int64_t cmp_ratio, int64_t coff,
                       double norm_eps, int64_t rotary_mode, int64_t cache_mode,
                       int64_t state_cache_stride_dim0);
+
+std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv(
+    const at::Tensor &q, const c10::optional<at::Tensor> &ori_kv,
+    const c10::optional<at::Tensor> &cmp_kv,
+    const c10::optional<at::Tensor> &ori_sparse_indices,
+    const c10::optional<at::Tensor> &cmp_sparse_indices,
+    const c10::optional<at::Tensor> &ori_block_table,
+    const c10::optional<at::Tensor> &cmp_block_table,
+    const c10::optional<at::Tensor> &cu_seqlens_q,
+    const c10::optional<at::Tensor> &cu_seqlens_ori_kv,
+    const c10::optional<at::Tensor> &cu_seqlens_cmp_kv,
+    const c10::optional<at::Tensor> &seqused_q,
+    const c10::optional<at::Tensor> &seqused_kv,
+    const c10::optional<at::Tensor> &sinks,
+    const c10::optional<at::Tensor> &metadata, double softmax_scale,
+    int64_t cmp_ratio, int64_t ori_mask_mode, int64_t cmp_mask_mode,
+    int64_t ori_win_left, int64_t ori_win_right, c10::string_view layout_q,
+    c10::string_view layout_kv, bool return_softmax_lse);
 
 /**
  * @brief Triangular inverse of input tensor where last two dimensions represent

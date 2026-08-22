@@ -117,8 +117,8 @@ Buffer::get_dispatch_layout(const torch::Tensor &topk_idx, int num_experts, std:
     EP_HOST_ASSERT(num_experts > 0);
     const int num_tokens = topk_idx.size(0);
     const int num_topk = topk_idx.size(1);
-    EP_HOST_ASSERT_S(num_tokens > 0 && num_tokens <= static_cast<int>(MAX_TOTAL_TOKENS), "num_tokens (", num_tokens,
-                     ") must be in the range (0, ", MAX_TOTAL_TOKENS, "].");
+    EP_HOST_ASSERT_S(num_tokens >= 0 && num_tokens <= static_cast<int>(MAX_TOTAL_TOKENS), "num_tokens (", num_tokens,
+                     ") must be in the range [0, ", MAX_TOTAL_TOKENS, "].");
     EP_HOST_ASSERT_S(per_round_tokens >= static_cast<int>(MIN_TOKENS_PER_ROUND) &&
                          per_round_tokens <= static_cast<int>(MAX_TOKENS_PER_ROUND),
                      "per_round_tokens (", per_round_tokens, ") must be in the range [", MIN_TOKENS_PER_ROUND, ", ",

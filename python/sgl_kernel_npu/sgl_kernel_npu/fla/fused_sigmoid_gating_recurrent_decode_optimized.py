@@ -1,18 +1,8 @@
-# Decode-optimized GDN recurrent state update for Ascend NPU.
-#
-# Specialized for the decode (T=1) path. Uses a 1-D grid capped at the AIV
-# vector core count, looping over (sequence, value-head) tiles, and launches
-# each program with num_warps=4 to keep more vector lanes active while the
-# recurrent state tile is loaded/stored. The wrapper uses a lightweight
-# contiguous check so the generic ``input_guard`` overhead is avoided for
-# already-contiguous decode tensors.
-
 from typing import Optional
 
 import torch
 import triton
 import triton.language as tl
-
 from sgl_kernel_npu.utils.triton_utils import get_device_properties
 
 
@@ -187,18 +177,6 @@ def fused_sigmoid_gating_delta_rule_update_decode_npu(
     use_qk_l2norm_in_kernel: bool = False,
     cu_seqlens: Optional[torch.Tensor] = None,
 ):
-    """
-    Decode-optimized recurrent delta rule update for Ascend NPU.
-
-    Drop-in replacement for the generic
-    ``fused_sigmoid_gating_delta_rule_update_npu`` on the decode path, with
-    the same algorithm. It launches with num_warps=4 for better small-batch
-    throughput on the AIV vector cores, and uses a lightweight contiguous
-    check that avoids the generic ``input_guard`` overhead for
-    already-contiguous decode tensors.
-
-    Args / Returns: same as ``fused_sigmoid_gating_delta_rule_update_npu``.
-    """
     # Decode inputs are already contiguous, so the generic decorator is
     # skipped in favor of a cheap contiguous check.
     A_log = _maybe_contiguous(A_log)
