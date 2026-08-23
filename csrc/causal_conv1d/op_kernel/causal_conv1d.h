@@ -208,6 +208,8 @@ protected:
     __aicore__ inline void MaybeWriteBackSeqSplitTailChunk(int32_t chunkStart, int32_t chunkLen, int32_t seqStart,
                                                            int32_t seqLen, int32_t cacheIdx, int32_t channelStart,
                                                            int32_t baseDim, int32_t dim);
+    __aicore__ inline void ZeroFnOutputRange(int32_t tokenStart, int32_t tokenEnd, int32_t channelStart,
+                                             int32_t baseDim, int32_t dim);
     __aicore__ inline void ProcessDefault();
     template <int32_t kWindowMode>
     __aicore__ inline void ProcessDefaultByWindowMode();
@@ -472,7 +474,7 @@ __aicore__ inline void CAUSAL_CONV1D_CLASS::RunSeq(int32_t start, int32_t len, i
         }
 
         bool accInitialized = false;
-        if (hasBias) {
+        if (hasBias && !kIsUpdateMode) {
             Adds(accF, biasF, 0.0f, baseDim);
             PipeBarrier<PIPE_V>();
             accInitialized = true;
@@ -492,6 +494,18 @@ __aicore__ inline void CAUSAL_CONV1D_CLASS::RunSeq(int32_t start, int32_t len, i
         }
 
         PipeBarrier<PIPE_V>();
+
+        if constexpr (kIsUpdateMode) {
+            if (hasBias) {
+                // Match PR651/Triton update arithmetic: accumulate every
+                // convolution tap first, then add bias.  Initializing the
+                // accumulator from bias changes the FP32 rounding path; the
+                // resulting rare BF16 one-ULP differences accumulate across
+                // GDN layers and long decode chains.
+                Add(accF, accF, biasF, baseDim);
+                PipeBarrier<PIPE_V>();
+            }
+        }
 
         if (hasActivation) {
             if constexpr (IsSameType<T, float>::value) {
@@ -628,7 +642,7 @@ __aicore__ inline void CAUSAL_CONV1D_CLASS::ComputeFnRollingOutput(int32_t slotC
     PipeBarrier<PIPE_V>();
 
     const bool hasActivation = HasActivation();
-    if (hasActivation) {
+    if (hasActivation && IsSameType<T, float>::value) {
         PipeBarrier<PIPE_V>();
         Silu(currF, state0F, baseDim);
     }
@@ -731,7 +745,18 @@ __aicore__ inline void CAUSAL_CONV1D_CLASS::RunSeqFnRolling(int32_t start, int32
             }
         } else {
             if (hasActivation) {
+#if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
+                // RegBase rounded the FP32 convolution accumulator to T and
+                // expanded it again before producing currF = SiLU(input).
                 Cast(outSlotT, currF, RoundMode::CAST_RINT, baseDim);
+#else
+                // Use the output buffer as the temporary T checkpoint.  This
+                // mirrors BF16 F.conv1d -> BF16 SiLU instead of applying SiLU
+                // directly to the FP32 accumulator.  The old behavior made
+                // run_mode=0 prefill diverge from run_mode=1 update at every
+                // GDN layer and the error accumulated into garbled decoding.
+                RoundedInputSilu(outSlotT, outSlotT, currF, state0F, baseDim);
+#endif
             } else {
                 Cast(outSlotT, state0F, RoundMode::CAST_RINT, baseDim);
             }

@@ -187,6 +187,32 @@ __aicore__ inline void CAUSAL_CONV1D_CLASS::MaybeWriteBackSeqSplitTailChunk(int3
 }
 
 template <CAUSAL_CONV1D_TEMPLATE_ARGS>
+__aicore__ inline void CAUSAL_CONV1D_CLASS::ZeroFnOutputRange(int32_t tokenStart, int32_t tokenEnd,
+                                                              int32_t channelStart, int32_t baseDim, int32_t dim)
+{
+    if (tokenEnd <= tokenStart) {
+        return;
+    }
+
+    // Varlen scheduler/page alignment can leave physical rows after the last
+    // query_start_loc entry.  PR651 returns zeros for those rows.  The native
+    // kernel previously left empty_like() storage untouched, so allocator
+    // contents entered the downstream recurrent path.  Clear only the ranges
+    // this channel task did not process; doing it in the same AscendC launch
+    // also avoids a host-side zero-fill racing the kernel stream.
+    LocalTensor<T> zero = inBuf.Get<T>();
+    Duplicate(zero, static_cast<T>(0), baseDim);
+    SetFlag<HardEvent::V_MTE3>(stateShiftVToMte3Event_);
+    WaitFlag<HardEvent::V_MTE3>(stateShiftVToMte3Event_);
+    for (int32_t token = tokenStart; token < tokenEnd; ++token) {
+        const int64_t outOffset = static_cast<int64_t>(token) * dim + channelStart;
+        DataCopy(yGm[outOffset], zero, baseDim);
+    }
+    SetFlag<HardEvent::MTE3_V>(stateWritebackMte3ToVEvent_);
+    WaitFlag<HardEvent::MTE3_V>(stateWritebackMte3ToVEvent_);
+}
+
+template <CAUSAL_CONV1D_TEMPLATE_ARGS>
 __aicore__ inline void CAUSAL_CONV1D_CLASS::PrefetchInitStatesToWorkspace(int32_t channelStart, int32_t baseDimSize)
 {
     if (tilingData_->hasInitStateWorkspace == 0) {
@@ -289,6 +315,7 @@ __aicore__ inline void CAUSAL_CONV1D_CLASS::ProcessVarlenTokenTiled()
 
         int32_t cacheIdx = 0;
         if (!ResolveSeqCacheIndex(seq, hasCacheIndices, cacheIdx)) {
+            ZeroFnOutputRange(cursor, tileEnd, blockTask.channelStart, blockTask.baseDimSize, dim);
             cursor = tileEnd;
             ++seq;
             continue;
@@ -300,6 +327,10 @@ __aicore__ inline void CAUSAL_CONV1D_CLASS::ProcessVarlenTokenTiled()
 
         cursor = tileEnd;
         ++seq;
+    }
+
+    if (isVarlenMode && cursor < blockTask.tokenEnd) {
+        ZeroFnOutputRange(cursor, blockTask.tokenEnd, blockTask.channelStart, blockTask.baseDimSize, dim);
     }
 }
 

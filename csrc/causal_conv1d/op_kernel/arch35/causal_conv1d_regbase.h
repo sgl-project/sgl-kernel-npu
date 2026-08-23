@@ -23,6 +23,7 @@ using namespace AscendC::MicroAPI;
 constexpr uint16_t V_LENGTH = VECTOR_REG_WIDTH / sizeof(float);
 
 constexpr CastTrait castTraitB16ToB32 = {RegLayout::ZERO, SatMode::UNKNOWN, MaskMergeMode::ZEROING, RoundMode::UNKNOWN};
+constexpr CastTrait castTraitB32ToB16 = {RegLayout::ZERO, SatMode::SAT, MaskMergeMode::ZEROING, RoundMode::CAST_RINT};
 
 template <typename T, bool hasActivation>
 __aicore__ inline void ComputeFnRollingOutputRegbase(LocalTensor<T> ring, LocalTensor<float> currF,
@@ -42,6 +43,7 @@ __aicore__ inline void ComputeFnRollingOutputRegbase(LocalTensor<T> ring, LocalT
         RegTensor<float> state0F;
         RegTensor<float> weightF;
         RegTensor<float> tmp;
+        RegTensor<T> roundedInputT;
         MaskReg pregLoop;
         for (uint16_t j = 0; j < colLoopTimes; j++) {
             pregLoop = UpdateMask<float>(dataCount);
@@ -52,6 +54,14 @@ __aicore__ inline void ComputeFnRollingOutputRegbase(LocalTensor<T> ring, LocalT
             Mul(currF, currF, weightF, pregLoop);
             Add(state0F, state0F, currF, pregLoop);
             if constexpr (hasActivation) {
+                if constexpr (!IsSameType<T, float>::value) {
+                    // Match the tensor-dtype checkpoint of BF16/FP16
+                    // convolution before SiLU.  Without this round trip the
+                    // FN rolling prefill path activates the FP32 accumulator,
+                    // while update/decode activates a rounded T value.
+                    Cast<T, float, castTraitB32ToB16>(roundedInputT, state0F, pregLoop);
+                    Cast<float, T, castTraitB16ToB32>(state0F, roundedInputT, pregLoop);
+                }
                 Muls(tmp, state0F, -1.0f, pregLoop);
                 Exp(tmp, tmp, pregLoop);
                 Adds(tmp, tmp, 1.0f, pregLoop);

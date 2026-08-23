@@ -134,6 +134,13 @@ def reference_causal_conv1d(
         acc = sum(x_ext[j : j + length] * weight_fp32[j] for j in range(width))
         if bias_fp32 is not None:
             acc = acc + bias_fp32
+
+        # torch.nn.functional.conv1d returns the convolution result in the
+        # input dtype.  SGLang applies SiLU to that BF16/FP16 tensor, so the
+        # dtype checkpoint must happen before activation.  Keeping acc in
+        # FP32 through SiLU hides the prefill/update mismatch that corrupts
+        # long chained GDN execution.
+        acc = acc.to(x.dtype)
         if activation_mode:
             acc = F.silu(acc)
 
