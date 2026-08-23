@@ -30,6 +30,57 @@ namespace NsCausalConv1d {
 using namespace AscendC;
 using namespace NsCausalConv1dCommon;
 
+template <typename T>
+__aicore__ inline void RoundedInputSilu(LocalTensor<T> dst, LocalTensor<T> roundedInputT,
+                                        LocalTensor<float> roundedInputF, LocalTensor<float> inputF,
+                                        uint32_t dataCount)
+{
+#if defined(__DAV_C220_VEC__)
+    if constexpr (IsSameType<T, bfloat16_t>::value) {
+        set_mask_count();
+        set_vector_mask(0, dataCount);
+        AscendC::CastImpl<bfloat16_t, float, false>(
+            (__ubuf__ bfloat16_t *)roundedInputT.GetPhyAddr(), (__ubuf__ float *)inputF.GetPhyAddr(),
+            RoundMode::CAST_RINT,
+            static_cast<uint64_t>(0), 1,
+            {1, 1, DEFAULT_REPEAT_STRIDE / 2, DEFAULT_REPEAT_STRIDE});
+        PipeBarrier<PIPE_V>();
+        AscendC::CastImpl<float, bfloat16_t, false>(
+            (__ubuf__ float *)roundedInputF.GetPhyAddr(), (__ubuf__ bfloat16_t *)roundedInputT.GetPhyAddr(),
+            RoundMode::CAST_NONE,
+            static_cast<uint64_t>(0), 1,
+            {1, 1, DEFAULT_REPEAT_STRIDE, DEFAULT_REPEAT_STRIDE / 2});
+        PipeBarrier<PIPE_V>();
+
+        const UnaryRepeatParams unaryParams;
+        const BinaryRepeatParams binaryParams;
+        Muls<float, false>(inputF, roundedInputF, -1.0f, MASK_PLACEHOLDER, 1, unaryParams);
+        PipeBarrier<PIPE_V>();
+        Exp<float, false>(inputF, inputF, MASK_PLACEHOLDER, 1, unaryParams);
+        PipeBarrier<PIPE_V>();
+        Adds<float, false>(inputF, inputF, 1.0f, MASK_PLACEHOLDER, 1, unaryParams);
+        PipeBarrier<PIPE_V>();
+        Div<float, false>(inputF, roundedInputF, inputF, MASK_PLACEHOLDER, 1, binaryParams);
+        PipeBarrier<PIPE_V>();
+
+        AscendC::CastImpl<bfloat16_t, float, false>(
+            (__ubuf__ bfloat16_t *)dst.GetPhyAddr(), (__ubuf__ float *)inputF.GetPhyAddr(), RoundMode::CAST_RINT,
+            static_cast<uint64_t>(0), 1,
+            {1, 1, DEFAULT_REPEAT_STRIDE / 2, DEFAULT_REPEAT_STRIDE});
+        set_mask_norm();
+        set_vector_mask(static_cast<uint64_t>(-1), static_cast<uint64_t>(-1));
+        return;
+    }
+#endif
+    Cast(roundedInputT, inputF, RoundMode::CAST_RINT, dataCount);
+    PipeBarrier<PIPE_V>();
+    Cast(roundedInputF, roundedInputT, RoundMode::CAST_NONE, dataCount);
+    PipeBarrier<PIPE_V>();
+    Silu(inputF, roundedInputF, dataCount);
+    PipeBarrier<PIPE_V>();
+    Cast(dst, inputF, RoundMode::CAST_RINT, dataCount);
+}
+
 #define CAUSAL_CONV1D_TEMPLATE_ARGS typename T, uint32_t runModeKey, uint32_t widthKey, uint32_t fnPlanKey
 #define CAUSAL_CONV1D_CLASS CausalConv1d<T, runModeKey, widthKey, fnPlanKey>
 
@@ -398,8 +449,13 @@ __aicore__ inline void CAUSAL_CONV1D_CLASS::RunSeq(int32_t start, int32_t len, i
     LocalTensor<float> &biasF = cl.biasF;
     LocalTensor<float> &accF = cl.accF;
     LocalTensor<float> &tmpF = cl.tmpF;
+    LocalTensor<float> &currF = cl.currF;
     LocalTensor<T> ring = inBuf.Get<T>();
     LocalTensor<T> outT = outBuf.Get<T>();
+    LocalTensor<T> activationInputT;
+    if constexpr (!IsSameType<T, float>::value) {
+        activationInputT = currF.ReinterpretCast<T>();
+    }
     const bool hasBias = HasBias();
     const bool hasActivation = HasActivation();
     for (int32_t t = 0; t < len; ++t) {
@@ -438,7 +494,9 @@ __aicore__ inline void CAUSAL_CONV1D_CLASS::RunSeq(int32_t start, int32_t len, i
         PipeBarrier<PIPE_V>();
 
         if (hasActivation) {
-            Silu(tmpF, accF, baseDim);
+            if constexpr (IsSameType<T, float>::value) {
+                Silu(tmpF, accF, baseDim);
+            }
         }
 
         const int32_t outSlot = t & 1;
@@ -455,7 +513,7 @@ __aicore__ inline void CAUSAL_CONV1D_CLASS::RunSeq(int32_t start, int32_t len, i
             }
         } else {
             if (hasActivation) {
-                Cast(outSlotT, tmpF, RoundMode::CAST_RINT, baseDim);
+                RoundedInputSilu(outSlotT, activationInputT, tmpF, accF, baseDim);
             } else {
                 Cast(outSlotT, accF, RoundMode::CAST_RINT, baseDim);
             }
