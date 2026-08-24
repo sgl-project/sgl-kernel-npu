@@ -90,8 +90,7 @@ static ge::graphStatus DispatchFFNCombineCheckAttrAndSetTiling(gert::TilingConte
                     return GRAPH_FAILED);
 
     info.maxOutputSize = *maxOutputSizePtr;
-    OP_TILING_CHECK(info.maxOutputSize <= 0, OP_LOGE(K_INNER_DEBUG, "maxOutputSize must be > 0."),
-                    return GRAPH_FAILED);
+    OP_TILING_CHECK(info.maxOutputSize <= 0, OP_LOGE(K_INNER_DEBUG, "maxOutputSize must be > 0."), return GRAPH_FAILED);
     info.isTransposeB = *is_trans_b;
     info.isWeightNz = *weight_nz;
 
@@ -119,7 +118,8 @@ static ge::graphStatus DispatchFFNCombineCheckShapeAndSetTiling(gert::TilingCont
     const gert::StorageShape *aStorageShape = context->GetInputShape(X_INDEX);
     auto expertIdxTensor = context->GetInputShape(EXPERTID_INDEX);
     OP_TILING_CHECK(aStorageShape == nullptr, OP_LOGE(nodeName, "aStorageShape is nullptr."), return ge::GRAPH_FAILED);
-    OP_TILING_CHECK(expertIdxTensor == nullptr, OP_LOGE(nodeName, "expertIdxTensor is nullptr."), return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(expertIdxTensor == nullptr, OP_LOGE(nodeName, "expertIdxTensor is nullptr."),
+                    return ge::GRAPH_FAILED);
     uint32_t M = aStorageShape->GetStorageShape().GetDim(0);
     uint32_t K = aStorageShape->GetStorageShape().GetDim(1);
 
