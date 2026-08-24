@@ -24,10 +24,11 @@ struct EpilogueAtlasA2UnQuant {
     static constexpr uint32_t UB_STAGES = UB_STAGES_;
 };
 
-template <uint32_t UB_STAGES_>
+template <uint32_t UB_STAGES_, bool USE_SWIGLU_OAI_ = false>
 struct EpilogueAtlasA2PerTokenDequantSwigluQuant {
     using ArchTag = Arch::AtlasA2;
     static constexpr uint32_t UB_STAGES = UB_STAGES_;
+    static constexpr bool USE_SWIGLU_OAI = USE_SWIGLU_OAI_;
 };
 
 template <uint32_t UB_STAGES_>

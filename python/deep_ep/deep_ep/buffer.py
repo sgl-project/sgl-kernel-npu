@@ -1,3 +1,4 @@
+import math
 import os
 from enum import IntEnum
 from typing import Callable, List, Optional, Tuple, Union
@@ -767,6 +768,12 @@ class Buffer:
         quant_mode: int = 1,
         fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
         profile_enable: bool = False,
+        activation_type: int = 0,
+        activation_alpha: float = 0.0,
+        gate_clamp_max: float = 0.0,
+        up_clamp_min: float = 0.0,
+        up_clamp_max: float = 0.0,
+        up_add: float = 0.0,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         A fused low-latency implementation for MoE expert forward and combination.
@@ -835,6 +842,26 @@ class Buffer:
                     shape `[num_local_experts]`, indicating the number of tokens received
                     by each local expert on this rank only.
         """
+        if activation_type not in (0, 1):
+            raise ValueError(f"Unsupported FuseEP activation type: {activation_type}")
+        activation_values = (
+            activation_alpha,
+            gate_clamp_max,
+            up_clamp_min,
+            up_clamp_max,
+            up_add,
+        )
+        if activation_type == 1 and (
+            not all(math.isfinite(value) for value in activation_values)
+            or up_clamp_min > up_clamp_max
+        ):
+            raise ValueError("Invalid SwiGLU-OAI activation parameters")
+        if activation_type == 1 and fuse_mode == FuseMode.FUSED_DEEP_MOE:
+            raise ValueError(
+                "SwiGLU-OAI activation (activation_type=1) is not supported by "
+                "FuseMode.FUSED_DEEP_MOE; please use FuseMode.DISPATCH_FFN_COMBINE"
+            )
+
         topk_ids = topk_idx.int()
         if fuse_mode == FuseMode.FUSED_DEEP_MOE:
             output, ep_recv_count = self.runtime.fused_deep_moe(
@@ -865,6 +892,12 @@ class Buffer:
                 max_output_size,
                 num_experts,
                 quant_mode,
+                activation_type,
+                activation_alpha,
+                gate_clamp_max,
+                up_clamp_min,
+                up_clamp_max,
+                up_add,
             )
             return output, expert_token_nums
         else:

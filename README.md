@@ -30,7 +30,7 @@ DeepEP-Ascend provides optimized all-to-all communication kernels for Expert Par
 
 **Key Capabilities:**
 - Token dispatch and combine with automatic load balancing
-- Fused MoE computation (`fused_deep_moe`)
+- Fused MoE computation (`fused_deep_moe`), with SwiGLU-OAI activation supported via the `DISPATCH_FFN_COMBINE` fuse mode
 - A3 full-mesh HCCS communication and A2 Intranode HCCS + internode RDMA communication
 - INT8/FP8/BF16 quantization for reduced memory bandwidth
 

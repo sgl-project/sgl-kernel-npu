@@ -103,6 +103,7 @@ public:
 
         ubPerTokenScaleOutput = resource.ubBuf.template GetBufferByByte<float>(ubOffset);
     }
+
     CATLASS_DEVICE
     void Finalize()
     {
@@ -194,17 +195,43 @@ public:
             AscendC::Muls(ubCFp32, ubCFp32, perTokenScale, blockN);
             AscendC::PipeBarrier<PIPE_V>();
 
-            // Swiglu computation process
-            AscendC::Muls(ubCFp32ChunkN, ubCFp32, -1.0f, ChunkTileLen);
-            AscendC::PipeBarrier<PIPE_V>();
-            AscendC::Exp(ubCFp32ChunkN, ubCFp32ChunkN, ChunkTileLen);
-            AscendC::PipeBarrier<PIPE_V>();
-            AscendC::Adds(ubCFp32ChunkN, ubCFp32ChunkN, 1.0f, ChunkTileLen);
-            AscendC::PipeBarrier<PIPE_V>();
-            // TODO: confirm whether the division impacts subsequent data
-            AscendC::Div(ubCFp32ChunkN, ubCFp32, ubCFp32ChunkN, ChunkTileLen);
-            AscendC::PipeBarrier<PIPE_V>();
-            AscendC::Mul(ubCFp32ChunkN, ubCFp32ChunkN, ubCFp32[ChunkTileLen], ChunkTileLen);
+#if defined(SGLANG_SWIGLU_OAI)
+            {
+                // Match the validated M3 kernel exactly. Ascend's runtime scalar
+                // path is numerically invalid for the non-degenerate OAI values.
+                constexpr float alpha = 1.702f;
+                constexpr float limit = 7.0f;
+                AscendC::Mins(ubCFp32ChunkN, ubCFp32, limit, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Muls(ubOutputTmp, ubCFp32ChunkN, -alpha, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Exp(ubOutputTmp, ubOutputTmp, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Adds(ubOutputTmp, ubOutputTmp, 1.0f, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Div(ubCFp32ChunkN, ubCFp32ChunkN, ubOutputTmp, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Mins(ubCFp32[ChunkTileLen], ubCFp32[ChunkTileLen], limit, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Maxs(ubCFp32[ChunkTileLen], ubCFp32[ChunkTileLen], -limit, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Adds(ubCFp32[ChunkTileLen], ubCFp32[ChunkTileLen], 1.0f, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Mul(ubCFp32ChunkN, ubCFp32ChunkN, ubCFp32[ChunkTileLen], ChunkTileLen);
+            }
+#else
+            {
+                AscendC::Muls(ubCFp32ChunkN, ubCFp32, -1.0f, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Exp(ubCFp32ChunkN, ubCFp32ChunkN, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Adds(ubCFp32ChunkN, ubCFp32ChunkN, 1.0f, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Div(ubCFp32ChunkN, ubCFp32, ubCFp32ChunkN, ChunkTileLen);
+                AscendC::PipeBarrier<PIPE_V>();
+                AscendC::Mul(ubCFp32ChunkN, ubCFp32ChunkN, ubCFp32[ChunkTileLen], ChunkTileLen);
+            }
+#endif
 
             // Quantization process; difference between the two approaches
             AscendC::PipeBarrier<PIPE_V>();

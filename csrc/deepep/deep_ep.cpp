@@ -11,6 +11,7 @@
 #include "deep_ep.hpp"
 #include "profiling/adapters/fused_deep_moe_a5/fused_deep_moe_a5_profile_adapter.hpp"
 #include "pytorch_npu_helper.hpp"
+#include "ops/op_host/op_api/aclnn_dispatch_ffn_combine_swiglu_oai.h"
 
 namespace deep_ep {
 constexpr int PADDING_SIZE = 1;
@@ -1263,7 +1264,9 @@ std::vector<at::Tensor> Buffer::dispatch_ffn_combine(const at::Tensor &x, const 
                                                      const at::Tensor &weight1, const at::Tensor &scale1,
                                                      const at::Tensor &weight2, const at::Tensor &scale2,
                                                      const at::Tensor &expert_scales, int64_t max_output_size,
-                                                     int64_t num_experts, int quant_mode) const
+                                                     int64_t num_experts, int quant_mode, int activation_type,
+                                                     float activation_alpha, float gate_clamp_max, float up_clamp_min,
+                                                     float up_clamp_max, float up_add) const
 {
     EP_HOST_ASSERT(expert_ids.dim() == 2);
     EP_HOST_ASSERT(expert_scales.dim() == 2);
@@ -1278,19 +1281,29 @@ std::vector<at::Tensor> Buffer::dispatch_ffn_combine(const at::Tensor &x, const 
 
     int h = x.size(1);
     int bs = expert_ids.size(0);
-    at::Tensor output = at::empty({bs, h}, x.options());
+    at::Tensor output_storage = at::empty({std::max<int64_t>(bs, max_output_size), h}, x.options());
+    at::Tensor output = output_storage.narrow(0, 0, bs);
 
     int64_t num_local_experts = num_experts / num_ranks;
     at::Tensor expert_token_nums = at::empty({num_local_experts}, expert_ids.options());
 
     bool is_int8 = weight1.scalar_type() == at::ScalarType::Char;
     if (is_int8) {
-        EXEC_NPU_CMD(aclnnDispatchFFNCombine, x, weight1, weight2, expert_ids, scale1, scale2, expert_scales,
-                     hcom_ep_name, num_ranks, rank, max_output_size, output, expert_token_nums);
+        if (activation_type == 1) {
+            EXEC_NPU_CMD(aclnnDispatchFFNCombineSwiGluOAI, x, weight1, weight2, expert_ids, scale1, scale2,
+                         expert_scales, hcom_ep_name, num_ranks, rank, max_output_size, activation_type,
+                         activation_alpha, gate_clamp_max, up_clamp_min, up_clamp_max, up_add, output_storage,
+                         expert_token_nums);
+        } else {
+            EXEC_NPU_CMD(aclnnDispatchFFNCombine, x, weight1, weight2, expert_ids, scale1, scale2, expert_scales,
+                         hcom_ep_name, num_ranks, rank, max_output_size, activation_type, activation_alpha,
+                         gate_clamp_max, up_clamp_min, up_clamp_max, up_add, output_storage, expert_token_nums);
+        }
     } else {
         // TODO: Implement aclnnDispatchFFNCombineBF16 when available
         EP_HOST_ASSERT_S(false, "BF16 mode not yet supported for dispatch_ffn_combine");
     }
     return {output, expert_token_nums};
 }
+
 }  // namespace deep_ep

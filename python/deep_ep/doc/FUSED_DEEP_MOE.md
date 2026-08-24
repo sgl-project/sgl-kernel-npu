@@ -61,6 +61,12 @@ def fused_deep_moe(
     quant_mode: int = 1,
     fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
     profile_enable: bool = False,
+    activation_type: int = 0,
+    activation_alpha: float = 0.0,
+    gate_clamp_max: float = 0.0,
+    up_clamp_min: float = 0.0,
+    up_clamp_max: float = 0.0,
+    up_add: float = 0.0,
 ) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
@@ -80,6 +86,12 @@ def fused_deep_moe(
 | **quant_mode** | `int` | Scalar, default `1` | Quantization mode attribute passed to the fused operator. A3 follows the legacy fused-path semantics. On A5, this parameter is currently not effective in the public fused path: activation quantization follows the weight quantization type, so the practical supported combinations are `w8a8` and `w4a4`. `w4a8` is not supported, and non-quantized model weights are not supported in the current A5 fused path. |
 | **fuse_mode** | `FuseMode` | Scalar, default `FuseMode.FUSED_DEEP_MOE` | Fuse mode selection. |
 | **profile_enable** | `bool` | Scalar, default `False` | Whether to enable fused-kernel profiling for the current launch. It only takes effect when profiling has been started in advance (begin_profile). |
+| **activation_type** | `int` | Scalar, default `0` | Activation type: `0` = none (default, original SwiGLU), `1` = SwiGLU-OAI (OpenAI-compatible with clamping). |
+| **activation_alpha** | `float` | Scalar, default `0.0` | SwiGLU-OAI alpha multiplier (only used when `activation_type=1`).|
+| **gate_clamp_max** | `float` | Scalar, default `0.0` | SwiGLU-OAI gate output clamp upper bound (only used when `activation_type=1`).|
+| **up_clamp_min** | `float` | Scalar, default `0.0` | SwiGLU-OAI up-projection clamp lower bound (only used when `activation_type=1`; must be ≤ `up_clamp_max`).|
+| **up_clamp_max** | `float` | Scalar, default `0.0` | SwiGLU-OAI up-projection clamp upper bound (only used when `activation_type=1`).|
+| **up_add** | `float` | Scalar, default `0.0` | SwiGLU-OAI up-projection additive bias (only used when `activation_type=1`).|                                                                                                                                        |
 
 ### Constraints
 
@@ -100,6 +112,13 @@ def fused_deep_moe(
 
 - Constraints follow the `aclnnDispatchFFNCombine` path and differ from `FUSED_DEEP_MOE`.
 - Shared expert is not supported.
+
+
+#### Activation (`activation_type`)
+
+- `activation_type=0` (default): original SwiGLU (no clamping). The `activation_alpha`/`gate_clamp_max`/`up_clamp_*`/`up_add` params are ignored.
+- `activation_type=1`: SwiGLU-OAI (OpenAI-compatible). Requires all activation params (`activation_alpha`, `gate_clamp_max`, `up_clamp_min`, `up_clamp_max`, `up_add`) to be finite, and `up_clamp_min ≤ up_clamp_max`; otherwise a `ValueError` is raised.
+- Only applied to `fuse_mode=DISPATCH_FFN_COMBINE` (passed through to the CANN kernel); ignored for `fuse_mode=FUSED_DEEP_MOE`.
 
 ### Return Values
 
@@ -169,6 +188,12 @@ def fused_deep_moe(
     quant_mode: int = 1,
     fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
     profile_enable: bool = False,
+    activation_type: int = 0,
+    activation_alpha: float = 0.0,
+    gate_clamp_max: float = 0.0,
+    up_clamp_min: float = 0.0,
+    up_clamp_max: float = 0.0,
+    up_add: float = 0.0,
 ) -> Tuple[torch.Tensor, torch.Tensor]
 ```
 
@@ -188,7 +213,12 @@ def fused_deep_moe(
 | **quant_mode** | `int` | 标量，默认 `1` | 下发给 fused 算子的量化模式属性。A3 保持 legacy fused 语义；A5 公共 fused 路径上该参数当前实际上不生效，激活量化方式会跟随权重量化方式，因此当前实际只支持 `w8a8` 和 `w4a4`。`w4a8` 暂不支持，非量化模型权重在当前 A5 fused 路径上也不支持。 |
 | **fuse_mode** | `FuseMode` | 标量，默认 `FuseMode.FUSED_DEEP_MOE` | 融合模式选择。 |
 | **profile_enable** | `bool` | 标量，默认值为 `False` | 是否为当前运行启用kernel性能分析。仅在预先启动了性能分析时（begin_profile）才生效。 |
-
+| **activation_type** | `int` | 标量，默认 `0` | 激活类型：`0` = 无（默认，原始 SwiGLU），`1` = SwiGLU-OAI（OpenAI 兼容，带 clamp）。                                                                                              |
+| **activation_alpha** | `float` | 标量，默认 `0.0` | SwiGLU-OAI alpha 乘子（仅 `activation_type=1` 时使用）。                                                                                                                    |
+| **gate_clamp_max** | `float` | 标量，默认 `0.0` | SwiGLU-OAI gate 输出 clamp 上界（仅 `activation_type=1` 时使用）。                                                                                                            |
+| **up_clamp_min** | `float` | 标量，默认 `0.0` | SwiGLU-OAI up-projection clamp 下界（仅 `activation_type=1` 时使用；必须 ≤ `up_clamp_max`）。                                                                                |
+| **up_clamp_max** | `float` | 标量，默认 `0.0` | SwiGLU-OAI up-projection clamp 上界（仅 `activation_type=1` 时使用）。                                                                                                        |
+| **up_add** | `float` | 标量，默认 `0.0` | SwiGLU-OAI up-projection 加性偏置（仅 `activation_type=1` 时使用）。
 ### A5 变化点说明
 
 - 当前 A5 fused 路径走 `__DAV_C310__` runtime 分支。
@@ -219,6 +249,12 @@ def fused_deep_moe(
 
 - 约束遵循 `aclnnDispatchFFNCombine` 路径，与 `FUSED_DEEP_MOE` 不同。
 - 不支持 shared expert。
+
+#### 激活（`activation_type`）
+
+- `activation_type=0`（默认）：原始 SwiGLU（无 clamp）。`activation_alpha`/`gate_clamp_max`/`up_clamp_*`/`up_add` 参数被忽略。
+- `activation_type=1`：SwiGLU-OAI（OpenAI 兼容）。要求所有激活参数（`activation_alpha`、`gate_clamp_max`、`up_clamp_min`、`up_clamp_max`、`up_add`）为有限值，且 `up_clamp_min ≤ up_clamp_max`；否则抛出 `ValueError`。
+- 仅适用于 `fuse_mode=DISPATCH_FFN_COMBINE`（透传给 CANN 算子）；`activation_type=1` 搭配 `fuse_mode=FUSED_DEEP_MOE` 会抛出 `ValueError`。
 
 ### 返回值
 
