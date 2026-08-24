@@ -861,7 +861,7 @@ class AllGatherNormalCommStrategy(NormalEPCommStrategy):
         super().__init__(group)
         self.runtime = runtime
         self._allgather_layout = None
-        self.use_mx_fp8_quant = int(os.environ.get('USE_MX_FP8_QUANT', '0'))
+        self.use_mx_fp8_quant = int(os.environ.get("USE_MX_FP8_QUANT", "0"))
 
     def get_name(self) -> str:
         return "allgather"
@@ -893,9 +893,7 @@ class AllGatherNormalCommStrategy(NormalEPCommStrategy):
             "last_expert_idx": ep_rank * num_local_experts + num_local_experts,
         }
 
-        num_tokens_per_rank = torch.empty(
-            group_size, dtype=torch.int32, device=device
-        )
+        num_tokens_per_rank = torch.empty(group_size, dtype=torch.int32, device=device)
         is_token_in_rank = torch.ones(
             (topk_idx.size(0), group_size), dtype=torch.bool, device=device
         )
@@ -1023,9 +1021,7 @@ class AllGatherNormalCommStrategy(NormalEPCommStrategy):
             **init_routing_kwargs,
         )
 
-        num_recv_tokens_per_expert_list = (
-            expert_tokens.to(torch.int64)
-        )
+        num_recv_tokens_per_expert_list = expert_tokens.to(torch.int64)
 
         combine_handle = {
             "expanded_row_idx": expanded_row_idx,
@@ -1038,7 +1034,11 @@ class AllGatherNormalCommStrategy(NormalEPCommStrategy):
         }
 
         # Return (hidden_states, scale) tuple when quantized — MLP path consumes both.
-        recv_x = (sorted_hidden_states, routed_scale) if self.use_mx_fp8_quant else sorted_hidden_states
+        recv_x = (
+            (sorted_hidden_states, routed_scale)
+            if self.use_mx_fp8_quant
+            else sorted_hidden_states
+        )
         return (
             recv_x,
             None,
@@ -1093,7 +1093,9 @@ class AllGatherNormalCommStrategy(NormalEPCommStrategy):
 
         return output, None, EventOverlap()
 
-    def _all_gather(self, input_: torch.Tensor, group: dist.ProcessGroup) -> torch.Tensor:
+    def _all_gather(
+        self, input_: torch.Tensor, group: dist.ProcessGroup
+    ) -> torch.Tensor:
         """All-gather tensor along first dimension."""
         world_size = torch.distributed.get_world_size(group)
         if world_size == 1:
