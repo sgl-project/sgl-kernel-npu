@@ -31,26 +31,20 @@ template <uint32_t N>
 __simd_vf__ inline void InverseAIVVFImpl(__ubuf__ float *attnUb, __ubuf__ float *invResUb,
                                          __ubuf__ float *eiUb, uint32_t offset, uint32_t chunkSize)
 {
-    // N<=64, 单寄存器容纳一行; UpdateMask 生成前 N 个 lane 有效的掩码
     uint32_t maskLen = N;
     MaskReg maskN = UpdateMask<float>(maskLen);
 
-    // inv[0] = e_0: 加载单位阵首行, 写入结果首行(offset 列偏移)
     RegTensor<float> inv0;
     LoadAlign(inv0, eiUb);
     StoreAlign<float, StoreDist::DIST_NORM_B32>(invResUb + offset, inv0, maskN);
     LocalMemBar<MemType::VEC_STORE, MemType::VEC_LOAD>();
 
-    // 前代法: 逐行求解 inv[i] = e_i - sum_{j<i} attn[i,j] * inv[j]
     RegTensor<uint32_t> idxReg;
     RegTensor<float> acc;
     for (uint16_t i = 1; i < static_cast<uint16_t>(N); ++i) {
-        // acc 清零, 准备累加当前行 i 的内积
         Duplicate(acc, static_cast<float>(0.0));
-        // 加载 attn 第 i 行(对角块内, 含 offset 列偏移)
         RegTensor<float> li;
         LoadAlign(li, attnUb + offset + i * chunkSize);
-        // 累加 sum_{j<i} attn[i,j] * inv[j]: Gather 取出 li[j] 广播, 与已求出的 inv[j] 乘加
         for (uint16_t j = 0; j < i; ++j) {
             Duplicate(idxReg, j);
             RegTensor<float> lijBrc;
@@ -59,13 +53,11 @@ __simd_vf__ inline void InverseAIVVFImpl(__ubuf__ float *attnUb, __ubuf__ float 
             LoadAlign(invj, invResUb + offset + j * chunkSize);
             MulAddDst(acc, invj, lijBrc, maskN);
         }
-        // inv[i] = e_i - acc, 写回结果第 i 行
         RegTensor<float> ei_i;
         LoadAlign(ei_i, eiUb + i * chunkSize);
         RegTensor<float> invi;
         Sub(invi, ei_i, acc, maskN);
         StoreAlign<float, StoreDist::DIST_NORM_B32>(invResUb + offset + i * chunkSize, invi, maskN);
-        // store->load 屏障: 保证本行写入对后续行加载可见(下一轮 i 需读取 inv[i])
         LocalMemBar<MemType::VEC_STORE, MemType::VEC_LOAD>();
     }
 }

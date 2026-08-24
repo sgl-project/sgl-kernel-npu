@@ -89,7 +89,6 @@ public:
         uint32_t buffOffset = 0;
         tmpBuffer1_ = tmpBuff_.GetWithOffset<float>(static_cast<uint32_t>(Dv_ * curDk_), buffOffset);
         buffOffset += Ceil(Dv_ * curDk_ * sizeof(float), BLOCK_SIZE) * BLOCK_SIZE;
-        // 暂存所取的最后一位数
         lastGCum_ = tmpBuff_.GetWithOffset<float>(static_cast<uint32_t>(NUM_ONE), buffOffset);
     }
 
@@ -131,7 +130,7 @@ public:
                     CalVPrime(sTP_->kCumdecay[mm_offset0], curState, sTP_->vInner[mm_offset1]);
                     CalAttnInter(sTP_->qPrime[mm_offset0], curState,
                                  sTP_->out[nvId * Dv_ + cId * chunkSize_ * Nv_ * Dv_]);
-                    CrossCoreSetFlag<0x2, PIPE_FIX>(0x2); // 读完之前AIV不能写
+                    CrossCoreSetFlag<0x2, PIPE_FIX>(0x2);
                     CrossCoreWaitFlag(0x5);
                     CalStateNew(sTP_->vInner[mm_offset1], sTP_->kg[mm_offset0], finalState);
                     SetFlag<HardEvent::FIX_MTE2>(FIX_MTE2_EVENT);
@@ -145,7 +144,6 @@ public:
     __aicore__ inline void CalGCumExp(GlobalTensor<float> gCum, int64_t cId, int64_t nvId)
     {
         if (gOptional_) {
-            // 刷新cache
             DataCacheCleanAndInvalid<float, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(
                 gCum[curChunkSize_ - 1]);
             float tmpFloat = gCum.GetValue(curChunkSize_ - 1);
@@ -222,7 +220,7 @@ public:
     {
         LocalTensor<inType> inLocal = inQueue_.AllocTensor<inType>();
         DataCopyExtParams inParams{static_cast<uint16_t>(row),
-                                   static_cast<uint32_t>(col * sizeof(inType)), // 非对齐情况需要补0
+                                   static_cast<uint32_t>(col * sizeof(inType)),
                                    static_cast<uint32_t>(0), 0, 0};
         int padding = Ceil(col, BLOCK_SIZE / sizeof(inType)) * (BLOCK_SIZE / sizeof(inType)) - col;
         DataCopyPadExtParams<inType> copyPadParams{true, 0, static_cast<uint8_t>(padding), 0};

@@ -30,20 +30,19 @@ template <typename cType>
 using StageOneMTT = matmul::MatmulImpl<aT1, bT1, MatmulType<TPosition::GM, CubeFormat::ND, cType>>;
 
 constexpr uint64_t UB_REST_BYTES = 140 * 1024; // 140KB
-constexpr uint64_t INVERSE_SHAPE = 32;         // 对角块边长
-constexpr uint64_t INVERSE_COUNT = 5;          // 求逆所需空间
+constexpr uint64_t INVERSE_SHAPE = 32;
+constexpr uint64_t INVERSE_COUNT = 5;
 constexpr uint32_t ALIGN_SIZE = 16;
 constexpr uint32_t MAX_PARALLEL_NUM = 6;
 constexpr uint32_t HALF_TWO = 2;
 
-// Matmul 形状参数结构体
 struct MatmulShapeParams {
-    uint64_t m;  // 原始 M 维度
-    uint64_t n;  // 原始 N 维度
-    uint64_t k;  // 原始 K 维度
-    uint64_t sm; // 单次计算 M 维度
-    uint64_t sn; // 单次计算 N 维度
-    uint64_t sk; // 单次计算 K 维度
+    uint64_t m;
+    uint64_t n;
+    uint64_t k;
+    uint64_t sm;
+    uint64_t sn;
+    uint64_t sk;
 };
 
 template <typename vInnerType>
@@ -230,9 +229,9 @@ public:
     __aicore__ inline void Process()
     {
         uint32_t totalChunk = nv_ * numChunk_;
-        uint32_t tailChunkNum = totalChunk / coreNum_;  // tail核处理的块数
-        uint32_t formerChunkNum = tailChunkNum + 1;     // former核处理的块数
-        uint32_t formerCoreNum = totalChunk % coreNum_; // former核数量
+        uint32_t tailChunkNum = totalChunk / coreNum_;
+        uint32_t formerChunkNum = tailChunkNum + 1;
+        uint32_t formerCoreNum = totalChunk % coreNum_;
         uint32_t start;
         uint32_t end;
         if (coreIdx_ < formerCoreNum) {
@@ -245,7 +244,6 @@ public:
 
         for (uint32_t taskId = start; taskId < end; taskId += paraNum_) {
             uint32_t curParaNum = paraNum_ < end - taskId ? paraNum_ : end - taskId;
-            // 获取每个chunk有效长度
             for (uint32_t i = 0; i < curParaNum; ++i) {
                 uint32_t curTaskId = taskId + i;
                 uint64_t curNId = curTaskId % nv_;
@@ -257,15 +255,9 @@ public:
     }
 
 private:
-    // ----------------------------------------------------------
-    // SetChunkOffset
-    //   curNId  : head 编号 (Nv 维度)
-    //   curCgId : CG 内的 chunk 编号 (0 ~ CG_CHUNKS-1)
-    // ----------------------------------------------------------
     __aicore__ inline void SetChunkOffset(uint64_t id, uint64_t curNId, uint64_t curCgId)
     {
         validLenBatch_[id] = chunkSize_;
-        // 尾chunk处理
         if (curCgId == numChunk_ - 1 && cg_.length % chunkSize_ != 0) {
             validLenBatch_[id] = cg_.length % chunkSize_;
         }
@@ -297,10 +289,10 @@ private:
     {
         // key @ key.transpose(-1,-2)
         for (uint32_t i = 0; i < curParaNum; ++i) {
-            AscendC::CrossCoreWaitFlag(0x9); // 同步0
+            AscendC::CrossCoreWaitFlag(0x9);
             AICProcess(mmBf16_, keyConGm_[i * ckOffset_], keyConGm_[i * ckOffset_], kkWsGm_[i * ccOffset_],
                        {chunkSize_, chunkSize_, dk_, chunkSize_, chunkSize_, dk_}, true);
-            AscendC::CrossCoreSetFlag<0x2, PIPE_FIX>(0x8); // 同步1
+            AscendC::CrossCoreSetFlag<0x2, PIPE_FIX>(0x8);
         }
 
         // query @ key.transpose(-1,-2)   stage1 out
@@ -309,17 +301,17 @@ private:
                        outQkGm_[chunkRowBase_[i] * chunkSize_],
                        {validLenBatch_[i], validLenBatch_[i], dk_, validLenBatch_[i], validLenBatch_[i], dk_}, true);
         }
-        AscendC::CrossCoreSetFlag<0x2, PIPE_FIX>(0xA); // 同步5
+        AscendC::CrossCoreSetFlag<0x2, PIPE_FIX>(0xA);
 
-        // 求逆左下角矩阵
+        // get inverse matrix
         for (uint32_t i = 0; i < curParaNum; ++i) {
-            AscendC::CrossCoreWaitFlag(0x7); // 同步2
+            AscendC::CrossCoreWaitFlag(0x7);
             AttnInverseMMCompute(i * ccOffset_);
         }
 
         // attn @ k_cumdecay
         for (uint32_t i = 0; i < curParaNum; ++i) {
-            AscendC::CrossCoreWaitFlag(0x6); // 同步3
+            AscendC::CrossCoreWaitFlag(0x6);
             AICProcess(mmBf16_, attnWsGm_[i * ccOffset_], gBKWsGm_[i * ckOffset_],
                        outKCumdecayGm_[chunkRowBase_[i] * dk_],
                        {chunkSize_, dk_, chunkSize_, chunkSize_, dk_, chunkSize_});
@@ -327,7 +319,7 @@ private:
 
         // attn @ v_beta    stage1 out
         for (uint32_t i = 0; i < curParaNum; ++i) {
-            AscendC::CrossCoreWaitFlag(0x5); // 同步4
+            AscendC::CrossCoreWaitFlag(0x5);
             AICProcess(mmVInner_, attnWsGm_[i * ccOffset_], vBetaWsGm_[i * cvOffset_],
                        outVInnerGm_[chunkRowBase_[i] * dv_],
                        {chunkSize_, dv_, chunkSize_, chunkSize_, dv_, chunkSize_});
@@ -336,7 +328,6 @@ private:
 
     __aicore__ inline void ParaChunkAIV(int32_t curParaNum)
     {
-        // 获取连续QK
         for (uint32_t i = 0; i < curParaNum; ++i) {
             uint64_t subRow = chunkStartRowBatch_[i] + subOffset_;
             uint64_t qk_base = subRow * nk_ * dk_ + nIdBatch_[i] * nk_ / nv_ * dk_;
@@ -344,7 +335,7 @@ private:
             outKgGm_ = outKgBaseGm_[chunkRowBase_[i] * dk_];
             QKPreProcess(queryGm_[qk_base], queryConGm_[wsOffset_], outKgGm_, subValidLenBatch_[i]);
             QKPreProcess(keyGm_[qk_base], keyConGm_[wsOffset_], outKgGm_, subValidLenBatch_[i], true);
-            AscendC::CrossCoreSetFlag<0x2, PIPE_MTE3>(0x9); // 同步0
+            AscendC::CrossCoreSetFlag<0x2, PIPE_MTE3>(0x9);
         }
         if constexpr (gOptional) {
             for (uint32_t i = 0; i < curParaNum; ++i) {
@@ -363,12 +354,11 @@ private:
         }
 
         for (uint32_t i = 0; i < curParaNum; ++i) {
-            AscendC::CrossCoreWaitFlag(0x8); // 同步1
+            AscendC::CrossCoreWaitFlag(0x8);
             // attn_1 = kkt * attn_1
             KKBetaCompute(kkWsGm_[i * ccOffset_], betaUbFloat_[i * halfChunkSize_]);
-            // attn_1对角块求逆，对角块shape为INVERSE_SHAPE=32
             InverseCompute(attnWsGm_[i * ccOffset_], gammaUbFloat_[i * chunkSize_ * maxLen_]);
-            AscendC::CrossCoreSetFlag<0x2, PIPE_MTE3>(0x7); // 同步2
+            AscendC::CrossCoreSetFlag<0x2, PIPE_MTE3>(0x7);
         }
 
         for (uint32_t i = 0; i < curParaNum; ++i) {
@@ -378,7 +368,7 @@ private:
             uint64_t wsOffset_ = i * ckOffset_ + subOffset_ * dk_;
             GBKCompute(gBKWsGm_[i * ckOffset_], outKgGm_, betaUbFloat_[i * halfChunkSize_],
                        gCumSumUbFloat_[i * chunkSize_], gCumExpUbFloat_[i * chunkSize_], keyConGm_[wsOffset_]);
-            AscendC::CrossCoreSetFlag<0x2, PIPE_MTE3>(0x6); // 同步3
+            AscendC::CrossCoreSetFlag<0x2, PIPE_MTE3>(0x6);
         }
 
         for (uint32_t i = 0; i < curParaNum; ++i) {
@@ -388,7 +378,7 @@ private:
             uint64_t valueUbOffset = i * chunkSize_ * maxLen_;
             VBetaCompute(valueGm_[vOffset], vBetaWsGm_[i * cvOffset_], betaUbFloat_[betaUbOffset],
                          valueUbFloat_[valueUbOffset], subValidLenBatch_[i]);
-            AscendC::CrossCoreSetFlag<0x2, PIPE_MTE3>(0x5); // 同步4
+            AscendC::CrossCoreSetFlag<0x2, PIPE_MTE3>(0x5);
         }
 
         for (uint32_t i = 0; i < curParaNum; ++i) {
@@ -397,7 +387,7 @@ private:
             QPrimeCompute(outQPrimeGm_[chunkRowBase_[i] * dk_], gCumSumUbFloat_[i * chunkSize_],
                           gCumExpUbFloat_[i * chunkSize_], queryConGm_[wsOffset_]);
         }
-        AscendC::CrossCoreWaitFlag(0xA); // 同步5
+        AscendC::CrossCoreWaitFlag(0xA);
     }
     __aicore__ inline void QKPreProcess(const GlobalTensor<bfloat16_t> &srcGm, const GlobalTensor<bfloat16_t> &dstGm,
                                         const GlobalTensor<bfloat16_t> &outKgGm, uint32_t subValidRows,
@@ -439,13 +429,13 @@ private:
     {
         // Copy g
         GCopyInWithStride(src, validLen);
-        // CumSum计算
+        // CumSum
         uint32_t outer = 1;
         uint32_t inner = chunkSize_;
         CumSumInfo cumSumInfo{outer, inner};
         CumSum<float>(gCumSumUbFloat, gCumUbFloat_, gCumUbFloat_, cumSumInfo);
         PipeBarrier<PIPE_V>();
-        // Exp计算
+        // Exp
         Exp<float, 0, true>(gCumExpUbFloat, gCumSumUbFloat, chunkSize_);
         PipeBarrier<PIPE_V>();
 
@@ -709,10 +699,10 @@ private:
         inQueue_.FreeTensor(gLocal_);
     }
 
-    __aicore__ inline void DataCopyInFp32WithStride(uint64_t rows, // 要搬的行数
-                                                    uint64_t cols, // 每行的元素数
+    __aicore__ inline void DataCopyInFp32WithStride(uint64_t rows,
+                                                    uint64_t cols,
                                                     const GlobalTensor<float> src,
-                                                    uint64_t srcRowStride, // GM上相邻行的间距(元素数)
+                                                    uint64_t srcRowStride,
                                                     uint32_t dstRowStride = 0)
     {
         DataCopyPadExtParams<float> padParams = {false, static_cast<uint8_t>(0), static_cast<uint8_t>(0),
@@ -725,10 +715,10 @@ private:
         inQueue_.EnQue<float>(fp32InLocal_);
     }
 
-    __aicore__ inline void DataCopyInBf16WithStride(uint64_t rows, // 要搬的行数
-                                                    uint64_t cols, // 每行的元素数
+    __aicore__ inline void DataCopyInBf16WithStride(uint64_t rows,
+                                                    uint64_t cols,
                                                     GlobalTensor<bfloat16_t> src,
-                                                    uint64_t srcRowStride) // GM上相邻行的间距(元素数)
+                                                    uint64_t srcRowStride)
     {
         DataCopyPadExtParams<bfloat16_t> padParams = {false, static_cast<uint8_t>(0), static_cast<uint8_t>(0),
                                                       static_cast<float>(0)};
@@ -755,13 +745,11 @@ private:
     {
         uint64_t leftDown = offset + chunkSize_ * INVERSE_SHAPE;
         uint64_t rightDown = leftDown + INVERSE_SHAPE;
-        // 右矩阵左下角 @ 右矩阵左上角 -> 右矩阵左下角
         AICProcess(mmBf16_, attnWsGm_[leftDown], attnWsGm_[offset], attnWsGm_[leftDown],
                    {chunkSize_, chunkSize_, chunkSize_, INVERSE_SHAPE, INVERSE_SHAPE, INVERSE_SHAPE});
         int32_t eventID = static_cast<int32_t>(pipe_->FetchEventID(HardEvent::FIX_MTE2));
         SetFlag<HardEvent::FIX_MTE2>(eventID);
         WaitFlag<HardEvent::FIX_MTE2>(eventID);
-        // 右矩阵右下角 @ 右矩阵左下角 -> 右矩阵左下角
         AICProcess(mmBf16_, attnWsGm_[rightDown], attnWsGm_[leftDown], attnWsGm_[leftDown],
                    {chunkSize_, chunkSize_, chunkSize_, INVERSE_SHAPE, INVERSE_SHAPE, INVERSE_SHAPE});
         eventID = static_cast<int32_t>(pipe_->FetchEventID(HardEvent::FIX_MTE2));

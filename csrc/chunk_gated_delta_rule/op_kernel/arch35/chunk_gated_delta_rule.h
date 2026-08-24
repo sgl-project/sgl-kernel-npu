@@ -1,12 +1,12 @@
 /**
- * Copyright (c) 2026 Huawei Technologies Co., Ltd.
- * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
- * CANN Open Software License Agreement Version 2.0 (the "License").
- * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
-  */
+* Copyright (c) 2026 Huawei Technologies Co., Ltd.
+* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+* CANN Open Software License Agreement Version 2.0 (the "License").
+* Please refer to the License for details. You may not use this file except in compliance with the License.
+* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+* See LICENSE in the root of the software repository for the full text of the License.
+ */
 
 /*!
  * \file chunk_gated_delta_rule.h
@@ -75,7 +75,6 @@ public:
     __aicore__ inline void InitMask()
     {
         if ASCEND_IS_AIV {
-            // 初始化mask矩阵
             uint32_t cBlockSize = tiling_->chunkSize * tiling_->chunkSize;
             pipe_->InitBuffer(tmpBuff_, cBlockSize * sizeof(float));
             auto cCFloat_ = tmpBuff_.GetWithOffset<float>(static_cast<uint32_t>(cBlockSize), 0);
@@ -100,7 +99,7 @@ public:
                 DataCopyPad(stageThreeMask_[GetBlockIdx() * cBlockSize + i * tiling_->chunkSize], cCFloat_, copyParams);
             }
             eventID = static_cast<int32_t>(pipe_->FetchEventID(HardEvent::MTE3_MTE2));
-            SetFlag<HardEvent::MTE3_MTE2>(eventID); // 这里必须同步, 否则会有提前拷出的问题
+            SetFlag<HardEvent::MTE3_MTE2>(eventID);
             WaitFlag<HardEvent::MTE3_MTE2>(eventID);
             pipe_->Reset();
         }
@@ -322,12 +321,11 @@ private:
     GlobalTensor<lowType> attnInter_; // (Nv, maxGroupLength, Dv)
     GlobalTensor<lowType> kg_;        // (Nv, maxGroupLength, Dk)
     GlobalTensor<lowType> qkt_;       // (Nv, maxGroupLength, C)
-    // mask矩阵
     GlobalTensor<highType> stageOneMask_;   // (Nv, maxGroupLength, C)
     GlobalTensor<highType> stageThreeMask_; // (Nv, maxGroupLength, C)
     GM_ADDR stageWsAddr_;                   // temporary space addr for stages
 
-    TBuf<TPosition::VECCALC> tmpBuff_; // 构造mask矩阵
+    TBuf<TPosition::VECCALC> tmpBuff_;
 
     // Matmul objects
     StageOneMTT<bfloat16_t> stage1MmBf16_;

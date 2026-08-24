@@ -88,7 +88,6 @@ public:
         buffOffset += tmpOffset * sizeof(float);
         maskBuffer_ = tmpBuff_.GetWithOffset<float>(static_cast<uint32_t>(tmpOffset), buffOffset);
 
-        // 搬入mask
         DataCopyExtParams inParams{static_cast<uint16_t>(chunkSize_), static_cast<uint32_t>(chunkSize_ * sizeof(float)),
                                    0, 0, 0};
         DataCopyPadExtParams<float> copyPadParams{false, 0, 0, 0};
@@ -100,7 +99,7 @@ public:
 
     __aicore__ inline void Process()
     {
-        int64_t totalChunks = Nv_ * chunkNum_; // Nv Nc 融合
+        int64_t totalChunks = Nv_ * chunkNum_;
         int64_t chunksPerCore = (totalChunks + coreNum_ - 1) / coreNum_;
         int64_t lastChunkSize = seqLength_ % chunkSize_ == 0 ? chunkSize_ : seqLength_ % chunkSize_;
         int64_t startChunk = coreId_ * chunksPerCore;
@@ -108,8 +107,8 @@ public:
         for (int64_t idx = startChunk; idx < endChunk; idx++) {
             int64_t nvId = idx / chunkNum_;
             int64_t chunkId = idx % chunkNum_;
-            int64_t chunkPos = chunkId * chunkSize_;                                 // 当前chunk起始位置
-            curChunkSize_ = (chunkId == chunkNum_ - 1) ? lastChunkSize : chunkSize_; // 尾块
+            int64_t chunkPos = chunkId * chunkSize_;
+            curChunkSize_ = (chunkId == chunkNum_ - 1) ? lastChunkSize : chunkSize_;
             if ASCEND_IS_AIV {
                 if (GetSubBlockIdx() == 0) {
                     CalMaskedQKT(tmpGM_[coreId_ * chunkSize_ * chunkSize_], nvId, chunkPos);
@@ -129,9 +128,8 @@ public:
 
     __aicore__ inline void CalMaskedQKT(GlobalTensor<bfloat16_t> outGM, int nvId, int chunkPos)
     {
-        // chunkSize 大小进行自动补齐
         if constexpr (gOptional) {
-            AlignedCopyIn(sTP_->gCumExp[nvId * Sp_ + chunkPos], 1, curChunkSize_); // 自动补齐
+            AlignedCopyIn(sTP_->gCumExp[nvId * Sp_ + chunkPos], 1, curChunkSize_);
             auto g_cum = inQueue_.DeQue<float>();
             const uint32_t srcShape1[] = {static_cast<uint32_t>(chunkSize_), static_cast<uint32_t>(1)};
             const uint32_t srcShape2[] = {static_cast<uint32_t>(1), static_cast<uint32_t>(chunkSize_)};
@@ -182,7 +180,6 @@ public:
     __aicore__ inline void AlignedCopyIn(GlobalTensor<inType> tmpGM, int32_t row, int32_t col)
     {
         LocalTensor<inType> inLocal = inQueue_.AllocTensor<inType>();
-        // 非对齐拷入会自动对齐, 然后离散拷入UB
         int paddingCol = Ceil(col, BLOCK_SIZE / sizeof(inType)) * (BLOCK_SIZE / sizeof(inType));
         DataCopyExtParams inParams{static_cast<uint16_t>(row), static_cast<uint32_t>(col * sizeof(inType)),
                                    static_cast<uint32_t>(0),
