@@ -19,6 +19,10 @@ enum NnopbaseHcclServerType {
 #define ACLNN_SUCCESS 0
 #endif
 
+#ifndef ACLNN_ERR_INNER_NULLPTR
+#define ACLNN_ERR_INNER_NULLPTR (-1)
+#endif
+
 extern aclnnStatus aclnnInnerMoeLowLatencyCombineV2GetWorkspaceSize(
     const aclTensor *expandX, const aclTensor *expertIds, const aclTensor *assistInfoForCombine,
     const aclTensor *epSendCounts, const aclTensor *expertScales, const aclTensor *tpSendCounts,
@@ -55,8 +59,11 @@ aclnnStatus aclnnMoeLowLatencyCombineV2GetWorkspaceSize(
         tpRankId, expertShardType, sharedExpertNum, sharedExpertRankNum, globalBs, outDtype, commQuantMode,
         groupListType, commAlg, 0, 0, 0, xOut, sendCostStats, workspaceSize, executor);
 
-    if (getWorkspaceSizesRes != ACLNN_SUCCESS || executor == nullptr || *executor == nullptr) {
+    if (getWorkspaceSizesRes != ACLNN_SUCCESS) {
         return getWorkspaceSizesRes;
+    }
+    if (executor == nullptr || *executor == nullptr) {
+        return ACLNN_ERR_INNER_NULLPTR;
     }
 
     if (NnopbaseSetHcclServerType) {

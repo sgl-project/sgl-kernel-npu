@@ -300,9 +300,6 @@ __aicore__ inline void MoeV2FullLoadDynamicQuant<T>::CopyOutXQuant1H()
         while (curRowsStart <= curRowsEnd && curRowsStart / this->k_ == row) {
             int32_t outIndex = expandedRowIdx.GetValue(curRowsStart);
             curRowsStart++;
-            if (outIndex == -1 || (this->dropPadMode == DROPLESS_MODE && outIndex >= this->activateRows_)) {
-                continue;
-            }
             if (!(0 <= outIndex && outIndex < this->activateRows_)) {
                 continue;
             }

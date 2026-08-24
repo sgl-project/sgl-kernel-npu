@@ -188,9 +188,6 @@ __aicore__ inline void MoeV2GatherDynamicQuant<T>::CopyOutXQuant1H(int64_t progr
             int32_t outIndex = indicesLocal.GetValue(curLoopRow);
             curLoopRow++;
             initialRow++;
-            if (outIndex == -1 || (this->dropPadMode == DROPLESS_MODE && outIndex >= this->activateRows)) {
-                continue;
-            }
             if (!(0 <= outIndex && outIndex < activateRows)) {
                 continue;
             }
@@ -435,9 +432,6 @@ __aicore__ inline void MoeV2GatherDynamicQuant<T>::CopyOutPartialXQuant1H(int64_
             int32_t outIndex = indicesLocal.GetValue(curLoopRow);
             curLoopRow++;
             initialRow++;
-            if (outIndex == -1 || (this->dropPadMode == DROPLESS_MODE && outIndex >= this->activateRows)) {
-                continue;
-            }
             if (!(0 <= outIndex && outIndex < activateRows)) {
                 continue;
             }

@@ -99,9 +99,6 @@ __aicore__ inline void MoeV2GatherOut<T>::CopyOut(int64_t progress)
                 int32_t outIndex = indicesLocal.GetValue(curLoopRow);
                 curLoopRow++;
                 initialRow++;
-                if (outIndex == -1 || (this->dropPadMode == DROPLESS_MODE && outIndex >= this->activateRows)) {
-                    continue;
-                }
                 if (!(0 <= outIndex && outIndex < this->activateRows)) {
                     continue;
                 }

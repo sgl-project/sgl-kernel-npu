@@ -295,6 +295,8 @@ __aicore__ inline void CamMoeDistributeCombine<TemplateMC2TypeFunc>::Init(
     bsKNum_ = axisBS_ * axisK_;
 
     if constexpr (IsNeedReduceScatter) {
+        auto contextGM1 = AscendC::GetHcclContext<1>();
+        tpWinContext_ = (__gm__ HcclOpResParam *)contextGM1;
         tpSendCountGM_.SetGlobalBuffer((__gm__ int32_t *)tpSendCount);
         tpWindowGM_ = GetWinAddrByRankId(tpRankId_, TP_DOMAIN);
         tpStatusSpaceGm_ = GetWinStateAddrByRankId(tpRankId_, TP_DOMAIN);

@@ -54,8 +54,11 @@ aclnnStatus aclnnMoeLowLatencyDispatchV2GetWorkspaceSize(
         groupTp, tpWorldSize, tpRankId, expertShardType, sharedExpertNum, sharedExpertRankNum, quantMode, globalBs,
         expertTokenNumsType, commAlg, 0, 0, 0, expandXOut, dynamicScalesOut, assistInfoForCombineOut,
         expertTokenNumsOut, epRecvCountsOut, tpRecvCountsOut, workspaceSize, executor);
-    if (getWorkspaceSizesRes != ACLNN_SUCCESS || executor == nullptr || *executor == nullptr) {
+    if (getWorkspaceSizesRes != ACLNN_SUCCESS) {
         return getWorkspaceSizesRes;
+    }
+    if (executor == nullptr || *executor == nullptr) {
+        return ACLNN_ERR_INNER_NULLPTR;
     }
     if (NnopbaseSetHcclServerType) {
         if (std::strcmp(commAlg, "ccu") == 0) {
