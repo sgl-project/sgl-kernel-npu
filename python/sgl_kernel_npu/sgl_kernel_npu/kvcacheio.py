@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Optional
+from typing import Optional, Sequence
 
 import torch
 
@@ -11,6 +11,40 @@ class TransferDirection(Enum):
 
 class TransferFlag(Enum):
     FAST2D = 2
+
+
+def transfer_state_per_layer_direct_pf_lf(
+    src: torch.Tensor,
+    dst: torch.Tensor,
+    src_indices: torch.Tensor,
+    dst_indices: torch.Tensor,
+    layer_id: int,
+    flags: TransferFlag = TransferFlag.FAST2D,
+) -> None:
+    torch.ops.npu.transfer_state_per_layer_direct_pf_lf(
+        src,
+        dst,
+        src_indices,
+        dst_indices,
+        layer_id,
+        flags.value,
+    )
+
+
+def transfer_state_all_layer_direct_lf_pf(
+    device_states: Sequence[torch.Tensor],
+    host_states: Sequence[torch.Tensor],
+    device_indices: torch.Tensor,
+    host_indices: torch.Tensor,
+    flags: TransferFlag = TransferFlag.FAST2D,
+) -> None:
+    torch.ops.npu.transfer_state_all_layer_direct_lf_pf(
+        list(device_states),
+        list(host_states),
+        device_indices,
+        host_indices,
+        flags.value,
+    )
 
 
 def transfer_kv_dim_exchange(
