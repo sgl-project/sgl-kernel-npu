@@ -16,6 +16,7 @@
 
 #include "torch_npu/csrc/aten/NPUNativeFunctions.h"
 #include "torch_npu/csrc/core/npu/NPUStream.h"
+#include "torch_npu/csrc/core/npu/NPUFormat.h"
 #include "torch_npu/csrc/framework/OpCommand.h"
 #include "torch_npu/csrc/framework/interface/EnvVariables.h"
 #include "torch_npu/csrc/framework/utils/CalcuOpUtil.h"
@@ -212,6 +213,16 @@ inline at::Tensor CopyScalarToDevice(const c10::Scalar &cpu_scalar, at::ScalarTy
     return CopyTensorHostToDevice(scalar_to_tensor(cpu_scalar).to(scalar_data_type));
 }
 
+static inline bool IsOpInputBaseFormat(const at::Tensor &at_tensor)
+{
+    if (!torch_npu::utils::is_npu(at_tensor)) {
+        return true;
+    }
+    const auto format = static_cast<aclFormat>(at_npu::native::get_npu_format(at_tensor));
+    return (format == ACL_FORMAT_ND) || (format == ACL_FORMAT_NCHW) || (format == ACL_FORMAT_NHWC) ||
+           (format == ACL_FORMAT_NCDHW);
+}
+
 inline aclTensor *ConvertType(const at::Tensor &at_tensor)
 {
     static const auto aclCreateTensor = GET_OP_API_FUNC(aclCreateTensor);
@@ -227,34 +238,41 @@ inline aclTensor *ConvertType(const at::Tensor &at_tensor)
     TORCH_CHECK(acl_data_type != ACL_DT_UNDEFINED,
                 std::string(c10::toString(scalar_data_type)) + " has not been supported")
     c10::SmallVector<int64_t, 5> storageDims;
-    // if acl_data_type is ACL_STRING, storageDims is empty.
+
     auto itemsize = at_tensor.itemsize();
     if (itemsize == 0) {
         AT_ERROR("When ConvertType, tensor item size of cannot be zero.");
         return nullptr;
     }
-    if (acl_data_type != ACL_STRING) {
-        storageDims.push_back(at_tensor.storage().nbytes() / itemsize);
-    }
 
     const auto dimNum = at_tensor.sizes().size();
     aclFormat format = ACL_FORMAT_ND;
-    switch (dimNum) {
-        case 3:
-            format = ACL_FORMAT_NCL;
-            break;
-        case 4:
-            format = ACL_FORMAT_NCHW;
-            break;
-        case 5:
-            format = ACL_FORMAT_NC1HWC0;
-            break;
-        default:
-            format = ACL_FORMAT_ND;
-    }
+    const bool isBaseFormat = IsOpInputBaseFormat(at_tensor);
+    if (!isBaseFormat) {
+        format = static_cast<aclFormat>(at_npu::native::get_npu_format(at_tensor));
+        if (acl_data_type != ACL_STRING) {
+            auto npuStorageSizes = at_npu::native::get_npu_storage_sizes(at_tensor);
+            storageDims.assign(npuStorageSizes.begin(), npuStorageSizes.end());
+        }
+    } else {
+        // if acl_data_type is ACL_STRING, storageDims is empty.
+        if (acl_data_type != ACL_STRING) {
+            storageDims.push_back(at_tensor.storage().nbytes() / itemsize);
+        }
 
-    if (acl_data_type == ACL_INT8 && dimNum == 3) {
-        format = ACL_FORMAT_FRACTAL_NZ;
+        switch (dimNum) {
+            case 3:
+                format = ACL_FORMAT_NCL;
+                break;
+            case 4:
+                format = ACL_FORMAT_NCHW;
+                break;
+            case 5:
+                format = ACL_FORMAT_NC1HWC0;
+                break;
+            default:
+                format = ACL_FORMAT_ND;
+        }
     }
 
     if (at_tensor.unsafeGetTensorImpl()->is_wrapped_number()) {

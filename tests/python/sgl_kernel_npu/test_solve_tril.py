@@ -1,13 +1,17 @@
 import os
 
 import pytest
+import sgl_kernel_npu  # noqa: F401  registers npu ops before pytestmark
 import torch
 import torch.nn.functional as F
+import torch_npu  # noqa: F401  makes torch.ops.npu namespace available
 from sgl_kernel_npu.fla.solve_tril import solve_tril_npu as solve_tril
+from utils import require_npu_op
 
-pytestmark = pytest.mark.skip(
-    reason="solve_tril API is not consistent with upstream fla."
-)
+pytestmark = [
+    pytest.mark.skip(reason="solve_tril API is not consistent with upstream fla."),
+    require_npu_op("triangular_inverse"),
+]
 
 NPU_DEVICE = "npu"
 
