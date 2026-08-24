@@ -5,6 +5,7 @@ on:
     branches: [ main ]
     paths:
       - "csrc/**"
+      - "!csrc/deepep/**"  # pure DeepEP PRs are covered by pr-test-deepep-npu.yml
       - "python/sgl_kernel_npu/**"
       - "tests/python/sgl_kernel_npu/**"
       - "build.sh"
@@ -134,6 +135,8 @@ jobs:
               - third_party/catlass/**
               - .gitmodules
 
+  # 7 test-group jobs, one per domain, run in parallel (same structure as PR #518).
+  # Adding 9.1.0 to each job's matrix doubles the parallelism to 14 combos.
   test-norm-ops:
     needs: get-changed-files
     if: |
@@ -144,13 +147,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # NOTE: CANN 8.5.0 / A2(910b) options are preserved but not enabled.
-        # To re-enable, add '8.5.0' to cann_version and/or 'a2' to hardware.
-        cann_version: [9.0.0]
+        # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
+        # The a2 branch below is kept only as an extension point.
+        # CANN 9.1.0 has no daily-built image yet, so the image below pins the
+        # dated tag cann9.1.0-a3-20260818 (bump manually when a newer one comes).
+        cann_version: [9.0.0, 9.1.0]
         hardware: [a3]
-    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-16' || 'linux-aarch64-a2-8' }}
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-2' || 'linux-aarch64-a2-8' }}
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:main-cann${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}
+      # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -200,13 +206,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # NOTE: CANN 8.5.0 / A2(910b) options are preserved but not enabled.
-        # To re-enable, add '8.5.0' to cann_version and/or 'a2' to hardware.
-        cann_version: [9.0.0]
+        # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
+        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20260818 (bump manually).
+        cann_version: [9.0.0, 9.1.0]
         hardware: [a3]
-    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-16' || 'linux-aarch64-a2-8' }}
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-2' || 'linux-aarch64-a2-8' }}
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:main-cann${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}
+      # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -256,13 +263,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # NOTE: CANN 8.5.0 / A2(910b) options are preserved but not enabled.
-        # To re-enable, add '8.5.0' to cann_version and/or 'a2' to hardware.
-        cann_version: [9.0.0]
+        # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
+        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20260818 (bump manually).
+        cann_version: [9.0.0, 9.1.0]
         hardware: [a3]
-    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-16' || 'linux-aarch64-a2-8' }}
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-2' || 'linux-aarch64-a2-8' }}
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:main-cann${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}
+      # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -312,13 +320,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # NOTE: CANN 8.5.0 / A2(910b) options are preserved but not enabled.
-        # To re-enable, add '8.5.0' to cann_version and/or 'a2' to hardware.
-        cann_version: [9.0.0]
+        # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
+        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20260818 (bump manually).
+        cann_version: [9.0.0, 9.1.0]
         hardware: [a3]
-    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-16' || 'linux-aarch64-a2-8' }}
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-2' || 'linux-aarch64-a2-8' }}
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:main-cann${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}
+      # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -368,13 +377,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # NOTE: CANN 8.5.0 / A2(910b) options are preserved but not enabled.
-        # To re-enable, add '8.5.0' to cann_version and/or 'a2' to hardware.
-        cann_version: [9.0.0]
+        # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
+        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20260818 (bump manually).
+        cann_version: [9.0.0, 9.1.0]
         hardware: [a3]
-    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-16' || 'linux-aarch64-a2-8' }}
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-2' || 'linux-aarch64-a2-8' }}
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:main-cann${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}
+      # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -424,13 +434,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # NOTE: CANN 8.5.0 / A2(910b) options are preserved but not enabled.
-        # To re-enable, add '8.5.0' to cann_version and/or 'a2' to hardware.
-        cann_version: [9.0.0]
+        # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
+        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20260818 (bump manually).
+        cann_version: [9.0.0, 9.1.0]
         hardware: [a3]
-    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-16' || 'linux-aarch64-a2-8' }}
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-2' || 'linux-aarch64-a2-8' }}
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:main-cann${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}
+      # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
@@ -480,13 +491,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # NOTE: CANN 8.5.0 / A2(910b) options are preserved but not enabled.
-        # To re-enable, add '8.5.0' to cann_version and/or 'a2' to hardware.
-        cann_version: [9.0.0]
+        # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
+        # CANN 9.1.0 uses the pinned dated image cann9.1.0-a3-20260818 (bump manually).
+        cann_version: [9.0.0, 9.1.0]
         hardware: [a3]
-    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-16' || 'linux-aarch64-a2-8' }}
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-2' || 'linux-aarch64-a2-8' }}
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:main-cann${{ matrix.cann_version }}-${{ matrix.hardware == 'a3' && 'a3' || '910b' }}
+      # Kernel operator tests only need a single NPU, so a3 uses the single-card runner.
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
     env:
       CANN_VERSION: "${{ matrix.cann_version }}"
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
