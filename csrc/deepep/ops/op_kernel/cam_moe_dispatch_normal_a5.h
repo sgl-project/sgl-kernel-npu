@@ -810,11 +810,14 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
 
     for (uint32_t index = startStatusId; index < endStatusId; ++index) {
         uint64_t expertStart = 0;
-        // 专家全局索引逻辑：
-        // 1. index % moeExpertNumPerRank：计算当前索引在本rank内的专家偏移量，范围[0, moeExpertNumPerRank-1]
-        // 2. epRankSize * (...)：将专家偏移量转换为跨rank的专家组起始索引（每个rank包含moeExpertNumPerRank个专家）
-        // 3. index / moeExpertNumPerRank：计算当前索引所在的rank偏移量，范围[0, epRankSize-1]
-        // 4. 最终i为专家全局索引，公式等价于：i = 专家组编号 * 总rank数 + 组内rank偏移量
+        // Expert global index logic:
+        // 1. index % moeExpertNumPerRank: Calculate the expert offset within the current rank, range [0,
+        // moeExpertNumPerRank-1]
+        // 2. epRankSize * (...): Convert the expert offset to a cross-rank expert group start index (each rank contains
+        // moeExpertNumPerRank experts)
+        // 3. index / moeExpertNumPerRank: Calculate the rank offset of the current index, range [0, epRankSize-1]
+        // 4. Final i is the global expert index, formula equivalent to: i = expert group ID * total ranks + rank offset
+        // within group
         uint32_t i = epRankSize * (index % moeExpertNumPerRank) + index / moeExpertNumPerRank;
         preCount = 0;
         if (likely(i != 0)) {

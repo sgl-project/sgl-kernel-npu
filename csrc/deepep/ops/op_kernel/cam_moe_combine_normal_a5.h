@@ -20,7 +20,7 @@ constexpr uint32_t MUL_256_ALIGN = 256U;
 constexpr uint64_t WIN_512_ALIGN = 512UL;
 constexpr uint32_t FLOAT_NUM_PER_ALIGN = 8U;
 constexpr uint8_t DOUBLE_BUFFER = 2;
-constexpr uint32_t BATCH_SRC_INFO_CNT = 128U;  // srcInfo 批处理
+constexpr uint32_t BATCH_SRC_INFO_CNT = 128U;  // srcInfo batching
 constexpr int64_t CYCLE_TO_TIME = 1000;        // cycle num is converted into a fixed base unit of time, set at 1000
 
 template <AscendC::HardEvent event>
@@ -127,9 +127,9 @@ private:
     TBuf<> srcInfoBuf_;
     TBuf<> xOutBuf_;
     TBuf<> tempStateBuf_;
-    TBuf<> recvCountBuf_;        // epRecvCount（E*W 前缀和）拷贝到 UB
-    TBuf<> sendRangeOffsetBuf_;  // 本核子区间列表：起始 token 偏移
-    TBuf<> sendRangeCntBuf_;     // 本核子区间列表：token 数
+    TBuf<> recvCountBuf_;        // epRecvCount (E*W prefix sum) copied to UB
+    TBuf<> sendRangeOffsetBuf_;  // sub-range list of this core: start token offset
+    TBuf<> sendRangeCntBuf_;     // sub-range list of this core: token count
 
     GlobalTensor<RecvXType> recvXGM_;
     GlobalTensor<SrcInfoType> tokenSrcInfoGM_;
@@ -234,10 +234,11 @@ template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToShareAndSetStatus()
 {
     PipeBarrier<PIPE_ALL>();
-    // ---------- 分核：rank-major 两级切分（第一级按 rank，第二级组内按 token 数均衡）----------
-    uint32_t subRangeNum = 0U;    // 本核负责的子区间个数
-    uint32_t totalTokenCnt = 0U;  // 本核负责的 token 总数（打点用）
-    uint32_t myRank = 0U;  // 本核写入的目标 rank（rank-major 分支有效；A<W 降级路径打点用哨兵）
+    // Core split: rank-major two-level partition (level 1 by rank, level 2 balances token count within group)
+    uint32_t subRangeNum = 0U;    // number of sub-ranges handled by this core
+    uint32_t totalTokenCnt = 0U;  // total token count handled by this core (for profiling)
+    uint32_t myRank = 0U;  // target rank this core writes to (valid in rank-major branch; sentinel for profiling in the
+                           // A<W fallback path)
 
     tpipe_->Reset();
     uint32_t recvCountAlignLen = Ceil(moeExpertNum_ * sizeof(int32_t), UB_32_ALIGN) * UB_32_ALIGN;
@@ -264,7 +265,7 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
         Duplicate<int32_t>(sendCostStatsTensor, 0, sendCostStatsBufSize_ / sizeof(int32_t));
     }
 
-    // 读 epRecvCount（E*W 个 int32，expert-major / rank-minor 全前缀和）到 UB
+    // Read epRecvCount (E*W int32, expert-major / rank-minor full prefix sum) into UB
     const DataCopyExtParams countDp{1U, static_cast<uint32_t>(moeExpertNum_ * sizeof(int32_t)), 0U, 0U, 0U};
     const DataCopyPadExtParams<SrcInfoType> countPad{false, 0U, 0U, 0U};
     DataCopyPad(recvCountLocal, epRecvCountGM_[0], countDp, countPad);
@@ -272,7 +273,8 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
 
     uint32_t perRankCore = aivNum_ / epWorldSize_;
     if (perRankCore == 0U) {
-        // A < W（核数少于 rank 数）：降级为按总 token 数切连续段（与现状一致）
+        // A < W (fewer cores than ranks): fall back to splitting into contiguous segments by total token count (same as
+        // before)
         uint32_t perBlockSendNum = 0U, startTokenId = 0U, endTokenId = 0U;
         SplitCoreCal(selfSendCnt_, perBlockSendNum, startTokenId, endTokenId);
         if (perBlockSendNum == 0U) {
@@ -283,8 +285,8 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
         subRangeNum = 1U;
         totalTokenCnt = perBlockSendNum;
     } else {
-        // 第一级：按 rank 分核。rank r 的核组 = [r*perRankCore+min(r,remRankCore),
-        //                                     +perRankCore+(r<remRankCore?1:0))
+        // Level 1: split cores by rank. Core group of rank r = [r*perRankCore+min(r,remRankCore),
+        //                                                        +perRankCore+(r<remRankCore?1:0))
         uint32_t remRankCore = aivNum_ % epWorldSize_;
         uint32_t groupStart = 0U, groupSize = 0U;
         for (uint32_t r = 0U; r < epWorldSize_; ++r) {
@@ -299,8 +301,8 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
         }
         uint32_t k = coreIdx_ - groupStart;
 
-        // rank myRank 的 token 总数 T_r = Σ blockCount(e,myRank)
-        // （与下方子区间映射用同一套块计数，保证 [tStart,tEnd) 落在 [0,T_r) 内）
+        // Total token count T_r of rank myRank = Σ blockCount(e,myRank)
+        // (same block counting as the sub-range mapping below, guaranteeing [tStart,tEnd) lies within [0,T_r))
         uint32_t rankTotal = 0U;
         for (uint32_t e = 0U; e < moeExpertPerRankNum_; ++e) {
             uint32_t blockIdx = e * epWorldSize_ + myRank;
@@ -309,7 +311,7 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
             rankTotal += hi - lo;
         }
 
-        // 第二级：组内按 token 数均分，得到本核 token 区间 [tStart, tEnd)
+        // Level 2: split evenly by token count within the group to get this core's token range [tStart, tEnd)
         uint32_t perCoreToken = rankTotal / groupSize;
         uint32_t remToken = rankTotal % groupSize;
         uint32_t tStart = perCoreToken * k + (k < remToken ? k : remToken);
@@ -318,7 +320,7 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
             return;
         }
 
-        // 把 [tStart, tEnd) 映射回各专家块的子区间（按 e 递增累计 blockCount(e,myRank)）
+        // Map [tStart, tEnd) back to sub-ranges of each expert block (accumulate blockCount(e,myRank) in increasing e)
         uint32_t consumed = 0U;
         for (uint32_t e = 0U; e < moeExpertPerRankNum_; ++e) {
             if (consumed >= tEnd) {
@@ -344,7 +346,8 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
         totalTokenCnt = tEnd - tStart;
     }
 
-    // ---------- 发送：遍历本核子区间，保持原有每 token 交错结构（copy + PipeBarrier + status）----------
+    // Send: iterate over this core's sub-ranges, keeping the original per-token interleaved structure (copy +
+    // PipeBarrier + status)
     for (uint32_t si = 0U; si < subRangeNum; ++si) {
         ProcessSendRange(sendRangeOffsetLT(si), sendRangeCntLT(si), sendCostStatsTensor);
     }

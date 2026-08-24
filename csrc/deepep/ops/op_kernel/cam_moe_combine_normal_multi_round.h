@@ -138,7 +138,8 @@ private:
     uint32_t startBlockId_{0};
     uint32_t endBlockId_{0};
     uint32_t preRecvCount_{0};
-    uint32_t sendTargetRank_{0};  // 本核发送打点中记录的目标 rank（rank-major 分核后每核固定一个目标 rank）
+    uint32_t sendTargetRank_{0};  // target rank recorded in this core's send profiling (each core has a fixed target
+                                  // rank after rank-major split)
     // recv用到的数据
     uint32_t totalNeedRecvTokenCnt_{0};   // 剩余需要接收的token数，初始化为axisBS_
     uint32_t roundTotalRecvTokenCnt_{0};  // 每一轮所有核需要接收的总token数
@@ -274,7 +275,8 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitR
 
     uint32_t perRankCore = aivNum_ / epWorldSize_;
     if (perRankCore == 0U) {
-        // A < W（核数少于 rank 数）：无法按 rank 分核，降级为按总 token 数切连续段（flat）
+        // A < W (fewer cores than ranks): cannot split by rank, fall back to contiguous segments by total token count
+        // (flat)
         uint32_t selfSendCnt = static_cast<uint32_t>(recvCountLT(moeExpertNum_ - 1));
         uint32_t flatStart = 0, flatEnd = 0, perCoreSendCnt = 0;
         SplitCoreCal(selfSendCnt, perCoreSendCnt, flatStart, flatEnd);
@@ -304,7 +306,7 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitR
         return;
     }
 
-    // ---------- 第一级：按 rank 分核（与单轮 cam_moe_combine_normal A5 一致）----------
+    // Level 1: split cores by rank (consistent with single-round cam_moe_combine_normal A5)
     uint32_t remRankCore = aivNum_ % epWorldSize_;
     uint32_t myRank = 0;
     uint32_t groupStart = 0;
@@ -322,7 +324,8 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitR
     uint32_t k = coreIdx_ - groupStart;
     sendTargetRank_ = myRank;
 
-    // 本核固定只写 rank myRank 的窗口；rank myRank 的 token 总数 T_r = Σ_e blockCount(e, myRank)
+    // This core always writes to the window of rank myRank; total token count T_r of rank myRank = Σ_e blockCount(e,
+    // myRank)
     uint32_t rankTotal = 0;
     for (uint32_t e = 0; e < moeExpertPerRankNum_; ++e) {
         uint32_t blockIdx = e * epWorldSize_ + myRank;
@@ -331,7 +334,7 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitR
         rankTotal += hi - lo;
     }
 
-    // ---------- 第二级：组内按 token 数均分，得到本核 token 区间 [tStart, tEnd) ----------
+    //  Level 2: split evenly by token count within the group to get this core's token range [tStart, tEnd)
     uint32_t perCoreToken = rankTotal / groupSize;
     uint32_t remToken = rankTotal % groupSize;
     uint32_t tStart = perCoreToken * k + (k < remToken ? k : remToken);
@@ -341,14 +344,15 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitR
     }
     needSendTokenCnt_ = tEnd - tStart;
 
-    // 缓冲按最大块数（moeExpertPerRankNum_）预分配，填充时统计实际块数
+    // Pre-allocate buffers by the maximum block count (moeExpertPerRankNum_); count the actual blocks while filling
     uint32_t sendBlockAlignLen = Ceil(moeExpertPerRankNum_ * sizeof(int32_t), UB_32_ALIGN) * UB_32_ALIGN;
     tpipe_->InitBuffer(roundNeedSendCntBuf_, sendBlockAlignLen);
     tpipe_->InitBuffer(roundSendOffsetBuf_, sendBlockAlignLen);
     roundNeedSendCntLT_ = roundNeedSendCntBuf_.Get<uint32_t>();
     roundSendOffsetLT_ = roundSendOffsetBuf_.Get<uint32_t>();
 
-    // 把 [tStart, tEnd) 映射回 myRank 各专家块的子区间（块内为全局 token 索引）
+    // Map [tStart, tEnd) back to sub-ranges of myRank's expert blocks (within a block, indices are global token
+    // indices)
     perCoreBlockNum_ = 0;
     uint32_t consumed = 0;
     for (uint32_t e = 0; e < moeExpertPerRankNum_; ++e) {

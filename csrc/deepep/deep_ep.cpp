@@ -289,9 +289,9 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     } else {
         HCCL_CHECK(HcclGetCommName(ep_comm, hcom_ep_name));
     }
-    // 将 max_bs / total_recv_token / recv_tokens_per_expert 合并进同一块连续 buffer，
-    // 布局 [max_bs, total_recv_token, recv_tokens_per_expert(round*num_local_experts)]，
-    // 以便 notify_dispatch 之后仅需一次 D2H 即可读回全部值，消除多次 host 同步停顿。
+    // Merge max_bs / total_recv_token / recv_tokens_per_expert into one contiguous buffer,
+    // layout [max_bs, total_recv_token, recv_tokens_per_expert(round*num_local_experts)],
+    // so a single D2H read after notify_dispatch fetches all values back, eliminating multiple host sync stalls.
     const int64_t nel = static_cast<int64_t>(num_local_experts);
     at::Tensor recv_header =
         torch::empty({2 + static_cast<int64_t>(round) * nel}, at::dtype(at::kInt).device(x.device()));
@@ -324,8 +324,8 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, total_recv_token,
                  max_bs, recv_tokens_per_expert);
     auto send_token_idx_small = this->send_token_idx_small;
-    // 仅一次 D2H 读回整个 recv_header，max_bs / total_recv_token / recv_tokens_per_expert 均从 host 缓存取值，
-    // 避免 dispatch 前后多次独立读取造成的 host 同步停顿。
+    // Read back the whole recv_header with a single D2H; max_bs / total_recv_token / recv_tokens_per_expert
+    // are all taken from the host cache, avoiding host sync stalls from multiple independent reads around dispatch.
     auto recv_header_cpu = recv_header.to(at::kCPU);
     const int32_t *header_ptr = recv_header_cpu.data_ptr<int32_t>();
     real_max_bs = static_cast<int64_t>(std::max(static_cast<int>(header_ptr[0]), static_cast<int>(num_worst_tokens)));
@@ -387,8 +387,6 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                  rank,       // rankId
                  hcom_ep_name, tp_size, tp_rank, num_experts, quant_mode, real_max_bs, global_bs, round,
                  per_round_tokens, expandx_out, dynamic_scales_out, expand_idx_out, dispatch_wait_recv_cost_stats_out);
-    // recv_tokens_per_expert 已随 recv_header 在 dispatch 前一次性读回 host（header_ptr + 2），
-    // 此处直接复用缓存，不再发起第二次 D2H 读取。
     const int32_t *recv_token_per_exp_ptr = header_ptr + 2;
 
     int token_cnt = 0;
