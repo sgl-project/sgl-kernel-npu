@@ -203,7 +203,7 @@ private:
             pipe_barrier(PIPE_V);
         }
 
-       for (int32_t i = maxLoRARank_; i < NUM_ELEMENTS_PER_REPEAT; i += maxLoRARank_) {
+        for (int32_t i = maxLoRARank_; i < NUM_ELEMENTS_PER_REPEAT; i += maxLoRARank_) {
             for (int32_t j = 0; j < maxLoRARank_; j++) {
                 float entry = xDup.GetValue(j);
                 xDup.SetValue(i + j, entry);
