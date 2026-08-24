@@ -67,7 +67,8 @@ private:
     __aicore__ inline void SetStatusBySrcInfo(uint32_t srcRankId, uint32_t srcTokenId, uint32_t srcTopkId);
     __aicore__ inline void ReadBufferAndWeightedSum(uint32_t recvXTokenIdx, uint32_t topkWeightTokenIdx);
     __aicore__ inline void InitRoundSendData();
-    __aicore__ inline void InitTokenBalancedRoundSendDataA5();
+    __aicore__ inline void InitRankMajorRoundSendDataA5();
+    __aicore__ inline void InitSendA5CommonBuffers();
     __aicore__ inline void SetRoundStatus();
     __aicore__ inline void WaitRoundStatus();
     __aicore__ inline void InitRoundRecvData();
@@ -137,6 +138,8 @@ private:
     uint32_t startBlockId_{0};
     uint32_t endBlockId_{0};
     uint32_t preRecvCount_{0};
+    uint32_t sendTargetRank_{0};  // target rank recorded in this core's send profiling (each core has a fixed target
+                                  // rank after rank-major split)
     // recv用到的数据
     uint32_t totalNeedRecvTokenCnt_{0};   // 剩余需要接收的token数，初始化为axisBS_
     uint32_t roundTotalRecvTokenCnt_{0};  // 每一轮所有核需要接收的总token数
@@ -258,59 +261,129 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitB
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitTokenBalancedRoundSendDataA5()
+__aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitRankMajorRoundSendDataA5()
 {
     uint32_t expertCountLen = moeExpertNum_ * sizeof(int32_t);
     uint32_t expertCountAlignLen = Ceil(expertCountLen, UB_32_ALIGN) * UB_32_ALIGN;
     tpipe_->Reset();
     tpipe_->InitBuffer(tempRecvCountBuf_, expertCountAlignLen);
-    LocalTensor<int32_t> expertEndOffsetLT = tempRecvCountBuf_.Get<int32_t>();
+    LocalTensor<int32_t> recvCountLT = tempRecvCountBuf_.Get<int32_t>();
     const DataCopyExtParams expertCountCopyParams{1U, expertCountLen, 0U, 0U, 0U};
     const DataCopyPadExtParams<int32_t> expertCountPadParams{false, 0U, 0U, 0U};
-    DataCopyPad(expertEndOffsetLT, epRecvCountGM_, expertCountCopyParams, expertCountPadParams);
+    DataCopyPad(recvCountLT, epRecvCountGM_, expertCountCopyParams, expertCountPadParams);
     SyncFunc<HardEvent::MTE2_S>();
 
-    uint32_t selfSendCnt = static_cast<uint32_t>(expertEndOffsetLT(moeExpertNum_ - 1));
-    uint32_t flatStart = 0;
-    uint32_t flatEnd = 0;
-    uint32_t perCoreSendCnt = 0;
-    SplitCoreCal(selfSendCnt, perCoreSendCnt, flatStart, flatEnd);
-    if (perCoreSendCnt == 0) {
+    uint32_t perRankCore = aivNum_ / epWorldSize_;
+    if (perRankCore == 0U) {
+        // A < W (fewer cores than ranks): cannot split by rank, fall back to contiguous segments by total token count
+        // (flat)
+        uint32_t selfSendCnt = static_cast<uint32_t>(recvCountLT(moeExpertNum_ - 1));
+        uint32_t flatStart = 0, flatEnd = 0, perCoreSendCnt = 0;
+        SplitCoreCal(selfSendCnt, perCoreSendCnt, flatStart, flatEnd);
+        if (perCoreSendCnt == 0) {
+            return;
+        }
+        needSendTokenCnt_ = perCoreSendCnt;
+        preRecvCount_ = flatStart;
+        uint32_t sendBlockAlignLen = Ceil(moeExpertNum_ * sizeof(int32_t), UB_32_ALIGN) * UB_32_ALIGN;
+        tpipe_->InitBuffer(roundNeedSendCntBuf_, sendBlockAlignLen);
+        tpipe_->InitBuffer(roundSendOffsetBuf_, sendBlockAlignLen);
+        roundNeedSendCntLT_ = roundNeedSendCntBuf_.Get<uint32_t>();
+        roundSendOffsetLT_ = roundSendOffsetBuf_.Get<uint32_t>();
+        perCoreBlockNum_ = 0;
+        for (uint32_t blockIdx = 0; blockIdx < moeExpertNum_; ++blockIdx) {
+            uint32_t blockStart = blockIdx == 0 ? 0 : static_cast<uint32_t>(recvCountLT(blockIdx - 1));
+            uint32_t blockEnd = static_cast<uint32_t>(recvCountLT(blockIdx));
+            uint32_t segmentStart = max(flatStart, blockStart);
+            uint32_t segmentEnd = min(flatEnd, blockEnd);
+            if (segmentStart < segmentEnd) {
+                roundSendOffsetLT_(perCoreBlockNum_) = segmentStart;
+                roundNeedSendCntLT_(perCoreBlockNum_) = segmentEnd - segmentStart;
+                ++perCoreBlockNum_;
+            }
+        }
+        InitSendA5CommonBuffers();
         return;
     }
 
-    preRecvCount_ = flatStart;
-    needSendTokenCnt_ = perCoreSendCnt;
-    perCoreBlockNum_ = 0;
-    for (uint32_t expertId = 0; expertId < moeExpertNum_; ++expertId) {
-        uint32_t expertStart = expertId == 0 ? 0 : static_cast<uint32_t>(expertEndOffsetLT(expertId - 1));
-        uint32_t expertEnd = static_cast<uint32_t>(expertEndOffsetLT(expertId));
-        uint32_t segmentStart = max(flatStart, expertStart);
-        uint32_t segmentEnd = min(flatEnd, expertEnd);
-        if (segmentStart < segmentEnd) {
-            ++perCoreBlockNum_;
+    // Level 1: split cores by rank (consistent with single-round cam_moe_combine_normal A5)
+    uint32_t remRankCore = aivNum_ % epWorldSize_;
+    uint32_t myRank = 0;
+    uint32_t groupStart = 0;
+    uint32_t groupSize = 0;
+    for (uint32_t r = 0; r < epWorldSize_; ++r) {
+        uint32_t gStart = r * perRankCore + (r < remRankCore ? r : remRankCore);
+        uint32_t gEnd = gStart + perRankCore + (r < remRankCore ? 1U : 0U);
+        if (coreIdx_ >= gStart && coreIdx_ < gEnd) {
+            myRank = r;
+            groupStart = gStart;
+            groupSize = gEnd - gStart;
+            break;
         }
     }
+    uint32_t k = coreIdx_ - groupStart;
+    sendTargetRank_ = myRank;
 
-    uint32_t sendBlockAlignLen = Ceil(perCoreBlockNum_ * sizeof(int32_t), UB_32_ALIGN) * UB_32_ALIGN;
+    // This core always writes to the window of rank myRank; total token count T_r of rank myRank = Σ_e blockCount(e,
+    // myRank)
+    uint32_t rankTotal = 0;
+    for (uint32_t e = 0; e < moeExpertPerRankNum_; ++e) {
+        uint32_t blockIdx = e * epWorldSize_ + myRank;
+        uint32_t hi = static_cast<uint32_t>(recvCountLT(blockIdx));
+        uint32_t lo = (blockIdx == 0U) ? 0U : static_cast<uint32_t>(recvCountLT(blockIdx - 1));
+        rankTotal += hi - lo;
+    }
+
+    //  Level 2: split evenly by token count within the group to get this core's token range [tStart, tEnd)
+    uint32_t perCoreToken = rankTotal / groupSize;
+    uint32_t remToken = rankTotal % groupSize;
+    uint32_t tStart = perCoreToken * k + (k < remToken ? k : remToken);
+    uint32_t tEnd = tStart + perCoreToken + (k < remToken ? 1U : 0U);
+    if (tStart == tEnd) {
+        return;
+    }
+    needSendTokenCnt_ = tEnd - tStart;
+
+    // Pre-allocate buffers by the maximum block count (moeExpertPerRankNum_); count the actual blocks while filling
+    uint32_t sendBlockAlignLen = Ceil(moeExpertPerRankNum_ * sizeof(int32_t), UB_32_ALIGN) * UB_32_ALIGN;
     tpipe_->InitBuffer(roundNeedSendCntBuf_, sendBlockAlignLen);
     tpipe_->InitBuffer(roundSendOffsetBuf_, sendBlockAlignLen);
     roundNeedSendCntLT_ = roundNeedSendCntBuf_.Get<uint32_t>();
     roundSendOffsetLT_ = roundSendOffsetBuf_.Get<uint32_t>();
 
-    uint32_t segmentIndex = 0;
-    for (uint32_t expertId = 0; expertId < moeExpertNum_; ++expertId) {
-        uint32_t expertStart = expertId == 0 ? 0 : static_cast<uint32_t>(expertEndOffsetLT(expertId - 1));
-        uint32_t expertEnd = static_cast<uint32_t>(expertEndOffsetLT(expertId));
-        uint32_t segmentStart = max(flatStart, expertStart);
-        uint32_t segmentEnd = min(flatEnd, expertEnd);
-        if (segmentStart < segmentEnd) {
-            roundSendOffsetLT_(segmentIndex) = segmentStart;
-            roundNeedSendCntLT_(segmentIndex) = segmentEnd - segmentStart;
-            ++segmentIndex;
+    // Map [tStart, tEnd) back to sub-ranges of myRank's expert blocks (within a block, indices are global token
+    // indices)
+    perCoreBlockNum_ = 0;
+    uint32_t consumed = 0;
+    for (uint32_t e = 0; e < moeExpertPerRankNum_; ++e) {
+        if (consumed >= tEnd) {
+            break;
         }
+        uint32_t blockIdx = e * epWorldSize_ + myRank;
+        uint32_t hi = static_cast<uint32_t>(recvCountLT(blockIdx));
+        uint32_t lo = (blockIdx == 0U) ? 0U : static_cast<uint32_t>(recvCountLT(blockIdx - 1));
+        uint32_t cnt = hi - lo;
+        if (consumed + cnt <= tStart) {
+            consumed += cnt;
+            continue;
+        }
+        uint32_t subLo = lo + ((consumed < tStart) ? (tStart - consumed) : 0U);
+        uint32_t subHi = lo + ((consumed + cnt > tEnd) ? (tEnd - consumed) : cnt);
+        if (subHi > subLo) {
+            roundSendOffsetLT_(perCoreBlockNum_) = subLo;
+            roundNeedSendCntLT_(perCoreBlockNum_) = subHi - subLo;
+            ++perCoreBlockNum_;
+        }
+        consumed += cnt;
     }
+    preRecvCount_ = perCoreBlockNum_ == 0 ? tStart : roundSendOffsetLT_(0);
 
+    InitSendA5CommonBuffers();
+}
+
+template <TemplateMC2TypeClass>
+__aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitSendA5CommonBuffers()
+{
     uint32_t srcInfoLen = static_cast<uint32_t>(BATCH_SRC_INFO_CNT * TOKEN_SRC_INFO_LEN * sizeof(SrcInfoType));
     uint32_t srcInfoAlignLen = Ceil(srcInfoLen, UB_32_ALIGN) * UB_32_ALIGN;
     tpipe_->InitBuffer(srcInfoBuf_, srcInfoAlignLen);
@@ -326,7 +399,7 @@ template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::InitRoundSendData()
 {
 #ifdef __DAV_C310__
-    InitTokenBalancedRoundSendDataA5();
+    InitRankMajorRoundSendDataA5();
     return;
 #endif
     SplitCoreCal(moeExpertNum_, perCoreBlockNum_, startBlockId_,

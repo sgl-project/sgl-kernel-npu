@@ -432,7 +432,7 @@ private:
         totalCntGt.SetGlobalBuffer((__gm__ int32_t *)totalRecvTokens_);
         DataCopyExtParams copyParams{1, static_cast<uint32_t>(1 * sizeof(int32_t)), 0, 0, 0};
         DataCopyPad(totalCntGt, totalCntLt, copyParams);
-        SyncFunc<AscendC::HardEvent::MTE3_MTE2>();
+        SyncFunc<AscendC::HardEvent::MTE3_S>();
     }
 
     __aicore__ inline void BuildRecvCount()
@@ -505,6 +505,9 @@ private:
         if (blockIdx != MAX_BS_CORE) {
             return;
         }
+        pipe.InitBuffer(tmpBuf_, UB_ALIGN_SIZE);
+        LocalTensor<int32_t> maxBsLt = tmpBuf_.Get<int32_t>();
+
         uint32_t singleRankMaxElem = batchRounds * numLocalExperts * sendPerGroup;
         uint32_t singleRankAlignLen = Ceil(singleRankMaxElem * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
         recvDataAlignLen = rankSize * singleRankAlignLen;
@@ -541,10 +544,14 @@ private:
             uint32_t tempBs = sendTokensPerRankTensor(srcRank);
             maxBsNum = maxBsNum >= tempBs ? maxBsNum : tempBs;
         }
+        maxBsLt(0) = maxBsNum;
+        SyncFunc<AscendC::HardEvent::S_MTE3>();
+
         GlobalTensor<int32_t> maxBsGt;
         maxBsGt.SetGlobalBuffer((__gm__ int32_t *)maxBs_);
-        maxBsGt.SetValue(0, maxBsNum);
-        DataCacheCleanAndInvalid<int32_t, CacheLine::SINGLE_CACHE_LINE, DcciDst::CACHELINE_OUT>(maxBsGt);
+        DataCopyExtParams copyParams{1, static_cast<uint32_t>(1 * sizeof(int32_t)), 0, 0, 0};
+        DataCopyPad(maxBsGt, maxBsLt, copyParams);
+        SyncFunc<AscendC::HardEvent::MTE3_S>();
     }
 
     __aicore__ inline void BuildRecvTokenPerExp()
@@ -796,7 +803,7 @@ private:
     int32_t blockIdx;  // Index of the current aicore
     int32_t blockNum;  // Total number of aicores for the current rank
     uint32_t maxBsNum{0};
-    uint32_t baseWindSize{0};
+    uint64_t baseWindSize{0};
     int batchRounds{32};
     GM_ADDR scale;
     GM_ADDR shareAddrs[CAM_MAX_RANK_SIZE];  // List of shared memory addresses

@@ -55,6 +55,18 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor device_indices, Tensor host_indices, int page_size, int direct, int flags) -> ()");
 
     m.def(
+        "transfer_mamba_state(Tensor device_buf, Tensor host_buf, "
+        "Tensor device_indices, Tensor host_indices, int direction) -> ()");
+
+    m.def(
+        "transfer_state_per_layer_direct_pf_lf(Tensor src, Tensor dst, "
+        "Tensor src_indices, Tensor dst_indices, int layer_id, int flags) -> ()");
+
+    m.def(
+        "transfer_state_all_layer_direct_lf_pf(Tensor[] device_states, Tensor[] host_states, "
+        "Tensor device_indices, Tensor host_indices, int flags) -> ()");
+
+    m.def(
         "bgmv_expand(Tensor! x, Tensor! weight, Tensor! indices, Tensor! y,"
         "            int slice_offset, int slice_size) -> Tensor");
 
@@ -143,6 +155,25 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "str? layout_query=None, str? layout_key=None, "
         "int? sparse_count=None, int? sparse_mode=None) -> Tensor");
 
+    m.def(
+        "sparse_attn_sharedkv(Tensor q, *, Tensor? ori_kv=None, Tensor? cmp_kv=None, "
+        "Tensor? ori_sparse_indices=None, Tensor? cmp_sparse_indices=None, "
+        "Tensor? ori_block_table=None, Tensor? cmp_block_table=None, "
+        "Tensor? cu_seqlens_q=None, Tensor? cu_seqlens_ori_kv=None, "
+        "Tensor? cu_seqlens_cmp_kv=None, Tensor? seqused_q=None, Tensor? seqused_kv=None, "
+        "Tensor? sinks=None, Tensor? metadata=None, float softmax_scale=0, int cmp_ratio=0, "
+        "int ori_mask_mode=4, int cmp_mask_mode=3, int ori_win_left=128, int ori_win_right=0, "
+        "str layout_q='BSND', str layout_kv='PA_ND', "
+        "bool return_softmax_lse=False) -> (Tensor, Tensor)");
+
+    m.def(
+        "compressor(Tensor x, Tensor wkv, Tensor wgate, Tensor! state_cache, "
+        "Tensor ape, Tensor norm_weight, Tensor rope_sin, Tensor rope_cos, "
+        "Tensor? state_block_table=None, Tensor? cu_seqlens=None, Tensor? seqused=None, "
+        "Tensor? start_pos=None, int rope_head_dim=64, int cmp_ratio=4, int coff=1, "
+        "float norm_eps=1e-6, int rotary_mode=1, int cache_mode=1, "
+        "int state_cache_stride_dim0=0) -> Tensor");
+
     m.def("triangular_inverse(Tensor x) -> Tensor");
 
     m.def(
@@ -150,6 +181,16 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor? query_start_loc=None, Tensor? cache_indices=None, Tensor? has_initial_state=None, "
         "Tensor? num_accepted_tokens=None, int activation_mode=0, int pad_slot_id=-1, "
         "int run_mode=0) -> Tensor");
+
+    m.def(
+        "sparse_attn_sharedkv_metadata_host("
+        "int num_heads_q, int num_heads_kv, int head_dim, "
+        "str layout_q, str layout_kv, "
+        "Tensor? cu_seqlens_q=None, Tensor? seqused_kv=None, "
+        "int batch_size=0, int cmp_topk=0, int cmp_ratio=-1, "
+        "int ori_mask_mode=4, int cmp_mask_mode=3, "
+        "int ori_win_left=127, int ori_win_right=0, "
+        "bool has_ori_kv=True, bool has_cmp_kv=True) -> Tensor");
 #endif
 
     m.def(
@@ -186,6 +227,13 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
 
     m.impl("transfer_kv_dim_exchange", TORCH_FN(sglang::npu_kernel::transfer_kv_dim_exchange));
 
+    m.impl("transfer_mamba_state", TORCH_FN(sglang::npu_kernel::transfer_mamba_state));
+    m.impl("transfer_state_per_layer_direct_pf_lf",
+           TORCH_FN(sglang::npu_kernel::transfer_state_per_layer_direct_pf_lf));
+
+    m.impl("transfer_state_all_layer_direct_lf_pf",
+           TORCH_FN(sglang::npu_kernel::transfer_state_all_layer_direct_lf_pf));
+
     m.impl("bgmv_expand", TORCH_FN(sglang::npu_kernel::bgmv_expand));
 
     m.impl("bgmv_shrink", TORCH_FN(sglang::npu_kernel::bgmv_shrink));
@@ -203,6 +251,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("sgemmc_shrink", TORCH_FN(sglang::npu_kernel::sgemmc_shrink));
 
     m.impl("chunk_gated_delta_rule", TORCH_FN(sglang::npu_kernel::chunk_gated_delta_rule));
+
+    m.impl("compressor", TORCH_FN(sglang::npu_kernel::compressor));
 
     m.impl("apply_token_bitmask", [](at::Tensor logits, at::Tensor bitmask, const c10::optional<at::Tensor> &indices) {
         auto indices_or_empty = indices.has_value() ? *indices : at::empty({0}, logits.options().dtype(at::kInt));
@@ -236,6 +286,9 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
 
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
+
+    m.impl("sparse_attn_sharedkv", TORCH_FN(sglang::npu_kernel::sparse_attn_sharedkv));
+
     m.impl("npu_sparse_attention_score", TORCH_FN(sglang::npu_kernel::sparse_attention_score));
 
     m.impl("triangular_inverse", TORCH_FN(sglang::npu_kernel::tri_inv_col_sweep));
@@ -272,5 +325,13 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
     m.impl("softfp8_w8a16_grouped_matmul", TORCH_FN(sglang::npu_kernel::softfp8_w8a16_grouped_matmul));
 #endif
 #endif
+}
+}  // namespace
+
+namespace {
+// CPU dispatch key: this op takes CPU input tensors and returns a device tensor.
+TORCH_LIBRARY_IMPL(npu, CPU, m)
+{
+    m.impl("sparse_attn_sharedkv_metadata_host", TORCH_FN(sglang::npu_kernel::sparse_attn_sharedkv_metadata_host));
 }
 }  // namespace
