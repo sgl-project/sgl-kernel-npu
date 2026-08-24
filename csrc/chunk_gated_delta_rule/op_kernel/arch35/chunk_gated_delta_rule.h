@@ -1,11 +1,11 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 /*!
@@ -41,9 +41,9 @@ struct CGDRInitParams {
     GM_ADDR chunkState;
 };
 
-
 template <typename lowType, typename highType, typename stateType = lowType, bool gOptional = false>
-class CGDR {
+class CGDR
+{
 public:
     static constexpr bool kStateIsFp32 = std::is_same_v<stateType, float>;
     using vInnerType = std::conditional_t<kStateIsFp32, float, lowType>;
@@ -127,7 +127,8 @@ public:
 
         if (tiling_->outputChunkState != 0) {
             uint64_t chunkStateSize = tiling_->nv * tiling_->dv * tiling_->dk;
-            chunkStateSize *= static_cast<uint64_t>((tiling_->t + tiling_->chunkSize - 1) / tiling_->chunkSize + tiling_->b);
+            chunkStateSize *=
+                static_cast<uint64_t>((tiling_->t + tiling_->chunkSize - 1) / tiling_->chunkSize + tiling_->b);
             chunkState_.SetGlobalBuffer(reinterpret_cast<__gm__ stateType *>(initParams.chunkState), chunkStateSize);
         }
 
@@ -199,8 +200,8 @@ public:
                     cg.length = tiling_->maxGroupLength;
                 }
                 bool useInitialState = (pos == seqStart);
-                auto curState = (useInitialState) ? initState_[bid * tiling_->stateStride0] :
-                                                    finalState_[bid * tiling_->nv * tiling_->dv * tiling_->dk];
+                auto curState = (useInitialState) ? initState_[bid * tiling_->stateStride0]
+                                                  : finalState_[bid * tiling_->nv * tiling_->dv * tiling_->dk];
                 // compute this chunk group
                 RunStage1(cg);
                 SyncAll<false>();
@@ -312,18 +313,18 @@ private:
     GlobalTensor<int32_t> actualSeqLens_;
 
     GlobalTensor<lowType> curStateBf16_;
-    GlobalTensor<lowType> vInnerBf16_; // (Nv, maxGroupLength, Dv) BF16 vInner for stage3 (FP32 path only)
+    GlobalTensor<lowType> vInnerBf16_;  // (Nv, maxGroupLength, Dv) BF16 vInner for stage3 (FP32 path only)
 
-    GlobalTensor<highType> gCum_;     // (Nv, maxGroupLength)
-    GlobalTensor<lowType> kCumDecay_; // (Nv, maxGroupLength, Dk)
-    GlobalTensor<vInnerType> vInner_; // (Nv, maxGroupLength, Dv) primary vInner
-    GlobalTensor<lowType> qPrime_;    // (Nv, maxGroupLength, Dk)
-    GlobalTensor<lowType> attnInter_; // (Nv, maxGroupLength, Dv)
-    GlobalTensor<lowType> kg_;        // (Nv, maxGroupLength, Dk)
-    GlobalTensor<lowType> qkt_;       // (Nv, maxGroupLength, C)
-    GlobalTensor<highType> stageOneMask_;   // (Nv, maxGroupLength, C)
-    GlobalTensor<highType> stageThreeMask_; // (Nv, maxGroupLength, C)
-    GM_ADDR stageWsAddr_;                   // temporary space addr for stages
+    GlobalTensor<highType> gCum_;            // (Nv, maxGroupLength)
+    GlobalTensor<lowType> kCumDecay_;        // (Nv, maxGroupLength, Dk)
+    GlobalTensor<vInnerType> vInner_;        // (Nv, maxGroupLength, Dv) primary vInner
+    GlobalTensor<lowType> qPrime_;           // (Nv, maxGroupLength, Dk)
+    GlobalTensor<lowType> attnInter_;        // (Nv, maxGroupLength, Dv)
+    GlobalTensor<lowType> kg_;               // (Nv, maxGroupLength, Dk)
+    GlobalTensor<lowType> qkt_;              // (Nv, maxGroupLength, C)
+    GlobalTensor<highType> stageOneMask_;    // (Nv, maxGroupLength, C)
+    GlobalTensor<highType> stageThreeMask_;  // (Nv, maxGroupLength, C)
+    GM_ADDR stageWsAddr_;                    // temporary space addr for stages
 
     TBuf<TPosition::VECCALC> tmpBuff_;
 
@@ -338,5 +339,5 @@ private:
     Stage1<kStateIsFp32, gOptional> stageOneOp_;
 };
 
-} // namespace ChunkGatedDeltaRule
-#endif // CHUNK_GATED_DELTA_RULE_H
+}  // namespace ChunkGatedDeltaRule
+#endif  // CHUNK_GATED_DELTA_RULE_H

@@ -29,7 +29,7 @@ using bT1 = MatmulType<TPosition::GM, CubeFormat::ND, bfloat16_t>;
 template <typename cType>
 using StageOneMTT = matmul::MatmulImpl<aT1, bT1, MatmulType<TPosition::GM, CubeFormat::ND, cType>>;
 
-constexpr uint64_t UB_REST_BYTES = 140 * 1024; // 140KB
+constexpr uint64_t UB_REST_BYTES = 140 * 1024;  // 140KB
 constexpr uint64_t INVERSE_SHAPE = 32;
 constexpr uint64_t INVERSE_COUNT = 5;
 constexpr uint32_t ALIGN_SIZE = 16;
@@ -48,33 +48,32 @@ struct MatmulShapeParams {
 template <typename vInnerType>
 struct GDRStageOneInitParams {
     // input
-    GlobalTensor<bfloat16_t> query; // (T, Nk, Dk)
-    GlobalTensor<bfloat16_t> key;   // (T, Nk, Dk)
-    GlobalTensor<bfloat16_t> value; // (T, Nv, Dv)
-    GlobalTensor<bfloat16_t> beta;  // (T, Nv)
-    GlobalTensor<float> g;          // (T, Nv)
+    GlobalTensor<bfloat16_t> query;  // (T, Nk, Dk)
+    GlobalTensor<bfloat16_t> key;    // (T, Nk, Dk)
+    GlobalTensor<bfloat16_t> value;  // (T, Nv, Dv)
+    GlobalTensor<bfloat16_t> beta;   // (T, Nv)
+    GlobalTensor<float> g;           // (T, Nv)
     // ouput
-    GlobalTensor<float> gCumExp;        // (Nv, cg_len)
-    GlobalTensor<bfloat16_t> kCumdecay; // (Nv, cg_len, Dk)
-    GlobalTensor<vInnerType> vInner;    // (Nv, cg_len, Dv)
-    GlobalTensor<bfloat16_t> qPrime;    // (Nv, cg_len, Dk)
-    GlobalTensor<bfloat16_t> kG;        // (Nv, cg_len, Dk)
-    GlobalTensor<bfloat16_t> qK;        // (Nv, cg_len, C)
+    GlobalTensor<float> gCumExp;         // (Nv, cg_len)
+    GlobalTensor<bfloat16_t> kCumdecay;  // (Nv, cg_len, Dk)
+    GlobalTensor<vInnerType> vInner;     // (Nv, cg_len, Dv)
+    GlobalTensor<bfloat16_t> qPrime;     // (Nv, cg_len, Dk)
+    GlobalTensor<bfloat16_t> kG;         // (Nv, cg_len, Dk)
+    GlobalTensor<bfloat16_t> qK;         // (Nv, cg_len, C)
     // other
     GM_ADDR ws;
-    GlobalTensor<float> stageOneMask; // (Nv, cg_len, C)
+    GlobalTensor<float> stageOneMask;  // (Nv, cg_len, C)
     ChunkGroup cg;
 };
 
 template <bool kStateIsFp32 = false, bool gOptional = false>
-class Stage1 {
+class Stage1
+{
 public:
     using vInnerType = std::conditional_t<kStateIsFp32, float, bfloat16_t>;
     using MMBf16 = StageOneMTT<bfloat16_t>;
     using MMVInner = StageOneMTT<vInnerType>;
-    __aicore__ inline Stage1(MMBf16 &mmBf16, MMVInner &mmVInner) : mmBf16_(mmBf16), mmVInner_(mmVInner)
-    {
-    }
+    __aicore__ inline Stage1(MMBf16 &mmBf16, MMVInner &mmVInner) : mmBf16_(mmBf16), mmVInner_(mmVInner) {}
     __aicore__ inline void SetGlobalTensors(const GDRStageOneInitParams<vInnerType> &initParams)
     {
         queryGm_ = initParams.query;
@@ -586,7 +585,7 @@ private:
             kgLocal_ = outQueue_.AllocTensor<bfloat16_t>();
             Cast(kgLocal_, kgUbFloat_, RoundMode::CAST_RINT, halfChunkSize_ * dkAligned_);
             outQueue_.EnQue<bfloat16_t>(kgLocal_);
-            DataCopyOutBf16(halfChunkSize_, dk_, dkAligned_, outKgGm[kgBeginOffset]); // stage1 out
+            DataCopyOutBf16(halfChunkSize_, dk_, dkAligned_, outKgGm[kgBeginOffset]);  // stage1 out
         }
     }
 
@@ -645,7 +644,7 @@ private:
         qPrimeLocal_ = outQueue_.AllocTensor<bfloat16_t>();
         Cast(qPrimeLocal_, qPrimeUbFloat_, RoundMode::CAST_RINT, halfChunkSize_ * dkAligned_);
         outQueue_.EnQue<bfloat16_t>(qPrimeLocal_);
-        DataCopyOutBf16(halfChunkSize_, dk_, dkAligned_, outQPrimeGm[qgBeginOffset]); // stage1 out
+        DataCopyOutBf16(halfChunkSize_, dk_, dkAligned_, outQPrimeGm[qgBeginOffset]);  // stage1 out
         PipeBarrier<PIPE_V>();
     }
 
@@ -699,11 +698,8 @@ private:
         inQueue_.FreeTensor(gLocal_);
     }
 
-    __aicore__ inline void DataCopyInFp32WithStride(uint64_t rows,
-                                                    uint64_t cols,
-                                                    const GlobalTensor<float> src,
-                                                    uint64_t srcRowStride,
-                                                    uint32_t dstRowStride = 0)
+    __aicore__ inline void DataCopyInFp32WithStride(uint64_t rows, uint64_t cols, const GlobalTensor<float> src,
+                                                    uint64_t srcRowStride, uint32_t dstRowStride = 0)
     {
         DataCopyPadExtParams<float> padParams = {false, static_cast<uint8_t>(0), static_cast<uint8_t>(0),
                                                  static_cast<float>(0)};
@@ -715,9 +711,7 @@ private:
         inQueue_.EnQue<float>(fp32InLocal_);
     }
 
-    __aicore__ inline void DataCopyInBf16WithStride(uint64_t rows,
-                                                    uint64_t cols,
-                                                    GlobalTensor<bfloat16_t> src,
+    __aicore__ inline void DataCopyInBf16WithStride(uint64_t rows, uint64_t cols, GlobalTensor<bfloat16_t> src,
                                                     uint64_t srcRowStride)
     {
         DataCopyPadExtParams<bfloat16_t> padParams = {false, static_cast<uint8_t>(0), static_cast<uint8_t>(0),
@@ -866,5 +860,5 @@ private:
     LocalTensor<bfloat16_t> bf16InLocal_;
     LocalTensor<float> fp32InLocal_;
 };
-} // namespace ChunkGatedDeltaRule
-#endif // CHUNK_GATED_DELTA_RULE_STAGE1_H
+}  // namespace ChunkGatedDeltaRule
+#endif  // CHUNK_GATED_DELTA_RULE_STAGE1_H

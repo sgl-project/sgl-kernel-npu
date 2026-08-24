@@ -39,7 +39,7 @@
 namespace sglang {
 namespace npu_kernel {
 
-constexpr int64_t SYS_WORKSPACE_SIZE = 16777216; // 16 MB reserved system workspace
+constexpr int64_t SYS_WORKSPACE_SIZE = 16777216;  // 16 MB reserved system workspace
 constexpr uint32_t PADDING_BYTE = 32U;
 constexpr uint32_t STAGE_ONE_PARA_NUM = 4;
 constexpr uint32_t MASK_NUM = 4;
@@ -78,24 +78,24 @@ void ComputeTilingData(int64_t aiCoreNum, int64_t t, int64_t nk, int64_t dk, int
     int64_t s = td.maxGroupLength;
 
     td.interWorkspaceSz = 0;
-    td.interWorkspaceSz += sizeHigh * nv * s;     // gCumExp (FP32)
-    td.interWorkspaceSz += sizeLow * nv * s * dk; // kCumDecay (BF16)
+    td.interWorkspaceSz += sizeHigh * nv * s;      // gCumExp (FP32)
+    td.interWorkspaceSz += sizeLow * nv * s * dk;  // kCumDecay (BF16)
     if (stateIsFp32) {
-        td.interWorkspaceSz += sizeHigh * nv * s * dv; // vInner (FP32, arch35 FP32-state path)
-        td.interWorkspaceSz += sizeLow * nv * s * dv;  // vInnerBf16 (BF16, for stage3)
+        td.interWorkspaceSz += sizeHigh * nv * s * dv;  // vInner (FP32, arch35 FP32-state path)
+        td.interWorkspaceSz += sizeLow * nv * s * dv;   // vInnerBf16 (BF16, for stage3)
     } else {
-        td.interWorkspaceSz += sizeLow * nv * s * dv; // vInner (BF16)
+        td.interWorkspaceSz += sizeLow * nv * s * dv;  // vInner (BF16)
     }
-    td.interWorkspaceSz += sizeLow * nv * s * dk; // qPrime (BF16)
-    td.interWorkspaceSz += sizeLow * nv * s * dv; // attnInter (BF16, arch22 compat)
-    td.interWorkspaceSz += sizeLow * nv * s * dk; // kg (BF16)
-    td.interWorkspaceSz += sizeLow * nv * s * c;  // qkt (BF16)
+    td.interWorkspaceSz += sizeLow * nv * s * dk;  // qPrime (BF16)
+    td.interWorkspaceSz += sizeLow * nv * s * dv;  // attnInter (BF16, arch22 compat)
+    td.interWorkspaceSz += sizeLow * nv * s * dk;  // kg (BF16)
+    td.interWorkspaceSz += sizeLow * nv * s * c;   // qkt (BF16)
     if (stateIsFp32) {
-        td.interWorkspaceSz += sizeLow * nv * dv * dk; // stateBf16Wk (BF16, arch35)
+        td.interWorkspaceSz += sizeLow * nv * dv * dk;  // stateBf16Wk (BF16, arch35)
     } else if (!isAscend950) {
-        td.interWorkspaceSz += sizeHigh * b * nv * dv * dk; // highState_ (arch22: kernel advances offset)
+        td.interWorkspaceSz += sizeHigh * b * nv * dv * dk;  // highState_ (arch22: kernel advances offset)
     }
-    td.interWorkspaceSz += sizeHigh * c * c * td.aiCoreNum * MASK_NUM; // mask (FP32)
+    td.interWorkspaceSz += sizeHigh * c * c * td.aiCoreNum * MASK_NUM;  // mask (FP32)
 
     // stage1 temporary workspace
     td.stageWorkspaceSz = sizeLow * c * (2 * c + 3 * dk + dv) * td.stageOneParaNum;
@@ -169,17 +169,16 @@ void ComputeMatmulTiling(platform_ascendc::PlatformAscendC *platform, bool state
     }
 }
 
-HOST_API std::tuple<at::Tensor, at::Tensor> chunk_gated_delta_rule(
-    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
-    const c10::optional<at::Tensor> &beta, const c10::optional<at::Tensor> &initial_state,
-    const c10::optional<at::Tensor> &actual_seq_lengths, const c10::optional<double> &scale,
-    const c10::optional<at::Tensor> &g, const c10::optional<at::Tensor> &chunk_state)
+HOST_API std::tuple<at::Tensor, at::Tensor>
+chunk_gated_delta_rule(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+                       const c10::optional<at::Tensor> &beta, const c10::optional<at::Tensor> &initial_state,
+                       const c10::optional<at::Tensor> &actual_seq_lengths, const c10::optional<double> &scale,
+                       const c10::optional<at::Tensor> &g, const c10::optional<at::Tensor> &chunk_state)
 {
     TORCH_CHECK(query.defined() && key.defined() && value.defined(), "query/key/value must be defined");
     TORCH_CHECK(beta.has_value() && beta->defined(), "beta must be provided");
     TORCH_CHECK(initial_state.has_value() && initial_state->defined(), "initial_state must be provided");
-    TORCH_CHECK(actual_seq_lengths.has_value() && actual_seq_lengths->defined(),
-                "actual_seq_lengths must be provided");
+    TORCH_CHECK(actual_seq_lengths.has_value() && actual_seq_lengths->defined(), "actual_seq_lengths must be provided");
 
     TORCH_CHECK(query.dim() == 3 && key.dim() == 3 && value.dim() == 3, "query/key/value must be 3D");
     TORCH_CHECK(beta->dim() == 2, "beta must be 2D (T, Nv)");
@@ -286,8 +285,7 @@ HOST_API std::tuple<at::Tensor, at::Tensor> chunk_gated_delta_rule(
     std::memcpy(cpuTiling.data_ptr(), &tilingData, sizeof(ChunkGatedDeltaRule::ChunkGatedDeltaRuleTilingData));
     at::Tensor tilingTensor = TorchNpuHelper::CopyTensorHostToDevice(cpuTiling);
 
-    auto workspaceTensor =
-        at::empty({totalWorkspace}, at::TensorOptions().dtype(at::kByte).device(query.device()));
+    auto workspaceTensor = at::empty({totalWorkspace}, at::TensorOptions().dtype(at::kByte).device(query.device()));
 
     EXEC_KERNEL_CMD(chunk_gated_delta_rule, blockDim, query_contig, key_contig, value_contig, beta_contig,
                     initStateContig, seqLensContig, gPtr, out, finalState, chunkStatePtr, workspaceTensor,
@@ -296,5 +294,5 @@ HOST_API std::tuple<at::Tensor, at::Tensor> chunk_gated_delta_rule(
     return std::make_tuple(out, finalState);
 }
 
-} // namespace npu_kernel
-} // namespace sglang
+}  // namespace npu_kernel
+}  // namespace sglang

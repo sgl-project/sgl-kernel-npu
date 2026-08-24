@@ -41,11 +41,11 @@ constexpr uint64_t AIC_AIV_1_1 = 2;
 constexpr uint64_t BROADCAST_AXIS = 2;
 constexpr uint64_t TASK_RATIO = 2;
 constexpr uint64_t STAGE3_BUFFER_COUNT = 4;
-constexpr uint32_t MAX_L0_SIZE = 64 * 1024; // 64KB
+constexpr uint32_t MAX_L0_SIZE = 64 * 1024;  // 64KB
 constexpr uint32_t BLOCK_SIZE = 32;
 constexpr uint32_t BLOCK_FLOAT_NUM = 8;
 constexpr uint32_t BLOCK_BF16_NUM = 16;
 constexpr uint32_t TILE_LEN = 1024;
-} // namespace ChunkGatedDeltaRule
+}  // namespace ChunkGatedDeltaRule
 
-#endif // __CHUNK_GATED_DELTA_RULE_UTILS_H__
+#endif  // __CHUNK_GATED_DELTA_RULE_UTILS_H__

@@ -1,11 +1,11 @@
 /**
-* Copyright (c) 2026 Huawei Technologies Co., Ltd.
-* This program is free software, you can redistribute it and/or modify it under the terms and conditions of
-* CANN Open Software License Agreement Version 2.0 (the "License").
-* Please refer to the License for details. You may not use this file except in compliance with the License.
-* THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
-* INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
-* See LICENSE in the root of the software repository for the full text of the License.
+ * Copyright (c) 2026 Huawei Technologies Co., Ltd.
+ * This program is free software, you can redistribute it and/or modify it under the terms and conditions of
+ * CANN Open Software License Agreement Version 2.0 (the "License").
+ * Please refer to the License for details. You may not use this file except in compliance with the License.
+ * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
+ * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+ * See LICENSE in the root of the software repository for the full text of the License.
  */
 
 /*!
@@ -59,8 +59,8 @@ __aicore__ inline void CopyCast(const GlobalTensor<srcType> &src, const GlobalTe
         }
         TQue<QuePosition::VECIN, TQUE_DEPTH_TWO> inQueue;
         TQue<QuePosition::VECOUT, TQUE_DEPTH_TWO> outQueue;
-        pipe->InitBuffer(inQueue, BUFFER_NUM_TWO, TILE_LEN * sizeof(srcType));  // use 2 buffer
-        pipe->InitBuffer(outQueue, BUFFER_NUM_TWO, TILE_LEN * sizeof(dstType)); // use 2 buffer
+        pipe->InitBuffer(inQueue, BUFFER_NUM_TWO, TILE_LEN * sizeof(srcType));   // use 2 buffer
+        pipe->InitBuffer(outQueue, BUFFER_NUM_TWO, TILE_LEN * sizeof(dstType));  // use 2 buffer
         for (int64_t i = startPos; i < endPos; i += TILE_LEN) {
             uint32_t blockLen = i + TILE_LEN > endPos ? endPos - i : TILE_LEN;
             // copy in
@@ -85,9 +85,9 @@ __aicore__ inline void CopyCast(const GlobalTensor<srcType> &src, const GlobalTe
     }
 }
 
-
 template <typename lowType, typename highType>
-class CGDR {
+class CGDR
+{
 public:
     __aicore__ inline CGDR(TPipe *pipe, const ChunkGatedDeltaRuleTilingData *tilingData) : stageOneOp_(stage1MT_)
     {
@@ -131,7 +131,7 @@ public:
                 DataCopyPad(stageThreeMask_[GetBlockIdx() * cBlockSize + i * tiling_->chunkSize], cCFloat_, copyParams);
             }
             eventID = static_cast<int32_t>(pipe_->FetchEventID(HardEvent::MTE3_MTE2));
-            SetFlag<HardEvent::MTE3_MTE2>(eventID); // must sync here
+            SetFlag<HardEvent::MTE3_MTE2>(eventID);  // must sync here
             WaitFlag<HardEvent::MTE3_MTE2>(eventID);
             pipe_->Reset();
         }
@@ -160,7 +160,8 @@ public:
 
         if (tiling_->outputChunkState != 0) {
             uint64_t chunkStateSize = tiling_->nv * tiling_->dv * tiling_->dk;
-            chunkStateSize *= static_cast<uint64_t>((tiling_->t + tiling_->chunkSize - 1) / tiling_->chunkSize + tiling_->b);
+            chunkStateSize *=
+                static_cast<uint64_t>((tiling_->t + tiling_->chunkSize - 1) / tiling_->chunkSize + tiling_->b);
             chunkState_.SetGlobalBuffer(reinterpret_cast<__gm__ lowType *>(initParams.chunkState), chunkStateSize);
         }
 
@@ -223,8 +224,8 @@ public:
                 } else {
                     cg.length = tiling_->maxGroupLength;
                 }
-                auto curState = (pos == seqStart) ? initState_[bid * tiling_->nv * tiling_->dv * tiling_->dk] :
-                                                    finalState_[bid * tiling_->nv * tiling_->dv * tiling_->dk];
+                auto curState = (pos == seqStart) ? initState_[bid * tiling_->nv * tiling_->dv * tiling_->dk]
+                                                  : finalState_[bid * tiling_->nv * tiling_->dv * tiling_->dk];
                 // compute this chunk group
                 RunStage1(cg);
                 SyncAll<false>();
@@ -256,12 +257,26 @@ private:
                                      int64_t globalChunkOffset)
     {
         Stage2 stageTwoOp;
-        StageTwoParams initStageTwoParams{
-            qPrime_,      vInner_,     gCum_,       kCumDecay_,
-            stateIn,      stateOut,    kg_,         out_[cg.startPos * tiling_->nv * tiling_->dv],
-            stageWsAddr_, &stage2MT_,  pipe_,       &cg,
-            tiling_->nv,  tiling_->nk, tiling_->dv, tiling_->dk,
-            gFlag_,       chunkState_, globalChunkOffset, (tiling_->outputChunkState != 0)};
+        StageTwoParams initStageTwoParams{qPrime_,
+                                          vInner_,
+                                          gCum_,
+                                          kCumDecay_,
+                                          stateIn,
+                                          stateOut,
+                                          kg_,
+                                          out_[cg.startPos * tiling_->nv * tiling_->dv],
+                                          stageWsAddr_,
+                                          &stage2MT_,
+                                          pipe_,
+                                          &cg,
+                                          tiling_->nv,
+                                          tiling_->nk,
+                                          tiling_->dv,
+                                          tiling_->dk,
+                                          gFlag_,
+                                          chunkState_,
+                                          globalChunkOffset,
+                                          (tiling_->outputChunkState != 0)};
         stageTwoOp.Init(&initStageTwoParams, tiling_->aiCoreNum);
         stageTwoOp.Process();
         pipe_->Reset();
@@ -299,17 +314,17 @@ private:
     GlobalTensor<lowType> chunkState_;
     GlobalTensor<int32_t> actualSeqLens_;
 
-    GlobalTensor<highType> gCum_;     // (Nv, maxGroupLength)
-    GlobalTensor<lowType> kCumDecay_; // (Nv, maxGroupLength, Dk)
-    GlobalTensor<lowType> vInner_;    // (Nv, maxGroupLength, Dv)
-    GlobalTensor<lowType> qPrime_;    // (Nv, maxGroupLength, Dk)
-    GlobalTensor<lowType> attnInter_; // (Nv, maxGroupLength, Dv)
-    GlobalTensor<lowType> kg_;        // (Nv, maxGroupLength, Dk)
-    GlobalTensor<lowType> qkt_;       // (Nv, maxGroupLength, C)
+    GlobalTensor<highType> gCum_;      // (Nv, maxGroupLength)
+    GlobalTensor<lowType> kCumDecay_;  // (Nv, maxGroupLength, Dk)
+    GlobalTensor<lowType> vInner_;     // (Nv, maxGroupLength, Dv)
+    GlobalTensor<lowType> qPrime_;     // (Nv, maxGroupLength, Dk)
+    GlobalTensor<lowType> attnInter_;  // (Nv, maxGroupLength, Dv)
+    GlobalTensor<lowType> kg_;         // (Nv, maxGroupLength, Dk)
+    GlobalTensor<lowType> qkt_;        // (Nv, maxGroupLength, C)
     GlobalTensor<highType> highState_;
-    GlobalTensor<highType> stageOneMask_;   // (Nv, maxGroupLength, C)
-    GlobalTensor<highType> stageThreeMask_; // (Nv, maxGroupLength, C)
-    GM_ADDR stageWsAddr_;                   // temporary space addr for stages
+    GlobalTensor<highType> stageOneMask_;    // (Nv, maxGroupLength, C)
+    GlobalTensor<highType> stageThreeMask_;  // (Nv, maxGroupLength, C)
+    GM_ADDR stageWsAddr_;                    // temporary space addr for stages
 
     TBuf<TPosition::VECCALC> tmpBuff_;
 
@@ -323,5 +338,5 @@ private:
     bool gFlag_ = false;
 };
 
-} // namespace ChunkGatedDeltaRule
-#endif // CHUNK_GATED_DELTA_RULE_H
+}  // namespace ChunkGatedDeltaRule
+#endif  // CHUNK_GATED_DELTA_RULE_H

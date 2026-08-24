@@ -7,6 +7,7 @@ import triton
 import triton.language as tl
 from sgl_kernel_npu.fla.utils import input_guard
 
+
 @triton.heuristics(
     {
         "USE_INITIAL_STATE": lambda args: args["h0_source"] is not None,
@@ -57,12 +58,12 @@ def fused_sigmoid_gating_delta_rule_update_npu_kernel(
         bos, eos = i_n * T, i_n * T + T
         all = B * T
 
-    o_k = i_k * BK + tl.arange(0, BK)   # 0..BK-1
-    o_v = i_v * BV + tl.arange(0, BV)   # 0..BV-1
+    o_k = i_k * BK + tl.arange(0, BK)  # 0..BK-1
+    o_v = i_v * BV + tl.arange(0, BV)  # 0..BV-1
     mask_k = o_k < K
     mask_v = o_v < V
 
-    mask_h = mask_v[:, None] & mask_k[None, :]   # [BV, BK]
+    mask_h = mask_v[:, None] & mask_k[None, :]  # [BV, BK]
 
     for i_bhv in range(BHV):
         i_hv = i_nhv * BHV + i_bhv
@@ -102,8 +103,8 @@ def fused_sigmoid_gating_delta_rule_update_npu_kernel(
                         h0_source
                         + idx * HV * K * V
                         + i_hv * K * V
-                        + o_v[:, None] * K   # V dim stride = K
-                        + o_k[None, :]       # K dim stride = 1
+                        + o_v[:, None] * K  # V dim stride = K
+                        + o_k[None, :]  # K dim stride = 1
                     )
                     b_h = tl.load(p_h0, mask=mask_h).to(tl.float32)
 
@@ -127,7 +128,7 @@ def fused_sigmoid_gating_delta_rule_update_npu_kernel(
             # b_h shape [BV, BK]
             if IS_KDA:
                 # b_g shape [BK]
-                b_h *= tl.exp(b_g[None, :])   # [BV, BK] * [1, BK]
+                b_h *= tl.exp(b_g[None, :])  # [BV, BK] * [1, BK]
             else:
                 b_h *= tl.exp(b_g)
 
@@ -161,6 +162,7 @@ def fused_sigmoid_gating_delta_rule_update_npu_kernel(
                     tl.store(p_h0, b_h.to(p_h0.dtype.element_ty), mask=mask_h)
 
             tl.store(p_o + i * HV * V, b_o.to(p_o.dtype.element_ty), mask=mask_v)
+
 
 @input_guard
 def fused_sigmoid_gating_delta_rule_update_npu(

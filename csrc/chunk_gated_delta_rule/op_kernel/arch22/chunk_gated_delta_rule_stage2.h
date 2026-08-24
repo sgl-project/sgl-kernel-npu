@@ -29,12 +29,12 @@ using cT2 = MatmulType<TPosition::GM, CubeFormat::ND, bfloat16_t>;
 using StageTwoMT = matmul::MatmulImpl<aT2, bT2, cT2>;
 
 struct StageTwoParams {
-    GlobalTensor<bfloat16_t> qPrime;     // (Nv, Sp, Dk)
-    GlobalTensor<bfloat16_t> vInner;     // (Nv, Sp, Dv)
-    GlobalTensor<float> gCum;            // (Nv, Sp)
-    GlobalTensor<bfloat16_t> kCumdecay;  // (Nv, Sp, Dk)
-    GlobalTensor<bfloat16_t> curState;   // (Nv, Dv, Dk)
-    GlobalTensor<bfloat16_t> finalState; // (Nv, Dv, Dk)
+    GlobalTensor<bfloat16_t> qPrime;      // (Nv, Sp, Dk)
+    GlobalTensor<bfloat16_t> vInner;      // (Nv, Sp, Dv)
+    GlobalTensor<float> gCum;             // (Nv, Sp)
+    GlobalTensor<bfloat16_t> kCumdecay;   // (Nv, Sp, Dk)
+    GlobalTensor<bfloat16_t> curState;    // (Nv, Dv, Dk)
+    GlobalTensor<bfloat16_t> finalState;  // (Nv, Dv, Dk)
     GlobalTensor<bfloat16_t> kg;
     GlobalTensor<bfloat16_t> out;
     GM_ADDR ws;
@@ -51,7 +51,8 @@ struct StageTwoParams {
     bool outputChunkState;
 };
 
-class Stage2 {
+class Stage2
+{
 public:
     __aicore__ inline void Init(StageTwoParams *initParams, int32_t coreNum)
     {
@@ -183,8 +184,8 @@ public:
                                         GlobalTensor<bfloat16_t> out)
     {
         // q_prime @ state.transpose(0, 1)
-        sTP_->mm1->SetOrgShape(curChunkSize_, Dv_, Dk_, Dk_, Nv_ * Dv_); // MNKaKbN
-        sTP_->mm1->SetSingleShape(curChunkSize_, Dv_, Dk_);              // SingleCoreMNK
+        sTP_->mm1->SetOrgShape(curChunkSize_, Dv_, Dk_, Dk_, Nv_ * Dv_);  // MNKaKbN
+        sTP_->mm1->SetSingleShape(curChunkSize_, Dv_, Dk_);               // SingleCoreMNK
         sTP_->mm1->SetTensorA(qPrime, false);
         sTP_->mm1->SetTensorB(state, true);
         sTP_->mm1->IterateAll(out);
@@ -195,8 +196,8 @@ public:
                                      GlobalTensor<bfloat16_t> vPrime)
     {
         // v_inner += k_cumdecay @ state.transpose(0, 1)
-        sTP_->mm1->SetOrgShape(curChunkSize_, Dv_, Dk_);    // MNK
-        sTP_->mm1->SetSingleShape(curChunkSize_, Dv_, Dk_); // SingleCoreMNK
+        sTP_->mm1->SetOrgShape(curChunkSize_, Dv_, Dk_);     // MNK
+        sTP_->mm1->SetSingleShape(curChunkSize_, Dv_, Dk_);  // SingleCoreMNK
         sTP_->mm1->SetTensorA(kCumdecay, false);
         sTP_->mm1->SetTensorB(state, true);
         sTP_->mm1->IterateAll(vPrime, 1);
@@ -207,8 +208,8 @@ public:
                                        GlobalTensor<bfloat16_t> state)
     {
         // state_out = v_new.transpose(0, 1) @ kg
-        sTP_->mm1->SetOrgShape(Dv_, Dk_, curChunkSize_);    // MNK
-        sTP_->mm1->SetSingleShape(Dv_, Dk_, curChunkSize_); // SingleCoreMNK
+        sTP_->mm1->SetOrgShape(Dv_, Dk_, curChunkSize_);     // MNK
+        sTP_->mm1->SetSingleShape(Dv_, Dk_, curChunkSize_);  // SingleCoreMNK
         sTP_->mm1->SetTensorA(vInner, true);
         sTP_->mm1->SetTensorB(kg, false);
         sTP_->mm1->IterateAll(state, 1);
@@ -219,8 +220,7 @@ public:
     __aicore__ inline void CopyIn(GlobalTensor<inType> tmpGM, int32_t row, int32_t col)
     {
         LocalTensor<inType> inLocal = inQueue_.AllocTensor<inType>();
-        DataCopyExtParams inParams{static_cast<uint16_t>(row),
-                                   static_cast<uint32_t>(col * sizeof(inType)),
+        DataCopyExtParams inParams{static_cast<uint16_t>(row), static_cast<uint32_t>(col * sizeof(inType)),
                                    static_cast<uint32_t>(0), 0, 0};
         int padding = Ceil(col, BLOCK_SIZE / sizeof(inType)) * (BLOCK_SIZE / sizeof(inType)) - col;
         DataCopyPadExtParams<inType> copyPadParams{true, 0, static_cast<uint8_t>(padding), 0};
@@ -275,5 +275,5 @@ private:
     bool outputChunkState_;
     int64_t globalChunkOffset_;
 };
-} // namespace ChunkGatedDeltaRule
-#endif // CHUNK_GATED_DELTA_RULE_STAGE2_H
+}  // namespace ChunkGatedDeltaRule
+#endif  // CHUNK_GATED_DELTA_RULE_STAGE2_H

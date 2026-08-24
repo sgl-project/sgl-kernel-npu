@@ -28,8 +28,8 @@ using namespace MicroAPI;
  *   eiUb must be pre-filled by the caller (unit-diagonal identity in the first N rows).
  */
 template <uint32_t N>
-__simd_vf__ inline void InverseAIVVFImpl(__ubuf__ float *attnUb, __ubuf__ float *invResUb,
-                                         __ubuf__ float *eiUb, uint32_t offset, uint32_t chunkSize)
+__simd_vf__ inline void InverseAIVVFImpl(__ubuf__ float *attnUb, __ubuf__ float *invResUb, __ubuf__ float *eiUb,
+                                         uint32_t offset, uint32_t chunkSize)
 {
     uint32_t maskLen = N;
     MaskReg maskN = UpdateMask<float>(maskLen);
@@ -71,7 +71,7 @@ __aicore__ inline void InverseAIVVF(const LocalTensor<float> &attnUb, const Loca
     __ubuf__ float *ei = reinterpret_cast<__ubuf__ float *>(eiUb.GetPhyAddr());
     InverseAIVVFImpl<N>(attn, inv, ei, offset, chunkSize);
 }
-} // namespace ChunkGatedDeltaRule
-#endif // !__ASC_NPU_HOST__
+}  // namespace ChunkGatedDeltaRule
+#endif  // !__ASC_NPU_HOST__
 
-#endif // CHUNK_GATED_DELTA_RULE_STAGE1_VF_H
+#endif  // CHUNK_GATED_DELTA_RULE_STAGE1_VF_H

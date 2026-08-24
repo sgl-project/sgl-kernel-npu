@@ -29,8 +29,8 @@ using cT3 = MatmulType<TPosition::GM, CubeFormat::ND, bfloat16_t>;
 using StageThreeMT = matmul::MatmulImpl<aT3, bT3, cT3>;
 
 struct StageThreeParams {
-    GlobalTensor<bfloat16_t> qkt; // (Nv, Sp, Dk)
-    GlobalTensor<float> gCumExp;  // (Nv, Sp)
+    GlobalTensor<bfloat16_t> qkt;  // (Nv, Sp, Dk)
+    GlobalTensor<float> gCumExp;   // (Nv, Sp)
     GlobalTensor<bfloat16_t> vInner;
     GlobalTensor<float> maskTensor;
     GM_ADDR ws;
@@ -46,7 +46,8 @@ struct StageThreeParams {
     bool gOptional;
 };
 
-class Stage3 {
+class Stage3
+{
 public:
     __aicore__ inline void Init(StageThreeParams *initParams, int32_t coreNum)
     {
@@ -78,8 +79,8 @@ public:
             static_cast<uint64_t>(chunkSize_) * AscendC::Std::max((int64_t)chunkSize_, paddedDv_) * sizeof(bfloat16_t);
         pipe_->InitBuffer(inQueue_, BUFFER_NUM_ONE, inQueueSize);
         pipe_->InitBuffer(outQueue_, BUFFER_NUM_ONE,
-                          chunkSize_ > paddedDv_ ? chunkSize_ * chunkSize_ * sizeof(float) :
-                                                   chunkSize_ * paddedDv_ * sizeof(bfloat16_t));
+                          chunkSize_ > paddedDv_ ? chunkSize_ * chunkSize_ * sizeof(float)
+                                                 : chunkSize_ * paddedDv_ * sizeof(bfloat16_t));
         pipe_->InitBuffer(tmpBuff_, (STAGE3_BUFFER_COUNT * chunkSize_ * chunkSize_ * sizeof(float)));
         uint64_t buffOffset = 0;
         uint64_t tmpOffset = chunkSize_ * chunkSize_;
@@ -100,7 +101,7 @@ public:
 
     __aicore__ inline void Process()
     {
-        int64_t totalChunks = Nv_ * chunkNum_; // Nv Nc merge
+        int64_t totalChunks = Nv_ * chunkNum_;  // Nv Nc merge
         int64_t chunksPerCore = (totalChunks + coreNum_ - 1) / coreNum_;
         int64_t lastChunkSize = seqLength_ % chunkSize_ == 0 ? chunkSize_ : seqLength_ % chunkSize_;
         int64_t startChunk = coreId_ * chunksPerCore;
@@ -108,8 +109,8 @@ public:
         for (int64_t idx = startChunk; idx < endChunk; idx++) {
             int64_t nvId = idx / chunkNum_;
             int64_t chunkId = idx % chunkNum_;
-            int64_t chunkPos = chunkId * chunkSize_;                                 // chunk startpoint
-            curChunkSize_ = (chunkId == chunkNum_ - 1) ? lastChunkSize : chunkSize_; // tail chunk
+            int64_t chunkPos = chunkId * chunkSize_;                                  // chunk startpoint
+            curChunkSize_ = (chunkId == chunkNum_ - 1) ? lastChunkSize : chunkSize_;  // tail chunk
             if ASCEND_IS_AIV {
                 if (GetSubBlockIdx() == 0) {
                     CalMaskedQKT(tmpGM_[coreId_ * chunkSize_ * chunkSize_], nvId, chunkPos);
@@ -169,8 +170,8 @@ public:
                                       GlobalTensor<bfloat16_t> attnInter)
     {
         // masked_qkt @ v_inner
-        sTP_->mm3->SetOrgShape(curChunkSize_, Dv_, curChunkSize_, curChunkSize_, Nv_ * Dv_); // MNK
-        sTP_->mm3->SetSingleShape(curChunkSize_, Dv_, curChunkSize_);                        // SingleCoreMNK
+        sTP_->mm3->SetOrgShape(curChunkSize_, Dv_, curChunkSize_, curChunkSize_, Nv_ * Dv_);  // MNK
+        sTP_->mm3->SetSingleShape(curChunkSize_, Dv_, curChunkSize_);                         // SingleCoreMNK
         sTP_->mm3->SetTensorA(tmpGM);
         sTP_->mm3->SetTensorB(vInner);
         sTP_->mm3->IterateAll(attnInter, 1);
@@ -229,5 +230,5 @@ private:
     bool gOptional_;
 };
 
-} // namespace ChunkGatedDeltaRule
-#endif // CHUNK_GATED_DELTA_RULE_STAGE3_H
+}  // namespace ChunkGatedDeltaRule
+#endif  // CHUNK_GATED_DELTA_RULE_STAGE3_H
