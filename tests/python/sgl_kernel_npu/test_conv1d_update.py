@@ -10,7 +10,7 @@ logger = logging.getLogger("TestScript")
 torch.manual_seed(42)
 
 
-def test_speculative_bf16_matches_sequential_decode():
+def test_speculative_fp16_matches_sequential_decode():
     from sgl_kernel_npu.mamba.causal_conv1d import (
         causal_conv1d_update_npu,
         causal_conv1d_update_v2,
@@ -19,12 +19,10 @@ def test_speculative_bf16_matches_sequential_decode():
     torch.npu.set_device("npu:0")
     torch.manual_seed(42)
     batch_size, steps, dim, width = 1, 4, 1024, 4
-    x = torch.randn(batch_size, steps, dim, device="npu", dtype=torch.bfloat16)
-    weight = torch.randn(dim, width, device="npu", dtype=torch.bfloat16)
-    bias = torch.randn(dim, device="npu", dtype=torch.bfloat16)
-    history = torch.randn(
-        batch_size, width - 1, dim, device="npu", dtype=torch.bfloat16
-    )
+    x = torch.randn(batch_size, steps, dim, device="npu", dtype=torch.float16)
+    weight = torch.randn(dim, width, device="npu", dtype=torch.float16)
+    bias = torch.randn(dim, device="npu", dtype=torch.float16)
+    history = torch.randn(batch_size, width - 1, dim, device="npu", dtype=torch.float16)
     cache_indices = torch.tensor([0], device="npu", dtype=torch.int32)
 
     speculative_state = torch.zeros(
@@ -32,7 +30,7 @@ def test_speculative_bf16_matches_sequential_decode():
         width - 1 + steps - 1,
         dim,
         device="npu",
-        dtype=torch.bfloat16,
+        dtype=torch.float16,
     )
     speculative_state[:, -(width - 1) :] = history
     speculative_output = causal_conv1d_update_v2(
