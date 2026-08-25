@@ -134,6 +134,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             allocate_on_comm_stream,
             dispatch_wait_recv_cost_stats,
             quant_mode,
+            profile_enable,
         )
 
     def _intranode_dispatch(
