@@ -11,6 +11,7 @@
 #include "deep_ep.hpp"
 #include "profiling/adapters/fused_deep_moe_a5/fused_deep_moe_a5_profile_adapter.hpp"
 #include "profiling/adapters/cam_moe_combine_normal/cam_moe_combine_normal_profile_adapter.hpp"
+#include "profiling/adapters/cam_moe_dispatch_normal/cam_moe_dispatch_normal_profile_adapter.hpp"
 #include "pytorch_npu_helper.hpp"
 
 namespace deep_ep {
@@ -205,7 +206,8 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                            const std::optional<at::Tensor> &cached_channel_prefix_matrix,
                            const std::optional<at::Tensor> &dispatch_wait_recv_cost_stats, int expert_alignment,
                            int num_worst_tokens, const Config &config, std::optional<EventHandle> &previous_event,
-                           bool async, bool allocate_on_comm_stream, bool use_quant, const std::string &quant_type)
+                           bool async, bool allocate_on_comm_stream, bool use_quant, const std::string &quant_type,
+                           bool profile_enable)
 {
     // One channel use two blocks, even-numbered blocks for sending, odd-numbered blocks for receiving.
     EP_HOST_ASSERT(config.num_sms % 2 == 0);
@@ -382,12 +384,34 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
         recv_topk_idx = at::empty({trt, num_topk}, topk_idx->options());
         recv_topk_weights = at::empty({trt, num_topk}, topk_weights->options());
     }
-    EXEC_NPU_CMD(aclnnCamMoeDispatchNormal, new_x, expert_ids, send_data_offset, send_token_idx_small, recv_offset,
-                 recv_count, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, hcom_ep_name,
-                 num_ranks,  // rankSize
-                 rank,       // rankId
-                 hcom_ep_name, tp_size, tp_rank, num_experts, quant_mode, real_max_bs, global_bs, round,
-                 per_round_tokens, expandx_out, dynamic_scales_out, expand_idx_out, dispatch_wait_recv_cost_stats_out);
+    auto profile_ctx = profiling::cam_moe_dispatch_normal::PrepareLaunch(profile_enable);
+    bool use_profile = profile_ctx.enabled;
+    int64_t profile_enable_i64 = static_cast<int64_t>(use_profile);
+    const at::Tensor *profile_buffer_ptr = profile_ctx.profileBuffer;
+    int64_t profile_buffer_bytes_i64 = profile_ctx.profileBufferBytes;
+    int64_t profile_launch_id_i64 = profile_ctx.launchId;
+
+    if (use_profile) {
+        TORCH_CHECK(profile_buffer_ptr != nullptr, "CamMoeDispatchNormal profiling requires a valid profile buffer.");
+        EXEC_NPU_CMD(aclnnCamMoeDispatchNormal, new_x, expert_ids, send_data_offset, send_token_idx_small, recv_offset,
+                     recv_count, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset,
+                     *profile_buffer_ptr, hcom_ep_name,
+                     num_ranks,  // rankSize
+                     rank,       // rankId
+                     hcom_ep_name, tp_size, tp_rank, num_experts, quant_mode, real_max_bs, global_bs, round,
+                     per_round_tokens, profile_enable_i64, profile_buffer_bytes_i64, profile_launch_id_i64,
+                     expandx_out, dynamic_scales_out, expand_idx_out, dispatch_wait_recv_cost_stats_out);
+        profiling::cam_moe_dispatch_normal::CompleteLaunch(profile_ctx, rank);
+    } else {
+        EXEC_NPU_CMD(aclnnCamMoeDispatchNormal, new_x, expert_ids, send_data_offset, send_token_idx_small, recv_offset,
+                     recv_count, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset,
+                     static_cast<const std::nullptr_t &>(nullptr), hcom_ep_name,
+                     num_ranks,  // rankSize
+                     rank,       // rankId
+                     hcom_ep_name, tp_size, tp_rank, num_experts, quant_mode, real_max_bs, global_bs, round,
+                     per_round_tokens, profile_enable_i64, profile_buffer_bytes_i64, profile_launch_id_i64,
+                     expandx_out, dynamic_scales_out, expand_idx_out, dispatch_wait_recv_cost_stats_out);
+    }
     const int32_t *recv_token_per_exp_ptr = header_ptr + 2;
 
     int token_cnt = 0;

@@ -91,6 +91,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         allocate_on_comm_stream: bool = False,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
         quant_mode: Optional[str] = None,
+        profile_enable: bool = False,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -152,6 +153,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         allocate_on_comm_stream: bool,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor],
         quant_mode: Optional[str] = None,
+        profile_enable: bool = False,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -248,6 +250,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             allocate_on_comm_stream,
             use_quant,
             quant_type,
+            profile_enable,
         )
 
         handle = (
@@ -592,6 +595,7 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         allocate_on_comm_stream: bool = False,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
         quant_mode: Optional[str] = None,
+        profile_enable: bool = False,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],

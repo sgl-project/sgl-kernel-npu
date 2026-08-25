@@ -17,9 +17,9 @@ using namespace CamMoeDispatchNormalA5Impl;
 
 extern "C" __global__ __aicore__ void cam_moe_dispatch_normal(
     GM_ADDR x, GM_ADDR expertIds, GM_ADDR send_offset, GM_ADDR send_token_idx, GM_ADDR recv_offset, GM_ADDR recv_count,
-    GM_ADDR expert_global_offset, GM_ADDR srcrank_in_expert_offset, GM_ADDR r_in_srcrank_offset, GM_ADDR expandXOut,
-    GM_ADDR dynamicScalesOut, GM_ADDR assist_info_for_combine, GM_ADDR waitRecvCostStatsOut, GM_ADDR workspaceGM,
-    GM_ADDR tilingGM)
+    GM_ADDR expert_global_offset, GM_ADDR srcrank_in_expert_offset, GM_ADDR r_in_srcrank_offset, GM_ADDR profileBufferGM,
+    GM_ADDR expandXOut, GM_ADDR dynamicScalesOut, GM_ADDR assist_info_for_combine, GM_ADDR waitRecvCostStatsOut,
+    GM_ADDR workspaceGM, GM_ADDR tilingGM)
 {
     REGISTER_TILING_DEFAULT(CamMoeDispatchNormalTilingData);
     TPipe pipe;
@@ -36,8 +36,8 @@ extern "C" __global__ __aicore__ void cam_moe_dispatch_normal(
         GET_TILING_DATA_WITH_STRUCT(CamMoeDispatchNormalTilingData, tilingData, tilingGM);
         CamMoeDispatchNormalA5<DTYPE_X, DTYPE_RECV_X, DTYPE_X_SCALES, false, false, false, false> op;
         op.Init(x, expertIds, send_offset, send_token_idx, recv_offset, recv_count, expert_global_offset,
-                srcrank_in_expert_offset, r_in_srcrank_offset, expandXOut, dynamicScalesOut, assist_info_for_combine,
-                waitRecvCostStatsOut, workspaceGM, &pipe, &tilingData);
+                srcrank_in_expert_offset, r_in_srcrank_offset, profileBufferGM, expandXOut, dynamicScalesOut,
+                assist_info_for_combine, waitRecvCostStatsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
         return;
     }
@@ -54,8 +54,8 @@ extern "C" __global__ __aicore__ void cam_moe_dispatch_normal(
         GET_TILING_DATA_WITH_STRUCT(CamMoeDispatchNormalTilingData, tilingData, tilingGM);
         CamMoeDispatchNormalA5<DTYPE_X, DTYPE_RECV_X, DTYPE_X_SCALES, true, false, false, false> op;
         op.Init(x, expertIds, send_offset, send_token_idx, recv_offset, recv_count, expert_global_offset,
-                srcrank_in_expert_offset, r_in_srcrank_offset, expandXOut, dynamicScalesOut, assist_info_for_combine,
-                waitRecvCostStatsOut, workspaceGM, &pipe, &tilingData);
+                srcrank_in_expert_offset, r_in_srcrank_offset, profileBufferGM, expandXOut, dynamicScalesOut,
+                assist_info_for_combine, waitRecvCostStatsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
     }
 #endif
@@ -67,8 +67,8 @@ extern "C" __global__ __aicore__ void cam_moe_dispatch_normal(
         GET_TILING_DATA_WITH_STRUCT(CamMoeDispatchNormalTilingData, tilingData, tilingGM);
         CamMoeDispatchNormalA5<DTYPE_X, DTYPE_RECV_X, DTYPE_X_SCALES, true, true, false, false> op;
         op.Init(x, expertIds, send_offset, send_token_idx, recv_offset, recv_count, expert_global_offset,
-                srcrank_in_expert_offset, r_in_srcrank_offset, expandXOut, dynamicScalesOut, assist_info_for_combine,
-                waitRecvCostStatsOut, workspaceGM, &pipe, &tilingData);
+                srcrank_in_expert_offset, r_in_srcrank_offset, profileBufferGM, expandXOut, dynamicScalesOut,
+                assist_info_for_combine, waitRecvCostStatsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
         return;
     }
@@ -76,8 +76,8 @@ extern "C" __global__ __aicore__ void cam_moe_dispatch_normal(
         GET_TILING_DATA_WITH_STRUCT(CamMoeDispatchNormalTilingData, tilingData, tilingGM);
         CamMoeDispatchNormalA5<DTYPE_X, DTYPE_RECV_X, DTYPE_X_SCALES, true, false, false, false> op;
         op.Init(x, expertIds, send_offset, send_token_idx, recv_offset, recv_count, expert_global_offset,
-                srcrank_in_expert_offset, r_in_srcrank_offset, expandXOut, dynamicScalesOut, assist_info_for_combine,
-                waitRecvCostStatsOut, workspaceGM, &pipe, &tilingData);
+                srcrank_in_expert_offset, r_in_srcrank_offset, profileBufferGM, expandXOut, dynamicScalesOut,
+                assist_info_for_combine, waitRecvCostStatsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
         return;
     }
@@ -87,8 +87,8 @@ extern "C" __global__ __aicore__ void cam_moe_dispatch_normal(
         GET_TILING_DATA_WITH_STRUCT(CamMoeDispatchNormalTilingData, tilingData, tilingGM);
         CamMoeDispatchNormalA5<DTYPE_X, DTYPE_RECV_X, DTYPE_X_SCALES, true, true, false, false> op;
         op.Init(x, expertIds, send_offset, send_token_idx, recv_offset, recv_count, expert_global_offset,
-                srcrank_in_expert_offset, r_in_srcrank_offset, expandXOut, dynamicScalesOut, assist_info_for_combine,
-                waitRecvCostStatsOut, workspaceGM, &pipe, &tilingData);
+                srcrank_in_expert_offset, r_in_srcrank_offset, profileBufferGM, expandXOut, dynamicScalesOut,
+                assist_info_for_combine, waitRecvCostStatsOut, workspaceGM, &pipe, &tilingData);
         op.Process();
         return;
     }
