@@ -51,7 +51,7 @@ struct GDRStageOneInitParams {
     GlobalTensor<bfloat16_t> value;  // (T, Nv, Dv)
     GlobalTensor<bfloat16_t> beta;   // (T, Nv)
     GlobalTensor<float> g;           // (T, Nv)
-    // ouput
+    // output
     GlobalTensor<float> gCumExp;         // (Nv, cg_len)
     GlobalTensor<bfloat16_t> kCumdecay;  // (Nv, cg_len, Dk)
     GlobalTensor<bfloat16_t> vInner;     // (Nv, cg_len, Dv)
@@ -401,7 +401,6 @@ private:
         // copyOut
         auto tmpTensor = outQueue_.AllocTensor<bfloat16_t>();
         if (subValidRows > 0) {
-            // copyIn
             DataCopyInBf16WithStride(subValidRows, dk_, srcGm, nk_ * dk_);
             LocalTensor<bfloat16_t> bf16Tensor = inQueue_.DeQue<bfloat16_t>();
             DataCopy(tmpTensor, bf16Tensor, subValidRows * dkAligned_);
