@@ -221,4 +221,4 @@ def test_row_offset_does_not_overflow_int32():
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-q"])
+    raise SystemExit(pytest.main([__file__, "-q", "-rs"]))
