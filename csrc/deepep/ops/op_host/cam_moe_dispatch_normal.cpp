@@ -60,8 +60,8 @@ public:
 
         this->Input("profile_buffer")
             .ParamType(OPTIONAL)
-            .DataType({ge::DT_UINT8, ge::DT_UINT8, ge::DT_UINT8, ge::DT_UINT8})
-            .Format({ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND, ge::FORMAT_ND})
+            .DataTypeList({ge::DT_UINT8})
+            .FormatList({ge::FORMAT_ND})
             .AutoContiguous();
 
         this->Output("recv_x")
