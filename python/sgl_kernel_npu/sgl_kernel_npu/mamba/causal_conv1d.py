@@ -438,8 +438,6 @@ def _causal_conv1d_update_kernel_npu_tiled(
             if HAS_BIAS:
                 acc += acc_bias
 
-            # Persist one FP16 convolution result per token before SiLU, just
-            # like the one-token decode path.
             acc = acc.to(tl.float16, fp_downcast_rounding="rtne")
 
             # roll history window
@@ -1261,9 +1259,6 @@ def torch_causal_conv1d_update_npu(
     else:
         conv_state_update = hidden_states_new[:, :, -state_len:]
 
-    # The speculative Triton kernel performs the convolution in FP32 before
-    # persisting FP16 output. Use the same arithmetic for one-token decode so
-    # enabling speculative decoding does not change model numerics.
     out = torch.sum(
         hidden_states_new.to(torch.float32) * weight.to(torch.float32),
         dim=-1,
