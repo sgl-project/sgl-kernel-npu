@@ -8,6 +8,7 @@ from typing import Callable, List, Optional, Tuple, Union
 
 import torch
 import torch.distributed as dist
+import torch.nn.functional as F
 import torch_npu
 from deep_ep_cpp import EventHandle
 
@@ -854,7 +855,19 @@ class AllGatherNormalCommStrategy(NormalEPCommStrategy):
     """
     Normal mode strategy using AllGather implementation.
     All ranks gather all tokens, each rank processes only its local experts,
-    then all-reduce combines partial results.
+    then reduce-scatter combines partial results.
+
+    Padding strategy (mirrors vllm-ascend's EP path):
+      1. Before all_gather: pad each rank's input to the global max token
+         count (required by all_gather_into_tensor which demands equal
+         send sizes).
+      2. After all_gather: immediately unpad into a compact layout of
+         [sum(local_tokens), ...] so that routing and expert FFN never
+         touch padding rows.
+      3. Before reduce_scatter: re-pad the compact output back to
+         [group_size * max_tokens, ...] (reduce_scatter_tensor also
+         requires equal sizes), then trim the scattered result to
+         local_num_tokens.
     """
 
     def __init__(self, runtime, group: dist.ProcessGroup):
@@ -952,9 +965,28 @@ class AllGatherNormalCommStrategy(NormalEPCommStrategy):
         local_num_tokens = hidden_states.shape[0]
         hidden_shape = hidden_states.shape
 
-        # Step 0: Quantize hidden_states BEFORE AllGather to halve communication volume.
-        # per-token quant is safe to do locally — each rank quantizes its own tokens,
-        # AllGather concatenates, numerical result is identical to quantizing after AG.
+        # ----------------------------------------------------------------
+        # Step 0: Synchronize token counts across ranks.
+        # all_gather_into_tensor requires every rank to send the same number
+        # of bytes.  Collect per-rank token counts so we can (a) compute the
+        # global max for padding and (b) unpad precisely after the gather.
+        # ----------------------------------------------------------------
+        if group_size > 1:
+            from sglang.srt.layers.utils.cp_utils import MAX_LEN, PER_RANK_ACTUAL_TOKEN
+            global MAX_LEN
+            max_tokens = MAX_LEN
+            global PER_RANK_ACTUAL_TOKEN
+            all_num_tokens = PER_RANK_ACTUAL_TOKEN
+        else:
+            max_tokens = local_num_tokens
+            all_num_tokens = [local_num_tokens]
+        # ----------------------------------------------------------------
+        # Step 1: Quantize hidden_states BEFORE AllGather to halve
+        # communication volume.  per-token quant is safe to do locally —
+        # each rank quantizes its own tokens, AllGather concatenates, and
+        # the numerical result is identical to quantizing after AG.
+        # ----------------------------------------------------------------
+        print(f"{hidden_states.shape=} {max_tokens=} {all_num_tokens=} {torch.distributed.get_rank()=}", flush=True)
         if self.use_mx_fp8_quant:
             hidden_states, pertoken_scale = torch_npu.npu_dynamic_mx_quant(
                 hidden_states, dst_type=torch.float8_e4m3fn
@@ -962,13 +994,31 @@ class AllGatherNormalCommStrategy(NormalEPCommStrategy):
         else:
             pertoken_scale = None
 
-        # Step 1: All-gather hidden_states (FP8 if quantized), topk_idx, topk_weights, scale
+        # ----------------------------------------------------------------
+        # Step 2: Pad + AllGather hidden_states / topk_idx / topk_weights /
+        # scale, then immediately UNPAD into a compact layout.
+        #
+        # After padded all-gather the layout is:
+        #   [rank0: max_tokens | rank1: max_tokens | ...]
+        # where each rank's chunk has (max_tokens - local_r) zero-filled
+        # padding rows at the end.  We compact this to:
+        #   [rank0: local_0 | rank1: local_1 | ...]
+        # so that downstream routing and expert FFN never see padding.
+        # ----------------------------------------------------------------
         if group_size > 1:
-            global_hidden_states = self._all_gather(hidden_states, self.group)
-            global_topk_idx = self._all_gather(topk_idx, self.group)
-            global_topk_weights = self._all_gather(topk_weights, self.group)
+            global_hidden_states = self._all_gather(
+                hidden_states, max_tokens, all_num_tokens
+            )
+            global_topk_idx = self._all_gather(
+                topk_idx, max_tokens, all_num_tokens
+            )
+            global_topk_weights = self._all_gather(
+                topk_weights, max_tokens, all_num_tokens
+            )
             if pertoken_scale is not None:
-                global_pertoken_scale = self._all_gather(pertoken_scale, self.group)
+                global_pertoken_scale = self._all_gather(
+                    pertoken_scale, max_tokens, all_num_tokens
+                )
             else:
                 global_pertoken_scale = None
         else:
@@ -977,10 +1027,13 @@ class AllGatherNormalCommStrategy(NormalEPCommStrategy):
             global_topk_weights = topk_weights
             global_pertoken_scale = pertoken_scale
 
-        restore_shape = global_hidden_states.shape
+        # Compact layout: [sum(all_num_tokens), ...] — no padding rows.
+        global_num_tokens = global_hidden_states.shape[0]
 
-        # Step 2: Mask out non-local expert weights so that after unpermute,
+        # ----------------------------------------------------------------
+        # Step 3: Mask out non-local expert weights so that after unpermute,
         # only local expert contributions remain on each rank.
+        # ----------------------------------------------------------------
         if group_size > 1:
             expert_map = torch.full(
                 (num_experts,), -1, dtype=torch.int32, device=topk_idx.device
@@ -995,8 +1048,11 @@ class AllGatherNormalCommStrategy(NormalEPCommStrategy):
         else:
             masked_topk_weights = global_topk_weights
 
-        # Step 3: Local routing — sort tokens by expert, keep only local expert tokens.
-        # Pass scale= so init_routing reorders both tokens and scale together.
+        # ----------------------------------------------------------------
+        # Step 4: Local routing — sort tokens by expert, keep only local
+        # expert tokens.  Because the input is compact (no padding), every
+        # row is a real token; expert_tokens counts are accurate.
+        # ----------------------------------------------------------------
         topk_idx_int = global_topk_idx.to(torch.int32)
         init_routing_kwargs = dict(
             quant_mode=-1,
@@ -1026,10 +1082,11 @@ class AllGatherNormalCommStrategy(NormalEPCommStrategy):
         combine_handle = {
             "expanded_row_idx": expanded_row_idx,
             "topk_weights": masked_topk_weights,
-            "restore_shape": restore_shape,
             "hidden_shape": hidden_shape,
             "local_num_tokens": local_num_tokens,
-            "ep_rank": ep_rank,
+            "max_tokens": max_tokens,
+            "all_num_tokens": all_num_tokens,
+            "global_num_tokens": global_num_tokens,
             "group_size": group_size,
         }
 
@@ -1060,53 +1117,211 @@ class AllGatherNormalCommStrategy(NormalEPCommStrategy):
         allocate_on_comm_stream: bool = False,
         combine_send_cost_stats: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], EventOverlap]:
-        """Combine using AllGather: unpermute, then reduce-scatter partial results."""
+        """Combine using AllGather: unpermute, re-pad, then reduce-scatter."""
         expanded_row_idx = handle["expanded_row_idx"]
         probs = handle["topk_weights"]
-        restore_shape = handle["restore_shape"]
         hidden_shape = handle["hidden_shape"]
         local_num_tokens = handle["local_num_tokens"]
-        ep_rank = handle["ep_rank"]
+        max_tokens = handle["max_tokens"]
+        all_num_tokens = handle["all_num_tokens"]
+        global_num_tokens = handle["global_num_tokens"]
         group_size = handle["group_size"]
 
-        # Step 1: Unpermute — restore global token order and apply routing weights
+        # ----------------------------------------------------------------
+        # Step 1: Unpermute — restore global token order (compact layout)
+        # and apply routing weights.  Output is [global_num_tokens, ...].
+        # ----------------------------------------------------------------
         output = torch_npu.npu_moe_token_unpermute(
             permuted_tokens=x,
             sorted_indices=expanded_row_idx,
             probs=probs,
         )
 
-        # Step 2: Reduce-scatter to sum partial results from all ranks and split to local portion.
-        # Replaces all_reduce + slice: reduce_scatter does both sum and scatter in one op,
-        # and each rank only receives its own chunk (group_size× less data than all_reduce).
+        # ----------------------------------------------------------------
+        # Step 2: Re-pad compact output to [group_size * max_tokens, ...]
+        # so reduce_scatter_tensor gets equal-sized chunks per rank.
+        # Padding rows are zeros, contributing nothing to the sum.
+        # Then reduce-scatter: each rank receives its own [max_tokens, ...]
+        # chunk (sum of all ranks' partial results for its tokens).
+        # ----------------------------------------------------------------
         if group_size > 1:
+            padded_output = self._repad_for_scatter(
+                output, all_num_tokens, max_tokens
+            )
             scattered_output = torch.empty(
-                (local_num_tokens, *output.shape[1:]),
+                (max_tokens, *output.shape[1:]),
                 dtype=output.dtype,
                 device=output.device,
             )
-            dist.reduce_scatter_tensor(scattered_output, output, group=self.group)
+            dist.reduce_scatter_tensor(
+                scattered_output, padded_output, group=self.group
+            )
             output = scattered_output
 
-        # Step 3: Restore original hidden shape
+        # ----------------------------------------------------------------
+        # Step 3: Trim padding rows to restore this rank's original token
+        # count, then restore the original hidden shape.
+        # ----------------------------------------------------------------
+        output = output[:local_num_tokens]
         output = output.view(hidden_shape)
 
         return output, None, EventOverlap()
 
+    def _sync_token_counts(
+        self, local_num_tokens: int
+    ) -> Tuple[int, List[int]]:
+        """AllGather per-rank token counts.
+
+        Returns:
+            max_tokens:    global maximum token count (for padded all-gather)
+            all_num_tokens: per-rank token count list (for precise unpad/re-pad)
+        """
+        group_size = torch.distributed.get_world_size(self.group)
+        token_counts = torch.empty(
+            group_size, dtype=torch.int32, device=torch.npu.current_device()
+        )
+        local = torch.tensor(
+            [local_num_tokens],
+            dtype=torch.int32,
+            device=torch.npu.current_device(),
+        )
+        torch.distributed.all_gather(
+            list(torch.split(token_counts, 1)), local, group=self.group
+        )
+        max_tokens = int(token_counts.max().item())
+        all_num_tokens = token_counts.tolist()
+        return max_tokens, all_num_tokens
+
     def _all_gather(
-        self, input_: torch.Tensor, group: dist.ProcessGroup
+        self,
+        input_: torch.Tensor,
+        max_tokens: int,
+        all_num_tokens: List[int],
     ) -> torch.Tensor:
-        """All-gather tensor along first dimension."""
-        world_size = torch.distributed.get_world_size(group)
+        """Pad input to *max_tokens*, all-gather, then reorganize into compact layout.
+
+        Mirrors cp_all_gather_reorganized_into_tensor:
+        1. Pad input to max_tokens along dim 0 (zero-fill) so every rank
+           sends the same number of bytes.
+        2. all_gather_into_tensor into a [max_tokens * world_size, ...] buffer.
+        3. Split by per-rank max_tokens chunks, slice each down to its
+           actual token count, and concatenate — yielding
+           [sum(all_num_tokens), ...] with no padding rows.
+        """
+        world_size = torch.distributed.get_world_size(self.group)
         if world_size == 1:
             return input_
 
+        # Step 1: Pad along dim 0 so every rank sends exactly max_tokens rows.
+        pad_size = max_tokens - input_.size(0)
+        if pad_size > 0:
+            # F.pad expects padding in reverse dimension order; for n-D
+            # tensor, pad only the first dim: [0, 0]*(ndim-1) + [0, pad_size]
+            padding = [0, 0] * (input_.ndim - 1) + [0, pad_size]
+            input_ = F.pad(input_, padding, mode="constant", value=0)
+
+        # Step 2: Allocate output buffer and all-gather.
         dim_size = list(input_.size())
         dim_size[0] = dim_size[0] * world_size
         output = torch.empty(
             dim_size, dtype=input_.dtype, device=torch.npu.current_device()
         )
+        print(f"{dim_size[0]=} {pad_size=} {torch.distributed.get_rank()=}", flush=True)
         torch.distributed.all_gather_into_tensor(
-            output, input_.contiguous(), group=group
+            output, input_.contiguous(), group=self.group
         )
-        return output
+
+        # Step 3: Reorganize — split into per-rank chunks of max_tokens,
+        # slice each to its actual token count, concatenate into compact
+        # layout (no padding rows).
+        outputs_list_max = list(
+            torch.split(output, [max_tokens] * world_size, dim=0)
+        )
+        result = torch.cat(
+            [
+                outputs_list_max[index][:per_rank_len]
+                for index, per_rank_len in enumerate(all_num_tokens)
+            ],
+            dim=0,
+        )
+        return result
+
+    @staticmethod
+    def _unpad_compact(
+        gathered: torch.Tensor,
+        all_num_tokens: List[int],
+        max_tokens: int,
+    ) -> torch.Tensor:
+        """Compact a padded all-gather result into a padding-free layout.
+
+        Input layout (after padded all-gather):
+            [rank0: max_tokens | rank1: max_tokens | ...]
+        where each rank's chunk has (max_tokens - local_r) zero padding rows.
+
+        Output layout (compact):
+            [rank0: local_0 | rank1: local_1 | ...]
+
+        This mirrors vllm-ascend's maybe_all_gather_and_maybe_unpad EP path:
+        routing and expert FFN downstream never see padding rows, so
+        expert_tokens statistics are accurate and no compute is wasted.
+        """
+        group_size = len(all_num_tokens)
+        global_total = sum(all_num_tokens)
+        if global_total == gathered.size(0):
+            return gathered  # no padding needed (all ranks equal)
+
+        result = torch.empty(
+            (global_total, *gathered.shape[1:]),
+            dtype=gathered.dtype,
+            device=gathered.device,
+        )
+        offset_in = 0   # read offset in the gathered tensor
+        offset_out = 0  # write offset in the compact result
+        for r in range(group_size):
+            n = all_num_tokens[r]
+            result[offset_out : offset_out + n] = gathered[
+                offset_in : offset_in + n
+            ]
+            offset_in += max_tokens
+            offset_out += n
+        return result
+
+    @staticmethod
+    def _repad_for_scatter(
+        compact: torch.Tensor,
+        all_num_tokens: List[int],
+        max_tokens: int,
+    ) -> torch.Tensor:
+        """Re-pad a compact tensor for reduce_scatter_tensor.
+
+        reduce_scatter_tensor requires input size = world_size * output_size,
+        with equal-sized chunks per rank.  This scatters the compact
+        [sum(local), ...] tensor back into [group_size * max_tokens, ...]
+        layout (per-rank chunks of max_tokens, zero-padded), so the
+        subsequent reduce_scatter gives each rank its own tokens.
+
+        Padding rows are zeros, so they contribute nothing to the
+        cross-rank sum inside reduce_scatter.
+
+        Fast path: when every rank already has max_tokens tokens (no
+        padding), the compact tensor is already in the target layout,
+        so we return it directly and avoid an alloc + copy.
+        """
+        group_size = len(all_num_tokens)
+        if compact.size(0) == group_size * max_tokens:
+            return compact
+
+        padded = torch.zeros(
+            (group_size * max_tokens, *compact.shape[1:]),
+            dtype=compact.dtype,
+            device=compact.device,
+        )
+        offset_in = 0   # read offset in the compact tensor
+        for r in range(group_size):
+            n = all_num_tokens[r]
+            padded[r * max_tokens : r * max_tokens + n] = compact[
+                offset_in : offset_in + n
+            ]
+            offset_in += n
+        return padded
+
