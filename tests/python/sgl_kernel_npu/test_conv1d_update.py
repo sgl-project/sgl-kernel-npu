@@ -342,7 +342,7 @@ def test_npu_causal_conv1d_update():
     )
     conv_state_vl = conv_state_init.clone()
     # --- vLLM Execution (CPU/CUDA reference) ---
-    out_vl = vllm_causal_conv1d_update_v3(
+    out_vl, conv_state_vl = vllm_causal_conv1d_update_v3(
         hidden_state=hidden_state,
         conv_state=conv_state_vl,
         weight=weight,
@@ -457,7 +457,10 @@ def test_npu_causal_conv1d_update():
                 f"\\n✅ PASS: Output and state are correctly aligned to torch reference!"
             )
         else:
-            print(f"\\n⚠️  WARNING: Precision below expected threshold")
+            raise AssertionError(
+                f"Precision below expected threshold: output {matched}/{total}, "
+                f"state {state_exact_match}/{state_total}"
+            )
 
         print(f"\n🎉 NPU causal_conv1d_update test passed!")
 
@@ -466,9 +469,15 @@ def test_npu_causal_conv1d_update():
         import traceback
 
         traceback.print_exc()
+        raise
 
 
 if __name__ == "__main__":
+    print("\n" + "=" * 60)
+    print("Running test_speculative_fp16_matches_sequential_decode")
+    print("=" * 60)
+    test_speculative_fp16_matches_sequential_decode()
+
     # print("="*60)
     # print("Running test_correctness_fixed (CPU/CUDA reference)")
     # print("="*60)
