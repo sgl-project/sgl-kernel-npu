@@ -223,6 +223,119 @@ class TestTransferKV(unittest.TestCase):
             msg="device v sum() * 2 should be equal to host value after transfer k h2d",
         )
 
+    def _scale_transfer(self, direct: TransferDirection):
+        """Transfer only the quantized-Indexer FP32 scale cache.
+
+        Device layout is (layers, pages, page_size, 1) FP32 (4-D, the wrapper
+        appends the trailing singleton dim); host layout is page-first
+        (pages, layers, page_size, 1, 1) FP32.
+        """
+        torch.npu.set_device(0)
+
+        # Distinct value per (layer, page) so that a wrong page/layer stride or
+        # offset -- the layout-sensitive part of this feature -- fails the
+        # element-wise assertions below (uniform values would hide it).
+        base = (
+            torch.arange(NUM_LAYERS * NUM_PAGES, dtype=torch.float32)
+            .view(NUM_LAYERS, NUM_PAGES)
+            .add_(1.0)
+        )
+
+        device_scale = torch.zeros(
+            (NUM_LAYERS, NUM_PAGES, PAGE_SIZE, 1),
+            dtype=torch.float32,
+            device="npu",
+        )
+        host_scale = torch.zeros(
+            (NUM_PAGES, NUM_LAYERS, PAGE_SIZE, 1, 1),
+            dtype=torch.float32,
+            device="cpu",
+            pin_memory=True,
+        )
+
+        # Non-empty dummy k/v slabs mirror the real H2D/D2H path, where the
+        # k/v and scale buffers are distinct: only the scale operands below
+        # move scale data (avoids the idempotent double write of the old test).
+        device_kv = torch.zeros(
+            (NUM_LAYERS, NUM_PAGES, PAGE_SIZE, 1, 1),
+            dtype=torch.float32,
+            device="npu",
+        )
+        host_kv = torch.zeros(
+            (NUM_PAGES, NUM_LAYERS, PAGE_SIZE, 1, 1),
+            dtype=torch.float32,
+            device="cpu",
+            pin_memory=True,
+        )
+
+        if direct == TransferDirection.D2H:
+            device_scale.copy_(base.unsqueeze(-1).unsqueeze(-1))
+        else:
+            # Host layout is 5-D (pages, layers, page_size, 1, 1); copy_ aligns
+            # trailing dims, so append 3 trailing singletons to the (pages, layers)
+            # matrix to broadcast page_size (dim2: 1 -> page_size).
+            host_scale.copy_(
+                base.permute(1, 0).unsqueeze(-1).unsqueeze(-1).unsqueeze(-1)
+            )
+
+        device_indices = torch.arange(NUM_PAGES * PAGE_SIZE, dtype=torch.int64)
+        host_indices = torch.arange(NUM_PAGES * PAGE_SIZE, dtype=torch.int64)
+
+        stream = torch.npu.Stream()
+        with torch.npu.stream(stream):
+            transfer_kv_dim_exchange(
+                device_indices=device_indices,
+                host_indices=host_indices,
+                device_k=device_kv,
+                host_k=host_kv,
+                device_v=torch.empty(0),
+                host_v=torch.empty(0),
+                device_index_k_scale=device_scale,
+                host_index_k_scale=host_scale,
+                page_size=PAGE_SIZE,
+                direction=direct,
+            )
+        torch.npu.synchronize()
+        return device_scale, host_scale
+
+    def test_scale_copy_d2h(self):
+        device_scale, host_scale = self._scale_transfer(TransferDirection.D2H)
+
+        # host_scale[page, layer, token, 0, 0] must equal
+        # device_scale[layer, page, token, 0] for every page/layer.
+        expected = (
+            torch.arange(NUM_LAYERS * NUM_PAGES, dtype=torch.float32)
+            .view(NUM_LAYERS, NUM_PAGES)
+            .add_(1.0)
+            .permute(1, 0)
+            .unsqueeze(-1)
+            .unsqueeze(-1)
+            .unsqueeze(-1)
+            .expand(NUM_PAGES, NUM_LAYERS, PAGE_SIZE, 1, 1)
+        )
+        self.assertTrue(
+            torch.allclose(host_scale, expected, atol=1e-6),
+            msg="host scale should equal the per-(page, layer) device values after d2h",
+        )
+
+    def test_scale_copy_h2d(self):
+        device_scale, host_scale = self._scale_transfer(TransferDirection.H2D)
+
+        # device_scale[layer, page, token, 0] must equal
+        # host_scale[page, layer, token, 0, 0] for every page/layer.
+        expected = (
+            torch.arange(NUM_LAYERS * NUM_PAGES, dtype=torch.float32)
+            .view(NUM_LAYERS, NUM_PAGES)
+            .add_(1.0)
+            .unsqueeze(-1)
+            .unsqueeze(-1)
+            .expand(NUM_LAYERS, NUM_PAGES, PAGE_SIZE, 1)
+        )
+        self.assertTrue(
+            torch.allclose(device_scale.cpu(), expected, atol=1e-6),
+            msg="device scale should equal the per-(layer, page) host values after h2d",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

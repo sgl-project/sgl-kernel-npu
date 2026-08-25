@@ -1,3 +1,8 @@
+#if defined(__DAV_C310__)
+// The CANN kernel generator resolves FusedDeepMoe to this canonical filename.
+// Keep the A5 implementation in its private module while preserving that mapping.
+#include "fused_deep_moe_a5/entry.h"
+#else
 #include "fused_deep_moe.h"
 #include <kernel_operator.h>
 #include "lib/matmul_intf.h"
@@ -23,3 +28,4 @@ extern "C" __global__ __aicore__ void fused_deep_moe(
         op.Process();
     }
 }
+#endif  // defined(__DAV_C310__)

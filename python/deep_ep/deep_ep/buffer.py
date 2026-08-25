@@ -738,6 +738,21 @@ class Buffer:
             out=out,
         )
 
+    def begin_profile(
+        self,
+        num_profile_skip_launches: int,
+        num_profile_active_launches: int,
+        profile_trace_dir: Optional[str] = "",
+    ) -> None:
+        self.runtime.begin_profile(
+            num_profile_skip_launches,
+            num_profile_active_launches,
+            profile_trace_dir or "",
+        )
+
+    def end_profile(self) -> None:
+        self.runtime.end_profile()
+
     def fused_deep_moe(
         self,
         x: torch.Tensor,
@@ -751,6 +766,7 @@ class Buffer:
         num_experts: int,
         quant_mode: int = 1,
         fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
+        profile_enable: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         A fused low-latency implementation for MoE expert forward and combination.
@@ -821,9 +837,6 @@ class Buffer:
         """
         topk_ids = topk_idx.int()
         if fuse_mode == FuseMode.FUSED_DEEP_MOE:
-            gmm1_permuted_weight_scale = gmm1_permuted_weight_scale.float()
-            gmm2_weight_scale = gmm2_weight_scale.float()
-
             output, ep_recv_count = self.runtime.fused_deep_moe(
                 x,
                 topk_ids,
@@ -835,6 +848,7 @@ class Buffer:
                 num_max_dispatch_tokens_per_rank,
                 num_experts,
                 quant_mode,
+                profile_enable,
             )
             return output, ep_recv_count
         elif fuse_mode == FuseMode.DISPATCH_FFN_COMBINE:

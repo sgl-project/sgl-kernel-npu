@@ -1,6 +1,9 @@
 import sgl_kernel_npu
 import torch
 import torch_npu
+from utils import require_npu_op
+
+pytestmark = require_npu_op("softfp8_w8a16_matmul")
 
 BLOCK_SIZE = 128
 
