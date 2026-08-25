@@ -58,7 +58,6 @@ def create_shm_tensor(
     tensor = torch.frombuffer(buffer, dtype=dtype).view(shape_tuple)
     if tensor.element_size() != elem_size:
         raise RuntimeError("shm tensor element size mismatch")
-    tensor.zero_()
     return tensor, int(host_ptr), int(dev_ptr)
 
 
