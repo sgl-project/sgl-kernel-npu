@@ -32,15 +32,15 @@ using StageTwoMTFp32C = StageTwoMTT<float>;
 
 template <typename stateType>
 struct StageTwoParams {
-    GlobalTensor<bfloat16_t> qPrime;       // (Nv, Sp, Dk)
-    GlobalTensor<stateType> vInner;        // (Nv, Sp, Dv)
-    GlobalTensor<bfloat16_t> vInnerBf16;   // (Nv, Sp, Dv) BF16 vInner for stage3/CalStateNew (FP32 path)
-    GlobalTensor<float> gCum;              // (Nv, Sp)
-    GlobalTensor<bfloat16_t> kCumdecay;    // (Nv, Sp, Dk)
-    GlobalTensor<bfloat16_t> curStateBf16; // (Nv, Dv, Dk) BF16 state for AIC
-    GlobalTensor<stateType> stateIn;       // (Nv, Dv, Dk) state input
-    GlobalTensor<stateType> stateOut;      // (Nv, Dv, Dk) state output
-    GlobalTensor<stateType> chunkState;    // (totalChunks, Nv, Dv, Dk) per-chunk entering state
+    GlobalTensor<bfloat16_t> qPrime;        // (Nv, Sp, Dk)
+    GlobalTensor<stateType> vInner;         // (Nv, Sp, Dv)
+    GlobalTensor<bfloat16_t> vInnerBf16;    // (Nv, Sp, Dv) BF16 vInner for stage3/CalStateNew (FP32 path)
+    GlobalTensor<float> gCum;               // (Nv, Sp)
+    GlobalTensor<bfloat16_t> kCumdecay;     // (Nv, Sp, Dk)
+    GlobalTensor<bfloat16_t> curStateBf16;  // (Nv, Dv, Dk) BF16 state for AIC
+    GlobalTensor<stateType> stateIn;        // (Nv, Dv, Dk) state input
+    GlobalTensor<stateType> stateOut;       // (Nv, Dv, Dk) state output
+    GlobalTensor<stateType> chunkState;     // (totalChunks, Nv, Dv, Dk) per-chunk entering state
     GlobalTensor<bfloat16_t> kg;
     GlobalTensor<bfloat16_t> out;
     GM_ADDR ws;
@@ -60,7 +60,8 @@ struct StageTwoParams {
 };
 
 template <typename stateType = bfloat16_t, bool gOptional = false>
-class Stage2 {
+class Stage2
+{
 public:
     static constexpr bool kIsFp32 = std::is_same_v<stateType, float>;
 
@@ -110,8 +111,8 @@ public:
             uint64_t outQueueSize = Std::max((uint64_t)chunkSize_ * chunkSize_ * sizeof(bfloat16_t),
                                              (uint64_t)Dv_ * curDk_ * sizeof(bfloat16_t));
             pipe_->InitBuffer(outQueue_, BUFFER_NUM_ONE, outQueueSize);
-            pipe_->InitBuffer(tmpBuff_, (Std::max((uint64_t)chunkSize_, (uint64_t)Dv_) * curDk_ + BLOCK_FLOAT_NUM) *
-                                            sizeof(float));
+            pipe_->InitBuffer(
+                tmpBuff_, (Std::max((uint64_t)chunkSize_, (uint64_t)Dv_) * curDk_ + BLOCK_FLOAT_NUM) * sizeof(float));
             uint32_t buffOffset = 0;
             tmpBuffer1_ = tmpBuff_.GetWithOffset<float>(static_cast<uint32_t>(Dv_ * curDk_), buffOffset);
             buffOffset += Ceil(Dv_ * curDk_ * sizeof(float), BLOCK_SIZE) * BLOCK_SIZE;
@@ -464,5 +465,5 @@ private:
     bool outputChunkState_;
     int64_t globalChunkOffset_;
 };
-} // namespace ChunkGatedDeltaRule
-#endif // CHUNK_GATED_DELTA_RULE_STAGE2_H
+}  // namespace ChunkGatedDeltaRule
+#endif  // CHUNK_GATED_DELTA_RULE_STAGE2_H
