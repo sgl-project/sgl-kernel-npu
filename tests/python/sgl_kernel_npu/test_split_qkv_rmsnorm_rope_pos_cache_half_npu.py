@@ -179,30 +179,6 @@ def _assert_within_bf16_ulps(a: torch.Tensor, b: torch.Tensor, ulps: int = 1):
     assert worst <= ulps, f"worst elementwise distance {worst} bf16 ULP > {ulps}"
 
 
-def test_within_bf16_ulps_helper_controls():
-    """Controls for _assert_within_bf16_ulps: the two non-finite cases that pass
-    a tight bound on the bit patterns alone, plus a real overshoot.
-    """
-    bf = lambda *v: torch.tensor(v, dtype=torch.bfloat16)
-    top = torch.finfo(torch.bfloat16).max
-    nan, inf = float("nan"), float("inf")
-
-    _assert_within_bf16_ulps(bf(1.0, 2.0), bf(1.0, 2.0), ulps=0)
-
-    for a, b, why in (
-        (bf(nan, 1.0), bf(nan, 1.0), "equal NaNs accepted"),
-        (bf(top, 1.0), bf(inf, 1.0), "max finite one step from inf accepted"),
-        (bf(inf, 1.0), bf(inf, 1.0), "equal infinities accepted"),
-        (bf(2.0), bf(4.0), "128 ULP accepted"),
-        (bf(1.0), bf(1.0, 2.0), "shape mismatch accepted"),
-    ):
-        try:
-            _assert_within_bf16_ulps(a, b)
-        except AssertionError:
-            continue
-        raise AssertionError(why)
-
-
 def _assert_within_row_bf16_ulps(a: torch.Tensor, b: torch.Tensor, ulps: int = 2):
     """Bound the elementwise difference by ``ulps`` bf16 steps of the row's
     largest element.
@@ -232,33 +208,65 @@ def _assert_within_row_bf16_ulps(a: torch.Tensor, b: torch.Tensor, ulps: int = 2
     )
 
 
-def test_within_row_bf16_ulps_helper_controls():
-    """Controls for _assert_within_row_bf16_ulps: a difference beyond the row
-    bound, a shape mismatch, and non-finite values in either position.
+class TestUlpHelperControls(unittest.TestCase):
+    """Controls for the two ULP helpers above.
+
+    Deliberately not under the NPU skip: the helpers run on CPU tensors, and CI
+    executes this file via ``python3 <file>`` -> ``unittest.main()``, which only
+    collects ``TestCase`` subclasses -- as module-level pytest functions these
+    were never run, and inside the skipped NPU case they would never run either.
     """
-    row = torch.tensor([[8.0, 0.5, 0.25]])
-    # 8.0 * 2**-8 * 2 = 0.0625, so 0.03 passes on the row bound while being
-    # many steps of the 0.25 element it sits on.
-    near = torch.tensor([[8.0, 0.5, 0.28]])
-    far = torch.tensor([[8.0, 0.5, 0.5]])
-    nan = torch.tensor([[8.0, 0.5, float("nan")]])
-    inf = torch.tensor([[8.0, 0.5, float("inf")]])
 
-    _assert_within_row_bf16_ulps(row, near)
+    def test_within_bf16_ulps_helper_controls(self):
+        """Controls for _assert_within_bf16_ulps: the two non-finite cases that
+        pass a tight bound on the bit patterns alone, plus a real overshoot.
+        """
+        bf = lambda *v: torch.tensor(v, dtype=torch.bfloat16)
+        top = torch.finfo(torch.bfloat16).max
+        nan, inf = float("nan"), float("inf")
 
-    for a, b, why in (
-        (row, far, "difference beyond the row bound accepted"),
-        (row, torch.tensor([[8.0]]), "shape mismatch accepted"),
-        (nan, row, "NaN in a accepted"),
-        (row, nan, "NaN in b accepted"),
-        (inf, row, "inf in a accepted"),
-        (row, inf, "inf in b accepted"),
-    ):
-        try:
-            _assert_within_row_bf16_ulps(a, b)
-        except AssertionError:
-            continue
-        raise AssertionError(why)
+        _assert_within_bf16_ulps(bf(1.0, 2.0), bf(1.0, 2.0), ulps=0)
+
+        for a, b, why in (
+            (bf(nan, 1.0), bf(nan, 1.0), "equal NaNs accepted"),
+            (bf(top, 1.0), bf(inf, 1.0), "max finite one step from inf accepted"),
+            (bf(inf, 1.0), bf(inf, 1.0), "equal infinities accepted"),
+            (bf(2.0), bf(4.0), "128 ULP accepted"),
+            (bf(1.0), bf(1.0, 2.0), "shape mismatch accepted"),
+        ):
+            try:
+                _assert_within_bf16_ulps(a, b)
+            except AssertionError:
+                continue
+            raise AssertionError(why)
+
+    def test_within_row_bf16_ulps_helper_controls(self):
+        """Controls for _assert_within_row_bf16_ulps: a difference beyond the row
+        bound, a shape mismatch, and non-finite values in either position.
+        """
+        row = torch.tensor([[8.0, 0.5, 0.25]])
+        # 8.0 * 2**-8 * 2 = 0.0625, so 0.03 passes on the row bound while being
+        # many steps of the 0.25 element it sits on.
+        near = torch.tensor([[8.0, 0.5, 0.28]])
+        far = torch.tensor([[8.0, 0.5, 0.5]])
+        nan = torch.tensor([[8.0, 0.5, float("nan")]])
+        inf = torch.tensor([[8.0, 0.5, float("inf")]])
+
+        _assert_within_row_bf16_ulps(row, near)
+
+        for a, b, why in (
+            (row, far, "difference beyond the row bound accepted"),
+            (row, torch.tensor([[8.0]]), "shape mismatch accepted"),
+            (nan, row, "NaN in a accepted"),
+            (row, nan, "NaN in b accepted"),
+            (inf, row, "inf in a accepted"),
+            (row, inf, "inf in b accepted"),
+        ):
+            try:
+                _assert_within_row_bf16_ulps(a, b)
+            except AssertionError:
+                continue
+            raise AssertionError(why)
 
 
 def _assert_close_fp32(
