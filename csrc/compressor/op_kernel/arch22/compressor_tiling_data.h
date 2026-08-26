@@ -18,7 +18,7 @@
 #include <cstdint>
 #include "kernel_tiling/kernel_tiling.h"
 
-const uint32_t CMP_MAX_AIC_CORE_NUM = 36;
+const uint32_t CMP_MAX_AIC_CORE_NUM = 26;  // 25 + 1 保证数组8字节对齐 (A2/A3)
 
 namespace optiling {
 struct CompressorSplitCoreParams {

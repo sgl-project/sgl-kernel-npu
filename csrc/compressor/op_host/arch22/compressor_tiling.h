@@ -30,7 +30,7 @@
 #include "register/tilingdata_base.h"
 #include "ge_helper.h"
 #include "../op_kernel/compressor_template_tiling_key.h"
-#include "../op_kernel/compressor_tiling_data.h"
+#include "../op_kernel/arch22/compressor_tiling_data.h"
 
 #ifdef ASCENDC_OP_TEST
 #define CMP_EXTERN_C extern "C"
