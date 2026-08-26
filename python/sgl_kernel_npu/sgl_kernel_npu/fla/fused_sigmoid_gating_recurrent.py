@@ -44,9 +44,6 @@ def fused_sigmoid_gating_delta_rule_update_npu_kernel(
     IS_VARLEN: tl.constexpr,
     IS_KDA: tl.constexpr,
 ):
-    """
-    Fused kernel that combines sigmoid gating computation with recurrent delta rule update.
-    """
     i_k = 0
     i_v, i_n, i_nhv = tl.program_id(0), tl.program_id(1), tl.program_id(2)
 
@@ -54,29 +51,30 @@ def fused_sigmoid_gating_delta_rule_update_npu_kernel(
         bos, eos = (
             tl.load(cu_seqlens + i_n).to(tl.int64),
             tl.load(cu_seqlens + i_n + 1).to(tl.int64),
-        )  # 0 1
-        all = T  # 1
-        T = eos - bos  # 1
+        )
+        all = T
+        T = eos - bos
     else:
         bos, eos = i_n * T, i_n * T + T
         all = B * T
 
-    o_k = i_k * BK + tl.arange(0, BK)  # 0 ~ 127
-    o_v = i_v * BV + tl.arange(0, BV)  # 0 ~ 15 * 8 + 0 ~ 7
+    o_k = i_k * BK + tl.arange(0, BK)  # 0..BK-1
+    o_v = i_v * BV + tl.arange(0, BV)  # 0..BV-1
     mask_k = o_k < K
     mask_v = o_v < V
-    mask_h = mask_k[:, None] & mask_v[None, :]
+
+    mask_h = mask_v[:, None] & mask_k[None, :]  # [BV, BK]
 
     for i_bhv in range(BHV):
         i_hv = i_nhv * BHV + i_bhv
         i_h = i_hv // (HV // H)
-        p_q = q + (bos * H + i_h) * K + o_k  # q + 0 ~ 127
-        p_k = k + (bos * H + i_h) * K + o_k  # k + 0 ~ 127
-        p_v = v + (bos * HV + i_hv) * V + o_v  # v + i_nh * 128 + 0 ~ 15 * 8 + 0 ~ 7
+
+        p_q = q + (bos * H + i_h) * K + o_k
+        p_k = k + (bos * H + i_h) * K + o_k
+        p_v = v + (bos * HV + i_hv) * V + o_v
         p_b = b + bos * HV + i_hv
         p_o = o + ((i_k * all + bos) * HV + i_hv) * V + o_v
 
-        # Gating computation pointers
         p_A_log = A_log + i_hv
 
         if IS_KDA:
@@ -87,35 +85,31 @@ def fused_sigmoid_gating_delta_rule_update_npu_kernel(
             p_dt_bias = dt_bias + i_hv
 
         for i in range(T):
-            # Load inputs
-            b_q = tl.load(p_q + i * H * K, mask=mask_k).to(tl.float32)  # 128 * float32
-            b_k = tl.load(p_k + i * H * K, mask=mask_k).to(tl.float32)  # 128 * float32
-            b_v = tl.load(p_v + i * HV * V, mask=mask_v).to(tl.float32)  # 64 * float32
+            b_q = tl.load(p_q + i * H * K, mask=mask_k).to(tl.float32)
+            b_k = tl.load(p_k + i * H * K, mask=mask_k).to(tl.float32)
+            b_v = tl.load(p_v + i * HV * V, mask=mask_v).to(tl.float32)
             b_b = tl.load(p_b + i * HV).to(tl.float32)
 
-            # Compute sigmoid gating
-            # Load gating parameters
             b_A_log = tl.load(p_A_log).to(tl.float32)
             b_a = tl.load(p_a + i * HV).to(tl.float32)
             b_dt_bias = tl.load(p_dt_bias).to(tl.float32)
 
-            b_h = tl.zeros([BK, BV], dtype=tl.float32)
+            b_h = tl.zeros([BV, BK], dtype=tl.float32)  # V row K col
             if USE_INITIAL_STATE:
-                idx = tl.load(h0_indices + i_n)  #
+                idx = tl.load(h0_indices + i_n)
                 if idx >= 0:
+                    # idx*HV*K*V + i_hv*K*V + o_v*K + o_k
                     p_h0 = (
                         h0_source
                         + idx * HV * K * V
                         + i_hv * K * V
-                        + o_k[:, None] * V
-                        + o_v[None, :]
-                    )  # 128 * 64 * int32
+                        + o_v[:, None] * K  # V dim stride = K
+                        + o_k[None, :]  # K dim stride = 1
+                    )
                     b_h = tl.load(p_h0, mask=mask_h).to(tl.float32)
 
-            # Compute g = -exp(A_log) * softplus(a + dt_bias)
             x = b_a + b_dt_bias
             beta_x = softplus_beta * x
-            # Apply softplus with numerical stability
             softplus_x = tl.where(
                 beta_x <= softplus_threshold,
                 (1.0 / softplus_beta) * tl.log(1.0 + tl.exp(beta_x)),
@@ -123,33 +117,37 @@ def fused_sigmoid_gating_delta_rule_update_npu_kernel(
             )
             b_g = -tl.exp(b_A_log) * softplus_x
 
-            # Compute beta = sigmoid(b)
             b_beta = 1.0 / (1.0 + tl.exp(-b_b))
 
-            # Apply L2 normalization if enabled
             if USE_QK_L2NORM_IN_KERNEL:
                 b_q = b_q / (tl.sqrt(tl.sum(b_q * b_q)) + 1e-6)
                 b_k = b_k / (tl.sqrt(tl.sum(b_k * b_k)) + 1e-6)
 
             b_q = b_q * scale
 
-            # Apply gating to hidden state: h *= exp(g)
+            # b_h shape [BV, BK]
             if IS_KDA:
-                b_h *= tl.exp(b_g[:, None])
+                # b_g shape [BK]
+                b_h *= tl.exp(b_g[None, :])  # [BV, BK] * [1, BK]
             else:
                 b_h *= tl.exp(b_g)
 
-            # Delta rule: v -= sum(h * k, dim=0)
-            b_v -= tl.sum(b_h * b_k[:, None], 0)
+            # Delta rule: erase = k^T h, shape [BV]
+            # (dk,dv):tl.sum(b_h * b_k[:, None], 0)  # [BK,BV] -> [BV]
+            # (dv,dk):tl.sum(b_h * b_k[None, :], 1)  # [BV,BK] -> [BV]
+            b_v -= tl.sum(b_h * b_k[None, :], 1)
 
-            # Apply beta gating: v *= beta
             b_v *= b_beta
 
-            # Update hidden state: h += k[:, None] * v[None, :]
-            b_h += b_k[:, None] * b_v[None, :]
+            # update state:h += k ⊗ delta, shape [BV, BK]
+            # (dk,dv):b_h += b_k[:, None] * b_v[None, :]
+            # (dv,dk):b_h += b_k[None, :] * b_v[:, None]
+            b_h += b_k[None, :] * b_v[:, None]
 
-            # Compute output: o = sum(h * q, dim=0)
-            b_o = tl.sum(b_h * b_q[:, None], 0)
+            # output:o = q^T h, shape [BV]
+            # (dk,dv):tl.sum(b_h * b_q[:, None], 0)
+            # (dv,dk):tl.sum(b_h * b_q[None, :], 1)
+            b_o = tl.sum(b_h * b_q[None, :], 1)
 
             if USE_INITIAL_STATE:
                 idx = tl.load(h0_indices + i_n)
@@ -158,9 +156,9 @@ def fused_sigmoid_gating_delta_rule_update_npu_kernel(
                         h0_source
                         + idx * HV * K * V
                         + i_hv * K * V
-                        + o_k[:, None] * V
-                        + o_v[None, :]
-                    )  # 128 * 64 * int32
+                        + o_v[:, None] * K
+                        + o_k[None, :]
+                    )
                     tl.store(p_h0, b_h.to(p_h0.dtype.element_ty), mask=mask_h)
 
             tl.store(p_o + i * HV * V, b_o.to(p_o.dtype.element_ty), mask=mask_v)

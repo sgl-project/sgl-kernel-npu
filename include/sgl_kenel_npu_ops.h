@@ -230,6 +230,13 @@ at::Tensor sparse_attention_score(
     int64_t num_key_value_heads, double scale_value, int64_t block_size,
     int64_t top_k, int64_t inner_precise);
 
+std::tuple<at::Tensor, at::Tensor> chunk_gated_delta_rule(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+    const c10::optional<at::Tensor> &beta,
+    const c10::optional<at::Tensor> &initial_state,
+    const c10::optional<at::Tensor> &actual_seq_lengths,
+    const c10::optional<double> &scale, const c10::optional<at::Tensor> &g,
+    const c10::optional<at::Tensor> &chunk_state);
 at::Tensor sparse_attn_sharedkv_metadata_host(
     int64_t num_heads_q, int64_t num_heads_kv, int64_t head_dim,
     const std::string &layout_q, const std::string &layout_kv,
