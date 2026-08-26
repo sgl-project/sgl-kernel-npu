@@ -203,6 +203,7 @@ private:
             pipe_barrier(PIPE_V);
         }
 
+        //TODO: can be vectorized
         for (int32_t i = maxLoRARank_; i < NUM_ELEMENTS_PER_REPEAT; i += maxLoRARank_) {
             for (int32_t j = 0; j < maxLoRARank_; j++) {
                 float entry = xDup.GetValue(j);
@@ -321,6 +322,7 @@ private:
 
         pipe_barrier(PIPE_V);
 
+        //TODO: can be vectorized
         for (int32_t row = 0; row < rows; ++row) {
             const int32_t base = row * rank;
             float sum = 0.0f;
