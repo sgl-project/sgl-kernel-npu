@@ -385,6 +385,9 @@ __aicore__ inline void cacheWriteThrough(__gm__ uint8_t *sourceAddr, uint64_t le
 __aicore__ inline DataplaneMode GetDataplaneMode(GM_ADDR contextGM0)
 {
     __gm__ HcclA2CombineOpParam *winContext_ = (__gm__ HcclA2CombineOpParam *)contextGM0;
+    if (winContext_ == nullptr) {
+        return DataplaneMode::AICPU;
+    }
     CombinedCapability *capability = winContext_->capability;
     uint64_t capabilitySize = winContext_->capabilitySize;
     DataplaneMode dataplaneMode = DataplaneMode::AICPU;
