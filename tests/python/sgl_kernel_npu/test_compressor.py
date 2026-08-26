@@ -17,6 +17,14 @@ DEVICE_ID = 0
 torch_npu.npu.set_device(int(DEVICE_ID))
 
 
+def _is_ascend950():
+    try:
+        name = torch.npu.get_device_name(0).replace(" ", "").lower()
+        return "ascend950" in name
+    except Exception:
+        return False
+
+
 def _softmax_columns(z):
     z_max = np.max(z, axis=0, keepdims=True)
     z_stable = z - z_max
@@ -609,6 +617,9 @@ def _run_case(p, coff, cmp_ratio, head_dim, cache_mode, dtype, rotary_mode=2):
     return sel.max().item() if sel.numel() > 0 else 0.0
 
 
+@unittest.skipIf(
+    _is_ascend950(), "A3 Explicit cache-mode tests do not apply to Ascend950 Cycle mode"
+)
 class TestCompressor(unittest.TestCase):
     def _assert_ok(self, maxdiff, tol=0.05):
         self.assertLess(maxdiff, tol)
