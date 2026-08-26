@@ -52,16 +52,18 @@ set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/lora/op_host/sgemmc_shrink.cpp
     ${PROJECT_OP_SRC_BASE}/lora/op_host/tiling/sgemmc_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/compressor/op_host/compressor.cpp
-    ${PROJECT_OP_SRC_BASE}/compressor/op_host/compressor_tiling.cpp
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/causal_conv1d_update.cpp
     ${PROJECT_OP_SRC_BASE}/apply_token_bitmask/op_host/apply_token_bitmask.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv_metadata/op_host/sparse_attn_sharedkv_metadata.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/sparse_attention_score.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling/sparse_attention_score_tiling.cpp
     )
-# A3-only host sources
+# A3-only host sources + compressor dual-arch tiling (arch22 on A2/A3, arch35
+# on A5, selected by the same SOC flag).
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
+    set(COMPRESSOR_ARCH_DIR arch22)
     list(APPEND OP_SRCS
+        ${PROJECT_OP_SRC_BASE}/compressor/op_host/arch22/compressor_tiling.cpp
         ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_host/mla_preprocess.cpp
         ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/batch_matmul_transpose.cpp
         ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/tiling/tiling_data.cpp
@@ -77,6 +79,11 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/slot_map_lookup/op_host/slot_map_lookup.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator_op.cpp
+    )
+else()
+    set(COMPRESSOR_ARCH_DIR arch35)
+    list(APPEND OP_SRCS
+        ${PROJECT_OP_SRC_BASE}/compressor/op_host/arch35/compressor_tiling.cpp
     )
 endif()
 # A5-only host sources
@@ -169,10 +176,14 @@ if(SGL_KERNEL_ENABLE_A5_ONLY_OPS)
 endif()
 
 ascendc_library(workspace_kernel STATIC ${WORKSPACE_KERNEL_SRCS})
+# The compressor entry (compressor.cpp) resolves `compressor_kernel.h` through
+# this include path, so only one arch's headers are visible per build; the arch
+# dir is selected by the same SOC flag as the tiling above.
 ascendc_include_directories(workspace_kernel PRIVATE
     ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_kernel
     ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_kernel
     ${PROJECT_OP_SRC_BASE}/compressor/op_kernel
+    ${PROJECT_OP_SRC_BASE}/compressor/op_kernel/${COMPRESSOR_ARCH_DIR}
     ${PROJECT_OP_SRC_BASE}/utils/kernel
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_kernel
     ${PROJECT_OP_SRC_BASE}/kv_compress_epilog/op_kernel
@@ -279,7 +290,12 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/stub
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host
+<<<<<<< HEAD
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator
+=======
+        ${PROJECT_OP_SRC_BASE}/compressor/op_host
+        ${PROJECT_OP_SRC_BASE}/compressor/op_kernel
+>>>>>>> 2ade82a (feat(compressor): add arch35 (A5) kernel with dual-arch build)
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling

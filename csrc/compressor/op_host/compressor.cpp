@@ -19,7 +19,11 @@
 #include "tiling/platform/platform_ascendc.h"
 #include "defines.h"
 #include "torch_helper.h"
-#include "compressor_tiling.h"
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+#include "arch22/compressor_tiling.h"
+#else
+#include "arch35/compressor_tiling.h"
+#endif
 #include "ge_helper.h"
 #include "common_tiling.h"
 #include "common.h"
@@ -29,6 +33,98 @@
 namespace sglang {
 namespace npu_kernel {
 
+<<<<<<< HEAD
+=======
+constexpr uint32_t MAX_CAPTURE_NUM = 1024;
+
+namespace {
+
+struct TilingCache {
+    at::Tensor buffer;
+    std::unordered_map<std::string, uint32_t> slots;
+    uint32_t nextSlot = 0;
+};
+
+template <typename T>
+void AppendTilingKey(std::string &key, const T &value)
+{
+    static_assert(std::is_trivially_copyable_v<T>);
+    key.append(reinterpret_cast<const char *>(&value), sizeof(T));
+}
+
+std::string MakeTilingCacheKey(const optiling::CompressorTilingData &data)
+{
+    std::string key;
+    key.reserve(sizeof(optiling::CompressorTilingData));
+    const auto &base = data.baseParams;
+    AppendTilingKey(key, base.batchSize);
+    AppendTilingKey(key, base.seqSize);
+    AppendTilingKey(key, base.hiddenSize);
+    AppendTilingKey(key, base.headDim);
+    AppendTilingKey(key, base.cmpRatio);
+    AppendTilingKey(key, base.tokenSize);
+    AppendTilingKey(key, base.csSize);
+    AppendTilingKey(key, base.cgSize);
+    AppendTilingKey(key, base.nSize);
+    AppendTilingKey(key, base.usedCoreNum);
+    AppendTilingKey(key, base.ropeHeadDim);
+    AppendTilingKey(key, base.normEps);
+    AppendTilingKey(key, base.reciprocalD);
+    AppendTilingKey(key, base.stateCacheStrideDim0);
+    const auto &page = data.pageAttentionParams;
+    AppendTilingKey(key, page.blockNum);
+    AppendTilingKey(key, page.blockSize);
+    AppendTilingKey(key, page.maxBlockNumPerBatch);
+    const auto &split = data.innerSplitParams;
+    AppendTilingKey(key, split.mBaseSize);
+    AppendTilingKey(key, split.dBaseSize);
+    const auto &ws = data.workspaceParams;
+    AppendTilingKey(key, ws.mm1KvResSize);
+    AppendTilingKey(key, ws.mm1ScoreResSize);
+    AppendTilingKey(key, ws.vec1ResSize);
+    AppendTilingKey(key, ws.vec1TailCacheSize);
+    AppendTilingKey(key, ws.dbWorkspaceRatio);
+    AppendTilingKey(key, base.kBaseNum);
+    AppendTilingKey(key, base.kBaseSize);
+    AppendTilingKey(key, base.coreGroupNum);
+    AppendTilingKey(key, base.mLoopNum);
+    for (uint32_t i = 0; i < CMP_MAX_AIC_CORE_NUM; ++i) {
+        AppendTilingKey(key, base.splitCoreParam[i].mStart);
+        AppendTilingKey(key, base.splitCoreParam[i].mEnd);
+        AppendTilingKey(key, base.splitCoreParam[i].nStart);
+        AppendTilingKey(key, base.splitCoreParam[i].nEnd);
+        AppendTilingKey(key, base.splitCoreParam[i].kStart);
+        AppendTilingKey(key, base.splitCoreParam[i].kEnd);
+    }
+    AppendTilingKey(key, data.tilingKey);
+    return key;
+}
+
+bool IsNpuGraphCapturing()
+{
+    aclmdlRICaptureStatus captureStatus = ACL_MODEL_RI_CAPTURE_STATUS_NONE;
+    aclmdlRI model = nullptr;
+    auto stream = c10_npu::getCurrentNPUStream().stream(false);
+    auto status = aclmdlRICaptureGetInfo(stream, &captureStatus, &model);
+    TORCH_CHECK(status == ACL_ERROR_NONE, "compressor: failed to query NPU graph capture status, acl error ", status);
+    return captureStatus == ACL_MODEL_RI_CAPTURE_STATUS_ACTIVE;
+}
+
+std::unordered_map<int64_t, TilingCache> &GetTilingCaches()
+{
+    static std::unordered_map<int64_t, TilingCache> deviceCaches;
+    return deviceCaches;
+}
+
+std::mutex &GetTilingCacheMutex()
+{
+    static std::mutex cacheMutex;
+    return cacheMutex;
+}
+
+}  // namespace
+
+>>>>>>> 2ade82a (feat(compressor): add arch35 (A5) kernel with dual-arch build)
 namespace {
 
 using namespace CompressorHost;
