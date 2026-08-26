@@ -143,6 +143,8 @@ def recompute_w_u_fwd_npu(
         BT=BT,
         BK=BK,
         BV=BV,
+        # Avoid intermittent AICore watchdog timeouts with Triton-Ascend on CANN 9.1.
+        multibuffer=False,
         num_warps=4,
         num_stages=3,
     )
