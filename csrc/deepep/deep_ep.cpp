@@ -587,11 +587,16 @@ Buffer::notify_verify(const at::Tensor &x, const std::optional<at::Tensor> &x_sc
     int expert_token_nums_type = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
     EP_HOST_ASSERT(expert_token_nums_type == 1 or expert_token_nums_type == 0);
 
+    int64_t notify_profile_enable_i64 = 0;
+    int64_t notify_profile_buffer_bytes_i64 = 0;
+    int64_t notify_profile_launch_id_i64 = 0;
+
     EXEC_NPU_CMD(aclnnNotifyDispatch, send_data, new_num_tokens_per_expert, static_cast<const std::nullptr_t &>(nullptr),
                  send_count, num_tokens, hcom_ep_name,  // commGroup
                  num_ranks,                             // rankSize
                  rank,                                  // rankId
-                 local_rank_size, local_rank_id, round, per_round_tokens, 0, 0, 0, send_data_offset, recv_data,
+                 local_rank_size, local_rank_id, round, per_round_tokens, notify_profile_enable_i64,
+                 notify_profile_buffer_bytes_i64, notify_profile_launch_id_i64, send_data_offset, recv_data,
                  recv_count, recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset,
                  total_recv_token, max_bs, recv_tokens_per_expert);
 
