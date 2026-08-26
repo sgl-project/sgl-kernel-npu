@@ -46,7 +46,7 @@ def move_cache_dynamic_last_kernel_h_block(
     if last_step_val < 0:
         return
     h_offsets = tl.arange(0, H_BLOCK_SIZE)
-    v_offsets = tl.arange(0, BLOCK_V)
+    v_offsets = tl.program_id(1) * BLOCK_V + tl.arange(0, BLOCK_V)
     k_offsets = tl.arange(0, BLOCK_K)
 
     # Process each layer
@@ -91,7 +91,7 @@ def move_intermediate_cache(
     dst_indices_tensor,
     src_indices_tensor,
     last_steps_tensor,
-    h_block_size=1,
+    h_block_size=2,
 ):
     """
     Move intermediate cache to SSM states using Triton kernel.
@@ -122,8 +122,7 @@ def move_intermediate_cache(
         last_steps_tensor
     ), "Source indices lengths must match"
 
-    # Grid: one thread per valid index
-    grid = (len(dst_indices_tensor),)
+    grid = (len(dst_indices_tensor), triton.cdiv(V, 64))
 
     move_cache_dynamic_last_kernel_h_block[grid](
         dst_cache_ptr=ssm_states,
@@ -140,9 +139,8 @@ def move_intermediate_cache(
         dim_v=V,
         dim_k=K,
         num_layers=L,
-        # Keep the 128x128 state tile within the A2 192 KiB UB.
         H_BLOCK_SIZE=h_block_size,
-        BLOCK_V=triton.next_power_of_2(V),  # Block size for dim_v
+        BLOCK_V=64,
         BLOCK_K=triton.next_power_of_2(K),  # Block size for dim_k
     )
 
@@ -265,10 +263,6 @@ def conv_state_rollback(
     # Ensure indices are int32 and contiguous
     state_indices = state_indices.to(torch.int32).contiguous()
     step_indices = step_indices.to(torch.int32).contiguous()
-
-    # Ensure conv_states is contiguous
-    if not conv_states.is_contiguous():
-        conv_states = conv_states.contiguous()
 
     # Grid over all requests
     grid = (num_requests,)

@@ -102,6 +102,33 @@ def test_conv_state_rollback(
     assert_close("conv_state", gt_states, result_states, 1e-3)
 
 
+@torch.no_grad
+def test_conv_state_rollback_updates_noncontiguous_view_in_place():
+    L, S, D, W, N = 2, 5, 4, 6, 64
+    storage = torch.arange(
+        L * S * N * W, device=device, dtype=torch.int64
+    ).reshape(L, S, N, W)
+    storage = (storage % 2048).to(torch.bfloat16)
+    conv_states = storage.transpose(-1, -2)
+    assert not conv_states.is_contiguous()
+
+    expected_storage = storage.clone()
+    expected = expected_storage.transpose(-1, -2)
+    original = expected.clone()
+    state_indices = torch.tensor([0, 2, 4], device=device, dtype=torch.int32)
+    step_indices = torch.tensor([0, 2, 3], device=device, dtype=torch.int32)
+    for state_idx, step_idx in zip(state_indices.tolist(), step_indices.tolist()):
+        shift = (D - 1) - step_idx
+        if shift > 0:
+            expected[:, state_idx, shift:] = original[:, state_idx, :-shift]
+
+    result = conv_state_rollback(conv_states, state_indices, step_indices, D)
+
+    assert result.data_ptr() == conv_states.data_ptr()
+    assert result.stride() == conv_states.stride()
+    assert torch.equal(storage, expected_storage)
+
+
 @pytest.mark.parametrize(
     ("L", "S", "D", "H", "V", "K", "num_valid", "dtype"),
     [
