@@ -15,6 +15,9 @@ struct NotifyDispatchInfo {
     uint32_t aivNum;
     uint64_t totalUbSize;
     uint64_t totalWinSize;
+    uint32_t profileEnable;
+    uint32_t profileLaunchId;
+    uint64_t profileBufferBytes;
 };
 
 struct NotifyDispatchTilingData {

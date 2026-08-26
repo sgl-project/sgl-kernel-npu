@@ -54,6 +54,9 @@ constexpr uint32_t ATTR_LOCAL_RANK_SIZE_INDEX = 5;
 constexpr uint32_t ATTR_LOCAL_RANK_ID_INDEX = 6;
 constexpr uint32_t ATTR_ROUND_INDEX = 7;
 constexpr uint32_t ATTR_PER_ROUND_TOKENS_INDEX = 8;
+constexpr uint32_t ATTR_PROFILE_ENABLE_INDEX = 9;
+constexpr uint32_t ATTR_PROFILE_BUFFER_BYTES_INDEX = 10;
+constexpr uint32_t ATTR_PROFILE_LAUNCH_ID_INDEX = 11;
 
 const size_t MAX_GROUP_NAME_LENGTH = 128UL;
 const int64_t MAX_COMM_WORLD_SIZE = 384;
@@ -144,6 +147,19 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     tilingData.notifyDispatchInfo.numTokens = static_cast<uint32_t>(*numTokenPtr);
     tilingData.notifyDispatchInfo.round = static_cast<uint32_t>(*roundPtr);
     tilingData.notifyDispatchInfo.perRoundTokens = static_cast<uint32_t>(*perRoundTokensPtr);
+
+    auto profileEnablePtr = attrs->GetAttrPointer<int64_t>(ATTR_PROFILE_ENABLE_INDEX);
+    auto profileBufferBytesPtr = attrs->GetAttrPointer<int64_t>(ATTR_PROFILE_BUFFER_BYTES_INDEX);
+    auto profileLaunchIdPtr = attrs->GetAttrPointer<int64_t>(ATTR_PROFILE_LAUNCH_ID_INDEX);
+    if (profileEnablePtr != nullptr) {
+        tilingData.notifyDispatchInfo.profileEnable = static_cast<uint32_t>(*profileEnablePtr);
+    }
+    if (profileBufferBytesPtr != nullptr) {
+        tilingData.notifyDispatchInfo.profileBufferBytes = static_cast<uint64_t>(*profileBufferBytesPtr);
+    }
+    if (profileLaunchIdPtr != nullptr) {
+        tilingData.notifyDispatchInfo.profileLaunchId = static_cast<uint32_t>(*profileLaunchIdPtr);
+    }
 
     return ge::GRAPH_SUCCESS;
 }
