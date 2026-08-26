@@ -12,6 +12,7 @@
 #include "profiling/adapters/fused_deep_moe_a5/fused_deep_moe_a5_profile_adapter.hpp"
 #include "profiling/adapters/cam_moe_combine_normal/cam_moe_combine_normal_profile_adapter.hpp"
 #include "profiling/adapters/cam_moe_dispatch_normal/cam_moe_dispatch_normal_profile_adapter.hpp"
+#include "profiling/adapters/notify_dispatch/notify_dispatch_profile_adapter.hpp"
 #include "pytorch_npu_helper.hpp"
 
 namespace deep_ep {
@@ -319,13 +320,34 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     int expert_token_nums_type = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
     EP_HOST_ASSERT(expert_token_nums_type == 1 or expert_token_nums_type == 0);
 
-    EXEC_NPU_CMD(aclnnNotifyDispatch, send_data, new_num_tokens_per_expert, send_count, num_tokens,
-                 hcom_ep_name,  // commGroup
-                 num_ranks,     // rankSize
-                 rank,          // rankId
-                 local_rank_size, local_rank_id, round, per_round_tokens, send_data_offset, recv_data, recv_count,
-                 recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, total_recv_token,
-                 max_bs, recv_tokens_per_expert);
+    auto notify_profile_ctx = profiling::notify_dispatch::PrepareLaunch(profile_enable);
+    bool use_notify_profile = notify_profile_ctx.enabled;
+    int64_t notify_profile_enable_i64 = static_cast<int64_t>(use_notify_profile);
+    const at::Tensor *notify_profile_buffer_ptr = notify_profile_ctx.profileBuffer;
+    int64_t notify_profile_buffer_bytes_i64 = notify_profile_ctx.profileBufferBytes;
+    int64_t notify_profile_launch_id_i64 = notify_profile_ctx.launchId;
+
+    if (use_notify_profile) {
+        TORCH_CHECK(notify_profile_buffer_ptr != nullptr, "NotifyDispatch profiling requires a valid profile buffer.");
+        EXEC_NPU_CMD(aclnnNotifyDispatch, send_data, new_num_tokens_per_expert, *notify_profile_buffer_ptr, send_count,
+                     num_tokens, hcom_ep_name,  // commGroup
+                     num_ranks,                 // rankSize
+                     rank,                      // rankId
+                     local_rank_size, local_rank_id, round, per_round_tokens, notify_profile_enable_i64,
+                     notify_profile_buffer_bytes_i64, notify_profile_launch_id_i64, send_data_offset, recv_data,
+                     recv_count, recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset,
+                     total_recv_token, max_bs, recv_tokens_per_expert);
+        profiling::notify_dispatch::CompleteLaunch(notify_profile_ctx, rank);
+    } else {
+        EXEC_NPU_CMD(aclnnNotifyDispatch, send_data, new_num_tokens_per_expert,
+                     static_cast<const std::nullptr_t &>(nullptr), send_count, num_tokens, hcom_ep_name,  // commGroup
+                     num_ranks,                                                                          // rankSize
+                     rank,                                                                               // rankId
+                     local_rank_size, local_rank_id, round, per_round_tokens, notify_profile_enable_i64,
+                     notify_profile_buffer_bytes_i64, notify_profile_launch_id_i64, send_data_offset, recv_data,
+                     recv_count, recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset,
+                     total_recv_token, max_bs, recv_tokens_per_expert);
+    }
     auto send_token_idx_small = this->send_token_idx_small;
     // Read back the whole recv_header with a single D2H; max_bs / total_recv_token / recv_tokens_per_expert
     // are all taken from the host cache, avoiding host sync stalls from multiple independent reads around dispatch.
@@ -565,13 +587,13 @@ Buffer::notify_verify(const at::Tensor &x, const std::optional<at::Tensor> &x_sc
     int expert_token_nums_type = get_value_from_env("MOE_EXPERT_TOKEN_NUMS_TYPE", 1);
     EP_HOST_ASSERT(expert_token_nums_type == 1 or expert_token_nums_type == 0);
 
-    EXEC_NPU_CMD(aclnnNotifyDispatch, send_data, new_num_tokens_per_expert, send_count, num_tokens,
-                 hcom_ep_name,  // commGroup
-                 num_ranks,     // rankSize
-                 rank,          // rankId
-                 local_rank_size, local_rank_id, round, per_round_tokens, send_data_offset, recv_data, recv_count,
-                 recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, total_recv_token,
-                 max_bs, recv_tokens_per_expert);
+    EXEC_NPU_CMD(aclnnNotifyDispatch, send_data, new_num_tokens_per_expert, static_cast<const std::nullptr_t &>(nullptr),
+                 send_count, num_tokens, hcom_ep_name,  // commGroup
+                 num_ranks,                             // rankSize
+                 rank,                                  // rankId
+                 local_rank_size, local_rank_id, round, per_round_tokens, 0, 0, 0, send_data_offset, recv_data,
+                 recv_count, recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset,
+                 total_recv_token, max_bs, recv_tokens_per_expert);
 
     return {recv_data,           recv_count,       recv_offset, expert_global_offset,  srcrank_in_expert_offset,
             r_in_srcrank_offset, total_recv_token, max_bs,      recv_tokens_per_expert};

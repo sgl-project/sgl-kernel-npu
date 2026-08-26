@@ -7,6 +7,7 @@
 #include "comm_args.h"
 #include "data_copy.h"
 #include "moe_distribute_base.h"
+#include "profiling/adapters/notify_dispatch/notify_dispatch_profile.h"
 
 using namespace AscendC;
 using namespace Moe;
@@ -16,13 +17,14 @@ using namespace Moe;
         GM_ADDR recvCount, GM_ADDR recvOffset, GM_ADDR expertGlobalOffset, GM_ADDR srcrankInExpertOffset,           \
         GM_ADDR rInSrcrankOffset, GM_ADDR totalRecvTokens, GM_ADDR maxBs, GM_ADDR recvTokensPerExpert, int64_t len, \
         int32_t round, int32_t perRoundTokens, int32_t numTokens, int op, int root, int cycleCount, GM_ADDR scale,  \
-        int32_t scaleCount, GM_ADDR offset, int localRank, int localRankSize, uint64_t totalWinSize
+        int32_t scaleCount, GM_ADDR offset, int localRank, int localRankSize, uint64_t totalWinSize,                \
+        GM_ADDR profileBufferGM, uint32_t profileEnable, uint32_t profileLaunchId, uint64_t profileBufferBytes
 
 #define KERNELS_ARGS_CALL_ALL2ALL()                                                                                    \
     sendDataInput, tokenPerExpertDataInput, sendDataOffsetOutput, recvDataOutput, recvCount, recvOffset,               \
         expertGlobalOffset, srcrankInExpertOffset, rInSrcrankOffset, totalRecvTokens, maxBs, recvTokensPerExpert, len, \
         round, perRoundTokens, numTokens, op, root, cycleCount, scale, scaleCount, offset, localRank, localRankSize,   \
-        totalWinSize
+        totalWinSize, profileBufferGM, profileEnable, profileLaunchId, profileBufferBytes
 
 template <typename T>
 class NotifyDispatchA5
@@ -106,19 +108,50 @@ public:
         sendDataOffsetOutputGt.SetGlobalBuffer((__gm__ T *)sendDataOffsetOutput);
         recvDataOutputGt.SetGlobalBuffer((__gm__ T *)recvDataOutput);
         recvDataOutGt.SetGlobalBuffer((__gm__ int32_t *)recvDataOutput);
+
+        profileBufferGM_ = profileBufferGM;
+        profileEnable_ = profileEnable != 0;
+        profileLaunchId_ = profileLaunchId;
+        profileBufferBytes_ = profileBufferBytes;
+        profileWriter_.Init(profileBufferGM_, profileEnable_, profileLaunchId_, static_cast<uint32_t>(g_coreType),
+                            profileBufferBytes_);
     }
 
     __aicore__ inline void Process()
     {
         if (blockIdx < 1) {
+            uint64_t assembleStart = 0;
+            if (profileEnable_) {
+                assembleStart = profileWriter_.Now();
+            }
             AssembleSendData();
+            if (profileEnable_) {
+                profileWriter_.Record(Cam::NotifyDispatchProfileStage::AssembleSendData, assembleStart,
+                                      profileWriter_.Now());
+            }
         }
         SyncAll<true>();
         if (blockIdx < coreNumPerStageX) {
+            uint64_t inputToShareStart = 0;
+            if (profileEnable_) {
+                inputToShareStart = profileWriter_.Now();
+            }
             InputToShareSlice();
+            if (profileEnable_) {
+                profileWriter_.Record(Cam::NotifyDispatchProfileStage::InputToShareSlice, inputToShareStart,
+                                      profileWriter_.Now());
+            }
         }
         if (blockIdx < coreNumPerStageY) {
+            uint64_t shareToShareStart = 0;
+            if (profileEnable_) {
+                shareToShareStart = profileWriter_.Now();
+            }
             ShareToShareSlice();
+            if (profileEnable_) {
+                profileWriter_.Record(Cam::NotifyDispatchProfileStage::ShareToShareSlice, shareToShareStart,
+                                      profileWriter_.Now());
+            }
         }
         SyncAll<true>();
         pipe.Reset();
@@ -398,6 +431,10 @@ private:
         if (blockIdx != TOTAL_CNT_CORE) {
             return;
         }
+        uint64_t start = 0;
+        if (profileEnable_) {
+            start = profileWriter_.Now();
+        }
 
         int32_t sumVal = 0;
         uint32_t singleRankMaxElem = batchRounds * numLocalExperts * sendPerGroup;
@@ -433,6 +470,9 @@ private:
         DataCopyExtParams copyParams{1, static_cast<uint32_t>(1 * sizeof(int32_t)), 0, 0, 0};
         DataCopyPad(totalCntGt, totalCntLt, copyParams);
         SyncFunc<AscendC::HardEvent::MTE3_S>();
+        if (profileEnable_) {
+            profileWriter_.Record(Cam::NotifyDispatchProfileStage::BuildTotalRecvTokens, start, profileWriter_.Now());
+        }
     }
 
     __aicore__ inline void BuildRecvCount()
@@ -440,6 +480,10 @@ private:
         // 只需要sendCountTensor
         if (blockIdx != RECV_COUNT_CORE) {
             return;
+        }
+        uint64_t start = 0;
+        if (profileEnable_) {
+            start = profileWriter_.Now();
         }
         uint32_t singleRankMaxElem = batchRounds * numLocalExperts * sendPerGroup;
         uint32_t singleRankAlignLen = Ceil(singleRankMaxElem * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
@@ -470,6 +514,9 @@ private:
             DataCopyPad(recvCntGt[globalOffset], sendCountTensor, copyParams);
             SyncFunc<AscendC::HardEvent::MTE3_MTE2>();
         }
+        if (profileEnable_) {
+            profileWriter_.Record(Cam::NotifyDispatchProfileStage::BuildRecvCount, start, profileWriter_.Now());
+        }
     }
 
     __aicore__ inline void BuildRecvOffset()
@@ -477,6 +524,10 @@ private:
         // 只需要sendOffsetTensor
         if (blockIdx != RECV_OFFSET_CORE) {
             return;
+        }
+        uint64_t start = 0;
+        if (profileEnable_) {
+            start = profileWriter_.Now();
         }
         uint32_t singleRankMaxElem = batchRounds * numLocalExperts * sendPerGroup;
         uint32_t singleRankAlignLen = Ceil(singleRankMaxElem * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
@@ -497,6 +548,9 @@ private:
             DataCopyPad(recvOffsetGt[globalOffset], sendOffsetTensor, copyParams);
             SyncFunc<AscendC::HardEvent::MTE3_MTE2>();
         }
+        if (profileEnable_) {
+            profileWriter_.Record(Cam::NotifyDispatchProfileStage::BuildRecvOffset, start, profileWriter_.Now());
+        }
     }
 
     __aicore__ inline void BuildMaxBs()
@@ -504,6 +558,10 @@ private:
         // 只需要maxBsNum
         if (blockIdx != MAX_BS_CORE) {
             return;
+        }
+        uint64_t start = 0;
+        if (profileEnable_) {
+            start = profileWriter_.Now();
         }
         pipe.InitBuffer(tmpBuf_, UB_ALIGN_SIZE);
         LocalTensor<int32_t> maxBsLt = tmpBuf_.Get<int32_t>();
@@ -552,6 +610,9 @@ private:
         DataCopyExtParams copyParams{1, static_cast<uint32_t>(1 * sizeof(int32_t)), 0, 0, 0};
         DataCopyPad(maxBsGt, maxBsLt, copyParams);
         SyncFunc<AscendC::HardEvent::MTE3_S>();
+        if (profileEnable_) {
+            profileWriter_.Record(Cam::NotifyDispatchProfileStage::BuildMaxBs, start, profileWriter_.Now());
+        }
     }
 
     __aicore__ inline void BuildRecvTokenPerExp()
@@ -559,6 +620,10 @@ private:
         // 只需要sendCountTensor
         if (blockIdx != RECV_TOKEN_PER_EXP_CORE) {
             return;
+        }
+        uint64_t start = 0;
+        if (profileEnable_) {
+            start = profileWriter_.Now();
         }
         uint32_t singleRankMaxElem = batchRounds * numLocalExperts * sendPerGroup;
         uint32_t singleRankAlignLen = Ceil(singleRankMaxElem * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
@@ -594,6 +659,9 @@ private:
             DataCopyPad(recvTokenPerExpGt[rStart * numLocalExperts], tmpTensor, copyParams);
             SyncFunc<AscendC::HardEvent::MTE3_MTE2>();
         }
+        if (profileEnable_) {
+            profileWriter_.Record(Cam::NotifyDispatchProfileStage::BuildRecvTokenPerExp, start, profileWriter_.Now());
+        }
     }
 
     __aicore__ inline void BuildExpGlobalOffset()
@@ -601,6 +669,10 @@ private:
         // 只需要sendCountTensor
         if (blockIdx != EXP_GLOBAL_OFFSET_CORE) {
             return;
+        }
+        uint64_t start = 0;
+        if (profileEnable_) {
+            start = profileWriter_.Now();
         }
         uint32_t singleRankMaxElem = batchRounds * numLocalExperts * sendPerGroup;
         uint32_t singleRankAlignLen = Ceil(singleRankMaxElem * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
@@ -639,12 +711,19 @@ private:
         DataCopyExtParams copyParams{1, static_cast<uint32_t>(numLocalExperts * sizeof(int32_t)), 0, 0, 0};
         SyncFunc<AscendC::HardEvent::S_MTE3>();
         DataCopyPad(expGlobalOffsetGt, expTensor, copyParams);
+        if (profileEnable_) {
+            profileWriter_.Record(Cam::NotifyDispatchProfileStage::BuildExpGlobalOffset, start, profileWriter_.Now());
+        }
     }
 
     __aicore__ inline void BuildsrcRankInExpOffset()
     {
         if (blockIdx != SRC_RANK_EXP_OFFSET_CORE) {
             return;
+        }
+        uint64_t start = 0;
+        if (profileEnable_) {
+            start = profileWriter_.Now();
         }
         uint32_t singleRankMaxElem = batchRounds * numLocalExperts * sendPerGroup;
         uint32_t singleRankAlignLen = Ceil(singleRankMaxElem * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
@@ -684,12 +763,20 @@ private:
         DataCopyExtParams copyParams{1, static_cast<uint32_t>(numExperts * sizeof(int32_t)), 0, 0, 0};
         SyncFunc<AscendC::HardEvent::S_MTE3>();
         DataCopyPad(srcRankInExpOffsetGt, srcRankInExpOffsetTensor, copyParams);
+        if (profileEnable_) {
+            profileWriter_.Record(Cam::NotifyDispatchProfileStage::BuildSrcRankInExpOffset, start,
+                                  profileWriter_.Now());
+        }
     }
 
     __aicore__ inline void BuildRInSrcrankOffset()
     {
         if (blockIdx != R_IN_SRCRANK_OFFSET_CORE) {
             return;
+        }
+        uint64_t start = 0;
+        if (profileEnable_) {
+            start = profileWriter_.Now();
         }
         uint32_t singleRankMaxElem = batchRounds * numLocalExperts * sendPerGroup;
         uint32_t singleRankAlignLen = Ceil(singleRankMaxElem * sizeof(T), UB_ALIGN_SIZE) * UB_ALIGN_SIZE;
@@ -736,6 +823,10 @@ private:
                 }
             }
             SyncFunc<AscendC::HardEvent::MTE3_MTE2>();
+        }
+        if (profileEnable_) {
+            profileWriter_.Record(Cam::NotifyDispatchProfileStage::BuildRInSrcrankOffset, start,
+                                  profileWriter_.Now());
         }
     }
 
@@ -850,6 +941,13 @@ private:
     TBuf<> tmpBuf2_;
     TBuf<> tmpBuf3_;
     TBuf<> tmpBuf4_;
+
+    // profiling
+    GM_ADDR profileBufferGM_{nullptr};
+    Cam::NotifyDispatchProfileWriter profileWriter_;
+    bool profileEnable_{false};
+    uint32_t profileLaunchId_{0};
+    uint64_t profileBufferBytes_{0};
 };
 
 template <typename T>

@@ -17,17 +17,19 @@ enum NnopbaseHcclServerType {
 extern "C" void __attribute__((weak)) NnopbaseSetHcclServerType(void *executor, NnopbaseHcclServerType sType);
 
 aclnnStatus aclnnNotifyDispatchGetWorkspaceSize(
-    const aclTensor *sendData, const aclTensor *tokenPerExpertData, int32_t sendCount, int32_t numTokens,
-    char *commGroup, int32_t rankSize, int32_t rankId, int32_t localRankSize, int32_t localRankId, int32_t round,
-    int32_t perRoundTokens, const aclTensor *sendDataOffset, const aclTensor *recvData, const aclTensor *recvCount,
+    const aclTensor *sendData, const aclTensor *tokenPerExpertData, const aclTensor *profileBufferOptional,
+    int32_t sendCount, int32_t numTokens, char *commGroup, int32_t rankSize, int32_t rankId, int32_t localRankSize,
+    int32_t localRankId, int32_t round, int32_t perRoundTokens, int64_t profileEnable, int64_t profileBufferBytes,
+    int64_t profileLaunchId, const aclTensor *sendDataOffset, const aclTensor *recvData, const aclTensor *recvCount,
     const aclTensor *recvOffset, const aclTensor *expertGlobalOffset, const aclTensor *srcrankInExpertOffset,
     const aclTensor *rInSrcrankOffset, const aclTensor *totalRecvTokens, const aclTensor *maxBs,
     const aclTensor *recvTokensPerExpert, uint64_t *workspaceSize, aclOpExecutor **executor)
 {
     return aclnnInnerNotifyDispatchGetWorkspaceSize(
-        sendData, tokenPerExpertData, sendCount, numTokens, commGroup, rankSize, rankId, localRankSize, localRankId,
-        round, perRoundTokens, sendDataOffset, recvData, recvCount, recvOffset, expertGlobalOffset,
-        srcrankInExpertOffset, rInSrcrankOffset, totalRecvTokens, maxBs, recvTokensPerExpert, workspaceSize, executor);
+        sendData, tokenPerExpertData, profileBufferOptional, sendCount, numTokens, commGroup, rankSize, rankId,
+        localRankSize, localRankId, round, perRoundTokens, profileEnable, profileBufferBytes, profileLaunchId,
+        sendDataOffset, recvData, recvCount, recvOffset, expertGlobalOffset, srcrankInExpertOffset, rInSrcrankOffset,
+        totalRecvTokens, maxBs, recvTokensPerExpert, workspaceSize, executor);
 }
 
 aclnnStatus aclnnNotifyDispatch(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor, aclrtStream stream)

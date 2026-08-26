@@ -33,6 +33,8 @@ list(APPEND SOURCES_DEEPEP
     profiling/adapters/cam_moe_combine_normal/cam_moe_combine_normal_profile_adapter.cpp
     profiling/adapters/cam_moe_dispatch_normal/cam_moe_dispatch_normal_profile_traits.cpp
     profiling/adapters/cam_moe_dispatch_normal/cam_moe_dispatch_normal_profile_adapter.cpp
+    profiling/adapters/notify_dispatch/notify_dispatch_profile_traits.cpp
+    profiling/adapters/notify_dispatch/notify_dispatch_profile_adapter.cpp
 )
 
 pybind11_add_module(deep_ep_cpp pybind_extension.cpp ${SOURCES_DEEPEP})
