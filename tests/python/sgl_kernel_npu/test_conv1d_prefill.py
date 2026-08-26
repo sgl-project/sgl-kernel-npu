@@ -314,9 +314,7 @@ def run_negative_cases(device: torch.device, dtype: torch.dtype, pad_slot_id: in
         has_initial_state,
     ) = make_case_tensors(base_case, device, pad_slot_id)
 
-    unsupported_width_case = replace(
-        base_case, name="unsupported_width", width=5
-    )
+    unsupported_width_case = replace(base_case, name="unsupported_width", width=5)
     (
         unsupported_x,
         unsupported_weight,
