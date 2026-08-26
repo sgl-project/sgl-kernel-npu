@@ -237,11 +237,11 @@ def run_positive_case(
         x,
         weight,
         conv_states_npu,
-        query_start_loc,
-        cache_indices,
-        has_initial_state,
         bias=bias,
-        activation_mode=case.activation_mode,
+        query_start_loc=query_start_loc,
+        cache_indices=cache_indices,
+        has_initial_state=has_initial_state,
+        activation_mode=int(case.activation_mode),
         pad_slot_id=pad_slot_id,
     )
     torch.npu.synchronize()
@@ -301,45 +301,45 @@ def run_negative_cases(device: torch.device, dtype: torch.dtype, pad_slot_id: in
     has_initial_state = make_device_bool_tensor([True, False], device)
     bias = torch.randn((dim,), device=device, dtype=dtype)
 
-    # width 65 would need RS=128 (does not fit UB); widths 2..64 are all supported
-    # (any K, routed to the RS = roundUpToPow2(K) variant), so 65 is the first reject.
+    # The registered host implementation currently supports widths 2 through 4.
     expect_failure(
         "unsupported_width",
         lambda: torch.ops.npu.causal_conv1d(
             x,
-            torch.randn((65, dim), device=device, dtype=dtype),
+            torch.randn((5, dim), device=device, dtype=dtype),
             conv_states,
-            query_start_loc,
-            cache_indices,
-            has_initial_state,
             bias=bias,
+            query_start_loc=query_start_loc,
+            cache_indices=cache_indices,
+            has_initial_state=has_initial_state,
         ),
-        ("2..64", "width"),
+        ("width in [2,4]",),
     )
 
-    # NOTE: the previous AscendC kernel only supported a fixed set of dims
-    # (e.g. 1024/4096/8192) and rejected others such as 3072. The PTO kernel is
-    # generic over `dim` (it tiles the channel axis), so dim=3072 is now a valid
-    # case rather than an error; correctness across arbitrary dims is covered by
-    # the positive cases and the fp32-reference sweep.
+    # The current kernel tiles the channel axis, so dim=3072 is valid.
     dim3072 = torch.ops.npu.causal_conv1d(
         torch.randn((2, 4, 3072), device=device, dtype=dtype),
         torch.randn((4, 3072), device=device, dtype=dtype),
         torch.randn((8, 5, 3072), device=device, dtype=dtype),
-        query_start_loc,
-        cache_indices,
-        has_initial_state,
         bias=torch.randn((3072,), device=device, dtype=dtype),
+        query_start_loc=query_start_loc,
+        cache_indices=cache_indices,
+        has_initial_state=has_initial_state,
     )
-    assert dim3072.shape[-1] == 3072, "PTO causal_conv1d should support dim=3072"
-    print("[PASS] supports_dim_3072 (PTO kernel is generic over dim)")
+    assert dim3072.shape[-1] == 3072, "causal_conv1d should support dim=3072"
+    print("[PASS] supports_dim_3072")
 
     expect_failure(
-        "missing_required_query_start_loc",
+        "missing_query_start_loc_for_varlen",
         lambda: torch.ops.npu.causal_conv1d(
-            x, weight, conv_states, cache_indices, has_initial_state
+            x.reshape(-1, dim),
+            weight,
+            conv_states,
+            bias=bias,
+            cache_indices=cache_indices,
+            has_initial_state=has_initial_state,
         ),
-        ("missing", "expected at most", "arguments"),
+        ("query_start_loc must have at least 2 elements",),
     )
 
     expect_failure(
@@ -348,10 +348,10 @@ def run_negative_cases(device: torch.device, dtype: torch.dtype, pad_slot_id: in
             x,
             weight,
             torch.randn((8, 5, 2048), device=device, dtype=dtype),
-            query_start_loc,
-            cache_indices,
-            has_initial_state,
             bias=bias,
+            query_start_loc=query_start_loc,
+            cache_indices=cache_indices,
+            has_initial_state=has_initial_state,
         ),
         ("conv_states.shape[2]", "must equal dim"),
     )
@@ -362,27 +362,26 @@ def run_negative_cases(device: torch.device, dtype: torch.dtype, pad_slot_id: in
             x,
             torch.randn((4, dim), device="cpu", dtype=torch.float32).to(device=device),
             conv_states,
-            query_start_loc,
-            cache_indices,
-            has_initial_state,
             bias=bias,
+            query_start_loc=query_start_loc,
+            cache_indices=cache_indices,
+            has_initial_state=has_initial_state,
         ),
         ("dtype must match",),
     )
 
-    expect_failure(
-        "dtype_mismatch_query_start_loc",
-        lambda: torch.ops.npu.causal_conv1d(
-            x,
-            weight,
-            conv_states,
-            make_device_long_tensor([0, 4, 8], device),
-            cache_indices,
-            has_initial_state,
-            bias=bias,
-        ),
-        ("query_start_loc dtype must be int32",),
+    int64_query_start_loc_out = torch.ops.npu.causal_conv1d(
+        x,
+        weight,
+        conv_states.clone(),
+        bias=bias,
+        query_start_loc=make_device_long_tensor([0, 4, 8], device),
+        cache_indices=cache_indices,
+        has_initial_state=has_initial_state,
     )
+    torch.npu.synchronize()
+    assert int64_query_start_loc_out.shape == x.shape
+    print("[PASS] supports_int64_query_start_loc")
 
 
 def main():
@@ -507,144 +506,6 @@ def main():
             lengths=[3, 5, 1, 4],
             cache_indices=[1, 6, args.pad_slot_id, 11],
             has_initial_state=[True, True, False, True],
-        ),
-        CaseConfig(
-            name="dense3d_width5_bias_act",
-            dtype=torch.bfloat16,
-            dim=2048,
-            width=5,
-            state_len=5,
-            num_cache_lines=12,
-            activation_mode=True,
-            use_bias=True,
-            input_mode="3d",
-            batch=2,
-            seq_len=9,
-            cache_indices=[0, 6],
-            has_initial_state=[True, True],
-        ),
-        CaseConfig(
-            name="varlen2d_width8_fp16_act",
-            dtype=torch.float16,
-            dim=6144,
-            width=8,
-            state_len=8,
-            num_cache_lines=16,
-            activation_mode=True,
-            use_bias=True,
-            input_mode="2d",
-            batch=3,
-            lengths=[10, 4, 7],
-            cache_indices=[2, 9, 14],
-            has_initial_state=[True, False, True],
-        ),
-        CaseConfig(
-            name="dense3d_width16_bias_act",
-            dtype=torch.bfloat16,
-            dim=2048,
-            width=16,
-            state_len=16,
-            num_cache_lines=8,
-            activation_mode=True,
-            use_bias=True,
-            input_mode="3d",
-            batch=2,
-            seq_len=20,
-            cache_indices=[0, 4],
-            has_initial_state=[True, False],
-        ),
-        CaseConfig(
-            name="dense3d_width32_fp16_act",
-            dtype=torch.float16,
-            dim=2048,
-            width=32,
-            state_len=32,
-            num_cache_lines=8,
-            activation_mode=True,
-            use_bias=False,
-            input_mode="3d",
-            batch=2,
-            seq_len=40,
-            cache_indices=[1, 5],
-            has_initial_state=[True, True],
-        ),
-        CaseConfig(
-            name="varlen2d_width64_bias_act",
-            dtype=torch.bfloat16,
-            dim=2048,
-            width=64,
-            state_len=64,
-            num_cache_lines=8,
-            activation_mode=True,
-            use_bias=True,
-            input_mode="2d",
-            batch=2,
-            lengths=[70, 50],
-            cache_indices=[0, 3],
-            has_initial_state=[True, False],
-        ),
-        # Non-power-of-two widths: K is passed at runtime and routed to the
-        # RS = roundUpToPow2(K) variant, so these exercise K < RS in each RS group
-        # (7->rs8, 12->rs16, 24->rs32, 48->rs64). widths 3 and 5 above cover rs4/rs8.
-        CaseConfig(
-            name="dense3d_width7_fp16_bias_act",
-            dtype=torch.float16,
-            dim=2048,
-            width=7,
-            state_len=7,
-            num_cache_lines=12,
-            activation_mode=True,
-            use_bias=True,
-            input_mode="3d",
-            batch=2,
-            seq_len=12,
-            cache_indices=[0, 5],
-            has_initial_state=[True, False],
-        ),
-        CaseConfig(
-            name="varlen2d_width12_bias_act",
-            dtype=torch.bfloat16,
-            dim=2048,
-            width=12,
-            state_len=12,
-            num_cache_lines=10,
-            activation_mode=True,
-            use_bias=True,
-            input_mode="2d",
-            batch=2,
-            lengths=[20, 14],
-            cache_indices=[0, 4],
-            has_initial_state=[True, True],
-        ),
-        CaseConfig(
-            name="dense3d_width24_fp16_act",
-            dtype=torch.float16,
-            dim=2048,
-            width=24,
-            state_len=24,
-            num_cache_lines=8,
-            activation_mode=True,
-            use_bias=False,
-            input_mode="3d",
-            batch=2,
-            seq_len=30,
-            cache_indices=[1, 5],
-            has_initial_state=[True, True],
-        ),
-        CaseConfig(
-            name="varlen2d_width48_bias_act",
-            dtype=torch.bfloat16,
-            dim=2048,
-            width=48,
-            state_len=48,
-            num_cache_lines=8,
-            activation_mode=True,
-            use_bias=True,
-            input_mode="2d",
-            batch=2,
-            lengths=[60, 50],
-            cache_indices=[0, 3],
-            has_initial_state=[True, False],
         ),
     ]
 
