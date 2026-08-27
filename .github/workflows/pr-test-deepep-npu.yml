@@ -1,5 +1,5 @@
 name: PR Test for SGL-KERNEL-NPU DeepEP (Ascend NPU)
-#4
+#5
 on:
   pull_request:
     branches: [ main ]
