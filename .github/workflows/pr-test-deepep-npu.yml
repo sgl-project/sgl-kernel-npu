@@ -51,10 +51,7 @@ jobs:
               - scripts/**
               - .github/workflows/pr-test-deepep-npu.yml
 
-strategy:
-  fail-fast: false
-  matrix:
-    cann_version: [9.0.0, 9.1.0]
+  test-all-build-core:
     needs: get-changed-files
     if: |
       github.event_name == 'workflow_dispatch' ||
@@ -72,6 +69,7 @@ strategy:
       GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
       UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     strategy:
+      fail-fast: false
       matrix:
         cann_version: [9.0.0, 9.1.0]
     steps:
