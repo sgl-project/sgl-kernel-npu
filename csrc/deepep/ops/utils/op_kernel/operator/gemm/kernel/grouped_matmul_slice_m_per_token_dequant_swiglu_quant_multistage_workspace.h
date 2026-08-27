@@ -1175,7 +1175,8 @@ void RecvToken(GM_ADDR gmX1, GM_ADDR gmX1Scale, GM_ADDR gmEpSendCount, uint32_t 
         for (uint32_t j = 0; j < count; j++) {
             tokGlobal.SetGlobalBuffer((__gm__ int8_t *)(wAddr + j * hCommuSize));
             tokGlobalInt32.SetGlobalBuffer((__gm__ int32_t *)(wAddr + j * hCommuSize + hOutSize));
-            expandXOutGlobal.SetGlobalBuffer((__gm__ int8_t *)(gmX1) + static_cast<uint64_t>(beginIdx + j) * tokenLength, tokenLength);
+            expandXOutGlobal.SetGlobalBuffer(
+                (__gm__ int8_t *)(gmX1) + static_cast<uint64_t>(beginIdx + j) * tokenLength, tokenLength);
 
             while (true) {
                 AscendC::DataCopy(tmpLocalTensor, tokGlobalInt32, INT32_COUNT_PER_BLOCK);
