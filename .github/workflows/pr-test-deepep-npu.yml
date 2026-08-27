@@ -51,7 +51,10 @@ jobs:
               - scripts/**
               - .github/workflows/pr-test-deepep-npu.yml
 
-  test-all-build-core:
+strategy:
+  fail-fast: false
+  matrix:
+    cann_version: [9.0.0, 9.1.0]
     needs: get-changed-files
     if: |
       github.event_name == 'workflow_dispatch' ||
