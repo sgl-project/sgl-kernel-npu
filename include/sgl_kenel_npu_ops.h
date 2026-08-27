@@ -158,6 +158,8 @@ at::Tensor lightning_indexer(
     c10::optional<c10::string_view> layout_key,
     c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode);
 
+#endif
+
 at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv,
                       const at::Tensor &wgate, at::Tensor &state_cache,
                       const at::Tensor &ape, const at::Tensor &norm_weight,
@@ -198,6 +200,12 @@ std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv(
  * is inversed.
  */
 at::Tensor tri_inv_col_sweep(const at::Tensor &tensor_in);
+
+#ifdef SGL_KERNEL_ENABLE_A5_ONLY_OPS
+void kv_compress_epilog(at::Tensor &kv_compress_cache, const at::Tensor &x,
+                        const at::Tensor &slot_mapping,
+                        int64_t quant_group_size, int64_t quant_mode,
+                        bool round_scale_flag, int64_t layout);
 #endif
 
 #ifdef BUILD_CATLASS_MODULE
