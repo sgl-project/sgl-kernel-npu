@@ -271,7 +271,10 @@ def test_main(
 
         avg_diff = torch.mean(torch.abs(check_x - golden) / golden_nozero).item()
         print(f"{rank=}, {avg_diff=:.5f}, {max_diff=:.5f}, cosine_diff={diff:.5f}")
-        assert diff < 5e-5, f"Assertion diff failed on {rank=}, Error: {diff=}, {diff_threshold=}"
+        diff_threshold = get_diff_threshold(quant_type)
+        assert (
+            diff < diff_threshold
+        ), f"Assertion diff failed on {rank=}, Error: {diff=}, {diff_threshold=}"
 
         # For later tuning
         dispatch_bf16_recv_bytes = recv_x.numel() * 2
@@ -287,7 +290,6 @@ def test_main(
         hidden_dim = hidden
         bs = dispatch_bf16_recv_bytes / 2 / hidden_dim
         num_values = bs * hidden_dim
-        num_recv_tokens = dispatch_bf16_recv_bytes // (hidden * 2)
         scale_bytes = 0
         if quant_type == "bf16":
             # No quantization, use original BF16 communication
@@ -300,7 +302,7 @@ def test_main(
             scale_bytes = bs * 2
         elif quant_type.startswith("mx_fp4"):
             data_bytes = num_values // 2
-            scale_bytes = num_recv_tokens * hidden // 32
+            scale_bytes = num_values // 32
         else:
             raise ValueError(f"Unsupported quant_type: {quant_type}")
         recv_bytes = data_bytes + scale_bytes
@@ -308,8 +310,8 @@ def test_main(
 
     config = deep_ep.Config(24, 8, buffer_size)
 
-    # BF16 dispatch tuning
-    tune_args_bf16 = {
+    quant_recv_bytes = calculate_recv_bytes(dispatch_bf16_recv_bytes, quant_type)
+    tune_args_quant = {
         "x": x,
         "config": config,
         "num_tokens_per_rank": ref_num_tokens_per_rank,
@@ -317,44 +319,15 @@ def test_main(
         "num_tokens_per_expert": ref_num_tokens_per_expert,
         "topk_idx": topk_idx,
         "topk_weights": topk_weights,
-        "quant_mode": "bf16",
+        "quant_mode": dispatch_quant_mode,
     }
-    t = bench(lambda: buffer.dispatch(**tune_args_bf16))[0]
+    t = bench(lambda: buffer.dispatch(**tune_args_quant))[0]
     if local_rank == 0:
         print(
-            f"[tuning] Dispatch (BF16, raw_bytes={dispatch_bf16_recv_bytes/1e9:.3f}GB) "
-            f"raw_bw={dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s, equiv_bw={dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
+            f"[tuning] Dispatch ({dispatch_quant_mode}, raw_bytes={quant_recv_bytes/1e9:.3f}GB) "
+            f"raw_bw={quant_recv_bytes / 1e9 / t:.2f} GB/s, equiv_bw={dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
             flush=True,
         )
-
-    # Quantized dispatch tuning (int8)
-    if dispatch_quant_mode not in ("bf16", None):
-        num_recv_tokens = dispatch_bf16_recv_bytes // (hidden * 2)
-        if dispatch_quant_mode == "int8":
-            quant_data_bytes = num_recv_tokens * hidden
-            quant_scale_bytes = num_recv_tokens * 4
-        else:
-            raise ValueError(
-                f"Unsupported quant_mode for bandwidth calculation: {dispatch_quant_mode}"
-            )
-        quant_recv_bytes = quant_data_bytes + quant_scale_bytes
-        tune_args_quant = {
-            "x": x,
-            "config": config,
-            "num_tokens_per_rank": ref_num_tokens_per_rank,
-            "is_token_in_rank": ref_is_token_in_rank,
-            "num_tokens_per_expert": ref_num_tokens_per_expert,
-            "topk_idx": topk_idx,
-            "topk_weights": topk_weights,
-            "quant_mode": dispatch_quant_mode,
-        }
-        t = bench(lambda: buffer.dispatch(**tune_args_quant))[0]
-        if local_rank == 0:
-            print(
-                f"[tuning] Dispatch ({dispatch_quant_mode}, raw_bytes={quant_recv_bytes/1e9:.3f}GB) "
-                f"raw_bw={quant_recv_bytes / 1e9 / t:.2f} GB/s, equiv_bw={dispatch_bf16_recv_bytes / 1e9 / t:.2f} GB/s (HCCS), avg_t: {t * 1e6:.2f} us",
-                flush=True,
-            )
 
     dispatch_args = {
         "x": x,

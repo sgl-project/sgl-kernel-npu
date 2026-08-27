@@ -121,7 +121,7 @@ The quantization mode for `dispatch` is determined with the following priority (
 > **Per-path differences:**
 > - **intranode**: `quant_mode` > env var > BF16 (the priority order above).
 > - **internode**: `quant_mode` is currently **not forwarded** to the underlying dispatch (a known gap from the strategy refactor). The env var and tuple-`x` dtype detection are always used. Setting `quant_mode` on the internode path has no effect.
-> - **alltoall** (`DEEP_USE_MODE=alltoall`): 'quant_mode' > environment variable > BF16 (that is, the above priority order). The value can be 'bf16', 'int8', or 'x_fp4_e2m1'.
+> - **alltoall** (`DEEP_USE_MODE=alltoall`): 'quant_mode' > environment variable > BF16 (that is, the above priority order). The value can be 'bf16', 'int8', or 'mx_fp4_e2m1'.
 >
 > **Platform support:** INT8 (`DYNAMIC_SCALES`) is supported on **all** platforms (A2/A3/A5). FP8/FP4 modes (`mx_fp8_*`, `pertoken_fp8_e4m3`, `mx_fp4_e2m1`) are **A5-only**.
 

@@ -471,7 +471,7 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
 
     def get_supported_modes(self) -> List[str]:
         return ["low_latency"]
-    
+
     def low_latency_dispatch(
         self,
         x,
@@ -573,8 +573,19 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         )
         recv_x_out = recv_x
         if quant_mode != "bf16":
-            recv_x_scale = torch_npu.npu_dynamic_quant(recv_x) if quant_mode == "int8" else torch_npu.npu_dynamic_mx_quant(recv_x, dst_type=quant_mode_type) 
-            recv_x_out = (recv_x_scale[0].view(torch.float4_e2m1fn_x2 if quant_mode_type == torch_npu.float4_e2m1fn_x2 else quant_mode_type), recv_x_scale[1])
+            recv_x_scale = (
+                torch_npu.npu_dynamic_quant(recv_x)
+                if quant_mode == "int8"
+                else torch_npu.npu_dynamic_mx_quant(recv_x, dst_type=quant_mode_type)
+            )
+            recv_x_out = (
+                recv_x_scale[0].view(
+                    torch.float4_e2m1fn_x2
+                    if quant_mode_type == torch_npu.float4_e2m1fn_x2
+                    else quant_mode_type
+                ),
+                recv_x_scale[1],
+            )
 
         packed_recv_count = torch.full(
             (num_local_experts,),

@@ -453,12 +453,12 @@ normal_dispatch 量化模式（通过 `quant_mode` 参数指定）：
 - **A2 单机**：low_latency dispatch/combine 最大支持 `bs=512`。
 - **A2 双机**：分层（HCCS + RDMA）或不分层（纯 RDMA）实现。最大支持 `bs=512`。
 
-low_latency_dispatch 量化模式。`quant_mode` 字符串参数仅对 `default` 策略生效；`ops` 和 `alltoall` 策略使用旧参数 `use_fp8`/`use_ue8m0`/`use_mxfp4`：
+low_latency_dispatch 量化模式。`quant_mode` 字符串参数对 `default` ,`alltoall`策略生效；`ops` 策略使用旧参数 `use_fp8`/`use_ue8m0`/`use_mxfp4`：
 - **BF16**：`quant_mode=None`（default）或 `use_fp8=False`（ops/alltoall）— 不量化，bfloat16 通信。
 - **INT8**：`quant_mode="int8"`（default）或 `use_fp8=True`（ops/alltoall）— per-token INT8 + `float32` 缩放因子。全平台（A2/A3/A5）均为 INT8 载荷。全策略支持。
 - **Scalar FP8 per-token**：`quant_mode="pertoken_fp8_e4m3"` — per-token FP8 动态量化 + `float32` 缩放因子。**仅 A5**；仅 `default` 策略支持。
-- **MXFP8 per-block**：`quant_mode="mx_fp8_e4m3"` 或 `"mx_fp8_e5m2"`（default）或 `use_ue8m0=True`（ops，仅 e4m3）— per-block 量化，`float8_e4m3fn`/`float8_e5m2` 数据 + `float8_e8m0fnu` 缩放因子。**仅 A5**；`default` 支持 e4m3/e5m2；`ops` 仅 e4m3；`alltoall` 不支持。
-- **MXFP4 per-block**：`quant_mode="mx_fp4_e2m1"` — per-block 量化，`float4_e2m1fn_x2` 数据 + `float8_e8m0fnu` 缩放因子。**仅 A5**；仅 `default` 策略支持。
+- **MXFP8 per-block**：`quant_mode="mx_fp8_e4m3"` 或 `"mx_fp8_e5m2"`（default）或 `use_ue8m0=True`（ops，仅 e4m3）— per-block 量化，`float8_e4m3fn`/`float8_e5m2` 数据 + `float8_e8m0fnu` 缩放因子。**仅 A5**；`default`,`alltoall` 支持 e4m3/e5m2；`ops` 仅 e4m3。
+- **MXFP4 per-block**：`quant_mode="mx_fp4_e2m1"` — per-block 量化，`float4_e2m1fn_x2` 数据 + `float8_e8m0fnu` 缩放因子。**仅 A5**；仅 `default`,`alltoall` 策略支持。
 
 ### 融合 MoE
 
