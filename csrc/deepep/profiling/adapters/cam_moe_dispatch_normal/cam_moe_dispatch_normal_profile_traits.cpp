@@ -92,8 +92,9 @@ std::string GetPrivateDataJson(uint64_t stageId, uint64_t occurrenceId, const Ca
     switch (stage) {
         case ProfileStage::ShareToOutputExpert:
             // fromRank：源端 rank；localE：本 rank 内专家索引；count：该 expert 从源端接收的 token 数
-            oss << ",\"from_rank\":" << Cam::GetShareToOutputExpertFromRank(payload) << ",\"local_e\":"
-                << Cam::GetShareToOutputExpertLocalE(payload) << ",\"recv_token_count\":" << payload.count;
+            oss << ",\"from_rank\":" << Cam::GetShareToOutputExpertFromRank(payload)
+                << ",\"local_e\":" << Cam::GetShareToOutputExpertLocalE(payload)
+                << ",\"recv_token_count\":" << payload.count;
             break;
         default:
             return {};
@@ -115,11 +116,11 @@ Cam::ProfileStageLayout BuildStageLayout()
     EP_HOST_ASSERT_S(Cam::SetProfileStageOccurrenceCount(layout, static_cast<uint32_t>(ProfileStage::WaitStatus),
                                                          kRoundOccurrenceCapacity),
                      "invalid wait status occurrence capacity.");
-    EP_HOST_ASSERT_S(Cam::SetProfileStageOccurrenceCount(layout, static_cast<uint32_t>(ProfileStage::ShareToOutputCommon),
-                                                         kRoundOccurrenceCapacity),
+    EP_HOST_ASSERT_S(Cam::SetProfileStageOccurrenceCount(
+                         layout, static_cast<uint32_t>(ProfileStage::ShareToOutputCommon), kRoundOccurrenceCapacity),
                      "invalid share to output common occurrence capacity.");
-    EP_HOST_ASSERT_S(Cam::SetProfileStageOccurrenceCount(layout, static_cast<uint32_t>(ProfileStage::ShareToOutputExpert),
-                                                         kRoundOccurrenceCapacity),
+    EP_HOST_ASSERT_S(Cam::SetProfileStageOccurrenceCount(
+                         layout, static_cast<uint32_t>(ProfileStage::ShareToOutputExpert), kRoundOccurrenceCapacity),
                      "invalid share to output expert occurrence capacity.");
     EP_HOST_ASSERT_S(Cam::SetProfileStageOccurrenceCount(layout, static_cast<uint32_t>(ProfileStage::SetRoundStatus),
                                                          kRoundOccurrenceCapacity),

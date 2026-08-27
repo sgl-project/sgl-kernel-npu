@@ -106,8 +106,8 @@ Cam::ProfileStageLayout BuildStageLayout()
     EP_HOST_ASSERT_S(Cam::SetProfileStageOccurrenceCount(layout, static_cast<uint32_t>(ProfileStage::ShareToShareSlice),
                                                          kSingleOccurrenceCapacity),
                      "invalid share to share slice occurrence capacity.");
-    EP_HOST_ASSERT_S(Cam::SetProfileStageOccurrenceCount(layout, static_cast<uint32_t>(ProfileStage::BuildTotalRecvTokens),
-                                                         kSingleOccurrenceCapacity),
+    EP_HOST_ASSERT_S(Cam::SetProfileStageOccurrenceCount(
+                         layout, static_cast<uint32_t>(ProfileStage::BuildTotalRecvTokens), kSingleOccurrenceCapacity),
                      "invalid build total recv tokens occurrence capacity.");
     EP_HOST_ASSERT_S(Cam::SetProfileStageOccurrenceCount(layout, static_cast<uint32_t>(ProfileStage::BuildRecvCount),
                                                          kSingleOccurrenceCapacity),
@@ -118,21 +118,19 @@ Cam::ProfileStageLayout BuildStageLayout()
     EP_HOST_ASSERT_S(Cam::SetProfileStageOccurrenceCount(layout, static_cast<uint32_t>(ProfileStage::BuildMaxBs),
                                                          kSingleOccurrenceCapacity),
                      "invalid build max bs occurrence capacity.");
-    EP_HOST_ASSERT_S(
-        Cam::SetProfileStageOccurrenceCount(layout, static_cast<uint32_t>(ProfileStage::BuildRecvTokenPerExp),
-                                            kSingleOccurrenceCapacity),
-        "invalid build recv token per exp occurrence capacity.");
-    EP_HOST_ASSERT_S(Cam::SetProfileStageOccurrenceCount(layout, static_cast<uint32_t>(ProfileStage::BuildExpGlobalOffset),
-                                                         kSingleOccurrenceCapacity),
+    EP_HOST_ASSERT_S(Cam::SetProfileStageOccurrenceCount(
+                         layout, static_cast<uint32_t>(ProfileStage::BuildRecvTokenPerExp), kSingleOccurrenceCapacity),
+                     "invalid build recv token per exp occurrence capacity.");
+    EP_HOST_ASSERT_S(Cam::SetProfileStageOccurrenceCount(
+                         layout, static_cast<uint32_t>(ProfileStage::BuildExpGlobalOffset), kSingleOccurrenceCapacity),
                      "invalid build exp global offset occurrence capacity.");
     EP_HOST_ASSERT_S(
         Cam::SetProfileStageOccurrenceCount(layout, static_cast<uint32_t>(ProfileStage::BuildSrcRankInExpOffset),
                                             kSingleOccurrenceCapacity),
         "invalid build src rank in exp offset occurrence capacity.");
-    EP_HOST_ASSERT_S(
-        Cam::SetProfileStageOccurrenceCount(layout, static_cast<uint32_t>(ProfileStage::BuildRInSrcrankOffset),
-                                            kSingleOccurrenceCapacity),
-        "invalid build r in srcrank offset occurrence capacity.");
+    EP_HOST_ASSERT_S(Cam::SetProfileStageOccurrenceCount(
+                         layout, static_cast<uint32_t>(ProfileStage::BuildRInSrcrankOffset), kSingleOccurrenceCapacity),
+                     "invalid build r in srcrank offset occurrence capacity.");
     return layout;
 }
 

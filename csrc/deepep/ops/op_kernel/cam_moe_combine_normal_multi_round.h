@@ -619,8 +619,8 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::CopyB
             roundSendTokenCntStart - needSendTokenCnt_, epRankId_));
         profileWriter_.Record(Cam::CamMoeCombineNormalProfileStage::SendCopyToShare, roundIndex_, sendPhaseStart,
                               sendPhaseStart + copyAcc, tokenPayload);
-        profileWriter_.Record(Cam::CamMoeCombineNormalProfileStage::SendSetStatus, roundIndex_, sendPhaseStart + copyAcc,
-                              sendPhaseStart + copyAcc + statusAcc, tokenPayload);
+        profileWriter_.Record(Cam::CamMoeCombineNormalProfileStage::SendSetStatus, roundIndex_,
+                              sendPhaseStart + copyAcc, sendPhaseStart + copyAcc + statusAcc, tokenPayload);
     }
 }
 
@@ -805,8 +805,8 @@ __aicore__ inline void CamMoeCombineNormalMultiRound<TemplateMC2TypeFunc>::ReadB
             epRankId_));
         profileWriter_.Record(Cam::CamMoeCombineNormalProfileStage::RecvWaitStatus, roundIndex_, recvPhaseStart,
                               recvPhaseStart + waitAcc, recvTokenPayload);
-        profileWriter_.Record(Cam::CamMoeCombineNormalProfileStage::RecvReadAndSum, roundIndex_, recvPhaseStart + waitAcc,
-                              recvPhaseStart + waitAcc + sumAcc, recvTokenPayload);
+        profileWriter_.Record(Cam::CamMoeCombineNormalProfileStage::RecvReadAndSum, roundIndex_,
+                              recvPhaseStart + waitAcc, recvPhaseStart + waitAcc + sumAcc, recvTokenPayload);
     }
     totalNeedRecvTokenCnt_ -= roundTotalRecvTokenCnt_;
     xOutTokenOffset_ += roundTotalRecvTokenCnt_;

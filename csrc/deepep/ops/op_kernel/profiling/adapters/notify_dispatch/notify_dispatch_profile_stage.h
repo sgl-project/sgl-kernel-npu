@@ -15,17 +15,17 @@ namespace deep_ep::profiling::notify_dispatch {
 //         每核一条，occurrence=1。
 //   - 无 per-expert / per-group 附加信息，故无 payload。
 enum class ProfileStage : uint32_t {
-    AssembleSendData = 0,       // core 0：组装发送数据（核心分派）
-    InputToShareSlice = 1,      // 多核分片：把本 rank 输入搬进 share
-    ShareToShareSlice = 2,      // 多核分片：share → share 拷贝
-    BuildTotalRecvTokens = 3,   // core 0：归约总接收 token 数（核心分派）
-    BuildRecvCount = 4,         // core 1：前缀和接收计数（核心分派）
-    BuildRecvOffset = 5,        // core 2：接收偏移（核心分派）
-    BuildMaxBs = 6,             // core 3：最大 batch size（核心分派）
-    BuildRecvTokenPerExp = 7,   // core 4：每 expert 接收 token 数（核心分派）
-    BuildExpGlobalOffset = 8,   // core 5：expert 全局偏移（核心分派）
-    BuildSrcRankInExpOffset = 9,// core 6：expert 内源 rank 偏移（核心分派）
-    BuildRInSrcrankOffset = 10, // core 7：源 rank 内偏移（核心分派）
+    AssembleSendData = 0,         // core 0：组装发送数据（核心分派）
+    InputToShareSlice = 1,        // 多核分片：把本 rank 输入搬进 share
+    ShareToShareSlice = 2,        // 多核分片：share → share 拷贝
+    BuildTotalRecvTokens = 3,     // core 0：归约总接收 token 数（核心分派）
+    BuildRecvCount = 4,           // core 1：前缀和接收计数（核心分派）
+    BuildRecvOffset = 5,          // core 2：接收偏移（核心分派）
+    BuildMaxBs = 6,               // core 3：最大 batch size（核心分派）
+    BuildRecvTokenPerExp = 7,     // core 4：每 expert 接收 token 数（核心分派）
+    BuildExpGlobalOffset = 8,     // core 5：expert 全局偏移（核心分派）
+    BuildSrcRankInExpOffset = 9,  // core 6：expert 内源 rank 偏移（核心分派）
+    BuildRInSrcrankOffset = 10,   // core 7：源 rank 内偏移（核心分派）
     Count = 11,
 };
 

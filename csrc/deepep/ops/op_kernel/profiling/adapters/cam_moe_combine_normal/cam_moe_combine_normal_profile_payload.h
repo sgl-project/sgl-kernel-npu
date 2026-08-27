@@ -18,8 +18,8 @@ struct CombineTokenCountPrivatePayloadV1 {
 static_assert(sizeof(CombineTokenCountPrivatePayloadV1) <= sizeof(ProfilePrivatePayloadRaw),
               "Combine payload must fit into raw payload slots");
 
-__aicore__ inline constexpr CombineTokenCountPrivatePayloadV1 MakeCombineTokenCountPrivatePayloadV1(
-    uint8_t validTag, uint8_t formatId, uint64_t tokenCount, uint64_t rank = 0U)
+__aicore__ inline constexpr CombineTokenCountPrivatePayloadV1
+MakeCombineTokenCountPrivatePayloadV1(uint8_t validTag, uint8_t formatId, uint64_t tokenCount, uint64_t rank = 0U)
 {
     return CombineTokenCountPrivatePayloadV1{PackProfilePrivate0(validTag, formatId), tokenCount, rank};
 }

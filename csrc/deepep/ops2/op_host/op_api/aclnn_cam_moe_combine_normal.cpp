@@ -19,9 +19,8 @@ aclnnStatus aclnnCamMoeCombineNormalGetWorkspaceSize(
     const aclTensor *recvTopkWeights, const aclTensor *tokenIdx, const aclTensor *tpRecvCountsOptional,
     const aclTensor *profileBufferOptional, char *epGroupName, int64_t epWorldSize, int64_t epRankId,
     char *tpGroupNameOptional, int64_t tpWorldSize, int64_t tpRankId, int64_t moeExpertNum, int64_t realMaxBs,
-    int32_t round, int32_t per_round_tokens, int64_t profileEnable, int64_t profileBufferBytes,
-    int64_t profileLaunchId, const aclTensor *out, const aclTensor *sendCostStats, uint64_t *workspaceSize,
-    aclOpExecutor **executor)
+    int32_t round, int32_t per_round_tokens, int64_t profileEnable, int64_t profileBufferBytes, int64_t profileLaunchId,
+    const aclTensor *out, const aclTensor *sendCostStats, uint64_t *workspaceSize, aclOpExecutor **executor)
 {
     return aclnnInnerCamMoeCombineNormalGetWorkspaceSize(
         recvX, tokenSrcInfo, epRecvCounts, recvTopkWeights, tokenIdx, tpRecvCountsOptional, profileBufferOptional,

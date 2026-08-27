@@ -825,8 +825,7 @@ private:
             SyncFunc<AscendC::HardEvent::MTE3_MTE2>();
         }
         if (profileEnable_) {
-            profileWriter_.Record(Cam::NotifyDispatchProfileStage::BuildRInSrcrankOffset, start,
-                                  profileWriter_.Now());
+            profileWriter_.Record(Cam::NotifyDispatchProfileStage::BuildRInSrcrankOffset, start, profileWriter_.Now());
         }
     }
 

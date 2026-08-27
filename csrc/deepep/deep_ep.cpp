@@ -341,8 +341,8 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
     } else {
         EXEC_NPU_CMD(aclnnNotifyDispatch, send_data, new_num_tokens_per_expert,
                      static_cast<const std::nullptr_t &>(nullptr), send_count, num_tokens, hcom_ep_name,  // commGroup
-                     num_ranks,                                                                          // rankSize
-                     rank,                                                                               // rankId
+                     num_ranks,                                                                           // rankSize
+                     rank,                                                                                // rankId
                      local_rank_size, local_rank_id, round, per_round_tokens, notify_profile_enable_i64,
                      notify_profile_buffer_bytes_i64, notify_profile_launch_id_i64, send_data_offset, recv_data,
                      recv_count, recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset,
@@ -421,8 +421,8 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                      num_ranks,  // rankSize
                      rank,       // rankId
                      hcom_ep_name, tp_size, tp_rank, num_experts, quant_mode, real_max_bs, global_bs, round,
-                     per_round_tokens, profile_enable_i64, profile_buffer_bytes_i64, profile_launch_id_i64,
-                     expandx_out, dynamic_scales_out, expand_idx_out, dispatch_wait_recv_cost_stats_out);
+                     per_round_tokens, profile_enable_i64, profile_buffer_bytes_i64, profile_launch_id_i64, expandx_out,
+                     dynamic_scales_out, expand_idx_out, dispatch_wait_recv_cost_stats_out);
         profiling::cam_moe_dispatch_normal::CompleteLaunch(profile_ctx, rank);
     } else {
         EXEC_NPU_CMD(aclnnCamMoeDispatchNormal, new_x, expert_ids, send_data_offset, send_token_idx_small, recv_offset,
@@ -431,8 +431,8 @@ Buffer::intranode_dispatch(const at::Tensor &x, const std::optional<at::Tensor> 
                      num_ranks,  // rankSize
                      rank,       // rankId
                      hcom_ep_name, tp_size, tp_rank, num_experts, quant_mode, real_max_bs, global_bs, round,
-                     per_round_tokens, profile_enable_i64, profile_buffer_bytes_i64, profile_launch_id_i64,
-                     expandx_out, dynamic_scales_out, expand_idx_out, dispatch_wait_recv_cost_stats_out);
+                     per_round_tokens, profile_enable_i64, profile_buffer_bytes_i64, profile_launch_id_i64, expandx_out,
+                     dynamic_scales_out, expand_idx_out, dispatch_wait_recv_cost_stats_out);
     }
     const int32_t *recv_token_per_exp_ptr = header_ptr + 2;
 
@@ -591,14 +591,14 @@ Buffer::notify_verify(const at::Tensor &x, const std::optional<at::Tensor> &x_sc
     int64_t notify_profile_buffer_bytes_i64 = 0;
     int64_t notify_profile_launch_id_i64 = 0;
 
-    EXEC_NPU_CMD(aclnnNotifyDispatch, send_data, new_num_tokens_per_expert, static_cast<const std::nullptr_t &>(nullptr),
-                 send_count, num_tokens, hcom_ep_name,  // commGroup
-                 num_ranks,                             // rankSize
-                 rank,                                  // rankId
+    EXEC_NPU_CMD(aclnnNotifyDispatch, send_data, new_num_tokens_per_expert,
+                 static_cast<const std::nullptr_t &>(nullptr), send_count, num_tokens, hcom_ep_name,  // commGroup
+                 num_ranks,                                                                           // rankSize
+                 rank,                                                                                // rankId
                  local_rank_size, local_rank_id, round, per_round_tokens, notify_profile_enable_i64,
-                 notify_profile_buffer_bytes_i64, notify_profile_launch_id_i64, send_data_offset, recv_data,
-                 recv_count, recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset,
-                 total_recv_token, max_bs, recv_tokens_per_expert);
+                 notify_profile_buffer_bytes_i64, notify_profile_launch_id_i64, send_data_offset, recv_data, recv_count,
+                 recv_offset, expert_global_offset, srcrank_in_expert_offset, r_in_srcrank_offset, total_recv_token,
+                 max_bs, recv_tokens_per_expert);
 
     return {recv_data,           recv_count,       recv_offset, expert_global_offset,  srcrank_in_expert_offset,
             r_in_srcrank_offset, total_recv_token, max_bs,      recv_tokens_per_expert};
@@ -609,11 +609,10 @@ void Buffer::clean_low_latency_buffer(int num_max_dispatch_tokens_per_rank, int 
     return;
 }
 
-std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandle>>
-Buffer::intranode_combine(const torch::Tensor &x, const torch::Tensor &topk_idx,
-                          const std::optional<torch::Tensor> &topk_weights, const torch::Tensor &src_idx,
-                          const torch::Tensor &send_head, const std::optional<at::Tensor> &combine_send_cost_stats,
-                          bool profile_enable)
+std::tuple<torch::Tensor, std::optional<torch::Tensor>, std::optional<EventHandle>> Buffer::intranode_combine(
+    const torch::Tensor &x, const torch::Tensor &topk_idx, const std::optional<torch::Tensor> &topk_weights,
+    const torch::Tensor &src_idx, const torch::Tensor &send_head,
+    const std::optional<at::Tensor> &combine_send_cost_stats, bool profile_enable)
 {
     EP_HOST_ASSERT(x.dim() == 2 and x.is_contiguous());
     at::Tensor recv_x = x;

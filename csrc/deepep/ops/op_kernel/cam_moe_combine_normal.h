@@ -209,13 +209,10 @@ __aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::InitBuffLen()
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo,
-                                                                      GM_ADDR epRecvCount, GM_ADDR topkWeights,
-                                                                      GM_ADDR tokenIdx, GM_ADDR tpRecvCount,
-                                                                      GM_ADDR profileBufferGM, GM_ADDR XOut,
-                                                                      GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM,
-                                                                      TPipe *pipe,
-                                                                      const CamMoeCombineNormalTilingData *tilingData)
+__aicore__ inline void CamMoeCombineNormal<TemplateMC2TypeFunc>::Init(
+    GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR tokenIdx,
+    GM_ADDR tpRecvCount, GM_ADDR profileBufferGM, GM_ADDR XOut, GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM,
+    TPipe *pipe, const CamMoeCombineNormalTilingData *tilingData)
 {
     workspaceGM_ = workspaceGM;
     tpipe_ = pipe;

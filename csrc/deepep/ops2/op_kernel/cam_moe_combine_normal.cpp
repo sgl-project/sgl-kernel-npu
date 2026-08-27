@@ -10,8 +10,9 @@ using namespace AscendC;
 
 extern "C" __global__ __aicore__ void cam_moe_combine_normal(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount,
                                                              GM_ADDR topkWeights, GM_ADDR tokenIdx, GM_ADDR tpRecvCount,
-                                                             GM_ADDR profileBufferGM, GM_ADDR XOut, GM_ADDR sendCostStatsOut,
-                                                             GM_ADDR workspaceGM, GM_ADDR tilingGM)
+                                                             GM_ADDR profileBufferGM, GM_ADDR XOut,
+                                                             GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM,
+                                                             GM_ADDR tilingGM)
 
 {
     REGISTER_TILING_DEFAULT(CamMoeCombineNormalTilingData);

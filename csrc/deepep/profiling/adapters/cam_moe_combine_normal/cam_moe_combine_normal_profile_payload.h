@@ -14,8 +14,8 @@ struct CombineTokenCountPrivatePayloadV1 {
 static_assert(sizeof(CombineTokenCountPrivatePayloadV1) <= sizeof(ProfilePrivatePayloadRaw),
               "Combine payload must fit into raw payload slots");
 
-inline constexpr CombineTokenCountPrivatePayloadV1 AsCombineTokenCountPrivatePayloadV1(
-    const ProfilePrivatePayloadRaw &payload)
+inline constexpr CombineTokenCountPrivatePayloadV1
+AsCombineTokenCountPrivatePayloadV1(const ProfilePrivatePayloadRaw &payload)
 {
     return CombineTokenCountPrivatePayloadV1{payload.private0, payload.private1, payload.private2};
 }

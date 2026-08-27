@@ -19,8 +19,7 @@ struct CamMoeCombineNormalProfileWriter : public ProfileWriter {
                             profileBufferBytes_);
     }
 
-    __aicore__ inline void Record(CamMoeCombineNormalProfileStage stage, uint64_t startCycle,
-                                  uint64_t endCycle) const
+    __aicore__ inline void Record(CamMoeCombineNormalProfileStage stage, uint64_t startCycle, uint64_t endCycle) const
     {
         ProfileWriter::Record(static_cast<uint32_t>(stage), startCycle, endCycle);
     }

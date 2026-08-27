@@ -28,8 +28,8 @@ inline constexpr uint64_t GetShareToOutputExpertLocalE(const ShareToOutputExpert
     return payload.fromRankLocalE & 0xFFFFFFFFULL;
 }
 
-inline constexpr ShareToOutputExpertPrivatePayloadV1 AsShareToOutputExpertPrivatePayloadV1(
-    const ProfilePrivatePayloadRaw &payload)
+inline constexpr ShareToOutputExpertPrivatePayloadV1
+AsShareToOutputExpertPrivatePayloadV1(const ProfilePrivatePayloadRaw &payload)
 {
     return ShareToOutputExpertPrivatePayloadV1{payload.private0, payload.private1, payload.private2};
 }

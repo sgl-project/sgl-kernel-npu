@@ -215,13 +215,10 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::InitBuffLen()
 }
 
 template <TemplateMC2TypeClass>
-__aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::Init(GM_ADDR recvX, GM_ADDR tokenSrcInfo,
-                                                                        GM_ADDR epRecvCount, GM_ADDR topkWeights,
-                                                                        GM_ADDR tokenIdx, GM_ADDR tpRecvCount,
-                                                                        GM_ADDR profileBufferGM, GM_ADDR XOut,
-                                                                        GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM,
-                                                                        TPipe *pipe,
-                                                                        const CamMoeCombineNormalTilingData *tilingData)
+__aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::Init(
+    GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount, GM_ADDR topkWeights, GM_ADDR tokenIdx,
+    GM_ADDR tpRecvCount, GM_ADDR profileBufferGM, GM_ADDR XOut, GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM,
+    TPipe *pipe, const CamMoeCombineNormalTilingData *tilingData)
 {
     workspaceGM_ = workspaceGM;
     tpipe_ = pipe;
@@ -408,8 +405,7 @@ __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::CopyBufferToS
 
 template <TemplateMC2TypeClass>
 __aicore__ inline void CamMoeCombineNormalA5<TemplateMC2TypeFunc>::ProcessSendRange(
-    uint32_t lo, uint32_t cnt, uint64_t &copyAcc, uint64_t &statusAcc,
-    LocalTensor<int32_t> sendCostStatsTensor)
+    uint32_t lo, uint32_t cnt, uint64_t &copyAcc, uint64_t &statusAcc, LocalTensor<int32_t> sendCostStatsTensor)
 {
     LocalTensor<SrcInfoType> srcInfoLocal = srcInfoBuf_.Get<SrcInfoType>();
     const DataCopyPadExtParams<SrcInfoType> padParams{false, 0U, 0U, 0U};
