@@ -1,7 +1,3 @@
-/**
- * Copyright (c) Huawei Technologies Co., Ltd. 2025. All rights reserved.
- */
-
 #ifndef ASCENDC_CAM_H_COMM_MOE_DISTRIBUTE_DISPATCH_TILING_H
 #define ASCENDC_CAM_H_COMM_MOE_DISTRIBUTE_DISPATCH_TILING_H
 

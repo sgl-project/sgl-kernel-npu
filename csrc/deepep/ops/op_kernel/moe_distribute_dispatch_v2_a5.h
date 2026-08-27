@@ -44,7 +44,6 @@ constexpr int32_t BITS_PER_BYTE = 8;
 constexpr uint32_t MAX_UB_SIZE = 170U * 1024U;
 
 // related to FP8 and INT8 quantization
-constexpr float FP8_E5M2_MAX_VALUE = 57344.0f;
 constexpr float FP8_E4M3_MAX_VALUE = 448.0f;
 constexpr float HIFP8_MAX_VALUE = 32768.0f;
 constexpr float INT8_MAX_VALUE = 127.0f;
@@ -293,7 +292,7 @@ private:
     uint32_t sendToSharedExpTokenCnt_{0};
     uint32_t maxSize_{0};
     uint32_t bufferNum_{0};
-    uint32_t baseWindSize_{0};
+    uint64_t baseWindSize_{0};
     uint32_t copyInAxisH_{0};
     uint32_t copyOutAxisH_{0};
     __gm__ HcclOpParam *winContext_[COMM_NUM]{nullptr, nullptr};
@@ -475,7 +474,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::Init(
     tpipe_->InitBuffer(statusBuf_, statusBufSize);
     totalUsedUB_ += statusBufSize;
     statusTensor_ = statusBuf_.Get<int32_t>();  // 保存发送数据量及flag，同时用于计算windows中的偏移
-    Duplicate<int32_t>(statusTensor_, 0, recvWinBlockNum_ * 8);  // 8 = UB_ALIGN / sizeof(int32_t)
+    Duplicate<int32_t>(statusTensor_, 0, statusBufCntAlign * 8);  // 8 = UB_ALIGN / sizeof(int32_t)
     statusSpaceGm_ = GetWindStateAddrByRankId(COMM_EP_IDX, epRankIdOriginal_);
 #if defined(ASCENDC_OOM) && ASCENDC_OOM == 1
     for (int tempepRankId = 0; tempepRankId < epWorldSize_; tempepRankId++) {
@@ -1116,9 +1115,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::QuantDyna
         maxVal = INT8_MAX_VALUE;
     }
 #ifdef __DAV_C310__
-    if constexpr (Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value) {
-        maxVal = FP8_E5M2_MAX_VALUE;
-    } else if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value) {
+    if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value) {
         maxVal = FP8_E4M3_MAX_VALUE;
     }
 #endif
@@ -1149,8 +1146,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::QuantDyna
         Cast(xOutTensor_, tokenHalfLT, RoundMode::CAST_TRUNC, axisH_);  // 8. tokenHalf -> tokenI8
     }
 #ifdef __DAV_C310__
-    else if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value ||
-                       Std::IsSame<ExpandXOutType, fp8_e5m2_t>::value) {
+    else if constexpr (Std::IsSame<ExpandXOutType, fp8_e4m3fn_t>::value) {
         Cast(xOutTensor_, floatLocalTemp_, RoundMode::CAST_RINT, axisH_);  // 1. tokenF32->tokenF8
     }
 #endif

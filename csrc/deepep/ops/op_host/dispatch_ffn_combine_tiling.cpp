@@ -1,12 +1,3 @@
-/**
- * Copyright (c) 2025 Huawei Technologies Co., Ltd.
- * This file is a part of the CANN Open Software.
- * Licensed under CANN Open Software License Agreement Version 1.0 (the "License").
- * Please refer to the License for details. You may not use this file except in compliance with the License.
- * THIS SOFTWARE IS PROVIDED ON AN "AS IS" BASIS, WITHOUT WARRANTIES OF ANY KIND, EITHER EXPRESS OR IMPLIED,
- * INCLUDING BUT NOT LIMITED TO NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
- * See LICENSE in the root of the software repository for the full text of the License.
- */
 /*!
  * \file dispatch_ffn_tiling.cpp
  * \brief
@@ -25,8 +16,6 @@
 
 using namespace AscendC;
 using namespace ge;
-
-#define HCCL_BUFFSIZE "HCCL_BUFFSIZE"
 
 namespace {
 // 1. Constant definitions
@@ -54,10 +43,10 @@ namespace optiling {
 static uint64_t GetMaxWindowSize()
 {
     uint16_t defaultWindowSize = 200;
-    const char *hccl_buffsize_env = getenv(HCCL_BUFFSIZE);
-    if (hccl_buffsize_env != nullptr) {
+    const char *hcclBuffSize = getenv("DEEPEP_HCCL_BUFFSIZE") == nullptr ? "HCCL_BUFFSIZE" : "DEEPEP_HCCL_BUFFSIZE";
+    if (getenv(hcclBuffSize) != nullptr) {
         try {
-            std::string envStr(hccl_buffsize_env);
+            std::string envStr(getenv(hcclBuffSize));
             unsigned long val = std::stoul(envStr);
             if (val <= std::numeric_limits<uint16_t>::max()) {
                 defaultWindowSize = static_cast<uint16_t>(val);

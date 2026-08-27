@@ -62,7 +62,6 @@ class DefaultLowLatencyCommStrategy(LowLatencyEPCommStrategy):
             "mx_fp8_e4m3",
             "mx_fp8_e5m2",
             "pertoken_fp8_e4m3",
-            "pertoken_fp8_e5m2",
             "mx_fp4_e2m1",
         }
         if quant_mode not in valid_quant_modes:
@@ -474,7 +473,7 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         return ["low_latency"]
 
     def low_latency_dispatch(
-        buffer,
+        self,
         x,
         topk_idx,
         num_max_dispatch_tokens_per_rank,
@@ -489,10 +488,10 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         topk_weights: Optional[torch.Tensor] = None,
         quant_mode: Optional[str] = None,
     ):
-        group = buffer.group
-        group_size = buffer.group_size
+        group = self.group
+        group_size = self.group_size
         num_local_experts = num_experts // group_size
-        ep_rank = buffer.rank
+        ep_rank = self.rank
         device = x.device
         hidden = x.size(1)
         aligned_num_tokens = num_max_dispatch_tokens_per_rank
@@ -577,7 +576,7 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         )
 
     def low_latency_combine(
-        buffer,
+        self,
         x,
         topk_idx,
         topk_weights,
@@ -595,7 +594,7 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         group_size = handle[5]
 
         device = x.device
-        group = buffer.group
+        group = self.group
 
         x_reordered = x.reshape(num_local_experts, group_size, expert_capacity, hidden)
         x_reordered = x_reordered.permute(1, 0, 2, 3).contiguous()
@@ -621,8 +620,8 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         topk_weights_padding = torch.empty(
             expert_capacity,
             topk_weights.size(1),
-            dtype=x.dtype,
-            device=x.device,
+            dtype=topk_weights.dtype,
+            device=topk_weights.device,
         )
         topk_weights_padding[:num_tokens].copy_(topk_weights)
         output = torch_npu.npu_moe_finalize_routing(

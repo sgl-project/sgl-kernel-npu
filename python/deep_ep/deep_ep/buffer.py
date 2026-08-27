@@ -83,9 +83,12 @@ class Buffer:
         )
 
         # set strategy by env
-        deep_mode = os.getenv("DEEP_USE_MODE", "default").lower()
+        deep_mode = os.getenv("DEEP_USE_MODE")
 
-        normal_strategy, low_latency_strategy = StrategyMap.get_strategy(deep_mode)
+        if deep_mode is not None:
+            normal_strategy, low_latency_strategy = StrategyMap.get_strategy(
+                deep_mode.lower()
+            )
 
         # Initialize normal mode strategy
         self._init_normal_strategy(normal_strategy)
@@ -298,6 +301,7 @@ class Buffer:
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -375,6 +379,7 @@ class Buffer:
             async_finish=async_finish,
             allocate_on_comm_stream=allocate_on_comm_stream,
             dispatch_wait_recv_cost_stats=dispatch_wait_recv_cost_stats,
+            quant_mode=quant_mode,
         )
 
     @log_parameters(["topk_idx"])
@@ -409,8 +414,6 @@ class Buffer:
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
         # Launch the kernel with cached or non-cached mode
-        if isinstance(x, tuple):
-            raise NotImplementedError("Not support fp8")
         x_scales = None
         use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
 
@@ -545,65 +548,21 @@ class Buffer:
         Internode dispatch implementation, for more details, please refer to the `dispatch` docs.
         Normally, you should not directly call this function.
         """
-        x, x_scales = x if isinstance(x, tuple) else (x, None)
-        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
-        if handle is not None:
-            raise NotImplementedError(
-                "Optional communication handle is not supported yet."
-            )
-        else:
-            assert (
-                num_tokens_per_rank is not None
-                and is_token_in_rank is not None
-                and num_tokens_per_expert is not None
-            )
-            (
-                recv_x,
-                recv_x_scales,
-                recv_topk_idx,
-                recv_topk_weights,
-                num_recv_tokens_per_expert_list,
-                recv_src_idx,
-                send_head,
-                offset_inner,
-                offset_outer,
-                count_outer,
-                expand_scales,
-                event,
-            ) = self.runtime.internode_dispatch(
-                x,
-                x_scales,
-                topk_idx,
-                topk_weights,
-                num_tokens_per_rank,
-                num_tokens_per_rdma_rank,
-                is_token_in_rank,
-                num_tokens_per_expert,
-                config,
-                getattr(previous_event, "event", None),
-                async_finish,
-                allocate_on_comm_stream,
-                use_quant,
-            )
-            handle = (
-                recv_src_idx,
-                is_token_in_rank,
-                send_head,  # ep_rank_token_cnt
-                topk_idx,
-                topk_weights,
-                offset_inner,
-                offset_outer,  # token_server_idx
-                count_outer,
-                expand_scales,
-            )
-            return (
-                (recv_x, recv_x_scales) if use_quant else recv_x,
-                recv_topk_idx,
-                recv_topk_weights,
-                num_recv_tokens_per_expert_list,
-                handle,
-                EventOverlap(event),
-            )
+        return self.normal_strategy._internode_dispatch(
+            x=x,
+            handle=handle,
+            num_tokens_per_rank=num_tokens_per_rank,
+            num_tokens_per_rdma_rank=num_tokens_per_rdma_rank,
+            is_token_in_rank=is_token_in_rank,
+            num_tokens_per_expert=num_tokens_per_expert,
+            topk_idx=topk_idx,
+            topk_weights=topk_weights,
+            expert_alignment=expert_alignment,
+            config=config,
+            previous_event=previous_event,
+            async_finish=async_finish,
+            allocate_on_comm_stream=allocate_on_comm_stream,
+        )
 
     def internode_combine(
         self,
@@ -684,7 +643,7 @@ class Buffer:
             use_ue8m0: deprecated for the default low-latency strategy and ignored when selecting its quantization mode.
             use_mxfp4: deprecated for the default low-latency strategy and ignored when selecting its quantization mode.
             quant_mode: quantization mode used by the default low-latency strategy. Supported values are `None`,
-                `int8`, `mx_fp8_e4m3`, `mx_fp8_e5m2`, `pertoken_fp8_e4m3`, `pertoken_fp8_e5m2`, and `mx_fp4_e2m1`.
+                `int8`, `mx_fp8_e4m3`, `mx_fp8_e5m2`, `pertoken_fp8_e4m3` and `mx_fp4_e2m1`.
             async_finish: the current stream will not wait for the communication kernels to be finished if set.
             return_recv_hook: return a receiving hook if set. If set, the kernel will just do the RDMA request issues,
                 but **without actually receiving the data**. You must call the received hook to make sure the data's arrival.
@@ -779,6 +738,21 @@ class Buffer:
             out=out,
         )
 
+    def begin_profile(
+        self,
+        num_profile_skip_launches: int,
+        num_profile_active_launches: int,
+        profile_trace_dir: Optional[str] = "",
+    ) -> None:
+        self.runtime.begin_profile(
+            num_profile_skip_launches,
+            num_profile_active_launches,
+            profile_trace_dir or "",
+        )
+
+    def end_profile(self) -> None:
+        self.runtime.end_profile()
+
     def fused_deep_moe(
         self,
         x: torch.Tensor,
@@ -792,48 +766,77 @@ class Buffer:
         num_experts: int,
         quant_mode: int = 1,
         fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
+        profile_enable: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         A fused low-latency implementation for MoE expert forward and combination.
+
+        Two fuse modes are available via the FuseMode enum:
+        - FuseMode.FUSED_DEEP_MOE (1): Full fusion via aclnnFusedDeepMoe.
+          InitRouting + AllToAll + GMM1 + DequantSwigluQuant + GMM2 + Dequant
+          + Unpermute/Combine in a single AscendC kernel.
+        - FuseMode.DISPATCH_FFN_COMBINE (2): Separate dispatch handling via aclnnDispatchFFNCombine.
+          InitRouting + AllToAll dispatch + GMM1 + DequantSwigluQuant + GMM2 + Dequant
+          + Combine in a single AscendC kernel, using a different internal fusion strategy.
 
         Arguments:
             x: `[bs, hidden]` with `torch.bfloat16` (or supported precision),
                 the token representations to be processed by selected experts.
             topk_idx: `[bs, num_topk]` with `torch.int64`, the selected expert indices
                 for each token. `-1` indices are supported (meaning no expert selected).
-            topk_weights: `[bs, num_topk]` with `torch.float`, the expert weights selected by the dispatched
-                tokens. The received tokens will be reduced with the weights in this tensor.
-            gmm1_permuted_weight: weight tensor for the first stage (e.g., projection) with
-                a permuted layout according to grouped-matmul requirements.
-            gmm1_permuted_weight_scale: quantization scale tensor corresponding to
-                `gmm1PermutedWeight`. Typically `torch.float32` or `torch.float16`,
-                depending on `quantMode`.
-            gmm2_weight: weight tensor for the second stage (e.g., projection or FFN output).
-            gmm2_weight_scale: quantization scale tensor corresponding to `gmm2Weight`.
-
-            num_max_dispatch_tokens_per_rank: the maximum number of tokens to dispatch, when fuse_mode is DISPATCH_FFN_COMBINE,
-                it indicates the maximum number of tokens received in dispatch. All the ranks must hold the same value.
-            num_experts: the number of experts.
-            quant_mode: int type, optional number, displays the quantization model. Supported values: 1 means int8 (default)
-            fuse_mode: Fuse mode enum (default: FuseMode.FUSED_DEEP_MOE).
+            topk_weights: `[bs, num_topk]` with `torch.float32`, the expert weights selected
+                by the dispatched tokens. The received tokens will be reduced with the
+                weights in this tensor.
+            gmm1_permuted_weight: weight tensor for the first stage (up-projection).
+                For FUSED_DEEP_MOE mode, requires tile-N permuted layout to fit
+                Grouped MatMul (see `reshape_fusion_gmm_weight` in test code for
+                reference implementation). For DISPATCH_FFN_COMBINE mode, standard
+                NZ format without permutation.
+            gmm1_permuted_weight_scale: quantization scale tensor for the first stage.
+                For FUSED_DEEP_MOE mode, `torch.float32` dtype (auto-converted to
+                float internally). For DISPATCH_FFN_COMBINE mode, `torch.int64` dtype
+                (float32 scale values reinterpreted as int64 bit patterns; NOT
+                auto-converted by this method — the caller must perform the conversion).
+            gmm2_weight: weight tensor for the second stage (down-projection).
+            gmm2_weight_scale: quantization scale tensor for the second stage.
+                Same dtype rules as gmm1_permuted_weight_scale.
+            num_max_dispatch_tokens_per_rank: for FUSED_DEEP_MOE mode, the maximum
+                number of tokens to dispatch per rank, used for buffer/memory allocation.
+                For DISPATCH_FFN_COMBINE mode, the maximum number of tokens received in
+                dispatch (typically max_bs * num_ranks * topk). All ranks must hold the
+                same value.
+            num_experts: the total number of global experts.
+            quant_mode: quantization mode. Supported values: 0 = no quantization (BF16),
+                1 = INT8 (default). FP8 will be supported in A5 release.
+            fuse_mode: FuseMode enum (default: FuseMode.FUSED_DEEP_MOE).
+                FuseMode is not exported from the package's top-level __init__.py;
+                import via `from deep_ep.buffer import FuseMode` or use integer
+                values 1 or 2 directly.
 
         Notes:
+            - DISPATCH_FFN_COMBINE mode does NOT support shared experts (unlike
+              FUSED_DEEP_MOE mode which does).
+            - DISPATCH_FFN_COMBINE mode does NOT support BF16 weights (only INT8).
             - The first dimension of `topk_idx` defines the batch size `bs`.
             - The second dimension of `x` defines the hidden dimension `hidden`.
             - Exact shapes of weight/scale tensors depend on GMM permutation and sharding.
             - If optional scale tensors are empty, the kernel skips those transforms.
 
         Returns:
-            output: `torch.Tensor`, shape `[bs, hidden]` and usually `torch.bfloat16`,
-                the fused expert output.
-            ep_recv_count: `torch.Tensor`, a 1D tensor of type `torch.int32`
-                indicating the number of tokens received by each expert across all ranks.
+            For fuse_mode=FUSED_DEEP_MOE:
+                output: `torch.Tensor`, shape `[bs, hidden]`, the fused expert output.
+                ep_recv_count: `torch.Tensor`, a 1D tensor of type `torch.int32`,
+                    shape `[num_local_experts * num_ranks]`, indicating the number of
+                    tokens received by each expert across all ranks.
+
+            For fuse_mode=DISPATCH_FFN_COMBINE:
+                output: `torch.Tensor`, shape `[bs, hidden]`, the fused expert output.
+                expert_token_nums: `torch.Tensor`, a 1D tensor of type `torch.int32`,
+                    shape `[num_local_experts]`, indicating the number of tokens received
+                    by each local expert on this rank only.
         """
         topk_ids = topk_idx.int()
         if fuse_mode == FuseMode.FUSED_DEEP_MOE:
-            gmm1_permuted_weight_scale = gmm1_permuted_weight_scale.float()
-            gmm2_weight_scale = gmm2_weight_scale.float()
-
             output, ep_recv_count = self.runtime.fused_deep_moe(
                 x,
                 topk_ids,
@@ -845,6 +848,7 @@ class Buffer:
                 num_max_dispatch_tokens_per_rank,
                 num_experts,
                 quant_mode,
+                profile_enable,
             )
             return output, ep_recv_count
         elif fuse_mode == FuseMode.DISPATCH_FFN_COMBINE:

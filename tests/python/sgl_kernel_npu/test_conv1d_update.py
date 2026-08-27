@@ -10,7 +10,7 @@ logger = logging.getLogger("TestScript")
 torch.manual_seed(42)
 
 
-def test_speculative_bf16_matches_sequential_decode():
+def _test_speculative_matches_sequential_decode(dtype: torch.dtype):
     from sgl_kernel_npu.mamba.causal_conv1d import (
         causal_conv1d_update_npu,
         causal_conv1d_update_v2,
@@ -20,12 +20,12 @@ def test_speculative_bf16_matches_sequential_decode():
     torch.manual_seed(42)
     batch_size, steps, dim, width = 1, 4, 1024, 4
     x = torch.randn(
-        batch_size, steps, dim, device="npu", dtype=torch.bfloat16
+        batch_size, steps, dim, device="npu", dtype=dtype
     )
-    weight = torch.randn(dim, width, device="npu", dtype=torch.bfloat16)
-    bias = torch.randn(dim, device="npu", dtype=torch.bfloat16)
+    weight = torch.randn(dim, width, device="npu", dtype=dtype)
+    bias = torch.randn(dim, device="npu", dtype=dtype)
     history = torch.randn(
-        batch_size, width - 1, dim, device="npu", dtype=torch.bfloat16
+        batch_size, width - 1, dim, device="npu", dtype=dtype
     )
     cache_indices = torch.tensor([0], device="npu", dtype=torch.int32)
 
@@ -34,7 +34,7 @@ def test_speculative_bf16_matches_sequential_decode():
         width - 1 + steps - 1,
         dim,
         device="npu",
-        dtype=torch.bfloat16,
+        dtype=dtype,
     )
     speculative_state[:, -(width - 1) :] = history
     speculative_output = causal_conv1d_update_v2(
@@ -75,6 +75,14 @@ def test_speculative_bf16_matches_sequential_decode():
         rtol=0,
         atol=0,
     )
+
+
+def test_speculative_fp16_matches_sequential_decode():
+    _test_speculative_matches_sequential_decode(torch.float16)
+
+
+def test_speculative_bf16_matches_sequential_decode():
+    _test_speculative_matches_sequential_decode(torch.bfloat16)
 
 
 # ==========================================
@@ -170,7 +178,7 @@ def vllm_causal_conv1d_update_v3(
     conv_state = conv_state.transpose(1, 2)
     out = out.transpose(1, 2)
 
-    return out
+    return out, conv_state
 
 
 # ==========================================
@@ -194,7 +202,11 @@ def test_correctness_fixed():
 
     hidden_state = torch.randn(BSZ, SEQ_LEN, HIDDEN_SIZE, device=DEVICE, dtype=DTYPE)
     conv_state_init = torch.randn(
-        CACHE_LEN, KERNEL_SIZE - 1, HIDDEN_SIZE, device=DEVICE, dtype=DTYPE
+        CACHE_LEN,
+        KERNEL_SIZE - 1 + SEQ_LEN - 1,
+        HIDDEN_SIZE,
+        device=DEVICE,
+        dtype=DTYPE,
     )
 
     conv_state_indices = torch.arange(BSZ, device=hidden_state.device)
@@ -207,7 +219,9 @@ def test_correctness_fixed():
 
     out_sg, final_buffer_sg = sglang_model.torch_causal_conv1d_update_npu(
         hidden_state=hidden_state.transpose(1, 2),
-        conv_state=conv_state_init.transpose(1, 2)[conv_state_indices],
+        conv_state=conv_state_init.transpose(1, 2)[conv_state_indices][
+            :, :, -(KERNEL_SIZE - 1) :
+        ],
         weight=weight.transpose(0, 1),
         conv_state_update=sglang_cache_buffer,
         bias=bias,
@@ -344,7 +358,7 @@ def test_npu_causal_conv1d_update():
     )
     conv_state_vl = conv_state_init.clone()
     # --- vLLM Execution (CPU/CUDA reference) ---
-    out_vl = vllm_causal_conv1d_update_v3(
+    out_vl, conv_state_vl = vllm_causal_conv1d_update_v3(
         hidden_state=hidden_state,
         conv_state=conv_state_vl,
         weight=weight,
@@ -459,7 +473,10 @@ def test_npu_causal_conv1d_update():
                 f"\\n✅ PASS: Output and state are correctly aligned to torch reference!"
             )
         else:
-            print(f"\\n⚠️  WARNING: Precision below expected threshold")
+            raise AssertionError(
+                f"Precision below expected threshold: output {matched}/{total}, "
+                f"state {state_exact_match}/{state_total}"
+            )
 
         print(f"\n🎉 NPU causal_conv1d_update test passed!")
 
@@ -468,9 +485,15 @@ def test_npu_causal_conv1d_update():
         import traceback
 
         traceback.print_exc()
+        raise
 
 
 if __name__ == "__main__":
+    print("\n" + "=" * 60)
+    print("Running test_speculative_fp16_matches_sequential_decode")
+    print("=" * 60)
+    test_speculative_fp16_matches_sequential_decode()
+
     # print("="*60)
     # print("Running test_correctness_fixed (CPU/CUDA reference)")
     # print("="*60)

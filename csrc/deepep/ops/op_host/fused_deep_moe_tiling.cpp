@@ -1,11 +1,3 @@
-/*
- * Copyright (c) Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
- * Description: FusedDeepMoe tiling function implementation file
- * Author: WANG Qiankun
- * Create: 2025-07-19
- * Note:
- * History: 2025-07-19 create FusedDeepMoe tiling function implementation file
- */
 #include <cstdio>
 #include <cstdint>
 #include <string>
@@ -82,7 +74,7 @@ constexpr uint32_t ATTR_SHARE_EXPERT_RANK_NUM_INDEX = 5;
 constexpr uint32_t ATTR_QUANT_MODE_INDEX = 6;
 constexpr uint32_t ATTR_GLOBAL_BS_INDEX = 7;
 
-constexpr uint32_t MIN_BATCH_SIZE = 0;
+constexpr uint32_t MIN_BATCH_SIZE = 1;
 constexpr uint32_t MAX_BATCH_SIZE = 256;
 constexpr uint32_t MAX_MOE_EXERT_NUM = 512;
 constexpr uint32_t SUPPORT_TOP_K = 12;
@@ -228,6 +220,8 @@ static ge::graphStatus GetAttrAndSetTilingData(gert::TilingContext *context, con
     uint32_t moeExpertNum = static_cast<uint32_t>(*moeExpertNumPtr);
     uint32_t sharedExpertNum = static_cast<uint32_t>(*sharedExpertNumPtr);
     uint32_t sharedExpertRankNum = static_cast<uint32_t>(*sharedExpertRankNumPtr);
+    OPS_ERR_IF(sharedExpertRankNum >= epRankSize, OPS_LOG_E(nodeName, "sharedExpertRankNum must in [0, epRankSize)."),
+               return ge::GRAPH_FAILED);
     uint32_t moeExpertNumPerRank = moeExpertNum / (epRankSize - sharedExpertRankNum);
 
 #ifdef ENABLE_TILING_CHECK
