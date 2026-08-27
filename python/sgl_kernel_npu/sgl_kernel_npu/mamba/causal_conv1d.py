@@ -207,41 +207,41 @@ def _causal_conv1d_update_kernel_npu_tiled(
         )
 
         # define history vectors as zeros then load conditionally
-        col0 = tl.zeros((BLOCK_N,), dtype=tl.float16)
-        col1 = tl.zeros((BLOCK_N,), dtype=tl.float16)
-        col2 = tl.zeros((BLOCK_N,), dtype=tl.float16)
-        col3 = tl.zeros((BLOCK_N,), dtype=tl.float16)
-        col4 = tl.zeros((BLOCK_N,), dtype=tl.float16)
+        col0 = tl.zeros((BLOCK_N,), dtype=x_ptr.dtype.element_ty)
+        col1 = tl.zeros((BLOCK_N,), dtype=x_ptr.dtype.element_ty)
+        col2 = tl.zeros((BLOCK_N,), dtype=x_ptr.dtype.element_ty)
+        col3 = tl.zeros((BLOCK_N,), dtype=x_ptr.dtype.element_ty)
+        col4 = tl.zeros((BLOCK_N,), dtype=x_ptr.dtype.element_ty)
         if KERNEL_WIDTH >= 2:
             col0 = tl.load(
                 prior_tokens + 0 * stride_conv_state_tok,
                 mask=lane_active & mask_w,
                 other=0.0,
-            ).to(tl.float16)
+            ).to(x_ptr.dtype.element_ty)
         if KERNEL_WIDTH >= 3:
             col1 = tl.load(
                 prior_tokens + 1 * stride_conv_state_tok,
                 mask=lane_active & mask_w,
                 other=0.0,
-            ).to(tl.float16)
+            ).to(x_ptr.dtype.element_ty)
         if KERNEL_WIDTH >= 4:
             col2 = tl.load(
                 prior_tokens + 2 * stride_conv_state_tok,
                 mask=lane_active & mask_w,
                 other=0.0,
-            ).to(tl.float16)
+            ).to(x_ptr.dtype.element_ty)
         if KERNEL_WIDTH >= 5:
             col3 = tl.load(
                 prior_tokens + 3 * stride_conv_state_tok,
                 mask=lane_active & mask_w,
                 other=0.0,
-            ).to(tl.float16)
+            ).to(x_ptr.dtype.element_ty)
         if KERNEL_WIDTH >= 6:
             col4 = tl.load(
                 prior_tokens + 4 * stride_conv_state_tok,
                 mask=lane_active & mask_w,
                 other=0.0,
-            ).to(tl.float16)
+            ).to(x_ptr.dtype.element_ty)
 
         # -------------------------
         # STEP 2: chunked state update (replaces original NP2_STATELEN x BLOCK_N big block)
@@ -365,7 +365,7 @@ def _causal_conv1d_update_kernel_npu_tiled(
                     x_ptrs_1d = x_base_1d + idx_token * stride_x_token
                     matrix_x = tl.load(
                         x_ptrs_1d, mask=lane_active & mask_w, other=0.0
-                    ).to(tl.float16)
+                    ).to(x_ptr.dtype.element_ty)
                     matrix_w = w_col0
                 elif KERNEL_WIDTH == 2:
                     if j == 1:
@@ -373,7 +373,7 @@ def _causal_conv1d_update_kernel_npu_tiled(
                         x_ptrs_1d = x_base_1d + idx_token * stride_x_token
                         matrix_x = tl.load(
                             x_ptrs_1d, mask=lane_active & mask_w, other=0.0
-                        ).to(tl.float16)
+                        ).to(x_ptr.dtype.element_ty)
                 elif KERNEL_WIDTH == 3:
                     if j == 1:
                         matrix_w = w_col1
@@ -383,7 +383,7 @@ def _causal_conv1d_update_kernel_npu_tiled(
                         x_ptrs_1d = x_base_1d + idx_token * stride_x_token
                         matrix_x = tl.load(
                             x_ptrs_1d, mask=lane_active & mask_w, other=0.0
-                        ).to(tl.float16)
+                        ).to(x_ptr.dtype.element_ty)
                 elif KERNEL_WIDTH == 4:
                     if j == 1:
                         matrix_w = w_col1
@@ -396,7 +396,7 @@ def _causal_conv1d_update_kernel_npu_tiled(
                         x_ptrs_1d = x_base_1d + idx_token * stride_x_token
                         matrix_x = tl.load(
                             x_ptrs_1d, mask=lane_active & mask_w, other=0.0
-                        ).to(tl.float16)
+                        ).to(x_ptr.dtype.element_ty)
                 elif KERNEL_WIDTH == 5:
                     if j == 1:
                         matrix_w = w_col1
@@ -412,7 +412,7 @@ def _causal_conv1d_update_kernel_npu_tiled(
                         x_ptrs_1d = x_base_1d + idx_token * stride_x_token
                         matrix_x = tl.load(
                             x_ptrs_1d, mask=lane_active & mask_w, other=0.0
-                        ).to(tl.float16)
+                        ).to(x_ptr.dtype.element_ty)
                 elif KERNEL_WIDTH == 6:
                     if j == 1:
                         matrix_w = w_col1
@@ -431,14 +431,18 @@ def _causal_conv1d_update_kernel_npu_tiled(
                         x_ptrs_1d = x_base_1d + idx_token * stride_x_token
                         matrix_x = tl.load(
                             x_ptrs_1d, mask=lane_active & mask_w, other=0.0
-                        ).to(tl.float16)
+                        ).to(x_ptr.dtype.element_ty)
 
                 acc += matrix_x.to(tl.float32) * matrix_w  # [BLOCK_N]
 
             if HAS_BIAS:
                 acc += acc_bias
 
-            acc = acc.to(tl.float16, fp_downcast_rounding="rtne")
+            # Persist one BF16 convolution result per token before SiLU, just
+            # like the one-token decode path.
+            acc = acc.to(
+                x_ptr.dtype.element_ty, fp_downcast_rounding="rtne"
+            )
 
             # roll history window
             if KERNEL_WIDTH == 2:
@@ -1259,6 +1263,9 @@ def torch_causal_conv1d_update_npu(
     else:
         conv_state_update = hidden_states_new[:, :, -state_len:]
 
+    # The speculative Triton kernel performs the convolution in FP32 before
+    # persisting BF16 output. Use the same arithmetic for one-token decode so
+    # enabling speculative decoding does not change model numerics.
     out = torch.sum(
         hidden_states_new.to(torch.float32) * weight.to(torch.float32),
         dim=-1,

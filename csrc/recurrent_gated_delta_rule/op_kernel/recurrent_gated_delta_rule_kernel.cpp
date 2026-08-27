@@ -46,7 +46,7 @@ struct RGDRInitParams {
     GM_ADDR cacheIndices;
 };
 
-template <typename inType, typename outType>
+template <typename inType, typename stateType, typename outType>
 class RGDR
 {
 public:
@@ -96,15 +96,15 @@ public:
         mixqkvGm_.SetGlobalBuffer((__gm__ inType *)initParams.mixqkv);
         gamaGm_.SetGlobalBuffer((__gm__ float *)initParams.gama);
         betaGm_.SetGlobalBuffer((__gm__ inType *)initParams.beta);
-        initStateGm_.SetGlobalBuffer((__gm__ inType *)initParams.initState);
+        initStateGm_.SetGlobalBuffer((__gm__ stateType *)initParams.initState);
         cuSeqlensGm_.SetGlobalBuffer((__gm__ int32_t *)initParams.cuSeqlens);
         ssmStateIndicesGm_.SetGlobalBuffer((__gm__ int32_t *)initParams.ssmStateIndices);
         numAcceptedTokensGm_.SetGlobalBuffer((__gm__ int32_t *)initParams.numAcceptedTokens);
-        finalStateGm_.SetGlobalBuffer((__gm__ outType *)initParams.finalState);
+        finalStateGm_.SetGlobalBuffer((__gm__ stateType *)initParams.finalState);
         attnOutGm_.SetGlobalBuffer((__gm__ outType *)initParams.attnOut);
 
         if (hasIntermediateState_) {
-            recurrentStateGm_.SetGlobalBuffer((__gm__ inType *)initParams.recurrentState);
+            recurrentStateGm_.SetGlobalBuffer((__gm__ stateType *)initParams.recurrentState);
             cacheIndicesGm_.SetGlobalBuffer((__gm__ int32_t *)initParams.cacheIndices);
         }
     }
@@ -120,10 +120,10 @@ public:
 
         uint32_t inQSize = BUFFER_NUM * MAX_MTP * alignK_ * sizeof(inType);
         uint32_t inVSize = BUFFER_NUM * MAX_MTP * alignV_ * sizeof(inType);
-        uint32_t inStateSize = BUFFER_NUM * alignK_ * vStep_ * sizeof(inType);
+        uint32_t inStateSize = BUFFER_NUM * alignK_ * vStep_ * sizeof(stateType);
         uint32_t inGamaSize = BUFFER_NUM * MAX_MTP * NV_ * sizeof(float);
         uint32_t inBetaSize = BUFFER_NUM * MAX_MTP * NV_ * sizeof(inType);
-        uint32_t outStateSize = BUFFER_NUM * alignK_ * vStep_ * sizeof(outType);
+        uint32_t outStateSize = BUFFER_NUM * alignK_ * vStep_ * sizeof(stateType);
         uint32_t outAttnSize = BUFFER_NUM * vStep_ * sizeof(outType);
         uint32_t totalBufferSize = inQSize * 2 +   // Q and K queues (each double buffered)
                                    inVSize +       // V queue (double buffered)
@@ -144,8 +144,8 @@ public:
         vLocal =
             stageBuff.GetWithOffset<inType>(static_cast<uint32_t>(BUFFER_NUM * MAX_MTP * alignV_), totalBufferOffset);
         totalBufferOffset += inVSize;
-        stateLocal =
-            stageBuff.GetWithOffset<inType>(static_cast<uint32_t>(BUFFER_NUM * alignK_ * vStep_), totalBufferOffset);
+        stateLocal = stageBuff.GetWithOffset<stateType>(
+            static_cast<uint32_t>(BUFFER_NUM * alignK_ * vStep_), totalBufferOffset);
         totalBufferOffset += inStateSize;
         gamaLocal =
             stageBuff.GetWithOffset<float>(static_cast<uint32_t>(BUFFER_NUM * MAX_MTP * NV_), totalBufferOffset);
@@ -153,8 +153,8 @@ public:
         betaLocal =
             stageBuff.GetWithOffset<inType>(static_cast<uint32_t>(BUFFER_NUM * MAX_MTP * NV_), totalBufferOffset);
         totalBufferOffset += inBetaSize;
-        stateOutLocal =
-            stageBuff.GetWithOffset<inType>(static_cast<uint32_t>(BUFFER_NUM * alignK_ * vStep_), totalBufferOffset);
+        stateOutLocal = stageBuff.GetWithOffset<stateType>(
+            static_cast<uint32_t>(BUFFER_NUM * alignK_ * vStep_), totalBufferOffset);
         totalBufferOffset += outStateSize;
         attnOutLocal = stageBuff.GetWithOffset<inType>(static_cast<uint32_t>(BUFFER_NUM * vStep_), totalBufferOffset);
         pipe_->InitBuffer(tmpBuff, restUbSize_);
@@ -247,8 +247,8 @@ private:
     __aicore__ inline void CopyInState(uint64_t stateOffset, uint64_t recurrentOffset, uint32_t curSingleV)
     {
         DataCopyExtParams stateInParams{static_cast<uint16_t>(curSingleV),
-                                        static_cast<uint16_t>(realK_ * sizeof(inType)), 0, 0, 0};
-        DataCopyPadExtParams<inType> padParams{true, 0, static_cast<uint8_t>(alignK_ - realK_), 0};
+                                        static_cast<uint16_t>(realK_ * sizeof(stateType)), 0, 0, 0};
+        DataCopyPadExtParams<stateType> padParams{true, 0, static_cast<uint8_t>(alignK_ - realK_), 0};
 
         if (needRecurrentInit_) {
             DataCopyPad(stateLocal, recurrentStateGm_[recurrentOffset], stateInParams, padParams);
@@ -259,7 +259,11 @@ private:
         in_ready_Beta.set();
         in_ready_Beta.wait();
         AscendC::PipeBarrier<PIPE_V>();
-        Cast(stateInUb, stateLocal, AscendC::RoundMode::CAST_NONE, alignK_ * curSingleV);
+        if constexpr (IsSameType<stateType, float>::value) {
+            DataCopy(stateInUb, stateLocal, alignK_ * curSingleV);
+        } else {
+            Cast(stateInUb, stateLocal, AscendC::RoundMode::CAST_NONE, alignK_ * curSingleV);
+        }
         AscendC::PipeBarrier<PIPE_V>();
     }
 
@@ -433,6 +437,17 @@ private:
         uint32_t ktShape[2] = {1, alignK_};
         uint32_t deltaShape[2] = {curSingleV, 1};
 
+        out_empty_Attn.wait();
+        if (seq_i > seq0) {
+            if constexpr (IsSameType<stateType, float>::value) {
+                DataCopy(stateInUb, stateOutLocal, alignK_ * curSingleV);
+            } else {
+                // Match the BF16 state round-trip of one-token decode.
+                Cast(stateInUb, stateOutLocal, AscendC::RoundMode::CAST_NONE, alignK_ * curSingleV);
+            }
+            AscendC::PipeBarrier<PIPE_V>();
+        }
+
         {
             uint64_t gbOffset = head_i + (seq_i - seq0) * NV_;
             gama_ = hasGama_ ? gamaLocal.GetValue(gbOffset) : 1;
@@ -490,9 +505,11 @@ private:
             AscendC::PipeBarrier<PIPE_V>();
         }
 
-        out_empty_Attn.wait();
-
-        Cast(stateOutLocal, stateInUb, AscendC::RoundMode::CAST_RINT, alignK_ * curSingleV);
+        if constexpr (IsSameType<stateType, float>::value) {
+            DataCopy(stateOutLocal, stateInUb, alignK_ * curSingleV);
+        } else {
+            Cast(stateOutLocal, stateInUb, AscendC::RoundMode::CAST_RINT, alignK_ * curSingleV);
+        }
 
         out_ready_Attn.set();
         out_ready_Attn.wait();
@@ -536,7 +553,7 @@ private:
     __aicore__ inline void CopyOutState(uint64_t stateOffset, uint32_t curSingleV)
     {
         DataCopyParams stateOutParams{static_cast<uint16_t>(curSingleV),
-                                      static_cast<uint16_t>(realK_ * sizeof(outType)), 0, 0};
+                                      static_cast<uint16_t>(realK_ * sizeof(stateType)), 0, 0};
 
         DataCopyPad(finalStateGm_[stateOffset], stateOutLocal, stateOutParams);
     }
@@ -600,13 +617,13 @@ private:
     GlobalTensor<inType> mixqkvGm_;
     GlobalTensor<inType> betaGm_;
     GlobalTensor<float> gamaGm_;
-    GlobalTensor<inType> initStateGm_;
+    GlobalTensor<stateType> initStateGm_;
     GlobalTensor<int32_t> cuSeqlensGm_;
     GlobalTensor<int32_t> ssmStateIndicesGm_;
     GlobalTensor<int32_t> numAcceptedTokensGm_;
-    GlobalTensor<outType> finalStateGm_;
+    GlobalTensor<stateType> finalStateGm_;
     GlobalTensor<outType> attnOutGm_;
-    GlobalTensor<inType> recurrentStateGm_;
+    GlobalTensor<stateType> recurrentStateGm_;
     GlobalTensor<int32_t> cacheIndicesGm_;
 
     TPipe *pipe_;
@@ -616,8 +633,8 @@ private:
     LocalTensor<inType> vLocal;
     LocalTensor<float> gamaLocal;
     LocalTensor<inType> betaLocal;
-    LocalTensor<inType> stateLocal;
-    LocalTensor<outType> stateOutLocal;
+    LocalTensor<stateType> stateLocal;
+    LocalTensor<stateType> stateOutLocal;
     LocalTensor<outType> attnOutLocal;
 
     TBuf<TPosition::VECCALC> tmpBuff;
@@ -676,13 +693,11 @@ extern "C" __global__ __aicore__ void recurrent_gated_delta_rule(
     GM_ADDR mixqkv, GM_ADDR beta, GM_ADDR initState, GM_ADDR cuSeqlens, GM_ADDR ssmStateIndices,
     GM_ADDR mtpRecurrentState, GM_ADDR cacheIndices, GM_ADDR g, GM_ADDR gk, GM_ADDR numAcceptedTokens, GM_ADDR out,
     GM_ADDR stateOut, uint32_t b, uint32_t s, uint32_t nk, uint32_t dk, uint32_t nv, uint32_t dv,
-    bool hasIntermediateState, bool hasAcceptedTokens, bool hasGama, uint32_t vStep, uint32_t ubRestBytes, float scale)
+    bool hasIntermediateState, bool hasAcceptedTokens, bool hasGama, bool stateIsFloat, uint32_t vStep,
+    uint32_t ubRestBytes, float scale)
 {
     KERNEL_TASK_TYPE_DEFAULT(KERNEL_TYPE_AIV_ONLY);
     TPipe pipe;
-
-    RGDR<bfloat16_t, bfloat16_t> op(b, s, nk, dk, nv, dv, hasIntermediateState, hasAcceptedTokens, hasGama, vStep,
-                                    ubRestBytes, scale);
 
     RGDRInitParams initParams{
         mixqkv,
@@ -698,8 +713,17 @@ extern "C" __global__ __aicore__ void recurrent_gated_delta_rule(
         cacheIndices,
     };
 
-    op.Init(initParams, &pipe);
-    op.Process();
+    if (stateIsFloat) {
+        RGDR<bfloat16_t, float, bfloat16_t> op(b, s, nk, dk, nv, dv, hasIntermediateState, hasAcceptedTokens,
+                                              hasGama, vStep, ubRestBytes, scale);
+        op.Init(initParams, &pipe);
+        op.Process();
+    } else {
+        RGDR<bfloat16_t, bfloat16_t, bfloat16_t> op(b, s, nk, dk, nv, dv, hasIntermediateState,
+                                                   hasAcceptedTokens, hasGama, vStep, ubRestBytes, scale);
+        op.Init(initParams, &pipe);
+        op.Process();
+    }
 }
 
 #endif

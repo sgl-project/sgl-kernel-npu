@@ -6,6 +6,7 @@ import torch
 from sgl_kernel_npu.mamba.mamba_state_update_triton import (
     conv_state_rollback,
     move_intermediate_cache,
+    move_intermediate_cache_kda,
 )
 
 device = "npu"
@@ -102,6 +103,33 @@ def test_conv_state_rollback(
     assert_close("conv_state", gt_states, result_states, 1e-3)
 
 
+@torch.no_grad
+def test_conv_state_rollback_updates_noncontiguous_view_in_place():
+    L, S, D, W, N = 2, 5, 4, 6, 64
+    storage = torch.arange(
+        L * S * N * W, device=device, dtype=torch.int64
+    ).reshape(L, S, N, W)
+    storage = (storage % 2048).to(torch.bfloat16)
+    conv_states = storage.transpose(-1, -2)
+    assert not conv_states.is_contiguous()
+
+    expected_storage = storage.clone()
+    expected = expected_storage.transpose(-1, -2)
+    original = expected.clone()
+    state_indices = torch.tensor([0, 2, 4], device=device, dtype=torch.int32)
+    step_indices = torch.tensor([0, 2, 3], device=device, dtype=torch.int32)
+    for state_idx, step_idx in zip(state_indices.tolist(), step_indices.tolist()):
+        shift = (D - 1) - step_idx
+        if shift > 0:
+            expected[:, state_idx, shift:] = original[:, state_idx, :-shift]
+
+    result = conv_state_rollback(conv_states, state_indices, step_indices, D)
+
+    assert result.data_ptr() == conv_states.data_ptr()
+    assert result.stride() == conv_states.stride()
+    assert torch.equal(storage, expected_storage)
+
+
 @pytest.mark.parametrize(
     ("L", "S", "D", "H", "V", "K", "num_valid", "dtype"),
     [
@@ -164,6 +192,39 @@ def test_move_intermediate_cache(
     assert_close("move_cache", dst_cache, dst_cache_clone, 1e-3)
 
 
+@torch.no_grad
+def test_move_intermediate_cache_a2_real_shape():
+    """Validate the float32 Qwen3.6 tile and its NPU physical state layout."""
+    torch.manual_seed(42)
+    # UB usage depends on H/V/K; keep the outer dimensions small for this regression.
+    L, S, D, H, V, K = 1, 4, 4, 8, 128, 128
+    dst_storage = torch.randn(L, S, H, V, K, device=device, dtype=torch.float32)
+    dst_cache = dst_storage.transpose(-1, -2)
+    assert not dst_cache.is_contiguous()
+    expected_storage = dst_storage.clone()
+    src_cache = torch.randn(
+        L, S, D, H, V, K, device=device, dtype=torch.float32
+    )
+    dst_indices = torch.tensor([0, 3], device=device, dtype=torch.int32)
+    src_indices = torch.tensor([0, 1], device=device, dtype=torch.int32)
+    last_steps = torch.tensor([0, 3], device=device, dtype=torch.int32)
+    expected_storage[:, dst_indices.to(torch.int64)] = src_cache[
+        :, src_indices.to(torch.int64), last_steps.to(torch.int64)
+    ]
+
+    move_intermediate_cache(
+        dst_cache,
+        src_cache,
+        dst_indices,
+        src_indices,
+        last_steps,
+    )
+
+    assert_close(
+        "move_cache_a2_real_shape", expected_storage, dst_storage, 1e-3
+    )
+
+
 @pytest.mark.parametrize("V", [65, 128, 129])
 @torch.no_grad
 def test_move_intermediate_cache_copies_every_v_tile(V: int):
@@ -206,7 +267,7 @@ def test_move_intermediate_cache_copies_every_v_tile(V: int):
 
 
 @torch.no_grad
-def test_move_intermediate_cache_mask_and_destination_strides():
+def test_move_intermediate_cache_kda_mask_and_destination_strides():
     """Masked rows stay unchanged and destination H/V/K strides are honored."""
     L, S, D, H, V, K = 2, 4, 3, 2, 128, 16
     src_cache = torch.randn(L, S, D, H, V, K, device=device, dtype=torch.bfloat16)
@@ -229,7 +290,7 @@ def test_move_intermediate_cache_mask_and_destination_strides():
         :, src_indices[[0, 2]].long(), last_steps[[0, 2]].long()
     ]
 
-    move_intermediate_cache(
+    move_intermediate_cache_kda(
         dst_cache,
         src_cache,
         dst_indices,

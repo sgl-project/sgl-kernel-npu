@@ -10,7 +10,7 @@ logger = logging.getLogger("TestScript")
 torch.manual_seed(42)
 
 
-def test_speculative_fp16_matches_sequential_decode():
+def _test_speculative_matches_sequential_decode(dtype: torch.dtype):
     from sgl_kernel_npu.mamba.causal_conv1d import (
         causal_conv1d_update_npu,
         causal_conv1d_update_v2,
@@ -19,10 +19,14 @@ def test_speculative_fp16_matches_sequential_decode():
     torch.npu.set_device("npu:0")
     torch.manual_seed(42)
     batch_size, steps, dim, width = 1, 4, 1024, 4
-    x = torch.randn(batch_size, steps, dim, device="npu", dtype=torch.float16)
-    weight = torch.randn(dim, width, device="npu", dtype=torch.float16)
-    bias = torch.randn(dim, device="npu", dtype=torch.float16)
-    history = torch.randn(batch_size, width - 1, dim, device="npu", dtype=torch.float16)
+    x = torch.randn(
+        batch_size, steps, dim, device="npu", dtype=dtype
+    )
+    weight = torch.randn(dim, width, device="npu", dtype=dtype)
+    bias = torch.randn(dim, device="npu", dtype=dtype)
+    history = torch.randn(
+        batch_size, width - 1, dim, device="npu", dtype=dtype
+    )
     cache_indices = torch.tensor([0], device="npu", dtype=torch.int32)
 
     speculative_state = torch.zeros(
@@ -30,7 +34,7 @@ def test_speculative_fp16_matches_sequential_decode():
         width - 1 + steps - 1,
         dim,
         device="npu",
-        dtype=torch.float16,
+        dtype=dtype,
     )
     speculative_state[:, -(width - 1) :] = history
     speculative_output = causal_conv1d_update_v2(
@@ -40,7 +44,9 @@ def test_speculative_fp16_matches_sequential_decode():
         bias=bias,
         activation="silu",
         conv_state_indices=cache_indices,
-        num_accepted_tokens=torch.tensor([steps], device="npu", dtype=torch.int32),
+        num_accepted_tokens=torch.tensor(
+            [steps], device="npu", dtype=torch.int32
+        ),
         pad_slot_id=-1,
     )
 
@@ -60,13 +66,23 @@ def test_speculative_fp16_matches_sequential_decode():
         dim=1,
     )
 
-    torch.testing.assert_close(speculative_output, sequential_output, rtol=0, atol=0)
+    torch.testing.assert_close(
+        speculative_output, sequential_output, rtol=0, atol=0
+    )
     torch.testing.assert_close(
         speculative_state[:, -(width - 1) :],
         sequential_state.transpose(1, 2),
         rtol=0,
         atol=0,
     )
+
+
+def test_speculative_fp16_matches_sequential_decode():
+    _test_speculative_matches_sequential_decode(torch.float16)
+
+
+def test_speculative_bf16_matches_sequential_decode():
+    _test_speculative_matches_sequential_decode(torch.bfloat16)
 
 
 # ==========================================

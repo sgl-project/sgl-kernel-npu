@@ -4,6 +4,7 @@ import shutil
 import time
 
 import numpy as np
+import pytest
 import sgl_kernel_npu
 import torch
 import torch_npu
@@ -407,6 +408,81 @@ class TestCase:
             visualize_error_flatline_ansi(self.out_npu, self.out_golden)
             visualize_error_flatline_ansi(self.state_npu, self.state_golden)
             return False
+
+
+@pytest.mark.parametrize("state_dtype", [torch.bfloat16, torch.float32])
+def test_mtp_matches_sequential_decode(state_dtype):
+    """MTP must preserve the configured per-token state dtype of decode."""
+    torch.npu.set_device("npu:0")
+    torch.manual_seed(42)
+    batch_size, steps, nk, nv, dk, dv = 1, 4, 4, 8, 128, 128
+
+    q = torch.rand(
+        batch_size, steps, nk, dk, dtype=torch.bfloat16, device="npu"
+    )
+    k = torch.rand_like(q)
+    v = torch.rand(
+        batch_size, steps, nv, dv, dtype=torch.bfloat16, device="npu"
+    )
+    mix_qkv = torch.cat(
+        [q.flatten(2), k.flatten(2), v.flatten(2)], dim=-1
+    ).contiguous()
+    beta = torch.rand(
+        batch_size, steps, nv, dtype=torch.bfloat16, device="npu"
+    )
+    g = -torch.rand(batch_size, steps, nv, dtype=torch.float32, device="npu")
+    initial_state = torch.rand(
+        batch_size, nv, dv, dk, dtype=state_dtype, device="npu"
+    )
+    scale = dk**-0.5
+
+    intermediate = torch.empty(
+        batch_size, steps, nv, dv, dk, dtype=state_dtype, device="npu"
+    )
+    mtp_output = torch.ops.npu.recurrent_gated_delta_rule(
+        mix_qkv,
+        initial_state.clone(),
+        beta=beta,
+        scale=scale,
+        actual_seq_lengths=torch.tensor([steps], dtype=torch.int32, device="npu"),
+        ssm_state_indices=torch.arange(
+            steps, dtype=torch.int32, device="npu"
+        ).view(1, steps),
+        nk=nk,
+        nv=nv,
+        intermediate_state=intermediate.view(-1, nv, dv, dk),
+        cache_indices=torch.tensor([0], dtype=torch.int32, device="npu"),
+        num_accepted_tokens=torch.tensor([1], dtype=torch.int32, device="npu"),
+        g=g,
+    )
+
+    sequential_state = initial_state.clone()
+    sequential_outputs = []
+    sequential_states = []
+    one = torch.tensor([1], dtype=torch.int32, device="npu")
+    state_index = torch.zeros((1, 1), dtype=torch.int32, device="npu")
+    for step in range(steps):
+        sequential_outputs.append(
+            torch.ops.npu.recurrent_gated_delta_rule(
+                mix_qkv[:, step : step + 1],
+                sequential_state,
+                beta=beta[:, step : step + 1],
+                scale=scale,
+                actual_seq_lengths=one,
+                ssm_state_indices=state_index,
+                nk=nk,
+                nv=nv,
+                g=g[:, step : step + 1],
+            )
+        )
+        sequential_states.append(sequential_state[0].clone())
+
+    torch.testing.assert_close(
+        mtp_output, torch.cat(sequential_outputs, dim=1), rtol=0, atol=0
+    )
+    torch.testing.assert_close(
+        intermediate[0], torch.stack(sequential_states), rtol=0, atol=0
+    )
 
 
 def compatible_cases():

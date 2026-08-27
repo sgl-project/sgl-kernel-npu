@@ -40,6 +40,10 @@ HOST_API at::Tensor recurrent_gated_delta_rule(at::Tensor &mix_qkv, at::Tensor &
 {
     TORCH_CHECK(mix_qkv.defined(), "MixQKV tensor must be defined");
     TORCH_CHECK(recurrent_state.defined(), "State tensor must be defined");
+    TORCH_CHECK(mix_qkv.scalar_type() == at::kBFloat16, "MixQKV must be bfloat16");
+    TORCH_CHECK(
+        recurrent_state.scalar_type() == at::kBFloat16 || recurrent_state.scalar_type() == at::kFloat,
+        "State must be bfloat16 or float32");
 
     TORCH_CHECK(mix_qkv.dim() == 3, "MixQKV must be 3-dimensional (B, S, D)");
     TORCH_CHECK(recurrent_state.dim() == 4, "State must be 4-dimensional (N, nv, dv, dk)");
@@ -88,6 +92,8 @@ HOST_API at::Tensor recurrent_gated_delta_rule(at::Tensor &mix_qkv, at::Tensor &
     int64_t aNv = ceilAlign(nv, ALIGN_SIZE);
     int64_t aDv = ceilAlign(dv, ALIGN_SIZE);
     int64_t aDk = ceilAlign(dk, ALIGN_SIZE);
+    bool stateIsFloat = recurrent_state.scalar_type() == at::kFloat;
+    int64_t stateElementBytes = stateIsFloat ? sizeof(float) : sizeof(at::BFloat16);
 
     int64_t usedUbBytes = MAX_MTP * (4 * aDk + 2 * aDv);  // 4 for qLocal & kLocal, 2 for vLocal
     usedUbBytes += 128;                                   // reserve 128 Bytes
@@ -96,7 +102,7 @@ HOST_API at::Tensor recurrent_gated_delta_rule(at::Tensor &mix_qkv, at::Tensor &
     int64_t ubRestBytes = ubSize - usedUbBytes;
 
     usedUbBytes += MAX_MTP * (8 * aDk + 4 * aDv + 4 * aNv);  // 8 for qk in ub, 4 for v in ub, 4 for beta in ub
-    int64_t coeff = (2 + 2) * aDk + 4;                       // 2 for stateLocal, stateOutLocal, 4 for attnOutLocal
+    int64_t coeff = (stateElementBytes + stateElementBytes) * aDk + 4;
     coeff += (4 + 4) * aDk + 4 + 4;                          // 4 for qInUb, kInUb, vInUb, deltaInUb, attnInUb
 
     int64_t vStep = (ubSize - usedUbBytes) / coeff / 8 * 8;  // 8 * sizeof(float) = 32
@@ -107,7 +113,7 @@ HOST_API at::Tensor recurrent_gated_delta_rule(at::Tensor &mix_qkv, at::Tensor &
 
     int64_t rptime = ceilDiv(dv, static_cast<uint32_t>(vStep));
     vStep = ceilAlign(ceilDiv(dv, static_cast<uint32_t>(rptime)), 8);  // 8 * sizeof(float) = 32
-    ubRestBytes -= ((2 + 2) * aDk + 4) * vStep;  // 2 for stateLocal, stateOutLocal, 4 for attnOutLocal
+    ubRestBytes -= ((stateElementBytes + stateElementBytes) * aDk + 4) * vStep;
 
     // ===================== optional inputs =====================
 
@@ -123,6 +129,8 @@ HOST_API at::Tensor recurrent_gated_delta_rule(at::Tensor &mix_qkv, at::Tensor &
 
     if (intermediate_state_opt.has_value() && intermediate_state_opt.value().defined()) {
         hasIntermediateState = true;
+        TORCH_CHECK(intermediate_state_opt.value().scalar_type() == recurrent_state.scalar_type(),
+                    "Intermediate state dtype must match recurrent state dtype");
         intermediate_state_tensor = intermediate_state_opt.value().contiguous();
         intermediateStatePtr = intermediate_state_tensor.data_ptr();
 
@@ -176,8 +184,8 @@ HOST_API at::Tensor recurrent_gated_delta_rule(at::Tensor &mix_qkv, at::Tensor &
 
     EXEC_KERNEL_CMD(recurrent_gated_delta_rule, coreNum, mix_qkv, beta, initStatePtr, actual_seq_lengths,
                     ssm_state_indices, mtpRecurrentStatePtr, cacheIndicesPtr, gPtr, gkPtr, numAcceptedTokensPtr, output,
-                    stateOutPtr, b, s, nk, dk, nv, dv, hasIntermediateState, hasAcceptedTokens, hasGama, vStep,
-                    ubRestBytes, scale);
+                    stateOutPtr, b, s, nk, dk, nv, dv, hasIntermediateState, hasAcceptedTokens, hasGama, stateIsFloat,
+                    vStep, ubRestBytes, scale);
 
     return output;
 }
