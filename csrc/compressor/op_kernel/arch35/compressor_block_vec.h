@@ -18,11 +18,13 @@
 
 #include "compressor_comm.h"
 #include "compressor_tools.h"
+#if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
 #include "vf/vf_softmax.h"
 #include "vf/vf_add.h"
 #include "vf/vf_mul.h"
 #include "vf/vf_rms_norm.h"
 #include "vf/vf_rope.h"
+#endif
 
 
 using namespace AscendC;
@@ -933,9 +935,11 @@ template <typename COMP>
 __aicore__ inline void CompressorBlockVector<COMP>::SoftmaxDN(const LocalTensor<T> &scoreLocal, uint32_t tcDealSize,
                                                               uint32_t dDealSize)
 {
+#if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
     float minValue = -2e38;
     uint32_t ReduceSize = coff_ * cmpRatio_;
     FaVectorApi::SoftmaxDnVF<T>(scoreLocal, scoreLocal, dDealSize, ReduceSize, tcDealSize, minValue, dDealSize);
+#endif
 }
 
 template <typename COMP>

@@ -101,6 +101,18 @@ void sgemmc_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
 at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask,
                                c10::optional<at::Tensor> indices);
 
+at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv,
+                      const at::Tensor &wgate, at::Tensor &state_cache,
+                      const at::Tensor &ape, const at::Tensor &norm_weight,
+                      const at::Tensor &rope_sin, const at::Tensor &rope_cos,
+                      const c10::optional<at::Tensor> &state_block_table,
+                      const c10::optional<at::Tensor> &cu_seqlens,
+                      const c10::optional<at::Tensor> &seqused,
+                      const c10::optional<at::Tensor> &start_pos,
+                      int64_t rope_head_dim, int64_t cmp_ratio, int64_t coff,
+                      double norm_eps, int64_t rotary_mode, int64_t cache_mode,
+                      int64_t state_cache_stride_dim0);
+
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
 std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>
 mla_preprocess(const at::Tensor &hiddenState, const at::Tensor &gamma0,

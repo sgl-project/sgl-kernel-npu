@@ -29,8 +29,8 @@ namespace Compressor {
 template <typename COMP>
 class CompressorKernelFullLoad {
 public:
-    __aicore__ inline CompressorKernelFullLoad(TPipe* pipe, const optiling::CompressorTilingData* __restrict tilingData)
-        : pipe_(pipe), tilingData_(tilingData) {}
+    __aicore__ inline CompressorKernelFullLoad(TPipe* pipe, const __gm__ optiling::CompressorTilingData* __restrict tilingData)
+    : pipe_(pipe), tilingData_(tilingData) {}
 
     __aicore__ inline void Init(
         __gm__ uint8_t *x,
@@ -88,7 +88,7 @@ private:
 
     // ==============================TilingData&TPipe==============================
     TPipe* pipe_;
-    const optiling::CompressorTilingData* __restrict tilingData_;
+    const __gm__ optiling::CompressorTilingData* __restrict tilingData_;
     // ===========================Workspace Global Tensor===========================
     GlobalTensor<MM1_OUT_T> mm1KvResGm;
     GlobalTensor<MM1_OUT_T> mm1ScoreResGm;
