@@ -292,7 +292,7 @@ private:
     uint32_t sendToSharedExpTokenCnt_{0};
     uint32_t maxSize_{0};
     uint32_t bufferNum_{0};
-    uint32_t baseWindSize_{0};
+    uint64_t baseWindSize_{0};
     uint32_t copyInAxisH_{0};
     uint32_t copyOutAxisH_{0};
     __gm__ HcclOpParam *winContext_[COMM_NUM]{nullptr, nullptr};
@@ -474,7 +474,7 @@ __aicore__ inline void MoeDistributeDispatchV2A5<TemplateMC2TypeFunc>::Init(
     tpipe_->InitBuffer(statusBuf_, statusBufSize);
     totalUsedUB_ += statusBufSize;
     statusTensor_ = statusBuf_.Get<int32_t>();  // 保存发送数据量及flag，同时用于计算windows中的偏移
-    Duplicate<int32_t>(statusTensor_, 0, recvWinBlockNum_ * 8);  // 8 = UB_ALIGN / sizeof(int32_t)
+    Duplicate<int32_t>(statusTensor_, 0, statusBufCntAlign * 8);  // 8 = UB_ALIGN / sizeof(int32_t)
     statusSpaceGm_ = GetWindStateAddrByRankId(COMM_EP_IDX, epRankIdOriginal_);
 #if defined(ASCENDC_OOM) && ASCENDC_OOM == 1
     for (int tempepRankId = 0; tempepRankId < epWorldSize_; tempepRankId++) {

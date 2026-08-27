@@ -10,6 +10,9 @@ import torch_npu
 import torchair as tng
 from torchair.configs.compiler_config import CompilerConfig
 from torchair.core.utils import logger
+from utils import require_npu_op
+
+pytestmark = require_npu_op("recurrent_gated_delta_rule")
 
 EPSILON_FOR_DIVISION = 1e-9
 # Global Configuration

@@ -61,7 +61,7 @@ aclnnStatus aclnnMoeLowLatencyDispatchV2GetWorkspaceSize(
         return ACLNN_ERR_INNER_NULLPTR;
     }
     if (NnopbaseSetHcclServerType) {
-        if (std::strcmp(commAlg, "ccu") == 0) {
+        if (commAlg != nullptr && std::strcmp(commAlg, "ccu") == 0) {
             NnopbaseSetHcclServerType(*executor, NNOPBASE_HCCL_SERVER_TYPE_CCU);
         } else {
             NnopbaseSetHcclServerType(*executor, NNOPBASE_HCCL_SERVER_TYPE_MTE);

@@ -402,6 +402,11 @@ inline ge::graphStatus CheckSharedExpertXShape(const gert::TilingContext *contex
     if (sharedExpertXShape == nullptr) {
         return ge::GRAPH_SUCCESS;
     }
+    OP_TILING_CHECK(((sharedExpertXShape->GetStorageShape().GetDimNum() != TWO_DIMS) &&
+                     (sharedExpertXShape->GetStorageShape().GetDimNum() != THREE_DIMS)),
+                    OP_LOGE(nodeName, "sharedExpertX must be 2-dimension or 3-dimension, but got %lu dim",
+                            sharedExpertXShape->GetStorageShape().GetDimNum()),
+                    return ge::GRAPH_FAILED);
     int64_t sharedExpertXDim0 = sharedExpertXShape->GetStorageShape().GetDim(0);
     int64_t sharedExpertXDim1 = sharedExpertXShape->GetStorageShape().GetDim(1);
     if (sharedExpertXShape->GetStorageShape().GetDimNum() == TWO_DIMS) {

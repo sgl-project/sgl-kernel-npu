@@ -194,7 +194,7 @@ jobs:
           git checkout bcc6304
           env -i PATH=${PATH} bash --login -c "
             pip install packaging
-            bash build.sh --pkg --experimental --soc=ascend950 --ops=\"quant_lightning_indexer,quant_lightning_indexer_metadata,compressor,kv_quant_sparse_attn_sharedkv,kv_quant_sparse_attn_sharedkv_metadata,kv-compressor_epilog\"
+            bash build.sh --pkg --experimental --soc=ascend950 --ops=\"quant_lightning_indexer,quant_lightning_indexer_metadata,compressor,kv_quant_sparse_attn_sharedkv,kv_quant_sparse_attn_sharedkv_metadata,kv-compressor_epilog,hc_post,inplace_partial_rotary_mul,indexer_compress_epilog,moe_gating_top_k\"
           "
 
       - name: Pack up packages
