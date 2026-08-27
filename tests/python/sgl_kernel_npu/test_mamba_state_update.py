@@ -102,6 +102,33 @@ def test_conv_state_rollback(
     assert_close("conv_state", gt_states, result_states, 1e-3)
 
 
+@torch.no_grad
+def test_conv_state_rollback_updates_noncontiguous_view_in_place():
+    L, S, D, W, N = 2, 5, 4, 6, 64
+    storage = torch.arange(L * S * N * W, device=device, dtype=torch.int64).reshape(
+        L, S, N, W
+    )
+    storage = (storage % 2048).to(torch.bfloat16)
+    conv_states = storage.transpose(-1, -2)
+    assert not conv_states.is_contiguous()
+
+    expected_storage = storage.clone()
+    expected = expected_storage.transpose(-1, -2)
+    original = expected.clone()
+    state_indices = torch.tensor([0, 2, 4], device=device, dtype=torch.int32)
+    step_indices = torch.tensor([0, 2, 3], device=device, dtype=torch.int32)
+    for state_idx, step_idx in zip(state_indices.tolist(), step_indices.tolist()):
+        shift = (D - 1) - step_idx
+        if shift > 0:
+            expected[:, state_idx, shift:] = original[:, state_idx, :-shift]
+
+    result = conv_state_rollback(conv_states, state_indices, step_indices, D)
+
+    assert result.data_ptr() == conv_states.data_ptr()
+    assert result.stride() == conv_states.stride()
+    assert torch.equal(storage, expected_storage)
+
+
 @pytest.mark.parametrize(
     ("L", "S", "D", "H", "V", "K", "num_valid", "dtype"),
     [
@@ -206,8 +233,8 @@ def test_move_intermediate_cache_copies_every_v_tile(V: int):
 
 
 @torch.no_grad
-def test_move_intermediate_cache_mask_and_destination_strides():
-    """Masked rows stay unchanged and destination H/V/K strides are honored."""
+def test_move_intermediate_cache_mask_and_physical_layout():
+    """Masked rows stay unchanged and state data is copied in physical order."""
     L, S, D, H, V, K = 2, 4, 3, 2, 128, 16
     src_cache = torch.randn(L, S, D, H, V, K, device=device, dtype=torch.bfloat16)
 
@@ -220,14 +247,14 @@ def test_move_intermediate_cache_mask_and_destination_strides():
     )
     dst_cache = dst_storage.transpose(-1, -2)
     assert not dst_cache.is_contiguous()
-    expected = dst_cache.clone()
+    expected_storage = dst_storage.clone()
 
     dst_indices = torch.tensor([0, 3, 5], device=device, dtype=torch.int32)
     src_indices = torch.tensor([1, 2, 3], device=device, dtype=torch.int32)
     last_steps = torch.tensor([2, -1, 0], device=device, dtype=torch.int32)
-    expected[:, dst_indices[[0, 2]].long()] = src_cache[
+    expected_storage[:, dst_indices[[0, 2]].long()] = src_cache[
         :, src_indices[[0, 2]].long(), last_steps[[0, 2]].long()
-    ]
+    ].reshape(L, 2, H, K, V)
 
     move_intermediate_cache(
         dst_cache,
@@ -237,5 +264,5 @@ def test_move_intermediate_cache_mask_and_destination_strides():
         last_steps,
     )
 
-    assert torch.equal(dst_cache, expected)
-    assert torch.all(dst_cache[:, dst_indices[1].long()] == -7)
+    assert torch.equal(dst_storage, expected_storage)
+    assert torch.all(dst_storage[:, dst_indices[1].long()] == -7)
