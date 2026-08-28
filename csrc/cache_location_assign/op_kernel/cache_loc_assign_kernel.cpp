@@ -124,18 +124,21 @@ private:
         AscendC::SetFlag<AscendC::HardEvent::MTE2_V>(eventIDMTE2TOV);
         AscendC::WaitFlag<AscendC::HardEvent::MTE2_V>(eventIDMTE2TOV);
 
-        AscendC::Cast(this->ubStartOffsetInt32, this->ubStartOffset, AscendC::RoundMode::CAST_NONE,
-                      this->offsetCountAlignInt64);
-        AscendC::Cast(this->ubEndOffsetInt32, this->ubEndOffset, AscendC::RoundMode::CAST_NONE,
-                      this->offsetCountAlignInt64);
-        this->ubCacheLength = this->ubEndOffsetInt32 - this->ubStartOffsetInt32;
+        AscendC::Cast(this->ubStartOffsetInt32, this->ubStartOffset, AscendC::RoundMode::CAST_NONE, this->batchSize);
+        AscendC::Cast(this->ubEndOffsetInt32, this->ubEndOffset, AscendC::RoundMode::CAST_NONE, this->batchSize);
+        AscendC::Sub(this->ubCacheLength, this->ubEndOffsetInt32, this->ubStartOffsetInt32, this->batchSize);
     }
 
     __aicore__ inline void CopyIn(uint64_t rowIdx, uint64_t reqIdx)
     {
         AscendC::LocalTensor<int32_t> tokenPoolLocal = this->inQueue1.template AllocTensor<int32_t>();
         int64_t start = this->ubStartOffset.GetValue(rowIdx);
-        AscendC::DataCopy(tokenPoolLocal, tokenPoolGM[reqIdx * this->rowSize + start], this->tokenCountAlignInt32);
+        // tokenPoolGM[reqIdx * rowSize + start] 的 GM 地址不保证 32B 对齐，
+        // 必须使用 DataCopyPad 而非 DataCopy（DataCopy 要求源地址 32B 对齐，否则触发向量/标量异常）。
+        uint32_t tokenBytes = static_cast<uint32_t>(this->tokenCountAlignInt32 * sizeof(int32_t));
+        AscendC::DataCopyExtParams copyParams{1, tokenBytes, 0, 0, 0};
+        AscendC::DataCopyPadExtParams<int32_t> padParams{false, 0, 0, 0};
+        AscendC::DataCopyPad(tokenPoolLocal, tokenPoolGM[reqIdx * this->rowSize + start], copyParams, padParams);
         this->inQueue1.EnQue(tokenPoolLocal);
     }
 
