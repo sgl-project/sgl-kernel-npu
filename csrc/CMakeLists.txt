@@ -307,11 +307,14 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/stub
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host
 <<<<<<< HEAD
+<<<<<<< HEAD
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator
 =======
         ${PROJECT_OP_SRC_BASE}/compressor/op_host
         ${PROJECT_OP_SRC_BASE}/compressor/op_kernel
 >>>>>>> 2ade82a (feat(compressor): add arch35 (A5) kernel with dual-arch build)
+=======
+>>>>>>> 9d41131 (fix(compressor): remove duplicate compressor declaration in sgl_kenel_npu_ops.h)
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling
