@@ -74,7 +74,7 @@ SPECULATIVE_TESTS=(
 )
 
 MAMBA_TESTS=(
-    # test_conv1d_prefill.py  # FAILING: PyTorch 2.10.0 strict schema check
+    test_conv1d_prefill.py
     test_conv1d_update.py
     test_mamba_conv.py
     # test_mamba_state_update.py  # FAILING: move_intermediate_cache strided-dst exact mismatch

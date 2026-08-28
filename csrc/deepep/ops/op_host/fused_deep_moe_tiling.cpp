@@ -32,11 +32,12 @@ public:
     {
         uint16_t defaultWindowSize = 200;
         const char *hcclBuffSize = getenv("DEEPEP_HCCL_BUFFSIZE") == nullptr ? "HCCL_BUFFSIZE" : "DEEPEP_HCCL_BUFFSIZE";
-        if (getenv(hcclBuffSize) == nullptr) {
+        const char *envValue = getenv(hcclBuffSize);
+        if (envValue == nullptr) {
             OPS_LOG_D(nodeName, "Env HCCL_BUFFSIZE don't set");
         } else {
             try {
-                std::string envStr(getenv(hcclBuffSize));
+                std::string envStr(envValue);
                 defaultWindowSize = std::stoi(envStr);
             } catch (...) {
                 OPS_LOG_E(nodeName, "Unknown Exception encountered when parser env HCCL_BUFFERSIZE");

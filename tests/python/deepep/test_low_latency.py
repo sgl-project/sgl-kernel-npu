@@ -356,8 +356,10 @@ def test(
         )
         if not return_recv_hook:
             print(
-                f"[rank {rank}] Dispatch bandwidth: {num_dispatch_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, avg_t={dispatch_t * 1e6:.2f} us | "
-                f"Combine bandwidth: {num_combine_comm_bytes / 1e9 / combine_t:.2f} GB/s, avg_t={combine_t * 1e6:.2f} us",
+                f"[rank {rank}] Dispatch raw_bw={num_dispatch_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, "
+                f"equiv_bw={num_combine_comm_bytes / 1e9 / dispatch_t:.2f} GB/s, avg_t={dispatch_t * 1e6:.2f} us | "
+                f"Combine raw_bw={num_combine_comm_bytes / 1e9 / combine_t:.2f} GB/s, "
+                f"equiv_bw={num_combine_comm_bytes / 1e9 / combine_t:.2f} GB/s, avg_t={combine_t * 1e6:.2f} us",
                 flush=True,
             )
             calculate_avg_stats(
