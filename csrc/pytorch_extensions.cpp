@@ -101,9 +101,25 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
     m.def("apply_token_bitmask(Tensor logits, Tensor bitmask, Tensor? indices=None) -> Tensor");
 
     m.def(
+        "compressor(Tensor x, Tensor wkv, Tensor wgate, Tensor! state_cache, "
+        "Tensor ape, Tensor norm_weight, Tensor rope_sin, Tensor rope_cos, "
+        "Tensor? state_block_table=None, Tensor? cu_seqlens=None, Tensor? seqused=None, "
+        "Tensor? start_pos=None, int rope_head_dim=64, int cmp_ratio=4, int coff=1, "
+        "float norm_eps=1e-6, int rotary_mode=1, int cache_mode=1, "
+        "int state_cache_stride_dim0=0) -> Tensor");
+
+
+    m.def(
         "causal_conv1d_update(Tensor x, Tensor weight, Tensor(a!) conv_state, "
         "Tensor conv_state_indices, Tensor? bias=None, Tensor? num_accepted_tokens=None, "
         "Tensor? query_start_loc=None, bool activation_mode=False, int pad_slot_id=-1) -> Tensor");
+
+    m.def(
+        "lightning_indexer_v2(Tensor query, Tensor key, Tensor weights, Tensor? actual_seq_lengths_query=None, "
+        "Tensor? actual_seq_lengths_key=None, Tensor? block_table=None, "
+        "str? layout_query=None, str? layout_key=None, "
+        "int? sparse_count=None, int? sparse_mode=None, "
+        "int? pre_tokens=None, int? next_tokens=None, bool? return_values=None) -> (Tensor, Tensor)");
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.def(
@@ -165,14 +181,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int ori_mask_mode=4, int cmp_mask_mode=3, int ori_win_left=128, int ori_win_right=0, "
         "str layout_q='BSND', str layout_kv='PA_ND', "
         "bool return_softmax_lse=False) -> (Tensor, Tensor)");
-
-    m.def(
-        "compressor(Tensor x, Tensor wkv, Tensor wgate, Tensor! state_cache, "
-        "Tensor ape, Tensor norm_weight, Tensor rope_sin, Tensor rope_cos, "
-        "Tensor? state_block_table=None, Tensor? cu_seqlens=None, Tensor? seqused=None, "
-        "Tensor? start_pos=None, int rope_head_dim=64, int cmp_ratio=4, int coff=1, "
-        "float norm_eps=1e-6, int rotary_mode=1, int cache_mode=1, "
-        "int state_cache_stride_dim0=0) -> Tensor");
 
     m.def("triangular_inverse(Tensor x) -> Tensor");
 
@@ -274,6 +282,8 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
                                                                     bias_or_empty, num_accepted_or_empty,
                                                                     query_loc_or_empty, activation_mode, pad_slot_id);
            });
+
+    m.impl("lightning_indexer_v2", TORCH_FN(sglang::npu_kernel::lightning_indexer_v2));
 
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.impl("mla_preprocess", TORCH_FN(sglang::npu_kernel::mla_preprocess));

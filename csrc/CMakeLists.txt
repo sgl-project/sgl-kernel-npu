@@ -58,6 +58,8 @@ set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv_metadata/op_host/sparse_attn_sharedkv_metadata.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/sparse_attention_score.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling/sparse_attention_score_tiling.cpp
+    ${PROJECT_OP_SRC_BASE}/lightning_indexer_v2/op_host/lightning_indexer_v2.cpp
+    ${PROJECT_OP_SRC_BASE}/lightning_indexer_v2/op_host/tiling/lightning_indexer_v2_tiling.cpp
     )
 # A3-only host sources
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
@@ -193,6 +195,34 @@ if(BUILD_CATLASS_MODULE)
     set(CATLASS_WORKSPACE_KERNEL_TARGETS catlass_workspace_kernel)
 endif()
 
+# lightning_indexer_v2 gets its own AscendC target: it needs the upstream
+# per-op compile options (see vllm-ascend op_host/CMakeLists.txt), which in
+# AscendC apply to the whole target.
+ascendc_library(lightning_indexer_v2_kernel STATIC
+    ${PROJECT_OP_SRC_BASE}/lightning_indexer_v2/op_kernel/lightning_indexer_v2_kernel.cpp
+)
+ascendc_include_directories(lightning_indexer_v2_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/lightning_indexer_v2/op_kernel
+    ${PROJECT_OP_SRC_BASE}/utils/kernel
+)
+ascendc_compile_definitions(lightning_indexer_v2_kernel PRIVATE
+    -DHAVE_WORKSPACE
+    -DHAVE_TILING
+)
+ascendc_compile_options(lightning_indexer_v2_kernel PRIVATE
+    --cce-auto-sync=off
+    -Wno-deprecated-declarations
+    -mllvm
+    -cce-vf-remove-membar=false
+)
+# Upstream (vllm-ascend op_host/CMakeLists.txt) also passes
+#     -mllvm -cce-aicore-hoist-movemask=false
+# but CANN 9.1.0's bisheng rejects it as an unknown argument on both the A2/A3
+# and the Ascend950 toolchains, so it is dropped here. Upstream presumably
+# builds against a CANN version that has the option. If a future CANN adds it
+# back, restore it: it disables movemask hoisting, and upstream turning it off
+# suggests the optimisation is unwanted for this kernel.
+
 # Dedicated A3-only kernel targets. Keep these separate from workspace_kernel:
 # their compiler definitions/options apply to the whole AscendC target.
 set(A3_ONLY_KERNEL_TARGETS)
@@ -240,6 +270,7 @@ add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${A3_ONLY_KERNEL_TARGETS}
+        lightning_indexer_v2_kernel
         workspace_kernel
         no_workspace_kernel
         ${CATLASS_WORKSPACE_KERNEL_TARGETS}
@@ -272,6 +303,8 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling
+        ${PROJECT_OP_SRC_BASE}/lightning_indexer_v2/op_host
+        ${PROJECT_OP_SRC_BASE}/lightning_indexer_v2/op_host/tiling
         ${TORCH_DIR}/include
         ${TORCH_DIR}/include/torch/csrc/api/include
         ${TORCH_NPU_DIR}/include

@@ -281,6 +281,15 @@ public:
         return *this;
     }
 
+    AttrDef &Int64(int64_t value)
+    {
+        TORCH_CHECK(valueInitialized_ == false,
+                    "[GE_Helper] Cannot set default value for an attribute that has already been initialized.");
+        anyValue_ = value;
+        valueInitialized_ = true;
+        return *this;
+    }
+
     AttrDef &Float(float value)
     {
         TORCH_CHECK(valueInitialized_ == false,
@@ -413,6 +422,14 @@ public:
         auto dataType = (*descPtr)[index]->GetDataType();
         auto geTensor = std::make_shared<gert::Tensor>(shapePtr->back(), storageFormat, dataType);
         tensorPtr->push_back(geTensor);
+    }
+
+    // Must be called after SetToContext() and before RegisterTensor() for that index:
+    // RegisterTensor() snapshots the dtype from the desc into the gert::Tensor.
+    void OverrideInputDataType(uint32_t index, ge::DataType dataType)
+    {
+        TORCH_CHECK(index < inputDesc_.size(), "[GE_Helper] OverrideInputDataType index out of range");
+        inputDesc_[index]->SetDataType(dataType);
     }
 
     const gert::CompileTimeTensorDesc *GetInputDesc(uint32_t index) const
