@@ -133,7 +133,7 @@ jobs:
       - name: Run normal mode MXFP4
         timeout-minutes: 10
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=1 --num-tokens=20 --num-experts=4
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=1 --num-tokens=20 --num-experts=4 --num-topk=4
 
 #  test-all-build-moe:
 #    needs: get-changed-files
