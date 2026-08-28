@@ -34,6 +34,7 @@ namespace sglang {
 namespace npu_kernel {
 
 <<<<<<< HEAD
+<<<<<<< HEAD
 =======
 constexpr uint32_t MAX_CAPTURE_NUM = 1024;
 
@@ -125,6 +126,8 @@ std::mutex &GetTilingCacheMutex()
 }  // namespace
 
 >>>>>>> 2ade82a (feat(compressor): add arch35 (A5) kernel with dual-arch build)
+=======
+>>>>>>> b97dfd0 (fix(compressor): fix A5 tiling upload ordering and align test with request-bank layout)
 namespace {
 
 using namespace CompressorHost;

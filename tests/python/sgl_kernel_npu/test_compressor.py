@@ -17,6 +17,14 @@ DEVICE_ID = 0
 torch_npu.npu.set_device(int(DEVICE_ID))
 
 
+def _is_arch35():
+    """A5 (Ascend950) uses the request-bank cycle layout; A3 uses the explicit
+    per-token table. The two cache_mode=2 ABIs differ (see sglang's
+    ascend_dsv4_backend)."""
+    name = torch_npu.npu.get_device_name(0).lower()
+    return "950" in name
+
+
 def _softmax_columns(z):
     z_max = np.max(z, axis=0, keepdims=True)
     z_stable = z - z_max
@@ -103,13 +111,20 @@ def _read_state_page_cache(
     if cache_mode == 2:
         state_flat = state.reshape(-1, state.shape[-1])
         for offset in range(seq_cnt):
-            state_loc = _explicit_state_loc(
-                block_table,
-                b_idx,
-                start_seq_idx + offset,
-                batch_start_pos,
-                history_size,
-            )
+            if _is_arch35():
+                # A5 request-bank: one bank id per request, in-bank ring offset
+                # derived from the seq position (matches the arch35 kernel).
+                state_loc = int(block_table[b_idx]) * state.shape[1] + (
+                    (start_seq_idx + offset) % state.shape[1]
+                )
+            else:
+                state_loc = _explicit_state_loc(
+                    block_table,
+                    b_idx,
+                    start_seq_idx + offset,
+                    batch_start_pos,
+                    history_size,
+                )
             result[offset] = state_flat[state_loc, d_start:d_end]
         return result
     finish_cnt = 0
@@ -147,13 +162,18 @@ def _write_state_page_cache(
         state_flat = state.reshape(-1, state.shape[-1])
         update_flat = update_position.reshape(-1, update_position.shape[-1])
         for offset in range(seq_cnt):
-            state_loc = _explicit_state_loc(
-                block_table,
-                b_idx,
-                start_seq_idx + offset,
-                batch_start_pos,
-                history_size,
-            )
+            if _is_arch35():
+                state_loc = int(block_table[b_idx]) * state.shape[1] + (
+                    (start_seq_idx + offset) % state.shape[1]
+                )
+            else:
+                state_loc = _explicit_state_loc(
+                    block_table,
+                    b_idx,
+                    start_seq_idx + offset,
+                    batch_start_pos,
+                    history_size,
+                )
             state_flat[state_loc] = sc_new_state[offset]
             update_flat[state_loc] = True
         return
@@ -501,12 +521,19 @@ def _make_inputs(
     )
 
     if cache_mode == 2:
-        capacities = [seq_len] * batch
         history = coff * cmp_ratio
-        state_block_size = max(block_size, history + max(capacities, default=1) - 1, 1)
-        block_table, block_num, _ = _build_explicit_state_loc_table(
-            start_pos, capacities, state_block_size, coff, cmp_ratio, banks_per_batch=1
-        )
+        state_block_size = max(block_size, history + seq_len - 1, 1)
+        if _is_arch35():
+            # A5 request-bank: one bank id per request; the kernel derives the
+            # in-bank ring offset from seq position itself.
+            bank_ids = torch.arange(batch, dtype=torch.int32)
+            block_table = bank_ids
+            block_num = max(int(bank_ids.max().item()) + 1, batch)
+        else:
+            capacities = [seq_len] * batch
+            block_table, block_num, _ = _build_explicit_state_loc_table(
+                start_pos, capacities, state_block_size, coff, cmp_ratio, banks_per_batch=1
+            )
     else:
         max_block = (max(start_pos) + seq_len + block_size - 1) // block_size
         block_table = torch.zeros(batch, max_block, dtype=torch.int32)
