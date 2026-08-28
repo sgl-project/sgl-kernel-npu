@@ -1,5 +1,5 @@
 name: PR Test for SGL-KERNEL-NPU DeepEP (Ascend NPU)
-#6
+#7
 on:
   pull_request:
     branches: [ main ]
@@ -132,6 +132,8 @@ jobs:
 #          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=2 --num-tokens=256 --num-experts=32 --quant-type=mx_fp4_e2m1
       - name: Run normal mode MXFP4
         timeout-minutes: 10
+        env: 
+          ASCEND_GLOBAL_LOG_LEVEL: 1
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=1 --num-tokens=20 --num-experts=4 --num-topk=4
 
