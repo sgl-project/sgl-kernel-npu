@@ -15,6 +15,8 @@
 #include "tiling/platform/platform_ascendc.h"
 #include "torch_helper.h"
 
+#include <c10/core/InferenceMode.h>
+
 #include <stdexcept>
 
 constexpr ge::DataType SCALAR_TYPE_TO_GE_DATATYPE(at::ScalarType scalarType)
@@ -171,8 +173,17 @@ public:
 private:
     static void CopyTo_(const at::Tensor &destination, const T &tilingData, const std::string &opName)
     {
-        auto status = aclrtMemcpy(destination.data_ptr(), sizeof(T), &tilingData, sizeof(T), ACL_MEMCPY_HOST_TO_DEVICE);
-        TORCH_CHECK(status == ACL_ERROR_NONE, opName, ": failed to copy tiling data, acl error ", status);
+        // Upload via torch_npu dispatch (OpCommand) so the H2D copy is ordered on
+        // the same task queue as the surrounding graph / non-blocking ops. A raw
+        // aclrtMemcpy would bypass the queue and break stream ordering in graph mode.
+        auto cpuTiling = at::empty({static_cast<int64_t>(sizeof(T))}, at::kByte);
+        std::memcpy(cpuTiling.data_ptr(), &tilingData, sizeof(T));
+        auto deviceTiling = sglang::npu_kernel::TorchNpuHelper::CopyTensorHostToDevice(cpuTiling);
+        // The cached destination may be an inference tensor (created while the
+        // host ran under InferenceMode), so wrap the in-place update in an
+        // InferenceMode guard to allow it outside an inference context.
+        c10::InferenceMode guard(true);
+        destination.copy_(deviceTiling);
     }
     struct DeviceCache {
         at::Tensor buffer;
