@@ -945,7 +945,7 @@ ge::graphStatus MoeDistributeDispatchTilingImpl(gert::TilingContext *context)
     // Tiling implementation
     OP_TILING_CHECK(context == nullptr, OP_LOGE(OP_NAME, "Fail to get tiling context."), return ge::GRAPH_FAILED);
     const char *nodeName = context->GetNodeName();
-    OP_TILING_CHECK(nodeName == nullptr, OP_LOGE(nodeName, "Fail to get nodeName."), return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(nodeName == nullptr, OP_LOGE("unKnownNodeName", "Fail to get nodeName."), return ge::GRAPH_FAILED);
     OP_LOGD(nodeName, "Start MoeDistributeDispatch tiling.");
     MoeDistributeDispatchV2TilingData *tilingData = context->GetTilingData<MoeDistributeDispatchV2TilingData>();
     OP_TILING_CHECK(tilingData == nullptr, OP_LOGE(nodeName, "tilingData is nullptr."), return ge::GRAPH_FAILED);
