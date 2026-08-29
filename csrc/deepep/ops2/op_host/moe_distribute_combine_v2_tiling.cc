@@ -361,7 +361,10 @@ static bool CheckOptionalInputTensorDim(const gert::TilingContext *context, cons
     const gert::StorageShape *sharedExpertX = context->GetOptionalInputShape(SHARED_EXPERT_X_INDEX);
     if (sharedExpertX != nullptr) {
         auto attrs = context->GetAttrs();
+        OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "attrs is null."), return false);
         auto sharedExpertRankNumPtr = attrs->GetAttrPointer<int64_t>(ATTR_SHARED_EXPERT_RANK_NUM_INDEX);
+        OP_TILING_CHECK(sharedExpertRankNumPtr == nullptr, OP_LOGE(nodeName, "sharedExpertRankNum is null."),
+                        return false);
         OP_TILING_CHECK(*sharedExpertRankNumPtr != 0,
                         OP_LOGE(nodeName,
                                 "sharedExpertX only support input None "

@@ -129,8 +129,12 @@ inline ge::graphStatus CheckEpRankId(const gert::TilingContext *context)
 {
     auto attrs = context->GetAttrs();
     const char *nodeName = context->GetNodeName();
+    OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "The context attrs is null."), return ge::GRAPH_FAILED);
     auto epWorldSizePtr = attrs->GetAttrPointer<int64_t>(ATTRS_EP_WORLD_SIZE_INDEX);
     auto epRankIdPtr = attrs->GetAttrPointer<int64_t>(ATTRS_EP_RANK_ID_INDEX);
+    OP_TILING_CHECK(epWorldSizePtr == nullptr, OP_LOGE(nodeName, "The epWorldSizePtr is null."),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(epRankIdPtr == nullptr, OP_LOGE(nodeName, "The epRankIdPtr is null."), return ge::GRAPH_FAILED);
     OP_TILING_CHECK((*epRankIdPtr < 0) || (*epRankIdPtr >= *epWorldSizePtr),
                     OP_LOGE(nodeName, "The valid range of epRankId is [0, %ld), but actually got epRankId=%ld.",
                             *epWorldSizePtr, *epRankIdPtr),
@@ -142,9 +146,13 @@ inline ge::graphStatus CheckTpRankId(const gert::TilingContext *context)
 {
     auto attrs = context->GetAttrs();
     const char *nodeName = context->GetNodeName();
+    OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "The context attrs is null."), return ge::GRAPH_FAILED);
     auto tpWorldSizePtr = attrs->GetAttrPointer<int64_t>(ATTRS_TP_WORLD_SIZE_INDEX);
     auto tpRankIdPtr = attrs->GetAttrPointer<int64_t>(ATTRS_TP_RANK_ID_INDEX);
     auto groupTpPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTRS_GROUP_TP_INDEX));
+    OP_TILING_CHECK(tpWorldSizePtr == nullptr, OP_LOGE(nodeName, "The tpWorldSizePtr is null."),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(tpRankIdPtr == nullptr, OP_LOGE(nodeName, "The tpRankIdPtr is null."), return ge::GRAPH_FAILED);
     if (*tpWorldSizePtr > 1) {
         OP_TILING_CHECK((*tpRankIdPtr < 0) || (*tpRankIdPtr >= *tpWorldSizePtr),
                         OP_LOGE(nodeName, "The valid range of tpRankId is [0, %ld), but actually got tpRankId=%ld.",
@@ -171,10 +179,17 @@ inline ge::graphStatus CheckSharedExpertAttrs(const gert::TilingContext *context
 {
     auto attrs = context->GetAttrs();
     const char *nodeName = context->GetNodeName();
+    OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "The context attrs is null."), return ge::GRAPH_FAILED);
     auto sharedExpertRankNumPtr = attrs->GetAttrPointer<int64_t>(ATTRS_SHARED_EXPERT_RANK_NUM_INDEX);
     auto epWorldSizePtr = attrs->GetAttrPointer<int64_t>(ATTRS_EP_WORLD_SIZE_INDEX);
     auto sharedExpertNumPtr = attrs->GetAttrPointer<int64_t>(static_cast<int>(ATTRS_SHARED_EXPERT_NUM_INDEX));
 
+    OP_TILING_CHECK(sharedExpertRankNumPtr == nullptr, OP_LOGE(nodeName, "The sharedExpertRankNumPtr is null."),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(epWorldSizePtr == nullptr, OP_LOGE(nodeName, "The epWorldSizePtr is null."),
+                    return ge::GRAPH_FAILED);
+    OP_TILING_CHECK(sharedExpertNumPtr == nullptr, OP_LOGE(nodeName, "The sharedExpertNumPtr is null."),
+                    return ge::GRAPH_FAILED);
     OP_TILING_CHECK(
         (*sharedExpertRankNumPtr < 0) || (*sharedExpertRankNumPtr >= *epWorldSizePtr),
         OP_LOGE(nodeName,

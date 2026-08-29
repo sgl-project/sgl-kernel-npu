@@ -350,8 +350,14 @@ static ge::graphStatus GetContextAttrs(const gert::TilingContext *context, const
 inline uint32_t CheckQuantModeAndExpandXType(const gert::TilingContext *context, const char *nodeName)
 {
     auto attrs = context->GetAttrs();
+    OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "The attrs is nullptr."),
+                    return static_cast<uint32_t>(RealModeA5::INVALID_MODE));
     auto quantModePtr = attrs->GetAttrPointer<int64_t>(ATTR_QUANT_MODE_INDEX);
+    OP_TILING_CHECK(quantModePtr == nullptr, OP_LOGE(nodeName, "The quantModePtr is null."),
+                    return static_cast<uint32_t>(RealModeA5::INVALID_MODE));
     auto expandXDesc = context->GetOutputDesc(OUTPUT_EXPAND_X_INDEX);
+    OP_TILING_CHECK(expandXDesc == nullptr, OP_LOGE(nodeName, "Failed to get expandX datatype."),
+                    return static_cast<uint32_t>(RealModeA5::INVALID_MODE));
     QuantModeA5 quantMode = static_cast<QuantModeA5>(*quantModePtr);
     auto modeToFind = QUANT_MODE_MAP.find({quantMode, static_cast<ge::DataType>(expandXDesc->GetDataType())});
     OP_TILING_CHECK(modeToFind == QUANT_MODE_MAP.end(),
