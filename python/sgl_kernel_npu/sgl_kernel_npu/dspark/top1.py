@@ -35,9 +35,11 @@ def _select_local_top1_after_add_kernel(
             ).to(tl.float32)
             # F.linear and the base logits are BF16 on K3. Match eager's BF16
             # add rounding before comparing values, then reduce in FP32.
-            logits = (base + bias).to(
-                base_ptr.dtype.element_ty, fp_downcast_rounding="rtne"
-            ).to(tl.float32)
+            logits = (
+                (base + bias)
+                .to(base_ptr.dtype.element_ty, fp_downcast_rounding="rtne")
+                .to(tl.float32)
+            )
             chunk_value = tl.max(logits, axis=0)
             chunk_index = tl.argmax(logits, axis=0).to(tl.int64) + start
             # Strict comparison preserves the first (smallest) index on ties.
@@ -70,9 +72,7 @@ def _select_global_top1_kernel(
         other=VOCAB_SIZE,
     ).to(tl.int32)
     best_value = tl.max(values, axis=0)
-    best_token = tl.min(
-        tl.where(values == best_value, token_ids, VOCAB_SIZE), axis=0
-    )
+    best_token = tl.min(tl.where(values == best_value, token_ids, VOCAB_SIZE), axis=0)
     tl.store(output_ptr + row, best_token.to(tl.int64))
 
 

@@ -1,5 +1,4 @@
 import torch
-
 from sgl_kernel_npu.fla.kda_ragged import (
     gather_kda_verify_output_norm_npu,
     gather_kda_verify_output_npu,
@@ -46,9 +45,7 @@ def test_kda_ragged_io_matches_eager_under_graph_replay():
         graph_qkv, graph_a, graph_b = scatter_kda_verify_inputs_npu(
             qkv, a, b, query_start_loc, draft_token_num=steps
         )
-    query_start_loc.copy_(
-        torch.tensor([0, 2, 4], dtype=torch.int32, device=device)
-    )
+    query_start_loc.copy_(torch.tensor([0, 2, 4], dtype=torch.int32, device=device))
     qkv.copy_(torch.randn_like(qkv))
     a.copy_(torch.randn_like(a))
     b.copy_(torch.randn_like(b))
@@ -68,9 +65,7 @@ def test_kda_ragged_io_matches_eager_under_graph_replay():
     with torch.npu.graph(gather_graph):
         graph_indices = _dense_indices(query_start_loc, qkv.shape[0], steps)
         graph_packed = gather_kda_verify_output_npu(dense_output, graph_indices)
-    query_start_loc.copy_(
-        torch.tensor([0, 3, 4], dtype=torch.int32, device=device)
-    )
+    query_start_loc.copy_(torch.tensor([0, 3, 4], dtype=torch.int32, device=device))
     dense_output.copy_(torch.randn_like(dense_output))
     gather_graph.replay()
     torch.npu.synchronize()
@@ -94,10 +89,7 @@ def test_kda_ragged_gather_norm_matches_eager_under_graph_replay():
         gathered = torch.where(covered.view(1, -1, 1, 1), gathered, 0.0)
         rstd = torch.rsqrt(gathered.square().mean(dim=-1, keepdim=True) + eps)
         return (
-            gathered
-            * rstd
-            * weight.float()
-            * gate.view(1, 3, 2, 5).float().sigmoid()
+            gathered * rstd * weight.float() * gate.view(1, 3, 2, 5).float().sigmoid()
         ).to(torch.bfloat16)
 
     actual = gather_kda_verify_output_norm_npu(

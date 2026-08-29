@@ -1,5 +1,4 @@
 import torch
-
 from sgl_kernel_npu.mamba.kda_state_commit import (
     commit_kda_extended_conv_state,
     move_kda_temporal_snapshot,
@@ -31,9 +30,7 @@ def test_temporal_production_layout_matches_under_graph_replay():
     src_indices = torch.tensor([0], dtype=torch.int32, device=device)
     step_indices = torch.tensor([0], dtype=torch.int32, device=device)
 
-    assert move_kda_temporal_snapshot(
-        dst, src, dst_indices, src_indices, step_indices
-    )
+    assert move_kda_temporal_snapshot(dst, src, dst_indices, src_indices, step_indices)
     torch.npu.synchronize()
     torch.testing.assert_close(dst[:, 2], src[:, 0, 0], rtol=0, atol=0)
 
@@ -80,9 +77,7 @@ def test_conv_production_layout_matches_under_graph_replay():
     src_indices = torch.tensor([0], dtype=torch.int32, device=device)
     step_indices = torch.tensor([1], dtype=torch.int32, device=device)
 
-    assert scatter_kda_conv_snapshot(
-        dst, src, dst_indices, src_indices, step_indices
-    )
+    assert scatter_kda_conv_snapshot(dst, src, dst_indices, src_indices, step_indices)
     torch.npu.synchronize()
     torch.testing.assert_close(dst[:, 2], src[:, 0, 1], rtol=0, atol=0)
 

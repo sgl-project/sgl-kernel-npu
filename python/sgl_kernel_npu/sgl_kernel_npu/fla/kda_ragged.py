@@ -123,10 +123,9 @@ def _gather_kda_verify_output_norm_kernel(
     dim_mask = offsets < HEAD_DIM
     mask = valid_row[:, None] & dim_mask[None, :]
 
-    dense_offsets = (
-        (dense_row[:, None] * HEADS + head[:, None]) * HEAD_DIM
-        + offsets[None, :]
-    )
+    dense_offsets = (dense_row[:, None] * HEADS + head[:, None]) * HEAD_DIM + offsets[
+        None, :
+    ]
     value = tl.load(
         dense_ptr + dense_offsets,
         mask=mask,
@@ -137,9 +136,7 @@ def _gather_kda_verify_output_norm_kernel(
         mask=row_mask[:, None] & dim_mask[None, :],
         other=0.0,
     ).to(tl.float32)
-    weight = tl.load(weight_ptr + offsets, mask=dim_mask, other=0.0).to(
-        tl.float32
-    )
+    weight = tl.load(weight_ptr + offsets, mask=dim_mask, other=0.0).to(tl.float32)
     value = tl.where(mask, value, 0.0)
     rstd = tl.rsqrt(tl.sum(value * value, axis=1) / HEAD_DIM + eps)
     output = value * rstd[:, None] * weight[None, :] * tl.sigmoid(gate)
@@ -256,17 +253,10 @@ def gather_kda_verify_output_norm_npu(
     if dense_output.stride(-1) != 1:
         raise ValueError("dense_output must be contiguous in the head dimension")
     packed_tokens = dense_token_indices.numel()
-    if (
-        gate.numel() != packed_tokens * heads * head_dim
-        or gate.stride(-1) != 1
-    ):
-        raise ValueError(
-            "gate must be a row-contiguous packed [tokens, H * D] tensor"
-        )
+    if gate.numel() != packed_tokens * heads * head_dim or gate.stride(-1) != 1:
+        raise ValueError("gate must be a row-contiguous packed [tokens, H * D] tensor")
     if weight.numel() != head_dim or not weight.is_contiguous():
-        raise ValueError(
-            "weight must be contiguous with one value per head dimension"
-        )
+        raise ValueError("weight must be contiguous with one value per head dimension")
     if eps <= 0:
         raise ValueError("eps must be positive")
 

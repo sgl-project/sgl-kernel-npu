@@ -1,5 +1,4 @@
 import torch
-
 from sgl_kernel_npu.dspark.top1 import (
     select_global_top1_npu,
     select_local_top1_after_add_npu,
@@ -19,9 +18,7 @@ def test_local_top1_after_add_matches_bf16_eager_under_graph_replay():
     expected = torch.stack(
         (expected_value.float(), (expected_index + vocab_offset).float()), dim=-1
     )
-    actual = select_local_top1_after_add_npu(
-        base, bias, vocab_offset=vocab_offset
-    )
+    actual = select_local_top1_after_add_npu(base, bias, vocab_offset=vocab_offset)
     torch.testing.assert_close(actual, expected, rtol=0, atol=0)
 
     graph = torch.npu.NPUGraph()

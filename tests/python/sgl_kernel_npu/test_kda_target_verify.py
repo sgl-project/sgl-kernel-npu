@@ -1,5 +1,4 @@
 import torch
-
 from sgl_kernel_npu.fla.kda_gate import fused_kda_gate_npu
 from sgl_kernel_npu.fla.kda_target_verify import kda_target_verify_npu
 
@@ -10,13 +9,9 @@ def test_kda_target_verify_raw_gates_match_preactivated_gates():
     tokens = batch * steps
     q = torch.randn(1, tokens, heads, key_dim, dtype=torch.bfloat16, device=device)
     k = torch.randn_like(q)
-    v = torch.randn(
-        1, tokens, heads, value_dim, dtype=torch.bfloat16, device=device
-    )
+    v = torch.randn(1, tokens, heads, value_dim, dtype=torch.bfloat16, device=device)
     raw_a = torch.randn_like(q)
-    raw_b = torch.randn(
-        1, tokens, heads, dtype=torch.bfloat16, device=device
-    )
+    raw_b = torch.randn(1, tokens, heads, dtype=torch.bfloat16, device=device)
     A_log = torch.randn(1, 1, heads, 1, dtype=torch.float32, device=device)
     dt_bias = torch.randn(heads * key_dim, dtype=torch.float32, device=device)
     initial_state = torch.randn(

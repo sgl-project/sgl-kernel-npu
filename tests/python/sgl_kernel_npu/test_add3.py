@@ -1,5 +1,4 @@
 import torch
-
 from sgl_kernel_npu.moe.add3 import add3_bf16, add3_bf16_covered
 
 
@@ -27,6 +26,4 @@ def test_add3_bf16_matches_eager_and_graph_replay():
     c.copy_(torch.randn_like(c))
     graph.replay()
     torch.npu.synchronize()
-    torch.testing.assert_close(
-        replay_actual, _eager_add3(a, b, c), rtol=0, atol=0
-    )
+    torch.testing.assert_close(replay_actual, _eager_add3(a, b, c), rtol=0, atol=0)

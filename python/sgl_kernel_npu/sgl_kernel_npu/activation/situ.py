@@ -153,12 +153,10 @@ def _situ_and_mul_kernel(
         mask = h_idx < HALF_COLS
         # int64 row offsets prevent overflow for large routed-MoE buffers.
         row_off = row_idx.to(tl.int64) * TOTAL_COLS
-        gate = tl.load(x_ptr + row_off + h_idx, mask=mask, other=0.0).to(
+        gate = tl.load(x_ptr + row_off + h_idx, mask=mask, other=0.0).to(tl.float32)
+        up = tl.load(x_ptr + row_off + HALF_COLS + h_idx, mask=mask, other=0.0).to(
             tl.float32
         )
-        up = tl.load(
-            x_ptr + row_off + HALF_COLS + h_idx, mask=mask, other=0.0
-        ).to(tl.float32)
         situ_a = BETA * libdevice.tanh(gate * INV_BETA) * tl.sigmoid(gate)
         if DO_LINEAR_BETA:
             up = LINEAR_BETA * libdevice.tanh(up * INV_LINEAR_BETA)
