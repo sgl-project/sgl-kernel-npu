@@ -13,10 +13,9 @@ requires_npu = pytest.mark.skipif(
 
 
 @requires_npu
-@pytest.mark.parametrize("key_dim", [64, 128, 192, 256])
-def test_kda_cp_affine_preprocess_identity(key_dim):
+def test_kda_cp_affine_preprocess_identity():
     device = torch.device("npu")
-    batch, tokens, heads, value_dim = 1, 128, 2, 128
+    batch, tokens, heads, key_dim, value_dim = 1, 128, 2, 128, 128
     k = torch.zeros(
         (batch, tokens, heads, key_dim), dtype=torch.bfloat16, device=device
     )

@@ -462,33 +462,17 @@ def chunk_gated_delta_rule_fwd_affine_h_kernel(
     stride_w = H * K
 
     h0 = tl.zeros([64, BV], dtype=tl.float32)
-    if K > 64:
-        h1 = tl.zeros([64, BV], dtype=tl.float32)
-    if K > 128:
-        h2 = tl.zeros([64, BV], dtype=tl.float32)
-    if K > 192:
-        h3 = tl.zeros([64, BV], dtype=tl.float32)
+    h1 = tl.zeros([64, BV], dtype=tl.float32)
 
     for chunk_id in range(num_chunks):
         w0 = _load_kda_cp_chunk_row_tile(
             w, segment_len, stride_w, chunk_id, 0, K=K, BT=BT
         )
         value = tl.dot(w0, h0.to(w0.dtype))
-        if K > 64:
-            w1 = _load_kda_cp_chunk_row_tile(
-                w, segment_len, stride_w, chunk_id, 64, K=K, BT=BT
-            )
-            value += tl.dot(w1, h1.to(w1.dtype))
-        if K > 128:
-            w2 = _load_kda_cp_chunk_row_tile(
-                w, segment_len, stride_w, chunk_id, 128, K=K, BT=BT
-            )
-            value += tl.dot(w2, h2.to(w2.dtype))
-        if K > 192:
-            w3 = _load_kda_cp_chunk_row_tile(
-                w, segment_len, stride_w, chunk_id, 192, K=K, BT=BT
-            )
-            value += tl.dot(w3, h3.to(w3.dtype))
+        w1 = _load_kda_cp_chunk_row_tile(
+            w, segment_len, stride_w, chunk_id, 64, K=K, BT=BT
+        )
+        value += tl.dot(w1, h1.to(w1.dtype))
 
         value_ptr = tl.make_block_ptr(
             v,
@@ -503,49 +487,24 @@ def chunk_gated_delta_rule_fwd_affine_h_kernel(
         last_token = min((chunk_id + 1) * BT, segment_len) - 1
         gate_offset = (bos + last_token) * H * K + i_h * K
         h0 *= _load_kda_cp_gate_tile(gk, gate_offset, 0, K=K)
-        if K > 64:
-            h1 *= _load_kda_cp_gate_tile(gk, gate_offset, 64, K=K)
-        if K > 128:
-            h2 *= _load_kda_cp_gate_tile(gk, gate_offset, 128, K=K)
-        if K > 192:
-            h3 *= _load_kda_cp_gate_tile(gk, gate_offset, 192, K=K)
+        h1 *= _load_kda_cp_gate_tile(gk, gate_offset, 64, K=K)
 
         value = value.to(k.dtype.element_ty)
         key0 = _load_kda_cp_chunk_column_tile(
             k, segment_len, stride_k, chunk_id, 0, K=K, BT=BT
         )
         h0 += tl.dot(key0, value)
-        if K > 64:
-            key1 = _load_kda_cp_chunk_column_tile(
-                k, segment_len, stride_k, chunk_id, 64, K=K, BT=BT
-            )
-            h1 += tl.dot(key1, value)
-        if K > 128:
-            key2 = _load_kda_cp_chunk_column_tile(
-                k, segment_len, stride_k, chunk_id, 128, K=K, BT=BT
-            )
-            h2 += tl.dot(key2, value)
-        if K > 192:
-            key3 = _load_kda_cp_chunk_column_tile(
-                k, segment_len, stride_k, chunk_id, 192, K=K, BT=BT
-            )
-            h3 += tl.dot(key3, value)
+        key1 = _load_kda_cp_chunk_column_tile(
+            k, segment_len, stride_k, chunk_id, 64, K=K, BT=BT
+        )
+        h1 += tl.dot(key1, value)
 
     _store_kda_cp_row_tile(
         affine, h0, i_v * BV, 0, K=K, C=V, ROW_STRIDE=V + K, BC=BV
     )
-    if K > 64:
-        _store_kda_cp_row_tile(
-            affine, h1, i_v * BV, 64, K=K, C=V, ROW_STRIDE=V + K, BC=BV
-        )
-    if K > 128:
-        _store_kda_cp_row_tile(
-            affine, h2, i_v * BV, 128, K=K, C=V, ROW_STRIDE=V + K, BC=BV
-        )
-    if K > 192:
-        _store_kda_cp_row_tile(
-            affine, h3, i_v * BV, 192, K=K, C=V, ROW_STRIDE=V + K, BC=BV
-        )
+    _store_kda_cp_row_tile(
+        affine, h1, i_v * BV, 64, K=K, C=V, ROW_STRIDE=V + K, BC=BV
+    )
 
 
 @triton.jit(do_not_specialize=["T"])
@@ -592,83 +551,40 @@ def chunk_gated_delta_rule_fwd_affine_m_kernel(
     cols = i_c * BC + tl.arange(0, BC)
     rows0 = tl.arange(0, 64)
     m0 = (rows0[:, None] == cols[None, :]).to(tl.float32)
-    if K > 64:
-        rows1 = 64 + rows0
-        m1 = (rows1[:, None] == cols[None, :]).to(tl.float32)
-    if K > 128:
-        rows2 = 128 + rows0
-        m2 = (rows2[:, None] == cols[None, :]).to(tl.float32)
-    if K > 192:
-        rows3 = 192 + rows0
-        m3 = (rows3[:, None] == cols[None, :]).to(tl.float32)
+    rows1 = 64 + rows0
+    m1 = (rows1[:, None] == cols[None, :]).to(tl.float32)
 
     for chunk_id in range(num_chunks):
         w0 = _load_kda_cp_chunk_row_tile(
             w, segment_len, stride_kw, chunk_id, 0, K=K, BT=BT
         )
         tmp = tl.dot(w0, m0.to(w0.dtype))
-        if K > 64:
-            w1 = _load_kda_cp_chunk_row_tile(
-                w, segment_len, stride_kw, chunk_id, 64, K=K, BT=BT
-            )
-            tmp += tl.dot(w1, m1.to(w1.dtype))
-        if K > 128:
-            w2 = _load_kda_cp_chunk_row_tile(
-                w, segment_len, stride_kw, chunk_id, 128, K=K, BT=BT
-            )
-            tmp += tl.dot(w2, m2.to(w2.dtype))
-        if K > 192:
-            w3 = _load_kda_cp_chunk_row_tile(
-                w, segment_len, stride_kw, chunk_id, 192, K=K, BT=BT
-            )
-            tmp += tl.dot(w3, m3.to(w3.dtype))
+        w1 = _load_kda_cp_chunk_row_tile(
+            w, segment_len, stride_kw, chunk_id, 64, K=K, BT=BT
+        )
+        tmp += tl.dot(w1, m1.to(w1.dtype))
 
         last_token = min((chunk_id + 1) * BT, segment_len) - 1
         gate_offset = (bos + last_token) * H * K + i_h * K
         m0 *= _load_kda_cp_gate_tile(gk, gate_offset, 0, K=K)
-        if K > 64:
-            m1 *= _load_kda_cp_gate_tile(gk, gate_offset, 64, K=K)
-        if K > 128:
-            m2 *= _load_kda_cp_gate_tile(gk, gate_offset, 128, K=K)
-        if K > 192:
-            m3 *= _load_kda_cp_gate_tile(gk, gate_offset, 192, K=K)
+        m1 *= _load_kda_cp_gate_tile(gk, gate_offset, 64, K=K)
 
         tmp = tmp.to(k.dtype.element_ty)
         k0 = _load_kda_cp_chunk_column_tile(
             k, segment_len, stride_kw, chunk_id, 0, K=K, BT=BT
         )
         m0 -= tl.dot(k0, tmp)
-        if K > 64:
-            k1 = _load_kda_cp_chunk_column_tile(
-                k, segment_len, stride_kw, chunk_id, 64, K=K, BT=BT
-            )
-            m1 -= tl.dot(k1, tmp)
-        if K > 128:
-            k2 = _load_kda_cp_chunk_column_tile(
-                k, segment_len, stride_kw, chunk_id, 128, K=K, BT=BT
-            )
-            m2 -= tl.dot(k2, tmp)
-        if K > 192:
-            k3 = _load_kda_cp_chunk_column_tile(
-                k, segment_len, stride_kw, chunk_id, 192, K=K, BT=BT
-            )
-            m3 -= tl.dot(k3, tmp)
+        k1 = _load_kda_cp_chunk_column_tile(
+            k, segment_len, stride_kw, chunk_id, 64, K=K, BT=BT
+        )
+        m1 -= tl.dot(k1, tmp)
 
     _store_kda_cp_row_tile(
         affine, m0, i_c * BC, 0, K=K, C=K, ROW_STRIDE=V + K, BC=BC
     )
-    if K > 64:
-        _store_kda_cp_row_tile(
-            affine, m1, i_c * BC, 64, K=K, C=K, ROW_STRIDE=V + K, BC=BC
-        )
-    if K > 128:
-        _store_kda_cp_row_tile(
-            affine, m2, i_c * BC, 128, K=K, C=K, ROW_STRIDE=V + K, BC=BC
-        )
-    if K > 192:
-        _store_kda_cp_row_tile(
-            affine, m3, i_c * BC, 192, K=K, C=K, ROW_STRIDE=V + K, BC=BC
-        )
+    _store_kda_cp_row_tile(
+        affine, m1, i_c * BC, 64, K=K, C=K, ROW_STRIDE=V + K, BC=BC
+    )
 
 
 @triton.jit
@@ -699,24 +615,21 @@ def _apply_kda_cp_affine_block(
     )
     next0 = tl.dot(m00, h0.to(m00.dtype)) + add0
 
-    if K > 64:
-        m01 = _load_kda_cp_row_tile(
-            affine + V, 64, 0, K=K, C=K, ROW_STRIDE=V + K, BC=64
-        )
-        next0 += tl.dot(m01, h1.to(m01.dtype))
+    m01 = _load_kda_cp_row_tile(
+        affine + V, 64, 0, K=K, C=K, ROW_STRIDE=V + K, BC=64
+    )
+    next0 += tl.dot(m01, h1.to(m01.dtype))
 
-        add1 = _load_kda_cp_row_tile(
-            affine, i_v * BV, 64, K=K, C=V, ROW_STRIDE=V + K, BC=BV
-        ).to(tl.float32)
-        m10 = _load_kda_cp_row_tile(
-            affine + V, 0, 64, K=K, C=K, ROW_STRIDE=V + K, BC=64
-        )
-        m11 = _load_kda_cp_row_tile(
-            affine + V, 64, 64, K=K, C=K, ROW_STRIDE=V + K, BC=64
-        )
-        next1 = tl.dot(m10, h0.to(m10.dtype)) + tl.dot(m11, h1.to(m11.dtype)) + add1
-    else:
-        next1 = h1
+    add1 = _load_kda_cp_row_tile(
+        affine, i_v * BV, 64, K=K, C=V, ROW_STRIDE=V + K, BC=BV
+    ).to(tl.float32)
+    m10 = _load_kda_cp_row_tile(
+        affine + V, 0, 64, K=K, C=K, ROW_STRIDE=V + K, BC=64
+    )
+    m11 = _load_kda_cp_row_tile(
+        affine + V, 64, 64, K=K, C=K, ROW_STRIDE=V + K, BC=64
+    )
+    next1 = tl.dot(m10, h0.to(m10.dtype)) + tl.dot(m11, h1.to(m11.dtype)) + add1
     return next0, next1
 
 
@@ -737,10 +650,9 @@ def _store_kda_cp_state_tile(
     _store_kda_cp_row_tile(
         target, h0, i_v * BV, 0, K=K, C=V, ROW_STRIDE=V, BC=BV
     )
-    if K > 64:
-        _store_kda_cp_row_tile(
-            target, h1, i_v * BV, 64, K=K, C=V, ROW_STRIDE=V, BC=BV
-        )
+    _store_kda_cp_row_tile(
+        target, h1, i_v * BV, 64, K=K, C=V, ROW_STRIDE=V, BC=BV
+    )
 
 
 @triton.jit
@@ -770,12 +682,9 @@ def merge_kda_cp_affine_states_kernel(
     h0 = _load_kda_cp_row_tile(
         initial_state, i_v * BV, 0, K=K, C=V, ROW_STRIDE=V, BC=BV
     ).to(tl.float32)
-    if K > 64:
-        h1 = _load_kda_cp_row_tile(
-            initial_state, i_v * BV, 64, K=K, C=V, ROW_STRIDE=V, BC=BV
-        ).to(tl.float32)
-    else:
-        h1 = tl.zeros([64, BV], dtype=tl.float32)
+    h1 = _load_kda_cp_row_tile(
+        initial_state, i_v * BV, 64, K=K, C=V, ROW_STRIDE=V, BC=BV
+    ).to(tl.float32)
 
     for step_id in range(NUM_STEPS):
         owner_rank = tl.load(owner_ranks + step_id)
@@ -865,9 +774,9 @@ def merge_kda_cp_affine_states(
     """
     cp_size, max_segments, num_heads, key_dim, affine_dim = gathered.shape
     value_dim = affine_dim - key_dim
-    if initial_state.shape[0] != 1 or key_dim > 128:
+    if initial_state.shape[0] != 1 or key_dim != 128:
         raise ValueError(
-            "fused KDA CP merge requires batch one and K <= 128; "
+            "fused KDA CP merge requires batch one and K = 128; "
             f"got batch={initial_state.shape[0]}, K={key_dim}"
         )
     if owner_ranks is None or source_segments is None or local_indices is None:
@@ -954,9 +863,9 @@ def chunk_gated_delta_rule_fwd_affine_npu(
     num_heads = u.shape[-2]
     value_dim = u.shape[-1]
     num_segments = len(cu_seqlens) - 1
-    if key_dim > 256 or num_heads % key_heads != 0:
+    if key_dim != 128 or num_heads % key_heads != 0:
         raise ValueError(
-            "KDA CP affine preprocessing requires K <= 256 and H divisible "
+            "KDA CP affine preprocessing requires K = 128 and H divisible "
             f"by Hg; got K={key_dim}, H={num_heads}, Hg={key_heads}"
         )
 
