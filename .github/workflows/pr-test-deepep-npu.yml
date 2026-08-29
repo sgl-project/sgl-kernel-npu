@@ -1,5 +1,5 @@
 name: PR Test for SGL-KERNEL-NPU DeepEP (Ascend NPU)
-#8
+#9
 on:
   pull_request:
     branches: [ main ]
@@ -135,7 +135,7 @@ jobs:
         timeout-minutes: 10
         env: 
           ASCEND_GLOBAL_LOG_LEVEL: 1
-          HCCL_NPU_SOCKET_PORT_RANGE: auto
+          #HCCL_NPU_SOCKET_PORT_RANGE: auto
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=1 --num-tokens=20 --num-experts=4 --num-topk=4
 
