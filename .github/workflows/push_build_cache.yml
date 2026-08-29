@@ -22,29 +22,30 @@ jobs:
     name: Build Cache - ${{ matrix.arch }} - CANN ${{ matrix.cann_version }}
     runs-on: ${{ matrix.runner }}
 
-    # 定义矩阵策略：覆盖 A3/A2 硬件 和 8.5.0/9.0.0 CANN 版本
+    # 定义矩阵策略：覆盖 A3/A2 硬件；A3 与 A2(910B) 均支持 9.0.0/9.1.0
+    # （与 pr-test-deepep-npu.yml 的 A2 矩阵一致）
     strategy:
       matrix:
         include:
           # --- A3 环境 (910C) ---
           - arch: a3
             runner: linux-aarch64-a3-16
-            cann_version: "8.5.0"
-            image_tag: "8.5.0-a3-ubuntu22.04-py3.11"
-          - arch: a3
-            runner: linux-aarch64-a3-16
             cann_version: "9.0.0"
             image_tag: "9.0.0-a3-ubuntu22.04-py3.11"
+          - arch: a3
+            runner: linux-aarch64-a3-16
+            cann_version: "9.1.0"
+            image_tag: "9.1.0-a3-ubuntu22.04-py3.12"
 
           # --- A2 环境 (910B) ---
           - arch: a2
             runner: linux-aarch64-a2-8
-            cann_version: "8.5.0"
-            image_tag: "8.5.0-910b-ubuntu22.04-py3.11"
-          - arch: a2
-            runner: linux-aarch64-a2-8
             cann_version: "9.0.0"
             image_tag: "9.0.0-910b-ubuntu22.04-py3.11"
+          - arch: a2
+            runner: linux-aarch64-a2-8
+            cann_version: "9.1.0"
+            image_tag: "9.1.0-910b-ubuntu22.04-py3.12"
 
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.image_tag }}
@@ -94,7 +95,7 @@ jobs:
           pip config set global.index-url http://${CACHING_URL}/pypi/simple
           pip config set global.trusted-host ${CACHING_URL}
           pip install uv
-          bash scripts/npu_ci_install_dependency.sh
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
 
       - name: Build artifacts
         if: steps.cache-build.outputs.cache-hit != 'true'

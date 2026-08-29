@@ -1,0 +1,91 @@
+name: Daily Kernel Operator Tests (Ascend NPU)
+
+on:
+  schedule:
+    - cron: "0 18 * * *"
+  pull_request:
+    branches: [ main ]
+    paths:
+      - ".github/workflows/daily-test-kernels.yml"
+      - "scripts/prepare_kernel_tests.sh"
+      - "scripts/run_kernel_tests.sh"
+  workflow_dispatch:
+
+concurrency:
+  group: daily-kernel-tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  run-daily-kernel-tests:
+    name: Kernel Tests (CANN ${{ matrix.cann_version }}, ${{ matrix.hardware }})
+    runs-on: ${{ matrix.hardware == 'a3' && 'linux-aarch64-a3-2' || 'linux-aarch64-a2-8' }}
+    container:
+      # Kernel operator tests only need a single NPU, so a3 uses the single-card
+      # runner. CANN 9.1.0 has no daily-built image yet; pin the dated tag below
+      # and bump it manually when a newer cann9.1.0-a3 image is published.
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/dockerhub/lmsysorg/sglang:${{ matrix.cann_version == '9.0.0' && 'main-cann9.0.0-a3' || 'cann9.1.0-a3-20260818' }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        # NOTE: A2(910b) is NOT considered for now (hardware 暂不考虑 A2).
+        # The a2 branch below is kept only as an extension point: add 'a2' to the
+        # hardware list to enable it, then map its runner/image accordingly.
+        cann_version: [9.0.0, 9.1.0]
+        hardware: [a3]
+    env:
+      CANN_VERSION: "${{ matrix.cann_version }}"
+      TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
+      PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
+      GITHUB_PROXY_URL: "https://gh-proxy.test.osinfra.cn/"
+      UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
+
+    steps:
+      - name: Clean git config
+        run: |
+          CONFIG_KEY='http.https://gh-proxy.test.osinfra.cn/.extraheader'
+          git config --global --unset "$CONFIG_KEY" || true
+
+      - name: Clean workspace
+        run: |
+          sudo rm -rf --one-file-system "$GITHUB_WORKSPACE"/* "$GITHUB_WORKSPACE"/.* 2>/dev/null || true
+
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          clean: true
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          CACHING_URL="cache-service.nginx-pypi-cache.svc.cluster.local"
+          sed -Ei "s@(ports|archive).ubuntu.com@${CACHING_URL}:8081@g" /etc/apt/sources.list
+          pip config set global.index-url http://${CACHING_URL}/pypi/simple
+          pip config set global.trusted-host ${CACHING_URL}
+          pip install uv
+
+          bash scripts/npu_ci_install_dependency.sh --cann-version ${{ matrix.cann_version }}
+
+      - name: Build and install kernel module
+        run: bash scripts/prepare_kernel_tests.sh
+
+      - name: Run all kernel operator tests
+        timeout-minutes: 120
+        env:
+          HCCL_BUFFSIZE: 4096
+        run: |
+          bash scripts/run_kernel_tests.sh all
+
+  finish:
+    if: always()
+    needs: [run-daily-kernel-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate test report
+        run: |
+          echo "## Daily Kernel Operator Tests Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Overall Status**: Kernel=${{ needs.run-daily-kernel-tests.result }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Execution Time**: $(date)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Workflow Run**: [$GITHUB_RUN_ID](https://github.com/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)" >> $GITHUB_STEP_SUMMARY

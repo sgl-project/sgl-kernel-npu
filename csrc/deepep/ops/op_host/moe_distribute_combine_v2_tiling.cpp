@@ -1120,7 +1120,9 @@ static ge::graphStatus MoeDistributeCombineA3TilingFuncImpl(gert::TilingContext 
     MoeDistributeCombineV2TilingData *tilingData = context->GetTilingData<MoeDistributeCombineV2TilingData>();
     OP_TILING_CHECK(tilingData == nullptr, OP_LOGE(nodeName, "tilingData is nullptr."), return ge::GRAPH_FAILED);
     auto attrs = context->GetAttrs();
+    OP_TILING_CHECK(attrs == nullptr, OP_LOGE(nodeName, "attrs is nullptr."), return ge::GRAPH_FAILED);
     auto commAlgPtr = attrs->GetAttrPointer<char>(static_cast<int>(ATTR_COMM_ALG_INDEX));
+    OP_TILING_CHECK(commAlgPtr == nullptr, OP_LOGE(nodeName, "commAlgPtr is nullptr."), return ge::GRAPH_FAILED);
     bool ccuFlag = strcmp(commAlgPtr, "ccu") == 0;
     OP_LOGD(nodeName, "commAlgPtr %s", commAlgPtr);
     std::string groupEp = "";

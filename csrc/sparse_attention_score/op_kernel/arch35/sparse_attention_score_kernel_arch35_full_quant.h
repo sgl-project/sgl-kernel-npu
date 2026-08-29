@@ -51,8 +51,8 @@ public:
 
     __aicore__ inline void operator()(SasaFullQuantKernelParamsArch35 const &params)
     {
-        __gm__ SparseAttentionScoreTilingData *sasaTilingData =
-            reinterpret_cast<__gm__ SparseAttentionScoreTilingData *>(params.tiling);
+        __gm__ SparseAttn::SparseAttentionScoreTilingData *sasaTilingData =
+            reinterpret_cast<__gm__ SparseAttn::SparseAttentionScoreTilingData *>(params.tiling);
         FetchBaseShapeInfo(sasaTilingData);
         CalcOnChipBufTileInfo(sasaTilingData);
 
@@ -320,7 +320,7 @@ public:
     }
 
 private:
-    __aicore__ inline void FetchBaseShapeInfo(__gm__ SparseAttentionScoreTilingData *tilingData)
+    __aicore__ inline void FetchBaseShapeInfo(__gm__ SparseAttn::SparseAttentionScoreTilingData *tilingData)
     {
         batch_ = tilingData->batch;
         qHeads_ = tilingData->numHeads;
@@ -336,7 +336,7 @@ private:
         actSeqAval_ = true;
     }
 
-    __aicore__ inline void CalcOnChipBufTileInfo(__gm__ SparseAttentionScoreTilingData *tilingData)
+    __aicore__ inline void CalcOnChipBufTileInfo(__gm__ SparseAttn::SparseAttentionScoreTilingData *tilingData)
     {
         // Fixed tile sizes matching blockSize; L1 tile M = L0 tile M size for BlockMmad.
         mm1L1TileM_ = 128;

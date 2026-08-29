@@ -373,8 +373,11 @@ __aicore__ inline void cacheWriteThrough(__gm__ uint8_t *sourceAddr, uint64_t le
 {
     __gm__ uint8_t *start =
         (__gm__ uint8_t *)((uint64_t)sourceAddr / AscendC::CACHE_LINE_SIZE * AscendC::CACHE_LINE_SIZE);
+    if (length == 0) {
+        return;
+    }
     __gm__ uint8_t *end =
-        (__gm__ uint8_t *)(((uint64_t)sourceAddr + length) / AscendC::CACHE_LINE_SIZE * AscendC::CACHE_LINE_SIZE);
+        (__gm__ uint8_t *)(((uint64_t)sourceAddr + length - 1) / AscendC::CACHE_LINE_SIZE * AscendC::CACHE_LINE_SIZE);
     AscendC::GlobalTensor<uint8_t> global;
     global.SetGlobalBuffer(start);
     for (uint32_t i = 0; i <= end - start; i += AscendC::CACHE_LINE_SIZE) {
@@ -385,6 +388,9 @@ __aicore__ inline void cacheWriteThrough(__gm__ uint8_t *sourceAddr, uint64_t le
 __aicore__ inline DataplaneMode GetDataplaneMode(GM_ADDR contextGM0)
 {
     __gm__ HcclA2CombineOpParam *winContext_ = (__gm__ HcclA2CombineOpParam *)contextGM0;
+    if (winContext_ == nullptr) {
+        return DataplaneMode::AICPU;
+    }
     CombinedCapability *capability = winContext_->capability;
     uint64_t capabilitySize = winContext_->capabilitySize;
     DataplaneMode dataplaneMode = DataplaneMode::AICPU;
