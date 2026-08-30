@@ -60,7 +60,7 @@ jobs:
         github.event.pull_request.draft == false &&
         (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
       )
-    runs-on: linux-amd64-a5-4
+    runs-on: linux-amd64-a5-8
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-950-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
     env:
@@ -137,6 +137,7 @@ jobs:
           #ASCEND_GLOBAL_LOG_LEVEL: 1
           #HCCL_NPU_SOCKET_PORT_RANGE: auto
         run: |
+          npu-smi info
           #python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=1 --num-tokens=20 --num-experts=4 --num-topk=4
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py \
           --quant fp8_e4m3 \
