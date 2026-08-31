@@ -80,6 +80,7 @@ public:
         GemmCoord sharedProblemShape;
         void *combiner;
         FusedDeepMoeProfileWriter *profile;
+        uint32_t l2PrefetchEnable;
 
         // Methods
         CATLASS_HOST_DEVICE
@@ -93,7 +94,7 @@ public:
                LayoutA const &layoutSharedA_, GM_ADDR ptrSharedB_, LayoutB const &layoutSharedB_,
                GM_ADDR ptrSharedMxScaleA_, LayoutMxScaleA layoutSharedMxScaleA_, GM_ADDR ptrSharedMxScaleB_,
                LayoutMxScaleB layoutSharedMxScaleB_, GM_ADDR ptrSharedC_, GM_ADDR ptrSharedD_, void *combiner_,
-               FusedDeepMoeProfileWriter *profile_)
+               FusedDeepMoeProfileWriter *profile_, uint32_t l2PrefetchEnable_ = 0)
             : problemShape(problemShape_),
               problemCount(problemCount_),
               ptrGroupList(reinterpret_cast<__gm__ ElementGroupList *>(ptrGroupList_)),
@@ -120,7 +121,8 @@ public:
               ptrSharedC(reinterpret_cast<__gm__ ElementC *>(ptrSharedC_)),
               ptrSharedD(reinterpret_cast<__gm__ ElementD *>(ptrSharedD_)),
               combiner(combiner_),
-              profile(profile_)
+              profile(profile_),
+              l2PrefetchEnable(l2PrefetchEnable_)
         {}
     };
 
@@ -364,6 +366,33 @@ public:
             uint32_t target = 1;
             uint32_t startCoreIdx = 0;
 
+            // L2 cross-expert weight prefetch: while AIC computes expert g, AIVs pull expert g+1's
+            // w2 weights into the shared L2 during idle epilogue spin windows.
+            L2PrefetchCtx l2PfCtx;
+            l2PfCtx.active = false;
+            const bool l2PfEnabled = (params.l2PrefetchEnable != 0) && (params.problemCount > 1);
+            AscendC::LocalTensor<uint8_t> l2PfPad =
+                resource.ubBuf.template GetBufferByByte<uint8_t>(L2Prefetch::UB_PAD_OFFSET);
+            AscendC::ListTensorDesc l2PfBListDesc(reinterpret_cast<__gm__ void *>(params.ptrB));
+            AscendC::ListTensorDesc l2PfBScaleListDesc(reinterpret_cast<__gm__ void *>(params.ptrMxScaleB));
+            const uint32_t l2PfStripeId = AscendC::GetBlockIdx();
+            const uint32_t l2PfStripeNum = AscendC::GetBlockNum() * AscendC::GetSubBlockNum();
+            uint64_t l2PfPerGroupB = 0;
+            uint64_t l2PfPerGroupScale = 0;
+            if (l2PfEnabled) {
+                // mirror the AIC-side per-group B offset accumulation (static in k/n, independent of M)
+                if constexpr (AscendC::Std::is_one_of_v<ElementB, float4_e2m1x2_t, float4_e1m2x2_t>) {
+                    l2PfPerGroupB = std::is_same_v<LayoutB, layout::ColumnMajor>
+                                        ? CeilDiv<2>(params.problemShape.k()) * params.problemShape.n()
+                                        : CeilDiv<2>(params.problemShape.n()) * params.problemShape.k();
+                } else {
+                    l2PfPerGroupB = static_cast<uint64_t>(params.problemShape.k()) * params.problemShape.n();
+                }
+                l2PfPerGroupScale =
+                    static_cast<uint64_t>(CeilDiv<MX_BASEK_FACTOR>(params.problemShape.k()) * MX_SCALE_COPY_GROUP_NUM) *
+                    params.problemShape.n();
+            }
+
             int64_t mxScaleAlignedK =
                 static_cast<int64_t>(CeilDiv<MX_BASEK_FACTOR>(params.problemShape.k()) * MX_SCALE_COPY_GROUP_NUM);
 
@@ -375,6 +404,13 @@ public:
 
             for (uint32_t groupIdx = 0; groupIdx < params.problemCount; ++groupIdx) {
                 uint64_t profGroupStart = 0;
+                if (l2PfEnabled && (groupIdx + 1) < params.problemCount) {
+                    // AIC is entering/ computing group groupIdx: prefetch group groupIdx+1's w2 into L2
+                    SetupL2PrefetchGroup(l2PfCtx, l2PfPad, params, l2PfBListDesc, l2PfBScaleListDesc, l2PfPerGroupB,
+                                         l2PfPerGroupScale, groupIdx + 1, l2PfStripeId, l2PfStripeNum);
+                } else {
+                    L2PrefetchDeactivate(l2PfCtx);
+                }
                 currentM = (groupIdx == 0) ? groupList.GetValue(groupIdx)
                                            : (groupList.GetValue(groupIdx) - groupList.GetValue(groupIdx - 1));
                 if (params.profile != nullptr) {
@@ -403,8 +439,9 @@ public:
                         tensorD, tla::MakeCoord(totalM + blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N),
                         tla::MakeShape(actualBlockShape.m(), actualBlockShape.n()));
 
-                    CheckSyncFlag(reinterpret_cast<__gm__ int32_t *>(syncGmAddr + GMM2::SOFT_SYNC_OFFSET),
-                                  static_cast<int32_t>(coreIdx), target);
+                    CheckSyncFlagWithL2Prefetch(reinterpret_cast<__gm__ int32_t *>(syncGmAddr + GMM2::SOFT_SYNC_OFFSET),
+                                                static_cast<int32_t>(coreIdx), target,
+                                                l2PfEnabled ? &l2PfCtx : nullptr);
                     target += 1;
                     blockEpilogue(tensorBlockC, tensorBlockD, actualBlockShape, groupIdx,
                                   totalM + blockCoord.m() * L1_TILE_M, blockCoord.n() * L1_TILE_N);
@@ -514,6 +551,29 @@ public:
     }
 
 private:
+    // Point the prefetch context at targetGroup's w2 weights (+ MxScaleB), stripe-sliced across AIVs.
+    // Address math mirrors the AIC-side gmB/gmMxScaleB setup (static per group, independent of token counts).
+    CATLASS_DEVICE
+    void SetupL2PrefetchGroup(L2PrefetchCtx &ctx, AscendC::LocalTensor<uint8_t> &pad, Params const &params,
+                              AscendC::ListTensorDesc &bListDesc, AscendC::ListTensorDesc &bScaleListDesc,
+                              uint64_t perGroupB, uint64_t perGroupScale, uint32_t targetGroup, uint32_t stripeId,
+                              uint32_t stripeNum)
+    {
+        __gm__ ElementB *weightBase = nullptr;
+        __gm__ ElementMxScaleB *scaleBase = nullptr;
+        if constexpr (EXEC_FLAG & EXEC_FLAG_TENSOR_LIST) {
+            weightBase = bListDesc.GetDataPtr<ElementB>(targetGroup);
+            scaleBase = bScaleListDesc.GetDataPtr<ElementMxScaleB>(targetGroup);
+        } else {
+            weightBase = bListDesc.GetDataPtr<ElementB>(0) + static_cast<uint64_t>(targetGroup) * perGroupB;
+            scaleBase =
+                bScaleListDesc.GetDataPtr<ElementMxScaleB>(0) + static_cast<uint64_t>(targetGroup) * perGroupScale;
+        }
+        L2PrefetchInit(ctx, pad, reinterpret_cast<__gm__ uint8_t *>(weightBase), static_cast<uint32_t>(perGroupB),
+                       reinterpret_cast<__gm__ uint8_t *>(scaleBase), static_cast<uint32_t>(perGroupScale), stripeId,
+                       stripeNum);
+    }
+
     friend struct AicSetFunc;
     struct AicSetFunc {
         CATLASS_DEVICE

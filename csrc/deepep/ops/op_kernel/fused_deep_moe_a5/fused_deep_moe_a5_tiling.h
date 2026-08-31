@@ -54,6 +54,7 @@ struct FusedDeepMoeInfo {
     uint64_t profileBufferBytes;   // total bytes of the persistent profile buffer
     uint64_t totalUbSize;
     uint64_t totalWinSize;
+    uint32_t l2PrefetchEnable;     // non-zero: prefetch next expert weights into L2 during GMM1/GMM2 AIC compute
     uint64_t gmm1HLen;
     uint64_t shareGmm1HLen;  // shared expert gmm1 hidden length
     bool isTensorList;

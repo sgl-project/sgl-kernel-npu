@@ -169,7 +169,7 @@ CATLASS_DEVICE void MxGmm2CastCombineFunc(
     // shared expert, matmul
     Catlass::GemmCoord sharedProblemShape, GM_ADDR gmShareA, GM_ADDR gmShareB, GM_ADDR gmShareAScale,
     GM_ADDR gmShareBScale, GM_ADDR gmShareSwapSpace, GM_ADDR gmShareD, void *combiner,
-    FusedDeepMoeProfileWriter *profile)
+    FusedDeepMoeProfileWriter *profile, uint32_t l2PrefetchEnable)
 {
     static_assert((std::is_same_v<ElementA, float8_e5m2_t> || std::is_same_v<ElementA, float8_e4m3_t> ||
                    std::is_same_v<ElementA, float4_e2m1x2_t> || std::is_same_v<ElementA, float4_e1m2x2_t>) &&
@@ -242,11 +242,12 @@ CATLASS_DEVICE void MxGmm2CastCombineFunc(
                                          gmShareAScale,
                                          layoutShareMxScaleA,
                                          gmShareBScale,
-                                         layoutShareMxScaleB,
-                                         gmShareSwapSpace /*ptrShareC*/,
-                                         gmShareD,
-                                         combiner,
-                                         profile};
+                                          layoutShareMxScaleB,
+                                          gmShareSwapSpace /*ptrShareC*/,
+                                          gmShareD,
+                                          combiner,
+                                          profile,
+                                          l2PrefetchEnable};
 
     MatmulKernel kernel;
     kernel(params);
@@ -437,6 +438,7 @@ __aicore__ inline void FusedDeepMoe<TemplateMC2TypeFunc>::Process()
                           Gmm2EpilogueTileShape, Gmm2BlockScheduler>(
         gmm2ProblemShape, groupCount_, gmGroupList, gmX2, gmWeight2_, gmX2Scale, gmScale2_, gmGmm2SwapSpace,
         gmGmm2DepOut, shareGmm2ProblemShape, gmShareX2, gmShareWeight2_, gmShareX2Scale, gmShareWeight2Scale_,
-        gmShareMm2SwapSpace, gmShareOutput_, &combiner, &profileWriter);
+        gmShareMm2SwapSpace, gmShareOutput_, &combiner, &profileWriter,
+        tilingData_->fusedDeepMoeInfo.l2PrefetchEnable);
 }
 #endif  // FUSED_DEEP_MOE_H

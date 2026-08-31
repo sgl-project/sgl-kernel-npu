@@ -546,6 +546,8 @@ static ge::graphStatus GetAttrAndSetTilingData(const gert::TilingContext &contex
     tilingData.fusedDeepMoeInfo.profileLaunchId = static_cast<uint32_t>(*profileLaunchIdPtr);
     tilingData.fusedDeepMoeInfo.globalBs = static_cast<uint32_t>(*globalBsPtr);
     tilingData.fusedDeepMoeInfo.moeExpertNumPerRank = moeExpertNumPerRank;
+    // L2 cross-expert weight prefetch: default off; enable after on-board validation (msprof L2 hit-rate check)
+    tilingData.fusedDeepMoeInfo.l2PrefetchEnable = 0U;
     return ge::GRAPH_SUCCESS;
 }
 
