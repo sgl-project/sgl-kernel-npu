@@ -1,5 +1,4 @@
 name: PR Test for SGL-KERNEL-NPU DeepEP (Ascend NPU)
-#9
 on:
   pull_request:
     branches: [ main ]
@@ -70,7 +69,7 @@ jobs:
       UV_INDEX_URL: http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple
     strategy:
       matrix:
-        cann_version: [ 9.0.0, 9.1.0 ]
+        cann_version: [9.0.0, 9.1.0]
     steps:
       - name: Clean git config
         run: |
