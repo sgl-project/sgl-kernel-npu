@@ -832,6 +832,10 @@ jobs:
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
             bash scripts/prepare_deepep_in_container.sh -a deepep Ascend950
           fi
+      - name: Run normal mode MXFP8 quantization
+        timeout-minutes: 10
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=8 --num-tokens=256 --num-experts=32 --quant-type=mx_fp8_e4m3   
 
       - name: Run NZ format weights
         if: matrix.cann_version != '9.0.0'
