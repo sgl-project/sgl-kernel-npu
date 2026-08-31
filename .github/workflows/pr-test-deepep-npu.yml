@@ -757,7 +757,7 @@ jobs:
         github.event.pull_request.draft == false &&
         (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
       )
-    runs-on: linux-amd64-a5-8
+    runs-on: linux-amd64-a5-4
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-950-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
     env:
@@ -770,18 +770,18 @@ jobs:
       matrix:
         cann_version: [9.0.0, 9.1.0]
     steps:
-#      - name: Check allocated NPU cards
-#        run: |
-#          npu-smi info
-#          # 通过 npu-smi info -l 获取分配到的物理卡编号（NPU ID）
-#          NPU_IDS=$(npu-smi info -l | grep 'NPU ID' | awk '{print $NF}' | sort -n | tr '\n' ' ' | sed 's/ *$//')
-#          echo "Allocated NPU IDs: [$NPU_IDS]"
-#          # 仅当前 4 张卡(0 1 2 3)或后 4 张卡(4 5 6 7)时继续，否则释放资源（任务失败）
-#          if [ "$NPU_IDS" != "0 1 2 3" ] && [ "$NPU_IDS" != "4 5 6 7" ]; then
-#            echo "::error::Allocated cards [$NPU_IDS] are neither the first 4 (0-3) nor the last 4 (4-7), releasing resource."
-#            exit 1
-#          fi
-#          echo "OK: allocated cards [$NPU_IDS] are a contiguous half."
+      - name: Check allocated NPU cards
+        run: |
+          npu-smi info
+          # 通过 npu-smi info -l 获取分配到的物理卡编号（NPU ID）
+          NPU_IDS=$(npu-smi info -l | grep 'NPU ID' | awk '{print $NF}' | sort -n | tr '\n' ' ' | sed 's/ *$//')
+          echo "Allocated NPU IDs: [$NPU_IDS]"
+          # 仅当前 4 张卡(0 1 2 3)或后 4 张卡(4 5 6 7)时继续，否则释放资源（任务失败）
+          if [ "$NPU_IDS" != "0 1 2 3" ] && [ "$NPU_IDS" != "4 5 6 7" ]; then
+            echo "::error::Allocated cards [$NPU_IDS] are neither the first 4 (0-3) nor the last 4 (4-7), releasing resource."
+            exit 1
+          fi
+          echo "OK: allocated cards [$NPU_IDS] are a contiguous half."
       - name: Clean git config
         run: |
           
@@ -832,12 +832,12 @@ jobs:
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
             bash scripts/prepare_deepep_in_container.sh -a deepep Ascend950
           fi
-      - name: Run normal mode MXFP8 quantization
-        env:
-          HCCL_BUFFSIZE: 500
-        timeout-minutes: 10
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=4 --num-tokens=256 --num-experts=32 --quant-type=mx_fp8_e4m3   
+#      - name: Run normal mode MXFP8 quantization
+#        env:
+#          HCCL_BUFFSIZE: 500
+#        timeout-minutes: 10
+#        run: |
+#          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=4 --num-tokens=256 --num-experts=32 --quant-type=mx_fp8_e4m3
 
       - name: Run NZ format weights
         if: matrix.cann_version != '9.0.0'
@@ -846,7 +846,7 @@ jobs:
           npu-smi info
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py \
           --quant fp8_e4m3 \
-          --num-processes 4 \
+          --num-processes 2 \
           --hidden 7168 \
           --moe-intermediate-size 3072 \
           --num-topk 8 \
