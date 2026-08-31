@@ -757,7 +757,7 @@ jobs:
         github.event.pull_request.draft == false &&
         (needs.get-changed-files.outputs.ops_changed == 'true' || needs.get-changed-files.outputs.common_changed == 'true')
       )
-    runs-on: linux-amd64-a5-8
+    runs-on: linux-amd64-a5-4
     container:
       image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-950-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
     env:
@@ -823,8 +823,6 @@ jobs:
 
       - name: Run normal mode MXFP4
         timeout-minutes: 10
-        env:
-          export ASCEND_RT_VISIBLE_DEVICES: 4,5,6,7
         run: |
           npu-smi info
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py \
