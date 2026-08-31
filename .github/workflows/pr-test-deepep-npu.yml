@@ -827,7 +827,6 @@ jobs:
           export ASCEND_RT_VISIBLE_DEVICES: 4,5,6,7
         run: |
           npu-smi info
-          #python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=1 --num-tokens=20 --num-experts=4 --num-topk=4
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py \
           --quant fp8_e4m3 \
           --num-processes 4 \
