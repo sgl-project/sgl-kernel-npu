@@ -835,7 +835,7 @@ jobs:
       - name: Run normal mode MXFP8 quantization
         timeout-minutes: 10
         run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=8 --num-tokens=256 --num-experts=32 --quant-type=mx_fp8_e4m3   
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=4 --num-tokens=256 --num-experts=32 --quant-type=mx_fp8_e4m3   
 
       - name: Run NZ format weights
         if: matrix.cann_version != '9.0.0'
