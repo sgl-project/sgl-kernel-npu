@@ -833,6 +833,8 @@ jobs:
             bash scripts/prepare_deepep_in_container.sh -a deepep Ascend950
           fi
       - name: Run normal mode MXFP8 quantization
+        env:
+          HCCL_BUFFSIZE: 500
         timeout-minutes: 10
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=4 --num-tokens=256 --num-experts=32 --quant-type=mx_fp8_e4m3   
