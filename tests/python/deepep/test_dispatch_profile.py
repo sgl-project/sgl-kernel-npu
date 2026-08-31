@@ -9,13 +9,9 @@ import deep_ep
 import torch
 import torch.distributed as dist
 import torch_npu
-from utils import init_dist, profile_npu_event_sequences
+from utils import init_dist, merge_profiles_after_profiling, profile_npu_event_sequences
 
 torch_npu.npu.config.allow_internal_format = True
-
-# Dispatch profile event patterns: one or more NPU events that should appear
-# when the dispatch operator is profiled.
-DISPATCH_EVENT_PATTERNS = (("CamMoeDispatchNormal", "aclnnCamMoeDispatchNormal"),)
 
 
 def test_dispatch_profile(
@@ -39,14 +35,12 @@ def test_dispatch_profile(
         + 1
     )
     # topk_idx = torch.topk(scores, num_topk, dim=-1, largest=True, sorted=False)[1]
-    topk_idx = torch.zeros((num_tokens, num_topk), dtype=torch.int64, device='npu')
+    topk_idx = torch.zeros((num_tokens, num_topk), dtype=torch.int64, device="npu")
     for t in range(num_tokens):
         start = (t * num_topk) % num_experts
         for k in range(num_topk):
             topk_idx[t, k] = (start + k) % num_experts
-    topk_weights = torch.ones(
-        (num_tokens, num_topk), dtype=torch.float32, device="npu"
-    )
+    topk_weights = torch.ones((num_tokens, num_topk), dtype=torch.float32, device="npu")
 
     # Get dispatch layout
     (
@@ -94,9 +88,7 @@ def test_dispatch_profile(
                 flush=True,
             )
 
-        buffer.runtime.begin_profile(
-            args.num_warmups, args.num_tests, kernel_trace_dir
-        )
+        buffer.runtime.begin_profile(args.num_warmups, args.num_tests, kernel_trace_dir)
 
         try:
             for _ in range(args.num_warmups):
@@ -112,6 +104,11 @@ def test_dispatch_profile(
                 flush=True,
             )
             buffer.runtime.end_profile()
+
+        # Merge profiles after profiling
+        merge_profiles_after_profiling(
+            kernel_trace_dir=kernel_trace_dir, merge_output=args.merge_output, rank=rank
+        )
 
     dist.barrier()
     if rank == 0:
@@ -139,6 +136,7 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="Test dispatch profiling for cam_moe_dispatch_normal_a5"
+        "eg: python test_dispatch_profile.py --kernel-trace-dir ./traces --num-processes 8",
     )
     parser.add_argument(
         "--num-processes",
@@ -198,6 +196,12 @@ if __name__ == "__main__":
         "--dump-profile-events",
         action="store_true",
         help="Print matched profiler iterations and discovered event names for debugging.",
+    )
+    parser.add_argument(
+        "--merge-output",
+        type=str,
+        default=None,
+        help="Output path for merged profile. If not specified, defaults to {kernel_trace_dir}/merged_profile.json. ",
     )
     args = parser.parse_args()
 

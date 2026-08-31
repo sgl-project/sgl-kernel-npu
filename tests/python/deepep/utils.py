@@ -605,3 +605,80 @@ def calculate_avg_stats(
             f"Average Combine bandwidth: {avg_combine_bw:.2f} GB/s, avg_t={avg_combine_lat:.2f} us\n\n",
             flush=True,
         )
+
+
+def merge_profiles(input_dir: str, output_file: str) -> None:
+    """Merge profile JSON files from multiple ranks into a single file.
+
+    Args:
+        input_dir: Directory containing profile files (rank*/trace_view.json)
+        output_file: Path to the output merged profile file
+    """
+    input_path = Path(input_dir)
+    profile_files = sorted(input_path.glob("rank*/trace_view.json"))
+
+    if not profile_files:
+        print("No profile files found")
+        return
+
+    merged_trace_events = []
+    pid_offset = 0
+
+    for profile_file in profile_files:
+        with open(profile_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        trace_events = data.get("traceEvents", [])
+
+        for event in trace_events:
+            event["pid"] = event.get("pid", 0) + pid_offset
+
+        merged_trace_events.extend(trace_events)
+        pid_offset += 1000
+
+        print(f"Merged {len(trace_events)} events from {profile_file.name}")
+
+    merged_data = {"traceEvents": merged_trace_events}
+
+    with open(output_file, "w", encoding="utf-8") as f:
+        json.dump(merged_data, f)
+
+    print(f"\nTotal events: {len(merged_trace_events)}")
+    print(f"Output saved to: {output_file}")
+
+
+def merge_profiles_after_profiling(
+    kernel_trace_dir: str, merge_output: Optional[str] = None, rank: int = 0
+) -> None:
+    """Run merge_profiles if kernel traces were collected.
+
+    This is a convenience function to call after profiling to automatically
+    merge the collected traces.
+
+    Args:
+        kernel_trace_dir: Directory where kernel traces were written
+        merge_output: Output path for merged profile. If None, defaults to
+                      {kernel_trace_dir}/merged_profile.json
+        rank: Current process rank (only rank 0 will perform the merge)
+    """
+    if rank != 0:
+        return
+
+    if kernel_trace_dir is None:
+        return
+
+    if not os.path.exists(kernel_trace_dir):
+        print(f"Kernel trace directory does not exist: {kernel_trace_dir}")
+        return
+
+    input_path = Path(kernel_trace_dir)
+    profile_files = list(input_path.glob("rank*/trace_view.json"))
+    if not profile_files:
+        print(f"No profile files found in {kernel_trace_dir}")
+        return
+
+    output_file = merge_output
+    if output_file is None:
+        output_file = os.path.join(kernel_trace_dir, "merged_profile.json")
+
+    merge_profiles(kernel_trace_dir, output_file)
