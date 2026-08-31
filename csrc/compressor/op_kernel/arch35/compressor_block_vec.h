@@ -73,6 +73,10 @@ public:
                                                 GlobalTensor<T> kvCacheTcGm, GlobalTensor<T> scoreCacheTcGm,
                                                 GlobalTensor<T> vec1ResGm, GlobalTensor<T> vec2InputGm);
     __aicore__ inline void ComputeVec2(const Vec2RunInfo &info);
+    __aicore__ inline void CommitState(const Vec1RunInfo &info);
+    __aicore__ inline void CommitStateBaseBlock(const Vec1RunInfo &info,
+                                                CompressorVec1SliceIterator<COMP> &sliceIterator, uint32_t dStartIdx,
+                                                uint32_t dDealSize);
 
 protected:
     GlobalTensor<T> vec1ResGm_;
@@ -624,9 +628,19 @@ CompressorBlockVector<COMP>::OverLap(const LocalTensor<T> &dstLocal, const Local
         AddApeToScore(srcLocal, apeUb, sliceInfo, dDealSize);
         PipeBarrier<PIPE_V>();
     }
-    SaveState(srcLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize, static_cast<uint32_t>(IS_SCORE));
-    ReadState<IS_SCORE>(dstLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize,
-                        static_cast<uint32_t>(IS_SCORE));
+    if constexpr (COMP::cacheMode == CACHE_MODE::CYCLE) {
+        // Ring buffer: SaveState is deferred to the kernel-level SyncAll
+        // (CommitState) so every ReadState observes the old history. With the
+        // real A5 ring (c4 ring_size=8, c128=128) a write can land on the same
+        // ring row another slice still needs to read, both within a slice and
+        // across slices.
+        ReadState<IS_SCORE>(dstLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize,
+                            static_cast<uint32_t>(IS_SCORE));
+    } else {
+        SaveState(srcLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize, static_cast<uint32_t>(IS_SCORE));
+        ReadState<IS_SCORE>(dstLocal, stateGm, blockTableGm, sliceInfo, dStartIdx, dDealSize,
+                            static_cast<uint32_t>(IS_SCORE));
+    }
 
     if constexpr (COMP::coff == COFF::OVERLAP) {
         uint32_t nextC1V1DbIdx = (info.c1v1DbIdx + 1) % constInfo_.dbWorkspaceRatio;
@@ -1044,6 +1058,81 @@ __aicore__ inline void CompressorBlockVector<COMP>::DealVec1BaseBlock(const Vec1
         outputQue2.FreeTensor(comperssoredUb);
     }
     compressedCnt_ += statisticInfo.compressorScCnt;
+}
+
+template <typename COMP>
+__aicore__ inline void CompressorBlockVector<COMP>::CommitStateBaseBlock(
+    const Vec1RunInfo &info, CompressorVec1SliceIterator<COMP> &sliceIterator, uint32_t dStartIdx, uint32_t dDealSize)
+{
+    Vec1SliceInfo originSliceInfo = sliceIterator.GetSlice();
+    uint32_t needDealTcSize = sliceIterator.GetNeedDealTcSize();
+    StatisticInfo &statisticInfo = sliceIterator.template FullIteratorSlice<true>();
+    if (statisticInfo.actualTcCnt == 0) {
+        return;
+    }
+
+    CompressorVec1SliceIterator commitSliceIterator(tools_);
+    commitSliceIterator.SetMaxBatchSize(constInfo_.batchSize);
+    Vec1SliceInfo &commitSliceInfo = commitSliceIterator.GetSlice();
+
+    GlobalTensor<T> scoreDBMm1ResGm = scoreMm1ResGm_[info.c1v1DbIdx * constInfo_.dbSize];
+    LocalTensor<T> scoreUb = inputQue1.AllocTensor<T>();
+    FromWokrSpaceToUb(scoreUb, scoreDBMm1ResGm, originSliceInfo, statisticInfo, dStartIdx, dDealSize);
+    inputQue1.EnQue(scoreUb);
+    inputQue1.DeQue<T>();
+    commitSliceIterator.Reset(originSliceInfo.bIdx, originSliceInfo.sIdx, 0U, 0U);
+    commitSliceIterator.SetNeedDealTcSize(needDealTcSize);
+    while (!commitSliceIterator.IsEnd()) {
+        commitSliceIterator.GetSlice();
+        AddApeToScore(scoreUb, apeUb, commitSliceInfo, dDealSize);
+        PipeBarrier<PIPE_V>();
+        SaveState(scoreUb, stateCacheGm_, stateBlockTableGm_, commitSliceInfo, dStartIdx, dDealSize, 1U);
+        commitSliceIterator.IteratorSlice();
+    }
+    inputQue1.FreeTensor(scoreUb);
+
+    GlobalTensor<T> kvDBMm1ResGm = kvMm1ResGm_[info.c1v1DbIdx * constInfo_.dbSize];
+    LocalTensor<T> kvUb = inputQue1.AllocTensor<T>();
+    FromWokrSpaceToUb(kvUb, kvDBMm1ResGm, originSliceInfo, statisticInfo, dStartIdx, dDealSize);
+    inputQue1.EnQue(kvUb);
+    inputQue1.DeQue<T>();
+    commitSliceIterator.Reset(originSliceInfo.bIdx, originSliceInfo.sIdx, 0U, 0U);
+    commitSliceIterator.SetNeedDealTcSize(needDealTcSize);
+    while (!commitSliceIterator.IsEnd()) {
+        commitSliceIterator.GetSlice();
+        SaveState(kvUb, stateCacheGm_, stateBlockTableGm_, commitSliceInfo, dStartIdx, dDealSize, 0U);
+        commitSliceIterator.IteratorSlice();
+    }
+    inputQue1.FreeTensor(kvUb);
+}
+
+template <typename COMP>
+__aicore__ inline void CompressorBlockVector<COMP>::CommitState(const Vec1RunInfo &info)
+{
+    if (info.dealTcNum == 0) {
+        return;
+    }
+
+    Vec1SplitInfo splitInfo = SplitCoreV1(info);
+    if (splitInfo.dealTcSize == 0) {
+        return;
+    }
+
+    CompressorVec1SliceIterator sliceIterator(tools_);
+    sliceIterator.SetMaxBatchSize(constInfo_.batchSize);
+    uint64_t baseOffset = (GetBlockIdx() % splitInfo.vec1GroupSize) * splitInfo.dBaseSize;
+    for (uint32_t dLoopIdx = 0; dLoopIdx < splitInfo.dLoopCount; dLoopIdx++) {
+        uint64_t dBaseOffset = baseOffset + dLoopIdx * splitInfo.dSplitSize;
+        CopyInApe(apeUb, dBaseOffset, splitInfo.dSplitSize);
+
+        sliceIterator.Reset(splitInfo.curBStart, splitInfo.curSStart, splitInfo.dealSeqStartIdx, 0U);
+        for (uint32_t tcIdx = 0; tcIdx < splitInfo.dealTcSize; tcIdx += splitInfo.tcSplitSize) {
+            uint32_t actDealTcSize = min(splitInfo.tcSplitSize, splitInfo.dealTcSize - tcIdx);
+            sliceIterator.SetNeedDealTcSize(actDealTcSize);
+            sliceIterator.SetDealedTcCnt(0U);
+            CommitStateBaseBlock(info, sliceIterator, dBaseOffset, splitInfo.dSplitSize);
+        }
+    }
 }
 
 template <typename COMP>

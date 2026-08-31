@@ -471,6 +471,10 @@ __aicore__ inline void CompressorKernel<COMP>::ComputeVec1(const Vec1RunInfo &in
     blockVec_.ComputeVec1(info);
     CrossCoreSetFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG);
     CrossCoreWaitFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG);
+    if constexpr (COMP::cacheMode == CACHE_MODE::CYCLE) {
+        SyncAll();
+        blockVec_.CommitState(info);
+    }
     CrossCoreSetFlag<SYNC_MODE2, PIPE_MTE2>(SYNC_V1_C1_FLAG + info.c1v1DbIdx);
     CrossCoreSetFlag<SYNC_MODE0, PIPE_MTE3>(SYNC_V1_FLAG2 + (info.c1v1DbIdx + 1) % constInfo.dbWorkspaceRatio);
 }
