@@ -20,6 +20,9 @@ struct CamMoeDispatchNormalInfo {
     bool isEnableDiagnose;  // whether enable diagnose or not
     bool reserved2;         // reserved
     bool reserved3;         // reserved
+    uint32_t profileEnable;      // whether enable profiling or not
+    uint32_t profileLaunchId;    // profiling launch id
+    uint64_t profileBufferBytes; // profiling buffer size in bytes
     uint64_t totalUbSize;   // epWorldSize
     uint64_t totalWinSize;
 };
