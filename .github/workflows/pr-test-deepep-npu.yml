@@ -833,7 +833,7 @@ jobs:
             bash scripts/prepare_deepep_in_container.sh -a deepep Ascend950
           fi
 
-      - name: Run normal mode MXFP4
+      - name: Run NZ format weights
         timeout-minutes: 10
         run: |
           npu-smi info
