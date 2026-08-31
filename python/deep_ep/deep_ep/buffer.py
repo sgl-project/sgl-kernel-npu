@@ -767,13 +767,16 @@ class Buffer:
         quant_mode: int = 1,
         fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
         profile_enable: bool = False,
+        activation: Optional[str] = None,
+        beta: Optional[float] = 4.0,
+        linear_beta: Optional[float] = 25.0,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         A fused low-latency implementation for MoE expert forward and combination.
 
         Two fuse modes are available via the FuseMode enum:
         - FuseMode.FUSED_DEEP_MOE (1): Full fusion via aclnnFusedDeepMoe.
-          InitRouting + AllToAll + GMM1 + DequantSwigluQuant + GMM2 + Dequant
+          InitRouting + AllToAll + GMM1 + DequantActivationQuant + GMM2 + Dequant
           + Unpermute/Combine in a single AscendC kernel.
         - FuseMode.DISPATCH_FFN_COMBINE (2): Separate dispatch handling via aclnnDispatchFFNCombine.
           InitRouting + AllToAll dispatch + GMM1 + DequantSwigluQuant + GMM2 + Dequant
@@ -812,6 +815,11 @@ class Buffer:
                 FuseMode is not exported from the package's top-level __init__.py;
                 import via `from deep_ep.buffer import FuseMode` or use integer
                 values 1 or 2 directly.
+            activation: activation used after GMM1. ``None`` or ``"silu"``
+                selects SiLU (default); ``"situ"`` selects SiTU.
+            beta: SiTU gate soft-saturation bound. ``None`` uses the kernel default.
+            linear_beta: SiTU up-projection soft-saturation bound. A positive
+                value enables the transform; ``None`` leaves the up branch unchanged.
 
         Notes:
             - DISPATCH_FFN_COMBINE mode does NOT support shared experts (unlike
@@ -835,6 +843,26 @@ class Buffer:
                     shape `[num_local_experts]`, indicating the number of tokens received
                     by each local expert on this rank only.
         """
+        if activation is None:
+            activation = "silu"
+        elif isinstance(activation, str):
+            activation = activation.lower()
+        else:
+            raise ValueError(
+                f"activation must be None, 'silu', or 'situ', but got {activation!r}"
+            )
+        if activation not in ("silu", "situ"):
+            raise ValueError(
+                f"activation must be None, 'silu', or 'situ', but got {activation!r}"
+            )
+        if activation == "situ":
+            if beta is not None and beta <= 0:
+                raise ValueError(f"beta must be > 0 for SiTU, but got {beta}")
+            if linear_beta is not None and linear_beta <= 0:
+                raise ValueError(
+                    "linear_beta must be > 0 when provided for SiTU, "
+                    f"but got {linear_beta}"
+                )
         topk_ids = topk_idx.int()
         if fuse_mode == FuseMode.FUSED_DEEP_MOE:
             output, ep_recv_count = self.runtime.fused_deep_moe(
@@ -849,9 +877,16 @@ class Buffer:
                 num_experts,
                 quant_mode,
                 profile_enable,
+                activation,
+                beta,
+                linear_beta,
             )
             return output, ep_recv_count
         elif fuse_mode == FuseMode.DISPATCH_FFN_COMBINE:
+            if activation == "situ":
+                raise NotImplementedError(
+                    "SiTU is only supported by FuseMode.FUSED_DEEP_MOE"
+                )
             # The maximum number of tokens that rank can obtain during dispatch. (max_bs * ranks * topk)
             max_output_size = num_max_dispatch_tokens_per_rank
             output, expert_token_nums = self.runtime.dispatch_ffn_combine(

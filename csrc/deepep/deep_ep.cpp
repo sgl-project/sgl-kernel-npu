@@ -1094,13 +1094,12 @@ std::tuple<at::Tensor, std::optional<EventHandle>, std::optional<std::function<v
     return {combined_x, event, std::function<void()>([] {})};
 }
 
-std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Tensor &expert_ids,
-                                               const at::Tensor &gmm1_permuted_weight,
-                                               const at::Tensor &gmm1_permuted_weight_scale,
-                                               const at::Tensor &gmm2_weight, const at::Tensor &gmm2_weight_scale,
-                                               const at::Tensor &expert_scales_optional,
-                                               int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
-                                               int quant_mode, bool profile_enable)
+std::vector<at::Tensor> Buffer::fused_deep_moe(
+    const at::Tensor &x, const at::Tensor &expert_ids, const at::Tensor &gmm1_permuted_weight,
+    const at::Tensor &gmm1_permuted_weight_scale, const at::Tensor &gmm2_weight, const at::Tensor &gmm2_weight_scale,
+    const at::Tensor &expert_scales_optional, int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
+    int quant_mode, bool profile_enable, const std::optional<std::string> &activation, std::optional<double> beta,
+    std::optional<double> linear_beta)
 {
     EP_HOST_ASSERT(x.dim() == 2);
     EP_HOST_ASSERT(expert_ids.dim() == 2);
@@ -1112,6 +1111,19 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
                      "fused_deep_moe only supports quant_mode 0 (BF16) or 1 (INT8), got ", quant_mode);
 #endif
     const int64_t quant_mode_i64 = static_cast<int64_t>(quant_mode);
+    const std::string activation_value = activation.value_or("silu");
+    TORCH_CHECK(activation_value == "silu" || activation_value == "situ", "activation must be 'silu' or 'situ', got '",
+                activation_value, "'");
+    const bool use_situ = activation_value == "situ";
+    const double beta_value = beta.value_or(4.0);
+    if (use_situ) {
+        TORCH_CHECK(beta_value > 0.0, "beta must be > 0 for SiTU, got ", beta_value);
+        TORCH_CHECK(!linear_beta.has_value() || *linear_beta > 0.0,
+                    "linear_beta must be > 0 when provided for SiTU, got ",
+                    linear_beta.has_value() ? *linear_beta : 0.0);
+    }
+    const int64_t activation_type_i64 = use_situ ? 1 : 0;
+    const double linear_beta_value = linear_beta.value_or(0.0);
 
     char hcom_ep_name[128];
     if (!moe_all_to_all_group_name.empty()) {
@@ -1178,8 +1190,8 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
                          static_cast<const std::nullptr_t &>(nullptr), static_cast<const std::nullptr_t &>(nullptr),
                          static_cast<const std::nullptr_t &>(nullptr), static_cast<const std::nullptr_t &>(nullptr),
                          x_active_mask, *profile_buffer_ptr, hcom_ep_name, num_ranks, rank, num_experts, quant_mode_i64,
-                         global_bs, profile_enable_i64, profile_buffer_bytes_i64, profile_launch_id_i64, output,
-                         share_output, expert_token_nums);
+                         global_bs, profile_enable_i64, profile_buffer_bytes_i64, profile_launch_id_i64,
+                         activation_type_i64, beta_value, linear_beta_value, output, share_output, expert_token_nums);
         } else {
             EXEC_NPU_CMD(aclnnFusedDeepMoe, x_padded, expert_ids_padded, gmm1_weight_list, gmm1_scale_list,
                          gmm2_weight_list, gmm2_scale_list, expert_scales_padded,
@@ -1188,7 +1200,8 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
                          static_cast<const std::nullptr_t &>(nullptr), static_cast<const std::nullptr_t &>(nullptr),
                          static_cast<const std::nullptr_t &>(nullptr), *profile_buffer_ptr, hcom_ep_name, num_ranks,
                          rank, num_experts, quant_mode_i64, global_bs, profile_enable_i64, profile_buffer_bytes_i64,
-                         profile_launch_id_i64, output, share_output, expert_token_nums);
+                         profile_launch_id_i64, activation_type_i64, beta_value, linear_beta_value, output,
+                         share_output, expert_token_nums);
         }
         profiling::fused_deep_moe_a5::CompleteLaunch(profile_ctx, rank);
     } else {
@@ -1200,7 +1213,8 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
                          static_cast<const std::nullptr_t &>(nullptr), static_cast<const std::nullptr_t &>(nullptr),
                          x_active_mask, static_cast<const std::nullptr_t &>(nullptr), hcom_ep_name, num_ranks, rank,
                          num_experts, quant_mode_i64, global_bs, profile_enable_i64, profile_buffer_bytes_i64,
-                         profile_launch_id_i64, output, share_output, expert_token_nums);
+                         profile_launch_id_i64, activation_type_i64, beta_value, linear_beta_value, output,
+                         share_output, expert_token_nums);
         } else {
             EXEC_NPU_CMD(aclnnFusedDeepMoe, x_padded, expert_ids_padded, gmm1_weight_list, gmm1_scale_list,
                          gmm2_weight_list, gmm2_scale_list, expert_scales_padded,
@@ -1209,7 +1223,8 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
                          static_cast<const std::nullptr_t &>(nullptr), static_cast<const std::nullptr_t &>(nullptr),
                          static_cast<const std::nullptr_t &>(nullptr), static_cast<const std::nullptr_t &>(nullptr),
                          hcom_ep_name, num_ranks, rank, num_experts, quant_mode_i64, global_bs, profile_enable_i64,
-                         profile_buffer_bytes_i64, profile_launch_id_i64, output, share_output, expert_token_nums);
+                         profile_buffer_bytes_i64, profile_launch_id_i64, activation_type_i64, beta_value,
+                         linear_beta_value, output, share_output, expert_token_nums);
         }
     }
 
@@ -1219,6 +1234,7 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(const at::Tensor &x, const at::Te
 
     return {output, expert_token_nums.to(expert_ids.scalar_type())};
 #else
+    TORCH_CHECK(!use_situ, "SiTU is only supported by the Ascend 950 fused_deep_moe kernel");
     int64_t global_bs = std::max(expert_ids.size(0), num_max_dispatch_tokens_per_rank) * num_ranks;
     at::Tensor output = at::empty({bs, h}, x.options());
     auto gmm1_permuted_weight_scale_f32 = gmm1_permuted_weight_scale.to(at::kFloat);

@@ -51,6 +51,9 @@ constexpr uint32_t ATTR_GLOBAL_BS_INDEX = 5;
 constexpr uint32_t ATTR_PROFILE_ENABLE_INDEX = 6;
 constexpr uint32_t ATTR_PROFILE_BUFFER_BYTES_INDEX = 7;
 constexpr uint32_t ATTR_PROFILE_LAUNCH_ID_INDEX = 8;
+constexpr uint32_t ATTR_ACTIVATION_TYPE_INDEX = 9;
+constexpr uint32_t ATTR_BETA_INDEX = 10;
+constexpr uint32_t ATTR_LINEAR_BETA_INDEX = 11;
 
 constexpr uint32_t MIN_BATCH_SIZE = 0;
 constexpr uint32_t MAX_BATCH_SIZE = 256;
@@ -507,6 +510,9 @@ static ge::graphStatus GetAttrAndSetTilingData(const gert::TilingContext &contex
     auto profileEnablePtr = attrs->GetAttrPointer<int64_t>(ATTR_PROFILE_ENABLE_INDEX);
     auto profileBufferBytesPtr = attrs->GetAttrPointer<int64_t>(ATTR_PROFILE_BUFFER_BYTES_INDEX);
     auto profileLaunchIdPtr = attrs->GetAttrPointer<int64_t>(ATTR_PROFILE_LAUNCH_ID_INDEX);
+    auto activationTypePtr = attrs->GetAttrPointer<int64_t>(ATTR_ACTIVATION_TYPE_INDEX);
+    auto betaPtr = attrs->GetAttrPointer<float>(ATTR_BETA_INDEX);
+    auto linearBetaPtr = attrs->GetAttrPointer<float>(ATTR_LINEAR_BETA_INDEX);
     OPS_ERR_IF(groupEpPtr == nullptr, OPS_LOG_E(nodeName, "groupEpPtr is nullptr."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(epRankSizePtr == nullptr, OPS_LOG_E(nodeName, "epRankSizePtr is nullptr."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(epRankIdPtr == nullptr, OPS_LOG_E(nodeName, "epRankIdPtr is nullptr."), return ge::GRAPH_FAILED);
@@ -535,12 +541,27 @@ static ge::graphStatus GetAttrAndSetTilingData(const gert::TilingContext &contex
                return ge::GRAPH_FAILED);
     OPS_ERR_IF(profileLaunchIdPtr == nullptr, OPS_LOG_E(nodeName, "profileLaunchIdPtr is nullptr."),
                return ge::GRAPH_FAILED);
+    OPS_ERR_IF(activationTypePtr == nullptr, OPS_LOG_E(nodeName, "activationTypePtr is nullptr."),
+               return ge::GRAPH_FAILED);
+    OPS_ERR_IF(betaPtr == nullptr, OPS_LOG_E(nodeName, "betaPtr is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(linearBetaPtr == nullptr, OPS_LOG_E(nodeName, "linearBetaPtr is nullptr."), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(*activationTypePtr != ACTIVATION_SILU && *activationTypePtr != ACTIVATION_SITU,
+               OPS_LOG_E(nodeName, "activationType must be 0 (SiLU) or 1 (SiTU), but got %ld.", *activationTypePtr),
+               return ge::GRAPH_FAILED);
+    OPS_ERR_IF(*activationTypePtr == ACTIVATION_SITU && !(*betaPtr > 0.0F),
+               OPS_LOG_E(nodeName, "beta must be > 0 for SiTU, but got %f.", *betaPtr), return ge::GRAPH_FAILED);
+    OPS_ERR_IF(*activationTypePtr == ACTIVATION_SITU && !(*linearBetaPtr >= 0.0F),
+               OPS_LOG_E(nodeName, "linearBeta must be >= 0 for SiTU, but got %f.", *linearBetaPtr),
+               return ge::GRAPH_FAILED);
 
     groupEp = std::string(groupEpPtr);
     tilingData.fusedDeepMoeInfo.epRankSize = epRankSize;
     tilingData.fusedDeepMoeInfo.epRankId = epRankId;
     tilingData.fusedDeepMoeInfo.moeExpertNum = moeExpertNum;
     tilingData.fusedDeepMoeInfo.quantMode = static_cast<uint32_t>(*quantModePtr);
+    tilingData.fusedDeepMoeInfo.activationType = static_cast<uint32_t>(*activationTypePtr);
+    tilingData.fusedDeepMoeInfo.beta = *betaPtr;
+    tilingData.fusedDeepMoeInfo.linearBeta = *linearBetaPtr;
     tilingData.fusedDeepMoeInfo.profileEnable = static_cast<uint32_t>(*profileEnablePtr);
     tilingData.fusedDeepMoeInfo.profileBufferBytes = static_cast<uint64_t>(*profileBufferBytesPtr);
     tilingData.fusedDeepMoeInfo.profileLaunchId = static_cast<uint32_t>(*profileLaunchIdPtr);
