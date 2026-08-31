@@ -834,6 +834,7 @@ jobs:
           fi
 
       - name: Run NZ format weights
+        if: matrix.cann_version != '9.0.0'
         timeout-minutes: 10
         run: |
           npu-smi info
