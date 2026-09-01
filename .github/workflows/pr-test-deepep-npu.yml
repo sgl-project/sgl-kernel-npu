@@ -876,13 +876,14 @@ jobs:
 #        run: |
 #          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_alltoall.py --num-processes 4
 #          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_alltoall.py --num-processes 4 --quant-type int8
-      #err
-#      - name: Run alltoall low‑latency
-#        timeout-minutes: 10
-#        run: |
-#          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py --num-processes 4
-#          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py --num-processes 4 --quant-type int8
-#
+
+      - name: Run alltoall low‑latency
+        if: matrix.cann_version != '9.0.0'
+        timeout-minutes: 10
+        run: |
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py --num-processes 4
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py --num-processes 4 --quant-type int8
+
 
       - name: Run fusion operator
         timeout-minutes: 10
