@@ -15,7 +15,8 @@ def _silu_and_mul_clamp_kernel(
     m,
     n,
     gate_up_stride,
-    out_stride,
+    out_row_stride,
+    out_col_stride,
     limit,
     HAS_LIMIT: tl.constexpr,
     HAS_WEIGHTS: tl.constexpr,
@@ -36,7 +37,9 @@ def _silu_and_mul_clamp_kernel(
         weight = tl.load(weights + rows, mask=rows < m, other=1.0).to(tl.float32)
         value *= weight[:, None]
     tl.store(
-        out + rows[:, None].to(tl.int64) * out_stride + cols[None, :],
+        out
+        + rows[:, None].to(tl.int64) * out_row_stride
+        + cols[None, :] * out_col_stride,
         value.to(out.dtype.element_ty),
         mask=mask,
     )
@@ -74,6 +77,7 @@ def silu_and_mul_clamp_triton(
         n,
         gate_up.stride(0),
         out_2d.stride(0),
+        out_2d.stride(1),
         float(swiglu_limit) if has_limit else 0.0,
         HAS_LIMIT=has_limit,
         HAS_WEIGHTS=weights is not None,

@@ -31,3 +31,16 @@ def test_silu_and_mul_clamp_triton(shape, limit, with_weights):
     actual = silu_and_mul_clamp_triton(gate_up, swiglu_limit=limit, weights=weights)
     expected = _reference(gate_up, limit, weights)
     torch.testing.assert_close(actual, expected, rtol=2e-2, atol=2e-2)
+
+
+def test_silu_and_mul_clamp_triton_noncontiguous_out():
+    gate_up = torch.randn(7, 512, dtype=torch.bfloat16, device="npu")
+    storage = torch.full((7, 512), float("nan"), dtype=torch.bfloat16, device="npu")
+    out = storage[:, ::2]
+
+    actual = silu_and_mul_clamp_triton(gate_up, out=out, swiglu_limit=7.0)
+    expected = _reference(gate_up, 7.0, None)
+
+    assert actual is out
+    torch.testing.assert_close(actual, expected, rtol=2e-2, atol=2e-2)
+    assert torch.isnan(storage[:, 1::2]).all()
