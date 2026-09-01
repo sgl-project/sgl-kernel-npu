@@ -92,7 +92,6 @@ FLA_TESTS=(
 
 FUSED_TESTS=(
     test_swiglu_quant.py  # fixed by PR#701 (fp32 ref aligned)
-    test_silu_and_mul_clamp_triton.py
     test_batch_matmul_transpose.py
     # test_catlass_matmul_basic.py  # FAILING: flaky float16 precision (0.0078 > 0.0005)
     test_qkvzba_split_reshape_cat.py

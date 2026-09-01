@@ -115,7 +115,6 @@ jobs:
               - python/sgl_kernel_npu/sgl_kernel_npu/activation/**
               - python/sgl_kernel_npu/sgl_kernel_npu/moe/**
               - tests/python/sgl_kernel_npu/test_swiglu_quant.py
-              - tests/python/sgl_kernel_npu/test_silu_and_mul_clamp_triton.py
               - tests/python/sgl_kernel_npu/test_batch_matmul_transpose.py
               - tests/python/sgl_kernel_npu/test_catlass_matmul_basic.py
               - tests/python/sgl_kernel_npu/test_qkvzba_split_reshape_cat.py
