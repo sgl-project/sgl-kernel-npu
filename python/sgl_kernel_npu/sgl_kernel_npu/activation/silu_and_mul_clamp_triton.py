@@ -9,9 +9,18 @@ import triton.language as tl
 
 @triton.jit
 def _silu_and_mul_clamp_kernel(
-    gate_up, out, weights, m, n, gate_up_stride, out_stride, limit,
-    HAS_LIMIT: tl.constexpr, HAS_WEIGHTS: tl.constexpr,
-    BLOCK_M: tl.constexpr, BLOCK_N: tl.constexpr,
+    gate_up,
+    out,
+    weights,
+    m,
+    n,
+    gate_up_stride,
+    out_stride,
+    limit,
+    HAS_LIMIT: tl.constexpr,
+    HAS_WEIGHTS: tl.constexpr,
+    BLOCK_M: tl.constexpr,
+    BLOCK_N: tl.constexpr,
 ):
     rows = tl.program_id(0) * BLOCK_M + tl.arange(0, BLOCK_M)
     cols = tl.program_id(1) * BLOCK_N + tl.arange(0, BLOCK_N)
@@ -58,9 +67,18 @@ def silu_and_mul_clamp_triton(
     block_m, block_n, num_warps = (1, 256, 4) if m <= 16 else (8, 1024, 8)
     has_limit = swiglu_limit is not None and swiglu_limit > 0
     _silu_and_mul_clamp_kernel[(triton.cdiv(m, block_m), triton.cdiv(n, block_n))](
-        gate_up, out_2d, weights, m, n, gate_up.stride(0), out_2d.stride(0),
+        gate_up,
+        out_2d,
+        weights,
+        m,
+        n,
+        gate_up.stride(0),
+        out_2d.stride(0),
         float(swiglu_limit) if has_limit else 0.0,
-        HAS_LIMIT=has_limit, HAS_WEIGHTS=weights is not None,
-        BLOCK_M=block_m, BLOCK_N=block_n, num_warps=num_warps,
+        HAS_LIMIT=has_limit,
+        HAS_WEIGHTS=weights is not None,
+        BLOCK_M=block_m,
+        BLOCK_N=block_n,
+        num_warps=num_warps,
     )
     return out

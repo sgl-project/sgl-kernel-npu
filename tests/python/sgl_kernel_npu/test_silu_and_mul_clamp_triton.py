@@ -1,8 +1,9 @@
 import pytest
 import torch
 import torch.nn.functional as F
-
-from sgl_kernel_npu.activation.silu_and_mul_clamp_triton import silu_and_mul_clamp_triton
+from sgl_kernel_npu.activation.silu_and_mul_clamp_triton import (
+    silu_and_mul_clamp_triton,
+)
 
 
 def _reference(gate_up, limit, weights):
@@ -22,7 +23,11 @@ def _reference(gate_up, limit, weights):
 def test_silu_and_mul_clamp_triton(shape, limit, with_weights):
     torch.manual_seed(0)
     gate_up = torch.randn(*shape, dtype=torch.bfloat16, device="npu")
-    weights = torch.rand(shape[0], dtype=torch.bfloat16, device="npu") if with_weights else None
+    weights = (
+        torch.rand(shape[0], dtype=torch.bfloat16, device="npu")
+        if with_weights
+        else None
+    )
     actual = silu_and_mul_clamp_triton(gate_up, swiglu_limit=limit, weights=weights)
     expected = _reference(gate_up, limit, weights)
     torch.testing.assert_close(actual, expected, rtol=2e-2, atol=2e-2)
