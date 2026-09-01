@@ -398,7 +398,7 @@ DeepEP-Ascend 采用**策略式架构**，通信实现被抽象为可互换的�
 | `DEEP_USE_MODE=alltoall` | `AlltoAllNormalCommStrategy`（torch.distributed alltoallv） | `AllToAllLowLatencyCommStrategy`（torch.distributed alltoall） |
 | `DEEP_USE_MODE=ops` | `DefaultNormalCommStrategy`（deep_ep_cpp 自定义算子） | `OpsLowLatencyCommStrategy`（torch_npu 算子） |
 
-> **注意**：无效配置（如 `DEEP_USE_MODE=error`）会抛出 `ValueError`。
+> **注意**：无效配置（如 `DEEP_USE_MODE=error`）会抛出 `ValueError`, A5 + cann9.0.0场景下不支持low-latency模式选择alltoall策略。
 
 ### API 总览
 
