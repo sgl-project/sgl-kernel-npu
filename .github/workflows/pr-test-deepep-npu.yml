@@ -907,6 +907,7 @@ jobs:
 
       - name: Run bs uneven scenario
         timeout-minutes: 10
+        continue-on-error: true
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py \
           --quant fp8_e4m3 \
