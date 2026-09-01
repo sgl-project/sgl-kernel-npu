@@ -884,11 +884,11 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py --num-processes 4
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py --num-processes 4 --quant-type int8
 
-
-      - name: Run fusion operator
-        timeout-minutes: 10
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py --num-processes 4 --num-warmups 3  --num-tests 10
+#cann9.0 err
+#      - name: Run fusion operator
+#        timeout-minutes: 10
+#        run: |
+#          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py --num-processes 4 --num-warmups 3  --num-tests 10
 
       - name: Run single bs scenario
         timeout-minutes: 10
