@@ -883,7 +883,7 @@ jobs:
       - name: Run single bs scenario
         timeout-minutes: 10
         run: |
-          python3 tests/python/deepep/test_fused_deep_moe_a5.py \
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py \
           --quant fp8_e4m3 \
           --num-processes 4 \
           --hidden 7168 \
@@ -897,7 +897,7 @@ jobs:
       - name: Run bs uneven scenario
         timeout-minutes: 10
         run: |
-          python3 tests/python/deepep/test_fused_deep_moe_a5.py \
+          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py \
           --quant fp8_e4m3 \
           --num-processes 4 \
           --hidden 7168 \
