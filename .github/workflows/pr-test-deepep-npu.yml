@@ -859,12 +859,16 @@ jobs:
 
       - name: Run low‑latency mode mx_fp4_e2m1 quantization
         continue-on-error: true
+        env:
+          HCCL_BUFFSIZE: 2000
         timeout-minutes: 10
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=4 --num-topk=8 --num-experts=256 --hidden=7168 --num-tokens=256 --quant-type=mx_fp4_e2m1
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=4 --num-topk=12 --num-experts=512 --hidden=8192 --num-tokens=128 --quant-type=mx_fp4_e2m1 --enable-dynamic-tokens
 
       - name: Run low‑latency mode pertoken_fp8_e4m3 quantization
+        env:
+          HCCL_BUFFSIZE: 1500
         continue-on-error: true
         timeout-minutes: 10
         run: |
