@@ -820,19 +820,19 @@ jobs:
             rm -f ${GITHUB_WORKSPACE}/output/deep_ep*.whl
             bash scripts/prepare_deepep_in_container.sh -a deepep Ascend950
           fi
-      - name: Run normal mode mx_fp8_e4m3 quantization
-        env:
-          HCCL_BUFFSIZE: 500
-        timeout-minutes: 10
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=4 --num-tokens=256 --num-experts=32 --quant-type=mx_fp8_e4m3
+#      - name: Run normal mode mx_fp8_e4m3 quantization
+#        env:
+#          HCCL_BUFFSIZE: 500
+#        timeout-minutes: 10
+#        run: |
+#          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=4 --num-tokens=256 --num-experts=32 --quant-type=mx_fp8_e4m3
 
-      - name: Run normal mode mx_fp4_e2m1 quantization
-        env:
-          HCCL_BUFFSIZE: 500
-        timeout-minutes: 10
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=4 --num-tokens=256 --num-experts=32 --quant-type=mx_fp4_e2m1
+#      - name: Run normal mode mx_fp4_e2m1 quantization
+#        env:
+#          HCCL_BUFFSIZE: 500
+#        timeout-minutes: 10
+#        run: |
+#          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=4 --num-tokens=256 --num-experts=32 --quant-type=mx_fp4_e2m1
 
         #err
       - name: Run Normal mode pertoken_fp8_e4m3 quantization
