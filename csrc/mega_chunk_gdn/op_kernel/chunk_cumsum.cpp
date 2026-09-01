@@ -128,13 +128,13 @@ AICORE void cumsum_kernel(__gm__ float *g_ptr, __gm__ float *g_sum_ptr, __gm__ i
     //   GlobalTensor<dtype, Shape, Stride>(base_ptr, shape)
     // Shape<1,1,1,DYNAMIC,DYNAMIC> = 5D shape where first 3 dims are 1 (unused),
     //   last 2 dims are set at runtime (valid rows × NumHeads).
-    // Stride<1,1,1,NumHeads,1> = stride between elements. The 4th stride = NumHeads
+    // pto::Stride<1,1,1,NumHeads,1> = stride between elements. The 4th stride = NumHeads
     //   means consecutive rows in GM are NumHeads elements apart (BSND layout:
     //   token[t] at offset t*NumHeads, head[h] at offset h within that token).
     // This is equivalent to:
     //   g_gm = torch.as_strided(g_ptr, size=[valid, NumHeads], stride=[NumHeads, 1])
     using GmShape = Shape<1, 1, 1, DYNAMIC, DYNAMIC>;
-    using GmStride = Stride<1, 1, 1, NumHeads, 1>;
+    using GmStride = pto::Stride<1, 1, 1, NumHeads, 1>;
     using GmFloat = GlobalTensor<float, GmShape, GmStride>;
 
     // Pre-assign row accumulator at fixed UB address
