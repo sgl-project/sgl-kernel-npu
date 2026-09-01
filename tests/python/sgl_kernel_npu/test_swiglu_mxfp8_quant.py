@@ -53,4 +53,3 @@ def test_swiglu_mxfp8_quant():
     actual = payload.float() * scale.float().unsqueeze(-1)
     expected = _reference(x, True, 7.0)
     torch.testing.assert_close(actual[:20], expected[:20], rtol=0.15, atol=0.2)
-

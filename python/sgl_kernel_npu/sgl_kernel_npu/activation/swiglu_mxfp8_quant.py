@@ -164,4 +164,3 @@ def swiglu_quant(
     if need_quant:
         return out, scale.view(torch.float8_e8m0fnu)
     return out, scale
-
