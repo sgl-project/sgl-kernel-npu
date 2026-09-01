@@ -327,7 +327,7 @@ function setup_ascend_environment()
         -name "ASCConfig.cmake" \
         -type f \
         -print \
-        -quit 2>/dev/null)"
+        -quit 2>/dev/null || true)"
     if [[ -n "$asc_config_cmake" ]]; then
         ASC_CMAKE_DIR="$(dirname "$asc_config_cmake")"
         export CMAKE_PREFIX_PATH="$ASC_CMAKE_DIR${CMAKE_PREFIX_PATH:+:$CMAKE_PREFIX_PATH}"

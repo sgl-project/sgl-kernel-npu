@@ -58,6 +58,7 @@ set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv_metadata/op_host/sparse_attn_sharedkv_metadata.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/sparse_attention_score.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling/sparse_attention_score_tiling.cpp
+    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
     )
 # A3-only host sources
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
@@ -72,7 +73,6 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/tri_inv/op_host/tri_inv.cpp
         ${PROJECT_OP_SRC_BASE}/recurrent_gated_delta_rule/op_host/recurrent_gated_delta_rule.cpp
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host/causal_conv1d.cpp
-        ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_host/mega_chunk_gdn.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/unidex_copy/op_host/unidex_copy.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/slot_map_lookup/op_host/slot_map_lookup.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator.cpp
@@ -203,27 +203,30 @@ if(BUILD_CATLASS_MODULE)
     set(CATLASS_WORKSPACE_KERNEL_TARGETS catlass_workspace_kernel)
 endif()
 
-# Dedicated A3-only kernel targets. Keep these separate from workspace_kernel:
-# their compiler definitions/options apply to the whole AscendC target.
+# Dedicated kernel targets. Keep these separate from workspace_kernel: their
+# compiler definitions/options apply to the whole AscendC target.
+#
+# mega_chunk_gdn builds on both A2/A3 and A5; the per-arch differences live in
+# mega_chunk_utils.h behind __CCE_AICORE__ / __DAV_C310__ checks.
+ascendc_library(mega_chunk_gdn_kernel STATIC
+    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel/mega_kernel.cpp
+)
+ascendc_include_directories(mega_chunk_gdn_kernel PRIVATE
+    ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel
+    ${PROJECT_SOURCE_DIR}/third_party/pto-isa/include
+    ${ASCEND_INCLUDE_DIR}
+    ${ASCEND_INCLUDE_DIR}/experiment/runtime
+    ${ASCEND_INCLUDE_DIR}/experiment/msprof
+)
+ascendc_compile_definitions(mega_chunk_gdn_kernel PRIVATE
+    -DGDN_KERNEL_NAME=launch_mega_kernel
+    -DGDN_D=128
+    -DGDN_C=128
+)
+
+# A3-only kernel targets.
 set(A3_ONLY_KERNEL_TARGETS)
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
-    ascendc_library(mega_chunk_gdn_kernel STATIC
-        ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel/mega_kernel.cpp
-    )
-    ascendc_include_directories(mega_chunk_gdn_kernel PRIVATE
-        ${PROJECT_OP_SRC_BASE}/mega_chunk_gdn/op_kernel
-        ${PROJECT_SOURCE_DIR}/third_party/pto-isa/include
-        ${ASCEND_INCLUDE_DIR}
-        ${ASCEND_INCLUDE_DIR}/experiment/runtime
-        ${ASCEND_INCLUDE_DIR}/experiment/msprof
-    )
-    ascendc_compile_definitions(mega_chunk_gdn_kernel PRIVATE
-        -DGDN_KERNEL_NAME=launch_mega_kernel
-        -DGDN_D=128
-        -DGDN_C=128
-    )
-    list(APPEND A3_ONLY_KERNEL_TARGETS mega_chunk_gdn_kernel)
-
     ascendc_library(sparse_attn_sharedkv_kernel STATIC
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_kernel/sparse_attn_sharedkv.cpp
     )
@@ -250,6 +253,7 @@ add_library(${OP_PLUGIN_NAME} SHARED ${OP_SRCS})
 
 target_link_libraries(${OP_PLUGIN_NAME} PRIVATE
         ${A3_ONLY_KERNEL_TARGETS}
+        mega_chunk_gdn_kernel
         workspace_kernel
         no_workspace_kernel
         ${CATLASS_WORKSPACE_KERNEL_TARGETS}
@@ -291,5 +295,4 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${ASCEND_INCLUDE_DIR}/experiment/platform
         ${ASCEND_INCLUDE_DIR}/experiment/runtime
         ${ASCEND_DRIVER_PATH}/include
-        ${ASCEND_DRIVER_PATH}/kernel/inc
 )
