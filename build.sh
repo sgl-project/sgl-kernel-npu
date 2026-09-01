@@ -16,6 +16,7 @@ DEEPEP_VARIANT="deepep"
 DEEPEP_IS_A5_BUILD="OFF"
 
 BUILD_ATTENTIONS_MODULE="OFF"
+MHC_COMPUTE_UNIT="${MHC_COMPUTE_UNIT:-ascend910b}"
 BUILD_DEEPEP_MODULE="OFF"
 BUILD_KERNELS_MODULE="OFF"
 BUILD_MEMORY_SAVER_MODULE="OFF"
@@ -452,6 +453,22 @@ function build_attentions_kernels()
     )
 }
 
+function build_mhc_custom_ops()
+{
+    echo "Building mHC custom operators for $MHC_COMPUTE_UNIT"
+    local attentions_build_dir="$PROJECT_ROOT/csrc/attentions/build"
+    local package_dir="$PROJECT_ROOT/python/sgl_kernel_npu/sgl_kernel_npu"
+
+    rm -rf "$attentions_build_dir/output" "$attentions_build_dir/vendors"
+    "$attentions_build_dir/build_ascendc_ops.sh" \
+        -n "hc_pre;hc_post" \
+        -c "$MHC_COMPUTE_UNIT"
+
+    rm -rf "$package_dir/vendors"
+    mkdir -p "$package_dir/vendors"
+    cp -a "$attentions_build_dir/vendors/." "$package_dir/vendors/"
+}
+
 function make_deepep_package()
 {
     (
@@ -473,6 +490,7 @@ function make_sgl_kernel_npu_package()
         cp -v "$PROJECT_ROOT/config.ini" sgl_kernel_npu/
         python3 setup.py clean --all
         python3 setup.py bdist_wheel
+        rm -f sgl_kernel_npu/config.ini
         mv -v dist/sgl_kernel_npu*.whl "$OUTPUT_DIR/"
         rm -rf dist
     )
@@ -527,6 +545,9 @@ function main()
     fi
     if [[ "$BUILD_ATTENTIONS_MODULE" == "ON" ]]; then
         build_attentions_kernels
+    fi
+    if [[ "$BUILD_KERNELS_MODULE" == "ON" ]]; then
+        build_mhc_custom_ops
     fi
 
     ensure_wheel_package

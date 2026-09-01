@@ -15,13 +15,12 @@
 #ifndef PYTORCH_NPU_HELPER_H
 #define PYTORCH_NPU_HELPER_H
 
-#include <ATen/Tensor.h>
+#include <ATen/ATen.h>
 #include <acl/acl_base.h>
 #include <acl/acl_rt.h>
 #include <aclnn/aclnn_base.h>
 #include <c10/util/Exception.h>
 #include <dlfcn.h>
-#include <torch/extension.h>
 #include <torch_npu/csrc/framework/utils/CalcuOpUtil.h>
 #include <torch_npu/csrc/framework/utils/OpAdapter.h>
 
