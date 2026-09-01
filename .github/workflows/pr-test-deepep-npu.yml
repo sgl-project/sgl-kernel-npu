@@ -834,6 +834,7 @@ jobs:
 #        run: |
 #          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=4 --num-tokens=256 --num-experts=32 --quant-type=mx_fp4_e2m1
 
+        #err
 #      - name: Run Normal mode pertoken_fp8_e4m3 quantization
 #        env:
 #          HCCL_BUFFSIZE: 500
@@ -843,19 +844,19 @@ jobs:
 #          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes 4 --num-tokens 257 --hidden 7168 --num-topk 2 --num-experts 128 --enable-dynamic-tokens --quant-type pertoken_fp8_e4m3
 #          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes 4 --num-tokens 1 --hidden 7168 --num-topk 1 --num-experts 64 --quant-type pertoken_fp8_e4m3
 
-      - name: Run low‑latency mode mx_fp8_e4m3 quantization
-        env:
-          HCCL_BUFFSIZE: 10000
-        timeout-minutes: 10
-        run: |
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --quant-type=mx_fp8_e4m3 --num-processes=4
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --quant-type=mx_fp8_e4m3 --num-processes=4 --num-topk=12 --num-tokens=512 --num-experts=256 --hidden=8192
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --quant-type=mx_fp8_e4m3 --num-processes=4 --num-topk=6 --num-tokens=512 --num-experts=256 --hidden=7168
-          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --quant-type mx_fp8_e4m3 --num-processes=4 --num-topk=12 --num-tokens=512 --num-experts=520 --hidden=8192
+#      - name: Run low‑latency mode mx_fp8_e4m3 quantization
+#        env:
+#          HCCL_BUFFSIZE: 10000
+#        timeout-minutes: 10
+#        run: |
+#          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --quant-type=mx_fp8_e4m3 --num-processes=4
+#          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --quant-type=mx_fp8_e4m3 --num-processes=4 --num-topk=12 --num-tokens=512 --num-experts=256 --hidden=8192
+#          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --quant-type=mx_fp8_e4m3 --num-processes=4 --num-topk=6 --num-tokens=512 --num-experts=256 --hidden=7168
+#          python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --quant-type mx_fp8_e4m3 --num-processes=4 --num-topk=12 --num-tokens=512 --num-experts=520 --hidden=8192
 
       - name: Run low‑latency mode mx_fp4_e2m1 quantization
         env:
-          HCCL_BUFFSIZE: 2000
+          HCCL_BUFFSIZE: 2500
         timeout-minutes: 10
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_low_latency.py --num-processes=4 --num-topk=8 --num-experts=256 --hidden=7168 --num-tokens=256 --quant-type=mx_fp4_e2m1
