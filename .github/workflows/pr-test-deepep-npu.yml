@@ -770,18 +770,6 @@ jobs:
       matrix:
         cann_version: [9.0.0, 9.1.0]
     steps:
-      - name: Check allocated NPU cards
-        run: |
-          npu-smi info
-          # 通过 npu-smi info -l 获取分配到的物理卡编号（NPU ID）
-          NPU_IDS=$(npu-smi info -l | grep 'NPU ID' | awk '{print $NF}' | sort -n | tr '\n' ' ' | sed 's/ *$//')
-          echo "Allocated NPU IDs: [$NPU_IDS]"
-          # 仅当前 4 张卡(0 1 2 3)或后 4 张卡(4 5 6 7)时继续，否则释放资源（任务失败）
-          if [ "$NPU_IDS" != "0 1 2 3" ] && [ "$NPU_IDS" != "4 5 6 7" ]; then
-            echo "::error::Allocated cards [$NPU_IDS] are neither the first 4 (0-3) nor the last 4 (4-7), releasing resource."
-            exit 1
-          fi
-          echo "OK: allocated cards [$NPU_IDS] are a contiguous half."
       - name: Clean git config
         run: |
           
@@ -843,7 +831,6 @@ jobs:
         if: matrix.cann_version != '9.0.0'
         timeout-minutes: 10
         run: |
-          npu-smi info
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py \
           --quant fp8_e4m3 \
           --num-processes 4 \
