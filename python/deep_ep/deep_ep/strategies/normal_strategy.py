@@ -617,7 +617,8 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             "mx_fp4_e2m1",
         }
         if quant_mode is None:
-            quant_mode = "bf16"
+            is_quant_env = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT", "0")
+            quant_mode = "int8" if is_quant_env == "1" else "bf16"
         if quant_mode not in VALID_QUANT_MODES:
             raise NotImplementedError(
                 f"quant_mode '{quant_mode}' is not supported by the alltoall strategy. "
@@ -636,10 +637,6 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
             "int8": torch.int8,
             "mx_fp4_e2m1": torch.float4_e2m1fn_x2,
         }[quant_mode]
-
-        is_quant_env = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT")
-        if is_quant_env is not None and quant_mode is None:
-            use_quant = 1 if is_quant_env == "1" else -1
 
         (permutated_tokens, reversed_local_mapping, _, dynamic_scale) = (
             torch_npu.npu_moe_init_routing_v2(

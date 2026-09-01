@@ -507,7 +507,7 @@ class AllToAllLowLatencyCommStrategy(LowLatencyEPCommStrategy):
         if quant_mode not in VALID_QUANT_MODES:
             raise NotImplementedError(
                 f"quant_mode '{quant_mode}' is not supported by the alltoall strategy. "
-                f"Only 'bf16', 'int8', 'mx_fp4_e2m1', 'fp8_e5m2', 'fp8_e4m3'are supported."
+                f"Only 'bf16', 'int8', 'mx_fp4_e2m1', 'mx_fp8_e5m2', 'mx_fp8_e4m3' are supported."
             )
         hidden_shape = x.shape
 
