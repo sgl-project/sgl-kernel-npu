@@ -835,6 +835,8 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes=4 --num-tokens=256 --num-experts=32 --quant-type=mx_fp4_e2m1
 
       - name: Run Normal mode pertoken_fp8_e4m3 quantization
+        env:
+          HCCL_BUFFSIZE: 500
         timeout-minutes: 10
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes 4 --num-tokens 512 --hidden 7168 --num-topk 8 --num-experts 256 --quant-type pertoken_fp8_e4m3
