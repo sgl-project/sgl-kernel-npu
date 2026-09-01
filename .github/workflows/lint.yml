@@ -21,3 +21,15 @@ jobs:
 
       - name: Linting
         run: pre-commit run --all-files --show-diff-on-failure
+
+      # These suites mock out torch/torch_npu and exercise only the wheel
+      # build-target dispatch, so they need no NPU. Do not widen this to the
+      # whole tests/python/sgl_kernel_npu directory -- the kernel tests there
+      # require real hardware.
+      - name: Build-target unit tests
+        run: |
+          uv pip install --system pytest setuptools
+          pytest -q \
+            tests/python/sgl_kernel_npu/test_build_targets.py \
+            tests/python/sgl_kernel_npu/test_gemma_rmsnorm_provider.py \
+            tests/python/sgl_kernel_npu/test_target_provider.py
