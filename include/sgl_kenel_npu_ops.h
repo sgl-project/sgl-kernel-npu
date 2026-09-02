@@ -101,6 +101,35 @@ void sgemmc_shrink(at::Tensor &x, at::Tensor &weight, at::Tensor &lora_indices,
 at::Tensor apply_token_bitmask(at::Tensor logits, at::Tensor bitmask,
                                c10::optional<at::Tensor> indices);
 
+// Not A3-only: compressor's host and kernel sources are both built
+// unconditionally and m.impl("compressor", ...) is registered unconditionally,
+// so the declaration must be visible in the A5/Ascend950 build too.
+at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv,
+                      const at::Tensor &wgate, at::Tensor &state_cache,
+                      const at::Tensor &ape, const at::Tensor &norm_weight,
+                      const at::Tensor &rope_sin, const at::Tensor &rope_cos,
+                      const c10::optional<at::Tensor> &state_block_table,
+                      const c10::optional<at::Tensor> &cu_seqlens,
+                      const c10::optional<at::Tensor> &seqused,
+                      const c10::optional<at::Tensor> &start_pos,
+                      int64_t rope_head_dim, int64_t cmp_ratio, int64_t coff,
+                      double norm_eps, int64_t rotary_mode, int64_t cache_mode,
+                      int64_t state_cache_stride_dim0);
+
+// Ported from vllm-ascend csrc/attention/lightning_indexer. Unlike the older
+// `lightning_indexer` above this one carries both the arch22 (A2/A3) and the
+// arch35 (A5/Ascend950) kernel, so it is not gated on SGL_KERNEL_ENABLE_A3_ONLY_OPS.
+std::tuple<at::Tensor, at::Tensor> lightning_indexer_v2(
+    const at::Tensor &query, const at::Tensor &key, const at::Tensor &weights,
+    const c10::optional<at::Tensor> &actual_seq_lengths_query,
+    const c10::optional<at::Tensor> &actual_seq_lengths_key,
+    const c10::optional<at::Tensor> &block_table,
+    c10::optional<c10::string_view> layout_query,
+    c10::optional<c10::string_view> layout_key,
+    c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode,
+    c10::optional<int64_t> pre_tokens, c10::optional<int64_t> next_tokens,
+    c10::optional<bool> return_values);
+
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
 std::tuple<at::Tensor &, at::Tensor &, at::Tensor &, at::Tensor &>
 mla_preprocess(const at::Tensor &hiddenState, const at::Tensor &gamma0,
@@ -159,18 +188,6 @@ at::Tensor lightning_indexer(
     c10::optional<int64_t> sparse_count, c10::optional<int64_t> sparse_mode);
 
 #endif
-
-at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv,
-                      const at::Tensor &wgate, at::Tensor &state_cache,
-                      const at::Tensor &ape, const at::Tensor &norm_weight,
-                      const at::Tensor &rope_sin, const at::Tensor &rope_cos,
-                      const c10::optional<at::Tensor> &state_block_table,
-                      const c10::optional<at::Tensor> &cu_seqlens,
-                      const c10::optional<at::Tensor> &seqused,
-                      const c10::optional<at::Tensor> &start_pos,
-                      int64_t rope_head_dim, int64_t cmp_ratio, int64_t coff,
-                      double norm_eps, int64_t rotary_mode, int64_t cache_mode,
-                      int64_t state_cache_stride_dim0);
 
 std::tuple<at::Tensor, at::Tensor> sparse_attn_sharedkv(
     const at::Tensor &q, const c10::optional<at::Tensor> &ori_kv,
