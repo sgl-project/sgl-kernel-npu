@@ -7,6 +7,7 @@
 #include "cam_moe_dispatch_normal_tiling.h"
 #include "comm_args.h"
 #include "moe_distribute_v2_base.h"
+#include "profiling/adapters/cam_moe_dispatch_normal/cam_moe_dispatch_normal_profile.h"
 #ifdef __DAV_C310__
 #include "quantize_functions.h"
 #endif
@@ -60,9 +61,10 @@ public:
     __aicore__ inline CamMoeDispatchNormalA5(){};
     __aicore__ inline void Init(GM_ADDR x, GM_ADDR expertIds, GM_ADDR send_offset, GM_ADDR send_tokenIdx,
                                 GM_ADDR recv_offset, GM_ADDR recv_count, GM_ADDR expert_global_offset,
-                                GM_ADDR srcrank_in_expert_offset, GM_ADDR r_in_srcrank_offset, GM_ADDR expandXOut,
-                                GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut, GM_ADDR waitRecvCostStatsOut,
-                                GM_ADDR workspaceGM, TPipe *pipe, const CamMoeDispatchNormalTilingData *tilingData);
+                                GM_ADDR srcrank_in_expert_offset, GM_ADDR r_in_srcrank_offset, GM_ADDR profileBufferGM,
+                                GM_ADDR expandXOut, GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut,
+                                GM_ADDR waitRecvCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe,
+                                const CamMoeDispatchNormalTilingData *tilingData);
     __aicore__ inline void Process();
 
 private:
@@ -175,6 +177,13 @@ private:
     uint32_t moeExpertNumPerRank{0};
     bool isEnableDiagnose{false};
 
+    GM_ADDR profileBufferGM_{nullptr};
+    Cam::CamMoeDispatchNormalProfileWriter profileWriter_;
+    bool profileEnable_{false};  // 打点开关（由 tiling profileEnable 下发）
+    uint32_t profileLaunchId_{0};
+    uint64_t profileBufferBytes_{0};
+    uint64_t shareStart_{0};  // ShareToOutputLongSeq 公共部分起点（ShareToOutputCommon 打点用）
+
     uint32_t hUBAlignSize{0};
     uint32_t hOutGMAlignSize{0};
     uint32_t hOutUBAlignSize{0};
@@ -209,9 +218,9 @@ private:
 template <CamTypeClass>
 __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
     GM_ADDR x, GM_ADDR expertIds, GM_ADDR send_offset, GM_ADDR send_tokenIdx, GM_ADDR recv_offset, GM_ADDR recv_count,
-    GM_ADDR expert_global_offset, GM_ADDR srcrank_in_expert_offset, GM_ADDR r_in_srcrank_offset, GM_ADDR expandXOut,
-    GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut, GM_ADDR waitRecvCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe,
-    const CamMoeDispatchNormalTilingData *tilingData)
+    GM_ADDR expert_global_offset, GM_ADDR srcrank_in_expert_offset, GM_ADDR r_in_srcrank_offset,
+    GM_ADDR profileBufferGM, GM_ADDR expandXOut, GM_ADDR dynamicScalesOut, GM_ADDR expandIdxOut,
+    GM_ADDR waitRecvCostStatsOut, GM_ADDR workspaceGM, TPipe *pipe, const CamMoeDispatchNormalTilingData *tilingData)
 {
     tpipe_ = pipe;
     blockIdx = GetBlockIdx();
@@ -237,6 +246,13 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::Init(
     moeExpertNum = tilingData->camMoeDispatchNormalInfo.moeExpertNum;
     moeExpertNumPerRank = moeExpertNum / epRankSize;
     isEnableDiagnose = tilingData->camMoeDispatchNormalInfo.isEnableDiagnose;
+
+    profileBufferGM_ = profileBufferGM;
+    profileEnable_ = tilingData->camMoeDispatchNormalInfo.profileEnable != 0;
+    profileLaunchId_ = tilingData->camMoeDispatchNormalInfo.profileLaunchId;
+    profileBufferBytes_ = tilingData->camMoeDispatchNormalInfo.profileBufferBytes;
+    profileWriter_.Init(profileBufferGM_, profileEnable_, profileLaunchId_, static_cast<uint32_t>(g_coreType),
+                        profileBufferBytes_);
 
     xGT.SetGlobalBuffer((__gm__ XType *)x);
     expertIdsGT.SetGlobalBuffer((__gm__ int32_t *)expertIds);
@@ -455,6 +471,10 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::FillTriple(LocalTens
 template <CamTypeClass>
 __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::InputToShare()
 {
+    uint64_t inputToShareStart = 0;
+    if (profileEnable_) {
+        inputToShareStart = profileWriter_.Now();
+    }
     tpipe_->Reset();
 #ifdef __DAV_C310__
     AscendC::SetCtrlSpr<FLOAT_OVERFLOW_MODE_CTRL, FLOAT_OVERFLOW_MODE_CTRL>(0);
@@ -488,6 +508,10 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::InputToShare()
         expertIdsCnt = remaining * topK;
     }
     if (expertIdsCnt == 0) {
+        if (profileEnable_) {
+            profileWriter_.Record(Cam::CamMoeDispatchNormalProfileStage::InputToShare, roundIndex, inputToShareStart,
+                                  profileWriter_.Now());
+        }
         return;
     }
     sendTokenNum = expertIdsCnt / blockNum;
@@ -502,6 +526,10 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::InputToShare()
     endTokenId = startTokenId + sendTokenNum;
 
     if (startTokenId >= expertIdsCnt || sendTokenNum == 0) {
+        if (profileEnable_) {
+            profileWriter_.Record(Cam::CamMoeDispatchNormalProfileStage::InputToShare, roundIndex, inputToShareStart,
+                                  profileWriter_.Now());
+        }
         return;
     }
     tpipe_->InitBuffer(expertIdsBuf, sendTokenNum * sizeof(int32_t));     // 4 * bs * k / 48
@@ -553,16 +581,28 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::InputToShare()
             xQueue.FreeTensor<ExpandXOutType>(xTmpTensor);
         }
     }
+    if (profileEnable_) {
+        profileWriter_.Record(Cam::CamMoeDispatchNormalProfileStage::InputToShare, roundIndex, inputToShareStart,
+                              profileWriter_.Now());
+    }
 }
 
 template <CamTypeClass>
 __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::SetStatus()
 {
+    uint64_t setStatusStart = 0;
+    if (profileEnable_) {
+        setStatusStart = profileWriter_.Now();
+    }
     uint32_t startExpId, endExpId, expNumPerCore;
     expNumPerCore = statusNumPerCore;
     startExpId = startStatusId;
     endExpId = endStatusId;
     if (startExpId > moeExpertNum) {
+        if (profileEnable_) {
+            profileWriter_.Record(Cam::CamMoeDispatchNormalProfileStage::SetStatus, roundIndex, setStatusStart,
+                                  profileWriter_.Now());
+        }
         SyncAll<true>();
         return;
     }
@@ -583,12 +623,24 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::SetStatus()
         DataCopy<int32_t>(dstStatusGT, statusTensor[(i - startExpId) * 8], 8UL);
     }
     SyncFunc<AscendC::HardEvent::MTE3_S>();
+    if (profileEnable_) {
+        profileWriter_.Record(Cam::CamMoeDispatchNormalProfileStage::SetStatus, roundIndex, setStatusStart,
+                              profileWriter_.Now());
+    }
 }
 
 template <CamTypeClass>
 __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::SetRoundStatus()
 {
+    uint64_t setRoundStatusStart = 0;
+    if (profileEnable_) {
+        setRoundStatusStart = profileWriter_.Now();
+    }
     if (blockIdx >= 1) {
+        if (profileEnable_) {
+            profileWriter_.Record(Cam::CamMoeDispatchNormalProfileStage::SetRoundStatus, roundIndex,
+                                  setRoundStatusStart, profileWriter_.Now());
+        }
         return;
     }
     tpipe_->InitBuffer(roundStatusBuf, epRankSize * UB_ALIGN);
@@ -604,11 +656,19 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::SetRoundStatus()
     }
     SyncFunc<AscendC::HardEvent::MTE3_S>();
     roundStatusBuf.FreeTensor(roundStatusTensor);
+    if (profileEnable_) {
+        profileWriter_.Record(Cam::CamMoeDispatchNormalProfileStage::SetRoundStatus, roundIndex, setRoundStatusStart,
+                              profileWriter_.Now());
+    }
 }
 
 template <CamTypeClass>
 __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::WaitStatus()
 {
+    uint64_t waitStatusStart = 0;
+    if (profileEnable_) {
+        waitStatusStart = profileWriter_.Now();
+    }
     tpipe_->Reset();
     uint32_t waitStatusBufSize = (((statusNumPerCore * UB_ALIGN) > 256) ? (statusNumPerCore * UB_ALIGN) : 256);
     tpipe_->InitBuffer(waitStatusBuf, waitStatusBufSize);                // moeNum /48 * 32B = 43 * 32B
@@ -643,6 +703,10 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::WaitStatus()
     DataCopyPad(recvCountTensor, recvCountGT[roundIndex * moeExpertNum], recvCountParams, copyPadExtParams);
 
     if (startStatusId >= moeExpertNum) {
+        if (profileEnable_) {
+            profileWriter_.Record(Cam::CamMoeDispatchNormalProfileStage::WaitStatus, roundIndex, waitStatusStart,
+                                  profileWriter_.Now());
+        }
         SyncAll<true>();
         return;
     }
@@ -711,13 +775,25 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::WaitStatus()
              cleanStateTensor.ReinterpretCast<float>(), intriOutParams);
     SyncFunc<AscendC::HardEvent::MTE3_S>();
     SyncAll<true>();
+    if (profileEnable_) {
+        profileWriter_.Record(Cam::CamMoeDispatchNormalProfileStage::WaitStatus, roundIndex, waitStatusStart,
+                              profileWriter_.Now());
+    }
 }
 
 template <CamTypeClass>
 __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::WaitRoundStatus()
 {
+    uint64_t waitRoundStatusStart = 0;
+    if (profileEnable_) {
+        waitRoundStatusStart = profileWriter_.Now();
+    }
     tpipe_->Reset();
     if (blockIdx >= 1) {
+        if (profileEnable_) {
+            profileWriter_.Record(Cam::CamMoeDispatchNormalProfileStage::WaitRoundStatus, roundIndex,
+                                  waitRoundStatusStart, profileWriter_.Now());
+        }
         return;
     }
     tpipe_->InitBuffer(roundStatusBuf, epRankSize * FLOAT_NUM_PER_ALIGN * sizeof(float));
@@ -748,6 +824,10 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::WaitRoundStatus()
     SyncFunc<AscendC::HardEvent::V_MTE3>();
     DataCopy<float>(roundStatusGMTensor, tempRoundStateTensorLocal, count);
     SyncFunc<AscendC::HardEvent::MTE3_S>();
+    if (profileEnable_) {
+        profileWriter_.Record(Cam::CamMoeDispatchNormalProfileStage::WaitRoundStatus, roundIndex, waitRoundStatusStart,
+                              profileWriter_.Now());
+    }
 }
 
 template <CamTypeClass>
@@ -765,7 +845,14 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::GetRInSrcRankOffsetF
 template <CamTypeClass>
 __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq()
 {
+    if (profileEnable_) {
+        shareStart_ = profileWriter_.Now();  // 公共部分起点（读远端前的准备阶段）
+    }
     if (startStatusId >= moeExpertNum) {
+        if (profileEnable_) {
+            profileWriter_.Record(Cam::CamMoeDispatchNormalProfileStage::ShareToOutputCommon, roundIndex, shareStart_,
+                                  profileWriter_.Now());
+        }
         return;
     }
 
@@ -807,9 +894,16 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
     AscendC::TQueSync<PIPE_MTE2, PIPE_S> recvCountLocalSync;
     recvCountLocalSync.SetFlag(0);
     recvCountLocalSync.WaitFlag(0);
+    if (profileEnable_) {
+        profileWriter_.Record(Cam::CamMoeDispatchNormalProfileStage::ShareToOutputCommon, roundIndex, shareStart_,
+                              profileWriter_.Now());
+    }
 
     for (uint32_t index = startStatusId; index < endStatusId; ++index) {
         uint64_t expertStart = 0;
+        if (profileEnable_) {
+            expertStart = profileWriter_.Now();  // 打点：该 expert 处理起点
+        }
         // Expert global index logic:
         // 1. index % moeExpertNumPerRank: Calculate the expert offset within the current rank, range [0,
         // moeExpertNumPerRank-1]
@@ -881,6 +975,23 @@ __aicore__ inline void CamMoeDispatchNormalA5<CamTypeFunc>::ShareToOutputLongSeq
             DataCopyPad(dstTokenGT, xTmpTensor, expandXCopyParams);
 
             xQueue.FreeTensor(xTmpTensor);
+        }
+
+        // ===== 打点：每个 expert 独立一条记录（ShareToOutputExpert 阶段）=====
+        // occurrenceId = roundIndex * maxExpertsPerCore + (index - startStatusId)
+        //   - roundIndex              区分多轮（每轮从 0 重新编号，多轮不覆盖）
+        //   - (index - startStatusId) 本核内 expert 序号，保证同核同轮每个 expert 槽位唯一
+        //   - maxExpertsPerCore = Ceil(moeExpertNum, blockNum)，所有核的统一容量（含尾核 +1）
+        // 耗时区间 = 单个 expert 全部 token 的处理区间（expertStart → 内层 for(j) 处理完）
+        // payload：fromRank（源端 rank）/ localE（本 rank 内专家索引）/ count（该 expert 接收 token 数）
+        if (profileEnable_) {
+            uint32_t maxExpertsPerCore = (moeExpertNum + blockNum - 1) / blockNum;
+            auto payload = Cam::ToProfilePrivatePayloadRaw(Cam::MakeShareToOutputExpertPrivatePayloadV1(
+                Cam::PROFILE_PRIVATE_DATA_VALID, Cam::SHARE_TO_OUTPUT_EXPERT_PRIVATE_FORMAT_V1,
+                static_cast<uint64_t>(fromRank), static_cast<uint64_t>(local_e), static_cast<uint64_t>(count)));
+            profileWriter_.Record(Cam::CamMoeDispatchNormalProfileStage::ShareToOutputExpert,
+                                  roundIndex * maxExpertsPerCore + (index - startStatusId), expertStart,
+                                  profileWriter_.Now(), payload);
         }
     }
 }

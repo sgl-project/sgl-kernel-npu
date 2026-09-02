@@ -16,6 +16,11 @@ public:
             .DataType({ge::DT_INT32})
             .Format({ge::FORMAT_ND})
             .UnknownShapeFormat({ge::FORMAT_ND});
+        this->Input("profile_buffer")
+            .ParamType(OPTIONAL)
+            .DataTypeList({ge::DT_UINT8})
+            .FormatList({ge::FORMAT_ND})
+            .AutoContiguous();
         this->Output("sendDataOffset")
             .ParamType(REQUIRED)
             .DataType({ge::DT_INT32})
@@ -76,6 +81,9 @@ public:
         this->Attr("local_rank_id").Int();
         this->Attr("round").Int();  // 低7个，ATTR_ROUND_INDEX
         this->Attr("perRoundTokens").Int();
+        this->Attr("profile_enable").AttrType(OPTIONAL).Int(0);
+        this->Attr("profile_buffer_bytes").AttrType(OPTIONAL).Int(0);
+        this->Attr("profile_launch_id").AttrType(OPTIONAL).Int(0);
 
         OpAICoreConfig aicore_config_base;
         aicore_config_base.DynamicCompileStaticFlag(true)

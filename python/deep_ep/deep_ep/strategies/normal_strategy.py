@@ -91,6 +91,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         allocate_on_comm_stream: bool = False,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
         quant_mode: Optional[str] = None,
+        profile_enable: bool = False,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -133,6 +134,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             allocate_on_comm_stream,
             dispatch_wait_recv_cost_stats,
             quant_mode,
+            profile_enable,
         )
 
     def _intranode_dispatch(
@@ -152,6 +154,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         allocate_on_comm_stream: bool,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor],
         quant_mode: Optional[str] = None,
+        profile_enable: bool = False,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -248,6 +251,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             allocate_on_comm_stream,
             use_quant,
             quant_type,
+            profile_enable,
         )
 
         handle = (
@@ -368,6 +372,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
         combine_send_cost_stats: Optional[torch.Tensor] = None,
+        profile_enable: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], EventOverlap]:
 
         if self.runtime.get_num_rdma_ranks() > 1:
@@ -391,6 +396,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
             async_finish,
             allocate_on_comm_stream,
             combine_send_cost_stats,
+            profile_enable,
         )
 
     def _intranode_combine(
@@ -403,6 +409,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         async_finish: bool,
         allocate_on_comm_stream: bool,
         combine_send_cost_stats: Optional[torch.Tensor],
+        profile_enable: bool,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], EventOverlap]:
         (
             rank_prefix_matrix,
@@ -416,7 +423,13 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         ) = handle
 
         recv_x, recv_topk_weights, event = self.runtime.intranode_combine(
-            x, topk_idx, topk_weights_ori, src_idx, send_head, combine_send_cost_stats
+            x,
+            topk_idx,
+            topk_weights_ori,
+            src_idx,
+            send_head,
+            combine_send_cost_stats,
+            profile_enable,
         )
 
         return recv_x, recv_topk_weights, EventOverlap(event)
@@ -589,6 +602,7 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         allocate_on_comm_stream: bool = False,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
         quant_mode: Optional[str] = None,
+        profile_enable: bool = False,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -738,6 +752,7 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
         combine_send_cost_stats: Optional[torch.Tensor] = None,
+        profile_enable: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], EventOverlap]:
         """Combine using alltoall (same for internode and intranode)"""
 

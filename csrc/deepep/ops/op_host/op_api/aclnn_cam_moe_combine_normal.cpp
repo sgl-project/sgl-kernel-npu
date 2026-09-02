@@ -17,14 +17,16 @@ extern "C" {
 aclnnStatus aclnnCamMoeCombineNormalGetWorkspaceSize(
     const aclTensor *recvX, const aclTensor *tokenSrcInfo, const aclTensor *epRecvCounts,
     const aclTensor *recvTopkWeights, const aclTensor *tokenIdx, const aclTensor *tpRecvCountsOptional,
-    char *epGroupName, int64_t epWorldSize, int64_t epRankId, char *tpGroupNameOptional, int64_t tpWorldSize,
-    int64_t tpRankId, int64_t moeExpertNum, int64_t realMaxBs, int32_t round, int32_t per_round_tokens,
+    const aclTensor *profileBufferOptional, char *epGroupName, int64_t epWorldSize, int64_t epRankId,
+    char *tpGroupNameOptional, int64_t tpWorldSize, int64_t tpRankId, int64_t moeExpertNum, int64_t realMaxBs,
+    int32_t round, int32_t per_round_tokens, int64_t profileEnable, int64_t profileBufferBytes, int64_t profileLaunchId,
     const aclTensor *out, const aclTensor *sendCostStats, uint64_t *workspaceSize, aclOpExecutor **executor)
 {
     return aclnnInnerCamMoeCombineNormalGetWorkspaceSize(
-        recvX, tokenSrcInfo, epRecvCounts, recvTopkWeights, tokenIdx, tpRecvCountsOptional, epGroupName, epWorldSize,
-        epRankId, tpGroupNameOptional, tpWorldSize, tpRankId, moeExpertNum, realMaxBs, round, per_round_tokens, out,
-        sendCostStats, workspaceSize, executor);
+        recvX, tokenSrcInfo, epRecvCounts, recvTopkWeights, tokenIdx, tpRecvCountsOptional, profileBufferOptional,
+        epGroupName, epWorldSize, epRankId, tpGroupNameOptional, tpWorldSize, tpRankId, moeExpertNum, realMaxBs, round,
+        per_round_tokens, profileEnable, profileBufferBytes, profileLaunchId, out, sendCostStats, workspaceSize,
+        executor);
 }
 
 aclnnStatus aclnnCamMoeCombineNormal(void *workspace, uint64_t workspaceSize, aclOpExecutor *executor,

@@ -10,8 +10,9 @@ using namespace AscendC;
 
 extern "C" __global__ __aicore__ void cam_moe_combine_normal(GM_ADDR recvX, GM_ADDR tokenSrcInfo, GM_ADDR epRecvCount,
                                                              GM_ADDR topkWeights, GM_ADDR tokenIdx, GM_ADDR tpRecvCount,
-                                                             GM_ADDR XOut, GM_ADDR sendCostStatsOut,
-                                                             GM_ADDR workspaceGM, GM_ADDR tilingGM)
+                                                             GM_ADDR profileBufferGM, GM_ADDR XOut,
+                                                             GM_ADDR sendCostStatsOut, GM_ADDR workspaceGM,
+                                                             GM_ADDR tilingGM)
 
 {
     REGISTER_TILING_DEFAULT(CamMoeCombineNormalTilingData);
@@ -21,13 +22,13 @@ extern "C" __global__ __aicore__ void cam_moe_combine_normal(GM_ADDR recvX, GM_A
     GET_TILING_DATA_WITH_STRUCT(CamMoeCombineNormalTilingData, tilingData, tilingGM);
     if (TILING_KEY_IS(TILINGKEY_MULTI_ROUND)) {
         CamMoeCombineNormalMultiRoundImpl::CamMoeCombineNormalMultiRound<DTYPE_RECV_X, DTYPE_X, int32_t> op;
-        op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tpRecvCount, XOut, sendCostStatsOut,
-                workspaceGM, &pipe, tilingGM);
+        op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tpRecvCount, profileBufferGM, XOut,
+                sendCostStatsOut, workspaceGM, &pipe, tilingGM);
         op.Process();
     } else if (TILING_KEY_IS(TILINGKEY_SINGLE_ROUND)) {
         CamMoeCombineNormalImpl::CamMoeCombineNormal<DTYPE_RECV_X, DTYPE_X, int32_t> op;
-        op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tpRecvCount, XOut, sendCostStatsOut,
-                workspaceGM, &pipe, tilingGM);
+        op.Init(recvX, tokenSrcInfo, epRecvCount, topkWeights, tokenIdx, tpRecvCount, profileBufferGM, XOut,
+                sendCostStatsOut, workspaceGM, &pipe, tilingGM);
         op.Process();
     }
 #endif

@@ -302,6 +302,7 @@ class Buffer:
         allocate_on_comm_stream: bool = False,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
         quant_mode: Optional[str] = None,
+        profile_enable: bool = False,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -380,6 +381,7 @@ class Buffer:
             allocate_on_comm_stream=allocate_on_comm_stream,
             dispatch_wait_recv_cost_stats=dispatch_wait_recv_cost_stats,
             quant_mode=quant_mode,
+            profile_enable=profile_enable,
         )
 
     @log_parameters(["topk_idx"])
@@ -481,6 +483,7 @@ class Buffer:
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
         combine_send_cost_stats: Optional[torch.Tensor] = None,
+        profile_enable: bool = False,
     ) -> Tuple[torch.Tensor, Optional[torch.Tensor], EventOverlap]:
         """
         Combine (reduce) tokens (addition **without** weights) from different ranks, both intranode and internode
@@ -499,6 +502,7 @@ class Buffer:
             allocate_on_comm_stream: control whether all the allocated tensors' ownership to be on the communication stream.
             combine_send_cost_stats: `[num_ranks]`: record the time when the current rank sends all tokens to other ranks
                 in the combine phase.
+            profile_enable: whether to enable per-kernel profiling for this combine launch (intranode A3/A5 only).
 
         Returns:
             recv_x: the reduced token from its dispatched ranks.
@@ -519,6 +523,7 @@ class Buffer:
             async_finish=async_finish,
             allocate_on_comm_stream=allocate_on_comm_stream,
             combine_send_cost_stats=combine_send_cost_stats,
+            profile_enable=profile_enable,
         )
 
     def internode_dispatch(

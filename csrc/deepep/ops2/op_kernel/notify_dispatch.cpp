@@ -7,8 +7,8 @@
 #define KERNEL_USE_WORKSPACE (1 * 1024 * 1024)
 
 extern "C" __global__ __aicore__ void notify_dispatch(GM_ADDR sendData, GM_ADDR tokenPerExpertData,
-                                                      GM_ADDR sendDataOffset, GM_ADDR recvData, GM_ADDR recvCount,
-                                                      GM_ADDR recvOffset, GM_ADDR expertGlobalOffset,
+                                                      GM_ADDR profileBufferGM, GM_ADDR sendDataOffset, GM_ADDR recvData,
+                                                      GM_ADDR recvCount, GM_ADDR recvOffset, GM_ADDR expertGlobalOffset,
                                                       GM_ADDR srcrankInExpertOffset, GM_ADDR rInSrcrankOffset,
                                                       GM_ADDR totalRecvTokens, GM_ADDR maxBs,
                                                       GM_ADDR recvTokensPerExpert, GM_ADDR workspace, GM_ADDR tiling)
@@ -25,6 +25,9 @@ extern "C" __global__ __aicore__ void notify_dispatch(GM_ADDR sendData, GM_ADDR 
     int round = tilingData.notifyDispatchInfo.round;
     int perRoundTokens = tilingData.notifyDispatchInfo.perRoundTokens;
     uint64_t totalWinSize = tilingData.notifyDispatchInfo.totalWinSize;
+    uint32_t profileEnable = tilingData.notifyDispatchInfo.profileEnable;
+    uint32_t profileLaunchId = tilingData.notifyDispatchInfo.profileLaunchId;
+    uint64_t profileBufferBytes = tilingData.notifyDispatchInfo.profileBufferBytes;
 
     GM_ADDR sendDataInput = sendData;
     GM_ADDR tokenPerExpertDataInput = tokenPerExpertData;

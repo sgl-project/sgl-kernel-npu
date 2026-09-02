@@ -17,13 +17,14 @@ using namespace MoeDistributeV2Base;
         GM_ADDR recvCount, GM_ADDR recvOffset, GM_ADDR expertGlobalOffset, GM_ADDR srcrankInExpertOffset,           \
         GM_ADDR rInSrcrankOffset, GM_ADDR totalRecvTokens, GM_ADDR maxBs, GM_ADDR recvTokensPerExpert, int64_t len, \
         int32_t round, int32_t perRoundTokens, int32_t numTokens, int op, int root, int cycleCount, GM_ADDR scale,  \
-        int32_t scaleCount, GM_ADDR offset, int localRank, int localRankSize, uint64_t totalWinSize
+        int32_t scaleCount, GM_ADDR offset, int localRank, int localRankSize, uint64_t totalWinSize,                \
+        GM_ADDR profileBufferGM, uint32_t profileEnable, uint32_t profileLaunchId, uint64_t profileBufferBytes
 
 #define KERNELS_ARGS_CALL_ALL2ALL()                                                                                    \
     sendDataInput, tokenPerExpertDataInput, sendDataOffsetOutput, recvDataOutput, recvCount, recvOffset,               \
         expertGlobalOffset, srcrankInExpertOffset, rInSrcrankOffset, totalRecvTokens, maxBs, recvTokensPerExpert, len, \
         round, perRoundTokens, numTokens, op, root, cycleCount, scale, scaleCount, offset, localRank, localRankSize,   \
-        totalWinSize
+        totalWinSize, profileBufferGM, profileEnable, profileLaunchId, profileBufferBytes
 
 template <typename T>
 class NotifyDispatch

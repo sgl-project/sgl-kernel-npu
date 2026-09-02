@@ -12,15 +12,18 @@ struct CamMoeDispatchNormalInfo {
     uint32_t globalBs;      // globalBs = BS * worldSize
     uint32_t round;
     uint32_t perRoundTokens;
-    uint32_t bs;            // bs
-    uint32_t k;             // k
-    uint32_t h;             // h
-    uint32_t aivNum;        // aivNum
-    bool isQuant;           // whether quant or not
-    bool isEnableDiagnose;  // whether enable diagnose or not
-    bool reserved2;         // reserved
-    bool reserved3;         // reserved
-    uint64_t totalUbSize;   // epWorldSize
+    uint32_t bs;                  // bs
+    uint32_t k;                   // k
+    uint32_t h;                   // h
+    uint32_t aivNum;              // aivNum
+    bool isQuant;                 // whether quant or not
+    bool isEnableDiagnose;        // whether enable diagnose or not
+    bool reserved2;               // reserved
+    bool reserved3;               // reserved
+    uint32_t profileEnable;       // whether enable profiling or not
+    uint32_t profileLaunchId;     // profiling launch id
+    uint64_t profileBufferBytes;  // profiling buffer size in bytes
+    uint64_t totalUbSize;         // epWorldSize
     uint64_t totalWinSize;
 };
 
