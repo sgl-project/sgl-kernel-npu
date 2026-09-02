@@ -740,7 +740,7 @@ public:
     }
 
     CATLASS_DEVICE
-    uint32_t SendToMoeExprt(GM_ADDR gmX, GM_ADDR gmExpandIdx, GM_ADDR gmMoeSmoothScales)
+    uint32_t SendToMoeExpert(GM_ADDR gmX, GM_ADDR gmExpandIdx, GM_ADDR gmMoeSmoothScales)
     {
         uint32_t sendTokenNum = expertIdsCnt / sendToMoeAivNum;
         uint32_t remainderTokenNum = expertIdsCnt % sendToMoeAivNum;
@@ -897,7 +897,7 @@ public:
         CalAndSendTokenCount();
         AscendC::PipeBarrier<PIPE_ALL>();
         sendToMoeAivNum = sendCoreNum;
-        uint32_t sendValidTokenCount = SendToMoeExprt(gmX, gmExpandIdx, gmMoeSmoothScales);
+        uint32_t sendValidTokenCount = SendToMoeExpert(gmX, gmExpandIdx, gmMoeSmoothScales);
         AscendC::PipeBarrier<PIPE_ALL>();
         if (profile != nullptr) {
             auto dispatchSendPayload = Cam::ToProfilePrivatePayloadRaw(Cam::MakeDispatchSendPrivatePayloadV1(
@@ -1171,8 +1171,6 @@ public:
         for (uint32_t groupId = 0; groupId < localExpertNum; ++groupId) {
             uint64_t profDispatchRecvStart = 0;
             uint64_t profDispatchRecvEnd = 0;
-            uint64_t profDispatchRecvNotifyStart = 0;
-            uint64_t profDispatchRecvNotifyEnd = 0;
             if (profile != nullptr) {
                 profDispatchRecvStart = profile->Now();
             }
@@ -1212,7 +1210,6 @@ public:
             AscendC::PipeBarrier<PIPE_ALL>();
             if (profile != nullptr) {
                 profDispatchRecvEnd = profile->Now();
-                profDispatchRecvNotifyStart = profile->Now();
             }
             uint32_t idleCoreNum = recvCoreNum - useCoreNum;
             bool hasToken = coreTokenCount > 0;
@@ -1242,10 +1239,6 @@ public:
                 AscendC::SetAtomicNone();
                 AscendC::PipeBarrier<PIPE_ALL>();
             }
-            if (profile != nullptr) {
-                profDispatchRecvNotifyEnd = profile->Now();
-            }
-
             startCoreIdx = (startCoreIdx + currentM) % recvCoreNum;
             preExpertToken += currentM;
             if (profile != nullptr) {
@@ -1254,8 +1247,6 @@ public:
                     static_cast<uint64_t>(coreTokenCount)));
                 profile->Record(FusedDeepMoeProfileStage::DispatchRecv, groupId, profDispatchRecvStart,
                                 profDispatchRecvEnd, dispatchRecvPayload);
-                profile->Record(FusedDeepMoeProfileStage::DispatchRecvNotify, groupId, profDispatchRecvNotifyStart,
-                                profDispatchRecvNotifyEnd, dispatchRecvPayload);
             }
         }
 

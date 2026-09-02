@@ -27,7 +27,9 @@ constexpr uint32_t CUBE_WORKSPACE_STAGE = 4;
 constexpr uint32_t X2_READY_MAX_ROUTED_EXPERTS = 256;
 constexpr uint32_t X2_READY_SLOT_SIZE = 512;
 constexpr uint32_t X2_READY_SIZE = X2_READY_SLOT_SIZE * X2_READY_MAX_ROUTED_EXPERTS;
-constexpr uint32_t RESERVED_WORKSPACE_SIZE = X2_READY_SIZE;
+constexpr uint32_t RESERVED_WORKSPACE_TOTAL_SIZE = 256 * 1024;
+constexpr uint32_t RESERVED_WORKSPACE_REMAINING_SIZE = RESERVED_WORKSPACE_TOTAL_SIZE - X2_READY_SIZE;
+static_assert(X2_READY_SIZE <= RESERVED_WORKSPACE_TOTAL_SIZE);
 
 constexpr uint32_t INPUT_X_INDEX = 0;
 constexpr uint32_t INPUT_EXPERT_IDS_INDEX = 1;
@@ -786,7 +788,7 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext &context, const char *no
     uint64_t shareX1MxScaleNum = x1MxScaleNum;
     uint64_t x2MxScaleNum = CeilUp(Ceil(gmm2HLen, 32), 2);
     uint64_t shareX2MxScaleNum = CeilUp(Ceil(shareGmm2HLen, 32), 2);
-    ;
+
     maxTokenNum = globalBs * std::min(topK, moeExpertNumPerRank);
     bool isMxFp4 = tilingData.fusedDeepMoeInfo.mxActStorageFp4 == MX_FP4_QUANT_MODE;
 
@@ -811,7 +813,7 @@ static ge::graphStatus SetWorkSpace(gert::TilingContext &context, const char *no
     size_t groupListSize = CeilUp(moeExpertNumPerRank * sizeof(int64_t), GM_ALIGN_SIZE);
     size_t expandIdxSize = CeilUp(batchSize * topK * sizeof(int32_t), GM_ALIGN_SIZE);
     size_t epSendCountSize = CeilUp(epRankSize * moeExpertNumPerRank * sizeof(int32_t), GM_ALIGN_SIZE);
-    size_t reservedSize = CeilUp(RESERVED_WORKSPACE_SIZE, GM_ALIGN_SIZE);
+    size_t reservedSize = CeilUp(X2_READY_SIZE + RESERVED_WORKSPACE_REMAINING_SIZE, GM_ALIGN_SIZE);
     size_t offset = 0;
 #ifdef ENABLE_REUSE_MEMORY
     // Shared quant runs after GMM1, but routed quant now overlaps GMM1 and must not overwrite routed X1.

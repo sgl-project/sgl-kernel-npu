@@ -65,8 +65,6 @@ const char *GetStageName(uint64_t stageId)
             return "weight_sum_reduce_permute";
         case ProfileStage::WeightSumClean:
             return "weight_sum_clean";
-        case ProfileStage::DispatchRecvNotify:
-            return "dispatch_recv_notify";
         default:
             return "unknown";
     }
@@ -78,9 +76,8 @@ std::string GetStageDisplayName(uint64_t stageId, uint64_t occurrenceId, const C
     oss << GetStageName(stageId);
     uint32_t stageOccurrenceCount = Cam::GetProfileStageOccurrenceCount(stageLayout, static_cast<uint32_t>(stageId));
     auto stage = static_cast<ProfileStage>(stageId);
-    if (stage == ProfileStage::DispatchRecv || stage == ProfileStage::DispatchRecvNotify ||
-        stage == ProfileStage::Gmm1 || stage == ProfileStage::Swiglu || stage == ProfileStage::Quant ||
-        stage == ProfileStage::Gmm2 || stage == ProfileStage::Combine) {
+    if (stage == ProfileStage::DispatchRecv || stage == ProfileStage::Gmm1 || stage == ProfileStage::Swiglu ||
+        stage == ProfileStage::Quant || stage == ProfileStage::Gmm2 || stage == ProfileStage::Combine) {
         oss << "[group=" << occurrenceId << "]";
     } else if (stageOccurrenceCount > 1U || occurrenceId != 0U) {
         oss << "[occ=" << occurrenceId << "]";
@@ -107,7 +104,7 @@ std::string GetPrivateDataJson(uint64_t stageId, uint64_t occurrenceId, const Ca
         oss << ",\"dispatch_send_per_token_bytes\":" << payload.perTokenCommBytes;
         return oss.str();
     }
-    if (stage == ProfileStage::DispatchRecv || stage == ProfileStage::DispatchRecvNotify) {
+    if (stage == ProfileStage::DispatchRecv) {
         const auto payload = Cam::AsDispatchRecvPrivatePayloadV1(record);
         if (Cam::GetProfilePrivateValidTag(payload.header) == Cam::PROFILE_PRIVATE_DATA_INVALID) {
             return {};
@@ -160,9 +157,6 @@ Cam::ProfileStageLayout BuildStageLayout(uint32_t groupCountCapacity)
     EP_HOST_ASSERT_S(
         Cam::SetProfileStageOccurrenceCount(layout, static_cast<uint32_t>(ProfileStage::WeightSumClean), 1U),
         "invalid weight sum clean occurrence capacity.");
-    EP_HOST_ASSERT_S(Cam::SetProfileStageOccurrenceCount(
-                         layout, static_cast<uint32_t>(ProfileStage::DispatchRecvNotify), groupCountCapacity),
-                     "invalid dispatch receive notify occurrence capacity.");
     return layout;
 }
 

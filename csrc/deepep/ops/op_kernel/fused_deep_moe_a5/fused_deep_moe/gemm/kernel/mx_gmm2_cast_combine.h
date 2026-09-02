@@ -468,7 +468,7 @@ public:
         gmD.SetGlobalBuffer(params.ptrD);
 
         uint32_t target = 1;
-        do {
+        {
             if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
                 if (AscendC::GetSubBlockIdx() == 0) {
                     AscendC::CrossCoreSetFlag<0x0, PIPE_MTE3>(MoeDistributeCombineImpl::RECV_SYNC_EVENT_ID);
@@ -582,7 +582,7 @@ public:
                     AscendC::CrossCoreWaitFlag(MoeDistributeCombineImpl::RECV_SYNC_EVENT_ID);
                 }
             }
-        } while (false);
+        }
 
         icache_preload(4);
         if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
