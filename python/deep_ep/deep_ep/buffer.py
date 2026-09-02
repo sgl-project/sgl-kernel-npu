@@ -844,22 +844,20 @@ class Buffer:
                     shape `[num_local_experts]`, indicating the number of tokens received
                     by each local expert on this rank only.
         """
-        if activation is None:
-            activation = "swiglu"
-        elif isinstance(activation, str):
+        if activation is not None:
+            if not isinstance(activation, str):
+                raise ValueError(
+                    "activation must be None, 'swiglu', 'silu', or 'situ', "
+                    f"but got {activation!r}"
+                )
             activation = activation.lower()
-        else:
-            raise ValueError(
-                "activation must be None, 'swiglu', 'silu', or 'situ', "
-                f"but got {activation!r}"
-            )
-        if activation not in ("swiglu", "silu", "situ"):
-            raise ValueError(
-                "activation must be None, 'swiglu', 'silu', or 'situ', "
-                f"but got {activation!r}"
-            )
-        if activation == "swiglu":
-            activation = "silu"
+            if activation not in ("swiglu", "silu", "situ"):
+                raise ValueError(
+                    "activation must be None, 'swiglu', 'silu', or 'situ', "
+                    f"but got {activation!r}"
+                )
+            if activation == "swiglu":
+                activation = "silu"
         if activation == "situ":
             if beta is not None and beta <= 0:
                 raise ValueError(f"beta must be > 0 for SiTU, but got {beta}")
