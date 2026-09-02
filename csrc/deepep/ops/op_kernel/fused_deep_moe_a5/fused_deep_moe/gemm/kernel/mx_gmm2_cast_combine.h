@@ -79,6 +79,9 @@ public:
 
         GemmCoord sharedProblemShape;
         void *combiner;
+        uint32_t expectedAivNum;
+        GM_ADDR gmX2ReadyState;
+        uint64_t weightExpertStrideBytes;
         FusedDeepMoeProfileWriter *profile;
 
         // Methods
@@ -93,6 +96,7 @@ public:
                LayoutA const &layoutSharedA_, GM_ADDR ptrSharedB_, LayoutB const &layoutSharedB_,
                GM_ADDR ptrSharedMxScaleA_, LayoutMxScaleA layoutSharedMxScaleA_, GM_ADDR ptrSharedMxScaleB_,
                LayoutMxScaleB layoutSharedMxScaleB_, GM_ADDR ptrSharedC_, GM_ADDR ptrSharedD_, void *combiner_,
+               uint32_t expectedAivNum_, GM_ADDR gmX2ReadyState_, uint64_t weightExpertStrideBytes_,
                FusedDeepMoeProfileWriter *profile_)
             : problemShape(problemShape_),
               problemCount(problemCount_),
@@ -120,6 +124,9 @@ public:
               ptrSharedC(reinterpret_cast<__gm__ ElementC *>(ptrSharedC_)),
               ptrSharedD(reinterpret_cast<__gm__ ElementD *>(ptrSharedD_)),
               combiner(combiner_),
+              expectedAivNum(expectedAivNum_),
+              gmX2ReadyState(gmX2ReadyState_),
+              weightExpertStrideBytes(weightExpertStrideBytes_),
               profile(profile_)
         {}
     };
@@ -135,9 +142,91 @@ public:
     template <int32_t CORE_TYPE = g_coreType>
     CATLASS_DEVICE void operator()(Params const &params);
 
+    CATLASS_DEVICE
+    void WaitSharedX2Ready(uint32_t groupIdx, uint32_t counterIndex, uint32_t expectedAivNum)
+    {
+        AscendC::GlobalTensor<int32_t> readyTensor;
+        readyTensor.SetGlobalBuffer((__gm__ int32_t *)(syncGmAddr + FusedDeepMoeSync::GROUP_TOKEN_NUM_OFFSET) +
+                                    groupIdx * FusedDeepMoeSync::GROUP_INFO_SIZE);
+        while (FlushAndGetValue<int32_t>(readyTensor, counterIndex) != static_cast<int32_t>(expectedAivNum)) {
+            SPIN_WAIT_CYCLES();
+        }
+        AscendC::PipeBarrier<PIPE_ALL>();
+    }
+
+    CATLASS_DEVICE
+    void WaitRoutedX2Ready(uint32_t groupIdx, uint32_t expectedAivNum)
+    {
+        AscendC::GlobalTensor<int32_t> readyTensor;
+        readyTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(
+            gmX2ReadyState + static_cast<uint64_t>(groupIdx) * FusedDeepMoeSync::X2_READY_SLOT_SIZE));
+        while (true) {
+            int32_t actualCount = FlushAndGetValue<int32_t>(readyTensor, FusedDeepMoeSync::X2_READY_COUNTER_INDEX);
+            if (actualCount == static_cast<int32_t>(expectedAivNum)) {
+                break;
+            }
+            SPIN_WAIT_CYCLES();
+        }
+
+        AscendC::PipeBarrier<PIPE_ALL>();
+    }
+
+    CATLASS_DEVICE
+    void CleanRoutedX2ReadyState(uint32_t problemCount)
+    {
+        // This helper is called by the AIV specialization.  Its block index
+        // is already the logical AIV index; multiplying by subblock count
+        // would leave ready slots uncleared.
+        uint32_t workerIdx = AscendC::GetBlockIdx();
+        uint32_t workerCount = AscendC::GetBlockNum();
+        AscendC::LocalTensor<int32_t> zeroLocal = resource.ubBuf.template GetBufferByByte<int32_t>(0);
+        AscendC::Duplicate(zeroLocal, static_cast<int32_t>(0), GMM2::INT32_COUNT_PER_BLOCK);
+        AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(0);
+        AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(0);
+        for (uint32_t slotIdx = workerIdx; slotIdx < problemCount; slotIdx += workerCount) {
+            AscendC::GlobalTensor<int32_t> readyTensor;
+            readyTensor.SetGlobalBuffer(reinterpret_cast<__gm__ int32_t *>(
+                gmX2ReadyState + static_cast<uint64_t>(slotIdx) * FusedDeepMoeSync::X2_READY_SLOT_SIZE));
+            AscendC::DataCopy(readyTensor, zeroLocal, GMM2::INT32_COUNT_PER_BLOCK);
+        }
+        AscendC::PipeBarrier<PIPE_MTE3>();
+    }
+
+    CATLASS_DEVICE
+    void CleanGroupTokenInfo(uint32_t groupCount)
+    {
+        uint32_t cleanWorkerIdx = AscendC::GetBlockIdx() / AscendC::GetSubBlockNum();
+        uint32_t cleanWorkerCount = AscendC::GetBlockNum();
+        uint32_t stateGroupCount = groupCount;
+        if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
+            stateGroupCount = stateGroupCount == 0 ? 1U : stateGroupCount;
+        }
+        uint32_t totalCleanBlocks =
+            stateGroupCount * FusedDeepMoeSync::GROUP_INFO_SIZE / FusedDeepMoeSync::INT32_COUNT_PER_BLOCK;
+        uint32_t blocksPerWorker = totalCleanBlocks / cleanWorkerCount;
+        uint32_t remainBlocks = totalCleanBlocks % cleanWorkerCount;
+        // Only subblock 0 participates, so partition the state across physical AI Core groups.
+        uint32_t blockStart =
+            blocksPerWorker * cleanWorkerIdx + (cleanWorkerIdx < remainBlocks ? cleanWorkerIdx : remainBlocks);
+        uint32_t blockCount = blocksPerWorker + (cleanWorkerIdx < remainBlocks ? 1U : 0U);
+
+        AscendC::GlobalTensor<int32_t> groupStateTensor;
+        groupStateTensor.SetGlobalBuffer((__gm__ int32_t *)(syncGmAddr + FusedDeepMoeSync::GROUP_TOKEN_NUM_OFFSET));
+        AscendC::LocalTensor<int32_t> zeroLocalTensor = resource.ubBuf.template GetBufferByByte<int32_t>(0);
+        AscendC::Duplicate(zeroLocalTensor, static_cast<int32_t>(0), FusedDeepMoeSync::INT32_COUNT_PER_BLOCK);
+        AscendC::SetFlag<AscendC::HardEvent::V_MTE3>(0);
+        AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(0);
+        for (uint32_t blockIdx = 0; blockIdx < blockCount; ++blockIdx) {
+            uint32_t gmOffset = (blockStart + blockIdx) * FusedDeepMoeSync::INT32_COUNT_PER_BLOCK;
+            AscendC::DataCopy(groupStateTensor[gmOffset], zeroLocalTensor, FusedDeepMoeSync::INT32_COUNT_PER_BLOCK);
+        }
+        AscendC::PipeBarrier<PIPE_MTE3>();
+    }
+
     template <>
     CATLASS_DEVICE void operator()<AscendC::AIC>(Params const &params)
     {
+        gmX2ReadyState = params.gmX2ReadyState;
         AscendC::ICachePreLoad(1);
 
         BlockScheduler blockScheduler;
@@ -176,17 +265,33 @@ public:
 
             for (uint32_t groupIdx = 0; groupIdx < params.problemCount; ++groupIdx) {
                 uint64_t profGroupStart = 0;
+                if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
+                    WaitRoutedX2Ready(groupIdx, params.expectedAivNum);
+                }
                 gmMxScaleA.SetGlobalBuffer(params.ptrMxScaleA + gmGroupOffsetMxScaleA);
                 if constexpr (EXEC_FLAG & EXEC_FLAG_TENSOR_LIST) {
                     gmB.SetGlobalBuffer(gmBlistTensorDesc.GetDataPtr<ElementB>(groupIdx));
                     gmMxScaleB.SetGlobalBuffer(gmBScalelistTensorDesc.GetDataPtr<ElementMxScaleB>(groupIdx));
                 } else {
-                    gmB.SetGlobalBuffer(gmBlistTensorDesc.GetDataPtr<ElementB>(0) + gmGroupOffsetB);
+                    if (params.weightExpertStrideBytes != 0U) {
+                        auto *weightBase =
+                            reinterpret_cast<__gm__ uint8_t *>(gmBlistTensorDesc.GetDataPtr<ElementB>(0));
+                        gmB.SetGlobalBuffer(reinterpret_cast<__gm__ ElementB *>(
+                            weightBase + static_cast<uint64_t>(groupIdx) * params.weightExpertStrideBytes));
+                    } else {
+                        gmB.SetGlobalBuffer(gmBlistTensorDesc.GetDataPtr<ElementB>(0) + gmGroupOffsetB);
+                    }
                     gmMxScaleB.SetGlobalBuffer(gmBScalelistTensorDesc.GetDataPtr<ElementMxScaleB>(0) +
                                                gmGroupOffsetMxScaleB);
                 }
-                currentM = (groupIdx == 0) ? groupList.GetValue(groupIdx)
-                                           : (groupList.GetValue(groupIdx) - groupList.GetValue(groupIdx - 1));
+                if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
+                    currentM = (groupIdx == 0) ? FlushAndGetValue<ElementGroupList>(groupList, groupIdx)
+                                               : (FlushAndGetValue<ElementGroupList>(groupList, groupIdx) -
+                                                  FlushAndGetValue<ElementGroupList>(groupList, groupIdx - 1));
+                } else {
+                    currentM = (groupIdx == 0) ? groupList.GetValue(groupIdx)
+                                               : (groupList.GetValue(groupIdx) - groupList.GetValue(groupIdx - 1));
+                }
                 if (params.profile != nullptr) {
                     profGroupStart = params.profile->Now();
                 }
@@ -245,12 +350,14 @@ public:
                 totalM += inGroupProblemShape.m();
 
                 if constexpr (!(EXEC_FLAG & EXEC_FLAG_TENSOR_LIST)) {
-                    if constexpr (AscendC::Std::is_one_of_v<ElementB, float4_e2m1x2_t, float4_e1m2x2_t>) {
-                        gmGroupOffsetB += std::is_same_v<LayoutB, layout::ColumnMajor>
-                                              ? CeilDiv<2>(inGroupProblemShape.k()) * inGroupProblemShape.n()
-                                              : CeilDiv<2>(inGroupProblemShape.n()) * inGroupProblemShape.k();
-                    } else {
-                        gmGroupOffsetB += inGroupProblemShape.k() * inGroupProblemShape.n();
+                    if (params.weightExpertStrideBytes == 0U) {
+                        if constexpr (AscendC::Std::is_one_of_v<ElementB, float4_e2m1x2_t, float4_e1m2x2_t>) {
+                            gmGroupOffsetB += std::is_same_v<LayoutB, layout::ColumnMajor>
+                                                  ? CeilDiv<2>(inGroupProblemShape.k()) * inGroupProblemShape.n()
+                                                  : CeilDiv<2>(inGroupProblemShape.n()) * inGroupProblemShape.k();
+                        } else {
+                            gmGroupOffsetB += inGroupProblemShape.k() * inGroupProblemShape.n();
+                        }
                     }
                     gmGroupOffsetMxScaleB += mxScaleAlignedK * inGroupProblemShape.n();
                 }
@@ -268,6 +375,9 @@ public:
             }
         }
         if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
+            if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
+                WaitSharedX2Ready(0, FusedDeepMoeSync::SHARED_X2_DONE_COUNT_INDEX, params.expectedAivNum);
+            }
             currentM = params.sharedProblemShape.m();
             gmA.SetGlobalBuffer(params.ptrSharedA);
             gmMxScaleA.SetGlobalBuffer(params.ptrSharedMxScaleA);
@@ -333,12 +443,17 @@ public:
                 blockMmad.template SynchronizeBlock<decltype(tensorC)>();
             }
         }
+        if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
+            // Sentinel lets the paired AIV prove this AIC is done even when every expert is empty.
+            callbackAfterFixpipe();
+        }
         AscendC::PipeBarrier<PIPE_ALL>();
     }
 
     template <>
     CATLASS_DEVICE void operator()<AscendC::AIV>(Params const &params)
     {
+        gmX2ReadyState = params.gmX2ReadyState;
         auto *combiner = (MoeDistributeCombineImpl::CamMoeDistributeCombine<TemplateMC2TypeFunc> *)params.combiner;
 
         uint32_t coreIdx = AscendC::GetBlockIdx() / AscendC::GetSubBlockNum();
@@ -352,16 +467,14 @@ public:
         AscendC::GlobalTensor<ElementD> gmD;
         gmD.SetGlobalBuffer(params.ptrD);
 
-        uint64_t profWeightSumStart = 0;
-
-        {
+        uint32_t target = 1;
+        do {
             if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
                 if (AscendC::GetSubBlockIdx() == 0) {
                     AscendC::CrossCoreSetFlag<0x0, PIPE_MTE3>(MoeDistributeCombineImpl::RECV_SYNC_EVENT_ID);
                 }
             }
             BlockEpilogue blockEpilogue(resource, combiner->GetCalcInfo());
-            uint32_t target = 1;
             uint32_t startCoreIdx = 0;
 
             int64_t mxScaleAlignedK =
@@ -375,8 +488,14 @@ public:
 
             for (uint32_t groupIdx = 0; groupIdx < params.problemCount; ++groupIdx) {
                 uint64_t profGroupStart = 0;
-                currentM = (groupIdx == 0) ? groupList.GetValue(groupIdx)
-                                           : (groupList.GetValue(groupIdx) - groupList.GetValue(groupIdx - 1));
+                if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
+                    currentM = (groupIdx == 0) ? FlushAndGetValue<ElementGroupList>(groupList, groupIdx)
+                                               : (FlushAndGetValue<ElementGroupList>(groupList, groupIdx) -
+                                                  FlushAndGetValue<ElementGroupList>(groupList, groupIdx - 1));
+                } else {
+                    currentM = (groupIdx == 0) ? groupList.GetValue(groupIdx)
+                                               : (groupList.GetValue(groupIdx) - groupList.GetValue(groupIdx - 1));
+                }
                 if (params.profile != nullptr) {
                     profGroupStart = params.profile->Now();
                 }
@@ -463,11 +582,8 @@ public:
                     AscendC::CrossCoreWaitFlag(MoeDistributeCombineImpl::RECV_SYNC_EVENT_ID);
                 }
             }
-        }
+        } while (false);
 
-        if (params.profile != nullptr) {
-            profWeightSumStart = params.profile->Now();
-        }
         icache_preload(4);
         if constexpr (EXEC_FLAG & EXEC_FLAG_SHARED_EXPERT) {
             if (AscendC::GetSubBlockIdx() == 1) {
@@ -479,17 +595,33 @@ public:
             }
         } else if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
             if (AscendC::GetSubBlockIdx() == 0) {
+                uint64_t profWeightSumAllToAllSendStart = 0;
+                if (params.profile != nullptr) {
+                    profWeightSumAllToAllSendStart = params.profile->Now();
+                }
                 resource.pipe.Init();
                 combiner->TPipeSet(&resource.pipe);
                 combiner->AllToAllSend();
                 combiner->TPipeSet(nullptr);
                 resource.pipe.Destroy();
+                if (params.profile != nullptr) {
+                    params.profile->Record(FusedDeepMoeProfileStage::WeightSumAllToAllSend,
+                                           profWeightSumAllToAllSendStart, params.profile->Now());
+                }
             } else {
+                uint64_t profWeightSumReducePermuteStart = 0;
+                if (params.profile != nullptr) {
+                    profWeightSumReducePermuteStart = params.profile->Now();
+                }
                 resource.pipe.Init();
                 combiner->TPipeSet(&resource.pipe);
                 combiner->ReducePermute();
                 combiner->TPipeSet(nullptr);
                 resource.pipe.Destroy();
+                if (params.profile != nullptr) {
+                    params.profile->Record(FusedDeepMoeProfileStage::WeightSumReducePermute,
+                                           profWeightSumReducePermuteStart, params.profile->Now());
+                }
             }
         } else {
             resource.pipe.Init();
@@ -498,7 +630,25 @@ public:
             combiner->TPipeSet(nullptr);
             resource.pipe.Destroy();
         }
+        if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
+            CleanRoutedX2ReadyState(params.problemCount);
+        }
+        if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
+            if (AscendC::GetSubBlockIdx() == 0) {
+                CheckSyncFlag(reinterpret_cast<__gm__ int32_t *>(syncGmAddr + GMM2::SOFT_SYNC_OFFSET),
+                              static_cast<int32_t>(coreIdx), target);
+            }
+            AscendC::PipeBarrier<PIPE_ALL>();
+            AscendC::SyncAll<true>();
+            AscendC::PipeBarrier<PIPE_ALL>();
+        }
         if (AscendC::GetSubBlockIdx() == 0) {
+            uint64_t profWeightSumCleanStart = 0;
+            if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
+                if (params.profile != nullptr) {
+                    profWeightSumCleanStart = params.profile->Now();
+                }
+            }
             AscendC::GlobalTensor<int32_t> softSyncTensor;
             softSyncTensor.SetGlobalBuffer((__gm__ int32_t *)(syncGmAddr + GMM2::SOFT_SYNC_OFFSET));
             AscendC::LocalTensor<int32_t> tmpZeroLocalTensor = resource.ubBuf.template GetBufferByByte<int32_t>(0);
@@ -507,9 +657,16 @@ public:
             AscendC::WaitFlag<AscendC::HardEvent::V_MTE3>(0);
             AscendC::DataCopy(softSyncTensor[coreIdx * CVSoftSync::SOFT_SYNC_SPACE_SIZE / sizeof(int32_t)],
                               tmpZeroLocalTensor, GMM2::INT32_COUNT_PER_BLOCK);
-        }
-        if (params.profile != nullptr) {
-            params.profile->Record(FusedDeepMoeProfileStage::WeightSum, profWeightSumStart, params.profile->Now());
+            if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
+                AscendC::PipeBarrier<PIPE_MTE3>();
+                CleanGroupTokenInfo(params.problemCount);
+            }
+            if constexpr (EXEC_FLAG & EXEC_FLAG_DEEP_FUSE) {
+                if (params.profile != nullptr) {
+                    params.profile->Record(FusedDeepMoeProfileStage::WeightSumClean, profWeightSumCleanStart,
+                                           params.profile->Now());
+                }
+            }
         }
     }
 
@@ -534,6 +691,7 @@ private:
     AscendC::GlobalTensor<GM_ADDR> epWinContext_;
     __gm__ Mc2Kernel::HcclOpParam *winContext_;
     GM_ADDR syncGmAddr;
+    GM_ADDR gmX2ReadyState;
     Arch::Resource<ArchTag> resource;
 };
 
