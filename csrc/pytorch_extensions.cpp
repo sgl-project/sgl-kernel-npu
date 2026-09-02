@@ -105,6 +105,19 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "Tensor conv_state_indices, Tensor? bias=None, Tensor? num_accepted_tokens=None, "
         "Tensor? query_start_loc=None, bool activation_mode=False, int pad_slot_id=-1) -> Tensor");
 
+    m.def(
+        "mega_chunk_gdn(Tensor q, Tensor k, Tensor v, Tensor g, Tensor beta, "
+        "Tensor mask_lower, Tensor mask_full, Tensor minus_identity, Tensor cu_seqlens, "
+        "Tensor(a!) out, Tensor(b!) g_sum, Tensor(c!) g_t, Tensor(d!) beta_t, "
+        "Tensor(e!) A, Tensor(f!) A_inv_f32, Tensor(g!) A_inv, Tensor(h!) w, "
+        "Tensor(i!) u, Tensor(j!) s, Tensor(k!) v_new, Tensor(l!) final_state, "
+        "Tensor initial_state, bool has_initial_state, "
+        "Tensor(m!) kkt_workspace, Tensor(n!) wy_workspace_a1, "
+        "Tensor(o!) wy_workspace_a2, Tensor(p!) h_workspace, "
+        "Tensor(q!) o_workspace_qk, Tensor(r!) o_workspace_qs, "
+        "Tensor(s!) o_workspace_gated, int block_dim, int batch_size, "
+        "int seq_len, int total_tokens, int num_matrices) -> ()");
+
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.def(
         "mla_preprocess(Tensor hiddenState, Tensor gamma0, Tensor beta0, Tensor wdqkv, "
@@ -128,19 +141,6 @@ TORCH_LIBRARY_FRAGMENT(npu, m)
         "int nk, int nv, "
         "Tensor(b!)? intermediate_state=None, Tensor? cache_indices=None, "
         "Tensor? num_accepted_tokens=None, Tensor? g=None, Tensor? gk=None) -> Tensor");
-
-    m.def(
-        "mega_chunk_gdn(Tensor q, Tensor k, Tensor v, Tensor g, Tensor beta, "
-        "Tensor mask_lower, Tensor mask_full, Tensor minus_identity, Tensor cu_seqlens, "
-        "Tensor(a!) out, Tensor(b!) g_sum, Tensor(c!) g_t, Tensor(d!) beta_t, "
-        "Tensor(e!) A, Tensor(f!) A_inv_f32, Tensor(g!) A_inv, Tensor(h!) w, "
-        "Tensor(i!) u, Tensor(j!) s, Tensor(k!) v_new, Tensor(l!) final_state, "
-        "Tensor initial_state, bool has_initial_state, "
-        "Tensor(m!) kkt_workspace, Tensor(n!) wy_workspace_a1, "
-        "Tensor(o!) wy_workspace_a2, Tensor(p!) h_workspace, "
-        "Tensor(q!) o_workspace_qk, Tensor(r!) o_workspace_qs, "
-        "Tensor(s!) o_workspace_gated, int block_dim, int batch_size, "
-        "int seq_len, int total_tokens, int num_matrices) -> ()");
 
     m.def(
         "npu_sparse_attention_score(Tensor query, Tensor key, Tensor value, Tensor select_idx, "
@@ -307,14 +307,14 @@ TORCH_LIBRARY_IMPL(npu, PrivateUse1, m)
                                                                     query_loc_or_empty, activation_mode, pad_slot_id);
            });
 
+    m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
+
 #ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
     m.impl("mla_preprocess", TORCH_FN(sglang::npu_kernel::mla_preprocess));
 
     m.impl("batch_matmul_transpose", TORCH_FN(sglang::npu_kernel::batch_matmul_transpose));
 
     m.impl("recurrent_gated_delta_rule", TORCH_FN(sglang::npu_kernel::recurrent_gated_delta_rule));
-
-    m.impl("mega_chunk_gdn", TORCH_FN(sglang::npu_kernel::mega_chunk_gdn));
 
     m.impl("lightning_indexer", TORCH_FN(sglang::npu_kernel::lightning_indexer));
 
