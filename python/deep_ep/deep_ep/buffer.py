@@ -766,10 +766,10 @@ class Buffer:
         num_experts: int,
         quant_mode: int = 1,
         fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
-        profile_enable: bool = False,
-        activation: Optional[str] = None,
+        activation: Optional[str] = "swiglu",
         beta: Optional[float] = 4.0,
         linear_beta: Optional[float] = 25.0,
+        profile_enable: bool = False,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         A fused low-latency implementation for MoE expert forward and combination.
@@ -815,11 +815,12 @@ class Buffer:
                 FuseMode is not exported from the package's top-level __init__.py;
                 import via `from deep_ep.buffer import FuseMode` or use integer
                 values 1 or 2 directly.
-            activation: activation used after GMM1. ``None`` or ``"silu"``
-                selects SiLU (default); ``"situ"`` selects SiTU.
+            activation: activation used after GMM1. ``None``, ``"swiglu"``, or
+                ``"silu"`` selects SwiGLU (default); ``"situ"`` selects SiTU.
             beta: SiTU gate soft-saturation bound. ``None`` uses the kernel default.
             linear_beta: SiTU up-projection soft-saturation bound. A positive
                 value enables the transform; ``None`` leaves the up branch unchanged.
+            profile_enable: whether to enable fused-kernel profiling (default: False).
 
         Notes:
             - DISPATCH_FFN_COMBINE mode does NOT support shared experts (unlike
@@ -844,17 +845,21 @@ class Buffer:
                     by each local expert on this rank only.
         """
         if activation is None:
-            activation = "silu"
+            activation = "swiglu"
         elif isinstance(activation, str):
             activation = activation.lower()
         else:
             raise ValueError(
-                f"activation must be None, 'silu', or 'situ', but got {activation!r}"
+                "activation must be None, 'swiglu', 'silu', or 'situ', "
+                f"but got {activation!r}"
             )
-        if activation not in ("silu", "situ"):
+        if activation not in ("swiglu", "silu", "situ"):
             raise ValueError(
-                f"activation must be None, 'silu', or 'situ', but got {activation!r}"
+                "activation must be None, 'swiglu', 'silu', or 'situ', "
+                f"but got {activation!r}"
             )
+        if activation == "swiglu":
+            activation = "silu"
         if activation == "situ":
             if beta is not None and beta <= 0:
                 raise ValueError(f"beta must be > 0 for SiTU, but got {beta}")
