@@ -687,7 +687,15 @@ def causal_conv1d_fn_native(
 
     out = out[..., :seqlen]
     if return_final_states:
-        base = seqlens - (width - 1) * (~has_initial_state)
+        if initial_states is None:
+            # x is unextended: sequences without an initial state start
+            # (width - 1) tokens later, so shift their gather window back.
+            base = seqlens - (width - 1) * (~has_initial_state)
+        else:
+            # x was extended with (width - 1) initial-state tokens per row;
+            # the last (width - 1) inputs of every sequence sit at
+            # [seqlens, seqlens + width - 2) regardless of has_initial_state.
+            base = seqlens
         positions = base.unsqueeze(1) + torch.arange(
             width - 1, device=seqlens.device
         ).unsqueeze(0)
@@ -707,8 +715,11 @@ def prepare_data(
     has_initial_state: Optional[torch.Tensor] = None,
     conv_states: Optional[torch.Tensor] = None,
 ):
+    # Clamp cache_indices so pad slots (pad_slot_id=-1) do not wrap around via
+    # negative indexing; pad rows are zeroed by has_initial_state and never
+    # contribute to any output.
     initial_states = (
-        torch.index_select(conv_states, 0, cache_indices)
+        torch.index_select(conv_states, 0, cache_indices.clamp(min=0))
         * has_initial_state[:, None, None]
         if has_initial_state is not None and has_initial_state.any()
         else None
@@ -780,6 +791,12 @@ def causal_conv1d_fn_npu(
     """
     if activation not in [None, "silu", "swish"]:
         raise NotImplementedError("activation must be None, silu, or swish")
+    if has_initial_state is None:
+        # Final-state gather in causal_conv1d_fn_native requires the mask even
+        # when no sequence carries an initial state.
+        has_initial_state = torch.zeros(
+            cache_indices.shape[0], dtype=torch.bool, device=x.device
+        )
     if x.stride(-1) != 1:
         x = x.contiguous()
     bias = bias.contiguous() if bias is not None else None
@@ -800,7 +817,13 @@ def causal_conv1d_fn_npu(
         activation=activation,
         return_final_states=True,
     )
-    conv_states.index_copy_(0, cache_indices, final_states_out)
+    # Skip pad slots: pad_slot_id=-1 would wrap around via negative indexing
+    # in index_copy_ and silently corrupt the last pool slot.
+    valid = cache_indices != pad_slot_id
+    if valid.all():
+        conv_states.index_copy_(0, cache_indices, final_states_out)
+    else:
+        conv_states.index_copy_(0, cache_indices[valid], final_states_out[valid])
 
     if x.ndim == 3:
         return out  # [batch_size, dim, seq_len]
