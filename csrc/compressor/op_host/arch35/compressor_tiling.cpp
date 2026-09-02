@@ -207,6 +207,7 @@ ge::graphStatus CompressorTiling::SetPageAttentionInfo()
 ge::graphStatus CompressorTiling::SetWorkSpaceInfo()
 {
     workspaceParams_->dbWorkspaceRatio = 2;
+    workspaceParams_->aivNum = aivNum_;
     workspaceParams_->mm1KvResSize = innerSplitParams_->mBaseSize * baseParams_->headDim * coff;
     workspaceParams_->mm1ScoreResSize = innerSplitParams_->mBaseSize * baseParams_->headDim * coff;
     if (coff == 2) {
@@ -304,12 +305,14 @@ ge::graphStatus CompressorTiling::CalcWorkSpace()
                       2;  // 2 kv和score
     workspaceSize_ +=
         workspaceParams_->vec1ResSize * maxGroupNum * V1_RES_ELEM_SIZE * workspaceParams_->dbWorkspaceRatio;
+    workspaceSize_ += workspaceParams_->aivNum * workspaceParams_->dbWorkspaceRatio * sizeof(uint32_t);
 
     if (context_->workSpaces) {
         context_->workSpaces[0] = workspaceSize_;
     }
 
-    OP_LOGI(context_->opName, "Tiling info: workspaceSize_ = %zu", workspaceSize_);
+    OP_LOGI(context_->opName, "Tiling info: workspaceSize_ = %zu aicNum_=%u aivNum_=%u",
+            workspaceSize_, aicNum_, aivNum_);
     return ge::GRAPH_SUCCESS;
 }
 

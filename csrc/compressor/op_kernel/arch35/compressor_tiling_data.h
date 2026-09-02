@@ -70,6 +70,7 @@ struct CompressorWorkspaceParams {
     uint32_t vec1ResSize;
     uint32_t vec1TailCacheSize;
     uint32_t dbWorkspaceRatio = 1;
+    uint32_t aivNum = 0;  // AIV block count (per-AIV readGen slots)
 };
 
 struct CompressorTilingData {

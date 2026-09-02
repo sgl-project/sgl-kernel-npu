@@ -203,6 +203,7 @@ struct ConstInfo {
 
     // workSpace
     uint32_t dbWorkspaceRatio = 1;
+    uint32_t aivNum = 0;  // AIV block count (per-AIV readGen slots)
     uint32_t mm1KvResSize = 0;
     uint32_t mm1ScoreResSize = 0;
     uint32_t vec1TailCacheSize = 0;

@@ -262,6 +262,22 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
     // ---- 6) workspace ----
     at::Tensor workspace =
         at::empty({(int64_t)workspaceSize}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
+#ifdef SGL_KERNEL_ARCH_35
+    // Zero the AIV db release counters (readGen, aivNum * dbWorkspaceRatio * 4
+    // bytes) at the workspace tail so the generation handshake starts at 0.
+    // arch22 uses flags, not GM, so this tail is only reserved/cleared on
+    // arch35. The tiling workspaceSize_ includes the libapi prefix but the
+    // kernel's InitWorkspace offsets start from 0 (it overlays the libapi
+    // prefix), so the counters actually live libapiSize bytes before the tail.
+    int64_t genFlagsSize = (int64_t)(tilingData.workspaceParams.aivNum *
+                                     tilingData.workspaceParams.dbWorkspaceRatio * sizeof(uint32_t));
+    auto ascendcPlatform = *platform_ascendc::PlatformAscendCManager::GetInstance();
+    int64_t libapiSize = static_cast<int64_t>(ascendcPlatform.GetLibApiWorkSpaceSize());
+    int64_t flagsOffset = (int64_t)workspaceSize - libapiSize - genFlagsSize;
+    if (flagsOffset >= 0) {
+        workspace.narrow(0, flagsOffset, genFlagsSize).view(at::kInt).zero_();
+    }
+#endif
 
     // ---- 7) dispatch: single kernel entry, dispatch by tilingKey inside kernel ----
     at::Tensor stateBlockTable = state_block_table.has_value()

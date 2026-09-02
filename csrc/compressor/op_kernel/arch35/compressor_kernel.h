@@ -102,6 +102,7 @@ private:
     GlobalTensor<MM1_OUT_T> Vec1InputScoreGm;
     GlobalTensor<VEC1_OUT_T> vec1ResGm;
     GlobalTensor<VEC1_OUT_T> vec2InputGm;
+    GlobalTensor<uint32_t> readGenGm;
     // ================================Task Info====================================
     CompressorTools<COMP> tools_;
     ConstInfo constInfo{};
@@ -214,6 +215,7 @@ __aicore__ inline void CompressorKernel<COMP>::InitTilingData() {
     constInfo.nSize =  tilingData_->baseParams.nSize;
     constInfo.vec1TailCacheSize = tilingData_->workspaceParams.vec1TailCacheSize;
     constInfo.dbWorkspaceRatio = tilingData_->workspaceParams.dbWorkspaceRatio;
+    constInfo.aivNum = tilingData_->workspaceParams.aivNum;
 }
 
 template <typename COMP>
@@ -451,32 +453,69 @@ __aicore__ inline void CompressorKernel<COMP>::InitWorkspace(__gm__ uint8_t *wor
     // vec2Input
     vec2InputGm.SetGlobalBuffer(
         (__gm__ VEC1_OUT_T *)(workspace + beforeVecOffset));
+
+    readGenGm.SetGlobalBuffer((__gm__ uint32_t *)(workspace + offset));
+    offset += constInfo.aivNum * constInfo.dbWorkspaceRatio * sizeof(uint32_t);
 }
 
 template <typename COMP>
 __aicore__ inline void CompressorKernel<COMP>::ComputeMm1(const RunInfo &info, bool isNeedExcute) {
-    CrossCoreWaitFlag<SYNC_MODE2, PIPE_FIX>(SYNC_V1_C1_FLAG + info.cubeDbIdx);
-    if (isNeedExcute) {
-        blockCube_.ComputeMm1(info);
+    if constexpr (COMP::cacheMode == CACHE_MODE::CYCLE) {
+        uint32_t gen = (cubeLoop - 1) / constInfo.dbWorkspaceRatio;
+        uint32_t dbIdx = info.cubeDbIdx;
+        uint32_t poll = 0;
+        for (uint32_t a = 0; a < constInfo.aivNum; ++a) {
+            while ((poll = readGenGm.GetValue(a * constInfo.dbWorkspaceRatio + dbIdx)) < gen) { (void)poll; }
+        }
+        if (isNeedExcute) {
+            blockCube_.ComputeMm1(info);
+        }
+        // mm1 readiness stays the hardware flag C1_V1_FLAG: its pipe semantics
+        // guarantee the Fixpipe write has landed before consumers are released
+        // (a scalar GM write cannot give that). The dbIdx-release/overwrite side
+        // keeps GM readGen (generation counter) to escape the flagId-channel
+        // limit / same-flag reordering of the pure-flag scheme.
+        CrossCoreSetFlag<SYNC_MODE0, PIPE_FIX>(SYNC_C1_FLAG);
+        CrossCoreWaitFlag<SYNC_MODE0, PIPE_FIX>(SYNC_C1_FLAG);
+        CrossCoreSetFlag<SYNC_MODE2, PIPE_FIX>(SYNC_C1_V1_FLAG + dbIdx);
+    } else {
+        CrossCoreWaitFlag<SYNC_MODE2, PIPE_FIX>(SYNC_V1_C1_FLAG + info.cubeDbIdx);
+        if (isNeedExcute) {
+            blockCube_.ComputeMm1(info);
+        }
+        CrossCoreSetFlag<SYNC_MODE0, PIPE_FIX>(SYNC_C1_FLAG);
+        CrossCoreWaitFlag<SYNC_MODE0, PIPE_FIX>(SYNC_C1_FLAG);
+        CrossCoreSetFlag<SYNC_MODE2, PIPE_FIX>(SYNC_C1_V1_FLAG + info.cubeDbIdx);
     }
-    CrossCoreSetFlag<SYNC_MODE0, PIPE_FIX>(SYNC_C1_FLAG);
-    CrossCoreWaitFlag<SYNC_MODE0, PIPE_FIX>(SYNC_C1_FLAG);
-    CrossCoreSetFlag<SYNC_MODE2, PIPE_FIX>(SYNC_C1_V1_FLAG + info.cubeDbIdx);
 }
 
 template <typename COMP>
 __aicore__ inline void CompressorKernel<COMP>::ComputeVec1(const Vec1RunInfo &info) {
-    CrossCoreWaitFlag<SYNC_MODE2, PIPE_MTE2>(SYNC_C1_V1_FLAG + info.c1v1DbIdx);
-    CrossCoreWaitFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG2 + info.c1v1DbIdx);
-    blockVec_.ComputeVec1(info);
-    CrossCoreSetFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG);
-    CrossCoreWaitFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG);
+    uint32_t gen = (vec1Loop - 1) / constInfo.dbWorkspaceRatio;
+    uint32_t dbIdx = info.c1v1DbIdx;
+    (void)gen;
+    (void)dbIdx;
     if constexpr (COMP::cacheMode == CACHE_MODE::CYCLE) {
+        // mm1 readiness via hardware flag C1_V1_FLAG (cross-core data); the
+        // dbIdx-release side stays GM readGen (gen counter, no flag channels).
+        CrossCoreWaitFlag<SYNC_MODE2, PIPE_MTE2>(SYNC_C1_V1_FLAG + dbIdx);
+        CrossCoreWaitFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG2 + dbIdx);
+        blockVec_.ComputeVec1(info);
+        CrossCoreSetFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG);
+        CrossCoreWaitFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG);
         SyncAll();
         blockVec_.CommitState(info);
+        readGenGm.SetValue(GetBlockIdx() * constInfo.dbWorkspaceRatio + dbIdx, gen + 1);
+        CrossCoreSetFlag<SYNC_MODE0, PIPE_MTE3>(SYNC_V1_FLAG2 + (dbIdx + 1) % constInfo.dbWorkspaceRatio);
+    } else {
+        CrossCoreWaitFlag<SYNC_MODE2, PIPE_MTE2>(SYNC_C1_V1_FLAG + info.c1v1DbIdx);
+        CrossCoreWaitFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG2 + info.c1v1DbIdx);
+        blockVec_.ComputeVec1(info);
+        CrossCoreSetFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG);
+        CrossCoreWaitFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG);
+        CrossCoreSetFlag<SYNC_MODE2, PIPE_MTE2>(SYNC_V1_C1_FLAG + info.c1v1DbIdx);
+        CrossCoreSetFlag<SYNC_MODE0, PIPE_MTE3>(SYNC_V1_FLAG2 + (info.c1v1DbIdx + 1) % constInfo.dbWorkspaceRatio);
     }
-    CrossCoreSetFlag<SYNC_MODE2, PIPE_MTE2>(SYNC_V1_C1_FLAG + info.c1v1DbIdx);
-    CrossCoreSetFlag<SYNC_MODE0, PIPE_MTE3>(SYNC_V1_FLAG2 + (info.c1v1DbIdx + 1) % constInfo.dbWorkspaceRatio);
 }
 
 template <typename COMP>
@@ -491,10 +530,14 @@ __aicore__ inline void CompressorKernel<COMP>::AllocEventID()
         blockCube_.AllocEventID(pipe_);
     } else {
         blockVec_.AllocEventID();
-    for (int i = 0; i < constInfo.dbWorkspaceRatio; ++i) {
-        CrossCoreSetFlag<SYNC_MODE2, PIPE_MTE2>(SYNC_V1_C1_FLAG + i);
-    }
-    CrossCoreSetFlag<SYNC_MODE0, PIPE_MTE3>(SYNC_V1_FLAG2);
+        if constexpr (COMP::cacheMode != CACHE_MODE::CYCLE) {
+            for (int i = 0; i < constInfo.dbWorkspaceRatio; ++i) {
+                CrossCoreSetFlag<SYNC_MODE2, PIPE_MTE2>(SYNC_V1_C1_FLAG + i);
+            }
+        }
+        // CYCLE still uses the V1_FLAG2 pipeline chain (GM readGen replaced only
+        // the AIC<->AIV dbIdx flags); seed it or the first WaitFlag deadlocks.
+        CrossCoreSetFlag<SYNC_MODE0, PIPE_MTE3>(SYNC_V1_FLAG2);
     }
 }
 
@@ -502,12 +545,18 @@ template <typename COMP>
 __aicore__ inline void CompressorKernel<COMP>::FreeEventID()
 {
     if ASCEND_IS_AIC {
-        for (int i = 0; i < constInfo.dbWorkspaceRatio; ++i) {
-            CrossCoreWaitFlag<SYNC_MODE2, PIPE_FIX>(SYNC_V1_C1_FLAG + i);
+        if constexpr (COMP::cacheMode == CACHE_MODE::CYCLE) {
+            blockCube_.FreeEventID(pipe_);
+        } else {
+            for (int i = 0; i < constInfo.dbWorkspaceRatio; ++i) {
+                CrossCoreWaitFlag<SYNC_MODE2, PIPE_FIX>(SYNC_V1_C1_FLAG + i);
+            }
+            blockCube_.FreeEventID(pipe_);
         }
-        blockCube_.FreeEventID(pipe_);
     } else {
-        CrossCoreWaitFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG2 + loopTimes % constInfo.dbWorkspaceRatio);
+        if constexpr (COMP::cacheMode != CACHE_MODE::CYCLE) {
+            CrossCoreWaitFlag<SYNC_MODE0, PIPE_MTE2>(SYNC_V1_FLAG2 + loopTimes % constInfo.dbWorkspaceRatio);
+        }
         blockVec_.FreeEventID();
     }
 }
