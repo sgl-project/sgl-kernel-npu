@@ -1459,3 +1459,276 @@ def causal_conv1d_update_npu(
     if unsqueeze:
         out = out.squeeze(-1)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Window-major pool ops for short-conv hybrid models (LFM2 / LFM2-MoE).
+#
+# The NPU MambaPool allocates conv states as [layers, pool, window, channels]
+# (sglang's _init_npu_conv_state), so the ops below take a per-layer pool view
+# of (slots, state_len, dim) and normalize channel-major views transparently.
+# Prefill is plain CANN torch ops (the older causal_conv1d_fn_npu carries a
+# seqlens.max() sync point and -1-wrapping pad writes through index_copy_);
+# decode dispatches to the causal_conv1d_update_v2 Triton kernel, which skips
+# pad slots internally and is therefore CUDA-graph-capture safe.
+# ---------------------------------------------------------------------------
+
+
+def _conv_state_pool_view(conv_states: torch.Tensor, dim: int, state_len: int):
+    """Normalize a conv-state pool view to (n, dim, state_len).
+
+    The NPU MambaPool allocates conv states as [slots, window, channels]
+    (_init_npu_conv_state), while the computation below follows the CUDA-side
+    convention [slots, channels, window]. Returns the normalized view plus
+    whether the caller must transpose writes back.
+    """
+    if conv_states.shape[-1] == state_len and conv_states.shape[-2] == dim:
+        return conv_states, False
+    assert conv_states.shape[-2] == state_len and conv_states.shape[-1] == dim, (
+        f"conv-state pool {tuple(conv_states.shape)} matches neither "
+        f"(slots, {dim}, {state_len}) nor (slots, {state_len}, {dim})"
+    )
+    return conv_states.transpose(1, 2), True
+
+
+def causal_conv1d_fn_v2(
+    x: torch.Tensor,
+    weight: torch.Tensor,
+    bias: Optional[torch.Tensor],
+    query_start_loc: torch.Tensor,
+    cache_indices: torch.Tensor,
+    has_initial_state: Optional[torch.Tensor],
+    conv_states: torch.Tensor,
+    activation: Optional[str],
+    pad_slot_id: int = PAD_SLOT_ID,
+) -> torch.Tensor:
+    """Varlen prefill (packed layout) causal conv1d on NPU.
+
+    x: (dim, cu_seq); conv_states: per-layer pool view
+    (n_slots, dim, state_len) or (n_slots, state_len, dim), updated in-place;
+    returns (dim, cu_seq).
+    """
+    assert x.dim() == 2, (
+        "NPU causal_conv1d prefill requires the packed varlen "
+        "(dim, cu_seq) layout with query_start_loc"
+    )
+    dim, _ = x.shape
+    width = weight.shape[1]
+    pool = conv_states
+    conv_states, transposed = _conv_state_pool_view(conv_states, dim, width - 1)
+    state_len = conv_states.shape[-1]
+    dev = x.device
+    seq_lens = (query_start_loc[1:] - query_start_loc[:-1]).to(torch.int64)
+    batch = seq_lens.numel()
+    max_t = int(seq_lens.max().item())
+    # Slot 0 is reserved as the dummy write target for padded tokens (see
+    # sglang's MambaSlotAllocator.clear), so remapping pads there can never
+    # clobber a real request's state.
+    idx = cache_indices.to(torch.int64)
+    idx = torch.where(idx == pad_slot_id, torch.zeros_like(idx), idx)
+
+    # (batch, dim, state_len) initial states; zero for requests that start
+    # a fresh sequence (no cached prefix).
+    init = x.new_zeros(batch, dim, state_len)
+    if has_initial_state is not None and bool(has_initial_state.any()):
+        init = conv_states.index_select(0, idx).to(x.dtype)
+        init = init * has_initial_state[:, None, None].to(x.dtype)
+
+    # Scatter the packed varlen input into a (batch, dim, max_t) buffer.
+    tok = torch.arange(max_t, device=dev)
+    valid = tok.unsqueeze(0) < seq_lens.unsqueeze(1)
+    flat_pos = (
+        torch.arange(batch, device=dev, dtype=torch.int64).unsqueeze(1) * max_t
+        + tok
+    )[valid]
+    x_pad = x.new_zeros(dim, batch * max_t)
+    x_pad.index_copy_(1, flat_pos, x)
+    x_cat = torch.cat(
+        [init, x_pad.view(dim, batch, max_t).transpose(0, 1)], dim=-1
+    )  # (batch, dim, state_len + max_t)
+
+    out = F.conv1d(x_cat, weight.unsqueeze(1), bias, groups=dim)
+    if activation in ("silu", "swish"):
+        out = F.silu(out)
+    out = (
+        out.transpose(1, 2)
+        .reshape(batch * max_t, dim)
+        .index_select(0, flat_pos)
+        .transpose(0, 1)
+    )
+
+    # In-place state update: a rolling window over [init, tokens]. Column c
+    # holds token start_b + (c - (state_len - L_b)) when that index is valid
+    # (the sequence is long enough), otherwise the matching init column --
+    # the same left-truncation the CUDA kernel applies to short sequences
+    # (zero init for fresh requests). Right-padded windows would instead
+    # write [token, 0, 0] for short seqs, so gather the tail directly.
+    starts = query_start_loc[:-1].to(torch.int64)
+    col = torch.arange(state_len, device=dev).unsqueeze(0) - (
+        state_len - seq_lens
+    ).unsqueeze(1)  # (batch, state_len); < 0 -> take from init
+    from_x = col >= 0
+    # Clamp the gather range: a trailing zero-length row would index one
+    # past the end (its columns are zeroed by from_x below anyway).
+    gather_idx = (starts.unsqueeze(1) + col.clamp(min=0)).clamp(max=x.size(1) - 1)
+    tok = x.index_select(1, gather_idx.reshape(-1))
+    tok = tok.view(dim, batch, state_len).transpose(0, 1)
+    tok = tok * from_x[:, None, :].to(x.dtype)
+    # Columns taken from init must be the OLDEST ones that survive the
+    # roll: init[c + L], not init[c] (e.g. L=1 turns [s0,s1,s2] into
+    # [s1,s2,token]).
+    base_idx = (
+        torch.arange(state_len, device=dev).unsqueeze(0) + seq_lens.unsqueeze(1)
+    ).clamp(max=state_len - 1)
+    base = init.gather(2, base_idx.unsqueeze(1).expand(batch, dim, state_len))
+    base = base * (~from_x)[:, None, :].to(x.dtype)
+    new_states = base + tok
+    if transposed:
+        # Write through the original (state_len, dim) pool allocation:
+        # aclnnInplaceIndexCopy rejects both a non-contiguous source and a
+        # non-contiguous self (the normalized view is a transpose).
+        new_states = new_states.transpose(1, 2).contiguous()
+        pool.index_copy_(0, idx, new_states)
+    else:
+        conv_states.index_copy_(0, idx, new_states)
+    return out
+
+
+def causal_conv1d_update_npu_v2(
+    x: torch.Tensor,
+    conv_state: torch.Tensor,
+    weight: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
+    activation: Optional[str] = None,
+    conv_state_indices: Optional[torch.Tensor] = None,
+    pad_slot_id: int = PAD_SLOT_ID,
+) -> torch.Tensor:
+    """Decode causal conv1d state update on NPU (window-major pool).
+
+    x: (batch, dim) or (batch, dim, seqlen); conv_state: per-layer pool view
+    (n_slots, state_len, dim) -- the NPU MambaPool's unified
+    [layers, pool, window, channels]. Dispatches to the
+    causal_conv1d_update_v2 Triton kernel, which requires the window-major
+    shape (a strided transpose view overflows the NPU unified buffer at
+    kernel-compile time), so channel-major shaped pools
+    (n_slots, dim, state_len) and pool-less callers
+    (conv_state_indices is None, plain per-batch states) fall back to plain
+    torch ops. Padded rows (index == pad_slot_id) are skipped inside the
+    kernel, so no index remapping is needed and the call is graph-capture
+    safe.
+    """
+    if conv_state_indices is None:
+        # The Triton kernel always dereferences the slot-index tensor.
+        return _causal_conv1d_update_torch(
+            x, conv_state, weight, bias, activation, None, pad_slot_id
+        )
+    if conv_state.shape[-1] != x.shape[1]:
+        # Channel-major shaped pool: torch fallback (it normalizes the
+        # layout itself and remaps pads to the reserved slot 0).
+        return _causal_conv1d_update_torch(
+            x, conv_state, weight, bias, activation, conv_state_indices, pad_slot_id
+        )
+    squeeze = x.dim() == 2
+    if squeeze:
+        # (batch, dim): the v2 wrapper unsqueezes to (batch, 1, dim)
+        # itself, so no copy is needed on the common decode step.
+        x_in = x
+    else:
+        # Kernel consumes (batch, seqlen, dim); callers hold (b, dim, s).
+        x_in = x.transpose(1, 2).contiguous()
+    w = weight.t().contiguous()  # (dim, width) -> (width, dim)
+    return _update_via_v2_kernel(
+        x_in, conv_state, w, bias, activation, conv_state_indices, pad_slot_id, squeeze
+    )
+
+
+def _update_via_v2_kernel(
+    x_in: torch.Tensor,
+    conv_state: torch.Tensor,
+    weight_t: torch.Tensor,
+    bias: Optional[torch.Tensor],
+    activation: Optional[str],
+    conv_state_indices: Optional[torch.Tensor],
+    pad_slot_id: int,
+    squeeze: bool,
+) -> torch.Tensor:
+    out = causal_conv1d_update_v2(
+        x_in,
+        conv_state,
+        weight_t,
+        bias,
+        "silu" if activation in ("silu", "swish") else None,
+        conv_state_indices=(
+            conv_state_indices
+            if conv_state_indices.dtype == torch.int32
+            else conv_state_indices.to(torch.int32)
+        )
+        if conv_state_indices is not None
+        else None,
+        pad_slot_id=pad_slot_id,
+    )
+    if squeeze:
+        return out
+    return out.transpose(1, 2)
+
+
+def _causal_conv1d_update_torch(
+    x: torch.Tensor,
+    conv_state: torch.Tensor,
+    weight: torch.Tensor,
+    bias: Optional[torch.Tensor],
+    activation: Optional[str],
+    conv_state_indices: Optional[torch.Tensor],
+    pad_slot_id: int,
+) -> torch.Tensor:
+    """Pure-torch fallback for causal_conv1d_update_npu_v2.
+
+    Handles both pool layouts; pads are remapped to slot 0 (reserved as the
+    dummy write target for pads, see sglang's MambaSlotAllocator.clear) so
+    the scatter stays graph-capture safe.
+    """
+    squeeze = x.dim() == 2
+    if squeeze:
+        x = x.unsqueeze(-1)
+    seqlen = x.shape[-1]
+    dim = x.shape[1]
+    pool = conv_state
+    conv_state, transposed = _conv_state_pool_view(conv_state, dim, weight.shape[1] - 1)
+    state_len = conv_state.shape[-1]
+
+    idx = None
+    valid = None
+    if conv_state_indices is not None:
+        idx = conv_state_indices.to(torch.int64)
+        valid = idx != pad_slot_id
+        # Gather pad rows from slot 0 (their outputs are unused) so the
+        # PAD_SLOT_ID (-1) index never reaches the NPU gather op.
+        state = conv_state.index_select(
+            0, torch.where(valid, idx, torch.zeros_like(idx))
+        )
+    else:
+        state = conv_state
+    hidden = torch.cat([state, x], dim=-1)  # (n, dim, state_len + seqlen)
+
+    out = F.conv1d(hidden, weight.unsqueeze(1), bias, groups=hidden.shape[1])
+    out = out[..., :seqlen]
+    if activation in ("silu", "swish"):
+        out = F.silu(out)
+
+    new_state = hidden[:, :, -state_len:]
+    if transposed:
+        # Write through the original (state_len, dim) pool allocation:
+        # aclnnInplaceIndexCopy / copy_ reject non-contiguous self/source.
+        new_state = new_state.transpose(1, 2).contiguous()
+        target = pool
+    else:
+        target = conv_state
+    if idx is None:
+        target.copy_(new_state)
+    else:
+        safe_idx = torch.where(valid, idx, torch.zeros_like(idx))
+        target.index_copy_(0, safe_idx, new_state)
+
+    if squeeze:
+        out = out.squeeze(-1)
+    return out
