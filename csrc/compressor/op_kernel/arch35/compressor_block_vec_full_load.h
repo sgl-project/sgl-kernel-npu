@@ -18,6 +18,7 @@
 
 #include "compressor_comm.h"
 #include "compressor_tools.h"
+#include "limits"
 #if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
 #include "vf/vf_softmax.h"
 #include "vf/vf_add.h"
@@ -39,7 +40,7 @@ class CompressorBlockVectorFullLoad {
 public:
     static constexpr bool X_DTYPE = COMP::xDtype == X_DTYPE::BF16;
     static constexpr float FLOAT_ZERO = 0;
-    static constexpr float SOFTMAX_MIN_NUM = -2e38;
+    static constexpr float SOFTMAX_MIN_NUM = -std::numeric_limits<float>::infinity();
     // =================================类型定义区=================================
     // 中间计算数据类型为float，高精度模式
     using T = float;
@@ -1164,9 +1165,16 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::CalcGroupInfo(Vec1Sp
     uint32_t aiCoreNum = constInfo_.usedCoreNum * 2;
     splitInfo.dBaseSize =
         constInfo_.headDim / min(FloorPow2(aiCoreNum), CeilPow2(CeilDivT(aiCoreNum, constInfo_.batchSize)));
+    // 32B(8个FP32)对齐的UB列窗口上限（同 NORMAL 模板）：dBaseSize 超过它时
+    // CalcTilingStrategy 的 dSplitSize = dBaseSize/dLoopCount 整数除法会切出非32B
+    // 对齐的列窗口（DataCopy blockLen/srcGap 整数除法错位 → 数据错乱）。
+    uint32_t maxDealColNum = BUFFER_SIZE_BYTE_32K / (cmpRatio_ * coff_ * sizeof(T));
+    splitInfo.dBaseSize = min(splitInfo.dBaseSize, FloorPow2(Trunc(maxDealColNum, FP32_BLOCK_ELEMENT_NUM)));
     if (constInfo_.kBaseNum > 1) {
         splitInfo.dBaseSize = max(splitInfo.dBaseSize, FP32_REPEAT_ELEMENT_NUM);
     }
+    // 结果输出到GM前必须转换成X_T，dBaseSize * sizeof(X_T)需32B对齐
+    splitInfo.dBaseSize = max(splitInfo.dBaseSize, static_cast<uint32_t>(BlockElementNum<X_T>()));
     splitInfo.vec1GroupSize = constInfo_.headDim / splitInfo.dBaseSize;
     splitInfo.vec1GroupNum = min(static_cast<uint32_t>(aiCoreNum / splitInfo.vec1GroupSize), constInfo_.batchSize);
 }
@@ -1302,9 +1310,10 @@ __aicore__ inline void CompressorBlockVectorFullLoad<COMP>::ComputeVec1()
         for (uint32_t curB = splitInfo.curBStart; curB < splitInfo.curBStart + curLoopBatchNum; curB++) {
             uint32_t startPos = GetStartPos(curB);
             uint32_t seqLength = GetSeqLength(curB);
+            uint32_t seqUsed = GetSeqUsed(curB);
             splitInfo.dealTcNum +=
                 CeilDivT(startPos + seqLength, cmpRatio_) - (startPos / cmpRatio_);
-            curLoopCompressedCnt += (startPos + seqLength) / cmpRatio_ - startPos / cmpRatio_;
+            curLoopCompressedCnt += (startPos + seqUsed) / cmpRatio_ - startPos / cmpRatio_;
         }
         sliceIterator.Reset(splitInfo.curBStart, splitInfo.curSStart, 0U, 0U);
         sliceIterator.SetNeedDealTcSize(splitInfo.dealTcNum);

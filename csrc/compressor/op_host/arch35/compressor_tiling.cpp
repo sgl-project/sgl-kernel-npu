@@ -274,9 +274,12 @@ ge::graphStatus CompressorTiling::SetInnerSplitInfo()
             } else {
                 baseParams_->splitCoreParam[i].kStart = 0;
                 baseParams_->splitCoreParam[i].kEnd = baseParams_->splitCoreParam[i].kStart + baseParams_->kBaseSize;
-                baseParams_->splitCoreParam[i].mStart = (i / dBaseNum) * innerSplitParams_->mBaseSize;
+                uint32_t mStart = (i / dBaseNum) * innerSplitParams_->mBaseSize;
+                baseParams_->splitCoreParam[i].mStart =
+                    mStart < baseParams_->tokenSize ? mStart : baseParams_->tokenSize;
+                uint32_t mEnd = baseParams_->splitCoreParam[i].mStart + innerSplitParams_->mBaseSize;
                 baseParams_->splitCoreParam[i].mEnd =
-                    baseParams_->splitCoreParam[i].mStart + innerSplitParams_->mBaseSize;
+                    mEnd < baseParams_->tokenSize ? mEnd : baseParams_->tokenSize;
                 baseParams_->mLoopNum = mBaseNum / baseParams_->coreGroupNum;
             }
         }

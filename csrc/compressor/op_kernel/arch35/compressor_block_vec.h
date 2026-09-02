@@ -18,6 +18,7 @@
 
 #include "compressor_comm.h"
 #include "compressor_tools.h"
+#include "limits"
 #if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
 #include "vf/vf_softmax.h"
 #include "vf/vf_add.h"
@@ -950,7 +951,7 @@ __aicore__ inline void CompressorBlockVector<COMP>::SoftmaxDN(const LocalTensor<
                                                               uint32_t dDealSize)
 {
 #if defined(__CCE_AICORE__) && __CCE_AICORE__ == 310
-    float minValue = -2e38;
+    float minValue = SOFTMAX_MIN_NUM;
     uint32_t ReduceSize = coff_ * cmpRatio_;
     FaVectorApi::SoftmaxDnVF<T>(scoreLocal, scoreLocal, dDealSize, ReduceSize, tcDealSize, minValue, dDealSize);
 #endif
@@ -1140,10 +1141,15 @@ __aicore__ inline void CompressorBlockVector<COMP>::CalcGroupInfo(const Vec1RunI
 {
     uint32_t aiCoreNum = constInfo_.usedCoreNum * 2;
     splitInfo.dBaseSize = constInfo_.headDim / min(FloorPow2(aiCoreNum), CeilPow2(CeilDivT(aiCoreNum, info.dealTcNum)));
+    // clamp 上界到 maxDealColNum（保证 32B 对齐，dSplitSize 不超 dBaseSize）
+    uint32_t maxDealColNum = BUFFER_SIZE_BYTE_32K / (cmpRatio_ * coff_ * sizeof(T));
+    splitInfo.dBaseSize = min(splitInfo.dBaseSize, FloorPow2(Trunc(maxDealColNum, FP32_BLOCK_ELEMENT_NUM)));
     if (constInfo_.kBaseNum > 1) {
         splitInfo.dBaseSize = max(splitInfo.dBaseSize, FP32_REPEAT_ELEMENT_NUM);
     }
     splitInfo.dBaseSize = max(splitInfo.dBaseSize, FP32_BLOCK_ELEMENT_NUM);
+    // 结果输出到GM前必须转换成X_T，dBaseSize * sizeof(X_T)需32B对齐
+    splitInfo.dBaseSize = max(splitInfo.dBaseSize, static_cast<uint32_t>(BlockElementNum<X_T>()));
     splitInfo.vec1GroupSize = constInfo_.headDim / splitInfo.dBaseSize;
     splitInfo.vec1GroupNum = min(static_cast<uint32_t>(aiCoreNum / splitInfo.vec1GroupSize), info.dealTcNum);
 }

@@ -642,34 +642,67 @@ __aicore__ inline void CompressorVec1SliceIterator<COMP>::IteratorSlice()
     sliceInfo_.sIdx += sliceInfo_.validSeqCnt;
     if (sliceInfo_.sIdx >= sliceInfo_.bSeqUsed) {
         do {
-            uint32_t seqLength = tools_.GetSeqLength(sliceInfo_.bIdx);
+            const uint32_t seqLength = tools_.GetSeqLength(sliceInfo_.bIdx);
             if (sliceInfo_.bSeqUsed < seqLength) {
-                uint32_t nextAlignSIdx = Align(sliceInfo_.bStartPos + sliceInfo_.sIdx, cmpRatio) - sliceInfo_.bStartPos;
-                sliceInfo_.dealedSeqCnt += nextAlignSIdx - sliceInfo_.sIdx;
-                uint32_t tcGap = CeilDivT(static_cast<int32_t>(seqLength - nextAlignSIdx),
-                                    static_cast<int32_t>(cmpRatio));
-                if (sliceInfo_.bSeqUsed == 0 && nextAlignSIdx > sliceInfo_.sIdx) {
-                    // 此时bseqused所在压缩块未被纳入计算
-                    tcGap++;
+                // ── (A) tailH 行推进（不消耗任务量）──
+                // ★特殊1：仅 sIdx > 0（slice 确实处理过）时才推进 tailH。
+                //   sIdx == 0 表示 seqused == 0 的无效 batch（无 slice），其行全部属于
+                //   空洞（块任务量未消耗）；此时按 tailH 推进会"行超前于任务量"→越界。
+                if (sliceInfo_.sIdx > 0) {
+                    uint32_t nextAlignSIdx =
+                        Align(sliceInfo_.bStartPos + sliceInfo_.sIdx, cmpRatio) - sliceInfo_.bStartPos;
+                    // ★特殊2：对齐量 clamp 到空洞内。
+                    uint32_t align = min(nextAlignSIdx - sliceInfo_.sIdx, seqLength - sliceInfo_.sIdx);
+                    sliceInfo_.dealedSeqCnt += align;
+                    sliceInfo_.sIdx += align;
                 }
-                sliceInfo_.sIdx = nextAlignSIdx;
+
+                // ── 空洞（tailH 之后）对应的压缩块数 tcGap（需消耗的任务量）──
+                // ★特殊3：sIdx == 0（seqused == 0）时起点块未被 slice 消耗，块数从
+                //   floor(bStartPos/cr) 起算；sIdx > 0 时从 ceil((bStartPos+sIdx)/cr) 起算。
+                const uint32_t gapRows = seqLength - sliceInfo_.sIdx;
+                uint32_t tcGap;
+                if (sliceInfo_.sIdx == 0) {
+                    tcGap = CeilDivT(sliceInfo_.bStartPos + seqLength, cmpRatio) -
+                            sliceInfo_.bStartPos / cmpRatio;
+                } else {
+                    tcGap = CeilDivT(sliceInfo_.bStartPos + seqLength, cmpRatio) -
+                            CeilDivT(sliceInfo_.bStartPos + sliceInfo_.sIdx, cmpRatio);
+                }
+
                 if (needDealTcSize_ < tcGap) {
-                    sliceInfo_.dealedSeqCnt += needDealTcSize_ * cmpRatio;
-                    sliceInfo_.sIdx += needDealTcSize_ * cmpRatio;
+                    // ── (B) 部分跳过：任务量不足以跳过整个空洞 ──
+                    // ★特殊4：needTc == 0 时不推进任何行（行推进必须与任务量消耗严格对应）。
+                    // ★特殊5：needTc*cmpRatio 可能超过空洞行数，clamp 后停在空洞末尾。
+                    uint32_t skip = needDealTcSize_ * cmpRatio;
+                    if (sliceInfo_.sIdx == 0 && needDealTcSize_ > 0) {
+                        skip -= static_cast<uint32_t>(sliceInfo_.bStartPos % cmpRatio);
+                    }
+                    sliceInfo_.dealedSeqCnt += skip;
+                    sliceInfo_.sIdx += skip;
                     needDealTcSize_ = 0;
-                    break;
+                    break; // 任务量耗尽：迭代终止
                 }
-                sliceInfo_.dealedSeqCnt += seqLength - sliceInfo_.sIdx;
+                // ── (C) 完整跳过：推进整个空洞，消耗 tcGap 个 Tc ──
+                sliceInfo_.dealedSeqCnt += gapRows;
+                sliceInfo_.sIdx += gapRows;
                 needDealTcSize_ -= tcGap;
             }
             sliceInfo_.bIdx++;
             if (sliceInfo_.bIdx == batch_size_) {
-                sliceInfo_.bIdx = 0;
+                // 终止而非回绕（防死循环；正常遍历不会触发）
+                sliceInfo_.bIdx = batch_size_ - 1;
+                sliceInfo_.sIdx = 0;
+                sliceInfo_.bSeqUsed = 0;
+                sliceInfo_.bStartPos = tools_.GetStartPos(sliceInfo_.bIdx);
+                sliceInfo_.bSeqLength = tools_.GetSeqLength(sliceInfo_.bIdx);
+                needDealTcSize_ = 0;
+                break;
             }
             sliceInfo_.sIdx = 0;
             sliceInfo_.bSeqUsed = tools_.GetSeqUsed(sliceInfo_.bIdx);
         } while (sliceInfo_.bSeqUsed == 0);
-            sliceInfo_.bSeqLength = tools_.GetSeqLength(sliceInfo_.bIdx);
+        sliceInfo_.bSeqLength = tools_.GetSeqLength(sliceInfo_.bIdx);
         sliceInfo_.bStartPos = tools_.GetStartPos(sliceInfo_.bIdx);
     }
     if (isFirst_) {
