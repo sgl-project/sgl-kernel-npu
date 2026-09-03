@@ -186,12 +186,14 @@ Low-latency MoE dispatch and combine kernels for inference decode:
 - **A2 Intranode**: Supports up to `bs=512` for low_latency dispatch/combine.
 - **A2 Internode**: Hierarchical (HCCS + RDMA) or non-hierarchical (pure RDMA) implementation. Supports up to `bs=512`.
 
-Quantization modes in `low_latency_dispatch`. The `quant_mode` string parameter is only effective on the `default` strategy; `ops` and `alltoall` strategies use legacy `use_fp8`/`use_ue8m0`/`use_mxfp4` booleans:
-- **BF16**: `quant_mode=None` (default strategy) or `use_fp8=False` (ops/alltoall) — no quantization, bfloat16 communication.
-- **INT8**: `quant_mode="int8"` (default) or `use_fp8=True` (ops/alltoall) — per-token INT8 with `float32` scales. INT8 payload on all platforms (A2/A3/A5). Available on all strategies.
-- **Scalar FP8 per-token**: `quant_mode="pertoken_fp8_e4m3"` — per-token FP8 dynamic quantization with `float32` scales. **A5 only**; `default` strategy only.
-- **MXFP8 per-block**: `quant_mode="mx_fp8_e4m3"` or `"mx_fp8_e5m2"` (default) or `use_ue8m0=True` (ops, e4m3 only) — per-block quantization, `float8_e4m3fn`/`float8_e5m2` data + `float8_e8m0fnu` scales. **A5 only**; `default` supports both e4m3/e5m2; `ops` supports e4m3 only; `alltoall` not supported.
-- **MXFP4 per-block**: `quant_mode="mx_fp4_e2m1"` — per-block quantization, `float4_e2m1fn_x2` data + `float8_e8m0fnu` scales. **A5 only**; `default` strategy only.
+Quantization modes in `low_latency_dispatch`. For the `default` strategy, the effective mode is architecture-aware and can be selected with `quant_mode`, `use_fp8`, `use_mxfp4`, or `use_mxfp8`. The `ops` and `alltoall` strategies retain their legacy boolean behavior:
+- **BF16**: `quant_mode="bf16"` or all quantization booleans disabled — no quantization, bfloat16 communication.
+- **INT8**: `quant_mode="int8"`; on A2/A3, `use_fp8=True` also falls back to INT8 with a warning. INT8 is available on all platforms.
+- **Scalar FP8 per-token**: `quant_mode="pertoken_fp8_e4m3"`, or `use_fp8=True` on A5 — FP8 data with per-token `float32` scales. **A5 only**; `default` strategy only.
+- **MXFP8 per-block**: `quant_mode="mx_fp8_e4m3"`/`"mx_fp8_e5m2"`, `use_mxfp8=True`, or the legacy `use_fp8=True, use_ue8m0=True` combination — FP8 data with per-block E8M0 scales. **A5 only** for the architecture-aware path.
+- **MXFP4 per-block**: `quant_mode="mx_fp4_e2m1"` or `use_mxfp4=True` — packed FP4 data with per-block E8M0 scales. **A5 only**; unsupported boolean selection on A2/A3 raises `NotImplementedError`.
+
+> **Low-latency quantization selection priority:** explicit `quant_mode` > `use_mxfp4` > `use_mxfp8` (including the legacy `use_fp8=True, use_ue8m0=True` alias) > `use_fp8` > deprecated `DEEP_NORMAL_MODE_USE_INT8_QUANT=1` fallback > BF16. Device architecture is detected when `Buffer` is initialized. Note that `use_fp8` defaults to `True`, so callers must pass `use_fp8=False` to reach the environment-variable or BF16 fallback.
 
 ### Fused MoE
 
@@ -213,7 +215,7 @@ See [Fused Deep MoE API](doc/FUSED_DEEP_MOE.md) for details.
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DEEP_USE_MODE` | `default` | Normal mode strategy and Low-latency mode strategy: `default`, `ops`, or `alltoall`. |
-| `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **Deprecated for `default` strategy.** INT8 quantization is now specified via `quant_mode="int8"` parameter in `dispatch()`. For `alltoall` strategy, this env var is still the only way to enable INT8. MXFP8/MXFP4 per-block quantization (A5 only, intranode only) is specified via `quant_mode` parameter (e.g., `quant_mode="mx_fp8_e4m3"`); see [Normal Mode quantization](#normal-mode-prefill--training) for supported values. |
+| `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **Deprecated.** Backward-compatible INT8 fallback for normal and default low-latency dispatch when no explicit mode or boolean selector takes effect. In low-latency dispatch, `use_fp8` must be set to `False` before this fallback is reachable. Prefer `quant_mode="int8"`. |
 | `SGLANG_DEEPEP_BF16_DISPATCH` | `0` | Disable quantization in `low_latency_dispatch` (BF16 dispatch). Set to `1` to disable; only effective in decode phase. **Configured by SGLang framework**, not read by deep_ep directly. |
 | `MOE_EXPERT_TOKEN_NUMS_TYPE` | `1` | Dispatch return type for `num_recv_tokens_per_expert_list`: `1` = per-expert token count, `0` = prefix sum. |
 | `MOE_SHARED_EXPERT_RANK_NUM` | `0` | Number of shared expert ranks (used by ops strategy). |
@@ -453,12 +455,14 @@ normal_dispatch 量化模式（通过 `quant_mode` 参数指定）：
 - **A2 单机**：low_latency dispatch/combine 最大支持 `bs=512`。
 - **A2 双机**：分层（HCCS + RDMA）或不分层（纯 RDMA）实现。最大支持 `bs=512`。
 
-low_latency_dispatch 量化模式。`quant_mode` 字符串参数仅对 `default` 策略生效；`ops` 和 `alltoall` 策略使用旧参数 `use_fp8`/`use_ue8m0`/`use_mxfp4`：
-- **BF16**：`quant_mode=None`（default）或 `use_fp8=False`（ops/alltoall）— 不量化，bfloat16 通信。
-- **INT8**：`quant_mode="int8"`（default）或 `use_fp8=True`（ops/alltoall）— per-token INT8 + `float32` 缩放因子。全平台（A2/A3/A5）均为 INT8 载荷。全策略支持。
-- **Scalar FP8 per-token**：`quant_mode="pertoken_fp8_e4m3"` — per-token FP8 动态量化 + `float32` 缩放因子。**仅 A5**；仅 `default` 策略支持。
-- **MXFP8 per-block**：`quant_mode="mx_fp8_e4m3"` 或 `"mx_fp8_e5m2"`（default）或 `use_ue8m0=True`（ops，仅 e4m3）— per-block 量化，`float8_e4m3fn`/`float8_e5m2` 数据 + `float8_e8m0fnu` 缩放因子。**仅 A5**；`default` 支持 e4m3/e5m2；`ops` 仅 e4m3；`alltoall` 不支持。
-- **MXFP4 per-block**：`quant_mode="mx_fp4_e2m1"` — per-block 量化，`float4_e2m1fn_x2` 数据 + `float8_e8m0fnu` 缩放因子。**仅 A5**；仅 `default` 策略支持。
+`low_latency_dispatch` 量化模式：`default` 策略会结合设备架构，通过 `quant_mode`、`use_fp8`、`use_mxfp4` 或 `use_mxfp8` 解析最终模式；`ops` 和 `alltoall` 策略保留原有布尔参数行为：
+- **BF16**：`quant_mode="bf16"` 或关闭全部量化布尔参数——不量化，使用 bfloat16 通信。
+- **INT8**：`quant_mode="int8"`；A2/A3 上的 `use_fp8=True` 也会带 warning 回退到 INT8。INT8 全平台支持。
+- **Scalar FP8 per-token**：`quant_mode="pertoken_fp8_e4m3"`，或在 A5 上设置 `use_fp8=True`——FP8 数据配合 per-token `float32` 缩放因子。**仅 A5**；仅 `default` 策略支持。
+- **MXFP8 per-block**：`quant_mode="mx_fp8_e4m3"`/`"mx_fp8_e5m2"`、`use_mxfp8=True`，或旧式组合 `use_fp8=True, use_ue8m0=True`——FP8 数据配合 per-block E8M0 缩放因子。架构感知路径**仅 A5**支持。
+- **MXFP4 per-block**：`quant_mode="mx_fp4_e2m1"` 或 `use_mxfp4=True`——packed FP4 数据配合 per-block E8M0 缩放因子。**仅 A5**；A2/A3 上通过布尔参数选择会抛出 `NotImplementedError`。
+
+> **Low-latency 量化选择优先级：** 显式 `quant_mode` > `use_mxfp4` > `use_mxfp8`（包括兼容组合 `use_fp8=True, use_ue8m0=True`）> `use_fp8` > 已弃用的 `DEEP_NORMAL_MODE_USE_INT8_QUANT=1` 回退 > BF16。设备架构在 `Buffer` 初始化时检测。注意 `use_fp8` 默认值为 `True`，调用方必须显式传入 `use_fp8=False` 才能进入环境变量或 BF16 回退。
 
 ### 融合 MoE
 
@@ -480,7 +484,7 @@ low_latency_dispatch 量化模式。`quant_mode` 字符串参数仅对 `default`
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
 | `DEEP_USE_MODE` | `default` | Normal 模式策略 and Low-latency 模式策略：`default`、`ops` 或 `alltoall`。 |
-| `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **对 `default` 策略已弃用。** INT8 量化现通过 `dispatch()` 的 `quant_mode="int8"` 参数指定。对于 `alltoall` 策略，此环境变量仍是启用 INT8 的唯一方式。MXFP8/MXFP4 per-block 量化（仅 A5，仅 intranode）通过 `quant_mode` 参数指定（如 `quant_mode="mx_fp8_e4m3"`），支持的值见 [Normal 模式量化](#normal-模式prefill--训练)。 |
+| `DEEP_NORMAL_MODE_USE_INT8_QUANT` | `0` | **已弃用。** 当显式模式和布尔选择参数均未生效时，为 normal dispatch 和 default low-latency dispatch 提供向后兼容的 INT8 回退。low-latency dispatch 需先设置 `use_fp8=False` 才能进入该回退。推荐使用 `quant_mode="int8"`。 |
 | `SGLANG_DEEPEP_BF16_DISPATCH` | `0` | 在 `low_latency_dispatch` 中关闭量化（BF16 dispatch）。设为 `1` 关闭量化；仅在 Decode 阶段生效。**由 SGLang 框架配置**，deep_ep 不直接读取。 |
 | `MOE_EXPERT_TOKEN_NUMS_TYPE` | `1` | dispatch 返回的 `num_recv_tokens_per_expert_list` 类型：`1` = 各专家 token 数，`0` = 前缀和。 |
 | `MOE_SHARED_EXPERT_RANK_NUM` | `0` | 共享专家 rank 数（ops 策略使用）。 |
