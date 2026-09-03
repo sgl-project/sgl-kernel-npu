@@ -214,7 +214,7 @@ private:
         inQueueX_.FreeTensor(xLocal);
     }
 
-     __aicore__ inline void CopyInY(int32_t progress, int32_t numElements = Y_OUT_TILE_NUM_ELEMENTS)
+    __aicore__ inline void CopyInY(int32_t progress, int32_t numElements = Y_OUT_TILE_NUM_ELEMENTS)
     {
         AscendC::LocalTensor<Y_T> yInLocal = inQueueY_.AllocTensor<Y_T>();
         DataCopy(yInLocal, yInGm_[yOffset_ + progress * Y_OUT_TILE_NUM_ELEMENTS], numElements);
