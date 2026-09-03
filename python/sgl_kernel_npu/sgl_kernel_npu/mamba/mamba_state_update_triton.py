@@ -43,7 +43,7 @@ def move_cache_dynamic_last_kernel_h_block(
     dst_idx_val = tl.load(dst_indices_ptr + valid_id)
     src_idx_val = tl.load(src_indices_ptr + valid_id)
     last_step_val = tl.load(last_steps_ptr + valid_id)
-    if last_step_val < 0:
+    if last_step_val <= 0:
         return
     h_offsets = tl.arange(0, H_BLOCK_SIZE)
     v_offsets = tl.arange(0, BLOCK_V)
