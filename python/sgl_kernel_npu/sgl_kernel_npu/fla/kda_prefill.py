@@ -140,9 +140,7 @@ def recompute_w_u_fwd_head_major_kernel(
 
         o_k = i_k * BK + tl.arange(0, BK)
         m_k = o_k < K
-        b_gn = tl.load(
-            gk + ((bos + last_idx) * H + i_h) * K + o_k, mask=m_k, other=0.0
-        )
+        b_gn = tl.load(gk + ((bos + last_idx) * H + i_h) * K + o_k, mask=m_k, other=0.0)
         b_kg = b_k * exp(b_gn - b_gk)
 
         p_kg = tl.make_block_ptr(

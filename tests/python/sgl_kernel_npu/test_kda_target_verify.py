@@ -1,6 +1,5 @@
 import pytest
 import torch
-
 from sgl_kernel_npu.fla.kda_target_verify import kda_target_verify_npu
 
 

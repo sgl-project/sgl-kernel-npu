@@ -499,12 +499,8 @@ def chunk_gated_delta_rule_fwd_affine_h_kernel(
         )
         h1 += tl.dot(key1, value)
 
-    _store_kda_cp_row_tile(
-        affine, h0, i_v * BV, 0, K=K, C=V, ROW_STRIDE=V + K, BC=BV
-    )
-    _store_kda_cp_row_tile(
-        affine, h1, i_v * BV, 64, K=K, C=V, ROW_STRIDE=V + K, BC=BV
-    )
+    _store_kda_cp_row_tile(affine, h0, i_v * BV, 0, K=K, C=V, ROW_STRIDE=V + K, BC=BV)
+    _store_kda_cp_row_tile(affine, h1, i_v * BV, 64, K=K, C=V, ROW_STRIDE=V + K, BC=BV)
 
 
 @triton.jit(do_not_specialize=["T"])
@@ -579,12 +575,8 @@ def chunk_gated_delta_rule_fwd_affine_m_kernel(
         )
         m1 -= tl.dot(k1, tmp)
 
-    _store_kda_cp_row_tile(
-        affine, m0, i_c * BC, 0, K=K, C=K, ROW_STRIDE=V + K, BC=BC
-    )
-    _store_kda_cp_row_tile(
-        affine, m1, i_c * BC, 64, K=K, C=K, ROW_STRIDE=V + K, BC=BC
-    )
+    _store_kda_cp_row_tile(affine, m0, i_c * BC, 0, K=K, C=K, ROW_STRIDE=V + K, BC=BC)
+    _store_kda_cp_row_tile(affine, m1, i_c * BC, 64, K=K, C=K, ROW_STRIDE=V + K, BC=BC)
 
 
 @triton.jit
@@ -610,25 +602,17 @@ def _apply_kda_cp_affine_block(
     add0 = _load_kda_cp_row_tile(
         affine, i_v * BV, 0, K=K, C=V, ROW_STRIDE=V + K, BC=BV
     ).to(tl.float32)
-    m00 = _load_kda_cp_row_tile(
-        affine + V, 0, 0, K=K, C=K, ROW_STRIDE=V + K, BC=64
-    )
+    m00 = _load_kda_cp_row_tile(affine + V, 0, 0, K=K, C=K, ROW_STRIDE=V + K, BC=64)
     next0 = tl.dot(m00, h0.to(m00.dtype)) + add0
 
-    m01 = _load_kda_cp_row_tile(
-        affine + V, 64, 0, K=K, C=K, ROW_STRIDE=V + K, BC=64
-    )
+    m01 = _load_kda_cp_row_tile(affine + V, 64, 0, K=K, C=K, ROW_STRIDE=V + K, BC=64)
     next0 += tl.dot(m01, h1.to(m01.dtype))
 
     add1 = _load_kda_cp_row_tile(
         affine, i_v * BV, 64, K=K, C=V, ROW_STRIDE=V + K, BC=BV
     ).to(tl.float32)
-    m10 = _load_kda_cp_row_tile(
-        affine + V, 0, 64, K=K, C=K, ROW_STRIDE=V + K, BC=64
-    )
-    m11 = _load_kda_cp_row_tile(
-        affine + V, 64, 64, K=K, C=K, ROW_STRIDE=V + K, BC=64
-    )
+    m10 = _load_kda_cp_row_tile(affine + V, 0, 64, K=K, C=K, ROW_STRIDE=V + K, BC=64)
+    m11 = _load_kda_cp_row_tile(affine + V, 64, 64, K=K, C=K, ROW_STRIDE=V + K, BC=64)
     next1 = tl.dot(m10, h0.to(m10.dtype)) + tl.dot(m11, h1.to(m11.dtype)) + add1
     return next0, next1
 
@@ -647,12 +631,8 @@ def _store_kda_cp_state_tile(
     BV: tl.constexpr,
 ):
     target += ((local_index * H + i_h) * K * V).to(tl.int64)
-    _store_kda_cp_row_tile(
-        target, h0, i_v * BV, 0, K=K, C=V, ROW_STRIDE=V, BC=BV
-    )
-    _store_kda_cp_row_tile(
-        target, h1, i_v * BV, 64, K=K, C=V, ROW_STRIDE=V, BC=BV
-    )
+    _store_kda_cp_row_tile(target, h0, i_v * BV, 0, K=K, C=V, ROW_STRIDE=V, BC=BV)
+    _store_kda_cp_row_tile(target, h1, i_v * BV, 64, K=K, C=V, ROW_STRIDE=V, BC=BV)
 
 
 @triton.jit
