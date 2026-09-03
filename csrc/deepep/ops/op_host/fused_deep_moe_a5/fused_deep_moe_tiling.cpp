@@ -545,8 +545,8 @@ static ge::graphStatus GetAttrAndSetTilingData(const gert::TilingContext &contex
                return ge::GRAPH_FAILED);
     OPS_ERR_IF(betaPtr == nullptr, OPS_LOG_E(nodeName, "betaPtr is nullptr."), return ge::GRAPH_FAILED);
     OPS_ERR_IF(linearBetaPtr == nullptr, OPS_LOG_E(nodeName, "linearBetaPtr is nullptr."), return ge::GRAPH_FAILED);
-    OPS_ERR_IF(*activationTypePtr != ACTIVATION_SILU && *activationTypePtr != ACTIVATION_SITU,
-               OPS_LOG_E(nodeName, "activationType must be 0 (SiLU) or 1 (SiTU), but got %ld.", *activationTypePtr),
+    OPS_ERR_IF(*activationTypePtr != ACTIVATION_SWIGLU && *activationTypePtr != ACTIVATION_SITU,
+               OPS_LOG_E(nodeName, "activationType must be 0 (SwiGLU) or 1 (SiTU), but got %ld.", *activationTypePtr),
                return ge::GRAPH_FAILED);
     OPS_ERR_IF(*activationTypePtr == ACTIVATION_SITU && !(*betaPtr > 0.0F),
                OPS_LOG_E(nodeName, "beta must be > 0 for SiTU, but got %f.", *betaPtr), return ge::GRAPH_FAILED);
