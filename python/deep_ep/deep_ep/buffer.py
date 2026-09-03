@@ -181,9 +181,7 @@ class Buffer:
         if use_fp8:
             if is_a5:
                 return "pertoken_fp8_e4m3"
-            logger.warning(
-                "use_fp8 is converted to int8 on A2/A3 devices."
-            )
+            logger.warning("use_fp8 is converted to int8 on A2/A3 devices.")
             return "int8"
 
         # Deprecated env-var fallback for backward compatibility
