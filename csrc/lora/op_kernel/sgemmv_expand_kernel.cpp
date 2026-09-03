@@ -214,61 +214,20 @@ private:
         inQueueX_.FreeTensor(xLocal);
     }
 
-    __aicore__ inline void CopyInY(int32_t progress, int32_t numElements)
+     __aicore__ inline void CopyInY(int32_t progress, int32_t numElements = Y_OUT_TILE_NUM_ELEMENTS)
     {
-        AscendC::LocalTensor<Y_T> yLocal = inQueueY_.AllocTensor<Y_T>();
-        const uint64_t offset = yOffset_ + static_cast<uint64_t>(progress) * Y_OUT_TILE_NUM_ELEMENTS;
-
-        if (numElements == Y_OUT_TILE_NUM_ELEMENTS) {
-            DataCopy(yLocal, yInGm_[offset], numElements);
-
-        } else {
-            const uint32_t bytes = static_cast<uint32_t>(numElements * sizeof(Y_T));
-            const uint32_t paddedBytes = ((bytes + DATA_VECTOR_BLOCK - 1) / DATA_VECTOR_BLOCK) * DATA_VECTOR_BLOCK;
-            const uint32_t paddingBytes = paddedBytes - bytes;
-            const uint32_t paddingElements = paddingBytes / sizeof(Y_T);
-            AscendC::DataCopyExtParams copyParams{1, bytes, 0, 0, 0};
-            AscendC::DataCopyPadExtParams<Y_T> padParams{true, 0, static_cast<uint8_t>(paddingElements),
-                                                         static_cast<Y_T>(0)};
-
-            DataCopyPad(yLocal, yInGm_[offset], copyParams, padParams);
-        }
-
-        inQueueY_.EnQue(yLocal);
+        AscendC::LocalTensor<Y_T> yInLocal = inQueueY_.AllocTensor<Y_T>();
+        DataCopy(yInLocal, yInGm_[yOffset_ + progress * Y_OUT_TILE_NUM_ELEMENTS], numElements);
+        inQueueY_.EnQue(yInLocal);
     }
 
-    __aicore__ inline void CopyInW(int32_t progress, int32_t numElements)
+    __aicore__ inline void CopyInW(int32_t progress, int32_t numElements = W_IN_TILE_NUM_ELEMENTS)
     {
         AscendC::LocalTensor<W_T> wLocal = inQueueW_.AllocTensor<W_T>();
-        const int32_t rows = (numElements + reqLoRARank_ - 1) / reqLoRARank_;
-        const int32_t actualElements = rows * reqLoRARank_;
-        const uint32_t rowBytes = static_cast<uint32_t>(reqLoRARank_ * sizeof(W_T));
-        const uint32_t rowStrideBytes = static_cast<uint32_t>(maxLoRARank_ * sizeof(W_T));
-        const uint64_t offset =
-            reqLoRAWeightOffset_ + static_cast<uint64_t>(progress) * static_cast<uint64_t>(maxLoRARank_);
-
-        if (actualElements <= 0) {
-            inQueueW_.FreeTensor(wLocal);
-            return;
-        }
-
-        const uint32_t paddedRowBytes = ((rowBytes + DATA_VECTOR_BLOCK - 1) / DATA_VECTOR_BLOCK) * DATA_VECTOR_BLOCK;
-        const uint32_t paddedRowElements = paddedRowBytes / sizeof(W_T);
-        const int32_t physicalElements = rows * paddedRowElements;
-        AscendC::DataCopyExtParams copyParams{static_cast<uint16_t>(rows), rowBytes, rowStrideBytes - rowBytes, 0, 0};
-        const uint32_t rightPaddingBytes = paddedRowBytes - rowBytes;
-        const uint32_t rightPaddingElements = rightPaddingBytes / sizeof(W_T);
-        AscendC::DataCopyPadExtParams<W_T> padParams{true, 0, static_cast<uint8_t>(rightPaddingElements),
-                                                     static_cast<W_T>(0)};
-
-        DataCopyPad(wLocal, wGm_[offset], copyParams, padParams);
-
-        if (physicalElements < W_IN_TILE_STORAGE_ELEMENTS) {
-            AscendC::LocalTensor<W_T> tail = wLocal[physicalElements];
-            Duplicate(tail, static_cast<W_T>(0), W_IN_TILE_STORAGE_ELEMENTS - physicalElements);
-            pipe_barrier(PIPE_V);
-        }
-
+        DataCopy(wLocal, wGm_[reqLoRAWeightOffset_ + progress * (W_IN_TILE_NUM_ELEMENTS / reqLoRARank_) * maxLoRARank_],
+                 {static_cast<uint16_t>(numElements / reqLoRARank_),
+                  static_cast<uint16_t>((reqLoRARank_ * sizeof(W_T) + DATA_VECTOR_BLOCK - 1) / DATA_VECTOR_BLOCK),
+                  static_cast<uint16_t>((maxLoRARank_ - reqLoRARank_) * sizeof(W_T) / DATA_VECTOR_BLOCK), 0});
         inQueueW_.EnQue(wLocal);
     }
 
