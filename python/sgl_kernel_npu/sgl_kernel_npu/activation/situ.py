@@ -64,6 +64,10 @@ def _situ_and_mul_quant_kernel(
         out = situ_a * up
 
         if SCALE:
+            # Preserve the unfused value pipeline: SituAndMul first
+            # materializes BF16, then npu_dynamic_quant computes its row scale.
+            # Avoid quantizing the higher-precision activation temporary.
+            out = out.to(x_ptr.dtype.element_ty).to(tl.float32)
             scale = tl.maximum(tl.max(tl.abs(out)) / DTYPE_MAX, 1e-30)
             tl.store(
                 scale_ptr + row_idx.to(tl.int64), scale.to(scale_ptr.dtype.element_ty)
@@ -74,7 +78,7 @@ def _situ_and_mul_quant_kernel(
                     out, offsets=(cb,), sizes=(COL_BLOCK_SIZE,), strides=(1,)
                 )
                 tmp = tmp.to(tl.float32) / scale
-                tmp = tl.floor(tmp + 0.5)
+                tmp = libdevice.rint(tmp)
                 tmp = tl.clamp(tmp, -128, 127).to(tl.int8)
                 c_idx = cb + tl.arange(0, COL_BLOCK_SIZE)
                 mask = c_idx < HALF_COLS
@@ -131,35 +135,37 @@ def _situ_and_mul_kernel(
     else:
         total_rows = N_ROWS
 
-    # rows distributed across vector cores (manual split + early return for over-provision).
-    block_size = (total_rows - 1) // NUM_CORES + 1
     pid = tl.program_id(0)
-    row_begin = pid * block_size
-    if row_begin >= total_rows:
-        return
-    row_end = tl.minimum((pid + 1) * block_size, total_rows)
-
-    # H-tile over the OUTPUT dim (HALF_COLS): out[i] only needs gate[i]=x[i] and
-    # up[i]=x[d+i], so every [h:h+BLOCK_H] tile is self-contained -- no full-row resident,
-    # which is what keeps large d (e.g. 33792) within UB. gate = first half, up = second half.
     h_offs = tl.arange(0, BLOCK_H)
-    for row_idx in range(row_begin, row_end):
-        # int64 row offset: row_idx * stride stays int32 by default on triton-ascend
-        # (no auto-promote), which overflows when N*d is large (e.g. N=32768, d=33792).
+
+    # SiTU has no cross-column dependency.  Schedule whole hidden tiles across
+    # all AIVs for both dense and routed inputs.  In the routed path total_rows
+    # is device-resident, but it can still bound the persistent program loop;
+    # the fixed launch grid does not need a host synchronization.  Deriving the
+    # row and hidden tile once per program tile also avoids the per-lane div/mod
+    # cost of a flattened element schedule.
+    tiles_per_row: tl.constexpr = tl.cdiv(HALF_COLS, BLOCK_H)
+    total_tiles = total_rows * tiles_per_row
+    for tile_idx in range(pid, total_tiles, NUM_CORES):
+        row_idx = tile_idx // tiles_per_row
+        h_start = (tile_idx - row_idx * tiles_per_row) * BLOCK_H
+        h_idx = h_start + h_offs
+        mask = h_idx < HALF_COLS
+        # int64 row offsets prevent overflow for large routed-MoE buffers.
         row_off = row_idx.to(tl.int64) * TOTAL_COLS
-        gate_base = x_ptr + row_off
-        up_base = x_ptr + row_off + HALF_COLS
-        out_base = out_ptr + row_idx.to(tl.int64) * HALF_COLS
-        for h_start in range(0, HALF_COLS, BLOCK_H):
-            h_idx = h_start + h_offs
-            mask = h_idx < HALF_COLS
-            gate = tl.load(gate_base + h_idx, mask=mask, other=0.0).to(tl.float32)
-            up = tl.load(up_base + h_idx, mask=mask, other=0.0).to(tl.float32)
-            situ_a = BETA * libdevice.tanh(gate * INV_BETA) * tl.sigmoid(gate)
-            if DO_LINEAR_BETA:
-                up = LINEAR_BETA * libdevice.tanh(up * INV_LINEAR_BETA)
-            out = situ_a * up
-            tl.store(out_base + h_idx, out.to(out_ptr.dtype.element_ty), mask=mask)
+        gate = tl.load(x_ptr + row_off + h_idx, mask=mask, other=0.0).to(tl.float32)
+        up = tl.load(x_ptr + row_off + HALF_COLS + h_idx, mask=mask, other=0.0).to(
+            tl.float32
+        )
+        situ_a = BETA * libdevice.tanh(gate * INV_BETA) * tl.sigmoid(gate)
+        if DO_LINEAR_BETA:
+            up = LINEAR_BETA * libdevice.tanh(up * INV_LINEAR_BETA)
+        out = situ_a * up
+        tl.store(
+            out_ptr + row_idx.to(tl.int64) * HALF_COLS + h_idx,
+            out.to(out_ptr.dtype.element_ty),
+            mask=mask,
+        )
 
 
 def situ_and_mul_quant(
@@ -245,7 +251,7 @@ def situ_and_mul_quant(
             scale,
             TOTAL_COLS=h,
             HALF_COLS=half_cols,
-            COL_BLOCK_SIZE=half_cols,
+            COL_BLOCK_SIZE=min(half_cols, 1536),
             NUM_EXPERTS=num_experts_arg,
             NUM_EXPERTS_ALGIN=num_experts_algin_arg,
             GROUP_LIST_TYPE=gl_type_arg,
@@ -265,15 +271,6 @@ def situ_and_mul_quant(
         raise NotImplementedError(
             "SituAndMul quantization is only implemented for d<=6144 (int8). "
         )
-        # _situ_and_mul_kernel[(num_vectorcore,)](
-        #     x_2d, group_list_arg, out,
-        #     TOTAL_COLS=h, HALF_COLS=half_cols,
-        #     NUM_EXPERTS=num_experts_arg, NUM_EXPERTS_ALGIN=num_experts_algin_arg,
-        #     GROUP_LIST_TYPE=gl_type_arg, N_ROWS=s, NUM_CORES=num_vectorcore,
-        #     HAS_GROUP_LIST=has_group_list, BETA=beta, INV_BETA=1.0 / beta,
-        #     DO_LINEAR_BETA=do_linear_beta, LINEAR_BETA=linear_beta_v,
-        #     INV_LINEAR_BETA=(1.0 / linear_beta_v) if do_linear_beta else 1.0,
-        # )
     return out.reshape(*x.shape[:-1], half_cols), scale
 
 
