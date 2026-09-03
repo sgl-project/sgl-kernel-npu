@@ -840,7 +840,6 @@ jobs:
         env:
           HCCL_BUFFSIZE: 500
         timeout-minutes: 20
-        continue-on-error: true
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes 4 --num-tokens 512 --hidden 7168 --num-topk 8 --num-experts 256 --quant-type pertoken_fp8_e4m3
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_intranode.py --num-processes 4 --num-tokens 257 --hidden 7168 --num-topk 2 --num-experts 128 --enable-dynamic-tokens --quant-type pertoken_fp8_e4m3
