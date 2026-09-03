@@ -880,7 +880,7 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_normal_alltoall.py --num-processes 4 --quant-type int8
 
       - name: Run alltoall low‑latency
-        if: matrix.cann_version != '9.0.0'
+        if: matrix.cann_version == '9.1.0'
         timeout-minutes: 10
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py --num-processes 4
@@ -888,13 +888,13 @@ jobs:
 
       - name: Run fusion operator
         timeout-minutes: 10
-        if: matrix.cann_version != '9.1.0'
+        if: matrix.cann_version == '9.1.0'
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py --num-processes 4 --num-warmups 3  --num-tests 10
 
       - name: Run single bs scenario
         timeout-minutes: 10
-        if: matrix.cann_version != '9.0.0'
+        if: matrix.cann_version == '9.1.0'
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py \
           --quant fp8_e4m3 \
@@ -909,7 +909,7 @@ jobs:
 
       - name: Run bs uneven scenario
         timeout-minutes: 10
-        if: matrix.cann_version != '9.0.0'
+        if: matrix.cann_version == '9.1.0'
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py \
           --quant fp8_e4m3 \
@@ -924,7 +924,7 @@ jobs:
 
       - name: Run NZ format weights
         timeout-minutes: 10
-        if: matrix.cann_version != '9.0.0'
+        if: matrix.cann_version == '9.1.0'
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py \
           --quant fp8_e4m3 \
