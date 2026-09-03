@@ -54,24 +54,11 @@ def test_main(
         device_arch = get_device_arch()
         is_a5 = device_arch == "A5"
         if args.use_mxfp4:
-            if not is_a5:
-                raise NotImplementedError(
-                    "use_mxfp4 is not supported on A2/A3 devices."
-                )
             dispatch_quant_mode = "mx_fp4_e2m1"
         elif args.use_mxfp8:
-            if not is_a5:
-                raise NotImplementedError(
-                    "use_mxfp8 is not supported on A2/A3 devices."
-                )
             dispatch_quant_mode = "mx_fp8_e4m3"
         elif args.use_fp8:
             dispatch_quant_mode = "pertoken_fp8_e4m3" if is_a5 else "int8"
-            if not is_a5:
-                print(
-                    "[WARNING] use_fp8 is converted to int8 on A2/A3 devices.",
-                    flush=True,
-                )
         else:
             dispatch_quant_mode = None
         quant_dispatch_kwargs = {

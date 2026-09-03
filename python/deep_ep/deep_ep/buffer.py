@@ -1,4 +1,3 @@
-import logging
 import os
 from enum import IntEnum
 from typing import Callable, List, Optional, Tuple, Union
@@ -11,16 +10,13 @@ from deep_ep_cpp import Config, EventHandle
 
 from .device_info import get_device_arch
 from .ep_strategy import (
-    VALID_QUANT_MODES,
     LowLatencyStrategy,
     NormalStrategy,
     StrategyMap,
     get_low_latency_strategy,
     get_normal_strategy,
 )
-from .utils import EventOverlap, log_parameters
-
-logger = logging.getLogger(__name__)
+from .utils import EventOverlap, log_parameters, resolve_normal_quant_mode
 
 
 class FuseMode(IntEnum):
@@ -132,63 +128,6 @@ class Buffer:
             init_kwargs["comm_alg"] = comm_alg
 
         self.low_latency_strategy = strategy_cls(**init_kwargs)
-
-    def _resolve_normal_quant_mode(
-        self,
-        quant_mode: Optional[str],
-        use_fp8: bool,
-        use_mxfp4: bool,
-        use_mxfp8: bool,
-    ) -> Optional[str]:
-        """Resolve the effective ``quant_mode`` for normal dispatch.
-
-        Priority:
-        1. Explicit ``quant_mode`` (when not ``None``) — used directly.
-        2. ``use_mxfp4`` / ``use_mxfp8`` / ``use_fp8`` bool flags combined
-           with the detected device architecture:
-           - ``use_mxfp4``  → A5: ``mx_fp4_e2m1``;  A2/A3: not supported.
-           - ``use_mxfp8``  → A5: ``mx_fp8_e4m3``;  A2/A3: not supported.
-           - ``use_fp8``    → A5: ``pertoken_fp8_e4m3``;  A2/A3: ``int8`` (warning).
-        3. ``DEEP_NORMAL_MODE_USE_INT8_QUANT=1`` env var (deprecated fallback).
-        4. ``None`` (BF16, no quantization).
-        """
-        if quant_mode is not None:
-            if quant_mode not in VALID_QUANT_MODES:
-                raise ValueError(
-                    f"Invalid quant_mode: {quant_mode}. "
-                    f"Valid options: {VALID_QUANT_MODES}"
-                )
-            return quant_mode
-
-        is_a5 = self.device_arch == "A5"
-
-        if use_mxfp4:
-            if is_a5:
-                return "mx_fp4_e2m1"
-            raise NotImplementedError(
-                "use_mxfp4 is not supported on A2/A3 devices; "
-                "only A5 supports MXFP4 quantization."
-            )
-
-        if use_mxfp8:
-            if is_a5:
-                return "mx_fp8_e4m3"
-            raise NotImplementedError(
-                "use_mxfp8 is not supported on A2/A3 devices; "
-                "only A5 supports MXFP8 quantization."
-            )
-
-        if use_fp8:
-            if is_a5:
-                return "pertoken_fp8_e4m3"
-            logger.warning("use_fp8 is converted to int8 on A2/A3 devices.")
-            return "int8"
-
-        # Deprecated env-var fallback for backward compatibility
-        if os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1":
-            return "int8"
-
-        return None
 
     @staticmethod
     def get_dispatch_config(num_ranks: int) -> Config:
@@ -410,7 +349,7 @@ class Buffer:
                 ``None`` (BF16), ``"int8"``, ``"pertoken_fp8_e4m3"`` (A5), ``"mx_fp8_e4m3"`` (A5),
                 ``"mx_fp4_e2m1"`` (A5). When set, the bool flags below are ignored.
             use_fp8: enable FP8-family quantization. On A5 → ``pertoken_fp8_e4m3``;
-                on A2/A3 → ``int8`` (with a warning). Ignored when ``quant_mode`` is set.
+                on A2/A3 → ``int8``. Ignored when ``quant_mode`` is set.
             use_mxfp4: enable MXFP4 per-block quantization → ``mx_fp4_e2m1`` (A5 only).
                 Raises ``NotImplementedError`` on A2/A3. Ignored when ``quant_mode`` is set.
             use_mxfp8: enable MXFP8 per-block quantization → ``mx_fp8_e4m3`` (A5 only).
@@ -441,8 +380,8 @@ class Buffer:
         config = self.get_dispatch_config(self.group_size) if config is None else config
 
         # Resolve quant_mode from bool flags + device architecture when not explicitly set
-        quant_mode = self._resolve_normal_quant_mode(
-            quant_mode, use_fp8, use_mxfp4, use_mxfp8
+        quant_mode = resolve_normal_quant_mode(
+            quant_mode, use_fp8, use_mxfp4, use_mxfp8, self.device_arch
         )
 
         # Delegate to normal strategy
