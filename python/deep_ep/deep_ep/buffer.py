@@ -815,8 +815,8 @@ class Buffer:
                 FuseMode is not exported from the package's top-level __init__.py;
                 import via `from deep_ep.buffer import FuseMode` or use integer
                 values 1 or 2 directly.
-            activation: activation used after GMM1. ``None``, ``"swiglu"``, or
-                ``"silu"`` selects SwiGLU (default); ``"situ"`` selects SiTU.
+            activation: activation used after GMM1. ``"swiglu"`` selects
+                SwiGLU (default); ``"situ"`` selects SiTU.
             beta: SiTU gate soft-saturation bound. ``None`` uses the kernel default.
             linear_beta: SiTU up-projection soft-saturation bound. A positive
                 value enables the transform; ``None`` leaves the up branch unchanged.
@@ -844,20 +844,15 @@ class Buffer:
                     shape `[num_local_experts]`, indicating the number of tokens received
                     by each local expert on this rank only.
         """
-        if activation is not None:
-            if not isinstance(activation, str):
-                raise ValueError(
-                    "activation must be None, 'swiglu', 'silu', or 'situ', "
-                    f"but got {activation!r}"
-                )
-            activation = activation.lower()
-            if activation not in ("swiglu", "silu", "situ"):
-                raise ValueError(
-                    "activation must be None, 'swiglu', 'silu', or 'situ', "
-                    f"but got {activation!r}"
-                )
-            if activation == "swiglu":
-                activation = "silu"
+        if not isinstance(activation, str):
+            raise ValueError(
+                "activation must be 'swiglu' or 'situ', " f"but got {activation!r}"
+            )
+        activation = activation.lower()
+        if activation not in ("swiglu", "situ"):
+            raise ValueError(
+                "activation must be 'swiglu' or 'situ', " f"but got {activation!r}"
+            )
         if activation == "situ":
             if beta is not None and beta <= 0:
                 raise ValueError(f"beta must be > 0 for SiTU, but got {beta}")

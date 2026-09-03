@@ -95,7 +95,7 @@ ACCURACY_RTOL = 0.02
 
 
 def apply_gmm1_activation(x: torch.Tensor, args: argparse.Namespace) -> torch.Tensor:
-    if args.activation == "silu":
+    if args.activation == "swiglu":
         return torch_npu.npu_swiglu(x)
 
     gate, up = x.to(torch.float32).chunk(2, dim=-1)
@@ -106,7 +106,7 @@ def apply_gmm1_activation(x: torch.Tensor, args: argparse.Namespace) -> torch.Te
 
 
 def get_small_op_profile_spec(args: argparse.Namespace):
-    if args.activation == "silu":
+    if args.activation == "swiglu":
         return SMALL_OP_EVENT_PATTERNS, 1
 
     activation_patterns = list(SITU_GATE_EVENT_PATTERNS)
@@ -1496,8 +1496,8 @@ def main():
     )
     parser.add_argument(
         "--activation",
-        choices=("silu", "situ"),
-        default="silu",
+        choices=("swiglu", "situ"),
+        default="swiglu",
         help="GMM1 activation used by both the fused kernel and the reference path.",
     )
     parser.add_argument(

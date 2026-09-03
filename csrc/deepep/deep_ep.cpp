@@ -1111,10 +1111,9 @@ std::vector<at::Tensor> Buffer::fused_deep_moe(
                      "fused_deep_moe only supports quant_mode 0 (BF16) or 1 (INT8), got ", quant_mode);
 #endif
     const int64_t quant_mode_i64 = static_cast<int64_t>(quant_mode);
-    const std::string activation_value = activation.value_or("silu");
-    TORCH_CHECK(activation_value == "silu" || activation_value == "situ", "activation must be 'silu' or 'situ', got '",
-                activation_value, "'");
-    const bool use_situ = activation_value == "situ";
+    TORCH_CHECK(activation == "swiglu" || activation == "situ", "activation must be 'swiglu' or 'situ', got '",
+                activation.value_or("None"), "'");
+    const bool use_situ = activation == "situ";
     const double beta_value = beta.value_or(4.0);
     if (use_situ) {
         TORCH_CHECK(beta_value > 0.0, "beta must be > 0 for SiTU, got ", beta_value);

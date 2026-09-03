@@ -60,7 +60,7 @@ def fused_deep_moe(
     num_experts: int,
     quant_mode: int = 1,
     fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
-    activation: Optional[str] = "swiglu",
+    activation: str = "swiglu",
     beta: Optional[float] = 4.0,
     linear_beta: Optional[float] = 25.0,
     profile_enable: bool = False,
@@ -82,32 +82,27 @@ def fused_deep_moe(
 | **num_experts** | `int` | Scalar, range **(0, 512]** | Total number of global experts. On A5 fused path, current tiling requires `num_experts` to be divisible by EP rank size. |
 | **quant_mode** | `int` | Scalar, default `1` | Quantization mode attribute passed to the fused operator. A3 follows the legacy fused-path semantics. On A5, this parameter is currently not effective in the public fused path: activation quantization follows the weight quantization type, so the practical supported combinations are `w8a8` and `w4a4`. `w4a8` is not supported, and non-quantized model weights are not supported in the current A5 fused path. |
 | **fuse_mode** | `FuseMode` | Scalar, default `FuseMode.FUSED_DEEP_MOE` | Fuse mode selection. |
-| **activation** | `Optional[str]` | Scalar, default `"swiglu"` | Activation after GMM1. `None`, `"swiglu"`, and `"silu"` select SwiGLU; `"situ"` selects SiTU. SiTU is currently supported only by the A5 `FUSED_DEEP_MOE` path. |
+| **activation** | `str` | Scalar, default `"swiglu"` | Activation after GMM1. Supported values are `"swiglu"` and `"situ"`. SiTU is currently supported only by the A5 `FUSED_DEEP_MOE` path. |
 | **beta** | `Optional[float]` | Scalar, default `4.0` | Soft-saturation bound for the SiTU gate branch. `None` uses the internal default `4.0`. It must be greater than zero when SiTU is selected. |
 | **linear_beta** | `Optional[float]` | Scalar, default `25.0` | Optional soft-saturation bound for the SiTU up branch. A positive value enables the transformation; `None` leaves the up branch unchanged. |
 | **profile_enable** | `bool` | Scalar, default `False` | Whether to enable fused-kernel profiling for the current launch. It only takes effect when profiling has been started in advance (begin_profile). |
 
 ### Activation Selection
 
-GMM1 produces two equally sized branches, `gate` and `up`. The default SwiGLU path computes:
+GMM1 produces two equally sized branches, `gate` and `up`. The default SwiGLU formula is:
 
 ```text
-activated_gate = gate * sigmoid(gate)
-output = activated_gate * up
+silu(x) = x * sigmoid(x)
+swiglu(gate, up) = silu(gate) * up
 ```
 
-SiTU first soft-clamps the gate branch:
+SiTU soft-clamps the gate branch and optionally the up branch:
 
 ```text
 activated_gate = beta * tanh(gate / beta) * sigmoid(gate)
-```
-
-When `linear_beta` is provided, the up branch is also soft-clamped. Otherwise, it passes through unchanged:
-
-```text
 activated_up = linear_beta * tanh(up / linear_beta)  # linear_beta is provided
 activated_up = up                                    # linear_beta is None
-output = activated_gate * activated_up
+situ(gate, up) = activated_gate * activated_up
 ```
 
 Example:
@@ -219,7 +214,7 @@ def fused_deep_moe(
     num_experts: int,
     quant_mode: int = 1,
     fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
-    activation: Optional[str] = "swiglu",
+    activation: str = "swiglu",
     beta: Optional[float] = 4.0,
     linear_beta: Optional[float] = 25.0,
     profile_enable: bool = False,
@@ -241,32 +236,27 @@ def fused_deep_moe(
 | **num_experts** | `int` | 标量，范围 **(0, 512]** | 全局 expert 总数。A5 fused 当前 tiling 要求 `num_experts` 能被 EP rank size 整除。 |
 | **quant_mode** | `int` | 标量，默认 `1` | 下发给 fused 算子的量化模式属性。A3 保持 legacy fused 语义；A5 公共 fused 路径上该参数当前实际上不生效，激活量化方式会跟随权重量化方式，因此当前实际只支持 `w8a8` 和 `w4a4`。`w4a8` 暂不支持，非量化模型权重在当前 A5 fused 路径上也不支持。 |
 | **fuse_mode** | `FuseMode` | 标量，默认 `FuseMode.FUSED_DEEP_MOE` | 融合模式选择。 |
-| **activation** | `Optional[str]` | 标量，默认 `"swiglu"` | GMM1 后使用的激活。`None`、`"swiglu"` 和 `"silu"` 选择 SwiGLU；`"situ"` 选择 SiTU。SiTU 当前只支持 A5 的 `FUSED_DEEP_MOE` 路径。 |
+| **activation** | `str` | 标量，默认 `"swiglu"` | GMM1 后使用的激活。支持 `"swiglu"` 和 `"situ"` 两个值。SiTU 当前只支持 A5 的 `FUSED_DEEP_MOE` 路径。 |
 | **beta** | `Optional[float]` | 标量，默认 `4.0` | SiTU gate 分支的软饱和边界。`None` 使用内部默认值 `4.0`。选择 SiTU 时该值必须大于零。 |
 | **linear_beta** | `Optional[float]` | 标量，默认 `25.0` | SiTU up 分支可选的软饱和边界。正数表示启用该变换；`None` 表示 up 分支保持不变。 |
 | **profile_enable** | `bool` | 标量，默认值为 `False` | 是否为当前运行启用kernel性能分析。仅在预先启动了性能分析时（begin_profile）才生效。 |
 
 ### 激活选择
 
-GMM1 输出会被平均拆分成 `gate` 和 `up` 两个分支。默认的 SwiGLU 路径计算如下：
+GMM1 输出会被平均拆分成 `gate` 和 `up` 两个分支。默认的 SwiGLU 公式如下：
 
 ```text
-activated_gate = gate * sigmoid(gate)
-output = activated_gate * up
+silu(x) = x * sigmoid(x)
+swiglu(gate, up) = silu(gate) * up
 ```
 
-SiTU 首先对 gate 分支进行软限幅：
+SiTU 对 gate 分支进行软限幅，并可选地对 up 分支进行软限幅：
 
 ```text
 activated_gate = beta * tanh(gate / beta) * sigmoid(gate)
-```
-
-提供 `linear_beta` 时，up 分支也会进行软限幅；设置为 `None` 时，up 分支保持不变：
-
-```text
 activated_up = linear_beta * tanh(up / linear_beta)  # 提供 linear_beta
 activated_up = up                                    # linear_beta 为 None
-output = activated_gate * activated_up
+situ(gate, up) = activated_gate * activated_up
 ```
 
 调用示例：

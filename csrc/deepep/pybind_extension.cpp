@@ -47,7 +47,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m)
              py::arg("gmm1_permuted_weight"), py::arg("gmm1_permuted_weight_scale"), py::arg("gmm2_weight"),
              py::arg("gmm2_weight_scale"), py::arg("expert_scales_optional"),
              py::arg("num_max_dispatch_tokens_per_rank"), py::arg("num_experts"), py::arg("quant_mode"),
-             py::arg("profile_enable") = false, py::arg("activation") = std::optional<std::string>(),
+             py::arg("profile_enable") = false,
+             py::arg("activation") = std::optional<std::string>(std::string("swiglu")),
              py::arg("beta") = std::optional<double>(4.0), py::arg("linear_beta") = std::optional<double>(25.0))
         .def("begin_profile", &deep_ep::Buffer::begin_profile, py::arg("num_profile_skip_launches"),
              py::arg("num_profile_active_launches"), py::arg("profile_trace_dir") = "")
