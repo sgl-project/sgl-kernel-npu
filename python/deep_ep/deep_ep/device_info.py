@@ -25,7 +25,9 @@ DEVICE_VERSION_TABLE = {
 }
 
 # All A5 version codes (convenience set)
-A5_VERSION_CODES = frozenset(v for v, arch in DEVICE_VERSION_TABLE.items() if arch == "A5")
+A5_VERSION_CODES = frozenset(
+    v for v, arch in DEVICE_VERSION_TABLE.items() if arch == "A5"
+)
 
 _cached_arch: Optional[str] = None
 
