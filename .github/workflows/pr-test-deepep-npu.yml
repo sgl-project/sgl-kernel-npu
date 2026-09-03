@@ -768,7 +768,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        cann_version: [9.0.0, 9.1.0]
+        cann_version: [9.1.0]
     steps:
       - name: Clean git config
         run: |
