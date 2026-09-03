@@ -59,9 +59,8 @@ def _swiglu_quant_kernel(
             out = x1 * tl.sigmoid(x1) * x2
 
         # mxfp8 quant: e4m3 payload + one e8m0 scale per 32-element block.
-        # CANN floor convention (cf. kv_compress_epilog): e is the biased fp32
-        # exponent of amax * (1/448), so scale = 2^(e-127) and the block amax
-        # lands in [448, 896) -> clamps to the e4m3 max.
+        # Round the power-of-two scale up so every block maximum is representable
+        # by e4m3 without systematic saturation.
         if SCALE:
             NUM_SUB_BLK: tl.constexpr = COL_BLOCK_SIZE // 32
             row_scale_off = row_idx.to(tl.int64) * (HALF_COLS // 32)
@@ -74,6 +73,8 @@ def _swiglu_quant_kernel(
                 m = tl.maximum(amax, 1e-4)
                 m2 = m * (1.0 / 448.0)
                 e = (m2.to(tl.int32, bitcast=True) >> 23) & 0xFF
+                floor_scale = tl.exp2(e.to(tl.float32) - 127.0)
+                e += (m2 > floor_scale).to(tl.int32)
                 descale = tl.reshape(
                     tl.exp2(e.to(tl.float32) - 127.0), (NUM_SUB_BLK, 1)
                 )
@@ -107,8 +108,8 @@ def swiglu_quant(
     max=limit) applied BEFORE silu; out = silu(gate) * up. ``do_limit=False``
     matches swiglu_limit == 0 (plain silu(gate) * up).
 
-    ``need_quant=True`` quantizes to MXFP8 per 32-element block with the CANN
-    floor convention (e8m0 exponent = biased fp32 exponent of amax / 448):
+    ``need_quant=True`` quantizes to MXFP8 per 32-element block with an E8M0
+    power-of-two scale rounded up from ``amax / 448``:
     returns ``out`` as ``float8_e4m3fn [s, h/2]`` and ``scale`` as
     ``float8_e8m0fnu [s, h/2/32]``. The scale buffer holds uint8 biased
     exponents viewed as e8m0 (the ``npu_dynamic_mx_quant`` format); reshape it
