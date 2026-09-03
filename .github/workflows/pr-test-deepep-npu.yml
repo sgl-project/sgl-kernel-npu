@@ -885,7 +885,7 @@ jobs:
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py --num-processes 4
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_ll_alltoall.py --num-processes 4 --quant-type int8
 
-      #cann9.0 err
+      # cann9.0 err
       - name: Run fusion operator
         timeout-minutes: 10
         continue-on-error: true
