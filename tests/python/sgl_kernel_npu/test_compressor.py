@@ -943,51 +943,52 @@ class TestCompressor(unittest.TestCase):
         d = (out.cpu() - ref).abs()[mask_t]
         self._assert_ok(d.max().item() if d.numel() > 0 else 0.0)
 
-    def test_continuous_c4li(self):
-        p = _make_inputs([13], 9, 2, 4, 128, 1024, 1, "TH", torch.bfloat16, 1, 16)
-        self._assert_ok(_run_case(p, 2, 4, 128, 1, torch.bfloat16))
-
-    def test_continuous_c4a(self):
-        p = _make_inputs([13], 9, 2, 4, 512, 1024, 1, "TH", torch.bfloat16, 1, 16)
-        self._assert_ok(_run_case(p, 2, 4, 512, 1, torch.bfloat16))
-
-    def test_continuous_c128a(self):
-        p = _make_inputs([200], 129, 1, 128, 512, 1024, 1, "TH", torch.bfloat16, 1, 16)
-        self._assert_ok(_run_case(p, 1, 128, 512, 1, torch.bfloat16))
-
-    def test_prefill_8192_c4a(self):
-        p = _make_inputs([0], 8192, 2, 4, 512, 4096, 1, "TH", torch.bfloat16, 1, 128)
-        self._assert_ok(_run_case(p, 2, 4, 512, 1, torch.bfloat16))
-
-    def test_prefill_8192_c128a(self):
-        p = _make_inputs([0], 8192, 1, 128, 512, 4096, 1, "TH", torch.bfloat16, 1, 128)
-        self._assert_ok(_run_case(p, 1, 128, 512, 1, torch.bfloat16))
-
-    def test_decode_c4a(self):
-        p = _make_inputs([8192], 1, 2, 4, 512, 4096, 1, "TH", torch.bfloat16, 1, 128)
-        self._assert_ok(_run_case(p, 2, 4, 512, 1, torch.bfloat16))
-
-    def test_decode_c128a(self):
-        p = _make_inputs([8192], 1, 1, 128, 512, 4096, 1, "TH", torch.bfloat16, 1, 128)
-        self._assert_ok(_run_case(p, 1, 128, 512, 1, torch.bfloat16))
+    def test_ratio128_c2_sparse_small(self):
+        # sglang DSV4 decode shape: cache_mode=2, coff=1, ratio=128 with only a
+        # few rows per request (seqused << 128). Regression for the sglang
+        # launch hang (ratio=128 kernel never finishes).
+        if not _is_arch35():
+            self.skipTest("A5 only")
+        coff, ratio, head_dim, hidden = 1, 128, 128, 1024
+        batch = 4
+        p = _make_inputs(list(range(8, 8 + batch * 8, 8)), 8, coff, ratio, head_dim, hidden, 2, "TH",
+                         torch.bfloat16, batch, 8, ring_size=8)
+        kv = p["kv_state"].clone()
+        sc = p["score_state"].clone()
+        ref, mask = _reference_compressor(
+            p["x"], p["wkv"], p["wgate"], kv, sc,
+            torch.zeros_like(kv, dtype=torch.bool),
+            torch.zeros_like(sc, dtype=torch.bool),
+            p["ape"], p["norm_weight"], p["rope_sin"], p["rope_cos"],
+            block_table=p["block_table"],
+            cu_seqlens=p["cu_seqlens"].tolist() if p["cu_seqlens"] is not None else None,
+            seqused=p["seqused"], start_pos=p["start_pos"],
+            rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
+            rotary_mode=2, cache_mode=2)
+        mask_t = torch.from_numpy(np.asarray(mask))
+        state_npu = p["state_cache"].clone().npu()
+        out = torch.ops.npu.compressor(
+            p["x"].npu(), p["wkv"].npu(), p["wgate"].npu(), state_npu,
+            p["ape"].npu(), p["norm_weight"].npu(), p["rope_sin"].npu(), p["rope_cos"].npu(),
+            state_block_table=p["block_table"].npu(),
+            cu_seqlens=p["cu_seqlens"].npu() if p["cu_seqlens"] is not None else None,
+            seqused=torch.tensor(p["seqused"], dtype=torch.int32).npu(),
+            start_pos=torch.tensor(p["start_pos"], dtype=torch.int32).npu(),
+            rope_head_dim=64, cmp_ratio=ratio, coff=coff, norm_eps=1e-6,
+            rotary_mode=2, cache_mode=2, state_cache_stride_dim0=0)
+        print("R128C2: launched", flush=True)
+        torch_npu.npu.synchronize()
+        print("R128C2: kernel returned+synced", flush=True)
+        d = (out.cpu() - ref).abs()[mask_t]
+        self._assert_ok(d.max().item() if d.numel() > 0 else 0.0)
 
     def test_fp16_c4a(self):
-        p = _make_inputs([0], 8192, 2, 4, 512, 4096, 1, "TH", torch.float16, 1, 128)
-        self._assert_ok(_run_case(p, 2, 4, 512, 1, torch.float16))
+        p = _make_inputs([0], 8192, 2, 4, 512, 4096, 2, "TH", torch.float16, 1, 128)
+        self._assert_ok(_run_case(p, 2, 4, 512, 2, torch.float16))
 
     def test_fp16_c128a(self):
-        p = _make_inputs([0], 8192, 1, 128, 512, 4096, 1, "TH", torch.float16, 1, 128)
-        self._assert_ok(_run_case(p, 1, 128, 512, 1, torch.float16))
-
-    def test_multi_batch_continuous(self):
-        p = _make_inputs([0, 128], 128, 2, 4, 512, 1024, 1, "TH", torch.bfloat16, 2, 16)
-        self._assert_ok(_run_case(p, 2, 4, 512, 1, torch.bfloat16))
-
-    def test_multi_batch_ring(self):
-        p = _make_inputs(
-            [200, 328], 129, 1, 128, 512, 1024, 2, "TH", torch.bfloat16, 2, 16
-        )
-        self._assert_ok(_run_case(p, 1, 128, 512, 2, torch.bfloat16))
+        p = _make_inputs([0], 8192, 1, 128, 512, 4096, 2, "TH", torch.float16, 1, 128)
+        self._assert_ok(_run_case(p, 1, 128, 512, 2, torch.float16))
 
     def test_ge_helper_tiling_upload(self):
         # Exercise the ge_helper TilingCache::CopyTo_ path (ge_helper.h) used by

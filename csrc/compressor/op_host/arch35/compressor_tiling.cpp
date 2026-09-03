@@ -305,7 +305,7 @@ ge::graphStatus CompressorTiling::CalcWorkSpace()
                       2;  // 2 kv和score
     workspaceSize_ +=
         workspaceParams_->vec1ResSize * maxGroupNum * V1_RES_ELEM_SIZE * workspaceParams_->dbWorkspaceRatio;
-    workspaceSize_ += workspaceParams_->aivNum * workspaceParams_->dbWorkspaceRatio * sizeof(uint32_t);
+    workspaceSize_ += (aicNum_ + 1 + aivNum_) * workspaceParams_->dbWorkspaceRatio * sizeof(uint32_t);
 
     if (context_->workSpaces) {
         context_->workSpaces[0] = workspaceSize_;
