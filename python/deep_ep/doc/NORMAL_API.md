@@ -41,6 +41,10 @@ dispatch(
     async_finish: bool = False,
     allocate_on_comm_stream: bool = False,
     dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
+    quant_mode: Optional[str] = None,
+    use_fp8: bool = False,
+    use_mxfp4: bool = False,
+    use_mxfp8: bool = False,
 ) -> Tuple[
     Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
     Optional[torch.Tensor],
@@ -55,7 +59,7 @@ dispatch(
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| **x** | `torch.Tensor` or `(torch.Tensor, torch.Tensor)` | Yes | – | Shape `[num_tokens, hidden]`, dtype=`torch.bfloat16` for BF16 mode. For MXFP8/MXFP4 per-block quantization (A5 only), pass a tuple `(data_tensor, scale_tensor)`: see [Quantization Constraints](#constraints) for supported dtypes/shapes. |
+| **x** | `torch.Tensor` (`bfloat16`) | Yes | – | Shape `[num_tokens, hidden]`. The dtype of `x` is **no longer used** for quantization-mode detection; use `quant_mode` or the `use_fp8` / `use_mxfp4` / `use_mxfp8` bool flags instead. |
 | **handle** | `Optional[Tuple]` | No | `None` | Pre-created communication handle (currently only supports `None`). |
 | **num_tokens_per_rank** | `torch.Tensor` (`int32`) | Yes (intranode) | `None` | Shape `[num_ranks]`, number of tokens each rank will receive. |
 | **num_tokens_per_rdma_rank** | `torch.Tensor` | Yes (internode) | `None` | Shape `[num_rdma_ranks]`, number of tokens each remote rank receives in cross-node (RDMA) mode. |
@@ -70,6 +74,10 @@ dispatch(
 | **async_finish** | `bool` | No | `False` | If `True`, the current stream will not block until communication completes; the returned `event` can be used for subsequent synchronization. |
 | **allocate_on_comm_stream** | `bool` | No | `False` | Currently unused. |
 | **dispatch_wait_recv_cost_stats** | `torch.Tensor` (`int64`) | No | `None` | Shape `[num_ranks]`, recording the time cost for the current rank to receive all tokens from each rank (statistics). |
+| **quant_mode** | `Optional[str]` | No | `None` | Explicit quantization mode (highest priority). Supported: `None` (BF16), `"int8"`, `"pertoken_fp8_e4m3"` (A5), `"mx_fp8_e4m3"` (A5), `"mx_fp4_e2m1"` (A5). When set, the bool flags below are ignored. |
+| **use_fp8** | `bool` | No | `False` | Enable FP8-family quantization. On A5 → `pertoken_fp8_e4m3`; on A2/A3 → `int8` (with warning). |
+| **use_mxfp4** | `bool` | No | `False` | Enable MXFP4 per-block quantization → `mx_fp4_e2m1` (A5 only). Raises `NotImplementedError` on A2/A3. |
+| **use_mxfp8** | `bool` | No | `False` | Enable MXFP8 per-block quantization → `mx_fp8_e4m3` (A5 only). Raises `NotImplementedError` on A2/A3. |
 
 > **Internal Logic**
 >
@@ -80,7 +88,7 @@ dispatch(
 
 | Return Value | Type | Description |
 |--------------|------|-------------|
-| **recv_x** | `torch.Tensor` or `(torch.Tensor, torch.Tensor)` | Received tokens. Format depends on quantization mode:<br>- **BF16** (default): single `bfloat16` tensor `[recv_token_cnt, hidden]`.<br>- **INT8** (`DEEP_NORMAL_MODE_USE_INT8_QUANT=1`, deprecated): tuple `(int8_tensor, float32_scales)`. Data `[recv_token_cnt, hidden]` (`torch.int8`), scales `[recv_token_cnt]` (`torch.float32`).<br>- **MXFP8 per-block** (A5, tuple input): tuple `(float8_e4m3fn_or_e5m2_data, float8_e8m0fnu_scales)`. Data `[recv_token_cnt, hidden]`, scales `[recv_token_cnt * hidden / 32]` (one scale per 32-element block).<br>- **MXFP4 per-block** (A5, tuple input): tuple `(float4_e2m1fn_x2_data, float8_e8m0fnu_scales)`. Data `[recv_token_cnt, hidden / 2]`, scales `[recv_token_cnt * hidden / 32]`. |
+| **recv_x** | `torch.Tensor` or `(torch.Tensor, torch.Tensor)` | Received tokens. Format depends on quantization mode:<br>- **BF16** (default): single `bfloat16` tensor `[recv_token_cnt, hidden]`.<br>- **INT8** (`quant_mode="int8"`): tuple `(int8_tensor, float32_scales)`. Data `[recv_token_cnt, hidden]` (`torch.int8`), scales `[recv_token_cnt]` (`torch.float32`).<br>- **PerToken FP8** (A5, `quant_mode="pertoken_fp8_e4m3"`): tuple `(float8_e4m3fn_data, float32_scales)`. Data `[recv_token_cnt, hidden]`, scales `[recv_token_cnt]`.<br>- **MXFP8 per-block** (A5, `quant_mode="mx_fp8_e4m3"`): tuple `(float8_e4m3fn_data, float8_e8m0fnu_scales)`. Data `[recv_token_cnt, hidden]`, scales `[recv_token_cnt * hidden / 32]` (one scale per 32-element block).<br>- **MXFP4 per-block** (A5, `quant_mode="mx_fp4_e2m1"`): tuple `(float4_e2m1fn_x2_data, float8_e8m0fnu_scales)`. Data `[recv_token_cnt, hidden / 2]`, scales `[recv_token_cnt * hidden / 32]`. |
 | **recv_topk_idx** | `Optional[torch.Tensor]` (`int64`) | Received top‑k expert indices, shape `[recv_token_cnt, num_topk]`. `None` if top‑k is not used. |
 | **recv_topk_weights** | `Optional[torch.Tensor]` (`float`) | Corresponding top‑k weights, same shape as above. |
 | **num_recv_tokens_per_expert_list** | `List[int]` | Number of tokens actually received per **local expert** (aligned). Empty list if `num_worst_tokens>0` (no synchronization). |
@@ -103,27 +111,33 @@ dispatch(
 - HCCL_BUFFSIZE: Check the HCCL_BUFFSIZE environment variable before calling the API. It represents the memory size (MB) occupied by a single communication domain, default 200MB. Minimum required size (non-layered): `(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`. For layered (A2 dual-node): `num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`. A5 subtracts 1MB state zone from the configured value.
 - HCCL_INTRA_PCIE_ENABLE and HCCL_INTRA_ROCE_ENABLE:
     - A2 series internode scenario: set `HCCL_INTRA_PCIE_ENABLE=1` and `HCCL_INTRA_ROCE_ENABLE=0`;
-- Quantization: Setting `DEEP_NORMAL_MODE_USE_INT8_QUANT=1` quantizes `x` to INT8 and returns `(tensor, scales)`.
-- MXFP8 / MXFP4 quantization (A5 only, **intranode only**): Triggered by passing `x` as a tuple `(data_tensor, scale_tensor)` on the intranode dispatch path. The internode path does NOT support tuple input / MXFP8 / MXFP4.
-    - MXFP8 per-block: `data_tensor` dtype `float8_e4m3fn` or `float8_e5m2`, `scale_tensor` dtype `float8_e8m0fnu`, shape `[num_tokens, hidden / 32]`.
-    - MXFP4 per-block: `data_tensor` dtype `float4_e2m1fn_x2`, shape `[num_tokens, hidden / 2]`; `scale_tensor` dtype `float8_e8m0fnu`, shape `[num_tokens, hidden / 32]`.
+- Quantization: Use the `quant_mode` parameter or `use_fp8` / `use_mxfp4` / `use_mxfp8` bool flags. The `DEEP_NORMAL_MODE_USE_INT8_QUANT=1` env var is deprecated but still works as a fallback. The dtype of `x` is no longer inspected for quantization mode selection.
+- MXFP8 / MXFP4 / PerToken-FP8 quantization (A5 only, **intranode only**): Triggered via `use_mxfp8=True`, `use_mxfp4=True`, or `use_fp8=True` (or `quant_mode="mx_fp8_e4m3"` / `"mx_fp4_e2m1"` / `"pertoken_fp8_e4m3"`). The internode and alltoall paths do NOT support these modes.
 
 <a id="quantization-selection-priority"></a>
 
 ### Quantization Selection Priority
 
-The quantization mode for `dispatch` is determined with the following priority (intranode path):
+The quantization mode for `dispatch` is resolved in `Buffer._resolve_normal_quant_mode()` with the following priority:
 
-1. **`quant_mode` parameter** (explicit) — highest priority. When passed (not `None`), it is the single source of truth; the env var below is **not** consulted.
-2. **`DEEP_NORMAL_MODE_USE_INT8_QUANT=1`** environment variable — consulted **only** when `quant_mode=None` (omitted). Enables INT8 as a backward-compatible fallback.
-3. **BF16** (default) — when neither is set.
+1. **`quant_mode` parameter** (explicit) — highest priority. When passed (not `None`), it is the single source of truth; the bool flags and env var below are **not** consulted.
+2. **`use_mxfp4` / `use_mxfp8` / `use_fp8` bool flags** — consulted only when `quant_mode=None`. The device architecture is auto-detected at `Buffer` initialization time via `acl.rt.get_device_info(0, 601)`:
+   - `use_mxfp4=True` → A5: `"mx_fp4_e2m1"`; A2/A3: `NotImplementedError`.
+   - `use_mxfp8=True` → A5: `"mx_fp8_e4m3"`; A2/A3: `NotImplementedError`.
+   - `use_fp8=True` → A5: `"pertoken_fp8_e4m3"`; A2/A3: `"int8"` (with warning log).
+3. **`DEEP_NORMAL_MODE_USE_INT8_QUANT=1`** environment variable — deprecated fallback, consulted only when `quant_mode=None` and no bool flags are set.
+4. **BF16** (default) — when none of the above are set.
 
 > **Per-path differences:**
-> - **intranode**: `quant_mode` > env var > BF16 (the priority order above).
-> - **internode**: `quant_mode` is currently **not forwarded** to the underlying dispatch (a known gap from the strategy refactor). The env var and tuple-`x` dtype detection are always used. Setting `quant_mode` on the internode path has no effect.
-> - **alltoall** (`DEEP_USE_MODE=alltoall`): `dispatch()` does **not** accept `quant_mode` at all; INT8 is controlled solely by the env var.
+> - **intranode** (default strategy): full priority order above. FP8/FP4 modes supported on A5.
+> - **internode** (default strategy): only `"bf16"` and `"int8"` are supported. Other quant_mode values raise `NotImplementedError`.
+> - **alltoall** strategy (`DEEP_USE_MODE=alltoall`): only `"bf16"` and `"int8"` are supported. FP8/FP4 modes require the default strategy.
 >
-> **Platform support:** INT8 (`DYNAMIC_SCALES`) is supported on **all** platforms (A2/A3/A5). FP8/FP4 modes (`mx_fp8_*`, `pertoken_fp8_e4m3`, `mx_fp4_e2m1`) are **A5-only**.
+> **Platform support:** INT8 is supported on **all** platforms (A2/A3/A5). FP8/FP4 modes (`pertoken_fp8_e4m3`, `mx_fp8_e4m3`, `mx_fp4_e2m1`) are **A5-only**.
+>
+> **Device version codes** (first return value of `acl.rt.get_device_info(0, 601)`):
+> - A5: `9301`, `9201`, `3510`
+> - A2/A3: `2201`, `1001`, `2002`, `3002`
 
 ---
 
@@ -220,6 +234,10 @@ dispatch(
     async_finish: bool = False,
     allocate_on_comm_stream: bool = False,
     dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
+    quant_mode: Optional[str] = None,
+    use_fp8: bool = False,
+    use_mxfp4: bool = False,
+    use_mxfp8: bool = False,
 ) -> Tuple[
     Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
     Optional[torch.Tensor],
@@ -234,7 +252,7 @@ dispatch(
 
 | 参数 | 类型 | 必要 | 默认 | 说明 |
 |------|------|------|------|------|
-| **x** | `torch.Tensor` 或 `(torch.Tensor, torch.Tensor)` | ✅ | – | Shape为 `[num_tokens, hidden]`，BF16 模式下 dtype=`torch.bfloat16`。MXFP8/MXFP4 per-block 量化（仅 A5）需传入 tuple `(data_tensor, scale_tensor)`，支持的 dtype/shape 见 [量化约束](#约束说明)。|
+| **x** | `torch.Tensor` (`bfloat16`) | ✅ | – | Shape为 `[num_tokens, hidden]`。`x` 的 dtype **不再用于**量化模式检测，请使用 `quant_mode` 或 `use_fp8` / `use_mxfp4` / `use_mxfp8` 布尔标志。|
 | **handle** | `Optional[Tuple]` | ❌ | `None` | 预先创建的通信句柄（目前仅支持 `None`）。|
 | **num_tokens_per_rank** | `torch.Tensor` (`int32`) | ✅（intranode） | `None` | Shape为 `[num_ranks]`，每个 rank 将接收的 token 数。 |
 | **num_tokens_per_rdma_rank** | `torch.Tensor` | ✅（internode） | `None` | Shape为 `[num_rdma_ranks]`，跨节点（RDMA）时每个 remote rank 接收的 token 数。 |
@@ -249,6 +267,10 @@ dispatch(
 | **async_finish** | `bool` | ❌ | `False` | 若 `True`，当前 stream 不会阻塞等待通信完成，返回的 `event` 可用于后续同步。 |
 | **allocate_on_comm_stream** | `bool` | ❌ | `False` | 当前未使用。 |
 | **dispatch_wait_recv_cost_stats** | `torch.Tensor` (`int64`) | ❌ | `None` | Shape为 `[num_ranks]`，记录当前 rank 从每个 rank 收到全部 token 所耗时间（统计信息）。 |
+| **quant_mode** | `Optional[str]` | ❌ | `None` | 显式量化模式（最高优先级）。支持：`None`（BF16）、`"int8"`、`"pertoken_fp8_e4m3"`（A5）、`"mx_fp8_e4m3"`（A5）、`"mx_fp4_e2m1"`（A5）。设置后忽略下方布尔标志。 |
+| **use_fp8** | `bool` | ❌ | `False` | 启用 FP8 系列量化。A5 → `pertoken_fp8_e4m3`；A2/A3 → `int8`（带 warning）。 |
+| **use_mxfp4** | `bool` | ❌ | `False` | 启用 MXFP4 per-block 量化 → `mx_fp4_e2m1`（仅 A5）。A2/A3 上抛 `NotImplementedError`。 |
+| **use_mxfp8** | `bool` | ❌ | `False` | 启用 MXFP8 per-block 量化 → `mx_fp8_e4m3`（仅 A5）。A2/A3 上抛 `NotImplementedError`。 |
 
 > **内部逻辑**
 >
@@ -259,7 +281,7 @@ dispatch(
 
 | 返回值 | 类型 | 说明 |
 |--------|------|------|
-| **recv_x** | `torch.Tensor` 或 `(torch.Tensor, torch.Tensor)` | 接收到的 token。格式取决于量化模式：<br>- **BF16**（默认）：单个 `bfloat16` tensor `[recv_token_cnt, hidden]`。<br>- **INT8**（`DEEP_NORMAL_MODE_USE_INT8_QUANT=1`，已弃用）：tuple `(int8_tensor, float32_scales)`。数据 `[recv_token_cnt, hidden]`（`torch.int8`），scales `[recv_token_cnt]`（`torch.float32`）。<br>- **MXFP8 per-block**（A5，tuple 输入）：tuple `(float8_e4m3fn_或_e5m2_数据, float8_e8m0fnu_scales)`。数据 `[recv_token_cnt, hidden]`，scales `[recv_token_cnt * hidden / 32]`（每 32 个元素一个 scale）。<br>- **MXFP4 per-block**（A5，tuple 输入）：tuple `(float4_e2m1fn_x2_数据, float8_e8m0fnu_scales)`。数据 `[recv_token_cnt, hidden / 2]`，scales `[recv_token_cnt * hidden / 32]`。 |
+| **recv_x** | `torch.Tensor` 或 `(torch.Tensor, torch.Tensor)` | 接收到的 token。格式取决于量化模式：<br>- **BF16**（默认）：单个 `bfloat16` tensor `[recv_token_cnt, hidden]`。<br>- **INT8**（`quant_mode="int8"`）：tuple `(int8_tensor, float32_scales)`。数据 `[recv_token_cnt, hidden]`（`torch.int8`），scales `[recv_token_cnt]`（`torch.float32`）。<br>- **PerToken FP8**（A5，`quant_mode="pertoken_fp8_e4m3"`）：tuple `(float8_e4m3fn_数据, float32_scales)`。数据 `[recv_token_cnt, hidden]`，scales `[recv_token_cnt]`。<br>- **MXFP8 per-block**（A5，`quant_mode="mx_fp8_e4m3"`）：tuple `(float8_e4m3fn_数据, float8_e8m0fnu_scales)`。数据 `[recv_token_cnt, hidden]`，scales `[recv_token_cnt * hidden / 32]`（每 32 个元素一个 scale）。<br>- **MXFP4 per-block**（A5，`quant_mode="mx_fp4_e2m1"`）：tuple `(float4_e2m1fn_x2_数据, float8_e8m0fnu_scales)`。数据 `[recv_token_cnt, hidden / 2]`，scales `[recv_token_cnt * hidden / 32]`。 |
 | **recv_topk_idx** | `Optional[torch.Tensor]` (`int64`) | 接收到的 top‑k expert 索引（形状 `[recv_token_cnt, num_topk]`），若未使用 top‑k 则为 `None`。 |
 | **recv_topk_weights** | `Optional[torch.Tensor]` (`float`) | 对应的 top‑k 权重，形状同上。 |
 | **num_recv_tokens_per_expert_list** | `List[int]` | 每个 **本地 expert** 实际收到的 token 数（已对齐）。<br>若 `num_worst_tokens>0`，列表为空（因为不做同步）。 |
@@ -282,27 +304,33 @@ dispatch(
 - HCCL_BUFFSIZE: 调用接口前需检查HCCL_BUFFSIZE环境变量取值是否合理，该环境变量表示单个通信域占用内存大小，单位MB，不配置时默认为200MB。非分层最小需求：`(bs × ep_world_size × min(num_local_experts, topk) × hidden × 2B + 2MB) × 2`；分层（A2双机）：`num_experts × bs × (hidden × 2B + 4 × topk × 4B) + 4MB + 800MB`。A5 从配置值中扣除 1MB 状态区。
 - HCCL_INTRA_PCIE_ENABLE和HCCL_INTRA_ROCE_ENABLE：
     - A2系列双机场景需要配置，`HCCL_INTRA_PCIE_ENABLE=1` 和 `HCCL_INTRA_ROCE_ENABLE=0`；
-- 量化：设置环境变量 `DEEP_NORMAL_MODE_USE_INT8_QUANT=1` 时，会把 `x` 量化为 `int8` 并返回 `(tensor, scales)`。
-- MXFP8 / MXFP4 量化（仅 A5，**仅 intranode**）：在 intranode dispatch 路径上传入 `x` 为 tuple `(data_tensor, scale_tensor)` 时触发。internode 路径**不支持** tuple 输入 / MXFP8 / MXFP4。
-    - MXFP8 per-block：`data_tensor` dtype 为 `float8_e4m3fn` 或 `float8_e5m2`，`scale_tensor` dtype 为 `float8_e8m0fnu`，shape 为 `[num_tokens, hidden / 32]`。
-    - MXFP4 per-block：`data_tensor` dtype 为 `float4_e2m1fn_x2`，shape 为 `[num_tokens, hidden / 2]`；`scale_tensor` dtype 为 `float8_e8m0fnu`，shape 为 `[num_tokens, hidden / 32]`。
+- 量化：使用 `quant_mode` 参数或 `use_fp8` / `use_mxfp4` / `use_mxfp8` 布尔标志。`DEEP_NORMAL_MODE_USE_INT8_QUANT=1` 环境变量已弃用，但仍作为回退生效。`x` 的 dtype 不再用于量化模式选择。
+- MXFP8 / MXFP4 / PerToken-FP8 量化（仅 A5，**仅 intranode**）：通过 `use_mxfp8=True`、`use_mxfp4=True` 或 `use_fp8=True`（或 `quant_mode="mx_fp8_e4m3"` / `"mx_fp4_e2m1"` / `"pertoken_fp8_e4m3"`）触发。internode 和 alltoall 路径**不支持**这些模式。
 
 <a id="量化模式选择优先级"></a>
 
 ### 量化模式选择优先级
 
-`dispatch` 的量化模式按以下优先级确定（intranode 路径）：
+`dispatch` 的量化模式在 `Buffer._resolve_normal_quant_mode()` 中按以下优先级解析：
 
-1. **`quant_mode` 参数**（显式传入）—— 最高优先级。传入非 `None` 值时为唯一来源，下方环境变量**不读取**。
-2. **`DEEP_NORMAL_MODE_USE_INT8_QUANT=1`** 环境变量 —— 仅当 `quant_mode=None`（未传）时生效，作向后兼容回退开启 INT8。
-3. **BF16**（默认）—— 两者均未设时。
+1. **`quant_mode` 参数**（显式传入）—— 最高优先级。传入非 `None` 值时为唯一来源，下方布尔标志和环境变量**不读取**。
+2. **`use_mxfp4` / `use_mxfp8` / `use_fp8` 布尔标志** —— 仅当 `quant_mode=None` 时生效。设备架构在 `Buffer` 初始化时通过 `acl.rt.get_device_info(0, 601)` 自动检测：
+   - `use_mxfp4=True` → A5：`"mx_fp4_e2m1"`；A2/A3：抛 `NotImplementedError`。
+   - `use_mxfp8=True` → A5：`"mx_fp8_e4m3"`；A2/A3：抛 `NotImplementedError`。
+   - `use_fp8=True` → A5：`"pertoken_fp8_e4m3"`；A2/A3：`"int8"`（带 warning 日志）。
+3. **`DEEP_NORMAL_MODE_USE_INT8_QUANT=1`** 环境变量 —— 已弃用回退，仅当 `quant_mode=None` 且无布尔标志时生效。
+4. **BF16**（默认）—— 以上均未设置时。
 
 > **各路径差异：**
-> - **intranode**：`quant_mode` > 环境变量 > BF16（即上述优先级顺序）。
-> - **internode**：当前**不会透传** `quant_mode` 到底层 dispatch（策略重构遗留的已知缺口），始终读取环境变量与 tuple-`x` dtype 检测；在 internode 路径上设置 `quant_mode` 无效。
-> - **alltoall**（`DEEP_USE_MODE=alltoall`）：`dispatch()` **不接收** `quant_mode`，INT8 仅由环境变量控制。
+> - **intranode**（default 策略）：完整优先级顺序。FP8/FP4 模式仅 A5 支持。
+> - **internode**（default 策略）：仅支持 `"bf16"` 和 `"int8"`。其他 quant_mode 值抛 `NotImplementedError`。
+> - **alltoall** 策略（`DEEP_USE_MODE=alltoall`）：仅支持 `"bf16"` 和 `"int8"`。FP8/FP4 模式需使用 default 策略。
 >
-> **平台支持：** INT8（`DYNAMIC_SCALES`）**全平台**（A2/A3/A5）支持。FP8/FP4 模式（`mx_fp8_*`、`pertoken_fp8_e4m3`、`mx_fp4_e2m1`）**仅 A5**。
+> **平台支持：** INT8 **全平台**（A2/A3/A5）支持。FP8/FP4 模式（`pertoken_fp8_e4m3`、`mx_fp8_e4m3`、`mx_fp4_e2m1`）**仅 A5**。
+>
+> **设备版本号**（`acl.rt.get_device_info(0, 601)` 第一个返回值）：
+> - A5：`9301`、`9201`、`3510`
+> - A2/A3：`2201`、`1001`、`2002`、`3002`
 
 ---
 

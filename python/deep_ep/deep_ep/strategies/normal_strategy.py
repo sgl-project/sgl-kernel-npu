@@ -3,7 +3,6 @@ Normal mode EP communication strategies.
 All normal mode strategy implementations are in this file.
 """
 
-import os
 from typing import Callable, List, Optional, Tuple, Union
 
 import torch
@@ -115,6 +114,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
                 previous_event,
                 async_finish,
                 allocate_on_comm_stream,
+                quant_mode,
             )
 
         return self._intranode_dispatch(
@@ -160,50 +160,22 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         Tuple,
         EventOverlap,
     ]:
-        # Determine quant type from quant_mode
-        if quant_mode is None:
-            if isinstance(x, torch.Tensor):
-                # BF16 no quant
-                data = x
-                x_scales = None
-                quant_type = "bf16"
-                use_quant = False
-            elif isinstance(x, tuple) and len(x) == 2:
-                data, quant_type_tensor = x
-                if quant_type_tensor.dtype == torch.float8_e4m3fn:
-                    quant_type = "mx_fp8_e4m3"
-                    use_quant = True
-                elif quant_type_tensor.dtype == torch.float8_e5m2:
-                    quant_type = "mx_fp8_e5m2"
-                    use_quant = True
-                elif quant_type_tensor.dtype == torch.int8:
-                    quant_type = "int8"
-                    use_quant = True
-                elif quant_type_tensor.dtype == torch.float4_e2m1fn_x2:
-                    quant_type = "mx_fp4_e2m1"
-                    use_quant = True
-                else:
-                    raise TypeError(
-                        f"Unsupported quantized dtype: {quant_type_tensor.dtype}"
-                    )
-                x_scales = None
-            else:
-                raise TypeError(f"Unsupported x type: {type(x)}")
-
-            if not use_quant:
-                use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
-                if use_quant:
-                    quant_type = "int8"
+        # Resolve quant parameters from the (already-resolved) quant_mode.
+        # The Buffer layer resolves quant_mode from bool flags + device architecture,
+        # so we no longer inspect x[1].dtype for quantization type detection.
+        data = x[0] if isinstance(x, tuple) else x
+        x_scales = None
+        if quant_mode is None or quant_mode == "bf16":
+            quant_type = "bf16"
+            use_quant = False
         else:
-            # New API: explicit quant_mode
             if quant_mode not in VALID_QUANT_MODES:
                 raise ValueError(
-                    f"Invalid quant_mode: {quant_mode}. Valid options: {VALID_QUANT_MODES}"
+                    f"Invalid quant_mode: {quant_mode}. "
+                    f"Valid options: {VALID_QUANT_MODES}"
                 )
-            data = x
-            x_scales = None
             quant_type = quant_mode
-            use_quant = quant_mode != "bf16"
+            use_quant = True
 
         if handle is not None:
             raise NotImplementedError(
@@ -285,6 +257,7 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         previous_event: Optional[EventOverlap],
         async_finish: bool,
         allocate_on_comm_stream: bool,
+        quant_mode: Optional[str] = None,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -294,7 +267,14 @@ class DefaultNormalCommStrategy(NormalEPCommStrategy):
         EventOverlap,
     ]:
         x, x_scales = x if isinstance(x, tuple) else (x, None)
-        use_quant = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1"
+
+        # Internode dispatch only supports BF16 and INT8 quantization.
+        if quant_mode is not None and quant_mode not in ("bf16", "int8"):
+            raise NotImplementedError(
+                f"quant_mode '{quant_mode}' is not supported by internode dispatch; "
+                f"only 'bf16' and 'int8' are supported."
+            )
+        use_quant = quant_mode == "int8"
 
         if handle is not None:
             raise NotImplementedError(
@@ -610,14 +590,13 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         num_experts = layout["num_experts"]
         topk_idx_int = topk_idx.to(torch.int32)
 
-        # Determine quant type from quant_mode
-        VALID_QUANT_MODES = {
-            "bf16",
-            "int8",
-        }
+        # quant_mode is resolved by the Buffer layer (from bool flags + device
+        # architecture, or explicit value).  The alltoall strategy only supports
+        # BF16 and INT8; FP8/FP4 modes require the default strategy.
+        ALLTOALL_QUANT_MODES = {"bf16", "int8"}
         if quant_mode is None:
             quant_mode = "bf16"
-        if quant_mode not in VALID_QUANT_MODES:
+        if quant_mode not in ALLTOALL_QUANT_MODES:
             raise NotImplementedError(
                 f"quant_mode '{quant_mode}' is not supported by the alltoall strategy. "
                 f"Only 'bf16' and 'int8' are supported; use the default strategy for "
@@ -626,9 +605,6 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         hidden_shape = x.shape
 
         use_quant = 1 if quant_mode == "int8" else -1
-        is_quant_env = os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT")
-        if is_quant_env is not None and quant_mode is None:
-            use_quant = 1 if is_quant_env == "1" else -1
 
         (permutated_tokens, reversed_local_mapping, _, dynamic_scale) = (
             torch_npu.npu_moe_init_routing_v2(

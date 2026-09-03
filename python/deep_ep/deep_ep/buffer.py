@@ -1,3 +1,4 @@
+import logging
 import os
 from enum import IntEnum
 from typing import Callable, List, Optional, Tuple, Union
@@ -8,7 +9,9 @@ import torch.distributed as dist
 import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
+from .device_info import get_device_arch
 from .ep_strategy import (
+    VALID_QUANT_MODES,
     LowLatencyStrategy,
     NormalStrategy,
     StrategyMap,
@@ -16,6 +19,8 @@ from .ep_strategy import (
     get_normal_strategy,
 )
 from .utils import EventOverlap, log_parameters
+
+logger = logging.getLogger(__name__)
 
 
 class FuseMode(IntEnum):
@@ -82,6 +87,9 @@ class Buffer:
             moe_all_to_all_group_name,
         )
 
+        # Detect device architecture family ("A5" or "A2/A3")
+        self.device_arch = get_device_arch()
+
         # set strategy by env
         deep_mode = os.getenv("DEEP_USE_MODE")
 
@@ -124,6 +132,65 @@ class Buffer:
             init_kwargs["comm_alg"] = comm_alg
 
         self.low_latency_strategy = strategy_cls(**init_kwargs)
+
+    def _resolve_normal_quant_mode(
+        self,
+        quant_mode: Optional[str],
+        use_fp8: bool,
+        use_mxfp4: bool,
+        use_mxfp8: bool,
+    ) -> Optional[str]:
+        """Resolve the effective ``quant_mode`` for normal dispatch.
+
+        Priority:
+        1. Explicit ``quant_mode`` (when not ``None``) — used directly.
+        2. ``use_mxfp4`` / ``use_mxfp8`` / ``use_fp8`` bool flags combined
+           with the detected device architecture:
+           - ``use_mxfp4``  → A5: ``mx_fp4_e2m1``;  A2/A3: not supported.
+           - ``use_mxfp8``  → A5: ``mx_fp8_e4m3``;  A2/A3: not supported.
+           - ``use_fp8``    → A5: ``pertoken_fp8_e4m3``;  A2/A3: ``int8`` (warning).
+        3. ``DEEP_NORMAL_MODE_USE_INT8_QUANT=1`` env var (deprecated fallback).
+        4. ``None`` (BF16, no quantization).
+        """
+        if quant_mode is not None:
+            if quant_mode not in VALID_QUANT_MODES:
+                raise ValueError(
+                    f"Invalid quant_mode: {quant_mode}. "
+                    f"Valid options: {VALID_QUANT_MODES}"
+                )
+            return quant_mode
+
+        is_a5 = self.device_arch == "A5"
+
+        if use_mxfp4:
+            if is_a5:
+                return "mx_fp4_e2m1"
+            raise NotImplementedError(
+                "use_mxfp4 is not supported on A2/A3 devices; "
+                "only A5 supports MXFP4 quantization."
+            )
+
+        if use_mxfp8:
+            if is_a5:
+                return "mx_fp8_e4m3"
+            raise NotImplementedError(
+                "use_mxfp8 is not supported on A2/A3 devices; "
+                "only A5 supports MXFP8 quantization."
+            )
+
+        if use_fp8:
+            if is_a5:
+                return "pertoken_fp8_e4m3"
+            logger.warning(
+                "use_fp8 is converted to int8 on A2/A3 devices."
+            )
+            return "int8"
+
+        # Deprecated env-var fallback for backward compatibility
+        if os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1":
+            return "int8"
+
+        return None
 
     @staticmethod
     def get_dispatch_config(num_ranks: int) -> Config:
@@ -302,6 +369,9 @@ class Buffer:
         allocate_on_comm_stream: bool = False,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
         quant_mode: Optional[str] = None,
+        use_fp8: bool = False,
+        use_mxfp4: bool = False,
+        use_mxfp8: bool = False,
     ) -> Tuple[
         Union[Tuple[torch.Tensor, torch.Tensor], torch.Tensor],
         Optional[torch.Tensor],
@@ -317,13 +387,9 @@ class Buffer:
             index should be visible via RDMA.
 
         Arguments:
-            x: input tokens. Supports two formats:
-                - `torch.Tensor` with `torch.bfloat16`, shaped `[num_tokens, hidden]`. Quantization is controlled by
-                  the `DEEP_NORMAL_MODE_USE_INT8_QUANT` environment variable (set to `1` for INT8 quantization, **deprecated**).
-                - Tuple of two `torch.Tensor`: for MXFP8 quantization, the first element is shaped `[num_tokens, hidden]`
-                  with `torch.float8_e4m3fn` (pre-quantized data), the second is shaped `[num_tokens, hidden // 32]`
-                  with `torch.float8_e8m0fnu` (per-block E8M0 scales). On NPU, this triggers MXFP8 per-block quantization
-                  (quant_mode=3) inside the dispatch kernel.
+            x: input tokens, ``torch.Tensor`` with ``torch.bfloat16``, shaped ``[num_tokens, hidden]``.
+                The dtype of ``x`` is no longer used for quantization-mode detection; use
+                ``quant_mode`` or the ``use_fp8`` / ``use_mxfp4`` / ``use_mxfp8`` bool flags instead.
             handle: an optional communication handle, if set, the CPU will reuse the layout information to save some time.
             num_tokens_per_rank: `[num_ranks]` with `torch.int`, the number of tokens to be sent to each rank.
             num_tokens_per_rdma_rank: `[num_rdma_ranks]` with `torch.int`, the number of tokens to be sent to each RDMA
@@ -342,15 +408,29 @@ class Buffer:
             allocate_on_comm_stream: control whether all the allocated tensors' ownership to be on the communication stream.
             dispatch_wait_recv_cost_stats: `[num_ranks]` with `torch.int`, record the time it takes for the dispatch phase
                 to receive all tokens from each slave rank in the current rank.
+            quant_mode: explicit quantization mode string (highest priority). Supported values:
+                ``None`` (BF16), ``"int8"``, ``"pertoken_fp8_e4m3"`` (A5), ``"mx_fp8_e4m3"`` (A5),
+                ``"mx_fp4_e2m1"`` (A5). When set, the bool flags below are ignored.
+            use_fp8: enable FP8-family quantization. On A5 → ``pertoken_fp8_e4m3``;
+                on A2/A3 → ``int8`` (with a warning). Ignored when ``quant_mode`` is set.
+            use_mxfp4: enable MXFP4 per-block quantization → ``mx_fp4_e2m1`` (A5 only).
+                Raises ``NotImplementedError`` on A2/A3. Ignored when ``quant_mode`` is set.
+            use_mxfp8: enable MXFP8 per-block quantization → ``mx_fp8_e4m3`` (A5 only).
+                Raises ``NotImplementedError`` on A2/A3. Ignored when ``quant_mode`` is set.
 
         Returns:
             recv_x: received tokens. The format depends on quantization mode:
                 - BF16 (no quantization): a `torch.Tensor` shaped `[received_token_count, hidden]` with `torch.bfloat16`.
-                - INT8 (`DEEP_NORMAL_MODE_USE_INT8_QUANT=1`, **deprecated**): a tuple, first element shaped `[received_token_count, hidden]`
+                - INT8: a tuple, first element shaped `[received_token_count, hidden]`
                   with `torch.int8`, second element shaped `[received_token_count]` with `torch.float32` (per-token scales).
-                - MXFP8 (tuple input with `float8_e4m3fn` + `float8_e8m0fnu`, A5/C310 only): a tuple, first element shaped
-                  `[received_token_count, hidden]` with `torch.float8_e4m3fn`, second element shaped
+                - PerToken FP8 (A5): a tuple, first element shaped `[received_token_count, hidden]`
+                  with `torch.float8_e4m3fn`, second element shaped `[received_token_count]` with `torch.float32`.
+                - MXFP8 (A5): a tuple, first element shaped `[received_token_count, hidden]`
+                  with `torch.float8_e4m3fn`, second element shaped
                   `[received_token_count, hidden // 32]` with `torch.float8_e8m0fnu` (per-block E8M0 scales).
+                - MXFP4 (A5): a tuple, first element shaped `[received_token_count, hidden / 2]`
+                  with `torch.float4_e2m1fn_x2`, second element shaped
+                  `[received_token_count, hidden // 32]` with `torch.float8_e8m0fnu`.
             recv_topk_idx: received expert indices.
             recv_topk_weights: received expert weights.
             num_recv_tokens_per_expert_list: Python list shaped `[num_local_experts]`, the received token count by
@@ -361,6 +441,11 @@ class Buffer:
         """
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
+
+        # Resolve quant_mode from bool flags + device architecture when not explicitly set
+        quant_mode = self._resolve_normal_quant_mode(
+            quant_mode, use_fp8, use_mxfp4, use_mxfp8
+        )
 
         # Delegate to normal strategy
         return self.normal_strategy.dispatch(
