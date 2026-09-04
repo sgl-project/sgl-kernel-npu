@@ -115,7 +115,7 @@ def log_parameters(input_name_full_tensor=None, output_idx_full_tensor=None):
     return log_parameters_decorator
 
 
-def resolve_normal_quant_mode(
+def _resolve_normal_quant_mode(
     use_fp8: bool,
     use_mxfp4: bool,
     use_mxfp8: bool,

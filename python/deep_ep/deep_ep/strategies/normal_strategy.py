@@ -447,6 +447,8 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
     Internode and intranode use the same implementation.
     """
 
+    _SUPPORTED_QUANT_MODES = frozenset({"bf16", "int8"})
+
     def __init__(self, runtime, group: dist.ProcessGroup):
         super().__init__(group)
         self.runtime = runtime
@@ -590,13 +592,9 @@ class AlltoAllNormalCommStrategy(NormalEPCommStrategy):
         num_experts = layout["num_experts"]
         topk_idx_int = topk_idx.to(torch.int32)
 
-        # quant_mode is resolved by the Buffer layer (from bool flags + device
-        # architecture, or explicit value).  The alltoall strategy only supports
-        # BF16 and INT8; FP8/FP4 modes require the default strategy.
-        ALLTOALL_QUANT_MODES = {"bf16", "int8"}
         if quant_mode is None:
             quant_mode = "bf16"
-        if quant_mode not in ALLTOALL_QUANT_MODES:
+        if quant_mode not in self._SUPPORTED_QUANT_MODES:
             raise NotImplementedError(
                 f"quant_mode '{quant_mode}' is not supported by the alltoall strategy. "
                 f"Only 'bf16' and 'int8' are supported; use the default strategy for "

@@ -15,7 +15,7 @@ from .ep_strategy import (
     get_low_latency_strategy,
     get_normal_strategy,
 )
-from .utils import EventOverlap, log_parameters, resolve_normal_quant_mode
+from .utils import EventOverlap, _resolve_normal_quant_mode, log_parameters
 
 
 class FuseMode(IntEnum):
@@ -372,7 +372,7 @@ class Buffer:
         config = self.get_dispatch_config(self.group_size) if config is None else config
 
         # Resolve quant_mode from bool flags + device architecture
-        quant_mode = resolve_normal_quant_mode(use_fp8, use_mxfp4, use_mxfp8)
+        quant_mode = _resolve_normal_quant_mode(use_fp8, use_mxfp4, use_mxfp8)
 
         # Delegate to normal strategy
         return self.normal_strategy.dispatch(
