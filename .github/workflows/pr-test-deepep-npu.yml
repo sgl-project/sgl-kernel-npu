@@ -759,7 +759,7 @@ jobs:
       )
     runs-on: linux-amd64-a5-4
     container:
-      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-950-ubuntu22.04-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}
+      image: swr.cn-southwest-2.myhuaweicloud.com/base_image/ascend-ci/cann:${{ matrix.cann_version }}-950-ubuntu22.04-py3.12
     env:
       TORCH_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/whl/cpu"
       PYPI_CACHE_URL: "http://cache-service.nginx-pypi-cache.svc.cluster.local/pypi/simple"
@@ -797,7 +797,7 @@ jobs:
         uses: runs-on/cache@v4
         with:
           path: output
-          key: sgl-kernel-npu-build-v4-${{ runner.os }}-a5-cann${{ matrix.cann_version }}-py${{ matrix.cann_version == '9.1.0' && '3.12' || '3.11' }}-${{ steps.get_build_hash.outputs.BUILD_HASH }}
+          key: sgl-kernel-npu-build-v4-${{ runner.os }}-a5-cann${{ matrix.cann_version }}-py3.12-${{ steps.get_build_hash.outputs.BUILD_HASH }}
       - name: Install dependencies
         run: |
           # speed up by using infra cache services
