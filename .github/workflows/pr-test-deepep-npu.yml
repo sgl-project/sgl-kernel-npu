@@ -820,7 +820,7 @@ jobs:
             bash scripts/prepare_deepep_in_container.sh -a deepep Ascend950
           fi
 
-        #err
+        # err
       - name: Run Normal mode pertoken_fp8_e4m3 quantization
         env:
           HCCL_BUFFSIZE: 500
