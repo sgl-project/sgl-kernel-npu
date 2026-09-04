@@ -442,6 +442,15 @@ function build_deepep_kernels()
     )
 }
 
+function build_sparse_flash_attention_opp()
+{
+    local op_dir="${PROJECT_ROOT}/csrc/sparse_flash_attention/custom_op"
+    local package_dir="${PROJECT_ROOT}/python/sgl_kernel_npu/sgl_kernel_npu"
+
+    chmod +x "${op_dir}/build.sh"
+    "${op_dir}/build.sh" "$SOC_VERSION" "$package_dir"
+}
+
 function build_attentions_kernels()
 {
     (
@@ -521,6 +530,9 @@ function main()
     fi
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" || "$BUILD_KERNELS_MODULE" == "ON" ]]; then
         build_cmake_modules
+    fi
+    if [[ "$BUILD_KERNELS_MODULE" == "ON" ]]; then
+        build_sparse_flash_attention_opp
     fi
     if [[ "$BUILD_DEEPEP_MODULE" == "ON" ]]; then
         build_deepep_kernels
