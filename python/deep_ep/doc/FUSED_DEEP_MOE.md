@@ -26,7 +26,7 @@ Two fuse modes are available via the `FuseMode` enum:
 
 | FuseMode | Value | CANN Operator | Description |
 |----------|-------|---------------|-------------|
-| `FuseMode.FUSED_DEEP_MOE` | `1` | `aclnnFusedDeepMoe` | Full fusion: Dispatch + GMM1 + DequantSwigluQuant + GMM2 + Dequant + Unpermute/Combine in a single AscendC kernel. |
+| `FuseMode.FUSED_DEEP_MOE` | `1` | `aclnnFusedDeepMoe` | Full fusion: Dispatch + GMM1 + activation/quantization + GMM2 + Dequant + Unpermute/Combine in a single AscendC kernel. The A5 path supports SwiGLU and SiTU. |
 | `FuseMode.DISPATCH_FFN_COMBINE` | `2` | `aclnnDispatchFFNCombine` | Integrated routing (`MoeInitRoutingQuantV2`) + AllToAll + GMM1 + DequantSwigluQuant + GMM2 + Dequant + Combine in a single AscendC kernel. |
 
 > [!NOTE]
@@ -60,6 +60,9 @@ def fused_deep_moe(
     num_experts: int,
     quant_mode: int = 1,
     fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
+    activation: str = "swiglu",
+    beta: Optional[float] = 4.0,
+    linear_beta: Optional[float] = 25.0,
     profile_enable: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]
 ```
@@ -79,7 +82,47 @@ def fused_deep_moe(
 | **num_experts** | `int` | Scalar, range **(0, 512]** | Total number of global experts. On A5 fused path, current tiling requires `num_experts` to be divisible by EP rank size. |
 | **quant_mode** | `int` | Scalar, default `1` | Quantization mode attribute passed to the fused operator. A3 follows the legacy fused-path semantics. On A5, this parameter is currently not effective in the public fused path: activation quantization follows the weight quantization type, so the practical supported combinations are `w8a8` and `w4a4`. `w4a8` is not supported, and non-quantized model weights are not supported in the current A5 fused path. |
 | **fuse_mode** | `FuseMode` | Scalar, default `FuseMode.FUSED_DEEP_MOE` | Fuse mode selection. |
+| **activation** | `str` | Scalar, default `"swiglu"` | Activation after GMM1. Supported values are `"swiglu"` and `"situ"`. SiTU is currently supported only by the A5 `FUSED_DEEP_MOE` path. |
+| **beta** | `Optional[float]` | Scalar, default `4.0` | Soft-saturation bound for the SiTU gate branch. `None` uses the internal default `4.0`. It must be greater than zero when SiTU is selected. |
+| **linear_beta** | `Optional[float]` | Scalar, default `25.0` | Optional soft-saturation bound for the SiTU up branch. A positive value enables the transformation; `None` leaves the up branch unchanged. |
 | **profile_enable** | `bool` | Scalar, default `False` | Whether to enable fused-kernel profiling for the current launch. It only takes effect when profiling has been started in advance (begin_profile). |
+
+### Activation Selection
+
+GMM1 produces two equally sized branches, `gate` and `up`. The default SwiGLU formula is:
+
+```text
+silu(x) = x * sigmoid(x)
+swiglu(gate, up) = silu(gate) * up
+```
+
+SiTU soft-clamps the gate branch and optionally the up branch:
+
+```text
+activated_gate = beta * tanh(gate / beta) * sigmoid(gate)
+activated_up = linear_beta * tanh(up / linear_beta)  # linear_beta is provided
+activated_up = up                                    # linear_beta is None
+situ(gate, up) = activated_gate * activated_up
+```
+
+Example:
+
+```python
+output, expert_token_nums = buffer.fused_deep_moe(
+    x,
+    topk_idx,
+    topk_weights,
+    gmm1_permuted_weight,
+    gmm1_permuted_weight_scale,
+    gmm2_weight,
+    gmm2_weight_scale,
+    num_max_dispatch_tokens_per_rank,
+    num_experts,
+    activation="situ",
+    beta=4.0,
+    linear_beta=25.0,
+)
+```
 
 ### Constraints
 
@@ -95,11 +138,14 @@ def fused_deep_moe(
 - On **A5**, `num_max_dispatch_tokens_per_rank >= bs`.
 - On **A5 MXFP4** paths, `hidden` and `gmm1_hidden` must be even.
 - On **A5 MXFP4** paths, quantized weights in `FRACTAL_NZ` format are not supported currently.
+- SiTU is supported only on **A5**. Selecting `activation="situ"` on the A3 path is rejected.
+- For SiTU, `beta` must be greater than zero. When `linear_beta` is provided, it must also be greater than zero.
 
 #### For `fuse_mode=DISPATCH_FFN_COMBINE` (mode=2)
 
 - Constraints follow the `aclnnDispatchFFNCombine` path and differ from `FUSED_DEEP_MOE`.
 - Shared expert is not supported.
+- Only SwiGLU is supported. Selecting `activation="situ"` raises `NotImplementedError`.
 
 ### Return Values
 
@@ -134,7 +180,7 @@ def fused_deep_moe(
 
 | FuseMode | 值 | CANN 算子 | 说明 |
 |----------|----|-----------|------|
-| `FuseMode.FUSED_DEEP_MOE` | `1` | `aclnnFusedDeepMoe` | 完整融合的 dispatch + FFN + combine 路径。 |
+| `FuseMode.FUSED_DEEP_MOE` | `1` | `aclnnFusedDeepMoe` | Dispatch + GMM1 + 激活/量化 + GMM2 + 反量化 + Unpermute/Combine 的完整融合路径；A5 路径支持 SwiGLU 和 SiTU。 |
 | `FuseMode.DISPATCH_FFN_COMBINE` | `2` | `aclnnDispatchFFNCombine` | 另一条 dispatch + FFN + combine 融合路径。 |
 
 > [!NOTE]
@@ -168,6 +214,9 @@ def fused_deep_moe(
     num_experts: int,
     quant_mode: int = 1,
     fuse_mode: FuseMode = FuseMode.FUSED_DEEP_MOE,
+    activation: str = "swiglu",
+    beta: Optional[float] = 4.0,
+    linear_beta: Optional[float] = 25.0,
     profile_enable: bool = False,
 ) -> Tuple[torch.Tensor, torch.Tensor]
 ```
@@ -187,7 +236,47 @@ def fused_deep_moe(
 | **num_experts** | `int` | 标量，范围 **(0, 512]** | 全局 expert 总数。A5 fused 当前 tiling 要求 `num_experts` 能被 EP rank size 整除。 |
 | **quant_mode** | `int` | 标量，默认 `1` | 下发给 fused 算子的量化模式属性。A3 保持 legacy fused 语义；A5 公共 fused 路径上该参数当前实际上不生效，激活量化方式会跟随权重量化方式，因此当前实际只支持 `w8a8` 和 `w4a4`。`w4a8` 暂不支持，非量化模型权重在当前 A5 fused 路径上也不支持。 |
 | **fuse_mode** | `FuseMode` | 标量，默认 `FuseMode.FUSED_DEEP_MOE` | 融合模式选择。 |
+| **activation** | `str` | 标量，默认 `"swiglu"` | GMM1 后使用的激活。支持 `"swiglu"` 和 `"situ"` 两个值。SiTU 当前只支持 A5 的 `FUSED_DEEP_MOE` 路径。 |
+| **beta** | `Optional[float]` | 标量，默认 `4.0` | SiTU gate 分支的软饱和边界。`None` 使用内部默认值 `4.0`。选择 SiTU 时该值必须大于零。 |
+| **linear_beta** | `Optional[float]` | 标量，默认 `25.0` | SiTU up 分支可选的软饱和边界。正数表示启用该变换；`None` 表示 up 分支保持不变。 |
 | **profile_enable** | `bool` | 标量，默认值为 `False` | 是否为当前运行启用kernel性能分析。仅在预先启动了性能分析时（begin_profile）才生效。 |
+
+### 激活选择
+
+GMM1 输出会被平均拆分成 `gate` 和 `up` 两个分支。默认的 SwiGLU 公式如下：
+
+```text
+silu(x) = x * sigmoid(x)
+swiglu(gate, up) = silu(gate) * up
+```
+
+SiTU 对 gate 分支进行软限幅，并可选地对 up 分支进行软限幅：
+
+```text
+activated_gate = beta * tanh(gate / beta) * sigmoid(gate)
+activated_up = linear_beta * tanh(up / linear_beta)  # 提供 linear_beta
+activated_up = up                                    # linear_beta 为 None
+situ(gate, up) = activated_gate * activated_up
+```
+
+调用示例：
+
+```python
+output, expert_token_nums = buffer.fused_deep_moe(
+    x,
+    topk_idx,
+    topk_weights,
+    gmm1_permuted_weight,
+    gmm1_permuted_weight_scale,
+    gmm2_weight,
+    gmm2_weight_scale,
+    num_max_dispatch_tokens_per_rank,
+    num_experts,
+    activation="situ",
+    beta=4.0,
+    linear_beta=25.0,
+)
+```
 
 ### A5 变化点说明
 
@@ -214,11 +303,14 @@ def fused_deep_moe(
 - 在 **A5** 上，`num_max_dispatch_tokens_per_rank >= bs`。
 - 在 **A5 MXFP4** 路径上，`hidden` 和 `gmm1_hidden` 还必须为偶数。
 - 在 **A5 MXFP4** 路径上，量化权重当前暂不支持 `FRACTAL_NZ` 格式。
+- SiTU 只支持 **A5**。在 A3 路径选择 `activation="situ"` 会被拒绝。
+- 使用 SiTU 时，`beta` 必须大于零；提供 `linear_beta` 时，该值也必须大于零。
 
 #### 对于 `fuse_mode=DISPATCH_FFN_COMBINE`（mode=2）
 
 - 约束遵循 `aclnnDispatchFFNCombine` 路径，与 `FUSED_DEEP_MOE` 不同。
 - 不支持 shared expert。
+- 只支持 SwiGLU；选择 `activation="situ"` 会抛出 `NotImplementedError`。
 
 ### 返回值
 

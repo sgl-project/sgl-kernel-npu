@@ -124,6 +124,9 @@ public:
         this->Attr("profile_enable").Int();
         this->Attr("profile_buffer_bytes").Int();
         this->Attr("profile_launch_id").Int();
+        this->Attr("activation_type").Int(0);
+        this->Attr("beta").Float(4.0F);
+        this->Attr("linear_beta").Float(25.0F);
 
         OpAICoreConfig aicoreConfig;
         aicoreConfig.DynamicCompileStaticFlag(true)

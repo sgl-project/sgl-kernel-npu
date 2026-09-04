@@ -42,6 +42,9 @@ struct FusedDeepMoeInfo {
     uint32_t moeExpertNum;         // moe expert number
     uint32_t moeExpertNumPerRank;  // moe expert number per rank
     uint32_t quantMode;            // reserved, from quant_mode attr
+    uint32_t activationType;       // 0: SwiGLU (SiLU gate), 1: SiTU
+    float beta;                    // SiTU gate soft-saturation bound
+    float linearBeta;              // SiTU up soft-saturation bound; 0 disables it
     uint32_t mxActStorageFp4;      // non-zero when gmm weight dtype is FP4; workspace sizing only
     uint32_t profileEnable;        // non-zero when fused kernel stage trace collection is enabled
     uint32_t profileLaunchId;      // launch slot in the session-owned persistent profile buffer
@@ -83,6 +86,8 @@ constexpr uint32_t GMM2_SWIZZLE_OFFSET = 3;
 constexpr uint32_t GMM2_SWIZZLE_DIRECTION = 0;
 
 constexpr uint32_t MX_FP4_QUANT_MODE = 4U;
+constexpr uint32_t ACTIVATION_SWIGLU = 0U;
+constexpr uint32_t ACTIVATION_SITU = 1U;
 
 constexpr uint32_t EXEC_FLAG_DEEP_FUSE = (1U << 0);
 constexpr uint32_t EXEC_FLAG_TENSOR_LIST = (1U << 1);

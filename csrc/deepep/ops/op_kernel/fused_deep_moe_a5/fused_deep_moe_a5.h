@@ -51,7 +51,7 @@ using Gmm2BlockScheduler =
 // AIV Epilogue:    Swap -> Swiglu
 // AIV Quantzie:    Swiglu -> D
 // 1. Swap use the same space with Swiglu, when fused memory
-// 2. Epilogue just do silu for the left
+// 2. Epilogue applies the selected activation to the left half
 // 3. n of routed and shared experts can be different
 template <TemplateMC2TypeClass, class ElementA, class ElementB, class L1TileShape, class L0TileShape,
           class EpilogueTileShape, class BlockScheduler, bool transB = false>
@@ -107,13 +107,15 @@ CATLASS_DEVICE void DispatchMxGmm1SwigluQuantFunc(
                                                               decltype(layoutMxScaleB), ElementC, LayoutTagC, void>;
     using BlockMmad = Catlass::Gemm::Block::BlockMmadTla<DispatchPolicy, L1TileShape, L0TileShape, ElementA, ElementB,
                                                          ElementC, void, TileCopy>;
-    using EpilogueDispatchPolicy = Catlass::Epilogue::EpilogueAtlasA5SiluHalf<1>;
+    using EpilogueDispatchPolicy = Catlass::Epilogue::EpilogueAtlasA5SiluSituHalf<1>;
     using BlockEpilogue =
         Epilogue::Block::BlockEpilogue<EpilogueDispatchPolicy, ElementC, ExpandXType, ElementC, EpilogueTileShape>;
 
     // kernel level
     using MatmulKernel = Catlass::Gemm::Kernel::DispatchMxGmm1Swiglu<TemplateMC2TypeFunc, BlockMmad, BlockEpilogue,
                                                                      BlockScheduler, ElementGroupList>;
+    typename BlockEpilogue::Params epilogueParams{fusedDeepMoeInfo.activationType, fusedDeepMoeInfo.beta,
+                                                  fusedDeepMoeInfo.linearBeta, fusedDeepMoeInfo.linearBeta > 0.0F};
     typename MatmulKernel::Params params{routedProblemShape,
                                          groupCount,
                                          gmGroupList,
@@ -151,7 +153,8 @@ CATLASS_DEVICE void DispatchMxGmm1SwigluQuantFunc(
                                          gmEpSendCount,
                                          gmExpertTokenNums,
                                          fusedDeepMoeInfo,
-                                         profile};
+                                         profile,
+                                         epilogueParams};
 
     MatmulKernel kernel;
     kernel(params);

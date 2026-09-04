@@ -7,10 +7,11 @@ import traceback
 from typing import Dict, List, Tuple
 
 import deep_ep
+import numpy as np
 import torch
 import torch.distributed as dist
 import torch_npu
-from utils import calc_diff, init_dist, profile_npu_event_sequences
+from utils import calc_diff, get_diff_threshold, init_dist, profile_npu_event_sequences
 
 torch_npu.npu.config.allow_internal_format = True
 
@@ -59,7 +60,27 @@ SMALL_OP_EVENT_PATTERNS = (
     ),
     ("MoeDistributeCombineV2", "MoeDistributeCombineV3"),
 )
-SMALL_OP_EVENT_LABELS = ("dispatch", "gmm1", "swiglu", "requant", "gmm2", "combine")
+SITU_GATE_EVENT_PATTERNS = (
+    ("aclnnDivs_RealDiv",),
+    ("aclnnTanh_Tanh",),
+    ("aclnnMuls_Mul",),
+    ("aclnnSigmoid_Sigmoid",),
+    ("aclnnMul_Mul",),
+)
+SITU_LINEAR_EVENT_PATTERNS = (
+    ("aclnnDivs_RealDiv",),
+    ("aclnnTanh_Tanh",),
+    ("aclnnMuls_Mul",),
+)
+SITU_OUTPUT_MUL_EVENT_PATTERNS = (("aclnnMul_Mul",),)
+SMALL_OP_EVENT_LABELS = (
+    "dispatch",
+    "gmm1",
+    "activation",
+    "requant",
+    "gmm2",
+    "combine",
+)
 # Only the very first profiler warmup iteration gets this heavier burn-in.
 # The extra work is intentionally excluded from final statistics and only
 # exists to keep the device busy a bit longer before the profiled small-op
@@ -71,6 +92,33 @@ SMALL_FIRST_WARMUP_GMM_BURN_IN_REPEATS = 100
 SMALL_FIRST_WARMUP_MATMUL_DIM_SCALE = 4
 ACCURACY_ATOL = 2.0
 ACCURACY_RTOL = 0.02
+
+
+def apply_gmm1_activation(x: torch.Tensor, args: argparse.Namespace) -> torch.Tensor:
+    if args.activation == "swiglu":
+        return torch_npu.npu_swiglu(x)
+
+    gate, up = x.to(torch.float32).chunk(2, dim=-1)
+    gate = args.beta * torch.tanh(gate / args.beta) * torch.sigmoid(gate)
+    if not args.disable_linear_beta:
+        up = args.linear_beta * torch.tanh(up / args.linear_beta)
+    return (gate * up).to(x.dtype)
+
+
+def get_small_op_profile_spec(args: argparse.Namespace):
+    if args.activation == "swiglu":
+        return SMALL_OP_EVENT_PATTERNS, 1
+
+    activation_patterns = list(SITU_GATE_EVENT_PATTERNS)
+    if not args.disable_linear_beta:
+        activation_patterns.extend(SITU_LINEAR_EVENT_PATTERNS)
+    activation_patterns.extend(SITU_OUTPUT_MUL_EVENT_PATTERNS)
+    patterns = (
+        SMALL_OP_EVENT_PATTERNS[:2]
+        + tuple(activation_patterns)
+        + SMALL_OP_EVENT_PATTERNS[3:]
+    )
+    return patterns, len(activation_patterns)
 
 
 def get_mx_quant_config(args: argparse.Namespace) -> Dict[str, object]:
@@ -324,7 +372,7 @@ def run_small_op_baseline(
         output_dtype=output_dtype,
     )[0]
     log_quant_tensor(rank, args.log_quant_dtypes, "gmm1.output", y1_fp)
-    swiglu_out = torch_npu.npu_swiglu(y1_fp)
+    swiglu_out = apply_gmm1_activation(y1_fp, args)
     log_quant_tensor(rank, args.log_quant_dtypes, "swiglu.output", swiglu_out)
 
     x2, x2_scale = torch_npu.npu_dynamic_mx_quant(
@@ -405,6 +453,9 @@ def run_buffer_fused(
         args.num_experts,
         FUSED_COMPAT_QUANT_MODE,
         profile_enable=kernel_trace_dir is not None,
+        activation=args.activation,
+        beta=args.beta,
+        linear_beta=None if args.disable_linear_beta else args.linear_beta,
     )
     return output, ep_recv_count
 
@@ -460,6 +511,29 @@ def summarize_profile_breakdown(step_durations_s) -> List[Tuple[float, float, fl
     ]
 
 
+def collapse_small_op_step_durations(step_durations_s, activation_event_count: int):
+    """Collapse one or more activation events into the six logical stages."""
+    if activation_event_count <= 0:
+        raise ValueError("activation_event_count must be positive")
+    expected_columns = activation_event_count + 5
+    if step_durations_s.ndim != 2 or step_durations_s.shape[1] != expected_columns:
+        raise ValueError(
+            "Unexpected small-op profiler breakdown shape: "
+            f"expected (*, {expected_columns}), got {step_durations_s.shape}"
+        )
+    activation_end = 2 + activation_event_count
+    return np.column_stack(
+        (
+            step_durations_s[:, 0],
+            step_durations_s[:, 1],
+            step_durations_s[:, 2:activation_end].sum(axis=1),
+            step_durations_s[:, activation_end],
+            step_durations_s[:, activation_end + 1],
+            step_durations_s[:, activation_end + 2],
+        )
+    )
+
+
 def print_profile_match_debug(
     rank: int, title: str, discovered_names, matched_sequences
 ):
@@ -499,7 +573,7 @@ def print_rank_skew_summary(gathered_small, gathered_small_breakdown, gathered_f
 
     print("rank skew summary:", flush=True)
     print(
-        "| Rank | Dispatch (us) | GMM1 (us) | SwiGLU (us) | Requant (us) | GMM2 (us) | Combine (us) | Small Total (us) | Fused (us) |",
+        "| Rank | Dispatch (us) | GMM1 (us) | Activation (us) | Requant (us) | GMM2 (us) | Combine (us) | Small Total (us) | Fused (us) |",
         flush=True,
     )
     print(
@@ -689,6 +763,45 @@ def summarize_output_diff(
     return avg_diff, max_diff, cosine_diff
 
 
+def get_output_accuracy_error(
+    reference: torch.Tensor,
+    actual: torch.Tensor,
+    args: argparse.Namespace,
+) -> str:
+    reference_f = reference.float()
+    actual_f = actual.float()
+    if args.activation == "situ":
+        diff = calc_diff(reference_f, actual_f)
+        threshold = get_diff_threshold(args.quant)
+        if diff <= threshold:
+            return ""
+        return (
+            "SiTU aggregate accuracy check failed: "
+            f"calc_diff={diff:.6e} exceeds the {args.quant} threshold "
+            f"{threshold:.6e}"
+        )
+
+    try:
+        torch.testing.assert_close(
+            reference_f,
+            actual_f,
+            atol=ACCURACY_ATOL,
+            rtol=ACCURACY_RTOL,
+        )
+    except AssertionError as exc:
+        return str(exc)
+    return ""
+
+
+def get_output_accuracy_criterion(args: argparse.Namespace) -> str:
+    if args.activation == "situ":
+        return (
+            f"calc_diff<={get_diff_threshold(args.quant):.6e} "
+            f"for quant={args.quant}"
+        )
+    return f"elementwise atol={ACCURACY_ATOL}, rtol={ACCURACY_RTOL}"
+
+
 def summarize_tensor_stats(tensor: torch.Tensor) -> Tuple[float, float]:
     if tensor.numel() == 0:
         return 0.0, 0.0
@@ -814,6 +927,9 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                 f"num_experts={args.num_experts}, "
                 f"num_topk={args.num_topk}, "
                 f"quant={args.quant}, "
+                f"activation={args.activation}, "
+                f"beta={args.beta}, "
+                f"linear_beta={'disabled' if args.disable_linear_beta else args.linear_beta}, "
                 f"kernel_trace_dir={args.kernel_trace_dir}, "
                 f"num_warmups={args.num_warmups}, "
                 f"num_tests={args.num_tests}, "
@@ -885,6 +1001,7 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
         if expected_counts is not None:
             torch.testing.assert_close(small_counts, expected_counts)
             torch.testing.assert_close(fused_counts, expected_counts)
+
         valid_token_num = local_num_tokens
 
         avg_diff, max_diff, cosine_diff = summarize_output_diff(
@@ -896,6 +1013,27 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
         fused_absmax, fused_mean = summarize_tensor_stats(
             fused_output[:valid_token_num]
         )
+        accuracy_reference = small_output[:valid_token_num].float()
+        accuracy_actual = fused_output[:valid_token_num].float()
+        accuracy_abs_diff = torch.abs(accuracy_actual - accuracy_reference)
+        # torch.testing.assert_close(actual, expected) scales rtol by the
+        # second tensor (expected). Mirror that convention exactly so the
+        # diagnostic outlier count matches the assertion below.
+        accuracy_tolerance = ACCURACY_ATOL + ACCURACY_RTOL * torch.abs(accuracy_actual)
+        accuracy_outlier_mask = accuracy_abs_diff > accuracy_tolerance
+        accuracy_outlier_count = int(accuracy_outlier_mask.sum().item())
+        accuracy_element_count = accuracy_reference.numel()
+        accuracy_max_abs_diff = (
+            accuracy_abs_diff.max().item() if accuracy_element_count else 0.0
+        )
+        accuracy_avg_abs_diff = (
+            accuracy_abs_diff.mean().item() if accuracy_element_count else 0.0
+        )
+        accuracy_max_outlier_abs_diff = (
+            accuracy_abs_diff[accuracy_outlier_mask].max().item()
+            if accuracy_outlier_count
+            else 0.0
+        )
         diag_tensor = torch.tensor(
             [
                 avg_diff,
@@ -906,6 +1044,11 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                 fused_absmax,
                 fused_mean,
                 float(has_valid_tokens),
+                float(accuracy_outlier_count),
+                float(accuracy_element_count),
+                accuracy_max_abs_diff,
+                accuracy_avg_abs_diff,
+                accuracy_max_outlier_abs_diff,
             ],
             dtype=torch.float32,
             device="npu",
@@ -916,14 +1059,28 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
             torch.empty_like(fused_counts) for _ in range(world_size)
         ]
         dist.all_gather(gathered_fused_counts, fused_counts)
-        dist.barrier()
-        if has_valid_tokens:
-            torch.testing.assert_close(
-                small_output[:valid_token_num].float(),
-                fused_output[:valid_token_num].float(),
-                atol=ACCURACY_ATOL,
-                rtol=ACCURACY_RTOL,
+        accuracy_error = (
+            get_output_accuracy_error(
+                small_output[:valid_token_num],
+                fused_output[:valid_token_num],
+                args,
             )
+            if has_valid_tokens
+            else ""
+        )
+        accuracy_pass = torch.tensor(
+            [not accuracy_error], dtype=torch.bool, device="npu"
+        )
+        gathered_accuracy_pass = [
+            torch.empty_like(accuracy_pass) for _ in range(world_size)
+        ]
+        dist.all_gather(gathered_accuracy_pass, accuracy_pass)
+        failed_accuracy_ranks = [
+            idx
+            for idx, passed in enumerate(gathered_accuracy_pass)
+            if not bool(passed.item())
+        ]
+        dist.barrier()
         if rank == 0:
             print_fused_counts_table(gathered_fused_counts)
             gathered_diag_cpu = torch.stack(gathered_diag).cpu()
@@ -932,13 +1089,34 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                 for idx in range(world_size)
                 if gathered_diag_cpu[idx, 7].item() == 0.0
             ]
+            accuracy_status = "passed" if not failed_accuracy_ranks else "failed"
+            total_outliers = int(gathered_diag_cpu[:, 8].sum().item())
+            total_elements = int(gathered_diag_cpu[:, 9].sum().item())
             print(
-                "Accuracy check passed. "
+                f"Accuracy check {accuracy_status}. "
+                f"criterion={get_output_accuracy_criterion(args)}, "
                 f"avg_diff={gathered_diag_cpu[:, 0].max().item():.6f}, "
                 f"max_diff={gathered_diag_cpu[:, 1].max().item():.6f}, "
-                f"calc_diff={gathered_diag_cpu[:, 2].max().item():.6f}",
+                f"calc_diff={gathered_diag_cpu[:, 2].max().item():.6f}, "
+                f"outliers={total_outliers}/{total_elements}, "
+                f"avg_abs_diff={gathered_diag_cpu[:, 11].max().item():.6f}, "
+                f"max_abs_diff={gathered_diag_cpu[:, 10].max().item():.6f}, "
+                f"max_outlier_abs_diff={gathered_diag_cpu[:, 12].max().item():.6f}, "
+                f"failed_ranks={failed_accuracy_ranks}",
                 flush=True,
             )
+            for failed_rank in failed_accuracy_ranks:
+                rank_diag = gathered_diag_cpu[failed_rank]
+                print(
+                    f"  rank {failed_rank}: avg_rel_diff={rank_diag[0].item():.6f}, "
+                    f"max_rel_diff={rank_diag[1].item():.6f}, "
+                    f"calc_diff={rank_diag[2].item():.6f}, "
+                    f"outliers={int(rank_diag[8].item())}/{int(rank_diag[9].item())}, "
+                    f"avg_abs_diff={rank_diag[11].item():.6f}, "
+                    f"max_abs_diff={rank_diag[10].item():.6f}, "
+                    f"max_outlier_abs_diff={rank_diag[12].item():.6f}",
+                    flush=True,
+                )
             if skipped_accuracy_ranks:
                 print(
                     "Skipped per-token accuracy comparison for zero-token ranks: "
@@ -948,6 +1126,12 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                 )
 
         dist.barrier()
+        if failed_accuracy_ranks:
+            if accuracy_error:
+                raise AssertionError(f"[rank {rank}] {accuracy_error}")
+            raise AssertionError(
+                f"Accuracy check failed on ranks {failed_accuracy_ranks}"
+            )
         small_stats = None
         small_breakdown_stats = None
         fused_stats = None
@@ -983,6 +1167,9 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                     warmup_burn_in_buffers=warmup_burn_in_buffers,
                 )
 
+            small_event_patterns, activation_event_count = get_small_op_profile_spec(
+                args
+            )
             (
                 small_durations,
                 small_event_names,
@@ -991,7 +1178,7 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
                 small_debug_info,
             ) = profile_npu_event_sequences(
                 small_profile_fn,
-                SMALL_OP_EVENT_PATTERNS,
+                small_event_patterns,
                 num_warmups=args.num_warmups,
                 num_tests=args.num_tests,
                 suppress_kineto_output=True,
@@ -1006,10 +1193,13 @@ def run_rank(local_rank: int, num_processes: int, args: argparse.Namespace):
             if len(small_durations) == 0:
                 raise AssertionError(
                     "No matched NPU event sequence found for small-op. "
-                    f"Patterns={SMALL_OP_EVENT_PATTERNS}. "
+                    f"Patterns={small_event_patterns}. "
                     f"Discovered events={small_event_names}"
                 )
             small_stats = summarize_profile_durations(small_durations)
+            small_step_durations = collapse_small_op_step_durations(
+                small_step_durations, activation_event_count
+            )
             small_breakdown_stats = summarize_profile_breakdown(small_step_durations)
         dist.barrier()
 
@@ -1305,6 +1495,29 @@ def main():
         help="Storage format for quantized GMM weights; NZ is supported for FP8 only.",
     )
     parser.add_argument(
+        "--activation",
+        choices=("swiglu", "situ"),
+        default="swiglu",
+        help="GMM1 activation used by both the fused kernel and the reference path.",
+    )
+    parser.add_argument(
+        "--beta",
+        type=float,
+        default=4.0,
+        help="SiTU gate soft-saturation bound.",
+    )
+    parser.add_argument(
+        "--linear-beta",
+        type=float,
+        default=25.0,
+        help="SiTU up-projection soft-saturation bound.",
+    )
+    parser.add_argument(
+        "--disable-linear-beta",
+        action="store_true",
+        help="Leave the SiTU up branch unchanged.",
+    )
+    parser.add_argument(
         "--trace-dir",
         help="Optional directory to export profiler chrome traces.",
     )
@@ -1358,6 +1571,14 @@ def main():
         parser.error("--num-warmups must be non-negative")
     if args.num_tests <= 0:
         parser.error("--num-tests must be positive")
+    if args.activation == "situ" and args.beta <= 0:
+        parser.error("--beta must be positive for SiTU")
+    if (
+        args.activation == "situ"
+        and not args.disable_linear_beta
+        and args.linear_beta <= 0
+    ):
+        parser.error("--linear-beta must be positive for SiTU")
     if args.quant == "fp4_e2m1" and args.weight_format == "NZ":
         parser.error(
             "--weight-format NZ is currently supported for FP8 quantization only"

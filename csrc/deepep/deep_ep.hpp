@@ -129,7 +129,9 @@ public:
                                            const at::Tensor &gmm1PermutedWeightScale, const at::Tensor &gmm2Weight,
                                            const at::Tensor &gmm2WeightScale, const at::Tensor &expertScalesOptional,
                                            int64_t num_max_dispatch_tokens_per_rank, int64_t num_experts,
-                                           int quant_mode, bool profile_enable = false);
+                                           int quant_mode, bool profile_enable = false,
+                                           const std::optional<std::string> &activation = std::string("swiglu"),
+                                           std::optional<double> beta = 4.0, std::optional<double> linear_beta = 25.0);
 
     void begin_profile(int64_t num_profile_skip_launches, int64_t num_profile_active_launches,
                        const std::string &profile_trace_dir = "");
