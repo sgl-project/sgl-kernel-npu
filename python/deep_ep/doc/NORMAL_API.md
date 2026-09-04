@@ -135,9 +135,6 @@ The quantization mode for `dispatch` is resolved in `Buffer._resolve_normal_quan
 > **Device version codes** (first return value of `acl.rt.get_device_info(0, 601)`):
 > - A5: `9301`, `9201`, `3510`
 > - A2/A3: `2201`
-> - V100: `1001`
-> - V200: `2002`
-> - V300: `3002`
 
 ---
 
@@ -328,9 +325,6 @@ dispatch(
 > **设备版本号**（`acl.rt.get_device_info(0, 601)` 第一个返回值）：
 > - A5：`9301`、`9201`、`3510`
 > - A2/A3：`2201`
-> - V100：`1001`
-> - V200：`2002`
-> - V300：`3002`
 
 ---
 
