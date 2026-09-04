@@ -321,7 +321,7 @@ class Buffer:
         Arguments:
             x: input tokens, ``torch.Tensor`` with ``torch.bfloat16``, shaped ``[num_tokens, hidden]``.
                 The dtype of ``x`` is no longer used for quantization-mode detection; use
-                ``quant_mode`` or the ``use_fp8`` / ``use_mxfp4`` / ``use_mxfp8`` bool flags instead.
+                the ``use_fp8`` / ``use_mxfp4`` / ``use_mxfp8`` bool flags instead.
             handle: an optional communication handle, if set, the CPU will reuse the layout information to save some time.
             num_tokens_per_rank: `[num_ranks]` with `torch.int`, the number of tokens to be sent to each rank.
             num_tokens_per_rdma_rank: `[num_rdma_ranks]` with `torch.int`, the number of tokens to be sent to each RDMA
