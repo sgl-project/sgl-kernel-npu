@@ -7,6 +7,8 @@
 
 from typing import Optional, Union
 
+import os
+
 import torch
 import torch.nn.functional as F
 import triton
@@ -1491,6 +1493,54 @@ def _conv_state_pool_view(conv_states: torch.Tensor, dim: int, state_len: int):
     return conv_states.transpose(1, 2), True
 
 
+# Lazily-resolved handle to the AscendC causal_conv1d op (PTO-ISA kernel in
+# this repo's .so). It speaks the NPU MambaPool's native window-major layout
+# directly and serves both varlen prefill (run_mode=0) and the single-token
+# decode update (run_mode=1); the v2 wrappers below prefer it and fall back
+# to the torch/Triton composition whenever it is unavailable (e.g. A5
+# reduced builds) or a precondition is unmet. Set
+# SGL_NPU_DISABLE_ASCENDC_CONV1D=1 to force the fallback path (A/B tests,
+# debugging).
+_ASCENDC_CONV1D_OP = None
+
+
+def _ascendc_conv1d_op():
+    global _ASCENDC_CONV1D_OP
+    if _ASCENDC_CONV1D_OP is None:
+        if os.environ.get("SGL_NPU_DISABLE_ASCENDC_CONV1D", "0") == "1":
+            _ASCENDC_CONV1D_OP = False
+        else:
+            try:
+                _ASCENDC_CONV1D_OP = torch.ops.npu.causal_conv1d
+            except (AttributeError, RuntimeError):
+                # op not registered in this build
+                _ASCENDC_CONV1D_OP = False
+    return _ASCENDC_CONV1D_OP or None
+
+
+# Set SGL_NPU_CONV1D_DEBUG=1 to log (once per distinct outcome) whether the
+# v2 wrappers dispatch to the AscendC op or fall back, plus the tensor
+# attributes that drove the decision -- silent fallbacks are otherwise
+# invisible in e2e runs.
+_CONV1D_DEBUG = os.environ.get("SGL_NPU_CONV1D_DEBUG", "0") == "1"
+_CONV1D_PATH_LOGGED = set()
+
+
+def _log_conv1d_path(kind, taken, x, weight, conv_states):
+    key = (kind, taken)
+    if key in _CONV1D_PATH_LOGGED:
+        return
+    _CONV1D_PATH_LOGGED.add(key)
+    print(
+        f"[sgl_kernel_npu] causal_conv1d {kind}: "
+        f"{'AscendC op' if taken else 'fallback'} | "
+        f"x={tuple(x.shape)}:{x.dtype} w={tuple(weight.shape)}:{weight.dtype} "
+        f"pool={tuple(conv_states.shape)}:{conv_states.dtype} "
+        f"contig={conv_states.is_contiguous()}",
+        flush=True,
+    )
+
+
 def causal_conv1d_fn_v2(
     x: torch.Tensor,
     weight: torch.Tensor,
@@ -1514,13 +1564,55 @@ def causal_conv1d_fn_v2(
     )
     dim, _ = x.shape
     width = weight.shape[1]
+    dev = x.device
+    seq_lens = (query_start_loc[1:] - query_start_loc[:-1]).to(torch.int64)
+    # Single D2H sync for both bounds: the fast path below must exclude
+    # zero-length rows (the op's final-state semantics for them differ from
+    # this wrapper's init-echo contract) and the fallback needs max_t anyway.
+    bounds = torch.stack((seq_lens.min(), seq_lens.max())).cpu()
+    min_len, max_t = int(bounds[0]), int(bounds[1])
+    # Fast path: the AscendC op takes the packed varlen input in token-major
+    # layout plus the window-major pool directly (no scatter/pad dance) and
+    # is several times faster than the torch composition below (3.8x at the
+    # LFM2.5-8B e2e shape: dim=1024, width=3, 4 reqs x 800 tok). Guard every
+    # precondition -- the op only supports width in [2, 4], bf16/fp16 with
+    # matching dtypes, a contiguous window-major pool with the exact
+    # (width - 1) window, and no zero-length rows -- and fall back silently
+    # otherwise.
+    op = _ascendc_conv1d_op()
+    if (
+        op is not None
+        and min_len > 0
+        and 2 <= width <= 4
+        and conv_states.dim() == 3
+        and conv_states.shape[-1] == dim
+        and conv_states.shape[-2] == width - 1
+        and conv_states.is_contiguous()
+        and x.dtype in (torch.bfloat16, torch.float16)
+        and weight.dtype == x.dtype
+        and conv_states.dtype == x.dtype
+        and (bias is None or bias.dtype == x.dtype)
+    ):
+        if _CONV1D_DEBUG:
+            _log_conv1d_path("prefill", True, x, weight, conv_states)
+        out = op(
+            x.t().contiguous(),  # (dim, cu_seq) -> token-major (cu_seq, dim)
+            weight.t().contiguous(),  # (dim, width) -> (width, dim)
+            conv_states,
+            bias=bias,
+            query_start_loc=query_start_loc,
+            cache_indices=cache_indices,
+            has_initial_state=has_initial_state,
+            activation_mode=1 if activation in ("silu", "swish") else 0,
+            pad_slot_id=pad_slot_id,
+        )
+        return out.t()  # (cu_seq, dim) -> (dim, cu_seq) view
+    if _CONV1D_DEBUG:
+        _log_conv1d_path("prefill", False, x, weight, conv_states)
     pool = conv_states
     conv_states, transposed = _conv_state_pool_view(conv_states, dim, width - 1)
     state_len = conv_states.shape[-1]
-    dev = x.device
-    seq_lens = (query_start_loc[1:] - query_start_loc[:-1]).to(torch.int64)
     batch = seq_lens.numel()
-    max_t = int(seq_lens.max().item())
     # Slot 0 is reserved as the dummy write target for padded tokens (see
     # sglang's MambaSlotAllocator.clear), so remapping pads there can never
     # clobber a real request's state.
@@ -1607,15 +1699,14 @@ def causal_conv1d_update_npu_v2(
 
     x: (batch, dim) or (batch, dim, seqlen); conv_state: per-layer pool view
     (n_slots, state_len, dim) -- the NPU MambaPool's unified
-    [layers, pool, window, channels]. Dispatches to the
-    causal_conv1d_update_v2 Triton kernel, which requires the window-major
-    shape (a strided transpose view overflows the NPU unified buffer at
-    kernel-compile time), so channel-major shaped pools
-    (n_slots, dim, state_len) and pool-less callers
-    (conv_state_indices is None, plain per-batch states) fall back to plain
-    torch ops. Padded rows (index == pad_slot_id) are skipped inside the
-    kernel, so no index remapping is needed and the call is graph-capture
-    safe.
+    [layers, pool, window, channels]. The single-token decode step over a
+    contiguous (width - 1)-window pool dispatches to the AscendC
+    causal_conv1d op in run_mode=1; everything else falls back to the
+    causal_conv1d_update_v2 Triton kernel (multi-token steps, extended
+    state buffers) or plain torch ops (channel-major shaped pools,
+    pool-less callers with conv_state_indices is None). Padded rows
+    (index == pad_slot_id) are skipped inside the kernels, so no index
+    remapping is needed and the calls are graph-capture safe.
     """
     if conv_state_indices is None:
         # The Triton kernel always dereferences the slot-index tensor.
@@ -1628,7 +1719,47 @@ def causal_conv1d_update_npu_v2(
         return _causal_conv1d_update_torch(
             x, conv_state, weight, bias, activation, conv_state_indices, pad_slot_id
         )
+    width = weight.shape[1]
     squeeze = x.dim() == 2
+    # Fast path: the AscendC op in run_mode=1 implements exactly the
+    # single-token rolling-window update over the window-major pool
+    # (~1.4x faster than the Triton kernel below at e2e shapes). Only for
+    # the plain
+    # decode step -- one new token per request and the exact (width - 1)
+    # state window -- with matching bf16/fp16 dtypes; multi-token steps
+    # (spec verify) and extended state buffers stay on the Triton path.
+    op = _ascendc_conv1d_op()
+    if (
+        op is not None
+        and 2 <= width <= 4
+        and conv_state.shape[-2] == width - 1
+        and conv_state.is_contiguous()
+        and x.dtype in (torch.bfloat16, torch.float16)
+        and weight.dtype == x.dtype
+        and conv_state.dtype == x.dtype
+        and (bias is None or bias.dtype == x.dtype)
+        and (squeeze or x.shape[-1] == 1)
+    ):
+        if _CONV1D_DEBUG:
+            _log_conv1d_path("decode", True, x, weight, conv_state)
+        x_in = (
+            x.unsqueeze(1) if squeeze else x.reshape(x.shape[0], 1, x.shape[1])
+        ).contiguous()
+        out = op(
+            x_in,
+            weight.t().contiguous(),  # (dim, width) -> (width, dim)
+            conv_state,
+            bias=bias,
+            cache_indices=conv_state_indices,
+            activation_mode=1 if activation in ("silu", "swish") else 0,
+            pad_slot_id=pad_slot_id,
+            run_mode=1,
+        )
+        if squeeze:
+            return out.squeeze(1)
+        return out.reshape(x.shape)
+    if _CONV1D_DEBUG:
+        _log_conv1d_path("decode", False, x, weight, conv_state)
     if squeeze:
         # (batch, dim): the v2 wrapper unsqueezes to (batch, 1, dim)
         # itself, so no copy is needed on the common decode step.
