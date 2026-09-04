@@ -77,7 +77,7 @@ MAMBA_TESTS=(
     test_conv1d_prefill.py
     test_conv1d_update.py
     test_mamba_conv.py
-    # test_mamba_state_update.py  # FAILING: move_intermediate_cache strided-dst exact mismatch
+    test_mamba_state_update.py  # fixed in #748: physical-order mover semantics + conv_state_rollback in-place update
 )
 
 FLA_TESTS=(
