@@ -5,7 +5,6 @@ import time
 from typing import Optional
 
 import deep_ep
-import numpy as np
 import torch
 import torch.distributed as dist
 import torch_npu

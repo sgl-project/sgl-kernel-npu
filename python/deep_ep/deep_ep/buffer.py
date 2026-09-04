@@ -8,7 +8,6 @@ import torch.distributed as dist
 import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
-from .device_info import get_device_arch
 from .ep_strategy import (
     LowLatencyStrategy,
     NormalStrategy,
@@ -82,9 +81,6 @@ class Buffer:
             low_latency_mode,
             moe_all_to_all_group_name,
         )
-
-        # Detect device architecture family ("A5" or "A2/A3")
-        self.device_arch = get_device_arch()
 
         # set strategy by env
         deep_mode = os.getenv("DEEP_USE_MODE")
@@ -376,9 +372,7 @@ class Buffer:
         config = self.get_dispatch_config(self.group_size) if config is None else config
 
         # Resolve quant_mode from bool flags + device architecture
-        quant_mode = resolve_normal_quant_mode(
-            use_fp8, use_mxfp4, use_mxfp8, self.device_arch
-        )
+        quant_mode = resolve_normal_quant_mode(use_fp8, use_mxfp4, use_mxfp8)
 
         # Delegate to normal strategy
         return self.normal_strategy.dispatch(

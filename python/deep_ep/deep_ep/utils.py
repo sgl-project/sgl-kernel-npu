@@ -8,7 +8,7 @@ import torch
 import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
-from .device_info import DEVICE_VERSION_TABLE, get_device_version
+from .device_info import DEVICE_VERSION_TABLE, QUANT_MODE_TABLE, get_device_version
 
 
 class EventOverlap:
@@ -119,7 +119,6 @@ def resolve_normal_quant_mode(
     use_fp8: bool,
     use_mxfp4: bool,
     use_mxfp8: bool,
-    device_arch: str,
 ) -> Optional[str]:
     """Resolve the effective ``quant_mode`` for normal dispatch.
 
@@ -132,8 +131,6 @@ def resolve_normal_quant_mode(
     2. ``DEEP_NORMAL_MODE_USE_INT8_QUANT=1`` env var (deprecated fallback).
     3. ``None`` (BF16, no quantization).
     """
-    from .device_info import QUANT_MODE_TABLE
-
     try:
         version_code = get_device_version()
     except Exception:
