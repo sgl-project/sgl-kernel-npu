@@ -820,8 +820,7 @@ jobs:
             bash scripts/prepare_deepep_in_container.sh -a deepep Ascend950
           fi
 
-        # err
-      - name: Run Normal mode pertoken_fp8_e4m3 quantization
+      - name: Run normal mode pertoken_fp8_e4m3 quantization
         env:
           HCCL_BUFFSIZE: 500
         timeout-minutes: 20
@@ -916,7 +915,7 @@ jobs:
           --num-tests 10 \
           --num-token-jitter 5
 
-      - name: Run NZ format weights
+      - name: Run nz format weights
         timeout-minutes: 10
         run: |
           python3 $GITHUB_WORKSPACE/tests/python/deepep/test_fused_deep_moe_a5.py \
