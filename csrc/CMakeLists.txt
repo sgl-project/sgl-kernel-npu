@@ -6,17 +6,6 @@ set(OP_PLUGIN_NAME sgl_kernel_npu)
 
 # --- SOC_VERSION ARCH mapping ------
 string(TOLOWER "${SOC_VERSION}" _sgl_soc_lower)
-# Kernel arch family, derived from the SoC:
-#   arch22: A2 (Ascend910B*) / A3 (Ascend910_9382)
-#   arch35: A5 (Ascend950*)
-if(_sgl_soc_lower MATCHES "^ascend950")
-    set(SGL_KERNEL_ARCH arch35)
-else()
-    set(SGL_KERNEL_ARCH arch22)
-endif()
-# A3-family-specific operators (compiled only on the A2/A3 arch family).
-# Note: this is an A3-family toggle, NOT an arch selector -- dual-arch ops
-# must use SGL_KERNEL_ARCH instead.
 if(NOT DEFINED SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     if(_sgl_soc_lower MATCHES "^ascend950")
         set(SGL_KERNEL_ENABLE_A3_ONLY_OPS OFF)
@@ -27,14 +16,7 @@ endif()
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
     add_compile_definitions(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
 endif()
-# Expose the arch family to host compilation (SGL_KERNEL_ARCH_22 / _35).
-# Dual-arch host code selects its arch implementation with these macros.
-if(SGL_KERNEL_ARCH STREQUAL "arch35")
-    add_compile_definitions(SGL_KERNEL_ARCH_35)
-else()
-    add_compile_definitions(SGL_KERNEL_ARCH_22)
-endif()
-message(STATUS "SGL_KERNEL_ARCH=${SGL_KERNEL_ARCH} SGL_KERNEL_ENABLE_A3_ONLY_OPS=${SGL_KERNEL_ENABLE_A3_ONLY_OPS} (SOC=${SOC_VERSION})")
+message(STATUS "SGL_KERNEL_ENABLE_A3_ONLY_OPS=${SGL_KERNEL_ENABLE_A3_ONLY_OPS} (SOC=${SOC_VERSION})")
 
 # A5-only ops: compile only on Ascend950-series SoCs.
 if(NOT DEFINED SGL_KERNEL_ENABLE_A5_ONLY_OPS)
@@ -76,15 +58,12 @@ set(OP_SRCS
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/sparse_attention_score.cpp
     ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling/sparse_attention_score_tiling.cpp
     )
-# Compressor dual-arch tiling: arch selected by SGL_KERNEL_ARCH (arch22 on
-# A2/A3, arch35 on A5), decoupled from the A3-family-only toggle below.
-set(COMPRESSOR_ARCH_DIR ${SGL_KERNEL_ARCH})
-list(APPEND OP_SRCS
-    ${PROJECT_OP_SRC_BASE}/compressor/op_host/${COMPRESSOR_ARCH_DIR}/compressor_tiling.cpp
-)
-# A3-family-only host sources (only built on the A2/A3 arch family).
+# A3-only host sources + compressor dual-arch tiling (arch22 on A2/A3, arch35
+# on A5, selected by the same SOC flag).
 if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
+    set(COMPRESSOR_ARCH_DIR arch22)
     list(APPEND OP_SRCS
+        ${PROJECT_OP_SRC_BASE}/compressor/op_host/arch22/compressor_tiling.cpp
         ${PROJECT_OP_SRC_BASE}/mla_preprocess/op_host/mla_preprocess.cpp
         ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/batch_matmul_transpose.cpp
         ${PROJECT_OP_SRC_BASE}/batch_matmul_transpose/op_host/tiling/tiling_data.cpp
@@ -100,6 +79,11 @@ if(SGL_KERNEL_ENABLE_A3_ONLY_OPS)
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/slot_map_lookup/op_host/slot_map_lookup.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator.cpp
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator/shm_allocator_op.cpp
+    )
+else()
+    set(COMPRESSOR_ARCH_DIR arch35)
+    list(APPEND OP_SRCS
+        ${PROJECT_OP_SRC_BASE}/compressor/op_host/arch35/compressor_tiling.cpp
     )
 endif()
 # A5-only host sources
@@ -306,15 +290,7 @@ target_include_directories(${OP_PLUGIN_NAME} PRIVATE
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host
         ${PROJECT_OP_SRC_BASE}/causal_conv1d_update/op_host/stub
         ${PROJECT_OP_SRC_BASE}/causal_conv1d/op_host
-<<<<<<< HEAD
-<<<<<<< HEAD
         ${PROJECT_OP_SRC_BASE}/sparsity_driven_kv_offload/shm_allocator
-=======
-        ${PROJECT_OP_SRC_BASE}/compressor/op_host
-        ${PROJECT_OP_SRC_BASE}/compressor/op_kernel
->>>>>>> 2ade82a (feat(compressor): add arch35 (A5) kernel with dual-arch build)
-=======
->>>>>>> 9d41131 (fix(compressor): remove duplicate compressor declaration in sgl_kenel_npu_ops.h)
         ${PROJECT_OP_SRC_BASE}/sparse_attn_sharedkv/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host
         ${PROJECT_OP_SRC_BASE}/sparse_attention_score/op_host/tiling

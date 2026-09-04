@@ -19,10 +19,10 @@
 #include "tiling/platform/platform_ascendc.h"
 #include "defines.h"
 #include "torch_helper.h"
-#ifdef SGL_KERNEL_ARCH_35
-#include "arch35/compressor_tiling.h"
-#else
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
 #include "arch22/compressor_tiling.h"
+#else
+#include "arch35/compressor_tiling.h"
 #endif
 #include "ge_helper.h"
 #include "common_tiling.h"
@@ -33,101 +33,6 @@
 namespace sglang {
 namespace npu_kernel {
 
-<<<<<<< HEAD
-<<<<<<< HEAD
-=======
-constexpr uint32_t MAX_CAPTURE_NUM = 1024;
-
-namespace {
-
-struct TilingCache {
-    at::Tensor buffer;
-    std::unordered_map<std::string, uint32_t> slots;
-    uint32_t nextSlot = 0;
-};
-
-template <typename T>
-void AppendTilingKey(std::string &key, const T &value)
-{
-    static_assert(std::is_trivially_copyable_v<T>);
-    key.append(reinterpret_cast<const char *>(&value), sizeof(T));
-}
-
-std::string MakeTilingCacheKey(const optiling::CompressorTilingData &data)
-{
-    std::string key;
-    key.reserve(sizeof(optiling::CompressorTilingData));
-    const auto &base = data.baseParams;
-    AppendTilingKey(key, base.batchSize);
-    AppendTilingKey(key, base.seqSize);
-    AppendTilingKey(key, base.hiddenSize);
-    AppendTilingKey(key, base.headDim);
-    AppendTilingKey(key, base.cmpRatio);
-    AppendTilingKey(key, base.tokenSize);
-    AppendTilingKey(key, base.csSize);
-    AppendTilingKey(key, base.cgSize);
-    AppendTilingKey(key, base.nSize);
-    AppendTilingKey(key, base.usedCoreNum);
-    AppendTilingKey(key, base.ropeHeadDim);
-    AppendTilingKey(key, base.normEps);
-    AppendTilingKey(key, base.reciprocalD);
-    AppendTilingKey(key, base.stateCacheStrideDim0);
-    const auto &page = data.pageAttentionParams;
-    AppendTilingKey(key, page.blockNum);
-    AppendTilingKey(key, page.blockSize);
-    AppendTilingKey(key, page.maxBlockNumPerBatch);
-    const auto &split = data.innerSplitParams;
-    AppendTilingKey(key, split.mBaseSize);
-    AppendTilingKey(key, split.dBaseSize);
-    const auto &ws = data.workspaceParams;
-    AppendTilingKey(key, ws.mm1KvResSize);
-    AppendTilingKey(key, ws.mm1ScoreResSize);
-    AppendTilingKey(key, ws.vec1ResSize);
-    AppendTilingKey(key, ws.vec1TailCacheSize);
-    AppendTilingKey(key, ws.dbWorkspaceRatio);
-    AppendTilingKey(key, base.kBaseNum);
-    AppendTilingKey(key, base.kBaseSize);
-    AppendTilingKey(key, base.coreGroupNum);
-    AppendTilingKey(key, base.mLoopNum);
-    for (uint32_t i = 0; i < CMP_MAX_AIC_CORE_NUM; ++i) {
-        AppendTilingKey(key, base.splitCoreParam[i].mStart);
-        AppendTilingKey(key, base.splitCoreParam[i].mEnd);
-        AppendTilingKey(key, base.splitCoreParam[i].nStart);
-        AppendTilingKey(key, base.splitCoreParam[i].nEnd);
-        AppendTilingKey(key, base.splitCoreParam[i].kStart);
-        AppendTilingKey(key, base.splitCoreParam[i].kEnd);
-    }
-    AppendTilingKey(key, data.tilingKey);
-    return key;
-}
-
-bool IsNpuGraphCapturing()
-{
-    aclmdlRICaptureStatus captureStatus = ACL_MODEL_RI_CAPTURE_STATUS_NONE;
-    aclmdlRI model = nullptr;
-    auto stream = c10_npu::getCurrentNPUStream().stream(false);
-    auto status = aclmdlRICaptureGetInfo(stream, &captureStatus, &model);
-    TORCH_CHECK(status == ACL_ERROR_NONE, "compressor: failed to query NPU graph capture status, acl error ", status);
-    return captureStatus == ACL_MODEL_RI_CAPTURE_STATUS_ACTIVE;
-}
-
-std::unordered_map<int64_t, TilingCache> &GetTilingCaches()
-{
-    static std::unordered_map<int64_t, TilingCache> deviceCaches;
-    return deviceCaches;
-}
-
-std::mutex &GetTilingCacheMutex()
-{
-    static std::mutex cacheMutex;
-    return cacheMutex;
-}
-
-}  // namespace
-
->>>>>>> 2ade82a (feat(compressor): add arch35 (A5) kernel with dual-arch build)
-=======
->>>>>>> b97dfd0 (fix(compressor): fix A5 tiling upload ordering and align test with request-bank layout)
 namespace {
 
 using namespace CompressorHost;
@@ -262,22 +167,6 @@ HOST_API at::Tensor compressor(const at::Tensor &x, const at::Tensor &wkv, const
     // ---- 6) workspace ----
     at::Tensor workspace =
         at::empty({(int64_t)workspaceSize}, at::TensorOptions().dtype(at::kByte).device(x.options().device()));
-#ifdef SGL_KERNEL_ARCH_35
-    // Zero the AIV db release counters (readGen, aivNum * dbWorkspaceRatio * 4
-    // bytes) at the workspace tail so the generation handshake starts at 0.
-    // arch22 uses flags, not GM, so this tail is only reserved/cleared on
-    // arch35. The tiling workspaceSize_ includes the libapi prefix but the
-    // kernel's InitWorkspace offsets start from 0 (it overlays the libapi
-    // prefix), so the counters actually live libapiSize bytes before the tail.
-    int64_t genFlagsSize = (int64_t)(tilingData.workspaceParams.aivNum *
-                                     tilingData.workspaceParams.dbWorkspaceRatio * sizeof(uint32_t));
-    auto ascendcPlatform = *platform_ascendc::PlatformAscendCManager::GetInstance();
-    int64_t libapiSize = static_cast<int64_t>(ascendcPlatform.GetLibApiWorkSpaceSize());
-    int64_t flagsOffset = (int64_t)workspaceSize - libapiSize - genFlagsSize;
-    if (flagsOffset >= 0) {
-        workspace.narrow(0, flagsOffset, genFlagsSize).view(at::kInt).zero_();
-    }
-#endif
 
     // ---- 7) dispatch: single kernel entry, dispatch by tilingKey inside kernel ----
     at::Tensor stateBlockTable = state_block_table.has_value()
