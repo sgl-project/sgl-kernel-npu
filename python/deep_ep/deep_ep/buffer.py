@@ -305,7 +305,6 @@ class Buffer:
         async_finish: bool = False,
         allocate_on_comm_stream: bool = False,
         dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
-        quant_mode: Optional[str] = None,
         use_fp8: bool = False,
         use_mxfp4: bool = False,
         use_mxfp8: bool = False,
@@ -345,15 +344,12 @@ class Buffer:
             allocate_on_comm_stream: control whether all the allocated tensors' ownership to be on the communication stream.
             dispatch_wait_recv_cost_stats: `[num_ranks]` with `torch.int`, record the time it takes for the dispatch phase
                 to receive all tokens from each slave rank in the current rank.
-            quant_mode: explicit quantization mode string (highest priority). Supported values:
-                ``None`` (BF16), ``"int8"``, ``"pertoken_fp8_e4m3"`` (A5), ``"mx_fp8_e4m3"`` (A5),
-                ``"mx_fp4_e2m1"`` (A5). When set, the bool flags below are ignored.
             use_fp8: enable FP8-family quantization. On A5 → ``pertoken_fp8_e4m3``;
-                on A2/A3 → ``int8``. Ignored when ``quant_mode`` is set.
+                on A2/A3 → ``int8``.
             use_mxfp4: enable MXFP4 per-block quantization → ``mx_fp4_e2m1`` (A5 only).
-                Raises ``NotImplementedError`` on A2/A3. Ignored when ``quant_mode`` is set.
+                Raises ``NotImplementedError`` on A2/A3.
             use_mxfp8: enable MXFP8 per-block quantization → ``mx_fp8_e4m3`` (A5 only).
-                Raises ``NotImplementedError`` on A2/A3. Ignored when ``quant_mode`` is set.
+                Raises ``NotImplementedError`` on A2/A3.
 
         Returns:
             recv_x: received tokens. The format depends on quantization mode:
@@ -379,9 +375,9 @@ class Buffer:
         # Default config
         config = self.get_dispatch_config(self.group_size) if config is None else config
 
-        # Resolve quant_mode from bool flags + device architecture when not explicitly set
+        # Resolve quant_mode from bool flags + device architecture
         quant_mode = resolve_normal_quant_mode(
-            quant_mode, use_fp8, use_mxfp4, use_mxfp8, self.device_arch
+            use_fp8, use_mxfp4, use_mxfp8, self.device_arch
         )
 
         # Delegate to normal strategy

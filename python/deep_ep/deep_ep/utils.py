@@ -8,7 +8,7 @@ import torch
 import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
-from .ep_strategy import VALID_QUANT_MODES
+from .device_info import DEVICE_VERSION_TABLE, get_device_version
 
 
 class EventOverlap:
@@ -116,7 +116,6 @@ def log_parameters(input_name_full_tensor=None, output_idx_full_tensor=None):
 
 
 def resolve_normal_quant_mode(
-    quant_mode: Optional[str],
     use_fp8: bool,
     use_mxfp4: bool,
     use_mxfp8: bool,
@@ -124,46 +123,36 @@ def resolve_normal_quant_mode(
 ) -> Optional[str]:
     """Resolve the effective ``quant_mode`` for normal dispatch.
 
+    Looks up ``QUANT_MODE_TABLE[(param_type, version_code)]`` for the first
+    active bool flag.  ``None`` in the table means the combination is not
+    supported on that hardware.
+
     Priority:
-    1. Explicit ``quant_mode`` (when not ``None``) — used directly.
-    2. ``use_mxfp4`` / ``use_mxfp8`` / ``use_fp8`` bool flags combined
-       with the detected device architecture:
-       - ``use_mxfp4``  → A5: ``mx_fp4_e2m1``;  A2/A3: not supported.
-       - ``use_mxfp8``  → A5: ``mx_fp8_e4m3``;  A2/A3: not supported.
-       - ``use_fp8``    → A5: ``pertoken_fp8_e4m3``;  A2/A3: ``int8``.
-    3. ``DEEP_NORMAL_MODE_USE_INT8_QUANT=1`` env var (deprecated fallback).
-    4. ``None`` (BF16, no quantization).
+    1. ``use_mxfp4`` / ``use_mxfp8`` / ``use_fp8`` bool flags (table lookup).
+    2. ``DEEP_NORMAL_MODE_USE_INT8_QUANT=1`` env var (deprecated fallback).
+    3. ``None`` (BF16, no quantization).
     """
-    if quant_mode is not None:
-        if quant_mode not in VALID_QUANT_MODES:
-            raise ValueError(
-                f"Invalid quant_mode: {quant_mode}. "
-                f"Valid options: {VALID_QUANT_MODES}"
-            )
-        return quant_mode
+    from .device_info import QUANT_MODE_TABLE
 
-    is_a5 = device_arch == "A5"
+    try:
+        version_code = get_device_version()
+    except Exception:
+        version_code = None
 
-    if use_mxfp4:
-        if is_a5:
-            return "mx_fp4_e2m1"
+    for param_type, flag in (
+        ("use_mxfp4", use_mxfp4),
+        ("use_mxfp8", use_mxfp8),
+        ("use_fp8", use_fp8),
+    ):
+        if not flag:
+            continue
+        quant_mode = QUANT_MODE_TABLE.get((param_type, version_code))
+        if quant_mode is not None:
+            return quant_mode
         raise NotImplementedError(
-            "use_mxfp4 is not supported on A2/A3 devices; "
-            "only A5 supports MXFP4 quantization."
+            f"{param_type} is not supported on device version {version_code} "
+            f"({DEVICE_VERSION_TABLE.get(version_code, 'unknown')})."
         )
-
-    if use_mxfp8:
-        if is_a5:
-            return "mx_fp8_e4m3"
-        raise NotImplementedError(
-            "use_mxfp8 is not supported on A2/A3 devices; "
-            "only A5 supports MXFP8 quantization."
-        )
-
-    if use_fp8:
-        if is_a5:
-            return "pertoken_fp8_e4m3"
-        return "int8"
 
     # Deprecated env-var fallback for backward compatibility
     if os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1":

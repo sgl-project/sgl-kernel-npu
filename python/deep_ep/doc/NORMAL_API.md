@@ -41,7 +41,6 @@ dispatch(
     async_finish: bool = False,
     allocate_on_comm_stream: bool = False,
     dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
-    quant_mode: Optional[str] = None,
     use_fp8: bool = False,
     use_mxfp4: bool = False,
     use_mxfp8: bool = False,
@@ -59,7 +58,7 @@ dispatch(
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| **x** | `torch.Tensor` (`bfloat16`) | Yes | – | Shape `[num_tokens, hidden]`. The dtype of `x` is **no longer used** for quantization-mode detection; use `quant_mode` or the `use_fp8` / `use_mxfp4` / `use_mxfp8` bool flags instead. |
+| **x** | `torch.Tensor` (`bfloat16`) | Yes | – | Shape `[num_tokens, hidden]`. The dtype of `x` is **no longer used** for quantization-mode detection; use the `use_fp8` / `use_mxfp4` / `use_mxfp8` bool flags instead. |
 | **handle** | `Optional[Tuple]` | No | `None` | Pre-created communication handle (currently only supports `None`). |
 | **num_tokens_per_rank** | `torch.Tensor` (`int32`) | Yes (intranode) | `None` | Shape `[num_ranks]`, number of tokens each rank will receive. |
 | **num_tokens_per_rdma_rank** | `torch.Tensor` | Yes (internode) | `None` | Shape `[num_rdma_ranks]`, number of tokens each remote rank receives in cross-node (RDMA) mode. |
@@ -74,7 +73,6 @@ dispatch(
 | **async_finish** | `bool` | No | `False` | If `True`, the current stream will not block until communication completes; the returned `event` can be used for subsequent synchronization. |
 | **allocate_on_comm_stream** | `bool` | No | `False` | Currently unused. |
 | **dispatch_wait_recv_cost_stats** | `torch.Tensor` (`int64`) | No | `None` | Shape `[num_ranks]`, recording the time cost for the current rank to receive all tokens from each rank (statistics). |
-| **quant_mode** | `Optional[str]` | No | `None` | Explicit quantization mode (highest priority). Supported: `None` (BF16), `"int8"`, `"pertoken_fp8_e4m3"` (A5), `"mx_fp8_e4m3"` (A5), `"mx_fp4_e2m1"` (A5). When set, the bool flags below are ignored. |
 | **use_fp8** | `bool` | No | `False` | Enable FP8-family quantization. On A5 → `pertoken_fp8_e4m3`; on A2/A3 → `int8`. |
 | **use_mxfp4** | `bool` | No | `False` | Enable MXFP4 per-block quantization → `mx_fp4_e2m1` (A5 only). Raises `NotImplementedError` on A2/A3. |
 | **use_mxfp8** | `bool` | No | `False` | Enable MXFP8 per-block quantization → `mx_fp8_e4m3` (A5 only). Raises `NotImplementedError` on A2/A3. |
@@ -120,13 +118,12 @@ dispatch(
 
 The quantization mode for `dispatch` is resolved in `Buffer._resolve_normal_quant_mode()` with the following priority:
 
-1. **`quant_mode` parameter** (explicit) — highest priority. When passed (not `None`), it is the single source of truth; the bool flags and env var below are **not** consulted.
-2. **`use_mxfp4` / `use_mxfp8` / `use_fp8` bool flags** — consulted only when `quant_mode=None`. The device architecture is auto-detected at `Buffer` initialization time via `acl.rt.get_device_info(0, 601)`:
+1. **`use_mxfp4` / `use_mxfp8` / `use_fp8` bool flags** — combined with the detected device architecture:
    - `use_mxfp4=True` → A5: `"mx_fp4_e2m1"`; A2/A3: `NotImplementedError`.
    - `use_mxfp8=True` → A5: `"mx_fp8_e4m3"`; A2/A3: `NotImplementedError`.
    - `use_fp8=True` → A5: `"pertoken_fp8_e4m3"`; A2/A3: `"int8"`.
-3. **`DEEP_NORMAL_MODE_USE_INT8_QUANT=1`** environment variable — deprecated fallback, consulted only when `quant_mode=None` and no bool flags are set.
-4. **BF16** (default) — when none of the above are set.
+2. **`DEEP_NORMAL_MODE_USE_INT8_QUANT=1`** environment variable — deprecated fallback, consulted only when no bool flags are set.
+3. **BF16** (default) — when none of the above are set.
 
 > **Per-path differences:**
 > - **intranode** (default strategy): full priority order above. FP8/FP4 modes supported on A5.
@@ -137,7 +134,10 @@ The quantization mode for `dispatch` is resolved in `Buffer._resolve_normal_quan
 >
 > **Device version codes** (first return value of `acl.rt.get_device_info(0, 601)`):
 > - A5: `9301`, `9201`, `3510`
-> - A2/A3: `2201`, `1001`, `2002`, `3002`
+> - A2/A3: `2201`
+> - V100: `1001`
+> - V200: `2002`
+> - V300: `3002`
 
 ---
 
@@ -234,7 +234,6 @@ dispatch(
     async_finish: bool = False,
     allocate_on_comm_stream: bool = False,
     dispatch_wait_recv_cost_stats: Optional[torch.Tensor] = None,
-    quant_mode: Optional[str] = None,
     use_fp8: bool = False,
     use_mxfp4: bool = False,
     use_mxfp8: bool = False,
@@ -252,7 +251,7 @@ dispatch(
 
 | 参数 | 类型 | 必要 | 默认 | 说明 |
 |------|------|------|------|------|
-| **x** | `torch.Tensor` (`bfloat16`) | ✅ | – | Shape为 `[num_tokens, hidden]`。`x` 的 dtype **不再用于**量化模式检测，请使用 `quant_mode` 或 `use_fp8` / `use_mxfp4` / `use_mxfp8` 布尔标志。|
+| **x** | `torch.Tensor` (`bfloat16`) | ✅ | – | Shape为 `[num_tokens, hidden]`。`x` 的 dtype **不再用于**量化模式检测，请使用 `use_fp8` / `use_mxfp4` / `use_mxfp8` 布尔标志。|
 | **handle** | `Optional[Tuple]` | ❌ | `None` | 预先创建的通信句柄（目前仅支持 `None`）。|
 | **num_tokens_per_rank** | `torch.Tensor` (`int32`) | ✅（intranode） | `None` | Shape为 `[num_ranks]`，每个 rank 将接收的 token 数。 |
 | **num_tokens_per_rdma_rank** | `torch.Tensor` | ✅（internode） | `None` | Shape为 `[num_rdma_ranks]`，跨节点（RDMA）时每个 remote rank 接收的 token 数。 |
@@ -267,7 +266,6 @@ dispatch(
 | **async_finish** | `bool` | ❌ | `False` | 若 `True`，当前 stream 不会阻塞等待通信完成，返回的 `event` 可用于后续同步。 |
 | **allocate_on_comm_stream** | `bool` | ❌ | `False` | 当前未使用。 |
 | **dispatch_wait_recv_cost_stats** | `torch.Tensor` (`int64`) | ❌ | `None` | Shape为 `[num_ranks]`，记录当前 rank 从每个 rank 收到全部 token 所耗时间（统计信息）。 |
-| **quant_mode** | `Optional[str]` | ❌ | `None` | 显式量化模式（最高优先级）。支持：`None`（BF16）、`"int8"`、`"pertoken_fp8_e4m3"`（A5）、`"mx_fp8_e4m3"`（A5）、`"mx_fp4_e2m1"`（A5）。设置后忽略下方布尔标志。 |
 | **use_fp8** | `bool` | ❌ | `False` | 启用 FP8 系列量化。A5 → `pertoken_fp8_e4m3`；A2/A3 → `int8`。 |
 | **use_mxfp4** | `bool` | ❌ | `False` | 启用 MXFP4 per-block 量化 → `mx_fp4_e2m1`（仅 A5）。A2/A3 上抛 `NotImplementedError`。 |
 | **use_mxfp8** | `bool` | ❌ | `False` | 启用 MXFP8 per-block 量化 → `mx_fp8_e4m3`（仅 A5）。A2/A3 上抛 `NotImplementedError`。 |
@@ -313,13 +311,12 @@ dispatch(
 
 `dispatch` 的量化模式在 `Buffer._resolve_normal_quant_mode()` 中按以下优先级解析：
 
-1. **`quant_mode` 参数**（显式传入）—— 最高优先级。传入非 `None` 值时为唯一来源，下方布尔标志和环境变量**不读取**。
-2. **`use_mxfp4` / `use_mxfp8` / `use_fp8` 布尔标志** —— 仅当 `quant_mode=None` 时生效。设备架构在 `Buffer` 初始化时通过 `acl.rt.get_device_info(0, 601)` 自动检测：
+1. **`use_mxfp4` / `use_mxfp8` / `use_fp8` 布尔标志** —— 与检测到的设备架构结合：
    - `use_mxfp4=True` → A5：`"mx_fp4_e2m1"`；A2/A3：抛 `NotImplementedError`。
    - `use_mxfp8=True` → A5：`"mx_fp8_e4m3"`；A2/A3：抛 `NotImplementedError`。
    - `use_fp8=True` → A5：`"pertoken_fp8_e4m3"`；A2/A3：`"int8"`。
-3. **`DEEP_NORMAL_MODE_USE_INT8_QUANT=1`** 环境变量 —— 已弃用回退，仅当 `quant_mode=None` 且无布尔标志时生效。
-4. **BF16**（默认）—— 以上均未设置时。
+2. **`DEEP_NORMAL_MODE_USE_INT8_QUANT=1`** 环境变量 —— 已弃用回退，仅当无布尔标志时生效。
+3. **BF16**（默认）—— 以上均未设置时。
 
 > **各路径差异：**
 > - **intranode**（default 策略）：完整优先级顺序。FP8/FP4 模式仅 A5 支持。
@@ -330,7 +327,10 @@ dispatch(
 >
 > **设备版本号**（`acl.rt.get_device_info(0, 601)` 第一个返回值）：
 > - A5：`9301`、`9201`、`3510`
-> - A2/A3：`2201`、`1001`、`2002`、`3002`
+> - A2/A3：`2201`
+> - V100：`1001`
+> - V200：`2002`
+> - V300：`3002`
 
 ---
 

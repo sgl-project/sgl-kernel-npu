@@ -9,7 +9,6 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import torch_npu
-from deep_ep.device_info import get_device_arch
 from utils import (
     bench,
     calc_diff,
@@ -36,40 +35,22 @@ def test_main(
     num_topk, num_experts = args.num_topk, args.num_experts
     enable_diagnose = args.enable_diagnose
     enable_dynamic_tokens = args.enable_dynamic_tokens
-    quant_type = args.quant_type
 
-    # Validate mutual exclusion: --quant-type vs --use-fp8/--use-mxfp4/--use-mxfp8
-    use_bool_flags = args.use_fp8 or args.use_mxfp4 or args.use_mxfp8
-    if quant_type is not None and use_bool_flags:
-        raise ValueError(
-            "--quant-type and --use-fp8/--use-mxfp4/--use-mxfp8 are mutually exclusive."
-        )
-
-    # Compute the expected resolved quant_mode (for bandwidth calc, threshold, display)
-    # and build the quant kwargs that will be passed to buffer.dispatch().
-    if quant_type is not None:
-        dispatch_quant_mode = quant_type
-        quant_dispatch_kwargs = {"quant_mode": dispatch_quant_mode}
-    elif use_bool_flags:
-        device_arch = get_device_arch()
-        is_a5 = device_arch == "A5"
-        if args.use_mxfp4:
-            dispatch_quant_mode = "mx_fp4_e2m1"
-        elif args.use_mxfp8:
-            dispatch_quant_mode = "mx_fp8_e4m3"
-        elif args.use_fp8:
-            dispatch_quant_mode = "pertoken_fp8_e4m3" if is_a5 else "int8"
-        else:
-            dispatch_quant_mode = None
-        quant_dispatch_kwargs = {
-            "quant_mode": None,
-            "use_fp8": args.use_fp8,
-            "use_mxfp4": args.use_mxfp4,
-            "use_mxfp8": args.use_mxfp8,
-        }
+    # dispatch_quant_mode is for bandwidth calc / display only.
+    # The actual resolution (architecture-aware) happens inside buffer.dispatch().
+    if args.use_mxfp4:
+        dispatch_quant_mode = "mx_fp4_e2m1"
+    elif args.use_mxfp8:
+        dispatch_quant_mode = "mx_fp8_e4m3"
+    elif args.use_fp8:
+        dispatch_quant_mode = "pertoken_fp8_e4m3"
     else:
-        dispatch_quant_mode = quant_type
-        quant_dispatch_kwargs = {"quant_mode": dispatch_quant_mode}
+        dispatch_quant_mode = None
+    quant_dispatch_kwargs = {
+        "use_fp8": args.use_fp8,
+        "use_mxfp4": args.use_mxfp4,
+        "use_mxfp8": args.use_mxfp8,
+    }
     num_servers = num_ranks // num_local_ranks
     expert_token_nums_type = int(os.getenv("MOE_EXPERT_TOKEN_NUMS_TYPE", 1))
 
@@ -398,7 +379,7 @@ def test_main(
         if current_x is x_pure_rand:
             quant_kwargs = quant_dispatch_kwargs
         else:
-            quant_kwargs = {"quant_mode": "bf16"}
+            quant_kwargs = {}
         dispatch_args = {
             "x": current_x,
             "num_tokens_per_rank": ref_num_tokens_per_rank,
@@ -500,7 +481,6 @@ def test_main(
         "num_tokens_per_expert": ref_num_tokens_per_expert,
         "topk_idx": topk_idx,
         "topk_weights": topk_weights,
-        "quant_mode": "bf16",
     }
     t = bench(lambda: buffer.dispatch(**tune_args_bf16))[0]
     if local_rank == 0:
@@ -661,14 +641,6 @@ if __name__ == "__main__":
         "--enable-dynamic-tokens",
         action="store_true",
         help="Whether to enable dynamic tokens for testing",
-    )
-    parser.add_argument(
-        "--quant-type",
-        dest="quant_type",
-        type=str,
-        default=None,
-        help="quant type: None (use DEEP_NORMAL_MODE_USE_INT8_QUANT env var), bf16, int8, "
-        "mx_fp8_e4m3, mx_fp8_e5m2, pertoken_fp8_e4m3, mx_fp4_e2m1",
     )
     parser.add_argument(
         "--use-fp8",

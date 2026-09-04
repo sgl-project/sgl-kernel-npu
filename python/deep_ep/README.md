@@ -179,7 +179,7 @@ buffer.dispatch(x=data, quant_mode="mx_fp4_e2m1", ...)
 # or: buffer.dispatch(x=data, use_mxfp4=True, ...)
 ```
 
-> **Quantization selection priority:** `quant_mode` (explicit) > `use_fp8`/`use_mxfp4`/`use_mxfp8` bool flags (architecture-aware) > `DEEP_NORMAL_MODE_USE_INT8_QUANT` env var (deprecated) > BF16. The device architecture (A5 vs A2/A3) is auto-detected at `Buffer` initialization via `acl.rt.get_device_info(0, 601)`. See [Normal Mode API — Quantization Selection Priority](doc/NORMAL_API.md#quantization-selection-priority) for details.
+> **Quantization selection priority:** `use_fp8`/`use_mxfp4`/`use_mxfp8` bool flags (architecture-aware) > `DEEP_NORMAL_MODE_USE_INT8_QUANT` env var (deprecated) > BF16. See [Normal Mode API — Quantization Selection Priority](doc/NORMAL_API.md#quantization-selection-priority) for details.
 
 #### Low-Latency Mode (Decode)
 
@@ -446,7 +446,7 @@ normal_dispatch 量化模式（通过 `quant_mode` 参数指定）：
 | Scalar FP8 | `"pertoken_fp8_e4m3"` | `float8_e4m3fn` | `float32` | per-token | 仅 A5 |
 | MXFP4 | `"mx_fp4_e2m1"` | `float4_e2m1fn_x2` | `float8_e8m0fnu` | 每 32 元素 | 仅 A5 |
 
-> **量化选择优先级：** `quant_mode`（显式）> `use_fp8`/`use_mxfp4`/`use_mxfp8` 布尔标志（架构感知）> `DEEP_NORMAL_MODE_USE_INT8_QUANT` 环境变量（已弃用）> BF16。设备架构（A5 vs A2/A3）在 `Buffer` 初始化时通过 `acl.rt.get_device_info(0, 601)` 自动检测。详见 [Normal 模式 API — 量化模式选择优先级](doc/NORMAL_API.md#量化模式选择优先级)（含各路径差异）。
+> **量化选择优先级：** `use_fp8`/`use_mxfp4`/`use_mxfp8` 布尔标志（架构感知）> `DEEP_NORMAL_MODE_USE_INT8_QUANT` 环境变量（已弃用）> BF16。详见 [Normal 模式 API — 量化模式选择优先级](doc/NORMAL_API.md#量化模式选择优先级)（含各路径差异）。
 
 #### Low-Latency 模式（Decode）
 
