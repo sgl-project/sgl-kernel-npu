@@ -8,6 +8,11 @@ import torch
 import torch.distributed as dist
 import torch_npu
 from deep_ep import Buffer
+from deep_ep.device_info import (
+    DEVICE_VERSION_TABLE,
+    QUANT_MODE_TABLE,
+    get_device_version,
+)
 from utils import (
     bench,
     bench_kineto,
@@ -32,7 +37,9 @@ def test(
     buffer: Buffer,
     drop_percent: float,
     seed: int = 0,
-    quant_type: str = "no",
+    use_fp8: bool = False,
+    use_mxfp4: bool = False,
+    use_mxfp8: bool = False,
     local_rank: int = 0,
 ):
     torch.manual_seed(seed + rank)
@@ -40,6 +47,34 @@ def test(
 
     assert num_experts % num_ranks == 0
     num_local_experts = num_experts // num_ranks
+
+    use_bool_flags = use_fp8 or use_mxfp4 or use_mxfp8
+    if use_bool_flags:
+        if use_mxfp4:
+            param_type = "use_mxfp4"
+        elif use_mxfp8:
+            param_type = "use_mxfp8"
+        else:
+            param_type = "use_fp8"
+        version_code = get_device_version()
+        dispatch_quant_mode = QUANT_MODE_TABLE.get((param_type, version_code))
+        if param_type == "use_fp8" and version_code is None:
+            dispatch_quant_mode = "int8"
+        if dispatch_quant_mode is None:
+            raise NotImplementedError(
+                f"{param_type} is not supported on device version {version_code} "
+                f"({DEVICE_VERSION_TABLE.get(version_code, 'unknown')})."
+            )
+        quant_dispatch_kwargs = {
+            "use_fp8": use_fp8,
+            "use_mxfp4": use_mxfp4,
+            "use_mxfp8": use_mxfp8,
+        }
+    else:
+        dispatch_quant_mode = (
+            "int8" if os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1" else "bf16"
+        )
+        quant_dispatch_kwargs = {"use_fp8": False}
 
     rank_offset = 128
     assert (
@@ -80,20 +115,13 @@ def test(
         (num_local_experts,), dtype=torch.int, device="npu"
     )
 
-    if quant_type in ("mx_fp8_e4m3", "mx_fp8_e5m2"):
-        fp8_configs = [(True, True)]
-    elif quant_type in (
-        "int8",
-        "pertoken_fp8_e4m3",
-        "mx_fp4_e2m1",
-    ):
-        fp8_configs = [(True, False)]
-    else:
-        fp8_configs = [(False, False)]
+    dispatch_use_fp8 = dispatch_quant_mode != "bf16"
+    dispatch_use_ue8m0 = dispatch_quant_mode.startswith("mx_fp8")
+    fp8_configs = [(dispatch_use_fp8, dispatch_use_ue8m0)]
 
     for dispatch_use_fp8, dispatch_use_ue8m0 in fp8_configs:
         for current_x in filter(lambda elem: elem is not None, (x_pure_rand,)):
-            quant_label = quant_type if dispatch_use_fp8 else "bf16"
+            quant_label = dispatch_quant_mode
             if local_rank == 0:
                 print(
                     f'[testing] Running with {quant_label}, data={"rand" if current_x is x_pure_rand else "uniform"} ...',
@@ -106,31 +134,22 @@ def test(
                     topk_idx,
                     aligned_num_tokens,
                     num_experts,
-                    use_fp8=dispatch_use_fp8,
                     round_scale=False,
-                    use_ue8m0=dispatch_use_ue8m0,
                     cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
                     async_finish=not return_recv_hook,
                     return_recv_hook=return_recv_hook,
                     topk_weights=topk_weights,
-                    quant_mode={
-                        "no": None,
-                        "int8": "int8",
-                        "mx_fp8_e4m3": "mx_fp8_e4m3",
-                        "mx_fp8_e5m2": "mx_fp8_e5m2",
-                        "pertoken_fp8_e4m3": "pertoken_fp8_e4m3",
-                        "mx_fp4_e2m1": "mx_fp4_e2m1",
-                    }[quant_type],
+                    **quant_dispatch_kwargs,
                 )
             )
-            if quant_type == "int8":
+            if dispatch_quant_mode == "int8":
                 assert packed_recv_x[0].dtype == torch.int8, (
-                    "--quant-type=int8 must return an INT8 payload, but got "
+                    "INT8 dispatch must return an INT8 payload, but got "
                     f"{packed_recv_x[0].dtype}"
                 )
-            elif quant_type == "fp8":
+            elif dispatch_quant_mode == "pertoken_fp8_e4m3":
                 assert packed_recv_x[0].dtype == torch.float8_e4m3fn, (
-                    "--quant-type=fp8 must return an FP8 payload, but got "
+                    "Per-token FP8 mode must return an FP8 payload, but got "
                     f"{packed_recv_x[0].dtype}"
                 )
             simulated_gemm_x = (
@@ -163,7 +182,9 @@ def test(
             recv_count = packed_recv_count[i]
             token_start = int(i * temp)
             token_end = int((i + 1) * temp)
-            scales_per_token = hidden // 32 if quant_type.startswith("mx_") else 1
+            scales_per_token = (
+                hidden // 32 if dispatch_quant_mode.startswith("mx_") else 1
+            )
             scale_start = token_start * scales_per_token
             scale_end = token_end * scales_per_token
             recv_x = (
@@ -174,7 +195,7 @@ def test(
                 if dispatch_use_fp8
                 else packed_recv_x[token_start:token_end]
             )
-            quant_label = quant_type if dispatch_use_fp8 else "bf16"
+            quant_label = dispatch_quant_mode
             if i == 0:
                 recv_layout_range = handle[1][(i + 1) * num_ranks - 1]
             else:
@@ -264,7 +285,7 @@ def test(
                 print(
                     f"rank {rank} PASSED [{quant_label}] avg_diff={avg_diff:.5f}, max_diff={max_diff:.5f}, cosine_diff={diff:.5f}"
                 )
-                threshold = get_diff_threshold(quant_type)
+                threshold = get_diff_threshold(dispatch_quant_mode)
                 assert diff < threshold, f"Error: {diff=}, {threshold=}"
                 hash_value ^= hash_tensor(combined_x)
                 if local_rank == 0:
@@ -280,19 +301,10 @@ def test(
             aligned_num_tokens,
             num_experts,
             cumulative_local_expert_recv_stats=cumulative_local_expert_recv_stats,
-            use_fp8=dispatch_use_fp8,
-            use_ue8m0=dispatch_use_ue8m0,
             async_finish=False,
             return_recv_hook=return_recv_hook,
             topk_weights=topk_weights,
-            quant_mode={
-                "no": None,
-                "int8": "int8",
-                "mx_fp8_e4m3": "mx_fp8_e4m3",
-                "mx_fp8_e5m2": "mx_fp8_e5m2",
-                "pertoken_fp8_e4m3": "pertoken_fp8_e4m3",
-                "mx_fp4_e2m1": "mx_fp4_e2m1",
-            }[quant_type],
+            **quant_dispatch_kwargs,
         )
         simulated_gemm_x_local = (
             per_token_cast_back(*recv_x) if dispatch_use_fp8 else recv_x
@@ -308,14 +320,17 @@ def test(
 
     # Calculate bandwidth
     num_mxfp8_bytes = hidden + hidden // 32 + 16
+    num_mxfp4_bytes = hidden // 2 + hidden // 32 + 16
     num_fp8_bytes = hidden + hidden // 128 * 4 + 16
     num_bf16_bytes = hidden * 2
     num_dispatch_comm_bytes, num_combine_comm_bytes = 0, 0
     for i in range(num_tokens):
         num_selections = (topk_idx[i] != -1).sum().item()
-        if dispatch_use_ue8m0:
+        if dispatch_quant_mode.startswith("mx_fp8"):
             num_dispatch_comm_bytes += num_mxfp8_bytes * num_selections
-        elif dispatch_use_fp8:
+        elif dispatch_quant_mode.startswith("mx_fp4"):
+            num_dispatch_comm_bytes += num_mxfp4_bytes * num_selections
+        elif dispatch_quant_mode != "bf16":
             num_dispatch_comm_bytes += num_fp8_bytes * num_selections
         else:
             num_dispatch_comm_bytes += num_bf16_bytes * num_selections
@@ -442,7 +457,9 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         buffer,
         drop_percent,
         seed=1,
-        quant_type=args.quant_type,
+        use_fp8=args.use_fp8,
+        use_mxfp4=args.use_mxfp4,
+        use_mxfp8=args.use_mxfp8,
         local_rank=local_rank,
     )
 
@@ -462,7 +479,9 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
             buffer,
             drop_percent,
             seed=seed,
-            quant_type=args.quant_type,
+            use_fp8=args.use_fp8,
+            use_mxfp4=args.use_mxfp4,
+            use_mxfp8=args.use_mxfp8,
             local_rank=local_rank,
         )
         for i in range(20):
@@ -479,7 +498,9 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
                     buffer,
                     drop_percent,
                     seed=seed,
-                    quant_type=args.quant_type,
+                    use_fp8=args.use_fp8,
+                    use_mxfp4=args.use_mxfp4,
+                    use_mxfp8=args.use_mxfp8,
                     local_rank=local_rank,
                 )
                 == ref_hash
@@ -530,19 +551,25 @@ if __name__ == "__main__":
         help="Low latency strategy to use: 'default' (deep_ep_cpp) or 'ops' (torch_npu ops)",
     )
     parser.add_argument(
-        "--quant-type",
-        dest="quant_type",
-        type=str,
-        default="no",
-        choices=[
-            "no",
-            "int8",
-            "mx_fp8_e4m3",
-            "mx_fp8_e5m2",
-            "pertoken_fp8_e4m3",
-            "mx_fp4_e2m1",
-        ],
-        help="Quantization type for dispatch",
+        "--use-fp8",
+        dest="use_fp8",
+        action="store_true",
+        help="Use use_fp8=True for default low-latency dispatch. "
+        "A5 -> pertoken_fp8_e4m3, A2/A3 -> int8.",
+    )
+    parser.add_argument(
+        "--use-mxfp4",
+        dest="use_mxfp4",
+        action="store_true",
+        help="Use use_mxfp4=True for default low-latency dispatch. "
+        "A5 -> mx_fp4_e2m1; A2/A3 is not supported.",
+    )
+    parser.add_argument(
+        "--use-mxfp8",
+        dest="use_mxfp8",
+        action="store_true",
+        help="Use use_mxfp8=True for default low-latency dispatch. "
+        "A5 -> mx_fp8_e4m3; A2/A3 is not supported.",
     )
     args = parser.parse_args()
 
