@@ -58,6 +58,8 @@ def test(
             param_type = "use_fp8"
         version_code = get_device_version()
         dispatch_quant_mode = QUANT_MODE_TABLE.get((param_type, version_code))
+        if param_type == "use_fp8" and version_code is None:
+            dispatch_quant_mode = "int8"
         if dispatch_quant_mode is None:
             raise NotImplementedError(
                 f"{param_type} is not supported on device version {version_code} "

@@ -1,5 +1,7 @@
 """Device architecture detection utilities for NPU."""
 
+from typing import Optional
+
 DEVICE_VERSION_TABLE = {
     9301: "A5",
     9201: "A5",
@@ -36,8 +38,11 @@ QUANT_MODE_TABLE = {
 }
 
 
-def get_device_version() -> int:
-    """Return the SoC version code via the ACL runtime API."""
+def get_device_version() -> Optional[int]:
+    """Return the SoC version code, or ``None`` when it is unavailable."""
     import acl
 
-    return acl.rt.get_device_info(0, 601)[0]
+    version_code, ret = acl.rt.get_device_info(0, 601)
+    if ret != 0 or version_code == 0:
+        return None
+    return version_code

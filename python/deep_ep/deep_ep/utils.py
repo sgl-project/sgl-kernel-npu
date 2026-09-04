@@ -72,6 +72,10 @@ def _resolve_low_latency_quant_mode(
         quant_mode = QUANT_MODE_TABLE.get((param_type, version_code))
         if quant_mode is not None:
             return quant_mode
+        # ACL_DEV_ATTR_NPU_ARCH (601) is unavailable with older CANN
+        # versions. Preserve the legacy non-A5 behavior in that case.
+        if param_type == "use_fp8" and version_code is None:
+            return "int8"
         raise NotImplementedError(
             f"{param_type} is not supported on device version {version_code} "
             f"({DEVICE_VERSION_TABLE.get(version_code, 'unknown')})."
