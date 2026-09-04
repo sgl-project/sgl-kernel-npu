@@ -15,6 +15,8 @@
 #include "tiling/platform/platform_ascendc.h"
 #include "torch_helper.h"
 
+#include <c10/core/InferenceMode.h>
+
 #include <stdexcept>
 
 constexpr ge::DataType SCALAR_TYPE_TO_GE_DATATYPE(at::ScalarType scalarType)

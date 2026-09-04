@@ -19,7 +19,11 @@
 #include "tiling/platform/platform_ascendc.h"
 #include "defines.h"
 #include "torch_helper.h"
-#include "compressor_tiling.h"
+#ifdef SGL_KERNEL_ENABLE_A3_ONLY_OPS
+#include "arch22/compressor_tiling.h"
+#else
+#include "arch35/compressor_tiling.h"
+#endif
 #include "ge_helper.h"
 #include "common_tiling.h"
 #include "common.h"
