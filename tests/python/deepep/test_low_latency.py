@@ -3,13 +3,16 @@ import os
 import random
 import time
 from functools import partial
-from typing import Optional
 
 import torch
 import torch.distributed as dist
 import torch_npu
 from deep_ep import Buffer
-from deep_ep.device_info import get_device_arch
+from deep_ep.device_info import (
+    DEVICE_VERSION_TABLE,
+    QUANT_MODE_TABLE,
+    get_device_version,
+)
 from utils import (
     bench,
     bench_kineto,
@@ -34,7 +37,6 @@ def test(
     buffer: Buffer,
     drop_percent: float,
     seed: int = 0,
-    quant_type: Optional[str] = None,
     use_fp8: bool = False,
     use_mxfp4: bool = False,
     use_mxfp8: bool = False,
@@ -46,43 +48,22 @@ def test(
     assert num_experts % num_ranks == 0
     num_local_experts = num_experts // num_ranks
 
-    # Validate mutual exclusion: --quant-type vs --use-fp8/--use-mxfp4/--use-mxfp8
     use_bool_flags = use_fp8 or use_mxfp4 or use_mxfp8
-    if quant_type is not None and use_bool_flags:
-        raise ValueError(
-            "--quant-type and --use-fp8/--use-mxfp4/--use-mxfp8 are "
-            "mutually exclusive."
-        )
-
-    # Keep the expected resolved mode separate from the kwargs passed to Buffer.
-    # Bool-flag cases intentionally pass quant_mode=None so Buffer performs the
-    # architecture-aware resolution under test.
-    if quant_type is not None:
-        dispatch_quant_mode = "bf16" if quant_type == "no" else quant_type
-        quant_dispatch_kwargs = {"quant_mode": dispatch_quant_mode}
-    elif use_bool_flags:
-        is_a5 = get_device_arch() == "A5"
+    if use_bool_flags:
         if use_mxfp4:
-            if not is_a5:
-                raise NotImplementedError(
-                    "use_mxfp4 is not supported on A2/A3 devices."
-                )
-            dispatch_quant_mode = "mx_fp4_e2m1"
+            param_type = "use_mxfp4"
         elif use_mxfp8:
-            if not is_a5:
-                raise NotImplementedError(
-                    "use_mxfp8 is not supported on A2/A3 devices."
-                )
-            dispatch_quant_mode = "mx_fp8_e4m3"
+            param_type = "use_mxfp8"
         else:
-            dispatch_quant_mode = "pertoken_fp8_e4m3" if is_a5 else "int8"
-            if not is_a5:
-                print(
-                    "[WARNING] use_fp8 is converted to int8 on A2/A3 devices.",
-                    flush=True,
-                )
+            param_type = "use_fp8"
+        version_code = get_device_version()
+        dispatch_quant_mode = QUANT_MODE_TABLE.get((param_type, version_code))
+        if dispatch_quant_mode is None:
+            raise NotImplementedError(
+                f"{param_type} is not supported on device version {version_code} "
+                f"({DEVICE_VERSION_TABLE.get(version_code, 'unknown')})."
+            )
         quant_dispatch_kwargs = {
-            "quant_mode": None,
             "use_fp8": use_fp8,
             "use_mxfp4": use_mxfp4,
             "use_mxfp8": use_mxfp8,
@@ -91,7 +72,7 @@ def test(
         dispatch_quant_mode = (
             "int8" if os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1" else "bf16"
         )
-        quant_dispatch_kwargs = {"quant_mode": None, "use_fp8": False}
+        quant_dispatch_kwargs = {"use_fp8": False}
 
     rank_offset = 128
     assert (
@@ -161,7 +142,7 @@ def test(
             )
             if dispatch_quant_mode == "int8":
                 assert packed_recv_x[0].dtype == torch.int8, (
-                    "--quant-type=int8 must return an INT8 payload, but got "
+                    "INT8 dispatch must return an INT8 payload, but got "
                     f"{packed_recv_x[0].dtype}"
                 )
             elif dispatch_quant_mode == "pertoken_fp8_e4m3":
@@ -474,7 +455,6 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
         buffer,
         drop_percent,
         seed=1,
-        quant_type=args.quant_type,
         use_fp8=args.use_fp8,
         use_mxfp4=args.use_mxfp4,
         use_mxfp8=args.use_mxfp8,
@@ -497,7 +477,6 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
             buffer,
             drop_percent,
             seed=seed,
-            quant_type=args.quant_type,
             use_fp8=args.use_fp8,
             use_mxfp4=args.use_mxfp4,
             use_mxfp8=args.use_mxfp8,
@@ -517,7 +496,6 @@ def test_loop(local_rank: int, num_local_ranks: int, args: argparse.Namespace):
                     buffer,
                     drop_percent,
                     seed=seed,
-                    quant_type=args.quant_type,
                     use_fp8=args.use_fp8,
                     use_mxfp4=args.use_mxfp4,
                     use_mxfp8=args.use_mxfp8,
@@ -571,44 +549,25 @@ if __name__ == "__main__":
         help="Low latency strategy to use: 'default' (deep_ep_cpp) or 'ops' (torch_npu ops)",
     )
     parser.add_argument(
-        "--quant-type",
-        dest="quant_type",
-        type=str,
-        default=None,
-        choices=[
-            "no",
-            "bf16",
-            "int8",
-            "mx_fp8_e4m3",
-            "mx_fp8_e5m2",
-            "pertoken_fp8_e4m3",
-            "mx_fp4_e2m1",
-        ],
-        help="Explicit quantization mode. Mutually exclusive with the bool flags.",
-    )
-    parser.add_argument(
         "--use-fp8",
         dest="use_fp8",
         action="store_true",
         help="Use use_fp8=True for default low-latency dispatch. "
-        "A5 -> pertoken_fp8_e4m3, A2/A3 -> int8 with a warning. "
-        "Mutually exclusive with --quant-type.",
+        "A5 -> pertoken_fp8_e4m3, A2/A3 -> int8.",
     )
     parser.add_argument(
         "--use-mxfp4",
         dest="use_mxfp4",
         action="store_true",
         help="Use use_mxfp4=True for default low-latency dispatch. "
-        "A5 -> mx_fp4_e2m1; A2/A3 is not supported. "
-        "Mutually exclusive with --quant-type.",
+        "A5 -> mx_fp4_e2m1; A2/A3 is not supported.",
     )
     parser.add_argument(
         "--use-mxfp8",
         dest="use_mxfp8",
         action="store_true",
         help="Use use_mxfp8=True for default low-latency dispatch. "
-        "A5 -> mx_fp8_e4m3; A2/A3 is not supported. "
-        "Mutually exclusive with --quant-type.",
+        "A5 -> mx_fp8_e4m3; A2/A3 is not supported.",
     )
     args = parser.parse_args()
 

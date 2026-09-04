@@ -35,7 +35,6 @@ def low_latency_dispatch(
     async_finish: bool = False,
     return_recv_hook: bool = False,
     topk_weights: Optional[torch.Tensor] = None,
-    quant_mode: Optional[str] = None,
     use_mxfp8: bool = False,
 ) -> Tuple[
     Tuple[torch.Tensor, torch.Tensor], torch.Tensor, Tuple, EventOverlap, Callable
@@ -51,15 +50,14 @@ def low_latency_dispatch(
 | **num_max_dispatch_tokens_per_rank** | `int` | Yes | – | Maximum number of tokens to dispatch per rank. All ranks must hold the same value. |
 | **num_experts** | `int` | Yes | – | Total number of experts. |
 | **cumulative_local_expert_recv_stats** | `Optional[torch.Tensor]` (`int`) | No | `None` | Shape `[num_local_experts]`, cumulative expert count for online EP load balance monitoring. Not needed on DeepEP-Ascend. |
-| **use_fp8** | `bool` | No | `True` | When `quant_mode` is omitted, selects `pertoken_fp8_e4m3` on A5 and falls back to `int8` with a warning on A2/A3. |
+| **use_fp8** | `bool` | No | `True` | Selects `pertoken_fp8_e4m3` on A5 and `int8` on A2/A3. |
 | **round_scale** | `bool` | No | `False` | Whether to round scaling factors into powers of 2. Used together with `use_ue8m0`. |
-| **use_ue8m0** | `bool` | No | `False` | Legacy MXFP8 selector. When `quant_mode` is omitted, `use_fp8=True, use_ue8m0=True` is treated as `use_mxfp8=True`. |
-| **use_mxfp4** | `bool` | No | `False` | When `quant_mode` is omitted, selects `mx_fp4_e2m1` on A5. Raises `NotImplementedError` on A2/A3. |
+| **use_ue8m0** | `bool` | No | `False` | Legacy MXFP8 selector. `use_fp8=True, use_ue8m0=True` is treated as `use_mxfp8=True`. |
+| **use_mxfp4** | `bool` | No | `False` | Selects `mx_fp4_e2m1` on A5. Raises `NotImplementedError` on A2/A3. |
 | **async_finish** | `bool` | No | `False` | If set, the current stream will not wait for the communication kernel to finish. Not needed on DeepEP-Ascend. |
 | **return_recv_hook** | `bool` | No | `False` | If set, returns a receiving hook. The kernel will only issue RDMA requests without actually receiving data; you must call the hook to ensure data arrival. Not needed on DeepEP-Ascend. |
 | **topk_weights** | `Optional[torch.Tensor]` (`float`) | No | `None` | Top-k weights corresponding to `topk_idx`. |
-| **quant_mode** | `Optional[str]` | No | `None` | Explicit quantization mode and highest-priority source for the `default` strategy. Supported values: `"bf16"`, `"int8"`, `"mx_fp8_e4m3"`, `"mx_fp8_e5m2"`, `"pertoken_fp8_e4m3"`, and `"mx_fp4_e2m1"`. Bool flags and the environment fallback are ignored when set. |
-| **use_mxfp8** | `bool` | No | `False` | When `quant_mode` is omitted, selects `mx_fp8_e4m3` on A5. Raises `NotImplementedError` on A2/A3. Appended after `quant_mode` to preserve positional-call compatibility. |
+| **use_mxfp8** | `bool` | No | `False` | Selects `mx_fp8_e4m3` on A5. Raises `NotImplementedError` on A2/A3. |
 
 ### Return Values
 
@@ -82,18 +80,17 @@ def low_latency_dispatch(
 
 ### Quantization Selection Priority
 
-For the `default` strategy, `Buffer._resolve_low_latency_quant_mode()` resolves the mode in this order:
+For the `default` strategy, `utils._resolve_low_latency_quant_mode()` resolves the mode in this order:
 
-1. Explicit `quant_mode`. It is validated and returned directly; bool flags and the environment variable are not consulted.
-2. Bool flags in the order `use_mxfp4` > `use_mxfp8` > `use_fp8`:
+1. Bool flags in the order `use_mxfp4` > `use_mxfp8` > `use_fp8`:
    - `use_mxfp4=True`: A5 → `mx_fp4_e2m1`; A2/A3 → `NotImplementedError`.
    - `use_mxfp8=True`: A5 → `mx_fp8_e4m3`; A2/A3 → `NotImplementedError`.
-   - `use_fp8=True`: A5 → `pertoken_fp8_e4m3`; A2/A3 → `int8` with a warning.
+   - `use_fp8=True`: A5 → `pertoken_fp8_e4m3`; A2/A3 → `int8`.
    - The legacy `use_fp8=True, use_ue8m0=True` combination is treated as `use_mxfp8=True`.
-3. `DEEP_NORMAL_MODE_USE_INT8_QUANT=1`, as a deprecated compatibility fallback.
-4. `None`, meaning BF16 without quantization.
+2. `DEEP_NORMAL_MODE_USE_INT8_QUANT=1`, as a deprecated compatibility fallback.
+3. `None`, meaning BF16 without quantization.
 
-`use_fp8` defaults to `True`, so callers must pass `use_fp8=False` before the environment-variable or BF16 fallback can be reached. Explicit `quant_mode="bf16"` is converted to the backend's `None` representation after resolution. The `ops` and `alltoall` strategies retain their legacy boolean behavior.
+`use_fp8` defaults to `True`, so callers must pass `use_fp8=False` before the environment-variable or BF16 fallback can be reached. The `ops` and `alltoall` strategies retain their legacy boolean behavior.
 
 ---
 
@@ -174,7 +171,6 @@ def low_latency_dispatch(
     async_finish: bool = False,
     return_recv_hook: bool = False,
     topk_weights: Optional[torch.Tensor] = None,
-    quant_mode: Optional[str] = None,
     use_mxfp8: bool = False,
 ) -> Tuple[
     Tuple[torch.Tensor, torch.Tensor], torch.Tensor, Tuple, EventOverlap, Callable
@@ -190,15 +186,14 @@ def low_latency_dispatch(
 | **num_max_dispatch_tokens_per_rank** | `int` | ✅ | – | 每个 rank 最大分发 token 数，所有 rank 必须相同。 |
 | **num_experts** | `int` | ✅ | – | 专家总数。 |
 | **cumulative_local_expert_recv_stats** | `Optional[torch.Tensor]` (`int`) | ❌ | `None` | 形状 `[num_local_experts]`，累计 expert 接收统计，用于在线 EP 负载均衡监控。DeepEP-Ascend 不需要。 |
-| **use_fp8** | `bool` | ❌ | `True` | 未传 `quant_mode` 时，A5 上选择 `pertoken_fp8_e4m3`，A2/A3 上带 warning 回退到 `int8`。 |
+| **use_fp8** | `bool` | ❌ | `True` | A5 上选择 `pertoken_fp8_e4m3`，A2/A3 上选择 `int8`。 |
 | **round_scale** | `bool` | ❌ | `False` | 是否将缩放因子四舍五入为 2 的次幂。与 `use_ue8m0` 配合使用。 |
-| **use_ue8m0** | `bool` | ❌ | `False` | 旧版 MXFP8 选择参数。未传 `quant_mode` 时，`use_fp8=True, use_ue8m0=True` 等价于 `use_mxfp8=True`。 |
-| **use_mxfp4** | `bool` | ❌ | `False` | 未传 `quant_mode` 时，A5 上选择 `mx_fp4_e2m1`；A2/A3 上抛出 `NotImplementedError`。 |
+| **use_ue8m0** | `bool` | ❌ | `False` | 旧版 MXFP8 选择参数。`use_fp8=True, use_ue8m0=True` 等价于 `use_mxfp8=True`。 |
+| **use_mxfp4** | `bool` | ❌ | `False` | A5 上选择 `mx_fp4_e2m1`；A2/A3 上抛出 `NotImplementedError`。 |
 | **async_finish** | `bool` | ❌ | `False` | 若设置，当前 stream 不会等待通信 kernel 完成。DeepEP-Ascend 不需要。 |
 | **return_recv_hook** | `bool` | ❌ | `False` | 若设置，返回接收钩子；kernel 只发 RDMA 请求不接收数据，必须调用钩子确保数据到达。DeepEP-Ascend 不需要。 |
 | **topk_weights** | `Optional[torch.Tensor]` (`float`) | ❌ | `None` | 对应 `topk_idx` 的 top-k 权重。 |
-| **quant_mode** | `Optional[str]` | ❌ | `None` | `default` 策略的显式量化模式，也是最高优先级来源。支持 `"bf16"`、`"int8"`、`"mx_fp8_e4m3"`、`"mx_fp8_e5m2"`、`"pertoken_fp8_e4m3"` 和 `"mx_fp4_e2m1"`。设置后忽略布尔标志和环境变量回退。 |
-| **use_mxfp8** | `bool` | ❌ | `False` | 未传 `quant_mode` 时，A5 上选择 `mx_fp8_e4m3`；A2/A3 上抛出 `NotImplementedError`。该参数追加在 `quant_mode` 之后，以保持位置参数调用兼容。 |
+| **use_mxfp8** | `bool` | ❌ | `False` | A5 上选择 `mx_fp8_e4m3`；A2/A3 上抛出 `NotImplementedError`。 |
 
 ### 返回值说明
 
@@ -221,18 +216,17 @@ def low_latency_dispatch(
 
 ### 量化模式选择优先级
 
-对于 `default` 策略，`Buffer._resolve_low_latency_quant_mode()` 按以下顺序解析：
+对于 `default` 策略，`utils._resolve_low_latency_quant_mode()` 按以下顺序解析：
 
-1. 显式 `quant_mode`：校验后原样返回，不读取布尔标志和环境变量。
-2. 按 `use_mxfp4` > `use_mxfp8` > `use_fp8` 的顺序处理布尔标志：
+1. 按 `use_mxfp4` > `use_mxfp8` > `use_fp8` 的顺序处理布尔标志：
    - `use_mxfp4=True`：A5 → `mx_fp4_e2m1`；A2/A3 → `NotImplementedError`。
    - `use_mxfp8=True`：A5 → `mx_fp8_e4m3`；A2/A3 → `NotImplementedError`。
-   - `use_fp8=True`：A5 → `pertoken_fp8_e4m3`；A2/A3 → 带 warning 的 `int8`。
+   - `use_fp8=True`：A5 → `pertoken_fp8_e4m3`；A2/A3 → `int8`。
    - 旧式组合 `use_fp8=True, use_ue8m0=True` 等价于 `use_mxfp8=True`。
-3. `DEEP_NORMAL_MODE_USE_INT8_QUANT=1`，作为已弃用的兼容回退。
-4. `None`，表示不量化的 BF16。
+2. `DEEP_NORMAL_MODE_USE_INT8_QUANT=1`，作为已弃用的兼容回退。
+3. `None`，表示不量化的 BF16。
 
-`use_fp8` 默认值为 `True`，因此调用方必须传入 `use_fp8=False` 才能进入环境变量或 BF16 回退。显式 `quant_mode="bf16"` 会在解析完成后转换为底层使用的 `None` 表示。`ops` 和 `alltoall` 策略保留原有的布尔参数行为。
+`use_fp8` 默认值为 `True`，因此调用方必须传入 `use_fp8=False` 才能进入环境变量或 BF16 回退。`ops` 和 `alltoall` 策略保留原有的布尔参数行为。
 
 ---
 

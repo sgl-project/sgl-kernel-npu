@@ -1,4 +1,3 @@
-import logging
 import os
 from enum import IntEnum
 from typing import Callable, List, Optional, Tuple, Union
@@ -9,18 +8,14 @@ import torch.distributed as dist
 import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
-from .device_info import get_device_arch
 from .ep_strategy import (
-    VALID_QUANT_MODES,
     LowLatencyStrategy,
     NormalStrategy,
     StrategyMap,
     get_low_latency_strategy,
     get_normal_strategy,
 )
-from .utils import EventOverlap, log_parameters
-
-logger = logging.getLogger(__name__)
+from .utils import EventOverlap, _resolve_low_latency_quant_mode, log_parameters
 
 
 class FuseMode(IntEnum):
@@ -86,9 +81,6 @@ class Buffer:
             low_latency_mode,
             moe_all_to_all_group_name,
         )
-
-        # Detect device architecture family ("A5" or "A2/A3")
-        self.device_arch = get_device_arch()
 
         # set strategy by env
         deep_mode = os.getenv("DEEP_USE_MODE")
@@ -614,62 +606,6 @@ class Buffer:
         return recv_x, recv_topk_weights, EventOverlap(event)
 
     # noinspection PyTypeChecker
-    def _resolve_low_latency_quant_mode(
-        self,
-        quant_mode: Optional[str],
-        use_fp8: bool,
-        use_mxfp4: bool,
-        use_mxfp8: bool,
-    ) -> Optional[str]:
-        """Resolve the effective ``quant_mode`` for low-latency dispatch.
-
-        Priority:
-        1. Explicit ``quant_mode`` (when not ``None``) -- used directly.
-        2. ``use_mxfp4`` / ``use_mxfp8`` / ``use_fp8`` bool flags combined
-           with the detected device architecture:
-           - ``use_mxfp4`` -> A5: ``mx_fp4_e2m1``; A2/A3: not supported.
-           - ``use_mxfp8`` -> A5: ``mx_fp8_e4m3``; A2/A3: not supported.
-           - ``use_fp8`` -> A5: ``pertoken_fp8_e4m3``; A2/A3: ``int8``
-             with a warning.
-        3. ``DEEP_NORMAL_MODE_USE_INT8_QUANT=1`` (deprecated fallback).
-        4. ``None`` (BF16, no quantization).
-
-        ``use_ue8m0`` is handled by the caller as a legacy alias for MXFP8.
-        """
-        if quant_mode is not None:
-            if quant_mode not in VALID_QUANT_MODES:
-                raise ValueError(
-                    f"Invalid quant_mode: {quant_mode}. "
-                    f"Valid options: {VALID_QUANT_MODES}"
-                )
-            return quant_mode
-
-        if use_mxfp4:
-            if self.device_arch != "A5":
-                raise NotImplementedError("MXFP4 quantization is only supported on A5")
-            return "mx_fp4_e2m1"
-
-        if use_mxfp8:
-            if self.device_arch != "A5":
-                raise NotImplementedError("MXFP8 quantization is only supported on A5")
-            return "mx_fp8_e4m3"
-
-        if use_fp8:
-            if self.device_arch == "A5":
-                return "pertoken_fp8_e4m3"
-            logger.warning(
-                "Per-token FP8 quantization is not supported on %s; "
-                "falling back to INT8.",
-                self.device_arch,
-            )
-            return "int8"
-
-        if os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1":
-            return "int8"
-
-        return None
-
-    # noinspection PyTypeChecker
     @log_parameters(["topk_idx"])
     def low_latency_dispatch(
         self,
@@ -685,7 +621,6 @@ class Buffer:
         async_finish: bool = False,
         return_recv_hook: bool = False,
         topk_weights: Optional[torch.Tensor] = None,
-        quant_mode: Optional[str] = None,
         use_mxfp8: bool = False,
     ) -> Tuple[
         Tuple[torch.Tensor, torch.Tensor], torch.Tensor, Tuple, EventOverlap, Callable
@@ -703,30 +638,27 @@ class Buffer:
             cumulative_local_expert_recv_stats: a cumulative expert count tensor for statistics, which should have shape
                 `[num_local_experts]` and be typed as `torch.int`. This is useful for online service EP load balance
                 monitoring.
-            use_fp8: when `quant_mode` is omitted, selects per-token FP8 on A5 and falls back to INT8 on A2/A3.
+            use_fp8: selects per-token FP8 on A5 and falls back to INT8 on A2/A3.
             round_scale: whether to round the scaling factors into power of 2.
-            use_ue8m0: legacy alias for MXFP8 when `quant_mode` is omitted and `use_fp8=True`.
-            use_mxfp4: when `quant_mode` is omitted, selects MXFP4 on A5; unsupported on A2/A3.
+            use_ue8m0: legacy alias for MXFP8 when `use_fp8=True`.
+            use_mxfp4: selects MXFP4 on A5; unsupported on A2/A3.
             async_finish: the current stream will not wait for the communication kernels to be finished if set.
             return_recv_hook: return a receiving hook if set. If set, the kernel will just do the RDMA request issues,
                 but **without actually receiving the data**. You must call the received hook to make sure the data's arrival.
                 If you do not set this flag, the kernel will ensure the data's arrival.
             topk_weights: the expert weights corresponding to `topk_idx`.
-            quant_mode: explicit quantization mode used by the default low-latency strategy. Supported values are
-                `None`, `bf16`, `int8`, `mx_fp8_e4m3`, `mx_fp8_e5m2`, `pertoken_fp8_e4m3` and `mx_fp4_e2m1`.
-                When set, this is the only source used to select quantization.
-            use_mxfp8: when `quant_mode` is omitted, selects MXFP8 E4M3 on A5; unsupported on A2/A3.
+            use_mxfp8: selects MXFP8 E4M3 on A5; unsupported on A2/A3.
 
-        Quantization selection priority for the default strategy is explicit `quant_mode`, then `use_mxfp4`,
-        `use_mxfp8` (including the legacy `use_fp8=True, use_ue8m0=True` alias), `use_fp8`, the deprecated
+        Quantization selection priority for the default strategy is `use_mxfp4`, `use_mxfp8` (including the legacy
+        `use_fp8=True, use_ue8m0=True` alias), `use_fp8`, the deprecated
         `DEEP_NORMAL_MODE_USE_INT8_QUANT=1` fallback, and finally BF16. Since `use_fp8` defaults to `True`, callers
         must pass `use_fp8=False` to reach the environment-variable or BF16 fallback.
 
         Returns:
             recv_x: received tokens. The format depends on quantization mode:
-                - BF16 (`quant_mode=None`): a `torch.Tensor` shaped `[num_max_tokens, hidden]` with `torch.bfloat16`.
+                - BF16: a `torch.Tensor` shaped `[num_max_tokens, hidden]` with `torch.bfloat16`.
                 - INT8 or scalar FP8: a tuple containing quantized data and one `torch.float32` scale per token.
-                - MXFP8 (`quant_mode="mx_fp8_e4m3"` or `"mx_fp8_e5m2"`): a tuple of two tensors. The first is shaped
+                - MXFP8: a tuple of two tensors. The first is shaped
                   `[num_max_tokens, hidden]`, the second is shaped
                   `[num_max_tokens * hidden / 32]` with `torch.float8_e8m0fnu` (per-block scales, one scale per
                   32-element block).
@@ -737,14 +669,11 @@ class Buffer:
             event: the event after executing the kernel (valid only if `async_finish` is set).
             hook: the receiving hook function (valid only if `return_recv_hook` is set).
         """
-        quant_mode = self._resolve_low_latency_quant_mode(
-            quant_mode=quant_mode,
+        quant_mode = _resolve_low_latency_quant_mode(
             use_fp8=use_fp8,
             use_mxfp4=use_mxfp4,
             use_mxfp8=use_mxfp8 or (use_fp8 and use_ue8m0),
         )
-        # The low-latency backend represents BF16 (no quantization) as None.
-        strategy_quant_mode = None if quant_mode == "bf16" else quant_mode
 
         return self.low_latency_strategy.low_latency_dispatch(
             x=x,
@@ -759,7 +688,7 @@ class Buffer:
             async_finish=async_finish,
             return_recv_hook=return_recv_hook,
             topk_weights=topk_weights,
-            quant_mode=strategy_quant_mode,
+            quant_mode=quant_mode,
         )
 
     @log_parameters(["topk_idx"])

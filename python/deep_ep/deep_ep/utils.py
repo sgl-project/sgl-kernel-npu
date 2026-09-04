@@ -8,6 +8,8 @@ import torch
 import torch_npu
 from deep_ep_cpp import Config, EventHandle
 
+from .device_info import DEVICE_VERSION_TABLE, QUANT_MODE_TABLE, get_device_version
+
 
 class EventOverlap:
 
@@ -35,6 +37,51 @@ class EventOverlap:
 
 logger = logging.getLogger()
 torch.set_printoptions(profile="full")
+
+
+def _resolve_low_latency_quant_mode(
+    use_fp8: bool,
+    use_mxfp4: bool,
+    use_mxfp8: bool,
+) -> Optional[str]:
+    """Resolve the effective ``quant_mode`` for low-latency dispatch.
+
+    Looks up ``QUANT_MODE_TABLE[(param_type, version_code)]`` for the first
+    active bool flag. ``None`` in the table means the combination is not
+    supported on that hardware.
+
+    Priority:
+    1. ``use_mxfp4`` / ``use_mxfp8`` / ``use_fp8`` bool flags (table lookup).
+    2. ``DEEP_NORMAL_MODE_USE_INT8_QUANT=1`` env var (deprecated fallback).
+    3. ``None`` (BF16, no quantization).
+
+    ``use_ue8m0`` is handled by the caller as a legacy alias for MXFP8.
+    """
+    try:
+        version_code = get_device_version()
+    except Exception:
+        version_code = None
+
+    for param_type, flag in (
+        ("use_mxfp4", use_mxfp4),
+        ("use_mxfp8", use_mxfp8),
+        ("use_fp8", use_fp8),
+    ):
+        if not flag:
+            continue
+        quant_mode = QUANT_MODE_TABLE.get((param_type, version_code))
+        if quant_mode is not None:
+            return quant_mode
+        raise NotImplementedError(
+            f"{param_type} is not supported on device version {version_code} "
+            f"({DEVICE_VERSION_TABLE.get(version_code, 'unknown')})."
+        )
+
+    # Deprecated env-var fallback for backward compatibility
+    if os.getenv("DEEP_NORMAL_MODE_USE_INT8_QUANT") == "1":
+        return "int8"
+
+    return None
 
 
 def get_simplify_tensor(arg):

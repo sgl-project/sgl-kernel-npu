@@ -96,7 +96,6 @@ def test(
                     async_finish=not return_recv_hook,
                     return_recv_hook=return_recv_hook,
                     topk_weights=topk_weights,
-                    quant_mode="int8" if quant_type == "int8" else None,
                 )
             )
             simulated_gemm_x = (
@@ -186,7 +185,6 @@ def test(
             async_finish=False,
             return_recv_hook=return_recv_hook,
             topk_weights=topk_weights,
-            quant_mode="int8" if quant_type == "int8" else None,
         )
         simulated_gemm_x_local = (
             per_token_cast_back(*recv_x) if dispatch_use_fp8 else recv_x
@@ -238,7 +236,6 @@ def test(
         "use_ue8m0": dispatch_use_ue8m0,
         "use_mxfp4": dispatch_use_mxfp4,
         "topk_weights": topk_weights,
-        "quant_mode": "int8" if quant_type == "int8" else None,
     }
     # dispatch_t = bench(lambda: buffer.low_latency_dispatch(**dispatch_args))[0]
     dispatch_alltoall_t = bench_kineto(
